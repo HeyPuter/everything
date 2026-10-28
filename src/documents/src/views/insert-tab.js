@@ -23,7 +23,7 @@ import { readDrawingFragment, placeDrawing, freshDrawingAssetId, nextDrawingId, 
 import { pictureFragment, fittedSize } from '../engine/picture-insert.js';
 import { imageInfo, MAX_IMAGE_SIDE, MAX_IMAGE_PIXELS } from '../engine/images.js';
 import { diagramDrawingXml, parseDiagramDescription, DIAGRAM_LAYOUTS } from '../engine/diagram-builder.js';
-import { insertBodyField, fieldInstruction, evaluateField, documentProperties, setFieldContextProvider, DOCUMENT_PROPERTY_NAMES, formatDatePicture } from '../engine/field-results.js';
+import { insertBodyField, fieldInstruction, evaluateField, packageDocumentProperties, setFieldContextProvider, DOCUMENT_PROPERTY_NAMES, formatDatePicture } from '../engine/field-results.js';
 import { linearToOmml, ommlToLinear, ommlToEditableLinear, EQUATION_GALLERY } from '../engine/math-linear.js';
 import { ommlToMathml } from '../engine/omml-mathml.js';
 import { dropCapState, setDropCap } from '../engine/drop-caps.js';
@@ -83,13 +83,13 @@ export function createInsert({ editor, pkg, error, base = {}, docName = () => ''
     const twips = box ? box.width * 15 - context.cell.margins.left - context.cell.margins.right : p.width - p.left - p.right - (p.gutterAtTop ? 0 : p.gutter || 0);
     return Math.max(box ? EMU_PER_INCH / 2 : EMU_PER_INCH, twips * TWIP_EMU);
   };
-  const title = () => documentProperties(pkg()?.parts || {}).title || String(docName() || '').replace(/\.docx$/i, '') || 'Document Title';
+  const title = () => packageDocumentProperties(pkg()).title || String(docName() || '').replace(/\.docx$/i, '') || 'Document Title';
   const today = () => new Intl.DateTimeFormat(undefined, { dateStyle: 'long' }).format(new Date());
   /** Run an editor transaction, reporting failures; returns whether it applied. */
   const run = (engine, action) => { let failure = null; const ok = engine.execute(action, e => { failure = e; }); if (failure) fail(failure); engine.focus(); if (ok) onChange(); return ok; };
   const fieldContext = () => {
     const engine = editor();
-    return { now: new Date(), properties: documentProperties(pkg()?.parts || {}), fileName: /\.\w+$/.test(docName() || '') ? docName() : `${docName() || 'Document'}.docx`, user: { name: user() || '' },
+    return { now: new Date(), properties: packageDocumentProperties(pkg()), fileName: /\.\w+$/.test(docName() || '') ? docName() : `${docName() || 'Document'}.docx`, user: { name: user() || '' },
       pages: engine?.layout?.pageCount, page: (engine?.caretPageIndex ?? 0) + 1 };
   };
   setFieldContextProvider(fieldContext);
@@ -523,7 +523,7 @@ export function createInsert({ editor, pkg, error, base = {}, docName = () => ''
       } });
   }
   const propertyField = (label, key) => {
-    const value = documentProperties(pkg()?.parts || {})[key];
+    const value = packageDocumentProperties(pkg())[key];
     insertFieldInstruction(fieldInstruction({ name: 'DOCPROPERTY', argument: label }), value || `[${label}]`);
   };
   const autoTextKey = () => `${AUTOTEXT_KEY}.${user() || 'local'}`;
@@ -558,7 +558,7 @@ export function createInsert({ editor, pkg, error, base = {}, docName = () => ''
         ...(entries.length ? [{ label: 'Delete Entry', items: entries.map(entry => ({ label: entry.name, onSelect: async () => {
           if (await confirmDialog({ title: 'Delete AutoText?', message: `Delete “${entry.name}” from your AutoText gallery?`, confirmLabel: 'Delete' })) saveAutoTexts(autoTexts().filter(e => e.name !== entry.name));
         } })) }] : [])] },
-      { label: 'Document Property', disabled: !engine, items: DOCUMENT_PROPERTY_NAMES.map(([label, key]) => ({ label: label === 'LastSavedBy' ? 'Last Saved By' : label, hint: documentProperties(pkg()?.parts || {})[key] || 'Empty', onSelect: () => propertyField(label, key) })) },
+      { label: 'Document Property', disabled: !engine, items: DOCUMENT_PROPERTY_NAMES.map(([label, key]) => ({ label: label === 'LastSavedBy' ? 'Last Saved By' : label, hint: packageDocumentProperties(pkg())[key] || 'Empty', onSelect: () => propertyField(label, key) })) },
       { label: 'Field…', icon: 'field', disabled: !engine, onSelect: insertField },
     ];
   }

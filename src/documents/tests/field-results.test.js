@@ -66,7 +66,9 @@ describe('field evaluation', () => {
     expect(fieldInstruction({ name: 'DOCPROPERTY', argument: 'Company', format: 'Upper', preserve: false })).toBe(' DOCPROPERTY Company \\* Upper ');
   });
   it('reads core and extended properties', () => {
-    const parts = { 'docProps/core.xml': strToU8('<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>T</dc:title><dc:creator>A</dc:creator></cp:coreProperties>'), 'docProps/app.xml': strToU8('<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties"><Company>C</Company></Properties>') };
+    const parts = { 'docProps/core.xml': strToU8('<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>T</dc:title><dc:creator>A</dc:creator></cp:coreProperties>'), 'docProps/app.xml': strToU8('<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties"><Company>C</Company></Properties>') ,
+      // Core properties are the part the package relationship names (Part 2 §11).
+      '_rels/.rels': strToU8('<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="c" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/></Relationships>') };
     expect(documentProperties(parts)).toMatchObject({ title: 'T', author: 'A', company: 'C' });
   });
 });

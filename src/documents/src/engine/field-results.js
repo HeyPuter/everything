@@ -10,6 +10,7 @@ import { newBodyField } from './toc.js';
 import { bodyFieldRanges, newFieldEndOrder } from './body-fields.js';
 import { sharedRevision } from './revisions.js';
 import { countWords } from '../core/text.js';
+import { readCoreProperties } from './docx-core-properties.js';
 
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -72,15 +73,21 @@ export function applyGeneralFormat(text, format) {
   return text;
 }
 
-/** Core and extended document properties from a package's parts: { title, subject, author, keywords, comments, lastModifiedBy, category, created, modified, company, manager, … }. */
-export function documentProperties(parts = {}) {
+/**
+ * Core and extended document properties from a package's parts: { title, subject, author, keywords, comments, lastModifiedBy, category, created, modified, company, manager, … }.
+ * Core properties come from the part the package relationship names (Part 2 §11); `core`, when given, holds
+ * them with this session's edits (DocxPackage#coreProperties).
+ */
+export function documentProperties(parts = {}, core = readCoreProperties(parts)) {
   const read = path => { const bytes = parts[path]; if (!bytes) return null; try { return new DOMParser().parseFromString(typeof bytes === 'string' ? bytes : new TextDecoder().decode(bytes), 'application/xml'); } catch { return null; } };
   const text = (doc, name) => [...(doc?.documentElement?.children || [])].find(n => n.localName === name)?.textContent?.trim() || '';
-  const core = read('docProps/core.xml'), app = read('docProps/app.xml');
-  return { title: text(core, 'title'), subject: text(core, 'subject'), author: text(core, 'creator'), keywords: text(core, 'keywords'), comments: text(core, 'description'),
-    lastModifiedBy: text(core, 'lastModifiedBy'), category: text(core, 'category'), status: text(core, 'contentStatus'), created: text(core, 'created'), modified: text(core, 'modified'),
+  const app = read('docProps/app.xml');
+  return { title: core.title || '', subject: core.subject || '', author: core.creator || '', keywords: core.keywords || '', comments: core.description || '',
+    lastModifiedBy: core.lastModifiedBy || '', category: core.category || '', status: core.contentStatus || '', created: core.created || '', modified: core.modified || '',
     company: text(app, 'Company'), manager: text(app, 'Manager'), template: text(app, 'Template') };
 }
+/** The document properties of an open package, including properties changed in File > Properties since it was opened. */
+export const packageDocumentProperties = pkg => documentProperties(pkg?.parts || {}, pkg?.coreProperties);
 
 /**
  * The fields the Field dialog offers: name, category, a short description in this app's words, the
