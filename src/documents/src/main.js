@@ -16,7 +16,7 @@ import { importFiles, nothingImportable } from './lib/importfiles.js';
 import { imageFilesFrom } from './lib/images.js';
 import { customTemplatePath } from './lib/customtemplates.js';
 import { parseLink } from './collab/protocol.js';
-import { CLOSE_TITLE, createCloseWindow } from './views/window-close.js';
+import { CLOSE_TITLE, SAVE_CHANGES_TITLE, asksToSave, createCloseWindow, saveChangesDialog } from './views/window-close.js';
 
 const appRoot = document.getElementById('app');
 let current = null; // { kind: 'home' | 'editor' | 'gate', view }
@@ -68,7 +68,20 @@ async function unmount(stillWanted = () => true) {
   if (leaving?.kind === 'editor') {
     const doc = leaving.view.doc;
     const ownHash = () => docHash(doc);
+    // With AutoSave off, leaving asks whether to save: Don't Save leaves the file as it was.
+    leaving.view.engine?.finishComposition?.();
+    let discard = false;
+    if (asksToSave(doc)) {
+      history.replaceState(null, '', ownHash());
+      const choice = await saveChangesDialog(doc);
+      if (!stillWanted() || current !== leaving) return false;
+      const moved = location.hash !== ownHash();
+      if (choice === 'stay') { if (moved) history.replaceState(null, '', ownHash()); return false; }
+      if (!moved) history.replaceState(null, '', destination);
+      discard = choice === 'discard';
+    }
     for (;;) {
+      if (discard) break;
       const saved = await leaving.view.flush();
       if (!stillWanted() || current !== leaving) return false;
       if (saved) break;
@@ -94,7 +107,7 @@ async function unmount(stillWanted = () => true) {
   return true;
 }
 
-const LEAVE_TITLES = ['Leave without saving?', 'Save before leaving?', CLOSE_TITLE];
+const LEAVE_TITLES = ['Leave without saving?', 'Save before leaving?', CLOSE_TITLE, SAVE_CHANGES_TITLE];
 /** Whether the question about leaving an unsaved document is on screen, whichever navigation or import asked it. */
 const leaveQuestionOpen = () => [...document.querySelectorAll('.modal-root:not(.closing) [role="dialog"]')].some((dialog) => LEAVE_TITLES.includes(dialog.getAttribute('aria-label')));
 

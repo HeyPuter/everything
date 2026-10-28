@@ -13,6 +13,30 @@ import * as P from '../lib/puter.js';
  */
 
 export const CLOSE_TITLE = 'Save before closing?';
+export const SAVE_CHANGES_TITLE = 'Save changes?';
+
+/**
+ * Whether leaving the document has to ask about its changes first: with AutoSave off only Save writes the file,
+ * so leaving must not write the changes on its own (the user may mean to throw them away), nor drop them unasked.
+ * A document waiting for a first Save to ask where it goes, one someone else saves, and one without a session (the
+ * sign-in question covers it) are asked about elsewhere.
+ */
+export function asksToSave(doc) {
+  return !!doc && !doc.autosave && doc.dirty && !!doc.exporter && doc.writes !== false && !doc._deleted && !doc.waitsForPlace && !session.signedOut;
+}
+
+/** The question about changes AutoSave is not writing: 'save', 'discard', or 'stay'. */
+export function saveChangesDialog(doc) {
+  return new Promise((resolve) => {
+    const content = el('div', {},
+      el('p.modal-text', {}, `AutoSave is off, so your changes to “${doc.name}” have not been saved. Save them before leaving?`),
+      el('div.row.row-end', { style: { flexWrap: 'wrap' } },
+        el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Cancel'),
+        el('button.btn.btn-danger', { type: 'button', onclick: () => { resolve('discard'); modal.close(); } }, 'Don’t Save'),
+        el('button.btn.btn-primary', { type: 'button', onclick: () => { resolve('save'); modal.close(); } }, 'Save')));
+    const modal = openModal({ title: SAVE_CHANGES_TITLE, content, onClose: () => resolve('stay') });
+  });
+}
 
 /** The question about a never-saved document: 'save', 'close' (and lose it), or 'stay'. */
 export function closeDialog(doc) {
@@ -40,6 +64,12 @@ export async function readyToClose({ open, leaveDialog }) {
   if (shown?.kind !== 'editor') return true;
   const { view } = shown, doc = view.doc;
   const still = () => open() === shown;
+  view.engine?.finishComposition?.();
+  if (asksToSave(doc)) {
+    const choice = await saveChangesDialog(doc);
+    if (!still() || choice === 'stay') return false;
+    if (choice === 'discard') return true;
+  }
   if (doc.waitsForPlace) {
     const choice = await closeDialog(doc);
     if (!still() || choice === 'stay') return false;
