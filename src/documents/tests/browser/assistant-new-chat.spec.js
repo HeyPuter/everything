@@ -139,3 +139,23 @@ test('a draft for the whole document shows only the suggested text and its actio
   // Nothing replaces a selection here, and nothing stands in for that line.
   expect((await reply.innerText()).split('\n').map(line => line.trim()).filter(Boolean)).toEqual(['SUGGESTED TEXT', 'This draft was written by the offline assistant for: Draft an introduction.', 'Insert at Cursor', 'Copy']);
 });
+
+test('a reply that arrives below the fold is scrolled into view', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/mock.html#/new');
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled({ timeout: 20000 });
+  await page.getByRole('textbox', { name: 'Document text' }).fill('Plans for the old project.');
+  await page.getByRole('button', { name: 'Assistant', exact: true }).last().click();
+  const pane = page.getByRole('complementary', { name: 'Assistant pane' });
+  const box = pane.getByRole('textbox', { name: 'Message the assistant' });
+  // The mock repeats the question in its answer, so a long question has a long answer.
+  await box.fill(`What does this say about ${'the old project and its plans, '.repeat(6)}?`);
+  await box.press('Enter');
+  const reply = pane.locator('.as-message.is-assistant').last();
+  await expect(reply).toContainText('offline assistant read');
+  // Shown down to its end, or from its start when it is taller than the conversation.
+  await expect.poll(() => reply.evaluate(node => {
+    const log = node.closest('.as-log').getBoundingClientRect(), box = node.getBoundingClientRect();
+    return box.bottom <= log.bottom + 1 || Math.abs(box.top - log.top) <= 1;
+  })).toBe(true);
+});

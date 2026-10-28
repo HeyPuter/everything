@@ -104,6 +104,13 @@ export function createAssistantPane({ editor, pkg, error, available = () => P.ca
   /* ---- Messages ---- */
   const message = (who, ...children) => { empty.remove(); const node = el(`div.as-message.is-${who}`, {}, ...children); log.append(node); node.scrollIntoView?.({ block: 'nearest' }); return node; };
 
+  /** A reply grows from "Thinking…" in place: the conversation scrolls on to show it down to its end, or from its start when it is taller. */
+  function reveal(node) {
+    if (!node.isConnected) return;
+    const view = log.getBoundingClientRect(), box = node.getBoundingClientRect();
+    if (box.bottom > view.bottom) log.scrollTop += Math.min(box.bottom - view.bottom, box.top - view.top);
+  }
+
   async function submit(text) {
     const request = String(text || '').trim();
     if (!request || busy) return;
@@ -132,10 +139,12 @@ export function createAssistantPane({ editor, pkg, error, available = () => P.ca
       if (stopped !== token) return;
       history.push({ request, reply: answer.text });
       waiting.replaceChildren(...answerView(answer, p));
+      reveal(waiting);
     } catch (e) {
       if (stopped !== token) return;
       waiting.classList.add('is-error');
       waiting.replaceChildren(el('p', {}, e?.message && !/AI service|could not answer/i.test(e.message) && e.message.length < 140 ? e.message : assistantError(e)));
+      reveal(waiting);
     } finally {
       // A reply that New chat left behind no longer holds the conversation up.
       if (stopped === token) { busy = false; send.disabled = false; }
