@@ -49,14 +49,23 @@ export function blockBetween(table, fromId, toId) {
   return normalizeCellBlock(table, { tableId: table.id, top: Math.min(a.rowIndex, b.rowIndex), bottom: Math.max(a.endRow, b.endRow), left: Math.min(a.column, b.column), right: Math.max(a.end, b.end) });
 }
 
-/** A block for Select Cell / Row / Column / Table around a cell, or around an existing block. */
+/**
+ * A block for Select Cell / Row / Column / Table around a cell, or around an existing block. A block
+ * grows to cover the merged cells it touches, so a column under a title row merged across the table
+ * becomes the whole table; Select Row and Select Column remember the rows or columns chosen
+ * (`rows` / `columns`, [first, last] and [left, right)) for the commands that act on rows or columns.
+ */
 export function blockFor(table, around, kind) {
   const all = { tableId: table.id, top: 0, bottom: table.rows.length - 1, left: 0, right: table.grid.length };
   if (kind === 'table') return all;
-  if (kind === 'row') return normalizeCellBlock(table, { ...all, top: around.top, bottom: around.bottom });
-  if (kind === 'column') return normalizeCellBlock(table, { ...all, left: around.left, right: around.right });
+  if (kind === 'row') { const block = normalizeCellBlock(table, { ...all, top: around.top, bottom: around.bottom }); return block && { ...block, rows: [around.top, around.bottom] }; }
+  if (kind === 'column') { const block = normalizeCellBlock(table, { ...all, left: around.left, right: around.right }); return block && { ...block, columns: [around.left, around.right] }; }
   return normalizeCellBlock(table, { tableId: table.id, top: around.top, bottom: around.bottom, left: around.left, right: around.right });
 }
+
+/** The rows ([top, bottom]) and grid columns ([left, right)) row and column commands act on. */
+export const blockRowRange = block => block.rows && block.rows[0] >= block.top && block.rows[1] <= block.bottom && block.rows[0] <= block.rows[1] ? { top: block.rows[0], bottom: block.rows[1] } : { top: block.top, bottom: block.bottom };
+export const blockColumnRange = block => block.columns && block.columns[0] >= block.left && block.columns[1] <= block.right && block.columns[0] < block.columns[1] ? { left: block.columns[0], right: block.columns[1] } : { left: block.left, right: block.right };
 
 export const blockRows = block => Array.from({ length: block.bottom - block.top + 1 }, (_, i) => block.top + i);
 export const wholeRows = (table, block) => block.left === 0 && block.right === table.grid.length;

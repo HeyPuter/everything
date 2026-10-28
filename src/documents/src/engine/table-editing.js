@@ -6,7 +6,7 @@
 // layout and painting simply follow the model.
 import { tableModelInternals as M, paragraph, paragraphText, locate } from './model.js';
 import { tableCells, editableCells, verticalMerges, headerRowCount, tableId, fixedColumnWidths, rowGrid, spanWidth, cellContext, documentBlocks } from './tables.js';
-import { cellBlockPlacements, normalizeCellBlock, blockBetween, ownerPlacements } from './table-selection.js';
+import { cellBlockPlacements, normalizeCellBlock, blockBetween, ownerPlacements, blockRowRange, blockColumnRange } from './table-selection.js';
 import { resolveStyledParagraph } from './styles.js';
 import { repairStructuralBookmarks, normalizeBlockBookmarkScopes } from './bookmarks.js';
 import { mergeCellControls } from './block-controls.js';
@@ -107,7 +107,7 @@ function setGrid(table, widths, { fixed = table.layout !== 'autofit' } = {}) {
 
 /** Insert rows above or below the selected rows: as many as are selected unless `count` says. */
 export function insertRows(model, { above = false, count = null } = {}) {
-  const block = requireBlock(model), table = block.table;
+  const chosen = requireBlock(model), table = chosen.table, block = { ...chosen, ...blockRowRange(chosen) };
   const n = count ?? block.bottom - block.top + 1;
   if (!Number.isInteger(n) || n < 1) throw new Error('Choose how many rows to insert.');
   if (table.rows.length + n > 1000) throw new Error('A table can have up to 1,000 rows.');
@@ -137,7 +137,7 @@ export function insertRows(model, { above = false, count = null } = {}) {
 
 /** Insert columns left or right of the selected columns: as many as are selected unless `count` says. */
 export function insertColumns(model, { left = false, count = null, widths: measured } = {}) {
-  const block = requireBlock(model), table = block.table;
+  const chosen = requireBlock(model), table = chosen.table, block = { ...chosen, ...blockColumnRange(chosen) };
   if (table.rows.some(row => row.gridBefore || row.gridAfter)) throw new Error('Columns cannot be inserted in a table whose rows end unevenly yet.');
   const n = count ?? block.right - block.left;
   if (!Number.isInteger(n) || n < 1) throw new Error('Choose how many columns to insert.');
@@ -198,7 +198,7 @@ export function deleteTable(model) { return removeTable(model, requireBlock(mode
 
 /** Delete the selected rows; deleting every row deletes the table. */
 export function deleteRows(model) {
-  const block = requireBlock(model), table = block.table;
+  const chosen = requireBlock(model), table = chosen.table, block = { ...chosen, ...blockRowRange(chosen) };
   if (block.top === 0 && block.bottom === table.rows.length - 1) return removeTable(model, table);
   const state = M.tableContent(model, table);
   model.checkpoint();
@@ -224,7 +224,7 @@ export function deleteRows(model) {
 
 /** Delete the selected grid columns; deleting every column deletes the table. */
 export function deleteColumns(model, { widths: measured } = {}) {
-  const block = requireBlock(model), table = block.table;
+  const chosen = requireBlock(model), table = chosen.table, block = { ...chosen, ...blockColumnRange(chosen) };
   if (block.left === 0 && block.right === table.grid.length) return removeTable(model, table);
   if (table.rows.some(row => row.gridBefore || row.gridAfter)) throw new Error('Columns cannot be deleted from a table whose rows end unevenly yet.');
   const column = block.left, end = block.right, span = end - column;
@@ -583,7 +583,9 @@ export function setSelectedColumnWidth(model, twips, { widths: measured } = {}) 
   const block = requireBlock(model), table = block.table;
   const widths = columnWidths(model, table, measured);
   const next = [...widths];
-  for (const c of cellsInRow(table.rows[block.top], block.left, block.right)) {
+  // Select Column sets the columns it chose; otherwise each selected cell of the top row takes the width.
+  const cells = block.columns ? [blockColumnRange(block)].map(({ left, right }) => ({ column: left, end: right, span: right - left })) : cellsInRow(table.rows[block.top], block.left, block.right);
+  for (const c of cells) {
     const current = spanWidth(widths, c.column, c.span);
     for (let i = c.column; i < c.end; i++) next[i] = widths[i] * twips / current;
   }
@@ -607,8 +609,8 @@ export function setRowsHeight(model, rows, twips, rule = 'atLeast') {
   model.didChange(); return true;
 }
 export function setSelectedRowHeight(model, twips, rule = 'atLeast') {
-  const block = requireBlock(model);
-  return setRowsHeight(model, block.table.rows.slice(block.top, block.bottom + 1), twips, rule);
+  const block = requireBlock(model), { top, bottom } = blockRowRange(block);
+  return setRowsHeight(model, block.table.rows.slice(top, bottom + 1), twips, rule);
 }
 
 /** Distribute Rows: the selected rows (or every row) share their total height evenly. `heights` are the laid-out row heights in twips. */

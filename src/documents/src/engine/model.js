@@ -886,6 +886,8 @@ export class TextDocument {
     const last = this.paragraphs.findLastIndex(p => p.cellId === lastCell.id);
     this.select(this.paragraphOffset(index), this.paragraphOffset(last) + paragraphLength(this.paragraphs[last]));
     this.cellBlock = { tableId: table.id, top: normalized.top, bottom: normalized.bottom, left: normalized.left, right: normalized.right };
+    // Select Row / Select Column: the rows or columns chosen, inside a block grown by merged cells.
+    for (const key of ['rows', 'columns']) if (Array.isArray(block[key])) this.cellBlock[key] = [...block[key]];
     return true;
   }
   /**

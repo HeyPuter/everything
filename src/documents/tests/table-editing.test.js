@@ -104,6 +104,39 @@ describe('rows and columns', () => {
     valid(doc);
   });
 
+  it('acts on the chosen column or row of Select Column / Select Row beside merged cells, not on the whole table', () => {
+    // A title row merged across the table: Select Column on the third column covers the whole table as a block.
+    const select = (doc, kind, r, c) => { at(doc, r, c); const b = T.selectionBlock(doc); doc.setCellBlock(blockFor(b.table, b, kind)); };
+    let { doc } = tableDocument();
+    block(doc, 0, 0, 0, 3); T.mergeBlock(doc);
+    select(doc, 'column', 1, 2);
+    T.deleteColumns(doc);
+    expect(shape(doc)).toEqual(['a0/a1/a2:2', 'b0 b1', 'c0 c1']);
+    doc.undo();
+    select(doc, 'column', 1, 2);
+    T.insertColumns(doc, { widths: [3000, 3000, 3000] });
+    expect(shape(doc)).toEqual(['a0/a1/a2:3 ', 'b0 b1 b2 ', 'c0 c1 c2 ']);
+    doc.undo();
+    select(doc, 'column', 1, 2);
+    T.setSelectedColumnWidth(doc, 1440, { widths: [3000, 3000, 3000] });
+    expect(doc.tables[0].grid).toEqual([3000, 3000, 1440]);
+    // A first column merged down three rows: Select Row on the second row.
+    ({ doc } = tableDocument(4, 2));
+    block(doc, 1, 0, 3, 1); T.mergeBlock(doc);
+    select(doc, 'row', 2, 1);
+    T.deleteRows(doc);
+    expect(shape(doc)).toEqual(['a0 a1', 'b0/c0/d0^ b1', 'v d1']);
+    doc.undo();
+    select(doc, 'row', 2, 1);
+    T.insertRows(doc, {});
+    expect(shape(doc)).toEqual(['a0 a1', 'b0/c0/d0^ b1', 'v c1', 'v ', 'v d1']);
+    doc.undo();
+    select(doc, 'row', 2, 1);
+    T.setSelectedRowHeight(doc, 720);
+    expect(doc.tables[0].rows.map(r => r.minHeight || 0)).toEqual([0, 0, 720, 0]);
+    valid(doc);
+  });
+
   it('keeps a vertical merge’s content when its first row is deleted', () => {
     const { doc } = tableDocument();
     block(doc, 0, 0, 1, 1); T.mergeBlock(doc);
