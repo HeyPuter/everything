@@ -32,6 +32,14 @@ input:checked + .ed-switch { background: var(--ed-accent); border-color: var(--e
 input:checked + .ed-switch::after { transform: translateX(14px); background: #fff; }
 input:focus-visible + .ed-switch { outline: 2px solid var(--ed-accent); outline-offset: 2px; }
 input:disabled + .ed-switch { opacity: .5; }
+/* Contrast themes drop backgrounds, which leaves the knob invisible on its track: both take system colors, the
+   track filled with the highlight color while the setting is on. */
+@media (forced-colors: active) {
+  .ed-switch { border-color: ButtonText; }
+  .ed-switch::after { forced-color-adjust: none; background: ButtonText; }
+  input:checked + .ed-switch { forced-color-adjust: none; background: Highlight; border-color: Highlight; }
+  input:checked + .ed-switch::after { background: HighlightText; }
+}
 
 .ed-quick-customize {
   display: inline-flex; align-items: center; justify-content: center; flex: none; width: 22px; height: 28px; border: 0; border-radius: 6px;

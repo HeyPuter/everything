@@ -550,3 +550,17 @@ test('command search names the Navigation Pane chord as the platform does', asyn
   await text(page).press(MAC ? 'Meta+Alt+o' : 'Control+Alt+o');
   await expect(page.getByLabel('Search document')).toBeFocused();
 });
+
+test('contrast themes show which way the AutoSave and Preferences switches are set', async ({ page }) => {
+  await page.emulateMedia({ forcedColors: 'active' });
+  await openEditor(page);
+  // The knob must stand out from the track it slides along, and the track must change with the setting.
+  const look = locator => locator.evaluate(el => { const track = getComputedStyle(el), knob = getComputedStyle(el, '::after'); return { track: track.backgroundColor, knob: knob.backgroundColor }; });
+  const autosave = page.locator('.ed-autosave .ed-switch');
+  const on = await look(autosave);
+  expect(on.knob).not.toBe(on.track);
+  await page.getByRole('switch', { name: 'AutoSave' }).uncheck({ force: true });
+  const off = await look(autosave);
+  expect(off.knob).not.toBe(off.track);
+  expect(off.track).not.toBe(on.track);
+});
