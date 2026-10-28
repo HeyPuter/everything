@@ -75,3 +75,19 @@ test('after a design change reopens the document, the Paste options menu still p
     await expect(page.getByRole('button', { name: 'Pasted text options' })).toBeVisible();
   } finally { await context.close(); }
 });
+
+test('Paste from the menus explains a clipboard the browser keeps closed, and names the keys that still paste', async ({ page }) => {
+  // No clipboard permission is granted: the browser refuses to let the page read it.
+  await page.goto('/mock.html#/new');
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await input(page).fill('Hello');
+  const menu = page.getByRole('menu', { name: 'Document menu' });
+  for (const name of ['Paste', 'Paste without formatting']) {
+    await page.locator('canvas.canvas-page').first().click({ button: 'right', position: { x: 150, y: 110 } });
+    await menu.getByRole('menuitem', { name, exact: true }).click();
+    const toast = page.locator('.toast').filter({ hasText: 'clipboard' }).last();
+    await expect(toast).toHaveText(/The browser didn’t allow reading the clipboard\. Paste with (Cmd|Ctrl)\+V, or (Cmd|Ctrl)\+Shift\+V for the text alone\./);
+    await expect(toast).not.toContainText('Failed to execute');
+  }
+  await expect(input(page)).toHaveValue('Hello');
+});

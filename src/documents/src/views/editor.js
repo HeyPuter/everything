@@ -171,6 +171,11 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     const textSelected = engine.model.range[0] !== engine.model.range[1] && (!image || engine.copiesPicture());
     return { cut: editable && textSelected, copy: textSelected, paste: editable && !image };
   };
+  // A browser that does not let the page use the clipboard (permission refused, or a frame without it) refuses
+  // with its own technical message; the keyboard's Cut, Copy and Paste need no permission.
+  const clipboardError = (e, reading) => error(e?.name === 'NotAllowedError' || e?.name === 'SecurityError'
+    ? new Error(reading ? `The browser didn’t allow reading the clipboard. Paste with ${MOD_KEY}+V, or ${MOD_KEY}+Shift+V for the text alone.` : `The browser didn’t allow using the clipboard. Use ${MOD_KEY}+C to copy or ${MOD_KEY}+X to cut.`)
+    : e);
   const copyText = async cut => {
     const editor = engine; if (!editor) return;
     const selection = [...editor.model.range], revision = editor.session.revision;
@@ -181,7 +186,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
         await navigator.clipboard.write([new ClipboardItem({ 'text/plain': new Blob([text], { type: 'text/plain' }), 'text/html': new Blob([html], { type: 'text/html' }) })]);
       } else await navigator.clipboard.writeText(text);
       if (cut && !destroyed && engine === editor && revision === editor.session.revision && JSON.stringify(selection) === JSON.stringify(editor.model.range)) editor.deleteSelection();
-    } catch (e) { if (!destroyed) error(e); }
+    } catch (e) { if (!destroyed) clipboardError(e, false); }
     if (!destroyed) engine?.focus();
   };
   // Paste without formatting: the clipboard's text only, on the conventional Ctrl/Cmd+Shift+V chord.
@@ -192,7 +197,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
       const text = await navigator.clipboard.readText();
       if (!destroyed && engine === editor && revision === editor.session.revision && JSON.stringify(selection) === JSON.stringify(editor.model.range)) editor.pasteData(text, '');
       if (!destroyed) engine?.focus();
-    } catch (e) { if (!destroyed) error(e); }
+    } catch (e) { if (!destroyed) clipboardError(e, true); }
   };
   const pasteText = async () => {
     const editor = engine; if (!editor) return;
@@ -212,7 +217,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
         else editor.pasteData(text, html);
       }
       if (!destroyed) engine?.focus();
-    } catch (e) { if (!destroyed) error(e); }
+    } catch (e) { if (!destroyed) clipboardError(e, true); }
   };
   function openDocumentContextMenu({event,behind,selectBehind}) {
     if(!engine) return;
