@@ -64,7 +64,7 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
     // with the pane open slow in a document with many changes.
     const text = body.text, formatSummary = formatSummaries(body);
     const items = [
-      ...changes.map(c => ({ at: c.start, kind: c.move ? (c.type === 'ins' ? 'Moved (to)' : 'Moved (from)') : { ins: 'Inserted', del: 'Deleted', format: 'Formatted' }[c.type] || 'Changed', author: c.author, date: c.date, text: c.type === 'format' ? formatSummary(c) : (text.slice(c.start, Math.min(c.end, text.length)) + (c.end > text.length ? '\n' : '')).replace(/\n/g, ' ¶ ').trim(), select: () => { body.select(c.start, Math.min(c.end, body.text.length)); navigated = c; engine.focus(); engine.revealCaret?.(); onChange(); } })),
+      ...changes.map(c => ({ at: c.start, kind: c.move ? (c.type === 'ins' ? 'Moved (to)' : 'Moved (from)') : { ins: 'Inserted', del: 'Deleted', format: 'Formatted' }[c.type] || 'Changed', author: c.author, date: c.date, text: c.type === 'format' ? formatSummary(c) : (text.slice(c.start, Math.min(c.end, text.length)) + (c.end > text.length ? '\n' : '')).replace(/\n/g, ' ¶ ').trim(), select: () => { engine.finishComposition(); if (engine.session.path !== null) engine.editStory(null); body.select(c.start, Math.min(c.end, body.text.length)); navigated = c; engine.focus(); engine.revealCaret?.(); onChange(); } })),
       ...notes.map(t => ({ at: t.start ?? Infinity, kind: t.root.done ? 'Comment (resolved)' : 'Comment', author: t.root.author, date: t.root.date, text: t.root.text, select: () => selectThread(t) })),
     ].sort((a, b) => a.at - b.at);
     return { changes, notes, items };
