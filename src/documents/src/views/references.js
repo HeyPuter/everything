@@ -184,11 +184,18 @@ export function createReferences({ editor, pkg, error, base = {}, onChange = () 
   }
   /** Update every field this editor can evaluate: sequences, references, citations, bibliographies and page numbers. */
   async function updateAllFields() {
-    if (!ready()) return;
+    const engine = ready(); if (!engine) return;
+    engine.finishComposition();
+    // Pressed in a header, footer or note, F9 updates the body's fields and then returns there: it used to
+    // leave the caret at the start of the body, where the next keystrokes went.
+    const story = engine.session.path, page = engine.storyPage, { anchor, focus } = engine.model.selection;
     const { updateSequenceFields } = await import('../engine/field-update.js');
     const issues = [], notesMaps = await noteNumberMaps();
     await runBody(body => { updateSequenceFields(body, { onIssue: issue => issues.push(issue), notes: notesMaps }); return true; });
     await citations.refreshFields();
+    if (story !== null && engine.session.path === null && engine.editStory(story, page) && engine.session.path === story) {
+      engine.model.select(anchor, focus); engine.revealCaret?.(); onChange();
+    }
     if (issues.length) error(new Error([...new Set(issues.map(issue => issue.message))].join(' ')));
   }
 
