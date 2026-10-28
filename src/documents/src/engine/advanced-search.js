@@ -93,7 +93,10 @@ function literalSource(query, { ignorePunctuation, ignoreWhitespace }) {
   const gap = filler.length ? `[${filler.join('')}]*` : '';
   const parts = tokens(query).filter(t => t.pattern || !(ignorePunctuation && /^\p{P}$/u.test(t.literal)) && !(ignoreWhitespace && /^\s$/u.test(t.literal)));
   if (!parts.length) throw new Error('Enter text to find. Punctuation and spaces alone are ignored with these options.');
-  return parts.map(t => t.pattern ?? escapeRegExp(t.literal)).join(gap);
+  // A straight quote also finds the typographic ones, as the basic search does (search.js); wildcards match exactly.
+  const families = ["'‘’", '"“”'].filter(forms => parts.some(t => t.literal === forms[0]));
+  const quote = literal => { const forms = families.find(forms => [...forms].includes(literal)); return forms && `[${forms}]`; };
+  return parts.map(t => t.pattern ?? quote(t.literal) ?? escapeRegExp(t.literal)).join(gap);
 }
 
 /** A compiled matcher for these options. Throws a readable error for an invalid pattern. */

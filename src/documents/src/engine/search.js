@@ -77,21 +77,32 @@ function simpleMatcher(query, matchCase) {
   };
 }
 
+// A straight quote in the query also finds the typographic quotes autocorrect makes of it as you type, as Find
+// does in desktop word processors: "don't" finds "don’t". Each family folds to its straight form (one code unit
+// for one, so offsets stay); a curly quote typed in the query then finds either form too.
+const QUOTE_FAMILIES = [[/'/, /[‘’]/g, "'"], [/"/, /[“”]/g, '"']];
+function quoteFolding(query) {
+  const families = QUOTE_FAMILIES.filter(([straight]) => straight.test(query));
+  return families.length ? text => families.reduce((folded, [, curly, straight]) => folded.replace(curly, straight), text) : null;
+}
+
 export function findText(paragraphs, query, { matchCase = false, wholeWord = false, skipDeleted = false } = {}) {
   checkedSearchText(query);
   if (!query) return [];
+  const fold = quoteFolding(query);
+  if (fold) query = fold(query);
   const matchLiteral = literalMatcher(query, matchCase), simpleQuery = SIMPLE.test(query), matchSimple = simpleQuery && simpleMatcher(query, matchCase);
   const matches = []; let at = 0;
   paragraphs.forEach((p, paragraph) => {
-    const text = p.runs.map(r => r.text).join('');
+    const text = p.runs.map(r => r.text).join(''), searched = fold ? fold(text) : text;
     const deleted = skipDeleted ? deletedSpans(p) : null;
     // Segmenting every paragraph of a long document on each search held up typing while Find was open.
-    const simple = simpleQuery && SIMPLE.test(text);
+    const simple = simpleQuery && SIMPLE.test(searched);
     const boundaries = simple ? null : new Set([...inlineSegments(text)].map(s => s.index).concat(text.length));
     const wordStarts = new Set(), wordEnds = new Set();
     if (wholeWord) for (const segment of words.segment(text)) if (segment.isWordLike) { wordStarts.add(segment.index); wordEnds.add(segment.index + segment.segment.length); }
     let previousEnd = 0;
-    for (const { start, end } of simple ? matchSimple(text) : matchLiteral(text)) {
+    for (const { start, end } of simple ? matchSimple(searched) : matchLiteral(searched)) {
       if (start >= previousEnd && (simple || boundaries.has(start) && boundaries.has(end)) && (!wholeWord || wordStarts.has(start) && wordEnds.has(end)) && !overlaps(deleted, start, end)) {
         matches.push({ start: at + start, end: at + end, paragraph, offset: start, text: text.slice(start, end) }); previousEnd = end;
       }
