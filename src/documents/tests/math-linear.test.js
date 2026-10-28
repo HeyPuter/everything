@@ -189,6 +189,14 @@ describe('editing an existing equation', () => {
     expect(linearToOmml(editable), `${linear} → ${editable}`).toBe(xml);
     return editable;
   };
+  it('writes a function’s argument without brackets the argument did not have', () => {
+    expect(same('lim_(x→0) f(x)')).toBe('lim_(x→0) f(x)');
+    expect(same('max_i f(x)')).toBe('max_i f(x)');
+    expect(same('lim_(x→0) sin x')).toBe('lim_(x→0) sin x');
+    same('lim f(x)/g(x)');
+    same('sin x^2'); same('sin (a+b)'); same('sin^2 x');
+  });
+
   it('writes every structure in a form that builds it again', () => {
     for (const { linear } of EQUATION_GALLERY) same(linear);
     // Binomials, matrices and equation arrays stay themselves; roots keep their degree.

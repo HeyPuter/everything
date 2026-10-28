@@ -515,8 +515,12 @@ function editableStructure(node) {
         fname = `${FUNCS.has(word) ? word : `\\operatorname{${word}}`}${mathChild(only, 'sub') ? `_${scriptArgument(mathChild(only, 'sub'))}` : ''}${mathChild(only, 'sup') ? `^${scriptArgument(mathChild(only, 'sup'))}` : ''}`;
       } else { const word = runText(name); fname = FUNCS.has(word) ? word : `\\operatorname{${word}}`; }
       // The argument is the terms up to the next space or operator, or one bracketed group.
-      const items = editableItems(e), simple = items.length && items.every(item => item.kind === 'run' || ['sSup', 'sSub', 'sSubSup', 'acc', 'bar'].includes(item.kind)) && items.length === 1 || items.length > 1 && items.every(item => item.kind === 'run');
-      const argument = items.length === 1 && items[0].kind === 'd' ? items[0].text : simple ? items.map(item => item.text).join('') : bracket(editableSequence(e));
+      // Unbracketed, the parser takes terms up to a space or operator and stops after a bracketed group, so
+      // runs may lead up to one last term: a run, script, accent or bar, a bracketed group ("f(x)") or a
+      // nested function ("sin x" in "lim sin x"), which takes the rest itself.
+      const items = editableItems(e), last = items.at(-1);
+      const simple = items.length && items.slice(0, -1).every(item => item.kind === 'run') && (['run', 'sSup', 'sSub', 'sSubSup', 'acc', 'bar', 'd'].includes(last.kind) || last.kind === 'func' && items.length === 1);
+      const argument = simple ? items.map(item => item.text).join('') : bracket(editableSequence(e));
       return `${fname} ${argument}`;
     }
     case 'acc': {
