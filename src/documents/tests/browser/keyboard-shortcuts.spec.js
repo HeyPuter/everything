@@ -128,3 +128,28 @@ test('Go To counts from the page of the footer being edited', async ({ page }) =
     expect(await body.evaluate(el => el.value.slice(el.selectionStart, el.selectionStart + 11))).toBe(expected);
   }
 });
+
+test('a shortcut a menu shows belongs to that command alone and runs it', async ({ page }) => {
+  await page.goto('/mock.html#/new');
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  const input = page.getByRole('textbox', { name: 'Document text' });
+  await input.fill('Some words to count and find. Some more words.');
+  const bar = page.getByRole('menubar', { name: 'Menu bar' });
+  const shortcuts = async () => page.locator('.menu .menu-item').evaluateAll(items => items.map(item => [item.querySelector('.menu-label')?.firstChild?.textContent, item.querySelector('.menu-shortcut')?.textContent]).filter(([, key]) => key));
+  await bar.getByRole('menuitem', { name: 'Edit', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Find', exact: true }).click();
+  const shown = await shortcuts();
+  await page.keyboard.press('Escape'); await page.keyboard.press('Escape');
+  await bar.getByRole('menuitem', { name: 'Tools', exact: true }).click();
+  shown.push(...await shortcuts());
+  const wordCount = shown.find(([label]) => label === 'Word Count…')?.[1];
+  await page.keyboard.press('Escape');
+  const owners = new Map();
+  for (const [label, key] of shown) owners.set(key, [...(owners.get(key) || []), label]);
+  expect([...owners].filter(([, labels]) => new Set(labels).size > 1)).toEqual([]);
+  if (wordCount) {
+    await input.focus();
+    await page.keyboard.press(wordCount.replace('Cmd', 'Meta').replace('Ctrl', 'Control').replace('Option', 'Alt'));
+    await expect(page.getByRole('dialog', { name: 'Word Count' })).toBeVisible();
+  }
+});

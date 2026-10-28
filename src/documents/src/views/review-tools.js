@@ -183,7 +183,8 @@ export function createReviewTools({ editor, pkg, error, author, review, proofing
       { label: 'Translate', icon: 'translate', disabled: !has, items: commands.translateItems() },
       { label: 'Language…', icon: 'language', disabled: !ready(), onSelect: languageDialog },
       { separator: true },
-      { label: 'Word Count…', icon: 'wordCount', shortcut: `${MOD_KEY}+Shift+G`, disabled: !has, onSelect: commands.wordCount },
+      // On a Mac Cmd+Shift+G is Find Previous (editor.js), so Word Count has its chord only elsewhere.
+      { label: 'Word Count…', icon: 'wordCount', shortcut: MOD_KEY === 'Cmd' ? null : 'Ctrl+Shift+G', disabled: !has, onSelect: commands.wordCount },
       { separator: true },
       { label: 'Check Accessibility', icon: 'accessibility', disabled: !has, onSelect: commands.checkAccessibility },
       { separator: true },
