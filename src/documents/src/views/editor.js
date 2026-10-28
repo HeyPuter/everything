@@ -1491,12 +1491,13 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
   // (twice) refresh the status bar, and splitting a long document into words takes milliseconds each time.
   let counted = { text: null, a: 0, b: 0, total: 0, chosen: null };
   function updateWordCount() {
-    const text = engine.model.text, [a, b] = engine.model.range;
-    if (text !== counted.text || a !== counted.a || b !== counted.b) {
-      // The Word Count dialog counts with the same rule, so the two always agree.
+    // The document's words, also while a header, footer or note is edited (the words selected there are counted
+    // against them): the Word Count dialog counts with the same rule, so the two always agree.
+    const text = engine.session.body.text, story = engine.model.text, [a, b] = engine.model.range;
+    if (text !== counted.text || story !== counted.story || a !== counted.a || b !== counted.b) {
       const total = text === counted.text ? counted.total : countWords(text);
-      const chosen = a !== b ? countWords(text.slice(a, b)) : null;
-      counted = { text, a, b, total, chosen };
+      const chosen = a !== b ? countWords(story.slice(a, b)) : null;
+      counted = { text, story, a, b, total, chosen };
     }
     const { total, chosen } = counted;
     words.textContent = chosen !== null ? `${chosen} of ${total} ${total === 1 ? 'word' : 'words'}` : `${total} ${total === 1 ? 'word' : 'words'}`;

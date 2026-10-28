@@ -81,3 +81,25 @@ test('at 320 pixels wide the status bar shows the whole word count instead of cu
   });
   expect(problems).toEqual([]);
 });
+
+test('while a header is edited the status bar counts the document\'s words, as the Word Count dialog does', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/mock.html#/new');
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  const count = page.locator('.ed-statusbar .ed-word-count');
+  await text(page).fill('Alpha beta gamma delta.\nSecond paragraph here.');
+  await expect(count).toHaveText('7 words');
+  await page.getByRole('tab', { name: 'Insert' }).click();
+  await page.locator('#ribbon-panel-insert').getByRole('button', { name: 'Header', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Edit Header' }).click();
+  const header = page.getByRole('textbox', { name: 'Header text' });
+  await expect(header).toBeFocused();
+  await page.keyboard.type('Head note');
+  await expect(header).toHaveValue('Head note');
+  await expect(count).toHaveText('7 words');
+  // Words selected in the header are counted against the document's.
+  await header.evaluate(el => { el.setSelectionRange(0, 4); el.dispatchEvent(new Event('select')); });
+  await expect(count).toHaveText('1 of 7 words');
+  await count.click();
+  await expect(page.getByRole('dialog', { name: 'Word Count' }).locator('tr').filter({ hasText: 'Words' })).toContainText('7');
+});
