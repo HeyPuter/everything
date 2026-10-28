@@ -26,6 +26,8 @@ export function readRunBackground(rPr, readColor) {
 
 // Highlight is not permitted in these contexts ([MS-OI29500] §§2.1.245,
 // 2.1.248, 2.1.260, 2.1.291). Keep unused definitions, reject active ones.
+// A highlight of none (§17.3.2.15) highlights nothing and is accepted.
 export function rejectStyleHighlight(rPr) {
-  if (single(rPr, 'highlight')) fail('highlighting in document defaults, named styles or numbering definitions');
+  const highlight = single(rPr, 'highlight');
+  if (highlight && highlight.getAttributeNS(W, 'val') !== 'none') fail('highlighting in document defaults, named styles or numbering definitions');
 }
