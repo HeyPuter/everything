@@ -148,9 +148,11 @@ test('Advanced Find searches headers and footers and a selection', async ({ page
   await panel.getByRole('textbox', { name: 'Replace with', exact: true }).fill('summary');
   await panel.getByRole('button', { name: 'Replace all', exact: true }).click();
   await expect(panel.locator('.canvas-find-notice')).toHaveText('Replaced 1 match.');
-  // A selection scope counts only matches inside the selection.
+  // The main document is the body, also from the header just edited: its three matches, one of them chosen in the body.
   await panel.getByLabel('Search in').selectOption('document');
-  await page.getByRole('button', { name: 'Close Header and Footer' }).click().catch(() => {});
+  await expect(panel.locator('.canvas-find-count')).toHaveText(/of 3$/);
+  await expect(page.getByRole('button', { name: 'Close Header and Footer' })).toHaveCount(0);
+  // A selection scope counts only matches inside the selection.
   await input.evaluate(el => { el.setSelectionRange(0, 15); el.dispatchEvent(new Event('select', { bubbles: true })); });
   await panel.getByLabel('Search in').selectOption('selection');
   await expect(panel.locator('.canvas-find-count')).toHaveText(/1 match|1 of 1/);
