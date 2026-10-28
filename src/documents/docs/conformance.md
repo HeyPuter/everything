@@ -23300,7 +23300,9 @@ Supported subset:
   convention for numbered drafts and a declared choice where the clause is silent.
 - Labels are right-aligned at `distance` left of the line's column (automatic:
   0.25 in; in multi-column sections at most half the column gap, minimum
-  0.0625 in), on the line's baseline, in the "line number" character style over
+  0.0625 in; with a line between columns, an automatic label of a later column
+  that would come within 2 px of that line is centered between the line and its
+  column instead, a preview policy), on the line's baseline, in the "line number" character style over
   the default paragraph style (else the document defaults). They paint on screen,
   in print and in the rasterized PDF pages.
 - `suppressLineNumbers` is resolved through paragraph styles and direct

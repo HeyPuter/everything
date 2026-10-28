@@ -95,6 +95,24 @@ describe('line number labels', () => {
     expect(Number(label.text)).toBe(colLayout.lines.filter(l => l.page === 0 && l.column === 0 && !l.virtual).length + 1);
   });
 
+  it('keeps automatic labels clear of the line between columns', () => {
+    const doc = new TextDocument([paragraph('word '.repeat(2000))], { lineNumbers: { countBy: 1, restart: 'newPage' }, columns: { count: 2, space: 720, equalWidth: true, separator: true } });
+    const layout = layoutOf(doc), result = lineNumberLabels(layout, doc.paragraphs, doc.numbering, doc.styles, measure);
+    const separators = layout.columnSeparators.filter(s => s.page === 0);
+    expect(separators).toHaveLength(1);
+    const line = separators[0], second = result.filter(l => l.page === 0 && l.x > 200);
+    expect(second.length).toBeGreaterThan(10);
+    // Before, a column-two label ended exactly on the line (half the 0.5 in gap from the column).
+    for (const label of second) {
+      expect(label.x).toBeGreaterThan(line.x + line.width);
+      expect(label.x + label.width).toBeLessThan(layout.lines.find(l => l.page === 0 && l.column === 1).columnLeft);
+    }
+    // An authored distance is kept as declared.
+    const authored = new TextDocument([paragraph('word '.repeat(2000))], { lineNumbers: { countBy: 1, restart: 'newPage', distance: 360 }, columns: { count: 2, space: 720, equalWidth: true, separator: true } });
+    const authoredLayout = layoutOf(authored), authoredLabel = lineNumberLabels(authoredLayout, authored.paragraphs, authored.numbering, authored.styles, measure).find(l => l.page === 0 && l.x > 200);
+    expect(authoredLabel.x + authoredLabel.width).toBeCloseTo(authoredLayout.lines.find(l => l.page === 0 && l.column === 1).columnLeft - 24);
+  });
+
   it('uses the Line Number character style over the default paragraph style', async () => {
     const pkg = await DocxPackage.open(readFileSync('public/fixtures/line-numbers.docx'));
     const style = lineNumberStyle(pkg.styles);

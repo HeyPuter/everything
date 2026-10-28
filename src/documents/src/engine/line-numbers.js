@@ -6,6 +6,7 @@ import { paragraphFormat } from './model.js';
 import { runFormat } from './formatting.js';
 import { styleRun } from './styles.js';
 import { AUTO_LINE_NUMBER_DISTANCE } from './line-number-settings.js';
+import { sectionColumnIntervals } from './section-columns.js';
 export { LINE_NUMBER_RESTARTS, AUTO_LINE_NUMBER_DISTANCE, checkedLineNumbers } from './line-number-settings.js';
 
 
@@ -63,9 +64,17 @@ export function lineNumberLabels(layout, paragraphs, numbering, styles, measure)
     const geometry = region.geometry;
     const columns = geometry.columns?.count > 1;
     const automatic = columns ? Math.min(AUTO_LINE_NUMBER_DISTANCE, Math.max(90, (geometry.columns.space ?? 720) / 2)) : AUTO_LINE_NUMBER_DISTANCE;
-    const distance = (settings.distance ?? automatic) / 15;
+    let distance = (settings.distance ?? automatic) / 15;
     const text = String(count), width = widthOf(text);
     const textLeft = line.columnLeft ?? geometry.left;
+    // With a line between columns, an automatic label of a later column stays between that line and
+    // its column rather than ending on it: where the automatic distance leaves it less than 2 px
+    // clear of the line, it is centered in the space between them. An authored distance is kept.
+    if (columns && geometry.columns.separator && settings.distance == null && line.column > 0) {
+      const intervals = sectionColumnIntervals(geometry.columns, geometry.left * 15, (geometry.width - geometry.left - geometry.right) * 15);
+      const room = textLeft - ((intervals[line.column - 1].right + intervals[line.column].left) / 30 + .5) - width;
+      if (distance > room - 2) distance = Math.max(0, room / 2);
+    }
     labels.push({ page: line.page, x: textLeft - distance - width, baseline: line.baseline, text, width, style });
   }
   return labels;
