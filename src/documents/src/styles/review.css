@@ -36,6 +36,17 @@
 .wcc-resolve { margin-top: 6px; }
 .wcc-resolved { display: flex; align-items: center; justify-content: space-between; margin-top: 8px; color: var(--ed-ink-3); }
 .btn.btn-sm.wcc-post, .btn.btn-sm.wcc-cancel, .btn.btn-sm.wcc-resolve { padding: 3px 10px; font-size: 12px; min-height: 26px; }
+/* Pages laid out across (Read Mode screens, Side to Side): room for the cards after each group of pages.
+   Web Layout and Draft lay the text out to the width beside the column. Phones list the cards below instead. */
+@media (min-width: 701px) {
+  .ed-workspace .canvas-host.has-comment-markup[data-card-pages="1"] .canvas-page,
+  .ed-workspace .canvas-host.has-comment-markup[data-card-pages="2"] .canvas-page:nth-child(2n),
+  .ed-workspace .canvas-host.has-comment-markup[data-card-pages="3"] .canvas-page:nth-child(3n),
+  .ed-workspace .canvas-host.has-comment-markup[data-card-pages] .canvas-page:last-child { margin-right: 312px; }
+  .ed-workspace .canvas-host.has-comment-markup.is-side-to-side .canvas-pages { padding-right: 24px; }
+  .ed-workspace .canvas-host.has-comment-markup.is-reading .canvas-pages { padding-right: var(--read-inset, 24px); }
+  .ed-workspace .canvas-host.has-comment-markup.view-web .canvas-pages, .ed-workspace .canvas-host.has-comment-markup.view-draft .canvas-pages { padding-right: 330px; }
+}
 @media (max-width: 700px) {
   .ed-workspace .canvas-host.has-comment-markup .canvas-pages { padding-right: 12px; }
   .ed-comment-card { position: relative; left: auto !important; top: auto !important; width: auto; margin: 8px 12px; }

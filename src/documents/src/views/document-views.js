@@ -177,6 +177,8 @@ export function createDocumentViews({ editor, pkg, host, surface, root, error, c
     sideToSide = on;
     engine.pages.classList.toggle('is-side-to-side', on);
     host.classList.toggle('is-side-to-side', on);
+    // Comment cards go beside each page (review.js), which keeps room for them.
+    if (on) host.dataset.cardPages = '1'; else if (mode !== 'read') delete host.dataset.cardPages;
     showThumbnails(on && thumbnails);
     if (on) {
       engine.pages.classList.remove('is-multipage');

@@ -14,10 +14,15 @@ import { readingColumns, lineFocusBand } from '../engine/document-views.js';
 const WIDTHS = [['narrow', 'Narrow'], ['default', 'Default'], ['wide', 'Wide']];
 const COLORS = [['none', 'None'], ['sepia', 'Sepia'], ['inverse', 'Inverse']];
 const FOCUS = [[0, 'Off'], [1, 'One Line'], [3, 'Three Lines'], [5, 'Five Lines']];
+// Room beside each screen's last page for the comment cards (review.js puts them there), while they are shown.
+const COMMENT_ROOM = 312;
 const letterSpacing = () => typeof CanvasRenderingContext2D !== 'undefined' && 'letterSpacing' in CanvasRenderingContext2D.prototype;
 
 export function createReadMode({ editor, host, root: rootOf, exit, toggleNavigation, readAloud, readAloudActive, documentTitle }) {
   let active = false, width = 'default', color = 'none', textSpacing = false, focusLines = 0, focusLine = null, screen = 0, perScreen = 1, columnGap = 32;
+  let commentRoom = 0;
+  // Comments shown or hidden change the room the reading columns have.
+  const markup = typeof MutationObserver === 'undefined' ? { observe() {}, disconnect() {} } : new MutationObserver(() => { if (active && commentRoom !== (host.classList.contains('has-comment-markup') ? COMMENT_ROOM : 0)) apply(); });
   let restoreZoom = null, wheelAt = 0, wheelTotal = 0, textInput = null, textInputTabIndex = null;
   const title = el('span.read-title');
   const counter = el('span.read-counter', { role: 'status', 'aria-live': 'polite' });
@@ -52,12 +57,15 @@ export function createReadMode({ editor, host, root: rootOf, exit, toggleNavigat
   function apply({ keepPosition = true } = {}) {
     const ed = engine(); if (!ed) return;
     const anchor = keepPosition ? screen * perScreen : 0;
-    const columns = readingColumns(host.clientWidth, host.clientHeight - 8, width, ed.zoom);
+    const room = host.classList.contains('has-comment-markup') ? COMMENT_ROOM : 0;
+    commentRoom = room;
+    const columns = readingColumns(host.clientWidth - room, host.clientHeight - 8, width, ed.zoom);
     perScreen = columns.count; columnGap = columns.gap;
+    host.dataset.cardPages = String(perScreen);
     ed.setView({ kind: 'read', width: Math.floor(columns.width), height: Math.floor(columns.height), color, textSpacing: textSpacing ? { character: letterSpacing() ? 0.6 : 0 } : false });
     host.style.setProperty('--read-gap', `${columnGap}px`);
     const pageWidth = Math.floor(columns.width) * ed.zoom;
-    host.style.setProperty('--read-inset', `${Math.max(0, Math.floor((host.clientWidth - (perScreen * pageWidth + (perScreen - 1) * columnGap)) / 2))}px`);
+    host.style.setProperty('--read-inset', `${Math.max(0, Math.floor((host.clientWidth - room - (perScreen * pageWidth + (perScreen - 1) * columnGap)) / 2))}px`);
     host.classList.toggle('read-inverse', color === 'inverse');
     host.classList.toggle('read-sepia', color === 'sepia');
     screen = Math.min(screens() - 1, Math.floor(anchor / perScreen));
@@ -187,6 +195,7 @@ export function createReadMode({ editor, host, root: rootOf, exit, toggleNavigat
       // handling would edit (Backspace, Alt+Shift+Arrow, Ctrl+V). Reading keeps focus on the pages.
       host.addEventListener('focusin', e => { if (e.target.matches?.('.canvas-input')) focusSurface(); }, { signal: keyAbort.current.signal });
       resize.observe(host);
+      markup.observe(host, { attributes: true, attributeFilter: ['class'] });
       apply();
       // The screen holding the caret, once the reading pages exist.
       screen = Math.min(screens() - 1, Math.floor((ed.caretPageIndex ?? 0) / perScreen)); show(false);
@@ -197,7 +206,8 @@ export function createReadMode({ editor, host, root: rootOf, exit, toggleNavigat
       if (!active) return null;
       active = false;
       const ed = engine();
-      keyAbort.current?.abort(); resize.disconnect();
+      keyAbort.current?.abort(); resize.disconnect(); markup.disconnect();
+      delete host.dataset.cardPages;
       root.classList.remove('ed-read-mode', 'read-line-focus');
       host.classList.remove('is-reading', 'read-inverse', 'read-sepia');
       host.removeAttribute('tabindex'); host.setAttribute('aria-label', 'Document pages');

@@ -506,24 +506,32 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
       const start = node.dataset.anchor !== undefined ? Number(node.dataset.anchor) : id ? thread?.start : draft?.start;
       return { node, geometry: start === null || start === undefined ? null : engine.positionGeometry(start), active: node.classList.contains('is-active') };
     }).filter(item => item.geometry).sort((a, b) => a.geometry.top - b.geometry.top);
+    // Pages laid out across (Read Mode screens, Side to Side) leave room for the cards after every `across` pages:
+    // a card goes beside the last page of its group, and each group's cards stack apart from the others'.
+    const across = Number(host()?.dataset.cardPages) || 0, canvases = engine.canvases || [];
+    const columnRight = item => { const page = canvases[Math.min(canvases.length - 1, (Math.floor(item.geometry.page / across) + 1) * across - 1)]; return page ? page.offsetLeft + page.offsetWidth : item.geometry.pageRight; };
     const right = Math.max(0, ...anchored.map(item => item.geometry.pageRight));
-    // The active card keeps its anchor's level; neighbours make room above and below it.
-    const activeIndex = anchored.findIndex(item => item.active);
-    const heights = anchored.map(item => item.node.offsetHeight || 80), tops = anchored.map(item => item.geometry.top - 8);
-    const gap = 8;
-    if (activeIndex >= 0) {
-      for (let i = activeIndex + 1; i < anchored.length; i++) tops[i] = Math.max(tops[i], tops[i - 1] + heights[i - 1] + gap);
-      for (let i = activeIndex - 1; i >= 0; i--) tops[i] = Math.min(tops[i], tops[i + 1] - heights[i] - gap);
+    const groups = new Map();
+    for (const item of anchored) { const x = across ? columnRight(item) : right; if (!groups.has(x)) groups.set(x, []); groups.get(x).push(item); }
+    for (const [x, column] of groups) {
+      // The active card keeps its anchor's level; neighbours make room above and below it.
+      const activeIndex = column.findIndex(item => item.active);
+      const heights = column.map(item => item.node.offsetHeight || 80), tops = column.map(item => item.geometry.top - 8);
+      const gap = 8;
+      if (activeIndex >= 0) {
+        for (let i = activeIndex + 1; i < column.length; i++) tops[i] = Math.max(tops[i], tops[i - 1] + heights[i - 1] + gap);
+        for (let i = activeIndex - 1; i >= 0; i--) tops[i] = Math.min(tops[i], tops[i + 1] - heights[i] - gap);
+      }
+      // The column starts at the top of the pages: cards with no room above the active one stack down from there
+      // (and push it down) instead of all being drawn at the top, one over another.
+      if (column.length) tops[0] = Math.max(8, tops[0]);
+      for (let i = 1; i < column.length; i++) tops[i] = Math.max(tops[i], tops[i - 1] + heights[i - 1] + gap);
+      column.forEach((item, i) => {
+        item.node.style.top = `${tops[i]}px`;
+        item.node.style.left = `${x + 16}px`;
+        item.node.style.display = '';
+      });
     }
-    // The column starts at the top of the pages: cards with no room above the active one stack down from there
-    // (and push it down) instead of all being drawn at the top, one over another.
-    if (anchored.length) tops[0] = Math.max(8, tops[0]);
-    for (let i = 1; i < anchored.length; i++) tops[i] = Math.max(tops[i], tops[i - 1] + heights[i - 1] + gap);
-    anchored.forEach((item, i) => {
-      item.node.style.top = `${tops[i]}px`;
-      item.node.style.left = `${right + 16}px`;
-      item.node.style.display = '';
-    });
     const placed = new Set(anchored.map(item => item.node));
     for (const node of items) if (!placed.has(node)) node.style.display = 'none';
   }
@@ -593,7 +601,7 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
     engine.setMarginBars?.(['all', 'simple'].includes(revisionView.mode) && o.changeBars !== 'none' ? shownChanges(body.revisions) : [], barColor, o.changeBars === 'none' ? 'left' : o.changeBars || 'left');
     const label = markupButton?.querySelector('.ribbon-small-label'), name = MARKUP_VIEWS.find(([mode]) => mode === revisionView.mode)?.[1];
     if (label && name && label.textContent !== name) label.textContent = name;
-    const key = `${engine.layout?.pageCount}:${engine.zoom}:${engine.model.revision}:${engine.session.body.revision}:${layer.childElementCount}:${scroller.clientWidth}:${activeId}`;
+    const key = `${scroller.className}:${scroller.dataset.cardPages}:${engine.view?.width}:${engine.layout?.pageCount}:${engine.zoom}:${engine.model.revision}:${engine.session.body.revision}:${layer.childElementCount}:${scroller.clientWidth}:${activeId}`;
     if (visible && key !== positionsKey) { positionsKey = key; place(); }
   }
 
