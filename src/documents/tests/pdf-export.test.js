@@ -1,5 +1,5 @@
 import { it, expect } from 'vitest';
-import { buildPdf, pageFragments, textLayer, utf16Hex } from '../src/lib/pdf-export.js';
+import { buildPdf, pageFragments, pageLinks, textLayer, utf16Hex } from '../src/lib/pdf-export.js';
 
 // A 1×1 baseline JPEG (independently written bytes).
 const JPEG = Uint8Array.from(atob('/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAMCAgICAgMCAgIDAwMDBAYEBAQEBAgGBgUGCQgKCgkICQkKDA8MCgsOCwkJDRENDg8QEBEQCgwSExIQEw8QEBD/yQALCAABAAEBAREA/8wABgAQEAX/2gAIAQEAAD8A0s8g/9k='), c => c.charCodeAt(0));
@@ -75,4 +75,41 @@ it('puts list numbers and bullets in the searchable text, before their item\'s t
   expect(number.baseline).toBe(text.baseline);
   expect(number.width).toBeGreaterThan(0);
   expect(number.fontSize).toBeGreaterThan(0);
+});
+
+it('makes web, mail and phone links clickable where their text is on the page', async () => {
+  const { TextDocument, paragraph } = await import('../src/engine/model.js');
+  const { layoutDocument } = await import('../src/engine/layout.js');
+  const measure = text => ({ width: [...text].length * 8, ascent: 12, descent: 3 });
+  const doc = new TextDocument([paragraph()]);
+  doc.replace('Read the guide now. ');
+  doc.select(9, 14); doc.setHyperlink('https://example.com/a(b)?q=ü%20x');
+  doc.select(doc.text.length); doc.replace('Mail us');
+  doc.select(doc.text.length - 7, doc.text.length); doc.setHyperlink('mailto:team@example.com');
+  doc.select(doc.text.length); doc.insertParagraph(); doc.replace('Unsafe');
+  doc.select(doc.text.length - 6, doc.text.length);
+  try { doc.setHyperlink('javascript:alert(1)'); } catch { /* refused */ }
+  const layout = layoutDocument(doc.paragraphs, measure, undefined, doc.numbering, doc.tables);
+  const links = pageLinks(doc.paragraphs, layout);
+  expect(links.map(l => [l.page, l.target])).toEqual([[0, 'https://example.com/a(b)?q=ü%20x'], [0, 'mailto:team@example.com']]);
+  const [guide] = links, fragment = layout.lines[0].fragments.find(f => f.text.includes('guide'));
+  // The area covers the linked word on its line: "guide" starts 9 characters (72 px) into the line.
+  expect(guide.x).toBeCloseTo(layout.lines[0].fragments[0].x + 72, 0);
+  expect(guide.width).toBeCloseTo(40, 0);
+  expect(guide.y).toBeLessThanOrEqual(layout.lines[0].baseline - 12);
+  expect(guide.y + guide.height).toBeGreaterThanOrEqual(layout.lines[0].baseline);
+  expect(fragment).toBeTruthy();
+  const page = { widthPx: 816, heightPx: 1056, jpeg: JPEG, imageWidth: 1, imageHeight: 1, fragments: [], links: links.filter(l => l.page === 0) };
+  const text = new TextDecoder('latin1').decode(buildPdf([page]));
+  expect(text.match(/\/Subtype \/Link/g)).toHaveLength(2);
+  // An address is written as ASCII, with its brackets escaped, and points at its text (PDF points from the bottom).
+  expect(text).toContain('/URI (https://example.com/a\\(b\\)?q=%C3%BC%20x)');
+  expect(text).toContain('/URI (mailto:team@example.com)');
+  const rect = /\/Rect \[([\d. ]+)\][^]*?https:\/\/example/.exec(text)[1].split(' ').map(Number);
+  expect(rect[0]).toBeCloseTo(guide.x * 0.75, 1);
+  expect(rect[3]).toBeCloseTo((1056 - guide.y) * 0.75, 1);
+  expect(text).toMatch(/\/Annots \[\d+ 0 R \d+ 0 R\]/);
+  // The cross-reference table still finds every object.
+  const xref = Number(/startxref\n(\d+)/.exec(text)[1]);
+  [...text.slice(xref).matchAll(/^(\d{10}) 00000 n $/gm)].map(m => Number(m[1])).forEach((offset, i) => expect(text.slice(offset, offset + `${i + 1} 0 obj`.length)).toBe(`${i + 1} 0 obj`));
 });
