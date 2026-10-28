@@ -59,7 +59,7 @@ export function assignFootnotes(placed, refs) {
 export function measureNote(story, display, numbers, geometry, measure, numbering, options = {}) {
   const paragraphs = numberedParagraphs(story.paragraphs, numbers, display);
   return measurePageStory({ ...story, paragraphs }, { ...geometry, storyKind: 'footnote', top: 0, bottom: 0 }, measure, numbering,
-    { pageNumber: 1, pageCount: 1, sectionPageCount: 1 }, { styles: options.styles, drawingLayouts: options.drawingLayouts, onUnsupported: options.bestEffort ? () => {} : undefined, stylesKey: options.storyStylesKey, storyKeys: options.storyKeys, contentKey: options.contentKey });
+    { pageNumber: 1, pageCount: 1, sectionPageCount: 1 }, { styles: options.styles, drawingLayouts: options.drawingLayouts, onUnsupported: options.bestEffort ? () => {} : undefined, stylesKey: options.storyStylesKey, numberingKey: options.storyNumberingKey, storyKeys: options.storyKeys, contentKey: options.contentKey });
 }
 
 /**

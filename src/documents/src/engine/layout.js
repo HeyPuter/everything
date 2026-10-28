@@ -135,13 +135,17 @@ function layoutDocumentContent(paragraphs, measureBase, page, numbering, tables,
   const numberNotes = () => numberedParagraphs(source, { footnote: notes?.numbers || new Map(), endnote: endnotes?.numbers || new Map() });
   if (notes || endnotes) paragraphs = numberNotes();
   const visited = new Set();
+  // The styles and list definitions are long and the same throughout this layout: every pass, page story
+  // and cache key of it reads one serialization of each (page-story-measure.js, layoutPass).
+  const cache = measureBase.paragraphCache?.();
+  const storyStylesKey = cache && JSON.stringify(storyOptions.styles ?? null), storyNumberingKey = cache && JSON.stringify(numbering ?? null);
   for (let attempt = 0; attempt < MAX_PAGES; attempt++) {
     // Page counts reach the body only through the header and footer heights they produce.
     const storyHeights = totals ? new Map() : undefined, storyHeightCache = new Map(), paragraphKeys = new WeakMap();
     // Page stories measured by this layout share one serialization of the styles and of each story (page-story-measure.js).
-    const storyScope = measureBase.paragraphCache ? { storyStylesKey: JSON.stringify(storyOptions.styles ?? null), storyKeys: new WeakMap(), storyStories: pageStories } : {};
+    const storyScope = cache ? { storyStylesKey, storyNumberingKey, storyKeys: new WeakMap(), storyStories: pageStories } : {};
     // Everything besides the blocks that decides where footnote references land and how tall their notes are.
-    const flowContext = () => measureBase.paragraphCache && JSON.stringify([counts, storiesContentKey(pageStories), storyOptions.styles ?? null, numbering ?? null, !!storyOptions.bestEffort,
+    const flowContext = () => cache && JSON.stringify([counts, storiesContentKey(pageStories), cache.intern(storyStylesKey), cache.intern(storyNumberingKey), !!storyOptions.bestEffort,
       storyOptions.drawingLayouts ? [...storyOptions.drawingLayouts] : null, revisionViewKey(Object.values(pageStories?.stories || {}).flatMap(story => story.paragraphs || []), true)]);
     const flow = () => notes
       ? layoutWithFootnotes(notes, noteReserve => layoutWithWrap(paragraphs, measureBase, page, numbering, tables, pageStories, { ...storyOptions, ...storyScope, ...counts, storyHeights, storyHeightCache, paragraphKeys, noteReserve }), measureBase, numbering, { ...storyOptions, ...storyScope }, flowContext())
@@ -200,7 +204,7 @@ function layoutPass(paragraphs, measureBase, page, numbering, tables, pageStorie
   const paragraphCache = measureBase.paragraphCache?.();
   paragraphCache?.reserve(paragraphs.length);
   // Page geometry and numbering are long; keys name them by the cache's short ids (intern).
-  const pageKeys = new WeakMap(), sharedKey = paragraphCache && paragraphCache.intern(JSON.stringify(numbering ?? null));
+  const pageKeys = new WeakMap(), sharedKey = paragraphCache && paragraphCache.intern(storyOptions.storyNumberingKey ?? JSON.stringify(numbering ?? null));
   // Paragraphs keep their content through the passes of one layout; serialize each once. A paragraph's
   // content includes what its measurement reads of the revision view (revisionViewKey), not the whole view.
   const paragraphKeys = storyOptions.paragraphKeys || new WeakMap();

@@ -22,6 +22,8 @@ export function layoutPageStories(body, definition, sectionSettings, measure, nu
   // A measurer that remembers stories resolves their styles only when it measures one it has not seen.
   const remembered = !!(styles && measure.paragraphCache);
   const styleOptions = remembered ? { styles, stylesKey: JSON.stringify(styles) } : {};
+  // Every page's stories read the same list definitions: serialize them once (storyMeasureKey).
+  const numberingKey = measure.paragraphCache ? JSON.stringify(numbering ?? null) : undefined;
   const storyParagraphs = (path, story) => {
     if (!styles || remembered) return story.paragraphs;
     if (!resolved.has(path)) resolved.set(path, story.paragraphs.map(p => resolveStyledParagraph(structuredClone(p), styles, numbering)));
@@ -53,7 +55,7 @@ export function layoutPageStories(body, definition, sectionSettings, measure, nu
       try {
         const { placed, trim, storyGeometry, positions: storyPositions } = measurePageStory({ ...story, paragraphs: storyParagraphs(path, story) }, { ...geometry, storyKind: kind }, measure, numbering,
           { pageNumber: numbers[page], pageCount: body.pageCount, sectionPageCount: counts.get(section), pageNumbering: definition.sections[section].pageNumbering },
-          { drawingLayouts, onUnsupported: bestEffort ? error => unsupported.push({ path, page, message: error.message }) : undefined, storyKeys, ...styleOptions, contentKey: storyContentKey(definition, path) });
+          { drawingLayouts, onUnsupported: bestEffort ? error => unsupported.push({ path, page, message: error.message }) : undefined, storyKeys, ...styleOptions, numberingKey, contentKey: storyContentKey(definition, path) });
         positions.push({ path, page, positions: storyPositions });
         const y = kind === 'header' ? settings.header / 15 : geometry.height - settings.footer / 15 - placed.endY + trim;
         const frames = new Map((placed.paragraphFrames || []).map(f=>[f.frameId,f]));
@@ -98,7 +100,7 @@ export function layoutPageStories(body, definition, sectionSettings, measure, nu
       if (!story) continue;
       if (note.y !== undefined) y = note.y;
       try {
-        const { placed, storyGeometry, positions: storyPositions } = measureNote({ ...story, paragraphs: storyParagraphs(note.path, story) }, note.display, numbers, geometry, measure, numbering, { drawingLayouts, bestEffort, storyKeys, ...styleOptions, storyStylesKey: styleOptions.stylesKey, contentKey: storyContentKey(definition, note.path, note.display, shownKey) });
+        const { placed, storyGeometry, positions: storyPositions } = measureNote({ ...story, paragraphs: storyParagraphs(note.path, story) }, note.display, numbers, geometry, measure, numbering, { drawingLayouts, bestEffort, storyKeys, ...styleOptions, storyStylesKey: styleOptions.stylesKey, storyNumberingKey: numberingKey, contentKey: storyContentKey(definition, note.path, note.display, shownKey) });
         positions.push({ path: note.path, page: area.page, positions: storyPositions });
         const top = y, shifted = item => ({ ...item, page: area.page, pageStory: note.path, y: item.y + top, ...(item.cellClip ? { cellClip: shiftCellClip(item.cellClip, top) } : {}) });
         lines.push(...placed.lines.map(line => ({ ...shifted(line), storyGeometry, baseline: line.baseline + top })));
