@@ -71,6 +71,13 @@ export function openLayoutDialog({ engine, image, describe, tab = 'position', ki
   const vAlignFrom = choice([['margin', 'Margin'], ['page', 'Page'], ['topMargin', 'Top margin'], ['bottomMargin', 'Bottom margin']], v.align ? v.relativeFrom : 'margin', { 'aria-label': 'Vertical alignment relative to' });
   const vOffset = num(inches(inlinePlace ? inlinePlace.y : offsetOf('y')), { min: -22, max: 22, 'aria-label': 'Vertical absolute position (in)' });
   const vOffsetFrom = choice([['paragraph', 'Paragraph'], ['line', 'Line'], ['margin', 'Margin'], ['page', 'Page']], v.align ? 'paragraph' : v.relativeFrom, { 'aria-label': 'Vertical position below' });
+  // An offset left as shown (rounded to 0.01 in) keeps its exact value, so OK does not nudge the object.
+  const shownOffsets = inlinePlace ? null : { h: hOffset.value, hFrom: hOffsetFrom.value, x: offsetOf('x'), v: vOffset.value, vFrom: vOffsetFrom.value, y: offsetOf('y') };
+  const offsetValue = axis => {
+    const [input, from] = axis === 'x' ? [hOffset, hOffsetFrom] : [vOffset, vOffsetFrom];
+    const kept = shownOffsets && input.value === shownOffsets[axis === 'x' ? 'h' : 'v'] && from.value === shownOffsets[axis === 'x' ? 'hFrom' : 'vFrom'];
+    return kept ? shownOffsets[axis] : emu(input);
+  };
   const optionBox = (label, checked) => { const input = el('input', { type: 'checkbox', checked, id: id() }); return { input, node: el('label.pic-check', { htmlFor: input.id }, input, label) }; };
   const moveWithText = optionBox('Move object with text', !frame.inline ? ['paragraph', 'line'].includes(v.relativeFrom) : true);
   const lockAnchor = optionBox('Lock anchor', !!frame.locked);
@@ -177,8 +184,8 @@ export function openLayoutDialog({ engine, image, describe, tab = 'position', ki
     }
     const mode = wrapValue();
     const spec = mode === 'inline' ? { inline: true } : {
-      horizontal: hAlignRadio.input.checked && !hAlignRadio.input.disabled ? { relativeFrom: hAlignFrom.value, align: hAlign.value } : { relativeFrom: hOffsetFrom.value, offset: emu(hOffset) },
-      vertical: vAlignRadio.input.checked && !vAlignRadio.input.disabled ? { relativeFrom: vAlignFrom.value, align: vAlign.value } : { relativeFrom: vOffsetFrom.value, offset: emu(vOffset) },
+      horizontal: hAlignRadio.input.checked && !hAlignRadio.input.disabled ? { relativeFrom: hAlignFrom.value, align: hAlign.value } : { relativeFrom: hOffsetFrom.value, offset: offsetValue('x') },
+      vertical: vAlignRadio.input.checked && !vAlignRadio.input.disabled ? { relativeFrom: vAlignFrom.value, align: vAlign.value } : { relativeFrom: vOffsetFrom.value, offset: offsetValue('y') },
       wrap: { type: mode === 'behind' || mode === 'front' ? 'none' : mode, side: sides.find(s => s.input.checked)?.input.value || 'bothSides',
         distances: { T: mode === 'topAndBottom' ? 0 : emu(distance.T), B: mode === 'topAndBottom' ? 0 : emu(distance.B), L: emu(distance.L), R: emu(distance.R) } },
       behind: mode === 'behind', locked: lockAnchor.input.checked,

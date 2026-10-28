@@ -13,7 +13,7 @@ import { toast } from '../ui/toast.js';
 import { engineApi } from '../lib/engine-api.js';
 import { drawShapeThumbnail } from '../ui/shape-controls.js';
 import { galleryItems } from './insert-gallery.js';
-import { formatDrawing, drawingKind, drawingParts } from '../engine/drawing-format.js';
+import { formatDrawing, drawingKind, drawingParts, currentDrawingXml } from '../engine/drawing-format.js';
 import { describeDrawing, setFill, setOutline, setEffects, set3d, setGeometry, setTransform, setBlipEffects, setCrop, setBodyProperties, setDocProperties, writeFrame, readFrame, themeColors,
   child, childrenOf, A, WP, R } from '../engine/drawing-xml.js';
 import { frameOf, offsetsFor, moveDrawings, alignmentMoves, POSITION_PRESETS, presetPosition } from '../engine/drawing-arrange.js';
@@ -48,12 +48,12 @@ export function createPictures({ editor, pkg, error, onChange = () => {}, base =
   const ready = () => { const engine = editor(); return engine && !pkg()?.readOnly && !engine.readOnly ? engine : null; };
   const selected = () => ready()?.model.selectedImage || null;
   const described = new WeakMap();
-  /** What the selected drawing looks like, read from its XML (cached per drawing object). */
+  /** What the selected drawing looks like, read from its XML as it would be saved now (cached per drawing object). */
   const describe = image => {
     if (!image) return null;
     if (!described.has(image)) {
       let value = null;
-      try { value = image.shell ? describeDrawing(image.shell) : { kind: 'picture', name: image.name, description: image.alt, frame: image.anchor ? null : { inline: true }, blip: { luminance: null, grayscale: false, duotone: null, biLevel: null, colorChange: null, alpha: image.opacity ?? 1, layer: null }, effects: { shadow: null, glow: null, softEdge: null, reflection: null }, outline: undefined, geometry: { preset: 'rect' }, transform: { rotation: (image.rotation || 0) / 60000, flipH: !!image.flipH, flipV: !!image.flipV }, threeD: { camera: null, bevel: null }, crop: image.crop || {} }; } catch { value = null; }
+      try { value = image.shell ? describeDrawing(currentDrawingXml(editor()?.shapePackage?.(), editor()?.model, image)) : { kind: 'picture', name: image.name, description: image.alt, frame: image.anchor ? null : { inline: true }, blip: { luminance: null, grayscale: false, duotone: null, biLevel: null, colorChange: null, alpha: image.opacity ?? 1, layer: null }, effects: { shadow: null, glow: null, softEdge: null, reflection: null }, outline: undefined, geometry: { preset: 'rect' }, transform: { rotation: (image.rotation || 0) / 60000, flipH: !!image.flipH, flipV: !!image.flipV }, threeD: { camera: null, bevel: null }, crop: image.crop || {} }; } catch { value = null; }
       described.set(image, value);
     }
     return described.get(image);

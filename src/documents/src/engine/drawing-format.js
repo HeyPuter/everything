@@ -94,6 +94,16 @@ export function materializeDrawing(pkg, model, image) {
   return { drawing, parts: found, sourcePart };
 }
 
+/**
+ * A drawing's XML as saving would write it now. A drawing keeps the XML it was opened or formatted with,
+ * and later edits made on the model (a move, a resize, a turn or flip, alt text) are written over it on
+ * save, so the kept XML alone describes how it was. Falls back to the kept XML when it cannot be rebuilt.
+ */
+export function currentDrawingXml(pkg, model, image) {
+  if (!image?.shell || !pkg || !model || !Object.keys(image).some(key => key.endsWith('Changed') && image[key])) return image?.shell || null;
+  try { return standalone(materializeDrawing(pkg, model, image).drawing); } catch { return image.shell; }
+}
+
 /** Bind every prefix the drawing uses on its root, so it serializes as a standalone fragment. */
 function standalone(drawing) {
   const copy = drawing.cloneNode(true), declared = new Map();
