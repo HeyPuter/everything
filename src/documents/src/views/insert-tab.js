@@ -242,7 +242,9 @@ export function createInsert({ editor, pkg, error, base = {}, docName = () => ''
       const canvas = start.canvas, box = canvas.getBoundingClientRect(), zoom = engine.zoom || 1, r = rectOf(start, e), dragged = r.width > 4 || r.height > 4;
       const position = engine.point(start.event, false), page = Number(canvas.dataset.page);
       const px = v => Math.round(v / zoom * 9525);
-      const result = { page, position, dragged, x: px(r.left - box.left), y: px(r.top - box.top), width: px(r.width), height: px(r.height) };
+      // Which way the drag went: a line runs from where it started to where it ended.
+      const result = { page, position, dragged, x: px(r.left - box.left), y: px(r.top - box.top), width: px(r.width), height: px(r.height), flipH: e.clientX < start.clientX, flipV: e.clientY < start.clientY,
+        straight: { x: r.width <= 4, y: r.height <= 4 } };
       cancelDrawing(); done(result);
     };
     const key = e => { if (e.key === 'Escape' && !isComposing(e)) { e.preventDefault(); e.stopPropagation(); cancelDrawing(); engine.focus(); } };
@@ -255,9 +257,13 @@ export function createInsert({ editor, pkg, error, base = {}, docName = () => ''
     const [, name, , w, h] = entry, line = LINE_PRESETS.has(preset), open = UNFILLED_PRESETS.has(preset);
     return insertDrawing((engine, id, order) => {
       if (rect) { engine.model.select(rect.position); }
-      const width = rect?.dragged ? Math.max(9525 * 4, rect.width) : Math.round(w * EMU_PER_INCH), height = line ? 0 : rect?.dragged ? Math.max(9525 * 4, rect.height) : Math.round(h * EMU_PER_INCH);
+      // A dragged line goes from the drag's start to its end; one within a few pixels of an axis is straight along it.
+      const drawnLine = line && rect?.dragged;
+      const width = drawnLine ? (rect.straight.x ? 0 : rect.width) : rect?.dragged ? Math.max(9525 * 4, rect.width) : Math.round(w * EMU_PER_INCH);
+      const height = drawnLine ? (rect.straight.y ? 0 : rect.height) : line ? 0 : rect?.dragged ? Math.max(9525 * 4, rect.height) : Math.round(h * EMU_PER_INCH);
+      const flips = drawnLine ? { flipH: !!width && rect.flipH, flipV: !!height && rect.flipV } : {};
       const anchor = rect ? { horizontal: 'page', vertical: 'page', x: rect.x, y: rect.y, wrap: 'none', behind: false, order } : { horizontal: 'column', vertical: 'paragraph', x: 0, y: 0, wrap: 'none', behind: false, order };
-      return sceneFragment(engine, shapeDrawingXml({ id, name: `${name} ${id}`, preset, width, height, fill: line || open ? null : DEFAULT_SHAPE_STYLE.fill, line: line || open ? DEFAULT_SHAPE_STYLE.fill : DEFAULT_SHAPE_STYLE.line, lineWidth: DEFAULT_SHAPE_STYLE.lineWidth, anchor }));
+      return sceneFragment(engine, shapeDrawingXml({ id, name: `${name} ${id}`, preset, width, height, fill: line || open ? null : DEFAULT_SHAPE_STYLE.fill, line: line || open ? DEFAULT_SHAPE_STYLE.fill : DEFAULT_SHAPE_STYLE.line, lineWidth: DEFAULT_SHAPE_STYLE.lineWidth, anchor, ...flips }));
     });
   }
   function openShapes(anchor, event) {

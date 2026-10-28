@@ -86,8 +86,9 @@ export async function updateShape(editor, patch) {
   const selected = selectedShape(editor);
   if (!selected) throw new Error('Select a shape to format it.');
   const { image, params } = selected, model = editor.model, revision = editor.session.revision;
-  const width = patch.width ?? image.width, height = LINE_PRESETS.has(params.preset) ? 0 : patch.height ?? image.height;
-  if (!(width > 0) || !(height > 0 || LINE_PRESETS.has(params.preset)) || width > 22 * EMU_PER_INCH || height > 22 * EMU_PER_INCH) throw new Error('Shape sizes must be greater than 0 and at most 22 inches.');
+  const width = patch.width ?? image.width, height = patch.height ?? image.height, line = LINE_PRESETS.has(params.preset);
+  // A line may be straight along either axis (one side 0), or slanted.
+  if (!(line ? width >= 0 && height >= 0 && width + height > 0 : width > 0 && height > 0) || width > 22 * EMU_PER_INCH || height > 22 * EMU_PER_INCH) throw new Error('Shape sizes must be greater than 0 and at most 22 inches.');
   // An axis the edit places at an offset no longer follows the alignment or percentage it had.
   const moved = new Set(['x', 'y'].filter(axis => patch.anchor?.[axis] !== undefined));
   const anchor = image.anchor ? { ...image.anchor, ...(patch.anchor || {}) } : undefined;

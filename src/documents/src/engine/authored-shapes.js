@@ -68,14 +68,14 @@ const solid = color => color ? `<a:solidFill><a:srgbClr val="${color}"/></a:soli
  * The `w:drawing` for a shape. params: { preset, width, height (EMU), fill (hex or null), line (hex or
  * null), lineWidth (EMU), anchor? }. The anchor is the editor's floating anchor object.
  */
-export function shapeDrawingXml({ id, name, preset, width, height, fill, line, lineWidth, anchor, text, bodyXml }) {
+export function shapeDrawingXml({ id, name, preset, width, height, fill, line, lineWidth, anchor, text, bodyXml, flipH = false, flipV = false }) {
   const isLine = LINE_PRESETS.has(preset);
   const geometry = preset === 'straightArrow' ? 'line' : preset;
   const ends = preset === 'straightArrow' ? '<a:tailEnd type="triangle"/>' : '';
   const outline = line ? `<a:ln w="${lineWidth}">${solid(line)}${ends}</a:ln>` : '<a:ln><a:noFill/></a:ln>';
   // A text box keeps its paragraphs and body properties as authored; a plain shape has an empty body.
   const body = text !== undefined ? `<wps:txbx><w:txbxContent>${text}</w:txbxContent></wps:txbx>${bodyXml || TEXT_BODY}` : '<wps:bodyPr/>';
-  const shape = `<a:graphic><a:graphicData uri="${NS.wps}"><wps:wsp><wps:cNvSpPr${text !== undefined ? ' txBox="1"' : ''}/><wps:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${width}" cy="${height}"/></a:xfrm>`
+  const shape = `<a:graphic><a:graphicData uri="${NS.wps}"><wps:wsp><wps:cNvSpPr${text !== undefined ? ' txBox="1"' : ''}/><wps:spPr><a:xfrm${flipH ? ' flipH="1"' : ''}${flipV ? ' flipV="1"' : ''}><a:off x="0" y="0"/><a:ext cx="${width}" cy="${height}"/></a:xfrm>`
     + `<a:prstGeom prst="${geometry}"><a:avLst/></a:prstGeom>${isLine ? '' : solid(fill)}${outline}</wps:spPr>${body}</wps:wsp></a:graphicData></a:graphic>`;
   const docPr = `<wp:docPr id="${id}" name="${escape(name)}"/>`, extent = `<wp:extent cx="${width}" cy="${height}"/>`;
   const frame = anchor
@@ -97,7 +97,8 @@ export function buildShape(params) {
   const scene = readShapeScene(wsp, unsupported('pictures'), unsupported('text'), unsupported('picture fills'), unsupported('theme colors'), unsupported('theme fonts'), unsupported('theme styles'), { frame: { width: params.width, height: params.height } });
   const asset = { scene, width: params.width / 9525, height: params.height / 9525 };
   const image = validateImage({ kind: 'drawing', retainedDrawing: true, assetId: params.assetId, width: params.width, height: params.height,
-    ...(LINE_PRESETS.has(params.preset) ? { flatLine: { rotation: 0, flipH: false, flipV: false, strokeWidth: scene.outline?.width || 0, ...(scene.outline?.tailEnd ? { markerPen: scene.outline.declaredWidth ?? scene.outline.width, tailEnd: scene.outline.tailEnd } : {}) } } : {}),
+    // A straight line along one axis is a flat line; a slanted one is drawn as its box's diagonal.
+    ...(LINE_PRESETS.has(params.preset) && !params.width !== !params.height ? { flatLine: { rotation: 0, flipH: false, flipV: false, strokeWidth: scene.outline?.width || 0, ...(scene.outline?.tailEnd ? { markerPen: scene.outline.declaredWidth ?? scene.outline.width, tailEnd: scene.outline.tailEnd } : {}) } } : {}),
     effectExtent: { left: 0, top: 0, right: 0, bottom: 0 }, ...(params.anchor ? { anchor: params.anchor } : {}), id: params.id, name: params.name, alt: '', shell });
   return { image, asset };
 }
