@@ -249,8 +249,14 @@ export function createTableTools({ editor, pkg, error = () => {}, onChange = () 
   function sortDialog() {
     const engine = ready(); const b = block(); if (!engine || !b) return;
     engine.finishComposition();
-    const table = b.table, firstRow = table.rows[0], text = cell => engine.model.paragraphs.filter(p => p.cellId === cell.id).map(keptText).join(' ').replace(/￼/g, '').trim();
-    const columns = rowGrid(firstRow).map((entry, i) => ({ column: entry.column, label: `Column ${i + 1}`, header: text(entry.cell) || `Column ${i + 1}` }));
+    const table = b.table, text = cell => engine.model.paragraphs.filter(p => p.cellId === cell.id).map(keptText).join(' ').replace(/￼/g, '').trim();
+    // Every column a cell starts at in some row, so a title merged across the first row hides none; each is
+    // named from the first row with a cell just that wide there.
+    const grids = table.rows.map(rowGrid), starts = [...new Set(grids.flat().map(entry => entry.column))].sort((x, y) => x - y);
+    const columns = starts.map((column, i) => {
+      const end = starts[i + 1] ?? table.grid.length, entry = grids.flat().find(e => e.column === column && e.end === end) || grids.flat().find(e => e.column === column);
+      return { column, label: `Column ${i + 1}`, header: text(entry.cell) || `Column ${i + 1}` };
+    });
     openSortDialog({ columns, header: headerRowCount(table) > 0 || !!table.conditionalStyle?.settings.look.firstRow && !!table.styleId },
       choice => { let failure; engine.execute(() => T.sortTable(engine.model, choice), e => { failure = e; }, undefined, true); if (failure) throw failure; onChange(); return true; }, { onClose: closeFocus });
   }
