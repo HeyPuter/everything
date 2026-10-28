@@ -42,7 +42,7 @@ import { bodyFieldRanges } from './body-fields.js';
 import { projectCachedFieldResults } from './docx-field-results.js';
 import { shapeHasFields } from './shape-page-fields.js';
 import { controlSignature, controlContentSignature, contentControlRanges, changedContentControls } from './content-controls.js';
-import { MC, alternateBranch, activeDescendants, serializeFragment, bindUsedNamespaces } from './docx-compatibility.js';
+import { MC, alternateBranch, activeDescendants, serializeFragment, deferredFragment, bindUsedNamespaces } from './docx-compatibility.js';
 import { readParagraphBorders, writeParagraphBorders } from './docx-paragraph-borders.js';
 import { readParagraphShading, writeParagraphShading } from './docx-paragraph-shading.js';
 import { hyperlinkReader, hyperlinkWriter, bindHyperlinkNamespaces } from './docx-hyperlinks.js';
@@ -1818,7 +1818,10 @@ export class DocxPackage {
       }
       if (movedInto || moveRangeOpen()) crossingMoves.add(p);
       if (!context.drawingText && !context.pageStory) {
-        originals.set(p.id, { signature: signature(p), xml: serializeFragment(sourceNode), ...(proofingSafe && proofAnchors.length ? { proofAnchors, proofText: paragraphText(p) } : {}) });
+        // The source XML is needed only to save this paragraph unchanged after other edits (and
+        // by the table reader), so it is serialized when first read; see deferredFragment.
+        const source = deferredFragment(sourceNode);
+        originals.set(p.id, { signature: signature(p), get xml() { return source(); }, ...(proofingSafe && proofAnchors.length ? { proofAnchors, proofText: paragraphText(p) } : {}) });
         if (savedSpellingComplete && proofingSafe) spellingAnchors.set(p.id, proofAnchors);
       }
       return p;

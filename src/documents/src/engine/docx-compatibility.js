@@ -55,6 +55,20 @@ export function activeDescendants(node) {
 export function serializeFragment(node) {
   return serializeCopy(node.cloneNode(true), inScopeDeclarations(node));
 }
+/**
+ * serializeFragment(node) as it is now, serialized only when first asked for. The node and
+ * the declarations it inherits are copied now, so later changes to the tree cannot alter the
+ * text. Opening keeps each body paragraph's source this way: most are never asked for (an
+ * unedited save writes the original part), and serializing them all was a large share of
+ * the time to open a long document.
+ */
+export function deferredFragment(node) {
+  let copy = node.cloneNode(true), declarations = inScopeDeclarations(node), text;
+  return () => {
+    if (text === undefined) { text = serializeCopy(copy, declarations); copy = declarations = null; }
+    return text;
+  };
+}
 // The namespace declarations on `node` and its ancestors, the nearest of each prefix first.
 function inScopeDeclarations(node) {
   const declarations = [], bound = new Set();

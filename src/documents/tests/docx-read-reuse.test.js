@@ -1,11 +1,11 @@
-// Opening reuses work it used to repeat: each distinct numbering level is read once and
-// relationships are parsed once.
+// Opening reuses work it used to repeat: each distinct numbering level is read once,
+// relationships are parsed once, and body paragraph sources are serialized on demand.
 // These check that the reuse never shares state or changes what is read or saved.
 import { beforeAll, afterAll, it, expect } from 'vitest';
 import { JSDOM } from 'jsdom';
 import { zipSync, unzipSync, strToU8, strFromU8 } from 'fflate';
 import { DocxPackage } from '../src/engine/docx.js';
-import { serializeFragment } from '../src/engine/docx-compatibility.js';
+import { serializeFragment, deferredFragment } from '../src/engine/docx-compatibility.js';
 import { childElement, childElements, elementChildren } from '../src/engine/docx-xml.js';
 
 let dom;
@@ -86,11 +86,17 @@ it('reads hyperlinks through the shared relationship index and keeps saving unch
   expect(saved).toContain('First!');
 });
 
-it('serializes a fragment with the namespaces it inherits', () => {
-  const doc = new DOMParser().parseFromString(`<w:document xmlns:w="${W}" xmlns:o="urn:other"><w:body><w:p o:attr="1"><w:r><w:t>Text</w:t></w:r></w:p></w:body></w:document>`, 'application/xml');
-  const text = serializeFragment(doc.getElementsByTagNameNS(W, 'p')[0]);
-  expect(text).toContain('xmlns:o="urn:other"');
-  expect(new DOMParser().parseFromString(text, 'application/xml').documentElement.getAttributeNS('urn:other', 'attr')).toBe('1');
+it('serializes a deferred fragment exactly as it was when taken', () => {
+  const doc = new DOMParser().parseFromString(`<w:document xmlns:w="${W}" xmlns:o="urn:other" xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" mc:Ignorable="o"><w:body><w:p o:attr="1"><w:r><w:t>Text</w:t></w:r></w:p></w:body></w:document>`, 'application/xml');
+  const p = doc.getElementsByTagNameNS(W, 'p')[0], expected = serializeFragment(p);
+  const later = deferredFragment(p);
+  p.firstElementChild.remove();
+  doc.documentElement.removeAttribute('xmlns:o');
+  doc.documentElement.setAttributeNS('http://www.w3.org/2000/xmlns/', 'xmlns:x', 'urn:x');
+  expect(expected).toContain('xmlns:o="urn:other"');
+  expect(later()).toBe(expected);
+  expect(later()).toBe(expected);
+  expect(serializeFragment(p)).not.toBe(expected);
 });
 
 it('lists element children as the collection does', () => {
