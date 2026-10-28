@@ -88,3 +88,32 @@ test('text still being composed is underlined until it is committed', async ({ p
   expect(await page.evaluate(() => window.__docs.current.view.engine.compositionRange())).toBeNull();
   expect(await underline()).toBeGreaterThan(200);
 });
+
+test('a letter or quote composed with a dead key is corrected as a typed one is', async ({ page }) => {
+  await page.goto('/mock.html#/new');
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await input(page).focus();
+  const cdp = await page.context().newCDPSession(page);
+  // A dead key composes its mark, then the letter (or the quote itself) that follows ends the composition.
+  const dead = async (mark, result) => {
+    await cdp.send('Input.imeSetComposition', { text: mark, selectionStart: 1, selectionEnd: 1 });
+    await cdp.send('Input.insertText', { text: result });
+  };
+  await dead('´', 'é');
+  await page.keyboard.type('l dijo. ');
+  await dead('´', 'á');
+  await page.keyboard.type('rbol ');
+  await dead("'", "'");
+  await page.keyboard.type('hola');
+  await dead("'", "'");
+  await expect(input(page)).toHaveValue('Él dijo. Árbol ‘hola’');
+  // The correction is a step of its own, as for a typed quote.
+  await input(page).press('ControlOrMeta+z');
+  await expect(input(page)).toHaveValue('Él dijo. Árbol ‘hola\'');
+  // A composition of several characters (a word from an input method) is left as committed.
+  await input(page).press('End');
+  await page.keyboard.type(' ');
+  for (const text of ['n', 'ni', 'ni"']) await cdp.send('Input.imeSetComposition', { text, selectionStart: text.length, selectionEnd: text.length });
+  await cdp.send('Input.insertText', { text: 'ni"' });
+  await expect(input(page)).toHaveValue('Él dijo. Árbol ‘hola\' ni"');
+});

@@ -179,7 +179,7 @@ export class CanvasEditor {
       this.compositionStart = this.input.selectionStart; this.compositionText = '';
     });
     listen(this.input, 'compositionupdate', e => { if (this.composition) this.compositionText = e.data || ''; });
-    listen(this.input, 'compositionend', () => this.finishComposition());
+    listen(this.input, 'compositionend', e => this.finishComposition(e.data));
     listen(this.input, 'select', () => this.nativeSelection());
     listen(this.input, 'keyup', () => this.nativeSelection());
     // A click in the native text (accessible text mode) moves the caret with no key or select
@@ -1983,7 +1983,8 @@ export class CanvasEditor {
     const end = Math.min(start + this.compositionText.length, this.model.text.length);
     return end > start ? [start, end] : null;
   }
-  finishComposition() {
+  /** Commit the composition; `committed` is the text it ended with, when an input method ended it. */
+  finishComposition(committed = null) {
     if (!this.composition) return;
     const before = this.composition;
     try {
@@ -1999,6 +2000,9 @@ export class CanvasEditor {
     if (changed) this.session.record(before);
     this.relayout();
     if (changed) this.onChange();
+    // A dead key (´ then e, or a quote on an international layout) composes one character, which is corrected and
+    // linked as one typed with a key is: É at a sentence's start, a typographic quote.
+    if (changed && typeof committed === 'string' && [...committed].length === 1) this.assistTyping(committed);
   }
   copy(e, cut) {
     if (this.composition || !e.clipboardData) return;
