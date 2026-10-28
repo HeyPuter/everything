@@ -175,8 +175,13 @@ function inherited(el, format) {
   if (tag === 'S' || tag === 'STRIKE' || tag === 'DEL') next.strikethrough = 'single';
   if (tag === 'SUP') next.verticalAlign = 'superscript';
   if (tag === 'SUB') next.verticalAlign = 'subscript';
-  if (s.fontWeight) next.bold = s.fontWeight === 'bold' || s.fontWeight === 'bolder' || Number(s.fontWeight) >= 600;
-  if (s.fontStyle) next.italic = s.fontStyle === 'italic' || s.fontStyle === 'oblique';
+  // A weight or style the element inherits (inherit, unset: both inherited properties) is its parent's, as a reset
+  // style sheet's "font: inherit" makes a span inside bold text say.
+  const own = value => value && !/^(inherit|unset)$/i.test(value);
+  if (own(s.fontWeight)) next.bold = s.fontWeight === 'bold' || s.fontWeight === 'bolder' || Number(s.fontWeight) >= 600;
+  else if (s.fontWeight) next.bold = format.bold;
+  if (own(s.fontStyle)) next.italic = s.fontStyle === 'italic' || s.fontStyle === 'oblique';
+  else if (s.fontStyle) next.italic = format.italic;
   const decoration = `${s.textDecorationLine || ''} ${s.textDecoration || ''}`;
   if (/underline/.test(decoration)) next.underlineStyle = 'single';
   if (/line-through/.test(decoration)) next.strikethrough = 'single';

@@ -106,3 +106,11 @@ it('keeps a table row on one line when its cells hold paragraphs, as Word, Libre
   expect(texts('<table><tbody><tr><td><p dir="ltr"><span>Item</span></p></td><td><div>Two</div><div>lines</div></td></tr></tbody></table><p>After</p>')).toEqual(['Item\tTwo lines', 'After']);
   expect(texts('<table><tr><th><h3>Head</h3></th><td>Plain</td></tr></table>')).toEqual(['Head\tPlain']);
 });
+
+it('keeps the emphasis a span inherits when its style says inherit, as a reset style sheet makes it say', () => {
+  const runs = html => htmlFragment(html)?.paragraphs.flatMap(p => p.runs.map(r => [r.text, !!r.format.bold, !!r.format.italic]));
+  expect(runs('<p><b>Bold <span style="font-weight:inherit">word</span></b> <i>Slanted <span style="font-style:unset">word</span></i></p>'))
+    .toEqual([['Bold word', true, false], [' ', false, false], ['Slanted word', false, true]]);
+  // A weight or style of its own still counts.
+  expect(runs('<p><b>Bold <span style="font-weight:normal">plain</span></b></p>')).toEqual([['Bold ', true, false], ['plain', false, false]]);
+});
