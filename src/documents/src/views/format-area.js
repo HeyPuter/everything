@@ -381,6 +381,7 @@ export function createFormatArea({ editor, pkg, error, refresh: refreshChrome = 
   };
 
   /* ---- Paste ---- */
+  const CLIPBOARD_CLOSED = 'The clipboard could not be read. Allow clipboard access, or paste with the keyboard.';
   let lastPaste = null, chip = null, original = null;
   async function readClipboard() {
     let text = '', html = '', picture = null;
@@ -409,7 +410,10 @@ export function createFormatArea({ editor, pkg, error, refresh: refreshChrome = 
       pasteWith(engine, mode, data);
       if (engine.session.revision !== before) remember(engine, data, mode);
       engine.focus();
-    } catch (e) { error(e); }
+    } catch (e) {
+      // A browser that keeps the clipboard closed to the page says so in its own technical terms.
+      error(e?.name === 'NotAllowedError' || e?.name === 'SecurityError' ? new Error(CLIPBOARD_CLOSED) : e);
+    }
   }
   function remember(engine, data, mode) {
     lastPaste = { engine, data, mode, revision: engine.session.revision };
@@ -447,7 +451,7 @@ export function createFormatArea({ editor, pkg, error, refresh: refreshChrome = 
     const engine = ready(); if (!engine) return;
     engine.finishComposition();
     let data;
-    try { data = await readClipboard(); } catch (e) { error(new Error('The clipboard could not be read. Allow clipboard access, or paste with the keyboard.')); return; }
+    try { data = await readClipboard(); } catch (e) { error(new Error(CLIPBOARD_CLOSED)); return; }
     const formatted = availablePasteModes(engine.model, data).includes('keep');
     const choices = [
       ...(formatted ? [{ id: 'keep', label: 'HTML format', hint: 'Text with the source’s fonts, styles and lists' }, { id: 'merge', label: 'Formatted text (merged)', hint: 'Bold, italic and underline only, in this document’s formatting' }] : []),

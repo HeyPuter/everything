@@ -89,6 +89,11 @@ test('Paste from the menus explains a clipboard the browser keeps closed, and na
     await expect(toast).toHaveText(/The browser didn’t allow reading the clipboard\. Paste with (Cmd|Ctrl)\+V, or (Cmd|Ctrl)\+Shift\+V for the text alone\./);
     await expect(toast).not.toContainText('Failed to execute');
   }
+  // The Paste options on the Home tab say the same.
+  await page.getByRole('button', { name: 'Paste options', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Keep Text Only', exact: true }).click();
+  const toast = page.locator('.toast').filter({ hasText: 'clipboard' }).last();
+  await expect(toast).toHaveText('The clipboard could not be read. Allow clipboard access, or paste with the keyboard.');
   await expect(input(page)).toHaveValue('Hello');
 });
 
