@@ -66,3 +66,30 @@ test('grouping and ungrouping keep the objects stacked as they were', async ({ p
   expect(orders[first.kind]).toBeLessThan(orders.triangle);
   expect(errors).toEqual([]);
 });
+
+test('Hide All and Show All in the Selection pane are one Undo each', async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/mock.html#/new');
+  await expect((await onTab(page, 'home')).getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await input(page).focus();
+  for (let i = 0; i < 8; i++) { await page.keyboard.type(`Paragraph ${i + 1} of the text the shapes sit on.`); await page.keyboard.press('Enter'); }
+  await drawShape(page, 'Rectangle', [300, 200], [400, 260]);
+  await drawShape(page, 'Oval', [450, 200], [550, 260]);
+  await drawShape(page, 'Isosceles Triangle', [600, 200], [700, 260]);
+  const hidden = () => page.evaluate(() => window.__docs.current.view.engine.model.paragraphs.flatMap(p => p.runs).filter(r => r.image).map(r => !!r.image.hidden));
+  await onTab(page, 'shapeFormat');
+  await page.locator('#ribbon-panel-shapeFormat').getByRole('button', { name: 'Selection Pane', exact: true }).click();
+  const pane = page.getByRole('complementary', { name: 'Selection pane' });
+  await pane.getByRole('button', { name: 'Hide All', exact: true }).click();
+  await expect.poll(hidden).toEqual([true, true, true]);
+  await page.getByRole('button', { name: 'Undo', exact: true }).first().click();
+  await expect.poll(hidden).toEqual([false, false, false]);
+  await page.getByRole('button', { name: 'Redo', exact: true }).first().click();
+  await expect.poll(hidden).toEqual([true, true, true]);
+  await pane.getByRole('button', { name: 'Show All', exact: true }).click();
+  await expect.poll(hidden).toEqual([false, false, false]);
+  await page.getByRole('button', { name: 'Undo', exact: true }).first().click();
+  await expect.poll(hidden).toEqual([true, true, true]);
+  expect(errors).toEqual([]);
+});

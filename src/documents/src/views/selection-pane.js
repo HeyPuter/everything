@@ -74,10 +74,8 @@ export function createPane(context) {
     label.replaceWith(input); input.focus(); input.select();
   }
   async function setAll(hidden) {
-    for (const image of ordered()) {
-      const current = runImages(editor()?.model).find(i => i.id === image.id);
-      if (current && !!current.hidden !== hidden && !(await commands.setHidden(current, hidden))) break;
-    }
+    // One step for all of them: one Undo shows or hides them again.
+    await commands.setHiddenAll(ordered(), hidden);
     refresh(true);
   }
   function restack(images) {

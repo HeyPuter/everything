@@ -173,6 +173,50 @@ export async function formatDrawing(editor, image, edit, { label = 'drawing' } =
 }
 
 /**
+ * Rewrite several drawings with the same edit as one undo step (Hide All, Compress Pictures on every
+ * picture). Drawings the edit leaves unchanged are skipped. Returns how many changed; throws, changing
+ * none, when one cannot be rewritten.
+ */
+export async function formatDrawings(editor, targets, edit, { label = 'drawing' } = {}) {
+  if (editor.readOnly) throw new Error('This document is read-only.');
+  const pkg = editor.shapePackage?.();
+  if (!pkg) throw new Error('Formatting is not available for this document.');
+  editor.finishComposition?.();
+  const model = editor.model, revision = editor.session.revision, fragments = [];
+  for (const image of targets) {
+    if (!images(model).includes(image)) throw new Error(`Select the ${label} again.`);
+    const { drawing, parts } = materializeDrawing(pkg, model, image), added = [];
+    const context = {
+      parts,
+      addPart(bytes, contentType, stem = 'canvas-edit') {
+        const extension = Object.entries(CONTENT_TYPES).find(([, type]) => type === contentType)?.[0] || 'bin';
+        const used = new Set([...fragments.flatMap(f => f.added.map(a => a.path))]);
+        let part; do part = freshPart(model, pkg.parts, 'media', stem, extension); while (used.has(part.path) || [...fragments.flatMap(f => f.added)].some(a => a.relId === part.relId));
+        added.push({ ...part, bytes, contentType, relType: REL_TYPES.image });
+        return part.relId;
+      },
+      partBytes(relId) { return parts.get(relId)?.bytes || added.find(part => part.relId === relId)?.bytes || null; },
+      release(relId) { const part = parts.get(relId); if (part?.existing && part.path) (pkg.releasedMedia ||= new Set()).add(part.path); },
+    };
+    const before = new XMLSerializer().serializeToString(drawing);
+    const result = await edit(drawing, context);
+    if (result === false || new XMLSerializer().serializeToString(drawing) === before) continue;
+    reserveRotatedBounds(drawing, image);
+    fragments.push({ image, added, fragment: await readFormattedDrawing(pkg, model, image, drawing, parts, added) });
+  }
+  if (!fragments.length) return 0;
+  const ok = await applyDrawingFragments(editor, fragments.map(f => f.fragment), model => {
+    const replaced = new Map(fragments.map(({ image, fragment }) => [image, { ...fragment.image, id: image.id }]));
+    if ([...replaced.keys()].some(image => !images(model).includes(image))) throw new Error('The document changed while the drawings were prepared. Try again.');
+    model.checkpoint();
+    for (const p of model.paragraphs) for (const run of p.runs) if (replaced.has(run.image)) run.image = replaced.get(run.image);
+    model.didChange();
+    return true;
+  }, { revision });
+  return ok ? fragments.length : 0;
+}
+
+/**
  * A picture's frame reserves room for its rotated bounds (wp:effectExtent), which the reader takes as saved.
  * An edit that turns or resizes the picture through its XML (the rotation handle, Rotate, Reset Picture,
  * Size and Position, a tilted picture style) reserves them anew, as the model does for its own edits:
