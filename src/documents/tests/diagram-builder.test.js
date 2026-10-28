@@ -2,7 +2,7 @@ import { beforeAll, afterAll, it, expect } from 'vitest';
 import { JSDOM } from 'jsdom';
 import { DocxPackage, createDocx, WRITING_STYLES } from '../src/engine/docx.js';
 import { TextDocument, paragraph } from '../src/engine/model.js';
-import { DIAGRAM_LAYOUTS, DIAGRAM_COLORS, DEFAULT_OUTLINE, parseOutline, outlineText, diagramShapes, diagramDrawingXml, parseDiagramDescription } from '../src/engine/diagram-builder.js';
+import { DIAGRAM_LAYOUTS, DIAGRAM_COLORS, DEFAULT_OUTLINE, parseOutline, outlineText, diagramShapes, diagramDrawingXml, parseDiagramDescription, hiddenDiagramItems } from '../src/engine/diagram-builder.js';
 import { readDrawingFragment } from '../src/engine/inserted-drawings.js';
 
 let dom;
@@ -80,4 +80,16 @@ it('writes diagram text pasted with line breaks or control characters as readabl
 it('says how much text a diagram can hold when an outline is too long for it', () => {
   const items = parseOutline(Array.from({ length: 40 }, (_, i) => `Milestone ${i}: a fairly long description of what happens in this phase`).join('\n'));
   expect(() => diagramDrawingXml({ layout: DIAGRAM_LAYOUTS[0].id, items, id: 1 })).toThrow(/too much text: it can hold about \d+ characters/);
+});
+
+it('says which items a layout does not show', () => {
+  const deep = parseOutline('A\n  B\n    C\nD\n  E');
+  expect(hiddenDiagramItems('verticalList', deep)).toEqual(['C']);
+  expect(hiddenDiagramItems('basicCycle', deep)).toEqual(['B', 'C', 'E']);
+  expect(hiddenDiagramItems('orgChart', parseOutline('CEO\n  VP\n    Dir\n      Mgr'))).toEqual(['Mgr']);
+  expect(hiddenDiagramItems('venn', parseOutline('a\nb\nc\nd\ne'))).toEqual(['e']);
+  expect(hiddenDiagramItems('matrix', parseOutline('a\nb\nc\nd'))).toEqual([]);
+  // Items with the same text are counted one by one.
+  expect(hiddenDiagramItems('basicCycle', parseOutline('Plan\n  Plan\nDo'))).toEqual(['Plan']);
+  for (const layout of DIAGRAM_LAYOUTS) expect(hiddenDiagramItems(layout.id, parseOutline(DEFAULT_OUTLINE)), layout.id).toEqual(expect.any(Array));
 });

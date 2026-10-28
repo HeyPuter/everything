@@ -11,7 +11,7 @@ import { formatDatePicture, DATE_PICTURES, FIELD_CATALOG, DOCUMENT_PROPERTY_NAME
 import { linearToOmml, ommlToLinear, EQUATION_GALLERY } from '../engine/math-linear.js';
 import { ommlToMathml } from '../engine/omml-mathml.js';
 import { ICONS, ICON_CATEGORIES, iconSvg, searchIcons } from '../lib/icon-library.js';
-import { DIAGRAM_LAYOUTS, DIAGRAM_COLORS, DEFAULT_OUTLINE, parseOutline, diagramShapes } from '../engine/diagram-builder.js';
+import { DIAGRAM_LAYOUTS, DIAGRAM_COLORS, DEFAULT_OUTLINE, parseOutline, diagramShapes, hiddenDiagramItems } from '../engine/diagram-builder.js';
 
 const field = (label, control, hint) => el('label.field', {}, el('span.field-label', {}, label), control, hint ? el('span.field-hint', {}, hint) : null);
 const select = (label, options, value) => {
@@ -346,7 +346,15 @@ export function openDiagramDialog({ initial = null, editing = false, onInsert, o
     const edge = { Home: options[0], End: options.at(-1) }[e.key];
     if (at < 0 || !step && !edge) return; e.preventDefault(); const next = edge || options[(at + step + options.length) % options.length]; next.focus(); next.click();
   });
-  const render = () => preview.replaceChildren(diagramSketch(layout, parseOutline(outline.value), colors.value));
+  // Items the chosen layout leaves out of its picture (deeper levels, sub-items, items past its room) are named, not dropped silently.
+  const omitted = el('p.field-hint.insert-diagram-omitted', { 'aria-live': 'polite', hidden: true });
+  const render = () => {
+    const items = parseOutline(outline.value), hidden = hiddenDiagramItems(layout, items), name = DIAGRAM_LAYOUTS.find(entry => entry.id === layout)?.name || 'This layout';
+    preview.replaceChildren(diagramSketch(layout, items, colors.value));
+    const list = hidden.length > 6 ? `${hidden.slice(0, 5).map(t => `“${t}”`).join(', ')} and ${hidden.length - 5} more` : hidden.map(t => `“${t}”`).join(', ');
+    omitted.textContent = hidden.length ? `${name} does not show ${hidden.length === 1 ? 'this item' : `these ${hidden.length} items`}: ${list}. ${hidden.length === 1 ? 'It stays' : 'They stay'} in the diagram's text; choose another layout to show ${hidden.length === 1 ? 'it' : 'them'}.` : '';
+    omitted.hidden = !hidden.length;
+  };
   outline.addEventListener('input', render); colors.addEventListener('change', render);
   outline.addEventListener('keydown', e => {
     if (e.key !== 'Tab' || isComposing(e) || e.ctrlKey || e.metaKey || e.altKey) return;
@@ -361,7 +369,7 @@ export function openDiagramDialog({ initial = null, editing = false, onInsert, o
   });
   const dialog = formDialog({ title: editing ? 'Edit Diagram' : 'Diagram', submit: editing ? 'Update' : 'Insert', wide: true, className: 'insert-diagram', onClose, content: [
     el('div.insert-diagram-grid', {}, layouts,
-      el('div.insert-diagram-editor', {}, field('Text (one item per line; Tab at the start of a line indents it for details)', outline), field('Colors', colors), preview))],
+      el('div.insert-diagram-editor', {}, field('Text (one item per line; Tab at the start of a line indents it for details)', outline), field('Colors', colors), preview, omitted))],
   onSubmit: () => {
     const items = parseOutline(outline.value);
     if (!items.length) throw new Error('Type at least one item.');

@@ -59,3 +59,25 @@ test('chart types and diagram layouts are chosen with the keyboard', async ({ pa
   await expect(text).not.toBeFocused();
   expect(errors).toEqual([]);
 });
+
+test('the Diagram dialog names the items a layout does not show', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/mock.html#/new');
+  await expect((await onTab(page, 'home')).getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await page.getByRole('textbox', { name: 'Document text' }).focus();
+  await onTab(page, 'insert');
+  await page.locator('#ribbon-panel-insert').getByRole('button', { name: 'Diagram', exact: true }).click();
+  await page.getByRole('menuitem', { name: /^Basic Cycle/ }).click();
+  const diagram = page.getByRole('dialog', { name: 'Diagram' });
+  await diagram.getByRole('textbox', { name: 'Diagram text' }).fill('Plan\n  Budget\nDo\nCheck');
+  const notice = diagram.locator('.insert-diagram-omitted');
+  await expect(notice).toBeVisible();
+  await expect(notice).toHaveText('Basic Cycle does not show this item: “Budget”. It stays in the diagram\'s text; choose another layout to show it.');
+  // A layout that shows details beside each item: nothing to say.
+  await diagram.getByRole('listbox', { name: 'Layouts' }).getByRole('option', { name: /^Vertical List/ }).click();
+  await expect(notice).toBeHidden();
+  // Three levels: the third is named.
+  await diagram.getByRole('textbox', { name: 'Diagram text' }).fill('Plan\n  Budget\n    Q1\nDo');
+  await expect(notice).toContainText('Vertical List does not show this item: “Q1”');
+  if (process.env.DIAGRAM_SHOTS) await page.screenshot({ path: `${process.env.DIAGRAM_SHOTS}/diagram-omitted.png` });
+});

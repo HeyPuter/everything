@@ -69,6 +69,23 @@ function fitSize(text, w, h, max = 18, min = 8) {
 }
 
 /** Shape boxes for a layout: [{ x, y, w, h, preset, role: 'node'|'accent'|'connector', text, level, index, rotation, adj }]. */
+/**
+ * The items (by text, in outline order) a layout leaves out of its picture: levels below those it
+ * draws, sub-items of layouts that draw top-level items only, items past the number it has room for.
+ * Read from the shapes the layout makes, so it stays true to each layout.
+ */
+export function hiddenDiagramItems(layoutId, items) {
+  const shown = new Map();
+  for (const shape of diagramShapes(layoutId, items)) for (const line of String(shape.text || '').split('\n')) {
+    const text = line.replace(/^•\s*/, '').trim();
+    if (text) shown.set(text, (shown.get(text) || 0) + 1);
+  }
+  const hidden = [];
+  const walk = list => { for (const item of list) { const count = shown.get(item.text) || 0; if (count) shown.set(item.text, count - 1); else hidden.push(item.text); walk(item.children); } };
+  walk(items);
+  return hidden;
+}
+
 export function diagramShapes(layoutId, items, { width = toEmu(6), height = toEmu(3.5) } = {}) {
   const top = items.length ? items : [{ text: ' ', children: [] }];
   const n = top.length, shapes = [], gap = toEmu(0.12);
