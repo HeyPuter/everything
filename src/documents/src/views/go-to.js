@@ -1,6 +1,7 @@
 import { el } from '../ui/dom.js';
 import { openModal } from '../ui/modal.js';
 import { paragraphText } from '../engine/model.js';
+import { pageNumberSequence, formatPageNumber } from '../engine/page-numbering.js';
 
 const KINDS = [['page', 'Page'], ['line', 'Line'], ['bookmark', 'Bookmark'], ['heading', 'Heading'], ['table', 'Table'], ['graphic', 'Graphic']];
 
@@ -11,8 +12,19 @@ export function goToTargets(engine, kind) {
     // A page without body text (a full-page picture) goes to where the text before it ends.
     const first = new Map();
     for (const line of lines) if (!first.has(line.page)) first.set(line.page, line.start);
+    // Each page with the number printed on it, as its section numbers pages (§17.6.12 pgNumType): sections can
+    // restart numbering, count from 0 or show letters and Roman numerals.
+    const sections = engine.layout.pageSections || [], definition = engine.pageStories;
+    let numbers = [];
+    try { numbers = pageNumberSequence(sections, definition, engine.layout.numberingApproximations); } catch { numbers = []; }
     let last = 0;
-    return Array.from({ length: engine.layout.pageCount }, (_, i) => { if (first.has(i)) last = first.get(i); return { position: last, label: `Page ${i + 1}` }; });
+    return Array.from({ length: engine.layout.pageCount }, (_, i) => {
+      if (first.has(i)) last = first.get(i);
+      const number = numbers[i] ?? null, section = sections[i] ?? null;
+      let text = number === null ? null : String(number);
+      try { if (number !== null) text = formatPageNumber(number, definition?.sections?.[section]?.pageNumbering?.format || 'decimal').trim() || null; } catch { /* the plain number */ }
+      return { position: last, label: `Page ${i + 1}`, number, text, section };
+    });
   }
   if (kind === 'line') return lines.map((line, i) => ({ position: line.start, label: `Line ${i + 1}` }));
   // Hidden bookmarks (_Toc…, _Ref…, _GoBack) are not offered, as in the Bookmarks dialog.
@@ -29,6 +41,19 @@ export function goToTargets(engine, kind) {
     at += paragraphText(p).length + 1;
   }
   return out;
+}
+
+/**
+ * The page a typed page number names: the first page numbered so ("8", or as it is shown: "iv", "L", "aa"), or
+ * with p and s the page numbered so in that section ("p2s3", sections counted from 1). A plain number no page
+ * carries goes to that page counting from the first. undefined when the entry is not a page number at all.
+ */
+export function printedPage(pages, value) {
+  const inSection = /^p\s*(\d+)\s*s\s*(\d+)$/i.exec(value);
+  if (inSection) return pages.find(p => p.number === Number(inSection[1]) && p.section === Number(inSection[2]) - 1) || null;
+  if (/^\d+$/.test(value)) return pages.find(p => p.number === Number(value)) || pages[Number(value) - 1] || null;
+  if (!/^[a-z]+$/i.test(value)) return undefined;
+  return pages.find(p => p.text === value) || pages.find(p => p.text?.toLowerCase() === value.toLowerCase()) || null;
 }
 
 /**
@@ -83,6 +108,12 @@ export function openGoTo(engine, { onClose } = {}) {
     }
     const value = number.value.trim();
     if (!value) { step(1); return; }
+    if (kind.value === 'page' && !/^[+−-]/.test(value)) {
+      const pages = goToTargets(engine, 'page'), target = printedPage(pages, value);
+      if (target === undefined) { fail('Enter a page number, + or − followed by a number, or p and s numbers such as p2s3 for page 2 of section 3.'); return; }
+      if (!target) { fail(/^\d+$/.test(value) ? `This document has ${pages.length} page${pages.length === 1 ? '' : 's'}.` : `This document has no page ${value}.`); return; }
+      land(target.position); modal.close(); return;
+    }
     const match = /^([+-]?)(\d+)$/.exec(value.replace('−', '-'));
     if (!match) { fail('Enter a number, or + or − followed by a number.'); return; }
     const targets = goToTargets(engine, kind.value), n = Number(match[2]);
