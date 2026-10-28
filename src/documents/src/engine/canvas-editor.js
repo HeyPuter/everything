@@ -190,9 +190,12 @@ export class CanvasEditor {
     listen(this.input, 'copy', e => this.copy(e, false));
     listen(this.input, 'cut', e => this.copy(e, true));
     listen(this.input, 'paste', e => {
+      // Paste without formatting (the host sets plainPaste for its chord): the text alone.
+      const plain = this.plainPaste; this.plainPaste = false;
       if (this.composition || !e.clipboardData) return;
       e.preventDefault();
       const text = e.clipboardData.getData('text/plain').replace(/\ufffc/g, '');
+      if (plain) { this.pasteData(text, ''); return; }
       // A copied picture or screenshot arrives as a file with no text beside it (or only an object's U+FFFC).
       const picture = !text && [...(e.clipboardData.files || [])].find(file => PASTED_PICTURE.test(file.type));
       if (picture) { if (!this.readOnly) this.insertImageFile(picture).catch(error => this.onError(error)); return; }

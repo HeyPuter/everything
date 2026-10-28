@@ -162,3 +162,29 @@ test('tabs and runs of spaces stay in the HTML a copy gives other applications',
   }, html);
   expect(pasted).toEqual(['Name\tQty   (three spaces)', 'Pens\t2']);
 });
+
+test('Paste without formatting from the keyboard needs no permission to read the clipboard', async ({ page }) => {
+  await blank(page);
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await input(page).focus();
+  await page.keyboard.type('Plain ');
+  await input(page).press('ControlOrMeta+b');
+  await page.keyboard.type('Bold');
+  await input(page).evaluate(el => { el.setSelectionRange(6, 10); el.dispatchEvent(new Event('select')); });
+  // A keyboard copy writes the clipboard through its own event; no permission is granted to read it back.
+  await input(page).press('ControlOrMeta+c');
+  await input(page).press('ControlOrMeta+End');
+  await input(page).press('ControlOrMeta+b');
+  await page.keyboard.type(' ');
+  // The chord as Windows and Linux browsers take it: Paste as plain text, through the browser's own paste.
+  const cdp = await page.context().newCDPSession(page);
+  const modifiers = process.platform === 'darwin' ? 4 | 8 : 2 | 8;
+  for (const type of ['rawKeyDown', 'keyUp']) await cdp.send('Input.dispatchKeyEvent', { type, key: 'V', code: 'KeyV', windowsVirtualKeyCode: 86, modifiers, ...(type === 'rawKeyDown' ? { commands: ['pasteAndMatchStyle'] } : {}) });
+  await expect(input(page)).toHaveValue('Plain Bold Bold');
+  expect(await state(page, 'Bold', 11)).toMatchObject({ bold: 'false' });
+  await expect(page.locator('.toast')).toHaveCount(0);
+  // Pasted as one step.
+  await input(page).press('ControlOrMeta+z');
+  await expect(input(page)).toHaveValue('Plain Bold ');
+  expect(errors).toEqual([]);
+});

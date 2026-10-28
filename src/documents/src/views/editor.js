@@ -1311,7 +1311,18 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     if (IS_MAC && e.key === 'F10' && e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey && engine && e.target === engine.input) {
       e.preventDefault(); openDocumentContextMenu({ event: { button: -1, clientX: 0, clientY: 0 } }); return;
     }
-    if ((e.ctrlKey || e.metaKey) && !e.altKey && e.shiftKey && shortcutCode(e) === 'KeyV' && engine && host.contains(e.target)) { e.preventDefault(); pastePlainText(); return; }
+    if ((e.ctrlKey || e.metaKey) && !e.altKey && e.shiftKey && shortcutCode(e) === 'KeyV' && engine && host.contains(e.target)) {
+      // The browser's own paste for the chord (Paste as plain text, Paste and Match Style) needs no permission to
+      // read the clipboard, which reading it here asks for: the document takes that paste without formatting.
+      // Where the chord pastes nothing, the clipboard is read instead.
+      if (e.target === engine.input && !pkg.readOnly) {
+        const editor = engine;
+        editor.plainPaste = true;
+        setTimeout(() => { if (editor.plainPaste) { editor.plainPaste = false; if (engine === editor) pastePlainText(); } });
+        return;
+      }
+      e.preventDefault(); pastePlainText(); return;
+    }
     const action = formattingShortcut(e);
     if (action) { e.preventDefault(); action(); }
   });
