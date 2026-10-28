@@ -42,7 +42,8 @@ export function captionLabels(doc, custom = []) {
  */
 export function insertCaption(doc, { label = 'Figure', text = '', above = false, format = 'ARABIC', excludeLabel = false } = {}) {
   const id = sequenceId(label);
-  if (!/^[A-Za-z][A-Za-z0-9_]{0,39}$/.test(id)) throw new Error('Use a label of letters and numbers, such as Figure or Table.');
+  // Letters of any script: localized word processors number captions as SEQ Рисунок, SEQ Abbildung, SEQ 図.
+  if (!/^\p{L}[\p{L}\p{M}\p{N}_]{0,39}$/u.test(id)) throw new Error('Use a label of letters and numbers, such as Figure or Table.');
   if (!Object.hasOwn(CAPTION_FORMATS, format)) throw new Error('Choose a caption number format.');
   let index;
   if (doc.tableContext && !doc.selectedImage) {

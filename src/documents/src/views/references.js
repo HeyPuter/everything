@@ -223,10 +223,10 @@ export function createReferences({ editor, pkg, error, base = {}, onChange = () 
       preview.textContent = `${exclude.box.checked ? '' : `${label.value} `}${sample[format.value]}${t ? `${/^[\s:.\-–—]/.test(t) ? '' : ': '}${t}` : ''}`;
     }
     const newLabel = el('button.btn.btn-outline', { type: 'button', onclick: () => {
-      const input = text('New label', '', { required: true, maxLength: 40, pattern: '[A-Za-z][A-Za-z0-9 _]{0,39}' });
+      const input = text('New label', '', { required: true, maxLength: 40, pattern: '\\p{L}[\\p{L}\\p{M}\\p{N} _]{0,39}' });
       openDialog({ title: 'New Label', body: [field('Label', input, 'Letters, numbers and spaces, such as Chart or Plate.')], onSubmit: () => {
         const value = input.value.trim().replace(/\s+/g, ' ');
-        if (!/^[A-Za-z][A-Za-z0-9 _]{0,39}$/.test(value)) throw new Error('Start the label with a letter and use letters, numbers and spaces.');
+        if (!/^\p{L}[\p{L}\p{M}\p{N} _]{0,39}$/u.test(value)) throw new Error('Start the label with a letter and use letters, numbers and spaces.');
         saveLabels([...customLabels(), value]);
         label.replaceChildren(...labels().map(l => el('option', { value: l }, l))); label.value = value; sync();
       } });

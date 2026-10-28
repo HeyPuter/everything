@@ -4,7 +4,7 @@ import { unzipSync, strFromU8 } from 'fflate';
 import { DocxPackage, createDocx, WRITING_STYLES } from '../src/engine/docx.js';
 import { TextDocument, paragraph } from '../src/engine/model.js';
 import { bodyFieldRanges } from '../src/engine/body-fields.js';
-import { insertCaption, referenceTargets, insertCrossReference } from '../src/engine/captions.js';
+import { insertCaption, referenceTargets, insertCrossReference, captionLabels } from '../src/engine/captions.js';
 import { updateSequenceFields } from '../src/engine/field-update.js';
 import { footnoteOpeningRuns } from '../src/engine/footnotes.js';
 
@@ -32,6 +32,19 @@ describe('captions and cross-references', () => {
     expect(xml.match(/SEQ Figure \\\* ARABIC/g)).toHaveLength(2);
     const reopened = new TextDocument((await DocxPackage.open(await save(pkg, d))).paragraphs);
     expect(reopened.text).toBe(d.text);
+  });
+
+  it('numbers captions with a label in any script, as localized word processors write them (SEQ Рисунок)', async () => {
+    const { pkg, d } = await setup();
+    d.select(d.text.indexOf('Chart two')); insertCaption(d, { label: 'Рисунок', text: 'Схема' });
+    d.select(2); insertCaption(d, { label: 'Рисунок', text: 'Обзор' });
+    d.select(d.text.length); insertCaption(d, { label: '图表', text: 'Data' });
+    expect(d.text).toBe('Chart one\nРисунок 1: Обзор\nChart two\nРисунок 2: Схема\nConclusion\n图表 1: Data');
+    expect(bodyFieldRanges(d.paragraphs).map(r => r.field.instruction)).toEqual([' SEQ Рисунок \\* ARABIC ', ' SEQ Рисунок \\* ARABIC ', ' SEQ 图表 \\* ARABIC ']);
+    const reopened = new TextDocument((await DocxPackage.open(await save(pkg, d))).paragraphs);
+    expect(captionLabels(reopened)).toEqual(expect.arrayContaining(['Рисунок', '图表']));
+    expect(() => insertCaption(d, { label: '1st' })).toThrow();
+    expect(() => insertCaption(d, { label: 'Figure-A' })).toThrow();
   });
 
   it('inserts a cross-reference to a caption that follows renumbering', async () => {

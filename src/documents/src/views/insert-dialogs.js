@@ -120,7 +120,7 @@ export function openFieldDialog({ context, bookmarks = [], onInsert, onClose }) 
         el('div.insert-field-preview', {}, el('span.field-label', {}, 'Field code'), code, el('span.field-label', {}, 'Result'), result))),
   ], onSubmit: () => {
     const entry = FIELD_CATALOG.find(f => f.name === names.value);
-    if (entry?.argument === 'identifier' && !/^[A-Za-z][\w]{0,39}$/.test(argument.value.trim())) throw new Error('Enter a sequence name of letters and numbers, such as Figure.');
+    if (entry?.argument === 'identifier' && !/^\p{L}[\p{L}\p{M}\p{N}_]{0,39}$/u.test(argument.value.trim())) throw new Error('Enter a sequence name of letters and numbers, such as Figure.');
     if (entry?.argument === 'bookmark' && !bookmark.value) throw new Error('This document has no bookmarks to refer to.');
     return onInsert({ name: entry.name, instruction: instruction() });
   } });
