@@ -91,6 +91,13 @@ for (const ratio of [2, 3]) test.describe(`at a device pixel ratio of ${ratio}`,
         const c = editor.canvases[index], r = c.getBoundingClientRect();
         return {left: r.left, top: r.top, width: r.width * devicePixelRatio, height: r.height * devicePixelRatio, backing: [c.width, c.height]};
       }, {zoom, index});
+      // A page over the 4096 × 4096 canvas limit (A4 at 170% on a 3x display) is given fewer device
+      // pixels so it still paints in Safari on iOS (canvas-backing.js); it cannot be pixel for pixel.
+      if (box.width * box.height > 4096 * 4096) {
+        expect(box.backing[0] * box.backing[1], `zoom ${zoom}`).toBeLessThanOrEqual(4096 * 4096);
+        expect(box.backing[0] / box.width).toBeCloseTo(box.backing[1] / box.height, 3);
+        continue;
+      }
       expect([box.width, box.height], `zoom ${zoom}`).toEqual(box.backing);
       // What the screen shows matches the backing store exactly.
       const clip = {x: Math.ceil(box.left) + 90, y: Math.max(0, Math.ceil(box.top)) + 90, width: 300, height: 120};

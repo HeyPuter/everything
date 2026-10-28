@@ -1,4 +1,5 @@
 import { isNoteStoryKind } from './footnotes.js';
+import { pageBackingSize } from './canvas-backing.js';
 import { StorySession } from './story-session.js';
 import { decodeShape } from './canvas-shapes.js';
 import { wordPosition, optionWordPosition } from './word-navigation.js';
@@ -757,7 +758,8 @@ export class CanvasEditor {
       // CSS pixels, so a fractional page size (A4, fit-width and slider zooms, or any odd number of
       // device pixels on a 2x display) would otherwise be resampled, which blurs every page.
       const cssWidth = Math.max(1, Math.round(geometry.width * this.zoom)), cssHeight = Math.max(1, Math.round(geometry.height * this.zoom));
-      const width = Math.round(cssWidth * ratio), height = Math.round(cssHeight * ratio);
+      // A page too large for the browser's canvas limit gets fewer device pixels (canvas-backing.js).
+      const { width, height } = pageBackingSize(cssWidth, cssHeight, ratio);
       // Assigning a dimension clears and reallocates the canvas even when unchanged, and pages
       // off screen are repainted only later: keep the backing store of pages that kept their size.
       if (canvas.width !== width) canvas.width = width;
@@ -798,7 +800,7 @@ export class CanvasEditor {
       const geometry = this.layout.pages[index], canvas = document.createElement('canvas');
       canvas.className = 'document-page';
       canvas.style.width = `${geometry.width}px`; canvas.style.height = `${geometry.height}px`;
-      canvas.width = Math.round(geometry.width * 2); canvas.height = Math.round(geometry.height * 2);
+      ({ width: canvas.width, height: canvas.height } = pageBackingSize(geometry.width, geometry.height, 2));
       sheets[index] = canvas;
     }
     this.paint({ canvases: sheets, printing: true, pages: chosen });
