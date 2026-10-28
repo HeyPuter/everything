@@ -110,3 +110,7 @@ it('ROUND rounds halves away from zero, at the decimal places typed', () => {
   const at = cellAt(doc, 3, 1).id;
   expect(['=ROUND(-2.5,0)', '=ROUND(2.5,0)', '=ROUND(1.005,2)', '=ROUND(-1.005,2)', '=ROUND(1234.5,-2)', '=ROUND(0.125,2)'].map(f => evaluateFormula(doc, f, at))).toEqual(['-3', '3', '1.01', '-1.01', '1200', '0.13']);
 });
+
+it('reads only parentheses around a cell’s leading number as negative', () => {
+  expect([cellNumber('100 (20)'), cellNumber('12 boxes (spare)'), cellNumber('(30)'), cellNumber('( $1,200.50 )'), cellNumber('(30) returned'), cellNumber('(30')]).toEqual([100, 12, -30, -1200.5, -30, 30]);
+});

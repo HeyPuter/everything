@@ -17,11 +17,12 @@ export const NUMBER_FORMATS = Object.freeze(['0', '0.00', '#,##0', '#,##0.00', '
 /** The leading number of a cell's text: currency, grouping, percent and accounting negatives allowed. */
 export function cellNumber(text) {
   // The number must lead the cell's text: "12 boxes" counts, "Q1" does not.
-  const match = /^\s*()([-+−]?)\s*\(?\s*[$€£¥]?\s*(\d[\d,]*(?:\.\d+)?|\.\d+)/.exec(text);
+  // Parentheses make it negative (accounting style) only when they enclose that leading number: "(30)", not "100 (20)".
+  const match = /^\s*()([-+−]?)\s*(\(?)\s*[$€£¥]?\s*(\d[\d,]*(?:\.\d+)?|\.\d+)\s*(\)?)/.exec(text);
   if (!match) return null;
-  const value = Number(match[3].replace(/,/g, ''));
+  const value = Number(match[4].replace(/,/g, ''));
   if (!Number.isFinite(value)) return null;
-  const negative = match[2] === '-' || match[2] === '−' || /\(\s*[$€£¥]?\s*[\d.,]+\s*\)/.test(text);
+  const negative = match[2] === '-' || match[2] === '−' || !!match[3] && !!match[5];
   return negative ? -value : value;
 }
 
