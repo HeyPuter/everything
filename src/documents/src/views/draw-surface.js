@@ -7,6 +7,7 @@
  * Overlay layers per page: strokes standing in for hidden drawings (being erased, moved or replayed),
  * strokes waiting to be committed, the stroke being drawn, the lasso loop and the selection frame.
  */
+import { pageBackingSize } from '../engine/canvas-backing.js';
 import { el, isComposing } from '../ui/dom.js';
 import { filterPoints, strokeOutline, rulerEdge, snapToEdge, unionBounds, strokeBounds, widthAt } from '../engine/ink-geometry.js';
 
@@ -55,14 +56,17 @@ export function createDrawSurface({ editor, handlers }) {
     if (!node) { node = el('canvas.draw-overlay', { 'aria-hidden': 'true' }); overlays.set(page, node); layer.append(node); }
     const ratio = window.devicePixelRatio || 1, width = canvas.offsetWidth, height = canvas.offsetHeight;
     Object.assign(node.style, { left: `${canvas.offsetLeft}px`, top: `${canvas.offsetTop}px`, width: `${width}px`, height: `${height}px` });
-    if (node.width !== Math.round(width * ratio) || node.height !== Math.round(height * ratio)) { node.width = Math.round(width * ratio); node.height = Math.round(height * ratio); }
+    // Within the browser's canvas size limit, as the page canvas is (canvas-backing.js); render() scales by the result.
+    const backing = pageBackingSize(width, height, ratio);
+    if (node.width !== backing.width || node.height !== backing.height) { node.width = backing.width; node.height = backing.height; }
+    node.cssWidth = width; node.cssHeight = height;
     return node;
   }
   /** Repaint every overlay that has anything to show; clear the rest. */
   function render() {
     frame = 0;
     const ed = engine(); if (!ed) return;
-    const zoom = ed.zoom || 1, ratio = window.devicePixelRatio || 1;
+    const zoom = ed.zoom || 1;
     const pages = new Set([...pending.keys(), ...scenes.keys(), ...overlays.keys()]);
     if (current?.page != null) pages.add(current.page);
     if (lasso) pages.add(lasso.page); if (selection) pages.add(selection.page); if (cursor) pages.add(cursor.page);
@@ -70,7 +74,8 @@ export function createDrawSurface({ editor, handlers }) {
       const node = overlay(page); if (!node) continue;
       const ctx = node.getContext('2d');
       ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, node.width, node.height);
-      ctx.setTransform(zoom * ratio, 0, 0, zoom * ratio, 0, 0);
+      // Device pixels per CSS pixel of this overlay: the display's ratio, or fewer on a page too large for it.
+      ctx.setTransform(zoom * node.width / (node.cssWidth || 1), 0, 0, zoom * node.height / (node.cssHeight || 1), 0, 0);
       // Highlighter ink multiplies with the page beneath; it is drawn on its own blended layer.
       node.classList.toggle('has-highlighter', [...(scenes.get(page) || []), ...(pending.get(page) || []), ...(current?.page === page && current.stroke ? [current.stroke] : [])].some(s => s.tool === 'highlighter'));
       for (const stroke of scenes.get(page) || []) paintStroke(ctx, stroke, { alpha: stroke.alpha ?? 1 });
