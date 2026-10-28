@@ -147,7 +147,8 @@ export function createAssistantPane({ editor, pkg, error, available = () => P.ca
     if (answer.kind !== 'text') return [body, actions(answer, p, false)];
     const replacing = p.scope === 'selection' && answer.mode !== 'append';
     const original = replacing ? el('p.as-replaces', {}, `Replaces “${p.text.length > 140 ? `${p.text.slice(0, 140).trim()}…` : p.text}”`) : null;
-    return [el('p.as-kind', {}, replacing ? 'Suggested replacement' : 'Suggested text'), body, original, actions(answer, p, true)];
+    // replaceChildren would write a missing line out as the word "null": only the parts there are go in.
+    return [el('p.as-kind', {}, replacing ? 'Suggested replacement' : 'Suggested text'), body, original, actions(answer, p, true)].filter(Boolean);
   }
 
   function actions(answer, p, insertable) {

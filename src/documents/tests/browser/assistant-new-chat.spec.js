@@ -122,3 +122,20 @@ test('what the Assistant sends is one radio group that the arrow keys switch', a
   await expect(before === 'Selection' ? selection : whole).toBeFocused();
   await expect(before === 'Selection' ? selection : whole).toHaveAttribute('aria-checked', 'true');
 });
+
+test('a draft for the whole document shows only the suggested text and its actions', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/mock.html#/new');
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled({ timeout: 20000 });
+  await page.getByRole('textbox', { name: 'Document text' }).fill('Plans for the old project.');
+  await page.locator('.as-title-button').click();
+  const pane = page.getByRole('complementary', { name: 'Assistant pane' });
+  await pane.getByRole('radio', { name: 'Whole document' }).click();
+  const box = pane.getByRole('textbox', { name: 'Message the assistant' });
+  await box.fill('Draft an introduction');
+  await box.press('Enter');
+  const reply = pane.locator('.as-message.is-assistant').last();
+  await expect(reply.getByRole('button', { name: 'Insert at Cursor' })).toBeVisible();
+  // Nothing replaces a selection here, and nothing stands in for that line.
+  expect((await reply.innerText()).split('\n').map(line => line.trim()).filter(Boolean)).toEqual(['SUGGESTED TEXT', 'This draft was written by the offline assistant for: Draft an introduction.', 'Insert at Cursor', 'Copy']);
+});
