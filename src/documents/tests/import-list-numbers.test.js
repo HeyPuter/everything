@@ -53,3 +53,15 @@ ul.lst-kix_def-1{list-style-type:none}.c2{height:11pt}.c0{margin:0;padding:0}.c4
     expect(lines).toEqual(['Plan', 'After a blank line', '1.\tOne', expect.stringMatching(/^  \S\tDetail$/), expect.stringMatching(/^  \S\tMore$/), '2.\tTwo', 'End']);
   });
 });
+
+describe('table rows', () => {
+  const model = (html) => {
+    const doc = new TextDocument([paragraph()]), fragment = htmlFragment(html, { copied: false });
+    for (const p of fragment.paragraphs) p.mark = true;
+    pasteFragment(doc, fragment);
+    return doc;
+  };
+  it('keeps every cell in its column when cells before it are empty', () => {
+    expect(model('<table><tr><th></th><th>Q1</th><th>Q2</th></tr><tr><td>Sales</td><td></td><td>9</td></tr></table>').paragraphs.map(p => p.runs.map(r => r.text).join(''))).toEqual(['\tQ1\tQ2', 'Sales\t\t9']);
+  });
+});

@@ -278,8 +278,10 @@ function fromForeignHtml(body) {
       const start = tag === 'OL' ? Number.parseInt(node.getAttribute('start') ?? '', 10) : NaN;
       ctx.list = { kind: tag === 'UL' ? 'bullet' : 'number', level: context.list ? Math.min(8, context.list.level + 1) : 0, id: ++lists, ...(Number.isSafeInteger(start) && start >= 0 && start <= 32767 ? { start } : {}) };
     }
-    if ((tag === 'TD' || tag === 'TH') && current?.text && !/\t$/.test(current.text)) {
-      const last = current.runs.at(-1); last.text = last.text.replace(/ +$/, ''); current.text = current.text.replace(/ +$/, '');
+    // Every cell after a row's first starts after a tab, an empty one included, so the cells after it stay in their columns.
+    if ((tag === 'TD' || tag === 'TH') && current && /^T[DH]$/.test(node.previousElementSibling?.tagName || '')) {
+      const last = current.runs.at(-1);
+      if (last) { last.text = last.text.replace(/ +$/, ''); current.text = current.text.replace(/ +$/, ''); }
       append('\t', format, null);
     }
     // A list item's own paragraph wrapper (as some producers write) is the item, not another paragraph.
