@@ -619,6 +619,8 @@ export function createInsert({ editor, pkg, error, base = {}, docName = () => ''
     const engine = ready(); if (!engine) return;
     engine.finishComposition();
     const xml = linearToOmml(linear, { display }), text = (ommlToLinear(xml) || linear).replace(/\s+/g, ' ').trim() || 'Equation';
+    // A new equation goes after a selected picture or shape, as a new drawing does, rather than replacing it.
+    afterSelectedDrawing(engine);
     run(engine, () => {
       const model = engine.model;
       if (display) {
