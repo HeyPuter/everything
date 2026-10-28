@@ -16,6 +16,29 @@ export const spellingEnabled = () => { try { return localStorage.getItem(ENABLED
 export function createProofing({ editor, pkg, error, onState = () => {} }) {
   let enabled = spellingEnabled();
   const ignored = new Set(), ignoredOnce = new Set();
+  // Ignore Once marks one occurrence by where it starts in the body text `ignoredText`. Text typed or deleted
+  // before it moves it: the marks follow the edit, so the occurrence stays ignored (and no other takes its place).
+  let ignoredText = null;
+  function followIgnored(text) {
+    const old = ignoredText;
+    ignoredText = text;
+    if (old === null || old === text || !ignoredOnce.size) return;
+    const shortest = Math.min(old.length, text.length);
+    let prefix = 0, suffix = 0;
+    while (prefix < shortest && old.charCodeAt(prefix) === text.charCodeAt(prefix)) prefix++;
+    while (suffix < shortest - prefix && old.charCodeAt(old.length - 1 - suffix) === text.charCodeAt(text.length - 1 - suffix)) suffix++;
+    const moved = [];
+    for (const key of ignoredOnce) {
+      const colon = key.indexOf(':'), start = Number(key.slice(0, colon)), word = key.slice(colon + 1);
+      // An edit inside the word ends the choice: it is another word now.
+      if (start + word.length <= prefix) moved.push(key);
+      else if (start >= old.length - suffix) moved.push(`${start + text.length - old.length}:${word}`);
+    }
+    ignoredOnce.clear();
+    for (const key of moved) ignoredOnce.add(key);
+  }
+  /** Ignore misspelling `m` of the latest check here only. */
+  function ignoreHere(m) { followIgnored(results.text); ignoredOnce.add(`${m.start}:${m.word}`); }
   const known = new Map();
   let results = { revision: -1, text: '', misspelled: [], overflow: false };
   let timer = null, speller = null, failure = null, typedAt = -1;
@@ -52,6 +75,7 @@ export function createProofing({ editor, pkg, error, onState = () => {} }) {
     const caret = engine.session.path === null && engine.model.range[0] === engine.model.range[1] ? engine.model.range[0] : -1;
     const misspelled = [];
     let overflow = false, skipped = null;
+    followIgnored(text);
     const words = saved && !saved.ranges.length ? [] : wordsToCheck(proofingText(text, body.paragraphs));
     for (const word of saved ? wordsInSavedRanges(words, saved.ranges) : words) {
       if (ignored.has(word.word) || ignoredOnce.has(`${word.start}:${word.word}`)) continue;
@@ -131,6 +155,7 @@ export function createProofing({ editor, pkg, error, onState = () => {} }) {
     const engine = engineReady(); if (!engine || !editable()) return false;
     engine.finishComposition();
     if (engine.session.path !== null) engine.editStory(null);
+    followIgnored(engine.session.body.text);
     const targets = occurrences(word).filter(m => !ignoredOnce.has(`${m.start}:${m.word}`)).reverse();
     if (!targets.length) return false;
     const ok = engine.execute(() => { for (const m of targets) { engine.model.select(m.wordStart ?? m.start, m.wordEnd ?? m.end); engine.model.replace(text); } });
@@ -161,7 +186,7 @@ export function createProofing({ editor, pkg, error, onState = () => {} }) {
     replaceAll(current.word, choice);
     queueMicrotask(() => next(at ? at.start : current.start));
   });
-  const ignoreOnce = button('Ignore Once', () => { if (!current) return; ignoredOnce.add(`${current.start}:${current.word}`); next(current.end); });
+  const ignoreOnce = button('Ignore Once', () => { if (!current) return; ignoreHere(current); next(current.end); });
   const ignoreAllButton = button('Ignore All', () => { if (!current) return; ignoreAll(current.word); next(current.end); });
   const add = button('Add to Dictionary', () => { if (!current) return; addToDictionary(current.word); next(current.end); });
   const actions = el('div.ed-proof-actions', {}, change, changeAll, ignoreOnce, ignoreAllButton, add);
@@ -262,7 +287,7 @@ export function createProofing({ editor, pkg, error, onState = () => {} }) {
     suggest(word) { return speller?.suggest(word) || []; },
     change(m, text) { return replaceWord(m, text); },
     changeAll(word, text) { return replaceAll(word, text); },
-    ignoreOnce(m) { ignoredOnce.add(`${m.start}:${m.word}`); schedule(0); },
+    ignoreOnce(m) { ignoreHere(m); schedule(0); },
     ignoreAll, addToDictionary,
     /** Forget Ignore and Ignore All choices for this session (Reset Ignored Words). */
     resetIgnored() { ignored.clear(); ignoredOnce.clear(); known.clear(); rechecked = true; schedule(0); onState(); },
