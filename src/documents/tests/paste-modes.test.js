@@ -47,3 +47,25 @@ it('keeps only emphasis when merging formatting and nothing when pasting text on
   expect(availablePasteModes(merge, { html })).toEqual(['keep', 'merge', 'text']);
   expect(availablePasteModes(merge, { html: '' })).toEqual(['text']);
 });
+
+it('copies formatted text from within one table cell, but not a selection across cells or out of the table', () => {
+  const doc = documentWith(['Before']);
+  doc.insertTable(1, 2);
+  doc.replace('Plain '); doc.setRunFormat({ bold: true }); doc.replace('bold');
+  doc.insertParagraph(); doc.replace('Second');
+  const text = doc.text, cellStart = text.indexOf('Plain');
+  doc.select(cellStart, text.indexOf('Second') + 6);
+  const fragment = copyFragment(doc);
+  expect(fragment.paragraphs.map(p => p.text)).toEqual(['Plain bold', 'Second']);
+  expect(fragment.paragraphs[0].runs.map(r => [r.text, r.format.bold])).toEqual([['Plain ', false], ['bold', true]]);
+  // Pasted into the body, the bold word stays bold.
+  const target = documentWith(['Target: ']);
+  target.select(target.text.length);
+  expect(pasteFragment(target, htmlFragment(fragmentHtml(fragment)))).toBe(true);
+  expect(target.paragraphs[0].runs.map(r => [r.text, !!r.bold])).toEqual([['Target: Plain ', false], ['bold', true]]);
+  // Into the next cell, or from the body into the table, the selection is not one cell's text.
+  doc.select(cellStart, text.indexOf('Second') + 7);
+  expect(copyFragment(doc)).toBeNull();
+  doc.select(2, cellStart + 3);
+  expect(copyFragment(doc)).toBeNull();
+});

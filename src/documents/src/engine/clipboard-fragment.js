@@ -28,12 +28,15 @@ const plainRun = run => !run.image && !run.math && !run.bodySymbol && !run.noteM
 export function copyFragment(model) {
   const [start, end] = model.range;
   if (start === end || !carriesFormatting(model)) return null;
-  const paragraphs = []; let at = 0, runCount = 0;
+  const paragraphs = []; let at = 0, runCount = 0, cell = null;
   for (const p of model.paragraphs) {
     const length = paragraphText(p).length, from = at, to = at + length;
     at = to + 1;
     if (to < start || from > end) continue;
-    if (p.cellId) return null;
+    // Text within one table cell copies as the paragraphs it is; across cells, or into or out of a table, the
+    // selection holds table structure the fragment cannot carry.
+    if (!paragraphs.length) cell = p.cellId || null;
+    else if ((p.cellId || null) !== cell) return null;
     const runs = []; let offset = from;
     for (const run of p.runs) {
       const a = Math.max(start, offset), b = Math.min(end, offset + run.text.length);
