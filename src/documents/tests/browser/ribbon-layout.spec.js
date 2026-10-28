@@ -594,3 +594,30 @@ test('a tab the document chooses on a phone is scrolled into the tab row', async
   const selected = await page.locator('.ribbon-tab[aria-selected="true"]').textContent();
   await expect.poll(() => shown(selected.trim())).toBe(true);
 });
+
+test('a phone held sideways folds the ribbon to its tabs, leaving the height to the page', async ({ page }) => {
+  await page.setViewportSize({ width: 844, height: 390 });
+  await page.goto('/mock.html#/new');
+  await page.locator('.ribbon-card').waitFor({ state: 'attached' });
+  const bold = page.locator('#ribbon-panel-home button[aria-label="Bold"]');
+  await expect(page.getByRole('tab', { name: 'Home', exact: true })).toBeVisible();
+  await expect(bold).toBeHidden();
+  // Most of the window is the document's.
+  const host = await page.locator('.canvas-host').first().boundingBox();
+  expect(host.height).toBeGreaterThan(390 / 2);
+  // A tab shows its commands over the page, as Show Tabs Only does.
+  await page.getByRole('tab', { name: 'Home', exact: true }).click();
+  await expect(bold).toBeVisible();
+  await bold.click();
+  await expect(bold).toBeHidden();
+  // Upright again, the ribbon is shown as before; the remembered choice was never changed.
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.locator('.ed-workspace')).not.toHaveClass(/ribbon-tabs-only/);
+  expect(await page.evaluate(() => localStorage.getItem('documents:ribbon-mode'))).toBeNull();
+  // Sideways, Always Show keeps it shown.
+  await page.setViewportSize({ width: 844, height: 390 });
+  await expect(page.locator('.ed-workspace')).toHaveClass(/ribbon-tabs-only/);
+  await page.getByRole('button', { name: 'Always show the ribbon' }).click();
+  await expect(page.locator('.ed-workspace')).not.toHaveClass(/ribbon-tabs-only/);
+  await expect(bold).toBeVisible();
+});

@@ -61,9 +61,14 @@ export function assignKeyTips(labels, { taken = [] } = {}) {
 export function createRibbonModes({ workspace, header, toolbar, ribbon, tabs, titleBar, focusEditor }) {
   let mode = recallRibbonMode();
   let peeking = false;
+  // A short window (a phone held sideways) folds an always-shown ribbon to its tabs, which would otherwise take most
+  // of the height from the page; choosing Always Show there keeps it shown. The remembered choice is not changed.
+  const short = typeof matchMedia === 'function' ? matchMedia('(max-height: 480px)') : null;
+  let keepShown = false;
+  const effective = () => (mode === 'always' && short?.matches && !keepShown ? 'tabs' : mode);
   const tabRow = ribbon.tablist;
   const collapse = el('button.ed-ribbon-toggle', { type: 'button', onclick: () => {
-    if (mode === 'always') setMode('tabs'); else { setMode('always'); }
+    if (effective() === 'always') setMode('tabs'); else { setMode('always'); }
     focusEditor();
   } }, iconEl('chevU', 14));
   collapse.addEventListener('mousedown', e => e.preventDefault());
@@ -71,9 +76,9 @@ export function createRibbonModes({ workspace, header, toolbar, ribbon, tabs, ti
   collapse.tabIndex = -1;
   const options = el('button.ed-ribbon-options', { type: 'button', 'aria-label': 'Ribbon display options', title: 'Ribbon display options', 'aria-haspopup': 'menu',
     onclick: e => openMenu({ anchor: options, label: 'Ribbon display options', align: 'end', minWidth: 240, pointer: !!e.detail, onClose: e.detail ? focusEditor : null, items: [
-      { label: 'Always Show the Ribbon', radio: true, checked: mode === 'always', onSelect: () => setMode('always') },
-      { label: 'Show Tabs Only', radio: true, checked: mode === 'tabs', onSelect: () => setMode('tabs') },
-      { label: 'Auto-hide the Ribbon', radio: true, checked: mode === 'auto', onSelect: () => setMode('auto') },
+      { label: 'Always Show the Ribbon', radio: true, checked: effective() === 'always', onSelect: () => setMode('always') },
+      { label: 'Show Tabs Only', radio: true, checked: effective() === 'tabs', onSelect: () => setMode('tabs') },
+      { label: 'Auto-hide the Ribbon', radio: true, checked: effective() === 'auto', onSelect: () => setMode('auto') },
       { separator: true }, { label: 'Show KeyTips', hint: IS_MAC ? 'Option' : 'Alt', onSelect: () => keyTips.show() }] }) }, commandIconEl('more', 16));
   options.addEventListener('mousedown', e => e.preventDefault());
   options.tabIndex = -1;
@@ -83,6 +88,7 @@ export function createRibbonModes({ workspace, header, toolbar, ribbon, tabs, ti
   titleBar.querySelector('.canvas-title-actions')?.prepend(reveal);
 
   function apply() {
+    const mode = effective();
     workspace.classList.toggle('ribbon-tabs-only', mode === 'tabs');
     workspace.classList.toggle('ribbon-auto-hide', mode === 'auto');
     workspace.classList.toggle('ribbon-peek', peeking);
@@ -100,11 +106,12 @@ export function createRibbonModes({ workspace, header, toolbar, ribbon, tabs, ti
   function setMode(next) {
     if (!RIBBON_MODES.includes(next)) return;
     mode = next; peeking = false;
+    keepShown = next === 'always' && !!short?.matches;
     try { localStore()?.setItem(MODE_STORE, mode); } catch { /* storage unavailable */ }
     apply();
   }
   function peek(on) {
-    if (mode === 'always') on = false;
+    if (effective() === 'always') on = false;
     if (peeking === on) return;
     peeking = on;
     apply();
@@ -114,15 +121,15 @@ export function createRibbonModes({ workspace, header, toolbar, ribbon, tabs, ti
   const outside = e => { if (!toolbar.contains(e.target) && !tabRow.contains(e.target) && !reveal.contains(e.target) && !owned(e.target)) peek(false); };
   // A tab click in a collapsed ribbon shows the commands over the document; clicking the open tab again hides them.
   tabRow.addEventListener('click', e => {
-    const tab = e.target.closest('.ribbon-tab'); if (!tab || mode === 'always') return;
+    const tab = e.target.closest('.ribbon-tab'); if (!tab || effective() === 'always') return;
     const wasCurrent = tab.getAttribute('aria-selected') === 'true';
     if (peeking && wasCurrent && e.detail === 1 && tab.dataset.peekedAt && Date.now() - Number(tab.dataset.peekedAt) > 300) { peek(false); return; }
     tab.dataset.peekedAt = String(Date.now());
     peek(true);
   }, true);
-  tabRow.addEventListener('dblclick', e => { if (!e.target.closest('.ribbon-tab')) return; setMode(mode === 'always' ? 'tabs' : 'always'); });
+  tabRow.addEventListener('dblclick', e => { if (!e.target.closest('.ribbon-tab')) return; setMode(effective() === 'always' ? 'tabs' : 'always'); });
   // Before the tab list's own keys (capture): Down there moves into the commands, which must be showing to take focus.
-  tabRow.addEventListener('keydown', e => { if (mode !== 'always' && (e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowDown') && e.target.matches('.ribbon-tab')) peek(true); }, true);
+  tabRow.addEventListener('keydown', e => { if (effective() !== 'always' && (e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowDown') && e.target.matches('.ribbon-tab')) peek(true); }, true);
   // A command run from the shown commands puts them away (a menu or dialog it opens keeps them up until it closes).
   toolbar.addEventListener('click', e => {
     if (!peeking || e.target.closest('.ed-ribbon-toggle')) return;
@@ -154,7 +161,6 @@ export function createRibbonModes({ workspace, header, toolbar, ribbon, tabs, ti
     }
     function top() {
       level = 'top'; typed = '';
-      if (mode !== 'always' && !peeking) { /* tabs stay reachable in a collapsed ribbon */ }
       const targets = [];
       const file = tabRow.querySelector('.ribbon-file');
       if (file) targets.push({ node: file, code: 'F', run: () => { hide(); file.click(); } });
@@ -177,7 +183,7 @@ export function createRibbonModes({ workspace, header, toolbar, ribbon, tabs, ti
     }
     function openTab(id) {
       ribbon.select(id);
-      if (mode !== 'always') peek(true);
+      if (effective() !== 'always') peek(true);
       requestAnimationFrame(() => commands(id));
     }
     function commands(id) {
@@ -246,13 +252,16 @@ export function createRibbonModes({ workspace, header, toolbar, ribbon, tabs, ti
   }, { capture: true, signal: abort.signal });
   window.addEventListener('pointerdown', () => { altClean = false; }, { capture: true, signal: abort.signal });
 
+  // Turning the phone (or resizing the window) folds or unfolds the ribbon again.
+  const onShort = () => { peeking = false; document.removeEventListener('pointerdown', outside, true); apply(); };
+  short?.addEventListener?.('change', onShort);
   apply();
   return {
-    get mode() { return mode; },
+    get mode() { return effective(); },
     setMode,
-    toggle() { setMode(mode === 'always' ? 'tabs' : 'always'); },
+    toggle() { setMode(effective() === 'always' ? 'tabs' : 'always'); },
     peek, showKeyTips: () => keyTips.show(),
-    beforeRun() { if (mode !== 'always') peek(true); },
-    destroy() { abort.abort(); keyTips.hide(); document.removeEventListener('pointerdown', outside, true); },
+    beforeRun() { if (effective() !== 'always') peek(true); },
+    destroy() { abort.abort(); keyTips.hide(); document.removeEventListener('pointerdown', outside, true); short?.removeEventListener?.('change', onShort); },
   };
 }
