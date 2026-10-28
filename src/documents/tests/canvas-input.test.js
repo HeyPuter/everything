@@ -268,13 +268,17 @@ it('edits a repeated header on the clicked page and keeps its caret there throug
   editor.redo(); expect(editor.model.text.match(/XTitle/g)).toHaveLength(1); expect(caretRect(editor.layout, editor.model.selection.focus, 'forward', editor.caretPage).page).toBe(copy.page);
 });
 
-it('rolls back header/body crossing merges and headers that leave no usable page space', () => {
+it('rolls back header/body crossing merges and keeps typing that makes a header too tall to repeat', () => {
   editor.setPageSettings({ height: 4320, top: 360, bottom: 360 }); editor.model.select(0); editor.insertTable(2, 2); editor.setTableHeaderRows(1);
   const before = editor.model.snapshot(), history = [...editor.session.history]; changed.mockClear(); errors.mockClear();
   expect(editor.execute(() => editor.model.mergeCellBelow())).toBe(false);
   expect(errors.mock.calls.at(-1)[0].message).toMatch(/header boundary/); expect(editor.model.snapshot()).toEqual(before);
-  expect(editor.execute(() => editor.model.replace('Tall header '.repeat(100)))).toBe(false);
-  expect(errors.mock.calls.at(-1)[0].message).toMatch(/header rows must fit/); expect(editor.model.snapshot()).toEqual(before); expect(editor.session.history).toEqual(history); expect(changed).not.toHaveBeenCalled();
+  expect(editor.model.snapshot()).toEqual(before); expect(editor.session.history).toEqual(history);
+  // A header too tall to leave room for the body is laid out once, without repeating, as in Word.
+  errors.mockClear();
+  expect(editor.execute(() => editor.model.replace('Tall header '.repeat(100)))).toBe(true);
+  expect(errors).not.toHaveBeenCalled(); expect(editor.layout.repeatedLines).toEqual([]);
+  expect(editor.model.text).toContain('Tall header Tall header');
 });
 
 it('selects a painted inline picture, preserves it during adjacent native composition and copies its description as plain text', () => {

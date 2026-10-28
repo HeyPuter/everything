@@ -117,11 +117,18 @@ it('places a header-only table once with its preceding kept heading and retains 
   const out = model(await DocxPackage.open(await save(pkg, doc))); expect(out.text).toBe(doc.text + '\n'); expect(headerRowCount(out.tables[0])).toBe(2);
 });
 
-it('ignores noncontiguous header flags and rejects crossing merges, oversized headers and insufficient body space', async () => {
+it('ignores noncontiguous header flags, rejects crossing merges and lays out headers that cannot repeat once', async () => {
   const pkg = await DocxPackage.open(source), doc = model(pkg), table = doc.tables[0];
   table.rows[0].header = false; const plain = layout(doc); expect(headerRowCount(table)).toBe(0); expect(plain.repeatedLines.some(l => l.cellId === table.rows[1].cells[1].id)).toBe(false);
   table.rows[0].header = true; table.rows[1].header = false; expect(() => layout(doc)).toThrow(/cross.*header boundary/);
-  table.rows[1].header = true; doc.selectCell(table.rows[0].cells[0].id); doc.replace('Tall header '.repeat(100)); expect(() => layout(doc)).toThrow(/header rows must fit/); doc.undo();
-  doc.selectCell(doc.tables[0].rows[2].cells[0].id); doc.setRunFormat({ fontSize: 160 }); doc.replace('W'); expect(() => layout(doc)).toThrow(/too little space|too wide/);
+  // A header too tall to leave its page room for the body is not repeated, as in Word: the rows are
+  // laid out once, as ordinary rows, instead of refusing the table (and the typing that grew it).
+  table.rows[1].header = true; doc.selectCell(table.rows[0].cells[0].id); doc.replace('Tall header '.repeat(100));
+  const tall = layout(doc), headerCell = doc.tables[0].rows[0].cells[0].id, first = new Set(doc.tables[0].rows.flatMap(r => r.cells.map(c => c.id)));
+  expect(tall.repeatedLines.filter(l => first.has(l.cellId))).toEqual([]);
+  expect(new Set(tall.lines.filter(l => l.cellId === headerCell).map(l => l.page)).size).toBeGreaterThan(1);
+  expect(tall.lines.some(l => l.cellId === doc.tables[0].rows.at(-1).cells[0].id)).toBe(true);
+  doc.undo();
+  doc.selectCell(doc.tables[0].rows[2].cells[0].id); doc.setRunFormat({ fontSize: 160 }); doc.replace('W'); expect(() => layout(doc)).not.toThrow(/too little space/);
   await expect(DocxPackage.open(changed(xml => xml.getElementsByTagNameNS(W, 'tblHeader')[0].setAttributeNS(W, 'w:val', 'unknown')))).rejects.toMatchObject({ name: 'UnsupportedDocumentError' });
 });

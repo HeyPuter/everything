@@ -4,19 +4,23 @@ import { paginateTableRows } from './table-pagination.js';
 import { shiftCellClip } from './cell-clipping.js';
 import { pageBounds, offsetPage } from './page-bounds.js';
 
-/** Measure the one source header. Repeated copies never enter document content. */
+/**
+ * Measure the one source header. Repeated copies never enter document content. Null when the header
+ * cannot repeat: rows too tall to leave a page room for the table body (or for one of its lines) are
+ * laid out once, as ordinary rows, as Word does, rather than refusing the table.
+ */
 export function prepareTableHeader(rows, count, page, paginateText) {
   if (rows.slice(0, count).some((row, i) => row.cells.some(cell => i + cell.rowSpan > count))) throw new Error('A vertical merge cannot cross the repeated-header boundary. Include all of its rows in the header or split the merged cell.');
   const headerRows = rows.slice(0, count).map(row => ({ ...row, cells: row.cells.map(cell => ({ ...cell,
     page: { ...cell.page, height: 1e9, top: cell.margins.top / 15, bottom: cell.margins.bottom / 15 } })) }));
   const header = paginateTableRows(headerRows, { ...page, height: 1e9, top: 0, bottom: 0 }, 1, 0, paginateText);
   const body = rows.slice(count), height = header.endY, capacity = page.height - page.top - page.bottom;
-  if (height > capacity + 1e-6 || body.length && height >= capacity - 1e-6) throw new Error('Repeated header rows must fit on one page and leave room for the table body. Shorten the header or repeat fewer rows.');
+  if (height > capacity + 1e-6 || body.length && height >= capacity - 1e-6) return null;
   for (const row of body) for (const cell of row.cells) {
     if (cell.page.clipOverflow) continue;
     const omitHeader = (page.compatibilityMode ?? 12) >= 15 && (row.fixedHeight ?? row.minimumHeight ?? row.minHeight / 15) > capacity - height + 1e-6;
     const available = capacity - (omitHeader ? 0 : height);
-    for (const block of paragraphLayoutBlocks(cell.blocks)) if (block.lines.some(line => line.height + paragraphBorderInsets(block) + (cell.margins.top + cell.margins.bottom) / 15 > available + 1e-6)) throw new Error('The table page leaves too little space for a body text line. Reduce the header height or the body font size.');
+    for (const block of paragraphLayoutBlocks(cell.blocks)) if (block.lines.some(line => line.height + paragraphBorderInsets(block) + (cell.margins.top + cell.margins.bottom) / 15 > available + 1e-6)) return null;
   }
   const naturalMinimum = Math.max(0, ...(body[0]?.cells.map(c => blockMinimumHeight(c.blocks[0]) + (c.margins.top + c.margins.bottom) / 15) || []));
   const minimum = body[0]?.fixedHeight == null ? naturalMinimum : Math.min(body[0].fixedHeight, naturalMinimum, capacity - height);

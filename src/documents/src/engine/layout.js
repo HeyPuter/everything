@@ -551,10 +551,8 @@ function layoutPass(paragraphs, measureBase, page, numbering, tables, pageStorie
       // tblHeader is retained in nested tables, but those rows do not repeat.
       // A containing top-level header still repeats its complete nested content.
       const count = table.parentCellId ? 0 : headerRowCount(table);
-      if (count) {
-        const tableHeader = prepareTableHeader(rows.map(row => row.tableRow), count, page, paginateParagraphs);
-        return [{ tableHeader, height: tableHeader.height + tableHeader.minimum, format: { keepLines: true } }];
-      }
+      const tableHeader = count ? prepareTableHeader(rows.map(row => row.tableRow), count, page, paginateParagraphs) : null;
+      if (tableHeader) return [{ tableHeader, height: tableHeader.height + tableHeader.minimum, format: { keepLines: true } }];
       return mergedRowGroups(rows);
     };
     const measuredPage = page;
