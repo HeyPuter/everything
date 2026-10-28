@@ -34,3 +34,23 @@ test('Find Next steps through matches, and Go To keeps its own chord', async ({ 
   await text(page).press(mac ? 'Meta+Alt+g' : 'Control+g');
   await expect(page.getByRole('dialog', { name: 'Go To' })).toBeVisible();
 });
+
+test('the page count follows the pages scrolled into view, then the caret again', async ({ page }) => {
+  await openEditor(page);
+  await text(page).fill(('Paragraph of text that fills the pages. '.repeat(40) + '\n').repeat(20));
+  await text(page).evaluate(el => { el.focus(); el.setSelectionRange(0, 0); el.dispatchEvent(new Event('select')); });
+  const count = page.locator('.ed-statusbar .ed-page-count');
+  await expect(count).toHaveText(/^Page 1 of (\d+)$/);
+  const total = Number((await count.textContent()).match(/of (\d+)/)[1]);
+  expect(total).toBeGreaterThan(3);
+  const host = page.locator('.canvas-host').first();
+  // Scrolled to the end: the last page is the one in view.
+  await host.evaluate(h => { h.scrollTop = h.scrollHeight; });
+  await expect(count).toHaveText(`Page ${total} of ${total}`);
+  // Half way: a page in the middle.
+  await host.evaluate(h => { h.scrollTop = (h.scrollHeight - h.clientHeight) / 2; });
+  await expect.poll(async () => Number((await count.textContent()).match(/Page (\d+)/)[1])).toBeGreaterThan(1);
+  // Typing goes back to the caret's page.
+  await text(page).press('ArrowRight');
+  await expect(count).toHaveText(`Page 1 of ${total}`);
+});

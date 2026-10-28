@@ -1516,6 +1516,38 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     updateWordCount();
     statusBar?.refresh();
   }
+  // Scrolled away from the caret, the status bar names the page in view, as desktop word processors do; while the
+  // caret's page shows, and at the next caret move or edit (update), it names the caret's. Once a frame, reading only
+  // the pages' offsets, which scrolling leaves laid out.
+  let pageInViewFrame = 0;
+  host.addEventListener('scroll', () => {
+    if (pageInViewFrame) return;
+    pageInViewFrame = requestAnimationFrame(() => {
+      pageInViewFrame = 0;
+      if (!engine || failed || destroyed || host.hidden) return;
+      const index = pageInView();
+      if (index !== null) stats.textContent = `Page ${index + 1} of ${engine.layout.pageCount}`;
+    });
+  }, { passive: true });
+  function pageInView() {
+    const list = engine.canvases, count = engine.layout.pageCount;
+    if (!list.length) return null;
+    const top = host.scrollTop, bottom = top + host.clientHeight, left = host.scrollLeft, right = left + host.clientWidth;
+    const shows = canvas => canvas && canvas.offsetTop < bottom && canvas.offsetTop + canvas.offsetHeight > top && canvas.offsetLeft < right && canvas.offsetLeft + canvas.offsetWidth > left;
+    const caret = Math.min(count - 1, engine.caretPageIndex ?? 0);
+    if (shows(list[caret])) return caret;
+    // The last page starting above the middle of the view (pages run down, or across in rows)…
+    const x = (left + right) / 2, y = (top + bottom) / 2;
+    let lo = 0, hi = list.length - 1, at = 0;
+    while (lo <= hi) { const mid = (lo + hi) >> 1; if (list[mid].offsetTop <= y) { at = mid; lo = mid + 1; } else hi = mid - 1; }
+    // …and of its row, the one nearest the middle across.
+    let best = at, distance = Infinity;
+    for (let i = at; i >= 0 && list[i].offsetTop === list[at].offsetTop; i--) {
+      const c = list[i], d = x < c.offsetLeft ? c.offsetLeft - x : Math.max(0, x - c.offsetLeft - c.offsetWidth);
+      if (d < distance) { distance = d; best = i; }
+    }
+    return Math.min(best, count - 1);
+  }
   // The counts last shown, with the text and selection they were taken from: every caret move and each keystroke
   // (twice) refresh the status bar, and splitting a long document into words takes milliseconds each time.
   let counted = { text: null, a: 0, b: 0, total: 0, chosen: null };
