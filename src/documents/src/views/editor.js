@@ -968,7 +968,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
           get: () => { const z = recallZoom(); return z?.fit || (z?.value ? String(z.value) : '100'); }, set: v => rememberZoom(v === '100' ? { value: 100 } : { fit: v }) },
       ] },
       { id: 'typing', label: 'AutoCorrect', note: 'These apply as you type, in every document on this device.', controls: [
-        { type: 'toggle', label: 'Autocorrect as you type', hint: 'Smart quotes, dashes, ellipses, symbols and fractions; “- ” or “1. ” starts a list.', get: () => autocorrectEnabled(), set: on => setAutocorrectEnabled(on) },
+        { type: 'toggle', label: 'Autocorrect as you type', hint: 'Smart quotes, dashes, ellipses, symbols, fractions and a capital I; “- ” or “1. ” starts a list.', get: () => autocorrectEnabled(), set: on => setAutocorrectEnabled(on) },
         { type: 'toggle', label: 'Capitalize the first letter of sentences', get: () => capitalizeSentencesEnabled(), set: on => setCapitalizeSentencesEnabled(on) },
         { type: 'toggle', label: 'Link web and email addresses', hint: 'Addresses become links when you type a space or Return after them.', get: () => autolinkEnabled(), set: on => setAutolinkEnabled(on) },
       ] },

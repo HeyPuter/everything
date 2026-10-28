@@ -1,7 +1,8 @@
 /**
  * Autocorrect as you type: straight quotes become
  * typographic ones, two hyphens between words an em dash, three periods an
- * ellipsis, (c) (r) (tm) their symbols, and 1/2 1/4 3/4 real fractions.
+ * ellipsis, (c) (r) (tm) their symbols, 1/2 1/4 3/4 real fractions, and the
+ * pronoun i a capital.
  *
  * The engine inserts the typed character first; the correction then
  * replaces the characters just before the caret as its own step, so Undo
@@ -92,6 +93,13 @@ export function correction(before, typed) {
   } else if (typed === ' ') {
     const m = /(^|[\s(“‘])([13]\/[24]) $/.exec(before);
     if (m && FRACTIONS[m[2]]) return { back: 4, text: `${FRACTIONS[m[2]]} ` };
+  }
+  // The pronoun I, written as a word of its own or in I'm, I'll, I'd or I've, is a capital once the word ends. A
+  // period ends it only with the space after it ("i.e." goes on, and "i. " opens a list item at a paragraph's
+  // start), and a bracket not at all (the numeral of a list item "(i)").
+  if (out === typed && back === 1 && /^[\s,;:!?]$/.test(typed)) {
+    const m = /(?:^|[\s"“‘])(i(?:['’](?:m|ll|d|ve))?)$/.exec(prev) || (/\s/.test(typed) ? /[\s"“‘](i\.)$/.exec(prev) : null);
+    if (m) return { back: m[1].length + 1, text: `I${m[1].slice(1)}${typed}` };
   }
   return out === typed && back === 1 ? null : { back, text: out };
 }

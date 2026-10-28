@@ -56,3 +56,14 @@ test('a bullet or number typed at the start of a paragraph starts a list', async
   await page.keyboard.press('Enter'); await page.keyboard.type('Pick - or * here');
   await expect(input(page)).toHaveValue(/Pick - or \* here$/);
 });
+
+test('the pronoun i becomes a capital once its word ends, and Undo takes that back alone', async ({ page }) => {
+  await blank(page);
+  await page.keyboard.type("yes i think i'm right, and so do i. it is (i) fine, i.e. good ");
+  await expect(input(page)).toHaveValue('Yes I think I’m right, and so do I. It is (i) fine, i.e. good ');
+  await page.keyboard.type('and i');
+  await page.keyboard.type(' ');
+  await expect(input(page)).toHaveValue('Yes I think I’m right, and so do I. It is (i) fine, i.e. good and I ');
+  await input(page).press('ControlOrMeta+z');
+  await expect(input(page)).toHaveValue('Yes I think I’m right, and so do I. It is (i) fine, i.e. good and i ');
+});

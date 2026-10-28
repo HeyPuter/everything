@@ -39,6 +39,27 @@ describe('autocorrect rules', () => {
     expect(correction('1/3 ', ' ')).toBeNull();
   });
 
+  it('capitalizes the pronoun i once its word ends', () => {
+    expect(correction('and i ', ' ')).toEqual({ back: 2, text: 'I ' });
+    expect(correction('i,', ',')).toEqual({ back: 2, text: 'I,' });
+    expect(correction('so i?', '?')).toEqual({ back: 2, text: 'I?' });
+    expect(correction('then i’m ', ' ')).toEqual({ back: 4, text: 'I’m ' });
+    expect(correction("then i'll ", ' ')).toEqual({ back: 5, text: "I'll " });
+    expect(correction('she said “i ', ' ')).toEqual({ back: 2, text: 'I ' });
+    // Not inside another word, an abbreviation, a list numeral or an address.
+    expect(correction('hi ', ' ')).toBeNull();
+    expect(correction('ski ', ' ')).toBeNull();
+    expect(correction('so do i. ', ' ')).toEqual({ back: 3, text: 'I. ' });
+    expect(correction('i.', '.')).toBeNull();
+    expect(correction('i. ', ' ')).toBeNull();
+    expect(correction('so i.e. ', ' ')).toBeNull();
+    expect(correction('(i)', ')')).toBeNull();
+    expect(correction('(i ', ' ')).toBeNull();
+    expect(correction('a/i ', ' ')).toBeNull();
+    expect(correction('www.x.com/i ', ' ')).toBeNull();
+    expect(correction('i’mx ', ' ')).toBeNull();
+  });
+
   it('leaves ordinary typing alone', () => {
     expect(correction('hello', 'o')).toBeNull();
     expect(correction('hello ', ' ')).toBeNull();
