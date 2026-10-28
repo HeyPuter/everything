@@ -38,6 +38,24 @@ test('chart types and diagram layouts are chosen with the keyboard', async ({ pa
   await page.keyboard.press('End');
   await expect(layouts.getByRole('option', { name: /^Basic Pyramid/ })).toHaveAttribute('aria-selected', 'true');
   await page.keyboard.press('Tab');
-  await expect(diagram.getByRole('textbox', { name: 'Diagram text' })).toBeFocused();
+  const text = diagram.getByRole('textbox', { name: 'Diagram text' });
+  await expect(text).toBeFocused();
+  // Tab at the start of a line indents it; Shift+Tab there outdents it.
+  await text.fill('Plan\nBuild');
+  const caret = at => text.evaluate((el, at) => el.setSelectionRange(at, at), at);
+  await caret(5);
+  await text.press('Tab');
+  await expect(text).toHaveValue('Plan\n  Build');
+  await expect(text).toBeFocused();
+  await text.press('Shift+Tab');
+  await expect(text).toHaveValue('Plan\nBuild');
+  // After the line's text, Tab moves on, so the keyboard can reach the rest of the dialog.
+  await caret(10);
+  await text.press('Tab');
+  await expect(text).not.toBeFocused();
+  await expect(text).toHaveValue('Plan\nBuild');
+  await text.focus(); await caret(0);
+  await text.press('Shift+Tab');
+  await expect(text).not.toBeFocused();
   expect(errors).toEqual([]);
 });

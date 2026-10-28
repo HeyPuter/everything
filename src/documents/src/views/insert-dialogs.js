@@ -348,16 +348,20 @@ export function openDiagramDialog({ initial = null, editing = false, onInsert, o
   });
   const render = () => preview.replaceChildren(diagramSketch(layout, parseOutline(outline.value), colors.value));
   outline.addEventListener('input', render); colors.addEventListener('change', render);
-  outline.addEventListener('keydown', e => { if (e.key === 'Tab' && !isComposing(e)) {
-    // Tab and Shift+Tab indent and outdent the current line, as in an outline.
-    e.preventDefault(); const start = outline.value.lastIndexOf('\n', outline.selectionStart - 1) + 1, caret = outline.selectionStart;
-    if (e.shiftKey) { if (outline.value.startsWith('  ', start)) { outline.setRangeText('', start, start + 2); outline.selectionStart = outline.selectionEnd = Math.max(start, caret - 2); } }
+  outline.addEventListener('keydown', e => {
+    if (e.key !== 'Tab' || isComposing(e) || e.ctrlKey || e.metaKey || e.altKey) return;
+    // At the start of a line (before its text), Tab and Shift+Tab indent and outdent it, as in an outline.
+    // Elsewhere they move on to the next or previous control, so the keyboard can leave the box.
+    const caret = outline.selectionStart, start = outline.value.lastIndexOf('\n', caret - 1) + 1, lead = /^ */.exec(outline.value.slice(start))[0].length;
+    if (outline.selectionEnd !== caret || caret - start > lead || e.shiftKey && lead < 2) return;
+    e.preventDefault();
+    if (e.shiftKey) { outline.setRangeText('', start, start + 2); outline.selectionStart = outline.selectionEnd = Math.max(start, caret - 2); }
     else { outline.setRangeText('  ', start, start); outline.selectionStart = outline.selectionEnd = caret + 2; }
     render();
-  } });
+  });
   const dialog = formDialog({ title: editing ? 'Edit Diagram' : 'Diagram', submit: editing ? 'Update' : 'Insert', wide: true, className: 'insert-diagram', onClose, content: [
     el('div.insert-diagram-grid', {}, layouts,
-      el('div.insert-diagram-editor', {}, field('Text (one item per line; indent with Tab for details)', outline), field('Colors', colors), preview))],
+      el('div.insert-diagram-editor', {}, field('Text (one item per line; Tab at the start of a line indents it for details)', outline), field('Colors', colors), preview))],
   onSubmit: () => {
     const items = parseOutline(outline.value);
     if (!items.length) throw new Error('Type at least one item.');
