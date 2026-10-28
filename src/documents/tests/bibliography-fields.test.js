@@ -123,4 +123,18 @@ describe('changing a cited source\'s tag', () => {
     expect(d.text).toContain('(Hopper, 2019; Lovelace, 2020)');
     expect(strFromU8(unzipSync(await save(pkg, d))['word/document.xml'])).not.toContain('Lov20');
   });
+
+  it('puts a citation inserted with the caret inside another citation after it, not inside its result', async () => {
+    const { d } = await setup();
+    d.select(d.text.indexOf('.')); insertCitation(d, { tags: ['Lov20'] }, [book, article], 'apa');
+    const first = citationFields(d.paragraphs)[0];
+    d.select(first.start + 3);
+    insertCitation(d, { tags: ['Hop19'] }, [book, article], 'apa');
+    expect(d.text).toBe('Engines compute (Lovelace, 2020) (Hopper, 2019). Machines learn.');
+    expect(citationFields(d.paragraphs).map(r => [r.citation.tags, r.parentId ?? null])).toEqual([[['Lov20'], null], [['Hop19'], null]]);
+    // Refreshing keeps both.
+    updateCitations(d, [book, article], 'apa');
+    expect(d.text).toBe('Engines compute (Lovelace, 2020) (Hopper, 2019). Machines learn.');
+  });
 });
+

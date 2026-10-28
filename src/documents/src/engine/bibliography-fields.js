@@ -145,9 +145,16 @@ export function updateCitations(doc, sources, style) {
 /** Insert a citation of `citation` ({ tags, pages, … }) at the caret. */
 export function insertCitation(doc, citation, sources, style) {
   const field = newBodyField(citationInstruction({ lcid: '1033', ...citation }));
-  // A citation typed straight after a word gets a space before it, as one would type it.
-  const at = doc.range[0];
-  if (/[\p{L}\p{N}]/u.test(doc.text[at - 1] || '')) { doc.select(at, doc.range[1]); doc.replaceUntracked(' ', { checkpoint: false }); }
+  // With the caret inside a field's result (another citation), the citation goes after that field: inside, it
+  // nested in the result, and the next refresh of the outer citation deleted it.
+  let at = doc.range[0], moved = false;
+  if (at === doc.range[1]) {
+    const around = bodyFieldRanges(doc.paragraphs).filter(r => r.start < at && at < r.end);
+    if (around.length) { at = Math.max(...around.map(r => r.end)); doc.select(at); moved = true; }
+  }
+  // A citation typed straight after a word (or placed after another citation) gets a space before it, as one would type it.
+  const before = doc.text[at - 1] || '';
+  if (moved ? before && !/\s/u.test(before) : /[\p{L}\p{N}]/u.test(before)) { doc.select(at, doc.range[1]); doc.replaceUntracked(' ', { checkpoint: false }); }
   const context = citationContext(style, sources, [...citedTags(doc.paragraphs), ...citation.tags]);
   const range = writeInlineField(doc, { field, runs: citationRuns(parseCitation(field.instruction), sources, style, context) });
   // IEEE numbers follow citation order, so earlier numbers can shift.

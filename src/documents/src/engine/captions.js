@@ -149,6 +149,12 @@ function insertReferenceField(doc, instruction, placeholder, name, hyperlink) {
  * relative-position reference after it ("Figure 1 below").
  */
 export function insertCrossReference(doc, target, { show = 'text', hyperlink = true, aboveBelow = false } = {}) {
+  // With the caret inside a field's result (another cross-reference), the new one goes after that field rather than
+  // splitting its result ("AlBetapha").
+  if (doc.range[0] === doc.range[1]) {
+    const at = doc.range[0], around = bodyFieldRanges(doc.paragraphs).filter(r => r.start < at && at < r.end);
+    if (around.length) doc.select(Math.max(...around.map(r => r.end)));
+  }
   let start = target.start, end = target.end;
   if (show === 'entire' && target.paragraphEnd !== undefined) end = target.paragraphEnd;
   if (show === 'caption' && target.textStart !== undefined) { start = target.textStart; end = target.paragraphEnd; if (start >= end) throw new Error('This caption has no text after its number.'); }

@@ -47,6 +47,17 @@ describe('captions and cross-references', () => {
     expect(() => insertCaption(d, { label: 'Figure-A' })).toThrow();
   });
 
+  it('puts a cross-reference inserted inside another one after it', async () => {
+    const { d } = await setup();
+    d.select(0, 5); d.addBookmark('First'); d.select(10, 15); d.addBookmark('Second');
+    const [first, second] = referenceTargets(d).bookmarks;
+    d.select(d.text.length); d.replace(' see '); insertCrossReference(d, first);
+    const ref = bodyFieldRanges(d.paragraphs)[0];
+    d.select(ref.start + 2); insertCrossReference(d, second);
+    expect(d.text.split('\n').at(-1)).toBe('Conclusion see ChartChart');
+    expect(bodyFieldRanges(d.paragraphs).map(r => [d.text.slice(r.start, r.end), r.parentId ?? null])).toEqual([['Chart', null], ['Chart', null]]);
+  });
+
   it('inserts a cross-reference to a caption that follows renumbering', async () => {
     const { pkg, d } = await setup();
     d.select(d.text.indexOf('Chart two')); insertCaption(d, { label: 'Figure', text: 'Second chart' });
