@@ -267,7 +267,7 @@ describe('numbering codec and preservation', () => {
   it.each(['lvlPicBulletId', 'numFmt', 'numStyleLink'])('rejects an unsupported referenced %s before attaching an editor', async kind => {
     await expect(rewrite(await fixture(), xmls => {
       const xml = xmls['word/numbering.xml'], base = nodes(xml, 'abstractNum').find(n => n.getAttributeNS(W, 'abstractNumId') === '41');
-      if (kind === 'numFmt') nodes(base, 'numFmt')[0].setAttributeNS(W, 'w:val', 'hebrew2');
+      if (kind === 'numFmt') nodes(base, 'numFmt')[0].setAttributeNS(W, 'w:val', 'thaiCounting');
       else if (kind === 'numStyleLink') base.append(el(xml, kind, 'Linked'));
       else nodes(base, 'lvl')[0].append(el(xml, kind, '1'));
     })).rejects.toMatchObject({ name: 'UnsupportedDocumentError' });

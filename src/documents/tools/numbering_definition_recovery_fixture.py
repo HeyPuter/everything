@@ -28,9 +28,9 @@ def main():
         if variant == 'inherited':
             style = '<w:style w:type="paragraph" w:styleId="BadList"><w:name w:val="Bad list"/><w:basedOn w:val="Heading"/><w:pPr><w:numPr><w:numId w:val="2"/></w:numPr></w:pPr></w:style>'
             parts['word/styles.xml'] = parts['word/styles.xml'].decode().replace('</w:styles>', style + '</w:styles>').encode()
-        fmt = 'hebrew2' if variant in ['format', 'inherited'] else 'decimal'
+        fmt = 'thaiCounting' if variant in ['format', 'inherited'] else 'decimal'
         level = f'<w:lvl w:ilvl="0"><w:start w:val="1"/><w:numFmt w:val="{fmt}"/><w:lvlText w:val="%1"/><w:lvlJc w:val="left"/></w:lvl>'
-        override = '<w:lvlOverride w:ilvl="0">' + level.replace('w:val="decimal"', 'w:val="hebrew2"') + '</w:lvlOverride>' if variant == 'override' else ''
+        override = '<w:lvlOverride w:ilvl="0">' + level.replace('w:val="decimal"', 'w:val="thaiCounting"') + '</w:lvlOverride>' if variant == 'override' else ''
         instance = '' if variant == 'missing' else f'<w:num w:numId="2"><w:abstractNumId w:val="1"/>{override}</w:num>'
         parts['word/numbering.xml'] = parts['word/numbering.xml'].decode().replace('<w:num w:numId="1">', f'<w:abstractNum w:abstractNumId="1">{level}</w:abstractNum><w:num w:numId="1">').replace('</w:numbering>', instance + '</w:numbering>').encode()
         with ZipFile(OUT / (variant + '.docx'), 'w', ZIP_DEFLATED) as archive:

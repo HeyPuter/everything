@@ -63,3 +63,15 @@ it('counts in Chinese and Japanese numerals and falls back to digits past a sequ
   expect(['ordinal', 'cardinalText', 'ordinalText'].map(f => importedNumeral(21, f))).toEqual(['21st', 'Twenty-one', 'Twenty-first']);
   expect(importedNumeral(2024, 'ideographDigital')).toBe('二〇二四');
 });
+
+// Korean counting and digits, Hebrew numerals and alphabet, the Arabic abjad and alphabet and the iroha.
+it('numbers lists in Korean, Hebrew, Arabic and iroha sequences', () => {
+  const sample = (format, values) => values.map(n => importedNumeral(n, format));
+  expect(sample('koreanCounting', [1, 10, 11, 20, 100, 101, 1234, 10000])).toEqual(['일', '십', '십일', '이십', '백', '백일', '천이백삼십사', '일만']);
+  expect(sample('koreanDigital', [1, 10, 205])).toEqual(['일', '일영', '이영오']);
+  expect(sample('hebrew1', [1, 10, 15, 16, 21, 100, 345, 500, 999, 1000])).toEqual(['א', 'י', 'טו', 'טז', 'כא', 'ק', 'שמה', 'תק', 'תתקצט', '1000']);
+  expect(sample('hebrew2', [1, 2, 22, 23])).toEqual(['א', 'ב', 'ת', '23']);
+  expect(sample('arabicAbjad', [1, 2, 3, 28, 29])).toEqual(['أ', 'ب', 'ج', 'غ', '29']);
+  expect(sample('arabicAlpha', [1, 2, 3, 28])).toEqual(['أ', 'ب', 'ت', 'ي']);
+  expect(sample('irohaFullWidth', [1, 2, 3, 47, 48])).toEqual(['イ', 'ロ', 'ハ', 'ス', '48']);
+});
