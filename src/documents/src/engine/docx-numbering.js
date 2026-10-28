@@ -15,7 +15,7 @@ import { readRunVertical } from './docx-vertical-align.js';
 import { readRunBackground } from './docx-backgrounds.js';
 import { parseXml as xml, setContentTypeOverride } from './docx-xml.js';
 import { strToU8 } from 'fflate';
-import { emptyNumbering, NUMBER_FORMATS } from './numbering.js';
+import { emptyNumbering, READ_NUMBER_FORMATS } from './numbering.js';
 import { relatedPartPath } from './docx-relationships.js';
 import { writeFontProperties } from './docx-fonts.js';
 import { LEVEL_PARAGRAPH_ELEMENTS } from './numbering-paragraph.js';
@@ -73,7 +73,7 @@ export function readNumbering(parts, readGeometry, readColor, readFonts, onError
     for (const n of children(node)) if (n.namespaceURI !== W || !['start', 'numFmt', 'lvlRestart', 'pStyle', 'isLgl', 'suff', 'lvlText', 'legacy', 'lvlJc', 'pPr', 'rPr'].includes(n.localName)) throw new Error(`Unsupported numbering property: ${n.localName}.`);
     const format = val(child(node, 'numFmt')) || 'decimal', textNode = child(node, 'lvlText');
     let text = val(textNode) || '';
-    if (!NUMBER_FORMATS.includes(format) || child(node, 'numFmt')?.hasAttributeNS(W, 'format')) throw new Error(`Unsupported numbering format: ${format}.`);
+    if (!READ_NUMBER_FORMATS.includes(format) || child(node, 'numFmt')?.hasAttributeNS(W, 'format')) throw new Error(`Unsupported numbering format: ${format}.`);
     if (['1', 'true', 'on'].includes(textNode?.getAttributeNS(W, 'null')) && !text) throw new Error('Null numbering symbols are not supported.');
     if (text.length > 128 || /[\u0000-\u001f]/u.test(text)) throw new Error('Unsupported numbering label text.');
     const alignment = { start: 'left', end: 'right' }[val(child(node, 'lvlJc'))] || val(child(node, 'lvlJc')) || 'left';

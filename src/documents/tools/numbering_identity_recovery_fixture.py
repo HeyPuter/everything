@@ -16,7 +16,7 @@ def main():
     OUT.mkdir(exist_ok=True)
     with ZipFile(ROOT / 'tests/fixtures/numbering-definition-recovery/format.docx') as archive:
         source = {name: archive.read(name) for name in archive.namelist()}
-    numbering = source['word/numbering.xml'].decode().replace('decimalEnclosedCircle', 'decimal')
+    numbering = source['word/numbering.xml'].decode().replace('hebrew2', 'decimal')
     abstract = re.search(r'<w:abstractNum w:abstractNumId="1">.*?</w:abstractNum>', numbering).group()
     instance = '<w:num w:numId="2"><w:abstractNumId w:val="1"/></w:num>'
     variants = {

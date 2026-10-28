@@ -1,4 +1,4 @@
-import { levelFor, listKind, newList, NUMBER_FORMATS, listMarkers } from './numbering.js';
+import { levelFor, listKind, newList, READ_NUMBER_FORMATS, listMarkers } from './numbering.js';
 import { checkedFontEdit } from './font-families.js';
 import { validFontSize } from './font-size.js';
 import { normalizeColor } from './colors.js';
@@ -35,7 +35,8 @@ function checkedLevelPatch(patch) {
   const result = {};
   for (const [key, value] of Object.entries(patch)) {
     if (key === 'format') {
-      if (!NUMBER_FORMATS.includes(value)) throw new Error('Choose a supported number style.');
+      // A level read from a document keeps its own format when other properties change.
+      if (!READ_NUMBER_FORMATS.includes(value)) throw new Error('Choose a supported number style.');
       result.format = value;
     } else if (key === 'text') {
       if (typeof value !== 'string' || value.length > 64 || /[\u0000-\u001f]/.test(value)) throw new Error('Enter a list label of up to 64 characters.');

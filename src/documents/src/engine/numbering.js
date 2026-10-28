@@ -1,8 +1,11 @@
 import { normalizeTabStops } from './paragraph-geometry.js';
 import { applyLevelParagraph } from './numbering-paragraph.js';
+import { IMPORTED_NUMBER_FORMATS, importedNumeral } from './list-numerals.js';
 
 export const emptyNumbering = () => ({ abstracts: {}, instances: {} });
 export const NUMBER_FORMATS = ['bullet', 'decimal', 'decimalZero', 'lowerLetter', 'upperLetter', 'lowerRoman', 'upperRoman', 'none'];
+/** Formats read from documents and numbered in lists; the list dialogs offer NUMBER_FORMATS. */
+export const READ_NUMBER_FORMATS = Object.freeze([...NUMBER_FORMATS, ...IMPORTED_NUMBER_FORMATS]);
 export class NumberingDefinitionError extends Error {}
 export function levelFor(numbering, list) {
   const instance = numbering?.instances[list.numId], abstract = numbering?.abstracts[instance?.abstractId];
@@ -66,6 +69,7 @@ export function listGeometry(p, numbering, plain) {
 function numeral(value, format) {
   if (format === 'none') return '';
   if (format === 'decimalZero') return String(value).padStart(2, '0');
+  if (IMPORTED_NUMBER_FORMATS.includes(format)) return importedNumeral(value, format);
   if (/Letter$/.test(format)) {
     // OOXML alphabetic numbering repeats letters after Z: AA, BB, ... (§17.18.59).
     if (value < 1) return String(value);
