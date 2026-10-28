@@ -49,6 +49,18 @@ export function createCitationCommands(ctx) {
       fields.updateCitations(body, sources, style); fields.updateBibliographies(body, sources, style); return true;
     }, { modules: ['bibliography'], refresh: false });
   }
+  /**
+   * The citation and bibliography refresh as an action for runBody's bibliography module, with the document's
+   * sources and style read now, so Update Fields does it in the same step as its other fields.
+   */
+  async function refreshAction() {
+    if (!modules) modules = await engineModules();
+    const { data, style } = documentData();
+    return (body, fields) => {
+      if (!body.paragraphs.some(p => p.fieldMarkers?.some(m => ['CITATION', 'BIBLIOGRAPHY'].includes(m.field.type)))) return;
+      fields.updateCitations(body, data.sources, style); fields.updateBibliographies(body, data.sources, style);
+    };
+  }
   /** Save a document source edited in the source dialog; a changed tag takes its citations along. */
   const saveEditedSource = (source, draft) => saveSources(documentData().data.sources.map(s => s.tag === source.tag ? draft : s), currentStyle(),
     { renamed: draft.tag.toLowerCase() !== source.tag.toLowerCase() ? [source.tag, draft.tag] : null });
@@ -351,5 +363,5 @@ export function createCitationCommands(ctx) {
       { label: 'Update Citations and Bibliography', icon: 'updateFields', onSelect: () => refreshFields() }];
   }
 
-  return { citationItems, bibliographyItems, manageSources, styleControl, setStyle, currentStyle, refreshFields, insertBibliography, cite, sourceDialog, editCitation, contextItems, citationAt, documentData };
+  return { citationItems, bibliographyItems, manageSources, styleControl, setStyle, currentStyle, refreshFields, refreshAction, insertBibliography, cite, sourceDialog, editCitation, contextItems, citationAt, documentData };
 }

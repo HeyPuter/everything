@@ -140,12 +140,18 @@ export function createReferences({ editor, pkg, error, base = {}, onChange = () 
    * then refresh page references (all, or `result.only`). Returns the action's result. With `track`, text the
    * action inserts (a caption, a cross-reference) is then a tracked insertion when Track Changes is on.
    */
-  async function runBody(action, { modules = ['captions'], refresh = true, keepFocus = false, track = false } = {}) {
+  async function runBody(action, { modules = ['captions'], refresh = true, keepFocus = false, track = false, stay = null } = {}) {
     const engine = ready(); if (!engine) return false;
     engine.finishComposition();
-    if (engine.session.path !== null) engine.editStory(null);
     const [refreshModule, ...loaded] = await Promise.all([import('../engine/page-reference-refresh.js'), ...modules.map(name => ENGINE[name]())]);
     if (!pageLookupModule) pageLookupModule = await import('../engine/page-lookup.js');
+    if (!ready()) return false;
+    // From here to the end nothing waits, so no keystroke can arrive while the body is the open story. With `stay`,
+    // a header, footer or note open now is opened again with its caret where it is, and `stay(engine)` runs there:
+    // keys typed while the modules loaded went into it, and keys typed after go into it too.
+    engine.finishComposition();
+    const story = stay && engine.session.path !== null ? { path: engine.session.path, page: engine.storyPage, ...engine.model.selection } : null;
+    if (engine.session.path !== null) engine.editStory(null);
     const body = engine.session.body, tracking = body.trackChanges;
     body.trackChanges = false;
     let result;
@@ -162,7 +168,13 @@ export function createReferences({ editor, pkg, error, base = {}, onChange = () 
         if (refresh || result?.only) refreshModule.refreshPageReferences(body, model => engine.layoutModel(model), engine.pageStories, { checkpoint: false, only: result?.only || null });
         return result;
       });
-    } finally { body.trackChanges = tracking; }
+    } finally {
+      body.trackChanges = tracking;
+      if (story && engine.session.path === null && engine.editStory(story.path, story.page) && engine.session.path === story.path) {
+        engine.model.select(story.anchor, story.focus);
+        stay(engine);
+      }
+    }
     if (!keepFocus) engine.focus();
     onChange();
     return result;
@@ -193,24 +205,25 @@ export function createReferences({ editor, pkg, error, base = {}, onChange = () 
   async function updateAllFields() {
     const engine = ready(); if (!engine) return;
     engine.finishComposition();
-    // Pressed in a header, footer or note, F9 updates the body's fields and then returns there: it used to
-    // leave the caret at the start of the body, where the next keystrokes went.
-    const story = engine.session.path, page = engine.storyPage, { anchor, focus } = engine.model.selection;
-    const { updateSequenceFields } = await import('../engine/field-update.js');
-    const issues = [], notesMaps = await noteNumberMaps();
-    await runBody(body => { updateSequenceFields(body, { onIssue: issue => issues.push(issue), notes: notesMaps }); return true; });
-    await citations.refreshFields();
-    if (story !== null && engine.session.path === null && engine.editStory(story, page) && engine.session.path === story) {
-      engine.model.select(anchor, focus);
-      // The header's or footer's own fields (DATE, FILENAME…) update too; page numbers there follow pagination.
-      const { updateStoryFields, fieldEvaluationContext } = await import('../engine/field-results.js');
-      if (engine.model.paragraphs.some(p => p.runs.some(r => r.field))) {
-        engine.execute(() => updateStoryFields(engine.model, { ...(fieldEvaluationContext() || {}), text: engine.session.body.text }) > 0);
-        engine.model.select(anchor, focus);
-      }
-      engine.revealCaret?.(); onChange();
-    }
-    if (issues.length) error(new Error([...new Set(issues.map(issue => issue.message))].join(' ')));
+    engine.fieldUpdateRunning = true;
+    try {
+      const [{ updateSequenceFields }, { updateStoryFields, fieldEvaluationContext }] = await Promise.all([import('../engine/field-update.js'), import('../engine/field-results.js')]);
+      const issues = [], notesMaps = await noteNumberMaps(), citationsUpdate = await citations.refreshAction();
+      // Pressed in a header, footer or note, F9 updates the body's fields and stays there (runBody's `stay`): it
+      // used to leave the caret at the start of the body, and keys typed while it worked went into the body.
+      await runBody((body, fields) => {
+        updateSequenceFields(body, { onIssue: issue => issues.push(issue), notes: notesMaps });
+        citationsUpdate?.(body, fields);
+        return true;
+      }, { modules: ['bibliography'], stay: open => {
+        // The header's or footer's own fields (DATE, FILENAME…) update too; page numbers there follow pagination.
+        if (!open.model.paragraphs.some(p => p.runs.some(r => r.field))) return;
+        const { anchor, focus } = open.model.selection;
+        open.execute(() => updateStoryFields(open.model, { ...(fieldEvaluationContext() || {}), text: open.session.body.text }) > 0);
+        open.model.select(anchor, focus); open.revealCaret?.();
+      } });
+      if (issues.length) error(new Error([...new Set(issues.map(issue => issue.message))].join(' ')));
+    } finally { engine.fieldUpdateRunning = false; }
   }
 
   /* ---- Captions ---- */

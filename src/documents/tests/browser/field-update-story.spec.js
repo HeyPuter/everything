@@ -21,11 +21,15 @@ test('F9 in a footer keeps the footer open with the caret where it was', async (
   });
   const before = await state();
   expect(before).toMatchObject({ path: footer, range: [2, 2] });
+  // Keys typed straight after F9, while the update is still running, go into the footer, in order: Update
+  // Fields does its work in the body without the footer closing in between.
   await page.keyboard.press('F9');
-  await expect.poll(async () => (await state()).path).toBe(footer);
-  expect((await state()).range).toEqual([2, 2]);
   await page.keyboard.insertText('X');
+  await page.keyboard.insertText('Y');
+  await expect.poll(async () => (await state()).story).toBe(`${before.story.slice(0, 2)}XY${before.story.slice(2)}`);
+  // And once the update has finished, they are still there and the body is as it was.
+  await page.waitForFunction(() => window.__docs.current.view.engine.fieldUpdateRunning === false);
   const after = await state();
-  expect(after.body).toBe(before.body);
-  expect(after.story).toBe(`${before.story.slice(0, 2)}X${before.story.slice(2)}`);
+  expect(after).toMatchObject({ path: footer, range: [4, 4], body: before.body });
+  expect(after.story).toBe(`${before.story.slice(0, 2)}XY${before.story.slice(2)}`);
 });
