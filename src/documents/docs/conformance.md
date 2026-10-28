@@ -22420,7 +22420,11 @@ screen only: · spaces, ° nonbreaking spaces, → tabs, ↵ text-wrapping break
 ¶ paragraph ends, ¤ cell ends, and labelled dotted rules for page, column and
 section breaks (labelled by how the next section starts, §17.6.22). Marks never
 reach print, PDF or the saved document. Headers, footers and text boxes do not
-show marks yet; hidden text (§17.3.2.14) and optional hyphens are not marked.
+show marks yet; hidden text (§17.3.2.14) is not marked. Optional hyphens
+(§17.3.3.29 `softHyphen`, and U+00AD in text) show as a small raised ¬ over a
+hairline at their position where they do not break the line; where one does,
+its hyphen is drawn. Unlike the reference application, the text is not reflowed
+to give the mark its own width.
 
 The [independent control](../tools/home_editing_fixture.py)
 (`public/fixtures/home-editing.docx`) has mixed runs, a character style with

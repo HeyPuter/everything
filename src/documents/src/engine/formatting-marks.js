@@ -80,6 +80,8 @@ export function formattingMarks(lines, text, paragraphs, pageSettings, page) {
       if (ch === ' ' || ch === '　') marks.push({ kind: 'space', x: (x + next) / 2, y: baseline, size, cell: line });
       else if (ch === ' ') marks.push({ kind: 'nbsp', x: (x + next) / 2, y: baseline, size, cell: line });
       else if (ch === '\t') marks.push({ kind: 'tab', x, width: next - x, y: baseline, size, cell: line });
+      // An optional hyphen shows as ¬ where it does not break the line; where it does, its hyphen is drawn.
+      else if (ch === '\u00ad' && !(offset === local.end - 1 && !local.paragraphEnd && !local.hardBreak)) marks.push({ kind: 'optionalHyphen', x, y: baseline, size, cell: line });
     }
     for (const entry of entries?.get(line.paragraphId) || []) {
       if (entry.offset < local.start || entry.offset > local.end || (entry.offset === local.end && !local.paragraphEnd)) continue;
@@ -148,6 +150,12 @@ export function paintFormattingMarks(ctx, marks, geometry) {
     const { x, y, size } = mark;
     if (mark.kind === 'space') ctx.fillRect(x - size * 0.06, y - size * 0.36, Math.max(1, size * 0.12), Math.max(1, size * 0.12));
     else if (mark.kind === 'nbsp') { ctx.font = `${size * 0.7}px system-ui, sans-serif`; ctx.textAlign = 'center'; ctx.fillText('°', x, y - size * 0.05); }
+    // The hyphen has no width of its own and the text is not reflowed around it: the mark is drawn
+    // small and raised between its letters, over a hairline at their join, so it stays legible.
+    else if (mark.kind === 'optionalHyphen') {
+      ctx.fillRect(x - 0.25, y - size * 0.62, 0.5, size * 0.62);
+      ctx.font = `bold ${size * 0.55}px system-ui, sans-serif`; ctx.textAlign = 'center'; ctx.fillText('¬', x, y - size * 0.72);
+    }
     else if (mark.kind === 'tab') {
       // An arrow centered in the tab's gap, as long as fits.
       const length = Math.min(mark.width - 2, size * 0.75), left = x + (mark.width - length) / 2, mid = y - size * 0.32, head = Math.min(size * 0.22, length / 2);

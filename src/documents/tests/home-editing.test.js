@@ -154,6 +154,22 @@ describe('Formatting marks', () => {
     expect(tab.width).toBeGreaterThan(0);
     expect(marks.find(m => m.kind === 'break').text).toBe('Page Break');
   });
+  it('shows optional hyphens as ¬ where they do not break the line', async () => {
+    const { doc } = await styledDocument(['hy\u00adphen and opt\u00adional']);
+    const layout = layoutDocument(doc.paragraphs, measure, pageGeometry(doc.pageSettings), doc.numbering, doc.tables, undefined, { styles: doc.styles });
+    const marks = formattingMarks(layout.lines, doc.text, doc.paragraphs, doc.pageSettings, layout.page).filter(m => m.kind === 'optionalHyphen');
+    expect(marks).toHaveLength(2);
+    // At the position between the letters around it.
+    const line = layout.lines[0], at = offset => line.stops.find(s => s.offset === offset).x;
+    expect(marks[0].x).toBeCloseTo(at(2)); expect(marks[1].x).toBeCloseTo(at(doc.text.indexOf('\u00ad', 4)));
+    // Where one breaks the line it is drawn as the hyphen itself, with no second mark.
+    const narrow = layoutDocument(doc.paragraphs, measure, { ...pageGeometry(doc.pageSettings), right: pageGeometry(doc.pageSettings).width - pageGeometry(doc.pageSettings).left - 30 }, doc.numbering, doc.tables, undefined, { styles: doc.styles });
+    const broken = narrow.lines.filter(l => !l.paragraphEnd && doc.text[l.end - 1] === '\u00ad');
+    expect(broken.length).toBeGreaterThan(0);
+    const narrowMarks = formattingMarks(narrow.lines, doc.text, doc.paragraphs, doc.pageSettings, narrow.page).filter(m => m.kind === 'optionalHyphen');
+    expect(narrowMarks.some(m => broken.includes(m.cell))).toBe(false);
+    expect(narrowMarks.length).toBe(2 - broken.length);
+  });
   it('shows end-of-cell marks in tables', async () => {
     const { doc } = await styledDocument(['x']);
     doc.insertTable(1, 2, 600);
