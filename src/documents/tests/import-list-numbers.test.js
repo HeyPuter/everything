@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { it, expect } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { TextDocument, paragraph } from '../src/engine/model.js';
 import { htmlFragment, pasteFragment } from '../src/engine/clipboard-fragment.js';
 import { markdownHtml } from '../src/lib/markdown-html.js';
@@ -31,4 +31,25 @@ it('goes on numbering an outer list after a list nested in its item', () => {
   const [a, point, b] = opened('<ol><li>a<ul><li>point</li></ul></li><li>b</li></ol>');
   expect([a, b]).toEqual(['1.\ta', '2.\tb']);
   expect(point).toMatch(/^  \S\tpoint$/);
+});
+
+describe('a web page Google Docs exports', () => {
+  // File > Download > Web page: nesting by class (lst-kix_<list>-<level>), each level a list of its own, numbering
+  // carried on by the style sheet, and a blank line an empty paragraph the style sheet gives a height.
+  const page = `<html><head><meta content="text/html; charset=UTF-8" http-equiv="content-type"><style type="text/css">
+ol.lst-kix_abc-0.start{counter-reset:lst-ctn-kix_abc-0 0}.lst-kix_abc-0>li{counter-increment:lst-ctn-kix_abc-0}
+ul.lst-kix_def-1{list-style-type:none}.c2{height:11pt}.c0{margin:0;padding:0}.c4{font-weight:700}
+</style></head><body class="c5 doc-content">
+<p class="c0"><span class="c4">Plan</span></p><p class="c0 c2"><span class="c1"></span></p>
+<p class="c0"><span class="c1">After a blank line</span></p>
+<ol class="c3 lst-kix_abc-0 start" start="1"><li class="c0 li-bullet-0"><span class="c1">One</span></li></ol>
+<ul class="c3 lst-kix_def-1 start"><li class="c0 li-bullet-1"><span class="c1">Detail</span></li><li class="c0 li-bullet-1"><span class="c1">More</span></li></ul>
+<ol class="c3 lst-kix_abc-0"><li class="c0 li-bullet-0"><span class="c1">Two</span></li></ol>
+<p class="c0"><span class="c1">End</span></p></body></html>`;
+  // (Its blank lines need a browser's style sheets: tests/browser/google-docs-import.spec.js.)
+  it('keeps its nested lists, numbered on', async () => {
+    const { htmlBody } = await import('../src/lib/importers.js');
+    const lines = opened(htmlBody(page)).filter(Boolean);
+    expect(lines).toEqual(['Plan', 'After a blank line', '1.\tOne', expect.stringMatching(/^  \S\tDetail$/), expect.stringMatching(/^  \S\tMore$/), '2.\tTwo', 'End']);
+  });
 });
