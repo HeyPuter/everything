@@ -201,7 +201,14 @@ export function createReferences({ editor, pkg, error, base = {}, onChange = () 
     await runBody(body => { updateSequenceFields(body, { onIssue: issue => issues.push(issue), notes: notesMaps }); return true; });
     await citations.refreshFields();
     if (story !== null && engine.session.path === null && engine.editStory(story, page) && engine.session.path === story) {
-      engine.model.select(anchor, focus); engine.revealCaret?.(); onChange();
+      engine.model.select(anchor, focus);
+      // The header's or footer's own fields (DATE, FILENAME…) update too; page numbers there follow pagination.
+      const { updateStoryFields, fieldEvaluationContext } = await import('../engine/field-results.js');
+      if (engine.model.paragraphs.some(p => p.runs.some(r => r.field))) {
+        engine.execute(() => updateStoryFields(engine.model, { ...(fieldEvaluationContext() || {}), text: engine.session.body.text }) > 0);
+        engine.model.select(anchor, focus);
+      }
+      engine.revealCaret?.(); onChange();
     }
     if (issues.length) error(new Error([...new Set(issues.map(issue => issue.message))].join(' ')));
   }

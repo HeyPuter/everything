@@ -7485,6 +7485,17 @@ was re-exported and produced pixel-identical pages. Validation: 88 unit tests,
 schema checks, and production build/license checks pass. The corrected fixture
 also passed its six unit cases and browser case on rerun.
 
+### Update Fields in an edited header or footer
+
+Pressed while a header or footer is being edited, Update Fields (F9) also refreshes that
+story's fields that the field evaluator computes (DATE, TIME, FILENAME, AUTHOR,
+DOCPROPERTY, NUMWORDS… per §17.16.5). A story field stays one atomic run holding its
+saved envelope (§§17.16.18, 17.16.19): the new result replaces the cached result runs
+inside the original delimiters, keeping the first result run's properties, and saves as
+such. PAGE, NUMPAGES and SECTIONPAGES follow pagination as before; locked fields
+(`fldLock`), and fields the evaluator does not compute or whose envelope it cannot
+rewrite, keep their cached result. Only the open story is updated, in one undo step.
+
 ### Editable page-number building blocks
 
 Word's Insert > Page Number designs save a header or footer whose paragraphs sit in

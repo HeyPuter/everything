@@ -4,7 +4,8 @@
 // document statistics (NUMPAGES, NUMWORDS, NUMCHARS) and the general formatting switch (§17.16.4.3).
 // A field is inserted with its current result as cached text, so every consumer shows it at once;
 // Update Field recomputes it from the same evaluator.
-import { fieldInstructionTokens } from './docx-page-fields.js';
+import { fieldInstructionTokens, pageFieldSegments, writePageFieldResult } from './docx-page-fields.js';
+import { serializeFragment } from './docx-compatibility.js';
 import { formatPageNumber } from './page-numbering.js';
 import { newBodyField } from './toc.js';
 import { bodyFieldRanges, newFieldEndOrder } from './body-fields.js';
@@ -237,3 +238,51 @@ export function fieldResultPlan(model, context = fieldEvaluationContext()) {
   }
   return changes;
 }
+
+const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
+// Results that follow pagination (headers and footers draw them live) or that this evaluator does not compute.
+const LIVE_STORY_FIELDS = new Set(['PAGE', 'NUMPAGES', 'SECTIONPAGES']);
+
+/**
+ * Update Fields in a header or footer (its story model): fields this evaluator computes (DATE, FILENAME,
+ * AUTHOR, NUMWORDS…) get their current result. A story field is one atomic run holding the field's saved
+ * envelope, so the new result is written into that envelope, with the old result's run formatting, as the
+ * saved file will hold it. Locked fields, page numbers and fields it cannot evaluate are left alone.
+ * One undo step; returns the number of fields changed.
+ */
+export function updateStoryFields(model, context = fieldEvaluationContext()) {
+  const changes = [];
+  for (const [pi, p] of model.paragraphs.entries()) for (const [ri, run] of p.runs.entries()) {
+    const field = run.field;
+    if (!field || field.locked || LIVE_STORY_FIELDS.has(field.type)) continue;
+    const value = evaluateField(field.instruction, { ...(context || {}), text: context?.text ?? '' });
+    if (value === null || value === field.cachedText) continue;
+    let source;
+    try {
+      const doc = new DOMParser().parseFromString(`<w:p xmlns:w="${W}"/>`, 'application/xml');
+      const envelope = new DOMParser().parseFromString(`<w:p xmlns:w="${W}">${field.source}</w:p>`, 'application/xml').documentElement;
+      const [segment] = pageFieldSegments(envelope);
+      const old = segment?.resultNodes?.find(n => n.namespaceURI === W && n.localName === 'r');
+      const result = doc.createElementNS(W, 'w:r');
+      const properties = old && [...old.children].find(n => n.namespaceURI === W && n.localName === 'rPr');
+      if (properties) result.append(doc.importNode(properties, true));
+      const lines = String(value).split(/\r\n?|\n|\v/);
+      lines.forEach((line, i) => {
+        if (i) result.append(doc.createElementNS(W, 'w:br'));
+        if (!line) return;
+        const t = doc.createElementNS(W, 'w:t'); t.setAttribute('xml:space', 'preserve'); t.textContent = line; result.append(t);
+      });
+      source = writePageFieldResult(field, value ? [result] : [], doc).map(serializeFragment).join('');
+    } catch { continue; } // An envelope this writer cannot rewrite keeps its saved result.
+    changes.push({ pi, ri, field: { ...field, source, cachedText: value } });
+  }
+  if (!changes.length) return 0;
+  model.checkpoint();
+  for (const { pi, ri, field } of changes) {
+    const p = model.paragraphs[pi];
+    model.paragraphs[pi] = { ...p, runs: p.runs.map((run, i) => i === ri ? { ...run, field } : run) };
+  }
+  model.didChange();
+  return changes.length;
+}
+
