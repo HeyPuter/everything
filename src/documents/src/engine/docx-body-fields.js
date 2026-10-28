@@ -50,7 +50,14 @@ export function bodyFieldInstruction(instruction) {
   if(address!==undefined&&anchor!==undefined)fail('a HYPERLINK field combining an external address and bookmark');
   if(address===undefined&&anchor===undefined)fail('a HYPERLINK field without a destination');
   // The read-only notice lists what the document contains, so it names the link rather than repeating the link dialog's advice.
-  let destination;try{destination=checkedHyperlinkDestination(address===undefined?{anchor:anchor||null}:address);}catch{fail(address===undefined?'a HYPERLINK field to an invalid bookmark name':'a HYPERLINK field to an address other than http, https, mailto or tel');}
+  let destination;try{destination=checkedHyperlinkDestination(address===undefined?{anchor:anchor||null}:address);}catch{
+    if(address===undefined)fail('a HYPERLINK field to an invalid bookmark name');
+    // A file, relative or UNC path is kept as written, like a w:hyperlink relationship target (docx-hyperlinks.js):
+    // shown as a link, never followed from the editor. Script and data addresses still keep the document read-only.
+    if(/^\s*(?:javascript|vbscript|data)\s*:/i.test(address))fail('a HYPERLINK field to a script or data address');
+    if(!address||/[\u0000-\u001f\u007f\uD800-\uDFFF\uFFFE\uFFFF]/u.test(address))fail('a HYPERLINK field to an invalid address');
+    destination={target:address,retainedTarget:true};
+  }
   return {type,instruction,...bookmark,hyperlink:{...destination,tooltip,...(frame?{frame}:{})}};
 }
 

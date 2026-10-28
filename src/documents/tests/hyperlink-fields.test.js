@@ -7,6 +7,7 @@ import {DocxPackage} from '../src/engine/docx.js';
 import {TextDocument} from '../src/engine/model.js';
 import {bodyFieldRanges} from '../src/engine/body-fields.js';
 import {bodyFieldInstruction} from '../src/engine/docx-body-fields.js';
+import {openableHyperlink} from '../src/engine/hyperlinks.js';
 let dom;beforeAll(()=>{dom=new JSDOM();globalThis.DOMParser=dom.window.DOMParser;globalThis.XMLSerializer=dom.window.XMLSerializer;});
 afterAll(()=>{dom.window.close();delete globalThis.DOMParser;delete globalThis.XMLSerializer;});
 const source=readFileSync('tests/fixtures/hyperlink-fields/control.docx');
@@ -60,11 +61,27 @@ it('keeps typing outside a field from inheriting its hidden link ownership',asyn
  expect(model(await DocxPackage.open(await save(p,d))).text).toBe(d.text);
 });
 
-it.each(['HYPERLINK "javascript:alert(1)"','HYPERLINK "relative.docx"','HYPERLINK \\m "x"','HYPERLINK \\l','HYPERLINK "https://example.com" \\l "Target"'])('keeps unsupported destination %s guarded',instruction=>expect(()=>bodyFieldInstruction(instruction)).toThrow());
+it.each(['HYPERLINK "javascript:alert(1)"','HYPERLINK "vbscript:msgbox(1)"','HYPERLINK "data:text/html,x"','HYPERLINK \\m "x"','HYPERLINK \\l','HYPERLINK "https://example.com" \\l "Target"'])('keeps unsupported destination %s guarded',instruction=>expect(()=>bodyFieldInstruction(instruction)).toThrow());
 
-it.each([['HYPERLINK "relative.docx"','relative.docx'],['HYPERLINK "file:///C:/docs/report.pdf"','file'],['HYPERLINK "\\\\\\\\server\\\\share\\\\report.pdf"','UNC path']])('names a link to an address it cannot open, %s, as such in the read-only notice',(instruction)=>{
- // The notice lists "a HYPERLINK field to …", not the link dialog's instruction to the user, nor a "switch" for a quoted UNC path.
- expect(()=>bodyFieldInstruction(instruction)).toThrow(/This document contains a HYPERLINK field to an address other than http, https, mailto or tel,/);
+it.each(['HYPERLINK "javascript:alert(1)"','HYPERLINK "vbscript:msgbox(1)"'])('names a script link, %s, plainly in the read-only notice',instruction=>{
+ expect(()=>bodyFieldInstruction(instruction)).toThrow(/This document contains a HYPERLINK field to a script or data address,/);
+});
+
+// Like a w:hyperlink element with the same target, a HYPERLINK field to a file, relative path or UNC path is kept
+// as it is: the document stays editable, the link is shown but never followed, and the field saves unchanged.
+it.each([['relative.docx','relative.docx'],['file:///C:/docs/report.pdf','file:///C:/docs/report.pdf'],['\\\\\\\\server\\\\share\\\\report.pdf','\\\\server\\share\\report.pdf']])('retains a field link to %s, not followed',async(code,target)=>{
+ expect(bodyFieldInstruction(`HYPERLINK "${code}"`).hyperlink).toMatchObject({target,retainedTarget:true});
+ const parts=unzipSync(source),xml=strFromU8(parts['word/document.xml']);
+ const at=xml.indexOf('<w:body>')+'<w:body>'.length;
+ parts['word/document.xml']=strToU8(xml.slice(0,at)+`<w:p><w:r><w:t xml:space="preserve">See </w:t></w:r><w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> HYPERLINK "${code}" </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r><w:r><w:t>the report</w:t></w:r><w:r><w:fldChar w:fldCharType="end"/></w:r></w:p>`+xml.slice(at));
+ const bytes=zipSync(parts),p=await DocxPackage.open(bytes),d=model(p);
+ expect(p.readOnly).toBeFalsy();
+ expect(unzipSync(await save(p,d))).toEqual(unzipSync(bytes));
+ d.select(d.text.indexOf('the report')+4);expect(d.hyperlink.link).toMatchObject({target,retainedTarget:true});expect(openableHyperlink(d.hyperlink.link)).toBe(false);
+ d.replace('final ');
+ const again=model(await DocxPackage.open(await save(p,d)));
+ expect(again.text.startsWith('See the final report\n')).toBe(true);
+ expect(bodyFieldRanges(again.paragraphs)[0].field.instruction).toBe(` HYPERLINK "${code}" `);
 });
 
 it('renames linked bookmarks through repeated edits and split instruction runs',async()=>{
