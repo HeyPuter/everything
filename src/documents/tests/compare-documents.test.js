@@ -15,7 +15,7 @@ const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
 function docx(body, { creator } = {}) {
   const files = {
     '[Content_Types].xml': '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>' + (creator ? '<Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>' : '') + '</Types>',
-    '_rels/.rels': '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>',
+    '_rels/.rels': '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>' + (creator ? '<Relationship Id="rIdCore" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/>' : '') + '</Relationships>',
     'word/document.xml': `<w:document xmlns:w="${W}"><w:body>${body}<w:sectPr/></w:body></w:document>`,
     ...(creator ? { 'docProps/core.xml': `<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:creator>${creator}</dc:creator></cp:coreProperties>` } : {}),
   };
@@ -210,4 +210,15 @@ it('names the revised document\'s author from its core properties', async () => 
   const parts = unzipSync(docx(p('x'), { creator: 'Ada Lovelace' }));
   expect(documentAuthor(parts)).toBe('Ada Lovelace');
   expect(documentAuthor({})).toBeNull();
+});
+
+// Core properties are the part the package relationship names (ECMA-376 Part 2 §11), which
+// System.IO.Packaging stores as package/services/metadata/core-properties/<id>.psmdcp.
+it('names the author from a core properties part stored under another name', async () => {
+  const parts = unzipSync(docx(p('x'), { creator: 'Ada Lovelace' }));
+  const path = 'package/services/metadata/core-properties/7c1a.psmdcp';
+  parts[path] = strToU8(strFromU8(parts['docProps/core.xml']).replace('</cp:coreProperties>', '<cp:lastModifiedBy>Grace Hopper</cp:lastModifiedBy></cp:coreProperties>'));
+  delete parts['docProps/core.xml'];
+  parts['_rels/.rels'] = strToU8(strFromU8(parts['_rels/.rels']).replace('Target="docProps/core.xml"', `Target="/${path}"`));
+  expect(documentAuthor(parts)).toBe('Grace Hopper');
 });
