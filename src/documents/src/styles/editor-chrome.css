@@ -278,6 +278,8 @@ button.ed-status-item:hover, .ed-status-view:hover, .ed-zoom-step:hover { backgr
 .ed-status-view[aria-pressed="true"] { background: var(--ed-press); }
 .ed-zoom { display: flex; align-items: center; gap: 2px; margin-left: 4px; }
 .ed-zoom-step.icon-btn { width: 22px; height: 22px; border-radius: 4px; color: var(--ed-ink-2); }
+.ed-zoom-step[aria-disabled="true"] { opacity: .45; cursor: default; }
+.ed-zoom-step[aria-disabled="true"]:hover { background: none; }
 .ed-zoom-slider { width: 110px; height: 16px; accent-color: var(--ed-ink-3); }
 .ed-statusbar .canvas-zoom select { min-width: 58px; padding: 2px 16px 2px 4px; background-color: transparent; font-size: 12px; text-align: right; }
 

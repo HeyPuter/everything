@@ -735,12 +735,20 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
   // The slider's value is a percentage, and says so: a screen reader read a bare "100".
   const zoomSlider = el('input.ed-zoom-slider', { type: 'range', min: 10, max: 200, step: 1, value: 100, 'aria-label': 'Zoom slider', 'aria-valuetext': '100%', oninput: () => zoomControl.set(Number(zoomSlider.value) / 100),
     onpointerdown: () => { zoomDragged = true; }, onchange: () => { if (zoomDragged) { zoomDragged = false; engine?.focus(); } } });
-  const zoomStep = (label, icon, delta) => el('button.icon-btn.ed-zoom-step', { type: 'button', 'aria-label': label, title: label, onclick: () => {
+  // At the largest or smallest zoom the step has nothing to do: it says so (aria-disabled) and keeps the keyboard,
+  // which a disabled button would drop while the zoom is being stepped from it.
+  const zoomStep = (label, icon, delta) => el('button.icon-btn.ed-zoom-step', { type: 'button', 'aria-label': label, title: label, onclick: e => {
+    if (e.currentTarget.getAttribute('aria-disabled') === 'true') return;
     const now = Math.round((engine?.zoom ?? 1) * 100), next = delta > 0 ? Math.floor(now / 10) * 10 + 10 : Math.ceil(now / 10) * 10 - 10;
     zoomControl.set(Math.max(10, Math.min(200, next)) / 100);
   } }, commandIconEl(icon, 12));
   const zoomOut = zoomStep('Zoom Out', 'zoomOut', -1), zoomIn = zoomStep('Zoom In', 'zoomIn', 1);
-  function syncZoom() { if (engine) { zoomSlider.value = String(Math.round(engine.zoom * 100)); zoomSlider.setAttribute('aria-valuetext', `${zoomSlider.value}%`); } }
+  function syncZoom() {
+    if (!engine) return;
+    const percent = Math.round(engine.zoom * 100);
+    zoomSlider.value = String(percent); zoomSlider.setAttribute('aria-valuetext', `${percent}%`);
+    zoomOut.setAttribute('aria-disabled', String(percent <= 10)); zoomIn.setAttribute('aria-disabled', String(percent >= 200));
+  }
   function fitWidth() {
     if (!engine || zoom.value !== 'fit' || !host.clientWidth) return;
     const style = getComputedStyle(engine.pages);

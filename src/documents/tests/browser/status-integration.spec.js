@@ -54,3 +54,23 @@ test('the page count follows the pages scrolled into view, then the caret again'
   await text(page).press('ArrowRight');
   await expect(count).toHaveText(`Page 1 of ${total}`);
 });
+
+test('Zoom In and Zoom Out are unavailable at the largest and smallest zoom, and keep the keyboard', async ({ page }) => {
+  await openEditor(page);
+  await text(page).fill('Zoom limits.');
+  const zoomIn = page.getByRole('button', { name: 'Zoom In' }), zoomOut = page.getByRole('button', { name: 'Zoom Out' });
+  const slider = page.getByRole('slider', { name: 'Zoom slider' });
+  await expect(zoomIn).not.toHaveAttribute('aria-disabled', 'true');
+  await zoomIn.focus();
+  for (let i = 0; i < 12; i++) await page.keyboard.press('Enter');
+  await expect(slider).toHaveValue('200');
+  await expect(zoomIn).toHaveAttribute('aria-disabled', 'true');
+  // Still on the button, which says it does nothing now, and pressing it changes nothing.
+  await expect(zoomIn).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(slider).toHaveValue('200');
+  await expect(zoomOut).not.toHaveAttribute('aria-disabled', 'true');
+  await slider.fill('10');
+  await expect(zoomOut).toHaveAttribute('aria-disabled', 'true');
+  await expect(zoomIn).not.toHaveAttribute('aria-disabled', 'true');
+});
