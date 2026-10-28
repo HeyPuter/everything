@@ -168,6 +168,36 @@ describe('tracked moves', () => {
     expect(again.model.text).toBe('Alpha gamma\nSecond paragraphbeta ');
   });
 
+  it('accepts or rejects a move whole from either of its halves (§17.13.5.21–.24: one named move)', async () => {
+    const moved = () => {
+      const made = fresh();
+      made.session.run(m => { m.select(6, 11); m.replace(''); });
+      made.session.run(m => { m.select(m.text.length); m.replace('beta '); });
+      return made;
+    };
+    const cases = [
+      [true, 'ins', 'Alpha gamma\nSecond paragraphbeta '], [true, 'del', 'Alpha gamma\nSecond paragraphbeta '],
+      [false, 'ins', 'Alpha beta gamma\nSecond paragraph'], [false, 'del', 'Alpha beta gamma\nSecond paragraph'],
+    ];
+    for (const [accept, side, text] of cases) {
+      // At the caret, and as the one change a balloon or Next Change resolves (only that kind of change).
+      for (const own of [false, true]) {
+        const { model, session } = moved();
+        const half = model.revisions.find(r => r.move && r.type === side), at = half.start + 1;
+        session.run(m => m.resolveRevisions(accept, own ? half.start : at, own ? half.end : at, own ? { only: r => r.type === side } : undefined));
+        expect([accept, side, own, model.text]).toEqual([accept, side, own, text]);
+        expect(model.revisions).toEqual([]);
+      }
+    }
+    // A move opened from a file, linked by its name.
+    const { model } = await open(zip(packageFiles(
+      `<w:p><w:moveFromRangeStart w:id="1" w:name="move1" w:author="Ada" w:date="2026-01-01T00:00:00Z"/><w:moveFrom w:id="2" w:author="Ada" w:date="2026-01-01T00:00:00Z"><w:r><w:delText xml:space="preserve">Moved </w:delText></w:r></w:moveFrom><w:moveFromRangeEnd w:id="1"/><w:r><w:t>Stay</w:t></w:r></w:p>`
+      + `<w:p><w:r><w:t xml:space="preserve">End </w:t></w:r><w:moveToRangeStart w:id="3" w:name="move1" w:author="Ada" w:date="2026-01-01T00:00:00Z"/><w:moveTo w:id="4" w:author="Ada" w:date="2026-01-01T00:00:00Z"><w:r><w:t xml:space="preserve">Moved </w:t></w:r></w:moveTo><w:moveToRangeEnd w:id="3"/></w:p>`)));
+    model.resolveRevisions(false, model.text.length - 2, model.text.length - 2);
+    expect(model.text).toBe('Moved Stay\nEnd ');
+    expect(model.revisions).toEqual([]);
+  });
+
   it('does not call ordinary typing a move', () => {
     const { model, session } = fresh();
     session.run(m => { m.select(0, 5); m.replace(''); });

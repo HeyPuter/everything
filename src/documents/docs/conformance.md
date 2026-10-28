@@ -22217,6 +22217,8 @@ Supported subset:
 - Inserting a footnote or endnote reference (§17.11.14 `footnoteReference`, §17.11.7
   `endnoteReference`) records the reference run as an insertion, written inside `w:ins`.
 - Replace All records each replacement as a deletion of the found text and an insertion.
+- A move (§17.13.5.21–.24 `moveFrom`/`moveTo` with their `moveFromRangeStart`/`moveToRangeStart` name) is one change:
+  accepting or rejecting either half, at the caret, in a selection or from its balloon, resolves both halves.
 - Reordering paragraphs (Sort, moving paragraphs with Alt+Shift+Up/Down or in the outline) cannot be recorded
   and is refused while Track Changes is on.
 - A caption, cross-reference, citation, bibliography or table of contents inserted with Track Changes on is

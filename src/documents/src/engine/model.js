@@ -2359,8 +2359,18 @@ export class TextDocument {
     this.formatRejectSkipped = false;
     // Resolving changes is not itself a tracked formatting change.
     this.formatTrackingSuppressed = true;
-    const changes = () => (start === end ? this.revisionsAt(start, end) : revisionRanges(this.paragraphs).filter(r => r.start < end && r.end > start)).filter(r => only(r))
-      .map(r => ({ ...r, start: start === end ? r.start : Math.max(start, r.start), end: start === end ? r.end : Math.min(end, r.end) }));
+    const changes = () => {
+      const list = (start === end ? this.revisionsAt(start, end) : revisionRanges(this.paragraphs).filter(r => r.start < end && r.end > start)).filter(r => only(r))
+        .map(r => ({ ...r, start: start === end ? r.start : Math.max(start, r.start), end: start === end ? r.end : Math.min(end, r.end) }));
+      // A move is one named change (§17.13.5.23, .24 moveFromRangeStart/moveToRangeStart): resolving either half
+      // resolves all of both, wherever the other half is. Accepting only the half moved to left the text it was
+      // moved from deleted but pending.
+      const names = new Set(list.filter(r => r.move && r.moveName).map(r => r.moveName));
+      if (!names.size) return list;
+      const moved = r => r.move && names.has(r.moveName);
+      const whole = revisionRanges(this.paragraphs).filter(moved).map(r => ({ ...r, partner: !list.some(t => moved(t) && t.moveName === r.moveName && t.type === r.type) }));
+      return [...list.filter(r => !moved(r)), ...whole].sort((x, y) => x.start - y.start);
+    };
     let targets = changes();
     // A field inserted or deleted as a whole is resolved with the change its result is part of, or, resolving a
     // stretch of the document, whenever it lies inside it (an index entry or empty result has no text of its own).
@@ -2396,7 +2406,7 @@ export class TextDocument {
       if (restored.size) { for (const p of restored) p.runs = normalize(p.runs); targets = changes(); }
     }
     this.trackingInternal = true;
-    const caret = targets[0]?.start ?? fieldTargets[0].start;
+    const caret = (targets.find(r => !r.partner) || targets[0])?.start ?? fieldTargets[0].start;
     try {
       // Changes that keep their text (formatting, and the side of a change being kept) first, while every
       // range still holds; then the removals, from the last, so each earlier range stays where it was.
