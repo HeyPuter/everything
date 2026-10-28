@@ -88,6 +88,7 @@ export class CollabBinding extends EventTarget {
       if (!this.applying) this.scheduleSync();
       return result;
     };
+    this.originalTravel = engine.travelHistory?.bind(engine);
     engine.travelHistory = direction => this.travel(direction);
     // Undo and Redo of shared documents take back this person's own changes.
     engine.undo = () => this.travel('undo');
@@ -379,6 +380,9 @@ export class CollabBinding extends EventTarget {
     const engine = this.engine;
     if (engine.readOnly || engine.viewOnly || engine.composition) return;
     this.flush();
+    // One person edits alone: the shared text does not change, and their own history is the document's. Its result
+    // reaches the others as the next snapshot.
+    if (this.mode === 'single' && this.holdsLock() && this.originalTravel) { this.originalTravel(direction); this.scheduleSync(); return; }
     const manager = this.undoManager;
     const stack = direction === 'undo' ? manager.undoStack : manager.redoStack;
     const item = stack.at(-1);
@@ -392,6 +396,12 @@ export class CollabBinding extends EventTarget {
   /** The editor's Undo and Redo buttons read the session's history: mirror this person's own stacks there. */
   refreshHistory() {
     const session = this.engine.session;
+    // Editing alone, this person's own history stands, without the shared changes' places in it.
+    if (this.mode === 'single') {
+      session.history = session.history.filter(entry => entry !== HISTORY_ENTRY);
+      session.future = session.future.filter(entry => entry !== HISTORY_ENTRY);
+      return;
+    }
     session.history = this.undoManager.undoStack.map(() => HISTORY_ENTRY);
     session.future = this.undoManager.redoStack.map(() => HISTORY_ENTRY);
   }

@@ -214,6 +214,27 @@ describe('co-editing binding', () => {
     expect(run.image.assetId).toMatch(/@/);
   });
 
+  it('undoes and redoes the single editor\'s own changes, and shares the result', async () => {
+    const { people: [ann, bob] } = await room('form');
+    // An empty form field, which the shared text cannot hold, as an opened form brings one.
+    ann.engine.execute(m => { m.paragraphs[0].runs = [...m.paragraphs[0].runs, { ...m.paragraphs[0].runs[0], text: '', contentControl: { id: 7, persistent: true } }]; m.didChange(); });
+    await settle();
+    expect(ann.binding.mode).toBe('single');
+    ann.engine.execute(m => { m.select(0); m.replace('Typed '); });
+    await settle();
+    expect(bob.engine.model.text).toBe('Typed form');
+    expect(ann.engine.session.history.length).toBeGreaterThan(0);
+    ann.engine.undo();
+    await settle();
+    expect(ann.engine.model.text).toBe('form');
+    expect(bob.engine.model.text).toBe('form');
+    expect([ann.engine.session.future.length, ann.binding.mode, ann.binding.holdsLock()]).toEqual([1, 'single', true]);
+    ann.engine.redo();
+    await settle();
+    expect(ann.engine.model.text).toBe('Typed form');
+    expect(bob.engine.model.text).toBe('Typed form');
+  });
+
   it('gives people stable, readable colors and parses links', () => {
     expect(colorFor('alice')).toBe(colorFor('alice'));
     expect(PERSON_COLORS).toContain(colorFor('bob'));
