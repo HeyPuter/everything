@@ -56,3 +56,23 @@ it('gives emoji and characters beyond the BMP back when text is copied, and keep
   expect(execFileSync('pdftotext', [file, '-'], { encoding: 'utf8' })).toContain('Smile 😀 and 𠀋 here');
   expect(execFileSync('pdfinfo', [file], { encoding: 'utf8' })).toContain('Café Q3 – 報告');
 });
+
+it('puts list numbers and bullets in the searchable text, before their item\'s text', async () => {
+  const { TextDocument, paragraph } = await import('../src/engine/model.js');
+  const { layoutDocument } = await import('../src/engine/layout.js');
+  const measure = text => ({ width: [...text].length * 8, ascent: 12, descent: 3 });
+  const doc = new TextDocument([paragraph()]);
+  doc.replace('First step'); doc.toggleList('number');
+  doc.insertParagraph(); doc.replace('Second step');
+  doc.insertParagraph(); doc.replace('Point'); doc.toggleList('bullet');
+  const { lines } = layoutDocument(doc.paragraphs, measure, undefined, doc.numbering, doc.tables);
+  const fragments = pageFragments(lines, 0);
+  expect(fragments.map(f => f.text)).toEqual(['1.', 'First step', '2.', 'Second step', '•', 'Point']);
+  // The number sits where it is painted, left of the text, on the same baseline.
+  const [number, text] = fragments;
+  expect(number.x).toBe(lines[0].marker.x);
+  expect(number.x).toBeLessThan(text.x);
+  expect(number.baseline).toBe(text.baseline);
+  expect(number.width).toBeGreaterThan(0);
+  expect(number.fontSize).toBeGreaterThan(0);
+});

@@ -137,6 +137,9 @@ export function pageFragments(lines, page) {
   const out = [];
   for (const line of lines) {
     if (line.page !== page || line.virtual || line.cellText) continue;
+    // A list item's number or bullet is painted apart from its text, and is read with it: "1. First step".
+    const marker = line.marker;
+    if (marker?.text && marker.width > 0) out.push({ text: marker.text, x: marker.x, baseline: line.baseline, width: marker.width, fontSize: marker.fontSize });
     for (const f of line.fragments || []) if (f.text && !f.image) out.push({ text: f.text, x: f.x, baseline: line.baseline, width: f.width, fontSize: f.fontSize });
   }
   return out;
