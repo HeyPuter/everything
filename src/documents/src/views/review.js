@@ -136,6 +136,11 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
   // Protection other than locked tracking keeps Track Changes as the document has it.
   const trackingFixed = () => ['readOnly', 'comments', 'forms'].includes(hooks.protection?.()?.edit);
   const fixedTracking = () => error(new Error('This document is protected: Track Changes cannot be turned on or off.'));
+  // No Markup and Original show the document without any markup: its comments are hidden too.
+  const markupShown = () => !['none', 'original'].includes(revisionView.mode);
+  const showing = () => commentsShown && markupShown();
+  // Going to a comment, or starting one, shows the comments (and the markup, in No Markup or Original).
+  const revealComments = () => { commentsShown = true; if (!markupShown()) { revisionView.mode = 'all'; editor()?.relayout(); } };
   // Whether comments can be replied to, edited, resolved and deleted.
   const annotating = () => !!ready() && !commentsRefused();
   const ready = () => { const engine = editor(); return engine && !pkg()?.readOnly && !engine.viewOnly && engine.model.comments ? engine : null; };
@@ -193,7 +198,7 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
       if (commentsRefused()) { error(new Error('This document is protected: comments cannot be added.')); return; }
       engine.finishComposition();
       const [start, end] = engine.model.commentRange();
-      commentsShown = true;
+      revealComments();
       draft = { start, end }; activeId = 'draft'; pinned = true; pinnedRange = editor()?.model.range.join() ?? ''; editing = null;
       refresh(true);
       queueMicrotask(() => layer.querySelector('.ed-comment-draft textarea')?.focus());
@@ -217,11 +222,11 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
       let next;
       if (current >= 0) next = list[(current + direction + list.length) % list.length];
       else next = direction > 0 ? list.find(t => t.start > a) || list[0] : [...list].reverse().find(t => t.start < b) || list.at(-1);
-      commentsShown = true;
+      revealComments();
       selectThread(next);
     },
-    toggleShown() { commentsShown = !commentsShown; refresh(true); onChange(); editor()?.focus(); },
-    selectThreadById(id) { const thread = threads().find(t => t.id === id); if (thread) { commentsShown = true; selectThread(thread); } },
+    toggleShown() { if (showing()) commentsShown = false; else revealComments(); refresh(true); onChange(); editor()?.focus(); },
+    selectThreadById(id) { const thread = threads().find(t => t.id === id); if (thread) { revealComments(); selectThread(thread); } },
     /** Delete every comment by the reviewers shown (Show Markup › Specific People). */
     deleteAllShown() {
       const hidden = new Set(revisionView.options.hiddenAuthors);
@@ -312,11 +317,11 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
       // Painted once, after the view has moved to the change.
       engine.focus({ paint: false }); engine.revealCaret?.(); engine.paint(); onChange();
     },
-    get shown() { return commentsShown; },
+    get shown() { return showing(); },
     hasComments() { return threads().length > 0; },
     /* ---- Panes and speech, for the title bar, menus and command search ---- */
     get paneShown() { return paneShown; },
-    togglePane(on = !paneShown) { paneShown = !!on; paneSignature = ''; if (paneShown && !commentsShown) commentsShown = true; refresh(true); if (!paneShown) editor()?.focus(); },
+    togglePane(on = !paneShown) { paneShown = !!on; paneSignature = ''; if (paneShown && !showing()) revealComments(); refresh(true); if (!paneShown) editor()?.focus(); },
     toggleReadAloud() { if (readAloud.active) readAloud.stop(); else readAloud.start(); },
     readAloudActive: () => readAloud.active,
   };
@@ -528,7 +533,7 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
     for (const t of list) if (t.start !== null && t.end > t.start && (!t.root.done || t.id === activeId)) ranges.push({ start: t.start, end: t.end, fill: t.id === activeId ? ACTIVE_TINT : TINT });
     if (draft && draft.end > draft.start) ranges.push({ start: draft.start, end: draft.end, fill: ACTIVE_TINT });
     ranges.sort((a, b) => a.start - b.start);
-    engine.setRangeTints?.(commentsShown ? ranges : [], 'comments');
+    engine.setRangeTints?.(showing() ? ranges : [], 'comments');
     // Editable regions of a protected document are their own layer.
     engine.setRangeTints?.(hooks.tints?.() || [], 'permissions');
   }
@@ -552,12 +557,12 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
     }
     followDraft(engine);
     const balloons = balloonChanges();
-    const visible = commentsShown && (list.length > 0 || !!draft) || balloons.length > 0;
+    const visible = showing() && (list.length > 0 || !!draft) || balloons.length > 0;
     if (scroller.classList.contains('has-comment-markup') !== visible) { scroller.classList.toggle('has-comment-markup', visible); positionsKey = ''; queueMicrotask(onShift); }
     layer.hidden = !visible;
     // Where the threads are anchored does not change the cards (place() follows the anchors), so typing before
     // a comment does not rebuild every card.
-    const sig = JSON.stringify([JSON.stringify(list, (key, value) => key === 'start' || key === 'end' ? undefined : value), activeId, editing, !!draft, commentsShown, !!ready(), annotating(), balloons, locked()]);
+    const sig = JSON.stringify([JSON.stringify(list, (key, value) => key === 'start' || key === 'end' ? undefined : value), activeId, editing, !!draft, showing(), !!ready(), annotating(), balloons, locked()]);
     if (force || sig !== signature) {
       signature = sig;
       const focused = layer.contains(document.activeElement) ? document.activeElement : null;
@@ -567,8 +572,8 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
       // doing that for each comment made rebuilding the column of a much-commented document slow.
       let people = null;
       const names = () => people ??= hooks.people?.() || [];
-      const nodes = visible && commentsShown ? list.map(thread => { const node = card(thread, names); cards.set(thread.id, node); return node; }) : [];
-      if (visible && commentsShown && draft) nodes.push(draftCard());
+      const nodes = visible && showing() ? list.map(thread => { const node = card(thread, names); cards.set(thread.id, node); return node; }) : [];
+      if (visible && showing() && draft) nodes.push(draftCard());
       if (balloons.length) { const body = engine.session.body, documentText = body.text, summarize = formatSummaries(body); nodes.push(...balloons.map(change => balloonCard(change, documentText, summarize))); }
       layer.replaceChildren(...nodes);
       // A card that grows (a reply or edit being typed, a wrapped draft) pushes the cards below it down.
@@ -614,7 +619,7 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
     const resolve = command('Resolve Comment', 'resolveComment', () => commands.resolveActive(), { text: 'Resolve' });
     const show = command('Show Comments', 'showComments', () => commands.toggleShown(), { size: 'large', text: 'Show Comments' });
     const showSplit = split(show, { label: 'Show Comments options', size: 'large', open: (anchor, e) => openMenu({ anchor, label: 'Show Comments', pointer: !!e?.detail, onClose: e?.detail ? () => editor()?.focus() : null, items: [
-      { label: 'Contextual', radio: true, checked: commentsShown, onSelect: () => { if (!commentsShown) commands.toggleShown(); } },
+      { label: 'Contextual', radio: true, checked: showing(), onSelect: () => { if (!showing()) commands.toggleShown(); } },
       { label: 'List', radio: true, checked: false, onSelect: () => hooks.commentsPane?.() },
     ] }) });
     for (const b of [add, remove, previous, next, show, resolve]) b.addEventListener('mousedown', e => e.preventDefault());
@@ -623,8 +628,8 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
     when(removeSplit.arrow, () => annotating() && threads().length > 0);
     when(previous, () => threads().length > 0); when(next, () => threads().length > 0);
     when(resolve, () => annotating() && !!(commands.activeThread() || threadAtCaret()));
-    when(show, () => !!editor()?.model.comments, () => String(commentsShown));
-    when(showSplit.arrow, () => !!editor()?.model.comments);
+    when(show, () => !!editor()?.model.comments && markupShown(), () => String(showing()));
+    when(showSplit.arrow, () => !!editor()?.model.comments && markupShown());
     const track = command('Track Changes', 'trackChanges', () => commands.toggleTracking(), { size: 'large', text: 'Track Changes', shortcut: `${MOD_KEY}+Shift+E` });
     const trackSplit = split(track, { label: 'Track Changes options', size: 'large', open: (anchor, e) => openMenu({ anchor, label: 'Track Changes', pointer: !!e?.detail, onClose: e?.detail ? () => editor()?.focus() : null, items: [
       { label: 'For Everyone', radio: true, checked: commands.trackingMode === 'everyone', disabled: !commands.canTrack(), hint: 'Saved with the document', onSelect: () => commands.setTrackingMode('everyone') },

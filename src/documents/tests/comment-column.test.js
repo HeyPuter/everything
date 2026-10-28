@@ -3,6 +3,7 @@ import { beforeEach, afterEach, it, expect, vi } from 'vitest';
 import { CanvasEditor } from '../src/engine/canvas-editor.js';
 import { paragraph } from '../src/engine/model.js';
 import { createReview } from '../src/views/review.js';
+import { revisionView } from '../src/engine/revisions.js';
 
 let editor, host, review;
 beforeEach(() => {
@@ -140,4 +141,30 @@ it('tells assistive technology which person the arrow keys choose to mention', (
   box.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
   expect(list.hidden).toBe(true);
   expect(box.hasAttribute('aria-activedescendant')).toBe(false);
+});
+
+it('hides the comments in No Markup and Original, and going to a comment shows the markup again', () => {
+  open(['First paragraph here.', 'Second paragraph here.']);
+  const first = editor.model.addComment({ author: 'Ada', text: 'One', range: [0, 5] });
+  review.refresh(true);
+  expect(review.layer.hidden).toBe(false);
+  try {
+    for (const mode of ['none', 'original']) {
+      review.commands.setMarkupView(mode); review.refresh();
+      expect(review.layer.hidden, mode).toBe(true);
+      expect(review.layer.querySelector('[data-thread]')).toBeNull();
+      expect(review.commands.shown).toBe(false);
+      review.commands.setMarkupView('simple'); review.refresh();
+      expect(card(first)).not.toBeNull();
+    }
+    review.commands.setMarkupView('none'); review.refresh();
+    review.commands.go(1); review.refresh();
+    expect(revisionView.mode).toBe('all');
+    expect(card(first).classList.contains('is-active')).toBe(true);
+    review.commands.setMarkupView('original'); review.refresh();
+    editor.model.select(30, 34);
+    review.commands.newComment();
+    expect(revisionView.mode).toBe('all');
+    expect(review.layer.querySelector('.ed-comment-draft')).not.toBeNull();
+  } finally { revisionView.mode = 'all'; }
 });
