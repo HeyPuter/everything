@@ -40,3 +40,32 @@ test('updating an equation unchanged keeps binomials, matrices and root degrees'
   }
   expect(errors).toEqual([]);
 });
+
+test('a displayed equation of two lines keeps its lines through Edit Equation', async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/mock.html#/new');
+  await expect((await onTab(page, 'home')).getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await page.getByRole('textbox', { name: 'Document text' }).focus();
+  await page.keyboard.press(process.platform === 'darwin' ? 'Control+Equal' : 'Alt+Equal');
+  const dialog = page.getByRole('dialog', { name: 'Equation' }), box = dialog.getByRole('textbox', { name: 'Equation in linear format' });
+  await box.fill('x+y=3');
+  await box.press('Shift+Enter');
+  await box.pressSequentially('x-y=1');
+  await dialog.getByRole('checkbox', { name: 'Display on its own line' }).check();
+  await expect(dialog.locator('.insert-equation-preview math mspace[linebreak="newline"]')).toHaveCount(1);
+  await dialog.getByRole('button', { name: 'Insert' }).click();
+  await expect(dialog).toBeHidden();
+  const [xml] = await equations(page);
+  expect(xml.match(/<m:oMath>/g)).toHaveLength(2);
+  await selectEquation(page, 0);
+  await onTab(page, 'insert');
+  await page.getByRole('button', { name: 'Equation gallery' }).click();
+  await page.getByRole('menuitem', { name: 'Edit Equation…' }).click();
+  const edit = page.getByRole('dialog', { name: 'Edit Equation' });
+  await expect(edit.getByRole('textbox', { name: 'Equation in linear format' })).toHaveValue('x+y=3\nx−y=1');
+  await edit.getByRole('button', { name: 'Update' }).click();
+  await expect(edit).toBeHidden();
+  expect((await equations(page))[0]).toBe(xml);
+  expect(errors).toEqual([]);
+});

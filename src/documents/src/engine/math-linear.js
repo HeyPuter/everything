@@ -382,8 +382,11 @@ function element(n) {
 
 /** Office Math markup for linear-format input; display wraps it in m:oMathPara. */
 export function linearToOmml(input, { display = false } = {}) {
-  const ns = `xmlns:m="${MATH}" xmlns:w="${W}"`, body = omml(parseLinearMath(input).body);
-  return display ? `<m:oMathPara ${ns}><m:oMath>${body}</m:oMath></m:oMathPara>` : `<m:oMath ${ns}>${body}</m:oMath>`;
+  const ns = `xmlns:m="${MATH}" xmlns:w="${W}"`;
+  if (!display) return `<m:oMath ${ns}>${omml(parseLinearMath(input).body)}</m:oMath>`;
+  // A displayed equation may have several lines (§22.1.2.78 oMathPara): one m:oMath for each line typed.
+  const lines = String(input).split(/\r?\n/).filter(line => line.trim());
+  return `<m:oMathPara ${ns}>${(lines.length ? lines : ['']).map(line => `<m:oMath>${omml(parseLinearMath(line).body)}</m:oMath>`).join('')}</m:oMathPara>`;
 }
 
 /** Linear text for existing Office Math markup, to edit it in the input box. */
@@ -486,7 +489,7 @@ function editableNode(node) {
 function editableStructure(node) {
   const e = mathChild(node, 'e');
   switch (node.localName) {
-    case 'oMathPara': return mathKids(node, 'oMath').map(editableNode).join(' ');
+    case 'oMathPara': return mathKids(node, 'oMath').map(editableNode).join(LINE_BREAK);
     case 'oMath': return editableSequence(node);
     case 'f': return `${fractionPart(mathChild(node, 'num'))}${mathVal(mathChild(node, 'fPr'), 'type') === 'noBar' ? '¦' : '/'}${fractionPart(mathChild(node, 'den'))}`;
     case 'sSup': return `${base(e)}^${scriptArgument(mathChild(node, 'sup'))}`;
@@ -543,9 +546,11 @@ function editableStructure(node) {
 }
 
 /** Linear text for existing Office Math markup that builds the same equation again when typed back. */
+// Lines of a displayed equation, kept apart from the line breaks inside its text (which read as spaces).
+const LINE_BREAK = '\u2028';
 export function ommlToEditableLinear(xml) {
   const root = editableRoot(xml);
-  return root ? editableNode(root).replace(/[\r\n]+/g, ' ').trim() : '';
+  return root ? editableNode(root).replace(/[\r\n]+/g, ' ').split(LINE_BREAK).map(line => line.trim()).filter(Boolean).join('\n') : '';
 }
 
 export const EQUATION_GALLERY = [
