@@ -1,4 +1,3 @@
-import { UnsupportedDocumentError } from './errors.js';
 import { IDEOGRAPHIC } from './dictionary-breaks.js';
 
 // Display spacing only: source text and run properties never acquire this value.
@@ -36,13 +35,13 @@ export function justificationRange(span, measured, right, tab, distribute = fals
   while (last > first && (span[last - 1].ignoredCellBreak || justificationSpace(span[last - 1].text))) last--;
   const spaces = distribute ? 0 : span.slice(first, last).filter(c => justificationSpace(c.text)).length;
   const extra = right - measured.stops.at(-1).x + measured.ignoredTrailingWidth;
-  // Earlier fields stay anchored. Justification can expand the final left tab
-  // field; other tab alignments require a separate compatible algorithm.
-  const anchored = tab && tab.alignment !== 'left';
-  const ideographs = anchored ? new Set() : distribute ? characterGaps(span, first, last) : ideographicGaps(span, first, last);
+  // Earlier fields stay anchored. Justification can expand the final left tab field. A final
+  // center, right or decimal field is aligned on its stop: widening it would move that alignment,
+  // so the line keeps its natural spacing (a declared approximation; no reference rule is claimed).
+  if (tab && tab.alignment !== 'left') return null;
+  const ideographs = distribute ? characterGaps(span, first, last) : ideographicGaps(span, first, last);
   const gaps = spaces + ideographs.size;
   if (!gaps || extra <= 1e-6) return null;
-  if (anchored) throw new UnsupportedDocumentError('justification after center, right or decimal tabs');
   return { first, last, gaps, spacing: extra / gaps, ideographs, distribute };
 }
 

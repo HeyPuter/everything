@@ -90,10 +90,17 @@ it('shares expanded advances across mixed runs, decorations, scripts, small caps
   const unicode = layout(simple('A\u0301😀 one two\vFinal')).lines[0]; expect(unicode.stops.map(s => s.offset)).toEqual([0, 2, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
 });
 
-it('anchors earlier tab fields and rejects expansion of non-left final fields', () => {
+it('anchors earlier tab fields and leaves lines ending in a non-left tab field natural', () => {
   const doc = simple('One two\tA B\vFinal', {}, { tabs: [{ position: 1800, alignment: 'left' }] }); const first = layout(doc).lines[0];
   expect(first.stops.find(s => s.offset === 4).x).toBe(80); expect(first.stops.find(s => s.offset === 8).x).toBe(168); expect(edge(first)).toBeCloseTo(312);
-  for (const alignment of ['center', 'right', 'decimal']) expect(() => layout(simple('Label\tA B\vFinal', {}, { tabs: [{ position: 1800, alignment }] }))).toThrow(/justification after/);
+  // After a center, right or decimal tab the line keeps its natural spacing: the aligned field stays on
+  // its stop rather than the document being refused.
+  for (const alignment of ['center', 'right', 'decimal']) {
+    const natural = layout(simple('Label\tA B\vFinal', {}, { alignment: 'left', tabs: [{ position: 1800, alignment }] })).lines[0];
+    const line = layout(simple('Label\tA B\vFinal', {}, { tabs: [{ position: 1800, alignment }] })).lines[0];
+    expect(line.justificationSpacing).toBeUndefined();
+    expect(line.stops.map(s => s.x)).toEqual(natural.stops.map(s => s.x));
+  }
   expect(() => layout(simple('Label\tA B', {}, { tabs: [{ position: 1800, alignment: 'right' }] }))).not.toThrow();
 });
 

@@ -85,11 +85,23 @@ test('uses native shaping for expanded spaces, matches paint widths and keeps zo
 
 test('previews unsupported justification as read-only with the original available', async ({ page }) => {
   const input = await fixture(page), text = await input.inputValue();
-  for (const [from, to, error] of [['<w:jc w:val="both"/>', '<w:jc w:val="thaiDistribute"/>', /thaiDistribute paragraph alignment/], ['w:pos="1800" w:val="left"', 'w:pos="1800" w:val="center"', /justification after/]]) {
+  for (const [from, to, error] of [['<w:jc w:val="both"/>', '<w:jc w:val="thaiDistribute"/>', /thaiDistribute paragraph alignment/]]) {
     const parts = unzipSync(readFileSync('public/fixtures/justification.docx')), xml = strFromU8(parts['word/document.xml']); expect(xml).toContain(from); parts['word/document.xml'] = strToU8(xml.replace(from, to));
     await openReadOnlyPreview(page, { name: 'unsupported-justification.docx', mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', buffer: Buffer.from(zipSync(parts)) });   await expect(page.getByRole('button', { name: 'Download .docx', exact: true })).toBeEnabled();
   }
   await fixture(page);
+});
+
+// A justified line whose last tab is a center, right or decimal stop keeps its natural spacing, and the
+// document opens for editing (before, it opened read-only).
+test('opens justified paragraphs with a center tab for editing', async ({ page }) => {
+  await page.goto('/playground.html'); await showAllTools(page);
+  const input = page.getByRole('textbox', { name: 'Document text' }); await expect(input).toHaveValue(/^A small beginning/);
+  const parts = unzipSync(readFileSync('public/fixtures/justification.docx')), xml = strFromU8(parts['word/document.xml']);
+  expect(xml).toContain('w:pos="1800" w:val="left"'); parts['word/document.xml'] = strToU8(xml.replace('w:pos="1800" w:val="left"', 'w:pos="1800" w:val="center"'));
+  await page.getByLabel('Open DOCX file').setInputFiles({ name: 'center-tab.docx', mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', buffer: Buffer.from(zipSync(parts)) });
+  await expect(input).toHaveValue(/^Justified paragraphs/); await expect(input).toHaveJSProperty('readOnly', false);
+  await expect(page.locator('#playground-error')).toBeEmpty();
 });
 
 // Arabic typed into a justified paragraph is accepted and justified by its word spaces (no kashida).

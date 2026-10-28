@@ -1496,8 +1496,11 @@ Declared preview policy: expansion opportunities are interior U+0020 spaces and
 U+00A0 nonbreaking spaces. Leading/trailing spaces and other fixed Unicode spaces,
 including narrow NBSP, retain natural advances. The existing trailing-space
 compatibility flags still govern wrapping, hanging and underlining. With tabs,
-only the final left-aligned field expands; earlier fields stay anchored. Actual
-expansion after center/right/decimal tabs rejects before a save handler attaches.
+only the final left-aligned field expands; earlier fields stay anchored. A line
+whose final field follows a center, right or decimal tab keeps its natural
+spacing, so that field stays aligned on its stop, and the document remains
+editable. This is a declared approximation: the reference application's rule
+for such lines was not measured.
 The local playground measures the incoming layout before replacing its current
 editor, so geometry-based import failures preserve the open document.
 Native advances are remeasured when rounding exceeds the writing edge, reducing
@@ -1539,7 +1542,7 @@ for it. `tests/distributed-alignment.test.js` and
 `tests/browser/justification.spec.js` cover widths, carets, import and editing.
 
 **Remaining gaps:** Thai distribution (`thaiDistribute`), Arabic kashida (justified Arabic widens spaces only), expansion
-after center/right/decimal tabs, language-specific justification rules and exact
+after center/right/decimal tabs (such lines stay natural), language-specific justification rules and exact
 reference spacing across compatibility versions. No reference application was available
 for visual comparison. Browser checks cover current Chromium; other browsers
 are capability checked but not visually certified. A schema pass is not full
