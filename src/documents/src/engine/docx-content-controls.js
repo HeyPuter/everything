@@ -150,7 +150,10 @@ export function contentControlReader(readRunProperties, parts = {}) {
     if (!runs && promptParagraphs.some(p => p.bookmarks.length)) fail('bookmarks in an empty placeholder definition');
     return runs ? { runs, bookmarks: promptParagraphs.map(p => p.bookmarks) } : undefined;
   };
-  return (node, kind = 'inline') => {
+  // `sharedId`: a header's or footer's page-number or watermark building block (docx.js documentPartStory) keeps its
+  // w:id in its retained wrapper and is identified by nothing else, so a repeated id (sibling blocks, or a header
+  // copied into another part) does not stop the story being edited.
+  return (node, kind = 'inline', { sharedId = false } = {}) => {
     if (count >= 2000) fail('more than 2,000 controls');
     attributes(node);
     const elements = children(node), order = ['sdtPr', 'sdtEndPr', 'sdtContent']; let previous = -1;
@@ -185,7 +188,7 @@ export function contentControlReader(readRunProperties, parts = {}) {
         if (value === null) fail(`missing ${p.localName} value`);
         if (p.localName === 'lock' && value !== 'unlocked') fail('locked contents or wrappers');
         if (p.localName === 'id') {
-          if (!/^[+-]?\d+$/.test(value) || !Number.isInteger(Number(value)) || Number(value) < -2147483648 || Number(value) > 2147483647 || ids.has(Number(value))) fail('invalid or duplicate identifiers');
+          if (!/^[+-]?\d+$/.test(value) || !Number.isInteger(Number(value)) || Number(value) < -2147483648 || Number(value) > 2147483647 || ids.has(Number(value)) && !sharedId) fail('invalid or duplicate identifiers');
           ids.add(Number(value));
         }
       } else if (p.localName === 'placeholder') {

@@ -66,3 +66,34 @@ it('keeps a locked or inline page-number control retained, as before', async () 
   expect(storyText(pkg.pageStories.stories['word/footer1.xml'])).toBe('￼\n');
   expect(pkg.pageStories.stories['word/footer2.xml'].editable).toBe(true);
 });
+
+// Adding a watermark to a page-numbered header gives it two sibling building blocks: Page Numbers (Top of Page)
+// and Watermarks, the latter holding the VML watermark. Their w:id values can repeat (here within the header, and a
+// copied header in another part repeats them too); the ids are kept in the wrappers and identify nothing else.
+it('edits a header holding page-number and watermark building blocks, whatever their ids', async () => {
+  const { watermarkFixture, TEXT_PICT, NS } = await import('./fixtures/vml-watermarks/fixture.js');
+  const sdt = (gallery, id, inner) => `<w:sdt><w:sdtPr><w:id w:val="${id}"/><w:docPartObj><w:docPartGallery w:val="${gallery}"/><w:docPartUnique/></w:docPartObj></w:sdtPr><w:sdtContent>${inner}</w:sdtContent></w:sdt>`;
+  const page = '<w:p><w:pPr><w:pStyle w:val="Header"/><w:jc w:val="right"/></w:pPr><w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> PAGE </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r><w:r><w:t>1</w:t></w:r><w:r><w:fldChar w:fldCharType="end"/></w:r></w:p>';
+  const header = id => `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<w:hdr ${NS}>${sdt('Page Numbers (Top of Page)', id, page)}${sdt('Watermarks', id, `<w:p><w:pPr><w:pStyle w:val="Header"/></w:pPr><w:r><w:rPr><w:noProof/></w:rPr>${TEXT_PICT}</w:r></w:p>`)}</w:hdr>`;
+  const parts = unzipSync(watermarkFixture());
+  parts['word/header1.xml'] = strToU8(header('-1'));
+  parts['word/header2.xml'] = strToU8(header('-1'));
+  const bytes = zipSync(parts), pkg = await DocxPackage.open(bytes), body = model(pkg);
+  for (const path of ['word/header1.xml', 'word/header2.xml']) {
+    const story = pkg.pageStories.stories[path];
+    expect(story.editable, path).toBe(true);
+    expect(story.paragraphs.flatMap(p => p.runs.filter(r => r.vml).map(r => r.vml.watermark?.text))).toEqual(['CONFIDENTIAL']);
+  }
+  expect(await save(pkg, body)).toEqual(unzipSync(bytes));
+  const story = pkg.pageStories.stories['word/header1.xml'], doc = model(pkg, story.paragraphs, story.tables);
+  doc.select(0); doc.replace('Page ');
+  const edited = await save(pkg, body, { 'word/header1.xml': { paragraphs: doc.paragraphs, tables: doc.tables } });
+  const xml = strFromU8(edited['word/header1.xml']);
+  // Both wrappers, in order, each around its own paragraph; the watermark shape kept.
+  expect(xml).toMatch(/<w:sdt[ >]<w:sdtPr><w:id w:val="-1"\/><w:docPartObj><w:docPartGallery w:val="Page Numbers \(Top of Page\)"\/>.*<w:sdtContent><w:p[ >].*Page .*PAGE.*<\/w:p><\/w:sdtContent><\/w:sdt><w:sdt[ >]<w:sdtPr><w:id w:val="-1"\/><w:docPartObj><w:docPartGallery w:val="Watermarks"\/>.*<w:sdtContent><w:p[ >].*PowerPlusWaterMarkObject.*<\/w:p><\/w:sdtContent><\/w:sdt><\/w:hdr>$/s);
+  expect(edited['word/header2.xml']).toEqual(parts['word/header2.xml']);
+  const again = await DocxPackage.open(zipSync(edited));
+  expect(again.readOnly).toBeFalsy();
+  expect(again.pageStories.stories['word/header1.xml'].editable).toBe(true);
+  expect(storyText(again.pageStories.stories['word/header1.xml'])).toBe('Page ￼\n￼');
+});

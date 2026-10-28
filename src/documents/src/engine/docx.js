@@ -1817,7 +1817,7 @@ export class DocxPackage {
             result.push(p);
           }
           else if (node.localName === 'sdt') {
-            const { control, content } = readControl(node, 'block');
+            const { control, content } = readControl(node, 'block', { sharedId: !!context.pageStory });
             if (control.persistent && children(content).some(n => n.namespaceURI === W && n.localName === 'tbl'))
               throw new UnsupportedDocumentError('persistent controls around tables');
             control.scope = context.cellId || null;

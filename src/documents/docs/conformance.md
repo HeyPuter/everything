@@ -7508,7 +7508,10 @@ original shell (properties and `sdtEndPr`) around its current paragraphs; an
 unedited story keeps its part byte for byte. Any other control in a header or
 footer (inline, locked, rich text, plain text…), and notes, keep the retained
 behavior above. If the control reader refuses a wrapper the story falls back to
-retained display. The independently authored `page-number-parts.docx`
+retained display. Word's "Watermarks" building block (a VML watermark beside a
+page-number block) is the same kind of wrapper; such wrappers' `w:id` values may repeat
+within a story or across copied header parts, since the id stays in the retained shell
+and identifies nothing else. The independently authored `page-number-parts.docx`
 (`tests/fixtures/page-number-parts`) covers Top of Page, Bottom of Page with
 `sdtEndPr`, and a nested "Page X of Y" footer with PAGE and NUMPAGES.
 
