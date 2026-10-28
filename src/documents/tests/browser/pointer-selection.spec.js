@@ -176,7 +176,8 @@ test('Text mode scrolls its field to a caret that Enter, Find or Undo places out
   expect(await caretShown()).toBe(true);
   // Find, from the top: the match at the end comes into view.
   await input(page).evaluate(el => { el.setSelectionRange(0, 0); el.scrollTop = 0; el.dispatchEvent(new Event('select')); });
-  await input(page).press('ControlOrMeta+Shift+h');
+  // Find and Replace: Ctrl+H, or Cmd+Shift+H on a Mac.
+  await input(page).press(process.platform === 'darwin' ? 'Meta+Shift+h' : 'Control+h');
   await page.getByRole('textbox', { name: 'Find text' }).fill('Needle');
   await expect(page.locator('.canvas-find-count')).toHaveText('1 of 1');
   expect(await caretShown()).toBe(true);
