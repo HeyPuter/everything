@@ -46,3 +46,21 @@ test('previews unmatched and reversed bookmark structures as read-only with the 
 test('table deletion removes contained bookmarks while retaining the surviving part of cross-table ranges and undo restores them',async({page})=>{
   await page.goto('/playground.html'); await showAllTools(page);await page.getByLabel('Open DOCX file').setInputFiles('public/fixtures/bookmarks.docx');const input=page.getByRole('textbox',{name:'Document text'});await expect(input).toHaveValue(/^Bookmarks and internal links/);const text=await input.inputValue();await choose(input,'Cell target');await page.getByRole('combobox',{name:'Table actions',exact:true}).selectOption('table');await manager(page);const list=page.getByRole('listbox',{name:'Document bookmarks',exact:true});await expect(list.locator('option').filter({hasText:/^CellTarget ·/})).toHaveCount(0);await selectBookmark(page,'IntoTable');await page.getByRole('dialog').getByRole('button',{name:'Go to bookmark',exact:true}).click();await expect(page.getByRole('dialog')).toHaveCount(0);expect(await input.evaluate(el=>el.selectionStart)).toBe(text.indexOf('Before the table'));await page.getByRole('button',{name:'Undo',exact:true}).click();await expect(input).toHaveValue(text);await manager(page);await selectBookmark(page,'CellTarget');await page.getByRole('dialog').getByRole('button',{name:'Go to bookmark',exact:true}).click();await expect(page.getByRole('dialog')).toHaveCount(0);expect(await input.evaluate(el=>el.selectionStart)).toBe(text.indexOf('Cell target'));
 });
+
+test('refuses a bookmark name starting with an underscore, which would be hidden from the list',async({page})=>{
+  await page.goto('/playground.html'); await showAllTools(page);await page.getByRole('button',{name:'New',exact:true}).click();
+  const input=page.getByRole('textbox',{name:'Document text'});await input.fill('Target text');await choose(input,'Target');
+  await manager(page);await page.getByRole('textbox',{name:'Bookmark name',exact:true}).fill('_draft');
+  await page.getByRole('dialog').getByRole('button',{name:'Add bookmark',exact:true}).click();
+  await expect(page.getByRole('dialog').getByRole('alert')).toContainText('Start the name with a letter');
+  await expect(page.getByRole('listbox',{name:'Document bookmarks',exact:true}).locator('option')).toHaveCount(0);
+  // A name with a letter first is added and listed.
+  await page.getByRole('textbox',{name:'Bookmark name',exact:true}).fill('Draft_1');
+  await page.getByRole('dialog').getByRole('button',{name:'Add bookmark',exact:true}).click();
+  await expect(page.getByRole('listbox',{name:'Document bookmarks',exact:true}).locator('option')).toHaveText([/^Draft_1 ·/]);
+  // Renaming to a hidden name is refused the same way.
+  await selectBookmark(page,'Draft_1');await page.getByRole('textbox',{name:'Bookmark name',exact:true}).fill('_hidden');
+  await page.getByRole('dialog').getByRole('button',{name:'Rename',exact:true}).click();
+  await expect(page.getByRole('dialog').getByRole('alert')).toContainText('Start the name with a letter');
+  await expect(page.getByRole('listbox',{name:'Document bookmarks',exact:true}).locator('option')).toHaveText([/^Draft_1 ·/]);
+});
