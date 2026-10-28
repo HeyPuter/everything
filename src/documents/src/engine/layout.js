@@ -17,7 +17,7 @@ import { pageGeometry, readingPageGeometry } from './page-settings.js';
 import { layoutParagraphBorders } from './paragraph-border-layout.js';
 import { layoutTableBorders, tableRowBorderWidths, tableBorderWidth, cellBorderLayoutWidth, tableHorizontalInsets } from './table-border-layout.js';
 import { cellWritingTopBorder, rowTableBorder } from './cell-borders.js';
-import { checkJustificationText, justificationRange } from './justification.js';
+import { checkJustificationText, justificationRange, justifiedStyle } from './justification.js';
 import { contractionMetrics, fitContractedWord } from './justification-contraction.js';
 import { borderOutset, visibleParagraphBorders } from './paragraph-borders.js';
 import { documentBlocks, fixedColumnWidths, roundColumnWidths, autoColumnWidths, rowGrid, spanWidth, headerRowCount, minimumSpanWidth } from './tables.js';
@@ -998,7 +998,7 @@ function measureParagraph(p, documentOffset, measure, page, listMarker, numberin
         let spacing = range.spacing;
         for (let attempt = 0; attempt < 4; attempt++) {
           const expanded = new LineBuilder(left, right, format, page, measure, offset);
-          span.forEach((c, index) => expanded.add(index >= range.first && index < range.last && !c.image && (!/^\p{White_Space}+$/u.test(c.text) || c.text === ' ' || c.text === '\u00a0') ? { ...c, style: { ...c.style, justificationSpacing: spacing } } : c));
+          span.forEach((c, index) => expanded.add(index >= range.first && index < range.last && !c.image && (!/^\p{White_Space}+$/u.test(c.text) || c.text === ' ' || c.text === '\u00a0') ? { ...c, style: justifiedStyle(c.style, range, index, spacing) } : c));
           measured = { ...expanded.finish(markStyle, ignoreMark, !!marker), justificationSpacing: spacing };
           const overflow = measured.stops.at(-1).x - measured.ignoredTrailingWidth - right;
           if (overflow <= 1e-6) break;

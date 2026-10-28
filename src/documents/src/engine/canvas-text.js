@@ -1,3 +1,4 @@
+import { IDEOGRAPHIC } from './dictionary-breaks.js';
 import { prepareLegacyGpos, prefetchLegacyGpos, legacyGposFamily } from './gpos-only-kerning.js';
 import {prepareScriptFontSizes,scriptFontSizeReady} from './script-font-size.js';
 import { prepareShapeAutofit } from './shape-autofit.js';
@@ -135,7 +136,10 @@ export function validateCanvasTextSupport(pkg) {
   setCanvasTextStyle(context, {});
   const spaced = pkg.paragraphs.some(p => p.markFormat?.characterSpacing || p.runs.some(r => r.characterSpacing)) || listMarkers(pkg.paragraphs, pkg.numbering).some(m => m?.level.markerStyle.characterSpacing);
   if (spaced) setCanvasTextStyle(context, { characterSpacing: 1 });
-  if (pkg.paragraphs.some(p => p.format?.alignment === 'both')) setCanvasTextStyle(context, { justificationSpacing: 1 });
+  const justified = pkg.paragraphs.filter(p => p.format?.alignment === 'both');
+  if (justified.length) setCanvasTextStyle(context, { justificationSpacing: 1 });
+  // Justified Chinese and Japanese widen the gaps between characters with letter spacing (justification.js).
+  if (justified.some(p => p.runs.some(r => IDEOGRAPHIC.test(r.text)))) setCanvasTextStyle(context, { characterSpacing: 1 });
 }
 
 function canvasFontRequirements(pkg) {

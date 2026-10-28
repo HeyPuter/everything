@@ -1,4 +1,5 @@
 import { UnsupportedDocumentError } from './errors.js';
+import { IDEOGRAPHIC } from './dictionary-breaks.js';
 
 // Display spacing only: source text and run properties never acquire this value.
 // Native Canvas word-spacing expands U+0020 and U+00A0 without breaking shaping.
@@ -7,15 +8,42 @@ export function checkJustificationText(text, alignment) {
   if (alignment === 'both' && /\p{Script=Arabic}/u.test(text)) throw new UnsupportedDocumentError('Arabic kashida justification');
 }
 
+/**
+ * Chinese and Japanese are written without spaces: a justified line of them is filled by widening
+ * the gaps between characters where the line could have broken (an ideograph or kana on either
+ * side, dictionary-breaks.js), as well as its spaces. The indices of the characters followed by
+ * such a gap, within [first, last - 1).
+ */
+function ideographicGaps(span, first, last) {
+  const gaps = new Set();
+  for (let i = first; i < last - 1; i++) {
+    const c = span[i], next = span[i + 1];
+    if (c.wordBreak && !c.image && !next.image && !next.ignoredCellBreak && (IDEOGRAPHIC.test(c.text) || IDEOGRAPHIC.test(next.text))) gaps.add(i);
+  }
+  return gaps;
+}
+
 export function justificationRange(span, measured, right, tab) {
   let first = span.findLastIndex(c => c.text === '\t') + 1, last = span.length;
   while (first < last && (span[first].ignoredCellBreak || justificationSpace(span[first].text))) first++;
   while (last > first && (span[last - 1].ignoredCellBreak || justificationSpace(span[last - 1].text))) last--;
-  const gaps = span.slice(first, last).filter(c => justificationSpace(c.text)).length;
+  const spaces = span.slice(first, last).filter(c => justificationSpace(c.text)).length;
   const extra = right - measured.stops.at(-1).x + measured.ignoredTrailingWidth;
-  if (!gaps || extra <= 1e-6) return null;
   // Earlier fields stay anchored. Justification can expand the final left tab
   // field; other tab alignments require a separate compatible algorithm.
-  if (tab && tab.alignment !== 'left') throw new UnsupportedDocumentError('justification after center, right or decimal tabs');
-  return { first, last, gaps, spacing: extra / gaps };
+  const anchored = tab && tab.alignment !== 'left';
+  const ideographs = anchored ? new Set() : ideographicGaps(span, first, last);
+  const gaps = spaces + ideographs.size;
+  if (!gaps || extra <= 1e-6) return null;
+  if (anchored) throw new UnsupportedDocumentError('justification after center, right or decimal tabs');
+  return { first, last, gaps, spacing: extra / gaps, ideographs };
+}
+
+/** The style of span[index] on a line justified with `spacing` (px) across `range`'s gaps. */
+export function justifiedStyle(style, range, index, spacing) {
+  // Canvas word spacing widens spaces; an ideograph followed by a gap takes the same width as
+  // letter spacing, which character spacing expresses in points.
+  return range.ideographs.has(index)
+    ? { ...style, justificationSpacing: spacing, characterSpacing: (style.characterSpacing || 0) + spacing * 3 / 4 }
+    : { ...style, justificationSpacing: spacing };
 }

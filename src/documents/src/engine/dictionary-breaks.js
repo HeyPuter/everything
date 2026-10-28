@@ -15,7 +15,7 @@ const words = typeof Intl?.Segmenter === 'function' ? new Intl.Segmenter(undefin
 // punctuation and currency signs) for Japanese and Chinese. Nor does a line break before a hyphen,
 // on either side of a straight quote, or inside a doubled dash. Hangul is left to the space rules:
 // Korean is wrapped between words. Spaces and inline objects keep their own rules.
-const IDEOGRAPHIC = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Bopomofo}\u3001-\u303f\u30fb\u30fc\uff01-\uff65\uffe0-\uffe6]/u;
+export const IDEOGRAPHIC = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Bopomofo}\u3001-\u303f\u30fb\u30fc\uff01-\uff65\uffe0-\uffe6]/u;
 const NO_START = new Set('"\'-‐‑–!%),.:;?]}¢°·’”‰′″℃∶、。〃〆〉》」』】〕〗〙〞〟ぁぃぅぇぉっゃゅょゎゕゖ゛゜ゝゞ゠ァィゥェォッャュョヮヵヶ・ーヽヾㇰㇱㇲㇳㇴㇵㇶㇷㇸㇹㇺㇻㇼㇽㇾㇿ々〻‥…﹚﹜！＂％＇），．：；？］｝～｡｣､･ｧｨｩｪｫｬｭｮｯｰﾞﾟ￠');
 const NO_END = new Set('"\'$([{£¥·‘“〈《「『【〔〖〘〝﹙﹛＄（［｛｢￡￥');
 const OPEN_SPACE = /[\s\ufffc]/u;

@@ -7330,9 +7330,19 @@ recorded: line positions follow the browser's fonts, not a reference
 application's. Remaining gaps: `w:kinsoku w:val="0"`, `w:wordWrap`,
 `w:overflowPunct` (hanging punctuation), `w:topLinePunct`, custom
 `noLineBreaksAfter`/`noLineBreaksBefore` lists and `strictFirstAndLastChars` are
-not read; justified Chinese and Japanese lines stretch only their spaces, not
-the gaps between characters; word movement, word count and spelling still treat
-a run of ideographs as one word.
+not read; word movement, word count and spelling still treat a run of
+ideographs as one word.
+
+Justified (`w:jc w:val="both"`, §17.3.1.13, §17.18.44) Chinese and Japanese
+lines are filled to the margin: besides spaces, each gap where the line could
+have broken beside an ideograph or kana is widened by the same amount, as
+letter spacing on the character before it. Gaps the East Asian line rules close
+(before `。`, after `「`) and the end of the line are not widened; Latin words
+keep their letter spacing. Final lines and lines after center, right or decimal
+tabs keep their existing behavior. `tests/cjk-justification.test.js` covers the
+widths, carets and mixed lines. Remaining gaps: the reference application's
+exact distribution (compression of punctuation, `w:jc w:val="distribute"`) is
+not reproduced.
 
 ## Body editing with retained nonempty headers and footers
 
