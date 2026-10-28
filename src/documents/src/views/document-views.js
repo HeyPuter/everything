@@ -546,7 +546,8 @@ export function createDocumentViews({ editor, pkg, host, surface, root, error, c
     const promote = command('Promote', 'promote', () => outline.promote(), { shortcut: `${outline.shortcutHint}+Left` });
     const levelMenu = menuButton('Outline Level', 'outlineView', () => outline.levelNames.map((label, i) => ({ label, radio: true, checked: level() === i + 1, onSelect: () => outline.setLevel(i + 1) })), { size: 'small', text: 'Outline Level' });
     const demote = command('Demote', 'demote', () => outline.demote(), { shortcut: `${outline.shortcutHint}+Right` });
-    const toBody = command('Demote to Body Text', 'demoteBody', () => outline.demoteToBody(), { shortcut: `${MOD_KEY}+Shift+N` });
+    // Ctrl+Shift+N on a Mac too, where Cmd+Shift+N opens a private window and never reaches the page.
+    const toBody = command('Demote to Body Text', 'demoteBody', () => outline.demoteToBody(), { shortcut: 'Ctrl+Shift+N' });
     const up = command('Move Up', 'moveUp', () => outline.moveUp(), { shortcut: `${outline.shortcutHint}+Up` });
     const down = command('Move Down', 'moveDown', () => outline.moveDown(), { shortcut: `${outline.shortcutHint}+Down` });
     const expand = command('Expand', 'expand', () => outline.expand(), { shortcut: `${outline.shortcutHint}+Plus` });
