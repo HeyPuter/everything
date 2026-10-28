@@ -3,16 +3,20 @@ import { gfmFromMarkdown } from 'mdast-util-gfm';
 import { gfm } from 'micromark-extension-gfm';
 import { toHast } from 'mdast-util-to-hast';
 import { toHtml } from 'hast-util-to-html';
+import { htmlBody } from './importers.js';
 
 /**
  * Markdown (with GitHub tables, task lists and strikethrough) as HTML. Raw HTML in the source (a centered
- * paragraph, <details>, <br>) is kept: the only reader is htmlFragment, which parses it inertly, keeps its
- * text and formatting, and skips scripts, styles and embedded content as it does for pasted web pages.
+ * paragraph, <details>, <br>) is kept, and read as a web page's body is (htmlBody): its text and formatting,
+ * without hidden content, scripts, styles, forms or embedded content. The only reader is htmlFragment, which
+ * parses it inertly.
  */
 export function markdownHtml(source) {
   try {
-    const tree = fromMarkdown(String(source ?? ''), { extensions: [gfm()], mdastExtensions: [gfmFromMarkdown()] });
-    return toHtml(withoutBackReferences(toHast(tree, { allowDangerousHtml: true })), { allowDangerousHtml: true });
+    const text = String(source ?? '');
+    const tree = fromMarkdown(text, { extensions: [gfm()], mdastExtensions: [gfmFromMarkdown()] });
+    const html = toHtml(withoutBackReferences(toHast(tree, { allowDangerousHtml: true })), { allowDangerousHtml: true });
+    return /<[a-z!/?]/i.test(text) ? htmlBody(html) : html;
   } catch (e) {
     // Structure nested thousands deep (quotes in quotes, emphasis in emphasis) overflows the converters'
     // recursion. The file's text still opens, one paragraph per line, as it would from a .txt file.

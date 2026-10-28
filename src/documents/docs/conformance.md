@@ -21783,8 +21783,10 @@ conversion and the paste (2026-10-16).
 
 Markdown (.md, with GitHub tables, task lists and strikethrough) and HTML files
 now open as new documents instead of the failure message. Markdown is rendered
-with the existing mdast libraries with raw HTML disabled; HTML uses the importer's
-existing body cleanup. Both then go through the formatted-paste conversion:
+with the existing mdast libraries; raw HTML in it is kept and goes through the same
+body cleanup as an HTML file (hidden content, scripts, styles, forms and embedded
+content are left out; updated 2026-10-27). HTML uses the importer's existing body
+cleanup. Both then go through the formatted-paste conversion:
 headings become Heading 1–6 (§17.7.4), lists become bullet or numbered paragraphs
 with nesting levels (§17.9), and bold, italic, underline, strikethrough,
 super/subscript, color and http(s), mailto and tel links become run properties and

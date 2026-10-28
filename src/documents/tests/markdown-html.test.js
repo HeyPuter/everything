@@ -39,3 +39,8 @@ it('opens footnotes as their numbered notes, without the arrows a web page links
   expect(lines).toContain('with more.');
   expect(lines[0]).toBe('A claim1 and1 another2.');
 });
+
+it('leaves out hidden HTML in a Markdown file, as opening a web page does', () => {
+  const lines = open('# Notes\n\n<div hidden>Internal: do not publish</div>\n\nShown <span style="display:none">secret</span>text.\n\n<p style="display: none">Also hidden</p>\n\nEnd\n');
+  expect(lines).toEqual(['Notes', 'Shown text.', 'End']);
+});
