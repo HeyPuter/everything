@@ -241,7 +241,11 @@ function fromForeignHtml(body) {
     if (tag === 'BR') { if (!node.classList?.contains('Apple-interchange-newline')) append('\v', format, context.link); return; }
     const next = inherited(node, format);
     const ctx = { ...context };
-    if (tag === 'A' && /^(https?:|mailto:|tel:)/i.test(node.getAttribute('href') || '')) ctx.link = node.getAttribute('href');
+    if (tag === 'A') {
+      // A browser follows an address with the spaces and line breaks around it (and tabs and line breaks in it) left out.
+      const href = (node.getAttribute('href') || '').replace(/^[\u0000-\u0020]+|[\u0000-\u0020]+$/g, '').replace(/[\t\n\r]/g, '');
+      if (/^(https?:|mailto:|tel:)/i.test(href)) ctx.link = href;
+    }
     // Word writes a tab as no-break spaces styled mso-tab-count, and a run of spaces as no-break spaces styled
     // mso-spacerun, so a browser shows their width: they are a tab and ordinary spaces.
     const declared = node.getAttribute?.('style') || '', tabs = /mso-tab-count\s*:\s*(\d+)/i.exec(declared)?.[1];

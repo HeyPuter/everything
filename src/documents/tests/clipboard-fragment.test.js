@@ -92,3 +92,11 @@ it('writes tel: and mailto: links into the copied HTML, and never unsafe schemes
   const anchors = [...new DOMParser().parseFromString(html, 'text/html').querySelectorAll('a')].map(a => [a.textContent, a.getAttribute('href')]);
   expect(anchors).toEqual([['Call', 'tel:+1-555-0100'], [' mail', 'mailto:a@example.com']]);
 });
+
+it('keeps a link whose address has spaces or line breaks around it, as a browser follows it', () => {
+  const links = html => htmlFragment(html)?.paragraphs.flatMap(p => p.runs.filter(r => r.link).map(r => [r.text, r.link]));
+  expect(links('<p>See <a href=" https://example.com/a ">the site</a>.</p>')).toEqual([['the site', 'https://example.com/a']]);
+  expect(links('<p><a href="\n\tmailto:someone@example.com\n">Write</a></p>')).toEqual([['Write', 'mailto:someone@example.com']]);
+  // An address that is not a web, mail or phone link still gives no link.
+  expect(links('<p><a href=" javascript:alert(1)">No</a></p>')).toEqual([]);
+});
