@@ -183,6 +183,12 @@ select.input, select.select {
   padding-right: 34px;
   cursor: pointer;
 }
+/* A list of choices shown open (size or multiple) drops nothing down: no chevron, and no room kept for one. */
+select.input:where([size]:not([size="1"]), [multiple]), select.select:where([size]:not([size="1"]), [multiple]) {
+  background-image: none;
+  padding-right: 12px;
+  cursor: default;
+}
 
 .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 12px; margin-bottom: 16px; }
 .grid-2 .field { margin-bottom: 0; }

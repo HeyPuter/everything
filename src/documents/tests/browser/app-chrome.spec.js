@@ -521,3 +521,20 @@ test('Escape leaves a submenu that opened over its own item in a narrow window',
   await page.keyboard.press('Escape');
   await expect(page.locator('.menu')).toHaveCount(0);
 });
+
+test('a list of choices in a dialog draws no drop-down arrow', async ({ page }) => {
+  await openEditor(page);
+  const arrows = dialog => dialog.locator('select').evaluateAll(lists => lists.filter(s => s.size > 1 || s.multiple)
+    .map(s => [s.getAttribute('aria-label'), getComputedStyle(s).backgroundImage]));
+  await (await openMenu(page, 'Insert')).getByRole('menuitem', { name: 'Field…' }).click();
+  let dialog = page.getByRole('dialog', { name: 'Field' });
+  await expect(dialog).toBeVisible();
+  expect(await arrows(dialog)).toEqual([['Field names', 'none']]);
+  await page.keyboard.press('Escape');
+  await expect(dialog).toBeHidden();
+  await (await openMenu(page, 'Edit')).getByRole('menuitem', { name: 'Find', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Go To…' }).click();
+  dialog = page.getByRole('dialog', { name: 'Go To' });
+  await expect(dialog).toBeVisible();
+  expect(await arrows(dialog)).toEqual([['Go to what', 'none']]);
+});
