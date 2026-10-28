@@ -77,4 +77,20 @@ describe('the owner tab that saves a shared document', () => {
     expect(await P.__files.get(PATH).blob.text()).toBe('Shared plan!');
     second.live.destroy();
   });
+
+  it('keeps saving when someone without the owner\'s role claims to save the file', async () => {
+    const hub = new MemoryHub(Y.encodeStateAsUpdate(createSharedDoc(editorState({ session: { body: new TextDocument([paragraph('Shared')]), storyEdits: {} } }))));
+    const owner = await ownerTab(hub, 'b');
+    await settle();
+    expect(owner.doc.writes).toBe(true);
+    // An editor's (modified) client says it saves, from a session that sorts before the owner's; the service stamps
+    // each presence with its sender's role.
+    const guest = hub.connect('editor');
+    await guest.join({ update() {}, presence() {}, role() {} });
+    guest.presence({ session: '0', role: 'editor', saves: true, at: Date.now() });
+    await settle();
+    expect(owner.live.saves).toBe(true);
+    expect(owner.doc.writes).toBe(true);
+    owner.live.destroy();
+  });
 });

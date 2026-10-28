@@ -129,7 +129,9 @@ export class LiveSession extends EventTarget {
   elect() {
     const mayWrite = !this.local && this.role === 'owner' && !!this.doc.path;
     let saves = mayWrite;
-    if (mayWrite) for (const person of this.client.roster) if (person.saves && person.session < this.client.session) saves = false;
+    // Only another owner's tab can save the file: the service stamps each presence with its sender's role, so a
+    // guest's client claiming to save cannot stop the owner's tab writing everyone's changes.
+    if (mayWrite) for (const person of this.client.roster) if (person.saves && person.role === 'owner' && person.session < this.client.session) saves = false;
     if (this.saves !== saves) {
       this.saves = saves;
       // Local sharing has no file: each tab keeps its own download, as before sharing.
