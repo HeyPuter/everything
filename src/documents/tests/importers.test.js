@@ -35,6 +35,13 @@ describe('htmlBody', () => {
     expect(htmlBody(html)).toBe('<h1>Hi</h1><p>Text <b>bold</b></p>');
     expect(htmlBody('<p>fragment</p>')).toBe('<p>fragment</p>');
   });
+  it('links a Google Docs web page\'s links to where they go, not through Google\'s redirect', () => {
+    const page = '<p><a class="c4" href="https://www.google.com/url?q=https://example.com/report?a%3D1%26b%3D2&amp;sa=D&amp;source=editors&amp;ust=1700000000000000&amp;usg=AOvVaw0abc">report</a> and <a href="https://www.google.com/url?q=mailto:team@example.com&amp;sa=D">mail</a></p>';
+    expect(htmlBody(page)).toBe('<p><a class="c4" href="https://example.com/report?a=1&amp;b=2">report</a> and <a href="mailto:team@example.com">mail</a></p>');
+    // Other addresses on google.com, and redirects to what a link may not open, stay as they are.
+    expect(htmlBody('<p><a href="https://www.google.com/search?q=docs">s</a> <a href="https://www.google.com/url?q=javascript:alert(1)">x</a></p>'))
+      .toBe('<p><a href="https://www.google.com/search?q=docs">s</a> <a href="https://www.google.com/url?q=javascript:alert(1)">x</a></p>');
+  });
   it('keeps the text of a page whose body is one form', () => {
     expect(htmlBody('<body><form action="/x"><h1>Title</h1><p>Body</p><input name="q"><button>Go</button></form></body>')).toBe('<h1>Title</h1><p>Body</p>');
   });

@@ -71,6 +71,14 @@ export function htmlBody(html, { preserveFallback = false } = {}) {
       }
     }
   }
+  // A web page Google Docs exports sends every link through Google's redirect (google.com/url?q=<address>&usg=…): the
+  // document links to the address itself, as the text it was written in did.
+  for (const a of parsed.querySelectorAll('a[href^="https://www.google.com/url?"]')) {
+    try {
+      const target = new URL(a.getAttribute('href')).searchParams.get('q');
+      if (target && /^(https?:|mailto:|tel:)/i.test(target)) a.setAttribute('href', target);
+    } catch { /* not an address: left as it is */ }
+  }
   // Tables the converter would refuse (a row-spanning cell, a table in a cell) are rewritten into ones it takes.
   if (parsed.body?.querySelector('table')) normalizeTables(parsed.body);
   // HTML consumes one optional newline immediately after a PRE start tag.
