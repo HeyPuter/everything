@@ -318,8 +318,13 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
   }
   function textEditor({ value = '', placeholder, submitLabel, onSubmit, onCancel, key = null }) {
     if (key && unsent.has(key)) value = unsent.get(key);
-    if (key) { const submitted = onSubmit, cancelled = onCancel; onSubmit = text => { unsent.delete(key); submitted(text); }; onCancel = () => { unsent.delete(key); cancelled?.(); }; }
-    const input = el('textarea.wcc-input', { rows: 1, placeholder: `${placeholder} (type @ to mention someone)`, 'aria-label': placeholder, 'aria-autocomplete': 'list' }, value);
+    if (key) {
+      const submitted = onSubmit, cancelled = onCancel;
+      // Words that could not be posted (the document refused the change) stay in their box, to try again.
+      onSubmit = text => { unsent.delete(key); if (!submitted(text)) { unsent.set(key, text); refresh(true); queueMicrotask(() => layer.querySelector(`textarea[data-key="${key}"]`)?.focus()); } };
+      onCancel = () => { unsent.delete(key); cancelled?.(); };
+    }
+    const input = el('textarea.wcc-input', { rows: 1, ...(key ? { dataset: { key } } : {}), placeholder: `${placeholder} (type @ to mention someone)`, 'aria-label': placeholder, 'aria-autocomplete': 'list' }, value);
     input.value = value;
     const grow = () => { input.style.height = 'auto'; input.style.height = `${Math.min(200, input.scrollHeight + 2)}px`; };
     const submit = el('button.btn.btn-primary.btn-sm.wcc-post', { type: 'button', disabled: !value.trim(), onclick: () => onSubmit(input.value) }, submitLabel);
@@ -371,7 +376,7 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
     const head = el('div.wcc-head', {}, avatar(comment.author, comment.initials),
       el('div.wcc-meta', {}, el('span.wcc-author', {}, comment.author || 'Unknown author'), el('span.wcc-date', { title: comment.date ? new Date(comment.date).toLocaleString() : '' }, time(comment.date))), more);
     const body = editing === comment.id
-      ? textEditor({ value: comment.text, key: `edit:${comment.id}`, placeholder: 'Edit comment', submitLabel: 'Save', onSubmit: text => { editing = null; run(() => editor().model.editComment(comment.id, text)); refresh(true); }, onCancel: () => { editing = null; refresh(true); editor()?.focus(); } })
+      ? textEditor({ value: comment.text, key: `edit:${comment.id}`, placeholder: 'Edit comment', submitLabel: 'Save', onSubmit: text => { editing = null; const ok = run(() => editor().model.editComment(comment.id, text)); if (!ok) editing = comment.id; refresh(true); return ok; }, onCancel: () => { editing = null; refresh(true); editor()?.focus(); } })
       // Only text with an @ can mention anyone.
       : el('div.wcc-text', {}, ...renderMentions(comment.text, String(comment.text || '').includes('@') ? names() : []));
     return el(`div.wcc-entry${editing === comment.id ? '.is-editing' : ''}`, { dataset: { commentId: comment.id } }, head, body);
@@ -389,7 +394,7 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
     node.append(entry(thread.root, thread, true, names), ...thread.replies.map(reply => entry(reply, thread, false, names)));
     if (done) node.append(el('div.wcc-resolved', {}, el('span', {}, 'Resolved'), el('button.btn.btn-sm', { type: 'button', disabled: !ready(), onclick: () => { run(() => editor().model.setCommentDone(thread.id, false)); refresh(true); } }, 'Reopen')));
     else if (ready()) node.append(el('div.wcc-reply', {}, textEditor({ key: `reply:${thread.id}`, placeholder: 'Reply', submitLabel: 'Reply',
-      onSubmit: text => { run(() => editor().model.replyToComment(thread.id, { ...me(), text })); refresh(true); },
+      onSubmit: text => { const ok = run(() => editor().model.replyToComment(thread.id, { ...me(), text })); refresh(true); return ok; },
       onCancel: () => { activeId = null; pinned = false; refresh(true); editor()?.focus(); } })),
     el('button.btn.btn-sm.wcc-resolve', { type: 'button', title: 'Resolve thread', onclick: () => { run(() => editor().model.setCommentDone(thread.id, true)); refresh(true); } }, 'Resolve'));
     return node;
@@ -421,9 +426,14 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
     const editorNode = textEditor({ value: draft.value || '', placeholder: 'Start a conversation', submitLabel: 'Post',
       onSubmit: text => {
         const engine = editor(); if (engine) followDraft(engine);
-        const { start, end } = draft; draft = null;
+        const posting = draft, { start, end } = draft; draft = null;
         let id = null;
-        run(() => { id = editor().model.addComment({ ...me(), text, range: [start, end] }); });
+        if (!run(() => { id = editor().model.addComment({ ...me(), text, range: [start, end] }); })) {
+          // The document refused it (protection, a comment too long): the words stay in the draft to try again.
+          draft = Object.assign(posting, { value: text }); activeId = 'draft'; refresh(true);
+          queueMicrotask(() => layer.querySelector('.ed-comment-draft textarea')?.focus());
+          return;
+        }
         activeId = id; pinned = true; pinnedRange = editor()?.model.range.join() ?? ''; refresh(true); editor()?.focus();
       },
       onCancel: () => { draft = null; activeId = null; refresh(true); editor()?.focus(); } });

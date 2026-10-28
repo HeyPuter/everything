@@ -61,3 +61,37 @@ it('stacks the cards above the active one down from the top instead of piling th
   for (let i = 1; i < tops.length; i++) expect(tops[i], `card ${i}`).toBeGreaterThanOrEqual(tops[i - 1] + 88);
   expect(tops[0]).toBeGreaterThanOrEqual(8);
 });
+
+it('keeps a new comment, a reply or an edit the document refuses, to post again', async () => {
+  open(['First paragraph here.', 'Second paragraph here.']);
+  const first = editor.model.addComment({ author: 'Ada', text: 'One', range: [0, 5] });
+  review.refresh(true);
+  // Protection that allows no comment changes.
+  editor.session.guard = () => { throw new Error('This document is protected: comments cannot be changed.'); };
+  editor.model.select(22, 28);
+  review.commands.newComment();
+  type(review.layer.querySelector('.ed-comment-draft textarea'), 'A long thought');
+  review.layer.querySelector('.ed-comment-draft .wcc-post').click();
+  expect(editor.model.comments).toHaveLength(1);
+  expect(review.layer.querySelector('.ed-comment-draft textarea').value).toBe('A long thought');
+  await Promise.resolve();
+  expect(document.activeElement).toBe(review.layer.querySelector('.ed-comment-draft textarea'));
+  review.layer.querySelector('.ed-comment-draft .wcc-cancel').click();
+  review.commands.selectThreadById(first);
+  type(card(first).querySelector('.wcc-reply textarea'), 'A reply');
+  card(first).querySelector('.wcc-reply .wcc-post').click();
+  expect(editor.model.comments).toHaveLength(1);
+  expect(card(first).querySelector('.wcc-reply textarea').value).toBe('A reply');
+  card(first).querySelector('.wcc-more').click();
+  document.querySelector('[role="menuitem"]').click();
+  type(card(first).querySelector('.wcc-entry.is-editing textarea'), 'One, edited');
+  card(first).querySelector('.wcc-entry.is-editing .wcc-post').click();
+  expect(editor.model.comments[0].text).toBe('One');
+  expect(card(first).querySelector('.wcc-entry.is-editing textarea').value).toBe('One, edited');
+  // Allowed again, they post.
+  editor.session.guard = null;
+  card(first).querySelector('.wcc-entry.is-editing .wcc-post').click();
+  card(first).querySelector('.wcc-reply .wcc-post').click();
+  expect(editor.model.comments.map(c => c.text)).toEqual(['One, edited', 'A reply']);
+  expect(card(first).querySelector('.wcc-reply textarea').value).toBe('');
+});
