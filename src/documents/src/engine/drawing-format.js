@@ -184,9 +184,12 @@ export function reserveRotatedBounds(drawing, image) {
   const extent = xml.child(frame, WP, 'extent'), transform = xml.child(properties, A, 'xfrm');
   const next = { ...image, width: Number(extent?.getAttribute('cx')), height: Number(extent?.getAttribute('cy')), rotation: normalizedRotation(Number(transform?.getAttribute('rot') || 0)) };
   delete next.effectExtent;
+  // An edit may also take the picture in line or let it float: an inline frame turns with the picture
+  // (a quarter turn swaps its sides), while a floating one keeps its sides and reserves the turned bounds.
+  if (frame.localName === 'inline') delete next.anchor; else next.anchor = image.anchor || {};
   if (!(next.width > 0 && next.height > 0)) return;
-  if (next.width === image.width && next.height === image.height && next.rotation === normalizedRotation(image.rotation)) return;
   const oldRequired = rotationOutsets(image), nextRequired = rotationOutsets(next), oldExtent = imageExtents(image);
+  if (next.width === image.width && next.height === image.height && next.rotation === normalizedRotation(image.rotation) && CROP_SIDES.every(side => oldRequired[side] === nextRequired[side])) return;
   let effect = xml.child(frame, WP, 'effectExtent');
   if (!effect) { effect = xml.make(frame.ownerDocument, WP, 'effectExtent'); extent.after(effect); }
   for (const [side, key] of CROP_SIDES.map((side, i) => [side, 'ltrb'[i]])) effect.setAttribute(key, String(nextRequired[side] + Math.max(0, oldExtent[side] - oldRequired[side])));

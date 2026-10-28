@@ -22,3 +22,15 @@ it('keeps room a frame reserved beyond its rotation, such as for a shadow', () =
   reserveRotatedBounds(turned, image);
   expect(effect(turned)).toBe('l=177347 t=177347 r=187347 b=187347');
 });
+
+it('gives back the room a turned floating picture reserved when it goes in line, where its frame turns with it', () => {
+  // 2 × 0.5 in, turned 90°: floating, its frame reserves 0.75 in above and below; in line, the frame itself is 0.5 × 2 in.
+  const image = { width: 1828800, height: 457200, rotation: 5400000, anchor: { wrap: 'none' }, effectExtent: { left: 0, top: 685800, right: 0, bottom: 685800 } };
+  const inline = new DOMParser().parseFromString(`<w:drawing ${NS}><wp:inline><wp:extent cx="1828800" cy="457200"/><wp:effectExtent l="0" t="685800" r="0" b="685800"/><wp:docPr id="1" name="Picture 1"/><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic><pic:blipFill><a:blip r:embed="rId1"/></pic:blipFill><pic:spPr><a:xfrm rot="5400000"><a:off x="0" y="0"/><a:ext cx="1828800" cy="457200"/></a:xfrm></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing>`, 'application/xml').documentElement;
+  reserveRotatedBounds(inline, image);
+  expect(effect(inline)).toBe('l=0 t=0 r=0 b=0');
+  // And back: floating again, it reserves the room once more.
+  const floating = new DOMParser().parseFromString(`<w:drawing ${NS}><wp:anchor simplePos="0" relativeHeight="1" behindDoc="0" locked="0" layoutInCell="1" allowOverlap="1"><wp:simplePos x="0" y="0"/><wp:positionH relativeFrom="column"><wp:posOffset>0</wp:posOffset></wp:positionH><wp:positionV relativeFrom="paragraph"><wp:posOffset>0</wp:posOffset></wp:positionV><wp:extent cx="1828800" cy="457200"/><wp:effectExtent l="0" t="0" r="0" b="0"/><wp:wrapNone/><wp:docPr id="1" name="Picture 1"/><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic><pic:blipFill><a:blip r:embed="rId1"/></pic:blipFill><pic:spPr><a:xfrm rot="5400000"><a:off x="0" y="0"/><a:ext cx="1828800" cy="457200"/></a:xfrm></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:anchor></w:drawing>`, 'application/xml').documentElement;
+  reserveRotatedBounds(floating, { ...image, anchor: undefined, effectExtent: { left: 0, top: 0, right: 0, bottom: 0 } });
+  expect(effect(floating)).toBe('l=0 t=685800 r=0 b=685800');
+});
