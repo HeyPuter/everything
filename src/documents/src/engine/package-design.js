@@ -8,6 +8,7 @@
 import { strFromU8, strToU8, unzipSync } from 'fflate';
 import { relatedPartPath } from './docx-relationships.js';
 import { parseXml } from './docx-xml.js';
+import { readVmlWatermark } from './vml-watermarks.js';
 import { relationshipPartPath, relativePartTarget, zipPackage } from './package-part-paths.js';
 import { createPageStoryPart } from './docx-page-story-create.js';
 import { themeColorTransform } from './colors.js';
@@ -469,14 +470,20 @@ function watermarkHeaders(parts, create) {
   return [...paths];
 }
 const isWatermark = drawing => [...drawing.getElementsByTagNameNS(NS.wp, 'docPr')].some(n => n.getAttribute('name') === WATERMARK_NAME);
+/**
+ * Take the document's watermark out of a header: the drawing this editor wrote, and a watermark Word
+ * wrote (a VML shape in w:pict, vml-watermarks.js), so a new watermark replaces it and Remove
+ * Watermark removes it, as in Word. A run left holding nothing but its properties goes too.
+ */
 function removeWatermarkRuns(doc) {
   let removed = false;
-  for (const drawing of [...doc.getElementsByTagNameNS(W, 'drawing')]) {
-    if (!isWatermark(drawing)) continue;
-    const run = drawing.parentNode;
-    if (run?.namespaceURI === W && run.localName === 'r') run.remove(); else drawing.remove();
-    removed = true;
-  }
+  const take = node => {
+    const run = node.parentNode;
+    node.remove(); removed = true;
+    if (run?.namespaceURI === W && run.localName === 'r' && [...run.children].every(n => n.namespaceURI === W && n.localName === 'rPr')) run.remove();
+  };
+  for (const drawing of [...doc.getElementsByTagNameNS(W, 'drawing')]) if (isWatermark(drawing)) take(drawing);
+  for (const pict of [...doc.getElementsByTagNameNS(W, 'pict')]) if (readVmlWatermark(pict)) take(pict);
   return removed;
 }
 /**

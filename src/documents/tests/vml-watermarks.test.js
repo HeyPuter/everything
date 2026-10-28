@@ -67,3 +67,22 @@ it('places a watermark centred on the margins, or at its offsets from the page',
   expect(watermarkFrame(centred, page)).toEqual({ x: 308, y: 478, width: 200, height: 100 });
   expect(watermarkFrame({ ...centred, horizontal: { align: null, relativeFrom: 'page', offset: 9525 * 10 }, vertical: { align: 'bottom', relativeFrom: 'page', offset: 0 } }, page)).toEqual({ x: 10, y: 956, width: 200, height: 100 });
 });
+
+it('Design › Watermark replaces or removes a Word watermark instead of adding a second one', async () => {
+  const { setWatermarkParts } = await import('../src/engine/package-design.js');
+  const marks = xml => ({ word: (xml.match(/PowerPlusWaterMarkObject|WordPictureWatermark/g) || []).length, ours: (xml.match(/name="Document Watermark"/g) || []).length });
+  let parts = unzipSync(fixture());
+  setWatermarkParts(parts, { kind: 'text', text: 'SAMPLE', size: 'auto', color: 'C0C0C0', semitransparent: true, layout: 'horizontal' });
+  for (const path of ['word/header1.xml', 'word/header2.xml']) expect(marks(strFromU8(parts[path])), path).toEqual({ word: 0, ours: 1 });
+  // The header's own text stays.
+  expect(strFromU8(parts['word/header1.xml'])).toContain('Acme internal');
+  const reopened = await DocxPackage.open(zipSync(parts));
+  expect(reopened.readOnly).toBeFalsy();
+  expect(watermarks(reopened.pageStories.stories['word/header1.xml'])).toEqual([]);
+  // Remove Watermark removes Word's too.
+  parts = unzipSync(fixture());
+  setWatermarkParts(parts, null);
+  for (const path of ['word/header1.xml', 'word/header2.xml']) expect(marks(strFromU8(parts[path])), path).toEqual({ word: 0, ours: 0 });
+  expect(strFromU8(parts['word/header1.xml'])).toContain('Acme internal');
+  expect((await DocxPackage.open(zipSync(parts))).readOnly).toBeFalsy();
+});
