@@ -95,7 +95,7 @@ describe('mailbox: available()', () => {
 });
 
 describe('mailbox: connect() happy path', () => {
-  it('sends one batched perms request, then onPersistent with targets:[worker]', async () => {
+  it('sends one batched perms request, then a queue onPersistent', async () => {
     const { mailbox, kv, puter } = makeMailbox();
     const status = await mailbox.connect();
 
@@ -107,10 +107,11 @@ describe('mailbox: connect() happy path', () => {
     expect(puter.events.onPersistent).toHaveBeenCalledTimes(1);
     expect(puter.events.onPersistent.mock.calls[0][0]).toMatchObject({
       subject: MAIL_SUBJECT,
-      delivery: 'single',
-      targets: ['worker'],
+      queue: true,
       handlerName: HANDLER_NAME,
     });
+    expect(puter.events.onPersistent.mock.calls[0][0]).not.toHaveProperty('targets');
+    expect(puter.events.onPersistent.mock.calls[0][0]).not.toHaveProperty('delivery');
     expect(status.mode).toBe('background');
     expect(status.state).toBe('ok');
     expect(status.subId).toBe('sub-1');
@@ -158,13 +159,14 @@ describe('mailbox: connect() error mapping', () => {
     expect(status.lastError).toMatch(/full Puter account/i);
   });
 
-  it('invalid_targets (no app identity) -> foreground mode', async () => {
-    const err = Object.assign(new Error('no'), { code: 'invalid_targets' });
-    const puter = makePuter({ events: { onPersistent: vi.fn(async () => { throw err; }) } });
+  it('no app identity -> foreground mode, without subscribing', async () => {
+    const puter = makePuter();
+    delete puter.appID;
     const { mailbox } = makeMailbox({ puter });
     const status = await mailbox.connect();
     expect(status.mode).toBe('foreground');
     expect(status.state).toBe('foreground');
+    expect(puter.events.onPersistent).not.toHaveBeenCalled();
   });
 
   // puter.perms.request RESOLVES falsy on denial — it does not throw. Modelling

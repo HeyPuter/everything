@@ -327,11 +327,11 @@ the user's own key-value store. It never writes an event: every decision about
 the calendar is made in the app, where the contacts, the settings and the
 recurrence engine are.
 
-The subscription targets the worker only. A persistent subscription prefers a
-connected browser tab, but only if that tab registered the handler in the call
-that created the subscription — which a later page load has not — so adding the
-socket target would stall each delivery behind two lease periods whenever the
-calendar happened to be open.
+The subscription is a queue (`queue: true`), so each message is handled once
+and retried if the run never finishes or fails for a temporary reason; the
+handler throws with `retry: true` for those, and swallows anything else. The
+page never registers the handler in-page, so an open calendar tab declines each
+delivery and the events worker runs it right away.
 
 **Only people you have already dealt with.** An invitation is added
 automatically when the sender is *authenticated* — delivered inside Puter, or

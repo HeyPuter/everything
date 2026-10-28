@@ -307,11 +307,11 @@ describe('mail-handler: non-calendar mail and daily/scan gaps', () => {
     expect([...kv.map.keys()].some((k) => k.startsWith('cal:mail:seen:'))).toBe(true);
   });
 
-  it('a transient `get` failure (5xx) is rethrown so the lease retries, and nothing is marked seen', async () => {
+  it('a transient `get` failure (5xx) is rethrown with retry: true, and nothing is marked seen', async () => {
     const kv = makeKv();
     const id = makeId();
     const user = makeUser({ kv, getErr: Object.assign(new Error('server exploded'), { code: 500 }) });
-    await expect(run(loadHandler(), user, addEvent(id))).rejects.toThrow();
+    await expect(run(loadHandler(), user, addEvent(id))).rejects.toMatchObject({ retry: true, message: 'server exploded' });
     expect([...kv.map.keys()].some((k) => k.startsWith('cal:mail:seen:'))).toBe(false);
   });
 

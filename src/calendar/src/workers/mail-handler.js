@@ -564,7 +564,10 @@ async function calendarMailHandler({ event, ctx, user, fetch, ack }) {
     if (n % 20 === 0) await trimRecords();
   } catch (err) {
     if (recordWritten) return; // the record landed — ack, don't retry
-    if (isTransientError(err)) throw err; // let the lease retry
+    // Only an error marked temporary is retried; any other throw drops the event.
+    if (isTransientError(err)) {
+      throw Object.assign(new Error((err && err.message) || String(err)), { retry: true, cause: err });
+    }
     // Never terminal: anything else the handler can't use is ignored.
     try {
       await markSeen();

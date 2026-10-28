@@ -3,7 +3,7 @@
  *
  *   - the capability probe + batched permission request,
  *   - subscribing (or adopting an existing subscription) to
- *     `fs:~/.mail/objects/**:add` with `targets:['worker']`,
+ *     `fs:~/.mail/objects/**:add` as a `queue` subscription,
  *   - `cal:mail:cfg` (mode/subId/watermark/…),
  *   - the watermark rescan (via `puter.email.list`), which runs the SAME
  *     handler source in-page (via `new Function`) so a foreground session or
@@ -177,8 +177,7 @@ export function createMailbox({
     if (existing) return { subId: existing.id || existing.subId || '' };
     const sub = await p.events.onPersistent({
       subject: MAIL_SUBJECT,
-      delivery: 'single',
-      targets: ['worker'],
+      queue: true,
       handlerName: HANDLER_NAME,
       context: { v: 1, self: selfEmail(), user: username() },
     });
@@ -250,8 +249,6 @@ export function createMailbox({
         } catch {
           return enterForeground('Background permission was declined.');
         }
-      } else if (code === 'invalid_targets') {
-        return enterForeground('No app identity is available here.');
       } else {
         lastError = errorMessage(err) || 'Could not request permission.';
         state = 'off';
@@ -259,6 +256,10 @@ export function createMailbox({
         return status();
       }
     }
+
+    // Without an app there is no events worker to run the handler, and the
+    // server accepts the subscription anyway, so check here.
+    if (!getPuter().appID) return enterForeground('No app identity is available here.');
 
     try {
       return await subscribeAndScan();
@@ -279,7 +280,6 @@ export function createMailbox({
           return status();
         }
       }
-      if (code === 'invalid_targets') return enterForeground('No app identity is available here.');
       // The consent check happens at subscribe, so this surfaces here rather
       // than out of perms.request.
       if (code === 'events_background_consent_required') {
