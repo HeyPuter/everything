@@ -68,8 +68,9 @@ export function createNoteCommands(ctx) {
     let at;
     if (engine.session.path !== null) {
       const story = engine.pageStories?.stories[engine.session.path];
+      // From a note, step from its reference as from the caret just after it: next is the following note, not this one.
       const own = refs.find(r => r.id === story?.noteId && story?.kind === kind);
-      at = own ? own.position : 0;
+      at = own ? own.position + 1 : 0;
       engine.editStory(null);
     } else at = engine.model.range[direction > 0 ? 1 : 0];
     // The caret rests just after a reference mark; next looks beyond it, previous before it. Both wrap.
