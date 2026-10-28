@@ -115,6 +115,19 @@ describe('DOCX comments', () => {
     expect((await open(bytes)).model.commentList).toEqual([]);
   });
 
+  it('deletes a resolved thread\'s replies with it when only its first comment is marked done', async () => {
+    // A resolved thread as Word writes it: done on the thread's first comment, not on its replies.
+    const parts = unzipSync(commentedDocx());
+    parts['word/commentsExtended.xml'] = strToU8(`<w15:commentsEx xmlns:w15="${W15}"><w15:commentEx w15:paraId="1A2B3C4D" w15:done="1"/><w15:commentEx w15:paraId="2B3C4D5E" w15:paraIdParent="1A2B3C4D" w15:done="0"/><w15:commentEx w15:paraId="4D5E6F70" w15:done="0"/></w15:commentsEx>`);
+    const { pkg, model } = await open(zipSync(parts));
+    expect(model.commentList.map(c => [c.id, c.rootId, c.done])).toEqual([['3', '3', true], ['4', '3', false], ['7', '7', false]]);
+    expect(model.deleteAllComments({ resolvedOnly: true })).toBe(true);
+    expect(model.commentList.map(c => c.id)).toEqual(['7']);
+    const again = await open(await save(pkg, model));
+    expect(again.model.commentList.map(c => [c.id, c.text])).toEqual([['7', 'First\nSecond\tpara']]);
+    expect(strFromU8(unzipSync(await save(pkg, model))['word/document.xml'])).not.toMatch(/w:id="[34]"/);
+  });
+
   it('anchors a caret comment to the surrounding word', async () => {
     const { model } = await open(commentedDocx());
     model.select(model.text.indexOf('fox') + 1);

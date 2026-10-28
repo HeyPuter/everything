@@ -22102,7 +22102,8 @@ Supported subset:
   paragraphs with an `annotationRef` run. The last paragraph carries a `w14:paraId` used by
   `commentsExtended`.
 - Add, reply, edit, resolve/reopen, delete a thread, delete all (or all resolved) comments, all
-  undoable. Creating the first comment adds the comments part, relationship and content type.
+  undoable. A thread is resolved when its first comment is `done` (Word marks only that one); deleting
+  resolved comments deletes such threads with their replies. Creating the first comment adds the comments part, relationship and content type.
   `commentsIds.xml`/`commentsExtensible.xml` entries for removed comments are dropped.
 - Untouched documents still save byte for byte.
 

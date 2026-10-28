@@ -1613,7 +1613,9 @@ export class TextDocument {
     this.didChange(); return true;
   }
   deleteAllComments({ resolvedOnly = false } = {}) {
-    const ids = (this.comments || []).filter(c => !resolvedOnly || c.done).map(c => c.id);
+    const comments = this.comments || [];
+    // A thread is resolved when its first comment is (Word marks only that one done): its replies go with it.
+    const ids = !resolvedOnly ? comments.map(c => c.id) : [...new Set(comments.filter(c => c.done && (!c.parentId || !comments.some(p => p.id === c.parentId))).flatMap(c => commentThread(comments, c.id)))];
     if (!ids.length) return false;
     this.checkpoint();
     removeCommentMarkers(this.paragraphs, ids);
