@@ -201,6 +201,7 @@ function wordListItem(el) {
 
 function fromForeignHtml(body) {
   const paragraphs = [];
+  let lists = 0;
   let current = null;
   const start = (props = {}) => { current = { text: '', runs: [], mark: true, styleId: null, styleName: null, alignment: null, list: null, ...props }; paragraphs.push(current); };
   const append = (text, format, link, pre = false) => {
@@ -263,7 +264,12 @@ function fromForeignHtml(body) {
     // cells of a table centered by its container (as Word writes one) keep their own alignment.
     const align = node.style?.textAlign || (tag !== 'TABLE' && node.getAttribute('align')) || (tag === 'CENTER' && 'center');
     if (align || tag === 'TABLE') ctx.align = { center: 'center', right: 'right', justify: 'both' }[align && align.toLowerCase()] || null;
-    if (tag === 'UL' || tag === 'OL') ctx.list = { kind: tag === 'UL' ? 'bullet' : 'number', level: context.list ? Math.min(8, context.list.level + 1) : 0 };
+    // Each list is told apart (`id`) so its items number on past paragraphs and lists inside them, and a list right
+    // after another starts again; an ordered list keeps the number it starts at.
+    if (tag === 'UL' || tag === 'OL') {
+      const start = tag === 'OL' ? Number.parseInt(node.getAttribute('start') ?? '', 10) : NaN;
+      ctx.list = { kind: tag === 'UL' ? 'bullet' : 'number', level: context.list ? Math.min(8, context.list.level + 1) : 0, id: ++lists, ...(Number.isSafeInteger(start) && start >= 0 && start <= 32767 ? { start } : {}) };
+    }
     if ((tag === 'TD' || tag === 'TH') && current?.text && !/\t$/.test(current.text)) {
       const last = current.runs.at(-1); last.text = last.text.replace(/ +$/, ''); current.text = current.text.replace(/ +$/, '');
       append('\t', format, null);
@@ -335,7 +341,25 @@ function styleFor(model, p) {
   return Object.values(definitions).find(s => s.type === 'paragraph' && !s.error && String(s.name || '').toLowerCase() === name)?.id || null;
 }
 
-function applyParagraph(model, p, foreign) {
+/**
+ * The item of a list another application wrote (`p.list.id`): it goes on in the list its earlier items went into here,
+ * though a paragraph or another list came between, and the first item of a list starts it again at its number when
+ * the list goes on from one pasted before it, or starts at another number. `lists`: each list's numbering so far.
+ */
+function continueList(model, p, lists) {
+  const target = model.selectedParagraphs[0];
+  if (!target?.list || p.list?.id == null) return;
+  const known = lists.get(p.list.id);
+  if (known != null) {
+    if (target.list.numId !== known) { target.list = { ...target.list, numId: known, direct: true }; target.listChanged = true; }
+    return;
+  }
+  const joined = [...lists.values()].includes(target.list.numId);
+  if (p.list.kind === 'number' && (joined || (p.list.start ?? 1) !== 1)) attempt(() => model.restartNumbering(p.list.start ?? 1));
+  lists.set(p.list.id, model.selectedParagraphs[0].list?.numId);
+}
+
+function applyParagraph(model, p, foreign, lists = new Map()) {
   const style = styleFor(model, p);
   if (style) attempt(() => model.setParagraphStyle(style));
   else if (!foreign && p.styleId === null) attempt(() => model.setParagraphStyle(''));
@@ -347,6 +371,7 @@ function applyParagraph(model, p, foreign) {
       attempt(() => model.toggleList(p.list.kind));
     }
     for (let i = 0; i < 8 && model.selectedParagraphs[0]?.list && model.selectedParagraphs[0].list.level < p.list.level; i++) attempt(() => model.changeListLevel(1));
+    continueList(model, p, lists);
   } else if (current === 'bullet' || current === 'number') attempt(() => model.toggleList(current));
 }
 
@@ -406,8 +431,9 @@ export function formattedPasteFits(fragment) {
 function applyFragment(model, fragment, start) {
   const after = start + fragment.paragraphs.reduce((n, p) => n + p.text.length + 1, -1);
   let at = start;
+  const lists = new Map();
   for (const p of fragment.paragraphs) {
-    if (p.mark) { model.select(at); applyParagraph(model, p, !!fragment.foreign); }
+    if (p.mark) { model.select(at); applyParagraph(model, p, !!fragment.foreign, lists); }
     let offset = at;
     const applied = new Set(appliedRuns(fragment, p));
     for (const run of p.runs) { if (applied.has(run)) applyRun(model, offset, offset + run.text.length, run, !!fragment.foreign); offset += run.text.length; }

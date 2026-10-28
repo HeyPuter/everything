@@ -37,7 +37,7 @@ it('pastes Word\'s tabs and runs of spaces as a tab and spaces, not no-break spa
 it('marks headings and nested lists, and keeps a lone phrase in the destination paragraph', () => {
   const fragment = htmlFragment('<h3>Title</h3><ol><li>One<ul><li>Inner</li></ul></li></ol>');
   expect(fragment.paragraphs.map(p => [p.text, p.styleName, p.list, p.mark])).toEqual([
-    ['Title', 'Heading 3', null, true], ['One', 'Normal', { kind: 'number', level: 0 }, true], ['Inner', 'Normal', { kind: 'bullet', level: 1 }, true]]);
+    ['Title', 'Heading 3', null, true], ['One', 'Normal', { kind: 'number', level: 0, id: 1 }, true], ['Inner', 'Normal', { kind: 'bullet', level: 1, id: 2 }, true]]);
   expect(htmlFragment('<p>Just a <b>phrase</b></p>').paragraphs[0].mark).toBe(false);
 });
 
