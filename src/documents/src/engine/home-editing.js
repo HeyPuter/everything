@@ -269,6 +269,8 @@ export function moveParagraphs(model, direction) {
   if (direction > 0 && last + 1 === model.paragraphs.length - 1 && !paragraphText(neighbour).length) return false;
   // A range between the moved paragraphs and the one they pass would end before it starts once they swap.
   if (rangeEdges([...targets, neighbour]).some(({ start, end }) => start && end && (start === neighbour) !== (end === neighbour))) return false;
+  // A reorder is not a change Track Changes can show here; done untracked, reviewers would never see it (as Sort).
+  if (model.trackChanges) throw new Error('Moving paragraphs cannot be tracked. Turn off Track Changes to move them.');
   const [anchor, focus] = [model.selection.anchor, model.selection.focus];
   const shift = (paragraphText(neighbour).length + 1) * (direction < 0 ? -1 : 1);
   model.checkpoint();

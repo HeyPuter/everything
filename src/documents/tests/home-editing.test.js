@@ -177,6 +177,16 @@ describe('Move paragraphs', () => {
     const reopened = await roundTrip(pkg, doc);
     expect(reopened.paragraphs.map(paragraphText)).toEqual(['one', 'four', 'two', 'three']);
   });
+  it('refuses to move paragraphs untracked while Track Changes is on, as Sort does', async () => {
+    const { doc } = await styledDocument(['one', 'two', 'three']);
+    doc.trackChanges = true;
+    doc.select(5);
+    expect(() => moveParagraphs(doc, -1)).toThrow(/cannot be tracked/);
+    expect(texts(doc)).toEqual(['one', 'two', 'three']);
+    doc.trackChanges = false;
+    expect(moveParagraphs(doc, -1)).toBe(true);
+    expect(texts(doc)).toEqual(['two', 'one', 'three']);
+  });
   it('does not move into or out of a table', async () => {
     const { doc } = await styledDocument(['above']);
     doc.insertTable(1, 1, 600);

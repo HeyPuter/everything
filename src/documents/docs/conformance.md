@@ -22133,6 +22133,8 @@ Supported subset:
 - Inserting a footnote or endnote reference (§17.11.14 `footnoteReference`, §17.11.7
   `endnoteReference`) records the reference run as an insertion, written inside `w:ins`.
 - Replace All records each replacement as a deletion of the found text and an insertion.
+- Reordering paragraphs (Sort, moving paragraphs with Alt+Shift+Up/Down or in the outline) cannot be recorded
+  and is refused while Track Changes is on.
 - A caption, cross-reference, citation, bibliography or table of contents inserted with Track Changes on is
   recorded as a tracked insertion (`w:ins`, with its paragraph marks) when the command inserts one stretch of
   text. A command that also renumbers or rewrites other text (a caption before existing ones, an IEEE citation,
