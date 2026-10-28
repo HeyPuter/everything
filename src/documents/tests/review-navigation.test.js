@@ -3,6 +3,7 @@ import { beforeEach, afterEach, it, expect, vi } from 'vitest';
 import { CanvasEditor } from '../src/engine/canvas-editor.js';
 import { paragraph } from '../src/engine/model.js';
 import { createReview } from '../src/views/review.js';
+import { revisionView } from '../src/engine/revisions.js';
 
 let editor, host, review;
 beforeEach(() => {
@@ -35,4 +36,30 @@ it('Next and Previous Change visit the changes inside a reformatted paragraph an
   const back = [];
   for (let i = 0; i < 3; i++) { review.commands.goChange(-1); back.push(selected()); }
   expect(back).toEqual(['new ', 'Second new line here.\n', 'new ']);
+});
+
+it('Next and Previous pass over the changes and comments of reviewers hidden in Show Markup', () => {
+  open(['First line.', 'Second line.', 'Third line.']);
+  editor.model.trackChanges = true;
+  for (const [author, at, text] of [['Ada', 0, 'A '], ['Grace', 14, 'G '], ['Ada', 28, 'B ']]) {
+    editor.model.revisionAuthor = author;
+    editor.execute(() => { editor.model.select(at); editor.model.replace(text); });
+  }
+  editor.model.trackChanges = false;
+  for (const [author, at] of [['Ada', 2], ['Grace', 16], ['Ada', 30]]) editor.model.addComment({ author, text: author, range: [at, at + 4] });
+  revisionView.options.hiddenAuthors = ['Grace'];
+  try {
+    review.refresh(true);
+    editor.model.select(0, 0);
+    const changes = [];
+    for (let i = 0; i < 3; i++) { review.commands.goChange(1); changes.push(selected()); }
+    expect(changes).toEqual(['A ', 'B ', 'A ']);
+    review.commands.goChange(-1);
+    expect(selected()).toBe('B ');
+    editor.model.select(0, 0);
+    const comments = [];
+    for (let i = 0; i < 3; i++) { review.commands.go(1); comments.push(review.commands.activeThread().root.author); }
+    expect(comments).toEqual(['Ada', 'Ada', 'Ada']);
+    expect(review.commands.activeThread().start).toBe(2);
+  } finally { revisionView.options.hiddenAuthors = []; }
 });

@@ -202,7 +202,8 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
     },
     go(direction) {
       const engine = editor(); if (!engine) return;
-      const list = threads().filter(t => t.start !== null);
+      // The comments of reviewers hidden in Show Markup have no card to go to.
+      const list = threads().filter(t => t.start !== null && !revisionView.options.hiddenAuthors.includes(t.root.author));
       if (!list.length) return;
       const [a, b] = engine.model.range, current = list.findIndex(t => t.id === activeId);
       let next;
@@ -278,7 +279,8 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
     },
     goChange(direction, { from } = {}) {
       const engine = editor(); if (!engine) return;
-      const body = engine.session.body, list = body.revisions;
+      // Changes hidden in Show Markup (a reviewer's, or a kind of change) are passed over, as their marks are.
+      const body = engine.session.body, list = shownChanges(body.revisions);
       if (!list.length) return;
       const [a, b] = body.range, at = from ?? (direction > 0 ? b : a), length = body.text.length;
       // From a selected change, step through the list: a paragraph's formatting change spans the changes inside the
