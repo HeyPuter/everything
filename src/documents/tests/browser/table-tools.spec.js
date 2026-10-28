@@ -212,6 +212,21 @@ test('the Width spinner shows and sets the width of each selected column', async
   await expect(width).toHaveValue('3');
 });
 
+test('the Width spinner sets a column of a table fitted to the window to that width', async ({ page }) => {
+  await newTable(page, 3, 2, ['a', 'b', 'c']);
+  await goToCell(page, 0, 0);
+  await onTab(page, 'tableLayout');
+  await ribbon(page).getByRole('button', { name: 'AutoFit', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'AutoFit Window' }).click();
+  await expect.poll(() => page.evaluate(() => window.__docs.current.view.engine.model.tables[0].width.type)).toBe('pct');
+  const width = page.getByRole('spinbutton', { name: 'Width (in)' });
+  await width.fill('1'); await width.press('Enter');
+  // The column is laid out 1 in wide (the table is no longer stretched to the window to fill it out again).
+  const laidOut = () => page.evaluate(() => { const e = window.__docs.current.view.engine; return e.layout.tableWidths[e.model.tables[0].id].map(w => Math.round(w * 15)); });
+  await expect.poll(async () => (await laidOut())[0]).toBe(1440);
+  await expect(width).toHaveValue('1');
+});
+
 test('the Table menu and context menu offer the table commands', async ({ page }) => {
   await newTable(page, 2, 2, ['a', 'b', 'c', 'd']);
   await goToCell(page, 0, 0);

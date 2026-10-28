@@ -569,11 +569,13 @@ export function splitTable(model) {
 /* ---- Sizes ---- */
 
 /** Set the grid of a table to these widths (twips). Cell preferences follow; `layout` may fix the table. */
-export function setColumnWidths(model, table, widths, { layout } = {}) {
+export function setColumnWidths(model, table, widths, { layout, absolute = false } = {}) {
   if (widths.length !== table.grid.length || widths.some(w => !Number.isInteger(w) || w < 1 || w > MAX_WIDTH)) throw new Error('Enter a positive width for each column, up to 22 inches.');
   if (sum(widths) > MAX_WIDTH) throw new Error('The table would be wider than 22 inches.');
   model.checkpoint();
   if (layout && table.layout !== layout) { table.layout = layout; table.layoutChanged = true; }
+  // `absolute`: a table sized as a share of the window becomes as wide as its columns.
+  if (absolute && table.width?.type === 'pct') { table.width = { type: 'dxa', value: sum(widths) }; table.widthChanged = true; }
   setGrid(table, [...widths], { fixed: true });
   model.didChange(); return true;
 }
@@ -590,7 +592,8 @@ export function setSelectedColumnWidth(model, twips, { widths: measured } = {}) 
     const current = spanWidth(widths, c.column, c.span);
     for (let i = c.column; i < c.end; i++) next[i] = widths[i] * twips / current;
   }
-  return setColumnWidths(model, table, integerWidths(next, Math.round(sum(next))), { layout: 'fixed' });
+  // A table sized as a share of the window would stretch the columns back to fill it: it takes their total.
+  return setColumnWidths(model, table, integerWidths(next, Math.round(sum(next))), { layout: 'fixed', absolute: true });
 }
 
 /**
