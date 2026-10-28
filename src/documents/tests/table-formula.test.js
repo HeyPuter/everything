@@ -104,3 +104,9 @@ it('reads cells as they read with tracked changes accepted: deleted text does no
   expect(evaluateFormula(doc, '=SUM(ABOVE)', cellAt(doc, 3, 1).id)).toBe('12');
   expect(evaluateFormula(doc, '=B2*2', cellAt(doc, 3, 1).id)).toBe('14');
 });
+
+it('ROUND rounds halves away from zero, at the decimal places typed', () => {
+  const { doc } = sheet();
+  const at = cellAt(doc, 3, 1).id;
+  expect(['=ROUND(-2.5,0)', '=ROUND(2.5,0)', '=ROUND(1.005,2)', '=ROUND(-1.005,2)', '=ROUND(1234.5,-2)', '=ROUND(0.125,2)'].map(f => evaluateFormula(doc, f, at))).toEqual(['-3', '3', '1.01', '-1.01', '1200', '0.13']);
+});

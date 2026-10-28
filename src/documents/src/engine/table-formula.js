@@ -105,6 +105,15 @@ export const columnName = column => { let name = ''; for (let n = column + 1; n 
 
 /* ---- Evaluation ---- */
 
+// Move the decimal point by `places` in the number's own decimal digits, so 1.005 shifts to 100.5, not 100.49999999999999.
+const shiftDecimal = (value, places) => { const [mantissa, exponent = '0'] = String(value).split('e'); return Number(`${mantissa}e${Number(exponent) + places}`); };
+/** ROUND: to `places` decimals (tens, hundreds… when negative), halves away from zero. */
+function roundAway(value, places) {
+  if (!Number.isFinite(value)) return value;
+  const rounded = shiftDecimal(Math.round(shiftDecimal(Math.abs(value), places)), -places);
+  return value < 0 && rounded ? -rounded : rounded;
+}
+
 /** A paragraph's text with its tracked deletions left out, as it reads once changes are accepted. */
 export const keptText = p => p.runs.some(run => run.revision?.type === 'del') ? p.runs.filter(run => run.revision?.type !== 'del').map(run => run.text).join('') : paragraphText(p);
 /** The text a cell shows (its own paragraphs, not nested tables'), without tracked deletions. */
@@ -200,7 +209,7 @@ function evaluate(node, context) {
         case 'SIGN': need(1); return Math.sign(value(0));
         case 'NOT': need(1); return +!value(0);
         case 'MOD': { need(2); const b = value(1); if (b === 0) throw new Error('!Zero Divide'); return value(0) % b; }
-        case 'ROUND': { need(2); const f = 10 ** Math.trunc(value(1)); return Math.round(value(0) * f) / f; }
+        case 'ROUND': { need(2); return roundAway(value(0), Math.trunc(value(1))); }
         case 'AND': need(2); return +(!!value(0) && !!value(1));
         case 'OR': need(2); return +(!!value(0) || !!value(1));
         case 'IF': need(3); return value(0) ? value(1) : value(2);
