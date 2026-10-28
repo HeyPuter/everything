@@ -199,6 +199,21 @@ describe('co-editing binding', () => {
     expect(bob.engine.viewOnly).toBe(false);
   });
 
+  it('sends a picture added in single-editor mode to the others with its bytes', async () => {
+    const { people: [ann, bob] } = await room('form');
+    ann.engine.execute(m => { m.paragraphs[0].runs.push({ ...m.paragraphs[0].runs[0], text: '', contentControl: { id: 7, placeholder: true } }); m.didChange(); });
+    await settle();
+    expect(ann.binding.mode).toBe('single');
+    ann.engine.execute(m => { m.assets.logo = { bytes: new Uint8Array([137, 80, 78, 71]), mime: 'image/png' }; m.select(0); m.insertImage('logo', { width: 100, height: 100 }); });
+    await settle();
+    const run = bob.engine.model.paragraphs[0].runs.find(r => r.image);
+    expect(run).toBeTruthy();
+    // Without the picture's bytes the others cannot show it, and the owner's tab cannot save the file.
+    expect(bob.engine.session.body.assets[run.image.assetId]?.bytes).toEqual(new Uint8Array([137, 80, 78, 71]));
+    // Its id is this person's own, so it cannot stand for another picture someone else adds.
+    expect(run.image.assetId).toMatch(/@/);
+  });
+
   it('gives people stable, readable colors and parses links', () => {
     expect(colorFor('alice')).toBe(colorFor('alice'));
     expect(PERSON_COLORS).toContain(colorFor('bob'));

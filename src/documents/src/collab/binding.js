@@ -143,13 +143,13 @@ export class CollabBinding extends EventTarget {
     if (engine.composition) { this.waitForComposition(); return; }
     if (this.role === 'viewer' || this.forcedViewOnly()) { this.drainQueue(); return; }
     try {
+      // New pictures go into the shared asset map whichever way the document is shared: a single editor's snapshot
+      // names them too, and without their bytes the others could not show them nor the owner's tab save the file.
+      this.uploadAssets();
       const state = editorState(engine);
       const reason = unsupportedReason(state);
       if (this.mode === 'single' || reason) this.writeSnapshot(state, reason);
-      else {
-        this.uploadAssets();
-        writeState(this.ydoc, state, this, this.bodyCache);
-      }
+      else writeState(this.ydoc, state, this, this.bodyCache);
     } catch (error) { this.bodyCache.body = null; this.onError(error); }
     this.refreshHistory();
     this.drainQueue();
