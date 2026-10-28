@@ -137,4 +137,18 @@ describe('tables of authorities', () => {
     writeTableOfAuthorities(again, { existing: tableFields(again.paragraphs)[0], options: { category: 1, passim: false, headings: true, keepFormatting: true, entrySeparator: '\t', pageSeparator: ', ', extra: [] }, pageOf: pages(pkg, again) });
     expect(again.text).toContain('Roe v. Wade, 410 U.S. 113 (1973)\t2, 3, 4, 5, 6, 7');
   });
+
+  it('lists a short-form mark that comes before its authority\'s long-form mark', async () => {
+    // The long form is marked on page 3 first; an earlier citation on page 1 is marked afterwards and gets the short form only.
+    const { pkg, d } = await setup('Roe v. Wade is discussed.\fNothing here.\fRoe v. Wade, 410 U.S. 113 (1973), held so.\n');
+    const long = 'Roe v. Wade, 410 U.S. 113 (1973)';
+    let at = d.text.lastIndexOf(long); d.select(at, at + long.length);
+    markAuthority(d, { long, short: 'Roe v. Wade', category: 1 });
+    at = d.text.indexOf('Roe v. Wade'); d.select(at, at + 11);
+    markAuthority(d, { long, short: 'Roe v. Wade', category: 1 });
+    expect(authorities(d.paragraphs).map(a => [a.long, a.marks.length])).toEqual([[long, 2]]);
+    d.select(d.text.length);
+    writeTableOfAuthorities(d, { options: { category: 1, passim: false, headings: false, keepFormatting: true, entrySeparator: '\t', pageSeparator: ', ', extra: [] }, pageOf: pages(pkg, d) });
+    expect(d.text.split('\n').at(-2)).toBe(`${long}\t1, 3`);
+  });
 });

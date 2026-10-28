@@ -79,10 +79,14 @@ export function authorities(paragraphs) {
   const marks = authorityMarks(paragraphs), list = [];
   for (const mark of marks) {
     const a = mark.authority;
-    let owner = a.long ? list.find(x => x.long === a.long) : list.find(x => x.short && x.short === a.short);
-    if (!owner && a.long) list.push(owner = { long: a.long, short: a.short || a.long, category: a.category, marks: [] });
-    if (!owner) continue; // A short form without its long form is not listed.
-    owner.marks.push(mark);
+    if (a.long && !list.some(x => x.long === a.long)) list.push({ long: a.long, short: a.short || a.long, category: a.category, marks: [] });
+  }
+  // A short-form mark belongs to the authority with that short form wherever its long form is marked, before or
+  // after it: marking an earlier citation after a later one dropped the earlier page from the table.
+  for (const mark of marks) {
+    const a = mark.authority;
+    const owner = a.long ? list.find(x => x.long === a.long) : list.find(x => x.short && x.short === a.short);
+    if (owner) owner.marks.push(mark); // A short form without its long form is not listed.
   }
   return list;
 }
