@@ -93,7 +93,7 @@ export async function reconcileSubscriptions(puter, desired) {
   for (const item of desired) {
     if (watched.has(item.key)) continue;
     try {
-      await puter.events.onPersistent({ subject: item.subject, handlerName: HANDLER_NAME, targets: ['worker'], includeValue: true, context: item.context });
+      await puter.events.onPersistent({ subject: item.subject, handlerName: HANDLER_NAME, includeValue: true, context: item.context });
       watched.add(item.key);
     } catch (error) {
       if (error?.code === 'events_subscription_limit') { limit = true; break; }

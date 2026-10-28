@@ -301,7 +301,9 @@ describe('subscriptions', () => {
     const result = await reconcileSubscriptions({ events }, list);
     expect(events.unsubscribe.mock.calls.map(([id]) => id)).toEqual(['s2', 's3', 's4']);
     expect(events.onPersistent.mock.calls.map(([options]) => options.subject)).toEqual(['kv:hR:sig', `kv:app-1:shared:${SPACE}:sig`]);
-    expect(events.onPersistent.mock.calls[0][0]).toMatchObject({ handlerName: 'tripsNotify', targets: ['worker'], includeValue: true });
+    expect(events.onPersistent.mock.calls[0][0]).toMatchObject({ handlerName: 'tripsNotify', includeValue: true });
+    expect(events.onPersistent.mock.calls[0][0]).not.toHaveProperty('targets');
+    expect(events.onPersistent.mock.calls[0][0]).not.toHaveProperty('queue');
     expect([...result.watched].sort()).toEqual([SPACE, 'b1b2c3d4e5f6g7h8', 'sched'].sort());
     events.onPersistent.mockRejectedValueOnce(Object.assign(new Error('limit'), { code: 'events_subscription_limit' }));
     subs.length = 0;
