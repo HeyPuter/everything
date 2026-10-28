@@ -92,7 +92,7 @@ export function fragmentHtml(fragment) {
     const heading = /^Heading([1-6])$/.exec(p.styleId || '')?.[1] || (p.styleId === 'Title' ? '1' : null);
     const tag = kind ? 'li' : heading ? `h${heading}` : 'p';
     // Tabs and runs of spaces are the text's own, which HTML collapses into one space unless told otherwise.
-    const align = p.alignment && p.alignment !== 'left' ? `;text-align:${p.alignment === 'both' ? 'justify' : p.alignment}` : '';
+    const align = p.alignment && p.alignment !== 'left' ? `;text-align:${p.alignment === 'both' ? 'justify' : p.alignment === 'distribute' ? 'justify;text-align-last:justify' : p.alignment}` : '';
     html += `<${tag} style="white-space:pre-wrap${align}">${p.runs.map(runHtml).join('') || '<br>'}</${tag}>`;
   }
   if (openList) html += `</${openList}>`;

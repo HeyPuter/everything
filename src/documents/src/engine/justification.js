@@ -23,27 +23,35 @@ function ideographicGaps(span, first, last) {
   return gaps;
 }
 
-export function justificationRange(span, measured, right, tab) {
+// Distributed alignment widens the gap after every character of the range alike, spaces included.
+function characterGaps(span, first, last) {
+  const gaps = new Set();
+  for (let i = first; i < last - 1; i++) if (!span[i].image && !span[i + 1].image && !span[i].ignoredCellBreak && !span[i + 1].ignoredCellBreak && span[i].text) gaps.add(i);
+  return gaps;
+}
+
+export function justificationRange(span, measured, right, tab, distribute = false) {
   let first = span.findLastIndex(c => c.text === '\t') + 1, last = span.length;
   while (first < last && (span[first].ignoredCellBreak || justificationSpace(span[first].text))) first++;
   while (last > first && (span[last - 1].ignoredCellBreak || justificationSpace(span[last - 1].text))) last--;
-  const spaces = span.slice(first, last).filter(c => justificationSpace(c.text)).length;
+  const spaces = distribute ? 0 : span.slice(first, last).filter(c => justificationSpace(c.text)).length;
   const extra = right - measured.stops.at(-1).x + measured.ignoredTrailingWidth;
   // Earlier fields stay anchored. Justification can expand the final left tab
   // field; other tab alignments require a separate compatible algorithm.
   const anchored = tab && tab.alignment !== 'left';
-  const ideographs = anchored ? new Set() : ideographicGaps(span, first, last);
+  const ideographs = anchored ? new Set() : distribute ? characterGaps(span, first, last) : ideographicGaps(span, first, last);
   const gaps = spaces + ideographs.size;
   if (!gaps || extra <= 1e-6) return null;
   if (anchored) throw new UnsupportedDocumentError('justification after center, right or decimal tabs');
-  return { first, last, gaps, spacing: extra / gaps, ideographs };
+  return { first, last, gaps, spacing: extra / gaps, ideographs, distribute };
 }
 
-/** The style of span[index] on a line justified with `spacing` (px) across `range`'s gaps. */
+/** The style of span[index] on a line justified (or distributed) with `spacing` (px) across `range`'s gaps. */
 export function justifiedStyle(style, range, index, spacing) {
   // Canvas word spacing widens spaces; an ideograph followed by a gap takes the same width as
   // letter spacing, which character spacing expresses in points.
+  const words = range.distribute ? 0 : spacing;
   return range.ideographs.has(index)
-    ? { ...style, justificationSpacing: spacing, characterSpacing: (style.characterSpacing || 0) + spacing * 3 / 4 }
-    : { ...style, justificationSpacing: spacing };
+    ? { ...style, justificationSpacing: words, characterSpacing: (style.characterSpacing || 0) + spacing * 3 / 4 }
+    : { ...style, justificationSpacing: words };
 }

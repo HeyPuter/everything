@@ -994,8 +994,10 @@ function measureParagraph(p, documentOffset, measure, page, listMarker, numberin
       }
     }
     const lastLine = end === chars.length || hardBreak === 'page' && end === chars.length - 1 && !page.splitPgBreakAndParaMark;
-    if (format.alignment === 'both' && !contraction && !lastLine && !(hardBreak === 'line' && page.doNotExpandShiftReturn)) {
-      const range = justificationRange(span, measured, right, builder.field.tab);
+    // Distributed alignment (§17.18.44 distribute) spreads every line, the last one included.
+    const distribute = format.alignment === 'distribute';
+    if (distribute || format.alignment === 'both' && !contraction && !lastLine && !(hardBreak === 'line' && page.doNotExpandShiftReturn)) {
+      const range = justificationRange(span, measured, right, builder.field.tab, distribute);
       if (range) {
         let spacing = range.spacing;
         for (let attempt = 0; attempt < 4; attempt++) {

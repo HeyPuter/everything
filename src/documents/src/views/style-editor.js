@@ -50,7 +50,7 @@ export function openStyleEditor(style, choices, apply, defaultRun = {}) {
     ...Object.fromEntries([['bold', 'Style bold'], ['italic', 'Style italic']].map(([key, label]) => [key, register('run', key, label, style.run?.[key], character && key !== 'underline'
       ? toggles.map(([value, label]) => [value, `${label} (${(value === 'true') === Boolean(defaultRun[key]) ? 'keep' : 'reverse'})`]) : toggles)])),
   };
-  const paragraphFields = creating || character ? [] : [register('paragraph', 'alignment', 'Style alignment', style.properties?.alignment, [['left', 'Left'], ['center', 'Center'], ['right', 'Right'], ['both', 'Justified']]),
+  const paragraphFields = creating || character ? [] : [register('paragraph', 'alignment', 'Style alignment', style.properties?.alignment, [['left', 'Left'], ['center', 'Center'], ['right', 'Right'], ['both', 'Justified'], ['distribute', 'Distributed']]),
     ...lineSpacing.nodes,
     ...[['spaceBefore', 'before', 'Style space before (pt)'], ['spaceAfter', 'after', 'Style space after (pt)']].map(([key, attr, label]) => register('paragraph', key, label, style.properties?.spacing?.[attr] === undefined ? undefined : Number(style.properties.spacing[attr]) / 20)),
     register('paragraph', 'paragraphShading', 'Style paragraph fill', style.properties?.paragraphShading),

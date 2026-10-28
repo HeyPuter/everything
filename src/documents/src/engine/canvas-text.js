@@ -138,8 +138,9 @@ export function validateCanvasTextSupport(pkg) {
   if (spaced) setCanvasTextStyle(context, { characterSpacing: 1 });
   const justified = pkg.paragraphs.filter(p => p.format?.alignment === 'both');
   if (justified.length) setCanvasTextStyle(context, { justificationSpacing: 1 });
-  // Justified Chinese and Japanese widen the gaps between characters with letter spacing (justification.js).
-  if (justified.some(p => p.runs.some(r => IDEOGRAPHIC.test(r.text)))) setCanvasTextStyle(context, { characterSpacing: 1 });
+  // Justified Chinese and Japanese, and distributed paragraphs, widen the gaps between characters with
+  // letter spacing (justification.js).
+  if (justified.some(p => p.runs.some(r => IDEOGRAPHIC.test(r.text))) || pkg.paragraphs.some(p => p.format?.alignment === 'distribute')) setCanvasTextStyle(context, { characterSpacing: 1 });
 }
 
 function canvasFontRequirements(pkg) {

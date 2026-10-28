@@ -150,7 +150,7 @@ it('edits a shared style, preserves direct alignment overrides, and splits/merge
   expect(newDoc.text).toBe('Alpha beta'); expect(model(await DocxPackage.open(await save(fresh, newDoc))).paragraphs[0].format.alignment).toBe('both');
 });
 
-it.each(['<w:jc/>', '<w:jc w:val=""/>', '<w:jc w:val="both"/><w:jc w:val="left"/>', '<w:jc w:val="both">text</w:jc>', '<w:jc w:val="both" w:other="1"/>', '<w:jc w:val="both"><w:jc/></w:jc>', '<w:jc w:val="distribute"/>'])('rejects malformed or unsupported active alignment: %s', async markup => {
+it.each(['<w:jc/>', '<w:jc w:val=""/>', '<w:jc w:val="both"/><w:jc w:val="left"/>', '<w:jc w:val="both">text</w:jc>', '<w:jc w:val="both" w:other="1"/>', '<w:jc w:val="both"><w:jc/></w:jc>', '<w:jc w:val="thaiDistribute"/>'])('rejects malformed or unsupported active alignment: %s', async markup => {
   await expect(DocxPackage.open(rewrite('<w:jc w:val="both"/>', markup))).rejects.toThrow();
 });
 
@@ -166,7 +166,7 @@ it('justifies Arabic by its word spaces instead of refusing it, without kashida'
   expect(lines.flatMap(l => l.fragments).every(f => !f.text.includes('\u0640'))).toBe(true);
   const typed = simple('Alpha beta gamma delta epsilon zeta eta theta iota'); typed.select(6); typed.replace('العربية ');
   expect(() => layout(typed)).not.toThrow();
-  const doc = simple('One two'); for (const alignment of ['justify', 'distribute', 'lowKashida']) expect(() => doc.setParagraphFormat({ alignment })).toThrow();
+  const doc = simple('One two'); for (const alignment of ['justify', 'thaiDistribute', 'lowKashida']) expect(() => doc.setParagraphFormat({ alignment })).toThrow();
   expect(doc.undo()).toBe(false);
 });
 

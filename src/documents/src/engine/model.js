@@ -568,7 +568,7 @@ export class TextDocument {
       } else if (Object.hasOwn(PAGINATION_DEFAULTS, key) || Object.hasOwn(PARAGRAPH_FLAGS, key) || key === 'contextualSpacing') {
         if (typeof value !== 'boolean') throw new Error('Paragraph pagination must be on or off.');
       } else if (key === 'alignment') {
-        if (!['left', 'center', 'right', 'both'].includes(value)) throw new Error('Choose left, center, right or justified alignment.');
+        if (!['left', 'center', 'right', 'both', 'distribute'].includes(value)) throw new Error('Choose left, center, right, justified or distributed alignment.');
       } else if (key === 'lineRule') {
         if (!['auto', 'exact', 'atLeast'].includes(value)) throw new Error('Unsupported line spacing rule.');
       } else if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > 600) {

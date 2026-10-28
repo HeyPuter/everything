@@ -1,7 +1,7 @@
 import { el } from '../ui/dom.js';
 import { tabStrip, field, checkbox, group, select, distance, points, openFormatDialog, paragraphPreview } from './format-dialog-kit.js';
 
-const ALIGNMENTS = [['left', 'Left'], ['center', 'Centered'], ['right', 'Right'], ['both', 'Justified']];
+const ALIGNMENTS = [['left', 'Left'], ['center', 'Centered'], ['right', 'Right'], ['both', 'Justified'], ['distribute', 'Distributed']];
 const OUTLINE = [...Array.from({ length: 9 }, (_, i) => [String(i), `Level ${i + 1}`]), ['9', 'Body text']];
 const LINE_CHOICES = [['single', 'Single'], ['oneHalf', '1.5 lines'], ['double', 'Double'], ['atLeast', 'At least'], ['exact', 'Exactly'], ['multiple', 'Multiple']];
 
@@ -81,7 +81,8 @@ export function openParagraphDialog({ format: f, unit = 'in', canSetOutline = tr
     const s = sample.sample.style, scale = 1 / 1440 * 40; // 40px per inch in the miniature page
     const twips = input => { const v = input.read?.(); return v ?? 0; };
     const align = alignment.value || 'left';
-    s.textAlign = align === 'both' ? 'justify' : align;
+    s.textAlign = align === 'both' || align === 'distribute' ? 'justify' : align;
+    s.textAlignLast = align === 'distribute' ? 'justify' : '';
     const leftTw = twips(left), rightTw = twips(right);
     s.marginLeft = `${Math.max(-20, leftTw * scale)}px`; s.marginRight = `${Math.max(-20, rightTw * scale)}px`;
     const first = special.value === 'firstLine' ? twips(by) : special.value === 'hanging' ? -twips(by) : 0;

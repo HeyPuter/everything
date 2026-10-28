@@ -56,7 +56,7 @@ export function resolvedFormat(properties, characterUnit) {
     geometry.tabs = normalizeTabStops(properties.tabs || []);
   } catch (e) { throw new UnsupportedDocumentError(e.message); }
   const alignment = properties.alignment || 'left';
-  if (!['left', 'center', 'right', 'start', 'end', 'both'].includes(alignment)) throw new UnsupportedDocumentError(`${alignment} paragraph alignment`);
+  if (!['left', 'center', 'right', 'start', 'end', 'both', 'distribute'].includes(alignment)) throw new UnsupportedDocumentError(`${alignment} paragraph alignment`);
   const lineRule = s.line === undefined ? 'auto' : s.lineRule ?? 'auto';
   const lineSpacing = s.line === undefined ? 1 : Number(s.line) / (lineRule === 'auto' ? 240 : 20);
   // Paragraph line units measure 12pt, independently of text size

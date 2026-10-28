@@ -1527,7 +1527,18 @@ of fractional cell widths, text scaling, character spacing and small caps with
 superscript. Screenshots cover rich paragraphs, both soft-return policies and
 continued tables with repeated headers.
 
-**Remaining gaps:** distributed and Thai justification, Arabic kashida (justified Arabic widens spaces only), expansion
+Distributed alignment (`w:jc w:val="distribute"`, §17.18.44 "Distribute All
+Characters Equally") imports, edits and lays out: every line, the paragraph's
+last line and lines ending in manual breaks included, is spread between both
+margins by widening the gap after every character of the line equally (spaces
+included), as native Canvas letter spacing in measurement and painting. Leading
+and trailing spaces, tab fields before the last one and inline pictures keep
+their advances; a line of one character stays at the start edge. The Paragraph
+and style dialogs offer Distributed; the Justify toolbar button is not pressed
+for it. `tests/distributed-alignment.test.js` and
+`tests/browser/justification.spec.js` cover widths, carets, import and editing.
+
+**Remaining gaps:** Thai distribution (`thaiDistribute`), Arabic kashida (justified Arabic widens spaces only), expansion
 after center/right/decimal tabs, language-specific justification rules and exact
 reference spacing across compatibility versions. No reference application was available
 for visual comparison. Browser checks cover current Chromium; other browsers
