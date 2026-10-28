@@ -150,6 +150,17 @@ export function createNoteCommands(ctx) {
     const start = number('Start at', settings[kind].start, { min: 1, max: 32767, oninput: () => remember() });
     const restart = select('Numbering', [], null, () => remember());
     const pending = { footnote: { ...settings.footnote }, endnote: { ...settings.endnote } };
+    // What the document has now: only settings that differ from it are written, so Apply with nothing changed
+    // leaves settings.xml as it was, and a footnote change adds no endnote settings.
+    const applied = { footnote: { ...settings.footnote }, endnote: { ...settings.endnote } };
+    const applyChanged = () => {
+      for (const k of ['footnote', 'endnote']) {
+        const changed = Object.fromEntries(['format', 'start', 'restart', 'position'].filter(key => pending[k][key] !== applied[k][key]).map(key => [key, pending[k][key]]));
+        if (!Object.keys(changed).length) continue;
+        applySettings(k, changed);
+        applied[k] = { ...applied[k], ...changed };
+      }
+    };
     function remember() {
       if (!restart.options.length) return; // Not filled in yet.
       pending[kind] = { ...pending[kind], format: format.value, start: Math.max(1, Math.min(32767, Math.round(Number(start.value)) || 1)), restart: restart.value, position: kind === 'footnote' ? footPosition.value : endPosition.value };
@@ -163,7 +174,7 @@ export function createNoteCommands(ctx) {
     }
     switchKind(kind);
     const convert = el('button.btn.btn-outline', { type: 'button', onclick: () => convertDialog() }, 'Convert…');
-    const apply = el('button.btn.btn-outline', { type: 'button', onclick: () => { if (!dialog.form.reportValidity()) return; remember(); try { for (const k of ['footnote', 'endnote']) applySettings(k, pending[k]); dialog.showError(''); } catch (e) { dialog.showError(e.message); } } }, 'Apply');
+    const apply = el('button.btn.btn-outline', { type: 'button', onclick: () => { if (!dialog.form.reportValidity()) return; remember(); try { applyChanged(); dialog.showError(''); } catch (e) { dialog.showError(e.message); } } }, 'Apply');
     const dialog = openDialog({ title: 'Footnote and Endnote', className: 'ref-notes-dialog', submitLabel: 'Insert', actions: [apply], body: [
       el('fieldset.ref-section', {}, el('legend', {}, 'Location'),
         el('div.ref-location-row', {}, el('label.ed-check', {}, footRadio, 'Footnotes'), footPosition),
@@ -176,7 +187,7 @@ export function createNoteCommands(ctx) {
       el('p.field-hint', {}, 'Changes apply to the whole document.'),
     ], onSubmit: async () => {
       remember();
-      for (const k of ['footnote', 'endnote']) applySettings(k, pending[k]);
+      applyChanged();
       await insertNote(kind, { customMark: custom.value });
     } });
   }

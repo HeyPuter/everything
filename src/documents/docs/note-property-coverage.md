@@ -21,7 +21,10 @@ is not full restart/format/placement support.
 
 ## Document footnote settings
 
-CT_FtnDocProps. No own attributes in the supplied schemas.
+CT_FtnDocProps. No own attributes in the supplied schemas. The Footnote and Endnote
+dialog writes only the properties changed from the document's current settings: an
+unchanged Apply leaves `settings.xml` as it is, and a footnote change adds no `endnotePr`.
+Settings changes are not yet undoable (they are package settings, outside the edit history).
 
 | Property | Current behavior / remaining work |
 | --- | --- |
