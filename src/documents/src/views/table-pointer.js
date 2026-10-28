@@ -193,10 +193,10 @@ export function attachTablePointer(engine, { readOnly, widths, heights, error = 
     const at = point(e) || d.last;
     const table = d.frame?.table;
     if (d.kind === 'column' && d.moved) { commit(m => T.setColumnWidths(m, table, d.widths, { layout: 'fixed' })); refreshRuler(); }
-    else if (d.kind === 'row' && d.moved) commit(m => T.setRowsHeight(m, [table.rows[d.row]], d.height, 'atLeast'));
+    else if (d.kind === 'row' && d.moved) commit(m => T.setRowsHeight(m, [table.rows[d.row]], d.height, null));
     else if (d.kind === 'resize' && d.moved) commit(m => {
       T.setColumnWidths(m, table, d.widths, { layout: 'fixed' });
-      table.rows.forEach((row, i) => { if (d.heights[i]) T.setRowsHeight(m, [row], d.heights[i], row.heightRule === 'exact' ? 'exact' : 'atLeast'); });
+      table.rows.forEach((row, i) => { if (d.heights[i]) T.setRowsHeight(m, [row], d.heights[i], null); });
       return true;
     });
     else if (d.kind === 'move') {

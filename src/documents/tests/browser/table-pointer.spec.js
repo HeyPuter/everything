@@ -59,6 +59,29 @@ test('dragging column and row borders resizes them, with one undo each', async (
   expect(rows[0].height).toBeGreaterThan(Math.round((box[1].h + 20) * 15));
 });
 
+test('a row of exact height stays exact when its border is dragged or its height typed', async ({ page }) => {
+  await newTable(page, 2, 2);
+  // Row 1 at exactly 0.5 in (Table Properties > Row > Exactly).
+  await page.evaluate(() => {
+    const e = window.__docs.current.view.engine, row = e.model.tables[0].rows[0];
+    e.execute(() => { Object.assign(row, { heightRule: 'exact', minHeight: 720, heightExplicit: true, heightChanged: true }); e.model.didChange(); return true; });
+  });
+  const box = (await cells(page))[0];
+  const rowBottom = { x: box[0].x + box[0].w / 2, y: box[0].y + box[0].h };
+  await drag(page, rowBottom, { x: rowBottom.x, y: rowBottom.y + 30 });
+  let row = (await tables(page))[0].rows[0];
+  expect(row).toMatchObject({ rule: 'exact', explicit: true });
+  expect(row.height).toBeGreaterThan(720 + 20 * 15);
+  // The Height box on Table Layout keeps the rule too; a row without one becomes at least that tall.
+  await page.evaluate(() => { const e = window.__docs.current.view.engine; e.model.setCellBlock({ tableId: e.model.tables[0].id, top: 0, bottom: 1, left: 0, right: 2 }); e.syncInput(); e.paint(); e.onSelection(); e.focus(); });
+  await onTab(page, 'tableLayout');
+  const height = page.locator('#ribbon-panel-tableLayout').getByRole('spinbutton', { name: 'Height (in)', exact: true });
+  await height.fill('0.8'); await height.press('Enter');
+  const rows = (await tables(page))[0].rows;
+  expect(rows[0]).toMatchObject({ rule: 'exact', height: 1152 });
+  expect(rows[1]).toMatchObject({ rule: 'atLeast', height: 1152 });
+});
+
 test('the + marks insert rows and columns; the move handle selects the table; keys follow desktop conventions', async ({ page }) => {
   await newTable(page, 2, 2);
   let box = await cells(page);

@@ -590,15 +590,20 @@ export function setSelectedColumnWidth(model, twips, { widths: measured } = {}) 
   return setColumnWidths(model, table, integerWidths(next, Math.round(sum(next))), { layout: 'fixed' });
 }
 
-/** Height spinner and row-border dragging: the rows take this minimum height (twips). */
+/**
+ * Height spinner and row-border dragging: the rows take this height (twips). A `null` rule keeps a row
+ * of exact height exact, as dragging its border or typing its height does; other rows become at least
+ * that tall.
+ */
 export function setRowsHeight(model, rows, twips, rule = 'atLeast') {
   if (!Number.isFinite(twips) || twips < 0 || twips > 31680) throw new Error('Enter a row height up to 22 inches.');
-  if (!['atLeast', 'exact', 'auto'].includes(rule)) throw new Error('Choose at least, exactly or automatic.');
-  const value = rule === 'auto' ? 0 : Math.round(twips);
-  const changed = rows.filter(row => !row.heightExplicit || row.heightRule !== rule || row.minHeight !== value);
+  if (rule !== null && !['atLeast', 'exact', 'auto'].includes(rule)) throw new Error('Choose at least, exactly or automatic.');
+  const ruleOf = row => rule ?? (row.heightExplicit && row.heightRule === 'exact' ? 'exact' : 'atLeast');
+  const valueOf = row => ruleOf(row) === 'auto' ? 0 : Math.round(twips);
+  const changed = rows.filter(row => !row.heightExplicit || row.heightRule !== ruleOf(row) || row.minHeight !== valueOf(row));
   if (!changed.length) return false;
   model.checkpoint();
-  for (const row of changed) Object.assign(row, { heightRule: rule, minHeight: value, heightExplicit: true, heightChanged: true });
+  for (const row of changed) Object.assign(row, { heightRule: ruleOf(row), minHeight: valueOf(row), heightExplicit: true, heightChanged: true });
   model.didChange(); return true;
 }
 export function setSelectedRowHeight(model, twips, rule = 'atLeast') {

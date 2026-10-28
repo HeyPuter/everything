@@ -365,7 +365,7 @@ export function createTableTools({ editor, pkg, error = () => {}, onChange = () 
         onchange: () => {
           if (!input.checkValidity() || input.value === '') { input.reportValidity(); return; }
           const twips = Math.round(Number(input.value) * 1440);
-          withTable((m, b, engine) => key === 'height' ? T.setSelectedRowHeight(m, twips, 'atLeast') : T.setSelectedColumnWidth(m, twips, { widths: widthsOf(engine, b.table) }));
+          withTable((m, b, engine) => key === 'height' ? T.setSelectedRowHeight(m, twips, null) : T.setSelectedColumnWidth(m, twips, { widths: widthsOf(engine, b.table) }));
         },
         onkeydown: e => { if (e.key === 'Enter' && !isComposing(e)) { e.preventDefault(); input.dispatchEvent(new Event('change')); } } });
       when(input, inTable);
