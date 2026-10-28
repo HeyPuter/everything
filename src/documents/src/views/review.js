@@ -278,6 +278,12 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
       // A change reached with Previous/Next (or the Reviewing Pane) and still selected as it was is the one meant.
       if (!change && scope === 'here' && navigated && a === navigated.start && b === Math.min(navigated.end, body.text.length)
         && body.revisions.some(c => c.start === navigated.start && c.end === navigated.end && c.type === navigated.type && c.author === navigated.author && c.date === navigated.date)) change = navigated;
+      // A caret in a change inside a reformatted paragraph means that change, not also the paragraph's formatting
+      // change around it (whose balloon and Reviewing Pane entry resolve it on its own).
+      if (!change && scope === 'here' && a === b) {
+        const around = body.revisionsAt(a, b), inner = around.filter(r => !around.some(o => o !== r && r.start <= o.start && o.end <= r.end && (r.start < o.start || o.end < r.end)));
+        if (inner.length === 1 && around.length > 1) change = inner[0];
+      }
       const own = change && (c => c.type === change.type && c.author === change.author && c.date === change.date && !!c.move === !!change.move);
       // "All shown" leaves the changes of reviewers and kinds hidden by Show Markup alone.
       const ok = run(() => scope === 'shown' ? body.resolveRevisions(accept, undefined, undefined, { only: change => shownChanges([change]).length > 0 })

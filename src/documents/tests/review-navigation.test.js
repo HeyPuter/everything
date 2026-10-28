@@ -82,3 +82,19 @@ it('leaves Track Changes as the document has it while protection allows only com
   review.commands.toggleTracking();
   expect(review.commands.tracking).toBe(true);
 });
+
+it('Accept and Reject with the caret in a change inside a reformatted paragraph act on that change alone', () => {
+  for (const accept of [true, false]) {
+    review?.destroy(); editor?.destroy();
+    open(['First line.', 'Second line here.', 'Third line.']);
+    review.commands.toggleTracking(true);
+    editor.execute(() => { editor.model.select(19, 19); editor.model.replace('new '); });
+    editor.execute(() => { editor.model.select(14, 14); editor.model.setParagraphFormat({ alignment: 'center' }); });
+    editor.model.select(21, 21);
+    review.commands.resolve(accept);
+    expect(editor.model.text).toBe(accept ? 'First line.\nSecond new line here.\nThird line.' : 'First line.\nSecond line here.\nThird line.');
+    // The paragraph's formatting change is still there to review.
+    expect(editor.model.revisions.map(r => r.type)).toEqual(['format']);
+    expect(editor.model.paragraphs[1].format.alignment).toBe('center');
+  }
+});
