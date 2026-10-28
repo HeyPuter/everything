@@ -621,3 +621,22 @@ test('a phone held sideways folds the ribbon to its tabs, leaving the height to 
   await expect(page.locator('.ed-workspace')).not.toHaveClass(/ribbon-tabs-only/);
   await expect(bold).toBeVisible();
 });
+
+test('on a phone, Auto-hide\'s show-ribbon button leaves the document name as much room as before', async ({ browser }) => {
+  const width = async mode => {
+    const context = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
+    const page = await context.newPage();
+    await page.addInitScript(mode => { try { localStorage.setItem('documents:ribbon-mode', mode); } catch { /* storage unavailable */ } }, mode);
+    await page.goto('/mock.html#/new');
+    await page.locator('.ribbon-card').waitFor({ state: 'attached' });
+    await expect(page.getByRole('textbox', { name: 'Document name' })).toBeVisible();
+    if (mode === 'auto') await expect(page.getByRole('button', { name: 'Show the ribbon' })).toBeVisible();
+    await page.waitForTimeout(300);
+    const shown = await page.getByRole('textbox', { name: 'Document name' }).evaluate(el => el.clientWidth);
+    await context.close();
+    return shown;
+  };
+  const always = await width('always'), auto = await width('auto');
+  // Within a few pixels: the name shows its first letters either way (it was cut to one letter).
+  expect(auto).toBeGreaterThanOrEqual(always - 10);
+});

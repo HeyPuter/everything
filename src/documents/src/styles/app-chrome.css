@@ -118,6 +118,10 @@ input:disabled + .ed-switch { opacity: .5; }
 @media (max-width: 700px) {
   .ed-header .ed-titlebar { grid-template-columns: auto minmax(0, 1fr) auto; gap: 4px; }
   .ed-autosave, .ed-quick-customize, .ed-title-details, .ed-comments-button, .ed-share { display: none; }
+  /* Auto-hide adds the show-ribbon button to a title bar with no room to spare: the undo history list (Undo stays)
+     makes way for it, so the document's name keeps its room. */
+  .ed-workspace.ribbon-auto-hide .ed-quick .ed-undo-arrow { display: none; }
+  .ed-workspace.ribbon-auto-hide .ed-quick .ed-undo-split > button.ribbon-small { border-radius: 7px; }
   .ed-pill.ed-mode { padding: 0 6px; }
   .ed-header .ed-search:focus-within { position: absolute; left: 8px; right: 8px; width: auto; z-index: 5; }
 }
