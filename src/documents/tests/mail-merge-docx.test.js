@@ -244,6 +244,22 @@ describe('editing merge fields in the model', () => {
     // The remembered formatting is not written to the file.
     expect(strFromU8(unzipSync(await save(pkg, d))['word/document.xml'])).not.toContain('resultFormatting');
   });
+  it('keeps the caret on the same text when a preview changes the field results before it', async () => {
+    const { d } = await blankModel('Dear ');
+    d.select(5); insertMergeField(d, ' MERGEFIELD "First Name" '); d.replace(', thank you.');
+    const caretBefore = text => { const at = d.text.indexOf(text); d.select(at); };
+    const caretText = () => d.text.slice(d.range[0], d.range[0] + 5);
+    caretBefore('thank');
+    applyMergeResults(d, mergeFieldRanges(d), ['Rosa']);
+    expect(d.text).toBe('Dear Rosa, thank you.');
+    expect(caretText()).toBe('thank');
+    applyMergeResults(d, mergeFieldRanges(d), ['Bartholomew-Alexander']);
+    expect(caretText()).toBe('thank');
+    // A selection across the field keeps both ends on their text.
+    d.select(0, d.text.indexOf('you'));
+    applyMergeResults(d, mergeFieldRanges(d), placeholderResults(mergeFieldRanges(d)));
+    expect(d.text.slice(...d.range)).toBe('Dear «First Name», thank ');
+  });
   it('builds label sheets that open editable and propagates the first label', async () => {
     const layout = LABEL_LAYOUTS.find(l => l.id === 'letter-10');
     expect(layoutProblems(layout)).toEqual([]);

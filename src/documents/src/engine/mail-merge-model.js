@@ -117,10 +117,14 @@ export function applyMergeResults(model, fields, results) {
     if (text.slice(f.range.start, f.range.end) !== shown) changes.push({ range: f.range, text: shown });
   });
   if (!changes.length) return 0;
-  const tracking = model.trackChanges, selection = { ...model.selection };
+  const tracking = model.trackChanges;
+  // The selection stays on its text: a longer or shorter result before it moves it along.
+  let { anchor, focus } = model.selection;
   model.trackChanges = false;
   try {
     for (const { range, text: value } of changes.reverse()) {
+      const map = at => at <= range.start ? at : at >= range.end ? at + value.length - (range.end - range.start) : range.start + Math.min(at - range.start, value.length);
+      anchor = map(anchor); focus = map(focus);
       model.select(range.start, range.end);
       model.typingFormat = {}; model.typingStyle = null; model.typingDirectCleared = false;
       if (range.start === range.end && !value) continue;
@@ -136,7 +140,7 @@ export function applyMergeResults(model, fields, results) {
     }
   } finally { model.trackChanges = tracking; }
   const max = model.text.length;
-  model.select(Math.min(selection.anchor, max), Math.min(selection.focus, max));
+  model.select(Math.min(anchor, max), Math.min(focus, max));
   model.didChange();
   return changes.length;
 }
