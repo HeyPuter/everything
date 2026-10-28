@@ -282,11 +282,12 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
   };
   const host = el('div.canvas-host', { 'aria-label': 'Document pages' });
   const surface = el('div.canvas-document-surface', {}, host);
+  // Bookmarks are in the body: a link made in a note, header or footer goes to one there.
   const editHyperlink = (anchor = hyperlink, options = {}) => {
     if (!(anchor instanceof HTMLElement)) anchor = hyperlink;
     if (!engine) return; engine.finishComposition();
     if (!anchor.getClientRects().length) anchor = engine.input;
-    hyperlinkModal = openHyperlink({ anchor, ...options, link: engine.model.hyperlink?.link, bookmarks: engine.bookmarks, insert: engine.model.range[0] === engine.model.range[1] && !engine.model.hyperlink,
+    hyperlinkModal = openHyperlink({ anchor, ...options, link: engine.model.hyperlink?.link, bookmarks: engine.session.body.bookmarks, insert: engine.model.range[0] === engine.model.range[1] && !engine.model.hyperlink,
       apply: (target, text) => engine?.setHyperlink(target, text, { appearance: !engine.model.hyperlink }), remove: () => engine?.removeHyperlink(), open: () => engine?.openHyperlink() });
   };
   // A click on a link while editing shows where it goes, to follow, edit or remove it.
