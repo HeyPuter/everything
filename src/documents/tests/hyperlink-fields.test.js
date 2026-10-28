@@ -62,6 +62,11 @@ it('keeps typing outside a field from inheriting its hidden link ownership',asyn
 
 it.each(['HYPERLINK "javascript:alert(1)"','HYPERLINK "relative.docx"','HYPERLINK \\m "x"','HYPERLINK \\l','HYPERLINK "https://example.com" \\l "Target"'])('keeps unsupported destination %s guarded',instruction=>expect(()=>bodyFieldInstruction(instruction)).toThrow());
 
+it.each([['HYPERLINK "relative.docx"','relative.docx'],['HYPERLINK "file:///C:/docs/report.pdf"','file'],['HYPERLINK "\\\\\\\\server\\\\share\\\\report.pdf"','UNC path']])('names a link to an address it cannot open, %s, as such in the read-only notice',(instruction)=>{
+ // The notice lists "a HYPERLINK field to …", not the link dialog's instruction to the user, nor a "switch" for a quoted UNC path.
+ expect(()=>bodyFieldInstruction(instruction)).toThrow(/This document contains a HYPERLINK field to an address other than http, https, mailto or tel,/);
+});
+
 it('renames linked bookmarks through repeated edits and split instruction runs',async()=>{
  const W='http://schemas.openxmlformats.org/wordprocessingml/2006/main',parts=unzipSync(source),doc=new DOMParser().parseFromString(strFromU8(parts['word/document.xml']),'application/xml');
  const text=doc.getElementsByTagNameNS(W,'instrText')[0],value=text.textContent,at=value.indexOf('Target')+6,tail=text.parentNode.cloneNode(true);
