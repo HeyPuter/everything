@@ -575,3 +575,22 @@ test('Escape closes a collapsed group\'s drop-down whose commands are all unavai
     await expect(changes).toBeFocused();
   } finally { await context.close(); }
 });
+
+test('a tab the document chooses on a phone is scrolled into the tab row', async ({ page }) => {
+  await openEditor(page, 390);
+  await page.getByRole('textbox', { name: 'Document text' }).fill('Heading\nBody text');
+  const shown = name => page.evaluate(name => {
+    const tab = [...document.querySelectorAll('.ribbon-tab')].find(t => t.textContent.trim() === name), row = tab.closest('.ribbon-tabs');
+    const a = tab.getBoundingClientRect(), b = row.getBoundingClientRect();
+    return a.left >= b.left - 1 && a.right <= b.right + 1;
+  }, name);
+  // Outline view brings up its Outlining tab, at the end of the row.
+  await page.evaluate(() => window.__docs.current.view.commands.setDocumentView('outline'));
+  await expect(tab(page, 'Outlining')).toHaveAttribute('aria-selected', 'true');
+  await expect.poll(() => shown('Outlining')).toBe(true);
+  // Closing it goes back to a tab at the start of the row.
+  await page.getByRole('button', { name: 'Close Outline View' }).click();
+  await expect(tab(page, 'Outlining')).toBeHidden();
+  const selected = await page.locator('.ribbon-tab[aria-selected="true"]').textContent();
+  await expect.poll(() => shown(selected.trim())).toBe(true);
+});

@@ -293,7 +293,17 @@ export function createRibbon({ tabs, fileButton, focusEditor, onSelect }) {
     onSelect?.(id);
     refreshTabStops();
     fit();
+    revealTab(tabButtons.get(id));
     if (focus) tabButtons.get(id).focus();
+  }
+  /** A tab row that scrolls sideways (phones) shows the chosen tab, clear of its faded edges: the document picks
+   * some tabs itself (a picture's, Outlining), which could otherwise be selected out of sight. */
+  function revealTab(button) {
+    if (tabRow.scrollWidth <= tabRow.clientWidth + 1) return;
+    const tab = button.getBoundingClientRect(), row = tabRow.getBoundingClientRect(), edge = 24;
+    if (!tab.width) return;
+    if (tab.left < row.left + edge) tabRow.scrollLeft -= row.left + edge - tab.left;
+    else if (tab.right > row.right - edge) tabRow.scrollLeft += tab.right - (row.right - edge);
   }
   tablist.addEventListener('keydown', e => {
     if (isComposing(e) || !e.target.matches('.ribbon-tab')) return;
