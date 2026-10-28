@@ -1140,7 +1140,7 @@ export class CanvasEditor {
   }
   openHyperlink(link = this.model.hyperlink?.link) {
     if (!link) return;
-    if (internalHyperlink(link)) { this.goToBookmark(this.model.bookmarks.find(b => b.name === link.anchor)?.id); return; }
+    if (internalHyperlink(link)) { this.goToBookmark(this.session.body.bookmarks.find(b => b.name === link.anchor)?.id); return; }
     if (link.history && openableHyperlink(link)) this.visitedLinks.add(link.target);
     this.onOpenLink(link.target);
   }
@@ -1176,7 +1176,9 @@ export class CanvasEditor {
   renameBookmark(id, name) { return this.execute(() => this.model.renameBookmark(id, name)); }
   removeBookmark(id) { return this.execute(() => this.model.removeBookmark(id)); }
   goToBookmark(id) {
-    this.finishComposition(); const bookmark = this.model.bookmarks.find(b => b.id === id);
+    // Bookmarks are in the body: a link followed from a note, header or footer goes there, not to the story's start.
+    this.finishComposition(); if (this.session.path !== null) this.editStory(null);
+    const bookmark = this.model.bookmarks.find(b => b.id === id);
     this.model.select(bookmark?.columnRange?.target ?? bookmark?.start ?? 0);
     this.caretAffinity = 'forward'; this.caretPage = null; this.preferredX = null;
     this.focus(); this.revealCaret(); this.onSelection(); return true;
