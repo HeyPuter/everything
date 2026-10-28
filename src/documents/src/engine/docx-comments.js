@@ -130,6 +130,7 @@ export function writeComments(parts, comments = [], initial = '[]') {
   const make = name => doc.createElementNS(W, `w:${name}`);
   const used = new Set(comments.map(c => c.paraId).filter(Boolean));
   const paraIds = new Map();
+  let authored = false;
   for (const comment of comments) {
     let node;
     if (unchanged(comment) && sources.has(comment.sourceId)) {
@@ -138,6 +139,7 @@ export function writeComments(parts, comments = [], initial = '[]') {
         if (comment[key]) node.setAttributeNS(W, `w:${attr}`, comment[key]); else node.removeAttributeNS(W, attr);
       }
     } else {
+      authored = true;
       node = make('comment');
       node.setAttributeNS(W, 'w:author', comment.author || 'Author');
       if (comment.date) node.setAttributeNS(W, 'w:date', comment.date);
@@ -175,6 +177,31 @@ export function writeComments(parts, comments = [], initial = '[]') {
   write(parts, path, doc);
   ensureRelationship(parts, path, COMMENTS_REL, COMMENTS_TYPE);
   writeCompanions(parts, comments, paraIds);
+  if (authored) ensureCommentStyles(parts);
+}
+
+/**
+ * New comments use the paragraph style CommentText and the character style CommentReference (Word's
+ * built-in "annotation text" and "annotation reference"). Add Word's definitions of the ones a styles
+ * part lacks; existing definitions are left as they are. A package without a styles part keeps none.
+ */
+function ensureCommentStyles(parts) {
+  let path = null;
+  try { path = relatedPartPath(parts, 'styles'); } catch { path = null; }
+  if (!path || !parts[path]) return;
+  const doc = parseXml(parts[path]), root = doc.documentElement;
+  if (root.namespaceURI !== W || root.localName !== 'styles') return;
+  const styles = wChildren(root, 'style'), has = (type, id) => styles.some(s => s.getAttributeNS(W, 'type') === type && s.getAttributeNS(W, 'styleId') === id);
+  const defaultId = type => styles.find(s => s.getAttributeNS(W, 'type') === type && ['1', 'true', 'on'].includes(s.getAttributeNS(W, 'default')))?.getAttributeNS(W, 'styleId');
+  const missing = [];
+  if (!has('paragraph', 'CommentText')) missing.push(['paragraph', 'CommentText', 'annotation text', defaultId('paragraph'), '<w:pPr><w:spacing w:line="240" w:lineRule="auto"/></w:pPr><w:rPr><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr>']);
+  if (!has('character', 'CommentReference')) missing.push(['character', 'CommentReference', 'annotation reference', defaultId('character'), '<w:rPr><w:sz w:val="16"/><w:szCs w:val="16"/></w:rPr>']);
+  if (!missing.length) return;
+  for (const [type, id, name, basedOn, formatting] of missing) {
+    const xml = `<w:style xmlns:w="${W}" w:type="${type}" w:styleId="${id}"><w:name w:val="${name}"/>${basedOn ? `<w:basedOn w:val="${basedOn.replace(/[&<"]/g, c => ({ '&': '&amp;', '<': '&lt;', '"': '&quot;' })[c])}"/>` : ''}<w:uiPriority w:val="99"/><w:semiHidden/><w:unhideWhenUsed/>${formatting}</w:style>`;
+    root.append(doc.importNode(parseXml(xml).documentElement, true));
+  }
+  write(parts, path, doc);
 }
 
 function writeCompanions(parts, comments, paraIds) {
