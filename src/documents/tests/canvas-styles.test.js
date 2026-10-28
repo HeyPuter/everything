@@ -115,7 +115,7 @@ describe('paragraph styles across model, layout and DOCX', () => {
     const pkg = await fixture(), doc = model(pkg), before = doc.snapshot();
     expect(() => doc.editParagraphStyle('CanvasBody', { basedOn: 'CanvasSubheading' })).toThrow(/Cyclic/);
     expect(() => doc.editParagraphStyle('CanvasBody', { run: { fontSize: 1638.5 } })).toThrow(/font size/);
-    doc.styles.definitions.Unsupported = { id: 'Unsupported', name: 'Unsupported', type: 'paragraph', basedOn: 'Normal', properties: { alignment: 'distribute' }, run: {} };
+    doc.styles.definitions.Unsupported = { id: 'Unsupported', name: 'Unsupported', type: 'paragraph', basedOn: 'Normal', properties: { alignment: 'thaiDistribute' }, run: {} };
     expect(doc.paragraphStyles.find(s => s.id === 'Unsupported').error).toMatch(/alignment/);
     expect(() => doc.setParagraphStyle('Unsupported')).toThrow(/alignment/);
     expect(doc.paragraphs).toEqual(before.paragraphs); expect(doc.history).toHaveLength(0);

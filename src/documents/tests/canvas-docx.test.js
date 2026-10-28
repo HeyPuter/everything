@@ -161,7 +161,7 @@ describe('DOCX paragraph formatting', () => {
   it.each([
     '<w:spacing w:beforeAutospacing="invalid"/>', '<w:spacing w:beforeLines="5001"/>',
     '<w:spacing w:line="bad"/>', '<w:spacing w:before="-20"/>',
-    '<w:jc w:val="distribute"/>',
+    '<w:jc w:val="thaiDistribute"/>',
   ])('rejects unsupported effective formatting: %s', async properties => {
     await expect(DocxPackage.open(await fixture(`<w:p><w:pPr>${properties}</w:pPr><w:r><w:t>One</w:t></w:r></w:p>`))).rejects.toMatchObject({ name: 'UnsupportedDocumentError' });
   });
