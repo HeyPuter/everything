@@ -19,7 +19,8 @@ export function createNoteCommands(ctx) {
       const notes = await import('../engine/footnotes.js');
       if (engine.session.path !== null) {
         if (notes.isNoteStoryKind(engine.pageStories?.stories[engine.session.path]?.kind)) throw new Error('Notes cannot contain other notes.');
-        engine.editStory(null);
+        // The shortcut pressed in a header or footer used to leave it and put the note wherever the caret was last in the text.
+        throw new Error('Footnotes and endnotes go in the text of the document. Close the header or footer first.');
       }
       const { TextDocument, paragraph } = await import('../engine/model.js');
       const body = engine.session.body, styles = body.styles.definitions || {};
