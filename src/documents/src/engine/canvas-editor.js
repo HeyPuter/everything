@@ -94,6 +94,7 @@ export class CanvasEditor {
     this.readOnly = readOnly;
     this.protectedPageFields = protectedPageFields;
     this.session = new StorySession(new TextDocument(paragraphs, pageSettings, numbering, styles, tables, assets, { displayOnly: readOnly, comments, trackChanges }), pageStories);
+    this.session.caret = () => ({ affinity: this.caretAffinity, page: this.caretPage });
     this.storyPage = 0;
     this.images = images;
     this.borrowedImages = new Set(borrowImages ? images.values() : []);
@@ -619,8 +620,10 @@ export class CanvasEditor {
     // The host can keep history beyond this editor's (changes that reopened the package).
     if (!this.session[direction === 'undo' ? 'history' : 'future'].length && this.onHistoryEnd?.(direction)) return;
     try {
-      // The caret moves to the restored selection: Up and Down start from its column there, not the one before.
-      if (this.session[direction](() => { this.validateStory(); this.preferredX = null; this.caretAffinity = 'forward'; this.relayout(); })) this.onChange();
+      // The caret moves to the restored selection, on the side of a line's end it was on there: Up and Down start
+      // from its column there, not the one before.
+      const caret = this.session[direction === 'undo' ? 'history' : 'future'].at(-1)?.caret;
+      if (this.session[direction](() => { this.validateStory(); this.preferredX = null; this.caretAffinity = caret?.affinity || 'forward'; this.caretPage = caret ? caret.page : this.caretPage; this.relayout(); })) this.onChange();
       this.focus(); this.revealCaret();
     } catch (e) { this.relayout(); this.onError(e); }
   }

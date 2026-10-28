@@ -35,7 +35,9 @@ export class StorySession {
     this.path = path;
     return this.model;
   }
-  capture() { return { path: this.path, page: this.page, state: this.snapshot(this.model), revision: this.model.revision }; }
+  // `caret()`, when the editor sets it, says where its caret shows at a line's end (its affinity), which a
+  // position alone does not; Undo and Redo put it back with the selection.
+  capture() { return { path: this.path, page: this.page, state: this.snapshot(this.model), revision: this.model.revision, caret: this.caret?.() }; }
   /**
    * The model's state for undo. Copying a long document takes a while, so after each command the
    * document is copied while the browser is idle (prepareSnapshot); the next command starts from

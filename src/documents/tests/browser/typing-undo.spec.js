@@ -180,3 +180,25 @@ test('after Undo or a right-click moves the caret, Up and Down keep to its new c
   await page.keyboard.press('ArrowDown');
   expect(Math.abs(await caret() - 29)).toBeLessThanOrEqual(1);
 });
+
+test('Undo puts the caret back at the end of a wrapped line, not at the start of the next', async ({ page }) => {
+  await blank(page);
+  const long = 'This paragraph is long enough to wrap onto a second line of the page, so that the end of its first line is also where the second begins.';
+  await input(page).fill(`Intro\n${long}`);
+  const lines = await page.evaluate(() => window.__docs.current.view.engine.selectionLayout.lines.map(l => [l.start, l.end]));
+  const [, first] = lines;
+  await input(page).evaluate((el, at) => { el.setSelectionRange(at, at); el.dispatchEvent(new Event('select')); }, first[0]);
+  // End puts the caret at the end of the first line; typing there and undoing brings it back to that place.
+  await input(page).press('End');
+  expect(await input(page).evaluate(el => el.selectionStart)).toBe(first[1]);
+  await page.keyboard.type('X');
+  await input(page).press('ControlOrMeta+z');
+  expect(await input(page).evaluate(el => el.selectionStart)).toBe(first[1]);
+  expect(await page.evaluate(() => window.__docs.current.view.engine.caretAffinity)).toBe('backward');
+  // Home goes to the start of that first line.
+  await input(page).press('Home');
+  expect(await input(page).evaluate(el => el.selectionStart)).toBe(first[0]);
+  // Redo puts it back after the typed letter.
+  await input(page).press('ControlOrMeta+Shift+z');
+  expect(await input(page).inputValue()).toContain('X');
+});
