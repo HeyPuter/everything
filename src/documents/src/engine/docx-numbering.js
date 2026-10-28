@@ -36,6 +36,13 @@ const integer = (value, fallback, maximum = 2147483647) => {
   return Number(value);
 };
 const on = node => node && !['0', 'false', 'off'].includes(val(node));
+// Level run properties that state no effect on the number (§17.3.2): switched off, or none. Word's
+// Font dialog for a list level writes each option it shows this way. They are ignored and kept.
+const OFF_PROPERTIES = ['vanish', 'outline', 'shadow', 'emboss', 'imprint', 'webHidden', 'specVanish', 'rtl', 'cs', 'oMath'];
+const inertMarkerProperty = n => n.namespaceURI === W && (n.localName === 'noProof'
+  || OFF_PROPERTIES.includes(n.localName) && ['0', 'false', 'off'].includes(val(n))
+  || ['em', 'effect', 'highlight'].includes(n.localName) && val(n) === 'none'
+  || n.localName === 'bdr' && ['none', 'nil'].includes(val(n)));
 // CT_PPrBase order (Part 4 §A.1) of the properties a numbering level's pPr may carry here.
 const LEVEL_PPR_ORDER = ['keepNext', 'keepLines', 'pageBreakBefore', 'widowControl', 'suppressLineNumbers', 'pBdr', 'shd', 'tabs', 'suppressAutoHyphens', 'spacing', 'ind', 'contextualSpacing', 'mirrorIndents', 'jc'];
 const LEVEL_PPR = ['ind', 'tabs', 'contextualSpacing', ...LEVEL_PARAGRAPH_ELEMENTS];
@@ -95,6 +102,7 @@ export function readNumbering(parts, readGeometry, readColor, readFonts, onError
     const paragraph = pPr && readParagraph ? readParagraph(pPr) : {};
     const rPr = child(node, 'rPr'), markerStyle = { ...readFonts?.(rPr) };
     for (const n of children(rPr)) {
+      if (inertMarkerProperty(n)) continue;
       if (n.namespaceURI !== W || !['rFonts', 'lang', 'b', 'i', 'bCs', 'iCs', 'szCs', 'caps', 'smallCaps', 'strike', 'dstrike', 'color', 'sz', 'u', 'shd', 'vertAlign', 'position', 'spacing', 'w', 'kern'].includes(n.localName)) throw new Error(`Unsupported numbering symbol formatting: ${n.localName}.`);
       if (['bCs', 'iCs', 'szCs'].includes(n.localName)) {
         // Private-use glyphs in symbol fonts retain the ordinary run properties;
