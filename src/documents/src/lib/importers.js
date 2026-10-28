@@ -191,6 +191,8 @@ export function decodeTextFile(bytes, kind = null) {
   const b = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
   if (b[0] === 0xff && b[1] === 0xfe) return new TextDecoder('utf-16le').decode(b);
   if (b[0] === 0xfe && b[1] === 0xff) return new TextDecoder('utf-16be').decode(b);
+  const unmarked = unmarkedUtf16(b);
+  if (unmarked) return unmarked;
   try { return new TextDecoder('utf-8', { fatal: true }).decode(b); } catch { /* not UTF-8 throughout */ }
   const declared = kind === 'html' ? declaredCharset(b) : null;
   // A UTF-16 label on a byte-oriented page is stale (the bytes were not UTF-16, or the BOM above would have said so): browsers read such a page as UTF-8.
@@ -251,6 +253,26 @@ function legacyAlphabetText(b) {
     if (score >= 0.3 && (!best || score > best.score)) best = { text, score };
   }
   return best ? best.text : null;
+}
+
+/**
+ * UTF-16 without a byte-order mark (some editors and tools write it so): text has spaces, digits and line ends, whose
+ * second byte (little-endian) or first (big-endian) is zero, and a text in any 8-bit encoding has no zero bytes. A
+ * file whose zero bytes fall on one side of the pairs, and that reads as UTF-16 throughout, is read as it; null else.
+ */
+function unmarkedUtf16(b) {
+  if (b.length < 4 || b.length % 2) return null;
+  const n = Math.min(b.length, 8192) & ~1;
+  let even = 0, odd = 0;
+  for (let i = 0; i < n; i += 2) { if (!b[i]) even++; if (!b[i + 1]) odd++; }
+  const pairs = n / 2, zeros = even + odd;
+  if (zeros < 2) return null;
+  const encoding = odd >= zeros * 0.9 && odd >= pairs * 0.05 ? 'utf-16le' : even >= zeros * 0.9 && even >= pairs * 0.05 ? 'utf-16be' : null;
+  if (!encoding) return null;
+  let text;
+  try { text = new TextDecoder(encoding, { fatal: true }).decode(b); } catch { return null; }
+  // Read as UTF-16, text is letters, not control characters.
+  return (text.match(/[\x00-\x08\x0e-\x1f]/g) || []).length <= text.length * 0.01 ? text : null;
 }
 
 // The characters written most often in Korean and in Chinese text. Text in the other language, or in a

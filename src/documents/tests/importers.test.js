@@ -123,6 +123,22 @@ describe('legacy Korean, Japanese and Chinese text', () => {
   });
 });
 
+describe('UTF-16 text without a byte-order mark', () => {
+  const le = text => new Uint8Array(Buffer.from(text, 'utf16le'));
+  const be = text => { const bytes = le(text); for (let i = 0; i < bytes.length; i += 2) [bytes[i], bytes[i + 1]] = [bytes[i + 1], bytes[i]]; return bytes; };
+  it('reads it by where its zero bytes fall, as editors that write no mark save it', () => {
+    for (const text of ['Привет, мир! Это текст.\r\nВторая строка.', 'Hello world\nSecond line', 'Καλημέρα κόσμε — 2024', '日本語のテキスト 123 abc']) {
+      expect(decodeTextFile(le(text))).toBe(text);
+      expect(decodeTextFile(be(text))).toBe(text);
+    }
+  });
+  it('leaves UTF-8 with a stray zero byte as UTF-8', () => {
+    for (const tail of [' und mehr Text hier', ' und mehr Text hier!']) {
+      expect(decodeTextFile(new Uint8Array([...Buffer.from('Grüße', 'utf8'), 0, ...Buffer.from(tail, 'utf8')]))).toBe(`Grüße\0${tail}`);
+    }
+  });
+});
+
 describe('legacy Cyrillic, Greek, Hebrew and Arabic text', () => {
   const encode = (text, encoding) => {
     // The code page's byte for each character, found by decoding every byte (TextDecoder only decodes).
