@@ -500,9 +500,12 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
       engine.focus(); engine.revealCaret(); engine.onSelection();
     },
     pages: () => engine?.canvases || [], flushPages: () => engine?.flushPaint?.(), currentPage: () => engine?.caretPageIndex ?? 0,
-    search: text => { try { return engine?.model.findMatches(text, {}) || []; } catch { return []; } },
+    // The search covers the document's body, also while a header, footer or note is being edited.
+    search: text => { try { return engine?.session.body.findMatches(text, {}) || []; } catch { return []; } },
     version: () => (engine ? [engine, engine.session.revision, engine.session.body.revision, engine.session.path, engine.model, engine.model.revision, engine.model.trackChanges] : null),
-    text: () => engine?.model.text || '', selectMatch: match => engine?.selectMatch(match), highlight: matches => engine?.setFindHighlights(matches),
+    text: () => engine?.session.body.text || '',
+    selectMatch: match => { if (!engine) return; engine.finishComposition(); if (engine.session.path !== null) engine.editStory(null); engine.selectMatch(match); },
+    highlight: matches => engine?.setFindHighlights(engine.session.path === null ? matches : []),
     headingActions: () => editorCommands.headingActions || null });
   outlinePanel.node.id = 'canvas-outline-panel';
   function toggleOutline(visible = outlinePanel.node.hidden, { search = false } = {}) {

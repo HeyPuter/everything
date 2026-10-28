@@ -344,11 +344,18 @@ export function createFormatArea({ editor, pkg, error, refresh: refreshChrome = 
   const storyParagraphs = (engine, path) => engine.session.models?.get(path)?.paragraphs || engine.pageStories.stories[path].paragraphs;
   const findApi = {
     scopes: () => [['headers', 'Headers and footers']],
-    isCurrentStory: story => editor()?.session.path === story.path,
+    // A match without a story is in the body.
+    isCurrentStory: story => editor()?.session.path === (story ? story.path : null),
     range: () => editor()?.model.range || [0, 0],
     matches(query, options) {
       const engine = editor(); if (!engine) return [];
-      if (options.scope !== 'headers') return engine.model.findMatches(query, options);
+      // The current selection is in the story being edited; the main document is the body, also while a header,
+      // footer or note is being edited.
+      if (options.scope === 'selection') {
+        const found = engine.model.findMatches(query, options), path = engine.session.path;
+        return path === null ? found : found.map(m => ({ ...m, story: { path, page: engine.storyPage } }));
+      }
+      if (options.scope !== 'headers') return engine.session.body.findMatches(query, options);
       const body = engine.session.body || engine.model;
       return searchStories(engine).flatMap(story => findAdvanced(storyParagraphs(engine, story.path), query, { ...options, within: undefined }, { styles: body.styles, numbering: body.numbering }).map(m => ({ ...m, story })));
     },
@@ -361,7 +368,10 @@ export function createFormatArea({ editor, pkg, error, refresh: refreshChrome = 
     highlight(matches) { const engine = editor(); engine?.setFindHighlights(matches.filter(m => (m.story?.path ?? null) === engine.session.path)); },
     replace(query, text, options, all) {
       const engine = editor(); if (!engine) return 0;
-      if (options.scope !== 'headers') return engine.replaceMatches(query, text, options, all);
+      if (options.scope !== 'headers') {
+        if (options.scope !== 'selection' && engine.session.path !== null) engine.editStory(null);
+        return engine.replaceMatches(query, text, options, all);
+      }
       if (!all) return engine.session.path === null ? 0 : engine.replaceMatches(query, text, options, false);
       let total = 0;
       for (const story of searchStories(engine)) {

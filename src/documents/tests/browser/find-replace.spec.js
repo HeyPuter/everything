@@ -179,3 +179,42 @@ test('tints every match while searching, leaves the current one in the selection
   await input.press('ControlOrMeta+End'); await page.keyboard.insertText(' needle'); await expect(count(page)).toHaveText('4 matches'); await expect.poll(tinted).toBeGreaterThan(two * 1.4);
   await close(page); await expect.poll(tinted).toBe(0); await expect(page.getByRole('button', { name: 'Undo', exact: true })).toBeEnabled();
 });
+
+test('searches and replaces in the main document while a footer is being edited', async ({ page }) => {
+  await page.goto('/mock.html#/new');
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await page.getByLabel('Open DOCX file').setInputFiles('tests/fixtures/page-stories/footer-variants.docx');
+  const body = page.getByRole('textbox', { name: 'Document text' });
+  await expect(body).toHaveValue('Body page 1\nBody page 2\nBody page 3');
+  const story = () => page.evaluate(() => window.__docs.current.view.engine.session.path);
+  const editFooter = async () => { await page.evaluate(() => window.__docs.current.view.engine.editStory('word/footer-first.xml', 0)); await expect.poll(story).toBe('word/footer-first.xml'); };
+  await editFooter();
+  // The Navigation pane lists the body's matches, and a result goes to the body.
+  await page.getByRole('textbox', { name: 'Footer text' }).press('ControlOrMeta+f');
+  const search = page.getByRole('searchbox', { name: 'Search document' });
+  await search.fill('page');
+  const results = page.getByRole('list', { name: 'Search results' }).getByRole('button');
+  await expect(results).toHaveCount(3);
+  await results.nth(1).click();
+  await expect.poll(story).toBe(null);
+  expect(await body.evaluate(el => el.value.slice(el.selectionStart, el.selectionEnd) + '@' + el.selectionStart)).toBe('page@17');
+  // Find and Replace in the main document, started from the footer.
+  await editFooter();
+  await page.getByRole('textbox', { name: 'Footer text' }).press(REPLACE_CHORD);
+  await query(page).fill('Body');
+  // The first match is selected, in the body.
+  await expect(count(page)).toHaveText('1 of 3');
+  await expect.poll(story).toBe(null);
+  await editFooter();
+  await expect(count(page)).toHaveText('3 matches');
+  await replacement(page).fill('Main');
+  await panel(page).getByRole('button', { name: 'Replace all', exact: true }).click();
+  await expect(body).toHaveValue('Main page 1\nMain page 2\nMain page 3');
+  expect(await page.evaluate(() => window.__docs.current.view.engine.pageStories.stories['word/footer-first.xml'].paragraphs.map(p => p.runs.map(r => r.text).join('')).join('\n'))).toBe('First \ufffc');
+  // Find Next (Shift+F4) goes on with the Navigation pane's search, in the body.
+  await close(page);
+  await editFooter();
+  await page.getByRole('textbox', { name: 'Footer text' }).press('Shift+F4');
+  await expect.poll(story).toBe(null);
+  expect(await body.evaluate(el => el.value.slice(el.selectionStart, el.selectionEnd))).toBe('page');
+});

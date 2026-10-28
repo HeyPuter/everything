@@ -81,13 +81,16 @@ export function createEditCommands({ editor, pkg, editLink, searchQuery = () => 
     /** Find Next / Previous: the next match of the last search after (or before) the selection. */
     findNext(direction = 1) {
       const engine = editor(); if (!engine) return false;
-      const [start, end] = engine.model.range;
-      const query = searchQuery() || lastQuery || (end > start && end - start <= 255 ? engine.model.text.slice(start, end) : '');
+      const [selectedStart, selectedEnd] = engine.model.range;
+      const query = searchQuery() || lastQuery || (selectedEnd > selectedStart && selectedEnd - selectedStart <= 255 ? engine.model.text.slice(selectedStart, selectedEnd) : '');
       if (!query || /[\n\f\v]/.test(query)) { toast('Search for something first (Find).', { icon: 'search', duration: 2500 }); return false; }
       lastQuery = query;
+      // The search, as the Navigation pane's, is of the body, also while a header, footer or note is being edited.
+      const body = engine.session.body || engine.model, [start, end] = body.range;
       let matches = [];
-      try { matches = engine.model.findMatches(query, {}); } catch { matches = []; }
+      try { matches = body.findMatches(query, {}); } catch { matches = []; }
       if (!matches.length) { toast(`“${query}” was not found.`, { icon: 'search', duration: 2500 }); return false; }
+      if (engine.session.path !== null) { engine.finishComposition(); engine.editStory(null); }
       const next = direction > 0 ? matches.find(m => m.start >= end && !(m.start === start && m.end === end)) || matches[0]
         : [...matches].reverse().find(m => m.end <= start && !(m.start === start && m.end === end)) || matches.at(-1);
       engine.selectMatch(next); engine.focus();

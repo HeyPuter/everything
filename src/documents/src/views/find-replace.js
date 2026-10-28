@@ -139,7 +139,7 @@ export function findReplacePanel(api) {
       catch (e) { error.textContent = e.message; error.hidden = false; }
     }
     highlight(matches);
-    const [start, end] = api.range(), current = matches.findIndex(m => m.start === start && m.end === end && (!m.story || api.isCurrentStory?.(m.story)));
+    const [start, end] = api.range(), current = matches.findIndex(m => m.start === start && m.end === end && (api.isCurrentStory ? api.isCurrentStory(m.story || null) : !m.story));
     count.textContent = !searching ? 'Enter text to find' : !matches.length ? 'No matches' : current < 0 ? `${matches.length} ${matches.length === 1 ? 'match' : 'matches'}` : `${current + 1} of ${matches.length}`;
     previous.disabled = next.disabled = !matches.length;
     replacement.disabled = !!api.readOnly?.();
