@@ -8861,6 +8861,8 @@ as advancing to the next available column, or to the next page in the last
 column or a single-column section. The body text importer, paginator, editor,
 and exporter now retain this distinction from authored page and line breaks.
 Ctrl+Shift+Enter inserts a column break; plain-text copy substitutes a newline.
+In a table cell, where breaks do not advance, the keys split the table above the
+caret's row instead (from the first row: a paragraph before the table).
 The internal marker is serialized as a break element, never an XML control
 character. Untouched package parts remain unchanged.
 

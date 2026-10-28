@@ -44,7 +44,7 @@ import { paintColor } from './colors.js';
 import { TextDocument, boundaries, locate, paragraphFormat, paragraphText } from './model.js';
 import { cellContext } from './tables.js';
 import { cellBlockRects, cellBlockPlacements, wholeRows } from './table-selection.js';
-import { clearCells } from './table-editing.js';
+import { clearCells, splitTable } from './table-editing.js';
 import { paragraphEdges } from './paragraph-geometry.js';
 import { pageGeometry } from './page-settings.js';
 import { pageBorderStrokes } from './page-borders.js';
@@ -1699,7 +1699,10 @@ export class CanvasEditor {
     if (e.key === 'Enter' && !e.altKey) {
       e.preventDefault();
       if (!this.readOnly && !this.viewOnly) this.narrowCellBlock();
-      const done = this.execute(() => mod ? (e.shiftKey ? this.model.insertColumnBreak() : this.model.insertPageBreak()) : e.shiftKey ? this.model.replace('\v') : this.model.insertParagraph());
+      // In a table, Ctrl+Shift+Enter splits it above the caret's row (from the first row: a paragraph
+      // before it), as Word does; a column break in a cell would not show.
+      const columnBreak = () => this.model.tableContext ? splitTable(this.model) : this.model.insertColumnBreak();
+      const done = this.execute(() => mod ? (e.shiftKey ? columnBreak() : this.model.insertPageBreak()) : e.shiftKey ? this.model.replace('\v') : this.model.insertParagraph());
       // A new paragraph ends the word before it, which may be an address to link.
       if (done && !mod && !e.shiftKey) {
         const caret = this.model.selection.focus, place = locate(this.model.paragraphs, caret);
