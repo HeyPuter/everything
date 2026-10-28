@@ -8,6 +8,7 @@ import { xmlAttributeText } from './text-limits.js';
 import { textEdit, followEdit } from './text-edit.js';
 import { showLink } from './link-appearance.js';
 import { revisionView } from './revisions.js';
+import { hiddenStretchAt, pastHiddenText, outsideHiddenText } from './hidden-text.js';
 
 export const PASTED_PICTURE = /^image\/(png|jpeg|tiff)$/i;
 const MAC = typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/.test(navigator.platform || navigator.userAgent || '');
@@ -1219,7 +1220,8 @@ export class CanvasEditor {
     this.pointImage = imageAtPoint(this.selectionLayout, page, (event.clientX - nearest.r.left) / this.zoom, y, { includeBehindText: !!event.altKey });
     // A view can hide some drawings (hidden ink); they are not painted, so they are not hit either.
     if (this.pointImage && this.hiddenDrawing?.(this.pointImage.image)) this.pointImage = null;
-    const hit = hitTestStop(this.selectionLayout, page, (event.clientX - nearest.r.left) / this.zoom, y), position = hit.offset;
+    // A stop inside hidden text shows where that text is passed over.
+    const hit = hitTestStop(this.selectionLayout, page, (event.clientX - nearest.r.left) / this.zoom, y), position = updateCaret ? outsideHiddenText(this.model.paragraphs, hit.offset) : hit.offset;
     this.pointLink = hyperlinkAtPoint(this.selectionLayout, this.model.paragraphs, page, (event.clientX - nearest.r.left) / this.zoom, y, this.pointImage);
     if (!updateCaret) return position;
     this.caretPage = page;
@@ -1615,16 +1617,19 @@ export class CanvasEditor {
     }
     else if (key === 'ArrowLeft' || key === 'ArrowRight') {
       const direction = key === 'ArrowLeft' ? -1 : 1;
-      if (nativeWord) target = wordPosition(this.model.text, focus, direction);
-      else if (word) target = optionWordPosition(this.model.text, focus, direction);
-      else {
-        // The caret stops are in order: find the neighbours by halving, not by reading a long document's every stop.
-        const stops = boundaries(this.model.text);
-        let low = 0, high = stops.length;
-        while (low < high) { const middle = (low + high) >> 1; if (stops[middle] < focus) low = middle + 1; else high = middle; }
-        target = direction < 0 ? stops[low - 1] ?? 0 : stops[stops[low] === focus ? low + 1 : low] ?? this.model.text.length;
-      }
-      target = this.model.promptBoundary(target,direction);
+      target = pastHiddenText(this.model.paragraphs, focus, direction, from => {
+        let next;
+        if (nativeWord) next = wordPosition(this.model.text, from, direction);
+        else if (word) next = optionWordPosition(this.model.text, from, direction);
+        else {
+          // The caret stops are in order: find the neighbours by halving, not by reading a long document's every stop.
+          const stops = boundaries(this.model.text);
+          let low = 0, high = stops.length;
+          while (low < high) { const middle = (low + high) >> 1; if (stops[middle] < from) low = middle + 1; else high = middle; }
+          next = direction < 0 ? stops[low - 1] ?? 0 : stops[stops[low] === from ? low + 1 : low] ?? this.model.text.length;
+        }
+        return this.model.promptBoundary(next, direction);
+      });
       this.preferredX = null;
     } else {
       const line = currentLine || lineAtPosition(this.selectionLayout, focus, this.caretAffinity, this.caretPage);
@@ -1644,6 +1649,8 @@ export class CanvasEditor {
         this.caretPage = next?.page ?? null;
       }
     }
+    // Up, Down, Home, End and the page keys can reach a stop inside hidden text; the caret shows past it.
+    if (!['ArrowLeft', 'ArrowRight'].includes(key)) target = outsideHiddenText(this.model.paragraphs, target);
     this.caretAffinity = affinity;
     if (mod && ['Home', 'End'].includes(key)) this.caretPage = null;
     let controlMove = null;
@@ -1860,6 +1867,8 @@ export class CanvasEditor {
   // Typing continues one undo step until a new word starts.
   // Any other change, caret move, undo or story switch ends it.
   typeText(action, text) {
+    // Text is not typed into the middle of hidden text, where nobody sees it go.
+    if (this.model.range[0] === this.model.range[1]) { const at = this.model.range[0], shown = outsideHiddenText(this.model.paragraphs, at); if (shown !== at) this.model.select(shown); }
     const group = this.typingGroup, [start, end] = this.model.range;
     const newWord = /\S/u.test(text[0] || '') && /\s/u.test(group?.last || '');
     const merge = !!group && !newWord && start === end && group.at === start &&
@@ -1884,7 +1893,15 @@ export class CanvasEditor {
     // A key's deletion leaves the caret where it was or a step back, already in view in Text mode's field.
     this.deleting = true;
     let done;
-    try { done = this.execute(() => this.model.delete(direction), undefined, { record: !merge }); } finally { this.deleting = false; }
+    // Hidden text beside the caret is passed over: the key deletes the character a reader sees next to it.
+    const stretch = start === end && hiddenStretchAt(this.model.paragraphs, start);
+    const past = stretch && (direction < 0 ? stretch[0] < start : start < stretch[1]) ? stretch[direction < 0 ? 0 : 1] : null;
+    try {
+      done = this.execute(() => {
+        if (past !== null) this.model.select(past);
+        return this.model.delete(direction);
+      }, undefined, { record: !merge });
+    } finally { this.deleting = false; }
     if (done) this.deleteGroup = { direction, at: this.model.selection.focus, revision: this.session.revision, path: this.session.path };
   }
   // Corrections and links made as you type (the host decides which, from its
