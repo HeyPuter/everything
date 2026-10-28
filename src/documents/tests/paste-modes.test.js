@@ -2,7 +2,7 @@ import { beforeAll, afterAll, it, expect } from 'vitest';
 import { JSDOM } from 'jsdom';
 import { createDocx, WRITING_STYLES } from '../src/engine/docx.js';
 import { TextDocument, paragraph } from '../src/engine/model.js';
-import { copyFragment, fragmentHtml, htmlFragment, pasteFragment } from '../src/engine/clipboard-fragment.js';
+import { copyFragment, fragmentHtml, htmlFragment, pasteFragment, carriesFormatting } from '../src/engine/clipboard-fragment.js';
 import { mergedFragment, pastePayload, availablePasteModes } from '../src/engine/paste-modes.js';
 
 let dom;
@@ -67,5 +67,27 @@ it('copies formatted text from within one table cell, but not a selection across
   doc.select(cellStart, text.indexOf('Second') + 7);
   expect(copyFragment(doc)).toBeNull();
   doc.select(2, cellStart + 3);
+  expect(copyFragment(doc)).toBeNull();
+});
+
+it('copies and pastes with formatting beside a footnote elsewhere in the document, but not over the note', () => {
+  const doc = documentWith(['Plain bold here', 'Has a note']);
+  doc.select(doc.text.length); doc.insertFootnoteReference('1', 'footnote');
+  expect(doc.hasNoteMarks).toBe(true);
+  doc.select(6, 10); doc.setRunFormat({ bold: true });
+  // A word of the first paragraph copies with its formatting.
+  doc.select(6, 10);
+  const fragment = copyFragment(doc);
+  expect(fragment.paragraphs[0].runs.map(r => [r.text, r.format.bold])).toEqual([['bold', true]]);
+  // Pasted into the first paragraph, which holds no note, it keeps it.
+  doc.select(15);
+  expect(carriesFormatting(doc)).toBe(true);
+  expect(pasteFragment(doc, htmlFragment(fragmentHtml(fragment)))).toBe(true);
+  expect(doc.paragraphs[0].runs.map(r => [r.text, !!r.bold])).toEqual([['Plain ', false], ['bold', true], [' here', false], ['bold', true]]);
+  // The paragraph holding the note, and a selection reaching the note, keep the plain-text path.
+  const note = doc.text.indexOf('\ufffc');
+  doc.select(note - 2);
+  expect(carriesFormatting(doc)).toBe(false);
+  doc.select(note - 4, note + 1);
   expect(copyFragment(doc)).toBeNull();
 });

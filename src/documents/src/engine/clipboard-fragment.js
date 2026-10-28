@@ -1,4 +1,4 @@
-import { paragraphText, paragraphFormat } from './model.js';
+import { paragraphText, paragraphFormat, locate } from './model.js';
 import { runFormat } from './formatting.js';
 import { listKind } from './numbering.js';
 import { HIGHLIGHTS } from './backgrounds.js';
@@ -17,17 +17,27 @@ export const FRAGMENT_ATTRIBUTE = 'data-documents-fragment';
 const RUN_KEYS = ['bold', 'italic', 'underlineStyle', 'strikethrough', 'color', 'highlight', 'fontSize', 'fontAscii', 'verticalAlign', 'capitalization'];
 const MAX_RUNS = 2000;
 
-/** Whether this document's content can be copied or pasted with formatting. */
-export function carriesFormatting(model) {
-  return !(model.hasContentControls || model.hasBodyFields || model.hasBlockControls || model.hasNoteMarks || model.hasPlainTextControls || model.hasMacroButtons);
-}
-
 const plainRun = run => !run.image && !run.math && !run.vml && !run.bodySymbol && !run.noteMark && !run.contentControl && !run.field && !/[\u000e￼]/.test(run.text);
+// A paragraph a formatted paste can go into: no field, note, content control or object anywhere in it.
+const plainParagraph = p => !p.blockControls?.length && !p.fieldMarkers?.length && p.runs.every(plainRun);
+
+/**
+ * Whether a paste at the selection (or `range`) can take formatting. The commands that reapply it work on the
+ * pasted text by offsets, which fields, notes and content controls in the paragraphs it goes into could shift;
+ * those paragraphs take plain text. Elsewhere in a document that has them, formatting is pasted as usual.
+ */
+export function carriesFormatting(model, [start, end] = model.range) {
+  if (!(model.hasContentControls || model.hasBodyFields || model.hasBlockControls || model.hasNoteMarks || model.hasPlainTextControls || model.hasMacroButtons)) return true;
+  const first = locate(model.paragraphs, start).index, last = locate(model.paragraphs, end).index;
+  for (let i = first; i <= last; i++) if (!plainParagraph(model.paragraphs[i])) return false;
+  return true;
+}
 
 /** The selection as paragraphs of formatted runs, or null when it holds more than text. */
 export function copyFragment(model) {
   const [start, end] = model.range;
-  if (start === end || !carriesFormatting(model)) return null;
+  // What the selection holds decides (each run is checked below); fields or notes elsewhere do not.
+  if (start === end) return null;
   const paragraphs = []; let at = 0, runCount = 0, cell = null;
   for (const p of model.paragraphs) {
     const length = paragraphText(p).length, from = at, to = at + length;
