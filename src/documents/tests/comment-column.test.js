@@ -118,3 +118,26 @@ it('offers no new comment where the document\'s protection allows none', () => {
   review.commands.newComment();
   expect(review.layer.querySelector('.ed-comment-draft')).not.toBeNull();
 });
+
+it('tells assistive technology which person the arrow keys choose to mention', () => {
+  editor = new CanvasEditor(host, { paragraphs: [paragraph('Some text to discuss.')], comments: [] });
+  review = createReview({ editor: () => editor, pkg: () => ({}), host: () => host, error: e => { throw e; }, author: () => 'Ada', hooks: { people: () => ['Ada Lovelace', 'Alan Turing', 'Grace Hopper'] } });
+  review.refresh(true);
+  editor.model.select(0, 4);
+  review.commands.newComment();
+  const box = review.layer.querySelector('.ed-comment-draft textarea'), list = review.layer.querySelector('.wcc-mentions');
+  box.focus();
+  expect(box.getAttribute('aria-controls')).toBe(list.id);
+  box.value = 'Ask @A'; box.setSelectionRange(6, 6); box.dispatchEvent(new Event('input'));
+  expect(list.hidden).toBe(false);
+  const options = [...list.querySelectorAll('[role="option"]')];
+  expect(options.map(o => o.textContent)).toEqual(['ALAda Lovelace', 'ATAlan Turing']);
+  expect(box.getAttribute('aria-activedescendant')).toBe(options[0].id);
+  box.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+  expect(box.getAttribute('aria-activedescendant')).toBe(options[1].id);
+  expect(options[1].getAttribute('aria-selected')).toBe('true');
+  expect(options.every(o => o.tabIndex === -1)).toBe(true);
+  box.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  expect(list.hidden).toBe(true);
+  expect(box.hasAttribute('aria-activedescendant')).toBe(false);
+});

@@ -14,7 +14,7 @@ export const MARKUP_VIEWS = [['simple', 'Simple Markup'], ['all', 'All Markup'],
 
 const AVATAR_COLORS = ['#3B6FB6', '#2E8A6E', '#B5523B', '#7B5AA6', '#A3762A', '#2F7F95', '#A04A73', '#5F7A2E'];
 const TINT = 'rgba(128,128,128,.16)', ACTIVE_TINT = 'rgba(240,188,70,.42)';
-let commentsShown = true;
+let commentsShown = true, mentionLists = 0;
 
 export function avatarColor(name) {
   let hash = 0;
@@ -340,8 +340,17 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
     const submit = el('button.btn.btn-primary.btn-sm.wcc-post', { type: 'button', disabled: !value.trim(), onclick: () => onSubmit(input.value) }, submitLabel);
     const cancel = el('button.btn.btn-sm.wcc-cancel', { type: 'button', onclick: () => onCancel?.() }, 'Cancel');
     // @mentions: names of the people taking part in the review, offered as the name is typed.
-    const mentions = el('div.wcc-mentions', { role: 'listbox', 'aria-label': 'People', hidden: true });
+    // The suggestions belong to the text box, which keeps the keyboard: the one chosen with the arrow keys is its
+    // active descendant, so a screen reader says it.
+    const listId = `wcc-mentions-${++mentionLists}`;
+    const mentions = el('div.wcc-mentions', { id: listId, role: 'listbox', 'aria-label': 'People', hidden: true });
+    input.setAttribute('aria-controls', listId);
     let mention = null, chosen = 0;
+    const choose = index => {
+      chosen = index;
+      [...mentions.children].forEach((b, i) => b.setAttribute('aria-selected', String(i === chosen)));
+      if (mention && !mentions.hidden) input.setAttribute('aria-activedescendant', `${listId}-${chosen}`); else input.removeAttribute('aria-activedescendant');
+    };
     const query = () => {
       const before = input.value.slice(0, input.selectionStart), match = /(^|[\s(])@([\p{L}\p{N} .'-]{0,30})$/u.exec(before);
       if (!match) return null;
@@ -349,25 +358,26 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
       return names.length && !names.some(n => n.toLowerCase() === typed) ? { start: before.length - match[2].length - 1, names: names.slice(0, 6) } : null;
     };
     const showMentions = () => {
-      mention = query(); chosen = 0;
+      mention = query();
       mentions.hidden = !mention;
-      if (!mention) return;
-      mentions.replaceChildren(...mention.names.map((name, i) => el('button.wcc-mention', { type: 'button', role: 'option', 'aria-selected': String(i === chosen), onmousedown: e => e.preventDefault(), onclick: () => pick(name) }, el('span.wcc-avatar', { 'aria-hidden': 'true', style: { background: avatarColor(name) } }, initialsFor(name).slice(0, 2)), name)));
+      if (!mention) { choose(0); return; }
+      mentions.replaceChildren(...mention.names.map((name, i) => el('button.wcc-mention', { type: 'button', role: 'option', id: `${listId}-${i}`, tabIndex: -1, onmousedown: e => e.preventDefault(), onclick: () => pick(name) }, el('span.wcc-avatar', { 'aria-hidden': 'true', style: { background: avatarColor(name) } }, initialsFor(name).slice(0, 2)), name)));
+      choose(0);
     };
     const pick = name => {
       const end = input.selectionStart, text = `@${name} `;
       input.setRangeText(text, mention.start, end, 'end');
-      mention = null; mentions.hidden = true;
+      mention = null; mentions.hidden = true; choose(0);
       input.dispatchEvent(new Event('input')); input.focus();
     };
     input.addEventListener('input', () => { submit.disabled = !input.value.trim(); grow(); showMentions(); if (key) unsent.set(key, input.value); });
-    input.addEventListener('blur', () => { mentions.hidden = true; });
+    input.addEventListener('blur', () => { mentions.hidden = true; choose(0); });
     input.addEventListener('keydown', e => {
       if (isComposing(e)) return;
       if (mention && !mentions.hidden) {
-        if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); chosen = (chosen + (e.key === 'ArrowDown' ? 1 : -1) + mention.names.length) % mention.names.length; [...mentions.children].forEach((b, i) => b.setAttribute('aria-selected', String(i === chosen))); return; }
+        if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); choose((chosen + (e.key === 'ArrowDown' ? 1 : -1) + mention.names.length) % mention.names.length); return; }
         if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); pick(mention.names[chosen]); return; }
-        if (e.key === 'Escape') { e.preventDefault(); mentions.hidden = true; mention = null; return; }
+        if (e.key === 'Escape') { e.preventDefault(); mentions.hidden = true; mention = null; choose(0); return; }
       }
       if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); if (input.value.trim()) onSubmit(input.value); }
       else if (e.key === 'Escape') { e.preventDefault(); onCancel?.(); }
