@@ -29,7 +29,7 @@ import { listMarkers } from './numbering.js';
 import { markerGeometry } from './list-layout.js';
 import { paragraphEdges } from './paragraph-geometry.js';
 import { LineBuilder } from './line-builder.js';
-import { bidiCharacters, bidiLineCharacters, bidiRtlSpace } from './bidi-text.js';
+import { bidiCharacters, bidiLineCharacters, bidiRtlSpace, bidiCharacterType } from './bidi-text.js';
 import { createParagraphPaginator } from './pagination.js';
 import { paragraphText, paragraphFormat, runFormat } from './model.js';
 import { revisionView, runRevisionDisplay, revisionViewKey } from './revisions.js';
@@ -56,6 +56,10 @@ import { paragraphFrameGroups, measureParagraphFrame, placeParagraphFrames, Unsu
 import { autoHyphenationBreak, hyphenCharacter } from './hyphenation-layout.js';
 import { hyphenationOf } from './hyphenation-settings.js';
 
+// Text with a strong right-to-left letter (bidi class R or AL). Digits and marks of these scripts
+// are not: they keep the left-to-right path in an ordinary run.
+const RTL_SCRIPTS = /[\u0590-\u08ff\ufb1d-\ufdff\ufe70-\ufefc]|[\u{10800}-\u{10fff}\u{1e800}-\u{1efff}]/u;
+const strongRtl = text => RTL_SCRIPTS.test(text) && [...text].some(c => RTL_SCRIPTS.test(c) && ['R', 'AL'].includes(bidiCharacterType(c)));
 export const PAGE = Object.freeze({ width: 816, height: 1056, margin: 96, gap: 24, lineHeight: 26, paragraphGap: 12, fontSize: 16 });
 export const MAX_PAGES = 200;
 export const font = style => `${style.italic ? 'italic' : 'normal'} ${style.bold ? 700 : 400} ${(style.fontSize ?? 12) * 4 / 3}px ${canvasFontFamily(style)}`;
@@ -862,9 +866,10 @@ function measureParagraph(p, documentOffset, measure, page, listMarker, numberin
     const displayText = inlineDisplayText(p.runs[runIndex], s.segment);
     chars.push({ text: ignoredCellBreak ? '' : displayText, ignoredCellBreak, ...(noBreakHyphen ? { noBreakHyphen: true } : {}), ...(wordBreaks?.has(s.index + s.segment.length) ? { wordBreak: true } : {}), breakClear: p.runs[runIndex]?.breakClear, start: documentOffset + s.index, end: documentOffset + s.index + s.segment.length, style: textFontStyle(displayText, runStyle), image: runHidden ? undefined : p.runs[runIndex]?.image, positionalTab: p.runs[runIndex]?.positionalTab });
   }
-  // Active RTL import/editing remains guarded while interaction is verified.
-  // Do not alter the existing unmarked-text path during that rollout.
-  if (chars.some(c=>c.style.rtl)) chars=bidiCharacters(chars);
+  // Active RTL import/editing remains guarded while interaction is verified. Hebrew or Arabic typed
+  // into an ordinary run (no w:rtl) is still right-to-left text (UAX #9): it is ordered by the same
+  // path, so its carets and selection follow the glyphs instead of mirroring them.
+  if (chars.some(c=>c.style.rtl) || strongRtl(text)) chars=bidiCharacters(chars);
   // Leading page/column breaks move the first text line without consuming its
   // first-line indent. Spaces, tabs, manual line breaks and list markers do
   // consume it. Keep source offsets and the break-only pagination lines intact.

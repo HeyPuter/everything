@@ -12277,7 +12277,13 @@ direction override while retaining native Arabic joining. Colors, backgrounds
 and initial caret/selection geometry follow the relocated fragments; source
 UTF-16 offsets and graphemes stay unchanged. Supplementary characters use bidi
 class representatives only in the level-resolution proxy, not in painted or
-serialized text. An unmarked paragraph keeps its preceding layout path.
+serialized text. An unmarked paragraph keeps its preceding layout path, unless
+it contains a strong right-to-left letter (bidi class R or AL, such as Hebrew
+or Arabic typed into an ordinary run): such a paragraph is resolved by the same
+UAX #9 path with a left-to-right base level, so its carets, hit testing and
+selection follow the visual glyph order instead of mirroring it
+(`tests/unmarked-rtl-layout.test.js`). No run properties are added, and digits
+of those scripts alone keep the left-to-right path.
 
 The existing 21 native cases verify word/number order. Eighteen new original
 controls in tests/fixtures/bidi-layout exercise three full pages, narrow mixed

@@ -82,9 +82,10 @@ it('keeps a long clipped space tail out of complete-run caret requests',()=>{
 
 it('does not apply an LTR override to unmarked strong RTL text',()=>{
   const p=paragraph('');p.runs=[{...RUN_FORMAT,ligatures:'standard',text:'אבג'}];
-  let requests=0;
-  layoutDocument([p],(text,style)=>{if(style.caretOffsets)requests++;return {width:text.length*4,ascent:12,descent:3};});
-  expect(requests).toBe(0);
+  const requests=[];
+  layoutDocument([p],(text,style)=>{if(style.caretOffsets)requests.push(style.bidiDirection);return {width:text.length*4,ascent:12,descent:3};});
+  // Its carets are shaped right to left, as an RTL fragment, never as left-to-right text.
+  expect(requests).toEqual(['rtl']);
 });
 
 it('keeps cached prefix metrics separate by font style and refreshes them for a new layout',()=>{
