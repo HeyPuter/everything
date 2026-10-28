@@ -1,7 +1,7 @@
 import { UnsupportedDocumentError } from './errors.js';
 import { serializeFragment } from './docx-compatibility.js';
 import { relatedPartPath } from './docx-relationships.js';
-import { parseXml, wordText } from './docx-xml.js';
+import { elementChildren, parseXml, wordText } from './docx-xml.js';
 import { bookmarkReader } from './docx-bookmarks.js';
 import { bookmarkEntries } from './bookmarks.js';
 import { unresolvedBindingReader } from './docx-data-binding.js';
@@ -68,7 +68,7 @@ function projectRetainedControls(root) {
   }
   projectControlContents(root);
 }
-const children = n => [...(n?.children || [])];
+const children = n => n?.children ? elementChildren(n) : [];
 const fail = reason => { throw new UnsupportedDocumentError(`content controls with ${reason}`); };
 const child = (n, name) => children(n).find(c => c.namespaceURI === W && c.localName === name);
 function attributes(node, names = [], ns = W) {

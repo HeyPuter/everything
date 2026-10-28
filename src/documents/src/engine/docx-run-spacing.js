@@ -1,8 +1,9 @@
 import { UnsupportedDocumentError } from './errors.js';
+import { childElements } from './docx-xml.js';
 const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
 export function readRunSpacing(rPr) {
-  const result = {}, nodes = [...(rPr?.children || [])].filter(n => n.namespaceURI === W && n.localName === 'spacing');
-  if ([...(rPr?.children || [])].some(n => n.namespaceURI === W && n.localName === 'fitText')) result.fitText = true;
+  const result = {}, nodes = childElements(rPr, W, 'spacing');
+  if (childElements(rPr, W, 'fitText').length) result.fitText = true;
   if (nodes.length > 1) throw new UnsupportedDocumentError('duplicate character spacing');
   const node = nodes[0]; if (!node) return result;
   if (node.children.length || node.textContent.trim() || [...node.attributes].some(a => a.namespaceURI === W && a.localName !== 'val')) throw new UnsupportedDocumentError('unsupported character spacing content');

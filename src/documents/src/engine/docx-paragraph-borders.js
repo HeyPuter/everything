@@ -1,8 +1,9 @@
 import { BORDER_SIDES, checkedParagraphBorder, checkedParagraphBorders } from './paragraph-borders.js';
 import { UnsupportedDocumentError } from './errors.js';
+import { elementChildren } from './docx-xml.js';
 
 const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
-const children = node => [...(node?.children || [])];
+const children = node => node?.children ? elementChildren(node) : [];
 const fail = reason => { throw new UnsupportedDocumentError('paragraph borders with ' + reason); };
 const number = (node, name, maximum, minimum = 0) => {
   const raw = node.getAttributeNS(W, name);

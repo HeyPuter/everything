@@ -86,7 +86,7 @@ import { resolvedFormat, geometryPatch, checkedRunFormat, PARAGRAPH_FLAGS, chara
 import { levelParagraphPatch } from './numbering-paragraph.js';
 import { UnsupportedDocumentError } from './errors.js';
 export { UnsupportedDocumentError } from './errors.js';
-import { parseXml as xml, runText, setContentTypeOverride, xmlDepthExceeds } from './docx-xml.js';
+import { childElement, elementChildren, parseXml as xml, runText, setContentTypeOverride, xmlDepthExceeds } from './docx-xml.js';
 import { emptyNumbering, levelFor, listMarkers } from './numbering.js';
 import { readNumbering, writeNumbering } from './docx-numbering.js';
 import { validateIndent, normalizeTabStops } from './paragraph-geometry.js';
@@ -114,8 +114,8 @@ export const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
 const REL = 'http://schemas.openxmlformats.org/package/2006/relationships';
 const XML = 'http://www.w3.org/XML/1998/namespace';
 const serialize = node => new XMLSerializer().serializeToString(node);
-const children = node => node ? [...node.children] : [];
-const child = (node, name) => children(node).find(n => n.namespaceURI === W && n.localName === name);
+const children = node => node ? elementChildren(node) : [];
+const child = (node, name) => node ? childElement(node, W, name) : undefined;
 const value = node => node?.getAttributeNS(W, 'val');
 const enabled = node => node ? !['0', 'false', 'off'].includes(value(node)) : null;
 const signature = p => JSON.stringify(p);
@@ -189,9 +189,23 @@ function paragraphProperties(pPr, inherited = {}, readColor) {
   return result;
 }
 
-// A numbering level's own paragraph properties, validated as a paragraph would be.
-function levelParagraphReader(readColor) {
-  return pPr => { const patch = levelParagraphPatch(paragraphProperties(pPr, {}, readColor)); resolvedFormat(patch); return patch; };
+// A numbering level's paragraph properties (pPr) give both its geometry and its other
+// paragraph properties. Each level reads the same pPr for one and then the other, and
+// documents with many lists have thousands of levels: read each pPr once. The read is
+// pure and neither patch changes it, so reusing the last one gives the same results.
+function levelPropertyReaders(readColor) {
+  let lastNode, lastProperties;
+  const properties = pPr => {
+    if (pPr && pPr === lastNode) return lastProperties;
+    const result = paragraphProperties(pPr, {}, readColor);
+    if (pPr) { lastNode = pPr; lastProperties = result; }
+    return result;
+  };
+  return {
+    geometry: pPr => geometryPatch(properties(pPr), true),
+    // A numbering level's own paragraph properties, validated as a paragraph would be.
+    paragraph: pPr => { const patch = levelParagraphPatch(properties(pPr)); resolvedFormat(patch); return patch; },
+  };
 }
 
 function numberingReference(pPr, inherited = {}, inTableStyle = false) {
@@ -1362,7 +1376,8 @@ export class DocxPackage {
     styles.openTypeFeatures = attempt(() => readOpenTypeFeatures(settings?.documentElement, pageSettings.compatibilityMode), false);
     const tocHyperlinkRuns = preview ? projectCachedFieldResults(body, styles) : new WeakSet();
     let numbering;
-    try { numbering = readNumbering(parts, node => geometryPatch(paragraphProperties(node, {}, readColor), true), readColor, readFonts, preview ? error => recordPreviewIssue(issues, error) : null, levelParagraphReader(readColor)); } catch (e) { if (preview) { recordPreviewIssue(issues, e); numbering = emptyNumbering(); } else throw e instanceof UnsupportedDocumentError ? e : new UnsupportedDocumentError(e.message); }
+    const levelReaders = levelPropertyReaders(readColor);
+    try { numbering = readNumbering(parts, levelReaders.geometry, readColor, readFonts, preview ? error => recordPreviewIssue(issues, error) : null, levelReaders.paragraph); } catch (e) { if (preview) { recordPreviewIssue(issues, e); numbering = emptyNumbering(); } else throw e instanceof UnsupportedDocumentError ? e : new UnsupportedDocumentError(e.message); }
     const checkMarkers = paragraphs => {
       const report = error => recordPreviewIssue(issues, error);
       try { listMarkers(paragraphs, numbering, preview ? report : null); }

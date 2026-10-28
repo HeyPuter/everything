@@ -1,11 +1,12 @@
 import { UnsupportedDocumentError } from './errors.js';
 import { curvedSketchRectangle, curvedSketchEllipse } from './sketch-curves.js';
+import { elementChildren } from './docx-xml.js';
 const A = 'http://schemas.openxmlformats.org/drawingml/2006/main';
 const ASK = 'http://schemas.microsoft.com/office/drawing/2018/sketchyshapes';
 const XMLNS = 'http://www.w3.org/2000/xmlns/';
 const URI = '{c807c97d-bfc1-408e-a445-0c87eb9f89a2}';
 const fail = why => { throw new UnsupportedDocumentError(`sketch outlines with ${why}`); };
-const children = n => [...(n?.children || [])];
+const children = n => n?.children ? elementChildren(n) : [];
 const is = (n, ns, name) => n?.namespaceURI === ns && n.localName === name;
 function attributes(n, allowed) {
   if ([...n.attributes].some(a => a.namespaceURI !== XMLNS && (a.namespaceURI || !allowed.includes(a.localName))) || [...n.childNodes].some(c => [3, 4].includes(c.nodeType) && c.textContent.trim())) fail('invalid attributes or text');

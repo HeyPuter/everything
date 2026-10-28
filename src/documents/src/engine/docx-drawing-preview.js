@@ -1,8 +1,9 @@
 import { validateImage } from './images.js';
+import { elementChildren } from './docx-xml.js';
 
 const WP = 'http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing';
 const A = 'http://schemas.openxmlformats.org/drawingml/2006/main';
-const children = node => [...(node?.children || [])];
+const children = node => node?.children ? elementChildren(node) : [];
 
 // Use only an unambiguous, unrotated inline frame. A floating placement or
 // invalid dimensions cannot safely be approximated as an inline rectangle.

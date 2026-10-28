@@ -13,7 +13,7 @@ import { readRunSpacing } from './docx-run-spacing.js';
 import { checkedBaselineShift } from './vertical-align.js';
 import { readRunVertical } from './docx-vertical-align.js';
 import { readRunBackground } from './docx-backgrounds.js';
-import { parseXml as xml, setContentTypeOverride } from './docx-xml.js';
+import { childElement, elementChildren, parseXml as xml, setContentTypeOverride } from './docx-xml.js';
 import { strToU8 } from 'fflate';
 import { emptyNumbering, READ_NUMBER_FORMATS } from './numbering.js';
 import { relatedPartPath } from './docx-relationships.js';
@@ -25,8 +25,8 @@ const W16CID = 'http://schemas.microsoft.com/office/word/2016/wordml/cid';
 const REL = 'http://schemas.openxmlformats.org/package/2006/relationships';
 const OFFICE_REL = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering';
 const TYPE = 'application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml';
-const children = node => [...(node?.children || [])];
-const child = (node, name) => children(node).find(n => n.namespaceURI === W && n.localName === name);
+const children = node => node?.children ? elementChildren(node) : [];
+const child = (node, name) => node?.children ? childElement(node, W, name) : undefined;
 const val = node => node?.getAttributeNS(W, 'val');
 
 const serialize = node => new XMLSerializer().serializeToString(node).replace(/^(<\?xml[^?]*encoding=)["'][^"']*["']/i, '$1"UTF-8"');
@@ -74,7 +74,7 @@ export function readNumbering(parts, readGeometry, readColor, readFonts, onError
   if (!path) return result;
   const root = xml(parts[path]).documentElement;
   if (root.namespaceURI !== W || root.localName !== 'numbering') throw new Error('Unsupported numbering namespace.');
-  const readLevel = (node, emptyIndex) => guarded(() => {
+  const readLevelNow = (node, emptyIndex) => guarded(() => {
     const index = node ? integer(node.getAttributeNS(W, 'ilvl'), undefined, 8) : emptyIndex;
     if (index === undefined) throw new Error('Missing numbering level index.');
     for (const n of children(node)) if (n.namespaceURI !== W || !['start', 'numFmt', 'lvlRestart', 'pStyle', 'isLgl', 'suff', 'lvlText', 'legacy', 'lvlJc', 'pPr', 'rPr'].includes(n.localName)) throw new Error(`Unsupported numbering property: ${n.localName}.`);
@@ -142,6 +142,21 @@ export function readNumbering(parts, readGeometry, readColor, readFonts, onError
       restart: integer(val(child(node, 'lvlRestart')), undefined, 9), legal: !!on(child(node, 'isLgl')),
       styleId: val(child(node, 'pStyle')), geometry: readGeometry(pPr), ...(Object.keys(paragraph).length ? { paragraph, paragraphXml: serialize(pPr) } : {}), markerStyle, ...(symbol ? { symbol } : {}), ...(legacy ? { legacy } : {}) };
   });
+  // Lists made by copying one another repeat the same level definitions: a long document can
+  // declare thousands of levels and only dozens of distinct ones. A level's reading depends
+  // only on its markup (its serialization, which names its namespaces) and the document's
+  // fixed theme, fonts and colors, so each distinct level is read once; every level still
+  // gets its own copy. Errors a repeated level reports were reported when it was first read.
+  const levelsByMarkup = new Map();
+  const readLevel = (node, emptyIndex) => {
+    if (!node) return readLevelNow(node, emptyIndex);
+    const key = new XMLSerializer().serializeToString(node);
+    const known = levelsByMarkup.get(key);
+    if (known) return structuredClone(known);
+    const level = readLevelNow(node, emptyIndex);
+    levelsByMarkup.set(key, structuredClone(level));
+    return level;
+  };
   // An ambiguous ID invalidates that identity, not every unrelated list. Keep
   // all source nodes for style-link ambiguity checks; never pick a duplicate.
   const identified = (tag, attribute, records) => {

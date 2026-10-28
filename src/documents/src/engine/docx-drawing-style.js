@@ -1,4 +1,4 @@
-import { parseXml } from './docx-xml.js';
+import { elementChildren, parseXml } from './docx-xml.js';
 import { relatedPartPath } from './docx-relationships.js';
 import { UnsupportedDocumentError } from './errors.js';
 import { drawingPresetColors } from './drawing-preset-colors.js';
@@ -6,7 +6,7 @@ import { drawingSystemColors } from './drawing-system-colors.js';
 import { luminanceTransform } from './colors.js';
 
 const A = 'http://schemas.openxmlformats.org/drawingml/2006/main';
-const children = n => [...(n?.children || [])];
+const children = n => n?.children ? elementChildren(n) : [];
 const fail = why => { throw new UnsupportedDocumentError(`drawing styles with ${why}`); };
 const clamp = n => Math.max(0, Math.min(1, n));
 // The input and final color resolve through linear RGB percentage units.

@@ -1,10 +1,11 @@
 import { UnsupportedDocumentError } from './errors.js';
+import { elementChildren } from './docx-xml.js';
 
 const DGM = 'http://schemas.openxmlformats.org/drawingml/2006/diagram';
 const pointTypes = new Set(['doc', 'node', 'asst', 'parTrans', 'sibTrans', 'pres']);
 const connectionTypes = new Set(['parOf', 'presOf', 'presParOf', 'unknownRelationship']);
 const fail = reason => { throw new UnsupportedDocumentError(`diagram data with ${reason}`); };
-const children = node => [...(node?.children || [])];
+const children = node => node?.children ? elementChildren(node) : [];
 function list(root, name, optional = false) {
   const matches = children(root).filter(n => n.namespaceURI === DGM && n.localName === name);
   if (optional && !matches.length) return [];

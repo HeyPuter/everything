@@ -1,6 +1,6 @@
 const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
 const is = (node, name) => node?.namespaceURI === W && node.localName === name;
-const children = node => [...(node?.children || [])];
+const children = node => node?.children ? elementChildren(node) : [];
 
 // The button shows the complete instruction tail, including literal quotes and
 // trailing spaces. The macro name is never exposed as a button or executed.
@@ -169,3 +169,4 @@ export function previewMacroButtons(container, project = labels => labels) {
 import { pageFieldSegments } from './docx-page-fields.js';
 import { serializeFragment } from './docx-compatibility.js';
 import { UnsupportedDocumentError } from './errors.js';
+import { elementChildren } from './docx-xml.js';

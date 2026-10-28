@@ -1,4 +1,5 @@
 import { parseXml } from './docx-xml.js';
+import { relationshipEntries } from './docx-relationships.js';
 import { UnsupportedDocumentError } from './errors.js';
 import { readPageNumbering } from './page-numbering.js';
 
@@ -32,7 +33,8 @@ function targetPath(target) {
 // Section references inherit independently for each first/even/default story.
 // Missing first/even stories remain blank; they do not fall back to default.
 export function readPageStories(parts, sectionNodes, settings, onUnsupported = null) {
-  const rels = parts['word/_rels/document.xml.rels'] ? parseXml(parts['word/_rels/document.xml.rels']).documentElement : null;
+  // Read once for each version of the part (relationshipEntries); entries read attributes as getAttribute does.
+  const rels = parts['word/_rels/document.xml.rels'] ? relationshipEntries(parts['word/_rels/document.xml.rels']) : null;
   const types = parseXml(parts['[Content_Types].xml']).documentElement;
   const stories = {}, sections = [];
   let inherited = { header: {}, footer: {} };
@@ -50,9 +52,9 @@ export function readPageStories(parts, sectionNodes, settings, onUnsupported = n
         const variant = ref.getAttributeNS(W, 'type'), id = ref.getAttributeNS(R, 'id');
         try {
           if (!['default', 'first', 'even'].includes(variant) || counts.get(variant) > 1 || !id) fail(`invalid or duplicate ${kind} reference`);
-          const links = [...(rels?.children || [])].filter(n => n.namespaceURI === REL && n.localName === 'Relationship' && n.getAttribute('Id') === id);
-          if (links.length !== 1 || links[0].getAttribute('Type') !== R + '/' + kind || ![null, 'Internal'].includes(links[0].getAttribute('TargetMode'))) fail(`invalid or external ${kind} relationship`);
-          const path = targetPath(links[0].getAttribute('Target'));
+          const links = (rels || []).filter(n => n.namespaceURI === REL && n.localName === 'Relationship' && n.attribute('Id') === id);
+          if (links.length !== 1 || links[0].attribute('Type') !== R + '/' + kind || ![null, 'Internal'].includes(links[0].attribute('TargetMode'))) fail(`invalid or external ${kind} relationship`);
+          const path = targetPath(links[0].attribute('Target'));
           if (!Object.hasOwn(parts, path)) fail(`a missing ${kind} part`);
           const override = [...types.children].find(n => n.localName === 'Override' && n.getAttribute('PartName') === '/' + path);
           const type = override || [...types.children].find(n => n.localName === 'Default' && n.getAttribute('Extension') === path.split('.').at(-1));

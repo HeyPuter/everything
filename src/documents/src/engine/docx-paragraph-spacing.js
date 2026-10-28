@@ -1,9 +1,10 @@
 import { UnsupportedDocumentError } from './errors.js';
+import { childElements } from './docx-xml.js';
 const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
 const fail = () => { throw new UnsupportedDocumentError('malformed or unsupported paragraph spacing declarations'); };
 
 export function readParagraphSpacing(pPr) {
-  const nodes = [...(pPr?.children || [])].filter(n => n.namespaceURI === W && n.localName === 'spacing');
+  const nodes = childElements(pPr, W, 'spacing');
   if (nodes.length > 1) fail();
   const node = nodes[0], result = {};
   if (!node) return result;

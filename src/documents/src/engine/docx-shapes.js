@@ -20,10 +20,11 @@ import { ribbonGeometry } from './ribbon-geometry.js';
 import { readShapeExtensions } from './docx-shape-extensions.js';
 import { readPictureShadow } from './docx-picture-shadow.js';
 import { readDrawingEffects } from './docx-drawing-effects.js';
+import { elementChildren } from './docx-xml.js';
 const A = 'http://schemas.openxmlformats.org/drawingml/2006/main';
 const PIC = 'http://schemas.openxmlformats.org/drawingml/2006/picture';
 const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
-const children = n => [...(n?.children || [])];
+const children = n => n?.children ? elementChildren(n) : [];
 const child = (n, ns, name) => children(n).find(c => c.namespaceURI === ns && c.localName === name);
 const fail = why => { throw new UnsupportedDocumentError(`grouped drawings with ${why}`); };
 function check(node, allowed) {

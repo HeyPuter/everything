@@ -1,9 +1,10 @@
 import { MC, alternateBranch } from './docx-compatibility.js';
 import { macroButtonLabelStart } from './docx-macro-buttons.js';
+import { elementChildren } from './docx-xml.js';
 
 const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
 const is = (node, name) => node.namespaceURI === W && node.localName === name;
-const children = node => [...node.children];
+const children = node => elementChildren(node);
 const metadata = new Set(['pPr', 'rPr', 'sectPr', 'tblPr', 'trPr', 'tcPr', 'sdtPr', 'del', 'moveFrom']);
 
 // Read one story in document order, including fields spanning paragraphs and

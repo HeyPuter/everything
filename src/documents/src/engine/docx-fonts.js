@@ -1,4 +1,4 @@
-import { parseXml } from './docx-xml.js';
+import { childElements, elementChildren, parseXml } from './docx-xml.js';
 import { relatedPartPath } from './docx-relationships.js';
 import { FONT_SLOTS, checkedFontName } from './font-families.js';
 import { UnsupportedDocumentError } from './errors.js';
@@ -6,10 +6,10 @@ import { documentEmbeddedFonts } from './embedded-fonts.js';
 
 const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
 const A = 'http://schemas.openxmlformats.org/drawingml/2006/main';
-const children = n => [...(n?.children || [])];
+const children = n => n?.children ? elementChildren(n) : [];
 const fail = why => { throw new UnsupportedDocumentError(`font declarations with ${why}`); };
 function only(n, ns, name) {
-  const nodes = children(n).filter(c => c.namespaceURI === ns && c.localName === name);
+  const nodes = childElements(n, ns, name);
   if (nodes.length > 1) fail(`duplicate ${name}`);
   return nodes[0];
 }

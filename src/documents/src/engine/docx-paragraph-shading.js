@@ -1,5 +1,6 @@
 import { UnsupportedDocumentError } from './errors.js';
 import { checkedShading } from './backgrounds.js';
+import { childElements } from './docx-xml.js';
 
 const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
 const percentages=new Map([5,10,12,15,20,25,30,35,37,40,45,50,55,60,62,65,70,75,80,85,87,90,95].map(n=>['pct'+n,2*n+([12,37,62,87].includes(n)?1:0)]));
@@ -7,7 +8,7 @@ const percentages=new Map([5,10,12,15,20,25,30,35,37,40,45,50,55,60,62,65,70,75,
 // CT_Shd is an atomic declaration: omitted color channels mean auto, rather
 // than inheriting individual attributes from a preceding shading declaration.
 export function readParagraphShading(pPr, readColor) {
-  const nodes = [...(pPr?.children || [])].filter(n => n.namespaceURI === W && n.localName === 'shd');
+  const nodes = childElements(pPr, W, 'shd');
   if (!nodes.length) return undefined;
   if (nodes.length !== 1) throw new UnsupportedDocumentError('duplicate paragraph shading');
   if ([...nodes[0].childNodes].some(n => n.nodeType === 1 || [3, 4].includes(n.nodeType) && n.textContent.trim())) throw new UnsupportedDocumentError('paragraph shading with child content');

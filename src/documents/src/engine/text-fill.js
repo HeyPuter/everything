@@ -1,6 +1,7 @@
 import { normalizeColor, luminanceTransform } from './colors.js';
 import { UnsupportedDocumentError } from './errors.js';
 import { W14 } from './text-outline.js';
+import { childElements } from './docx-xml.js';
 
 const fail = () => { throw new UnsupportedDocumentError('unsupported text fill properties'); };
 export function checkedTextFill(value) {
@@ -11,7 +12,7 @@ export function checkedTextFill(value) {
 }
 
 export function readTextFill(rPr, readColor) {
-  const nodes = [...(rPr?.children || [])].filter(n => n.namespaceURI === W14 && n.localName === 'textFill');
+  const nodes = childElements(rPr, W14, 'textFill');
   if (!nodes.length) return {};
   if (nodes.length !== 1) fail();
   const attrs = (n, allowed = []) => {

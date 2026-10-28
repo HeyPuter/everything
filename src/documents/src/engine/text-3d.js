@@ -1,5 +1,5 @@
 import { W14 } from './text-outline.js';
-import { parseXml } from './docx-xml.js';
+import { childElements, parseXml } from './docx-xml.js';
 import { serializeFragment } from './docx-compatibility.js';
 
 const names = { text3d: 'props3d', textScene: 'scene3d' };
@@ -19,7 +19,7 @@ export function checkedText3d(value, key) { declaration(value, key); return valu
 export function readText3d(rPr) {
   const result = {};
   for (const [key, name] of Object.entries(names)) {
-    const nodes = [...(rPr?.children || [])].filter(n => n.namespaceURI === W14 && n.localName === name);
+    const nodes = childElements(rPr, W14, name);
     // An ambiguous malformed declaration must not accidentally expose an
     // inherited effect. Original run XML remains available for preservation.
     if (nodes.length) result[key] = nodes.length === 1 ? serializeFragment(nodes[0]) : null;
@@ -42,7 +42,7 @@ export function writeText3d(properties, value, key) {
 }
 
 const attr = (n, key, fallback) => n?.getAttributeNS(W14, key) ?? fallback;
-const children = (n, name) => [...(n?.children || [])].filter(c => c.namespaceURI === W14 && c.localName === name);
+const children = (n, name) => childElements(n, W14, name);
 const number = (n, key, fallback = 0) => {
   const value = attr(n, key, String(fallback));
   return /^\+?\d+$/.test(value) && Number.isSafeInteger(Number(value)) ? Number(value) : NaN;

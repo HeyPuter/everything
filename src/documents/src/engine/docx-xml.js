@@ -13,6 +13,40 @@ export function wordText(node) {
 // w:br and w:cr (§17.3.3.1, §17.3.3.4). Word shows each one as a space.
 export const runText = node => wordText(node).replace(/\r\n|[\r\n]/g, ' ');
 
+// Element children, read by walking siblings. Iterating a live `children` collection
+// (`[...node.children]`) costs several times more, and the readers look up children
+// tens of thousands of times while a large document opens.
+/** The element children of `node`, as `[...node.children]` lists them (and failing as it fails). */
+export function elementChildren(node) {
+  const list = node.children;
+  let n = node.firstElementChild;
+  if (n === undefined) return [...list];
+  const result = [];
+  for (; n; n = n.nextElementSibling) result.push(n);
+  return result;
+}
+/** The first element child of `node` with this namespace and local name, as
+ * `[...node.children].find(…)` finds it; undefined when there is none. */
+export function childElement(node, namespace, name) {
+  let n = node.firstElementChild;
+  if (n === undefined) return [...node.children].find(c => c.namespaceURI === namespace && c.localName === name);
+  for (; n; n = n.nextElementSibling) if (n.namespaceURI === namespace && n.localName === name) return n;
+  return undefined;
+}
+/** The element children of `node` with this namespace and local name, as
+ * `[...(node?.children || [])].filter(…)` lists them. */
+export function childElements(node, namespace, name) {
+  const result = [];
+  if (!node?.children) return result;
+  let n = node.firstElementChild;
+  if (n === undefined) {
+    for (const c of node.children) if (c.namespaceURI === namespace && c.localName === name) result.push(c);
+    return result;
+  }
+  for (; n; n = n.nextElementSibling) if (n.namespaceURI === namespace && n.localName === name) result.push(n);
+  return result;
+}
+
 const CONTENT_TYPES = 'http://schemas.openxmlformats.org/package/2006/content-types';
 /**
  * Declare a part's content type in a parsed [Content_Types].xml. The stream holds at most one Override

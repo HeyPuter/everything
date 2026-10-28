@@ -13,6 +13,7 @@
 import { strToU8, strFromU8 } from 'fflate';
 import { parseXml } from './docx-xml.js';
 import { relationshipPartPath, relativePartTarget } from './package-part-paths.js';
+import { relationshipEntries } from './docx-relationships.js';
 import { planMerge, MERGE_TYPES, fieldKeyword } from './merge-fields.js';
 import { xmlAttributeText } from './text-limits.js';
 
@@ -46,22 +47,26 @@ const resolveTarget = (source, target) => {
   for (const piece of target.replace(/^\//, '').split('/')) { if (piece === '..') parts.pop(); else if (piece && piece !== '.') parts.push(piece); }
   return parts.join('/');
 };
+// The main document's relationships, read once for each version of the part (relationshipEntries):
+// opening reads them in several places. Entries read attributes as getAttribute does.
+function documentLinks(parts) {
+  const path = relationshipPartPath('word/document.xml');
+  return relationshipEntries(parts[path] || `<Relationships xmlns="${REL}"/>`).filter(n => n.namespaceURI === REL && n.localName === 'Relationship');
+}
 function settingsPath(parts) {
-  const rels = relationships(parts, 'word/document.xml').doc;
-  const link = elements(rels.documentElement, 'Relationship', REL).find(n => n.getAttribute('Type') === SETTINGS && n.getAttribute('TargetMode') !== 'External');
-  return link ? resolveTarget('word/document.xml', link.getAttribute('Target')) : null;
+  const link = documentLinks(parts).find(n => n.attribute('Type') === SETTINGS && n.attribute('TargetMode') !== 'External');
+  return link ? resolveTarget('word/document.xml', link.attribute('Target')) : null;
 }
 
 /** The custom XML part holding this editor's mail merge data: { path, doc } or null. */
 function dataPart(parts) {
-  const rels = relationships(parts, 'word/document.xml').doc;
-  for (const link of elements(rels.documentElement, 'Relationship', REL)) {
-    if (link.getAttribute('Type') !== CUSTOM_XML || link.getAttribute('TargetMode') === 'External') continue;
-    const path = resolveTarget('word/document.xml', link.getAttribute('Target'));
+  for (const link of documentLinks(parts)) {
+    if (link.attribute('Type') !== CUSTOM_XML || link.attribute('TargetMode') === 'External') continue;
+    const path = resolveTarget('word/document.xml', link.attribute('Target'));
     if (!parts[path]) continue;
     try {
       const doc = parseXml(parts[path]);
-      if (doc.documentElement.namespaceURI === MAIL_MERGE_NS) return { path, doc, id: link.getAttribute('Id') };
+      if (doc.documentElement.namespaceURI === MAIL_MERGE_NS) return { path, doc, id: link.attribute('Id') };
     } catch { /* Someone else's malformed data part is not ours to read. */ }
   }
   return null;
