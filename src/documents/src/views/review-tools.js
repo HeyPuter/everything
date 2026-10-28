@@ -252,7 +252,8 @@ export function createReviewTools({ editor, pkg, error, author, review, proofing
       if (!engine.overlays.includes(editorPane.overlay)) engine.overlays.push(editorPane.overlay);
       applyTrackingSettings();
       const view = docRevisionView();
-      if (view.insDel === false || view.formatting === false) Object.assign(revisionView.options, { showInsDel: view.insDel !== false, showFormatting: view.formatting !== false });
+      // The document's own choices, shown or not: those of the document opened before it would otherwise stay.
+      Object.assign(revisionView.options, { showInsDel: view.insDel !== false, showFormatting: view.formatting !== false });
       restrict.applyGuard();
       // A protected document opens with its permissions in view, as desktop word processors show them.
       const protection = pkg()?.reviewSettings?.protection;
