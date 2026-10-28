@@ -10,6 +10,7 @@
  */
 import { readDrawingFragment, nextDrawingOrder, nextDrawingId } from '../engine/inserted-drawings.js';
 import { decodeImages, inlineImagePaintFrame, isPositionedImage } from '../engine/images.js';
+import { paragraphText } from '../engine/model.js';
 import { inkDrawingXml, readInkDrawingCached, EMU_PER_PX } from '../engine/docx-ink.js';
 import { strokeBounds, unionBounds } from '../engine/ink-geometry.js';
 
@@ -54,18 +55,35 @@ export function imageOffset(model, image) {
 /**
  * Where ink at `bounds` on `page` is anchored: the last body paragraph that starts on that page at or
  * above the ink (else the page's first), with a paragraph-relative vertical offset so the ink moves
- * with its text. Returns { paragraphId, anchor } or null when no paragraph starts on the page.
+ * with its text. A page where no body paragraph starts (all table rows, or a paragraph running on from
+ * the page before) anchors the ink in a table cell paragraph that starts there, or else at the start of
+ * the page's first line, positioned from that line, so the ink stays on the page it was drawn on.
+ * Returns { paragraphId, lineOffset?, anchor } (lineOffset: where in the paragraph its character goes),
+ * or null when nothing on the page can hold it.
  */
 export function inkAnchor(engine, page, bounds, { behind = false, order = 1 } = {}) {
   const lines = engine.layout.lines || [], first = new Map();
   for (const line of lines) if (line.paragraphId != null && !first.has(line.paragraphId)) first.set(line.paragraphId, line);
-  const starts = [...first.values()].filter(line => line.page === page && !line.cellId && !line.pageStory && !line.header);
-  if (!starts.length) return null;
-  const top = line => line.y - (line.anchorBefore || 0);
-  const above = starts.filter(line => top(line) <= bounds.top + 0.5);
-  const line = above.length ? above.reduce((a, b) => (top(b) >= top(a) ? b : a)) : starts.reduce((a, b) => (top(b) < top(a) ? b : a));
   const clampOffset = v => Math.max(-MAX_OFFSET, Math.min(MAX_OFFSET, Math.round(v)));
-  return { paragraphId: line.paragraphId, anchor: { horizontal: 'page', vertical: 'paragraph', x: clampOffset(bounds.left * EMU_PER_PX), y: clampOffset((bounds.top - top(line)) * EMU_PER_PX), wrap: 'none', behind, order } };
+  const top = line => line.y - (line.anchorBefore || 0);
+  const nearest = starts => { const above = starts.filter(line => top(line) <= bounds.top + 0.5); return above.length ? above.reduce((a, b) => (top(b) >= top(a) ? b : a)) : starts.reduce((a, b) => (top(b) < top(a) ? b : a)); };
+  const make = (line, x, vertical, y, extra = {}) => ({ paragraphId: line.paragraphId, ...extra, anchor: { horizontal: 'page', vertical, x: clampOffset(x * EMU_PER_PX), y: clampOffset(y * EMU_PER_PX), wrap: 'none', behind, order } });
+  const onPage = [...first.values()].filter(line => line.page === page && !line.pageStory && !line.header);
+  const starts = onPage.filter(line => !line.cellId);
+  if (starts.length) { const line = nearest(starts); return make(line, bounds.left, 'paragraph', bounds.top - top(line)); }
+  // In a cell, page coordinates are measured from the cell (positioned-images.js).
+  const cellStarts = onPage.filter(line => line.cellId && (engine.layout.cells || []).some(c => c.id === line.cellId && c.page === page));
+  if (cellStarts.length) {
+    const line = nearest(cellStarts), cell = engine.layout.cells.find(c => c.id === line.cellId && c.page === page);
+    return make(line, bounds.left - cell.x, 'paragraph', bounds.top - top(line));
+  }
+  // A paragraph that began on an earlier page: its first line here holds the ink, which keeps to that line.
+  const running = lines.filter(line => line.page === page && !line.cellId && !line.pageStory && !line.header && line.paragraphId != null && Number.isFinite(line.start)).sort((a, b) => a.y - b.y)[0];
+  if (running) {
+    const p = engine.model.paragraphs.findIndex(x => x.id === running.paragraphId), start = p < 0 ? -1 : engine.model.paragraphOffset(p);
+    if (start >= 0 && running.start > start) return make(running, bounds.left, 'line', bounds.top - running.y, { lineOffset: running.start - start });
+  }
+  return null;
 }
 
 /** A frame around strokes (page pixels), with a pixel of room, and the strokes moved into it. */
@@ -96,12 +114,12 @@ export function createInkCommitter({ editor, pkg, onApplied = () => {}, onError 
     // Drawing ids are written into the saved frame, so each new drawing takes the next unused one.
     const id = op.replace ? op.replace.id : nextDrawingId(model) + index;
     const assetId = `${INK_ASSET}${Date.now().toString(36)}-${++assetCounter}`;
-    let xml, paragraphId = null;
+    let xml, paragraphId = null, lineOffset;
     if (op.addXml) {
       // Another drawing (a recognised shape) placed like ink: anchored to the paragraph under it.
       const placed = inkAnchor(engine, op.page, op.bounds, { behind: false, order: nextDrawingOrder(model) + index });
       if (!placed) throw new Error('Shapes need a paragraph that starts on this page. Add a paragraph here first.');
-      paragraphId = placed.paragraphId;
+      paragraphId = placed.paragraphId; lineOffset = placed.lineOffset;
       xml = op.addXml(id, placed.anchor);
     } else if (op.add && op.canvas) {
       xml = inkDrawingXml({ id, strokes: [], width: op.width, height: op.height, canvas: true });
@@ -109,7 +127,7 @@ export function createInkCommitter({ editor, pkg, onApplied = () => {}, onError 
       const frame = frameStrokes(op.add);
       const placed = inkAnchor(engine, op.page, frame, { behind: !!op.behind, order: nextDrawingOrder(model) + index });
       if (!placed) throw new Error('Ink needs a paragraph that starts on this page. Add a paragraph here first.');
-      paragraphId = placed.paragraphId;
+      paragraphId = placed.paragraphId; lineOffset = placed.lineOffset;
       xml = inkDrawingXml({ id, strokes: frame.strokes, width: frame.width, height: frame.height, anchor: placed.anchor });
     } else if (op.replace) {
       const current = inkFrames(engine).find(f => f.image === op.replace);
@@ -133,7 +151,7 @@ export function createInkCommitter({ editor, pkg, onApplied = () => {}, onError 
     } else return { op };
     const fragment = await readDrawingFragment(xml, { sourceParts: pkg()?.parts || {}, assetId });
     const bitmaps = await decodeImages(fragment.assets, model.styles.fontAlternatives, () => {});
-    return { op, fragment, bitmaps, paragraphId };
+    return { op, fragment, bitmaps, paragraphId, lineOffset };
   }
 
   /** The text offset of a paragraph's start, by id, in the current model. */
@@ -169,6 +187,8 @@ export function createInkCommitter({ editor, pkg, onApplied = () => {}, onError 
       for (const b of built.filter(b => b.op.add || b.op.addXml)) {
         let at = b.paragraphId != null ? paragraphStart(model, b.paragraphId) : caret;
         if (at < 0) throw new Error('The paragraph under the ink is gone. Try again.');
+        // Within a paragraph running on from an earlier page: at the start of its line on the ink's page.
+        if (b.lineOffset) { const p = model.paragraphs.find(x => x.id === b.paragraphId); at += Math.min(b.lineOffset, paragraphText(p).length); }
         if (b.op.canvas) {
           // A drawing canvas takes a paragraph of its own.
           const text = model.text, lineStart = text.lastIndexOf('\n', at - 1) + 1, lineEnd = text.indexOf('\n', at) < 0 ? text.length : text.indexOf('\n', at);

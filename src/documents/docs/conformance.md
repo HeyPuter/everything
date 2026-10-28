@@ -23998,8 +23998,11 @@ Ink is saved as ordinary DrawingML so every reader shows it; nothing depends on 
   `wp:posOffset`, relative to the paragraph that starts on the page at or above the ink (the run
   carrying the drawing is inserted at that paragraph's start), so ink moves with its text. Editing a
   group keeps its anchor paragraph and shifts the offsets; groups authored with `wp:align` or
-  percentage offsets are rewritten with page-relative offsets when edited. Pages on which no body
-  paragraph starts (one paragraph spanning the whole page, or a page of table) cannot take new ink.
+  percentage offsets are rewritten with page-relative offsets when edited. On a page where no body
+  paragraph starts, the ink is anchored in a table cell paragraph that starts on the page (in a cell,
+  `relativeFrom="page"` is measured from the cell, `layoutInCell="1"`), or else its run goes at the
+  start of the page's first line of a paragraph running on from an earlier page, with
+  `wp:positionV relativeFrom="line"` (§20.4.3.5) so the ink stays on the page it was drawn on.
 - Each stroke is a `wps:wsp` whose `a:custGeom` (§20.1.9.8) has one `a:path` (§20.1.9.15) tracing the
   stroke's filled outline with `a:moveTo`/`a:lnTo`/`a:close` in a 1/16-pixel path grid
   (`w`/`h`), empty `avLst`/`gdLst`/`ahLst`/`cxnLst`, `a:rect l t r b`, and `a:ln` with `a:noFill`.
