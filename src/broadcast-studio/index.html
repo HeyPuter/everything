@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Broadcast Studio — scenes, overlays, local program/preview switcher." />
+    <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="icon-128.png" type="image/png" sizes="128x128" />
+    <title>Broadcast Studio</title>
+  </head>
+  <body>
+    <div id="app">
+      <header class="brand"><img src="icon-128.png" width="28" height="28" alt="" /><h1>Broadcast Studio</h1><span id="air" class="air">PREVIEW</span></header>
+      <main class="layout">
+        <aside class="panel" id="scenes"></aside>
+        <section>
+          <canvas id="program" width="640" height="360" aria-label="Program output"></canvas>
+          <div class="row">
+            <button class="btn" id="cut" type="button">Cut to Program</button>
+            <p id="status"></p>
+          </div>
+        </section>
+      </main>
+      <details class="help"><summary>DOCUMENTED vs LIVE</summary>
+        <p>Wirecast/XSplit (DOCUMENTED) encode LIVE RTMP/WebRTC streams. This v0 is a local scene graph with preview→program cut and overlays — no fabricated LIVE broadcast endpoints.</p>
+      </details>
+    </div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
