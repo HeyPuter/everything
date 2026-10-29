@@ -19,9 +19,12 @@ Play chess against the computer or a friend. No frameworks — just vanilla Java
 - **Games survive a reload** — a game in progress against the computer or in
   pass & play is stored as you play and picked up where you left off, clocks
   included. The clock does not run while the page is closed.
-- **Review and export** — step through the game with the on-screen controls or
-  the arrow keys, click any move to jump to that position, and copy or download
-  the whole game as PGN.
+- **Review, export and import** — step through the game with the on-screen
+  controls or the arrow keys, click any move to jump to that position, and copy
+  or download the whole game as PGN. Load a PGN from the clipboard or a `.pgn`
+  file to review a game played elsewhere (comments, variations and annotation
+  glyphs are ignored; a `[FEN]` tag is honoured so a game that did not start
+  from the initial array still replays).
 - Full chess rules: castling, en passant, promotion, checkmate, stalemate,
   threefold repetition, the fifty-move rule, and insufficient material
 - Click-to-move or drag-and-drop, with legal-move hints, last-move and
@@ -55,14 +58,14 @@ which touch the DOM:
   before the app trusts it. Games are stored as a move list, which replays into
   the captured pieces, the notation, and the repetition counts a bare FEN would
   lose.
-- `pgn.js` — building the export.
+- `pgn.js` — building the export, and reading a PGN back into a move list.
 
 ## Development
 
 ```sh
 npm install
 npm run dev      # start the dev server
-npm test         # run the test suite (engine rules, perft, SAN, AI)
+npm test         # run the test suite (engine rules, perft, SAN, PGN, AI)
 npm run build    # production build to dist/
 npm run preview  # serve the production build
 ```
