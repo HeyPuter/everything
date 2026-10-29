@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Publishing Studio — masters, text frames, columns, PDF export. InDesign-inspired." />
+    <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="icon-128.png" type="image/png" sizes="128x128" />
+    <title>Publishing Studio</title>
+  </head>
+  <body>
+    <div id="app">
+      <header class="brand"><img src="icon-128.png" width="28" height="28" alt="" /><h1>Publishing Studio</h1></header>
+      <main class="layout">
+        <aside class="panel">
+          <button class="btn" id="add-frame" type="button">Add text frame</button>
+          <button class="btn secondary" id="add-page" type="button">Add page</button>
+          <button class="btn" id="export-pdf" type="button">Export PDF</button>
+          <label>Columns <input id="columns" type="number" min="1" max="4" value="2" /></label>
+          <textarea id="copy" rows="5">Body copy flows across columns on the page.</textarea>
+          <ul id="pages"></ul>
+        </aside>
+        <canvas id="page" width="612" height="792" aria-label="Page canvas"></canvas>
+      </main>
+      <details class="help"><summary>DOCUMENTED vs LIVE</summary>
+        <p>InDesign (DOCUMENTED) includes LIVE Creative Cloud fonts, print RIPs, and package-for-press. This v0 keeps masters, frames, columns, and a toy PDF exporter fully offline — no fabricated LIVE print services.</p>
+      </details>
+    </div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
