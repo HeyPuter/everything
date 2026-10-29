@@ -172,6 +172,29 @@
   grid-template-columns: repeat(7, 1fr);
   gap: 1px;
 }
+.mini--weeks .mini__grid {
+  grid-template-columns: 16px repeat(7, 1fr);
+}
+.mini__weeknum {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-xs);
+  background: transparent;
+  color: var(--text-3);
+  font: inherit;
+  font-size: 9px;
+  font-weight: 650;
+  cursor: pointer;
+  min-width: 0;
+}
+.mini__weeknum--head {
+  cursor: default;
+  pointer-events: none;
+}
 .mini__dow {
   text-align: center;
   font-size: 10px;
@@ -194,6 +217,10 @@
 }
 @media (hover: hover) {
   .mini__cell:hover {
+    background: var(--surface-3);
+  }
+  .mini__weeknum:not(.mini__weeknum--head):hover {
+    color: var(--text);
     background: var(--surface-3);
   }
 }

@@ -43,6 +43,8 @@ import {
   formatWeekRange,
   formatDateRange,
   formatDayTitle,
+  startOfWeek,
+  displayedWeekNumber,
   tzOffsetLabel,
   tzPickerGroups,
 } from './date-utils.js';
@@ -155,6 +157,13 @@ export function createApp(root, { store, user, rsvp = null, contacts = null, inv
       state.cursor = startOfDay(day);
       state.miniCursor = startOfMonth(day);
       state.view = 'month';
+      render();
+    },
+    gotoWeekView: (day) => {
+      state.cursor = startOfDay(day);
+      state.miniCursor = startOfMonth(day);
+      state.view = 'week';
+      closeSidebar();
       render();
     },
     miniShift: (delta) => {
@@ -508,7 +517,14 @@ export function createApp(root, { store, user, rsvp = null, contacts = null, inv
     const s = store.getSettings();
     if (state.view === 'year') return { main: String(state.cursor.getFullYear()) };
     if (state.view === 'month') return { main: formatMonthYear(state.cursor) };
-    if (state.view === 'week') return { main: formatWeekRange(state.cursor, s.weekStartsOn) };
+    if (state.view === 'week') {
+      const range = formatWeekRange(state.cursor, s.weekStartsOn);
+      if (s.showWeekNumbers === true) {
+        const week = displayedWeekNumber(startOfWeek(state.cursor, s.weekStartsOn));
+        return { main: `${range} · Week ${week}` };
+      }
+      return { main: range };
+    }
     if (state.view === '4day') return { main: formatDateRange(state.cursor, addDays(state.cursor, 3)) };
     if (state.view === 'day') return { main: formatDayTitle(state.cursor) };
     return { main: formatMonthYear(state.cursor), muted: 'and beyond' };
@@ -643,7 +659,7 @@ export function createApp(root, { store, user, rsvp = null, contacts = null, inv
     closeContextMenu();
     const s = store.getSettings();
     // Keep the DOM theme in step with the (possibly just-reloaded) setting. The
-    // views read weekStartsOn/hour12/secondaryTz from `s` on every render, but
+    // views read weekStartsOn/hour12/secondaryTz/showWeekNumbers from `s` on every render, but
     // theme is a document-level attribute applied out-of-band — so without this a
     // reconnect reload (onReconnectRefresh → load() → emit → render) would leave
     // the page on its old theme while the setting and the account menu already
@@ -813,6 +829,9 @@ export function createApp(root, { store, user, rsvp = null, contacts = null, inv
       settingToggle('Start week on Monday', s.weekStartsOn === 1, (on) => {
         store.saveSettings({ weekStartsOn: on ? 1 : 0 });
       }),
+      settingToggle('Show week numbers', s.showWeekNumbers === true, (on) => {
+        store.saveSettings({ showWeekNumbers: on });
+      }, { name: 'showWeekNumbers' }),
       settingToggle('24-hour time', !s.hour12, (on) => {
         store.saveSettings({ hour12: !on });
       }),

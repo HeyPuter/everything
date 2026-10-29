@@ -35,6 +35,9 @@ lives in their own Puter storage.
 
 - **Four views** — Month, Week, Day, and a grouped List/agenda, each tuned for the
   screen size it runs on.
+- **Week numbers** — optional ISO 8601 week numbers along the month grid and the
+  sidebar mini-calendar. Click a number to open that week. The week-view title
+  shows the number too. Off by default; turn it on from the account menu.
 - **Full event management** — create, edit, duplicate, and delete events with title,
   time or all-day, location, description, and a nine-color palette.
 - **Recurring events** — daily, weekly (any weekdays), monthly (by date or weekday),
@@ -95,8 +98,8 @@ lives in their own Puter storage.
   hiding, how many links are no longer taking bookings.
 - **Responsive** — a sidebar drawer and bottom tab bar on mobile; a full three-pane
   layout on desktop.
-- **Themable** — automatic (OS), light, or dark; plus Monday/Sunday week start and
-  12/24-hour time. Preferences are persisted per user.
+- **Themable** — automatic (OS), light, or dark; plus Monday/Sunday week start,
+  12/24-hour time, and optional ISO week numbers. Preferences are persisted per user.
 - **Keyboard shortcuts** — `t` today · `y`/`m`/`w`/`x`/`d`/`a` switch views (year, month,
   week, 4 day, day, list) · `n` new event · `/` or `⌘`/`Ctrl`‑`K` search · `←`/`→` navigate ·
   `Esc` closes whatever is open.
