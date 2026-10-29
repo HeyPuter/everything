@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Workflow Studio — Zapier/Make-inspired local automation graph." />
+    <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="icon-128.png" type="image/png" sizes="128x128" />
+    <title>Workflow Studio</title>
+  </head>
+  <body>
+    <div id="app">
+      <header class="brand"><img src="icon-128.png" width="28" height="28" alt="" /><h1>Workflow Studio</h1></header>
+      <main class="layout">
+        <canvas id="graph" width="900" height="280" aria-label="Flow graph"></canvas>
+        <div class="row"><button class="btn" id="run" type="button">Run workflow</button><p id="status"></p></div>
+        <pre id="log"></pre>
+      </main>
+      <details class="help"><summary>DOCUMENTED vs LIVE</summary>
+        <p>Zapier/Make (DOCUMENTED) use LIVE OAuth connectors to third-party APIs. This v0 runs a local trigger→action→filter graph with no external credentials and no fabricated LIVE integrations.</p>
+      </details>
+    </div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
