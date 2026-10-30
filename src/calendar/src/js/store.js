@@ -137,6 +137,9 @@ export const DEFAULT_SETTINGS = Object.freeze({
   theme: 'system', // 'system' | 'light' | 'dark'
   weekStartsOn: 0, // 0 = Sunday, 1 = Monday
   hour12: true,
+  // ISO 8601 week numbers on the month grid, the sidebar mini-calendar, and
+  // the week-view title. Off by default so the 7-column layout stays as it is.
+  showWeekNumbers: false,
   defaultView: 'month', // 'month' | 'week' | 'day' | 'agenda'
   hiddenColors: [],
   // Renamed sidebar categories: palette key -> the user's own name, holding
@@ -182,6 +185,11 @@ function sanitizeMailInvites(value) {
 /** Only a real boolean survives — a foreign or hand-edited copy could hold
  *  anything under this key. */
 function sanitizeShowUnknown(value) {
+  return value === true;
+}
+
+/** Same as `sanitizeShowUnknown`: only a real boolean `true` turns this on. */
+function sanitizeShowWeekNumbers(value) {
   return value === true;
 }
 
@@ -634,6 +642,7 @@ export function createStore(backend) {
     settings.bookingName = sanitizeBookingName(settings.bookingName);
     settings.mailInvites = sanitizeMailInvites(settings.mailInvites);
     settings.mailInvitesShowUnknown = sanitizeShowUnknown(settings.mailInvitesShowUnknown);
+    settings.showWeekNumbers = sanitizeShowWeekNumbers(settings.showWeekNumbers);
     // Always a fresh object, so the frozen default's `{}` can never be
     // reached (let alone mutated) through the live settings map.
     settings.categoryNames = sanitizeCategoryNames(settings.categoryNames);
@@ -1539,6 +1548,7 @@ export function createStore(backend) {
           merged.bookingName = sanitizeBookingName(merged.bookingName);
           merged.mailInvites = sanitizeMailInvites(merged.mailInvites);
           merged.mailInvitesShowUnknown = sanitizeShowUnknown(merged.mailInvitesShowUnknown);
+          merged.showWeekNumbers = sanitizeShowWeekNumbers(merged.showWeekNumbers);
           // Last, so the '' tombstones above have already won their merge.
           merged.categoryNames = sanitizeCategoryNames(merged.categoryNames);
           if (JSON.stringify(merged) !== JSON.stringify(settings)) {
