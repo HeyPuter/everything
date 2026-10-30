@@ -29,6 +29,7 @@ import {
   ChevronLast,
   ClipboardCopy,
   Download,
+  FileUp,
 } from 'lucide';
 
 import { Chess, colorOf } from './engine/chess.js';
@@ -45,7 +46,7 @@ import {
   speakClock,
   timeControl,
 } from './game/clock.js';
-import { buildPgn, pgnFilename } from './game/pgn.js';
+import { buildPgn, parsePgn, pgnFilename, replayPgn } from './game/pgn.js';
 import { clearGame, loadGame, saveGame } from './game/persistence.js';
 import { track } from './analytics.js';
 
@@ -74,6 +75,7 @@ createIcons({
     ChevronLast,
     ClipboardCopy,
     Download,
+    FileUp,
   },
 });
 
@@ -101,8 +103,16 @@ const els = {
   movesCard: $('moves-card'),
   moveList: $('move-list'),
   movesEmpty: $('moves-empty'),
+  pgnImportBtn: $('pgn-import-btn'),
   pgnCopyBtn: $('pgn-copy-btn'),
   pgnDownloadBtn: $('pgn-download-btn'),
+  pgnDialog: $('pgn-dialog'),
+  pgnInput: $('pgn-input'),
+  pgnError: $('pgn-error'),
+  pgnFile: $('pgn-file'),
+  pgnFileBtn: $('pgn-file-btn'),
+  pgnCancel: $('pgn-cancel'),
+  pgnLoad: $('pgn-load'),
   reviewFirstBtn: $('review-first-btn'),
   reviewPrevBtn: $('review-prev-btn'),
   reviewNextBtn: $('review-next-btn'),
@@ -241,6 +251,7 @@ let opponentName = null; // kept after the session ends for result text
 let manualEnd = null; // {kind,title,sub} for ends the engine can't see (resign, abandon)
 let rematchOffered = false; // we offered a rematch and await the reply
 let rematchAnswered = false; // guards the incoming-offer dialog's close event
+let importedNames = null; // {w, b} player names from a loaded PGN, or null
 let confirmAction = null;
 let toastTimer = 0;
 let copyCodeTimer = 0;
@@ -832,9 +843,9 @@ function renderPlayers(status) {
     els.bottomName.textContent = 'You';
     els.bottomCaption.textContent = `Playing ${colorName(bottom)}`;
   } else if (mode === 'local') {
-    els.topName.textContent = colorName(top);
+    els.topName.textContent = (importedNames && importedNames[top]) || colorName(top);
     els.topCaption.textContent = MODE_NOTES.local;
-    els.bottomName.textContent = colorName(bottom);
+    els.bottomName.textContent = (importedNames && importedNames[bottom]) || colorName(bottom);
     els.bottomCaption.textContent = MODE_NOTES.local;
   } else {
     els.topName.textContent = opponentName || 'Opponent';
@@ -1423,6 +1434,7 @@ function closeDialogs() {
   if (els.gameoverDialog.open) els.gameoverDialog.close();
   if (els.confirmDialog.open) els.confirmDialog.close();
   if (els.rematchDialog.open) els.rematchDialog.close();
+  if (els.pgnDialog.open) els.pgnDialog.close();
 }
 
 /* ------------------------------------------------------------------ */
@@ -1443,6 +1455,7 @@ function newGame() {
       : 'w';
   manualEnd = null;
   reviewIndex = null;
+  importedNames = null;
   game.reset();
   resetClock(timeSetting);
   resetTracking();
@@ -1519,6 +1532,7 @@ function teardownForModeChange() {
   rematchOffered = false;
   manualEnd = null;
   reviewIndex = null;
+  importedNames = null;
   closeDialogs();
   finishPromotion(null);
 }
@@ -2051,6 +2065,7 @@ async function copyInviteLink() {
 
 /** Player names for the export, in the language of the current mode. */
 function pgnNames() {
+  if (importedNames) return importedNames;
   if (mode === 'local') return { w: 'Player 1', b: 'Player 2' };
   const me = mode === 'online' ? 'You' : 'Player';
   const them = mode === 'online' ? opponentName || 'Opponent' : `Computer (${LEVELS[level].label})`;
@@ -2100,6 +2115,153 @@ function downloadPgn() {
   } catch {
     if (url) URL.revokeObjectURL(url);
     copyPgn(); // no downloads here; the clipboard still gets the player the game
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* PGN import                                                          */
+/* ------------------------------------------------------------------ */
+
+function showPgnError(message) {
+  els.pgnError.textContent = message || '';
+  els.pgnError.hidden = !message;
+}
+
+function openPgnDialog() {
+  showPgnError('');
+  els.pgnInput.value = '';
+  els.pgnFile.value = '';
+  els.pgnDialog.showModal();
+  els.pgnInput.focus();
+}
+
+function requestPgnImport() {
+  if (mode === 'online' && session?.connected && !gameFinished() && game.history().length > 0) {
+    askConfirm(
+      {
+        title: 'Leave the online game?',
+        sub: 'Loading a PGN leaves this match. Your friend wins.',
+        confirmLabel: 'Leave',
+      },
+      openPgnDialog,
+    );
+    return;
+  }
+  openPgnDialog();
+}
+
+function namesFromTags(tags) {
+  const w = (tags.White || '').trim();
+  const b = (tags.Black || '').trim();
+  if (!w && !b) return null;
+  return { w: w || 'White', b: b || 'Black' };
+}
+
+function endFromPgnResult(result, termination) {
+  const note = termination && termination !== 'normal' ? termination : null;
+  if (result === '1/2-1/2') {
+    return {
+      kind: 'draw',
+      reason: 'pgn',
+      result,
+      termination: note || 'normal',
+      title: 'Draw',
+      sub: note ? cap(note) : 'The PGN records this game as drawn.',
+    };
+  }
+  if (result === '1-0' || result === '0-1') {
+    const winner = result === '1-0' ? 'White' : 'Black';
+    return {
+      kind: 'win',
+      reason: 'pgn',
+      result,
+      termination: note || 'normal',
+      title: `${winner} wins`,
+      sub: note ? cap(note) : `The PGN records a win for ${winner}.`,
+    };
+  }
+  return null;
+}
+
+function applyImportedGame(parsed) {
+  if (session) {
+    session.leave();
+    session = null;
+  }
+  aiToken++;
+  thinking = false;
+  opponentName = null;
+  rematchOffered = false;
+  onlineUiState = 'idle';
+  mode = 'local';
+  saveSettings();
+  myColor = 'w';
+  importedNames = namesFromTags(parsed.tags);
+  replayPgn(parsed, game);
+  manualEnd = null;
+  if (parsed.result && parsed.result !== '*' && !game.isGameOver()) {
+    manualEnd = endFromPgnResult(parsed.result, parsed.tags.Termination);
+  }
+  reviewIndex = null;
+  resetClock(DEFAULT_TIME_ID);
+  resetTracking();
+  if (game.history().length > 0) startTracked = true;
+  finishPromotion(null);
+  clearSelection();
+  clearTimeout(gameOverTimer);
+  closeDialogs();
+  boardView.setOrientation('w');
+  announcedPlies = game.history().length;
+  const n = game.history().length;
+  els.srStatus.textContent =
+    n === 0
+      ? 'Loaded a PGN position. White to move.'
+      : `Loaded a PGN with ${n} move${n === 1 ? '' : 's'}.`;
+  renderAll();
+  showToast(
+    n === 0
+      ? 'Position loaded. You can play on from here.'
+      : `Loaded ${n} move${n === 1 ? '' : 's'}. Step through them with the arrows.`,
+  );
+}
+
+function loadPgnFromText(text) {
+  const parsed = parsePgn(text);
+  if (parsed.error) {
+    showPgnError(parsed.error);
+    return;
+  }
+  const probe = new Chess();
+  const replayed = replayPgn(parsed, probe);
+  if (replayed.error) {
+    showPgnError(replayed.error);
+    return;
+  }
+  const perform = () => applyImportedGame(parsed);
+  if (gameInProgress()) {
+    els.pgnDialog.close();
+    askConfirm(
+      {
+        title: 'Load this PGN?',
+        sub: 'The game in progress will be lost.',
+        confirmLabel: 'Load',
+        danger: false,
+      },
+      perform,
+    );
+    return;
+  }
+  perform();
+}
+
+async function loadPgnFile(file) {
+  if (!file) return;
+  try {
+    const text = await file.text();
+    els.pgnInput.value = text;
+    showPgnError('');
+  } catch {
+    showPgnError('That file could not be read.');
   }
 }
 
@@ -2166,8 +2328,16 @@ els.moveList.addEventListener('click', (e) => {
   if (ply) goToPly(Number(ply.dataset.ply));
 });
 
+els.pgnImportBtn.addEventListener('click', requestPgnImport);
 els.pgnCopyBtn.addEventListener('click', copyPgn);
 els.pgnDownloadBtn.addEventListener('click', downloadPgn);
+els.pgnLoad.addEventListener('click', () => loadPgnFromText(els.pgnInput.value));
+els.pgnCancel.addEventListener('click', () => els.pgnDialog.close());
+els.pgnFileBtn.addEventListener('click', () => els.pgnFile.click());
+els.pgnFile.addEventListener('change', () => {
+  const file = els.pgnFile.files && els.pgnFile.files[0];
+  loadPgnFile(file);
+});
 
 for (const button of els.themeButtons) {
   button.addEventListener('click', () => {
@@ -2233,6 +2403,7 @@ closeOnBackdropClick(els.promoDialog);
 closeOnBackdropClick(els.gameoverDialog);
 closeOnBackdropClick(els.confirmDialog);
 closeOnBackdropClick(els.rematchDialog);
+closeOnBackdropClick(els.pgnDialog);
 
 window.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
@@ -2246,6 +2417,8 @@ window.addEventListener('keydown', (e) => {
     els.confirmDialog.close();
   } else if (els.rematchDialog.open) {
     els.rematchDialog.close();
+  } else if (els.pgnDialog.open) {
+    els.pgnDialog.close();
   } else if (selected) {
     // Escape means "put it back": a piece still held under the pointer is
     // dropped along with the selection, rather than left riding the cursor
@@ -2261,7 +2434,8 @@ function anyDialogOpen() {
     els.promoDialog.open ||
     els.gameoverDialog.open ||
     els.confirmDialog.open ||
-    els.rematchDialog.open
+    els.rematchDialog.open ||
+    els.pgnDialog.open
   );
 }
 

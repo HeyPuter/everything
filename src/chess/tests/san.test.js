@@ -57,3 +57,40 @@ describe('SAN notation', () => {
     expect(game.history().map((m) => m.san)).toEqual(['e4', 'e5', 'Nf3']);
   });
 });
+
+describe('playing SAN', () => {
+  it('replays a string the same way as the coordinate form', () => {
+    const bySan = new Chess();
+    const bySquares = new Chess();
+    for (const [san, from, to] of [
+      ['e4', 'e2', 'e4'],
+      ['e5', 'e7', 'e5'],
+      ['Nf3', 'g1', 'f3'],
+    ]) {
+      expect(bySan.move(san).san).toBe(san);
+      expect(bySquares.move({ from, to }).san).toBe(san);
+    }
+    expect(bySan.fen()).toBe(bySquares.fen());
+  });
+
+  it('accepts zeros for castling and ignores check marks', () => {
+    const game = new Chess('r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1');
+    expect(game.move('0-0').san).toBe('O-O');
+    expect(game.move('O-O-O+').san).toBe('O-O-O');
+  });
+
+  it('accepts a promotion written without the equals, and UCI coordinates', () => {
+    const equals = new Chess('7k/4P3/8/8/8/8/8/4K3 w - - 0 1');
+    expect(equals.move('e8Q').san).toBe('e8=Q+');
+    const uci = new Chess('7k/4P3/8/8/8/8/8/4K3 w - - 0 1');
+    expect(uci.move('e7e8q').san).toBe('e8=Q+');
+  });
+
+  it('returns null for an empty token, an illegal move, or a typo', () => {
+    const game = new Chess();
+    expect(game.move('')).toBe(null);
+    expect(game.move('e5')).toBe(null);
+    expect(game.move('Nf4')).toBe(null);
+    expect(game.history()).toEqual([]);
+  });
+});
