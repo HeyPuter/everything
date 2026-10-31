@@ -1,0 +1,16 @@
+export default {
+  'dawarichMore.toJourney': 'הוספה ליומן מסע…',
+  'dawarichMore.added': { one: 'רשומת צ׳ק-אין אחת נוספה ל-{journey}', two: '{count} רשומות צ׳ק-אין נוספו ל-{journey}', other: '{count} רשומות צ׳ק-אין נוספו ל-{journey}' },
+  'dawarichMore.addedOne': 'רשומת צ׳ק-אין אחת נוספה ל-{journey}',
+  'dawarichMore.openJourney': 'פתיחת יומן המסע',
+  'dawarichMore.untitledJourney': 'יומן מסע ללא שם',
+  'dawarichMore.bucketTitle': 'רשימת משאלות',
+  'dawarichMore.bucketIntro': 'מקומות ומדינות מרשימת המשאלות שלך שהשהיות האלה הגיעו אליהם.',
+  'dawarichMore.bucketLabel': 'התאמות לרשימת המשאלות',
+  'dawarichMore.reached': '{stay}, {date}',
+  'dawarichMore.mark': { one: 'סימון פריט אחד כ"ביקרתי"', two: 'סימון {count} פריטים כ"ביקרתי"', other: 'סימון {count} פריטים כ"ביקרתי"' },
+  'dawarichMore.markOne': 'סימון פריט אחד כ"ביקרתי"',
+  'dawarichMore.choose': 'בחירת פריטים לסימון',
+  'dawarichMore.marked': 'ביקרתי',
+  'dawarichMore.markedToast': 'רשימת המשאלות עודכנה',
+};

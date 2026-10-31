@@ -1,0 +1,2 @@
+.inbox-button { position: relative; }
+.inbox-badge { position: absolute; inset-block-start: 1px; inset-inline-end: 1px; min-inline-size: 16px; block-size: 16px; padding-inline: 4px; border-radius: var(--r-full); background: var(--accent); color: var(--accent-ink); font-size: 10.5px; font-weight: 700; line-height: 16px; text-align: center; }

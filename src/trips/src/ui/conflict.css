@@ -1,0 +1,10 @@
+.conflict { display: grid; gap: 14px; }
+.conflict-fields { display: grid; gap: 10px; }
+.conflict-field { display: grid; gap: 8px; padding: 12px; border: 1px solid var(--hairline); border-radius: var(--r-md); background: var(--surface); }
+.conflict-field-name { margin: 0; font-size: 14px; font-weight: 650; color: var(--ink); }
+.conflict-values { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 12px; margin: 0; }
+.conflict-values dt { color: var(--ink-3); font-size: 13px; }
+.conflict-values dd { margin: 0; color: var(--ink); overflow-wrap: anywhere; }
+.conflict-list { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.conflict-item { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; border: 1px solid var(--hairline); border-radius: var(--r-md); background: var(--surface); }
+.conflict-item-text { display: grid; gap: 2px; min-inline-size: 0; overflow-wrap: anywhere; }

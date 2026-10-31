@@ -1,0 +1,16 @@
+export default {
+  'dawarichMore.toJourney': '여행기에 추가…',
+  'dawarichMore.added': '‘{journey}’에 체크인 {count}개를 추가했어요',
+  'dawarichMore.addedOne': '‘{journey}’에 체크인 1개를 추가했어요',
+  'dawarichMore.openJourney': '여행기 열기',
+  'dawarichMore.untitledJourney': '제목 없는 여행기',
+  'dawarichMore.bucketTitle': '버킷리스트',
+  'dawarichMore.bucketIntro': '이 머문 곳들에서 다녀온 버킷리스트의 장소와 국가예요.',
+  'dawarichMore.bucketLabel': '버킷리스트 일치 항목',
+  'dawarichMore.reached': '{stay}, {date}',
+  'dawarichMore.mark': '{count}개를 방문함으로 표시',
+  'dawarichMore.markOne': '1개를 방문함으로 표시',
+  'dawarichMore.choose': '표시할 항목 선택',
+  'dawarichMore.marked': '방문함',
+  'dawarichMore.markedToast': '버킷리스트를 업데이트했어요',
+};

@@ -1,0 +1,18 @@
+export default {
+  'airtrailPush.title': 'AirTrail’e gönder',
+  'airtrailPush.intro': 'Trips’te rezerve edilen uçuşlar, her uçuş ayağı için bir AirTrail uçuşu. Gönderdikten sonra buradaki düzenlemelerinizi yeniden gönderebilirsiniz.',
+  'airtrailPush.new': 'Henüz AirTrail’de yok',
+  'airtrailPush.changed': 'Trips’te değişti',
+  'airtrailPush.changedChip': 'Burada düzenlendi',
+  'airtrailPush.blockedCodes': '{count} uçuşun gönderilebilmesi için her ayakta havalimanı kodu ve tarih gerekiyor.',
+  'airtrailPush.blockedCodesOne': '1 uçuşun gönderilebilmesi için her ayakta havalimanı kodu ve tarih gerekiyor.',
+  'airtrailPush.blockedLegs': '{title}: Gönderildikten sonra ayakları değişti; AirTrail’de elle güncelleyin.',
+  'airtrailPush.send': '{count} uçuşu gönder',
+  'airtrailPush.sendOne': '1 uçuşu gönder',
+  'airtrailPush.choose': 'Gönderilecek uçuşları seçin',
+  'airtrailPush.sending': 'Gönderiliyor: {title}…',
+  'airtrailPush.done': '{count} uçuş AirTrail’e gönderildi',
+  'airtrailPush.doneOne': '1 uçuş AirTrail’e gönderildi',
+  'airtrailPush.failed': 'Gönderilemedi: {title}',
+  'airtrailPush.history': 'Uçuşları AirTrail’e gönder',
+};

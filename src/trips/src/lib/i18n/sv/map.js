@@ -1,0 +1,17 @@
+export default {
+  'map.label': 'Resekarta',
+  'map.attribution': 'Kartkällor',
+  'map.marker': 'Kartmarkör',
+  'map.logo': 'MapLibre-logotyp',
+  'map.zoomIn': 'Zooma in',
+  'map.zoomOut': 'Zooma ut',
+  'map.resetBearing': 'Dra för att rotera kartan, klicka för att återställa norr',
+  'map.findLocation': 'Hitta min position',
+  'map.locationUnavailable': 'Positionen är inte tillgänglig',
+  'map.attributionToggle': 'Visa eller dölj kartkällor',
+  'map.mapFeedback': 'Feedback om kartan',
+  'map.closePopup': 'Stäng popup',
+  'map.gesturesWindows': 'Håll in Ctrl och skrolla för att zooma kartan',
+  'map.gesturesMac': 'Håll in ⌘ och skrolla för att zooma kartan',
+  'map.gesturesMobile': 'Använd två fingrar för att flytta kartan',
+};

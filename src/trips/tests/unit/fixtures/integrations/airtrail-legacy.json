@@ -1,0 +1,15 @@
+{
+  "success": true,
+  "flights": [
+    {
+      "id": 5,
+      "date": "2026-05-02",
+      "from": { "iata": "FRA", "name": "Frankfurt", "lat": 50.0333, "lon": 8.5706, "tz": "Europe/Berlin" },
+      "to": { "iata": "JFK", "name": "New York JFK", "lat": 40.6398, "lon": -73.7789, "tz": "America/New_York" },
+      "departure": "2026-05-02T08:15:00.000Z",
+      "arrival": "2026-05-02T16:55:00.000Z",
+      "flightNumber": "LH400",
+      "seats": [{ "userId": "1", "seatNumber": "12A", "seatClass": "economy" }]
+    }
+  ]
+}

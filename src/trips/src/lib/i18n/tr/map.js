@@ -1,0 +1,17 @@
+export default {
+  'map.label': 'Seyahat haritası',
+  'map.attribution': 'Harita kaynak bilgisi',
+  'map.marker': 'Harita işaretçisi',
+  'map.logo': 'MapLibre logosu',
+  'map.zoomIn': 'Yakınlaştır',
+  'map.zoomOut': 'Uzaklaştır',
+  'map.resetBearing': 'Haritayı döndürmek için sürükleyin, kuzeye sıfırlamak için tıklayın',
+  'map.findLocation': 'Konumumu bul',
+  'map.locationUnavailable': 'Konum kullanılamıyor',
+  'map.attributionToggle': 'Kaynak bilgisini aç/kapat',
+  'map.mapFeedback': 'Harita geri bildirimi',
+  'map.closePopup': 'Açılır pencereyi kapat',
+  'map.gesturesWindows': 'Haritayı yakınlaştırmak için Ctrl + kaydırma kullanın',
+  'map.gesturesMac': 'Haritayı yakınlaştırmak için ⌘ + kaydırma kullanın',
+  'map.gesturesMobile': 'Haritayı taşımak için iki parmağınızı kullanın',
+};

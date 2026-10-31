@@ -1,0 +1,44 @@
+@import './tokens.css';
+* { box-sizing: border-box; }
+html { font: 15px/1.45 var(--font); background: var(--page); color: var(--ink); -webkit-font-smoothing: antialiased; }
+body { margin: 0; overscroll-behavior: none; }
+button, input, textarea, select { font: inherit; color: inherit; }
+button { cursor: pointer; }
+button:disabled { cursor: default; }
+button, a, input, select, textarea { -webkit-tap-highlight-color: transparent; }
+button, input, select, textarea { max-inline-size: 100%; }
+a { color: var(--accent-strong); }
+img, svg { max-inline-size: 100%; }
+h1, h2, h3, p { margin: 0; }
+h1 { font-size: 26px; font-weight: 800; letter-spacing: -.02em; }
+h2 { font-size: 18px; letter-spacing: -.01em; }
+h3 { font-size: 17px; }
+[hidden] { display: none !important; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+::selection { background: var(--selection); }
+.sr-only { position: absolute; inline-size: 1px; block-size: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
+.skip-link { position: fixed; inset-block-start: 8px; inset-inline-start: 8px; z-index: var(--z-toast); padding: 10px; background: var(--surface); transform: translateY(-200%); }
+.skip-link:focus { transform: none; }
+.num { font-variant-numeric: tabular-nums; }
+.icon { flex: none; vertical-align: middle; }
+/* Icons that point along the inline axis (chevrons, arrows, undo/redo, send, reply, sign out), matched by their
+   lucide path data, face the other way in right-to-left layouts. tests/unit/i18n-locales.test.js checks the paths. */
+[dir="rtl"] .icon:has(> path[d="m15 18-6-6 6-6"]),
+[dir="rtl"] .icon:has(> path[d="m9 18 6-6-6-6"]),
+[dir="rtl"] .icon:has(> path[d="m12 19-7-7 7-7"]),
+[dir="rtl"] .icon:has(> path[d="m12 5 7 7-7 7"]),
+[dir="rtl"] .icon:has(> path[d="M9 14 4 9l5-5"]),
+[dir="rtl"] .icon:has(> path[d="m15 14 5-5-5-5"]),
+[dir="rtl"] .icon:has(> path[d="M6 12h16"]),
+[dir="rtl"] .icon:has(> path[d="m21.854 2.147-10.94 10.939"]),
+[dir="rtl"] .icon:has(> path[d="M20 18v-2a4 4 0 0 0-4-4H4"]),
+[dir="rtl"] .icon:has(> path[d="m16 17 5-5-5-5"]) { transform: scaleX(-1); }
+@keyframes pulse { 50% { opacity: .45; } }
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes pop-in { from { opacity: 0; transform: scale(.97); } }
+@keyframes sheet-up { from { opacity: 0; transform: translateY(40px); } }
+@media (pointer: coarse) { input, select, textarea { font-size: 16px !important; } }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
+  .spinner { animation: pulse 1.4s ease infinite !important; }
+}

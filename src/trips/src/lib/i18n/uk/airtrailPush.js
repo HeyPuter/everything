@@ -1,0 +1,18 @@
+export default {
+  'airtrailPush.title': 'Надіслати в AirTrail',
+  'airtrailPush.intro': 'Перельоти, заброньовані в Trips: один переліт AirTrail на кожен етап. Після надсилання ваші зміни тут можна надіслати знову.',
+  'airtrailPush.new': 'Ще немає в AirTrail',
+  'airtrailPush.changed': 'Змінено в Trips',
+  'airtrailPush.changedChip': 'Змінено тут',
+  'airtrailPush.blockedCodes': { one: 'Щоб надіслати {count} переліт, вкажіть коди аеропортів і дату для кожного етапу.', few: 'Щоб надіслати {count} перельоти, вкажіть коди аеропортів і дату для кожного етапу.', many: 'Щоб надіслати {count} перельотів, вкажіть коди аеропортів і дату для кожного етапу.', other: 'Щоб надіслати {count} перельоту, вкажіть коди аеропортів і дату для кожного етапу.' },
+  'airtrailPush.blockedCodesOne': 'Щоб надіслати 1 переліт, вкажіть коди аеропортів і дату для кожного етапу.',
+  'airtrailPush.blockedLegs': '{title}: етапи змінилися після надсилання; оновіть переліт в AirTrail вручну.',
+  'airtrailPush.send': { one: 'Надіслати {count} переліт', few: 'Надіслати {count} перельоти', many: 'Надіслати {count} перельотів', other: 'Надіслати {count} перельоту' },
+  'airtrailPush.sendOne': 'Надіслати 1 переліт',
+  'airtrailPush.choose': 'Виберіть перельоти для надсилання',
+  'airtrailPush.sending': 'Надсилання: {title}…',
+  'airtrailPush.done': { one: '{count} переліт надіслано в AirTrail', few: '{count} перельоти надіслано в AirTrail', many: '{count} перельотів надіслано в AirTrail', other: '{count} перельоту надіслано в AirTrail' },
+  'airtrailPush.doneOne': '1 переліт надіслано в AirTrail',
+  'airtrailPush.failed': 'Не вдалося надіслати {title}.',
+  'airtrailPush.history': 'Надіслати перельоти в AirTrail',
+};

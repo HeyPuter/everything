@@ -1,0 +1,19 @@
+[
+  {
+    "id": 9001, "area_id": null, "user_id": 1,
+    "started_at": "2026-05-03T13:05:00.000Z", "ended_at": "2026-05-03T15:35:00.000Z", "duration": 150,
+    "name": "The Metropolitan Museum of Art", "status": "suggested",
+    "place": { "id": 41, "name": "The Met", "latitude": "40.7794", "longitude": "-73.9632", "city": "New York", "country": "United States" }
+  },
+  {
+    "id": 9002, "user_id": 1,
+    "started_at": "2026-05-04T00:30:00.000Z", "ended_at": "2026-05-04T02:00:00.000Z", "duration": 90,
+    "name": "", "status": "confirmed",
+    "place": { "id": 42, "name": "Joe's Pizza", "latitude": 40.7306, "longitude": -73.9895 }
+  },
+  {
+    "id": 9003, "started_at": "2026-05-05T10:00:00.000Z", "ended_at": "2026-05-05T11:00:00.000Z", "duration": 60,
+    "name": "Somewhere", "status": "declined", "place": { "latitude": 40.7, "longitude": -74.0 }
+  },
+  { "id": 9004, "started_at": "not a date", "ended_at": "2026-05-05T11:00:00.000Z", "name": "Broken" }
+]

@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2" xmlns:gx="http://www.google.com/kml/ext/2.2">
+  <Document>
+    <name>City walk</name>
+    <Style id="red-line"><LineStyle><color>ff0000ff</color><width>4</width></LineStyle></Style>
+    <StyleMap id="red-map"><Pair><key>normal</key><styleUrl>#red-line</styleUrl></Pair></StyleMap>
+    <Folder>
+      <name>Sights</name>
+      <Placemark id="p1">
+        <name>Old Town Hall</name>
+        <address>Main Square 1</address>
+        <description><![CDATA[<p>Built in <b>1420</b>.</p><script>alert(1)</script><p>Tours daily &amp; free</p>]]></description>
+        <ExtendedData><Data name="category"><value>attraction</value></Data></ExtendedData>
+        <Point><coordinates>14.4207,50.0875,0</coordinates></Point>
+      </Placemark>
+      <Placemark>
+        <name>Market</name>
+        <MultiGeometry>
+          <Point><coordinates>14.4300,50.0800</coordinates></Point>
+          <LineString><coordinates>14.43,50.08 14.44,50.085 14.45,50.09</coordinates></LineString>
+        </MultiGeometry>
+      </Placemark>
+    </Folder>
+    <Placemark>
+      <name>River path</name>
+      <styleUrl>#red-line</styleUrl>
+      <LineString><coordinates>
+        14.41,50.07 14.412,50.072
+        14.414,50.074
+      </coordinates></LineString>
+    </Placemark>
+    <Placemark>
+      <name>Park</name>
+      <Polygon><outerBoundaryIs><LinearRing><coordinates>14.40,50.06 14.41,50.06 14.41,50.07 14.40,50.06</coordinates></LinearRing></outerBoundaryIs></Polygon>
+    </Placemark>
+    <Placemark>
+      <name>GPS log</name>
+      <gx:Track>
+        <when>2026-05-01T10:00:00Z</when><when>2026-05-01T10:05:00Z</when>
+        <gx:coord>14.42 50.08 200</gx:coord>
+        <gx:coord>14.43 50.09 210</gx:coord>
+      </gx:Track>
+    </Placemark>
+    <Placemark><name>Nowhere</name></Placemark>
+  </Document>
+</kml>

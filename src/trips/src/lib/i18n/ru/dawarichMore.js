@@ -1,0 +1,16 @@
+export default {
+  'dawarichMore.toJourney': 'Добавить в дневник…',
+  'dawarichMore.added': { one: '{count} отметка добавлена в «{journey}»', few: '{count} отметки добавлены в «{journey}»', many: '{count} отметок добавлено в «{journey}»', other: '{count} отметки добавлено в «{journey}»' },
+  'dawarichMore.addedOne': '1 отметка добавлена в «{journey}»',
+  'dawarichMore.openJourney': 'Открыть дневник',
+  'dawarichMore.untitledJourney': 'Дневник без названия',
+  'dawarichMore.bucketTitle': 'Хочу побывать',
+  'dawarichMore.bucketIntro': 'Места и страны из списка «Хочу побывать», где вы побывали, судя по этим местам пребывания.',
+  'dawarichMore.bucketLabel': 'Совпадения со списком «Хочу побывать»',
+  'dawarichMore.reached': '{stay}, {date}',
+  'dawarichMore.mark': { one: 'Отметить {count} пункт посещённым', few: 'Отметить {count} пункта посещёнными', many: 'Отметить {count} пунктов посещёнными', other: 'Отметить {count} пункта посещёнными' },
+  'dawarichMore.markOne': 'Отметить 1 пункт посещённым',
+  'dawarichMore.choose': 'Выберите пункты для отметки',
+  'dawarichMore.marked': 'Посещено',
+  'dawarichMore.markedToast': 'Список «Хочу побывать» обновлён',
+};

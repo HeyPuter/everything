@@ -1,0 +1,16 @@
+export default {
+  'dawarichMore.toJourney': 'Dodaj do dziennika…',
+  'dawarichMore.added': { one: 'Dodano {count} zameldowanie do „{journey}”', few: 'Dodano {count} zameldowania do „{journey}”', many: 'Dodano {count} zameldowań do „{journey}”', other: 'Dodano {count} zameldowania do „{journey}”' },
+  'dawarichMore.addedOne': 'Dodano 1 zameldowanie do „{journey}”',
+  'dawarichMore.openJourney': 'Otwórz dziennik',
+  'dawarichMore.untitledJourney': 'Dziennik bez tytułu',
+  'dawarichMore.bucketTitle': 'Lista marzeń',
+  'dawarichMore.bucketIntro': 'Miejsca i kraje z listy marzeń, do których prowadziły te pobyty.',
+  'dawarichMore.bucketLabel': 'Dopasowania z listy marzeń',
+  'dawarichMore.reached': '{stay}, {date}',
+  'dawarichMore.mark': { one: 'Oznacz {count} pozycję jako odwiedzoną', few: 'Oznacz {count} pozycje jako odwiedzone', many: 'Oznacz {count} pozycji jako odwiedzone', other: 'Oznacz {count} pozycji jako odwiedzone' },
+  'dawarichMore.markOne': 'Oznacz 1 pozycję jako odwiedzoną',
+  'dawarichMore.choose': 'Wybierz pozycje do oznaczenia',
+  'dawarichMore.marked': 'Odwiedzone',
+  'dawarichMore.markedToast': 'Zaktualizowano listę marzeń',
+};

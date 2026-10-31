@@ -1,0 +1,18 @@
+export default {
+  'airtrailPush.title': 'Отправить в AirTrail',
+  'airtrailPush.intro': 'Рейсы, забронированные в Trips: по одному рейсу AirTrail на каждый участок. После отправки ваши изменения здесь можно отправить снова.',
+  'airtrailPush.new': 'Ещё нет в AirTrail',
+  'airtrailPush.changed': 'Изменено в Trips',
+  'airtrailPush.changedChip': 'Изменено здесь',
+  'airtrailPush.blockedCodes': { one: 'Чтобы отправить {count} рейс, укажите коды аэропортов и дату для каждого участка.', few: 'Чтобы отправить {count} рейса, укажите коды аэропортов и дату для каждого участка.', many: 'Чтобы отправить {count} рейсов, укажите коды аэропортов и дату для каждого участка.', other: 'Чтобы отправить {count} рейса, укажите коды аэропортов и дату для каждого участка.' },
+  'airtrailPush.blockedCodesOne': 'Чтобы отправить 1 рейс, укажите коды аэропортов и дату для каждого участка.',
+  'airtrailPush.blockedLegs': '{title}: участки изменились после отправки; обновите рейс в AirTrail вручную.',
+  'airtrailPush.send': { one: 'Отправить {count} рейс', few: 'Отправить {count} рейса', many: 'Отправить {count} рейсов', other: 'Отправить {count} рейса' },
+  'airtrailPush.sendOne': 'Отправить 1 рейс',
+  'airtrailPush.choose': 'Выберите рейсы для отправки',
+  'airtrailPush.sending': 'Отправка: {title}…',
+  'airtrailPush.done': { one: '{count} рейс отправлен в AirTrail', few: '{count} рейса отправлены в AirTrail', many: '{count} рейсов отправлено в AirTrail', other: '{count} рейса отправлено в AirTrail' },
+  'airtrailPush.doneOne': '1 рейс отправлен в AirTrail',
+  'airtrailPush.failed': 'Не удалось отправить {title}.',
+  'airtrailPush.history': 'отправка рейсов в AirTrail',
+};

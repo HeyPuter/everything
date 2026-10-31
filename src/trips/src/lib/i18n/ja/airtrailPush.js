@@ -1,0 +1,18 @@
+export default {
+  'airtrailPush.title': 'AirTrailに送信',
+  'airtrailPush.intro': 'Tripsで予約したフライトを、区間ごとに1件のAirTrailフライトとして送信します。送信後も、ここでの編集を再送信できます。',
+  'airtrailPush.new': 'まだAirTrailにありません',
+  'airtrailPush.changed': 'Tripsで変更済み',
+  'airtrailPush.changedChip': 'ここで編集済み',
+  'airtrailPush.blockedCodes': '{count}便は、送信する前にすべての区間に空港コードと日付が必要です。',
+  'airtrailPush.blockedCodesOne': '1便は、送信する前にすべての区間に空港コードと日付が必要です。',
+  'airtrailPush.blockedLegs': '「{title}」：送信後に区間が変更されました。AirTrailで手動で更新してください。',
+  'airtrailPush.send': '{count}便を送信',
+  'airtrailPush.sendOne': '1便を送信',
+  'airtrailPush.choose': '送信するフライトを選択',
+  'airtrailPush.sending': '「{title}」を送信中…',
+  'airtrailPush.done': '{count}便をAirTrailに送信しました',
+  'airtrailPush.doneOne': '1便をAirTrailに送信しました',
+  'airtrailPush.failed': '「{title}」を送信できませんでした。',
+  'airtrailPush.history': 'AirTrailにフライトを送信',
+};

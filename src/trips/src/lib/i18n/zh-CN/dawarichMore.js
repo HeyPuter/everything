@@ -1,0 +1,16 @@
+export default {
+  'dawarichMore.toJourney': '添加到游记…',
+  'dawarichMore.added': '已向“{journey}”添加 {count} 个打卡',
+  'dawarichMore.addedOne': '已向“{journey}”添加 1 个打卡',
+  'dawarichMore.openJourney': '打开游记',
+  'dawarichMore.untitledJourney': '未命名游记',
+  'dawarichMore.bucketTitle': '心愿单',
+  'dawarichMore.bucketIntro': '这些停留记录到达过的心愿单地点和国家。',
+  'dawarichMore.bucketLabel': '心愿单匹配项',
+  'dawarichMore.reached': '{stay}，{date}',
+  'dawarichMore.mark': '将 {count} 项标记为去过',
+  'dawarichMore.markOne': '将 1 项标记为去过',
+  'dawarichMore.choose': '选择要标记的项目',
+  'dawarichMore.marked': '去过',
+  'dawarichMore.markedToast': '心愿单已更新',
+};

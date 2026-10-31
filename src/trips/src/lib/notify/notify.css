@@ -1,0 +1,14 @@
+.notify-settings { display: flex; flex-direction: column; gap: 16px; }
+.notify-section { display: flex; flex-direction: column; gap: 8px; }
+.notify-heading { margin: 0; font-size: 14px; font-weight: 700; }
+.notify-choices { display: flex; flex-wrap: wrap; gap: 6px 14px; }
+.notify-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.notify-row-text { display: flex; flex-direction: column; gap: 2px; min-inline-size: 0; }
+.notify-list { display: flex; flex-direction: column; margin: 0; padding: 0; list-style: none; border: 1px solid var(--hairline); border-radius: var(--r-md); background: var(--surface); }
+.notify-item { display: flex; gap: 12px; padding: 9px 12px; }
+.notify-item + .notify-item { border-block-start: 1px solid var(--hairline); }
+.notify-item-when { flex: none; inline-size: 9.5em; color: var(--ink-3); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.notify-item-text { display: flex; flex-direction: column; gap: 1px; min-inline-size: 0; }
+.notify-item-title { font-weight: 600; font-size: 14px; overflow-wrap: anywhere; }
+.notify-item-body { color: var(--ink-2); font-size: 13px; }
+@media (max-width: 480px) { .notify-item { flex-direction: column; gap: 2px; } .notify-item-when { inline-size: auto; } }

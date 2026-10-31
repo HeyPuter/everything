@@ -1,0 +1,18 @@
+export default {
+  'airtrailPush.title': 'Send til AirTrail',
+  'airtrailPush.intro': 'Fly booket i Trips, én AirTrail-flyvning pr. etape. Når de er sendt, kan dine ændringer her sendes igen.',
+  'airtrailPush.new': 'Endnu ikke i AirTrail',
+  'airtrailPush.changed': 'Ændret i Trips',
+  'airtrailPush.changedChip': 'Redigeret her',
+  'airtrailPush.blockedCodes': { one: '{count} flyvning skal have lufthavnskoder og en dato på hver etape, før den kan sendes.', other: '{count} flyvninger skal have lufthavnskoder og en dato på hver etape, før de kan sendes.' },
+  'airtrailPush.blockedCodesOne': '1 flyvning skal have lufthavnskoder og en dato på hver etape, før den kan sendes.',
+  'airtrailPush.blockedLegs': '{title}: etaperne er ændret, siden den blev sendt; opdater den manuelt i AirTrail.',
+  'airtrailPush.send': { one: 'Send {count} flyvning', other: 'Send {count} flyvninger' },
+  'airtrailPush.sendOne': 'Send 1 flyvning',
+  'airtrailPush.choose': 'Vælg flyvninger, der skal sendes',
+  'airtrailPush.sending': 'Sender {title}…',
+  'airtrailPush.done': { one: '{count} flyvning sendt til AirTrail', other: '{count} flyvninger sendt til AirTrail' },
+  'airtrailPush.doneOne': '1 flyvning sendt til AirTrail',
+  'airtrailPush.failed': '{title} kunne ikke sendes.',
+  'airtrailPush.history': 'Send flyvninger til AirTrail',
+};

@@ -1,0 +1,17 @@
+export default {
+  'map.label': 'Bản đồ chuyến đi',
+  'map.attribution': 'Ghi công bản đồ',
+  'map.marker': 'Điểm đánh dấu',
+  'map.logo': 'Logo MapLibre',
+  'map.zoomIn': 'Phóng to',
+  'map.zoomOut': 'Thu nhỏ',
+  'map.resetBearing': 'Kéo để xoay bản đồ, nhấp để đặt lại hướng bắc',
+  'map.findLocation': 'Tìm vị trí của tôi',
+  'map.locationUnavailable': 'Không có thông tin vị trí',
+  'map.attributionToggle': 'Bật/tắt ghi công',
+  'map.mapFeedback': 'Góp ý về bản đồ',
+  'map.closePopup': 'Đóng cửa sổ bật lên',
+  'map.gesturesWindows': 'Dùng Ctrl + cuộn để thu phóng bản đồ',
+  'map.gesturesMac': 'Dùng ⌘ + cuộn để thu phóng bản đồ',
+  'map.gesturesMobile': 'Dùng hai ngón tay để di chuyển bản đồ',
+};

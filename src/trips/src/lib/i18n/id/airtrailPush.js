@@ -1,0 +1,18 @@
+export default {
+  'airtrailPush.title': 'Kirim ke AirTrail',
+  'airtrailPush.intro': 'Penerbangan yang dipesan di Trips, satu penerbangan AirTrail per segmen. Setelah dikirim, perubahan Anda di sini dapat dikirim lagi.',
+  'airtrailPush.new': 'Belum ada di AirTrail',
+  'airtrailPush.changed': 'Diubah di Trips',
+  'airtrailPush.changedChip': 'Diedit di sini',
+  'airtrailPush.blockedCodes': '{count} penerbangan memerlukan kode bandara dan tanggal di setiap segmen sebelum dapat dikirim.',
+  'airtrailPush.blockedCodesOne': '1 penerbangan memerlukan kode bandara dan tanggal di setiap segmen sebelum dapat dikirim.',
+  'airtrailPush.blockedLegs': '{title}: segmennya berubah sejak dikirim; perbarui secara manual di AirTrail.',
+  'airtrailPush.send': 'Kirim {count} penerbangan',
+  'airtrailPush.sendOne': 'Kirim 1 penerbangan',
+  'airtrailPush.choose': 'Pilih penerbangan yang akan dikirim',
+  'airtrailPush.sending': 'Mengirim {title}…',
+  'airtrailPush.done': '{count} penerbangan dikirim ke AirTrail',
+  'airtrailPush.doneOne': '1 penerbangan dikirim ke AirTrail',
+  'airtrailPush.failed': '{title} tidak dapat dikirim.',
+  'airtrailPush.history': 'Kirim penerbangan ke AirTrail',
+};

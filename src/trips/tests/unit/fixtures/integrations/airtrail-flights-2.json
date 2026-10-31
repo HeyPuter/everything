@@ -1,0 +1,17 @@
+{
+  "data": [
+    {
+      "id": 77,
+      "date": "2025-11-20",
+      "from": { "iata": "LIS", "icao": "LPPT", "name": "Lisbon Humberto Delgado Airport", "lat": 38.7742, "lon": -9.1342, "tz": "Europe/Lisbon" },
+      "to": { "iata": "OPO", "icao": "LPPR", "name": "Porto Airport", "lat": 41.2481, "lon": -8.6814, "tz": "Europe/Lisbon" },
+      "departure": null,
+      "arrival": null,
+      "flightNumber": null,
+      "airline": null,
+      "passengers": [{ "userId": null, "guestName": "Ana", "seatNumber": "4D", "seatClass": "economy+" }]
+    },
+    { "id": 78, "from": "LIS", "to": "MAD" }
+  ],
+  "page": { "nextCursor": null }
+}

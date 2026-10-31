@@ -1,0 +1,18 @@
+export default {
+  'airtrailPush.title': 'Skicka till AirTrail',
+  'airtrailPush.intro': 'Flyg som bokats i Trips, ett AirTrail-flyg per etapp. När de har skickats kan dina ändringar här skickas igen.',
+  'airtrailPush.new': 'Inte i AirTrail än',
+  'airtrailPush.changed': 'Ändrat i Trips',
+  'airtrailPush.changedChip': 'Redigerat här',
+  'airtrailPush.blockedCodes': { one: '{count} flyg behöver flygplatskoder och ett datum för varje etapp innan det kan skickas.', other: '{count} flyg behöver flygplatskoder och ett datum för varje etapp innan de kan skickas.' },
+  'airtrailPush.blockedCodesOne': '1 flyg behöver flygplatskoder och ett datum för varje etapp innan det kan skickas.',
+  'airtrailPush.blockedLegs': '{title}: etapperna har ändrats sedan det skickades. Uppdatera det manuellt i AirTrail.',
+  'airtrailPush.send': { one: 'Skicka {count} flyg', other: 'Skicka {count} flyg' },
+  'airtrailPush.sendOne': 'Skicka 1 flyg',
+  'airtrailPush.choose': 'Välj flyg att skicka',
+  'airtrailPush.sending': 'Skickar {title}…',
+  'airtrailPush.done': { one: '{count} flyg skickat till AirTrail', other: '{count} flyg skickade till AirTrail' },
+  'airtrailPush.doneOne': '1 flyg skickat till AirTrail',
+  'airtrailPush.failed': '{title} kunde inte skickas.',
+  'airtrailPush.history': 'Skicka flyg till AirTrail',
+};

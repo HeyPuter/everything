@@ -1,0 +1,18 @@
+export default {
+  'airtrailPush.title': 'AirTrail로 보내기',
+  'airtrailPush.intro': 'Trips에서 예약한 항공편을 구간마다 AirTrail 항공편 하나로 보내요. 보낸 후에도 여기서 편집한 내용을 다시 보낼 수 있어요.',
+  'airtrailPush.new': '아직 AirTrail에 없음',
+  'airtrailPush.changed': 'Trips에서 변경됨',
+  'airtrailPush.changedChip': '여기서 편집됨',
+  'airtrailPush.blockedCodes': '항공편 {count}개는 보내기 전에 모든 구간에 공항 코드와 날짜가 있어야 해요.',
+  'airtrailPush.blockedCodesOne': '항공편 1개는 보내기 전에 모든 구간에 공항 코드와 날짜가 있어야 해요.',
+  'airtrailPush.blockedLegs': '‘{title}’: 보낸 후 구간이 변경됐어요. AirTrail에서 직접 업데이트하세요.',
+  'airtrailPush.send': '항공편 {count}개 보내기',
+  'airtrailPush.sendOne': '항공편 1개 보내기',
+  'airtrailPush.choose': '보낼 항공편 선택',
+  'airtrailPush.sending': '‘{title}’ 보내는 중…',
+  'airtrailPush.done': '항공편 {count}개를 AirTrail로 보냈어요',
+  'airtrailPush.doneOne': '항공편 1개를 AirTrail로 보냈어요',
+  'airtrailPush.failed': '‘{title}’을(를) 보내지 못했어요.',
+  'airtrailPush.history': 'AirTrail로 항공편 보내기',
+};

@@ -1,0 +1,42 @@
+/* Day header and chips */
+.wx-head { display: inline-flex; align-items: center; gap: 4px; flex: none; padding-inline: 4px; color: var(--ink-2); font-size: 13px; white-space: nowrap; }
+.wx-head:empty, .wx-chip:empty, .wx-info:empty, .wx-panel:empty { display: none; }
+.wx-typical { padding: 0 6px; border-radius: var(--r-full); background: var(--surface-2); color: var(--ink-2); font-size: 11px; font-weight: 600; }
+.wx-chip { display: inline-flex; align-items: center; gap: 3px; color: var(--ink-2); font-weight: 500; }
+.wx-info { display: flex; flex-wrap: wrap; gap: 6px; padding: 6px 14px; border-block-end: 1px solid var(--hairline); }
+.wx-badge { min-block-size: 24px; max-inline-size: 100%; padding: 2px 8px; font-size: 12px; }
+.wx-badge .icon { flex: none; }
+.wx-badge-text { min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Day panel */
+.wx-panel { display: flex; flex-direction: column; gap: 10px; margin-block-start: 10px; }
+.wx-section { display: flex; flex-direction: column; gap: 6px; padding-block-start: 10px; border-block-start: 1px solid var(--hairline); }
+.wx-section p { margin: 0; }
+.wx-heading { font-size: 14px; font-weight: 650; }
+.wx-where { display: flex; align-items: center; gap: 6px; color: var(--ink-2); font-size: 13px; }
+.wx-where > span { min-inline-size: 0; overflow-wrap: anywhere; }
+.wx-main { display: flex; align-items: center; gap: 10px; }
+.wx-main > .icon { flex: none; color: var(--accent-strong); }
+.wx-condition { font-size: 15px; font-weight: 600; }
+.wx-range { color: var(--ink-2); font-size: 13.5px; }
+.wx-facts { display: grid; grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); gap: 4px 12px; margin: 0; padding: 0; list-style: none; font-size: 13px; }
+.wx-facts li { display: flex; align-items: center; gap: 6px; min-inline-size: 0; }
+.wx-facts .icon { flex: none; color: var(--ink-2); }
+.wx-label { margin-block-start: 4px; color: var(--ink-2); font-size: 12.5px; font-weight: 600; }
+.wx-strip { display: flex; gap: 4px; margin: 0; padding: 0 0 4px; overflow-x: auto; list-style: none; scrollbar-width: thin; }
+.wx-slot { display: flex; flex-direction: column; align-items: center; gap: 2px; flex: none; min-inline-size: 50px; padding: 6px 4px; border-radius: var(--r-sm); background: var(--surface-2); font-size: 12px; }
+.wx-slot-time { color: var(--ink-2); }
+.wx-slot-temp { font-weight: 600; }
+.wx-slot-rain { min-block-size: 1.3em; color: var(--accent-strong); font-size: 11px; }
+.wx-status { color: var(--ink-2); font-size: 12.5px; }
+.wx-credit { color: var(--ink-2); font-size: 11.5px; }
+.wx-credit a { color: inherit; text-decoration: underline; }
+.wx-holidays { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.wx-holiday, .wx-warning { display: flex; align-items: flex-start; gap: 8px; font-size: 13.5px; }
+.wx-holiday .icon, .wx-warning .icon { flex: none; margin-block-start: 2px; }
+.wx-holiday-kind { color: var(--ink-2); font-size: 12.5px; }
+.wx-holiday-name { font-weight: 600; overflow-wrap: anywhere; }
+.wx-warning { padding: 8px 10px; border: 1px solid var(--warn); border-radius: var(--r-sm); background: var(--warn-wash); color: var(--warn-strong); }
+.wx-region { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; font-size: 13px; }
+.wx-region p { flex: 1; min-inline-size: 0; }
+.wx-regions { display: flex; flex-direction: column; gap: 14px; }

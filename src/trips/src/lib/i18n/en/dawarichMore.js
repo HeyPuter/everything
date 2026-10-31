@@ -1,0 +1,16 @@
+export default {
+  'dawarichMore.toJourney': 'Add to journey…',
+  'dawarichMore.added': '{count} check-ins added to {journey}',
+  'dawarichMore.addedOne': '1 check-in added to {journey}',
+  'dawarichMore.openJourney': 'Open journey',
+  'dawarichMore.untitledJourney': 'Untitled journey',
+  'dawarichMore.bucketTitle': 'Bucket list',
+  'dawarichMore.bucketIntro': 'Places and countries on your bucket list that these stays reached.',
+  'dawarichMore.bucketLabel': 'Bucket-list matches',
+  'dawarichMore.reached': '{stay}, {date}',
+  'dawarichMore.mark': 'Mark {count} visited',
+  'dawarichMore.markOne': 'Mark 1 visited',
+  'dawarichMore.choose': 'Choose items to mark',
+  'dawarichMore.marked': 'Visited',
+  'dawarichMore.markedToast': 'Bucket list updated',
+};

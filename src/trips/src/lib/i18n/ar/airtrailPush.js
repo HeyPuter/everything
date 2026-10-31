@@ -1,0 +1,18 @@
+export default {
+  'airtrailPush.title': 'إرسال إلى AirTrail',
+  'airtrailPush.intro': 'رحلات الطيران المحجوزة في Trips، رحلة واحدة في AirTrail لكل مرحلة. بعد الإرسال يمكنك إرسال تعديلاتك هنا مرة أخرى.',
+  'airtrailPush.new': 'ليست في AirTrail بعد',
+  'airtrailPush.changed': 'تغيرت في Trips',
+  'airtrailPush.changedChip': 'عُدّلت هنا',
+  'airtrailPush.blockedCodes': { zero: 'يلزم إدخال رموز المطارات وتاريخ لكل مرحلة قبل إرسال {count} رحلة طيران.', one: 'يلزم إدخال رموز المطارات وتاريخ لكل مرحلة قبل إرسال رحلة طيران واحدة.', two: 'يلزم إدخال رموز المطارات وتاريخ لكل مرحلة قبل إرسال رحلتي طيران.', few: 'يلزم إدخال رموز المطارات وتاريخ لكل مرحلة قبل إرسال {count} رحلات طيران.', many: 'يلزم إدخال رموز المطارات وتاريخ لكل مرحلة قبل إرسال {count} رحلة طيران.', other: 'يلزم إدخال رموز المطارات وتاريخ لكل مرحلة قبل إرسال {count} رحلة طيران.' },
+  'airtrailPush.blockedCodesOne': 'يلزم إدخال رموز المطارات وتاريخ لكل مرحلة قبل إرسال رحلة الطيران.',
+  'airtrailPush.blockedLegs': '{title}: تغيرت مراحلها منذ إرسالها، فحدّثها في AirTrail يدويًا.',
+  'airtrailPush.send': { zero: 'إرسال {count} رحلة طيران', one: 'إرسال رحلة طيران واحدة', two: 'إرسال رحلتي طيران', few: 'إرسال {count} رحلات طيران', many: 'إرسال {count} رحلة طيران', other: 'إرسال {count} رحلة طيران' },
+  'airtrailPush.sendOne': 'إرسال رحلة طيران واحدة',
+  'airtrailPush.choose': 'اختيار رحلات الطيران المراد إرسالها',
+  'airtrailPush.sending': 'جارٍ إرسال {title}…',
+  'airtrailPush.done': { zero: 'تم إرسال {count} رحلة طيران إلى AirTrail', one: 'تم إرسال رحلة طيران واحدة إلى AirTrail', two: 'تم إرسال رحلتي طيران إلى AirTrail', few: 'تم إرسال {count} رحلات طيران إلى AirTrail', many: 'تم إرسال {count} رحلة طيران إلى AirTrail', other: 'تم إرسال {count} رحلة طيران إلى AirTrail' },
+  'airtrailPush.doneOne': 'تم إرسال رحلة طيران واحدة إلى AirTrail',
+  'airtrailPush.failed': 'تعذّر إرسال {title}.',
+  'airtrailPush.history': 'إرسال رحلات الطيران إلى AirTrail',
+};

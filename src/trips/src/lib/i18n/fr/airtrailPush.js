@@ -1,0 +1,18 @@
+export default {
+  'airtrailPush.title': 'Envoyer vers AirTrail',
+  'airtrailPush.intro': 'Les vols réservés dans Trips, un vol AirTrail par segment. Une fois envoyés, vos modifications ici peuvent être renvoyées.',
+  'airtrailPush.new': 'Pas encore dans AirTrail',
+  'airtrailPush.changed': 'Modifié dans Trips',
+  'airtrailPush.changedChip': 'Modifié ici',
+  'airtrailPush.blockedCodes': { one: '{count} vol a besoin des codes d’aéroport et d’une date sur chaque segment avant de pouvoir être envoyé.', other: '{count} vols ont besoin des codes d’aéroport et d’une date sur chaque segment avant de pouvoir être envoyés.' },
+  'airtrailPush.blockedCodesOne': '1 vol a besoin des codes d’aéroport et d’une date sur chaque segment avant de pouvoir être envoyé.',
+  'airtrailPush.blockedLegs': '{title} : ses segments ont changé depuis l’envoi ; mettez-le à jour à la main dans AirTrail.',
+  'airtrailPush.send': { one: 'Envoyer {count} vol', other: 'Envoyer {count} vols' },
+  'airtrailPush.sendOne': 'Envoyer 1 vol',
+  'airtrailPush.choose': 'Choisissez les vols à envoyer',
+  'airtrailPush.sending': 'Envoi de {title}…',
+  'airtrailPush.done': { one: '{count} vol envoyé vers AirTrail', other: '{count} vols envoyés vers AirTrail' },
+  'airtrailPush.doneOne': '1 vol envoyé vers AirTrail',
+  'airtrailPush.failed': 'Impossible d’envoyer {title}.',
+  'airtrailPush.history': 'Envoyer des vols vers AirTrail',
+};

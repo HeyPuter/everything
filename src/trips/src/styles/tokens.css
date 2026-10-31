@@ -1,0 +1,203 @@
+:root {color-scheme: light;
+
+  --page: #f1f1ee;
+  --surface: #ffffff;
+  --surface-2: #f2f1ee;
+  --surface-3: #e7e6e1;
+  --sidebar: #ebebe7;
+  --ink: #111110;
+  --ink-2: #4f4e4a;
+  --ink-3: #64625d; /* 4.5:1 on surface-3 */
+  --hairline: rgba(17, 17, 16, 0.08);
+  --hairline-strong: rgba(17, 17, 16, 0.16);
+  --field-border: rgba(17, 17, 16, 0.48); /* 3:1 on page and surface */
+  --row-hover: rgba(17, 17, 16, 0.035);
+  --scrim: rgba(17, 17, 16, 0.44);
+
+  /* Puter selection hue (213°), darkened so white text clears 4.5:1. */
+  --accent: #1e6ac8;
+  --accent-strong: #1b5eb1;
+  --accent-ink: #ffffff;
+  --accent-wash: rgba(30, 106, 200, 0.1);
+  --accent-wash-strong: rgba(30, 106, 200, 0.18);
+  --selection: rgba(30, 106, 200, 0.3);
+
+  --danger: #b42727; /* 4.6:1 on its wash over the page */
+  --danger-ink: #ffffff;
+  --danger-wash: rgba(180, 39, 39, 0.1);
+  --success: #1a7f37;
+  --success-strong: #176f30; /* 4.5:1 on success wash. */
+  --success-wash: rgba(26, 127, 55, 0.1);
+  --warn: #9a6700;
+  --warn-strong: #6d4c00;
+  --warn-wash: rgba(154, 103, 0, 0.12);
+
+  --day-1: #2a6fc4; --day-2: #1b8a68; --day-3: #b26a00; --day-4: #b3438f;
+  --day-5: #4f52c9; --day-6: #c03535; --day-7: #4b7a1f; --day-8: #af2aff;
+
+  --av-1: #d6e4ff; --av-1-ink: #1d3f8f;
+  --av-2: #ffe0cc; --av-2-ink: #8a3a0c;
+  --av-3: #d3f4e5; --av-3-ink: #0f5c3a;
+  --av-4: #fff1c2; --av-4-ink: #6d4c00;
+  --av-5: #fbdce9; --av-5-ink: #8a1c4a;
+  --av-6: #e3dcff; --av-6-ink: #45308f;
+  --av-7: #d9f0f8; --av-7-ink: #0d5468;
+  --av-8: #e9e7e1; --av-8-ink: #3f3d38;
+
+  --pop-shadow: 0 8px 28px rgba(17, 17, 16, 0.16);
+  --card-shadow: 0 1px 2px rgba(17, 17, 16, 0.04), 0 12px 32px -20px rgba(17, 17, 16, 0.25);
+  --hero-scrim: linear-gradient(180deg, rgba(10, 10, 12, 0.1) 0%, rgba(10, 10, 12, 0.55) 55%, rgba(10, 10, 12, 0.88) 100%);
+  /* Text and glass panels over cover photos, the same in both themes. */
+  --on-cover: #ffffff;
+  --on-cover-2: rgba(255, 255, 255, 0.72);
+  --on-cover-success: #c7f3d4;
+  --on-cover-accent: #d6e6ff;
+  --on-cover-warn: #ffe2a8;
+  --glass: rgba(10, 10, 12, 0.38);
+  --glass-strong: rgba(10, 10, 12, 0.6);
+  --glass-line: rgba(255, 255, 255, 0.22);
+  --glass-fill: rgba(255, 255, 255, 0.14);
+  --cover-text-shadow: 0 2px 20px rgba(0, 0, 0, 0.4);
+  --lift-shadow: 0 16px 36px -18px rgba(17, 17, 16, 0.35);
+
+  --r-xs: 6px;
+  --r-sm: 10px;
+  --r-md: 16px;
+  --r-lg: 22px;
+  --r-full: 999px;
+
+  --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  --sidebar-w: 260px;
+  --panel-w: 380px;
+  --header-h: 56px;
+  --tabbar-h: 62px;
+  --safe-t: env(safe-area-inset-top, 0px);
+  --safe-b: env(safe-area-inset-bottom, 0px);
+  --safe-l: env(safe-area-inset-left, 0px);
+  --safe-r: env(safe-area-inset-right, 0px);
+  /* Safe areas at the inline start and end, for logical padding and insets. */
+  --safe-s: var(--safe-l);
+  --safe-e: var(--safe-r);
+  --ease: cubic-bezier(0.32, 0.72, 0, 1);
+  --z-pop: 100; --z-modal: 200; --z-toast: 300;
+}
+:root[dir="rtl"] { --safe-s: var(--safe-r); --safe-e: var(--safe-l); }
+
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) {
+  color-scheme: dark;
+  --page: #0b0b0d;
+  --surface: #151518;
+  --surface-2: #1e1e22;
+  --surface-3: #292930;
+  --sidebar: #0e0e11;
+  --ink: #f4f4f2;
+  --ink-2: #bdbcb6;
+  --ink-3: #8f8e88;
+  --hairline: rgba(255, 255, 255, 0.08);
+  --hairline-strong: rgba(255, 255, 255, 0.16);
+  --field-border: rgba(255, 255, 255, 0.42);
+  --row-hover: rgba(255, 255, 255, 0.045);
+  --scrim: rgba(0, 0, 0, 0.6);
+  --accent: #6ca7ef;
+  --accent-strong: #91bdf3;
+  --accent-ink: #0f0f10;
+  --accent-wash: rgba(108, 167, 239, 0.16);
+  --accent-wash-strong: rgba(108, 167, 239, 0.26);
+  --selection: rgba(108, 167, 239, 0.38);
+  --danger: #f07373;
+  --danger-ink: #1a0b0b;
+  --danger-wash: rgba(240, 115, 115, 0.14);
+  --success: #4cc26a;
+  --success-strong: #4cc26a;
+  --success-wash: rgba(76, 194, 106, 0.14);
+  --warn: #e0b13d;
+  --warn-strong: #e0b13d;
+  --warn-wash: rgba(224, 177, 61, 0.14);
+  --day-1: #6ea8e8; --day-2: #3fb391; --day-3: #d99a3d; --day-4: #dc7ab8;
+  --day-5: #898cf0; --day-6: #e57373; --day-7: #8ab55c; --day-8: #c678ff;
+  --av-1: #1f3566; --av-1-ink: #c9d8ff;
+  --av-2: #5a2a10; --av-2-ink: #ffd3ba;
+  --av-3: #15452f; --av-3-ink: #bfeed7;
+  --av-4: #4d3a05; --av-4-ink: #ffe7a1;
+  --av-5: #5a1a37; --av-5-ink: #ffc9df;
+  --av-6: #34276b; --av-6-ink: #d9d1ff;
+  --av-7: #113f4e; --av-7-ink: #c3e9f5;
+  --av-8: #33322f; --av-8-ink: #dad8d1;
+  --pop-shadow: 0 8px 28px rgba(0, 0, 0, 0.5);
+  --card-shadow: 0 1px 0 rgba(255, 255, 255, 0.03) inset;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --page: #0b0b0d;
+  --surface: #151518;
+  --surface-2: #1e1e22;
+  --surface-3: #292930;
+  --sidebar: #0e0e11;
+  --ink: #f4f4f2;
+  --ink-2: #bdbcb6;
+  --ink-3: #8f8e88;
+  --hairline: rgba(255, 255, 255, 0.08);
+  --hairline-strong: rgba(255, 255, 255, 0.16);
+  --field-border: rgba(255, 255, 255, 0.42);
+  --row-hover: rgba(255, 255, 255, 0.045);
+  --scrim: rgba(0, 0, 0, 0.6);
+  --accent: #6ca7ef;
+  --accent-strong: #91bdf3;
+  --accent-ink: #0f0f10;
+  --accent-wash: rgba(108, 167, 239, 0.16);
+  --accent-wash-strong: rgba(108, 167, 239, 0.26);
+  --selection: rgba(108, 167, 239, 0.38);
+  --danger: #f07373;
+  --danger-ink: #1a0b0b;
+  --danger-wash: rgba(240, 115, 115, 0.14);
+  --success: #4cc26a;
+  --success-strong: #4cc26a;
+  --success-wash: rgba(76, 194, 106, 0.14);
+  --warn: #e0b13d;
+  --warn-strong: #e0b13d;
+  --warn-wash: rgba(224, 177, 61, 0.14);
+  --day-1: #6ea8e8; --day-2: #3fb391; --day-3: #d99a3d; --day-4: #dc7ab8;
+  --day-5: #898cf0; --day-6: #e57373; --day-7: #8ab55c; --day-8: #c678ff;
+  --av-1: #1f3566; --av-1-ink: #c9d8ff;
+  --av-2: #5a2a10; --av-2-ink: #ffd3ba;
+  --av-3: #15452f; --av-3-ink: #bfeed7;
+  --av-4: #4d3a05; --av-4-ink: #ffe7a1;
+  --av-5: #5a1a37; --av-5-ink: #ffc9df;
+  --av-6: #34276b; --av-6-ink: #d9d1ff;
+  --av-7: #113f4e; --av-7-ink: #c3e9f5;
+  --av-8: #33322f; --av-8-ink: #dad8d1;
+  --pop-shadow: 0 8px 28px rgba(0, 0, 0, 0.5);
+  --card-shadow: 0 1px 0 rgba(255, 255, 255, 0.03) inset;
+}
+
+/* Swatches that preview each accent choice in the current theme. */
+:root { --swatch-blue: #1e6ac8; --swatch-teal: #0f766e; --swatch-green: #1a7a3c; --swatch-purple: #7a3fe0; --swatch-orange: #bb4a0b; --swatch-rose: #c0264f; }
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) { --swatch-blue: #6ca7ef; --swatch-teal: #3fbfae; --swatch-green: #55c47a; --swatch-purple: #ab8cf6; --swatch-orange: #f2954a; --swatch-rose: #f27a96; }
+}
+:root:where([data-theme="dark"]) { --swatch-blue: #6ca7ef; --swatch-teal: #3fbfae; --swatch-green: #55c47a; --swatch-purple: #ab8cf6; --swatch-orange: #f2954a; --swatch-rose: #f27a96; }
+
+/* Accent choices (Settings → Appearance; blue above is the default). Light: white on --accent ≥ 5.1:1, --accent-strong
+   on page ≥ 6.4:1. Dark: page ink on --accent ≥ 7.1:1. :where() keeps a light choice below the dark blocks, and the dark
+   selectors stay at the specificity [data-contrast="more"] needs to win. */
+:root:where([data-accent="teal"]) { --accent: #0f766e; --accent-strong: #115e59; --accent-wash: rgba(15, 118, 110, 0.1); --accent-wash-strong: rgba(15, 118, 110, 0.18); --selection: rgba(15, 118, 110, 0.3); }
+:root:where([data-accent="green"]) { --accent: #1a7a3c; --accent-strong: #166534; --accent-wash: rgba(26, 122, 60, 0.1); --accent-wash-strong: rgba(26, 122, 60, 0.18); --selection: rgba(26, 122, 60, 0.3); }
+:root:where([data-accent="purple"]) { --accent: #7a3fe0; --accent-strong: #6a2fd0; --accent-wash: rgba(122, 63, 224, 0.1); --accent-wash-strong: rgba(122, 63, 224, 0.18); --selection: rgba(122, 63, 224, 0.3); }
+:root:where([data-accent="orange"]) { --accent: #bb4a0b; --accent-strong: #9a3c09; --accent-wash: rgba(187, 74, 11, 0.1); --accent-wash-strong: rgba(187, 74, 11, 0.18); --selection: rgba(187, 74, 11, 0.3); }
+:root:where([data-accent="rose"]) { --accent: #c0264f; --accent-strong: #a01d42; --accent-wash: rgba(192, 38, 79, 0.1); --accent-wash-strong: rgba(192, 38, 79, 0.18); --selection: rgba(192, 38, 79, 0.3); }
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"]))[data-accent="teal"] { --accent: #3fbfae; --accent-strong: #7fd8cb; --accent-wash: rgba(63, 191, 174, 0.16); --accent-wash-strong: rgba(63, 191, 174, 0.26); --selection: rgba(63, 191, 174, 0.38); }
+  :root:where(:not([data-theme="light"]))[data-accent="green"] { --accent: #55c47a; --accent-strong: #8ad8a2; --accent-wash: rgba(85, 196, 122, 0.16); --accent-wash-strong: rgba(85, 196, 122, 0.26); --selection: rgba(85, 196, 122, 0.38); }
+  :root:where(:not([data-theme="light"]))[data-accent="purple"] { --accent: #ab8cf6; --accent-strong: #c8b5fa; --accent-wash: rgba(171, 140, 246, 0.16); --accent-wash-strong: rgba(171, 140, 246, 0.26); --selection: rgba(171, 140, 246, 0.38); }
+  :root:where(:not([data-theme="light"]))[data-accent="orange"] { --accent: #f2954a; --accent-strong: #f8b783; --accent-wash: rgba(242, 149, 74, 0.16); --accent-wash-strong: rgba(242, 149, 74, 0.26); --selection: rgba(242, 149, 74, 0.38); }
+  :root:where(:not([data-theme="light"]))[data-accent="rose"] { --accent: #f27a96; --accent-strong: #f7a8ba; --accent-wash: rgba(242, 122, 150, 0.16); --accent-wash-strong: rgba(242, 122, 150, 0.26); --selection: rgba(242, 122, 150, 0.38); }
+}
+:root:where([data-theme="dark"])[data-accent="teal"] { --accent: #3fbfae; --accent-strong: #7fd8cb; --accent-wash: rgba(63, 191, 174, 0.16); --accent-wash-strong: rgba(63, 191, 174, 0.26); --selection: rgba(63, 191, 174, 0.38); }
+:root:where([data-theme="dark"])[data-accent="green"] { --accent: #55c47a; --accent-strong: #8ad8a2; --accent-wash: rgba(85, 196, 122, 0.16); --accent-wash-strong: rgba(85, 196, 122, 0.26); --selection: rgba(85, 196, 122, 0.38); }
+:root:where([data-theme="dark"])[data-accent="purple"] { --accent: #ab8cf6; --accent-strong: #c8b5fa; --accent-wash: rgba(171, 140, 246, 0.16); --accent-wash-strong: rgba(171, 140, 246, 0.26); --selection: rgba(171, 140, 246, 0.38); }
+:root:where([data-theme="dark"])[data-accent="orange"] { --accent: #f2954a; --accent-strong: #f8b783; --accent-wash: rgba(242, 149, 74, 0.16); --accent-wash-strong: rgba(242, 149, 74, 0.26); --selection: rgba(242, 149, 74, 0.38); }
+:root:where([data-theme="dark"])[data-accent="rose"] { --accent: #f27a96; --accent-strong: #f7a8ba; --accent-wash: rgba(242, 122, 150, 0.16); --accent-wash-strong: rgba(242, 122, 150, 0.26); --selection: rgba(242, 122, 150, 0.38); }

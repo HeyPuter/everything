@@ -1,0 +1,17 @@
+export default {
+  'map.label': 'Reiskaart',
+  'map.attribution': 'Bronvermelding van de kaart',
+  'map.marker': 'Kaartmarkering',
+  'map.logo': 'MapLibre-logo',
+  'map.zoomIn': 'Inzoomen',
+  'map.zoomOut': 'Uitzoomen',
+  'map.resetBearing': 'Sleep om de kaart te draaien, klik om het noorden te herstellen',
+  'map.findLocation': 'Mijn locatie zoeken',
+  'map.locationUnavailable': 'Locatie niet beschikbaar',
+  'map.attributionToggle': 'Bronvermelding tonen of verbergen',
+  'map.mapFeedback': 'Feedback over de kaart',
+  'map.closePopup': 'Pop-up sluiten',
+  'map.gesturesWindows': 'Gebruik Ctrl + scrollen om op de kaart te zoomen',
+  'map.gesturesMac': 'Gebruik ⌘ + scrollen om op de kaart te zoomen',
+  'map.gesturesMobile': 'Gebruik twee vingers om de kaart te verplaatsen',
+};

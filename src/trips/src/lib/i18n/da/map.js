@@ -1,0 +1,17 @@
+export default {
+  'map.label': 'Rejsekort',
+  'map.attribution': 'Kortkreditering',
+  'map.marker': 'Kortmarkør',
+  'map.logo': 'MapLibre-logo',
+  'map.zoomIn': 'Zoom ind',
+  'map.zoomOut': 'Zoom ud',
+  'map.resetBearing': 'Træk for at rotere kortet, klik for at nulstille mod nord',
+  'map.findLocation': 'Find min placering',
+  'map.locationUnavailable': 'Placering ikke tilgængelig',
+  'map.attributionToggle': 'Vis/skjul kreditering',
+  'map.mapFeedback': 'Feedback om kortet',
+  'map.closePopup': 'Luk pop op-vindue',
+  'map.gesturesWindows': 'Brug Ctrl + rul for at zoome på kortet',
+  'map.gesturesMac': 'Brug ⌘ + rul for at zoome på kortet',
+  'map.gesturesMobile': 'Brug to fingre til at flytte kortet',
+};

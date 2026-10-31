@@ -1,0 +1,6 @@
+{
+  "source": "world-atlas countries-50m",
+  "license": "ISC / Natural Earth public domain",
+  "sha256": "04342cdc1e3016bcd7db1630de95684d67b79fe3c8c460321e87aef469502394",
+  "borders": "Natural Earth de facto boundaries; disputed areas follow the upstream Natural Earth point of view."
+}

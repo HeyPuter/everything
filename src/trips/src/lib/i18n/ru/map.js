@@ -1,0 +1,17 @@
+export default {
+  'map.label': 'Карта поездки',
+  'map.attribution': 'Атрибуция карты',
+  'map.marker': 'Метка на карте',
+  'map.logo': 'Логотип MapLibre',
+  'map.zoomIn': 'Приблизить',
+  'map.zoomOut': 'Отдалить',
+  'map.resetBearing': 'Перетащите, чтобы повернуть карту, или нажмите, чтобы сориентировать её на север',
+  'map.findLocation': 'Найти моё местоположение',
+  'map.locationUnavailable': 'Местоположение недоступно',
+  'map.attributionToggle': 'Показать или скрыть атрибуцию',
+  'map.mapFeedback': 'Отзыв о карте',
+  'map.closePopup': 'Закрыть всплывающее окно',
+  'map.gesturesWindows': 'Чтобы изменить масштаб карты, прокручивайте с нажатой клавишей Ctrl',
+  'map.gesturesMac': 'Чтобы изменить масштаб карты, прокручивайте с нажатой клавишей ⌘',
+  'map.gesturesMobile': 'Перемещайте карту двумя пальцами',
+};

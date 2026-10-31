@@ -1,0 +1,53 @@
+/* Shared file UI: preview, picker, attachment lists. */
+.icon-filled { fill: currentColor; }
+
+.file-mini-thumb { display: inline-grid; place-items: center; flex: none; inline-size: 32px; block-size: 32px; overflow: hidden; border-radius: var(--r-xs); background: var(--surface-2); color: var(--ink-2); }
+.file-mini-thumb img { inline-size: 100%; block-size: 100%; object-fit: cover; }
+
+/* Preview */
+.modal-panel.file-viewer { inline-size: min(960px, 100%); }
+.file-preview { display: flex; flex-direction: column; gap: 12px; min-inline-size: 0; }
+.file-stage-wrap { position: relative; display: flex; align-items: center; gap: 8px; min-inline-size: 0; }
+.file-stage { display: grid; place-items: center; flex: 1; min-inline-size: 0; min-block-size: min(50vh, 360px); border-radius: var(--r-sm); background: var(--surface-2); overflow: hidden; touch-action: pan-y; }
+.file-image { display: block; max-inline-size: 100%; max-block-size: 68vh; object-fit: contain; user-select: none; }
+.file-video { display: block; inline-size: 100%; max-block-size: 68vh; border-radius: var(--r-sm); background: var(--surface-2); }
+.file-pdf { display: block; inline-size: 100%; block-size: 70vh; border: 0; background: var(--surface); }
+.file-text-view { align-self: stretch; justify-self: stretch; max-block-size: 68vh; overflow: auto; padding: 14px 16px; background: var(--surface); text-align: start; }
+.file-text-view pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--mono); font-size: 13px; }
+.file-preview-loading { display: flex; flex-direction: column; align-items: center; gap: 12px; inline-size: min(280px, 80%); }
+.file-preview-empty { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 32px 16px; color: var(--ink-2); text-align: center; }
+.file-preview-meta { margin: 0; color: var(--ink-3); font-size: 12.5px; overflow-wrap: anywhere; }
+.file-nav { flex: none; }
+.file-strip { display: flex; gap: 6px; overflow-x: auto; padding-block-end: 4px; }
+.file-strip-item { flex: none; padding: 2px; border: 2px solid transparent; border-radius: var(--r-sm); background: transparent; }
+.file-strip-item[aria-current="true"] { border-color: var(--accent); }
+.file-strip-thumb { display: grid; place-items: center; inline-size: 56px; block-size: 56px; overflow: hidden; border-radius: var(--r-xs); background: var(--surface-2); color: var(--ink-2); }
+.file-strip-thumb img { inline-size: 100%; block-size: 100%; object-fit: cover; }
+@media (max-width: 640px) {
+  .file-nav { position: absolute; inset-block-start: 50%; translate: 0 -50%; z-index: 1; background: var(--surface); border: 1px solid var(--hairline); }
+  .file-nav-prev { inset-inline-start: 6px; }
+  .file-nav-next { inset-inline-end: 6px; }
+  .file-pdf { block-size: 60vh; }
+}
+
+/* Picker */
+.file-picker { display: flex; flex-direction: column; gap: 10px; min-inline-size: 0; }
+.file-picker .field { margin-block-end: 0; }
+.file-pick-list { display: flex; flex-direction: column; gap: 2px; max-block-size: min(50vh, 420px); overflow-y: auto; }
+.file-pick-item { gap: 10px; }
+.file-pick-name { flex: 1; min-inline-size: 0; overflow-wrap: anywhere; }
+.file-pick-size { flex: none; color: var(--ink-3); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.file-pick-item[aria-checked="true"] .file-pick-size { color: var(--ink-2); }
+.file-pick-status { margin: 0; min-block-size: 1.4em; color: var(--ink-2); font-size: 13px; }
+.file-pick-sources { display: flex; flex-wrap: wrap; gap: 8px; }
+
+/* Attachment list */
+.file-attachments { display: flex; flex-direction: column; gap: 8px; }
+.file-attachments-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.file-attachments-title { display: flex; align-items: center; gap: 6px; margin: 0; color: var(--ink-2); font-size: 13px; font-weight: 600; }
+.file-attachments-list { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.file-attachments-empty { color: var(--ink-3); font-size: 13px; }
+.file-attachment { display: flex; align-items: center; gap: 4px; }
+.file-attachment-open { display: flex; align-items: center; gap: 10px; flex: 1; min-inline-size: 0; min-block-size: 40px; padding: 4px 8px; border: 0; border-radius: var(--r-sm); background: transparent; color: var(--ink); text-align: start; }
+.file-attachment-open:hover { background: var(--row-hover); }
+.file-attachment-name { flex: 1; min-inline-size: 0; overflow-wrap: anywhere; font-size: 14px; }

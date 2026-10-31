@@ -1,0 +1,89 @@
+.vacay { display: flex; flex-direction: column; gap: 16px; padding: 20px; max-inline-size: 1400px; margin-inline: auto; }
+.vacay-state { display: grid; place-items: center; gap: 12px; padding-block: 48px; color: var(--ink-2); }
+.vacay-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; }
+.vacay-year { display: flex; align-items: center; gap: 6px; }
+.vacay-year-label { min-inline-size: 11ch; font-size: 19px; font-weight: 700; text-align: center; font-variant-numeric: tabular-nums; }
+.vacay-head-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.vacay-banners { display: grid; gap: 8px; }
+.vacay-banners:empty { display: none; }
+.vacay-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
+.vacay-main, .vacay-side { display: flex; flex-direction: column; gap: 12px; min-inline-size: 0; }
+.vacay-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.vacay-hint { color: var(--ink-3); font-size: 12.5px; }
+
+.vacay-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 232px), 1fr)); gap: 12px; }
+.vacay-month { padding: 10px; border: 1px solid var(--hairline); border-radius: var(--r-md); background: var(--surface); }
+.vacay-month-title { margin-block-end: 6px; font-size: 14px; font-weight: 700; }
+.vacay-week, .vacay-days { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 2px; }
+.vacay-weekday { padding-block: 2px; color: var(--ink-3); font-size: 11px; font-weight: 600; text-align: center; text-decoration: none; }
+.vacay-day { position: relative; display: flex; align-items: center; justify-content: center; aspect-ratio: 1; min-block-size: 30px; overflow: hidden; padding: 0; border: 1px solid transparent; border-radius: var(--r-xs); background: transparent; color: var(--ink); font-size: 12.5px; font-variant-numeric: tabular-nums; cursor: pointer; }
+.vacay-day:hover { background: var(--row-hover); }
+.vacay-day.is-out { opacity: .45; color: var(--ink-3); cursor: default; }
+.vacay-day.is-weekend { background: var(--surface-2); color: var(--ink-3); }
+.vacay-day.is-holiday { background: var(--warn-wash); color: var(--warn-strong); font-weight: 700; }
+.vacay-day.is-company { box-shadow: inset 0 0 0 1.5px var(--accent); }
+.vacay-day.own-full { background: color-mix(in srgb, var(--own) 30%, var(--surface)); font-weight: 700; }
+.vacay-day.own-half::before { content: ''; position: absolute; inset-inline: 0; inset-block-end: 0; block-size: 50%; background: color-mix(in srgb, var(--own) 30%, var(--surface)); }
+.vacay-day.own-comp { outline: 1.5px dashed var(--own); outline-offset: -4px; }
+.vacay-day.own-comp.own-full, .vacay-day.own-comp.own-half::before { background: color-mix(in srgb, var(--own) 14%, var(--surface)); }
+.vacay-day.is-selected { border-color: var(--ink); }
+.vacay-day:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.vacay-day[aria-current="date"] .vacay-num { text-decoration: underline; text-underline-offset: 3px; }
+.vacay-num { position: relative; z-index: 1; }
+.vacay-marks { position: absolute; z-index: 1; inset-inline: 2px; inset-block-end: 2px; display: flex; align-items: flex-end; justify-content: center; gap: 1px; }
+.vacay-bar { flex: 1; max-inline-size: 10px; block-size: 3px; border-radius: 2px; background: var(--mark); }
+.vacay-bar.is-half { max-inline-size: 5px; }
+.vacay-ring { inline-size: 6px; block-size: 6px; border: 1.5px solid var(--mark); border-radius: 50%; }
+.vacay-bands { position: absolute; z-index: 1; inset-inline: 0; inset-block-start: 0; display: flex; flex-direction: column; gap: 1px; }
+.vacay-band { block-size: 2px; background: var(--mark); }
+.vacay-trip { position: absolute; z-index: 1; inset-block-start: 4px; inset-inline-end: 3px; inline-size: 5px; block-size: 5px; border-radius: 50%; background: var(--accent); }
+
+.vacay-legend { display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 0; padding: 0; list-style: none; color: var(--ink-2); font-size: 12.5px; }
+.vacay-legend li { display: inline-flex; align-items: center; gap: 6px; }
+.vacay-key { position: relative; flex: none; inline-size: 14px; block-size: 14px; overflow: hidden; border: 1px solid var(--hairline-strong); border-radius: 4px; }
+.vacay-key.key-own { background: color-mix(in srgb, var(--own, var(--day-1)) 30%, var(--surface)); }
+.vacay-key.key-half::before, .vacay-key.key-band::before, .vacay-key.key-bar::before, .vacay-key.key-trip::before { content: ''; position: absolute; }
+.vacay-key.key-half::before { inset-inline: 0; inset-block-end: 0; block-size: 50%; background: color-mix(in srgb, var(--own, var(--day-1)) 30%, var(--surface)); }
+.vacay-key.key-comp { outline: 1.5px dashed var(--own, var(--day-1)); outline-offset: -4px; }
+.vacay-key.key-company { box-shadow: inset 0 0 0 1.5px var(--accent); }
+.vacay-key.key-holiday { background: var(--warn-wash); }
+.vacay-key.key-weekend { background: var(--surface-2); }
+.vacay-key.key-band::before { inset-inline: 0; inset-block-start: 0; block-size: 3px; background: var(--day-2); }
+.vacay-key.key-bar::before { inset-inline: 3px; inset-block-end: 2px; block-size: 3px; border-radius: 2px; background: var(--day-3); }
+.vacay-key.key-ring { inline-size: 11px; block-size: 11px; border: 2px solid var(--day-5); border-radius: 50%; }
+.vacay-key.key-trip::before { inset-block-start: 3px; inset-inline-end: 3px; inline-size: 5px; block-size: 5px; border-radius: 50%; background: var(--accent); }
+
+.vacay-card { display: flex; flex-direction: column; gap: 10px; padding: 14px; border: 1px solid var(--hairline); border-radius: var(--r-md); background: var(--surface); }
+.vacay-card h2 { font-size: 16px; font-weight: 700; }
+.vacay-card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.vacay-stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.vacay-stats .stat strong { font-size: 20px; font-variant-numeric: tabular-nums; }
+.vacay-subhead { margin-block: 4px; color: var(--ink-3); font-size: 11.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+.vacay-list { display: flex; flex-direction: column; margin: 0; padding: 0; list-style: none; }
+.vacay-person { display: flex; align-items: center; gap: 10px; min-block-size: 44px; padding-block: 6px; }
+.vacay-person + .vacay-person { border-block-start: 1px solid var(--hairline); }
+.vacay-person.is-hidden .vacay-person-text { opacity: .65; }
+.vacay-person-text { display: flex; flex: 1; flex-direction: column; min-inline-size: 0; }
+.vacay-person-text strong { overflow: hidden; font-size: 14px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.vacay-person-text span { color: var(--ink-3); font-size: 12.5px; }
+.vacay-swatch { flex: none; inline-size: 14px; block-size: 14px; border-radius: 50%; background: var(--mark); }
+.vacay-swatch.is-ring { border: 2px solid var(--mark); background: transparent; }
+.vacay-swatch.is-empty { border: 1.5px dashed var(--hairline-strong); background: transparent; }
+.vacay-invite { display: flex; flex-direction: column; gap: 8px; padding: 10px; border: 1px solid var(--hairline); border-radius: var(--r-sm); background: var(--accent-wash); }
+.vacay-invite + .vacay-invite { margin-block-start: 8px; }
+.vacay-invite-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.vacay-facts { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 0; list-style: none; font-size: 13.5px; }
+.vacay-facts li { display: flex; align-items: center; gap: 8px; }
+.vacay-entry, .vacay-form, .vacay-form-body, .vacay-region { display: flex; flex-direction: column; gap: 12px; }
+.vacay-fieldset { min-inline-size: 0; margin: 0; padding: 0; border: 0; }
+.vacay-fieldset legend { margin-block-end: 6px; }
+.vacay-checks { display: flex; flex-wrap: wrap; gap: 6px 14px; }
+.vacay-periods { display: flex; flex-direction: column; gap: 8px; margin: 0 0 8px; padding: 0; list-style: none; }
+.vacay-periods li { align-items: end; }
+
+@media (min-width: 1024px) {
+  .vacay-layout { grid-template-columns: minmax(0, 1fr) var(--panel-w); align-items: start; }
+  .vacay-side { position: sticky; inset-block-start: 12px; }
+}
+@media (max-width: 899px) { .vacay { padding: 12px; } }
+@media (pointer: coarse) { .vacay-day { min-block-size: 40px; } }

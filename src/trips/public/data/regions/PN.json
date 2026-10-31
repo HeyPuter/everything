@@ -1,0 +1,1 @@
+{"type":"Topology","transform":{"scale":[0.001,0.001],"translate":[0,0]},"arcs":[[[-128350,-24341],[46,6],[4,-79],[-50,73]]],"objects":{"regions":{"type":"GeometryCollection","geometries":[{"type":"Polygon","id":"PN-X01","arcs":[[0]],"properties":{"name":"Pitcairn Islands","iso":false}}]}}}
