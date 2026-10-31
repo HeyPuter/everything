@@ -21,6 +21,16 @@ import { allClipsDeep, removeAssetClips } from '../model/compound.js';
 import { defaultLength } from './preferences-dialog.js';
 import { createClipEffectActions } from './clip-effects-actions.js';
 
+/** Shown under the Reverse progress bar, so a long wait says what it is doing. */
+const REVERSE_STAGE = {
+  duration: 'Reading the length...',
+  reading: 'Reading the frames of the file...',
+  software: 'Reading with the software decoder...',
+  video: 'Reversing the picture...',
+  audio: 'Reversing the sound...',
+  finishing: 'Finishing up...',
+  done: 'Done',
+};
 
 /** Copies of clips for the clipboard, marked with whether they were on the base track. */
 function clipBoard(project, ids) {
@@ -545,12 +555,19 @@ export function createActions(ctx) {
         const ac = new AbortController();
         const bar = h('span');
         const progress = h('div.progress', bar);
+        const stage = h('p.dialog-text.sub', 'Reading the length...');
         const cancel = h('button.btn', { type: 'button' }, 'Cancel');
-        const d = openDialog({ title: 'Reversing clip', body: h('div.reverse-progress', h('p.dialog-text', `Reversing ${asset.name}. This can take a moment for long clips.`), progress), actions: [cancel], className: 'small', closeOnBackdrop: false, onClose: () => ac.abort() });
+        const d = openDialog({ title: 'Reversing clip', body: h('div.reverse-progress', h('p.dialog-text', `Reversing ${asset.name}. This can take a moment for long clips.`), progress, stage), actions: [cancel], className: 'small', closeOnBackdrop: false, onClose: () => ac.abort() });
         cancel.addEventListener('click', () => d.close());
         try {
           const blob = await ctx.library.mediaBlob(asset);
-          const file = await reverseFile(blob, asset.name, { signal: ac.signal, onProgress: (p) => (bar.style.width = `${Math.round(p * 100)}%`) });
+          const file = await reverseFile(blob, asset.name, {
+            signal: ac.signal,
+            onProgress: (p, s) => {
+              bar.style.width = `${Math.round(p * 100)}%`;
+              if (s) stage.textContent = REVERSE_STAGE[s] || stage.textContent;
+            },
+          });
           const [made] = await actions.importFiles([file]);
           if (!made) return;
           store.update('Reverse', (p) => {
