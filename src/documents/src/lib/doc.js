@@ -340,15 +340,18 @@ export class Doc extends EventTarget {
       this.lastSaved = Date.now();
       this._lastSaveMs = this.lastSaved - started;
       this._snapshot(blob);
-      // Edits that landed while the write was in flight keep the doc dirty.
-      this.savedVersion = version;
+      // Edits that landed while the write was in flight keep the doc dirty, unless saving passed to another tab
+      // of a shared document meanwhile (setSaving): its edits reach the file from there.
+      this.savedVersion = this.writes === false ? this.version : version;
       this._setStatus(this.dirty ? 'unsaved' : 'saved');
       if (this.dirty && this.autosave) this._schedule(this.autosaveDelay);
       return true;
     } catch (e) {
       console.error(e);
-      // The editor closed this document meanwhile (an import whose layout failed): nothing is left to retry, and the pill must not say "Not saved".
+      // The editor closed this document meanwhile (an import whose layout failed), or another tab of a shared
+      // document took over writing the file: nothing is left to retry, and the pill must not say "Not saved".
       if (this._closed) return false;
+      if (this.writes === false) { this._setStatus('saved'); return true; }
       const offline = typeof navigator !== 'undefined' && navigator.onLine === false;
       this._setStatus(offline ? 'offline' : 'error', e?.message || String(e));
       if (!auto) throw e;

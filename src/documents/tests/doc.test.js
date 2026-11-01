@@ -1198,3 +1198,31 @@ describe('a file open in two windows', () => {
     expect(P.writeFile).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('Doc handing saving to another tab while a save is in flight', () => {
+  beforeEach(() => { versioning.enabled = false; publishing.enabled = false; P.__fs.clear(); P.writeFile.mockClear(); vi.stubGlobal('navigator', { onLine: true }); });
+  afterEach(() => { vi.unstubAllGlobals(); });
+
+  it('is not left with unsaved edits, or a failure, that it no longer saves', async () => {
+    for (const fails of [false, true]) {
+      const doc = new Doc({ name: 'Plan', path: 'Documents/Plan.docx', blob: blob('x') });
+      doc.attach(async () => blob('content'));
+      let release;
+      P.writeFile.mockImplementationOnce((path, content) => new Promise((resolve, reject) => { release = () => (fails ? reject(new Error('The cloud is unreachable')) : resolve({ path })); }));
+      doc.changed();
+      const saving = doc.save({ auto: true });
+      await vi.waitFor(() => expect(release).toBeTypeOf('function'));
+      // The user types on while the write is in flight; then another owner's tab takes over writing the file.
+      doc.changed();
+      doc.setSaving(false);
+      release();
+      await saving;
+      expect(doc.dirty).toBe(false);
+      expect(needsUnloadWarning(doc)).toBe(false);
+      expect(doc.status).toBe('saved');
+      // Leaving finishes at once: nothing is left for this tab to write.
+      await expect(Promise.race([doc.flush(), new Promise(r => setTimeout(() => r('hung'), 200))])).resolves.toBe(true);
+      doc.destroy();
+    }
+  });
+});
