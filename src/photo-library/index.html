@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Photo Library — Lightroom-inspired catalog, ratings, non-destructive adjust." />
+    <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="icon-128.png" type="image/png" sizes="128x128" />
+    <title>Photo Library</title>
+  </head>
+  <body>
+    <div id="app">
+      <header class="brand"><img src="icon-128.png" width="28" height="28" alt="" /><h1>Photo Library</h1></header>
+      <main class="layout">
+        <aside class="panel">
+          <label>Min rating <input id="min-rating" type="range" min="0" max="5" value="0" /></label>
+          <label>Tag <input id="tag" type="search" placeholder="travel" /></label>
+          <div id="grid" class="grid"></div>
+        </aside>
+        <section class="panel develop">
+          <div id="preview" class="preview" aria-label="Develop preview"></div>
+          <p id="meta"></p>
+          <label>Exposure <input id="exposure" type="range" min="-2" max="2" step="0.1" value="0" /></label>
+          <label>Contrast <input id="contrast" type="range" min="-2" max="2" step="0.1" value="0" /></label>
+          <label>Saturation <input id="saturation" type="range" min="-2" max="2" step="0.1" value="0" /></label>
+          <label>Temperature <input id="temperature" type="range" min="-2" max="2" step="0.1" value="0" /></label>
+          <div class="row">
+            <button class="btn" id="rate-up" type="button">★ +</button>
+            <button class="btn secondary" id="pick" type="button">Flag pick</button>
+          </div>
+        </section>
+      </main>
+      <details class="help"><summary>DOCUMENTED vs LIVE</summary>
+        <p>Lightroom (DOCUMENTED) syncs catalogs to LIVE Creative Cloud and reads RAW camera pipelines. This v0 is a local catalog with ratings/flags and CSS-based non-destructive preview filters — not a clone of Photo Studio pixel editing, and no fabricated LIVE sync.</p>
+      </details>
+    </div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
