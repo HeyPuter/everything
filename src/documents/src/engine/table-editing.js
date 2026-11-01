@@ -333,6 +333,8 @@ export function insertCells(model, { shift = 'down', widths: measured } = {}) {
   if (shift === 'row') return insertRows(model, { above: true });
   if (shift === 'column') return insertColumns(model, { left: true, widths: measured });
   if (!['right', 'down'].includes(shift)) throw new Error('Choose how the selected cells move.');
+  // Shifting cells moves their text into other columns or rows, which a reviewer would not see.
+  refuseUntracked(model, 'Inserting cells that shift others');
   const block = requireBlock(model), table = block.table;
   requireAligned(table, block);
   const width = block.right - block.left, height = block.bottom - block.top + 1;
@@ -1241,6 +1243,8 @@ export function clearCells(model) {
 
 /** Move a table (outside other tables) so it stands before the paragraph `beforeId`. */
 export function moveTable(model, tableId, beforeId) {
+  // Moving text is not recorded as a tracked move, as moving paragraphs is not (home-editing.js).
+  refuseUntracked(model, 'Moving a table');
   const table = model.tables.find(t => t.id === tableId);
   if (!table) throw new Error('Choose a table to move.');
   if (table.parentCellId) throw new Error('Tables inside other tables move with their cell.');

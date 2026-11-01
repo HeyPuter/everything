@@ -169,6 +169,17 @@ describe('with Track Changes on', () => {
     refuses('Eraser', doc => { const t = doc.tables[0]; T.eraseLine(doc, { tableId: t.id, cellIds: [t.rows[0].cells[0].id, t.rows[0].cells[1].id] }); });
     refuses('Delete row (Table actions)', doc => { at(doc, 1, 1); doc.deleteTablePart('row'); });
   });
+  it('refuses the commands that would move table text untracked', () => {
+    refuses('Insert Cells, shift down', doc => { at(doc, 0, 0); T.insertCells(doc, { shift: 'down' }); });
+    refuses('Insert Cells, shift right', doc => { at(doc, 0, 0); T.insertCells(doc, { shift: 'right' }); });
+    // Dragging the table's move handle above the paragraph before it.
+    const { doc } = tableDocument(2, 2, ['Before']), text = doc.text;
+    doc.trackChanges = true;
+    expect(() => T.moveTable(doc, doc.tables[0].id, doc.paragraphs[0].id)).toThrow('Moving a table cannot be tracked yet. Turn off Track Changes to do this.');
+    expect(doc.text).toBe(text);
+    // Inserting whole rows and columns moves nothing and still works.
+    at(doc, 0, 0); expect(T.insertCells(doc, { shift: 'row' })).toBe(true);
+  });
   it('still records the Delete key on cells, and allows commands that remove nothing', () => {
     const doc = tracked();
     block(doc, 0, 0, 0, 2); expect(T.clearCells(doc)).toBe(true);
