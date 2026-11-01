@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>Downloader · Fast Download Manager</title>
+  <meta name="description" content="High-speed download manager for Puter with chunked streaming, category filtering, real-time speed monitoring, and cloud storage integration." />
+  <link rel="icon" type="image/png" sizes="128x128" href="./icon-128.png" />
+  <link rel="apple-touch-icon" href="./public/icon-192.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <script>
+    (() => {
+      try {
+        const saved = localStorage.getItem('downloader:theme');
+        if (saved === 'light' || saved === 'dark') {
+          document.documentElement.dataset.theme = saved;
+        } else if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
+          document.documentElement.dataset.theme = 'dark';
+        }
+      } catch {}
+    })();
+  </script>
+  <script src="https://js.puter.com/v2/" defer></script>
+  <script type="module" src="/src/main.js"></script>
+</head>
+<body>
+  <div id="app" class="app-root"></div>
+</body>
+</html>

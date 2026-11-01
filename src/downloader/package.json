@@ -1,0 +1,20 @@
+{
+  "name": "downloader",
+  "version": "1.0.0",
+  "description": "Downloader — Fast, intelligent download manager with Puter Cloud integration",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "vite": "^8.2.0",
+    "vitest": "^4.0.18"
+  },
+  "dependencies": {
+    "lucide": "^1.28.0"
+  }
+}
