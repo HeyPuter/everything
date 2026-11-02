@@ -111,7 +111,9 @@ export function createInsert({ editor, pkg, error, base = {}, docName = () => ''
   async function insertDrawing(build, { body = true, replace = null, edit = false } = {}) {
     const engine = ready(); if (!engine) return false;
     try {
-      if (body) toBody(engine); else engine.finishComposition();
+      // A drawing being replaced (Edit Diagram, Edit Chart Data) is edited where it is: in a header,
+      // footer or note too. New drawings go in the body.
+      if (body && !replace) toBody(engine); else engine.finishComposition();
       // A new drawing goes after a selected picture or shape rather than replacing it.
       if (!replace) afterSelectedDrawing(engine);
       const revision = engine.session.revision, model = engine.model;
