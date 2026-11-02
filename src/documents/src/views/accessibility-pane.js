@@ -12,7 +12,10 @@ const SEVERITY = { error: 'Errors', warning: 'Warnings', tip: 'Tips' };
 const FIX_LABEL = { altText: 'Add description…', headerRow: 'Use first row as header', autoColor: 'Use automatic color', clearHighlight: 'Remove highlight', removeEmpty: 'Remove empty paragraphs', collapseBlanks: 'Use a single space', deleteRow: 'Delete row' };
 
 export function createAccessibilityPane({ editor, pkg, error, onState = () => {} }) {
-  let issues = [], checkedRevision = -1, timer = null;
+  // The body last checked and its edit count then: a package reopened in place (a design change) has a new body,
+  // whose count starts again.
+  let issues = [], checkedBody = null, checkedRevision = -1, timer = null;
+  const checked = body => body === checkedBody && body.revision === checkedRevision;
   const pane = sidePane({ title: 'Accessibility', label: 'Accessibility pane', className: 'rv-accessibility-pane', onOpen: () => run(true), onClose: () => editor()?.focus() });
   const summaryLine = el('p.rv-status', { role: 'status' });
   const list = el('div.rv-groups');
@@ -23,8 +26,8 @@ export function createAccessibilityPane({ editor, pkg, error, onState = () => {}
   function run(force = false) {
     const engine = editor(); if (!engine) return issues;
     const body = engine.session.body;
-    if (!force && body.revision === checkedRevision) return issues;
-    checkedRevision = body.revision;
+    if (!force && checked(body)) return issues;
+    checkedBody = body; checkedRevision = body.revision;
     issues = checkAccessibility({ paragraphs: body.paragraphs, tables: body.tables, pageSettings: body.pageSettings }, { headingLevel });
     if (pane.isOpen) render();
     onState();
@@ -60,7 +63,7 @@ export function createAccessibilityPane({ editor, pkg, error, onState = () => {}
    */
   function current(issue) {
     const engine = editor(); if (!engine) return null;
-    if (engine.session.body.revision === checkedRevision) return issue;
+    if (checked(engine.session.body)) return issue;
     run(true);
     return issues.filter(i => i.rule === issue.rule && i.fix?.kind === issue.fix.kind && i.detail === issue.detail)
       .reduce((best, i) => !best || Math.abs(i.start - issue.start) < Math.abs(best.start - issue.start) ? i : best, null);
@@ -103,11 +106,16 @@ export function createAccessibilityPane({ editor, pkg, error, onState = () => {}
     pane,
     open() { pane.open(); run(true); },
     changed() { schedule(); },
-    /** For the status bar: { errors, warnings, tips, label } or null while not checked. */
+    /**
+     * For the status bar: { errors, warnings, tips, label, checking } or null while not checked. Until this
+     * document is first checked (a moment after it opens) it reports no result: `checking` is true.
+     */
     summary() {
       if (!KEEP_RUNNING.get() && !pane.isOpen) return null;
       const engine = editor(); if (!engine) return null;
-      if (engine.session.body.revision !== checkedRevision) schedule();
+      const body = engine.session.body;
+      if (!checked(body)) schedule();
+      if (body !== checkedBody) return { errors: 0, warnings: 0, tips: 0, label: 'Accessibility: checking…', checking: true, open: () => this.open() };
       const counts = summarize(issues);
       const label = !issues.length ? 'Accessibility: good to go' : counts.errors ? `Accessibility: ${counts.errors} ${counts.errors === 1 ? 'error' : 'errors'} to fix` : 'Accessibility: worth a look';
       return { ...counts, label, open: () => this.open() };

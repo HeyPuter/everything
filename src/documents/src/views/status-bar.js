@@ -133,8 +133,8 @@ export function createStatusBar({ w, a, parts, help }) {
     if (accessibility) {
       const summary = a.hasDocument?.() ? w.accessibilitySummary() : null;
       const label = summary?.label || 'Accessibility: check';
-      if (accessibilityLabel.textContent !== label) { accessibilityLabel.textContent = label; accessibility.title = summary ? `${label}. Open the Accessibility pane.` : 'Check Accessibility'; }
-      accessibility.dataset.state = !summary ? 'unchecked' : summary.errors ? 'errors' : summary.warnings || summary.tips ? 'warnings' : 'clean';
+      if (accessibilityLabel.textContent !== label) { accessibilityLabel.textContent = label; accessibility.title = summary ? `${label.replace(/…$/, '')}. Open the Accessibility pane.` : 'Check Accessibility'; }
+      accessibility.dataset.state = !summary ? 'unchecked' : summary.checking ? 'checking' : summary.errors ? 'errors' : summary.warnings || summary.tips ? 'warnings' : 'clean';
       accessibility.disabled = !a.hasDocument?.();
     }
     const tag = w.currentLanguage?.();
