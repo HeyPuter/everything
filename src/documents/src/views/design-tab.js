@@ -50,17 +50,22 @@ export function createDesignTab({ editor, pkg, error, onChange = () => {}, comma
   let api = null;
   const loading = design().then(module => { api = module; onChange(); }).catch(() => {});
   // What the open package declares, read once per package and each part only when asked for; the theme the
-  // document opened with is kept for Reset. The watermark and page fill parse the whole body XML (and its
-  // headers), which in a long document took longer than opening it: only their menus ask for them.
+  // document opened with is kept for Reset. The watermark parses every header, which in a long document took
+  // longer than opening it: only its menu asks for it.
   let infoFor = null, info = null, openedTheme;
   const packageInfo = parts => {
     const read = { theme: () => api.readThemeInfo(parts), styleSet: () => api.currentStyleSetName(parts, [...STYLE_SETS, ...loadSaved('styleSets')]),
-      watermark: () => api.readWatermark(parts), fill: () => api.hasPageFill(parts) };
-    const fallback = { theme: null, styleSet: null, watermark: null, fill: false }, known = {};
-    return Object.defineProperties({}, Object.fromEntries(Object.keys(read).map(name => [name, { enumerable: true, get() {
-      if (!Object.hasOwn(known, name)) { try { known[name] = read[name](); } catch { known[name] = fallback[name]; } }
-      return known[name];
-    } }])));
+      watermark: () => api.readWatermark(parts) };
+    const fallback = { theme: null, styleSet: null, watermark: null }, known = {};
+    return Object.defineProperties({}, {
+      ...Object.fromEntries(Object.keys(read).map(name => [name, { enumerable: true, get() {
+        if (!Object.hasOwn(known, name)) { try { known[name] = read[name](); } catch { known[name] = fallback[name]; } }
+        return known[name];
+      } }])),
+      // The page's fill effect is the editor's picture background: a page color chosen afterwards replaces it,
+      // and Undo brings it back, without a new package.
+      fill: { enumerable: true, get: () => !!editor()?.model.pageSettings?.backgroundPicture },
+    });
   };
   function current() {
     const p = pkg();

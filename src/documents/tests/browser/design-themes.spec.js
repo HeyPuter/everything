@@ -275,3 +275,29 @@ test('a Word watermark shows as the current watermark, and a new one or Remove W
   expect(strFromU8(parts['word/header1.xml'])).toContain('Acme internal');
   expect(errors).toEqual([]);
 });
+
+test('a page color chosen over a fill effect shows in the Page Color menu, and Undo brings the fill back', async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  const input = await open(page);
+  const pageColor = () => ribbon(page).getByRole('button', { name: 'Page Color' });
+  const menu = page.getByRole('menu', { name: 'Page Color' });
+  await pageColor().click();
+  await menu.getByRole('menuitem', { name: 'Fill Effects…' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Fill Effects' });
+  await dialog.getByRole('button', { name: 'OK' }).click();
+  await expect(dialog).toBeHidden();
+  await pageColor().click();
+  await expect(menu.getByRole('menuitem', { name: 'Remove Fill Effect' })).toBeVisible();
+  // A solid color replaces the fill effect (the page shows the color, and the saved file keeps only the color).
+  await menu.getByRole('menuitemradio', { name: 'Light blue' }).click();
+  await pageColor().click();
+  await expect(menu.getByRole('menuitemradio', { name: 'Light blue' })).toHaveAttribute('aria-checked', 'true');
+  await expect(menu.getByRole('menuitem', { name: 'Remove Fill Effect' })).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  await input.press('ControlOrMeta+z');
+  await pageColor().click();
+  await expect(menu.getByRole('menuitem', { name: 'Remove Fill Effect' })).toBeVisible();
+  await expect(menu.getByRole('menuitemradio', { name: 'Light blue' })).toHaveAttribute('aria-checked', 'false');
+  await page.keyboard.press('Escape');
+  expect(errors).toEqual([]);
+});
