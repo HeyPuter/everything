@@ -1824,9 +1824,13 @@ export class TextDocument {
     if (target >= start && target <= end) return false;
     this.checkpoint();
     this.replace('', { checkpoint: false });
+    // With Track Changes on, the picture stays where it was as a deletion: the inserted one needs an ID of its own.
+    const kept = this.paragraphs.some(p => p.runs.some(r => r.image?.id === image.id));
+    const id = kept ? nextDrawingId(this.paragraphs) : image.id;
+    if (id > 4294967295) throw new Error('This document has exhausted its drawing IDs.');
     const position = target > start ? target - 1 : target;
     this.select(position, position);
-    this.replace(OBJECT, { checkpoint: false, insertedImage: image });
+    this.replace(OBJECT, { checkpoint: false, insertedImage: kept ? { ...image, id } : image });
     this.select(this.selection.focus - 1, this.selection.focus);
     return true;
   }
