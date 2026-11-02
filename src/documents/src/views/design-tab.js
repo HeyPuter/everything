@@ -77,19 +77,20 @@ export function createDesignTab({ editor, pkg, error, onChange = () => {}, comma
     }
     return info;
   }
-  /** Change the package: edit(parts, api) mutates the parts map, or returns false to leave it alone. */
-  async function edit(change) {
+  /** Change the package: edit(parts, api) mutates the parts map, or returns false to leave it alone. `label` names the undo step. */
+  async function edit(change, label) {
     if (!editable()) return false;
     await loading;
     const ok = await base.changePackage(async blob => {
       const parts = await api.blobParts(blob);
       if (await change(parts, api) === false) return null;
       return api.partsBlob(parts);
-    });
+    }, { label });
     if (ok) onChange();
     return ok;
   }
-  const themeChange = change => edit((parts, a) => { a.applyDesignTheme(parts, change); a.refreshStyleThemeColors(parts); });
+  const themeChange = change => edit((parts, a) => { a.applyDesignTheme(parts, change); a.refreshStyleThemeColors(parts); },
+    change.colors ? 'Theme Colors' : change.fonts ? 'Theme Fonts' : change.effects ? 'Theme Effects' : 'Theme');
 
   /* ---- Themes ---- */
   const themeSelected = theme => {
@@ -181,7 +182,7 @@ export function createDesignTab({ editor, pkg, error, onChange = () => {}, comma
   const applyStyleSet = set => edit((parts, a) => {
     if (!a.themePartPath(parts)) a.applyDesignTheme(parts, { theme: resolvedTheme('Paper') });
     a.applyStyleSetParts(parts, set); a.refreshStyleThemeColors(parts);
-  });
+  }, 'Style Set');
   const styleSetCard = (set, theme, { selected, onSelect, tag = 'button.ribbon-style.design-set' }) => {
     const c = theme.colors, color = spec => spec?.color ? `#${c[{ text1: 'dk1', text2: 'dk2', background1: 'lt1', background2: 'lt2' }[spec.color.theme] || spec.color.theme] || c.dk1}` : `#${c.dk1}`;
     const s = set.styles || {};
@@ -290,7 +291,7 @@ export function createDesignTab({ editor, pkg, error, onChange = () => {}, comma
   }
 
   /* ---- Watermark ---- */
-  const setWatermark = watermark => edit((parts, a) => { a.setWatermarkParts(parts, watermark); });
+  const setWatermark = watermark => edit((parts, a) => { a.setWatermarkParts(parts, watermark); }, watermark ? 'Watermark' : 'Remove Watermark');
   function watermarkItems() {
     const enabled = editable(), now = current().watermark;
     const grid = el('div.menu-custom-grid.design-grid.design-watermark-grid', { role: 'group', dataset: { columns: '3' } },
@@ -316,7 +317,7 @@ export function createDesignTab({ editor, pkg, error, onChange = () => {}, comma
     return [...(base.pageColorItems?.() || []).map(item => item.onSelect && fill ? { ...item, checked: false } : item), { separator: true },
       { label: 'More Colors…', disabled: !ready(), onSelect: moreColors },
       { label: 'Fill Effects…', icon: 'fillEffects', disabled: !enabled, onSelect: fillEffects },
-      ...(fill ? [{ label: 'Remove Fill Effect', disabled: !enabled, onSelect: () => edit((parts, a) => a.setPageFillParts(parts, null)) }] : [])];
+      ...(fill ? [{ label: 'Remove Fill Effect', disabled: !enabled, onSelect: () => edit((parts, a) => a.setPageFillParts(parts, null), 'Remove Fill Effect') }] : [])];
   }
   function moreColors() {
     const engine = ready(); if (!engine) return;
@@ -333,7 +334,7 @@ export function createDesignTab({ editor, pkg, error, onChange = () => {}, comma
       const { renderFill } = await import('./page-fill-effects.js');
       const fill = await renderFill(effect, pageSize());
       const color = editor()?.model.pageSettings.background;
-      return edit((parts, a) => a.setPageFillParts(parts, { ...fill, color: color && color !== 'auto' ? color : 'FFFFFF' }));
+      return edit((parts, a) => a.setPageFillParts(parts, { ...fill, color: color && color !== 'auto' ? color : 'FFFFFF' }), 'Fill Effect');
     } });
   }
   function pageBorderItems() {

@@ -931,9 +931,20 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     setLanguage: (tag, { noProof = false } = {}) => { if (!engine || pkg.readOnly || engine.viewOnly) return; engine.setRunFormat({ fontLanguage: tag, noProof: !!noProof }); proofing.changed(); },
     languageDialog: () => statusBar?.openLanguageDialog(),
     // Undo history.
-    undoLabel: () => { const top = engine?.session.history.at(-1); return top ? undoLabels.get(top) || null : null; },
-    undoHistory: () => engine ? [...engine.session.history].reverse().map(entry => undoLabels.get(entry) || 'Edit') : [],
-    undoSteps: count => { for (let i = 0; i < count && engine?.session.history.length; i++) engine.undo(); engine?.focus(); },
+    undoLabel: () => {
+      const top = engine?.session.history.at(-1);
+      return top ? undoLabels.get(top) || null : !collab.live && designVersions.undo.at(-1)?.label || null;
+    },
+    // What Undo steps back through, latest first: the editor's own steps, then the design changes before them (onHistoryEnd).
+    undoHistory: () => engine ? [...[...engine.session.history].reverse().map(entry => undoLabels.get(entry) || 'Edit'),
+      ...(collab.live ? [] : [...designVersions.undo].reverse().map(entry => entry.label || 'Design Change'))] : [],
+    async undoSteps(count) {
+      let left = count;
+      for (; left > 0 && engine?.session.history.length; left--) engine.undo();
+      // Each design change reopens the package: one after the other.
+      for (; left > 0 && designVersions.undo.length && !collab.live && !reopening && !destroyed; left--) await stepDesignVersion('undo');
+      engine?.focus();
+    },
     // File.
     openBackstage: (section, options) => backstage?.open(section, options),
     saveAs: cloud ? () => backstage.open('save') : null,
@@ -1740,8 +1751,11 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     engineApi().attachShapeEditing(editor, error, () => pkg);
     pictures.attach(editor);
   }
-  /** Apply a package change: transform(blob) resolves to the changed package (a Blob) or null for none. */
-  async function changePackage(transform) {
+  /**
+   * Apply a package change: transform(blob) resolves to the changed package (a Blob) or null for none. `label` names
+   * its undo step (Undo history, Edit > Undo).
+   */
+  async function changePackage(transform, { label = 'Design Change' } = {}) {
     // Viewing mode, and a shared document held read-only while it connects, change nothing: the reopened editor
     // would also have come back editable.
     if (!engine || pkg?.readOnly || engine.viewOnly || reopening) return false;
@@ -1755,7 +1769,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
       const after = await transform(before);
       if (!after || destroyed) return false;
       if (!await reopenPackage(after)) return false;
-      designVersions.undo.push({ before, after }); designVersions.redo = [];
+      designVersions.undo.push({ before, after, label }); designVersions.redo = [];
       if (designVersions.undo.length > 30) designVersions.undo.shift();
       return true;
     } catch (e) { if (!destroyed) error(e); return false; }

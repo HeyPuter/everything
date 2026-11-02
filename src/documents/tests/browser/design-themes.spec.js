@@ -301,3 +301,29 @@ test('a page color chosen over a fill effect shows in the Page Color menu, and U
   await page.keyboard.press('Escape');
   expect(errors).toEqual([]);
 });
+
+test('Undo history lists design changes, and choosing one undoes back through it', async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  const input = await open(page);
+  const history = page.getByRole('menu', { name: 'Undo history' });
+  const openHistory = () => page.locator('.ed-quick').getByRole('button', { name: 'Undo history' }).click();
+  await ribbon(page).getByRole('button', { name: 'Themes' }).click();
+  await page.getByRole('menu', { name: 'Themes' }).getByRole('menuitemradio', { name: 'Harbor theme' }).click();
+  await expectFont(page, /Montserrat/);
+  // Undo would step back through the theme: the list says so.
+  await openHistory();
+  await expect(history.getByRole('menuitem')).toHaveText(['Undo Theme']);
+  await page.keyboard.press('Escape');
+  await input.press('ControlOrMeta+End');
+  await input.pressSequentially('!');
+  await openHistory();
+  await expect(history.getByRole('menuitem')).toHaveText(['Undo Typing', 'Undo 2 actions (to Theme)']);
+  await history.getByRole('menuitem', { name: 'Undo 2 actions (to Theme)' }).click();
+  await expect(input).toBeFocused();
+  await input.press('ControlOrMeta+Home');
+  await expectFont(page, /^(?!Montserrat)/);
+  // Both steps are gone: nothing is left to undo.
+  await expect(page.locator('.ed-quick').getByRole('button', { name: 'Undo', exact: true })).toBeDisabled();
+  await expect(page.locator('.ed-quick').getByRole('button', { name: 'Undo history' })).toBeDisabled();
+  expect(errors).toEqual([]);
+});
