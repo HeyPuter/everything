@@ -22322,6 +22322,13 @@ Supported subset:
 - References → Insert Footnote (Cmd+Option+F / Ctrl+Alt+F) adds a reference at the caret and a new
   note (FootnoteText/FootnoteReference styles when defined, otherwise 10 pt text and a superscript
   mark), creating the footnotes part with separator and continuation-separator notes when the document has none.
+  Since 2026-11-02 a document without the note styles (found by their built-in names "footnote text",
+  "footnote reference", "endnote text", "endnote reference") gets Word's definitions as part of the
+  insertion (§17.7.4.17 `style`, without `customStyle`; `uiPriority` 99, `semiHidden`, `unhideWhenUsed`;
+  text: based on the default paragraph style, `spacing after="0" line="240" lineRule="auto"`, `sz`/`szCs` 20;
+  reference: based on the default character style, `vertAlign` superscript), the note paragraph's `pStyle`
+  is written, and the body reference carries the reference style (`rStyle`) as well as its superscript.
+  A document's own note styles are kept. Tests: `tests/footnotes.test.js`, `tests/browser/note-styles.spec.js`.
 - Unchanged documents save byte for byte; a note whose reference is deleted is removed on save.
   The macOS reference application opens new notes with their numbers and separator.
 

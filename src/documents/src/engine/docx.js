@@ -704,12 +704,16 @@ function writeStyles(parts, styles) {
   const order = ['name', 'aliases', 'basedOn', 'next', 'link', 'autoRedefine', 'hidden', 'uiPriority', 'semiHidden', 'unhideWhenUsed', 'qFormat', 'locked', 'personal', 'personalCompose', 'personalReply', 'rsid', 'pPr', 'rPr', 'tblPr', 'trPr', 'tcPr', 'tblStylePr'];
   for (const style of changed) {
     let node = children(root).find(n => n.namespaceURI === W && n.localName === 'style' && n.getAttributeNS(W, 'styleId') === style.id);
-    if (!node) { node = make('style'); node.setAttributeNS(W, 'w:type', style.type); node.setAttributeNS(W, 'w:styleId', style.id); node.setAttributeNS(W, 'w:customStyle', '1'); root.append(node); }
+    const created = !node;
+    if (!node) { node = make('style'); node.setAttributeNS(W, 'w:type', style.type); node.setAttributeNS(W, 'w:styleId', style.id); if (!style.builtIn) node.setAttributeNS(W, 'w:customStyle', '1'); root.append(node); }
     const ensure = name => {
       let n = child(node, name);
       if (!n) { n = make(name); node.insertBefore(n, children(node).find(c => order.indexOf(c.localName) > order.indexOf(name)) || null); }
       return n;
     };
+    // A built-in style the editor added (the note styles) is written as Word declares it: hidden
+    // from the style lists until used (§17.7.4.19 semiHidden, §17.7.4.20 unhideWhenUsed).
+    if (created && style.builtIn) { ensure('uiPriority').setAttributeNS(W, 'w:val', '99'); ensure('semiHidden'); ensure('unhideWhenUsed'); }
     const patch = style.changes || {};
     for (const key of ['name', 'basedOn', 'next']) if (key in patch || style.generated) {
       if (style[key]) ensure(key).setAttributeNS(W, 'w:val', style[key]); else child(node, key)?.remove();

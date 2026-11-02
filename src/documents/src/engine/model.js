@@ -2363,11 +2363,35 @@ export class TextDocument {
     this.selection = { anchor: at + 1, focus: at + 1 };
     this.didChange(); return true;
   }
+  /**
+   * The paragraph and character styles of a new `kind` note: the document's "footnote text" and
+   * "footnote reference" (or endnote) styles, found by name. A document without them gets Word's
+   * built-in definitions (10 pt text with no space after; a superscript reference), as part of the
+   * current command. Returns { textStyle, referenceStyle } ids.
+   */
+  addNoteStyles(kind = 'footnote') {
+    const named = (styles, type, name) => Object.values(styles.definitions).find(s => s.type === type && !s.error && s.name?.toLowerCase() === name)?.id || null;
+    const want = [['paragraph', `${kind} text`, `${kind[0].toUpperCase()}${kind.slice(1)}Text`], ['character', `${kind} reference`, `${kind[0].toUpperCase()}${kind.slice(1)}Reference`]];
+    if (want.every(([type, name]) => named(this.styles, type, name))) return { textStyle: named(this.styles, 'paragraph', want[0][1]), referenceStyle: named(this.styles, 'character', want[1][1]) };
+    const styles = copy(this.styles);
+    for (const [type, name, base] of want) {
+      if (named(styles, type, name)) continue;
+      let id = base; for (let i = 1; Object.hasOwn(styles.definitions, id); i++) id = `${base}${i}`;
+      const basedOn = type === 'paragraph' ? styles.defaultParagraph : styles.defaultCharacter;
+      styles.definitions[id] = { id, type, name, basedOn: basedOn && styles.definitions[basedOn]?.type === type ? basedOn : null, next: null, properties: {}, reference: {}, run: {}, generated: true, builtIn: true };
+      styles.definitions[id] = editedStyle(styles, id, type === 'paragraph'
+        ? { paragraph: { spaceAfter: 0, lineSpacing: 1, lineRule: 'auto' }, run: { fontSize: 10, fontSizeCs: 10 } }
+        : { run: { verticalAlign: 'superscript' } }, type);
+    }
+    this.styles = styles; this.didChange();
+    return { textStyle: named(styles, 'paragraph', want[0][1]), referenceStyle: named(styles, 'character', want[1][1]) };
+  }
   /** Insert a footnote (or endnote) reference mark for note `id` at the caret (after any selection); `custom` marks follow as text. */
-  insertFootnoteReference(id, kind = 'footnote', { custom = false } = {}) {
+  insertFootnoteReference(id, kind = 'footnote', { custom = false, style = null } = {}) {
     this.checkpoint();
     const at = this.range[1], location = locate(this.paragraphs, at), p = this.paragraphs[location.index];
     const run = footnoteReferenceRun(this.typingRun(at), id, kind);
+    if (style) { run.styleId = style; run.styleChanged = true; }
     if (custom) run.noteMark.custom = true;
     // With Track Changes on the reference is an insertion like typed text, so rejecting it removes the note.
     if (this.trackChanges && !this.trackingInternal) run.revision = this.newRevision('ins');

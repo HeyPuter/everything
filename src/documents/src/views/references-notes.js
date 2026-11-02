@@ -24,13 +24,14 @@ export function createNoteCommands(ctx) {
       }
       unshared(`New ${kind}s`);
       const { TextDocument, paragraph } = await import('../engine/model.js');
-      const body = engine.session.body, styles = body.styles.definitions || {};
-      const named = (type, name) => Object.values(styles).find(s => s.type === type && s.name?.toLowerCase() === name)?.id;
-      const textStyle = named('paragraph', `${kind} text`), referenceStyle = named('character', `${kind} reference`);
+      const body = engine.session.body;
       const note = kind === 'footnote' ? pkg().addFootnote() : pkg().addEndnote();
       const mark = customMark.trim();
+      let textStyle = null, referenceStyle = null;
       if (!engine.execute(() => {
-        body.insertFootnoteReference(note.id, kind, { custom: !!mark });
+        // Word's Footnote Text and Footnote Reference styles (or the endnote ones), added when missing.
+        ({ textStyle, referenceStyle } = body.addNoteStyles(kind));
+        body.insertFootnoteReference(note.id, kind, { custom: !!mark, style: referenceStyle });
         if (mark) {
           const at = body.range[0];
           body.replace(mark);
@@ -39,7 +40,7 @@ export function createNoteCommands(ctx) {
         return true;
       })) return;
       // The note opens with its own number mark (or the custom mark), then a space, as existing documents start one.
-      const draft = new TextDocument([paragraph('', textStyle ? { styleId: textStyle } : {})], body.pageSettings, body.numbering, body.styles, [], body.assets);
+      const draft = new TextDocument([paragraph('', textStyle ? { styleId: textStyle, styleChanged: true } : {})], body.pageSettings, body.numbering, body.styles, [], body.assets);
       draft.paragraphs[0].runs = mark
         ? [{ ...draft.typingRun(0), text: mark, verticalAlign: 'superscript', overrides: { verticalAlign: 'superscript' } }, { ...draft.typingRun(0), text: ' ' }]
         : notes.footnoteOpeningRuns(draft.typingRun(0), referenceStyle, kind);
