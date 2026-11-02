@@ -7,18 +7,20 @@ const KINDS = [['page', 'Page'], ['line', 'Line'], ['bookmark', 'Bookmark'], ['h
 
 /** Document positions of each target kind, in reading order: [{ position, label }]. */
 export function goToTargets(engine, kind) {
-  const body = engine.session.body, lines = engine.layout.lines.filter(line => !line.virtual && !line.pageStory);
+  // Pages and lines as printed: Web Layout and Draft show strips of the window's height, not pages.
+  const layout = kind === 'page' || kind === 'line' ? engine.printLayout?.().layout ?? engine.layout : engine.layout;
+  const body = engine.session.body, lines = layout.lines.filter(line => !line.virtual && !line.pageStory);
   if (kind === 'page') {
     // A page without body text (a full-page picture) goes to where the text before it ends.
     const first = new Map();
     for (const line of lines) if (!first.has(line.page)) first.set(line.page, line.start);
     // Each page with the number printed on it, as its section numbers pages (§17.6.12 pgNumType): sections can
     // restart numbering, count from 0 or show letters and Roman numerals.
-    const sections = engine.layout.pageSections || [], definition = engine.pageStories;
+    const sections = layout.pageSections || [], definition = engine.pageStories;
     let numbers = [];
-    try { numbers = pageNumberSequence(sections, definition, engine.layout.numberingApproximations); } catch { numbers = []; }
+    try { numbers = pageNumberSequence(sections, definition, layout.numberingApproximations); } catch { numbers = []; }
     let last = 0;
-    return Array.from({ length: engine.layout.pageCount }, (_, i) => {
+    return Array.from({ length: layout.pageCount }, (_, i) => {
       if (first.has(i)) last = first.get(i);
       const number = numbers[i] ?? null, section = sections[i] ?? null;
       let text = number === null ? null : String(number);

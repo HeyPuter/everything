@@ -3,6 +3,7 @@ import { afterEach, it, expect, vi } from 'vitest';
 import { paragraph } from '../src/engine/model.js';
 import { CanvasEditor } from '../src/engine/canvas-editor.js';
 import { setFormattingMarks } from '../src/engine/formatting-marks.js';
+import { goToTargets } from '../src/views/go-to.js';
 
 // File > Print, Word Count and the document's statistics count pages. In Web Layout and Draft they
 // counted the screen's strips, so File > Print offered "All pages (2)" for a five-page document and
@@ -43,5 +44,18 @@ it('counts the printed pages while hidden text is shown', () => {
   expect(editor.layout.pageCount).toBeGreaterThan(1);
   expect(editor.printedPages()).toEqual({ count: 1, current: 1 });
   setFormattingMarks(editor, false);
+  editor.destroy();
+});
+
+// Go To Page and Line went to the screen's strips in Web Layout and Draft: "page 3" was the third strip.
+it('goes to printed pages and lines from Web Layout and Draft', () => {
+  const editor = editorWith(Array.from({ length: 120 }, (_, i) => paragraph(`Paragraph ${i}, long enough to fill some of a line.`)));
+  const pages = goToTargets(editor, 'page'), lines = goToTargets(editor, 'line');
+  expect(pages.length).toBe(editor.layout.pageCount);
+  for (const view of [{ kind: 'web', width: 1400 }, { kind: 'draft', width: 900 }]) {
+    editor.setView(view);
+    expect(goToTargets(editor, 'page')).toEqual(pages);
+    expect(goToTargets(editor, 'line')).toEqual(lines);
+  }
   editor.destroy();
 });

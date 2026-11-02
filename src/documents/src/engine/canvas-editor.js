@@ -819,31 +819,34 @@ export class CanvasEditor {
     const hidden = revisionView.showHidden && [this.session.body, ...Object.values(this.pageStories?.stories || {})].some(story => story?.paragraphs?.some(p => p.runs.some(r => r.vanish)));
     return { differs: !!this.view || hidden, hidden };
   }
-  /** Lay the authored pages out as printed, without touching the screen's layout: { layout, storyLayout }. */
-  printedLayoutOf() {
+  /**
+   * The authored pages laid out as printed, without touching the screen's: { layout, storyLayout }. Remembered
+   * for the layout on screen, so asking again before the next change lays nothing out.
+   */
+  printLayout() {
     const { differs, hidden } = this.printDiffersFromScreen();
     if (!differs) return { layout: this.layout, storyLayout: this.storyLayout };
+    const cached = this.printedLayoutCache;
+    if (cached?.layout === this.layout && cached.showHidden === revisionView.showHidden) return cached.value;
     const shown = revisionView.showHidden;
     if (hidden) revisionView.showHidden = false;
-    try { return this.computeLayout(null); } finally { revisionView.showHidden = shown; }
+    let value;
+    try { value = this.computeLayout(null); } finally { revisionView.showHidden = shown; }
+    this.printedLayoutCache = { layout: this.layout, showHidden: shown, value };
+    return value;
   }
   /**
    * The printed pages' count and the caret's page among them (1-based), whatever the screen shows: Web Layout
    * and Draft show strips of the window's height, and shown hidden text takes lines the paper does not have.
-   * Remembered for the layout on screen, so asking again before the next change lays nothing out.
    */
   printedPages() {
-    const cached = this.printedPagesCache;
-    if (cached?.layout === this.layout && cached.showHidden === revisionView.showHidden) return cached.value;
-    const { layout } = this.printedLayoutOf();
+    const { layout } = this.printLayout();
     let page = 0;
     if (layout === this.layout) page = this.caretPageIndex;
     else if (this.session.path === null) {
       try { page = caretRect(layout, this.model.selection.focus, this.caretAffinity).page ?? 0; } catch { page = 0; }
     }
-    const value = { count: layout.pageCount, current: Math.min(layout.pageCount, page + 1) };
-    this.printedPagesCache = { layout: this.layout, showHidden: revisionView.showHidden, value };
-    return value;
+    return { count: layout.pageCount, current: Math.min(layout.pageCount, page + 1) };
   }
   /**
    * The printed pages, painted at print resolution: a canvas for each page, at its index. With `pages`
@@ -856,10 +859,10 @@ export class CanvasEditor {
     const { differs, hidden } = this.printDiffersFromScreen();
     if (differs) {
       const screen = { view: this.view, layout: this.layout, storyLayout: this.storyLayout, selectionLayout: this.selectionLayout, tablePaintCache: this.tablePaintCache, drawingPageContexts: this.drawingPageContexts, lineNumbers: this.lineNumbers };
-      const shown = revisionView.showHidden;
+      const printed = this.printLayout(), shown = revisionView.showHidden;
       if (hidden) revisionView.showHidden = false;
       try {
-        const printed = this.computeLayout(null), body = this.session.body;
+        const body = this.session.body;
         // The printed pages' own line numbers: a screen view has none, and shown hidden text has lines the paper does not.
         const lineNumbers = lineNumberLabels(printed.layout, body.paragraphs, body.numbering, body.styles, this.measure);
         Object.assign(this, printed, { selectionLayout: printed.layout, tablePaintCache: new Map(), drawingPageContexts: drawingPageContexts(printed.layout, this.pageStories), view: null, lineNumbers });

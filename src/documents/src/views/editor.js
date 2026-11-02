@@ -65,6 +65,7 @@ import { createReviewTools } from './review-tools.js';
 import { createReferences } from './references.js';
 import { createMailings } from './mailings.js';
 import { createDocumentViews } from './document-views.js';
+import { isContinuousView } from '../engine/document-views.js';
 import { createInsert, pictureFile } from './insert-tab.js';
 import { imageFilesFrom } from '../lib/images.js';
 import { createDraw } from './draw-tab.js';
@@ -1428,7 +1429,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
       for (const control of viewingControls()) if (!control.disabled && !control.matches('.ed-ribbon-toggle, .ribbon-collapsed')) { control.disabled = true; control.dataset.viewingOff = ''; }
       undo.disabled = redo.disabled = true;
       find.disabled = false; finder.refresh();
-      stats.textContent = `Page ${Math.min(engine.layout.pageCount, (engine.caretPageIndex ?? 0) + 1)} of ${engine.layout.pageCount}`;
+      stats.textContent = pageStatus();
       if (pkg.readOnly) words.textContent = 'Read only'; else updateWordCount();
       chrome.refresh(); review.refresh(); statusBar?.refresh(); assistant.refresh(); collab.refresh(); tables.refresh();
       return;
@@ -1547,9 +1548,23 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     if (document.activeElement !== spaceBefore) spaceBefore.value = format.spaceBefore ?? '';
     if (document.activeElement !== spaceAfter) spaceAfter.value = format.spaceAfter ?? '';
     chrome.refresh(); review.refresh(); reviewTools.refresh(); formatArea.refresh(); assistant.refresh(); versionHistory.refresh(); collab.refresh(); tables.refresh();
-    stats.textContent = `Page ${Math.min(engine.layout.pageCount, (engine.caretPageIndex ?? 0) + 1)} of ${engine.layout.pageCount}`;
+    stats.textContent = pageStatus();
     updateWordCount();
     statusBar?.refresh();
+  }
+  // The caret's page and the page count. Web Layout and Draft show strips of the window's height, not pages:
+  // there the printed pages are laid out once typing pauses (CanvasEditor.printedPages), as desktop word
+  // processors paginate in the background, and the last count shows meanwhile.
+  let printedStatus = null, printedStatusTimer = 0;
+  function pageStatus() {
+    if (!isContinuousView(engine.view?.kind)) { printedStatus = null; return `Page ${Math.min(engine.layout.pageCount, (engine.caretPageIndex ?? 0) + 1)} of ${engine.layout.pageCount}`; }
+    clearTimeout(printedStatusTimer);
+    printedStatusTimer = setTimeout(() => {
+      if (!engine || failed || destroyed || !isContinuousView(engine.view?.kind)) return;
+      try { printedStatus = engine.printedPages(); } catch { printedStatus = null; }
+      stats.textContent = printedStatus ? `Page ${printedStatus.current} of ${printedStatus.count}` : '';
+    }, 600);
+    return printedStatus ? `Page ${printedStatus.current} of ${printedStatus.count}` : '';
   }
   // Scrolled away from the caret, the status bar names the page in view, as desktop word processors do; while the
   // caret's page shows, and at the next caret move or edit (update), it names the caret's. Once a frame, reading only
@@ -1559,7 +1574,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     if (pageInViewFrame) return;
     pageInViewFrame = requestAnimationFrame(() => {
       pageInViewFrame = 0;
-      if (!engine || failed || destroyed || host.hidden) return;
+      if (!engine || failed || destroyed || host.hidden || isContinuousView(engine.view?.kind)) return;
       const index = pageInView();
       if (index !== null) stats.textContent = `Page ${index + 1} of ${engine.layout.pageCount}`;
     });

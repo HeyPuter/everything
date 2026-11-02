@@ -39,3 +39,27 @@ test('File > Print from Web Layout and Draft offers and prints every printed pag
   }
   expect(errors).toEqual([]);
 });
+
+// The status bar named the caret's strip among the strips ("Page 1 of 2" for a six-page document).
+test('the status bar counts the printed pages in Web Layout and Draft', async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await page.goto('/mock.html#/new');
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  const pageCount = await page.evaluate(() => {
+    const e = window.__docs.current.view.engine;
+    e.model.select(0); e.execute(() => e.model.replace(Array.from({ length: 140 }, (_, i) => `Paragraph ${i} holds a few more words to fill the line of text.`).join('\n')));
+    e.model.select(e.model.text.indexOf('Paragraph 100 ')); e.revealCaret(); e.focus();
+    return e.layout.pageCount;
+  });
+  const caretPage = await page.evaluate(() => window.__docs.current.view.engine.caretPageIndex + 1);
+  const count = page.locator('.ed-statusbar .ed-page-count');
+  await expect(count).toHaveText(`Page ${caretPage} of ${pageCount}`);
+  for (const view of ['Web Layout', 'Draft']) {
+    await page.locator('#ribbon-tab-view').click();
+    await page.locator('.ribbon-card').getByRole('button', { name: view, exact: true }).click();
+    await expect(count).toHaveText(`Page ${caretPage} of ${pageCount}`);
+  }
+  await page.locator('.ribbon-card').getByRole('button', { name: 'Print Layout', exact: true }).click();
+  await expect(count).toHaveText(`Page ${caretPage} of ${pageCount}`);
+  expect(errors).toEqual([]);
+});
