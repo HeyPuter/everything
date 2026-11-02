@@ -3,7 +3,7 @@
 // chose when the document is saved. Only w:view is read or written here; every other setting, and the
 // rest of the package, is kept byte for byte.
 import { strToU8 } from 'fflate';
-import { parseXml } from './docx-xml.js';
+import { parseXml, declareContentType } from './docx-xml.js';
 import { relatedPartPath } from './docx-relationships.js';
 import { viewFromSetting, settingFromView } from './document-views.js';
 
@@ -70,9 +70,5 @@ function addSettingsPart(parts, path) {
   link.setAttribute('Id', id); link.setAttribute('Type', SETTINGS); link.setAttribute('Target', path.slice('word/'.length));
   rels.documentElement.append(link);
   parts[relPath] = strToU8(serialize(rels));
-  const types = parseXml(parts['[Content_Types].xml']);
-  const override = types.createElementNS(types.documentElement.namespaceURI, 'Override');
-  override.setAttribute('PartName', '/' + path); override.setAttribute('ContentType', SETTINGS_TYPE);
-  types.documentElement.append(override);
-  parts['[Content_Types].xml'] = strToU8(serialize(types));
+  declareContentType(parts, '/' + path, SETTINGS_TYPE);
 }

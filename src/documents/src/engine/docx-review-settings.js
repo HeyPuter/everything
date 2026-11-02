@@ -5,7 +5,7 @@
 // styles for formatting restrictions (§17.7.4 style `locked`). Only declarations that change are
 // rewritten; everything else in the settings and styles parts is kept as it was.
 import { strToU8 } from 'fflate';
-import { parseXml } from './docx-xml.js';
+import { parseXml, declareContentType } from './docx-xml.js';
 import { relatedPartPath } from './docx-relationships.js';
 
 const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
@@ -85,10 +85,7 @@ function storeSettingsPart(parts, { doc, related, path }) {
     const rel = rels.createElementNS(REL, 'Relationship');
     rel.setAttribute('Id', id); rel.setAttribute('Type', 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/settings'); rel.setAttribute('Target', path.slice('word/'.length));
     rels.documentElement.append(rel); parts[relPath] = strToU8(serialize(rels));
-    const types = parseXml(parts['[Content_Types].xml']);
-    const type = types.createElementNS(types.documentElement.namespaceURI, 'Override');
-    type.setAttribute('PartName', '/' + path); type.setAttribute('ContentType', 'application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml');
-    types.documentElement.append(type); parts['[Content_Types].xml'] = strToU8(serialize(types));
+    declareContentType(parts, '/' + path, 'application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml');
   }
   parts[path] = strToU8(serialize(doc));
 }
