@@ -48,7 +48,10 @@ export function createDocumentViews({ editor, pkg, host, surface, root, error, c
   function relayoutScreen() {
     const engine = ready(); if (!engine || !isContinuousView(mode)) return;
     const view = screenView(mode);
-    if (view && engine.setView(view)) { layoutChanged(); paintStyleArea(); }
+    // A width the document cannot be laid out to keeps the last one (CanvasEditor.setView).
+    let changed = false;
+    try { changed = !!view && engine.setView(view); } catch { return; }
+    if (changed) { layoutChanged(); paintStyleArea(); }
   }
   // Hosts without ResizeObserver (test DOMs) relayout on editor updates instead.
   const resize = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(() => { if (isContinuousView(mode)) requestAnimationFrame(relayoutScreen); });
@@ -124,13 +127,13 @@ export function createDocumentViews({ editor, pkg, host, surface, root, error, c
   }
 
   /* ---- Switching views ---- */
-  function setDocumentView(next, { remember = true } = {}) {
+  function setDocumentView(next, { remember = true, reverting = false } = {}) {
     const engine = ready();
     if (!VIEW_LABELS[next]) return;
     if (!engine) { mode = next; return; }
     if (next === mode) { if (next !== 'outline') engine.focus(); else outline.focus(); return; }
     engine.finishComposition();
-    const previous = mode;
+    const previous = mode, zoomBefore = engine.zoom;
     // Leave the current view.
     let zoomBack = null;
     if (previous === 'read') zoomBack = read.leave();
@@ -144,7 +147,7 @@ export function createDocumentViews({ editor, pkg, host, surface, root, error, c
     if (usesScreenGeometry(next) || next === 'outline') { setSideToSide(false, { silent: true }); engine.pages.classList.remove('is-multipage'); }
     try {
       if (next === 'read') {
-        beforeRead = previous;
+        if (!reverting) beforeRead = previous;
         const zoom = engine.zoom;
         w.setZoom?.(1);
         read.enter({ zoom });
@@ -160,6 +163,13 @@ export function createDocumentViews({ editor, pkg, host, surface, root, error, c
       if (next === 'outline') { host.hidden = true; outline.open(); } else if (next !== 'read') engine.focus();
     } catch (e) {
       error(e);
+      // The editor keeps the view it had when the document cannot be laid out in this one (indents wider
+      // than the window, a page-number restart in a section it makes continuous): so does the window.
+      if (!reverting && previous !== next && (engine.view?.kind ?? null) !== (usesScreenGeometry(next) ? next : null)) {
+        setDocumentView(previous, { remember: false, reverting: true });
+        if (previous !== 'read' && engine.zoom !== zoomBefore) w.setZoom?.(zoomBefore);
+        return;
+      }
     }
     if (remember && pkg() && next !== 'read') pkg().documentView = next;
     layoutChanged();

@@ -710,8 +710,13 @@ export class CanvasEditor {
     if (JSON.stringify(next) === JSON.stringify(this.view)) return false;
     this.finishComposition();
     if (next && this.session.path !== null) { this.session.activate(null); this.caretPage = null; }
+    const previous = this.view;
     this.view = next;
-    this.relayout();
+    // A view the document cannot be laid out in (indents wider than the window, a page-number restart
+    // in a section the view makes continuous) leaves the editor in the view it had: kept, every later
+    // layout, the next keystroke's included, failed the same way and nothing could be typed.
+    try { this.relayout(); }
+    catch (error) { this.view = previous; this.relayout(); throw error; }
     return true;
   }
   /** Lay the body and its page stories out for a view (null: the authored pages). */
