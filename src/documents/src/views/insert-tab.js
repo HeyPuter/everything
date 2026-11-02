@@ -94,15 +94,16 @@ export function createInsert({ editor, pkg, error, base = {}, docName = () => ''
   const run = (engine, action) => { let failure = null; const ok = engine.execute(action, e => { failure = e; }); if (failure) fail(failure); engine.focus(); if (ok) onChange(); return ok; };
   /** The number the caret's page shows ({ page, pageFormat }): its section's start and format apply, as in headers and footers. */
   const caretPageNumber = engine => {
-    const index = engine?.caretPageIndex ?? 0, layout = engine?.layout;
+    // The printed page: Web Layout and Draft lay the text out in strips of the window's height (printedPages).
+    const index = engine?.layout ? engine.printedPages().current - 1 : engine?.caretPageIndex ?? 0, layout = engine?.printLayout().layout;
     if (!layout) return { page: index + 1 };
     const numbers = pageNumberSequence(layout.pageSections || [], engine.pageStories, layout.numberingApproximations);
-    return { page: numbers[index] ?? index + 1, pageFormat: engine.pageStories?.sections?.[engine.sectionOfPage(index)]?.pageNumbering?.format };
+    return { page: numbers[index] ?? index + 1, pageFormat: engine.pageStories?.sections?.[layout.pageSections?.[index] ?? 0]?.pageNumbering?.format };
   };
   const fieldContext = () => {
     const engine = editor();
     return { now: new Date(), properties: packageDocumentProperties(pkg()), fileName: /\.\w+$/.test(docName() || '') ? docName() : `${docName() || 'Document'}.docx`, user: { name: user() || '' },
-      pages: engine?.layout?.pageCount, ...caretPageNumber(engine) };
+      pages: engine?.layout ? engine.printedPages().count : undefined, ...caretPageNumber(engine) };
   };
   setFieldContextProvider(fieldContext);
 
@@ -385,7 +386,7 @@ export function createInsert({ editor, pkg, error, base = {}, docName = () => ''
       return;
     }
     // In the body, PAGE and NUMPAGES are body fields showing their current values.
-    const context = fieldContext(), page = evaluateField(fieldInstruction({ name: 'PAGE', preserve: true }), context) ?? String(context.page), pages = String(engine.layout.pageCount);
+    const context = fieldContext(), page = evaluateField(fieldInstruction({ name: 'PAGE', preserve: true }), context) ?? String(context.page), pages = String(context.pages);
     run(engine, () => {
       for (const part of design.parts) {
         if (typeof part === 'object' && part.field) insertBodyField(engine.model, fieldInstruction({ name: part.field, preserve: true }), part.field === 'PAGE' ? page : pages);

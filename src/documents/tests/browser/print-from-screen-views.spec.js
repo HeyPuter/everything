@@ -63,3 +63,25 @@ test('the status bar counts the printed pages in Web Layout and Draft', async ({
   await expect(count).toHaveText(`Page ${caretPage} of ${pageCount}`);
   expect(errors).toEqual([]);
 });
+
+// A page number inserted in the body from Draft showed the caret's strip and the strip count.
+test('Page Number > Current Position in Draft inserts the printed page and page count', async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await page.goto('/mock.html#/new');
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  const pageCount = await page.evaluate(() => {
+    const e = window.__docs.current.view.engine;
+    e.model.select(0); e.execute(() => e.model.replace(Array.from({ length: 140 }, (_, i) => `Paragraph ${i} holds a few more words to fill the line of text.`).join('\n')));
+    e.model.select(e.model.text.indexOf('Paragraph 101 ') - 1); e.revealCaret(); e.focus();
+    return e.layout.pageCount;
+  });
+  const caretPage = await page.evaluate(() => window.__docs.current.view.engine.caretPageIndex + 1);
+  await page.locator('#ribbon-tab-view').click();
+  await page.locator('.ribbon-card').getByRole('button', { name: 'Draft', exact: true }).click();
+  await page.locator('#ribbon-tab-insert').click();
+  await page.locator('#ribbon-panel-insert').getByRole('button', { name: 'Page Number', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Current Position', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Page X of Y', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => window.__docs.current.view.engine.session.body.text.split('\n')[100])).toBe(`Paragraph 100 holds a few more words to fill the line of text.Page ${caretPage} of ${pageCount}`);
+  expect(errors).toEqual([]);
+});
