@@ -24601,7 +24601,8 @@ with the header's text; it cannot be edited or inserted. Design › Watermark tr
 document's watermark, as Word does: the gallery and the Custom Watermark dialog show it (text, font,
 colour, see-through and diagonal or horizontal layout, read as Auto size; a PNG or JPEG picture with its
 washout), choosing a watermark replaces it, and Remove Watermark removes it from every header (the
-headers' own text stays; the picture's part and relationship are left in place, unused). While the
+headers' own text stays; since 2026-11-02 a picture watermark's part and relationship leave the saved file
+with it, see "Parts removed drawings leave"). While the
 watermarks are not changed, Word's XML is saved as it was.
 
 Display (an approximation): on each page whose header or footer holds one, the watermark is drawn
@@ -24614,3 +24615,24 @@ other VML in `w:pict` (and any VML in the body) still opens read-only; `blacklev
 adjustments, outlines, `fitpath` and wrapping other than behind the text are not drawn; watermarks are
 not shown in Read and Web views, which show no headers. Fixture: `tests/fixtures/vml-watermarks`
 (independently generated). Tests: `tests/vml-watermarks.test.js`, `tests/browser/vml-watermarks.spec.js`.
+
+## Parts removed drawings leave (2026-11-02)
+
+Clauses: ECMA-376 Part 2 (OPC) §9.3 relationships, §10.1.2.3 content-type overrides; Part 1 §21.2
+(chart parts and their `c:externalData` package), §20.1.8.13 `a:blip` (`r:embed`), MS-ODRAWXML
+`a14:imgLayer`.
+
+Saving keeps every package part it did not change. A chart or picture the user deleted or replaced
+(Edit Chart Data writes a new chart part; Reset Picture and re-processing show another image) used to
+leave its old part, with its data, in the saved file. Now, for each story part a save rewrites (the
+document, a header, footer or notes part), a picture (`image`, `hdphoto`) or chart (`chart`, `chartEx`)
+relationship its original XML referenced by id and its new XML does not is removed, and each part no
+relationship in the package targets any more is removed with its own relationships part, the parts only
+it used (a chart's embedded workbook, colors and style parts) and their content-type overrides. Kept as
+they were: relationships the original XML never referenced (such parts were never shown), parts another
+relationship still targets (a picture also in a header, a chart part two drawings share), and every
+other relationship type. Only the saved copy is pruned: the open package keeps its parts, so Undo after a
+save restores the drawing and the next save writes it whole. Gaps: SmartArt diagram parts and OLE
+objects are not pruned. Tests: `tests/dropped-drawing-parts.test.js` (independently written package),
+`tests/browser/dropped-drawing-parts.spec.js` (Edit Chart Data, delete and Undo after a save; Reset
+Picture), schema-checked with `tools/check-docx-schema.py`.
