@@ -1,4 +1,5 @@
 import { el, isComposing } from '../ui/dom.js';
+import { countWords } from '../core/text.js';
 import { openModal } from '../ui/modal.js';
 import { openSymbolPicker } from '../ui/symbols.js';
 import { styleRun } from '../engine/styles.js';
@@ -54,7 +55,8 @@ export function dateFormats(now = new Date(), locale = undefined) {
 /** Document statistics for a text: words, characters with and without spaces, paragraphs. */
 export function documentStatistics(text) {
   const plain = String(text).replace(/[￼]/g, '');
-  const words = plain.trim() ? plain.trim().split(/\s+/u).filter(Boolean).length : 0;
+  // The status bar's and the Word Count dialog's rule (core/text.js), so File > Info agrees with them.
+  const words = countWords(plain);
   const characters = [...plain.replace(/[\n\f\v]/g, '')].length;
   const noSpaces = [...plain.replace(/\s/gu, '')].length;
   const paragraphs = plain.split('\n').filter(p => p.replace(/[\f\v\t ]/g, '').length).length;

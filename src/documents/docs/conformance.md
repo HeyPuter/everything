@@ -7361,8 +7361,12 @@ recorded: line positions follow the browser's fonts, not a reference
 application's. Remaining gaps: `w:kinsoku w:val="0"`, `w:wordWrap`,
 `w:overflowPunct` (hanging punctuation), `w:topLinePunct`, custom
 `noLineBreaksAfter`/`noLineBreaksBefore` lists and `strictFirstAndLastChars` are
-not read; word movement, word count and spelling still treat a run of
-ideographs as one word.
+not read; word movement and spelling still treat a run of ideographs as one
+word. The word count (status bar, selection, Word Count, File > Info and
+`NUMWORDS`, §17.16.5) counts each Han ideograph, kana and Bopomofo letter as
+a word, as desktop word processors count East Asian text, with the letters and
+digits between them making words as usual and the punctuation between them
+none; Korean is counted by its spaces (`tests/text.test.js`).
 
 Justified (`w:jc w:val="both"`, §17.3.1.13, §17.18.44) Chinese and Japanese
 lines are filled to the margin: besides spaces, each gap where the line could
