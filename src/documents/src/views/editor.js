@@ -107,6 +107,7 @@ import { createCollaboration, localGuest } from './collab.js';
 import { createVersionHistory } from './version-history.js';
 import { createAssistantPane } from './assistant-pane.js';
 import { openCompareDialog } from './compare-dialog.js';
+import { parseDiagramDescription } from '../engine/diagram-builder.js';
 
 /** How long leaving the editor waits for a save before asking what to do. */
 export const FLUSH_STALL_MS = 15000;
@@ -777,7 +778,10 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
   editorCommands.drawingTextItems = () => {
     const image = engine?.model.selectedImage;
     if (!image || !pkg) return [];
-    return pkg.drawingTextFrames(image, engine.model.assets).map(frame => ({ label: `Text frame ${frame.index + 1}`, disabled: !!frame.reason || !!pkg.readOnly, hint: frame.reason,
+    // A diagram is rebuilt from the outline kept in its description: text typed into one of its shapes would be
+    // lost at the next Edit Diagram (and screen readers would go on reading the outline).
+    const diagram = image.retainedDrawing && parseDiagramDescription(image.alt) ? 'Use Edit Diagram to change a diagram’s text.' : null;
+    return pkg.drawingTextFrames(image, engine.model.assets).map(frame => ({ label: `Text frame ${frame.index + 1}`, disabled: !!frame.reason || !!diagram || !!pkg.readOnly, hint: frame.reason || diagram,
       // `options.select`: text to select when the editor opens (a new drawing's sample text).
       onSelect: async options => {
         const editor = engine, select = typeof options?.select === 'string' ? options.select : null;
