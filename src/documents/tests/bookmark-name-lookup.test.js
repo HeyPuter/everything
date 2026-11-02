@@ -50,3 +50,18 @@ it('PAGEREF to a name used twice, written in another case, shows the first bookm
   refreshPageReferences(d, m => layoutDocument(m.paragraphs, measure, pageGeometry(m.pageSettings), m.numbering, m.tables, pkg.pageStories, { styles: m.styles }), pkg.pageStories, { checkpoint: false });
   expect(d.text.split('\n')[0]).toBe('1');
 });
+
+// Bookmark names do not differ by case alone (fields find them ignoring case), so adding "intro" beside "Intro"
+// made two bookmarks a cross-reference could not tell apart; renaming one to the other's name in another case too.
+it('refuses a bookmark name that differs from another only by case', () => {
+  const d = new TextDocument([paragraph('Intro text and more')]);
+  d.select(0, 5); d.addBookmark('Intro');
+  d.select(6, 10);
+  expect(() => d.addBookmark('intro')).toThrow('A bookmark with that name already exists.');
+  d.addBookmark('Other');
+  const other = d.bookmarks.find(b => b.name === 'Other');
+  expect(() => d.renameBookmark(other.id, 'INTRO')).toThrow('A bookmark with that name already exists.');
+  const intro = d.bookmarks.find(b => b.name === 'Intro');
+  expect(d.renameBookmark(intro.id, 'INTRO')).toBe(true);
+  expect(d.bookmarks.map(b => b.name).sort()).toEqual(['INTRO', 'Other']);
+});

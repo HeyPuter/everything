@@ -1660,7 +1660,7 @@ export class TextDocument {
     const entries = this.bookmarks, entry = entries.find(e => e.id === id);
     if (!entry) throw new Error('That bookmark no longer exists.');
     if (entry.name === name) return false;
-    if (entries.some(e => e.name === name)) throw new Error('A bookmark with that name already exists.');
+    if (entries.some(e => e !== entry && e.name?.toLowerCase() === name.toLowerCase())) throw new Error('A bookmark with that name already exists.');
     const active = entries.find(e => e.name === entry.name) === entry, old = entry.name;
     this.checkpoint(); entry.startMarker.name = name;
     if (active) for (const p of this.paragraphs) for (const run of p.runs) if (run.link && !run.link.target && run.link.anchor === old) run.link = { ...run.link, anchor: name };

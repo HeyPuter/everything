@@ -73,7 +73,8 @@ export function checkedBookmarkName(name) {
 export function newBookmarkMarkers(paragraphs, name) {
   checkedBookmarkName(name);
   const entries = bookmarkEntries(paragraphs);
-  if (entries.some(e => e.name === name)) throw new Error('A bookmark with that name already exists.');
+  // Names do not differ by case alone (bookmarksByName): Intro and intro would be one name to a cross-reference.
+  if (entries.some(e => e.name?.toLowerCase() === name.toLowerCase())) throw new Error('A bookmark with that name already exists.');
   const ids = new Set(entries.map(e => e.id)); let id = 0;
   while (ids.has(String(id))) id++;
   const order = paragraphs.reduce((n, p) => (p.bookmarks || []).reduce((n, m) => Math.max(n, m.order), n), -1) + 1;
