@@ -1007,8 +1007,9 @@ export class TextDocument {
     for (const cell of cells) { cell.vertical = value ?? cell.inheritedVertical ?? 'top'; cell.verticalExplicit = value !== null; cell.verticalChanged = true; }
     this.didChange(); return true;
   }
-  setTableProperties(patch) {
-    const table = this.tableContext?.table; if (!table) return false;
+  /** `table`: the table to change (the selection's block can lie in an outer table); by default the caret's. */
+  setTableProperties(patch, table = this.tableContext?.table) {
+    if (!table) return false;
     const next = copy(table);
     for (const key of Object.keys(patch)) if (!['layout', 'width', 'alignment', 'indent', 'columns', 'clearCellWidths'].includes(key)) throw new Error('Unknown table property.');
     if ('layout' in patch && !['fixed', 'autofit'].includes(patch.layout)) throw new Error('Choose fixed widths or AutoFit.');
@@ -1195,8 +1196,8 @@ export class TextDocument {
     const table = this.tableContext?.table; if (!table) return 0;
     return Math.max(...this.selectedTableRows.filter(row => table.rows.includes(row)).map(row => table.rows.indexOf(row) + 1));
   }
-  setTableHeaderRows(count) {
-    const table = this.tableContext?.table; if (!table) return false;
+  setTableHeaderRows(count, table = this.tableContext?.table) {
+    if (!table) return false;
     if (!Number.isInteger(count) || count < 0 || count > table.rows.length) throw new Error('Choose how many leading rows to repeat.');
     // Include whole vertical merges when defining an authored header region.
     for (const owner of new Set(verticalMerges(table).values())) if (owner.rowIndex < count) count = Math.max(count, owner.endRow + 1);

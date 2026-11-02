@@ -882,7 +882,7 @@ export function setRowOptions(model, { allowBreak, header } = {}) {
   if (allowBreak !== undefined && rows.some(row => !!row.cantSplit === !!allowBreak)) { model.setTableRowKeep(!allowBreak); changed = true; }
   if (header !== undefined) {
     const count = header ? block.bottom + 1 : block.top;
-    if (count !== headerRowCount(table) || !header && rows.some(r => r.header)) changed = model.setTableHeaderRows(count) || changed;
+    if (count !== headerRowCount(table) || !header && rows.some(r => r.header)) changed = model.setTableHeaderRows(count, table) || changed;
   }
   return changed;
 }

@@ -620,6 +620,22 @@ describe('table commands', () => {
 });
 
 describe('cells holding a nested table', () => {
+  it('applies row options to the table of the selected cells when the selection ends in a nested table', () => {
+    const { doc } = tableDocument(3, 2), outer = doc.tables[0];
+    const holder = cellAt(doc, 0, 1), last = doc.paragraphs.findLastIndex(p => p.cellId === holder.id);
+    doc.select(doc.paragraphOffset(last) + paragraphText(doc.paragraphs[last]).length); doc.replace('\n'); doc.insertTable(2, 2, 3000);
+    const nested = doc.tables.find(t => t.parentCellId);
+    // A drag from the outer table's first cell into the nested table: the block is the outer table's first row.
+    const from = doc.paragraphs.findIndex(p => p.cellId === cellAt(doc, 0, 0, outer).id), to = doc.paragraphs.findIndex(p => p.cellId === nested.rows[0].cells[0].id);
+    doc.select(doc.paragraphOffset(from), doc.paragraphOffset(to) + 1);
+    expect(T.selectionBlock(doc).table).toBe(outer); expect(doc.tableContext.table).toBe(nested);
+    expect(T.setRowOptions(doc, { header: true })).toBe(true);
+    expect(outer.rows.map(r => !!r.header)).toEqual([true, false, false]);
+    expect(nested.rows.map(r => !!r.header)).toEqual([false, false]);
+    expect(doc.setTableProperties({ alignment: 'center' }, T.selectionBlock(doc).table)).toBe(true);
+    expect([outer.alignment, nested.alignment]).toEqual(['center', 'left']);
+  });
+
   const withNested = () => {
     const { pkg, doc } = tableDocument(2, 2);
     const outer = doc.tables[0];
