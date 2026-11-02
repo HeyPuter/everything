@@ -2,7 +2,7 @@ import { paragraphText, paragraphFormat, runFormat } from './model.js';
 import { effectiveStyleId } from './styles.js';
 import { inlineSegments } from './images.js';
 import { MAX_DOCUMENT_CHARACTERS } from './text-limits.js';
-import { deletedSpans, overlaps } from './search.js';
+import { skippedSpans, overlaps } from './search.js';
 
 /**
  * Advanced Find and Replace: special characters, a documented wildcard subset, prefix/suffix and
@@ -185,7 +185,7 @@ export function advancedFind(paragraphs, query, options = {}, context = {}) {
     return graphemes.get(i);
   };
   const spanAt = position => { let lo = 0, hi = spans.length - 1; while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (spans[mid].start <= position) lo = mid; else hi = mid - 1; } return lo; };
-  const deleted = new Map(), deletedIn = i => { if (!deleted.has(i)) deleted.set(i, deletedSpans(spans[i].p)); return deleted.get(i); };
+  const deleted = new Map(), deletedIn = i => { if (!deleted.has(i)) deleted.set(i, skippedSpans(spans[i].p, !!options.skipDeleted, options.hidden)); return deleted.get(i); };
   const pictureAt = position => {
     const s = spans[spanAt(position)]; let at = s.start;
     for (const run of s.p.runs) { if (position < at + run.text.length) return !!run.image; at += run.text.length; }
@@ -208,8 +208,8 @@ export function advancedFind(paragraphs, query, options = {}, context = {}) {
     // An object character is a picture only when it is one: ^g, ^? and wildcards never take a field,
     // equation or note reference, which Replace All then deleted.
     for (let at = text.indexOf('\uFFFC', start); at >= 0 && at < end; at = text.indexOf('\uFFFC', at + 1)) if (!pictureAt(at)) return;
-    // With Track Changes on, text tracked as deleted is not found (see findText).
-    if (options.skipDeleted) for (let i = first; i <= last; i++) if (overlaps(deletedIn(i), Math.max(start, spans[i].start) - spans[i].start, Math.min(end, spans[i].end) - spans[i].start)) return;
+    // With Track Changes on, text tracked as deleted is not found, nor text the view hides with `hidden` (see findText).
+    if (options.skipDeleted || options.hidden) for (let i = first; i <= last; i++) if (overlaps(deletedIn(i), Math.max(start, spans[i].start) - spans[i].start, Math.min(end, spans[i].end) - spans[i].start)) return;
     // Never match half a grapheme or half a picture.
     const s = spans[first], e = spans[last];
     if (!startsAt(first).has(start)) return;

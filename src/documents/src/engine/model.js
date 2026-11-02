@@ -26,6 +26,7 @@ import { checkedLineSpacing } from './line-spacing.js';
 import { hasDirectRunFormatting, clearedRun, hasDirectMarkFormatting, clearMark, hasDirectParagraphFormatting, clearParagraph } from './direct-formatting.js';
 import { findText, checkedSearchText, replacedRuns, replacedBookmarks } from './search.js';
 import { advancedFind, replaceAdvanced } from './advanced-search.js';
+import { hiddenRun } from './hidden-text.js';
 import { checkedHyperlinkDestination, hyperlinkLabel, hyperlinkId, hyperlinkAt, hyperlinkRanges, hyperlinkBoundaryChanges } from './hyperlinks.js';
 import { bookmarkEntries, checkedBookmarkName, newBookmarkMarkers, replaceBookmarkMarkers, bookmarkStructureState, repairStructuralBookmarks, normalizeBlockBookmarkScopes } from './bookmarks.js';
 import { checkedUnderline, underlineDeclaration } from './underlines.js';
@@ -2032,6 +2033,9 @@ export class TextDocument {
   findMatches(query, options) {
     // With Track Changes on, deleted text is not found: replacing it would only insert the replacement again.
     if (this.trackChanges && !this.trackingInternal) options = { ...options, skipDeleted: true };
+    // A search a reader makes (Find, the Navigation pane) passes over what the view hides: a deletion in Simple
+    // Markup, hidden text. Found, it was selected unseen, and replacing it made visible text of a deletion.
+    if (options?.visibleOnly) options = { ...options, hidden: hiddenRun };
     // Advanced options (special characters, wildcards, formatting) use the advanced matcher.
     if (options?.advanced) return advancedFind(this.paragraphs, query, options, { styles: this.styles, numbering: this.numbering });
     return findText(this.paragraphs, query, options);

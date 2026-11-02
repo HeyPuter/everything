@@ -13,6 +13,7 @@ import { openRowHeight, rowHeightLabel } from './row-height.js';
 import { openLineSpacing } from './line-spacing.js';
 import { CELL_ALIGNMENTS } from '../engine/cell-alignment.js';
 import { paragraphFormat } from '../engine/model.js';
+import { revisionView } from '../engine/revisions.js';
 import { openParagraphShading, paragraphShadingLabel } from './paragraph-shading.js';
 import { openHyperlink } from './hyperlink.js';
 import { createLinkCard } from './link-card.js';
@@ -356,7 +357,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
   // The format area's search covers the body, a selection, and headers and footers (advanced options).
   const finder = findReplacePanel({ readOnly: () => !!pkg?.readOnly, matches: (text, options) => engine?.model.findMatches(text, options) || [],
     // What the matches depend on: the document, any change to any of its stories, and the story being edited.
-    version: () => (engine ? [engine, engine.session.revision, engine.session.body.revision, engine.session.path, engine.model] : null), range: () => engine?.model.range || [0, 0], textLength: () => engine?.model.text.length ?? 0, select: match => engine?.selectMatch(match), highlight: matches => engine?.setFindHighlights(matches), replace: (...args) => engine?.replaceMatches(...args), ...formatArea.findApi, close: () => { find.setAttribute('aria-expanded', 'false'); engine?.focus(); } });
+    version: () => (engine ? [engine, engine.session.revision, engine.session.body.revision, engine.session.path, engine.model, revisionView.mode, revisionView.showHidden, revisionView.options.hiddenAuthors.join()] : null), range: () => engine?.model.range || [0, 0], textLength: () => engine?.model.text.length ?? 0, select: match => engine?.selectMatch(match), highlight: matches => engine?.setFindHighlights(matches), replace: (...args) => engine?.replaceMatches(...args), ...formatArea.findApi, close: () => { find.setAttribute('aria-expanded', 'false'); engine?.focus(); } });
   const openFind = (options = {}) => {
     if (!engine) return;
     engine.finishComposition();
@@ -505,8 +506,8 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     },
     pages: () => engine?.canvases || [], flushPages: () => engine?.flushPaint?.(), currentPage: () => engine?.caretPageIndex ?? 0,
     // The search covers the document's body, also while a header, footer or note is being edited.
-    search: text => { try { return engine?.session.body.findMatches(text, {}) || []; } catch { return []; } },
-    version: () => (engine ? [engine, engine.session.revision, engine.session.body.revision, engine.session.path, engine.model, engine.model.revision, engine.model.trackChanges] : null),
+    search: text => { try { return engine?.session.body.findMatches(text, { visibleOnly: true }) || []; } catch { return []; } },
+    version: () => (engine ? [engine, engine.session.revision, engine.session.body.revision, engine.session.path, engine.model, engine.model.revision, engine.model.trackChanges, revisionView.mode, revisionView.showHidden, revisionView.options.hiddenAuthors.join()] : null),
     text: () => engine?.session.body.text || '',
     selectMatch: match => { if (!engine) return; engine.finishComposition(); if (engine.session.path !== null) engine.editStory(null); engine.selectMatch(match); },
     highlight: matches => engine?.setFindHighlights(engine.session.path === null ? matches : []),

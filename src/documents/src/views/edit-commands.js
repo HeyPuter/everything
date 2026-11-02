@@ -88,7 +88,7 @@ export function createEditCommands({ editor, pkg, editLink, searchQuery = () => 
       // The search, as the Navigation pane's, is of the body, also while a header, footer or note is being edited.
       const body = engine.session.body || engine.model, [start, end] = body.range;
       let matches = [];
-      try { matches = body.findMatches(query, {}); } catch { matches = []; }
+      try { matches = body.findMatches(query, { visibleOnly: true }); } catch { matches = []; }
       if (!matches.length) { toast(`“${query}” was not found.`, { icon: 'search', duration: 2500 }); return false; }
       if (engine.session.path !== null) { engine.finishComposition(); engine.editStory(null); }
       const next = direction > 0 ? matches.find(m => m.start >= end && !(m.start === start && m.end === end)) || matches[0]
