@@ -62,6 +62,7 @@ import { refreshPageReferences } from './page-reference-refresh.js';
 import { positionedImageBounds } from './positioned-images.js';
 import { createImageInteraction } from './image-interaction.js';
 import { paintDecodedImage, imageInfo, decodeImage, decodeImages, validateImageAssets, imageCropRect, inlineImagePaintFrame, normalizedRotation, ANGLE_PER_DEGREE, EMU_PER_PX, isPositionedImage } from './images.js';
+import { sectionColumnIntervals } from './section-columns.js';
 let nextAsset = 0;
 // A document longer than this paints only the pages on screen (and a screenful either side) at
 // once; the rest are painted when they scroll into view, when their pixels are read, or while the
@@ -558,7 +559,11 @@ export class CanvasEditor {
     const line = lineAtPosition(this.selectionLayout, this.model.range[0], 'forward', this.caretPage), p = this.layout.pages[line.page] || this.layout.page;
     const paragraph = this.model.paragraphs[locate(this.model.paragraphs, this.model.range[0]).index], context = cellContext(this.model.tables, paragraph.cellId);
     const cell = this.selectionLayout.cells.find(c => c.id === line.cellId && c.page === line.page && c.column === line.column);
-    const cellPage = cell ? { ...p, left: cell.x + context.cell.margins.left / 15, right: p.width - cell.x - cell.width + context.cell.margins.right / 15 } : p;
+    // Outside tables, the picture fits the text column holding the caret (a section can have several).
+    let column = null;
+    if (!cell && p.columns && !p.storyKind) try { column = sectionColumnIntervals(p.columns, p.left * 15, (p.width - p.left - p.right) * 15)[line.column ?? 0]; } catch { column = null; }
+    const cellPage = cell ? { ...p, left: cell.x + context.cell.margins.left / 15, right: p.width - cell.x - cell.width + context.cell.margins.right / 15 }
+      : column ? { ...p, left: column.left / 15, right: p.width - column.right / 15 } : p;
     const format = paragraphFormat(paragraph, this.model.numbering), edges = [true, false].map(first => paragraphEdges(format, cellPage, first));
     const width = Math.min(...edges.map(e => e.right - e.left));
     const sized = size.width > 0 && size.height > 0, natural = sized ? { width: size.width / EMU_PER_PX, height: size.height / EMU_PER_PX } : bitmap;
