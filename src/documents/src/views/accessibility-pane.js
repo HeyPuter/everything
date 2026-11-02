@@ -16,6 +16,9 @@ export function createAccessibilityPane({ editor, pkg, error, onState = () => {}
   // whose count starts again.
   let issues = [], checkedBody = null, checkedRevision = -1, timer = null;
   const checked = body => body === checkedBody && body.revision === checkedRevision;
+  // Quick fixes are edits: none is offered where the document cannot change (a preview, Viewing mode).
+  let fixesShown = null;
+  const canFix = () => { const engine = editor(); return !!engine && !pkg()?.readOnly && !engine.readOnly && !engine.viewOnly; };
   const pane = sidePane({ title: 'Accessibility', label: 'Accessibility pane', className: 'rv-accessibility-pane', onOpen: () => run(true), onClose: () => editor()?.focus() });
   const summaryLine = el('p.rv-status', { role: 'status' });
   const list = el('div.rv-groups');
@@ -34,6 +37,7 @@ export function createAccessibilityPane({ editor, pkg, error, onState = () => {}
     return issues;
   }
   function render() {
+    fixesShown = canFix();
     const counts = summarize(issues);
     const count = (n, one) => `${n} ${one}${n === 1 ? '' : 's'}`;
     summaryLine.textContent = issues.length ? `${count(counts.errors, 'error')} · ${count(counts.warnings, 'warning')} · ${count(counts.tips, 'tip')}` : 'No accessibility issues found. People with disabilities should be able to read this document.';
@@ -48,7 +52,7 @@ export function createAccessibilityPane({ editor, pkg, error, onState = () => {}
           el('p.rv-why', {}, RULES[rule].why),
           ...items.map(issue => el('div.rv-item.rv-issue', { dataset: { rule } },
             el('button.rv-issue-target', { type: 'button', onclick: () => reveal(editor(), issue.start, issue.end) }, issue.detail),
-            issue.fix && !pkg()?.readOnly ? button(FIX_LABEL[issue.fix.kind] || 'Fix', () => fix(issue)) : null)))));
+            issue.fix && fixesShown ? button(FIX_LABEL[issue.fix.kind] || 'Fix', () => fix(issue)) : null)))));
     }).filter(Boolean));
   }
   function schedule() {
@@ -69,7 +73,7 @@ export function createAccessibilityPane({ editor, pkg, error, onState = () => {}
       .reduce((best, i) => !best || Math.abs(i.start - issue.start) < Math.abs(best.start - issue.start) ? i : best, null);
   }
   async function fix(found) {
-    const engine = editor(); if (!engine) return;
+    const engine = editor(); if (!engine || !canFix()) return;
     const { kind } = found.fix;
     engine.finishComposition();
     if (engine.session.path !== null) engine.editStory(null);
@@ -115,6 +119,8 @@ export function createAccessibilityPane({ editor, pkg, error, onState = () => {}
       const engine = editor(); if (!engine) return null;
       const body = engine.session.body;
       if (!checked(body)) schedule();
+      // Switched to or from Viewing mode with the pane open: its quick fixes follow.
+      if (pane.isOpen && fixesShown !== null && canFix() !== fixesShown) render();
       if (body !== checkedBody) return { errors: 0, warnings: 0, tips: 0, label: 'Accessibility: checking…', checking: true, open: () => this.open() };
       const counts = summarize(issues);
       const label = !issues.length ? 'Accessibility: good to go' : counts.errors ? `Accessibility: ${counts.errors} ${counts.errors === 1 ? 'error' : 'errors'} to fix` : 'Accessibility: worth a look';

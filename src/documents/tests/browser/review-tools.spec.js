@@ -140,6 +140,37 @@ test('the Thesaurus replaces a selected word together with the space after it, l
   expect(errors).toEqual([]);
 });
 
+test('the Accessibility pane offers no quick fixes in Viewing mode', async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/mock.html#/new');
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  const input = page.getByRole('textbox', { name: 'Document text' });
+  await input.fill('One\n\n\n\nTwo');
+  await page.locator('.ed-statusbar .ed-status-accessibility').click();
+  const pane = page.getByRole('complementary', { name: 'Accessibility pane' });
+  const fix = pane.getByRole('button', { name: 'Remove empty paragraphs' });
+  await expect(fix).toBeVisible();
+  // Switched to Viewing mode with the pane open, then reopened in it.
+  const mode = page.getByRole('button', { name: /^Editing mode/ });
+  await mode.click();
+  await page.getByRole('menuitemradio', { name: /^Viewing/ }).click();
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeDisabled();
+  await expect(pane).toContainText('Empty paragraphs used for spacing');
+  await expect(fix).toHaveCount(0);
+  await pane.getByRole('button', { name: 'Close Accessibility pane' }).click();
+  await page.locator('.ed-statusbar .ed-status-accessibility').click();
+  await expect(pane).toContainText('Empty paragraphs used for spacing');
+  await expect(fix).toHaveCount(0);
+  // Back in Editing mode the fixes return.
+  await mode.click();
+  await page.getByRole('menuitemradio', { name: /^Editing/ }).click();
+  await expect(fix).toBeVisible();
+  await fix.click();
+  await expect.poll(async () => (await input.inputValue()).split('\n').length).toBe(3);
+  expect(errors).toEqual([]);
+});
+
 test('Check Accessibility finds problems and applies quick fixes', async ({ page }, info) => {
   const errors = []; page.on('pageerror', e => errors.push(e.message));
   await page.setViewportSize({ width: 1440, height: 900 });
