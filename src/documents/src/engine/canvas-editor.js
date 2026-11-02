@@ -822,12 +822,14 @@ export class CanvasEditor {
     // screen layout back afterwards, without touching the page canvases.
     const hidden = revisionView.showHidden && [this.session.body, ...Object.values(this.pageStories?.stories || {})].some(story => story?.paragraphs?.some(p => p.runs.some(r => r.vanish)));
     if (this.view || hidden) {
-      const screen = { view: this.view, layout: this.layout, storyLayout: this.storyLayout, selectionLayout: this.selectionLayout, tablePaintCache: this.tablePaintCache, drawingPageContexts: this.drawingPageContexts };
+      const screen = { view: this.view, layout: this.layout, storyLayout: this.storyLayout, selectionLayout: this.selectionLayout, tablePaintCache: this.tablePaintCache, drawingPageContexts: this.drawingPageContexts, lineNumbers: this.lineNumbers };
       const shown = revisionView.showHidden;
       if (hidden) revisionView.showHidden = false;
       try {
-        const printed = this.computeLayout(null);
-        Object.assign(this, printed, { selectionLayout: printed.layout, tablePaintCache: new Map(), drawingPageContexts: drawingPageContexts(printed.layout, this.pageStories), view: null });
+        const printed = this.computeLayout(null), body = this.session.body;
+        // The printed pages' own line numbers: a screen view has none, and shown hidden text has lines the paper does not.
+        const lineNumbers = lineNumberLabels(printed.layout, body.paragraphs, body.numbering, body.styles, this.measure);
+        Object.assign(this, printed, { selectionLayout: printed.layout, tablePaintCache: new Map(), drawingPageContexts: drawingPageContexts(printed.layout, this.pageStories), view: null, lineNumbers });
         return this.paintSheets(pages);
       } finally { revisionView.showHidden = shown; Object.assign(this, screen); }
     }
