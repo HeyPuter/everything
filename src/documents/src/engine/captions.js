@@ -71,7 +71,9 @@ export function insertCaption(doc, { label = 'Figure', text = '', above = false,
   addFieldMarkers(p, newBodyField(` SEQ ${id} \\* ${format} `, { simple: true }), prefix.length, prefix.length + 1);
   doc.hasBodyFields = true;
   bodyFieldRanges(doc.paragraphs);
-  updateSequenceFields(doc);
+  // The new caption and those after it are renumbered; other fields (dates, cross-references, formulas) keep their
+  // results until Update Fields, as in Word. Updating them all here replaced a reference to a removed bookmark with an error.
+  updateSequenceFields(doc, { sequencesOnly: true });
   const after = offsetOf(doc, index) + length(doc.paragraphs[index]);
   doc.select(after);
   doc.didChange();

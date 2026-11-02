@@ -63,8 +63,10 @@ export function sequenceInstruction(instruction) {
 /**
  * The text each SEQ/REF/NOTEREF field should show now: [{ range, text }] where it differs. `notes`
  * gives the displayed note numbers ({ footnote: Map, endnote: Map }) for NOTEREF (§17.16.5.40).
+ * `sequencesOnly` plans the SEQ fields alone, as inserting a caption renumbers them without updating
+ * every other field.
  */
-export function fieldUpdatePlan(model, { onIssue = () => {}, notes = null } = {}) {
+export function fieldUpdatePlan(model, { onIssue = () => {}, notes = null, sequencesOnly = false } = {}) {
   const ranges = bodyFieldRanges(model.paragraphs), text = model.text, changes = [];
   const counters = new Map();
   const bookmarks = new Map(bookmarkEntries(model.paragraphs, model.tables).map(b => [b.name, b]));
@@ -73,6 +75,7 @@ export function fieldUpdatePlan(model, { onIssue = () => {}, notes = null } = {}
   const mergeNames = new Set(ranges.filter(r => ['ASK', 'SET'].includes(r.field.type)).map(r => /^\s*\w+\s+("?)([^\s"]+)\1/.exec(r.field.instruction)?.[2]).filter(Boolean));
   for (const range of ranges) {
     const type = range.field.type;
+    if (sequencesOnly && type !== 'SEQ') continue;
     if (range.field.locked || ranges.some(r => r.parentId === range.field.id)) continue;
     let value = null;
     if (type === 'SEQ') {
@@ -128,7 +131,7 @@ export function fieldUpdatePlan(model, { onIssue = () => {}, notes = null } = {}
     if (text.slice(range.start, range.end) !== value) changes.push({ range, text: value });
   }
   // Dates, times and document information (field-results.js) refresh in the same pass.
-  return [...changes, ...fieldResultPlan(model)].sort((a, b) => a.range.start - b.range.start);
+  return [...changes, ...(sequencesOnly ? [] : fieldResultPlan(model))].sort((a, b) => a.range.start - b.range.start);
 }
 
 /** Apply the plan inside one editor transaction; returns the number of fields updated. */
