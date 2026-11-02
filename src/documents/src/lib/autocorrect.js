@@ -63,8 +63,16 @@ export function smartQuote(typed, last) {
  * the character just typed: `{ back, text }` replaces the last `back`
  * characters with `text`, or null when nothing applies.
  */
-/** The run of non-space characters the caret is in, up to and including the typed character. */
-const currentWord = (before) => before.slice(before.search(/\S*$/));
+/**
+ * The run of non-space characters the caret is in, up to and including the typed character. Found by stepping back
+ * from the end: a search for /\S*$/ took time in the square of a stretch without spaces before a later word (a
+ * paragraph of Chinese or Thai), for every key typed after it.
+ */
+const currentWord = (before) => {
+  let start = before.length;
+  while (start > 0 && !/\s/.test(before[start - 1])) start--;
+  return before.slice(start);
+};
 
 /**
  * Whether the word being typed is a web address or an email, where quotes,
