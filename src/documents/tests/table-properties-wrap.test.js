@@ -26,3 +26,13 @@ it('starts a table that begins to float where it stands: at its alignment or ind
   expect(aroundChanges(table({ indent: 720 })).positioning.x).toBe(720);
   expect(aroundChanges(table()).positioning.x).toBe(0);
 });
+
+it('sets a column of a table sized as a share of the window to the width typed, as the ribbon does', () => {
+  const apply = vi.fn(() => true);
+  openTableProperties(table({ width: { type: 'pct', value: 5000 }, grid: [4680, 4680] }), [4680, 4680], 0, apply, { wrap: 'none', altText: { title: '', description: '' } });
+  const width = document.querySelector('[aria-label="Column width (in)"]');
+  width.value = '1'; width.dispatchEvent(new Event('input'));
+  document.querySelector('form.table-properties').requestSubmit();
+  // Kept at 100%, the columns would be stretched back to fill the window and the first would not be 1 in.
+  expect(apply.mock.calls[0][0].table).toMatchObject({ columns: [1440, 4680], width: { type: 'dxa', value: 6120 } });
+});

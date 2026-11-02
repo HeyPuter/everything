@@ -120,7 +120,9 @@ export function openTableProperties(table, displayedWidths, selectedColumn, appl
     if (values.some((v, i) => v !== initialColumns[i]) || patch.layout === 'fixed' && table.grid.some(w => !w)) {
       // Round measured fallback widths up so a single grapheme still fits after fixing the grid.
       patch.columns = values.map((v, i) => v === initialColumns[i] ? table.grid[i] || Math.ceil(displayedWidths[i]) : Math.round(Number(v) * 1440));
-      patch.width ||= table.width || { type: 'auto', value: 0 };
+      // A table sized as a share of the window would stretch the columns back to fill it: unless its width was
+      // changed too, it becomes as wide as its columns, as the ribbon's Width box makes it.
+      patch.width ||= table.width?.type === 'pct' ? { type: 'dxa', value: patch.columns.reduce((a, b) => a + b, 0) } : table.width || { type: 'auto', value: 0 };
     }
     const changes = { table: patch };
     if (!wrap.disabled && wrap.value !== (context.wrap || 'none')) changes.wrap = wrap.value;
