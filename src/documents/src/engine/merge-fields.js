@@ -8,6 +8,7 @@
 // as field codes are conventionally displayed: IF "{ MERGEFIELD City }" = "Oslo" "Hei" "Hello".
 
 import { formatPageNumber } from './page-numbering.js';
+import { formatFormulaNumber } from './table-formula.js';
 
 /** Address concepts an address block or greeting line draws on, with column names they commonly appear under. */
 export const ADDRESS_FIELDS = [
@@ -150,27 +151,11 @@ function applyGeneralFormats(value, formats = []) {
   return value;
 }
 
-/** A numeric picture (\# "$#,##0.00"): digits, grouping, decimals and literal text around them. */
+/** A numeric picture (\# "$#,##0.00") applied to a merged value that reads as a number (formatFormulaNumber). */
 export function formatNumberPicture(value, picture) {
   const number = Number(String(value).replace(/[,\s$€£¥]/g, ''));
   if (!String(value).trim() || !Number.isFinite(number)) return value;
-  const sections = picture.split(';');
-  const section = number < 0 && sections[1] !== undefined ? sections[1] : number === 0 && sections[2] !== undefined ? sections[2] : sections[0];
-  const negativeSection = number < 0 && sections[1] !== undefined;
-  const first = section.search(/[0#x]/), last = Math.max(section.lastIndexOf('0'), section.lastIndexOf('#'), section.lastIndexOf('x'));
-  if (first < 0) return section.replace(/'([^']*)'/g, '$1');
-  const prefix = section.slice(0, first).replace(/'([^']*)'/g, '$1'), suffix = section.slice(last + 1).replace(/'([^']*)'/g, '$1');
-  const body = section.slice(first, last + 1), dot = body.indexOf('.');
-  const decimals = dot < 0 ? 0 : body.slice(dot + 1).replace(/[^0#]/g, '').length;
-  const required = dot < 0 ? 0 : body.slice(dot + 1).replace(/[^0]/g, '').length;
-  const integerDigits = (dot < 0 ? body : body.slice(0, dot)).replace(/[^0]/g, '').length;
-  let [whole, fraction = ''] = Math.abs(number).toFixed(decimals).split('.');
-  fraction = fraction.replace(/0+$/, '').padEnd(required, '0');
-  whole = whole.padStart(integerDigits, '0');
-  if (whole === '0' && !integerDigits && fraction) whole = '';
-  if (body.includes(',')) whole = whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
-  const sign = number < 0 && !negativeSection ? '-' : '';
-  return `${sign}${prefix}${whole}${fraction ? '.' + fraction : ''}${suffix}`;
+  return formatFormulaNumber(number, picture);
 }
 
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
