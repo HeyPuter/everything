@@ -327,3 +327,37 @@ test('Undo history lists design changes, and choosing one undoes back through it
   await expect(page.locator('.ed-quick').getByRole('button', { name: 'Undo history' })).toBeDisabled();
   expect(errors).toEqual([]);
 });
+
+test('contrast themes keep the Design tab’s palettes and chosen items visible', async ({ page }) => {
+  await page.emulateMedia({ forcedColors: 'active' });
+  await open(page);
+  const marked = locator => locator.evaluate(el => getComputedStyle(el).outlineStyle !== 'none' && parseFloat(getComputedStyle(el).outlineWidth) >= 1);
+  await ribbon(page).getByRole('button', { name: 'Themes' }).click();
+  await page.getByRole('menu', { name: 'Themes' }).getByRole('menuitemradio', { name: 'Harbor theme' }).click();
+  await expectFont(page, /Montserrat/);
+  // Theme Colors: each row's strip shows its scheme's colors, and the scheme in use is marked.
+  await ribbon(page).getByRole('button', { name: 'Theme Colors' }).click();
+  const colors = page.getByRole('menu', { name: 'Theme Colors' });
+  const strip = colors.getByRole('menuitemradio', { name: 'Ember' }).locator('.design-color-strip > span').nth(2);
+  expect(await strip.evaluate(el => getComputedStyle(el).forcedColorAdjust)).toBe('none');
+  expect(await marked(colors.locator('[role="menuitemradio"][aria-checked="true"]'))).toBe(true);
+  expect(await marked(colors.locator('[role="menuitemradio"][aria-checked="false"]').first())).toBe(false);
+  await page.keyboard.press('Escape');
+  await ribbon(page).getByRole('button', { name: 'Theme Fonts' }).click();
+  const fonts = page.getByRole('menu', { name: 'Theme Fonts' });
+  expect(await marked(fonts.locator('[role="menuitemradio"][aria-checked="true"]'))).toBe(true);
+  await page.keyboard.press('Escape');
+  // Customize Colors: the sample shows the colors being chosen.
+  await ribbon(page).getByRole('button', { name: 'Theme Colors' }).click();
+  await page.getByRole('menuitem', { name: 'Customize Colors…' }).click();
+  const sample = page.getByRole('dialog', { name: 'Customize Colors' }).locator('.design-color-sample');
+  expect(await sample.evaluate(el => getComputedStyle(el).forcedColorAdjust)).toBe('none');
+  await page.keyboard.press('Escape');
+  // Fill Effects: the chosen shading style is marked.
+  await ribbon(page).getByRole('button', { name: 'Page Color' }).click();
+  await page.getByRole('menuitem', { name: 'Fill Effects…' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Fill Effects' });
+  expect(await marked(dialog.locator('.design-tile[aria-checked="true"]').first())).toBe(true);
+  expect(await marked(dialog.locator('.design-tile[aria-checked="false"]').first())).toBe(false);
+  await page.keyboard.press('Escape');
+});
