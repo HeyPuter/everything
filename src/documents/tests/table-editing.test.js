@@ -291,6 +291,34 @@ describe('inserting a table', () => {
     after.select(after.text.length); after.insertTable(1, 1, 9000);
     expect(blocks(after)).toEqual(['table', '', 'table', '']);
   });
+
+  it('makes it as wide as the text column in a section with columns, as Convert Text to Table does', async () => {
+    const twoColumns = { count: 2, space: 720, equalWidth: true, separator: false, entries: [] };
+    const { pkg, doc } = document(['Name\tQty', 'Pens\t2', 'After']);
+    doc.pageSettings = { ...doc.pageSettings, columns: twoColumns };
+    const page = doc.pageSettings, column = (page.width - page.left - page.right - 720) / 2;
+    const total = table => table.grid.reduce((a, b) => a + b, 0);
+    doc.select(doc.text.length); doc.insertTable(2, 3);
+    expect(total(doc.tables[0])).toBeLessThanOrEqual(column);
+    expect(total(doc.tables[0])).toBeGreaterThan(column - 20);
+    expect(doc.tables[0].width.value).toBe(total(doc.tables[0]));
+    doc.select(0, doc.text.indexOf('After') - 1); T.convertTextToTable(doc, { separator: 'tab' });
+    const converted = doc.tables.find(t => t.rows.length === 2 && t.grid.length === 2);
+    expect(total(converted)).toBeLessThanOrEqual(column);
+    expect(total(converted)).toBeGreaterThan(column - 20);
+    // Of unequal columns, the narrowest.
+    const narrow = document(['']).doc;
+    narrow.pageSettings = { ...narrow.pageSettings, columns: { count: 2, space: 360, equalWidth: false, separator: false, entries: [{ width: 2880, space: 360 }, { width: 6120, space: 0 }] } };
+    narrow.select(0); narrow.insertTable(1, 2);
+    expect(total(narrow.tables[0])).toBeLessThanOrEqual(2880);
+    expect(total(narrow.tables[0])).toBeGreaterThan(2860);
+    // One column: the whole writing width, as before.
+    const plain = document(['']).doc;
+    plain.select(0); plain.insertTable(1, 2);
+    expect(total(plain.tables[0])).toBeGreaterThan(plain.pageSettings.width - plain.pageSettings.left - plain.pageSettings.right - 20);
+    const { reopened } = await roundTrip(pkg, doc);
+    expect(total(reopened.tables[0])).toBe(total(doc.tables[0]));
+  });
 });
 
 describe('table commands', () => {

@@ -1014,7 +1014,7 @@ export function newTable(model, rows, columns, width) {
 }
 function writingWidth(model) {
   const page = model.sectionPageSettings;
-  return model.sectionWritingWidth - (page.gutterAtTop ? 0 : page.gutter || 0) - (page.compatibilityMode >= 15 ? 10 : 0);
+  return Math.floor(model.sectionColumnWidth) - (page.compatibilityMode >= 15 ? 10 : 0);
 }
 function applyAutofit(table, autofit) {
   if (autofit === 'fixed' || !autofit) return;

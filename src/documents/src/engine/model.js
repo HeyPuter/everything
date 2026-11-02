@@ -44,6 +44,7 @@ import { emptyStyles, resolveStyledParagraph, effectiveStyleId, editedStyle, res
 import { emptyNumbering, levelFor, listKind, listGeometry, listMarkers, newList, restartList } from './numbering.js';
 import { INDENT_KEYS, validateIndent, normalizeTabStops, sameValue } from './paragraph-geometry.js';
 import { validatePageSettings, readingPageSize, DOCUMENT_PAGE_KEYS, SECTION_TYPES } from './page-settings.js';
+import { sectionColumnIntervals } from './section-columns.js';
 import { OBJECT, inlineSegments, validateImage, normalizeCrop, normalizedRotation, rotationOutsets, imageExtents, CROP_SIDES, isPositionedImage, nextDrawingId } from './images.js';
 import { outlineEntries, builtinOutlineLevel } from './outline.js';
 import { refreshConditionalTable } from './conditional-table-formatting.js';
@@ -461,6 +462,15 @@ export class TextDocument {
   get sectionWritingWidth() {
     const p = this.sectionPageSettings;
     return p.width - p.left - p.right;
+  }
+  /**
+   * The width of one text column of the caret's section, without the gutter: the writing width when it
+   * has one column. Of unequal columns the narrowest, so a table made for it fits whichever holds it.
+   */
+  get sectionColumnWidth() {
+    const p = this.sectionPageSettings, width = p.width - p.left - p.right - (p.gutterAtTop ? 0 : p.gutter || 0);
+    if (!(p.columns?.count > 1)) return width;
+    try { return Math.min(...sectionColumnIntervals(p.columns, 0, width).map(column => column.right - column.left)); } catch { return width; }
   }
   /**
    * The selection as plain text. An object's place holder character (U+FFFC) is not text: a field
@@ -1228,7 +1238,8 @@ export class TextDocument {
     const borderSize = 4; // Eighth-points; the generated table uses single borders.
     const page = this.sectionPageSettings;
     const borderSpace = parent || page.compatibilityMode >= 15 ? borderSize * 2.5 : 0;
-    const width = (parent ? Math.floor(availableWidth) : this.sectionWritingWidth - (page.gutterAtTop ? 0 : page.gutter)) - borderSpace;
+    // A table outside tables is as wide as the text column it stands in, as in Word.
+    const width = (parent ? Math.floor(availableWidth) : Math.floor(this.sectionColumnWidth)) - borderSpace;
     if (!Number.isFinite(width) || width <= 0) throw new Error('The containing cell must have a resolved writing width.');
     const grid = Array.from({ length: columns }, (_, i) => Math.floor(width * (i + 1) / columns) - Math.floor(width * i / columns));
     if (grid.some(w => w < 360)) throw new Error('These columns are too narrow for the available space. Use fewer columns.');
