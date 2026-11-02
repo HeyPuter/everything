@@ -571,6 +571,21 @@ describe('table commands', () => {
     expect((await roundTrip(pkg, doc)).xml).not.toContain('tblpPr');
   });
 
+  it('keeps a floating table where it showed when its text wrapping is set to None', async () => {
+    for (const [x, expected] of [['center', { alignment: 'center', indent: 0 }], [2000, { alignment: 'left', indent: 2000 }]]) {
+      const { pkg, doc } = tableDocument(2, 2, ['Lead']);
+      T.setTableWrapping(doc, 'around'); T.setTablePositioning(doc, { x, horzAnchor: 'margin' });
+      const openedPkg = await DocxPackage.open(await save(pkg, doc)), opened = open(openedPkg);
+      expect(opened.tables[0]).toMatchObject(expected);
+      opened.selectCell(tableCells(opened.tables[0])[0].id);
+      T.setTableWrapping(opened, 'none');
+      expect(opened.tables[0]).toMatchObject(expected);
+      const { reopened, xml } = await roundTrip(openedPkg, opened);
+      expect(xml).not.toContain('tblpPr');
+      expect(reopened.tables[0], String(x)).toMatchObject(expected);
+    }
+  });
+
   it('separates converted cells with plain text when a cell ends in an equation or a note reference', async () => {
     const convert = insert => {
       const { pkg, doc } = tableDocument(2, 2);

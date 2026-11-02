@@ -836,7 +836,11 @@ export function setTableWrapping(model, wrap, { distance = 180 } = {}) {
   if (table.parentCellId) throw new Error('Text wrapping applies to tables outside other tables.');
   if ((wrap === 'around') === !!table.floating) return false;
   model.checkpoint();
-  if (wrap === 'none') { delete table.floating; table.floatingRemoved = true; }
+  if (wrap === 'none') {
+    delete table.floating; table.floatingRemoved = true;
+    // The table keeps the place it was read at (its tblpPr offset or alignment), which the file must now hold.
+    table.indentChanged = true; table.alignmentChanged = true;
+  }
   else {
     const spec = table.alignment === 'center' || table.alignment === 'right' ? { tblpXSpec: table.alignment } : {};
     table.floating = { horzAnchor: 'text', vertAnchor: 'text', tblpX: spec.tblpXSpec ? 0 : table.indent || 0, tblpY: 0, leftFromText: distance, rightFromText: distance, topFromText: 0, bottomFromText: 0, ...spec };
