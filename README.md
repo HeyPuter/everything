@@ -131,6 +131,7 @@ npm run dev
 
 <table width="100%">
 <tr><th width="296" align="left">Application</th><th width="420" align="left">Alternative to</th><th width="150" align="left">Links</th></tr>
+<tr><td width="296" valign="middle" nowrap><a href="src/workflow-studio/"><img src="src/workflow-studio/icon-128.png" width="48" height="48" alt="" align="center"></a> &nbsp; <strong><a href="src/workflow-studio/">Workflow Studio</a></strong></td><td width="420" valign="middle">Zapier, Make</td><td width="150" valign="middle" nowrap><a href="src/workflow-studio/">Source</a></td></tr>
 <tr><td width="296" valign="middle" nowrap><img src="src/api-client/icon-128.png" width="48" height="48" alt="" align="center"> &nbsp; <strong><a href="https://apic.puter.com/">API Client</a></strong></td><td width="420" valign="middle">Postman, Insomnia, Hoppscotch</td><td width="150" valign="middle" nowrap><a href="#link-status" title="Demo URL not yet provided">Try it</a>&nbsp;|&nbsp;<a href="src/api-client/">Source</a></td></tr>
 </table>
 
