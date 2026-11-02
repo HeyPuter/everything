@@ -23643,7 +23643,12 @@ Supported subset:
   `readOnly` and `comments` allow changes only inside permission ranges that name everyone or the
   current user (by name or e-mail, case-insensitive), `comments` also allows comments,
   `trackedChanges` requires every text change to be a tracked revision (the text with insertions
-  removed and deletions kept must not change) and refuses accepting or rejecting, `forms` allows
+  removed and deletions kept must not change) and refuses accepting or rejecting; text in a text box,
+  shape or diagram (`wps:txbx`, `dsp:txBody`) and a chart's series names, categories and values
+  (§21.2) cannot be recorded as tracked changes here, so under `trackedChanges` a change to them is
+  refused (a drawing the reviewer inserted with tracking is part of that insertion and stays
+  editable; resizing, moving, restyling and a tracked deletion of the drawing are allowed;
+  `tests/protection-drawing-content.test.js`), `forms` allows
   edits only inside content controls and permission ranges. `formatting` refuses new direct
   formatting, style edits and applying a `locked` style. Page setup and table structure are
   protected under every restriction. Headers, footers and notes stay protected under `readOnly`,
