@@ -106,7 +106,7 @@ export const citedTags = paragraphs => [...new Set(citationFields(paragraphs).fl
 const byTag = (sources, tag) => sources.find(s => s.tag.toLowerCase() === String(tag).toLowerCase()) || null;
 /** The runs a citation shows in `style`. */
 export function citationRuns(citation, sources, style, context) {
-  const entries = citation.tags.map((tag, i) => ({ tag, source: byTag(sources, tag), ...(i === 0 ? citation : {}), tags: undefined }));
+  const entries = citation.tags.map((tag, i) => ({ tag, source: byTag(sources, tag), ...(i === 0 ? citation : citation.sourceOptions?.[i - 1]), tags: undefined, sourceOptions: undefined }));
   return formatCitation(style, entries, context);
 }
 

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { formatBibliography, formatCitation, citationContext } from '../src/engine/citation-styles.js';
 import { parseCitation, citationInstruction, sourceTag } from '../src/engine/bibliography.js';
+import { citationRuns } from '../src/engine/bibliography-fields.js';
 
 const person = (last, first, middle = '') => ({ last, first, middle });
 const book = { tag: 'Ada20', type: 'Book', names: { Author: [person('Lovelace', 'Ada', 'King')] }, fields: { Title: 'Notes on the analytical engine', Year: '2020', City: 'London', Publisher: 'Harbor Press', Edition: '2' } };
@@ -138,10 +139,21 @@ describe('initials', () => {
 
 describe('citation instructions and tags', () => {
   it('round-trips CITATION switches', () => {
+    // Each source's switches follow its tag: written after \\m Hop19, the first source's pages were Hop19's.
     const instruction = citationInstruction({ tags: ['Ada20', 'Hop19'], pages: '12-14', prefix: 'see', suffix: 'for details', noYear: true });
-    expect(instruction).toBe(' CITATION Ada20 \\l 1033 \\m Hop19 \\f see \\s "for details" \\p 12-14 \\y ');
-    expect(parseCitation(instruction)).toMatchObject({ tags: ['Ada20', 'Hop19'], pages: '12-14', prefix: 'see', suffix: 'for details', noYear: true, noAuthor: false, lcid: '1033' });
+    expect(instruction).toBe(' CITATION Ada20 \\l 1033 \\f see \\s "for details" \\p 12-14 \\y \\m Hop19 ');
+    expect(parseCitation(instruction)).toMatchObject({ tags: ['Ada20', 'Hop19'], pages: '12-14', prefix: 'see', suffix: 'for details', noYear: true, noAuthor: false, lcid: '1033', sourceOptions: [{}] });
     expect(parseCitation(' CITATION ')).toBeNull();
+  });
+  it('keeps the switches of each source of a citation of several sources', () => {
+    // As Word writes them: switches after \\m belong to that source. The second source's page replaced the first's,
+    // and rewriting the instruction (renaming a source's tag) lost the first source's page.
+    const citation = parseCitation(' CITATION Smi20 \\p 5 \\l 1033 \\m Jon21 \\p 7 \\n ');
+    expect(citation).toMatchObject({ tags: ['Smi20', 'Jon21'], pages: '5', noAuthor: false, sourceOptions: [{ pages: '7', noAuthor: true }] });
+    const sources = [{ tag: 'Smi20', type: 'Book', names: { Author: [{ last: 'Smith', first: 'Ann' }] }, fields: { Year: '2020', Title: 'One' } },
+      { tag: 'Jon21', type: 'Book', names: { Author: [{ last: 'Jones', first: 'Bo' }] }, fields: { Year: '2021', Title: 'Two' } }];
+    expect(citationRuns(citation, sources, 'apa', citationContext('apa', sources, ['Smi20', 'Jon21'])).map(r => r.text).join('')).toBe('(Smith, 2020, p. 5; 2021, p. 7)');
+    expect(citationInstruction(citation)).toBe(' CITATION Smi20 \\l 1033 \\p 5 \\m Jon21 \\p 7 \\n ');
   });
   it('makes unique tags from the first author and year', () => {
     expect(sourceTag(book)).toBe('Lov20');
