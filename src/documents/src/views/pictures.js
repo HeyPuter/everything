@@ -276,6 +276,12 @@ export function createPictures({ editor, pkg, error, onChange = () => {}, base =
       writeFrame(drawing, spec);
     });
   }
+  // An object moves with the text when it is placed from its paragraph or line (wp:positionV
+  // relativeFrom, §20.4.3.5); from the page or a margin it stays where it is, as in the Layout dialog.
+  function movesWithText(image) {
+    const from = image?.anchor && describe(image)?.frame?.vertical?.relativeFrom;
+    return !from || from === 'paragraph' || from === 'line';
+  }
   async function setMoveWithText(move) {
     const image = selected(), engine = ready(); if (!engine || !image?.anchor) return false;
     const f = frameOf(engine, image); if (!f) return false;
@@ -632,13 +638,13 @@ export function createPictures({ editor, pkg, error, onChange = () => {}, base =
     const chartLike = !!image && !formattable(image), cell = inTableCell(image);
     const option = (label, value, icon) => ({ label, icon, radio: true, checked: mode === value, disabled: !ok || chartLike && !['inline', 'square', 'topAndBottom', 'behind', 'front'].includes(value) || cell && WRAPPING.includes(value) && mode !== value,
       ...(cell && WRAPPING.includes(value) && mode !== value ? { hint: CELL_HINT } : {}), onSelect: () => setWrap(value) });
-    const vertical = image?.anchor && describe(image)?.frame?.vertical?.relativeFrom;
+    const moves = movesWithText(image);
     const canFix = !!image?.anchor && image.anchor.wrap === 'none';
     return [option('In Line with Text', 'inline', 'wrapInline'), option('Square', 'square', 'wrapSquare'), option('Tight', 'tight', 'wrapTight'), option('Through', 'through', 'wrapThrough'),
       option('Top and Bottom', 'topAndBottom', 'wrapTopBottom'), option('Behind Text', 'behind', 'behindText'), option('In Front of Text', 'front', 'inFront'),
       { separator: true },
-      { label: 'Move with Text', radio: true, checked: !!image?.anchor && vertical !== 'page', disabled: !canFix, hint: canFix ? undefined : 'For objects in front of or behind text', onSelect: () => setMoveWithText(true) },
-      { label: 'Fix Position on Page', radio: true, checked: !!image?.anchor && vertical === 'page', disabled: !canFix, onSelect: () => setMoveWithText(false) },
+      { label: 'Move with Text', radio: true, checked: !!image?.anchor && moves, disabled: !canFix, hint: canFix ? undefined : 'For objects in front of or behind text', onSelect: () => setMoveWithText(true) },
+      { label: 'Fix Position on Page', radio: true, checked: !!image?.anchor && !moves, disabled: !canFix, onSelect: () => setMoveWithText(false) },
       { separator: true }, { label: 'More Layout Options…', icon: 'position', disabled: !ok, onSelect: () => openSizePosition('wrapping') }];
   }
   function positionItems() {
@@ -1044,8 +1050,8 @@ export function createPictures({ editor, pkg, error, onChange = () => {}, base =
           ...icons.map(([label, value, icon]) => el('button.swatch.pic-layout-item', { type: 'button', role: 'menuitemradio', tabindex: -1, 'aria-checked': String(mode === value), 'aria-label': label, title: cell && WRAPPING.includes(value) ? `${label} (${CELL_HINT.toLowerCase()})` : label, disabled: !editable() || (!formattable(image) && ['tight', 'through'].includes(value)) || cell && WRAPPING.includes(value) && mode !== value,
             onclick: () => { closeMenu(); setWrap(value); } }, commandIconEl(icon, 20))));
         openMenu({ anchor, label: 'Layout Options', className: 'pic-layout-menu', minWidth: 210, items: [{ header: 'In Line with Text and With Text Wrapping' }, { custom: grid }, { separator: true },
-          { label: 'Move with Text', radio: true, checked: !!image.anchor && describe(image)?.frame?.vertical?.relativeFrom !== 'page', disabled: !image.anchor || image.anchor.wrap !== 'none', onSelect: () => setMoveWithText(true) },
-          { label: 'Fix Position on Page', radio: true, checked: !!image.anchor && describe(image)?.frame?.vertical?.relativeFrom === 'page', disabled: !image.anchor || image.anchor.wrap !== 'none', onSelect: () => setMoveWithText(false) },
+          { label: 'Move with Text', radio: true, checked: !!image.anchor && movesWithText(image), disabled: !image.anchor || image.anchor.wrap !== 'none', onSelect: () => setMoveWithText(true) },
+          { label: 'Fix Position on Page', radio: true, checked: !!image.anchor && !movesWithText(image), disabled: !image.anchor || image.anchor.wrap !== 'none', onSelect: () => setMoveWithText(false) },
           { separator: true }, { label: 'See more…', onSelect: () => openSizePosition('position') }], onClose: () => editor()?.focus() });
   }
 }
