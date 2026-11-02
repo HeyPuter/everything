@@ -328,6 +328,40 @@ test('Undo history lists design changes, and choosing one undoes back through it
   expect(errors).toEqual([]);
 });
 
+test('OK after Apply in the custom watermark dialog adds no second undo step unless something changed', async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await open(page);
+  const history = page.getByRole('menu', { name: 'Undo history' });
+  const steps = async () => {
+    await page.locator('.ed-quick').getByRole('button', { name: 'Undo history' }).click();
+    const items = await history.getByRole('menuitem').allTextContents();
+    await page.keyboard.press('Escape');
+    return items;
+  };
+  const dialog = page.getByRole('dialog', { name: 'Watermark' });
+  const custom = async () => {
+    await ribbon(page).getByRole('button', { name: 'Watermark' }).click();
+    await page.getByRole('menuitem', { name: 'Custom Watermark…' }).click();
+    await expect(dialog).toBeVisible();
+  };
+  await custom();
+  await dialog.getByLabel('Text').fill('FOR REVIEW');
+  await dialog.getByRole('button', { name: 'Apply' }).click();
+  await expect(page.locator('.ed-quick').getByRole('button', { name: 'Undo history' })).toBeEnabled();
+  await dialog.getByRole('button', { name: 'OK' }).click();
+  await expect(dialog).toBeHidden();
+  expect(await steps()).toEqual(['Undo Watermark']);
+  // A change made after Apply is still applied by OK, as its own step.
+  await custom();
+  await dialog.getByLabel('Text').fill('FINAL');
+  await dialog.getByRole('button', { name: 'Apply' }).click();
+  await dialog.getByRole('radio', { name: 'Horizontal' }).click();
+  await dialog.getByRole('button', { name: 'OK' }).click();
+  await expect(dialog).toBeHidden();
+  expect(await steps()).toEqual(['Undo Watermark', 'Undo 2 actions (to Watermark)', 'Undo 3 actions (to Watermark)']);
+  expect(errors).toEqual([]);
+});
+
 test('contrast themes keep the Design tab’s palettes and chosen items visible', async ({ page }) => {
   await page.emulateMedia({ forcedColors: 'active' });
   await open(page);

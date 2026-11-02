@@ -158,12 +158,21 @@ export function openCustomWatermark({ current, apply }) {
     if (!words.value.trim()) throw new Error('Enter the watermark text.');
     return { kind: 'text', text: words.value.trim(), font: fonts.value || null, size: size.value === 'auto' ? 'auto' : Number(size.value), color: hexOf(color.value), semitransparent: transparent.checked, layout, language: language.value };
   };
+  // What Apply last put in the document: OK with nothing changed since then adds no second, identical undo step.
+  const NOT_APPLIED = {};
+  let applied = NOT_APPLIED;
+  const same = (a, b) => JSON.stringify(a, (key, value) => key === 'bytes' ? undefined : value) === JSON.stringify(b, (key, value) => key === 'bytes' ? undefined : value) && a?.bytes === b?.bytes;
   const applyButton = el('button.btn.btn-outline', { type: 'button', onclick: async () => {
-    try { error.hidden = true; await apply(watermark()); } catch (failure) { error.textContent = failure.message; error.hidden = false; }
+    try {
+      error.hidden = true;
+      const chosen = watermark();
+      applied = NOT_APPLIED;
+      if (await apply(chosen) !== false) applied = chosen;
+    } catch (failure) { error.textContent = failure.message; error.hidden = false; }
   } }, 'Apply');
   const { modal, error } = dialog({ title: 'Watermark', submitLabel: 'OK', extra: [applyButton],
     body: [el('div.field', {}, kinds), el('div.design-watermark-layout', {}, el('div', {}, textPanel, picturePanel), preview)],
-    onSubmit: async () => { await apply(watermark()); } });
+    onSubmit: async () => { const chosen = watermark(); if (applied === NOT_APPLIED || !same(chosen, applied)) await apply(chosen); } });
   const close = modal.close;
   modal.close = () => { if (previewUrl) URL.revokeObjectURL(previewUrl); close(); };
   show();
