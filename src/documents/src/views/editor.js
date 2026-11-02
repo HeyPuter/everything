@@ -1377,6 +1377,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     updateQueued = refreshSoon = true;
     queueMicrotask(runRefresh);
   }
+  const viewingControls = () => [...chrome.toolbar.querySelectorAll('button, input, select'), ...chrome.inspector.querySelectorAll('button.canvas-tool, input, select')];
   function refreshControls() {
     if (!engine || destroyed) return;
     const scriptSignature = JSON.stringify(engine.approximateScriptFonts || []);
@@ -1403,8 +1404,10 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     views.refresh();
     draw.update();
     if (pkg.readOnly || engine.viewOnly) {
-      // Read-only files and Viewing mode: the commands that change the document stay off.
-      for (const control of [...chrome.toolbar.querySelectorAll('button, input, select'), ...chrome.inspector.querySelectorAll('button.canvas-tool, input, select')]) if (!control.matches('.ed-ribbon-toggle')) control.disabled = true;
+      // Read-only files and Viewing mode: the commands that change the document stay off. Each is marked, so leaving
+      // Viewing mode turns on again the ones no refresh manages (More Styles, the Formatting Pane). A folded group
+      // still opens: the commands in it that work while viewing (zoom, views) stay reachable in a narrow window.
+      for (const control of viewingControls()) if (!control.disabled && !control.matches('.ed-ribbon-toggle, .ribbon-collapsed')) { control.disabled = true; control.dataset.viewingOff = ''; }
       undo.disabled = redo.disabled = true;
       find.disabled = false; finder.refresh();
       stats.textContent = `Page ${Math.min(engine.layout.pageCount, (engine.caretPageIndex ?? 0) + 1)} of ${engine.layout.pageCount}`;
@@ -1412,6 +1415,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
       chrome.refresh(); review.refresh(); statusBar?.refresh(); assistant.refresh(); collab.refresh(); tables.refresh();
       return;
     }
+    for (const control of viewingControls()) if (control.dataset.viewingOff !== undefined) { control.disabled = false; delete control.dataset.viewingOff; }
     undo.disabled = !engine.session.history.length && !designVersions.undo.length;
     const repeating = !engine.session.future.length && !designVersions.redo.length && editCommands.canRepeat();
     redo.disabled = !engine.session.future.length && !designVersions.redo.length && !repeating;
