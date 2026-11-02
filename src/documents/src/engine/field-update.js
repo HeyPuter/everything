@@ -85,7 +85,10 @@ export function fieldUpdatePlan(model, { onIssue = () => {}, notes = null, seque
       if (seq.reset !== null) n = seq.reset; else if (seq.next) n += 1;
       counters.set(seq.id, n);
       if (!seq.supported) { onIssue({ id: range.field.id, message: 'A SEQ field with chapter numbering, a number picture or this number format keeps its cached result.' }); continue; }
-      value = seq.hidden ? '' : withCases(seq.words ? applyGeneralFormat(String(Math.max(0, n)), seq.words) : formatPageNumber(Math.max(0, n), seq.format), seq.cases);
+      let number;
+      try { number = seq.words ? applyGeneralFormat(String(Math.max(0, n)), seq.words) : formatPageNumber(Math.max(0, n), seq.format); }
+      catch { onIssue({ id: range.field.id, message: 'A SEQ field whose number is too large for its number format keeps its cached result.' }); continue; }
+      value = seq.hidden ? '' : withCases(number, seq.cases);
     } else if (type === 'REF') {
       let tokens; try { tokens = fieldInstructionTokens(range.field.instruction).slice(1); } catch { continue; }
       let relative = false, supported = true;

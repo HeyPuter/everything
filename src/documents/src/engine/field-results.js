@@ -64,10 +64,12 @@ export function applyGeneralFormat(text, format) {
   if (/^caps$/i.test(f)) return text.replace(/(^|\s)(\p{L})/gu, (_, gap, ch) => gap + ch.toLocaleUpperCase());
   const n = Number(text);
   if (!/^\d+$/.test(text.trim()) || !Number.isSafeInteger(n)) return text;
-  if (f === 'roman') return formatPageNumber(n, 'lowerRoman');
-  if (f === 'ROMAN') return formatPageNumber(n, 'upperRoman');
-  if (f === 'alphabetic') return formatPageNumber(n, 'lowerLetter');
-  if (f === 'ALPHABETIC') return formatPageNumber(n, 'upperLetter');
+  // A number past what a Roman or letter numeral can show stays a number: one field must not stop Update Fields.
+  const numeral = format => { try { return formatPageNumber(n, format); } catch { return text; } };
+  if (f === 'roman') return numeral('lowerRoman');
+  if (f === 'ROMAN') return numeral('upperRoman');
+  if (f === 'alphabetic') return numeral('lowerLetter');
+  if (f === 'ALPHABETIC') return numeral('upperLetter');
   if (/^ordinal$/i.test(f)) return ORDINAL(n);
   if (/^cardtext$/i.test(f)) return cardinalText(n);
   if (/^ordtext$/i.test(f)) { const words = cardinalText(n); return words.replace(/(one|two|three|five|eight|nine|twelve|y|\w+)$/, w => ({ one: 'first', two: 'second', three: 'third', five: 'fifth', eight: 'eighth', nine: 'ninth', twelve: 'twelfth' }[w] || (w.endsWith('y') ? `${w.slice(0, -1)}ieth` : `${w}th`))); }
