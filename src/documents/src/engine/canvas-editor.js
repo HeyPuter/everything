@@ -1929,7 +1929,10 @@ export class CanvasEditor {
       this.nativeInsertion = expected;
       try { this.typeText(actions.insertText, data); } finally { this.nativeInsertion = null; }
       const [start, end] = this.model.range;
-      if (expected !== null && data && start === end && start === a + data.length && this.inputText === expected) {
+      // Text with line breaks (dictation, a text replacement, an input method's long commit) the browser inserts a
+      // line at a time, one input event each: every one would set the document's text back to the partial field
+      // and lay it out again, so a long insertion took seconds. The field takes the document's text at once instead.
+      if (expected !== null && data && !/[\n\r\v\f\u000e]/.test(data) && start === end && start === a + data.length && this.inputText === expected) {
         this.awaitedInput = expected;
         // Should the browser not insert it after all, the field takes the document's text as usual.
         setTimeout(() => { if (this.awaitedInput === expected) { this.awaitedInput = null; this.syncInput(); } });
