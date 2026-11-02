@@ -24331,6 +24331,12 @@ Code: [engine/document-views.js](../src/engine/document-views.js) (screen geomet
   spacing (and exact/at-least values) by 1.35, adds 6 pt after paragraphs and 0.6 pt letter spacing
   in the private layout copy only. Page colours are screen colours, never `w:background`.
 - Printing and PDF export always use the authored pages, whatever view is showing.
+- A continuous section (§17.18.77 ST_SectionMark `continuous`) on new paper starts a new page when
+  printed but continues the previous section on the shared screen geometry. Its page-number restart
+  (§17.6.12 `w:pgNumType w:start`) is ignored on screen, where no page numbers are shown, rather than
+  refusing the view.
+- A document the view cannot lay out (an indent, border or list label wider than the window) keeps
+  the view it was in, with a message; resizing a screen view to such a width keeps the last width.
 
 ### Outline levels (§17.3.1.20 `w:outlineLvl`, §17.7.4.17 style `w:pPr`)
 

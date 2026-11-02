@@ -2,6 +2,11 @@
 import { afterEach, it, expect, vi } from 'vitest';
 import { paragraph } from '../src/engine/model.js';
 import { CanvasEditor } from '../src/engine/canvas-editor.js';
+import { readFileSync } from 'node:fs';
+import { DocxPackage } from '../src/engine/docx.js';
+import { layoutDocument } from '../src/engine/layout.js';
+import { pageGeometry } from '../src/engine/page-settings.js';
+import { viewGeometry, viewPageStories } from '../src/engine/document-views.js';
 
 // A screen view is laid out to the window's width. A document it cannot be laid out to (here, an
 // indent wider than the window) failed to switch, but the editor kept the new view with the old
@@ -34,4 +39,20 @@ it('stays in the view it had when a screen view cannot lay the document out, and
   expect(editor.execute(() => editor.model.replace('again '))).toBe(true);
   expect(editor.model.text).toContain('again');
   editor.destroy();
+});
+
+// A continuous section that restarts page numbering on a new paper size starts a new page when
+// printed. A screen view lays every section out on one screen geometry, so the section continued
+// the one before it, and restarting numbers there is not supported: the document could not be
+// shown in Web Layout, Draft or Read Mode at any width. Screen views number no pages.
+it('shows a page-number restart on a new paper size in every screen view', async () => {
+  const pkg = await DocxPackage.open(new Uint8Array(readFileSync('tests/fixtures/continuous-numbering-recovery/paper-change.docx')));
+  expect(pkg.readOnly).not.toBe(true);
+  const measure = (text, style) => ({ width: text.length * style.fontSize * .6, ascent: style.fontSize, descent: style.fontSize * .25 });
+  const text = layout => layout.lines.map(line => line.fragments.map(f => f.text).join('')).join('|');
+  const printed = layoutDocument(pkg.paragraphs, measure, pageGeometry(pkg.pageSettings), pkg.numbering, pkg.tables, pkg.pageStories);
+  for (const view of [{ kind: 'web', width: 900 }, { kind: 'draft', width: 900 }, { kind: 'read', width: 640, height: 800 }]) {
+    const shown = layoutDocument(pkg.paragraphs, measure, pageGeometry(pkg.pageSettings), pkg.numbering, pkg.tables, viewPageStories(pkg.pageStories, view.kind), { viewGeometry: viewGeometry(view) });
+    expect(text(shown).replace(/\|/g, '')).toBe(text(printed).replace(/\|/g, ''));
+  }
 });

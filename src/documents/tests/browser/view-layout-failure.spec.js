@@ -27,3 +27,21 @@ test('a view the document cannot be laid out in leaves Print Layout as it was, s
   await expect(input).toHaveValue('Plain text\nIndented quote still typing');
   expect(errors).toEqual([]);
 });
+
+// Printed, this section starts new paper with its numbers restarted; a screen view continues it.
+test('a page-number restart on a new paper size opens in Web Layout and Draft', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await page.goto('/playground.html');
+  await page.getByLabel('Open DOCX file').setInputFiles('tests/fixtures/continuous-numbering-recovery/paper-change.docx');
+  const input = page.getByRole('textbox', { name: 'Document text' });
+  await expect(input).not.toHaveValue('');
+  await page.locator('#ribbon-tab-view').click();
+  const tab = page.locator('.ribbon-card'), host = page.locator('.canvas-host');
+  for (const [name, kind] of [['Web Layout', 'web'], ['Draft', 'draft']]) {
+    await tab.getByRole('button', { name, exact: true }).click();
+    await expect(host).toHaveClass(new RegExp(`view-${kind}`));
+    await expect(page.getByText(/not supported/)).toHaveCount(0);
+  }
+  expect(errors).toEqual([]);
+});
