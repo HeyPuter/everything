@@ -36,6 +36,11 @@ export function keyboardShortcuts({ editor, pkg, applyStyleLevel, focusFont, foc
       const lines = { Digit1: 1, Digit2: 2, Digit5: 1.5 }[code];
       return paragraph(engine => engine.setParagraphFormat({ lineSpacing: lines, lineRule: 'auto' }));
     }
+    // A nonbreaking space and a nonbreaking hyphen, typed as any character is (one undo step with the word around them).
+    if (mod && e.shiftKey && !e.altKey && (code === 'Space' || code === 'Minus')) {
+      const character = code === 'Space' ? '\u00a0' : '\u2011';
+      return () => { const engine = ready(); if (!engine) return; engine.typeText(() => engine.model.replace(character), character); engine.focus(); };
+    }
     if (mod && !e.altKey && !e.shiftKey && code === 'Digit0') {
       // Ctrl+0 adds or removes 12 pt of space before the paragraph.
       return paragraph(engine => engine.setParagraphFormat({ spaceBefore: (format().spaceBefore ?? 0) > 0 ? 0 : 12 }));

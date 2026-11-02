@@ -31,6 +31,8 @@ const GROUPS = [
     ['Ctrl + Shift + F', 'Choose a font'],
     ['Ctrl + Shift + P', 'Font size'],
     ['Shift + F3', 'Change case'],
+    [`${MOD_KEY} + Shift + Space`, 'Nonbreaking space'],
+    [`${MOD_KEY} + Shift + Hyphen`, 'Nonbreaking hyphen'],
   ]],
   ['Paragraph', [
     [[`${MOD_KEY} + L`, `${MOD_KEY} + Shift + L`], 'Align left'],
