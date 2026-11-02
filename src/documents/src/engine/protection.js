@@ -172,6 +172,27 @@ export function originalText(paragraphs) {
   return out;
 }
 
+/**
+ * The content of the drawings tracking cannot record changes to (text in text boxes, shapes and diagrams, a chart's
+ * series, categories and values), in document order. A drawing that is itself a tracked insertion is left out: its
+ * content is part of that insertion. Formatting (size, position, fill, a chart's colors) is not content.
+ */
+export function drawingContent(paragraphs, assets = {}) {
+  const seen = new Set();
+  const textOf = list => (list || []).map(p => p.runs.map(r => r.image ? `[${content(r.image)}]` : r.text).join('')).join('\n');
+  const scene = node => [node?.text ? textOf(node.text.paragraphs) : '', ...(node?.children || []).map(scene)].filter(Boolean).join('\n');
+  function content(image) {
+    const asset = assets[image.assetId];
+    if (!asset || seen.has(asset)) return '';
+    seen.add(asset);
+    try {
+      if (asset.chart) return JSON.stringify([asset.chart.title ?? null, (asset.chart.series || []).map(s => [s.name ?? null, s.categories ?? null, s.values ?? null, s.xValues ?? null, s.sizes ?? null])]);
+      return asset.scene ? scene(asset.scene) : '';
+    } finally { seen.delete(asset); }
+  }
+  return JSON.stringify(paragraphs.flatMap(p => p.runs.filter(r => r.image && r.revision?.type !== 'ins').map(r => content(r.image))));
+}
+
 export class ProtectionError extends Error {}
 
 /**
@@ -195,7 +216,9 @@ export function protectionGuard(protection, user = {}, { contentControlRanges } 
       // Track Changes stays on while tracking is locked (restrict-editing.js): what gets here is a change tracking
       // cannot record, such as field results renumbered in place (captions, citations, a table of contents) or a
       // table's structure.
-      if (originalText(before.paragraphs) !== originalText(after) || JSON.stringify(before.tables) !== JSON.stringify(model.tables)) throw new ProtectionError('This change can’t be tracked, and tracking is locked. Unlock tracking to make it.');
+      // Text in a text box, shape, chart or diagram is replaced with the drawing (drawing-text.js), untracked.
+      if (originalText(before.paragraphs) !== originalText(after) || JSON.stringify(before.tables) !== JSON.stringify(model.tables)
+        || drawingContent(before.paragraphs, model.assets) !== drawingContent(after, model.assets)) throw new ProtectionError('This change can’t be tracked, and tracking is locked. Unlock tracking to make it.');
     } else if (edit !== 'none') {
       const regions = state => [...permissionRanges(state).filter(r => permissionApplies(r, user)), ...(edit === 'forms' && contentControlRanges ? contentControlRanges(state) : [])];
       const changed = protectedSignature(before.paragraphs, regions(before.paragraphs)) !== protectedSignature(after, regions(after));

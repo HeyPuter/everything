@@ -446,6 +446,17 @@ paragraph/character style inheritance and table styles, accepting relative and
 package-absolute paths, including dot segments. Main-document location remains
 restricted to `word/document.xml`; other part readers have separate limitations.
 
+Part names compare without regard to ASCII case (Part 2 §9.1.1.1, §10.1.2.2.3).
+A target of the main document's singleton relationships (styles, settings,
+numbering, theme, notes and the others `relatedPartPath` resolves), a header or
+footer target, and a picture, chart, diagram, watermark or alternative-format
+chunk target names the ZIP item that matches it in that comparison when no item
+has its exact name (`styles.xml` names `word/Styles.xml`); the exact name is
+preferred, and a target two items match names neither. Header, footer and picture
+content types are found the same way among the `Override` entries. Edits write
+back to the item as it is named. Relationship parts themselves are still found
+under the name derived from their source part.
+
 Shared-style edits update the existing part in place without renaming it or
 rewriting its relationships/content types. No-op and full-undo exports preserve
 all original part bytes. An unrelated conventional `word/styles.xml` is ignored
@@ -7350,8 +7361,22 @@ recorded: line positions follow the browser's fonts, not a reference
 application's. Remaining gaps: `w:kinsoku w:val="0"`, `w:wordWrap`,
 `w:overflowPunct` (hanging punctuation), `w:topLinePunct`, custom
 `noLineBreaksAfter`/`noLineBreaksBefore` lists and `strictFirstAndLastChars` are
-not read; word movement, word count and spelling still treat a run of
-ideographs as one word.
+not read; word movement and spelling still treat a run of ideographs as one
+word. The word count (status bar, selection, Word Count, File > Info and
+`NUMWORDS`, §17.16.5) counts each Han ideograph, kana and Bopomofo letter as
+a word, as desktop word processors count East Asian text, with the letters and
+digits between them making words as usual and the punctuation between them
+none; Korean is counted by its spaces (`tests/text.test.js`). The status bar
+and the Word Count dialog count the same scope: the body, plus the text boxes
+of the drawings in it and the notes its references name while the dialog's
+"Include text boxes, footnotes and endnotes" box is checked (the status bar
+follows the box). Both count the text as the markup view shows it: a tracked
+deletion (§17.13.5.14 `del`) counts while All Markup shows it struck out, and
+not in Simple Markup, No Markup or with deletions in balloons; Original leaves
+out insertions (§17.13.5.18 `ins`). A selection in a header, footer or note is
+counted against the document's words (`tests/word-count-scope.test.js`,
+`tests/browser/status-word-count.spec.js`). Gap: hidden text (`vanish`) is
+counted whether or not it is shown.
 
 Justified (`w:jc w:val="both"`, §17.3.1.13, §17.18.44) Chinese and Japanese
 lines are filled to the margin: besides spaces, each gap where the line could
@@ -22193,6 +22218,10 @@ Supported subset:
   resolved comments deletes such threads with their replies. Creating the first comment adds the comments part, relationship and content type.
   `commentsIds.xml`/`commentsExtensible.xml` entries for removed comments are dropped.
 - Untouched documents still save byte for byte.
+- Comments belong to the body: while a header, footer or note is edited, their cards, the Reviewing Pane and
+  the Comments pane still show them, and replying, resolving, deleting or going to one returns to the body
+  first, so the change is the body's own undo step. New Comment stays unavailable there.
+  Tests: `tests/browser/review-comments-in-stories.spec.js`.
 
 Gaps: comments in headers, footers, footnotes and drawing text keep the previous read-only
 behaviour; rich formatting inside comment bodies is flattened when a comment is edited; people
@@ -22247,7 +22276,9 @@ Supported subset:
 
 Formatting revisions (`rPrChange`, `pPrChange`, including in the paragraph mark) are retained, listed with change bars and can be accepted; rejecting them is reported as not supported and keeps them. Gaps: table row/cell revisions, and revisions in
 headers, footers and drawing text still open read-only. Moves are not distinguished from
-insertions/deletions after an edit. An equation inserted with tracking on is not tracked. Balloons for
+insertions/deletions after an edit. An equation inserted or edited with tracking on is a tracked
+insertion (and the equation it replaces a deletion): `m:oMath` is written inside `w:ins`/`w:del`, which
+EG_RunLevelElements allows (§17.13.5.18, §17.13.5.14), as tracked equations are read. Balloons for
 deletions are not drawn. Tests: `tests/tracked-changes.test.js`.
 
 ## Generated table of contents (2026-10-09)
@@ -22259,7 +22290,8 @@ PAGEREF whose result is refreshed from the current layout, with a right tab and 
 text width and 0.15″ indent per level (`TOC 1`–`TOC 3` styles are applied when the document defines
 them). Update Table rebuilds a TOC whose result fills whole paragraphs; any other TOC keeps its
 result and refreshes its page numbers. Remove deletes the field and the title paragraph this editor
-adds. The macOS reference application opens the result with working entries and page numbers. Gaps: custom levels,
+adds; with Track Changes on it marks them deleted (§17.13.5.14 `del`, the field code as `delInstrText`) so the
+removal can be rejected. The macOS reference application opens the result with working entries and page numbers. Gaps: custom levels,
 `\t` style lists, tab leader choice and TC fields are not offered; a TOC inside a content control is
 rebuilt only when its result fills whole paragraphs. Tests: `tests/table-of-contents.test.js`.
 
@@ -22285,9 +22317,18 @@ Supported subset:
   two-inch separator rule; pagination reserves that space and repeats until the reservations
   settle. Numbers follow reference order in the document's numbering format and start value.
 - Notes are edited in place (click into the note); the body reference is one indivisible mark.
+- A PAGE, NUMPAGES or SECTIONPAGES field in a note shows the page the note is on (§17.16.5.43), as in a header.
+- Simple Markup and No Markup leave out a note whose reference is a tracked deletion (Original, a tracked insertion), numbering the rest without it; saving keeps every referenced note.
 - References → Insert Footnote (Cmd+Option+F / Ctrl+Alt+F) adds a reference at the caret and a new
   note (FootnoteText/FootnoteReference styles when defined, otherwise 10 pt text and a superscript
   mark), creating the footnotes part with separator and continuation-separator notes when the document has none.
+  Since 2026-11-02 a document without the note styles (found by their built-in names "footnote text",
+  "footnote reference", "endnote text", "endnote reference") gets Word's definitions as part of the
+  insertion (§17.7.4.17 `style`, without `customStyle`; `uiPriority` 99, `semiHidden`, `unhideWhenUsed`;
+  text: based on the default paragraph style, `spacing after="0" line="240" lineRule="auto"`, `sz`/`szCs` 20;
+  reference: based on the default character style, `vertAlign` superscript), the note paragraph's `pStyle`
+  is written, and the body reference carries the reference style (`rStyle`) as well as its superscript.
+  A document's own note styles are kept. Tests: `tests/footnotes.test.js`, `tests/browser/note-styles.spec.js`.
 - Unchanged documents save byte for byte; a note whose reference is deleted is removed on save.
   The macOS reference application opens new notes with their numbers and separator.
 
@@ -23623,11 +23664,33 @@ Supported subset:
   `readOnly` and `comments` allow changes only inside permission ranges that name everyone or the
   current user (by name or e-mail, case-insensitive), `comments` also allows comments,
   `trackedChanges` requires every text change to be a tracked revision (the text with insertions
-  removed and deletions kept must not change) and refuses accepting or rejecting, `forms` allows
+  removed and deletions kept must not change) and refuses accepting or rejecting; text in a text box,
+  shape or diagram (`wps:txbx`, `dsp:txBody`) and a chart's series names, categories and values
+  (§21.2) cannot be recorded as tracked changes here, so under `trackedChanges` a change to them is
+  refused (a drawing the reviewer inserted with tracking is part of that insertion and stays
+  editable; resizing, moving, restyling and a tracked deletion of the drawing are allowed;
+  `tests/protection-drawing-content.test.js`), `forms` allows
   edits only inside content controls and permission ranges. `formatting` refuses new direct
   formatting, style edits and applying a `locked` style. Page setup and table structure are
   protected under every restriction. Headers, footers and notes stay protected under `readOnly`,
   `comments` and `forms`.
+- Headers, footers, notes and drawing text under Track Changes. Tracked changes (§17.13.5.14
+  `del`, §17.13.5.18 `ins`) are recorded in the main document story only: a header, footer or note
+  part (§17.10 `hdr`, `ftr`; §17.11 `footnote`, `endnote`) holding them still
+  opens read-only, and Accept, Reject, Next/Previous change, the Reviewing Pane and the markup views
+  reach only the body. Writing revisions into those parts would make the saved file reopen
+  read-only here, so story edits are not tracked. Under locked tracking (`trackedChanges`) a change
+  in a header, footer or note is refused with a message, as Sort and table structure changes are.
+  With Track Changes on but not locked, the change is made, as in Word the reviewer can edit a
+  header, and the first change on each visit to a header, footer or note says in a notice
+  (announced to screen readers) that it is not tracked; with tracking off nothing changes. This was
+  chosen over refusing such edits, which would stop header editing whenever tracking is left on,
+  and over saying nothing, which let a reviewer believe the change was tracked. The Edit drawing
+  text dialog says, while Track Changes is on, that drawing text is not tracked; under locked
+  tracking its change is refused (see above). Tests: `tests/untracked-story-notice.test.js`,
+  `tests/protection-stories.test.js`, `tests/drawing-text-tracking-hint.test.js`,
+  `tests/browser/untracked-story-notice.spec.js`. Gap: tracked changes in headers, footers, notes
+  and drawing text (reading, writing, resolving and showing them) are not supported.
 - Start/Stop protection writes `documentProtection` with `enforcement` 1/0, keeping the chosen
   restriction when stopped. A password writes `algorithmName="SHA-512"`, a 16-byte random
   `saltValue` and `spinCount="100000"`. The hash input is the legacy-compatible 32-bit key derived
@@ -23857,7 +23920,7 @@ Note setting changes apply immediately and are saved, but are not part of undo.
 | `SEQ` | §17.16.5.56 | Captions write `\* ARABIC|alphabetic|ALPHABETIC|roman|ROMAN`; labels are letters and digits of any script (`SEQ Рисунок`), and labels with spaces use underscores in the identifier. Chapter numbers (`\s`) are not evaluated. |
 | `REF` | §17.16.5.51 | Cross-references to headings, bookmarks, whole captions, label and number, or caption text, optionally followed by a `\p` above/below reference. |
 | `NOTEREF` | §17.16.5.40 | New: evaluates the note number of the note reference inside its bookmark (`\h`, `\f`, `\p`). The formatted variant is inserted as superscript text. |
-| `CITATION` | §17.16.5.8 | Inline result generated from the bibliography part: tag, `\m` extra sources, `\p` pages, `\f` prefix, `\s` suffix, `\v` volume, `\n`/`\y`/`\t` suppression, `\l` kept. Style change refreshes every citation. |
+| `CITATION` | §17.16.5.8 | Inline result generated from the bibliography part: tag, `\m` extra sources, `\p` pages, `\f` prefix, `\s` suffix, `\v` volume, `\n`/`\y`/`\t` suppression, `\l` kept; the switches after each `\m` are that source's, and each source's are written after its tag. Style change refreshes every citation. |
 | `BIBLIOGRAPHY` | §17.16.5.7 | Block result listing the document's sources (placeholders omitted) in the chosen style, with a hanging indent; `\l` kept. Other switches are not evaluated. |
 | `XE` | §17.16.5.72 | Mark Entry writes main/sub/third levels (escaped colons), `\t` cross-references, `\r` page-range bookmarks, `\b`, `\i`, `\f`; new entries are written without a separator. |
 | `INDEX` | §17.16.5.29 | Generated with collation, three levels, indented or `\r` run-in, `\h` letter headings, `\e` (tab with right-aligned leader), `\l`, `\g`, `\k`, `\f`, `\b`, `\p`, `\z`; `\c` columns is stored but shown in one column (no section columns are created). |
@@ -24275,6 +24338,12 @@ Code: [engine/document-views.js](../src/engine/document-views.js) (screen geomet
   spacing (and exact/at-least values) by 1.35, adds 6 pt after paragraphs and 0.6 pt letter spacing
   in the private layout copy only. Page colours are screen colours, never `w:background`.
 - Printing and PDF export always use the authored pages, whatever view is showing.
+- A continuous section (§17.18.77 ST_SectionMark `continuous`) on new paper starts a new page when
+  printed but continues the previous section on the shared screen geometry. Its page-number restart
+  (§17.6.12 `w:pgNumType w:start`) is ignored on screen, where no page numbers are shown, rather than
+  refusing the view.
+- A document the view cannot lay out (an indent, border or list label wider than the window) keeps
+  the view it was in, with a message; resizing a screen view to such a width keeps the last width.
 
 ### Outline levels (§17.3.1.20 `w:outlineLvl`, §17.7.4.17 style `w:pPr`)
 
@@ -24490,7 +24559,7 @@ reason in the document itself. Each row has a unit regression that fails without
 | GIF pictures | §20.2.2.5 `pic:pic`, §20.1.8.14 `blipFill`; Part 2 content type `image/gif` | A document whose picture part is a GIF (web graphics and logos pasted into documents keep that format) opened read-only ("pictures with This image is not a supported PNG, JPEG or TIFF"). GIF payloads (`GIF87a`/`GIF89a`) are now read with their logical-screen size, decoded by the browser (the first frame of an animation is shown), and kept byte for byte with their relationship and content type. A GIF placed by the editor is saved as a `.gif` part declared `image/gif`, not under a `.jpg` name. BMP and WebP picture parts still open read-only. `tests/canvas-images.test.js`. |
 | Final paragraph of an empty body | §17.2.2 `body` (block content is optional), §17.4.38 `tbl`, §17.6.17 final `sectPr`, §17.7.4.17 default paragraph style | A body with no paragraphs, whose last paragraph ends a section, or that ends in a table (python-docx and other generators write reports that way) gets a paragraph to type in. After a final table there was none, so nothing could be typed below the table; elsewhere it was the editor's built-in paragraph, so it ignored the document's default style (spacing, line height, alignment, font size) and every save wrote it with a full set of direct paragraph properties. It is now read as an empty `w:p`: it takes the document's styles, it is written only once something is typed or set in it (so saves leave the body's structure and the spelling state as they were), and text typed into it is saved without built-in formatting. `tests/canvas-docx.test.js`. |
 | Restarted list instances | §17.9.15 `num`, §17.9.18 `numId`; [MS-DOCX] `w16cid:durableId` on `num` | Restart Numbering clones the source `w:num` (so unused overrides and extensions survive) under a new `numId`. The clone kept the source's `w16cid:durableId`, so two instances shared an identifier that must be unique. The durable identifier is now left off the clone (Word assigns one); the source instance keeps its own. `tests/canvas-numbering.test.js`. |
-| Spelling marks in headers and footers | §17.13.8.1 `proofErr`, §17.10.4 `hdr`, §17.10.2 `ftr` | Word saves `w:proofErr` marks around words it flagged, including in headers and footers (a company name in the header). Any such mark made the whole document open read-only ("unsupported header/footer structure"). Paragraph-level `proofErr` in a header or footer is now accepted and ignored: an untouched story keeps it byte for byte, and an edited story is written without the cached marks, which Word recomputes. Bookmarks, tracked changes and other paragraph content in headers and footers still open read-only. `tests/page-story-proofing.test.js`. |
+| Spelling marks in headers and footers | §17.13.8.1 `proofErr`, §17.10.4 `hdr`, §17.10.3 `ftr` | Word saves `w:proofErr` marks around words it flagged, including in headers and footers (a company name in the header). Any such mark made the whole document open read-only ("unsupported header/footer structure"). Paragraph-level `proofErr` in a header or footer is now accepted and ignored: an untouched story keeps it byte for byte, and an edited story is written without the cached marks, which Word recomputes. Bookmarks, tracked changes and other paragraph content in headers and footers still open read-only. `tests/page-story-proofing.test.js`. |
 | Percent-encoded part names | ECMA-376 Part 2 §9.1.1 part names (percent-encoded IRIs), Annex A ZIP item names; Part 1 §21.1.2.3 `blip` `r:embed` | Picture, chart and diagram relationship targets were looked up only as decoded ZIP item names, so a package that stores an item as its encoded part name (`word/media/image%201.png`) opened read-only ("missing or external image parts"). The decoded item is still preferred; the encoded item is now used when only it exists. Part bytes and relationships are kept as they were. `tests/canvas-images.test.js`. |
 | Wrapping shapes stored as alternate content | Part 3 §10.2.1 `AlternateContent`; Part 1 §20.4.2.3 `anchor`, §20.4.2.8 `inline` | Word stores shapes, text boxes and groups as `mc:AlternateContent` with a DrawingML choice and a VML fallback, retained whole. Changing such a shape's Wrap Text option made every later save fail ("The drawing has no frame to rewrite") because the writer looked for the frame on the wrapper. The frame of the selected branch's `w:drawing` is now rewritten (moves likewise update that branch's anchor); the VML fallback is kept as authored, so consumers that read the fallback still show the earlier placement. `tests/image-wrap.test.js`; the export passes `check:conformance`. |
 | Formatting page fields in headers and footers | §17.16.18 `fldChar`, §17.16.19 `fldSimple`, §17.3.2 run properties | A field in a header, footer or text box is one atomic run holding its retained envelope. Character formatting applied over it (selecting "Page 1 of 2" and pressing Bold) was accepted by the editor but made every later save fail ("Editing page-field results or their formatting is not supported"). The formatting and character style are now written onto every run of the envelope (delimiters, instruction and result), as a word processor formats a field, and read back on reopening. Changing a field's result text is still refused. `tests/page-story-field-format.test.js`, `tests/story-export.test.js`; the footer passes `check:conformance`. |
@@ -24532,7 +24601,8 @@ with the header's text; it cannot be edited or inserted. Design › Watermark tr
 document's watermark, as Word does: the gallery and the Custom Watermark dialog show it (text, font,
 colour, see-through and diagonal or horizontal layout, read as Auto size; a PNG or JPEG picture with its
 washout), choosing a watermark replaces it, and Remove Watermark removes it from every header (the
-headers' own text stays; the picture's part and relationship are left in place, unused). While the
+headers' own text stays; since 2026-11-02 a picture watermark's part and relationship leave the saved file
+with it, see "Parts removed drawings leave"). While the
 watermarks are not changed, Word's XML is saved as it was.
 
 Display (an approximation): on each page whose header or footer holds one, the watermark is drawn
@@ -24545,3 +24615,24 @@ other VML in `w:pict` (and any VML in the body) still opens read-only; `blacklev
 adjustments, outlines, `fitpath` and wrapping other than behind the text are not drawn; watermarks are
 not shown in Read and Web views, which show no headers. Fixture: `tests/fixtures/vml-watermarks`
 (independently generated). Tests: `tests/vml-watermarks.test.js`, `tests/browser/vml-watermarks.spec.js`.
+
+## Parts removed drawings leave (2026-11-02)
+
+Clauses: ECMA-376 Part 2 (OPC) §9.3 relationships, §10.1.2.3 content-type overrides; Part 1 §21.2
+(chart parts and their `c:externalData` package), §20.1.8.13 `a:blip` (`r:embed`), MS-ODRAWXML
+`a14:imgLayer`.
+
+Saving keeps every package part it did not change. A chart or picture the user deleted or replaced
+(Edit Chart Data writes a new chart part; Reset Picture and re-processing show another image) used to
+leave its old part, with its data, in the saved file. Now, for each story part a save rewrites (the
+document, a header, footer or notes part), a picture (`image`, `hdphoto`) or chart (`chart`, `chartEx`)
+relationship its original XML referenced by id and its new XML does not is removed, and each part no
+relationship in the package targets any more is removed with its own relationships part, the parts only
+it used (a chart's embedded workbook, colors and style parts) and their content-type overrides. Kept as
+they were: relationships the original XML never referenced (such parts were never shown), parts another
+relationship still targets (a picture also in a header, a chart part two drawings share), and every
+other relationship type. Only the saved copy is pruned: the open package keeps its parts, so Undo after a
+save restores the drawing and the next save writes it whole. Gaps: SmartArt diagram parts and OLE
+objects are not pruned. Tests: `tests/dropped-drawing-parts.test.js` (independently written package),
+`tests/browser/dropped-drawing-parts.spec.js` (Edit Chart Data, delete and Undo after a save; Reset
+Picture), schema-checked with `tools/check-docx-schema.py`.

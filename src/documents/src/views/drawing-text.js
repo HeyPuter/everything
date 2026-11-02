@@ -40,6 +40,8 @@ export function openDrawingText({ engine, pkg, image, frame, select = null }) {
   });
   const content = el('div', {},
     el('p.modal-text', {}, 'Edit this text frame, then apply your changes to the drawing. The document keeps its original frame size and placement.'),
+    // Drawing text is applied with its drawing, which tracking does not record (see conformance.md); said before typing.
+    engine.session.body.trackChanges ? el('p.field-hint', {}, 'Track Changes is on, but changes to drawing text aren’t tracked.') : null,
     el('div.row', { role: 'toolbar', 'aria-label': 'Drawing text formatting' },
       tool('Bold', () => draft.toggleBold()), tool('Italic', () => draft.toggleItalic()),
       tool('Undo', () => draft.undo()), tool('Redo', () => draft.redo())),

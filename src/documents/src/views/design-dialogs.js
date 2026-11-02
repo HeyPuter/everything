@@ -16,7 +16,7 @@ const LANGUAGES = [['en-US', 'English (United States)'], ['en-GB', 'English (Uni
 const fontStack = name => `"${name}", "Canvas Noto Sans", "Noto Sans", sans-serif`;
 const hexOf = value => value.replace('#', '').toUpperCase();
 
-function dialog({ title, body, submitLabel = 'Save', onSubmit, extra = [], wide = true }) {
+function dialog({ title, body, submitLabel = 'Save', onSubmit, extra = [], wide = true, onClose }) {
   const error = el('p.field-error', { role: 'alert', hidden: true });
   let modal;
   const form = el('form.ed-dialog-body.design-dialog', { onsubmit: async e => {
@@ -29,14 +29,14 @@ function dialog({ title, body, submitLabel = 'Save', onSubmit, extra = [], wide 
     } catch (failure) { error.textContent = failure?.message || String(failure); error.hidden = false; }
   } }, ...body, error,
   el('div.row.row-end', {}, ...extra, el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Cancel'), el('button.btn.btn-primary', { type: 'submit' }, submitLabel)));
-  modal = openModal({ title, content: form, wide });
+  modal = openModal({ title, content: form, wide, onClose });
   return { modal, form, error };
 }
 const field = (label, control, hint) => el('label.field', {}, el('span.field-label', {}, label), control, hint && el('span.field-hint', {}, hint));
 const nameInput = value => el('input.input', { type: 'text', value, required: true, maxLength: 60, 'aria-label': 'Name' });
 
 /** Customize Colors: the twelve theme colors, with a sample that follows them. */
-export function openCustomizeColors({ colors, name, apply }) {
+export function openCustomizeColors({ colors, name, apply, onClose }) {
   const values = { ...colors };
   const sample = el('div.design-color-sample', { 'aria-hidden': 'true' });
   const drawSample = () => {
@@ -51,7 +51,7 @@ export function openCustomizeColors({ colors, name, apply }) {
   });
   const named = nameInput(name);
   drawSample();
-  dialog({ title: 'Customize Colors', body: [
+  dialog({ title: 'Customize Colors', onClose, body: [
     el('div.design-color-layout', {}, el('div.design-color-fields', { role: 'group', 'aria-label': 'Theme colors' }, ...inputs), el('div', {}, el('span.field-label', {}, 'Sample'), sample)),
     field('Name', named)],
   onSubmit: () => apply({ name: named.value.trim() || name, colors: { ...values } }),
@@ -59,7 +59,7 @@ export function openCustomizeColors({ colors, name, apply }) {
 }
 
 /** Customize Fonts: the heading and body fonts, with a sample. */
-export function openCustomizeFonts({ fonts, name, apply }) {
+export function openCustomizeFonts({ fonts, name, apply, onClose }) {
   const select = value => el('select.input', {}, ...[...new Set([value, ...DESIGN_FONTS])].map(font => el('option', { value: font, selected: font === value }, font)));
   const major = select(fonts.major), minor = select(fonts.minor);
   const sample = el('div.design-font-preview', { 'aria-hidden': 'true' });
@@ -68,7 +68,7 @@ export function openCustomizeFonts({ fonts, name, apply }) {
   major.addEventListener('change', draw); minor.addEventListener('change', draw); draw();
   const named = nameInput(name);
   major.setAttribute('aria-label', 'Heading font'); minor.setAttribute('aria-label', 'Body font');
-  dialog({ title: 'Customize Fonts', body: [el('div.grid-2', {}, field('Heading font', major), field('Body font', minor)), el('span.field-label', {}, 'Sample'), sample, field('Name', named)],
+  dialog({ title: 'Customize Fonts', onClose, body: [el('div.grid-2', {}, field('Heading font', major), field('Body font', minor)), el('span.field-label', {}, 'Sample'), sample, field('Name', named)],
     onSubmit: () => apply({ name: named.value.trim() || name, major: major.value, minor: minor.value }) });
 }
 
@@ -95,7 +95,7 @@ export function openPageColor({ value, apply }) {
 }
 
 /** Custom Watermark: none, a picture (scale, washout) or text (language, text, font, size, color, transparency, layout). */
-export function openCustomWatermark({ current, apply }) {
+export function openCustomWatermark({ current, apply, onClose }) {
   let kind = current?.kind || 'text';
   // The current picture is kept unless another is chosen.
   let picture = current?.kind === 'picture' && current.bytes ? { bytes: current.bytes, mime: current.mime, width: current.width, height: current.height } : null;
@@ -158,19 +158,28 @@ export function openCustomWatermark({ current, apply }) {
     if (!words.value.trim()) throw new Error('Enter the watermark text.');
     return { kind: 'text', text: words.value.trim(), font: fonts.value || null, size: size.value === 'auto' ? 'auto' : Number(size.value), color: hexOf(color.value), semitransparent: transparent.checked, layout, language: language.value };
   };
+  // What Apply last put in the document: OK with nothing changed since then adds no second, identical undo step.
+  const NOT_APPLIED = {};
+  let applied = NOT_APPLIED;
+  const same = (a, b) => JSON.stringify(a, (key, value) => key === 'bytes' ? undefined : value) === JSON.stringify(b, (key, value) => key === 'bytes' ? undefined : value) && a?.bytes === b?.bytes;
   const applyButton = el('button.btn.btn-outline', { type: 'button', onclick: async () => {
-    try { error.hidden = true; await apply(watermark()); } catch (failure) { error.textContent = failure.message; error.hidden = false; }
+    try {
+      error.hidden = true;
+      const chosen = watermark();
+      applied = NOT_APPLIED;
+      if (await apply(chosen) !== false) applied = chosen;
+    } catch (failure) { error.textContent = failure.message; error.hidden = false; }
   } }, 'Apply');
-  const { modal, error } = dialog({ title: 'Watermark', submitLabel: 'OK', extra: [applyButton],
+  const { modal, error } = dialog({ title: 'Watermark', submitLabel: 'OK', extra: [applyButton], onClose,
     body: [el('div.field', {}, kinds), el('div.design-watermark-layout', {}, el('div', {}, textPanel, picturePanel), preview)],
-    onSubmit: async () => { await apply(watermark()); } });
+    onSubmit: async () => { const chosen = watermark(); if (applied === NOT_APPLIED || !same(chosen, applied)) await apply(chosen); } });
   const close = modal.close;
   modal.close = () => { if (previewUrl) URL.revokeObjectURL(previewUrl); close(); };
   show();
 }
 
 /** Fill Effects: gradient, texture, pattern or picture, with a page preview. */
-export function openFillEffects({ page, apply }) {
+export function openFillEffects({ page, apply, onClose }) {
   let kind = 'gradient', pictureFill = null;
   const state = { color1: 'DEEAF6', color2: 'FFFFFF', style: 'horizontal', texture: TEXTURES[0][0], pattern: PATTERNS[0][0], foreground: '7F7F7F', background: 'FFFFFF' };
   const canvas = el('canvas.design-fill-preview', { width: 120, height: Math.round(120 * page.height / page.width), 'aria-label': 'Preview', role: 'img' });
@@ -227,7 +236,7 @@ export function openFillEffects({ page, apply }) {
   const panels = { gradient: gradientPanel, texture: texturePanel, pattern: patternPanel, picture: picturePanel };
   const show = () => { for (const [id, panel] of Object.entries(panels)) panel.hidden = id !== kind; draw(); };
   const kinds = segmented([['gradient', 'Gradient'], ['texture', 'Texture'], ['pattern', 'Pattern'], ['picture', 'Picture']], kind, value => { kind = value; show(); }, 'Fill type');
-  dialog({ title: 'Fill Effects', submitLabel: 'OK',
+  dialog({ title: 'Fill Effects', submitLabel: 'OK', onClose,
     body: [el('div.field', {}, kinds), el('div.design-fill-layout', {}, el('div', {}, ...Object.values(panels)), el('div', {}, el('span.field-label', {}, 'Sample'), canvas)),
       el('p.field-hint', {}, 'Fill effects are saved as a picture background, so other apps show the same fill.')],
     onSubmit: async () => {

@@ -32,6 +32,12 @@ export function createReferences({ editor, pkg, error, base = {}, onChange = () 
    * under Restrict Editing they are refused, as typing is.
    */
   const unprotected = what => { if (base.protectedDocument?.()) throw new Error(`This document is protected against editing, so ${what} cannot be changed. Stop protection under Review > Restrict Editing first.`); };
+  /**
+   * A new header, footer or note is a new part of this tab's package. The room shares the text of the stories
+   * everyone's package has, not new parts: the others would never see it, and a note's reference would reach
+   * them (and the file the owner's tab saves) without the note. Existing ones stay editable together.
+   */
+  const unshared = (what, change = 'added') => { if (base.shared?.()) throw new Error(`${what} cannot be ${change} while the document is shared: the others would not receive them. Stop sharing first.`); };
 
   /**
    * Which header/footer variant a page shows: first, even or default (§17.10.5). Even and odd go by the
@@ -60,6 +66,7 @@ export function createReferences({ editor, pkg, error, base = {}, onChange = () 
       engine.editStory(existing, page); return existing;
     }
     unprotected(`its ${kind}s`);
+    unshared(`New ${kind}s`);
     const { TextDocument, paragraph } = await import('../engine/model.js');
     const body = engine.session.body;
     const styleId = Object.values(body.styles.definitions || {}).find(s => s.type === 'paragraph' && s.name?.toLowerCase() === kind)?.id;
@@ -74,6 +81,8 @@ export function createReferences({ editor, pkg, error, base = {}, onChange = () 
     try {
       const engine = ready(); if (!engine) return;
       unprotected('its headers and footers');
+      // Each needs headers of its own, new parts the others would not receive (unshared).
+      unshared(option === 'first' ? 'Different first page headers' : 'Different odd and even page headers', 'turned on or off');
       const kind = activeStoryKind(), page = currentPage(engine), section = engine.sectionOfPage(page);
       if (option === 'first') { pkg().setTitlePage(section, on); engine.setStoryOptions({ section, firstPageDifferent: on }); }
       else { pkg().setEvenAndOdd(on); engine.setStoryOptions({ evenAndOdd: on }); }
@@ -179,7 +188,7 @@ export function createReferences({ editor, pkg, error, base = {}, onChange = () 
     onChange();
     return result;
   }
-  const ctx = { editor, pkg, error, ready, fail, runBody, pageOf, unprotected, onChange: () => onChange(), showFieldCodes: () => base.showFieldCodes?.() };
+  const ctx = { editor, pkg, error, ready, fail, runBody, pageOf, unprotected, unshared, onChange: () => onChange(), showFieldCodes: () => base.showFieldCodes?.() };
   const toc = createTocCommands(ctx);
   const notes = createNoteCommands(ctx);
   const citations = createCitationCommands(ctx);

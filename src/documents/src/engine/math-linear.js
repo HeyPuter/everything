@@ -422,6 +422,12 @@ const plainRun = node => mathVal(mathChild(node, 'rPr'), 'sty') === 'p' || !!mat
 const single = text => [...text].length === 1 ? !SPECIAL.has(text) && !/[\s\p{M}]/u.test(text) : /^\d+(\.\d+)?$/.test(text) || /^[A-Za-z]+$/.test(text) && !FUNCS.has(text);
 const singleChar = text => [...text].length === 1 && single(text) || /^\d+(\.\d+)?$/.test(text);
 
+// Plain text as one literal: "text", or \text{…} when it holds quotes (the quoted form has no escape);
+// with braces \text{…} cannot hold either, each quote is written \" between quoted pieces.
+const balancedBraces = text => { let depth = 0; for (const ch of text) { if (ch === '{') depth++; else if (ch === '}' && --depth < 0) return false; } return !depth; };
+const plainLiteral = text => !text.includes('"') ? `"${text}"`
+  : balancedBraces(text) ? `\\text{${text}}`
+  : text.split('"').map(piece => piece ? `"${piece}"` : '').join('\\"');
 /** Items of an argument (m:e, m:num, m:sub...): [{ text, kind: 'op' | 'run' | 'plain' | structure name }]. */
 function editableItems(node) {
   const items = [];
@@ -431,7 +437,7 @@ function editableItems(node) {
     if (child.localName === 'r') {
       const text = runText(child);
       if (!text) continue;
-      if (plainRun(child) && !text.includes('"')) { items.push({ text: `"${text}"`, kind: 'plain' }); continue; }
+      if (plainRun(child)) { items.push({ text: plainLiteral(text), kind: 'plain' }); continue; }
       // Operators stand alone; other characters join the runs beside them.
       for (const ch of [...text]) {
         if (OPS.has(ch === '−' ? '-' : ch) || OPS.has(ch)) items.push({ text: ch, kind: 'op' });

@@ -2,6 +2,18 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { correction, insideAddress, smartQuote, opensQuote, replaceTarget, paragraphText, autocorrectAt, autocorrectEnabled, setAutocorrectEnabled, autocorrectHinted, sentenceCapital, endsWithAbbreviation, capitalizeSentencesEnabled, setCapitalizeSentencesEnabled } from '../src/lib/autocorrect.js';
 
 describe('autocorrect rules', () => {
+  it('looks back only to the start of the word being typed, however long the paragraph without spaces before it', () => {
+    // Finding the word being typed searched the paragraph with a pattern that took time in the length of a stretch
+    // without spaces squared: typing after a long run of Chinese, Japanese or Thai text waited seconds a key.
+    const han = '我们今天在会议上讨论了项目的进展情况'.repeat(1200);
+    const started = performance.now();
+    for (let i = 0; i < 5; i++) {
+      expect(correction(`${han} -- n`, 'n')).toEqual({ back: 5, text: ' — n' });
+      expect(insideAddress(`${han} www.example.co`)).toBe(true);
+      expect(correction(`${han} i `, ' ')).toEqual({ back: 2, text: 'I ' });
+    }
+    expect(performance.now() - started).toBeLessThan(1000);
+  });
   it('turns straight quotes into typographic ones by what comes before', () => {
     expect(correction('"', '"')).toEqual({ back: 1, text: '“' });
     expect(correction('He said "', '"')).toEqual({ back: 1, text: '“' });

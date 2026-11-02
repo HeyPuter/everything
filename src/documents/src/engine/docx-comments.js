@@ -2,7 +2,7 @@
 // companion for replies and resolved state. Bodies are read as plain
 // paragraphs; an unchanged comment keeps its original XML when saved.
 import { strToU8 } from 'fflate';
-import { parseXml } from './docx-xml.js';
+import { parseXml, declareContentType } from './docx-xml.js';
 import { relatedPartPath } from './docx-relationships.js';
 import { UnsupportedDocumentError } from './errors.js';
 import { commentMarker } from './comments.js';
@@ -14,7 +14,6 @@ const W16CID = 'http://schemas.microsoft.com/office/word/2016/wordml/cid';
 const W16CEX = 'http://schemas.microsoft.com/office/word/2018/wordml/cex';
 const MC = 'http://schemas.openxmlformats.org/markup-compatibility/2006';
 const REL = 'http://schemas.openxmlformats.org/package/2006/relationships';
-const CT = 'http://schemas.openxmlformats.org/package/2006/content-types';
 export const COMMENTS_REL = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/comments';
 export const COMMENTS_EXTENDED_REL = 'http://schemas.microsoft.com/office/2011/relationships/commentsExtended';
 const COMMENTS_TYPE = 'application/vnd.openxmlformats-officedocument.wordprocessingml.comments+xml';
@@ -99,13 +98,7 @@ function ensureRelationship(parts, path, type, contentType) {
     rels.documentElement.append(link);
     parts[relPath] = strToU8(serialize(rels));
   }
-  const types = parseXml(parts['[Content_Types].xml']);
-  if (!elements(types.documentElement).some(n => n.localName === 'Override' && n.getAttribute('PartName') === '/' + path)) {
-    const override = types.createElementNS(types.documentElement.namespaceURI || CT, 'Override');
-    override.setAttribute('PartName', '/' + path); override.setAttribute('ContentType', contentType);
-    types.documentElement.append(override);
-    parts['[Content_Types].xml'] = strToU8(serialize(types));
-  }
+  declareContentType(parts, '/' + path, contentType);
 }
 
 const unchanged = c => c.sourceId !== undefined && c.text === c.sourceText;

@@ -635,7 +635,9 @@ function layoutPass(paragraphs, measureBase, page, numbering, tables, pageStorie
     const continuous = Boolean(continues(previous, section));
     if (continuous && start !== undefined) {
       const reason = 'Page-number restarts in continuous sections are not supported yet.';
-      if (!storyOptions.bestEffort) throw new Error(reason);
+      // A screen view lays every section out on one screen geometry, so a section that starts new
+      // paper when printed continues here; it shows no page numbers, so the restart is only ignored.
+      if (!storyOptions.bestEffort && !storyOptions.viewGeometry) throw new Error(reason);
       (placed.numberingApproximations ||= []).push({ section: sectionIndex, reason,
         message: `Section ${sectionIndex + 1}: page-number restart at ${start} in a continuous section is ignored in this read-only preview; numbering continues from the previous section.` });
       // Ignore the restart before odd/even handling, so it cannot insert a

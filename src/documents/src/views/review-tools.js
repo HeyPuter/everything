@@ -85,8 +85,11 @@ export function createReviewTools({ editor, pkg, error, author, review, proofing
   async function lockTracking() {
     if (restrict.trackingLocked) { await restrict.stopEnforcing({ title: 'Unlock Tracking' }); return; }
     if (restrict.enforced) { error(new Error('Stop the document\'s protection before locking tracking.')); return; }
+    const wasTracking = review.commands.tracking;
     review.commands.toggleTracking(true);
-    await restrict.startEnforcing({ edit: 'trackedChanges', formatting: false, title: 'Lock Tracking', intro: 'Others will not be able to turn off Track Changes, or accept or reject changes. Enter a password to keep them from unlocking it, or leave it empty.' });
+    const locked = await restrict.startEnforcing({ edit: 'trackedChanges', formatting: false, title: 'Lock Tracking', intro: 'Others will not be able to turn off Track Changes, or accept or reject changes. Enter a password to keep them from unlocking it, or leave it empty.' });
+    // Cancelled: Track Changes goes back to how it was, as nothing was locked.
+    if (!locked && !wasTracking) review.commands.toggleTracking(false);
   }
 
   /* ---- Commands ---- */
@@ -108,7 +111,7 @@ export function createReviewTools({ editor, pkg, error, author, review, proofing
     toggleHideGrammar() { setSettings({ hideGrammaticalErrors: !pkg()?.reviewSettings?.hideGrammaticalErrors }); editor()?.paint(); editorPane.refresh(); },
     resetIgnoredWords() { proofing.resetIgnored(); toast('Ignored words will be checked again'); editorPane.refresh(); },
     thesaurus: () => { if (editor()) thesaurus.open(); },
-    wordCount: () => { const engine = editor(); if (engine) openWordCount(engine, { onClose: () => queueMicrotask(() => editor()?.focus()) }); },
+    wordCount: () => { const engine = editor(); if (engine) openWordCount(engine, { onClose: () => queueMicrotask(() => editor()?.focus()), onChange }); },
     checkAccessibility: () => accessibility.open(),
     accessibilitySummary: () => accessibility.summary(),
     language: languageDialog,

@@ -1,5 +1,6 @@
 import { parseXml } from './docx-xml.js';
 import { UnsupportedDocumentError } from './errors.js';
+import { packagePartName } from './package-part-paths.js';
 import { normalizeColor, themeColorTransform } from './colors.js';
 
 const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
@@ -41,7 +42,7 @@ export function colorReader(parts, settings) {
         if (segment === '..') { if (!normalized.length) fail('a theme target outside the package'); normalized.pop(); }
         else if (segment && segment !== '.') normalized.push(segment);
       }
-      const path = normalized.join('/'); if (!parts[path]) fail('a missing theme part');
+      const path = packagePartName(parts, normalized.join('/')); if (!path || !parts[path]) fail('a missing theme part');
       const root = parseXml(parts[path]).documentElement;
       if (root.namespaceURI !== A || root.localName !== 'theme') fail('an invalid theme part');
       const scheme = only(only(root, A, 'themeElements'), A, 'clrScheme');

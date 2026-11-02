@@ -245,3 +245,60 @@ describe('a note reference inserted where a field starts', () => {
     expect([blank.start, blank.end]).toEqual(['Author: ￼'.length, 'Author: ￼'.length]);
   });
 });
+
+// The Footnote and Endnote dialog's Insert applies a new number format, then inserts the note with the settings
+// addFootnote returns, which the editor shows. Those were the file's settings, so the screen went back to 1, 2
+// while the saved file numbered the notes i, ii.
+it('a footnote inserted after a change of number format shows the new format', async () => {
+  const { pkg, model } = await open(noteSettings(notedDocx(), '<w:numFmt w:val="decimal"/>'));
+  pkg.setNoteSettings('footnote', { format: 'lowerRoman', start: 2 });
+  const added = pkg.addFootnote();
+  expect(added.settings).toMatchObject({ format: 'lowerRoman', start: 2, part: 'word/footnotes.xml' });
+  model.select(model.text.length); model.insertFootnoteReference(added.id);
+  const story = [paragraph('')]; story[0].runs = [...footnoteOpeningRuns({ text: '', overrides: {} }), { text: 'New', overrides: {} }];
+  const definition = { ...pkg.pageStories, footnotes: added.settings, stories: { ...pkg.pageStories.stories, [added.path]: { kind: 'footnote', noteId: added.id, paragraphs: story, tables: [], editable: true } } };
+  expect(layout(pkg, model, definition).footnoteAreas[0].notes.map(n => n.display)).toEqual(['ii', 'iii', 'iv']);
+  const saved = unzipSync(new Uint8Array(await pkg.export(model.paragraphs, model.pageSettings, model.numbering, model.styles, model.tables, model.assets, { [added.path]: { paragraphs: story, tables: [] } }).arrayBuffer()));
+  expect(strFromU8(saved['word/settings.xml'])).toMatch(/<w:numFmt w:val="lowerRoman"\/><w:numStart w:val="2"\/>/);
+});
+
+describe('note styles for new notes', () => {
+  it('adds Word’s note styles to a document without them, once, and saves them as built-in styles', async () => {
+    const blank = createDocx([paragraph('Text')]);
+    const pkg = await DocxPackage.open(new Uint8Array(await blank.export([paragraph('Text')]).arrayBuffer()));
+    const model = new TextDocument(pkg.paragraphs, pkg.pageSettings, pkg.numbering, pkg.styles, pkg.tables, pkg.assets);
+    const revision = model.revision;
+    expect(model.addNoteStyles('footnote')).toEqual({ textStyle: 'FootnoteText', referenceStyle: 'FootnoteReference' });
+    expect(model.revision).not.toBe(revision);
+    const again = model.styles;
+    expect(model.addNoteStyles('footnote')).toEqual({ textStyle: 'FootnoteText', referenceStyle: 'FootnoteReference' });
+    expect(model.styles).toBe(again);
+    expect(model.addNoteStyles('endnote')).toEqual({ textStyle: 'EndnoteText', referenceStyle: 'EndnoteReference' });
+    // A paragraph in the style lays out at 10 pt with no space after.
+    const note = new TextDocument([paragraph('Note', { styleId: 'FootnoteText', styleChanged: true })], model.pageSettings, model.numbering, model.styles, [], {});
+    expect([note.paragraphs[0].runs[0].fontSize, note.paragraphs[0].format.spaceAfter, note.paragraphs[0].format.lineSpacing]).toEqual([10, 0, 1]);
+    const saved = new Uint8Array(await pkg.export(model.paragraphs, model.pageSettings, model.numbering, model.styles, model.tables, model.assets).arrayBuffer());
+    const styles = strFromU8(unzipSync(saved)['word/styles.xml']);
+    const style = id => styles.match(new RegExp(`<w:style [^>]*w:styleId="${id}"[^>]*>[\\s\\S]*?</w:style>`))?.[0];
+    expect(style('FootnoteText')).toMatch(/^<w:style w:type="paragraph" w:styleId="FootnoteText"><w:name w:val="footnote text"\/><w:basedOn w:val="Normal"\/><w:uiPriority w:val="99"\/><w:semiHidden\/><w:unhideWhenUsed\/><w:pPr><w:spacing [^>]*w:after="0"[^>]*\/><\/w:pPr><w:rPr><w:sz w:val="20"\/><w:szCs w:val="20"\/><\/w:rPr><\/w:style>$/);
+    expect(style('EndnoteReference')).toMatch(/<w:name w:val="endnote reference"\/>[\s\S]*<w:vertAlign w:val="superscript"\/>/);
+    expect(styles).not.toMatch(/customStyle/);
+    // Read back, the styles are found by name and kept.
+    const reopened = await DocxPackage.open(saved);
+    const back = new TextDocument(reopened.paragraphs, reopened.pageSettings, reopened.numbering, reopened.styles, reopened.tables, reopened.assets);
+    const before = back.styles;
+    expect(back.addNoteStyles('footnote')).toEqual({ textStyle: 'FootnoteText', referenceStyle: 'FootnoteReference' });
+    expect(back.styles).toBe(before);
+  });
+
+  it('keeps a document’s own note styles and takes free ids for missing ones', async () => {
+    const { model } = await open(notedDocx());
+    const before = model.styles;
+    expect(model.addNoteStyles('footnote')).toEqual({ textStyle: 'FootnoteText', referenceStyle: 'FootnoteReference' });
+    expect(model.styles).toBe(before);
+    // A style already using the id under another name is left alone.
+    model.styles = { ...model.styles, definitions: { ...model.styles.definitions, EndnoteText: { ...model.styles.definitions.FootnoteText, id: 'EndnoteText', name: 'My notes' } } };
+    expect(model.addNoteStyles('endnote')).toEqual({ textStyle: 'EndnoteText1', referenceStyle: 'EndnoteReference' });
+    expect(model.styles.definitions.EndnoteText.name).toBe('My notes');
+  });
+});

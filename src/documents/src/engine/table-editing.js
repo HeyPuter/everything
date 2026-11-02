@@ -283,10 +283,11 @@ function requireUnmerged(table, rows, left, right, message) {
 
 /** Delete Cells: shift the cells to the right of the selection left, or the cells below it up. */
 export function deleteCells(model, { shift = 'left' } = {}) {
-  refuseUntracked(model, 'Deleting table cells');
-  const block = requireBlock(model), table = block.table;
+  // Deleting whole rows or columns refuses (with Track Changes on) in its own words.
   if (shift === 'row') return deleteRows(model);
   if (shift === 'column') return deleteColumns(model);
+  refuseUntracked(model, 'Deleting table cells');
+  const block = requireBlock(model), table = block.table;
   if (!['left', 'up'].includes(shift)) throw new Error('Choose how the remaining cells move.');
   requireAligned(table, block);
   if (shift === 'left') {
@@ -333,6 +334,8 @@ export function insertCells(model, { shift = 'down', widths: measured } = {}) {
   if (shift === 'row') return insertRows(model, { above: true });
   if (shift === 'column') return insertColumns(model, { left: true, widths: measured });
   if (!['right', 'down'].includes(shift)) throw new Error('Choose how the selected cells move.');
+  // Shifting cells moves their text into other columns or rows, which a reviewer would not see.
+  refuseUntracked(model, 'Inserting cells that shift others');
   const block = requireBlock(model), table = block.table;
   requireAligned(table, block);
   const width = block.right - block.left, height = block.bottom - block.top + 1;
@@ -833,7 +836,11 @@ export function setTableWrapping(model, wrap, { distance = 180 } = {}) {
   if (table.parentCellId) throw new Error('Text wrapping applies to tables outside other tables.');
   if ((wrap === 'around') === !!table.floating) return false;
   model.checkpoint();
-  if (wrap === 'none') { delete table.floating; table.floatingRemoved = true; }
+  if (wrap === 'none') {
+    delete table.floating; table.floatingRemoved = true;
+    // The table keeps the place it was read at (its tblpPr offset or alignment), which the file must now hold.
+    table.indentChanged = true; table.alignmentChanged = true;
+  }
   else {
     const spec = table.alignment === 'center' || table.alignment === 'right' ? { tblpXSpec: table.alignment } : {};
     table.floating = { horzAnchor: 'text', vertAnchor: 'text', tblpX: spec.tblpXSpec ? 0 : table.indent || 0, tblpY: 0, leftFromText: distance, rightFromText: distance, topFromText: 0, bottomFromText: 0, ...spec };
@@ -875,7 +882,7 @@ export function setRowOptions(model, { allowBreak, header } = {}) {
   if (allowBreak !== undefined && rows.some(row => !!row.cantSplit === !!allowBreak)) { model.setTableRowKeep(!allowBreak); changed = true; }
   if (header !== undefined) {
     const count = header ? block.bottom + 1 : block.top;
-    if (count !== headerRowCount(table) || !header && rows.some(r => r.header)) changed = model.setTableHeaderRows(count) || changed;
+    if (count !== headerRowCount(table) || !header && rows.some(r => r.header)) changed = model.setTableHeaderRows(count, table) || changed;
   }
   return changed;
 }
@@ -1011,7 +1018,7 @@ export function newTable(model, rows, columns, width) {
 }
 function writingWidth(model) {
   const page = model.sectionPageSettings;
-  return model.sectionWritingWidth - (page.gutterAtTop ? 0 : page.gutter || 0) - (page.compatibilityMode >= 15 ? 10 : 0);
+  return Math.floor(model.sectionColumnWidth) - (page.compatibilityMode >= 15 ? 10 : 0);
 }
 function applyAutofit(table, autofit) {
   if (autofit === 'fixed' || !autofit) return;
@@ -1241,6 +1248,8 @@ export function clearCells(model) {
 
 /** Move a table (outside other tables) so it stands before the paragraph `beforeId`. */
 export function moveTable(model, tableId, beforeId) {
+  // Moving text is not recorded as a tracked move, as moving paragraphs is not (home-editing.js).
+  refuseUntracked(model, 'Moving a table');
   const table = model.tables.find(t => t.id === tableId);
   if (!table) throw new Error('Choose a table to move.');
   if (table.parentCellId) throw new Error('Tables inside other tables move with their cell.');

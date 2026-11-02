@@ -11,7 +11,7 @@ export function openBookmarks({ entries, add, rename, remove, navigate }) {
       checkedBookmarkName(name.value);
       // Names starting with an underscore are hidden bookmarks (tables of contents, cross-references), which this list leaves out.
       if (name.value.startsWith('_')) throw new Error('Start the name with a letter. Names that start with an underscore are hidden bookmarks.');
-      if (entries().some(e => e.name === name.value && (action === 'add' || e.id !== list.value))) throw new Error('A bookmark with that name already exists.');
+      if (entries().some(e => e.name?.toLowerCase() === name.value.toLowerCase() && (action === 'add' || e.id !== list.value))) throw new Error('A bookmark with that name already exists.');
     } catch (e) { error.hidden = false; error.textContent = e.message; return; }
     if (action === 'add' ? add(name.value) : rename(list.value, name.value)) { refresh(); error.hidden = true; }
   };

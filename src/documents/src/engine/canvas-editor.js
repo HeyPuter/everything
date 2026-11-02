@@ -8,7 +8,7 @@ import { xmlAttributeText } from './text-limits.js';
 import { textEdit, followEdit } from './text-edit.js';
 import { showLink } from './link-appearance.js';
 import { revisionView } from './revisions.js';
-import { hiddenStretchAt, pastHiddenText, outsideHiddenText } from './hidden-text.js';
+import { hiddenRun, hiddenStretchAt, pastHiddenText, outsideHiddenText } from './hidden-text.js';
 
 export const PASTED_PICTURE = /^image\/(png|jpeg|tiff)$/i;
 const MAC = typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/.test(navigator.platform || navigator.userAgent || '');
@@ -62,6 +62,7 @@ import { refreshPageReferences } from './page-reference-refresh.js';
 import { positionedImageBounds } from './positioned-images.js';
 import { createImageInteraction } from './image-interaction.js';
 import { paintDecodedImage, imageInfo, decodeImage, decodeImages, validateImageAssets, imageCropRect, inlineImagePaintFrame, normalizedRotation, ANGLE_PER_DEGREE, EMU_PER_PX, isPositionedImage } from './images.js';
+import { sectionColumnIntervals } from './section-columns.js';
 let nextAsset = 0;
 // A document longer than this paints only the pages on screen (and a screenful either side) at
 // once; the rest are painted when they scroll into view, when their pixels are read, or while the
@@ -89,13 +90,21 @@ export function joinedBarRanges(ranges) {
 
 /** Canvas paint surface plus a real textarea for native input, composition and accessible text. */
 export class CanvasEditor {
-  constructor(host, { paragraphs, pageSettings, numbering, styles, tables, pageStories, comments = null, trackChanges, assets = {}, images = new Map(), borrowImages = false, drawingLayouts, inputLabel, readOnly = false, protectedPageFields = false, onChange = () => {}, onSelection = () => {}, onSave = () => {}, onLink = () => {}, onOpenLink = () => {}, onLinkClick = () => {}, onError = () => {}, onContextMenu = () => {}, onUpdateFields = null, correctTyping = null, linkTyping = null, measure = null, preparePicture = null } = {}) {
+  constructor(host, { paragraphs, pageSettings, numbering, styles, tables, pageStories, comments = null, trackChanges, assets = {}, images = new Map(), borrowImages = false, drawingLayouts, inputLabel, readOnly = false, protectedPageFields = false, onChange = () => {}, onSelection = () => {}, onSave = () => {}, onLink = () => {}, onOpenLink = () => {}, onLinkClick = () => {}, onError = () => {}, onNotice = () => {}, onContextMenu = () => {}, onUpdateFields = null, correctTyping = null, linkTyping = null, measure = null, preparePicture = null } = {}) {
     this.host = host;
     this.inputLabel = inputLabel;
     this.readOnly = readOnly;
     this.protectedPageFields = protectedPageFields;
     this.session = new StorySession(new TextDocument(paragraphs, pageSettings, numbering, styles, tables, assets, { displayOnly: readOnly, comments, trackChanges }), pageStories);
     this.session.caret = () => ({ affinity: this.caretAffinity, page: this.caretPage });
+    // Track Changes records changes in the body only. A header, footer or note is still edited with it on, as Word
+    // users expect to, and the first change on each visit says it is not tracked (onNotice), rather than nothing.
+    this.onNotice = onNotice;
+    this.session.untracked = path => {
+      if (this.untrackedNoticePath === path) return;
+      this.untrackedNoticePath = path;
+      this.onNotice('Changes to headers, footers and notes aren’t tracked. Track Changes records changes to the main text only.');
+    };
     this.storyPage = 0;
     this.images = images;
     this.borrowedImages = new Set(borrowImages ? images.values() : []);
@@ -184,6 +193,12 @@ export class CanvasEditor {
       this.composition = entry;
       // Where the composed text begins in the native field, and what it is so far (compositionRange).
       this.compositionStart = this.input.selectionStart; this.compositionText = '';
+      // The text before it, to tell cheaply whether committing changed the document (finishComposition).
+      this.compositionBaseText = this.model.text;
+      // Composed at the end of the text typed just before, it goes on in that typing's undo step (typeText): an
+      // input method for Korean commits each syllable as a composition of its own.
+      const group = this.typingGroup, [from, to] = this.model.range;
+      this.compositionGroup = group && from === to && group.at === from && group.revision === this.session.revision && group.path === this.session.path ? group : null;
     });
     listen(this.input, 'compositionupdate', e => { if (this.composition) this.compositionText = e.data || ''; });
     listen(this.input, 'compositionend', e => this.finishComposition(e.data));
@@ -248,6 +263,7 @@ export class CanvasEditor {
   editStory(path = null, page = 0) {
     if (this.readOnly || path !== null && !this.pageStories?.stories[path]?.editable) return false;
     this.finishComposition();
+    if (path !== this.session.path) this.untrackedNoticePath = null;
     this.session.activate(path); this.session.page = page; this.storyPage = page; this.caretPage = page;
     this.caretAffinity = 'forward'; this.preferredX = null;
     this.relayout(); this.focus(); this.revealCaret(); return true;
@@ -558,7 +574,11 @@ export class CanvasEditor {
     const line = lineAtPosition(this.selectionLayout, this.model.range[0], 'forward', this.caretPage), p = this.layout.pages[line.page] || this.layout.page;
     const paragraph = this.model.paragraphs[locate(this.model.paragraphs, this.model.range[0]).index], context = cellContext(this.model.tables, paragraph.cellId);
     const cell = this.selectionLayout.cells.find(c => c.id === line.cellId && c.page === line.page && c.column === line.column);
-    const cellPage = cell ? { ...p, left: cell.x + context.cell.margins.left / 15, right: p.width - cell.x - cell.width + context.cell.margins.right / 15 } : p;
+    // Outside tables, the picture fits the text column holding the caret (a section can have several).
+    let column = null;
+    if (!cell && p.columns && !p.storyKind) try { column = sectionColumnIntervals(p.columns, p.left * 15, (p.width - p.left - p.right) * 15)[line.column ?? 0]; } catch { column = null; }
+    const cellPage = cell ? { ...p, left: cell.x + context.cell.margins.left / 15, right: p.width - cell.x - cell.width + context.cell.margins.right / 15 }
+      : column ? { ...p, left: column.left / 15, right: p.width - column.right / 15 } : p;
     const format = paragraphFormat(paragraph, this.model.numbering), edges = [true, false].map(first => paragraphEdges(format, cellPage, first));
     const width = Math.min(...edges.map(e => e.right - e.left));
     const sized = size.width > 0 && size.height > 0, natural = sized ? { width: size.width / EMU_PER_PX, height: size.height / EMU_PER_PX } : bitmap;
@@ -690,8 +710,13 @@ export class CanvasEditor {
     if (JSON.stringify(next) === JSON.stringify(this.view)) return false;
     this.finishComposition();
     if (next && this.session.path !== null) { this.session.activate(null); this.caretPage = null; }
+    const previous = this.view;
     this.view = next;
-    this.relayout();
+    // A view the document cannot be laid out in (indents wider than the window, a page-number restart
+    // in a section the view makes continuous) leaves the editor in the view it had: kept, every later
+    // layout, the next keystroke's included, failed the same way and nothing could be typed.
+    try { this.relayout(); }
+    catch (error) { this.view = previous; this.relayout(); throw error; }
     return true;
   }
   /** Lay the body and its page stories out for a view (null: the authored pages). */
@@ -787,22 +812,60 @@ export class CanvasEditor {
     this.syncInput(); this.paint(); this.onSelection();
   }
   /**
+   * Whether the printed pages differ from the screen's: a screen view is showing, or hidden text is shown
+   * (laid out only while the formatting marks show it).
+   */
+  printDiffersFromScreen() {
+    const hidden = revisionView.showHidden && [this.session.body, ...Object.values(this.pageStories?.stories || {})].some(story => story?.paragraphs?.some(p => p.runs.some(r => r.vanish)));
+    return { differs: !!this.view || hidden, hidden };
+  }
+  /**
+   * The authored pages laid out as printed, without touching the screen's: { layout, storyLayout }. Remembered
+   * for the layout on screen, so asking again before the next change lays nothing out.
+   */
+  printLayout() {
+    const { differs, hidden } = this.printDiffersFromScreen();
+    if (!differs) return { layout: this.layout, storyLayout: this.storyLayout };
+    const cached = this.printedLayoutCache;
+    if (cached?.layout === this.layout && cached.showHidden === revisionView.showHidden) return cached.value;
+    const shown = revisionView.showHidden;
+    if (hidden) revisionView.showHidden = false;
+    let value;
+    try { value = this.computeLayout(null); } finally { revisionView.showHidden = shown; }
+    this.printedLayoutCache = { layout: this.layout, showHidden: shown, value };
+    return value;
+  }
+  /**
+   * The printed pages' count and the caret's page among them (1-based), whatever the screen shows: Web Layout
+   * and Draft show strips of the window's height, and shown hidden text takes lines the paper does not have.
+   */
+  printedPages() {
+    const { layout } = this.printLayout();
+    let page = 0;
+    if (layout === this.layout) page = this.caretPageIndex;
+    else if (this.session.path === null) {
+      try { page = caretRect(layout, this.model.selection.focus, this.caretAffinity).page ?? 0; } catch { page = 0; }
+    }
+    return { count: layout.pageCount, current: Math.min(layout.pageCount, page + 1) };
+  }
+  /**
    * The printed pages, painted at print resolution: a canvas for each page, at its index. With `pages`
    * (indices of printed pages), only those are painted; the others are left out (holes in the list).
    */
   printSheets(pages = null) {
     this.finishComposition();
-    // Printing always uses the authored pages, whatever view is on screen, and leaves out hidden text,
-    // which is laid out only while the formatting marks show it: lay the pages out privately and put the
-    // screen layout back afterwards, without touching the page canvases.
-    const hidden = revisionView.showHidden && [this.session.body, ...Object.values(this.pageStories?.stories || {})].some(story => story?.paragraphs?.some(p => p.runs.some(r => r.vanish)));
-    if (this.view || hidden) {
-      const screen = { view: this.view, layout: this.layout, storyLayout: this.storyLayout, selectionLayout: this.selectionLayout, tablePaintCache: this.tablePaintCache, drawingPageContexts: this.drawingPageContexts };
-      const shown = revisionView.showHidden;
+    // Printing always uses the authored pages, whatever view is on screen, and leaves out hidden text:
+    // lay the pages out privately and put the screen layout back afterwards, without touching the page canvases.
+    const { differs, hidden } = this.printDiffersFromScreen();
+    if (differs) {
+      const screen = { view: this.view, layout: this.layout, storyLayout: this.storyLayout, selectionLayout: this.selectionLayout, tablePaintCache: this.tablePaintCache, drawingPageContexts: this.drawingPageContexts, lineNumbers: this.lineNumbers };
+      const printed = this.printLayout(), shown = revisionView.showHidden;
       if (hidden) revisionView.showHidden = false;
       try {
-        const printed = this.computeLayout(null);
-        Object.assign(this, printed, { selectionLayout: printed.layout, tablePaintCache: new Map(), drawingPageContexts: drawingPageContexts(printed.layout, this.pageStories), view: null });
+        const body = this.session.body;
+        // The printed pages' own line numbers: a screen view has none, and shown hidden text has lines the paper does not.
+        const lineNumbers = lineNumberLabels(printed.layout, body.paragraphs, body.numbering, body.styles, this.measure);
+        Object.assign(this, printed, { selectionLayout: printed.layout, tablePaintCache: new Map(), drawingPageContexts: drawingPageContexts(printed.layout, this.pageStories), view: null, lineNumbers });
         return this.paintSheets(pages);
       } finally { revisionView.showHidden = shown; Object.assign(this, screen); }
     }
@@ -1798,6 +1861,11 @@ export class CanvasEditor {
     if (e.key === 'Tab' && !mod && !e.altKey && !leaveWithTab && this.listTab(e.shiftKey ? -1 : 1)) {
       e.preventDefault(); this.changeListLevel(e.shiftKey ? -1 : 1); return;
     }
+    // Tab over a selection that runs past a paragraph's end indents those paragraphs (list items a level) and Shift+Tab
+    // outdents them, as other word processors do: one tab typed over them took their text away.
+    if (e.key === 'Tab' && !mod && !e.altKey && !leaveWithTab && this.tabIndents(e.shiftKey ? -1 : 1)) {
+      e.preventDefault(); this.changeListLevel(e.shiftKey ? -1 : 1); return;
+    }
     if (e.key === 'Tab' && !e.shiftKey && !mod && !e.altKey && !leaveWithTab) {
       e.preventDefault(); this.insertTab(); return;
     }
@@ -1820,6 +1888,13 @@ export class CanvasEditor {
     const targets = this.model.selectedParagraphs, [start] = this.model.range;
     return locate(this.model.paragraphs, start).offset === 0 && targets.every(p => p.list && p.list.level + delta >= 0 && p.list.level + delta <= 8);
   }
+  /** Whether Tab (1) or Shift+Tab (-1) indents or outdents the selected paragraphs: the selection runs past a paragraph's end. */
+  tabIndents(delta) {
+    const [start, end] = this.model.range, paragraphs = this.model.paragraphs;
+    if (start === end || locate(paragraphs, start).index === locate(paragraphs, end).index) return false;
+    // Outdented already, Shift+Tab moves on from the document, as it does elsewhere.
+    return delta > 0 || this.model.selectedParagraphs.some(p => p.list ? p.list.level > 0 : paragraphFormat(p, this.model.numbering).indentLeft > 0);
+  }
   beforeInput(e) {
     if (this.readOnly || this.viewOnly) { e.preventDefault(); return; }
     if (e.isComposing || this.composition || !e.cancelable) return;
@@ -1827,6 +1902,9 @@ export class CanvasEditor {
     // block's own cells, as Delete does, not every cell its text range runs through.
     if (e.inputType.startsWith('delete') && this.model.activeCellBlock) { e.preventDefault(); this.deleteSelection(); return; }
     this.nativeSelection();
+    // Option or Ctrl+Backspace (or Delete) beside text the view hides deletes the word a reader sees past it: from
+    // the caret the field would delete the hidden words, struck out already, and the key did nothing.
+    if (e.inputType === 'deleteWordBackward' || e.inputType === 'deleteWordForward') this.passHiddenText(e.inputType === 'deleteWordBackward' ? -1 : 1);
     if (e.inputType === 'historyUndo' || e.inputType === 'historyRedo') { e.preventDefault(); e.inputType === 'historyUndo' ? this.undo() : this.redo(); return; }
     const actions = {
       insertText: () => this.model.replace(e.data || ''),
@@ -1851,7 +1929,10 @@ export class CanvasEditor {
       this.nativeInsertion = expected;
       try { this.typeText(actions.insertText, data); } finally { this.nativeInsertion = null; }
       const [start, end] = this.model.range;
-      if (expected !== null && data && start === end && start === a + data.length && this.inputText === expected) {
+      // Text with line breaks (dictation, a text replacement, an input method's long commit) the browser inserts a
+      // line at a time, one input event each: every one would set the document's text back to the partial field
+      // and lay it out again, so a long insertion took seconds. The field takes the document's text at once instead.
+      if (expected !== null && data && !/[\n\r\v\f\u000e]/.test(data) && start === end && start === a + data.length && this.inputText === expected) {
         this.awaitedInput = expected;
         // Should the browser not insert it after all, the field takes the document's text as usual.
         setTimeout(() => { if (this.awaitedInput === expected) { this.awaitedInput = null; this.syncInput(); } });
@@ -1895,6 +1976,24 @@ export class CanvasEditor {
       this.typingGroup = { revision: this.session.revision, path: this.session.path, at: this.model.selection.focus, last: text.at(-1) };
       if (text.length === 1) this.assistTyping(text);
     }
+  }
+  /**
+   * Once the view hides text (Simple Markup, No Markup, hidden text no longer shown), a caret left inside it goes to
+   * where it shows: typed text already does (typeText), but an input method composes at the field's caret.
+   */
+  leaveHiddenText() {
+    const [start, end] = this.model.range;
+    if (start !== end || this.composition) return;
+    const shown = outsideHiddenText(this.model.paragraphs, start);
+    if (shown === start) return;
+    this.model.select(shown); this.caretAffinity = 'forward'; this.preferredX = null;
+    this.syncInput(); this.onSelection();
+  }
+  /** Move a caret beside hidden text in `direction` past it, so the native field's next deletion starts there. */
+  passHiddenText(direction) {
+    const [start, end] = this.model.range, stretch = start === end && hiddenStretchAt(this.model.paragraphs, start);
+    if (!stretch || (direction < 0 ? stretch[0] >= start : start >= stretch[1])) return;
+    this.model.select(stretch[direction < 0 ? 0 : 1]); this.syncInput();
   }
   // A run of Backspace (or Delete) presses is one undo step,
   // until the caret moves or anything else changes.
@@ -2051,10 +2150,23 @@ export class CanvasEditor {
       }, () => this.validateStory(), { record: false });
     } catch (e) { this.session.restore(before); this.onError(e); }
     this.composition = null;
-    const changed = JSON.stringify(before.state.paragraphs) !== JSON.stringify(this.model.paragraphs);
-    if (changed) this.session.record(before);
+    // Unchanged without a new revision, and changed with new text; only the rest (text composed and then removed,
+    // over a selection Track Changes kept struck out) compares the whole document: a long one took a while for every
+    // syllable an input method commits.
+    const model = this.model, changed = model.revision !== before.revision && (model.text !== this.compositionBaseText
+      || JSON.stringify(before.state.paragraphs) !== JSON.stringify(model.paragraphs));
+    this.compositionBaseText = null;
+    const group = this.compositionGroup, composed = typeof committed === 'string' ? committed : this.compositionText || '';
+    this.compositionGroup = null; this.typingGroup = null;
+    // A new word starts a new undo step, as it does for typed text. So does text the composition put anywhere but
+    // where that typing ended: the caret then ends right after it (a caret the model had not yet followed).
+    const { anchor, focus } = model.selection;
+    const merge = changed && !!group && anchor === focus && focus === group.at + composed.length
+      && !(/\S/u.test(composed[0] || '') && /\s/u.test(group.last || ''));
+    if (changed && !merge) this.session.record(before);
     this.relayout();
     if (changed) this.onChange();
+    if (changed) this.typingGroup = { revision: this.session.revision, path: this.session.path, at: this.model.selection.focus, last: composed.at(-1) ?? group?.last };
     // A dead key (´ then e, or a quote on an international layout) composes one character, which is corrected and
     // linked as one typed with a key is: É at a sentence's start, a typographic quote.
     if (changed && typeof committed === 'string' && [...committed].length === 1) this.assistTyping(committed);
@@ -2107,15 +2219,16 @@ export class CanvasEditor {
       const model = this.model, rows = new Map();
       for (const { cell, rowIndex } of cellBlockPlacements(block.table, block)) {
         const first = model.paragraphs.findIndex(p => p.cellId === cell.id), last = model.paragraphs.findLastIndex(p => p.cellId === cell.id);
-        const text = first < 0 ? '' : model.clipboardText(noteText, [model.paragraphOffset(first), model.paragraphOffset(last) + paragraphText(model.paragraphs[last]).length]);
+        const text = first < 0 ? '' : model.clipboardText(noteText, [model.paragraphOffset(first), model.paragraphOffset(last) + paragraphText(model.paragraphs[last]).length], hiddenRun);
         if (!rows.has(rowIndex)) rows.set(rowIndex, []);
         rows.get(rowIndex).push(text);
       }
       return { text: [...rows.values()].map(cells => cells.join('\t')).join('\n'), html: '' };
     }
     const picture = pictureHtml(this.model);
-    const fragment = !picture && copyFragment(this.model);
-    return { text: this.model.clipboardText(noteText), html: picture || (fragment ? fragmentHtml(fragment) : '') };
+    // What the view hides (a deletion in Simple Markup, hidden text) is not copied: pasted, it came back as ordinary text.
+    const fragment = !picture && copyFragment(this.model, { hidden: hiddenRun });
+    return { text: this.model.clipboardText(noteText, undefined, hiddenRun), html: picture || (fragment ? fragmentHtml(fragment) : '') };
   }
   /** Paste with the clipboard's formatting where the document can take it, else as plain text. */
   pasteData(text, html = '') {

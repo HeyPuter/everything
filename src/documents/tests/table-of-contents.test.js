@@ -77,4 +77,33 @@ describe('table of contents', () => {
     expect(d.paragraphs[1].styleId).toBe('Heading1');
     expect(d.paragraphs[0].format.tabs).toEqual([]);
   });
+
+  // With Track Changes on, Remove Table of Contents removed the table untracked: no change to reject.
+  it('removes the table as a tracked deletion that can be accepted or rejected', async () => {
+    const { pkg, d } = await headingDocument();
+    insertTableOfContents(d);
+    refreshPageReferences(d, layoutOf(pkg), pkg.pageStories, { checkpoint: false });
+    const withTable = d.text;
+    d.revisionAuthor = 'Reviewer';
+    expect(removeTableOfContents(d, tableOfContents(d.paragraphs), { tracked: true })).toBe(true);
+    expect(d.text).toBe(withTable);
+    const [deletion] = d.revisions;
+    expect(d.revisions).toHaveLength(1);
+    expect(deletion).toMatchObject({ type: 'del', author: 'Reviewer', start: withTable.indexOf('Contents') });
+    expect(withTable.slice(deletion.end)).toMatch(/^Intro\nChapter one\nBody text/);
+    d.resolveRevisions(false);
+    expect(d.text).toBe(withTable);
+    expect(tableOfContents(d.paragraphs)).not.toBeNull();
+    removeTableOfContents(d, tableOfContents(d.paragraphs), { tracked: true });
+    d.resolveRevisions(true);
+    expect(d.text.startsWith('Intro\nChapter one\nBody text')).toBe(true);
+    expect(tableOfContents(d.paragraphs)).toBeNull();
+    // The deleted field is saved as deleted, code and all.
+    removeTableOfContents(d);
+    d.undo(); d.undo();
+    insertTableOfContents(d);
+    removeTableOfContents(d, tableOfContents(d.paragraphs), { tracked: true });
+    const xml = strFromU8(unzipSync(await save(pkg, d))['word/document.xml']);
+    expect(xml).toMatch(/<w:del [^>]*><w:r><w:fldChar w:fldCharType="begin"\/><\/w:r><w:r><w:delInstrText xml:space="preserve"> TOC /);
+  });
 });

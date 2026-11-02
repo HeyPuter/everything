@@ -38,20 +38,26 @@ function literalMatcher(query, matchCase) {
   };
 }
 
-/** [start, end) of a paragraph's text tracked as deleted, or null when it has none. */
-export function deletedSpans(p) {
-  if (!p.runs.some(r => r.revision?.type === 'del')) return null;
+/**
+ * [start, end) of a paragraph's text a search passes over, or null when it has none: text tracked as deleted with
+ * `skipDeleted`, and the runs `hidden(run)` names (text the view hides, hidden-text.js).
+ */
+export function skippedSpans(p, skipDeleted, hidden = null) {
+  const skipped = run => skipDeleted && run.revision?.type === 'del' || !!hidden?.(run);
+  if (!p.runs.some(skipped)) return null;
   const spans = []; let at = 0;
-  for (const run of p.runs) { if (run.revision?.type === 'del' && run.text) spans.push([at, at + run.text.length]); at += run.text.length; }
+  for (const run of p.runs) { if (run.text && skipped(run)) spans.push([at, at + run.text.length]); at += run.text.length; }
   return spans;
 }
+/** [start, end) of a paragraph's text tracked as deleted, or null when it has none. */
+export const deletedSpans = p => skippedSpans(p, true);
 /** Whether [start, end) takes in any of `spans`. */
 export const overlaps = (spans, start, end) => !!spans && spans.some(([a, b]) => a < end && b > start);
 
 // Search logical source paragraphs, so repeated headers are counted once and
 // formatting boundaries do not interrupt text. Never match half a grapheme.
 // With `skipDeleted` (Track Changes on), text tracked as deleted is not found: replacing it again
-// only added the replacement once more beside the deletion.
+// only added the replacement once more beside the deletion. With `hidden(run)`, neither is text the view hides.
 // Text of these characters has a grapheme boundary between every two (none combines with a neighbour), and
 // matches without case as its lowercase form does: no character's lowercase differs in length or folds otherwise.
 const SIMPLE = /^[\t\v\f\u000e\u0020-\u007e\u00a0-\u00ff\ufffc]*$/;
@@ -86,7 +92,7 @@ function quoteFolding(query) {
   return families.length ? text => families.reduce((folded, [, curly, straight]) => folded.replace(curly, straight), text) : null;
 }
 
-export function findText(paragraphs, query, { matchCase = false, wholeWord = false, skipDeleted = false } = {}) {
+export function findText(paragraphs, query, { matchCase = false, wholeWord = false, skipDeleted = false, hidden = null } = {}) {
   checkedSearchText(query);
   if (!query) return [];
   // Punctuation or spaces alone are no whole word.
@@ -97,7 +103,7 @@ export function findText(paragraphs, query, { matchCase = false, wholeWord = fal
   const matches = []; let at = 0;
   paragraphs.forEach((p, paragraph) => {
     const text = p.runs.map(r => r.text).join(''), searched = fold ? fold(text) : text;
-    const deleted = skipDeleted ? deletedSpans(p) : null;
+    const deleted = skipDeleted || hidden ? skippedSpans(p, skipDeleted, hidden) : null;
     // Segmenting every paragraph of a long document on each search held up typing while Find was open.
     const simple = simpleQuery && SIMPLE.test(searched);
     const boundaries = simple ? null : new Set([...inlineSegments(text)].map(s => s.index).concat(text.length));

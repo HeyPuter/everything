@@ -9,7 +9,7 @@ import { check, field, number, openDialog, select, text } from './references-ui.
 export const NOTE_FORMAT_CHOICES = [['decimal', '1, 2, 3, …'], ['lowerLetter', 'a, b, c, …'], ['upperLetter', 'A, B, C, …'], ['lowerRoman', 'i, ii, iii, …'], ['upperRoman', 'I, II, III, …'], ['chicago', '*, †, ‡, §, …']];
 
 export function createNoteCommands(ctx) {
-  const { editor, pkg, ready, fail, error, onChange } = ctx;
+  const { editor, pkg, ready, fail, error, onChange, unshared = () => {} } = ctx;
   const settingsKey = kind => `${kind}s`;
 
   async function insertNote(kind = 'footnote', { customMark = '' } = {}) {
@@ -22,14 +22,16 @@ export function createNoteCommands(ctx) {
         // The shortcut pressed in a header or footer used to leave it and put the note wherever the caret was last in the text.
         throw new Error('Footnotes and endnotes go in the text of the document. Close the header or footer first.');
       }
+      unshared(`New ${kind}s`);
       const { TextDocument, paragraph } = await import('../engine/model.js');
-      const body = engine.session.body, styles = body.styles.definitions || {};
-      const named = (type, name) => Object.values(styles).find(s => s.type === type && s.name?.toLowerCase() === name)?.id;
-      const textStyle = named('paragraph', `${kind} text`), referenceStyle = named('character', `${kind} reference`);
+      const body = engine.session.body;
       const note = kind === 'footnote' ? pkg().addFootnote() : pkg().addEndnote();
       const mark = customMark.trim();
+      let textStyle = null, referenceStyle = null;
       if (!engine.execute(() => {
-        body.insertFootnoteReference(note.id, kind, { custom: !!mark });
+        // Word's Footnote Text and Footnote Reference styles (or the endnote ones), added when missing.
+        ({ textStyle, referenceStyle } = body.addNoteStyles(kind));
+        body.insertFootnoteReference(note.id, kind, { custom: !!mark, style: referenceStyle });
         if (mark) {
           const at = body.range[0];
           body.replace(mark);
@@ -38,7 +40,7 @@ export function createNoteCommands(ctx) {
         return true;
       })) return;
       // The note opens with its own number mark (or the custom mark), then a space, as existing documents start one.
-      const draft = new TextDocument([paragraph('', textStyle ? { styleId: textStyle } : {})], body.pageSettings, body.numbering, body.styles, [], body.assets);
+      const draft = new TextDocument([paragraph('', textStyle ? { styleId: textStyle, styleChanged: true } : {})], body.pageSettings, body.numbering, body.styles, [], body.assets);
       draft.paragraphs[0].runs = mark
         ? [{ ...draft.typingRun(0), text: mark, verticalAlign: 'superscript', overrides: { verticalAlign: 'superscript' } }, { ...draft.typingRun(0), text: ' ' }]
         : notes.footnoteOpeningRuns(draft.typingRun(0), referenceStyle, kind);
@@ -206,6 +208,7 @@ export function createNoteCommands(ctx) {
   /** Convert notes between kinds: the reference keeps its place; the note text moves to the other part. */
   async function convertNotes(mode) {
     const engine = ready(); if (!engine) return false;
+    try { unshared('Footnotes and endnotes', 'converted'); } catch (e) { error(e); return false; }
     engine.finishComposition();
     if (engine.session.path !== null) engine.editStory(null);
     const notes = await import('../engine/footnotes.js');

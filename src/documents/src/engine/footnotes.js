@@ -5,6 +5,7 @@
 // derived from reference order and the note settings, never stored as text.
 import { formatPageNumber } from './page-numbering.js';
 import { OBJECT } from './images.js';
+import { runRevisionDisplay } from './revisions.js';
 
 /** The two note kinds and their mark, part and element names. */
 export const NOTE_KINDS = {
@@ -21,13 +22,17 @@ export const footnoteStoryId = path => /#(-?\d+)$/.exec(path || '')?.[1] ?? null
 /** Whether a page-story kind is a note (edited in place in its page area). */
 export const isNoteStoryKind = kind => kind === 'footnote' || kind === 'endnote';
 
-/** Body references of `kind` in document order: [{ id, position, paragraphId, section, custom }]. */
-export function noteReferences(paragraphs, kind = 'footnote') {
+/**
+ * Body references of `kind` in document order: [{ id, position, paragraphId, section, custom }]. With `shown`, only
+ * those the revision view shows: Simple Markup and No Markup leave out a reference that is a tracked deletion
+ * (Original, a tracked insertion), with its note and its number, as if the changes were accepted.
+ */
+export function noteReferences(paragraphs, kind = 'footnote', shown = false) {
   const name = NOTE_KINDS[kind].reference, refs = []; let at = 0, section = 0;
   for (const p of paragraphs) {
     let offset = at;
     for (const run of p.runs) {
-      if (run.noteMark?.kind === name) refs.push({ id: run.noteMark.id, position: offset, paragraphId: p.id, section, custom: !!run.noteMark.custom });
+      if (run.noteMark?.kind === name && !(shown && run.revision && runRevisionDisplay(run)?.hidden)) refs.push({ id: run.noteMark.id, position: offset, paragraphId: p.id, section, custom: !!run.noteMark.custom });
       offset += run.text.length;
     }
     at = offset + 1;
@@ -43,9 +48,9 @@ export function footnoteReferences(paragraphs) { return noteReferences(paragraph
  * Displayed number for each referenced note id. `restart` is continuous, eachSect or eachPage (the latter
  * needs `pages`: Map(id -> page)). Custom-marked notes show no number and take none.
  */
-export function noteNumbers(paragraphs, { format = 'decimal', start = 1, restart = 'continuous' } = {}, kind = 'footnote', pages = null) {
+export function noteNumbers(paragraphs, { format = 'decimal', start = 1, restart = 'continuous' } = {}, kind = 'footnote', pages = null, shown = false) {
   const numbers = new Map(); let n = start, group = null;
-  for (const ref of noteReferences(paragraphs, kind)) {
+  for (const ref of noteReferences(paragraphs, kind, shown)) {
     if (numbers.has(ref.id)) continue;
     if (ref.custom) { numbers.set(ref.id, ''); continue; }
     const key = restart === 'eachSect' ? ref.section : restart === 'eachPage' && pages ? pages.get(ref.id) ?? group : null;

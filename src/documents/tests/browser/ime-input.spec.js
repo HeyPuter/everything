@@ -41,10 +41,12 @@ test('a toolbar command during IME composition commits it and applies instead of
   await expect(input(page)).toHaveValue('Hello world你x');
   expect(await page.evaluate(() => window.__docs.current.view.engine.model.paragraphs[0].runs.map(r => [r.text, !!r.bold])))
     .toEqual([['Hello world你', false], ['x', true]]);
-  // Undo from the toolbar during a composition commits it too, then takes back the last step.
+  // Undo from the toolbar during a composition commits it too, then takes back the last step (the composed
+  // word: after a space it does not go on in the typing before it).
+  await page.keyboard.type(' ');
   await cdp.send('Input.imeSetComposition', { text: 'か', selectionStart: 1, selectionEnd: 1 });
   await page.getByRole('button', { name: 'Undo', exact: true }).click();
-  await expect(input(page)).toHaveValue('Hello world你x');
+  await expect(input(page)).toHaveValue('Hello world你x ');
   expect(await state(page)).toMatchObject({ composing: false, focused: true });
 });
 
@@ -116,4 +118,25 @@ test('a letter or quote composed with a dead key is corrected as a typed one is'
   for (const text of ['n', 'ni', 'ni"']) await cdp.send('Input.imeSetComposition', { text, selectionStart: text.length, selectionEnd: text.length });
   await cdp.send('Input.insertText', { text: 'ni"' });
   await expect(input(page)).toHaveValue('Él dijo. Árbol ‘hola\' ni"');
+});
+
+test('a Korean word, committed a syllable at a time, undoes in one step as a typed word does', async ({ page }) => {
+  await page.goto('/mock.html#/new');
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await input(page).focus();
+  const cdp = await page.context().newCDPSession(page);
+  const syllable = async (...steps) => {
+    for (const text of steps) await cdp.send('Input.imeSetComposition', { text, selectionStart: text.length, selectionEnd: text.length });
+    await cdp.send('Input.insertText', { text: steps.at(-1) });
+  };
+  await syllable('ㅇ', '아', '안'); await syllable('ㄴ', '녀', '녕'); await syllable('ㅎ', '하');
+  await page.keyboard.type(' ');
+  await syllable('ㅅ', '세'); await syllable('ㅇ', '요');
+  await expect(input(page)).toHaveValue('안녕하 세요');
+  await input(page).press('ControlOrMeta+z');
+  await expect(input(page)).toHaveValue('안녕하 ');
+  await input(page).press('ControlOrMeta+z');
+  await expect(input(page)).toHaveValue('');
+  await input(page).press('ControlOrMeta+Shift+z');
+  await expect(input(page)).toHaveValue('안녕하 ');
 });

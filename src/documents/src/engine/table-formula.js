@@ -234,11 +234,15 @@ function splitSections(picture) {
   }
   return sections;
 }
-/** Format a number with a numeric picture (§17.16.4.2): 0 # , . and literals; sections positive;negative;zero. */
+/**
+ * Format a number with a numeric picture (§17.16.4.2): 0 # x , . + - and literals ('quoted' or not); sections
+ * positive;negative;zero. x drops the digits to its left; + and - show the sign where they stand.
+ */
 export function formatFormulaNumber(value, picture) {
   if (!Number.isFinite(value)) throw new Error('The result is not a number.');
   if (!picture) {
-    const rounded = Math.round(value * 100) / 100;
+    // Halves round away from zero in the number's decimal digits, as ROUND does (1.005 shows 1.01).
+    const rounded = roundAway(value, 2);
     return String(Object.is(rounded, -0) ? 0 : rounded);
   }
   const sections = splitSections(picture);
@@ -248,25 +252,35 @@ export function formatFormulaNumber(value, picture) {
   for (let i = 0; i < section.length; i++) {
     const ch = section[i];
     if (ch === "'") { const end = section.indexOf("'", i + 1); items.push({ literal: section.slice(i + 1, end < 0 ? section.length : end) }); i = end < 0 ? section.length : end; }
-    else if ('0#,.x'.includes(ch)) items.push({ token: ch === 'x' ? '#' : ch });
+    else if ('0#,.x'.includes(ch)) items.push({ token: ch });
+    else if (ch === '+' || ch === '-') items.push({ sign: ch });
     else items.push({ literal: ch });
   }
-  const first = items.findIndex(item => item.token && item.token !== ','), last = items.findLastIndex(item => item.token && item.token !== ',');
-  if (first < 0) return items.map(item => item.literal ?? '').join('');
+  const digit = item => item.token && item.token !== ',';
+  const first = items.findIndex(digit), last = items.findLastIndex(digit);
+  const signs = items.some(item => item.sign);
+  // A sign placeholder shows the sign itself: + a plus or minus (a space for zero), - a minus or a space.
+  const shown = item => item.literal ?? (item.sign === '+' ? (value > 0 ? '+' : value < 0 ? '-' : ' ') : item.sign === '-' ? (value < 0 ? '-' : ' ') : '');
+  if (first < 0) return items.map(shown).join('');
   const body = items.slice(first, last + 1), dot = body.findIndex(item => item.token === '.');
   const integer = dot < 0 ? body : body.slice(0, dot), fraction = dot < 0 ? [] : body.slice(dot + 1).filter(item => item.token);
-  const decimals = fraction.length, grouping = integer.some(item => item.token === ',');
+  const decimals = fraction.length;
+  // A comma anywhere before the decimal point groups thousands, also one before the first digit ($,0.00).
+  const grouping = items.slice(0, first + (dot < 0 ? body.length : dot)).some(item => item.token === ',');
   const minimum = integer.filter(item => item.token === '0').length;
-  let [whole, part = ''] = Math.abs(value).toFixed(decimals).split('.');
-  if (whole === '0' && !minimum) whole = '';
+  let [whole, part = ''] = Math.abs(roundAway(value, decimals)).toFixed(decimals).split('.');
+  // An x as the first integer placeholder keeps only as many digits as there are placeholders from it on.
+  const integerDigits = integer.filter(digit);
+  if (integerDigits[0]?.token === 'x') whole = whole.slice(-integerDigits.length);
+  if (/^0*$/.test(whole) && !minimum) whole = '';
   whole = whole.padStart(minimum, '0');
   if (grouping) whole = whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
   // Optional fraction places drop their trailing zeros.
-  for (let i = fraction.length - 1; i >= 0 && fraction[i].token === '#' && part.endsWith('0'); i--) part = part.slice(0, -1);
+  for (let i = fraction.length - 1; i >= 0 && fraction[i].token !== '0' && part.endsWith('0'); i--) part = part.slice(0, -1);
   const number = whole + (part ? '.' + part : decimals && fraction.some(f => f.token === '0') ? '.' : '');
-  const inner = body.filter(item => item.literal).map(item => item.literal).join('');
-  const sign = value < 0 && !negativeSection && Math.abs(value) >= 0.5 * 10 ** -decimals ? '-' : '';
-  return sign + items.slice(0, first).map(item => item.literal ?? '').join('') + number + inner + items.slice(last + 1).map(item => item.literal ?? '').join('');
+  const inner = body.filter(item => !item.token).map(shown).join('');
+  const sign = value < 0 && !negativeSection && !signs && Math.abs(value) >= 0.5 * 10 ** -decimals ? '-' : '';
+  return sign + items.slice(0, first).map(shown).join('') + number + inner + items.slice(last + 1).map(shown).join('');
 }
 
 /* ---- Fields ---- */

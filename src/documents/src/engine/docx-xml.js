@@ -27,6 +27,18 @@ export function setContentTypeOverride(types, partName, contentType) {
   override.setAttribute('PartName', partName); override.setAttribute('ContentType', contentType);
   return override;
 }
+/**
+ * Declare a part's content type in the package's [Content_Types].xml (setContentTypeOverride), rewriting the
+ * stream only when it lacks that declaration: one Override for the part name, in any case, with this type.
+ */
+export function declareContentType(parts, partName, contentType) {
+  const types = parseXml(parts['[Content_Types].xml']), key = partName.toLowerCase();
+  const matches = [...types.documentElement.children].filter(n => n.localName === 'Override' && n.getAttribute('PartName')?.toLowerCase() === key);
+  if (matches.length === 1 && matches[0].getAttribute('ContentType') === contentType) return false;
+  setContentTypeOverride(types, partName, contentType);
+  parts['[Content_Types].xml'] = new TextEncoder().encode(new XMLSerializer().serializeToString(types));
+  return true;
+}
 
 // Elements nested deeper than this are not read structurally. Real documents stay far below it
 // (tables nested 60 deep are about 200 levels), but the readers walk the tree recursively, and a

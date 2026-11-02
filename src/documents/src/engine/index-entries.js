@@ -3,7 +3,7 @@
 // position; an INDEX field's cached result lists the entries alphabetically
 // with the pages they fall on, indented or run-in, with letter headings.
 import { bodyFieldRanges } from './body-fields.js';
-import { bookmarkEntries } from './bookmarks.js';
+import { bookmarkEntries, bookmarksByName, bookmarkNamed } from './bookmarks.js';
 import { fieldInstructionTokens } from './docx-page-fields.js';
 import { fieldsOfType, insertEntryField, insertEntryFields, newBodyField, writeBlockField } from './generated-fields.js';
 
@@ -97,8 +97,8 @@ const sortText = node => (node.yomi || node.text).replace(/^[^\p{L}\p{N}]+/u, ''
  * position; `options` come from parseIndexInstruction.
  */
 export function indexRows(doc, options, pageOf) {
-  const scope = options.bookmark ? bookmarkEntries(doc.paragraphs, doc.tables).find(b => b.name === options.bookmark) : null;
-  const marks = new Map(bookmarkEntries(doc.paragraphs, doc.tables).map(b => [b.name, b]));
+  const marks = bookmarksByName(bookmarkEntries(doc.paragraphs, doc.tables));
+  const scope = options.bookmark ? bookmarkNamed(marks, options.bookmark) : null;
   const root = { children: new Map() };
   for (const r of indexEntries(doc.paragraphs)) {
     const e = r.entry;
@@ -112,7 +112,7 @@ export function indexRows(doc, options, pageOf) {
     });
     if (e.crossReference !== null) { if (!node.cross.includes(e.crossReference)) node.cross.push(e.crossReference); continue; }
     let page;
-    const mark = e.bookmark && marks.get(e.bookmark);
+    const mark = e.bookmark && bookmarkNamed(marks, e.bookmark);
     if (mark) {
       const from = pageOf(mark.start, mark.startParagraph), to = pageOf(Math.max(mark.start, mark.end - 1), mark.endParagraph || mark.startParagraph);
       if (from && to) page = from.number === to.number ? { ...from } : { text: `${from.text}${options.rangeSeparator}${to.text}`, number: from.number };
@@ -140,11 +140,14 @@ export function indexRows(doc, options, pageOf) {
   const rows = [];
   let letter = null;
   for (const main of sorted(root.children)) {
-    const first = sortText(main)[0]?.toUpperCase() || '';
-    if (letters && (first < letters[1].toUpperCase() || first > letters[2].toUpperCase())) continue;
+    // An entry's letter is its first letter without accents (É is filed under E, as the sort interleaves them);
+    // entries starting with a digit or symbol share one # heading.
+    const initial = [...sortText(main)][0] || '', base = initial.normalize('NFD').replace(/\p{M}/gu, '').toUpperCase();
+    const first = /\p{L}/u.test(base) ? base : '#';
+    if (letters && (first === '#' || collator.compare(first, letters[1]) < 0 || collator.compare(first, letters[2]) > 0)) continue;
     if (options.headings && first !== letter) {
       letter = first;
-      const heading = /\p{L}/u.test(first) ? options.headings.replace(/A/, first) : options.headings.replace(/A/, '#');
+      const heading = options.headings.replace(/A/, first);
       if (heading.trim()) rows.push({ heading: true, level: 0, runs: [{ text: heading }] });
     }
     if (options.runIn) {

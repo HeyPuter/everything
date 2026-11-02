@@ -20,6 +20,9 @@ export class StorySession {
     this.revision = 0;
     // guard(beforeState, model, path) throws to refuse a change (document protection).
     this.guard = null;
+    // untracked(path) hears of each change made in a header, footer or note while Track Changes is on: tracked
+    // changes are recorded in the body only, so the change there is not tracked.
+    this.untracked = null;
     this.prepareSnapshot();
   }
   get model() { return this.models.get(this.path); }
@@ -110,7 +113,11 @@ export class StorySession {
         this.guard?.(before.state, model, this.path);
       }
       validate(model);
-      if (model.revision !== before.revision) { if (record) this.record(before); this.revision++; }
+      if (model.revision !== before.revision) {
+        if (record) this.record(before);
+        this.revision++;
+        if (this.path !== null && this.body.trackChanges) this.untracked?.(this.path);
+      }
       model.history = []; model.future = [];
       this.prepareSnapshot();
       return result;

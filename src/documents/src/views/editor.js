@@ -1,6 +1,6 @@
 import { MAX_FONT_SIZE } from '../engine/font-size.js';
 import { stepFontSize, FALLBACK_SIZES } from '../lib/fontsize.js';
-import { countWords } from '../core/text.js';
+import { statusWordCount } from './word-count.js';
 import { previewNotice, pictureFontNotice, scriptFontNotice, omittedPictureNotice } from './preview-notice.js';
 import { importNotice } from '../ui/importnotice.js';
 import { createCanvasRulers } from '../ui/canvas-rulers.js';
@@ -13,6 +13,7 @@ import { openRowHeight, rowHeightLabel } from './row-height.js';
 import { openLineSpacing } from './line-spacing.js';
 import { CELL_ALIGNMENTS } from '../engine/cell-alignment.js';
 import { paragraphFormat } from '../engine/model.js';
+import { revisionView } from '../engine/revisions.js';
 import { openParagraphShading, paragraphShadingLabel } from './paragraph-shading.js';
 import { openHyperlink } from './hyperlink.js';
 import { createLinkCard } from './link-card.js';
@@ -64,6 +65,7 @@ import { createReviewTools } from './review-tools.js';
 import { createReferences } from './references.js';
 import { createMailings } from './mailings.js';
 import { createDocumentViews } from './document-views.js';
+import { isContinuousView } from '../engine/document-views.js';
 import { createInsert, pictureFile } from './insert-tab.js';
 import { imageFilesFrom } from '../lib/images.js';
 import { createDraw } from './draw-tab.js';
@@ -107,6 +109,7 @@ import { createCollaboration, localGuest } from './collab.js';
 import { createVersionHistory } from './version-history.js';
 import { createAssistantPane } from './assistant-pane.js';
 import { openCompareDialog } from './compare-dialog.js';
+import { parseDiagramDescription } from '../engine/diagram-builder.js';
 
 /** How long leaving the editor waits for a save before asking what to do. */
 export const FLUSH_STALL_MS = 15000;
@@ -312,7 +315,9 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
       if (pkg.readOnly) { P.downloadBlob(doc.blob, P.ensureDocx(doc.name)); return; }
       engine.finishComposition();
       P.downloadBlob(engine.export(pkg), P.ensureDocx(title.value || 'Untitled document'));
-      renderStatus('Downloaded', 'download');
+      // On this device the download is the save. A copy of a document on Puter leaves its file as it was: the status
+      // still says whether that file has the edits ("Unsaved changes" with AutoSave off).
+      if (local) renderStatus('Downloaded', 'download');
     } catch (e) { error(e); }
   };
   const save = async () => {
@@ -353,7 +358,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
   // The format area's search covers the body, a selection, and headers and footers (advanced options).
   const finder = findReplacePanel({ readOnly: () => !!pkg?.readOnly, matches: (text, options) => engine?.model.findMatches(text, options) || [],
     // What the matches depend on: the document, any change to any of its stories, and the story being edited.
-    version: () => (engine ? [engine, engine.session.revision, engine.session.body.revision, engine.session.path, engine.model] : null), range: () => engine?.model.range || [0, 0], textLength: () => engine?.model.text.length ?? 0, select: match => engine?.selectMatch(match), highlight: matches => engine?.setFindHighlights(matches), replace: (...args) => engine?.replaceMatches(...args), ...formatArea.findApi, close: () => { find.setAttribute('aria-expanded', 'false'); engine?.focus(); } });
+    version: () => (engine ? [engine, engine.session.revision, engine.session.body.revision, engine.session.path, engine.model, revisionView.mode, revisionView.showHidden, revisionView.options.hiddenAuthors.join()] : null), range: () => engine?.model.range || [0, 0], textLength: () => engine?.model.text.length ?? 0, select: match => engine?.selectMatch(match), highlight: matches => engine?.setFindHighlights(matches), replace: (...args) => engine?.replaceMatches(...args), ...formatArea.findApi, close: () => { find.setAttribute('aria-expanded', 'false'); engine?.focus(); } });
   const openFind = (options = {}) => {
     if (!engine) return;
     engine.finishComposition();
@@ -502,8 +507,8 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     },
     pages: () => engine?.canvases || [], flushPages: () => engine?.flushPaint?.(), currentPage: () => engine?.caretPageIndex ?? 0,
     // The search covers the document's body, also while a header, footer or note is being edited.
-    search: text => { try { return engine?.session.body.findMatches(text, {}) || []; } catch { return []; } },
-    version: () => (engine ? [engine, engine.session.revision, engine.session.body.revision, engine.session.path, engine.model, engine.model.revision, engine.model.trackChanges] : null),
+    search: text => { try { return engine?.session.body.findMatches(text, { visibleOnly: true }) || []; } catch { return []; } },
+    version: () => (engine ? [engine, engine.session.revision, engine.session.body.revision, engine.session.path, engine.model, engine.model.revision, engine.model.trackChanges, revisionView.mode, revisionView.showHidden, revisionView.options.hiddenAuthors.join()] : null),
     text: () => engine?.session.body.text || '',
     selectMatch: match => { if (!engine) return; engine.finishComposition(); if (engine.session.path !== null) engine.editStory(null); engine.selectMatch(match); },
     highlight: matches => engine?.setFindHighlights(engine.session.path === null ? matches : []),
@@ -775,7 +780,10 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
   editorCommands.drawingTextItems = () => {
     const image = engine?.model.selectedImage;
     if (!image || !pkg) return [];
-    return pkg.drawingTextFrames(image, engine.model.assets).map(frame => ({ label: `Text frame ${frame.index + 1}`, disabled: !!frame.reason || !!pkg.readOnly, hint: frame.reason,
+    // A diagram is rebuilt from the outline kept in its description: text typed into one of its shapes would be
+    // lost at the next Edit Diagram (and screen readers would go on reading the outline).
+    const diagram = image.retainedDrawing && parseDiagramDescription(image.alt) ? 'Use Edit Diagram to change a diagram’s text.' : null;
+    return pkg.drawingTextFrames(image, engine.model.assets).map(frame => ({ label: `Text frame ${frame.index + 1}`, disabled: !!frame.reason || !!diagram || !!pkg.readOnly, hint: frame.reason || diagram,
       // `options.select`: text to select when the editor opens (a new drawing's sample text).
       onSelect: async options => {
         const editor = engine, select = typeof options?.select === 'string' ? options.select : null;
@@ -817,7 +825,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
   const protectionHooks = {};
   const protectedDocument = () => !!protectionHooks.protectedDocument?.();
   const references = createReferences({ editor: () => engine, pkg: () => pkg, error, onChange: () => update(),
-    base: { protectedDocument, canEditHeader: editorCommands.canEditHeader, editHeader: editorCommands.editHeader, canUpdateFields: editorCommands.canUpdateFields, updateFields: editorCommands.updateFields,
+    base: { protectedDocument, shared: () => !!collab?.live, canEditHeader: editorCommands.canEditHeader, editHeader: editorCommands.editHeader, canUpdateFields: editorCommands.canUpdateFields, updateFields: editorCommands.updateFields,
       openBookmarks: () => bookmarks.click(), showFieldCodes: () => { if (engine && !editorCommands.marksVisible?.()) editorCommands.toggleMarks?.(); } } });
   const baseExtendMenu = editorCommands.extendMenu, baseContextMenuItems = editorCommands.contextMenuItems;
   Object.assign(editorCommands, references.commands);
@@ -929,9 +937,21 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     setLanguage: (tag, { noProof = false } = {}) => { if (!engine || pkg.readOnly || engine.viewOnly) return; engine.setRunFormat({ fontLanguage: tag, noProof: !!noProof }); proofing.changed(); },
     languageDialog: () => statusBar?.openLanguageDialog(),
     // Undo history.
-    undoLabel: () => { const top = engine?.session.history.at(-1); return top ? undoLabels.get(top) || null : null; },
-    undoHistory: () => engine ? [...engine.session.history].reverse().map(entry => undoLabels.get(entry) || 'Edit') : [],
-    undoSteps: count => { for (let i = 0; i < count && engine?.session.history.length; i++) engine.undo(); engine?.focus(); },
+    undoLabel: () => {
+      const top = engine?.session.history.at(-1);
+      return top ? undoLabels.get(top) || null : !collab.live && designVersions.undo.at(-1)?.label || null;
+    },
+    // What Undo steps back through, latest first: the editor's own steps, then the design changes before them (onHistoryEnd).
+    undoHistory: () => engine ? [...[...engine.session.history].reverse().map(entry => undoLabels.get(entry) || 'Edit'),
+      ...(collab.live ? [] : [...designVersions.undo].reverse().map(entry => entry.label || 'Design Change'))] : [],
+    async undoSteps(count) {
+      let left = count;
+      for (; left > 0 && engine?.session.history.length; left--) engine.undo();
+      // Each design change reopens the package: one after the other.
+      // A step not taken (typing while it opened) ends the run.
+      for (; left > 0 && designVersions.undo.length && !collab.live && !reopening && !destroyed; left--) if (!await stepDesignVersion('undo')) break;
+      engine?.focus();
+    },
     // File.
     openBackstage: (section, options) => backstage?.open(section, options),
     saveAs: cloud ? () => backstage.open('save') : null,
@@ -1140,7 +1160,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     readOnly: () => !engine || failed || !!pkg?.readOnly,
     properties: () => (pkg ? pkg.coreProperties : {}),
     setProperties: patch => { if (!pkg || pkg.readOnly || failed) return false; pkg.coreAuthor = session.username || pkg.coreAuthor; const changed = pkg.setCoreProperties(patch); if (changed) { doc.changed(); updateStatus(); } return changed; },
-    statistics: () => { if (!engine) return null; const stats = documentStatisticsOf(engine.session.body?.text ?? engine.model.text); return { pages: engine.layout.pageCount, ...stats }; },
+    statistics: () => { if (!engine) return null; const stats = documentStatisticsOf(engine.session.body?.text ?? engine.model.text); return { pages: engine.printedPages().count, ...stats }; },
     location: () => editorCommands.documentLocation().location, size: () => doc.size,
     versions: cloud && versioning.enabled ? () => (doc.path ? listVersions(doc.path, { uid: doc.uid }) : Promise.resolve([])) : null,
     versionsAvailable: () => !!doc.path,
@@ -1167,7 +1187,8 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
       return failure;
     } : null,
     refreshTitle: () => { title.value = doc.name; refreshTitle(); },
-    pageCount: () => engine?.layout.pageCount || 1, currentPage: () => Math.min(engine?.layout.pageCount || 1, (engine?.caretPageIndex ?? 0) + 1),
+    // Print counts the printed pages, which a screen view (Web Layout, Draft) or shown hidden text does not show.
+    pageCount: () => engine?.printedPages().count || 1, currentPage: () => engine?.printedPages().current || 1,
     print: options => printDocument(options), pageSetup: () => pageSetup.click(),
     previewPages: async (into, max) => {
       if (!engine) return;
@@ -1375,6 +1396,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     updateQueued = refreshSoon = true;
     queueMicrotask(runRefresh);
   }
+  const viewingControls = () => [...chrome.toolbar.querySelectorAll('button, input, select'), ...chrome.inspector.querySelectorAll('button.canvas-tool, input, select')];
   function refreshControls() {
     if (!engine || destroyed) return;
     const scriptSignature = JSON.stringify(engine.approximateScriptFonts || []);
@@ -1401,15 +1423,18 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     views.refresh();
     draw.update();
     if (pkg.readOnly || engine.viewOnly) {
-      // Read-only files and Viewing mode: the commands that change the document stay off.
-      for (const control of [...chrome.toolbar.querySelectorAll('button, input, select'), ...chrome.inspector.querySelectorAll('button.canvas-tool, input, select')]) if (!control.matches('.ed-ribbon-toggle')) control.disabled = true;
+      // Read-only files and Viewing mode: the commands that change the document stay off. Each is marked, so leaving
+      // Viewing mode turns on again the ones no refresh manages (More Styles, the Formatting Pane). A folded group
+      // still opens: the commands in it that work while viewing (zoom, views) stay reachable in a narrow window.
+      for (const control of viewingControls()) if (!control.disabled && !control.matches('.ed-ribbon-toggle, .ribbon-collapsed')) { control.disabled = true; control.dataset.viewingOff = ''; }
       undo.disabled = redo.disabled = true;
       find.disabled = false; finder.refresh();
-      stats.textContent = `Page ${Math.min(engine.layout.pageCount, (engine.caretPageIndex ?? 0) + 1)} of ${engine.layout.pageCount}`;
+      stats.textContent = pageStatus();
       if (pkg.readOnly) words.textContent = 'Read only'; else updateWordCount();
       chrome.refresh(); review.refresh(); statusBar?.refresh(); assistant.refresh(); collab.refresh(); tables.refresh();
       return;
     }
+    for (const control of viewingControls()) if (control.dataset.viewingOff !== undefined) { control.disabled = false; delete control.dataset.viewingOff; }
     undo.disabled = !engine.session.history.length && !designVersions.undo.length;
     const repeating = !engine.session.future.length && !designVersions.redo.length && editCommands.canRepeat();
     redo.disabled = !engine.session.future.length && !designVersions.redo.length && !repeating;
@@ -1523,9 +1548,23 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     if (document.activeElement !== spaceBefore) spaceBefore.value = format.spaceBefore ?? '';
     if (document.activeElement !== spaceAfter) spaceAfter.value = format.spaceAfter ?? '';
     chrome.refresh(); review.refresh(); reviewTools.refresh(); formatArea.refresh(); assistant.refresh(); versionHistory.refresh(); collab.refresh(); tables.refresh();
-    stats.textContent = `Page ${Math.min(engine.layout.pageCount, (engine.caretPageIndex ?? 0) + 1)} of ${engine.layout.pageCount}`;
+    stats.textContent = pageStatus();
     updateWordCount();
     statusBar?.refresh();
+  }
+  // The caret's page and the page count. Web Layout and Draft show strips of the window's height, not pages:
+  // there the printed pages are laid out once typing pauses (CanvasEditor.printedPages), as desktop word
+  // processors paginate in the background, and the last count shows meanwhile.
+  let printedStatus = null, printedStatusTimer = 0;
+  function pageStatus() {
+    if (!isContinuousView(engine.view?.kind)) { printedStatus = null; return `Page ${Math.min(engine.layout.pageCount, (engine.caretPageIndex ?? 0) + 1)} of ${engine.layout.pageCount}`; }
+    clearTimeout(printedStatusTimer);
+    printedStatusTimer = setTimeout(() => {
+      if (!engine || failed || destroyed || !isContinuousView(engine.view?.kind)) return;
+      try { printedStatus = engine.printedPages(); } catch { printedStatus = null; }
+      stats.textContent = printedStatus ? `Page ${printedStatus.current} of ${printedStatus.count}` : '';
+    }, 600);
+    return printedStatus ? `Page ${printedStatus.current} of ${printedStatus.count}` : '';
   }
   // Scrolled away from the caret, the status bar names the page in view, as desktop word processors do; while the
   // caret's page shows, and at the next caret move or edit (update), it names the caret's. Once a frame, reading only
@@ -1535,7 +1574,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     if (pageInViewFrame) return;
     pageInViewFrame = requestAnimationFrame(() => {
       pageInViewFrame = 0;
-      if (!engine || failed || destroyed || host.hidden) return;
+      if (!engine || failed || destroyed || host.hidden || isContinuousView(engine.view?.kind)) return;
       const index = pageInView();
       if (index !== null) stats.textContent = `Page ${index + 1} of ${engine.layout.pageCount}`;
     });
@@ -1559,18 +1598,13 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     }
     return Math.min(best, count - 1);
   }
-  // The counts last shown, with the text and selection they were taken from: every caret move and each keystroke
-  // (twice) refresh the status bar, and splitting a long document into words takes milliseconds each time.
-  let counted = { text: null, a: 0, b: 0, total: 0, chosen: null };
+  // The counts last shown, with what they were counted from: every caret move and each keystroke (twice) refresh the
+  // status bar, and splitting a long document into words takes milliseconds each time.
+  let counted = null;
   function updateWordCount() {
     // The document's words, also while a header, footer or note is edited (the words selected there are counted
-    // against them): the Word Count dialog counts with the same rule, so the two always agree.
-    const text = engine.session.body.text, story = engine.model.text, [a, b] = engine.model.range;
-    if (text !== counted.text || story !== counted.story || a !== counted.a || b !== counted.b) {
-      const total = text === counted.text ? counted.total : countWords(text);
-      const chosen = a !== b ? countWords(story.slice(a, b)) : null;
-      counted = { text, story, a, b, total, chosen };
-    }
+    // against them), with the Word Count dialog's rule and scope, so the two always agree.
+    counted = statusWordCount(engine, { cache: counted });
     const { total, chosen } = counted;
     words.textContent = chosen !== null ? `${chosen} of ${total} ${total === 1 ? 'word' : 'words'}` : `${total} ${total === 1 ? 'word' : 'words'}`;
   }
@@ -1661,8 +1695,8 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
       onContextMenu: openDocumentContextMenu,
       onUpdateFields: () => references.updateAllFields(),
       paragraphs: pkg.paragraphs, pageSettings: pkg.pageSettings, numbering: pkg.numbering, styles: pkg.styles, tables: pkg.tables, pageStories: pkg.pageStories, comments: pkg.comments, trackChanges: pkg.trackRevisions, assets: pkg.assets, drawingLayouts: pkg.drawingLayouts, images, measure, readOnly: !!pkg.readOnly,
-      onChange: () => { linkCard.hide(); if (!reopening) { designVersions.redo = []; if (created.session.history.length >= 100) designVersions.undo = []; } labelHistory(); doc.changed(); update(); updateStatus(); proofing.changed(true); reviewTools.changed(); },
-      onSelection: () => { linkCard.changed(); update(); proofing.selectionChanged(); reviewTools.selectionChanged(); }, onSave: save, onError: error, onLink: editHyperlink,
+      onChange: () => { editCount++; linkCard.hide(); if (!reopening) { designVersions.redo = []; if (created.session.history.length >= 100) designVersions.undo = []; } labelHistory(); doc.changed(); update(); updateStatus(); proofing.changed(true); reviewTools.changed(); },
+      onSelection: () => { linkCard.changed(); update(); proofing.selectionChanged(); reviewTools.selectionChanged(); }, onSave: save, onError: error, onNotice: message => toast(message, { icon: 'info', duration: 8000 }), onLink: editHyperlink,
       onLinkClick: range => linkCard.show(range),
       onOpenLink: target => {
         // Imported destinations outside web, email and phone addresses (file paths, relative links) stay in the document unopened.
@@ -1697,12 +1731,20 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
    */
   const designVersions = { undo: [], redo: [] };
   let reopening = false;
-  async function reopenPackage(blob) {
+  // Edits made in the open editor, counted so a package change can tell whether the user typed while it ran.
+  let editCount = 0;
+  const STALE = 'stale';
+  /**
+   * Open `blob` in place of the open package. Text typed while it opens goes into the editor it replaces: when
+   * `stale()` says the open document changed meanwhile, nothing is replaced and this resolves to STALE.
+   */
+  async function reopenPackage(blob, stale = () => false) {
     const { CanvasEditor, openCanvasDocument, registerRevisionAuthors } = engineApi();
     const opened = await openCanvasDocument(blob, { beforeLayout: pkg => registerRevisionAuthors(pkg.paragraphs) });
-    if (opened.pkg.readOnly || destroyed) {
+    if (opened.pkg.readOnly || destroyed || stale()) {
       for (const image of opened.images.values()) image.close();
       if (destroyed) return false;
+      if (!opened.pkg.readOnly) return STALE;
       throw new Error('This change would leave the document in a form this editor can only preview, so it was not applied.');
     }
     const previous = engine, range = [...previous.model.range], scrollTop = host.scrollTop, scrollLeft = host.scrollLeft, scale = previous.zoom;
@@ -1716,9 +1758,22 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     engine.relayout();
     host.scrollTop = scrollTop; host.scrollLeft = scrollLeft;
     doc.changed(); update(); updateStatus();
+    prepareSaveWhenIdle();
     // A menu or dialog opened while the package reopened keeps the keyboard.
     if (!document.activeElement?.closest?.('.menu, .modal-root')) engine.focus();
     return true;
+  }
+  /**
+   * While the page is idle, parse ahead what the open package's first save would (DocxPackage.prepareSave), a
+   * little at a time. It stops once the package is replaced (a design change reopens it), when the new one starts.
+   */
+  function prepareSaveWhenIdle() {
+    if (!pkg || pkg.readOnly || !pkg.prepareSave || typeof requestIdleCallback !== 'function') return;
+    const prepared = pkg, prepare = deadline => {
+      if (destroyed || prepared !== pkg) return;
+      if (prepared.prepareSave(() => deadline.timeRemaining())) requestIdleCallback(prepare);
+    };
+    requestIdleCallback(prepare);
   }
   /**
    * The tools that work through the engine: paste options, proofing, table and picture gestures, review marks.
@@ -1734,22 +1789,34 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     engineApi().attachShapeEditing(editor, error, () => pkg);
     pictures.attach(editor);
   }
-  /** Apply a package change: transform(blob) resolves to the changed package (a Blob) or null for none. */
-  async function changePackage(transform) {
+  /**
+   * Apply a package change: transform(blob) resolves to the changed package (a Blob) or null for none. `label` names
+   * its undo step (Undo history, Edit > Undo).
+   */
+  async function changePackage(transform, { label = 'Design Change' } = {}) {
     // Viewing mode, and a shared document held read-only while it connects, change nothing: the reopened editor
     // would also have come back editable.
     if (!engine || pkg?.readOnly || engine.viewOnly || reopening) return false;
     // The editor reopens on the changed package, which the room does not hold: the others would not get it, and
     // the editor would stop sharing with them.
     if (collab.live) { error(new Error('Themes, style sets, watermarks and page backgrounds cannot be changed while the document is shared. Stop sharing to change them.')); return false; }
-    engine.finishComposition();
     reopening = true;
     try {
-      const before = engine.export(pkg);
-      const after = await transform(before);
-      if (!after || destroyed) return false;
-      if (!await reopenPackage(after)) return false;
-      designVersions.undo.push({ before, after }); designVersions.redo = [];
+      // Text typed while the change is made is in neither package: the change is made again from the document
+      // as it then is, and given up (with the document as the user left it) if typing never pauses for it.
+      let before, after, opened = STALE;
+      for (let attempt = 0; opened === STALE; attempt++) {
+        if (attempt === 4) throw new Error('The document changed while the design change was being applied. Try again.');
+        engine.finishComposition();
+        const seen = editCount, changed = () => editCount !== seen || !!engine.composition;
+        before = engine.export(pkg);
+        after = await transform(before);
+        if (!after || destroyed) return false;
+        if (changed()) continue;
+        opened = await reopenPackage(after, changed);
+        if (!opened) return false;
+      }
+      designVersions.undo.push({ before, after, label }); designVersions.redo = [];
       if (designVersions.undo.length > 30) designVersions.undo.shift();
       return true;
     } catch (e) { if (!destroyed) error(e); return false; }
@@ -1757,11 +1824,13 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
   }
   async function stepDesignVersion(direction) {
     const from = direction === 'undo' ? designVersions.undo : designVersions.redo, to = direction === 'undo' ? designVersions.redo : designVersions.undo;
-    if (collab.live || engine?.viewOnly) return;
-    const entry = from.pop(); if (!entry) return;
+    if (collab.live || engine?.viewOnly) return false;
+    const entry = from.pop(); if (!entry) return false;
     reopening = true;
-    try { if (await reopenPackage(direction === 'undo' ? entry.before : entry.after)) to.push(entry); else from.push(entry); }
-    catch (e) { from.push(entry); if (!destroyed) error(e); }
+    // Text typed while the earlier package opens keeps the document as it is (the step is not taken).
+    const seen = editCount;
+    try { if (await reopenPackage(direction === 'undo' ? entry.before : entry.after, () => editCount !== seen || !!engine.composition) === true) { to.push(entry); return true; } from.push(entry); return false; }
+    catch (e) { from.push(entry); if (!destroyed) error(e); return false; }
     finally { reopening = false; if (!destroyed) update(); }
   }
   editorCommands.changePackage = changePackage;
@@ -1844,14 +1913,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
       // Saving zips the file off the page's thread, so typing during an autosave is not held up.
       return engine.exportAsync ? engine.exportAsync(pkg) : engine.export(pkg);
     }, { busy: () => !!engine?.composition });
-    // While the page is idle, parse ahead what the first save would (DocxPackage.prepareSave), a little at a time.
-    if (!pkg.readOnly && pkg.prepareSave && typeof requestIdleCallback === 'function') {
-      const prepared = pkg, prepare = deadline => {
-        if (destroyed || prepared !== pkg) return;
-        if (prepared.prepareSave(() => deadline.timeRemaining())) requestIdleCallback(prepare);
-      };
-      requestIdleCallback(prepare);
-    }
+    prepareSaveWhenIdle();
     if (pkg.fieldsRecalculated && !pkg.readOnly) doc.changed();
     const previewIssues = [...(pkg.previewIssues || []), ...engine.storyLayout.unsupported.map(issue =>
       `${issue.path}, page ${issue.page + 1}: ${issue.message}`)];

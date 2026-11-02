@@ -163,11 +163,25 @@ describe('with Track Changes on', () => {
     refuses('Delete Columns', doc => { at(doc, 1, 1); T.deleteColumns(doc); });
     refuses('Delete Table', doc => { at(doc, 1, 1); T.deleteTable(doc); });
     refuses('Delete Cells', doc => { at(doc, 1, 1); T.deleteCells(doc, { shift: 'left' }); });
+    // Delete Cells → Delete entire row / column names what it would delete.
+    refuses('Delete Cells, entire row', doc => { at(doc, 1, 1); expect(() => T.deleteCells(doc, { shift: 'row' })).toThrow('Deleting table rows cannot be tracked yet.'); T.deleteCells(doc, { shift: 'row' }); });
+    refuses('Delete Cells, entire column', doc => { at(doc, 1, 1); expect(() => T.deleteCells(doc, { shift: 'column' })).toThrow('Deleting table columns cannot be tracked yet.'); T.deleteCells(doc, { shift: 'column' }); });
     refuses('Merge Cells', doc => { block(doc, 0, 0, 1, 2); T.mergeBlock(doc); });
     refuses('Sort', doc => { at(doc, 0, 0); T.sortTable(doc, { keys: [{ column: 0, type: 'text', descending: true }] }); });
     refuses('Convert to Text', doc => { at(doc, 0, 0); T.convertTableToText(doc, { separator: 'tab' }); });
     refuses('Eraser', doc => { const t = doc.tables[0]; T.eraseLine(doc, { tableId: t.id, cellIds: [t.rows[0].cells[0].id, t.rows[0].cells[1].id] }); });
     refuses('Delete row (Table actions)', doc => { at(doc, 1, 1); doc.deleteTablePart('row'); });
+  });
+  it('refuses the commands that would move table text untracked', () => {
+    refuses('Insert Cells, shift down', doc => { at(doc, 0, 0); T.insertCells(doc, { shift: 'down' }); });
+    refuses('Insert Cells, shift right', doc => { at(doc, 0, 0); T.insertCells(doc, { shift: 'right' }); });
+    // Dragging the table's move handle above the paragraph before it.
+    const { doc } = tableDocument(2, 2, ['Before']), text = doc.text;
+    doc.trackChanges = true;
+    expect(() => T.moveTable(doc, doc.tables[0].id, doc.paragraphs[0].id)).toThrow('Moving a table cannot be tracked yet. Turn off Track Changes to do this.');
+    expect(doc.text).toBe(text);
+    // Inserting whole rows and columns moves nothing and still works.
+    at(doc, 0, 0); expect(T.insertCells(doc, { shift: 'row' })).toBe(true);
   });
   it('still records the Delete key on cells, and allows commands that remove nothing', () => {
     const doc = tracked();
@@ -276,6 +290,34 @@ describe('inserting a table', () => {
     after.select(0); after.insertTable(1, 1, 9000);
     after.select(after.text.length); after.insertTable(1, 1, 9000);
     expect(blocks(after)).toEqual(['table', '', 'table', '']);
+  });
+
+  it('makes it as wide as the text column in a section with columns, as Convert Text to Table does', async () => {
+    const twoColumns = { count: 2, space: 720, equalWidth: true, separator: false, entries: [] };
+    const { pkg, doc } = document(['Name\tQty', 'Pens\t2', 'After']);
+    doc.pageSettings = { ...doc.pageSettings, columns: twoColumns };
+    const page = doc.pageSettings, column = (page.width - page.left - page.right - 720) / 2;
+    const total = table => table.grid.reduce((a, b) => a + b, 0);
+    doc.select(doc.text.length); doc.insertTable(2, 3);
+    expect(total(doc.tables[0])).toBeLessThanOrEqual(column);
+    expect(total(doc.tables[0])).toBeGreaterThan(column - 20);
+    expect(doc.tables[0].width.value).toBe(total(doc.tables[0]));
+    doc.select(0, doc.text.indexOf('After') - 1); T.convertTextToTable(doc, { separator: 'tab' });
+    const converted = doc.tables.find(t => t.rows.length === 2 && t.grid.length === 2);
+    expect(total(converted)).toBeLessThanOrEqual(column);
+    expect(total(converted)).toBeGreaterThan(column - 20);
+    // Of unequal columns, the narrowest.
+    const narrow = document(['']).doc;
+    narrow.pageSettings = { ...narrow.pageSettings, columns: { count: 2, space: 360, equalWidth: false, separator: false, entries: [{ width: 2880, space: 360 }, { width: 6120, space: 0 }] } };
+    narrow.select(0); narrow.insertTable(1, 2);
+    expect(total(narrow.tables[0])).toBeLessThanOrEqual(2880);
+    expect(total(narrow.tables[0])).toBeGreaterThan(2860);
+    // One column: the whole writing width, as before.
+    const plain = document(['']).doc;
+    plain.select(0); plain.insertTable(1, 2);
+    expect(total(plain.tables[0])).toBeGreaterThan(plain.pageSettings.width - plain.pageSettings.left - plain.pageSettings.right - 20);
+    const { reopened } = await roundTrip(pkg, doc);
+    expect(total(reopened.tables[0])).toBe(total(doc.tables[0]));
   });
 });
 
@@ -529,6 +571,21 @@ describe('table commands', () => {
     expect((await roundTrip(pkg, doc)).xml).not.toContain('tblpPr');
   });
 
+  it('keeps a floating table where it showed when its text wrapping is set to None', async () => {
+    for (const [x, expected] of [['center', { alignment: 'center', indent: 0 }], [2000, { alignment: 'left', indent: 2000 }]]) {
+      const { pkg, doc } = tableDocument(2, 2, ['Lead']);
+      T.setTableWrapping(doc, 'around'); T.setTablePositioning(doc, { x, horzAnchor: 'margin' });
+      const openedPkg = await DocxPackage.open(await save(pkg, doc)), opened = open(openedPkg);
+      expect(opened.tables[0]).toMatchObject(expected);
+      opened.selectCell(tableCells(opened.tables[0])[0].id);
+      T.setTableWrapping(opened, 'none');
+      expect(opened.tables[0]).toMatchObject(expected);
+      const { reopened, xml } = await roundTrip(openedPkg, opened);
+      expect(xml).not.toContain('tblpPr');
+      expect(reopened.tables[0], String(x)).toMatchObject(expected);
+    }
+  });
+
   it('separates converted cells with plain text when a cell ends in an equation or a note reference', async () => {
     const convert = insert => {
       const { pkg, doc } = tableDocument(2, 2);
@@ -563,6 +620,22 @@ describe('table commands', () => {
 });
 
 describe('cells holding a nested table', () => {
+  it('applies row options to the table of the selected cells when the selection ends in a nested table', () => {
+    const { doc } = tableDocument(3, 2), outer = doc.tables[0];
+    const holder = cellAt(doc, 0, 1), last = doc.paragraphs.findLastIndex(p => p.cellId === holder.id);
+    doc.select(doc.paragraphOffset(last) + paragraphText(doc.paragraphs[last]).length); doc.replace('\n'); doc.insertTable(2, 2, 3000);
+    const nested = doc.tables.find(t => t.parentCellId);
+    // A drag from the outer table's first cell into the nested table: the block is the outer table's first row.
+    const from = doc.paragraphs.findIndex(p => p.cellId === cellAt(doc, 0, 0, outer).id), to = doc.paragraphs.findIndex(p => p.cellId === nested.rows[0].cells[0].id);
+    doc.select(doc.paragraphOffset(from), doc.paragraphOffset(to) + 1);
+    expect(T.selectionBlock(doc).table).toBe(outer); expect(doc.tableContext.table).toBe(nested);
+    expect(T.setRowOptions(doc, { header: true })).toBe(true);
+    expect(outer.rows.map(r => !!r.header)).toEqual([true, false, false]);
+    expect(nested.rows.map(r => !!r.header)).toEqual([false, false]);
+    expect(doc.setTableProperties({ alignment: 'center' }, T.selectionBlock(doc).table)).toBe(true);
+    expect([outer.alignment, nested.alignment]).toEqual(['center', 'left']);
+  });
+
   const withNested = () => {
     const { pkg, doc } = tableDocument(2, 2);
     const outer = doc.tables[0];

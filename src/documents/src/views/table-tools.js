@@ -221,7 +221,8 @@ export function createTableTools({ editor, pkg, error = () => {}, onChange = () 
       let failure;
       const ok = engine.execute(() => {
         const model = engine.model;
-        if (changes.table && Object.keys(changes.table).length) model.setTableProperties(changes.table);
+        // The dialog shows the selection's table, which can be an outer table of the caret's.
+        if (changes.table && Object.keys(changes.table).length) model.setTableProperties(changes.table, T.selectionBlock(model)?.table);
         if (changes.wrap) T.setTableWrapping(model, changes.wrap);
         if (changes.positioning) T.setTablePositioning(model, changes.positioning);
         if (changes.margins) T.setTableCellMargins(model, changes.margins);
@@ -297,7 +298,7 @@ export function createTableTools({ editor, pkg, error = () => {}, onChange = () 
     distributeColumns: () => withTable((m, b, engine) => T.distributeColumns(m, { widths: widthsOf(engine, b.table) })),
     align: (vertical, horizontal) => withTable(m => T.setCellAlignment(m, { vertical, horizontal })),
     textDirection: () => withTable(m => T.setTextDirection(m, T.nextTextDirection(m))),
-    repeatHeader: () => withTable(m => { const b = T.selectionBlock(m); const on = headerRowCount(b.table) > b.bottom && b.table.rows[0].header; return m.setTableHeaderRows(on ? 0 : b.bottom + 1); }),
+    repeatHeader: () => withTable(m => { const b = T.selectionBlock(m); const on = headerRowCount(b.table) > b.bottom && b.table.rows[0].header; return m.setTableHeaderRows(on ? 0 : b.bottom + 1, b.table); }),
     sort: sortDialog, formula: formulaDialog, convertToText, convertTextToTable, insertTableDialog,
     select: selectKind, properties: openProperties,
   };

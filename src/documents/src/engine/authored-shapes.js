@@ -68,11 +68,13 @@ const solid = color => color ? `<a:solidFill><a:srgbClr val="${color}"/></a:soli
  * The `w:drawing` for a shape. params: { preset, width, height (EMU), fill (hex or null), line (hex or
  * null), lineWidth (EMU), anchor? }. The anchor is the editor's floating anchor object.
  */
-export function shapeDrawingXml({ id, name, preset, width, height, fill, line, lineWidth, anchor, text, bodyXml, flipH = false, flipV = false }) {
+export function shapeDrawingXml({ id, name, preset, width, height, fill, line, lineWidth, lineStyle = {}, anchor, text, bodyXml, flipH = false, flipV = false }) {
   const isLine = LINE_PRESETS.has(preset);
   const geometry = preset === 'straightArrow' ? 'line' : preset;
   const ends = preset === 'straightArrow' ? '<a:tailEnd type="triangle"/>' : '';
-  const outline = line ? `<a:ln w="${lineWidth}">${solid(line)}${ends}</a:ln>` : '<a:ln><a:noFill/></a:ln>';
+  // lineStyle: the outline's compound lines, cap and pen alignment as read (cmpd, cap, algn), kept as they were.
+  const style = Object.entries(lineStyle).filter(([key, value]) => ['cmpd', 'cap', 'algn'].includes(key) && /^[a-zA-Z]+$/.test(value || '')).map(([key, value]) => ` ${key}="${value}"`).join('');
+  const outline = line ? `<a:ln w="${lineWidth}"${style}>${solid(line)}${ends}</a:ln>` : '<a:ln><a:noFill/></a:ln>';
   // A text box keeps its paragraphs and body properties as authored; a plain shape has an empty body.
   const body = text !== undefined ? `<wps:txbx><w:txbxContent>${text}</w:txbxContent></wps:txbx>${bodyXml || TEXT_BODY}` : '<wps:bodyPr/>';
   const shape = `<a:graphic><a:graphicData uri="${NS.wps}"><wps:wsp><wps:cNvSpPr${text !== undefined ? ' txBox="1"' : ''}/><wps:spPr><a:xfrm${flipH ? ' flipH="1"' : ''}${flipV ? ' flipV="1"' : ''}><a:off x="0" y="0"/><a:ext cx="${width}" cy="${height}"/></a:xfrm>`
@@ -135,7 +137,9 @@ export function shapeParams(image) {
   if (preset === 'line' && tail?.getAttribute('type') === 'triangle') preset = 'straightArrow';
   else if (tail) return null;
   if (!SHAPE_PRESETS.some(([p]) => p === preset)) return null;
-  return { preset, fill, line, lineWidth: Number(ln?.getAttribute('w') || 12700), ...(text !== undefined ? { text, bodyXml: bodyNode ? serializer.serializeToString(bodyNode) : undefined } : {}) };
+  // A line without a width is 0.75 pt as the reader draws it (docx-shapes.js), and its other settings stay.
+  const lineStyle = ln ? Object.fromEntries(['cmpd', 'cap', 'algn'].filter(key => ln.hasAttribute(key)).map(key => [key, ln.getAttribute(key)])) : {};
+  return { preset, fill, line, lineWidth: ln?.hasAttribute('w') ? Number(ln.getAttribute('w')) : line ? 9525 : 12700, ...(Object.keys(lineStyle).length ? { lineStyle } : {}), ...(text !== undefined ? { text, bodyXml: bodyNode ? serializer.serializeToString(bodyNode) : undefined } : {}) };
 }
 
 /** Parts that give a shape's text the document's styles and theme: its styles part and theme, when present. */

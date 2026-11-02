@@ -1,6 +1,7 @@
 import { parseXml } from './docx-xml.js';
 import { UnsupportedDocumentError } from './errors.js';
 import { readPageNumbering } from './page-numbering.js';
+import { contentTypeOverride, packagePartName } from './package-part-paths.js';
 
 const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
 const R = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
@@ -52,10 +53,10 @@ export function readPageStories(parts, sectionNodes, settings, onUnsupported = n
           if (!['default', 'first', 'even'].includes(variant) || counts.get(variant) > 1 || !id) fail(`invalid or duplicate ${kind} reference`);
           const links = [...(rels?.children || [])].filter(n => n.namespaceURI === REL && n.localName === 'Relationship' && n.getAttribute('Id') === id);
           if (links.length !== 1 || links[0].getAttribute('Type') !== R + '/' + kind || ![null, 'Internal'].includes(links[0].getAttribute('TargetMode'))) fail(`invalid or external ${kind} relationship`);
-          const path = targetPath(links[0].getAttribute('Target'));
-          if (!Object.hasOwn(parts, path)) fail(`a missing ${kind} part`);
-          const override = [...types.children].find(n => n.localName === 'Override' && n.getAttribute('PartName') === '/' + path);
-          const type = override || [...types.children].find(n => n.localName === 'Default' && n.getAttribute('Extension') === path.split('.').at(-1));
+          const path = packagePartName(parts, targetPath(links[0].getAttribute('Target')));
+          if (!path) fail(`a missing ${kind} part`);
+          const override = contentTypeOverride(types, path);
+          const type = override || [...types.children].find(n => n.localName === 'Default' && n.getAttribute('Extension')?.toLowerCase() === path.split('.').at(-1).toLowerCase());
           if (type?.getAttribute('ContentType') !== TYPE + kind + '+xml') fail(`incorrect ${kind} content type`);
           const root = parseXml(parts[path]).documentElement;
           if (root.namespaceURI !== W || root.localName !== (kind === 'header' ? 'hdr' : 'ftr')) fail(`invalid ${kind} root`);

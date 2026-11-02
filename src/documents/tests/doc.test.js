@@ -982,6 +982,26 @@ describe('offline', () => {
   });
 });
 
+describe('offline with AutoSave off', () => {
+  afterEach(() => { vi.unstubAllGlobals(); });
+
+  it('stops saying Offline once the connection is back, though only Save writes', async () => {
+    vi.stubGlobal('localStorage', { getItem: k => (k === 'documents:autosave' ? '0' : null), setItem() {}, removeItem() {} });
+    vi.stubGlobal('navigator', { onLine: false });
+    P.writeFile.mockImplementationOnce(async () => { throw new TypeError('Failed to fetch'); });
+    const doc = new Doc({ name: 'Alpha', path: 'Documents/Alpha.docx' });
+    doc.attach(async () => blob('offline edit'));
+    doc.changed();
+    await expect(doc.save()).rejects.toThrow('Failed to fetch');
+    expect(doc.status).toBe('offline');
+    // Back online, the app asks for an autosave, which AutoSave off declines: the edits wait for Save, as they say.
+    vi.stubGlobal('navigator', { onLine: true });
+    expect(await doc.save({ auto: true })).toBe(false);
+    expect(doc.status).toBe('unsaved');
+    expect(doc.dirty).toBe(true);
+  });
+});
+
 describe('files that vanished under the document', () => {
   const gone = () => Object.assign(new Error('does not exist'), { code: 'subject_does_not_exist' });
   beforeEach(() => { vi.useFakeTimers(); versioning.enabled = false; publishing.enabled = false; P.__fs.clear(); P.writeFile.mockClear(); vi.stubGlobal('navigator', { onLine: true }); });
@@ -1196,5 +1216,33 @@ describe('a file open in two windows', () => {
     doc.changed();
     await expect(doc.save()).rejects.toThrow('changed in another window');
     expect(P.writeFile).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('Doc handing saving to another tab while a save is in flight', () => {
+  beforeEach(() => { versioning.enabled = false; publishing.enabled = false; P.__fs.clear(); P.writeFile.mockClear(); vi.stubGlobal('navigator', { onLine: true }); });
+  afterEach(() => { vi.unstubAllGlobals(); });
+
+  it('is not left with unsaved edits, or a failure, that it no longer saves', async () => {
+    for (const fails of [false, true]) {
+      const doc = new Doc({ name: 'Plan', path: 'Documents/Plan.docx', blob: blob('x') });
+      doc.attach(async () => blob('content'));
+      let release;
+      P.writeFile.mockImplementationOnce((path, content) => new Promise((resolve, reject) => { release = () => (fails ? reject(new Error('The cloud is unreachable')) : resolve({ path })); }));
+      doc.changed();
+      const saving = doc.save({ auto: true });
+      await vi.waitFor(() => expect(release).toBeTypeOf('function'));
+      // The user types on while the write is in flight; then another owner's tab takes over writing the file.
+      doc.changed();
+      doc.setSaving(false);
+      release();
+      await saving;
+      expect(doc.dirty).toBe(false);
+      expect(needsUnloadWarning(doc)).toBe(false);
+      expect(doc.status).toBe('saved');
+      // Leaving finishes at once: nothing is left for this tab to write.
+      await expect(Promise.race([doc.flush(), new Promise(r => setTimeout(() => r('hung'), 200))])).resolves.toBe(true);
+      doc.destroy();
+    }
   });
 });

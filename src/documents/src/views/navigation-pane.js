@@ -94,6 +94,12 @@ export function createNavigationPane(api) {
   /** The heading button for a paragraph, found by its id (no selector to escape, which not every environment offers). */
   const headingButton = id => [...headingList.querySelectorAll('.nav-heading')].find(button => button.dataset.paragraph === id) || null;
 
+  /**
+   * Where a drawn heading is among the current entries. Each refresh brings new entry objects, and the list is
+   * drawn again only when they differ, so a heading's handlers can hold an entry from an earlier refresh.
+   */
+  const indexOf = entry => entries.findIndex(e => e.id === entry.id);
+
   /* ---- Rendering ---- */
   function renderHeadings() {
     const next = JSON.stringify([entries, [...collapsed]]);
@@ -120,7 +126,7 @@ export function createNavigationPane(api) {
             else if (e.altKey && e.shiftKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown') && editable() && !entry.inTable) {
               // Move the section past its neighbour, as dragging would.
               e.preventDefault();
-              const at = entries.indexOf(entry), step = e.key === 'ArrowUp' ? -1 : 1;
+              const at = indexOf(entry), step = e.key === 'ArrowUp' ? -1 : 1;
               let target = at + step;
               while (entries[target] && (entries[target].level > entry.level || entries[target].inTable)) target += step;
               if (entries[target]) { actions().move(entry.id, entries[target].id, step < 0 ? 'before' : 'after'); refocus(entry.id); }
@@ -142,10 +148,11 @@ export function createNavigationPane(api) {
    * The tree's keys: Up and Down (Home, End) move between the headings shown; Right expands a collapsed
    * heading or goes to its first subheading, Left collapses an expanded one or goes to its parent.
    */
-  function moveInTree(entry, key) {
+  function moveInTree(drawn, key) {
+    const index = indexOf(drawn), entry = entries[index]; if (!entry) return;
     const shown = [...headingList.querySelectorAll('.nav-heading')], at = shown.findIndex(b => b.dataset.paragraph === entry.id);
     const focus = button => button?.focus();
-    const index = entries.indexOf(entry), parent = entries[index + 1]?.level > entry.level;
+    const parent = entries[index + 1]?.level > entry.level;
     if (key === 'ArrowDown') focus(shown[at + 1]);
     else if (key === 'ArrowUp') focus(shown[at - 1]);
     else if (key === 'Home') focus(shown[0]);

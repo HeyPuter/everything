@@ -2,7 +2,7 @@
 // SEQ, §17.16.5.51 REF) the way Update Field does: SEQ results count their
 // identifier in document order; REF results repeat their bookmark's text.
 import { bodyFieldRanges } from './body-fields.js';
-import { bookmarkEntries } from './bookmarks.js';
+import { bookmarkEntries, bookmarksByName, bookmarkNamed } from './bookmarks.js';
 import { fieldInstructionTokens } from './docx-page-fields.js';
 import { formatPageNumber } from './page-numbering.js';
 import { formulaResult } from './table-formula.js';
@@ -63,16 +63,19 @@ export function sequenceInstruction(instruction) {
 /**
  * The text each SEQ/REF/NOTEREF field should show now: [{ range, text }] where it differs. `notes`
  * gives the displayed note numbers ({ footnote: Map, endnote: Map }) for NOTEREF (§17.16.5.40).
+ * `sequencesOnly` plans the SEQ fields alone, as inserting a caption renumbers them without updating
+ * every other field.
  */
-export function fieldUpdatePlan(model, { onIssue = () => {}, notes = null } = {}) {
+export function fieldUpdatePlan(model, { onIssue = () => {}, notes = null, sequencesOnly = false } = {}) {
   const ranges = bodyFieldRanges(model.paragraphs), text = model.text, changes = [];
   const counters = new Map();
-  const bookmarks = new Map(bookmarkEntries(model.paragraphs, model.tables).map(b => [b.name, b]));
+  const bookmarks = bookmarksByName(bookmarkEntries(model.paragraphs, model.tables));
   // ASK and SET assign a value to a name during a mail merge without creating a bookmark;
   // a REF to such a name keeps its cached result (the merge evaluates it).
-  const mergeNames = new Set(ranges.filter(r => ['ASK', 'SET'].includes(r.field.type)).map(r => /^\s*\w+\s+("?)([^\s"]+)\1/.exec(r.field.instruction)?.[2]).filter(Boolean));
+  const mergeNames = new Set(ranges.filter(r => ['ASK', 'SET'].includes(r.field.type)).map(r => /^\s*\w+\s+("?)([^\s"]+)\1/.exec(r.field.instruction)?.[2]?.toLowerCase()).filter(Boolean));
   for (const range of ranges) {
     const type = range.field.type;
+    if (sequencesOnly && type !== 'SEQ') continue;
     if (range.field.locked || ranges.some(r => r.parentId === range.field.id)) continue;
     let value = null;
     if (type === 'SEQ') {
@@ -82,7 +85,10 @@ export function fieldUpdatePlan(model, { onIssue = () => {}, notes = null } = {}
       if (seq.reset !== null) n = seq.reset; else if (seq.next) n += 1;
       counters.set(seq.id, n);
       if (!seq.supported) { onIssue({ id: range.field.id, message: 'A SEQ field with chapter numbering, a number picture or this number format keeps its cached result.' }); continue; }
-      value = seq.hidden ? '' : withCases(seq.words ? applyGeneralFormat(String(Math.max(0, n)), seq.words) : formatPageNumber(Math.max(0, n), seq.format), seq.cases);
+      let number;
+      try { number = seq.words ? applyGeneralFormat(String(Math.max(0, n)), seq.words) : formatPageNumber(Math.max(0, n), seq.format); }
+      catch { onIssue({ id: range.field.id, message: 'A SEQ field whose number is too large for its number format keeps its cached result.' }); continue; }
+      value = seq.hidden ? '' : withCases(number, seq.cases);
     } else if (type === 'REF') {
       let tokens; try { tokens = fieldInstructionTokens(range.field.instruction).slice(1); } catch { continue; }
       let relative = false, supported = true;
@@ -96,8 +102,8 @@ export function fieldUpdatePlan(model, { onIssue = () => {}, notes = null } = {}
       }
       const retain = reason => onIssue({ id: range.field.id, message: `${reason}; its cached result is retained.` });
       if (!supported) { retain('This REF uses switches that cannot be refreshed yet'); continue; }
-      const bookmark = bookmarks.get(tokens[0]);
-      if (!bookmark && mergeNames.has(tokens[0])) continue;
+      const bookmark = bookmarkNamed(bookmarks, tokens[0]);
+      if (!bookmark && mergeNames.has(tokens[0]?.toLowerCase())) continue;
       if (!bookmark) value = 'Error! Reference source not found.';
       else if (bookmark.start <= range.start && range.start < bookmark.end || range.start < bookmark.start && bookmark.start < range.end) {
         retain('A REF within its source bookmark cannot be refreshed yet'); continue;
@@ -114,7 +120,7 @@ export function fieldUpdatePlan(model, { onIssue = () => {}, notes = null } = {}
     else if (type === 'NOTEREF' && notes) {
       let tokens; try { tokens = fieldInstructionTokens(range.field.instruction).slice(1); } catch { continue; }
       if (tokens.slice(1).some(t => !['\\h', '\\f', '\\p'].includes(t) && !/^\\\*$/.test(t) && t.toUpperCase() !== 'MERGEFORMAT')) { onIssue({ id: range.field.id, message: 'This NOTEREF uses switches that cannot be refreshed yet; its cached result is retained.' }); continue; }
-      const bookmark = bookmarks.get(tokens[0]);
+      const bookmark = bookmarkNamed(bookmarks, tokens[0]);
       if (!bookmark) value = 'Error! Reference source not found.';
       else {
         // The bookmark encloses a note reference mark; show that note's number.
@@ -128,7 +134,7 @@ export function fieldUpdatePlan(model, { onIssue = () => {}, notes = null } = {}
     if (text.slice(range.start, range.end) !== value) changes.push({ range, text: value });
   }
   // Dates, times and document information (field-results.js) refresh in the same pass.
-  return [...changes, ...fieldResultPlan(model)].sort((a, b) => a.range.start - b.range.start);
+  return [...changes, ...(sequencesOnly ? [] : fieldResultPlan(model))].sort((a, b) => a.range.start - b.range.start);
 }
 
 /** Apply the plan inside one editor transaction; returns the number of fields updated. */

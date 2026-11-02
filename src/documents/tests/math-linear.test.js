@@ -215,6 +215,20 @@ describe('editing an existing equation', () => {
     expect(same('"speed"_i')).toBe('"speed"_i');
   });
 
+  it('keeps quotes in plain text', () => {
+    // Plain (upright) text holding quotes read back without them, upright no more and its spaces gone.
+    const plain = text => `<m:oMath xmlns:m="${M}"><m:r><m:rPr><m:sty m:val="p"/></m:rPr><m:t>${text}</m:t></m:r></m:oMath>`;
+    for (const words of ['say "hi" now', '"', 'a{b "c', 'x}"y', '"quoted"']) {
+      const editable = ommlToEditableLinear(plain(words.replace(/"/g, '&quot;')));
+      const runs = all(parse(linearToOmml(editable)), 'r');
+      expect(runs.map(r => text(r)).join(''), editable).toBe(words);
+      expect(runs.some(r => all(r, 'sty').length), editable).toBe(true);
+    }
+    expect(same('\\text{say "hi"}')).toBe('\\text{say "hi"}');
+    // As a fraction's numerator or a script's base it stays one operand.
+    same('\\text{a"b}/2'); same('\\text{a"b}^2');
+  });
+
   it('writes every structure in a form that builds it again', () => {
     for (const { linear } of EQUATION_GALLERY) same(linear);
     // Binomials, matrices and equation arrays stay themselves; roots keep their degree.

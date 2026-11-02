@@ -26,6 +26,7 @@ import { checkedLineSpacing } from './line-spacing.js';
 import { hasDirectRunFormatting, clearedRun, hasDirectMarkFormatting, clearMark, hasDirectParagraphFormatting, clearParagraph } from './direct-formatting.js';
 import { findText, checkedSearchText, replacedRuns, replacedBookmarks } from './search.js';
 import { advancedFind, replaceAdvanced } from './advanced-search.js';
+import { hiddenRun } from './hidden-text.js';
 import { checkedHyperlinkDestination, hyperlinkLabel, hyperlinkId, hyperlinkAt, hyperlinkRanges, hyperlinkBoundaryChanges } from './hyperlinks.js';
 import { bookmarkEntries, checkedBookmarkName, newBookmarkMarkers, replaceBookmarkMarkers, bookmarkStructureState, repairStructuralBookmarks, normalizeBlockBookmarkScopes } from './bookmarks.js';
 import { checkedUnderline, underlineDeclaration } from './underlines.js';
@@ -44,6 +45,7 @@ import { emptyStyles, resolveStyledParagraph, effectiveStyleId, editedStyle, res
 import { emptyNumbering, levelFor, listKind, listGeometry, listMarkers, newList, restartList } from './numbering.js';
 import { INDENT_KEYS, validateIndent, normalizeTabStops, sameValue } from './paragraph-geometry.js';
 import { validatePageSettings, readingPageSize, DOCUMENT_PAGE_KEYS, SECTION_TYPES } from './page-settings.js';
+import { sectionColumnIntervals } from './section-columns.js';
 import { OBJECT, inlineSegments, validateImage, normalizeCrop, normalizedRotation, rotationOutsets, imageExtents, CROP_SIDES, isPositionedImage, nextDrawingId } from './images.js';
 import { outlineEntries, builtinOutlineLevel } from './outline.js';
 import { refreshConditionalTable } from './conditional-table-formatting.js';
@@ -463,19 +465,30 @@ export class TextDocument {
     return p.width - p.left - p.right;
   }
   /**
+   * The width of one text column of the caret's section, without the gutter: the writing width when it
+   * has one column. Of unequal columns the narrowest, so a table made for it fits whichever holds it.
+   */
+  get sectionColumnWidth() {
+    const p = this.sectionPageSettings, width = p.width - p.left - p.right - (p.gutterAtTop ? 0 : p.gutter || 0);
+    if (!(p.columns?.count > 1)) return width;
+    try { return Math.min(...sectionColumnIntervals(p.columns, 0, width).map(column => column.right - column.left)); } catch { return width; }
+  }
+  /**
    * The selection as plain text. An object's place holder character (U+FFFC) is not text: a field
    * gives its result, an equation its text and a note reference `noteText(run, offset)` (the number
    * shown, which only layout knows), so neither another application nor a paste back here gets it.
    * `[start, end]` is another range to read instead of the selection.
    */
-  clipboardText(noteText = () => '', [start, end] = this.range) {
+  /** The selection as plain text; `hidden(run)` leaves out text the view hides (a deletion in Simple Markup). */
+  clipboardText(noteText = () => '', [start, end] = this.range, hidden = () => false) {
     let at = 0, text = '', rows = null;
     // Cells of one row are separated by a tab and rows by a line, as a copied table reads in other applications.
     const rowOf = id => { if (!rows) { rows = new Map(); for (const table of this.tables) for (const row of table.rows) for (const cell of row.cells) rows.set(cell.id, row); } return rows.get(id); };
     for (const [index, p] of this.paragraphs.entries()) {
       for (const run of p.runs) {
         const length = run.text.length;
-        if (run.image) { if (at >= start && at < end) text += run.image.alt || '[Image]'; }
+        if (hidden(run)) { /* Not shown, not copied. */ }
+        else if (run.image) { if (at >= start && at < end) text += run.image.alt || '[Image]'; }
         else if (run.bodySymbol) { if (at >= start && at < end) text += bodySymbolText(run, run.text); }
         else if (run.text === '\ufffc') { if (at >= start && at < end) text += run.field ? run.field.cachedText || '' : run.math ? run.math.text || '' : run.noteMark ? noteText(run, at) || '' : ''; }
         else text += run.text.slice(Math.max(0, start - at), Math.max(0, end - at));
@@ -997,8 +1010,9 @@ export class TextDocument {
     for (const cell of cells) { cell.vertical = value ?? cell.inheritedVertical ?? 'top'; cell.verticalExplicit = value !== null; cell.verticalChanged = true; }
     this.didChange(); return true;
   }
-  setTableProperties(patch) {
-    const table = this.tableContext?.table; if (!table) return false;
+  /** `table`: the table to change (the selection's block can lie in an outer table); by default the caret's. */
+  setTableProperties(patch, table = this.tableContext?.table) {
+    if (!table) return false;
     const next = copy(table);
     for (const key of Object.keys(patch)) if (!['layout', 'width', 'alignment', 'indent', 'columns', 'clearCellWidths'].includes(key)) throw new Error('Unknown table property.');
     if ('layout' in patch && !['fixed', 'autofit'].includes(patch.layout)) throw new Error('Choose fixed widths or AutoFit.');
@@ -1185,8 +1199,8 @@ export class TextDocument {
     const table = this.tableContext?.table; if (!table) return 0;
     return Math.max(...this.selectedTableRows.filter(row => table.rows.includes(row)).map(row => table.rows.indexOf(row) + 1));
   }
-  setTableHeaderRows(count) {
-    const table = this.tableContext?.table; if (!table) return false;
+  setTableHeaderRows(count, table = this.tableContext?.table) {
+    if (!table) return false;
     if (!Number.isInteger(count) || count < 0 || count > table.rows.length) throw new Error('Choose how many leading rows to repeat.');
     // Include whole vertical merges when defining an authored header region.
     for (const owner of new Set(verticalMerges(table).values())) if (owner.rowIndex < count) count = Math.max(count, owner.endRow + 1);
@@ -1228,7 +1242,8 @@ export class TextDocument {
     const borderSize = 4; // Eighth-points; the generated table uses single borders.
     const page = this.sectionPageSettings;
     const borderSpace = parent || page.compatibilityMode >= 15 ? borderSize * 2.5 : 0;
-    const width = (parent ? Math.floor(availableWidth) : this.sectionWritingWidth - (page.gutterAtTop ? 0 : page.gutter)) - borderSpace;
+    // A table outside tables is as wide as the text column it stands in, as in Word.
+    const width = (parent ? Math.floor(availableWidth) : Math.floor(this.sectionColumnWidth)) - borderSpace;
     if (!Number.isFinite(width) || width <= 0) throw new Error('The containing cell must have a resolved writing width.');
     const grid = Array.from({ length: columns }, (_, i) => Math.floor(width * (i + 1) / columns) - Math.floor(width * i / columns));
     if (grid.some(w => w < 360)) throw new Error('These columns are too narrow for the available space. Use fewer columns.');
@@ -1645,7 +1660,7 @@ export class TextDocument {
     const entries = this.bookmarks, entry = entries.find(e => e.id === id);
     if (!entry) throw new Error('That bookmark no longer exists.');
     if (entry.name === name) return false;
-    if (entries.some(e => e.name === name)) throw new Error('A bookmark with that name already exists.');
+    if (entries.some(e => e !== entry && e.name?.toLowerCase() === name.toLowerCase())) throw new Error('A bookmark with that name already exists.');
     const active = entries.find(e => e.name === entry.name) === entry, old = entry.name;
     this.checkpoint(); entry.startMarker.name = name;
     if (active) for (const p of this.paragraphs) for (const run of p.runs) if (run.link && !run.link.target && run.link.anchor === old) run.link = { ...run.link, anchor: name };
@@ -1813,9 +1828,13 @@ export class TextDocument {
     if (target >= start && target <= end) return false;
     this.checkpoint();
     this.replace('', { checkpoint: false });
+    // With Track Changes on, the picture stays where it was as a deletion: the inserted one needs an ID of its own.
+    const kept = this.paragraphs.some(p => p.runs.some(r => r.image?.id === image.id));
+    const id = kept ? nextDrawingId(this.paragraphs) : image.id;
+    if (id > 4294967295) throw new Error('This document has exhausted its drawing IDs.');
     const position = target > start ? target - 1 : target;
     this.select(position, position);
-    this.replace(OBJECT, { checkpoint: false, insertedImage: image });
+    this.replace(OBJECT, { checkpoint: false, insertedImage: kept ? { ...image, id } : image });
     this.select(this.selection.focus - 1, this.selection.focus);
     return true;
   }
@@ -2014,6 +2033,9 @@ export class TextDocument {
   findMatches(query, options) {
     // With Track Changes on, deleted text is not found: replacing it would only insert the replacement again.
     if (this.trackChanges && !this.trackingInternal) options = { ...options, skipDeleted: true };
+    // A search a reader makes (Find, the Navigation pane) passes over what the view hides: a deletion in Simple
+    // Markup, hidden text. Found, it was selected unseen, and replacing it made visible text of a deletion.
+    if (options?.visibleOnly) options = { ...options, hidden: hiddenRun };
     // Advanced options (special characters, wildcards, formatting) use the advanced matcher.
     if (options?.advanced) return advancedFind(this.paragraphs, query, options, { styles: this.styles, numbering: this.numbering });
     return findText(this.paragraphs, query, options);
@@ -2334,16 +2356,42 @@ export class TextDocument {
     if (start !== end) { this.selection = { anchor: start, focus: end }; this.replace('', { checkpoint: false }); }
     const at = this.range[0], location = locate(this.paragraphs, at), p = this.paragraphs[location.index];
     const run = { text: OBJECT, math: { xml: math.xml, text: math.text }, styleId: null, directFormat: {}, hasDirectProperties: false, styleManaged: true, properties: '', overrides: {} };
+    // With Track Changes on the equation is an insertion like typed text: rejecting it removes it.
+    if (this.trackChanges && !this.trackingInternal) run.revision = this.newRevision('ins');
     p.runs = normalize([...sliceRuns(p.runs, 0, location.offset), run, ...sliceRuns(p.runs, location.offset)]);
     shiftMarkersPastObject(p, location.offset);
     this.selection = { anchor: at + 1, focus: at + 1 };
     this.didChange(); return true;
   }
+  /**
+   * The paragraph and character styles of a new `kind` note: the document's "footnote text" and
+   * "footnote reference" (or endnote) styles, found by name. A document without them gets Word's
+   * built-in definitions (10 pt text with no space after; a superscript reference), as part of the
+   * current command. Returns { textStyle, referenceStyle } ids.
+   */
+  addNoteStyles(kind = 'footnote') {
+    const named = (styles, type, name) => Object.values(styles.definitions).find(s => s.type === type && !s.error && s.name?.toLowerCase() === name)?.id || null;
+    const want = [['paragraph', `${kind} text`, `${kind[0].toUpperCase()}${kind.slice(1)}Text`], ['character', `${kind} reference`, `${kind[0].toUpperCase()}${kind.slice(1)}Reference`]];
+    if (want.every(([type, name]) => named(this.styles, type, name))) return { textStyle: named(this.styles, 'paragraph', want[0][1]), referenceStyle: named(this.styles, 'character', want[1][1]) };
+    const styles = copy(this.styles);
+    for (const [type, name, base] of want) {
+      if (named(styles, type, name)) continue;
+      let id = base; for (let i = 1; Object.hasOwn(styles.definitions, id); i++) id = `${base}${i}`;
+      const basedOn = type === 'paragraph' ? styles.defaultParagraph : styles.defaultCharacter;
+      styles.definitions[id] = { id, type, name, basedOn: basedOn && styles.definitions[basedOn]?.type === type ? basedOn : null, next: null, properties: {}, reference: {}, run: {}, generated: true, builtIn: true };
+      styles.definitions[id] = editedStyle(styles, id, type === 'paragraph'
+        ? { paragraph: { spaceAfter: 0, lineSpacing: 1, lineRule: 'auto' }, run: { fontSize: 10, fontSizeCs: 10 } }
+        : { run: { verticalAlign: 'superscript' } }, type);
+    }
+    this.styles = styles; this.didChange();
+    return { textStyle: named(styles, 'paragraph', want[0][1]), referenceStyle: named(styles, 'character', want[1][1]) };
+  }
   /** Insert a footnote (or endnote) reference mark for note `id` at the caret (after any selection); `custom` marks follow as text. */
-  insertFootnoteReference(id, kind = 'footnote', { custom = false } = {}) {
+  insertFootnoteReference(id, kind = 'footnote', { custom = false, style = null } = {}) {
     this.checkpoint();
     const at = this.range[1], location = locate(this.paragraphs, at), p = this.paragraphs[location.index];
     const run = footnoteReferenceRun(this.typingRun(at), id, kind);
+    if (style) { run.styleId = style; run.styleChanged = true; }
     if (custom) run.noteMark.custom = true;
     // With Track Changes on the reference is an insertion like typed text, so rejecting it removes the note.
     if (this.trackChanges && !this.trackingInternal) run.revision = this.newRevision('ins');

@@ -83,3 +83,12 @@
 :is(.ribbon-card, .ribbon-flyout) .design-set .design-set-heading { font-size: 7px; line-height: 1.1; }
 :is(.ribbon-card, .ribbon-flyout) .design-set .design-set-lines { gap: 1.5px; }
 :is(.ribbon-card, .ribbon-flyout) .design-set .design-set-lines > span:nth-child(3) { display: none; }
+
+/* Windows contrast themes drop backgrounds and shadows: the palettes keep the colors they show, and the chosen
+   scheme, font pair and fill tile take the system highlight instead of a tint or a ring. */
+@media (forced-colors: active) {
+  .design-color-strip, .design-color-sample, .design-theme-bars { forced-color-adjust: none; }
+  .design-color-strip > span { box-shadow: inset 0 0 0 1px CanvasText; }
+  .design-row[aria-checked="true"], .design-font-row[aria-checked="true"] { outline: 2px solid Highlight; outline-offset: -2px; }
+  .design-tile[aria-checked="true"] { outline: 2px solid Highlight; outline-offset: 1px; }
+}

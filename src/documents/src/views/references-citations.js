@@ -32,6 +32,8 @@ export function createCitationCommands(ctx) {
   /** `renamed` ([oldTag, newTag]) points the citations of a source whose tag was changed at its new tag. */
   async function saveSources(sources, style = currentStyle(), { renamed = null } = {}) {
     if (!ready()) throw new Error('This document is open read-only.');
+    // The sources live in their own part, which no protected edit check sees: under Restrict Editing they stay as they are.
+    ctx.unprotected?.('its sources');
     const [, fields, styles] = await engineModules();
     const { data } = documentData();
     const info = styles.CITATION_STYLES[style];
@@ -67,10 +69,12 @@ export function createCitationCommands(ctx) {
 
   async function setStyle(style) {
     const engine = ready(); if (!engine) return;
-    rememberStyle(style);
-    const { data } = documentData();
-    if (data.sources.length || pkg().parts && (await engineModules())[1].readBibliographyPart(pkg().parts)) await saveSources(data.sources, style);
-    else { pendingStyle = style; await refreshFields(data.sources, style); }
+    try {
+      const { data } = documentData();
+      if (data.sources.length || pkg().parts && (await engineModules())[1].readBibliographyPart(pkg().parts)) await saveSources(data.sources, style);
+      else { ctx.unprotected?.('its citation style'); pendingStyle = style; await refreshFields(data.sources, style); }
+      rememberStyle(style);
+    } catch (e) { ctx.fail(e); }
     ctx.onChange();
   }
 
@@ -204,7 +208,7 @@ export function createCitationCommands(ctx) {
     const masterList = el('select.input.ref-source-list', { size: 10, 'aria-label': 'Master list', multiple: true });
     const docList = el('select.input.ref-source-list', { size: 10, 'aria-label': 'Current list', multiple: true });
     const preview = el('div.ref-source-preview', { 'aria-live': 'polite' });
-    const status = el('p.field-hint.ref-source-status');
+    const status = el('p.field-hint.ref-source-status', { 'aria-live': 'polite' });
     const cited = async () => new Set(((await engineModules())[1].citedTags(editor()?.session.body.paragraphs || [])).map(t => t.toLowerCase()));
     let citedTags = await cited();
     const matches = source => { const q = search.value.trim().toLowerCase(); return !q || `${source.tag} ${describe(source)} ${JSON.stringify(source.fields)} ${JSON.stringify(source.names)}`.toLowerCase().includes(q); };
@@ -243,7 +247,8 @@ export function createCitationCommands(ctx) {
     const toDocument = async () => {
       const picked = selected(masterList); if (!picked.length) return;
       const docSources = documentData().data.sources, tags = new Set(docSources.map(s => s.tag.toLowerCase()));
-      await saveSources([...docSources, ...picked.filter(s => !tags.has(s.tag.toLowerCase())).map(s => ({ ...structuredClone(s), edited: true }))]);
+      try { await saveSources([...docSources, ...picked.filter(s => !tags.has(s.tag.toLowerCase())).map(s => ({ ...structuredClone(s), edited: true }))]); }
+      catch (e) { status.textContent = e.message; return; }
       fill();
     };
     const toMaster = () => { const picked = selected(docList); if (!picked.length) return; master = rememberSources(picked); fill(); };
@@ -252,7 +257,9 @@ export function createCitationCommands(ctx) {
       const picked = selected(docList);
       if (picked.some(s => citedTags.has(s.tag.toLowerCase()))) { status.textContent = 'Cited sources stay in the document. Delete their citations first.'; return; }
       const tags = new Set(picked.map(s => s.tag));
-      await saveSources(documentData().data.sources.filter(s => !tags.has(s.tag))); fill();
+      try { await saveSources(documentData().data.sources.filter(s => !tags.has(s.tag))); }
+      catch (e) { status.textContent = e.message; return; }
+      fill();
     };
     const edit = () => {
       const [source] = selected(focused); if (!source) return;

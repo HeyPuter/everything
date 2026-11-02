@@ -137,6 +137,8 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
   // Protection other than locked tracking keeps Track Changes as the document has it.
   const trackingFixed = () => ['readOnly', 'comments', 'forms'].includes(hooks.protection?.()?.edit);
   const fixedTracking = () => error(new Error('This document is protected: Track Changes cannot be turned on or off.'));
+  // Changes can be accepted or rejected: not with tracking locked, nor under protection that allows no edits of the text.
+  const resolvable = () => !!ready() && !locked() && !trackingFixed();
   // No Markup and Original show the document without any markup: its comments are hidden too.
   const markupShown = () => !['none', 'original'].includes(revisionView.mode);
   const showing = () => commentsShown && markupShown();
@@ -144,7 +146,8 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
   const revealComments = () => { commentsShown = true; if (!markupShown()) { revisionView.mode = 'all'; editor()?.relayout(); } };
   // Whether comments can be replied to, edited, resolved and deleted.
   const annotating = () => !!ready() && !commentsRefused();
-  const ready = () => { const engine = editor(); return engine && !pkg()?.readOnly && !engine.viewOnly && engine.model.comments ? engine : null; };
+  // Comments belong to the body: a header, footer or note being edited does not hide them or stop them being answered.
+  const ready = () => { const engine = editor(); return engine && !pkg()?.readOnly && !engine.viewOnly && engine.session.body.comments ? engine : null; };
   const me = () => { const name = author() || 'Author'; return { author: name, initials: initialsFor(name) }; };
   /**
    * The document's comment threads. They are read several times for each keystroke (the column, the caret's
@@ -152,7 +155,7 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
    */
   let listed = null;
   const threads = () => {
-    const model = editor()?.model; if (!model?.comments) return [];
+    const model = editor()?.session.body; if (!model?.comments) return [];
     if (listed?.model !== model || listed.revision !== model.revision || listed.comments !== model.comments || listed.paragraphs !== model.paragraphs || listed.count !== model.comments.length)
       listed = { model, revision: model.revision, comments: model.comments, paragraphs: model.paragraphs, count: model.comments.length, threads: commentThreads(model.commentList) };
     return listed.threads;
@@ -168,6 +171,9 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
   function run(action) {
     const engine = ready(); if (!engine) return false;
     engine.finishComposition();
+    // Comments and tracked changes are the body's: a command on them leaves a header, footer or note being edited,
+    // so it is the body's change (and undo step) rather than the story's.
+    if (engine.session.path !== null) engine.editStory(null);
     const ok = engine.execute(action);
     onChange();
     return ok;
@@ -207,19 +213,19 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
     activeThread() { return threads().find(t => t.id === activeId) || null; },
     deleteActive() {
       const thread = commands.activeThread() || threadAtCaret(); if (!thread) return;
-      run(() => editor().model.deleteComment(thread.id)); activeId = null; refresh(true);
+      run(() => editor().session.body.deleteComment(thread.id)); activeId = null; refresh(true);
     },
-    deleteAll({ resolvedOnly = false } = {}) { run(() => editor().model.deleteAllComments({ resolvedOnly })); activeId = null; refresh(true); },
+    deleteAll({ resolvedOnly = false } = {}) { run(() => editor().session.body.deleteAllComments({ resolvedOnly })); activeId = null; refresh(true); },
     resolveActive() {
       const thread = commands.activeThread() || threadAtCaret(); if (!thread) return;
-      run(() => editor().model.setCommentDone(thread.id, !thread.root.done)); refresh(true);
+      run(() => editor().session.body.setCommentDone(thread.id, !thread.root.done)); refresh(true);
     },
     go(direction) {
       const engine = editor(); if (!engine) return;
       // The comments of reviewers hidden in Show Markup have no card to go to.
       const list = threads().filter(t => t.start !== null && !revisionView.options.hiddenAuthors.includes(t.root.author));
       if (!list.length) return;
-      const [a, b] = engine.model.range, current = list.findIndex(t => t.id === activeId);
+      const [a, b] = engine.session.body.range, current = list.findIndex(t => t.id === activeId);
       let next;
       if (current >= 0) next = list[(current + direction + list.length) % list.length];
       else next = direction > 0 ? list.find(t => t.start > a) || list[0] : [...list].reverse().find(t => t.start < b) || list.at(-1);
@@ -233,7 +239,7 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
       const hidden = new Set(revisionView.options.hiddenAuthors);
       const ids = threads().filter(t => !hidden.has(t.root.author)).map(t => t.id);
       if (!ids.length) return;
-      run(() => { for (const id of ids) editor().model.deleteComment(id); }); activeId = null; refresh(true);
+      run(() => { for (const id of ids) editor().session.body.deleteComment(id); }); activeId = null; refresh(true);
     },
     get paneShown() { return paneShown; },
     // The ribbon and menus read paneShown for their pressed and checked states: they are told it changed.
@@ -267,10 +273,11 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
     setMarkupView(mode) {
       const engine = editor(); if (!engine || revisionView.mode === mode) return;
       revisionView.mode = mode;
-      engine.relayout(); engine.focus(); onChange();
+      engine.relayout(); engine.leaveHiddenText?.(); engine.focus(); onChange();
     },
     revisionsAround() {
-      const engine = editor(); if (!engine) return [];
+      // While a header, footer or note is edited, the body's selection is not on screen: there is no change "here".
+      const engine = editor(); if (!engine || engine.session.path !== null) return [];
       return engine.session.body.revisionsAround?.(...engine.session.body.range) || [];
     },
     hasRevisions() { return (editor()?.session.body.revisions || []).length > 0; },
@@ -402,13 +409,13 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
     const more = el('button.icon-btn.wcc-more', { type: 'button', 'aria-label': `More thread actions for ${comment.author || 'comment'}`, title: 'More thread actions', disabled: !editable,
       onclick: () => openMenu({ anchor: more, label: 'Comment actions', items: [
         { label: 'Edit comment', onSelect: () => { editing = comment.id; activeId = thread.id; pinned = true; pinnedRange = editor()?.model.range.join() ?? ''; refresh(true); queueMicrotask(() => cards.get(thread.id)?.querySelector('.wcc-entry.is-editing textarea')?.focus()); } },
-        { label: isRoot ? 'Delete thread' : 'Delete comment', onSelect: () => { run(() => editor().model.deleteComment(comment.id)); refresh(true); } },
-        ...(isRoot ? [{ label: thread.root.done ? 'Reopen thread' : 'Resolve thread', onSelect: () => { run(() => editor().model.setCommentDone(thread.id, !thread.root.done)); refresh(true); } }] : []),
+        { label: isRoot ? 'Delete thread' : 'Delete comment', onSelect: () => { run(() => editor().session.body.deleteComment(comment.id)); refresh(true); } },
+        ...(isRoot ? [{ label: thread.root.done ? 'Reopen thread' : 'Resolve thread', onSelect: () => { run(() => editor().session.body.setCommentDone(thread.id, !thread.root.done)); refresh(true); } }] : []),
       ] }) }, '⋯');
     const head = el('div.wcc-head', {}, avatar(comment.author, comment.initials),
       el('div.wcc-meta', {}, el('span.wcc-author', {}, comment.author || 'Unknown author'), el('span.wcc-date', { title: comment.date ? new Date(comment.date).toLocaleString() : '' }, time(comment.date))), more);
     const body = editing === comment.id
-      ? textEditor({ value: comment.text, key: `edit:${comment.id}`, placeholder: 'Edit comment', submitLabel: 'Save', onSubmit: text => { editing = null; const ok = run(() => editor().model.editComment(comment.id, text)); if (!ok) editing = comment.id; refresh(true); return ok; }, onCancel: () => { editing = null; refresh(true); editor()?.focus(); } })
+      ? textEditor({ value: comment.text, key: `edit:${comment.id}`, placeholder: 'Edit comment', submitLabel: 'Save', onSubmit: text => { editing = null; const ok = run(() => editor().session.body.editComment(comment.id, text)); if (!ok) editing = comment.id; refresh(true); return ok; }, onCancel: () => { editing = null; refresh(true); editor()?.focus(); } })
       // Only text with an @ can mention anyone.
       : el('div.wcc-text', {}, ...renderMentions(comment.text, String(comment.text || '').includes('@') ? names() : []));
     return el(`div.wcc-entry${editing === comment.id ? '.is-editing' : ''}`, { dataset: { commentId: comment.id } }, head, body);
@@ -424,11 +431,11 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
       return node;
     }
     node.append(entry(thread.root, thread, true, names), ...thread.replies.map(reply => entry(reply, thread, false, names)));
-    if (done) node.append(el('div.wcc-resolved', {}, el('span', {}, 'Resolved'), el('button.btn.btn-sm', { type: 'button', disabled: !annotating(), onclick: () => { run(() => editor().model.setCommentDone(thread.id, false)); refresh(true); } }, 'Reopen')));
+    if (done) node.append(el('div.wcc-resolved', {}, el('span', {}, 'Resolved'), el('button.btn.btn-sm', { type: 'button', disabled: !annotating(), onclick: () => { run(() => editor().session.body.setCommentDone(thread.id, false)); refresh(true); } }, 'Reopen')));
     else if (annotating()) node.append(el('div.wcc-reply', {}, textEditor({ key: `reply:${thread.id}`, placeholder: 'Reply', submitLabel: 'Reply',
-      onSubmit: text => { const ok = run(() => editor().model.replyToComment(thread.id, { ...me(), text })); refresh(true); return ok; },
+      onSubmit: text => { const ok = run(() => editor().session.body.replyToComment(thread.id, { ...me(), text })); refresh(true); return ok; },
       onCancel: () => { activeId = null; pinned = false; refresh(true); editor()?.focus(); } })),
-    el('button.btn.btn-sm.wcc-resolve', { type: 'button', title: 'Resolve thread', onclick: () => { run(() => editor().model.setCommentDone(thread.id, true)); refresh(true); } }, 'Resolve'));
+    el('button.btn.btn-sm.wcc-resolve', { type: 'button', title: 'Resolve thread', onclick: () => { run(() => editor().session.body.setCommentDone(thread.id, true)); refresh(true); } }, 'Resolve'));
     return node;
   }
   /**
@@ -438,9 +445,9 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
    */
   function followDraft(engine) {
     if (!draft) return;
-    const text = engine.model.text;
-    if (draft.revision === undefined) { draft.revision = engine.model.revision; draft.source = text; return; }
-    if (draft.revision === engine.model.revision) return;
+    const body = engine.session.body, text = body.text;
+    if (draft.revision === undefined) { draft.revision = body.revision; draft.source = text; return; }
+    if (draft.revision === body.revision) return;
     const before = draft.source, limit = Math.min(before.length, text.length);
     let head = 0, tail = 0;
     while (head < limit && before[head] === text[head]) head++;
@@ -452,7 +459,7 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
     // A side inside the changed text widens to take in what replaced it.
     const start = draft.start <= head ? draft.start : draft.start >= changedEnd ? draft.start + delta : head;
     const end = draft.end <= head ? draft.end : draft.end >= changedEnd ? draft.end + delta : changedEnd + delta;
-    Object.assign(draft, { start: Math.min(start, text.length), end: Math.max(Math.min(start, text.length), Math.min(end, text.length)), revision: engine.model.revision, source: text });
+    Object.assign(draft, { start: Math.min(start, text.length), end: Math.max(Math.min(start, text.length), Math.min(end, text.length)), revision: body.revision, source: text });
   }
   function draftCard() {
     const editorNode = textEditor({ value: draft.value || '', placeholder: 'Start a conversation', submitLabel: 'Post',
@@ -460,7 +467,7 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
         const engine = editor(); if (engine) followDraft(engine);
         const posting = draft, { start, end } = draft; draft = null;
         let id = null;
-        if (!run(() => { id = editor().model.addComment({ ...me(), text, range: [start, end] }); })) {
+        if (!run(() => { id = editor().session.body.addComment({ ...me(), text, range: [start, end] }); })) {
           // The document refused it (protection, a comment too long): the words stay in the draft to try again.
           draft = Object.assign(posting, { value: text }); activeId = 'draft'; refresh(true);
           queueMicrotask(() => layer.querySelector('.ed-comment-draft textarea')?.focus());
@@ -486,7 +493,7 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
   function balloonCard(change, documentText, formatSummary) {
     const engine = editor(), body = engine.session.body;
     const text = change.type === 'format' ? formatSummary(change) : documentText.slice(change.start, Math.min(change.end, documentText.length)).replace(/\n/g, ' ¶ ');
-    const editable = !!ready() && !locked();
+    const editable = resolvable();
     const act = accept => { body.select(change.start, Math.min(change.end, body.text.length)); commands.resolve(accept, 'here', { change }); };
     return el('article.ed-comment-card.ed-revision-card', { dataset: { anchor: String(change.start), kind: change.type }, 'aria-label': `${change.type === 'format' ? 'Formatted' : 'Deleted'} by ${change.author || 'unknown author'}` },
       el('div.wcc-head', {}, avatar(change.author), el('div.wcc-meta', {}, el('span.wcc-author', {}, change.author || 'Unknown author'), el('span.wcc-date', {}, time(change.date))),
@@ -599,6 +606,12 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
         const target = keep.draft ? layer.querySelector('.ed-comment-draft textarea') : cards.get(keep.thread)?.querySelector('textarea');
         if (target) { target.value = keep.value; target.dispatchEvent(new Event('input')); target.focus(); target.setSelectionRange(keep.start, keep.end); }
       }
+      // A control the rebuild took away (a card's menu button after Resolve or Delete, the box of a posted reply or a
+      // saved edit) had the keyboard: it goes to the thread's new card, or back to the document, instead of to nothing.
+      if (focused && !focused.isConnected && (document.activeElement === document.body || !document.activeElement)) {
+        const card = cards.get(focused.closest('[data-thread]')?.dataset.thread);
+        if (card) card.focus({ preventScroll: true }); else editor()?.focus();
+      }
       positionsKey = '';
     }
     tints(list);
@@ -646,8 +659,8 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
     when(removeSplit.arrow, () => annotating() && threads().length > 0);
     when(previous, () => threads().length > 0); when(next, () => threads().length > 0);
     when(resolve, () => annotating() && !!(commands.activeThread() || threadAtCaret()));
-    when(show, () => !!editor()?.model.comments && markupShown(), () => String(showing()));
-    when(showSplit.arrow, () => !!editor()?.model.comments && markupShown());
+    when(show, () => !!editor()?.session.body.comments && markupShown(), () => String(showing()));
+    when(showSplit.arrow, () => !!editor()?.session.body.comments && markupShown());
     const track = command('Track Changes', 'trackChanges', () => commands.toggleTracking(), { size: 'large', text: 'Track Changes', shortcut: `${MOD_KEY}+Shift+E` });
     const trackSplit = split(track, { label: 'Track Changes options', size: 'large', open: (anchor, e) => openMenu({ anchor, label: 'Track Changes', pointer: !!e?.detail, onClose: e?.detail ? () => editor()?.focus() : null, items: [
       { label: 'For Everyone', radio: true, checked: commands.trackingMode === 'everyone', disabled: !commands.canTrack(), hint: 'Saved with the document', onSelect: () => commands.setTrackingMode('everyone') },
@@ -680,8 +693,8 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
     when(track, () => commands.canTrack(), () => String(commands.tracking));
     when(trackSplit.arrow, () => commands.canTrack());
     when(markup, () => !!editor());
-    when(accept, () => !!ready() && !locked() && commands.revisionsAround().length > 0); when(reject, () => !!ready() && !locked() && commands.revisionsAround().length > 0);
-    when(acceptSplit.arrow, () => !!ready() && !locked() && commands.hasRevisions()); when(rejectSplit.arrow, () => !!ready() && !locked() && commands.hasRevisions());
+    when(accept, () => resolvable() && commands.revisionsAround().length > 0); when(reject, () => resolvable() && commands.revisionsAround().length > 0);
+    when(acceptSplit.arrow, () => resolvable() && commands.hasRevisions()); when(rejectSplit.arrow, () => resolvable() && commands.hasRevisions());
     when(previousChange, () => commands.hasRevisions()); when(nextChange, () => commands.hasRevisions());
     const speak = command('Read Aloud', 'readAloud', () => readAloud.active ? readAloud.stop() : readAloud.start(), { size: 'large', text: 'Read Aloud', shortcut: MOD_KEY === 'Cmd' ? 'Option+Cmd+Space' : 'Ctrl+Alt+Space' });
     speak.addEventListener('mousedown', e => e.preventDefault());
@@ -704,8 +717,8 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
   function contextItems() {
     const engine = editor(); if (!engine) return [];
     const changes = engine.session.path === null && commands.revisionsAround().length ? [
-      { label: 'Accept Change', icon: 'accept', disabled: !ready() || locked(), onSelect: () => commands.resolve(true) },
-      { label: 'Reject Change', icon: 'reject', disabled: !ready() || locked(), onSelect: () => commands.resolve(false) }] : [];
+      { label: 'Accept Change', icon: 'accept', disabled: !resolvable(), onSelect: () => commands.resolve(true) },
+      { label: 'Reject Change', icon: 'reject', disabled: !resolvable(), onSelect: () => commands.resolve(false) }] : [];
     if (!engine.model.comments) return changes;
     const thread = threadAtCaret();
     return [...changes,{ label: 'New Comment', disabled: !commands.canComment(), onSelect: () => commands.newComment() },

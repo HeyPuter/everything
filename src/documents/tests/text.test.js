@@ -8,7 +8,7 @@ describe('text statistics', () => {
     expect(countWords('  spaced   out  ')).toBe(2);
     expect(countWords("Don't split contractions or well-known hyphens")).toBe(6);
     expect(countWords('Numbers 3.14 and 1,000 count')).toBe(5);
-    expect(countWords('Unicode: café naïve 日本語')).toBe(4);
+    expect(countWords('Unicode: café naïve 日本語')).toBe(6);
     // Combining marks and zero-width joiners stay inside their word.
     expect(countWords('नमस्ते दुनिया')).toBe(2);
     expect(countWords('cafe\u0301 nai\u0308ve')).toBe(2);
@@ -26,6 +26,17 @@ describe('text statistics', () => {
     expect(countWords('ฉัน ไป โรงเรียน ทุก วัน')).toBe(5);
     expect(countWords('hello ฉันไป world')).toBe(4);
     expect(countWords('ฉัน\u200Bไป')).toBe(2);
+    // Chinese and Japanese: each ideograph or kana is a word, as desktop word processors count East Asian text;
+    // punctuation between them is not. Korean writes spaces between its words, which count as everywhere else.
+    expect(countWords('日本語')).toBe(3);
+    expect(countWords('我爱北京天安门。')).toBe(7);
+    expect(countWords('これはペンです。')).toBe(7);
+    expect(countWords('コーヒーを飲みます')).toBe(9);
+    expect(countWords('「東京」、大阪')).toBe(4);
+    expect(countWords('Word文書を開く')).toBe(6);
+    expect(countWords('使用Word 2024版')).toBe(5);
+    expect(countWords('注音ㄅㄆㄇ')).toBe(5);
+    expect(countWords('안녕하세요 세계')).toBe(2);
   });
 
   it('counts characters with and without spaces, ignoring line breaks', () => {

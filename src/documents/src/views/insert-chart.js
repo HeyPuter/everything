@@ -31,6 +31,12 @@ export function chartXml(image, assets, packageParts) {
 }
 
 /** Chart dialog: type, title, legend and a data grid of categories × series, with a preview. */
+/** Remove category `index` from chart data: its values, and its slice colors (pie and doughnut charts color each category). */
+export function removeChartRow(data, index) {
+  data.categories.splice(index, 1);
+  for (const s of data.series) { s.values.splice(index, 1); s.colors?.splice(index, 1); }
+}
+
 export function openChartDialog({ initial = null, onInsert, onClose }) {
   const data = structuredClone(initial || defaultChartData('column-clustered'));
   let type = data.type;
@@ -72,7 +78,7 @@ export function openChartDialog({ initial = null, onInsert, onClose }) {
       el('th', {}, el('button.btn.btn-ghost.btn-sm', { type: 'button', disabled: single() || data.series.length >= 20, title: 'Add a series', onclick: () => { data.series.push({ name: `Series ${data.series.length + 1}`, values: data.categories.map(() => 0), color: CHART_PALETTE[data.series.length % CHART_PALETTE.length] }); drawGrid(); render(); } }, '+ Series')));
     const body = data.categories.map((category, i) => el('tr', {}, el('th', {}, cellInput(category, `Category ${i + 1}`, v => { data.categories[i] = v; })),
       ...shown().map((s, j) => el('td', {}, cellInput(s.values[i], `${s.name || `Series ${j + 1}`}, ${category}`, v => { s.values[i] = v; }, true))),
-      el('td', {}, el('button.icon-btn.insert-chart-remove', { type: 'button', 'aria-label': `Remove ${category || `row ${i + 1}`}`, title: 'Remove row', disabled: data.categories.length <= 1, onclick: () => { data.categories.splice(i, 1); for (const s of data.series) s.values.splice(i, 1); drawGrid(); render(); } }, '×'))));
+      el('td', {}, el('button.icon-btn.insert-chart-remove', { type: 'button', 'aria-label': `Remove ${category || `row ${i + 1}`}`, title: 'Remove row', disabled: data.categories.length <= 1, onclick: () => { removeChartRow(data, i); drawGrid(); render(); } }, '×'))));
     const foot = el('tr', {}, el('td', { colSpan: shown().length + 2 },
       el('button.btn.btn-ghost.btn-sm', { type: 'button', disabled: data.categories.length >= 100, onclick: () => { data.categories.push(type.startsWith('scatter') ? String(data.categories.length + 1) : `Category ${data.categories.length + 1}`); for (const s of data.series) s.values.push(0); drawGrid(); render(); } }, '+ Row'),
       shown().length > 1 ? el('button.btn.btn-ghost.btn-sm', { type: 'button', onclick: () => { data.series.pop(); drawGrid(); render(); } }, '− Series') : null));

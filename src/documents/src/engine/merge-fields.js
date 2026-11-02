@@ -8,6 +8,8 @@
 // as field codes are conventionally displayed: IF "{ MERGEFIELD City }" = "Oslo" "Hei" "Hello".
 
 import { formatPageNumber } from './page-numbering.js';
+import { formatFormulaNumber } from './table-formula.js';
+import { applyGeneralFormat, formatDatePicture as formatDate } from './field-results.js';
 
 /** Address concepts an address block or greeting line draws on, with column names they commonly appear under. */
 export const ADDRESS_FIELDS = [
@@ -145,48 +147,26 @@ function applyGeneralFormats(value, formats = []) {
     } else if (name === 'ordinal' && /^\s*\d+\s*$/.test(value)) {
       const n = Number(value), tens = n % 100;
       value = `${n}${tens >= 11 && tens <= 13 ? 'th' : ({ 1: 'st', 2: 'nd', 3: 'rd' }[n % 10] || 'th')}`;
-    }
+    } else if (['cardtext', 'ordtext', 'hex'].includes(name)) value = applyGeneralFormat(value, f);
   }
   return value;
 }
 
-/** A numeric picture (\# "$#,##0.00"): digits, grouping, decimals and literal text around them. */
+/** A numeric picture (\# "$#,##0.00") applied to a merged value that reads as a number (formatFormulaNumber). */
 export function formatNumberPicture(value, picture) {
   const number = Number(String(value).replace(/[,\s$€£¥]/g, ''));
   if (!String(value).trim() || !Number.isFinite(number)) return value;
-  const sections = picture.split(';');
-  const section = number < 0 && sections[1] !== undefined ? sections[1] : number === 0 && sections[2] !== undefined ? sections[2] : sections[0];
-  const negativeSection = number < 0 && sections[1] !== undefined;
-  const first = section.search(/[0#x]/), last = Math.max(section.lastIndexOf('0'), section.lastIndexOf('#'), section.lastIndexOf('x'));
-  if (first < 0) return section.replace(/'([^']*)'/g, '$1');
-  const prefix = section.slice(0, first).replace(/'([^']*)'/g, '$1'), suffix = section.slice(last + 1).replace(/'([^']*)'/g, '$1');
-  const body = section.slice(first, last + 1), dot = body.indexOf('.');
-  const decimals = dot < 0 ? 0 : body.slice(dot + 1).replace(/[^0#]/g, '').length;
-  const required = dot < 0 ? 0 : body.slice(dot + 1).replace(/[^0]/g, '').length;
-  const integerDigits = (dot < 0 ? body : body.slice(0, dot)).replace(/[^0]/g, '').length;
-  let [whole, fraction = ''] = Math.abs(number).toFixed(decimals).split('.');
-  fraction = fraction.replace(/0+$/, '').padEnd(required, '0');
-  whole = whole.padStart(integerDigits, '0');
-  if (whole === '0' && !integerDigits && fraction) whole = '';
-  if (body.includes(',')) whole = whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
-  const sign = number < 0 && !negativeSection ? '-' : '';
-  return `${sign}${prefix}${whole}${fraction ? '.' + fraction : ''}${suffix}`;
+  return formatFormulaNumber(number, picture);
 }
 
-const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 /** A date picture (\@ "MMMM d, yyyy") applied to a value that reads as a date; other values pass through. */
 export function formatDatePicture(value, picture) {
   const text = String(value).trim();
   const iso = /^(\d{4})-(\d{1,2})-(\d{1,2})(?:[T ](\d{1,2}):(\d{2}))?/.exec(text);
   const date = iso ? new Date(+iso[1], +iso[2] - 1, +iso[3], +(iso[4] || 0), +(iso[5] || 0)) : text && !/^\d+$/.test(text) ? new Date(text) : null;
   if (!date || Number.isNaN(date.getTime())) return value;
-  const pad = (n, w = 2) => String(n).padStart(w, '0');
-  const h12 = date.getHours() % 12 || 12;
-  const tokens = { yyyy: date.getFullYear(), yy: pad(date.getFullYear() % 100), MMMM: MONTHS[date.getMonth()], MMM: MONTHS[date.getMonth()].slice(0, 3), MM: pad(date.getMonth() + 1), M: date.getMonth() + 1,
-    dddd: DAYS[date.getDay()], ddd: DAYS[date.getDay()].slice(0, 3), dd: pad(date.getDate()), d: date.getDate(), HH: pad(date.getHours()), H: date.getHours(), hh: pad(h12), h: h12, mm: pad(date.getMinutes()),
-    'AM/PM': date.getHours() < 12 ? 'AM' : 'PM', 'am/pm': date.getHours() < 12 ? 'am' : 'pm' };
-  return picture.replace(/'([^']*)'|AM\/PM|am\/pm|yyyy|yy|MMMM|MMM|MM|M|dddd|ddd|dd|d|HH|H|hh|h|mm/g, (m, literal) => literal !== undefined ? literal : String(tokens[m]));
+  // The pictures DATE and TIME fields read (§17.16.4.1), seconds included.
+  return formatDate(date, picture);
 }
 
 /** Apply a field's formatting switches to a merged value. */

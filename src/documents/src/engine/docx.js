@@ -2,7 +2,7 @@ import { readVmlWatermark, watermarkImagePart } from './vml-watermarks.js';
 import { writeTableStyleDefinition } from './docx-table-styles.js';
 import { MAX_DOCUMENT_CHARACTERS, DOCUMENT_CHARACTER_LIMIT_MESSAGE } from './text-limits.js';
 import { rejectFormatChange } from './revisions.js';
-import { pruneReleasedMedia } from './docx-media-release.js';
+import { pruneReleasedMedia, pruneDroppedParts } from './docx-media-release.js';
 import { invalidateProofingState } from './docx-proofing-state.js';
 import { completedSpelling, bodySpellingCache, proofingFingerprint } from './docx-proofing-cache.js';
 import { retainSectionStoryReferences } from './section-story-edit.js';
@@ -704,12 +704,16 @@ function writeStyles(parts, styles) {
   const order = ['name', 'aliases', 'basedOn', 'next', 'link', 'autoRedefine', 'hidden', 'uiPriority', 'semiHidden', 'unhideWhenUsed', 'qFormat', 'locked', 'personal', 'personalCompose', 'personalReply', 'rsid', 'pPr', 'rPr', 'tblPr', 'trPr', 'tcPr', 'tblStylePr'];
   for (const style of changed) {
     let node = children(root).find(n => n.namespaceURI === W && n.localName === 'style' && n.getAttributeNS(W, 'styleId') === style.id);
-    if (!node) { node = make('style'); node.setAttributeNS(W, 'w:type', style.type); node.setAttributeNS(W, 'w:styleId', style.id); node.setAttributeNS(W, 'w:customStyle', '1'); root.append(node); }
+    const created = !node;
+    if (!node) { node = make('style'); node.setAttributeNS(W, 'w:type', style.type); node.setAttributeNS(W, 'w:styleId', style.id); if (!style.builtIn) node.setAttributeNS(W, 'w:customStyle', '1'); root.append(node); }
     const ensure = name => {
       let n = child(node, name);
       if (!n) { n = make(name); node.insertBefore(n, children(node).find(c => order.indexOf(c.localName) > order.indexOf(name)) || null); }
       return n;
     };
+    // A built-in style the editor added (the note styles) is written as Word declares it: hidden
+    // from the style lists until used (§17.7.4.19 semiHidden, §17.7.4.20 unhideWhenUsed).
+    if (created && style.builtIn) { ensure('uiPriority').setAttributeNS(W, 'w:val', '99'); ensure('semiHidden'); ensure('unhideWhenUsed'); }
     const patch = style.changes || {};
     for (const key of ['name', 'basedOn', 'next']) if (key in patch || style.generated) {
       if (style[key]) ensure(key).setAttributeNS(W, 'w:val', style[key]); else child(node, key)?.remove();
@@ -1107,7 +1111,8 @@ function paragraphWriter(doc, styles, numbering, originals, writeImage, writeLin
         if (properties) r.append(properties);
         if (run.math) {
           if (run.text !== OBJECT) throw new Error('An equation must occupy one document position.');
-          parent.append(doc.importNode(xml(run.math.xml).documentElement, true)); continue;
+          // A tracked equation stays inside its w:ins or w:del (EG_RunLevelElements allows m:oMath there), as it was read.
+          place(doc.importNode(xml(run.math.xml).documentElement, true), run); continue;
         }
         if (run.vml) {
           if (run.text !== OBJECT) throw new Error('A retained VML object must occupy one document position.');
@@ -2221,6 +2226,8 @@ export class DocxPackage {
     this.pruneFootnotes(parts, paragraphs);
     // Media that Compress Pictures replaced, once nothing in the package uses it (docx-media-release.js).
     pruneReleasedMedia(parts, this.releasedMedia);
+    // Charts and pictures the user deleted or replaced, with the parts only they used (docx-media-release.js).
+    pruneDroppedParts(parts, this.parts);
     this.writeNoteSettingsParts(parts);
     invalidateProofingState(parts, this.parts, this.initialProofingFingerprint !== null && this.initialProofingFingerprint !== undefined && proofingFingerprint(paragraphs) !== this.initialProofingFingerprint);
     this.writeCoreProperties(parts);
@@ -2273,7 +2280,8 @@ export class DocxPackage {
     this.notesParts[kind] = part;
     if (kind === 'footnote') { this.footnotesPart = part; (this.createdFootnotes ||= new Set()).add(String(id)); }
     ((this.createdNotes ||= {})[kind] ||= new Set()).add(String(id));
-    return { id: String(id), part, path, settings: { ...NOTE_DEFAULTS[kind], ...this.noteSettings?.[kind], ...this.pageStories?.[key], part } };
+    // Settings changed in this session (setNoteSettings) override the file's: the note is shown as it is saved.
+    return { id: String(id), part, path, settings: { ...NOTE_DEFAULTS[kind], ...this.pageStories?.[key], ...this.noteSettings?.[kind], part } };
   }
   /** Note numbering and placement for the whole document (settings footnotePr/endnotePr); written on the next export. */
   setNoteSettings(kind, values) {

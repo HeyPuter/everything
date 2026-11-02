@@ -220,7 +220,7 @@ export function createPane(context) {
   }
   function show(id) { if (id) section = id === 'line' ? 'fill' : id; drawn = null; refresh(); }
   function refresh() {
-    const image = selected(), key = `${section}:${image?.assetId}:${image?.shell?.length}:${image?.id}:${image?.width}x${image?.height}:${image?.rotation}:${image?.opacity}`;
+    const image = selected(), key = `${section}:${image?.assetId}:${image?.shell}:${image?.id}:${image?.width}x${image?.height}:${image?.rotation}:${image?.opacity}`;
     if (key === drawn) return;
     drawn = key; render();
   }
