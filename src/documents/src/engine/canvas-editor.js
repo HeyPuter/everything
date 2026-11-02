@@ -1807,6 +1807,11 @@ export class CanvasEditor {
     if (e.key === 'Tab' && !mod && !e.altKey && !leaveWithTab && this.listTab(e.shiftKey ? -1 : 1)) {
       e.preventDefault(); this.changeListLevel(e.shiftKey ? -1 : 1); return;
     }
+    // Tab over a selection that runs past a paragraph's end indents those paragraphs (list items a level) and Shift+Tab
+    // outdents them, as other word processors do: one tab typed over them took their text away.
+    if (e.key === 'Tab' && !mod && !e.altKey && !leaveWithTab && this.tabIndents(e.shiftKey ? -1 : 1)) {
+      e.preventDefault(); this.changeListLevel(e.shiftKey ? -1 : 1); return;
+    }
     if (e.key === 'Tab' && !e.shiftKey && !mod && !e.altKey && !leaveWithTab) {
       e.preventDefault(); this.insertTab(); return;
     }
@@ -1828,6 +1833,13 @@ export class CanvasEditor {
   listTab(delta) {
     const targets = this.model.selectedParagraphs, [start] = this.model.range;
     return locate(this.model.paragraphs, start).offset === 0 && targets.every(p => p.list && p.list.level + delta >= 0 && p.list.level + delta <= 8);
+  }
+  /** Whether Tab (1) or Shift+Tab (-1) indents or outdents the selected paragraphs: the selection runs past a paragraph's end. */
+  tabIndents(delta) {
+    const [start, end] = this.model.range, paragraphs = this.model.paragraphs;
+    if (start === end || locate(paragraphs, start).index === locate(paragraphs, end).index) return false;
+    // Outdented already, Shift+Tab moves on from the document, as it does elsewhere.
+    return delta > 0 || this.model.selectedParagraphs.some(p => p.list ? p.list.level > 0 : paragraphFormat(p, this.model.numbering).indentLeft > 0);
   }
   beforeInput(e) {
     if (this.readOnly || this.viewOnly) { e.preventDefault(); return; }
