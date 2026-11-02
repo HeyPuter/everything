@@ -947,7 +947,8 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
       let left = count;
       for (; left > 0 && engine?.session.history.length; left--) engine.undo();
       // Each design change reopens the package: one after the other.
-      for (; left > 0 && designVersions.undo.length && !collab.live && !reopening && !destroyed; left--) await stepDesignVersion('undo');
+      // A step not taken (typing while it opened) ends the run.
+      for (; left > 0 && designVersions.undo.length && !collab.live && !reopening && !destroyed; left--) if (!await stepDesignVersion('undo')) break;
       engine?.focus();
     },
     // File.
@@ -1683,7 +1684,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
       onContextMenu: openDocumentContextMenu,
       onUpdateFields: () => references.updateAllFields(),
       paragraphs: pkg.paragraphs, pageSettings: pkg.pageSettings, numbering: pkg.numbering, styles: pkg.styles, tables: pkg.tables, pageStories: pkg.pageStories, comments: pkg.comments, trackChanges: pkg.trackRevisions, assets: pkg.assets, drawingLayouts: pkg.drawingLayouts, images, measure, readOnly: !!pkg.readOnly,
-      onChange: () => { linkCard.hide(); if (!reopening) { designVersions.redo = []; if (created.session.history.length >= 100) designVersions.undo = []; } labelHistory(); doc.changed(); update(); updateStatus(); proofing.changed(true); reviewTools.changed(); },
+      onChange: () => { editCount++; linkCard.hide(); if (!reopening) { designVersions.redo = []; if (created.session.history.length >= 100) designVersions.undo = []; } labelHistory(); doc.changed(); update(); updateStatus(); proofing.changed(true); reviewTools.changed(); },
       onSelection: () => { linkCard.changed(); update(); proofing.selectionChanged(); reviewTools.selectionChanged(); }, onSave: save, onError: error, onLink: editHyperlink,
       onLinkClick: range => linkCard.show(range),
       onOpenLink: target => {
@@ -1719,12 +1720,20 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
    */
   const designVersions = { undo: [], redo: [] };
   let reopening = false;
-  async function reopenPackage(blob) {
+  // Edits made in the open editor, counted so a package change can tell whether the user typed while it ran.
+  let editCount = 0;
+  const STALE = 'stale';
+  /**
+   * Open `blob` in place of the open package. Text typed while it opens goes into the editor it replaces: when
+   * `stale()` says the open document changed meanwhile, nothing is replaced and this resolves to STALE.
+   */
+  async function reopenPackage(blob, stale = () => false) {
     const { CanvasEditor, openCanvasDocument, registerRevisionAuthors } = engineApi();
     const opened = await openCanvasDocument(blob, { beforeLayout: pkg => registerRevisionAuthors(pkg.paragraphs) });
-    if (opened.pkg.readOnly || destroyed) {
+    if (opened.pkg.readOnly || destroyed || stale()) {
       for (const image of opened.images.values()) image.close();
       if (destroyed) return false;
+      if (!opened.pkg.readOnly) return STALE;
       throw new Error('This change would leave the document in a form this editor can only preview, so it was not applied.');
     }
     const previous = engine, range = [...previous.model.range], scrollTop = host.scrollTop, scrollLeft = host.scrollLeft, scale = previous.zoom;
@@ -1767,13 +1776,22 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     // The editor reopens on the changed package, which the room does not hold: the others would not get it, and
     // the editor would stop sharing with them.
     if (collab.live) { error(new Error('Themes, style sets, watermarks and page backgrounds cannot be changed while the document is shared. Stop sharing to change them.')); return false; }
-    engine.finishComposition();
     reopening = true;
     try {
-      const before = engine.export(pkg);
-      const after = await transform(before);
-      if (!after || destroyed) return false;
-      if (!await reopenPackage(after)) return false;
+      // Text typed while the change is made is in neither package: the change is made again from the document
+      // as it then is, and given up (with the document as the user left it) if typing never pauses for it.
+      let before, after, opened = STALE;
+      for (let attempt = 0; opened === STALE; attempt++) {
+        if (attempt === 4) throw new Error('The document changed while the design change was being applied. Try again.');
+        engine.finishComposition();
+        const seen = editCount, changed = () => editCount !== seen || !!engine.composition;
+        before = engine.export(pkg);
+        after = await transform(before);
+        if (!after || destroyed) return false;
+        if (changed()) continue;
+        opened = await reopenPackage(after, changed);
+        if (!opened) return false;
+      }
       designVersions.undo.push({ before, after, label }); designVersions.redo = [];
       if (designVersions.undo.length > 30) designVersions.undo.shift();
       return true;
@@ -1782,11 +1800,13 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
   }
   async function stepDesignVersion(direction) {
     const from = direction === 'undo' ? designVersions.undo : designVersions.redo, to = direction === 'undo' ? designVersions.redo : designVersions.undo;
-    if (collab.live || engine?.viewOnly) return;
-    const entry = from.pop(); if (!entry) return;
+    if (collab.live || engine?.viewOnly) return false;
+    const entry = from.pop(); if (!entry) return false;
     reopening = true;
-    try { if (await reopenPackage(direction === 'undo' ? entry.before : entry.after)) to.push(entry); else from.push(entry); }
-    catch (e) { from.push(entry); if (!destroyed) error(e); }
+    // Text typed while the earlier package opens keeps the document as it is (the step is not taken).
+    const seen = editCount;
+    try { if (await reopenPackage(direction === 'undo' ? entry.before : entry.after, () => editCount !== seen || !!engine.composition) === true) { to.push(entry); return true; } from.push(entry); return false; }
+    catch (e) { from.push(entry); if (!destroyed) error(e); return false; }
     finally { reopening = false; if (!destroyed) update(); }
   }
   editorCommands.changePackage = changePackage;
