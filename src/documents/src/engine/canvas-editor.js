@@ -185,6 +185,10 @@ export class CanvasEditor {
       this.composition = entry;
       // Where the composed text begins in the native field, and what it is so far (compositionRange).
       this.compositionStart = this.input.selectionStart; this.compositionText = '';
+      // Composed at the end of the text typed just before, it goes on in that typing's undo step (typeText): an
+      // input method for Korean commits each syllable as a composition of its own.
+      const group = this.typingGroup, [from, to] = this.model.range;
+      this.compositionGroup = group && from === to && group.at === from && group.revision === this.session.revision && group.path === this.session.path ? group : null;
     });
     listen(this.input, 'compositionupdate', e => { if (this.composition) this.compositionText = e.data || ''; });
     listen(this.input, 'compositionend', e => this.finishComposition(e.data));
@@ -2057,9 +2061,14 @@ export class CanvasEditor {
     } catch (e) { this.session.restore(before); this.onError(e); }
     this.composition = null;
     const changed = JSON.stringify(before.state.paragraphs) !== JSON.stringify(this.model.paragraphs);
-    if (changed) this.session.record(before);
+    const group = this.compositionGroup, composed = typeof committed === 'string' ? committed : this.compositionText || '';
+    this.compositionGroup = null; this.typingGroup = null;
+    // A new word starts a new undo step, as it does for typed text.
+    const merge = changed && !!group && !(/\S/u.test(composed[0] || '') && /\s/u.test(group.last || ''));
+    if (changed && !merge) this.session.record(before);
     this.relayout();
     if (changed) this.onChange();
+    if (changed) this.typingGroup = { revision: this.session.revision, path: this.session.path, at: this.model.selection.focus, last: composed.at(-1) ?? group?.last };
     // A dead key (´ then e, or a quote on an international layout) composes one character, which is corrected and
     // linked as one typed with a key is: É at a sentence's start, a typographic quote.
     if (changed && typeof committed === 'string' && [...committed].length === 1) this.assistTyping(committed);
