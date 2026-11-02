@@ -89,6 +89,9 @@ export function createDesignTab({ editor, pkg, error, onChange = () => {}, comma
     if (ok) onChange();
     return ok;
   }
+  // A dialog's change reopens the package in a new editor, so the one focused when it opened is gone: the keyboard
+  // goes back to the document the dialog leaves open.
+  const refocus = () => queueMicrotask(() => editor()?.focus());
   const themeChange = change => edit((parts, a) => { a.applyDesignTheme(parts, change); a.refreshStyleThemeColors(parts); },
     change.colors ? 'Theme Colors' : change.fonts ? 'Theme Fonts' : change.effects ? 'Theme Effects' : 'Theme');
 
@@ -151,7 +154,7 @@ export function createDesignTab({ editor, pkg, error, onChange = () => {}, comma
   async function customizeColors() {
     await loading;
     const now = current().theme, start = now?.colors && Object.values(now.colors).every(Boolean) ? now.colors : resolvedTheme('Paper').colors;
-    openCustomizeColors({ colors: start, name: 'Custom 1', apply: scheme => { remember('colors', scheme); return themeChange({ colors: { name: scheme.name, ...scheme.colors } }); } });
+    openCustomizeColors({ colors: start, name: 'Custom 1', onClose: refocus, apply: scheme => { remember('colors', scheme); return themeChange({ colors: { name: scheme.name, ...scheme.colors } }); } });
   }
   function fontItems() {
     const enabled = editable(), now = current().theme;
@@ -168,7 +171,7 @@ export function createDesignTab({ editor, pkg, error, onChange = () => {}, comma
   async function customizeFonts() {
     await loading;
     const now = current().theme?.fonts;
-    openCustomizeFonts({ fonts: now?.major ? now : FONT_SCHEMES[0], name: 'Custom 1', apply: scheme => { remember('fonts', scheme); return themeChange({ fonts: scheme }); } });
+    openCustomizeFonts({ fonts: now?.major ? now : FONT_SCHEMES[0], name: 'Custom 1', onClose: refocus, apply: scheme => { remember('fonts', scheme); return themeChange({ fonts: scheme }); } });
   }
   function effectItems() {
     const enabled = editable(), now = current().theme;
@@ -307,7 +310,7 @@ export function createDesignTab({ editor, pkg, error, onChange = () => {}, comma
   async function customWatermark() {
     await loading;
     if (!editable()) return;
-    openCustomWatermark({ current: current().watermark, apply: watermark => setWatermark(watermark) });
+    openCustomWatermark({ current: current().watermark, onClose: refocus, apply: watermark => setWatermark(watermark) });
   }
 
   /* ---- Page color and borders ---- */
@@ -330,7 +333,7 @@ export function createDesignTab({ editor, pkg, error, onChange = () => {}, comma
   }
   async function fillEffects() {
     await loading;
-    openFillEffects({ page: pageSize(), apply: async effect => {
+    openFillEffects({ page: pageSize(), onClose: refocus, apply: async effect => {
       const { renderFill } = await import('./page-fill-effects.js');
       const fill = await renderFill(effect, pageSize());
       const color = editor()?.model.pageSettings.background;

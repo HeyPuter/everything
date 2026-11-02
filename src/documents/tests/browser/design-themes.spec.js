@@ -362,6 +362,28 @@ test('OK after Apply in the custom watermark dialog adds no second undo step unl
   expect(errors).toEqual([]);
 });
 
+test('the keyboard is back in the document after a Design dialog changes it', async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  const input = await open(page);
+  const run = async (button, item, title, submit, change = async () => {}) => {
+    await ribbon(page).getByRole('button', { name: button }).click();
+    await page.getByRole('menuitem', { name: item }).click();
+    const dialog = page.getByRole('dialog', { name: title });
+    await change(dialog);
+    await dialog.getByRole('button', { name: submit }).click();
+    await expect(dialog).toBeHidden();
+    await expect(input).toBeFocused();
+  };
+  await run('Watermark', 'Custom Watermark…', 'Watermark', 'OK');
+  await run('Theme Colors', 'Customize Colors…', 'Customize Colors', 'Save', dialog => dialog.getByLabel('Accent 1').fill('#aa2244'));
+  await run('Theme Fonts', 'Customize Fonts…', 'Customize Fonts', 'Save');
+  await run('Page Color', 'Fill Effects…', 'Fill Effects', 'OK');
+  // Typing goes on where the caret was.
+  await page.keyboard.type('!');
+  await expect(input).toHaveValue(/!/);
+  expect(errors).toEqual([]);
+});
+
 test('contrast themes keep the Design tab’s palettes and chosen items visible', async ({ page }) => {
   await page.emulateMedia({ forcedColors: 'active' });
   await open(page);
