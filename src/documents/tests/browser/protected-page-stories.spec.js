@@ -50,3 +50,39 @@ test('a protected document gets no new header, note settings or page numbering f
   expect(strFromU8(parts['word/settings.xml'])).not.toContain('footnotePr');
   expect(strFromU8(parts['word/document.xml'])).not.toContain('pgNumType');
 });
+
+// The document's sources live in their own part, outside the text the protection guards: under Restrict Editing,
+// a new source or placeholder and a change of citation style were still written into the file.
+test('a protected document keeps its sources and citation style', async ({ page }, info) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/mock.html#/new');
+  await expect((await onTab(page, 'home')).getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await page.locator('canvas.canvas-page').first().click({ position: { x: 150, y: 110 } });
+  await page.keyboard.type('Locked thesis text.');
+  await onTab(page, 'review');
+  await page.locator('#ribbon-panel-review [aria-label="Restrict Editing"]').evaluate(b => b.click());
+  const pane = page.getByRole('complementary', { name: 'Restrict Editing pane' });
+  await pane.getByRole('checkbox', { name: 'Allow only this type of editing in the document:' }).check();
+  await pane.getByRole('button', { name: 'Yes, Start Enforcing Protection' }).click();
+  await page.getByRole('dialog', { name: 'Start Enforcing Protection' }).getByRole('button', { name: 'OK', exact: true }).click();
+  await expect(pane).toContainText('protected from unintentional editing');
+  await onTab(page, 'references');
+  const ribbon = page.locator('#ribbon-panel-references');
+  const style = ribbon.getByRole('combobox', { name: 'Citation style' });
+  await expect(style).toHaveValue('apa');
+  await style.selectOption('mla');
+  await expect(page.getByText('so its citation style cannot be changed', { exact: false })).toBeVisible();
+  await expect(style).toHaveValue('apa');
+  await ribbon.getByRole('button', { name: 'Insert Citation', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Add New Placeholder…' }).click();
+  const placeholder = page.getByRole('dialog', { name: 'Placeholder Name' });
+  await placeholder.getByRole('button', { name: 'Insert', exact: true }).click();
+  await expect(placeholder.getByRole('alert')).toContainText('so its sources cannot be changed');
+  await placeholder.getByRole('button', { name: 'Cancel', exact: true }).click();
+  const pending = page.waitForEvent('download');
+  await downloadDocx(page);
+  const path = info.outputPath('protected-sources.docx'); await (await pending).saveAs(path);
+  const parts = unzipSync(readFileSync(path));
+  expect(Object.keys(parts).filter(name => name.startsWith('customXml/'))).toEqual([]);
+  expect(strFromU8(parts['word/document.xml'])).toContain('Locked thesis text.');
+});
