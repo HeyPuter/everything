@@ -2274,7 +2274,8 @@ export class DocxPackage {
     this.notesParts[kind] = part;
     if (kind === 'footnote') { this.footnotesPart = part; (this.createdFootnotes ||= new Set()).add(String(id)); }
     ((this.createdNotes ||= {})[kind] ||= new Set()).add(String(id));
-    return { id: String(id), part, path, settings: { ...NOTE_DEFAULTS[kind], ...this.noteSettings?.[kind], ...this.pageStories?.[key], part } };
+    // Settings changed in this session (setNoteSettings) override the file's: the note is shown as it is saved.
+    return { id: String(id), part, path, settings: { ...NOTE_DEFAULTS[kind], ...this.pageStories?.[key], ...this.noteSettings?.[kind], part } };
   }
   /** Note numbering and placement for the whole document (settings footnotePr/endnotePr); written on the next export. */
   setNoteSettings(kind, values) {

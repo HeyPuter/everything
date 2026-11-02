@@ -245,3 +245,19 @@ describe('a note reference inserted where a field starts', () => {
     expect([blank.start, blank.end]).toEqual(['Author: ￼'.length, 'Author: ￼'.length]);
   });
 });
+
+// The Footnote and Endnote dialog's Insert applies a new number format, then inserts the note with the settings
+// addFootnote returns, which the editor shows. Those were the file's settings, so the screen went back to 1, 2
+// while the saved file numbered the notes i, ii.
+it('a footnote inserted after a change of number format shows the new format', async () => {
+  const { pkg, model } = await open(noteSettings(notedDocx(), '<w:numFmt w:val="decimal"/>'));
+  pkg.setNoteSettings('footnote', { format: 'lowerRoman', start: 2 });
+  const added = pkg.addFootnote();
+  expect(added.settings).toMatchObject({ format: 'lowerRoman', start: 2, part: 'word/footnotes.xml' });
+  model.select(model.text.length); model.insertFootnoteReference(added.id);
+  const story = [paragraph('')]; story[0].runs = [...footnoteOpeningRuns({ text: '', overrides: {} }), { text: 'New', overrides: {} }];
+  const definition = { ...pkg.pageStories, footnotes: added.settings, stories: { ...pkg.pageStories.stories, [added.path]: { kind: 'footnote', noteId: added.id, paragraphs: story, tables: [], editable: true } } };
+  expect(layout(pkg, model, definition).footnoteAreas[0].notes.map(n => n.display)).toEqual(['ii', 'iii', 'iv']);
+  const saved = unzipSync(new Uint8Array(await pkg.export(model.paragraphs, model.pageSettings, model.numbering, model.styles, model.tables, model.assets, { [added.path]: { paragraphs: story, tables: [] } }).arrayBuffer()));
+  expect(strFromU8(saved['word/settings.xml'])).toMatch(/<w:numFmt w:val="lowerRoman"\/><w:numStart w:val="2"\/>/);
+});
