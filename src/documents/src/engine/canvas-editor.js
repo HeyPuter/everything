@@ -1922,6 +1922,18 @@ export class CanvasEditor {
       if (text.length === 1) this.assistTyping(text);
     }
   }
+  /**
+   * Once the view hides text (Simple Markup, No Markup, hidden text no longer shown), a caret left inside it goes to
+   * where it shows: typed text already does (typeText), but an input method composes at the field's caret.
+   */
+  leaveHiddenText() {
+    const [start, end] = this.model.range;
+    if (start !== end || this.composition) return;
+    const shown = outsideHiddenText(this.model.paragraphs, start);
+    if (shown === start) return;
+    this.model.select(shown); this.caretAffinity = 'forward'; this.preferredX = null;
+    this.syncInput(); this.onSelection();
+  }
   /** Move a caret beside hidden text in `direction` past it, so the native field's next deletion starts there. */
   passHiddenText(direction) {
     const [start, end] = this.model.range, stretch = start === end && hiddenStretchAt(this.model.paragraphs, start);

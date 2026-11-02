@@ -273,7 +273,7 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
     setMarkupView(mode) {
       const engine = editor(); if (!engine || revisionView.mode === mode) return;
       revisionView.mode = mode;
-      engine.relayout(); engine.focus(); onChange();
+      engine.relayout(); engine.leaveHiddenText?.(); engine.focus(); onChange();
     },
     revisionsAround() {
       // While a header, footer or note is edited, the body's selection is not on screen: there is no change "here".
