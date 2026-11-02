@@ -1742,9 +1742,22 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     engine.relayout();
     host.scrollTop = scrollTop; host.scrollLeft = scrollLeft;
     doc.changed(); update(); updateStatus();
+    prepareSaveWhenIdle();
     // A menu or dialog opened while the package reopened keeps the keyboard.
     if (!document.activeElement?.closest?.('.menu, .modal-root')) engine.focus();
     return true;
+  }
+  /**
+   * While the page is idle, parse ahead what the open package's first save would (DocxPackage.prepareSave), a
+   * little at a time. It stops once the package is replaced (a design change reopens it), when the new one starts.
+   */
+  function prepareSaveWhenIdle() {
+    if (!pkg || pkg.readOnly || !pkg.prepareSave || typeof requestIdleCallback !== 'function') return;
+    const prepared = pkg, prepare = deadline => {
+      if (destroyed || prepared !== pkg) return;
+      if (prepared.prepareSave(() => deadline.timeRemaining())) requestIdleCallback(prepare);
+    };
+    requestIdleCallback(prepare);
   }
   /**
    * The tools that work through the engine: paste options, proofing, table and picture gestures, review marks.
@@ -1884,14 +1897,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
       // Saving zips the file off the page's thread, so typing during an autosave is not held up.
       return engine.exportAsync ? engine.exportAsync(pkg) : engine.export(pkg);
     }, { busy: () => !!engine?.composition });
-    // While the page is idle, parse ahead what the first save would (DocxPackage.prepareSave), a little at a time.
-    if (!pkg.readOnly && pkg.prepareSave && typeof requestIdleCallback === 'function') {
-      const prepared = pkg, prepare = deadline => {
-        if (destroyed || prepared !== pkg) return;
-        if (prepared.prepareSave(() => deadline.timeRemaining())) requestIdleCallback(prepare);
-      };
-      requestIdleCallback(prepare);
-    }
+    prepareSaveWhenIdle();
     if (pkg.fieldsRecalculated && !pkg.readOnly) doc.changed();
     const previewIssues = [...(pkg.previewIssues || []), ...engine.storyLayout.unsupported.map(issue =>
       `${issue.path}, page ${issue.page + 1}: ${issue.message}`)];
