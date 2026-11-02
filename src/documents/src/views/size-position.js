@@ -97,11 +97,12 @@ export function openLayoutDialog({ engine, image, describe, tab = 'position', ki
     vOffset.value = String(inches(at.y)); lastVerticalFrom = vOffsetFrom.value;
   }
   vOffsetFrom.addEventListener('change', () => { moveWithText.input.checked = ['paragraph', 'line'].includes(vOffsetFrom.value); convertVertical(); });
-  hOffsetFrom.addEventListener('change', () => {
+  function convertHorizontal() {
     if (!laidOut || hOffsetFrom.value === lastHorizontalFrom) return;
     const at = offsetsFor({ ...laidOut, image: { ...laidOut.image, anchor: { ...laidOut.image.anchor, horizontal: hOffsetFrom.value } } }, laidOut.x, laidOut.y);
     hOffset.value = String(inches(at.x)); lastHorizontalFrom = hOffsetFrom.value;
-  });
+  }
+  hOffsetFrom.addEventListener('change', convertHorizontal);
   const position = el('div.pic-layout-tab', { role: 'tabpanel', 'aria-label': 'Position' },
     el('fieldset.pic-fieldset', {}, el('legend', {}, 'Horizontal'),
       el('div.pic-position-row', {}, hAlignRadio.node, hAlign, el('span.pic-hint', {}, 'relative to'), hAlignFrom),
@@ -157,7 +158,11 @@ export function openLayoutDialog({ engine, image, describe, tab = 'position', ki
     if (wrapped) {
       hAbsRadio.input.checked = vAbsRadio.input.checked = true;
       for (const control of [hAlignRadio.input, vAlignRadio.input, hAlign, hAlignFrom, vAlign, vAlignFrom, moveWithText.input]) control.disabled = true;
-      if (sided || mode === 'topAndBottom') { hOffsetFrom.value = 'column'; vOffsetFrom.value = 'paragraph'; hOffsetFrom.disabled = vOffsetFrom.disabled = true; }
+      if (sided || mode === 'topAndBottom') {
+        hOffsetFrom.value = 'column'; vOffsetFrom.value = 'paragraph'; hOffsetFrom.disabled = vOffsetFrom.disabled = true;
+        // Measured from the column and paragraph now, the offsets change so the object stays where it is.
+        convertHorizontal(); convertVertical();
+      }
       moveWithText.input.checked = true;
       allowOverlap.input.disabled = layoutInCell.input.disabled = true;
     }
