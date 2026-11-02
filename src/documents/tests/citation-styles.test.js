@@ -145,6 +145,15 @@ describe('citation instructions and tags', () => {
     expect(parseCitation(instruction)).toMatchObject({ tags: ['Ada20', 'Hop19'], pages: '12-14', prefix: 'see', suffix: 'for details', noYear: true, noAuthor: false, lcid: '1033', sourceOptions: [{}] });
     expect(parseCitation(' CITATION ')).toBeNull();
   });
+  it('tells apart undated works by one author as no date a and no date b in Harvard', () => {
+    // Cite Them Right: (Smith, no date a). The letter was run into the words: "no datea".
+    const undated = (tag, title) => ({ tag, type: 'Book', names: { Author: [{ last: 'Smith', first: 'Ann' }] }, fields: { Title: title, Publisher: 'Press' } });
+    const sources = [undated('a', 'Zebra book'), undated('b', 'Apple book')];
+    const context = citationContext('harvard', sources, ['a', 'b']);
+    const cite = tag => formatCitation('harvard', [{ tag, source: sources.find(s => s.tag === tag) }], context).map(r => r.text).join('');
+    expect([cite('b'), cite('a')]).toEqual(['(Smith, no date a)', '(Smith, no date b)']);
+    expect(formatBibliography('harvard', sources, ['a', 'b']).map(e => e.runs.map(r => r.text).join(''))).toEqual(['Smith, A. (no date a) Apple book. Press.', 'Smith, A. (no date b) Zebra book. Press.']);
+  });
   it('keeps the switches of each source of a citation of several sources', () => {
     // As Word writes them: switches after \\m belong to that source. The second source's page replaced the first's,
     // and rewriting the instruction (renaming a source's tag) lost the first source's page.

@@ -430,7 +430,8 @@ function harvardEntry(source, { letter = '' } = {}) {
   const imprint = [city, publisher].filter(Boolean).join(': ');
   if (list.length) { r.add(harvardNames(list)); if (role === 'Editor') r.add(list.length > 1 ? ' (eds.)' : ' (ed.)'); r.add(' '); }
   else if (title) r.add(title, true).add(' ');
-  r.add(`(${year || 'no date'}${letter}) `);
+  // Undated works by one author are told apart as "no date a", "no date b" (Cite Them Right).
+  r.add(`(${year || `no date${letter ? ' ' : ''}`}${letter}) `);
   const italicTitle = () => { if (list.length && title) r.add(title, true).end('.'); };
   const quotedTitle = () => { if (list.length && title) r.add(`‘${title}’`); };
   switch (source.type) {
@@ -634,7 +635,7 @@ export function formatCitation(style, entries, context = { numbers: new Map(), l
     const source = e.source;
     if (!source || isPlaceholder(source)) { r.add(source?.tag || e.tag); if (e.suffix) r.add(`, ${e.suffix}`); return; }
     const { list } = contributors(source), title = strip(field(source, 'ShortTitle') || field(source, 'Title'));
-    const year = `${field(source, 'Year') || (style === 'harvard' ? 'no date' : 'n.d.')}${context.letters.get(source.tag) ? `${style === 'apa' && !field(source, 'Year') ? '-' : ''}${context.letters.get(source.tag)}` : ''}`;
+    const year = `${field(source, 'Year') || (style === 'harvard' ? 'no date' : 'n.d.')}${context.letters.get(source.tag) ? `${!field(source, 'Year') ? (style === 'apa' ? '-' : style === 'harvard' ? ' ' : '') : ''}${context.letters.get(source.tag)}` : ''}`;
     const italicTitle = ['Book', 'Report', 'Film', 'InternetSite', 'DocumentFromInternetSite', 'Misc'].includes(source.type);
     const who = () => {
       if (list.length) { r.add(citeNames(list, style)); return true; }
