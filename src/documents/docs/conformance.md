@@ -23667,6 +23667,23 @@ Supported subset:
   formatting, style edits and applying a `locked` style. Page setup and table structure are
   protected under every restriction. Headers, footers and notes stay protected under `readOnly`,
   `comments` and `forms`.
+- Headers, footers, notes and drawing text under Track Changes. Tracked changes (§17.13.5.14
+  `del`, §17.13.5.18 `ins`) are recorded in the main document story only: a header, footer or note
+  part (§17.10 `hdr`, `ftr`; §17.11 `footnote`, `endnote`) holding them still
+  opens read-only, and Accept, Reject, Next/Previous change, the Reviewing Pane and the markup views
+  reach only the body. Writing revisions into those parts would make the saved file reopen
+  read-only here, so story edits are not tracked. Under locked tracking (`trackedChanges`) a change
+  in a header, footer or note is refused with a message, as Sort and table structure changes are.
+  With Track Changes on but not locked, the change is made, as in Word the reviewer can edit a
+  header, and the first change on each visit to a header, footer or note says in a notice
+  (announced to screen readers) that it is not tracked; with tracking off nothing changes. This was
+  chosen over refusing such edits, which would stop header editing whenever tracking is left on,
+  and over saying nothing, which let a reviewer believe the change was tracked. The Edit drawing
+  text dialog says, while Track Changes is on, that drawing text is not tracked; under locked
+  tracking its change is refused (see above). Tests: `tests/untracked-story-notice.test.js`,
+  `tests/protection-stories.test.js`, `tests/drawing-text-tracking-hint.test.js`,
+  `tests/browser/untracked-story-notice.spec.js`. Gap: tracked changes in headers, footers, notes
+  and drawing text (reading, writing, resolving and showing them) are not supported.
 - Start/Stop protection writes `documentProtection` with `enforcement` 1/0, keeping the chosen
   restriction when stopped. A password writes `algorithmName="SHA-512"`, a 16-byte random
   `saltValue` and `spinCount="100000"`. The hash input is the legacy-compatible 32-bit key derived

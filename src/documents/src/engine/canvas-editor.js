@@ -90,13 +90,21 @@ export function joinedBarRanges(ranges) {
 
 /** Canvas paint surface plus a real textarea for native input, composition and accessible text. */
 export class CanvasEditor {
-  constructor(host, { paragraphs, pageSettings, numbering, styles, tables, pageStories, comments = null, trackChanges, assets = {}, images = new Map(), borrowImages = false, drawingLayouts, inputLabel, readOnly = false, protectedPageFields = false, onChange = () => {}, onSelection = () => {}, onSave = () => {}, onLink = () => {}, onOpenLink = () => {}, onLinkClick = () => {}, onError = () => {}, onContextMenu = () => {}, onUpdateFields = null, correctTyping = null, linkTyping = null, measure = null, preparePicture = null } = {}) {
+  constructor(host, { paragraphs, pageSettings, numbering, styles, tables, pageStories, comments = null, trackChanges, assets = {}, images = new Map(), borrowImages = false, drawingLayouts, inputLabel, readOnly = false, protectedPageFields = false, onChange = () => {}, onSelection = () => {}, onSave = () => {}, onLink = () => {}, onOpenLink = () => {}, onLinkClick = () => {}, onError = () => {}, onNotice = () => {}, onContextMenu = () => {}, onUpdateFields = null, correctTyping = null, linkTyping = null, measure = null, preparePicture = null } = {}) {
     this.host = host;
     this.inputLabel = inputLabel;
     this.readOnly = readOnly;
     this.protectedPageFields = protectedPageFields;
     this.session = new StorySession(new TextDocument(paragraphs, pageSettings, numbering, styles, tables, assets, { displayOnly: readOnly, comments, trackChanges }), pageStories);
     this.session.caret = () => ({ affinity: this.caretAffinity, page: this.caretPage });
+    // Track Changes records changes in the body only. A header, footer or note is still edited with it on, as Word
+    // users expect to, and the first change on each visit says it is not tracked (onNotice), rather than nothing.
+    this.onNotice = onNotice;
+    this.session.untracked = path => {
+      if (this.untrackedNoticePath === path) return;
+      this.untrackedNoticePath = path;
+      this.onNotice('Changes to headers, footers and notes aren’t tracked. Track Changes records changes to the main text only.');
+    };
     this.storyPage = 0;
     this.images = images;
     this.borrowedImages = new Set(borrowImages ? images.values() : []);
@@ -255,6 +263,7 @@ export class CanvasEditor {
   editStory(path = null, page = 0) {
     if (this.readOnly || path !== null && !this.pageStories?.stories[path]?.editable) return false;
     this.finishComposition();
+    if (path !== this.session.path) this.untrackedNoticePath = null;
     this.session.activate(path); this.session.page = page; this.storyPage = page; this.caretPage = page;
     this.caretAffinity = 'forward'; this.preferredX = null;
     this.relayout(); this.focus(); this.revealCaret(); return true;

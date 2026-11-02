@@ -1680,7 +1680,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
       onUpdateFields: () => references.updateAllFields(),
       paragraphs: pkg.paragraphs, pageSettings: pkg.pageSettings, numbering: pkg.numbering, styles: pkg.styles, tables: pkg.tables, pageStories: pkg.pageStories, comments: pkg.comments, trackChanges: pkg.trackRevisions, assets: pkg.assets, drawingLayouts: pkg.drawingLayouts, images, measure, readOnly: !!pkg.readOnly,
       onChange: () => { editCount++; linkCard.hide(); if (!reopening) { designVersions.redo = []; if (created.session.history.length >= 100) designVersions.undo = []; } labelHistory(); doc.changed(); update(); updateStatus(); proofing.changed(true); reviewTools.changed(); },
-      onSelection: () => { linkCard.changed(); update(); proofing.selectionChanged(); reviewTools.selectionChanged(); }, onSave: save, onError: error, onLink: editHyperlink,
+      onSelection: () => { linkCard.changed(); update(); proofing.selectionChanged(); reviewTools.selectionChanged(); }, onSave: save, onError: error, onNotice: message => toast(message, { icon: 'info', duration: 8000 }), onLink: editHyperlink,
       onLinkClick: range => linkCard.show(range),
       onOpenLink: target => {
         // Imported destinations outside web, email and phone addresses (file paths, relative links) stay in the document unopened.
