@@ -33,8 +33,11 @@ export function carriesFormatting(model, [start, end] = model.range) {
   return true;
 }
 
-/** The selection as paragraphs of formatted runs, or null when it holds more than text. */
-export function copyFragment(model) {
+/**
+ * The selection as paragraphs of formatted runs, or null when it holds more than text. `hidden(run)` leaves out text
+ * the view hides (a deletion in Simple Markup, hidden text): the fragment cannot carry it as hidden.
+ */
+export function copyFragment(model, { hidden = () => false } = {}) {
   const [start, end] = model.range;
   // What the selection holds decides (each run is checked below); fields or notes elsewhere do not.
   if (start === end) return null;
@@ -49,6 +52,7 @@ export function copyFragment(model) {
     else if ((p.cellId || null) !== cell) return null;
     const runs = []; let offset = from;
     for (const run of p.runs) {
+      if (hidden(run)) { offset += run.text.length; continue; }
       const a = Math.max(start, offset), b = Math.min(end, offset + run.text.length);
       const overlaps = b > a || (!run.text && offset >= start && offset < end);
       if (overlaps && !plainRun(run)) return null;

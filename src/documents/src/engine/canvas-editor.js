@@ -8,7 +8,7 @@ import { xmlAttributeText } from './text-limits.js';
 import { textEdit, followEdit } from './text-edit.js';
 import { showLink } from './link-appearance.js';
 import { revisionView } from './revisions.js';
-import { hiddenStretchAt, pastHiddenText, outsideHiddenText } from './hidden-text.js';
+import { hiddenRun, hiddenStretchAt, pastHiddenText, outsideHiddenText } from './hidden-text.js';
 
 export const PASTED_PICTURE = /^image\/(png|jpeg|tiff)$/i;
 const MAC = typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/.test(navigator.platform || navigator.userAgent || '');
@@ -2149,15 +2149,16 @@ export class CanvasEditor {
       const model = this.model, rows = new Map();
       for (const { cell, rowIndex } of cellBlockPlacements(block.table, block)) {
         const first = model.paragraphs.findIndex(p => p.cellId === cell.id), last = model.paragraphs.findLastIndex(p => p.cellId === cell.id);
-        const text = first < 0 ? '' : model.clipboardText(noteText, [model.paragraphOffset(first), model.paragraphOffset(last) + paragraphText(model.paragraphs[last]).length]);
+        const text = first < 0 ? '' : model.clipboardText(noteText, [model.paragraphOffset(first), model.paragraphOffset(last) + paragraphText(model.paragraphs[last]).length], hiddenRun);
         if (!rows.has(rowIndex)) rows.set(rowIndex, []);
         rows.get(rowIndex).push(text);
       }
       return { text: [...rows.values()].map(cells => cells.join('\t')).join('\n'), html: '' };
     }
     const picture = pictureHtml(this.model);
-    const fragment = !picture && copyFragment(this.model);
-    return { text: this.model.clipboardText(noteText), html: picture || (fragment ? fragmentHtml(fragment) : '') };
+    // What the view hides (a deletion in Simple Markup, hidden text) is not copied: pasted, it came back as ordinary text.
+    const fragment = !picture && copyFragment(this.model, { hidden: hiddenRun });
+    return { text: this.model.clipboardText(noteText, undefined, hiddenRun), html: picture || (fragment ? fragmentHtml(fragment) : '') };
   }
   /** Paste with the clipboard's formatting where the document can take it, else as plain text. */
   pasteData(text, html = '') {

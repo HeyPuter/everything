@@ -478,14 +478,16 @@ export class TextDocument {
    * shown, which only layout knows), so neither another application nor a paste back here gets it.
    * `[start, end]` is another range to read instead of the selection.
    */
-  clipboardText(noteText = () => '', [start, end] = this.range) {
+  /** The selection as plain text; `hidden(run)` leaves out text the view hides (a deletion in Simple Markup). */
+  clipboardText(noteText = () => '', [start, end] = this.range, hidden = () => false) {
     let at = 0, text = '', rows = null;
     // Cells of one row are separated by a tab and rows by a line, as a copied table reads in other applications.
     const rowOf = id => { if (!rows) { rows = new Map(); for (const table of this.tables) for (const row of table.rows) for (const cell of row.cells) rows.set(cell.id, row); } return rows.get(id); };
     for (const [index, p] of this.paragraphs.entries()) {
       for (const run of p.runs) {
         const length = run.text.length;
-        if (run.image) { if (at >= start && at < end) text += run.image.alt || '[Image]'; }
+        if (hidden(run)) { /* Not shown, not copied. */ }
+        else if (run.image) { if (at >= start && at < end) text += run.image.alt || '[Image]'; }
         else if (run.bodySymbol) { if (at >= start && at < end) text += bodySymbolText(run, run.text); }
         else if (run.text === '\ufffc') { if (at >= start && at < end) text += run.field ? run.field.cachedText || '' : run.math ? run.math.text || '' : run.noteMark ? noteText(run, at) || '' : ''; }
         else text += run.text.slice(Math.max(0, start - at), Math.max(0, end - at));
