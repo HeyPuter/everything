@@ -55,11 +55,14 @@ export function assignFootnotes(placed, refs) {
   return pages;
 }
 
-/** Measure one note at the page's text width, showing its number. */
+/**
+ * Measure one note at the page's text width, showing its number. `pageContext` is the page it is shown on
+ * ({ pageNumber, pageCount, sectionPageCount, pageNumbering }), for PAGE and NUMPAGES fields in the note.
+ */
 export function measureNote(story, display, numbers, geometry, measure, numbering, options = {}) {
   const paragraphs = numberedParagraphs(story.paragraphs, numbers, display);
   return measurePageStory({ ...story, paragraphs }, { ...geometry, storyKind: 'footnote', top: 0, bottom: 0 }, measure, numbering,
-    { pageNumber: 1, pageCount: 1, sectionPageCount: 1 }, { styles: options.styles, drawingLayouts: options.drawingLayouts, onUnsupported: options.bestEffort ? () => {} : undefined, stylesKey: options.storyStylesKey, numberingKey: options.storyNumberingKey, storyKeys: options.storyKeys, contentKey: options.contentKey });
+    options.pageContext || { pageNumber: 1, pageCount: 1, sectionPageCount: 1 }, { styles: options.styles, drawingLayouts: options.drawingLayouts, onUnsupported: options.bestEffort ? () => {} : undefined, stylesKey: options.storyStylesKey, numberingKey: options.storyNumberingKey, storyKeys: options.storyKeys, contentKey: options.contentKey });
 }
 
 /**

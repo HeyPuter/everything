@@ -22292,6 +22292,7 @@ Supported subset:
   two-inch separator rule; pagination reserves that space and repeats until the reservations
   settle. Numbers follow reference order in the document's numbering format and start value.
 - Notes are edited in place (click into the note); the body reference is one indivisible mark.
+- A PAGE, NUMPAGES or SECTIONPAGES field in a note shows the page the note is on (§17.16.5.43), as in a header.
 - References → Insert Footnote (Cmd+Option+F / Ctrl+Alt+F) adds a reference at the caret and a new
   note (FootnoteText/FootnoteReference styles when defined, otherwise 10 pt text and a superscript
   mark), creating the footnotes part with separator and continuation-separator notes when the document has none.
