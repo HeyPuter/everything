@@ -1107,7 +1107,8 @@ function paragraphWriter(doc, styles, numbering, originals, writeImage, writeLin
         if (properties) r.append(properties);
         if (run.math) {
           if (run.text !== OBJECT) throw new Error('An equation must occupy one document position.');
-          parent.append(doc.importNode(xml(run.math.xml).documentElement, true)); continue;
+          // A tracked equation stays inside its w:ins or w:del (EG_RunLevelElements allows m:oMath there), as it was read.
+          place(doc.importNode(xml(run.math.xml).documentElement, true), run); continue;
         }
         if (run.vml) {
           if (run.text !== OBJECT) throw new Error('A retained VML object must occupy one document position.');

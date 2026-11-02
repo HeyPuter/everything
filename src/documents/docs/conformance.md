@@ -22251,7 +22251,9 @@ Supported subset:
 
 Formatting revisions (`rPrChange`, `pPrChange`, including in the paragraph mark) are retained, listed with change bars and can be accepted; rejecting them is reported as not supported and keeps them. Gaps: table row/cell revisions, and revisions in
 headers, footers and drawing text still open read-only. Moves are not distinguished from
-insertions/deletions after an edit. An equation inserted with tracking on is not tracked. Balloons for
+insertions/deletions after an edit. An equation inserted or edited with tracking on is a tracked
+insertion (and the equation it replaces a deletion): `m:oMath` is written inside `w:ins`/`w:del`, which
+EG_RunLevelElements allows (§17.13.5.18, §17.13.5.14), as tracked equations are read. Balloons for
 deletions are not drawn. Tests: `tests/tracked-changes.test.js`.
 
 ## Generated table of contents (2026-10-09)

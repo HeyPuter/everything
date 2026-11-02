@@ -48,3 +48,35 @@ it('inserts equations as Office Math objects that save, reopen and replace in pl
   expect(again.paragraphs[0].runs.find(r => r.math).math.xml).toContain('1');
   expect(() => again.insertMathRun({})).toThrow(/Office Math/);
 });
+
+it('records an equation inserted or edited with Track Changes on as an insertion, so rejecting it removes it', async () => {
+  const pkg = createDocx([paragraph()], undefined, undefined, undefined, [], {}, WRITING_STYLES);
+  const doc = new TextDocument(pkg.paragraphs, pkg.pageSettings, pkg.numbering, pkg.styles, pkg.tables, pkg.assets);
+  doc.replace('Area: .'); doc.select(6);
+  doc.trackChanges = true; doc.revisionAuthor = 'Reviewer';
+  const xml = linearToOmml('A = πr^2');
+  doc.insertMathRun({ xml, text: ommlToLinear(xml) });
+  expect(doc.paragraphs[0].runs.find(r => r.math).revision?.type).toBe('ins');
+  // Edit Equation replaces it: the old one is marked deleted, the new one inserted.
+  doc.select(6, 7);
+  const next = linearToOmml('A = πr^3');
+  doc.insertMathRun({ xml: next, text: ommlToLinear(next) });
+  const blob = await pkg.export(doc.paragraphs, doc.pageSettings, doc.numbering, doc.styles, doc.tables, doc.assets);
+  const reopened = await DocxPackage.open(new Uint8Array(await blob.arrayBuffer()));
+  const again = new TextDocument(reopened.paragraphs, reopened.pageSettings, reopened.numbering, reopened.styles, reopened.tables, reopened.assets);
+  expect(again.paragraphs[0].runs.filter(r => r.math).map(r => r.revision?.type)).toEqual(['ins']);
+  // An equation another reviewer inserted, edited here: the old one is a tracked deletion in the saved file,
+  // not an equation kept twice.
+  again.trackChanges = true; again.revisionAuthor = 'Editor';
+  again.resolveRevisions(true);
+  again.select(6, 7);
+  const third = linearToOmml('A = 2πr');
+  again.insertMathRun({ xml: third, text: ommlToLinear(third) });
+  const saved = await reopened.export(again.paragraphs, again.pageSettings, again.numbering, again.styles, again.tables, again.assets);
+  const last = await DocxPackage.open(new Uint8Array(await saved.arrayBuffer()));
+  expect(last.paragraphs[0].runs.filter(r => r.math).map(r => r.revision?.type)).toEqual(['del', 'ins']);
+  // Rejecting every change leaves the text as it was before the equation.
+  doc.resolveRevisions(false);
+  expect(paragraphText(doc.paragraphs[0])).toBe('Area: .');
+  expect(doc.paragraphs[0].runs.some(r => r.math)).toBe(false);
+});

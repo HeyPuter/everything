@@ -2349,6 +2349,8 @@ export class TextDocument {
     if (start !== end) { this.selection = { anchor: start, focus: end }; this.replace('', { checkpoint: false }); }
     const at = this.range[0], location = locate(this.paragraphs, at), p = this.paragraphs[location.index];
     const run = { text: OBJECT, math: { xml: math.xml, text: math.text }, styleId: null, directFormat: {}, hasDirectProperties: false, styleManaged: true, properties: '', overrides: {} };
+    // With Track Changes on the equation is an insertion like typed text: rejecting it removes it.
+    if (this.trackChanges && !this.trackingInternal) run.revision = this.newRevision('ins');
     p.runs = normalize([...sliceRuns(p.runs, 0, location.offset), run, ...sliceRuns(p.runs, location.offset)]);
     shiftMarkersPastObject(p, location.offset);
     this.selection = { anchor: at + 1, focus: at + 1 };
