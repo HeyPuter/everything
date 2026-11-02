@@ -66,3 +66,21 @@ it('composition after the caret moved, or over a selection, starts its own undo 
   editor.undo(); expect(editor.model.text).toBe('ab');
   editor.undo(); expect(editor.model.text).toBe('');
 });
+
+it('commits a composition without serializing the whole document to see whether it changed', () => {
+  editor.destroy();
+  editor = new CanvasEditor(host, { paragraphs: Array.from({ length: 40 }, (_, i) => paragraph(`Paragraph ${i}`)), onError: errors });
+  editor.focus(); editor.model.select(editor.model.text.length); editor.syncInput();
+  // Each syllable of Korean is a composition of its own: two copies of a long document serialized for each one held typing up.
+  const whole = vi.spyOn(JSON, 'stringify');
+  const documents = () => whole.mock.calls.filter(([value]) => Array.isArray(value) && value.length === 40 && value.every(p => Array.isArray(p?.runs))).length;
+  compose('ㅎ', '하'); compose('ㄴ', '나');
+  expect(editor.model.text.endsWith('Paragraph 39하나')).toBe(true);
+  expect(documents()).toBe(0);
+  // A composition that ends with nothing typed records nothing; one that changes only formatting still records.
+  const steps = editor.session.history.length;
+  compose('ㄱ', ''); expect(editor.session.history).toHaveLength(steps);
+  whole.mockRestore();
+  editor.undo(); expect(editor.model.text.endsWith('Paragraph 39')).toBe(true);
+  expect(errors).not.toHaveBeenCalled();
+});

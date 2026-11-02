@@ -185,6 +185,8 @@ export class CanvasEditor {
       this.composition = entry;
       // Where the composed text begins in the native field, and what it is so far (compositionRange).
       this.compositionStart = this.input.selectionStart; this.compositionText = '';
+      // The text before it, to tell cheaply whether committing changed the document (finishComposition).
+      this.compositionBaseText = this.model.text;
       // Composed at the end of the text typed just before, it goes on in that typing's undo step (typeText): an
       // input method for Korean commits each syllable as a composition of its own.
       const group = this.typingGroup, [from, to] = this.model.range;
@@ -2081,7 +2083,12 @@ export class CanvasEditor {
       }, () => this.validateStory(), { record: false });
     } catch (e) { this.session.restore(before); this.onError(e); }
     this.composition = null;
-    const changed = JSON.stringify(before.state.paragraphs) !== JSON.stringify(this.model.paragraphs);
+    // Unchanged without a new revision, and changed with new text; only the rest (text composed and then removed,
+    // over a selection Track Changes kept struck out) compares the whole document: a long one took a while for every
+    // syllable an input method commits.
+    const model = this.model, changed = model.revision !== before.revision && (model.text !== this.compositionBaseText
+      || JSON.stringify(before.state.paragraphs) !== JSON.stringify(model.paragraphs));
+    this.compositionBaseText = null;
     const group = this.compositionGroup, composed = typeof committed === 'string' ? committed : this.compositionText || '';
     this.compositionGroup = null; this.typingGroup = null;
     // A new word starts a new undo step, as it does for typed text.
