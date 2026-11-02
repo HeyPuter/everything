@@ -812,16 +812,49 @@ export class CanvasEditor {
     this.syncInput(); this.paint(); this.onSelection();
   }
   /**
+   * Whether the printed pages differ from the screen's: a screen view is showing, or hidden text is shown
+   * (laid out only while the formatting marks show it).
+   */
+  printDiffersFromScreen() {
+    const hidden = revisionView.showHidden && [this.session.body, ...Object.values(this.pageStories?.stories || {})].some(story => story?.paragraphs?.some(p => p.runs.some(r => r.vanish)));
+    return { differs: !!this.view || hidden, hidden };
+  }
+  /** Lay the authored pages out as printed, without touching the screen's layout: { layout, storyLayout }. */
+  printedLayoutOf() {
+    const { differs, hidden } = this.printDiffersFromScreen();
+    if (!differs) return { layout: this.layout, storyLayout: this.storyLayout };
+    const shown = revisionView.showHidden;
+    if (hidden) revisionView.showHidden = false;
+    try { return this.computeLayout(null); } finally { revisionView.showHidden = shown; }
+  }
+  /**
+   * The printed pages' count and the caret's page among them (1-based), whatever the screen shows: Web Layout
+   * and Draft show strips of the window's height, and shown hidden text takes lines the paper does not have.
+   * Remembered for the layout on screen, so asking again before the next change lays nothing out.
+   */
+  printedPages() {
+    const cached = this.printedPagesCache;
+    if (cached?.layout === this.layout && cached.showHidden === revisionView.showHidden) return cached.value;
+    const { layout } = this.printedLayoutOf();
+    let page = 0;
+    if (layout === this.layout) page = this.caretPageIndex;
+    else if (this.session.path === null) {
+      try { page = caretRect(layout, this.model.selection.focus, this.caretAffinity).page ?? 0; } catch { page = 0; }
+    }
+    const value = { count: layout.pageCount, current: Math.min(layout.pageCount, page + 1) };
+    this.printedPagesCache = { layout: this.layout, showHidden: revisionView.showHidden, value };
+    return value;
+  }
+  /**
    * The printed pages, painted at print resolution: a canvas for each page, at its index. With `pages`
    * (indices of printed pages), only those are painted; the others are left out (holes in the list).
    */
   printSheets(pages = null) {
     this.finishComposition();
-    // Printing always uses the authored pages, whatever view is on screen, and leaves out hidden text,
-    // which is laid out only while the formatting marks show it: lay the pages out privately and put the
-    // screen layout back afterwards, without touching the page canvases.
-    const hidden = revisionView.showHidden && [this.session.body, ...Object.values(this.pageStories?.stories || {})].some(story => story?.paragraphs?.some(p => p.runs.some(r => r.vanish)));
-    if (this.view || hidden) {
+    // Printing always uses the authored pages, whatever view is on screen, and leaves out hidden text:
+    // lay the pages out privately and put the screen layout back afterwards, without touching the page canvases.
+    const { differs, hidden } = this.printDiffersFromScreen();
+    if (differs) {
       const screen = { view: this.view, layout: this.layout, storyLayout: this.storyLayout, selectionLayout: this.selectionLayout, tablePaintCache: this.tablePaintCache, drawingPageContexts: this.drawingPageContexts, lineNumbers: this.lineNumbers };
       const shown = revisionView.showHidden;
       if (hidden) revisionView.showHidden = false;

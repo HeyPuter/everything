@@ -1159,7 +1159,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     readOnly: () => !engine || failed || !!pkg?.readOnly,
     properties: () => (pkg ? pkg.coreProperties : {}),
     setProperties: patch => { if (!pkg || pkg.readOnly || failed) return false; pkg.coreAuthor = session.username || pkg.coreAuthor; const changed = pkg.setCoreProperties(patch); if (changed) { doc.changed(); updateStatus(); } return changed; },
-    statistics: () => { if (!engine) return null; const stats = documentStatisticsOf(engine.session.body?.text ?? engine.model.text); return { pages: engine.layout.pageCount, ...stats }; },
+    statistics: () => { if (!engine) return null; const stats = documentStatisticsOf(engine.session.body?.text ?? engine.model.text); return { pages: engine.printedPages().count, ...stats }; },
     location: () => editorCommands.documentLocation().location, size: () => doc.size,
     versions: cloud && versioning.enabled ? () => (doc.path ? listVersions(doc.path, { uid: doc.uid }) : Promise.resolve([])) : null,
     versionsAvailable: () => !!doc.path,
@@ -1186,7 +1186,8 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
       return failure;
     } : null,
     refreshTitle: () => { title.value = doc.name; refreshTitle(); },
-    pageCount: () => engine?.layout.pageCount || 1, currentPage: () => Math.min(engine?.layout.pageCount || 1, (engine?.caretPageIndex ?? 0) + 1),
+    // Print counts the printed pages, which a screen view (Web Layout, Draft) or shown hidden text does not show.
+    pageCount: () => engine?.printedPages().count || 1, currentPage: () => engine?.printedPages().current || 1,
     print: options => printDocument(options), pageSetup: () => pageSetup.click(),
     previewPages: async (into, max) => {
       if (!engine) return;

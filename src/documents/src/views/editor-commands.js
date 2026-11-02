@@ -234,7 +234,8 @@ export function createWordCommands({ editor, pkg, error, zoomControl, fitWidth, 
       openModal({ title: 'Word Count', onClose: () => queueMicrotask(() => editor()?.focus()), content: el('div.ed-dialog-body', {},
         el('p.field-hint', {}, selected ? 'Statistics for the selected text:' : 'Statistics:'),
         el('table.ed-stats', {}, el('tbody', {},
-          ...(selected ? [] : [row('Pages', engine.layout.pageCount)]),
+          // The printed pages, as in Print Layout, whatever view is showing.
+          ...(selected ? [] : [row('Pages', engine.printedPages().count)]),
           row('Words', stats.words), row('Characters (no spaces)', stats.noSpaces), row('Characters (with spaces)', stats.characters), row('Paragraphs', stats.paragraphs))),
         el('div.modal-actions', {}, el('button.btn.btn-primary', { type: 'button', onclick: e => e.target.closest('.modal-panel')?.querySelector('.modal-head .icon-btn')?.click() }, 'Close'))) });
     },
