@@ -27,7 +27,27 @@ export function relativePartTarget(sourcePart, targetPart) {
  */
 export function partPathForUrl(parts, url) {
   const encoded = url.pathname.slice(1), decoded = decodeURIComponent(encoded);
-  return Object.hasOwn(parts, decoded) || !Object.hasOwn(parts, encoded) ? decoded : encoded;
+  if (Object.hasOwn(parts, decoded)) return decoded;
+  if (Object.hasOwn(parts, encoded)) return encoded;
+  return packagePartName(parts, decoded) ?? packagePartName(parts, encoded) ?? decoded;
+}
+
+/** The Override element of a parsed [Content_Types].xml root declaring part `path`, compared without regard to case. */
+export function contentTypeOverride(typesRoot, path) {
+  const key = `/${path}`.replace(/[A-Z]+/g, c => c.toLowerCase());
+  return [...typesRoot.children].find(n => n.localName === 'Override' && n.getAttribute('PartName')?.replace(/[A-Z]+/g, c => c.toLowerCase()) === key);
+}
+
+/**
+ * The ZIP item holding part `name`, or null. Part names compare without regard to ASCII case (ECMA-376
+ * Part 2, §9.1.1.1), so a relationship targeting styles.xml names the item word/Styles.xml. The exact
+ * name is preferred; a name that two items match in case-insensitive comparison names neither.
+ */
+export function packagePartName(parts, name) {
+  if (Object.hasOwn(parts, name)) return name;
+  const lower = text => text.replace(/[A-Z]+/g, c => c.toLowerCase()), key = lower(name);
+  const matches = Object.keys(parts).filter(item => lower(item) === key);
+  return matches.length === 1 ? matches[0] : null;
 }
 
 /** The largest DOCX file the editor opens. */

@@ -446,6 +446,17 @@ paragraph/character style inheritance and table styles, accepting relative and
 package-absolute paths, including dot segments. Main-document location remains
 restricted to `word/document.xml`; other part readers have separate limitations.
 
+Part names compare without regard to ASCII case (Part 2 §9.1.1.1, §10.1.2.2.3).
+A target of the main document's singleton relationships (styles, settings,
+numbering, theme, notes and the others `relatedPartPath` resolves), a header or
+footer target, and a picture, chart, diagram, watermark or alternative-format
+chunk target names the ZIP item that matches it in that comparison when no item
+has its exact name (`styles.xml` names `word/Styles.xml`); the exact name is
+preferred, and a target two items match names neither. Header, footer and picture
+content types are found the same way among the `Override` entries. Edits write
+back to the item as it is named. Relationship parts themselves are still found
+under the name derived from their source part.
+
 Shared-style edits update the existing part in place without renaming it or
 rewriting its relationships/content types. No-op and full-undo exports preserve
 all original part bytes. An unrelated conventional `word/styles.xml` is ignored
