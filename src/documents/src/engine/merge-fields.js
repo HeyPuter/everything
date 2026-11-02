@@ -9,6 +9,7 @@
 
 import { formatPageNumber } from './page-numbering.js';
 import { formatFormulaNumber } from './table-formula.js';
+import { applyGeneralFormat, formatDatePicture as formatDate } from './field-results.js';
 
 /** Address concepts an address block or greeting line draws on, with column names they commonly appear under. */
 export const ADDRESS_FIELDS = [
@@ -146,7 +147,7 @@ function applyGeneralFormats(value, formats = []) {
     } else if (name === 'ordinal' && /^\s*\d+\s*$/.test(value)) {
       const n = Number(value), tens = n % 100;
       value = `${n}${tens >= 11 && tens <= 13 ? 'th' : ({ 1: 'st', 2: 'nd', 3: 'rd' }[n % 10] || 'th')}`;
-    }
+    } else if (['cardtext', 'ordtext', 'hex'].includes(name)) value = applyGeneralFormat(value, f);
   }
   return value;
 }
@@ -158,20 +159,14 @@ export function formatNumberPicture(value, picture) {
   return formatFormulaNumber(number, picture);
 }
 
-const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 /** A date picture (\@ "MMMM d, yyyy") applied to a value that reads as a date; other values pass through. */
 export function formatDatePicture(value, picture) {
   const text = String(value).trim();
   const iso = /^(\d{4})-(\d{1,2})-(\d{1,2})(?:[T ](\d{1,2}):(\d{2}))?/.exec(text);
   const date = iso ? new Date(+iso[1], +iso[2] - 1, +iso[3], +(iso[4] || 0), +(iso[5] || 0)) : text && !/^\d+$/.test(text) ? new Date(text) : null;
   if (!date || Number.isNaN(date.getTime())) return value;
-  const pad = (n, w = 2) => String(n).padStart(w, '0');
-  const h12 = date.getHours() % 12 || 12;
-  const tokens = { yyyy: date.getFullYear(), yy: pad(date.getFullYear() % 100), MMMM: MONTHS[date.getMonth()], MMM: MONTHS[date.getMonth()].slice(0, 3), MM: pad(date.getMonth() + 1), M: date.getMonth() + 1,
-    dddd: DAYS[date.getDay()], ddd: DAYS[date.getDay()].slice(0, 3), dd: pad(date.getDate()), d: date.getDate(), HH: pad(date.getHours()), H: date.getHours(), hh: pad(h12), h: h12, mm: pad(date.getMinutes()),
-    'AM/PM': date.getHours() < 12 ? 'AM' : 'PM', 'am/pm': date.getHours() < 12 ? 'am' : 'pm' };
-  return picture.replace(/'([^']*)'|AM\/PM|am\/pm|yyyy|yy|MMMM|MMM|MM|M|dddd|ddd|dd|d|HH|H|hh|h|mm/g, (m, literal) => literal !== undefined ? literal : String(tokens[m]));
+  // The pictures DATE and TIME fields read (§17.16.4.1), seconds included.
+  return formatDate(date, picture);
 }
 
 /** Apply a field's formatting switches to a merged value. */
