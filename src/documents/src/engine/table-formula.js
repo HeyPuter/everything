@@ -238,7 +238,7 @@ function splitSections(picture) {
 export function formatFormulaNumber(value, picture) {
   if (!Number.isFinite(value)) throw new Error('The result is not a number.');
   if (!picture) {
-    const rounded = Math.round(value * 100) / 100;
+    const rounded = roundAway(value, 2);
     return String(Object.is(rounded, -0) ? 0 : rounded);
   }
   const sections = splitSections(picture);
@@ -257,7 +257,8 @@ export function formatFormulaNumber(value, picture) {
   const integer = dot < 0 ? body : body.slice(0, dot), fraction = dot < 0 ? [] : body.slice(dot + 1).filter(item => item.token);
   const decimals = fraction.length, grouping = integer.some(item => item.token === ',');
   const minimum = integer.filter(item => item.token === '0').length;
-  let [whole, part = ''] = Math.abs(value).toFixed(decimals).split('.');
+  // Rounded in decimal digits, as ROUND is: toFixed rounds the binary value, so 1.005 would show as 1.00.
+  let [whole, part = ''] = Math.abs(roundAway(value, decimals)).toFixed(decimals).split('.');
   if (whole === '0' && !minimum) whole = '';
   whole = whole.padStart(minimum, '0');
   if (grouping) whole = whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',');

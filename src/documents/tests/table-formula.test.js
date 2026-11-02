@@ -43,6 +43,11 @@ it('formats numbers with pictures, sections and grouping', () => {
   expect(formatFormulaNumber(7, '00')).toBe('07');
   expect(formatFormulaNumber(2 / 3)).toBe('0.67');
   expect(formatFormulaNumber(12.5, '0.##')).toBe('12.5');
+  // Halves round away from zero in decimal digits, as ROUND does, although 1.005 and 2.675 are a little less in binary.
+  expect(formatFormulaNumber(1.005, '0.00')).toBe('1.01');
+  expect(formatFormulaNumber(2.675, '#,##0.00')).toBe('2.68');
+  expect(formatFormulaNumber(-1.005, '0.00')).toBe('-1.01');
+  expect(formatFormulaNumber(1.005)).toBe('1.01');
   expect(formulaInstruction(' =SUM(ABOVE) \\# "#,##0.00" ')).toEqual({ formula: 'SUM(ABOVE)', picture: '#,##0.00' });
   expect(buildInstruction('=AVERAGE(LEFT)', '0.0')).toBe(' =AVERAGE(LEFT) \\# "0.0" ');
 });
