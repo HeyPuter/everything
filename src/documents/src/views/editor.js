@@ -312,7 +312,9 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
       if (pkg.readOnly) { P.downloadBlob(doc.blob, P.ensureDocx(doc.name)); return; }
       engine.finishComposition();
       P.downloadBlob(engine.export(pkg), P.ensureDocx(title.value || 'Untitled document'));
-      renderStatus('Downloaded', 'download');
+      // On this device the download is the save. A copy of a document on Puter leaves its file as it was: the status
+      // still says whether that file has the edits ("Unsaved changes" with AutoSave off).
+      if (local) renderStatus('Downloaded', 'download');
     } catch (e) { error(e); }
   };
   const save = async () => {
