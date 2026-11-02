@@ -982,6 +982,26 @@ describe('offline', () => {
   });
 });
 
+describe('offline with AutoSave off', () => {
+  afterEach(() => { vi.unstubAllGlobals(); });
+
+  it('stops saying Offline once the connection is back, though only Save writes', async () => {
+    vi.stubGlobal('localStorage', { getItem: k => (k === 'documents:autosave' ? '0' : null), setItem() {}, removeItem() {} });
+    vi.stubGlobal('navigator', { onLine: false });
+    P.writeFile.mockImplementationOnce(async () => { throw new TypeError('Failed to fetch'); });
+    const doc = new Doc({ name: 'Alpha', path: 'Documents/Alpha.docx' });
+    doc.attach(async () => blob('offline edit'));
+    doc.changed();
+    await expect(doc.save()).rejects.toThrow('Failed to fetch');
+    expect(doc.status).toBe('offline');
+    // Back online, the app asks for an autosave, which AutoSave off declines: the edits wait for Save, as they say.
+    vi.stubGlobal('navigator', { onLine: true });
+    expect(await doc.save({ auto: true })).toBe(false);
+    expect(doc.status).toBe('unsaved');
+    expect(doc.dirty).toBe(true);
+  });
+});
+
 describe('files that vanished under the document', () => {
   const gone = () => Object.assign(new Error('does not exist'), { code: 'subject_does_not_exist' });
   beforeEach(() => { vi.useFakeTimers(); versioning.enabled = false; publishing.enabled = false; P.__fs.clear(); P.writeFile.mockClear(); vi.stubGlobal('navigator', { onLine: true }); });

@@ -256,7 +256,11 @@ export class Doc extends EventTarget {
     if (this._deleted || this.writes === false) return true;
     if (this._closed) return false;
     // With AutoSave off only Save writes: not the page going to the background, a reconnection, a sign-in or a retry.
-    if (auto && !this.autosave) return false;
+    if (auto && !this.autosave) {
+      // The connection came back: the edits wait for Save, and "Offline" would no longer be true.
+      if (this.status === 'offline' && globalThis.navigator?.onLine !== false) this._setStatus(this.dirty ? 'unsaved' : 'saved');
+      return false;
+    }
     while (this._saving) {
       try {
         await this._saving;
