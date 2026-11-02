@@ -569,3 +569,24 @@ test('on a phone the Mark Index Entry panel sits evenly across the window', asyn
   const width = await page.evaluate(() => document.documentElement.clientWidth);
   expect(Math.round(box.x)).toBe(Math.round(width - box.x - box.width));
 });
+
+// Remove Table of Contents edits untracked like the other References commands, so with Track Changes on the
+// table disappeared with no change to reject. It is now a tracked deletion, as selecting it and pressing Delete is.
+test('Remove Table of Contents with Track Changes on is a tracked deletion', async ({ page }) => {
+  await openEditor(page);
+  await typeDocument(page);
+  await onTab(page, 'references');
+  await ribbon(page).getByRole('button', { name: 'Table of Contents', exact: true }).click();
+  await page.getByRole('menuitem', { name: /^Classic/ }).click();
+  await expect.poll(() => engineText(page)).toMatch(/^Contents\nIntroduction\t1\n/);
+  const withTable = await engineText(page);
+  await page.keyboard.press('ControlOrMeta+Shift+e');
+  await expect.poll(() => page.evaluate(() => window.__docs.current.view.engine.session.body.trackChanges)).toBe(true);
+  await ribbon(page).getByRole('button', { name: 'Table of Contents', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Remove Table of Contents' }).click();
+  const changes = () => page.evaluate(() => { const body = window.__docs.current.view.engine.session.body; return body.revisions.map(r => [r.type, body.text.slice(r.start, r.end)]); });
+  await expect.poll(changes).toEqual([['del', withTable.slice(0, withTable.indexOf('Introduction\nEngines'))]]);
+  expect(await engineText(page)).toBe(withTable);
+  await page.evaluate(() => { const engine = window.__docs.current.view.engine; engine.execute(() => engine.session.body.resolveRevisions(true)); });
+  await expect.poll(() => engineText(page)).toBe(withTable.slice(withTable.indexOf('Introduction\nEngines')));
+});

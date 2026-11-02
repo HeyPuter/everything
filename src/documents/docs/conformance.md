@@ -22265,7 +22265,8 @@ PAGEREF whose result is refreshed from the current layout, with a right tab and 
 text width and 0.15″ indent per level (`TOC 1`–`TOC 3` styles are applied when the document defines
 them). Update Table rebuilds a TOC whose result fills whole paragraphs; any other TOC keeps its
 result and refreshes its page numbers. Remove deletes the field and the title paragraph this editor
-adds. The macOS reference application opens the result with working entries and page numbers. Gaps: custom levels,
+adds; with Track Changes on it marks them deleted (§17.13.5.14 `del`, the field code as `delInstrText`) so the
+removal can be rejected. The macOS reference application opens the result with working entries and page numbers. Gaps: custom levels,
 `\t` style lists, tab leader choice and TC fields are not offered; a TOC inside a content control is
 rebuilt only when its result fills whole paragraphs. Tests: `tests/table-of-contents.test.js`.
 

@@ -232,8 +232,12 @@ export function insertTableOfContents(doc, { title = TOC_TITLES.contents, levels
   return { entries: entries.length, range: result };
 }
 
-/** Remove a table of contents (the first one by default) and the title paragraph this editor puts above it. */
-export function removeTableOfContents(doc, target = tableOfContents(doc.paragraphs)) {
+/**
+ * Remove a table of contents (the first one by default) and the title paragraph this editor puts above it. With
+ * `tracked` (Track Changes on), its paragraphs are marked deleted, as selecting them and pressing Delete marks them,
+ * so a reviewer can reject the removal.
+ */
+export function removeTableOfContents(doc, target = tableOfContents(doc.paragraphs), { tracked = false } = {}) {
   const toc = target;
   if (!toc?.whole) return false;
   let start = toc.paragraphStart, first = toc.first;
@@ -242,6 +246,14 @@ export function removeTableOfContents(doc, target = tableOfContents(doc.paragrap
   const heading = paragraphStyleNamed(doc, 'TOC Heading');
   if (before && (titles.includes(before.runs.map(r => r.text).join('')) || heading && before.styleId === heading)) { start -= length(before) + 1; first--; }
   const end = toc.paragraphEnd, removedBodyFields = fieldsWithin(doc, toc.start, toc.end);
+  if (tracked) {
+    // The table's last paragraph mark goes with it, unless it is the document's last.
+    doc.select(start, Math.min(end + 1, doc.text.length));
+    doc.trackedReplace('', { checkpoint: false });
+    doc.select(start);
+    doc.didChange();
+    return first >= 0;
+  }
   // Remove whole paragraphs without merging a neighbour into the table's formatting:
   // take the separator before the table, or, at the start, give the next paragraph back its own.
   if (start > 0) { doc.select(start - 1, end); doc.replaceUntracked('', { checkpoint: false, removedBodyFields }); }

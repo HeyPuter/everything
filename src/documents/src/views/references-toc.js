@@ -50,8 +50,14 @@ export function createTocCommands(ctx) {
       { separator: true },
       { label: 'Custom Table of Contents…', icon: 'toc', disabled: !bodyReady(), onSelect: () => customDialog() },
       { label: 'Update Table…', icon: 'updateTable', disabled: !ready() || !has, onSelect: () => updateDialog(false) },
-      { label: 'Remove Table of Contents', icon: 'delete', disabled: !ready() || !has, onSelect: () => runBody((body, toc) => toc.removeTableOfContents(body, tableFor(toc, body, false)), { modules: ['toc'] }) },
+      { label: 'Remove Table of Contents', icon: 'delete', disabled: !ready() || !has, onSelect: removeTable },
     ];
+  }
+
+  // With Track Changes on, the removal is a tracked deletion (runBody edits untracked), so it can be rejected.
+  function removeTable() {
+    const tracked = !!editor()?.session.body.trackChanges;
+    return runBody((body, toc) => toc.removeTableOfContents(body, tableFor(toc, body, false), { tracked }), { modules: ['toc'] });
   }
 
   /* ---- Custom table of contents ---- */
