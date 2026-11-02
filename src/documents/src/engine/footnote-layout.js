@@ -12,9 +12,10 @@ const SEPARATOR_RULE = 192; // px: the separator spans two inches of the text wi
 export function notePlan(definition, paragraphs, kind = 'footnote') {
   const settings = definition?.[kind === 'footnote' ? 'footnotes' : 'endnotes'];
   if (!settings) return null;
-  const refs = noteReferences(paragraphs, kind);
+  // As the revision view shows them: a reference Simple Markup hides takes no note and no number.
+  const refs = noteReferences(paragraphs, kind, true);
   if (!refs.length) return null;
-  const numbers = noteNumbers(paragraphs, settings, kind);
+  const numbers = noteNumbers(paragraphs, settings, kind, null, true);
   const stories = new Map();
   for (const id of numbers.keys()) {
     const story = definition.stories[footnoteStoryPath(settings.part, id)];
@@ -30,7 +31,7 @@ export const endnotePlan = (definition, paragraphs) => notePlan(definition, para
 export function pageRestartedNumbers(plan, paragraphs, placed) {
   const pages = new Map();
   for (const area of placed.footnoteAreas || []) for (const note of area.notes) pages.set(note.id, area.page);
-  return noteNumbers(paragraphs, { ...plan.settings, restart: 'eachPage' }, 'footnote', pages);
+  return noteNumbers(paragraphs, { ...plan.settings, restart: 'eachPage' }, 'footnote', pages, true);
 }
 
 /** The page of each reference: Map(page -> [ids]) in reference order. */
