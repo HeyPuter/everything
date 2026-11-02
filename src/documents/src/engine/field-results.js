@@ -7,6 +7,7 @@
 import { fieldInstructionTokens, pageFieldSegments, writePageFieldResult } from './docx-page-fields.js';
 import { serializeFragment } from './docx-compatibility.js';
 import { formatPageNumber } from './page-numbering.js';
+import { numericFieldFormat, formatNumericField } from './numeric-field-format.js';
 import { newBodyField } from './toc.js';
 import { bodyFieldRanges, newFieldEndOrder } from './body-fields.js';
 import { sharedRevision } from './revisions.js';
@@ -135,14 +136,15 @@ export function fieldInstruction({ name, argument = '', picture = '', format = '
 export function evaluateField(instruction, context = {}) {
   let tokens; try { tokens = fieldInstructionTokens(instruction); } catch { return null; }
   const name = tokens[0]?.toUpperCase(), now = context.now || new Date(), properties = context.properties || {};
-  let picture = null, formats = [], argument = null, path = false;
+  let picture = null, formats = [], argument = null, path = false, numberPicture = null;
   for (let i = 1; i < tokens.length; i++) {
     const t = tokens[i];
     if (t === '\\@') picture = tokens[++i] ?? '';
+    else if (t === '\\#') numberPicture = tokens[++i] ?? null;
     else if (t === '\\*') formats.push(tokens[++i] ?? '');
     else if (t === '\\p') path = true;
     else if (!t.startsWith('\\') && argument === null) argument = t;
-    else if (t.startsWith('\\')) { if (['\\#', '\\s', '\\r'].includes(t)) i++; }
+    else if (t.startsWith('\\')) { if (['\\s', '\\r'].includes(t)) i++; }
   }
   const dated = (value, fallback) => {
     const date = value instanceof Date ? value : value ? new Date(value) : null;
@@ -156,11 +158,12 @@ export function evaluateField(instruction, context = {}) {
     case 'TIME': value = dated(now, 'h:mm am/pm'); break;
     case 'CREATEDATE': value = dated(properties.created, 'M/d/yyyy h:mm:ss am/pm'); break;
     case 'SAVEDATE': value = dated(properties.modified, 'M/d/yyyy h:mm:ss am/pm'); break;
-    case 'AUTHOR': value = properties.author || ''; break;
-    case 'TITLE': value = properties.title || ''; break;
-    case 'SUBJECT': value = properties.subject || ''; break;
-    case 'KEYWORDS': value = properties.keywords || ''; break;
-    case 'COMMENTS': value = properties.comments || ''; break;
+    // These take a new value as their argument ({ AUTHOR "New Name" }), which is then their result.
+    case 'AUTHOR': value = argument ?? (properties.author || ''); break;
+    case 'TITLE': value = argument ?? (properties.title || ''); break;
+    case 'SUBJECT': value = argument ?? (properties.subject || ''); break;
+    case 'KEYWORDS': value = argument ?? (properties.keywords || ''); break;
+    case 'COMMENTS': value = argument ?? (properties.comments || ''); break;
     case 'LASTSAVEDBY': value = properties.lastModifiedBy || ''; break;
     case 'FILENAME': value = path && context.path ? context.path : context.fileName || ''; break;
     case 'USERNAME': value = context.user?.name || ''; break;
@@ -182,6 +185,10 @@ export function evaluateField(instruction, context = {}) {
     case 'NUMWORDS': if (context.text === undefined) return null; value = String(words(context.text)); break;
     case 'NUMCHARS': if (context.text === undefined) return null; value = String([...String(context.text).replace(/[\s\ufffc]/gu, '')].length); break;
     default: return null;
+  }
+  // A numeric picture (§17.16.4.2) formats the counts: NUMWORDS \# "#,##0" shows 1,234.
+  if (numberPicture !== null && ['NUMPAGES', 'NUMWORDS', 'NUMCHARS'].includes(name)) {
+    try { value = formatNumericField(Number(value), numericFieldFormat(numberPicture)); } catch { /* the plain number */ }
   }
   for (const format of formats) {
     if (/^mergeformat$/i.test(format) || /^charformat$/i.test(format)) continue;
