@@ -46,7 +46,8 @@ export function createPane(context) {
   node.addEventListener('keydown', e => { if (e.key === 'Escape' && !isComposing(e) && !e.defaultPrevented) { e.preventDefault(); save(); close(); } });
   function refresh() {
     const image = selected(), info = current();
-    const key = image ? `${image.id}:${image.shell?.length}:${image.alt}` : '';
+    // The whole drawing XML: an undone title of the same length as the current one is still a change.
+    const key = image ? `${image.id}:${image.shell}:${image.alt}` : '';
     if (key === shown) return;
     const switched = (owner?.id ?? null) !== (image?.id ?? null);
     if (switched) save(owner);
