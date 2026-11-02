@@ -9,6 +9,17 @@ describe('words to check', () => {
     expect(words('Visit www.example.com or mail me@example.com about NASA and R2D2 today.')).toEqual(['Visit', 'or', 'mail', 'about', 'and', 'today']);
     expect(words('Open C:\\temp\\file.txt and /usr/bin now')).toEqual(['Open', 'and', 'now']);
   });
+  it('reads a long paragraph without spaces (Chinese, Thai) in time proportional to its length', () => {
+    // Every word of a stretch without white space looked through the whole stretch for an address: a paragraph of
+    // 20,000 Chinese characters took seconds, after every pause in typing.
+    const chinese = '我们今天在会议上讨论了项目的进展情况，并决定下周继续推进相关工作。'.repeat(600);
+    const joined = 'alpha,beta;gamma!'.repeat(1200) + ' Teh www.example.com/a,b end';
+    const started = performance.now();
+    expect(wordsToCheck(chinese)).toEqual([]);
+    expect(words(joined).slice(-1)).toEqual(['end']);
+    expect(words(joined)).toHaveLength(3602);
+    expect(performance.now() - started).toBeLessThan(1000);
+  });
   it('checks the first word of a paragraph that follows an address', () => {
     expect(words('Visit www.example.com\nTeh end')).toEqual(['Visit', 'Teh', 'end']);
     expect(words('mail me@example.com\tTeh end')).toEqual(['mail', 'Teh', 'end']);
