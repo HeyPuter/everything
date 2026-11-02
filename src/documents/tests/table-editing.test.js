@@ -163,6 +163,9 @@ describe('with Track Changes on', () => {
     refuses('Delete Columns', doc => { at(doc, 1, 1); T.deleteColumns(doc); });
     refuses('Delete Table', doc => { at(doc, 1, 1); T.deleteTable(doc); });
     refuses('Delete Cells', doc => { at(doc, 1, 1); T.deleteCells(doc, { shift: 'left' }); });
+    // Delete Cells → Delete entire row / column names what it would delete.
+    refuses('Delete Cells, entire row', doc => { at(doc, 1, 1); expect(() => T.deleteCells(doc, { shift: 'row' })).toThrow('Deleting table rows cannot be tracked yet.'); T.deleteCells(doc, { shift: 'row' }); });
+    refuses('Delete Cells, entire column', doc => { at(doc, 1, 1); expect(() => T.deleteCells(doc, { shift: 'column' })).toThrow('Deleting table columns cannot be tracked yet.'); T.deleteCells(doc, { shift: 'column' }); });
     refuses('Merge Cells', doc => { block(doc, 0, 0, 1, 2); T.mergeBlock(doc); });
     refuses('Sort', doc => { at(doc, 0, 0); T.sortTable(doc, { keys: [{ column: 0, type: 'text', descending: true }] }); });
     refuses('Convert to Text', doc => { at(doc, 0, 0); T.convertTableToText(doc, { separator: 'tab' }); });

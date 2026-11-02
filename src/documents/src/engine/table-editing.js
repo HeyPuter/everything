@@ -283,10 +283,11 @@ function requireUnmerged(table, rows, left, right, message) {
 
 /** Delete Cells: shift the cells to the right of the selection left, or the cells below it up. */
 export function deleteCells(model, { shift = 'left' } = {}) {
-  refuseUntracked(model, 'Deleting table cells');
-  const block = requireBlock(model), table = block.table;
+  // Deleting whole rows or columns refuses (with Track Changes on) in its own words.
   if (shift === 'row') return deleteRows(model);
   if (shift === 'column') return deleteColumns(model);
+  refuseUntracked(model, 'Deleting table cells');
+  const block = requireBlock(model), table = block.table;
   if (!['left', 'up'].includes(shift)) throw new Error('Choose how the remaining cells move.');
   requireAligned(table, block);
   if (shift === 'left') {
