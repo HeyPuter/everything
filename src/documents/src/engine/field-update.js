@@ -2,7 +2,7 @@
 // SEQ, §17.16.5.51 REF) the way Update Field does: SEQ results count their
 // identifier in document order; REF results repeat their bookmark's text.
 import { bodyFieldRanges } from './body-fields.js';
-import { bookmarkEntries } from './bookmarks.js';
+import { bookmarkEntries, bookmarksByName, bookmarkNamed } from './bookmarks.js';
 import { fieldInstructionTokens } from './docx-page-fields.js';
 import { formatPageNumber } from './page-numbering.js';
 import { formulaResult } from './table-formula.js';
@@ -69,10 +69,10 @@ export function sequenceInstruction(instruction) {
 export function fieldUpdatePlan(model, { onIssue = () => {}, notes = null, sequencesOnly = false } = {}) {
   const ranges = bodyFieldRanges(model.paragraphs), text = model.text, changes = [];
   const counters = new Map();
-  const bookmarks = new Map(bookmarkEntries(model.paragraphs, model.tables).map(b => [b.name, b]));
+  const bookmarks = bookmarksByName(bookmarkEntries(model.paragraphs, model.tables));
   // ASK and SET assign a value to a name during a mail merge without creating a bookmark;
   // a REF to such a name keeps its cached result (the merge evaluates it).
-  const mergeNames = new Set(ranges.filter(r => ['ASK', 'SET'].includes(r.field.type)).map(r => /^\s*\w+\s+("?)([^\s"]+)\1/.exec(r.field.instruction)?.[2]).filter(Boolean));
+  const mergeNames = new Set(ranges.filter(r => ['ASK', 'SET'].includes(r.field.type)).map(r => /^\s*\w+\s+("?)([^\s"]+)\1/.exec(r.field.instruction)?.[2]?.toLowerCase()).filter(Boolean));
   for (const range of ranges) {
     const type = range.field.type;
     if (sequencesOnly && type !== 'SEQ') continue;
@@ -99,8 +99,8 @@ export function fieldUpdatePlan(model, { onIssue = () => {}, notes = null, seque
       }
       const retain = reason => onIssue({ id: range.field.id, message: `${reason}; its cached result is retained.` });
       if (!supported) { retain('This REF uses switches that cannot be refreshed yet'); continue; }
-      const bookmark = bookmarks.get(tokens[0]);
-      if (!bookmark && mergeNames.has(tokens[0])) continue;
+      const bookmark = bookmarkNamed(bookmarks, tokens[0]);
+      if (!bookmark && mergeNames.has(tokens[0]?.toLowerCase())) continue;
       if (!bookmark) value = 'Error! Reference source not found.';
       else if (bookmark.start <= range.start && range.start < bookmark.end || range.start < bookmark.start && bookmark.start < range.end) {
         retain('A REF within its source bookmark cannot be refreshed yet'); continue;
@@ -117,7 +117,7 @@ export function fieldUpdatePlan(model, { onIssue = () => {}, notes = null, seque
     else if (type === 'NOTEREF' && notes) {
       let tokens; try { tokens = fieldInstructionTokens(range.field.instruction).slice(1); } catch { continue; }
       if (tokens.slice(1).some(t => !['\\h', '\\f', '\\p'].includes(t) && !/^\\\*$/.test(t) && t.toUpperCase() !== 'MERGEFORMAT')) { onIssue({ id: range.field.id, message: 'This NOTEREF uses switches that cannot be refreshed yet; its cached result is retained.' }); continue; }
-      const bookmark = bookmarks.get(tokens[0]);
+      const bookmark = bookmarkNamed(bookmarks, tokens[0]);
       if (!bookmark) value = 'Error! Reference source not found.';
       else {
         // The bookmark encloses a note reference mark; show that note's number.

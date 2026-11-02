@@ -1,5 +1,5 @@
 import { bodyFieldRanges } from './body-fields.js';
-import { bookmarkEntries } from './bookmarks.js';
+import { bookmarkEntries, bookmarksByName, bookmarkNamed } from './bookmarks.js';
 import { fieldInstructionTokens, pageFieldInstruction, pageFieldValue } from './docx-page-fields.js';
 import { pageNumberSequence } from './page-numbering.js';
 import { serializeFragment } from './docx-compatibility.js';
@@ -24,7 +24,7 @@ function lineFor(layout, position, paragraphId) {
 
 export function pageReferencePlan(model, layout, definition, ids) {
   const ranges = bodyFieldRanges(model.paragraphs), byId = new Map(ranges.map(r => [r.field.id, r]));
-  const bookmarks = new Map(bookmarkEntries(model.paragraphs, model.tables).map(b => [b.name, b]));
+  const bookmarks = bookmarksByName(bookmarkEntries(model.paragraphs, model.tables));
   const numbers = pageNumberSequence(layout.pageSections, definition, layout.numberingApproximations);
   const links = hyperlinkRanges(model.paragraphs);
   const changes = [], issues = [];
@@ -35,7 +35,7 @@ export function pageReferencePlan(model, layout, definition, ids) {
     if (owner?.field.locked) continue;
     try {
       if (ranges.some(child => child.parentId === range.field.id)) throw new Error('A PAGEREF with nested result fields cannot be refreshed yet; its cached result is retained.');
-      const options = referenceOptions(range.field), bookmark = bookmarks.get(range.field.bookmark);
+      const options = referenceOptions(range.field), bookmark = bookmarkNamed(bookmarks, range.field.bookmark);
       let text, link;
       if (!bookmark) text = 'Error! Bookmark not defined.';
       else {

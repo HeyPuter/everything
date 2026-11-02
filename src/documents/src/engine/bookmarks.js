@@ -48,6 +48,21 @@ export function bookmarkEntries(paragraphs, tables, onInvalid) {
   return entries.filter(entry => !invalid.has(entry.id));
 }
 
+/**
+ * Bookmarks (bookmarkEntries) by name as fields find them: names differ by more than letter case, as Word
+ * names them, and of several bookmarks with one name the first in the document counts (§17.13.6.2).
+ * Look a name up with bookmarkNamed.
+ */
+export function bookmarksByName(entries) {
+  const byName = new Map();
+  for (const entry of entries) {
+    const key = String(entry.name ?? '').toLowerCase();
+    if (!byName.has(key)) byName.set(key, entry);
+  }
+  return byName;
+}
+export const bookmarkNamed = (byName, name) => byName.get(String(name ?? '').toLowerCase());
+
 export function checkedBookmarkName(name) {
   // Letters and digits of any script (Закладка, Résumé, 書籤) as word processors accept them, with their combining
   // marks; no spaces or punctuation; at most 40 characters, counted as the format's readers count them.
