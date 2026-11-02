@@ -137,6 +137,8 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
   // Protection other than locked tracking keeps Track Changes as the document has it.
   const trackingFixed = () => ['readOnly', 'comments', 'forms'].includes(hooks.protection?.()?.edit);
   const fixedTracking = () => error(new Error('This document is protected: Track Changes cannot be turned on or off.'));
+  // Changes can be accepted or rejected: not with tracking locked, nor under protection that allows no edits of the text.
+  const resolvable = () => !!ready() && !locked() && !trackingFixed();
   // No Markup and Original show the document without any markup: its comments are hidden too.
   const markupShown = () => !['none', 'original'].includes(revisionView.mode);
   const showing = () => commentsShown && markupShown();
@@ -491,7 +493,7 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
   function balloonCard(change, documentText, formatSummary) {
     const engine = editor(), body = engine.session.body;
     const text = change.type === 'format' ? formatSummary(change) : documentText.slice(change.start, Math.min(change.end, documentText.length)).replace(/\n/g, ' ¶ ');
-    const editable = !!ready() && !locked();
+    const editable = resolvable();
     const act = accept => { body.select(change.start, Math.min(change.end, body.text.length)); commands.resolve(accept, 'here', { change }); };
     return el('article.ed-comment-card.ed-revision-card', { dataset: { anchor: String(change.start), kind: change.type }, 'aria-label': `${change.type === 'format' ? 'Formatted' : 'Deleted'} by ${change.author || 'unknown author'}` },
       el('div.wcc-head', {}, avatar(change.author), el('div.wcc-meta', {}, el('span.wcc-author', {}, change.author || 'Unknown author'), el('span.wcc-date', {}, time(change.date))),
@@ -685,8 +687,8 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
     when(track, () => commands.canTrack(), () => String(commands.tracking));
     when(trackSplit.arrow, () => commands.canTrack());
     when(markup, () => !!editor());
-    when(accept, () => !!ready() && !locked() && commands.revisionsAround().length > 0); when(reject, () => !!ready() && !locked() && commands.revisionsAround().length > 0);
-    when(acceptSplit.arrow, () => !!ready() && !locked() && commands.hasRevisions()); when(rejectSplit.arrow, () => !!ready() && !locked() && commands.hasRevisions());
+    when(accept, () => resolvable() && commands.revisionsAround().length > 0); when(reject, () => resolvable() && commands.revisionsAround().length > 0);
+    when(acceptSplit.arrow, () => resolvable() && commands.hasRevisions()); when(rejectSplit.arrow, () => resolvable() && commands.hasRevisions());
     when(previousChange, () => commands.hasRevisions()); when(nextChange, () => commands.hasRevisions());
     const speak = command('Read Aloud', 'readAloud', () => readAloud.active ? readAloud.stop() : readAloud.start(), { size: 'large', text: 'Read Aloud', shortcut: MOD_KEY === 'Cmd' ? 'Option+Cmd+Space' : 'Ctrl+Alt+Space' });
     speak.addEventListener('mousedown', e => e.preventDefault());
@@ -709,8 +711,8 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
   function contextItems() {
     const engine = editor(); if (!engine) return [];
     const changes = engine.session.path === null && commands.revisionsAround().length ? [
-      { label: 'Accept Change', icon: 'accept', disabled: !ready() || locked(), onSelect: () => commands.resolve(true) },
-      { label: 'Reject Change', icon: 'reject', disabled: !ready() || locked(), onSelect: () => commands.resolve(false) }] : [];
+      { label: 'Accept Change', icon: 'accept', disabled: !resolvable(), onSelect: () => commands.resolve(true) },
+      { label: 'Reject Change', icon: 'reject', disabled: !resolvable(), onSelect: () => commands.resolve(false) }] : [];
     if (!engine.model.comments) return changes;
     const thread = threadAtCaret();
     return [...changes,{ label: 'New Comment', disabled: !commands.canComment(), onSelect: () => commands.newComment() },
