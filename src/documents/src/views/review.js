@@ -606,6 +606,12 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
         const target = keep.draft ? layer.querySelector('.ed-comment-draft textarea') : cards.get(keep.thread)?.querySelector('textarea');
         if (target) { target.value = keep.value; target.dispatchEvent(new Event('input')); target.focus(); target.setSelectionRange(keep.start, keep.end); }
       }
+      // A control the rebuild took away (a card's menu button after Resolve or Delete, the box of a posted reply or a
+      // saved edit) had the keyboard: it goes to the thread's new card, or back to the document, instead of to nothing.
+      if (focused && !focused.isConnected && (document.activeElement === document.body || !document.activeElement)) {
+        const card = cards.get(focused.closest('[data-thread]')?.dataset.thread);
+        if (card) card.focus({ preventScroll: true }); else editor()?.focus();
+      }
       positionsKey = '';
     }
     tints(list);
