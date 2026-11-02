@@ -1836,6 +1836,9 @@ export class CanvasEditor {
     // block's own cells, as Delete does, not every cell its text range runs through.
     if (e.inputType.startsWith('delete') && this.model.activeCellBlock) { e.preventDefault(); this.deleteSelection(); return; }
     this.nativeSelection();
+    // Option or Ctrl+Backspace (or Delete) beside text the view hides deletes the word a reader sees past it: from
+    // the caret the field would delete the hidden words, struck out already, and the key did nothing.
+    if (e.inputType === 'deleteWordBackward' || e.inputType === 'deleteWordForward') this.passHiddenText(e.inputType === 'deleteWordBackward' ? -1 : 1);
     if (e.inputType === 'historyUndo' || e.inputType === 'historyRedo') { e.preventDefault(); e.inputType === 'historyUndo' ? this.undo() : this.redo(); return; }
     const actions = {
       insertText: () => this.model.replace(e.data || ''),
@@ -1904,6 +1907,12 @@ export class CanvasEditor {
       this.typingGroup = { revision: this.session.revision, path: this.session.path, at: this.model.selection.focus, last: text.at(-1) };
       if (text.length === 1) this.assistTyping(text);
     }
+  }
+  /** Move a caret beside hidden text in `direction` past it, so the native field's next deletion starts there. */
+  passHiddenText(direction) {
+    const [start, end] = this.model.range, stretch = start === end && hiddenStretchAt(this.model.paragraphs, start);
+    if (!stretch || (direction < 0 ? stretch[0] >= start : start >= stretch[1])) return;
+    this.model.select(stretch[direction < 0 ? 0 : 1]); this.syncInput();
   }
   // A run of Backspace (or Delete) presses is one undo step,
   // until the caret moves or anything else changes.
