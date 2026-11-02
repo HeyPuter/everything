@@ -2158,8 +2158,11 @@ export class CanvasEditor {
     this.compositionBaseText = null;
     const group = this.compositionGroup, composed = typeof committed === 'string' ? committed : this.compositionText || '';
     this.compositionGroup = null; this.typingGroup = null;
-    // A new word starts a new undo step, as it does for typed text.
-    const merge = changed && !!group && !(/\S/u.test(composed[0] || '') && /\s/u.test(group.last || ''));
+    // A new word starts a new undo step, as it does for typed text. So does text the composition put anywhere but
+    // where that typing ended: the caret then ends right after it (a caret the model had not yet followed).
+    const { anchor, focus } = model.selection;
+    const merge = changed && !!group && anchor === focus && focus === group.at + composed.length
+      && !(/\S/u.test(composed[0] || '') && /\s/u.test(group.last || ''));
     if (changed && !merge) this.session.record(before);
     this.relayout();
     if (changed) this.onChange();

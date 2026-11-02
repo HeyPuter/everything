@@ -67,6 +67,20 @@ it('composition after the caret moved, or over a selection, starts its own undo 
   editor.undo(); expect(editor.model.text).toBe('');
 });
 
+it('composition the field put away from where the typing ended starts its own undo step', () => {
+  type('ab');
+  // The field's text changes at its start while the model's caret is still after the typing (a moved caret the
+  // model had not yet followed): the composed text is not a continuation of that typing.
+  const input = editor.input;
+  input.dispatchEvent(new CompositionEvent('compositionstart'));
+  input.setRangeText('한', 0, 0, 'end');
+  input.dispatchEvent(new InputEvent('input', { inputType: 'insertCompositionText', data: '한', isComposing: true }));
+  input.dispatchEvent(new CompositionEvent('compositionend', { data: '한' }));
+  expect(editor.model.text).toBe('한ab');
+  editor.undo(); expect(editor.model.text).toBe('ab');
+  editor.undo(); expect(editor.model.text).toBe('');
+});
+
 it('commits a composition without serializing the whole document to see whether it changed', () => {
   editor.destroy();
   editor = new CanvasEditor(host, { paragraphs: Array.from({ length: 40 }, (_, i) => paragraph(`Paragraph ${i}`)), onError: errors });
