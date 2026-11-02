@@ -21,7 +21,8 @@ export function createCommentsPane({ editor, review, people }) {
   const newComment = el('button.btn.btn-primary.btn-sm', { type: 'button', onclick: () => review.commands.newComment() }, 'New Comment');
   pane.body.append(el('div.rv-filters', {}, authorSelect, search), el('label.rv-check', {}, resolved, 'Show resolved comments'), el('div.rv-actions', {}, newComment), count, list);
 
-  const threads = () => { const engine = editor(); return engine?.model.comments ? commentThreads(engine.session.body.commentList) : []; };
+  // The body's comments, also while a header, footer or note is being edited.
+  const threads = () => { const body = editor()?.session.body; return body?.comments ? commentThreads(body.commentList) : []; };
   let signature = '';
   function render(force = true) {
     if (!pane.isOpen) return;

@@ -22193,6 +22193,10 @@ Supported subset:
   resolved comments deletes such threads with their replies. Creating the first comment adds the comments part, relationship and content type.
   `commentsIds.xml`/`commentsExtensible.xml` entries for removed comments are dropped.
 - Untouched documents still save byte for byte.
+- Comments belong to the body: while a header, footer or note is edited, their cards, the Reviewing Pane and
+  the Comments pane still show them, and replying, resolving, deleting or going to one returns to the body
+  first, so the change is the body's own undo step. New Comment stays unavailable there.
+  Tests: `tests/browser/review-comments-in-stories.spec.js`.
 
 Gaps: comments in headers, footers, footnotes and drawing text keep the previous read-only
 behaviour; rich formatting inside comment bodies is flattened when a comment is edited; people
