@@ -126,7 +126,10 @@ export function openLayoutDialog({ engine, image, describe, tab = 'position', ki
   height.addEventListener('input', () => { if (lock.input.checked && Number(height.value) > 0) width.value = String(Math.round(Number(height.value) * ratio * 100) / 100); scaleH.value = String(Math.round(Number(height.value) * IN / image.height * 100)); if (lock.input.checked) scaleW.value = scaleH.value; });
   scaleW.addEventListener('input', () => { width.value = String(inches(image.width * Number(scaleW.value) / 100)); if (lock.input.checked) { scaleH.value = scaleW.value; height.value = String(inches(image.height * Number(scaleW.value) / 100)); } });
   scaleH.addEventListener('input', () => { height.value = String(inches(image.height * Number(scaleH.value) / 100)); if (lock.input.checked) { scaleW.value = scaleH.value; width.value = String(inches(image.width * Number(scaleH.value) / 100)); } });
-  const source = engine.images?.get(image.assetId), pixels = source?.bitmap || source;
+  // A picture with a style (outline, shadow, 3D frame) is a drawing whose scene holds the picture itself.
+  const scenePicture = node => !node ? null : node.image?.assetId && ['picture', 'picture3d'].includes(node.type) ? node.image.assetId : (node.children || []).map(scenePicture).find(Boolean) || null;
+  const pictureAsset = image.retainedDrawing && scenePicture(engine.model?.assets?.[image.assetId]?.scene) || image.assetId;
+  const source = engine.images?.get(pictureAsset), pixels = source?.bitmap || source;
   const original = kind === 'picture' && pixels?.width ? { width: pixels.width * EMU_PER_PX, height: pixels.height * EMU_PER_PX } : null;
   const resetSize = el('button.btn.btn-outline.btn-sm', { type: 'button', disabled: !original, onclick: () => { width.value = String(inches(original.width)); height.value = String(inches(original.height)); scaleW.value = scaleH.value = '100'; rotation.value = '0'; } }, 'Reset');
   const size = el('div.pic-layout-tab', { role: 'tabpanel', 'aria-label': 'Size' },
