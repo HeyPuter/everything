@@ -817,7 +817,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
   const protectionHooks = {};
   const protectedDocument = () => !!protectionHooks.protectedDocument?.();
   const references = createReferences({ editor: () => engine, pkg: () => pkg, error, onChange: () => update(),
-    base: { protectedDocument, canEditHeader: editorCommands.canEditHeader, editHeader: editorCommands.editHeader, canUpdateFields: editorCommands.canUpdateFields, updateFields: editorCommands.updateFields,
+    base: { protectedDocument, shared: () => !!collab?.live, canEditHeader: editorCommands.canEditHeader, editHeader: editorCommands.editHeader, canUpdateFields: editorCommands.canUpdateFields, updateFields: editorCommands.updateFields,
       openBookmarks: () => bookmarks.click(), showFieldCodes: () => { if (engine && !editorCommands.marksVisible?.()) editorCommands.toggleMarks?.(); } } });
   const baseExtendMenu = editorCommands.extendMenu, baseContextMenuItems = editorCommands.contextMenuItems;
   Object.assign(editorCommands, references.commands);

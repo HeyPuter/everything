@@ -228,6 +228,10 @@ Puter's AI (the playground) the pane, its buttons and menu items are not offered
   someone else deletes stays, in the cell after it.
 - Header, footer and note stories are atomic per story: two people editing one header at once keep
   one person's version.
+- New headers, footers and notes (and Different First Page or Different Odd & Even Pages, and
+  converting notes) are refused while a document is shared: each is a new part of one tab's package,
+  which the room does not carry. A guest's footnote used to reach the others, and the file the
+  owner's tab saves, as a reference without its note. Existing ones are edited together.
 - Document-level settings outside the model (Restrict Editing's protection, review settings,
   document properties) are not shared live; the writing tab saves its own.
 - Design changes that rewrite the package (themes, style sets, watermarks, page backgrounds) are
