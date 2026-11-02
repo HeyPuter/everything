@@ -34,7 +34,8 @@ export function openTableProperties(table, displayedWidths, selectedColumn, appl
   if (table.parentCellId || context.wrap === undefined) wrap.disabled = true;
   wrap.addEventListener('change', () => syncPositioning());
   // Positioning, for a table that text wraps around.
-  const floating = table.floating || { horzAnchor: 'text', vertAnchor: 'text', tblpX: 0, tblpY: 0, leftFromText: 180, rightFromText: 180, topFromText: 0, bottomFromText: 0 };
+  // A table that does not float yet starts where Text wrapping: Around puts it: at its alignment or indent.
+  const floating = table.floating || { horzAnchor: 'text', vertAnchor: 'text', ...(['center', 'right'].includes(table.alignment) ? { tblpXSpec: table.alignment, tblpX: 0 } : { tblpX: table.indent || 0 }), tblpY: 0, leftFromText: 180, rightFromText: 180, topFromText: 0, bottomFromText: 0 };
   const xChoice = select('Horizontal position', [['at', 'At offset'], ['left', 'Left'], ['center', 'Center'], ['right', 'Right'], ['inside', 'Inside'], ['outside', 'Outside']], floating.tblpXSpec || 'at');
   const xAt = el('input.input', { type: 'number', step: 'any', min: -22, max: 22, value: decimal((floating.tblpX || 0) / 1440), 'aria-label': 'Horizontal offset (in)' });
   const xRelative = select('Horizontal position relative to', [['margin', 'Margin'], ['page', 'Page'], ['text', 'Column']], floating.horzAnchor || 'margin');
