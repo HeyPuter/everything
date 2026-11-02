@@ -111,7 +111,7 @@ export function createReviewTools({ editor, pkg, error, author, review, proofing
     toggleHideGrammar() { setSettings({ hideGrammaticalErrors: !pkg()?.reviewSettings?.hideGrammaticalErrors }); editor()?.paint(); editorPane.refresh(); },
     resetIgnoredWords() { proofing.resetIgnored(); toast('Ignored words will be checked again'); editorPane.refresh(); },
     thesaurus: () => { if (editor()) thesaurus.open(); },
-    wordCount: () => { const engine = editor(); if (engine) openWordCount(engine, { onClose: () => queueMicrotask(() => editor()?.focus()) }); },
+    wordCount: () => { const engine = editor(); if (engine) openWordCount(engine, { onClose: () => queueMicrotask(() => editor()?.focus()), onChange }); },
     checkAccessibility: () => accessibility.open(),
     accessibilitySummary: () => accessibility.summary(),
     language: languageDialog,

@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { menuBarMenu } from './helpers/editor-tools.js';
 
 const text = page => page.getByRole('textbox', { name: 'Document text' });
 async function select(page, start, end) {
@@ -102,4 +103,38 @@ test('while a header is edited the status bar counts the document\'s words, as t
   await expect(count).toHaveText('1 of 7 words');
   await count.click();
   await expect(page.getByRole('dialog', { name: 'Word Count' }).locator('tr').filter({ hasText: 'Words' })).toContainText('7');
+});
+
+test('the status bar and Word Count count tracked deletions only while the view shows them', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/mock.html#/new');
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  const count = page.locator('.ed-statusbar .ed-word-count');
+  await text(page).fill('one two three four');
+  await text(page).press('ControlOrMeta+Shift+e');
+  await select(page, 8, 14);
+  await text(page).press('Backspace');
+  // All Markup shows "three" struck out, and counts it, as desktop word processors do.
+  await expect(count).toHaveText('4 words');
+  const markup = async label => {
+    await (await menuBarMenu(page, 'View')).getByRole('menuitem', { name: 'Markup', exact: true }).click();
+    await page.getByRole('menuitemradio', { name: label, exact: true }).click();
+    await text(page).focus();
+  };
+  await markup('Simple Markup');
+  await expect(count).toHaveText('3 words');
+  await select(page, 4, 18);
+  await expect(count).toHaveText('2 of 3 words');
+  await count.click();
+  const dialog = page.getByRole('dialog', { name: 'Word Count' });
+  await expect(dialog.getByRole('row', { name: /^Words/ })).toContainText('2');
+  await dialog.getByRole('button', { name: 'Close', exact: true }).first().click();
+  await expect(dialog).toHaveCount(0);
+  await select(page, 18, 18);
+  await count.click();
+  await expect(dialog.getByRole('row', { name: /^Words/ })).toContainText('3');
+  await dialog.getByRole('button', { name: 'Close', exact: true }).first().click();
+  await expect(dialog).toHaveCount(0);
+  await markup('All Markup');
+  await expect(count).toHaveText('4 words');
 });

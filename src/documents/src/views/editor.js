@@ -1,6 +1,6 @@
 import { MAX_FONT_SIZE } from '../engine/font-size.js';
 import { stepFontSize, FALLBACK_SIZES } from '../lib/fontsize.js';
-import { countWords } from '../core/text.js';
+import { statusWordCount } from './word-count.js';
 import { previewNotice, pictureFontNotice, scriptFontNotice, omittedPictureNotice } from './preview-notice.js';
 import { importNotice } from '../ui/importnotice.js';
 import { createCanvasRulers } from '../ui/canvas-rulers.js';
@@ -1582,18 +1582,13 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     }
     return Math.min(best, count - 1);
   }
-  // The counts last shown, with the text and selection they were taken from: every caret move and each keystroke
-  // (twice) refresh the status bar, and splitting a long document into words takes milliseconds each time.
-  let counted = { text: null, a: 0, b: 0, total: 0, chosen: null };
+  // The counts last shown, with what they were counted from: every caret move and each keystroke (twice) refresh the
+  // status bar, and splitting a long document into words takes milliseconds each time.
+  let counted = null;
   function updateWordCount() {
     // The document's words, also while a header, footer or note is edited (the words selected there are counted
-    // against them): the Word Count dialog counts with the same rule, so the two always agree.
-    const text = engine.session.body.text, story = engine.model.text, [a, b] = engine.model.range;
-    if (text !== counted.text || story !== counted.story || a !== counted.a || b !== counted.b) {
-      const total = text === counted.text ? counted.total : countWords(text);
-      const chosen = a !== b ? countWords(story.slice(a, b)) : null;
-      counted = { text, story, a, b, total, chosen };
-    }
+    // against them), with the Word Count dialog's rule and scope, so the two always agree.
+    counted = statusWordCount(engine, { cache: counted });
     const { total, chosen } = counted;
     words.textContent = chosen !== null ? `${chosen} of ${total} ${total === 1 ? 'word' : 'words'}` : `${total} ${total === 1 ? 'word' : 'words'}`;
   }

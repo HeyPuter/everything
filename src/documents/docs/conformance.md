@@ -7366,7 +7366,17 @@ word. The word count (status bar, selection, Word Count, File > Info and
 `NUMWORDS`, §17.16.5) counts each Han ideograph, kana and Bopomofo letter as
 a word, as desktop word processors count East Asian text, with the letters and
 digits between them making words as usual and the punctuation between them
-none; Korean is counted by its spaces (`tests/text.test.js`).
+none; Korean is counted by its spaces (`tests/text.test.js`). The status bar
+and the Word Count dialog count the same scope: the body, plus the text boxes
+of the drawings in it and the notes its references name while the dialog's
+"Include text boxes, footnotes and endnotes" box is checked (the status bar
+follows the box). Both count the text as the markup view shows it: a tracked
+deletion (§17.13.5.14 `del`) counts while All Markup shows it struck out, and
+not in Simple Markup, No Markup or with deletions in balloons; Original leaves
+out insertions (§17.13.5.18 `ins`). A selection in a header, footer or note is
+counted against the document's words (`tests/word-count-scope.test.js`,
+`tests/browser/status-word-count.spec.js`). Gap: hidden text (`vanish`) is
+counted whether or not it is shown.
 
 Justified (`w:jc w:val="both"`, §17.3.1.13, §17.18.44) Chinese and Japanese
 lines are filled to the margin: besides spaces, each gap where the line could
