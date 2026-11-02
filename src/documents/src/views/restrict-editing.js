@@ -147,7 +147,8 @@ export function createRestrictEditing({ editor, pkg, error, author, onChange = (
     const engine = editor();
     return el('div.rv-list.rv-regions', { role: 'list', 'aria-label': 'Editable regions' }, ...list.map(r => el('div.rv-item', { role: 'listitem' },
       el('button.rv-issue-target', { type: 'button', onclick: () => reveal(engine, r.start, r.end) }, `${r.edGrp === 'everyone' ? 'Everyone' : r.ed || r.edGrp}: “${engine.session.body.text.slice(r.start, Math.min(r.end, r.start + 40)).replace(/\n/g, ' ')}${r.end - r.start > 40 ? '…' : ''}”`),
-      button('Remove', () => { engine.execute(() => api().removePermissionRanges(engine.model, [r.id])); render(); }))));
+      // Regions are the body's: leave a header, footer or note being edited, so the body loses the region (one undo step).
+      button('Remove', () => { engine.finishComposition(); if (engine.session.path !== null) engine.editStory(null); engine.execute(() => api().removePermissionRanges(engine.session.body, [r.id])); render(); }))));
   }
   function saveDraft() {
     // Unenforced choices are kept in the file (enforcement off), as word processors do.
