@@ -244,9 +244,12 @@ export function createComments(ctx, host) {
         // The cell as it is now: someone else's rows or columns may have moved it since the card opened (see follow).
         const { r, c } = card;
         const text = area.value, assignTo = assign.person();
+        // The box (or Post) typed in goes as the card shows the thread: the keyboard moves on to the reply box,
+        // where Escape still closes the card, rather than falling to the page with nowhere to go.
+        const typing = card.node.contains(document.activeElement);
         if (postComment(sheetId, r, c, text, pick.picked, assignTo, false)) {
           card.mode = 'pinned'; card.draft = ''; card.picked = [];
-          renderCard();
+          renderCard({ focusReply: typing });
           told(sheetId, r, c, lastThreadItem(wb, sheetId, r, c), [], assignTo);
         }
       };
