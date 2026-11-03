@@ -1,6 +1,6 @@
 # CAD
 
-Free, open-source 2D drafting and design in the browser. An open-source alternative to AutoCAD, DraftSight and BricsCAD for precise technical drawings: draw, edit, dimension, hatch, organize with layers and blocks, and exchange DXF files.
+Free, open-source 2D drafting and design in the browser. An open-source alternative to AutoCAD, DraftSight and BricsCAD for precise technical drawings: draw, edit, dimension, hatch, organize with layers and blocks, and exchange DWG and DXF files.
 
 Built with vanilla JavaScript, WebGL2, Vite, [Lucide](https://lucide.dev) icons, and [Puter.js](https://docs.puter.com) as the only backend. There is no framework and no server of its own.
 
@@ -23,8 +23,8 @@ Built with vanilla JavaScript, WebGL2, Vite, [Lucide](https://lucide.dev) icons,
 - **Properties palette:** view and edit the shared properties and geometry of any selection, including polyline vertices.
 - **Files**
   - Native `.cad` files (compressed JSON) that keep everything exactly.
-  - DXF import and export (R2000 ASCII), parsed and written in a Web Worker.
-  - Plot to PDF and PNG on standard paper sizes, fit or to scale, with a live preview. Export SVG, PNG, PDF and DXF.
+  - DWG import (AutoCAD R13 to 2018, the format current AutoCAD versions still save) and export (DWG 2004), and DXF import and export (R2000 ASCII), all parsed and written in a Web Worker. The DWG reader and writer are written from the Open Design Specification for .dwg files.
+  - Plot to PDF and PNG on standard paper sizes, fit or to scale, with a live preview. Export SVG, PNG, PDF, DWG and DXF.
   - Cloud files in your Puter drive, or files on your device. Open drawings are kept in the browser for recovery after a reload.
 - **Interface:** ribbon with contextual tabs, quick access tools, drawing tabs, command search (`Ctrl+K`), context menus, a navigation bar, a status bar for drafting aids, clean screen mode, and light, dark and system themes.
 - **Devices:** desktop, tablet and phone layouts, touch support (tap to pick, drag to pan, pinch to zoom), and an installable offline app shell.
@@ -67,7 +67,7 @@ src/
   editor/              interaction
     editor.js            prompts, snapping, tracking, selection, grips
     commands/            every command
-  io/                  native files, DXF (worker), PDF, SVG, PNG, storage
+  io/                  native files, DXF and DWG (worker), PDF, SVG, PNG, storage
   ui/                  ribbon, command line, palettes, dialogs, menus
 tests/                 Vitest suites, including command integration tests
 ```

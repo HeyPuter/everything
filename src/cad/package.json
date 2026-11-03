@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "2D drafting and design: precise drawing, editing, layers, blocks, annotation, and DXF exchange in the browser.",
+  "description": "2D drafting and design: precise drawing, editing, layers, blocks, annotation, and DWG and DXF exchange in the browser.",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
