@@ -25022,7 +25022,9 @@ function write_number_format_ods_section(nf/*:string*/, nfidx/*:string*/)/*:stri
 		/* number TODO: interstitial text e.g. 000)000-0000 */
 		/* Puter Spreadsheet local patch: E- (a sign on negative exponents only) is a scientific code too, written with
 		 * forced-exponent-sign="false"; it used to stop the whole export on its missing exponent digits. */
-		var np = nf.match(/([#0][0#,]*)(\.[0#]*|)(E[+-]?0*|)/i);
+		/* Puter Spreadsheet local patch: a code may have no integer digit at all (.00 shows 0.375 as .38); its decimals
+		 * were taken for the integer, so .00 was written as 00 and showed 38. */
+		var np = nf.match(/([#0][0#,]*|(?=\.[0#]))(\.[0#]*|)(E[+-]?0*|)/i);
 		/* Puter Spreadsheet local patch: a section of text alone (an accounting zero, "$" "-") has no digits to find. */
 		if(!np || !np[0]) { if(!payload) console.error("Could not find numeric part of " + nf); }
 		else {
