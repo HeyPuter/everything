@@ -39,7 +39,7 @@ import { cellPictureObjectPosition } from '../core/cell-picture.js';
 import { chartSheetBounds } from '../core/chartsheet.js';
 
 import { shrinkCellText } from '../core/shrink-text.js';
-import { cellLayoutText, cellHorizontalPadding, CELL_TEXT_INSET } from '../core/textfit.js';
+import { cellLayoutText, cellHorizontalPadding, CELL_TEXT_INSET, maxLineWidth } from '../core/textfit.js';
 import { el } from './dom.js';
 import { cellKey, parseKey, colName, normalizeRange } from '../core/cell.js';
 import { MAX_ROW, MAX_COL } from '../core/refs.js';
@@ -1000,7 +1000,7 @@ export function buildPrintTable(wb, sheetId, opts = {}) {
         if (st.indent) { if (align === 'right') td.style.paddingRight = `${st.indent * indentUnit() + CELL_TEXT_INSET}px`; else if (align !== 'center') td.style.paddingLeft = `${st.indent * indentUnit() + CELL_TEXT_INSET}px`; }
         if (st.wrap) td.classList.add('wrap');
         if (st.valign) td.style.verticalAlign = st.valign;
-        let formatted = null, formattedWidth = null, formatRequiresFit = false;
+        let formatted = null, formattedWidth = null, formatRequiresFit = false, formatLayout = null;
         if (formatParts) {
           const parts = formatParts;
           const font = printFont;
@@ -1011,7 +1011,7 @@ export function buildPrintTable(wb, sheetId, opts = {}) {
             const padding = cellHorizontalPadding(st.indent && align !== 'center' ? st.indent * indentUnit() : 0) + 1;
             const iconWidth = cf?.iconImage ? 20 : cf?.icon ? measure(cf.icon + ' ') : 0;
             const room = st.rot ? rotatedFormatWidth(rowHeight - 1, largestRichTextSize(parts, st.size || 9.5 * 4 / 3) * 1.2, st.rot) : width - padding - iconWidth;
-            const layout = layoutFormatParts(parts, room, measure);
+            const layout = formatLayout = layoutFormatParts(parts, room, measure);
             formattedWidth = layout.width + padding + iconWidth;
             formatRequiresFit = layout.requiresFit;
             if (!st.rot && (typeof value === 'number' || layout.requiresFit) && layout.naturalWidth > room) formatted = el('span.number-format-layout', { 'aria-label': barText, style: { display: 'inline-block', whiteSpace: 'pre' } }, '###');
@@ -1042,10 +1042,31 @@ export function buildPrintTable(wb, sheetId, opts = {}) {
           td.append(el('img', { src: value.image, alt: value.alt || '', style: fit === 'stretch' ? { width: '100%', height: `${room}px` } : fit === 'original' ? null
             : { width: '100%', height: `${room}px`, objectFit: 'contain', objectPosition: cellPictureObjectPosition(st) } }));
         } else if (st.rot) {
-          const rotated = el('span', {}, formatted || shown);
-          rotated.style.display = 'inline-block';
-          if (Math.abs(st.rot) >= 90) { rotated.style.writingMode = 'vertical-rl'; if (st.rot > 0) rotated.style.transform = 'rotate(180deg)'; } else rotated.style.transform = `rotate(${-st.rot}deg)`;
-          td.replaceChildren(rotated);
+          // Turned text, placed as the grid places it. At ±90° the glyphs stack down the cell; at another angle
+          // the text turns about its centre inside a box the size of its turned bounds, and it is that box the
+          // cell aligns, as Excel lines up angled text. Turned where it would sit level, text tilted at 45° in a
+          // short row was cut at the cell's top or bottom edge.
+          const rotated = el('span.rot-text', {}, formatted || shown);
+          td.classList.add('rot');
+          // Set at the top or bottom, it keeps the grid's 3px from the edge rather than running under the border.
+          td.style.paddingTop = td.style.paddingBottom = '3px';
+          if (Math.abs(st.rot) >= 90) {
+            rotated.classList.add(st.rot > 0 ? 'up' : 'down');
+            td.replaceChildren(rotated);
+          } else {
+            measureContext ||= document.createElement('canvas').getContext('2d');
+            const rad = Math.abs(st.rot) * Math.PI / 180, fontSize = Number(/([\d.]+)px/.exec(printFont)?.[1]);
+            // A format's fill (as in * ) spreads the text over the room it was laid out for (formatLayoutNode).
+            const filled = formatLayout?.runs.some(run => run.type === 'fill' && run.text);
+            const width = formatLayout ? (filled ? formatLayout.availableWidth : formatLayout.width)
+              : measureContext ? maxLineWidth(shown, line => { measureContext.font = printFont; return measureContext.measureText(line).width; }) : 0;
+            const height = (formatLayout ? formatLayout.runs.filter(run => run.type === 'break').length + 1 : shown.split('\n').length) * fontSize * 1.2;
+            rotated.style.transform = `translate(-50%, -50%) rotate(${-st.rot}deg)`;
+            td.replaceChildren(el('span.rot-bounds', { style: {
+              width: `${(width * Math.cos(rad) + height * Math.sin(rad)).toFixed(2)}px`,
+              height: `${(width * Math.sin(rad) + height * Math.cos(rad)).toFixed(2)}px`,
+            } }, rotated));
+          }
         } else if (typeof value === 'string' && shown && !span && !st.wrap && !st.clip && !st.shrink && !formatRequiresFit) {
           // Text runs into empty visible neighbours in its alignment direction.
           // Keep the cell's own borders/fill and the original text alignment.
