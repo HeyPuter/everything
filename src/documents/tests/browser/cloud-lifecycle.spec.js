@@ -211,6 +211,29 @@ test('an autosave refused because another window changed the file says so once, 
   await expect(status(page)).toHaveAttribute('aria-label', 'Saved to Puter');
 });
 
+test('an autosave that keeps failing says so once, with Download a Copy', async ({ page }) => {
+  test.setTimeout(90000);
+  await openEditor(page);
+  await text(page).fill('Kept');
+  await expect(status(page)).toHaveAttribute('aria-label', 'Saved to Puter');
+  const path = await page.evaluate(() => window.__docs.current.view.doc.path);
+  // The drive is full: every write of the document fails, and AutoSave goes on retrying.
+  await page.evaluate(p => window.__puterFaults.push({ op: 'write', path: `^${p.replace(/^\/+/, '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, message: 'Storage capacity exceeded.' }), path);
+  await text(page).press('End');
+  await page.keyboard.type(' and more');
+  await expect(status(page)).toHaveAttribute('aria-label', 'Not saved');
+  const toast = page.locator('.toast').filter({ hasText: 'Your changes are not saved: Storage capacity exceeded. AutoSave keeps trying.' });
+  await expect(toast).toHaveCount(1, { timeout: 30000 });
+  const downloading = page.waitForEvent('download');
+  await toast.getByRole('button', { name: 'Download a Copy' }).click();
+  expect((await downloading).suggestedFilename()).toMatch(/\.docx$/);
+  // Further failed retries do not repeat it.
+  await page.waitForTimeout(9000);
+  await expect(page.locator('.toast').filter({ hasText: 'Your changes are not saved' })).toHaveCount(0);
+  await page.evaluate(() => { window.__puterFaults.length = 0; });
+  await expect(status(page)).toHaveAttribute('aria-label', 'Saved to Puter', { timeout: 15000 });
+});
+
 test('leaving a template before it has opened asks nothing, since nothing in it is the user\'s', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   // A slow first visit: the editor's code takes a while to arrive.

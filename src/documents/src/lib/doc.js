@@ -351,6 +351,7 @@ export class Doc extends EventTarget {
       // of a shared document meanwhile (setSaving): its edits reach the file from there.
       this.savedVersion = this.writes === false ? this.version : version;
       this._setStatus(this.dirty ? 'unsaved' : 'saved');
+      this._autoFailures = 0;
       if (this.dirty && this.autosave) this._schedule(this.autosaveDelay);
       return true;
     } catch (e) {
@@ -367,7 +368,13 @@ export class Doc extends EventTarget {
       // Try again later; a transient failure should not lose the edit. Offline,
       // nothing can succeed until the connection is back, and the app saves then.
       // A file another window took over is not retried on its own: the same answer would come back every time.
-      if (initialized && !offline && !e?.conflict) this._schedule(RETRY_MS);
+      if (initialized && !offline && !e?.conflict) {
+        this._schedule(RETRY_MS);
+        // An autosave that keeps failing (storage full, the file's permission gone) must not go on failing unseen
+        // while the typing goes on: once its retry has failed too, the view says so, once until a save goes through.
+        this._autoFailures = (this._autoFailures || 0) + 1;
+        if (this._autoFailures === 2) this.dispatchEvent(new CustomEvent('savefailed', { detail: { message: e?.message || String(e) } }));
+      }
       return false;
     }
   }

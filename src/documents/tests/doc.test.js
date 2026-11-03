@@ -1250,3 +1250,35 @@ describe('Doc handing saving to another tab while a save is in flight', () => {
     }
   });
 });
+
+describe('an autosave that keeps failing', () => {
+  beforeEach(() => { vi.useFakeTimers(); versioning.enabled = false; publishing.enabled = false; P.__fs.clear(); P.writeFile.mockClear(); vi.stubGlobal('navigator', { onLine: true }); });
+  afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
+
+  it('tells the view once its retry has failed too, and again only after a save went through', async () => {
+    const doc = new Doc({ name: 'Alpha', path: 'Documents/Alpha.docx' });
+    P.__fs.set(doc.path, blob('original'));
+    const told = [];
+    doc.addEventListener('savefailed', (e) => told.push(e.detail.message));
+    doc.attach(async () => blob('edit'));
+    const full = () => P.writeFile.mockImplementationOnce(async () => { throw new Error('Storage capacity exceeded'); });
+    full(); full(); full();
+    doc.changed();
+    await vi.advanceTimersByTimeAsync(AUTOSAVE_MS + 5);
+    // One failure may be a blip: the retry comes first.
+    expect(doc.status).toBe('error');
+    expect(told).toEqual([]);
+    await vi.advanceTimersByTimeAsync(RETRY_MS + 5);
+    expect(told).toEqual(['Storage capacity exceeded']);
+    await vi.advanceTimersByTimeAsync(RETRY_MS + 5);
+    expect(told).toHaveLength(1);
+    // The next retry goes through: the edits are saved, and a later run of failures is told again.
+    await vi.advanceTimersByTimeAsync(RETRY_MS + 5);
+    expect(doc.status).toBe('saved');
+    full(); full();
+    doc.changed();
+    await vi.advanceTimersByTimeAsync(AUTOSAVE_MS + RETRY_MS + 10);
+    expect(told).toHaveLength(2);
+    doc.destroy();
+  });
+});

@@ -1674,6 +1674,13 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
   };
   const onSaved = () => { if (doc.status === 'saved') conflictTold = false; };
   doc.addEventListener('conflict', onConflict);
+  // An autosave that failed again on its retry (storage full, say): the pill alone says "Not saved", and the typing goes on.
+  const onSaveFailed = e => {
+    if (destroyed) return;
+    const reason = String(e.detail.message || '').trim().replace(/[.!]+$/, '');
+    toast(`Your changes are not saved${reason ? `: ${reason}` : ''}. AutoSave keeps trying.`, { icon: 'alert', duration: 15000, action: { label: 'Download a Copy', onClick: () => download() } });
+  };
+  doc.addEventListener('savefailed', onSaveFailed);
   doc.addEventListener('status', onSaved);
   // A first save can name the file otherwise than the name shown ("Untitled document 2" when the first is taken):
   // the title shows the document's name, unless the user is typing a new one there.
@@ -2002,6 +2009,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
       releasePictures();
       doc.removeEventListener('status', updateStatus);
       doc.removeEventListener('conflict', onConflict);
+      doc.removeEventListener('savefailed', onSaveFailed);
       doc.removeEventListener('status', onSaved);
       doc.removeEventListener('path', onPath);
       session.removeEventListener('change', onSession);
