@@ -150,6 +150,18 @@
 .freeze-bar.h { height: 3px; }
 @media (hover: hover) { .freeze-bar:hover { background: var(--xl-green); } }
 .freeze-bar.dragging { background: var(--xl-green); }
+/* Under forced colours (Windows High Contrast) the selection, its handle, the selected headers and the freeze bars are
+   drawn in system colours (grid.css); the look above comes later and took that back, so the selection was outlined in
+   the text colour of every cell border, the handle lost its fill, and the freeze bars went the colour of the canvas. */
+@media (forced-colors: active) {
+  .fill-handle { background: Highlight; border-color: Canvas; }
+  .sel-range { border: 2px solid Highlight; background: transparent; }
+  .sel-active { border-color: Highlight; }
+  .fill-preview, .cut-range { border-color: Highlight; }
+  .hcell.sel { background: Highlight; color: HighlightText; border-color: Highlight; }
+  .freeze-bar { background: CanvasText; opacity: 1; }
+  .freeze-bar.dragging { background: Highlight; }
+}
 
 /* ---------- Sheet tabs and status bar ---------- */
 @media (pointer: fine) {
@@ -481,6 +493,7 @@ button.chg-place { text-decoration: underline; text-underline-offset: 2px; text-
 /* Background error checking: a green triangle in a cell's top-left corner, and the smart tag beside the active cell.
    A value its validation rule refuses is marked the same way. */
 .cell.err-flag::before, .cell.invalid::before { content: ""; position: absolute; top: 0; left: 0; width: 0; height: 0; border-style: solid; border-width: 6px 6px 0 0; border-color: #1f8f3a transparent transparent transparent; }
+@media (forced-colors: active) { .cell.invalid::before { border-top-color: CanvasText; } }
 .error-smarttag { position: fixed; z-index: 30; width: 20px; height: 20px; display: grid; place-items: center; border-radius: 3px; color: #b07800; background: var(--surface); border: 1px solid var(--hairline-strong); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15); }
 .error-smarttag[hidden] { display: none; }
 @media (hover: hover) { .error-smarttag:hover { background: var(--surface-2); } }
