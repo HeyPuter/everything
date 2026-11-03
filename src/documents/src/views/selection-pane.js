@@ -120,7 +120,9 @@ export function createPane(context) {
           else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') { e.preventDefault(); const rows = [...list.querySelectorAll('.pic-selection-name')], at = rows.indexOf(e.target); rows[Math.max(0, Math.min(rows.length - 1, at + (e.key === 'ArrowUp' ? -1 : 1)))]?.focus(); }
           else if (e.key === ' ') { e.preventDefault(); select(image, e.shiftKey || e.ctrlKey || e.metaKey, true); }
         } }, commandIconEl(KIND_ICONS[kind] || 'shapes', 16), el('span', {}, image.name || 'Object'), floating ? null : el('span.pic-hint', {}, ' · in line'));
-      const eye = el('button.icon-btn.pic-selection-eye', { type: 'button', 'aria-pressed': String(!image.hidden), 'aria-label': `${image.hidden ? 'Show' : 'Hide'} ${image.name}`, title: image.hidden ? 'Show' : 'Hide',
+      // A toggle keeps one name: "Show Rectangle 1, pressed" while it shows. A name that switched to "Hide …"
+      // read as "Hide Rectangle 1, pressed" for a visible object.
+      const eye = el('button.icon-btn.pic-selection-eye', { type: 'button', 'aria-pressed': String(!image.hidden), 'aria-label': `Show ${image.name}`, title: image.hidden ? 'Show' : 'Hide',
         onclick: async () => { await commands.setHidden(image, !image.hidden); refresh(true); } }, iconEl('eye', 16));
       const row = el('li.pic-selection-row', { dataset: { id: String(image.id) }, draggable: floating ? 'true' : 'false', className: `pic-selection-row${image.hidden ? ' is-hidden' : ''}${selected ? ' is-selected' : ''}` }, name, eye);
       if (floating) {

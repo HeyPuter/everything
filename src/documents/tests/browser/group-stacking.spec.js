@@ -81,8 +81,13 @@ test('Hide All and Show All in the Selection pane are one Undo each', async ({ p
   await onTab(page, 'shapeFormat');
   await page.locator('#ribbon-panel-shapeFormat').getByRole('button', { name: 'Selection Pane', exact: true }).click();
   const pane = page.getByRole('complementary', { name: 'Selection pane' });
+  // Each object's visibility is a toggle with one name, pressed while the object shows.
+  const eye = pane.getByRole('button', { name: 'Show Oval 2', exact: true });
+  await expect(eye).toHaveAttribute('aria-pressed', 'true');
   await pane.getByRole('button', { name: 'Hide All', exact: true }).click();
   await expect.poll(hidden).toEqual([true, true, true]);
+  await expect(eye).toHaveAttribute('aria-pressed', 'false');
+  await expect(pane.getByRole('button', { name: /^Hide (Oval|Rectangle|Isosceles)/ })).toHaveCount(0);
   await page.getByRole('button', { name: 'Undo', exact: true }).first().click();
   await expect.poll(hidden).toEqual([false, false, false]);
   await page.getByRole('button', { name: 'Redo', exact: true }).first().click();
