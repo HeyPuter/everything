@@ -122,7 +122,8 @@ export function tokenize(src) {
     }
 
     if (ch === '#') {
-      const err = ERRORS.find((e) => src.startsWith(e, i));
+      // Typed in any case, as Excel reads them: =#n/a is #N/A.
+      const err = ERRORS.find((e) => src.slice(i, i + e.length).toUpperCase() === e);
       if (!err) throw new FormulaSyntaxError('Unknown error literal', i);
       // #REF!A1 is a reference to a deleted sheet, read below; #REF! on its own is the error.
       if (err !== '#REF!' || !REF_RE.test(src.slice(i))) {
