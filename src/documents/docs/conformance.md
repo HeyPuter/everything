@@ -64,7 +64,13 @@ ECMA-376 Part 1 §11.3.10 gives the Main Document part one of two content types:
 and `…template.macroEnabledTemplate.main+xml` for the same markup. The codec
 accepts all four at `/word/document.xml`. A template opens editable like a
 document; a package with a VBA project or digital signature opens only as the
-read-only preview above, and its macros are neither run nor removed.
+read-only preview above, and its macros are neither run nor removed. Macro and
+signature parts are recognised by content type as well as by Word's usual names
+(Part 2 §9.1.1 leaves part names to the producer): `application/vnd.ms-office.vbaProject`,
+`application/vnd.ms-word.vbaData+xml` and the `application/vnd.openxmlformats-package.digital-signature-*`
+types, resolved through an Override or the Default for the part's extension
+(Part 2 §10.1.2.4). `tests/docx-macro-parts.test.js` covers renamed VBA projects,
+macro data and signatures.
 
 What the editor saves is always a .docx (a template's first save writes a new .docx
 file and leaves the template as it was), so an export rewrites the Main Document override to the

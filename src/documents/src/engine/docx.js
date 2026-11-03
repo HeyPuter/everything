@@ -92,7 +92,7 @@ import { readNumbering, writeNumbering } from './docx-numbering.js';
 import { validateIndent, normalizeTabStops } from './paragraph-geometry.js';
 import { DEFAULT_PAGE_SETTINGS, validatePageSettings } from './page-settings.js';
 import { checkedLineNumbers } from './line-number-settings.js';
-import { zipPackage, MAX_PACKAGE_BYTES, compoundFileProblem, relationshipPartPath, partPathForUrl } from './package-part-paths.js';
+import { zipPackage, MAX_PACKAGE_BYTES, compoundFileProblem, relationshipPartPath, partPathForUrl, partContentType } from './package-part-paths.js';
 import { zipPackageAsync } from './package-zip.js';
 import { canonicalMainPart } from './docx-main-part.js';
 import { altChunkParagraphs } from './docx-alt-chunks.js';
@@ -103,6 +103,16 @@ export const DOCX_TYPE = 'application/vnd.openxmlformats-officedocument.wordproc
 // A template (.dotx) or macro-enabled file (.docm, .dotm) differs from a document only in its main
 // part's content type, and in the macros (refused for editing below). Saving writes a .docx.
 const MAIN_TYPES = new Set([`${DOCX_TYPE}.main+xml`, 'application/vnd.openxmlformats-officedocument.wordprocessingml.template.main+xml', 'application/vnd.ms-word.document.macroEnabled.main+xml', 'application/vnd.ms-word.template.macroEnabledTemplate.main+xml']);
+// Macros and signatures are found by what their parts are, not what they are called: part names are the
+// producer's choice (ECMA-376 Part 2, §9.1.1), and a VBA project stored as word/code.bin was kept and saved
+// into a .docx, which Word refuses. Macro parts are the VBA project and its data ([MS-OFFMACRO2]);
+// signatures are Part 2's digital signature origin and XML signature parts.
+const MACRO_OR_SIGNATURE_TYPES = /^application\/vnd\.ms-office\.vbaproject$|^application\/vnd\.ms-word\.vbadata\+xml$|^application\/vnd\.openxmlformats-package\.digital-signature-/;
+function hasMacrosOrSignatures(parts) {
+  let types;
+  try { types = xml(parts['[Content_Types].xml']).documentElement; } catch { return false; }
+  return Object.keys(parts).some(name => MACRO_OR_SIGNATURE_TYPES.test(partContentType(types, name)));
+}
 function writeDocumentType(parts) {
   const types = xml(parts['[Content_Types].xml']);
   const main = [...types.getElementsByTagNameNS('*', 'Override')].find(n => n.getAttribute('PartName') === '/word/document.xml');
@@ -1290,7 +1300,7 @@ export class DocxPackage {
         return typeof fallback === 'function' ? fallback() : fallback;
       }
     };
-    if (Object.keys(parts).some(name => /vbaProject|^_xmlsignatures\//i.test(name))) unsupported('macros or digital signatures');
+    if (Object.keys(parts).some(name => /vbaProject|^_xmlsignatures\//i.test(name)) || hasMacrosOrSignatures(parts)) unsupported('macros or digital signatures');
     const settings = attempt(() => readSettings(parts), null);
     const savedSpellingComplete = completedSpelling(settings?.documentElement), spellingAnchors = new Map();
     const doc = xml(parts['word/document.xml']);

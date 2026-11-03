@@ -39,6 +39,21 @@ export function contentTypeOverride(typesRoot, path) {
 }
 
 /**
+ * The content type of part `path` in a parsed [Content_Types].xml root, lowercased, or ''. An Override
+ * names the part; otherwise the Default for its extension applies (ECMA-376 Part 2, §10.1.2.4). Part
+ * names and extensions compare without regard to ASCII case, and so do media types (RFC 6838 §4.2).
+ */
+export function partContentType(typesRoot, path) {
+  const override = contentTypeOverride(typesRoot, path);
+  if (override) return (override.getAttribute('ContentType') || '').toLowerCase();
+  const file = path.slice(path.lastIndexOf('/') + 1), dot = file.lastIndexOf('.');
+  if (dot < 0) return '';
+  const extension = file.slice(dot + 1).toLowerCase();
+  const entry = [...typesRoot.children].find(n => n.localName === 'Default' && n.getAttribute('Extension')?.toLowerCase() === extension);
+  return (entry?.getAttribute('ContentType') || '').toLowerCase();
+}
+
+/**
  * The ZIP item holding part `name`, or null. Part names compare without regard to ASCII case (ECMA-376
  * Part 2, §9.1.1.1), so a relationship targeting styles.xml names the item word/Styles.xml. The exact
  * name is preferred; a name that two items match in case-insensitive comparison names neither.
