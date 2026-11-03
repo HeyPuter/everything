@@ -1417,6 +1417,7 @@ export class Workbook extends EventTarget {
     this.filePath = null; // the drive path of the file the book is saved as, which its document keeps up to date (CELL("filename")); never saved
     this._externalBlocked = false; // a blocked request has been noticed this version
     this._depth = 0; // nested _compute calls in progress
+    this._judgeOverflows = 0; // how many times judging a circle has run out of stack (see _judgedTooDeep)
     this._deepening = new Set(); // cells being evaluated bottom-up after a stack overflow
     this._priming = false; // while a column is being settled top down for a chain the formula text cannot be walked
     this._usedCache = new Map();
@@ -13396,7 +13397,19 @@ export class Workbook extends EventTarget {
     this._cache.set(key, value);
     this._probed?.push(key);
     if (this._spillBuilds.length || this._hasDeferredSpills) this._spillComputed.push(key);
-    if (this._unsettled.length) value = this._judgeCircles(key, value, raw);
+    if (this._unsettled.length) {
+      // Judging a circle calculates again, and what that reads may judge circles of its own, one inside the other, as
+      // deep as a chain of circles is long: counted as nested calculations, so that a stack running out among them is
+      // caught by a shallow one (see _judgeCircles) rather than thrown out of the calculation.
+      const overflows = this._judgeOverflows;
+      this._depth++;
+      try { value = this._judgeCircles(key, value, raw); } finally { this._depth--; }
+      // Circles judged inside one that ran out of stack were left unjudged, their outermost cells calculated no more.
+      if (this._judgeOverflows !== overflows) {
+        for (let i = this._unsettled.length - 1; i >= 0; i--) if (!this._evaluating.has(this._unsettled[i].outer)) this._unsettled.splice(i, 1);
+        if (!this._unsettled.length) this._tentative.length = 0;
+      }
+    }
     if (fixed && value?.error === '#CYCLE!') this._fixedResult(sheet, r, c, value);
     if (this._settleDeferredSpills()) return this._compute(sheet, r, c);
     this._announceGrown();
@@ -13475,13 +13488,13 @@ export class Workbook extends EventTarget {
         if (this._cache.has(entry.outer)) this._unsettled.splice(i--, 1);
         continue;
       }
-      let again;
+      let again, tooDeep = false;
       try { again = withArrayBudget(() => evaluateFormula(entry.ast, this._formulaContext(entry.sheet, entry.r, entry.c))); } catch (e) {
-        if (e instanceof RangeError) throw e;
-        again = err('#ERROR!');
+        if (!(e instanceof RangeError)) again = err('#ERROR!');
+        else if (!(tooDeep = this._judgedTooDeep(e))) throw e;
       }
       this._unsettled.splice(i--, 1);
-      let cycle = !sameResult(again, entry.raw);
+      let cycle = tooDeep || !sameResult(again, entry.raw);
       if (!cycle && entry.reader !== key) {
         // The outer cell read the reader for real: unless its answer stands with the circle's other cells blank, it rests on them.
         // So it does unless it stands with them in error too, as it would have read them had it been reached after them:
@@ -13497,12 +13510,12 @@ export class Workbook extends EventTarget {
           for (const reading of [null, err('#CYCLE!')]) {
             this._blankKeys = blank;
             this._blankValue = reading;
-            let outerAgain;
+            let outerAgain, tooDeep = false;
             try { outerAgain = this._probe(() => withArrayBudget(() => evaluateFormula(outerAst, this._formulaContext(outerSheet, r, c)))); } catch (e) {
-              if (e instanceof RangeError) throw e;
-              outerAgain = err('#ERROR!');
+              if (!(e instanceof RangeError)) outerAgain = err('#ERROR!');
+              else if (!(tooDeep = this._judgedTooDeep(e))) throw e;
             } finally { this._blankKeys = null; this._blankValue = null; }
-            cycle = !sameResult(outerAgain, raw);
+            cycle = tooDeep || !sameResult(outerAgain, raw);
             if (cycle) break;
           }
         }
@@ -13531,6 +13544,19 @@ export class Workbook extends EventTarget {
       this._probed = outer;
       for (const key of probed) this._cache.delete(key);
     }
+  }
+
+  /**
+   * Judging a circle ran out of stack (a RangeError `e`), calculating cells that judge circles of their own, one inside the
+   * other. Deep among them it is thrown on, to a shallow judging, which takes its circle for a cycle, as a chain too deep
+   * to follow ends in an error: whether it is one could not be told. → whether it was taken so here.
+   */
+  _judgedTooDeep(e) {
+    let overflow = true;
+    try { overflow = /call stack/i.test(e.message); } catch { /* the frame where the stack ran out */ }
+    if (!overflow || this._depth > DEEP_FRAMES) return false;
+    this._judgeOverflows++;
+    return true;
   }
 
   _cacheCircular(key, outer) {
