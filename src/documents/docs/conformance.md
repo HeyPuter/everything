@@ -23899,7 +23899,12 @@ processors read, and keeps its recipient list inside the document.
   outer envelope, so such documents stay editable and round-trip.
 - **Evaluation subset** (merge-fields.js): general switches `\*` Upper, Lower,
   FirstCap, Caps, Ordinal and Arabic/roman/alphabetic (§17.16.4.3), `\#` numeric
-  pictures with digits, grouping, decimals, literal text and sections, and `\@`
+  pictures with digits, grouping, decimals, literal text and sections (a merged
+  value's separators are read from its own pattern, since a recipient list
+  carries no locale: with both `.` and `,` the last is the decimal mark, a single
+  comma that is not a thousands group is a decimal comma, spaces and apostrophes
+  group; the ambiguous `1,234` and `1.234` keep the point-decimal reading, where
+  Word would follow the system locale), and `\@`
   date pictures with the common day/month/year/hour/minute/AM-PM tokens; MERGEFIELD
   `\b`/`\f`; ADDRESSBLOCK `\f` group format, `\c`, `\e`; GREETINGLINE `\f`
   with `_BEFORE_`/`_AFTER_` text and `\e`. IF/NEXTIF/SKIPIF compare numbers

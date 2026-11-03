@@ -44,6 +44,30 @@ describe('MERGEFIELD', () => {
     expect(evaluateField(' MERGEFIELD Nickname ', ctx(0, { onIssue: i => issues.push(i) }))).toBe('«Nickname»');
     expect(issues).toEqual([{ type: 'missingField', field: 'Nickname', record: 1 }]);
   });
+  it('reads decimal commas in merged numbers from the value pattern, keeping point-decimal data as it was', () => {
+    // A recipient list carries no locale; when both marks appear the last is the decimal mark.
+    expect(formatNumberPicture('1.234,56', '#,##0.00')).toBe('1,234.56');
+    expect(formatNumberPicture('€ 1.234.567,8', '#,##0.00')).toBe('1,234,567.80');
+    expect(formatNumberPicture('-1.234,5', '#,##0.00;(#,##0.00)')).toBe('(1,234.50)');
+    // Spaces and apostrophes group thousands (fr-FR, de-CH).
+    expect(formatNumberPicture('1 234,56', '0.00')).toBe('1234.56');
+    expect(formatNumberPicture("1'234.56", '0.00')).toBe('1234.56');
+    // A single comma that is not a thousands group is a decimal comma.
+    expect(formatNumberPicture('12,5', '0.00')).toBe('12.50');
+    expect(formatNumberPicture('0,75', '0.00')).toBe('0.75');
+    // Repeated dots in thousands groups are grouping.
+    expect(formatNumberPicture('1.234.567', '#,##0')).toBe('1,234,567');
+    // Point-decimal data and well-formed comma grouping read as before; "1,234" and "1.234" stay English.
+    expect(formatNumberPicture('1,234.56', '#,##0.00')).toBe('1,234.56');
+    expect(formatNumberPicture('1,234', '0')).toBe('1234');
+    expect(formatNumberPicture('12,345,678', '0')).toBe('12345678');
+    expect(formatNumberPicture('1.234', '0.000')).toBe('1.234');
+    expect(formatNumberPicture('$1234.5', '0.00')).toBe('1234.50');
+    // Text that only looks partly numeric is left alone.
+    expect(formatNumberPicture('1,2,3,4', '0')).toBe('1234');
+    expect(formatNumberPicture('1.2.3', '0')).toBe('1.2.3');
+    expect(formatNumberPicture('1.234,5,6', '0')).toBe('1.234,5,6');
+  });
   it('formats numbers, dates and capitalization', () => {
     expect(formatNumberPicture('-20', '#,##0.00;(#,##0.00)')).toBe('(20.00)');
     expect(formatNumberPicture('7', '000')).toBe('007');

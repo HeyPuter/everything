@@ -154,9 +154,28 @@ function applyGeneralFormats(value, formats = []) {
 
 /** A numeric picture (\# "$#,##0.00") applied to a merged value that reads as a number (formatFormulaNumber). */
 export function formatNumberPicture(value, picture) {
-  const number = Number(String(value).replace(/[,\s$€£¥]/g, ''));
+  const number = mergedNumber(value);
   if (!String(value).trim() || !Number.isFinite(number)) return value;
   return formatFormulaNumber(number, picture);
+}
+/**
+ * A merged value read as a number. A recipient list carries no locale, so the separators are read from
+ * the value itself: with both '.' and ',' the last one is the decimal mark ("1.234,56", "1,234.56"); a
+ * single comma that is not a thousands group is a decimal comma ("12,5", "0,75"); repeated dots in
+ * thousands groups are grouping ("1.234.567"). Spaces and apostrophes group. The ambiguous "1,234" and
+ * "1.234" keep their point-decimal reading. Stripping every comma read "1.234,56" as 1.23456.
+ */
+function mergedNumber(value) {
+  const text = String(value).replace(/[\s'’$€£¥]/g, ''), digits = text.replace(/^[-+]/, '');
+  const dot = text.lastIndexOf('.'), comma = text.lastIndexOf(',');
+  let decimal = '.';
+  if (dot >= 0 && comma >= 0) decimal = dot > comma ? '.' : ',';
+  else if (comma >= 0 && comma === text.indexOf(',') && !/^[1-9]\d{0,2},\d{3}$/.test(digits)) decimal = ',';
+  else if (dot >= 0 && dot !== text.indexOf('.') && /^\d{1,3}(\.\d{3})+$/.test(digits)) decimal = '';
+  const group = decimal === ',' ? '.' : decimal === '.' ? ',' : '.';
+  const [whole, fraction, extra] = text.split(group).join('').split(decimal || '\0');
+  if (extra !== undefined) return NaN;
+  return Number(fraction === undefined ? whole : `${whole}.${fraction}`);
 }
 
 /** A date picture (\@ "MMMM d, yyyy") applied to a value that reads as a date; other values pass through. */
