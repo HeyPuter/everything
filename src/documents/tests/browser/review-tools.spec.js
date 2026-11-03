@@ -703,6 +703,31 @@ test('Translate Document translates the document as it was sent, though it is ed
   expect(errors).toEqual([]);
 });
 
+test('closing the Translator stops a translation that never answers, and Translate works again', async ({ page }) => {
+  await page.goto('/mock.html#/new');
+  const input = page.getByRole('textbox', { name: 'Document text' });
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await input.fill('Hello world.');
+  // The first request hangs, as one on a stalled connection does; the next is answered.
+  await page.evaluate(() => { const chat = puter.ai.chat.bind(puter.ai); let first = true; puter.ai.chat = (...args) => { if (first) { first = false; return new Promise(() => {}); } return chat(...args); }; });
+  await page.evaluate(() => { const e = window.__docs.current.view.engine; e.model.select(0, 5); e.syncInput(); });
+  await onTab(page, 'review');
+  const openTranslator = async () => {
+    await page.evaluate(() => document.querySelector('#ribbon-panel-review [aria-label="Translate"][aria-haspopup="menu"]')?.click());
+    await page.getByRole('menuitem', { name: 'Translate Selection' }).click();
+  };
+  await openTranslator();
+  const pane = page.getByRole('complementary', { name: 'Translator pane' });
+  await pane.getByRole('button', { name: 'Translate', exact: true }).click();
+  await expect(pane.getByRole('status')).toHaveText('Translating…');
+  await pane.getByRole('button', { name: 'Close Translator pane' }).click();
+  await page.evaluate(() => { const e = window.__docs.current.view.engine; e.model.select(0, 5); e.syncInput(); });
+  await openTranslator();
+  await expect(pane.getByRole('button', { name: 'Translate', exact: true })).toBeEnabled();
+  await pane.getByRole('button', { name: 'Translate', exact: true }).click();
+  await expect(pane.getByRole('status')).toHaveText(/^Translated into/);
+});
+
 test('a protected document opens with its permissions shown and unlocks with its password', async ({ page }, info) => {
   const errors = []; page.on('pageerror', e => errors.push(e.message));
   await page.setViewportSize({ width: 1440, height: 900 });

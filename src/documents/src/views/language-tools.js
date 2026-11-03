@@ -59,7 +59,9 @@ export function openLanguageDialog({ language, noProof, defaultLanguage, apply, 
 /** The Translator pane. */
 export function createTranslatePane({ editor, pkg, error, openDocument, documentName }) {
   let busy = null, result = null;
-  const pane = sidePane({ title: 'Translator', label: 'Translator pane', className: 'rv-translate-pane', onClose: () => { busy?.abort(); editor()?.focus(); } });
+  // Closing the pane stops a translation under way. One whose answer never comes is let go there and then: waiting
+  // for it to end would leave Translate disabled for good.
+  const pane = sidePane({ title: 'Translator', label: 'Translator pane', className: 'rv-translate-pane', onClose: () => { if (busy) { busy.abort(); busy = null; status.textContent = ''; } editor()?.focus(); } });
   const source = el('p.rv-translate-source');
   const target = languageSelect(TRANSLATION_LANGUAGE.get(), 'Translate into');
   target.addEventListener('change', () => TRANSLATION_LANGUAGE.set(target.value));
