@@ -23979,6 +23979,11 @@ properties against `shared-customXmlDataProperties.xsd`.
 | §17.11.21 `pos` | Footnotes: `pageBottom` and `beneathText` (the area starts after the page's last body line). Endnotes: `docEnd`; `sectEnd` is stored and saved but endnotes are still shown after the last section. |
 | §17.11.11/§17.11.12 settings | The Footnote and Endnote dialog writes `pos`, `numFmt`, `numStart` and `numRestart` in CT_FtnDocProps/CT_EdnDocProps order, referencing the part's separator notes when the element is new. Section-level `footnotePr`/`endnotePr` are not written ("whole document" only). |
 
+Footnote areas end at the bottom of the page's text area: the bottom margin, or
+the top of a footer taller than that margin, which Word grows upwards. Endnotes
+likewise stay above such a footer (and below a tall header on added pages).
+Regression: `tests/footnotes-tall-footer.test.js`.
+
 Endnotes lay out after the last body line, behind a short separator, and
 continue on added pages; each note stays whole on one page and authored
 separator or continuation-notice content is not drawn. Convert swaps reference

@@ -228,6 +228,8 @@ function layoutPass(paragraphs, measureBase, page, numbering, tables, pageStorie
   // What pagination reads of each block, in order (paragraph-measure-cache.js flowName). Only footnote
   // settling reads it (layoutWithFootnotes); naming a table serializes all of its measured rows.
   let flowNames = paragraphCache && storyOptions.noteReserve !== undefined ? [] : null;
+  // Where each page's footnote area ends: the bottom of its text area before notes (layoutWithFootnotes).
+  const noteBottoms = [];
   const pageKey = geometry => { let key = pageKeys.get(geometry); if (key === undefined) pageKeys.set(geometry, key = paragraphCache.intern(JSON.stringify(geometry))); return key; };
   // A screen view (web, draft, read) lays every section out on its own display geometry.
   const viewPage = storyOptions.viewGeometry || (geometry => geometry);
@@ -264,10 +266,12 @@ function layoutPass(paragraphs, measureBase, page, numbering, tables, pageStorie
         const dynamic = { ...page, boundsBase: { top: page.top, bottom: page.bottom, height: page.height }, boundsOrigin: 0 };
         const stories = sectionStoryBounds(page, pageStories, sections.length, currentSection, measureBase, numbering, storyOptions);
         const reserve = storyOptions.noteReserve, section = currentSection;
-        // Footnote areas shorten the text area of the pages that reference them.
-        dynamic.pageBounds = reserve && Object.keys(reserve).length ? local => {
-          const bounds = stories(local), note = reserve[(section.pageOffset ?? 0) + local] || 0;
-          return note ? { top: bounds.top, bottom: Math.max(bounds.top + 1, Math.min(bounds.bottom, page.height - page.bottom - note)) } : bounds;
+        // Footnote areas shorten the text area of the pages that reference them. They sit above the
+        // footer, which a footer taller than the bottom margin raises with the text area's bottom.
+        dynamic.pageBounds = reserve ? local => {
+          const bounds = stories(local), index = (section.pageOffset ?? 0) + local, note = reserve[index] || 0;
+          noteBottoms[index] = bounds.bottom;
+          return note ? { top: bounds.top, bottom: Math.max(bounds.top + 1, bounds.bottom - note) } : bounds;
         } : stories;
         currentSection.page = dynamic;
       }
@@ -793,7 +797,7 @@ function layoutPass(paragraphs, measureBase, page, numbering, tables, pageStorie
   const paragraphBorders = layoutParagraphBorders(placed);
   let offset = 0;
   const pageOffsets = placed.pages.map(p => { const start = offset; offset += p.height; return start; });
-  return { ...placed, page, pageOffsets, tableWidths, paragraphBorders, tableBorders: layoutTableBorders(placed.cells), ...(hasRotatedCells ? { hasRotatedCells: true } : {}), ...(flowNames ? { flowSignature: flowNames.join(' ') } : {}) };
+  return { ...placed, page, pageOffsets, tableWidths, paragraphBorders, tableBorders: layoutTableBorders(placed.cells), ...(hasRotatedCells ? { hasRotatedCells: true } : {}), ...(flowNames ? { flowSignature: flowNames.join(' ') } : {}), ...(storyOptions.noteReserve ? { noteBottoms } : {}) };
 }
 
 // Give pagination all rows connected by vertical spans, without keeping them on a page.
