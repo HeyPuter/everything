@@ -48,7 +48,7 @@ export const LINE_PROPS = Object.freeze({
 export const SHEET_PROPS = Object.freeze(['kind', 'frozenRows', 'frozenCols', 'frozenOrigin', 'color', 'hidden', 'veryHidden', 'protected',
   'gridlines', 'headers', 'rightToLeft', 'defaultVAlign', 'zeros', 'printSettings', 'groups', 'filter', 'otherFilters', 'filterHidden',
   'merges', 'comments', 'rules', 'protectedRanges', 'scenarios', 'validations', 'sparklineGroups', 'charts', 'tables', 'nativeWidths',
-  'nativeDefaultHeight', 'defaultColWidth', 'defaultRowHeight', 'ignoredErrors', 'styleResets', 'outlineSettings', 'background', 'sheetViews']);
+  'nativeDefaultHeight', 'defaultColWidth', 'defaultRowHeight', 'ignoredErrors', 'styleResets', 'outlineSettings', 'background', 'sheetViews', 'advancedFilter']);
 /** Never shared: one person's view of a sheet. */
 export const VIEW_PROPS = Object.freeze(['showPageBreaks', 'personalView', 'viewZoom', 'viewMode', 'viewSelection', 'viewOrigin', 'split', 'zoomToFit', 'rows', 'cols', 'id', 'name']);
 
