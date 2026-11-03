@@ -92,7 +92,7 @@ import { readNumbering, writeNumbering } from './docx-numbering.js';
 import { validateIndent, normalizeTabStops } from './paragraph-geometry.js';
 import { DEFAULT_PAGE_SETTINGS, validatePageSettings } from './page-settings.js';
 import { checkedLineNumbers } from './line-number-settings.js';
-import { zipPackage, MAX_PACKAGE_BYTES, compoundFileProblem, relationshipPartPath, partPathForUrl, partContentType, unzipBounded } from './package-part-paths.js';
+import { zipPackage, MAX_PACKAGE_BYTES, compoundFileProblem, relationshipPartPath, partPathForUrl, partContentType, unzipBounded, MAX_EXPANDED_PACKAGE_BYTES } from './package-part-paths.js';
 import { zipPackageAsync } from './package-zip.js';
 import { canonicalMainPart } from './docx-main-part.js';
 import { altChunkParagraphs } from './docx-alt-chunks.js';
@@ -1201,7 +1201,7 @@ function hasPageStoryControls(root) {
 const EXPANDED_LIMIT = 'DOCX expanded size exceeds the editor limit.';
 // The text of a WordprocessingML package imported into another (an altChunk), for a read-only preview.
 function previewEmbeddedPackage(bytes) {
-  const parts = canonicalMainPart(unzipBounded(bytes, { message: EXPANDED_LIMIT }));
+  const parts = canonicalMainPart(unzipBounded(bytes, { maxBytes: MAX_EXPANDED_PACKAGE_BYTES, message: EXPANDED_LIMIT }));
   return DocxPackage.preview(parts).paragraphs;
 }
 
@@ -1242,13 +1242,13 @@ export class DocxPackage {
   }
   static async open(input, { bestEffort = false } = {}) {
     const bytes = input instanceof Uint8Array ? input : new Uint8Array(await input.arrayBuffer());
-    if (bytes.length > MAX_PACKAGE_BYTES) throw new Error('This editor currently opens DOCX files up to 20 MB.');
+    if (bytes.length > MAX_PACKAGE_BYTES) throw new Error(`This editor currently opens DOCX files up to ${MAX_PACKAGE_BYTES / 1024 / 1024} MB.`);
     const compound = compoundFileProblem(bytes);
     if (compound) throw new Error(compound);
     let parts;
     const names = new Set(), duplicates = new Set();
     try {
-      parts = unzipBounded(bytes, { message: EXPANDED_LIMIT, onItem: entry => {
+      parts = unzipBounded(bytes, { maxBytes: MAX_EXPANDED_PACKAGE_BYTES, message: EXPANDED_LIMIT, onItem: entry => {
         const key = entry.name.replace(/[A-Z]+/g, c => c.toLowerCase());
         if (!key.endsWith('/') && names.has(key)) duplicates.add(entry.name); else names.add(key);
       } });

@@ -52,7 +52,7 @@ it('refuses a recipient workbook that expands past the limit', () => {
 
 it('still refuses a document that expands past the limit, as before', async () => {
   const files = { 'word/media/big.bin': 'x' };
-  const zip = declaring(files, 'word/media/big.bin', 60 * MB);
+  const zip = declaring(files, 'word/media/big.bin', 200 * MB);
   await expect(DocxPackage.open(zip)).rejects.toThrow('Could not read this DOCX archive: DOCX expanded size exceeds the editor limit.');
   expect((await DocxPackage.open(docxWithParagraphs([{ text: 'Fine' }]))).readOnly).toBeFalsy();
 });

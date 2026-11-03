@@ -65,8 +65,13 @@ export function packagePartName(parts, name) {
   return matches.length === 1 ? matches[0] : null;
 }
 
-/** The largest DOCX file the editor opens. */
-export const MAX_PACKAGE_BYTES = 20 * 1024 * 1024;
+/**
+ * The largest DOCX file the editor opens, and the most its parts may expand to. A session holds up to 50 MB
+ * of pictures (validateImageAssets), which are stored as they are; at 20 MB, a document saved with them could
+ * not be opened again. These admit that, with the document's own XML, and still refuse archive bombs.
+ */
+export const MAX_PACKAGE_BYTES = 64 * 1024 * 1024;
+export const MAX_EXPANDED_PACKAGE_BYTES = 128 * 1024 * 1024;
 
 /**
  * The items of a ZIP archive the user chose, refusing (with `message`) one that expands past `maxBytes` or

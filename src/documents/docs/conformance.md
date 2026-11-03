@@ -43,7 +43,9 @@ and layout that can differ substantially from the native reference. Unsupported 
 in the original package. Previews disable editing and attach no save handler;
 the download returns the exact original file bytes. Corrupt archives, invalid or
 unsafe XML in the main document, `[Content_Types].xml` or the package relationships, and
-resource limits remain errors. Any other XML part that is not well-formed, or not encoded
+resource limits remain errors. A package may be up to 64 MB and expand to 128 MB, so that a
+document saved with the session's 50 MB of pictures opens again
+(`tests/docx-large-package-reopen.test.js`). Any other XML part that is not well-formed, or not encoded
 as UTF-8 or UTF-16 as Part 2 §8.1.4 requires, opens the main document's text as this
 preview without the part (styles, numbering and the rest fall back to defaults), and the
 issue list names each such part (`tests/docx-unreadable-parts.test.js`,
@@ -5166,7 +5168,7 @@ path solely because it contains more than 10,000 commands. Command validation,
 geometry resolution and painting are unchanged; this does not add arc support
 or simplify, split or discard any path content.
 
-The existing 20MB compressed / 50MB expanded package limits, 2,000 package-part
+The existing 64 MB compressed / 128 MB expanded package limits, 2,000 package-part
 limit, scene depth/object limits, per-shape path-count limit and bitmap resource
 limits remain in force. No lower aggregate command limit replaces the removed
 per-path cutoff: that would reject previously accepted multi-path drawings.
