@@ -51,3 +51,31 @@ it('saves only pending edits when the connection comes back', async () => {
   window.__docs.current.view.destroy();
   vi.unstubAllGlobals();
 });
+
+it('with AutoSave off, does not promise that the changes save themselves when the connection is back', async () => {
+  vi.resetModules();
+  vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener() {} }));
+  localStorage.setItem('documents:autosave', '0');
+  vi.stubGlobal('puter', {
+    auth: { isSignedIn: () => true, getUser: async () => ({ username: 'test' }) },
+    fs: { readdir: async () => [], read: async () => new Blob(['A']), mkdir: async () => {}, stat: async () => null, write: async (path) => ({ path }) },
+  });
+  document.body.innerHTML = '<div id="app"></div>';
+  history.replaceState(null, '', '#/new');
+  const onLine = vi.spyOn(navigator, 'onLine', 'get');
+  onLine.mockReturnValue(true);
+  try {
+    await import('../src/main.js');
+    await vi.waitFor(() => expect(window.__docs.current?.kind).toBe('editor'));
+    onLine.mockReturnValue(false);
+    window.dispatchEvent(new Event('offline'));
+    const banner = document.querySelector('.offline-banner');
+    expect(banner.textContent).not.toMatch(/will save/);
+    expect(banner.textContent).toContain('Save your changes when you reconnect');
+  } finally {
+    onLine.mockRestore();
+    window.__docs.current?.view.destroy();
+    localStorage.removeItem('documents:autosave');
+    vi.unstubAllGlobals();
+  }
+});
