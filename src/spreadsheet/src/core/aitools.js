@@ -3798,8 +3798,15 @@ export function describeCall(wb, name, args = {}, env) {
     }
     case 'fill_formula': {
       const t = at(args.range);
-      const n = filled(t.s, t.range);
-      const spills = t.s != null && t.range ? spillsHit(wb, t.s, t.range).length : 0;
+      // The cells the runner writes: a fill passes over the rows a filter hides and the cells under a merged cell's
+      // top-left one, whose data stays (a range too large to fill is refused, and counted whole).
+      const hidden = t.s != null ? wb.sheet(t.s)?.filterHidden : null;
+      const fills = t.range && cellsIn(t.range) <= MAX_WRITE_CELLS ? (r, c) => !hidden?.has(r) && !wb._coveredByMerge?.(t.s, r, c) : () => true;
+      let n = 0;
+      if (t.range && cellsIn(t.range) <= MAX_WRITE_CELLS) {
+        for (let r = t.range.r1; r <= t.range.r2; r++) for (let c = t.range.c1; c <= t.range.c2; c++) if (fills(r, c) && holds(wb.getCell(t.s, r, c))) n++;
+      } else n = filled(t.s, t.range);
+      const spills = t.s != null && t.range ? spillsHit(wb, t.s, t.range, fills).length : 0;
       const detail = [n && `Replaces ${holding(n)}.`, spills && blocksSpills(spills)].filter(Boolean).join(' ');
       return { label: `Fill ${t.text} with ${clip(String(args.formula ?? ''), 60)}`, destructive: !!detail, detail: detail || null };
     }
