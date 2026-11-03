@@ -198,7 +198,7 @@ export class RoomService {
     let entry = this.rooms.get(room);
     if (!entry) {
       const cp = await this.kv.get(`ss:${room}:cp`);
-      entry = { head: cp?.rev ?? 0, base: cp?.rev ?? 0, records: new Map(), holes: new Map() };
+      entry = { head: cp?.rev ?? 0, base: cp?.rev ?? 0, records: new Map(), holes: new Map(), sealed: new Map() };
       this.rooms.set(room, entry);
       if (this.rooms.size > 16) { const [oldest] = this.rooms.keys(); if (oldest !== room) this.rooms.delete(oldest); }
     }
@@ -224,14 +224,21 @@ export class RoomService {
         if (this.now() - seen < HOLE_AFTER) return;
         // A commit still writing its record (a large change, a slow store) sealed the place first: it is not given
         // up under it, or those who read the empty record would never have the change its author was told was taken.
-        if (!(await this.seal(room, rev)) && this.now() - seen < SEALED_HOLE_AFTER) return;
+        // The wait on it counts from when it was found sealed: its commit may have taken nearly as long to get there.
+        if (!(await this.seal(room, rev))) {
+          const sealed = entry.sealed.get(rev) ?? this.now();
+          entry.sealed.set(rev, sealed);
+          if (this.now() - sealed < SEALED_HOLE_AFTER) return;
+        }
         const empty = { rev, user: null, at: this.now(), changes: [] };
         await this.kv.set(`ss:${room}:log:${pad(rev)}`, empty);
         entry.holes.delete(rev);
+        entry.sealed.delete(rev);
         this.keep(entry, empty);
         continue;
       }
       entry.holes.delete(rev);
+      entry.sealed.delete(rev);
       this.keep(entry, record);
     }
   }
