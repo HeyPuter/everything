@@ -2886,7 +2886,16 @@ export class TextDocument {
     if (owned && (direction < 0 ? start === owned.start : start === owned.end)) return false;
     const location = locate(this.paragraphs, start), p = this.paragraphs[location.index];
     if (direction < 0 && location.offset === 0 && p.list) {
-      this.checkpoint(); p.list = null; p.listChanged = true; this.didChange(); return true;
+      // Backspace removes the number but, as in Word, leaves the text where it was: at the item's
+      // text position, with no hanging indent. Dropping the level's indents moved it to the margin.
+      const listed = paragraphFormat(p, this.numbering);
+      this.checkpoint(); p.list = null; p.listChanged = true;
+      const plain = paragraphFormat(p, this.numbering), kept = { indentLeft: listed.indentLeft, indentRight: listed.indentRight, firstLine: Math.max(0, listed.firstLine) };
+      if (Object.keys(kept).some(key => plain[key] !== kept[key])) {
+        p.format = { ...PARAGRAPH_FORMAT, ...p.format, ...kept };
+        p.formatOverrides = { ...p.formatOverrides, ...kept };
+      }
+      this.didChange(); return true;
     }
     const points = boundaries(this.text);
     const at = points.indexOf(start);
