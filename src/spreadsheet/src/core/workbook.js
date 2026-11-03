@@ -11909,7 +11909,24 @@ export class Workbook extends EventTarget {
     const hit = this.mergesIn(sheetId, range);
     if (!hit.length) return;
     if (hit.some((g) => this.lockedIn(sheetId, g))) return;
-    this._setMerges(sheet, sheet.merges.filter((m) => !hit.includes(m)), 'Unmerge cells');
+    // The top-left cell keeps its block's bottom and right edges as a summary (_mirrorMergeBorders). Split, the
+    // block would show them inside it, under and beside that cell, where no other cell draws a line.
+    const entries = [];
+    for (const m of hit) {
+      const prev = sheet.cells.get(cellKey(m.r1, m.c1));
+      if (!prev?.s) continue;
+      const s = { ...prev.s };
+      const mirrored = (side, r, c, inner, facing) => s[side] && this.styleAt(sheetId, r, c)?.[side] && !this.styleAt(sheetId, ...inner)?.[facing];
+      if (m.r2 > m.r1 && mirrored('bb', m.r2, m.c1, [m.r1 + 1, m.c1], 'bt')) { delete s.bb; delete s.bbBorder; }
+      if (m.c2 > m.c1 && mirrored('br', m.r1, m.c2, [m.r1, m.c1 + 1], 'bl')) { delete s.br; delete s.brBorder; }
+      if (s.bb === prev.s.bb && s.br === prev.s.br) continue;
+      if (!s.bt && !s.bb && !s.bl && !s.br) { delete s.bc; delete s.bs; }
+      entries.push({ r: m.r1, c: m.c1, cell: { ...prev, s: Object.keys(s).length ? s : undefined } });
+    }
+    this.transaction('Unmerge cells', () => {
+      this._setMerges(sheet, sheet.merges.filter((m) => !hit.includes(m)), 'Unmerge cells');
+      if (entries.length) this.setCells(sheetId, entries, 'Unmerge cells');
+    });
   }
 
   /**
