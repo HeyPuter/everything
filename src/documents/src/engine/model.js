@@ -1454,7 +1454,9 @@ export class TextDocument {
   }
   snapshot() { return { ...this.documentSnapshot(), ...this.typingSnapshot() }; }
   /** A copy of the document itself, which changes only with a new revision (didChange). */
-  documentSnapshot() { return copy({ comments: this.comments, tables: this.tables, styles: this.styles, stylesEnabled: this.stylesEnabled, numbering: this.numbering, pageSettings: this.pageSettings, paragraphs: this.paragraphs }); }
+  documentSnapshot() { return copy(this.documentState()); }
+  /** The document itself (not a copy), as documentSnapshot() copies it. */
+  documentState() { return { comments: this.comments, tables: this.tables, styles: this.styles, stylesEnabled: this.stylesEnabled, numbering: this.numbering, pageSettings: this.pageSettings, paragraphs: this.paragraphs }; }
   /** A copy of the selection and typing state, which change without one. */
   typingSnapshot() { return copy({ selection: this.selection, typingFormat: this.typingFormat, typingStyle: this.typingStyle, typingDirectCleared: this.typingDirectCleared }); }
   restore(state) {
