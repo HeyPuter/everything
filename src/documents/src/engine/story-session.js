@@ -33,6 +33,8 @@ export class StorySession {
       if (!story?.paragraphs?.length) throw new Error('This page story is not available for editing.');
       const model = new TextDocument(story.paragraphs, this.body.pageSettings, this.body.numbering, this.body.styles, story.tables, this.body.assets);
       model.assets = this.body.assets;
+      // A header, footer or note is laid out on one page: it takes no page or column break.
+      model.refusesBreaks = true;
       this.models.set(path, model);
     }
     this.path = path;

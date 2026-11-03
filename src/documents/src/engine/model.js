@@ -2560,6 +2560,9 @@ export class TextDocument {
   replaceUntracked(text, { checkpoint = true, insertedImage, removedPictureControls, removedBodyFields, restoreEmptyControl = false, emptyInlineControl = false } = {}) {
     // Internal \v/\f/\u000e stand for manual line/page/column breaks; the DOCX codec writes elements, never XML control characters.
     text = String(text).replace(/\r\n?/g, '\n').replace(/[^\u0009-\u000C\u000e\u0020-\uD7FF\uE000-\uFFFD\u{10000}-\u{10FFFF}]/gu, '\ufffd');
+    // A header, footer or note (a story laid out on one page) takes no page or column break; it is refused before
+    // layout would fail on a second page with a message about its height.
+    if (this.refusesBreaks && /[\f\u000e]/.test(text)) throw new Error('Headers, footers and notes can’t hold page or column breaks.');
     let [start, end] = this.range;
     if (start === end && !text && !restoreEmptyControl) return false;
     if(this.hasMacroButtons)[start,end]=macroButtonSelection(bodyFieldRanges(this.paragraphs),start,end);

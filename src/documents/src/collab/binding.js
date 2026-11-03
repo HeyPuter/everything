@@ -350,6 +350,8 @@ export class CollabBinding extends EventTarget {
       } else if (session.definition?.stories?.[path]) {
         const fresh = new TextDocument(story.paragraphs, session.body.pageSettings, session.body.numbering, session.body.styles, story.tables || [], session.body.assets);
         fresh.assets = session.body.assets;
+        // As StorySession.activate makes it: a header, footer or note takes no page or column break.
+        fresh.refusesBreaks = true;
         session.models.set(path, fresh);
       }
     }

@@ -2235,6 +2235,9 @@ export class CanvasEditor {
     // U+FFFC stands in for an object (a picture, field or note) in other applications' text, and is
     // this document's own placeholder for one: pasted as a character it would be an invisible stray.
     text = String(text || '').replace(/\ufffc/g, '');
+    // A header, footer or note takes no page or column break: pasted text keeps them as paragraph breaks.
+    const breakless = !!this.model.refusesBreaks;
+    if (breakless) text = text.replace(/[\f\u000e]/g, '\n');
     // Over a block of table cells, a paste from a menu (which reads the clipboard itself, with no paste event) replaces
     // the first cell's text, as the keyboard's does, not every cell the block's text range runs through.
     if (!this.readOnly && !this.viewOnly) this.narrowCellBlock();
@@ -2242,7 +2245,7 @@ export class CanvasEditor {
     const picture = htmlPicture(html);
     if (picture) { if (!this.readOnly && !this.viewOnly) this.insertImageFile(picture.file, picture).catch(error => this.onError(error)); return; }
     const fragment = html && carriesFormatting(this.model) && !this.model.tableContext ? htmlFragment(html) : null;
-    if (fragment && fragment.paragraphs.some(p => p.text) && formattedPasteFits(fragment) && this.execute(() => pasteFragment(this.model, fragment), () => {}, undefined, true)) return;
+    if (fragment && fragment.paragraphs.some(p => p.text) && formattedPasteFits(fragment) && !(breakless && fragment.paragraphs.some(p => /[\f\u000e]/.test(p.text))) && this.execute(() => pasteFragment(this.model, fragment), () => {}, undefined, true)) return;
     if (text) this.execute(() => this.model.replace(text));
   }
   releaseImages(images) { for (const image of images.values()) if (!this.borrowedImages.has(image)) image.close?.(); images.clear(); }
