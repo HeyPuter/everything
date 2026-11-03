@@ -1847,6 +1847,7 @@ export class CanvasEditor {
         if (place.offset === 0 && place.index > 0) {
           const previous = paragraphText(this.model.paragraphs[place.index - 1]);
           this.linkTypedAddress(caret - 1 - previous.length, place.index - 1, previous.length, caret);
+          this.correctParagraphEnd(place.index - 1);
         }
       }
       return;
@@ -2035,6 +2036,25 @@ export class CanvasEditor {
       const caret = this.model.selection.focus, place = locate(this.model.paragraphs, caret);
       this.linkTypedAddress(caret - place.offset, place.index, place.offset - 1, caret);
     }
+  }
+  /**
+   * A new paragraph ends the word before it as a space does, so the corrections a space makes (the pronoun i, a
+   * fraction) are made at the end of paragraph `index` too, as their own undo step; the caret stays at the start of
+   * the next paragraph. A list marker typed alone is not a list without the space after it.
+   */
+  correctParagraphEnd(index) {
+    const paragraph = this.model.paragraphs[index], text = paragraphText(paragraph);
+    const fix = this.correctTyping?.(`${text} `, ' ', { list: !!paragraph.list });
+    if (!fix || fix.list || typeof fix.text !== 'string' || !fix.text.endsWith(' ') || fix.back < 2 || fix.back - 1 > text.length) return;
+    const end = this.model.paragraphOffset(index) + text.length;
+    this.execute(() => {
+      this.model.select(end - (fix.back - 1), end);
+      const changed = this.model.replace(fix.text.slice(0, -1));
+      // The replacement ends at the paragraph's end (after any deletion Track Changes keeps): the next paragraph follows.
+      this.model.select(this.model.selection.focus + 1);
+      return changed;
+    }, undefined, undefined, true);
+    this.typingGroup = null;
   }
   /** Link the web address or email ending at `end` in a paragraph starting at `from`, and leave the caret at `caret`. */
   linkTypedAddress(from, index, end, caret) {
