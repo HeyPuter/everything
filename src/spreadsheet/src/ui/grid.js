@@ -228,12 +228,9 @@ export function createGrid(opts) {
     refreshMergeMap();
     const key = cellKey(r, c);
     if (mergeMap.has(key)) return mergeMap.get(key);
-    const merges = sheet().merges;
-    let found = null;
-    for (let i = merges.length - 1; i >= 0; i--) {
-      const m = merges[i];
-      if (r >= m.r1 && r <= m.r2 && c >= m.c1 && c <= m.c2) { found = m; break; }
-    }
+    // The workbook files a long list of merges by bands of rows: a report merged across 100,000 rows had every
+    // cell drawn test each of them, which took 40ms of each edit and of each scroll.
+    const found = wb.mergeAt(sheetId, r, c);
     // Scrolling a large sheet must not eventually retain every coordinate either.
     if (mergeMap.size >= 10000) mergeMap.clear();
     mergeMap.set(key, found);
