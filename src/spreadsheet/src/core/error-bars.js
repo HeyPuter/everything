@@ -38,6 +38,22 @@ const MAX_POINTS = 5000;
 /** Only charts that plot values on both axes take error bars here. */
 export const errorBarsAllowed = chart => chart?.type === 'scatter' || chart?.type === 'bubble';
 
+// The kinds of series a file can give error bars (CT_BarSer, CT_LineSer, CT_AreaSer, CT_ScatterSer, CT_BubbleSer). Those
+// on columns, bars, lines and areas are not drawn or edited here, but are kept and saved again as the file had them.
+const KEPT = new Set(['column', 'bar', 'line', 'area', 'scatter', 'bubble']);
+
+/**
+ * The error bars series `j`, plotted as `type` (a combo chart's series have kinds of their own), writes to a file: what
+ * it has where the kind takes them, or null. A bar or line series takes one set (CT_BarSer and CT_LineSer allow one
+ * c:errBars), its vertical bars before any other.
+ */
+export function errorBarsSaved(chart, j, type = chart?.type) {
+  const bars = KEPT.has(type) ? chart?.errorBars?.[j] : null;
+  if (!bars) return null;
+  if (!['column', 'bar', 'line'].includes(type)) return bars;
+  return bars.y ? { y: bars.y } : bars.x ? { x: bars.x } : null;
+}
+
 const between = (v, min, max) => Number.isFinite(v) && v >= min && v <= max;
 const amounts = list => (Array.isArray(list) ? list.slice(0, MAX_POINTS).map(v => (Number.isFinite(v) ? v : null)) : null);
 const refText = v => (typeof v === 'string' && v.trim() ? v.trim().replace(/^=/, '').slice(0, 2048) : null);
@@ -169,7 +185,7 @@ export function errorBarAmountInput(wb, sheetId, text, side) {
  * it out (as a series read from the chart's range does), so the amounts line up with the points.
  */
 export function errorBarValues(wb, sheetId, chart, { keepHidden = false, includeHidden = false } = {}) {
-  if (!errorBarsAllowed(chart) || !chart.errorBars?.length) return null;
+  if (!chart?.errorBars?.length) return null;
   const read = ref => {
     const resolved = ref && wb.rangeFromText(sheetId, ref);
     if (!resolved) return [];

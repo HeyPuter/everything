@@ -160,7 +160,7 @@ function trendlineOf(series, lineColor) {
   });
 }
 /**
- * A scatter or bubble series' error bars (see error-bars.js): { x?, y? } from its c:errBars, or null. A
+ * A series' error bars (see error-bars.js): { x?, y? } from its c:errBars, or null. A
  * custom amount keeps its reference, or the numbers the file holds when it has none.
  */
 function errorBarsOf(series, lineColor) {
@@ -833,7 +833,8 @@ export async function readXlsxCharts(book, sheets = [], inventory = new Map(), {
       // Each series' trendline, of whichever kind; a series has at most one here (Excel allows several).
       trendline: series.some(s => child(s, 'trendline')),
       ...(series.some(s => child(s, 'trendline')) ? { trendlines: series.map(s => trendlineOf(s, fill)) } : {}),
-      ...(['scatter', 'bubble'].includes(type) && series.some(s => child(s, 'errBars')) ? { errorBars: series.map(s => errorBarsOf(s, fill)) } : {}),
+      // Error bars on columns, bars, lines and areas are kept to be saved again, though only a scatter or bubble chart draws them.
+      ...(series.some(s => child(s, 'errBars')) ? { errorBars: series.map(s => errorBarsOf(s, fill)) } : {}),
       labels: bubbleOnly ? series.some(s => { const l = bubbleLabels(s); return l.value || l.size || l.category || l.series; })
         : series.some(s => (chartBoolean(child(s, 'dLbls'), 'showVal').showVal ?? chartBoolean(child(groups.find(g => g.children.includes(s)), 'dLbls'), 'showVal').showVal) === true
           || children(child(s, 'dLbls'), 'dLbl').some(p => chartBoolean(p, 'showVal').showVal === true)),

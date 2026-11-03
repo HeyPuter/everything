@@ -22,7 +22,7 @@ import { normalizeAxisTickValues } from './axis-tick-values.js';
  *   categoryLabels: 'auto' | true | false,  does the first column (or row) name the categories rather than plot as a series?
  *   legend: boolean, stacked: boolean, stack100: boolean (stacked to 100%), trendline: boolean,
  *   trendlines?: (trend | false)[], each series' trendline: its kind, forecast and label (see trendline.js)
- *   errorBars?: (null | { x?, y? })[],   a scatter or bubble series' error bars (see error-bars.js)
+ *   errorBars?: (null | { x?, y? })[],   each series' error bars (see error-bars.js); drawn on scatter and bubble charts
  *   labels: boolean,                 write each value on its bar or point
  *   xTitle, yTitle, y2Title: string,          axis titles
  *   colors: (string|null)[],         a hex color per series (per slice for pies); null keeps the palette color
