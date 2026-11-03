@@ -153,6 +153,7 @@ function trendlineOf(series, lineColor) {
     dispEq: flag(t, 'dispEq'), dispRSqr: flag(t, 'dispRSqr'), name: text(child(t, 'name')),
     labelFormat: path(t, 'trendlineLbl', 'numFmt')?.attrs.formatCode,
     labelPos: trendLabelPos(path(t, 'trendlineLbl', 'layout', 'manualLayout')),
+    labelSize: Number(path(t, 'trendlineLbl', 'txPr', 'p', 'pPr', 'defRPr')?.attrs.sz) / 75 || undefined,
     ...(color && color !== 'none' ? { color } : {}),
     ...(Number(ln?.attrs.w) > 0 ? { width: Number(ln.attrs.w) / 9525 } : {}),
     dash: val(ln, 'prstDash'),

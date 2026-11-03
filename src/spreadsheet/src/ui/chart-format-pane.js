@@ -14,7 +14,7 @@ import { chartElementKeys, elementLabel } from './chart-ribbon.js';
 import { seriesColor } from './chartsvg.js';
 import { chartData, chartTitles, chartXBounds, chartXBoundsPatch, CHART_DASH_CHOICES, CHART_DISPLAY_UNITS } from '../core/charts.js';
 import { chartElementPatch, dataLabelPositions, elementFormatPatch, isPieChart, trendlineAllowed, trendlinePatch } from '../core/chart-design.js';
-import { INTERCEPT_TYPES, TREND_TYPES, trendFor, trendName, trendProblem } from '../core/trendline.js';
+import { INTERCEPT_TYPES, TREND_LABEL_SIZE, TREND_TYPES, trendFor, trendName, trendProblem } from '../core/trendline.js';
 import { ERROR_BAR_CAP_WIDTH, ERROR_BAR_COLOR, ERROR_BAR_TYPES, errorBarAmountInput, errorBarsAllowed, errorBarsFor, errorBarsPatch, normalizeErrorBars } from '../core/error-bars.js';
 import { barSpacing } from '../core/chart-subtypes.js';
 import { formatAxisTickValues, parseAxisTickValues } from '../core/axis-tick-values.js';
@@ -93,8 +93,10 @@ export function createChartUi(ctx) {
       const all = rects.map(local);
       const x1 = Math.min(...all.map(r => r.x)), y1 = Math.min(...all.map(r => r.y));
       const x2 = Math.max(...all.map(r => r.x + r.w)), y2 = Math.max(...all.map(r => r.y + r.h));
-      const frame = el('span.chart-el-frame', { style: { left: `${x1 - 2}px`, top: `${y1 - 2}px`, width: `${x2 - x1 + 4}px`, height: `${y2 - y1 + 4}px` } },
-        ...['nw', 'ne', 'sw', 'se'].map(c => el(`span.chart-el-corner.${c}`)));
+      // A trendline label's corners resize it (see resizeTrendLabel), as the chart's own corner does the chart.
+      const resizable = /^trendlineLabel:/.test(element) && !ctx.wb.sheet(ctx.sheetId())?.protected;
+      const frame = el(`span.chart-el-frame${resizable ? '.resizable' : ''}`, { style: { left: `${x1 - 2}px`, top: `${y1 - 2}px`, width: `${x2 - x1 + 4}px`, height: `${y2 - y1 + 4}px` } },
+        ...['nw', 'ne', 'sw', 'se'].map(c => el(`span.chart-el-corner.${c}`, resizable ? { title: 'Resize', dataset: { corner: c } } : {})));
       overlay.replaceChildren(frame);
     }
   }
@@ -129,6 +131,8 @@ export function createChartUi(ctx) {
     if (e.button !== 0 || e.target.closest('.chart-tool, .chart-resize, .chart-title-editor')) return;
     const hit = chartAt(e.target);
     if (!hit) return;
+    const corner = hit.chart.id === chartId && e.target.closest('.chart-el-frame.resizable .chart-el-corner');
+    if (corner) { resizeTrendLabel(e, corner.dataset.corner); return; }
     // A trendline label in the selected chart moves where it is dragged, rather than the chart.
     const label = hit.chart.id === chartId && e.target.closest('[data-el="trendlineLabel"]');
     if (label && !ctx.wb.sheet(ctx.sheetId())?.protected) { dragTrendLabel(e, label); return; }
@@ -164,6 +168,54 @@ export function createChartUi(ctx) {
       if (ev.type === 'pointercancel' || !chart || Math.hypot(dx * sx, dy * sy) < 3) { syncOverlay(); return; }
       const patch = trendlinePatch(chart, j, { labelPos: { x: clamp((left + dx) / view.width), y: clamp((top + dy) / view.height) } }, seriesCountOf(ctx.wb, ctx.sheetId(), chart));
       if (patch) ctx.run('chart', { action: 'patch', patch, label: 'Move trendline label' });
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', end);
+    window.addEventListener('pointercancel', end);
+  }
+  /**
+   * A corner of the selected trendline label scales its text (labelSize), the opposite corner staying put; where
+   * it ends up becomes its place (labelPos), so the chart does not lay it out afresh at its new size.
+   */
+  function resizeTrendLabel(e, corner) {
+    const m = /^trendlineLabel:(\d+)$/.exec(element), svg = boxOf(chartId)?.querySelector('.chart-body svg');
+    const label = m && svg?.querySelector(`[data-el="trendlineLabel"][data-series="${m[1]}"]`);
+    if (!label || ctx.wb.sheet(ctx.sheetId())?.protected) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const j = +m[1], [, , vw, vh] = (svg.getAttribute('viewBox') || '').split(/[\s,]+/).map(Number), rect = svg.getBoundingClientRect();
+    const view = { width: vw || rect.width || 1, height: vh || rect.height || 1 };
+    const sx = rect.width / view.width || 1, sy = rect.height / view.height || 1;
+    const num = name => Number(label.getAttribute(`data-${name}`)) || 0;
+    const left = num('left'), top = num('top'), w = num('width') || 1, h = num('height') || 1, size = num('size') || 11;
+    // Which way the corner grows the label, and the corner opposite it, which stays where it is.
+    const ex = corner.includes('e') ? 1 : -1, ey = corner.includes('s') ? 1 : -1;
+    const fx = ex > 0 ? left : left + w, fy = ey > 0 ? top : top + h;
+    let scale = 1, moved = 0;
+    const scaleFor = ev => {
+      const dx = (ev.clientX - e.clientX) / sx, dy = (ev.clientY - e.clientY) / sy;
+      moved = Math.hypot(dx * sx, dy * sy);
+      // How far the pointer went along the label's diagonal, as a share of it.
+      const grown = size * (1 + (ex * dx * w + ey * dy * h) / (w * w + h * h));
+      return Math.min(TREND_LABEL_SIZE.max, Math.max(TREND_LABEL_SIZE.min, grown)) / size;
+    };
+    const move = ev => {
+      scale = scaleFor(ev);
+      label.setAttribute('transform', `translate(${fx} ${fy}) scale(${scale}) translate(${-fx} ${-fy})`);
+      syncOverlay();
+    };
+    const end = ev => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', end);
+      window.removeEventListener('pointercancel', end);
+      label.removeAttribute('transform');
+      const chart = activeChart(ctx), clamp = v => Math.min(1, Math.max(0, v));
+      if (ev.type !== 'pointercancel') scale = scaleFor(ev);
+      if (ev.type === 'pointercancel' || !chart || moved < 3 || Math.abs(scale - 1) < 1e-3) { syncOverlay(); return; }
+      const x = ex > 0 ? fx : fx - w * scale, y = ey > 0 ? fy : fy - h * scale;
+      const patch = trendlinePatch(chart, j, { labelSize: Math.round(size * scale * 100) / 100, labelPos: { x: clamp(x / view.width), y: clamp(y / view.height) } },
+        seriesCountOf(ctx.wb, ctx.sheetId(), chart));
+      if (patch) ctx.run('chart', { action: 'patch', patch, label: 'Resize trendline label' });
     };
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', end);
@@ -515,7 +567,7 @@ export function createChartUi(ctx) {
     return [picker, axisSection('y', 'Vertical Error Bars', 'Vertical'), axisSection('x', 'Horizontal Error Bars', 'Horizontal')].filter(Boolean);
   }
 
-  /** Format Trendline Label: what it shows and the number format it shows it in. */
+  /** Format Trendline Label: what it shows, the number format it shows it in and its text size. */
   function trendlineLabelOptions(chart, j) {
     const t = trendFor(chart, j);
     if (!t) return [];
@@ -524,6 +576,11 @@ export function createChartUi(ctx) {
       checkbox('Display Equation on chart', t.dispEq, on => set({ dispEq: on })),
       checkbox('Display R-squared value on chart', t.dispRSqr, on => set({ dispRSqr: on })),
       text('Number Format', t.labelFormat || 'General', v => set({ labelFormat: v.trim() || undefined })),
+      // Blank goes back to the value axis' text size, which the label follows until it has its own.
+      number('Font Size (pt)', t.labelSize ? Math.round(t.labelSize * 3 / 4 * 10) / 10 : null, v => {
+        if (v === null) set({ labelSize: undefined });
+        else if (v >= 4 && v <= 72) set({ labelSize: Math.round(v * 4 / 3 * 100) / 100 });
+      }, { min: 4, max: 72, step: 0.5, placeholder: String(Math.round((chart.appearance?.yStyle?.size || 11) * 3 / 4 * 10) / 10) }),
       // A label dragged somewhere goes back to the place the chart finds for it.
       t.labelPos ? el('button.btn.btn-sm', { type: 'button', onclick: () => set({ labelPos: undefined }) }, 'Reset Position') : null)];
   }

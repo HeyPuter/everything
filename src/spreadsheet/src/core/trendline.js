@@ -12,6 +12,7 @@
  *   name: string,                    the trendline's own name ('' names it for its kind and series)
  *   labelFormat?: string,            the label's number format (General when absent)
  *   labelPos?: { x, y },             where the label was dragged: its top-left corner, as fractions of the chart's width and height
+ *   labelSize?: number,              the label's text size (px, 4–72pt); else the value axis' text size
  *   color?, width?, dash?,           the line's own colour, width (px) and dash; else the series' colour, dashed
  * }
  *
@@ -32,6 +33,8 @@ const HEX = /^#[0-9a-f]{6}$/i;
 const DASHES = new Set(['solid', 'dot', 'dash', 'lgDash', 'dashDot', 'lgDashDot', 'lgDashDotDot', 'sysDash', 'sysDot', 'sysDashDot', 'sysDashDotDot']);
 
 const between = (v, min, max) => Number.isFinite(v) && v >= min && v <= max;
+// The sizes a trendline label's text takes, in px: 4pt to 72pt, as the Format pane offers text sizes.
+export const TREND_LABEL_SIZE = Object.freeze({ min: 5.33, max: 96 });
 
 /** A trend with every option in range; anything else stays at Excel's default. */
 export function normalizeTrend(raw) {
@@ -48,6 +51,7 @@ export function normalizeTrend(raw) {
     name: typeof t.name === 'string' ? t.name.slice(0, 255) : '',
     ...(typeof t.labelFormat === 'string' && t.labelFormat.trim() && t.labelFormat !== 'General' ? { labelFormat: t.labelFormat.slice(0, 255) } : {}),
     ...(between(t.labelPos?.x, 0, 1) && between(t.labelPos?.y, 0, 1) ? { labelPos: { x: t.labelPos.x, y: t.labelPos.y } } : {}),
+    ...(between(t.labelSize, TREND_LABEL_SIZE.min, TREND_LABEL_SIZE.max) ? { labelSize: t.labelSize } : {}),
     ...(HEX.test(t.color || '') ? { color: t.color.toLowerCase() } : {}),
     ...(between(t.width, 0.25, 20) ? { width: t.width } : {}),
     ...(DASHES.has(t.dash) ? { dash: t.dash } : {}),

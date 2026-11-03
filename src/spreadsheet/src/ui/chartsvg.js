@@ -2391,17 +2391,17 @@ function trendlineMarks(points, trend, { j, name, color, place, straight = true,
   const lines = [trend.dispEq && trendEquation(fit, format), trend.dispRSqr && r2 && [{ text: r2 }]].filter(Boolean);
   // The label sits by the end of the line that lies in the plot.
   const end = at.filter(p => p && p[0] >= bounds.x - .5 && p[0] <= bounds.x + bounds.w + .5 && p[1] >= bounds.y - .5 && p[1] <= bounds.y + bounds.h + .5).at(-1);
-  return { svg, label: lines.length && end ? { lines, x: end[0], y: end[1], j, path: at.filter(Boolean), pos: trend.labelPos } : null };
+  return { svg, label: lines.length && end ? { lines, x: end[0], y: end[1], j, path: at.filter(Boolean), pos: trend.labelPos, size: trend.labelSize } : null };
 }
 
 /**
  * Trendline labels: each by its line's end, above it or else below it, or failing both in a corner of the
  * plot: the first of those places that crosses no trendline and no label drawn before it (or the one that
  * crosses least), kept inside the plot. A label dragged somewhere (labelPos) stays there, kept inside the
- * W × H chart. An exponent is set small and raised.
+ * W × H chart. A label with its own text size (labelSize) is drawn at it, else at `style`'s. An exponent is
+ * set small and raised.
  */
 function trendLabelsSvg(labels, style, plot, W, H) {
-  const size = style.size, lineH = size * 1.25, rise = size * .4;
   const placed = [];
   // Points every few pixels along each trendline, to tell whether a place for a label lies over one.
   const along = labels.flatMap(l => l.path.flatMap((p, k) => (k ? Array.from({ length: 12 }, (_, t) => {
@@ -2409,6 +2409,7 @@ function trendLabelsSvg(labels, style, plot, W, H) {
     return [q[0] + (p[0] - q[0]) * t / 12, q[1] + (p[1] - q[1]) * t / 12];
   }) : [p])));
   return labels.map(l => {
+    const size = l.size || style.size, lineH = size * 1.25, rise = size * .4;
     const widths = l.lines.map(runs => runs.reduce((w, r) => w + textW(r.text, r.sup ? size * .7 : size), 0));
     const w = maxOf(widths), h = l.lines.length * lineH;
     const hold = (right, top) => ({ right: Math.min(plot.x + plot.w - 4, Math.max(plot.x + w + 4, right)), top: Math.max(plot.y + 2, Math.min(plot.y + plot.h - h - 2, top)) });
@@ -2429,8 +2430,8 @@ function trendLabelsSvg(labels, style, plot, W, H) {
       }).join('');
       return `<text x="${f(end)}" y="${f(top + (k + .8) * lineH)}" text-anchor="end"${font}>${spans}</text>`;
     }).join('');
-    // Where it sits, for a drag to move it from (see chart-format-pane.js).
-    return `<g class="chart-trendline-label" data-el="trendlineLabel" data-series="${l.j}" data-left="${f(end - w)}" data-top="${f(top)}">${text}</g>`;
+    // Where it sits and its size, for a drag to move or resize it from (see chart-format-pane.js).
+    return `<g class="chart-trendline-label" data-el="trendlineLabel" data-series="${l.j}" data-left="${f(end - w)}" data-top="${f(top)}" data-width="${f(w)}" data-height="${f(h)}" data-size="${f(size)}">${text}</g>`;
   }).join('');
 }
 
