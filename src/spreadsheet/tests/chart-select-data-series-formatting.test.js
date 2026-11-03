@@ -79,3 +79,28 @@ it('remaps lines, labels, effects and legend entries, and leaves pie slices alon
   expect(reorderSeriesFormatting(chart, [0, 1])).toEqual({});
   expect(reorderSeriesFormatting({ type: 'pie', colors: ['#111111', '#222222'] }, [1, 0])).toEqual({});
 });
+
+// A series' trendline and error bars, and the line and markers of a series on a chart in the app's own style, are
+// kept by place too: removing the series before them moved them onto the next series.
+it('keeps a series trendline on its series when the series before it is removed', async () => {
+  const { chart, names } = await mount();
+  await view.run('chart', { action: 'patch', patch: { trendline: true, trendlines: [false, { type: 'poly', order: 3 }, false] } });
+  await view.run('chart', { action: 'selectData' }); await flush();
+  option('North').click(); await flush();
+  dialog().querySelector('button[aria-label="Remove"]').click(); await flush();
+  dialog().querySelector('button[type="submit"]').click(); await flush();
+  expect(names()).toEqual(['South', 'East']);
+  expect(chart().trendlines.map(t => t && t.type)).toEqual(['poly', false]);
+});
+
+it('remaps trendlines, error bars and series lines, and gives an added series none of them', () => {
+  const trend = { type: 'exp', order: 2, period: 2, forward: 0, backward: 0, intercept: null, dispEq: true, dispRSqr: false, name: '' };
+  const bars = { y: { type: 'fixedVal', value: 2, direction: 'both', caps: true, width: 1 } };
+  const chart = { type: 'scatter', trendline: true, trendlines: [trend, false], errorBars: [null, bars], seriesLines: [{ markerSize: 9 }, null] };
+  const patch = reorderSeriesFormatting(chart, [1, null, 0]);
+  expect(patch.trendlines).toEqual([false, false, trend]);
+  expect(patch.errorBars).toEqual([bars]);
+  expect(patch.seriesLines).toEqual([null, null, { markerSize: 9 }]);
+  // A list that does not reach a series (it draws the chart's own trendline) leaves it without an entry of its own.
+  expect(reorderSeriesFormatting({ type: 'line', trendline: true, trendlines: [trend] }, [1, 0]).trendlines).toEqual([undefined, trend]);
+});

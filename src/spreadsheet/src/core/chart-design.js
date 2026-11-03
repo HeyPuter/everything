@@ -9,7 +9,7 @@ import { chartData, chartXBounds, chartXGridlines } from './charts.js';
 import { quoteSheet } from './refs.js';
 import { CHART_LINE_GREY, CHART_TEXT_GREY, excelChartAppearance, subtypeOf } from './chart-subtypes.js';
 import { DEFAULT_TREND, TREND_TYPES, normalizeTrend, trendFor } from './trendline.js';
-import { errorBarsElementPatch, errorBarsState } from './error-bars.js';
+import { errorBarsElementPatch, errorBarsState, normalizeErrorBars } from './error-bars.js';
 
 const PIE = new Set(['pie', 'donut']);
 const BARS = new Set(['column', 'bar', 'combo', 'histogram', 'waterfall']);
@@ -351,6 +351,12 @@ export function reorderSeriesFormatting(chart, order) {
     while (colors.length && colors.at(-1) == null) colors.pop();
     patch.colors = colors;
   }
+  // A series' trendline and error bars, and its line and markers in the app's own style, follow it as well; a series
+  // added has none. A trendline list that does not reach a series leaves it the chart's own, as before.
+  const own = (list, none) => order.map(from => (from == null ? none : list[from]));
+  if (chart.trendlines?.length) patch.trendlines = own(chart.trendlines, false);
+  if (chart.errorBars?.length) patch.errorBars = normalizeErrorBars(own(chart.errorBars, null)) || undefined;
+  if (chart.seriesLines?.length) patch.seriesLines = own(chart.seriesLines, null).map(line => line ?? null);
   const a = chart.appearance;
   if (!a) return patch;
   const next = { ...a };
