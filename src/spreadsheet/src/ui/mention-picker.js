@@ -127,7 +127,9 @@ export function attachMentionPicker(area, { people }) {
     if (!person || !query) return;
     const name = person.name;
     const caret = area.selectionStart ?? area.value.length;
-    const before = area.value.slice(0, query.start), after = area.value.slice(caret);
+    // The person takes the whole @word's place: with the caret moved back inside it, the letters after the caret were
+    // left behind the name ("@an|to" became "@anton to"). What follows the word (a comma, a space) stays.
+    const before = area.value.slice(0, query.start), after = area.value.slice(caret).replace(/^[\p{L}\p{N}_]+/u, '');
     const insert = `@${name}${/^\s/.test(after) ? '' : ' '}`;
     area.value = before + insert + after;
     const at = before.length + insert.length;

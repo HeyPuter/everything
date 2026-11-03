@@ -122,4 +122,28 @@ describe('the picker as the caret moves', () => {
     await flush(); await flush();
     expect(options()).toEqual(['ana', 'anton']);
   });
+
+  // Chosen with the caret moved back inside the @word, the person took the place of the letters before the caret
+  // alone: "@an|to" with anton chosen gave "@anton to", the rest of the word left behind the name.
+  it('writes the person chosen over the whole @word, not only the part before the caret', async () => {
+    const { area } = setup();
+    await type(area, 'Hi @anto');
+    caretKey(area, 'ArrowLeft', 7);
+    caretKey(area, 'ArrowLeft', 6);
+    await flush(); await flush();
+    expect(options()).toEqual(['ana', 'anton']);
+    key(area, 'ArrowDown');
+    expect(key(area, 'Enter').defaultPrevented).toBe(true);
+    expect(area.value).toBe('Hi @anton ');
+    // Clicked into, with text after the word: that stays.
+    area.value = 'Hi @anto see this';
+    area.setSelectionRange(6, 6);
+    area.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    await flush(); await flush();
+    expect(options()).toEqual(['ana', 'anton']);
+    key(area, 'ArrowDown');
+    expect(key(area, 'Enter').defaultPrevented).toBe(true);
+    expect(area.value).toBe('Hi @anton see this');
+    expect(area.selectionStart).toBe(9);
+  });
 });
