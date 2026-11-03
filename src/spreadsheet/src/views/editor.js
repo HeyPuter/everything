@@ -2063,6 +2063,9 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         return;
       case 'insertDialog': case 'deleteDialog':
         if (!committed()) return;
+        // A protected sheet refuses every choice the dialog offers: it says so now, as Delete rows does, rather
+        // than once a choice has been made and OK pressed.
+        if (refusedByProtection(cmd === 'insertDialog' ? 'insert cells' : 'delete cells')) { keepFocus(); return; }
         openInsertDeleteDialog(ctx, cmd === 'insertDialog' ? 'insert' : 'delete');
         return;
       case 'clearAll':
