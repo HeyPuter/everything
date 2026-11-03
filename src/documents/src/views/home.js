@@ -87,6 +87,15 @@ export function homeView({ openPath, newDoc, newFromTemplate, importFile }) {
   });
 
   const list = el('div.file-list', { role: 'region', 'aria-label': 'Documents' });
+  // A name cut short by a narrow list shows in full under the pointer; one that fits needs no tooltip repeating it.
+  // (A document saved elsewhere always has one, saying where.)
+  list.addEventListener('pointerover', (e) => {
+    const main = e.target.closest?.('.file-main');
+    const name = main?.querySelector('.file-name');
+    if (!name || main.dataset.where) return;
+    if (name.scrollWidth > name.clientWidth + 1) main.title = name.textContent;
+    else main.removeAttribute('title');
+  });
   // One live region, on the page from the start, carries what the list is doing: loading, failed, or filtered down to
   // so many documents. A region that arrives already filled is missed by many screen readers; changes to it are read.
   const listStatus = el('span.visually-hidden', { role: 'status' });
@@ -493,7 +502,7 @@ export function homeView({ openPath, newDoc, newFromTemplate, importFile }) {
       const where = madeLocation(file.path);
       const row = el('div.file-row', { role: 'listitem', dataset: { path: file.path }, className: starred ? 'file-row is-starred' : 'file-row' },
         // A document saved elsewhere on the drive says where, so two of the same name can be told apart.
-        el('button.file-main', { type: 'button', title: where ? `${file.name} in ${where}` : null, onclick: () => openPath(file.path) },
+        el('button.file-main', { type: 'button', title: where ? `${file.name} in ${where}` : null, dataset: where ? { where } : {}, onclick: () => openPath(file.path) },
           el('span.file-icon', {}, icons.brand.cloneNode(true)),
           el('span.file-text', {},
             el('span.file-name', {}, P.stripExtension(file.name)),
