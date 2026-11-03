@@ -882,7 +882,12 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
   // Undo steps are named after the command that made them; a command that changed the document is the one Repeat runs.
   const undoLabels = new WeakMap();
   let pendingCommand = null, lastTextLength = null;
-  editorCommands.noteCommand = (label, run) => { if (label) pendingCommand = { label: String(label).replace(/…$/, ''), run, at: Date.now() }; };
+  // No label forgets the one noted: the command it named changed nothing, and the next edit is not it. A name alone
+  // (a paste, whichever command started it) keeps the same command a menu noted just before, with what Repeat runs.
+  editorCommands.noteCommand = (label, run) => {
+    if (label && !run && pendingCommand?.label === label && Date.now() - pendingCommand.at < 3000) return;
+    pendingCommand = label ? { label: String(label).replace(/…$/, ''), run, at: Date.now() } : null;
+  };
   function labelHistory() {
     if (!engine) return;
     const top = engine.session.history.at(-1), length = engine.model.text.length;
