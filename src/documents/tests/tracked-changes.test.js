@@ -69,6 +69,21 @@ describe('tracked changes', () => {
     expect(xml).toMatch(/<w:b\/>/);
   });
 
+  it('accepts or rejects a paragraph formatting change from a selection inside the paragraph', async () => {
+    for (const accept of [true, false]) {
+      const { pkg, model } = await open(formattedDocx());
+      // Part of "Centered now": Accept and Reject did nothing, though they added an undo step.
+      expect(model.resolveRevisions(accept, 2, 5)).toBe(true);
+      expect(summary(model)).toEqual([['format', 'Grace', 'bolded']]);
+      expect(model.paragraphs[0].format.alignment).toBe(accept ? 'center' : 'left');
+      const xml = strFromU8(unzipSync(await save(pkg, model))['word/document.xml']);
+      expect(xml).not.toMatch(/pPrChange/);
+      expect(xml).toMatch(/rPrChange/);
+      model.undo();
+      expect(summary(model)).toEqual([['format', 'Ada', 'Centered now\n', '¶'], ['format', 'Grace', 'bolded']]);
+    }
+  });
+
   it('opens tracked insertions, deletions and paragraph marks for editing', async () => {
     const { pkg, model } = await open(trackedDocx());
     expect(pkg.readOnly).toBeFalsy();

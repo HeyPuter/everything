@@ -2521,8 +2521,11 @@ export class TextDocument {
             const p = this.paragraphs[i], at = starts[i], size = paragraphLength(p);
             touched.add(p);
             let resolved = false;
+            // A paragraph's formatting belongs to all of it: a selection in part of the paragraph resolves its change,
+            // as paragraph formatting applies to every paragraph a selection touches. Requiring the whole paragraph
+            // left Accept and Reject on a selection inside it doing nothing.
             const change = paragraphFormatChange(p);
-            if (change && only(change) && at >= r.start && at + size + 1 <= r.end + 1) { resolve(p, 'paragraph'); resolved = true; }
+            if (change && only(change)) { resolve(p, 'paragraph'); resolved = true; }
             eachRevisionTarget([p], Math.max(r.start, at) - at, Math.min(r.end, at + size) - at, ({ run, mark }) => { const runChange = !mark && runFormatChange(run); if (runChange && only(runChange)) { resolve(run, 'run'); resolved = true; } });
             if (resolved && !accept && this.stylesEnabled) resolveStyledParagraph(p, this.styles, this.numbering);
           }
