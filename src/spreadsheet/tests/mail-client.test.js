@@ -38,6 +38,17 @@ describe('recipient addresses', () => {
     expect(parseRecipients('bob@example ana <ana@example.com>').invalid).toEqual(['bob@example']);
   });
 
+  // Splitting addresses off ahead of a name took every word with an @ in it for one: a name like "Ana (@ana_d)" or
+  // "Sales @ HQ" was broken up and refused as not being addresses.
+  it('keeps an @ in a name that is not an address part of the name', () => {
+    expect(parseRecipients('Ana (@ana_d) <ana@example.com>')).toEqual({ people: [{ email: 'ana@example.com', name: 'Ana (@ana_d)' }], invalid: [], duplicates: 0 });
+    expect(parseRecipients('Sales @ HQ <sales@example.com>, bob@example.com Ana <ana@example.com>').people).toEqual([
+      { email: 'sales@example.com', name: 'Sales @ HQ' },
+      { email: 'bob@example.com', name: '' },
+      { email: 'ana@example.com', name: 'Ana' },
+    ]);
+  });
+
   it('says which entries are not addresses, and when there are too many or none', () => {
     expect(recipientProblem(parseRecipients('ana@example, bob'))).toBe('These are not email addresses: "ana@example", "bob"');
     expect(recipientProblem(parseRecipients('a@b'))).toBe('"a@b" is not an email address');

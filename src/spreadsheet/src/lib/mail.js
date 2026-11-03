@@ -41,9 +41,10 @@ export function parseRecipients(input) {
   // Named addresses first: their names may hold spaces and commas, which would split them.
   const rest = src.replace(/(?:"([^"]*)"|([^,;<>\n]*?))\s*<([^<>\s]+)>/g, (_, quoted, plain, address) => {
     // Addresses typed ahead of the name with spaces alone between them ("bob@example.com Ana <ana@…>") are
-    // recipients of their own, split off as everywhere else, not the start of the name.
+    // recipients of their own, split off as everywhere else, not the start of the name. Only words shaped like an
+    // address are: an @ in a name otherwise ("Ana (@ana_d)", "Sales @ HQ") stays part of it.
     const words = (quoted ?? plain ?? '').trim().split(/\s+/);
-    const ahead = quoted == null ? words.findLastIndex((w) => w.includes('@')) + 1 : 0;
+    const ahead = quoted == null ? words.findLastIndex((w) => /^[^\s@<>()"]+@[^\s@<>()"]+$/.test(w)) + 1 : 0;
     return `${words.slice(0, ahead).join(' ')}\u0000${JSON.stringify([words.slice(ahead).join(' '), address])}\u0000`;
   });
   // Between the markers stand the named addresses; everything else splits at the separators.
