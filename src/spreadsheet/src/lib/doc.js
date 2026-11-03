@@ -31,7 +31,7 @@ import { workbookToXlsx, workbookToOds, workbookFromFile, sheetToCsv, sheetToTsv
 import * as P from './puter.js';
 import { trackEvent } from './analytics.js';
 import { session } from './session.js';
-import { draftKey, liveDraftKey, draftRevision, saveDraft, loadDraft, clearDraft, moveDraft, parkDraft, isUnsavedDraftKey, sameBook, draftKeyForFile, readableDraft, uniqueId } from './drafts.js';
+import { draftKey, liveDraftKey, draftRevision, draftRevisionAt, saveDraft, loadDraft, clearDraft, moveDraft, parkDraft, isUnsavedDraftKey, sameBook, draftKeyForFile, readableDraft, uniqueId } from './drafts.js';
 import { adoptVersionsByUid, listVersions, saveVersion, readVersion, dueForVersion, moveVersions, parkVersions, RESTORE_LABEL, OVERWRITE_LABEL } from './versions.js';
 import { storageScope, accountStorageKey, isAccountScope, isProvisionalScope } from './account-storage.js';
 import { optionState } from './option-state.js';
@@ -304,6 +304,7 @@ export class Doc extends EventTarget {
     this._draftTimer = null;
     this._draftRevision = null; // only this exact local snapshot may be moved or cleared
     this.draftKept = true; // does this browser hold a copy of the unsaved edits? Not once a book outgrows local storage
+    this._draftBeside = false; // another tab of the file drafts under its key: this one's edits are kept beside them (see writeDraft)
     this._saving = null;
     this._versioning = null; // the automatic snapshot of the last save, while it is being written
     this.recoverable = null; // a local draft newer than the file, awaiting a decision
@@ -347,7 +348,7 @@ export class Doc extends EventTarget {
       if (moveDraft(from, to, draftRevision(this.recoverable)) || draftRevision(loadDraft(to)) === draftRevision(this.recoverable)) this._recoverableKey = to;
       moveDraft(liveDraftKey(from), liveDraftKey(to), this._draftRevision);
     } else {
-      moveDraft(oldKey, to, this._draftRevision);
+      moveDraft(this._draftBeside ? liveDraftKey(oldKey) : oldKey, this._ownDraftKey, this._draftRevision);
     }
   }
 
@@ -431,7 +432,7 @@ export class Doc extends EventTarget {
    * restore it would restore those instead; they are kept beside it until the decision is made.
    */
   get _ownDraftKey() {
-    return this.recoverable ? liveDraftKey(this.draftKey) : this.draftKey;
+    return this.recoverable || this._draftBeside ? liveDraftKey(this.draftKey) : this.draftKey;
   }
 
   /** Copy the unsaved book to local storage (no-op once it is clean). */
@@ -444,6 +445,10 @@ export class Doc extends EventTarget {
     // Timestamps and workbook versions can coincide across tabs. Each write
     // needs its own identity so a later save cannot clear another tab's edits.
     const revision = uniqueId();
+    // Another tab of the same file, opened before either was edited, drafts under the file's key too: this tab's
+    // edits are kept beside its draft from here on, as they are beside a draft offered on opening (see fromPath,
+    // which offers the one and keeps the other as an unsaved spreadsheet), rather than each writing over the other's.
+    if (this.path && !this.recoverable && !this._draftBeside && ![null, this._draftRevision].includes(draftRevisionAt(this.draftKey))) this._draftBeside = true;
     // The file's revision these edits were made on, so reopening can tell whether it changed since,
     // and its id, by which the file is found again should it be moved or renamed elsewhere.
     const saved = saveDraft(this._ownDraftKey, this.wb, this.name, revision, { fileModified: this.path ? this.remoteModified : undefined, fileUid: (this.path && this.uid) || undefined });

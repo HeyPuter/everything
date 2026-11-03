@@ -880,7 +880,7 @@ regenerate the PNG/ICO favicons, Apple touch icon, and standard/maskable install
   when a later open finds both — under the file's own name, or under one a
   rename elsewhere gave it — the later edits are offered and the earlier
   draft moves to the home screen's **Unsaved spreadsheets** list, so neither is
-  lost. The status pill says when a book is too large for the
+  lost. Two tabs of one file each keep their own edits the same way. The status pill says when a book is too large for the
   browser to keep a copy of. A file renamed elsewhere while it is open is
   followed to its new name, and one deleted elsewhere asks whether to save
   it as a new file, put it back, or keep editing. A file changed elsewhere
