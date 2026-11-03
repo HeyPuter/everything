@@ -6391,7 +6391,10 @@ export function createGrid(opts) {
   function measureChrome() {
     showHeaders = sheet()?.headers !== false;
     root.classList.toggle('no-headers', !showHeaders);
-    // The stylesheet's header sizes are the base; the outline gutter adds to them.
+    // The stylesheet's header sizes are the base; the outline gutter adds to them. Taken off while they are read,
+    // the sizes set here lay the viewport out larger for a moment, and scrolled to the sheet's last column (or
+    // row) the browser pulls the scroll back to fit that view, which then stayed: the last column was cut off.
+    const sl = viewport.scrollLeft, st = viewport.scrollTop;
     root.style.removeProperty('--row-header-w');
     root.style.removeProperty('--col-header-h');
     const cs = getComputedStyle(root);
@@ -6403,6 +6406,7 @@ export function createGrid(opts) {
     baseFontSize = parseFloat(cs.getPropertyValue('--grid-font-size')) || 13;
     applyOutlineGutter();
     applyZoomFont(cs.fontFamily || 'system-ui');
+    if (viewport.scrollLeft !== sl || viewport.scrollTop !== st) scrollViewportTo(sl - shift.x, st - shift.y);
   }
 
   /**
