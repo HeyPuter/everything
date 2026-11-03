@@ -155,7 +155,7 @@ import { openShortcuts } from '../ui/shortcuts.js';
 import { session } from '../lib/session.js';
 import * as P from '../lib/puter.js';
 import { trackEvent } from '../lib/analytics.js';
-import { VIEW_ONLY, CANCELLED, autoSaveEnabled } from '../lib/doc.js';
+import { VIEW_ONLY, CANCELLED, THEIRS_NOT_KEPT, autoSaveEnabled } from '../lib/doc.js';
 import { cellName, colName, normalizeRange, rangeName, parseRange, parseCellRef, parseKey } from '../core/cell.js';
 import { parseRefText, selectionName, MAX_ROW, MAX_COL } from '../core/refs.js';
 import { formatValue, todaySerial, formatDate, fontStack, indentWidth, parseInput, MAX_DECIMAL_PLACES, AUTOMATIC_FORMAT, cellCurrency, currencyDecimals, localeInfo, editText, hasDecimalPlaces } from '../core/format.js';
@@ -5918,7 +5918,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         const choice = await conflictLeaveDialog(kind, kept);
         if (destroyed) return false;
         if (choice === 'leave') { abandoned = true; return true; }
-        if (choice === 'overwrite') { await doc.forceSave().catch(() => {}); return runFlush({ leaving }); }
+        if (choice === 'overwrite') { if (await overwriteWithMine() === null) return false; return runFlush({ leaving }); }
         keepFocus();
         return false;
       }
@@ -6056,6 +6056,27 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
           el('button.btn.btn-primary', { type: 'button', onclick: () => { resolve('saveAs'); modal.close(); } }, 'Save as new file')));
       const modal = openModal({ title: 'This file was moved or deleted', content, onClose: () => resolve('stay') });
     });
+  }
+
+  /**
+   * "Overwrite with mine" (or "Save anyway", "Keep it here"): what the file holds is kept in Version history first, as
+   * the dialogs say (see Doc#forceSave). When it cannot be, nothing is written until the user says to overwrite it all
+   * the same. True once written, false when it was not (the status says why), null when the user chose not to.
+   */
+  async function overwriteWithMine() {
+    try { return await doc.forceSave(); }
+    catch (e) {
+      if (e?.message !== THEIRS_NOT_KEPT || destroyed) return false;
+      const why = P.unreachable(e.cause) ? (navigator.onLine === false ? 'you are offline' : 'Puter could not be reached') : (e.cause?.message || e.cause?.error?.message || '');
+      const anyway = await confirmDialog({
+        title: 'Their version could not be kept',
+        message: `What "${doc.name}" holds now could not be kept in Version history${why ? ` (${String(why).replace(/\.$/, '')})` : ''}, so your version was not saved over it. Overwrite it anyway? It cannot be had back.`,
+        confirmLabel: 'Overwrite anyway', cancelLabel: 'Cancel', danger: true, dismissValue: null,
+      });
+      if (destroyed) return false;
+      if (!anyway) { keepFocus(); return null; }
+      return doc.forceSave({ keepTheirs: false }).catch(() => false);
+    }
   }
 
   async function saveNow() {
@@ -6968,7 +6989,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         const choice = await missingFileDialog();
         if (destroyed) return;
         if (choice === 'saveAs') await saveAs();
-        else if (choice === 'keep') await doc.forceSave().catch(() => {});
+        else if (choice === 'keep') await overwriteWithMine();
         else keepFocus();
         return;
       }
@@ -6982,7 +7003,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         message: `"${doc.name}" was saved, moved or renamed since you opened it, perhaps from another device or tab. Keep your version and overwrite theirs (theirs is kept in Version history), or discard yours and reload theirs?`,
         confirmLabel: 'Overwrite with mine', cancelLabel: 'Reload theirs', danger: true, dismissValue: null,
       });
-      if (overwrite) await doc.forceSave().catch(() => {});
+      if (overwrite) await overwriteWithMine();
       else if (overwrite === false) { wb.markClean(); openPath(doc.path, { reload: true }); }
     } finally { conflictOpen = false; }
   };

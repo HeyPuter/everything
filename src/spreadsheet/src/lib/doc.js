@@ -204,6 +204,8 @@ export const SIGN_IN_TO_SAVE = 'Sign in to Puter to save this spreadsheet';
 /** Why a spreadsheet shared with the user only to view is not saved. */
 export const VIEW_ONLY = 'You can view this spreadsheet, but not change it. Use File > Save a copy to keep your changes';
 /** Why the owner's file of a shared workbook, opened while its room could not be reached, is not saved (see holdForRoom). */
+/** Why "Overwrite with mine" did not go ahead: what the file holds could not be kept in Version history first (see forceSave). */
+export const THEIRS_NOT_KEPT = 'The version saved elsewhere could not be kept in Version history';
 export const SHARED_FILE = 'This spreadsheet is shared for editing together, and the shared workbook could not be reached: it writes this file, and would write over changes saved here. Open the spreadsheet again once connected, or use File > Save a copy to keep your changes';
 
 /** A Puter FSItem's modified time in milliseconds (the API gives seconds), or null. */
@@ -652,11 +654,15 @@ export class Doc extends EventTarget {
     return pending;
   }
 
-  /** Save even if the file changed elsewhere (the user chose to overwrite). */
-  forceSave() {
+  /**
+   * Save even if the file changed elsewhere (the user chose to overwrite). What the file holds is kept in Version
+   * history first (see _keepTheirs); when it cannot be, nothing is written and the promise rejects with
+   * THEIRS_NOT_KEPT, for the user to choose whether to overwrite it all the same (`keepTheirs` false).
+   */
+  forceSave({ keepTheirs = true } = {}) {
     clearTimeout(this._timer);
     return this._enqueueWrite(async () => {
-      await this._keepTheirs();
+      if (keepTheirs) await this._keepTheirs();
       return this._doSave(false, true);
     });
   }
@@ -664,17 +670,26 @@ export class Doc extends EventTarget {
   /**
    * What the file holds now, written elsewhere, is kept as a version before the user's own goes over it, as a
    * restore keeps the state it replaces: the other person's work can be had back from Version history. Not when
-   * the file still holds this document's last write, or is gone (best effort, as that snapshot is).
+   * the file still holds this document's last write, or is gone. Both conflict dialogs say theirs is kept: should
+   * the read or the snapshot fail, the overwrite does not go ahead in silence (see forceSave).
    */
   async _keepTheirs() {
-    if (!this.path || !this.isXlsxPath || this.collab) return;
+    // A shared workbook's file is the room's to write (see _doSave): nothing is written over, nor kept.
+    if (!this.path || !this.isXlsxPath || this.collab || this.roomFile) return;
+    const { status, error } = this;
+    // The whole file is read and written again before the save proper: the save is under way from here.
+    this._setStatus('saving');
     try {
       const st = await P.statFile(this.path);
       if (!st || await this._holdsLastWrite(st) === true) return;
       const theirs = new Blob([await P.readFile(this.path)], { type: XLSX_MIME });
       const entry = await saveVersion(this.file, theirs, OVERWRITE_LABEL);
       this._lastVersionAt = entry.at;
-    } catch (e) { console.warn('Version snapshot failed', e); }
+    } catch (e) {
+      console.warn('Version snapshot failed', e);
+      this._setStatus(status, error);
+      throw new Error(THEIRS_NOT_KEPT, { cause: e });
+    }
   }
 
   async _doSave(auto, force = false) {
