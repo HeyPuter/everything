@@ -22481,6 +22481,9 @@ such a file reaches the 200-page preview limit with its own message.
 Table rows, a cell's paragraphs, an imported text chunk (`altChunk`), an unsupported block or
 inline element shown as its text were still gathered that way, and reached the same overflow
 with 150,000 entries; they are appended one by one too (`tests/browser/long-recovered-content.spec.js`).
+Opening also sets the body aside while it keeps the main part's skeleton for saving; putting it
+back spread the body into one call, so the 150,000-paragraph body overflowed again until it too was
+appended one by one (`tests/browser/deep-nesting.spec.js`).
 
 ## Equations (2026-10-09)
 

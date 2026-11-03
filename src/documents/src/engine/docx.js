@@ -911,7 +911,8 @@ function rememberDocumentSkeleton(bytes, doc) {
   const content = [...body.childNodes];
   for (const node of content) if (node !== section) node.remove();
   try { documentSkeletons.set(bytes, serialize(doc)); }
-  finally { body.replaceChildren(...content); }
+  // Appended one by one: spreading a long body into one call runs out of stack at about 120,000 nodes.
+  finally { body.replaceChildren(); for (const node of content) body.append(node); }
 }
 function documentSkeleton(bytes) {
   const keyed = !!bytes && typeof bytes === 'object';
