@@ -2526,8 +2526,30 @@ export class TextDocument {
       }
       targets = widened;
     }
+    // A paragraph mark before a table, or ending a cell, cannot be removed: the paragraph cannot join a cell. Such a
+    // mark marked deleted (or inserted) loses only its mark of change, and the text on either side goes on its own.
+    // Removing it did nothing, so Accept All left the change in place however often it was used.
+    if (this.tables.length && targets.some(r => r.type !== 'format' && (r.type === 'ins' ? !accept : accept))) {
+      const split = []; let at = 0, index = 0;
+      const ends = this.paragraphs.map(p => (at += paragraphLength(p) + 1) - 1);
+      for (const r of targets) {
+        if (r.type === 'format' || (r.type === 'ins' ? accept : !accept)) { split.push(r); continue; }
+        while (index > 0 && ends[index - 1] >= r.start) index--;
+        while (index < ends.length && ends[index] < r.start) index++;
+        let from = r.start;
+        for (let i = index; i < ends.length - 1 && ends[i] < r.end; i++) {
+          const p = this.paragraphs[i];
+          if ((p.cellId || '') === (this.paragraphs[i + 1].cellId || '') || !p.markRevision || !sameRevision(p.markRevision, r)) continue;
+          delete p.markRevision; touched.add(p);
+          if (from < ends[i]) split.push({ ...r, start: from, end: ends[i] });
+          from = ends[i] + 1;
+        }
+        if (from < r.end) split.push({ ...r, start: from });
+      }
+      targets = split;
+    }
     this.trackingInternal = true;
-    const caret = (targets.find(r => !r.partner) || targets[0])?.start ?? fieldTargets[0].start;
+    const caret = (targets.find(r => !r.partner) || targets[0])?.start ?? fieldTargets[0]?.start ?? start;
     try {
       // Changes that keep their text (formatting, and the side of a change being kept) first, while every
       // range still holds; then the removals, from the last, so each earlier range stays where it was.

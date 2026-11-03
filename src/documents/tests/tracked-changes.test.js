@@ -293,6 +293,23 @@ describe('tracked change edge cases', () => {
     expect(summary(model)).toEqual([['ins', 'Ada', 'one '], ['del', 'Grace', 'two '], ['ins', 'Ada', 'three']]);
   });
 
+  it('accepts a deleted paragraph mark that cannot join the table after it', async () => {
+    const cell = t => `<w:tc><w:tcPr><w:tcW w:w="2000" w:type="dxa"/></w:tcPr><w:p><w:pPr><w:rPr><w:del w:id="5" w:author="Ada" w:date="2026-01-01T00:00:00Z"/></w:rPr></w:pPr><w:r><w:t>${t}</w:t></w:r></w:p></w:tc>`;
+    const files = unzipSync(trackedDocx({ track: false }));
+    // "Before" and its mark are deleted, just ahead of a table; so is the mark ending a cell (as other producers write).
+    files['word/document.xml'] = strToU8(`<w:document xmlns:w="${W}"><w:body><w:p><w:r><w:t>Intro</w:t></w:r></w:p><w:p><w:pPr><w:rPr><w:del w:id="1" w:author="Ada" w:date="2026-01-01T00:00:00Z"/></w:rPr></w:pPr><w:del w:id="2" w:author="Ada" w:date="2026-01-01T00:00:00Z"><w:r><w:delText>Before</w:delText></w:r></w:del></w:p><w:tbl><w:tblPr/><w:tblGrid><w:gridCol w:w="2000"/><w:gridCol w:w="2000"/></w:tblGrid><w:tr>${cell('A1')}${cell('B1')}</w:tr></w:tbl><w:p><w:r><w:t>After</w:t></w:r></w:p><w:sectPr/></w:body></w:document>`);
+    const { pkg, model } = await open(zipSync(files));
+    expect(model.revisions.length).toBeGreaterThan(0);
+    // The marks could not be removed, so Accept All left them as changes, again and again.
+    expect(model.resolveRevisions(true)).toBe(true);
+    expect(model.revisions).toEqual([]);
+    expect(model.text).toBe('Intro\n\nA1\nB1\nAfter');
+    expect(strFromU8(unzipSync(await save(pkg, model))['word/document.xml'])).not.toMatch(/<w:del /);
+    model.undo();
+    expect(model.text).toBe('Intro\nBefore\nA1\nB1\nAfter');
+    expect(model.revisions.length).toBeGreaterThan(0);
+  });
+
   it('never marks a table cell\'s final paragraph mark as deleted', async () => {
     const files = unzipSync(trackedDocx());
     const cell = t => `<w:tc><w:tcPr><w:tcW w:w="2000" w:type="dxa"/></w:tcPr><w:p><w:r><w:t>${t}</w:t></w:r></w:p></w:tc>`;
