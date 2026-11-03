@@ -28135,7 +28135,10 @@ function parse_zip(zip/*:ZIP*/, opts/*:?ParseOpts*/)/*:Workbook*/ {
 
 		if(opts.cellStyles && dir.themes.length) themes = parse_theme_xml(getzipstr(zip, dir.themes[0].replace(/^\//,''), true)||"", opts);
 
-		if(dir.style) styles = parse_sty(getzipdata(zip, strip_front_slash(dir.style)), dir.style, themes, opts);
+		/* Puter Spreadsheet local patch: a styles part the package lists but does not hold leaves the cells in
+		   the default format, as Excel opens such a file, rather than refusing the whole workbook. */
+		var stydata = dir.style ? getzipdata(zip, strip_front_slash(dir.style), true) : null;
+		if(stydata) styles = parse_sty(stydata, dir.style, themes, opts);
 	}
 
 	/*var externbooks = */dir.links.map(function(link) {
