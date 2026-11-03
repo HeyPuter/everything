@@ -473,11 +473,16 @@ function gridSheet(wb, name, fallbackId) {
 export function resolveRange(wb, text, sheetId) {
   const t = String(text ?? '').trim().replace(/^=/, '');
   if (!t) throw new ToolError('No range was given.');
-  const found = wb.rangeFromText(sheetId, t);
+  let found = wb.rangeFromText(sheetId, t);
   if (!found) {
     const bang = t.lastIndexOf('!');
-    if (bang > 0) sheetNamed(wb, t.slice(0, bang), sheetId); // names the missing sheet, when that is the problem
-    throw new ToolError(`"${t}" is not a range. Use A1 notation such as "B2:D10", optionally with a sheet: "Data!A1:C20".`);
+    if (bang > 0) {
+      const sheet = sheetNamed(wb, t.slice(0, bang), sheetId); // names the missing sheet, when that is the problem
+      // A sheet whose name needs quotes, named without them ("Q1 Data!B2", "2024!A1"): the sheet is plainly meant, and
+      // "not a range" sent the model hunting for what was wrong with an address that was right.
+      if (!/^'.*'$/.test(t.slice(0, bang))) found = wb.rangeFromText(sheetId, `${quoteSheet(sheet.name)}!${t.slice(bang + 1)}`);
+    }
+    if (!found) throw new ToolError(`"${t}" is not a range. Use A1 notation such as "B2:D10", optionally with a sheet: "Data!A1:C20".`);
   }
   const sheet = wb.sheet(found.sheetId);
   if (!sheet) throw new ToolError(`"${t}" is not on any sheet.`);
