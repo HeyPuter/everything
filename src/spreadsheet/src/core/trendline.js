@@ -66,9 +66,13 @@ export function normalizeTrendlines(raw) {
   return raw.slice(0, 255).map(t => (t === false || t === null ? false : normalizeTrend(t)));
 }
 
+// The charts whose series stand on one another when stacked, and then take no trendline, as in Excel: a trend through
+// a series' own values would not follow where it is drawn. A combo chart stacks only its columns; its line keeps one.
+const STACKING = new Set(['column', 'bar', 'line', 'area']);
+
 /** The trend drawn on series `j`, or null when it draws none. */
 export function trendFor(chart, j) {
-  if (!chart?.trendline) return null;
+  if (!chart?.trendline || chart.stacked && STACKING.has(chart.type)) return null;
   const t = chart.trendlines?.[j];
   return t === false ? null : t || DEFAULT_TREND;
 }
