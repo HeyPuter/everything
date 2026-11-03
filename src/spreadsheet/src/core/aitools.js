@@ -3983,7 +3983,7 @@ export function describeCall(wb, name, args = {}, env) {
       let t = null, plan = null;
       try { t = duplicatesArgs(wb, args, sheetId); plan = wb.duplicatesPlan(t.sheetId, t.range, t); } catch { /* the runner explains */ }
       const n = plan && plan.changed ? plan.removed : 0;
-      return { label: `Remove duplicate rows from ${t ? qualified(wb, t.sheetId, t.range) : at(args.range).text}`, destructive: n > 0, detail: n ? `Deletes ${plural(n, 'row')} that repeat an earlier row; ${plural(plan.kept.length, 'row')} stay.` : null };
+      return { label: `Remove duplicate rows from ${t ? qualified(wb, t.sheetId, t.range) : at(args.range).text}`, destructive: n > 0, detail: n ? `Deletes ${plural(n, 'row')} that repeat${n === 1 ? 's' : ''} an earlier row; ${plural(plan.kept.length, 'row')} stay${plan.kept.length === 1 ? 's' : ''}.` : null };
     }
     case 'split_text_to_columns': {
       let t = null, replaced = 0, spills = 0;
