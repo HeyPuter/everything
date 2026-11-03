@@ -1249,7 +1249,7 @@ const uncalled = (v) => (v !== null && typeof v === 'object' && v.lambda ? err('
 /** The calculation's working state, set aside while a data table calculates with substituted inputs. */
 const SUBSTITUTE_STATE = ['_iterationReady', '_cache', '_rangeCache', '_rangeCacheCells', '_rangeRuns', '_usedCache', '_cellBoundsCache', '_statsCache',
   '_volatile', '_spills', '_spillBuilds', '_hasDeferredSpills', '_spillComputed', '_evaluating', '_evalOrder', '_evalLast', '_cyclic', '_provisional', '_blankProvisional',
-  '_blankKeys', '_unsettled', '_tentative', '_grown'];
+  '_blankKeys', '_probed', '_unsettled', '_tentative', '_grown'];
 
 /** The workbook's settings beside its sheets and their active one (see bookState): what a file holds of the book itself. */
 export const BOOK_STATE_KEYS = ['dataModel', 'nativePivots', 'externalWorkbooks', 'iteration', 'calcMode', 'structureProtected', 'queries', 'watches',
@@ -1319,6 +1319,7 @@ export class Workbook extends EventTarget {
     this._provisional = new Map(); // reader cell → where the circle whose provisional value it read starts (its _evalOrder), settled once it has its answer
     this._blankProvisional = 0; // while a reader is calculated again with provisional cells read as blank
     this._blankKeys = null; // the cells read as blank while the outermost cell of a circle is calculated again (see _judgeCircles)
+    this._probed = null; // the cells calculated while a circle is judged, forgotten once it is (see _probe)
     this._astByCell = new WeakMap(); // cell → { f, ast }: filled-down formulas are all distinct strings, so the text cache alone thrashes
     this.externalAllowed = true; // may IMPORT* formulas and web images reach out? Off for files from elsewhere until allowed
     this.filePath = null; // the drive path of the file the book is saved as, which its document keeps up to date (CELL("filename")); never saved
@@ -13287,6 +13288,7 @@ export class Workbook extends EventTarget {
     if (deep) return this._computeDeep(sheet, r, c);
     if (this._cyclic.delete(key)) value = err('#CYCLE!');
     this._cache.set(key, value);
+    this._probed?.push(key);
     if (this._spillBuilds.length || this._hasDeferredSpills) this._spillComputed.push(key);
     if (this._unsettled.length) value = this._judgeCircles(key, value, raw);
     if (fixed && value?.error === '#CYCLE!') this._fixedResult(sheet, r, c, value);
@@ -13312,7 +13314,7 @@ export class Workbook extends EventTarget {
     if (!told) {
       this._blankProvisional++;
       let again;
-      try { again = withArrayBudget(() => evaluateFormula(ast, this._formulaContext(sheet, r, c))); } catch (e) {
+      try { again = this._probe(() => withArrayBudget(() => evaluateFormula(ast, this._formulaContext(sheet, r, c)))); } catch (e) {
         if (e instanceof RangeError) throw e;
         again = err('#ERROR!');
       } finally { this._blankProvisional--; this._provisional.delete(key); }
@@ -13373,7 +13375,7 @@ export class Workbook extends EventTarget {
           const outerAst = this._cellAst(outerSheet.cells.get(cellKey(r, c)));
           this._blankKeys = blank;
           let outerAgain;
-          try { outerAgain = withArrayBudget(() => evaluateFormula(outerAst, this._formulaContext(outerSheet, r, c))); } catch (e) {
+          try { outerAgain = this._probe(() => withArrayBudget(() => evaluateFormula(outerAst, this._formulaContext(outerSheet, r, c)))); } catch (e) {
             if (e instanceof RangeError) throw e;
             outerAgain = err('#ERROR!');
           } finally { this._blankKeys = null; }
@@ -13388,6 +13390,22 @@ export class Workbook extends EventTarget {
     }
     if (!this._unsettled.length) this._tentative.length = 0;
     return value;
+  }
+
+  /**
+   * Calculate a formula again with some cells of a circle read as blank, to judge the circle. What that reaches
+   * for the first time (a cell, a range read whole) holds an answer drawn from the blank cells, so none of it is
+   * kept: C1 = SUM(B1:B20) read after the judging of a circle through B1 summed B1 as blank.
+   */
+  _probe(evaluate) {
+    const outer = this._probed;
+    const probed = this._probed = [];
+    try {
+      return evaluate();
+    } finally {
+      this._probed = outer;
+      for (const key of probed) this._cache.delete(key);
+    }
   }
 
   _cacheCircular(key) {
@@ -13803,7 +13821,7 @@ export class Workbook extends EventTarget {
           if (rr >= ref.r1 && rr <= Math.max(r2, ref.r1) && cc >= ref.c1 && cc <= Math.max(c2, ref.c1)) { provisional = true; break; }
         }
         // Nor is one read while a circle is unsettled, since it may hold an answer that is withdrawn.
-        if (!provisional && !this._hasDeferredSpills && !this._unsettled.length) {
+        if (!provisional && !this._hasDeferredSpills && !this._unsettled.length && !this._probed) {
           // Only then does it join the family of the shorter range it carries on from, whose running totals and
           // indexes it extends (see noteRangeRows): a row holding a cell still being calculated, or an answer a
           // circle may yet withdraw, would stay in them for every longer range after it.
@@ -14218,7 +14236,7 @@ export class Workbook extends EventTarget {
       Object.assign(this, {
         _iterationReady: false, _cache: new Map(), _rangeCache: new Map(), _rangeCacheCells: 0, _rangeRuns: new Map(), _usedCache: new Map(),
         _cellBoundsCache: new Map(), _statsCache: new Map(), _volatile: null, _spills: new Map(), _spillBuilds: [], _hasDeferredSpills: false,
-        _spillComputed: [], _evaluating: new Set(), _evalOrder: new Map(), _evalLast: null, _cyclic: new Set(), _provisional: new Map(), _blankProvisional: 0, _blankKeys: null,
+        _spillComputed: [], _evaluating: new Set(), _evalOrder: new Map(), _evalLast: null, _cyclic: new Set(), _provisional: new Map(), _blankProvisional: 0, _blankKeys: null, _probed: null,
         _unsettled: [], _tentative: [], _grown: new Set(),
       });
       read();
