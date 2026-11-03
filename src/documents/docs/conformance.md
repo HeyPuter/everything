@@ -22326,6 +22326,15 @@ removal can be rejected. The macOS reference application opens the result with w
 `\t` style lists, tab leader choice and TC fields are not offered; a TOC inside a content control is
 rebuilt only when its result fills whole paragraphs. Tests: `tests/table-of-contents.test.js`.
 
+Since 2026-11-02 the entry of a numbered heading (§17.9 numbering, linked through the heading style's
+`numPr` or the paragraph's own) starts with the number the heading shows, followed by the level's
+`suff` (§17.9.28: a tab, a space or nothing), as Word's tables do: `I.⇥Introduction⇥1`. `isLgl` and
+`lvlRestart` apply as they do on the page. A number followed by a tab gets a left tab stop at 440 twips
+per level (Word's positions), before the page number's right tab. Bulleted headings and headings without
+a number are listed by their text alone. Entries from TC fields and tables of figures are unchanged.
+Tests: `tests/toc-heading-numbers.test.js` (independently written package with an outline list linked to
+heading styles).
+
 ## Created headers, footers and page numbers (2026-10-09)
 
 Clauses: §17.10.1–§17.10.5 (header/footer parts and `headerReference`/`footerReference`),
