@@ -21,6 +21,7 @@ import { fileLink, roomLink } from '../lib/links.js';
 import { cellName } from '../core/cell.js';
 import { quoteSheet } from '../core/refs.js';
 import { mentionAddress, mentionsOfPerson, assignmentsOfPerson, isUsername } from '../core/mentions.js';
+import { autoSaveEnabled } from '../lib/doc.js';
 
 /** The people who can be mentioned in this workbook: [{ name, user?, email?, hint }], never the user. */
 export async function mentionCandidates({ doc, wb, me }) {
@@ -149,6 +150,7 @@ export function createMentionNotifier({ doc, wb, mailer, me, ask = askToShare, l
    * the thread was assigned to with it, who is told that.
    */
   async function notify({ sheetId, r, c, item, people, assigned = null }) {
+    const posted = wb.version; // the book as it is with the comment, which the file must hold before the link leads there
     const user = me();
     const state = await access();
     const missing = withoutAccess(people, { ...state, me: user });
@@ -177,6 +179,12 @@ export function createMentionNotifier({ doc, wb, mailer, me, ask = askToShare, l
     if (!mailer.available() || (!doc.uid && !doc.collab)) {
       toast(`${names} will see the mention when they open this spreadsheet`, { icon: 'comment', duration: 3500 });
       return { sent: 0 };
+    }
+    // The link opens the file, which holds the comment only once a save has written it: until then (AutoSave off, or
+    // its save still to come) the mail waits, as Excel sends its mentions when the file is saved.
+    if (doc.fileHolds && !doc.fileHolds(posted)) {
+      if (!autoSaveEnabled()) toast(`${names} will be emailed when you save`, { icon: 'comment', duration: 3500 });
+      await doc.whenFileHolds(posted);
     }
     const sheet = wb.sheet(sheetId);
     const cell = `${quoteSheet(sheet?.name || '')}!${cellName(r, c)}`;

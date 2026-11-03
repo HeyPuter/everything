@@ -839,7 +839,8 @@ regenerate the PNG/ICO favicons, Apple touch icon, and standard/maskable install
   workbook's people). Anyone mentioned who cannot open the workbook is offered
   a share first (Can view or Can edit), then each is emailed the comment, its
   cell and a link that opens the workbook at that cell (a Puter user known by
-  username at their Puter mailbox). Whoever has the workbook open sees a
+  username at their Puter mailbox), once a save has put the comment in the
+  file (with AutoSave off, when you save). Whoever has the workbook open sees a
   mention of them as it arrives, and on opening it the mentions they have not
   seen yet, with a button that goes to the comment. A comment that mentions
   someone can also assign its thread to them: the card says who it is

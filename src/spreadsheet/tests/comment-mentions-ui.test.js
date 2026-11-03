@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, expect, it, vi } from 'vitest';
 import { editorView } from '../src/views/editor.js';
 import { Doc } from '../src/lib/doc.js';
 import { getThread, addComment } from '../src/core/comments.js';
@@ -17,6 +17,8 @@ Object.defineProperty(globalThis, 'localStorage', { value: memoryStorage(), conf
 
 let view;
 let exec;
+// SheetJS is loaded on first use with a real dynamic import; warm it up so the save a mention's mail waits for does not wait on it.
+beforeAll(async () => { await Doc.blank().toXlsxBlob(); });
 beforeEach(() => {
   vi.useFakeTimers();
   vi.stubGlobal('matchMedia', () => ({ matches: true, addEventListener() {}, removeEventListener() {} }));
@@ -32,7 +34,9 @@ beforeEach(() => {
     const body = JSON.parse(init.body);
     return new Response(JSON.stringify({ ok: true, sent: body.recipients.length, failed: 0, results: body.recipients.map((r) => ({ email: r.email, status: 'sent' })) }));
   });
-  vi.stubGlobal('puter', { workers: { exec }, fs: { share() {}, getShares() {} }, auth: { isSignedIn: () => true } });
+  // The file takes the saves that put a comment in it, which its mentions' mails wait for.
+  const write = async (path, blob) => ({ path, name: path.split('/').pop(), modified: 1, size: blob.size, uid: 'uid-3' });
+  vi.stubGlobal('puter', { workers: { exec }, fs: { share() {}, getShares() {}, write }, auth: { isSignedIn: () => true } });
   vi.spyOn(P, 'shareAccess').mockResolvedValue([{ who: 'user', recipient: 'ana', label: 'ana', mode: 'read' }]);
   vi.spyOn(P, 'shareFile').mockResolvedValue({});
   document.body.innerHTML = '<div id="app"></div>';
@@ -86,6 +90,8 @@ it('mentions, assigns, shares with and emails the people named in a new comment'
   // kim cannot open the file: the user is asked, and shares.
   await vi.waitFor(() => expect(document.querySelector('.mention-share')).toBeTruthy());
   [...document.querySelectorAll('.mention-share button')].find((b) => b.textContent === 'Share and notify').click();
+  // The mails go once the AutoSave has put the comment in the file their link opens.
+  await vi.advanceTimersByTimeAsync(2000);
   await vi.waitFor(() => expect(exec).toHaveBeenCalledTimes(2));
   expect(P.shareFile).toHaveBeenCalledWith('Spreadsheets/Budget.xlsx', 'kim@example.org', 'read');
   const bodies = exec.mock.calls.map(([url, init]) => [url, JSON.parse(init.body)]);
@@ -117,7 +123,7 @@ it('keeps a mention through a reply and does not ask again for people who were t
   await tick();
   key(reply, 'Enter');
   document.querySelector('.comment-card .cmt-post').click();
-  await tick();
+  await vi.advanceTimersByTimeAsync(2000);
   await vi.waitFor(() => expect(exec).toHaveBeenCalledTimes(1));
   expect(document.querySelector('.mention-share')).toBeNull();
   expect(getThread(wb, id, 0, 0).items[1].mentions).toEqual([expect.objectContaining({ name: 'ana', user: 'ana', start: 7 })]);

@@ -299,6 +299,7 @@ export class Doc extends EventTarget {
     this.remoteModified = null; // when the file on the drive was last written, as we last saw it (ms)
     this.remoteSize = null; // and how many bytes it held then: modification times are whole seconds, and two tabs can save within one
     this._written = null; // the bytes last written to the file, kept while small enough to read the file back and compare (see _holdsLastWrite)
+    this._savedVersion = -1; // the book's version the last save wrote to the file (see fileHolds)
     this._timer = null;
     this._retryDelay = 0; // the pause before the next try of a failing autosave, growing while it keeps failing
     this._draftTimer = null;
@@ -559,6 +560,24 @@ export class Doc extends EventTarget {
     this.save({ auto: true }).catch(() => {});
   }
 
+  /**
+   * Does the file hold the book as it was at `version` (wb.version)? It does once a save wrote that version or a later
+   * one, or while nothing is unsaved; a shared workbook's changes reach everyone through the room, not the file.
+   */
+  fileHolds(version) {
+    return !!this.collab || !this.wb.dirty || this._savedVersion >= version;
+  }
+
+  /** Resolves once the file holds the book as it was at `version` (see fileHolds): at once, or when a save writes it. */
+  whenFileHolds(version) {
+    if (this.fileHolds(version)) return Promise.resolve();
+    return new Promise((resolve) => {
+      // A book made clean without a save (Reload theirs discards it) does not put the edits in the file.
+      const check = () => { if (this._savedVersion >= version) { this.removeEventListener('status', check); resolve(); } };
+      this.addEventListener('status', check);
+    });
+  }
+
   /** Turn AutoSave on or off; turning it on saves what is waiting. */
   setAutoSave(on) {
     setAutoSaveEnabled(!!on);
@@ -762,6 +781,7 @@ export class Doc extends EventTarget {
       this._written = blob.size <= COMPARE_MAX_BYTES ? blob : null;
       // Edits that landed while the book was encoded or the write was in flight keep the doc dirty; those made
       // while the file was checked, before, are in the bytes written.
+      this._savedVersion = exportedVersion;
       if (this.wb.version === exportedVersion) this.wb.markClean();
       this._setStatus(this.wb.dirty ? 'unsaved' : 'saved');
       if (this.wb.dirty) {
@@ -1062,6 +1082,7 @@ export class Doc extends EventTarget {
     recordExternal({ path: this.path, uid: this.uid }, this._storageScope, this.wb.externalAllowed);
     await parkVersions(this.file).catch(() => {}); // a gone file's history under the new name is not the copy's
     this.lastSaved = Date.now();
+    this._savedVersion = version;
     if (this.wb.version === version) this.wb.markClean();
     this._setStatus(this.wb.dirty ? 'unsaved' : 'saved');
     if (this.wb.dirty) { this.writeDraft(); this._changed('cells'); }
