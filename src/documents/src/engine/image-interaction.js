@@ -123,7 +123,14 @@ export function createImageInteraction(editor) {
   };
   // The frame drawn around a drawing: retained drawings paint their own rotation inside their bounds.
   const boxOf = f => f.image.retainedDrawing ? { ...positionedImageBounds(f), page: f.page } : f;
-  const rotationOf = f => f.image.retainedDrawing ? 0 : normalizedRotation(f.image.rotation) / ANGLE_PER_DEGREE;
+  // A shape or group drawing keeps its rotation in its own transform (a:xfrm rot, §20.1.7.6), not on the image: its
+  // frame is the unrotated extent, which turns about its center like a picture's.
+  const ownRotation = image => {
+    if (!image.retainedDrawing || image.rotation || flat(image)) return 0;
+    const scene = editor.model.assets?.[image.assetId]?.scene;
+    return normalizedRotation(scene?.shapeRotation || scene?.groupRotation || 0);
+  };
+  const rotationOf = f => (f.image.retainedDrawing ? ownRotation(f.image) : normalizedRotation(f.image.rotation)) / ANGLE_PER_DEGREE;
 
   /* ---- The extra selection (Shift+click) ---- */
   const floatingById = id => (editor.selectionLayout.floatingObjects || []).find(f => f.image.id === id && isPositionedImage(f.image));
@@ -228,9 +235,9 @@ export function createImageInteraction(editor) {
     if (mode === 'rotate') {
       const canvas = canvasOf(f.page), rect = canvas.getBoundingClientRect(), scale = rect.width / canvas.offsetWidth || 1;
       gesture.center = { x: rect.left + (box.x + box.width / 2) * editor.zoom * scale, y: rect.top + (box.y + box.height / 2) * editor.zoom * scale };
-      gesture.baseRotation = normalizedRotation(f.image.rotation) / ANGLE_PER_DEGREE;
+      gesture.baseRotation = (normalizedRotation(f.image.rotation) + ownRotation(f.image)) / ANGLE_PER_DEGREE;
       gesture.startAngle = pointerAngle(gesture.center, gesture.start);
-      gesture.rotation = normalizedRotation(f.image.rotation);
+      gesture.rotation = normalizedRotation(normalizedRotation(f.image.rotation) + ownRotation(f.image));
     }
     if (mode.startsWith('crop')) gesture.crop = { full: { ...crop.full }, rect: { ...crop.rect } };
     overlay.hidden = !!crop; optionsButton.hidden = true;
@@ -280,7 +287,7 @@ export function createImageInteraction(editor) {
         const preserveAspect = corner ? image.aspectLocked !== false || e.shiftKey : !!image.aspectLocked;
         g.resized = corner ? resizeImageFrame(g.frame, g.mode, g.dx, g.dy, { preserveAspect, fromCenter }) : resizeFromHandle(g.frame, g.mode, g.dx, g.dy, { preserveAspect, fromCenter });
         show(g.resized.frame);
-      } else if (!g.box.width || !g.box.height || corner && e.shiftKey) {
+      } else if (!g.box.width || !g.box.height || corner && e.shiftKey && !ownRotation(image)) {
         // Lines and proportional shape resizing scale the whole drawing.
         const sx = g.mode.includes('w') ? -1 : 1, sy = g.mode.includes('n') ? -1 : 1;
         g.scale = Math.max(.01, 1 + (g.dx * sx * g.box.width + g.dy * sy * g.box.height) / (g.box.width * g.box.width + g.box.height * g.box.height));
@@ -288,9 +295,10 @@ export function createImageInteraction(editor) {
         const width = g.box.width * g.scale, height = g.box.height * g.scale;
         show({ ...g.box, page: g.frame.page, width, height, x: g.box.x + (sx < 0 ? g.box.width - width : 0), y: g.box.y + (sy < 0 ? g.box.height - height : 0) }, 0);
       } else {
-        const unrotated = { ...g.box, image: { width: image.width, height: image.height, rotation: 0 } };
-        g.shape = resizeFromHandle(unrotated, g.mode, g.dx, g.dy, { fromCenter });
-        show({ ...g.shape.frame, page: g.frame.page }, 0);
+        // In the shape's own axes: the handle opposite the one dragged stays where it is on the page.
+        const turned = { ...g.box, image: { width: image.width, height: image.height, rotation: ownRotation(image) } };
+        g.shape = resizeFromHandle(turned, g.mode, g.dx, g.dy, { fromCenter, preserveAspect: corner && e.shiftKey });
+        show({ ...g.shape.frame, page: g.frame.page }, rotationOf(g.frame));
       }
     }
     return true;
@@ -308,7 +316,7 @@ export function createImageInteraction(editor) {
       else editor.execute(() => editor.model.moveImage(g.target));
     } else if (g.mode === 'rotate') {
       const image = editor.model.selectedImage;
-      const delta = g.rotation - normalizedRotation(image.rotation);
+      const delta = g.rotation - normalizedRotation(image.rotation) - ownRotation(image);
       if (delta && !viaHook({ type: 'rotate', image, rotation: g.rotation, delta })) editor.setImageProperties({ rotation: g.rotation });
     } else if (g.resized) {
       resizeImage(editor.model.selectedImage, resizePatch(g.frame, g.resized));

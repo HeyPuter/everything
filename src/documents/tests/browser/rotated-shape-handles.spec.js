@@ -1,0 +1,54 @@
+import { test, expect } from '@playwright/test';
+import { onTab } from './helpers/editor-tools.js';
+
+// A shape keeps its rotation in its own transform (a:xfrm rot), not on the picture frame. Its selection
+// frame turns with it, as a picture's does, and its handles resize it along its own sides.
+const input = page => page.getByRole('textbox', { name: 'Document text' });
+async function drawShape(page, name, from, to) {
+  await onTab(page, 'insert');
+  await page.locator('#ribbon-panel-insert').getByRole('button', { name: 'Shapes', exact: true }).click();
+  await page.getByRole('menuitem', { name, exact: true }).click();
+  const box = await page.locator('canvas.canvas-page').first().boundingBox();
+  await page.mouse.move(box.x + from[0], box.y + from[1]); await page.mouse.down();
+  await page.mouse.move(box.x + to[0], box.y + to[1], { steps: 4 }); await page.mouse.up();
+  await expect(page.locator('#ribbon-tab-shapeFormat')).toBeVisible();
+}
+const shape = page => page.evaluate(() => {
+  const e = window.__docs.current.view.engine, image = e.model.selectedImage;
+  const f = e.selectionLayout.floatingObjects.find(f => f.image === image);
+  return { width: Math.round(image.width / 9525), height: Math.round(image.height / 9525), rotation: Number((/<a:xfrm[^>]* rot="(\d+)"/.exec(image.shell) || [])[1] || 0), x: f.x, y: f.y };
+});
+const overlay = page => page.evaluate(() => { const o = document.querySelector('.canvas-image-frame'); return { width: o.offsetWidth, height: o.offsetHeight, transform: o.style.transform }; });
+
+test('a rotated shape’s frame turns with it and its handles resize it along its own sides', async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/mock.html#/new');
+  await expect((await onTab(page, 'home')).getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await input(page).focus();
+  for (let i = 0; i < 8; i++) { await page.keyboard.type(`Paragraph ${i + 1} of the text the shape sits on.`); await page.keyboard.press('Enter'); }
+  await drawShape(page, 'Rectangle', [300, 200], [500, 260]);
+  await onTab(page, 'shapeFormat');
+  await page.locator('#ribbon-panel-shapeFormat').getByRole('button', { name: 'Rotate', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Rotate Right 90°' }).click();
+  await expect.poll(async () => (await shape(page)).rotation).toBe(5400000);
+  const before = await shape(page);
+  expect([before.width, before.height]).toEqual([200, 60]);
+  // The frame stands upright over the turned shape (200 × 60, turned a quarter).
+  expect(await overlay(page)).toEqual({ width: 200, height: 60, transform: 'rotate(90deg)' });
+  // Turned a quarter, the shape's right side ("e") is at the bottom: dragging it down 50 px lengthens the
+  // shape by 50 px, and its top (the other end) stays where it was on the page.
+  const handle = await page.locator('.canvas-image-frame [data-handle="e"]').boundingBox();
+  const canvas = await page.locator('canvas.canvas-page').first().boundingBox();
+  expect(Math.abs(handle.y + handle.height / 2 - canvas.y - (before.y + before.height / 2 + before.width / 2))).toBeLessThan(3);
+  await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2); await page.mouse.down();
+  await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2 + 50, { steps: 5 }); await page.mouse.up();
+  await expect.poll(async () => (await shape(page)).width).toBe(250);
+  const after = await shape(page);
+  expect(after.height).toBe(60);
+  const top = s => s.y + s.height / 2 - s.width / 2, left = s => s.x + s.width / 2 - s.height / 2;
+  expect(top(after)).toBeCloseTo(top(before), 1);
+  expect(left(after)).toBeCloseTo(left(before), 1);
+  expect(await overlay(page)).toEqual({ width: 250, height: 60, transform: 'rotate(90deg)' });
+  expect(errors).toEqual([]);
+});
