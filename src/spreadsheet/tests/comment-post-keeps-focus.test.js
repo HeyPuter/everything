@@ -121,3 +121,25 @@ it('keeps the keyboard on the thread in the Comments pane as it is resolved and 
   expect(getThread(wb, id, 4, 2)?.done).toBeFalsy();
   expect(document.activeElement).toBe(thread().querySelector('textarea.cmt-reply'));
 }, 30000);
+
+// A thread's cell name in the pane goes to its cell, and the pane is redrawn for the new selection: the keyboard was
+// put in that thread's reply box, which on a phone brings up the on-screen keyboard over the cell gone to. It stays
+// on the cell name, as it was before the redraw.
+it('keeps the keyboard on a thread\'s cell name in the Comments pane once it has gone to the cell', async () => {
+  const doc = new Doc({ name: 'Comments', path: 'Spreadsheets/Comments.xlsx' });
+  const wb = doc.wb;
+  const id = wb.activeSheetId;
+  addComment(wb, id, 1, 1, 'First', 'Grace');
+  addComment(wb, id, 4, 2, 'Second', 'Alan');
+  view = editorView({ doc, goHome: vi.fn(), openPath: vi.fn(), newDoc: vi.fn(), templateDoc: vi.fn(), importFile: vi.fn() });
+  document.querySelector('#app').append(view.el);
+  await tick();
+  view.run('toggleComments');
+  await tick();
+  const thread = () => [...document.querySelectorAll('.comments-pane .cmt-thread')].find((n) => n.dataset.cell === '4,2');
+  thread().querySelector('.cmt-cell').focus();
+  thread().querySelector('.cmt-cell').click();
+  await tick();
+  expect(thread().classList.contains('active')).toBe(true);
+  expect(document.activeElement).toBe(thread().querySelector('.cmt-cell'));
+}, 30000);

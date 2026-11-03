@@ -352,11 +352,14 @@ export function createComments(ctx, host) {
     // leaves the keyboard on the same thread, or in the pane, rather than on the page. Queued after the redraw's
     // own (a comment being edited takes the focus first), so it only catches a focus that fell.
     const focusedIn = list.contains(document.activeElement) ? document.activeElement.closest('.cmt-thread')?.dataset.cell ?? '' : null;
+    // A thread's cell name pressed (Go to) is redrawn for the selection it made, and the keyboard stays on it: the reply
+    // box took it, bringing up a phone's on-screen keyboard over the cell gone to.
+    const onCellName = !!document.activeElement?.classList?.contains('cmt-cell');
     const refocus = () => focusedIn != null && queueMicrotask(() => {
       if (pane.hidden || (document.activeElement && document.activeElement !== document.body)) return;
       const thread = focusedIn && [...list.querySelectorAll('.cmt-thread')].find((n) => n.dataset.cell === focusedIn);
       const scope = thread || list;
-      (scope.querySelector('textarea.cmt-reply') || scope.querySelector('.cmt-resolved button') || scope.querySelector('button') || pane.querySelector('.cmt-pane-new'))?.focus({ preventScroll: true });
+      ((onCellName && thread?.querySelector('.cmt-cell')) || scope.querySelector('textarea.cmt-reply') || scope.querySelector('.cmt-resolved button') || scope.querySelector('button') || pane.querySelector('.cmt-pane-new'))?.focus({ preventScroll: true });
     });
     const cells = threadCells(wb, sheetId);
     if (!cells.length) {
