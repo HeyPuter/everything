@@ -1,0 +1,16 @@
+export default {
+  'dawarichMore.toJourney': 'Aan reisdagboek toevoegen…',
+  'dawarichMore.added': { one: '{count} check-in toegevoegd aan {journey}', other: '{count} check-ins toegevoegd aan {journey}' },
+  'dawarichMore.addedOne': '1 check-in toegevoegd aan {journey}',
+  'dawarichMore.openJourney': 'Reisdagboek openen',
+  'dawarichMore.untitledJourney': 'Naamloos reisdagboek',
+  'dawarichMore.bucketTitle': 'Bucketlist',
+  'dawarichMore.bucketIntro': 'Plekken en landen op je bucketlist die je tijdens deze verblijven hebt bereikt.',
+  'dawarichMore.bucketLabel': 'Treffers op je bucketlist',
+  'dawarichMore.reached': '{stay}, {date}',
+  'dawarichMore.mark': { one: '{count} markeren als bezocht', other: '{count} markeren als bezocht' },
+  'dawarichMore.markOne': '1 markeren als bezocht',
+  'dawarichMore.choose': 'Kies items om te markeren',
+  'dawarichMore.marked': 'Bezocht',
+  'dawarichMore.markedToast': 'Bucketlist bijgewerkt',
+};

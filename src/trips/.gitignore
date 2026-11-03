@@ -1,0 +1,8 @@
+# Symlinked node_modules in worktrees are not matched by the root `node_modules/` pattern.
+node_modules
+dist/
+dist-mock/
+test-results/
+playwright-report/
+public/worker/*.js
+public/worker/*.js.map

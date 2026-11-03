@@ -1,0 +1,32 @@
+{
+  "albums": { "total": 0, "count": 0, "items": [], "facets": [], "nextPage": null },
+  "assets": {
+    "total": 3,
+    "count": 3,
+    "nextPage": "2",
+    "facets": [],
+    "items": [
+      {
+        "id": "4f0c1a52-1b2e-4c0a-9a33-0d8e1f2b3c4d",
+        "type": "IMAGE",
+        "originalFileName": "IMG_2041.HEIC",
+        "originalMimeType": "image/heic",
+        "fileCreatedAt": "2026-05-03T09:12:44.000Z",
+        "localDateTime": "2026-05-03T05:12:44.000Z",
+        "isTrashed": false,
+        "exifInfo": { "latitude": 40.7484, "longitude": -73.9857, "dateTimeOriginal": "2026-05-03T09:12:44.000Z", "fileSizeInByte": 2483112, "timeZone": "America/New_York", "city": "New York", "country": "United States of America" }
+      },
+      {
+        "id": "8a1d2c3b-4e5f-4a6b-8c7d-9e0f1a2b3c4d",
+        "type": "VIDEO",
+        "originalFileName": "clip/../evil.mov",
+        "originalMimeType": "video/quicktime",
+        "fileCreatedAt": "2026-05-04T18:00:00.000Z",
+        "localDateTime": "2026-05-04T14:00:00.000Z",
+        "exifInfo": { "latitude": 0, "longitude": 0, "fileSizeInByte": 81234567 }
+      },
+      { "id": "../../admin", "type": "IMAGE", "originalFileName": "x.jpg" },
+      { "id": "b7c6d5e4-0000-4000-8000-000000000001", "type": "IMAGE", "originalFileName": "gone.jpg", "isTrashed": true }
+    ]
+  }
+}

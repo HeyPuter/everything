@@ -1,0 +1,1 @@
+{"type":"Topology","transform":{"scale":[0.001,0.001],"translate":[0,0]},"arcs":[[[144624,13431],[170,96],[73,126],[85,-54],[-45,-82],[-124,-97],[-47,-171],[-55,-2],[-24,35],[-33,149]]],"objects":{"regions":{"type":"GeometryCollection","geometries":[{"type":"Polygon","id":"GU-X01","arcs":[[0]],"properties":{"name":"Guam","iso":false}}]}}}

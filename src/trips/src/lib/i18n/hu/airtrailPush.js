@@ -1,0 +1,18 @@
+export default {
+  'airtrailPush.title': 'Küldés az AirTrailbe',
+  'airtrailPush.intro': 'A Tripsben foglalt járatok, szakaszonként egy AirTrail-járat. Küldés után az itteni módosításaidat újra elküldheted.',
+  'airtrailPush.new': 'Még nincs az AirTrailben',
+  'airtrailPush.changed': 'Módosult a Tripsben',
+  'airtrailPush.changedChip': 'Itt szerkesztve',
+  'airtrailPush.blockedCodes': '{count} járat küldéséhez minden szakaszon repülőtérkód és dátum kell.',
+  'airtrailPush.blockedCodesOne': '1 járat küldéséhez minden szakaszon repülőtérkód és dátum kell.',
+  'airtrailPush.blockedLegs': '{title}: a szakaszai módosultak a küldés óta; frissítsd kézzel az AirTrailben.',
+  'airtrailPush.send': '{count} járat küldése',
+  'airtrailPush.sendOne': '1 járat küldése',
+  'airtrailPush.choose': 'Válaszd ki a küldendő járatokat',
+  'airtrailPush.sending': 'Küldés: {title}…',
+  'airtrailPush.done': '{count} járat elküldve az AirTrailbe',
+  'airtrailPush.doneOne': '1 járat elküldve az AirTrailbe',
+  'airtrailPush.failed': 'Nem sikerült elküldeni: {title}',
+  'airtrailPush.history': 'Járatok küldése az AirTrailbe',
+};

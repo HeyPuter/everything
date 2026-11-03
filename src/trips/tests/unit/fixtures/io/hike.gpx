@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE gpx [ <!ENTITY boom "never expanded"> ]>
+<gpx version="1.1" creator="Fixture" xmlns="http://www.topografix.com/GPX/1/1"
+  xmlns:gpxx="http://www.garmin.com/xmlschemas/GpxExtensions/v3">
+  <metadata><name>Lake loop</name></metadata>
+  <wpt lat="46.5197" lon="6.6323">
+    <ele>375</ele>
+    <name>Café &amp; Bakery</name>
+    <cmt>Rue du Lac 1</cmt>
+    <desc><![CDATA[Fresh <b>croissants</b>]]></desc>
+    <link href="https://example.com/cafe"><text>Site</text></link>
+    <sym>Restaurant</sym>
+  </wpt>
+  <wpt lat="46.5300" lon="6.6400">
+    <name>Viewpoint</name>
+    <sym>Scenic Area</sym>
+  </wpt>
+  <wpt lat="91" lon="6.6"><name>Broken</name></wpt>
+  <wpt lat="46.51" lon="6.62"><link href="javascript:alert(1)"/></wpt>
+  <rte>
+    <name>Ferry</name>
+    <rtept lat="46.50" lon="6.60"/>
+    <rtept lat="46.40" lon="6.55"/>
+  </rte>
+  <trk>
+    <name>Morning loop</name>
+    <extensions><line xmlns="http://www.topografix.com/GPX/gpx_style/0/2"><color>FF0000</color></line></extensions>
+    <trkseg>
+      <trkpt lat="46.5000" lon="6.6000"><ele>380.25</ele></trkpt>
+      <trkpt lat="46.5010" lon="6.6010"><ele>381</ele></trkpt>
+      <trkpt lat="46.5020" lon="6.6020"/>
+    </trkseg>
+    <trkseg>
+      <trkpt lat="46.5100" lon="6.6100"/>
+      <trkpt lat="46.5200" lon="6.6200"/>
+    </trkseg>
+  </trk>
+  <trk>
+    <name>Garmin colour</name>
+    <extensions><gpxx:TrackExtension><gpxx:DisplayColor>DarkGreen</gpxx:DisplayColor></gpxx:TrackExtension></extensions>
+    <trkseg>
+      <trkpt lat="46.60" lon="6.70"/>
+      <trkpt lat="46.61" lon="6.71"/>
+    </trkseg>
+  </trk>
+  <trk><name>Too short</name><trkseg><trkpt lat="46.6" lon="6.7"/></trkseg></trk>
+</gpx>

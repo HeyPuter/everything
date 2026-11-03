@@ -1,0 +1,122 @@
+/* The printed trip. Loaded inline into the preview frame only; the frame is stamped light. */
+@import '../../styles/tokens.css';
+
+* { box-sizing: border-box; }
+html { background: var(--surface-3); color: var(--ink); font-family: var(--font); -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+body { margin: 0; }
+img, svg { max-inline-size: 100%; }
+a { color: var(--accent-strong); }
+.icon { flex: none; vertical-align: middle; }
+
+.print-doc { font-size: 10.5pt; line-height: 1.45; inline-size: 210mm; margin: 16px auto; padding: 14mm 12mm 16mm; background: var(--surface); box-shadow: var(--pop-shadow); zoom: var(--preview-zoom, 1); }
+.print-doc[data-orientation="landscape"] { inline-size: 297mm; }
+.print-doc[data-font="small"] { font-size: 9pt; }
+.print-doc[data-font="large"] { font-size: 12pt; }
+
+.print-doc h1 { font-size: 2.2em; line-height: 1.15; margin: 0 0 .25em; }
+.print-doc h2 { font-size: 1.45em; line-height: 1.2; margin: 0 0 .6em; padding-block-end: .25em; border-block-end: 1.5px solid var(--ink); break-after: avoid; }
+.print-doc h3 { font-size: 1.1em; line-height: 1.25; margin: 1em 0 .4em; break-after: avoid; }
+.print-doc p { margin: 0 0 .5em; }
+.pr-sub, .pr-meta { color: var(--ink-2); }
+.pr-note { color: var(--ink-2); font-style: italic; }
+.pr-empty { color: var(--ink-3); }
+.pr-pending { color: var(--ink-3); padding: 2.5em 1em; text-align: center; border: 1px dashed var(--hairline-strong); border-radius: var(--r-sm); }
+.pr-plain { margin: 0; padding-inline-start: 1.2em; }
+
+.pr-section { margin-block-start: 1.8em; }
+.print-doc > :first-child { margin-block-start: 0; }
+.print-doc[data-breaks="on"] > .pr-section:not(:first-child) { break-before: page; }
+.print-doc[data-breaks="on"] > .pr-cover + .pr-map-section { break-before: auto; }
+.print-doc[data-breaks="on"] .pr-day + .pr-day { break-before: page; }
+
+.pr-cover-image { display: block; inline-size: 100%; max-block-size: 75mm; object-fit: cover; border-radius: var(--r-sm); margin-block-end: 1.2em; }
+.pr-dates { font-size: 1.15em; color: var(--ink-2); }
+.pr-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(28mm, 1fr)); gap: .6em; margin: 1.2em 0; }
+.pr-stat { border: 1px solid var(--hairline-strong); border-radius: var(--r-xs); padding: .5em .7em; }
+.pr-stat dt { font-size: .8em; color: var(--ink-2); }
+.pr-stat dd { margin: 0; font-size: 1.35em; font-weight: 700; font-variant-numeric: tabular-nums; }
+.pr-travelers { margin-block-start: .6em; }
+
+.pr-figure { margin: .8em 0; break-inside: avoid; }
+.pr-figure img { display: block; inline-size: 100%; block-size: auto; border: 1px solid var(--hairline); border-radius: var(--r-xs); }
+.pr-figure figcaption { margin-block-start: .3em; font-size: .75em; color: var(--ink-2); }
+.pr-route-summary { margin: 0; padding: 0; list-style: none; }
+.pr-route-summary li { margin-block-end: .35em; }
+
+.pr-day { margin-block-start: 1.4em; padding-inline-start: .8em; border-inline-start: 3px solid var(--day-color, var(--ink)); }
+.pr-day-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: .2em 1em; break-after: avoid; }
+.pr-day-head h3 { display: flex; flex-wrap: wrap; align-items: baseline; gap: .2em .6em; margin: 0; }
+.pr-day-num { color: var(--day-color, var(--ink)); font-weight: 800; }
+.pr-day-title { color: var(--ink-2); }
+.pr-day-route { font-size: .85em; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.pr-stay { display: flex; flex-wrap: wrap; align-items: center; gap: .35em; margin: .4em 0 0; font-size: .92em; }
+.pr-day-notes { margin-block-start: .5em; }
+.pr-rows { list-style: none; margin: .5em 0 0; padding: 0; }
+.pr-row, .pr-leg { display: grid; grid-template-columns: 6.4em 1.6em minmax(0, 1fr); gap: 0 .5em; align-items: start; padding-block: .35em; break-inside: avoid; }
+.pr-row + .pr-row { border-block-start: 1px solid var(--hairline); }
+.pr-time { padding-block-start: .1em; font-size: .92em; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.pr-stop, .pr-icon { display: inline-grid; place-items: center; inline-size: 1.5em; block-size: 1.5em; }
+.pr-stop { border-radius: 50%; background: var(--day-color, var(--ink)); color: var(--surface); font-size: .8em; font-weight: 700; inline-size: 1.85em; block-size: 1.85em; }
+.pr-icon { color: var(--ink-2); }
+.pr-name { font-weight: 600; }
+.pr-meta { display: block; font-size: .88em; }
+.pr-rich { margin-block-start: .25em; font-size: .92em; }
+.pr-rich p, .pr-rich ul, .pr-rich ol { margin: 0 0 .3em; }
+.pr-rich ul, .pr-rich ol { padding-inline-start: 1.2em; }
+.pr-leg { padding-block: .05em .25em; font-size: .85em; color: var(--ink-2); font-style: italic; }
+.pr-photos { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .5em; margin-block-start: .8em; }
+.pr-photo { margin: 0; break-inside: avoid; }
+.pr-photo img { display: block; inline-size: 100%; aspect-ratio: 4 / 3; object-fit: cover; border-radius: var(--r-xs); }
+.pr-photo figcaption { font-size: .75em; color: var(--ink-2); }
+
+.pr-group + .pr-group { margin-block-start: 1em; }
+.pr-res { margin-block-end: .6em; padding: .6em .8em; border: 1px solid var(--hairline-strong); border-radius: var(--r-xs); break-inside: avoid; }
+.pr-res[data-status="cancelled"] .pr-res-head strong { text-decoration: line-through; }
+.pr-res-head { display: flex; flex-wrap: wrap; align-items: center; gap: .4em; }
+.pr-tag { padding: .1em .55em; border-radius: var(--r-full); background: var(--surface-2); color: var(--ink-2); font-size: .75em; font-weight: 600; }
+.pr-tag-warn { background: var(--warn-wash); color: var(--warn-strong); }
+.pr-when { margin-block: .3em 0; }
+.pr-legs { margin: .3em 0 0; padding-inline-start: 1.2em; }
+.pr-facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: .15em .8em; margin: .4em 0 0; font-size: .92em; }
+.pr-facts div { display: contents; }
+.pr-facts dt { color: var(--ink-2); }
+.pr-facts dd { margin: 0; }
+
+.pr-table { inline-size: 100%; margin: .4em 0 1em; border-collapse: collapse; font-size: .92em; }
+.pr-table caption { margin-block-end: .3em; text-align: start; font-weight: 700; }
+.pr-table th { padding: .3em .4em; border-block-end: 1px solid var(--hairline-strong); color: var(--ink-2); font-size: .85em; text-align: start; }
+.pr-table td { padding: .3em .4em; border-block-end: 1px solid var(--hairline); vertical-align: top; }
+.pr-table tr { break-inside: avoid; }
+.pr-table tr[data-status="cancelled"] td { color: var(--ink-3); }
+.pr-bookings .pr-table { table-layout: fixed; }
+.pr-bookings .pr-table th:nth-child(1) { inline-size: 27%; }
+.pr-bookings .pr-table th:nth-child(2) { inline-size: 37%; }
+.pr-bookings .pr-table th:nth-child(3) { inline-size: 14%; }
+.pr-bookings .pr-table th:nth-child(n+4) { inline-size: 11%; }
+.pr-table th.pr-num, .pr-num { text-align: end; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.pr-nowrap { white-space: nowrap; }
+.pr-total { font-size: 1.2em; font-weight: 700; }
+
+.pr-list { margin-block-end: .8em; break-inside: avoid-column; }
+.pr-list h3 { margin-block-start: 0; }
+.pr-checklist { list-style: none; margin: 0; padding: 0; }
+.pr-checklist li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 .5em; padding-block: .15em; break-inside: avoid; }
+.pr-box { flex: none; display: inline-grid; place-items: center; inline-size: 1em; block-size: 1em; border: 1.3px solid var(--ink-2); border-radius: 3px; align-self: center; }
+.pr-checklist li[data-done="true"] > span:nth-child(2) { color: var(--ink-2); }
+
+.pr-note-card { padding-block: .6em; border-block-start: 1px solid var(--hairline-strong); break-inside: avoid; }
+.pr-note-card h3 { margin: 0 0 .2em; }
+.pr-footer { margin-block-start: 2em; font-size: .75em; color: var(--ink-3); }
+
+.print-doc[data-detail="compact"] .pr-day { margin-block-start: 1em; }
+.print-doc[data-detail="compact"] .pr-row { grid-template-columns: 5.8em 1.6em minmax(0, 1fr); padding-block: .15em; }
+.print-doc[data-detail="compact"] .pr-meta { display: inline; margin-inline-start: .5em; }
+.print-doc[data-detail="compact"] .pr-lists { columns: 2; column-gap: 2em; }
+.print-doc[data-detail="compact"] .pr-stats { margin-block: .8em; }
+
+@media print {
+  html { background: none; }
+  .print-doc { inline-size: auto; margin: 0; padding: 0; box-shadow: none; zoom: 1; }
+  .print-doc[data-orientation="landscape"] { inline-size: auto; }
+  .pr-pending { display: none; }
+}

@@ -1,0 +1,16 @@
+export default {
+  'dawarichMore.toJourney': 'Ajouter au carnet…',
+  'dawarichMore.added': { one: '{count} visite ajoutée à {journey}', other: '{count} visites ajoutées à {journey}' },
+  'dawarichMore.addedOne': '1 visite ajoutée à {journey}',
+  'dawarichMore.openJourney': 'Ouvrir le carnet',
+  'dawarichMore.untitledJourney': 'Carnet sans titre',
+  'dawarichMore.bucketTitle': 'Liste d’envies',
+  'dawarichMore.bucketIntro': 'Les lieux et pays de votre liste d’envies atteints lors de ces arrêts.',
+  'dawarichMore.bucketLabel': 'Correspondances avec la liste d’envies',
+  'dawarichMore.reached': '{stay}, {date}',
+  'dawarichMore.mark': { one: 'Marquer {count} élément comme visité', other: 'Marquer {count} éléments comme visités' },
+  'dawarichMore.markOne': 'Marquer 1 élément comme visité',
+  'dawarichMore.choose': 'Choisissez les éléments à marquer',
+  'dawarichMore.marked': 'Visité',
+  'dawarichMore.markedToast': 'Liste d’envies mise à jour',
+};

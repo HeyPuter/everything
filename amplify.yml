@@ -877,3 +877,21 @@ applications:
       cache:
         paths:
           - node_modules/**/*
+  - appRoot: src/trips
+    frontend:
+      phases:
+        preBuild:
+          commands:
+            - nvm install 22
+            - npm ci
+        build:
+          commands:
+            # Also bundles the trip host worker into public/worker/.
+            - npm run build
+      artifacts:
+        baseDirectory: dist
+        files:
+          - '**/*'
+      cache:
+        paths:
+          - node_modules/**/*

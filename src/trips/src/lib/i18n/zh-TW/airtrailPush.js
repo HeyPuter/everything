@@ -1,0 +1,18 @@
+export default {
+  'airtrailPush.title': '傳送至 AirTrail',
+  'airtrailPush.intro': '在 Trips 中預訂的航班，每個航段對應一個 AirTrail 航班。傳送後，你在這裡的編輯可以再次傳送。',
+  'airtrailPush.new': '尚未在 AirTrail 中',
+  'airtrailPush.changed': '已在 Trips 中變更',
+  'airtrailPush.changedChip': '已在這裡編輯',
+  'airtrailPush.blockedCodes': '有 {count} 個航班的每個航段都需要機場代碼和日期才能傳送。',
+  'airtrailPush.blockedCodesOne': '有 1 個航班的每個航段都需要機場代碼和日期才能傳送。',
+  'airtrailPush.blockedLegs': '「{title}」：傳送後航段已變更；請在 AirTrail 中手動更新。',
+  'airtrailPush.send': '傳送 {count} 個航班',
+  'airtrailPush.sendOne': '傳送 1 個航班',
+  'airtrailPush.choose': '選擇要傳送的航班',
+  'airtrailPush.sending': '正在傳送「{title}」…',
+  'airtrailPush.done': '已將 {count} 個航班傳送至 AirTrail',
+  'airtrailPush.doneOne': '已將 1 個航班傳送至 AirTrail',
+  'airtrailPush.failed': '無法傳送「{title}」。',
+  'airtrailPush.history': '傳送航班至 AirTrail',
+};

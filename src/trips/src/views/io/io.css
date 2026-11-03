@@ -1,0 +1,36 @@
+/* Import and export dialogs, and the Your data settings section. */
+.io-dialog { display: flex; flex-direction: column; gap: 14px; min-inline-size: 0; }
+.io-dialog > p { margin: 0; color: var(--ink-2); }
+.io-muted { color: var(--ink-3); font-size: 13px; }
+.io-note { margin: 0; padding: 8px 10px; border-radius: var(--r-sm); background: var(--surface-2); color: var(--ink-2); font-size: 13px; }
+.io-summary { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 0; overflow-wrap: anywhere; }
+.io-summary .icon { color: var(--ink-2); flex: none; }
+.io-options { display: flex; flex-direction: column; gap: 12px; }
+.io-actions-inline { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+
+.io-drop { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 24px 16px; border: 1.5px dashed var(--hairline-strong); border-radius: var(--r-md); background: var(--surface-2); color: var(--ink-2); text-align: center; }
+.io-drop.is-over { border-color: var(--accent); background: var(--accent-wash); }
+.io-drop-text { margin: 0; font-size: 14px; }
+
+.io-all { font-weight: 600; }
+.io-items { list-style: none; margin: 0; padding: 4px; max-block-size: min(46vh, 360px); overflow-y: auto; overscroll-behavior: contain; border: 1px solid var(--hairline); border-radius: var(--r-md); }
+.io-item { display: flex; align-items: center; gap: 10px; min-block-size: 44px; padding: 6px 8px; border-radius: var(--r-sm); cursor: pointer; }
+.io-item:hover { background: var(--row-hover); }
+.io-item input { flex: none; inline-size: 18px; block-size: 18px; accent-color: var(--accent); }
+.io-item .icon { flex: none; color: var(--ink-2); }
+.io-item-text { display: flex; flex-direction: column; flex: 1; min-inline-size: 0; }
+.io-item-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.io-item-meta { color: var(--ink-3); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.io-item .chip { flex: none; }
+
+.io-groups { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 0; border: 0; min-inline-size: 0; }
+.io-group { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+.io-progress { display: flex; flex-direction: column; gap: 6px; }
+.io-progress-text { margin: 0; color: var(--ink-2); font-size: 13px; font-variant-numeric: tabular-nums; }
+.io-error { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 10px; border: 1px solid var(--danger); border-radius: var(--r-sm); background: var(--danger-wash); color: var(--danger); font-size: 13px; }
+.io-error > span { flex: 1; min-inline-size: 0; }
+
+.io-section-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.io-result { margin: 0; color: var(--ink-2); font-size: 13px; }
+.io-result ul { margin: 6px 0 0; padding-inline-start: 18px; }

@@ -1,0 +1,1 @@
+{"type":"Topology","transform":{"scale":[0.001,0.001],"translate":[0,0]},"arcs":[[[-2673,49433],[171,74],[-40,-76],[-131,2]]],"objects":{"regions":{"type":"GeometryCollection","geometries":[{"type":"Polygon","id":"GG-X01","arcs":[[0]],"properties":{"name":"Sark","iso":false}}]}}}

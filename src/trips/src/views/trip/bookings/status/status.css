@@ -1,0 +1,30 @@
+.fstatus { display: inline-flex; }
+.fstatus:empty { display: none; }
+.fstatus-chip { min-block-size: 22px; padding: 1px 8px; font-size: 12px; }
+.fstatus-chip.is-success { color: var(--success-strong); background: var(--success-wash); }
+.fstatus-chip.is-warn { color: var(--warn-strong); background: var(--warn-wash); }
+.fstatus-chip.is-accent { color: var(--accent-strong); background: var(--accent-wash); }
+.fstatus-chip.is-danger { color: var(--danger); background: var(--danger-wash); }
+
+.fstatus-details { display: flex; flex-direction: column; gap: 14px; flex-basis: 100%; min-inline-size: 0; }
+.fstatus-leg { display: flex; flex-direction: column; gap: 8px; }
+.fstatus-leg + .fstatus-leg { padding-block-start: 12px; border-block-start: 1px solid var(--hairline); }
+.fstatus-title { margin: 0; font-size: 14px; font-weight: 600; color: var(--ink); }
+.fstatus-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.fstatus-sides { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 20px; }
+.fstatus-side-title { margin: 0 0 6px; color: var(--ink-2); font-size: 12.5px; font-weight: 700; letter-spacing: .02em; }
+.fstatus-dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; margin: 0; font-size: 13px; }
+.fstatus-dl dt { color: var(--ink-3); }
+.fstatus-dl dd { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; margin: 0; min-inline-size: 0; overflow-wrap: anywhere; }
+.fstatus-old { color: var(--ink-3); }
+.fstatus-shift { color: var(--warn-strong); font-size: 12px; font-weight: 600; }
+.fstatus-note { margin: 0; color: var(--ink-3); font-size: 12.5px; }
+.fstatus-message { display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap; margin: 0; color: var(--ink-2); font-size: 13px; }
+.fstatus-message p { margin: 0; flex: 1 1 220px; }
+.fstatus-link { color: var(--accent-strong); font-size: 13px; }
+.fstatus-foot { margin: 0; color: var(--ink-3); font-size: 12px; }
+.fstatus-foot a { color: inherit; }
+
+@media (max-width: 640px) {
+  .fstatus-sides { grid-template-columns: 1fr; }
+}

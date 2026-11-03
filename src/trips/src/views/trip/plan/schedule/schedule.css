@@ -1,0 +1,23 @@
+/* Scheduling details in the day timeline, the visit form fields and the auto schedule preview. */
+.sched-detail { display: flex; flex-direction: column; gap: 2px; margin-block-start: 2px; padding-inline-start: 8px; color: var(--ink-3); font-size: 12.5px; }
+.sched-detail p { margin: 0; }
+.sched-meta { overflow-wrap: anywhere; }
+.sched-line, .sched-warn { display: flex; align-items: flex-start; gap: 6px; }
+.sched-line .icon, .sched-warn .icon { flex: none; margin-block-start: 2px; }
+.sched-warn { color: var(--warn-strong); font-weight: 600; }
+.sched-leg { color: var(--ink-3); font-size: 12.5px; overflow-wrap: anywhere; }
+
+.sched-fields { display: grid; gap: 8px; margin: 0; padding: 10px 12px 12px; border: 1px solid var(--hairline); border-radius: var(--r-sm); }
+.sched-fields legend { padding-inline: 4px; }
+.sched-fields .field-hint { margin: 0; }
+
+.sched-status { display: flex; align-items: center; gap: 8px; min-block-size: 20px; margin: 0; color: var(--ink-3); font-size: 13px; }
+.sched-status:empty { display: none; }
+.sched-preview { display: grid; gap: 6px; max-block-size: min(50vh, 420px); margin: 0; padding: 0; overflow: auto; list-style: none; }
+.sched-preview-item { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 12px; padding: 8px 10px; border: 1px solid var(--hairline); border-radius: var(--r-sm); background: var(--surface); }
+.sched-preview-item.is-changed { border-color: var(--accent); background: var(--accent-wash); }
+.sched-preview-name { min-inline-size: 0; overflow-wrap: anywhere; font-weight: 600; }
+.sched-preview-time { text-align: end; white-space: nowrap; }
+.sched-preview-note { grid-column: 1 / -1; color: var(--ink-2); font-size: 12.5px; }
+.sched-preview-warn { grid-column: 1 / -1; color: var(--warn-strong); font-size: 12.5px; font-weight: 600; }
+.sched-preview-empty { color: var(--ink-3); }

@@ -1,0 +1,11 @@
+.photo-days { display: flex; flex-direction: column; gap: 12px; min-inline-size: 0; }
+.photo-days-sources { display: flex; flex-wrap: wrap; gap: 8px; }
+.photo-days-review { display: flex; flex-direction: column; gap: 14px; }
+.photo-days-notes { margin: 0; padding-inline-start: 18px; color: var(--ink-2); font-size: 13.5px; }
+.photo-days-day { display: flex; flex-direction: column; gap: 6px; }
+.photo-days-title { margin: 0; font-size: 14px; font-weight: 650; color: var(--ink-2); }
+.photo-days-stops { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.photo-days-stop { display: flex; align-items: flex-start; gap: 10px; }
+.photo-days-stop > input[type="checkbox"] { inline-size: 20px; block-size: 20px; margin-block-start: 10px; accent-color: var(--accent); flex: none; }
+.photo-days-stop-main { display: flex; flex-direction: column; gap: 3px; flex: 1; min-inline-size: 0; }
+.photo-days-options { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }

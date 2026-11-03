@@ -1,0 +1,35 @@
+{
+  "data": [
+    {
+      "id": 101,
+      "date": "2026-05-02",
+      "from": { "id": 1, "icao": "EDDF", "iata": "FRA", "name": "Frankfurt am Main Airport", "lat": 50.0333, "lon": 8.5706, "tz": "Europe/Berlin", "country": "DE" },
+      "to": { "id": 2, "icao": "KJFK", "iata": "JFK", "name": "John F. Kennedy International Airport", "lat": 40.6398, "lon": -73.7789, "tz": "America/New_York", "country": "US" },
+      "departure": "2026-05-02T10:15:00.000+02:00",
+      "arrival": "2026-05-02T12:55:00.000-04:00",
+      "duration": 31200,
+      "flightNumber": "LH400",
+      "airline": { "id": 7, "name": "Lufthansa", "iata": "LH", "icao": "DLH" },
+      "aircraft": { "id": 3, "name": "Boeing 747-8", "icao": "B748" },
+      "flightReason": "leisure",
+      "note": "Window seat booked",
+      "passengers": [
+        { "userId": "u-bob", "guestName": null, "seat": "aisle", "seatNumber": "31C", "seatClass": "economy" },
+        { "userId": "u-alice", "guestName": null, "seat": "window", "seatNumber": "31A", "seatClass": "business" }
+      ]
+    },
+    {
+      "id": 102,
+      "date": "2026-05-09",
+      "from": { "id": 2, "icao": "KJFK", "iata": "JFK", "name": "John F. Kennedy International Airport", "lat": 40.6398, "lon": -73.7789, "tz": "America/New_York" },
+      "to": { "id": 1, "icao": "EDDF", "iata": "FRA", "name": "Frankfurt am Main Airport", "lat": 50.0333, "lon": 8.5706, "tz": "Europe/Berlin" },
+      "departure": "2026-05-09T22:30:00.000Z",
+      "arrival": "2026-05-10T06:10:00.000Z",
+      "flightNumber": "LH401",
+      "airline": { "id": 7, "name": "Lufthansa", "iata": "LH" },
+      "note": null,
+      "passengers": []
+    }
+  ],
+  "page": { "nextCursor": "c2" }
+}

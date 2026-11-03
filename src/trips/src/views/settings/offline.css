@@ -1,0 +1,16 @@
+.offline-trips { display: flex; flex-direction: column; gap: 8px; }
+.offline-trip { align-items: flex-start; flex-wrap: wrap; }
+.offline-trip-actions { display: flex; align-items: center; gap: 8px; flex: none; margin-inline-start: auto; }
+.offline-trip-live { display: flex; flex-direction: column; gap: 4px; }
+.offline-trip-live:empty { display: none; }
+.offline-trip-live .meter { max-inline-size: 320px; }
+.offline-flags { display: flex; flex-wrap: wrap; gap: 6px; padding-block-start: 2px; }
+.offline-breakdown { display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px; margin: 0; font-size: 13.5px; }
+.offline-breakdown dt { color: var(--ink-2); }
+.offline-breakdown dd { margin: 0; color: var(--ink); font-variant-numeric: tabular-nums; }
+.offline-attention { display: flex; flex-direction: column; gap: 20px; }
+.offline-block { display: flex; flex-direction: column; gap: 8px; }
+.offline-block-title { margin: 0; color: var(--ink); font-size: 14px; font-weight: 650; }
+@media (max-width: 520px) {
+  .offline-trip-actions { inline-size: 100%; justify-content: flex-end; }
+}

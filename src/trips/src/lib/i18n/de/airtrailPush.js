@@ -1,0 +1,18 @@
+export default {
+  'airtrailPush.title': 'An AirTrail senden',
+  'airtrailPush.intro': 'In Trips gebuchte Flüge, ein AirTrail-Flug pro Teilstrecke. Nach dem Senden kannst du deine Änderungen hier erneut senden.',
+  'airtrailPush.new': 'Noch nicht in AirTrail',
+  'airtrailPush.changed': 'In Trips geändert',
+  'airtrailPush.changedChip': 'Hier bearbeitet',
+  'airtrailPush.blockedCodes': { one: '{count} Flug braucht Flughafencodes und ein Datum für jede Teilstrecke, bevor er gesendet werden kann.', other: '{count} Flüge brauchen Flughafencodes und ein Datum für jede Teilstrecke, bevor sie gesendet werden können.' },
+  'airtrailPush.blockedCodesOne': '1 Flug braucht Flughafencodes und ein Datum für jede Teilstrecke, bevor er gesendet werden kann.',
+  'airtrailPush.blockedLegs': '{title}: Die Teilstrecken haben sich seit dem Senden geändert. Aktualisiere den Flug in AirTrail von Hand.',
+  'airtrailPush.send': { one: '{count} Flug senden', other: '{count} Flüge senden' },
+  'airtrailPush.sendOne': '1 Flug senden',
+  'airtrailPush.choose': 'Flüge zum Senden auswählen',
+  'airtrailPush.sending': '{title} wird gesendet…',
+  'airtrailPush.done': { one: '{count} Flug an AirTrail gesendet', other: '{count} Flüge an AirTrail gesendet' },
+  'airtrailPush.doneOne': '1 Flug an AirTrail gesendet',
+  'airtrailPush.failed': '{title} konnte nicht gesendet werden.',
+  'airtrailPush.history': 'Flüge an AirTrail senden',
+};

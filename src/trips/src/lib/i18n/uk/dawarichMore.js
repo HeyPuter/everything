@@ -1,0 +1,16 @@
+export default {
+  'dawarichMore.toJourney': 'Додати до щоденника…',
+  'dawarichMore.added': { one: '{count} відмітку додано до «{journey}»', few: '{count} відмітки додано до «{journey}»', many: '{count} відміток додано до «{journey}»', other: '{count} відмітки додано до «{journey}»' },
+  'dawarichMore.addedOne': '1 відмітку додано до «{journey}»',
+  'dawarichMore.openJourney': 'Відкрити щоденник',
+  'dawarichMore.untitledJourney': 'Щоденник без назви',
+  'dawarichMore.bucketTitle': 'Список бажань',
+  'dawarichMore.bucketIntro': 'Місця й країни зі списку бажань, де ви побували під час цих перебувань.',
+  'dawarichMore.bucketLabel': 'Збіги зі списком бажань',
+  'dawarichMore.reached': '{stay}, {date}',
+  'dawarichMore.mark': { one: 'Позначити {count} пункт як відвіданий', few: 'Позначити {count} пункти як відвідані', many: 'Позначити {count} пунктів як відвідані', other: 'Позначити {count} пункту як відвідані' },
+  'dawarichMore.markOne': 'Позначити 1 пункт як відвіданий',
+  'dawarichMore.choose': 'Виберіть пункти для позначення',
+  'dawarichMore.marked': 'Відвідано',
+  'dawarichMore.markedToast': 'Список бажань оновлено',
+};

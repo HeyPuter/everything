@@ -1,0 +1,16 @@
+export default {
+  'dawarichMore.toJourney': 'Tambahkan ke jurnal…',
+  'dawarichMore.added': '{count} check-in ditambahkan ke {journey}',
+  'dawarichMore.addedOne': '1 check-in ditambahkan ke {journey}',
+  'dawarichMore.openJourney': 'Buka jurnal',
+  'dawarichMore.untitledJourney': 'Jurnal tanpa judul',
+  'dawarichMore.bucketTitle': 'Daftar impian',
+  'dawarichMore.bucketIntro': 'Tempat dan negara di daftar impian Anda yang dicapai oleh persinggahan ini.',
+  'dawarichMore.bucketLabel': 'Cocok dengan daftar impian',
+  'dawarichMore.reached': '{stay}, {date}',
+  'dawarichMore.mark': 'Tandai {count} dikunjungi',
+  'dawarichMore.markOne': 'Tandai 1 dikunjungi',
+  'dawarichMore.choose': 'Pilih item yang akan ditandai',
+  'dawarichMore.marked': 'Dikunjungi',
+  'dawarichMore.markedToast': 'Daftar impian diperbarui',
+};

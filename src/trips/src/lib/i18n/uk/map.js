@@ -1,0 +1,17 @@
+export default {
+  'map.label': 'Карта подорожі',
+  'map.attribution': 'Авторство карти',
+  'map.marker': 'Мітка на карті',
+  'map.logo': 'Логотип MapLibre',
+  'map.zoomIn': 'Збільшити',
+  'map.zoomOut': 'Зменшити',
+  'map.resetBearing': 'Перетягніть, щоб повернути карту; клацніть, щоб повернути на північ',
+  'map.findLocation': 'Знайти моє місцезнаходження',
+  'map.locationUnavailable': 'Місцезнаходження недоступне',
+  'map.attributionToggle': 'Показати або сховати авторство',
+  'map.mapFeedback': 'Відгук про карту',
+  'map.closePopup': 'Закрити спливне вікно',
+  'map.gesturesWindows': 'Щоб змінити масштаб карти, прокручуйте з натиснутою клавішею Ctrl',
+  'map.gesturesMac': 'Щоб змінити масштаб карти, прокручуйте з натиснутою клавішею ⌘',
+  'map.gesturesMobile': 'Переміщуйте карту двома пальцями',
+};

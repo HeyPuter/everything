@@ -1,0 +1,11 @@
+.presets-bar { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 6px 8px; }
+.presets-bar[hidden] { display: none; }
+.presets-pick { display: flex; flex-direction: column; gap: 4px; flex: 1 1 200px; min-inline-size: 0; }
+.presets-note { flex-basis: 100%; margin: 0; }
+.presets-note:empty { display: none; }
+.presets-manager { display: flex; flex-direction: column; gap: 12px; }
+.presets-list { margin: 0; padding: 0; list-style: none; border: 1px solid var(--hairline); border-radius: var(--r-sm); }
+.presets-row { display: flex; align-items: center; gap: 6px; min-block-size: 52px; padding-block: 6px; padding-inline: 12px 6px; }
+.presets-row + .presets-row { border-block-start: 1px solid var(--hairline); }
+.presets-row-text { display: flex; flex-direction: column; gap: 2px; flex: 1; min-inline-size: 0; overflow-wrap: anywhere; }
+.presets-form { display: flex; flex-direction: column; gap: 4px; }

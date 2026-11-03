@@ -1,0 +1,17 @@
+export default {
+  'map.label': 'Reisekarte',
+  'map.attribution': 'Kartenquellen',
+  'map.marker': 'Kartenmarkierung',
+  'map.logo': 'MapLibre-Logo',
+  'map.zoomIn': 'Vergrößern',
+  'map.zoomOut': 'Verkleinern',
+  'map.resetBearing': 'Ziehen, um die Karte zu drehen; klicken, um nach Norden auszurichten',
+  'map.findLocation': 'Meinen Standort finden',
+  'map.locationUnavailable': 'Standort nicht verfügbar',
+  'map.attributionToggle': 'Kartenquellen ein- oder ausblenden',
+  'map.mapFeedback': 'Feedback zur Karte',
+  'map.closePopup': 'Pop-up schließen',
+  'map.gesturesWindows': 'Verwende Ctrl + Scrollen, um die Karte zu zoomen',
+  'map.gesturesMac': 'Verwende ⌘ + Scrollen, um die Karte zu zoomen',
+  'map.gesturesMobile': 'Verwende zwei Finger, um die Karte zu bewegen',
+};

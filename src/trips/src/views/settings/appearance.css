@@ -1,0 +1,40 @@
+/* Global appearance preferences, loaded with src/lib/prefs.js. High contrast remaps existing tokens per theme. */
+:root[data-contrast="more"] {
+  --ink-2: var(--ink);
+  --ink-3: var(--ink);
+  --hairline: var(--field-border);
+  --hairline-strong: var(--ink);
+  --accent: var(--accent-strong);
+  --warn: var(--warn-strong);
+}
+:root[data-contrast="more"] a { text-decoration-thickness: 2px; }
+:root[data-contrast="more"] :focus-visible { outline-width: 3px; }
+
+:root[data-motion="reduce"] *, :root[data-motion="reduce"] *::before, :root[data-motion="reduce"] *::after {
+  animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; scroll-behavior: auto !important;
+}
+:root[data-motion="reduce"] .spinner { animation: pulse 1.4s ease infinite !important; }
+
+.accent-choices { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; }
+.accent-choices .choice { display: flex; align-items: center; gap: 8px; }
+.accent-swatch { flex: none; inline-size: 18px; block-size: 18px; border-radius: 50%; background: var(--swatch); box-shadow: inset 0 0 0 1px var(--hairline-strong); }
+.tab-order-list { display: flex; flex-direction: column; max-inline-size: 420px; }
+.tab-order-row { display: flex; align-items: center; gap: 10px; padding: 6px 10px; }
+.tab-order-row + .tab-order-row { border-block-start: 1px solid var(--hairline); }
+.tab-order-row > .icon { color: var(--ink-3); flex: none; }
+.tab-order-name { flex: 1; min-inline-size: 0; font-size: 14px; font-weight: 500; }
+.tab-order-moves { display: flex; gap: 2px; }
+
+/* Compact density tightens controls and rows for mouse users; touch targets keep their size. */
+@media (pointer: fine) {
+  :root[data-density="compact"] .btn { min-block-size: 32px; padding-inline: 12px; }
+  :root[data-density="compact"] .btn-sm { min-block-size: 28px; padding-inline: 10px; }
+  :root[data-density="compact"] .icon-btn { inline-size: 30px; block-size: 30px; padding: 5px; }
+  :root[data-density="compact"] .icon-btn-sm { inline-size: 26px; block-size: 26px; padding: 4px; }
+  :root[data-density="compact"] :is(.input, .select) { min-block-size: 34px; padding-block: 5px; }
+  :root[data-density="compact"] :is(.seg button, .tab, .trip-tab) { min-block-size: 30px; padding-block: 4px; }
+  :root[data-density="compact"] .menu-item { min-block-size: 30px; padding-block: 6px; }
+  :root[data-density="compact"] .app-nav-link { min-block-size: 34px; padding-block: 6px; }
+  :root[data-density="compact"] :is(.pref-row, .setting-row) { padding-block: 6px; }
+  :root[data-density="compact"] .modal-panel { gap: 12px; padding: 14px 18px 16px; }
+}

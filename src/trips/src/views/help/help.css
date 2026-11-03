@@ -1,0 +1,26 @@
+.help { display: grid; grid-template-columns: minmax(200px, 260px) minmax(0, 1fr); gap: 20px; align-items: start; min-inline-size: 0; }
+.help-compact { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+.help-nav { display: grid; gap: 8px; min-inline-size: 0; }
+.help-search { margin: 0; }
+.help-topics { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; }
+.help-topic {
+  display: flex; align-items: center; gap: 10px; inline-size: 100%; min-block-size: 36px; padding: 8px 10px; border: 0; border-radius: var(--r-sm);
+  background: transparent; color: var(--ink-2); font: inherit; font-size: 14px; font-weight: 500; text-align: start; cursor: pointer;
+}
+.help-topic:hover { background: var(--surface-2); color: var(--ink); }
+.help-topic[aria-current="true"] { background: var(--accent-wash); color: var(--accent-strong); font-weight: 600; }
+.help-topic:focus-visible { outline-offset: -2px; }
+.help-topic .icon { flex: none; }
+.help-none { margin: 4px 2px; color: var(--ink-3); font-size: 13px; }
+.help-article { display: grid; gap: 12px; max-inline-size: 640px; padding: 18px 20px; border: 1px solid var(--hairline); border-radius: var(--r-md); background: var(--surface); min-inline-size: 0; }
+.help-compact .help-article { padding: 0; border: 0; background: transparent; }
+.help-back { justify-self: start; }
+.help-title { margin: 0; font-size: 19px; font-weight: 700; }
+.help-intro { margin: 0; color: var(--ink-2); font-size: 15px; line-height: 1.5; }
+.help-steps { display: grid; gap: 8px; margin: 0; padding-inline-start: 22px; font-size: 14.5px; line-height: 1.5; }
+.help-links { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; padding-block-start: 8px; border-block-start: 1px solid var(--hairline); font-size: 13.5px; }
+.help-links-label { color: var(--ink-3); font-weight: 600; }
+.help-link { color: var(--accent-strong); font-weight: 600; }
+@media (pointer: coarse) { .help-topic { min-block-size: 44px; } }
+@media (max-width: 719px) { .help { grid-template-columns: minmax(0, 1fr); } }
+.modal-panel.drawer.help-drawer { inline-size: min(440px, 92vw); }

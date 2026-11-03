@@ -1,0 +1,16 @@
+export default {
+  'dawarichMore.toJourney': 'Thêm vào nhật ký…',
+  'dawarichMore.added': 'Đã thêm {count} điểm check-in vào {journey}',
+  'dawarichMore.addedOne': 'Đã thêm 1 điểm check-in vào {journey}',
+  'dawarichMore.openJourney': 'Mở nhật ký',
+  'dawarichMore.untitledJourney': 'Nhật ký chưa đặt tên',
+  'dawarichMore.bucketTitle': 'Muốn đến',
+  'dawarichMore.bucketIntro': 'Các địa điểm và quốc gia trong danh sách muốn đến mà những điểm dừng chân này đã đến.',
+  'dawarichMore.bucketLabel': 'Khớp với danh sách muốn đến',
+  'dawarichMore.reached': '{stay}, {date}',
+  'dawarichMore.mark': 'Đánh dấu {count} mục đã đến',
+  'dawarichMore.markOne': 'Đánh dấu 1 mục đã đến',
+  'dawarichMore.choose': 'Chọn mục để đánh dấu',
+  'dawarichMore.marked': 'Đã đến',
+  'dawarichMore.markedToast': 'Đã cập nhật danh sách muốn đến',
+};

@@ -1,0 +1,1 @@
+{"type":"Topology","transform":{"scale":[0.001,0.001],"translate":[0,0]},"arcs":[[[-70062,12547],[13,85],[124,-113],[48,-92],[-54,-1],[-131,121]]],"objects":{"regions":{"type":"GeometryCollection","geometries":[{"type":"Polygon","id":"AW-X01","arcs":[[0]],"properties":{"name":"Aruba","iso":false}}]}}}

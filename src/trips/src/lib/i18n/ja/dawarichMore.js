@@ -1,0 +1,16 @@
+export default {
+  'dawarichMore.toJourney': '旅行記に追加…',
+  'dawarichMore.added': '{count}件のチェックインを「{journey}」に追加しました',
+  'dawarichMore.addedOne': '1件のチェックインを「{journey}」に追加しました',
+  'dawarichMore.openJourney': '旅行記を開く',
+  'dawarichMore.untitledJourney': '無題の旅行記',
+  'dawarichMore.bucketTitle': '行きたいリスト',
+  'dawarichMore.bucketIntro': 'これらの滞在で訪れた、行きたいリストのスポットと国です。',
+  'dawarichMore.bucketLabel': '行きたいリストとの一致',
+  'dawarichMore.reached': '{stay}、{date}',
+  'dawarichMore.mark': '{count}件を訪問済みにする',
+  'dawarichMore.markOne': '1件を訪問済みにする',
+  'dawarichMore.choose': '訪問済みにする項目を選択',
+  'dawarichMore.marked': '訪問済み',
+  'dawarichMore.markedToast': '行きたいリストを更新しました',
+};

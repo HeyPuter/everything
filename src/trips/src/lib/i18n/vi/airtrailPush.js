@@ -1,0 +1,18 @@
+export default {
+  'airtrailPush.title': 'Gửi đến AirTrail',
+  'airtrailPush.intro': 'Chuyến bay đã đặt trong Trips, mỗi chặng là một chuyến bay AirTrail. Sau khi gửi, các chỉnh sửa của bạn ở đây có thể được gửi lại.',
+  'airtrailPush.new': 'Chưa có trong AirTrail',
+  'airtrailPush.changed': 'Đã thay đổi trong Trips',
+  'airtrailPush.changedChip': 'Đã sửa ở đây',
+  'airtrailPush.blockedCodes': '{count} chuyến bay cần có mã sân bay và ngày cho mọi chặng trước khi gửi.',
+  'airtrailPush.blockedCodesOne': '1 chuyến bay cần có mã sân bay và ngày cho mọi chặng trước khi gửi.',
+  'airtrailPush.blockedLegs': '{title}: các chặng đã thay đổi kể từ khi gửi; hãy cập nhật thủ công trong AirTrail.',
+  'airtrailPush.send': 'Gửi {count} chuyến bay',
+  'airtrailPush.sendOne': 'Gửi 1 chuyến bay',
+  'airtrailPush.choose': 'Chọn chuyến bay để gửi',
+  'airtrailPush.sending': 'Đang gửi {title}…',
+  'airtrailPush.done': 'Đã gửi {count} chuyến bay đến AirTrail',
+  'airtrailPush.doneOne': 'Đã gửi 1 chuyến bay đến AirTrail',
+  'airtrailPush.failed': 'Không thể gửi {title}.',
+  'airtrailPush.history': 'Gửi chuyến bay đến AirTrail',
+};

@@ -1,0 +1,18 @@
+export default {
+  'airtrailPush.title': 'שליחה ל-AirTrail',
+  'airtrailPush.intro': 'טיסות שהוזמנו ב-Trips, טיסה אחת ב-AirTrail לכל קטע. אחרי השליחה אפשר לשלוח שוב את השינויים שעשית כאן.',
+  'airtrailPush.new': 'עדיין לא ב-AirTrail',
+  'airtrailPush.changed': 'השתנתה ב-Trips',
+  'airtrailPush.changedChip': 'נערכה כאן',
+  'airtrailPush.blockedCodes': { one: 'טיסה אחת צריכה קודי שדות תעופה ותאריך בכל קטע לפני שאפשר לשלוח אותה.', two: '{count} טיסות צריכות קודי שדות תעופה ותאריך בכל קטע לפני שאפשר לשלוח אותן.', other: '{count} טיסות צריכות קודי שדות תעופה ותאריך בכל קטע לפני שאפשר לשלוח אותן.' },
+  'airtrailPush.blockedCodesOne': 'טיסה אחת צריכה קודי שדות תעופה ותאריך בכל קטע לפני שאפשר לשלוח אותה.',
+  'airtrailPush.blockedLegs': '{title}: הקטעים שלה השתנו מאז שנשלחה. יש לעדכן אותה ב-AirTrail ידנית.',
+  'airtrailPush.send': { one: 'שליחת טיסה אחת', two: 'שליחת {count} טיסות', other: 'שליחת {count} טיסות' },
+  'airtrailPush.sendOne': 'שליחת טיסה אחת',
+  'airtrailPush.choose': 'בחירת טיסות לשליחה',
+  'airtrailPush.sending': 'שולחים את {title}…',
+  'airtrailPush.done': { one: 'טיסה אחת נשלחה ל-AirTrail', two: '{count} טיסות נשלחו ל-AirTrail', other: '{count} טיסות נשלחו ל-AirTrail' },
+  'airtrailPush.doneOne': 'טיסה אחת נשלחה ל-AirTrail',
+  'airtrailPush.failed': 'לא הצלחנו לשלוח את {title}.',
+  'airtrailPush.history': 'שליחת טיסות ל-AirTrail',
+};

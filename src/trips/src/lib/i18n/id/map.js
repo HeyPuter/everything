@@ -1,0 +1,17 @@
+export default {
+  'map.label': 'Peta perjalanan',
+  'map.attribution': 'Atribusi peta',
+  'map.marker': 'Penanda peta',
+  'map.logo': 'Logo MapLibre',
+  'map.zoomIn': 'Perbesar',
+  'map.zoomOut': 'Perkecil',
+  'map.resetBearing': 'Seret untuk memutar peta, klik untuk mengembalikan ke utara',
+  'map.findLocation': 'Temukan lokasi saya',
+  'map.locationUnavailable': 'Lokasi tidak tersedia',
+  'map.attributionToggle': 'Tampilkan atau sembunyikan atribusi',
+  'map.mapFeedback': 'Masukan peta',
+  'map.closePopup': 'Tutup popup',
+  'map.gesturesWindows': 'Gunakan Ctrl + gulir untuk memperbesar atau memperkecil peta',
+  'map.gesturesMac': 'Gunakan ⌘ + gulir untuk memperbesar atau memperkecil peta',
+  'map.gesturesMobile': 'Gunakan dua jari untuk menggeser peta',
+};

@@ -1,0 +1,79 @@
+.files-view { position: relative; display: flex; flex-direction: column; gap: 14px; min-inline-size: 0; }
+.files-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 10px 16px; flex-wrap: wrap; }
+.files-heading { display: flex; align-items: baseline; gap: 8px; min-inline-size: 0; }
+.files-title { margin: 0; font-size: 16px; font-weight: 700; }
+.files-title:focus { outline: none; }
+.files-count { color: var(--ink-3); font-size: 13px; font-variant-numeric: tabular-nums; }
+.files-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.files-controls { display: flex; align-items: center; gap: 10px 12px; flex-wrap: wrap; }
+.files-search { flex: 1 1 220px; min-inline-size: 0; }
+.files-search .input { inline-size: 100%; }
+.files-filters { max-inline-size: 100%; overflow-x: auto; }
+.files-filters .seg { flex-wrap: nowrap; }
+.files-filters .seg button { white-space: nowrap; }
+.files-hint { margin: 0; color: var(--ink-2); font-size: 13px; }
+
+.file-list { display: flex; flex-direction: column; margin: 0; padding: 0; list-style: none; border: 1px solid var(--hairline); border-radius: var(--r-md); background: var(--surface); overflow: hidden; }
+.file-row { display: flex; align-items: center; gap: 6px; padding-inline-end: 8px; }
+.file-row + .file-row { border-block-start: 1px solid var(--hairline); }
+.file-row:hover { background: var(--row-hover); }
+.file-row[aria-busy="true"] { opacity: .6; }
+.file-row-main { display: flex; align-items: center; gap: 12px; flex: 1; min-inline-size: 0; min-block-size: 64px; padding-block: 8px; padding-inline: 14px 6px; border: 0; background: transparent; color: var(--ink); text-align: start; }
+.file-row-main:focus-visible { outline-offset: -2px; }
+.file-thumb { display: grid; place-items: center; flex: none; inline-size: 48px; block-size: 48px; overflow: hidden; border-radius: var(--r-xs); background: var(--surface-2); color: var(--ink-2); }
+.file-thumb img { inline-size: 100%; block-size: 100%; object-fit: cover; }
+.file-row-text { display: flex; flex-direction: column; gap: 3px; min-inline-size: 0; }
+.file-row-name { font-size: 14.5px; font-weight: 600; overflow-wrap: anywhere; }
+.file-row-meta { color: var(--ink-3); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.file-row-links { display: flex; flex-wrap: wrap; gap: 4px; }
+.file-link-chip { gap: 4px; max-inline-size: 220px; padding-block: 1px; font-size: 12px; font-weight: 500; }
+.file-link-chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-row-actions { display: flex; align-items: center; gap: 4px; flex: none; }
+.file-star { color: var(--ink-3); }
+.file-star[aria-pressed="true"], .file-star-static { color: var(--warn-strong); }
+.file-star-static { display: inline-flex; padding-inline: 8px; }
+.file-row-skeleton { gap: 12px; padding: 12px 14px; }
+.file-empty { list-style: none; }
+
+.file-uploads { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.file-upload { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--hairline); border-radius: var(--r-sm); background: var(--surface); }
+.file-upload.is-error { border-color: var(--danger); background: var(--danger-wash); }
+.file-upload.is-error .file-upload-icon, .file-upload.is-error .file-upload-status { color: var(--danger); }
+.file-upload-icon { display: inline-flex; flex: none; color: var(--ink-2); }
+.file-upload-text { display: flex; flex-direction: column; gap: 4px; flex: 1; min-inline-size: 0; }
+.file-upload-name { font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
+.file-upload-status { color: var(--ink-2); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.file-upload-actions { display: flex; align-items: center; gap: 4px; flex: none; }
+
+.file-drop { position: absolute; inset: 0; z-index: 2; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; border: 2px dashed var(--accent); border-radius: var(--r-md); background: var(--accent-wash); color: var(--accent-strong); font-weight: 600; pointer-events: none; }
+.file-drop p { margin: 0; }
+
+/* Details */
+.file-details { display: flex; flex-direction: column; gap: 18px; min-inline-size: 0; }
+.file-facts { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 0; font-size: 14px; }
+.file-facts dt { color: var(--ink-3); }
+.file-facts dd { margin: 0; overflow-wrap: anywhere; }
+.file-section { display: flex; flex-direction: column; gap: 8px; }
+.file-section-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.file-section-title { margin: 0; color: var(--ink-2); font-size: 13px; font-weight: 600; }
+.file-desc-edit { display: flex; flex-direction: column; gap: 8px; }
+.file-desc-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.file-links-list { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.file-link { display: flex; align-items: center; gap: 8px; min-block-size: 36px; padding-inline: 10px 4px; border-radius: var(--r-sm); background: var(--surface-2); }
+.file-link-type { flex: none; color: var(--ink-3); font-size: 12.5px; }
+.file-link-label { flex: 1; min-inline-size: 0; overflow-wrap: anywhere; font-size: 14px; }
+.file-link-chooser { display: flex; flex-direction: column; gap: 10px; }
+.file-link-chooser .field { margin-block-end: 0; }
+.file-link-choices { display: flex; flex-direction: column; gap: 12px; max-block-size: min(55vh, 460px); overflow-y: auto; }
+.file-link-group { display: flex; flex-direction: column; gap: 2px; }
+.file-link-group-title { margin: 0 0 4px; color: var(--ink-3); font-size: 11.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+
+@media (max-width: 640px) {
+  .files-actions { inline-size: 100%; }
+  .files-actions .btn { flex: 1 1 auto; }
+  .file-row-main { padding-inline-start: 10px; gap: 10px; }
+  .file-thumb { inline-size: 40px; block-size: 40px; }
+}
+@media (pointer: coarse) {
+  .file-row-actions .icon-btn { inline-size: 44px; block-size: 44px; }
+}

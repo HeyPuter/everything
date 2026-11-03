@@ -1,0 +1,17 @@
+export default {
+  'map.label': '여행 지도',
+  'map.attribution': '지도 저작자 표시',
+  'map.marker': '지도 마커',
+  'map.logo': 'MapLibre 로고',
+  'map.zoomIn': '확대',
+  'map.zoomOut': '축소',
+  'map.resetBearing': '드래그해서 지도 회전, 클릭해서 북쪽으로 재설정',
+  'map.findLocation': '내 위치 찾기',
+  'map.locationUnavailable': '위치를 사용할 수 없어요',
+  'map.attributionToggle': '저작자 표시 전환',
+  'map.mapFeedback': '지도 피드백',
+  'map.closePopup': '팝업 닫기',
+  'map.gesturesWindows': 'Ctrl + 스크롤로 지도를 확대/축소하세요',
+  'map.gesturesMac': '⌘ + 스크롤로 지도를 확대/축소하세요',
+  'map.gesturesMobile': '두 손가락으로 지도를 이동하세요',
+};

@@ -1,0 +1,18 @@
+export default {
+  'airtrailPush.title': 'Odeslat do AirTrail',
+  'airtrailPush.intro': 'Lety rezervované v Trips, jeden let AirTrail na každý úsek. Po odeslání můžete své úpravy zde odeslat znovu.',
+  'airtrailPush.new': 'Zatím není v AirTrail',
+  'airtrailPush.changed': 'Změněno v Trips',
+  'airtrailPush.changedChip': 'Upraveno zde',
+  'airtrailPush.blockedCodes': { one: 'Abyste mohli odeslat {count} let, doplňte u každého úseku kódy letišť a datum.', few: 'Abyste mohli odeslat {count} lety, doplňte u každého úseku kódy letišť a datum.', other: 'Abyste mohli odeslat {count} letů, doplňte u každého úseku kódy letišť a datum.' },
+  'airtrailPush.blockedCodesOne': 'Abyste mohli odeslat 1 let, doplňte u každého úseku kódy letišť a datum.',
+  'airtrailPush.blockedLegs': '{title}: od odeslání se změnily jeho úseky; aktualizujte ho v AirTrail ručně.',
+  'airtrailPush.send': { one: 'Odeslat {count} let', few: 'Odeslat {count} lety', other: 'Odeslat {count} letů' },
+  'airtrailPush.sendOne': 'Odeslat 1 let',
+  'airtrailPush.choose': 'Vyberte lety k odeslání',
+  'airtrailPush.sending': 'Odesílání: {title}…',
+  'airtrailPush.done': { one: '{count} let odeslán do AirTrail', few: '{count} lety odeslány do AirTrail', other: '{count} letů odesláno do AirTrail' },
+  'airtrailPush.doneOne': '1 let odeslán do AirTrail',
+  'airtrailPush.failed': '{title} se nepodařilo odeslat.',
+  'airtrailPush.history': 'Odeslat lety do AirTrail',
+};

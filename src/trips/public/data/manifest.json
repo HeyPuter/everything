@@ -1,0 +1,6 @@
+{
+  "built": "2026-10-24",
+  "airports": { "status": "built", "file": "airports.json", "count": 7917, "source": "https://github.com/mwgg/Airports/tree/a89e4e0dda9d9878337e2da190ebe1ef1d6af705", "inputSha256": "a7754cbe722ea21f0f9ab1ef07f4f07ee1e85b9cc99191ebde0b49fabb3c149a", "license": "MIT", "notice": "airports-LICENSE.txt" },
+  "countries": { "status": "built", "file": "countries-50m.json", "count": 241, "source": "https://cdn.jsdelivr.net/npm/world-atlas@2.0.2/countries-50m.json", "inputSha256": "04342cdc1e3016bcd7db1630de95684d67b79fe3c8c460321e87aef469502394", "license": "ISC / Natural Earth public domain", "notice": "countries-LICENSE.txt" },
+  "boundaries": "Natural Earth de facto boundaries; disputed areas follow the upstream Natural Earth point of view."
+}

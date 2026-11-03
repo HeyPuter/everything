@@ -1,0 +1,16 @@
+export default {
+  'dawarichMore.toJourney': 'إضافة إلى يوميات…',
+  'dawarichMore.added': { zero: 'تمت إضافة {count} تسجيل موقع إلى {journey}', one: 'تمت إضافة تسجيل موقع واحد إلى {journey}', two: 'تمت إضافة تسجيلي موقع إلى {journey}', few: 'تمت إضافة {count} تسجيلات موقع إلى {journey}', many: 'تمت إضافة {count} تسجيل موقع إلى {journey}', other: 'تمت إضافة {count} تسجيل موقع إلى {journey}' },
+  'dawarichMore.addedOne': 'تمت إضافة تسجيل موقع واحد إلى {journey}',
+  'dawarichMore.openJourney': 'فتح اليوميات',
+  'dawarichMore.untitledJourney': 'يوميات بلا عنوان',
+  'dawarichMore.bucketTitle': 'قائمة الأمنيات',
+  'dawarichMore.bucketIntro': 'أماكن ودول في قائمة أمنياتك وصلت إليها هذه الإقامات.',
+  'dawarichMore.bucketLabel': 'تطابقات قائمة الأمنيات',
+  'dawarichMore.reached': '{stay}، {date}',
+  'dawarichMore.mark': { zero: 'وضع علامة «تمت الزيارة» على {count} عنصر', one: 'وضع علامة «تمت الزيارة» على عنصر واحد', two: 'وضع علامة «تمت الزيارة» على عنصرين', few: 'وضع علامة «تمت الزيارة» على {count} عناصر', many: 'وضع علامة «تمت الزيارة» على {count} عنصرًا', other: 'وضع علامة «تمت الزيارة» على {count} عنصر' },
+  'dawarichMore.markOne': 'وضع علامة «تمت الزيارة» على عنصر واحد',
+  'dawarichMore.choose': 'اختيار العناصر المراد تحديدها',
+  'dawarichMore.marked': 'تمت الزيارة',
+  'dawarichMore.markedToast': 'تم تحديث قائمة الأمنيات',
+};

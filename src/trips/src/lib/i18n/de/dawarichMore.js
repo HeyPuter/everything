@@ -1,0 +1,16 @@
+export default {
+  'dawarichMore.toJourney': 'Zum Reisetagebuch hinzufügen…',
+  'dawarichMore.added': { one: '{count} Check-in zu {journey} hinzugefügt', other: '{count} Check-ins zu {journey} hinzugefügt' },
+  'dawarichMore.addedOne': '1 Check-in zu {journey} hinzugefügt',
+  'dawarichMore.openJourney': 'Reisetagebuch öffnen',
+  'dawarichMore.untitledJourney': 'Unbenanntes Reisetagebuch',
+  'dawarichMore.bucketTitle': 'Wunschliste',
+  'dawarichMore.bucketIntro': 'Orte und Länder auf deiner Wunschliste, die du bei diesen Aufenthalten erreicht hast.',
+  'dawarichMore.bucketLabel': 'Treffer auf der Wunschliste',
+  'dawarichMore.reached': '{stay}, {date}',
+  'dawarichMore.mark': { one: '{count} als besucht markieren', other: '{count} als besucht markieren' },
+  'dawarichMore.markOne': '1 als besucht markieren',
+  'dawarichMore.choose': 'Einträge zum Markieren auswählen',
+  'dawarichMore.marked': 'Besucht',
+  'dawarichMore.markedToast': 'Wunschliste aktualisiert',
+};
