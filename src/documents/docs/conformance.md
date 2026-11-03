@@ -1531,7 +1531,10 @@ application can lengthen Arabic joins with kashida (tatweel, U+0640) instead
 of, or as well as, widening spaces, so justified Arabic lines reach the same
 margins with different inter-word gaps and no elongated joins. No kashida
 characters enter the source text (`tests/canvas-justification.test.js`,
-`tests/browser/justification.spec.js`).
+`tests/browser/justification.spec.js`). A line holding right-to-left text is
+measured by its visual end, not by its last character, which reordering can
+place anywhere on the line; trailing spaces of a right-to-left run sit inside
+the line and are not hung past the margin (`tests/justified-bidi-carets.test.js`).
 
 Declared preview policy: expansion opportunities are interior U+0020 spaces and
 U+00A0 nonbreaking spaces. Leading/trailing spaces and other fixed Unicode spaces,
