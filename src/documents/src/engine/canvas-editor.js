@@ -2235,6 +2235,9 @@ export class CanvasEditor {
     // U+FFFC stands in for an object (a picture, field or note) in other applications' text, and is
     // this document's own placeholder for one: pasted as a character it would be an invisible stray.
     text = String(text || '').replace(/\ufffc/g, '');
+    // Over a block of table cells, a paste from a menu (which reads the clipboard itself, with no paste event) replaces
+    // the first cell's text, as the keyboard's does, not every cell the block's text range runs through.
+    if (!this.readOnly && !this.viewOnly) this.narrowCellBlock();
     // A picture copied here comes back as the picture, not as its plain-text stand-in.
     const picture = htmlPicture(html);
     if (picture) { if (!this.readOnly && !this.viewOnly) this.insertImageFile(picture.file, picture).catch(error => this.onError(error)); return; }
