@@ -987,10 +987,13 @@ function renderChartContent(data, chart, width, height) {
         if (idx.length === 1) parts.push(`<circle cx="${f(pts[idx[0]][0])}" cy="${f(pts[idx[0]][1])}" r="3.5" fill="${color}"/>`);
         else parts.push(`<polyline points="${line}" fill="none" stroke="${color}" stroke-width="${f(width)}" stroke-linejoin="round" stroke-linecap="round"/>`);
       }
-      if (showPoints) {
+      // A series given a marker size or shape of its own is marked however long it runs, every k-th point past the budget.
+      const marked = own?.marker !== false && (own?.markerSize != null || !!own?.markerSymbol);
+      if (showPoints || marked) {
         const r = own?.markerSize ? own.markerSize * 2 / 3 : 3;
+        const every = showPoints ? 1 : Math.max(1, Math.ceil(n * lineIdx.length / MARK_BUDGET));
         pts.forEach((p, i) => {
-          if (!p) return;
+          if (!p || i % every) return;
           if (own?.marker === false) { /* no marker */ }
           else if (own?.markerSymbol && own.markerSymbol !== 'circle') parts.push(chartMarker(own.markerSymbol, p[0], p[1], r * 2, color, color, tipFor(s, i)));
           else parts.push(`<circle cx="${f(p[0])}" cy="${f(p[1])}" r="${f(r)}" fill="${color}"><title>${esc(tipFor(s, i))}</title></circle>`);
