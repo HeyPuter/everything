@@ -77,6 +77,12 @@ types, resolved through an Override or the Default for the part's extension
 (Part 2 §10.1.2.4). `tests/docx-macro-parts.test.js` covers renamed VBA projects,
 macro data and signatures.
 
+A package holding two parts with equivalent names (equal ignoring ASCII case, Part 2
+§9.1.1), including a ZIP item repeated under the same name, opens as the read-only
+preview with the issue "parts that share a name (…)": which part is meant is unknown,
+and a save would have dropped one (`tests/docx-duplicate-parts.test.js`). Folder
+entries some ZIP tools add (`word/`) are not parts and are ignored.
+
 What the editor saves is always a .docx (a template's first save writes a new .docx
 file and leaves the template as it was), so an export rewrites the Main Document override to the
 document content type, the one Word requires of a .docx. No other part changes

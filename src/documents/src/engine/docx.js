@@ -108,6 +108,11 @@ const MAIN_TYPES = new Set([`${DOCX_TYPE}.main+xml`, 'application/vnd.openxmlfor
 // into a .docx, which Word refuses. Macro parts are the VBA project and its data ([MS-OFFMACRO2]);
 // signatures are Part 2's digital signature origin and XML signature parts.
 const MACRO_OR_SIGNATURE_TYPES = /^application\/vnd\.ms-office\.vbaproject$|^application\/vnd\.ms-word\.vbadata\+xml$|^application\/vnd\.openxmlformats-package\.digital-signature-/;
+// A package may not hold two parts whose names are equal ignoring ASCII case (equivalent part names,
+// ECMA-376 Part 2, §9.1.1), and Word refuses such a file. A repeated ZIP item replaced the earlier one on
+// reading (fflate keeps the last), so a save dropped it. Which part is meant is unknown: the document
+// opens read-only, and its download keeps the file as it was.
+const duplicatePartNames = new WeakMap();
 function hasMacrosOrSignatures(parts) {
   let types;
   try { types = xml(parts['[Content_Types].xml']).documentElement; } catch { return false; }
@@ -1241,14 +1246,18 @@ export class DocxPackage {
     const compound = compoundFileProblem(bytes);
     if (compound) throw new Error(compound);
     let total = 0, count = 0, parts;
+    const names = new Set(), duplicates = new Set();
     try {
       parts = unzipSync(bytes, { filter: entry => {
         total += entry.originalSize;
         if (++count > 2000 || total > 50 * 1024 * 1024) throw new Error('DOCX expanded size exceeds the editor limit.');
+        const key = entry.name.replace(/[A-Z]+/g, c => c.toLowerCase());
+        if (!key.endsWith('/') && names.has(key)) duplicates.add(entry.name); else names.add(key);
         return true;
       } });
     } catch (e) { throw new Error(`Could not read this DOCX archive: ${e.message}`); }
     parts = canonicalMainPart(parts);
+    if (duplicates.size) duplicatePartNames.set(parts, [...duplicates]);
     if (!parts['word/document.xml'] || !parts['[Content_Types].xml'] || !parts['_rels/.rels']) throw new Error('This file is not a supported DOCX document.');
     const types = xml(parts['[Content_Types].xml']);
     if (![...types.getElementsByTagNameNS('*', 'Override')].some(n => n.getAttribute('PartName') === '/word/document.xml' && MAIN_TYPES.has(n.getAttribute('ContentType')))) {
@@ -1322,6 +1331,7 @@ export class DocxPackage {
         return typeof fallback === 'function' ? fallback() : fallback;
       }
     };
+    if (duplicatePartNames.has(parts)) unsupported(`parts that share a name (${duplicatePartNames.get(parts).join(', ')})`);
     if (Object.keys(parts).some(name => /vbaProject|^_xmlsignatures\//i.test(name)) || hasMacrosOrSignatures(parts)) unsupported('macros or digital signatures');
     const settings = attempt(() => readSettings(parts), null);
     const savedSpellingComplete = completedSpelling(settings?.documentElement), spellingAnchors = new Map();
