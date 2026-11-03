@@ -24,9 +24,14 @@ const HIDDEN_ROW = /\s(?:hidden\s*=\s*["']\s*(?:1|true)\s*["']|ht\s*=\s*["']\s*(
 
 /** Sorted line indices as runs, [[from, to], …]. */
 function runs(lines) {
+  // A part's rows come in order, as a rule, a million of them on a sheet with every row below its data hidden:
+  // only lines out of order are sorted.
+  let ordered = true;
+  for (let k = 1; ordered && k < lines.length; k++) ordered = lines[k] >= lines[k - 1];
   const out = [];
-  for (const i of [...new Set(lines)].sort((a, b) => a - b)) {
-    const last = out.at(-1);
+  for (const i of ordered ? lines : [...new Set(lines)].sort((a, b) => a - b)) {
+    const last = out[out.length - 1];
+    if (last && last[1] >= i) continue;
     if (last && last[1] === i - 1) last[1] = i;
     else out.push([i, i]);
   }
