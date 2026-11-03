@@ -23765,8 +23765,12 @@ Supported subset:
 - `permStart`/`permEnd` inside paragraphs and between blocks are read as zero-width markers that
   move with edits (text typed at either edge of a range joins it); a range opening between blocks
   starts at the next paragraph. Unchanged paragraphs keep their source XML; a paragraph that adopted
-  block-level comment or permission markers is rewritten so the markers are not lost. Range
-  permissions between table rows/cells (`colFirst`/`colLast`) still open read-only.
+  block-level comment or permission markers is rewritten so the markers are not lost. A
+  `permStart` inside a table cell with `colFirst`/`colLast` (§17.13.7.2) covers only those columns
+  of the rows between its start and end (column indices count the physical cells of its first
+  row, as for column bookmarks): only those cells can be edited under protection, and the
+  attributes are kept when saved. A column range that reaches outside its table is an ordinary
+  text range. Range permissions between table rows (outside any cell) still open read-only.
 - With Track Changes on, run and paragraph formatting changes record the formatting they replaced
   (`rPrChange`/`pPrChange`, the former properties written with the same writer as current ones);
   changing them back by hand drops the record; editing style definitions is not tracked.

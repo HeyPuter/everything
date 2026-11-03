@@ -87,7 +87,7 @@ export function createRestrictEditing({ editor, pkg, error, author, onChange = (
     const p = protection();
     draft = { formatting: !!p?.formatting, editing: !!p && p.edit !== 'none', edit: p && p.edit !== 'none' ? p.edit : draft.edit || 'readOnly' };
   }
-  const regions = () => { const engine = editor(); return engine && api() ? api().permissionRanges(engine.session.body.paragraphs) : []; };
+  const regions = () => { const engine = editor(); return engine && api() ? api().permissionRanges(engine.session.body.paragraphs, engine.session.body.tables) : []; };
   const myRegions = () => regions().filter(r => api().permissionApplies(r, user()));
   const editorsList = () => [...new Set([...EXTRA_EDITORS.get(), ...regions().map(r => r.ed).filter(Boolean)])];
 

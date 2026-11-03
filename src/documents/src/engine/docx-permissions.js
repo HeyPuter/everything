@@ -18,7 +18,7 @@ export function permissionMarker(id, edge, offset, order, { ed = null, edGrp = n
 }
 
 /** Read a permStart/permEnd element as a marker. */
-export function readPermissionMarker(node, offset, order) {
+export function readPermissionMarker(node, offset, order, context = {}) {
   const edge = node.localName === 'permStart' ? 'start' : 'end';
   if (node.children.length || node.textContent.trim()) throw new UnsupportedDocumentError('permission marker content');
   for (const attr of [...node.attributes]) {
@@ -29,7 +29,10 @@ export function readPermissionMarker(node, offset, order) {
   if (!id) throw new UnsupportedDocumentError('a permission range without an identifier');
   const edGrp = node.getAttributeNS(W, 'edGrp');
   if (edGrp !== null && !EDITOR_GROUPS.includes(edGrp)) throw new UnsupportedDocumentError('an invalid permission editor group');
-  return permissionMarker(id, edge, offset, order, { ed: node.getAttributeNS(W, 'ed'), edGrp, shell: serialize(node) });
+  // A range opened in a table cell may cover only some of its columns (§17.13.7.2 colFirst, colLast).
+  const first = node.getAttributeNS(W, 'colFirst'), last = node.getAttributeNS(W, 'colLast');
+  const columns = edge === 'start' && context.cellId && /^[+-]?\d+$/.test(first || '') && /^[+-]?\d+$/.test(last || '') ? { first: BigInt(first).toString(), last: BigInt(last).toString() } : null;
+  return { ...permissionMarker(id, edge, offset, order, { ed: node.getAttributeNS(W, 'ed'), edGrp, shell: serialize(node) }), ...(columns ? { tableColumns: columns } : {}) };
 }
 
 /** Write a permission marker; a retained source element keeps its other attributes. */

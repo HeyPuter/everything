@@ -6,6 +6,7 @@
 // hexadecimal text; verification accepts either input so files from both
 // kinds of writer can be unlocked.
 import { digest } from './sha.js';
+import { columnBookmarkResolver } from './column-bookmarks.js';
 
 /** Editing restrictions (§17.18.18 ST_DocProtect) offered by the Restrict Editing pane. */
 export const EDIT_RESTRICTIONS = ['none', 'readOnly', 'comments', 'trackedChanges', 'forms'];
@@ -105,23 +106,46 @@ function normalizedAlgorithm(name) {
 const length = p => p.runs.reduce((n, r) => n + r.text.length, 0);
 export const isPermissionMarker = marker => !!marker?.perm;
 
-/** Permission ranges as { id, start, end, ed, edGrp } absolute positions, in document order. */
-export function permissionRanges(paragraphs) {
+/**
+ * Permission ranges as { id, start, end, ed, edGrp } absolute positions, in document order. A range opened in a
+ * table cell with colFirst/colLast (§17.13.7.2) covers only those columns of the rows it spans: given the
+ * document's `tables`, it is listed once for each of those cells, over the cell's paragraphs.
+ */
+export function permissionRanges(paragraphs, tables = null) {
   const found = new Map(); let at = 0;
   for (const p of paragraphs) {
     for (const marker of p.bookmarks || []) {
       if (!marker.perm) continue;
       const entry = found.get(marker.permId) || { id: marker.permId };
       const position = at + Math.min(marker.offset, length(p));
-      if (marker.edge === 'start') Object.assign(entry, { start: position, ed: marker.ed || null, edGrp: marker.edGrp || null });
-      else entry.end = position;
+      if (marker.edge === 'start') Object.assign(entry, { start: position, ed: marker.ed || null, edGrp: marker.edGrp || null, startMarker: marker, startParagraph: p.id });
+      else Object.assign(entry, { end: position, endMarker: marker, endParagraph: p.id });
       found.set(marker.permId, entry);
     }
     at += length(p) + 1;
   }
-  return [...found.values()].filter(e => e.start !== undefined && e.end !== undefined && e.end >= e.start).sort((a, b) => a.start - b.start || a.end - b.end);
+  const ranges = [];
+  let resolve, cells;
+  for (const { startMarker, endMarker, startParagraph, endParagraph, ...range } of found.values()) {
+    if (range.start === undefined || range.end === undefined || range.end < range.start) continue;
+    let columns = null;
+    if (startMarker.tableColumns && tables?.length) {
+      resolve ||= columnBookmarkResolver(paragraphs, tables);
+      try { columns = resolve({ ...range, startMarker, endMarker, startParagraph, endParagraph }); } catch { columns = null; }
+    }
+    if (!columns) { ranges.push(range); continue; }
+    // One range per selected cell, from its first paragraph to its last, so the marks between them are inside.
+    cells ||= new Map(paragraphs.map(p => [p.id, p.cellId]));
+    let last = null;
+    for (const piece of columns.ranges) {
+      const cell = cells.get(piece.paragraphId);
+      if (last && last.cell === cell && last.end + 1 === piece.start) { last.end = piece.end; continue; }
+      ranges.push(last = { ...range, start: piece.start, end: piece.end, cell });
+    }
+  }
+  for (const range of ranges) delete range.cell;
+  return ranges.sort((a, b) => a.start - b.start || a.end - b.end);
 }
-
 /** Whether a user may edit a permission range: everyone, or a named editor that matches the user. */
 export function permissionApplies(range, user = {}) {
   if (range.edGrp === 'everyone') return true;
@@ -220,8 +244,8 @@ export function protectionGuard(protection, user = {}, { contentControlRanges } 
       if (originalText(before.paragraphs) !== originalText(after) || JSON.stringify(before.tables) !== JSON.stringify(model.tables)
         || drawingContent(before.paragraphs, model.assets) !== drawingContent(after, model.assets)) throw new ProtectionError('This change can’t be tracked, and tracking is locked. Unlock tracking to make it.');
     } else if (edit !== 'none') {
-      const regions = state => [...permissionRanges(state).filter(r => permissionApplies(r, user)), ...(edit === 'forms' && contentControlRanges ? contentControlRanges(state) : [])];
-      const changed = protectedSignature(before.paragraphs, regions(before.paragraphs)) !== protectedSignature(after, regions(after));
+      const regions = (state, tables) => [...permissionRanges(state, tables).filter(r => permissionApplies(r, user)), ...(edit === 'forms' && contentControlRanges ? contentControlRanges(state) : [])];
+      const changed = protectedSignature(before.paragraphs, regions(before.paragraphs, before.tables)) !== protectedSignature(after, regions(after, model.tables));
       if (changed) throw new ProtectionError(edit === 'comments' ? 'This document is protected: only comments can be added.' : edit === 'forms' ? 'This document is protected: only form fields can be filled in.' : 'This part of the document is protected. Edit only in the highlighted regions.');
       if (edit === 'readOnly' || edit === 'forms') {
         if (JSON.stringify(before.comments || []) !== JSON.stringify(model.comments || [])) throw new ProtectionError('This document is protected: comments cannot be changed.');

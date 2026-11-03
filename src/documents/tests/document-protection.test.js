@@ -161,6 +161,24 @@ describe('enforcement', () => {
     expect(tryEdit(s, m => { m.select(0, 3); m.setRunFormat({ bold: true }); })).toBe(false);
   });
 
+  it('lets everyone edit only the table columns a range names (colFirst, colLast)', async () => {
+    const cell = (text, before = '', after = '') => `<w:tc><w:tcPr><w:tcW w:w="2000" w:type="dxa"/></w:tcPr><w:p>${before}<w:r><w:t>${text}</w:t></w:r>${after}</w:p></w:tc>`;
+    // The first column of both rows is open to everyone (§17.13.7.2); the second column stays protected.
+    const body = `<w:p><w:r><w:t>Before</w:t></w:r></w:p><w:tbl><w:tblPr/><w:tblGrid><w:gridCol w:w="2000"/><w:gridCol w:w="2000"/></w:tblGrid>`
+      + `<w:tr>${cell('A1', '<w:permStart w:id="3" w:edGrp="everyone" w:colFirst="0" w:colLast="0"/>')}${cell('B1')}</w:tr>`
+      + `<w:tr>${cell('A2')}${cell('B2', '', '<w:permEnd w:id="3"/>')}</w:tr></w:tbl><w:p><w:r><w:t>After</w:t></w:r></w:p>`;
+    const { pkg, s, model } = await session(null, {}, body);
+    expect(permissionRanges(model.paragraphs, model.tables).map(r => model.text.slice(r.start, r.end))).toEqual(['A1', 'A2']);
+    expect(tryEdit(s, m => { m.select(m.text.indexOf('A1') + 2); m.replace('!'); })).toBe(true);
+    expect(tryEdit(s, m => { m.select(m.text.indexOf('A2')); m.replace('>'); })).toBe(true);
+    // B1 lies between the range's start and end, but not in its columns.
+    expect(tryEdit(s, m => { m.select(m.text.indexOf('B1') + 1); m.replace('x'); })).toBe(false);
+    expect(tryEdit(s, m => { m.select(m.text.indexOf('B2'), m.text.indexOf('B2') + 2); m.replace(''); })).toBe(false);
+    expect(model.text).toBe('Before\nA1!\nB1\n>A2\nB2\nAfter');
+    const xml = strFromU8((await save(pkg, model))['word/document.xml']);
+    expect(xml).toMatch(/<w:permStart w:id="3" w:edGrp="everyone" w:colFirst="0" w:colLast="0"\/>/);
+  });
+
   it('lets a named editor edit their own range, including new paragraphs', async () => {
     const { s, model } = await session(null, { name: 'Ada', email: 'ADA@example.com' });
     expect(permissionApplies({ ed: 'ada@example.com' }, { email: 'ADA@example.com' })).toBe(true);

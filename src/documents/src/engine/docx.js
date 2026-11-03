@@ -1559,7 +1559,7 @@ export class DocxPackage {
         }
         if (isPermissionElement(r) && !context.drawingText && !context.pageStory) {
           if (bodyFields.inCode) throw new UnsupportedDocumentError('permission ranges inside a body field instruction');
-          bookmarks.push(readPermissionMarker(r, textPosition, bodyInlineOrder++)); return;
+          bookmarks.push(readPermissionMarker(r, textPosition, bodyInlineOrder++, context)); return;
         }
         if (r.namespaceURI === W && ['commentRangeStart', 'commentRangeEnd'].includes(r.localName)) {
           if (context.drawingText || context.pageStory) throw new UnsupportedDocumentError('comments outside the main body');
@@ -1876,12 +1876,12 @@ export class DocxPackage {
           if (node.localName === 'sectPr' && !depth && !context.cellId) continue;
           if (isPermissionElement(node) && node.localName === 'permStart' && !context.drawingText && !context.pageStory) {
             // A range opening between blocks starts with the next paragraph.
-            leading.push(readPermissionMarker(node, 0, bodyInlineOrder++));
+            leading.push(readPermissionMarker(node, 0, bodyInlineOrder++, context));
             continue;
           }
           if ((['commentRangeStart', 'commentRangeEnd'].includes(node.localName) || isPermissionElement(node)) && !context.drawingText && !context.pageStory) {
             const previous = result.at(-1);
-            const marker = (isPermissionElement(node) ? readPermissionMarker : readCommentMarker)(node, previous ? paragraphText(previous).length : 0, bodyInlineOrder++);
+            const marker = (isPermissionElement(node) ? readPermissionMarker : readCommentMarker)(node, previous ? paragraphText(previous).length : 0, bodyInlineOrder++, context);
             if (previous) { (previous.bookmarks ||= []).push(marker); adopted(previous); } else pending.push(marker);
             continue;
           }
