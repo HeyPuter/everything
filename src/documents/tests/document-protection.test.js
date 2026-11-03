@@ -3,10 +3,10 @@ import { JSDOM } from 'jsdom';
 import { createHash } from 'node:crypto';
 import { zipSync, unzipSync, strToU8, strFromU8 } from 'fflate';
 import { DocxPackage } from '../src/engine/docx.js';
-import { TextDocument } from '../src/engine/model.js';
+import { TextDocument, paragraph } from '../src/engine/model.js';
 import { StorySession } from '../src/engine/story-session.js';
 import { digest } from '../src/engine/sha.js';
-import { ENCRYPTION_MATRIX, legacyPasswordKey, legacyKeyText, iteratedHash, bytesToBase64, createPasswordVerifier, verifyPassword, permissionRanges, permissionApplies, protectionGuard, ProtectionError, nextPermissionId } from '../src/engine/protection.js';
+import { ENCRYPTION_MATRIX, legacyPasswordKey, legacyKeyText, iteratedHash, bytesToBase64, createPasswordVerifier, verifyPassword, permissionRanges, permissionApplies, protectionGuard, ProtectionError, nextPermissionId, protectedSignature } from '../src/engine/protection.js';
 import { permissionMarker } from '../src/engine/docx-permissions.js';
 import { addPermissionRange, removePermissionRanges } from '../src/engine/permission-edits.js';
 import { contentControlRanges } from '../src/engine/content-controls.js';
@@ -257,3 +257,22 @@ describe('enforcement', () => {
     expect(nextPermissionId(paragraphs)).toBe('3');
   });
 });
+
+it('checks a keystroke in a long protected document in about the same time however many regions it has', () => {
+  // 4,000 paragraphs; everyone may edit the start of 20, or of 400, of them.
+  const paragraphs = Array.from({ length: 4000 }, (_, i) => paragraph(`Paragraph ${i} of the agreement, which only some may change.`));
+  const regions = count => { const step = paragraphs.length / count; return Array.from({ length: count }, (_, k) => { let at = 0; for (let i = 0; i < k * step; i++) at += paragraphs[i].runs[0].text.length + 1; return { start: at, end: at + 9 }; }); };
+  // The processor time of the protected-content signature a keystroke's check builds twice (median of five).
+  const time = editable => {
+    const times = [];
+    for (let k = 0; k < 5; k++) { const before = process.cpuUsage(); protectedSignature(paragraphs, editable); const used = process.cpuUsage(before); times.push(used.user + used.system); }
+    return times.sort((a, b) => a - b)[2];
+  };
+  const few = regions(20), many = regions(400);
+  time(few); time(many);
+  // Each character was compared with every region: with 400 regions it took about ten times as long.
+  expect(time(many)).toBeLessThan(3 * time(few));
+  // The regions' text is left out of the signature, whichever way it is worked out.
+  expect(protectedSignature(paragraphs, many)).not.toContain('Paragraph 0 of');
+  expect(protectedSignature(paragraphs, many)).toContain('Paragraph 1 of');
+}, 120000);

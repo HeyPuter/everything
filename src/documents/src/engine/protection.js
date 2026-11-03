@@ -165,7 +165,38 @@ export function nextPermissionId(paragraphs) {
 /** The protected content as a flat token list: text outside editable ranges, and each protected paragraph mark. */
 export function protectedSignature(paragraphs, editable) {
   const tokens = []; let at = 0;
-  const inside = (start, end) => editable.some(r => r.start <= start && end <= r.end);
+  // A character or mark at p is editable inside a range with start <= p < end, a marker at p with start <= p <= end.
+  // The ranges are merged once: asking every range about every character made each keystroke in a long protected
+  // document with many editable regions take a large fraction of a second.
+  const merge = closed => {
+    const out = [];
+    for (const r of [...editable].sort((a, b) => a.start - b.start)) {
+      if (!closed && r.end <= r.start) continue;
+      const last = out.at(-1);
+      if (last && r.start <= last[1]) last[1] = Math.max(last[1], r.end); else out.push([r.start, r.end]);
+    }
+    return out;
+  };
+  const spans = merge(false), points = merge(true);
+  // Positions are asked about in increasing order, so the first span not yet passed is kept.
+  let next = 0;
+  const outside = (from, text) => {
+    const to = from + text.length;
+    while (next < spans.length && spans[next][1] <= from) next++;
+    let out = '', position = from;
+    for (let k = next; position < to; k++) {
+      const span = spans[k];
+      if (!span || span[0] >= to) { out += text.slice(position - from); break; }
+      if (span[0] > position) out += text.slice(position - from, span[0] - from);
+      position = Math.max(position, span[1]);
+    }
+    return out;
+  };
+  const pointInside = position => {
+    let low = 0, high = points.length - 1;
+    while (low <= high) { const middle = (low + high) >> 1; if (points[middle][1] < position) low = middle + 1; else if (points[middle][0] > position) high = middle - 1; else return true; }
+    return false;
+  };
   const push = token => {
     const last = tokens.at(-1);
     if (token[0] === 't' && last?.[0] === 't' && last[2] === token[2] && last[3] === token[3]) last[1] += token[1]; else tokens.push(token);
@@ -174,13 +205,12 @@ export function protectedSignature(paragraphs, editable) {
     const { id, runs, bookmarks, fieldMarkers, markRevision, formatRevision, ...rest } = p;
     let offset = at;
     for (const run of runs) {
-      let text = '';
-      for (let i = 0; i < run.text.length; i++) if (!inside(offset + i, offset + i + 1)) text += run.text[i];
+      const text = outside(offset, run.text);
       if (text) { const { text: _, revision, formatRevision: f, ...format } = run; push(['t', text, JSON.stringify(format), revision?.type || null]); }
       offset += run.text.length;
     }
-    const markers = (bookmarks || []).filter(m => !m.perm && !m.comment && !inside(at + m.offset, at + m.offset)).map(m => [m.id, m.edge]);
-    if (!inside(offset, offset + 1)) push(['p', JSON.stringify(rest), markers, markRevision?.type || null]);
+    const markers = (bookmarks || []).filter(m => !m.perm && !m.comment && !pointInside(at + m.offset)).map(m => [m.id, m.edge]);
+    if (outside(offset, '\n')) push(['p', JSON.stringify(rest), markers, markRevision?.type || null]);
     at = offset + 1;
   }
   return JSON.stringify(tokens);
