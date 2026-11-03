@@ -1310,8 +1310,8 @@ const uncalled = (v) => (v !== null && typeof v === 'object' && v.lambda ? err('
 
 /** The calculation's working state, set aside while a data table calculates with substituted inputs. */
 const SUBSTITUTE_STATE = ['_iterationReady', '_cache', '_rangeCache', '_rangeCacheCells', '_rangeRuns', '_usedCache', '_cellBoundsCache', '_statsCache',
-  '_volatile', '_spills', '_spillBuilds', '_hasDeferredSpills', '_spillComputed', '_evaluating', '_evalOrder', '_evalLast', '_cyclic', '_provisional', '_blankProvisional',
-  '_blankKeys', '_probed', '_unsettled', '_tentative', '_grown'];
+  '_volatile', '_spills', '_spillBuilds', '_hasDeferredSpills', '_spillComputed', '_evaluating', '_evalOrder', '_evalLast', '_cyclic', '_circleOf', '_provisional',
+  '_blankProvisional', '_blankKeys', '_probed', '_unsettled', '_tentative', '_grown'];
 
 /** The workbook's settings beside its sheets and their active one (see bookState): what a file holds of the book itself. */
 export const BOOK_STATE_KEYS = ['dataModel', 'nativePivots', 'externalWorkbooks', 'iteration', 'calcMode', 'structureProtected', 'queries', 'watches',
@@ -1378,6 +1378,7 @@ export class Workbook extends EventTarget {
     this._evalSeq = 0;
     this._evalLast = null; // the innermost of them, the reader of any cell it finds still being calculated
     this._cyclic = new Set(); // cells found on a circle of references while they were being calculated
+    this._circleOf = new Map(); // each cell settled as #CYCLE! on a circle → the outermost cell of that circle (see _compute)
     this._provisional = new Map(); // reader cell → where the circle whose provisional value it read starts (its _evalOrder), settled once it has its answer
     this._blankProvisional = 0; // while a reader is calculated again with provisional cells read as blank
     this._blankKeys = null; // the cells read as blank (or _blankValue) while the outermost cell of a circle is calculated again (see _judgeCircles)
@@ -13243,7 +13244,17 @@ export class Workbook extends EventTarget {
       if (!dependents.has(reader)) { dependents.add(reader); this._iteration.edges++; }
     }
     if (this._blankKeys !== null && this._blankKeys.has(key)) return this._blankValue;
-    if (this._cache.has(key)) return this._cache.get(key);
+    if (this._cache.has(key)) {
+      const value = this._cache.get(key);
+      // A cell already settled on a cycle whose circle runs through a cell still being calculated closes a circle with
+      // its reader, as it would have were it still being calculated itself: C1 = IF(ISNUMBER(B1),B1*2,0) read by A1 =
+      // B1+C1 is on B1 = A1+1's circle whether B1 settled before C1 read it or after.
+      if (value !== null && typeof value === 'object' && value.error === '#CYCLE!' && this._evaluating.size && !this._iteration) {
+        const outer = this._circleOf.get(key);
+        if (outer !== undefined && this._evaluating.has(outer)) return this._provisionalRead(outer);
+      }
+      return value;
+    }
     const saved = savedExternalResult(cell);
     const links = saved && this._externalLinks(sheet, r, c, cell.f);
     if (saved && links.linked && !links.cached
@@ -13277,13 +13288,7 @@ export class Workbook extends EventTarget {
           for (const k of this._evaluating) { if (k === key) inside = true; if (inside) this._iteration.members.add(k); }
           return key === this._iteration.current ? this._iteration.prior : cell.v ?? 0;
         }
-        if (this._blankProvisional) return null;
-        // The circle runs from this cell to the innermost, the reader. Every circle the reader closes ends at it,
-        // so together they are the one that starts furthest out: only where that starts is kept.
-        const reader = this._evalLast;
-        const from = this._evalOrder.get(key);
-        const earliest = this._provisional.get(reader);
-        if (earliest === undefined || from < earliest) this._provisional.set(reader, from);
+        return this._provisionalRead(key);
       }
       return err('#CYCLE!');
     }
@@ -13367,6 +13372,7 @@ export class Workbook extends EventTarget {
     }
     if (deep) return this._computeDeep(sheet, r, c);
     if (this._cyclic.delete(key)) value = err('#CYCLE!');
+    else if (value?.error !== '#CYCLE!') this._circleOf.delete(key);
     this._cache.set(key, value);
     this._probed?.push(key);
     if (this._spillBuilds.length || this._hasDeferredSpills) this._spillComputed.push(key);
@@ -13375,6 +13381,18 @@ export class Workbook extends EventTarget {
     if (this._settleDeferredSpills()) return this._compute(sheet, r, c);
     this._announceGrown();
     return value;
+  }
+
+  /** The innermost cell being calculated reads one still being calculated, `key`: a provisional #CYCLE!, or blank while judged. */
+  _provisionalRead(key) {
+    if (this._blankProvisional) return null;
+    // The circle runs from this cell to the innermost, the reader. Every circle the reader closes ends at it,
+    // so together they are the one that starts furthest out: only where that starts is kept.
+    const reader = this._evalLast;
+    const from = this._evalOrder.get(key);
+    const earliest = this._provisional.get(reader);
+    if (earliest === undefined || from < earliest) this._provisional.set(reader, from);
+    return err('#CYCLE!');
   }
 
   /**
@@ -13408,7 +13426,8 @@ export class Workbook extends EventTarget {
       this._unsettled.push({ outer, reader: key, circle, sheet, r, c, ast, raw });
       return value;
     }
-    for (const k of circle) { this._cyclic.add(k); this._iteration?.members.add(k); }
+    const outer = circle.values().next().value;
+    for (const k of circle) { this._cyclic.add(k); this._circleOf.set(k, outer); this._iteration?.members.add(k); }
     this._cyclic.delete(key);
     return err('#CYCLE!');
   }
@@ -13471,7 +13490,7 @@ export class Workbook extends EventTarget {
       if (!cycle) continue;
       for (const k of this._tentative) this._cache.delete(k);
       this._tentative.length = 0;
-      for (const k of entry.circle) this._cacheCircular(k);
+      for (const k of entry.circle) this._cacheCircular(k, key);
       value = err('#CYCLE!');
     }
     if (!this._unsettled.length) this._tentative.length = 0;
@@ -13494,9 +13513,10 @@ export class Workbook extends EventTarget {
     }
   }
 
-  _cacheCircular(key) {
+  _cacheCircular(key, outer) {
     const value = err('#CYCLE!');
     this._cache.set(key, value);
+    if (outer !== undefined) this._circleOf.set(key, outer);
     this._iteration?.members.add(key);
     const bar = key.indexOf('|'), sheet = this.sheet(key.slice(0, bar));
     const coordinate = key.slice(bar + 1);
@@ -14124,7 +14144,7 @@ export class Workbook extends EventTarget {
         if (r >= box.r1 && r <= box.r2 && c >= box.c1 && c <= box.c2) this._cache.delete(key);
       }
     }
-    for (const store of [this._rangeCache, this._rangeRuns, this._usedCache, this._cellBoundsCache, this._statsCache, this._spills, this._evaluating, this._evalOrder, this._cyclic, this._provisional]) store.clear();
+    for (const store of [this._rangeCache, this._rangeRuns, this._usedCache, this._cellBoundsCache, this._statsCache, this._spills, this._evaluating, this._evalOrder, this._cyclic, this._circleOf, this._provisional]) store.clear();
     this._evalLast = null;
     this._hasDeferredSpills = false;
     this._spillComputed = [];
@@ -14329,7 +14349,7 @@ export class Workbook extends EventTarget {
       Object.assign(this, {
         _iterationReady: false, _cache: new Map(), _rangeCache: new Map(), _rangeCacheCells: 0, _rangeRuns: new Map(), _usedCache: new Map(),
         _cellBoundsCache: new Map(), _statsCache: new Map(), _volatile: null, _spills: new Map(), _spillBuilds: [], _hasDeferredSpills: false,
-        _spillComputed: [], _evaluating: new Set(), _evalOrder: new Map(), _evalLast: null, _cyclic: new Set(), _provisional: new Map(), _blankProvisional: 0, _blankKeys: null, _probed: null,
+        _spillComputed: [], _evaluating: new Set(), _evalOrder: new Map(), _evalLast: null, _cyclic: new Set(), _circleOf: new Map(), _provisional: new Map(), _blankProvisional: 0, _blankKeys: null, _probed: null,
         _unsettled: [], _tentative: [], _grown: new Set(),
       });
       read();
@@ -14358,6 +14378,7 @@ export class Workbook extends EventTarget {
     this._evalOrder.clear();
     this._evalLast = null;
     this._cyclic.clear();
+    this._circleOf.clear();
     this._provisional.clear();
     this._blankProvisional = 0;
     this._blankKeys = null;
