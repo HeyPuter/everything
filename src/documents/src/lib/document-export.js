@@ -155,12 +155,18 @@ function blocksHtml(blocks, model, numbers = itemNumbers(model), markers = itemM
   return html;
 }
 
+/** The page's language (WCAG 3.1.1): the document's default (§17.3.2.20 w:lang in the default run properties), else English. */
+const pageLanguage = model => {
+  const tag = String(model.styles?.defaults?.run?.fontLanguage || '');
+  return /^[A-Za-z]{2,8}(?:-[A-Za-z\d]{1,8})*$/.test(tag) ? tag : 'en';
+};
+
 /** A standalone, readable web page of the document. */
 export function documentHtml(model, { title = 'Document' } = {}) {
   model = finalModel(model);
   const body = blocksHtml(blocksOf(model), model);
   return `<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<html lang="${pageLanguage(model)}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${escapeHtml(title)}</title>
 <style>
 :root { color-scheme: light dark; }
