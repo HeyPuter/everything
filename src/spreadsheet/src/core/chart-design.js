@@ -5,7 +5,7 @@
  * cannot take the change.
  */
 import { colName } from './cell.js';
-import { chartData, chartXBounds, chartXGridlines } from './charts.js';
+import { chartData, chartSeriesLinePatch, chartXBounds, chartXGridlines } from './charts.js';
 import { quoteSheet } from './refs.js';
 import { CHART_LINE_GREY, CHART_TEXT_GREY, excelChartAppearance, subtypeOf } from './chart-subtypes.js';
 import { DEFAULT_TREND, TREND_TYPES, normalizeTrend, trendFor } from './trendline.js';
@@ -256,11 +256,16 @@ export function chartStylePatch(chart, id, { seriesCount = 1 } = {}) {
     'yUnits', 'xUnits', 'y2Units', 'yLogBase', 'xLogBase', 'yTickValues', 'xTickValues', 'y2TickValues', 'xMin', 'xMax', 'y2Min', 'y2Max', 'reverseValues', 'reverseCategories', 'reverseSecondaryValues',
     'axisCrossings', 'dateAxis', 'xBaseTimeUnit', 'xTimeUnit', 'blanks', 'plot', 'title', 'legend', 'legendPos', 'legendHidden', 'pointColors', 'seriesTypes', 'seriesGroups'];
   const a = { ...fresh, ...Object.fromEntries(keep.filter(k => old[k] !== undefined).map(k => [k, old[k]])) };
-  // A chart in the app's own style kept its x bounds on itself; its new appearance keeps them now.
-  if (!chart.appearance) { const x = chartXBounds(chart); if (x.min != null) a.xMin = x.min; if (x.max != null) a.xMax = x.max; }
+  // A chart in the app's own style kept its x bounds, its vertical gridlines and each series' line and markers on
+  // itself; its new appearance keeps them now.
+  if (!chart.appearance) {
+    const x = chartXBounds(chart); if (x.min != null) a.xMin = x.min; if (x.max != null) a.xMax = x.max;
+    if (chart.xGridlines) a.xGridlines = true;
+    (chart.seriesLines || []).forEach((line, i) => { if (line) a.lines = chartSeriesLinePatch({ appearance: a }, [i], line).appearance.lines; });
+  }
   if (a.pie && old.pie) a.pie = { ...a.pie, labels: { ...a.pie.labels, ...old.pie.labels, style: a.pie.labels.style } };
   const text = (color, scale = 1) => ['textStyle', 'titleStyle', 'legendStyle', 'xStyle', 'yStyle', 'y2Style'].forEach(k => { a[k] = { ...a[k], color, size: Math.round(a[k].size * scale * 100) / 100 }; });
-  const patch = { appearance: a, ...(chart.appearance ? {} : { xMin: undefined, xMax: undefined }) };
+  const patch = { appearance: a, ...(chart.appearance ? {} : { xMin: undefined, xMax: undefined, xGridlines: undefined, seriesLines: undefined }) };
   const labels = position => {
     patch.labels = true;
     if (a.pie) a.pie = { ...a.pie, labels: { ...a.pie.labels, value: true, position: position === 'inEnd' ? 'inEnd' : 'bestFit' } };
