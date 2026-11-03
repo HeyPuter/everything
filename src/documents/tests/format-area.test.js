@@ -7,7 +7,7 @@ import { spokenText, joinDictation, createDictation } from '../src/views/dictate
 import { shadingValue } from '../src/views/borders-shading.js';
 import { fontCondition } from '../src/views/find-replace.js';
 import { splitLevelText } from '../src/views/list-dialogs.js';
-import { openChangeCase, describeStyle } from '../src/views/format-misc-dialogs.js';
+import { openChangeCase, describeStyle, openPasteSpecial } from '../src/views/format-misc-dialogs.js';
 import { createFormatArea } from '../src/views/format-area.js';
 import { closeAllModals } from '../src/ui/modal.js';
 
@@ -163,4 +163,12 @@ it('applies a style from the styles pane and selects contiguous instances in one
   area.pane.node.querySelector('.styles-pane-actions .btn').click();
   expect(doc.text.slice(...doc.range)).toBe('Body one\nBody two');
   area.destroy();
+});
+
+it('shows the start of the clipboard text in Paste Special without cutting an emoji in half', () => {
+  // The 80th and 81st UTF-16 units are the two halves of the emoji.
+  openPasteSpecial({ source: `${'x'.repeat(79)}😀 and more`, choices: [{ id: 'text', label: 'Unformatted text', hint: '' }], apply: () => true });
+  const source = [...document.querySelectorAll('.field-hint')].find(node => node.textContent.startsWith('Source:')).textContent;
+  expect(source.isWellFormed()).toBe(true);
+  expect(source).toBe(`Source: ${'x'.repeat(79)}😀…`);
 });
