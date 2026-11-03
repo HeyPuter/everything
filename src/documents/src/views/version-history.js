@@ -124,7 +124,6 @@ export function createVersionHistory({ editor, pkg, doc, error, author, live = (
       previewHost.replaceChildren();
       token.engine = new api.CanvasEditor(previewHost, { paragraphs: p.paragraphs, pageSettings: p.pageSettings, numbering: p.numbering, styles: p.styles, tables: p.tables, pageStories: p.pageStories, comments: p.comments, assets: p.assets, drawingLayouts: p.drawingLayouts, images: opened.images, readOnly: true, inputLabel: `Version ${versionName(v)}` });
       fit(token.engine);
-      token.pkg = p;
     } catch (e) {
       if (preview === token) previewHost.replaceChildren(el('p.rv-status', {}, `This version could not be opened: ${e.message}`));
     }
@@ -159,7 +158,9 @@ export function createVersionHistory({ editor, pkg, doc, error, author, live = (
     try {
       if (!shared) { closePreview(); pane.close({ quiet: true }); await restoreFile(v); return; }
       const api = engineApi();
-      const opened = preview?.version.path === v.path && preview.pkg ? { pkg: preview.pkg, images: null } : await api.openCanvasDocument(await readBytes(v));
+      // Opened afresh even when it is the version shown: the preview's pictures close with it, and the restored
+      // document needs its own decoded ones (a picture or drawing only the version has would otherwise not draw).
+      const opened = await api.openCanvasDocument(await readBytes(v));
       const p = opened.pkg;
       if (p.readOnly) throw new Error('This version uses features that can only be displayed, so it cannot be restored while others edit with you.');
       // Its pictures, charts and notes are those of its own file: ones the document no longer has, or has changed,
