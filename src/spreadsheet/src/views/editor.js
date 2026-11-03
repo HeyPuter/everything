@@ -2619,6 +2619,9 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       }
       case 'outlineSettings': {
         if (!committed()) return;
+        // The settings are the sheet's, kept while it is protected as its outline is: said before the dialog opens,
+        // and again should the sheet be protected while it was open, rather than written past the protection.
+        if (refusedByProtection('change the outline settings')) { keepFocus(); return; }
         if (!arg?.settings) { openOutlineSettings(ctx); return; }
         // From the dialog: keep its settings, then Create or Apply Styles with them, as one step.
         let made = 0;
