@@ -73,7 +73,7 @@ function extendedScope(previous, next) {
  * spreadsheet does. From a filled cell, run to the last filled cell before
  * a gap; from an empty one, to the next filled cell (or the sheet edge).
  */
-export function jump(sel, dr, dc, bounds, hasValue, isVisible = () => true, nextFilled = null, pastHidden = null) {
+export function jump(sel, dr, dc, bounds, hasValue, isVisible = () => true, nextFilled = null, pastHidden = null, filledThrough = null) {
   let { r, c } = sel.active;
   const maxR = bounds.rows - 1;
   const maxC = bounds.cols - 1;
@@ -91,10 +91,23 @@ export function jump(sel, dr, dc, bounds, hasValue, isVisible = () => true, next
   let next = step(r, c);
   if (!inside(next.r, next.c)) return single(r, c);
 
+  // The last shown cell from (er, ec) back towards (r, c), stepping back over hidden lines.
+  const shownBack = (er, ec) => {
+    while ((er !== r || ec !== c) && !isVisible(er, ec)) { const k = Math.min(over(er, ec, true), Math.abs(er - r) + Math.abs(ec - c)); er -= k * dr; ec -= k * dc; }
+    return { r: er, c: ec };
+  };
   if (hasValue(r, c) && hasValue(next.r, next.c)) {
-    // Inside a block: run until the cell after the next is empty.
+    // Inside a block: run until the cell after the next is empty. A column filled a million rows down is
+    // crossed in leaps: after a few steps `filledThrough` (when given) names the last cell of the unbroken
+    // stretch of values ahead, every one of which the walk would only pass, and the walk goes on from there.
+    let steps = 0;
     while (inside(next.r, next.c) && hasValue(next.r, next.c)) {
       ({ r, c } = next);
+      if (filledThrough && ++steps > 32) {
+        steps = 0;
+        const end = filledThrough(r, c, dr, dc);
+        if (end) ({ r, c } = shownBack(end.r, end.c));
+      }
       next = step(r, c);
     }
     return single(r, c);
@@ -110,9 +123,8 @@ export function jump(sel, dr, dc, bounds, hasValue, isVisible = () => true, next
       const ahead = nextFilled(r, c, dr, dc);
       if (!ahead) {
         // Nothing beyond: the sheet's last shown line.
-        let er = dr > 0 ? maxR : dr < 0 ? 0 : r, ec = dc > 0 ? maxC : dc < 0 ? 0 : c;
-        while ((er !== r || ec !== c) && !isVisible(er, ec)) { const k = Math.min(over(er, ec, true), Math.abs(er - r) + Math.abs(ec - c)); er -= k * dr; ec -= k * dc; }
-        return single(er, ec);
+        const last = shownBack(dr > 0 ? maxR : dr < 0 ? 0 : r, dc > 0 ? maxC : dc < 0 ? 0 : c);
+        return single(last.r, last.c);
       }
       // Stand just before it; the step lands on it, or past it over hidden lines.
       if (ahead.r - dr !== r || ahead.c - dc !== c) { r = ahead.r - dr; c = ahead.c - dc; }

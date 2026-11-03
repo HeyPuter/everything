@@ -23615,7 +23615,16 @@ function parse_ods_styles(d/*:string*/, _opts, _nfm, _styles) {
 				var ge = section(NFmaps["value()>=0"]), gt = section(NFmaps["value()>0"]), lt = section(NFmaps["value()<0"]);
 				if(gt != null && lt != null) NF = gt + ";" + lt + ";" + NF;
 				else if(ge != null) NF = ge + ";" + NF;
-				else if(gt != null) NF = gt + ";" + NF;
+				/* Puter Spreadsheet local patch: a lone value()>0 map is a test of its own ([>0]0.0;0), which leaves zero to the
+				 * style's section; read as positive;negative, zero went to the first section and showed as 0.0. */
+				else if(gt != null) NF = "[>0]" + gt + ";" + NF;
+				else if(lt != null) NF = "[<0]" + lt + ";" + NF;
+				/* Puter Spreadsheet local patch: sections chosen by their own conditions, at most two as in Excel, each
+				 * with its test before its code, the style's own section last. */
+				else if(NFmaps.conditions && NFmaps.conditions.length <= 2) {
+					var tested = NFmaps.conditions.map(function(c) { var code = section(c.name); return code == null ? null : c.test + code; });
+					if(tested.every(function(code) { return code != null; })) NF = tested.join(";") + ";" + NF;
+				}
 				number_format_map[NFtag.name] = NF;
 				NF = ""; NFmaps = {};
 			} else if(Rn[0].charAt(Rn[0].length-2) !== '/') {
@@ -23761,9 +23770,11 @@ function parse_ods_styles(d/*:string*/, _opts, _nfm, _styles) {
 		case 'fraction': // <number:fraction> 16.29.7
 			// TODO: find a mapping for all parameters
 			y = parsexmltag(Rn[0], false);
-			if(!+y["min-integer-digits"]) NF += "#";
-			else NF += fill("0", +y["min-integer-digits"]);
-			NF += " ";
+			/* Puter Spreadsheet local patch: a fraction without min-integer-digits has no integer part (?/? shows
+			 * 3/2), as LibreOffice reads and writes it; it used to open as # ?/? and show 1 1/2. */
+			if(y["min-integer-digits"] == null) {}
+			else if(!+y["min-integer-digits"]) NF += "# ";
+			else NF += fill("0", +y["min-integer-digits"]) + " ";
 			NF += fill("?", +y["min-numerator-digits"] || 1);
 			NF += "/";
 			if(+y["denominator-value"]) NF += y["denominator-value"];
@@ -23797,6 +23808,10 @@ function parse_ods_styles(d/*:string*/, _opts, _nfm, _styles) {
 			/* Puter Spreadsheet local patch: kept until the style closes, where the sections are put in order. */
 			var condition = unescapexml(y["condition"] || "").replace(/\s+/g, "");
 			if(["value()>=0", "value()>0", "value()<0"].indexOf(condition) > -1 && y["apply-style-name"]) NFmaps[condition] = y["apply-style-name"];
+			/* Puter Spreadsheet local patch: any other comparison is a section's own condition ([>=1000]0.0,"K"), kept in
+			 * the order the maps are tried. */
+			else if((y = /^value\(\)(<=|>=|!=|<|>|=)(-?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?)$/.exec(condition)) && parsexmltag(Rn[0], false)["apply-style-name"])
+				(NFmaps.conditions = NFmaps.conditions || []).push({ test: "[" + (y[1] == "!=" ? "<>" : y[1]) + (+y[2]) + "]", name: parsexmltag(Rn[0], false)["apply-style-name"] });
 			break;
 
 		case 'number': // <number:number> 16.29.3
@@ -24776,8 +24791,26 @@ function split_ods_format_sections(nf) {
  * are its own. A code whose sections test their own conditions ([>100]) or are of different kinds keeps its first. */
 function write_number_format_ods(nf/*:string*/, nfidx/*:string*/)/*:string*/ {
 	var sections = split_ods_format_sections(nf);
-	if(sections.length < 2 || sections.slice(0, 3).some(function(section) { return /\[[<>=]/.test(section.replace(/"(?:[^"]|"")*"/g, "")); }))
-		return write_number_format_ods_section(sections[0], nfidx);
+	if(sections.length < 2) return write_number_format_ods_section(sections[0], nfidx);
+	/* Puter Spreadsheet local patch: sections that test their own conditions ([>=1000]0.0,"K";0) are written as LibreOffice
+	 * writes them, each condition a style:map to its section's style in the order Excel tries them, the last section
+	 * the style itself. Only the first was written, so 10 in [>=1000000]0.0,,"M";[>=1000]0.0,"K";0 showed as 0.0M. */
+	var conditions = sections.slice(0, 3).map(function(section) {
+		var m = /^(?:\[[^\]<>=]*\])?\[(<=|>=|<>|<|>|=)\s*(-?(?:\d+\.?\d*|\.\d+)(?:E[+-]?\d+)?)\]/i.exec(section);
+		return m ? "value()" + (m[1] == "<>" ? "!=" : m[1]) + (+m[2]) : null;
+	});
+	if(conditions.some(Boolean)) {
+		/* The sections after the tested ones are not tried: the first without a test is the rest's. */
+		var count = conditions.indexOf(null) + 1;
+		if(count < 2) return write_number_format_ods_section(sections[0], nfidx);
+		var styles = sections.slice(0, count).map(function(section, k) { return { name: k == count - 1 ? nfidx : nfidx + "P" + k, xml: write_number_format_ods_section(section, k == count - 1 ? nfidx : nfidx + "P" + k) }; });
+		var styleKind = function(xml) { var m = /^<number:(\w+)-style/.exec(xml); return m && m[1]; };
+		if(styles.some(function(style) { return !style.xml || styleKind(style.xml) !== styleKind(styles[0].xml); })) return write_number_format_ods_section(sections[0], nfidx);
+		var last = styles[count - 1].xml.replace(/<\/number:\w+-style>$/, function(close) {
+			return conditions.slice(0, count - 1).map(function(c, k) { return writextag("style:map", null, { "style:condition": escapexml(c), "style:apply-style-name": styles[k].name }); }).join("") + close;
+		});
+		return styles.slice(0, -1).map(function(style) { return style.xml; }).join("\n") + "\n" + last;
+	}
 	var parts = sections.slice(0, 3).map(function(section, k) {
 		var name = k == Math.min(sections.length, 3) - 1 ? nfidx : nfidx + "P" + k;
 		return { name: name, xml: section === "" ? "" : write_number_format_ods_section(section, name) };
@@ -24797,6 +24830,8 @@ function write_number_format_ods(nf/*:string*/, nfidx/*:string*/)/*:string*/ {
 function write_number_format_ods_section(nf/*:string*/, nfidx/*:string*/)/*:string*/ {
 	var type = "number", payload = "", nopts = { "style:name": nfidx }, c = "", i = 0;
 	nf = nf.replace(/"[$]"/g, "$");
+	/* Puter Spreadsheet local patch: a condition may come before the colour too ([<0][Red]). */
+	nf = nf.replace(/^\[[<>=][^\]]*\](?=\[)/, "");
 	/* Puter Spreadsheet local patch: a section's colour ([Red]) is the style's text colour. */
 	var ink = /^\[(black|blue|cyan|green|magenta|red|white|yellow)\]/i.exec(nf);
 	var inks = { black: "#000000", blue: "#0000ff", cyan: "#00ffff", green: "#00ff00", magenta: "#ff00ff", red: "#ff0000", white: "#ffffff", yellow: "#ffff00" };
@@ -24832,6 +24867,17 @@ function write_number_format_ods_section(nf/*:string*/, nfidx/*:string*/)/*:stri
 		nf = nf.replace(/("(?:[^"]|"")*")|\[\$([^\]\-]*)(?:-[^\]]*)?\]|[_*]./g, function($$, literal, symbol) { return literal || (symbol != null ? '"' + symbol + '"' : ""); }).replace(/"[$]"/g, "$");
 
 		if(nf == "@") { type = "text"; payload = "<number:text-content/>"; break j; }
+		/* Puter Spreadsheet local patch: a text format with words around the text ("Re: "@, "x"@"y") is a text style with
+		 * them around its text-content; only the leading words were written, as a number style, so the text was lost. */
+		var around = read_ods_format_text_run(nf, 0);
+		if(nf[around.end] == "@") {
+			var after = read_ods_format_text_run(nf, around.end + 1);
+			if(after.end == nf.length) {
+				type = "text";
+				payload = (around.text ? '<number:text>' + escapexml(around.text) + '</number:text>' : "") + "<number:text-content/>" + (after.text ? '<number:text>' + escapexml(after.text) + '</number:text>' : "");
+				break j;
+			}
+		}
 
 		/* opening string literal */
 		/* Puter Spreadsheet local patch: the whole leading run, with the space between "€" and the digits, and the
@@ -24847,11 +24893,24 @@ function write_number_format_ods_section(nf/*:string*/, nfidx/*:string*/)/*:stri
 		if(nf[0] == "$") { type = "currency"; }
 
 		/* fractions */
-		var t = nf.match(/# (\?+)\/(\?+)/);
+		/* Puter Spreadsheet local patch: the integer part as the code has it: none at all in an improper fraction
+		 * (?/?, ?/16 shows 21/16), which ODF says by leaving min-integer-digits out, as LibreOffice writes it; # or
+		 * zeros (0 ?/? shows 0 1/2) count the integer digits always shown. Only # ?/? and # ?/8 were written; the
+		 * others came out as a plain number, 1.5 in 0 ?/? showing 2. A unit after the fraction ("in") follows it. */
+		var t = nf.match(/(?:([#0,]+) +)?(\?+)\/(\?+|\d+)/);
 		/* Puter Spreadsheet local patch: the denominator's width too (# ??/?? shows 1241 46/81), which a reader takes
 		 * from min-denominator-digits: without it the format came back as # ??/? and showed 1241  4/7. */
-		if(t) { payload += writextag("number:fraction", null, {"number:min-integer-digits":0, "number:min-numerator-digits": t[1].length, "number:min-denominator-digits": t[2].length, "number:max-denominator-value": Math.max(+(t[1].replace(/./g, "9")), +(t[2].replace(/./g, "9"))) }); break j; }
-		if((t=nf.match(/# (\?+)\/(\d+)/))) { payload += writextag("number:fraction", null, {"number:min-integer-digits":0, "number:min-numerator-digits": t[1].length, "number:denominator-value": +t[2]}); break j; }
+		if(t) {
+			var fraction = {};
+			if(t[1] != null) fraction["number:min-integer-digits"] = (t[1].match(/0/g) || []).length;
+			fraction["number:min-numerator-digits"] = t[2].length;
+			if(/^\d/.test(t[3])) fraction["number:denominator-value"] = +t[3];
+			else { fraction["number:min-denominator-digits"] = t[3].length; fraction["number:max-denominator-value"] = Math.max(+(t[2].replace(/./g, "9")), +(t[3].replace(/./g, "9"))); }
+			payload += writextag("number:fraction", null, fraction);
+			var unit = read_ods_format_text_run(nf, t.index + t[0].length);
+			if(/\S/.test(unit.text)) payload += '<number:text>' + escapexml(unit.text) + '</number:text>';
+			break j;
+		}
 
 		/* percentages */
 		/* Local fix: preserve percentage grouping and the actual decimal count. */
@@ -24859,11 +24918,15 @@ function write_number_format_ods_section(nf/*:string*/, nfidx/*:string*/)/*:stri
 		/* Puter Spreadsheet local patch: a regional format's percentage keeps its no-break space before the sign
 		 * (#,##0.0" "% for 12,3 % in France) or writes the sign first (%#,##0.0 for %12,3 in Turkey); either was
 		 * written as a plain number, the % left out, so LibreOffice showed 0,1 for 12,3 %. */
+		/* Puter Spreadsheet local patch: any space before the sign, plain, escaped or quoted (0.00 %, 0.00\ %, 0.00" "%), and
+		 * the words after it (0%" of target"): with a plain space the % was left out and 37.5 % showed as 0.38. */
 		var lead = nf.match(/^%("[\u00a0\u202f]")?([#0][0#,]*)(|\.[0#]+)$/);
-		if(lead || (t=nf.match(/(?:^|[^#0,.])([#0][0#,]*)(|\.[0#]+)("[\u00a0\u202f]")?%/))) {
+		if(lead || (t=nf.match(/(?:^|[^#0,.])([#0][0#,]*)(|\.[0#]+)((?:"[^"%]*"|\\[^%]| )*)%/))) {
 			if(lead) t = [lead[0], lead[2], lead[3], lead[1]];
 			type = "percentage";
-			var sign = "<number:text>" + (lead ? "%" + (t[3] ? t[3].slice(1, -1) : "") : (t[3] ? t[3].slice(1, -1) : "") + "%") + "</number:text>";
+			var gap = (t[3] || "").replace(/"([^"]*)"|\\(.)/g, "$1$2");
+			var words = lead ? null : read_ods_format_text_run(nf, t.index + t[0].length);
+			var sign = "<number:text>" + escapexml(lead ? "%" + gap : gap + "%" + (words && /\S/.test(words.text) ? words.text : "")) + "</number:text>";
 			var digitsTag = writextag("number:number", null, {
 				"number:decimal-places": t[2] ? t[2].length - 1 : 0,
 				"number:min-decimal-places": (t[2].match(/0/g) || []).length,
@@ -24961,7 +25024,9 @@ function write_number_format_ods_section(nf/*:string*/, nfidx/*:string*/)/*:stri
 		/* number TODO: interstitial text e.g. 000)000-0000 */
 		/* Puter Spreadsheet local patch: E- (a sign on negative exponents only) is a scientific code too, written with
 		 * forced-exponent-sign="false"; it used to stop the whole export on its missing exponent digits. */
-		var np = nf.match(/([#0][0#,]*)(\.[0#]*|)(E[+-]?0*|)/i);
+		/* Puter Spreadsheet local patch: a code may have no integer digit at all (.00 shows 0.375 as .38); its decimals
+		 * were taken for the integer, so .00 was written as 00 and showed 38. */
+		var np = nf.match(/([#0][0#,]*|(?=\.[0#]))(\.[0#]*|)(E[+-]?0*|)/i);
 		/* Puter Spreadsheet local patch: a section of text alone (an accounting zero, "$" "-") has no digits to find. */
 		if(!np || !np[0]) { if(!payload) console.error("Could not find numeric part of " + nf); }
 		else {
@@ -27987,18 +28052,23 @@ function safe_parse_sheet(zip, path/*:string*/, relsPath/*:string*/, sheet, idx/
 		}
 
 		/* scan rels for comments and threaded comments */
+		/* Puter Spreadsheet local patch: a comments part the sheet names but the package does not hold is taken
+		   as no comments, as Excel opens such a file (repaired), rather than refusing the sheet and the workbook. */
 		var comments = [], tcomments = [];
 		if(sheetRels && sheetRels[sheet]) keys(sheetRels[sheet]).forEach(function(n) {
-			var dfile = "";
+			var dfile = "", cdata;
 			if(sheetRels[sheet][n].Type == RELS.CMNT) {
 				dfile = resolve_path(sheetRels[sheet][n].Target, path);
-				comments = parse_cmnt(getzipdata(zip, dfile, true), dfile, opts);
+				cdata = getzipdata(zip, dfile, true);
+				if(!cdata) return;
+				comments = parse_cmnt(cdata, dfile, opts);
 				if(!comments || !comments.length) return;
 				sheet_insert_comments(_ws, comments, false);
 			}
 			if(sheetRels[sheet][n].Type == RELS.TCMNT) {
 				dfile = resolve_path(sheetRels[sheet][n].Target, path);
-				tcomments = tcomments.concat(parse_tcmnt_xml(getzipdata(zip, dfile, true), opts));
+				cdata = getzipdata(zip, dfile, true);
+				if(cdata) tcomments = tcomments.concat(parse_tcmnt_xml(cdata, opts));
 			}
 		});
 		if(tcomments && tcomments.length) sheet_insert_comments(_ws, tcomments, true, opts.people || []);
@@ -28072,7 +28142,10 @@ function parse_zip(zip/*:ZIP*/, opts/*:?ParseOpts*/)/*:Workbook*/ {
 
 		if(opts.cellStyles && dir.themes.length) themes = parse_theme_xml(getzipstr(zip, dir.themes[0].replace(/^\//,''), true)||"", opts);
 
-		if(dir.style) styles = parse_sty(getzipdata(zip, strip_front_slash(dir.style)), dir.style, themes, opts);
+		/* Puter Spreadsheet local patch: a styles part the package lists but does not hold leaves the cells in
+		   the default format, as Excel opens such a file, rather than refusing the whole workbook. */
+		var stydata = dir.style ? getzipdata(zip, strip_front_slash(dir.style), true) : null;
+		if(stydata) styles = parse_sty(stydata, dir.style, themes, opts);
 	}
 
 	/*var externbooks = */dir.links.map(function(link) {
@@ -28135,13 +28208,17 @@ function parse_zip(zip/*:ZIP*/, opts/*:?ParseOpts*/)/*:Workbook*/ {
 	if(!safegetzipfile(zip, wbrelsfile)) wbrelsfile = 'xl/_rels/workbook.' + wbext + '.rels';
 	var wbrels = parse_rels(getzipstr(zip, wbrelsfile, true), wbrelsfile.replace(/_rels.*/, "s5s"));
 
-	if((dir.metadata || []).length >= 1) {
+	/* Puter Spreadsheet local patch: a cell metadata or people part the package lists but does not hold is taken
+	   as none, as Excel opens such a file (repaired), rather than refusing the whole workbook. */
+	var metadata = (dir.metadata || []).length >= 1 ? getzipdata(zip, strip_front_slash(dir.metadata[0]), true) : null;
+	if(metadata) {
 		/* TODO: MDX and other types of metadata */
-		opts.xlmeta = parse_xlmeta(getzipdata(zip, strip_front_slash(dir.metadata[0])),dir.metadata[0],opts);
+		opts.xlmeta = parse_xlmeta(metadata,dir.metadata[0],opts);
 	}
 
-	if((dir.people || []).length >= 1) {
-		opts.people = parse_people_xml(getzipdata(zip, strip_front_slash(dir.people[0])),opts);
+	var people = (dir.people || []).length >= 1 ? getzipdata(zip, strip_front_slash(dir.people[0]), true) : null;
+	if(people) {
+		opts.people = parse_people_xml(people,opts);
 	}
 
 	if(wbrels) wbrels = safe_parse_wbrels(wbrels, wb.Sheets);

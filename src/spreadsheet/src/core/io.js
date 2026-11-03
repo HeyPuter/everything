@@ -37,7 +37,7 @@ import { legacyCommentText } from './comments.js';
  *   sheet; this app reads it back and removes it from view.
  */
 
-import { Workbook, DEFAULT_COL_WIDTH, DEFAULT_ROW_HEIGHT, MAX_STORED_COL_WIDTH, MAX_STORED_ROW_HEIGHT, safeSheetName, MAX_ROWS, MAX_COLS } from './workbook.js';
+import { Workbook, outlineSettingsOf, DEFAULT_COL_WIDTH, DEFAULT_ROW_HEIGHT, MAX_STORED_COL_WIDTH, MAX_STORED_ROW_HEIGHT, safeSheetName, MAX_ROWS, MAX_COLS } from './workbook.js';
 import { cellKey, cellName, parseKey, MAX_TEXT, parseCellRef, parseRange } from './cell.js';
 import { styleToNumFmt, numFmtToStyle, formatValue, dateTimeKind, fontKeyFor, ymdToSerial, NUMBER_FORMAT_KEYS, HORIZONTAL_ALIGNS } from './format.js';
 import { readXlsxStyles, xlsxAlignment, xlsxColumnPixels, xlsxColor, xlsxAttr, xlsxText, xlsxLayoutDigitWidth, xlsxWidthFromPixels } from './xlsx-styles.js';
@@ -64,6 +64,7 @@ import { odsCellStyle, odsCellPaints, odsRunStyle } from './ods-cell-styles.js';
 import { htmlTableRows } from './html-table.js';
 import { reconcileConditionalFormats } from './xlsx-condformat-reconcile.js';
 import { prepareXlsxValidationLists } from './xlsx-validation.js';
+import { nativeSheetState, nativeStateChanged, nativeStateNoted, nativeValidationsSignature, xlsxRowsListedWhenHidden } from './xlsx-native-state.js';
 import { sheetFilters, sameFilterRange, filterRangeKey, mapSheetFilters } from './sheet-filters.js';
 import { nativeFilterJudge, readXlsxFilter, readXlsxFilterButtons, writeXlsxFilter } from './xlsx-filter.js';
 import { readStyleResets, styleResetAt } from './style-resets.js';
@@ -86,7 +87,7 @@ import { normalizeNativeFill, packNativeFillState, unpackNativeFillState } from 
 import { readFontTheme, normalizeFontTheme } from './font-theme.js';
 import { isRangeSource, ruleFormulaBody } from './validation.js';
 import { parseScenariosXml } from './scenarios.js';
-import { readXlsxOutlineSettings } from './xlsx-outline.js';
+import { readXlsxOutlineSettings, outlineLineLevels, outlineCollapsedLines } from './xlsx-outline.js';
 import { readXlsxBackground } from './xlsx-background.js';
 import { remapCustomViews } from './custom-views.js';
 import { serializeQueries } from './queries.js';
@@ -518,20 +519,31 @@ function buildSheet(X, wb, sheet, { ods = false } = {}) {
   // Only a column or row with its own width, height, or hidden state gets an
   // entry. The writers skip the holes, whereas filling every index up to one
   // far-off row would put a million row records into each save.
-  if (sheet.colWidths.size || sheet.hiddenCols.size || sheet.colStyles.size) {
+  // Row and column groups are outline levels in an .xlsx, which Excel draws its outline from; a collapsed group's
+  // summary line says so too. Without them a sheet grouped here opened in Excel with no outline at all.
+  const settings = outlineSettingsOf(sheet);
+  const colLevels = ods ? new Map() : outlineLineLevels(sheet.groups?.cols, sheet.cols - 1);
+  const rowLevels = ods ? new Map() : outlineLineLevels(sheet.groups?.rows, sheet.rows - 1);
+  const collapsedCols = ods ? new Set() : outlineCollapsedLines(sheet.groups?.cols, settings.summaryRight, MAX_COL);
+  const collapsedRows = ods ? new Set() : outlineCollapsedLines(sheet.groups?.rows, settings.summaryBelow, MAX_ROW);
+  if (sheet.colWidths.size || sheet.hiddenCols.size || sheet.colStyles.size || colLevels.size) {
     const cols = [];
     for (const [c, wpx] of sheet.colWidths) cols[c] = { wpx };
     for (const c of sheet.hiddenCols) (cols[c] ??= { wpx: sheet.defaultColWidth }).hidden = true;
+    for (const [c, level] of colLevels) (cols[c] ??= { wpx: sheet.defaultColWidth }).level = level;
+    for (const c of collapsedCols) cols[c] ??= { wpx: sheet.defaultColWidth };
     if (!ods) for (const c of sheet.colStyles.keys()) cols[c] ??= { wpx: sheet.defaultColWidth };
     // An .ods column's format is the cell style it gives the cells without one of their own.
     else for (const [c, style] of sheet.colStyles) (cols[c] ??= { wpx: sheet.defaultColWidth }).odsCell = { odsStyle: style, z: numFmtOf(style) };
     ws['!cols'] = cols;
   }
-  if (sheet.rowHeights.size || sheet.rowHeightModes.size || sheet.hiddenRows.size || sheet.filterHidden.size || (!ods && sheet.rowStyles.size)) {
+  if (sheet.rowHeights.size || sheet.rowHeightModes.size || sheet.hiddenRows.size || sheet.filterHidden.size || (!ods && sheet.rowStyles.size) || rowLevels.size) {
     const rows = [];
     for (const [r, hpx] of sheet.rowHeights) rows[r] = { hpx };
     for (const r of sheet.rowHeightModes.keys()) rows[r] ??= { hpx: sheet.defaultRowHeight };
     for (const r of sheet.hiddenRows) (rows[r] ??= { hpx: sheet.defaultRowHeight }).hidden = true;
+    for (const [r, level] of rowLevels) (rows[r] ??= { hpx: sheet.defaultRowHeight }).level = level;
+    for (const r of collapsedRows) rows[r] ??= { hpx: sheet.defaultRowHeight };
     // The rows the filter hides are hidden rows in an .xlsx, the only spelling it has, and rows
     // of the "filter" visibility in an .ods: a program opening the file shows the filtered view,
     // and clearing the filter there shows them again.
@@ -1258,7 +1270,8 @@ function nativeTables(X, ws, definedNames, customStyles) {
     const open = xml.match(/<(?:\w+:)?table\s[^>]*>/)?.[0];
     const name = decodeXlsxString(xmlAttr(open, 'displayName') || xmlAttr(open, 'name'));
     const ref = xmlAttr(open, 'ref')?.replace(/\$/g, '');
-    if (!name?.trim() || !ref || !/^[A-Z]{1,3}\d+:[A-Z]{1,3}\d+$/i.test(ref)) continue;
+    // A one-column table of a header row alone spans a single cell, which the reference names as one: ref="A1".
+    if (!name?.trim() || !ref || !/^[A-Z]{1,3}\d+(?::[A-Z]{1,3}\d+)?$/i.test(ref)) continue;
     // headerRowCount="0": the Header Row is turned off, and the column names live in tableColumn alone.
     const headerless = xmlAttr(open, 'headerRowCount') === '0', columnNames = [];
     const range = X.utils.decode_range(ref.toUpperCase());
@@ -1300,7 +1313,7 @@ function nativeTables(X, ws, definedNames, customStyles) {
       calc,
       ...(Object.keys(calcArray).length ? { calcArray } : {}),
       scalarColumns,
-      filter: !headerless && filter && /^[A-Z]{1,3}\d+:[A-Z]{1,3}\d+$/i.test(filter) ? { ...X.utils.decode_range(filter.toUpperCase()), xml: autoFilter } : null,
+      filter: !headerless && filter && /^[A-Z]{1,3}\d+(?::[A-Z]{1,3}\d+)?$/i.test(filter) ? { ...X.utils.decode_range(filter.toUpperCase()), xml: autoFilter } : null,
     });
   }
   return tables;
@@ -1723,6 +1736,10 @@ function importSheet(X, ws, name, meta, date1904 = false, definedNames, fileForm
   const own = meta?.sheets?.[name];
   const nativePart = partXml ? sheetPartState(partXml) : null;
   const part = !own ? nativePart : null;
+  // A setting the record holds that Excel changed after this app's last save: the record noted what that save wrote
+  // into the part, and the part now says otherwise. The part's word wins, or reopening would undo the edit.
+  const nativeState = own && partXml && own.nativeState ? nativeSheetState(partXml) : null;
+  const editedElsewhere = (key) => !!nativeState && nativeStateChanged(own.nativeState, nativeState, key);
   const lines = !own ? readXlsxLineStyles(partXml, lineFormats) : null;
   // Native format indexes let reconciliation distinguish edits from inherited fields.
   const formatOf = (fonts || lineFormats) && partXml ? cellFormatIndices(partXml) : null;
@@ -2025,8 +2042,9 @@ function importSheet(X, ws, name, meta, date1904 = false, definedNames, fileForm
       ...(xlsxAttr(formatPr, 'baseColWidth') != null && Number.isInteger(base) && base >= 0 ? { base } : {}),
     },
   } : null;
-  const hiddenCols = hiddenLines(meta?.sheets?.[name]?.hidden?.cols, MAX_COL);
-  const hiddenRows = hiddenLines(meta?.sheets?.[name]?.hidden?.rows, MAX_ROW);
+  // Once rows or columns were hidden or shown in Excel, the part's hidden lines are the ones in force.
+  const hiddenCols = hiddenLines(editedElsewhere('hiddenCols') ? null : meta?.sheets?.[name]?.hidden?.cols, MAX_COL);
+  const hiddenRows = hiddenLines(editedElsewhere('hiddenRows') ? null : meta?.sheets?.[name]?.hidden?.rows, MAX_ROW);
   (ws?.['!cols'] || []).forEach((col, i) => {
     if (!col) return;
     // A column the file gives no width (width="0") shows in Excel as no column, as a hidden one does.
@@ -2177,21 +2195,30 @@ function importSheet(X, ws, name, meta, date1904 = false, definedNames, fileForm
     ? !formatPr ? { pixels: nativeHeight, mode: 'implicit' }
       : customHeight == null || ['0', 'false'].includes(customHeight) ? { pixels: nativeHeight, mode: 'auto' } : null
     : own?.nativeDefaultHeight);
-  (ws?.['!rows'] || []).forEach((row, i) => {
+  const hideFileRow = (i) => {
+    fileHiddenRows.push(i);
+    if (filtered.some(range => i > range.r1 && i <= range.r2)) fileFilterHidden?.push(i);
+    else hiddenRows.add(i);
+  };
+  const fileRow = (row, i) => {
     if (!row) return;
     // A row the file gives no height at all (ht="0") shows as no row in Excel, as a hidden one does; it is not
     // a row of the default height, which is what a height of nothing used to read as.
     const zero = !row.hidden && !row.filtered && (row.hpt === 0 || row.hpx === 0);
-    if (row.hidden || row.filtered || zero) {
-      fileHiddenRows.push(i);
-      if (filtered.some(range => i > range.r1 && i <= range.r2)) fileFilterHidden?.push(i);
-      else hiddenRows.add(i);
-    }
+    if (row.hidden || row.filtered || zero) hideFileRow(i);
     // The vendor's hpx equals hpt for XLSX. Excel heights are points, while the grid uses CSS pixels.
     // Older app exports use that vendor convention too; their sidecar identifies those dimensions.
     const px = (!own || own.nativeStyles) && partXml && row.hpt != null ? row.hpt * 4 / 3 : row.hpx ?? (row.hpt != null ? row.hpt * 4 / 3 : null);
     if (px && Math.abs(px - defaultRowHeight) > .001) rowHeights[i] = Math.max(1, Math.min(MAX_STORED_ROW_HEIGHT, px));
-  });
+  };
+  // A sheet whose rows are hidden by default (zeroHeight) lists only the rows it shows, Excel's way of writing a
+  // sheet with every row below its data hidden: each row it does not list is hidden, in order with the others.
+  const listedRows = xlsxRowsListedWhenHidden(partXml), fileRows = ws?.['!rows'] || [];
+  if (!listedRows) fileRows.forEach(fileRow);
+  else for (let i = 0; i <= MAX_ROW; i++) {
+    if (fileRows[i]) fileRow(fileRows[i], i);
+    else if (!listedRows.has(i)) hideFileRow(i);
+  }
   const savedView = own?.nativeFilterView;
   if (fileFilterHidden && Array.isArray(savedView?.hidden) && Array.isArray(savedView?.filtered)
       && JSON.stringify(savedView.hidden) === JSON.stringify(fileHiddenRows)) {
@@ -2224,6 +2251,16 @@ function importSheet(X, ws, name, meta, date1904 = false, definedNames, fileForm
       }
     }
   }
+  // The record's groups, but for an axis whose outline was changed in Excel since this app's last save (levels, or
+  // a group collapsed or expanded there): that axis's groups are the part's. The record still keeps apart two groups
+  // side by side, which the levels alone run together, while the outline is as this app saved it.
+  const ownGroups = () => {
+    const rowsEdited = editedElsewhere('rowLevels') || editedElsewhere('collapsedRows');
+    const colsEdited = editedElsewhere('colLevels') || editedElsewhere('collapsedCols');
+    if (!rowsEdited && !colsEdited) return own.groups || null;
+    const file = fileGroups(ws, filtered) || { rows: [], cols: [] };
+    return { rows: rowsEdited ? file.rows : own.groups?.rows || [], cols: colsEdited ? file.cols : own.groups?.cols || [] };
+  };
   const frozen = partXml ? nativePart?.frozen : own?.frozen;
   const merges = fileMerges((ws?.['!merges'] || []).filter((m) => m?.s && m?.e).map((m) => ({ r1: m.s.r, c1: m.s.c, r2: m.e.r, c2: m.e.c })));
   return {
@@ -2238,17 +2275,18 @@ function importSheet(X, ws, name, meta, date1904 = false, definedNames, fileForm
     protectedRanges: meta?.sheets?.[name]?.protectedRanges || [],
     scenarios: partXml ? parseScenariosXml(partXml) : own?.scenarios,
     validations: meta?.sheets?.[name]?.validations || (ws?.['!validations'] || []).map(({ _odsName, ...rule }) => rule),
-    color: own?.color || part?.color || (!own && partXml ? xlsxColor(partXml.match(/<(?:\w+:)?tabColor\b[^>]*>/)?.[0], nativeStyles?.colors || themes) : null),
+    color: own && !editedElsewhere('color') ? own.color || null
+      : nativePart?.color || (partXml ? xlsxColor(partXml.match(/<(?:\w+:)?tabColor\b[^>]*>/)?.[0], nativeStyles?.colors || themes) : null),
     // An .ods from another program says a protected sheet on its table (see the vendor's !odsProtected).
-    protected: own ? !!own.protected : !!part?.protected || (!partXml && !!ws?.['!odsProtected']),
-    groups: own ? own.groups || null : fileGroups(ws, filtered),
+    protected: own ? editedElsewhere('protected') ? nativePart.protected : !!own.protected : !!part?.protected || (!partXml && !!ws?.['!odsProtected']),
+    groups: own ? ownGroups() : fileGroups(ws, filtered),
     advancedFilter: own?.advancedFilter,
     outlineSettings: partXml ? readXlsxOutlineSettings(partXml) : own?.outlineSettings,
-    gridlines: own ? own.gridlines !== false : part?.gridlines !== false,
+    gridlines: own && !editedElsewhere('gridlines') ? own.gridlines !== false : nativePart?.gridlines !== false,
     headers: nativePart?.headers ?? own?.headers ?? true,
     rightToLeft: nativePart?.rightToLeft ?? own?.rightToLeft ?? false,
     defaultVAlign,
-    viewZoom: own?.viewZoom ?? part?.viewZoom,
+    viewZoom: own && !editedElsewhere('zoom') ? own.viewZoom : nativePart?.viewZoom,
     viewMode: partXml ? nativePart?.viewMode : own?.viewMode,
     showPageBreaks: own?.showPageBreaks === true,
     sheetViews: own?.sheetViews,
@@ -2256,7 +2294,8 @@ function importSheet(X, ws, name, meta, date1904 = false, definedNames, fileForm
     viewOrigin: partXml ? nativePart?.viewOrigin : own?.viewOrigin,
     frozenOrigin: partXml ? nativePart?.frozenOrigin : own?.frozenOrigin,
     split: partXml ? nativePart?.split : own?.split,
-    ...(own?.zoomToFit != null || part?.zoomToFit != null ? { zoomToFit: own?.zoomToFit ?? part?.zoomToFit } : {}),
+    ...(editedElsewhere('zoomToFit') ? { zoomToFit: nativePart.zoomToFit }
+      : own?.zoomToFit != null || part?.zoomToFit != null ? { zoomToFit: own?.zoomToFit ?? part?.zoomToFit } : {}),
     zeros: nativePart?.zeros ?? meta?.sheets?.[name]?.zeros !== false,
     sparklineGroups: readNativeSparklineGroups(partXml),
     charts: meta?.sheets?.[name]?.charts || [],
@@ -2844,6 +2883,25 @@ export async function workbookFromFile(data, filename = '', { sourceWorkbook = n
     if (sheet.beyond) { sum.rows += sheet.beyond.rows; sum.cols = Math.max(sum.cols, sheet.beyond.cols); delete sheet.beyond; }
     return sum;
   }, { rows: 0, cols: 0 });
+  // A dropdown this app saved names its options through a defined name of its own (a list too long for the rule, kept
+  // on the settings sheet, or a range on another sheet), which is not read as a name of the book. Read from the file,
+  // as validations changed in Excel are, the rule takes those options again.
+  const validationNameRefs = new Map((Array.isArray(meta?.validationNames) ? meta.validationNames : []).filter(n => typeof n?.Name === 'string')
+    .map(n => [n.Name.toUpperCase(), (book.Workbook?.Names || []).find(name => name?.Name?.toUpperCase() === n.Name.toUpperCase() && typeof name.Ref === 'string')?.Ref])
+    .filter(([, ref]) => ref));
+  const validationListSource = (rule) => {
+    const ref = rule.type === 'list' && typeof rule.source === 'string' ? validationNameRefs.get(rule.source.replace(/^=/, '').trim().toUpperCase()) : null;
+    if (!ref) return rule;
+    const at = ref.lastIndexOf('!'), owner = ref.slice(0, at).replace(/^'(.*)'$/, '$1').replace(/''/g, "'");
+    if (at < 0 || owner !== sidecar?.name) return { ...rule, source: '=' + fromFileFormula(ref.replace(/^=/, '')) };
+    const area = parseRange(ref.slice(at + 1).replace(/\$/g, '')), cells = book.Sheets[sidecar.name], values = [];
+    if (area) for (let r = area.r1; r <= area.r2; r++) for (let c = area.c1; c <= area.c2; c++) {
+      const value = cells?.[X.utils.encode_cell({ r, c })]?.v;
+      if (value != null) values.push(value);
+    }
+    const { relativeSource, ...list } = rule;
+    return { ...list, source: values };
+  };
   const pivotRulePriorities = new Map();
   for (const sheet of sheets) {
     const nativeRules = sheet.rules;
@@ -2864,6 +2922,11 @@ export async function workbookFromFile(data, filename = '', { sourceWorkbook = n
       pivotRulePriorities.set(sheet.name, priorities);
     }
     sheet.rules = await reconcileConditionalFormats(own?.rules, baseline, sheet.rules, fingerprintRules);
+    // Validations deleted, edited or added in Excel since this app's last save: the part's are the ones in force.
+    if (xml && nativeStateNoted(own?.nativeState, 'validations') && typeof own.nativeState.validations === 'string' && Array.isArray(own.validations)
+      && await nativeValidationsSignature(xml) !== own.nativeState.validations) {
+      sheet.validations = (book.Sheets[sheet.name]?.['!validations'] || []).map(({ _odsName, ...rule }) => validationListSource(rule));
+    }
   }
   const workbookRels = book.files?.['xl/_rels/workbook.xml.rels']?.content;
   const richValues = workbookRels && /\/rdRichValue["']/.test(new TextDecoder().decode(workbookRels))
@@ -3041,7 +3104,11 @@ export async function workbookFromFile(data, filename = '', { sourceWorkbook = n
     });
   }
   const tab = Number(xlsxAttr(view, 'activeTab'));
-  const activeName = typeof meta?.active === 'string' ? meta.active : Number.isInteger(tab) && tab >= 0 ? book.SheetNames[tab]
+  // The sheet the app last had open, unless the file was left open on another one in Excel since (activeTab left
+  // out is the first sheet).
+  const shownTab = view ? Number(xlsxAttr(view, 'activeTab') ?? 0) : NaN;
+  const switched = Number.isInteger(meta?.nativeActiveTab) && Number.isInteger(shownTab) && shownTab !== meta.nativeActiveTab && book.SheetNames[shownTab] != null;
+  const activeName = switched ? book.SheetNames[shownTab] : typeof meta?.active === 'string' ? meta.active : Number.isInteger(tab) && tab >= 0 ? book.SheetNames[tab]
     : typeof book.OdsView?.active === 'string' ? book.OdsView.active : null;
   const active = activeName ? wb.sheetByName(renamed.get(activeName) || activeName) : null;
   if (active && !active.hidden) wb.activeSheetId = active.id;

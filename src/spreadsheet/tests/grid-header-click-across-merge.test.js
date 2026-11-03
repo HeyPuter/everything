@@ -44,6 +44,24 @@ it('selects only the clicked column when a merged block crosses it', async () =>
   grid.destroy();
 });
 
+// With the row under the title hidden, the cell past the block is in that hidden row: a value typed after the
+// click went into E2, a cell nobody could see. The active cell goes on past hidden lines to one on show.
+it('puts the active cell of a clicked column past a merged title and the hidden rows under it', async () => {
+  const { wb, id, grid } = await setup();
+  wb.setHidden(id, 'row', [1, 2], true);
+  const clip = grid.el.querySelector('.grid-colhead-clip');
+  const head = clip.querySelector('.hcell[data-c="2"]');
+  pointer(head, 'pointerdown', { clientX: 250, clientY: 10 });
+  pointer(clip, 'pointerup', { clientX: 250, clientY: 10 });
+  expect(grid.ranges).toEqual([{ r1: 0, c1: 2, r2: 1048575, c2: 2 }]);
+  expect(grid.active).toEqual({ r: 3, c: 2 });
+  // Rows the same way: column B hidden beside the block merged down column A.
+  wb.setHidden(id, 'col', [1], true);
+  grid.selectByName('5:5');
+  expect(grid.active).toEqual({ r: 4, c: 2 });
+  grid.destroy();
+});
+
 it('selects only the clicked row when a merged block crosses it', async () => {
   const { grid } = await setup();
   const clip = grid.el.querySelector('.grid-rowhead-clip');

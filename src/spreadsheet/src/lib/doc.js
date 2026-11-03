@@ -31,8 +31,8 @@ import { workbookToXlsx, workbookToOds, workbookFromFile, sheetToCsv, sheetToTsv
 import * as P from './puter.js';
 import { trackEvent } from './analytics.js';
 import { session } from './session.js';
-import { draftKey, liveDraftKey, draftRevision, saveDraft, loadDraft, clearDraft, moveDraft, parkDraft, isUnsavedDraftKey, sameBook, draftKeyForFile, readableDraft, uniqueId } from './drafts.js';
-import { adoptVersionsByUid, listVersions, saveVersion, readVersion, dueForVersion, moveVersions, parkVersions, RESTORE_LABEL } from './versions.js';
+import { draftKey, liveDraftKey, draftRevision, draftRevisionAt, saveDraft, loadDraft, clearDraft, moveDraft, parkDraft, isUnsavedDraftKey, sameBook, draftKeyForFile, readableDraft, uniqueId } from './drafts.js';
+import { adoptVersionsByUid, listVersions, saveVersion, readVersion, dueForVersion, moveVersions, parkVersions, RESTORE_LABEL, OVERWRITE_LABEL } from './versions.js';
 import { storageScope, accountStorageKey, isAccountScope, isProvisionalScope } from './account-storage.js';
 import { optionState } from './option-state.js';
 import { rememberMade } from './made.js';
@@ -203,6 +203,8 @@ const SHARED_FILE_MS = 15_000;
 export const SIGN_IN_TO_SAVE = 'Sign in to Puter to save this spreadsheet';
 /** Why a spreadsheet shared with the user only to view is not saved. */
 export const VIEW_ONLY = 'You can view this spreadsheet, but not change it. Use File > Save a copy to keep your changes';
+/** Why "Overwrite with mine" did not go ahead: what the file holds could not be kept in Version history first (see forceSave). */
+export const THEIRS_NOT_KEPT = 'The version saved elsewhere could not be kept in Version history';
 /** Why the owner's file of a shared workbook, opened while its room could not be reached, is not saved (see holdForRoom). */
 export const SHARED_FILE = 'This spreadsheet is shared for editing together, and the shared workbook could not be reached: it writes this file, and would write over changes saved here. Open the spreadsheet again once connected, or use File > Save a copy to keep your changes';
 
@@ -299,11 +301,15 @@ export class Doc extends EventTarget {
     this.remoteModified = null; // when the file on the drive was last written, as we last saw it (ms)
     this.remoteSize = null; // and how many bytes it held then: modification times are whole seconds, and two tabs can save within one
     this._written = null; // the bytes last written to the file, kept while small enough to read the file back and compare (see _holdsLastWrite)
+    this._savedVersion = -1; // the book's version the last save wrote to the file (see fileHolds)
     this._timer = null;
     this._retryDelay = 0; // the pause before the next try of a failing autosave, growing while it keeps failing
     this._draftTimer = null;
     this._draftRevision = null; // only this exact local snapshot may be moved or cleared
     this.draftKept = true; // does this browser hold a copy of the unsaved edits? Not once a book outgrows local storage
+    this._draftBeside = false; // another tab of the file drafts under its key: this one's edits are kept beside them (see writeDraft)
+    this._draftAside = null; // and another beside them too: this one's are an unsaved spreadsheet of their own, { name, id } (see writeDraft)
+    this._asDrafted = null; // opened from an unsaved spreadsheet's draft: the book's { version, name } as that draft holds it (see writeDraft)
     this._saving = null;
     this._versioning = null; // the automatic snapshot of the last save, while it is being written
     this.recoverable = null; // a local draft newer than the file, awaiting a decision
@@ -347,7 +353,7 @@ export class Doc extends EventTarget {
       if (moveDraft(from, to, draftRevision(this.recoverable)) || draftRevision(loadDraft(to)) === draftRevision(this.recoverable)) this._recoverableKey = to;
       moveDraft(liveDraftKey(from), liveDraftKey(to), this._draftRevision);
     } else {
-      moveDraft(oldKey, to, this._draftRevision);
+      moveDraft(this._draftBeside ? liveDraftKey(oldKey) : oldKey, this._ownDraftKey, this._draftRevision);
     }
   }
 
@@ -431,7 +437,8 @@ export class Doc extends EventTarget {
    * restore it would restore those instead; they are kept beside it until the decision is made.
    */
   get _ownDraftKey() {
-    return this.recoverable ? liveDraftKey(this.draftKey) : this.draftKey;
+    if (this._draftAside && this.path) return draftKey(null, this._draftAside.name, this._storageScope, this._draftAside.id);
+    return this.recoverable || this._draftBeside ? liveDraftKey(this.draftKey) : this.draftKey;
   }
 
   /** Copy the unsaved book to local storage (no-op once it is clean). */
@@ -441,9 +448,28 @@ export class Doc extends EventTarget {
     if (this.collab) return this.collab.keepsChanges;
     clearTimeout(this._draftTimer);
     if (!this.wb.dirty) { clearDraft(this._ownDraftKey, this._draftRevision); return false; }
+    // Opened from an unsaved spreadsheet's draft and changed nothing since, the book is what that draft holds, or what
+    // another tab of the spreadsheet made of it since: a copy written now would only stand in that tab's way (it would
+    // find a draft not its own and draft apart, the spreadsheet listed twice on the home screen). Gone from storage, it is kept.
+    const as = this._asDrafted;
+    if (as && !this.path && as.version === this.wb.version && as.name === this.name && draftRevisionAt(this.draftKey) != null) { this._noteDraft(true); return true; }
     // Timestamps and workbook versions can coincide across tabs. Each write
     // needs its own identity so a later save cannot clear another tab's edits.
     const revision = uniqueId();
+    // Another tab of the same file, opened before either was edited, drafts under the file's key too: this tab's
+    // edits are kept beside its draft from here on, as they are beside a draft offered on opening (see fromPath,
+    // which offers the one and keeps the other as an unsaved spreadsheet), rather than each writing over the other's.
+    // A spreadsheet with no file, reopened from the home screen in another tab, shares its key the same way: this
+    // tab's edits become an unsaved spreadsheet of their own, listed beside the other's.
+    if (!this.recoverable && !this._draftBeside && ![null, this._draftRevision].includes(draftRevisionAt(this.draftKey))) {
+      if (this.path) this._draftBeside = true;
+      else { this._recoveredDraftKey = null; this._draftId = uniqueId(); }
+    }
+    // Beside the file's draft there is room for one tab's edits only: a third tab of the file, or one reloaded and
+    // offered the other's draft, finding another's there, keeps its own as an unsaved spreadsheet of their own.
+    if (this.path && !this._draftAside && (this.recoverable || this._draftBeside) && ![null, this._draftRevision].includes(draftRevisionAt(this._ownDraftKey))) {
+      this._draftAside = { name: this.name, id: uniqueId() };
+    }
     // The file's revision these edits were made on, so reopening can tell whether it changed since,
     // and its id, by which the file is found again should it be moved or renamed elsewhere.
     const saved = saveDraft(this._ownDraftKey, this.wb, this.name, revision, { fileModified: this.path ? this.remoteModified : undefined, fileUid: (this.path && this.uid) || undefined });
@@ -481,6 +507,8 @@ export class Doc extends EventTarget {
     // The edits made meanwhile give way to the restored ones, in storage as in the book: whatever is kept
     // beside the draft goes, whether this document wrote it or an earlier one that closed before deciding.
     clearDraft(this._ownDraftKey);
+    // Restored, the draft under the file's key is this document's: its edits go there again.
+    this._draftAside = null;
     this._draftRevision = draftRevision(draft);
     this.recoverable = null;
     this._recoverableKey = null;
@@ -554,6 +582,24 @@ export class Doc extends EventTarget {
     this.save({ auto: true }).catch(() => {});
   }
 
+  /**
+   * Does the file hold the book as it was at `version` (wb.version)? It does once a save wrote that version or a later
+   * one, or while nothing is unsaved; a shared workbook's changes reach everyone through the room, not the file.
+   */
+  fileHolds(version) {
+    return !!this.collab || !this.wb.dirty || this._savedVersion >= version;
+  }
+
+  /** Resolves once the file holds the book as it was at `version` (see fileHolds): at once, or when a save writes it. */
+  whenFileHolds(version) {
+    if (this.fileHolds(version)) return Promise.resolve();
+    return new Promise((resolve) => {
+      // A book made clean without a save (Reload theirs discards it) does not put the edits in the file.
+      const check = () => { if (this._savedVersion >= version) { this.removeEventListener('status', check); resolve(); } };
+      this.addEventListener('status', check);
+    });
+  }
+
   /** Turn AutoSave on or off; turning it on saves what is waiting. */
   setAutoSave(on) {
     setAutoSaveEnabled(!!on);
@@ -608,10 +654,42 @@ export class Doc extends EventTarget {
     return pending;
   }
 
-  /** Save even if the file changed elsewhere (the user chose to overwrite). */
-  forceSave() {
+  /**
+   * Save even if the file changed elsewhere (the user chose to overwrite). What the file holds is kept in Version
+   * history first (see _keepTheirs); when it cannot be, nothing is written and the promise rejects with
+   * THEIRS_NOT_KEPT, for the user to choose whether to overwrite it all the same (`keepTheirs` false).
+   */
+  forceSave({ keepTheirs = true } = {}) {
     clearTimeout(this._timer);
-    return this._enqueueWrite(() => this._doSave(false, true));
+    return this._enqueueWrite(async () => {
+      if (keepTheirs) await this._keepTheirs();
+      return this._doSave(false, true);
+    });
+  }
+
+  /**
+   * What the file holds now, written elsewhere, is kept as a version before the user's own goes over it, as a
+   * restore keeps the state it replaces: the other person's work can be had back from Version history. Not when
+   * the file still holds this document's last write, or is gone. Both conflict dialogs say theirs is kept: should
+   * the read or the snapshot fail, the overwrite does not go ahead in silence (see forceSave).
+   */
+  async _keepTheirs() {
+    // A shared workbook's file is the room's to write (see _doSave): nothing is written over, nor kept.
+    if (!this.path || !this.isXlsxPath || this.collab || this.roomFile) return;
+    const { status, error } = this;
+    // The whole file is read and written again before the save proper: the save is under way from here.
+    this._setStatus('saving');
+    try {
+      const st = await P.statFile(this.path);
+      if (!st || await this._holdsLastWrite(st) === true) return;
+      const theirs = new Blob([await P.readFile(this.path)], { type: XLSX_MIME });
+      const entry = await saveVersion(this.file, theirs, OVERWRITE_LABEL);
+      this._lastVersionAt = entry.at;
+    } catch (e) {
+      console.warn('Version snapshot failed', e);
+      this._setStatus(status, error);
+      throw new Error(THEIRS_NOT_KEPT, { cause: e });
+    }
   }
 
   async _doSave(auto, force = false) {
@@ -738,6 +816,7 @@ export class Doc extends EventTarget {
       this._written = blob.size <= COMPARE_MAX_BYTES ? blob : null;
       // Edits that landed while the book was encoded or the write was in flight keep the doc dirty; those made
       // while the file was checked, before, are in the bytes written.
+      this._savedVersion = exportedVersion;
       if (this.wb.version === exportedVersion) this.wb.markClean();
       this._setStatus(this.wb.dirty ? 'unsaved' : 'saved');
       if (this.wb.dirty) {
@@ -1038,6 +1117,7 @@ export class Doc extends EventTarget {
     recordExternal({ path: this.path, uid: this.uid }, this._storageScope, this.wb.externalAllowed);
     await parkVersions(this.file).catch(() => {}); // a gone file's history under the new name is not the copy's
     this.lastSaved = Date.now();
+    this._savedVersion = version;
     if (this.wb.version === version) this.wb.markClean();
     this._setStatus(this.wb.dirty ? 'unsaved' : 'saved');
     if (this.wb.dirty) { this.writeDraft(); this._changed('cells'); }
@@ -1248,6 +1328,7 @@ export class Doc extends EventTarget {
     doc._draftRevision = draftRevision(draft);
     doc.wb.dirty = true;
     doc._changed('cells');
+    doc._asDrafted = { version: doc.wb.version, name: doc.name };
     return doc;
   }
 

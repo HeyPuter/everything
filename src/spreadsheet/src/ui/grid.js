@@ -228,12 +228,9 @@ export function createGrid(opts) {
     refreshMergeMap();
     const key = cellKey(r, c);
     if (mergeMap.has(key)) return mergeMap.get(key);
-    const merges = sheet().merges;
-    let found = null;
-    for (let i = merges.length - 1; i >= 0; i--) {
-      const m = merges[i];
-      if (r >= m.r1 && r <= m.r2 && c >= m.c1 && c <= m.c2) { found = m; break; }
-    }
+    // The workbook files a long list of merges by bands of rows: a report merged across 100,000 rows had every
+    // cell drawn test each of them, which took 40ms of each edit and of each scroll.
+    const found = wb.mergeAt(sheetId, r, c);
     // Scrolling a large sheet must not eventually retain every coordinate either.
     if (mergeMap.size >= 10000) mergeMap.clear();
     mergeMap.set(key, found);
@@ -2992,15 +2989,26 @@ export function createGrid(opts) {
    * which a press drags; the print area's edges drag too. Normal view's page-break lines are the same
    * lines, dashed and out of the way of the pointer.
    */
-  function renderPages() {
+  let pageViewSeq = 0; // counts the page views given (setPageView)
+  let pagesDrawn = null; // what the page layer shows: the page view, the cells in view and the layout it was drawn for
+  function renderPages(view = null, force = false) {
     // A line being dragged keeps its node (and its place under the pointer) until it is dropped.
     if (drag?.kind === 'pageBreak' && drag.node.isConnected) return;
     pageLayer.hidden = !pageView;
     const preview = !!pageView && !pageView.lines;
     root.classList.toggle('page-break-preview', preview);
     pageLayer.classList.toggle('lines-only', !!pageView?.lines);
-    if (!pageView) { if (pageLayer.childElementCount) pageLayer.replaceChildren(); return; }
-    const lines = (axis, list) => (list || []).map(({ at, manual }) => {
+    if (!pageView) { pagesDrawn = null; if (pageLayer.childElementCount) pageLayer.replaceChildren(); return; }
+    // Only the pages and the lines over the cells in view are drawn, and again only when those change: a sheet
+    // reaching XFD1 and A1048576 is laid out as some 480,000 pages, and drawing every one of them on every frame
+    // overflowed the call stack, so the view was left broken.
+    ensureOffsets();
+    const vr = visibleRange(view || viewMetrics());
+    const key = `${pageViewSeq}|${vr.r0},${vr.r1},${vr.c0},${vr.c1}|${layoutGeneration}|${windowKey()}`;
+    if (!force && key === pagesDrawn) return;
+    pagesDrawn = key;
+    const near = (axis, at) => (axis === 'row' ? at >= vr.r0 && at <= vr.r1 + 1 : at >= vr.c0 && at <= vr.c1 + 1);
+    const lines = (axis, list) => (list || []).filter(({ at }) => near(axis, at)).map(({ at, manual }) => {
       const line = el(`div.page-break-line.${axis}${manual ? '.manual' : ''}`, {
         dataset: { axis, at: String(at), manual: manual ? '1' : '' },
         title: preview ? `${manual ? 'Manual' : 'Automatic'} page break: drag to move it${manual ? ', or off the print area to remove it' : ''}` : null,
@@ -3021,7 +3029,8 @@ export function createGrid(opts) {
       place(node, breakBox(axis, at, pageView.area));
       return node;
     });
-    pageLayer.replaceChildren(area, ...pageView.pages.map((p) => {
+    const shown = pageView.pages.filter((p) => p.r2 >= vr.r0 && p.r1 <= vr.r1 && p.c2 >= vr.c0 && p.c1 <= vr.c1);
+    pageLayer.replaceChildren(area, ...shown.map((p) => {
       const page = el('div.page-box', {}, el('span.page-label', {}, `Page ${p.n}`));
       place(page, rangeBox(p));
       return page;
@@ -3041,8 +3050,8 @@ export function createGrid(opts) {
   }
 
   /** One drag corner per table (tables with a totals row are resized from their dialog). */
-  function renderTables() {
-    renderPages();
+  function renderTables(view) {
+    renderPages(view);
     const s = sheet();
     const tables = (s.tables || []).filter((t) => !t.totalsRow);
     if (!tables.length && !tableLayer.childElementCount) return;
@@ -3100,7 +3109,7 @@ export function createGrid(opts) {
 
   function renderSelection(view = viewMetrics()) {
     renderPeers();
-    renderTables();
+    renderTables(view);
     root.classList.toggle('protected', wb.isProtected(sheetId));
     root.classList.toggle('no-gridlines', sheet().gridlines === false);
     highlightHeaders();
@@ -3279,8 +3288,11 @@ export function createGrid(opts) {
     if (!S.isSingle(sel)) {
       const s = sheet();
       if (rowHidden(s, sel.active.r) || s.hiddenCols.has(sel.active.c)) {
-        const range = S.selRange(sel);
-        const t = visibleTarget(sel.active, 1, 1);
+        // The range as merged blocks grow it, then the nearest shown line after the active cell, or before it
+        // when the range ends first (B1:C1 with column C hidden).
+        const range = own;
+        const ahead = visibleTarget(sel.active, 1, 1), behind = visibleTarget(sel.active, -1, -1);
+        const t = { r: ahead.r <= range.r2 ? ahead.r : behind.r, c: ahead.c <= range.c2 ? ahead.c : behind.c };
         if (t.r >= range.r1 && t.r <= range.r2 && t.c >= range.c1 && t.c <= range.c2) sel.active = t;
       }
     }
@@ -3297,10 +3309,12 @@ export function createGrid(opts) {
       if (m && (!whole || (m.r1 >= range.r1 && m.c1 >= range.c1))) sel.active = { r: m.r1, c: m.c1 };
       else if (m) {
         // A block merged from outside the lines covers their first cell: the active cell steps along
-        // the line past it, so typing goes into a cell of the selection that shows what it holds.
+        // the line past it, so typing goes into a cell of the selection that shows what it holds: past hidden
+        // lines too (a title merged over the columns with the row under it hidden put the cell in that row).
         let { r, c } = sel.active, k = m;
         while (k && (k.r1 < range.r1 || k.c1 < range.c1) && r <= range.r2 && c <= range.c2) {
-          if (sel.scope === 'rows') c = k.c2 + 1; else r = k.r2 + 1;
+          if (sel.scope === 'rows') { c = k.c2 + 1; c = Math.max(c, visibleTarget({ r, c }, 0, 1).c); }
+          else { r = k.r2 + 1; r = Math.max(r, visibleTarget({ r, c }, 1, 0).r); }
           k = wb.mergeAt(sheetId, r, c);
         }
         if (r <= range.r2 && c <= range.c2) sel.active = { r, c };
@@ -3337,10 +3351,11 @@ export function createGrid(opts) {
     // The cell nodes stay as they are: rebuilding them on a click would
     // detach the pressed node before the release, and the browser then drops
     // the click and any double-click. Headers re-highlight in place. Only an
-    // active cell outside the rendered rows and columns needs a rebuild, which
-    // keeps it in the DOM for aria-activedescendant.
+    // active cell outside the rendered rows and columns, or in a hidden line
+    // (whose cells the rows drawn leave out), needs a rebuild, which keeps it
+    // in the DOM for aria-activedescendant.
     const a = sel.active;
-    if (a.r < rendered.r0 || a.r > rendered.r1 || a.c < rendered.c0 || a.c > rendered.c1) rendered.key = null;
+    if (a.r < rendered.r0 || a.r > rendered.r1 || a.c < rendered.c0 || a.c > rendered.c1 || rowHidden(s, a.r) || s.hiddenCols.has(a.c)) rendered.key = null;
     schedule();
     rememberSheetSelection();
     opts.onSelection?.(sel);
@@ -3792,17 +3807,32 @@ export function createGrid(opts) {
     // The cell was protected while its entry was being typed: the workbook would refuse the write in
     // silence, so the entry stays open (the workbook's notice says why) rather than being dropped.
     if (wb.lockedAt(sheetId, r, c)) { editor.focus({ preventScroll: true }); return false; }
+    const targets = [...extras, S.selRange(sel)];
+    const arrayRange = edit.arrayRange || (arrayEntry ? S.selRange(sel) : null);
+    // A refused entry stays open, and is said on screen as well as to a screen reader: the announcement alone
+    // left Ctrl+Enter over a whole column looking as though it had done nothing.
+    const refuse = (message) => { opts.onInvalid?.({ message }); opts.announce?.(`${message}. Your entry is still being edited.`); };
+    // A formula Excel refuses as typed (=ROUND(A1), =ABS(1,2), nested or long past its limits) is refused as Excel
+    // refuses it, before any rule is asked: the entry stays open with the caret on the call at fault, and the notice
+    // says what is wrong. Written, it would have become the text typed without a word. An entry left as the cell
+    // holds it (a formula read from a file) writes nothing, and is let be.
+    const rewrites = text !== editText(wb.getCell(sheetId, r, c)) || fillSelection || (arrayEntry && !edit.arrayRange);
+    const problem = rewrites ? wb.typedFormulaProblem(text) : null;
+    if (problem) {
+      refuse(problem.message);
+      edit.refInsert = null;
+      edit.point = null;
+      setEditMode('inplace'); // the arrows move the caret to put it right, rather than pick a cell into the formula
+      focusEntry();
+      editInput().setSelectionRange(problem.start, problem.end);
+      return false;
+    }
     const verdict = opts.validate?.(r, c, text);
     let warning = verdict?.ok === false && validationAlertStyle(verdict.rule) ? verdict : null;
     if (verdict && verdict.ok === false && verdict.strict) {
       // A Stop alert can return to this draft or discard it, never accept it.
       return refuseValidation(verdict);
     }
-    const targets = [...extras, S.selRange(sel)];
-    const arrayRange = edit.arrayRange || (arrayEntry ? S.selRange(sel) : null);
-    // A refused entry stays open, and is said on screen as well as to a screen reader: the announcement alone
-    // left Ctrl+Enter over a whole column looking as though it had done nothing.
-    const refuse = (message) => { opts.onInvalid?.({ message }); opts.announce?.(`${message}. Your entry is still being edited.`); };
     if (arrayEntry && extras.length) {
       refuse('Select one continuous range for an array formula');
       editor.focus({ preventScroll: true });
@@ -3834,9 +3864,13 @@ export function createGrid(opts) {
         editor.focus({ preventScroll: true });
         return false;
       }
+      // Only the cells the fill writes are asked: it passes over the rows a filter hides and the covered cells of
+      // a merged block (Workbook.fillInput), where a strict rule refused a fill that would never touch them.
+      const filtered = sheet().filterHidden;
       for (const rg of targets) for (let rr = rg.r1; rr <= rg.r2; rr++) for (let cc = rg.c1; cc <= rg.c2; cc++) {
+        if (filtered.has(rr) || wb._coveredByMerge(sheetId, rr, cc)) continue;
         if (wb.lockedAt(sheetId, rr, cc)) { editor.focus({ preventScroll: true }); return false; }
-        const check = opts.validate?.(rr, cc, text);
+        const check = opts.validate?.(rr, cc, text, { r, c });
         if (!warning && check?.ok === false && validationAlertStyle(check.rule)) warning = check;
         if (check && check.ok === false && check.strict) {
           return refuseValidation(check);
@@ -3869,6 +3903,8 @@ export function createGrid(opts) {
           i = j + 1;
         }
       });
+      // As for one cell: a correction of the entry's last word follows, in every cell filled, as a step of its own.
+      opts.afterCommit?.({ sheetId, r, c, text, ranges: targets });
     } else if (text !== editText(cell)) {
       const wraps = !!wb.styleAt(sheetId, r, c)?.wrap;
       // Lines added with Alt+Enter turn wrapping on, so the row can show them all.
@@ -4229,7 +4265,7 @@ export function createGrid(opts) {
     const m = s.merges.length ? wb.mergeAt(sheetId, from.active.r, from.active.c) : null;
     const start = m ? leavingMerge(from, m, dr, dc) : from;
     const leap = (r, c, ddr, ddc) => Math.abs(ddr ? pastHidden(rowOffsets, r, ddr) : pastHidden(colOffsets, c, ddc));
-    return S.jump(start, dr, dc, bounds(), hasValue, (r, c) => !rowHidden(s, r) && !s.hiddenCols.has(c), nextFilled, leap);
+    return S.jump(start, dr, dc, bounds(), hasValue, (r, c) => !rowHidden(s, r) && !s.hiddenCols.has(c), nextFilled, leap, filledThrough);
   }
 
   /**
@@ -4279,6 +4315,57 @@ export function createGrid(opts) {
     }
     filledRuns = { key, runs };
     return runs;
+  }
+
+  /**
+   * Where along one column (or row) values are stored, as sorted, disjoint [from, to] runs of lines that each
+   * hold a value or a formula. Built from the stored cells and kept while nothing changes, as runsAlong is.
+   */
+  let storedRuns = null; // { key, runs }
+  function valueRunsAlong(vertical, line) {
+    const s = sheet();
+    const key = `${wb.version}|${s.id}|${vertical ? 'c' : 'r'}${line}`;
+    if (storedRuns?.key === key) return storedRuns.runs;
+    let at = new Int32Array(64), n = 0;
+    for (const [k, cell] of s.cells) {
+      if (cell.v == null && cell.f == null) continue;
+      const comma = k.indexOf(',');
+      if (Number(vertical ? k.slice(comma + 1) : k.slice(0, comma)) !== line) continue;
+      if (n === at.length) { const grown = new Int32Array(n * 2); grown.set(at); at = grown; }
+      at[n++] = Number(vertical ? k.slice(0, comma) : k.slice(comma + 1));
+    }
+    const lines = at.subarray(0, n).sort();
+    const runs = [];
+    for (const i of lines) {
+      const last = runs[runs.length - 1];
+      if (last && i <= last[1] + 1) last[1] = Math.max(last[1], i);
+      else runs.push([i, i]);
+    }
+    storedRuns = { key, runs };
+    return runs;
+  }
+
+  /**
+   * The last cell from (r, c) going (dr, dc) of its unbroken stretch of stored values, or null: see S.jump. A merged
+   * block's cells hold what its anchor holds, not what may be stored under them, so the stretch stops short of one.
+   */
+  function filledThrough(r, c, dr, dc) {
+    const vertical = dr !== 0;
+    const line = vertical ? c : r, at = vertical ? r : c, dir = vertical ? dr : dc;
+    const runs = valueRunsAlong(vertical, line);
+    let lo = 0, hi = runs.length;
+    while (lo < hi) { const mid = (lo + hi) >> 1; if (runs[mid][1] < at) lo = mid + 1; else hi = mid; }
+    const run = runs[lo];
+    if (!run || run[0] > at) return null;
+    let end = dir > 0 ? run[1] : run[0];
+    for (const m of sheet().merges) {
+      const [a1, a2, b1, b2] = vertical ? [m.r1, m.r2, m.c1, m.c2] : [m.c1, m.c2, m.r1, m.r2];
+      if (line < b1 || line > b2) continue;
+      if (dir > 0 && a2 >= at && a1 <= end) end = Math.min(end, a1 - 1);
+      else if (dir < 0 && a1 <= at && a2 >= end) end = Math.max(end, a2 + 1);
+    }
+    if (dir > 0 ? end <= at : end >= at) return null;
+    return vertical ? { r: end, c } : { r, c: end };
   }
 
   /** The next cell past (r, c) going (dr, dc) that may hold anything, or null: see S.jump. */
@@ -4867,11 +4954,11 @@ export function createGrid(opts) {
     }
     if (d.kind === 'pageBreak') {
       d.node.classList.remove('dragging');
-      if (d.to === d.from) { renderPages(); return; }
+      if (d.to === d.from) { renderPages(null, true); return; }
       // An edge's line is the last one inside the area at its bottom and right.
       if (d.edge) opts.onPrintAreaEdge?.({ edge: d.edge, to: d.edge === 'bottom' || d.edge === 'right' ? d.to - 1 : d.to });
       else opts.onPageBreakMove?.({ axis: d.axis, from: d.from, to: d.to, manual: d.manual });
-      renderPages();
+      renderPages(null, true);
       return;
     }
     if (d.kind === 'tableResize') {
@@ -5459,8 +5546,10 @@ export function createGrid(opts) {
     // a commit has already cleared `edit`, so check the target too.
     if (edit || e.target === editor) return;
     // Links and object controls inside the canvas keep native activation
-    // and text editing; their keys must not mutate the selected cells.
-    if (e.defaultPrevented || e.target.closest?.('button, a, input, textarea, select, [contenteditable="true"]')) return;
+    // and text editing; their keys must not mutate the selected cells. A form
+    // scroll bar and a timeline's periods are such controls too: Delete pressed
+    // on one cleared the cells behind it.
+    if (e.defaultPrevented || e.target.closest?.('button, a, input, textarea, select, [contenteditable="true"], [role="scrollbar"], [role="option"]')) return;
     if (e.key === 'Escape' && (drag || freezeDrag || tap)) {
       // Escape gives up a gesture in progress, so nothing fills, moves, reorders or freezes on
       // release: a freeze-bar drag keeps its own handle, not `drag`, and went through regardless.
@@ -5978,12 +6067,25 @@ export function createGrid(opts) {
       if (!part.trim()) return;
       // On the formula's own sheet, which another sheet shown to pick references on is not.
       const raw = wb.evaluateText(edit.sheetId, edit.r, edit.c, part);
-      const value = raw && typeof raw === 'object' && raw.range ? raw.values?.[0]?.[0] ?? null : raw;
       // A number goes in as a formula writes it, to its fifteen digits and with a full stop whatever the regional
       // format: the cell's display (0,3333333333 in German) cut digits off and put a comma into the formula.
-      const text = value && typeof value === 'object' && value.error ? value.error
+      const literal = (value) => (value && typeof value === 'object' && value.error ? value.error
         : typeof value === 'string' ? `"${value.replace(/"/g, '""')}"` : typeof value === 'boolean' ? (value ? 'TRUE' : 'FALSE') : value == null ? '0'
-          : typeof value === 'number' ? String(Number(value.toPrecision(15))).replace('e', 'E') : formatGeneral(value);
+          : typeof value === 'number' ? String(Number(value.toPrecision(15))).replace('e', 'E') : formatGeneral(value));
+      // A range or an array of more than one value goes in as an array constant, {1;2;3}, as Excel writes it: its first
+      // value alone turned =SUM(A1:A3) into =SUM(1). One too long for a formula is left as it was.
+      const values = raw && typeof raw === 'object' && raw.range ? raw.values || [[null]] : null;
+      const tooLong = () => opts.announce?.('Too many values to put into the formula');
+      // A reference is as large as it reaches, though only the cells in use are read (A:A is a million rows, not
+      // the two filled): each value takes a character and a separator at least, so past 4,096 of them it cannot
+      // fit Excel's 8,192.
+      const ref = values && raw.ref;
+      const height = ref ? ref.r2 - ref.r1 + 1 : values?.length || 1, width = ref ? ref.c2 - ref.c1 + 1 : values?.[0]?.length || 1;
+      if (values && height * width > 4096) { tooLong(); return; }
+      const rows = values && Array.from({ length: height }, (_, i) => Array.from({ length: width }, (_, j) => values[i]?.[j] ?? null));
+      const text = !rows || (height === 1 && width === 1) ? literal(rows ? rows[0][0] : raw)
+        : `{${rows.map((row) => row.map(literal).join(',')).join(';')}}`;
+      if (text.length > 8192) { tooLong(); return; }
       const next = whole ? `=${text}` : `${input.value.slice(0, a)}${text}${input.value.slice(b)}`;
       input.value = next;
       const caret = whole ? next.length : a + text.length;
@@ -6009,10 +6111,12 @@ export function createGrid(opts) {
           input.setSelectionRange(a + open.length, a + open.length + args.length);
           setEditText(next, { fromEditor: input === editor });
         } else {
-          // The entry stays open: the call the dialog builds takes the place of the name (and of a parenthesis typed
-          // after it, with its closing one), the rest of the formula kept around it.
-          const end = before.endsWith('(') && input.value[before.length] === ')' ? before.length + 1 : before.length;
-          opts.onCommand?.('functionArgs', { name, start: typed.index, end });
+          // The entry stays open: the call the dialog builds takes the place of the name and of the call written after
+          // it, up to its closing parenthesis, the rest of the formula kept around it. The arguments already written
+          // fill the dialog's fields, as in Excel: the name alone was replaced, =SUM(1,2) becoming =SUM()(1,2).
+          const open = before.endsWith('(') ? before.length - 1 : input.value[before.length] === '(' ? before.length : -1;
+          const call = open >= 0 ? callArguments(input.value, open) : null;
+          opts.onCommand?.('functionArgs', { name, start: typed.index, end: call ? call.end : before.length, args: call?.args || [] });
         }
         return;
       }
@@ -6053,6 +6157,38 @@ export function createGrid(opts) {
     // "+" the caret passes does not turn the arrows back into picking cells.
     if (dir && edit.mode === 'type') setEditMode('inplace');
     if (isMod(e) && key.toLowerCase() === 's') { e.preventDefault(); if (commitEdit()) opts.onCommand?.('save'); }
+  }
+
+  /**
+   * The arguments of the call whose opening parenthesis is at `open` in a formula's text, each as written (trimmed),
+   * and where the call ends: just past its closing parenthesis, or at the end of the text when it is not closed yet.
+   * Commas inside text, a quoted sheet name, nested calls, an array constant or a table reference's brackets are
+   * no separators.
+   */
+  function callArguments(text, open) {
+    const args = [];
+    let depth = 0, brackets = 0, from = open + 1;
+    const done = (at) => { args.push(text.slice(from, at).trim()); return { args: args.length === 1 && !args[0] ? [] : args, end: at }; };
+    for (let i = open + 1; i < text.length; i++) {
+      const ch = text[i];
+      if (brackets) {
+        if (ch === "'") i++;
+        else if (ch === '[') brackets++;
+        else if (ch === ']') brackets--;
+        continue;
+      }
+      if (ch === '"' || ch === "'") {
+        for (i++; i < text.length && !(text[i] === ch && text[i + 1] !== ch); i += text[i] === ch ? 2 : 1);
+        continue;
+      }
+      if (ch === '[') brackets++;
+      else if (ch === '(' || ch === '{') depth++;
+      else if (ch === ')' || ch === '}') {
+        if (depth) depth--;
+        else if (ch === ')') { const out = done(i); out.end = i + 1; return out; }
+      } else if (ch === ',' && !depth) { args.push(text.slice(from, i).trim()); from = i + 1; }
+    }
+    return done(text.length);
   }
 
   /**
@@ -6341,7 +6477,10 @@ export function createGrid(opts) {
   function measureChrome() {
     showHeaders = sheet()?.headers !== false;
     root.classList.toggle('no-headers', !showHeaders);
-    // The stylesheet's header sizes are the base; the outline gutter adds to them.
+    // The stylesheet's header sizes are the base; the outline gutter adds to them. Taken off while they are read,
+    // the sizes set here lay the viewport out larger for a moment, and scrolled to the sheet's last column (or
+    // row) the browser pulls the scroll back to fit that view, which then stayed: the last column was cut off.
+    const sl = viewport.scrollLeft, st = viewport.scrollTop;
     root.style.removeProperty('--row-header-w');
     root.style.removeProperty('--col-header-h');
     const cs = getComputedStyle(root);
@@ -6353,6 +6492,7 @@ export function createGrid(opts) {
     baseFontSize = parseFloat(cs.getPropertyValue('--grid-font-size')) || 13;
     applyOutlineGutter();
     applyZoomFont(cs.fontFamily || 'system-ui');
+    if (viewport.scrollLeft !== sl || viewport.scrollTop !== st) scrollViewportTo(sl - shift.x, st - shift.y);
   }
 
   /**
@@ -6999,7 +7139,7 @@ export function createGrid(opts) {
       schedule();
     },
     /** Show the printed pages over the sheet (Page Break Preview), or null for the normal view. */
-    setPageView(view) { pageView = view; renderPages(); },
+    setPageView(view) { pageView = view; pageViewSeq++; renderPages(); },
     /**
      * Show the sheet as printed pages (Page Layout view), or null for the normal layout. The provider
      * gives each sheet's page metrics ({ paperWidth, paperHeight, margins, gap, scale, colStarts,

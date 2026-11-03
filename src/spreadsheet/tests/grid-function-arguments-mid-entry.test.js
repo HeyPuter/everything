@@ -83,3 +83,48 @@ it('leaves the entry as it was when the dialog is cancelled', async () => {
   expect(view.el.querySelector('.grid').classList.contains('editing')).toBe(true);
   expect(editor.value).toBe('=1+SUM');
 });
+
+// A call already written after the name was left where it was, the dialog's call put in front of it:
+// =SUM(B1,B2)*2 with Ctrl+A after SUM opened with empty fields, and OK gave =SUM()(B1,B2)*2.
+it('fills the fields from a call already written and replaces that call whole', async () => {
+  const { wb, id, editor } = await editFormula('=SUM(B1,IF(B2>0,"a,b",B2),{1,2})*2', 4);
+  const inputs = () => [...dialog().querySelectorAll('input')].map((i) => i.value);
+  expect(inputs().slice(0, 3)).toEqual(['B1', 'IF(B2>0,"a,b",B2)', '{1,2}']);
+  dialog().requestSubmit();
+  await vi.advanceTimersByTimeAsync(1);
+  expect(editor.value).toBe('=SUM(B1, IF(B2>0,"a,b",B2), {1,2})*2');
+  editor.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+  await vi.advanceTimersByTimeAsync(1);
+  expect(wb.getCell(id, 0, 0)?.f).toBe('SUM(B1, IF(B2>0,"a,b",B2), {1,2})*2');
+});
+
+it('reads the call from just inside its parenthesis too, and one not yet closed', async () => {
+  const { editor } = await editFormula("=ROUND('My, sheet'!B1,2", 7);
+  expect([...dialog().querySelectorAll('input')].map((i) => i.value)).toEqual(["'My, sheet'!B1", '2']);
+  dialog().requestSubmit();
+  await vi.advanceTimersByTimeAsync(1);
+  expect(editor.value).toBe("=ROUND('My, sheet'!B1, 2)");
+});
+
+// A call written with more arguments than its signature lists (AGGREGATE's reference form takes ref1, ref2, ...)
+// kept only the listed ones: OK on =AGGREGATE(9,6,B1,B2,B3) gave =AGGREGATE(9, 6, B1, B2), B3 gone. Every argument
+// written now has a field of its own.
+it('keeps every argument already written, past those its signature lists', async () => {
+  const { editor } = await editFormula('=AGGREGATE(9,6,B1,B2,B3)', 10);
+  const inputs = [...dialog().querySelectorAll('input')].map((i) => i.value);
+  expect(inputs).toEqual(['9', '6', 'B1', 'B2', 'B3']);
+  dialog().requestSubmit();
+  await vi.advanceTimersByTimeAsync(1);
+  expect(editor.value).toBe('=AGGREGATE(9, 6, B1, B2, B3)');
+});
+
+// Fields past the signature were capped at the 30 the dialog offers for new arguments, so OK on a SUM of 40 numbers
+// dropped the last 10 without a word, where it had kept them all before.
+it('keeps every argument of a long call, past the fields it offers for new ones', async () => {
+  const args = Array.from({ length: 40 }, (_, i) => String(i + 1));
+  const { editor } = await editFormula(`=SUM(${args.join(',')})`, 5);
+  expect([...dialog().querySelectorAll('input')].map((i) => i.value)).toEqual(args);
+  dialog().requestSubmit();
+  await vi.advanceTimersByTimeAsync(1);
+  expect(editor.value).toBe(`=SUM(${args.join(', ')})`);
+});

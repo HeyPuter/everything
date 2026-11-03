@@ -129,7 +129,8 @@ describe('the document keeps a draft until the file holds the edits', () => {
       saving.writeDraft();
       editing.wb.setInput(editing.wb.activeSheetId, 0, 0, 'Keep this unsaved edit');
       editing.writeDraft();
-      const key = editing.draftKey;
+      // Where the other tab keeps its edits: beside the saving tab's draft, when both have the file's key (see writeDraft).
+      const key = editing._ownDraftKey;
       const draft = loadDraft(key);
       await saving.save();
       expect(saving.wb.dirty).toBe(false);

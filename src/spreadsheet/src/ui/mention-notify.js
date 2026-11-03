@@ -21,6 +21,9 @@ import { fileLink, roomLink } from '../lib/links.js';
 import { cellName } from '../core/cell.js';
 import { quoteSheet } from '../core/refs.js';
 import { mentionAddress, mentionsOfPerson, assignmentsOfPerson, isUsername } from '../core/mentions.js';
+import { autoSaveEnabled } from '../lib/doc.js';
+import { getThread, threadCells } from '../core/comments.js';
+import { accountStorageKey } from '../lib/account-storage.js';
 
 /** The people who can be mentioned in this workbook: [{ name, user?, email?, hint }], never the user. */
 export async function mentionCandidates({ doc, wb, me }) {
@@ -103,10 +106,33 @@ function askToShare(people, { unsaved, file = null }) {
 }
 
 /**
- * The editor's notifier. `doc` and `wb` are the open workbook; `mailer` sends (lib/mail.js); `me()` the signed-in
- * user. notify() is what comments.js's onMentioned calls.
+ * Mails waiting for a save to put their comment in the file are kept in this browser too, per account: a tab closed
+ * before that save leaves the comment in its draft, and the save that writes the draft, opened again later, sends
+ * them (see resume). One whose comment never reaches the file is forgotten after a while.
  */
-export function createMentionNotifier({ doc, wb, mailer, me, ask = askToShare, location: where = globalThis.location }) {
+const PENDING_KEY = 'spreadsheet:mention-mails';
+const PENDING_DAYS = 30;
+
+function pendingMails(storage) {
+  try {
+    const list = JSON.parse(storage?.getItem(accountStorageKey(PENDING_KEY)) || '[]');
+    return Array.isArray(list) ? list.filter((m) => m?.id && Date.now() - m.at < PENDING_DAYS * 86_400_000) : [];
+  } catch { return []; }
+}
+
+function keepPendingMails(storage, list) {
+  try {
+    if (list.length) storage.setItem(accountStorageKey(PENDING_KEY), JSON.stringify(list));
+    else storage.removeItem(accountStorageKey(PENDING_KEY));
+    return true;
+  } catch { return false; }
+}
+
+/**
+ * The editor's notifier. `doc` and `wb` are the open workbook; `mailer` sends (lib/mail.js); `me()` the signed-in
+ * user. notify() is what comments.js's onMentioned calls; resume() sends what an earlier visit left waiting.
+ */
+export function createMentionNotifier({ doc, wb, mailer, me, ask = askToShare, location: where = globalThis.location, storage = globalThis.localStorage }) {
   // A file of another kind opened from the drive (a .csv) keeps no comments, and its edits go to an .xlsx made at the
   // first save: shared, or linked to by the mail, it is not where anyone finds the comment. It counts as unsaved.
   const saved = () => !!doc.path && /\.xlsx$/i.test(doc.path);
@@ -149,6 +175,7 @@ export function createMentionNotifier({ doc, wb, mailer, me, ask = askToShare, l
    * the thread was assigned to with it, who is told that.
    */
   async function notify({ sheetId, r, c, item, people, assigned = null }) {
+    const posted = wb.version; // the book as it is with the comment, which the file must hold before the link leads there
     const user = me();
     const state = await access();
     const missing = withoutAccess(people, { ...state, me: user });
@@ -178,9 +205,41 @@ export function createMentionNotifier({ doc, wb, mailer, me, ask = askToShare, l
       toast(`${names} will see the mention when they open this spreadsheet`, { icon: 'comment', duration: 3500 });
       return { sent: 0 };
     }
+    const assignee = assigned && mentionAddress(assigned);
+    // The link opens the file, which holds the comment only once a save has written it: until then (AutoSave off, or
+    // its save still to come) the mail waits, as Excel sends its mentions when the file is saved.
+    if (doc.fileHolds && !doc.fileHolds(posted)) {
+      if (!autoSaveEnabled()) toast(`${names} will be emailed when you save`, { icon: 'comment', duration: 3500 });
+      const { uid } = doc;
+      const mail = { id: `${uid}:${item.id}`, uid, sheetId, comment: item.id, recipients, assignee, names, count: people.length, at: Date.now() };
+      const kept = keepPendingMails(storage, [...pendingMails(storage).filter((m) => m.id !== mail.id), mail]);
+      await doc.whenFileHolds(posted);
+      // Sent meanwhile by another tab, which saved the draft this one's edits were copied to.
+      if (kept && !takePending(mail.id)) return { sent: 0 };
+      // The comment as the save left it: one undone or deleted meanwhile is not mailed, and one moved by rows or
+      // columns inserted is linked where it is now.
+      const now = findComment(wb, sheetId, item.id);
+      if (!now) return { sent: 0 };
+      ({ r, c, item } = now);
+      // Saved as a copy meanwhile, the comment is in the copy, which the people mentioned were never given: who can
+      // open it is asked again, and a share of it offered, before the mail links it.
+      if (doc.uid !== uid) return notify({ sheetId, r, c, item, people, assigned });
+    }
+    return send({ sheetId, r, c, item, recipients, assignee, names, count: people.length });
+  }
+
+  /** Take the waiting mail `id` out of this browser's list: null when it is no longer there (sent by another tab). */
+  function takePending(id) {
+    const list = pendingMails(storage);
+    const mail = list.find((m) => m.id === id);
+    if (mail) keepPendingMails(storage, list.filter((m) => m !== mail));
+    return mail || null;
+  }
+
+  /** Email `recipients` the comment `item` on (sheetId, r, c), with a link that opens the workbook there. */
+  async function send({ sheetId, r, c, item, recipients, assignee, names, count }) {
     const sheet = wb.sheet(sheetId);
     const cell = `${quoteSheet(sheet?.name || '')}!${cellName(r, c)}`;
-    const assignee = assigned && mentionAddress(assigned);
     const link = doc.collab ? roomLink(where, doc.collab, cell) : fileLink(where, doc.uid, cell);
     const base = { workbookName: doc.name, link, comment: { id: item.id, text: item.text, cell: `${sheet?.name || ''}!${cellName(r, c)}` } };
     try {
@@ -198,7 +257,7 @@ export function createMentionNotifier({ doc, wb, mailer, me, ask = askToShare, l
       }
       const told = out.sent ? (out.results || []).filter((x) => x.status === 'sent').length : 0;
       if (out.failed) toast(`Could not email ${out.failed === 1 ? 'one person' : `${out.failed} people`} you mentioned`, { icon: 'alert', duration: 4500 });
-      else if (told) toast(`${names} ${people.length === 1 ? 'was' : 'were'} notified by email`, { icon: 'check', duration: 2500 });
+      else if (told) toast(`${names} ${count === 1 ? 'was' : 'were'} notified by email`, { icon: 'check', duration: 2500 });
       return out;
     } catch (e) {
       toast(e?.message || 'Could not notify the people you mentioned', { icon: 'alert', duration: 4500 });
@@ -206,7 +265,46 @@ export function createMentionNotifier({ doc, wb, mailer, me, ask = askToShare, l
     }
   }
 
-  return { notify, candidates: () => mentionCandidates({ doc, wb, me: me() }) };
+  /**
+   * The mails an earlier visit to this file left waiting for a save (the tab was closed first, its edits kept in a
+   * draft): each goes once a save has put its comment in the file, or at once when the file holds it already (the save
+   * on the way out landed, the mail never sent). One whose comment is not in the book waits, for a draft still to be
+   * restored. Returns a function that stops watching.
+   */
+  function resume() {
+    if (doc.collab || !doc.uid || !mailer.available()) return () => {};
+    // Only those left before this visit: this tab's own are sent by notify.
+    let waiting = pendingMails(storage).filter((m) => m.uid === doc.uid).map((m) => m.id);
+    const check = () => {
+      const list = pendingMails(storage);
+      waiting = waiting.filter((id) => list.some((m) => m.id === id)); // sent meanwhile by another tab, or forgotten
+      if (!waiting.length) { stop(); return; }
+      if (doc.recoverable || !doc.fileHolds(wb.version)) return;
+      for (const mail of list.filter((m) => waiting.includes(m.id) && m.uid === doc.uid)) {
+        const now = findComment(wb, mail.sheetId, mail.comment);
+        if (!now || !takePending(mail.id)) continue;
+        waiting = waiting.filter((id) => id !== mail.id);
+        send({ ...now, sheetId: mail.sheetId, recipients: mail.recipients, assignee: mail.assignee, names: mail.names, count: mail.count }).catch((e) => console.error(e));
+      }
+      if (!waiting.length) stop();
+    };
+    const stop = () => doc.removeEventListener('status', check);
+    if (!waiting.length) return stop;
+    doc.addEventListener('status', check);
+    check();
+    return stop;
+  }
+
+  return { notify, resume, candidates: () => mentionCandidates({ doc, wb, me: me() }) };
+}
+
+/** Where the comment `id` is on a sheet now, and what it says: { r, c, item }, or null once it is gone. */
+function findComment(wb, sheetId, id) {
+  for (const { r, c } of threadCells(wb, sheetId)) {
+    const item = getThread(wb, sheetId, r, c)?.items.find((i) => i.id === id);
+    if (item) return { r, c, item };
+  }
+  return null;
 }
 
 /* ---------- Mentions of the user ---------- */

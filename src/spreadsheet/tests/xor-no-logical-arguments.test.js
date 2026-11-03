@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { calc } from './helpers/calc.js';
+import { calc, calcStored } from './helpers/calc.js';
 
 const E = (code) => ({ error: code });
 
@@ -12,7 +12,7 @@ describe('XOR with no logical argument', () => {
     expect(calc('XOR(A1,A1)', { A1: 'text' })).toEqual(E('#VALUE!'));
     expect(calc('XOR(A1:A2)', { A1: 'text', A2: 'more' })).toEqual(E('#VALUE!'));
     expect(calc('XOR(A1)')).toEqual(E('#VALUE!')); // an empty cell
-    expect(calc('XOR()')).toEqual(E('#VALUE!'));
+    expect(calcStored('XOR()')).toEqual(E('#VALUE!'));
     expect(calc('AND(A1,A1)', { A1: 'text' })).toEqual(E('#VALUE!'));
     expect(calc('OR(A1)', { A1: 'text' })).toEqual(E('#VALUE!'));
   });

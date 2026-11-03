@@ -19,6 +19,7 @@ import { codeColor } from '../core/numfmt.js';
 import { hasHeaderFormatting, parsePrintHeader } from '../core/print-header.js';
 import { colName } from '../core/cell.js';
 import { conditionalFontStyle, conditionalNumberFormat } from '../core/style-values.js';
+import { normalIndentUnit } from '../core/normal-font.js';
 import { nativeFillOverridesNormal } from '../core/native-fill.js';
 
 const HEAD_W = 36, HEAD_H = 18, TITLE_H = 28;
@@ -383,6 +384,7 @@ export function createPrintPreview({ wb, sheetId, docName, filePath = '', getPre
       }
       g.restore();
     };
+    let indentStep; // one indent level, in the workbook's Normal font, as the print measures it
     rows.forEach(([r], i) => cols.forEach(([c], j) => {
       const span = spans.get(`${i},${j}`);
       const lead = !span || (span.i0 === i && span.j0 === j);
@@ -417,7 +419,9 @@ export function createPrintPreview({ wb, sheetId, docName, filePath = '', getPre
         g.textAlign = align;
         g.textBaseline = st.valign === 'top' ? 'top' : st.valign === 'middle' ? 'middle' : 'bottom';
         const pad = 3 * s;
-        const tx = align === 'right' ? cx + cw - pad : align === 'center' ? cx + cw / 2 : cx + pad;
+        // An indent moves the text in from the edge it is set against, as it prints; centred text has none.
+        const indent = st.indent && align !== 'center' ? st.indent * (indentStep ??= normalIndentUnit(wb.normalFont)) * s : 0;
+        const tx = align === 'right' ? cx + cw - pad - indent : align === 'center' ? cx + cw / 2 : cx + pad + indent;
         const ty = st.valign === 'top' ? cy + pad : st.valign === 'middle' ? cy + ch / 2 : cy + ch - pad;
         // Underlined or struck-through text is drawn so, as it prints: a line under (or through) each line of it.
         const size = Math.max(2, (st.size || 13) * s);
@@ -436,9 +440,26 @@ export function createPrintPreview({ wb, sheetId, docName, filePath = '', getPre
         };
         // Wrapped text in the lines it prints in, set at the top, middle or bottom of its cell; unwrapped, on one line.
         const shownText = cellLayoutText(text, st.wrap);
-        if (st.wrap) {
+        if (st.shrink && !st.wrap && !st.rot) {
+          // Shrink to fit: text wider than its cell is set smaller until it fits, as it prints, rather than cut off.
+          const room = cw - 2 * pad - indent, natural = g.measureText?.(shownText)?.width || 0;
+          if (room > 0 && natural > room) g.font = g.font.replace(/([\d.]+)px/, (_, n) => `${Math.max(1, n * room / natural)}px`);
+        }
+        if (st.rot) {
+          // Turned text, as it prints: its turned box set in the cell by the cell's alignment, the text drawn along it.
+          const angle = -st.rot * Math.PI / 180, cos = Math.abs(Math.cos(angle)), sin = Math.abs(Math.sin(angle));
+          const tw = g.measureText?.(shownText)?.width || 0;
+          const bw = tw * cos + size * sin, bh = tw * sin + size * cos;
+          const bx = align === 'right' ? cx + cw - pad - bw : align === 'center' ? cx + (cw - bw) / 2 : cx + pad;
+          const by = st.valign === 'top' ? cy + pad : st.valign === 'middle' ? cy + (ch - bh) / 2 : cy + ch - pad - bh;
+          g.translate(bx + bw / 2, by + bh / 2);
+          g.rotate(angle);
+          g.textAlign = 'center';
+          g.textBaseline = 'middle';
+          g.fillText(shownText, 0, 0);
+        } else if (st.wrap) {
           const lineHeight = size * 1.3;
-          const lines = wrapLines(shownText, Math.max(1, cw - 2 * pad), (t) => g.measureText?.(t)?.width || 0);
+          const lines = wrapLines(shownText, Math.max(1, cw - 2 * pad - indent), (t) => g.measureText?.(t)?.width || 0);
           const block = lines.length * lineHeight;
           let y = st.valign === 'top' ? cy + pad : st.valign === 'middle' ? cy + (ch - block) / 2 : cy + ch - pad - block;
           g.textBaseline = 'top';

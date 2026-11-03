@@ -155,10 +155,13 @@ export function createChartUi(ctx) {
     const view = { width: vw || rect.width || 1, height: vh || rect.height || 1 };
     const sx = rect.width / view.width || 1, sy = rect.height / view.height || 1;
     const left = Number(label.getAttribute('data-left')), top = Number(label.getAttribute('data-top'));
+    const w = Number(label.getAttribute('data-width')) || 0, h = Number(label.getAttribute('data-height')) || 0;
+    // The label stops at the chart's edges as it is dragged, where the chart draws it once it is let go.
+    const hold = (v, size, room) => Math.max(0, Math.min(room - size, v));
     let dx = 0, dy = 0;
     const move = ev => {
-      dx = (ev.clientX - e.clientX) / sx;
-      dy = (ev.clientY - e.clientY) / sy;
+      dx = hold(left + (ev.clientX - e.clientX) / sx, w, view.width) - left;
+      dy = hold(top + (ev.clientY - e.clientY) / sy, h, view.height) - top;
       label.setAttribute('transform', `translate(${dx} ${dy})`);
       syncOverlay();
     };
@@ -195,13 +198,15 @@ export function createChartUi(ctx) {
     // Which way the corner grows the label, and the corner opposite it, which stays where it is.
     const ex = corner.includes('e') ? 1 : -1, ey = corner.includes('s') ? 1 : -1;
     const fx = ex > 0 ? left : left + w, fy = ey > 0 ? top : top + h;
+    // It grows only as far as the chart's edges from the corner that stays, where the chart draws it once it is let go.
+    const room = Math.min(ex > 0 ? (view.width - fx) / w : fx / w, ey > 0 ? (view.height - fy) / h : fy / h);
     let scale = 1, moved = 0;
     const scaleFor = ev => {
       const dx = (ev.clientX - e.clientX) / sx, dy = (ev.clientY - e.clientY) / sy;
       moved = Math.hypot(dx * sx, dy * sy);
       // How far the pointer went along the label's diagonal, as a share of it.
       const grown = size * (1 + (ex * dx * w + ey * dy * h) / (w * w + h * h));
-      return Math.min(TREND_LABEL_SIZE.max, Math.max(TREND_LABEL_SIZE.min, grown)) / size;
+      return Math.min(TREND_LABEL_SIZE.max, Math.max(TREND_LABEL_SIZE.min, Math.min(grown, size * Math.max(1, room)))) / size;
     };
     const move = ev => {
       scale = scaleFor(ev);
@@ -360,7 +365,8 @@ export function createChartUi(ctx) {
   // control in use keeping the focus; a change from elsewhere waits until the pane is left, not to upset typing.
   let ownChange = false;
   const apply = (patch, label = 'Format chart') => { if (patch) { ownChange = true; ctx.run('chart', { action: 'patch', patch, label }); } };
-  const controlKey = n => n?.getAttribute?.('aria-label') || (n?.closest?.('label') ? `label:${n.closest('label').textContent}` : n?.tagName === 'SUMMARY' ? `summary:${n.textContent}` : null);
+  const controlKey = n => n?.getAttribute?.('aria-label') || (n?.closest?.('label') ? `label:${n.closest('label').textContent}` : n?.tagName === 'SUMMARY' ? `summary:${n.textContent}`
+    : n?.tagName === 'BUTTON' ? `button:${n.textContent}` : null);
   const format = opts => { const chart = activeChart(ctx); if (chart) apply(elementFormatPatch(chart, paneKey, { ...opts, rings: ringCountOf(ctx.wb, ctx.sheetId(), chart) })); };
 
   function section(title, ...content) {
@@ -763,7 +769,9 @@ export function createChartUi(ctx) {
     const own = ownChange, inside = pane.contains(document.activeElement);
     ownChange = false;
     if (sig === paneSig || inside && !own && paneSig?.startsWith(`${chart.id}|${key}|`)) return;
-    const focused = inside && paneBody.contains(document.activeElement) ? controlKey(document.activeElement) : null;
+    const active = inside && paneBody.contains(document.activeElement) ? document.activeElement : null;
+    // The control in use keeps the focus; one the change took away (Reset Position) hands it to its section.
+    const focused = active && controlKey(active), within = active?.closest('details')?.querySelector('summary')?.textContent;
     paneSig = sig;
     paneTitleEl.textContent = paneTitle(key);
     const open = new Set([...paneBody.querySelectorAll('details.chart-pane-section:not([open]) > summary')].map(s => s.textContent));
@@ -771,7 +779,8 @@ export function createChartUi(ctx) {
     if (!chart.appearance && !sections.length) sections.push(el('p.chart-pane-note', {}, 'This chart keeps the app’s own style. Change Chart Type gives it the full formatting options.'));
     for (const s of sections) if (open.has(s.querySelector('summary')?.textContent)) s.open = false;
     paneBody.replaceChildren(...sections);
-    if (focused) [...paneBody.querySelectorAll('input, select, button, summary')].find(n => controlKey(n) === focused)?.focus({ preventScroll: true });
+    if (active) ([...paneBody.querySelectorAll('input, select, button, summary')].find(n => focused && controlKey(n) === focused)
+      || [...paneBody.querySelectorAll('summary')].find(n => n.textContent === within))?.focus({ preventScroll: true });
   }
   pane.addEventListener('focusout', () => requestAnimationFrame(() => { if (!pane.contains(document.activeElement)) { paneSig = null; renderPane(); } }));
   pane.addEventListener('keydown', e => { if (e.key === 'Escape' && !isComposing(e)) { e.preventDefault(); hidePane(); } });

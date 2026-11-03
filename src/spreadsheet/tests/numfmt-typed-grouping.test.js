@@ -55,7 +55,8 @@ describe('typed thousands separators', () => {
   it('follow the locale: 1.000,5 groups in German, 1,5 does not', () => {
     setLocale('de-DE');
     expect(parseInput('1.000,5')).toEqual({ v: 1000.5, f: null, fmt: 'number' });
-    expect(parseInput('1 000,5')).toEqual({ v: 1000.5, f: null, fmt: 'number' });
+    // German groups with a period only: a space between digits is text there (a phone number), as in Excel.
+    expect(parseInput('1 000,5')).toEqual({ v: '1 000,5', f: null, fmt: null });
     expect(parseInput('1,5')).toEqual({ v: 1.5, f: null, fmt: null });
     expect(parseInput('1,000')).toEqual({ v: 1, f: null, fmt: null });
     const wb = new Workbook();

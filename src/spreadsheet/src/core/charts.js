@@ -22,7 +22,7 @@ import { normalizeAxisTickValues } from './axis-tick-values.js';
  *   categoryLabels: 'auto' | true | false,  does the first column (or row) name the categories rather than plot as a series?
  *   legend: boolean, stacked: boolean, stack100: boolean (stacked to 100%), trendline: boolean,
  *   trendlines?: (trend | false)[], each series' trendline: its kind, forecast and label (see trendline.js)
- *   errorBars?: (null | { x?, y? })[],   a scatter or bubble series' error bars (see error-bars.js)
+ *   errorBars?: (null | { x?, y? })[],   each series' error bars (see error-bars.js); drawn on scatter and bubble charts
  *   labels: boolean,                 write each value on its bar or point
  *   xTitle, yTitle, y2Title: string,          axis titles
  *   colors: (string|null)[],         a hex color per series (per slice for pies); null keeps the palette color
@@ -92,6 +92,8 @@ export const CHART_DASH_CHOICES = Object.freeze([['solid', 'Solid'], ['sysDot', 
 
 export const CHART_DISPLAY_UNITS = Object.freeze({ hundreds: 1e2, thousands: 1e3, tenThousands: 1e4, hundredThousands: 1e5,
   millions: 1e6, tenMillions: 1e7, hundredMillions: 1e8, billions: 1e9, trillions: 1e12 });
+
+const STACKABLE_TYPES = new Set(['column', 'bar', 'line', 'area', 'combo']);
 
 export const CHART_TYPES = [
   ['column', 'Column'],
@@ -402,6 +404,9 @@ function normalizeChartBody(raw) {
   if (!['r1', 'r2'].every((key) => Number.isInteger(raw.range[key]) && raw.range[key] >= 0 && raw.range[key] <= MAX_ROW)
     || !['c1', 'c2'].every((key) => Number.isInteger(raw.range[key]) && raw.range[key] >= 0 && raw.range[key] <= MAX_COL)) return null;
   const type = CHART_TYPES.some(([t]) => t === raw.type) ? raw.type : 'column';
+  // Only these types stand their series on one another. A stack kept on another (a stacked column chart turned
+  // into a scatter chart before Edit chart stopped carrying it over) is drawn by nothing and only turned trendlines away.
+  const stackable = STACKABLE_TYPES.has(type);
   const linkedText = normalizeLinkedChartText(raw.linkedText);
   const trendlines = raw.trendline ? normalizeTrendlines(raw.trendlines) : null;
   // A bubble chart from a file once kept its error bars in its appearance; they are the chart's own now.
@@ -424,8 +429,8 @@ function normalizeChartBody(raw) {
     headers: raw.headers === true || raw.headers === false ? raw.headers : 'auto',
     categoryLabels: raw.categoryLabels === true || raw.categoryLabels === false ? raw.categoryLabels : 'auto',
     legend: raw.legend !== false,
-    stacked: !!raw.stacked,
-    stack100: !!raw.stack100,
+    stacked: stackable && !!raw.stacked,
+    stack100: stackable && !!raw.stack100,
     trendline: !!raw.trendline,
     ...(trendlines ? { trendlines } : {}),
     ...(errorBars ? { errorBars } : {}),
@@ -1025,9 +1030,23 @@ function chartSeriesData(wb, sheetId, chart) {
     const firstCol = body.map((row) => row[0]);
     const filled = firstCol.filter((x) => !isBlank(x.v));
     const textish = filled.filter((x) => !isNum(x.v) || x.dateLike).length;
+    // Whether it counts up is the column's own, read with its hidden and filtered-out cells: hiding a year must not
+    // turn the years on show into a series.
+    const countsUp = () => {
+      const [line, from, to, written] = orientation === 'rows' ? [rowLines[0], columns[0], c2, readC2] : [columns[0], rowLines[0], r2, readR2];
+      // Past the cells written lie only blanks, which count nothing.
+      if (to > written) return false;
+      const values = [];
+      for (let k = from + 1; k <= to; k++) {
+        const v = orientation === 'rows' ? wb.getValue(sheetId, line, k) : wb.getValue(sheetId, k, line);
+        if (!isNum(v)) return false;
+        values.push(v);
+      }
+      return evenSteps(values);
+    };
     if (chart.categoryLabels === true || chart.categoryLabels === false) categoryCol = chart.categoryLabels;
     else categoryCol = filled.length > 0 && (textish >= filled.length / 2 || (blankCorner && hasHeaders)
-      || (hasHeaders && !isBlank(cells[0][0].v) && STEP_CATEGORY_TYPES.has(chart.type) && evenSteps(firstCol.map((x) => x.v))));
+      || (hasHeaders && !isBlank(cells[0][0].v) && STEP_CATEGORY_TYPES.has(chart.type) && countsUp()));
     if (chart.type === 'scatter' || chart.type === 'bubble') categoryCol = false;
   }
   const categories = body.map((row, i) => (categoryCol ? row[0].text || `${i + 1}` : `${i + 1}`));

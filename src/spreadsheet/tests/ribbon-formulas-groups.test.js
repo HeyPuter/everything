@@ -74,7 +74,7 @@ it('finds functions in Insert Function by search and category, then fills their 
   dialog.querySelector('[role="option"]').click();
   expect(dialog.querySelector('.fn-dialog-signature').textContent).toMatch(/^[A-Z.]+\(/);
   [...dialog.querySelectorAll('[role="option"]')].find(o => o.textContent === 'ROUND').click();
-  expect(dialog.querySelector('.fn-dialog-signature').textContent).toBe('ROUND(number, [digits])');
+  expect(dialog.querySelector('.fn-dialog-signature').textContent).toBe('ROUND(number, digits)');
   dialog.querySelector('button[type="submit"]').click(); await flush();
   const args = document.querySelector('[role="dialog"][aria-label="Function Arguments"]');
   args.querySelector('input[aria-label="number"]').value = 'C3'; args.querySelector('input[aria-label="number"]').dispatchEvent(new Event('input'));

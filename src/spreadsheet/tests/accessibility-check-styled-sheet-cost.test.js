@@ -30,3 +30,18 @@ it('still reads the row, column and sheet formats under a cell\'s own', () => {
   // A1: white on white (column format alone); A2: white on black (its own fill); B3: no colour at all.
   expect(checkAccessibility(wb).filter((f) => f.rule === 'contrast').map((f) => f.label)).toEqual(['A1 (Data)']);
 });
+
+// Styled formulas were each worked out to see whether they showed any text, before their colours were judged:
+// opening a book of 25,000 shaded formulas, the status bar's first check calculated them all (a third of a
+// second, on top of the formulas on screen). Only a cell whose colours are too close needs its value.
+it('works out formulas only where the colours are too close to read', () => {
+  const wb = new Workbook({ sheets: [{ name: 'Data' }] });
+  const id = wb.activeSheetId;
+  const cells = [];
+  for (let r = 0; r < 500; r++) cells.push({ r, c: 0, cell: { v: r } }, { r, c: 1, cell: { f: `A${r + 1}*2`, s: { bold: true, bg: '#ffeecc' } } });
+  cells.push({ r: 0, c: 3, cell: { f: '"shown"', s: { color: '#ffffff' } } }, { r: 1, c: 3, cell: { f: '""', s: { color: '#ffffff' } } });
+  wb.setCells(id, cells);
+  const getValue = vi.spyOn(wb, 'getValue');
+  expect(checkAccessibility(wb).filter((f) => f.rule === 'contrast').map((f) => f.label)).toEqual(['D1 (Data)']);
+  expect(getValue).toHaveBeenCalledTimes(2);
+});

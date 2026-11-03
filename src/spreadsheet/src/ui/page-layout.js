@@ -6,7 +6,7 @@
  * draws what lies around the cells: the paper, the header and footer in each page's margins (each of
  * their left, center and right sections editable in place), and the rulers in inches.
  */
-import { el } from './dom.js';
+import { el, isMod } from './dom.js';
 import { printBands, printTitleStarts, quantizePrintScale } from './print-pagination.js';
 import { printPageText, splitPrintSections, printRange, manualBreaksApply, effectivePrintSettings } from './print.js';
 import { MAX_ROW, MAX_COL } from '../core/refs.js';
@@ -304,6 +304,13 @@ export function createPageLayout({ wb, commit, redraw = () => {}, fileName = () 
   function onKey(e) {
     const section = e.target.closest?.('.pl-section');
     if (!section) return;
+    // Save and Print are the app's: the header typed so far is finished first, so it goes with them. Kept from the
+    // app, the keys fell to the browser, whose own "Save page as" dialog opened.
+    if (isMod(e) && !e.altKey && ['s', 'p'].includes(e.key.toLowerCase())) {
+      section.blur();
+      focusGrid();
+      return;
+    }
     e.stopPropagation(); // the keys belong to the header, not to the cells
     if (e.key === 'Escape') {
       e.preventDefault();

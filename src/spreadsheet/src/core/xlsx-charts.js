@@ -130,13 +130,15 @@ const text = node => node?.text || '';
 const flag = (node, name) => !!child(node, name) && ['1', 'true'].includes(val(node, name) ?? 'true');
 
 /**
- * Where a trendline label was moved to, from its c:manualLayout: placed by its edges, as the app writes it.
- * Excel's own offset (factor mode) is measured from a spot only Excel lays out, so that label keeps the app's.
+ * Where a trendline label was moved to, from its c:manualLayout: { labelPos } placed by its edges, as the app writes it.
+ * Excel's own offset (factor mode, the default) is measured from a spot only Excel lays out, so that label is drawn in
+ * the app's place, its offset kept ({ labelOffset }) to be saved again.
  */
-function trendLabelPos(m) {
-  if (!m || val(m, 'xMode') !== 'edge' || val(m, 'yMode') !== 'edge') return undefined;
+function trendLabelPlace(m) {
   const x = number(m, 'x'), y = number(m, 'y');
-  return x != null && y != null ? { x, y } : undefined;
+  if (!m || x == null || y == null) return {};
+  const edge = val(m, 'xMode') === 'edge', factor = (val(m, 'xMode') ?? 'factor') === 'factor' && (val(m, 'yMode') ?? 'factor') === 'factor';
+  return edge && val(m, 'yMode') === 'edge' ? { labelPos: { x, y } } : factor ? { labelOffset: { x, y } } : {};
 }
 
 /**
@@ -152,7 +154,7 @@ function trendlineOf(series, lineColor) {
     forward: number(t, 'forward'), backward: number(t, 'backward'), intercept: number(t, 'intercept'),
     dispEq: flag(t, 'dispEq'), dispRSqr: flag(t, 'dispRSqr'), name: text(child(t, 'name')),
     labelFormat: path(t, 'trendlineLbl', 'numFmt')?.attrs.formatCode,
-    labelPos: trendLabelPos(path(t, 'trendlineLbl', 'layout', 'manualLayout')),
+    ...trendLabelPlace(path(t, 'trendlineLbl', 'layout', 'manualLayout')),
     labelSize: Number(path(t, 'trendlineLbl', 'txPr', 'p', 'pPr', 'defRPr')?.attrs.sz) / 75 || undefined,
     ...(color && color !== 'none' ? { color } : {}),
     ...(Number(ln?.attrs.w) > 0 ? { width: Number(ln.attrs.w) / 9525 } : {}),
@@ -160,7 +162,7 @@ function trendlineOf(series, lineColor) {
   });
 }
 /**
- * A scatter or bubble series' error bars (see error-bars.js): { x?, y? } from its c:errBars, or null. A
+ * A series' error bars (see error-bars.js): { x?, y? } from its c:errBars, or null. A
  * custom amount keeps its reference, or the numbers the file holds when it has none.
  */
 function errorBarsOf(series, lineColor) {
@@ -833,7 +835,8 @@ export async function readXlsxCharts(book, sheets = [], inventory = new Map(), {
       // Each series' trendline, of whichever kind; a series has at most one here (Excel allows several).
       trendline: series.some(s => child(s, 'trendline')),
       ...(series.some(s => child(s, 'trendline')) ? { trendlines: series.map(s => trendlineOf(s, fill)) } : {}),
-      ...(['scatter', 'bubble'].includes(type) && series.some(s => child(s, 'errBars')) ? { errorBars: series.map(s => errorBarsOf(s, fill)) } : {}),
+      // Error bars on columns, bars, lines and areas are kept to be saved again, though only a scatter or bubble chart draws them.
+      ...(series.some(s => child(s, 'errBars')) ? { errorBars: series.map(s => errorBarsOf(s, fill)) } : {}),
       labels: bubbleOnly ? series.some(s => { const l = bubbleLabels(s); return l.value || l.size || l.category || l.series; })
         : series.some(s => (chartBoolean(child(s, 'dLbls'), 'showVal').showVal ?? chartBoolean(child(groups.find(g => g.children.includes(s)), 'dLbls'), 'showVal').showVal) === true
           || children(child(s, 'dLbls'), 'dLbl').some(p => chartBoolean(p, 'showVal').showVal === true)),

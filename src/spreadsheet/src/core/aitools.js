@@ -473,11 +473,16 @@ function gridSheet(wb, name, fallbackId) {
 export function resolveRange(wb, text, sheetId) {
   const t = String(text ?? '').trim().replace(/^=/, '');
   if (!t) throw new ToolError('No range was given.');
-  const found = wb.rangeFromText(sheetId, t);
+  let found = wb.rangeFromText(sheetId, t);
   if (!found) {
     const bang = t.lastIndexOf('!');
-    if (bang > 0) sheetNamed(wb, t.slice(0, bang), sheetId); // names the missing sheet, when that is the problem
-    throw new ToolError(`"${t}" is not a range. Use A1 notation such as "B2:D10", optionally with a sheet: "Data!A1:C20".`);
+    if (bang > 0) {
+      const sheet = sheetNamed(wb, t.slice(0, bang), sheetId); // names the missing sheet, when that is the problem
+      // A sheet whose name needs quotes, named without them ("Q1 Data!B2", "2024!A1"): the sheet is plainly meant, and
+      // "not a range" sent the model hunting for what was wrong with an address that was right.
+      if (!/^'.*'$/.test(t.slice(0, bang))) found = wb.rangeFromText(sheetId, `${quoteSheet(sheet.name)}!${t.slice(bang + 1)}`);
+    }
+    if (!found) throw new ToolError(`"${t}" is not a range. Use A1 notation such as "B2:D10", optionally with a sheet: "Data!A1:C20".`);
   }
   const sheet = wb.sheet(found.sheetId);
   if (!sheet) throw new ToolError(`"${t}" is not on any sheet.`);
@@ -508,7 +513,9 @@ function dataOfLines(wb, sheetId, range) {
 
 function columnArg(text, what = 'column') {
   const c = colIndex(String(text ?? '').trim().replace(/\$/g, ''));
-  if (c < 0) throw new ToolError(`"${text}" is not a ${what} letter such as "C".`);
+  // Past XFD there is no column: "XFE" was sized as a column no file can hold, and a long run of letters named one
+  // so far out that spelling it again for the step's label never ended.
+  if (c < 0 || c > MAX_COL) throw new ToolError(`"${clip(String(text ?? ''), 20)}" is not a ${what} letter such as "C" (columns run from A to XFD).`);
   return c;
 }
 
@@ -1174,6 +1181,7 @@ function writeCells(wb, args, env) {
   let reached = false;
   let kept = 0;
   const hidden = []; // cells under a merged cell's top-left one
+  const unformed = []; // formulas Excel refuses as typed, which would be written as their text
   rows.forEach((row, i) => row.forEach((value, j) => {
     const input = inputFor(value);
     if (input === undefined) return;
@@ -1193,10 +1201,12 @@ function writeCells(wb, args, env) {
     // again, it lost the link and the mixed formatting of its text that it had, though nothing was asked about.
     const cell = wb.getCell(sheetId, r, c);
     if (holds(cell) && (typeof input === 'string' ? keepsValue(wb, sheetId, r, c, cell, input) : cell.f == null && cell.v === input)) { kept++; return; }
+    const problem = typeof input === 'string' ? wb.typedFormulaProblem(input) : null;
+    if (problem) { unformed.push(`${cellName(r, c)} (${problem.message})`); return; }
     planned.push({ r, c, input });
   }));
-  if (!planned.length && kept && !refused.length && !hidden.length) return { written: qualified(wb, sheetId, range), cells: 0, unchanged: kept };
-  if (!planned.length) throw new ToolError(refused.length || hidden.length ? `Nothing was written: ${[...refused, ...hidden].slice(0, 5).join('; ')}.` : 'Every value was null, so nothing was written.');
+  if (!planned.length && kept && !refused.length && !hidden.length && !unformed.length) return { written: qualified(wb, sheetId, range), cells: 0, unchanged: kept };
+  if (!planned.length) throw new ToolError(refused.length || hidden.length || unformed.length ? `Nothing was written: ${[...refused, ...unformed, ...hidden].slice(0, 5).join('; ')}.` : 'Every value was null, so nothing was written.');
   const note = reachingNote(env, reached);
   const written = new Set(planned.filter(({ input }) => input !== '').map(({ r, c }) => cellKey(r, c)));
   const hit = spillsHit(wb, sheetId, range, (r, c) => written.has(cellKey(r, c)));
@@ -1212,6 +1222,7 @@ function writeCells(wb, args, env) {
     cells: planned.length,
     ...(kept ? { unchanged: kept } : {}),
     ...(refused.length ? { refused_by_validation: refused.slice(0, 10) } : {}),
+    ...(unformed.length ? { refused_formulas: unformed.slice(0, 10) } : {}),
     ...(hidden.length ? { not_written_inside_merged_cells: hidden.slice(0, 10) } : {}),
     ...(rewrote.length ? { calculated_column: `The formula went into a table's calculated column, so it was written to the column's other rows as well: ${rewrote.length} more cell${rewrote.length === 1 ? '' : 's'} (${rewrote.slice(0, 6).join(', ')}${rewrote.length > 6 ? ', …' : ''}).` } : {}),
     ...(errors.length ? { formula_errors: errors } : {}),
@@ -1227,6 +1238,9 @@ function fillFormula(wb, args, env) {
   const cells = (range.r2 - range.r1 + 1) * (range.c2 - range.c1 + 1);
   if (cells > MAX_WRITE_CELLS) throw new ToolError(`At most ${MAX_WRITE_CELLS} cells per call.`);
   try { parseFormula(text.slice(1)); } catch (e) { throw new ToolError(`The formula could not be read: ${e?.message || 'syntax error'}.`); }
+  // One Excel refuses as typed would fill every cell with its text.
+  const problem = wb.typedFormulaProblem(text);
+  if (problem) throw new ToolError(`Excel refuses this formula: ${problem.message}.`);
   assertWritable(wb, sheetId, range, { contents: true });
   if (wb.arrayEditBlocked(sheetId, range)) throw new ToolError(`${qualified(wb, sheetId, range)} crosses part of an array formula's result.`);
   if (!wb.canEnsureSize(sheetId, range.r2 + 1, range.c2 + 1)) throw new ToolError('The range runs past the edge of the sheet.');
@@ -1291,7 +1305,9 @@ function clearRange(wb, args, env) {
     const refused = wb.version === before && what === 'all' && filled();
     if (what !== 'contents' && !refused) { clearRules(wb, sheetId, runs); for (const rg of runs) wb.unmergeCells(sheetId, rg); }
   });
-  if (wb.version === before && filled()) throw new ToolError(`${qualified(wb, sheetId, range)} could not be cleared (it may cross part of an array formula or a pivot table).`);
+  // Formats alone are not refused for an array or a pivot table (protection is checked above): a clear of them that
+  // changed nothing found no formatting to clear, however many values the cells hold.
+  if (wb.version === before && what !== 'formats' && filled()) throw new ToolError(`${qualified(wb, sheetId, range)} could not be cleared (it may cross part of an array formula or a pivot table).`);
   return { cleared: qualified(wb, sheetId, range), what, ...left };
 }
 
@@ -3396,6 +3412,12 @@ function addNote(wb, args, env) {
   // Blank text removes the note, as the workbook takes it; a longer note is kept to its limit, and said to be.
   const given = String(args.text ?? '');
   const text = given.trim() ? cutText(given, MAX_NOTE) : '';
+  // A cell under a merged cell's top-left one is never drawn, its note's mark with it: the note was reported added
+  // and no one could see or open it. (One already there may still be removed.)
+  const merge = text ? wb.mergeAt?.(sheetId, range.r1, range.c1) : null;
+  if (merge && (merge.r1 !== range.r1 || merge.c1 !== range.c1)) {
+    throw new ToolError(`${cellName(range.r1, range.c1)} is inside the merged cell ${rangeName(merge)}, where a note does not show; put it on ${cellName(merge.r1, merge.c1)}.`);
+  }
   // A cell holds a note or a comment thread, not both, as in Excel: a note put beside a thread was reported as
   // added, then lost when the file was saved, where the thread's own note takes the cell's one place.
   if (text && getThread(wb, sheetId, range.r1, range.c1)) {
@@ -3505,6 +3527,9 @@ function solverModel(wb, args, env) {
       if (['int', 'bin', 'dif'].includes(rel)) return { lhs, rel, rhs: { int: 'integer', bin: 'binary', dif: 'AllDifferent' }[rel] };
       if (k.value == null || text(k.value) === '') throw new ToolError(`Constraint ${i + 1} (${rel}) needs a value: a number, a cell or a formula.`);
       if (typeof k.value === 'number' && !Number.isFinite(k.value)) throw new ToolError(`Constraint ${i + 1}: the value must be finite.`);
+      // Solver evaluates a right side that is a formula at once and at every trial, and saves it in the model: one
+      // that reaches out sent cells to its address unasked where the workbook had been allowed external content.
+      if (typeof k.value !== 'number' && reachesOut(wb, text(k.value))) throw new ToolError(`Constraint ${i + 1}: a constraint's formula cannot reach outside the workbook.`);
       return { lhs, rel, rhs: typeof k.value === 'number' ? String(k.value) : anchored(k.value) };
     });
   } else if (fresh) model.constraints = [];
@@ -3780,8 +3805,15 @@ export function describeCall(wb, name, args = {}, env) {
     }
     case 'fill_formula': {
       const t = at(args.range);
-      const n = filled(t.s, t.range);
-      const spills = t.s != null && t.range ? spillsHit(wb, t.s, t.range).length : 0;
+      // The cells the runner writes: a fill passes over the rows a filter hides and the cells under a merged cell's
+      // top-left one, whose data stays (a range too large to fill is refused, and counted whole).
+      const hidden = t.s != null ? wb.sheet(t.s)?.filterHidden : null;
+      const fills = t.range && cellsIn(t.range) <= MAX_WRITE_CELLS ? (r, c) => !hidden?.has(r) && !wb._coveredByMerge?.(t.s, r, c) : () => true;
+      let n = 0;
+      if (t.range && cellsIn(t.range) <= MAX_WRITE_CELLS) {
+        for (let r = t.range.r1; r <= t.range.r2; r++) for (let c = t.range.c1; c <= t.range.c2; c++) if (fills(r, c) && holds(wb.getCell(t.s, r, c))) n++;
+      } else n = filled(t.s, t.range);
+      const spills = t.s != null && t.range ? spillsHit(wb, t.s, t.range, fills).length : 0;
       const detail = [n && `Replaces ${holding(n)}.`, spills && blocksSpills(spills)].filter(Boolean).join(' ');
       return { label: `Fill ${t.text} with ${clip(String(args.formula ?? ''), 60)}`, destructive: !!detail, detail: detail || null };
     }
@@ -3803,7 +3835,7 @@ export function describeCall(wb, name, args = {}, env) {
       try { to = landing(wb, name, args, env); } catch { /* the runner explains */ }
       const dest = to ? qualified(wb, to.sheetId, to.range) : String(args.destination ?? '');
       const what = move ? 'all' : args.what || 'all';
-      let replaced = 0, notes = 0, threads = 0, spills = 0;
+      let replaced = 0, notes = 0, threads = 0, sparklines = 0, spills = 0;
       if (to && what !== 'formats') {
         // Where a move's old and new places overlap, its own cells are not data it replaces.
         const both = move && src.s === to.sheetId && src.range && overlapping(src.range, to.range) ? {
@@ -3824,10 +3856,13 @@ export function describeCall(wb, name, args = {}, env) {
             threads = notesIn(wb, to.sheetId, { r1: to.range.r1, c1: to.range.c1, r2: to.range.r1 + lines.rows - 1, c2: to.range.c1 + lines.cols - 1 }, 'comments');
           }
         }
+        // A move, and Paste All, take the sparklines off the cells they land on, as removing them with add_sparklines
+        // asks; a transposed copy leaves them.
+        if (move || (what === 'all' && !args.transpose)) sparklines = sparklinesIn(wb, to.sheetId, to.range) - (both ? sparklinesIn(wb, to.sheetId, both) : 0);
         // An array formula moving with the cells takes its results along: it blocks nothing.
         spills = spillsHit(wb, to.sheetId, to.range).filter((a) => !(move && src.s === to.sheetId && within({ r1: a.r, c1: a.c, r2: a.r, c2: a.c }, src.range))).length;
       }
-      const annotations = [notes && plural(notes, 'note'), threads && plural(threads, 'comment thread')].filter(Boolean);
+      const annotations = [notes && plural(notes, 'note'), threads && plural(threads, 'comment thread'), sparklines && plural(sparklines, 'sparkline')].filter(Boolean);
       const detail = [replaced && `Replaces ${holding(replaced)}.`, annotations.length && `Replaces ${annotations.join(' and ')} there.`, spills && blocksSpills(spills)].filter(Boolean).join(' ');
       const label = move ? `Move ${src.text} to ${dest}` : `Copy ${what === 'all' ? '' : `the ${what} of `}${src.text} to ${dest}`;
       return { label, destructive: !!detail, detail: detail || null };
@@ -3861,8 +3896,10 @@ export function describeCall(wb, name, args = {}, env) {
       // The notes in them go too: removing a note on its own asks, and so does removing it with its row.
       const notes = range && range.r1 >= 0 ? notesIn(wb, s, range) : 0;
       const threads = range && range.r1 >= 0 ? notesIn(wb, s, range, 'comments') : 0;
+      // And their sparklines, which cells hold without holding data: a column of nothing but sparklines went unasked.
+      const sparklines = range && range.r1 >= 0 ? sparklinesIn(wb, s, range) : 0;
       const which = rows ? `row${n === 1 ? '' : 's'} ${lineNumber(args.start_row)}${n > 1 ? `–${lineNumber(args.start_row) + n - 1}` : ''}` : `column${n === 1 ? '' : 's'} ${String(args.start_column).toUpperCase()}${n > 1 && range ? `–${colName(range.c2)}` : ''}`;
-      const removes = [data && `${plural(data, 'cell')} of data`, notes && plural(notes, 'note'), threads && plural(threads, 'comment thread')].filter(Boolean);
+      const removes = [data && `${plural(data, 'cell')} of data`, notes && plural(notes, 'note'), threads && plural(threads, 'comment thread'), sparklines && plural(sparklines, 'sparkline')].filter(Boolean);
       return { label: `Delete ${which} on ${sheetName(args.sheet)}`, destructive: removes.length > 0, detail: removes.length ? `Removes ${removes.join(' and ')}.` : null };
     }
     case 'sort_range': return { label: `Sort ${at(args.range).text}` };
@@ -3971,7 +4008,7 @@ export function describeCall(wb, name, args = {}, env) {
       let t = null, plan = null;
       try { t = duplicatesArgs(wb, args, sheetId); plan = wb.duplicatesPlan(t.sheetId, t.range, t); } catch { /* the runner explains */ }
       const n = plan && plan.changed ? plan.removed : 0;
-      return { label: `Remove duplicate rows from ${t ? qualified(wb, t.sheetId, t.range) : at(args.range).text}`, destructive: n > 0, detail: n ? `Deletes ${plural(n, 'row')} that repeat an earlier row; ${plural(plan.kept.length, 'row')} stay.` : null };
+      return { label: `Remove duplicate rows from ${t ? qualified(wb, t.sheetId, t.range) : at(args.range).text}`, destructive: n > 0, detail: n ? `Deletes ${plural(n, 'row')} that repeat${n === 1 ? 's' : ''} an earlier row; ${plural(plan.kept.length, 'row')} stay${plan.kept.length === 1 ? 's' : ''}.` : null };
     }
     case 'split_text_to_columns': {
       let t = null, replaced = 0, spills = 0;

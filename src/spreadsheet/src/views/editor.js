@@ -155,7 +155,7 @@ import { openShortcuts } from '../ui/shortcuts.js';
 import { session } from '../lib/session.js';
 import * as P from '../lib/puter.js';
 import { trackEvent } from '../lib/analytics.js';
-import { VIEW_ONLY, CANCELLED, autoSaveEnabled } from '../lib/doc.js';
+import { VIEW_ONLY, CANCELLED, THEIRS_NOT_KEPT, autoSaveEnabled } from '../lib/doc.js';
 import { cellName, colName, normalizeRange, rangeName, parseRange, parseCellRef, parseKey } from '../core/cell.js';
 import { parseRefText, selectionName, MAX_ROW, MAX_COL } from '../core/refs.js';
 import { formatValue, todaySerial, formatDate, fontStack, indentWidth, parseInput, MAX_DECIMAL_PLACES, AUTOMATIC_FORMAT, cellCurrency, currencyDecimals, localeInfo, editText, hasDecimalPlaces } from '../core/format.js';
@@ -165,7 +165,7 @@ import { toDelimited, parseClipboard, parseDelimited } from '../core/tsv.js';
 import { detectDelimiter, workbookFromFile, rangeToCsv, CSV_MIME } from '../core/io.js';
 import { cellsToHtml, copyMergeLayout, parseHtmlClipboard, cellsFromHtmlRows, isOwnHtmlClipboard } from '../core/clipboard.js';
 import { eachStoredCell, lineSpan } from '../core/sparse-range.js';
-import { MAX_ROWS, MAX_COLS, MIN_COL_WIDTH, MAX_COL_WIDTH, MIN_ROW_HEIGHT, MAX_ROW_HEIGHT, cellFromInput, safeLinkUrl } from '../core/workbook.js';
+import { MAX_ROWS, MAX_COLS, MIN_COL_WIDTH, MAX_COL_WIDTH, MIN_ROW_HEIGHT, MAX_ROW_HEIGHT, cellFromInput, safeLinkUrl, objectNoun } from '../core/workbook.js';
 import { isSpreadsheetFile, IMPORT_EXTENSIONS, fileProblem } from '../core/filetypes.js';
 import { FUNCTION_NAMES } from '../core/formula/functions.js';
 import { RULE_TYPES } from '../core/condformat.js';
@@ -351,13 +351,28 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     sheetId: wb.activeSheetId,
     autocorrect: autoCorrector,
     // The entry is written: its last word, corrected, is a step of its own, so Ctrl/Cmd+Z brings back what was typed.
-    afterCommit: ({ sheetId: sid, r, c, text }) => {
+    // Ctrl+Enter over a selection (`ranges`) corrects every cell it filled: only the active cell's was left as typed.
+    afterCommit: ({ sheetId: sid, r, c, text, ranges = null }) => {
       if (isFormulaText(text)) return;
-      queueMicrotask(() => offerFlashFill(sid, r, c)); // after AutoCorrect's own step, if it takes one
+      if (!ranges) queueMicrotask(() => offerFlashFill(sid, r, c)); // after AutoCorrect's own step, if it takes one
       const fixed = autoCorrector.tail(text);
       if (fixed === text || editText(wb.getCell(sid, r, c)) !== text) return;
-      if (wb.validateInput(sid, r, c, fixed).ok === false) return;
-      wb.setInput(sid, r, c, fixed, { label: 'AutoCorrect' });
+      if (ranges) {
+        // Only the cells the fill wrote are asked, as the fill asks them: not the rows a filter hides, nor the cells
+        // under a merged block, whose rule kept every filled cell as typed.
+        const hidden = wb.sheet(sid)?.filterHidden;
+        for (const rg of ranges) for (let rr = rg.r1; rr <= rg.r2; rr++) for (let cc = rg.c1; cc <= rg.c2; cc++) {
+          if (hidden?.has(rr) || wb._coveredByMerge(sid, rr, cc)) continue;
+          if (wb.validateInput(sid, rr, cc, fixed).ok === false) return;
+        }
+        // One step, named for what it does (a fill's own step is called Fill).
+        const mark = wb.historyTop;
+        wb.transaction('AutoCorrect', () => { for (const rg of ranges) wb.fillInput(sid, rg, fixed, { r, c }, { typed: true }); });
+        wb.squashHistory(mark, 'AutoCorrect');
+      } else {
+        if (wb.validateInput(sid, r, c, fixed).ok === false) return;
+        wb.setInput(sid, r, c, fixed, { label: 'AutoCorrect' });
+      }
       statusBar?.announce(`AutoCorrect changed the entry to ${fixed}. ${MOD_KEY}+Z puts back what was typed`);
     },
     // Editing in cells turned off (the options): F2 and a double-click put the caret in the formula bar.
@@ -390,12 +405,12 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     onContextMenu: (info) => openCellContextMenu(ctx, info),
     announce: (text) => statusBar?.announce(text),
     onZoom: () => { try { localStorage.setItem('spreadsheet:zoom', String(grid.zoom)); } catch { /* no storage */ } notify(); },
-    validate: (r, c, text) => {
+    validate: (r, c, text, origin) => {
       // Run before a committed entry is written. Text pasted into the entry (noted here from the viewport's
       // paste event and the formula bar, or by the grid on its own editor) that reaches out is put through
       // the question a paste onto the grid gets, so the formula lands #BLOCKED! with the notice, not live.
       if ((entryPasted || grid.editState?.pasted) && textReachesOut(text)) doc.distrustExternal();
-      const v = wb.validateInput(grid.sheetId, r, c, text);
+      const v = wb.validateInput(grid.sheetId, r, c, text, origin);
       return { ok: v.ok, message: v.message, rule: v.rule, strict: v.rule ? v.rule.strict !== false : false };
     },
     onInvalid: invalidEntry,
@@ -1993,6 +2008,8 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         return;
       case 'formatCells':
         if (!committed()) return;
+        // A protected sheet keeps the formatting of every cell, unlocked ones too: said before the dialog is filled in.
+        if (refusedByProtection('format cells')) { keepFocus(); return; }
         openFormatCellsDialog(ctx, { panel: typeof arg === 'string' ? arg : 'number' });
         return;
       case 'applyFormat': {
@@ -2054,6 +2071,9 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         return;
       case 'insertDialog': case 'deleteDialog':
         if (!committed()) return;
+        // A protected sheet refuses every choice the dialog offers: it says so now, as Delete rows does, rather
+        // than once a choice has been made and OK pressed.
+        if (refusedByProtection(cmd === 'insertDialog' ? 'insert cells' : 'delete cells')) { keepFocus(); return; }
         openInsertDeleteDialog(ctx, cmd === 'insertDialog' ? 'insert' : 'delete');
         return;
       case 'clearAll':
@@ -2380,6 +2400,8 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       case 'filterMenu': openFilterMenu(arg); return;
       case 'sortDialog': {
         if (!committed()) return;
+        // A protected sheet refuses the sort the dialog would set up: said now, as the quick sort says it.
+        if (refusedByProtection('sort')) { keepFocus(); return; }
         if (!oneRange('sort')) return;
         let range = sortBlock();
         if (!range) { toast('Nothing to sort', { icon: 'info' }); return; }
@@ -2411,6 +2433,8 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         const preset = typeof arg?.style === 'string' ? arg.style : null;
         // Format as Table on a table restyles it; elsewhere the Create Table dialog opens with the style chosen.
         if (existing && preset) { if (!refusedByProtection('change the table')) wb.updateTable(sheetId, existing.id, { style: preset, customStyle: null }); keepFocus(); return; }
+        // The table dialog makes or changes a table, which a protected sheet refuses: said before it is filled in.
+        if (refusedByProtection(existing ? 'change the table' : 'create a table')) { keepFocus(); return; }
         if (existing) { openTableDialog(ctx, { table: existing }); return; }
         if (!oneRange('create a table')) return;
         const range = dataRange(grid.range);
@@ -2440,12 +2464,14 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         if (arg.sheetId !== wb.activeSheetId) wb.setActiveSheet(arg.sheetId);
         if (arg.sheetId !== wb.activeSheetId) return;
         grid.setSelection(S.fromRange(t.range, { r: t.range.r1, c: t.range.c1 }));
+        if (refusedByProtection('change the table')) return;
         openTableDialog(ctx, { table: t });
         return;
       }
       case 'editTable': {
         if (!committed()) return;
         const t = wb.tableAt(sheetId, grid.active.r, grid.active.c);
+        if (t && refusedByProtection('change the table')) { keepFocus(); return; }
         if (t) openTableDialog(ctx, { table: t });
         return;
       }
@@ -2531,6 +2557,8 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       }
       case 'subtotal': {
         if (!committed()) return;
+        // Adding subtotals and removing them both rewrite the rows, which a protected sheet refuses.
+        if (refusedByProtection('add or remove subtotals')) { keepFocus(); return; }
         if (!oneRange('add subtotals')) return;
         const range = dataRange();
         if (!range) { toast('Nothing to subtotal', { icon: 'info' }); return; }
@@ -2597,6 +2625,9 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       }
       case 'outlineSettings': {
         if (!committed()) return;
+        // The settings are the sheet's, kept while it is protected as its outline is: said before the dialog opens,
+        // and again should the sheet be protected while it was open, rather than written past the protection.
+        if (refusedByProtection('change the outline settings')) { keepFocus(); return; }
         if (!arg?.settings) { openOutlineSettings(ctx); return; }
         // From the dialog: keep its settings, then Create or Apply Styles with them, as one step.
         let made = 0;
@@ -2822,7 +2853,8 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         keepFocus();
         return;
       }
-      case 'fillSeries': if (!committed()) return; openSeriesDialog(ctx); return;
+      // The series dialog's fill is refused anywhere on a protected sheet: said before the step and stop are given.
+      case 'fillSeries': if (!committed()) return; if (refusedByProtection('fill a series')) { keepFocus(); return; } openSeriesDialog(ctx); return;
       case 'fillDown': case 'fillRight': case 'fillUp': case 'fillLeft': {
         if (grid.editing) return;
         // Every selected range (Ctrl/Cmd+click adds ranges) fills from its own first row or column, as one undo step.
@@ -3044,7 +3076,12 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         return;
       }
       case 'insertFunction': insertFunction(arg); return;
-      case 'insertFunctionDialog': openInsertFunctionDialog(ctx, { onPick: (name) => run('functionArgs', name) }); return;
+      case 'insertFunctionDialog':
+        // A locked cell refuses the formula (the workbook's notice says why) before a function is looked for, as Insert
+        // Symbol does: the dialog was searched and its OK pressed for nothing. An unlocked cell takes it.
+        if (!grid.editing && wb.lockedAt(sheetId, grid.active.r, grid.active.c)) { keepFocus(); return; }
+        openInsertFunctionDialog(ctx, { onPick: (name) => run('functionArgs', name) });
+        return;
       case 'functionArgs': {
         // Function Arguments for a function picked from a category or Insert Function. Mid-entry the
         // function goes in at the caret instead, so the formula being typed is not replaced; Ctrl+A after a
@@ -3054,7 +3091,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         if (!FUNCTION_NAMES.includes(name)) return;
         if (grid.editing && at) {
           rememberFunction(name);
-          openFunctionArgumentsDialog(ctx, name, { apply: (call) => { if (grid.editing) grid.insertText(call, at); } });
+          openFunctionArgumentsDialog(ctx, name, { initial: at.args || [], apply: (call) => { if (grid.editing) grid.insertText(call, at); } });
           return;
         }
         if (grid.editing) { insertFunction(name); return; }
@@ -3375,6 +3412,9 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       case 'consolidate': {
         // Data ▸ Consolidate: the dialog, then the combined table written at the active cell as one undo step.
         if (!committed()) return;
+        // The table goes in from the active cell: a locked one refuses it (the workbook's notice says why), which is
+        // said before the references are gathered. Unlocked cells of a protected sheet take it.
+        if (!arg?.refs && wb.lockedAt(sheetId, grid.active.r, grid.active.c)) { keepFocus(); return; }
         if (!arg?.refs) { openConsolidateDialog(ctx); return; }
         const sources = arg.refs.map((text) => {
           const at = resolveRangeText(text);
@@ -3736,7 +3776,8 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         grid.scrollToActive();
         return;
       }
-      case 'validation': if (!committed()) return; openValidationManager(ctx); return;
+      // Rules are the sheet's to keep while it is protected: said before the rule is filled in, not at Add rule.
+      case 'validation': if (!committed()) return; if (refusedByProtection('change data validation')) { keepFocus(); return; } openValidationManager(ctx); return;
       case 'insertCheckbox': {
         // Checkboxes: a checkbox rule over every selected range (the rows a filter hides left out,
         // as when formatting); blank cells start unchecked. One undo step for all of them.
@@ -3767,8 +3808,8 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         keepFocus();
         return;
       }
-      case 'insertDropdown': if (!committed()) return; openValidationManager(ctx, { type: 'list' }); return;
-      case 'condFormat': if (!committed()) return; openConditionalFormatting(ctx); return;
+      case 'insertDropdown': if (!committed()) return; if (refusedByProtection('insert a dropdown')) { keepFocus(); return; } openValidationManager(ctx, { type: 'list' }); return;
+      case 'condFormat': if (!committed()) return; if (refusedByProtection('change conditional formatting')) { keepFocus(); return; } openConditionalFormatting(ctx); return;
       case 'condFormatMenu':
         if (!committed()) return;
         openMenu({ anchor: arg instanceof HTMLElement ? arg : null, label: 'Conditional formatting', minWidth: 240,
@@ -3791,8 +3832,9 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       }
       case 'pivot': openPivotDialog(ctx); return;
       case 'recommendedPivots': openRecommendedPivots(ctx); return;
-      case 'goalSeek': if (!committed()) return; openGoalSeek(ctx); return;
-      case 'dataTable': if (!committed()) return; openDataTable(ctx); return;
+      // Goal Seek and Data Table write on this sheet, which refuses them while protected: said before they are filled in.
+      case 'goalSeek': if (!committed()) return; if (refusedByProtection('use Goal Seek')) { keepFocus(); return; } openGoalSeek(ctx); return;
+      case 'dataTable': if (!committed()) return; if (refusedByProtection('make a data table')) { keepFocus(); return; } openDataTable(ctx); return;
       case 'forecastSheet': if (!committed()) return; openForecastSheet(ctx); return;
       case 'scenarioManager': if (!committed()) return; openScenarioManager(ctx); return;
       case 'solver': if (!committed()) return; openSolver(ctx); return;
@@ -3864,6 +3906,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         getDataTable(ctx, editQuery, { createTable: (then) => {
           const range = dataRange(grid.range);
           if (range.r1 >= range.r2) { toast('Select the header row and at least one row of data', { icon: 'info' }); return; }
+          if (refusedByProtection('create a table')) return;
           openTableDialog(ctx, { range, onCreated: then });
         } });
         return;
@@ -3993,8 +4036,9 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         keepFocus();
         return;
       }
-      case 'editSparkline': if (!committed()) return; openSparklineDialog(ctx); return;
-      case 'insertSparklines': if (!committed() || !oneRange('insert sparklines')) return; openSparklineCreateDialog(ctx, { type: typeof arg === 'string' ? arg : null }); return;
+      // Sparklines are the sheet's objects, which it keeps while protected: said before their dialogs are filled in.
+      case 'editSparkline': if (!committed()) return; if (refusedByProtection('change sparklines')) { keepFocus(); return; } openSparklineDialog(ctx); return;
+      case 'insertSparklines': if (!committed() || !oneRange('insert sparklines')) return; if (refusedByProtection('insert sparklines')) { keepFocus(); return; } openSparklineCreateDialog(ctx, { type: typeof arg === 'string' ? arg : null }); return;
       case 'groupSparklines': {
         if (!committed()) return;
         const hidden = wb.sheet(sheetId).filterHidden, { r, c } = grid.active;
@@ -4033,6 +4077,10 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       case 'smartArt': { if (!committed()) return; const changed = runSmartArtAction(ctx, arg); if (changed) keepFocusUnlessPane(); notify(); return; }
       case 'editChart': {
         const chart = wb.chartById(sheetId, arg || grid.selectedChart);
+        // Each settings dialog below changes its object, which a protected sheet keeps (the chart ribbon greys the
+        // editing out): said before the settings are changed, from Enter, a double-click or a menu alike.
+        const noun = { slicer: 'slicer', timeline: 'timeline', scroll: 'scroll bar', text: chart?.equation ? 'equation' : 'text box' }[chart?.type] || 'chart';
+        if (chart && chart.type !== 'smartart' && chart.type !== 'image' && refusedByProtection(`change the ${noun}`)) return;
         if (chart?.type === 'slicer') openSlicerDialog(ctx, chart);
         else if (chart?.type === 'timeline') openTimelineSettingsDialog(ctx, chart);
         else if (chart?.type === 'scroll') openScrollDialog(ctx, chart);
@@ -4042,7 +4090,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         else if (chart && chart.type !== 'image') openChartDialog(ctx, { chart });
         return;
       }
-      case 'insertTextBox': if (!committed()) return; openTextBoxDialog(ctx); return;
+      case 'insertTextBox': if (!committed() || refusedByProtection('insert a text box')) return; openTextBoxDialog(ctx); return;
       case 'deleteChart': {
         const id = arg?.id || arg || grid.selectedChart;
         if (!id) return;
@@ -4050,10 +4098,12 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         // Delete (`only`: Edit text box, Equation) deletes the one object it edits.
         const selected = grid.selectedCharts || [];
         if (!arg?.only && selected.length > 1 && selected.includes(id)) { run('deleteObjects', selected); return; }
-        const kind = wb.chartById(sheetId, id)?.type;
+        const obj = wb.chartById(sheetId, id), kind = obj?.type;
         if (kind === 'timeline') { if (!deleteTimeline(wb, sheetId, id)) return; }
         else if (!wb.deleteChart(sheetId, id)) return;
-        toast(kind === 'slicer' ? 'Slicer deleted' : kind === 'timeline' ? 'Timeline deleted' : kind === 'image' ? 'Image deleted' : kind === 'text' ? 'Text box deleted' : kind === 'smartart' ? 'SmartArt deleted' : 'Chart deleted', { icon: 'trash', duration: 1600 });
+        // Named as the undo step names it: a scroll bar or an equation is not a chart or a text box.
+        const noun = kind === 'timeline' ? 'timeline' : objectNoun(obj);
+        toast(`${noun[0].toUpperCase()}${noun.slice(1)} deleted`, { icon: 'trash', duration: 1600 });
         keepFocus();
         return;
       }
@@ -4150,7 +4200,8 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         return;
       }
       // Insert ▸ Pictures: over the cells, or with 'cell' into the active cell as its value (Place in Cell).
-      case 'insertImage': if (!committed()) return; replaceImageId = null; imageIntoCell = arg === 'cell'; imageInput.click(); return;
+      // A protected sheet takes no picture, over the cells or in one: said before a file is chosen (see insertImageFile).
+      case 'insertImage': if (!committed() || refusedByProtection('insert images')) return; replaceImageId = null; imageIntoCell = arg === 'cell'; imageInput.click(); return;
       case 'sheetBackground': {
         if (!committed()) return;
         const sheet = wb.sheet(sheetId);
@@ -4176,6 +4227,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
           else toast(`The cells this picture showed (${linked}) are gone`, { icon: 'info', duration: 3000 });
           return;
         }
+        if (id && refusedByProtection('replace images')) return;
         replaceImageId = id; imageIntoCell = false; if (replaceImageId) imageInput.click(); return;
       }
       case 'insertImagePuter': {
@@ -4205,7 +4257,9 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         return;
       }
       case 'insertImageUrl': {
-        // A picture from the web, fetched through Puter so it lands in the file like an uploaded one.
+        // A picture from the web, fetched through Puter so it lands in the file like an uploaded one. A protected
+        // sheet takes none, over the cells or in one: said before the address is typed.
+        if (refusedByProtection('insert images')) { keepFocus(); return; }
         const url = await promptDialog({
           title: arg === 'cell' ? 'Place picture in cell from URL' : 'Insert image from URL', label: 'Address of a PNG, JPEG, GIF, WebP, or SVG image', placeholder: 'https://example.com/logo.png', confirmLabel: arg === 'cell' ? 'Place in Cell' : 'Insert',
           validate: urlProblem,
@@ -5807,6 +5861,8 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
 
   async function runFlush({ leaving = true } = {}) {
     if (grid.editing && !grid.commitEdit()) return false;
+    // Code typed into the Code Editor goes into the workbook after a short pause: what was typed in it goes too.
+    automate?.flush();
     if (doc.status === 'saved' && !doc.hasPendingWrites) return true;
     doc.writeDraft();
     if (session.signedOut && wb.dirty) {
@@ -5862,7 +5918,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         const choice = await conflictLeaveDialog(kind, kept);
         if (destroyed) return false;
         if (choice === 'leave') { abandoned = true; return true; }
-        if (choice === 'overwrite') { await doc.forceSave().catch(() => {}); return runFlush({ leaving }); }
+        if (choice === 'overwrite') { if (await overwriteWithMine() === null) return false; return runFlush({ leaving }); }
         keepFocus();
         return false;
       }
@@ -5936,7 +5992,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         : unchecked ? `Whether "${doc.name}" was saved since you opened it, perhaps from another device or tab, could not be checked.`
           : `"${doc.name}" was saved, moved or renamed since you opened it, perhaps from another device or tab.`;
       const where = missing ? 'and can be recovered from Unsaved spreadsheets on the home screen' : 'and are offered again when you open this spreadsheet here';
-      const action = missing ? 'put the file back at the old address with them' : unchecked ? 'save them anyway' : 'keep your version and overwrite theirs';
+      const action = missing ? 'put the file back at the old address with them' : unchecked ? 'save them anyway' : 'keep your version and overwrite theirs, which is kept in Version history';
       const content = el('div', {},
         el('p.modal-text', {}, kept
           ? `${what} Your changes were not saved. Leave, and they stay on this device, ${where}; or ${action}.`
@@ -6002,8 +6058,30 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     });
   }
 
+  /**
+   * "Overwrite with mine" (or "Save anyway", "Keep it here"): what the file holds is kept in Version history first, as
+   * the dialogs say (see Doc#forceSave). When it cannot be, nothing is written until the user says to overwrite it all
+   * the same. True once written, false when it was not (the status says why), null when the user chose not to.
+   */
+  async function overwriteWithMine() {
+    try { return await doc.forceSave(); }
+    catch (e) {
+      if (e?.message !== THEIRS_NOT_KEPT || destroyed) return false;
+      const why = P.unreachable(e.cause) ? (navigator.onLine === false ? 'you are offline' : 'Puter could not be reached') : (e.cause?.message || e.cause?.error?.message || '');
+      const anyway = await confirmDialog({
+        title: 'Their version could not be kept',
+        message: `What "${doc.name}" holds now could not be kept in Version history${why ? ` (${String(why).replace(/\.$/, '')})` : ''}, so your version was not saved over it. Overwrite it anyway? It cannot be had back.`,
+        confirmLabel: 'Overwrite anyway', cancelLabel: 'Cancel', danger: true, dismissValue: null,
+      });
+      if (destroyed) return false;
+      if (!anyway) { keepFocus(); return null; }
+      return doc.forceSave({ keepTheirs: false }).catch(() => false);
+    }
+  }
+
   async function saveNow() {
     if (grid.editing && !grid.commitEdit()) return;
+    automate?.flush();
     // Saving needs a session; Puter's own dialog asks for it, then the save goes ahead.
     if (session.signedOut && (!await session.signIn() || destroyed)) return;
     try {
@@ -6049,6 +6127,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
 
   async function saveAs() {
     if (grid.editing && !grid.commitEdit()) return;
+    automate?.flush();
     if (session.signedOut && (!await session.signIn() || destroyed)) return;
     // Inside Puter its Save dialog asks for the name and the folder; elsewhere the copy goes in the app folder, named here.
     const name = P.asksWhereToSave() ? `${doc.name} copy` : await promptDialog({
@@ -6070,6 +6149,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
 
   async function exportFile(kind) {
     if (grid.editing && !grid.commitEdit()) return;
+    automate?.flush();
     try {
       const sheet = wb.sheet(grid.sheetId);
       const perSheet = kind === 'csv' || kind === 'tsv' || kind === 'html';
@@ -6524,6 +6604,8 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     goTo: (sheetId, r, c) => { if (destroyed) return; if (selectLocation(sheetId, { r1: r, c1: c, r2: r, c2: c })) comments.run('showComment'); },
   });
   mentionAlerts.start();
+  // Mails an earlier visit left waiting for a save that never came (the tab was closed first) go once one does.
+  const stopMentionMails = mentionNotifier.resume();
   comments.attach();
   ctx.comments = comments;
   ctx.subscribe(() => comments.sync());
@@ -6679,18 +6761,23 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
   /*
    * Where the selection was before an Insert rows or columns step, and where the step left it: undoing the
    * step puts the selection back, and redoing it selects the inserted lines again, rather than
-   * leaving a whole-line selection where the lines were. A step is known by its place in the history, counted
-   * from the workbook's history notices, the editor's own undo and redo commands saying which way the count
-   * moves (every undo goes through them). A document loaded afresh starts the count over.
+   * leaving a whole-line selection where the lines were. A step is known by the history's own entry for it,
+   * the editor's undo and redo commands saying which way the history moves (every undo goes through them):
+   * the step an undo takes back is the one that was newest at the last history notice. Counted by notices
+   * instead, a step taken back without them (the formatting of an entry given up with Escape, folded into
+   * one) put the count out, and Undo then put no selection back. What an undo took back waits for its redo
+   * on a stack of its own: a shared workbook's history makes the step it brings again anew.
    */
-  let historyDepth = 0;
   let historyMove = 'push'; // 'undo' or 'redo' while those commands run; a notice outside them is a new step
-  const stepSelections = new Map(); // the step's depth → { before, after }
+  const stepSelections = new WeakMap(); // the history step → { before, after }
+  let newestStep = wb.historyTop; // the newest step as of the last history notice
+  const redoSelections = []; // what each step taken back held (or null), for its redo, the latest last
   function selectionSnapshot() {
     return { sheetId: grid.sheetId, ranges: grid.ranges.map((rg) => ({ ...rg })), active: { ...grid.active } };
   }
   function rememberStepSelection(before) {
-    stepSelections.set(historyDepth, { before, after: selectionSnapshot() });
+    const step = wb.historyTop;
+    if (step) stepSelections.set(step, { before, after: selectionSnapshot() });
   }
   function restoreSelection(snap) {
     if (snap && grid.sheetId === snap.sheetId) grid.setRanges(snap.ranges, snap.active);
@@ -6759,7 +6846,8 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       const message = e.detail.reason === 'overlap' ? `The array at ${ref} would overlap other content. Choose an empty range.`
         : e.detail.reason === 'bounds' ? 'The whole array must fit within the sheet limits.'
           : e.detail.reason === 'formula' ? 'Enter a formula starting with =. To remove the array, select its full range and clear it.'
-            : `Select the entire array ${ref} to change it. You can format individual cells.`;
+            : e.detail.reason === 'limits' ? 'Excel does not take this formula: a function has too few or too many arguments, or the formula is too long or nests too deep.'
+              : `Select the entire array ${ref} to change it. You can format individual cells.`;
       toast(message, { icon: 'info', duration: 4000 });
       statusBar?.announce(message);
       return;
@@ -6812,11 +6900,19 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     // The Paste or Auto Fill Options button goes with the next change, or when its sheet is no longer shown.
     const offered = optionButton.current;
     if (offered && (wb.historyTop !== offered.mark || grid.sheetId !== offered.sheetId)) optionButton.hide();
-    if (e.detail?.type === 'load') { historyDepth = 0; stepSelections.clear(); }
+    if (e.detail?.type === 'load') { newestStep = wb.historyTop; redoSelections.length = 0; }
     else if (e.detail?.type === 'history') {
-      if (historyMove === 'undo') { const step = stepSelections.get(historyDepth); historyDepth--; if (step) restoreSelection(step.before); else revealStep(); }
-      else if (historyMove === 'redo') { historyDepth++; const step = stepSelections.get(historyDepth); if (step) restoreSelection(step.after); else revealStep(); }
-      else { historyDepth++; for (const depth of stepSelections.keys()) if (depth >= historyDepth) stepSelections.delete(depth); } // a new step discards the redo branch
+      const undone = newestStep;
+      newestStep = wb.historyTop;
+      if (historyMove === 'undo') {
+        const step = stepSelections.get(undone) || null;
+        redoSelections.push(step);
+        if (step) restoreSelection(step.before); else revealStep();
+      } else if (historyMove === 'redo') {
+        const step = redoSelections.pop() || null;
+        if (step && newestStep) stepSelections.set(newestStep, step);
+        if (step) restoreSelection(step.after); else revealStep();
+      } else redoSelections.length = 0; // a new step discards the redo branch
     }
     updatePivotDisplayNotice();
     notify();
@@ -6844,8 +6940,9 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     syncChangeAuthor();
     renderAccountButton(avatar);
     refreshStatus();
-    // Edits made before signing in now have a place to go.
-    if (session.signedIn && wb.dirty) doc.save({ auto: true }).catch(() => {});
+    // Edits made before signing in now have a place to go; with AutoSave off they wait for Save, as any edit does
+    // (the session also changes when a preference kept with the account does, choosing a theme, say).
+    if (session.signedIn && wb.dirty && autoSaveEnabled()) doc.save({ auto: true }).catch(() => {});
   };
   session.addEventListener?.('change', onSession);
 
@@ -6854,6 +6951,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
 
   const onBeforeUnload = (e) => {
     if (grid.editing) grid.commitEdit();
+    automate?.flush();
     if (doc.status === 'saved' && !doc.hasPendingWrites && !grid.editing) return;
     doc.writeDraft();
     // A new file waits for Puter's Save dialog, which is not to be opened by a page on its way out: the draft keeps it.
@@ -6864,7 +6962,11 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
   window.addEventListener('beforeunload', onBeforeUnload);
   // A phone may close a tab it put in the background without a beforeunload: unsaved edits are copied into this browser
   // as the page is hidden, not after the pause the options set for the recovery copy (up to five minutes).
-  const onPageHidden = () => { if (document.visibilityState === 'hidden' && wb.dirty) doc.writeDraft(); };
+  const onPageHidden = () => {
+    if (document.visibilityState !== 'hidden') return;
+    automate?.flush();
+    if (wb.dirty) doc.writeDraft();
+  };
   document.addEventListener('visibilitychange', onPageHidden);
   // The browser's own Print command (File > Print) prints the sheet the way Ctrl+P does, not the app chrome.
   const uninstallPrint = installPrintFallback(() => {
@@ -6889,7 +6991,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         const choice = await missingFileDialog();
         if (destroyed) return;
         if (choice === 'saveAs') await saveAs();
-        else if (choice === 'keep') await doc.forceSave().catch(() => {});
+        else if (choice === 'keep') await overwriteWithMine();
         else keepFocus();
         return;
       }
@@ -6900,10 +7002,10 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         confirmLabel: 'Save anyway', cancelLabel: 'Reload the file', danger: true, dismissValue: null,
       } : {
         title: 'This file changed elsewhere',
-        message: `"${doc.name}" was saved, moved or renamed since you opened it, perhaps from another device or tab. Keep your version and overwrite theirs, or discard yours and reload theirs?`,
+        message: `"${doc.name}" was saved, moved or renamed since you opened it, perhaps from another device or tab. Keep your version and overwrite theirs (theirs is kept in Version history), or discard yours and reload theirs?`,
         confirmLabel: 'Overwrite with mine', cancelLabel: 'Reload theirs', danger: true, dismissValue: null,
       });
-      if (overwrite) await doc.forceSave().catch(() => {});
+      if (overwrite) await overwriteWithMine();
       else if (overwrite === false) { wb.markClean(); openPath(doc.path, { reload: true }); }
     } finally { conflictOpen = false; }
   };
@@ -7170,6 +7272,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       chartUi.destroy();
       comments.destroy();
       mentionAlerts.stop();
+      stopMentionMails();
       findBar.destroy();
       aiPanel?.destroy();
       grid.destroy();

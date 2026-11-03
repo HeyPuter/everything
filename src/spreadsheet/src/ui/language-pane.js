@@ -10,7 +10,7 @@
 import { el, fieldId } from './dom.js';
 import { icon } from './icons.js';
 import { toast } from './toast.js';
-import { cellName, colName } from '../core/cell.js';
+import { cellName, colName, parseKey } from '../core/cell.js';
 import { loadPref, savePref } from '../lib/user-prefs.js';
 import { thesaurusPrompt, parseThesaurus, replaceInText, lookupWord } from '../core/thesaurus.js';
 import { minOf } from '../core/numeric.js';
@@ -140,9 +140,26 @@ export function createLanguagePane(ctx) {
   function useSelection() {
     const sheetId = ctx.sheetId();
     const cells = [];
-    for (const rg of ctx.ranges()) {
-      for (let r = rg.r1; r <= rg.r2 && cells.length < MAX_CELLS; r++) {
-        for (let c = rg.c1; c <= rg.c2 && cells.length < MAX_CELLS; c++) {
+    // Only the cells that hold something are read: a whole column or the whole sheet is cut down to the data.
+    const used = wb.usedRange(sheetId);
+    const held = wb.sheet(sheetId)?.cells;
+    for (const rg of used ? ctx.ranges() : []) {
+      const r2 = Math.min(rg.r2, used.r2), c2 = Math.min(rg.c2, used.c2);
+      // A range of more addresses than the sheet holds cells (one value far out makes the used range the whole
+      // sheet) is read from those cells, in reading order.
+      if (held && (r2 - rg.r1 + 1) * (c2 - rg.c1 + 1) > held.size) {
+        const inside = [];
+        for (const [key, cell] of held) {
+          const { r, c } = parseKey(key);
+          if (r < rg.r1 || r > r2 || c < rg.c1 || c > c2 || cell?.f != null || typeof cell?.v !== 'string' || !cell.v.trim()) continue;
+          inside.push({ r, c, text: cell.v });
+        }
+        inside.sort((a, b) => a.r - b.r || a.c - b.c);
+        cells.push(...inside.slice(0, Math.max(0, MAX_CELLS - cells.length)));
+        continue;
+      }
+      for (let r = rg.r1; r <= r2 && cells.length < MAX_CELLS; r++) {
+        for (let c = rg.c1; c <= c2 && cells.length < MAX_CELLS; c++) {
           const cell = wb.getCell(sheetId, r, c);
           if (cell?.f != null || typeof cell?.v !== 'string' || !cell.v.trim()) continue;
           cells.push({ r, c, text: cell.v });
@@ -193,6 +210,10 @@ export function createLanguagePane(ctx) {
       const { sheetId, cells } = result.cells;
       const locked = cells.filter(({ r, c }) => wb.lockedAt(sheetId, r, c));
       if (locked.length) { toast(`${cellName(locked[0].r, locked[0].c)} is protected; nothing was replaced`, { icon: 'lock', duration: 3000 }); return; }
+      // The cells are known by where their text was read: one that no longer holds it (typed over, or moved by rows
+      // or columns inserted or deleted since) would lose what it holds now to another cell's translation.
+      const moved = cells.find(({ r, c, text }) => { const cell = wb.getCell(sheetId, r, c); return cell?.f != null || cell?.v !== text; });
+      if (moved) { toast(`${cellName(moved.r, moved.c)} has changed since it was translated; nothing was replaced. Translate the cells again`, { icon: 'info', duration: 3600 }); return; }
       wb.transaction('Translate', () => cells.forEach(({ r, c }, i) => wb.setInput(sheetId, r, c, result.texts[i], { literal: true, label: 'Translate' })));
       ctx.announce?.(`Replaced ${cells.length} cell${cells.length === 1 ? '' : 's'} with the translation`);
       return;

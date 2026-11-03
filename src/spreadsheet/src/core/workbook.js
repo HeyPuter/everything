@@ -81,7 +81,8 @@ import { normalizePrintSettings, mapPrintAreas } from './print-settings.js';
 import { normalizeBackground } from './sheet-background.js';
 import { normalizeCustomViews, captureCustomView, MAX_CUSTOM_VIEWS, CUSTOM_VIEW_NAME_MAX } from './custom-views.js';
 import { parseFormula } from './formula/parser.js';
-import { ARRAY_BUDGET, evaluate, evaluateFormula, isVolatile, paramSpec, resetArrayBudget, withArrayBudget } from './formula/evaluator.js';
+import { ARITY } from './formula/arity.js';
+import { APP_ONLY_FUNCTIONS, ARRAY_BUDGET, evaluate, evaluateFormula, isVolatile, paramSpec, resetArrayBudget, withArrayBudget } from './formula/evaluator.js';
 import { FUNCTIONS, err, isError, isRange, scalar, compareStoredValues, toText, noteRangeRows, isNestedTotal } from './formula/functions.js';
 import { parseDelimited } from './tsv.js';
 import { splitPieces, detectDelimiter, splitSourceText, DEFAULT_SPLIT } from './text-split.js';
@@ -110,9 +111,9 @@ import { normalizeChangeHistory, recordCellWrites, recordStep } from './change-h
 import { eachStoredCell } from './sparse-range.js';
 import { nativeFilterJudge } from './xlsx-filter.js';
 
-/** What a floating object is called in undo labels: chart, image, or text box. */
+/** What a floating object is called in undo labels and notices: chart, image, text box, WordArt…, as the Selection Pane names it. */
 export function objectNoun(obj) {
-  return obj?.type === 'slicer' ? 'slicer' : obj?.type === 'scroll' ? 'scroll bar' : obj?.type === 'image' ? 'image' : obj?.type === 'smartart' ? 'SmartArt' : obj?.type === 'text' ? obj.equation ? 'equation' : 'text box' : 'chart';
+  return obj?.type === 'slicer' ? 'slicer' : obj?.type === 'scroll' ? 'scroll bar' : obj?.type === 'image' ? 'image' : obj?.type === 'smartart' ? 'SmartArt' : obj?.type === 'text' ? obj.equation ? 'equation' : obj.style?.effects ? 'WordArt' : 'text box' : 'chart';
 }
 
 // Charts whose series Select Data lists one by one (see chartSeriesSources): a range they read can be turned into references.
@@ -268,6 +269,162 @@ function formulaNesting(body) {
   }
   return deepest;
 }
+/** Excel's limits on a formula it will take: functions nested 64 deep, and 255 arguments to one function. */
+const MAX_FUNCTION_NESTING = 64;
+const MAX_FUNCTION_ARGUMENTS = 255;
+
+/**
+ * Does a formula body call functions nested deeper, or give one more arguments, than Excel takes? Excel refuses such
+ * an entry, and reports a file holding one as damaged. Parentheses that only group (and a union's commas) do not count.
+ * What is past them, for the editor to say: { kind: 'nesting' | 'arguments', name, start, end } (the function's name
+ * at the level too deep, or the comma before its argument too many), or null.
+ */
+function pastFunctionLimits(body) {
+  let tokens;
+  try { tokens = tokenize(body); } catch { return null; }
+  const open = []; // per open parenthesis or brace: { call, args, name }
+  let calls = 0;
+  for (let i = 0; i < tokens.length; i++) {
+    const t = tokens[i];
+    if (t.type === 'lparen') {
+      // A name before it calls a function, as does a closing parenthesis: LAMBDA(x,x)(1).
+      const prev = tokens[i - 1];
+      const call = prev?.type === 'name' || prev?.type === 'rparen';
+      open.push({ call, args: tokens[i + 1]?.type === 'rparen' ? 0 : 1, name: prev?.type === 'name' ? prev.value : null });
+      if (call && ++calls > MAX_FUNCTION_NESTING) return { kind: 'nesting', start: prev.type === 'name' ? prev.start : t.start, end: t.start };
+    } else if (t.type === 'lbrace') open.push({ call: false, args: 0 });
+    else if (t.type === 'rparen' || t.type === 'rbrace') {
+      if (open.pop()?.call) calls--;
+    } else if (t.type === 'comma') {
+      const top = open[open.length - 1];
+      if (top?.call && ++top.args > MAX_FUNCTION_ARGUMENTS) return { kind: 'arguments', name: top.name, start: t.start, end: t.start };
+    }
+  }
+  return null;
+}
+
+/**
+ * Does a formula body give one of Excel's functions fewer or more arguments than it takes, as =ABS(1,2) or =ROUND(1.5)?
+ * Excel refuses such an entry; the call that does (a parsed call node) is returned, or null. Only functions in its table are checked (see arity.js), and a name a LET or LAMBDA binds
+ * anywhere in the formula is passed over, as it may call a LAMBDA of that name rather than the function.
+ */
+function wrongArgumentCount(body) {
+  let tree;
+  try { tree = parseFormula(body); } catch { return null; }
+  const calls = [], bound = new Set();
+  // Walked without recursion: a chain of thousands of operators nests as deep as it is long.
+  const pending = [tree];
+  while (pending.length) {
+    const node = pending.pop();
+    if (!node || typeof node !== 'object') continue;
+    if (Array.isArray(node)) { pending.push(...node); continue; }
+    if (node.type === 'call' && !node.bare && !node.sheet) {
+      calls.push(node);
+      const params = node.name === 'LET' ? node.args.filter((_, i) => i % 2 === 0 && i < node.args.length - 1)
+        : node.name === 'LAMBDA' ? node.args.slice(0, -1) : [];
+      for (const p of params) if (paramSpec(p)) bound.add(paramSpec(p).name);
+    }
+    for (const key in node) if (key !== 'ref') pending.push(node[key]);
+  }
+  return calls.find(({ name, args }) => {
+    const arity = !bound.has(name) && ARITY.get(name);
+    return arity ? args.length < arity[0] || args.length > arity[1] : false;
+  }) || null;
+}
+
+/**
+ * Is a typed formula body one Excel refuses: longer than a formula may be, past its limits on functions, or giving one
+ * the wrong number of arguments? Such an entry stays the text typed (or, entered as an array, is refused).
+ */
+function refusedEntry(body) {
+  return body.length > MAX_FORMULA_LENGTH || !!pastFunctionLimits(body) || !!wrongArgumentCount(body);
+}
+
+const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+
+/**
+ * Where in a formula body a call of `name` given `count` arguments is: its name's start, the end of its opening
+ * parenthesis, the start of its closing one (the body's end when it has none) and the commas between its arguments.
+ * Counted as pastFunctionLimits counts them; null when no such call is found.
+ */
+function locateCall(body, name, count) {
+  let tokens;
+  try { tokens = tokenize(body); } catch { return null; }
+  const open = [];
+  const found = (call, close) => (call?.name === name && call.args === count ? { start: call.start, open: call.open, close, commas: call.commas } : null);
+  for (let i = 0; i < tokens.length; i++) {
+    const t = tokens[i];
+    if (t.type === 'lparen') {
+      const prev = tokens[i - 1];
+      const named = prev?.type === 'name';
+      open.push({ name: named ? upperName(prev.value) : null, start: named ? prev.start : t.start, open: t.end, commas: [],
+        args: tokens[i + 1]?.type === 'rparen' ? 0 : 1 });
+    } else if (t.type === 'lbrace') open.push({ name: null, commas: [] });
+    else if (t.type === 'rparen' || t.type === 'rbrace') {
+      const hit = found(open.pop(), t.start);
+      if (hit) return hit;
+    } else if (t.type === 'comma') {
+      const top = open[open.length - 1];
+      if (top?.name) { top.args++; top.commas.push(t.start); }
+    }
+  }
+  for (let call = open.pop(); call; call = open.pop()) { const hit = found(call, body.length); if (hit) return hit; }
+  return null;
+}
+
+/**
+ * Why Excel refuses a formula typed as `text`, for the editor to say so and keep the entry open, as Excel does:
+ * { message, start, end }, the part of the text to put the caret on (the call at fault), or null when the entry is
+ * taken. The same entries setInput keeps as the text typed (see refusedEntry and cellFromInput).
+ */
+function typedFormulaProblem(text, closeParentheses) {
+  const raw = text == null ? '' : String(text);
+  const { f } = parseInput(raw);
+  if (f == null) return null;
+  const at = raw.length - f.length; // where the body starts, after its =
+  const span = (start, end = start) => ({ start: at + Math.min(start, f.length), end: at + Math.min(end, f.length) });
+  const count = (n) => n.toLocaleString('en-US');
+  const tooLong = (n) => ({ message: `A formula can be at most ${count(MAX_FORMULA_LENGTH)} characters long; this one has ${count(n)}`, ...span(f.length) });
+  if (f.length > MAX_FORMULA_LENGTH) return tooLong(f.length);
+  if (formulaNesting(f) > MAX_FORMULA_NESTING) return { message: `Parentheses can be nested at most ${MAX_FORMULA_NESTING} levels deep`, ...span(f.length) };
+  const body = closeParentheses(f);
+  if (body.length > MAX_FORMULA_LENGTH) return tooLong(body.length);
+  const limit = pastFunctionLimits(body);
+  if (limit?.kind === 'nesting') return { message: `Functions can be nested at most ${MAX_FUNCTION_NESTING} levels deep`, ...span(limit.start, limit.end) };
+  if (limit) return { message: `${limit.name || 'A function'} can take at most ${MAX_FUNCTION_ARGUMENTS} arguments`, ...span(limit.start) };
+  const call = wrongArgumentCount(body);
+  if (!call) return null;
+  const [min, max] = ARITY.get(call.name), given = call.args.length;
+  const where = locateCall(body, call.name, given);
+  if (given < min) {
+    return { message: min === max ? `${call.name} needs ${plural(min, 'argument')}` : `${call.name} needs at least ${plural(min, 'argument')}`,
+      ...(where ? span(where.close) : span(f.length)) };
+  }
+  return { message: max === 0 ? `${call.name} takes no arguments` : min === max ? `${call.name} takes only ${plural(max, 'argument')}` : `${call.name} takes at most ${plural(max, 'argument')}`,
+    // The arguments too many are selected, for Delete to take them out.
+    ...(where ? span(max === 0 ? where.open : where.commas[max - 1], where.close) : span(f.length)) };
+}
+
+/**
+ * A formula as what it does from where it sits, at row `r` and column `c` (its R1C1 form, in A1 text): a formula filled
+ * along a row or down a column (=A1*2, =B1*2, …) gives the same text in each of its cells.
+ */
+function relativeFormula(f, r, c) {
+  const rows = MAX_ROW + 1, cols = MAX_COL + 1;
+  return mapFormulaRefs(f, (ref) => {
+    const out = { ...ref };
+    if (ref.kind !== 'cols') {
+      if (!ref.absR1) out.r1 = (ref.r1 - r + rows) % rows;
+      if (!ref.absR2) out.r2 = (ref.r2 - r + rows) % rows;
+    }
+    if (ref.kind !== 'rows') {
+      if (!ref.absC1) out.c1 = (ref.c1 - c + cols) % cols;
+      if (!ref.absC2) out.c2 = (ref.c2 - c + cols) % cols;
+    }
+    return out;
+  });
+}
+
 /** Whether a formula body has more opening than closing parentheses outside its string literals: one that stops short of its end. */
 function unclosedParens(body) {
   let open = 0;
@@ -1248,8 +1405,8 @@ const uncalled = (v) => (v !== null && typeof v === 'object' && v.lambda ? err('
 
 /** The calculation's working state, set aside while a data table calculates with substituted inputs. */
 const SUBSTITUTE_STATE = ['_iterationReady', '_cache', '_rangeCache', '_rangeCacheCells', '_rangeRuns', '_usedCache', '_cellBoundsCache', '_statsCache',
-  '_volatile', '_spills', '_spillBuilds', '_hasDeferredSpills', '_spillComputed', '_evaluating', '_evalOrder', '_evalLast', '_cyclic', '_provisional', '_blankProvisional',
-  '_blankKeys', '_unsettled', '_tentative', '_grown'];
+  '_volatile', '_spills', '_spillBuilds', '_hasDeferredSpills', '_spillComputed', '_evaluating', '_evalOrder', '_evalLast', '_cyclic', '_circleOf', '_provisional',
+  '_blankProvisional', '_blankKeys', '_probed', '_unsettled', '_tentative', '_grown'];
 
 /** The workbook's settings beside its sheets and their active one (see bookState): what a file holds of the book itself. */
 export const BOOK_STATE_KEYS = ['dataModel', 'nativePivots', 'externalWorkbooks', 'iteration', 'calcMode', 'structureProtected', 'queries', 'watches',
@@ -1316,14 +1473,18 @@ export class Workbook extends EventTarget {
     this._evalSeq = 0;
     this._evalLast = null; // the innermost of them, the reader of any cell it finds still being calculated
     this._cyclic = new Set(); // cells found on a circle of references while they were being calculated
+    this._circleOf = new Map(); // each cell settled as #CYCLE! on a circle → the outermost cell of that circle (see _compute)
     this._provisional = new Map(); // reader cell → where the circle whose provisional value it read starts (its _evalOrder), settled once it has its answer
     this._blankProvisional = 0; // while a reader is calculated again with provisional cells read as blank
-    this._blankKeys = null; // the cells read as blank while the outermost cell of a circle is calculated again (see _judgeCircles)
+    this._blankKeys = null; // the cells read as blank (or _blankValue) while the outermost cell of a circle is calculated again (see _judgeCircles)
+    this._blankValue = null; // what they read as: blank, or the provisional #CYCLE! of a cell still being calculated
+    this._probed = null; // the cells calculated while a circle is judged, forgotten once it is (see _probe)
     this._astByCell = new WeakMap(); // cell → { f, ast }: filled-down formulas are all distinct strings, so the text cache alone thrashes
     this.externalAllowed = true; // may IMPORT* formulas and web images reach out? Off for files from elsewhere until allowed
     this.filePath = null; // the drive path of the file the book is saved as, which its document keeps up to date (CELL("filename")); never saved
     this._externalBlocked = false; // a blocked request has been noticed this version
     this._depth = 0; // nested _compute calls in progress
+    this._judgeOverflows = 0; // how many times judging a circle has run out of stack (see _judgedTooDeep)
     this._deepening = new Set(); // cells being evaluated bottom-up after a stack overflow
     this._priming = false; // while a column is being settled top down for a chain the formula text cannot be walked
     this._usedCache = new Map();
@@ -2469,8 +2630,17 @@ export class Workbook extends EventTarget {
       // What the referenced cell shows, the format of its column or row included (styleAt), so a formula
       // over a column formatted Currency reads as money even where that column has stored no cell of its own.
       return (target && this.styleAt(target.id, ref.r1, ref.c1)) || null;
-    }, (name, scope) => this.namedRef(name, scope || sheet?.name, r == null ? undefined : { r, c }));
+    }, (name, scope) => this.namedRef(name, scope || sheet?.name, r == null ? undefined : { r, c }),
+    (name, scope) => !!this.namedEntry(name, scope || sheet?.name) || (!scope && !!this.tableByName(name)));
     if (patch) cell.s = { ...(cell.s || {}), ...patch };
+  }
+
+  /**
+   * Why Excel refuses `text` typed into a cell as a formula, for the editor to keep the entry open and say so:
+   * { message, start, end } (the part of the text at fault), or null. setInput keeps such an entry as the text typed.
+   */
+  typedFormulaProblem(text) {
+    return typedFormulaProblem(text, (f) => this._closeParentheses(f));
   }
 
   /** Type a value into a cell, optionally patching its style; literal values bypass input parsing. */
@@ -2489,7 +2659,10 @@ export class Workbook extends EventTarget {
     if (!literal && cell?.f != null) {
       cell.f = this._closeParentheses(cell.f);
       // Closed, the formula may be longer than a formula may be; then it stays the text typed, as it would have typed whole.
-      if (cell.f.length > MAX_FORMULA_LENGTH) cell = { v: String(text), f: null, s: cell.s };
+      // So does one past Excel's limits on functions, or giving a function too few or too many arguments, which Excel
+      // refuses as typed (see pastFunctionLimits, wrongArgumentCount); a formula read from a file or copied from another
+      // cell is left as it is.
+      if (refusedEntry(cell.f)) cell = { v: String(text), f: null, s: cell.s };
     }
     if (!literal) this._applyImpliedStyle(sheetId, cell, r, c);
     if (preserveRichText && cell?.f == null && typeof cell?.v === 'string') {
@@ -5138,11 +5311,14 @@ export class Workbook extends EventTarget {
     const entries = [];
     // Rows a filter hides take nothing, as a fill skips them: the entry goes to the list's rows on show.
     const hidden = this.sheet(sheetId)?.filterHidden;
+    // A formula Excel refuses as typed stays the text typed in every cell, as it does typed into one (see setInput).
+    let refused;
     for (let r = r1; r <= r2; r++) {
       if (hidden?.has(r)) continue;
       for (let c = c1; c <= c2; c++) {
         if (this._coveredByMerge(sheetId, r, c)) continue; // Ctrl+Enter over a merged cell writes its top-left only
-        const read = cellFromInput(text, this.styleAt(sheetId, r, c));
+        let read = cellFromInput(text, this.styleAt(sheetId, r, c));
+        if (read?.f != null && (refused ??= refusedEntry(this._closeParentheses(read.f)))) read = { v: String(text), f: null, s: read.s };
         const cell = typed ? typedDigits(read, text) : read;
         if (cell?.f != null && (r !== origin.r || c !== origin.c)) cell.f = shiftFormula(cell.f, r - origin.r, c - origin.c);
         this._applyImpliedStyle(sheetId, cell, r, c);
@@ -5980,20 +6156,7 @@ export class Workbook extends EventTarget {
       if ((r2 - rg.r1 + 1) * (c2 - rg.c1 + 1) > 400000) return [];
       // A formula is compared by what it does from where it sits (its R1C1 form), as Excel compares it, so a formula
       // filled across a row (=A1*2, =B1*2, …) is one formula, and the cell that breaks the pattern is the difference.
-      const rows = MAX_ROW + 1, cols = MAX_COL + 1;
-      const relative = (f, r, c) => mapFormulaRefs(f, (ref) => {
-        const out = { ...ref };
-        if (ref.kind !== 'cols') {
-          if (!ref.absR1) out.r1 = (ref.r1 - r + rows) % rows;
-          if (!ref.absR2) out.r2 = (ref.r2 - r + rows) % rows;
-        }
-        if (ref.kind !== 'rows') {
-          if (!ref.absC1) out.c1 = (ref.c1 - c + cols) % cols;
-          if (!ref.absC2) out.c2 = (ref.c2 - c + cols) % cols;
-        }
-        return out;
-      });
-      const content = (r, c) => { const cell = sheet.cells.get(cellKey(r, c)); return cell?.f != null ? `=${relative(cell.f, r, c)}` : this.getDisplay(sheetId, r, c); };
+      const content = (r, c) => { const cell = sheet.cells.get(cellKey(r, c)); return cell?.f != null ? `=${relativeFormula(cell.f, r, c)}` : this.getDisplay(sheetId, r, c); };
       const refs = new Map();
       const refAt = (r, c) => { const key = cellKey(r, c); if (!refs.has(key)) refs.set(key, content(r, c)); return refs.get(key); };
       for (let c = rg.c1; c <= c2; c++) {
@@ -6839,6 +7002,9 @@ export class Workbook extends EventTarget {
     // already reach the edge (a whole-column rule or protected range) stay anchored there.
     const limit = axis === 'row' ? MAX_ROW : MAX_COL;
     if (lines.points.at(-1).at > limit) return false;
+    // So must the new lines themselves: three rows inserted above the last one were numbered past the sheet's end,
+    // and the insertion was reported as made (rows 1048576 to 1048578).
+    if (blocks.some((b) => b.start + b.n - 1 > limit)) return false;
     for (const p of lines.points) if (this.pivotLineEditBlocked(sheetId, axis, p.at, p.n)) return false;
     const hi = axis === 'row' ? 'r2' : 'c2';
     const lo = axis === 'row' ? 'r1' : 'c1';
@@ -8045,6 +8211,35 @@ export class Workbook extends EventTarget {
   }
 
   /**
+   * Take the groups `remove` (the sheet's own group objects) off an axis and add the spans `add` (each already
+   * passed by groupRefusal, and lying apart from one another), as one outline step: lines a removed collapsed group
+   * hid come back unless a group still collapsed holds them, and an added group starts expanded, after any group over
+   * the same lines, as groupLines puts it. Subtotal's groups, one category each, went one step apiece, each copying the
+   * whole outline: 10,000 categories took ten seconds to add and fifteen to take off again.
+   */
+  _editGroups(sheetId, axis, { add = [], remove = [] }, label) {
+    const sheet = this.sheet(sheetId);
+    if (!sheet || this._gridLocked(sheet)) return false;
+    const key = axis === 'row' ? 'rows' : 'cols';
+    const removed = new Set(remove);
+    const spans = add.map(({ from, to }) => this._groupSpan(sheet, axis, from, to)).filter(Boolean);
+    if (!spans.length && !sheet.groups[key].some((g) => removed.has(g))) return false;
+    this._outlineStep(sheet, label, () => {
+      const gone = sheet.groups[key].filter((g) => removed.has(g) && g.collapsed);
+      const kept = sheet.groups[key].filter((g) => !removed.has(g));
+      // The list stays in sheet order (by first line, the longer first); the sort is stable, so each added group
+      // follows any group already over the same lines.
+      const list = [...kept, ...spans.map(({ lo, hi }) => ({ from: lo, to: hi, collapsed: false }))].sort((a, b) => a.from - b.from || b.to - a.to);
+      sheet.groups = { ...sheet.groups, [key]: list };
+      if (!gone.length) return;
+      const hidden = axis === 'row' ? sheet.hiddenRows : sheet.hiddenCols;
+      const held = this._collapsedLines(sheet, key, 0, Infinity);
+      for (const g of gone) for (let i = g.from; i <= g.to; i++) if (!held.has(i)) hidden.delete(i);
+    });
+    return true;
+  }
+
+  /**
    * Ungroup: take one outline level off the lines from..to, as Excel does: the outermost groups inside them go,
    * and the groups nested in those stay, a level up; when no group is inside, the innermost group around the
    * selection goes. Lines a removed group had hidden come back, unless a group still collapsed holds them.
@@ -8177,7 +8372,9 @@ export class Workbook extends EventTarget {
     this._outlineStep(sheet, label, () => {
       for (const [key, hidden] of [['rows', sheet.hiddenRows], ['cols', sheet.hiddenCols]]) {
         if (!next[key]) continue;
-        for (const g of sheet.groups[key]) if (g.collapsed) for (let i = g.from; i <= g.to; i++) hidden.delete(i);
+        // A collapsed group that stays (Clear Outline over another block) keeps its lines hidden.
+        const held = this._collapsedLines({ groups: wanted }, key, 0, Infinity);
+        for (const g of sheet.groups[key]) if (g.collapsed) for (let i = g.from; i <= g.to; i++) if (!held.has(i)) hidden.delete(i);
       }
       sheet.groups = wanted;
       if (sheetFilters(sheet).length) this._applyFilter(sheet);
@@ -11210,12 +11407,14 @@ export class Workbook extends EventTarget {
   }
 
   /** Would this typed input be acceptable in the cell? { ok, message, rule }. */
-  validateInput(sheetId, r, c, text) {
+  validateInput(sheetId, r, c, text, origin = null) {
     const rule = this.validationAt(sheetId, r, c);
     if (!rule) return { ok: true, rule: null };
     // The entry is judged as the cell will hold it: 50 typed into a percent cell is 0.5, 00123 in a Text cell
     // stays the text 00123, and 1/2 in a fraction cell is a half rather than January 2.
     let { v = null, f = null } = typedDigits(cellFromInput(text, this.styleAt(sheetId, r, c)), text) || {};
+    // An entry typed at `origin` and written here too (Ctrl+Enter, see fillInput) is a formula moved by as much.
+    if (f != null && origin && (origin.r !== r || origin.c !== c)) f = shiftFormula(f, r - origin.r, c - origin.c);
     // A formula is judged by the result it gives in this cell, as Excel judges one as it is entered: =20 is refused
     // where only 1 to 10 may go. One whose result is an error, or that cannot be worked out, passes as errors do.
     if (f != null) {
@@ -11876,7 +12075,24 @@ export class Workbook extends EventTarget {
     const hit = this.mergesIn(sheetId, range);
     if (!hit.length) return;
     if (hit.some((g) => this.lockedIn(sheetId, g))) return;
-    this._setMerges(sheet, sheet.merges.filter((m) => !hit.includes(m)), 'Unmerge cells');
+    // The top-left cell keeps its block's bottom and right edges as a summary (_mirrorMergeBorders). Split, the
+    // block would show them inside it, under and beside that cell, where no other cell draws a line.
+    const entries = [];
+    for (const m of hit) {
+      const prev = sheet.cells.get(cellKey(m.r1, m.c1));
+      if (!prev?.s) continue;
+      const s = { ...prev.s };
+      const mirrored = (side, r, c, inner, facing) => s[side] && this.styleAt(sheetId, r, c)?.[side] && !this.styleAt(sheetId, ...inner)?.[facing];
+      if (m.r2 > m.r1 && mirrored('bb', m.r2, m.c1, [m.r1 + 1, m.c1], 'bt')) { delete s.bb; delete s.bbBorder; }
+      if (m.c2 > m.c1 && mirrored('br', m.r1, m.c2, [m.r1, m.c1 + 1], 'bl')) { delete s.br; delete s.brBorder; }
+      if (s.bb === prev.s.bb && s.br === prev.s.br) continue;
+      if (!s.bt && !s.bb && !s.bl && !s.br) { delete s.bc; delete s.bs; }
+      entries.push({ r: m.r1, c: m.c1, cell: { ...prev, s: Object.keys(s).length ? s : undefined } });
+    }
+    this.transaction('Unmerge cells', () => {
+      this._setMerges(sheet, sheet.merges.filter((m) => !hit.includes(m)), 'Unmerge cells');
+      if (entries.length) this.setCells(sheetId, entries, 'Unmerge cells');
+    });
   }
 
   /**
@@ -12227,6 +12443,8 @@ export class Workbook extends EventTarget {
             if (!consumed) sink.push(node.sheet ? { name: node.name, sheet: node.sheet } : { name: node.name });
             if (node.sheet || !FUNCTIONS[node.name]) return false;
           } else if (node.sheet || !FUNCTIONS[node.name]) return !consumed; // a called definition (=Seq(3), =S!Double(4)) may hand back an array
+          // So may one spelled like a function Excel has not got (=Flatten(A1:B2)), which a LAMBDA of that name answers for.
+          else if (!consumed && APP_ONLY_FUNCTIONS.has(node.name)) sink.push({ name: node.name, called: true });
           // Under a consumer nothing a call answers can spill: SUM(SEQUENCE(3)), COUNTA(UNIQUE(A:A)),
           // SUM(IF(A1:A3>1,1,0)), INDEX(SORT(A1:B3),1,1) and MAX(OFFSET(A1,0,0,3)) are one value each.
           if (consumed) return false;
@@ -12367,7 +12585,16 @@ export class Workbook extends EventTarget {
   _bareNameSpills(ast, sheetName) {
     const names = ast._bareNames;
     if (!names) return false;
-    return names.some(({ name, sheet }) => (!sheet && !!this.tableByName(name)) || this._nameSpills(name, sheet || sheetName));
+    return names.some(({ name, sheet, called }) => called ? this._namesLambda(name, sheetName)
+      : (!sheet && !!this.tableByName(name)) || this._nameSpills(name, sheet || sheetName));
+  }
+
+  /** Does a defined name hold a LAMBDA, which a call by that name runs (see APP_ONLY_FUNCTIONS)? */
+  _namesLambda(name, sheetName) {
+    const entry = this.namedEntry(name, sheetName);
+    if (!entry || this.parseNamedRef(entry.ref)) return false;
+    const ast = this._astOrNull(entry.ref);
+    return ast?.type === 'call' && !ast.bare && !ast.sheet && ast.name === 'LAMBDA';
   }
 
   /**
@@ -12538,7 +12765,8 @@ export class Workbook extends EventTarget {
     const cell = cellFromInput(text, this.styleAt(sheetId, area.r1, area.c1));
     if (cell?.f == null) return !this._arrayRefused(sheet, area, 'formula');
     cell.f = this._closeParentheses(cell.f);
-    if (cell.f.length > MAX_FORMULA_LENGTH) return !this._arrayRefused(sheet, area, 'formula');
+    // One Excel refuses as typed (see refusedEntry) is refused here too, the entry left open to be put right.
+    if (refusedEntry(cell.f)) return !this._arrayRefused(sheet, area, 'limits');
     cell.array = { rows: area.r2 - area.r1 + 1, cols: area.c2 - area.c1 + 1 };
     const entries = [];
     for (const [key, old] of sheet.cells) {
@@ -13111,8 +13339,18 @@ export class Workbook extends EventTarget {
       if (!dependents) this._iteration.dependents.set(key, dependents = new Set());
       if (!dependents.has(reader)) { dependents.add(reader); this._iteration.edges++; }
     }
-    if (this._blankKeys !== null && this._blankKeys.has(key)) return null;
-    if (this._cache.has(key)) return this._cache.get(key);
+    if (this._blankKeys !== null && this._blankKeys.has(key)) return this._blankValue;
+    if (this._cache.has(key)) {
+      const value = this._cache.get(key);
+      // A cell already settled on a cycle whose circle runs through a cell still being calculated closes a circle with
+      // its reader, as it would have were it still being calculated itself: C1 = IF(ISNUMBER(B1),B1*2,0) read by A1 =
+      // B1+C1 is on B1 = A1+1's circle whether B1 settled before C1 read it or after.
+      if (value !== null && typeof value === 'object' && value.error === '#CYCLE!' && this._evaluating.size && !this._iteration) {
+        const outer = this._circleOf.get(key);
+        if (outer !== undefined && this._evaluating.has(outer)) return this._provisionalRead(outer);
+      }
+      return value;
+    }
     const saved = savedExternalResult(cell);
     const links = saved && this._externalLinks(sheet, r, c, cell.f);
     if (saved && links.linked && !links.cached
@@ -13146,13 +13384,7 @@ export class Workbook extends EventTarget {
           for (const k of this._evaluating) { if (k === key) inside = true; if (inside) this._iteration.members.add(k); }
           return key === this._iteration.current ? this._iteration.prior : cell.v ?? 0;
         }
-        if (this._blankProvisional) return null;
-        // The circle runs from this cell to the innermost, the reader. Every circle the reader closes ends at it,
-        // so together they are the one that starts furthest out: only where that starts is kept.
-        const reader = this._evalLast;
-        const from = this._evalOrder.get(key);
-        const earliest = this._provisional.get(reader);
-        if (earliest === undefined || from < earliest) this._provisional.set(reader, from);
+        return this._provisionalRead(key);
       }
       return err('#CYCLE!');
     }
@@ -13236,13 +13468,39 @@ export class Workbook extends EventTarget {
     }
     if (deep) return this._computeDeep(sheet, r, c);
     if (this._cyclic.delete(key)) value = err('#CYCLE!');
+    else if (value?.error !== '#CYCLE!') this._circleOf.delete(key);
     this._cache.set(key, value);
+    this._probed?.push(key);
     if (this._spillBuilds.length || this._hasDeferredSpills) this._spillComputed.push(key);
-    if (this._unsettled.length) value = this._judgeCircles(key, value, raw);
+    if (this._unsettled.length) {
+      // Judging a circle calculates again, and what that reads may judge circles of its own, one inside the other, as
+      // deep as a chain of circles is long: counted as nested calculations, so that a stack running out among them is
+      // caught by a shallow one (see _judgeCircles) rather than thrown out of the calculation.
+      const overflows = this._judgeOverflows;
+      this._depth++;
+      try { value = this._judgeCircles(key, value, raw); } finally { this._depth--; }
+      // Circles judged inside one that ran out of stack were left unjudged, their outermost cells calculated no more.
+      if (this._judgeOverflows !== overflows) {
+        for (let i = this._unsettled.length - 1; i >= 0; i--) if (!this._evaluating.has(this._unsettled[i].outer)) this._unsettled.splice(i, 1);
+        if (!this._unsettled.length) this._tentative.length = 0;
+      }
+    }
     if (fixed && value?.error === '#CYCLE!') this._fixedResult(sheet, r, c, value);
     if (this._settleDeferredSpills()) return this._compute(sheet, r, c);
     this._announceGrown();
     return value;
+  }
+
+  /** The innermost cell being calculated reads one still being calculated, `key`: a provisional #CYCLE!, or blank while judged. */
+  _provisionalRead(key) {
+    if (this._blankProvisional) return null;
+    // The circle runs from this cell to the innermost, the reader. Every circle the reader closes ends at it,
+    // so together they are the one that starts furthest out: only where that starts is kept.
+    const reader = this._evalLast;
+    const from = this._evalOrder.get(key);
+    const earliest = this._provisional.get(reader);
+    if (earliest === undefined || from < earliest) this._provisional.set(reader, from);
+    return err('#CYCLE!');
   }
 
   /**
@@ -13262,7 +13520,7 @@ export class Workbook extends EventTarget {
     if (!told) {
       this._blankProvisional++;
       let again;
-      try { again = withArrayBudget(() => evaluateFormula(ast, this._formulaContext(sheet, r, c))); } catch (e) {
+      try { again = this._probe(() => withArrayBudget(() => evaluateFormula(ast, this._formulaContext(sheet, r, c)))); } catch (e) {
         if (e instanceof RangeError) throw e;
         again = err('#ERROR!');
       } finally { this._blankProvisional--; this._provisional.delete(key); }
@@ -13276,7 +13534,8 @@ export class Workbook extends EventTarget {
       this._unsettled.push({ outer, reader: key, circle, sheet, r, c, ast, raw });
       return value;
     }
-    for (const k of circle) { this._cyclic.add(k); this._iteration?.members.add(k); }
+    const outer = circle.values().next().value;
+    for (const k of circle) { this._cyclic.add(k); this._circleOf.set(k, outer); this._iteration?.members.add(k); }
     this._cyclic.delete(key);
     return err('#CYCLE!');
   }
@@ -13304,15 +13563,17 @@ export class Workbook extends EventTarget {
         if (this._cache.has(entry.outer)) this._unsettled.splice(i--, 1);
         continue;
       }
-      let again;
+      let again, tooDeep = false;
       try { again = withArrayBudget(() => evaluateFormula(entry.ast, this._formulaContext(entry.sheet, entry.r, entry.c))); } catch (e) {
-        if (e instanceof RangeError) throw e;
-        again = err('#ERROR!');
+        if (!(e instanceof RangeError)) again = err('#ERROR!');
+        else if (!(tooDeep = this._judgedTooDeep(e))) throw e;
       }
       this._unsettled.splice(i--, 1);
-      let cycle = !sameResult(again, entry.raw);
+      let cycle = tooDeep || !sameResult(again, entry.raw);
       if (!cycle && entry.reader !== key) {
         // The outer cell read the reader for real: unless its answer stands with the circle's other cells blank, it rests on them.
+        // So it does unless it stands with them in error too, as it would have read them had it been reached after them:
+        // D2 = IF(E3>2,"a","b") over E3 = COUNTIF(D2:D2,"<>1") was "b" with E3 blank or 1, and #CYCLE! read from E3.
         if (isError(value) && value.error === '#CYCLE!') cycle = true;
         else {
           const blank = new Set(entry.circle);
@@ -13321,28 +13582,62 @@ export class Workbook extends EventTarget {
           const outerSheet = this.sheet(key.slice(0, bar));
           const { r, c } = parseKey(key.slice(bar + 1));
           const outerAst = this._cellAst(outerSheet.cells.get(cellKey(r, c)));
-          this._blankKeys = blank;
-          let outerAgain;
-          try { outerAgain = withArrayBudget(() => evaluateFormula(outerAst, this._formulaContext(outerSheet, r, c))); } catch (e) {
-            if (e instanceof RangeError) throw e;
-            outerAgain = err('#ERROR!');
-          } finally { this._blankKeys = null; }
-          cycle = !sameResult(outerAgain, raw);
+          for (const reading of [null, err('#CYCLE!')]) {
+            this._blankKeys = blank;
+            this._blankValue = reading;
+            let outerAgain, tooDeep = false;
+            try { outerAgain = this._probe(() => withArrayBudget(() => evaluateFormula(outerAst, this._formulaContext(outerSheet, r, c)))); } catch (e) {
+              if (!(e instanceof RangeError)) outerAgain = err('#ERROR!');
+              else if (!(tooDeep = this._judgedTooDeep(e))) throw e;
+            } finally { this._blankKeys = null; this._blankValue = null; }
+            cycle = tooDeep || !sameResult(outerAgain, raw);
+            if (cycle) break;
+          }
         }
       }
       if (!cycle) continue;
       for (const k of this._tentative) this._cache.delete(k);
       this._tentative.length = 0;
-      for (const k of entry.circle) this._cacheCircular(k);
+      for (const k of entry.circle) this._cacheCircular(k, key);
       value = err('#CYCLE!');
     }
     if (!this._unsettled.length) this._tentative.length = 0;
     return value;
   }
 
-  _cacheCircular(key) {
+  /**
+   * Calculate a formula again with some cells of a circle read as blank (or in error), to judge the circle. What that
+   * reaches for the first time (a cell, a range read whole) holds an answer drawn from those cells, so none of it is
+   * kept: C1 = SUM(B1:B20) read after the judging of a circle through B1 summed B1 as blank.
+   */
+  _probe(evaluate) {
+    const outer = this._probed;
+    const probed = this._probed = [];
+    try {
+      return evaluate();
+    } finally {
+      this._probed = outer;
+      for (const key of probed) this._cache.delete(key);
+    }
+  }
+
+  /**
+   * Judging a circle ran out of stack (a RangeError `e`), calculating cells that judge circles of their own, one inside the
+   * other. Deep among them it is thrown on, to a shallow judging, which takes its circle for a cycle, as a chain too deep
+   * to follow ends in an error: whether it is one could not be told. → whether it was taken so here.
+   */
+  _judgedTooDeep(e) {
+    let overflow = true;
+    try { overflow = /call stack/i.test(e.message); } catch { /* the frame where the stack ran out */ }
+    if (!overflow || this._depth > DEEP_FRAMES) return false;
+    this._judgeOverflows++;
+    return true;
+  }
+
+  _cacheCircular(key, outer) {
     const value = err('#CYCLE!');
     this._cache.set(key, value);
+    if (outer !== undefined) this._circleOf.set(key, outer);
     this._iteration?.members.add(key);
     const bar = key.indexOf('|'), sheet = this.sheet(key.slice(0, bar));
     const coordinate = key.slice(bar + 1);
@@ -13368,9 +13663,9 @@ export class Workbook extends EventTarget {
   _computeDeep(sheet, r, c) {
     const rootKey = `${sheet.id}|${r},${c}`;
     // Chains through INDIRECT or OFFSET cannot be traced from the formula text: the walk below made
-    // no progress. Settle the cell's own column top down before giving up (see _primeColumn).
+    // no progress. Settle the cell's own column and row before giving up (see _primeLines).
     if (this._deepening.has(rootKey)) {
-      if (!this._priming && this._primeColumn(sheet, r, c, rootKey)) return this._cache.get(rootKey);
+      if (!this._priming && this._primeLines(sheet, r, c, rootKey)) return this._cache.get(rootKey);
       const e = err('#ERROR!');
       this._cache.set(rootKey, e);
       return e;
@@ -13435,18 +13730,60 @@ export class Workbook extends EventTarget {
    * the first cell that cannot be settled: the chain does not run downwards, and going on would
    * settle the rest of the column as #ERROR! for nothing. Read from the bottom such a column used to
    * answer #ERROR! in every cell, and the right numbers only when it happened to be read from the top.
+   * A chain that runs downwards instead (=INDIRECT("A"&ROW()+1)+1 filled down, read from the top) is
+   * settled the same way from the bottom of the column up, which is the order it resolves in, and one
+   * along a row (=OFFSET(B1,0,-1)+1 filled right, a running total across the months) along its row.
    */
-  _primeColumn(sheet, r, c, rootKey) {
+  _primeLines(sheet, r, c, rootKey) {
     this._priming = true;
     try {
-      for (let rr = 0; rr < r; rr++) {
-        const cell = sheet.cells.get(cellKey(rr, c));
-        if (!cell || cell.f == null) continue;
-        const key = `${sheet.id}|${rr},${c}`;
-        // A cell whose own calculation is still on the stack would read as a circle of references.
-        if (this._cache.has(key) || this._evaluating.has(key)) continue;
-        const settled = this._compute(sheet, rr, c);
-        if (isError(settled) && settled.error === '#ERROR!') break;
+      // The cell's own column (`down`) or row, as [row, column] at each place along it.
+      const at = (down, i) => (down ? [i, c] : [r, i]);
+      // The cells further out on the chain are still being calculated, and a cell settled here that reads one is taken
+      // to close a circle through them, though none of them reads it. Above the cell that is the order a running total
+      // resolves in, as before; below it and along its row only the cells holding the chain's own formula, filled, are
+      // settled: a total under a chain read from its top read the top, and made the whole chain #CYCLE!.
+      const own = relativeFormula(sheet.cells.get(cellKey(r, c)).f, r, c);
+      // Settle the formula cells along the line from `from` towards `to`, the cell's own place, stopping at the first
+      // that cannot be. A cell whose own calculation is still on the stack would read as a circle of references, and is
+      // passed over. → how many were calculated, and whether one could not be.
+      const settle = (down, from, to, chainOnly) => {
+        const step = from < to ? 1 : -1;
+        let count = 0;
+        for (let i = from; i !== to; i += step) {
+          const [rr, cc] = at(down, i);
+          const cell = sheet.cells.get(cellKey(rr, cc));
+          if (!cell || cell.f == null) continue;
+          const key = `${sheet.id}|${rr},${cc}`;
+          if (this._cache.has(key) || this._evaluating.has(key)) continue;
+          if (chainOnly && relativeFormula(cell.f, rr, cc) !== own) continue;
+          count++;
+          const settled = this._compute(sheet, rr, cc);
+          if (isError(settled) && settled.error === '#ERROR!') { forget(down); return { count, failed: true }; }
+        }
+        return { count, failed: false };
+      };
+      // An #ERROR! a cell got only because the stack ran out, and the ones it passed to the cells it was read by on the
+      // way, are no answers: they are forgotten, to be calculated again once the chain is settled.
+      const used = this.usedRange(sheet.id);
+      const end = (down) => Math.max(down ? used?.r2 ?? r : used?.c2 ?? c, down ? r : c);
+      const forget = (down) => {
+        for (let i = 0; i <= end(down); i++) {
+          const [rr, cc] = at(down, i);
+          const key = `${sheet.id}|${rr},${cc}`;
+          if (this._cache.get(key)?.error === '#ERROR!') this._cache.delete(key);
+        }
+      };
+      // Top down first, the order a running total resolves in; then bottom up, for a chain down the column read from
+      // its top; then along the row, either way. A way that settles nothing leaves the cell as it was when it ran out of
+      // stack, and is not tried.
+      for (const [down, from] of [[true, 0], [true, end(true)], [false, 0], [false, end(false)]]) {
+        if (from === (down ? r : c)) continue;
+        const { count, failed } = settle(down, from, down ? r : c, !(down && from === 0));
+        if (failed || !count) continue;
+        if (!this._cache.has(rootKey)) this._compute(sheet, r, c);
+        if (this._cache.get(rootKey)?.error !== '#ERROR!') break;
+        forget(down);
       }
       if (!this._cache.has(rootKey)) this._compute(sheet, r, c);
     } finally {
@@ -13567,6 +13904,13 @@ export class Workbook extends EventTarget {
         if (!target) return null;
         const array = this._fixedArrays(target).at(rr, cc);
         return target.cells.get(array?.key ?? cellKey(rr, cc))?.f ?? null;
+      },
+      // Is that formula hidden from view (Format Cells ▸ Protection ▸ Hidden, on a protected sheet)?
+      formulaHidden: (sheetName, rr, cc) => {
+        const target = byName(sheetName);
+        if (!target) return false;
+        const array = this._fixedArrays(target).at(rr, cc);
+        return this.formulaHiddenAt(target.id, array?.r1 ?? rr, array?.c1 ?? cc);
       },
       // CELL("format"), "prefix", "protect" and "width": what the cell is formatted with, not what it holds. Its
       // width is in characters of the Normal font's digits, as Excel's Column Width counts them (8.43 is 64 pixels
@@ -13753,7 +14097,7 @@ export class Workbook extends EventTarget {
           if (rr >= ref.r1 && rr <= Math.max(r2, ref.r1) && cc >= ref.c1 && cc <= Math.max(c2, ref.c1)) { provisional = true; break; }
         }
         // Nor is one read while a circle is unsettled, since it may hold an answer that is withdrawn.
-        if (!provisional && !this._hasDeferredSpills && !this._unsettled.length) {
+        if (!provisional && !this._hasDeferredSpills && !this._unsettled.length && !this._probed) {
           // Only then does it join the family of the shorter range it carries on from, whose running totals and
           // indexes it extends (see noteRangeRows): a row holding a cell still being calculated, or an answer a
           // circle may yet withdraw, would stay in them for every longer range after it.
@@ -13963,7 +14307,7 @@ export class Workbook extends EventTarget {
         if (r >= box.r1 && r <= box.r2 && c >= box.c1 && c <= box.c2) this._cache.delete(key);
       }
     }
-    for (const store of [this._rangeCache, this._rangeRuns, this._usedCache, this._cellBoundsCache, this._statsCache, this._spills, this._evaluating, this._evalOrder, this._cyclic, this._provisional]) store.clear();
+    for (const store of [this._rangeCache, this._rangeRuns, this._usedCache, this._cellBoundsCache, this._statsCache, this._spills, this._evaluating, this._evalOrder, this._cyclic, this._circleOf, this._provisional]) store.clear();
     this._evalLast = null;
     this._hasDeferredSpills = false;
     this._spillComputed = [];
@@ -14168,7 +14512,7 @@ export class Workbook extends EventTarget {
       Object.assign(this, {
         _iterationReady: false, _cache: new Map(), _rangeCache: new Map(), _rangeCacheCells: 0, _rangeRuns: new Map(), _usedCache: new Map(),
         _cellBoundsCache: new Map(), _statsCache: new Map(), _volatile: null, _spills: new Map(), _spillBuilds: [], _hasDeferredSpills: false,
-        _spillComputed: [], _evaluating: new Set(), _evalOrder: new Map(), _evalLast: null, _cyclic: new Set(), _provisional: new Map(), _blankProvisional: 0, _blankKeys: null,
+        _spillComputed: [], _evaluating: new Set(), _evalOrder: new Map(), _evalLast: null, _cyclic: new Set(), _circleOf: new Map(), _provisional: new Map(), _blankProvisional: 0, _blankKeys: null, _probed: null,
         _unsettled: [], _tentative: [], _grown: new Set(),
       });
       read();
@@ -14197,6 +14541,7 @@ export class Workbook extends EventTarget {
     this._evalOrder.clear();
     this._evalLast = null;
     this._cyclic.clear();
+    this._circleOf.clear();
     this._provisional.clear();
     this._blankProvisional = 0;
     this._blankKeys = null;

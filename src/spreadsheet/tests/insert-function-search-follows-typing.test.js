@@ -42,3 +42,17 @@ it('waits for a composed word before searching, and goes back to the category wh
   search.dispatchEvent(new InputEvent('input', { bubbles: true }));
   expect(options()).toEqual(before);
 });
+
+// The matches were listed in name order alone: "sum" listed DEVSQ, DSUM, GROUPBY... before SUM (found in their
+// descriptions), and "count" listed AMORDEGRC first, so Down and Enter inserted a function nobody searched for.
+it('lists the function named by the search first, then the names that begin with it', () => {
+  openInsertFunctionDialog({ grid: { focus() {} } }, { onPick() {} });
+  const search = document.querySelector('input[type="search"]');
+  const find = (text) => { search.value = text; search.dispatchEvent(new InputEvent('input', { bubbles: true })); return options(); };
+  const sum = find('sum');
+  expect(sum[0]).toBe('SUM');
+  expect(sum.slice(1, 4)).toEqual(['SUMIF', 'SUMIFS', 'SUMPRODUCT']);
+  expect(sum.indexOf('DSUM')).toBeLessThan(sum.indexOf('DEVSQ'));
+  expect(find('count')[0]).toBe('COUNT');
+  expect(find('if')[0]).toBe('IF');
+});

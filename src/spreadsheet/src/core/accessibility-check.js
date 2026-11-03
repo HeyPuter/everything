@@ -7,6 +7,7 @@
 import { rangeName } from './cell.js';
 import { fontColorCss } from './font-color.js';
 import { fillColorCss } from './fill-color.js';
+import { objectNames } from './arrange.js';
 
 /** The rules, the tier each belongs to, and why and how to fix it (the pane's Additional Information). */
 export const ACCESSIBILITY_RULES = {
@@ -59,9 +60,6 @@ const minimumRatio = (style) => {
   return points >= 18 || (style?.bold && points >= 14) ? 3 : 4.5;
 };
 
-const objectName = (obj, index) => obj.title || {
-  image: `Picture ${index + 1}`, text: `TextBox ${index + 1}`, smartart: `SmartArt ${index + 1}`, slicer: `Slicer ${index + 1}`, scroll: `Scroll Bar ${index + 1}`,
-}[obj.type] || `Chart ${index + 1}`;
 
 /**
  * Inspect the workbook. Each finding: { rule, severity, sheetId, sheet, label, target } where target is
@@ -74,15 +72,18 @@ export function checkAccessibility(wb) {
   const verdicts = new Map(); // "ink|fill|minimum ratio" → too little contrast
   for (const sheet of visible) {
     if (sheet.kind === 'chart') {
-      sheet.charts.forEach((obj, i) => { if (!obj.decorative && !obj.description && !obj.title) add('altText', sheet, `${objectName(obj, i)} (${sheet.name})`, { chartId: obj.id }); });
+      const names = objectNames(sheet.charts);
+      sheet.charts.forEach((obj) => { if (!obj.decorative && !obj.description && !obj.title) add('altText', sheet, `${names.get(obj.id)} (${sheet.name})`, { chartId: obj.id }); });
       continue;
     }
     // Objects without a description and not marked decorative. Scroll bars and slicers carry their own names.
-    sheet.charts.forEach((obj, i) => {
+    // Each is named as the Selection Pane names it, where it is found and given a name of its own.
+    const names = objectNames(sheet.charts);
+    sheet.charts.forEach((obj) => {
       if (obj.type === 'scroll' || obj.type === 'slicer' || obj.decorative) return;
       // A SmartArt graphic reads out its own text when it has no description.
       const alt = obj.description || (obj.type === 'image' ? obj.title : obj.type === 'smartart' ? (obj.items || []).map((it) => it.text).join(' ') : '');
-      if (!String(alt || '').trim()) add('altText', sheet, `${objectName(obj, i)} (${sheet.name})`, { chartId: obj.id });
+      if (!String(alt || '').trim()) add('altText', sheet, `${names.get(obj.id)} (${sheet.name})`, { chartId: obj.id });
     });
     // Pictures placed in cells with no alt text of their own (an IMAGE formula gives its alt text as an argument).
     for (const [key, cell] of sheet.cells) {
@@ -96,9 +97,10 @@ export function checkAccessibility(wb) {
     }
     for (const m of sheet.merges || []) add('merged', sheet, `${rangeName(m)} (${sheet.name})`, { range: { r1: m.r1, c1: m.c1, r2: m.r2, c2: m.c2 } });
     // Text drawn in a color too close to its fill: only cells that hold something and set a color or a fill.
-    // The status bar runs this after each pause in editing, so the cheap questions come first (the style,
-    // then the value, read without the calculator for a cell that holds no formula), and each pairing of
-    // colours and text size is judged once: a styled sheet repeats a few of them over thousands of cells.
+    // The status bar runs this after each pause in editing, so the cheap questions come first (the style, then
+    // whether its colours are too close, then the value, read without the calculator for a cell that holds no
+    // formula), and each pairing of colours and text size is judged once: a styled sheet repeats a few of them
+    // over thousands of cells.
     let scanned = 0;
     for (const [key, cell] of sheet.cells) {
       if (++scanned > MAX_CONTRAST_CELLS) break;
@@ -109,8 +111,6 @@ export function checkAccessibility(wb) {
       const line = wb._lineStyle(sheet, r, c);
       const style = line ? { ...line, ...cell.s } : cell.s;
       if (!style || (style.color == null && style.bg == null)) continue;
-      const value = cell.f == null && !cell.array ? cell.v : wb.getValue(sheet.id, r, c);
-      if (value == null || value === '') continue;
       const minimum = minimumRatio(style);
       const pairing = `${colorKey(style.color)}|${colorKey(style.bg)}|${minimum}`;
       let poor = verdicts.get(pairing);
@@ -121,7 +121,11 @@ export function checkAccessibility(wb) {
         poor = ratio != null && ratio < minimum;
         verdicts.set(pairing, poor);
       }
-      if (poor) add('contrast', sheet, `${rangeName({ r1: r, c1: c, r2: r, c2: c })} (${sheet.name})`, { range: { r1: r, c1: c, r2: r, c2: c } });
+      if (!poor) continue;
+      // Only text drawn in such colours counts: a formula's value is worked out for these cells alone, not for
+      // every styled formula on the sheet (25,000 of them took a third of a second as a large book opened).
+      const value = cell.f == null && !cell.array ? cell.v : wb.getValue(sheet.id, r, c);
+      if (value != null && value !== '') add('contrast', sheet, `${rangeName({ r1: r, c1: c, r2: r, c2: c })} (${sheet.name})`, { range: { r1: r, c1: c, r2: r, c2: c } });
     }
     // A default name is worth changing once the sheet holds something.
     if (DEFAULT_SHEET_NAME.test(sheet.name) && (sheet.cells.size || sheet.charts.length) && visible.length > 1) add('sheetName', sheet, sheet.name, null);

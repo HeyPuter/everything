@@ -127,7 +127,9 @@ export function attachMentionPicker(area, { people }) {
     if (!person || !query) return;
     const name = person.name;
     const caret = area.selectionStart ?? area.value.length;
-    const before = area.value.slice(0, query.start), after = area.value.slice(caret);
+    // The person takes the whole @word's place: with the caret moved back inside it, the letters after the caret were
+    // left behind the name ("@an|to" became "@anton to"). What follows the word (a comma, a space) stays.
+    const before = area.value.slice(0, query.start), after = area.value.slice(caret).replace(/^[\p{L}\p{N}_]+/u, '');
     const insert = `@${name}${/^\s/.test(after) ? '' : ' '}`;
     area.value = before + insert + after;
     const at = before.length + insert.length;
@@ -151,8 +153,13 @@ export function attachMentionPicker(area, { people }) {
     e.stopImmediatePropagation();
   };
   const onInput = () => { active = 0; update(); };
+  // The caret moved without typing (the arrows across, Home, End): the list follows it as it follows typing, closing
+  // once the caret leaves the @word. It kept the word it was opened for, and Enter then wrote the person over the
+  // text from the @ to wherever the caret had gone.
+  const onCaretKey = (e) => { if (list.isConnected && /^(ArrowLeft|ArrowRight|Home|End|PageUp|PageDown)$/.test(e.key)) onInput(); };
   const onBlur = () => setTimeout(() => { if (document.activeElement !== area) close(); }, 0);
   area.addEventListener('keydown', onKey);
+  area.addEventListener('keyup', onCaretKey);
   area.addEventListener('input', onInput);
   area.addEventListener('click', onInput);
   area.addEventListener('blur', onBlur);
@@ -164,6 +171,7 @@ export function attachMentionPicker(area, { people }) {
     destroy() {
       close();
       area.removeEventListener('keydown', onKey);
+      area.removeEventListener('keyup', onCaretKey);
       area.removeEventListener('input', onInput);
       area.removeEventListener('click', onInput);
       area.removeEventListener('blur', onBlur);

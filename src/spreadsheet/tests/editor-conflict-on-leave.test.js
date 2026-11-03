@@ -114,7 +114,9 @@ it('asks again in the leave dialog when the overwrite fails, not in the dialog t
   const leaving = view.flush();
   await vi.waitFor(() => expect(dialogs()).toHaveLength(1));
   const [first] = dialogs();
-  puter.fs.write = async () => { throw new Error('Network request failed'); };
+  // The file's write fails; what it holds is kept in Version history first all the same (see the test below for that failing).
+  const write = puter.fs.write;
+  puter.fs.write = async (p, ...rest) => { if (p === PATH) throw new Error('Network request failed'); return write(p, ...rest); };
   press('Overwrite with mine');
   await vi.waitFor(() => { expect(dialogs()).toHaveLength(1); expect(dialogs()[0]).not.toBe(first); });
   expect(dialogs()[0].querySelector('.modal-title').textContent).toBe('This file changed elsewhere');
@@ -123,6 +125,23 @@ it('asks again in the leave dialog when the overwrite fails, not in the dialog t
   expect(await leaving).toBe(true);
   expect(doc.status).toBe('conflict');
   expect(loadDraft(draftKey(PATH))?.workbook.sheets[0].cells['0,0'].v).toBe('mine');
+});
+
+// The leave dialog says theirs is kept in Version history; when it could not be, the overwrite went ahead regardless.
+it('does not overwrite theirs on the way out when it could not be kept, unless the user says so', async () => {
+  const { doc } = await editedFile('changed');
+  const theirs = mock.fs.get(PATH).blob;
+  const leaving = view.flush();
+  await vi.waitFor(() => expect(dialogs()).toHaveLength(1));
+  const write = puter.fs.write;
+  puter.fs.write = async (p, ...rest) => { if (p !== PATH) throw new Error('Storage is full'); return write(p, ...rest); };
+  press('Overwrite with mine');
+  await vi.waitFor(() => expect(dialogs()[0]?.querySelector('.modal-title').textContent).toBe('Their version could not be kept'));
+  expect(dialogs()[0].textContent).toContain('(Storage is full)');
+  press('Cancel');
+  expect(await leaving).toBe(false);
+  expect(mock.fs.get(PATH).blob).toBe(theirs);
+  expect(doc.status).toBe('conflict');
 });
 
 it('offers the same way out for a file that is gone, and for one that could not be checked', async () => {

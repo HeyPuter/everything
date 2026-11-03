@@ -32,6 +32,11 @@ export function openEvaluateDialog(ctx) {
   const a = ctx.active();
   const cell = wb.getCell(sheetId, a.r, a.c);
   if (cell?.f == null) { toast('Select a cell with a formula', { icon: 'info' }); return null; }
+  // A formula hidden on a protected sheet is shown nowhere (the formula bar leaves it out), nor taken apart here.
+  if (wb.formulaHiddenAt?.(sheetId, a.r, a.c)) {
+    toast(`The formula in ${cellName(a.r, a.c)} is hidden while the sheet is protected.`, { icon: 'info' });
+    return null;
+  }
   let taken;
   try { taken = evaluateParts(cell.f, wb.contextFor(sheetId, a.r, a.c)); } catch (e) {
     // A formula nested deeper than the stack allows cannot be taken apart; the cell shows what it can.

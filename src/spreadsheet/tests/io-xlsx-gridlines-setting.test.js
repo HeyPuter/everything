@@ -2,6 +2,7 @@ import { expect, it } from 'vitest';
 import { Workbook } from '../src/core/workbook.js';
 import { workbookFromFile, workbookToXlsx } from '../src/core/io.js';
 import { otherProgramsXlsx } from './helpers/xlsx-fixture.js';
+import { editedXlsx } from './helpers/xlsx-excel-edit.js';
 
 // Whether a sheet shows gridlines travels in this app's sidecar; another program's
 // <sheetView showGridLines="0"> was ignored, so a dashboard laid out without gridlines
@@ -27,17 +28,30 @@ it('reads the gridline setting another program wrote, and keeps it through a sav
   expect(back.sheets.map((s) => s.gridlines)).toEqual([false, false, true, true, true]);
 });
 
-it('lets the sidecar\'s own record win over a view written into the same file', async () => {
+// The app's own settings sheet, which Excel keeps when it saves, used to win over the worksheet XML for good:
+// gridlines turned off (or on) in Excel came back as this app last saved them. A part that no longer says what
+// this app's save wrote was changed in Excel, whose setting now wins.
+async function saved(gridlines) {
   const wb = new Workbook({ sheets: [{ name: 'Data' }] });
   wb.setInput(wb.activeSheetId, 0, 0, '1');
-  wb.setFrozen(wb.activeSheetId, 1, 0); // anything of the app's own, so the file carries a sidecar entry for the sheet
-  const saved = new Uint8Array(await (await workbookToXlsx(wb)).arrayBuffer());
-  const X = await import('../src/vendor/xlsx.mjs');
-  const zip = X.CFB.read(saved, { type: 'array' });
-  const sheet = X.CFB.find(zip, '/xl/worksheets/sheet1.xml');
-  const xml = new TextDecoder().decode(sheet.content).replace(/<sheetViews>[\s\S]*?<\/sheetViews>|(<sheetData)/, (m, open) => `${views('showGridLines="0"')}${open || ''}`);
-  sheet.content = new TextEncoder().encode(xml);
-  sheet.size = sheet.content.length;
-  const back = await workbookFromFile(X.CFB.write(zip, { type: 'array', fileType: 'zip' }), 'mine.xlsx');
+  wb.setFrozen(wb.activeSheetId, 1, 0); // anything of the app's own, so the settings say more than the XML
+  if (!gridlines) wb.setGridlines(wb.activeSheetId, false);
+  return workbookToXlsx(wb);
+}
+const shown = (value) => ({ '/xl/worksheets/sheet1.xml': (xml) => xml.replace(/ showGridLines="[^"]*"/, value == null ? '' : ` showGridLines="${value}"`) });
+
+it('keeps gridlines turned off or on in Excel', async () => {
+  const off = await workbookFromFile(await editedXlsx(await saved(true), shown('0')), 'mine.xlsx');
+  expect(off.sheets[0].gridlines).toBe(false);
+  // Excel leaves the attribute out when the gridlines are on, its default.
+  const on = await workbookFromFile(await editedXlsx(await saved(false), shown(null)), 'mine.xlsx');
+  expect(on.sheets[0].gridlines).toBe(true);
+  const same = await workbookFromFile(await editedXlsx(await saved(true), shown(null)), 'mine.xlsx');
+  expect(same.sheets[0].gridlines).toBe(true);
+  expect((await workbookFromFile(await saved(false), 'mine.xlsx')).sheets[0].gridlines).toBe(false);
+});
+
+it('lets the settings of a file saved before they noted the XML win over a view written into it', async () => {
+  const back = await workbookFromFile(await editedXlsx(await saved(true), shown('0'), { older: true }), 'mine.xlsx');
   expect(back.sheets[0].gridlines).toBe(true);
 });

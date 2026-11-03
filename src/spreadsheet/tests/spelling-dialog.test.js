@@ -80,6 +80,19 @@ describe('the Spelling dialog', () => {
     expect(wb.undoLabels()).toEqual(['Spelling']);
   });
 
+  // Change All changed the word only as it was spelt in the cell found, and then passed over it in any case for the
+  // rest of the session: "Seperate" changed to "Separate" left "seperate" as it was, never to be asked about.
+  it('changes the word in any case with Change All, each cased as it was', async () => {
+    const { wb, id, button, dialog } = await mount({ A1: 'Seperate it', B2: 'we seperate and Seperate' });
+    expect(dialog.querySelector('.spell-word').textContent).toBe('Seperate');
+    dialog.querySelector('input[aria-label="Change to"]').value = 'Separate';
+    button('Change All').click();
+    expect(wb.getValue(id, 0, 0)).toBe('Separate it');
+    expect(wb.getValue(id, 1, 1)).toBe('we separate and Separate');
+    expect(dialog.querySelector('.spell-status').textContent).toMatch(/complete/);
+    expect(wb.undoLabels()).toEqual(['Spelling']);
+  });
+
   it('adds a word to the person’s dictionary and a fix to AutoCorrect', async () => {
     const { button, word, dialog } = await mount({ A1: 'Puterly recieve' });
     expect(word()).toBe('Puterly');

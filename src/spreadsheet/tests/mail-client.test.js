@@ -23,6 +23,32 @@ describe('recipient addresses', () => {
     expect(duplicates).toBe(1);
   });
 
+  // An address typed before a named one with only a space between was read as the start of that person's name:
+  // nobody was told, and the email never went to it.
+  it('keeps an address typed before a named one, with a space between, as a recipient of its own', () => {
+    expect(parseRecipients('bob@example.com Ana Diaz <ana@example.com>').people).toEqual([
+      { email: 'bob@example.com', name: '' },
+      { email: 'ana@example.com', name: 'Ana Diaz' },
+    ]);
+    expect(parseRecipients('bob@example.com zed@x.io <ana@example.com>').people).toEqual([
+      { email: 'bob@example.com', name: '' },
+      { email: 'zed@x.io', name: '' },
+      { email: 'ana@example.com', name: '' },
+    ]);
+    expect(parseRecipients('bob@example ana <ana@example.com>').invalid).toEqual(['bob@example']);
+  });
+
+  // Splitting addresses off ahead of a name took every word with an @ in it for one: a name like "Ana (@ana_d)" or
+  // "Sales @ HQ" was broken up and refused as not being addresses.
+  it('keeps an @ in a name that is not an address part of the name', () => {
+    expect(parseRecipients('Ana (@ana_d) <ana@example.com>')).toEqual({ people: [{ email: 'ana@example.com', name: 'Ana (@ana_d)' }], invalid: [], duplicates: 0 });
+    expect(parseRecipients('Sales @ HQ <sales@example.com>, bob@example.com Ana <ana@example.com>').people).toEqual([
+      { email: 'sales@example.com', name: 'Sales @ HQ' },
+      { email: 'bob@example.com', name: '' },
+      { email: 'ana@example.com', name: 'Ana' },
+    ]);
+  });
+
   it('says which entries are not addresses, and when there are too many or none', () => {
     expect(recipientProblem(parseRecipients('ana@example, bob'))).toBe('These are not email addresses: "ana@example", "bob"');
     expect(recipientProblem(parseRecipients('a@b'))).toBe('"a@b" is not an email address');

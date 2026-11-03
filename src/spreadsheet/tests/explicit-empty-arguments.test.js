@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { calc } from './helpers/calc.js';
+import { calc, calcStored } from './helpers/calc.js';
 
 // An argument left empty between commas is a value to the function, 0, FALSE or "" by
 // context, not an omission that falls back to the default.
@@ -43,7 +43,7 @@ describe('explicit empty arguments', () => {
     expect(calc('CONCAT("a",)')).toBe('a');
     expect(calc('TEXTJOIN(",",FALSE,"a",)')).toBe('a,');
     expect(calc('TEXTJOIN(",",TRUE,"a",)')).toBe('a');
-    expect(calc('LEN(T())')).toBe(0);
+    expect(calcStored('LEN(T())')).toBe(0);
     expect(calc('AND(TRUE,)')).toBe(false);
     expect(calc('OR(TRUE,)')).toBe(true);
     expect(calc('IF(TRUE,,"y")')).toBe(0);
@@ -67,8 +67,8 @@ describe('explicit empty arguments', () => {
 
   it('never show the empty marker itself', () => {
     expect(calc('ARRAYFORMULA()')).toEqual(E('#N/A'));
-    expect(calc('TYPE(N())')).toBe(1);
-    expect(calc('ISNUMBER(N())')).toBe(true);
+    expect(calcStored('TYPE(N())')).toBe(1);
+    expect(calcStored('ISNUMBER(N())')).toBe(true);
     expect(calc('REDUCE(,{1,2},LAMBDA(a,b,a))')).toBe(0);
   });
 });

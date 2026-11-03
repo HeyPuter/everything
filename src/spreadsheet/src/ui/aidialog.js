@@ -89,6 +89,11 @@ export function openAiDialog(ctx, { mode = 'write' } = {}) {
   const active = ctx.active();
   const cell = wb.getCell(sheetId, active.r, active.c);
   const existing = cell?.f != null ? cell.f : null;
+  // A formula hidden on a protected sheet is shown nowhere (the formula bar leaves it out): neither here nor to the AI.
+  if (mode === 'explain' && existing != null && wb.formulaHiddenAt?.(sheetId, active.r, active.c)) {
+    toast(`The formula in ${cellName(active.r, active.c)} is hidden while the sheet is protected.`, { icon: 'info' });
+    return null;
+  }
   const explainable = mode === 'explain' && existing;
   const asking = mode === 'ask';
   // Ask mode: the selection, or the sheet's data when a single cell is selected.
@@ -131,6 +136,12 @@ export function openAiDialog(ctx, { mode = 'write' } = {}) {
     const array = wb.fixedArrayAt?.(sheetId, active.r, active.c);
     if (array && (array.rows > 1 || array.cols > 1)) {
       showError(`${cellName(active.r, active.c)} is part of the array formula in ${rangeName(array)}, which can only be changed as a whole. Select another cell and ask again.`);
+      return;
+    }
+    // A formula Excel refuses as typed would go in as its text, the dialog closing as though it were written.
+    const problem = wb.typedFormulaProblem(input);
+    if (problem) {
+      showError(`${problem.message}. Ask again for another formula.`);
       return;
     }
     const verdict = wb.validateInput(sheetId, active.r, active.c, input);

@@ -139,7 +139,10 @@ export function addSubtotals(wb, sheetId, range, { groupCol, code = 9, totalCols
     wb.setCells(sheetId, entries, 'Add subtotals');
     if (group) {
       wb.groupLines(sheetId, 'row', r0, last - 1);
-      groups.forEach((g, i) => wb.groupLines(sheetId, 'row', g.from + i, g.to + i));
+      // The categories' groups lie apart from one another, so each is checked against the outline as it stands and
+      // all of them go in as one step: one step a group copied the whole outline each time.
+      const inner = groups.map((g, i) => ({ from: g.from + i, to: g.to + i })).filter((g) => !wb.groupRefusal(sheetId, 'row', g.from, g.to));
+      wb._editGroups(sheetId, 'row', { add: inner }, 'Group rows');
     }
     // Every total row belongs on the same side of the filter. Those inserted inside a filtered list grew
     // its range with them, while the last group's total and the grand total landed under it: the range is
@@ -161,7 +164,8 @@ export function removeSubtotals(wb, sheetId, range) {
   const rows = [...new Set(subtotalRows(wb, sheetId, n))].sort((a, b) => a - b);
   if (!rows.length) return 0;
   wb.transaction('Remove subtotals', () => {
-    for (const g of wb.outlineGroups(sheetId, 'row').filter((x) => x.from >= n.r1 && x.to <= n.r2).sort((a, b) => b.from - a.from)) wb.ungroupLines(sheetId, 'row', g.from, g.to);
+    // Every group inside the range goes, as one step.
+    wb._editGroups(sheetId, 'row', { remove: wb.sheet(sheetId).groups.rows.filter((x) => x.from >= n.r1 && x.to <= n.r2) }, 'Ungroup rows');
     // One deletion for every total row, however many groups there were.
     wb.deleteLines(sheetId, 'row', rows.map((r) => ({ from: r, to: r })), 'Remove subtotals');
   });

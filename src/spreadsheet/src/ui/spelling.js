@@ -13,6 +13,7 @@ import * as S from '../core/selection.js';
 import { loadPref, savePref } from '../lib/user-prefs.js';
 import { LANGUAGES, DEFAULT_SPELLING_OPTIONS, loadWordList, createSpeller, wordsIn, textCellsInOrder, replaceWord } from '../core/spelling.js';
 import { autoCorrectSettings, saveAutoCorrectSettings } from './autocorrect.js';
+import { matchCase } from '../core/thesaurus.js';
 
 /** The person's own dictionary: words added with Add to Dictionary. */
 export const customWords = () => { const v = loadPref('dictionary', []); return Array.isArray(v) ? v.filter((w) => typeof w === 'string') : []; };
@@ -187,13 +188,19 @@ export async function openSpellingDialog(ctx, { language = spellingLanguage() } 
       wb.setInput(sheetId, w.r, w.c, replaceWord(w.text, w.start, w.end, to), { literal: true, label: 'Spelling', preserveRichText: true });
       state.offset = w.start + to.length;
     } else {
-      // Every cell in the check holding the word, in one step.
+      // Every cell in the check holding the word, in one step: in any case, as Ignore All passes over it in any case
+      // afterwards. "Teh" changed to "The" left "teh" as it was, never to be asked about again. Another case of the
+      // word takes the fix cased as it is ("TEH" → "THE"), unless the fix has a casing of its own ("iphone" → "iPhone").
+      const key = w.word.toLowerCase();
+      const plain = matchCase(w.word, to.toLowerCase()) === to ? to.toLowerCase() : null;
       wb.transaction('Spelling', () => {
         for (const [r, c] of cells) {
           const cell = wb.getCell(sheetId, r, c);
           if (cell?.f != null || typeof cell?.v !== 'string' || wb.lockedAt(sheetId, r, c)) continue;
           let text = cell.v;
-          for (const hit of wordsIn(text, options).filter((x) => x.word === w.word).reverse()) text = replaceWord(text, hit.start, hit.end, to);
+          for (const hit of wordsIn(text, options).filter((x) => x.word.toLowerCase() === key).reverse()) {
+            text = replaceWord(text, hit.start, hit.end, hit.word === w.word || plain == null ? to : matchCase(hit.word, plain));
+          }
           if (text !== cell.v) wb.setInput(sheetId, r, c, text, { literal: true, label: 'Spelling', preserveRichText: true });
         }
       });

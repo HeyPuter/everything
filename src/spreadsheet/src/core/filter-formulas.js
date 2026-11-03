@@ -131,7 +131,9 @@ export function adjustFilterForEdit(filter, options) {
     const lo=axis==='row'?'r1':'c1',hi=axis==='row'?'r2':'c2';
     range[lo]=map(range[lo])??at;range[hi]=map(range[hi])??at-1;
   }
-  if(range.r1>range.r2||range.c1>range.c2||(moves&&remove&&range.r1===range.r2))return null;
+  // A deletion that leaves a filter its header row alone ends it; one that finds it so already (a table whose data rows
+  // were all deleted keeps its buttons for the rows it grows by) leaves it be.
+  if(range.r1>range.r2||range.c1>range.c2||(moves&&remove&&range.r1===range.r2&&filter.range.r1!==filter.range.r2))return null;
   const criteria={};
   for(const [key,criterion] of Object.entries(filter.criteria)) {
     const oldCol=Number(key),col=axis==='col'?map(oldCol):oldCol;if(col==null)continue;

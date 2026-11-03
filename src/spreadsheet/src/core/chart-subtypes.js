@@ -313,11 +313,17 @@ export function changeSubtypePatch(chart, subtypeId, { font = 'calibri' } = {}) 
   const fresh = excelChartAppearance(subtype, { font: chart.appearance.titleStyle?.font || font });
   const old = chart.appearance;
   const keep = ['background', 'border', 'borderColor', 'borderWidth', 'roundedCorners', 'textStyle', 'titleStyle', 'legendStyle', 'xStyle', 'yStyle', 'y2Style',
-    'plotFill', 'plotStroke', 'titleBox', 'legendBox', 'shadow', 'dataTable', 'blanks', 'xGridlines', 'hideXAxis', 'hideYAxis', 'yFormat', 'yStep', 'yUnits', 'yLogBase',
+    'plotFill', 'plotStroke', 'titleBox', 'legendBox', 'shadow', 'dataTable', 'blanks', 'xGridlines', 'hideXAxis', 'hideYAxis', 'yFormat', 'yStep', 'yUnits', 'yLogBase', 'yTickValues',
     'reverseValues', 'valueLabels', 'gridlineStyles'];
   const appearance = { ...fresh, ...Object.fromEntries(keep.filter(k => old[k] !== undefined).map(k => [k, old[k]])) };
   // The axis lines are the new type's own: a bar chart's categories run down the left, a scatter's values along the bottom.
-  if (!['pie', 'donut'].includes(subtype.type) && old.axisStyles) appearance.axisStyles = { ...fresh.axisStyles };
+  if (!['pie', 'donut'].includes(subtype.type) && old.axisStyles) {
+    appearance.axisStyles = { ...fresh.axisStyles };
+    // An axis boxing the plot (Format Axis' Box around plot area) keeps its box, in the line it draws it in.
+    for (const [k, st] of Object.entries(old.axisStyles)) if (st?.box && fresh.axisStyles?.[k]) {
+      appearance.axisStyles[k] = { ...fresh.axisStyles[k], box: true, color: st.color, width: st.width, dash: st.dash };
+    }
+  }
   // Bars switching between clustered and stacked take that grouping's spacing; between types they keep theirs.
   if (['column', 'bar', 'combo'].includes(subtype.type) && ['column', 'bar', 'combo'].includes(chart.type) && !!chart.stacked === !!subtype.stacked) {
     for (const k of ['gapWidth', 'overlap']) if (old[k] != null) appearance[k] = old[k];

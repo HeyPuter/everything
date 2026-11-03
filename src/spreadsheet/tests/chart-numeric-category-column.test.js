@@ -34,6 +34,26 @@ describe('a first column of numbers counting up evenly', () => {
     expect(chartData(steps.wb, steps.id, chartOf(steps.range, { type: 'line' })).series).toHaveLength(1);
   });
 
+  // Whether the column counts up is the column's own: hiding a year (by hand or with a filter) left the years shown
+  // uneven, and the chart turned them into a line of its own (2019 to 2023) dwarfing the sales.
+  it('keeps labelling the categories while some of its rows or columns are hidden', () => {
+    const { wb, id, range } = sheetOf([['Year', 'Sales'], [2019, 5], [2020, 9], [2021, 4], [2022, 7], [2023, 8]]);
+    wb.sheet(id).hiddenRows.add(3);
+    const data = chartData(wb, id, chartOf(range, { type: 'line' }));
+    expect(data.categories).toEqual(['2019', '2020', '2022', '2023']);
+    expect(data.series.map(s => s.name)).toEqual(['Sales']);
+    expect(data.series[0].values).toEqual([5, 9, 7, 8]);
+    const across = sheetOf([['Step', 1, 2, 3, 4], ['Load', 3, 5, 4, 8]]);
+    across.wb.sheet(across.id).hiddenCols.add(2);
+    const rows = chartData(across.wb, across.id, chartOf(across.range, { type: 'column', seriesIn: 'rows' }));
+    expect(rows.categories).toEqual(['1', '3', '4']);
+    expect(rows.series.map(s => s.name)).toEqual(['Load']);
+    // A hidden row that breaks the count keeps it a series, as it is with the row on show.
+    const broken = sheetOf([['x', 'y'], [1, 3], [2, 5], [9, 4], [3, 8]]);
+    broken.wb.sheet(broken.id).hiddenRows.add(3);
+    expect(chartData(broken.wb, broken.id, chartOf(broken.range, { type: 'line' })).series).toHaveLength(2);
+  });
+
   it('stays a series without a header over it, as plain numbers without names are read', () => {
     const { wb, id, range } = sheetOf([[1, 3], [2, 5], [3, 4]]);
     expect(chartData(wb, id, chartOf(range, { type: 'line' })).series).toHaveLength(2);

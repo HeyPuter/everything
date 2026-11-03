@@ -57,9 +57,14 @@ export function createSelectionPane(ctx) {
   function render(force = false) {
     if (root.hidden) return;
     const objects = sheetObjects();
-    const key = `${ctx.sheetId()}|${wb.version}|${[...selected()].join(',')}|${renaming}`;
+    const rowsKey = `${ctx.sheetId()}|${wb.version}|${renaming}`;
+    const key = `${rowsKey}|${[...selected()].join(',')}`;
     if (!force && key === lastKey) return;
+    // Only the selection changed (an arrow key, a click): the rows stay and are marked again. Drawn afresh, a
+    // sheet of a thousand objects took a tenth of a second for each press of an arrow.
+    const rowsSame = lastKey?.startsWith(`${rowsKey}|`) && list.childElementCount;
     lastKey = key;
+    if (rowsSame) { mark(); return; }
     const names = objectNames(objects);
     const rows = [];
     // Front first: the list runs back to front, so it is read from its end.
@@ -76,13 +81,20 @@ export function createSelectionPane(ctx) {
     list.replaceChildren(...rows);
     list.hidden = !objects.length;
     empty.hidden = !!objects.length;
-    const sel = ctx.grid.selectedCharts || [];
     showAll.disabled = hideAll.disabled = !objects.length;
+    mark();
+    if (renaming) { const input = list.querySelector('.selpane-rename'); input?.focus(); input?.select(); }
+  }
+
+  /** The rows of the objects selected marked so, and the tools and the list's active row following the selection. */
+  function mark() {
+    const now = selected();
+    for (const node of list.children) node.setAttribute('aria-selected', String(node.dataset.ids.split(' ').every((x) => now.has(x))));
+    const sel = ctx.grid.selectedCharts || [];
     forward.disabled = backward.disabled = !sel.length;
     const at = (key) => list.querySelector(`[data-id="${CSS.escape(key || '')}"][aria-selected="true"]`);
     const active = at(cursor) || at(sel[0]);
     if (active) list.setAttribute('aria-activedescendant', active.id); else list.removeAttribute('aria-activedescendant');
-    if (renaming) { const input = list.querySelector('.selpane-rename'); input?.focus(); input?.select(); }
   }
 
   /** Select the row's objects on the sheet, or with `add` add them to the selection (or take them out). The pane keeps the keyboard. */

@@ -2,7 +2,7 @@ import { expect, it } from 'vitest';
 import { buildCall, functionParams } from '../src/ui/insertfunction.js';
 
 it('reads required, optional and repeating arguments from a signature', () => {
-  expect(functionParams('ROUND')).toEqual({ params: [{ name: 'number', optional: false }, { name: 'digits', optional: true }], repeat: false });
+  expect(functionParams('TRUNC')).toEqual({ params: [{ name: 'number', optional: false }, { name: 'digits', optional: true }], repeat: false });
   const sum = functionParams('SUM');
   expect(sum.params[0]).toEqual({ name: 'number1', optional: false });
   expect(sum.repeat).toBe(true);

@@ -12,6 +12,8 @@
  *   name: string,                    the trendline's own name ('' names it for its kind and series)
  *   labelFormat?: string,            the label's number format (General when absent)
  *   labelPos?: { x, y },             where the label was dragged: its top-left corner, as fractions of the chart's width and height
+ *   labelOffset?: { x, y },          how far an Excel file moved the label from where Excel places it, as fractions of the
+ *                                    chart (a factor-mode layout): drawn in its own place here, saved again as it came
  *   labelSize?: number,              the label's text size (px, 4–72pt); else the value axis' text size
  *   color?, width?, dash?,           the line's own colour, width (px) and dash; else the series' colour, dashed
  * }
@@ -50,7 +52,9 @@ export function normalizeTrend(raw) {
     dispRSqr: t.dispRSqr === true,
     name: typeof t.name === 'string' ? t.name.slice(0, 255) : '',
     ...(typeof t.labelFormat === 'string' && t.labelFormat.trim() && t.labelFormat !== 'General' ? { labelFormat: t.labelFormat.slice(0, 255) } : {}),
-    ...(between(t.labelPos?.x, 0, 1) && between(t.labelPos?.y, 0, 1) ? { labelPos: { x: t.labelPos.x, y: t.labelPos.y } } : {}),
+    ...(between(t.labelPos?.x, 0, 1) && between(t.labelPos?.y, 0, 1) ? { labelPos: { x: t.labelPos.x, y: t.labelPos.y } }
+      // A label moved here takes the place it was moved to instead.
+      : between(t.labelOffset?.x, -1, 1) && between(t.labelOffset?.y, -1, 1) ? { labelOffset: { x: t.labelOffset.x, y: t.labelOffset.y } } : {}),
     ...(between(t.labelSize, TREND_LABEL_SIZE.min, TREND_LABEL_SIZE.max) ? { labelSize: t.labelSize } : {}),
     ...(HEX.test(t.color || '') ? { color: t.color.toLowerCase() } : {}),
     ...(between(t.width, 0.25, 20) ? { width: t.width } : {}),
@@ -66,9 +70,13 @@ export function normalizeTrendlines(raw) {
   return raw.slice(0, 255).map(t => (t === false || t === null ? false : normalizeTrend(t)));
 }
 
+// The charts whose series stand on one another when stacked, and then take no trendline, as in Excel: a trend through
+// a series' own values would not follow where it is drawn. A combo chart stacks only its columns; its line keeps one.
+const STACKING = new Set(['column', 'bar', 'line', 'area']);
+
 /** The trend drawn on series `j`, or null when it draws none. */
 export function trendFor(chart, j) {
-  if (!chart?.trendline) return null;
+  if (!chart?.trendline || chart.stacked && STACKING.has(chart.type)) return null;
   const t = chart.trendlines?.[j];
   return t === false ? null : t || DEFAULT_TREND;
 }
@@ -268,11 +276,13 @@ export function trendEquation(fit, format = null) {
     : t.coefficients.map((c, p) => [c, p ? 'x' : '', p > 1 ? String(p) : null]).reverse();
   let any = false;
   for (const [c, unit, power] of terms) {
-    const text = num(Math.abs(c));
-    if (text === '0') continue;
+    // Which terms there are is read in General: a format of the label's own only writes their numbers, so a slope
+    // of 0.3 under "#,##0" reads "0x" rather than leaving the term out.
+    const general = trendNumber(Math.abs(c)), text = num(Math.abs(c));
+    if (general === '0') continue;
     add(any ? (c < 0 ? ' - ' : ' + ') : c < 0 ? '-' : '');
-    // A coefficient of one is left off its x, as Excel writes "y = x + 1".
-    add(`${text === '1' && unit ? '' : text}${unit}`);
+    // A coefficient of one is left off its x, as Excel writes "y = x + 1" (but 1.3 under "#,##0" reads "1x").
+    add(`${general === '1' && text === '1' && unit ? '' : text}${unit}`);
     if (power) add(power, true);
     any = true;
   }

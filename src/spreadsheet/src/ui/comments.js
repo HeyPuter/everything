@@ -227,6 +227,9 @@ export function createComments(ctx, host) {
 
   function renderCard({ focusReply = false } = {}) {
     if (!card) return;
+    // A redraw takes away the control pressed (Resolve, Reopen, an edit saved or given up with Escape): the
+    // keyboard stays in the card, on its reply box or what takes its place, rather than falling to the page.
+    const keep = card.node.contains(document.activeElement) ? card.node : null;
     closeMentionPickers(card.node);
     const { sheetId, r, c } = card;
     let content;
@@ -244,9 +247,12 @@ export function createComments(ctx, host) {
         // The cell as it is now: someone else's rows or columns may have moved it since the card opened (see follow).
         const { r, c } = card;
         const text = area.value, assignTo = assign.person();
+        // The box (or Post) typed in goes as the card shows the thread: the keyboard moves on to the reply box,
+        // where Escape still closes the card, rather than falling to the page with nowhere to go.
+        const typing = card.node.contains(document.activeElement);
         if (postComment(sheetId, r, c, text, pick.picked, assignTo, false)) {
           card.mode = 'pinned'; card.draft = ''; card.picked = [];
-          renderCard();
+          renderCard({ focusReply: typing });
           told(sheetId, r, c, lastThreadItem(wb, sheetId, r, c), [], assignTo);
         }
       };
@@ -271,6 +277,13 @@ export function createComments(ctx, host) {
     card.node.replaceChildren(content);
     card.node.classList.toggle('pinned', card.mode !== 'hover');
     placeCard();
+    // Queued after the redraw's own (a box to type in takes the focus first), so it only catches a focus that fell.
+    if (keep) {
+      queueMicrotask(() => {
+        if (card?.node !== keep || !keep.isConnected || (document.activeElement && document.activeElement !== document.body)) return;
+        (keep.querySelector('textarea.cmt-reply') || keep.querySelector('.cmt-resolved button') || keep.querySelector('button'))?.focus({ preventScroll: true });
+      });
+    }
   }
 
   function openCard(sheetId, r, c, mode, opts = {}) {
@@ -335,12 +348,26 @@ export function createComments(ctx, host) {
     const g = grid();
     if (!g) return;
     const sheetId = g.sheetId;
+    // As on the card: a redraw that takes away the control pressed (Resolve, Reopen, an edit saved or given up)
+    // leaves the keyboard on the same thread, or in the pane, rather than on the page. Queued after the redraw's
+    // own (a comment being edited takes the focus first), so it only catches a focus that fell.
+    const focusedIn = list.contains(document.activeElement) ? document.activeElement.closest('.cmt-thread')?.dataset.cell ?? '' : null;
+    // A thread's cell name pressed (Go to) is redrawn for the selection it made, and the keyboard stays on it: the reply
+    // box took it, bringing up a phone's on-screen keyboard over the cell gone to.
+    const onCellName = !!document.activeElement?.classList?.contains('cmt-cell');
+    const refocus = () => focusedIn != null && queueMicrotask(() => {
+      if (pane.hidden || (document.activeElement && document.activeElement !== document.body)) return;
+      const thread = focusedIn && [...list.querySelectorAll('.cmt-thread')].find((n) => n.dataset.cell === focusedIn);
+      const scope = thread || list;
+      ((onCellName && thread?.querySelector('.cmt-cell')) || scope.querySelector('textarea.cmt-reply') || scope.querySelector('.cmt-resolved button') || scope.querySelector('button') || pane.querySelector('.cmt-pane-new'))?.focus({ preventScroll: true });
+    });
     const cells = threadCells(wb, sheetId);
     if (!cells.length) {
       list.replaceChildren(el('div.cmt-pane-empty', {},
         el('span.cmt-pane-empty-icon', { html: icon('comment', 32) }),
         el('p', {}, 'No comments on this sheet yet.'),
         el('p.cmt-pane-hint', {}, 'Select a cell and choose New Comment to start a conversation.')));
+      refocus();
       return;
     }
     const active = g.active;
@@ -354,6 +381,7 @@ export function createComments(ctx, host) {
         return view;
       }).filter(Boolean));
     });
+    refocus();
   }
 
   /**

@@ -5,11 +5,11 @@
  * cannot take the change.
  */
 import { colName } from './cell.js';
-import { chartData, chartXBounds, chartXGridlines } from './charts.js';
+import { chartData, chartSeriesLinePatch, chartXBounds, chartXGridlines } from './charts.js';
 import { quoteSheet } from './refs.js';
 import { CHART_LINE_GREY, CHART_TEXT_GREY, excelChartAppearance, subtypeOf } from './chart-subtypes.js';
 import { DEFAULT_TREND, TREND_TYPES, normalizeTrend, trendFor } from './trendline.js';
-import { errorBarsElementPatch, errorBarsState } from './error-bars.js';
+import { errorBarsElementPatch, errorBarsState, normalizeErrorBars } from './error-bars.js';
 
 const PIE = new Set(['pie', 'donut']);
 const BARS = new Set(['column', 'bar', 'combo', 'histogram', 'waterfall']);
@@ -256,11 +256,16 @@ export function chartStylePatch(chart, id, { seriesCount = 1 } = {}) {
     'yUnits', 'xUnits', 'y2Units', 'yLogBase', 'xLogBase', 'yTickValues', 'xTickValues', 'y2TickValues', 'xMin', 'xMax', 'y2Min', 'y2Max', 'reverseValues', 'reverseCategories', 'reverseSecondaryValues',
     'axisCrossings', 'dateAxis', 'xBaseTimeUnit', 'xTimeUnit', 'blanks', 'plot', 'title', 'legend', 'legendPos', 'legendHidden', 'pointColors', 'seriesTypes', 'seriesGroups'];
   const a = { ...fresh, ...Object.fromEntries(keep.filter(k => old[k] !== undefined).map(k => [k, old[k]])) };
-  // A chart in the app's own style kept its x bounds on itself; its new appearance keeps them now.
-  if (!chart.appearance) { const x = chartXBounds(chart); if (x.min != null) a.xMin = x.min; if (x.max != null) a.xMax = x.max; }
+  // A chart in the app's own style kept its x bounds, its vertical gridlines and each series' line and markers on
+  // itself; its new appearance keeps them now.
+  if (!chart.appearance) {
+    const x = chartXBounds(chart); if (x.min != null) a.xMin = x.min; if (x.max != null) a.xMax = x.max;
+    if (chart.xGridlines) a.xGridlines = true;
+    (chart.seriesLines || []).forEach((line, i) => { if (line) a.lines = chartSeriesLinePatch({ appearance: a }, [i], line).appearance.lines; });
+  }
   if (a.pie && old.pie) a.pie = { ...a.pie, labels: { ...a.pie.labels, ...old.pie.labels, style: a.pie.labels.style } };
   const text = (color, scale = 1) => ['textStyle', 'titleStyle', 'legendStyle', 'xStyle', 'yStyle', 'y2Style'].forEach(k => { a[k] = { ...a[k], color, size: Math.round(a[k].size * scale * 100) / 100 }; });
-  const patch = { appearance: a, ...(chart.appearance ? {} : { xMin: undefined, xMax: undefined }) };
+  const patch = { appearance: a, ...(chart.appearance ? {} : { xMin: undefined, xMax: undefined, xGridlines: undefined, seriesLines: undefined }) };
   const labels = position => {
     patch.labels = true;
     if (a.pie) a.pie = { ...a.pie, labels: { ...a.pie.labels, value: true, position: position === 'inEnd' ? 'inEnd' : 'bestFit' } };
@@ -351,6 +356,12 @@ export function reorderSeriesFormatting(chart, order) {
     while (colors.length && colors.at(-1) == null) colors.pop();
     patch.colors = colors;
   }
+  // A series' trendline and error bars, and its line and markers in the app's own style, follow it as well; a series
+  // added has none. A trendline list that does not reach a series leaves it the chart's own, as before.
+  const own = (list, none) => order.map(from => (from == null ? none : list[from]));
+  if (chart.trendlines?.length) patch.trendlines = own(chart.trendlines, false);
+  if (chart.errorBars?.length) patch.errorBars = normalizeErrorBars(own(chart.errorBars, null)) || undefined;
+  if (chart.seriesLines?.length) patch.seriesLines = own(chart.seriesLines, null).map(line => line ?? null);
   const a = chart.appearance;
   if (!a) return patch;
   const next = { ...a };

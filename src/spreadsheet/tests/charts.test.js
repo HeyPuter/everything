@@ -266,6 +266,22 @@ describe('100% stacked charts and trendlines', () => {
     expect(normalizeChart({ ...chart, anchor: { r: 0, c: 0 } })).toMatchObject({ stack100: true, trendline: false });
   });
 
+  // Edit chart once carried a stacked column chart's stack over to a scatter, line or pie chart; such a chart,
+  // saved then, read back with a stack nothing draws, and Add Chart Element and Format Trendline refused it a trendline.
+  it('reads a stack a chart type cannot have as none, and keeps the stack of types that stack', async () => {
+    const { trendlineAllowed } = await import('../src/core/chart-design.js');
+    const base = { range: { r1: 0, c1: 0, r2: 3, c2: 2 }, anchor: { r: 0, c: 4 }, stacked: true, stack100: true };
+    for (const type of ['scatter', 'pie', 'donut', 'radar', 'bubble', 'histogram']) {
+      const chart = normalizeChart({ ...base, type });
+      expect(chart).toMatchObject({ type, stacked: false, stack100: false });
+      if (['scatter', 'bubble'].includes(type)) expect(trendlineAllowed(chart)).toBe(true);
+    }
+    for (const type of ['column', 'bar', 'line', 'area', 'combo']) expect(normalizeChart({ ...base, type })).toMatchObject({ type, stacked: true, stack100: true });
+    const { wb, id } = book(TABLE);
+    const chartId = wb.addChart(id, { ...base, type: 'scatter', trendline: true });
+    expect(wb.chartById(id, chartId).stacked).toBe(false);
+  });
+
   it('draws a dashed least-squares line for line, column, and scatter charts but not stacked ones', () => {
     const { wb, id } = book(TABLE);
     const line = { ...defaultChart(parseRange('A1:B4'), { r: 0, c: 4 }), type: 'line', trendline: true };

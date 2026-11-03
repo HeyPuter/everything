@@ -306,16 +306,18 @@ export function buildPivot(wb, sheetId, spec) {
   if (showTotalCol) put(top, totalCol, { v: 'Total', f: null, s: { ...headerStyle, align: 'right' } });
 
   // Body: one formula per row label × column label (rows in sheet coordinates).
-  // The blank category matches rows whose field shows nothing ("=" is the IFS criterion for an empty cell);
-  // an error category the rows whose field holds that error.
-  const rowCrit = (r, rv) => (rv === BLANK ? `${ref(rowCol)},"="` : isError(rv) ? errorCriteria(ref(rowCol), rv.error) : labelCriteria(ref(rowCol), `$A${r + 1}`, null, rv));
-  const colCrit = (j) => (colValues[j] === BLANK ? `${ref(colCol)},"="` : isError(colValues[j]) ? errorCriteria(ref(colCol), colValues[j].error) : labelCriteria(ref(colCol), `${colName(1 + j)}$${top + 1}`, null, colValues[j]));
+  // The blank category matches rows whose field shows nothing: an empty criterion ("") matches empty cells and a
+  // formula's "" alike, where "=" would match empty cells only. An error category matches the rows whose field holds that error.
+  const rowCrit = (r, rv) => (rv === BLANK ? `${ref(rowCol)},""` : isError(rv) ? errorCriteria(ref(rowCol), rv.error) : labelCriteria(ref(rowCol), `$A${r + 1}`, null, rv));
+  const colCrit = (j) => (colValues[j] === BLANK ? `${ref(colCol)},""` : isError(colValues[j]) ? errorCriteria(ref(colCol), colValues[j].error) : labelCriteria(ref(colCol), `${colName(1 + j)}$${top + 1}`, null, colValues[j]));
   const formula = (crits) => {
     const all = [...crits, ...filterCrits];
     // Count the chosen value field: cells that show something, so a row
-    // whose value is blank or "" is left out of every count alike.
-    const parts = spec.agg === 'count' ? [...all, `${ref(valCol)},"<>"`] : [ref(valCol), ...all];
-    const body = `${ifsName}(${parts.join(',')})`;
+    // whose value is blank or "" is left out of every count alike. "<>" would
+    // count a formula's "" too, as Excel's COUNTIFS does, so the rows are counted
+    // and those whose value "" matches (an empty cell or empty text) taken off.
+    const body = spec.agg === 'count' ? `(${ifsName}(${all.join(',')})-${ifsName}(${[...all, `${ref(valCol)},""`].join(',')}))`
+      : `${ifsName}(${[ref(valCol), ...all].join(',')})`;
     // An average over no rows is #DIV/0!, and a max or min over none is 0; the cell shows nothing instead,
     // as an empty intersection of a pivot table does. Rows with no number among them still divide by zero.
     // A max or min over rows that hold no number (text, blanks) is no 0 either: the cell shows nothing, so the

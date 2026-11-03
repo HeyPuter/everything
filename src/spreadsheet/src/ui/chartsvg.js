@@ -188,11 +188,17 @@ function logScale(values, base, { min = null, max = null, step = null } = {}) {
   if (!(hi > lo)) hi = lo * base;
   return { min: lo, max: hi, step: step > 1 ? step : base, log: base };
 }
+/**
+ * Where `v` lies along a logarithmic axis from `min` to `max` (0 at the foot, 1 at the top), or -1 at or below zero.
+ * Measured by logarithms alone: the ratio of an axis spanning more than 1e308 is past the largest number.
+ */
+const logFraction = (v, min, max) => (v > 0 ? (Math.log(v) - Math.log(min)) / (Math.log(max) - Math.log(min)) : -1);
 /** Ticks of an axis: steps of `step`, or on a logarithmic one, factors of it from the minimum. */
 function axisTicks(domain) {
   if (!domain.log) return scaleTicks(domain);
   const ticks = [];
-  for (let v = domain.min, i = 0; v <= domain.max * (1 + 1e-9) && i < 400; i++, v = Number((domain.min * domain.step ** i).toPrecision(12))) ticks.push(v);
+  // Each factor in two halves, so a factor past the largest number still multiplies a minimum far below one.
+  for (let v = domain.min, i = 0; v <= domain.max * (1 + 1e-9) && i < 400; i++, v = Number((domain.min * domain.step ** (i / 2) * domain.step ** (i / 2)).toPrecision(12))) ticks.push(v);
   return ticks;
 }
 
@@ -987,10 +993,13 @@ function renderChartContent(data, chart, width, height) {
         if (idx.length === 1) parts.push(`<circle cx="${f(pts[idx[0]][0])}" cy="${f(pts[idx[0]][1])}" r="3.5" fill="${color}"/>`);
         else parts.push(`<polyline points="${line}" fill="none" stroke="${color}" stroke-width="${f(width)}" stroke-linejoin="round" stroke-linecap="round"/>`);
       }
-      if (showPoints) {
+      // A series given a marker size or shape of its own is marked however long it runs, every k-th point past the budget.
+      const marked = own?.marker !== false && (own?.markerSize != null || !!own?.markerSymbol);
+      if (showPoints || marked) {
         const r = own?.markerSize ? own.markerSize * 2 / 3 : 3;
+        const every = showPoints ? 1 : Math.max(1, Math.ceil(n * lineIdx.length / MARK_BUDGET));
         pts.forEach((p, i) => {
-          if (!p) return;
+          if (!p || i % every) return;
           if (own?.marker === false) { /* no marker */ }
           else if (own?.markerSymbol && own.markerSymbol !== 'circle') parts.push(chartMarker(own.markerSymbol, p[0], p[1], r * 2, color, color, tipFor(s, i)));
           else parts.push(`<circle cx="${f(p[0])}" cy="${f(p[1])}" r="${f(r)}" fill="${color}"><title>${esc(tipFor(s, i))}</title></circle>`);
@@ -1043,7 +1052,8 @@ function effectAttr(a, key) {
 /** A title's own fill and outline (Format ▸ Shape Fill/Outline), sized to its text. */
 function textBox(box, effect, text, x, y, style, anchor, key) {
   if (!box || (!box.fill && !box.stroke) || (box.fill === 'none' && box.stroke === 'none')) return '';
-  const w = textW(text, style.size) + style.size, h = style.size * 1.5;
+  // Measured in the title's own font, so the box keeps half an em either side of its text.
+  const w = axisTextWidth(text, style) + style.size, h = style.size * 1.5;
   const left = anchor === 'middle' ? x - w / 2 : anchor === 'end' ? x - w + style.size / 2 : x - style.size / 2;
   const filter = effect?.glow ? ` filter="url(#chart-fx-glow-${effect.glow.slice(1)})"` : effect?.shadow ? ' filter="url(#chart-fx-shadow)"' : '';
   return `<rect data-el="${key}" x="${f(left)}" y="${f(y - style.size * 1.1)}" width="${f(w)}" height="${f(h)}" fill="${esc(box.fill && box.fill !== 'none' ? box.fill : 'transparent')}" stroke="${esc(box.stroke || 'none')}"${filter}/>`;
@@ -1271,7 +1281,7 @@ function renderStyledCartesian(data, chart, width, height) {
   let bottom = plot.y + plot.h;
   const valueFraction = (v, domain, reverse) => {
     // A value at or below zero on a logarithmic axis lies past its foot (and is clipped there).
-    const fraction = domain.log ? (v > 0 ? Math.log(v / domain.min) / Math.log(domain.max / domain.min) : -1)
+    const fraction = domain.log ? logFraction(v, domain.min, domain.max)
       : axisFraction(v, domain.min, domain.max);
     return reverse ? 1 - fraction : fraction;
   };
@@ -1294,7 +1304,7 @@ function renderStyledCartesian(data, chart, width, height) {
   // Between-category axes leave half a base unit at each edge, including date gaps.
   const inset = numericX || a.categoryBetween === false ? 0 : .5;
   const sx = v => {
-    const fraction = dates ? dates.fraction(v) : xScale?.log ? (v > 0 ? Math.log(v / xMin) / Math.log(xMax / xMin) : -1)
+    const fraction = dates ? dates.fraction(v) : xScale?.log ? logFraction(v, xMin, xMax)
       : xMax === xMin && !inset ? .5 : axisFraction(v, xMin - inset, xMax + inset);
     return plot.x + (a.reverseCategories ? 1 - fraction : fraction) * plot.w;
   };
@@ -2420,7 +2430,8 @@ function trendLabelsSvg(labels, style, plot, W, H) {
   }) : [p])));
   return labels.map(l => {
     const size = l.size || style.size, lineH = size * 1.25, rise = size * .4;
-    const widths = l.lines.map(runs => runs.reduce((w, r) => w + textW(r.text, r.sup ? size * .7 : size), 0));
+    // Measured in its own font, as axis labels are, so a label put against the chart's left edge sits flush there.
+    const widths = l.lines.map(runs => runs.reduce((w, r) => w + axisTextWidth(r.text, { ...style, size: r.sup ? size * .7 : size }), 0));
     const w = maxOf(widths), h = l.lines.length * lineH;
     const hold = (right, top) => ({ right: Math.min(plot.x + plot.w - 4, Math.max(plot.x + w + 4, right)), top: Math.max(plot.y + 2, Math.min(plot.y + plot.h - h - 2, top)) });
     const left = plot.x + w + 4, right = plot.x + plot.w - 4, high = plot.y + 2, low = plot.y + plot.h - h - 2;
