@@ -85,7 +85,12 @@ export function createQueriesPane(ctx) {
       const item = el('div.qc-item', { role: 'listitem', title: sourceSummary(q), tabindex: 0,
         ondblclick: () => ctx.edit(q.id),
         oncontextmenu: (e) => { e.preventDefault(); menu(q, { x: e.clientX, y: e.clientY }); },
-        onkeydown: (e) => { if (e.key === 'Enter') ctx.edit(q.id); if (e.key === 'Delete') remove(q); } },
+        onkeydown: (e) => {
+          // The row's own keys; Enter or Delete on one of its buttons is that button's.
+          if (e.target !== e.currentTarget) return;
+          if (e.key === 'Enter') ctx.edit(q.id);
+          if (e.key === 'Delete') remove(q);
+        } },
       el('span.qc-icon', { html: icon('table', 18) }),
       el('div.qc-text', {}, el('div.qc-name', {}, q.name), el('div.qc-status', {}, status(q))),
       el('div.qc-actions', {},
