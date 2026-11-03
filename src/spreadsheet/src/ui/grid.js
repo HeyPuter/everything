@@ -3337,10 +3337,11 @@ export function createGrid(opts) {
     // The cell nodes stay as they are: rebuilding them on a click would
     // detach the pressed node before the release, and the browser then drops
     // the click and any double-click. Headers re-highlight in place. Only an
-    // active cell outside the rendered rows and columns needs a rebuild, which
-    // keeps it in the DOM for aria-activedescendant.
+    // active cell outside the rendered rows and columns, or in a hidden line
+    // (whose cells the rows drawn leave out), needs a rebuild, which keeps it
+    // in the DOM for aria-activedescendant.
     const a = sel.active;
-    if (a.r < rendered.r0 || a.r > rendered.r1 || a.c < rendered.c0 || a.c > rendered.c1) rendered.key = null;
+    if (a.r < rendered.r0 || a.r > rendered.r1 || a.c < rendered.c0 || a.c > rendered.c1 || rowHidden(s, a.r) || s.hiddenCols.has(a.c)) rendered.key = null;
     schedule();
     rememberSheetSelection();
     opts.onSelection?.(sel);
