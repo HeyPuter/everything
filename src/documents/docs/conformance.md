@@ -22275,6 +22275,11 @@ Supported subset:
 - Accept/Reject this change, and move to next, all changes, and all changes and stop tracking.
   Rejecting one deletion of another reviewer's insertion (`w:del` inside `w:ins`) brings the insertion
   back; rejecting a selection or all changes rejects both, so Reject All leaves no change behind.
+  Resolving the insertion (or the moved-to text, §17.13.5.25) next to such a deletion resolves it
+  too: rejecting the insertion removes the deleted part with it, and accepting it leaves only the
+  deletion. A paragraph formatting change (§17.13.5.29 `pPrChange`) is resolved by a selection in
+  any part of its paragraph. A deleted or inserted paragraph mark that cannot be removed (before a
+  table, or ending a cell) loses only its mark of change on Accept or Reject.
   Accepting a deletion that crosses a field's begin or end (§17.16.18) removes the text on either
   side of the boundary separately; the field keeps the rest of its result.
 - Inserting a footnote or endnote reference (§17.11.14 `footnoteReference`, §17.11.7
