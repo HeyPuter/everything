@@ -1291,7 +1291,9 @@ function clearRange(wb, args, env) {
     const refused = wb.version === before && what === 'all' && filled();
     if (what !== 'contents' && !refused) { clearRules(wb, sheetId, runs); for (const rg of runs) wb.unmergeCells(sheetId, rg); }
   });
-  if (wb.version === before && filled()) throw new ToolError(`${qualified(wb, sheetId, range)} could not be cleared (it may cross part of an array formula or a pivot table).`);
+  // Formats alone are not refused for an array or a pivot table (protection is checked above): a clear of them that
+  // changed nothing found no formatting to clear, however many values the cells hold.
+  if (wb.version === before && what !== 'formats' && filled()) throw new ToolError(`${qualified(wb, sheetId, range)} could not be cleared (it may cross part of an array formula or a pivot table).`);
   return { cleared: qualified(wb, sheetId, range), what, ...left };
 }
 
