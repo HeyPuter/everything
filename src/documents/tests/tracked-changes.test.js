@@ -263,6 +263,36 @@ describe('tracked change edge cases', () => {
     undone.model.resolveRevisions(false); undone.model.undo();
     expect(summary(undone.model)).toEqual([['del', 'Me', 'theirs B\nNe', '¶']]);
   });
+  it('resolves another reviewer\'s deletion inside an insertion with the insertion', async () => {
+    // Ada inserted "one two three"; Grace then deleted "two " of it (w:del inside w:ins).
+    const files = unzipSync(trackedDocx({ track: false }));
+    files['word/document.xml'] = strToU8(`<w:document xmlns:w="${W}"><w:body><w:p><w:r><w:t xml:space="preserve">A </w:t></w:r><w:ins w:id="1" w:author="Ada" w:date="2026-01-01T00:00:00Z"><w:r><w:t xml:space="preserve">one </w:t></w:r><w:del w:id="2" w:author="Grace" w:date="2026-01-02T00:00:00Z"><w:r><w:delText xml:space="preserve">two </w:delText></w:r></w:del><w:r><w:t>three</w:t></w:r></w:ins><w:r><w:t xml:space="preserve"> B</w:t></w:r></w:p><w:sectPr/></w:body></w:document>`);
+    const source = zipSync(files), ada = { only: change => change.author === 'Ada' };
+    // Accepting Ada's insertion keeps all of its text: rejecting Grace's deletion afterwards removed "two ".
+    let { pkg, model } = await open(source);
+    model.resolveRevisions(true, undefined, undefined, ada);
+    expect(summary(model)).toEqual([['del', 'Grace', 'two ']]);
+    const accepted = strFromU8(unzipSync(await save(pkg, model))['word/document.xml']);
+    expect(accepted).not.toMatch(/<w:ins /);
+    model.resolveRevisions(false);
+    expect(model.text).toBe('A one two three B');
+    // Rejecting Ada's insertion removes "two " too: it stayed as Grace's deletion of a rejected insertion, which
+    // rejecting the deletion brought back.
+    ({ pkg, model } = await open(source));
+    model.resolveRevisions(false, undefined, undefined, ada);
+    expect(model.text).toBe('A  B');
+    expect(model.revisions).toEqual([]);
+    expect(strFromU8(unzipSync(await save(pkg, model))['word/document.xml'])).not.toMatch(/<w:(ins|del) /);
+    // From the balloon of the insertion's first piece: that piece and the deleted text after it go.
+    ({ model } = await open(source));
+    const first = model.revisions[0];
+    model.resolveRevisions(false, first.start, first.end, { only: change => change.type === 'ins' && change.author === 'Ada' });
+    expect(model.text).toBe('A three B');
+    expect(summary(model)).toEqual([['ins', 'Ada', 'three']]);
+    model.undo();
+    expect(summary(model)).toEqual([['ins', 'Ada', 'one '], ['del', 'Grace', 'two '], ['ins', 'Ada', 'three']]);
+  });
+
   it('never marks a table cell\'s final paragraph mark as deleted', async () => {
     const files = unzipSync(trackedDocx());
     const cell = t => `<w:tc><w:tcPr><w:tcW w:w="2000" w:type="dxa"/></w:tcPr><w:p><w:r><w:t>${t}</w:t></w:r></w:p></w:tc>`;

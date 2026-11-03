@@ -2496,6 +2496,36 @@ export class TextDocument {
       });
       if (restored.size) { for (const p of restored) p.runs = normalize(p.runs); targets = changes(); }
     }
+    // Text another reviewer deleted within an insertion is part of that insertion (a w:del inside the w:ins,
+    // §17.13.5.18): resolving the insertion next to it resolves it too. Rejecting the insertion removes that text
+    // with the rest; accepting it leaves only the deletion. Left as a deletion of a still pending insertion, the
+    // text came back as the rejected insertion when the deletion was rejected, and accepted text was removed.
+    if (targets.some(r => r.type === 'ins' && !r.move) && this.paragraphs.some(p => p.markRevision?.inserted || p.runs.some(run => run.revision?.inserted))) {
+      const byStart = new Map(), byEnd = new Map(); let at = 0;
+      for (const p of this.paragraphs) {
+        for (const run of p.runs) {
+          if (run.revision?.inserted && run.text) { const span = { start: at, end: at + run.text.length, target: run, paragraph: p }; byStart.set(span.start, span); byEnd.set(span.end, span); }
+          at += run.text.length;
+        }
+        if (p.markRevision?.inserted) { const span = { start: at, end: at + 1, target: p, mark: true, paragraph: p }; byStart.set(span.start, span); byEnd.set(span.end, span); }
+        at++;
+      }
+      const under = (span, r) => { const revision = span && (span.mark ? span.target.markRevision : span.target.revision); return revision?.type === 'del' && revision.inserted?.author === r.author && revision.inserted.date === r.date; };
+      const widened = [];
+      for (const r of targets) {
+        if (r.type !== 'ins' || r.move) { widened.push(r); continue; }
+        const spans = [];
+        let from = r.start, to = r.end;
+        while (under(byStart.get(to), r)) { spans.push(byStart.get(to)); to = byStart.get(to).end; }
+        while (under(byEnd.get(from), r)) { spans.push(byEnd.get(from)); from = byEnd.get(from).start; }
+        if (accept) { for (const span of spans) { const key = span.mark ? 'markRevision' : 'revision', { inserted, ...own } = span.target[key]; span.target[key] = own; touched.add(span.paragraph); } widened.push(r); continue; }
+        // Joined with the same insertion's next piece when the deleted text lay between them.
+        const last = widened.findLast(t => t.type === 'ins' && sameRevision(t, r));
+        if (last && last.end >= from) last.end = Math.max(last.end, to);
+        else widened.push({ ...r, start: from, end: to });
+      }
+      targets = widened;
+    }
     this.trackingInternal = true;
     const caret = (targets.find(r => !r.partner) || targets[0])?.start ?? fieldTargets[0].start;
     try {
