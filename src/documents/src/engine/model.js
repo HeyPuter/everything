@@ -354,7 +354,7 @@ function styleChoices(model, type, check) {
   entry[type] ??= Object.values(model.styles.definitions).filter(s => s.type === type).map(s => {
     let error = s.error;
     try { check(s); } catch (e) { error = e.message; }
-    return { id: s.id, name: s.name, error };
+    return { id: s.id, name: s.name, basedOn: s.basedOn || null, error };
   });
   return entry[type].map(choice => ({ ...choice }));
 }

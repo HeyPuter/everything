@@ -99,3 +99,30 @@ test('keeps style actions visible while fields scroll in a short narrow viewport
     await expect(page.getByRole('button', { name: 'Character spacing', exact: true })).toHaveAttribute('title', 'Character spacing: ' + (kind === 'paragraph' ? '-0.25' : '1') + ' pt');
   }
 });
+
+// A style cannot be based on itself or on a style that inherits from it (§17.7.4.3 basedOn: the
+// hierarchy has no cycles). The list offered them, and choosing one failed with a cyclic-inheritance error.
+test('Based on offers neither the style being edited nor the styles based on it', async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await page.goto('/playground.html'); await showAllTools(page);
+  await page.getByLabel('Open DOCX file').setInputFiles('public/fixtures/styles.docx');
+  const input = page.getByRole('textbox', { name: 'Document text' }); await expect(input).toHaveValue(/^Style heading/);
+  // Canvas Heading and Canvas List are based on Canvas Body; Canvas Subheading on Canvas Heading.
+  await input.evaluate(el => { const start = el.value.indexOf('Body '); el.setSelectionRange(start, start); el.dispatchEvent(new Event('select', { bubbles: true })); });
+  await expect(page.getByRole('combobox', { name: 'Paragraph style', exact: true })).toHaveValue('CanvasBody');
+  await page.getByRole('button', { name: 'Edit paragraph style', exact: true }).click();
+  const basedOn = page.getByRole('combobox', { name: 'Based on style', exact: true });
+  const offered = await basedOn.locator('option').evaluateAll(options => options.map(o => o.value));
+  for (const id of ['CanvasBody', 'CanvasHeading', 'CanvasSubheading', 'CanvasList']) expect(offered).not.toContain(id);
+  for (const id of ['', 'Normal', 'Heading1', 'Title']) expect(offered).toContain(id);
+  await expect(basedOn).toHaveValue('Normal');
+  await basedOn.selectOption('Heading1');
+  await page.getByRole('button', { name: 'Apply', exact: true }).click(); await expect(page.getByRole('dialog')).toHaveCount(0);
+  // The edited heading lists its new ancestors but still not its own descendant.
+  await input.evaluate(el => { const start = el.value.indexOf('Style heading'); el.setSelectionRange(start, start); el.dispatchEvent(new Event('select', { bubbles: true })); });
+  await page.getByRole('button', { name: 'Edit paragraph style', exact: true }).click();
+  const again = await basedOn.locator('option').evaluateAll(options => options.map(o => o.value));
+  expect(again).toContain('CanvasBody'); expect(again).toContain('Heading1');
+  expect(again).not.toContain('CanvasHeading'); expect(again).not.toContain('CanvasSubheading');
+  expect(errors).toEqual([]);
+});
