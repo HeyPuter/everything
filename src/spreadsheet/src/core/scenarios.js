@@ -176,7 +176,11 @@ export function showScenario(wb, sheetId, name) {
   });
   wb.transaction(`Show scenario ${sc.name}`, () => {
     wb.setCells(sheetId, entries, `Show scenario ${sc.name}`);
-    if (sheet.scenarios) sheet.scenarios = { ...sheet.scenarios, current: i, show: i };
+    // The scenario shown is the sheet's setting, as the list is: Undo takes it back with the values, and in a
+    // shared workbook everyone (and the file) has it, rather than only the browser it was shown in.
+    if (sheet.scenarios && (sheet.scenarios.current !== i || sheet.scenarios.show !== i)) {
+      setScenarios(wb, sheetId, { ...sheet.scenarios, current: i, show: i }, `Show scenario ${sc.name}`);
+    }
   });
   return true;
 }
