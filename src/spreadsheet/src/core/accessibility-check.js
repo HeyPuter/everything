@@ -7,6 +7,7 @@
 import { rangeName } from './cell.js';
 import { fontColorCss } from './font-color.js';
 import { fillColorCss } from './fill-color.js';
+import { objectNames } from './arrange.js';
 
 /** The rules, the tier each belongs to, and why and how to fix it (the pane's Additional Information). */
 export const ACCESSIBILITY_RULES = {
@@ -59,9 +60,6 @@ const minimumRatio = (style) => {
   return points >= 18 || (style?.bold && points >= 14) ? 3 : 4.5;
 };
 
-const objectName = (obj, index) => obj.title || {
-  image: `Picture ${index + 1}`, text: `TextBox ${index + 1}`, smartart: `SmartArt ${index + 1}`, slicer: `Slicer ${index + 1}`, scroll: `Scroll Bar ${index + 1}`,
-}[obj.type] || `Chart ${index + 1}`;
 
 /**
  * Inspect the workbook. Each finding: { rule, severity, sheetId, sheet, label, target } where target is
@@ -74,15 +72,18 @@ export function checkAccessibility(wb) {
   const verdicts = new Map(); // "ink|fill|minimum ratio" → too little contrast
   for (const sheet of visible) {
     if (sheet.kind === 'chart') {
-      sheet.charts.forEach((obj, i) => { if (!obj.decorative && !obj.description && !obj.title) add('altText', sheet, `${objectName(obj, i)} (${sheet.name})`, { chartId: obj.id }); });
+      const names = objectNames(sheet.charts);
+      sheet.charts.forEach((obj) => { if (!obj.decorative && !obj.description && !obj.title) add('altText', sheet, `${names.get(obj.id)} (${sheet.name})`, { chartId: obj.id }); });
       continue;
     }
     // Objects without a description and not marked decorative. Scroll bars and slicers carry their own names.
-    sheet.charts.forEach((obj, i) => {
+    // Each is named as the Selection Pane names it, where it is found and given a name of its own.
+    const names = objectNames(sheet.charts);
+    sheet.charts.forEach((obj) => {
       if (obj.type === 'scroll' || obj.type === 'slicer' || obj.decorative) return;
       // A SmartArt graphic reads out its own text when it has no description.
       const alt = obj.description || (obj.type === 'image' ? obj.title : obj.type === 'smartart' ? (obj.items || []).map((it) => it.text).join(' ') : '');
-      if (!String(alt || '').trim()) add('altText', sheet, `${objectName(obj, i)} (${sheet.name})`, { chartId: obj.id });
+      if (!String(alt || '').trim()) add('altText', sheet, `${names.get(obj.id)} (${sheet.name})`, { chartId: obj.id });
     });
     // Pictures placed in cells with no alt text of their own (an IMAGE formula gives its alt text as an argument).
     for (const [key, cell] of sheet.cells) {
