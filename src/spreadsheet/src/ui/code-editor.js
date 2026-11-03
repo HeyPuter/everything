@@ -460,6 +460,25 @@ export function createCodeEditor({ value = '', label = 'Script code', onChange =
       tabMoves = true;
       return;
     }
+    if ((e.key === 'Home' || e.key === 'End') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      // Home and End go to the start and end of the caret's line, as in any code editor. On a Mac the browser's
+      // own Home and End scroll to the top or bottom of the script and leave the caret where it was, far out of view.
+      e.preventDefault();
+      const text = textarea.value, back = textarea.selectionDirection === 'backward';
+      const anchor = back ? textarea.selectionEnd : textarea.selectionStart, focus = back ? textarea.selectionStart : textarea.selectionEnd;
+      let to = e.key === 'Home' ? lineStartOf(text, focus) : text.indexOf('\n', focus);
+      if (to < 0) to = text.length;
+      const from = e.shiftKey ? anchor : to;
+      textarea.setSelectionRange(Math.min(from, to), Math.max(from, to), to < from ? 'backward' : 'forward');
+      // The caret in view across, too: the end of a long line lies past the right edge.
+      const x = text.slice(lineStartOf(text, to), to).replace(/\t/g, INDENT).length * charWidth;
+      const pad = parseFloat(getComputedStyle(textarea).paddingLeft) || 0;
+      if (x < textarea.scrollLeft) textarea.scrollLeft = x;
+      else if (x + 2 * pad + 2 > textarea.scrollLeft + textarea.clientWidth) textarea.scrollLeft = x + 2 * pad + 2 - textarea.clientWidth;
+      revealLine(lineOf(to));
+      renderMarks();
+      return;
+    }
     if (textarea.readOnly) return;
     if (e.key === 'Tab' && !mod && !e.altKey) {
       if (tabMoves) { tabMoves = false; return; }
