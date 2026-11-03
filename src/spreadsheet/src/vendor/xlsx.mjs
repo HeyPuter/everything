@@ -24916,11 +24916,15 @@ function write_number_format_ods_section(nf/*:string*/, nfidx/*:string*/)/*:stri
 		/* Puter Spreadsheet local patch: a regional format's percentage keeps its no-break space before the sign
 		 * (#,##0.0" "% for 12,3 % in France) or writes the sign first (%#,##0.0 for %12,3 in Turkey); either was
 		 * written as a plain number, the % left out, so LibreOffice showed 0,1 for 12,3 %. */
+		/* Puter Spreadsheet local patch: any space before the sign, plain, escaped or quoted (0.00 %, 0.00\ %, 0.00" "%), and
+		 * the words after it (0%" of target"): with a plain space the % was left out and 37.5 % showed as 0.38. */
 		var lead = nf.match(/^%("[\u00a0\u202f]")?([#0][0#,]*)(|\.[0#]+)$/);
-		if(lead || (t=nf.match(/(?:^|[^#0,.])([#0][0#,]*)(|\.[0#]+)("[\u00a0\u202f]")?%/))) {
+		if(lead || (t=nf.match(/(?:^|[^#0,.])([#0][0#,]*)(|\.[0#]+)((?:"[^"%]*"|\\[^%]| )*)%/))) {
 			if(lead) t = [lead[0], lead[2], lead[3], lead[1]];
 			type = "percentage";
-			var sign = "<number:text>" + (lead ? "%" + (t[3] ? t[3].slice(1, -1) : "") : (t[3] ? t[3].slice(1, -1) : "") + "%") + "</number:text>";
+			var gap = (t[3] || "").replace(/"([^"]*)"|\\(.)/g, "$1$2");
+			var words = lead ? null : read_ods_format_text_run(nf, t.index + t[0].length);
+			var sign = "<number:text>" + escapexml(lead ? "%" + gap : gap + "%" + (words && /\S/.test(words.text) ? words.text : "")) + "</number:text>";
 			var digitsTag = writextag("number:number", null, {
 				"number:decimal-places": t[2] ? t[2].length - 1 : 0,
 				"number:min-decimal-places": (t[2].match(/0/g) || []).length,
