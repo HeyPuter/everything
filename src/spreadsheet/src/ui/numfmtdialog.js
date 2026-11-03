@@ -6,7 +6,7 @@
 import { el, fieldId } from './dom.js';
 import { openModal } from './modal.js';
 import { formatWithCode, formatCodeError, CUSTOM_FORMAT_PRESETS } from '../core/numfmt.js';
-import { styleToNumFmt, formatGeneral } from '../core/format.js';
+import { styleToNumFmt, formatGeneral, AUTOMATIC_FORMAT } from '../core/format.js';
 
 export function openCustomFormatDialog(ctx) {
   const style = ctx.style();
@@ -44,7 +44,8 @@ export function openCustomFormatDialog(ctx) {
     const code = input.value.trim();
     const problem = formatCodeError(code);
     if (problem) { error.textContent = problem; error.hidden = false; input.setAttribute('aria-invalid', 'true'); input.focus(); return; }
-    ctx.run('fmt', { fmt: 'custom', code, dec: null, dateStyle: null });
+    // The code @ is Excel's Text format, as Format Cells applies it, so what is typed into the cell stays as typed.
+    ctx.run('fmt', code === '@' ? { ...AUTOMATIC_FORMAT, fmt: 'text' } : { fmt: 'custom', code, dec: null, dateStyle: null });
     modal.close();
   };
   const content = el('form', { onsubmit: submit },

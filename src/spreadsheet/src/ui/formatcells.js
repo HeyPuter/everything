@@ -110,7 +110,8 @@ export function numberPatch({ category, dec, group, cur, dateStyle, code, neg = 
   const base = { ...AUTOMATIC_FORMAT };
   if (entry.value === 'general' || entry.value === 'text') return { ...base, ...entry.patch };
   if ((entry.value === 'number' || entry.value === 'currency') && neg && neg !== 'minus') return { ...base, fmt: 'custom', code: negativeCode({ category: entry.value, dec, group, cur, neg }) };
-  if (entry.value === 'custom') return { ...base, fmt: 'custom', code: code || '0' };
+  // The code @ is Excel's Text format (built-in 49), as an .xlsx carrying it opens: it keeps what is typed as typed.
+  if (entry.value === 'custom') return code?.trim() === '@' ? numberPatch({ category: 'text' }) : { ...base, fmt: 'custom', code: code || '0' };
   // Accounting is its preset code in the chosen currency and places; a currency other than dollars stays in the
   // style too, as the ribbon's Accounting button keeps it.
   if (entry.value === 'accounting') {
