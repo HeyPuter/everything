@@ -722,9 +722,28 @@ export class TextDocument {
     if (!targets.every(p => p.list)) return this.adjustIndent(delta * 720);
     if (targets.some(p => p.list.level + delta < 0 || p.list.level + delta > 8)) return false;
     for (const p of targets) levelFor(this.numbering, { ...p.list, level: p.list.level + delta });
+    // A paragraph in the style its list level is linked to (§17.9.23 pStyle: Heading 1 for level 1 of an
+    // outline list) takes the style linked to its new level, as in Word: Tab makes a numbered Heading 1 a
+    // Heading 2. Kept in Heading 1 with a level-2 number, it stayed a top-level heading in the outline,
+    // the Navigation pane and the table of contents.
+    const restyled = targets.map(p => this.linkedLevelStyle(p, p.list.level + delta));
     this.checkpoint();
-    for (const p of targets) { p.list = { ...p.list, direct: true, level: p.list.level + delta }; p.listChanged = true; }
+    targets.forEach((p, i) => {
+      if (restyled[i]) { Object.assign(p, restyled[i]); return; }
+      p.list = { ...p.list, direct: true, level: p.list.level + delta }; p.listChanged = true;
+    });
     this.didChange(); return true;
+  }
+  /** `p` restyled for list level `level` of its list, when its style is linked to its level and another style to that one; else null. */
+  linkedLevelStyle(p, level) {
+    if (!this.stylesEnabled) return null;
+    const current = levelFor(this.numbering, p.list), next = levelFor(this.numbering, { ...p.list, level });
+    if (!current.styleId || current.styleId !== effectiveStyleId(p, this.styles) || !next.styleId || next.styleId === current.styleId || this.styles.definitions[next.styleId]?.type !== 'paragraph') return null;
+    let candidate;
+    try { candidate = resolveStyledParagraph({ ...copy(p), styleId: next.styleId, styleChanged: true, ...(p.list.direct ? { list: { ...p.list, level }, listChanged: true } : {}) }, this.styles, this.numbering); } catch { return null; }
+    // The new style must number the paragraph in the same list at that level.
+    const abstract = id => this.numbering.instances[id]?.abstractId;
+    return candidate.list && abstract(candidate.list.numId) === abstract(p.list.numId) && candidate.list.level === level ? candidate : null;
   }
   restartNumbering(start = 1) {
     const first = this.selectedParagraphs[0];
