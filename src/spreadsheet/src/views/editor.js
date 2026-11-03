@@ -165,7 +165,7 @@ import { toDelimited, parseClipboard, parseDelimited } from '../core/tsv.js';
 import { detectDelimiter, workbookFromFile, rangeToCsv, CSV_MIME } from '../core/io.js';
 import { cellsToHtml, copyMergeLayout, parseHtmlClipboard, cellsFromHtmlRows, isOwnHtmlClipboard } from '../core/clipboard.js';
 import { eachStoredCell, lineSpan } from '../core/sparse-range.js';
-import { MAX_ROWS, MAX_COLS, MIN_COL_WIDTH, MAX_COL_WIDTH, MIN_ROW_HEIGHT, MAX_ROW_HEIGHT, cellFromInput, safeLinkUrl } from '../core/workbook.js';
+import { MAX_ROWS, MAX_COLS, MIN_COL_WIDTH, MAX_COL_WIDTH, MIN_ROW_HEIGHT, MAX_ROW_HEIGHT, cellFromInput, safeLinkUrl, objectNoun } from '../core/workbook.js';
 import { isSpreadsheetFile, IMPORT_EXTENSIONS, fileProblem } from '../core/filetypes.js';
 import { FUNCTION_NAMES } from '../core/formula/functions.js';
 import { RULE_TYPES } from '../core/condformat.js';
@@ -4050,10 +4050,12 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         // Delete (`only`: Edit text box, Equation) deletes the one object it edits.
         const selected = grid.selectedCharts || [];
         if (!arg?.only && selected.length > 1 && selected.includes(id)) { run('deleteObjects', selected); return; }
-        const kind = wb.chartById(sheetId, id)?.type;
+        const obj = wb.chartById(sheetId, id), kind = obj?.type;
         if (kind === 'timeline') { if (!deleteTimeline(wb, sheetId, id)) return; }
         else if (!wb.deleteChart(sheetId, id)) return;
-        toast(kind === 'slicer' ? 'Slicer deleted' : kind === 'timeline' ? 'Timeline deleted' : kind === 'image' ? 'Image deleted' : kind === 'text' ? 'Text box deleted' : kind === 'smartart' ? 'SmartArt deleted' : 'Chart deleted', { icon: 'trash', duration: 1600 });
+        // Named as the undo step names it: a scroll bar or an equation is not a chart or a text box.
+        const noun = kind === 'timeline' ? 'timeline' : objectNoun(obj);
+        toast(`${noun[0].toUpperCase()}${noun.slice(1)} deleted`, { icon: 'trash', duration: 1600 });
         keepFocus();
         return;
       }
