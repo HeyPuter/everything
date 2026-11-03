@@ -23616,6 +23616,13 @@ function parse_ods_styles(d/*:string*/, _opts, _nfm, _styles) {
 				if(gt != null && lt != null) NF = gt + ";" + lt + ";" + NF;
 				else if(ge != null) NF = ge + ";" + NF;
 				else if(gt != null) NF = gt + ";" + NF;
+				else if(lt != null) NF = "[<0]" + lt + ";" + NF;
+				/* Puter Spreadsheet local patch: sections chosen by their own conditions, at most two as in Excel, each
+				 * with its test before its code, the style's own section last. */
+				else if(NFmaps.conditions && NFmaps.conditions.length <= 2) {
+					var tested = NFmaps.conditions.map(function(c) { var code = section(c.name); return code == null ? null : c.test + code; });
+					if(tested.every(function(code) { return code != null; })) NF = tested.join(";") + ";" + NF;
+				}
 				number_format_map[NFtag.name] = NF;
 				NF = ""; NFmaps = {};
 			} else if(Rn[0].charAt(Rn[0].length-2) !== '/') {
@@ -23799,6 +23806,10 @@ function parse_ods_styles(d/*:string*/, _opts, _nfm, _styles) {
 			/* Puter Spreadsheet local patch: kept until the style closes, where the sections are put in order. */
 			var condition = unescapexml(y["condition"] || "").replace(/\s+/g, "");
 			if(["value()>=0", "value()>0", "value()<0"].indexOf(condition) > -1 && y["apply-style-name"]) NFmaps[condition] = y["apply-style-name"];
+			/* Puter Spreadsheet local patch: any other comparison is a section's own condition ([>=1000]0.0,"K"), kept in
+			 * the order the maps are tried. */
+			else if((y = /^value\(\)(<=|>=|!=|<|>|=)(-?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?)$/.exec(condition)) && parsexmltag(Rn[0], false)["apply-style-name"])
+				(NFmaps.conditions = NFmaps.conditions || []).push({ test: "[" + (y[1] == "!=" ? "<>" : y[1]) + (+y[2]) + "]", name: parsexmltag(Rn[0], false)["apply-style-name"] });
 			break;
 
 		case 'number': // <number:number> 16.29.3
@@ -24778,8 +24789,26 @@ function split_ods_format_sections(nf) {
  * are its own. A code whose sections test their own conditions ([>100]) or are of different kinds keeps its first. */
 function write_number_format_ods(nf/*:string*/, nfidx/*:string*/)/*:string*/ {
 	var sections = split_ods_format_sections(nf);
-	if(sections.length < 2 || sections.slice(0, 3).some(function(section) { return /\[[<>=]/.test(section.replace(/"(?:[^"]|"")*"/g, "")); }))
-		return write_number_format_ods_section(sections[0], nfidx);
+	if(sections.length < 2) return write_number_format_ods_section(sections[0], nfidx);
+	/* Puter Spreadsheet local patch: sections that test their own conditions ([>=1000]0.0,"K";0) are written as LibreOffice
+	 * writes them, each condition a style:map to its section's style in the order Excel tries them, the last section
+	 * the style itself. Only the first was written, so 10 in [>=1000000]0.0,,"M";[>=1000]0.0,"K";0 showed as 0.0M. */
+	var conditions = sections.slice(0, 3).map(function(section) {
+		var m = /^(?:\[[^\]<>=]*\])?\[(<=|>=|<>|<|>|=)\s*(-?(?:\d+\.?\d*|\.\d+)(?:E[+-]?\d+)?)\]/i.exec(section);
+		return m ? "value()" + (m[1] == "<>" ? "!=" : m[1]) + (+m[2]) : null;
+	});
+	if(conditions.some(Boolean)) {
+		/* The sections after the tested ones are not tried: the first without a test is the rest's. */
+		var count = conditions.indexOf(null) + 1;
+		if(count < 2) return write_number_format_ods_section(sections[0], nfidx);
+		var styles = sections.slice(0, count).map(function(section, k) { return { name: k == count - 1 ? nfidx : nfidx + "P" + k, xml: write_number_format_ods_section(section, k == count - 1 ? nfidx : nfidx + "P" + k) }; });
+		var styleKind = function(xml) { var m = /^<number:(\w+)-style/.exec(xml); return m && m[1]; };
+		if(styles.some(function(style) { return !style.xml || styleKind(style.xml) !== styleKind(styles[0].xml); })) return write_number_format_ods_section(sections[0], nfidx);
+		var last = styles[count - 1].xml.replace(/<\/number:\w+-style>$/, function(close) {
+			return conditions.slice(0, count - 1).map(function(c, k) { return writextag("style:map", null, { "style:condition": escapexml(c), "style:apply-style-name": styles[k].name }); }).join("") + close;
+		});
+		return styles.slice(0, -1).map(function(style) { return style.xml; }).join("\n") + "\n" + last;
+	}
 	var parts = sections.slice(0, 3).map(function(section, k) {
 		var name = k == Math.min(sections.length, 3) - 1 ? nfidx : nfidx + "P" + k;
 		return { name: name, xml: section === "" ? "" : write_number_format_ods_section(section, name) };
@@ -24799,6 +24828,8 @@ function write_number_format_ods(nf/*:string*/, nfidx/*:string*/)/*:string*/ {
 function write_number_format_ods_section(nf/*:string*/, nfidx/*:string*/)/*:string*/ {
 	var type = "number", payload = "", nopts = { "style:name": nfidx }, c = "", i = 0;
 	nf = nf.replace(/"[$]"/g, "$");
+	/* Puter Spreadsheet local patch: a condition may come before the colour too ([<0][Red]). */
+	nf = nf.replace(/^\[[<>=][^\]]*\](?=\[)/, "");
 	/* Puter Spreadsheet local patch: a section's colour ([Red]) is the style's text colour. */
 	var ink = /^\[(black|blue|cyan|green|magenta|red|white|yellow)\]/i.exec(nf);
 	var inks = { black: "#000000", blue: "#0000ff", cyan: "#00ffff", green: "#00ff00", magenta: "#ff00ff", red: "#ff0000", white: "#ffffff", yellow: "#ffff00" };
