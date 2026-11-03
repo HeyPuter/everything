@@ -89,6 +89,25 @@ describe('DWG reader: versions', () => {
   }
 });
 
+describe('DWG reader: multileaders', () => {
+  for (const v of ['2007', '2018']) {
+    it(`reads multileader lines and text from DWG ${v}`, () => {
+      const d = parseDwg(fx(`mleader-r${v}.dwg`)).drawing;
+      // the sample drawing has one leader of its own, drawn first
+      const leaders = d.entities.filter((e) => e.type === 'leader').slice(1);
+      expect(leaders.map((e) => e.pts)).toEqual([
+        [200, 120, 215, 134.75, 217, 134.75],
+        [10, 10, 25, 30, 40, 29.333333333333332, 42, 29.333333333333332],
+      ]);
+      const notes = d.entities.filter((e) => e.type === 'mtext' && (e.value.startsWith('Drill') || e.value.startsWith('Two')));
+      expect(notes.map((e) => [e.value, e.x, e.y, e.h])).toEqual([
+        ['Drill 4x ∅ 8', 218, 136, 2.5],
+        ['Two segment note', 43, 31, 2.5],
+      ]);
+    });
+  }
+});
+
 describe('DWG reader: objects', () => {
   const files = ['sample-r2000.dwg', 'sample-r2004.dwg', 'sample-r2007.dwg', 'extras-r2000.dwg', 'extras-r2007.dwg', 'hatches-r2004.dwg', 'extras-r14.dwg'];
   for (const f of files) {
