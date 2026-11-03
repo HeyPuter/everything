@@ -3,7 +3,7 @@
  * (§17.3.2.21 noProof), set the document's default language, and translate the selection or the
  * whole document with Puter's AI into a pane (with Insert) or a new document.
  */
-import { el, listboxKeys } from '../ui/dom.js';
+import { el, listboxKeys, isComposing } from '../ui/dom.js';
 import { openModal } from '../ui/modal.js';
 import { toast } from '../ui/toast.js';
 import * as P from '../lib/puter.js';
@@ -42,6 +42,12 @@ export function openLanguageDialog({ language, noProof, defaultLanguage, apply, 
   render();
   // One Tab stop, on the chosen language; the arrows move through the list and choose as they go.
   settle = listboxKeys(list, option => choose(option.dataset.tag));
+  // Enter on a language is OK, as in a list in a desktop dialog: the option is a button, which would only choose it.
+  list.addEventListener('keydown', e => {
+    const option = e.target.closest?.('[role="option"]');
+    if (e.key !== 'Enter' || !option || isComposing(e) || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+    e.preventDefault(); choose(option.dataset.tag); submit();
+  });
   const modal = openModal({ title: 'Language', onClose, content: el('form.ed-dialog-body.rv-language-dialog', { onsubmit: e => { e.preventDefault(); submit(); } },
     el('p.field-hint', {}, 'Mark the selected text as:'),
     filter, list,
