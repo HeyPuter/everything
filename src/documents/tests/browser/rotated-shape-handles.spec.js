@@ -106,3 +106,28 @@ test('a rotated shape is selected where it shows, not where its unrotated outlin
   expect(await selected()).toBe(null);
   expect(errors).toEqual([]);
 });
+
+test('Align Left and Align Top line up a rotated shape’s visible edges with the margins', async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/mock.html#/new');
+  await expect((await onTab(page, 'home')).getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await input(page).focus();
+  for (let i = 0; i < 8; i++) { await page.keyboard.type(`Paragraph ${i + 1} of the text.`); await page.keyboard.press('Enter'); }
+  await drawShape(page, 'Rectangle', [400, 300], [600, 360]);
+  await onTab(page, 'shapeFormat');
+  const panel = page.locator('#ribbon-panel-shapeFormat');
+  await panel.getByRole('button', { name: 'Rotate', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Rotate Right 90°' }).click();
+  await expect.poll(async () => (await shape(page)).rotation).toBe(5400000);
+  const margins = await page.evaluate(() => { const p = window.__docs.current.view.engine.layout.pages[0]; return { left: p.left, top: p.top }; });
+  for (const name of ['Align Left', 'Align Top']) {
+    await panel.getByRole('button', { name: 'Align', exact: true }).click();
+    await page.getByRole('menuitem', { name, exact: true }).click();
+  }
+  // Turned a quarter, the 200 × 60 shape shows 60 wide and 200 tall about its center.
+  await expect.poll(async () => { const s = await shape(page); return Math.round(s.x + s.width / 2 - s.height / 2); }).toBe(Math.round(margins.left));
+  const s = await shape(page);
+  expect(s.y + s.height / 2 - s.width / 2).toBeCloseTo(margins.top, 0);
+  expect(errors).toEqual([]);
+});

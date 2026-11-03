@@ -1,5 +1,5 @@
 import { EMU_PER_PX, isPositionedImage, validateImage } from './images.js';
-import { positionedImageFrame, positionedImageBounds } from './positioned-images.js';
+import { positionedImageFrame, positionedImageBounds, drawingOwnRotation } from './positioned-images.js';
 
 /**
  * Arrange: where floating drawings sit on their pages and how they stack. Positions are kept in each
@@ -62,12 +62,18 @@ export function moveDrawings(model, moves) {
   return true;
 }
 
+/** A drawing's bounds as it shows on the page: turned by its picture rotation or, for a shape or group, its own. */
+function visibleBounds(editor, f) {
+  const rotation = drawingOwnRotation(f.image, editor.model?.assets);
+  return positionedImageBounds(rotation ? { ...f, image: { ...f.image, rotation } } : f);
+}
+
 /** The page rectangles drawings align to: the page, its margins, or the selected objects' bounds. */
 export function referenceBox(editor, frames, relativeTo) {
   const page = editor.layout.pages[frames[0].page] || editor.layout.page;
   if (relativeTo === 'page') return { x: 0, y: 0, width: page.width, height: page.height };
   if (relativeTo === 'margin') return { x: page.left, y: page.top, width: page.width - page.left - page.right, height: page.height - page.top - page.bottom };
-  const boxes = frames.map(positionedImageBounds);
+  const boxes = frames.map(f => visibleBounds(editor, f));
   const left = Math.min(...boxes.map(b => b.x)), top = Math.min(...boxes.map(b => b.y));
   return { x: left, y: top, width: Math.max(...boxes.map(b => b.x + b.width)) - left, height: Math.max(...boxes.map(b => b.y + b.height)) - top };
 }
@@ -82,7 +88,7 @@ export function alignmentMoves(editor, images, mode, relativeTo = images.length 
   if (frames.some(f => f.page !== frames[0].page)) throw new Error('The objects are on different pages.');
   const box = referenceBox(editor, frames, relativeTo);
   const moves = [];
-  const bounds = f => positionedImageBounds(f);
+  const bounds = f => visibleBounds(editor, f);
   // Rotated drawings align by their visible bounds; the frame moves by the same amount.
   const to = (f, x, y) => { const b = bounds(f); const at = offsetsFor(editor, f, f.x + (x ?? b.x) - b.x, f.y + (y ?? b.y) - b.y); moves.push({ image: f.image, x: x === undefined ? undefined : at.x, y: y === undefined ? undefined : at.y }); };
   if (mode === 'distributeHorizontal' || mode === 'distributeVertical') {

@@ -224,7 +224,8 @@ export function createImageInteraction(editor) {
     if (f.floating && (mode === 'move' || mode === 'rotate' || HANDLES.includes(mode))) gesture.offsets = offsets(f);
     if (mode === 'move' && f.floating) {
       const ids = new Set([f.image.id, ...others.map(o => o.image.id)]);
-      const neighbours = (editor.selectionLayout.floatingObjects || []).filter(o => o.page === f.page && !ids.has(o.image.id)).map(o => positionedImageBounds(o));
+      // Other drawings' edges as they show: a turned shape by its own rotation.
+      const neighbours = (editor.selectionLayout.floatingObjects || []).filter(o => o.page === f.page && !ids.has(o.image.id)).map(o => positionedImageBounds(ownRotation(o.image) ? { ...o, image: { ...o.image, rotation: ownRotation(o.image) } } : o));
       gesture.targets = pageGuideTargets(pageGeometry(f.page), neighbours);
       gesture.bounds = positionedImageBounds({ ...box, image: { ...f.image, rotation: rotationOf(f) * ANGLE_PER_DEGREE } });
     }
