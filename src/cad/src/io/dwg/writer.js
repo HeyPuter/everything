@@ -5,10 +5,12 @@
  * DWG requires and DXF may leave out (table control objects, layouts, the
  * multiline style, dictionaries), and serialized.
  *
- * Output: DWG R2000 (AC1015), which AutoCAD and every other DWG reader opens.
+ * Output: DWG 2004 (AC1018, the default: true colors and layer
+ * transparency are kept) or DWG 2000 (AC1015).
  */
 import { writeDxf } from '../dxf/writer.js';
-import { BitWriter, crc16, R2000, R2004, R2007, R2010 } from './bits.js';
+import { BitWriter, crc16, crc32, R2000, R2004, R2007, R2010 } from './bits.js';
+import { compress2004, checksum2004, headerMask } from './container.js';
 import { SpecWriter } from './spec.js';
 import { headerSpec, SENTINEL_HEADER, SENTINEL_HEADER_END } from './header.js';
 import { SENTINEL_CLASSES } from './database.js';
@@ -1043,6 +1045,14 @@ function hatchValues(r) {
     else if (line && c === 46) line.offset[1] = +val;
     else if (line && c === 49) line.dashes.push(+val);
   }
+  if (!v.solid && !lines.length) {
+    // no definition was supplied: DWG readers drop pattern hatches without
+    // lines, so draw it as 45 degree lines (the ANSI31 family)
+    const a = (v.angle || 0) + Math.PI / 4;
+    const sp = 3.175 * (v.scale || 1);
+    lines.push({ angle: a, base: [0, 0], offset: [-sp * Math.sin(a), sp * Math.cos(a)], dashes: [] });
+    this.warn(`Hatch pattern '${v.name}' has no definition and was written to DWG as 45° lines.`);
+  }
   for (const l of lines) l.numDashes = l.dashes.length;
   v.numLines = lines.length;
   v.lines = lines;
@@ -1164,6 +1174,15 @@ function headerBytes(b) {
 
 function classBytes(b) {
   const w = new BitWriter(b.ver, 512);
+  const r2004 = b.ver >= R2004;
+  if (r2004) {
+    w.BS(499 + b.classes.length);
+    w.RC(0);
+    w.RC(0);
+    w.B(1);
+  }
+  const counts = new Map();
+  for (const o of b.objs.values()) counts.set(o.type, (counts.get(o.type) || 0) + 1);
   for (const c of b.classes) {
     w.BS(c.num);
     w.BS(c.proxy);
@@ -1172,6 +1191,13 @@ function classBytes(b) {
     w.TV(c.dxf);
     w.B(0);
     w.BS(c.entity ? 0x1f2 : 0x1f3);
+    if (r2004) {
+      w.BL(counts.get(c.dxf) || 0);
+      w.BL(0);
+      w.BL(0);
+      w.BL(0);
+      w.BL(0);
+    }
   }
   return framed(SENTINEL_CLASSES, w.bytes(), SENTINEL_CLASSES_END);
 }
@@ -1234,7 +1260,7 @@ function le32(v) {
 }
 
 function auxHeader(b) {
-  const verCode = 23;
+  const verCode = b.ver >= R2004 ? 25 : 23;
   const t = b.hv.TDCREATE || [0, 0];
   const bytes = [0xff, 0x77, 0x01, ...le16(verCode), ...le16(0), ...le32(1), ...le32(0xffffffff), ...le16(1), ...le16(0), ...le32(0)];
   bytes.push(...le16(verCode), ...le16(0), ...le16(verCode), ...le16(0));
@@ -1324,6 +1350,235 @@ function serializeR2000(b) {
   return concat([fh, aux, preview, header, classes, objects, map, free, template]);
 }
 
+/* ------------------------------------------------------------------ */
+/* R2004 container                                                     */
+/* ------------------------------------------------------------------ */
+
+const PAGE_MAX = 0x7400;
+/** Bytes 0xEC - 0xFF of every R2004+ file. */
+const R2004_TAIL = [0xf8, 0x46, 0x6a, 0x04, 0x96, 0x73, 0x0e, 0xd9, 0x16, 0x2f, 0x67, 0x68, 0xd4, 0xf7, 0x4a, 0x4a, 0xd0, 0x57, 0x68, 0x76];
+
+function setU32(u8, p, v) {
+  u8[p] = v & 0xff;
+  u8[p + 1] = (v >>> 8) & 0xff;
+  u8[p + 2] = (v >>> 16) & 0xff;
+  u8[p + 3] = (v >>> 24) & 0xff;
+}
+
+function setU64(u8, p, v) {
+  setU32(u8, p, v % 4294967296);
+  setU32(u8, p + 4, Math.floor(v / 4294967296));
+}
+
+const align32 = (n) => (n + 31) & ~31;
+
+/** Text of the R2004 summary info: 8-bit strings with a 16-bit length. */
+function summaryInfo(b) {
+  const out = [];
+  const str = (s) => {
+    out.push(...le16(s.length + 1));
+    for (let i = 0; i < s.length; i++) out.push(s.charCodeAt(i) & 0xff);
+    out.push(0);
+  };
+  for (let i = 0; i < 8; i++) str('');
+  for (let i = 0; i < 2; i++) out.push(...le32(0));
+  const t = b.hv.TDCREATE || [0, 0];
+  out.push(...le32(t[0]), ...le32(t[1]), ...le32(t[0]), ...le32(t[1]));
+  out.push(...le16(0), ...le32(0), ...le32(0));
+  return new Uint8Array(out);
+}
+
+function appInfo() {
+  const out = [];
+  const str = (s) => {
+    out.push(...le16(s.length + 1));
+    for (let i = 0; i < s.length; i++) out.push(s.charCodeAt(i) & 0xff);
+    out.push(0);
+  };
+  str('AppInfoDataList');
+  out.push(...le32(2));
+  str('4001');
+  str('<ProductInformation name ="Puter CAD" build_version="0.1" registry_version="16.0" install_id_string="CAD" registry_localeID="1033"/>');
+  str('Puter CAD');
+  return new Uint8Array(out);
+}
+
+/** The R2004 file: encrypted header, data pages, section map and page map. */
+function serializeR2004(b) {
+  const header = headerBytes(b);
+  const classes = classBytes(b);
+  const handles = [...b.objs.keys()].sort((x, y) => x - y);
+  const parts = [new Uint8Array(le32(0x0dca))];
+  const entries = [];
+  let off = 4;
+  for (const h of handles) {
+    const bytes = encodeObject(b, b.objs.get(h));
+    entries.push([h, off]);
+    parts.push(bytes);
+    off += bytes.length;
+  }
+  const objects = concat(parts);
+  const map = objectMapBytes(entries);
+  // sections in file order (ids as AutoCAD numbers them)
+  const sections = [
+    { name: 'AcDb:SummaryInfo', id: 9, data: summaryInfo(b), compressed: false },
+    { name: 'AcDb:Preview', id: 10, data: previewBytes(), compressed: false },
+    { name: 'AcDb:AppInfo', id: 11, data: appInfo(), compressed: false },
+    { name: 'AcDb:AcDbObjects', id: 7, data: objects, compressed: true },
+    { name: 'AcDb:ObjFreeSpace', id: 6, data: objFreeSpace(b, handles.length, 0), compressed: true },
+    { name: 'AcDb:Template', id: 5, data: new Uint8Array([...le16(0), ...le16(b.metric ? 1 : 0)]), compressed: true },
+    { name: 'AcDb:Handles', id: 4, data: map, compressed: true },
+    { name: 'AcDb:Classes', id: 3, data: classes, compressed: true },
+    { name: 'AcDb:AuxHeader', id: 2, data: auxHeader(b), compressed: true },
+    { name: 'AcDb:Header', id: 1, data: header, compressed: true },
+  ];
+  const pages = [];
+  let addr = 0x100;
+  let pageNum = 0;
+  for (const sec of sections) {
+    sec.pages = [];
+    sec.max = sec.compressed ? PAGE_MAX : align32(sec.data.length);
+    for (let start = 0; start < sec.data.length || (start === 0 && !sec.pages.length); start += sec.max) {
+      const chunk = sec.data.subarray(start, Math.min(sec.data.length, start + sec.max));
+      let body;
+      if (sec.compressed) body = compress2004(chunk);
+      else {
+        body = new Uint8Array(sec.max);
+        body.set(chunk);
+      }
+      const size = align32(32 + body.length);
+      const page = new Uint8Array(size);
+      page.set(body, 32);
+      const dataSum = checksum2004(0, body, 0, body.length);
+      const w = [0x4163043b, sec.id, body.length, size, start, 0, 0, dataSum];
+      const hb = new Uint8Array(32);
+      w.forEach((v, i) => setU32(hb, i * 4, v));
+      w[6] = checksum2004(dataSum, hb, 0, 32);
+      const mask = (0x4164536b ^ addr) >>> 0;
+      w.forEach((v, i) => setU32(page, i * 4, (v ^ mask) >>> 0));
+      const num = ++pageNum;
+      pages.push({ num, addr, size, bytes: page });
+      sec.pages.push({ num, size: body.length, offset: start });
+      if (sec.name === 'AcDb:Preview') b.previewAddr = addr + 32;
+      if (sec.name === 'AcDb:SummaryInfo') b.summaryAddr = addr + 32;
+      if (sec.name === 'AcDb:AppInfo') b.appInfoAddr = addr + 32;
+      addr += size;
+      if (!chunk.length) break;
+    }
+  }
+  // section map
+  const smId = ++pageNum;
+  const pmId = ++pageNum;
+  const desc = [];
+  const all = [{ name: '', id: 0, data: new Uint8Array(0), compressed: true, max: PAGE_MAX, pages: [] }, ...[...sections].sort((x, y) => y.id - x.id)];
+  const smData = new Uint8Array(20 + all.reduce((n, s) => n + 96 + s.pages.length * 16, 0));
+  setU32(smData, 0, all.length);
+  setU32(smData, 4, 2);
+  setU32(smData, 8, PAGE_MAX);
+  setU32(smData, 12, 0);
+  setU32(smData, 16, all.length);
+  let p = 20;
+  for (const s of all) {
+    setU64(smData, p, s.data.length);
+    setU32(smData, p + 8, s.pages.length);
+    setU32(smData, p + 12, s.max);
+    setU32(smData, p + 16, 1);
+    setU32(smData, p + 20, s.compressed ? 2 : 1);
+    setU32(smData, p + 24, s.id);
+    setU32(smData, p + 28, 0);
+    for (let k = 0; k < s.name.length; k++) smData[p + 32 + k] = s.name.charCodeAt(k);
+    p += 96;
+    for (const pg of s.pages) {
+      setU32(smData, p, pg.num);
+      setU32(smData, p + 4, pg.size);
+      setU64(smData, p + 8, pg.offset);
+      p += 16;
+    }
+  }
+  void desc;
+  const systemPage = (type, data) => {
+    const comp = compress2004(data);
+    const size = align32(20 + comp.length);
+    const page = new Uint8Array(size);
+    setU32(page, 0, type);
+    setU32(page, 4, data.length);
+    setU32(page, 8, comp.length);
+    setU32(page, 12, 2);
+    page.set(comp, 20);
+    let sum = checksum2004(0, page, 0, 20);
+    sum = checksum2004(sum, comp, 0, comp.length);
+    setU32(page, 16, sum);
+    return page;
+  };
+  const smPage = systemPage(0x4163003b, smData);
+  pages.push({ num: smId, addr, size: smPage.length, bytes: smPage });
+  addr += smPage.length;
+  // page map: every page with its size, including itself
+  const pmData = new Uint8Array((pages.length + 1) * 8);
+  pages.forEach((pg, i) => {
+    setU32(pmData, i * 8, pg.num);
+    setU32(pmData, i * 8 + 4, pg.size);
+  });
+  // the page map's own size depends on its compressed length, which is
+  // the same for any 32-byte aligned value: compute it once, then write it
+  setU32(pmData, pages.length * 8, pmId);
+  setU32(pmData, pages.length * 8 + 4, 0);
+  const pmSize = systemPage(0x41630e3b, pmData).length;
+  setU32(pmData, pages.length * 8 + 4, pmSize);
+  const pmPage = systemPage(0x41630e3b, pmData);
+  const pmAddr = addr;
+  pages.push({ num: pmId, addr, size: pmPage.length, bytes: pmPage });
+  addr += pmPage.length;
+  const secondAddr = addr;
+
+  // encrypted file header
+  const h = new Uint8Array(0x6c);
+  const id = 'AcFssFcAJMB';
+  for (let i = 0; i < id.length; i++) h[i] = id.charCodeAt(i);
+  setU32(h, 0x0c, 0);
+  setU32(h, 0x10, 0x6c);
+  setU32(h, 0x14, 4);
+  setU32(h, 0x24, 1);
+  setU32(h, 0x28, pmId);
+  setU64(h, 0x2c, addr - 0x100);
+  setU64(h, 0x34, secondAddr);
+  setU32(h, 0x3c, 0);
+  setU32(h, 0x40, pages.length);
+  setU32(h, 0x44, 0x20);
+  setU32(h, 0x48, 0x80);
+  setU32(h, 0x4c, 0x40);
+  setU32(h, 0x50, pmId);
+  setU64(h, 0x54, pmAddr - 0x100);
+  setU32(h, 0x5c, smId);
+  setU32(h, 0x60, pmId);
+  setU32(h, 0x64, 0);
+  setU32(h, 0x68, crc32(h, 0, 0x6c, 0));
+  const mask = headerMask(0x6c);
+  const enc = h.map((x, i) => x ^ mask[i]);
+
+  const fh = new Uint8Array(0x100);
+  const vs = 'AC1018';
+  for (let i = 0; i < 6; i++) fh[i] = vs.charCodeAt(i);
+  fh[0x0b] = 0;
+  fh[0x0c] = 3;
+  setU32(fh, 0x0d, b.previewAddr || 0);
+  fh[0x11] = 25;
+  fh[0x12] = 0;
+  fh.set(le16(30), 0x13);
+  setU32(fh, 0x18, 0);
+  setU32(fh, 0x1c, 0);
+  setU32(fh, 0x20, b.summaryAddr || 0);
+  setU32(fh, 0x24, 0);
+  setU32(fh, 0x28, 0x80);
+  setU32(fh, 0x2c, b.appInfoAddr || 0);
+  fh.set(enc, 0x80);
+  fh.set(R2004_TAIL, 0xec);
+  return concat([fh, ...pages.map((pg) => pg.bytes), enc]);
+}
+
+/** DWG versions this writer produces. */
+export const DWG_VERSIONS = { 2000: R2000, 2004: R2004 };
+
 /**
  * Write a drawing (core/schema.js model) as a DWG file.
  * Options are those of writeDxf (dimBlocks, hatchPatterns, extents) plus
@@ -1332,10 +1587,12 @@ function serializeR2000(b) {
  */
 export function writeDwg(drawing, opts = {}) {
   const warnings = Array.isArray(opts.warnings) ? opts.warnings : [];
+  const ver = DWG_VERSIONS[opts.version ?? 2004];
+  if (!ver) throw new Error(`Cannot write DWG version ${opts.version}.`);
   const text = writeDxf(drawing, { ...opts, warnings });
-  const b = new Builder(R2000, warnings);
+  const b = new Builder(ver, warnings);
   const ext = opts.extents;
   if (ext) b.extents = Array.isArray(ext) ? ext.map(Number) : [ext.minX, ext.minY, ext.maxX, ext.maxY].map(Number);
   b.load(dxfSections(text));
-  return serializeR2000(b);
+  return ver === R2000 ? serializeR2000(b) : serializeR2004(b);
 }

@@ -209,6 +209,38 @@ export function decompress2004(src, start, end, outSize) {
   return out;
 }
 
+/**
+ * Compress with the R2004 LZ77 variant. Only literal runs are written,
+ * which every reader accepts; inputs shorter than 4 bytes are zero-padded
+ * (the section sizes say how much of the output is data).
+ */
+export function compress2004(data) {
+  let n = data.length;
+  if (n < 4) {
+    const p = new Uint8Array(4);
+    p.set(data);
+    data = p;
+    n = 4;
+  }
+  const head = [];
+  if (n <= 18) head.push(n - 3);
+  else {
+    // 0x00, then (n - 18) as runs of 0x00 (255 each) and a final non-zero byte
+    head.push(0);
+    let rest = n - 18;
+    while (rest > 255) {
+      head.push(0);
+      rest -= 255;
+    }
+    head.push(rest);
+  }
+  const out = new Uint8Array(head.length + n + 1);
+  out.set(head, 0);
+  out.set(data, head.length);
+  out[out.length - 1] = 0x11;
+  return out;
+}
+
 /** The R2004 page checksum (Adler-32 like, modulo 0xFFF1). */
 export function checksum2004(seed, u8, start, end) {
   let s1 = seed & 0xffff;

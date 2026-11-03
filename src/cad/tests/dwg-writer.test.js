@@ -4,7 +4,8 @@ import { writeDwg } from '../src/io/dwg/writer.js';
 import { parseDwg } from '../src/io/dwg/import.js';
 import { readDatabase, readObjectMap } from '../src/io/dwg/database.js';
 import { readContainer } from '../src/io/dwg/container.js';
-import { BitReader, crc16, R2000 } from '../src/io/dwg/bits.js';
+import { BitReader, crc16, crc32, R2000 } from '../src/io/dwg/bits.js';
+import { headerMask, checksum2004 } from '../src/io/dwg/container.js';
 import { writeDxf } from '../src/io/dxf/writer.js';
 import { parseDxf } from '../src/io/dxf/reader.js';
 import { handleMessage } from '../src/io/dxf/worker.js';
@@ -91,7 +92,7 @@ describe('DWG writer', () => {
     const p = exportPayload(sampleDrawing());
     const bytes = writeDwg(p.drawing, p.opts);
     const back = parseDwg(bytes);
-    expect(back.version).toBe('AC1015');
+    expect(back.version).toBe('AC1018');
     expect(diff(back.drawing, parseDxf(writeDxf(p.drawing, p.opts)).drawing)).toEqual([]);
   });
 
@@ -109,13 +110,15 @@ describe('DWG writer', () => {
     expect(back.drawing.layers.find((l) => l.name === 'Walls').on).toBe(false);
   });
 
-  it('produces objects that decode to their last bit', () => {
-    const db = readDatabase(writeDwg(everything(), { dimensionEntities, hatchPatterns }), { check: true });
+  for (const version of [2000, 2004]) it(`produces DWG ${version} objects that decode to their last bit`, () => {
+    const db = readDatabase(writeDwg(everything(), { dimensionEntities, hatchPatterns, version }), { check: true });
     expect(db.warnings).toEqual([]);
     const bad = [...db.objects.values()].filter((o) => o.error || (o.left && (o.left.data < 0 || o.left.data > 7 || o.left.handles < 0 || o.left.handles > 7)));
     expect(bad.map((o) => o.type)).toEqual([]);
     const types = new Set([...db.objects.values()].map((o) => o.type));
-    for (const t of ['BLOCK_CONTROL', 'LAYER_CONTROL', 'LTYPE_CONTROL', 'VPORT_CONTROL', 'VX_CONTROL', 'LAYOUT', 'MLINESTYLE', 'ACDBDICTIONARYWDFLT', 'ACDBPLACEHOLDER', 'VPORT']) expect(types.has(t)).toBe(true);
+    for (const t of ['BLOCK_CONTROL', 'LAYER_CONTROL', 'LTYPE_CONTROL', 'VPORT_CONTROL', 'LAYOUT', 'MLINESTYLE', 'ACDBDICTIONARYWDFLT', 'ACDBPLACEHOLDER', 'VPORT']) expect(types.has(t)).toBe(true);
+    // the viewport entity header table only exists up to R2000
+    expect(types.has('VX_CONTROL')).toBe(version === 2000);
     const h = db.header;
     for (const k of ['BLOCK_MODEL_SPACE', 'BLOCK_PAPER_SPACE', 'DICT_NAMED', 'DICT_LAYOUT', 'DICT_MLINESTYLE', 'LTYPE_CONTINUOUS', 'CLAYER', 'CMLSTYLE']) expect(db.objects.has(h[k])).toBe(true);
     expect(h.HANDSEED).toBeGreaterThan(Math.max(...db.objects.keys()));
@@ -125,8 +128,78 @@ describe('DWG writer', () => {
     expect(db.objects.get(ms.layout).layoutName).toBe('Model');
   });
 
-  it('writes valid checksums', () => {
+  it('draws hatches whose pattern has no definition as 45 degree lines', () => {
+    const d = everything();
+    const warnings = [];
+    const db = readDatabase(writeDwg(d, { dimensionEntities, warnings }));
+    const h = [...db.objects.values()].find((o) => o.type === 'HATCH' && o.name === 'ANSI31');
+    expect(h.lines.length).toBe(1);
+    expect(warnings.some((w) => /ANSI31.*45/.test(w))).toBe(true);
+  });
+
+  it('writes DWG 2000 on request, with colors as color numbers', () => {
+    const d = everything();
+    d.layers[1].color = '#ff8000';
+    const opts = { dimensionEntities, hatchPatterns };
+    const back = parseDwg(writeDwg(d, { ...opts, version: 2000 }));
+    expect(back.version).toBe('AC1015');
+    const ref = parseDxf(writeDxf(d, opts)).drawing;
+    expect(diff(back.drawing, ref)).toEqual(['.layers[1].color: 30 vs "#ff8000"']);
+    expect(() => writeDwg(d, { version: 2099 })).toThrow(/version/);
+  });
+
+  it('keeps true colors and layer transparency in DWG 2004', () => {
+    const d = everything();
+    d.layers[1].color = '#ff8000';
+    d.entities[2].color = '#336699';
+    const back = parseDwg(writeDwg(d, { dimensionEntities, hatchPatterns })).drawing;
+    expect(back.layers[1].color).toBe('#ff8000');
+    expect(back.entities[2].color).toBe('#336699');
+    expect(back.layers.find((l) => l.name === 'Hidden').transparency).toBe(50);
+  });
+
+  it('writes valid DWG 2004 checksums', () => {
     const u8 = writeDwg(everything(), { dimensionEntities, hatchPatterns });
+    const mask = headerMask(0x6c);
+    const h = u8.slice(0x80, 0x80 + 0x6c).map((x, i) => x ^ mask[i]);
+    expect(new TextDecoder().decode(h.subarray(0, 11))).toBe('AcFssFcAJMB');
+    const crc = h[0x68] | (h[0x69] << 8) | (h[0x6a] << 16) | (h[0x6b] << 24);
+    h.fill(0, 0x68, 0x6c);
+    expect(crc >>> 0).toBe(crc32(h, 0, 0x6c, 0));
+    // the copy at the end of the file
+    expect([...u8.subarray(u8.length - 0x6c)]).toEqual([...u8.subarray(0x80, 0x80 + 0x6c)]);
+    // every data page: header checksum seeded with the data checksum
+    const u32 = (b, p) => (b[p] | (b[p + 1] << 8) | (b[p + 2] << 16) | (b[p + 3] << 24)) >>> 0;
+    let pages = 0;
+    for (let a = 0x100; a + 32 <= u8.length - 0x6c; ) {
+      const m = (0x4164536b ^ a) >>> 0;
+      const w = [0, 1, 2, 3, 4, 5, 6, 7].map((i) => (u32(u8, a + i * 4) ^ m) >>> 0);
+      if (w[0] !== 0x4163043b) {
+        // system pages: section map and page map
+        const type = u32(u8, a);
+        expect([0x4163003b, 0x41630e3b]).toContain(type);
+        const hb = u8.slice(a, a + 20);
+        hb.fill(0, 16, 20);
+        expect(checksum2004(checksum2004(0, hb, 0, 20), u8, a + 20, a + 20 + u32(u8, a + 8))).toBe(u32(u8, a + 16));
+        a += (20 + u32(u8, a + 8) + 31) & ~31;
+        continue;
+      }
+      const dataSum = checksum2004(0, u8, a + 32, a + 32 + w[2]);
+      expect(dataSum).toBe(w[7]);
+      const hb = new Uint8Array(32);
+      w.forEach((v, i) => {
+        const x = i === 6 ? 0 : v;
+        hb.set([x & 255, (x >>> 8) & 255, (x >>> 16) & 255, x >>> 24], i * 4);
+      });
+      expect(checksum2004(dataSum, hb, 0, 32)).toBe(w[6]);
+      a += w[3];
+      pages++;
+    }
+    expect(pages).toBeGreaterThan(5);
+  });
+
+  it('writes valid DWG 2000 checksums', () => {
+    const u8 = writeDwg(everything(), { dimensionEntities, hatchPatterns, version: 2000 });
     const n = u8[0x15];
     const at = 0x19 + n * 9;
     expect(u8[at] | (u8[at + 1] << 8)).toBe(crc16(u8, 0, at, 0) ^ 0x8461);
@@ -168,7 +241,7 @@ describe('DWG writer', () => {
     const reply = handleMessage({ id: 9, op: 'writeDwg', drawing: p.drawing, opts: p.opts });
     expect(reply.ok).toBe(true);
     expect(reply.result.bytes).toBeInstanceOf(Uint8Array);
-    expect(new TextDecoder().decode(reply.result.bytes.subarray(0, 6))).toBe('AC1015');
+    expect(new TextDecoder().decode(reply.result.bytes.subarray(0, 6))).toBe('AC1018');
     const again = handleMessage({ id: 10, op: 'parse', buffer: reply.result.bytes.buffer });
     expect(again.ok).toBe(true);
     expect(again.result.drawing.entities.length).toBe(p.drawing.entities.length);
