@@ -440,6 +440,11 @@ export function createPrintPreview({ wb, sheetId, docName, filePath = '', getPre
         };
         // Wrapped text in the lines it prints in, set at the top, middle or bottom of its cell; unwrapped, on one line.
         const shownText = cellLayoutText(text, st.wrap);
+        if (st.shrink && !st.wrap && !st.rot) {
+          // Shrink to fit: text wider than its cell is set smaller until it fits, as it prints, rather than cut off.
+          const room = cw - 2 * pad - indent, natural = g.measureText?.(shownText)?.width || 0;
+          if (room > 0 && natural > room) g.font = g.font.replace(/([\d.]+)px/, (_, n) => `${Math.max(1, n * room / natural)}px`);
+        }
         if (st.rot) {
           // Turned text, as it prints: its turned box set in the cell by the cell's alignment, the text drawn along it.
           const angle = -st.rot * Math.PI / 180, cos = Math.abs(Math.cos(angle)), sin = Math.abs(Math.sin(angle));
