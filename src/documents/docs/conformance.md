@@ -23875,7 +23875,11 @@ processors read, and keeps its recipient list inside the document.
   date pictures with the common day/month/year/hour/minute/AM-PM tokens; MERGEFIELD
   `\b`/`\f`; ADDRESSBLOCK `\f` group format, `\c`, `\e`; GREETINGLINE `\f`
   with `_BEFORE_`/`_AFTER_` text and `\e`. IF/NEXTIF/SKIPIF compare numbers
-  numerically, text exactly, and `=`/`<>` with `*`/`?` wildcards. ADDRESSBLOCK
+  numerically, text exactly, and `=`/`<>` with `*`/`?` wildcards. Since 2026-11-02
+  an IF evaluates the fields nested in its condition, then only those in the branch
+  it chooses (§17.16.5.26), as Word does: a SET, ASK, FILLIN or NEXT in the branch
+  not taken does not run, so `{ IF … "{ SET p "he" }" "{ SET p "she" }" }` sets one
+  value per record. ADDRESSBLOCK
   `\d` (country-specific layouts), `\l`, MERGEFIELD `\m`/`\v`, `\@` era/locale
   tokens and IF formula operands are retained but not evaluated.
 - **Settings** (§17.14, CT_MailMerge in Part 4 wml.xsd): `w:mailMerge` carries

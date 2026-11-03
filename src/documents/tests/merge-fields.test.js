@@ -154,3 +154,29 @@ describe('recipient lists', () => {
     expect(validateAddresses(us, { first: 'Name', city: 'City', postal: 'ZIP Code', email: 'Email', country: 'Country' }).map(r => r.number)).toEqual([1, 2]);
   });
 });
+
+// Every nested field of an IF ran, whichever branch it chose: { IF … "{ SET pronoun "he" }" "{ SET pronoun "she" }" }
+// always set "she", a NEXT in the branch not taken skipped a record, and an ASK there was asked. Word evaluates the
+// condition's fields, then only the chosen branch's.
+describe('IF runs only the branch it chooses', () => {
+  const people = [{ number: 1, values: { Name: 'Ana', Gender: 'F', Plus: 'yes' } }, { number: 2, values: { Name: 'Ben', Gender: 'M', Plus: 'no' } }, { number: 3, values: { Name: 'Cy', Gender: 'M', Plus: 'no' } }];
+  it('sets a bookmark only from the chosen branch', () => {
+    const codes = ['IF "{ MERGEFIELD Gender }" = "M" "{ SET pronoun "he" }" "{ SET pronoun "she" }"', 'REF pronoun'];
+    expect(planMerge(codes, { data: people }).map(c => c.results[1])).toEqual(['she', 'he', 'he']);
+  });
+  it('moves to the next record only when the branch holding NEXT is chosen', () => {
+    const codes = [' MERGEFIELD Name ', 'IF "{ MERGEFIELD Plus }" = "yes" "{ NEXT }" ""', ' MERGEFIELD Name '];
+    expect(mergeCopy(codes, { data: people }).results).toEqual(['Ana', '', 'Ben']);
+    expect(mergeCopy(codes, { data: people, start: 1 }).results).toEqual(['Ben', '', 'Ben']);
+  });
+  it('asks only from the chosen branch, and still shows nested results in the branch it takes', () => {
+    const answers = { 'ASK:extra': 'Ask answered' };
+    const c = mergeContext({ data: people, cursor: 1, answers });
+    expect(evaluateField('IF "{ MERGEFIELD Gender }" = "F" "{ ASK extra "Extra?" }" "Dear { MERGEFIELD Name }"', c)).toBe('Dear Ben');
+    expect(c.variables.has('extra')).toBe(false);
+    const d = mergeContext({ data: people, cursor: 0, answers });
+    expect(evaluateField('IF "{ MERGEFIELD Gender }" = "F" "{ ASK extra "Extra?" }{ REF extra }" "no"', d)).toBe('Ask answered');
+    // A condition made of a nested field alone, and formatting switches after the branches.
+    expect(evaluateField('IF { MERGEFIELD Plus } "{ MERGEFIELD Name }" "x" \\* Upper', mergeContext({ data: people }))).toBe('ANA');
+  });
+});
