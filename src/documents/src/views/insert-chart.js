@@ -71,8 +71,12 @@ export function openChartDialog({ initial = null, onInsert, onClose }) {
   // A value cell holds what was typed; one that is not a number ("1,200", "12%", "$5") is marked, and Insert
   // says which, rather than saving it as 0.
   const numberOf = value => { const text = String(value ?? '').trim(); return text === '' ? 0 : Number(text); };
+  // Chart parts hold values up to a trillion either way (the reader refuses larger ones); a larger value is
+  // marked and refused rather than saved as a trillion.
+  const LARGEST = 1e12;
+  const usable = value => { const n = numberOf(value); return Number.isFinite(n) && Math.abs(n) <= LARGEST; };
   const cellInput = (value, label, onInput, numeric = false) => el('input.input', { type: 'text', inputMode: numeric ? 'decimal' : 'text', value: String(value ?? ''), 'aria-label': label,
-    oninput: e => { onInput(e.target.value); if (numeric) { if (Number.isFinite(numberOf(e.target.value))) e.target.removeAttribute('aria-invalid'); else e.target.setAttribute('aria-invalid', 'true'); } render(); } });
+    oninput: e => { onInput(e.target.value); if (numeric) { if (usable(e.target.value)) e.target.removeAttribute('aria-invalid'); else e.target.setAttribute('aria-invalid', 'true'); } render(); } });
   function drawGrid() {
     const head = el('tr', {}, el('th', {}, ''), ...shown().map((s, j) => el('th', {}, cellInput(s.name, `Series ${j + 1} name`, v => { s.name = v; }))),
       el('th', {}, el('button.btn.btn-ghost.btn-sm', { type: 'button', disabled: single() || data.series.length >= 20, title: 'Add a series', onclick: () => { data.series.push({ name: `Series ${data.series.length + 1}`, values: data.categories.map(() => 0), color: CHART_PALETTE[data.series.length % CHART_PALETTE.length] }); drawGrid(); render(); } }, '+ Series')));
@@ -84,7 +88,7 @@ export function openChartDialog({ initial = null, onInsert, onClose }) {
       shown().length > 1 ? el('button.btn.btn-ghost.btn-sm', { type: 'button', onclick: () => { data.series.pop(); drawGrid(); render(); } }, '− Series') : null));
     grid.replaceChildren(el('thead', {}, head), el('tbody', {}, ...body, foot));
   }
-  const current = () => ({ type, title: title.value.trim(), legend: legend.value || null, categories: data.categories.map(c => String(c)), series: shown().map((s, j) => ({ name: s.name || `Series ${j + 1}`, values: s.values.map(v => Number.isFinite(numberOf(v)) ? numberOf(v) : 0), color: s.color || CHART_PALETTE[j % CHART_PALETTE.length], ...(s.colors ? { colors: s.colors } : {}) })) });
+  const current = () => ({ type, title: title.value.trim(), legend: legend.value || null, categories: data.categories.map(c => String(c)), series: shown().map((s, j) => ({ name: s.name || `Series ${j + 1}`, values: s.values.map(v => usable(v) ? numberOf(v) : 0), color: s.color || CHART_PALETTE[j % CHART_PALETTE.length], ...(s.colors ? { colors: s.colors } : {}) })) });
   let pending = 0;
   async function render() {
     const ticket = ++pending;
@@ -106,6 +110,7 @@ export function openChartDialog({ initial = null, onInsert, onClose }) {
   onSubmit: () => {
     for (const [j, s] of shown().entries()) for (const [i, v] of s.values.entries()) {
       if (!Number.isFinite(numberOf(v))) throw new Error(`“${String(v).trim()}” (${s.name || `Series ${j + 1}`}, ${data.categories[i]}) is not a number. Enter numbers such as 1200 or 1.5, without separators, signs or units.`);
+      if (!usable(v)) throw new Error(`“${String(v).trim()}” (${s.name || `Series ${j + 1}`}, ${data.categories[i]}) is too large for a chart. Enter numbers from −1,000,000,000,000 to 1,000,000,000,000.`);
     }
     return onInsert(current());
   } });

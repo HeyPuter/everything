@@ -43,3 +43,34 @@ test('choosing a pie chart and then another type keeps every series of the data'
   expect(JSON.stringify(series[0])).toContain('9');
   expect(errors).toEqual([]);
 });
+
+// Chart parts hold values up to a trillion either way. A larger value used to be saved as exactly a trillion,
+// with nothing said; it is now marked in the grid and refused with a message.
+test('a chart value too large to store is refused instead of saved as a trillion', async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/mock.html#/new');
+  await expect((await onTab(page, 'home')).getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await page.getByRole('textbox', { name: 'Document text' }).focus();
+  await onTab(page, 'insert');
+  await page.locator('#ribbon-panel-insert').getByRole('button', { name: 'Chart', exact: true }).click();
+  const chart = page.getByRole('dialog', { name: 'Insert Chart' });
+  const cell = chart.getByRole('textbox', { name: 'Series 1, Category 1' });
+  await cell.fill('2500000000000');
+  await expect(cell).toHaveAttribute('aria-invalid', 'true');
+  await chart.getByRole('button', { name: 'Insert', exact: true }).click();
+  await expect(chart.getByRole('alert')).toContainText('“2500000000000” (Series 1, Category 1) is too large for a chart');
+  await expect(chart).toBeVisible();
+  // The largest value that can be kept is accepted, and kept exactly.
+  await cell.fill('-1000000000000');
+  await expect(cell).not.toHaveAttribute('aria-invalid', 'true');
+  await chart.getByRole('button', { name: 'Insert', exact: true }).click();
+  await expect(chart).toBeHidden();
+  const values = await page.evaluate(() => {
+    const m = window.__docs.current.view.engine.model;
+    const image = m.paragraphs.flatMap(p => p.runs).find(r => r.image?.kind === 'chart').image;
+    return m.assets[image.assetId].chart.series[0].values;
+  });
+  expect(values[0]).toBe(-1e12);
+  expect(errors).toEqual([]);
+});
