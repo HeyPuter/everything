@@ -35,3 +35,32 @@ export function writeXlsxOutlineSettings(xml, settings) {
   }
   return xml.replace(/(<worksheet\b[^>]*>)/, `$1<sheetPr>${tag}</sheetPr>`);
 }
+
+/**
+ * The outline level of each line an axis's groups hold ({ from, to } each; nested groups add up, at most the
+ * seven a file can hold), as SpreadsheetML gives them on <row outlineLevel> and <col outlineLevel>. A group
+ * running on past the sheet's last line (`last`, rows 2 to 1,048,576 grouped whole) stops there: each line
+ * with a level is a record of its own, and a million of them for empty rows made a save take tens of seconds.
+ */
+export function outlineLineLevels(groups, last = Infinity) {
+  const levels = new Map();
+  for (const g of groups || []) {
+    const end = g.to <= last ? g.to : Math.max(last, g.from);
+    for (let i = g.from; i <= end; i++) levels.set(i, Math.min(7, (levels.get(i) || 0) + 1));
+  }
+  return levels;
+}
+
+/**
+ * The lines Excel marks collapsed="1" for the collapsed groups: each one's summary line, after the group
+ * (before it where summaries sit above or to the left), within the grid.
+ */
+export function outlineCollapsedLines(groups, summaryAfter, max) {
+  const lines = new Set();
+  for (const g of groups || []) {
+    if (!g.collapsed) continue;
+    const at = summaryAfter ? g.to + 1 : g.from - 1;
+    if (at >= 0 && at <= max) lines.add(at);
+  }
+  return lines;
+}

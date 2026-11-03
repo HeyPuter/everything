@@ -37,7 +37,7 @@ import { legacyCommentText } from './comments.js';
  *   sheet; this app reads it back and removes it from view.
  */
 
-import { Workbook, DEFAULT_COL_WIDTH, DEFAULT_ROW_HEIGHT, MAX_STORED_COL_WIDTH, MAX_STORED_ROW_HEIGHT, safeSheetName, MAX_ROWS, MAX_COLS } from './workbook.js';
+import { Workbook, outlineSettingsOf, DEFAULT_COL_WIDTH, DEFAULT_ROW_HEIGHT, MAX_STORED_COL_WIDTH, MAX_STORED_ROW_HEIGHT, safeSheetName, MAX_ROWS, MAX_COLS } from './workbook.js';
 import { cellKey, cellName, parseKey, MAX_TEXT, parseCellRef, parseRange } from './cell.js';
 import { styleToNumFmt, numFmtToStyle, formatValue, dateTimeKind, fontKeyFor, ymdToSerial, NUMBER_FORMAT_KEYS, HORIZONTAL_ALIGNS } from './format.js';
 import { readXlsxStyles, xlsxAlignment, xlsxColumnPixels, xlsxColor, xlsxAttr, xlsxText, xlsxLayoutDigitWidth, xlsxWidthFromPixels } from './xlsx-styles.js';
@@ -86,7 +86,7 @@ import { normalizeNativeFill, packNativeFillState, unpackNativeFillState } from 
 import { readFontTheme, normalizeFontTheme } from './font-theme.js';
 import { isRangeSource, ruleFormulaBody } from './validation.js';
 import { parseScenariosXml } from './scenarios.js';
-import { readXlsxOutlineSettings } from './xlsx-outline.js';
+import { readXlsxOutlineSettings, outlineLineLevels, outlineCollapsedLines } from './xlsx-outline.js';
 import { readXlsxBackground } from './xlsx-background.js';
 import { remapCustomViews } from './custom-views.js';
 import { serializeQueries } from './queries.js';
@@ -518,20 +518,31 @@ function buildSheet(X, wb, sheet, { ods = false } = {}) {
   // Only a column or row with its own width, height, or hidden state gets an
   // entry. The writers skip the holes, whereas filling every index up to one
   // far-off row would put a million row records into each save.
-  if (sheet.colWidths.size || sheet.hiddenCols.size || sheet.colStyles.size) {
+  // Row and column groups are outline levels in an .xlsx, which Excel draws its outline from; a collapsed group's
+  // summary line says so too. Without them a sheet grouped here opened in Excel with no outline at all.
+  const settings = outlineSettingsOf(sheet);
+  const colLevels = ods ? new Map() : outlineLineLevels(sheet.groups?.cols, sheet.cols - 1);
+  const rowLevels = ods ? new Map() : outlineLineLevels(sheet.groups?.rows, sheet.rows - 1);
+  const collapsedCols = ods ? new Set() : outlineCollapsedLines(sheet.groups?.cols, settings.summaryRight, MAX_COL);
+  const collapsedRows = ods ? new Set() : outlineCollapsedLines(sheet.groups?.rows, settings.summaryBelow, MAX_ROW);
+  if (sheet.colWidths.size || sheet.hiddenCols.size || sheet.colStyles.size || colLevels.size) {
     const cols = [];
     for (const [c, wpx] of sheet.colWidths) cols[c] = { wpx };
     for (const c of sheet.hiddenCols) (cols[c] ??= { wpx: sheet.defaultColWidth }).hidden = true;
+    for (const [c, level] of colLevels) (cols[c] ??= { wpx: sheet.defaultColWidth }).level = level;
+    for (const c of collapsedCols) cols[c] ??= { wpx: sheet.defaultColWidth };
     if (!ods) for (const c of sheet.colStyles.keys()) cols[c] ??= { wpx: sheet.defaultColWidth };
     // An .ods column's format is the cell style it gives the cells without one of their own.
     else for (const [c, style] of sheet.colStyles) (cols[c] ??= { wpx: sheet.defaultColWidth }).odsCell = { odsStyle: style, z: numFmtOf(style) };
     ws['!cols'] = cols;
   }
-  if (sheet.rowHeights.size || sheet.rowHeightModes.size || sheet.hiddenRows.size || sheet.filterHidden.size || (!ods && sheet.rowStyles.size)) {
+  if (sheet.rowHeights.size || sheet.rowHeightModes.size || sheet.hiddenRows.size || sheet.filterHidden.size || (!ods && sheet.rowStyles.size) || rowLevels.size) {
     const rows = [];
     for (const [r, hpx] of sheet.rowHeights) rows[r] = { hpx };
     for (const r of sheet.rowHeightModes.keys()) rows[r] ??= { hpx: sheet.defaultRowHeight };
     for (const r of sheet.hiddenRows) (rows[r] ??= { hpx: sheet.defaultRowHeight }).hidden = true;
+    for (const [r, level] of rowLevels) (rows[r] ??= { hpx: sheet.defaultRowHeight }).level = level;
+    for (const r of collapsedRows) rows[r] ??= { hpx: sheet.defaultRowHeight };
     // The rows the filter hides are hidden rows in an .xlsx, the only spelling it has, and rows
     // of the "filter" visibility in an .ods: a program opening the file shows the filtered view,
     // and clearing the filter there shows them again.

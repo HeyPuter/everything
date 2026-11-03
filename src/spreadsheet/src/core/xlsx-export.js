@@ -19,7 +19,8 @@ import { tableStyleParts, parseTableSpec } from './tables.js';
 import { writeThemeInfo } from './workbook-theme.js';
 import { parseFormula } from './formula/parser.js';
 import { writeXlsxPrint } from './xlsx-export-print.js';
-import { writeXlsxOutlineSettings } from './xlsx-outline.js';
+import { writeXlsxOutlineSettings, outlineLineLevels, outlineCollapsedLines } from './xlsx-outline.js';
+import { outlineSettingsOf } from './workbook.js';
 import { writeXlsxBackground } from './xlsx-background.js';
 import { writeXlsxSheetCustomViews, writeXlsxWorkbookCustomViews } from './xlsx-custom-views.js';
 import { richValueWriter } from './xlsx-rich-values.js';
@@ -260,9 +261,12 @@ export async function completeXlsx(X, wb, book, bytes, { sourceWorkbook = null, 
     // An absent format element has different Excel initialization semantics.
     // Retain it while both defaults still match; explicit line edits live in
     // cols/row records and do not require changing the worksheet defaults.
-    const implicitFormat = heightMode === 'implicit' && def?.pixels === sheet.defaultColWidth && def.base === 10 && def.width == null;
+    // The deepest outline levels, which Excel sizes the outline's margin by.
+    const deepest = (levels) => { let n = 0; for (const level of levels.values()) if (level > n) n = level; return n; };
+    const outlineLevelRow = deepest(outlineLineLevels(sheet.groups?.rows, sheet.rows - 1)), outlineLevelCol = deepest(outlineLineLevels(sheet.groups?.cols, sheet.cols - 1));
+    const implicitFormat = heightMode === 'implicit' && def?.pixels === sheet.defaultColWidth && def.base === 10 && def.width == null && !outlineLevelRow && !outlineLevelCol;
     const format = implicitFormat ? '' : xmlTag('sheetFormatPr', { defaultRowHeight: sheet.defaultRowHeight * 3 / 4, ...widthAttrs,
-      customHeight: heightMode === 'auto' ? null : 1 });
+      customHeight: heightMode === 'auto' ? null : 1, outlineLevelRow: outlineLevelRow || null, outlineLevelCol: outlineLevelCol || null });
     xml = /<sheetFormatPr\b/.test(xml) ? xml.replace(/<sheetFormatPr\b[^>]*\/>/, format) : xml.replace('</sheetViews>', `</sheetViews>${format}`);
     const columnRuns = [];
     const sheetVAlign = sheet.defaultVAlign || 'middle';
@@ -271,6 +275,9 @@ export async function completeXlsx(X, wb, book, bytes, { sourceWorkbook = null, 
     // sheet's default width when a style-only span supplies its alignment.
     const defaultColumnAttrs = { width: widthAttrs.defaultColWidth ?? xlsxWidthFromPixels(sheet.defaultColWidth, normalFont), customWidth: 1, style: defaultColumnStyle };
     let nextDefaultColumn = 0;
+    const outline = outlineSettingsOf(sheet);
+    const collapsedCols = outlineCollapsedLines(sheet.groups?.cols, outline.summaryRight, MAX_COL);
+    const collapsedRows = outlineCollapsedLines(sheet.groups?.rows, outline.summaryBelow, Infinity);
     const columnKeys = [...new Set([...Object.keys(ws['!cols'] || {}), ...Object.keys(native?.cols || {})])].map(Number).sort((a, b) => a - b);
     for (const c of columnKeys) {
       if (defaultColumnStyle != null && c > nextDefaultColumn) columnRuns.push({ min: nextDefaultColumn + 1, max: c, attrs: defaultColumnAttrs });
@@ -278,7 +285,8 @@ export async function completeXlsx(X, wb, book, bytes, { sourceWorkbook = null, 
       const col = ws['!cols']?.[c] || {}, pixels = col.wpx ?? sheet.defaultColWidth;
       const saved = native?.cols[c];
       const attrs = { width: saved?.pixels === pixels ? saved.width : xlsxWidthFromPixels(pixels, normalFont), customWidth: 1,
-        hidden: col.hidden ? 1 : null, style: sheet.colStyles.has(c) ? styles.cell({ valign: sheetVAlign, ...sheet.colStyles.get(c) }) : defaultColumnStyle };
+        hidden: col.hidden ? 1 : null, style: sheet.colStyles.has(c) ? styles.cell({ valign: sheetVAlign, ...sheet.colStyles.get(c) }) : defaultColumnStyle,
+        outlineLevel: col.level || null, collapsed: collapsedCols.has(c) ? 1 : null };
       const previous = columnRuns.at(-1), signature = JSON.stringify(attrs);
       if (previous?.max === c && previous.signature === signature) previous.max = c + 1;
       else columnRuns.push({ min: c + 1, max: c + 1, attrs, signature });
@@ -295,6 +303,7 @@ export async function completeXlsx(X, wb, book, bytes, { sourceWorkbook = null, 
       // as well; do not materialize the otherwise empty million-row sheet.
       if (xlsxAttr(head, 'ht') == null) head = head.replace(/(\/?>)$/, ` ht="${sheet.defaultRowHeight * 3 / 4}" customHeight="1"$1`);
       if (sheet.rowHeightModes.get(r) === 'auto') head = head.replace(/\scustomHeight="[^"]*"/g, '');
+      if (collapsedRows.has(r)) head = head.replace(/(\/?>)$/, ' collapsed="1"$1');
       return style ? head.replace(/\ss="[^"]*"|\scustomFormat="[^"]*"/g, '').replace(/(\/?>)$/, ` s="${styles.cell({ valign: sheetVAlign, ...ws['!nativeRowStyleBase'], ...style })}" customFormat="1"$1`) : head;
     });
     if (sheet.color) {
