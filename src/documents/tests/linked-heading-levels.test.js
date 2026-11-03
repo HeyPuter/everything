@@ -5,6 +5,7 @@ import { DocxPackage } from '../src/engine/docx.js';
 import { TextDocument } from '../src/engine/model.js';
 import { listMarkers } from '../src/engine/numbering.js';
 import { outlineEntries } from '../src/engine/outline.js';
+import { setOutlineLevels, promotedLevel, demotedLevel } from '../src/engine/outline-editing.js';
 
 let dom;
 beforeAll(() => { dom = new JSDOM(); globalThis.DOMParser = dom.window.DOMParser; globalThis.XMLSerializer = dom.window.XMLSerializer; });
@@ -64,4 +65,30 @@ it('moves a heading to the style linked to its new list level, as Tab and Shift+
   expect(d.changeListLevel(1)).toBe(true);
   expect(d.paragraphs[2].styleId).toBe('Heading2');
   expect(d.paragraphs[2].list).toMatchObject({ level: 2, direct: true });
+});
+
+// Promote and Demote in the Navigation pane and Outline view give a heading the next style up or down. A heading
+// with numbering of its own (a direct numPr at the level linked to its style, as Word writes when a multilevel list
+// is applied to headings) kept its old list level: promoted to Heading 1, "2.2 Detail" stayed numbered 2.2.
+it('promotes and demotes a heading with its own numbering to the list level linked to its new style', async () => {
+  const { pkg, d } = await open(source());
+  const detail = d.paragraphs[3];
+  expect(setOutlineLevels(d, [detail.id], promotedLevel, { withSubtree: true })).toBe(true);
+  expect(d.paragraphs[3].styleId).toBe('Heading1');
+  expect(d.paragraphs[3].list).toMatchObject({ numId: '1', level: 0, direct: true });
+  expect(numbers(d)).toEqual(['1', '2', '2.1', '3', null]);
+  expect(levels(d)).toEqual([['Introduction', 1], ['Background', 1], ['Prior work', 2], ['Detail', 1]]);
+  const saved = new Uint8Array(await pkg.export(d.paragraphs, d.pageSettings, d.numbering, d.styles, d.tables, d.assets).arrayBuffer());
+  expect(numbers((await open(saved)).d)).toEqual(['1', '2', '2.1', '3', null]);
+  d.undo();
+  expect(numbers(d)).toEqual(['1', '2', '2.1', '2.2', null]);
+  expect(d.paragraphs[3].styleId).toBe('Heading2');
+  // Demoted back from Heading 1, it returns to level 2.
+  setOutlineLevels(d, [detail.id], promotedLevel);
+  setOutlineLevels(d, [d.paragraphs[3].id], demotedLevel);
+  expect(d.paragraphs[3]).toMatchObject({ styleId: 'Heading2', list: { level: 1 } });
+  expect(numbers(d)).toEqual(['1', '2', '2.1', '2.2', null]);
+  // To body text: the heading keeps its numbering, as the paragraph's own; no style is linked to it.
+  setOutlineLevels(d, [d.paragraphs[3].id], () => 10);
+  expect(d.paragraphs[3].list).toMatchObject({ level: 1 });
 });

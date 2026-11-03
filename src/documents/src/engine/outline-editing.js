@@ -9,6 +9,7 @@
 import { paragraph, paragraphText } from './model.js';
 import { resolveStyledParagraph, effectiveStyleId } from './styles.js';
 import { builtinOutlineLevel } from './outline.js';
+import { levelFor } from './numbering.js';
 
 export const BODY_LEVEL = 10;
 
@@ -180,13 +181,33 @@ export function styleForOutlineLevel(styles, level) {
 
 const hasDirectLevel = p => Object.hasOwn(p.formatOverrides || {}, 'outlineLevel') || Object.hasOwn(p.styleContext?.properties || {}, 'outlineLevel') || !p.styleContext && Object.hasOwn(p.format || {}, 'outlineLevel');
 
+/**
+ * The list level linked to paragraph style `styleId` (§17.9.23 pStyle) in the list `list` belongs to, when the
+ * paragraph's own (direct) numbering sits at the level linked to its current style; else null.
+ */
+function linkedListLevel(model, p, styleId) {
+  if (!p.list?.direct) return null;
+  try {
+    if (levelFor(model.numbering, p.list).styleId !== effectiveStyleId(p, model.styles)) return null;
+    for (let level = 0; level < 9; level++) {
+      let definition; try { definition = levelFor(model.numbering, { ...p.list, level }); } catch { continue; }
+      if (definition.styleId === styleId) return level;
+    }
+  } catch { /* an unreadable list keeps its level */ }
+  return null;
+}
+
 /** Give one paragraph an outline level through its style, or a direct level when the document has no such style. */
 function applyLevel(model, p, level) {
   if (outlineLevelOf(p) === level) return;
   const start = model.paragraphOffset(model.paragraphs.indexOf(p));
   model.select(start, start + paragraphText(p).length);
   const style = styleForOutlineLevel(model.styles, level);
+  // A heading numbered in its own right at the list level linked to its style moves to the level linked to the
+  // new style, as the style's own numbering would: a Heading 2 numbered 2.2 promoted to Heading 1 is numbered 3.
+  const listLevel = style ? linkedListLevel(model, p, style.id) : null;
   if (style && (level < BODY_LEVEL || builtinOutlineLevel(effectiveStyleId(p, model.styles)) !== null)) model.setParagraphStyle(style.id);
+  if (listLevel !== null && p.list && listLevel !== p.list.level) { p.list = { ...p.list, level: listLevel }; p.listChanged = true; model.didChange(); }
   // A direct level would outrank the style just applied: the style decides from now on.
   if (style && hasDirectLevel(p)) model.setOutlineLevel(null);
   if (outlineLevelOf(p) === level) return;
