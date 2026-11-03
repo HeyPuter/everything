@@ -1676,20 +1676,27 @@ export class CanvasEditor {
     else if (key === 'PageUp' || key === 'PageDown') {
       // A screenful of lines in the preferred column; the view scrolls by the
       // same distance so the caret keeps its place on screen.
-      const direction = key === 'PageUp' ? -1 : 1, top = l => this.canvases[l.page].offsetTop + l.y * this.zoom;
+      // Side to Side lays the pages out in a row (document-views.js): there a screenful is the pages the
+      // window shows whole, and the caret keeps its height on the page. Measured down the column, the
+      // whole row was less than a screen and PageDown went to the end of the document.
+      const across = this.pages.classList.contains('is-side-to-side');
+      const direction = key === 'PageUp' ? -1 : 1, top = across ? l => this.canvases[l.page].offsetLeft : l => this.canvases[l.page].offsetTop + l.y * this.zoom;
       const from = lineAtPosition(this.selectionLayout, focus, this.caretAffinity, this.caretPage);
       this.preferredX ??= caretRect(this.selectionLayout, focus, this.caretAffinity, this.caretPage).x;
-      const goal = top(from) + direction * Math.max(this.host.clientHeight - 48, 48);
+      const shown = () => { const view = this.host.getBoundingClientRect(); return this.canvases.filter(c => { const r = c.getBoundingClientRect(); return r.left >= view.left - 1 && r.right <= view.right + 1; }).length; };
+      const goal = across ? from.page + direction * Math.max(1, shown()) : top(from) + direction * Math.max(this.host.clientHeight - 48, 48);
+      const position = across ? l => l.page : top;
       let line = from;
       for (let next; (next = verticalLine(this.selectionLayout, line, direction, this.preferredX));) {
         line = next;
-        if (direction * (top(line) - goal) >= 0) break;
+        if (direction * (position(line) - goal) >= 0) break;
       }
+      if (across && line !== from) for (let next; (next = verticalLine(this.selectionLayout, line, direction, this.preferredX)) && next.page === line.page && direction * (from.y - next.y) >= 0;) line = next;
       const stop = line === from ? null : nearestStop(line, this.preferredX);
       target = stop ? stop.offset : direction < 0 ? 0 : this.model.text.length;
       affinity = stop && (stop.affinity || (target === line.end ? 'backward' : 'forward')) || 'forward';
       this.caretPage = stop ? line.page : null;
-      this.host.scrollTop += top(line) - top(from);
+      if (across) this.host.scrollLeft += top(line) - top(from); else this.host.scrollTop += top(line) - top(from);
     }
     else if (key === 'ArrowLeft' || key === 'ArrowRight') {
       const direction = key === 'ArrowLeft' ? -1 : 1;
