@@ -136,3 +136,22 @@ test('the Layout dialog takes a 1.125 in width', async ({ page }, info) => {
   await dialog.getByRole('button', { name: 'OK' }).click();
   await expect(dialog).toBeVisible();
 });
+
+test('Insert Table takes a 1.125 in fixed column width', async ({ page }, info) => {
+  await start(page);
+  await onTab(page, 'insert');
+  await page.locator('#ribbon-panel-insert').getByRole('button', { name: 'Insert table', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Insert Table…' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Insert Table' });
+  await dialog.getByLabel('Fixed column width (in)').fill('1.125');
+  await dialog.getByRole('button', { name: 'OK' }).click();
+  await expect(dialog).toBeHidden();
+  await expect.poll(async () => (await documentXml(page, info)).match(/<w:gridCol [^>]*>/)?.[0]).toBe('<w:gridCol w:w="1620"/>');
+  // Out of range is still refused.
+  await onTab(page, 'insert');
+  await page.locator('#ribbon-panel-insert').getByRole('button', { name: 'Insert table', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Insert Table…' }).click();
+  await dialog.getByLabel('Fixed column width (in)').fill('30');
+  await dialog.getByRole('button', { name: 'OK' }).click();
+  await expect(dialog).toBeVisible();
+});
