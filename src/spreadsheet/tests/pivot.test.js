@@ -66,7 +66,7 @@ describe('pivot tables', () => {
     expect(sum.at('B6')).toBe(160); // Q1 total
     expect(sum.at('D6')).toBe(1191);
     const count = place(wb, buildPivot(wb, id, { range: parseRange('A1:C7'), rowField: 1, colField: null, valueField: 2, agg: 'count' }));
-    expect(count.f('B2')).toBe("COUNTIFS('Sales Data'!$B$2:$B$7,$A2,'Sales Data'!$C$2:$C$7,\"<>\")");
+    expect(count.f('B2')).toBe("(COUNTIFS('Sales Data'!$B$2:$B$7,$A2)-COUNTIFS('Sales Data'!$B$2:$B$7,$A2,'Sales Data'!$C$2:$C$7,\"\"))");
     expect(count.at('B2')).toBe(3); // three Q1 rows
     expect(count.at('B4')).toBe(6);
     const avg = place(wb, buildPivot(wb, id, { range: parseRange('A1:C7'), rowField: 0, colField: null, valueField: 2, agg: 'average' }));

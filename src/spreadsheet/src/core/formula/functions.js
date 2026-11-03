@@ -629,8 +629,11 @@ function criteriaTest(criteria) {
     // once, rather than rebuilding the same RegExp during each comparison.
     const wildcard = /[*?]/.test(rhsText) ? wildcardMatcher(rhsText) : null;
     const rhsLower = foldPrefixText(rhsText);
+    // An empty criterion matches blank cells and empty text; "=" and "<>" written out ask whether a cell is empty, so
+    // a formula giving "" is no match for "=" and is one for "<>", as COUNTA counts it.
+    const explicit = m[1] != null;
     const eq = (v) => {
-      if (rhsText === '') return v == null || v === '';
+      if (rhsText === '') return v == null || (v === '' && !explicit);
       if (rhsIsNum) { const n = criteriaNumber(v); return n != null && compareValues(n, rhsNum) === 0; }
       if (rhsBool != null) return typeof v === 'boolean' && v === rhsBool;
       if (typeof v !== 'string') return false;
