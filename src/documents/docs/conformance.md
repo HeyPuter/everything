@@ -22954,6 +22954,16 @@ separate expected-cache control at zoom 1 and .75. Native reference layout equiv
 is not claimed. Tests: `tests/reference-fields.test.js` and
 `tests/browser/reference-fields.spec.js`.
 
+Since 2026-11-02 the paragraph-number switches refresh too (a heading number in "see section 2.1",
+Word's Insert Cross-reference › Heading number): `\n` shows the list number of the paragraph the
+bookmark starts in as its level writes it, `\r` and `\w` the number with the levels above it, each
+without trailing periods (§17.16.5.51; "2.1." shows "2.1"). Where a level's `lvlText` (§17.9.11)
+writes every numbered level above it (`%1.%2`), as heading numbering does, that number is the full and
+the relative context alike. Kept with their cached result and a field-update notice: `\r` and `\w` for a
+level that writes only itself (`%2)` under `%1.`), `\t`, `\d`, `\p` with a number switch, and a bookmark in
+a paragraph without a number. Tests: `tests/reference-paragraph-numbers.test.js` (independently written
+package; renumbering after a Navigation pane move).
+
 ### Horizontal table grid screen projection (2026-10-10)
 
 ECMA-376 Part 1 §§17.4.38 (`tblBorders`), 17.4.66 (`tcBorders`) and

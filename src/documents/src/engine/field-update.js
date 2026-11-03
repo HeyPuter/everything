@@ -8,6 +8,7 @@ import { formatPageNumber } from './page-numbering.js';
 import { formulaResult } from './table-formula.js';
 import { fieldResultPlan, applyGeneralFormat } from './field-results.js';
 import { noteKindOf } from './footnotes.js';
+import { listMarkers, levelFor } from './numbering.js';
 
 /** The first note reference mark within [start, end]: { kind, id }. */
 function noteMarkIn(paragraphs, start, end) {
@@ -61,6 +62,27 @@ export function sequenceInstruction(instruction) {
 }
 
 /**
+ * The number a REF with \n, \r or \w shows for the paragraph a bookmark starts in (§17.16.5.51): its list
+ * number without trailing periods ("2.1." shows "2.1"). \n shows the number as its level writes it; \r and \w add
+ * the levels above it, which a number written with every level above it ("%1.%2") already shows, so only such
+ * numbers are computed for them. Null when the paragraph is not numbered or the number cannot be computed here.
+ */
+function paragraphNumber(model, markers, index, context) {
+  const p = model.paragraphs[index], marker = markers?.[index];
+  if (!p?.list || !marker?.text || marker.suppressed || marker.level.format === 'bullet') return null;
+  if (context) {
+    const written = new Set([...marker.level.text.matchAll(/%([1-9])/g)].map(m => Number(m[1]) - 1));
+    for (let level = 0; level <= p.list.level; level++) {
+      if (written.has(level)) continue;
+      // A level above that shows no number (none, bullets) adds nothing to the context.
+      let definition; try { definition = levelFor(model.numbering, { ...p.list, level }); } catch { return null; }
+      if (!['none', 'bullet'].includes(definition.format)) return null;
+    }
+  }
+  return marker.text.replace(/\.+$/, '').trim() || null;
+}
+
+/**
  * The text each SEQ/REF/NOTEREF field should show now: [{ range, text }] where it differs. `notes`
  * gives the displayed note numbers ({ footnote: Map, endnote: Map }) for NOTEREF (§17.16.5.40).
  * `sequencesOnly` plans the SEQ fields alone, as inserting a caption renumbers them without updating
@@ -74,6 +96,12 @@ export function fieldUpdatePlan(model, { onIssue = () => {}, notes = null, seque
   // a REF to such a name keeps its cached result (the merge evaluates it).
   const mergeNames = new Set(ranges.filter(r => ['ASK', 'SET'].includes(r.field.type)).map(r => /^\s*\w+\s+("?)([^\s"]+)\1/.exec(r.field.instruction)?.[2]?.toLowerCase()).filter(Boolean));
   const parents = new Set(ranges.map(r => r.parentId).filter(Boolean));
+  let markers, indexes;
+  const numberOf = (bookmark, context) => {
+    if (markers === undefined) { try { markers = listMarkers(model.paragraphs, model.numbering); } catch { markers = null; } indexes = new Map(model.paragraphs.map((p, i) => [p.id, i])); }
+    const index = indexes.get(bookmark.startParagraph);
+    return index === undefined ? null : paragraphNumber(model, markers, index, context);
+  };
   for (const range of ranges) {
     const type = range.field.type;
     if (sequencesOnly && type !== 'SEQ') continue;
@@ -92,24 +120,30 @@ export function fieldUpdatePlan(model, { onIssue = () => {}, notes = null, seque
       value = seq.hidden ? '' : withCases(number, seq.cases);
     } else if (type === 'REF') {
       let tokens; try { tokens = fieldInstructionTokens(range.field.instruction).slice(1); } catch { continue; }
-      let relative = false, supported = true;
+      let relative = false, supported = true, number = null;
       const cases = [];
       for (let i = 1; i < tokens.length; i++) {
         if (tokens[i] === '\\p') relative = true;
+        else if (['\\n', '\\r', '\\w'].includes(tokens[i]) && !number) number = tokens[i];
         else if (tokens[i] === '\\h') continue; // Existing hyperlink envelopes remain intact.
         else if (tokens[i] === '\\*' && tokens[i + 1]?.toUpperCase() === 'MERGEFORMAT') i++;
         else if (tokens[i] === '\\*' && CASES.test(tokens[i + 1] || '')) cases.push(tokens[++i]);
         else { supported = false; break; }
       }
       const retain = reason => onIssue({ id: range.field.id, message: `${reason}; its cached result is retained.` });
-      if (!supported) { retain('This REF uses switches that cannot be refreshed yet'); continue; }
+      if (!supported || number && relative) { retain('This REF uses switches that cannot be refreshed yet'); continue; }
       const bookmark = bookmarkNamed(bookmarks, tokens[0]);
       if (!bookmark && mergeNames.has(tokens[0]?.toLowerCase())) continue;
       if (!bookmark) value = 'Error! Reference source not found.';
       else if (bookmark.start <= range.start && range.start < bookmark.end || range.start < bookmark.start && bookmark.start < range.end) {
         retain('A REF within its source bookmark cannot be refreshed yet'); continue;
       } else if (relative) value = withCases(range.end <= bookmark.start ? 'below' : 'above', cases);
-      else {
+      else if (number) {
+        // A heading or list item's number ("see section 2.1"), as Insert Cross-reference writes it.
+        const shown = numberOf(bookmark, number !== '\\n');
+        if (shown === null) { retain('This REF uses number switches for a paragraph whose number cannot be worked out here'); continue; }
+        value = withCases(shown, cases);
+      } else {
         value = text.slice(bookmark.start, Math.min(bookmark.end, text.length));
         if (bookmark.columnRange || value.includes('\n')) { retain('A REF with structural content cannot be refreshed yet'); continue; }
         // Notes, pictures and equations in the target are object characters: the result leaves them out and
