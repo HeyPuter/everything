@@ -87,18 +87,25 @@ export function spacedFormat(format, spacing) {
  * display copy: its page geometries are replaced, never mutated.
  */
 export function fitContinuousPages(layout, storyLayout, { padding = 16, minimum = 48 } = {}) {
-  const bottoms = layout.pages.map(() => 0);
-  const reach = (page, bottom) => { if (page in bottoms && Number.isFinite(bottom)) bottoms[page] = Math.max(bottoms[page], bottom); };
+  const bottoms = layout.pages.map(() => 0), rights = layout.pages.map(() => 0);
+  const reach = (page, bottom, right) => {
+    if (!(page in bottoms)) return;
+    if (Number.isFinite(bottom)) bottoms[page] = Math.max(bottoms[page], bottom);
+    if (Number.isFinite(right)) rights[page] = Math.max(rights[page], right);
+  };
   for (const line of [...layout.lines, ...(layout.repeatedLines || [])]) if (!line.virtual) reach(line.page, line.y + line.height);
-  for (const cell of layout.cells || []) reach(cell.page, cell.y + cell.height);
-  for (const frame of layout.floatingObjects || []) reach(frame.page, frame.y + frame.height);
-  for (const frame of layout.paragraphFrames || []) reach(frame.page, frame.bottom);
+  for (const cell of layout.cells || []) reach(cell.page, cell.y + cell.height, cell.x + cell.width);
+  for (const frame of layout.floatingObjects || []) reach(frame.page, frame.y + frame.height, frame.x + frame.width);
+  for (const frame of layout.paragraphFrames || []) reach(frame.page, frame.bottom, frame.right);
   for (const line of storyLayout?.lines || []) reach(line.page, line.y + line.height);
   const last = layout.pages.length - 1;
   const pages = layout.pages.map((page, index) => {
     // A strip's text ends at its content, plus breathing room at the very end of the document.
     const height = Math.min(page.height, Math.max(minimum, Math.ceil(bottoms[index] + (index === last ? padding * 2 : padding / 2))));
-    return { ...page, height };
+    // Text wraps to the window, but a table or drawing wider than it keeps its width: the strip grows
+    // to hold it (the view scrolls sideways to it, as in Word) and its text area stays as it was.
+    const width = Math.max(page.width, Math.min(20000, Math.ceil(rights[index] + (page.left || 0))));
+    return width > page.width ? { ...page, height, width, right: (page.right || 0) + width - page.width } : { ...page, height };
   });
   let offset = 0;
   const pageOffsets = pages.map(page => { const start = offset; offset += page.height; return start; });

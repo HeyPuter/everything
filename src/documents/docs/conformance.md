@@ -24438,6 +24438,9 @@ Code: [engine/document-views.js](../src/engine/document-views.js) (screen geomet
   the view it was in, with a message; resizing a screen view to such a width keeps the last width
   (Web Layout, Draft and Read Mode alike), and that width is not tried again until the window, the
   zoom or the document changes.
+- Web Layout and Draft wrap text to the window, but a table, drawing or frame wider than it keeps its
+  width: the strip grows to hold it and the view scrolls sideways, while the text area (and the
+  ruler's margins) stay those of the window (`tests/web-layout-wide-content.test.js`).
 
 ### Outline levels (§17.3.1.20 `w:outlineLvl`, §17.7.4.17 style `w:pPr`)
 
