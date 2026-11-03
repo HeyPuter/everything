@@ -18,6 +18,15 @@ import { MAX_TEXT } from '../cell.js';
 import { MAX_ROW, MAX_COL } from '../refs.js';
 import { MIN_NORMAL, flushUnderflow, finalCancellation, hasZeroHighWord } from '../numeric.js';
 
+/**
+ * The built-ins Excel has not got, taken from Sheets. Their names are free in Excel, so a LAMBDA a workbook defines by
+ * one of them is what its formulas call (see the 'call' case).
+ */
+export const APP_ONLY_FUNCTIONS = new Set(['ADD', 'MINUS', 'MULTIPLY', 'DIVIDE', 'POW', 'UMINUS', 'UPLUS', 'UNARY_PERCENT', 'EQ', 'NE',
+  'GT', 'GTE', 'LT', 'LTE', 'COUNTUNIQUE', 'MARGINOFERROR', 'COUNTUNIQUEIFS', 'TO_TEXT', 'TO_PURE_NUMBER', 'TO_DATE', 'TO_PERCENT',
+  'TO_DOLLARS', 'SPARKLINE', 'ARRAYFORMULA', 'FLATTEN', 'SPLIT', 'REGEXMATCH', 'JOIN', 'ISEMAIL', 'ISURL', 'ISBETWEEN',
+  'ARRAY_CONSTRAIN', 'EPOCHTODATE', 'GOOGLETRANSLATE', 'AI', 'QUERY', 'IMPORTDATA', 'IMPORTHTML', 'IMPORTXML', 'IMPORTRANGE']);
+
 /** Functions a bare name still calls: they take no arguments, so `=PI` and `=TODAY` mean PI() and TODAY(). */
 const ZERO_ARG_FUNCTIONS = new Set(['TRUE', 'FALSE', 'PI', 'NOW', 'TODAY', 'RAND', 'NA', 'ROW', 'COLUMN', 'SHEET', 'SHEETS']);
 
@@ -770,7 +779,13 @@ export function evaluate(node, ctx, final = false) {
         const ref = nameCtx.getNamedRef?.(node.name);
         if (ref) return referenceValue(ref, nameCtx);
       }
-      const named = node.bare || !def ? nameCtx.getNamedFormula?.(node.name) : null;
+      let named = node.bare || !def ? nameCtx.getNamedFormula?.(node.name) : null;
+      // A function of this app's own that Excel has not got (Sheets' SPLIT, FLATTEN, ADD) gives way to a LAMBDA the
+      // workbook names so: a book from Excel calls its own Flatten(A1:B2), which Excel knows by no other.
+      if (!named && !node.bare && APP_ONLY_FUNCTIONS.has(node.name)) {
+        const lambda = nameCtx.getNamedFormula?.(node.name);
+        if (lambda?.type === 'call' && !lambda.bare && !lambda.sheet && lambda.name === 'LAMBDA') named = lambda;
+      }
       if (named) {
         // A name that stands for a value must not expand through itself; a name that defines a
         // LAMBDA may call itself, and the lambda's own depth limit bounds that recursion.

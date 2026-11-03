@@ -81,7 +81,7 @@ import { normalizePrintSettings, mapPrintAreas } from './print-settings.js';
 import { normalizeBackground } from './sheet-background.js';
 import { normalizeCustomViews, captureCustomView, MAX_CUSTOM_VIEWS, CUSTOM_VIEW_NAME_MAX } from './custom-views.js';
 import { parseFormula } from './formula/parser.js';
-import { ARRAY_BUDGET, evaluate, evaluateFormula, isVolatile, paramSpec, resetArrayBudget, withArrayBudget } from './formula/evaluator.js';
+import { APP_ONLY_FUNCTIONS, ARRAY_BUDGET, evaluate, evaluateFormula, isVolatile, paramSpec, resetArrayBudget, withArrayBudget } from './formula/evaluator.js';
 import { FUNCTIONS, err, isError, isRange, scalar, compareStoredValues, toText, noteRangeRows, isNestedTotal } from './formula/functions.js';
 import { parseDelimited } from './tsv.js';
 import { splitPieces, detectDelimiter, splitSourceText, DEFAULT_SPLIT } from './text-split.js';
@@ -12279,6 +12279,8 @@ export class Workbook extends EventTarget {
             if (!consumed) sink.push(node.sheet ? { name: node.name, sheet: node.sheet } : { name: node.name });
             if (node.sheet || !FUNCTIONS[node.name]) return false;
           } else if (node.sheet || !FUNCTIONS[node.name]) return !consumed; // a called definition (=Seq(3), =S!Double(4)) may hand back an array
+          // So may one spelled like a function Excel has not got (=Flatten(A1:B2)), which a LAMBDA of that name answers for.
+          else if (!consumed && APP_ONLY_FUNCTIONS.has(node.name)) sink.push({ name: node.name, called: true });
           // Under a consumer nothing a call answers can spill: SUM(SEQUENCE(3)), COUNTA(UNIQUE(A:A)),
           // SUM(IF(A1:A3>1,1,0)), INDEX(SORT(A1:B3),1,1) and MAX(OFFSET(A1,0,0,3)) are one value each.
           if (consumed) return false;
@@ -12419,7 +12421,16 @@ export class Workbook extends EventTarget {
   _bareNameSpills(ast, sheetName) {
     const names = ast._bareNames;
     if (!names) return false;
-    return names.some(({ name, sheet }) => (!sheet && !!this.tableByName(name)) || this._nameSpills(name, sheet || sheetName));
+    return names.some(({ name, sheet, called }) => called ? this._namesLambda(name, sheetName)
+      : (!sheet && !!this.tableByName(name)) || this._nameSpills(name, sheet || sheetName));
+  }
+
+  /** Does a defined name hold a LAMBDA, which a call by that name runs (see APP_ONLY_FUNCTIONS)? */
+  _namesLambda(name, sheetName) {
+    const entry = this.namedEntry(name, sheetName);
+    if (!entry || this.parseNamedRef(entry.ref)) return false;
+    const ast = this._astOrNull(entry.ref);
+    return ast?.type === 'call' && !ast.bare && !ast.sheet && ast.name === 'LAMBDA';
   }
 
   /**
