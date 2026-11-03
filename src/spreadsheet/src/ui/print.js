@@ -976,6 +976,7 @@ export function buildPrintTable(wb, sheetId, opts = {}) {
         if (formatParts?.some(part => part.rich)) td.style.textDecoration = 'none';
         if (st.size) td.style.fontSize = `${st.size}px`;
         let printFont = `${st.italic ? 'italic ' : ''}${st.bold ? '600 ' : ''}${st.size || 9.5 * 4 / 3}px ${fontStack(st.font) || 'system-ui, sans-serif'}`;
+        const naturalFont = printFont;
         if (st.shrink && !st.wrap && barText && !checkbox && !(value && typeof value === 'object' && (value.image || value.sparkline))) {
           measureContext ||= document.createElement('canvas').getContext('2d');
           if (measureContext) {
@@ -1020,7 +1021,7 @@ export function buildPrintTable(wb, sheetId, opts = {}) {
             }
             if (!st.rot) printFormatLayouts.set(formatted, { parts, font, text: barText, align, richOptions,
               wrap: st.wrap && typeof value !== 'number', general: !st.align,
-              shrink: st.shrink && !st.wrap, numeric: typeof value === 'number', icon: cf?.iconImage ? null : cf?.icon, iconWidth: cf?.iconImage ? 20 : 0 });
+              shrink: st.shrink && !st.wrap && { font: naturalFont }, numeric: typeof value === 'number', icon: cf?.iconImage ? null : cf?.icon, iconWidth: cf?.iconImage ? 20 : 0 });
           }
         }
         if (checkbox) {
@@ -1389,7 +1390,9 @@ function refinePrintFormats(sheet) {
     const iconWidth = info.icon ? measure(info.icon + ' ') : 0;
     let effectiveMeasure = measure, richOptions = info.richOptions;
     if (info.shrink) {
-      const fit = shrinkCellText({ text: info.text, parts: info.parts, font: info.font, zoom: info.richOptions.zoom || 1, width: Math.max(0, width - iconWidth),
+      // Shrink from the text's own size, not from the size the model's column width gave it: a table
+      // stretched across the page has wider columns than the sheet's, and its text needs less shrinking.
+      const fit = shrinkCellText({ text: info.text, parts: info.parts, font: info.shrink.font, width: Math.max(0, width - iconWidth),
         measure: (text, font) => { ctx.font = font.replace(/([\d.]+)px/, (_, size) => `${Number(size) * scale}px`); return ctx.measureText(text).width / scale; } });
       effectiveMeasure = fit.measure; richOptions = { ...info.richOptions, zoom: fit.zoom };
       node.closest('td').style.fontSize = `${Number(/([\d.]+)px/.exec(fit.font)?.[1])}px`;
