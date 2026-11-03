@@ -8045,6 +8045,35 @@ export class Workbook extends EventTarget {
   }
 
   /**
+   * Take the groups `remove` (the sheet's own group objects) off an axis and add the spans `add` (each already
+   * passed by groupRefusal, and lying apart from one another), as one outline step: lines a removed collapsed group
+   * hid come back unless a group still collapsed holds them, and an added group starts expanded, after any group over
+   * the same lines, as groupLines puts it. Subtotal's groups, one category each, went one step apiece, each copying the
+   * whole outline: 10,000 categories took ten seconds to add and fifteen to take off again.
+   */
+  _editGroups(sheetId, axis, { add = [], remove = [] }, label) {
+    const sheet = this.sheet(sheetId);
+    if (!sheet || this._gridLocked(sheet)) return false;
+    const key = axis === 'row' ? 'rows' : 'cols';
+    const removed = new Set(remove);
+    const spans = add.map(({ from, to }) => this._groupSpan(sheet, axis, from, to)).filter(Boolean);
+    if (!spans.length && !sheet.groups[key].some((g) => removed.has(g))) return false;
+    this._outlineStep(sheet, label, () => {
+      const gone = sheet.groups[key].filter((g) => removed.has(g) && g.collapsed);
+      const kept = sheet.groups[key].filter((g) => !removed.has(g));
+      // The list stays in sheet order (by first line, the longer first); the sort is stable, so each added group
+      // follows any group already over the same lines.
+      const list = [...kept, ...spans.map(({ lo, hi }) => ({ from: lo, to: hi, collapsed: false }))].sort((a, b) => a.from - b.from || b.to - a.to);
+      sheet.groups = { ...sheet.groups, [key]: list };
+      if (!gone.length) return;
+      const hidden = axis === 'row' ? sheet.hiddenRows : sheet.hiddenCols;
+      const held = this._collapsedLines(sheet, key, 0, Infinity);
+      for (const g of gone) for (let i = g.from; i <= g.to; i++) if (!held.has(i)) hidden.delete(i);
+    });
+    return true;
+  }
+
+  /**
    * Ungroup: take one outline level off the lines from..to, as Excel does: the outermost groups inside them go,
    * and the groups nested in those stay, a level up; when no group is inside, the innermost group around the
    * selection goes. Lines a removed group had hidden come back, unless a group still collapsed holds them.
