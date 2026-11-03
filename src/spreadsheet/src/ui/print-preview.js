@@ -440,7 +440,19 @@ export function createPrintPreview({ wb, sheetId, docName, filePath = '', getPre
         };
         // Wrapped text in the lines it prints in, set at the top, middle or bottom of its cell; unwrapped, on one line.
         const shownText = cellLayoutText(text, st.wrap);
-        if (st.wrap) {
+        if (st.rot) {
+          // Turned text, as it prints: its turned box set in the cell by the cell's alignment, the text drawn along it.
+          const angle = -st.rot * Math.PI / 180, cos = Math.abs(Math.cos(angle)), sin = Math.abs(Math.sin(angle));
+          const tw = g.measureText?.(shownText)?.width || 0;
+          const bw = tw * cos + size * sin, bh = tw * sin + size * cos;
+          const bx = align === 'right' ? cx + cw - pad - bw : align === 'center' ? cx + (cw - bw) / 2 : cx + pad;
+          const by = st.valign === 'top' ? cy + pad : st.valign === 'middle' ? cy + (ch - bh) / 2 : cy + ch - pad - bh;
+          g.translate(bx + bw / 2, by + bh / 2);
+          g.rotate(angle);
+          g.textAlign = 'center';
+          g.textBaseline = 'middle';
+          g.fillText(shownText, 0, 0);
+        } else if (st.wrap) {
           const lineHeight = size * 1.3;
           const lines = wrapLines(shownText, Math.max(1, cw - 2 * pad - indent), (t) => g.measureText?.(t)?.width || 0);
           const block = lines.length * lineHeight;
