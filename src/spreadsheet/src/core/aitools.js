@@ -3405,6 +3405,12 @@ function addNote(wb, args, env) {
   // Blank text removes the note, as the workbook takes it; a longer note is kept to its limit, and said to be.
   const given = String(args.text ?? '');
   const text = given.trim() ? cutText(given, MAX_NOTE) : '';
+  // A cell under a merged cell's top-left one is never drawn, its note's mark with it: the note was reported added
+  // and no one could see or open it. (One already there may still be removed.)
+  const merge = text ? wb.mergeAt?.(sheetId, range.r1, range.c1) : null;
+  if (merge && (merge.r1 !== range.r1 || merge.c1 !== range.c1)) {
+    throw new ToolError(`${cellName(range.r1, range.c1)} is inside the merged cell ${rangeName(merge)}, where a note does not show; put it on ${cellName(merge.r1, merge.c1)}.`);
+  }
   // A cell holds a note or a comment thread, not both, as in Excel: a note put beside a thread was reported as
   // added, then lost when the file was saved, where the thread's own note takes the cell's one place.
   if (text && getThread(wb, sheetId, range.r1, range.c1)) {
