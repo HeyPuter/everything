@@ -117,3 +117,14 @@ it('keeps every argument already written, past those its signature lists', async
   await vi.advanceTimersByTimeAsync(1);
   expect(editor.value).toBe('=AGGREGATE(9, 6, B1, B2, B3)');
 });
+
+// Fields past the signature were capped at the 30 the dialog offers for new arguments, so OK on a SUM of 40 numbers
+// dropped the last 10 without a word, where it had kept them all before.
+it('keeps every argument of a long call, past the fields it offers for new ones', async () => {
+  const args = Array.from({ length: 40 }, (_, i) => String(i + 1));
+  const { editor } = await editFormula(`=SUM(${args.join(',')})`, 5);
+  expect([...dialog().querySelectorAll('input')].map((i) => i.value)).toEqual(args);
+  dialog().requestSubmit();
+  await vi.advanceTimersByTimeAsync(1);
+  expect(editor.value).toBe(`=SUM(${args.join(', ')})`);
+});
