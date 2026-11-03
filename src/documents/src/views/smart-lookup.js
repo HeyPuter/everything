@@ -69,12 +69,13 @@ export function createSmartLookup({ editor }) {
       const answer = parseLookup(responseText(await aiChat(lookupPrompt(target))));
       if (id !== request) return;
       status.textContent = '';
-      result.replaceChildren(
+      // replaceChildren would write a missing part out as the word "null": only the parts there are go in.
+      result.replaceChildren(...[
         el('h3.ref-lookup-term', {}, target.phrase),
         el('p.ref-lookup-definition', {}, answer.definition || 'No definition came back.'),
         answer.related.length ? el('h3', {}, 'Related topics') : null,
         answer.related.length ? el('ul.ref-lookup-related', {}, ...answer.related.map(topic => el('li', {}, el('button.ref-lookup-topic', { type: 'button', onclick: () => run({ phrase: topic, sentence: `${topic} (related to ${target.phrase})` }) }, topic)))) : null,
-        el('a.ref-lookup-web', { href: `https://duckduckgo.com/?q=${encodeURIComponent(target.phrase)}`, target: '_blank', rel: 'noopener noreferrer' }, 'Search the web'));
+        el('a.ref-lookup-web', { href: `https://duckduckgo.com/?q=${encodeURIComponent(target.phrase)}`, target: '_blank', rel: 'noopener noreferrer' }, 'Search the web')].filter(Boolean));
     } catch (e) {
       if (id !== request) return;
       // The pane says what went wrong; the SDK's error (often an object, not an Error) is for the console.

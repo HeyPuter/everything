@@ -406,6 +406,18 @@ test('Smart Lookup says plainly why it has no answer, once', async ({ page }) =>
   await expect(page.locator('.toast')).toHaveCount(0);
 });
 
+test('Smart Lookup with no related topics shows the definition alone, with no stray text', async ({ page }) => {
+  await openEditor(page);
+  await page.keyboard.type('The aphelion of an orbit is far.');
+  await expect.poll(() => engineText(page)).toBe('The aphelion of an orbit is far.');
+  await page.evaluate(() => { puter.ai.chat = async () => ({ message: { content: 'Definition: The point of an orbit farthest from the Sun.' } }); const m = window.__docs.current.view.engine.model, at = m.text.indexOf('aphelion'); m.select(at + 2); });
+  await onTab(page, 'references');
+  await ribbon(page).getByRole('button', { name: 'Smart Lookup', exact: true }).click();
+  const pane = page.getByRole('complementary', { name: 'Smart Lookup' });
+  await expect(pane.locator('.ref-lookup-definition')).toHaveText('The point of an orbit farthest from the Sun.');
+  await expect(pane.locator('.ref-lookup-result')).toHaveText('aphelionThe point of an orbit farthest from the Sun.Search the web');
+});
+
 test('Smart Lookup explains the selection, and the menus offer References commands', async ({ page }) => {
   await openEditor(page);
   await page.keyboard.type('The aphelion of an orbit is far.');
