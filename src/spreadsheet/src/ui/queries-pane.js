@@ -19,12 +19,14 @@ export function createQueriesPane(ctx) {
   const errors = new Map();
   let lastVersion = -1;
   const list = el('div.qc-list', { role: 'list', 'aria-label': 'Queries' });
+  // Beside the list rather than in it: a list holds list items alone.
+  const empty = el('p.qc-empty', { hidden: true }, 'This workbook has no queries. Use Data ▸ Get Data to bring data in.');
   const count = el('span.qc-count');
   const close = el('button.icon-btn', { type: 'button', 'aria-label': 'Close Queries & Connections', html: icon('x', 16), onclick: () => api.hide() });
   const root = el('section.a11y-pane.qc-pane', { role: 'region', 'aria-label': 'Queries & Connections', hidden: true },
     el('div.a11y-head', {}, el('span.a11y-title', {}, 'Queries & Connections'), close),
     el('div.qc-tabs', { role: 'tablist' }, el('span.qc-tab', { role: 'tab', 'aria-selected': 'true' }, 'Queries'), count),
-    el('div.a11y-body', {}, list));
+    el('div.a11y-body', {}, list, empty));
 
   const status = (q) => {
     if (busy.has(q.id)) return 'Refreshing…';
@@ -77,10 +79,8 @@ export function createQueriesPane(ctx) {
     lastVersion = ctx.wb.version;
     const queries = ctx.wb.queries || [];
     count.textContent = String(queries.length);
-    if (!queries.length) {
-      list.replaceChildren(el('p.qc-empty', {}, 'This workbook has no queries. Use Data ▸ Get Data to bring data in.'));
-      return;
-    }
+    list.hidden = !queries.length;
+    empty.hidden = !!queries.length;
     list.replaceChildren(...queries.map((q) => {
       const item = el('div.qc-item', { role: 'listitem', title: sourceSummary(q), tabindex: 0,
         ondblclick: () => ctx.edit(q.id),
