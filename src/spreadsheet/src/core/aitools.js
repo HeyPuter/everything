@@ -3810,7 +3810,7 @@ export function describeCall(wb, name, args = {}, env) {
       try { to = landing(wb, name, args, env); } catch { /* the runner explains */ }
       const dest = to ? qualified(wb, to.sheetId, to.range) : String(args.destination ?? '');
       const what = move ? 'all' : args.what || 'all';
-      let replaced = 0, notes = 0, threads = 0, spills = 0;
+      let replaced = 0, notes = 0, threads = 0, sparklines = 0, spills = 0;
       if (to && what !== 'formats') {
         // Where a move's old and new places overlap, its own cells are not data it replaces.
         const both = move && src.s === to.sheetId && src.range && overlapping(src.range, to.range) ? {
@@ -3831,10 +3831,13 @@ export function describeCall(wb, name, args = {}, env) {
             threads = notesIn(wb, to.sheetId, { r1: to.range.r1, c1: to.range.c1, r2: to.range.r1 + lines.rows - 1, c2: to.range.c1 + lines.cols - 1 }, 'comments');
           }
         }
+        // A move, and Paste All, take the sparklines off the cells they land on, as removing them with add_sparklines
+        // asks; a transposed copy leaves them.
+        if (move || (what === 'all' && !args.transpose)) sparklines = sparklinesIn(wb, to.sheetId, to.range) - (both ? sparklinesIn(wb, to.sheetId, both) : 0);
         // An array formula moving with the cells takes its results along: it blocks nothing.
         spills = spillsHit(wb, to.sheetId, to.range).filter((a) => !(move && src.s === to.sheetId && within({ r1: a.r, c1: a.c, r2: a.r, c2: a.c }, src.range))).length;
       }
-      const annotations = [notes && plural(notes, 'note'), threads && plural(threads, 'comment thread')].filter(Boolean);
+      const annotations = [notes && plural(notes, 'note'), threads && plural(threads, 'comment thread'), sparklines && plural(sparklines, 'sparkline')].filter(Boolean);
       const detail = [replaced && `Replaces ${holding(replaced)}.`, annotations.length && `Replaces ${annotations.join(' and ')} there.`, spills && blocksSpills(spills)].filter(Boolean).join(' ');
       const label = move ? `Move ${src.text} to ${dest}` : `Copy ${what === 'all' ? '' : `the ${what} of `}${src.text} to ${dest}`;
       return { label, destructive: !!detail, detail: detail || null };
@@ -3868,8 +3871,10 @@ export function describeCall(wb, name, args = {}, env) {
       // The notes in them go too: removing a note on its own asks, and so does removing it with its row.
       const notes = range && range.r1 >= 0 ? notesIn(wb, s, range) : 0;
       const threads = range && range.r1 >= 0 ? notesIn(wb, s, range, 'comments') : 0;
+      // And their sparklines, which cells hold without holding data: a column of nothing but sparklines went unasked.
+      const sparklines = range && range.r1 >= 0 ? sparklinesIn(wb, s, range) : 0;
       const which = rows ? `row${n === 1 ? '' : 's'} ${lineNumber(args.start_row)}${n > 1 ? `–${lineNumber(args.start_row) + n - 1}` : ''}` : `column${n === 1 ? '' : 's'} ${String(args.start_column).toUpperCase()}${n > 1 && range ? `–${colName(range.c2)}` : ''}`;
-      const removes = [data && `${plural(data, 'cell')} of data`, notes && plural(notes, 'note'), threads && plural(threads, 'comment thread')].filter(Boolean);
+      const removes = [data && `${plural(data, 'cell')} of data`, notes && plural(notes, 'note'), threads && plural(threads, 'comment thread'), sparklines && plural(sparklines, 'sparkline')].filter(Boolean);
       return { label: `Delete ${which} on ${sheetName(args.sheet)}`, destructive: removes.length > 0, detail: removes.length ? `Removes ${removes.join(' and ')}.` : null };
     }
     case 'sort_range': return { label: `Sort ${at(args.range).text}` };
