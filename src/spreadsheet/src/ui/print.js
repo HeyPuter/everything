@@ -1418,8 +1418,7 @@ export function preparePrintRoot(root) {
       if (layout.paginated) continue;
       const { section, sheet, position, opts } = layout;
       layout.variantSpace = flowVariantSpace(root, layout);
-      refinePrintFormats(sheet);
-      if (!['pages', 'width'].includes(opts.fit)) continue;
+      if (!['pages', 'width'].includes(opts.fit)) { refinePrintFormats(sheet); continue; }
       const width = printableWidth(opts), height = printableHeight(opts);
       const widthPages = opts.fit === 'width' ? 1 : Math.max(0, opts.fitWidth ?? 1);
       const heightPages = opts.fit === 'width' ? 0 : Math.max(0, opts.fitHeight ?? 1);
@@ -1428,6 +1427,8 @@ export function preparePrintRoot(root) {
       const oldPadding = position && [position.style.paddingLeft, position.style.paddingTop];
       if (position) { position.style.paddingLeft = '0'; position.style.paddingTop = '0'; }
       try {
+        // Measured at the page's width: a table fitted to it is stretched across it, its columns as wide as they print.
+        refinePrintFormats(sheet);
         const frame = sheet.querySelector('.print-table') || sheet;
         let rect, extraHeight;
         for (;;) {
