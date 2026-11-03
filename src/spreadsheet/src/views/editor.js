@@ -3403,6 +3403,9 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       case 'consolidate': {
         // Data ▸ Consolidate: the dialog, then the combined table written at the active cell as one undo step.
         if (!committed()) return;
+        // The table goes in from the active cell: a locked one refuses it (the workbook's notice says why), which is
+        // said before the references are gathered. Unlocked cells of a protected sheet take it.
+        if (!arg?.refs && wb.lockedAt(sheetId, grid.active.r, grid.active.c)) { keepFocus(); return; }
         if (!arg?.refs) { openConsolidateDialog(ctx); return; }
         const sources = arg.refs.map((text) => {
           const at = resolveRangeText(text);
