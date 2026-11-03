@@ -92,11 +92,11 @@ import { readNumbering, writeNumbering } from './docx-numbering.js';
 import { validateIndent, normalizeTabStops } from './paragraph-geometry.js';
 import { DEFAULT_PAGE_SETTINGS, validatePageSettings } from './page-settings.js';
 import { checkedLineNumbers } from './line-number-settings.js';
-import { zipPackage, MAX_PACKAGE_BYTES, compoundFileProblem, relationshipPartPath, partPathForUrl, partContentType } from './package-part-paths.js';
+import { zipPackage, MAX_PACKAGE_BYTES, compoundFileProblem, relationshipPartPath, partPathForUrl, partContentType, unzipBounded } from './package-part-paths.js';
 import { zipPackageAsync } from './package-zip.js';
 import { canonicalMainPart } from './docx-main-part.js';
 import { altChunkParagraphs } from './docx-alt-chunks.js';
-import { unzipSync, strToU8 } from 'fflate';
+import { strToU8 } from 'fflate';
 import { paragraph, paragraphFormat, runFormat, documentText, paragraphText, PAGINATION_DEFAULTS } from './model.js';
 
 export const DOCX_TYPE = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
@@ -1197,14 +1197,10 @@ function hasPageStoryControls(root) {
   });
 }
 
+const EXPANDED_LIMIT = 'DOCX expanded size exceeds the editor limit.';
 // The text of a WordprocessingML package imported into another (an altChunk), for a read-only preview.
 function previewEmbeddedPackage(bytes) {
-  let total = 0, count = 0;
-  const parts = canonicalMainPart(unzipSync(bytes, { filter: entry => {
-    total += entry.originalSize;
-    if (++count > 2000 || total > 50 * 1024 * 1024) throw new Error('DOCX expanded size exceeds the editor limit.');
-    return true;
-  } }));
+  const parts = canonicalMainPart(unzipBounded(bytes, { message: EXPANDED_LIMIT }));
   return DocxPackage.preview(parts).paragraphs;
 }
 
@@ -1248,15 +1244,12 @@ export class DocxPackage {
     if (bytes.length > MAX_PACKAGE_BYTES) throw new Error('This editor currently opens DOCX files up to 20 MB.');
     const compound = compoundFileProblem(bytes);
     if (compound) throw new Error(compound);
-    let total = 0, count = 0, parts;
+    let parts;
     const names = new Set(), duplicates = new Set();
     try {
-      parts = unzipSync(bytes, { filter: entry => {
-        total += entry.originalSize;
-        if (++count > 2000 || total > 50 * 1024 * 1024) throw new Error('DOCX expanded size exceeds the editor limit.');
+      parts = unzipBounded(bytes, { message: EXPANDED_LIMIT, onItem: entry => {
         const key = entry.name.replace(/[A-Z]+/g, c => c.toLowerCase());
         if (!key.endsWith('/') && names.has(key)) duplicates.add(entry.name); else names.add(key);
-        return true;
       } });
     } catch (e) { throw new Error(`Could not read this DOCX archive: ${e.message}`); }
     parts = canonicalMainPart(parts);

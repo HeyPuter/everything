@@ -10,7 +10,7 @@ import { relatedPartPath } from './docx-relationships.js';
 import { parseXml } from './docx-xml.js';
 import { readVmlWatermark } from './vml-watermarks.js';
 import { imageInfo } from './images.js';
-import { relationshipPartPath, relativePartTarget, zipPackage } from './package-part-paths.js';
+import { relationshipPartPath, relativePartTarget, unzipBounded, zipPackage } from './package-part-paths.js';
 import { createPageStoryPart } from './docx-page-story-create.js';
 import { themeColorTransform } from './colors.js';
 import { COLOR_SLOTS, STYLE_SET_STYLES, resolvedTheme, STYLE_SETS } from './document-themes.js';
@@ -681,7 +681,8 @@ export function themePartXml(parts) {
 /** The theme part inside a .thmx theme package (a ZIP), or the text of a .xml theme file. */
 export function themeFileXml(bytes) {
   if (bytes[0] === 0x50 && bytes[1] === 0x4b) {
-    const files = unzipSync(bytes);
+    // A theme package is a few hundred kilobytes; one expanding past 20 MB is not a theme.
+    const files = unzipBounded(bytes, { maxBytes: 20 * 1024 * 1024, message: 'This theme file is too large to be a theme.' });
     const name = Object.keys(files).filter(n => /(^|\/)theme\/theme\d*\.xml$/i.test(n)).sort()[0];
     if (!name) throw new Error('This theme package does not contain a theme.');
     return checkedThemeXml(strFromU8(files[name]));

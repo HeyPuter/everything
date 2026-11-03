@@ -1,4 +1,4 @@
-import { deflateSync, zipSync } from 'fflate';
+import { deflateSync, unzipSync, zipSync } from 'fflate';
 
 // OPC relationship targets are relative to the owning part, not the package's
 // main document. Keep names encoded as stored in the ZIP; do not URL-decode them.
@@ -67,6 +67,22 @@ export function packagePartName(parts, name) {
 
 /** The largest DOCX file the editor opens. */
 export const MAX_PACKAGE_BYTES = 20 * 1024 * 1024;
+
+/**
+ * The items of a ZIP archive the user chose, refusing (with `message`) one that expands past `maxBytes` or
+ * holds more than `maxItems` items. fflate allocates each item at the size the archive declares before
+ * inflating it, so a small file declaring gigabytes (a "zip bomb") made the tab allocate and decode them.
+ * `onItem(entry)` sees each item first, as unzipSync's filter does.
+ */
+export function unzipBounded(bytes, { maxBytes = 50 * 1024 * 1024, maxItems = 2000, message = 'The archive expands past the editor limit.', onItem } = {}) {
+  let total = 0, count = 0;
+  return unzipSync(bytes, { filter: entry => {
+    total += entry.originalSize;
+    if (++count > maxItems || total > maxBytes) throw new Error(message);
+    onItem?.(entry);
+    return true;
+  } });
+}
 
 // Pictures in these formats are usually compressed already. Deflating them
 // again on every save costs seconds of main-thread time in picture-heavy
