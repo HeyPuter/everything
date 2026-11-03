@@ -138,6 +138,12 @@ export function openAiDialog(ctx, { mode = 'write' } = {}) {
       showError(`${cellName(active.r, active.c)} is part of the array formula in ${rangeName(array)}, which can only be changed as a whole. Select another cell and ask again.`);
       return;
     }
+    // A formula Excel refuses as typed would go in as its text, the dialog closing as though it were written.
+    const problem = wb.typedFormulaProblem(input);
+    if (problem) {
+      showError(`${problem.message}. Ask again for another formula.`);
+      return;
+    }
     const verdict = wb.validateInput(sheetId, active.r, active.c, input);
     if (!verdict.ok && verdict.rule?.strict !== false) {
       showError(verdict.message || 'This result does not meet the cell’s validation rule.');
