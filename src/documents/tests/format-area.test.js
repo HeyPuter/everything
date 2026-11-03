@@ -52,6 +52,9 @@ it('turns spoken punctuation into text and joins dictation to the text before th
   expect(spokenText('hello world period new paragraph')).toBe('hello world.\n');
   expect(spokenText(' new line')).toBe('\v');
   expect(joinDictation('Done.', spokenText('new paragraph'))).toBe('\n');
+  // A sentence or a paragraph begun within one phrase starts with a capital too.
+  expect(joinDictation('Start', spokenText('this is a test period this is another question mark yes'))).toBe(' this is a test. This is another? Yes');
+  expect(joinDictation('Done. ', spokenText('first line new line second new paragraph third'))).toBe('First line\vSecond\nThird');
   const off = createDictation({ editor: () => null, readOnly: () => false, host: () => null });
   expect(off.supported).toBe(false);
   expect(off.start()).toBe(false);

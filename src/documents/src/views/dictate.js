@@ -15,7 +15,8 @@ export function spokenText(transcript) {
 export function joinDictation(before, text) {
   if (!text) return '';
   const last = before.slice(-1);
-  let out = text;
+  // A sentence or paragraph begun within the phrase ("… period this is …", "… new paragraph next …") starts with a capital.
+  let out = text.replace(/([.!?] +|[\n\v])(\p{Ll})/gu, (match, end, letter) => end + letter.toLocaleUpperCase());
   if (!before.trim() || /[.!?\n\v]\s*$/.test(before)) out = out.charAt(0).toLocaleUpperCase() + out.slice(1);
   if (last && !/[\s\n\v(“"]/.test(last) && !/^[.,!?:;\n\v]/.test(out)) out = ' ' + out;
   return out;
