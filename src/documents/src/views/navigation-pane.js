@@ -29,6 +29,14 @@ export function createNavigationPane(api) {
       e.preventDefault(); const next = tabs[(i + step + tabs.length) % tabs.length][0]; select(next); tabButtons.find(b => b.id === `nav-tab-${next}`).focus();
     } }, label));
   const headingList = el('ol.nav-headings', { role: 'tree', 'aria-label': 'Headings' });
+  // The tree is one Tab stop, as a tree is: the heading the keyboard was last on, else the current one, else the first.
+  let treeStop = null;
+  headingList.addEventListener('focusin', e => {
+    const id = e.target.closest?.('.nav-heading')?.dataset.paragraph;
+    if (!id) return;
+    treeStop = id;
+    for (const button of headingList.querySelectorAll('.nav-heading')) button.tabIndex = button.dataset.paragraph === id ? 0 : -1;
+  });
   const headingEmpty = el('p.field-hint', {}, 'Create an interactive outline of your document. It is a great way to keep track of where you are or quickly move your content around. To get started, apply heading styles to the headings in your document.');
   const pageGrid = el('div.nav-pages', { role: 'list', 'aria-label': 'Pages' });
   const resultList = el('ol.nav-results', { 'aria-label': 'Search results' });
@@ -142,8 +150,12 @@ export function createNavigationPane(api) {
       if (focused) headingButton(focused)?.focus();
     }
     const here = entries.filter(entry => entry.start <= position).at(-1)?.id;
-    for (const button of headingList.querySelectorAll('.nav-heading')) {
+    const buttons = [...headingList.querySelectorAll('.nav-heading')];
+    const stop = buttons.find(button => button.dataset.paragraph === treeStop) || buttons.find(button => button.dataset.paragraph === here) || buttons[0];
+    for (const button of buttons) {
       if (here === button.dataset.paragraph) button.setAttribute('aria-current', 'location'); else button.removeAttribute('aria-current');
+      const index = button === stop ? 0 : -1;
+      if (button.tabIndex !== index) button.tabIndex = index;
     }
   }
   /**
