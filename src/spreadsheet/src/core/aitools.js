@@ -3514,6 +3514,9 @@ function solverModel(wb, args, env) {
       if (['int', 'bin', 'dif'].includes(rel)) return { lhs, rel, rhs: { int: 'integer', bin: 'binary', dif: 'AllDifferent' }[rel] };
       if (k.value == null || text(k.value) === '') throw new ToolError(`Constraint ${i + 1} (${rel}) needs a value: a number, a cell or a formula.`);
       if (typeof k.value === 'number' && !Number.isFinite(k.value)) throw new ToolError(`Constraint ${i + 1}: the value must be finite.`);
+      // Solver evaluates a right side that is a formula at once and at every trial, and saves it in the model: one
+      // that reaches out sent cells to its address unasked where the workbook had been allowed external content.
+      if (typeof k.value !== 'number' && reachesOut(wb, text(k.value))) throw new ToolError(`Constraint ${i + 1}: a constraint's formula cannot reach outside the workbook.`);
       return { lhs, rel, rhs: typeof k.value === 'number' ? String(k.value) : anchored(k.value) };
     });
   } else if (fresh) model.constraints = [];
