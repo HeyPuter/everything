@@ -842,6 +842,68 @@ function dimHandles(io) {
 /* Class-based entities                                                */
 /* ------------------------------------------------------------------ */
 
+const CLASS_OBJ = {
+  ACDBDICTIONARYWDFLT(io, o) {
+    OBJ.DICTIONARY(io, o);
+    io.H('defaultEntry');
+  },
+  ACDBPLACEHOLDER() {},
+  LAYOUT(io) {
+    const v = io.ver;
+    // plot settings
+    io.T('pageSetup', '');
+    io.T('printer', 'none_device');
+    io.BS('plotFlags', 688);
+    io.BD('marginLeft', 7.5);
+    io.BD('marginBottom', 20);
+    io.BD('marginRight', 7.5);
+    io.BD('marginTop', 20);
+    io.BD('paperWidth', 210);
+    io.BD('paperHeight', 297);
+    io.T('paperSize', 'ISO_A4_(210.00_x_297.00_MM)');
+    io.BD2('plotOrigin');
+    io.BS('paperUnits', 1);
+    io.BS('plotRotation', 0);
+    io.BS('plotType', 0);
+    io.BD2('windowMin');
+    io.BD2('windowMax');
+    if (v <= R2000) io.T('plotView', '');
+    io.BD('realUnits', 1);
+    io.BD('drawingUnits', 1);
+    io.T('styleSheet', '');
+    io.BS('scaleType', 16);
+    io.BD('scaleFactor', 1);
+    io.BD2('imageOrigin');
+    if (v >= R2004) {
+      io.BS('shadeMode', 0);
+      io.BS('shadeLevel', 2);
+      io.BS('shadeDpi', 300);
+    }
+    // layout
+    io.T('layoutName', 'Model');
+    io.BS('tabOrder', 0);
+    io.BS('layoutFlags', 1);
+    io.BD3('ucsOrigin');
+    io.RD2('limMin');
+    io.RD2('limMax', [420, 297]);
+    io.BD3('insBase');
+    io.BD3('ucsX', [1, 0, 0]);
+    io.BD3('ucsY', [0, 1, 0]);
+    io.BD('elevation');
+    io.BS('orthoType');
+    io.BD3('extMin', [1e20, 1e20, 1e20]);
+    io.BD3('extMax', [-1e20, -1e20, -1e20]);
+    const nvp = v >= R2004 ? io.BL('numViewports', 0) : 0;
+    if (v >= R2004) io.H('plotView');
+    if (v >= R2007) io.H('visualStyle');
+    io.H('blockRecord');
+    io.H('lastViewport');
+    io.H('baseUcs');
+    io.H('namedUcs');
+    handleList(io, 'viewports', nvp);
+  },
+};
+
 const CLASS_ENT = {
   /** Only the block reference part: the table is drawn through its block. */
   ACAD_TABLE(io) {
@@ -1084,6 +1146,83 @@ const OBJ = {
   },
   DIMSTYLE(io) {
     dimstyleSpec(io);
+  },
+  VPORT(io) {
+    const v = io.ver;
+    tableEntry(io);
+    io.BD('height', 100);
+    io.BD('aspect', 150);
+    io.RD2('center');
+    io.BD3('target');
+    io.BD3('dir', [0, 0, 1]);
+    io.BD('twist');
+    io.BD('lens', 50);
+    io.BD('front');
+    io.BD('back');
+    io.B('vmUcsFollow');
+    io.B('vmFront');
+    io.B('vmBack');
+    io.B('vmPersp');
+    if (v >= R2000) io.RC('renderMode');
+    if (v >= R2007) {
+      io.B('defaultLights', 1);
+      io.RC('lightingType', 1);
+      io.BD('brightness');
+      io.BD('contrast');
+      io.CMC('ambient', { index: 250, rgb: null });
+    }
+    io.RD2('lowerLeft');
+    io.RD2('upperRight', [1, 1]);
+    io.B('ucsFollow');
+    io.BS('circleZoom', 1000);
+    io.B('fastZoom', 1);
+    io.BB('ucsIcon', 3);
+    io.B('gridOn');
+    io.RD2('gridSpacing', [10, 10]);
+    io.B('snapOn');
+    io.B('snapStyle');
+    io.BS('snapIsopair');
+    io.BD('snapRot');
+    io.RD2('snapBase');
+    io.RD2('snapSpacing', [10, 10]);
+    if (v >= R2000) {
+      io.B('unknownB');
+      io.B('ucsPerViewport', 1);
+      io.BD3('ucsOrigin');
+      io.BD3('ucsX', [1, 0, 0]);
+      io.BD3('ucsY', [0, 1, 0]);
+      io.BD('ucsElevation');
+      io.BS('ucsOrtho');
+    }
+    if (v >= R2007) {
+      io.BS('gridFlags', 7);
+      io.BS('gridMajor', 5);
+    }
+    io.H('xref');
+    if (v >= R2007) {
+      io.H('background');
+      io.H('visualStyle');
+      io.H('sun');
+    }
+    if (v >= R2000) {
+      io.H('namedUcs');
+      io.H('baseUcs');
+    }
+  },
+  MLINESTYLE(io) {
+    io.T('name', 'Standard');
+    io.T('description', '');
+    io.BS('flags');
+    io.CMC('fillColor', { index: 256, rgb: null });
+    io.BD('startAngle', Math.PI / 2);
+    io.BD('endAngle', Math.PI / 2);
+    const n = io.RC('numLines', 2);
+    list(io, 'lines', n, (s) => {
+      s.BD('offset');
+      s.CMC('color', { index: 256, rgb: null });
+      if (s.ver >= R2018) s.H('ltype');
+      else s.BSs('ltIndex', 0);
+    });
   },
   XRECORD(io) {
     const n = io.BL('numBytes');
@@ -1331,7 +1470,7 @@ function groupKind(c) {
 }
 
 export function specFor(name) {
-  return ENT[name] || OBJ[name] || CLASS_ENT[name] || null;
+  return ENT[name] || OBJ[name] || CLASS_ENT[name] || CLASS_OBJ[name] || null;
 }
 
 /** True when the named type is an entity. */

@@ -23,6 +23,28 @@ export function lineweightFromIndex(i) {
 }
 
 const hex = (h) => (h || 0).toString(16).toUpperCase();
+
+/**
+ * Text values as DXF writes them: a caret becomes '^ ' and control
+ * characters ^@ .. ^_, so the DXF reader decodes them back.
+ */
+export function caretText(s) {
+  s = s || '';
+  let plain = true;
+  for (let i = 0; i < s.length && plain; i++) {
+    const c = s.charCodeAt(i);
+    if (c < 32 || c === 94) plain = false;
+  }
+  if (plain) return s;
+  let out = '';
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    if (c === 94) out += '^ ';
+    else if (c < 32) out += '^' + String.fromCharCode(c + 64);
+    else out += s[i];
+  }
+  return out;
+}
 const n = (x) => String(+x || 0);
 
 /** One record: type and parallel code / value arrays. */
@@ -376,7 +398,7 @@ class Converter {
     const r = this.common(type, o);
     const ins = o.ins || [0, 0];
     r.num(10, ins[0]).num(20, ins[1]).num(30, o.elevation);
-    r.num(40, o.height).g(1, o.value || '');
+    r.num(40, o.height).g(1, caretText(o.value));
     if (o.rotation) r.deg(50, o.rotation);
     if (o.widthFactor !== undefined && o.widthFactor !== 1) r.num(41, o.widthFactor);
     if (o.oblique) r.deg(51, o.oblique);
@@ -431,7 +453,7 @@ function dimension(o) {
   let flags = kind;
   if (kind === 6 && o.flags2 & 1) flags |= 64;
   r.g(70, flags);
-  if (o.userText) r.g(1, o.userText);
+  if (o.userText) r.g(1, caretText(o.userText));
   if (o.textRotation) r.deg(53, o.textRotation);
   if (o.horizDir) r.deg(51, o.horizDir);
   r.g(3, this.name(o.dimstyle, 'Standard'));
@@ -595,7 +617,7 @@ const ENTITY_OUT = {
     r.num(41, o.textHeight);
     if (o.hasText) {
       r.pt(12, o.location || [0, 0, 0]).pt(13, o.dir || [1, 0, 0]);
-      r.g(304, o.label || '');
+      r.g(304, caretText(o.label));
     }
     for (const root of o.roots || []) {
       r.g(302, 'LEADER{').pt(10, root.connection).pt(11, root.direction).num(40, root.landingDistance);
@@ -636,7 +658,7 @@ Converter.prototype.polyline = function (o, flags, vtype, vflags, extra) {
 Converter.prototype.mtextRec = function (o) {
   const r = this.common('MTEXT', o).pt(10, o.ins).num(40, o.height).num(41, o.rectWidth);
   r.g(71, o.attach || 1).g(72, o.drawDir || 1);
-  r.g(1, o.text || '');
+  r.g(1, caretText(o.text));
   r.g(7, this.name(o.style, 'Standard'));
   this.ext(r, o.extrusion);
   r.pt(11, o.xdir || [1, 0, 0]);

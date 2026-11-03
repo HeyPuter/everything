@@ -211,6 +211,7 @@ export function decodeObject(u8, loc, ctx) {
     } catch (err) {
       obj.error = err.message;
     }
+    if (ctx.check) obj.left = { data: r.end - r.pos, strings: strings ? strings.end - strings.pos : 0, handles: handles.end - handles.pos };
   } else obj.unsupported = true;
   return obj;
 }
@@ -219,7 +220,7 @@ export function decodeObject(u8, loc, ctx) {
  * Read a whole DWG file. Returns { version, ver, header, classes, objects,
  * warnings } with objects a Map of handle -> decoded object.
  */
-export function readDatabase(input) {
+export function readDatabase(input, opts = {}) {
   const u8 = input instanceof Uint8Array ? input : new Uint8Array(input);
   const c = readContainer(u8);
   const ver = c.ver;
@@ -238,7 +239,7 @@ export function readDatabase(input) {
     warnings.push(`Class definitions could not be read (${err.message}).`);
   }
   const map = readObjectMap(c.sections.handles);
-  const ctx = { ver, classes, decoder };
+  const ctx = { ver, classes, decoder, check: !!opts.check };
   const objects = new Map();
   let bad = 0;
   for (const [handle, loc] of map) {
