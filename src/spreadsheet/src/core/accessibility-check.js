@@ -97,9 +97,10 @@ export function checkAccessibility(wb) {
     }
     for (const m of sheet.merges || []) add('merged', sheet, `${rangeName(m)} (${sheet.name})`, { range: { r1: m.r1, c1: m.c1, r2: m.r2, c2: m.c2 } });
     // Text drawn in a color too close to its fill: only cells that hold something and set a color or a fill.
-    // The status bar runs this after each pause in editing, so the cheap questions come first (the style,
-    // then the value, read without the calculator for a cell that holds no formula), and each pairing of
-    // colours and text size is judged once: a styled sheet repeats a few of them over thousands of cells.
+    // The status bar runs this after each pause in editing, so the cheap questions come first (the style, then
+    // whether its colours are too close, then the value, read without the calculator for a cell that holds no
+    // formula), and each pairing of colours and text size is judged once: a styled sheet repeats a few of them
+    // over thousands of cells.
     let scanned = 0;
     for (const [key, cell] of sheet.cells) {
       if (++scanned > MAX_CONTRAST_CELLS) break;
@@ -110,8 +111,6 @@ export function checkAccessibility(wb) {
       const line = wb._lineStyle(sheet, r, c);
       const style = line ? { ...line, ...cell.s } : cell.s;
       if (!style || (style.color == null && style.bg == null)) continue;
-      const value = cell.f == null && !cell.array ? cell.v : wb.getValue(sheet.id, r, c);
-      if (value == null || value === '') continue;
       const minimum = minimumRatio(style);
       const pairing = `${colorKey(style.color)}|${colorKey(style.bg)}|${minimum}`;
       let poor = verdicts.get(pairing);
@@ -122,7 +121,11 @@ export function checkAccessibility(wb) {
         poor = ratio != null && ratio < minimum;
         verdicts.set(pairing, poor);
       }
-      if (poor) add('contrast', sheet, `${rangeName({ r1: r, c1: c, r2: r, c2: c })} (${sheet.name})`, { range: { r1: r, c1: c, r2: r, c2: c } });
+      if (!poor) continue;
+      // Only text drawn in such colours counts: a formula's value is worked out for these cells alone, not for
+      // every styled formula on the sheet (25,000 of them took a third of a second as a large book opened).
+      const value = cell.f == null && !cell.array ? cell.v : wb.getValue(sheet.id, r, c);
+      if (value != null && value !== '') add('contrast', sheet, `${rangeName({ r1: r, c1: c, r2: r, c2: c })} (${sheet.name})`, { range: { r1: r, c1: c, r2: r, c2: c } });
     }
     // A default name is worth changing once the sheet holds something.
     if (DEFAULT_SHEET_NAME.test(sheet.name) && (sheet.cells.size || sheet.charts.length) && visible.length > 1) add('sheetName', sheet, sheet.name, null);
