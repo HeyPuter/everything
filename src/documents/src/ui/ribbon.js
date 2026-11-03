@@ -363,7 +363,17 @@ export function createRibbon({ tabs, fileButton, focusEditor, onSelect }) {
       if (c.tabIndex !== index) c.tabIndex = index;
     }
   }
-  card.addEventListener('focusin', e => { if (e.target.matches('button, select, input')) { tabStop = e.target; tabStopChosen = true; refreshTabStops(); } });
+  card.addEventListener('focusin', e => { if (e.target.matches('button, select, input')) { tabStop = e.target; tabStopChosen = true; refreshTabStops(); revealControl(e.target); } });
+  /** A strip that scrolls sideways (phones) shows the focused command whole, clear of its faded edges, as revealTab
+   * does for the tabs: the browser scrolled a half-hidden command no further than it already was. */
+  function revealControl(control) {
+    const panel = control.closest('.ribbon-panel');
+    if (!compact.matches || !panel || panel.scrollWidth <= panel.clientWidth + 1) return;
+    const box = control.getBoundingClientRect(), strip = panel.getBoundingClientRect(), edge = 24;
+    if (!box.width) return;
+    if (box.left < strip.left + edge) panel.scrollLeft -= strip.left + edge - box.left;
+    else if (box.right > strip.right - edge) panel.scrollLeft += box.right - (strip.right - edge);
+  }
   // The card and a collapsed group's drop-down share one keyboard model.
   card.addEventListener('keydown', navigate);
   function navigate(e) {
