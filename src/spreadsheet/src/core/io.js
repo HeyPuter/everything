@@ -1270,7 +1270,8 @@ function nativeTables(X, ws, definedNames, customStyles) {
     const open = xml.match(/<(?:\w+:)?table\s[^>]*>/)?.[0];
     const name = decodeXlsxString(xmlAttr(open, 'displayName') || xmlAttr(open, 'name'));
     const ref = xmlAttr(open, 'ref')?.replace(/\$/g, '');
-    if (!name?.trim() || !ref || !/^[A-Z]{1,3}\d+:[A-Z]{1,3}\d+$/i.test(ref)) continue;
+    // A one-column table of a header row alone spans a single cell, which the reference names as one: ref="A1".
+    if (!name?.trim() || !ref || !/^[A-Z]{1,3}\d+(?::[A-Z]{1,3}\d+)?$/i.test(ref)) continue;
     // headerRowCount="0": the Header Row is turned off, and the column names live in tableColumn alone.
     const headerless = xmlAttr(open, 'headerRowCount') === '0', columnNames = [];
     const range = X.utils.decode_range(ref.toUpperCase());
@@ -1312,7 +1313,7 @@ function nativeTables(X, ws, definedNames, customStyles) {
       calc,
       ...(Object.keys(calcArray).length ? { calcArray } : {}),
       scalarColumns,
-      filter: !headerless && filter && /^[A-Z]{1,3}\d+:[A-Z]{1,3}\d+$/i.test(filter) ? { ...X.utils.decode_range(filter.toUpperCase()), xml: autoFilter } : null,
+      filter: !headerless && filter && /^[A-Z]{1,3}\d+(?::[A-Z]{1,3}\d+)?$/i.test(filter) ? { ...X.utils.decode_range(filter.toUpperCase()), xml: autoFilter } : null,
     });
   }
   return tables;
