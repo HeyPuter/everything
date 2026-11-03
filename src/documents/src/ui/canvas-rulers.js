@@ -39,7 +39,9 @@ export function createCanvasRulers({ host, surface, editor, openParagraph, openP
   function context() {
     const e = editor(); if (!e?.layout || !e.canvases.length) return null;
     const bounds = host.getBoundingClientRect();
-    let index = e.canvases.findIndex(c => c.getBoundingClientRect().bottom > bounds.top + 1);
+    // The first page in view. Side to Side and Multiple Pages put pages beside one another: one
+    // scrolled off to the left is not in view, though its bottom is below the window's top.
+    let index = e.canvases.findIndex(c => { const r = c.getBoundingClientRect(); return r.bottom > bounds.top + 1 && r.right > bounds.left + 1; });
     if (index < 0) index = e.canvases.length - 1;
     return { e, bounds, rect: e.canvases[index].getBoundingClientRect(), page: e.layout.pages[index] || e.layout.page,
       settings: e.model.pageSettings, format: e.model.paragraphFormatting };

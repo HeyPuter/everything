@@ -34,3 +34,24 @@ test('Page Down and Page Up in Side to Side turn a screen of pages', async ({ pa
   await input.press('PageUp');
   expect((await caretPage()).at).toBe(0);
 });
+
+// The rulers follow the first page in view. In a row of pages that was the first page of the document
+// even once scrolled away to the left: the horizontal ruler went off screen with it.
+test('the rulers follow the page in view when Side to Side scrolls sideways', async ({ page }) => {
+  test.setTimeout(90000);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/playground.html');
+  await page.getByRole('button', { name: 'New', exact: true }).click();
+  const input = page.getByRole('textbox', { name: 'Document text' });
+  await input.fill(Array.from({ length: 120 }, (_, i) => `Paragraph ${i} ` + 'lorem ipsum dolor sit amet '.repeat(6)).join('\n'));
+  await page.locator('#ribbon-tab-view').click();
+  await page.locator('.ribbon-card').getByRole('button', { name: 'Side to Side', exact: true }).click();
+  await expect(page.locator('.canvas-pages')).toHaveClass(/is-side-to-side/);
+  const ruler = page.getByRole('group', { name: 'Horizontal ruler' });
+  await expect(ruler).toBeVisible();
+  await page.locator('.canvas-host').evaluate(host => { host.scrollLeft = host.querySelectorAll('canvas.canvas-page')[4].offsetLeft - 24; });
+  await expect.poll(async () => {
+    const [rulerBox, pageBox] = await Promise.all([ruler.boundingBox(), page.locator('canvas.canvas-page').nth(4).boundingBox()]);
+    return rulerBox && pageBox ? Math.round(Math.abs(rulerBox.x - pageBox.x)) : null;
+  }).toBe(0);
+});
