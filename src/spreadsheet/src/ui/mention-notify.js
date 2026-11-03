@@ -221,6 +221,9 @@ export function createMentionNotifier({ doc, wb, mailer, me, ask = askToShare, l
       const now = findComment(wb, sheetId, item.id);
       if (!now) return { sent: 0 };
       ({ r, c, item } = now);
+      // Saved as a copy meanwhile, the comment is in the copy, which the people mentioned were never given: who can
+      // open it is asked again, and a share of it offered, before the mail links it.
+      if (doc.uid !== uid) return notify({ sheetId, r, c, item, people, assigned });
     }
     return send({ sheetId, r, c, item, recipients, assignee, names, count: people.length });
   }

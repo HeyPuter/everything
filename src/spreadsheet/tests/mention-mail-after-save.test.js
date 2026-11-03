@@ -183,3 +183,25 @@ describe('a mention whose tab was closed before the save', () => {
   });
 });
 
+// Saved as a copy before the save of the file, the comment reached the copy, and the mail linked the copy: but who
+// could open it had been asked of the file, and the copy is shared with nobody. Access is asked of the copy now.
+it('asks again who can open a copy saved before the mail went, rather than linking a copy nobody was given', async () => {
+  setAutoSaveEnabled(false);
+  const doc = await savedFile();
+  vi.spyOn(T, 'toast').mockImplementation(() => {});
+  const original = doc.path;
+  P.shareAccess.mockImplementation(async (path) => (path === original ? [{ who: 'user', recipient: 'ana' }] : []));
+  const ask = vi.fn(async () => null);
+  const mailer = { available: () => true, sendMentions: vi.fn(async ({ recipients }) => ({ sent: recipients.length, failed: 0, results: [] })) };
+  const notifier = createMentionNotifier({ doc, wb: doc.wb, mailer, me: () => ME, ask, location: { origin: 'https://spreadsheet.puter.com', pathname: '/' } });
+  try {
+    const notified = notifier.notify(post(doc, '@ana please check'));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(ask).not.toHaveBeenCalled();
+    expect(await doc.saveAs('Plan copy')).toBeNull();
+    expect(doc.path).not.toBe(original);
+    await notified;
+    expect(ask).toHaveBeenCalledTimes(1);
+    expect(mailer.sendMentions).not.toHaveBeenCalled();
+  } finally { doc.destroy(); }
+});
