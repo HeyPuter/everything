@@ -24097,6 +24097,15 @@ claim of full OOXML conformance or of layout fidelity with other consumers.
   document context only DATE and TIME refresh, so cached document information is never blanked.
   The numeric picture switch `\#` and EDITTIME are not evaluated. Fields in headers and footers are
   limited to PAGE and NUMPAGES; Date & Time inserts plain text there.
+- Since 2026-11-02 month and day names (`MMM`, `MMMM`, `ddd`, `dddd`) follow the language of the
+  field's text (§17.3.2.20 `w:lang`, resolved through styles and document defaults), as Word's results
+  do: `DATE \@ "d. MMMM yyyy"` in German text updates to "3. März 2026", not "3. March 2026". Names come
+  from the browser's locale data (`Intl.DateTimeFormat`); a month beside a day number takes the form a
+  language uses in dates (Russian "3 марта"), elsewhere its standalone form ("март 2026"). English, an
+  unmarked field and a language the browser does not know keep the English names. Digits, AM/PM and
+  the Insert Date & Time dialog's previews stay as before; abbreviations are the locale data's (German
+  "Okt.", French "oct."), which can differ from Word's in punctuation. Tests:
+  `tests/date-field-language.test.js` (independently written package).
 - Document properties are read from `docProps/core.xml` and `docProps/app.xml`; this editor does not
   write them, so a DOCPROPERTY for an empty property shows a bracketed placeholder until fields update.
 - Content controls bound to document properties (`w:dataBinding`) are not produced; the reader keeps
