@@ -117,3 +117,55 @@ it('keeps both when the tab that made the unsaved spreadsheet is still open as a
   b.destroy();
   expect(unsaved().sort()).toEqual(['tab A again', 'tab B again']);
 });
+
+// A tab whose edits are kept beside the file's draft shared that place with every other such tab: a third tab of
+// the file, or one of two tabs reloaded (offered the other's draft, its edits kept beside it meanwhile), wrote over
+// the other's edits there, and the last to close kept its edits alone.
+it('keeps all three tabs\' unsaved edits when three tabs of one file are edited and closed', async () => {
+  await blankFile();
+  const a = await Doc.fromPath(PATH), b = await Doc.fromPath(PATH), c = await Doc.fromPath(PATH);
+  edit(a, 'tab A');
+  edit(b, 'tab B');
+  edit(c, 'tab C');
+  edit(b, 'tab B again');
+  a.destroy(); b.destroy(); c.destroy();
+  const reopened = await Doc.fromPath(PATH);
+  try {
+    expect([text(reopened.recoverable), ...unsaved()].sort()).toEqual(['tab A', 'tab B again', 'tab C']);
+  } finally { reopened.destroy(); }
+});
+
+it('keeps the edits made in a reloaded tab while the other tab of the file goes on editing', async () => {
+  await blankFile();
+  const a = await Doc.fromPath(PATH);
+  const b = await Doc.fromPath(PATH);
+  edit(a, 'tab A');
+  edit(b, 'tab B');
+  const reloaded = await Doc.fromPath(PATH);
+  edit(reloaded, 'reloaded A');
+  edit(b, 'tab B again');
+  reloaded.destroy(); b.destroy();
+  const reopened = await Doc.fromPath(PATH);
+  try {
+    const kept = [text(reopened.recoverable), ...unsaved()];
+    expect(kept).toContain('reloaded A');
+    expect(kept).toContain('tab B again');
+  } finally { reopened.destroy(); }
+});
+
+it('drafts a reloaded tab\'s edits under the file again once it restores the draft it was offered', async () => {
+  await blankFile();
+  const a = await Doc.fromPath(PATH);
+  const b = await Doc.fromPath(PATH);
+  edit(a, 'tab A');
+  edit(b, 'tab B');
+  const reloaded = await Doc.fromPath(PATH);
+  edit(b, 'tab B again');
+  edit(reloaded, 'meanwhile');
+  expect(reloaded.restoreDraft()).toBe(true);
+  edit(reloaded, 'restored, then edited');
+  try {
+    expect(text(loadDraft(KEY()))).toBe('restored, then edited');
+    expect(unsaved()).not.toContain('meanwhile');
+  } finally { reloaded.destroy(); b.destroy(); }
+});

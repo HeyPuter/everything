@@ -306,6 +306,7 @@ export class Doc extends EventTarget {
     this._draftRevision = null; // only this exact local snapshot may be moved or cleared
     this.draftKept = true; // does this browser hold a copy of the unsaved edits? Not once a book outgrows local storage
     this._draftBeside = false; // another tab of the file drafts under its key: this one's edits are kept beside them (see writeDraft)
+    this._draftAside = null; // and another beside them too: this one's are an unsaved spreadsheet of their own, { name, id } (see writeDraft)
     this._saving = null;
     this._versioning = null; // the automatic snapshot of the last save, while it is being written
     this.recoverable = null; // a local draft newer than the file, awaiting a decision
@@ -433,6 +434,7 @@ export class Doc extends EventTarget {
    * restore it would restore those instead; they are kept beside it until the decision is made.
    */
   get _ownDraftKey() {
+    if (this._draftAside && this.path) return draftKey(null, this._draftAside.name, this._storageScope, this._draftAside.id);
     return this.recoverable || this._draftBeside ? liveDraftKey(this.draftKey) : this.draftKey;
   }
 
@@ -454,6 +456,11 @@ export class Doc extends EventTarget {
     if (!this.recoverable && !this._draftBeside && ![null, this._draftRevision].includes(draftRevisionAt(this.draftKey))) {
       if (this.path) this._draftBeside = true;
       else { this._recoveredDraftKey = null; this._draftId = uniqueId(); }
+    }
+    // Beside the file's draft there is room for one tab's edits only: a third tab of the file, or one reloaded and
+    // offered the other's draft, finding another's there, keeps its own as an unsaved spreadsheet of their own.
+    if (this.path && !this._draftAside && (this.recoverable || this._draftBeside) && ![null, this._draftRevision].includes(draftRevisionAt(this._ownDraftKey))) {
+      this._draftAside = { name: this.name, id: uniqueId() };
     }
     // The file's revision these edits were made on, so reopening can tell whether it changed since,
     // and its id, by which the file is found again should it be moved or renamed elsewhere.
@@ -492,6 +499,8 @@ export class Doc extends EventTarget {
     // The edits made meanwhile give way to the restored ones, in storage as in the book: whatever is kept
     // beside the draft goes, whether this document wrote it or an earlier one that closed before deciding.
     clearDraft(this._ownDraftKey);
+    // Restored, the draft under the file's key is this document's: its edits go there again.
+    this._draftAside = null;
     this._draftRevision = draftRevision(draft);
     this.recoverable = null;
     this._recoverableKey = null;
