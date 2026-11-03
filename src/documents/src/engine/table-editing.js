@@ -985,6 +985,44 @@ export function sortTable(model, { keys, header = false, caseSensitive = false }
   model.didChange(); return true;
 }
 
+/**
+ * Alt+Shift+Up/Down in a table, as in Word: the selected rows move past the row above (-1) or below (1),
+ * the caret staying in its cell. Rows stop at the table's edge and at its repeating header rows, which
+ * keep to the top. A cell merged across rows cannot be pulled apart, so rows such a merge joins to the
+ * row they pass refuse; a merge wholly within the moved rows goes with them.
+ */
+export function moveTableRows(model, direction) {
+  const block = requireBlock(model), table = block.table;
+  const top = block.top, bottom = Math.max(block.top, block.bottom), other = direction < 0 ? top - 1 : bottom + 1;
+  const passed = table.rows[other];
+  if (!passed || table.rows.slice(top, bottom + 1).some(row => !!row.header !== !!passed.header)) return false;
+  refuseUntracked(model, 'Moving table rows');
+  const [low, high] = [Math.min(top, other), Math.max(bottom, other)];
+  for (const owner of new Set(verticalMerges(table).values())) {
+    if (owner.cells.length < 2 || owner.endRow < low || owner.rowIndex > high) continue;
+    if (owner.rowIndex < top || owner.endRow > bottom) throw new Error('Rows with cells merged across rows cannot be moved apart. Split those cells first.');
+  }
+  const state = M.tableContent(model, table);
+  // Swapped, a comment or bookmark from the moved rows into the passed one could end before it starts.
+  const rowOf = new Map(), edges = new Map();
+  for (let r = low; r <= high; r++) for (const cell of table.rows[r].cells) for (const p of state.byCell.get(cell.id) || []) rowOf.set(p, r === other);
+  for (const [p, passing] of rowOf) for (const marker of p.bookmarks || []) {
+    if ((marker.edge !== 'start' && marker.edge !== 'end') || marker.tableBoundary || marker.columnRange || marker.blockScope) continue;
+    if (!edges.has(marker.id)) edges.set(marker.id, {});
+    edges.get(marker.id)[marker.edge] = passing;
+  }
+  if ([...edges.values()].some(({ start, end }) => start !== undefined && end !== undefined && start !== end)) throw new Error('A comment or bookmark runs from these rows into the next, so they cannot be moved.');
+  model.checkpoint();
+  const [row] = table.rows.splice(other, 1);
+  table.rows.splice(direction < 0 ? bottom : top, 0, row);
+  M.applyTableContent(model, table, state);
+  validate(model);
+  // A cell selection follows its rows.
+  const cells = model.cellBlock;
+  if (cells) model.setCellBlock({ ...cells, top: cells.top + direction, bottom: cells.bottom + direction, ...(cells.rows ? { rows: cells.rows.map(r => r + direction) } : {}) });
+  model.didChange(); return true;
+}
+
 /* ---- Converting between text and tables ---- */
 
 const SEPARATORS = { tab: '\t', comma: ',', paragraph: null };

@@ -1,6 +1,7 @@
 import { locate, paragraphText, RUN_FORMAT, PARAGRAPH_FORMAT, runFormat } from './model.js';
 import { effectiveStyleId, resolveCharacterRun, resolveStyledParagraph, paragraphRunStyle } from './styles.js';
 import { clearedRun, clearParagraph } from './direct-formatting.js';
+import { moveTableRows } from './table-editing.js';
 
 /**
  * Home tab editing commands that work on the canvas model through its own
@@ -258,10 +259,12 @@ export function sortParagraphs(model, { type = 'text', descending = false, caseS
 /**
  * Alt+Shift+Up/Down: move the selected paragraphs above the previous paragraph or below the next one,
  * keeping the selection on them. Only body paragraphs outside tables move, and they do not cross a
- * table, section break, content control or frame.
+ * table, section break, content control or frame. In a table its rows move (moveTableRows).
  */
 export function moveParagraphs(model, direction) {
   const targets = model.selectedParagraphs, first = model.paragraphs.indexOf(targets[0]), last = first + targets.length - 1;
+  // In a table the caret's rows move instead, as in Word.
+  if (targets.every(p => p.cellId)) return moveTableRows(model, direction);
   const neighbour = model.paragraphs[direction < 0 ? first - 1 : last + 1];
   const movable = p => p && !p.cellId && !p.sectionEnd && !p.blockControls?.length && !p.frame;
   if (!neighbour || !targets.every(movable) || !movable(neighbour)) return false;

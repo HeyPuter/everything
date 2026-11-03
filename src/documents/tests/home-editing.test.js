@@ -4,6 +4,7 @@ import { DocxPackage, createDocx, WRITING_STYLES } from '../src/engine/docx.js';
 import { TextDocument, paragraph, paragraphText } from '../src/engine/model.js';
 import { changeCase, convertCase, nextCycleCase, captureFormat, applyFormat, sortParagraphs, wordAt, moveParagraphs } from '../src/engine/home-editing.js';
 import { formattingMarks } from '../src/engine/formatting-marks.js';
+import * as T from '../src/engine/table-editing.js';
 import { pageGeometry } from '../src/engine/page-settings.js';
 import { layoutDocument } from '../src/engine/layout.js';
 
@@ -202,6 +203,43 @@ describe('Move paragraphs', () => {
     doc.trackChanges = false;
     expect(moveParagraphs(doc, -1)).toBe(true);
     expect(texts(doc)).toEqual(['two', 'one', 'three']);
+  });
+  // In a table Alt+Shift+Up/Down moves the caret's rows past the row above or below, as in Word.
+  it('moves table rows in a table, keeping the caret, header rows and merges', async () => {
+    const { pkg, doc } = await styledDocument(['above']);
+    doc.insertTable(4, 2, 1200);
+    const rows = () => doc.tables[0].rows.map(r => r.cells.map(c => doc.paragraphs.filter(p => p.cellId === c.id).map(paragraphText).join('/')).join(' '));
+    doc.tables[0].rows.forEach((row, r) => row.cells.forEach((cell, c) => { doc.selectCell(cell.id); doc.replace('abcd'[r] + c); }));
+    const caretIn = id => { const at = doc.locate(doc.selection.focus); return doc.paragraphs[at.index].cellId === id && at.offset; };
+    const b1 = doc.tables[0].rows[1].cells[1].id;
+    doc.select(doc.paragraphOffset(doc.paragraphs.findIndex(p => p.cellId === b1)) + 1);
+    expect(moveParagraphs(doc, -1)).toBe(true);
+    expect(rows()).toEqual(['b0 b1', 'a0 a1', 'c0 c1', 'd0 d1']); expect(caretIn(b1)).toBe(1);
+    expect(moveParagraphs(doc, -1)).toBe(false);
+    expect(moveParagraphs(doc, 1)).toBe(true); expect(moveParagraphs(doc, 1)).toBe(true);
+    expect(rows()).toEqual(['a0 a1', 'c0 c1', 'b0 b1', 'd0 d1']); expect(caretIn(b1)).toBe(1);
+    doc.undo(); const table = () => doc.tables[0]; expect(rows()).toEqual(['a0 a1', 'b0 b1', 'c0 c1', 'd0 d1']);
+    // Two selected rows move together.
+    doc.setCellBlock({ tableId: table().id, top: 2, bottom: 3, left: 0, right: 2 });
+    expect(moveParagraphs(doc, -1)).toBe(true);
+    expect(rows()).toEqual(['a0 a1', 'c0 c1', 'd0 d1', 'b0 b1']);
+    const reopened = await roundTrip(pkg, doc);
+    expect(reopened.tables[0].rows.map(r => r.cells.map(c => reopened.paragraphs.filter(p => p.cellId === c.id).map(paragraphText).join('')).join(' '))).toEqual(['a0 a1', 'c0 c1', 'd0 d1', 'b0 b1']);
+    // A repeating header row stays at the top: body rows do not move into it, nor it into them.
+    table().rows[0].header = true; table().rows[0].headerChanged = true;
+    doc.selectCell(table().rows[1].cells[0].id); expect(moveParagraphs(doc, -1)).toBe(false);
+    doc.selectCell(table().rows[0].cells[0].id); expect(moveParagraphs(doc, 1)).toBe(false);
+    expect(rows()).toEqual(['a0 a1', 'c0 c1', 'd0 d1', 'b0 b1']);
+    // Rows a vertical merge joins cannot be pulled apart; Track Changes refuses as for other row edits.
+    doc.setCellBlock({ tableId: table().id, top: 2, bottom: 3, left: 0, right: 1 }); T.mergeBlock(doc);
+    doc.selectCell(table().rows[3].cells[1].id);
+    expect(() => moveParagraphs(doc, -1)).toThrow(/merged across rows/);
+    doc.selectCell(table().rows[1].cells[0].id);
+    expect(() => moveParagraphs(doc, 1)).toThrow(/merged across rows/);
+    doc.trackChanges = true; doc.selectCell(table().rows[2].cells[0].id);
+    const before = rows();
+    expect(() => moveParagraphs(doc, -1)).toThrow(/cannot be tracked/);
+    expect(rows()).toEqual(before);
   });
   it('does not move into or out of a table', async () => {
     const { doc } = await styledDocument(['above']);
