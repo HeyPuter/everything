@@ -91,6 +91,12 @@ export function impliedFormulaStyle(formula, styleOfRef, refOfName = null) {
         return null;
       }
       case 'call': {
+        // A bare word calls nothing, even one spelled like a function (a name Rate beside RATE): it is a defined
+        // name, which stands for the cells it was given.
+        if (node.bare) {
+          const ref = refOfName?.(node.name, node.sheet);
+          return ref ? formatPart(styleOfRef(ref)) : null;
+        }
         const name = String(node.name).toUpperCase();
         const args = node.args || [];
         const dated = DATE_FUNCTIONS.get(name);
@@ -104,11 +110,6 @@ export function impliedFormulaStyle(formula, styleOfRef, refOfName = null) {
         if (name === 'SUMIF' || name === 'AVERAGEIF') return next(args[2] ?? args[0]);
         if (name === 'LET') return args.length ? next(args[args.length - 1]) : null;
         if (CARRY_FUNCTIONS.has(name)) return firstOf(args, next);
-        // A bare word no function answers to is a defined name, which stands for the cells it was given.
-        if (node.bare && refOfName) {
-          const ref = refOfName(node.name, node.sheet);
-          return ref ? formatPart(styleOfRef(ref)) : null;
-        }
         return null;
       }
       default:
