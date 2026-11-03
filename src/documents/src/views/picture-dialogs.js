@@ -37,7 +37,9 @@ export function openGridDialog({ value = 0.125, snap = false, onApply }) {
   const size = el('input.input.pic-number', { type: 'number', min: 0.01, max: 2, step: 0.01, value, id: 'pic-grid-size', required: true });
   const snapBox = el('input', { type: 'checkbox', checked: snap, id: 'pic-grid-snap' });
   let modal;
-  modal = openModal({ title: 'Grid Settings', content: el('form.pic-dialog', { onsubmit: e => { e.preventDefault(); if (!size.checkValidity()) { size.reportValidity(); return; } onApply({ size: Number(size.value), snap: snapBox.checked }); modal.close(); } },
+  // The arrows step by hundredths, but any spacing in range is taken: the default is an eighth of an inch.
+  const inRange = () => size.value !== '' && !size.validity.badInput && !size.validity.rangeUnderflow && !size.validity.rangeOverflow;
+  modal = openModal({ title: 'Grid Settings', content: el('form.pic-dialog', { noValidate: true, onsubmit: e => { e.preventDefault(); if (!inRange()) { size.reportValidity(); return; } onApply({ size: Number(size.value), snap: snapBox.checked }); modal.close(); } },
     el('label.pic-field', { htmlFor: size.id }, el('span', {}, 'Grid spacing (in)'), size),
     el('label.pic-check', { htmlFor: snapBox.id }, snapBox, 'Snap objects to the grid while moving them'),
     el('div.row.row-end', {}, el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Cancel'), el('button.btn.btn-primary', { type: 'submit' }, 'OK'))) });

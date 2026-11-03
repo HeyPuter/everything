@@ -46,3 +46,23 @@ test('the Format pane takes a 0.6 pt line, between its quarter-point arrow steps
   await pane.getByRole('spinbutton', { name: 'Width' }).press('Enter');
   expect(await documentXml(page, info)).toMatch(/<a:ln w="7620"/);
 });
+
+test('Grid Settings takes its own eighth-of-an-inch spacing', async ({ page }) => {
+  await start(page);
+  const ribbon = await insertShape(page);
+  await ribbon.getByRole('button', { name: 'Align', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Grid Settings…' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Grid Settings' });
+  // The spacing starts at 0.125 in; OK used to refuse it, between the hundredths the arrows step by.
+  await expect(dialog.getByLabel('Grid spacing (in)')).toHaveValue('0.125');
+  await dialog.getByLabel('Snap objects to the grid while moving them').check();
+  await dialog.getByRole('button', { name: 'OK' }).click();
+  await expect(dialog).toBeHidden();
+  await ribbon.getByRole('button', { name: 'Align', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Grid Settings…' }).click();
+  await expect(dialog.getByLabel('Snap objects to the grid while moving them')).toBeChecked();
+  // Out of range is still refused.
+  await dialog.getByLabel('Grid spacing (in)').fill('3');
+  await dialog.getByRole('button', { name: 'OK' }).click();
+  await expect(dialog).toBeVisible();
+});
