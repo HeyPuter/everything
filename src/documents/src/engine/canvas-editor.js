@@ -59,7 +59,7 @@ import { viewGeometry, viewPageStories, fitContinuousPages, isContinuousView, us
 import { pageLookup } from './page-lookup.js';
 import { font, layoutDocument, caretRect, lineAtPosition, verticalLine, hitTestStop, nearestStop, imageAtPoint, selectionRects, selectionRectFinder } from './layout.js';
 import { refreshPageReferences } from './page-reference-refresh.js';
-import { positionedImageBounds } from './positioned-images.js';
+import { positionedImageBounds, drawingOwnRotation } from './positioned-images.js';
 import { createImageInteraction } from './image-interaction.js';
 import { paintDecodedImage, imageInfo, decodeImage, decodeImages, validateImageAssets, imageCropRect, inlineImagePaintFrame, normalizedRotation, ANGLE_PER_DEGREE, EMU_PER_PX, isPositionedImage } from './images.js';
 import { sectionColumnIntervals } from './section-columns.js';
@@ -1293,7 +1293,7 @@ export class CanvasEditor {
     }, null);
     if (!nearest) return 0;
     const page = Number(nearest.canvas.dataset.page), y = (event.clientY - nearest.r.top) / this.zoom;
-    this.pointImage = imageAtPoint(this.selectionLayout, page, (event.clientX - nearest.r.left) / this.zoom, y, { includeBehindText: !!event.altKey });
+    this.pointImage = imageAtPoint(this.selectionLayout, page, (event.clientX - nearest.r.left) / this.zoom, y, { includeBehindText: !!event.altKey, rotationOf: image => drawingOwnRotation(image, this.model.assets) });
     // A view can hide some drawings (hidden ink); they are not painted, so they are not hit either.
     if (this.pointImage && this.hiddenDrawing?.(this.pointImage.image)) this.pointImage = null;
     // A stop inside hidden text shows where that text is passed over.

@@ -1388,10 +1388,13 @@ export function nearestStop(line, x, y) {
   }
   return line.stops.reduce((best, s) => Math.abs(s.x - x) < Math.abs(best.x - x) || s.hanging && s.x === best.x ? s : best, line.stops[0]);
 }
-export function imageAtPoint(layout, page, x, y, { includeBehindText = false } = {}) {
+// `rotationOf(image)`: a drawing's own rotation that its image does not carry (drawingOwnRotation), so a
+// turned shape is found where it shows.
+export function imageAtPoint(layout, page, x, y, { includeBehindText = false, rotationOf = null } = {}) {
   let behind = null;
+  const turned = f => { const rotation = rotationOf?.(f.image); return rotation ? { ...f, image: { ...f.image, rotation } } : f; };
   for (const f of [...(layout.floatingObjects || [])].reverse()) {
-    if (f.page !== page || f.image?.hidden || !cellClipContains(f.cellClip, x, y) || !((f.image.flatLine || f.image.flatGroup) ? flatLineContains(f.image,f.x,f.y,f.width,f.height,x,y) : positionedImageContains(f, x, y))) continue;
+    if (f.page !== page || f.image?.hidden || !cellClipContains(f.cellClip, x, y) || !((f.image.flatLine || f.image.flatGroup) ? flatLineContains(f.image,f.x,f.y,f.width,f.height,x,y) : positionedImageContains(turned(f), x, y))) continue;
     if (!f.image.anchor?.behind) return f;
     behind ||= f;
   }

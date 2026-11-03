@@ -1,5 +1,5 @@
 import { EMU_PER_PX, inlineImagePaintFrame, normalizedRotation, ANGLE_PER_DEGREE, rotationOutsets, imageExtents, CROP_SIDES, isPositionedImage } from './images.js';
-import { positionedImageBounds, positionedImageFrame } from './positioned-images.js';
+import { positionedImageBounds, positionedImageFrame, drawingOwnRotation } from './positioned-images.js';
 import { resizeImageFrame } from './image-resize.js';
 import { boundaries } from './model.js';
 import { caretRect } from './layout.js';
@@ -125,11 +125,7 @@ export function createImageInteraction(editor) {
   const boxOf = f => f.image.retainedDrawing ? { ...positionedImageBounds(f), page: f.page } : f;
   // A shape or group drawing keeps its rotation in its own transform (a:xfrm rot, §20.1.7.6), not on the image: its
   // frame is the unrotated extent, which turns about its center like a picture's.
-  const ownRotation = image => {
-    if (!image.retainedDrawing || image.rotation || flat(image)) return 0;
-    const scene = editor.model.assets?.[image.assetId]?.scene;
-    return normalizedRotation(scene?.shapeRotation || scene?.groupRotation || 0);
-  };
+  const ownRotation = image => drawingOwnRotation(image, editor.model.assets);
   const rotationOf = f => (f.image.retainedDrawing ? ownRotation(f.image) : normalizedRotation(f.image.rotation)) / ANGLE_PER_DEGREE;
 
   /* ---- The extra selection (Shift+click) ---- */

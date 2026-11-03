@@ -79,3 +79,30 @@ test('arrow keys on a shape’s side handle move that side only, as dragging it 
   expect(now.y + now.height).toBeCloseTo(before.y + before.height, 1);
   expect(errors).toEqual([]);
 });
+
+test('a rotated shape is selected where it shows, not where its unrotated outline would be', async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/mock.html#/new');
+  await expect((await onTab(page, 'home')).getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await input(page).focus();
+  for (let i = 0; i < 8; i++) { await page.keyboard.type(`Paragraph ${i + 1} of the text.`); await page.keyboard.press('Enter'); }
+  // 200 × 60 px around (600, 330), turned a quarter: it shows 60 wide and 200 tall, from y = 230 to 430.
+  await drawShape(page, 'Rectangle', [500, 300], [700, 360]);
+  await onTab(page, 'shapeFormat');
+  await page.locator('#ribbon-panel-shapeFormat').getByRole('button', { name: 'Rotate', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Rotate Right 90°' }).click();
+  await expect.poll(async () => (await shape(page)).rotation).toBe(5400000);
+  const canvas = await page.locator('canvas.canvas-page').first().boundingBox();
+  const selected = () => page.evaluate(() => window.__docs.current.view.engine.model.selectedImage?.name ?? null);
+  const click = async (x, y) => { await page.mouse.click(canvas.x + 150, canvas.y + 640); await expect.poll(selected).toBe(null); await page.mouse.click(canvas.x + x, canvas.y + y); };
+  await click(600, 250);
+  await expect.poll(selected).toBe('Rectangle 1');
+  await click(600, 415);
+  await expect.poll(selected).toBe('Rectangle 1');
+  // Beside it, inside the outline it had before it turned: the text, not the shape.
+  await click(520, 330);
+  await page.waitForTimeout(200);
+  expect(await selected()).toBe(null);
+  expect(errors).toEqual([]);
+});
