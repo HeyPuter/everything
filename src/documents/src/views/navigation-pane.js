@@ -261,7 +261,10 @@ export function createNavigationPane(api) {
     // and rebuilding hundreds of rows held up every keystroke.
     const shown = matches.slice(0, 500);
     shown.forEach((match, i) => {
-      const start = Math.max(body.lastIndexOf('\n', match.start - 1) + 1, match.start - 40), end = Math.min(...[body.indexOf('\n', match.end), match.end + 60].filter(n => n >= 0));
+      let start = Math.max(body.lastIndexOf('\n', match.start - 1) + 1, match.start - 40), end = Math.min(...[body.indexOf('\n', match.end), match.end + 60].filter(n => n >= 0));
+      // The context takes in a character the cut would halve (an emoji is two code units), rather than half of it.
+      if (/[\udc00-\udfff]/.test(body[start] || '') && /[\ud800-\udbff]/.test(body[start - 1] || '')) start--;
+      if (/[\ud800-\udbff]/.test(body[end - 1] || '') && /[\udc00-\udfff]/.test(body[end] || '')) end++;
       const parts = [(start > 0 && body[start - 1] !== '\n' ? '…' : '') + body.slice(start, match.start), body.slice(match.start, match.end), body.slice(match.end, end)];
       const key = parts.join('\u0000'), row = resultList.children[i];
       if (row?.dataset.key === key) {

@@ -49,3 +49,13 @@ it('searches again only when the document or the search changes, and keeps the r
   expect(api.search).toHaveBeenLastCalledWith('holds');
   expect(rows(pane)[0].textContent).toBe('Line 0 holds the plan here.');
 });
+
+it('shows each result’s context without cutting an emoji or other character in half', () => {
+  const { state, pane } = documentPane();
+  // 40 characters before the match start inside the 😀 (two UTF-16 units), and 60 after its end inside the 🎉.
+  state.text = `${'x'.repeat(20)}😀${'y'.repeat(39)}plan${'z'.repeat(59)}🎉 tail`; state.revision++;
+  searchFor(pane, 'plan');
+  const [row] = rows(pane);
+  expect(row.textContent.isWellFormed()).toBe(true);
+  expect(row.textContent).toBe(`…😀${'y'.repeat(39)}plan${'z'.repeat(59)}🎉`);
+});
