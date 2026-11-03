@@ -1289,7 +1289,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     const entry = chrome.entries().find(e => e.id === id);
     if (!entry || entry.disabled) return false;
     return entry.run();
-  } });
+  }, signal: printAbort.signal });
   keymap.onChange(() => chrome.refresh());
   root.addEventListener('keydown', e => { if (!e.target.closest?.('.backstage') || e.key === 'Escape') keymap.handle(e); }, true);
   /** A bullet or number typed with a space at the start of a paragraph that is not yet a list item. */
