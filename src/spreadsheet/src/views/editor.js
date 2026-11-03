@@ -2002,6 +2002,8 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         return;
       case 'formatCells':
         if (!committed()) return;
+        // A protected sheet keeps the formatting of every cell, unlocked ones too: said before the dialog is filled in.
+        if (refusedByProtection('format cells')) { keepFocus(); return; }
         openFormatCellsDialog(ctx, { panel: typeof arg === 'string' ? arg : 'number' });
         return;
       case 'applyFormat': {
@@ -3761,7 +3763,8 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         grid.scrollToActive();
         return;
       }
-      case 'validation': if (!committed()) return; openValidationManager(ctx); return;
+      // Rules are the sheet's to keep while it is protected: said before the rule is filled in, not at Add rule.
+      case 'validation': if (!committed()) return; if (refusedByProtection('change data validation')) { keepFocus(); return; } openValidationManager(ctx); return;
       case 'insertCheckbox': {
         // Checkboxes: a checkbox rule over every selected range (the rows a filter hides left out,
         // as when formatting); blank cells start unchecked. One undo step for all of them.
@@ -3792,8 +3795,8 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         keepFocus();
         return;
       }
-      case 'insertDropdown': if (!committed()) return; openValidationManager(ctx, { type: 'list' }); return;
-      case 'condFormat': if (!committed()) return; openConditionalFormatting(ctx); return;
+      case 'insertDropdown': if (!committed()) return; if (refusedByProtection('insert a dropdown')) { keepFocus(); return; } openValidationManager(ctx, { type: 'list' }); return;
+      case 'condFormat': if (!committed()) return; if (refusedByProtection('change conditional formatting')) { keepFocus(); return; } openConditionalFormatting(ctx); return;
       case 'condFormatMenu':
         if (!committed()) return;
         openMenu({ anchor: arg instanceof HTMLElement ? arg : null, label: 'Conditional formatting', minWidth: 240,
