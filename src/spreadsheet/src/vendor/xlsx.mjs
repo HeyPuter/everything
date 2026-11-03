@@ -24865,6 +24865,17 @@ function write_number_format_ods_section(nf/*:string*/, nfidx/*:string*/)/*:stri
 		nf = nf.replace(/("(?:[^"]|"")*")|\[\$([^\]\-]*)(?:-[^\]]*)?\]|[_*]./g, function($$, literal, symbol) { return literal || (symbol != null ? '"' + symbol + '"' : ""); }).replace(/"[$]"/g, "$");
 
 		if(nf == "@") { type = "text"; payload = "<number:text-content/>"; break j; }
+		/* Puter Spreadsheet local patch: a text format with words around the text ("Re: "@, "x"@"y") is a text style with
+		 * them around its text-content; only the leading words were written, as a number style, so the text was lost. */
+		var around = read_ods_format_text_run(nf, 0);
+		if(nf[around.end] == "@") {
+			var after = read_ods_format_text_run(nf, around.end + 1);
+			if(after.end == nf.length) {
+				type = "text";
+				payload = (around.text ? '<number:text>' + escapexml(around.text) + '</number:text>' : "") + "<number:text-content/>" + (after.text ? '<number:text>' + escapexml(after.text) + '</number:text>' : "");
+				break j;
+			}
+		}
 
 		/* opening string literal */
 		/* Puter Spreadsheet local patch: the whole leading run, with the space between "€" and the digits, and the
