@@ -1,5 +1,5 @@
 import { parseXml } from './docx-xml.js';
-import { UnsupportedDocumentError } from './errors.js';
+import { InvalidXmlError, UnsupportedDocumentError } from './errors.js';
 
 const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
 const REL = 'http://schemas.openxmlformats.org/package/2006/relationships';
@@ -9,6 +9,13 @@ const CUSTOM = 'http://schemas.openxmlformats.org/officeDocument/2006/relationsh
 const STORES = new Set([CUSTOM, 'http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties', 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties']);
 const XMLNS = 'http://www.w3.org/2000/xmlns/';
 const fail = reason => { throw new UnsupportedDocumentError(`content-control data bindings with ${reason}`); };
+// A store or relationships part that cannot be read may hold the bound node, so the binding cannot be shown
+// to be unresolved; it is unsupported like any other active mapping, and the document keeps its full
+// read-only preview instead of failing (or falling back to bare text) on that part.
+const readable = (bytes, reason) => {
+  try { return parseXml(bytes); }
+  catch (error) { if (error instanceof InvalidXmlError) fail(reason); throw error; }
+};
 
 function customXmlDocuments(parts) {
   const targets = new Set();
@@ -16,7 +23,7 @@ function customXmlDocuments(parts) {
     if (!name.endsWith('.rels')) continue;
     const location = /^(?:(.*)\/)?_rels\/([^/]*)\.rels$/.exec(name);
     if (!location) continue;
-    for (const link of parseXml(bytes).documentElement.children) {
+    for (const link of readable(bytes, 'unreadable relationships').documentElement.children) {
       if (link.namespaceURI !== REL || link.localName !== 'Relationship' || !STORES.has(link.getAttribute('Type'))) continue;
       if (![null, 'Internal'].includes(link.getAttribute('TargetMode'))) fail('external custom XML stores');
       const target = link.getAttribute('Target');
@@ -35,7 +42,7 @@ function customXmlDocuments(parts) {
       targets.add(resolved);
     }
   }
-  return [...targets].map(name => parseXml(parts[name]));
+  return [...targets].map(name => readable(parts[name], 'unreadable custom XML parts'));
 }
 
 // A consumer may fall back to another store when the requested item ID is absent.
@@ -46,7 +53,7 @@ export function unresolvedBindingReader(parts) {
   return binding => {
     const id = binding.getAttributeNS(W, 'storeItemID'), xpath = binding.getAttributeNS(W, 'xpath');
     if (!id || !/^\{[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\}$/i.test(id)) fail('invalid store identifiers');
-    const mapping = parseXml(`<binding ${binding.getAttributeNS(W, 'prefixMappings') || ''}/>`).documentElement;
+    const mapping = readable(`<binding ${binding.getAttributeNS(W, 'prefixMappings') || ''}/>`, 'invalid prefix mappings').documentElement;
     if (mapping.localName !== 'binding' || mapping.children.length || mapping.textContent.trim() || [...mapping.attributes].some(a => a.namespaceURI !== XMLNS)) fail('invalid prefix mappings');
     if (!xpath?.startsWith('/')) fail('unsupported XPath expressions');
     const steps = xpath.slice(1).split('/').map(step => {

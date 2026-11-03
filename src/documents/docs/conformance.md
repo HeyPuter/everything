@@ -13330,9 +13330,10 @@ to a stored title, for example, stays read-only rather than saving edited text t
 stored property would replace. The resolver compares namespace URIs, supports positive positional
 predicates per parent, and retains the original binding and custom data. The
 saved control contents remain editable through the existing persistent rich/plain
-control model. No external stores are fetched. Missing or invalid store parts,
-active mappings, unknown prefixes and XPath outside this grammar retain read-only
-fallback. Active synchronization, richer XPath and standard `w:dataBinding`
+control model. No external stores are fetched. Missing or invalid store parts
+(including stores or relationships parts that are not readable XML), active mappings,
+unknown prefixes, prefix mappings that are not namespace declarations, and XPath outside
+this grammar retain read-only fallback. Active synchronization, richer XPath and standard `w:dataBinding`
 editing remain unfinished work; this is not complete XML-mapping support.
 
 Original fixtures in `tests/fixtures/unresolved-bindings` establish that missing

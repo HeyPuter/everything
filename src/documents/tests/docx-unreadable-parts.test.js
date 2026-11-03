@@ -61,3 +61,19 @@ it('still reports a main document that is not well-formed', async () => {
   // Said in words, not as the decoder's TypeError.
   await expect(DocxPackage.open(zipSync(parts), { bestEffort: true })).rejects.toThrow('The DOCX contains XML that is not encoded as UTF-8 or UTF-16.');
 });
+
+// A content-control data binding reads every custom XML store, so one that is not readable XML made the
+// whole document a bare-text preview (and failed to open it before that). The binding is reported as
+// unsupported instead, and the preview keeps the document's styles.
+it('keeps the formatted preview when a bound control meets an unreadable custom XML part', async () => {
+  const parts = packageWith('word/item1.xml', 'customXml', latin1('<?xml version="1.0" encoding="ISO-8859-1"?><root>café</root>'));
+  parts['word/document.xml'] = strToU8(strFromU8(parts['word/document.xml'])
+    .replace('<w:document ', '<w:document xmlns:w15="http://schemas.microsoft.com/office/word/2012/wordml" ')
+    .replace('<w:p><w:r><w:t xml:space="preserve">Second item', '<w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t xml:space="preserve">Second item')
+    .replace('<w:sectPr/>', `<w:p><w:sdt><w:sdtPr><w15:dataBinding w:prefixMappings="xmlns:ns0='urn:x'" w:xpath="/ns0:root[1]/ns0:a[1]" w:storeItemID="{11111111-2222-3333-4444-555555555555}"/><w:id w:val="5"/></w:sdtPr><w:sdtContent><w:r><w:t>Bound</w:t></w:r></w:sdtContent></w:sdt></w:p><w:sectPr/>`));
+  const pkg = await DocxPackage.open(zipSync(parts), { bestEffort: true });
+  expect(pkg.readOnly).toBe(true);
+  expect(pkg.previewIssues).toEqual(['content-control data bindings with unreadable custom XML parts']);
+  expect(text(pkg)).toEqual(['Minutes of the meeting', 'Second item', 'Bound']);
+  expect(pkg.paragraphs[1].styleId).toBe('Heading1');
+});
