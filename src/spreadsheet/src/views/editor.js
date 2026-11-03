@@ -2392,6 +2392,8 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       case 'filterMenu': openFilterMenu(arg); return;
       case 'sortDialog': {
         if (!committed()) return;
+        // A protected sheet refuses the sort the dialog would set up: said now, as the quick sort says it.
+        if (refusedByProtection('sort')) { keepFocus(); return; }
         if (!oneRange('sort')) return;
         let range = sortBlock();
         if (!range) { toast('Nothing to sort', { icon: 'info' }); return; }
@@ -2423,6 +2425,8 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         const preset = typeof arg?.style === 'string' ? arg.style : null;
         // Format as Table on a table restyles it; elsewhere the Create Table dialog opens with the style chosen.
         if (existing && preset) { if (!refusedByProtection('change the table')) wb.updateTable(sheetId, existing.id, { style: preset, customStyle: null }); keepFocus(); return; }
+        // The table dialog makes or changes a table, which a protected sheet refuses: said before it is filled in.
+        if (refusedByProtection(existing ? 'change the table' : 'create a table')) { keepFocus(); return; }
         if (existing) { openTableDialog(ctx, { table: existing }); return; }
         if (!oneRange('create a table')) return;
         const range = dataRange(grid.range);
@@ -2452,12 +2456,14 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         if (arg.sheetId !== wb.activeSheetId) wb.setActiveSheet(arg.sheetId);
         if (arg.sheetId !== wb.activeSheetId) return;
         grid.setSelection(S.fromRange(t.range, { r: t.range.r1, c: t.range.c1 }));
+        if (refusedByProtection('change the table')) return;
         openTableDialog(ctx, { table: t });
         return;
       }
       case 'editTable': {
         if (!committed()) return;
         const t = wb.tableAt(sheetId, grid.active.r, grid.active.c);
+        if (t && refusedByProtection('change the table')) { keepFocus(); return; }
         if (t) openTableDialog(ctx, { table: t });
         return;
       }
@@ -2543,6 +2549,8 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       }
       case 'subtotal': {
         if (!committed()) return;
+        // Adding subtotals and removing them both rewrite the rows, which a protected sheet refuses.
+        if (refusedByProtection('add or remove subtotals')) { keepFocus(); return; }
         if (!oneRange('add subtotals')) return;
         const range = dataRange();
         if (!range) { toast('Nothing to subtotal', { icon: 'info' }); return; }
@@ -3881,6 +3889,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         getDataTable(ctx, editQuery, { createTable: (then) => {
           const range = dataRange(grid.range);
           if (range.r1 >= range.r2) { toast('Select the header row and at least one row of data', { icon: 'info' }); return; }
+          if (refusedByProtection('create a table')) return;
           openTableDialog(ctx, { range, onCreated: then });
         } });
         return;
