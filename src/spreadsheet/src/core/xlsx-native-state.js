@@ -8,6 +8,7 @@
  */
 
 const on = (value) => ['1', 'true'].includes(String(value ?? '').trim());
+const off = (value) => ['0', 'false'].includes(String(value ?? '').trim());
 
 /** A tag's attributes by name, as written (entities left alone). */
 function attributes(tag) {
@@ -17,7 +18,8 @@ function attributes(tag) {
 }
 
 /**
- * The state of a worksheet (or chart sheet) part: whether it is protected and its tab colour.
+ * The state of a worksheet (or chart sheet) part: whether it is protected, its tab colour and
+ * whether its first view shows gridlines.
  */
 export function nativeSheetState(xml) {
   xml = String(xml || '').replace(/<!--[\s\S]*?-->/g, '');
@@ -31,9 +33,11 @@ export function nativeSheetState(xml) {
   const tab = attributes(head.match(/<(?:\w+:)?tabColor\b[^>]*>/)?.[0]);
   const color = Object.keys(tab).length ? ['rgb', 'theme', 'indexed', 'tint', 'auto']
     .map(key => tab[key] == null ? '' : key === 'rgb' ? tab[key].slice(-6).toUpperCase() : key === 'tint' ? String(Number(tab[key]) || 0) : tab[key].trim()).join('|') : null;
+  const view = attributes(head.match(/<(?:\w+:)?sheetView\b[^>]*>/)?.[0]);
   return {
     protected: chart ? on(protection.content) || on(protection.objects) : on(protection.sheet),
     color,
+    gridlines: !off(view.showGridLines),
   };
 }
 

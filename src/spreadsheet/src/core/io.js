@@ -2261,7 +2261,7 @@ function importSheet(X, ws, name, meta, date1904 = false, definedNames, fileForm
     groups: own ? own.groups || null : fileGroups(ws, filtered),
     advancedFilter: own?.advancedFilter,
     outlineSettings: partXml ? readXlsxOutlineSettings(partXml) : own?.outlineSettings,
-    gridlines: own ? own.gridlines !== false : part?.gridlines !== false,
+    gridlines: own && !editedElsewhere('gridlines') ? own.gridlines !== false : nativePart?.gridlines !== false,
     headers: nativePart?.headers ?? own?.headers ?? true,
     rightToLeft: nativePart?.rightToLeft ?? own?.rightToLeft ?? false,
     defaultVAlign,
