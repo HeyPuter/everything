@@ -82,6 +82,25 @@ describe('AutoCorrect while typing in a cell', () => {
     expect(wb.getValue(id, 0, 0)).toBe('see you monday');
   });
 
+  // Ctrl+Enter over a selection wrote the entry as typed in every cell: the last word was corrected on Enter, never
+  // on Ctrl+Enter, so "teh" filled down three cells stayed "teh" where one Enter made it "the".
+  it('corrects the last word in every cell Ctrl+Enter fills, as a step of its own', async () => {
+    const { wb, id, editor, type, key } = await mount();
+    view.goTo('Sheet1!B2:B4');
+    await vi.advanceTimersByTimeAsync(1);
+    const viewport = view.el.querySelector('.grid-viewport');
+    viewport.focus();
+    key(viewport, 'F2');
+    await vi.advanceTimersByTimeAsync(1);
+    type('see you monday');
+    key(editor, 'Enter', { ctrlKey: true, metaKey: true });
+    await vi.advanceTimersByTimeAsync(1);
+    expect([1, 2, 3].map((r) => wb.getValue(id, r, 1))).toEqual(['see you Monday', 'see you Monday', 'see you Monday']);
+    expect(wb.undoLabels(2)).toEqual(['AutoCorrect', 'Fill']);
+    wb.undo();
+    expect([1, 2, 3].map((r) => wb.getValue(id, r, 1))).toEqual(['see you monday', 'see you monday', 'see you monday']);
+  });
+
   it('follows the settings: a rule switched off does nothing', async () => {
     saveAutoCorrectSettings({ ...DEFAULT_AUTOCORRECT, replaceText: false });
     const { editor, type, begin } = await mount();

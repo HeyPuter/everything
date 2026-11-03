@@ -3869,6 +3869,8 @@ export function createGrid(opts) {
           i = j + 1;
         }
       });
+      // As for one cell: a correction of the entry's last word follows, in every cell filled, as a step of its own.
+      opts.afterCommit?.({ sheetId, r, c, text, ranges: targets });
     } else if (text !== editText(cell)) {
       const wraps = !!wb.styleAt(sheetId, r, c)?.wrap;
       // Lines added with Alt+Enter turn wrapping on, so the row can show them all.

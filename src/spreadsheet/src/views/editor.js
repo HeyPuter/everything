@@ -351,13 +351,22 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     sheetId: wb.activeSheetId,
     autocorrect: autoCorrector,
     // The entry is written: its last word, corrected, is a step of its own, so Ctrl/Cmd+Z brings back what was typed.
-    afterCommit: ({ sheetId: sid, r, c, text }) => {
+    // Ctrl+Enter over a selection (`ranges`) corrects every cell it filled: only the active cell's was left as typed.
+    afterCommit: ({ sheetId: sid, r, c, text, ranges = null }) => {
       if (isFormulaText(text)) return;
-      queueMicrotask(() => offerFlashFill(sid, r, c)); // after AutoCorrect's own step, if it takes one
+      if (!ranges) queueMicrotask(() => offerFlashFill(sid, r, c)); // after AutoCorrect's own step, if it takes one
       const fixed = autoCorrector.tail(text);
       if (fixed === text || editText(wb.getCell(sid, r, c)) !== text) return;
-      if (wb.validateInput(sid, r, c, fixed).ok === false) return;
-      wb.setInput(sid, r, c, fixed, { label: 'AutoCorrect' });
+      if (ranges) {
+        for (const rg of ranges) for (let rr = rg.r1; rr <= rg.r2; rr++) for (let cc = rg.c1; cc <= rg.c2; cc++) if (wb.validateInput(sid, rr, cc, fixed).ok === false) return;
+        // One step, named for what it does (a fill's own step is called Fill).
+        const mark = wb.historyTop;
+        wb.transaction('AutoCorrect', () => { for (const rg of ranges) wb.fillInput(sid, rg, fixed, { r, c }, { typed: true }); });
+        wb.squashHistory(mark, 'AutoCorrect');
+      } else {
+        if (wb.validateInput(sid, r, c, fixed).ok === false) return;
+        wb.setInput(sid, r, c, fixed, { label: 'AutoCorrect' });
+      }
       statusBar?.announce(`AutoCorrect changed the entry to ${fixed}. ${MOD_KEY}+Z puts back what was typed`);
     },
     // Editing in cells turned off (the options): F2 and a double-click put the caret in the formula bar.
