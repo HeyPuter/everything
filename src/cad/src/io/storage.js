@@ -23,7 +23,7 @@ export async function cloudList(cursor = null, limit = 100) {
     const page = await puter.fs.readdir({ path: CLOUD_DIR, sortBy: 'modified', sortOrder: 'desc', cursor, limit });
     const list = Array.isArray(page) ? page : page.items || [];
     return {
-      items: list.filter((f) => !f.is_dir && !f.isDir && /\.(cad|dxf)$/i.test(f.name)),
+      items: list.filter((f) => !f.is_dir && !f.isDir && /\.(cad|dxf|dwg)$/i.test(f.name)),
       cursor: Array.isArray(page) ? null : page.cursor || null,
     };
   } catch (err) {
@@ -69,7 +69,7 @@ export function usePuterPickers() {
 }
 
 export async function puterOpenPicker() {
-  const item = await puter.ui.showOpenFilePicker({ accept: ['.cad', '.dxf'] });
+  const item = await puter.ui.showOpenFilePicker({ accept: ['.cad', '.dwg', '.dxf'] });
   const f = Array.isArray(item) ? item[0] : item;
   if (!f) return null;
   const blob = await f.read();
@@ -89,7 +89,7 @@ export async function deviceOpen() {
   if (FS_ACCESS) {
     try {
       const [handle] = await window.showOpenFilePicker({
-        types: [{ description: 'Drawings', accept: { 'application/octet-stream': ['.cad', '.dxf'] } }],
+        types: [{ description: 'Drawings', accept: { 'application/octet-stream': ['.cad', '.dwg', '.dxf'] } }],
         excludeAcceptAllOption: false,
       });
       const file = await handle.getFile();
@@ -102,7 +102,7 @@ export async function deviceOpen() {
   return new Promise((resolve, reject) => {
     const input = document.createElement('input');
     input.type = 'file';
-    input.accept = '.cad,.dxf';
+    input.accept = '.cad,.dwg,.dxf';
     input.addEventListener('change', () => {
       const file = input.files?.[0];
       if (!file) return resolve(null);
@@ -139,7 +139,7 @@ export async function deviceSave(blob, name, handle) {
       const ext = name.slice(name.lastIndexOf('.'));
       const h = await window.showSaveFilePicker({
         suggestedName: name,
-        types: [{ description: ext === '.dxf' ? 'DXF drawing' : 'Drawing', accept: { 'application/octet-stream': [ext] } }],
+        types: [{ description: ext === '.dxf' ? 'DXF drawing' : ext === '.dwg' ? 'DWG drawing' : 'Drawing', accept: { 'application/octet-stream': [ext] } }],
       });
       const w = await h.createWritable();
       await w.write(blob);

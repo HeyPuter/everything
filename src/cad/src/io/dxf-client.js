@@ -1,6 +1,6 @@
 /**
- * DXF import and export through a worker, so large files never block the
- * interface. Dimension geometry is computed here (it needs the text and
+ * DXF and DWG import and export through a worker, so large files never
+ * block the interface. Dimension geometry is computed here (it needs the text and
  * dimension modules) and handed to the writer as anonymous blocks.
  */
 import { buildDimension, buildLeader } from '../core/dims.js';
@@ -37,7 +37,7 @@ function call(msg, transfer) {
   });
 }
 
-/** Parse DXF bytes. Returns { drawing, warnings, stats }. */
+/** Parse DXF or DWG bytes. Returns { drawing, warnings, stats, release? }. */
 export function importDxf(buffer) {
   const copy = buffer.slice(0);
   return call({ op: 'parse', buffer: copy }, [copy]);
@@ -71,8 +71,11 @@ function dimParts(drawing, e) {
   return out;
 }
 
-/** Serialize a Drawing to DXF text (in the worker). Returns { text, warnings }. */
-export async function exportDxf(drawing, extents) {
+/**
+ * The writer input for a Drawing: its plain data plus the dimension geometry
+ * and hatch pattern definitions, which only the main thread can compute.
+ */
+export function exportPayload(drawing, extents) {
   const data = drawing.toJSON();
   const dimBlocks = {};
   for (const e of data.entities) if (e.type === 'dimension') dimBlocks[e.id] = dimParts(drawing, e);
@@ -85,5 +88,15 @@ export async function exportDxf(drawing, extents) {
     const p = getPattern(name);
     if (p) hatchPatterns[name] = p.families;
   }
-  return call({ op: 'write', drawing: data, opts: { dimBlocks, hatchPatterns, extents } });
+  return { drawing: data, opts: { dimBlocks, hatchPatterns, extents } };
+}
+
+/** Serialize a Drawing to DXF text (in the worker). Returns { text, warnings }. */
+export async function exportDxf(drawing, extents) {
+  return call({ op: 'write', ...exportPayload(drawing, extents) });
+}
+
+/** Serialize a Drawing to a DWG file (in the worker). Returns { bytes, warnings }. */
+export async function exportDwg(drawing, extents) {
+  return call({ op: 'writeDwg', ...exportPayload(drawing, extents) });
 }
