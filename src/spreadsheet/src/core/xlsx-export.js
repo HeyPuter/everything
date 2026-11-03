@@ -408,10 +408,12 @@ export async function completeXlsx(X, wb, book, bytes, { sourceWorkbook = null, 
     : workbook.replace(/<(?:calcPr|oleSize|customWorkbookViews|pivotCaches|smartTagPr|smartTagTypes|webPublishing|fileRecoveryPr|webPublishObjects|extLst)\b|<\/workbook>/, match => xmlTag('definedNames', {}, helpers.join('')) + match);
   const { firstSheetId, ...windowView } = wb.workbookView || {};
   const firstSheet = firstSheetId == null ? null : wb.sheets.findIndex(s => s.id === firstSheetId);
+  const activeTab = Math.max(0, wb.sheets.findIndex(s => s.id === activeSheetId));
   const views = xmlTag('bookViews', {}, xmlTag('workbookView', {
-    ...windowView, firstSheet: firstSheet >= 0 ? firstSheet : null,
-    activeTab: Math.max(0, wb.sheets.findIndex(s => s.id === activeSheetId)),
+    ...windowView, firstSheet: firstSheet >= 0 ? firstSheet : null, activeTab,
   }));
+  // The sheet the file opens on, as written, so that another sheet opened in Excel since is told from it on reopening.
+  if (book.PuterExportMeta) book.PuterExportMeta.data.nativeActiveTab = activeTab;
   workbook = /<bookViews\b/.test(workbook) ? workbook.replace(/<bookViews\b[^>]*>[\s\S]*?<\/bookViews>/, views) : workbook.replace('<sheets>', `${views}<sheets>`);
   // Protect Workbook: the structure lock sits just before the views, where the schema has it; no password is set.
   workbook = workbook.replace(/<workbookProtection\b[^>]*\/>/g, '');

@@ -3095,7 +3095,11 @@ export async function workbookFromFile(data, filename = '', { sourceWorkbook = n
     });
   }
   const tab = Number(xlsxAttr(view, 'activeTab'));
-  const activeName = typeof meta?.active === 'string' ? meta.active : Number.isInteger(tab) && tab >= 0 ? book.SheetNames[tab]
+  // The sheet the app last had open, unless the file was left open on another one in Excel since (activeTab left
+  // out is the first sheet).
+  const shownTab = view ? Number(xlsxAttr(view, 'activeTab') ?? 0) : NaN;
+  const switched = Number.isInteger(meta?.nativeActiveTab) && Number.isInteger(shownTab) && shownTab !== meta.nativeActiveTab && book.SheetNames[shownTab] != null;
+  const activeName = switched ? book.SheetNames[shownTab] : typeof meta?.active === 'string' ? meta.active : Number.isInteger(tab) && tab >= 0 ? book.SheetNames[tab]
     : typeof book.OdsView?.active === 'string' ? book.OdsView.active : null;
   const active = activeName ? wb.sheetByName(renamed.get(activeName) || activeName) : null;
   if (active && !active.hidden) wb.activeSheetId = active.id;
