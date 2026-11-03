@@ -91,3 +91,12 @@ it('copies and pastes with formatting beside a footnote elsewhere in the documen
   doc.select(note - 4, note + 1);
   expect(copyFragment(doc)).toBeNull();
 });
+
+it('offers no formatted modes for HTML that holds no text, such as a picture copied from a web page', () => {
+  const doc = documentWith(['Target: ']);
+  doc.select(doc.text.length);
+  // A browser's Copy Image writes the picture beside HTML holding only an <img>: pasted as HTML, nothing goes in.
+  expect(availablePasteModes(doc, { html: '<meta charset="utf-8"><img src="https://example.com/cat.png" alt="A cat">' })).toEqual(['text']);
+  expect(availablePasteModes(doc, { html: '<p><br></p>' })).toEqual(['text']);
+  expect(availablePasteModes(doc, { html: '<p>Some <b>text</b></p>' })).toEqual(['keep', 'merge', 'text']);
+});
