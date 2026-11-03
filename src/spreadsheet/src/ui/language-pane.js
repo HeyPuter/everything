@@ -140,9 +140,12 @@ export function createLanguagePane(ctx) {
   function useSelection() {
     const sheetId = ctx.sheetId();
     const cells = [];
-    for (const rg of ctx.ranges()) {
-      for (let r = rg.r1; r <= rg.r2 && cells.length < MAX_CELLS; r++) {
-        for (let c = rg.c1; c <= rg.c2 && cells.length < MAX_CELLS; c++) {
+    // Only the cells that hold something are read: a whole column or the whole sheet is cut down to the data.
+    const used = wb.usedRange(sheetId);
+    for (const rg of used ? ctx.ranges() : []) {
+      const r2 = Math.min(rg.r2, used.r2), c2 = Math.min(rg.c2, used.c2);
+      for (let r = rg.r1; r <= r2 && cells.length < MAX_CELLS; r++) {
+        for (let c = rg.c1; c <= c2 && cells.length < MAX_CELLS; c++) {
           const cell = wb.getCell(sheetId, r, c);
           if (cell?.f != null || typeof cell?.v !== 'string' || !cell.v.trim()) continue;
           cells.push({ r, c, text: cell.v });
