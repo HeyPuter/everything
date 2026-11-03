@@ -227,6 +227,9 @@ export function createComments(ctx, host) {
 
   function renderCard({ focusReply = false } = {}) {
     if (!card) return;
+    // A redraw takes away the control pressed (Resolve, Reopen, an edit saved or given up with Escape): the
+    // keyboard stays in the card, on its reply box or what takes its place, rather than falling to the page.
+    const keep = card.node.contains(document.activeElement) ? card.node : null;
     closeMentionPickers(card.node);
     const { sheetId, r, c } = card;
     let content;
@@ -274,6 +277,13 @@ export function createComments(ctx, host) {
     card.node.replaceChildren(content);
     card.node.classList.toggle('pinned', card.mode !== 'hover');
     placeCard();
+    // Queued after the redraw's own (a box to type in takes the focus first), so it only catches a focus that fell.
+    if (keep) {
+      queueMicrotask(() => {
+        if (card?.node !== keep || !keep.isConnected || (document.activeElement && document.activeElement !== document.body)) return;
+        (keep.querySelector('textarea.cmt-reply') || keep.querySelector('.cmt-resolved button') || keep.querySelector('button'))?.focus({ preventScroll: true });
+      });
+    }
   }
 
   function openCard(sheetId, r, c, mode, opts = {}) {

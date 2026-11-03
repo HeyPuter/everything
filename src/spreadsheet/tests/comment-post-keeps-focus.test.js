@@ -56,3 +56,44 @@ it('moves the keyboard on to the reply box once a new comment is posted', async 
   expect(document.querySelector('.comment-card')).toBeNull();
   expect(document.activeElement).toBe(view.el.querySelector('.grid-viewport'));
 }, 30000);
+
+// Resolve, Reopen, and an edit saved or given up with Escape redrew the card the same way, the control pressed
+// going with the redraw: each now leaves the keyboard in the card, on the reply box or the Reopen button.
+it('keeps the keyboard in the card as a thread is resolved, reopened and edited', async () => {
+  const doc = new Doc({ name: 'Comments', path: 'Spreadsheets/Comments.xlsx' });
+  const wb = doc.wb;
+  const id = wb.activeSheetId;
+  view = editorView({ doc, goHome: vi.fn(), openPath: vi.fn(), newDoc: vi.fn(), templateDoc: vi.fn(), importFile: vi.fn() });
+  document.querySelector('#app').append(view.el);
+  await tick();
+  view.el.querySelector('.grid-viewport').getBoundingClientRect = () => ({ top: 0, left: 0, right: 2000, bottom: 2000, width: 2000, height: 2000 });
+  view.goTo('C3');
+  view.run('newComment');
+  await tick();
+  const area = document.querySelector('.comment-card textarea');
+  area.value = 'Check this total';
+  area.dispatchEvent(new Event('input'));
+  area.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, metaKey: true, bubbles: true, cancelable: true }));
+  await tick();
+  const card = () => document.querySelector('.comment-card');
+  card().querySelector('.cmt-resolve').focus();
+  card().querySelector('.cmt-resolve').click();
+  await tick();
+  expect(getThread(wb, id, 2, 2)?.done).toBe(true);
+  expect(document.activeElement).toBe(card().querySelector('.cmt-resolved button'));
+  document.activeElement.click();
+  await tick();
+  expect(getThread(wb, id, 2, 2)?.done).toBeFalsy();
+  expect(document.activeElement).toBe(card().querySelector('textarea.cmt-reply'));
+  // Edit comment, from the thread's "…" menu, then Escape in the box.
+  card().querySelector('.cmt-more').click();
+  await tick();
+  [...document.querySelectorAll('.menu-item')].find((n) => n.textContent.includes('Edit comment')).click();
+  await tick();
+  const edit = card().querySelector('textarea[aria-label="Edit comment"]');
+  expect(document.activeElement).toBe(edit);
+  edit.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+  await tick();
+  expect(card()).not.toBeNull();
+  expect(document.activeElement).toBe(card().querySelector('textarea.cmt-reply'));
+}, 30000);
