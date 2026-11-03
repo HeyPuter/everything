@@ -3297,10 +3297,12 @@ export function createGrid(opts) {
       if (m && (!whole || (m.r1 >= range.r1 && m.c1 >= range.c1))) sel.active = { r: m.r1, c: m.c1 };
       else if (m) {
         // A block merged from outside the lines covers their first cell: the active cell steps along
-        // the line past it, so typing goes into a cell of the selection that shows what it holds.
+        // the line past it, so typing goes into a cell of the selection that shows what it holds: past hidden
+        // lines too (a title merged over the columns with the row under it hidden put the cell in that row).
         let { r, c } = sel.active, k = m;
         while (k && (k.r1 < range.r1 || k.c1 < range.c1) && r <= range.r2 && c <= range.c2) {
-          if (sel.scope === 'rows') c = k.c2 + 1; else r = k.r2 + 1;
+          if (sel.scope === 'rows') { c = k.c2 + 1; c = Math.max(c, visibleTarget({ r, c }, 0, 1).c); }
+          else { r = k.r2 + 1; r = Math.max(r, visibleTarget({ r, c }, 1, 0).r); }
           k = wb.mergeAt(sheetId, r, c);
         }
         if (r <= range.r2 && c <= range.c2) sel.active = { r, c };
