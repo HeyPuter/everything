@@ -81,6 +81,29 @@ it('moves a trendline label where it is dragged, and Reset Position puts it back
   expect(Number(label().getAttribute('data-left'))).toBeCloseTo(before.left, 1);
 });
 
+// A label dragged past the chart's edge was drawn there while it was dragged, then jumped back inside once let go;
+// it stops at the edge as it is dragged, where it lands.
+it('keeps a dragged trendline label inside the chart, as it will be drawn, while it is dragged', async () => {
+  const { chart } = await mount({ trendline: true, trendlines: [{ type: 'linear', dispEq: true }, false] });
+  const label = () => svgNode('[data-el="trendlineLabel"]');
+  const box = () => ['left', 'top', 'width', 'height'].map(k => Number(label().getAttribute(`data-${k}`)));
+  const [left, top, w, h] = box(), [, , W, H] = label().closest('svg').getAttribute('viewBox').split(' ').map(Number);
+  for (const [x, y, at] of [[-5000, -5000, [0, 0]], [5000, 5000, [W - w, H - h]]]) {
+    label().querySelector('text').dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, button: 0, clientX: 0, clientY: 0 }));
+    window.dispatchEvent(new PointerEvent('pointermove', { clientX: x, clientY: y }));
+    const shown = /translate\(([-\d.e]+) ([-\d.e]+)\)/.exec(label().getAttribute('transform')).slice(1).map(Number);
+    const from = box();
+    expect(from[0] + shown[0]).toBeCloseTo(at[0], 1);
+    expect(from[1] + shown[1]).toBeCloseTo(at[1], 1);
+    window.dispatchEvent(new PointerEvent('pointerup', { clientX: x, clientY: y }));
+    await flush();
+    expect(box()[0]).toBeCloseTo(at[0], 1);
+    expect(box()[1]).toBeCloseTo(at[1], 1);
+    expect(chart().trendlines[0].labelPos).toEqual({ x: expect.closeTo(at[0] / W, 5), y: expect.closeTo(at[1] / H, 5) });
+  }
+  expect(left > 0 && top > 0).toBe(true);
+});
+
 it('keeps a click on a trendline label from moving it', async () => {
   const { chart } = await mount({ trendline: true, trendlines: [{ type: 'linear', dispEq: true }, false] });
   const label = svgNode('[data-el="trendlineLabel"]');

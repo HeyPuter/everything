@@ -155,10 +155,13 @@ export function createChartUi(ctx) {
     const view = { width: vw || rect.width || 1, height: vh || rect.height || 1 };
     const sx = rect.width / view.width || 1, sy = rect.height / view.height || 1;
     const left = Number(label.getAttribute('data-left')), top = Number(label.getAttribute('data-top'));
+    const w = Number(label.getAttribute('data-width')) || 0, h = Number(label.getAttribute('data-height')) || 0;
+    // The label stops at the chart's edges as it is dragged, where the chart draws it once it is let go.
+    const hold = (v, size, room) => Math.max(0, Math.min(room - size, v));
     let dx = 0, dy = 0;
     const move = ev => {
-      dx = (ev.clientX - e.clientX) / sx;
-      dy = (ev.clientY - e.clientY) / sy;
+      dx = hold(left + (ev.clientX - e.clientX) / sx, w, view.width) - left;
+      dy = hold(top + (ev.clientY - e.clientY) / sy, h, view.height) - top;
       label.setAttribute('transform', `translate(${dx} ${dy})`);
       syncOverlay();
     };
