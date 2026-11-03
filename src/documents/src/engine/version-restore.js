@@ -62,3 +62,35 @@ export function unportableContent(version, current) {
   });
   return relationshipsOut.length || notesDiffer ? { relationships: relationshipsOut, notes: notesDiffer } : null;
 }
+
+const sameAsset = (a, b) => {
+  if (a === b) return true;
+  if (!a || !b || !sameBytes(a.bytes, b.bytes)) return false;
+  const rest = value => JSON.stringify(value, (key, v) => key === 'bytes' || v instanceof Uint8Array ? undefined : v);
+  return rest(a) === rest(b);
+};
+function renameReferences(value, renames) {
+  if (!value || typeof value !== 'object' || value instanceof Uint8Array) return;
+  for (const key of Object.keys(value)) {
+    const v = value[key];
+    if ((key === 'assetId' || key === 'fallbackAssetId') && typeof v === 'string' && renames.has(v)) value[key] = renames.get(v);
+    else if (v && typeof v === 'object') renameReferences(v, renames);
+  }
+}
+/**
+ * Bring a version's assets (pictures, drawings, charts) into the open document's `assets`. An asset the document
+ * has under the same id with other content (a drawing's scene is named by its drawing id, which each file numbers
+ * on its own) is added under a new id, and the version's paragraphs and tables are changed to use it: overwriting
+ * it showed the document's own drawing as the version's once the restore was undone. Returns the renamed ids.
+ */
+export function adoptVersionAssets(version, assets) {
+  const renames = new Map();
+  for (const [id, asset] of Object.entries(version.assets || {})) {
+    if (!Object.hasOwn(assets, id)) { assets[id] = asset; continue; }
+    if (sameAsset(assets[id], asset)) continue;
+    let n = 1, fresh; do fresh = `${id}:restored-${n++}`; while (Object.hasOwn(assets, fresh) || Object.hasOwn(version.assets, fresh));
+    assets[fresh] = asset; renames.set(id, fresh);
+  }
+  if (renames.size) { renameReferences(version.paragraphs, renames); renameReferences(version.tables, renames); }
+  return renames;
+}
