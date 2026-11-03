@@ -31,7 +31,7 @@ import { toFileFormula } from './xlfn.js';
 import { writeXlsxConditionalFormats } from './xlsx-export-condformat.js';
 import { readXlsxConditionalFormats } from './xlsx-condformat.js';
 import { writeExportMetadata } from './xlsx-export-meta.js';
-import { nativeSheetState } from './xlsx-native-state.js';
+import { nativeSheetState, nativeValidationsSignature } from './xlsx-native-state.js';
 import { normalizeSplit, splitPaneXml, paneName } from './split-panes.js';
 import { conditionalFormatSignature } from './xlsx-condformat-reconcile.js';
 import { createPersonList, writeXlsxThreadedComments, writeXlsxPersons } from './xlsx-threaded-comments.js';
@@ -207,7 +207,11 @@ export async function completeXlsx(X, wb, book, bytes, { sourceWorkbook = null, 
   // program is told from this save's own projection when the file is opened again (xlsx-native-state.js).
   const noteNativeState = (sheet, xml) => {
     const record = book.PuterExportMeta?.data.sheets[sheet.name];
-    if (record) record.nativeState = nativeSheetState(xml);
+    if (!record) return;
+    const validations = nativeValidationsSignature(xml);
+    record.nativeState = { ...nativeSheetState(xml), validations };
+    // Only a sheet with validations has a hash to wait for.
+    if (typeof validations !== 'string') return validations.then((hash) => { record.nativeState.validations = hash; });
   };
   for (const [i, sheet] of wb.sheets.entries()) {
     if (i && pause) await pause();
@@ -394,7 +398,8 @@ export async function completeXlsx(X, wb, book, bytes, { sourceWorkbook = null, 
     writeXlsxThreadedComments(sheet, i + 1, persons, { get, set, contentType });
     xml = filterColorFormats(richValues.sheet(writeXlsxSheetCustomViews(writeXlsxOutlineSettings(writeXlsxPrint(xml, sheet.printSettings), sheet.outlineSettings), wb.customViews || [], sheet), imageValues));
     set(path, xml);
-    noteNativeState(sheet, xml);
+    const noted = noteNativeState(sheet, xml);
+    if (noted) await noted;
   }
   writeXlsxPersons(persons, { get, set, contentType });
   let workbook = get('/xl/workbook.xml');

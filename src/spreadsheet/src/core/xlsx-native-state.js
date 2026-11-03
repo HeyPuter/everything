@@ -6,6 +6,7 @@
  * importSheet). The projection is of meaning, not spelling: Excel writing the same state its own
  * way (attributes in another order, defaults left out, column runs split or joined) is no change.
  */
+import { readXlsxValidations } from './xlsx-validation.js';
 
 const on = (value) => ['1', 'true'].includes(String(value ?? '').trim());
 const off = (value) => ['0', 'false'].includes(String(value ?? '').trim());
@@ -106,4 +107,34 @@ export function nativeSheetState(xml) {
 /** Whether the part's `key` no longer says what the record noted it said at the last save here. */
 export function nativeStateChanged(saved, current, key) {
   return !!saved && typeof saved === 'object' && Object.hasOwn(saved, key) && JSON.stringify(saved[key]) !== JSON.stringify(current?.[key]);
+}
+
+const ENTITIES = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" };
+const decode = (text) => String(text).replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (m, name) => {
+  if (name[0] !== '#') return ENTITIES[name.toLowerCase()] ?? m;
+  const code = /^#x/i.test(name) ? parseInt(name.slice(2), 16) : Number(name.slice(1));
+  return code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : m;
+});
+const canonical = (value) => Array.isArray(value) ? value.map(canonical)
+  : value && typeof value === 'object' ? Object.fromEntries(Object.keys(value).sort().map(key => [key, canonical(value[key])])) : value;
+
+/**
+ * The data validations of a worksheet part, as the reader takes them in (so Excel leaving out an
+ * attribute at its default is no change), hashed: a sheet can carry thousands of rules. A part with
+ * none is '' at once, with no hashing to wait for, as most sheets have none.
+ */
+export function nativeValidationsSignature(xml) {
+  xml = String(xml || '');
+  const end = xml.lastIndexOf('sheetData'), close = end < 0 ? -1 : xml.lastIndexOf('<', end);
+  const tail = close < 0 ? '' : xml.slice(close);
+  if (!tail.includes('dataValidation')) return '';
+  const root = xml.match(/<(?:\w+:)?worksheet\b(?:[^<>"']|"[^"]*"|'[^']*')*>/)?.[0] || '';
+  const rules = readXlsxValidations(tail, root, { attributes, decode,
+    decodeString: (text) => decode(text).replace(/_x([0-9a-f]{4})_/gi, (m, hex) => String.fromCharCode(parseInt(hex, 16))) });
+  return rules.length ? hashRules(rules) : '';
+}
+
+async function hashRules(rules) {
+  const { sha256 } = await import('@noble/hashes/sha2.js');
+  return Array.from(sha256(new TextEncoder().encode(JSON.stringify(canonical(rules)))), n => n.toString(16).padStart(2, '0')).join('');
 }

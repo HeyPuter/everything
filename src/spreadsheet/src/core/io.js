@@ -64,7 +64,7 @@ import { odsCellStyle, odsCellPaints, odsRunStyle } from './ods-cell-styles.js';
 import { htmlTableRows } from './html-table.js';
 import { reconcileConditionalFormats } from './xlsx-condformat-reconcile.js';
 import { prepareXlsxValidationLists } from './xlsx-validation.js';
-import { nativeSheetState, nativeStateChanged } from './xlsx-native-state.js';
+import { nativeSheetState, nativeStateChanged, nativeValidationsSignature } from './xlsx-native-state.js';
 import { sheetFilters, sameFilterRange, filterRangeKey, mapSheetFilters } from './sheet-filters.js';
 import { nativeFilterJudge, readXlsxFilter, readXlsxFilterButtons, writeXlsxFilter } from './xlsx-filter.js';
 import { readStyleResets, styleResetAt } from './style-resets.js';
@@ -2872,6 +2872,25 @@ export async function workbookFromFile(data, filename = '', { sourceWorkbook = n
     if (sheet.beyond) { sum.rows += sheet.beyond.rows; sum.cols = Math.max(sum.cols, sheet.beyond.cols); delete sheet.beyond; }
     return sum;
   }, { rows: 0, cols: 0 });
+  // A dropdown this app saved names its options through a defined name of its own (a list too long for the rule, kept
+  // on the settings sheet, or a range on another sheet), which is not read as a name of the book. Read from the file,
+  // as validations changed in Excel are, the rule takes those options again.
+  const validationNameRefs = new Map((Array.isArray(meta?.validationNames) ? meta.validationNames : []).filter(n => typeof n?.Name === 'string')
+    .map(n => [n.Name.toUpperCase(), (book.Workbook?.Names || []).find(name => name?.Name?.toUpperCase() === n.Name.toUpperCase() && typeof name.Ref === 'string')?.Ref])
+    .filter(([, ref]) => ref));
+  const validationListSource = (rule) => {
+    const ref = rule.type === 'list' && typeof rule.source === 'string' ? validationNameRefs.get(rule.source.replace(/^=/, '').trim().toUpperCase()) : null;
+    if (!ref) return rule;
+    const at = ref.lastIndexOf('!'), owner = ref.slice(0, at).replace(/^'(.*)'$/, '$1').replace(/''/g, "'");
+    if (at < 0 || owner !== sidecar?.name) return { ...rule, source: '=' + fromFileFormula(ref.replace(/^=/, '')) };
+    const area = parseRange(ref.slice(at + 1).replace(/\$/g, '')), cells = book.Sheets[sidecar.name], values = [];
+    if (area) for (let r = area.r1; r <= area.r2; r++) for (let c = area.c1; c <= area.c2; c++) {
+      const value = cells?.[X.utils.encode_cell({ r, c })]?.v;
+      if (value != null) values.push(value);
+    }
+    const { relativeSource, ...list } = rule;
+    return { ...list, source: values };
+  };
   const pivotRulePriorities = new Map();
   for (const sheet of sheets) {
     const nativeRules = sheet.rules;
@@ -2892,6 +2911,11 @@ export async function workbookFromFile(data, filename = '', { sourceWorkbook = n
       pivotRulePriorities.set(sheet.name, priorities);
     }
     sheet.rules = await reconcileConditionalFormats(own?.rules, baseline, sheet.rules, fingerprintRules);
+    // Validations deleted, edited or added in Excel since this app's last save: the part's are the ones in force.
+    if (xml && typeof own?.nativeState?.validations === 'string' && Array.isArray(own.validations)
+      && await nativeValidationsSignature(xml) !== own.nativeState.validations) {
+      sheet.validations = (book.Sheets[sheet.name]?.['!validations'] || []).map(({ _odsName, ...rule }) => validationListSource(rule));
+    }
   }
   const workbookRels = book.files?.['xl/_rels/workbook.xml.rels']?.content;
   const richValues = workbookRels && /\/rdRichValue["']/.test(new TextDecoder().decode(workbookRels))
