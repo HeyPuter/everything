@@ -162,6 +162,9 @@ export function createVersionHistory({ editor, pkg, doc, error, author, live = (
       const opened = preview?.version.path === v.path && preview.pkg ? { pkg: preview.pkg, images: null } : await api.openCanvasDocument(await readBytes(v));
       const p = opened.pkg;
       if (p.readOnly) throw new Error('This version uses features that can only be displayed, so it cannot be restored while others edit with you.');
+      // Its pictures, charts and notes are those of its own file: ones the document no longer has, or has changed,
+      // would come back broken or as the document's current ones.
+      if (api.unportableContent?.(p, pkg())) throw new Error('This version has pictures, charts or notes the current document no longer has as they were, so it cannot be restored while others edit with you. Compare it with the document instead, and copy what you need.');
       engine.finishComposition();
       if (engine.session.path !== null) engine.editStory(null);
       // One undoable change: the version's body, tables, styles, lists, page setup and comments.
