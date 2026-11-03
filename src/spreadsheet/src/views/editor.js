@@ -390,12 +390,12 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     onContextMenu: (info) => openCellContextMenu(ctx, info),
     announce: (text) => statusBar?.announce(text),
     onZoom: () => { try { localStorage.setItem('spreadsheet:zoom', String(grid.zoom)); } catch { /* no storage */ } notify(); },
-    validate: (r, c, text) => {
+    validate: (r, c, text, origin) => {
       // Run before a committed entry is written. Text pasted into the entry (noted here from the viewport's
       // paste event and the formula bar, or by the grid on its own editor) that reaches out is put through
       // the question a paste onto the grid gets, so the formula lands #BLOCKED! with the notice, not live.
       if ((entryPasted || grid.editState?.pasted) && textReachesOut(text)) doc.distrustExternal();
-      const v = wb.validateInput(grid.sheetId, r, c, text);
+      const v = wb.validateInput(grid.sheetId, r, c, text, origin);
       return { ok: v.ok, message: v.message, rule: v.rule, strict: v.rule ? v.rule.strict !== false : false };
     },
     onInvalid: invalidEntry,

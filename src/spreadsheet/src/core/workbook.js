@@ -11241,12 +11241,14 @@ export class Workbook extends EventTarget {
   }
 
   /** Would this typed input be acceptable in the cell? { ok, message, rule }. */
-  validateInput(sheetId, r, c, text) {
+  validateInput(sheetId, r, c, text, origin = null) {
     const rule = this.validationAt(sheetId, r, c);
     if (!rule) return { ok: true, rule: null };
     // The entry is judged as the cell will hold it: 50 typed into a percent cell is 0.5, 00123 in a Text cell
     // stays the text 00123, and 1/2 in a fraction cell is a half rather than January 2.
     let { v = null, f = null } = typedDigits(cellFromInput(text, this.styleAt(sheetId, r, c)), text) || {};
+    // An entry typed at `origin` and written here too (Ctrl+Enter, see fillInput) is a formula moved by as much.
+    if (f != null && origin && (origin.r !== r || origin.c !== c)) f = shiftFormula(f, r - origin.r, c - origin.c);
     // A formula is judged by the result it gives in this cell, as Excel judges one as it is entered: =20 is refused
     // where only 1 to 10 may go. One whose result is an error, or that cannot be worked out, passes as errors do.
     if (f != null) {

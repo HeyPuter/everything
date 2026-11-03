@@ -3836,7 +3836,7 @@ export function createGrid(opts) {
       }
       for (const rg of targets) for (let rr = rg.r1; rr <= rg.r2; rr++) for (let cc = rg.c1; cc <= rg.c2; cc++) {
         if (wb.lockedAt(sheetId, rr, cc)) { editor.focus({ preventScroll: true }); return false; }
-        const check = opts.validate?.(rr, cc, text);
+        const check = opts.validate?.(rr, cc, text, { r, c });
         if (!warning && check?.ok === false && validationAlertStyle(check.rule)) warning = check;
         if (check && check.ok === false && check.strict) {
           return refuseValidation(check);
