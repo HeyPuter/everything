@@ -2429,7 +2429,8 @@ function trendLabelsSvg(labels, style, plot, W, H) {
   }) : [p])));
   return labels.map(l => {
     const size = l.size || style.size, lineH = size * 1.25, rise = size * .4;
-    const widths = l.lines.map(runs => runs.reduce((w, r) => w + textW(r.text, r.sup ? size * .7 : size), 0));
+    // Measured in its own font, as axis labels are, so a label put against the chart's left edge sits flush there.
+    const widths = l.lines.map(runs => runs.reduce((w, r) => w + axisTextWidth(r.text, { ...style, size: r.sup ? size * .7 : size }), 0));
     const w = maxOf(widths), h = l.lines.length * lineH;
     const hold = (right, top) => ({ right: Math.min(plot.x + plot.w - 4, Math.max(plot.x + w + 4, right)), top: Math.max(plot.y + 2, Math.min(plot.y + plot.h - h - 2, top)) });
     const left = plot.x + w + 4, right = plot.x + plot.w - 4, high = plot.y + 2, low = plot.y + plot.h - h - 2;
