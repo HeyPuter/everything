@@ -145,6 +145,36 @@ it('saves a moved trendline label in the file and opens it in the same place', a
   expect(back.activeSheet.charts[0].trendlines[0].labelPos).toEqual({ x: 0.25, y: 0.125 });
 });
 
+// Excel writes a trendline label it moved as an offset from where it lays the label out (factor mode). That place
+// is Excel's own, so the label is drawn in the app's; but its offset was dropped too, so saving the file here put the
+// label back in Excel's default place for whoever opened it in Excel next.
+it('keeps the offset Excel moved a trendline label by through a save, until it is moved here', async () => {
+  const wb = new Workbook({ sheets: [{ name: 'Data', charts: [{ type: 'line', title: 'Trend', anchor: { r: 0, c: 3 }, range: { r1: 0, c1: 0, r2: 1, c2: 1 },
+    trendline: true, trendlines: [{ type: 'linear', dispEq: true, labelPos: { x: 0.25, y: 0.125 } }],
+    sourceRefs: [{ name: 'Sales', literal: { categories: ['North', 'South', 'East'], values: [3, 7, 9] } }] }] }] });
+  const excel = async (book, edit = xml => xml) => {
+    const zip = X.CFB.read(new Uint8Array(await (await workbookToXlsx(book)).arrayBuffer()), { type: 'array' });
+    const chart = zip.FileIndex[zip.FullPaths.findIndex(p => /\/charts\/chart[^/]*\.xml$/.test(p))];
+    chart.content = new TextEncoder().encode(edit(new TextDecoder().decode(chart.content))); chart.size = chart.content.length;
+    const index = X.CFB.find(zip, '/xl/workbook.xml');
+    index.content = new TextEncoder().encode(new TextDecoder().decode(index.content).replace(/<sheet\b[^>]*name="_puter_meta\d*"[^>]*\/>/g, ''));
+    index.size = index.content.length;
+    return { xml: new TextDecoder().decode(chart.content), back: await workbookFromFile(X.CFB.write(zip, { type: 'array', fileType: 'zip' }), 'trend.xlsx') };
+  };
+  // The label as Excel writes one it moved: no modes, so x and y are offsets.
+  const moved = '<c:trendlineLbl><c:layout><c:manualLayout><c:x val="-0.21788"/><c:y val="-6.4E-2"/></c:manualLayout></c:layout>';
+  const { back } = await excel(wb, xml => xml.replace(/<c:trendlineLbl><c:layout>.*?<\/c:layout>/, moved));
+  expect(back.activeSheet.charts[0].trendlines[0]).toMatchObject({ labelOffset: { x: -0.21788, y: -0.064 } });
+  expect(back.activeSheet.charts[0].trendlines[0].labelPos).toBeUndefined();
+  const again = await excel(back);
+  expect(again.xml).toContain('<c:trendlineLbl><c:layout><c:manualLayout><c:x val="-0.21788"/><c:y val="-0.064"/></c:manualLayout></c:layout>');
+  // Moved here, it takes the place it was moved to in the app's own terms instead.
+  const chart = again.back.activeSheet.charts[0];
+  again.back.updateChart(again.back.activeSheetId, chart.id, { trendlines: [{ ...chart.trendlines[0], labelPos: { x: 0.5, y: 0.5 } }] });
+  expect(again.back.activeSheet.charts[0].trendlines[0].labelOffset).toBeUndefined();
+  expect((await excel(again.back)).xml).toContain('<c:manualLayout><c:xMode val="edge"/><c:yMode val="edge"/><c:x val="0.5"/><c:y val="0.5"/></c:manualLayout>');
+});
+
 // A left-click selects a series (all its points light up); a right-click then formats that series, not one point.
 const leftClick = async node => {
   node.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, button: 0, clientX: 5, clientY: 5 }));

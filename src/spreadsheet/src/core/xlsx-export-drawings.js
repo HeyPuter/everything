@@ -94,7 +94,9 @@ const trendlineXml = t => tag('c:trendline', {}, (t.name ? tag('c:name', {}, xml
   + (t.type !== 'movingAvg' && t.forward ? val('forward', t.forward) : '') + (t.type !== 'movingAvg' && t.backward ? val('backward', t.backward) : '')
   + (INTERCEPT_TYPES.has(t.type) && t.intercept != null ? val('intercept', t.intercept) : '')
   + (t.dispEq || t.dispRSqr ? val('dispRSqr', Number(t.dispRSqr)) + val('dispEq', Number(t.dispEq))
-    + tag('c:trendlineLbl', {}, (t.labelPos ? tag('c:layout', {}, tag('c:manualLayout', {}, val('xMode', 'edge') + val('yMode', 'edge') + val('x', t.labelPos.x) + val('y', t.labelPos.y))) : '')
+    + tag('c:trendlineLbl', {}, (t.labelPos ? tag('c:layout', {}, tag('c:manualLayout', {}, val('xMode', 'edge') + val('yMode', 'edge') + val('x', t.labelPos.x) + val('y', t.labelPos.y)))
+      // An offset from Excel's own place for the label goes back as Excel wrote it, in factor mode (the default).
+      : t.labelOffset ? tag('c:layout', {}, tag('c:manualLayout', {}, val('x', t.labelOffset.x) + val('y', t.labelOffset.y))) : '')
       + tag('c:numFmt', { formatCode: t.labelFormat || 'General', sourceLinked: 0 }) + (t.labelSize ? labelTextProps({ size: t.labelSize }) : '')) : ''));
 
 /** Format ▸ Shape Effects: a:effectLst for an element's outer shadow or glow. */

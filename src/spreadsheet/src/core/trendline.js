@@ -12,6 +12,8 @@
  *   name: string,                    the trendline's own name ('' names it for its kind and series)
  *   labelFormat?: string,            the label's number format (General when absent)
  *   labelPos?: { x, y },             where the label was dragged: its top-left corner, as fractions of the chart's width and height
+ *   labelOffset?: { x, y },          how far an Excel file moved the label from where Excel places it, as fractions of the
+ *                                    chart (a factor-mode layout): drawn in its own place here, saved again as it came
  *   labelSize?: number,              the label's text size (px, 4–72pt); else the value axis' text size
  *   color?, width?, dash?,           the line's own colour, width (px) and dash; else the series' colour, dashed
  * }
@@ -50,7 +52,9 @@ export function normalizeTrend(raw) {
     dispRSqr: t.dispRSqr === true,
     name: typeof t.name === 'string' ? t.name.slice(0, 255) : '',
     ...(typeof t.labelFormat === 'string' && t.labelFormat.trim() && t.labelFormat !== 'General' ? { labelFormat: t.labelFormat.slice(0, 255) } : {}),
-    ...(between(t.labelPos?.x, 0, 1) && between(t.labelPos?.y, 0, 1) ? { labelPos: { x: t.labelPos.x, y: t.labelPos.y } } : {}),
+    ...(between(t.labelPos?.x, 0, 1) && between(t.labelPos?.y, 0, 1) ? { labelPos: { x: t.labelPos.x, y: t.labelPos.y } }
+      // A label moved here takes the place it was moved to instead.
+      : between(t.labelOffset?.x, -1, 1) && between(t.labelOffset?.y, -1, 1) ? { labelOffset: { x: t.labelOffset.x, y: t.labelOffset.y } } : {}),
     ...(between(t.labelSize, TREND_LABEL_SIZE.min, TREND_LABEL_SIZE.max) ? { labelSize: t.labelSize } : {}),
     ...(HEX.test(t.color || '') ? { color: t.color.toLowerCase() } : {}),
     ...(between(t.width, 0.25, 20) ? { width: t.width } : {}),

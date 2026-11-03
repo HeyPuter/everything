@@ -130,13 +130,15 @@ const text = node => node?.text || '';
 const flag = (node, name) => !!child(node, name) && ['1', 'true'].includes(val(node, name) ?? 'true');
 
 /**
- * Where a trendline label was moved to, from its c:manualLayout: placed by its edges, as the app writes it.
- * Excel's own offset (factor mode) is measured from a spot only Excel lays out, so that label keeps the app's.
+ * Where a trendline label was moved to, from its c:manualLayout: { labelPos } placed by its edges, as the app writes it.
+ * Excel's own offset (factor mode, the default) is measured from a spot only Excel lays out, so that label is drawn in
+ * the app's place, its offset kept ({ labelOffset }) to be saved again.
  */
-function trendLabelPos(m) {
-  if (!m || val(m, 'xMode') !== 'edge' || val(m, 'yMode') !== 'edge') return undefined;
+function trendLabelPlace(m) {
   const x = number(m, 'x'), y = number(m, 'y');
-  return x != null && y != null ? { x, y } : undefined;
+  if (!m || x == null || y == null) return {};
+  const edge = val(m, 'xMode') === 'edge', factor = (val(m, 'xMode') ?? 'factor') === 'factor' && (val(m, 'yMode') ?? 'factor') === 'factor';
+  return edge && val(m, 'yMode') === 'edge' ? { labelPos: { x, y } } : factor ? { labelOffset: { x, y } } : {};
 }
 
 /**
@@ -152,7 +154,7 @@ function trendlineOf(series, lineColor) {
     forward: number(t, 'forward'), backward: number(t, 'backward'), intercept: number(t, 'intercept'),
     dispEq: flag(t, 'dispEq'), dispRSqr: flag(t, 'dispRSqr'), name: text(child(t, 'name')),
     labelFormat: path(t, 'trendlineLbl', 'numFmt')?.attrs.formatCode,
-    labelPos: trendLabelPos(path(t, 'trendlineLbl', 'layout', 'manualLayout')),
+    ...trendLabelPlace(path(t, 'trendlineLbl', 'layout', 'manualLayout')),
     labelSize: Number(path(t, 'trendlineLbl', 'txPr', 'p', 'pPr', 'defRPr')?.attrs.sz) / 75 || undefined,
     ...(color && color !== 'none' ? { color } : {}),
     ...(Number(ln?.attrs.w) > 0 ? { width: Number(ln.attrs.w) / 9525 } : {}),
