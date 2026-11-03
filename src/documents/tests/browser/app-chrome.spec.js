@@ -374,6 +374,37 @@ test('copy and paste formatting, Repeat, and Customize Keyboard bindings', async
   await expect(page.getByRole('dialog', { name: 'Keyboard shortcuts' })).toContainText('Underline');
 });
 
+test('Customize Keyboard no longer lists a built-in shortcut for its command once another command takes it', async ({ page }) => {
+  await openEditor(page);
+  await (await openMenu(page, 'Tools')).getByRole('menuitem', { name: 'Customize Keyboard…' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Customize Keyboard' });
+  const search = dialog.getByRole('searchbox', { name: 'Search commands' });
+  const row = name => dialog.locator('.kb-item').filter({ has: page.locator('.kb-label', { hasText: new RegExp(`^${name}$`) }) }).first();
+  const bold = MAC ? 'Cmd+B' : 'Ctrl+B';
+  await search.fill('bold');
+  await expect(row('Bold').locator('.kb-keys')).toHaveText(bold);
+  // Bold's chord, given to Italic.
+  await search.fill('italic');
+  await row('Italic').click();
+  await dialog.getByRole('textbox', { name: 'New shortcut' }).click();
+  await page.keyboard.press('ControlOrMeta+b');
+  await expect(dialog.locator('#kb-capture-hint')).toHaveText('Built in for Bold. Your shortcut will take its place in the document.');
+  await dialog.getByRole('button', { name: 'Assign' }).click();
+  await expect(row('Italic').locator('.kb-keys')).toContainText(bold);
+  // Bold no longer claims it: the chord now runs Italic.
+  await search.fill('bold');
+  await expect(row('Bold').locator('.kb-keys')).toHaveText('');
+  await row('Bold').click();
+  await expect(dialog.locator('.kb-current')).not.toContainText('built in');
+  await expect(dialog.locator('.kb-current')).toContainText(`${bold} now runs Italic.`);
+  // Resetting Italic gives it back.
+  await search.fill('italic'); await row('Italic').click();
+  await dialog.getByRole('button', { name: 'Reset', exact: true }).click();
+  await search.fill('bold');
+  await expect(row('Bold').locator('.kb-keys')).toHaveText(bold);
+  await dialog.getByRole('button', { name: 'Done' }).click();
+});
+
 test('a saved document keeps versions to restore and publishes a web page from the File view', async ({ page }) => {
   await openEditor(page);
   await text(page).fill('Version one');

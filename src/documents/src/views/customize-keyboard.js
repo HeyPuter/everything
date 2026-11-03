@@ -22,11 +22,20 @@ export function openCustomizeKeyboard({ entries, keymap, onClose, select = null 
     shown = all.filter(e => (!category.value || e.path[0] === category.value) && (!q || `${e.label} ${e.path.join(' ')}`.toLowerCase().includes(q))).slice(0, 400);
     list.replaceChildren(...shown.map((entry, i) => el('div.kb-item', { role: 'option', id: `kb-item-${i}`, 'aria-selected': String(entry === chosen), onclick: () => pick(entry) },
       el('span.kb-label', {}, entry.label), el('span.kb-path', {}, entry.path.filter(Boolean).join(' › ')),
-      el('span.kb-keys', {}, [...keymap.chordsFor(entry.id).map(c => displayChord(c)), ...(keymap.isCustom(entry.id) ? [] : entry.shortcut ? [entry.shortcut] : [])].join(', ')))));
+      el('span.kb-keys', {}, [...keymap.chordsFor(entry.id).map(c => displayChord(c)), ...(builtIn(entry) ? [entry.shortcut] : [])].join(', ')))));
     if (!shown.length) list.append(el('p.field-hint', {}, 'No commands match.'));
     const at = shown.indexOf(chosen);
     if (at >= 0) list.setAttribute('aria-activedescendant', `kb-item-${at}`); else list.removeAttribute('aria-activedescendant');
   }
+  /** The command a shortcut of your own on this entry's built-in shortcut runs instead, or null. */
+  function takenBy(entry) {
+    if (!entry.shortcut) return null;
+    const shown = entry.shortcut.toLowerCase();
+    const owner = Object.entries(keymap.custom).find(([id, chords]) => id !== entry.id && chords.some(chord => displayChord(chord).toLowerCase() === shown))?.[0];
+    return owner ? all.find(e => e.id === owner) || { label: 'another command' } : null;
+  }
+  /** Whether the entry's built-in shortcut still runs it: not replaced by its own, nor taken by another command's. */
+  const builtIn = entry => !!entry.shortcut && !keymap.isCustom(entry.id) && !takenBy(entry);
   function pick(entry) { chosen = entry; renderList(); renderDetail(); list.querySelector('[aria-selected="true"]')?.scrollIntoView?.({ block: 'nearest' }); }
   list.addEventListener('keydown', e => {
     const at = shown.indexOf(chosen);
@@ -65,8 +74,9 @@ export function openCustomizeKeyboard({ entries, keymap, onClose, select = null 
       el('h3.kb-title', {}, chosen.label), el('p.kb-path', {}, chosen.path.filter(Boolean).join(' › ')),
       el('div.kb-current', {},
         el('span.field-label', {}, 'Current shortcuts'),
-        !custom.length && !(chosen.shortcut && !keymap.isCustom(chosen.id)) ? el('p.field-hint', {}, 'None') : null,
-        ...(chosen.shortcut && !keymap.isCustom(chosen.id) && !custom.map(c => displayChord(c)).includes(chosen.shortcut) ? [el('div.kb-chord', {}, el('span.kbd', {}, chosen.shortcut), el('span.field-hint', {}, 'built in'))] : []),
+        !custom.length && !builtIn(chosen) ? el('p.field-hint', {}, 'None') : null,
+        ...(builtIn(chosen) && !custom.map(c => displayChord(c)).includes(chosen.shortcut) ? [el('div.kb-chord', {}, el('span.kbd', {}, chosen.shortcut), el('span.field-hint', {}, 'built in'))] : []),
+        ...(!keymap.isCustom(chosen.id) && takenBy(chosen) ? [el('p.field-hint', {}, `${chosen.shortcut} now runs ${takenBy(chosen).label}.`)] : []),
         ...custom.map(chord => el('div.kb-chord', {}, el('span.kbd', {}, displayChord(chord)),
           el('button.btn.btn-sm.btn-ghost', { type: 'button', onclick: () => { keymap.remove(chosen.id, chord); changed(); } }, 'Remove')))),
       el('label.field', {}, el('span.field-label', {}, 'New shortcut'), capture), hint,
