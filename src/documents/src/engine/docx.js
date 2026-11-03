@@ -102,7 +102,7 @@ import { paragraph, paragraphFormat, runFormat, documentText, paragraphText, PAG
 export const DOCX_TYPE = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 // A template (.dotx) or macro-enabled file (.docm, .dotm) differs from a document only in its main
 // part's content type, and in the macros (refused for editing below). Saving writes a .docx.
-const MAIN_TYPES = new Set([`${DOCX_TYPE}.main+xml`, 'application/vnd.openxmlformats-officedocument.wordprocessingml.template.main+xml', 'application/vnd.ms-word.document.macroEnabled.main+xml', 'application/vnd.ms-word.template.macroEnabledTemplate.main+xml']);
+const MAIN_TYPES = new Set([`${DOCX_TYPE}.main+xml`, 'application/vnd.openxmlformats-officedocument.wordprocessingml.template.main+xml', 'application/vnd.ms-word.document.macroenabled.main+xml', 'application/vnd.ms-word.template.macroenabledtemplate.main+xml']);
 // Macros and signatures are found by what their parts are, not what they are called: part names are the
 // producer's choice (ECMA-376 Part 2, §9.1.1), and a VBA project stored as word/code.bin was kept and saved
 // into a .docx, which Word refuses. Macro parts are the VBA project and its data ([MS-OFFMACRO2]);
@@ -118,11 +118,14 @@ function hasMacrosOrSignatures(parts) {
   try { types = xml(parts['[Content_Types].xml']).documentElement; } catch { return false; }
   return Object.keys(parts).some(name => MACRO_OR_SIGNATURE_TYPES.test(partContentType(types, name)));
 }
+// The main part's type can come from an Override or, as for any part, from the Default for its extension
+// (ECMA-376 Part 2, §10.1.2.4); media types compare without regard to case. A package typing it only through
+// <Default Extension="xml"> was refused as "not a standard .docx".
+const mainPartType = types => partContentType(types.documentElement, 'word/document.xml');
 function writeDocumentType(parts) {
   const types = xml(parts['[Content_Types].xml']);
-  const main = [...types.getElementsByTagNameNS('*', 'Override')].find(n => n.getAttribute('PartName') === '/word/document.xml');
-  if (!main || main.getAttribute('ContentType') === `${DOCX_TYPE}.main+xml`) return;
-  main.setAttribute('ContentType', `${DOCX_TYPE}.main+xml`);
+  if (mainPartType(types) === `${DOCX_TYPE}.main+xml`) return;
+  setContentTypeOverride(types, '/word/document.xml', `${DOCX_TYPE}.main+xml`);
   parts['[Content_Types].xml'] = strToU8(serialize(types));
 }
 export const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
@@ -1260,7 +1263,7 @@ export class DocxPackage {
     if (duplicates.size) duplicatePartNames.set(parts, [...duplicates]);
     if (!parts['word/document.xml'] || !parts['[Content_Types].xml'] || !parts['_rels/.rels']) throw new Error('This file is not a supported DOCX document.');
     const types = xml(parts['[Content_Types].xml']);
-    if (![...types.getElementsByTagNameNS('*', 'Override')].some(n => n.getAttribute('PartName') === '/word/document.xml' && MAIN_TYPES.has(n.getAttribute('ContentType')))) {
+    if (!MAIN_TYPES.has(mainPartType(types))) {
       throw new Error('Only standard .docx files are supported in this version.');
     }
     const relations = xml(parts['_rels/.rels']);
