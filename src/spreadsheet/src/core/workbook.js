@@ -6875,6 +6875,9 @@ export class Workbook extends EventTarget {
     // already reach the edge (a whole-column rule or protected range) stay anchored there.
     const limit = axis === 'row' ? MAX_ROW : MAX_COL;
     if (lines.points.at(-1).at > limit) return false;
+    // So must the new lines themselves: three rows inserted above the last one were numbered past the sheet's end,
+    // and the insertion was reported as made (rows 1048576 to 1048578).
+    if (blocks.some((b) => b.start + b.n - 1 > limit)) return false;
     for (const p of lines.points) if (this.pivotLineEditBlocked(sheetId, axis, p.at, p.n)) return false;
     const hi = axis === 'row' ? 'r2' : 'c2';
     const lo = axis === 'row' ? 'r1' : 'c1';
