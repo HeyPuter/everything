@@ -23761,9 +23761,11 @@ function parse_ods_styles(d/*:string*/, _opts, _nfm, _styles) {
 		case 'fraction': // <number:fraction> 16.29.7
 			// TODO: find a mapping for all parameters
 			y = parsexmltag(Rn[0], false);
-			if(!+y["min-integer-digits"]) NF += "#";
-			else NF += fill("0", +y["min-integer-digits"]);
-			NF += " ";
+			/* Puter Spreadsheet local patch: a fraction without min-integer-digits has no integer part (?/? shows
+			 * 3/2), as LibreOffice reads and writes it; it used to open as # ?/? and show 1 1/2. */
+			if(y["min-integer-digits"] == null) {}
+			else if(!+y["min-integer-digits"]) NF += "# ";
+			else NF += fill("0", +y["min-integer-digits"]) + " ";
 			NF += fill("?", +y["min-numerator-digits"] || 1);
 			NF += "/";
 			if(+y["denominator-value"]) NF += y["denominator-value"];
@@ -24847,11 +24849,24 @@ function write_number_format_ods_section(nf/*:string*/, nfidx/*:string*/)/*:stri
 		if(nf[0] == "$") { type = "currency"; }
 
 		/* fractions */
-		var t = nf.match(/# (\?+)\/(\?+)/);
+		/* Puter Spreadsheet local patch: the integer part as the code has it: none at all in an improper fraction
+		 * (?/?, ?/16 shows 21/16), which ODF says by leaving min-integer-digits out, as LibreOffice writes it; # or
+		 * zeros (0 ?/? shows 0 1/2) count the integer digits always shown. Only # ?/? and # ?/8 were written; the
+		 * others came out as a plain number, 1.5 in 0 ?/? showing 2. A unit after the fraction ("in") follows it. */
+		var t = nf.match(/(?:([#0,]+) +)?(\?+)\/(\?+|\d+)/);
 		/* Puter Spreadsheet local patch: the denominator's width too (# ??/?? shows 1241 46/81), which a reader takes
 		 * from min-denominator-digits: without it the format came back as # ??/? and showed 1241  4/7. */
-		if(t) { payload += writextag("number:fraction", null, {"number:min-integer-digits":0, "number:min-numerator-digits": t[1].length, "number:min-denominator-digits": t[2].length, "number:max-denominator-value": Math.max(+(t[1].replace(/./g, "9")), +(t[2].replace(/./g, "9"))) }); break j; }
-		if((t=nf.match(/# (\?+)\/(\d+)/))) { payload += writextag("number:fraction", null, {"number:min-integer-digits":0, "number:min-numerator-digits": t[1].length, "number:denominator-value": +t[2]}); break j; }
+		if(t) {
+			var fraction = {};
+			if(t[1] != null) fraction["number:min-integer-digits"] = (t[1].match(/0/g) || []).length;
+			fraction["number:min-numerator-digits"] = t[2].length;
+			if(/^\d/.test(t[3])) fraction["number:denominator-value"] = +t[3];
+			else { fraction["number:min-denominator-digits"] = t[3].length; fraction["number:max-denominator-value"] = Math.max(+(t[2].replace(/./g, "9")), +(t[3].replace(/./g, "9"))); }
+			payload += writextag("number:fraction", null, fraction);
+			var unit = read_ods_format_text_run(nf, t.index + t[0].length);
+			if(/\S/.test(unit.text)) payload += '<number:text>' + escapexml(unit.text) + '</number:text>';
+			break j;
+		}
 
 		/* percentages */
 		/* Local fix: preserve percentage grouping and the actual decimal count. */
