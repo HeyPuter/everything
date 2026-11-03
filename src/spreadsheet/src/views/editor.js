@@ -6844,8 +6844,9 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     syncChangeAuthor();
     renderAccountButton(avatar);
     refreshStatus();
-    // Edits made before signing in now have a place to go.
-    if (session.signedIn && wb.dirty) doc.save({ auto: true }).catch(() => {});
+    // Edits made before signing in now have a place to go; with AutoSave off they wait for Save, as any edit does
+    // (the session also changes when a preference kept with the account does, choosing a theme, say).
+    if (session.signedIn && wb.dirty && autoSaveEnabled()) doc.save({ auto: true }).catch(() => {});
   };
   session.addEventListener?.('change', onSession);
 
