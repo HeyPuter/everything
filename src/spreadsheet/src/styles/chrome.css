@@ -234,6 +234,8 @@
 .watch-window { position: fixed; right: 24px; bottom: 64px; z-index: 40; width: min(620px, calc(100vw - 32px)); max-height: 280px; display: flex; flex-direction: column;
   background: var(--surface); border-radius: 8px; box-shadow: 0 12px 32px rgba(0, 0, 0, 0.2), 0 0 0 1px rgba(0, 0, 0, 0.1); font-size: 12px; }
 .watch-window[hidden] { display: none; }
+/* Narrower than the panel and its 24px gutter (a phone), it spans the window less 16px each side, not 8px and 24px. */
+@media (max-width: 668px) { .watch-window { right: 16px; } }
 .watch-head { display: flex; align-items: center; justify-content: space-between; padding: 4px 6px 4px 12px; cursor: move; border-bottom: 1px solid var(--hairline); }
 .watch-title { font-weight: 600; font-size: 13px; }
 .watch-actions { display: flex; gap: 6px; padding: 6px 10px; }
