@@ -98,17 +98,21 @@ export function tokenizeScript(src) {
   return out;
 }
 
-/** The highlighted HTML of `src`. */
-function highlight(src, tokens) {
+/** The highlighted HTML of `src`, or of the part of it from `from` to `to` (a token cut there is cut in its colour). */
+function highlight(src, tokens, from = 0, to = src.length) {
   let html = '';
-  let at = 0;
-  for (const t of tokens) {
-    if (t.start > at) html += escapeHtml(src.slice(at, t.start));
-    const text = escapeHtml(src.slice(t.start, t.end));
+  let at = from;
+  // The first token that reaches past `from`: the tokens run in order.
+  let lo = 0, hi = tokens.length;
+  while (lo < hi) { const mid = (lo + hi) >> 1; if (tokens[mid].end <= from) lo = mid + 1; else hi = mid; }
+  for (let k = lo; k < tokens.length && tokens[k].start < to; k++) {
+    const t = tokens[k], start = Math.max(t.start, from), end = Math.min(t.end, to);
+    if (start > at) html += escapeHtml(src.slice(at, start));
+    const text = escapeHtml(src.slice(start, end));
     html += t.type === 'word' || t.type === 'punct' && !OPEN[src[t.start]] && !CLOSE[src[t.start]] ? text : `<span class="ce-${t.type === 'punct' ? 'bracket' : t.type}">${text}</span>`;
-    at = t.end;
+    at = end;
   }
-  return html + escapeHtml(src.slice(at)) + '\n';
+  return html + escapeHtml(src.slice(at, to)) + '\n';
 }
 
 /** The bracket that pairs with the one at `index` (by tokens, so brackets in strings and comments do not count). */
@@ -204,6 +208,8 @@ export function completionsAt(code, caret, { explicit = false } = {}) {
 }
 
 let editors = 0;
+/** Lines drawn above and below those in view. */
+const VIEW_MARGIN = 60;
 
 /**
  * options: { value, label, onChange(text), onRun(), onSave(), readOnly }. Returns { el, textarea, getValue(),
@@ -252,6 +258,10 @@ export function createCodeEditor({ value = '', label = 'Script code', onChange =
   let lineHeight = 18;
   let rendered = null;
   let frame = 0;
+  // The lines the layers draw: those in view and a margin around them. Drawn whole, a script of thousands of lines was
+  // laid out again at each key typed (a quarter of a second for 5,000 lines) and at each move of the caret.
+  let lineStarts = [0];
+  let shown = null; // { text, first, last, lineHeight }: the lines drawn, and the text and line height they were drawn with
 
   const lineOf = (index) => { let n = 0; for (let i = textarea.value.indexOf('\n'); i >= 0 && i < index; i = textarea.value.indexOf('\n', i + 1)) n++; return n; };
   const lineStartOf = (text, index) => text.lastIndexOf('\n', index - 1) + 1;
@@ -269,15 +279,38 @@ export function createCodeEditor({ value = '', label = 'Script code', onChange =
     if (rendered !== text) {
       rendered = text;
       tokens = tokenizeScript(text);
-      code.innerHTML = highlight(text, tokens);
-      const lines = text.split('\n').length;
+      lineStarts = [0];
+      for (let i = text.indexOf('\n'); i >= 0; i = text.indexOf('\n', i + 1)) lineStarts.push(i + 1);
+      const lines = lineStarts.length;
       if (gutter.childElementCount !== lines) {
         gutter.replaceChildren(...Array.from({ length: lines }, (_, i) => el('div.ce-line-number', {}, String(i + 1))));
       }
       if (matches.length || !findBar.hidden) computeMatches();
     }
+    paintLines();
     renderMarks();
     sync();
+  }
+
+  /** The lines to draw: those in view and a margin of lines around them (every line where nothing is laid out). */
+  function linesInView() {
+    const last = lineStarts.length - 1, height = textarea.clientHeight;
+    if (!height || !(lineHeight > 0)) return { first: 0, last };
+    const top = Math.floor(textarea.scrollTop / lineHeight), count = Math.ceil(height / lineHeight) + 1;
+    return { first: Math.max(0, top - VIEW_MARGIN), last: Math.min(last, top + count + VIEW_MARGIN) };
+  }
+  /** The code layer: the lines in view, highlighted, placed where they sit in the script. */
+  function paintLines(force = true) {
+    const want = linesInView();
+    const text = textarea.value;
+    if (!force && shown?.text === text && shown.lineHeight === lineHeight && shown.first <= want.first && shown.last >= want.last) return false;
+    // Drawn a little wider than asked, so scrolling a few lines does not draw them again.
+    const first = Math.max(0, want.first - VIEW_MARGIN), last = Math.min(lineStarts.length - 1, want.last + VIEW_MARGIN);
+    shown = { text, first, last, lineHeight };
+    const from = lineStarts[first], to = last + 1 < lineStarts.length ? lineStarts[last + 1] - 1 : text.length;
+    code.innerHTML = highlight(text, tokens, from, to);
+    code.style.top = first ? `${first * lineHeight}px` : '';
+    return true;
   }
   const schedule = () => { if (!frame) frame = requestAnimationFrame(render); };
 
@@ -298,14 +331,20 @@ export function createCodeEditor({ value = '', label = 'Script code', onChange =
       }
     }
     spans.sort((a, b) => a[0] - b[0]);
+    // Over the lines the code layer draws (all of them, from the top, while it has yet to draw the text typed), and only
+    // as far as the last mark: the rest of the text places nothing.
+    const first = shown?.text === text ? shown.first : 0;
+    marks.style.top = first ? `${first * lineHeight}px` : '';
+    const from = lineStarts[first] ?? 0;
+    const to = shown?.text === text && shown.last + 1 < lineStarts.length ? lineStarts[shown.last + 1] - 1 : text.length;
     let html = '';
-    let at = 0;
+    let at = from;
     for (const [s, e, cls] of spans) {
-      if (s < at) continue;
+      if (s < at || e > to) continue;
       html += escapeHtml(text.slice(at, s)) + `<mark class="${cls}">${escapeHtml(text.slice(s, e))}</mark>`;
       at = e;
     }
-    marks.innerHTML = html + escapeHtml(text.slice(at)) + '\n';
+    marks.innerHTML = html + '\n';
     const line = lineOf(caret);
     activeLine.style.top = `${line * lineHeight}px`;
     for (const n of gutter.querySelectorAll('.ce-current')) n.classList.remove('ce-current');
@@ -314,6 +353,8 @@ export function createCodeEditor({ value = '', label = 'Script code', onChange =
 
   /** The layers follow the textarea's scrolling. */
   function sync() {
+    // Scrolled past the lines drawn: the lines now in view are drawn.
+    if (rendered === textarea.value && paintLines(false)) renderMarks();
     const x = textarea.scrollLeft, y = textarea.scrollTop;
     view.style.setProperty('--ce-x', `${-x}px`);
     view.style.setProperty('--ce-y', `${-y}px`);
