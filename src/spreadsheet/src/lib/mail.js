@@ -39,7 +39,13 @@ export function parseRecipients(input) {
   let duplicates = 0;
   const src = String(input || '');
   // Named addresses first: their names may hold spaces and commas, which would split them.
-  const rest = src.replace(/(?:"([^"]*)"|([^,;<>\n]*?))\s*<([^<>\s]+)>/g, (_, quoted, plain, address) => `\u0000${JSON.stringify([(quoted ?? plain ?? '').trim(), address])}\u0000`);
+  const rest = src.replace(/(?:"([^"]*)"|([^,;<>\n]*?))\s*<([^<>\s]+)>/g, (_, quoted, plain, address) => {
+    // Addresses typed ahead of the name with spaces alone between them ("bob@example.com Ana <ana@…>") are
+    // recipients of their own, split off as everywhere else, not the start of the name.
+    const words = (quoted ?? plain ?? '').trim().split(/\s+/);
+    const ahead = quoted == null ? words.findLastIndex((w) => w.includes('@')) + 1 : 0;
+    return `${words.slice(0, ahead).join(' ')}\u0000${JSON.stringify([words.slice(ahead).join(' '), address])}\u0000`;
+  });
   // Between the markers stand the named addresses; everything else splits at the separators.
   const tokens = rest.split('\u0000').flatMap((part, i) => (i % 2 ? [part] : part.split(/[,;\s]+/))).map((t) => t.trim()).filter(Boolean);
   for (const token of tokens) {
