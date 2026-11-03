@@ -1183,6 +1183,8 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
       if (!failure) { title.value = doc.name; refreshTitle(); showDocumentTitle(); }
       return failure;
     } : null,
+    // "Report copy", as Puter's Save dialog suggests below, or "Report copy 2" when that is taken.
+    copyName: cloud ? async () => P.documentStem(await P.uniqueName(`${P.documentStem(doc.name) || 'Untitled document'} copy.docx`)) : null,
     // Inside the Puter desktop Save a copy asks where, with Puter's Save dialog, rather than for a name in the app folder.
     saveCopyWhere: cloud && P.asksWhereToSave() ? async () => {
       try { await ready; if (!engine || failed) return 'The document is not open.'; engine.finishComposition(); if (session.signedOut && !await session.signIn()) return 'Sign in to save a copy.'; }

@@ -211,6 +211,27 @@ test('an autosave refused because another window changed the file says so once, 
   await expect(status(page)).toHaveAttribute('aria-label', 'Saved to Puter');
 });
 
+test('Save a Copy from the other-window notice suggests a name that is free, so Save As works first time', async ({ page }) => {
+  await openEditor(page);
+  await text(page).fill('Mine');
+  await expect(status(page)).toHaveAttribute('aria-label', 'Saved to Puter');
+  const name = await page.evaluate(() => window.__docs.current.view.doc.name);
+  // A copy under the first suggestion already exists: the next free one is offered instead.
+  await page.evaluate(async n => { const { path } = window.__docs.current.view.doc; await puter.fs.write(path.replace(/[^/]+$/, `${n} copy.docx`), await puter.fs.read(path)); }, name);
+  await page.waitForTimeout(1100);
+  await page.evaluate(async () => { const { path } = window.__docs.current.view.doc; await puter.fs.write(path, await puter.fs.read(path)); });
+  await text(page).press('End');
+  await page.keyboard.type(' and more');
+  const notice = page.locator('.toast', { hasText: 'changed in another window' });
+  await expect(notice).toHaveCount(1);
+  await notice.getByRole('button', { name: 'Save a Copy' }).click();
+  const view = page.getByRole('dialog', { name: 'File' });
+  await expect(view.getByRole('textbox', { name: 'New file name' })).toHaveValue(`${name} copy 2`);
+  await view.getByRole('button', { name: 'Save As', exact: true }).click();
+  await expect(view.getByRole('status')).toHaveText('Saved. You are now editing the copy.');
+  expect(await page.evaluate(() => window.__docs.current.view.doc.name)).toBe(`${name} copy 2`);
+});
+
 test('an autosave that keeps failing says so once, with Download a Copy', async ({ page }) => {
   test.setTimeout(90000);
   await openEditor(page);

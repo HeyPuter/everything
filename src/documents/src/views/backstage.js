@@ -189,7 +189,14 @@ export function createBackstage(api) {
       el('section.bs-section', {}, el('div.bs-tiles', {},
         tile('Download .docx', 'download', act(() => api.download()), { primary: true }),
         api.savePdf ? tile('Download PDF', 'pdf', act(() => api.savePdf())) : null))];
+    // The copy's name starts as one no file in the folder has, so Save As works at the first press.
     const name = el('input.input', { value: api.title?.() || '', 'aria-label': 'New file name', maxLength: 120 });
+    if (api.copyName) {
+      // Not under the user's hands: a name they are typing, or a field they have gone to, stays as it is.
+      let touched = false;
+      for (const type of ['input', 'focus']) name.addEventListener(type, () => { touched = true; }, { once: true });
+      Promise.resolve().then(() => api.copyName()).then(free => { if (free && !touched) name.value = free; }).catch(() => { /* keep the title */ });
+    }
     const message = el('p.bs-muted', { role: 'status' });
     const submit = el('button.btn.btn-primary', { type: 'submit' }, 'Save As');
     const saveAs = el('form.bs-inline-form', { onsubmit: async e => {
