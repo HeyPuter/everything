@@ -15,7 +15,7 @@ const MAC = typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/.test(navi
 import { inlineControlCaret, adjacentInlineControl, moveInlineControlCaret, documentStartControlCaret, moveInlineControlHomeEnd, emptyControlPointerCaret, pointerControlSelection } from './content-control-caret.js';
 import { paintControlCarets } from './canvas-control-caret.js';
 import { paintStoryChrome, storyBoundaries } from './canvas-story-chrome.js';
-import { paintInsertionCaret, paintCompositionUnderline } from './canvas-caret.js';
+import { paintInsertionCaret, paintCompositionUnderline, zoomedCaret } from './canvas-caret.js';
 import { cellTextLocalPoint } from './cell-text-direction.js';
 import { pageStorySelectionLayout } from './page-story-positions.js';
 import { pageStoryAtPoint } from './page-story-hit.js';
@@ -1192,7 +1192,7 @@ export class CanvasEditor {
       if (!printing && start === end && caret.page === index && document.activeElement === this.input && !this.accessible) {
         const line = lineAtPosition(this.selectionLayout, this.model.selection.focus, this.caretAffinity, this.caretPage);
         const clip = line.cellClip;
-        paintInsertionCaret(ctx, caret, scale, {
+        paintInsertionCaret(ctx, zoomedCaret(caret, this.zoom), scale, {
           left: Math.max(0, clip?.left ?? 0), top: Math.max(0, clip?.top ?? 0),
           right: Math.min(geometry.width, clip?.right ?? geometry.width), bottom: Math.min(geometry.height, clip?.bottom ?? geometry.height),
         });
