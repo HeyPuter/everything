@@ -123,6 +123,8 @@ export function moveChart(ctx, chart, { newSheet = null, toSheetId = null }) {
   const source = wb.sheet(fromId);
   const emptiesSheet = source?.kind === 'chart' && source.charts.filter(isChartObject).length === 1;
   if (newSheet == null && emptiesSheet && wb.structureProtected) { wb._structureLocked(); return false; }
+  // A protected sheet keeps its chart: refused up front, or the copy would land elsewhere and the chart stay as well.
+  if (wb._locked(source)) return false;
   wb.transaction('Move chart', () => {
     if (newSheet != null) {
       const name = String(newSheet).trim() || chartSheetName(wb);
