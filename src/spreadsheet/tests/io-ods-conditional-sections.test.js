@@ -16,6 +16,9 @@ it.each([
   '[=1]"one";[=2]"two";0',
   '[<>0]0;"zero"',
   '[>=1000]#,##0,"K";0;"-"',
+  // One test of more than zero: zero goes with the rest, as LibreOffice reads the lone value()>0 map too.
+  '[>0]0.0;0',
+  '[>0]"up";"flat or down"',
 ])('shows numbers formatted %s in .ods as here', async (code) => {
   const wb = new Workbook();
   const id = wb.activeSheetId;

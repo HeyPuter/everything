@@ -23615,7 +23615,9 @@ function parse_ods_styles(d/*:string*/, _opts, _nfm, _styles) {
 				var ge = section(NFmaps["value()>=0"]), gt = section(NFmaps["value()>0"]), lt = section(NFmaps["value()<0"]);
 				if(gt != null && lt != null) NF = gt + ";" + lt + ";" + NF;
 				else if(ge != null) NF = ge + ";" + NF;
-				else if(gt != null) NF = gt + ";" + NF;
+				/* Puter Spreadsheet local patch: a lone value()>0 map is a test of its own ([>0]0.0;0), which leaves zero to the
+				 * style's section; read as positive;negative, zero went to the first section and showed as 0.0. */
+				else if(gt != null) NF = "[>0]" + gt + ";" + NF;
 				else if(lt != null) NF = "[<0]" + lt + ";" + NF;
 				/* Puter Spreadsheet local patch: sections chosen by their own conditions, at most two as in Excel, each
 				 * with its test before its code, the style's own section last. */
