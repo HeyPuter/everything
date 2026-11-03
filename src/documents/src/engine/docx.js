@@ -84,7 +84,7 @@ import { documentBlocks } from './tables.js';
 import { emptyStyles, resolveStyledParagraph, resolveCharacterRun, styleProperties, paragraphRunStyle, styleRun, characterUnit } from './styles.js';
 import { resolvedFormat, geometryPatch, checkedRunFormat, PARAGRAPH_FLAGS, characterIndent } from './formatting.js';
 import { levelParagraphPatch } from './numbering-paragraph.js';
-import { UnsupportedDocumentError } from './errors.js';
+import { InvalidXmlError, UnsupportedDocumentError } from './errors.js';
 export { UnsupportedDocumentError } from './errors.js';
 import { parseXml as xml, runText, setContentTypeOverride, xmlDepthExceeds } from './docx-xml.js';
 import { emptyNumbering, levelFor, listMarkers } from './numbering.js';
@@ -1258,19 +1258,41 @@ export class DocxPackage {
     if (![...relations.getElementsByTagNameNS(REL, 'Relationship')].some(n => /\/officeDocument$/.test(n.getAttribute('Type')) && /^\/?word\/document.xml$/.test(n.getAttribute('Target')) && n.getAttribute('TargetMode') !== 'External')) throw new Error('Unsupported DOCX document location.');
     try { return this.#read(parts); }
     catch (e) {
-      if (!bestEffort || !(e instanceof UnsupportedDocumentError)) throw e;
-      const issues = new Set(); recordPreviewIssue(issues, e);
+      if (!bestEffort || !(e instanceof UnsupportedDocumentError || e instanceof InvalidXmlError)) throw e;
+      const issues = new Set();
       let pkg;
-      try { pkg = this.#read(parts, true, issues); }
-      catch (fallbackError) {
-        if (!(fallbackError instanceof UnsupportedDocumentError)) throw fallbackError;
-        recordPreviewIssue(issues, fallbackError);
-        pkg = this.preview(parts);
+      if (e instanceof InvalidXmlError) pkg = this.#unreadablePartsPreview(parts, issues, e);
+      else {
+        recordPreviewIssue(issues, e);
+        try { pkg = this.#read(parts, true, issues); }
+        catch (fallbackError) {
+          if (fallbackError instanceof InvalidXmlError) pkg = this.#unreadablePartsPreview(parts, issues, fallbackError);
+          else {
+            if (!(fallbackError instanceof UnsupportedDocumentError)) throw fallbackError;
+            recordPreviewIssue(issues, fallbackError);
+            pkg = this.preview(parts);
+          }
+        }
       }
       pkg.readOnly = true;
       pkg.previewIssues = [...issues];
       return pkg;
     }
+  }
+  // A styles, settings, fonts, comments or other part that is not well-formed XML (or not UTF-8 or UTF-16)
+  // failed the whole open with "invalid XML". Word offers to recover such a file; here the main document's
+  // text opens as the read-only preview, which names the unreadable parts. A main document that cannot be
+  // read either still fails with the original error.
+  static #unreadablePartsPreview(parts, issues, error) {
+    let pkg;
+    try { pkg = this.preview(parts); } catch { throw error; }
+    for (const [name, bytes] of Object.entries(parts)) {
+      if (!/\.(xml|rels)$/i.test(name)) continue;
+      try { xml(bytes, { depthLimit: Infinity }); }
+      catch (failure) { if (failure instanceof InvalidXmlError) issues.add(`${name}: ${failure.reason}; the read-only preview shows the document's text without this part`); }
+    }
+    if (!issues.size) recordPreviewIssue(issues, error);
+    return pkg;
   }
   static preview(parts) {
     const doc = xml(parts['word/document.xml'], { depthLimit: Infinity });
