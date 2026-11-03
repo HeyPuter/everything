@@ -583,6 +583,24 @@ export function splitTable(model) {
   model.didChange(); return true;
 }
 
+/**
+ * Ctrl+Enter in a table, as in Word: the caret's row starts a new page. The table splits above it and a
+ * page break goes between the parts (in the first row: before the table). A page break written into a
+ * cell is kept but does not advance (§17.3.3.1 br in a cell), so the keys would seem to do nothing.
+ * The caret stays where it was.
+ */
+export function insertTablePageBreak(model) {
+  const block = requireBlock(model);
+  if (block.table.parentCellId) throw new Error('A page break cannot go inside a nested table. Put the cursor in the outer table or below it.');
+  refuseUntracked(model, 'Breaking a table across pages');
+  const place = offset => { const at = locate(model.paragraphs, offset); return { id: model.paragraphs[at.index].id, offset: at.offset }; };
+  const anchor = place(model.selection.anchor), focus = place(model.selection.focus);
+  if (!splitTable(model) || !model.insertPageBreak()) return false;
+  const back = ({ id, offset }) => model.paragraphOffset(model.paragraphs.findIndex(p => p.id === id)) + offset;
+  model.select(back(anchor), back(focus));
+  return true;
+}
+
 /* ---- Sizes ---- */
 
 /** Set the grid of a table to these widths (twips). Cell preferences follow; `layout` may fix the table. */
