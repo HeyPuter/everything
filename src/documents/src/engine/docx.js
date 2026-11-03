@@ -129,6 +129,7 @@ function writeDocumentType(parts) {
   parts['[Content_Types].xml'] = strToU8(serialize(types));
 }
 export const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
+const STRICT_W = 'http://purl.oclc.org/ooxml/wordprocessingml/main';
 const REL = 'http://schemas.openxmlformats.org/package/2006/relationships';
 const XML = 'http://www.w3.org/XML/1998/namespace';
 const serialize = node => new XMLSerializer().serializeToString(node);
@@ -1332,6 +1333,9 @@ export class DocxPackage {
     const settings = attempt(() => readSettings(parts), null);
     const savedSpellingComplete = completedSpelling(settings?.documentElement), spellingAnchors = new Map();
     const doc = xml(parts['word/document.xml']);
+    // Word's "Strict Open XML Document" (ISO/IEC 29500 Strict conformance, whose namespaces are under
+    // http://purl.oclc.org/ooxml/) shows as text. "A different OOXML namespace" told the user nothing to do.
+    if (doc.documentElement.namespaceURI === STRICT_W) throw new UnsupportedDocumentError('Strict Open XML markup, shown as text only; in Word, save it as a Word Document (.docx) to edit it here');
     if (doc.documentElement.namespaceURI !== W) throw new UnsupportedDocumentError('a different OOXML namespace');
     const activeNodes = attempt(() => activeDescendants(doc.documentElement), () => [...doc.getElementsByTagNameNS(W, '*')]);
     const sectionSourceIndices = new Map(activeNodes.filter(n => n.namespaceURI === W && n.localName === 'sectPr').map((node, index) => [node, index]));

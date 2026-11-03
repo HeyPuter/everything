@@ -60,6 +60,14 @@ cases. The valid independent fixture and its browser download are checked with
 `npm run check:conformance`; malformed regression inputs are intentionally not
 claimed to pass the schema.
 
+### Strict Open XML documents
+
+A document saved as Strict Open XML (ISO/IEC 29500 Strict; namespaces under
+`http://purl.oclc.org/ooxml/`) is not read structurally. Its main document's text opens as the
+read-only preview, and the issue list says what the file is and that saving it from Word as a
+Word Document (.docx, Transitional) makes it editable (`tests/docx-strict-open-xml.test.js`).
+Reading Strict markup structurally remains a gap.
+
 ## Templates and macro-enabled documents
 
 ECMA-376 Part 1 §11.3.10 gives the Main Document part one of two content types:
