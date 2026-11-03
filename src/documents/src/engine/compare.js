@@ -107,13 +107,23 @@ const special = r => r.image || r.math || r.vml || r.field || r.noteMark || r.bo
 const fullLength = p => p.runs.reduce((n, r) => n + r.text.length, 0);
 /** Similarity of two texts: the Dice coefficient of their character bigrams (case-insensitive). */
 export function similarity(x, y) {
-  if (x === y) return 1;
-  const grams = text => { const t = text.toLowerCase().replace(/\s+/g, ' ').trim(), out = new Map(); for (let i = 0; i < t.length - 1; i++) { const g = t.slice(i, i + 2); out.set(g, (out.get(g) || 0) + 1); } return out; };
-  const a = grams(x), b = grams(y);
-  let total = 0, shared = 0;
-  for (const n of a.values()) total += n;
-  for (const [g, n] of b) { total += n; shared += Math.min(n, a.get(g) || 0); }
-  return total ? 2 * shared / total : 0;
+  return x === y ? 1 : gramSimilarity(bigrams(x), bigrams(y));
+}
+/** A text's character bigrams (two UTF-16 code units each, as numbers), sorted, for similarity(). */
+function bigrams(text) {
+  const t = text.toLowerCase().replace(/\s+/g, ' ').trim(), grams = new Uint32Array(Math.max(0, t.length - 1));
+  for (let i = 0; i < grams.length; i++) grams[i] = t.charCodeAt(i) * 65536 + t.charCodeAt(i + 1);
+  return grams.sort();
+}
+/** The Dice coefficient of two sorted bigram lists: twice the bigrams they share over how many they have. */
+function gramSimilarity(a, b) {
+  const total = a.length + b.length;
+  if (!total) return 0;
+  let shared = 0;
+  for (let i = 0, j = 0; i < a.length && j < b.length;) {
+    if (a[i] === b[j]) { shared++; i++; j++; } else if (a[i] < b[j]) i++; else j++;
+  }
+  return 2 * shared / total;
 }
 
 /* ---- Copies from the other document ---- */
@@ -239,13 +249,24 @@ function blockText(block) {
 }
 const asBlocks = content => content.map(entry => entry.type ? entry : { type: 'paragraph', paragraph: entry.paragraph });
 
+// How many of a changed stretch's blocks on the other side a block is compared with, from the first one not yet
+// paired: comparing every block with every other made two long, very different documents take minutes, and a
+// block whose counterpart is further on than this is shown removed and added instead of changed.
+const LOOKAHEAD = 200;
 /**
  * Pair blocks: exact matches first, then similar blocks of the same kind, in order, within each
  * changed stretch. Unpaired blocks come out with the deleted side first (`otherFirst` when the
  * other document is the older one).
  */
 function alignBlocks(baseBlocks, otherBlocks, otherFirst) {
-  const key = block => `${block.type}:${blockText(block).trim().replace(/\s+/g, ' ')}`;
+  // Each block's text and bigrams are worked out once: a changed stretch compares every block on one side with
+  // the blocks on the other, and working them out for each comparison made comparing two long, very different
+  // documents take minutes.
+  const texts = new Map(), grams = new Map();
+  const textOf = block => { let text = texts.get(block); if (text === undefined) texts.set(block, text = blockText(block)); return text; };
+  const gramsOf = block => { let found = grams.get(block); if (!found) grams.set(block, found = bigrams(textOf(block))); return found; };
+  const similar = (x, y) => textOf(x) === textOf(y) || gramSimilarity(gramsOf(x), gramsOf(y)) >= 0.5;
+  const key = block => `${block.type}:${textOf(block).trim().replace(/\s+/g, ' ')}`;
   const ops = diffSequences(baseBlocks.map(key), otherBlocks.map(key));
   const pairs = [];
   for (let i = 0; i < ops.length; i++) {
@@ -264,7 +285,7 @@ function alignBlocks(baseBlocks, otherBlocks, otherFirst) {
     };
     for (const block of deleted) {
       let match = -1;
-      for (let k = j; k < inserted.length; k++) if (inserted[k].type === block.type && (single || block.type === 'table' || similarity(blockText(block), blockText(inserted[k])) >= 0.5)) { match = k; break; }
+      for (let k = j; k < Math.min(inserted.length, j + LOOKAHEAD); k++) if (inserted[k].type === block.type && (single || block.type === 'table' || similar(block, inserted[k]))) { match = k; break; }
       if (match < 0) { waiting.push(block); continue; }
       flush(match);
       pairs.push({ base: block, other: inserted[match] }); j = match + 1;
