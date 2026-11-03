@@ -108,8 +108,11 @@ export function openAutoCorrectDialog({ onSaved = null, onClose = null } = {}) {
   const resetBtn = el('button.btn.btn-ghost.btn-sm', { type: 'button', onclick: () => { draft.replacements = DEFAULT_AUTOCORRECT.replacements.map((e) => ({ ...e })); render(); } }, 'Restore the starting list');
 
   const match = () => draft.replacements.findIndex((e) => e.from === fromInput.value.trim());
+  // The entries beginning with what was typed in Replace come first. Only typing sets it: an entry picked from
+  // the list (with the arrows, say) jumped to the top, and the next Down went back to the one before it.
+  let typed = '';
   function render() {
-    const q = fromInput.value.trim().toLowerCase();
+    const q = typed;
     const sorted = draft.replacements.map((e, i) => ({ ...e, i })).sort((a, b) => a.from.localeCompare(b.from));
     const shown = q ? sorted.filter((e) => e.from.toLowerCase().startsWith(q)).concat(sorted.filter((e) => !e.from.toLowerCase().startsWith(q))) : sorted;
     const exact = match();
@@ -135,11 +138,12 @@ export function openAutoCorrectDialog({ onSaved = null, onClose = null } = {}) {
     const i = match();
     if (i < 0) return;
     draft.replacements.splice(i, 1);
-    fromInput.value = ''; toInput.value = '';
+    fromInput.value = ''; toInput.value = ''; typed = '';
     render();
     fromInput.focus();
   }
   fromInput.addEventListener('input', () => {
+    typed = fromInput.value.trim().toLowerCase();
     const i = match();
     if (i >= 0) toInput.value = draft.replacements[i].to;
     render();
