@@ -2496,11 +2496,11 @@ export class TextDocument {
       });
       if (restored.size) { for (const p of restored) p.runs = normalize(p.runs); targets = changes(); }
     }
-    // Text another reviewer deleted within an insertion is part of that insertion (a w:del inside the w:ins,
-    // §17.13.5.18): resolving the insertion next to it resolves it too. Rejecting the insertion removes that text
+    // Text another reviewer deleted within an insertion is part of that insertion (a w:del inside the w:ins or the
+    // moved-to text, §17.13.5.18, .25): resolving the insertion next to it resolves it too. Rejecting the insertion removes that text
     // with the rest; accepting it leaves only the deletion. Left as a deletion of a still pending insertion, the
     // text came back as the rejected insertion when the deletion was rejected, and accepted text was removed.
-    if (targets.some(r => r.type === 'ins' && !r.move) && this.paragraphs.some(p => p.markRevision?.inserted || p.runs.some(run => run.revision?.inserted))) {
+    if (targets.some(r => r.type === 'ins') && this.paragraphs.some(p => p.markRevision?.inserted || p.runs.some(run => run.revision?.inserted))) {
       const byStart = new Map(), byEnd = new Map(); let at = 0;
       for (const p of this.paragraphs) {
         for (const run of p.runs) {
@@ -2513,7 +2513,7 @@ export class TextDocument {
       const under = (span, r) => { const revision = span && (span.mark ? span.target.markRevision : span.target.revision); return revision?.type === 'del' && revision.inserted?.author === r.author && revision.inserted.date === r.date; };
       const widened = [];
       for (const r of targets) {
-        if (r.type !== 'ins' || r.move) { widened.push(r); continue; }
+        if (r.type !== 'ins') { widened.push(r); continue; }
         const spans = [];
         let from = r.start, to = r.end;
         while (under(byStart.get(to), r)) { spans.push(byStart.get(to)); to = byStart.get(to).end; }

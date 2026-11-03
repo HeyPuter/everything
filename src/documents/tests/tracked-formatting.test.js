@@ -198,6 +198,25 @@ describe('tracked moves', () => {
     expect(model.revisions).toEqual([]);
   });
 
+  it('resolves another reviewer\'s deletion inside moved text with the move', async () => {
+    // Ada moved "XYZ"; Grace then deleted the "Y" where it was moved to.
+    const by = (id, who = 'Ada') => `w:id="${id}" w:author="${who}" w:date="2026-01-01T00:00:00Z"`;
+    const source = zip(packageFiles(`<w:p><w:moveFromRangeStart ${by(1)} w:name="move1"/><w:moveFrom ${by(2)}><w:r><w:delText>XYZ</w:delText></w:r></w:moveFrom><w:moveFromRangeEnd w:id="1"/><w:r><w:t xml:space="preserve"> middle </w:t></w:r>`
+      + `<w:moveToRangeStart ${by(3)} w:name="move1"/><w:moveTo ${by(4)}><w:r><w:t>X</w:t></w:r><w:del ${by(5, 'Grace')}><w:r><w:delText>Y</w:delText></w:r></w:del><w:r><w:t>Z</w:t></w:r></w:moveTo><w:moveToRangeEnd w:id="3"/></w:p>`));
+    const ada = { only: change => change.author === 'Ada' };
+    // Accepting the move, then rejecting Grace's deletion, removed the "Y" the move had brought.
+    let { model } = await open(source);
+    model.resolveRevisions(true, undefined, undefined, ada);
+    expect(model.revisions.map(r => [r.type, r.author, model.text.slice(r.start, r.end)])).toEqual([['del', 'Grace', 'Y']]);
+    model.resolveRevisions(false);
+    expect(model.text).toBe(' middle XYZ');
+    // Rejecting the move leaves nothing where it went: the "Y" stayed as Grace's deletion there.
+    ({ model } = await open(source));
+    model.resolveRevisions(false, undefined, undefined, ada);
+    expect(model.text).toBe('XYZ middle ');
+    expect(model.revisions).toEqual([]);
+  });
+
   it('does not call ordinary typing a move', () => {
     const { model, session } = fresh();
     session.run(m => { m.select(0, 5); m.replace(''); });
