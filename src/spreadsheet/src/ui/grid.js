@@ -2989,15 +2989,26 @@ export function createGrid(opts) {
    * which a press drags; the print area's edges drag too. Normal view's page-break lines are the same
    * lines, dashed and out of the way of the pointer.
    */
-  function renderPages() {
+  let pageViewSeq = 0; // counts the page views given (setPageView)
+  let pagesDrawn = null; // what the page layer shows: the page view, the cells in view and the layout it was drawn for
+  function renderPages(view = null, force = false) {
     // A line being dragged keeps its node (and its place under the pointer) until it is dropped.
     if (drag?.kind === 'pageBreak' && drag.node.isConnected) return;
     pageLayer.hidden = !pageView;
     const preview = !!pageView && !pageView.lines;
     root.classList.toggle('page-break-preview', preview);
     pageLayer.classList.toggle('lines-only', !!pageView?.lines);
-    if (!pageView) { if (pageLayer.childElementCount) pageLayer.replaceChildren(); return; }
-    const lines = (axis, list) => (list || []).map(({ at, manual }) => {
+    if (!pageView) { pagesDrawn = null; if (pageLayer.childElementCount) pageLayer.replaceChildren(); return; }
+    // Only the pages and the lines over the cells in view are drawn, and again only when those change: a sheet
+    // reaching XFD1 and A1048576 is laid out as some 480,000 pages, and drawing every one of them on every frame
+    // overflowed the call stack, so the view was left broken.
+    ensureOffsets();
+    const vr = visibleRange(view || viewMetrics());
+    const key = `${pageViewSeq}|${vr.r0},${vr.r1},${vr.c0},${vr.c1}|${layoutGeneration}|${windowKey()}`;
+    if (!force && key === pagesDrawn) return;
+    pagesDrawn = key;
+    const near = (axis, at) => (axis === 'row' ? at >= vr.r0 && at <= vr.r1 + 1 : at >= vr.c0 && at <= vr.c1 + 1);
+    const lines = (axis, list) => (list || []).filter(({ at }) => near(axis, at)).map(({ at, manual }) => {
       const line = el(`div.page-break-line.${axis}${manual ? '.manual' : ''}`, {
         dataset: { axis, at: String(at), manual: manual ? '1' : '' },
         title: preview ? `${manual ? 'Manual' : 'Automatic'} page break: drag to move it${manual ? ', or off the print area to remove it' : ''}` : null,
@@ -3018,7 +3029,8 @@ export function createGrid(opts) {
       place(node, breakBox(axis, at, pageView.area));
       return node;
     });
-    pageLayer.replaceChildren(area, ...pageView.pages.map((p) => {
+    const shown = pageView.pages.filter((p) => p.r2 >= vr.r0 && p.r1 <= vr.r1 && p.c2 >= vr.c0 && p.c1 <= vr.c1);
+    pageLayer.replaceChildren(area, ...shown.map((p) => {
       const page = el('div.page-box', {}, el('span.page-label', {}, `Page ${p.n}`));
       place(page, rangeBox(p));
       return page;
@@ -3038,8 +3050,8 @@ export function createGrid(opts) {
   }
 
   /** One drag corner per table (tables with a totals row are resized from their dialog). */
-  function renderTables() {
-    renderPages();
+  function renderTables(view) {
+    renderPages(view);
     const s = sheet();
     const tables = (s.tables || []).filter((t) => !t.totalsRow);
     if (!tables.length && !tableLayer.childElementCount) return;
@@ -3097,7 +3109,7 @@ export function createGrid(opts) {
 
   function renderSelection(view = viewMetrics()) {
     renderPeers();
-    renderTables();
+    renderTables(view);
     root.classList.toggle('protected', wb.isProtected(sheetId));
     root.classList.toggle('no-gridlines', sheet().gridlines === false);
     highlightHeaders();
@@ -4923,11 +4935,11 @@ export function createGrid(opts) {
     }
     if (d.kind === 'pageBreak') {
       d.node.classList.remove('dragging');
-      if (d.to === d.from) { renderPages(); return; }
+      if (d.to === d.from) { renderPages(null, true); return; }
       // An edge's line is the last one inside the area at its bottom and right.
       if (d.edge) opts.onPrintAreaEdge?.({ edge: d.edge, to: d.edge === 'bottom' || d.edge === 'right' ? d.to - 1 : d.to });
       else opts.onPageBreakMove?.({ axis: d.axis, from: d.from, to: d.to, manual: d.manual });
-      renderPages();
+      renderPages(null, true);
       return;
     }
     if (d.kind === 'tableResize') {
@@ -7108,7 +7120,7 @@ export function createGrid(opts) {
       schedule();
     },
     /** Show the printed pages over the sheet (Page Break Preview), or null for the normal view. */
-    setPageView(view) { pageView = view; renderPages(); },
+    setPageView(view) { pageView = view; pageViewSeq++; renderPages(); },
     /**
      * Show the sheet as printed pages (Page Layout view), or null for the normal layout. The provider
      * gives each sheet's page metrics ({ paperWidth, paperHeight, margins, gap, scale, colStarts,
