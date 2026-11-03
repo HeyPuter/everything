@@ -17,7 +17,7 @@ function attributes(tag) {
 }
 
 /**
- * The state of a worksheet (or chart sheet) part: whether it is protected.
+ * The state of a worksheet (or chart sheet) part: whether it is protected and its tab colour.
  */
 export function nativeSheetState(xml) {
   xml = String(xml || '').replace(/<!--[\s\S]*?-->/g, '');
@@ -27,8 +27,13 @@ export function nativeSheetState(xml) {
   const close = xml.search(/<\/(?:\w+:)?sheetData>|<(?:\w+:)?sheetData\/>/);
   const tail = close < 0 ? chart ? xml : '' : xml.slice(close);
   const protection = attributes(tail.match(/<(?:\w+:)?sheetProtection\b[^>]*>/)?.[0]);
+  // A tab colour as its attributes give it: RGB, or a theme or palette colour with its tint.
+  const tab = attributes(head.match(/<(?:\w+:)?tabColor\b[^>]*>/)?.[0]);
+  const color = Object.keys(tab).length ? ['rgb', 'theme', 'indexed', 'tint', 'auto']
+    .map(key => tab[key] == null ? '' : key === 'rgb' ? tab[key].slice(-6).toUpperCase() : key === 'tint' ? String(Number(tab[key]) || 0) : tab[key].trim()).join('|') : null;
   return {
     protected: chart ? on(protection.content) || on(protection.objects) : on(protection.sheet),
+    color,
   };
 }
 

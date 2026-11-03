@@ -2254,7 +2254,8 @@ function importSheet(X, ws, name, meta, date1904 = false, definedNames, fileForm
     protectedRanges: meta?.sheets?.[name]?.protectedRanges || [],
     scenarios: partXml ? parseScenariosXml(partXml) : own?.scenarios,
     validations: meta?.sheets?.[name]?.validations || (ws?.['!validations'] || []).map(({ _odsName, ...rule }) => rule),
-    color: own?.color || part?.color || (!own && partXml ? xlsxColor(partXml.match(/<(?:\w+:)?tabColor\b[^>]*>/)?.[0], nativeStyles?.colors || themes) : null),
+    color: own && !editedElsewhere('color') ? own.color || null
+      : nativePart?.color || (partXml ? xlsxColor(partXml.match(/<(?:\w+:)?tabColor\b[^>]*>/)?.[0], nativeStyles?.colors || themes) : null),
     // An .ods from another program says a protected sheet on its table (see the vendor's !odsProtected).
     protected: own ? editedElsewhere('protected') ? nativePart.protected : !!own.protected : !!part?.protected || (!partXml && !!ws?.['!odsProtected']),
     groups: own ? own.groups || null : fileGroups(ws, filtered),
