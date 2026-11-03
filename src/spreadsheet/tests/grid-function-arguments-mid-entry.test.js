@@ -105,3 +105,15 @@ it('reads the call from just inside its parenthesis too, and one not yet closed'
   await vi.advanceTimersByTimeAsync(1);
   expect(editor.value).toBe("=ROUND('My, sheet'!B1, 2)");
 });
+
+// A call written with more arguments than its signature lists (AGGREGATE's reference form takes ref1, ref2, ...)
+// kept only the listed ones: OK on =AGGREGATE(9,6,B1,B2,B3) gave =AGGREGATE(9, 6, B1, B2), B3 gone. Every argument
+// written now has a field of its own.
+it('keeps every argument already written, past those its signature lists', async () => {
+  const { editor } = await editFormula('=AGGREGATE(9,6,B1,B2,B3)', 10);
+  const inputs = [...dialog().querySelectorAll('input')].map((i) => i.value);
+  expect(inputs).toEqual(['9', '6', 'B1', 'B2', 'B3']);
+  dialog().requestSubmit();
+  await vi.advanceTimersByTimeAsync(1);
+  expect(editor.value).toBe('=AGGREGATE(9, 6, B1, B2, B3)');
+});

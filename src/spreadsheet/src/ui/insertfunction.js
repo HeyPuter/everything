@@ -201,7 +201,9 @@ export function openFunctionArgumentsDialog(ctx, name, { apply, initial = [] } =
   };
   params.forEach(addField);
   if (repeat && !params.length) addField({ name: 'value1', optional: false }, 0);
-  if (repeat && params.length && initial.length > params.length) for (let i = params.length; i < initial.length; i++) addField({ name: `value${i + 1}`, optional: true }, i);
+  // Every argument already written keeps a field, past those the signature lists too (AGGREGATE's ref2, ref3, ...):
+  // OK would otherwise drop it from the call.
+  for (let i = fields.length; i < Math.min(initial.length, MAX_ARGS); i++) addField({ name: `value${i + 1}`, optional: true }, i);
   const submit = e => {
     e?.preventDefault();
     const missing = fields.find(f => !f.param.optional && !f.input.value.trim());
