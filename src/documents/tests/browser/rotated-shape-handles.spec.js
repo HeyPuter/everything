@@ -52,3 +52,30 @@ test('a rotated shape’s frame turns with it and its handles resize it along it
   expect(await overlay(page)).toEqual({ width: 250, height: 60, transform: 'rotate(90deg)' });
   expect(errors).toEqual([]);
 });
+
+test('arrow keys on a shape’s side handle move that side only, as dragging it does', async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/mock.html#/new');
+  await expect((await onTab(page, 'home')).getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await input(page).focus();
+  for (let i = 0; i < 8; i++) { await page.keyboard.type(`Paragraph ${i + 1} of the text the shape sits on.`); await page.keyboard.press('Enter'); }
+  await drawShape(page, 'Rectangle', [300, 200], [500, 260]);
+  const before = await shape(page);
+  expect([before.width, before.height]).toEqual([200, 60]);
+  // Shift+Right on the right handle: 10 px wider, no taller, the left side where it was.
+  await page.locator('.canvas-image-frame [data-handle="e"]').focus();
+  await page.keyboard.press('Shift+ArrowRight');
+  await expect.poll(async () => (await shape(page)).width).toBe(210);
+  let now = await shape(page);
+  expect(now.height).toBe(60);
+  expect(now.x).toBeCloseTo(before.x, 1);
+  // Shift+Up on the top handle: 10 px taller upwards, the bottom where it was.
+  await page.locator('.canvas-image-frame [data-handle="n"]').focus();
+  await page.keyboard.press('Shift+ArrowUp');
+  await expect.poll(async () => (await shape(page)).height).toBe(70);
+  now = await shape(page);
+  expect(now.width).toBe(210);
+  expect(now.y + now.height).toBeCloseTo(before.y + before.height, 1);
+  expect(errors).toEqual([]);
+});

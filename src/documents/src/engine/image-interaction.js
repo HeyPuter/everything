@@ -489,11 +489,23 @@ export function createImageInteraction(editor) {
           const preserveAspect = isCorner(handle) ? f.image.aspectLocked !== false : !!f.image.aspectLocked;
           const resized = isCorner(handle) ? resizeImageFrame(f, handle, dx, dy, { preserveAspect }) : resizeFromHandle(f, handle, dx, dy, { preserveAspect });
           if (resized.width !== f.image.width || resized.height !== f.image.height) resizeImage(f.image, resizePatch(f, resized));
-        } else {
+        } else if (!f.width || !f.height) {
+          // Lines scale as a whole.
           const outward = (handle.includes('e') ? dx : handle.includes('w') ? -dx : 0) || (handle.includes('s') ? dy : handle.includes('n') ? -dy : 0);
           if (!outward) return;
           const scale = Math.max(.01, 1 + outward / Math.max(f.width, f.height)), width = Math.max(1, Math.round(f.image.width * scale));
           resizeImage(f.image, { width, height: Math.max(1, Math.round(width * f.image.height / f.image.width)) });
+        } else {
+          // Shapes move the handle's own side (or two, from a corner) in their own axes; the opposite side stays put.
+          const box = boxOf(f), turned = { ...box, image: { width: f.image.width, height: f.image.height, rotation: ownRotation(f.image) } };
+          const shape = resizeFromHandle(turned, handle, dx, dy, { preserveAspect: !!f.image.aspectLocked });
+          if (shape.width === f.image.width && shape.height === f.image.height) return;
+          const patch = { width: shape.width, height: shape.height };
+          if (f.floating) {
+            const at = offsets(f), mx = shape.frame.x - box.x, my = shape.frame.y - box.y;
+            if (Math.abs(mx) > 1e-7 || Math.abs(my) > 1e-7) patch.anchor = { x: at.x + Math.round(mx * EMU_PER_PX), y: at.y + Math.round(my * EMU_PER_PX) };
+          }
+          resizeImage(f.image, patch);
         }
       }
       else nudge(f, dx, dy);
