@@ -93,6 +93,8 @@ export const CHART_DASH_CHOICES = Object.freeze([['solid', 'Solid'], ['sysDot', 
 export const CHART_DISPLAY_UNITS = Object.freeze({ hundreds: 1e2, thousands: 1e3, tenThousands: 1e4, hundredThousands: 1e5,
   millions: 1e6, tenMillions: 1e7, hundredMillions: 1e8, billions: 1e9, trillions: 1e12 });
 
+const STACKABLE_TYPES = new Set(['column', 'bar', 'line', 'area', 'combo']);
+
 export const CHART_TYPES = [
   ['column', 'Column'],
   ['bar', 'Bar'],
@@ -402,6 +404,9 @@ function normalizeChartBody(raw) {
   if (!['r1', 'r2'].every((key) => Number.isInteger(raw.range[key]) && raw.range[key] >= 0 && raw.range[key] <= MAX_ROW)
     || !['c1', 'c2'].every((key) => Number.isInteger(raw.range[key]) && raw.range[key] >= 0 && raw.range[key] <= MAX_COL)) return null;
   const type = CHART_TYPES.some(([t]) => t === raw.type) ? raw.type : 'column';
+  // Only these types stand their series on one another. A stack kept on another (a stacked column chart turned
+  // into a scatter chart before Edit chart stopped carrying it over) is drawn by nothing and only turned trendlines away.
+  const stackable = STACKABLE_TYPES.has(type);
   const linkedText = normalizeLinkedChartText(raw.linkedText);
   const trendlines = raw.trendline ? normalizeTrendlines(raw.trendlines) : null;
   // A bubble chart from a file once kept its error bars in its appearance; they are the chart's own now.
@@ -424,8 +429,8 @@ function normalizeChartBody(raw) {
     headers: raw.headers === true || raw.headers === false ? raw.headers : 'auto',
     categoryLabels: raw.categoryLabels === true || raw.categoryLabels === false ? raw.categoryLabels : 'auto',
     legend: raw.legend !== false,
-    stacked: !!raw.stacked,
-    stack100: !!raw.stack100,
+    stacked: stackable && !!raw.stacked,
+    stack100: stackable && !!raw.stack100,
     trendline: !!raw.trendline,
     ...(trendlines ? { trendlines } : {}),
     ...(errorBars ? { errorBars } : {}),
