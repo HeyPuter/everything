@@ -118,3 +118,21 @@ test('the ribbon\'s shape and table size boxes take 1.125 in, between their hund
   await width.fill('1.125'); await width.press('Enter');
   await expect.poll(async () => (await documentXml(page, info)).match(/<w:gridCol [^>]*>/)?.[0]).toBe('<w:gridCol w:w="1620"/>');
 });
+
+test('the Layout dialog takes a 1.125 in width', async ({ page }, info) => {
+  await start(page);
+  const ribbon = await insertShape(page);
+  await ribbon.getByRole('button', { name: 'Size and Position…' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Layout' });
+  await dialog.getByRole('tab', { name: 'Size' }).click();
+  await dialog.getByRole('spinbutton', { name: 'Width (in)' }).fill('1.125');
+  await dialog.getByRole('button', { name: 'OK' }).click();
+  await expect(dialog).toBeHidden();
+  await expect.poll(async () => (await documentXml(page, info)).match(/<wp:extent [^>]*>/)[0]).toMatch(/cx="1028700"/);
+  // Out of range is still refused, on its tab.
+  await ribbon.getByRole('button', { name: 'Size and Position…' }).click();
+  await dialog.getByRole('tab', { name: 'Size' }).click();
+  await dialog.getByRole('spinbutton', { name: 'Width (in)' }).fill('0');
+  await dialog.getByRole('button', { name: 'OK' }).click();
+  await expect(dialog).toBeVisible();
+});
