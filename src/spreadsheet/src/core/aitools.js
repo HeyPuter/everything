@@ -513,7 +513,9 @@ function dataOfLines(wb, sheetId, range) {
 
 function columnArg(text, what = 'column') {
   const c = colIndex(String(text ?? '').trim().replace(/\$/g, ''));
-  if (c < 0) throw new ToolError(`"${text}" is not a ${what} letter such as "C".`);
+  // Past XFD there is no column: "XFE" was sized as a column no file can hold, and a long run of letters named one
+  // so far out that spelling it again for the step's label never ended.
+  if (c < 0 || c > MAX_COL) throw new ToolError(`"${clip(String(text ?? ''), 20)}" is not a ${what} letter such as "C" (columns run from A to XFD).`);
   return c;
 }
 
