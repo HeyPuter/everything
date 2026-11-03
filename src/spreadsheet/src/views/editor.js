@@ -3056,7 +3056,12 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         return;
       }
       case 'insertFunction': insertFunction(arg); return;
-      case 'insertFunctionDialog': openInsertFunctionDialog(ctx, { onPick: (name) => run('functionArgs', name) }); return;
+      case 'insertFunctionDialog':
+        // A locked cell refuses the formula (the workbook's notice says why) before a function is looked for, as Insert
+        // Symbol does: the dialog was searched and its OK pressed for nothing. An unlocked cell takes it.
+        if (!grid.editing && wb.lockedAt(sheetId, grid.active.r, grid.active.c)) { keepFocus(); return; }
+        openInsertFunctionDialog(ctx, { onPick: (name) => run('functionArgs', name) });
+        return;
       case 'functionArgs': {
         // Function Arguments for a function picked from a category or Insert Function. Mid-entry the
         // function goes in at the caret instead, so the formula being typed is not replaced; Ctrl+A after a

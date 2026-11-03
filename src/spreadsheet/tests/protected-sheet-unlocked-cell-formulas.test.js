@@ -63,3 +63,18 @@ it('still refuses them on a locked cell', async () => {
   expect(editor.hidden).toBe(true);
   view.destroy();
 });
+
+// Insert Function opened over a locked cell: the function was searched for and OK pressed before the cell refused
+// it. As Insert Symbol does, a locked cell now refuses at once, while an unlocked one opens the dialog.
+it('opens Insert Function on an unlocked cell only', async () => {
+  const { view } = await mount();
+  const dialog = () => document.querySelector('.modal-root:not(.closing) .fn-dialog');
+  view.goTo('Sheet1!B1');
+  await view.run('insertFunctionDialog');
+  expect(dialog()).toBeNull();
+  view.goTo('Sheet1!A5');
+  await view.run('insertFunctionDialog');
+  expect(dialog()).not.toBeNull();
+  document.querySelector('.modal-root:not(.closing) .modal-head .icon-btn').click();
+  view.destroy();
+});
