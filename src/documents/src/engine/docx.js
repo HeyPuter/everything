@@ -1563,7 +1563,7 @@ export class DocxPackage {
           recordPreviewIssue(issues, new UnsupportedDocumentError(r.localName));
           proofingSafe = false;
           const recovered = previewParagraphs(r).flatMap(p => p.runs);
-          runs.push(...recovered);
+          for (const run of recovered) runs.push(run);
           textPosition += recovered.reduce((length, run) => length + run.text.length, 0);
           return;
         }
@@ -1814,7 +1814,7 @@ export class DocxPackage {
           runs.length = before.runs; bookmarks.length = before.bookmarks; controls.length = before.controls;
           proofingSafe = false;
           const fallbackRuns = previewParagraphs(r).flatMap(p => p.runs);
-          runs.push(...fallbackRuns);
+          for (const run of fallbackRuns) runs.push(run);
           textPosition = before.textPosition + fallbackRuns.reduce((length, run) => length + run.text.length, 0);
         }
       }
@@ -1903,7 +1903,7 @@ export class DocxPackage {
             const parsed = readTable(node, readParagraph, stylesRoot, readColor, (contents, cellContext) => readBlocks(contents, { ...context, ...cellContext, ...((context.blockControls || cellContext.blockControls) ? { blockControls: [...(context.blockControls || []), ...(cellContext.blockControls || [])] } : {}) }, depth + 1, blockTables).map(p => ({ source: p.storySource || originals.get(p.id).xml, paragraph: p })), readBookmark, blockTables, p => resolveStyledParagraph(p, styles, numbering, { displayOnly: preview }), readControl, pageSettings.compatibilityMode, preview, readEffectsStyles, error => recordPreviewIssue(issues, error));
             if (context.cellId) parsed.table.parentCellId = context.cellId;
             if (context.blockControls) parsed.table.blockControls = context.blockControls;
-            blockTables.push(parsed.table); takeLeading(parsed.paragraphs); result.push(...parsed.paragraphs);
+            blockTables.push(parsed.table); takeLeading(parsed.paragraphs); for (const p of parsed.paragraphs) result.push(p);
           } else throw new UnsupportedDocumentError(node.localName);
         } catch (e) {
           if (!preview || context.drawingText || !(e instanceof UnsupportedDocumentError)) throw e;
@@ -1922,7 +1922,7 @@ export class DocxPackage {
           const sourced = context.cellId || context.pageStory || context.drawingText;
           const storySource = sourced && recovered.length ? serializeFragment(node) : undefined;
           for (const p of recovered) Object.assign(p, context, sourced ? { storySource } : {});
-          result.push(...recovered);
+          for (const p of recovered) result.push(p);
         }
       }
       if (leading.length) {

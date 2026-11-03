@@ -22459,6 +22459,9 @@ The body's (and a block content control's) paragraphs were also gathered with on
 `push(...)` call, which runs out of stack at roughly 120,000 entries: a file with 150,000 empty
 paragraphs reported "Maximum call stack size exceeded". They are now appended one by one, and
 such a file reaches the 200-page preview limit with its own message.
+Table rows, a cell's paragraphs, an imported text chunk (`altChunk`), an unsupported block or
+inline element shown as its text were still gathered that way, and reached the same overflow
+with 150,000 entries; they are appended one by one too (`tests/browser/long-recovered-content.spec.js`).
 
 ## Equations (2026-10-09)
 

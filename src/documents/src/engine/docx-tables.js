@@ -390,7 +390,7 @@ export function readTable(node, readParagraph, stylesRoot, readColor, readCellBl
       cell.continuation = wrappedCellSources.get(cell.id) || content.map(p => p.source);
       const last = content.at(-1).paragraph;
       cell.continuationStyleId = last.resolvedStyleId ?? last.styleId ?? null;
-    } else paragraphs.push(...content.map(p => p.paragraph));
+    } else for (const p of content) paragraphs.push(p.paragraph);
   }
   const resolveBoundary = boundaries.length && tableBookmarkResolver(paragraphs, [table, ...relatedTables]);
   for (const marker of boundaries) {
