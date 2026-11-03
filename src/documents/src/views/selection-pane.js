@@ -40,7 +40,9 @@ export function createPane(context) {
   };
   const selectedSet = () => { const engine = editor(); const set = engine?.drawingSelection?.length ? engine.drawingSelection : engine?.model.selectedImage ? [engine.model.selectedImage] : []; return new Set(set.map(i => i.id)); };
 
-  function select(image, additive) {
+  // `stay`: chosen from the keyboard, focus stays on the row (selecting the drawing focuses the page),
+  // so arrow keys, F2, Space and Alt+Up/Down go on working in the pane.
+  function select(image, additive, stay = false) {
     const engine = ready(); if (!engine) return;
     const all = runImages(engine.model);
     if (additive && engine.setDrawingSelection) {
@@ -49,6 +51,7 @@ export function createPane(context) {
       if (next.length) engine.setDrawingSelection(next);
     } else if (!engine.setDrawingSelection?.([image])) focusImage(engine, image);
     refresh(true);
+    if (stay) list.querySelector(`li[data-id="${CSS.escape(String(image.id))}"] .pic-selection-name`)?.focus();
   }
   function focusImage(engine, image) {
     let offset = 0;
@@ -109,13 +112,13 @@ export function createPane(context) {
     list.replaceChildren(...items.map(image => {
       const kind = drawingKind(image), floating = isPositionedImage(image);
       const selected = ids.has(image.id);
-      const name = el('button.pic-selection-name', { type: 'button', title: image.name, 'aria-current': selected ? 'true' : null, onclick: e => { if (e.detail < 2) select(image, e.shiftKey || e.ctrlKey || e.metaKey); },
+      const name = el('button.pic-selection-name', { type: 'button', title: image.name, 'aria-current': selected ? 'true' : null, onclick: e => { if (e.detail < 2) select(image, e.shiftKey || e.ctrlKey || e.metaKey, e.detail === 0); },
         onkeydown: e => {
           if (isComposing(e)) return;
           if (e.key === 'F2') { e.preventDefault(); rename(row, image); }
-          else if (e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) { e.preventDefault(); select(image, false); step(e.key === 'ArrowUp' ? -1 : 1); }
+          else if (e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) { e.preventDefault(); select(image, false, true); step(e.key === 'ArrowUp' ? -1 : 1); }
           else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') { e.preventDefault(); const rows = [...list.querySelectorAll('.pic-selection-name')], at = rows.indexOf(e.target); rows[Math.max(0, Math.min(rows.length - 1, at + (e.key === 'ArrowUp' ? -1 : 1)))]?.focus(); }
-          else if (e.key === ' ') { e.preventDefault(); select(image, e.shiftKey || e.ctrlKey || e.metaKey); }
+          else if (e.key === ' ') { e.preventDefault(); select(image, e.shiftKey || e.ctrlKey || e.metaKey, true); }
         } }, commandIconEl(KIND_ICONS[kind] || 'shapes', 16), el('span', {}, image.name || 'Object'), floating ? null : el('span.pic-hint', {}, ' · in line'));
       const eye = el('button.icon-btn.pic-selection-eye', { type: 'button', 'aria-pressed': String(!image.hidden), 'aria-label': `${image.hidden ? 'Show' : 'Hide'} ${image.name}`, title: image.hidden ? 'Show' : 'Hide',
         onclick: async () => { await commands.setHidden(image, !image.hidden); refresh(true); } }, iconEl('eye', 16));
