@@ -64,7 +64,7 @@ import { odsCellStyle, odsCellPaints, odsRunStyle } from './ods-cell-styles.js';
 import { htmlTableRows } from './html-table.js';
 import { reconcileConditionalFormats } from './xlsx-condformat-reconcile.js';
 import { prepareXlsxValidationLists } from './xlsx-validation.js';
-import { nativeSheetState, nativeStateChanged, nativeStateNoted, nativeValidationsSignature } from './xlsx-native-state.js';
+import { nativeSheetState, nativeStateChanged, nativeStateNoted, nativeValidationsSignature, xlsxRowsListedWhenHidden } from './xlsx-native-state.js';
 import { sheetFilters, sameFilterRange, filterRangeKey, mapSheetFilters } from './sheet-filters.js';
 import { nativeFilterJudge, readXlsxFilter, readXlsxFilterButtons, writeXlsxFilter } from './xlsx-filter.js';
 import { readStyleResets, styleResetAt } from './style-resets.js';
@@ -2195,21 +2195,30 @@ function importSheet(X, ws, name, meta, date1904 = false, definedNames, fileForm
     ? !formatPr ? { pixels: nativeHeight, mode: 'implicit' }
       : customHeight == null || ['0', 'false'].includes(customHeight) ? { pixels: nativeHeight, mode: 'auto' } : null
     : own?.nativeDefaultHeight);
-  (ws?.['!rows'] || []).forEach((row, i) => {
+  const hideFileRow = (i) => {
+    fileHiddenRows.push(i);
+    if (filtered.some(range => i > range.r1 && i <= range.r2)) fileFilterHidden?.push(i);
+    else hiddenRows.add(i);
+  };
+  const fileRow = (row, i) => {
     if (!row) return;
     // A row the file gives no height at all (ht="0") shows as no row in Excel, as a hidden one does; it is not
     // a row of the default height, which is what a height of nothing used to read as.
     const zero = !row.hidden && !row.filtered && (row.hpt === 0 || row.hpx === 0);
-    if (row.hidden || row.filtered || zero) {
-      fileHiddenRows.push(i);
-      if (filtered.some(range => i > range.r1 && i <= range.r2)) fileFilterHidden?.push(i);
-      else hiddenRows.add(i);
-    }
+    if (row.hidden || row.filtered || zero) hideFileRow(i);
     // The vendor's hpx equals hpt for XLSX. Excel heights are points, while the grid uses CSS pixels.
     // Older app exports use that vendor convention too; their sidecar identifies those dimensions.
     const px = (!own || own.nativeStyles) && partXml && row.hpt != null ? row.hpt * 4 / 3 : row.hpx ?? (row.hpt != null ? row.hpt * 4 / 3 : null);
     if (px && Math.abs(px - defaultRowHeight) > .001) rowHeights[i] = Math.max(1, Math.min(MAX_STORED_ROW_HEIGHT, px));
-  });
+  };
+  // A sheet whose rows are hidden by default (zeroHeight) lists only the rows it shows, Excel's way of writing a
+  // sheet with every row below its data hidden: each row it does not list is hidden, in order with the others.
+  const listedRows = xlsxRowsListedWhenHidden(partXml), fileRows = ws?.['!rows'] || [];
+  if (!listedRows) fileRows.forEach(fileRow);
+  else for (let i = 0; i <= MAX_ROW; i++) {
+    if (fileRows[i]) fileRow(fileRows[i], i);
+    else if (!listedRows.has(i)) hideFileRow(i);
+  }
   const savedView = own?.nativeFilterView;
   if (fileFilterHidden && Array.isArray(savedView?.hidden) && Array.isArray(savedView?.filtered)
       && JSON.stringify(savedView.hidden) === JSON.stringify(fileHiddenRows)) {

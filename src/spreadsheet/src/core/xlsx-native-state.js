@@ -7,6 +7,7 @@
  * way (attributes in another order, defaults left out, column runs split or joined) is no change.
  */
 import { readXlsxValidations } from './xlsx-validation.js';
+import { MAX_ROW } from './refs.js';
 
 const on = (value) => ['1', 'true'].includes(String(value ?? '').trim());
 const off = (value) => ['0', 'false'].includes(String(value ?? '').trim());
@@ -32,6 +33,65 @@ function runs(lines) {
   return out;
 }
 
+/** The runs of rows up to the sheet's last that sorted, disjoint runs leave out. */
+function gaps(shown) {
+  const out = [];
+  let next = 0;
+  for (const [from, to] of shown) {
+    if (from > MAX_ROW) break;
+    if (from > next) out.push([next, from - 1]);
+    next = to + 1;
+  }
+  if (next <= MAX_ROW) out.push([next, MAX_ROW]);
+  return out;
+}
+
+/**
+ * Whether a worksheet's rows are hidden by default (sheetFormatPr's zeroHeight, "Hidden By Default"):
+ * a part with most of its rows hidden can list only the rows it shows instead (ECMA-376 §18.3.1.81),
+ * every row it does not list then being hidden.
+ */
+function rowsHiddenByDefault(head) {
+  return on(attributes(head.match(/<(?:\w+:)?sheetFormatPr\b[^>]*>/)?.[0]).zeroHeight);
+}
+
+/** Where a part's sheetData starts and where its closing tag is (-1 for none). */
+function sheetDataBounds(xml) {
+  const start = xml.search(/<(?:\w+:)?sheetData[\s>/]/);
+  // The last tag naming sheetData closes it (or is the empty one); searched from the end, past the cells.
+  return { start, close: start < 0 ? -1 : xml.lastIndexOf('<', xml.lastIndexOf('sheetData')) };
+}
+
+/** Each row tag of sheetData in turn, with its row index and its attributes as written. */
+function eachRow(xml, start, close, visit) {
+  let r = -1;
+  // Every row is looked at on each opening of a file saved here, a million of them on a big sheet: cheaply.
+  const rowTags = /<(?:\w+:)?row\b([^>]*)>/g;
+  rowTags.lastIndex = Math.max(0, start);
+  for (let m; close >= 0 && (m = rowTags.exec(xml)) && m.index < close;) {
+    // A row without a number follows the one before (CT_Row's r is optional).
+    const attrs = m[1], at = attrs.indexOf(' r="');
+    const n = at >= 0 ? parseInt(attrs.slice(at + 4), 10) : Number(/\sr\s*=\s*["']\s*(\d+)/.exec(attrs)?.[1]);
+    r = n > 0 ? n - 1 : r + 1;
+    visit(r, attrs);
+  }
+}
+
+/**
+ * The rows a worksheet part lists, when its rows are hidden by default (see rowsHiddenByDefault):
+ * every other row is hidden. Null for a part whose rows are shown by default, as most are.
+ */
+export function xlsxRowsListedWhenHidden(xml) {
+  xml = String(xml || '');
+  if (!xml.includes('zeroHeight')) return null;
+  if (xml.includes('<!--')) xml = xml.replace(/<!--[\s\S]*?-->/g, '');
+  const { start, close } = sheetDataBounds(xml);
+  if (!rowsHiddenByDefault(start < 0 ? xml : xml.slice(0, start))) return null;
+  const listed = new Set();
+  eachRow(xml, start, close, (r) => listed.add(r));
+  return listed;
+}
+
 /** Runs of lines sharing one outline level, [[from, to, level], …]. */
 function levelRuns(levels) {
   const out = [];
@@ -54,11 +114,9 @@ const outlineLevel = (value) => Math.max(0, Math.min(7, Math.trunc(Number(value)
 export function nativeSheetState(xml) {
   xml = String(xml || '');
   if (xml.includes('<!--')) xml = xml.replace(/<!--[\s\S]*?-->/g, '');
-  const start = xml.search(/<(?:\w+:)?sheetData[\s>/]/);
+  const { start, close } = sheetDataBounds(xml);
   const head = start < 0 ? xml : xml.slice(0, start);
   const chart = /<(?:\w+:)?chartsheet\b/.test(head);
-  // The last tag naming sheetData closes it (or is the empty one); searched from the end, past the cells.
-  const close = start < 0 ? -1 : xml.lastIndexOf('<', xml.lastIndexOf('sheetData'));
   const tail = close < 0 ? chart ? xml : '' : xml.slice(close);
   const protection = attributes(tail.match(/<(?:\w+:)?sheetProtection\b[^>]*>/)?.[0]);
   // A tab colour as its attributes give it: RGB, or a theme or palette colour with its tint.
@@ -68,21 +126,16 @@ export function nativeSheetState(xml) {
   const view = attributes(head.match(/<(?:\w+:)?sheetView\b[^>]*>/)?.[0]);
   // A row or column hidden, or given no height or width, which Excel shows as hidden too.
   const hiddenRows = [], hiddenCols = [], collapsedRows = [], collapsedCols = [], rowLevels = new Map(), colLevels = new Map();
-  let r = -1;
-  // Every row is looked at on each opening of a file saved here, a million of them on a big sheet: cheaply.
-  const rowTags = /<(?:\w+:)?row\b([^>]*)>/g;
-  rowTags.lastIndex = Math.max(0, start);
-  for (let m; close >= 0 && (m = rowTags.exec(xml)) && m.index < close;) {
-    // A row without a number follows the one before (CT_Row's r is optional).
-    const attrs = m[1], at = attrs.indexOf(' r="');
-    const n = at >= 0 ? parseInt(attrs.slice(at + 4), 10) : Number(/\sr\s*=\s*["']\s*(\d+)/.exec(attrs)?.[1]);
-    r = n > 0 ? n - 1 : r + 1;
+  // Rows hidden by default are noted as the rows the part leaves hidden all the same, whichever way it says so.
+  const byDefault = rowsHiddenByDefault(head), shownRows = [];
+  eachRow(xml, start, close, (r, attrs) => {
     if ((attrs.includes('hidden') || attrs.includes('ht')) && HIDDEN_ROW.test(attrs)) hiddenRows.push(r);
-    if (!attrs.includes('outlineLevel') && !attrs.includes('collapsed')) continue;
+    else if (byDefault) shownRows.push(r);
+    if (!attrs.includes('outlineLevel') && !attrs.includes('collapsed')) return;
     const a = attributes(attrs);
     if (outlineLevel(a.outlineLevel)) rowLevels.set(r, outlineLevel(a.outlineLevel));
     if (on(a.collapsed)) collapsedRows.push(r);
-  }
+  });
   for (const m of head.matchAll(/<(?:\w+:)?col\b[^>]*>/g)) {
     const a = attributes(m[0]), min = Number(a.min), max = Number(a.max);
     if (!Number.isInteger(min) || !Number.isInteger(max) || min < 1 || max < min || max > 16384) continue;
@@ -99,7 +152,7 @@ export function nativeSheetState(xml) {
     // CT_SheetView's zoomScale is 100 when left out (and taken as that when out of Excel's range).
     zoom: Number(view.zoomScale) >= 10 && Number(view.zoomScale) <= 400 ? Number(view.zoomScale) : 100,
     ...(chart ? { zoomToFit: on(view.zoomToFit) } : {}),
-    hiddenRows: runs(hiddenRows),
+    hiddenRows: byDefault ? gaps(runs(shownRows)) : runs(hiddenRows),
     hiddenCols: runs(hiddenCols),
     rowLevels: levelRuns(rowLevels),
     colLevels: levelRuns(colLevels),
