@@ -1318,7 +1318,8 @@ export class Workbook extends EventTarget {
     this._cyclic = new Set(); // cells found on a circle of references while they were being calculated
     this._provisional = new Map(); // reader cell → where the circle whose provisional value it read starts (its _evalOrder), settled once it has its answer
     this._blankProvisional = 0; // while a reader is calculated again with provisional cells read as blank
-    this._blankKeys = null; // the cells read as blank while the outermost cell of a circle is calculated again (see _judgeCircles)
+    this._blankKeys = null; // the cells read as blank (or _blankValue) while the outermost cell of a circle is calculated again (see _judgeCircles)
+    this._blankValue = null; // what they read as: blank, or the provisional #CYCLE! of a cell still being calculated
     this._probed = null; // the cells calculated while a circle is judged, forgotten once it is (see _probe)
     this._astByCell = new WeakMap(); // cell → { f, ast }: filled-down formulas are all distinct strings, so the text cache alone thrashes
     this.externalAllowed = true; // may IMPORT* formulas and web images reach out? Off for files from elsewhere until allowed
@@ -13162,7 +13163,7 @@ export class Workbook extends EventTarget {
       if (!dependents) this._iteration.dependents.set(key, dependents = new Set());
       if (!dependents.has(reader)) { dependents.add(reader); this._iteration.edges++; }
     }
-    if (this._blankKeys !== null && this._blankKeys.has(key)) return null;
+    if (this._blankKeys !== null && this._blankKeys.has(key)) return this._blankValue;
     if (this._cache.has(key)) return this._cache.get(key);
     const saved = savedExternalResult(cell);
     const links = saved && this._externalLinks(sheet, r, c, cell.f);
@@ -13365,6 +13366,8 @@ export class Workbook extends EventTarget {
       let cycle = !sameResult(again, entry.raw);
       if (!cycle && entry.reader !== key) {
         // The outer cell read the reader for real: unless its answer stands with the circle's other cells blank, it rests on them.
+        // So it does unless it stands with them in error too, as it would have read them had it been reached after them:
+        // D2 = IF(E3>2,"a","b") over E3 = COUNTIF(D2:D2,"<>1") was "b" with E3 blank or 1, and #CYCLE! read from E3.
         if (isError(value) && value.error === '#CYCLE!') cycle = true;
         else {
           const blank = new Set(entry.circle);
@@ -13373,13 +13376,17 @@ export class Workbook extends EventTarget {
           const outerSheet = this.sheet(key.slice(0, bar));
           const { r, c } = parseKey(key.slice(bar + 1));
           const outerAst = this._cellAst(outerSheet.cells.get(cellKey(r, c)));
-          this._blankKeys = blank;
-          let outerAgain;
-          try { outerAgain = this._probe(() => withArrayBudget(() => evaluateFormula(outerAst, this._formulaContext(outerSheet, r, c)))); } catch (e) {
-            if (e instanceof RangeError) throw e;
-            outerAgain = err('#ERROR!');
-          } finally { this._blankKeys = null; }
-          cycle = !sameResult(outerAgain, raw);
+          for (const reading of [null, err('#CYCLE!')]) {
+            this._blankKeys = blank;
+            this._blankValue = reading;
+            let outerAgain;
+            try { outerAgain = this._probe(() => withArrayBudget(() => evaluateFormula(outerAst, this._formulaContext(outerSheet, r, c)))); } catch (e) {
+              if (e instanceof RangeError) throw e;
+              outerAgain = err('#ERROR!');
+            } finally { this._blankKeys = null; this._blankValue = null; }
+            cycle = !sameResult(outerAgain, raw);
+            if (cycle) break;
+          }
         }
       }
       if (!cycle) continue;
@@ -13393,8 +13400,8 @@ export class Workbook extends EventTarget {
   }
 
   /**
-   * Calculate a formula again with some cells of a circle read as blank, to judge the circle. What that reaches
-   * for the first time (a cell, a range read whole) holds an answer drawn from the blank cells, so none of it is
+   * Calculate a formula again with some cells of a circle read as blank (or in error), to judge the circle. What that
+   * reaches for the first time (a cell, a range read whole) holds an answer drawn from those cells, so none of it is
    * kept: C1 = SUM(B1:B20) read after the judging of a circle through B1 summed B1 as blank.
    */
   _probe(evaluate) {
