@@ -5807,6 +5807,8 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
 
   async function runFlush({ leaving = true } = {}) {
     if (grid.editing && !grid.commitEdit()) return false;
+    // Code typed into the Code Editor goes into the workbook after a short pause: what was typed in it goes too.
+    automate?.flush();
     if (doc.status === 'saved' && !doc.hasPendingWrites) return true;
     doc.writeDraft();
     if (session.signedOut && wb.dirty) {
@@ -6004,6 +6006,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
 
   async function saveNow() {
     if (grid.editing && !grid.commitEdit()) return;
+    automate?.flush();
     // Saving needs a session; Puter's own dialog asks for it, then the save goes ahead.
     if (session.signedOut && (!await session.signIn() || destroyed)) return;
     try {
@@ -6049,6 +6052,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
 
   async function saveAs() {
     if (grid.editing && !grid.commitEdit()) return;
+    automate?.flush();
     if (session.signedOut && (!await session.signIn() || destroyed)) return;
     // Inside Puter its Save dialog asks for the name and the folder; elsewhere the copy goes in the app folder, named here.
     const name = P.asksWhereToSave() ? `${doc.name} copy` : await promptDialog({
@@ -6070,6 +6074,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
 
   async function exportFile(kind) {
     if (grid.editing && !grid.commitEdit()) return;
+    automate?.flush();
     try {
       const sheet = wb.sheet(grid.sheetId);
       const perSheet = kind === 'csv' || kind === 'tsv' || kind === 'html';
@@ -6855,6 +6860,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
 
   const onBeforeUnload = (e) => {
     if (grid.editing) grid.commitEdit();
+    automate?.flush();
     if (doc.status === 'saved' && !doc.hasPendingWrites && !grid.editing) return;
     doc.writeDraft();
     // A new file waits for Puter's Save dialog, which is not to be opened by a page on its way out: the draft keeps it.
@@ -6865,7 +6871,11 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
   window.addEventListener('beforeunload', onBeforeUnload);
   // A phone may close a tab it put in the background without a beforeunload: unsaved edits are copied into this browser
   // as the page is hidden, not after the pause the options set for the recovery copy (up to five minutes).
-  const onPageHidden = () => { if (document.visibilityState === 'hidden' && wb.dirty) doc.writeDraft(); };
+  const onPageHidden = () => {
+    if (document.visibilityState !== 'hidden') return;
+    automate?.flush();
+    if (wb.dirty) doc.writeDraft();
+  };
   document.addEventListener('visibilitychange', onPageHidden);
   // The browser's own Print command (File > Print) prints the sheet the way Ctrl+P does, not the app chrome.
   const uninstallPrint = installPrintFallback(() => {

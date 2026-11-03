@@ -488,6 +488,8 @@ export function createAutomate(ctx, { env = () => ({}), notify = () => {}, trans
     get paneOpen() { return !pane.hidden; },
     get recording() { return !!recorder; },
     get running() { return !!running; },
+    /** Code typed in the last moment, still waiting to go into the workbook: it goes now (before a save, or leaving). */
+    flush: () => flushSave(),
     /** The workbook's scripts and My Scripts, for the ribbon's Run Script menu. */
     menuItems() {
       const list = (wb.scripts || []).map((s) => ({ label: s.name, icon: 'scriptFile', cmd: 'runScript', arg: { id: s.id } }));
