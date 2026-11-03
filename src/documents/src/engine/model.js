@@ -1821,9 +1821,10 @@ export class TextDocument {
     const at = locate(this.paragraphs, start); let offset = 0;
     return this.paragraphs[at.index].runs.find(run => { const match = offset === at.offset && !!run.image; offset += run.text.length; return match; })?.image || null;
   }
-  moveImage(target) {
+  /** Move the selected inline image to `target`; `floating` also moves a floating drawing's anchor there. */
+  moveImage(target, { floating = false } = {}) {
     const image = this.selectedImage, [start, end] = this.range;
-    if (!image || image.anchor) throw new Error('Select an inline image to move through text.');
+    if (!image || image.anchor && !floating) throw new Error('Select an inline image to move through text.');
     if (!Number.isInteger(target) || target < 0 || target > documentLength(this.paragraphs) || !boundaries(this.text).includes(target)) throw new Error('Invalid image insertion position.');
     if (target >= start && target <= end) return false;
     this.checkpoint();

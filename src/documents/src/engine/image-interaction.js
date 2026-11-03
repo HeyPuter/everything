@@ -312,7 +312,7 @@ export function createImageInteraction(editor) {
     editor.model.select(...g.range);
     if (g.mode === 'move') {
       if (g.frame.floating && g.others.length) moveMany([g.frame, ...g.others], Math.round(g.dx * EMU_PER_PX), Math.round(g.dy * EMU_PER_PX));
-      else if (g.frame.floating) editor.setImageProperties({ anchor: { x: g.offsets.x + Math.round(g.dx * EMU_PER_PX), y: g.offsets.y + Math.round(g.dy * EMU_PER_PX) } });
+      else if (g.frame.floating) { if (!moveToPage(g)) editor.setImageProperties({ anchor: { x: g.offsets.x + Math.round(g.dx * EMU_PER_PX), y: g.offsets.y + Math.round(g.dy * EMU_PER_PX) } }); }
       else editor.execute(() => editor.model.moveImage(g.target));
     } else if (g.mode === 'rotate') {
       const image = editor.model.selectedImage;
@@ -334,6 +334,42 @@ export function createImageInteraction(editor) {
       resizeImage(image, patch);
     }
     update(); return true;
+  }
+  /**
+   * A floating drawing dropped on another page is anchored to a paragraph that starts on that page (the last
+   * one starting above it), as Word moves an object's anchor with it; its offsets are measured from there.
+   * Kept on its old paragraph, it would be placed past the edge of its old page and disappear. A locked anchor,
+   * Track Changes (which would mark the anchor deleted and inserted), and other stories keep the paragraph.
+   */
+  function moveToPage(g) {
+    const f = g.frame, image = f.image;
+    if (image.anchor.locked || editor.model.trackChanges || editor.session.path !== null || inTable(f)) return false;
+    const from = canvasOf(f.page); if (!from) return false;
+    const rect = from.getBoundingClientRect(), unit = editor.zoom * (rect.width / from.offsetWidth || 1);
+    const cx = rect.left + (g.box.x + g.dx + g.box.width / 2) * unit, cy = rect.top + (g.box.y + g.dy + g.box.height / 2) * unit;
+    const page = (editor.canvases || []).findIndex(c => { const r = c?.getBoundingClientRect(); return r && cx >= r.left && cx <= r.right && cy >= r.top && cy <= r.bottom; });
+    if (page < 0 || page === f.page) return false;
+    const target = editor.canvases[page].getBoundingClientRect();
+    const x = f.x + (cx - target.left) / unit - g.box.width / 2 - g.box.x, y = f.y + (cy - target.top) / unit - g.box.height / 2 - g.box.y;
+    const lines = allLines(), paragraphs = editor.model.paragraphs;
+    const starts = lines.filter(l => l.page === page && !l.cellId && !l.header && lines.find(o => o.paragraphId === l.paragraphId) === l);
+    const line = starts.findLast(l => l.y <= y) || starts[0];
+    const index = line ? paragraphs.findIndex(p => p.id === line.paragraphId) : -1;
+    if (index < 0 || paragraphs[index].cellId) return false;
+    const geometry = editor.layout.pageRegions[page]?.[f.region]?.geometry || editor.layout.pages[page];
+    const anchor = { ...image.anchor, x: 0, y: 0 };
+    for (const axis of ['x', 'y']) { delete anchor[axis + 'Align']; delete anchor[axis + 'Percentage']; }
+    const zero = positionedImageFrame({ ...f, image: { ...image, anchor } }, line, { ...geometry, drawingBounds: editor.layout.pageRegions[page]?.[f.region]?.drawingBounds });
+    const offset = { x: Math.round((x - zero.x) * EMU_PER_PX), y: Math.round((y - zero.y) * EMU_PER_PX) };
+    const at = editor.model.paragraphOffset(index);
+    editor.execute(() => {
+      const model = editor.model;
+      model.select(f.start, f.end);
+      model.moveImage(at, { floating: true });
+      model.setImageProperties({ anchor: offset });
+      return true;
+    });
+    return true;
   }
   /** Move several floating drawings by the same EMU offset in one undo step. */
   function moveMany(frames, dx, dy) {
