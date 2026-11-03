@@ -254,3 +254,32 @@ test('the menu bar Table menu runs the table commands', async ({ page }) => {
   await page.getByRole('menuitem', { name: 'Rows Below', exact: true }).click();
   expect((await model(page)).tables[0].rows).toHaveLength(3);
 });
+
+// A heading row repeated at the top of each page is one row. Distribute Rows measured each repeated copy
+// as more height of that row, so a long table grew taller with every page it spans.
+test('Distribute Rows keeps a long table’s height when its heading row repeats on each page', async ({ page }) => {
+  await page.goto('/mock.html#/new');
+  await expect((await onTab(page, 'home')).getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await input(page).focus();
+  const measured = () => page.evaluate(() => {
+    const e = window.__docs.current.view.engine, table = e.model.tables[0], tallest = new Map();
+    for (const c of e.layout.cells) if (c.tableId === table.id && !c.repeatedHeader) tallest.set(c.rowId, Math.max(tallest.get(c.rowId) || 0, c.height));
+    return { pages: e.layout.pages.length, repeated: e.layout.cells.some(c => c.tableId === table.id && c.repeatedHeader), heights: table.rows.map(r => Math.round(tallest.get(r.id) * 15)), set: table.rows.map(r => r.minHeight) };
+  });
+  await page.evaluate(() => {
+    const e = window.__docs.current.view.engine, m = e.model;
+    e.insertTable(60, 2);
+    m.selectCell(m.tables[0].rows[0].cells[0].id);
+    e.execute(() => m.replace('Heading\nwith\nfour lines'));
+    e.execute(() => m.setTableHeaderRows(1, m.tables[0]));
+    m.selectCell(m.tables[0].rows[5].cells[0].id); e.syncInput(); e.paint(); e.onSelection(); e.focus();
+  });
+  const before = await measured();
+  expect(before.pages).toBeGreaterThan(2);
+  expect(before.repeated).toBe(true);
+  const even = Math.round(before.heights.reduce((a, b) => a + b, 0) / before.heights.length);
+  await onTab(page, 'tableLayout');
+  await ribbon(page).getByRole('button', { name: 'Distribute Rows', exact: true }).click();
+  await expect.poll(async () => (await measured()).set[1]).toBe(even);
+  expect(new Set((await measured()).set)).toEqual(new Set([even]));
+});

@@ -67,7 +67,8 @@ export function createTableTools({ editor, pkg, error = () => {}, onChange = () 
     const perPage = new Map();
     const owners = verticalMerges(table);
     for (const cell of engine.selectionLayout?.cells || []) {
-      if (cell.tableId !== table.id || (owners.get(cell.id)?.cells.length ?? 2) !== 1) continue;
+      // A heading row repeated at the top of later pages is one row: only its own place counts.
+      if (cell.tableId !== table.id || cell.repeatedHeader || (owners.get(cell.id)?.cells.length ?? 2) !== 1) continue;
       const key = `${cell.rowId}:${cell.page}`;
       perPage.set(key, Math.max(perPage.get(key) || 0, cell.height));
     }
