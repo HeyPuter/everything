@@ -169,3 +169,36 @@ it('drafts a reloaded tab\'s edits under the file again once it restores the dra
     expect(unsaved()).not.toContain('meanwhile');
   } finally { reloaded.destroy(); b.destroy(); }
 });
+
+// An unsaved spreadsheet opened from the home screen in a second tab is unsaved there too, though that tab changed
+// nothing. Switching away from it copied its book to storage under the spreadsheet's key, as a new draft: the first
+// tab's next copy found that one there and took a key of its own, and the home screen listed the spreadsheet twice,
+// once as the second tab had viewed it. A tab that only viewed the spreadsheet does not copy it again.
+it('lists an unsaved spreadsheet once when a second tab only views it while the first goes on editing', () => {
+  const a = Doc.blank();
+  edit(a, 'start');
+  const b = Doc.fromDraft(a.draftKey);
+  expect(b.writeDraft()).toBe(true); // switched away from: what it shows is kept on this device
+  edit(a, 'tab A');
+  expect(b.writeDraft()).toBe(true);
+  edit(a, 'tab A again');
+  a.destroy();
+  b.destroy();
+  expect(unsaved()).toEqual(['tab A again']);
+});
+
+it('keeps a viewing tab\'s book when the draft it was opened from is gone, and its edits once it makes some', () => {
+  const a = Doc.blank();
+  edit(a, 'start');
+  const b = Doc.fromDraft(a.draftKey);
+  const c = Doc.fromDraft(a.draftKey);
+  a.wb.markClean(); // saved, say: the first tab's draft goes
+  a.destroy();
+  expect(unsaved()).toEqual([]);
+  expect(b.writeDraft()).toBe(true);
+  expect(unsaved()).toEqual(['start']);
+  edit(c, 'tab C');
+  c.destroy();
+  b.destroy();
+  expect(unsaved().sort()).toEqual(['start', 'tab C']);
+});

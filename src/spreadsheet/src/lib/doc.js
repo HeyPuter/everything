@@ -307,6 +307,7 @@ export class Doc extends EventTarget {
     this.draftKept = true; // does this browser hold a copy of the unsaved edits? Not once a book outgrows local storage
     this._draftBeside = false; // another tab of the file drafts under its key: this one's edits are kept beside them (see writeDraft)
     this._draftAside = null; // and another beside them too: this one's are an unsaved spreadsheet of their own, { name, id } (see writeDraft)
+    this._asDrafted = null; // opened from an unsaved spreadsheet's draft: the book's { version, name } as that draft holds it (see writeDraft)
     this._saving = null;
     this._versioning = null; // the automatic snapshot of the last save, while it is being written
     this.recoverable = null; // a local draft newer than the file, awaiting a decision
@@ -445,6 +446,11 @@ export class Doc extends EventTarget {
     if (this.collab) return this.collab.keepsChanges;
     clearTimeout(this._draftTimer);
     if (!this.wb.dirty) { clearDraft(this._ownDraftKey, this._draftRevision); return false; }
+    // Opened from an unsaved spreadsheet's draft and changed nothing since, the book is what that draft holds, or what
+    // another tab of the spreadsheet made of it since: a copy written now would only stand in that tab's way (it would
+    // find a draft not its own and draft apart, the spreadsheet listed twice on the home screen). Gone from storage, it is kept.
+    const as = this._asDrafted;
+    if (as && !this.path && as.version === this.wb.version && as.name === this.name && draftRevisionAt(this.draftKey) != null) { this._noteDraft(true); return true; }
     // Timestamps and workbook versions can coincide across tabs. Each write
     // needs its own identity so a later save cannot clear another tab's edits.
     const revision = uniqueId();
@@ -1307,6 +1313,7 @@ export class Doc extends EventTarget {
     doc._draftRevision = draftRevision(draft);
     doc.wb.dirty = true;
     doc._changed('cells');
+    doc._asDrafted = { version: doc.wb.version, name: doc.name };
     return doc;
   }
 
