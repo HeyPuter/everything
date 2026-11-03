@@ -34,6 +34,13 @@ const CARRY_FUNCTIONS = new Set([
   'IFERROR', 'IFNA', 'INDEX', 'MINIFS', 'MAXIFS', 'SUMIFS', 'AVERAGEIFS', 'SUMPRODUCT',
 ]);
 
+const DATE_KINDS = new Set(['date', 'datetime', 'time']);
+/**
+ * Whether a format shows dates, so that one minus another is a number of days: the Date, Date and time or Time
+ * format, or a code of its own that shows a date. A code showing only a time (h:mm, [h]:mm) is not one: a time minus
+ * a time is how long it took, which reads as a time, as in Excel.
+ */
+const dated = (style) => (style.fmt === 'custom' ? ['date', 'datetime'].includes(dateTimeKind(style, 1)) : DATE_KINDS.has(style.fmt));
 /** Formats that survive a product or quotient: a price times a count is still a price; a date times two is not a date. */
 const SCALAR_KINDS = new Set(['percent', 'currency', 'number', 'scientific']);
 /** The style keys that describe a number format (and nothing else). */
@@ -86,7 +93,7 @@ export function impliedFormulaStyle(formula, styleOfRef, refOfName = null, isNam
           const left = next(node.left);
           const right = next(node.right);
           // A date minus a date is a number of days, not another date, whether a format or a code of its own shows them.
-          if (node.op === '-' && left && right && dateTimeKind(left, 1) && dateTimeKind(right, 1)) return null;
+          if (node.op === '-' && left && right && dated(left) && dated(right)) return null;
           return left || right;
         }
         if (node.op === '*' || node.op === '/') return scalarOnly(next(node.left)) || scalarOnly(next(node.right));

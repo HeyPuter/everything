@@ -25,3 +25,18 @@ it('gives a date minus a date in a custom date code as a number of days', () => 
   wb.setInput(id, 0, 2, '=B1-A1');
   expect(wb.getDisplay(id, 0, 2)).toBe('15.0 kg');
 });
+
+// A time minus a time in a code that shows only a time is how long it took, and reads as one, as in Excel: a
+// timesheet's =B1-A1 over 9:00 and 17:30 in h:mm showed 8:30 until the change above read every date or time code
+// as a date and the difference came out as the fraction of a day, 0.354166667.
+it('keeps a time minus a time in a custom time code as a time', () => {
+  for (const [code, shown] of [['h:mm', '8:30'], ['[h]:mm', '8:30'], ['hh:mm:ss', '08:30:00'], ['h:mm AM/PM', '8:30 AM']]) {
+    const wb = new Workbook(), id = wb.activeSheetId;
+    wb.setInput(id, 0, 0, '9:00');
+    wb.setInput(id, 0, 1, '17:30');
+    wb.applyStyle(id, { r1: 0, c1: 0, r2: 0, c2: 1 }, { fmt: 'custom', code });
+    wb.setInput(id, 0, 2, '=B1-A1');
+    expect(wb.getCell(id, 0, 2).s, code).toEqual({ fmt: 'custom', code });
+    expect(wb.getDisplay(id, 0, 2), code).toBe(shown);
+  }
+});
