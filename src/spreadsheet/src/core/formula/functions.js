@@ -4329,7 +4329,9 @@ export const FUNCTIONS = {
       if (!isRange(a) || !a.ref) return err('#N/A');
       return overCells(a, (sheet, r, c) => {
         const f = ctx.getFormula?.(sheet, r, c);
-        return f == null ? err('#N/A') : ctx.isFixedArray?.(sheet, r, c) ? `{=${f}}` : `=${f}`;
+        // A formula hidden on a protected sheet is not given away, as in Excel.
+        if (f == null || ctx.formulaHidden?.(sheet, r, c)) return err('#N/A');
+        return ctx.isFixedArray?.(sheet, r, c) ? `{=${f}}` : `=${f}`;
       });
     },
     refArgs: true,

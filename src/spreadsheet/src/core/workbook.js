@@ -13654,6 +13654,13 @@ export class Workbook extends EventTarget {
         const array = this._fixedArrays(target).at(rr, cc);
         return target.cells.get(array?.key ?? cellKey(rr, cc))?.f ?? null;
       },
+      // Is that formula hidden from view (Format Cells ▸ Protection ▸ Hidden, on a protected sheet)?
+      formulaHidden: (sheetName, rr, cc) => {
+        const target = byName(sheetName);
+        if (!target) return false;
+        const array = this._fixedArrays(target).at(rr, cc);
+        return this.formulaHiddenAt(target.id, array?.r1 ?? rr, array?.c1 ?? cc);
+      },
       // CELL("format"), "prefix", "protect" and "width": what the cell is formatted with, not what it holds. Its
       // width is in characters of the Normal font's digits, as Excel's Column Width counts them (8.43 is 64 pixels
       // of an 11-point Calibri's 7-pixel digits).
