@@ -84,10 +84,11 @@ export function openCustomizeKeyboard({ entries, keymap, onClose, select = null 
         el('button.btn.btn-ghost', { type: 'button', disabled: !keymap.isCustom(chosen.id), onclick: () => { keymap.reset(chosen.id); changed(); } }, 'Reset')));
   }
   const resetAll = el('button.btn.btn-ghost', { type: 'button', onclick: () => { keymap.reset(); renderList(); renderDetail(); } }, 'Reset All');
-  const modal = openModal({ title: 'Customize Keyboard', wide: true, onClose, content: el('div.kb-dialog', {},
+  // A form, as the other dialogs are: Enter presses Done, the default button (the shortcut field takes Enter as a key).
+  const modal = openModal({ title: 'Customize Keyboard', wide: true, onClose, content: el('form.kb-dialog', { onsubmit: e => { e.preventDefault(); modal.close(); } },
     el('div.kb-browse', {}, el('div.kb-filters', {}, category, filter), list),
     detail,
-    el('div.row.row-end.kb-actions', {}, resetAll, el('button.btn.btn-primary', { type: 'button', onclick: () => modal.close() }, 'Done'))) });
+    el('div.row.row-end.kb-actions', {}, resetAll, el('button.btn.btn-primary', { type: 'submit' }, 'Done'))) });
   modal.panel.classList.add('kb-panel');
   renderList(); renderDetail();
   filter.focus();
