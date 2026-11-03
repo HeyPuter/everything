@@ -196,6 +196,10 @@ export function createLanguagePane(ctx) {
       const { sheetId, cells } = result.cells;
       const locked = cells.filter(({ r, c }) => wb.lockedAt(sheetId, r, c));
       if (locked.length) { toast(`${cellName(locked[0].r, locked[0].c)} is protected; nothing was replaced`, { icon: 'lock', duration: 3000 }); return; }
+      // The cells are known by where their text was read: one that no longer holds it (typed over, or moved by rows
+      // or columns inserted or deleted since) would lose what it holds now to another cell's translation.
+      const moved = cells.find(({ r, c, text }) => { const cell = wb.getCell(sheetId, r, c); return cell?.f != null || cell?.v !== text; });
+      if (moved) { toast(`${cellName(moved.r, moved.c)} has changed since it was translated; nothing was replaced. Translate the cells again`, { icon: 'info', duration: 3600 }); return; }
       wb.transaction('Translate', () => cells.forEach(({ r, c }, i) => wb.setInput(sheetId, r, c, result.texts[i], { literal: true, label: 'Translate' })));
       ctx.announce?.(`Replaced ${cells.length} cell${cells.length === 1 ? '' : 's'} with the translation`);
       return;
