@@ -5515,8 +5515,10 @@ export function createGrid(opts) {
     // a commit has already cleared `edit`, so check the target too.
     if (edit || e.target === editor) return;
     // Links and object controls inside the canvas keep native activation
-    // and text editing; their keys must not mutate the selected cells.
-    if (e.defaultPrevented || e.target.closest?.('button, a, input, textarea, select, [contenteditable="true"]')) return;
+    // and text editing; their keys must not mutate the selected cells. A form
+    // scroll bar and a timeline's periods are such controls too: Delete pressed
+    // on one cleared the cells behind it.
+    if (e.defaultPrevented || e.target.closest?.('button, a, input, textarea, select, [contenteditable="true"], [role="scrollbar"], [role="option"]')) return;
     if (e.key === 'Escape' && (drag || freezeDrag || tap)) {
       // Escape gives up a gesture in progress, so nothing fills, moves, reorders or freezes on
       // release: a freeze-bar drag keeps its own handle, not `drag`, and went through regardless.
