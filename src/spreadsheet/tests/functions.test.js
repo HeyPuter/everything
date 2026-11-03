@@ -3,6 +3,7 @@ import { Workbook } from '../src/core/workbook.js';
 import { parseCellRef } from '../src/core/cell.js';
 import { ymdToSerial, todaySerial } from '../src/core/format.js';
 import { criteriaMatcher, FUNCTIONS, FUNCTION_NAMES } from '../src/core/formula/functions.js';
+import { calcStored } from './helpers/calc.js';
 
 const DATA = {
   A1: 'Fruit', B1: 'Qty', C1: 'Price',
@@ -71,8 +72,8 @@ describe('math & statistics', () => {
   });
 
   it('rounding family', () => {
-    expect(calc('ROUND(2.5)')).toBe(3);
-    expect(calc('ROUND(-2.5)')).toBe(-3);
+    expect(calcStored('ROUND(2.5)')).toBe(3);
+    expect(calcStored('ROUND(-2.5)')).toBe(-3);
     expect(calc('ROUND(1.005,2)')).toBe(1.01);
     expect(calc('ROUND(1234.567,-2)')).toBe(1200);
     expect(calc('ROUNDUP(1.231,2)')).toBe(1.24);
@@ -677,7 +678,7 @@ describe('LET and LAMBDA', () => {
     expect(calc('LET(x, 2, x*3)')).toBe(6);
     expect(calc('LET(x, 2, y, x+1, x*y)')).toBe(6);
     expect(calc('LET(total, SUM(B2:B5), total/2)')).toBe(19);
-    expect(calc('LET(x, 1)')).toEqual(E('#VALUE!'));
+    expect(calcStored('LET(x, 1)')).toEqual(E('#VALUE!'));
     expect(calc('LET(A1, 1, A1)')).toEqual(E('#VALUE!'));
     expect(arr('LET(v, B2:B3, v*2)', DATA)).toEqual([[20], [10]]);
   });

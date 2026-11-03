@@ -81,6 +81,7 @@ import { normalizePrintSettings, mapPrintAreas } from './print-settings.js';
 import { normalizeBackground } from './sheet-background.js';
 import { normalizeCustomViews, captureCustomView, MAX_CUSTOM_VIEWS, CUSTOM_VIEW_NAME_MAX } from './custom-views.js';
 import { parseFormula } from './formula/parser.js';
+import { ARITY } from './formula/arity.js';
 import { APP_ONLY_FUNCTIONS, ARRAY_BUDGET, evaluate, evaluateFormula, isVolatile, paramSpec, resetArrayBudget, withArrayBudget } from './formula/evaluator.js';
 import { FUNCTIONS, err, isError, isRange, scalar, compareStoredValues, toText, noteRangeRows, isNestedTotal } from './formula/functions.js';
 import { parseDelimited } from './tsv.js';
@@ -298,6 +299,35 @@ function pastFunctionLimits(body) {
     }
   }
   return false;
+}
+
+/**
+ * Does a formula body give one of Excel's functions fewer or more arguments than it takes, as =ABS(1,2) or =ROUND(1.5)?
+ * Excel refuses such an entry. Only functions in its table are checked (see arity.js), and a name a LET or LAMBDA binds
+ * anywhere in the formula is passed over, as it may call a LAMBDA of that name rather than the function.
+ */
+function wrongArgumentCount(body) {
+  let tree;
+  try { tree = parseFormula(body); } catch { return false; }
+  const calls = [], bound = new Set();
+  // Walked without recursion: a chain of thousands of operators nests as deep as it is long.
+  const pending = [tree];
+  while (pending.length) {
+    const node = pending.pop();
+    if (!node || typeof node !== 'object') continue;
+    if (Array.isArray(node)) { pending.push(...node); continue; }
+    if (node.type === 'call' && !node.bare && !node.sheet) {
+      calls.push(node);
+      const params = node.name === 'LET' ? node.args.filter((_, i) => i % 2 === 0 && i < node.args.length - 1)
+        : node.name === 'LAMBDA' ? node.args.slice(0, -1) : [];
+      for (const p of params) if (paramSpec(p)) bound.add(paramSpec(p).name);
+    }
+    for (const key in node) if (key !== 'ref') pending.push(node[key]);
+  }
+  return calls.some(({ name, args }) => {
+    const arity = !bound.has(name) && ARITY.get(name);
+    return arity ? args.length < arity[0] || args.length > arity[1] : false;
+  });
 }
 
 /** Whether a formula body has more opening than closing parentheses outside its string literals: one that stops short of its end. */
@@ -2523,9 +2553,10 @@ export class Workbook extends EventTarget {
     if (!literal && cell?.f != null) {
       cell.f = this._closeParentheses(cell.f);
       // Closed, the formula may be longer than a formula may be; then it stays the text typed, as it would have typed whole.
-      // So does one past Excel's limits on functions, which Excel refuses as typed (see pastFunctionLimits); a formula
-      // read from a file or copied from another cell is left as it is.
-      if (cell.f.length > MAX_FORMULA_LENGTH || pastFunctionLimits(cell.f)) cell = { v: String(text), f: null, s: cell.s };
+      // So does one past Excel's limits on functions, or giving a function too few or too many arguments, which Excel
+      // refuses as typed (see pastFunctionLimits, wrongArgumentCount); a formula read from a file or copied from another
+      // cell is left as it is.
+      if (cell.f.length > MAX_FORMULA_LENGTH || pastFunctionLimits(cell.f) || wrongArgumentCount(cell.f)) cell = { v: String(text), f: null, s: cell.s };
     }
     if (!literal) this._applyImpliedStyle(sheetId, cell, r, c);
     if (preserveRichText && cell?.f == null && typeof cell?.v === 'string') {
