@@ -15,7 +15,11 @@ const AI_KINDS = preference('documents:editor-ai-kinds', ['grammar', 'punctuatio
 
 export function createEditorPane({ editor, pkg, proofing, error, onState = () => {} }) {
   let spellingIssues = [], current = null, aiSuggestions = [], aiBusy = null, ignoredSuggestions = new Set();
-  const pane = sidePane({ title: 'Editor', label: 'Editor pane', className: 'rv-editor-pane', onOpen: () => { refreshAll(); }, onClose: () => { aiBusy?.abort(); onState(); editor()?.focus(); } });
+  const pane = sidePane({ title: 'Editor', label: 'Editor pane', className: 'rv-editor-pane', onOpen: () => { refreshAll(); }, onClose: () => {
+    // A check whose answer never comes (a stalled connection) is let go here: waiting for it would leave Check with AI disabled for good.
+    if (aiBusy) { aiBusy.abort(); aiBusy = null; aiStatus.textContent = ''; }
+    onState(); editor()?.focus();
+  } });
 
   /* ---- Overview ---- */
   const score = el('div.rv-score', { role: 'status' });

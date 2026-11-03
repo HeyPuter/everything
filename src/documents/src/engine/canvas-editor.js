@@ -15,7 +15,7 @@ const MAC = typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/.test(navi
 import { inlineControlCaret, adjacentInlineControl, moveInlineControlCaret, documentStartControlCaret, moveInlineControlHomeEnd, emptyControlPointerCaret, pointerControlSelection } from './content-control-caret.js';
 import { paintControlCarets } from './canvas-control-caret.js';
 import { paintStoryChrome, storyBoundaries } from './canvas-story-chrome.js';
-import { paintInsertionCaret, paintCompositionUnderline } from './canvas-caret.js';
+import { paintInsertionCaret, paintCompositionUnderline, zoomedCaret } from './canvas-caret.js';
 import { cellTextLocalPoint } from './cell-text-direction.js';
 import { pageStorySelectionLayout } from './page-story-positions.js';
 import { pageStoryAtPoint } from './page-story-hit.js';
@@ -48,7 +48,7 @@ import { paintColor } from './colors.js';
 import { TextDocument, boundaries, locate, paragraphFormat, paragraphText } from './model.js';
 import { cellContext } from './tables.js';
 import { cellBlockRects, cellBlockPlacements, wholeRows } from './table-selection.js';
-import { clearCells, splitTable } from './table-editing.js';
+import { clearCells, splitTable, insertTablePageBreak } from './table-editing.js';
 import { paragraphEdges } from './paragraph-geometry.js';
 import { pageGeometry } from './page-settings.js';
 import { pageBorderStrokes } from './page-borders.js';
@@ -59,7 +59,7 @@ import { viewGeometry, viewPageStories, fitContinuousPages, isContinuousView, us
 import { pageLookup } from './page-lookup.js';
 import { font, layoutDocument, caretRect, lineAtPosition, verticalLine, hitTestStop, nearestStop, imageAtPoint, selectionRects, selectionRectFinder } from './layout.js';
 import { refreshPageReferences } from './page-reference-refresh.js';
-import { positionedImageBounds } from './positioned-images.js';
+import { positionedImageBounds, drawingOwnRotation } from './positioned-images.js';
 import { createImageInteraction } from './image-interaction.js';
 import { paintDecodedImage, imageInfo, decodeImage, decodeImages, validateImageAssets, imageCropRect, inlineImagePaintFrame, normalizedRotation, ANGLE_PER_DEGREE, EMU_PER_PX, isPositionedImage } from './images.js';
 import { sectionColumnIntervals } from './section-columns.js';
@@ -1192,7 +1192,7 @@ export class CanvasEditor {
       if (!printing && start === end && caret.page === index && document.activeElement === this.input && !this.accessible) {
         const line = lineAtPosition(this.selectionLayout, this.model.selection.focus, this.caretAffinity, this.caretPage);
         const clip = line.cellClip;
-        paintInsertionCaret(ctx, caret, scale, {
+        paintInsertionCaret(ctx, zoomedCaret(caret, this.zoom), scale, {
           left: Math.max(0, clip?.left ?? 0), top: Math.max(0, clip?.top ?? 0),
           right: Math.min(geometry.width, clip?.right ?? geometry.width), bottom: Math.min(geometry.height, clip?.bottom ?? geometry.height),
         });
@@ -1293,7 +1293,7 @@ export class CanvasEditor {
     }, null);
     if (!nearest) return 0;
     const page = Number(nearest.canvas.dataset.page), y = (event.clientY - nearest.r.top) / this.zoom;
-    this.pointImage = imageAtPoint(this.selectionLayout, page, (event.clientX - nearest.r.left) / this.zoom, y, { includeBehindText: !!event.altKey });
+    this.pointImage = imageAtPoint(this.selectionLayout, page, (event.clientX - nearest.r.left) / this.zoom, y, { includeBehindText: !!event.altKey, rotationOf: image => drawingOwnRotation(image, this.model.assets) });
     // A view can hide some drawings (hidden ink); they are not painted, so they are not hit either.
     if (this.pointImage && this.hiddenDrawing?.(this.pointImage.image)) this.pointImage = null;
     // A stop inside hidden text shows where that text is passed over.
@@ -1676,20 +1676,27 @@ export class CanvasEditor {
     else if (key === 'PageUp' || key === 'PageDown') {
       // A screenful of lines in the preferred column; the view scrolls by the
       // same distance so the caret keeps its place on screen.
-      const direction = key === 'PageUp' ? -1 : 1, top = l => this.canvases[l.page].offsetTop + l.y * this.zoom;
+      // Side to Side lays the pages out in a row (document-views.js): there a screenful is the pages the
+      // window shows whole, and the caret keeps its height on the page. Measured down the column, the
+      // whole row was less than a screen and PageDown went to the end of the document.
+      const across = this.pages.classList.contains('is-side-to-side');
+      const direction = key === 'PageUp' ? -1 : 1, top = across ? l => this.canvases[l.page].offsetLeft : l => this.canvases[l.page].offsetTop + l.y * this.zoom;
       const from = lineAtPosition(this.selectionLayout, focus, this.caretAffinity, this.caretPage);
       this.preferredX ??= caretRect(this.selectionLayout, focus, this.caretAffinity, this.caretPage).x;
-      const goal = top(from) + direction * Math.max(this.host.clientHeight - 48, 48);
+      const shown = () => { const view = this.host.getBoundingClientRect(); return this.canvases.filter(c => { const r = c.getBoundingClientRect(); return r.left >= view.left - 1 && r.right <= view.right + 1; }).length; };
+      const goal = across ? from.page + direction * Math.max(1, shown()) : top(from) + direction * Math.max(this.host.clientHeight - 48, 48);
+      const position = across ? l => l.page : top;
       let line = from;
       for (let next; (next = verticalLine(this.selectionLayout, line, direction, this.preferredX));) {
         line = next;
-        if (direction * (top(line) - goal) >= 0) break;
+        if (direction * (position(line) - goal) >= 0) break;
       }
+      if (across && line !== from) for (let next; (next = verticalLine(this.selectionLayout, line, direction, this.preferredX)) && next.page === line.page && direction * (from.y - next.y) >= 0;) line = next;
       const stop = line === from ? null : nearestStop(line, this.preferredX);
       target = stop ? stop.offset : direction < 0 ? 0 : this.model.text.length;
       affinity = stop && (stop.affinity || (target === line.end ? 'backward' : 'forward')) || 'forward';
       this.caretPage = stop ? line.page : null;
-      this.host.scrollTop += top(line) - top(from);
+      if (across) this.host.scrollLeft += top(line) - top(from); else this.host.scrollTop += top(line) - top(from);
     }
     else if (key === 'ArrowLeft' || key === 'ArrowRight') {
       const direction = key === 'ArrowLeft' ? -1 : 1;
@@ -1839,14 +1846,17 @@ export class CanvasEditor {
       if (!this.readOnly && !this.viewOnly) this.narrowCellBlock();
       // In a table, Ctrl+Shift+Enter splits it above the caret's row (from the first row: a paragraph
       // before it), as Word does; a column break in a cell would not show.
+      // Ctrl+Enter there starts the caret's row on a new page, the table split around the break.
       const columnBreak = () => this.model.tableContext ? splitTable(this.model) : this.model.insertColumnBreak();
-      const done = this.execute(() => mod ? (e.shiftKey ? columnBreak() : this.model.insertPageBreak()) : e.shiftKey ? this.model.replace('\v') : this.model.insertParagraph());
+      const pageBreak = () => this.model.tableContext ? insertTablePageBreak(this.model) : this.model.insertPageBreak();
+      const done = this.execute(() => mod ? (e.shiftKey ? columnBreak() : pageBreak()) : e.shiftKey ? this.model.replace('\v') : this.model.insertParagraph());
       // A new paragraph ends the word before it, which may be an address to link.
       if (done && !mod && !e.shiftKey) {
         const caret = this.model.selection.focus, place = locate(this.model.paragraphs, caret);
         if (place.offset === 0 && place.index > 0) {
           const previous = paragraphText(this.model.paragraphs[place.index - 1]);
           this.linkTypedAddress(caret - 1 - previous.length, place.index - 1, previous.length, caret);
+          this.correctParagraphEnd(place.index - 1);
         }
       }
       return;
@@ -1971,7 +1981,7 @@ export class CanvasEditor {
     // While true, the host may refresh its controls after the frame that shows the typed text.
     this.typing = true;
     let executed;
-    try { executed = this.execute(action, undefined, { record: !merge }); } finally { this.typing = false; }
+    try { executed = this.execute(action, undefined, { record: !merge, typing: true }); } finally { this.typing = false; }
     if (executed) {
       this.typingGroup = { revision: this.session.revision, path: this.session.path, at: this.model.selection.focus, last: text.at(-1) };
       if (text.length === 1) this.assistTyping(text);
@@ -2012,7 +2022,7 @@ export class CanvasEditor {
       done = this.execute(() => {
         if (past !== null) this.model.select(past);
         return this.model.delete(direction);
-      }, undefined, { record: !merge });
+      }, undefined, { record: !merge, typing: true });
     } finally { this.deleting = false; }
     if (done) this.deleteGroup = { direction, at: this.model.selection.focus, revision: this.session.revision, path: this.session.path };
   }
@@ -2035,6 +2045,25 @@ export class CanvasEditor {
       const caret = this.model.selection.focus, place = locate(this.model.paragraphs, caret);
       this.linkTypedAddress(caret - place.offset, place.index, place.offset - 1, caret);
     }
+  }
+  /**
+   * A new paragraph ends the word before it as a space does, so the corrections a space makes (the pronoun i, a
+   * fraction) are made at the end of paragraph `index` too, as their own undo step; the caret stays at the start of
+   * the next paragraph. A list marker typed alone is not a list without the space after it.
+   */
+  correctParagraphEnd(index) {
+    const paragraph = this.model.paragraphs[index], text = paragraphText(paragraph);
+    const fix = this.correctTyping?.(`${text} `, ' ', { list: !!paragraph.list });
+    if (!fix || fix.list || typeof fix.text !== 'string' || !fix.text.endsWith(' ') || fix.back < 2 || fix.back - 1 > text.length) return;
+    const end = this.model.paragraphOffset(index) + text.length;
+    this.execute(() => {
+      this.model.select(end - (fix.back - 1), end);
+      const changed = this.model.replace(fix.text.slice(0, -1));
+      // The replacement ends at the paragraph's end (after any deletion Track Changes keeps): the next paragraph follows.
+      this.model.select(this.model.selection.focus + 1);
+      return changed;
+    }, undefined, undefined, true);
+    this.typingGroup = null;
   }
   /** Link the web address or email ending at `end` in a paragraph starting at `from`, and leave the caret at `caret`. */
   linkTypedAddress(from, index, end, caret) {
@@ -2235,11 +2264,17 @@ export class CanvasEditor {
     // U+FFFC stands in for an object (a picture, field or note) in other applications' text, and is
     // this document's own placeholder for one: pasted as a character it would be an invisible stray.
     text = String(text || '').replace(/\ufffc/g, '');
+    // A header, footer or note takes no page or column break: pasted text keeps them as paragraph breaks.
+    const breakless = !!this.model.refusesBreaks;
+    if (breakless) text = text.replace(/[\f\u000e]/g, '\n');
+    // Over a block of table cells, a paste from a menu (which reads the clipboard itself, with no paste event) replaces
+    // the first cell's text, as the keyboard's does, not every cell the block's text range runs through.
+    if (!this.readOnly && !this.viewOnly) this.narrowCellBlock();
     // A picture copied here comes back as the picture, not as its plain-text stand-in.
     const picture = htmlPicture(html);
     if (picture) { if (!this.readOnly && !this.viewOnly) this.insertImageFile(picture.file, picture).catch(error => this.onError(error)); return; }
     const fragment = html && carriesFormatting(this.model) && !this.model.tableContext ? htmlFragment(html) : null;
-    if (fragment && fragment.paragraphs.some(p => p.text) && formattedPasteFits(fragment) && this.execute(() => pasteFragment(this.model, fragment), () => {}, undefined, true)) return;
+    if (fragment && fragment.paragraphs.some(p => p.text) && formattedPasteFits(fragment) && !(breakless && fragment.paragraphs.some(p => /[\f\u000e]/.test(p.text))) && this.execute(() => pasteFragment(this.model, fragment), () => {}, undefined, true)) return;
     if (text) this.execute(() => this.model.replace(text));
   }
   releaseImages(images) { for (const image of images.values()) if (!this.borrowedImages.has(image)) image.close?.(); images.clear(); }

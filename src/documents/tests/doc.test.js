@@ -974,6 +974,9 @@ describe('offline', () => {
       expect(exporter).toHaveBeenCalledOnce();
       expect(doc.status).toBe('offline');
       expect(doc.dirty).toBe(true);
+      // Save pressed meanwhile says the changes will go once the connection is back, as they do.
+      P.writeFile.mockImplementationOnce(async () => { throw new TypeError('Failed to fetch'); });
+      await expect(doc.save()).rejects.toThrow('You are offline. Your changes will save when you reconnect');
       // Back online, the app asks for the save; it goes through.
       vi.stubGlobal('navigator', { onLine: true });
       expect(await doc.save({ auto: true })).toBe(true);
@@ -992,7 +995,8 @@ describe('offline with AutoSave off', () => {
     const doc = new Doc({ name: 'Alpha', path: 'Documents/Alpha.docx' });
     doc.attach(async () => blob('offline edit'));
     doc.changed();
-    await expect(doc.save()).rejects.toThrow('Failed to fetch');
+    // Save says what happens to the changes, not the browser's own words for the failed request.
+    await expect(doc.save()).rejects.toThrow('You are offline. Save again when you reconnect');
     expect(doc.status).toBe('offline');
     // Back online, the app asks for an autosave, which AutoSave off declines: the edits wait for Save, as they say.
     vi.stubGlobal('navigator', { onLine: true });
@@ -1244,5 +1248,37 @@ describe('Doc handing saving to another tab while a save is in flight', () => {
       await expect(Promise.race([doc.flush(), new Promise(r => setTimeout(() => r('hung'), 200))])).resolves.toBe(true);
       doc.destroy();
     }
+  });
+});
+
+describe('an autosave that keeps failing', () => {
+  beforeEach(() => { vi.useFakeTimers(); versioning.enabled = false; publishing.enabled = false; P.__fs.clear(); P.writeFile.mockClear(); vi.stubGlobal('navigator', { onLine: true }); });
+  afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
+
+  it('tells the view once its retry has failed too, and again only after a save went through', async () => {
+    const doc = new Doc({ name: 'Alpha', path: 'Documents/Alpha.docx' });
+    P.__fs.set(doc.path, blob('original'));
+    const told = [];
+    doc.addEventListener('savefailed', (e) => told.push(e.detail.message));
+    doc.attach(async () => blob('edit'));
+    const full = () => P.writeFile.mockImplementationOnce(async () => { throw new Error('Storage capacity exceeded'); });
+    full(); full(); full();
+    doc.changed();
+    await vi.advanceTimersByTimeAsync(AUTOSAVE_MS + 5);
+    // One failure may be a blip: the retry comes first.
+    expect(doc.status).toBe('error');
+    expect(told).toEqual([]);
+    await vi.advanceTimersByTimeAsync(RETRY_MS + 5);
+    expect(told).toEqual(['Storage capacity exceeded']);
+    await vi.advanceTimersByTimeAsync(RETRY_MS + 5);
+    expect(told).toHaveLength(1);
+    // The next retry goes through: the edits are saved, and a later run of failures is told again.
+    await vi.advanceTimersByTimeAsync(RETRY_MS + 5);
+    expect(doc.status).toBe('saved');
+    full(); full();
+    doc.changed();
+    await vi.advanceTimersByTimeAsync(AUTOSAVE_MS + RETRY_MS + 10);
+    expect(told).toHaveLength(2);
+    doc.destroy();
   });
 });

@@ -39,7 +39,9 @@ export function createCanvasRulers({ host, surface, editor, openParagraph, openP
   function context() {
     const e = editor(); if (!e?.layout || !e.canvases.length) return null;
     const bounds = host.getBoundingClientRect();
-    let index = e.canvases.findIndex(c => c.getBoundingClientRect().bottom > bounds.top + 1);
+    // The first page in view. Side to Side and Multiple Pages put pages beside one another: one
+    // scrolled off to the left is not in view, though its bottom is below the window's top.
+    let index = e.canvases.findIndex(c => { const r = c.getBoundingClientRect(); return r.bottom > bounds.top + 1 && r.right > bounds.left + 1; });
     if (index < 0) index = e.canvases.length - 1;
     return { e, bounds, rect: e.canvases[index].getBoundingClientRect(), page: e.layout.pages[index] || e.layout.page,
       settings: e.model.pageSettings, format: e.model.paragraphFormatting };
@@ -50,12 +52,18 @@ export function createCanvasRulers({ host, surface, editor, openParagraph, openP
     band.style[axis === 'x' ? 'left' : 'top'] = `${origin * scale}px`;
     band.style[axis === 'x' ? 'width' : 'height'] = `${(end - origin) * scale}px`; node.append(band);
     const step = unit === 'cm' ? 96 / 2.54 / 10 : 12, major = unit === 'cm' ? 10 : 8;
+    // At small zooms a unit is a few pixels long: keep the ticks apart and number every second,
+    // fifth or tenth unit, so the marks stay distinct and the numbers do not run into each other.
+    const every = [...(unit === 'cm' ? [1, 2, 5] : [1, 2, 4]), major].find(n => n * step * scale >= 3.5) ?? major;
+    const widest = String(Math.ceil(Math.max(origin, length - origin) / step / major)).length;
+    const labelEvery = [1, 2, 5, 10, 20].find(n => n * major * step * scale >= (axis === 'x' ? widest * 6 + 6 : 14)) ?? 20;
     for (let i = Math.ceil(-origin / step); (origin + i * step) <= length; i++) {
+      if (i % every) continue;
       const tick = el('span.canvas-ruler-tick');
       tick.style[axis === 'x' ? 'left' : 'top'] = `${(origin + i * step) * scale}px`;
-      const full = i % major === 0;
-      tick.classList.toggle('major', full); tick.classList.toggle('half', !full && i % (major / 2) === 0);
-      if (full && i !== 0) tick.append(el('span', {}, String(Math.abs(i / major))));
+      const full = i % major === 0, numbered = full && (i / major) % labelEvery === 0;
+      tick.classList.toggle('major', numbered); tick.classList.toggle('half', !numbered && (full || i % (major / 2) === 0));
+      if (numbered && i !== 0) tick.append(el('span', {}, String(Math.abs(i / major))));
       node.append(tick);
     }
   }

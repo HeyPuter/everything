@@ -80,3 +80,20 @@ it.each([
   expect(() => unresolvedBindingReader(data)(binding(xpath, prefixes))).toThrow(/active XML mappings/);
   expect(() => unresolvedBindingReader(data)(binding(xpath.replace(/\w+\[1\]$/, 'absent[1]'), prefixes))).not.toThrow();
 });
+
+// Prefix mappings that are not attribute markup, and a store or relationships part that is not readable
+// XML, stopped the reader with the parser's or decoder's error, so the whole document failed to open (or,
+// with best-effort opening, fell back to bare text). They now mark the binding unsupported.
+it('reports prefix mappings that are not attribute markup as unsupported', () => {
+  for (const prefixes of ["xmlns:f='urn:binding-control'/><x", "xmlns:f='urn:binding-control"]) {
+    expect(() => unresolvedBindingReader(parts())(binding('/f:root/f:absent', prefixes))).toThrow(/data bindings with invalid prefix mappings/);
+  }
+});
+it('reports a store that cannot be read as unsupported', () => {
+  expect(() => unresolvedBindingReader(parts('<q:root xmlns:q="urn:binding-control"><q:value>'))(binding())).toThrow(/data bindings with unreadable custom XML parts/);
+  const latin1 = Uint8Array.from('<?xml version="1.0" encoding="ISO-8859-1"?><root>café</root>', c => c.charCodeAt(0));
+  expect(() => unresolvedBindingReader({ ...parts(), 'customXml/data.xml': latin1 })(binding())).toThrow(/data bindings with unreadable custom XML parts/);
+});
+it('reports a relationships part that cannot be read as unsupported', () => {
+  expect(() => unresolvedBindingReader({ ...parts(), 'word/_rels/other.xml.rels': '<Relationships' })(binding())).toThrow(/data bindings with unreadable relationships/);
+});

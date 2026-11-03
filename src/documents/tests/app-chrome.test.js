@@ -60,6 +60,21 @@ describe('keymap', () => {
     expect(keymap.commandFor('Mod+Shift+C')).toBe('copyFormat');
     expect(localStorage.getItem(KEYMAP_STORE)).toBeNull();
   });
+  it('shares bindings with the other tabs: a change there applies here, and a change here keeps theirs', () => {
+    const ran = [], here = createKeymap({ defaults: {}, run: id => { ran.push(id); }, storage: localStorage, mac: false });
+    const there = createKeymap({ defaults: {}, run: () => {}, storage: localStorage, mac: false });
+    const heard = vi.fn(); here.onChange(heard);
+    there.assign('underline', 'Mod+Alt+J');
+    // The browser tells the other tabs of the stored change.
+    window.dispatchEvent(new StorageEvent('storage', { key: KEYMAP_STORE, storageArea: localStorage, newValue: localStorage.getItem(KEYMAP_STORE) }));
+    expect(heard).toHaveBeenCalled();
+    expect(here.handle(key('KeyJ', { ctrlKey: true, altKey: true }))).toBe(true);
+    expect(ran).toEqual(['underline']);
+    // A tab that missed the event still starts from what is stored.
+    localStorage.setItem(KEYMAP_STORE, JSON.stringify({ underline: ['Mod+Alt+J'], bold: ['Mod+Alt+B'] }));
+    here.assign('italic', 'Mod+Alt+K');
+    expect(loadBindings(localStorage)).toEqual({ underline: ['Mod+Alt+J'], bold: ['Mod+Alt+B'], italic: ['Mod+Alt+K'] });
+  });
   it('leaves AltGr characters to the text', () => {
     const ran = [];
     const keymap = createKeymap({ defaults: { pasteSpecial: ['Mod+Alt+V'] }, run: id => { ran.push(id); }, storage: localStorage, mac: false });

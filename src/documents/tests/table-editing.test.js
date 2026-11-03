@@ -183,6 +183,18 @@ describe('with Track Changes on', () => {
     // Inserting whole rows and columns moves nothing and still works.
     at(doc, 0, 0); expect(T.insertCells(doc, { shift: 'row' })).toBe(true);
   });
+  // Split Table moves the lower rows into a new table after an untracked paragraph (in the first row: a
+  // paragraph before the table), which a reviewer would never see; it refuses like Move Table.
+  it('refuses Split Table from any row, and Ctrl+Enter in a table once with its own message', () => {
+    for (const row of [0, 1]) {
+      refuses(`Split Table at row ${row}`, doc => { at(doc, row, 0); T.splitTable(doc); });
+      const doc = tracked(); at(doc, row, 0);
+      expect(() => T.splitTable(doc)).toThrow('Splitting a table cannot be tracked yet. Turn off Track Changes to do this.');
+      expect(doc.paragraphs.filter(p => !p.cellId)).toHaveLength(1); expect(doc.tables).toHaveLength(1);
+      expect(() => T.insertTablePageBreak(doc)).toThrow('Breaking a table across pages cannot be tracked yet. Turn off Track Changes to do this.');
+      expect(doc.tables).toHaveLength(1);
+    }
+  });
   it('still records the Delete key on cells, and allows commands that remove nothing', () => {
     const doc = tracked();
     block(doc, 0, 0, 0, 2); expect(T.clearCells(doc)).toBe(true);
@@ -331,6 +343,36 @@ describe('table commands', () => {
     expect(documentBlocks(doc.paragraphs, doc.tables).map(b => b.type)).toEqual(['paragraph', 'table', 'paragraph', 'table', 'paragraph']);
     const { reopened } = await roundTrip(pkg, doc);
     expect(reopened.tables).toHaveLength(2);
+  });
+
+  it('Ctrl+Enter splits the table above the row with a page break between, keeping merges and the caret', async () => {
+    const { pkg, doc } = tableDocument(3, 2, ['Intro']);
+    // A merge down the first column crosses the cut; it ends above it, as Split Table leaves it.
+    block(doc, 0, 0, 2, 1); T.mergeBlock(doc);
+    const caret = doc.paragraphOffset(doc.paragraphs.findIndex(p => p.cellId === cellAt(doc, 1, 1).id)) + 1;
+    doc.select(caret);
+    expect(T.insertTablePageBreak(doc)).toBe(true);
+    expect(doc.tables.map(t => shape(doc, t))).toEqual([['a0/b0/c0 a1'], ['^ b1', 'v c1']]);
+    expect(doc.paragraphs.filter(p => !p.cellId).map(paragraphText)).toEqual(['Intro', '\f', '']);
+    expect(paragraphText(doc.paragraphs[doc.locate(doc.selection.focus).index])).toBe('b1');
+    expect(doc.locate(doc.selection.focus).offset).toBe(1);
+    const { reopened } = await roundTrip(pkg, doc);
+    expect(reopened.tables).toHaveLength(2);
+    expect(reopened.paragraphs.filter(p => !p.cellId).map(paragraphText)).toEqual(['Intro', '\f', '']);
+    // Nested tables and Track Changes refuse, leaving the document as it was.
+    const tracked = tableDocument(2, 2).doc; at(tracked, 1, 0); tracked.trackChanges = true;
+    const before = tracked.snapshot();
+    expect(() => T.insertTablePageBreak(tracked)).toThrow(/cannot be tracked yet/);
+    expect(tracked.snapshot()).toEqual(before);
+    const outer = tableDocument(1, 1).doc, cell = outer.tables[0].rows[0].cells[0];
+    outer.selectCell(cell.id); outer.select(outer.selection.focus, outer.selection.focus + 2); outer.replace('x\ty'); outer.insertParagraph(); outer.replace('z\tw');
+    const start = outer.paragraphOffset(outer.paragraphs.findIndex(p => p.cellId === cell.id));
+    outer.select(start, start + 7); T.convertTextToTable(outer, { separator: 'tab', availableWidth: 8000 });
+    const nested = outer.tables.find(t => t.parentCellId === cell.id);
+    outer.selectCell(nested.rows[1].cells[0].id);
+    const unsplit = outer.snapshot();
+    expect(() => T.insertTablePageBreak(outer)).toThrow(/nested table/);
+    expect(outer.snapshot()).toEqual(unsplit);
   });
 
   it('sorts rows by number, text and date keys with a header row', () => {

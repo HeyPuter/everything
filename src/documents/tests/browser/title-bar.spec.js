@@ -192,3 +192,19 @@ test('the document name stays put while AutoSave goes from unsaved to saving to 
     await page.close();
   }
 });
+
+test('inside the Puter desktop the window title names the document, and follows a rename', async ({ page }) => {
+  // The desktop's title bar shows what the app sets with setWindowTitle, not the page's own title.
+  await page.addInitScript(() => {
+    window.__windowTitles = [];
+    let ui;
+    Object.defineProperty(window, 'puter', { configurable: true, set(value) { ui = value; const set = value.ui.setWindowTitle; value.ui.setWindowTitle = t => { window.__windowTitles.push(t); set(t); }; Object.defineProperty(window, 'puter', { value: ui, writable: true, configurable: true }); } });
+  });
+  await page.setViewportSize({ width: 1200, height: 800 });
+  await page.goto('/mock.html?env=app#/new');
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await expect.poll(() => page.evaluate(() => window.__windowTitles.at(-1))).toBe('Untitled document — Documents');
+  await title(page).fill('Quarterly plan');
+  await title(page).press('Enter');
+  await expect.poll(() => page.evaluate(() => window.__windowTitles.at(-1))).toBe('Quarterly plan — Documents');
+});

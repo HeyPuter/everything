@@ -1,4 +1,4 @@
-import { el, isComposing } from '../ui/dom.js';
+import { el, isComposing, amountInRange } from '../ui/dom.js';
 import { openModal } from '../ui/modal.js';
 import { commandIconEl } from '../ui/ribbon.js';
 import { drawingParts } from '../engine/drawing-format.js';
@@ -184,7 +184,8 @@ export function openLayoutDialog({ engine, image, describe, tab = 'position', ki
     e.preventDefault();
     error.hidden = true;
     const form = e.target;
-    for (const input of form.querySelectorAll('input[type=number]:not(:disabled)')) if (!input.checkValidity() || input.value === '') {
+    // The arrows step by hundredths, but any amount in range is taken, as Page Setup takes it (1.125 in).
+    for (const input of form.querySelectorAll('input[type=number]:not(:disabled)')) if (!amountInRange(input)) {
       // Show the tab holding the field, so the browser can point at it.
       const tab = Object.entries(panels).find(([, panel]) => panel.contains(input))?.[0];
       if (tab) select(tab);

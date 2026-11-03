@@ -19,6 +19,8 @@ function leadingWordSpacing(text, style, measure) {
   if (!leading) return 0;
   // Some native shapers omit word spacing at the start of a separate text
   // fragment (including a small-caps size change). Restore just that advance.
+  // The spaces are measured on their own: caret offsets asked of the whole text are not theirs.
+  if (style.caretOffsets) { style = { ...style }; delete style.caretOffsets; }
   const native = measure(leading, style).width - measure(leading, { ...style, justificationSpacing: 0 }).width;
   const wanted = leading.length * style.justificationSpacing / (textTransform(style)?.scaleX || 1);
   return style.justificationSpacing < 0 ? Math.min(0, wanted - native) : Math.max(0, wanted - native);

@@ -416,3 +416,17 @@ describe('a list in a table cell', () => {
     expect(documentMarkdown(d)).toContain('| 1. Step one<br>2. Step two | • Point |');
   });
 });
+
+describe('the web page language', () => {
+  it('is the document’s default language, so screen readers read the page in it', () => {
+    const doc = blankDoc();
+    doc.replace('Guten Tag');
+    doc.styles.defaults.run.fontLanguage = 'de-DE';
+    expect(documentHtml(doc)).toContain('<html lang="de-DE">');
+    // Without one, or with a value that is no language tag, the page says English.
+    doc.styles.defaults.run.fontLanguage = '';
+    expect(documentHtml(doc)).toContain('<html lang="en">');
+    doc.styles.defaults.run.fontLanguage = 'x"><script>';
+    expect(documentHtml(doc)).toContain('<html lang="en">');
+  });
+});

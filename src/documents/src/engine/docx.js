@@ -84,7 +84,7 @@ import { documentBlocks } from './tables.js';
 import { emptyStyles, resolveStyledParagraph, resolveCharacterRun, styleProperties, paragraphRunStyle, styleRun, characterUnit } from './styles.js';
 import { resolvedFormat, geometryPatch, checkedRunFormat, PARAGRAPH_FLAGS, characterIndent } from './formatting.js';
 import { levelParagraphPatch } from './numbering-paragraph.js';
-import { UnsupportedDocumentError } from './errors.js';
+import { InvalidXmlError, UnsupportedDocumentError } from './errors.js';
 export { UnsupportedDocumentError } from './errors.js';
 import { parseXml as xml, runText, setContentTypeOverride, xmlDepthExceeds } from './docx-xml.js';
 import { emptyNumbering, levelFor, listMarkers } from './numbering.js';
@@ -92,25 +92,44 @@ import { readNumbering, writeNumbering } from './docx-numbering.js';
 import { validateIndent, normalizeTabStops } from './paragraph-geometry.js';
 import { DEFAULT_PAGE_SETTINGS, validatePageSettings } from './page-settings.js';
 import { checkedLineNumbers } from './line-number-settings.js';
-import { zipPackage, MAX_PACKAGE_BYTES, compoundFileProblem, relationshipPartPath, partPathForUrl } from './package-part-paths.js';
+import { zipPackage, MAX_PACKAGE_BYTES, compoundFileProblem, relationshipPartPath, partPathForUrl, partContentType, unzipBounded, MAX_EXPANDED_PACKAGE_BYTES } from './package-part-paths.js';
 import { zipPackageAsync } from './package-zip.js';
 import { canonicalMainPart } from './docx-main-part.js';
 import { altChunkParagraphs } from './docx-alt-chunks.js';
-import { unzipSync, strToU8 } from 'fflate';
+import { strToU8 } from 'fflate';
 import { paragraph, paragraphFormat, runFormat, documentText, paragraphText, PAGINATION_DEFAULTS } from './model.js';
 
 export const DOCX_TYPE = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 // A template (.dotx) or macro-enabled file (.docm, .dotm) differs from a document only in its main
 // part's content type, and in the macros (refused for editing below). Saving writes a .docx.
-const MAIN_TYPES = new Set([`${DOCX_TYPE}.main+xml`, 'application/vnd.openxmlformats-officedocument.wordprocessingml.template.main+xml', 'application/vnd.ms-word.document.macroEnabled.main+xml', 'application/vnd.ms-word.template.macroEnabledTemplate.main+xml']);
+const MAIN_TYPES = new Set([`${DOCX_TYPE}.main+xml`, 'application/vnd.openxmlformats-officedocument.wordprocessingml.template.main+xml', 'application/vnd.ms-word.document.macroenabled.main+xml', 'application/vnd.ms-word.template.macroenabledtemplate.main+xml']);
+// Macros and signatures are found by what their parts are, not what they are called: part names are the
+// producer's choice (ECMA-376 Part 2, §9.1.1), and a VBA project stored as word/code.bin was kept and saved
+// into a .docx, which Word refuses. Macro parts are the VBA project and its data ([MS-OFFMACRO2]);
+// signatures are Part 2's digital signature origin and XML signature parts.
+const MACRO_OR_SIGNATURE_TYPES = /^application\/vnd\.ms-office\.vbaproject$|^application\/vnd\.ms-word\.vbadata\+xml$|^application\/vnd\.openxmlformats-package\.digital-signature-/;
+// A package may not hold two parts whose names are equal ignoring ASCII case (equivalent part names,
+// ECMA-376 Part 2, §9.1.1), and Word refuses such a file. A repeated ZIP item replaced the earlier one on
+// reading (fflate keeps the last), so a save dropped it. Which part is meant is unknown: the document
+// opens read-only, and its download keeps the file as it was.
+const duplicatePartNames = new WeakMap();
+function hasMacrosOrSignatures(parts) {
+  let types;
+  try { types = xml(parts['[Content_Types].xml']).documentElement; } catch { return false; }
+  return Object.keys(parts).some(name => MACRO_OR_SIGNATURE_TYPES.test(partContentType(types, name)));
+}
+// The main part's type can come from an Override or, as for any part, from the Default for its extension
+// (ECMA-376 Part 2, §10.1.2.4); media types compare without regard to case. A package typing it only through
+// <Default Extension="xml"> was refused as "not a standard .docx".
+const mainPartType = types => partContentType(types.documentElement, 'word/document.xml');
 function writeDocumentType(parts) {
   const types = xml(parts['[Content_Types].xml']);
-  const main = [...types.getElementsByTagNameNS('*', 'Override')].find(n => n.getAttribute('PartName') === '/word/document.xml');
-  if (!main || main.getAttribute('ContentType') === `${DOCX_TYPE}.main+xml`) return;
-  main.setAttribute('ContentType', `${DOCX_TYPE}.main+xml`);
+  if (mainPartType(types) === `${DOCX_TYPE}.main+xml`) return;
+  setContentTypeOverride(types, '/word/document.xml', `${DOCX_TYPE}.main+xml`);
   parts['[Content_Types].xml'] = strToU8(serialize(types));
 }
 export const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
+const STRICT_W = 'http://purl.oclc.org/ooxml/wordprocessingml/main';
 const REL = 'http://schemas.openxmlformats.org/package/2006/relationships';
 const XML = 'http://www.w3.org/XML/1998/namespace';
 const serialize = node => new XMLSerializer().serializeToString(node);
@@ -892,7 +911,8 @@ function rememberDocumentSkeleton(bytes, doc) {
   const content = [...body.childNodes];
   for (const node of content) if (node !== section) node.remove();
   try { documentSkeletons.set(bytes, serialize(doc)); }
-  finally { body.replaceChildren(...content); }
+  // Appended one by one: spreading a long body into one call runs out of stack at about 120,000 nodes.
+  finally { body.replaceChildren(); for (const node of content) body.append(node); }
 }
 function documentSkeleton(bytes) {
   const keyed = !!bytes && typeof bytes === 'object';
@@ -1179,14 +1199,10 @@ function hasPageStoryControls(root) {
   });
 }
 
+const EXPANDED_LIMIT = 'DOCX expanded size exceeds the editor limit.';
 // The text of a WordprocessingML package imported into another (an altChunk), for a read-only preview.
 function previewEmbeddedPackage(bytes) {
-  let total = 0, count = 0;
-  const parts = canonicalMainPart(unzipSync(bytes, { filter: entry => {
-    total += entry.originalSize;
-    if (++count > 2000 || total > 50 * 1024 * 1024) throw new Error('DOCX expanded size exceeds the editor limit.');
-    return true;
-  } }));
+  const parts = canonicalMainPart(unzipBounded(bytes, { maxBytes: MAX_EXPANDED_PACKAGE_BYTES, message: EXPANDED_LIMIT }));
   return DocxPackage.preview(parts).paragraphs;
 }
 
@@ -1227,40 +1243,63 @@ export class DocxPackage {
   }
   static async open(input, { bestEffort = false } = {}) {
     const bytes = input instanceof Uint8Array ? input : new Uint8Array(await input.arrayBuffer());
-    if (bytes.length > MAX_PACKAGE_BYTES) throw new Error('This editor currently opens DOCX files up to 20 MB.');
+    if (bytes.length > MAX_PACKAGE_BYTES) throw new Error(`This editor currently opens DOCX files up to ${MAX_PACKAGE_BYTES / 1024 / 1024} MB.`);
     const compound = compoundFileProblem(bytes);
     if (compound) throw new Error(compound);
-    let total = 0, count = 0, parts;
+    let parts;
+    const names = new Set(), duplicates = new Set();
     try {
-      parts = unzipSync(bytes, { filter: entry => {
-        total += entry.originalSize;
-        if (++count > 2000 || total > 50 * 1024 * 1024) throw new Error('DOCX expanded size exceeds the editor limit.');
-        return true;
+      parts = unzipBounded(bytes, { maxBytes: MAX_EXPANDED_PACKAGE_BYTES, message: EXPANDED_LIMIT, onItem: entry => {
+        const key = entry.name.replace(/[A-Z]+/g, c => c.toLowerCase());
+        if (!key.endsWith('/') && names.has(key)) duplicates.add(entry.name); else names.add(key);
       } });
     } catch (e) { throw new Error(`Could not read this DOCX archive: ${e.message}`); }
     parts = canonicalMainPart(parts);
+    if (duplicates.size) duplicatePartNames.set(parts, [...duplicates]);
     if (!parts['word/document.xml'] || !parts['[Content_Types].xml'] || !parts['_rels/.rels']) throw new Error('This file is not a supported DOCX document.');
     const types = xml(parts['[Content_Types].xml']);
-    if (![...types.getElementsByTagNameNS('*', 'Override')].some(n => n.getAttribute('PartName') === '/word/document.xml' && MAIN_TYPES.has(n.getAttribute('ContentType')))) {
+    if (!MAIN_TYPES.has(mainPartType(types))) {
       throw new Error('Only standard .docx files are supported in this version.');
     }
     const relations = xml(parts['_rels/.rels']);
     if (![...relations.getElementsByTagNameNS(REL, 'Relationship')].some(n => /\/officeDocument$/.test(n.getAttribute('Type')) && /^\/?word\/document.xml$/.test(n.getAttribute('Target')) && n.getAttribute('TargetMode') !== 'External')) throw new Error('Unsupported DOCX document location.');
     try { return this.#read(parts); }
     catch (e) {
-      if (!bestEffort || !(e instanceof UnsupportedDocumentError)) throw e;
-      const issues = new Set(); recordPreviewIssue(issues, e);
+      if (!bestEffort || !(e instanceof UnsupportedDocumentError || e instanceof InvalidXmlError)) throw e;
+      const issues = new Set();
       let pkg;
-      try { pkg = this.#read(parts, true, issues); }
-      catch (fallbackError) {
-        if (!(fallbackError instanceof UnsupportedDocumentError)) throw fallbackError;
-        recordPreviewIssue(issues, fallbackError);
-        pkg = this.preview(parts);
+      if (e instanceof InvalidXmlError) pkg = this.#unreadablePartsPreview(parts, issues, e);
+      else {
+        recordPreviewIssue(issues, e);
+        try { pkg = this.#read(parts, true, issues); }
+        catch (fallbackError) {
+          if (fallbackError instanceof InvalidXmlError) pkg = this.#unreadablePartsPreview(parts, issues, fallbackError);
+          else {
+            if (!(fallbackError instanceof UnsupportedDocumentError)) throw fallbackError;
+            recordPreviewIssue(issues, fallbackError);
+            pkg = this.preview(parts);
+          }
+        }
       }
       pkg.readOnly = true;
       pkg.previewIssues = [...issues];
       return pkg;
     }
+  }
+  // A styles, settings, fonts, comments or other part that is not well-formed XML (or not UTF-8 or UTF-16)
+  // failed the whole open with "invalid XML". Word offers to recover such a file; here the main document's
+  // text opens as the read-only preview, which names the unreadable parts. A main document that cannot be
+  // read either still fails with the original error.
+  static #unreadablePartsPreview(parts, issues, error) {
+    let pkg;
+    try { pkg = this.preview(parts); } catch { throw error; }
+    for (const [name, bytes] of Object.entries(parts)) {
+      if (!/\.(xml|rels)$/i.test(name)) continue;
+      try { xml(bytes, { depthLimit: Infinity }); }
+      catch (failure) { if (failure instanceof InvalidXmlError) issues.add(`${name}: ${failure.reason}; the read-only preview shows the document's text without this part`); }
+    }
+    if (!issues.size) recordPreviewIssue(issues, error);
+    return pkg;
   }
   static preview(parts) {
     const doc = xml(parts['word/document.xml'], { depthLimit: Infinity });
@@ -1290,10 +1329,14 @@ export class DocxPackage {
         return typeof fallback === 'function' ? fallback() : fallback;
       }
     };
-    if (Object.keys(parts).some(name => /vbaProject|^_xmlsignatures\//i.test(name))) unsupported('macros or digital signatures');
+    if (duplicatePartNames.has(parts)) unsupported(`parts that share a name (${duplicatePartNames.get(parts).join(', ')})`);
+    if (Object.keys(parts).some(name => /vbaProject|^_xmlsignatures\//i.test(name)) || hasMacrosOrSignatures(parts)) unsupported('macros or digital signatures');
     const settings = attempt(() => readSettings(parts), null);
     const savedSpellingComplete = completedSpelling(settings?.documentElement), spellingAnchors = new Map();
     const doc = xml(parts['word/document.xml']);
+    // Word's "Strict Open XML Document" (ISO/IEC 29500 Strict conformance, whose namespaces are under
+    // http://purl.oclc.org/ooxml/) shows as text. "A different OOXML namespace" told the user nothing to do.
+    if (doc.documentElement.namespaceURI === STRICT_W) throw new UnsupportedDocumentError('Strict Open XML markup, shown as text only; in Word, save it as a Word Document (.docx) to edit it here');
     if (doc.documentElement.namespaceURI !== W) throw new UnsupportedDocumentError('a different OOXML namespace');
     const activeNodes = attempt(() => activeDescendants(doc.documentElement), () => [...doc.getElementsByTagNameNS(W, '*')]);
     const sectionSourceIndices = new Map(activeNodes.filter(n => n.namespaceURI === W && n.localName === 'sectPr').map((node, index) => [node, index]));
@@ -1516,7 +1559,7 @@ export class DocxPackage {
         }
         if (isPermissionElement(r) && !context.drawingText && !context.pageStory) {
           if (bodyFields.inCode) throw new UnsupportedDocumentError('permission ranges inside a body field instruction');
-          bookmarks.push(readPermissionMarker(r, textPosition, bodyInlineOrder++)); return;
+          bookmarks.push(readPermissionMarker(r, textPosition, bodyInlineOrder++, context)); return;
         }
         if (r.namespaceURI === W && ['commentRangeStart', 'commentRangeEnd'].includes(r.localName)) {
           if (context.drawingText || context.pageStory) throw new UnsupportedDocumentError('comments outside the main body');
@@ -1531,7 +1574,7 @@ export class DocxPackage {
           recordPreviewIssue(issues, new UnsupportedDocumentError(r.localName));
           proofingSafe = false;
           const recovered = previewParagraphs(r).flatMap(p => p.runs);
-          runs.push(...recovered);
+          for (const run of recovered) runs.push(run);
           textPosition += recovered.reduce((length, run) => length + run.text.length, 0);
           return;
         }
@@ -1782,7 +1825,7 @@ export class DocxPackage {
           runs.length = before.runs; bookmarks.length = before.bookmarks; controls.length = before.controls;
           proofingSafe = false;
           const fallbackRuns = previewParagraphs(r).flatMap(p => p.runs);
-          runs.push(...fallbackRuns);
+          for (const run of fallbackRuns) runs.push(run);
           textPosition = before.textPosition + fallbackRuns.reduce((length, run) => length + run.text.length, 0);
         }
       }
@@ -1833,12 +1876,12 @@ export class DocxPackage {
           if (node.localName === 'sectPr' && !depth && !context.cellId) continue;
           if (isPermissionElement(node) && node.localName === 'permStart' && !context.drawingText && !context.pageStory) {
             // A range opening between blocks starts with the next paragraph.
-            leading.push(readPermissionMarker(node, 0, bodyInlineOrder++));
+            leading.push(readPermissionMarker(node, 0, bodyInlineOrder++, context));
             continue;
           }
           if ((['commentRangeStart', 'commentRangeEnd'].includes(node.localName) || isPermissionElement(node)) && !context.drawingText && !context.pageStory) {
             const previous = result.at(-1);
-            const marker = (isPermissionElement(node) ? readPermissionMarker : readCommentMarker)(node, previous ? paragraphText(previous).length : 0, bodyInlineOrder++);
+            const marker = (isPermissionElement(node) ? readPermissionMarker : readCommentMarker)(node, previous ? paragraphText(previous).length : 0, bodyInlineOrder++, context);
             if (previous) { (previous.bookmarks ||= []).push(marker); adopted(previous); } else pending.push(marker);
             continue;
           }
@@ -1871,7 +1914,7 @@ export class DocxPackage {
             const parsed = readTable(node, readParagraph, stylesRoot, readColor, (contents, cellContext) => readBlocks(contents, { ...context, ...cellContext, ...((context.blockControls || cellContext.blockControls) ? { blockControls: [...(context.blockControls || []), ...(cellContext.blockControls || [])] } : {}) }, depth + 1, blockTables).map(p => ({ source: p.storySource || originals.get(p.id).xml, paragraph: p })), readBookmark, blockTables, p => resolveStyledParagraph(p, styles, numbering, { displayOnly: preview }), readControl, pageSettings.compatibilityMode, preview, readEffectsStyles, error => recordPreviewIssue(issues, error));
             if (context.cellId) parsed.table.parentCellId = context.cellId;
             if (context.blockControls) parsed.table.blockControls = context.blockControls;
-            blockTables.push(parsed.table); takeLeading(parsed.paragraphs); result.push(...parsed.paragraphs);
+            blockTables.push(parsed.table); takeLeading(parsed.paragraphs); for (const p of parsed.paragraphs) result.push(p);
           } else throw new UnsupportedDocumentError(node.localName);
         } catch (e) {
           if (!preview || context.drawingText || !(e instanceof UnsupportedDocumentError)) throw e;
@@ -1890,7 +1933,7 @@ export class DocxPackage {
           const sourced = context.cellId || context.pageStory || context.drawingText;
           const storySource = sourced && recovered.length ? serializeFragment(node) : undefined;
           for (const p of recovered) Object.assign(p, context, sourced ? { storySource } : {});
-          result.push(...recovered);
+          for (const p of recovered) result.push(p);
         }
       }
       if (leading.length) {
@@ -2016,7 +2059,15 @@ export class DocxPackage {
     pkg.initialNotes = {};
     for (const kind of ['footnote', 'endnote']) {
       const names = NOTE_KINDS[kind], referencedNotes = noteReferences(paragraphs, kind);
-      if (!referencedNotes.length) continue;
+      if (!referencedNotes.length) {
+        // A notes part no note uses yet is where Insert Footnote adds its notes. One that is not well-formed XML is an
+        // unreadable part like the others (the open is read-only, naming it), not a failure at the first inserted note.
+        // Only well-formedness is checked: what Insert Footnote refuses in a readable part, it says itself.
+        let notesPath = null;
+        try { notesPath = relatedPartPath(parts, names.part); } catch { /* an unusable relationship is not an unreadable part */ }
+        if (notesPath) xml(parts[notesPath], { depthLimit: Infinity });
+        continue;
+      }
       attempt(() => {
         const notesPath = relatedPartPath(parts, names.part);
         if (!notesPath) throw new UnsupportedDocumentError(`a missing ${names.part} part`);

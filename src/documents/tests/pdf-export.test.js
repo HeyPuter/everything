@@ -138,3 +138,49 @@ it('writes right-to-left words inside left-to-right text in the order they are p
   // Brackets in right-to-left text are painted mirrored; numbers after it keep their own order.
   expect(visualText('ראה (כאן) 12')).toBe('12 (ןאכ) האר');
 });
+
+/** An editor whose printed pages are counted while they hold their pixels. `edit(count, width)` lays it out anew. */
+function pagedEngine(count, width = 816) {
+  const live = new Set();
+  const layoutOf = (n, w) => ({ lines: [], pages: Array.from({ length: n }, () => ({ width: w, height: 1056 })), page: { width: w, height: 1056 } });
+  const engine = {
+    fontRefresh: Promise.resolve(), model: { paragraphs: [], revision: 0 }, session: { revision: 0 }, layout: layoutOf(count, width), peak: 0, live, painted: [],
+    edit(n, w) { engine.model.revision++; engine.layout = layoutOf(n, w); },
+    printLayout: () => ({ layout: engine.layout }),
+    printSheets(pages = null) {
+      const layout = engine.layout, sheets = new Array(layout.pages.length);
+      for (const index of pages ?? sheets.keys()) {
+        const canvas = { _w: layout.pages[index].width * 2, height: 2112, toBlob: cb => queueMicrotask(() => { engine.onEncode?.(index); cb(new Blob([JPEG])); }) };
+        Object.defineProperty(canvas, 'width', { get: () => canvas._w, set: v => { canvas._w = v; if (!v) live.delete(canvas); } });
+        live.add(canvas); sheets[index] = canvas;
+      }
+      engine.painted.push(pages ? pages.length : 'all');
+      engine.peak = Math.max(engine.peak, live.size);
+      engine.printedLayout = { layout };
+      return sheets;
+    },
+  };
+  return engine;
+}
+const mediaBoxes = text => [...text.matchAll(/\/MediaBox \[0 0 ([\d.]+) /g)].map(m => Number(m[1]));
+
+it('paints a long document a few pages at a time, so its print-resolution pages are never all held at once', async () => {
+  const { exportPdf } = await import('../src/lib/pdf-export.js');
+  const engine = pagedEngine(40);
+  const text = new TextDecoder('latin1').decode(await (await exportPdf(engine, { title: 'Long' })).arrayBuffer());
+  expect(text.match(/\/Type \/Page /g)).toHaveLength(40);
+  expect(engine.peak).toBeLessThanOrEqual(8);
+  expect(engine.live.size).toBe(0);
+});
+
+it('makes the PDF of the edited document, whole, when the document is edited between batches', async () => {
+  const { exportPdf } = await import('../src/lib/pdf-export.js');
+  // 20 Letter pages; typing while the third page is encoded makes the document 25 pages, 600 px wide.
+  const engine = pagedEngine(20);
+  engine.onEncode = index => { if (index === 2 && engine.layout.pages.length === 20) engine.edit(25, 600); };
+  const text = new TextDecoder('latin1').decode(await (await exportPdf(engine)).arrayBuffer());
+  // Only the new document's pages, none of the 816 px ones painted before the edit.
+  expect(mediaBoxes(text)).toEqual(Array(25).fill(450));
+  expect(engine.painted.at(-1)).toBe('all');
+  expect(engine.live.size).toBe(0);
+});

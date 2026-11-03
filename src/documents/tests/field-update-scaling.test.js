@@ -78,3 +78,48 @@ it('updates twice as many fields with twice the work, not four times', async () 
   expect(sequences40).toBeLessThanOrEqual(2.2 * sequences20);
   expect(references40).toBeLessThanOrEqual(2.2 * references20);
 });
+
+// Each refreshed result was replaced through the whole document (its text joined, its fields placed again), so
+// Update Fields and Insert Caption cost the number of fields times the document's length: 200 stale caption numbers
+// in 2,000 paragraphs took 5–7 seconds. Each result is now replaced in its own paragraph.
+const captions = (count, every) => {
+  const parts = unzipSync(source), rows = Array.from({ length: count }, (_, i) => i % every
+    ? `<w:p><w:r><w:t xml:space="preserve">Body text ${i} long enough to read as a paragraph of a report.</w:t></w:r></w:p>`
+    : `<w:p><w:r><w:t xml:space="preserve">Figure </w:t></w:r><w:fldSimple w:instr=" SEQ Figure \\* ARABIC "><w:r><w:t>1</w:t></w:r></w:fldSimple><w:r><w:t xml:space="preserve">: chart ${i}</w:t></w:r></w:p>`).join('');
+  parts['word/document.xml'] = strToU8(strFromU8(parts['word/document.xml']).replace('<w:body>', `<w:body>${rows}`));
+  return zipSync(parts);
+};
+it('replaces each stale result in its own paragraph, so twice the document is twice the work', async () => {
+  const work = [];
+  for (const count of [300, 600]) {
+    const p = await DocxPackage.open(captions(count, 10)), d = new TextDocument(p.paragraphs, p.pageSettings, p.numbering, p.styles, p.tables, p.assets);
+    d.select(d.text.indexOf('chart 290'));
+    // How many paragraphs the document's text was read from, over every read.
+    let read = 0;
+    const text = Object.getOwnPropertyDescriptor(TextDocument.prototype, 'text');
+    vi.spyOn(TextDocument.prototype, 'text', 'get').mockImplementation(function () { read += this.paragraphs.length; return text.get.call(this); });
+    expect(updateSequenceFields(d, { onIssue: () => {} })).toBe(count / 10 - 1);
+    vi.restoreAllMocks();
+    work.push(read);
+    const numbers = bodyFieldRanges(d.paragraphs).filter(r => r.field.type === 'SEQ').map(r => d.text.slice(r.start, r.end));
+    expect(numbers).toEqual(Array.from({ length: count / 10 }, (_, i) => String(i + 1)));
+    // The caret stays in the text it was in.
+    expect(d.text.slice(d.selection.focus, d.selection.focus + 9)).toBe('chart 290');
+  }
+  // 19,215 and 74,415 paragraphs read before; 1,554 and 3,084 now.
+  expect(work[1]).toBeLessThanOrEqual(2.2 * work[0]);
+});
+
+it('replaces a result through the whole document when a field runs into another paragraph', async () => {
+  const parts = unzipSync(source);
+  const field = (instruction, result) => `<w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve">${instruction}</w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r><w:r><w:t xml:space="preserve">${result}</w:t></w:r>`;
+  // A QUOTE field whose result spans two paragraphs holds a SEQ field in each; one more follows it.
+  const body = `<w:p>${field(' QUOTE "a" ', 'Start ')}<w:fldSimple w:instr=" SEQ Figure "><w:r><w:t>5</w:t></w:r></w:fldSimple></w:p>`
+    + `<w:p><w:fldSimple w:instr=" SEQ Figure "><w:r><w:t>5</w:t></w:r></w:fldSimple><w:r><w:t xml:space="preserve"> end</w:t></w:r><w:r><w:fldChar w:fldCharType="end"/></w:r><w:r><w:t xml:space="preserve"> then </w:t></w:r><w:fldSimple w:instr=" SEQ Figure "><w:r><w:t>5</w:t></w:r></w:fldSimple></w:p>`;
+  parts['word/document.xml'] = strToU8(strFromU8(parts['word/document.xml']).replace(/<w:body>[\s\S]*?(<w:sectPr)/, `<w:body>${body}$1`));
+  const p = await DocxPackage.open(zipSync(parts)), d = new TextDocument(p.paragraphs, p.pageSettings, p.numbering, p.styles, p.tables, p.assets);
+  expect(updateSequenceFields(d, { onIssue: () => {} })).toBe(3);
+  expect(d.text).toBe('Start 1\n2 end then 3');
+  const reopened = await DocxPackage.open(new Uint8Array(await p.export(d.paragraphs, d.pageSettings, d.numbering, d.styles, d.tables, d.assets).arrayBuffer()));
+  expect(new TextDocument(reopened.paragraphs).text).toBe('Start 1\n2 end then 3');
+});

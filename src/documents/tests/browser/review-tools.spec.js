@@ -475,6 +475,25 @@ test('AI grammar suggestions are opt-in, marked and applied as ordinary edits', 
   expect(await page.evaluate(() => window.__prompts.length)).toBe(1);
 });
 
+test('closing the Editor pane lets go of an AI check that never answers, and Check with AI works again', async ({ page }) => {
+  await fakeAi(page);
+  // The first request hangs, as one on a stalled connection does; the next is answered.
+  await page.addInitScript(() => { let first = true; const wrap = () => { const chat = window.puter.ai.chat; window.puter.ai.chat = (...args) => { if (first) { first = false; return new Promise(() => {}); } return chat(...args); }; }; queueMicrotask(wrap); });
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await newDocument(page, 'Thanks alot for the review.');
+  await onTab(page, 'review');
+  await review(page).getByRole('button', { name: 'Editor', exact: true }).click();
+  const pane = page.getByRole('complementary', { name: 'Editor pane' });
+  await pane.getByRole('checkbox', { name: /Suggest with/ }).check();
+  await pane.getByRole('button', { name: 'Check with AI' }).click();
+  await expect(pane.getByText('Checking…')).toBeVisible();
+  await pane.getByRole('button', { name: 'Close Editor pane' }).click();
+  await review(page).getByRole('button', { name: 'Editor', exact: true }).click();
+  await expect(pane.getByRole('button', { name: 'Check with AI' })).toBeEnabled();
+  await pane.getByRole('button', { name: 'Check with AI' }).click();
+  await expect(pane.locator('.rv-ai-item')).toContainText('alot → a lot');
+});
+
 test('an AI suggestion that would take in a note reference is not offered', async ({ page }) => {
   await fakeAi(page);
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -681,6 +700,51 @@ test('in the app, Translate Document opens a translated copy', async ({ page }) 
   await pane.getByRole('button', { name: 'Translate document…' }).click();
   await expect(input).toHaveValue('[Translated] Hello world.\n[Translated] Second line.', { timeout: 20000 });
   expect(errors).toEqual([]);
+});
+
+test('Translate Document translates the document as it was sent, though it is edited while the translation runs', async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await page.goto('/mock.html#/new');
+  const input = page.getByRole('textbox', { name: 'Document text' });
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await input.fill('Hello world.\nSecond line.');
+  await onTab(page, 'review');
+  await page.evaluate(() => document.querySelector('#ribbon-panel-review [aria-label="Translate"][aria-haspopup="menu"]')?.click());
+  await page.getByRole('menuitem', { name: 'Translate Document' }).click();
+  const pane = page.getByRole('complementary', { name: 'Translator pane' });
+  page.on('dialog', d => d.accept());
+  // The answer takes a moment: a paragraph typed at the top meanwhile is not in what was sent.
+  await page.evaluate(() => { const chat = puter.ai.chat; puter.ai.chat = async (...args) => { await new Promise(r => setTimeout(r, 1500)); return chat(...args); }; });
+  await pane.getByRole('button', { name: 'Translate document…' }).click();
+  await expect(pane).toContainText('Translating the document');
+  await page.evaluate(() => { const e = window.__docs.current.view.engine; e.model.select(0); e.execute(() => e.model.replace('Typed meanwhile.\n')); });
+  await expect(input).toHaveValue('[Translated] Hello world.\n[Translated] Second line.', { timeout: 20000 });
+  expect(errors).toEqual([]);
+});
+
+test('closing the Translator stops a translation that never answers, and Translate works again', async ({ page }) => {
+  await page.goto('/mock.html#/new');
+  const input = page.getByRole('textbox', { name: 'Document text' });
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await input.fill('Hello world.');
+  // The first request hangs, as one on a stalled connection does; the next is answered.
+  await page.evaluate(() => { const chat = puter.ai.chat.bind(puter.ai); let first = true; puter.ai.chat = (...args) => { if (first) { first = false; return new Promise(() => {}); } return chat(...args); }; });
+  await page.evaluate(() => { const e = window.__docs.current.view.engine; e.model.select(0, 5); e.syncInput(); });
+  await onTab(page, 'review');
+  const openTranslator = async () => {
+    await page.evaluate(() => document.querySelector('#ribbon-panel-review [aria-label="Translate"][aria-haspopup="menu"]')?.click());
+    await page.getByRole('menuitem', { name: 'Translate Selection' }).click();
+  };
+  await openTranslator();
+  const pane = page.getByRole('complementary', { name: 'Translator pane' });
+  await pane.getByRole('button', { name: 'Translate', exact: true }).click();
+  await expect(pane.getByRole('status')).toHaveText('Translating…');
+  await pane.getByRole('button', { name: 'Close Translator pane' }).click();
+  await page.evaluate(() => { const e = window.__docs.current.view.engine; e.model.select(0, 5); e.syncInput(); });
+  await openTranslator();
+  await expect(pane.getByRole('button', { name: 'Translate', exact: true })).toBeEnabled();
+  await pane.getByRole('button', { name: 'Translate', exact: true }).click();
+  await expect(pane.getByRole('status')).toHaveText(/^Translated into/);
 });
 
 test('a protected document opens with its permissions shown and unlocks with its password', async ({ page }, info) => {

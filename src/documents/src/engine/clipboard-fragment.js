@@ -263,6 +263,9 @@ function fromForeignHtml(body) {
     }
     if (node.nodeType !== 1 || SKIPPED.has(node.tagName) || /^ignore$/i.test(msoList(node))) return;
     const tag = node.tagName;
+    // Word for the web ends each paragraph with a no-break space in a span of class EOP. It holds an empty
+    // paragraph open, as Word's <o:p>&nbsp;</o:p> does, and is not text.
+    if (tag === 'SPAN' && node.classList?.contains('EOP')) { if (current) current.filled = true; return; }
     if (tag === 'BR') { if (!node.classList?.contains('Apple-interchange-newline')) append('\v', format, context.link); return; }
     const next = inherited(node, format);
     const ctx = { ...context };

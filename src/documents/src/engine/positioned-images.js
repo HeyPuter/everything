@@ -10,6 +10,16 @@ export function positionedImageContains(frame, x, y) {
   return Math.abs(localX) <= frame.width / 2 + 1e-7 && Math.abs(localY) <= frame.height / 2 + 1e-7;
 }
 
+/**
+ * A shape or group drawing's own rotation (its a:xfrm rot, §20.1.7.6), which its image does not carry: the
+ * drawing's frame is the unrotated extent, turned about its center. 0 for pictures, lines and other drawings.
+ */
+export function drawingOwnRotation(image, assets) {
+  if (!image?.retainedDrawing || image.rotation || image.flatLine || image.flatGroup) return 0;
+  const scene = assets?.[image.assetId]?.scene;
+  return normalizedRotation(scene?.shapeRotation || scene?.groupRotation || 0);
+}
+
 export function positionedImageBounds(frame) {
   const rotation = normalizedRotation(frame.image.rotation);
   if (!rotation) return { x: frame.x, y: frame.y, width: frame.width, height: frame.height };

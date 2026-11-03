@@ -9,6 +9,20 @@ import { el } from '../ui/dom.js';
 import { openModal } from '../ui/modal.js';
 import { builtinOutlineLevel } from '../engine/outline.js';
 
+/** The ids of `id` and of the styles among `choices` whose basedOn chain reaches it. */
+function inheritingFrom(id, choices) {
+  const parent = new Map(choices.map(s => [s.id, s.basedOn])), known = new Map([[id, true]]);
+  for (const choice of choices) {
+    const path = new Set();
+    let at = choice.id;
+    // Each chain is walked once; a cycle or a missing base ends it without reaching `id`.
+    while (at && !known.has(at) && !path.has(at)) { path.add(at); at = parent.get(at); }
+    const reaches = !!at && known.get(at) === true;
+    for (const step of path) known.set(step, reaches);
+  }
+  return new Set([...known].filter(([, reaches]) => reaches).map(([key]) => key));
+}
+
 export function openStyleEditor(style, choices, apply, defaultRun = {}) {
   const character = style.type === 'character', kind = character ? 'character' : 'paragraph';
   const fixedOutline = character ? null : builtinOutlineLevel(style.id);
@@ -17,9 +31,10 @@ export function openStyleEditor(style, choices, apply, defaultRun = {}) {
   // Visible labels drop the "Style" prefix the dialog's title gives; accessible names keep it.
   const shown = label => label.replace(/^Style (\w)/, (_, c) => c.toUpperCase());
   const name = el('input.input', { required: true, maxLength: 253, value: style.name || '', 'aria-label': 'Style name' });
-  const selectStyle = (label, value, emptyLabel, excludeSelf = false) => el('select.input', { 'aria-label': label },
-    el('option', { value: '' }, emptyLabel), ...choices.filter(s => !s.error && (!excludeSelf || s.id !== style.id)).map(s => el('option', { value: s.id, selected: s.id === value }, styleDisplayName(s.name))));
-  const basedOn = selectStyle('Based on style', style.basedOn, 'No base style', true);
+  const selectStyle = (label, value, emptyLabel, excluded = new Set()) => el('select.input', { 'aria-label': label },
+    el('option', { value: '' }, emptyLabel), ...choices.filter(s => !s.error && !excluded.has(s.id)).map(s => el('option', { value: s.id, selected: s.id === value }, styleDisplayName(s.name))));
+  // A style cannot be based on itself or on a style that inherits from it (§17.7.4.3: no cycles).
+  const basedOn = selectStyle('Based on style', style.basedOn, 'No base style', creating ? new Set() : inheritingFrom(style.id, choices));
   const next = selectStyle('Following paragraph style', style.next, 'Same style');
   // Keep ignored/missing original references unless the user changes the field.
   const originalBase = basedOn.value, originalNext = next.value;

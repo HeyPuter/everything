@@ -8,3 +8,12 @@ export class UnsupportedDocumentError extends Error {
     this.feature = feature;
   }
 }
+
+/** A package part that is not well-formed XML, or not in an encoding XML parts may use (UTF-8 or UTF-16). */
+export class InvalidXmlError extends Error {
+  constructor(message = 'The DOCX contains invalid XML.', reason = 'invalid XML') {
+    super(message);
+    this.name = 'InvalidXmlError';
+    this.reason = reason;
+  }
+}

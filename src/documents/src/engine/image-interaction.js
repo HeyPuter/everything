@@ -1,5 +1,5 @@
 import { EMU_PER_PX, inlineImagePaintFrame, normalizedRotation, ANGLE_PER_DEGREE, rotationOutsets, imageExtents, CROP_SIDES, isPositionedImage } from './images.js';
-import { positionedImageBounds, positionedImageFrame } from './positioned-images.js';
+import { positionedImageBounds, positionedImageFrame, drawingOwnRotation } from './positioned-images.js';
 import { resizeImageFrame } from './image-resize.js';
 import { boundaries } from './model.js';
 import { caretRect } from './layout.js';
@@ -123,7 +123,10 @@ export function createImageInteraction(editor) {
   };
   // The frame drawn around a drawing: retained drawings paint their own rotation inside their bounds.
   const boxOf = f => f.image.retainedDrawing ? { ...positionedImageBounds(f), page: f.page } : f;
-  const rotationOf = f => f.image.retainedDrawing ? 0 : normalizedRotation(f.image.rotation) / ANGLE_PER_DEGREE;
+  // A shape or group drawing keeps its rotation in its own transform (a:xfrm rot, §20.1.7.6), not on the image: its
+  // frame is the unrotated extent, which turns about its center like a picture's.
+  const ownRotation = image => drawingOwnRotation(image, editor.model.assets);
+  const rotationOf = f => (f.image.retainedDrawing ? ownRotation(f.image) : normalizedRotation(f.image.rotation)) / ANGLE_PER_DEGREE;
 
   /* ---- The extra selection (Shift+click) ---- */
   const floatingById = id => (editor.selectionLayout.floatingObjects || []).find(f => f.image.id === id && isPositionedImage(f.image));
@@ -221,16 +224,17 @@ export function createImageInteraction(editor) {
     if (f.floating && (mode === 'move' || mode === 'rotate' || HANDLES.includes(mode))) gesture.offsets = offsets(f);
     if (mode === 'move' && f.floating) {
       const ids = new Set([f.image.id, ...others.map(o => o.image.id)]);
-      const neighbours = (editor.selectionLayout.floatingObjects || []).filter(o => o.page === f.page && !ids.has(o.image.id)).map(o => positionedImageBounds(o));
+      // Other drawings' edges as they show: a turned shape by its own rotation.
+      const neighbours = (editor.selectionLayout.floatingObjects || []).filter(o => o.page === f.page && !ids.has(o.image.id)).map(o => positionedImageBounds(ownRotation(o.image) ? { ...o, image: { ...o.image, rotation: ownRotation(o.image) } } : o));
       gesture.targets = pageGuideTargets(pageGeometry(f.page), neighbours);
       gesture.bounds = positionedImageBounds({ ...box, image: { ...f.image, rotation: rotationOf(f) * ANGLE_PER_DEGREE } });
     }
     if (mode === 'rotate') {
       const canvas = canvasOf(f.page), rect = canvas.getBoundingClientRect(), scale = rect.width / canvas.offsetWidth || 1;
       gesture.center = { x: rect.left + (box.x + box.width / 2) * editor.zoom * scale, y: rect.top + (box.y + box.height / 2) * editor.zoom * scale };
-      gesture.baseRotation = normalizedRotation(f.image.rotation) / ANGLE_PER_DEGREE;
+      gesture.baseRotation = (normalizedRotation(f.image.rotation) + ownRotation(f.image)) / ANGLE_PER_DEGREE;
       gesture.startAngle = pointerAngle(gesture.center, gesture.start);
-      gesture.rotation = normalizedRotation(f.image.rotation);
+      gesture.rotation = normalizedRotation(normalizedRotation(f.image.rotation) + ownRotation(f.image));
     }
     if (mode.startsWith('crop')) gesture.crop = { full: { ...crop.full }, rect: { ...crop.rect } };
     overlay.hidden = !!crop; optionsButton.hidden = true;
@@ -280,7 +284,7 @@ export function createImageInteraction(editor) {
         const preserveAspect = corner ? image.aspectLocked !== false || e.shiftKey : !!image.aspectLocked;
         g.resized = corner ? resizeImageFrame(g.frame, g.mode, g.dx, g.dy, { preserveAspect, fromCenter }) : resizeFromHandle(g.frame, g.mode, g.dx, g.dy, { preserveAspect, fromCenter });
         show(g.resized.frame);
-      } else if (!g.box.width || !g.box.height || corner && e.shiftKey) {
+      } else if (!g.box.width || !g.box.height || corner && e.shiftKey && !ownRotation(image)) {
         // Lines and proportional shape resizing scale the whole drawing.
         const sx = g.mode.includes('w') ? -1 : 1, sy = g.mode.includes('n') ? -1 : 1;
         g.scale = Math.max(.01, 1 + (g.dx * sx * g.box.width + g.dy * sy * g.box.height) / (g.box.width * g.box.width + g.box.height * g.box.height));
@@ -288,9 +292,10 @@ export function createImageInteraction(editor) {
         const width = g.box.width * g.scale, height = g.box.height * g.scale;
         show({ ...g.box, page: g.frame.page, width, height, x: g.box.x + (sx < 0 ? g.box.width - width : 0), y: g.box.y + (sy < 0 ? g.box.height - height : 0) }, 0);
       } else {
-        const unrotated = { ...g.box, image: { width: image.width, height: image.height, rotation: 0 } };
-        g.shape = resizeFromHandle(unrotated, g.mode, g.dx, g.dy, { fromCenter });
-        show({ ...g.shape.frame, page: g.frame.page }, 0);
+        // In the shape's own axes: the handle opposite the one dragged stays where it is on the page.
+        const turned = { ...g.box, image: { width: image.width, height: image.height, rotation: ownRotation(image) } };
+        g.shape = resizeFromHandle(turned, g.mode, g.dx, g.dy, { fromCenter, preserveAspect: corner && e.shiftKey });
+        show({ ...g.shape.frame, page: g.frame.page }, rotationOf(g.frame));
       }
     }
     return true;
@@ -304,11 +309,11 @@ export function createImageInteraction(editor) {
     editor.model.select(...g.range);
     if (g.mode === 'move') {
       if (g.frame.floating && g.others.length) moveMany([g.frame, ...g.others], Math.round(g.dx * EMU_PER_PX), Math.round(g.dy * EMU_PER_PX));
-      else if (g.frame.floating) editor.setImageProperties({ anchor: { x: g.offsets.x + Math.round(g.dx * EMU_PER_PX), y: g.offsets.y + Math.round(g.dy * EMU_PER_PX) } });
+      else if (g.frame.floating) { if (!moveToPage(g)) editor.setImageProperties({ anchor: { x: g.offsets.x + Math.round(g.dx * EMU_PER_PX), y: g.offsets.y + Math.round(g.dy * EMU_PER_PX) } }); }
       else editor.execute(() => editor.model.moveImage(g.target));
     } else if (g.mode === 'rotate') {
       const image = editor.model.selectedImage;
-      const delta = g.rotation - normalizedRotation(image.rotation);
+      const delta = g.rotation - normalizedRotation(image.rotation) - ownRotation(image);
       if (delta && !viaHook({ type: 'rotate', image, rotation: g.rotation, delta })) editor.setImageProperties({ rotation: g.rotation });
     } else if (g.resized) {
       resizeImage(editor.model.selectedImage, resizePatch(g.frame, g.resized));
@@ -326,6 +331,42 @@ export function createImageInteraction(editor) {
       resizeImage(image, patch);
     }
     update(); return true;
+  }
+  /**
+   * A floating drawing dropped on another page is anchored to a paragraph that starts on that page (the last
+   * one starting above it), as Word moves an object's anchor with it; its offsets are measured from there.
+   * Kept on its old paragraph, it would be placed past the edge of its old page and disappear. A locked anchor,
+   * Track Changes (which would mark the anchor deleted and inserted), and other stories keep the paragraph.
+   */
+  function moveToPage(g) {
+    const f = g.frame, image = f.image;
+    if (image.anchor.locked || editor.model.trackChanges || editor.session.path !== null || inTable(f)) return false;
+    const from = canvasOf(f.page); if (!from) return false;
+    const rect = from.getBoundingClientRect(), unit = editor.zoom * (rect.width / from.offsetWidth || 1);
+    const cx = rect.left + (g.box.x + g.dx + g.box.width / 2) * unit, cy = rect.top + (g.box.y + g.dy + g.box.height / 2) * unit;
+    const page = (editor.canvases || []).findIndex(c => { const r = c?.getBoundingClientRect(); return r && cx >= r.left && cx <= r.right && cy >= r.top && cy <= r.bottom; });
+    if (page < 0 || page === f.page) return false;
+    const target = editor.canvases[page].getBoundingClientRect();
+    const x = f.x + (cx - target.left) / unit - g.box.width / 2 - g.box.x, y = f.y + (cy - target.top) / unit - g.box.height / 2 - g.box.y;
+    const lines = allLines(), paragraphs = editor.model.paragraphs;
+    const starts = lines.filter(l => l.page === page && !l.cellId && !l.header && lines.find(o => o.paragraphId === l.paragraphId) === l);
+    const line = starts.findLast(l => l.y <= y) || starts[0];
+    const index = line ? paragraphs.findIndex(p => p.id === line.paragraphId) : -1;
+    if (index < 0 || paragraphs[index].cellId) return false;
+    const geometry = editor.layout.pageRegions[page]?.[f.region]?.geometry || editor.layout.pages[page];
+    const anchor = { ...image.anchor, x: 0, y: 0 };
+    for (const axis of ['x', 'y']) { delete anchor[axis + 'Align']; delete anchor[axis + 'Percentage']; }
+    const zero = positionedImageFrame({ ...f, image: { ...image, anchor } }, line, { ...geometry, drawingBounds: editor.layout.pageRegions[page]?.[f.region]?.drawingBounds });
+    const offset = { x: Math.round((x - zero.x) * EMU_PER_PX), y: Math.round((y - zero.y) * EMU_PER_PX) };
+    const at = editor.model.paragraphOffset(index);
+    editor.execute(() => {
+      const model = editor.model;
+      model.select(f.start, f.end);
+      model.moveImage(at, { floating: true });
+      model.setImageProperties({ anchor: offset });
+      return true;
+    });
+    return true;
   }
   /** Move several floating drawings by the same EMU offset in one undo step. */
   function moveMany(frames, dx, dy) {
@@ -445,11 +486,23 @@ export function createImageInteraction(editor) {
           const preserveAspect = isCorner(handle) ? f.image.aspectLocked !== false : !!f.image.aspectLocked;
           const resized = isCorner(handle) ? resizeImageFrame(f, handle, dx, dy, { preserveAspect }) : resizeFromHandle(f, handle, dx, dy, { preserveAspect });
           if (resized.width !== f.image.width || resized.height !== f.image.height) resizeImage(f.image, resizePatch(f, resized));
-        } else {
+        } else if (!f.width || !f.height) {
+          // Lines scale as a whole.
           const outward = (handle.includes('e') ? dx : handle.includes('w') ? -dx : 0) || (handle.includes('s') ? dy : handle.includes('n') ? -dy : 0);
           if (!outward) return;
           const scale = Math.max(.01, 1 + outward / Math.max(f.width, f.height)), width = Math.max(1, Math.round(f.image.width * scale));
           resizeImage(f.image, { width, height: Math.max(1, Math.round(width * f.image.height / f.image.width)) });
+        } else {
+          // Shapes move the handle's own side (or two, from a corner) in their own axes; the opposite side stays put.
+          const box = boxOf(f), turned = { ...box, image: { width: f.image.width, height: f.image.height, rotation: ownRotation(f.image) } };
+          const shape = resizeFromHandle(turned, handle, dx, dy, { preserveAspect: !!f.image.aspectLocked });
+          if (shape.width === f.image.width && shape.height === f.image.height) return;
+          const patch = { width: shape.width, height: shape.height };
+          if (f.floating) {
+            const at = offsets(f), mx = shape.frame.x - box.x, my = shape.frame.y - box.y;
+            if (Math.abs(mx) > 1e-7 || Math.abs(my) > 1e-7) patch.anchor = { x: at.x + Math.round(mx * EMU_PER_PX), y: at.y + Math.round(my * EMU_PER_PX) };
+          }
+          resizeImage(f.image, patch);
         }
       }
       else nudge(f, dx, dy);

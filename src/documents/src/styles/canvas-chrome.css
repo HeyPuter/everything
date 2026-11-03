@@ -197,6 +197,8 @@
 .font-choice { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 42px; padding: 8px; border-radius: 5px; text-align: start; font-size: 16px; }
 .font-choice small { font: 10px var(--font); color: var(--ink-3); }
 .font-choice:hover, .font-choice[aria-pressed='true'] { background: var(--accent-wash); color: var(--accent-strong); }
+/* On the tinted row the muted note fell under 4.5:1 in the dark theme (4.06): it takes the row's own text color. */
+.font-choice:hover small, .font-choice[aria-pressed='true'] small { color: inherit; }
 .table-size-palette { width: 292px; min-width: 0; padding: 12px; }
 .table-size-grid { gap: 4px; padding: 8px 0; }
 .table-size-grid .table-size-cell { width: 28px; height: 25px; border-radius: 3px; background: var(--surface); border: 1px solid var(--hairline-strong); }

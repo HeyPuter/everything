@@ -57,6 +57,11 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
   const pane = el('aside.review-pane', { 'aria-label': 'Reviewing Pane', hidden: true, dataset: { orientation: paneOrientation } },
     el('div.canvas-panel-heading', {}, el('h2', {}, 'Revisions'), el('button.icon-btn', { type: 'button', 'aria-label': 'Close Reviewing Pane', onclick: () => { commands.toggleReviewingPane(false); editor()?.focus(); } }, '✕')),
     paneSummary, paneList);
+  // Escape leaves the pane for the document, closing it, as it does in the other panes.
+  pane.addEventListener('keydown', e => {
+    if (e.key !== 'Escape' || e.defaultPrevented || isComposing(e) || e.target.closest?.('[role="menu"]')) return;
+    e.preventDefault(); commands.toggleReviewingPane(false); editor()?.focus();
+  });
   /** The Reviewing Pane's entries, every comment and change in document order, as the document is now. */
   function paneItems(engine) {
     // What Show Markup hides (a reviewer, a kind of change) is left out, as it is from the page and the margin.

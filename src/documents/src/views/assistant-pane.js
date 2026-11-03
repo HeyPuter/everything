@@ -133,7 +133,15 @@ export function createAssistantPane({ editor, pkg, error, available = () => P.ca
   async function reply(ask, p, request) {
     busy = true; send.disabled = true;
     const token = stopped = {};
-    const waiting = message('assistant', el('p.as-thinking', {}, 'Thinking…'));
+    // A request that never answers (a stalled connection) must not hold the conversation up: Stop lets it go, and the
+    // conversation goes on as it was.
+    const stop = el('button.btn.btn-ghost.btn-sm.as-stop', { type: 'button', onclick: () => {
+      if (stopped !== token) return;
+      stopped = null; busy = false; send.disabled = false;
+      waiting.replaceChildren(el('p.as-sent', { role: 'status' }, 'Stopped.'));
+      input.focus();
+    } }, 'Stop');
+    const waiting = message('assistant', el('p.as-thinking', {}, 'Thinking…'), el('div.as-actions', {}, stop));
     try {
       const answer = await ask();
       if (stopped !== token) return;

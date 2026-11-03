@@ -17,14 +17,14 @@ it('checks the styles once for a styles and numbering pair, and again after a st
   const firstTime = performance.now() - started;
   expect(first).toHaveLength(depth + 2);
   expect(first.find(s => s.id === 'Loop').error).toBe('Cyclic style inheritance is not supported.');
-  expect(first.find(s => s.id === `S${depth - 1}`)).toEqual({ id: `S${depth - 1}`, name: `Style ${depth - 1}`, error: undefined });
+  expect(first.find(s => s.id === `S${depth - 1}`)).toEqual({ id: `S${depth - 1}`, name: `Style ${depth - 1}`, basedOn: `S${depth - 2}`, error: undefined });
   started = performance.now();
   for (let i = 0; i < 10; i++) expect(doc.paragraphStyles).toEqual(first);
   expect(performance.now() - started).toBeLessThan(firstTime);
   // Callers get their own copies.
   doc.paragraphStyles[0].name = 'Changed';
   expect(doc.paragraphStyles[0].name).toBe('Style 0');
-  expect(doc.characterStyles).toEqual([{ id: 'Strong', name: 'Strong', error: undefined }]);
+  expect(doc.characterStyles).toEqual([{ id: 'Strong', name: 'Strong', basedOn: null, error: undefined }]);
   // A style edit replaces the styles, and the list follows it.
   doc.select(0); doc.editParagraphStyle('S0', { name: 'Renamed' });
   expect(doc.paragraphStyles[0].name).toBe('Renamed');

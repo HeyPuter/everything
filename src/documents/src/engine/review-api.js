@@ -4,3 +4,4 @@ export { addPermissionRange, removePermissionRanges } from './permission-edits.j
 export { mergeDocuments, documentAuthor, finalText } from './compare.js';
 export { contentControlRanges } from './content-controls.js';
 export { describeFormatChange } from './revisions.js';
+export { unportableContent, adoptVersionAssets } from './version-restore.js';

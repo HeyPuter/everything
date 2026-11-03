@@ -154,9 +154,28 @@ function applyGeneralFormats(value, formats = []) {
 
 /** A numeric picture (\# "$#,##0.00") applied to a merged value that reads as a number (formatFormulaNumber). */
 export function formatNumberPicture(value, picture) {
-  const number = Number(String(value).replace(/[,\s$€£¥]/g, ''));
+  const number = mergedNumber(value);
   if (!String(value).trim() || !Number.isFinite(number)) return value;
   return formatFormulaNumber(number, picture);
+}
+/**
+ * A merged value read as a number. A recipient list carries no locale, so the separators are read from
+ * the value itself: with both '.' and ',' the last one is the decimal mark ("1.234,56", "1,234.56"); a
+ * single comma that is not a thousands group is a decimal comma ("12,5", "0,75"); repeated dots in
+ * thousands groups are grouping ("1.234.567"). Spaces and apostrophes group. The ambiguous "1,234" and
+ * "1.234" keep their point-decimal reading. Stripping every comma read "1.234,56" as 1.23456.
+ */
+function mergedNumber(value) {
+  const text = String(value).replace(/[\s'’$€£¥]/g, ''), digits = text.replace(/^[-+]/, '');
+  const dot = text.lastIndexOf('.'), comma = text.lastIndexOf(',');
+  let decimal = '.';
+  if (dot >= 0 && comma >= 0) decimal = dot > comma ? '.' : ',';
+  else if (comma >= 0 && comma === text.indexOf(',') && !/^[1-9]\d{0,2},\d{3}$/.test(digits)) decimal = ',';
+  else if (dot >= 0 && dot !== text.indexOf('.') && /^\d{1,3}(\.\d{3})+$/.test(digits)) decimal = '';
+  const group = decimal === ',' ? '.' : decimal === '.' ? ',' : '.';
+  const [whole, fraction, extra] = text.split(group).join('').split(decimal || '\0');
+  if (extra !== undefined) return NaN;
+  return Number(fraction === undefined ? whole : `${whole}.${fraction}`);
 }
 
 /** A date picture (\@ "MMMM d, yyyy") applied to a value that reads as a date; other values pass through. */
@@ -365,16 +384,21 @@ export function placeholderText(code) {
 export function evaluateField(code, ctx) {
   const tree = node(code), keyword = fieldKeyword(tree);
   if (!MERGE_TYPES.has(keyword) && keyword !== 'REF') return null;
-  // Nested fields evaluate first, their results standing in as single arguments.
-  const values = [];
+  // Nested fields evaluate before the field, in order, their results standing in as single arguments. An IF
+  // evaluates the fields of its condition and then only those of the branch it chooses, as Word does: a SET,
+  // ASK, FILLIN or NEXT in the other branch does not run ({ IF … "{ SET pronoun "he" }" "{ SET pronoun "she" }" }).
+  const nested = [], values = new Map();
   let flat = '';
   for (const part of tree.parts) {
     if (typeof part === 'string') { flat += part; continue; }
-    const value = evaluateField(part, ctx);
-    values.push(value ?? '');
-    flat += `\u0001${values.length - 1}\u0001`;
+    nested.push(part);
+    flat += `\u0001${nested.length - 1}\u0001`;
   }
-  const tokens = tokenizeInstruction(flat).map(t => ({ ...t, value: t.value.replace(/\u0001(\d+)\u0001/g, (_, i) => values[i]) }));
+  const valueOf = i => { if (!values.has(i)) values.set(i, evaluateField(nested[i], ctx) ?? ''); return values.get(i); };
+  const resolve = t => t.value.includes('\u0001') ? { ...t, value: t.value.replace(/\u0001(\d+)\u0001/g, (_, i) => valueOf(Number(i))) } : t;
+  const raw = tokenizeInstruction(flat);
+  if (keyword === 'IF' && !ctx.placeholders) return evaluateIf(raw.slice(1), resolve);
+  const tokens = raw.map(resolve);
   const rest = tokens.slice(1);
   if (keyword === 'REF') {
     const name = rest[0]?.value;
@@ -404,14 +428,18 @@ export function evaluateField(code, ctx) {
       return '';
     }
     case 'FILLIN': return formatValue(answerFor(ctx, 'FILLIN', args[0] || '', args[0], switches), switches);
-    case 'IF': {
-      const { result, rest: branches } = condition(rest);
-      const chosen = branches[result ? 0 : 1];
-      if (ctx.placeholders) return branches[0]?.value || '«If…»';
-      return formatValue(chosen?.value ?? '', fieldSwitches(branches.slice(2)).switches);
-    }
+    // Outside preview an IF shows its first branch (evaluated above otherwise).
+    case 'IF': return condition(rest).rest[0]?.value || '«If…»';
     default: return null;
   }
+}
+/** IF's result from its unevaluated tokens: the condition's nested fields, then the chosen branch's (`resolve` evaluates them). */
+function evaluateIf(tokens, resolve) {
+  const list = splitOperators(tokens);
+  const comparison = list.length >= 3 && OPERATORS.includes(list[1].value) && !list[1].quoted;
+  const { result } = condition(list.slice(0, comparison ? 3 : 1).map(resolve));
+  const branches = list.slice(comparison ? 3 : 1), chosen = branches[result ? 0 : 1];
+  return formatValue(chosen ? resolve(chosen).value : '', fieldSwitches(branches.slice(2).map(resolve)).switches);
 }
 function answerFor(ctx, kind, key, prompt, switches) {
   const id = `${kind}:${key}`;

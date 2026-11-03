@@ -75,3 +75,26 @@ test('deleting a word or a line over a block of table cells empties only the cel
     expect(await cells(page)).toEqual(GRID);
   }
 });
+
+test('Paste from the Edit menu or Paste Special over a block of table cells leaves the cells outside it alone', async ({ browser }) => {
+  const context = await browser.newContext({ permissions: ['clipboard-read', 'clipboard-write'] });
+  const page = await context.newPage();
+  try {
+    await grid(page);
+    await page.evaluate(() => navigator.clipboard.writeText('X'));
+    // Edit › Paste reads the clipboard itself: it replaces the first cell's text, as Ctrl/Cmd+V does.
+    await dragBlock(page);
+    await page.getByRole('menubar', { name: 'Menu bar' }).getByRole('menuitem', { name: 'Edit', exact: true }).click();
+    await page.getByRole('menu', { name: 'Edit', exact: true }).getByRole('menuitem', { name: 'Paste', exact: true }).click();
+    await expect.poll(() => cells(page)).toEqual(['X', ...GRID.slice(1)]);
+    await input(page).press('ControlOrMeta+z');
+    expect(await cells(page)).toEqual(GRID);
+    // So does Paste Special's unformatted text.
+    await dragBlock(page);
+    await input(page).press(process.platform === 'darwin' ? 'Meta+Control+v' : 'Control+Alt+v');
+    const dialog = page.getByRole('dialog', { name: 'Paste Special' });
+    await dialog.getByRole('radio', { name: /Unformatted text/ }).check();
+    await dialog.getByRole('button', { name: 'OK' }).click();
+    await expect.poll(() => cells(page)).toEqual(['X', ...GRID.slice(1)]);
+  } finally { await context.close(); }
+});

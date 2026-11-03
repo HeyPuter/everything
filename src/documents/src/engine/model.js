@@ -354,7 +354,7 @@ function styleChoices(model, type, check) {
   entry[type] ??= Object.values(model.styles.definitions).filter(s => s.type === type).map(s => {
     let error = s.error;
     try { check(s); } catch (e) { error = e.message; }
-    return { id: s.id, name: s.name, error };
+    return { id: s.id, name: s.name, basedOn: s.basedOn || null, error };
   });
   return entry[type].map(choice => ({ ...choice }));
 }
@@ -722,9 +722,28 @@ export class TextDocument {
     if (!targets.every(p => p.list)) return this.adjustIndent(delta * 720);
     if (targets.some(p => p.list.level + delta < 0 || p.list.level + delta > 8)) return false;
     for (const p of targets) levelFor(this.numbering, { ...p.list, level: p.list.level + delta });
+    // A paragraph in the style its list level is linked to (§17.9.23 pStyle: Heading 1 for level 1 of an
+    // outline list) takes the style linked to its new level, as in Word: Tab makes a numbered Heading 1 a
+    // Heading 2. Kept in Heading 1 with a level-2 number, it stayed a top-level heading in the outline,
+    // the Navigation pane and the table of contents.
+    const restyled = targets.map(p => this.linkedLevelStyle(p, p.list.level + delta));
     this.checkpoint();
-    for (const p of targets) { p.list = { ...p.list, direct: true, level: p.list.level + delta }; p.listChanged = true; }
+    targets.forEach((p, i) => {
+      if (restyled[i]) { Object.assign(p, restyled[i]); return; }
+      p.list = { ...p.list, direct: true, level: p.list.level + delta }; p.listChanged = true;
+    });
     this.didChange(); return true;
+  }
+  /** `p` restyled for list level `level` of its list, when its style is linked to its level and another style to that one; else null. */
+  linkedLevelStyle(p, level) {
+    if (!this.stylesEnabled) return null;
+    const current = levelFor(this.numbering, p.list), next = levelFor(this.numbering, { ...p.list, level });
+    if (!current.styleId || current.styleId !== effectiveStyleId(p, this.styles) || !next.styleId || next.styleId === current.styleId || this.styles.definitions[next.styleId]?.type !== 'paragraph') return null;
+    let candidate;
+    try { candidate = resolveStyledParagraph({ ...copy(p), styleId: next.styleId, styleChanged: true, ...(p.list.direct ? { list: { ...p.list, level }, listChanged: true } : {}) }, this.styles, this.numbering); } catch { return null; }
+    // The new style must number the paragraph in the same list at that level.
+    const abstract = id => this.numbering.instances[id]?.abstractId;
+    return candidate.list && abstract(candidate.list.numId) === abstract(p.list.numId) && candidate.list.level === level ? candidate : null;
   }
   restartNumbering(start = 1) {
     const first = this.selectedParagraphs[0];
@@ -1435,7 +1454,9 @@ export class TextDocument {
   }
   snapshot() { return { ...this.documentSnapshot(), ...this.typingSnapshot() }; }
   /** A copy of the document itself, which changes only with a new revision (didChange). */
-  documentSnapshot() { return copy({ comments: this.comments, tables: this.tables, styles: this.styles, stylesEnabled: this.stylesEnabled, numbering: this.numbering, pageSettings: this.pageSettings, paragraphs: this.paragraphs }); }
+  documentSnapshot() { return copy(this.documentState()); }
+  /** The document itself (not a copy), as documentSnapshot() copies it. */
+  documentState() { return { comments: this.comments, tables: this.tables, styles: this.styles, stylesEnabled: this.stylesEnabled, numbering: this.numbering, pageSettings: this.pageSettings, paragraphs: this.paragraphs }; }
   /** A copy of the selection and typing state, which change without one. */
   typingSnapshot() { return copy({ selection: this.selection, typingFormat: this.typingFormat, typingStyle: this.typingStyle, typingDirectCleared: this.typingDirectCleared }); }
   restore(state) {
@@ -1821,9 +1842,10 @@ export class TextDocument {
     const at = locate(this.paragraphs, start); let offset = 0;
     return this.paragraphs[at.index].runs.find(run => { const match = offset === at.offset && !!run.image; offset += run.text.length; return match; })?.image || null;
   }
-  moveImage(target) {
+  /** Move the selected inline image to `target`; `floating` also moves a floating drawing's anchor there. */
+  moveImage(target, { floating = false } = {}) {
     const image = this.selectedImage, [start, end] = this.range;
-    if (!image || image.anchor) throw new Error('Select an inline image to move through text.');
+    if (!image || image.anchor && !floating) throw new Error('Select an inline image to move through text.');
     if (!Number.isInteger(target) || target < 0 || target > documentLength(this.paragraphs) || !boundaries(this.text).includes(target)) throw new Error('Invalid image insertion position.');
     if (target >= start && target <= end) return false;
     this.checkpoint();
@@ -2476,8 +2498,60 @@ export class TextDocument {
       });
       if (restored.size) { for (const p of restored) p.runs = normalize(p.runs); targets = changes(); }
     }
+    // Text another reviewer deleted within an insertion is part of that insertion (a w:del inside the w:ins or the
+    // moved-to text, §17.13.5.18, .25): resolving the insertion next to it resolves it too. Rejecting the insertion removes that text
+    // with the rest; accepting it leaves only the deletion. Left as a deletion of a still pending insertion, the
+    // text came back as the rejected insertion when the deletion was rejected, and accepted text was removed.
+    if (targets.some(r => r.type === 'ins') && this.paragraphs.some(p => p.markRevision?.inserted || p.runs.some(run => run.revision?.inserted))) {
+      const byStart = new Map(), byEnd = new Map(); let at = 0;
+      for (const p of this.paragraphs) {
+        for (const run of p.runs) {
+          if (run.revision?.inserted && run.text) { const span = { start: at, end: at + run.text.length, target: run, paragraph: p }; byStart.set(span.start, span); byEnd.set(span.end, span); }
+          at += run.text.length;
+        }
+        if (p.markRevision?.inserted) { const span = { start: at, end: at + 1, target: p, mark: true, paragraph: p }; byStart.set(span.start, span); byEnd.set(span.end, span); }
+        at++;
+      }
+      const under = (span, r) => { const revision = span && (span.mark ? span.target.markRevision : span.target.revision); return revision?.type === 'del' && revision.inserted?.author === r.author && revision.inserted.date === r.date; };
+      const widened = [];
+      for (const r of targets) {
+        if (r.type !== 'ins') { widened.push(r); continue; }
+        const spans = [];
+        let from = r.start, to = r.end;
+        while (under(byStart.get(to), r)) { spans.push(byStart.get(to)); to = byStart.get(to).end; }
+        while (under(byEnd.get(from), r)) { spans.push(byEnd.get(from)); from = byEnd.get(from).start; }
+        if (accept) { for (const span of spans) { const key = span.mark ? 'markRevision' : 'revision', { inserted, ...own } = span.target[key]; span.target[key] = own; touched.add(span.paragraph); } widened.push(r); continue; }
+        // Joined with the same insertion's next piece when the deleted text lay between them.
+        const last = widened.findLast(t => t.type === 'ins' && sameRevision(t, r));
+        if (last && last.end >= from) last.end = Math.max(last.end, to);
+        else widened.push({ ...r, start: from, end: to });
+      }
+      targets = widened;
+    }
+    // A paragraph mark before a table, or ending a cell, cannot be removed: the paragraph cannot join a cell. Such a
+    // mark marked deleted (or inserted) loses only its mark of change, and the text on either side goes on its own.
+    // Removing it did nothing, so Accept All left the change in place however often it was used.
+    if (this.tables.length && targets.some(r => r.type !== 'format' && (r.type === 'ins' ? !accept : accept))) {
+      const split = []; let at = 0, index = 0;
+      const ends = this.paragraphs.map(p => (at += paragraphLength(p) + 1) - 1);
+      for (const r of targets) {
+        if (r.type === 'format' || (r.type === 'ins' ? accept : !accept)) { split.push(r); continue; }
+        while (index > 0 && ends[index - 1] >= r.start) index--;
+        while (index < ends.length && ends[index] < r.start) index++;
+        let from = r.start;
+        for (let i = index; i < ends.length - 1 && ends[i] < r.end; i++) {
+          const p = this.paragraphs[i];
+          if ((p.cellId || '') === (this.paragraphs[i + 1].cellId || '') || !p.markRevision || !sameRevision(p.markRevision, r)) continue;
+          delete p.markRevision; touched.add(p);
+          if (from < ends[i]) split.push({ ...r, start: from, end: ends[i] });
+          from = ends[i] + 1;
+        }
+        if (from < r.end) split.push({ ...r, start: from });
+      }
+      targets = split;
+    }
     this.trackingInternal = true;
-    const caret = (targets.find(r => !r.partner) || targets[0])?.start ?? fieldTargets[0].start;
+    const caret = (targets.find(r => !r.partner) || targets[0])?.start ?? fieldTargets[0]?.start ?? start;
     try {
       // Changes that keep their text (formatting, and the side of a change being kept) first, while every
       // range still holds; then the removals, from the last, so each earlier range stays where it was.
@@ -2501,8 +2575,11 @@ export class TextDocument {
             const p = this.paragraphs[i], at = starts[i], size = paragraphLength(p);
             touched.add(p);
             let resolved = false;
+            // A paragraph's formatting belongs to all of it: a selection in part of the paragraph resolves its change,
+            // as paragraph formatting applies to every paragraph a selection touches. Requiring the whole paragraph
+            // left Accept and Reject on a selection inside it doing nothing.
             const change = paragraphFormatChange(p);
-            if (change && only(change) && at >= r.start && at + size + 1 <= r.end + 1) { resolve(p, 'paragraph'); resolved = true; }
+            if (change && only(change)) { resolve(p, 'paragraph'); resolved = true; }
             eachRevisionTarget([p], Math.max(r.start, at) - at, Math.min(r.end, at + size) - at, ({ run, mark }) => { const runChange = !mark && runFormatChange(run); if (runChange && only(runChange)) { resolve(run, 'run'); resolved = true; } });
             if (resolved && !accept && this.stylesEnabled) resolveStyledParagraph(p, this.styles, this.numbering);
           }
@@ -2532,7 +2609,21 @@ export class TextDocument {
             this.paragraphs[index] = next;
             continue;
           }
-          // A removed paragraph mark merges its paragraph with the next one.
+          // A removed paragraph mark merges its paragraph with the next one. When nothing in the paragraphs it
+          // joins reaches beyond them (fields, note marks, controls, cells or sections), they are joined in a
+          // view of the model holding only them, as replaceWithinParagraph does: removing each of thousands of
+          // paragraph marks within the whole document made Accept All and Reject All take minutes.
+          const lastIndex = indexAt(r.end), span = this.paragraphs.slice(index, lastIndex + 1);
+          if (plain && lastIndex > index && r.end - starts[lastIndex] <= paragraphLength(this.paragraphs[lastIndex])
+            && span.every(q => !q.fieldMarkers?.length && !q.runs.some(run => run.noteMark) && (q.cellId || '') === (p.cellId || ''))
+            && !span.slice(0, -1).some(q => q.sectionEnd)) {
+            const view = Object.create(this);
+            view.paragraphs = [...span];
+            view.selection = { anchor: from, focus: to };
+            view.replaceUntracked('', { checkpoint: false });
+            this.paragraphs.splice(index, span.length, ...view.paragraphs);
+            continue;
+          }
           const limit = documentLength(this.paragraphs), last = Math.min(r.end, limit);
           if (r.end > limit) for (const p of this.paragraphs.slice(-1)) delete p.markRevision;
           // A change can cross a field's start or end (deleting part of a field's result with Track Changes
@@ -2559,6 +2650,9 @@ export class TextDocument {
   replaceUntracked(text, { checkpoint = true, insertedImage, removedPictureControls, removedBodyFields, restoreEmptyControl = false, emptyInlineControl = false } = {}) {
     // Internal \v/\f/\u000e stand for manual line/page/column breaks; the DOCX codec writes elements, never XML control characters.
     text = String(text).replace(/\r\n?/g, '\n').replace(/[^\u0009-\u000C\u000e\u0020-\uD7FF\uE000-\uFFFD\u{10000}-\u{10FFFF}]/gu, '\ufffd');
+    // A header, footer or note (a story laid out on one page) takes no page or column break; it is refused before
+    // layout would fail on a second page with a message about its height.
+    if (this.refusesBreaks && /[\f\u000e]/.test(text)) throw new Error('Headers, footers and notes can’t hold page or column breaks.');
     let [start, end] = this.range;
     if (start === end && !text && !restoreEmptyControl) return false;
     if(this.hasMacroButtons)[start,end]=macroButtonSelection(bodyFieldRanges(this.paragraphs),start,end);
@@ -2794,7 +2888,16 @@ export class TextDocument {
     if (owned && (direction < 0 ? start === owned.start : start === owned.end)) return false;
     const location = locate(this.paragraphs, start), p = this.paragraphs[location.index];
     if (direction < 0 && location.offset === 0 && p.list) {
-      this.checkpoint(); p.list = null; p.listChanged = true; this.didChange(); return true;
+      // Backspace removes the number but, as in Word, leaves the text where it was: at the item's
+      // text position, with no hanging indent. Dropping the level's indents moved it to the margin.
+      const listed = paragraphFormat(p, this.numbering);
+      this.checkpoint(); p.list = null; p.listChanged = true;
+      const plain = paragraphFormat(p, this.numbering), kept = { indentLeft: listed.indentLeft, indentRight: listed.indentRight, firstLine: Math.max(0, listed.firstLine) };
+      if (Object.keys(kept).some(key => plain[key] !== kept[key])) {
+        p.format = { ...PARAGRAPH_FORMAT, ...p.format, ...kept };
+        p.formatOverrides = { ...p.formatOverrides, ...kept };
+      }
+      this.didChange(); return true;
     }
     const points = boundaries(this.text);
     const at = points.indexOf(start);

@@ -162,3 +162,24 @@ test('Advanced Find searches headers and footers and a selection', async ({ page
   expect(saved.xml('word/document.xml')).toContain('Report body one report body two report');
   expect(errors).toEqual([]);
 });
+
+test('Paste Special inserts a picture copied from a web page, whose HTML holds only the image', async ({ page, context, baseURL }) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: baseURL });
+  const { input, errors } = await blank(page, 'Text ');
+  // A browser's Copy Image: the picture, and HTML with only an <img> in it.
+  await page.evaluate(async () => {
+    const canvas = document.createElement('canvas'); canvas.width = 20; canvas.height = 10; canvas.getContext('2d').fillRect(0, 0, 20, 10);
+    const png = await new Promise(done => canvas.toBlob(done, 'image/png'));
+    await navigator.clipboard.write([new ClipboardItem({ 'image/png': png, 'text/html': new Blob(['<meta charset="utf-8"><img src="https://example.com/cat.png" alt="A cat">'], { type: 'text/html' }) })]);
+  });
+  await caretAtEnd(input);
+  await page.getByRole('button', { name: 'Paste options', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Paste Special…' }).click();
+  const special = page.getByRole('dialog', { name: 'Paste Special' });
+  // HTML that would paste nothing is not offered; the picture is the choice.
+  await expect(special.getByRole('radio')).toHaveCount(1);
+  await expect(special.getByRole('radio', { name: /Picture/ })).toBeChecked();
+  await special.getByRole('button', { name: 'OK' }).click();
+  await expect(input).toHaveValue('Text ￼');
+  expect(errors).toEqual([]);
+});

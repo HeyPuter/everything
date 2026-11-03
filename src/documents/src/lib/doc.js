@@ -32,6 +32,9 @@ export const MAX_AUTOSAVE_MS = 30000;
 export const RETRY_MS = 8000;
 export const UNTITLED = 'Untitled document';
 export const SIGN_IN_TO_SAVE = 'Sign in to Puter to save this document';
+/** Save pressed without a connection: what happens to the changes, rather than the browser's "Failed to fetch". */
+export const OFFLINE_SAVE = 'You are offline. Your changes will save when you reconnect';
+export const OFFLINE_SAVE_MANUAL = 'You are offline. Save again when you reconnect';
 /** Markdown, HTML, and plain text are read and converted on the main thread; a novel is about a megabyte. */
 export const MAX_TEXT_IMPORT_BYTES = 20 * 1024 * 1024;
 /** Version snapshots after saves; tests switch them off. */
@@ -348,6 +351,7 @@ export class Doc extends EventTarget {
       // of a shared document meanwhile (setSaving): its edits reach the file from there.
       this.savedVersion = this.writes === false ? this.version : version;
       this._setStatus(this.dirty ? 'unsaved' : 'saved');
+      this._autoFailures = 0;
       if (this.dirty && this.autosave) this._schedule(this.autosaveDelay);
       return true;
     } catch (e) {
@@ -358,13 +362,19 @@ export class Doc extends EventTarget {
       if (this.writes === false) { this._setStatus('saved'); return true; }
       const offline = typeof navigator !== 'undefined' && navigator.onLine === false;
       this._setStatus(offline ? 'offline' : 'error', e?.message || String(e));
-      if (!auto) throw e;
+      if (!auto) throw offline ? new Error(this.autosave ? OFFLINE_SAVE : OFFLINE_SAVE_MANUAL, { cause: e }) : e;
       // Nothing retries a file another window took over, and nobody pressed Save to hear of it: the view says so.
       if (e?.conflict) this.dispatchEvent(new CustomEvent('conflict', { detail: { message: e.message } }));
       // Try again later; a transient failure should not lose the edit. Offline,
       // nothing can succeed until the connection is back, and the app saves then.
       // A file another window took over is not retried on its own: the same answer would come back every time.
-      if (initialized && !offline && !e?.conflict) this._schedule(RETRY_MS);
+      if (initialized && !offline && !e?.conflict) {
+        this._schedule(RETRY_MS);
+        // An autosave that keeps failing (storage full, the file's permission gone) must not go on failing unseen
+        // while the typing goes on: once its retry has failed too, the view says so, once until a save goes through.
+        this._autoFailures = (this._autoFailures || 0) + 1;
+        if (this._autoFailures === 2) this.dispatchEvent(new CustomEvent('savefailed', { detail: { message: e?.message || String(e) } }));
+      }
       return false;
     }
   }

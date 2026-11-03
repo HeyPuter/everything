@@ -106,6 +106,13 @@ function referenceLines(placed, refs) {
   }).join(' ');
 }
 
+// A page's footnotes end at the bottom of its text area: the bottom margin, or the top of a footer
+// taller than that margin (layoutPass noteBottoms).
+const noteBottom = (placed, page) => {
+  const geometry = placed.pages[page] || placed.page;
+  return Math.min(geometry.height - geometry.bottom, placed.noteBottoms?.[page] ?? Infinity);
+};
+
 /**
  * Lay out with footnote reservations. `layout(reserve)` paginates with `reserve[page]` px kept
  * free above the bottom margin. Returns the final layout with `footnoteAreas`.
@@ -130,7 +137,7 @@ export function layoutWithFootnotes(plan, layout, measure, numbering, options, f
   const needed = (placed, pages) => {
     const next = {}, { lines, tops } = referenceExtents(placed, plan.refs);
     for (const [page, ids] of pages) {
-      const geometry = placed.pages[page] || placed.page, bottom = geometry.height - geometry.bottom;
+      const geometry = placed.pages[page] || placed.page, bottom = noteBottom(placed, page);
       const notes = ids.filter(id => plan.stories.has(id));
       if (!notes.length) continue;
       const heights = notes.map(id => noteHeight(id, geometry));
@@ -201,7 +208,7 @@ export function layoutWithFootnotes(plan, layout, measure, numbering, options, f
     // Never draw notes over body text: start the area below the body's reserved space.
     // Notes placed beneath text (§17.11.21 beneathText) follow the page's last body line instead.
     const height = Math.max(final[page], reserve[page] || 0);
-    let top = geometry.height - geometry.bottom - height;
+    let top = noteBottom(placed, page) - height;
     if (plan.position === 'beneathText') {
       const bodyBottom = Math.max(...placed.lines.filter(line => line.page === page && !line.virtual && !line.pageStory).map(line => line.y + line.height));
       if (Number.isFinite(bodyBottom)) top = Math.min(top, bodyBottom);
@@ -223,7 +230,10 @@ export function placeEndnotes(plan, placed, measure, numbering, options) {
   if (!placed.pageCount) return placed;
   const geometryOf = page => placed.pages[page] || placed.page;
   const noteTop = page => placed.footnoteAreas?.find(area => area.page === page)?.top ?? Infinity;
-  const bottomOf = page => { const g = geometryOf(page); return Math.min(g.height - g.bottom, noteTop(page)); };
+  // The page's text area: a header or footer taller than its margin moves its edges in (page-bounds.js).
+  const textArea = page => placed.pageRegions?.[page]?.at(-1)?.drawingBounds;
+  const bottomOf = page => { const g = geometryOf(page); return Math.min(g.height - g.bottom, textArea(page)?.bottom ?? Infinity, noteTop(page)); };
+  const topOf = page => Math.max(geometryOf(page).top, textArea(page)?.top ?? -Infinity);
   const heights = new Map(), numbersKey = JSON.stringify(['endnote', ...plan.numbers]);
   const height = (id, geometry) => {
     const key = `${id}/${geometry.width}/${geometry.left}/${geometry.right}`;
@@ -243,18 +253,18 @@ export function placeEndnotes(plan, placed, measure, numbering, options) {
   };
   let page = placed.pageCount - 1;
   const last = placed.lines.filter(line => line.page === page && !line.virtual && !line.pageStory).map(line => line.y + line.height);
-  let y = Math.max(last.length ? Math.max(...last) : geometryOf(page).top, Number.isFinite(placed.endY) ? placed.endY : -Infinity) + ENDNOTE_GAP;
+  let y = Math.max(last.length ? Math.max(...last) : topOf(page), Number.isFinite(placed.endY) ? placed.endY : -Infinity) + ENDNOTE_GAP;
   const ids = [...new Set(plan.refs.map(ref => ref.id))].filter(id => plan.stories.has(id));
   if (!ids.length) return placed;
   // The separator and the first note keep together.
-  if (y + FOOTNOTE_SEPARATOR + height(ids[0], geometryOf(page)) > bottomOf(page) && y > geometryOf(page).top + ENDNOTE_GAP) { page = appendPage(); y = geometryOf(page).top; }
+  if (y + FOOTNOTE_SEPARATOR + height(ids[0], geometryOf(page)) > bottomOf(page) && y > topOf(page) + ENDNOTE_GAP) { page = appendPage(); y = topOf(page); }
   const areas = [{ page, top: y, separator: true, notes: [] }];
   y += FOOTNOTE_SEPARATOR;
   for (const id of ids) {
     let area = areas.at(-1);
     const h = height(id, geometryOf(page));
     if (y + h > bottomOf(page) && area.notes.length) {
-      page = appendPage(); y = geometryOf(page).top;
+      page = appendPage(); y = topOf(page);
       area = { page, top: y, separator: false, notes: [] }; areas.push(area);
     }
     area.notes.push({ id, path: footnoteStoryPath(plan.part, id), display: plan.numbers.get(id), y });

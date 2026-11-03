@@ -141,9 +141,10 @@ export function openWordCount(engine, { onClose, onChange } = {}) {
     include.disabled = s.selected;
   }
   render();
-  const modal = openModal({ title: 'Word Count', onClose, content: el('div.ed-dialog-body', {},
+  // A form, as the other dialogs are: Enter (on the check box too) presses Close, the default button.
+  const modal = openModal({ title: 'Word Count', onClose, content: el('form.ed-dialog-body', { onsubmit: e => { e.preventDefault(); modal.close(); } },
     intro, table,
     el('label.rv-check', {}, include, 'Include text boxes, footnotes and endnotes'),
-    el('div.modal-actions', {}, el('button.btn.btn-primary', { type: 'button', onclick: () => modal.close() }, 'Close'))) });
+    el('div.modal-actions', {}, el('button.btn.btn-primary', { type: 'submit' }, 'Close'))) });
   return modal;
 }

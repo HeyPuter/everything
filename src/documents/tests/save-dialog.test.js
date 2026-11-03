@@ -531,4 +531,22 @@ describe('the File view\'s Save As', () => {
     expect(backstage.el.querySelector('[aria-label="New file name"]').value).toBe('Report');
     expect([...backstage.el.querySelectorAll('button')].some((b) => b.textContent === 'Save a Copy…')).toBe(false);
   });
+
+  it('suggests a free name for the copy, unless the user has started typing one', async () => {
+    vi.useRealTimers();
+    const saveAs = vi.fn(async () => null);
+    const backstage = open({ saveAs, copyName: async () => 'Report copy 2' });
+    const input = backstage.el.querySelector('[aria-label="New file name"]');
+    await vi.waitFor(() => expect(input.value).toBe('Report copy 2'));
+    backstage.el.querySelector('form.bs-inline-form').requestSubmit();
+    await vi.waitFor(() => expect(saveAs).toHaveBeenCalledWith('Report copy 2'));
+    let answer;
+    const late = open({ saveAs, copyName: () => new Promise((resolve) => { answer = resolve; }) });
+    const field = late.el.querySelector('[aria-label="New file name"]');
+    field.value = 'Mine'; field.dispatchEvent(new Event('input'));
+    await vi.waitFor(() => expect(answer).toBeTypeOf('function'));
+    answer('Report copy');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(field.value).toBe('Mine');
+  });
 });

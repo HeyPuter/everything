@@ -29,12 +29,24 @@ function characterGaps(span, first, last) {
   return gaps;
 }
 
+/**
+ * Where a measured line's text ends, less trailing spaces that hang past the margin. A line with
+ * right-to-left text is reordered: its last character (the last caret stop) need not be the rightmost,
+ * and trailing spaces of a right-to-left run sit inside the line rather than at its end.
+ */
+export function justifiedLineEnd(measured) {
+  const last = measured.stops.at(-1).x;
+  if (!measured.bidi) return last - measured.ignoredTrailingWidth;
+  const end = Math.max(...measured.stops.map(stop => stop.x));
+  return last >= end - 1e-6 ? end - measured.ignoredTrailingWidth : end;
+}
+
 export function justificationRange(span, measured, right, tab, distribute = false) {
   let first = span.findLastIndex(c => c.text === '\t') + 1, last = span.length;
   while (first < last && (span[first].ignoredCellBreak || justificationSpace(span[first].text))) first++;
   while (last > first && (span[last - 1].ignoredCellBreak || justificationSpace(span[last - 1].text))) last--;
   const spaces = distribute ? 0 : span.slice(first, last).filter(c => justificationSpace(c.text)).length;
-  const extra = right - measured.stops.at(-1).x + measured.ignoredTrailingWidth;
+  const extra = right - justifiedLineEnd(measured);
   // Earlier fields stay anchored. Justification can expand the final left tab field. A final
   // center, right or decimal field is aligned on its stop: widening it would move that alignment,
   // so the line keeps its natural spacing (a declared approximation; no reference rule is claimed).

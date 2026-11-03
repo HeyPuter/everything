@@ -1,10 +1,17 @@
 import { TextDocument } from './model.js';
 import { resolveStyledParagraph } from './styles.js';
 import { trackFormatChanges } from './revisions.js';
+import { ParagraphOwners, copyAfterTyping } from './typing-copies.js';
 
 const objectNames = new WeakMap();
 let nextObjectName = 0;
 const objectName = object => { let name = objectNames.get(object); if (name === undefined) objectNames.set(object, name = nextObjectName++); return name; };
+
+// Typing copies only the paragraphs it changed (typing-copies.js) where nothing changes paragraphs far from the
+// caret: Track Changes (a tracked deletion marks text in place, a move marks its source), fields (kept in step
+// across the document), and content controls, which span paragraphs.
+const DOCUMENT_PARTS = ['comments', 'tables', 'styles', 'stylesEnabled', 'numbering', 'pageSettings'];
+const incrementalTyping = model => !model.trackChanges && !model.hasBodyFields && !model.hasContentControls && !model.hasBlockControls;
 
 // A document has separate text-position spaces, but one chronological undo
 // stack. History stores only the changed story, never copies of every story.
@@ -33,6 +40,8 @@ export class StorySession {
       if (!story?.paragraphs?.length) throw new Error('This page story is not available for editing.');
       const model = new TextDocument(story.paragraphs, this.body.pageSettings, this.body.numbering, this.body.styles, story.tables, this.body.assets);
       model.assets = this.body.assets;
+      // A header, footer or note is laid out on one page: it takes no page or column break.
+      model.refusesBreaks = true;
       this.models.set(path, model);
     }
     this.path = path;
@@ -44,15 +53,18 @@ export class StorySession {
   /**
    * The model's state for undo. Copying a long document takes a while, so after each command the
    * document is copied while the browser is idle (prepareSnapshot); the next command starts from
-   * that copy when the document has no new revision since. Each prepared copy is used once.
+   * that copy when the document has no new revision since. A keystroke makes the next one's copy
+   * itself, from its own (typing-copies.js): keys that come faster than the browser goes idle copied
+   * the whole document every time. Each prepared copy is used once.
    */
   snapshot(model) {
     const prepared = this.prepared;
     this.prepared = null;
     if (prepared?.model !== model || prepared.revision !== model.revision) return model.snapshot();
     const state = { ...prepared.document, ...model.typingSnapshot() };
-    // Every document change must come with a new revision. Development builds check that it did.
-    if (import.meta.env?.DEV && JSON.stringify(prepared.document) !== JSON.stringify(model.documentSnapshot())) throw new Error('The document changed without a new revision.');
+    // Every document change must come with a new revision, and a keystroke changes only the paragraphs it
+    // replaces or reaches. Development builds check that the copy is still the document.
+    if (import.meta.env?.DEV && JSON.stringify(prepared.document) !== JSON.stringify(model.documentState())) throw new Error(prepared.typed ? 'A keystroke changed a paragraph it did not replace or reach, or the document changed without a new revision.' : 'The document changed without a new revision.');
     return state;
   }
   prepareSnapshot() {
@@ -61,8 +73,36 @@ export class StorySession {
     const model = this.model, revision = model.revision;
     this.prepareTask = requestIdleCallback(() => {
       this.prepareTask = null;
-      if (this.model === model && model.revision === revision) this.prepared = { model, revision, document: model.documentSnapshot() };
+      if (this.model !== model || model.revision !== revision) return;
+      this.prepared = { model, revision, document: model.documentSnapshot() };
+      // Typing next copies only what it changes, knowing which paragraph holds what.
+      if (incrementalTyping(model) && !this.knowsOwners(model, revision, model.paragraphs)) this.owners = { model, revision, paragraphs: new ParagraphOwners(model.paragraphs) };
     }, { timeout: 2000 });
+  }
+  /** What a keystroke's copy for the next one is made from (copyAfterTyping), when it can be. */
+  typingStart(model, before) {
+    if (!incrementalTyping(model)) return null;
+    const [start, end] = model.range;
+    return {
+      revision: before.revision, live: model.paragraphs.slice(), copy: before.state,
+      parts: DOCUMENT_PARTS.map(key => model[key]),
+      // A keystroke can change the caret's paragraphs in place, and the ones beside them (Backspace joins two).
+      reach: [model.locate(start).index - 1, model.locate(end).index + 1],
+    };
+  }
+  /** After keystroke `typed` (typingStart) changed `model`, the copy the next command starts from, or null. */
+  typingCopy(typed, model) {
+    if (!incrementalTyping(model) || DOCUMENT_PARTS.some((key, i) => model[key] !== typed.parts[i])) { this.owners = null; return null; }
+    if (!this.knowsOwners(model, typed.revision, typed.live)) this.owners = { model, paragraphs: new ParagraphOwners(typed.live) };
+    this.owners.revision = model.revision;
+    const document = copyAfterTyping(typed, model.paragraphs, model.locate(model.selection.focus).index, this.owners.paragraphs);
+    return document && { model, revision: model.revision, document, typed: true };
+  }
+  /** Whether the owners known (ParagraphOwners) are those of `paragraphs`, the model's at `revision`. */
+  knowsOwners(model, revision, paragraphs) {
+    const owners = this.owners;
+    // Undo after a failed command puts equal copies of the paragraphs back at the same revision.
+    return owners?.model === model && owners.revision === revision && owners.paragraphs.live.size === paragraphs.length && paragraphs.every(p => owners.paragraphs.live.has(p));
   }
   publish(owner, before) {
     if (this.models.size === 1) return;
@@ -87,8 +127,10 @@ export class StorySession {
     if (this.history.length > 100) this.history.shift();
     this.future = [];
   }
-  run(action, validate = () => {}, { record = true } = {}) {
+  run(action, validate = () => {}, { record = true, typing = false } = {}) {
     const before = this.capture(), model = this.model;
+    // Text typed or deleted with a key (CanvasEditor typeText and deleteText).
+    const typed = typing ? this.typingStart(model, before) : null;
     model.formatTrackingSuppressed = false;
     // The session keeps `before` for undo, and the model's own undo entries are dropped when the command
     // ends. Commands still push one (some mark or remove their own), but it need not copy the document:
@@ -119,7 +161,11 @@ export class StorySession {
         if (this.path !== null && this.body.trackChanges) this.untracked?.(this.path);
       }
       model.history = []; model.future = [];
-      this.prepareSnapshot();
+      const next = typed && model.revision !== before.revision && this.model === model ? this.typingCopy(typed, model) : null;
+      if (next) {
+        if (this.prepareTask) cancelIdleCallback(this.prepareTask);
+        this.prepareTask = null; this.prepared = next;
+      } else this.prepareSnapshot();
       return result;
     } catch (error) {
       this.restore(before); this.model.revision = before.revision;

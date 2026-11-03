@@ -3,7 +3,7 @@ import { JSDOM } from 'jsdom';
 import { zipSync, unzipSync, strToU8, strFromU8 } from 'fflate';
 import { readFileSync } from 'node:fs';
 import { DocxPackage, createDocx, WRITING_STYLES } from '../src/engine/docx.js';
-import { TextDocument, paragraph } from '../src/engine/model.js';
+import { TextDocument, paragraph, paragraphFormat } from '../src/engine/model.js';
 import { StorySession } from '../src/engine/story-session.js';
 import { revisionView, revisionDisplay, runRevisionDisplay, describeFormatChange, MOVE_COLOR } from '../src/engine/revisions.js';
 
@@ -61,6 +61,20 @@ describe('tracked formatting', () => {
     expect(again.model.paragraphs[1].format.alignment).toBe('left');
     expect(again.model.revisions).toEqual([]);
     expect(await documentXml(again.pkg, again.model)).not.toMatch(/pPrChange|w:jc/);
+  });
+
+  it('tracks Backspace at a bullet as a formatting change that keeps the indent, and rejecting restores the bullet', () => {
+    const { model, session } = fresh();
+    model.trackChanges = false; model.select(0, model.text.length); model.toggleList('bullet'); model.trackChanges = true;
+    const listed = paragraphFormat(model.paragraphs[1], model.numbering);
+    session.run(m => { m.select(m.paragraphOffset(1)); m.delete(-1); });
+    expect(model.text).toBe('Alpha beta gamma\nSecond paragraph');
+    expect(model.revisions.map(r => r.type)).toEqual(['format']);
+    expect(model.paragraphs[1].list).toBeNull();
+    expect(paragraphFormat(model.paragraphs[1], model.numbering)).toMatchObject({ indentLeft: 720, firstLine: 0 });
+    session.run(m => m.resolveRevisions(false));
+    expect(model.paragraphs[1].list).not.toBeNull(); expect(model.revisions).toEqual([]);
+    expect(paragraphFormat(model.paragraphs[1], model.numbering)).toMatchObject({ indentLeft: listed.indentLeft, firstLine: listed.firstLine });
   });
 
   it('saves the former paragraph formatting of a paragraph read from a file, so rejecting after reopening restores it', async () => {
@@ -195,6 +209,25 @@ describe('tracked moves', () => {
       + `<w:p><w:r><w:t xml:space="preserve">End </w:t></w:r><w:moveToRangeStart w:id="3" w:name="move1" w:author="Ada" w:date="2026-01-01T00:00:00Z"/><w:moveTo w:id="4" w:author="Ada" w:date="2026-01-01T00:00:00Z"><w:r><w:t xml:space="preserve">Moved </w:t></w:r></w:moveTo><w:moveToRangeEnd w:id="3"/></w:p>`)));
     model.resolveRevisions(false, model.text.length - 2, model.text.length - 2);
     expect(model.text).toBe('Moved Stay\nEnd ');
+    expect(model.revisions).toEqual([]);
+  });
+
+  it('resolves another reviewer\'s deletion inside moved text with the move', async () => {
+    // Ada moved "XYZ"; Grace then deleted the "Y" where it was moved to.
+    const by = (id, who = 'Ada') => `w:id="${id}" w:author="${who}" w:date="2026-01-01T00:00:00Z"`;
+    const source = zip(packageFiles(`<w:p><w:moveFromRangeStart ${by(1)} w:name="move1"/><w:moveFrom ${by(2)}><w:r><w:delText>XYZ</w:delText></w:r></w:moveFrom><w:moveFromRangeEnd w:id="1"/><w:r><w:t xml:space="preserve"> middle </w:t></w:r>`
+      + `<w:moveToRangeStart ${by(3)} w:name="move1"/><w:moveTo ${by(4)}><w:r><w:t>X</w:t></w:r><w:del ${by(5, 'Grace')}><w:r><w:delText>Y</w:delText></w:r></w:del><w:r><w:t>Z</w:t></w:r></w:moveTo><w:moveToRangeEnd w:id="3"/></w:p>`));
+    const ada = { only: change => change.author === 'Ada' };
+    // Accepting the move, then rejecting Grace's deletion, removed the "Y" the move had brought.
+    let { model } = await open(source);
+    model.resolveRevisions(true, undefined, undefined, ada);
+    expect(model.revisions.map(r => [r.type, r.author, model.text.slice(r.start, r.end)])).toEqual([['del', 'Grace', 'Y']]);
+    model.resolveRevisions(false);
+    expect(model.text).toBe(' middle XYZ');
+    // Rejecting the move leaves nothing where it went: the "Y" stayed as Grace's deletion there.
+    ({ model } = await open(source));
+    model.resolveRevisions(false, undefined, undefined, ada);
+    expect(model.text).toBe('XYZ middle ');
     expect(model.revisions).toEqual([]);
   });
 

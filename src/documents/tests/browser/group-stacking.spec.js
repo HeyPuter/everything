@@ -81,8 +81,13 @@ test('Hide All and Show All in the Selection pane are one Undo each', async ({ p
   await onTab(page, 'shapeFormat');
   await page.locator('#ribbon-panel-shapeFormat').getByRole('button', { name: 'Selection Pane', exact: true }).click();
   const pane = page.getByRole('complementary', { name: 'Selection pane' });
+  // Each object's visibility is a toggle with one name, pressed while the object shows.
+  const eye = pane.getByRole('button', { name: 'Show Oval 2', exact: true });
+  await expect(eye).toHaveAttribute('aria-pressed', 'true');
   await pane.getByRole('button', { name: 'Hide All', exact: true }).click();
   await expect.poll(hidden).toEqual([true, true, true]);
+  await expect(eye).toHaveAttribute('aria-pressed', 'false');
+  await expect(pane.getByRole('button', { name: /^Hide (Oval|Rectangle|Isosceles)/ })).toHaveCount(0);
   await page.getByRole('button', { name: 'Undo', exact: true }).first().click();
   await expect.poll(hidden).toEqual([false, false, false]);
   await page.getByRole('button', { name: 'Redo', exact: true }).first().click();
@@ -91,5 +96,45 @@ test('Hide All and Show All in the Selection pane are one Undo each', async ({ p
   await expect.poll(hidden).toEqual([false, false, false]);
   await page.getByRole('button', { name: 'Undo', exact: true }).first().click();
   await expect.poll(hidden).toEqual([true, true, true]);
+  expect(errors).toEqual([]);
+});
+
+test('the Selection pane keeps keyboard focus while objects are selected and restacked from it', async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/mock.html#/new');
+  await expect((await onTab(page, 'home')).getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await input(page).focus();
+  for (let i = 0; i < 8; i++) { await page.keyboard.type(`Paragraph ${i + 1} of the text the shapes sit on.`); await page.keyboard.press('Enter'); }
+  await drawShape(page, 'Rectangle', [300, 200], [400, 260]);
+  await drawShape(page, 'Oval', [450, 200], [550, 260]);
+  await drawShape(page, 'Isosceles Triangle', [600, 200], [700, 260]);
+  await onTab(page, 'shapeFormat');
+  await page.locator('#ribbon-panel-shapeFormat').getByRole('button', { name: 'Selection Pane', exact: true }).click();
+  const pane = page.getByRole('complementary', { name: 'Selection pane' });
+  const rows = pane.locator('.pic-selection-name');
+  await expect(rows).toHaveCount(3);
+  const names = () => rows.allTextContents();
+  const focused = () => page.evaluate(() => document.activeElement.closest('.pic-selection-name')?.textContent ?? document.activeElement.className);
+  const selected = () => page.evaluate(() => window.__docs.current.view.engine.model.selectedImage?.name ?? null);
+  expect(await names()).toEqual(['Isosceles Triangle 3', 'Oval 2', 'Rectangle 1']);
+  // Space (and Enter) select the object on the page and leave focus on its row, as clicking a list item would.
+  await rows.first().focus();
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('Space');
+  await expect.poll(selected).toBe('Oval 2');
+  expect(await focused()).toBe('Oval 2');
+  await page.keyboard.press('ArrowDown');
+  expect(await focused()).toBe('Rectangle 1');
+  await page.keyboard.press('Enter');
+  await expect.poll(selected).toBe('Rectangle 1');
+  expect(await focused()).toBe('Rectangle 1');
+  // Alt+Up twice brings the rectangle to the front, one level at a time.
+  await page.keyboard.press('Alt+ArrowUp');
+  await expect.poll(names).toEqual(['Isosceles Triangle 3', 'Rectangle 1', 'Oval 2']);
+  expect(await focused()).toBe('Rectangle 1');
+  await page.keyboard.press('Alt+ArrowUp');
+  await expect.poll(names).toEqual(['Rectangle 1', 'Isosceles Triangle 3', 'Oval 2']);
+  expect(await focused()).toBe('Rectangle 1');
   expect(errors).toEqual([]);
 });

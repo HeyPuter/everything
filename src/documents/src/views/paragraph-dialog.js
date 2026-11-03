@@ -47,15 +47,19 @@ export function openParagraphDialog({ format: f, unit = 'in', canSetOutline = tr
   const leftLabel = el('span.field-label', {}, 'Left'), rightLabel = el('span.field-label', {}, 'Right');
   const mirror = checkbox('Mirror indents', f.mirrorIndents, on => { leftLabel.textContent = on ? 'Inside' : 'Left'; rightLabel.textContent = on ? 'Outside' : 'Right'; preview(); });
   if (f.mirrorIndents) { leftLabel.textContent = 'Inside'; rightLabel.textContent = 'Outside'; }
-  const before = points('Spacing before', f.spaceBefore, { step: 1 }), after = points('Spacing after', f.spaceAfter, { step: 1 });
+  // A document's amounts need not fall on the arrows' steps (spacing is kept in twentieths of a point, 7.5 pt or
+  // 13.8 pt), so the fields take any amount, as Word does; it is rounded to the file's units where it is applied.
+  const before = points('Spacing before', f.spaceBefore, { step: 'any' }), after = points('Spacing after', f.spaceAfter, { step: 'any' });
   const [choice, amount] = lineChoice(f.lineRule, f.lineSpacing);
+  // A multiple is kept in 240ths of a line: Word's 1.08 is 259/240. It shows to two places, as Word shows it, and an
+  // untouched amount keeps its exact value.
+  const shownAmount = choice === 'multiple' ? String(Number(Number(amount).toFixed(2))) : String(amount);
   const line = select('Line spacing', LINE_CHOICES, choice, { mixed: !choice });
-  const at = el('input.input', { type: 'number', min: 0, step: 'any', value: amount, placeholder: choice ? '' : 'Mixed', 'aria-label': 'Line spacing at' });
+  const at = el('input.input', { type: 'number', min: 0, step: 'any', value: shownAmount, placeholder: choice ? '' : 'Mixed', 'aria-label': 'Line spacing at' });
   const syncLine = (fill = false) => {
     const fixed = ['single', 'oneHalf', 'double', ''].includes(line.value);
     at.disabled = fixed;
     at.max = line.value === 'multiple' ? 5 : 600;
-    at.step = line.value === 'multiple' ? 0.01 : 0.5;
     if (fixed) at.value = '';
     else if (fill || at.value === '') at.value = line.value === 'multiple' ? '3' : '12';
   };
@@ -106,7 +110,7 @@ export function openParagraphDialog({ format: f, unit = 'in', canSetOutline = tr
       if (v !== f.firstLine) result.firstLine = v;
     }
     for (const [key, input] of [['spaceBefore', before], ['spaceAfter', after]]) { const v = input.read(); if (v !== null && v !== f[key]) result[key] = v; }
-    if (line.value) {
+    if (line.value && !(line.value === choice && at.value === shownAmount)) {
       if (!line.value.match(/single|oneHalf|double/) && (at.value === '' || !at.checkValidity())) throw new Error('Enter a line spacing amount.');
       const setting = lineSetting(line.value, at.value);
       if (setting.lineRule !== f.lineRule || setting.lineSpacing !== f.lineSpacing) Object.assign(result, setting);

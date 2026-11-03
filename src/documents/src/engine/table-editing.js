@@ -53,7 +53,7 @@ export function selectionBlock(model) {
 
 /**
  * Table edits that remove or rearrange text (rows, columns, cells, a whole table, merging, sorting,
- * converting) are not recorded as tracked changes, so with Track Changes on they refuse to run rather
+ * splitting, converting) are not recorded as tracked changes, so with Track Changes on they refuse to run rather
  * than change text a reviewer would never see, as sorting paragraphs does. `what` names the command.
  */
 export function refuseUntracked(model, what) {
@@ -552,9 +552,14 @@ export function splitCells(model, { rows = 1, columns = 2, widths: measured } = 
   model.didChange(); return true;
 }
 
-/** Split Table: the selected row and those below it become a new table after an empty paragraph. */
+/**
+ * Split Table: the selected row and those below it become a new table after an empty paragraph. That
+ * paragraph (in the first row: one before the table) and the moved rows are not tracked changes, so with
+ * Track Changes on it refuses, as Move Table does.
+ */
 export function splitTable(model) {
   const block = requireBlock(model), table = block.table, at = block.top;
+  refuseUntracked(model, 'Splitting a table');
   if (at === 0) return model.insertTableParagraph(false);
   const state = M.tableContent(model, table), owners = verticalMerges(table);
   model.checkpoint();
@@ -581,6 +586,24 @@ export function splitTable(model) {
   normalizeBlockBookmarkScopes(model.paragraphs, model.tables);
   model.select(model.paragraphOffset(model.paragraphs.indexOf(separator)));
   model.didChange(); return true;
+}
+
+/**
+ * Ctrl+Enter in a table, as in Word: the caret's row starts a new page. The table splits above it and a
+ * page break goes between the parts (in the first row: before the table). A page break written into a
+ * cell is kept but does not advance (§17.3.3.1 br in a cell), so the keys would seem to do nothing.
+ * The caret stays where it was.
+ */
+export function insertTablePageBreak(model) {
+  const block = requireBlock(model);
+  if (block.table.parentCellId) throw new Error('A page break cannot go inside a nested table. Put the cursor in the outer table or below it.');
+  refuseUntracked(model, 'Breaking a table across pages');
+  const place = offset => { const at = locate(model.paragraphs, offset); return { id: model.paragraphs[at.index].id, offset: at.offset }; };
+  const anchor = place(model.selection.anchor), focus = place(model.selection.focus);
+  if (!splitTable(model) || !model.insertPageBreak()) return false;
+  const back = ({ id, offset }) => model.paragraphOffset(model.paragraphs.findIndex(p => p.id === id)) + offset;
+  model.select(back(anchor), back(focus));
+  return true;
 }
 
 /* ---- Sizes ---- */
@@ -964,6 +987,44 @@ export function sortTable(model, { keys, header = false, caseSensitive = false }
   sorted.forEach(({ row }, i) => { if (!!row.header !== headers[i]) { row.header = headers[i]; row.headerChanged = true; } });
   M.applyTableContent(model, table, state);
   validate(model);
+  model.didChange(); return true;
+}
+
+/**
+ * Alt+Shift+Up/Down in a table, as in Word: the selected rows move past the row above (-1) or below (1),
+ * the caret staying in its cell. Rows stop at the table's edge and at its repeating header rows, which
+ * keep to the top. A cell merged across rows cannot be pulled apart, so rows such a merge joins to the
+ * row they pass refuse; a merge wholly within the moved rows goes with them.
+ */
+export function moveTableRows(model, direction) {
+  const block = requireBlock(model), table = block.table;
+  const top = block.top, bottom = Math.max(block.top, block.bottom), other = direction < 0 ? top - 1 : bottom + 1;
+  const passed = table.rows[other];
+  if (!passed || table.rows.slice(top, bottom + 1).some(row => !!row.header !== !!passed.header)) return false;
+  refuseUntracked(model, 'Moving table rows');
+  const [low, high] = [Math.min(top, other), Math.max(bottom, other)];
+  for (const owner of new Set(verticalMerges(table).values())) {
+    if (owner.cells.length < 2 || owner.endRow < low || owner.rowIndex > high) continue;
+    if (owner.rowIndex < top || owner.endRow > bottom) throw new Error('Rows with cells merged across rows cannot be moved apart. Split those cells first.');
+  }
+  const state = M.tableContent(model, table);
+  // Swapped, a comment or bookmark from the moved rows into the passed one could end before it starts.
+  const rowOf = new Map(), edges = new Map();
+  for (let r = low; r <= high; r++) for (const cell of table.rows[r].cells) for (const p of state.byCell.get(cell.id) || []) rowOf.set(p, r === other);
+  for (const [p, passing] of rowOf) for (const marker of p.bookmarks || []) {
+    if ((marker.edge !== 'start' && marker.edge !== 'end') || marker.tableBoundary || marker.columnRange || marker.blockScope) continue;
+    if (!edges.has(marker.id)) edges.set(marker.id, {});
+    edges.get(marker.id)[marker.edge] = passing;
+  }
+  if ([...edges.values()].some(({ start, end }) => start !== undefined && end !== undefined && start !== end)) throw new Error('A comment or bookmark runs from these rows into the next, so they cannot be moved.');
+  model.checkpoint();
+  const [row] = table.rows.splice(other, 1);
+  table.rows.splice(direction < 0 ? bottom : top, 0, row);
+  M.applyTableContent(model, table, state);
+  validate(model);
+  // A cell selection follows its rows.
+  const cells = model.cellBlock;
+  if (cells) model.setCellBlock({ ...cells, top: cells.top + direction, bottom: cells.bottom + direction, ...(cells.rows ? { rows: cells.rows.map(r => r + direction) } : {}) });
   model.didChange(); return true;
 }
 

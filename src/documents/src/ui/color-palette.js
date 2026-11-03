@@ -31,7 +31,8 @@ export function openColorPalette({ anchor, label, value, choices, reset, onPick,
     { separator: true },
     { custom: grid(choices, `${label} colors`) },
   ];
-  for (const choice of extra) items.splice(2, 0, { label: choice.label, checked: value === choice.value, radio: true, onSelect: () => onPick(choice.value) });
+  // After the reset item, in the order given.
+  items.splice(2, 0, ...extra.map(choice => ({ label: choice.label, checked: value === choice.value, radio: true, onSelect: () => onPick(choice.value) })));
   if (recent.length) items.push({ header: 'Recent' }, { custom: grid(recent, 'Recent text colors') });
   if (custom) {
     const normalize = text => {

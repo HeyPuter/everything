@@ -109,6 +109,8 @@ export function createStatusBar({ w, a, parts, help }) {
     list.addEventListener('keydown', e => {
       if (isComposing(e) || e.altKey || e.ctrlKey || e.metaKey) return;
       const all = options(), at = all.indexOf(document.activeElement);
+      // Enter on a language is OK, as in a list in a desktop dialog: the option is a button, which would only choose it.
+      if (e.key === 'Enter' && at >= 0 && !e.shiftKey) { e.preventDefault(); chosen = all[at].dataset.tag; mark(); list.closest('form')?.requestSubmit(); return; }
       const next = { ArrowDown: at + 1, ArrowUp: at - 1, Home: 0, End: all.length - 1 }[e.key];
       if (next === undefined || at < 0) return;
       e.preventDefault();

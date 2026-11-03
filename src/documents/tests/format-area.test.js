@@ -7,7 +7,7 @@ import { spokenText, joinDictation, createDictation } from '../src/views/dictate
 import { shadingValue } from '../src/views/borders-shading.js';
 import { fontCondition } from '../src/views/find-replace.js';
 import { splitLevelText } from '../src/views/list-dialogs.js';
-import { openChangeCase, describeStyle } from '../src/views/format-misc-dialogs.js';
+import { openChangeCase, describeStyle, openPasteSpecial } from '../src/views/format-misc-dialogs.js';
 import { createFormatArea } from '../src/views/format-area.js';
 import { closeAllModals } from '../src/ui/modal.js';
 
@@ -52,6 +52,9 @@ it('turns spoken punctuation into text and joins dictation to the text before th
   expect(spokenText('hello world period new paragraph')).toBe('hello world.\n');
   expect(spokenText(' new line')).toBe('\v');
   expect(joinDictation('Done.', spokenText('new paragraph'))).toBe('\n');
+  // A sentence or a paragraph begun within one phrase starts with a capital too.
+  expect(joinDictation('Start', spokenText('this is a test period this is another question mark yes'))).toBe(' this is a test. This is another? Yes');
+  expect(joinDictation('Done. ', spokenText('first line new line second new paragraph third'))).toBe('First line\vSecond\nThird');
   const off = createDictation({ editor: () => null, readOnly: () => false, host: () => null });
   expect(off.supported).toBe(false);
   expect(off.start()).toBe(false);
@@ -160,4 +163,12 @@ it('applies a style from the styles pane and selects contiguous instances in one
   area.pane.node.querySelector('.styles-pane-actions .btn').click();
   expect(doc.text.slice(...doc.range)).toBe('Body one\nBody two');
   area.destroy();
+});
+
+it('shows the start of the clipboard text in Paste Special without cutting an emoji in half', () => {
+  // The 80th and 81st UTF-16 units are the two halves of the emoji.
+  openPasteSpecial({ source: `${'x'.repeat(79)}😀 and more`, choices: [{ id: 'text', label: 'Unformatted text', hint: '' }], apply: () => true });
+  const source = [...document.querySelectorAll('.field-hint')].find(node => node.textContent.startsWith('Source:')).textContent;
+  expect(source.isWellFormed()).toBe(true);
+  expect(source).toBe(`Source: ${'x'.repeat(79)}😀…`);
 });

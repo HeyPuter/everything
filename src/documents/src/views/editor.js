@@ -882,7 +882,12 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
   // Undo steps are named after the command that made them; a command that changed the document is the one Repeat runs.
   const undoLabels = new WeakMap();
   let pendingCommand = null, lastTextLength = null;
-  editorCommands.noteCommand = (label, run) => { if (label) pendingCommand = { label: String(label).replace(/…$/, ''), run, at: Date.now() }; };
+  // No label forgets the one noted: the command it named changed nothing, and the next edit is not it. A name alone
+  // (a paste, whichever command started it) keeps the same command a menu noted just before, with what Repeat runs.
+  editorCommands.noteCommand = (label, run) => {
+    if (label && !run && pendingCommand?.label === label && Date.now() - pendingCommand.at < 3000) return;
+    pendingCommand = label ? { label: String(label).replace(/…$/, ''), run, at: Date.now() } : null;
+  };
   function labelHistory() {
     if (!engine) return;
     const top = engine.session.history.at(-1), length = engine.model.text.length;
@@ -1175,15 +1180,17 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
       try { await ready; if (!engine || failed) return 'The document is not open.'; engine.finishComposition(); if (session.signedOut && !await session.signIn()) return 'Sign in to save a copy.'; }
       catch (e) { return e?.message || String(e); }
       const failure = await doc.saveAs(name, { stillWanted: () => !destroyed });
-      if (!failure) { title.value = doc.name; refreshTitle(); document.title = `${doc.name} — Documents`; }
+      if (!failure) { title.value = doc.name; refreshTitle(); showDocumentTitle(); }
       return failure;
     } : null,
+    // "Report copy", as Puter's Save dialog suggests below, or "Report copy 2" when that is taken.
+    copyName: cloud ? async () => P.documentStem(await P.uniqueName(`${P.documentStem(doc.name) || 'Untitled document'} copy.docx`)) : null,
     // Inside the Puter desktop Save a copy asks where, with Puter's Save dialog, rather than for a name in the app folder.
     saveCopyWhere: cloud && P.asksWhereToSave() ? async () => {
       try { await ready; if (!engine || failed) return 'The document is not open.'; engine.finishComposition(); if (session.signedOut && !await session.signIn()) return 'Sign in to save a copy.'; }
       catch (e) { return e?.message || String(e); }
       const failure = await doc.saveCopy({ stillWanted: () => !destroyed });
-      if (failure === null && !destroyed) { title.value = doc.name; refreshTitle(); document.title = `${doc.name} — Documents`; }
+      if (failure === null && !destroyed) { title.value = doc.name; refreshTitle(); showDocumentTitle(); }
       return failure;
     } : null,
     refreshTitle: () => { title.value = doc.name; refreshTitle(); },
@@ -1234,9 +1241,30 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
       reopen();
     } catch (e) { error(e); }
   }
+  const content = el('div.canvas-editor-content', {}, outlinePanel.node, finder.node, surface, versionHistory.previewNode, review.pane, formatArea.pane.node, proofing.pane, mailings.pane, references.lookupPane, ...reviewTools.panes, pictures.pane, versionHistory.pane.node, assistant.pane.node, chrome.inspector, assistant.fab);
+  // In a narrow window the panes stack under the page in one scrolling column. A pane puts the keyboard in itself
+  // without scrolling (beside the page there is nothing to scroll), so one opened under another took the keyboard out
+  // of sight, at once or when the pane above filled in a moment later (Smart Lookup's answer): while the keyboard
+  // stays there and the user has not scrolled the column, the column keeps its pane in view.
+  let kept = null;
+  const keepInView = target => {
+    const pane = [...content.children].find(node => node !== surface && node.contains(target));
+    if (!pane || getComputedStyle(content).flexDirection !== 'column') return false;
+    const frame = content.getBoundingClientRect(), box = target.getBoundingClientRect();
+    if (box.top < frame.top || box.bottom > frame.bottom) {
+      const area = pane.getBoundingClientRect();
+      // The whole pane when it fits, its top (heading and Close) first when it does not.
+      content.scrollTop += area.bottom > frame.bottom ? Math.min(area.bottom - frame.bottom, area.top - frame.top) : area.top - frame.top;
+    }
+    return true;
+  };
+  content.addEventListener('focusin', e => { kept = keepInView(e.target) ? e.target : null; });
+  content.addEventListener('focusout', () => { kept = null; });
+  for (const type of ['wheel', 'touchstart', 'pointerdown']) content.addEventListener(type, () => { kept = null; }, { passive: true });
+  const paneObserver = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(() => { if (kept && kept === document.activeElement) keepInView(kept); });
+  for (const node of content.children) paneObserver?.observe(node);
   root = el('section.canvas-workspace.ed-workspace', {}, chrome.header, chrome.toolbar,
-    message, collab.banner, el('div.canvas-editor-body', {}, chrome.navigation,
-      el('div.canvas-editor-content', {}, outlinePanel.node, finder.node, surface, versionHistory.previewNode, review.pane, formatArea.pane.node, proofing.pane, mailings.pane, references.lookupPane, ...reviewTools.panes, pictures.pane, versionHistory.pane.node, assistant.pane.node, chrome.inspector, assistant.fab)),
+    message, collab.banner, el('div.canvas-editor-body', {}, chrome.navigation, content),
     statusBar.el, backstage.el,
     openInput, imageInput, ...pictures.inputs, ...insert.inputs);
   chrome.attach(root);
@@ -1289,7 +1317,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     const entry = chrome.entries().find(e => e.id === id);
     if (!entry || entry.disabled) return false;
     return entry.run();
-  } });
+  }, signal: printAbort.signal });
   keymap.onChange(() => chrome.refresh());
   root.addEventListener('keydown', e => { if (!e.target.closest?.('.backstage') || e.key === 'Escape') keymap.handle(e); }, true);
   /** A bullet or number typed with a space at the start of a paragraph that is not yet a list item. */
@@ -1614,6 +1642,11 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     status.title = doc.error ? `${label}: ${doc.error}` : doc.path ? `${label} · ${doc.path}` : label;
     status.setAttribute('aria-label', label);
   }
+  // The browser tab and, inside the Puter desktop, the window's title bar (which does not follow the page's title) name the document.
+  function showDocumentTitle() {
+    document.title = `${doc.name} — Documents`;
+    P.setWindowTitle(document.title);
+  }
   function refreshTitle() {
     title.title = `${doc.name} — Rename`;
     title.style.width = `${Math.min(48, Math.max(12, title.value.length + 2))}ch`;
@@ -1653,7 +1686,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
       if (destroyed) return;
       title.value = doc.name;
       refreshTitle();
-      document.title = `${doc.name} — Documents`;
+      showDocumentTitle();
     } catch (e) { title.value = doc.name; refreshTitle(); error(e); }
   };
   title.addEventListener('change', onTitle);
@@ -1674,6 +1707,13 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
   };
   const onSaved = () => { if (doc.status === 'saved') conflictTold = false; };
   doc.addEventListener('conflict', onConflict);
+  // An autosave that failed again on its retry (storage full, say): the pill alone says "Not saved", and the typing goes on.
+  const onSaveFailed = e => {
+    if (destroyed) return;
+    const reason = String(e.detail.message || '').trim().replace(/[.!]+$/, '');
+    toast(`Your changes are not saved${reason ? `: ${reason}` : ''}. AutoSave keeps trying.`, { icon: 'alert', duration: 15000, action: { label: 'Download a Copy', onClick: () => download() } });
+  };
+  doc.addEventListener('savefailed', onSaveFailed);
   doc.addEventListener('status', onSaved);
   // A first save can name the file otherwise than the name shown ("Untitled document 2" when the first is taken):
   // the title shows the document's name, unless the user is typing a new one there.
@@ -1681,7 +1721,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     if (destroyed) return;
     if (document.activeElement !== title) title.value = doc.name;
     refreshTitle();
-    document.title = `${doc.name} — Documents`;
+    showDocumentTitle();
   };
   doc.addEventListener('path', onPath);
   const onSession = () => { renderAccountButton(account); updateStatus(); if (session.signedIn && doc.dirty && doc.exporter) doc.save({ auto: true }).catch(error); };
@@ -1931,7 +1971,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     const typing = active && !root.contains(active) && (active.isContentEditable || /^(TEXTAREA|SELECT)$/.test(active.tagName) || active.tagName === 'INPUT' && !/^(button|checkbox|radio|file|submit|reset|image|color|range)$/.test(active.type));
     if (!typing) engine.focus();
     collab.attach();
-    document.title = `${doc.name} — Documents`;
+    showDocumentTitle();
   })().catch(e => {
     releasePictures();
     if (destroyed) return;
@@ -1998,10 +2038,11 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
       printAbort.abort();
       destroyed = true; linkCard.destroy(); tables.destroy(); paragraphBorderModal?.close(); paragraphShadingModal?.close(); bookmarkModal?.close(); hyperlinkModal?.close(); pageSetupModal?.close(); paragraphModal?.close(); styleModal?.close(); tableModal?.close(); imageModal?.close(); fontPopover?.close(); colorPalette?.close(); highlightPalette?.close(); baselineModal?.close(); characterSpacingModal?.close(); textWidthModal?.close(); kerningModal?.close(); underlineModal?.close();
       backstage?.close({ focus: false });
-      fitObserver?.disconnect(); rulers?.destroy(); views.destroy(); chrome.destroy(); formatArea.destroy(); review.destroy(); reviewTools.destroy(); collab.destroy(); versionHistory.destroy(); assistant.destroy(); references.destroy(); insert.destroy(); draw.destroy(); pictures.destroy(); editingCommands.destroy(); proofing.destroy(); for (const module of pageModules) module.destroy();
+      fitObserver?.disconnect(); paneObserver?.disconnect(); rulers?.destroy(); views.destroy(); chrome.destroy(); formatArea.destroy(); review.destroy(); reviewTools.destroy(); collab.destroy(); versionHistory.destroy(); assistant.destroy(); references.destroy(); insert.destroy(); draw.destroy(); pictures.destroy(); editingCommands.destroy(); proofing.destroy(); for (const module of pageModules) module.destroy();
       releasePictures();
       doc.removeEventListener('status', updateStatus);
       doc.removeEventListener('conflict', onConflict);
+      doc.removeEventListener('savefailed', onSaveFailed);
       doc.removeEventListener('status', onSaved);
       doc.removeEventListener('path', onPath);
       session.removeEventListener('change', onSession);

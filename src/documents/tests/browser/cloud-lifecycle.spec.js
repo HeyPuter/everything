@@ -211,6 +211,50 @@ test('an autosave refused because another window changed the file says so once, 
   await expect(status(page)).toHaveAttribute('aria-label', 'Saved to Puter');
 });
 
+test('Save a Copy from the other-window notice suggests a name that is free, so Save As works first time', async ({ page }) => {
+  await openEditor(page);
+  await text(page).fill('Mine');
+  await expect(status(page)).toHaveAttribute('aria-label', 'Saved to Puter');
+  const name = await page.evaluate(() => window.__docs.current.view.doc.name);
+  // A copy under the first suggestion already exists: the next free one is offered instead.
+  await page.evaluate(async n => { const { path } = window.__docs.current.view.doc; await puter.fs.write(path.replace(/[^/]+$/, `${n} copy.docx`), await puter.fs.read(path)); }, name);
+  await page.waitForTimeout(1100);
+  await page.evaluate(async () => { const { path } = window.__docs.current.view.doc; await puter.fs.write(path, await puter.fs.read(path)); });
+  await text(page).press('End');
+  await page.keyboard.type(' and more');
+  const notice = page.locator('.toast', { hasText: 'changed in another window' });
+  await expect(notice).toHaveCount(1);
+  await notice.getByRole('button', { name: 'Save a Copy' }).click();
+  const view = page.getByRole('dialog', { name: 'File' });
+  await expect(view.getByRole('textbox', { name: 'New file name' })).toHaveValue(`${name} copy 2`);
+  await view.getByRole('button', { name: 'Save As', exact: true }).click();
+  await expect(view.getByRole('status')).toHaveText('Saved. You are now editing the copy.');
+  expect(await page.evaluate(() => window.__docs.current.view.doc.name)).toBe(`${name} copy 2`);
+});
+
+test('an autosave that keeps failing says so once, with Download a Copy', async ({ page }) => {
+  test.setTimeout(90000);
+  await openEditor(page);
+  await text(page).fill('Kept');
+  await expect(status(page)).toHaveAttribute('aria-label', 'Saved to Puter');
+  const path = await page.evaluate(() => window.__docs.current.view.doc.path);
+  // The drive is full: every write of the document fails, and AutoSave goes on retrying.
+  await page.evaluate(p => window.__puterFaults.push({ op: 'write', path: `^${p.replace(/^\/+/, '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, message: 'Storage capacity exceeded.' }), path);
+  await text(page).press('End');
+  await page.keyboard.type(' and more');
+  await expect(status(page)).toHaveAttribute('aria-label', 'Not saved');
+  const toast = page.locator('.toast').filter({ hasText: 'Your changes are not saved: Storage capacity exceeded. AutoSave keeps trying.' });
+  await expect(toast).toHaveCount(1, { timeout: 30000 });
+  const downloading = page.waitForEvent('download');
+  await toast.getByRole('button', { name: 'Download a Copy' }).click();
+  expect((await downloading).suggestedFilename()).toMatch(/\.docx$/);
+  // Further failed retries do not repeat it.
+  await page.waitForTimeout(9000);
+  await expect(page.locator('.toast').filter({ hasText: 'Your changes are not saved' })).toHaveCount(0);
+  await page.evaluate(() => { window.__puterFaults.length = 0; });
+  await expect(status(page)).toHaveAttribute('aria-label', 'Saved to Puter', { timeout: 15000 });
+});
+
 test('leaving a template before it has opened asks nothing, since nothing in it is the user\'s', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   // A slow first visit: the editor's code takes a while to arrive.

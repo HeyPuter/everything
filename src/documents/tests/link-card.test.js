@@ -33,3 +33,24 @@ it('keeps an address it cannot open as plain text, and edits or removes the link
   card.show({ start: 1, end: 5, link: { anchor: 'intro' }, rect });
   card.node.querySelector('[aria-label="Remove link"]').click(); expect(ed.removeHyperlink).toHaveBeenCalledOnce();
 });
+
+// A right-to-left override in an address reversed the rest of it on the card: this link to evil.example read as
+// "https://evil.example/https://bank.com". Invisible formatting characters are shown as the escapes the browser sends.
+it('shows an address with its invisible ordering characters escaped, so it reads as where it goes', () => {
+  const ed = fakeEditor(), card = createLinkCard({ editor: () => ed, edit: vi.fn(), host: document.createElement('div') });
+  const link = { target: 'https://evil.example/‮moc.knab//:sptth', tooltip: 'Bank' };
+  card.show({ start: 1, end: 5, link, rect });
+  const address = card.node.querySelector('a');
+  expect(address.textContent).toBe('https://evil.example/%E2%80%AEmoc.knab//:sptth');
+  expect(address.title).toBe(address.textContent);
+  // The link itself is unchanged: it opens where it points.
+  address.click();
+  expect(ed.openHyperlink).toHaveBeenCalledWith(link);
+  for (const ch of ['‏', '⁧', '​', '﻿', '؜']) {
+    card.show({ start: 1, end: 5, link: { target: `https://example.com/a${ch}b` }, rect });
+    expect(card.node.querySelector('a').textContent).toBe(`https://example.com/a${encodeURIComponent(ch)}b`);
+  }
+  // Letters of any script are shown as they are.
+  card.show({ start: 1, end: 5, link: { target: 'https://de.wikipedia.org/wiki/Straße_שלום' }, rect });
+  expect(card.node.querySelector('a').textContent).toBe('https://de.wikipedia.org/wiki/Straße_שלום');
+});

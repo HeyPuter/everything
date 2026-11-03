@@ -45,12 +45,19 @@ export function createDocumentViews({ editor, pkg, host, surface, root, error, c
     const inner = host.clientWidth - parseFloat(style.paddingLeft || 0) - parseFloat(style.paddingRight || 0) - 2 - (kind === 'draft' ? styleArea : 0);
     return { kind, width: Math.max(240, Math.floor(inner / engine.zoom)) };
   }
+  // The screen view the document could not be laid out to, and the document as it was then.
+  let refused = null;
   function relayoutScreen() {
     const engine = ready(); if (!engine || !isContinuousView(mode)) return;
     const view = screenView(mode);
-    // A width the document cannot be laid out to keeps the last one (CanvasEditor.setView).
+    // A width the document cannot be laid out to keeps the last one (CanvasEditor.setView). It is not
+    // tried again until the window, zoom or document changes: each refusal lays the document out again
+    // and reports an update, whose refresh asked again, so the tab never got to run anything else.
+    const body = engine.session.body, key = view && JSON.stringify([view, body.revision]);
+    if (key && refused?.key === key && refused.body === body) return;
     let changed = false;
-    try { changed = !!view && engine.setView(view); } catch { return; }
+    try { changed = !!view && engine.setView(view); } catch { refused = { key, body }; return; }
+    refused = null;
     if (changed) { layoutChanged(); paintStyleArea(); }
   }
   // Hosts without ResizeObserver (test DOMs) relayout on editor updates instead.
@@ -90,8 +97,12 @@ export function createDocumentViews({ editor, pkg, host, surface, root, error, c
     ctx.stroke();
     ctx.restore();
   };
-  /** Split: the second pane copies the pages after every paint. */
-  const mirrorOverlay = () => { if (split && !mirrorOverlay.queued) { mirrorOverlay.queued = true; queueMicrotask(() => { mirrorOverlay.queued = false; paintMirror(); }); } };
+  /** Split: the second pane copies each page the editor paints. */
+  const mirrorOverlay = (ctx, index) => {
+    if (!split) return;
+    split.dirty.add(index);
+    if (!mirrorOverlay.queued) { mirrorOverlay.queued = true; queueMicrotask(() => { mirrorOverlay.queued = false; paintMirror(); }); }
+  };
   /** Side to side: the thumbnails follow the pages, each drawn again once its page has been painted. */
   const paintedThumbs = new Set();
   const thumbOverlay = (ctx, index) => {
@@ -432,13 +443,14 @@ export function createDocumentViews({ editor, pkg, host, surface, root, error, c
     const pages = el('div.view-split-pages');
     const pane = el('div.view-split-pane', { 'aria-label': 'Second pane of this document', tabindex: 0 }, pages);
     const divider = el('div.view-split-divider', { role: 'separator', 'aria-orientation': 'horizontal', 'aria-label': 'Split position', tabindex: 0, 'aria-valuemin': 15, 'aria-valuemax': 85, 'aria-valuenow': 50 });
-    split = { pane, pages, divider, ratio: 0.5 };
+    split = { pane, pages, divider, ratio: 0.5, dirty: new Set() };
     surface.classList.add('is-split');
     host.after(divider, pane);
     const place = ratio => {
       split.ratio = Math.max(0.15, Math.min(0.85, ratio));
       host.style.flexBasis = `${split.ratio * 100}%`;
       divider.setAttribute('aria-valuenow', String(Math.round(split.ratio * 100)));
+      paintMirror();
     };
     place(0.5);
     divider.addEventListener('pointerdown', e => {
@@ -465,26 +477,34 @@ export function createDocumentViews({ editor, pkg, host, surface, root, error, c
       engine.model.select(e.shiftKey ? engine.model.selection.anchor : position, position);
       engine.focus(); engine.onSelection();
     });
+    pane.addEventListener('scroll', () => paintMirror(), { passive: true });
     paintMirror();
     onState(); layoutChanged();
   }
   function paintMirror() {
     const engine = editor(); if (!split || !engine) return;
-    // A long document paints pages off screen later; the mirror copies every page now.
-    engine.flushPaint?.();
-    const { pages } = split, sources = engine.canvases;
+    const { pages, pane, dirty } = split, sources = engine.canvases;
     pages.className = `view-split-pages ${engine.pages.className.replace('canvas-pages', '')}`;
     pages.style.gap = engine.pages.style.gap;
     while (pages.children.length > sources.length) pages.lastChild.remove();
     sources.forEach((source, index) => {
       let copy = pages.children[index];
-      if (!copy) { copy = el('canvas.canvas-page'); pages.append(copy); }
+      if (!copy) { copy = el('canvas.canvas-page'); pages.append(copy); dirty.add(index); }
       copy.dataset.page = index;
-      if (copy.width !== source.width) copy.width = source.width;
-      if (copy.height !== source.height) copy.height = source.height;
+      if (copy.width !== source.width || copy.height !== source.height) { copy.width = source.width; copy.height = source.height; dirty.add(index); }
       copy.style.width = source.style.width; copy.style.height = source.style.height;
-      copy.getContext('2d').drawImage(source, 0, 0);
     });
+    // Only the pages the second pane shows (and a screen around them) are painted and copied; the
+    // others follow when it scrolls to them. Copying every page of a long document, after painting
+    // the ones the editor had left for later, doubled the time each keystroke took.
+    const view = pane.getBoundingClientRect(), height = view.height, width = view.width;
+    const wanted = [...dirty].filter(index => {
+      const r = pages.children[index]?.getBoundingClientRect();
+      return r && r.bottom > view.top - height && r.top < view.bottom + height && r.right > view.left - width && r.left < view.right + width;
+    });
+    const stale = wanted.filter(index => engine.stalePages?.has(index));
+    if (stale.length) engine.paint({ pages: stale });
+    for (const index of wanted) { pages.children[index].getContext('2d').drawImage(sources[index], 0, 0); dirty.delete(index); }
   }
 
   /* ---- Navigation pane heading commands (drag to reorder, promote, demote, add, delete) ---- */

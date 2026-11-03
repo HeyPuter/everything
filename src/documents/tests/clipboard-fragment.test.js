@@ -114,3 +114,13 @@ it('keeps the emphasis a span inherits when its style says inherit, as a reset s
   // A weight or style of its own still counts.
   expect(runs('<p><b>Bold <span style="font-weight:normal">plain</span></b></p>')).toEqual([['Bold ', true, false], ['plain', false, false]]);
 });
+
+it('pastes Word for the web paragraphs without the no-break space that marks each paragraph’s end', () => {
+  // Word for the web ends every paragraph with a span of class EOP holding a no-break space; an empty paragraph is that span alone.
+  const p = body => `<div class="OutlineElement Ltr SCXW1 BCX0"><p class="Paragraph SCXW1 BCX0" xml:lang="EN-US" lang="EN-US" paraid="1" paraeid="{1}">${body}<span class="EOP SCXW1 BCX0" data-ccp-props="{&quot;201341983&quot;:0}">&nbsp;</span></p></div>`;
+  const run = (text, style = '') => `<span data-contrast="auto" xml:lang="EN-US" lang="EN-US" class="TextRun SCXW1 BCX0"${style}><span class="NormalTextRun SCXW1 BCX0">${text}</span></span>`;
+  const html = p(run('Hello world')) + p('') + p(run('Bold', ' style="font-weight:bold"') + run(' end&nbsp;'));
+  expect(texts(html)).toEqual(['Hello world', '', 'Bold end ']);
+  const list = `<div class="ListContainerWrapper SCXW1 BCX0"><ul class="BulletListStyle1 SCXW1 BCX0" role="list"><li data-leveltext="" data-listid="1" data-aria-level="1" role="listitem" class="OutlineElement Ltr SCXW1 BCX0">${p(run('Item')).replace(/^<div[^>]*>|<\/div>$/g, '')}</li></ul></div>`;
+  expect(htmlFragment(list).paragraphs.map(q => [q.text, q.list?.kind])).toEqual([['Item', 'bullet']]);
+});

@@ -3,7 +3,7 @@
  * (§17.3.2.21 noProof), set the document's default language, and translate the selection or the
  * whole document with Puter's AI into a pane (with Insert) or a new document.
  */
-import { el, listboxKeys } from '../ui/dom.js';
+import { el, listboxKeys, isComposing } from '../ui/dom.js';
 import { openModal } from '../ui/modal.js';
 import { toast } from '../ui/toast.js';
 import * as P from '../lib/puter.js';
@@ -42,6 +42,12 @@ export function openLanguageDialog({ language, noProof, defaultLanguage, apply, 
   render();
   // One Tab stop, on the chosen language; the arrows move through the list and choose as they go.
   settle = listboxKeys(list, option => choose(option.dataset.tag));
+  // Enter on a language is OK, as in a list in a desktop dialog: the option is a button, which would only choose it.
+  list.addEventListener('keydown', e => {
+    const option = e.target.closest?.('[role="option"]');
+    if (e.key !== 'Enter' || !option || isComposing(e) || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+    e.preventDefault(); choose(option.dataset.tag); submit();
+  });
   const modal = openModal({ title: 'Language', onClose, content: el('form.ed-dialog-body.rv-language-dialog', { onsubmit: e => { e.preventDefault(); submit(); } },
     el('p.field-hint', {}, 'Mark the selected text as:'),
     filter, list,
@@ -59,7 +65,9 @@ export function openLanguageDialog({ language, noProof, defaultLanguage, apply, 
 /** The Translator pane. */
 export function createTranslatePane({ editor, pkg, error, openDocument, documentName }) {
   let busy = null, result = null;
-  const pane = sidePane({ title: 'Translator', label: 'Translator pane', className: 'rv-translate-pane', onClose: () => { busy?.abort(); editor()?.focus(); } });
+  // Closing the pane stops a translation under way. One whose answer never comes is let go there and then: waiting
+  // for it to end would leave Translate disabled for good.
+  const pane = sidePane({ title: 'Translator', label: 'Translator pane', className: 'rv-translate-pane', onClose: () => { if (busy) { busy.abort(); busy = null; status.textContent = ''; } editor()?.focus(); } });
   const source = el('p.rv-translate-source');
   const target = languageSelect(TRANSLATION_LANGUAGE.get(), 'Translate into');
   target.addEventListener('change', () => TRANSLATION_LANGUAGE.set(target.value));
@@ -119,15 +127,18 @@ export function createTranslatePane({ editor, pkg, error, openDocument, document
   async function translateDocument() {
     const engine = editor(); if (!engine) return;
     const body = engine.session.body;
+    // The document as it is sent: edits made while the translation runs (a paragraph added, say) must not shift the
+    // translated paragraphs onto others, nor leave the new document's tables out of step with its paragraphs.
+    const sent = body.documentSnapshot();
     const plain = p => p.runs.every(r => !r.image && !r.math && !r.field && !r.noteMark && !r.contentControl && !r.bodySymbol) && !p.fieldMarkers?.length;
-    const texts = body.paragraphs.map(p => plain(p) ? p.runs.filter(r => r.revision?.type !== 'del').map(r => r.text).join('') : '');
+    const texts = sent.paragraphs.map(p => plain(p) ? p.runs.filter(r => r.revision?.type !== 'del').map(r => r.text).join('') : '');
     busy?.abort(); busy = new AbortController();
     const signal = busy.signal;
     status.textContent = 'Translating the document…'; describe();
     try {
       const translated = await translateParagraphs(texts, englishLanguageName(target.value), { chat: prompt => P.aiChat(prompt), signal, onProgress: share => { status.textContent = `Translating the document… ${Math.round(share * 100)}%`; } });
       if (signal.aborted) return;
-      const paragraphs = body.paragraphs.map((p, i) => {
+      const paragraphs = sent.paragraphs.map((p, i) => {
         if (!texts[i].trim()) return p;
         const first = p.runs.find(r => r.text && r.revision?.type !== 'del') || p.runs[0];
         const run = { ...structuredClone(first), text: translated[i] };
@@ -138,7 +149,7 @@ export function createTranslatePane({ editor, pkg, error, openDocument, document
         if (out.bookmarks) out.bookmarks = out.bookmarks.map(m => ({ ...m, offset: Math.min(m.offset, length + (m.blockBoundary === 'after' ? 1 : 0)) }));
         return out;
       });
-      const blob = pkg().export(paragraphs, body.pageSettings, body.numbering, body.styles, body.tables, body.assets, undefined, body.comments);
+      const blob = pkg().export(paragraphs, sent.pageSettings, sent.numbering, sent.styles, sent.tables, body.assets, undefined, sent.comments);
       const name = `${(documentName() || 'Document').replace(/\.docx$/i, '')} (${languageName(target.value)}).docx`;
       status.textContent = 'Translated. Opening the new document…';
       await openDocument(new File([blob], name, { type: P.DOCX_MIME }));

@@ -48,11 +48,15 @@ export function createBackstage(api) {
     if (document.activeElement && document.activeElement !== document.body && !root.contains(document.activeElement)) return;
     e.preventDefault(); e.stopPropagation(); close();
   };
+  // The pages are listed down the side, or along the top in a narrow window (the view's CSS): the arrows follow the list.
+  const across = typeof matchMedia === 'function' ? matchMedia('(max-width: 700px)') : null;
+  const orient = () => nav.setAttribute('aria-orientation', across?.matches ? 'horizontal' : 'vertical');
   root.addEventListener('keydown', e => {
     if (isComposing(e)) return;
     if (!e.target.matches?.('.bs-tab[role="tab"]')) return;
     const list = [...tabs.values()], at = list.indexOf(e.target);
-    const next = e.key === 'ArrowDown' ? at + 1 : e.key === 'ArrowUp' ? at - 1 : e.key === 'Home' ? 0 : e.key === 'End' ? list.length - 1 : null;
+    const [back, forward] = across?.matches ? ['ArrowLeft', 'ArrowRight'] : ['ArrowUp', 'ArrowDown'];
+    const next = e.key === forward ? at + 1 : e.key === back ? at - 1 : e.key === 'Home' ? 0 : e.key === 'End' ? list.length - 1 : null;
     if (next === null) return;
     e.preventDefault();
     const tab = list[(next + list.length) % list.length];
@@ -76,7 +80,9 @@ export function createBackstage(api) {
     const request = ++token;
     panel.replaceChildren(...[builders[id]?.(request)].flat().filter(Boolean));
     panel.scrollTop = 0;
-    if (focus) tabs.get(id).focus();
+    // In a narrow window the pages run along a row that scrolls sideways: the focus brings a half-hidden one wholly
+    // into view (the browser scrolls only to one wholly out of view).
+    if (focus) { tabs.get(id).focus(); tabs.get(id).scrollIntoView?.({ block: 'nearest', inline: 'nearest' }); }
   }
   const stillShowing = request => request === token && !root.hidden;
   const heading = (text, sub) => [el('h1.bs-title', {}, text), sub ? el('p.bs-sub', {}, sub) : null];
@@ -183,7 +189,14 @@ export function createBackstage(api) {
       el('section.bs-section', {}, el('div.bs-tiles', {},
         tile('Download .docx', 'download', act(() => api.download()), { primary: true }),
         api.savePdf ? tile('Download PDF', 'pdf', act(() => api.savePdf())) : null))];
+    // The copy's name starts as one no file in the folder has, so Save As works at the first press.
     const name = el('input.input', { value: api.title?.() || '', 'aria-label': 'New file name', maxLength: 120 });
+    if (api.copyName) {
+      // Not under the user's hands: a name they are typing, or a field they have gone to, stays as it is.
+      let touched = false;
+      for (const type of ['input', 'focus']) name.addEventListener(type, () => { touched = true; }, { once: true });
+      Promise.resolve().then(() => api.copyName()).then(free => { if (free && !touched) name.value = free; }).catch(() => { /* keep the title */ });
+    }
     const message = el('p.bs-muted', { role: 'status' });
     const submit = el('button.btn.btn-primary', { type: 'submit' }, 'Save As');
     const saveAs = el('form.bs-inline-form', { onsubmit: async e => {
@@ -297,7 +310,7 @@ export function createBackstage(api) {
   const builders = { new: newPage, open: openPage, info: infoPage, save: savePage, print: printPage, share: sharePage, export: exportPage };
 
   function open(id = 'info', { scrollTo } = {}) {
-    if (root.hidden) { opener = document.activeElement; window.addEventListener('keydown', onEscape, true); root.setAttribute('role', 'dialog'); root.setAttribute('aria-modal', 'true'); }
+    if (root.hidden) { opener = document.activeElement; window.addEventListener('keydown', onEscape, true); across?.addEventListener?.('change', orient); orient(); root.setAttribute('role', 'dialog'); root.setAttribute('aria-modal', 'true'); }
     root.hidden = false;
     document.body.classList.add('has-backstage');
     api.onOpen?.();
@@ -309,6 +322,7 @@ export function createBackstage(api) {
     root.hidden = true; token++;
     root.removeAttribute('role'); root.removeAttribute('aria-modal');
     window.removeEventListener('keydown', onEscape, true);
+    across?.removeEventListener?.('change', orient);
     panel.replaceChildren();
     document.body.classList.remove('has-backstage');
     api.onClose?.();

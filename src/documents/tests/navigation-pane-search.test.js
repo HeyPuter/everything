@@ -49,3 +49,28 @@ it('searches again only when the document or the search changes, and keeps the r
   expect(api.search).toHaveBeenLastCalledWith('holds');
   expect(rows(pane)[0].textContent).toBe('Line 0 holds the plan here.');
 });
+
+it('shows each result’s context without cutting an emoji or other character in half', () => {
+  const { state, pane } = documentPane();
+  // 40 characters before the match start inside the 😀 (two UTF-16 units), and 60 after its end inside the 🎉.
+  state.text = `${'x'.repeat(20)}😀${'y'.repeat(39)}plan${'z'.repeat(59)}🎉 tail`; state.revision++;
+  searchFor(pane, 'plan');
+  const [row] = rows(pane);
+  expect(row.textContent.isWellFormed()).toBe(true);
+  expect(row.textContent).toBe(`…😀${'y'.repeat(39)}plan${'z'.repeat(59)}🎉`);
+});
+
+it('searches what an input method commits, not each partial composition', () => {
+  const { api, pane } = documentPane();
+  const box = pane.node.querySelector('.nav-search');
+  // Pinyin for 计划 ("plan") is typed as letters, then committed as characters.
+  box.dispatchEvent(new CompositionEvent('compositionstart'));
+  for (const partial of ['j', 'ji', 'jih', 'jihua']) { box.value = partial; box.dispatchEvent(new InputEvent('input', { isComposing: true })); }
+  expect(api.search).not.toHaveBeenCalled();
+  expect(pane.node.querySelector('.nav-results')?.textContent || '').not.toMatch(/couldn't find/);
+  box.value = 'plan';
+  box.dispatchEvent(new InputEvent('input', { isComposing: true }));
+  box.dispatchEvent(new CompositionEvent('compositionend', { data: 'plan' }));
+  expect(api.search).toHaveBeenCalledWith('plan');
+  expect(rows(pane)).toHaveLength(40);
+});

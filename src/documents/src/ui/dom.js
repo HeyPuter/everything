@@ -61,6 +61,12 @@ export function clear(node) {
 /** Clamp a number. */
 export const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
 
+/**
+ * Whether a number field holds an amount within its min and max. Its step is where the arrows go, not a constraint:
+ * Word takes any amount in range (1.125 in between hundredths), and a document's own need not fall on the step.
+ */
+export const amountInRange = input => input.value !== '' && !input.validity.badInput && !input.validity.rangeUnderflow && !input.validity.rangeOverflow;
+
 /** Debounce with a trailing call; `.flush()` runs a pending call now. */
 export function debounce(fn, ms) {
   let timer = null;

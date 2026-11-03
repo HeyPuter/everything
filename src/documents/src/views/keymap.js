@@ -76,9 +76,16 @@ export function saveBindings(bindings, storage = localStore()) {
  * runs a command by id and returns false when it is unavailable. User bindings replace a command's
  * defaults; an empty list removes them. One chord belongs to one command: binding it elsewhere moves it.
  */
-export function createKeymap({ defaults = {}, run, storage = localStore(), mac = IS_MAC }) {
+export function createKeymap({ defaults = {}, run, storage = localStore(), mac = IS_MAC, signal }) {
   let user = loadBindings(storage);
   const listeners = new Set();
+  // Every tab of the app shares the bindings. Another tab's change applies here at once, and a change made here
+  // starts from what is stored, so it never puts back the bindings another tab has since changed.
+  const reload = () => { user = loadBindings(storage); };
+  globalThis.addEventListener?.('storage', e => {
+    if (e.key !== null && e.key !== KEYMAP_STORE || e.storageArea && e.storageArea !== storage) return;
+    reload(); for (const fn of listeners) fn();
+  }, { signal });
   const chordsFor = id => user[id] ?? defaults[id] ?? [];
   function table() {
     const map = new Map();
@@ -96,6 +103,7 @@ export function createKeymap({ defaults = {}, run, storage = localStore(), mac =
     isCustom: id => Object.hasOwn(user, id),
     assign(id, chord) {
       if (!bindable(chord)) return false;
+      reload();
       // The chord leaves whichever command had it.
       for (const other of new Set([...Object.keys(defaults), ...Object.keys(user)])) {
         if (other !== id && chordsFor(other).includes(chord)) user[other] = chordsFor(other).filter(c => c !== chord);
@@ -103,8 +111,8 @@ export function createKeymap({ defaults = {}, run, storage = localStore(), mac =
       user[id] = [...chordsFor(id).filter(c => c !== chord), chord];
       changed(); return true;
     },
-    remove(id, chord) { user[id] = chordsFor(id).filter(c => c !== chord); changed(); },
-    reset(id) { if (id) delete user[id]; else user = {}; changed(); },
+    remove(id, chord) { reload(); user[id] = chordsFor(id).filter(c => c !== chord); changed(); },
+    reset(id) { reload(); if (id) delete user[id]; else user = {}; changed(); },
     onChange(fn) { listeners.add(fn); return () => listeners.delete(fn); },
     /** Run the command bound to this keydown; true when one ran. */
     handle(e) {
