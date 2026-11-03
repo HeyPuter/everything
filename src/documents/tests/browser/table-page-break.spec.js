@@ -45,11 +45,20 @@ test('Ctrl+Enter in a table moves the caret row to a new page, and undoes in one
   expect(errors).toEqual([]);
 });
 
-test('Ctrl+Enter in a table with Track Changes on says why instead of breaking it', async ({ page }) => {
+// Split Table moves the lower rows into a new table after an untracked paragraph, so with Track Changes on
+// it refuses, as Move Table and the other structural table edits do; each refusal is said once.
+test('Ctrl+Enter and Ctrl+Shift+Enter in a table with Track Changes on say why instead of splitting it', async ({ page }) => {
   await table(page);
   await page.evaluate(() => { window.__docs.current.view.engine.model.trackChanges = true; });
-  await goToCell(page, 1, 0);
-  await input(page).press('ControlOrMeta+Enter');
-  await expect(page.getByText('cannot be tracked yet').first()).toBeVisible();
-  expect(await shape(page)).toMatchObject({ tables: [[['A0', 'A1'], ['B0', 'B1'], ['C0', 'C1']]], body: [''] });
+  const unchanged = { tables: [[['A0', 'A1'], ['B0', 'B1'], ['C0', 'C1']]], body: [''] };
+  for (const [keys, message] of [['ControlOrMeta+Enter', 'Breaking a table across pages cannot be tracked yet.'], ['ControlOrMeta+Shift+Enter', 'Splitting a table cannot be tracked yet.']]) {
+    for (const row of [1, 0]) {
+      await goToCell(page, row, 0);
+      await input(page).press(keys);
+      await expect(page.locator('.toast-root').getByText(message)).toHaveCount(1);
+      await expect(page.locator('.toast-root').getByText('cannot be tracked yet')).toHaveCount(1);
+      expect(await shape(page), `${keys} in row ${row}`).toMatchObject(unchanged);
+      await page.locator('.toast-root').evaluate(root => root.replaceChildren());
+    }
+  }
 });

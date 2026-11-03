@@ -183,6 +183,18 @@ describe('with Track Changes on', () => {
     // Inserting whole rows and columns moves nothing and still works.
     at(doc, 0, 0); expect(T.insertCells(doc, { shift: 'row' })).toBe(true);
   });
+  // Split Table moves the lower rows into a new table after an untracked paragraph (in the first row: a
+  // paragraph before the table), which a reviewer would never see; it refuses like Move Table.
+  it('refuses Split Table from any row, and Ctrl+Enter in a table once with its own message', () => {
+    for (const row of [0, 1]) {
+      refuses(`Split Table at row ${row}`, doc => { at(doc, row, 0); T.splitTable(doc); });
+      const doc = tracked(); at(doc, row, 0);
+      expect(() => T.splitTable(doc)).toThrow('Splitting a table cannot be tracked yet. Turn off Track Changes to do this.');
+      expect(doc.paragraphs.filter(p => !p.cellId)).toHaveLength(1); expect(doc.tables).toHaveLength(1);
+      expect(() => T.insertTablePageBreak(doc)).toThrow('Breaking a table across pages cannot be tracked yet. Turn off Track Changes to do this.');
+      expect(doc.tables).toHaveLength(1);
+    }
+  });
   it('still records the Delete key on cells, and allows commands that remove nothing', () => {
     const doc = tracked();
     block(doc, 0, 0, 0, 2); expect(T.clearCells(doc)).toBe(true);

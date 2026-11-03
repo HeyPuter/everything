@@ -53,7 +53,7 @@ export function selectionBlock(model) {
 
 /**
  * Table edits that remove or rearrange text (rows, columns, cells, a whole table, merging, sorting,
- * converting) are not recorded as tracked changes, so with Track Changes on they refuse to run rather
+ * splitting, converting) are not recorded as tracked changes, so with Track Changes on they refuse to run rather
  * than change text a reviewer would never see, as sorting paragraphs does. `what` names the command.
  */
 export function refuseUntracked(model, what) {
@@ -552,9 +552,14 @@ export function splitCells(model, { rows = 1, columns = 2, widths: measured } = 
   model.didChange(); return true;
 }
 
-/** Split Table: the selected row and those below it become a new table after an empty paragraph. */
+/**
+ * Split Table: the selected row and those below it become a new table after an empty paragraph. That
+ * paragraph (in the first row: one before the table) and the moved rows are not tracked changes, so with
+ * Track Changes on it refuses, as Move Table does.
+ */
 export function splitTable(model) {
   const block = requireBlock(model), table = block.table, at = block.top;
+  refuseUntracked(model, 'Splitting a table');
   if (at === 0) return model.insertTableParagraph(false);
   const state = M.tableContent(model, table), owners = verticalMerges(table);
   model.checkpoint();
