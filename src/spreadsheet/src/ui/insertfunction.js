@@ -92,7 +92,12 @@ export function openInsertFunctionDialog(ctx, { onPick } = {}) {
     if (query) {
       const q = query.toUpperCase();
       const words = q.split(/\s+/).filter(Boolean);
-      return FUNCTION_NAMES.filter(n => n.includes(q) || words.every(w => n.includes(w) || signatureFor(n).description.toUpperCase().includes(w)));
+      // The function named by the search comes first, then the names that begin with it, those that hold it, and
+      // last those whose description does, as Excel ranks them: in name order alone, "sum" put DEVSQ, DSUM and a
+      // dozen others ahead of SUM, and Down and Enter inserted DEVSQ.
+      const rank = n => (n === q ? 0 : n.startsWith(q) ? 1 : n.includes(q) ? 2 : 3);
+      return FUNCTION_NAMES.filter(n => n.includes(q) || words.every(w => n.includes(w) || signatureFor(n).description.toUpperCase().includes(w)))
+        .map((n, i) => [rank(n), i, n]).sort((a, b) => a[0] - b[0] || a[1] - b[1]).map(([, , n]) => n);
     }
     if (category.value === 'recent') return recentFunctionNames().filter(n => FUNCTION_NAMES.includes(n));
     if (category.value === 'all') return [...FUNCTION_NAMES].sort();
