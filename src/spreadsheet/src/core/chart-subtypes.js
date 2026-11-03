@@ -313,7 +313,7 @@ export function changeSubtypePatch(chart, subtypeId, { font = 'calibri' } = {}) 
   const fresh = excelChartAppearance(subtype, { font: chart.appearance.titleStyle?.font || font });
   const old = chart.appearance;
   const keep = ['background', 'border', 'borderColor', 'borderWidth', 'roundedCorners', 'textStyle', 'titleStyle', 'legendStyle', 'xStyle', 'yStyle', 'y2Style',
-    'plotFill', 'plotStroke', 'titleBox', 'legendBox', 'shadow', 'dataTable', 'blanks', 'xGridlines', 'hideXAxis', 'hideYAxis', 'yFormat', 'yStep', 'yUnits', 'yLogBase',
+    'plotFill', 'plotStroke', 'titleBox', 'legendBox', 'shadow', 'dataTable', 'blanks', 'xGridlines', 'hideXAxis', 'hideYAxis', 'yFormat', 'yStep', 'yUnits', 'yLogBase', 'yTickValues',
     'reverseValues', 'valueLabels', 'gridlineStyles'];
   const appearance = { ...fresh, ...Object.fromEntries(keep.filter(k => old[k] !== undefined).map(k => [k, old[k]])) };
   // The axis lines are the new type's own: a bar chart's categories run down the left, a scatter's values along the bottom.
