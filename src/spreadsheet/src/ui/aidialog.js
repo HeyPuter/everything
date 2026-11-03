@@ -89,6 +89,11 @@ export function openAiDialog(ctx, { mode = 'write' } = {}) {
   const active = ctx.active();
   const cell = wb.getCell(sheetId, active.r, active.c);
   const existing = cell?.f != null ? cell.f : null;
+  // A formula hidden on a protected sheet is shown nowhere (the formula bar leaves it out): neither here nor to the AI.
+  if (mode === 'explain' && existing != null && wb.formulaHiddenAt?.(sheetId, active.r, active.c)) {
+    toast(`The formula in ${cellName(active.r, active.c)} is hidden while the sheet is protected.`, { icon: 'info' });
+    return null;
+  }
   const explainable = mode === 'explain' && existing;
   const asking = mode === 'ask';
   // Ask mode: the selection, or the sheet's data when a single cell is selected.
