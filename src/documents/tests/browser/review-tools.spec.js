@@ -475,6 +475,25 @@ test('AI grammar suggestions are opt-in, marked and applied as ordinary edits', 
   expect(await page.evaluate(() => window.__prompts.length)).toBe(1);
 });
 
+test('closing the Editor pane lets go of an AI check that never answers, and Check with AI works again', async ({ page }) => {
+  await fakeAi(page);
+  // The first request hangs, as one on a stalled connection does; the next is answered.
+  await page.addInitScript(() => { let first = true; const wrap = () => { const chat = window.puter.ai.chat; window.puter.ai.chat = (...args) => { if (first) { first = false; return new Promise(() => {}); } return chat(...args); }; }; queueMicrotask(wrap); });
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await newDocument(page, 'Thanks alot for the review.');
+  await onTab(page, 'review');
+  await review(page).getByRole('button', { name: 'Editor', exact: true }).click();
+  const pane = page.getByRole('complementary', { name: 'Editor pane' });
+  await pane.getByRole('checkbox', { name: /Suggest with/ }).check();
+  await pane.getByRole('button', { name: 'Check with AI' }).click();
+  await expect(pane.getByText('Checking…')).toBeVisible();
+  await pane.getByRole('button', { name: 'Close Editor pane' }).click();
+  await review(page).getByRole('button', { name: 'Editor', exact: true }).click();
+  await expect(pane.getByRole('button', { name: 'Check with AI' })).toBeEnabled();
+  await pane.getByRole('button', { name: 'Check with AI' }).click();
+  await expect(pane.locator('.rv-ai-item')).toContainText('alot → a lot');
+});
+
 test('an AI suggestion that would take in a note reference is not offered', async ({ page }) => {
   await fakeAi(page);
   await page.setViewportSize({ width: 1440, height: 900 });
