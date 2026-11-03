@@ -74,3 +74,36 @@ test('a chart value too large to store is refused instead of saved as a trillion
   expect(values[0]).toBe(-1e12);
   expect(errors).toEqual([]);
 });
+
+// Adding or removing a row or series rebuilds the data grid. The button used went with it, and keyboard
+// focus fell out of the dialog; it now goes to the control that takes the button's place.
+test('the chart data grid keeps keyboard focus when rows and series are added or removed', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/mock.html#/new');
+  await expect((await onTab(page, 'home')).getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await page.getByRole('textbox', { name: 'Document text' }).focus();
+  await onTab(page, 'insert');
+  await page.locator('#ribbon-panel-insert').getByRole('button', { name: 'Chart', exact: true }).click();
+  const chart = page.getByRole('dialog', { name: 'Insert Chart' });
+  const focused = () => page.evaluate(() => document.activeElement.getAttribute('aria-label') || document.activeElement.textContent);
+  await chart.getByRole('button', { name: 'Remove Category 2', exact: true }).focus();
+  await page.keyboard.press('Enter');
+  await expect(chart.getByRole('textbox', { name: /^Category \d$/ })).toHaveCount(3);
+  // The row that moved up into its place.
+  expect(await focused()).toBe('Remove Category 3');
+  await page.keyboard.press('Space');
+  expect(await focused()).toBe('Remove Category 4');
+  await page.keyboard.press('Enter');
+  // The last one left cannot be removed: on to + Row, which adds a row ready to name (typing replaces its name).
+  expect(await focused()).toBe('+ Row');
+  await page.keyboard.press('Enter');
+  expect(await focused()).toBe('Category 2');
+  await page.keyboard.type('North');
+  await expect(chart.getByRole('textbox', { name: 'Category 2', exact: true })).toHaveValue('North');
+  await chart.getByRole('button', { name: '+ Series', exact: true }).focus();
+  await page.keyboard.press('Enter');
+  expect(await focused()).toBe('Series 4 name');
+  await chart.getByRole('button', { name: '− Series', exact: true }).focus();
+  await page.keyboard.press('Enter');
+  expect(await focused()).toBe('− Series');
+});

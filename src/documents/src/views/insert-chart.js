@@ -77,16 +77,21 @@ export function openChartDialog({ initial = null, onInsert, onClose }) {
   const usable = value => { const n = numberOf(value); return Number.isFinite(n) && Math.abs(n) <= LARGEST; };
   const cellInput = (value, label, onInput, numeric = false) => el('input.input', { type: 'text', inputMode: numeric ? 'decimal' : 'text', value: String(value ?? ''), 'aria-label': label,
     oninput: e => { onInput(e.target.value); if (numeric) { if (usable(e.target.value)) e.target.removeAttribute('aria-invalid'); else e.target.setAttribute('aria-invalid', 'true'); } render(); } });
-  function drawGrid() {
+  function drawGrid(focus) {
     const head = el('tr', {}, el('th', {}, ''), ...shown().map((s, j) => el('th', {}, cellInput(s.name, `Series ${j + 1} name`, v => { s.name = v; }))),
-      el('th', {}, el('button.btn.btn-ghost.btn-sm', { type: 'button', disabled: single() || data.series.length >= 20, title: 'Add a series', onclick: () => { data.series.push({ name: `Series ${data.series.length + 1}`, values: data.categories.map(() => 0), color: CHART_PALETTE[data.series.length % CHART_PALETTE.length] }); drawGrid(); render(); } }, '+ Series')));
+      el('th', {}, el('button.btn.btn-ghost.btn-sm', { type: 'button', disabled: single() || data.series.length >= 20, title: 'Add a series', dataset: { action: 'addSeries' }, onclick: () => { data.series.push({ name: `Series ${data.series.length + 1}`, values: data.categories.map(() => 0), color: CHART_PALETTE[data.series.length % CHART_PALETTE.length] }); drawGrid(() => [...grid.querySelectorAll('thead input')].at(-1)); render(); } }, '+ Series')));
     const body = data.categories.map((category, i) => el('tr', {}, el('th', {}, cellInput(category, `Category ${i + 1}`, v => { data.categories[i] = v; })),
       ...shown().map((s, j) => el('td', {}, cellInput(s.values[i], `${s.name || `Series ${j + 1}`}, ${category}`, v => { s.values[i] = v; }, true))),
-      el('td', {}, el('button.icon-btn.insert-chart-remove', { type: 'button', 'aria-label': `Remove ${category || `row ${i + 1}`}`, title: 'Remove row', disabled: data.categories.length <= 1, onclick: () => { removeChartRow(data, i); drawGrid(); render(); } }, '×'))));
+      el('td', {}, el('button.icon-btn.insert-chart-remove', { type: 'button', 'aria-label': `Remove ${category || `row ${i + 1}`}`, title: 'Remove row', disabled: data.categories.length <= 1, onclick: () => { removeChartRow(data, i); drawGrid(() => { const removes = grid.querySelectorAll('.insert-chart-remove'), next = removes[Math.min(i, removes.length - 1)]; return next && !next.disabled ? next : grid.querySelector('[data-action="addRow"]'); }); render(); } }, '×'))));
     const foot = el('tr', {}, el('td', { colSpan: shown().length + 2 },
-      el('button.btn.btn-ghost.btn-sm', { type: 'button', disabled: data.categories.length >= 100, onclick: () => { data.categories.push(type.startsWith('scatter') ? String(data.categories.length + 1) : `Category ${data.categories.length + 1}`); for (const s of data.series) s.values.push(0); drawGrid(); render(); } }, '+ Row'),
-      shown().length > 1 ? el('button.btn.btn-ghost.btn-sm', { type: 'button', onclick: () => { data.series.pop(); drawGrid(); render(); } }, '− Series') : null));
+      el('button.btn.btn-ghost.btn-sm', { type: 'button', disabled: data.categories.length >= 100, dataset: { action: 'addRow' }, onclick: () => { data.categories.push(type.startsWith('scatter') ? String(data.categories.length + 1) : `Category ${data.categories.length + 1}`); for (const s of data.series) s.values.push(0); drawGrid(() => [...grid.querySelectorAll('tbody th input')].at(-1)); render(); } }, '+ Row'),
+      shown().length > 1 ? el('button.btn.btn-ghost.btn-sm', { type: 'button', dataset: { action: 'removeSeries' }, onclick: () => { data.series.pop(); drawGrid(() => grid.querySelector('[data-action="removeSeries"]') || grid.querySelector('[data-action="addSeries"]')); render(); } }, '− Series') : null));
     grid.replaceChildren(el('thead', {}, head), el('tbody', {}, ...body, foot));
+    // Rebuilding the grid removes the button just used, and focus with it: `focus` names the control that
+    // takes its place (the new row's or series' name, selected so typing replaces it, or the next Remove button).
+    const target = focus?.();
+    target?.focus();
+    if (target instanceof HTMLInputElement) target.select();
   }
   const current = () => ({ type, title: title.value.trim(), legend: legend.value || null, categories: data.categories.map(c => String(c)), series: shown().map((s, j) => ({ name: s.name || `Series ${j + 1}`, values: s.values.map(v => usable(v) ? numberOf(v) : 0), color: s.color || CHART_PALETTE[j % CHART_PALETTE.length], ...(s.colors ? { colors: s.colors } : {}) })) });
   let pending = 0;
