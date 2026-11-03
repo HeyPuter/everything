@@ -6817,7 +6817,8 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       const message = e.detail.reason === 'overlap' ? `The array at ${ref} would overlap other content. Choose an empty range.`
         : e.detail.reason === 'bounds' ? 'The whole array must fit within the sheet limits.'
           : e.detail.reason === 'formula' ? 'Enter a formula starting with =. To remove the array, select its full range and clear it.'
-            : `Select the entire array ${ref} to change it. You can format individual cells.`;
+            : e.detail.reason === 'limits' ? 'Excel does not take this formula: a function has too few or too many arguments, or the formula is too long or nests too deep.'
+              : `Select the entire array ${ref} to change it. You can format individual cells.`;
       toast(message, { icon: 'info', duration: 4000 });
       statusBar?.announce(message);
       return;

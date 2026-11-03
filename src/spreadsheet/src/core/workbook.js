@@ -330,6 +330,14 @@ function wrongArgumentCount(body) {
   });
 }
 
+/**
+ * Is a typed formula body one Excel refuses: longer than a formula may be, past its limits on functions, or giving one
+ * the wrong number of arguments? Such an entry stays the text typed (or, entered as an array, is refused).
+ */
+function refusedEntry(body) {
+  return body.length > MAX_FORMULA_LENGTH || pastFunctionLimits(body) || wrongArgumentCount(body);
+}
+
 /** Whether a formula body has more opening than closing parentheses outside its string literals: one that stops short of its end. */
 function unclosedParens(body) {
   let open = 0;
@@ -2557,7 +2565,7 @@ export class Workbook extends EventTarget {
       // So does one past Excel's limits on functions, or giving a function too few or too many arguments, which Excel
       // refuses as typed (see pastFunctionLimits, wrongArgumentCount); a formula read from a file or copied from another
       // cell is left as it is.
-      if (cell.f.length > MAX_FORMULA_LENGTH || pastFunctionLimits(cell.f) || wrongArgumentCount(cell.f)) cell = { v: String(text), f: null, s: cell.s };
+      if (refusedEntry(cell.f)) cell = { v: String(text), f: null, s: cell.s };
     }
     if (!literal) this._applyImpliedStyle(sheetId, cell, r, c);
     if (preserveRichText && cell?.f == null && typeof cell?.v === 'string') {
@@ -5206,11 +5214,14 @@ export class Workbook extends EventTarget {
     const entries = [];
     // Rows a filter hides take nothing, as a fill skips them: the entry goes to the list's rows on show.
     const hidden = this.sheet(sheetId)?.filterHidden;
+    // A formula Excel refuses as typed stays the text typed in every cell, as it does typed into one (see setInput).
+    let refused;
     for (let r = r1; r <= r2; r++) {
       if (hidden?.has(r)) continue;
       for (let c = c1; c <= c2; c++) {
         if (this._coveredByMerge(sheetId, r, c)) continue; // Ctrl+Enter over a merged cell writes its top-left only
-        const read = cellFromInput(text, this.styleAt(sheetId, r, c));
+        let read = cellFromInput(text, this.styleAt(sheetId, r, c));
+        if (read?.f != null && (refused ??= refusedEntry(this._closeParentheses(read.f)))) read = { v: String(text), f: null, s: read.s };
         const cell = typed ? typedDigits(read, text) : read;
         if (cell?.f != null && (r !== origin.r || c !== origin.c)) cell.f = shiftFormula(cell.f, r - origin.r, c - origin.c);
         this._applyImpliedStyle(sheetId, cell, r, c);
@@ -12670,7 +12681,8 @@ export class Workbook extends EventTarget {
     const cell = cellFromInput(text, this.styleAt(sheetId, area.r1, area.c1));
     if (cell?.f == null) return !this._arrayRefused(sheet, area, 'formula');
     cell.f = this._closeParentheses(cell.f);
-    if (cell.f.length > MAX_FORMULA_LENGTH) return !this._arrayRefused(sheet, area, 'formula');
+    // One Excel refuses as typed (see refusedEntry) is refused here too, the entry left open to be put right.
+    if (refusedEntry(cell.f)) return !this._arrayRefused(sheet, area, 'limits');
     cell.array = { rows: area.r2 - area.r1 + 1, cols: area.c2 - area.c1 + 1 };
     const entries = [];
     for (const [key, old] of sheet.cells) {
