@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { editorView } from '../src/views/editor.js';
 import { Doc } from '../src/lib/doc.js';
-import { getThread } from '../src/core/comments.js';
+import { getThread, addComment } from '../src/core/comments.js';
 
 // A new comment posted with Ctrl+Enter (or its Post button) redrew the card as the thread, taking away the box
 // that had the focus: the keyboard fell to the page, where the arrows moved nothing and Escape left it there.
@@ -96,4 +96,28 @@ it('keeps the keyboard in the card as a thread is resolved, reopened and edited'
   await tick();
   expect(card()).not.toBeNull();
   expect(document.activeElement).toBe(card().querySelector('textarea.cmt-reply'));
+}, 30000);
+
+// The Comments pane redraws its threads the same way, and Resolve or Reopen there dropped the keyboard too.
+it('keeps the keyboard on the thread in the Comments pane as it is resolved and reopened', async () => {
+  const doc = new Doc({ name: 'Comments', path: 'Spreadsheets/Comments.xlsx' });
+  const wb = doc.wb;
+  const id = wb.activeSheetId;
+  addComment(wb, id, 1, 1, 'First', 'Grace');
+  addComment(wb, id, 4, 2, 'Second', 'Alan');
+  view = editorView({ doc, goHome: vi.fn(), openPath: vi.fn(), newDoc: vi.fn(), templateDoc: vi.fn(), importFile: vi.fn() });
+  document.querySelector('#app').append(view.el);
+  await tick();
+  view.run('toggleComments');
+  await tick();
+  const thread = () => [...document.querySelectorAll('.comments-pane .cmt-thread')].find((n) => n.dataset.cell === '4,2');
+  thread().querySelector('.cmt-resolve').focus();
+  thread().querySelector('.cmt-resolve').click();
+  await tick();
+  expect(getThread(wb, id, 4, 2)?.done).toBe(true);
+  expect(document.activeElement).toBe(thread().querySelector('.cmt-resolved button'));
+  document.activeElement.click();
+  await tick();
+  expect(getThread(wb, id, 4, 2)?.done).toBeFalsy();
+  expect(document.activeElement).toBe(thread().querySelector('textarea.cmt-reply'));
 }, 30000);

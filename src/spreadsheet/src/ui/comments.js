@@ -348,12 +348,23 @@ export function createComments(ctx, host) {
     const g = grid();
     if (!g) return;
     const sheetId = g.sheetId;
+    // As on the card: a redraw that takes away the control pressed (Resolve, Reopen, an edit saved or given up)
+    // leaves the keyboard on the same thread, or in the pane, rather than on the page. Queued after the redraw's
+    // own (a comment being edited takes the focus first), so it only catches a focus that fell.
+    const focusedIn = list.contains(document.activeElement) ? document.activeElement.closest('.cmt-thread')?.dataset.cell ?? '' : null;
+    const refocus = () => focusedIn != null && queueMicrotask(() => {
+      if (pane.hidden || (document.activeElement && document.activeElement !== document.body)) return;
+      const thread = focusedIn && [...list.querySelectorAll('.cmt-thread')].find((n) => n.dataset.cell === focusedIn);
+      const scope = thread || list;
+      (scope.querySelector('textarea.cmt-reply') || scope.querySelector('.cmt-resolved button') || scope.querySelector('button') || pane.querySelector('.cmt-pane-new'))?.focus({ preventScroll: true });
+    });
     const cells = threadCells(wb, sheetId);
     if (!cells.length) {
       list.replaceChildren(el('div.cmt-pane-empty', {},
         el('span.cmt-pane-empty-icon', { html: icon('comment', 32) }),
         el('p', {}, 'No comments on this sheet yet.'),
         el('p.cmt-pane-hint', {}, 'Select a cell and choose New Comment to start a conversation.')));
+      refocus();
       return;
     }
     const active = g.active;
@@ -367,6 +378,7 @@ export function createComments(ctx, host) {
         return view;
       }).filter(Boolean));
     });
+    refocus();
   }
 
   /**
