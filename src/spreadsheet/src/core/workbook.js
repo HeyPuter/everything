@@ -2542,7 +2542,8 @@ export class Workbook extends EventTarget {
       // What the referenced cell shows, the format of its column or row included (styleAt), so a formula
       // over a column formatted Currency reads as money even where that column has stored no cell of its own.
       return (target && this.styleAt(target.id, ref.r1, ref.c1)) || null;
-    }, (name, scope) => this.namedRef(name, scope || sheet?.name, r == null ? undefined : { r, c }));
+    }, (name, scope) => this.namedRef(name, scope || sheet?.name, r == null ? undefined : { r, c }),
+    (name, scope) => !!this.namedEntry(name, scope || sheet?.name) || (!scope && !!this.tableByName(name)));
     if (patch) cell.s = { ...(cell.s || {}), ...patch };
   }
 

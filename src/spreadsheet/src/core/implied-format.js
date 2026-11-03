@@ -7,6 +7,7 @@
  */
 
 import { parseFormula } from './formula/parser.js';
+import { ZERO_ARG_FUNCTIONS } from './formula/evaluator.js';
 import { localeCurrency, dateTimeKind } from './format.js';
 
 /** Functions whose result is a date, a time, or both. */
@@ -64,9 +65,10 @@ function firstOf(nodes, walk) {
  * The style patch a formula implies, or null. `styleOfRef(ref)` returns the
  * style of a reference's first cell (any sheet), or null. `refOfName(name, sheet)`
  * returns the cells a defined name stands for, so =SUM(Prices) carries their
- * format as =SUM(B2:B3) does; without it a name carries nothing.
+ * format as =SUM(B2:B3) does; without it a name carries nothing. `isName(name, sheet)` says whether a defined
+ * name (or table) answers to a bare word, which =TODAY then reads rather than calling TODAY().
  */
-export function impliedFormulaStyle(formula, styleOfRef, refOfName = null) {
+export function impliedFormulaStyle(formula, styleOfRef, refOfName = null, isName = null) {
   let ast;
   try { ast = parseFormula(formula); } catch { return null; }
   const walk = (node, depth = 0) => {
@@ -93,11 +95,13 @@ export function impliedFormulaStyle(formula, styleOfRef, refOfName = null) {
       case 'call': {
         // A bare word calls nothing, even one spelled like a function (a name Rate beside RATE): it is a defined
         // name, which stands for the cells it was given.
+        const name = String(node.name).toUpperCase();
         if (node.bare) {
           const ref = refOfName?.(node.name, node.sheet);
-          return ref ? formatPart(styleOfRef(ref)) : null;
+          if (ref) return formatPart(styleOfRef(ref));
+          // Where no name has its spelling, =TODAY and =NOW still call the function, which takes no arguments.
+          if (node.sheet || !ZERO_ARG_FUNCTIONS.has(name) || isName?.(node.name, node.sheet)) return null;
         }
-        const name = String(node.name).toUpperCase();
         const args = node.args || [];
         const dated = DATE_FUNCTIONS.get(name);
         if (dated) return { fmt: dated };

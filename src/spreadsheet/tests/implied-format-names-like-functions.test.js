@@ -27,3 +27,15 @@ it('still takes the format of the cells such a name stands for, and of a real ca
   wb.setInput(id, 1, 0, '=RATE(10,-100,800)');
   expect(wb.getDisplay(id, 1, 0)).toBe('4.28%');
 });
+
+// TODAY and NOW take no arguments, so =TODAY and =NOW written bare still call them where no name
+// has their spelling, and the cell still reads as a date rather than as 46328.
+it.each([
+  ['=TODAY', 'date'],
+  ['=NOW', 'datetime'],
+  ['=TODAY+1', 'date'],
+])('still dates %s with no name of that spelling', (formula, fmt) => {
+  const wb = new Workbook(), id = wb.activeSheetId;
+  wb.setInput(id, 0, 0, formula);
+  expect(wb.getCell(id, 0, 0).s?.fmt).toBe(fmt);
+});

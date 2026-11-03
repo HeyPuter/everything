@@ -28,7 +28,7 @@ export const APP_ONLY_FUNCTIONS = new Set(['ADD', 'MINUS', 'MULTIPLY', 'DIVIDE',
   'ARRAY_CONSTRAIN', 'EPOCHTODATE', 'GOOGLETRANSLATE', 'AI', 'QUERY', 'IMPORTDATA', 'IMPORTHTML', 'IMPORTXML', 'IMPORTRANGE']);
 
 /** Functions a bare name still calls: they take no arguments, so `=PI` and `=TODAY` mean PI() and TODAY(). */
-const ZERO_ARG_FUNCTIONS = new Set(['TRUE', 'FALSE', 'PI', 'NOW', 'TODAY', 'RAND', 'NA', 'ROW', 'COLUMN', 'SHEET', 'SHEETS']);
+export const ZERO_ARG_FUNCTIONS = new Set(['TRUE', 'FALSE', 'PI', 'NOW', 'TODAY', 'RAND', 'NA', 'ROW', 'COLUMN', 'SHEET', 'SHEETS']);
 
 /**
  * Argument positions where an empty slot still takes the function's default
