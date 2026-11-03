@@ -24432,7 +24432,9 @@ Code: [engine/document-views.js](../src/engine/document-views.js) (screen geomet
   (§17.6.12 `w:pgNumType w:start`) is ignored on screen, where no page numbers are shown, rather than
   refusing the view.
 - A document the view cannot lay out (an indent, border or list label wider than the window) keeps
-  the view it was in, with a message; resizing a screen view to such a width keeps the last width.
+  the view it was in, with a message; resizing a screen view to such a width keeps the last width
+  (Web Layout, Draft and Read Mode alike), and that width is not tried again until the window, the
+  zoom or the document changes.
 
 ### Outline levels (§17.3.1.20 `w:outlineLvl`, §17.7.4.17 style `w:pPr`)
 

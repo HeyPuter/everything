@@ -45,12 +45,19 @@ export function createDocumentViews({ editor, pkg, host, surface, root, error, c
     const inner = host.clientWidth - parseFloat(style.paddingLeft || 0) - parseFloat(style.paddingRight || 0) - 2 - (kind === 'draft' ? styleArea : 0);
     return { kind, width: Math.max(240, Math.floor(inner / engine.zoom)) };
   }
+  // The screen view the document could not be laid out to, and the document as it was then.
+  let refused = null;
   function relayoutScreen() {
     const engine = ready(); if (!engine || !isContinuousView(mode)) return;
     const view = screenView(mode);
-    // A width the document cannot be laid out to keeps the last one (CanvasEditor.setView).
+    // A width the document cannot be laid out to keeps the last one (CanvasEditor.setView). It is not
+    // tried again until the window, zoom or document changes: each refusal lays the document out again
+    // and reports an update, whose refresh asked again, so the tab never got to run anything else.
+    const body = engine.session.body, key = view && JSON.stringify([view, body.revision]);
+    if (key && refused?.key === key && refused.body === body) return;
     let changed = false;
-    try { changed = !!view && engine.setView(view); } catch { return; }
+    try { changed = !!view && engine.setView(view); } catch { refused = { key, body }; return; }
+    refused = null;
     if (changed) { layoutChanged(); paintStyleArea(); }
   }
   // Hosts without ResizeObserver (test DOMs) relayout on editor updates instead.
