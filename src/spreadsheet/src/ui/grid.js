@@ -5978,12 +5978,25 @@ export function createGrid(opts) {
       if (!part.trim()) return;
       // On the formula's own sheet, which another sheet shown to pick references on is not.
       const raw = wb.evaluateText(edit.sheetId, edit.r, edit.c, part);
-      const value = raw && typeof raw === 'object' && raw.range ? raw.values?.[0]?.[0] ?? null : raw;
       // A number goes in as a formula writes it, to its fifteen digits and with a full stop whatever the regional
       // format: the cell's display (0,3333333333 in German) cut digits off and put a comma into the formula.
-      const text = value && typeof value === 'object' && value.error ? value.error
+      const literal = (value) => (value && typeof value === 'object' && value.error ? value.error
         : typeof value === 'string' ? `"${value.replace(/"/g, '""')}"` : typeof value === 'boolean' ? (value ? 'TRUE' : 'FALSE') : value == null ? '0'
-          : typeof value === 'number' ? String(Number(value.toPrecision(15))).replace('e', 'E') : formatGeneral(value);
+          : typeof value === 'number' ? String(Number(value.toPrecision(15))).replace('e', 'E') : formatGeneral(value));
+      // A range or an array of more than one value goes in as an array constant, {1;2;3}, as Excel writes it: its first
+      // value alone turned =SUM(A1:A3) into =SUM(1). One too long for a formula is left as it was.
+      const values = raw && typeof raw === 'object' && raw.range ? raw.values || [[null]] : null;
+      const tooLong = () => opts.announce?.('Too many values to put into the formula');
+      // A reference is as large as it reaches, though only the cells in use are read (A:A is a million rows, not
+      // the two filled): each value takes a character and a separator at least, so past 4,096 of them it cannot
+      // fit Excel's 8,192.
+      const ref = values && raw.ref;
+      const height = ref ? ref.r2 - ref.r1 + 1 : values?.length || 1, width = ref ? ref.c2 - ref.c1 + 1 : values?.[0]?.length || 1;
+      if (values && height * width > 4096) { tooLong(); return; }
+      const rows = values && Array.from({ length: height }, (_, i) => Array.from({ length: width }, (_, j) => values[i]?.[j] ?? null));
+      const text = !rows || (height === 1 && width === 1) ? literal(rows ? rows[0][0] : raw)
+        : `{${rows.map((row) => row.map(literal).join(',')).join(';')}}`;
+      if (text.length > 8192) { tooLong(); return; }
       const next = whole ? `=${text}` : `${input.value.slice(0, a)}${text}${input.value.slice(b)}`;
       input.value = next;
       const caret = whole ? next.length : a + text.length;
