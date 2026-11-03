@@ -3054,7 +3054,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         if (!FUNCTION_NAMES.includes(name)) return;
         if (grid.editing && at) {
           rememberFunction(name);
-          openFunctionArgumentsDialog(ctx, name, { apply: (call) => { if (grid.editing) grid.insertText(call, at); } });
+          openFunctionArgumentsDialog(ctx, name, { initial: at.args || [], apply: (call) => { if (grid.editing) grid.insertText(call, at); } });
           return;
         }
         if (grid.editing) { insertFunction(name); return; }

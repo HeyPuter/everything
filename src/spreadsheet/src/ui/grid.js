@@ -6022,10 +6022,12 @@ export function createGrid(opts) {
           input.setSelectionRange(a + open.length, a + open.length + args.length);
           setEditText(next, { fromEditor: input === editor });
         } else {
-          // The entry stays open: the call the dialog builds takes the place of the name (and of a parenthesis typed
-          // after it, with its closing one), the rest of the formula kept around it.
-          const end = before.endsWith('(') && input.value[before.length] === ')' ? before.length + 1 : before.length;
-          opts.onCommand?.('functionArgs', { name, start: typed.index, end });
+          // The entry stays open: the call the dialog builds takes the place of the name and of the call written after
+          // it, up to its closing parenthesis, the rest of the formula kept around it. The arguments already written
+          // fill the dialog's fields, as in Excel: the name alone was replaced, =SUM(1,2) becoming =SUM()(1,2).
+          const open = before.endsWith('(') ? before.length - 1 : input.value[before.length] === '(' ? before.length : -1;
+          const call = open >= 0 ? callArguments(input.value, open) : null;
+          opts.onCommand?.('functionArgs', { name, start: typed.index, end: call ? call.end : before.length, args: call?.args || [] });
         }
         return;
       }
@@ -6066,6 +6068,38 @@ export function createGrid(opts) {
     // "+" the caret passes does not turn the arrows back into picking cells.
     if (dir && edit.mode === 'type') setEditMode('inplace');
     if (isMod(e) && key.toLowerCase() === 's') { e.preventDefault(); if (commitEdit()) opts.onCommand?.('save'); }
+  }
+
+  /**
+   * The arguments of the call whose opening parenthesis is at `open` in a formula's text, each as written (trimmed),
+   * and where the call ends: just past its closing parenthesis, or at the end of the text when it is not closed yet.
+   * Commas inside text, a quoted sheet name, nested calls, an array constant or a table reference's brackets are
+   * no separators.
+   */
+  function callArguments(text, open) {
+    const args = [];
+    let depth = 0, brackets = 0, from = open + 1;
+    const done = (at) => { args.push(text.slice(from, at).trim()); return { args: args.length === 1 && !args[0] ? [] : args, end: at }; };
+    for (let i = open + 1; i < text.length; i++) {
+      const ch = text[i];
+      if (brackets) {
+        if (ch === "'") i++;
+        else if (ch === '[') brackets++;
+        else if (ch === ']') brackets--;
+        continue;
+      }
+      if (ch === '"' || ch === "'") {
+        for (i++; i < text.length && !(text[i] === ch && text[i + 1] !== ch); i += text[i] === ch ? 2 : 1);
+        continue;
+      }
+      if (ch === '[') brackets++;
+      else if (ch === '(' || ch === '{') depth++;
+      else if (ch === ')' || ch === '}') {
+        if (depth) depth--;
+        else if (ch === ')') { const out = done(i); out.end = i + 1; return out; }
+      } else if (ch === ',' && !depth) { args.push(text.slice(from, i).trim()); from = i + 1; }
+    }
+    return done(text.length);
   }
 
   /**

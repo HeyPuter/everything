@@ -83,3 +83,25 @@ it('leaves the entry as it was when the dialog is cancelled', async () => {
   expect(view.el.querySelector('.grid').classList.contains('editing')).toBe(true);
   expect(editor.value).toBe('=1+SUM');
 });
+
+// A call already written after the name was left where it was, the dialog's call put in front of it:
+// =SUM(B1,B2)*2 with Ctrl+A after SUM opened with empty fields, and OK gave =SUM()(B1,B2)*2.
+it('fills the fields from a call already written and replaces that call whole', async () => {
+  const { wb, id, editor } = await editFormula('=SUM(B1,IF(B2>0,"a,b",B2),{1,2})*2', 4);
+  const inputs = () => [...dialog().querySelectorAll('input')].map((i) => i.value);
+  expect(inputs().slice(0, 3)).toEqual(['B1', 'IF(B2>0,"a,b",B2)', '{1,2}']);
+  dialog().requestSubmit();
+  await vi.advanceTimersByTimeAsync(1);
+  expect(editor.value).toBe('=SUM(B1, IF(B2>0,"a,b",B2), {1,2})*2');
+  editor.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+  await vi.advanceTimersByTimeAsync(1);
+  expect(wb.getCell(id, 0, 0)?.f).toBe('SUM(B1, IF(B2>0,"a,b",B2), {1,2})*2');
+});
+
+it('reads the call from just inside its parenthesis too, and one not yet closed', async () => {
+  const { editor } = await editFormula("=ROUND('My, sheet'!B1,2", 7);
+  expect([...dialog().querySelectorAll('input')].map((i) => i.value)).toEqual(["'My, sheet'!B1", '2']);
+  dialog().requestSubmit();
+  await vi.advanceTimersByTimeAsync(1);
+  expect(editor.value).toBe("=ROUND('My, sheet'!B1, 2)");
+});
