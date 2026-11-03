@@ -3,7 +3,7 @@
 // context menu. Commands run the engine's table operations (table-editing.js,
 // table-styles.js, table-formula.js) as one undoable transaction each.
 import '../styles/tables.css';
-import { el, MOD_KEY, isComposing } from '../ui/dom.js';
+import { el, MOD_KEY, isComposing, amountInRange } from '../ui/dom.js';
 import { openMenu } from '../ui/menu.js';
 import { openColorPalette } from '../ui/color-palette.js';
 import { TEXT_COLORS } from './text-color.js';
@@ -371,7 +371,7 @@ export function createTableTools({ editor, pkg, error = () => {}, onChange = () 
     const sizeInput = (key, label) => {
       const input = el('input.canvas-spacing.ribbon-number', { type: 'number', step: 0.01, min: 0.1, max: 22, 'aria-label': `${label} (in)`, placeholder: '',
         onchange: () => {
-          if (!input.checkValidity() || input.value === '') { input.reportValidity(); return; }
+          if (!amountInRange(input)) { input.reportValidity(); return; }
           const twips = Math.round(Number(input.value) * 1440);
           withTable((m, b, engine) => key === 'height' ? T.setSelectedRowHeight(m, twips, null) : T.setSelectedColumnWidth(m, twips, { widths: widthsOf(engine, b.table) }));
         },

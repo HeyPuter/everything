@@ -98,3 +98,23 @@ test('Drop Cap takes Word\'s 0.1 in (7.2 pt) distance from text', async ({ page 
   await cap.getByRole('button', { name: 'OK' }).click();
   await expect(cap).toBeVisible();
 });
+
+test('the ribbon\'s shape and table size boxes take 1.125 in, between their hundredth steps', async ({ page }, info) => {
+  const input = await start(page);
+  const ribbon = await insertShape(page);
+  const height = ribbon.getByRole('spinbutton', { name: 'Shape height (in)' });
+  await height.fill('1.125');
+  await height.press('Enter');
+  // 1⅛ in is 1028700 EMU (§20.4.2.7 wp:extent).
+  await expect.poll(async () => (await documentXml(page, info)).match(/<wp:extent [^>]*>/)[0]).toMatch(/cy="1028700"/);
+  // A table's row height and column width (twips: 1⅛ in is 1620).
+  await input.press('ControlOrMeta+End');
+  await onTab(page, 'insert');
+  await page.locator('#ribbon-panel-insert').getByRole('button', { name: 'Insert table', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Insert Table…' }).click();
+  await page.getByRole('dialog', { name: 'Insert Table' }).getByRole('button', { name: 'OK' }).click();
+  const layout = await onTab(page, 'tableLayout');
+  const width = layout.getByRole('spinbutton', { name: 'Width (in)', exact: true });
+  await width.fill('1.125'); await width.press('Enter');
+  await expect.poll(async () => (await documentXml(page, info)).match(/<w:gridCol [^>]*>/)?.[0]).toBe('<w:gridCol w:w="1620"/>');
+});

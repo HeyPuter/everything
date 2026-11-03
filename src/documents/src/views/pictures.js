@@ -6,7 +6,7 @@
  */
 import '../styles/pictures.css';
 import '../styles/drawing-handles.css';
-import { el, isComposing } from '../ui/dom.js';
+import { el, isComposing, amountInRange } from '../ui/dom.js';
 import { commandIconEl } from '../ui/ribbon.js';
 import { openMenu, closeMenu } from '../ui/menu.js';
 import { toast } from '../ui/toast.js';
@@ -808,7 +808,7 @@ export function createPictures({ editor, pkg, error, onChange = () => {}, base =
     const sizeGroup = (id, priority, { crop = false, noun = 'Picture' } = {}) => {
       const spin = (key, label) => {
         const input = el('input.canvas-spacing.ribbon-number', { type: 'number', step: 0.01, min: 0.01, max: 22, 'aria-label': `${noun} ${label.toLowerCase()} (in)`,
-          onchange: () => { if (!input.checkValidity() || input.value === '') { input.reportValidity(); return; } setSize(key, Number(input.value)); },
+          onchange: () => { if (!amountInRange(input)) { input.reportValidity(); return; } setSize(key, Number(input.value)); },
           onkeydown: e => { if (e.key === 'Enter' && !isComposing(e)) { e.preventDefault(); input.dispatchEvent(new Event('change')); } } });
         states.push(input);
         sizeInputs.push({ input, key });

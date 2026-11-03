@@ -1,4 +1,4 @@
-import { el, isComposing, MOD_KEY, shortcutCode, styleColor } from './dom.js';
+import { el, isComposing, MOD_KEY, shortcutCode, styleColor, amountInRange } from './dom.js';
 import { iconEl } from './icons.js';
 import { openMenu, closeMenu } from './menu.js';
 import { openShortcuts } from './shortcuts.js';
@@ -409,7 +409,7 @@ export function createCanvasChrome({ title, status, account, local, controls: c,
   when(rotate, () => !!w.pictureSelected?.());
   const pictureSizeInput = (key, label) => {
     const input = el('input.canvas-spacing.ribbon-number', { type: 'number', step: 0.01, min: 0.01, max: 22, 'aria-label': `Picture ${label.toLowerCase()} (in)`,
-      onchange: () => { if (!input.checkValidity() || input.value === '') { input.reportValidity(); refresh(); return; } w.setPictureSize?.(key, Number(input.value)); },
+      onchange: () => { if (!amountInRange(input)) { input.reportValidity(); refresh(); return; } w.setPictureSize?.(key, Number(input.value)); },
       onkeydown: e => { if (e.key === 'Enter' && !isComposing(e)) { e.preventDefault(); input.dispatchEvent(new Event('change')); } } });
     states.push({ control: input, enabled: () => !!w.pictureSelected?.(), value: () => w.pictureSize?.(key) });
     return spin(label, key === 'height' ? 'shapeHeight' : 'shapeWidth', input, 'in');
@@ -428,7 +428,7 @@ export function createCanvasChrome({ title, status, account, local, controls: c,
   for (const control of [shapeFill, shapeOutline, shapeWeight]) when(control, () => !!w.shapeSelected?.());
   const shapeSizeInput = (key, label) => {
     const input = el('input.canvas-spacing.ribbon-number', { type: 'number', step: 0.01, min: 0.01, max: 22, 'aria-label': `Shape ${label.toLowerCase()} (in)`,
-      onchange: () => { if (!input.checkValidity() || input.value === '') { input.reportValidity(); refresh(); return; } w.setShapeSize?.(key, Number(input.value)); },
+      onchange: () => { if (!amountInRange(input)) { input.reportValidity(); refresh(); return; } w.setShapeSize?.(key, Number(input.value)); },
       onkeydown: e => { if (e.key === 'Enter' && !isComposing(e)) { e.preventDefault(); input.dispatchEvent(new Event('change')); } } });
     states.push({ control: input, enabled: () => !!w.shapeSelected?.() && (key === 'width' || w.shapeSize?.('height') > 0), value: () => w.shapeSize?.(key) });
     return spin(label, key === 'height' ? 'shapeHeight' : 'shapeWidth', input, 'in');
