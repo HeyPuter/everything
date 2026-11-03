@@ -1025,9 +1025,23 @@ function chartSeriesData(wb, sheetId, chart) {
     const firstCol = body.map((row) => row[0]);
     const filled = firstCol.filter((x) => !isBlank(x.v));
     const textish = filled.filter((x) => !isNum(x.v) || x.dateLike).length;
+    // Whether it counts up is the column's own, read with its hidden and filtered-out cells: hiding a year must not
+    // turn the years on show into a series.
+    const countsUp = () => {
+      const [line, from, to, written] = orientation === 'rows' ? [rowLines[0], columns[0], c2, readC2] : [columns[0], rowLines[0], r2, readR2];
+      // Past the cells written lie only blanks, which count nothing.
+      if (to > written) return false;
+      const values = [];
+      for (let k = from + 1; k <= to; k++) {
+        const v = orientation === 'rows' ? wb.getValue(sheetId, line, k) : wb.getValue(sheetId, k, line);
+        if (!isNum(v)) return false;
+        values.push(v);
+      }
+      return evenSteps(values);
+    };
     if (chart.categoryLabels === true || chart.categoryLabels === false) categoryCol = chart.categoryLabels;
     else categoryCol = filled.length > 0 && (textish >= filled.length / 2 || (blankCorner && hasHeaders)
-      || (hasHeaders && !isBlank(cells[0][0].v) && STEP_CATEGORY_TYPES.has(chart.type) && evenSteps(firstCol.map((x) => x.v))));
+      || (hasHeaders && !isBlank(cells[0][0].v) && STEP_CATEGORY_TYPES.has(chart.type) && countsUp()));
     if (chart.type === 'scatter' || chart.type === 'bubble') categoryCol = false;
   }
   const categories = body.map((row, i) => (categoryCol ? row[0].text || `${i + 1}` : `${i + 1}`));
