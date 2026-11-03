@@ -1239,9 +1239,30 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
       reopen();
     } catch (e) { error(e); }
   }
+  const content = el('div.canvas-editor-content', {}, outlinePanel.node, finder.node, surface, versionHistory.previewNode, review.pane, formatArea.pane.node, proofing.pane, mailings.pane, references.lookupPane, ...reviewTools.panes, pictures.pane, versionHistory.pane.node, assistant.pane.node, chrome.inspector, assistant.fab);
+  // In a narrow window the panes stack under the page in one scrolling column. A pane puts the keyboard in itself
+  // without scrolling (beside the page there is nothing to scroll), so one opened under another took the keyboard out
+  // of sight, at once or when the pane above filled in a moment later (Smart Lookup's answer): while the keyboard
+  // stays there and the user has not scrolled the column, the column keeps its pane in view.
+  let kept = null;
+  const keepInView = target => {
+    const pane = [...content.children].find(node => node !== surface && node.contains(target));
+    if (!pane || getComputedStyle(content).flexDirection !== 'column') return false;
+    const frame = content.getBoundingClientRect(), box = target.getBoundingClientRect();
+    if (box.top < frame.top || box.bottom > frame.bottom) {
+      const area = pane.getBoundingClientRect();
+      // The whole pane when it fits, its top (heading and Close) first when it does not.
+      content.scrollTop += area.bottom > frame.bottom ? Math.min(area.bottom - frame.bottom, area.top - frame.top) : area.top - frame.top;
+    }
+    return true;
+  };
+  content.addEventListener('focusin', e => { kept = keepInView(e.target) ? e.target : null; });
+  content.addEventListener('focusout', () => { kept = null; });
+  for (const type of ['wheel', 'touchstart', 'pointerdown']) content.addEventListener(type, () => { kept = null; }, { passive: true });
+  const paneObserver = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(() => { if (kept && kept === document.activeElement) keepInView(kept); });
+  for (const node of content.children) paneObserver?.observe(node);
   root = el('section.canvas-workspace.ed-workspace', {}, chrome.header, chrome.toolbar,
-    message, collab.banner, el('div.canvas-editor-body', {}, chrome.navigation,
-      el('div.canvas-editor-content', {}, outlinePanel.node, finder.node, surface, versionHistory.previewNode, review.pane, formatArea.pane.node, proofing.pane, mailings.pane, references.lookupPane, ...reviewTools.panes, pictures.pane, versionHistory.pane.node, assistant.pane.node, chrome.inspector, assistant.fab)),
+    message, collab.banner, el('div.canvas-editor-body', {}, chrome.navigation, content),
     statusBar.el, backstage.el,
     openInput, imageInput, ...pictures.inputs, ...insert.inputs);
   chrome.attach(root);
@@ -2015,7 +2036,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
       printAbort.abort();
       destroyed = true; linkCard.destroy(); tables.destroy(); paragraphBorderModal?.close(); paragraphShadingModal?.close(); bookmarkModal?.close(); hyperlinkModal?.close(); pageSetupModal?.close(); paragraphModal?.close(); styleModal?.close(); tableModal?.close(); imageModal?.close(); fontPopover?.close(); colorPalette?.close(); highlightPalette?.close(); baselineModal?.close(); characterSpacingModal?.close(); textWidthModal?.close(); kerningModal?.close(); underlineModal?.close();
       backstage?.close({ focus: false });
-      fitObserver?.disconnect(); rulers?.destroy(); views.destroy(); chrome.destroy(); formatArea.destroy(); review.destroy(); reviewTools.destroy(); collab.destroy(); versionHistory.destroy(); assistant.destroy(); references.destroy(); insert.destroy(); draw.destroy(); pictures.destroy(); editingCommands.destroy(); proofing.destroy(); for (const module of pageModules) module.destroy();
+      fitObserver?.disconnect(); paneObserver?.disconnect(); rulers?.destroy(); views.destroy(); chrome.destroy(); formatArea.destroy(); review.destroy(); reviewTools.destroy(); collab.destroy(); versionHistory.destroy(); assistant.destroy(); references.destroy(); insert.destroy(); draw.destroy(); pictures.destroy(); editingCommands.destroy(); proofing.destroy(); for (const module of pageModules) module.destroy();
       releasePictures();
       doc.removeEventListener('status', updateStatus);
       doc.removeEventListener('conflict', onConflict);
