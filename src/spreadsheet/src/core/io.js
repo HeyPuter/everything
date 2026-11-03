@@ -2277,7 +2277,7 @@ function importSheet(X, ws, name, meta, date1904 = false, definedNames, fileForm
     headers: nativePart?.headers ?? own?.headers ?? true,
     rightToLeft: nativePart?.rightToLeft ?? own?.rightToLeft ?? false,
     defaultVAlign,
-    viewZoom: own?.viewZoom ?? part?.viewZoom,
+    viewZoom: own && !editedElsewhere('zoom') ? own.viewZoom : nativePart?.viewZoom,
     viewMode: partXml ? nativePart?.viewMode : own?.viewMode,
     showPageBreaks: own?.showPageBreaks === true,
     sheetViews: own?.sheetViews,
@@ -2285,7 +2285,8 @@ function importSheet(X, ws, name, meta, date1904 = false, definedNames, fileForm
     viewOrigin: partXml ? nativePart?.viewOrigin : own?.viewOrigin,
     frozenOrigin: partXml ? nativePart?.frozenOrigin : own?.frozenOrigin,
     split: partXml ? nativePart?.split : own?.split,
-    ...(own?.zoomToFit != null || part?.zoomToFit != null ? { zoomToFit: own?.zoomToFit ?? part?.zoomToFit } : {}),
+    ...(editedElsewhere('zoomToFit') ? { zoomToFit: nativePart.zoomToFit }
+      : own?.zoomToFit != null || part?.zoomToFit != null ? { zoomToFit: own?.zoomToFit ?? part?.zoomToFit } : {}),
     zeros: nativePart?.zeros ?? meta?.sheets?.[name]?.zeros !== false,
     sparklineGroups: readNativeSparklineGroups(partXml),
     charts: meta?.sheets?.[name]?.charts || [],

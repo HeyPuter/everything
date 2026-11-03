@@ -46,9 +46,10 @@ function levelRuns(levels) {
 const outlineLevel = (value) => Math.max(0, Math.min(7, Math.trunc(Number(value) || 0)));
 
 /**
- * The state of a worksheet (or chart sheet) part: whether it is protected, its tab colour,
- * whether its first view shows gridlines, its hidden rows and columns, and their outline: the
- * levels of the grouped lines and the summary lines marked collapsed.
+ * The state of a worksheet (or chart sheet) part: whether it is protected, its tab colour, its
+ * first view's gridlines and zoom (a chart sheet's zoom to fit the window as well), its hidden
+ * rows and columns, and their outline: the levels of the grouped lines and the summary lines
+ * marked collapsed.
  */
 export function nativeSheetState(xml) {
   xml = String(xml || '');
@@ -95,6 +96,9 @@ export function nativeSheetState(xml) {
     protected: chart ? on(protection.content) || on(protection.objects) : on(protection.sheet),
     color,
     gridlines: !off(view.showGridLines),
+    // CT_SheetView's zoomScale is 100 when left out (and taken as that when out of Excel's range).
+    zoom: Number(view.zoomScale) >= 10 && Number(view.zoomScale) <= 400 ? Number(view.zoomScale) : 100,
+    ...(chart ? { zoomToFit: on(view.zoomToFit) } : {}),
     hiddenRows: runs(hiddenRows),
     hiddenCols: runs(hiddenCols),
     rowLevels: levelRuns(rowLevels),
