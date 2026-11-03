@@ -22,6 +22,7 @@ import { cellName } from '../core/cell.js';
 import { quoteSheet } from '../core/refs.js';
 import { mentionAddress, mentionsOfPerson, assignmentsOfPerson, isUsername } from '../core/mentions.js';
 import { autoSaveEnabled } from '../lib/doc.js';
+import { getThread, threadCells } from '../core/comments.js';
 
 /** The people who can be mentioned in this workbook: [{ name, user?, email?, hint }], never the user. */
 export async function mentionCandidates({ doc, wb, me }) {
@@ -185,6 +186,11 @@ export function createMentionNotifier({ doc, wb, mailer, me, ask = askToShare, l
     if (doc.fileHolds && !doc.fileHolds(posted)) {
       if (!autoSaveEnabled()) toast(`${names} will be emailed when you save`, { icon: 'comment', duration: 3500 });
       await doc.whenFileHolds(posted);
+      // The comment as the save left it: one undone or deleted meanwhile is not mailed, and one moved by rows or
+      // columns inserted is linked where it is now.
+      const now = findComment(wb, sheetId, item.id);
+      if (!now) return { sent: 0 };
+      ({ r, c, item } = now);
     }
     const sheet = wb.sheet(sheetId);
     const cell = `${quoteSheet(sheet?.name || '')}!${cellName(r, c)}`;
@@ -215,6 +221,15 @@ export function createMentionNotifier({ doc, wb, mailer, me, ask = askToShare, l
   }
 
   return { notify, candidates: () => mentionCandidates({ doc, wb, me: me() }) };
+}
+
+/** Where the comment `id` is on a sheet now, and what it says: { r, c, item }, or null once it is gone. */
+function findComment(wb, sheetId, id) {
+  for (const { r, c } of threadCells(wb, sheetId)) {
+    const item = getThread(wb, sheetId, r, c)?.items.find((i) => i.id === id);
+    if (item) return { r, c, item };
+  }
+  return null;
 }
 
 /* ---------- Mentions of the user ---------- */

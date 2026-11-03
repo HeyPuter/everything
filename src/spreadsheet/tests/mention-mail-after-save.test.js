@@ -1,4 +1,4 @@
-import { afterEach, beforeAll, beforeEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Doc, setAutoSaveEnabled } from '../src/lib/doc.js';
 import { addComment, getThread } from '../src/core/comments.js';
 import { findMentions, mentionedPeople } from '../src/core/mentions.js';
@@ -78,4 +78,42 @@ it('emails at once when the file holds the comment already', async () => {
     expect(await doc.save()).toBe(true);
     expect((await notifier.notify(posted)).sent).toBe(1);
   } finally { doc.destroy(); }
+});
+
+// Waiting for the save, the mail went out for whatever the comment had been when it was posted: one undone or
+// deleted meanwhile was still mailed (to someone the author had just taken back), and one moved by rows inserted
+// above it was mailed with a link to the cell it had left.
+describe('a mention mailed after the save', () => {
+  async function pending() {
+    setAutoSaveEnabled(false);
+    const doc = await savedFile();
+    vi.spyOn(T, 'toast').mockImplementation(() => {});
+    const mails = [];
+    const mailer = { available: () => true, sendMentions: vi.fn(async (mail) => { mails.push(mail); return { sent: mail.recipients.length, failed: 0, results: [] }; }) };
+    const notifier = createMentionNotifier({ doc, wb: doc.wb, mailer, me: () => ME, location: { origin: 'https://spreadsheet.puter.com', pathname: '/' } });
+    return { doc, mails, mailer, notified: notifier.notify(post(doc, '@ana please check')) };
+  }
+
+  it('is not sent for a comment undone before the save', async () => {
+    const { doc, mailer, notified } = await pending();
+    try {
+      await new Promise((r) => setTimeout(r, 20));
+      doc.wb.undo();
+      expect(getThread(doc.wb, doc.wb.activeSheetId, 3, 1)).toBeNull();
+      expect(await doc.save()).toBe(true);
+      expect((await notified).sent).toBe(0);
+      expect(mailer.sendMentions).not.toHaveBeenCalled();
+    } finally { doc.destroy(); }
+  });
+
+  it('links to the cell the comment has moved to by the save', async () => {
+    const { doc, mails, notified } = await pending();
+    try {
+      await new Promise((r) => setTimeout(r, 20));
+      doc.wb.insertRows(doc.wb.activeSheetId, 0, 2);
+      expect(await doc.save()).toBe(true);
+      expect((await notified).sent).toBe(1);
+      expect(mails[0].comment.cell).toBe(`${doc.wb.sheet(doc.wb.activeSheetId).name}!B6`);
+    } finally { doc.destroy(); }
+  });
 });
