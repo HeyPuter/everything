@@ -1052,7 +1052,8 @@ function effectAttr(a, key) {
 /** A title's own fill and outline (Format ▸ Shape Fill/Outline), sized to its text. */
 function textBox(box, effect, text, x, y, style, anchor, key) {
   if (!box || (!box.fill && !box.stroke) || (box.fill === 'none' && box.stroke === 'none')) return '';
-  const w = textW(text, style.size) + style.size, h = style.size * 1.5;
+  // Measured in the title's own font, so the box keeps half an em either side of its text.
+  const w = axisTextWidth(text, style) + style.size, h = style.size * 1.5;
   const left = anchor === 'middle' ? x - w / 2 : anchor === 'end' ? x - w + style.size / 2 : x - style.size / 2;
   const filter = effect?.glow ? ` filter="url(#chart-fx-glow-${effect.glow.slice(1)})"` : effect?.shadow ? ' filter="url(#chart-fx-shadow)"' : '';
   return `<rect data-el="${key}" x="${f(left)}" y="${f(y - style.size * 1.1)}" width="${f(w)}" height="${f(h)}" fill="${esc(box.fill && box.fill !== 'none' ? box.fill : 'transparent')}" stroke="${esc(box.stroke || 'none')}"${filter}/>`;

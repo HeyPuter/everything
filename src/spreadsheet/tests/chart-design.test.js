@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Workbook } from '../src/core/workbook.js';
 import { chartData } from '../src/core/charts.js';
 import { renderChartSvg } from '../src/ui/chartsvg.js';
@@ -128,6 +128,26 @@ describe('Select Data and Switch Row/Column', () => {
 });
 
 describe('Format: Shape Fill, Outline and Effects', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  // A title's fill and outline were sized by a guess at its text's width, some 40% too wide: in Chrome the box around
+  // "Quarterly revenue by region" ran 44px past the text on each side, not the half an em it keeps.
+  it('sizes a title\'s box to its text measured in the title\'s own font', () => {
+    const fonts = [];
+    const context = { font: '', measureText(text) { fonts.push(this.font); return { width: [...String(text)].length * 7 }; } };
+    vi.stubGlobal('OffscreenCanvas', class { getContext() { return context; } });
+    for (const subtype of ['columnClustered', 'pie']) {
+      const { chart, apply, svg } = setup(subtype);
+      apply({ title: 'Quarterly revenue by region' });
+      apply(elementFormatPatch(chart(), 'title', { fill: '#ffff00', outline: '#ff0000' }));
+      const size = chart().appearance.titleStyle.size, rect = /<rect data-el="title" x="([\d.]+)" y="[\d.]+" width="([\d.]+)"/.exec(svg());
+      expect(Number(rect[2])).toBeCloseTo(27 * 7 + size, 1);
+      // Centred over the title, half an em either side.
+      expect(Number(rect[1]) + Number(rect[2]) / 2).toBeCloseTo(chart().w / 2, 1);
+      expect(fonts.some(f => f.includes(`${size}px`))).toBe(true);
+    }
+  });
+
   it('formats the chart area, plot area, title, legend, a series and a point', () => {
     const { chart, apply, svg } = setup();
     apply(elementFormatPatch(chart(), 'chartArea', { fill: '#fff2cc', outline: '#000000' }));
