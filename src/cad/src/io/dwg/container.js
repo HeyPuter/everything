@@ -78,6 +78,10 @@ export function readContainer(u8) {
   }
   const maint = u8[0x0b];
   const codepage = u16(u8, 0x13);
+  // R2004+: bit 0 of the security flags marks a password-protected drawing
+  if (ver >= R2004 && u8.length > 0x1c && u32(u8, 0x18) & 1) {
+    throw new Error('This DWG file is password protected. Remove the password in the program that saved it, then try again.');
+  }
   let sections;
   if (ver <= R2000) sections = readR13(u8);
   else if (ver === R2007) sections = readR2007(u8);

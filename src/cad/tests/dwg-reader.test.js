@@ -159,6 +159,12 @@ describe('DWG reader: other files', () => {
     expect(() => parseDwg(new TextEncoder().encode('hello world'))).toThrow(/Not a DWG/);
   });
 
+  it('explains that password-protected drawings cannot be opened', () => {
+    const b = fx('sample-r2018.dwg').slice();
+    b[0x18] |= 1;
+    expect(() => parseDwg(b)).toThrow(/password/);
+  });
+
   it('fails cleanly on truncated files', () => {
     for (const v of ['2000', '2004', '2007', '2018']) {
       const b = fx(`sample-r${v}.dwg`);
