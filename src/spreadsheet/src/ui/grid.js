@@ -3807,17 +3807,32 @@ export function createGrid(opts) {
     // The cell was protected while its entry was being typed: the workbook would refuse the write in
     // silence, so the entry stays open (the workbook's notice says why) rather than being dropped.
     if (wb.lockedAt(sheetId, r, c)) { editor.focus({ preventScroll: true }); return false; }
+    const targets = [...extras, S.selRange(sel)];
+    const arrayRange = edit.arrayRange || (arrayEntry ? S.selRange(sel) : null);
+    // A refused entry stays open, and is said on screen as well as to a screen reader: the announcement alone
+    // left Ctrl+Enter over a whole column looking as though it had done nothing.
+    const refuse = (message) => { opts.onInvalid?.({ message }); opts.announce?.(`${message}. Your entry is still being edited.`); };
+    // A formula Excel refuses as typed (=ROUND(A1), =ABS(1,2), nested or long past its limits) is refused as Excel
+    // refuses it, before any rule is asked: the entry stays open with the caret on the call at fault, and the notice
+    // says what is wrong. Written, it would have become the text typed without a word. An entry left as the cell
+    // holds it (a formula read from a file) writes nothing, and is let be.
+    const rewrites = text !== editText(wb.getCell(sheetId, r, c)) || fillSelection || (arrayEntry && !edit.arrayRange);
+    const problem = rewrites ? wb.typedFormulaProblem(text) : null;
+    if (problem) {
+      refuse(problem.message);
+      edit.refInsert = null;
+      edit.point = null;
+      setEditMode('inplace'); // the arrows move the caret to put it right, rather than pick a cell into the formula
+      focusEntry();
+      editInput().setSelectionRange(problem.start, problem.end);
+      return false;
+    }
     const verdict = opts.validate?.(r, c, text);
     let warning = verdict?.ok === false && validationAlertStyle(verdict.rule) ? verdict : null;
     if (verdict && verdict.ok === false && verdict.strict) {
       // A Stop alert can return to this draft or discard it, never accept it.
       return refuseValidation(verdict);
     }
-    const targets = [...extras, S.selRange(sel)];
-    const arrayRange = edit.arrayRange || (arrayEntry ? S.selRange(sel) : null);
-    // A refused entry stays open, and is said on screen as well as to a screen reader: the announcement alone
-    // left Ctrl+Enter over a whole column looking as though it had done nothing.
-    const refuse = (message) => { opts.onInvalid?.({ message }); opts.announce?.(`${message}. Your entry is still being edited.`); };
     if (arrayEntry && extras.length) {
       refuse('Select one continuous range for an array formula');
       editor.focus({ preventScroll: true });

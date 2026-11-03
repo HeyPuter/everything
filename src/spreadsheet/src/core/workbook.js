@@ -276,11 +276,13 @@ const MAX_FUNCTION_ARGUMENTS = 255;
 /**
  * Does a formula body call functions nested deeper, or give one more arguments, than Excel takes? Excel refuses such
  * an entry, and reports a file holding one as damaged. Parentheses that only group (and a union's commas) do not count.
+ * What is past them, for the editor to say: { kind: 'nesting' | 'arguments', name, start, end } (the function's name
+ * at the level too deep, or the comma before its argument too many), or null.
  */
 function pastFunctionLimits(body) {
   let tokens;
-  try { tokens = tokenize(body); } catch { return false; }
-  const open = []; // per open parenthesis or brace: { call, args }
+  try { tokens = tokenize(body); } catch { return null; }
+  const open = []; // per open parenthesis or brace: { call, args, name }
   let calls = 0;
   for (let i = 0; i < tokens.length; i++) {
     const t = tokens[i];
@@ -288,27 +290,27 @@ function pastFunctionLimits(body) {
       // A name before it calls a function, as does a closing parenthesis: LAMBDA(x,x)(1).
       const prev = tokens[i - 1];
       const call = prev?.type === 'name' || prev?.type === 'rparen';
-      open.push({ call, args: tokens[i + 1]?.type === 'rparen' ? 0 : 1 });
-      if (call && ++calls > MAX_FUNCTION_NESTING) return true;
+      open.push({ call, args: tokens[i + 1]?.type === 'rparen' ? 0 : 1, name: prev?.type === 'name' ? prev.value : null });
+      if (call && ++calls > MAX_FUNCTION_NESTING) return { kind: 'nesting', start: prev.type === 'name' ? prev.start : t.start, end: t.start };
     } else if (t.type === 'lbrace') open.push({ call: false, args: 0 });
     else if (t.type === 'rparen' || t.type === 'rbrace') {
       if (open.pop()?.call) calls--;
     } else if (t.type === 'comma') {
       const top = open[open.length - 1];
-      if (top?.call && ++top.args > MAX_FUNCTION_ARGUMENTS) return true;
+      if (top?.call && ++top.args > MAX_FUNCTION_ARGUMENTS) return { kind: 'arguments', name: top.name, start: t.start, end: t.start };
     }
   }
-  return false;
+  return null;
 }
 
 /**
  * Does a formula body give one of Excel's functions fewer or more arguments than it takes, as =ABS(1,2) or =ROUND(1.5)?
- * Excel refuses such an entry. Only functions in its table are checked (see arity.js), and a name a LET or LAMBDA binds
+ * Excel refuses such an entry; the call that does (a parsed call node) is returned, or null. Only functions in its table are checked (see arity.js), and a name a LET or LAMBDA binds
  * anywhere in the formula is passed over, as it may call a LAMBDA of that name rather than the function.
  */
 function wrongArgumentCount(body) {
   let tree;
-  try { tree = parseFormula(body); } catch { return false; }
+  try { tree = parseFormula(body); } catch { return null; }
   const calls = [], bound = new Set();
   // Walked without recursion: a chain of thousands of operators nests as deep as it is long.
   const pending = [tree];
@@ -324,10 +326,10 @@ function wrongArgumentCount(body) {
     }
     for (const key in node) if (key !== 'ref') pending.push(node[key]);
   }
-  return calls.some(({ name, args }) => {
+  return calls.find(({ name, args }) => {
     const arity = !bound.has(name) && ARITY.get(name);
     return arity ? args.length < arity[0] || args.length > arity[1] : false;
-  });
+  }) || null;
 }
 
 /**
@@ -335,7 +337,72 @@ function wrongArgumentCount(body) {
  * the wrong number of arguments? Such an entry stays the text typed (or, entered as an array, is refused).
  */
 function refusedEntry(body) {
-  return body.length > MAX_FORMULA_LENGTH || pastFunctionLimits(body) || wrongArgumentCount(body);
+  return body.length > MAX_FORMULA_LENGTH || !!pastFunctionLimits(body) || !!wrongArgumentCount(body);
+}
+
+const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+
+/**
+ * Where in a formula body a call of `name` given `count` arguments is: its name's start, the end of its opening
+ * parenthesis, the start of its closing one (the body's end when it has none) and the commas between its arguments.
+ * Counted as pastFunctionLimits counts them; null when no such call is found.
+ */
+function locateCall(body, name, count) {
+  let tokens;
+  try { tokens = tokenize(body); } catch { return null; }
+  const open = [];
+  const found = (call, close) => (call?.name === name && call.args === count ? { start: call.start, open: call.open, close, commas: call.commas } : null);
+  for (let i = 0; i < tokens.length; i++) {
+    const t = tokens[i];
+    if (t.type === 'lparen') {
+      const prev = tokens[i - 1];
+      const named = prev?.type === 'name';
+      open.push({ name: named ? upperName(prev.value) : null, start: named ? prev.start : t.start, open: t.end, commas: [],
+        args: tokens[i + 1]?.type === 'rparen' ? 0 : 1 });
+    } else if (t.type === 'lbrace') open.push({ name: null, commas: [] });
+    else if (t.type === 'rparen' || t.type === 'rbrace') {
+      const hit = found(open.pop(), t.start);
+      if (hit) return hit;
+    } else if (t.type === 'comma') {
+      const top = open[open.length - 1];
+      if (top?.name) { top.args++; top.commas.push(t.start); }
+    }
+  }
+  for (let call = open.pop(); call; call = open.pop()) { const hit = found(call, body.length); if (hit) return hit; }
+  return null;
+}
+
+/**
+ * Why Excel refuses a formula typed as `text`, for the editor to say so and keep the entry open, as Excel does:
+ * { message, start, end }, the part of the text to put the caret on (the call at fault), or null when the entry is
+ * taken. The same entries setInput keeps as the text typed (see refusedEntry and cellFromInput).
+ */
+function typedFormulaProblem(text, closeParentheses) {
+  const raw = text == null ? '' : String(text);
+  const { f } = parseInput(raw);
+  if (f == null) return null;
+  const at = raw.length - f.length; // where the body starts, after its =
+  const span = (start, end = start) => ({ start: at + Math.min(start, f.length), end: at + Math.min(end, f.length) });
+  const count = (n) => n.toLocaleString('en-US');
+  const tooLong = (n) => ({ message: `A formula can be at most ${count(MAX_FORMULA_LENGTH)} characters long; this one has ${count(n)}`, ...span(f.length) });
+  if (f.length > MAX_FORMULA_LENGTH) return tooLong(f.length);
+  if (formulaNesting(f) > MAX_FORMULA_NESTING) return { message: `Parentheses can be nested at most ${MAX_FORMULA_NESTING} levels deep`, ...span(f.length) };
+  const body = closeParentheses(f);
+  if (body.length > MAX_FORMULA_LENGTH) return tooLong(body.length);
+  const limit = pastFunctionLimits(body);
+  if (limit?.kind === 'nesting') return { message: `Functions can be nested at most ${MAX_FUNCTION_NESTING} levels deep`, ...span(limit.start, limit.end) };
+  if (limit) return { message: `${limit.name || 'A function'} can take at most ${MAX_FUNCTION_ARGUMENTS} arguments`, ...span(limit.start) };
+  const call = wrongArgumentCount(body);
+  if (!call) return null;
+  const [min, max] = ARITY.get(call.name), given = call.args.length;
+  const where = locateCall(body, call.name, given);
+  if (given < min) {
+    return { message: min === max ? `${call.name} needs ${plural(min, 'argument')}` : `${call.name} needs at least ${plural(min, 'argument')}`,
+      ...(where ? span(where.close) : span(f.length)) };
+  }
+  return { message: max === 0 ? `${call.name} takes no arguments` : min === max ? `${call.name} takes only ${plural(max, 'argument')}` : `${call.name} takes at most ${plural(max, 'argument')}`,
+    // The arguments too many are selected, for Delete to take them out.
+    ...(where ? span(max === 0 ? where.open : where.commas[max - 1], where.close) : span(f.length)) };
 }
 
 /**
@@ -2566,6 +2633,14 @@ export class Workbook extends EventTarget {
     }, (name, scope) => this.namedRef(name, scope || sheet?.name, r == null ? undefined : { r, c }),
     (name, scope) => !!this.namedEntry(name, scope || sheet?.name) || (!scope && !!this.tableByName(name)));
     if (patch) cell.s = { ...(cell.s || {}), ...patch };
+  }
+
+  /**
+   * Why Excel refuses `text` typed into a cell as a formula, for the editor to keep the entry open and say so:
+   * { message, start, end } (the part of the text at fault), or null. setInput keeps such an entry as the text typed.
+   */
+  typedFormulaProblem(text) {
+    return typedFormulaProblem(text, (f) => this._closeParentheses(f));
   }
 
   /** Type a value into a cell, optionally patching its style; literal values bypass input parsing. */
