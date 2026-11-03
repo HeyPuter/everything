@@ -905,6 +905,9 @@ export function formatGeneral(n) {
  * boundaries. Cell display and editing have their own formatting policies.
  */
 export function formatNumberText(n) {
+  // A whole number of up to fifteen digits is its own digits, with no decimal separator to localize: the common
+  // case, written without the work below (a column of TEXTJOIN over a column of counts converts millions).
+  if (Number.isInteger(n) && n < 1e15 && n > -1e15) return String(n);
   if (!Number.isFinite(n)) return '#NUM!';
   const abs = Math.abs(n);
   // Text conversion flushes subnormal magnitudes but retains their
