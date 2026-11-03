@@ -4024,8 +4024,9 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         keepFocus();
         return;
       }
-      case 'editSparkline': if (!committed()) return; openSparklineDialog(ctx); return;
-      case 'insertSparklines': if (!committed() || !oneRange('insert sparklines')) return; openSparklineCreateDialog(ctx, { type: typeof arg === 'string' ? arg : null }); return;
+      // Sparklines are the sheet's objects, which it keeps while protected: said before their dialogs are filled in.
+      case 'editSparkline': if (!committed()) return; if (refusedByProtection('change sparklines')) { keepFocus(); return; } openSparklineDialog(ctx); return;
+      case 'insertSparklines': if (!committed() || !oneRange('insert sparklines')) return; if (refusedByProtection('insert sparklines')) { keepFocus(); return; } openSparklineCreateDialog(ctx, { type: typeof arg === 'string' ? arg : null }); return;
       case 'groupSparklines': {
         if (!committed()) return;
         const hidden = wb.sheet(sheetId).filterHidden, { r, c } = grid.active;
@@ -4073,7 +4074,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         else if (chart && chart.type !== 'image') openChartDialog(ctx, { chart });
         return;
       }
-      case 'insertTextBox': if (!committed()) return; openTextBoxDialog(ctx); return;
+      case 'insertTextBox': if (!committed() || refusedByProtection('insert a text box')) return; openTextBoxDialog(ctx); return;
       case 'deleteChart': {
         const id = arg?.id || arg || grid.selectedChart;
         if (!id) return;
@@ -4183,7 +4184,8 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         return;
       }
       // Insert ▸ Pictures: over the cells, or with 'cell' into the active cell as its value (Place in Cell).
-      case 'insertImage': if (!committed()) return; replaceImageId = null; imageIntoCell = arg === 'cell'; imageInput.click(); return;
+      // A protected sheet takes no picture, over the cells or in one: said before a file is chosen (see insertImageFile).
+      case 'insertImage': if (!committed() || refusedByProtection('insert images')) return; replaceImageId = null; imageIntoCell = arg === 'cell'; imageInput.click(); return;
       case 'sheetBackground': {
         if (!committed()) return;
         const sheet = wb.sheet(sheetId);
@@ -4209,6 +4211,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
           else toast(`The cells this picture showed (${linked}) are gone`, { icon: 'info', duration: 3000 });
           return;
         }
+        if (id && refusedByProtection('replace images')) return;
         replaceImageId = id; imageIntoCell = false; if (replaceImageId) imageInput.click(); return;
       }
       case 'insertImagePuter': {
@@ -4238,7 +4241,9 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         return;
       }
       case 'insertImageUrl': {
-        // A picture from the web, fetched through Puter so it lands in the file like an uploaded one.
+        // A picture from the web, fetched through Puter so it lands in the file like an uploaded one. A protected
+        // sheet takes none, over the cells or in one: said before the address is typed.
+        if (refusedByProtection('insert images')) { keepFocus(); return; }
         const url = await promptDialog({
           title: arg === 'cell' ? 'Place picture in cell from URL' : 'Insert image from URL', label: 'Address of a PNG, JPEG, GIF, WebP, or SVG image', placeholder: 'https://example.com/logo.png', confirmLabel: arg === 'cell' ? 'Place in Cell' : 'Insert',
           validate: urlProblem,

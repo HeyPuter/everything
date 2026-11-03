@@ -194,6 +194,8 @@ export function runChartAction(ctx, arg = {}) {
   if (action === 'insert') return insertChart(ctx, arg.subtype, arg.range);
   if (action === 'insertSheet') return insertChartSheet(ctx, arg.subtype);
   if (action === 'insertDialog' || action === 'recommended') {
+    // A protected sheet takes no new chart: said before one is picked, not when OK finds the sheet refusing it.
+    if (ctx.refused?.('insert a chart')) return null;
     return openChartTypeDialog(ctx, { mode: action === 'recommended' ? 'recommended' : 'insert', family: arg.family || null });
   }
   const chart = arg.id ? wb.chartById(sheetId, arg.id) : activeChart(ctx);
