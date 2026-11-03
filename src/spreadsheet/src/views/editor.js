@@ -2844,7 +2844,8 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         keepFocus();
         return;
       }
-      case 'fillSeries': if (!committed()) return; openSeriesDialog(ctx); return;
+      // The series dialog's fill is refused anywhere on a protected sheet: said before the step and stop are given.
+      case 'fillSeries': if (!committed()) return; if (refusedByProtection('fill a series')) { keepFocus(); return; } openSeriesDialog(ctx); return;
       case 'fillDown': case 'fillRight': case 'fillUp': case 'fillLeft': {
         if (grid.editing) return;
         // Every selected range (Ctrl/Cmd+click adds ranges) fills from its own first row or column, as one undo step.
@@ -3819,8 +3820,9 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       }
       case 'pivot': openPivotDialog(ctx); return;
       case 'recommendedPivots': openRecommendedPivots(ctx); return;
-      case 'goalSeek': if (!committed()) return; openGoalSeek(ctx); return;
-      case 'dataTable': if (!committed()) return; openDataTable(ctx); return;
+      // Goal Seek and Data Table write on this sheet, which refuses them while protected: said before they are filled in.
+      case 'goalSeek': if (!committed()) return; if (refusedByProtection('use Goal Seek')) { keepFocus(); return; } openGoalSeek(ctx); return;
+      case 'dataTable': if (!committed()) return; if (refusedByProtection('make a data table')) { keepFocus(); return; } openDataTable(ctx); return;
       case 'forecastSheet': if (!committed()) return; openForecastSheet(ctx); return;
       case 'scenarioManager': if (!committed()) return; openScenarioManager(ctx); return;
       case 'solver': if (!committed()) return; openSolver(ctx); return;
