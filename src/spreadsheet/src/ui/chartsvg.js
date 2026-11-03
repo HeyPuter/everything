@@ -1581,6 +1581,7 @@ function renderStyledCartesian(data, chart, width, height) {
     const slack = Math.abs(major.max - major.min) * 1e-9;
     return [...grid, ...minor].filter(v => !ticks.some(t => Math.abs(v - t) <= slack)).sort((p, q) => p - q);
   };
+  const boxEdges = [];
   const axis = (key, vertical, origin, start, end, major, minor, hidden) => {
     const style = a.axisStyles?.[key];
     if (!style || hidden || style.color === 'none') return;
@@ -1589,6 +1590,13 @@ function renderStyledCartesian(data, chart, width, height) {
     const segment = (cls, x1, y1, x2, y2, dashed = false) => parts.push(`<line class="${cls} chart-axis-${key}" x1="${f(x1)}" y1="${f(y1)}" x2="${f(x2)}" y2="${f(y2)}" ${attrs}${dashed && dash.length ? ` stroke-dasharray="${dash.map(v => v * (width || 1)).join(' ')}"` : ''} data-el="${key === 'x' ? 'xAxis' : key === 'y' ? 'yAxis' : 'y2Axis'}"/>`);
     if (vertical) segment('chart-axis-line', origin, start, origin, end, true);
     else segment('chart-axis-line', start, origin, end, origin, true);
+    // A boxed axis lines both plot edges it runs along (the left and right for a vertical axis, the top and bottom
+    // for a horizontal one) in its own line, so boxing both axes boxes the whole plot. They go over the gridlines.
+    if (style.box) {
+      const edge = (x1, y1, x2, y2) => boxEdges.push(`<line class="chart-axis-box chart-axis-${key}" x1="${f(x1)}" y1="${f(y1)}" x2="${f(x2)}" y2="${f(y2)}" ${attrs}${dash.length ? ` stroke-dasharray="${dash.map(v => v * (width || 1)).join(' ')}"` : ''} stroke-linecap="square"/>`);
+      if (vertical) { edge(plot.x, plot.y, plot.x, plot.y + plot.h); edge(plot.x + plot.w, plot.y, plot.x + plot.w, plot.y + plot.h); }
+      else { edge(plot.x, plot.y, plot.x + plot.w, plot.y); edge(plot.x, plot.y + plot.h, plot.x + plot.w, plot.y + plot.h); }
+    }
     const high = key === 'x' ? categoryAxisHigh : key === 'y2' ? secondAxisHigh : valueAxisHigh;
     const outward = (vertical ? 1 : -1) * (high ? 1 : -1);
     const ticks = (positions, kind, length, name) => {
@@ -1665,6 +1673,8 @@ function renderStyledCartesian(data, chart, width, height) {
     if (a.y2Gridlines) gridline('y2', plot.x, sy2(v), plot.x + plot.w, sy2(v));
     if (secondaryLabels) label(formatted(v, a.y2Format, a.y2TickValues ? v : scale2.step, a.y2Units, secondarySource).trim(), valueColumns.secondary.x, sy2(v) + a.y2Style.size * .35, a.y2Style, secondHigh ? 'start' : 'end', 'data-el="y2Axis"');
   }
+  parts.push(...boxEdges);
+
   if (horizontal) {
     if (categoryLabels) {
       const origin = fixedLabelSide(a.xLabelPosition) ? categoryHigh ? plot.x + plot.w : plot.x : xOrigin;

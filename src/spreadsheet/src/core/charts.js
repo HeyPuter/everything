@@ -590,7 +590,9 @@ function normalizeAppearance(raw) {
           minorTick: ['none', 'in', 'out', 'cross'].includes(s.minorTick) ? s.minorTick : null,
           minorUnit: Number.isFinite(s.minorUnit) && s.minorUnit > 0 ? s.minorUnit : null,
           minorTimeUnit: ['days', 'months', 'years'].includes(s.minorTimeUnit) ? s.minorTimeUnit : null,
-          tickSkip: Number.isInteger(s.tickSkip) && s.tickSkip > 0 && s.tickSkip <= 4294967295 ? s.tickSkip : null }];
+          tickSkip: Number.isInteger(s.tickSkip) && s.tickSkip > 0 && s.tickSkip <= 4294967295 ? s.tickSkip : null,
+          // Format Axis' "Box around plot area": the axis line drawn again along both edges of the plot it runs beside.
+          ...(s.box === true ? { box: true } : {}) }];
       })) } : {}),
     ...Object.fromEntries(['xGridlines', 'y2Gridlines'].filter(k => typeof raw[k] === 'boolean').map(k => [k, raw[k]])),
     ...(raw.gridlineStyles && typeof raw.gridlineStyles === 'object' ? { gridlineStyles: Object.fromEntries(['x', 'y', 'y2']

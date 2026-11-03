@@ -16,7 +16,7 @@ import { chartData, chartTitles, chartXBounds, chartXBoundsPatch, CHART_DASH_CHO
 import { chartElementPatch, dataLabelPositions, elementFormatPatch, isPieChart, trendlineAllowed, trendlinePatch } from '../core/chart-design.js';
 import { INTERCEPT_TYPES, TREND_LABEL_SIZE, TREND_TYPES, trendFor, trendName, trendProblem } from '../core/trendline.js';
 import { ERROR_BAR_CAP_WIDTH, ERROR_BAR_COLOR, ERROR_BAR_TYPES, errorBarAmountInput, errorBarsAllowed, errorBarsFor, errorBarsPatch, normalizeErrorBars } from '../core/error-bars.js';
-import { barSpacing } from '../core/chart-subtypes.js';
+import { barSpacing, CHART_LINE_GREY } from '../core/chart-subtypes.js';
 import { formatAxisTickValues, parseAxisTickValues } from '../core/axis-tick-values.js';
 
 const PANE_TITLES = { chartArea: 'Format Chart Area', plotArea: 'Format Plot Area', title: 'Format Chart Title', legend: 'Format Legend',
@@ -445,12 +445,16 @@ export function createChartUi(ctx) {
         key === 'title' || key === 'legend' ? null : number('Width (pt)', Number.isFinite(width) ? Math.round(width * 3 / 4 * 100) / 100 : null,
           v => { if (v != null && v >= 0) format({ outlineWidth: Math.round(v * 4 / 3 * 100) / 100 }); }, { min: 0, max: 20, step: 0.25, placeholder: '' }));
     }
-    // A line on every side of the plot, as Format Plot Area's border draws it, offered where an axis line is
-    // set: it starts in this axis line's colour and width.
+    // This axis' line drawn along both plot edges it runs beside: the top and bottom for a horizontal axis, the
+    // left and right for a vertical one; both axes boxed box the whole plot. An axis with no line, or the faint
+    // default one that disappears into the gridlines, takes a dark line so the box shows.
     if (chart.appearance && AXIS_KEYS.includes(key)) {
-      const boxed = a.plotStroke !== 'none' && !!(a.plotStroke || a.plotStrokeWidth != null || a.plotStrokeDash);
-      parts.push(checkbox('Box around plot area', boxed, on => apply(elementFormatPatch(chart, 'plotArea', on
-        ? { outline: line && line !== 'none' ? line : '#595959', outlineWidth: Number.isFinite(width) ? width : null } : { outline: 'none' }), 'Box around plot area')));
+      const k = key === 'xAxis' ? 'x' : key === 'yAxis' ? 'y' : 'y2', st = a.axisStyles?.[k];
+      parts.push(checkbox('Box around plot area', !!st?.box, on => {
+        const { box, ...rest } = st || { majorTick: 'none', minorTick: 'none' };
+        const faint = !rest.color || rest.color === 'none' || rest.color.toLowerCase() === CHART_LINE_GREY;
+        apply({ appearance: { ...a, axisStyles: { ...a.axisStyles, [k]: on ? { ...rest, box: true, ...(faint ? { color: '#595959' } : {}) } : rest } } }, 'Box around plot area');
+      }));
     }
     return parts.length ? section('Fill & Line', parts) : null;
   }

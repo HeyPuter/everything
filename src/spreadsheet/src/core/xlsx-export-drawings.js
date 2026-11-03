@@ -48,6 +48,17 @@ const gridlines = (visible, style) => {
   const line = fill || style?.width != null ? tag('a:ln', style?.width == null ? {} : { w: emu(style.width) }, fill) : '';
   return tag('c:majorGridlines', {}, line ? tag('c:spPr', {}, line) : '');
 };
+/**
+ * The plot area's border: its own, or else, where both axes are boxed (Format Axis' "Box around plot area"), the
+ * box they draw, which Excel shows as a plot-area border. A box on one axis only has no Excel form.
+ */
+const plotBorder = ap => {
+  const own = { color: ap.plotStroke, width: ap.plotStrokeWidth, dash: ap.plotStrokeDash };
+  const shown = s => s?.box && s.color && s.color !== 'none';
+  const { x, y } = ap.axisStyles || {};
+  if ((ap.plotStroke && ap.plotStroke !== 'none') || !shown(x) || !shown(y)) return own;
+  return { color: y.color, width: y.width, dash: y.dash };
+};
 const lineShape = (style, background = '') => {
   if (!style || (style.color == null && style.width == null && style.dash == null)) return background ? tag('c:spPr', {}, background) : '';
   const color = style.color;
@@ -443,7 +454,7 @@ function chartXml(X, wb, sheet, ch) {
     + val('showOutline', Number(table.outline)) + val('showKeys', Number(table.keys))
     + tag('c:spPr', {}, paint(table.fill) + tag('a:ln', { w: emu(table.width) }, paint(table.stroke))) + textProps(table.style)) : '';
   const plot = tag('c:plotArea', {}, layout(ap.plot, true) + plots + axes + tableXml
-    + withEffects(lineShape({ color: ap.plotStroke, width: ap.plotStrokeWidth, dash: ap.plotStrokeDash }, paint(ap.plotFill)), ap.effects?.plotArea));
+    + withEffects(lineShape(plotBorder(ap), paint(ap.plotFill)), ap.effects?.plotArea));
   const legend = ch.legend ? tag('c:legend', {}, val('legendPos', { top: 't', bottom: 'b', left: 'l', right: 'r' }[ch.legendPos] || 'b')
     + (ap.legendHidden || []).map(i => tag('c:legendEntry', {}, val('idx', i) + val('delete', 1))).join('') + layout(ap.legend) + val('overlay', 0)
     + boxShape(ap.legendBox, ap.effects?.legend) + textProps(ap.legendStyle)) : '';
