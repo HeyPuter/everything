@@ -51,3 +51,23 @@ it('the x placeholder drops digits to its left (formula and merge field)', () =>
   expect(formatFormulaNumber(111053 + 111439, 'x##')).toBe('492');
   expect(formatNumberPicture('222492', 'x##')).toBe('492');
 });
+
+// Characters between digit placeholders keep their place among the digits (§17.16.4.2 fills placeholders
+// with the result's digits; the clause gives literals no other position). The numeric-page-fields native
+// reference control shows it: "00-00" formats 12 as "00 12" and "00'-'00" as "00-12". They were moved
+// after the number, so "# ##0" gave "1234 " and a phone-number picture lost its layout.
+it('keeps literals and signs between digit placeholders in place (formula and merge field)', () => {
+  expect(formatFormulaNumber(1234, '# ##0')).toBe('1 234');
+  expect(formatFormulaNumber(1234567, '# ##0')).toBe('1234 567');
+  expect(formatFormulaNumber(1234.5, '# ##0.00')).toBe('1 234.50');
+  expect(formatFormulaNumber(-1234, '# ##0')).toBe('-1 234');
+  expect(formatFormulaNumber(12, '000 000')).toBe('000 012');
+  expect(formatFormulaNumber(12, '00-00')).toBe('00 12');
+  expect(formatFormulaNumber(-12, '00-00')).toBe('00-12');
+  expect(formatFormulaNumber(12, "00'-'00")).toBe('00-12');
+  expect(formatNumberPicture('5551234567', "(000) 000'-'0000")).toBe('(555) 123-4567');
+  expect(formatNumberPicture('123456789', "000'-'00'-'0000")).toBe('123-45-6789');
+  // Optional places left empty take no room here, so neither does a separator among them.
+  expect(formatFormulaNumber(12, '# ##0')).toBe('12');
+  expect(formatFormulaNumber(0, '# ##0')).toBe('0');
+});

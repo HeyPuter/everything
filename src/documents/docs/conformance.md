@@ -23701,7 +23701,12 @@ cells next to the field's cell, stopping at the first cell without a leading
 number), and `SUM`, `AVERAGE`, `COUNT`, `MAX`, `MIN`, `PRODUCT`, `ABS`, `INT`,
 `MOD`, `ROUND`, `SIGN`, `IF`, `AND`, `OR`, `NOT`, `DEFINED`, `TRUE`, `FALSE`.
 Numeric pictures support `0`, `#`, `,` grouping, `.` decimals, literal text and
-`positive;negative;zero` sections; without a picture, results round to two
+`positive;negative;zero` sections; literals and `+`/`-` signs between integer
+placeholders keep their place among the digits (`# ##0` shows 1234 as `1 234`,
+`000'-'00'-'0000` an ID number), as the numeric-page-fields native reference shows
+for `00-00` and `00'-'00`. Unlike Word, an unfilled `#` takes no room (Word pads it
+with a space), and a literal among unfilled leading places is dropped with them;
+without a picture, results round to two
 decimals. Errors produce `!Syntax Error`, `!Zero Divide` or `!Undefined Bookmark` as the
 cached result.
 Imported `=` fields are now recognized (previously an unsupported instruction)

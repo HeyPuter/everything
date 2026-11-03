@@ -235,6 +235,32 @@ function splitSections(picture) {
   return sections;
 }
 /**
+ * The integer placeholders (from the first digit placeholder to the decimal point) filled with `digits`
+ * from the right, as Word fills them: a 0 left without a digit shows 0, a # or x nothing, and digits
+ * beyond the placeholders go in the first. Literals and signs stay where they stand once a digit precedes
+ * them; among the empty optional places before the number they take no room either.
+ */
+function placeDigits(integer, digits, grouping, shown) {
+  const isSlot = item => item.token && item.token !== ',';
+  const out = integer.map(() => '');
+  let rest = digits;
+  for (let i = integer.length - 1; i >= 0; i--) {
+    if (!isSlot(integer[i])) continue;
+    out[i] = rest ? rest.slice(-1) : integer[i].token === '0' ? '0' : '';
+    rest = rest.slice(0, -1);
+  }
+  out[0] = rest + out[0];
+  if (grouping) {
+    let left = out.join('').replace(/\D/g, '').length;
+    for (let i = 0; i < out.length; i++) if (isSlot(integer[i])) out[i] = [...out[i]].map(ch => --left > 0 && left % 3 === 0 ? ch + ',' : ch).join('');
+  }
+  let started = false;
+  return integer.map((item, i) => {
+    if (item.token) { started ||= !!out[i]; return out[i]; }
+    return started ? shown(item) : '';
+  }).join('');
+}
+/**
  * Format a number with a numeric picture (§17.16.4.2): 0 # x , . + - and literals ('quoted' or not); sections
  * positive;negative;zero. x drops the digits to its left; + and - show the sign where they stand.
  */
@@ -273,12 +299,17 @@ export function formatFormulaNumber(value, picture) {
   const integerDigits = integer.filter(digit);
   if (integerDigits[0]?.token === 'x') whole = whole.slice(-integerDigits.length);
   if (/^0*$/.test(whole) && !minimum) whole = '';
-  whole = whole.padStart(minimum, '0');
-  if (grouping) whole = whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  // Literals and signs among the integer placeholders keep their place among the digits ("# ##0" shows
+  // 1234 as "1 234"); a run without them is formatted as one number.
+  if (integer.some(item => !item.token)) whole = placeDigits(integer, whole, grouping, shown);
+  else {
+    whole = whole.padStart(minimum, '0');
+    if (grouping) whole = whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  }
   // Optional fraction places drop their trailing zeros.
   for (let i = fraction.length - 1; i >= 0 && fraction[i].token !== '0' && part.endsWith('0'); i--) part = part.slice(0, -1);
   const number = whole + (part ? '.' + part : decimals && fraction.some(f => f.token === '0') ? '.' : '');
-  const inner = body.filter(item => !item.token).map(shown).join('');
+  const inner = (dot < 0 ? [] : body.slice(dot + 1)).filter(item => !item.token).map(shown).join('');
   const sign = value < 0 && !negativeSection && !signs && Math.abs(value) >= 0.5 * 10 ** -decimals ? '-' : '';
   return sign + items.slice(0, first).map(shown).join('') + number + inner + items.slice(last + 1).map(shown).join('');
 }
