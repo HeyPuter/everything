@@ -1175,7 +1175,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
       try { await ready; if (!engine || failed) return 'The document is not open.'; engine.finishComposition(); if (session.signedOut && !await session.signIn()) return 'Sign in to save a copy.'; }
       catch (e) { return e?.message || String(e); }
       const failure = await doc.saveAs(name, { stillWanted: () => !destroyed });
-      if (!failure) { title.value = doc.name; refreshTitle(); document.title = `${doc.name} — Documents`; }
+      if (!failure) { title.value = doc.name; refreshTitle(); showDocumentTitle(); }
       return failure;
     } : null,
     // Inside the Puter desktop Save a copy asks where, with Puter's Save dialog, rather than for a name in the app folder.
@@ -1183,7 +1183,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
       try { await ready; if (!engine || failed) return 'The document is not open.'; engine.finishComposition(); if (session.signedOut && !await session.signIn()) return 'Sign in to save a copy.'; }
       catch (e) { return e?.message || String(e); }
       const failure = await doc.saveCopy({ stillWanted: () => !destroyed });
-      if (failure === null && !destroyed) { title.value = doc.name; refreshTitle(); document.title = `${doc.name} — Documents`; }
+      if (failure === null && !destroyed) { title.value = doc.name; refreshTitle(); showDocumentTitle(); }
       return failure;
     } : null,
     refreshTitle: () => { title.value = doc.name; refreshTitle(); },
@@ -1614,6 +1614,11 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     status.title = doc.error ? `${label}: ${doc.error}` : doc.path ? `${label} · ${doc.path}` : label;
     status.setAttribute('aria-label', label);
   }
+  // The browser tab and, inside the Puter desktop, the window's title bar (which does not follow the page's title) name the document.
+  function showDocumentTitle() {
+    document.title = `${doc.name} — Documents`;
+    P.setWindowTitle(document.title);
+  }
   function refreshTitle() {
     title.title = `${doc.name} — Rename`;
     title.style.width = `${Math.min(48, Math.max(12, title.value.length + 2))}ch`;
@@ -1653,7 +1658,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
       if (destroyed) return;
       title.value = doc.name;
       refreshTitle();
-      document.title = `${doc.name} — Documents`;
+      showDocumentTitle();
     } catch (e) { title.value = doc.name; refreshTitle(); error(e); }
   };
   title.addEventListener('change', onTitle);
@@ -1688,7 +1693,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     if (destroyed) return;
     if (document.activeElement !== title) title.value = doc.name;
     refreshTitle();
-    document.title = `${doc.name} — Documents`;
+    showDocumentTitle();
   };
   doc.addEventListener('path', onPath);
   const onSession = () => { renderAccountButton(account); updateStatus(); if (session.signedIn && doc.dirty && doc.exporter) doc.save({ auto: true }).catch(error); };
@@ -1938,7 +1943,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     const typing = active && !root.contains(active) && (active.isContentEditable || /^(TEXTAREA|SELECT)$/.test(active.tagName) || active.tagName === 'INPUT' && !/^(button|checkbox|radio|file|submit|reset|image|color|range)$/.test(active.type));
     if (!typing) engine.focus();
     collab.attach();
-    document.title = `${doc.name} — Documents`;
+    showDocumentTitle();
   })().catch(e => {
     releasePictures();
     if (destroyed) return;
