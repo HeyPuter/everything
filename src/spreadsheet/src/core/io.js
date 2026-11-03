@@ -64,7 +64,7 @@ import { odsCellStyle, odsCellPaints, odsRunStyle } from './ods-cell-styles.js';
 import { htmlTableRows } from './html-table.js';
 import { reconcileConditionalFormats } from './xlsx-condformat-reconcile.js';
 import { prepareXlsxValidationLists } from './xlsx-validation.js';
-import { nativeSheetState, nativeStateChanged, nativeValidationsSignature } from './xlsx-native-state.js';
+import { nativeSheetState, nativeStateChanged, nativeStateNoted, nativeValidationsSignature } from './xlsx-native-state.js';
 import { sheetFilters, sameFilterRange, filterRangeKey, mapSheetFilters } from './sheet-filters.js';
 import { nativeFilterJudge, readXlsxFilter, readXlsxFilterButtons, writeXlsxFilter } from './xlsx-filter.js';
 import { readStyleResets, styleResetAt } from './style-resets.js';
@@ -2914,7 +2914,7 @@ export async function workbookFromFile(data, filename = '', { sourceWorkbook = n
     }
     sheet.rules = await reconcileConditionalFormats(own?.rules, baseline, sheet.rules, fingerprintRules);
     // Validations deleted, edited or added in Excel since this app's last save: the part's are the ones in force.
-    if (xml && typeof own?.nativeState?.validations === 'string' && Array.isArray(own.validations)
+    if (xml && nativeStateNoted(own?.nativeState, 'validations') && typeof own.nativeState.validations === 'string' && Array.isArray(own.validations)
       && await nativeValidationsSignature(xml) !== own.nativeState.validations) {
       sheet.validations = (book.Sheets[sheet.name]?.['!validations'] || []).map(({ _odsName, ...rule }) => validationListSource(rule));
     }

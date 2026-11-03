@@ -108,9 +108,28 @@ export function nativeSheetState(xml) {
   };
 }
 
+/**
+ * The version of each setting's note. A save writes them beside the note, and a note made under
+ * another version (or before the notes had one) is no note at all: the record keeps the setting, as
+ * for a file saved before the notes were made. Bump a setting's number whenever what is noted for it
+ * changes for a part that did not, or every file saved before would read as changed in Excel, and the
+ * part's word would take over from the record's fuller one. The validations' note is a hash of what
+ * readXlsxValidations makes of them: any change to what that reader returns is such a change.
+ */
+export const NATIVE_STATE_VERSIONS = Object.freeze({
+  protected: 1, color: 1, gridlines: 1, zoom: 1, zoomToFit: 1, hiddenRows: 1, hiddenCols: 1,
+  rowLevels: 1, colLevels: 1, collapsedRows: 1, collapsedCols: 1, validations: 1,
+});
+
+/** Whether the record holds a note of the part's `key` made under this version of the note. */
+export function nativeStateNoted(saved, key) {
+  return !!saved && typeof saved === 'object' && Object.hasOwn(saved, key)
+    && !!saved.versions && typeof saved.versions === 'object' && saved.versions[key] === NATIVE_STATE_VERSIONS[key];
+}
+
 /** Whether the part's `key` no longer says what the record noted it said at the last save here. */
 export function nativeStateChanged(saved, current, key) {
-  return !!saved && typeof saved === 'object' && Object.hasOwn(saved, key) && JSON.stringify(saved[key]) !== JSON.stringify(current?.[key]);
+  return nativeStateNoted(saved, key) && JSON.stringify(saved[key]) !== JSON.stringify(current?.[key]);
 }
 
 const ENTITIES = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" };

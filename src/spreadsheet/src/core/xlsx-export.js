@@ -31,7 +31,7 @@ import { toFileFormula } from './xlfn.js';
 import { writeXlsxConditionalFormats } from './xlsx-export-condformat.js';
 import { readXlsxConditionalFormats } from './xlsx-condformat.js';
 import { writeExportMetadata } from './xlsx-export-meta.js';
-import { nativeSheetState, nativeValidationsSignature } from './xlsx-native-state.js';
+import { NATIVE_STATE_VERSIONS, nativeSheetState, nativeValidationsSignature } from './xlsx-native-state.js';
 import { normalizeSplit, splitPaneXml, paneName } from './split-panes.js';
 import { conditionalFormatSignature } from './xlsx-condformat-reconcile.js';
 import { createPersonList, writeXlsxThreadedComments, writeXlsxPersons } from './xlsx-threaded-comments.js';
@@ -209,7 +209,7 @@ export async function completeXlsx(X, wb, book, bytes, { sourceWorkbook = null, 
     const record = book.PuterExportMeta?.data.sheets[sheet.name];
     if (!record) return;
     const validations = nativeValidationsSignature(xml);
-    record.nativeState = { ...nativeSheetState(xml), validations };
+    record.nativeState = { ...nativeSheetState(xml), validations, versions: NATIVE_STATE_VERSIONS };
     // Only a sheet with validations has a hash to wait for.
     if (typeof validations !== 'string') return validations.then((hash) => { record.nativeState.validations = hash; });
   };
