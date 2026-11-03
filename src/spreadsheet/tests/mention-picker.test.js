@@ -89,3 +89,37 @@ describe('the picker', () => {
     expect(key(area, 'Enter').defaultPrevented).toBe(false);
   });
 });
+
+// The list kept the @word it was opened for while the caret moved away from it: with "@an" typed, Home or the
+// arrows put the caret elsewhere, and Enter then wrote the person over the text from the @ to the caret's new
+// place ("@ana" put in front of the text that followed, or the text before the caret lost). The list follows
+// the caret as it follows typing, and a choice is written where the @word now is.
+describe('the picker as the caret moves', () => {
+  const caretKey = (area, k, at) => {
+    key(area, k);
+    area.setSelectionRange(at, at);
+    area.dispatchEvent(new KeyboardEvent('keyup', { key: k, bubbles: true }));
+  };
+  it('closes when the caret leaves the @word, leaving Enter to the box', async () => {
+    const { area, pick } = setup();
+    await type(area, 'Hi @an');
+    expect(options()).toEqual(['ana', 'anton']);
+    caretKey(area, 'Home', 0);
+    await flush(); await flush();
+    expect(document.querySelector('.mention-list')).toBeNull();
+    const enter = key(area, 'Enter');
+    expect(enter.defaultPrevented).toBe(false);
+    expect(area.value).toBe('Hi @an');
+    expect(pick.picked).toEqual([]);
+  });
+
+  it('narrows to the part of the @word before the caret', async () => {
+    const { area } = setup();
+    await type(area, '@anto');
+    expect(options()).toEqual(['anton']);
+    caretKey(area, 'ArrowLeft', 4);
+    caretKey(area, 'ArrowLeft', 3);
+    await flush(); await flush();
+    expect(options()).toEqual(['ana', 'anton']);
+  });
+});

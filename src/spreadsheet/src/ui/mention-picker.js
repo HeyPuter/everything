@@ -151,8 +151,13 @@ export function attachMentionPicker(area, { people }) {
     e.stopImmediatePropagation();
   };
   const onInput = () => { active = 0; update(); };
+  // The caret moved without typing (the arrows across, Home, End): the list follows it as it follows typing, closing
+  // once the caret leaves the @word. It kept the word it was opened for, and Enter then wrote the person over the
+  // text from the @ to wherever the caret had gone.
+  const onCaretKey = (e) => { if (list.isConnected && /^(ArrowLeft|ArrowRight|Home|End|PageUp|PageDown)$/.test(e.key)) onInput(); };
   const onBlur = () => setTimeout(() => { if (document.activeElement !== area) close(); }, 0);
   area.addEventListener('keydown', onKey);
+  area.addEventListener('keyup', onCaretKey);
   area.addEventListener('input', onInput);
   area.addEventListener('click', onInput);
   area.addEventListener('blur', onBlur);
@@ -164,6 +169,7 @@ export function attachMentionPicker(area, { people }) {
     destroy() {
       close();
       area.removeEventListener('keydown', onKey);
+      area.removeEventListener('keyup', onCaretKey);
       area.removeEventListener('input', onInput);
       area.removeEventListener('click', onInput);
       area.removeEventListener('blur', onBlur);
