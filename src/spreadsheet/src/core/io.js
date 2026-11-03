@@ -2041,8 +2041,9 @@ function importSheet(X, ws, name, meta, date1904 = false, definedNames, fileForm
       ...(xlsxAttr(formatPr, 'baseColWidth') != null && Number.isInteger(base) && base >= 0 ? { base } : {}),
     },
   } : null;
-  const hiddenCols = hiddenLines(meta?.sheets?.[name]?.hidden?.cols, MAX_COL);
-  const hiddenRows = hiddenLines(meta?.sheets?.[name]?.hidden?.rows, MAX_ROW);
+  // Once rows or columns were hidden or shown in Excel, the part's hidden lines are the ones in force.
+  const hiddenCols = hiddenLines(editedElsewhere('hiddenCols') ? null : meta?.sheets?.[name]?.hidden?.cols, MAX_COL);
+  const hiddenRows = hiddenLines(editedElsewhere('hiddenRows') ? null : meta?.sheets?.[name]?.hidden?.rows, MAX_ROW);
   (ws?.['!cols'] || []).forEach((col, i) => {
     if (!col) return;
     // A column the file gives no width (width="0") shows in Excel as no column, as a hidden one does.
