@@ -4071,6 +4071,10 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       case 'smartArt': { if (!committed()) return; const changed = runSmartArtAction(ctx, arg); if (changed) keepFocusUnlessPane(); notify(); return; }
       case 'editChart': {
         const chart = wb.chartById(sheetId, arg || grid.selectedChart);
+        // Each settings dialog below changes its object, which a protected sheet keeps (the chart ribbon greys the
+        // editing out): said before the settings are changed, from Enter, a double-click or a menu alike.
+        const noun = { slicer: 'slicer', timeline: 'timeline', scroll: 'scroll bar', text: chart?.equation ? 'equation' : 'text box' }[chart?.type] || 'chart';
+        if (chart && chart.type !== 'smartart' && chart.type !== 'image' && refusedByProtection(`change the ${noun}`)) return;
         if (chart?.type === 'slicer') openSlicerDialog(ctx, chart);
         else if (chart?.type === 'timeline') openTimelineSettingsDialog(ctx, chart);
         else if (chart?.type === 'scroll') openScrollDialog(ctx, chart);
