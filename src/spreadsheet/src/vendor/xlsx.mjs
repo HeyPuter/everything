@@ -28050,18 +28050,23 @@ function safe_parse_sheet(zip, path/*:string*/, relsPath/*:string*/, sheet, idx/
 		}
 
 		/* scan rels for comments and threaded comments */
+		/* Puter Spreadsheet local patch: a comments part the sheet names but the package does not hold is taken
+		   as no comments, as Excel opens such a file (repaired), rather than refusing the sheet and the workbook. */
 		var comments = [], tcomments = [];
 		if(sheetRels && sheetRels[sheet]) keys(sheetRels[sheet]).forEach(function(n) {
-			var dfile = "";
+			var dfile = "", cdata;
 			if(sheetRels[sheet][n].Type == RELS.CMNT) {
 				dfile = resolve_path(sheetRels[sheet][n].Target, path);
-				comments = parse_cmnt(getzipdata(zip, dfile, true), dfile, opts);
+				cdata = getzipdata(zip, dfile, true);
+				if(!cdata) return;
+				comments = parse_cmnt(cdata, dfile, opts);
 				if(!comments || !comments.length) return;
 				sheet_insert_comments(_ws, comments, false);
 			}
 			if(sheetRels[sheet][n].Type == RELS.TCMNT) {
 				dfile = resolve_path(sheetRels[sheet][n].Target, path);
-				tcomments = tcomments.concat(parse_tcmnt_xml(getzipdata(zip, dfile, true), opts));
+				cdata = getzipdata(zip, dfile, true);
+				if(cdata) tcomments = tcomments.concat(parse_tcmnt_xml(cdata, opts));
 			}
 		});
 		if(tcomments && tcomments.length) sheet_insert_comments(_ws, tcomments, true, opts.people || []);

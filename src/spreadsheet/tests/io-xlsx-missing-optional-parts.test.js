@@ -31,3 +31,16 @@ it('opens a workbook whose listed people part is missing', async () => {
   const back = await workbookFromFile(bytes, 'cut.xlsx');
   expect(back.getValue(back.sheets[0].id, 0, 0)).toBe(7);
 });
+
+// Likewise a sheet whose notes part it names is missing: the sheet, and so the whole workbook, was refused.
+it('opens a workbook whose sheet names a notes part that is missing, without the notes', async () => {
+  const wb = new Workbook({ sheets: [{ name: 'Data' }] });
+  wb.setInput(wb.activeSheetId, 0, 0, '5');
+  wb.setNote(wb.activeSheetId, 0, 0, 'Checked');
+  const bytes = await (await workbookToXlsx(wb)).arrayBuffer();
+  const zip = X.CFB.read(new Uint8Array(bytes), { type: 'array' });
+  const notes = zip.FullPaths.map((p) => p.replace(/^Root Entry/, '')).find((p) => /\/comments\d*\.xml$/.test(p));
+  expect(notes).toBeTruthy();
+  const back = await workbookFromFile(without(bytes, notes), 'cut.xlsx');
+  expect(back.getValue(back.sheets[0].id, 0, 0)).toBe(5);
+});
