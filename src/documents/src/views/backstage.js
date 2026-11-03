@@ -80,7 +80,9 @@ export function createBackstage(api) {
     const request = ++token;
     panel.replaceChildren(...[builders[id]?.(request)].flat().filter(Boolean));
     panel.scrollTop = 0;
-    if (focus) tabs.get(id).focus();
+    // In a narrow window the pages run along a row that scrolls sideways: the focus brings a half-hidden one wholly
+    // into view (the browser scrolls only to one wholly out of view).
+    if (focus) { tabs.get(id).focus(); tabs.get(id).scrollIntoView?.({ block: 'nearest', inline: 'nearest' }); }
   }
   const stillShowing = request => request === token && !root.hidden;
   const heading = (text, sub) => [el('h1.bs-title', {}, text), sub ? el('p.bs-sub', {}, sub) : null];
