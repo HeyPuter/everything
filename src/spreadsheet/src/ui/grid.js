@@ -3849,7 +3849,11 @@ export function createGrid(opts) {
         editor.focus({ preventScroll: true });
         return false;
       }
+      // Only the cells the fill writes are asked: it passes over the rows a filter hides and the covered cells of
+      // a merged block (Workbook.fillInput), where a strict rule refused a fill that would never touch them.
+      const filtered = sheet().filterHidden;
       for (const rg of targets) for (let rr = rg.r1; rr <= rg.r2; rr++) for (let cc = rg.c1; cc <= rg.c2; cc++) {
+        if (filtered.has(rr) || wb._coveredByMerge(sheetId, rr, cc)) continue;
         if (wb.lockedAt(sheetId, rr, cc)) { editor.focus({ preventScroll: true }); return false; }
         const check = opts.validate?.(rr, cc, text, { r, c });
         if (!warning && check?.ok === false && validationAlertStyle(check.rule)) warning = check;
