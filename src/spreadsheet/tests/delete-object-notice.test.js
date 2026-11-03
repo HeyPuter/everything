@@ -30,20 +30,24 @@ afterEach(() => {
 
 // Deleting a single object told the user (and a screen reader) what went: an equation was a "Text box deleted", and
 // a scroll bar or anything else not named in a short list a "Chart deleted". The notice now names the object as the
-// undo step does.
+// undo step does, and WordArt as WordArt rather than a "Text box".
 it('names the object it deleted', async () => {
   const doc = new Doc({ name: 'Objects', path: 'Spreadsheets/Objects.xlsx' }), wb = doc.wb, id = wb.activeSheetId;
   const equation = wb.addChart(id, { type: 'text', text: 'x²', equation: 'x^2', anchor: { r: 1, c: 1 }, w: 80, h: 40 });
   const box = wb.addChart(id, { type: 'text', text: 'Note', anchor: { r: 4, c: 1 }, w: 80, h: 40 });
   const scroll = wb.addChart(id, { type: 'scroll', anchor: { r: 8, c: 1 }, w: 120, h: 20, link: 'A1', min: 0, max: 10 });
+  // WordArt (Insert ▸ Text ▸ WordArt) is a text box with text effects, named WordArt as the Selection Pane names it.
+  const wordArt = wb.addChart(id, { type: 'text', text: 'Title', anchor: { r: 12, c: 1 }, w: 160, h: 60, style: { size: 40, effects: { glow: '#ffcc00' } } });
   view = editorView({ doc, goHome() {}, openPath() {}, newDoc() {}, importFile() {} });
   document.querySelector('#app').append(view.el);
   await vi.advanceTimersByTimeAsync(1);
   const said = () => toast.mock.calls.at(-1)?.[0];
-  for (const [object, words] of [[equation, 'Equation deleted'], [box, 'Text box deleted'], [scroll, 'Scroll bar deleted']]) {
+  for (const [object, words] of [[equation, 'Equation deleted'], [box, 'Text box deleted'], [scroll, 'Scroll bar deleted'], [wordArt, 'WordArt deleted']]) {
     expect(wb.chartById(id, object)).toBeTruthy();
     await view.run('deleteChart', { id: object, only: true });
     expect(wb.chartById(id, object)).toBeFalsy();
     expect(said()).toBe(words);
   }
+  // Its undo step names it the same way.
+  expect(wb.undoLabel()).toBe('Delete WordArt');
 });

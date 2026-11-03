@@ -111,9 +111,9 @@ import { normalizeChangeHistory, recordCellWrites, recordStep } from './change-h
 import { eachStoredCell } from './sparse-range.js';
 import { nativeFilterJudge } from './xlsx-filter.js';
 
-/** What a floating object is called in undo labels: chart, image, or text box. */
+/** What a floating object is called in undo labels and notices: chart, image, text box, WordArt…, as the Selection Pane names it. */
 export function objectNoun(obj) {
-  return obj?.type === 'slicer' ? 'slicer' : obj?.type === 'scroll' ? 'scroll bar' : obj?.type === 'image' ? 'image' : obj?.type === 'smartart' ? 'SmartArt' : obj?.type === 'text' ? obj.equation ? 'equation' : 'text box' : 'chart';
+  return obj?.type === 'slicer' ? 'slicer' : obj?.type === 'scroll' ? 'scroll bar' : obj?.type === 'image' ? 'image' : obj?.type === 'smartart' ? 'SmartArt' : obj?.type === 'text' ? obj.equation ? 'equation' : obj.style?.effects ? 'WordArt' : 'text box' : 'chart';
 }
 
 // Charts whose series Select Data lists one by one (see chartSeriesSources): a range they read can be turned into references.
