@@ -3276,8 +3276,11 @@ export function createGrid(opts) {
     if (!S.isSingle(sel)) {
       const s = sheet();
       if (rowHidden(s, sel.active.r) || s.hiddenCols.has(sel.active.c)) {
-        const range = S.selRange(sel);
-        const t = visibleTarget(sel.active, 1, 1);
+        // The range as merged blocks grow it, then the nearest shown line after the active cell, or before it
+        // when the range ends first (B1:C1 with column C hidden).
+        const range = own;
+        const ahead = visibleTarget(sel.active, 1, 1), behind = visibleTarget(sel.active, -1, -1);
+        const t = { r: ahead.r <= range.r2 ? ahead.r : behind.r, c: ahead.c <= range.c2 ? ahead.c : behind.c };
         if (t.r >= range.r1 && t.r <= range.r2 && t.c >= range.c1 && t.c <= range.c2) sel.active = t;
       }
     }
