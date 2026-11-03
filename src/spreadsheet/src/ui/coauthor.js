@@ -71,7 +71,9 @@ export function createPeopleBar({ client, wb, jump }) {
         'aria-label': people.length ? `Everyone here: ${people.length + 1} people` : 'Only you are here',
         title: people.length ? `Everyone here (${people.length + 1})` : 'Only you are here',
         onclick: (e) => list(e.currentTarget),
-      }, people.length > 4 ? el('span.collab-more', {}, `+${people.length - 4}`) : null),
+      }, people.length > 4 ? el('span.collab-more', {}, `+${people.length - 4}`) : null,
+      // A phone has no room for the faces beside the document's name: the button says how many are here instead.
+      people.length ? el('span.collab-count', { 'aria-hidden': 'true' }, String(people.length + 1)) : null),
     );
   }
   update();
