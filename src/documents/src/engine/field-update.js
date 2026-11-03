@@ -9,6 +9,7 @@ import { formulaResult } from './table-formula.js';
 import { fieldResultPlan, applyGeneralFormat } from './field-results.js';
 import { noteKindOf } from './footnotes.js';
 import { listMarkers, levelFor } from './numbering.js';
+import { activeDescendants } from './docx-compatibility.js';
 
 /** The first note reference mark within [start, end]: { kind, id }. */
 function noteMarkIn(paragraphs, start, end) {
@@ -61,6 +62,53 @@ export function sequenceInstruction(instruction) {
   return result;
 }
 
+const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
+const drawingFields = new Map();
+/**
+ * The SEQ fields in a drawing's text (a text box or shape holding a caption), in order: [{ instruction, result }].
+ * Only the markup a reader shows is read, so a fallback copy of the text (VML beside DrawingML) is not counted twice.
+ */
+function drawingSequences(image) {
+  const shell = image?.shell;
+  if (typeof shell !== 'string' || !/\bSEQ\b/.test(shell)) return [];
+  if (drawingFields.has(shell)) return drawingFields.get(shell);
+  const found = [];
+  try {
+    const doc = new DOMParser().parseFromString(`<root>${shell}</root>`, 'application/xml');
+    if (doc.getElementsByTagName('parsererror').length) throw new Error('unreadable drawing');
+    const open = [];
+    for (const node of activeDescendants(doc.documentElement)) {
+      if (node.namespaceURI !== W) continue;
+      if (node.localName === 'fldSimple') found.push({ instruction: node.getAttributeNS(W, 'instr') || '', result: node.textContent });
+      else if (node.localName === 'fldChar') {
+        const kind = node.getAttributeNS(W, 'fldCharType');
+        if (kind === 'begin') open.push({ instruction: '', result: '', separated: false });
+        else if (kind === 'separate' && open.length) open.at(-1).separated = true;
+        else if (kind === 'end' && open.length) found.push(open.pop());
+      } else if (node.localName === 'instrText' && open.length && !open.at(-1).separated) open.at(-1).instruction += node.textContent;
+      else if (node.localName === 't' && open.length && open.at(-1).separated) open.at(-1).result += node.textContent;
+    }
+  } catch { found.length = 0; }
+  const sequences = found.filter(f => /^\s*SEQ\b/i.test(f.instruction));
+  if (drawingFields.size > 500) drawingFields.clear();
+  drawingFields.set(shell, sequences);
+  return sequences;
+}
+/** The SEQ fields in drawings, at the document positions of the drawings: [{ position, instruction, result }]. */
+function drawingSequenceFields(paragraphs) {
+  const result = [];
+  let at = 0;
+  for (const p of paragraphs) {
+    let offset = at;
+    for (const run of p.runs) {
+      if (run.image?.shell) for (const field of drawingSequences(run.image)) result.push({ position: offset, ...field });
+      offset += run.text.length;
+    }
+    at = offset + 1;
+  }
+  return result;
+}
+
 /**
  * The number a REF with \n, \r or \w shows for the paragraph a bookmark starts in (§17.16.5.51): its list
  * number without trailing periods ("2.1." shows "2.1"). \n shows the number as its level writes it; \r and \w add
@@ -102,17 +150,36 @@ export function fieldUpdatePlan(model, { onIssue = () => {}, notes = null, seque
     const index = indexes.get(bookmark.startParagraph);
     return index === undefined ? null : paragraphNumber(model, markers, index, context);
   };
+  const count = seq => {
+    let n = counters.get(seq.id) ?? 0;
+    if (seq.reset !== null) n = seq.reset; else if (seq.next) n += 1;
+    counters.set(seq.id, n);
+    return n;
+  };
+  // A caption in a text box or shape counts where its drawing stands, as Word numbers it. Its result is drawing
+  // text, which this update does not rewrite: one that should change is reported.
+  const drawn = model.paragraphs.some(p => p.runs.some(r => r.image?.shell)) ? drawingSequenceFields(model.paragraphs) : [];
+  let nextDrawn = 0;
+  const countDrawn = before => {
+    for (; nextDrawn < drawn.length && drawn[nextDrawn].position < before; nextDrawn++) {
+      const seq = sequenceInstruction(drawn[nextDrawn].instruction);
+      if (!seq) continue;
+      const n = count(seq);
+      let shown = null;
+      try { shown = seq.hidden ? '' : withCases(seq.words ? applyGeneralFormat(String(Math.max(0, n)), seq.words) : formatPageNumber(Math.max(0, n), seq.format), seq.cases); } catch { /* reported below */ }
+      if (seq.supported && shown !== drawn[nextDrawn].result.trim()) onIssue({ id: `drawing:${nextDrawn}`, message: 'A caption number in a text box or shape keeps its text; edit the drawing’s text to change it.' });
+    }
+  };
   for (const range of ranges) {
     const type = range.field.type;
     if (sequencesOnly && type !== 'SEQ') continue;
+    if (type === 'SEQ') countDrawn(range.start);
     if (range.field.locked || parents.has(range.field.id)) continue;
     let value = null;
     if (type === 'SEQ') {
       const seq = sequenceInstruction(range.field.instruction);
       if (!seq) continue;
-      let n = counters.get(seq.id) ?? 0;
-      if (seq.reset !== null) n = seq.reset; else if (seq.next) n += 1;
-      counters.set(seq.id, n);
+      const n = count(seq);
       if (!seq.supported) { onIssue({ id: range.field.id, message: 'A SEQ field with chapter numbering, a number picture or this number format keeps its cached result.' }); continue; }
       let number;
       try { number = seq.words ? applyGeneralFormat(String(Math.max(0, n)), seq.words) : formatPageNumber(Math.max(0, n), seq.format); }

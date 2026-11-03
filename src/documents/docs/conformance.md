@@ -22439,6 +22439,12 @@ page numbers. The Field dialog offers PAGE and NUMPAGES only the formats a page 
 results. Tests: `tests/sequence-fields.test.js`, `tests/reference-fields.test.js`,
 `tests/field-dialog-formats.test.js`.
 Tests: `tests/captions.test.js`.
+Since 2026-11-02 a SEQ field in a drawing's text (a caption in a text box or shape, `wps:txbx`
+§20.4 / `w:txbxContent` §17.17.1.1) counts in its sequence at the drawing's position, as Word numbers
+it; only the active branch of `mc:AlternateContent` (Part 3 §10.2) is read, so a VML fallback copy
+does not count twice. Body captions around it are numbered accordingly. The drawing's own result is
+not rewritten (drawing text keeps its fields as atoms); Update Fields reports one that is out of date.
+Tests: `tests/drawing-caption-sequences.test.js` (independently written package).
 
 ## Hidden text (2026-10-09)
 
