@@ -372,8 +372,10 @@ export function openChartDialog(ctx, { chart = null, range = null, type = null }
     draft.seriesIn = seriesSel.value;
     draft.headers = headersSel.value === 'auto' ? 'auto' : headersSel.value === 'true';
     draft.categoryLabels = categoriesSel.value === 'auto' ? 'auto' : categoriesSel.value === 'true';
-    draft.stacked = stackedBox.checked;
-    draft.stack100 = stackedBox.checked && stack100Box.checked;
+    // A type the Stacked boxes are hidden for takes no stack from them: only the one it came with (a stacked line chart).
+    const kept = !!chart && chart.type === draft.type;
+    draft.stacked = stackedOnly.hidden ? kept && !!chart.stacked : stackedBox.checked;
+    draft.stack100 = stackedOnly.hidden ? kept && !!chart.stack100 : stackedBox.checked && stack100Box.checked;
     draft.secondaryAxis = axis2Box.checked;
     y2TitleField.hidden = draft.type !== 'combo' || !draft.secondaryAxis;
     draft.legend = legendSel.value !== 'none';
