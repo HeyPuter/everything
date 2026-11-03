@@ -358,7 +358,13 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       const fixed = autoCorrector.tail(text);
       if (fixed === text || editText(wb.getCell(sid, r, c)) !== text) return;
       if (ranges) {
-        for (const rg of ranges) for (let rr = rg.r1; rr <= rg.r2; rr++) for (let cc = rg.c1; cc <= rg.c2; cc++) if (wb.validateInput(sid, rr, cc, fixed).ok === false) return;
+        // Only the cells the fill wrote are asked, as the fill asks them: not the rows a filter hides, nor the cells
+        // under a merged block, whose rule kept every filled cell as typed.
+        const hidden = wb.sheet(sid)?.filterHidden;
+        for (const rg of ranges) for (let rr = rg.r1; rr <= rg.r2; rr++) for (let cc = rg.c1; cc <= rg.c2; cc++) {
+          if (hidden?.has(rr) || wb._coveredByMerge(sid, rr, cc)) continue;
+          if (wb.validateInput(sid, rr, cc, fixed).ok === false) return;
+        }
         // One step, named for what it does (a fill's own step is called Fill).
         const mark = wb.historyTop;
         wb.transaction('AutoCorrect', () => { for (const rg of ranges) wb.fillInput(sid, rg, fixed, { r, c }, { typed: true }); });

@@ -101,6 +101,28 @@ describe('AutoCorrect while typing in a cell', () => {
     expect([1, 2, 3].map((r) => wb.getValue(id, r, 1))).toEqual(['see you monday', 'see you monday', 'see you monday']);
   });
 
+  // Ctrl+Enter passes over the rows a filter hides and the cells under a merged block, and asks no rule there; the
+  // correction asked every cell of the selection, so a strict rule on a filtered-out row kept "monday" as typed.
+  it('corrects the cells Ctrl+Enter filled, whatever the rule on a row a filter hides', async () => {
+    const { wb, id, editor, type, key } = await mount();
+    ['Kind', 'a', 'b', 'a'].forEach((v, r) => wb.setInput(id, r, 0, v));
+    wb.setFilterRange(id, { r1: 0, c1: 0, r2: 3, c2: 0 });
+    wb.setFilterCriteria(id, 0, { values: ['a'] });
+    expect(wb.sheet(id).filterHidden.has(2)).toBe(true);
+    wb.addValidation(id, { type: 'whole', operator: 'between', min: 1, max: 10, range: { r1: 2, c1: 1, r2: 2, c2: 1 }, strict: true });
+    view.goTo('Sheet1!B2:B4');
+    await vi.advanceTimersByTimeAsync(1);
+    const viewport = view.el.querySelector('.grid-viewport');
+    viewport.focus();
+    key(viewport, 'F2');
+    await vi.advanceTimersByTimeAsync(1);
+    type('see you monday');
+    key(editor, 'Enter', { ctrlKey: true, metaKey: true });
+    await vi.advanceTimersByTimeAsync(1);
+    expect([1, 2, 3].map((r) => wb.getValue(id, r, 1))).toEqual(['see you Monday', null, 'see you Monday']);
+    expect(wb.undoLabels(2)).toEqual(['AutoCorrect', 'Fill']);
+  });
+
   it('follows the settings: a rule switched off does nothing', async () => {
     saveAutoCorrectSettings({ ...DEFAULT_AUTOCORRECT, replaceText: false });
     const { editor, type, begin } = await mount();
