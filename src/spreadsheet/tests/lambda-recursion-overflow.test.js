@@ -8,14 +8,20 @@ import { calc } from './helpers/calc.js';
 // a lambda calling itself is the recursion going deeper than the engine can run, which is what
 // the depth cap reports: #NUM!, whatever the body.
 const nest = (k, inner) => (k === 0 ? inner : `SUM(1,${nest(k - 1, inner)})`);
+// Functions nested past 64 deep are refused as typed, as Excel refuses them; a file can still hold one.
+const stored = (formula) => {
+  const wb = new Workbook(), id = wb.activeSheetId;
+  wb.setCells(id, [{ r: 0, c: 0, cell: { v: null, f: formula } }]);
+  return wb.getValue(id, 0, 0);
+};
 
 describe('a recursive lambda that runs the call stack out', () => {
   it('is #NUM!, like one past the depth cap', () => {
-    expect(calc(`LET(f,LAMBDA(n,IF(n=0,0,${nest(100, 'f(n-1)')})),f(399))`)).toEqual({ error: '#NUM!' });
+    expect(stored(`LET(f,LAMBDA(n,IF(n=0,0,${nest(100, 'f(n-1)')})),f(399))`)).toEqual({ error: '#NUM!' });
     expect(calc(`LET(f,LAMBDA(n,IF(n=0,0,${nest(8, 'f(n-1)')})),f(399))`)).toEqual({ error: '#NUM!' });
     expect(calc('LET(f,LAMBDA(n,IF(n=0,0,f(n-1))),f(400))')).toEqual({ error: '#NUM!' });
     // Passing itself along instead of calling itself by name is the same recursion.
-    expect(calc(`LET(g,LAMBDA(f,n,IF(n=0,0,${nest(100, 'f(f,n-1)')})),g(g,399))`)).toEqual({ error: '#NUM!' });
+    expect(stored(`LET(g,LAMBDA(f,n,IF(n=0,0,${nest(100, 'f(f,n-1)')})),g(g,399))`)).toEqual({ error: '#NUM!' });
   });
 
   it('is #NUM! for a named lambda too', () => {
@@ -30,7 +36,7 @@ describe('a recursive lambda that runs the call stack out', () => {
 
   // Light enough for a cold engine, whose interpreted frames are the largest.
   it('still answers when the stack suffices', () => {
-    expect(calc(`LET(f,LAMBDA(n,IF(n=0,0,${nest(100, 'f(n-1)')})),f(3))`)).toBe(300);
+    expect(stored(`LET(f,LAMBDA(n,IF(n=0,0,${nest(100, 'f(n-1)')})),f(3))`)).toBe(300);
     expect(calc('LET(f,LAMBDA(n,IF(n=0,0,n+f(n-1))),f(100))')).toBe(5050);
   });
 });

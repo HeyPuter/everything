@@ -268,6 +268,38 @@ function formulaNesting(body) {
   }
   return deepest;
 }
+/** Excel's limits on a formula it will take: functions nested 64 deep, and 255 arguments to one function. */
+const MAX_FUNCTION_NESTING = 64;
+const MAX_FUNCTION_ARGUMENTS = 255;
+
+/**
+ * Does a formula body call functions nested deeper, or give one more arguments, than Excel takes? Excel refuses such
+ * an entry, and reports a file holding one as damaged. Parentheses that only group (and a union's commas) do not count.
+ */
+function pastFunctionLimits(body) {
+  let tokens;
+  try { tokens = tokenize(body); } catch { return false; }
+  const open = []; // per open parenthesis or brace: { call, args }
+  let calls = 0;
+  for (let i = 0; i < tokens.length; i++) {
+    const t = tokens[i];
+    if (t.type === 'lparen') {
+      // A name before it calls a function, as does a closing parenthesis: LAMBDA(x,x)(1).
+      const prev = tokens[i - 1];
+      const call = prev?.type === 'name' || prev?.type === 'rparen';
+      open.push({ call, args: tokens[i + 1]?.type === 'rparen' ? 0 : 1 });
+      if (call && ++calls > MAX_FUNCTION_NESTING) return true;
+    } else if (t.type === 'lbrace') open.push({ call: false, args: 0 });
+    else if (t.type === 'rparen' || t.type === 'rbrace') {
+      if (open.pop()?.call) calls--;
+    } else if (t.type === 'comma') {
+      const top = open[open.length - 1];
+      if (top?.call && ++top.args > MAX_FUNCTION_ARGUMENTS) return true;
+    }
+  }
+  return false;
+}
+
 /** Whether a formula body has more opening than closing parentheses outside its string literals: one that stops short of its end. */
 function unclosedParens(body) {
   let open = 0;
@@ -2491,7 +2523,9 @@ export class Workbook extends EventTarget {
     if (!literal && cell?.f != null) {
       cell.f = this._closeParentheses(cell.f);
       // Closed, the formula may be longer than a formula may be; then it stays the text typed, as it would have typed whole.
-      if (cell.f.length > MAX_FORMULA_LENGTH) cell = { v: String(text), f: null, s: cell.s };
+      // So does one past Excel's limits on functions, which Excel refuses as typed (see pastFunctionLimits); a formula
+      // read from a file or copied from another cell is left as it is.
+      if (cell.f.length > MAX_FORMULA_LENGTH || pastFunctionLimits(cell.f)) cell = { v: String(text), f: null, s: cell.s };
     }
     if (!literal) this._applyImpliedStyle(sheetId, cell, r, c);
     if (preserveRichText && cell?.f == null && typeof cell?.v === 'string') {
