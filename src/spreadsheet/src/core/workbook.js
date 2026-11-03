@@ -13554,9 +13554,9 @@ export class Workbook extends EventTarget {
   _computeDeep(sheet, r, c) {
     const rootKey = `${sheet.id}|${r},${c}`;
     // Chains through INDIRECT or OFFSET cannot be traced from the formula text: the walk below made
-    // no progress. Settle the cell's own column top down before giving up (see _primeColumn).
+    // no progress. Settle the cell's own column and row before giving up (see _primeLines).
     if (this._deepening.has(rootKey)) {
-      if (!this._priming && this._primeColumn(sheet, r, c, rootKey)) return this._cache.get(rootKey);
+      if (!this._priming && this._primeLines(sheet, r, c, rootKey)) return this._cache.get(rootKey);
       const e = err('#ERROR!');
       this._cache.set(rootKey, e);
       return e;
@@ -13622,46 +13622,53 @@ export class Workbook extends EventTarget {
    * settle the rest of the column as #ERROR! for nothing. Read from the bottom such a column used to
    * answer #ERROR! in every cell, and the right numbers only when it happened to be read from the top.
    * A chain that runs downwards instead (=INDIRECT("A"&ROW()+1)+1 filled down, read from the top) is
-   * settled the same way from the bottom of the column up, which is the order it resolves in.
+   * settled the same way from the bottom of the column up, which is the order it resolves in, and one
+   * along a row (=OFFSET(B1,0,-1)+1 filled right, a running total across the months) along its row.
    */
-  _primeColumn(sheet, r, c, rootKey) {
+  _primeLines(sheet, r, c, rootKey) {
     this._priming = true;
     try {
-      // Settle the formula cells of the column from row `from` towards `to`, the cell's own row, stopping at the first
+      // The cell's own column (`down`) or row, as [row, column] at each place along it.
+      const at = (down, i) => (down ? [i, c] : [r, i]);
+      // Settle the formula cells along the line from `from` towards `to`, the cell's own place, stopping at the first
       // that cannot be. A cell whose own calculation is still on the stack would read as a circle of references, and is
       // passed over. → how many were calculated, and whether one could not be.
-      const settle = (from, to) => {
+      const settle = (down, from, to) => {
         const step = from < to ? 1 : -1;
         let count = 0;
-        for (let rr = from; rr !== to; rr += step) {
-          const cell = sheet.cells.get(cellKey(rr, c));
+        for (let i = from; i !== to; i += step) {
+          const [rr, cc] = at(down, i);
+          const cell = sheet.cells.get(cellKey(rr, cc));
           if (!cell || cell.f == null) continue;
-          const key = `${sheet.id}|${rr},${c}`;
+          const key = `${sheet.id}|${rr},${cc}`;
           if (this._cache.has(key) || this._evaluating.has(key)) continue;
           count++;
-          const settled = this._compute(sheet, rr, c);
-          if (isError(settled) && settled.error === '#ERROR!') { forget(); return { count, failed: true }; }
+          const settled = this._compute(sheet, rr, cc);
+          if (isError(settled) && settled.error === '#ERROR!') { forget(down); return { count, failed: true }; }
         }
         return { count, failed: false };
       };
       // An #ERROR! a cell got only because the stack ran out, and the ones it passed to the cells it was read by on the
       // way, are no answers: they are forgotten, to be calculated again once the chain is settled.
-      const bottom = Math.max(this.usedRange(sheet.id)?.r2 ?? r, r);
-      const forget = () => {
-        for (let rr = 0; rr <= bottom; rr++) {
-          const key = `${sheet.id}|${rr},${c}`;
+      const used = this.usedRange(sheet.id);
+      const end = (down) => Math.max(down ? used?.r2 ?? r : used?.c2 ?? c, down ? r : c);
+      const forget = (down) => {
+        for (let i = 0; i <= end(down); i++) {
+          const [rr, cc] = at(down, i);
+          const key = `${sheet.id}|${rr},${cc}`;
           if (this._cache.get(key)?.error === '#ERROR!') this._cache.delete(key);
         }
       };
       // Top down first, the order a running total resolves in; then bottom up, for a chain down the column read from
-      // its top. A way that settles nothing leaves the cell as it was when it ran out of stack, and is not tried.
-      for (const from of [0, bottom]) {
-        if (from === r) continue;
-        const { count, failed } = settle(from, r);
+      // its top; then along the row, either way. A way that settles nothing leaves the cell as it was when it ran out of
+      // stack, and is not tried.
+      for (const [down, from] of [[true, 0], [true, end(true)], [false, 0], [false, end(false)]]) {
+        if (from === (down ? r : c)) continue;
+        const { count, failed } = settle(down, from, down ? r : c);
         if (failed || !count) continue;
         if (!this._cache.has(rootKey)) this._compute(sheet, r, c);
         if (this._cache.get(rootKey)?.error !== '#ERROR!') break;
-        forget();
+        forget(down);
       }
       if (!this._cache.has(rootKey)) this._compute(sheet, r, c);
     } finally {
