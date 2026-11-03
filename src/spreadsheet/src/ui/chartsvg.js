@@ -188,11 +188,17 @@ function logScale(values, base, { min = null, max = null, step = null } = {}) {
   if (!(hi > lo)) hi = lo * base;
   return { min: lo, max: hi, step: step > 1 ? step : base, log: base };
 }
+/**
+ * Where `v` lies along a logarithmic axis from `min` to `max` (0 at the foot, 1 at the top), or -1 at or below zero.
+ * Measured by logarithms alone: the ratio of an axis spanning more than 1e308 is past the largest number.
+ */
+const logFraction = (v, min, max) => (v > 0 ? (Math.log(v) - Math.log(min)) / (Math.log(max) - Math.log(min)) : -1);
 /** Ticks of an axis: steps of `step`, or on a logarithmic one, factors of it from the minimum. */
 function axisTicks(domain) {
   if (!domain.log) return scaleTicks(domain);
   const ticks = [];
-  for (let v = domain.min, i = 0; v <= domain.max * (1 + 1e-9) && i < 400; i++, v = Number((domain.min * domain.step ** i).toPrecision(12))) ticks.push(v);
+  // Each factor in two halves, so a factor past the largest number still multiplies a minimum far below one.
+  for (let v = domain.min, i = 0; v <= domain.max * (1 + 1e-9) && i < 400; i++, v = Number((domain.min * domain.step ** (i / 2) * domain.step ** (i / 2)).toPrecision(12))) ticks.push(v);
   return ticks;
 }
 
@@ -1274,7 +1280,7 @@ function renderStyledCartesian(data, chart, width, height) {
   let bottom = plot.y + plot.h;
   const valueFraction = (v, domain, reverse) => {
     // A value at or below zero on a logarithmic axis lies past its foot (and is clipped there).
-    const fraction = domain.log ? (v > 0 ? Math.log(v / domain.min) / Math.log(domain.max / domain.min) : -1)
+    const fraction = domain.log ? logFraction(v, domain.min, domain.max)
       : axisFraction(v, domain.min, domain.max);
     return reverse ? 1 - fraction : fraction;
   };
@@ -1297,7 +1303,7 @@ function renderStyledCartesian(data, chart, width, height) {
   // Between-category axes leave half a base unit at each edge, including date gaps.
   const inset = numericX || a.categoryBetween === false ? 0 : .5;
   const sx = v => {
-    const fraction = dates ? dates.fraction(v) : xScale?.log ? (v > 0 ? Math.log(v / xMin) / Math.log(xMax / xMin) : -1)
+    const fraction = dates ? dates.fraction(v) : xScale?.log ? logFraction(v, xMin, xMax)
       : xMax === xMin && !inset ? .5 : axisFraction(v, xMin - inset, xMax + inset);
     return plot.x + (a.reverseCategories ? 1 - fraction : fraction) * plot.w;
   };

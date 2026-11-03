@@ -66,6 +66,21 @@ describe('a logarithmic value axis', () => {
     expect(Math.abs(slope(pts[0], pts[1]) - slope(pts[2], pts[3]))).toBeLessThan(.01);
   });
 
+  it('places values on axes spanning more than the largest number can hold', () => {
+    // 1e-300 to 1e300 is a ratio of 1e600: the points sit at the foot, the middle and the top, not at NaN.
+    const rows = [['x', 'y'], ['1e-300', '1e-300'], ['1', '1'], ['1e300', '1e300']];
+    const out = setup('scatter', rows, { yLogBase: 10, xLogBase: 10 }).svg();
+    expect(out).not.toMatch(/NaN|Infinity/);
+    const pts = markers(out);
+    expect(pts).toHaveLength(3);
+    expect(Math.abs(pts[1][0] - (pts[0][0] + pts[2][0]) / 2)).toBeLessThan(.5);
+    expect(Math.abs(pts[1][1] - (pts[0][1] + pts[2][1]) / 2)).toBeLessThan(.5);
+    const line = setup('lineMarkers', [['k', 'v'], ['a', '1e-150'], ['b', '1e170']]).svg();
+    expect(line).not.toMatch(/NaN|Infinity/);
+    // Its ticks run the whole way up, past the factor of 1e308 that no number holds.
+    expect(labels(line).at(-1)).toMatch(/E\+170$/);
+  });
+
   it('is saved to and read from a workbook file', async () => {
     const { wb } = setup('scatter', [['x', 'y'], ['1', '1'], ['10', '100']], { yLogBase: 10, xLogBase: 2 });
     vi.stubGlobal('Blob', NodeBlob);
