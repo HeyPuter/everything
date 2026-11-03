@@ -2059,7 +2059,15 @@ export class DocxPackage {
     pkg.initialNotes = {};
     for (const kind of ['footnote', 'endnote']) {
       const names = NOTE_KINDS[kind], referencedNotes = noteReferences(paragraphs, kind);
-      if (!referencedNotes.length) continue;
+      if (!referencedNotes.length) {
+        // A notes part no note uses yet is where Insert Footnote adds its notes. One that is not well-formed XML is an
+        // unreadable part like the others (the open is read-only, naming it), not a failure at the first inserted note.
+        // Only well-formedness is checked: what Insert Footnote refuses in a readable part, it says itself.
+        let notesPath = null;
+        try { notesPath = relatedPartPath(parts, names.part); } catch { /* an unusable relationship is not an unreadable part */ }
+        if (notesPath) xml(parts[notesPath], { depthLimit: Infinity });
+        continue;
+      }
       attempt(() => {
         const notesPath = relatedPartPath(parts, names.part);
         if (!notesPath) throw new UnsupportedDocumentError(`a missing ${names.part} part`);

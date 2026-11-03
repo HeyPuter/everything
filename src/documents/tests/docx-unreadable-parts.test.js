@@ -23,7 +23,9 @@ function packageWith(name, type, bytes) {
 const text = pkg => pkg.paragraphs.map(p => p.runs.map(r => r.text).join(''));
 const latin1 = source => Uint8Array.from(source, c => c.charCodeAt(0));
 
-for (const [name, type] of [['word/styles.xml', 'styles'], ['word/settings.xml', 'settings'], ['word/fontTable.xml', 'fontTable'], ['word/comments.xml', 'comments']]) {
+// A notes part no note in the body uses yet is where Insert Footnote and Insert Endnote add theirs: one that cannot be
+// read opened for editing, and the first inserted note then failed with "The DOCX contains invalid XML."
+for (const [name, type] of [['word/styles.xml', 'styles'], ['word/settings.xml', 'settings'], ['word/fontTable.xml', 'fontTable'], ['word/comments.xml', 'comments'], ['word/footnotes.xml', 'footnotes'], ['word/endnotes.xml', 'endnotes']]) {
   it(`shows the text of a document whose ${type} part is not well-formed`, async () => {
     const parts = packageWith(name, type, `<w:${type} xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:unclosed>`);
     const pkg = await DocxPackage.open(zipSync(parts), { bestEffort: true });

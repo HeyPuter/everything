@@ -49,7 +49,9 @@ document saved with the session's 50 MB of pictures opens again
 as UTF-8 or UTF-16 as Part 2 §8.1.4 requires, opens the main document's text as this
 preview without the part (styles, numbering and the rest fall back to defaults), and the
 issue list names each such part (`tests/docx-unreadable-parts.test.js`,
-`tests/browser/unreadable-parts.spec.js`). Ordinary supported documents stay
+`tests/browser/unreadable-parts.spec.js`). That includes a footnotes or endnotes part (§17.11.15,
+§17.11.4) that no note in the body references yet: Insert Footnote and Insert Endnote add their notes
+there, so such a document no longer opens editable only to fail at the first inserted note. Ordinary supported documents stay
 editable with their existing round-trip behavior.
 
 `tools/canvas_preview_fixture.py` independently authors `best-effort.docx` with
