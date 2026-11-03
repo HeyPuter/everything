@@ -449,7 +449,12 @@ export class Doc extends EventTarget {
     // Another tab of the same file, opened before either was edited, drafts under the file's key too: this tab's
     // edits are kept beside its draft from here on, as they are beside a draft offered on opening (see fromPath,
     // which offers the one and keeps the other as an unsaved spreadsheet), rather than each writing over the other's.
-    if (this.path && !this.recoverable && !this._draftBeside && ![null, this._draftRevision].includes(draftRevisionAt(this.draftKey))) this._draftBeside = true;
+    // A spreadsheet with no file, reopened from the home screen in another tab, shares its key the same way: this
+    // tab's edits become an unsaved spreadsheet of their own, listed beside the other's.
+    if (!this.recoverable && !this._draftBeside && ![null, this._draftRevision].includes(draftRevisionAt(this.draftKey))) {
+      if (this.path) this._draftBeside = true;
+      else { this._recoveredDraftKey = null; this._draftId = uniqueId(); }
+    }
     // The file's revision these edits were made on, so reopening can tell whether it changed since,
     // and its id, by which the file is found again should it be moved or renamed elsewhere.
     const saved = saveDraft(this._ownDraftKey, this.wb, this.name, revision, { fileModified: this.path ? this.remoteModified : undefined, fileUid: (this.path && this.uid) || undefined });

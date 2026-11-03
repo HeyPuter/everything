@@ -86,3 +86,34 @@ it('moves the second tab\'s draft with the file when that tab renames it', async
     expect(loadDraft(liveDraftKey(KEY()))).toBeNull();
   } finally { a.destroy(); b.destroy(); }
 });
+
+// The same happened to a spreadsheet never saved to Puter, reopened from the home screen's Unsaved spreadsheets
+// in two tabs: both drafted under the one key the list gave them, and only the last tab's edits stayed listed.
+it('keeps both tabs\' edits of one unsaved spreadsheet reopened in two tabs, each listed on the home screen', () => {
+  const first = Doc.blank();
+  edit(first, 'start');
+  const key = first.draftKey;
+  first.destroy();
+  const a = Doc.fromDraft(key);
+  const b = Doc.fromDraft(key);
+  edit(a, 'tab A');
+  edit(b, 'tab B');
+  edit(a, 'tab A again');
+  edit(b, 'tab B again');
+  a.destroy();
+  b.destroy();
+  expect(unsaved().sort()).toEqual(['tab A again', 'tab B again']);
+});
+
+it('keeps both when the tab that made the unsaved spreadsheet is still open as another tab reopens it', () => {
+  const a = Doc.blank();
+  edit(a, 'start');
+  const b = Doc.fromDraft(a.draftKey);
+  edit(b, 'tab B');
+  edit(a, 'tab A');
+  edit(b, 'tab B again');
+  edit(a, 'tab A again');
+  a.destroy();
+  b.destroy();
+  expect(unsaved().sort()).toEqual(['tab A again', 'tab B again']);
+});
