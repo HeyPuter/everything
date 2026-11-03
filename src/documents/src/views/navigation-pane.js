@@ -80,7 +80,9 @@ export function createNavigationPane(api) {
     status.textContent = !text ? '' : matches.length ? `${matches.length} result${matches.length === 1 ? '' : 's'}` : 'No matches';
     if (text && tab === 'headings' && matches.length) select('results'); else render();
   }
-  search.addEventListener('input', runSearch);
+  // An input method's partial text (pinyin letters before they become characters) is not searched: what it commits is.
+  search.addEventListener('input', e => { if (!e.isComposing) runSearch(); });
+  search.addEventListener('compositionend', runSearch);
   search.addEventListener('keydown', e => {
     if (e.key !== 'Enter' || isComposing(e) || !matches.length) return;
     e.preventDefault();
