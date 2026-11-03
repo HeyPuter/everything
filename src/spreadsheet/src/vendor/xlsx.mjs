@@ -28201,13 +28201,17 @@ function parse_zip(zip/*:ZIP*/, opts/*:?ParseOpts*/)/*:Workbook*/ {
 	if(!safegetzipfile(zip, wbrelsfile)) wbrelsfile = 'xl/_rels/workbook.' + wbext + '.rels';
 	var wbrels = parse_rels(getzipstr(zip, wbrelsfile, true), wbrelsfile.replace(/_rels.*/, "s5s"));
 
-	if((dir.metadata || []).length >= 1) {
+	/* Puter Spreadsheet local patch: a cell metadata or people part the package lists but does not hold is taken
+	   as none, as Excel opens such a file (repaired), rather than refusing the whole workbook. */
+	var metadata = (dir.metadata || []).length >= 1 ? getzipdata(zip, strip_front_slash(dir.metadata[0]), true) : null;
+	if(metadata) {
 		/* TODO: MDX and other types of metadata */
-		opts.xlmeta = parse_xlmeta(getzipdata(zip, strip_front_slash(dir.metadata[0])),dir.metadata[0],opts);
+		opts.xlmeta = parse_xlmeta(metadata,dir.metadata[0],opts);
 	}
 
-	if((dir.people || []).length >= 1) {
-		opts.people = parse_people_xml(getzipdata(zip, strip_front_slash(dir.people[0])),opts);
+	var people = (dir.people || []).length >= 1 ? getzipdata(zip, strip_front_slash(dir.people[0]), true) : null;
+	if(people) {
+		opts.people = parse_people_xml(people,opts);
 	}
 
 	if(wbrels) wbrels = safe_parse_wbrels(wbrels, wb.Sheets);
