@@ -203,9 +203,9 @@ const SHARED_FILE_MS = 15_000;
 export const SIGN_IN_TO_SAVE = 'Sign in to Puter to save this spreadsheet';
 /** Why a spreadsheet shared with the user only to view is not saved. */
 export const VIEW_ONLY = 'You can view this spreadsheet, but not change it. Use File > Save a copy to keep your changes';
-/** Why the owner's file of a shared workbook, opened while its room could not be reached, is not saved (see holdForRoom). */
 /** Why "Overwrite with mine" did not go ahead: what the file holds could not be kept in Version history first (see forceSave). */
 export const THEIRS_NOT_KEPT = 'The version saved elsewhere could not be kept in Version history';
+/** Why the owner's file of a shared workbook, opened while its room could not be reached, is not saved (see holdForRoom). */
 export const SHARED_FILE = 'This spreadsheet is shared for editing together, and the shared workbook could not be reached: it writes this file, and would write over changes saved here. Open the spreadsheet again once connected, or use File > Save a copy to keep your changes';
 
 /** A Puter FSItem's modified time in milliseconds (the API gives seconds), or null. */
