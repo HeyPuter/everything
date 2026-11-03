@@ -175,6 +175,7 @@ body { max-width: 46rem; margin: 2.5rem auto; padding: 0 1rem; font: 17px/1.6 sy
 h1, h2, h3, h4, h5, h6 { line-height: 1.25; margin: 1.6em 0 .5em; }
 table { border-collapse: collapse; margin: 1em 0; } td { border: 1px solid #ccc; padding: .35em .6em; vertical-align: top; }
 td > p:first-child { margin-top: 0; } td > p:last-child { margin-bottom: 0; }
+p, li, h1, h2, h3, h4, h5, h6, td { white-space: pre-wrap; tab-size: 4; }
 </style></head>
 <body>
 ${body}
