@@ -974,6 +974,9 @@ describe('offline', () => {
       expect(exporter).toHaveBeenCalledOnce();
       expect(doc.status).toBe('offline');
       expect(doc.dirty).toBe(true);
+      // Save pressed meanwhile says the changes will go once the connection is back, as they do.
+      P.writeFile.mockImplementationOnce(async () => { throw new TypeError('Failed to fetch'); });
+      await expect(doc.save()).rejects.toThrow('You are offline. Your changes will save when you reconnect');
       // Back online, the app asks for the save; it goes through.
       vi.stubGlobal('navigator', { onLine: true });
       expect(await doc.save({ auto: true })).toBe(true);
@@ -992,7 +995,8 @@ describe('offline with AutoSave off', () => {
     const doc = new Doc({ name: 'Alpha', path: 'Documents/Alpha.docx' });
     doc.attach(async () => blob('offline edit'));
     doc.changed();
-    await expect(doc.save()).rejects.toThrow('Failed to fetch');
+    // Save says what happens to the changes, not the browser's own words for the failed request.
+    await expect(doc.save()).rejects.toThrow('You are offline. Save again when you reconnect');
     expect(doc.status).toBe('offline');
     // Back online, the app asks for an autosave, which AutoSave off declines: the edits wait for Save, as they say.
     vi.stubGlobal('navigator', { onLine: true });

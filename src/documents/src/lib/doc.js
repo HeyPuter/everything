@@ -32,6 +32,9 @@ export const MAX_AUTOSAVE_MS = 30000;
 export const RETRY_MS = 8000;
 export const UNTITLED = 'Untitled document';
 export const SIGN_IN_TO_SAVE = 'Sign in to Puter to save this document';
+/** Save pressed without a connection: what happens to the changes, rather than the browser's "Failed to fetch". */
+export const OFFLINE_SAVE = 'You are offline. Your changes will save when you reconnect';
+export const OFFLINE_SAVE_MANUAL = 'You are offline. Save again when you reconnect';
 /** Markdown, HTML, and plain text are read and converted on the main thread; a novel is about a megabyte. */
 export const MAX_TEXT_IMPORT_BYTES = 20 * 1024 * 1024;
 /** Version snapshots after saves; tests switch them off. */
@@ -358,7 +361,7 @@ export class Doc extends EventTarget {
       if (this.writes === false) { this._setStatus('saved'); return true; }
       const offline = typeof navigator !== 'undefined' && navigator.onLine === false;
       this._setStatus(offline ? 'offline' : 'error', e?.message || String(e));
-      if (!auto) throw e;
+      if (!auto) throw offline ? new Error(this.autosave ? OFFLINE_SAVE : OFFLINE_SAVE_MANUAL, { cause: e }) : e;
       // Nothing retries a file another window took over, and nobody pressed Save to hear of it: the view says so.
       if (e?.conflict) this.dispatchEvent(new CustomEvent('conflict', { detail: { message: e.message } }));
       // Try again later; a transient failure should not lose the edit. Offline,
