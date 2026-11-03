@@ -3,7 +3,13 @@ import { inlineSegments } from './images.js';
 let nextLink = 0;
 export const hyperlinkId = () => `link${++nextLink}`;
 export const internalHyperlink = link => link && Object.hasOwn(link, 'anchor');
-export const hyperlinkLabel = link => internalHyperlink(link) ? link.anchor === null ? 'Start of document' : `Bookmark: ${link.anchor}` : link.target;
+// Characters that change how the text around them is ordered or shown without being seen themselves (§3.2 of
+// UAX #9: embeddings, overrides and isolates; marks; zero-width joiners and the BOM). In a link's address they
+// let "https://evil.example/\u202Emoc.knab//:sptth" read as "https://bank.com…" on the link card and tooltip.
+const INVISIBLE_FORMAT = /[\u061c\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff]/gu;
+/** An address as shown to the user: invisible formatting characters are written as the escapes a browser sends. */
+export const visibleHyperlinkTarget = target => String(target ?? '').replace(INVISIBLE_FORMAT, ch => encodeURIComponent(ch));
+export const hyperlinkLabel = link => internalHyperlink(link) ? link.anchor === null ? 'Start of document' : `Bookmark: ${visibleHyperlinkTarget(link.anchor)}` : visibleHyperlinkTarget(link.target);
 
 export function checkedHyperlinkDestination(destination) {
   if (typeof destination === 'string') return { target: checkedHyperlinkTarget(destination) };
