@@ -884,8 +884,8 @@ regenerate the PNG/ICO favicons, Apple touch icon, and standard/maskable install
   browser to keep a copy of. A file renamed elsewhere while it is open is
   followed to its new name, and one deleted elsewhere asks whether to save
   it as a new file, put it back, or keep editing. A file changed elsewhere
-  asks whose version wins, a save made in the very second this tab last saw
-  the file included: modification times are whole seconds, so the file itself
+  asks whose version wins (overwriting keeps theirs as a version first), a
+  save made in the very second this tab last saw the file included: modification times are whole seconds, so the file itself
   is read back before such a save is overwritten. Leaving the editor with
   that undecided is not
   refused: the leave dialog offers to go, with the edits kept on this

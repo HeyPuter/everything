@@ -32,7 +32,7 @@ import * as P from './puter.js';
 import { trackEvent } from './analytics.js';
 import { session } from './session.js';
 import { draftKey, liveDraftKey, draftRevision, saveDraft, loadDraft, clearDraft, moveDraft, parkDraft, isUnsavedDraftKey, sameBook, draftKeyForFile, readableDraft, uniqueId } from './drafts.js';
-import { adoptVersionsByUid, listVersions, saveVersion, readVersion, dueForVersion, moveVersions, parkVersions, RESTORE_LABEL } from './versions.js';
+import { adoptVersionsByUid, listVersions, saveVersion, readVersion, dueForVersion, moveVersions, parkVersions, RESTORE_LABEL, OVERWRITE_LABEL } from './versions.js';
 import { storageScope, accountStorageKey, isAccountScope, isProvisionalScope } from './account-storage.js';
 import { optionState } from './option-state.js';
 import { rememberMade } from './made.js';
@@ -611,7 +611,26 @@ export class Doc extends EventTarget {
   /** Save even if the file changed elsewhere (the user chose to overwrite). */
   forceSave() {
     clearTimeout(this._timer);
-    return this._enqueueWrite(() => this._doSave(false, true));
+    return this._enqueueWrite(async () => {
+      await this._keepTheirs();
+      return this._doSave(false, true);
+    });
+  }
+
+  /**
+   * What the file holds now, written elsewhere, is kept as a version before the user's own goes over it, as a
+   * restore keeps the state it replaces: the other person's work can be had back from Version history. Not when
+   * the file still holds this document's last write, or is gone (best effort, as that snapshot is).
+   */
+  async _keepTheirs() {
+    if (!this.path || !this.isXlsxPath || this.collab) return;
+    try {
+      const st = await P.statFile(this.path);
+      if (!st || await this._holdsLastWrite(st) === true) return;
+      const theirs = new Blob([await P.readFile(this.path)], { type: XLSX_MIME });
+      const entry = await saveVersion(this.file, theirs, OVERWRITE_LABEL);
+      this._lastVersionAt = entry.at;
+    } catch (e) { console.warn('Version snapshot failed', e); }
   }
 
   async _doSave(auto, force = false) {

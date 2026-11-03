@@ -158,12 +158,14 @@ export async function saveVersion(file, blob, label = '', when = new Date()) {
 
 /** Drop the oldest unlabeled snapshots beyond the cap. Returns how many were removed. */
 export const RESTORE_LABEL = 'Before restore';
+/** What a file changed elsewhere held when the user chose to overwrite it with their own version. */
+export const OVERWRITE_LABEL = 'Before overwrite';
 
 export async function pruneVersions(file, max = MAX_VERSIONS) {
   const versions = await listVersions(file);
-  // Snapshots the app labels on its own (before a restore) age out like unlabelled ones; only
-  // the user's labels are kept for good.
-  const auto = versions.filter((v) => !v.label || v.label === RESTORE_LABEL);
+  // Snapshots the app labels on its own (before a restore or an overwrite) age out like unlabelled
+  // ones; only the user's labels are kept for good.
+  const auto = versions.filter((v) => !v.label || v.label === RESTORE_LABEL || v.label === OVERWRITE_LABEL);
   const extra = auto.slice(max);
   for (const v of extra) await P.deleteFile(v.path).catch(() => {});
   return extra.length;

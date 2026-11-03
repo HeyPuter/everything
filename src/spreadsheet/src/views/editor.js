@@ -5957,7 +5957,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         : unchecked ? `Whether "${doc.name}" was saved since you opened it, perhaps from another device or tab, could not be checked.`
           : `"${doc.name}" was saved, moved or renamed since you opened it, perhaps from another device or tab.`;
       const where = missing ? 'and can be recovered from Unsaved spreadsheets on the home screen' : 'and are offered again when you open this spreadsheet here';
-      const action = missing ? 'put the file back at the old address with them' : unchecked ? 'save them anyway' : 'keep your version and overwrite theirs';
+      const action = missing ? 'put the file back at the old address with them' : unchecked ? 'save them anyway' : 'keep your version and overwrite theirs, which is kept in Version history';
       const content = el('div', {},
         el('p.modal-text', {}, kept
           ? `${what} Your changes were not saved. Leave, and they stay on this device, ${where}; or ${action}.`
@@ -6943,7 +6943,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         confirmLabel: 'Save anyway', cancelLabel: 'Reload the file', danger: true, dismissValue: null,
       } : {
         title: 'This file changed elsewhere',
-        message: `"${doc.name}" was saved, moved or renamed since you opened it, perhaps from another device or tab. Keep your version and overwrite theirs, or discard yours and reload theirs?`,
+        message: `"${doc.name}" was saved, moved or renamed since you opened it, perhaps from another device or tab. Keep your version and overwrite theirs (theirs is kept in Version history), or discard yours and reload theirs?`,
         confirmLabel: 'Overwrite with mine', cancelLabel: 'Reload theirs', danger: true, dismissValue: null,
       });
       if (overwrite) await doc.forceSave().catch(() => {});
