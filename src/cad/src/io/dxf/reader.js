@@ -578,6 +578,33 @@ class DxfParser {
     return { drawing: this.drawing, warnings: this.collectWarnings(), stats: this.stats };
   }
 
+  /**
+   * Convert records that did not come from DXF text (DWG import): an iterable
+   * of { type, codes, vals } with the SECTION / ENDSEC structure of a DXF file.
+   */
+  runRecords(records) {
+    const R = this.R;
+    const codes = R.codes;
+    const vals = R.vals;
+    for (const rec of records) {
+      R.type = rec.type;
+      const n = rec.codes.length;
+      let end = -1;
+      for (let i = 0; i < n; i++) {
+        const c = rec.codes[i];
+        if (end < 0 && c >= 1000) end = i;
+        codes[i] = c;
+        vals[i] = rec.vals[i];
+      }
+      R.n = n;
+      R.end = end < 0 ? n : end;
+      this.record(R);
+      if (this.sawEof) break;
+    }
+    this.finish();
+    return { drawing: this.drawing, warnings: this.collectWarnings(), stats: this.stats };
+  }
+
   collectWarnings() {
     return this.warnings.map((w) => {
       const n = this.warnSet.get(w);
@@ -2502,6 +2529,14 @@ function angularFromLines(a1x, a1y, a2x, a2y, b1x, b1y, b2x, b2y, qx, qy) {
  * @param {object} [opts] reserved for future options
  * @returns {{ drawing: object, warnings: string[], stats: { entities: number, skipped: Object<string, number> } }}
  */
+/**
+ * Convert a stream of DXF-style records (see DxfParser.runRecords) into the
+ * drawing model. Used by the DWG reader.
+ */
+export function parseRecords(records, opts = {}) {
+  return new DxfParser(opts).runRecords(records);
+}
+
 export function parseDxf(input, opts = {}) {
   const text = decodeInput(input);
   return new DxfParser(opts).run(text);

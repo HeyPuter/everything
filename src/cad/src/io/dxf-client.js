@@ -71,8 +71,11 @@ function dimParts(drawing, e) {
   return out;
 }
 
-/** Serialize a Drawing to DXF text (in the worker). Returns { text, warnings }. */
-export async function exportDxf(drawing, extents) {
+/**
+ * The writer input for a Drawing: its plain data plus the dimension geometry
+ * and hatch pattern definitions, which only the main thread can compute.
+ */
+export function exportPayload(drawing, extents) {
   const data = drawing.toJSON();
   const dimBlocks = {};
   for (const e of data.entities) if (e.type === 'dimension') dimBlocks[e.id] = dimParts(drawing, e);
@@ -85,5 +88,10 @@ export async function exportDxf(drawing, extents) {
     const p = getPattern(name);
     if (p) hatchPatterns[name] = p.families;
   }
-  return call({ op: 'write', drawing: data, opts: { dimBlocks, hatchPatterns, extents } });
+  return { drawing: data, opts: { dimBlocks, hatchPatterns, extents } };
+}
+
+/** Serialize a Drawing to DXF text (in the worker). Returns { text, warnings }. */
+export async function exportDxf(drawing, extents) {
+  return call({ op: 'write', ...exportPayload(drawing, extents) });
 }
