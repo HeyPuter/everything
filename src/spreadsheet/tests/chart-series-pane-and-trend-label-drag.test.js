@@ -104,6 +104,20 @@ it('keeps a dragged trendline label inside the chart, as it will be drawn, while
   expect(left > 0 && top > 0).toBe(true);
 });
 
+// A button pressed in the Format pane redrew the pane and took the focus with it to the page, so someone working the
+// pane from the keyboard had to find their way back to it from the top.
+it('keeps the focus in the Format pane when one of its buttons is pressed', async () => {
+  const { chart } = await mount({ trendline: true, trendlines: [{ type: 'linear', dispEq: true, labelPos: { x: .2, y: .2 } }, false] });
+  view.run('chart', { action: 'formatPane', element: 'trendlineLabel:0' }); await flush();
+  const reset = [...pane().querySelectorAll('button')].find(b => b.textContent === 'Reset Position');
+  reset.focus();
+  reset.click(); await flush();
+  expect(chart().trendlines[0].labelPos).toBeUndefined();
+  // The button is gone with the position it reset: its section takes the focus.
+  expect(document.activeElement.textContent).toBe('Label Options');
+  expect(pane().contains(document.activeElement)).toBe(true);
+});
+
 it('keeps a click on a trendline label from moving it', async () => {
   const { chart } = await mount({ trendline: true, trendlines: [{ type: 'linear', dispEq: true }, false] });
   const label = svgNode('[data-el="trendlineLabel"]');
