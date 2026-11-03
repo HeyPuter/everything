@@ -396,8 +396,10 @@ const SLASH_DATE_RE = /^(\d{1,4})[\/-](\d{1,2})(?:[\/-](\d{1,4}))?$/;
 const DOTTED_DATE_RE = /^(\d{1,4})[\/.-] ?(\d{1,2})(?:[\/.-] ?(\d{1,4}))?$/; // 28.08.2026 (and Czech's 28. 8. 2026), where the decimal mark is a comma
 // A trailing decimal mark ("5.") is a number; a lone mark is not.
 const NUMERIC_RE = /^[-+]?(?:\d{1,3}(?:,\d{3})+|\d+)?(?:\.\d*)?(?:[eE][-+]?\d+)?$/;
-// Comma-decimal locales: groups by period, space, or apostrophe; the decimal mark is a comma.
-const COMMA_NUMERIC_RE = /^[-+]?(?:\d{1,3}(?:[.\s\u00a0\u202f']\d{3})+|\d+)?(?:,\d*)?(?:[eE][-+]?\d+)?$/;
+// Comma-decimal locales: groups by period or apostrophe; the decimal mark is a comma. A space groups digits only
+// where the locale writes one there (French, Swedish, Polish): in German "+1 555 123" is a phone number, not 1555123.
+const COMMA_NUMERIC_RE = /^[-+]?(?:\d{1,3}(?:[.']\d{3})+|\d+)?(?:,\d*)?(?:[eE][-+]?\d+)?$/;
+const SPACED_COMMA_NUMERIC_RE = /^[-+]?(?:\d{1,3}(?:[.\s\u00a0\u202f']\d{3})+|\d+)?(?:,\d*)?(?:[eE][-+]?\d+)?$/;
 // Indian grouping, where the locale writes it (en-IN shows 12,34,567 and must read it back).
 const LAKH_NUMERIC_RE = /^[-+]?\d{1,2}(?:,\d{2})*,\d{3}(?:\.\d*)?(?:[eE][-+]?\d+)?$/;
 
@@ -405,7 +407,7 @@ const LAKH_NUMERIC_RE = /^[-+]?\d{1,2}(?:,\d{2})*,\d{3}(?:\.\d*)?(?:[eE][-+]?\d+
 function localeNumber(body, info, numericParser = parseFloat) {
   if (!/\d/.test(body)) return null;
   if (info.decimal === ',') {
-    if (!COMMA_NUMERIC_RE.test(body)) return null;
+    if (!(/^[\s\u00a0\u202f]$/.test(info.group) ? SPACED_COMMA_NUMERIC_RE : COMMA_NUMERIC_RE).test(body)) return null;
     const n = numericParser(body.replace(/[.\s\u00a0\u202f']/g, '').replace(',', '.'));
     return Number.isFinite(n) ? n : null;
   }
