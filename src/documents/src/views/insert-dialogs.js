@@ -402,9 +402,14 @@ export function openDropCapDialog({ state, fonts = [], onApply, onClose }) {
   const position = segmented([['none', 'None'], ['drop', 'Dropped'], ['margin', 'In margin']], mode, value => { mode = value; sync(); }, 'Position');
   const dialog = formDialog({ title: 'Drop Cap', submit: 'OK', onClose, content: [el('div', {}, el('span.field-label', {}, 'Position'), position), options],
     onSubmit: () => {
-      if (mode !== 'none' && (!lines.checkValidity() || !distance.checkValidity())) throw new Error('Lines to drop must be 1 to 10, and the distance 0 to 72 pt.');
+      // The distance's arrows step by half points, but any distance in range is taken: Word steps by tenths of an
+      // inch (0.1 in is 7.2 pt), and a document's own distance is kept in twentieths of a point.
+      const distanceInRange = distance.value !== '' && !distance.validity.badInput && !distance.validity.rangeUnderflow && !distance.validity.rangeOverflow;
+      if (mode !== 'none' && (!lines.checkValidity() || !distanceInRange)) throw new Error('Lines to drop must be 1 to 10, and the distance 0 to 72 pt.');
       return onApply({ mode, lines: Number(lines.value), distance: Number(distance.value), fontFamily: font.value || null });
     } });
+  // The fields are checked on OK, above, with the message in words.
+  dialog.form.noValidate = true;
   sync();
   return dialog.modal;
 }

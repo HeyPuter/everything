@@ -66,3 +66,35 @@ test('Grid Settings takes its own eighth-of-an-inch spacing', async ({ page }) =
   await dialog.getByRole('button', { name: 'OK' }).click();
   await expect(dialog).toBeVisible();
 });
+
+test('Drop Cap takes Word\'s 0.1 in (7.2 pt) distance from text', async ({ page }) => {
+  const input = await start(page);
+  await onTab(page, 'insert');
+  const ribbon = page.locator('#ribbon-panel-insert');
+  await ribbon.getByRole('button', { name: 'Drop Cap', exact: true }).click();
+  await page.getByRole('menuitemradio', { name: 'Dropped' }).click();
+  await expect.poll(() => input.inputValue()).toMatch(/^S\nhapes/);
+  // Word's Drop Cap dialog steps the distance by tenths of an inch: 0.1 in is hSpace="144" (§17.3.1.11), 7.2 pt here.
+  const options = async () => {
+    await ribbon.getByRole('button', { name: 'Drop Cap', exact: true }).click();
+    await page.getByRole('menuitem', { name: 'Drop Cap Options…' }).click();
+    return page.getByRole('dialog', { name: 'Drop Cap' });
+  };
+  let cap = await options();
+  await cap.getByRole('spinbutton', { name: 'Distance from text (pt)' }).fill('7.2');
+  await cap.getByRole('button', { name: 'OK' }).click();
+  await expect(cap).toBeHidden();
+  // Opened again, the document's own distance does not stop another change.
+  cap = await options();
+  await expect(cap.getByRole('spinbutton', { name: 'Distance from text (pt)' })).toHaveValue('7.2');
+  await cap.getByRole('spinbutton', { name: 'Lines to drop' }).fill('2');
+  await cap.getByRole('button', { name: 'OK' }).click();
+  await expect(cap).toBeHidden();
+  cap = await options();
+  await expect(cap.getByRole('spinbutton', { name: 'Lines to drop' })).toHaveValue('2');
+  await expect(cap.getByRole('spinbutton', { name: 'Distance from text (pt)' })).toHaveValue('7.2');
+  // Out of range is still refused.
+  await cap.getByRole('spinbutton', { name: 'Distance from text (pt)' }).fill('80');
+  await cap.getByRole('button', { name: 'OK' }).click();
+  await expect(cap).toBeVisible();
+});
