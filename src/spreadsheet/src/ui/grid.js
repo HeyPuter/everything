@@ -4232,7 +4232,7 @@ export function createGrid(opts) {
     const m = s.merges.length ? wb.mergeAt(sheetId, from.active.r, from.active.c) : null;
     const start = m ? leavingMerge(from, m, dr, dc) : from;
     const leap = (r, c, ddr, ddc) => Math.abs(ddr ? pastHidden(rowOffsets, r, ddr) : pastHidden(colOffsets, c, ddc));
-    return S.jump(start, dr, dc, bounds(), hasValue, (r, c) => !rowHidden(s, r) && !s.hiddenCols.has(c), nextFilled, leap);
+    return S.jump(start, dr, dc, bounds(), hasValue, (r, c) => !rowHidden(s, r) && !s.hiddenCols.has(c), nextFilled, leap, filledThrough);
   }
 
   /**
@@ -4282,6 +4282,57 @@ export function createGrid(opts) {
     }
     filledRuns = { key, runs };
     return runs;
+  }
+
+  /**
+   * Where along one column (or row) values are stored, as sorted, disjoint [from, to] runs of lines that each
+   * hold a value or a formula. Built from the stored cells and kept while nothing changes, as runsAlong is.
+   */
+  let storedRuns = null; // { key, runs }
+  function valueRunsAlong(vertical, line) {
+    const s = sheet();
+    const key = `${wb.version}|${s.id}|${vertical ? 'c' : 'r'}${line}`;
+    if (storedRuns?.key === key) return storedRuns.runs;
+    let at = new Int32Array(64), n = 0;
+    for (const [k, cell] of s.cells) {
+      if (cell.v == null && cell.f == null) continue;
+      const comma = k.indexOf(',');
+      if (Number(vertical ? k.slice(comma + 1) : k.slice(0, comma)) !== line) continue;
+      if (n === at.length) { const grown = new Int32Array(n * 2); grown.set(at); at = grown; }
+      at[n++] = Number(vertical ? k.slice(0, comma) : k.slice(comma + 1));
+    }
+    const lines = at.subarray(0, n).sort();
+    const runs = [];
+    for (const i of lines) {
+      const last = runs[runs.length - 1];
+      if (last && i <= last[1] + 1) last[1] = Math.max(last[1], i);
+      else runs.push([i, i]);
+    }
+    storedRuns = { key, runs };
+    return runs;
+  }
+
+  /**
+   * The last cell from (r, c) going (dr, dc) of its unbroken stretch of stored values, or null: see S.jump. A merged
+   * block's cells hold what its anchor holds, not what may be stored under them, so the stretch stops short of one.
+   */
+  function filledThrough(r, c, dr, dc) {
+    const vertical = dr !== 0;
+    const line = vertical ? c : r, at = vertical ? r : c, dir = vertical ? dr : dc;
+    const runs = valueRunsAlong(vertical, line);
+    let lo = 0, hi = runs.length;
+    while (lo < hi) { const mid = (lo + hi) >> 1; if (runs[mid][1] < at) lo = mid + 1; else hi = mid; }
+    const run = runs[lo];
+    if (!run || run[0] > at) return null;
+    let end = dir > 0 ? run[1] : run[0];
+    for (const m of sheet().merges) {
+      const [a1, a2, b1, b2] = vertical ? [m.r1, m.r2, m.c1, m.c2] : [m.c1, m.c2, m.r1, m.r2];
+      if (line < b1 || line > b2) continue;
+      if (dir > 0 && a2 >= at && a1 <= end) end = Math.min(end, a1 - 1);
+      else if (dir < 0 && a1 <= at && a2 >= end) end = Math.max(end, a2 + 1);
+    }
+    if (dir > 0 ? end <= at : end >= at) return null;
+    return vertical ? { r: end, c } : { r, c: end };
   }
 
   /** The next cell past (r, c) going (dr, dc) that may hold anything, or null: see S.jump. */
