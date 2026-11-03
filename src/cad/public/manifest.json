@@ -17,7 +17,7 @@
   "file_handlers": [
     {
       "action": "./",
-      "accept": { "application/dxf": [".dxf"], "application/octet-stream": [".cad"] }
+      "accept": { "application/dxf": [".dxf"], "image/vnd.dwg": [".dwg"], "application/octet-stream": [".cad"] }
     }
   ]
 }

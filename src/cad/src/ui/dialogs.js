@@ -79,7 +79,7 @@ export async function openFileDialog(app) {
     'div.open-dlg',
     h(
       'div.open-sources',
-      h('button.btn.big', { type: 'button', onClick: () => ((pick = { source: 'device' }), closeFn()) }, icon('upload', 20), h('span', h('strong', 'Open from this device'), h('small', 'A .cad or .dxf file on your computer'))),
+      h('button.btn.big', { type: 'button', onClick: () => ((pick = { source: 'device' }), closeFn()) }, icon('upload', 20), h('span', h('strong', 'Open from this device'), h('small', 'A .cad, .dwg or .dxf file on your computer'))),
     ),
     h('h3.dlg-sub', 'Your Puter drive'),
     status,
@@ -134,7 +134,7 @@ export async function openFileDialog(app) {
             h(
               'button.file-item',
               { type: 'button', onClick: () => ((pick = { source: 'cloud', path: f.path, name: f.name }), closeFn()) },
-              icon(f.name.toLowerCase().endsWith('.dxf') ? 'file-text' : 'file', 18),
+              icon(/\.(dxf|dwg)$/i.test(f.name) ? 'file-text' : 'file', 18),
               h('span.file-name', f.name),
               h('span.file-meta', when),
             ),
@@ -157,7 +157,18 @@ export async function openFileDialog(app) {
 
 export async function formatChoice(app, doc) {
   const def = doc.file?.kind || 'native';
-  const body = h('div', radios('fmt', [['native', `Drawing (${NATIVE_EXT})`, 'Keeps everything exactly. Recommended.'], ['dxf', 'DXF (.dxf)', 'Opens in most CAD programs.']], def));
+  const body = h(
+    'div',
+    radios(
+      'fmt',
+      [
+        ['native', `Drawing (${NATIVE_EXT})`, 'Keeps everything exactly. Recommended.'],
+        ['dwg', 'DWG (.dwg)', 'Opens in AutoCAD and most CAD programs.'],
+        ['dxf', 'DXF (.dxf)', 'Opens in most CAD programs.'],
+      ],
+      def,
+    ),
+  );
   const r = await openDialog({ title: 'Save as', body, size: 'sm', actions: [{ label: 'Cancel' }, { label: 'Continue', primary: true, onClick: () => radioValue(body, 'fmt') }] });
   return r || null;
 }
@@ -173,7 +184,15 @@ export async function saveAsDialog(app, doc) {
     ],
     doc.file?.source === 'device' || !app.signedIn ? 'device' : 'cloud',
   );
-  const fmt = radios('fmt', [['native', `Drawing (${NATIVE_EXT})`, 'Keeps everything exactly'], ['dxf', 'DXF (.dxf)', 'For other CAD programs']], doc.file?.kind || 'native');
+  const fmt = radios(
+    'fmt',
+    [
+      ['native', `Drawing (${NATIVE_EXT})`, 'Keeps everything exactly'],
+      ['dwg', 'DWG (.dwg)', 'For AutoCAD and other CAD programs'],
+      ['dxf', 'DXF (.dxf)', 'For other CAD programs'],
+    ],
+    doc.file?.kind || 'native',
+  );
   const body = h('form', { onSubmit: (e) => e.preventDefault() }, field('File name', name), err, h('fieldset.fs', h('legend', 'Location'), where), h('fieldset.fs', h('legend', 'Format'), fmt));
   const r = await openDialog({
     title: 'Save drawing as',
@@ -185,7 +204,7 @@ export async function saveAsDialog(app, doc) {
         label: 'Save',
         primary: true,
         onClick: () => {
-          const v = name.value.trim().replace(/\.(cad|dxf)$/i, '');
+          const v = name.value.trim().replace(/\.(cad|dxf|dwg)$/i, '');
           if (!v || /[\\/:*?"<>|]/.test(v)) {
             err.textContent = 'Enter a file name without \\ / : * ? " < > or |.';
             name.setAttribute('aria-invalid', 'true');
@@ -239,6 +258,7 @@ export async function exportDialog(app) {
       ['pdf', 'PDF', 'Vector document at a paper size'],
       ['svg', 'SVG', 'Vector image for the web and illustration tools'],
       ['png', 'PNG', 'Raster image'],
+      ['dwg', 'DWG', 'AutoCAD drawing for other CAD programs'],
       ['dxf', 'DXF', 'Drawing exchange file for other CAD programs'],
     ],
     'pdf',
@@ -253,6 +273,7 @@ export async function exportDialog(app) {
   if (!r) return;
   const kind = radioValue(body, 'fmt');
   if (kind === 'dxf') return app.exportDxf();
+  if (kind === 'dwg') return app.exportDwg();
   const area = areaFor(app, areaSel.value);
   const busy = toast('Exporting...', { timeout: 0 });
   try {

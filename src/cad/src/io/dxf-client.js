@@ -1,6 +1,6 @@
 /**
- * DXF import and export through a worker, so large files never block the
- * interface. Dimension geometry is computed here (it needs the text and
+ * DXF and DWG import and export through a worker, so large files never
+ * block the interface. Dimension geometry is computed here (it needs the text and
  * dimension modules) and handed to the writer as anonymous blocks.
  */
 import { buildDimension, buildLeader } from '../core/dims.js';
@@ -37,7 +37,7 @@ function call(msg, transfer) {
   });
 }
 
-/** Parse DXF bytes. Returns { drawing, warnings, stats }. */
+/** Parse DXF or DWG bytes. Returns { drawing, warnings, stats, release? }. */
 export function importDxf(buffer) {
   const copy = buffer.slice(0);
   return call({ op: 'parse', buffer: copy }, [copy]);
@@ -94,4 +94,9 @@ export function exportPayload(drawing, extents) {
 /** Serialize a Drawing to DXF text (in the worker). Returns { text, warnings }. */
 export async function exportDxf(drawing, extents) {
   return call({ op: 'write', ...exportPayload(drawing, extents) });
+}
+
+/** Serialize a Drawing to a DWG file (in the worker). Returns { bytes, warnings }. */
+export async function exportDwg(drawing, extents) {
+  return call({ op: 'writeDwg', ...exportPayload(drawing, extents) });
 }

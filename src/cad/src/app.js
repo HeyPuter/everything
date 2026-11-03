@@ -26,8 +26,8 @@ import { Renderer } from './render/renderer.js';
 import { Overlay } from './editor/overlay.js';
 import { Editor, DEFAULT_SETTINGS, CancelError } from './editor/editor.js';
 import { buildRegistry } from './editor/commands/index.js';
-import { encodeDrawing, decodeDrawing, fileKind, baseName, NATIVE_EXT } from './io/native.js';
-import { importDxf, exportDxf } from './io/dxf-client.js';
+import { encodeDrawing, decodeDrawing, fileKind, kindExt, baseName } from './io/native.js';
+import { importDxf, exportDxf, exportDwg } from './io/dxf-client.js';
 import * as storage from './io/storage.js';
 import * as platform from './platform.js';
 
@@ -510,7 +510,7 @@ export class App {
   async openBuffer(buffer, name, file) {
     const kind = fileKind(name);
     if (!kind) {
-      toast('Choose a .cad or .dxf file.', { kind: 'error' });
+      toast('Choose a .cad, .dwg or .dxf file.', { kind: 'error' });
       return null;
     }
     const existing = file.path && this.docs.find((d) => d.file?.path === file.path);
@@ -528,6 +528,7 @@ export class App {
         const skipped = Object.entries(res.stats?.skipped || {});
         if (skipped.length) this.cmdline.log(`Some objects were not imported: ${skipped.map(([t, n]) => `${n} ${t}`).join(', ')}.`, 'muted');
         for (const w of (res.warnings || []).slice(0, 5)) this.cmdline.log(w, 'muted');
+        if (res.release) this.cmdline.log(`${name} is an AutoCAD ${res.release} drawing (${res.version}).`, 'muted');
       }
       busy.remove();
       const doc = this.addDoc(drawing, baseName(name), { ...file, kind, name });
@@ -558,6 +559,12 @@ export class App {
       for (const w of (warnings || []).slice(0, 5)) this.cmdline.log(w, 'muted');
       return new Blob([text], { type: 'application/dxf' });
     }
+    if (kind === 'dwg') {
+      const ext = doc.index.extents();
+      const { bytes, warnings } = await exportDwg(doc.drawing, ext);
+      for (const w of (warnings || []).slice(0, 5)) this.cmdline.log(w, 'muted');
+      return new Blob([bytes], { type: 'image/vnd.dwg' });
+    }
     return encodeDrawing(doc.drawing);
   }
 
@@ -576,7 +583,7 @@ export class App {
         if (!(await this.ensureSignedIn('save to your Puter drive'))) return false;
         await storage.cloudWrite(doc.file.path, blob);
       } else {
-        const r = await storage.deviceSave(blob, doc.file.name || `${doc.name}${kind === 'dxf' ? '.dxf' : NATIVE_EXT}`, doc.file.handle);
+        const r = await storage.deviceSave(blob, doc.file.name || `${doc.name}${kindExt(kind)}`, doc.file.handle);
         if (!r) return false;
         doc.file.handle = r.handle;
         downloaded = !!r.downloaded;
@@ -606,7 +613,7 @@ export class App {
       try {
         const blob = await this.encode(doc, kind);
         // The picker never settles when cancelled, so nothing after it may hold state.
-        const item = await storage.puterSavePicker(blob, `${doc.name}${kind === 'dxf' ? '.dxf' : NATIVE_EXT}`);
+        const item = await storage.puterSavePicker(blob, `${doc.name}${kindExt(kind)}`);
         if (!item) return false;
         doc.file = { source: 'cloud', path: item.path, kind, name: item.name };
         doc.name = baseName(item.name);
@@ -623,7 +630,7 @@ export class App {
     const rev = doc.drawing.revision;
     try {
       const blob = await this.encode(doc, target.kind);
-      const fileName = `${target.name}${target.kind === 'dxf' ? '.dxf' : NATIVE_EXT}`;
+      const fileName = `${target.name}${kindExt(target.kind)}`;
       let downloaded = false;
       if (target.source === 'cloud') {
         if (!(await this.ensureSignedIn('save to your Puter drive'))) return false;
@@ -655,11 +662,20 @@ export class App {
     }
   }
   async exportDxf() {
+    return this.exportAs('dxf');
+  }
+
+  async exportDwg() {
+    return this.exportAs('dwg');
+  }
+
+  /** Download the active drawing as DXF or DWG without changing its file. */
+  async exportAs(kind) {
     const doc = this.doc;
     if (!doc) return;
     try {
-      const blob = await this.encode(doc, 'dxf');
-      await storage.deviceSave(blob, `${doc.name}.dxf`, null);
+      const blob = await this.encode(doc, kind);
+      await storage.deviceSave(blob, `${doc.name}${kindExt(kind)}`, null);
     } catch (err) {
       this.fileError('export', err);
     }
@@ -682,7 +698,7 @@ export class App {
     }
   }
 
-  /** Files opened from the Puter desktop (double click on a .dxf or .cad). */
+  /** Files opened from the Puter desktop (double click on a .cad, .dwg or .dxf). */
   async handleLaunchItems() {
     if (!(await platform.whenPuter())) return;
     try {
@@ -1366,7 +1382,7 @@ export class App {
       { label: 'Save', icon: 'save', shortcut: `${MOD}+S`, action: () => this.run('SAVE') },
       { label: 'Save as...', icon: 'save-all', shortcut: `${MOD}+Shift+S`, action: () => this.run('SAVEAS') },
       { separator: true },
-      { label: 'Import DXF...', icon: 'upload', action: () => this.run('IMPORT') },
+      { label: 'Import DXF or DWG...', icon: 'upload', action: () => this.run('IMPORT') },
       { label: 'Export...', icon: 'download', action: () => this.run('EXPORT') },
       { label: 'Plot...', icon: 'printer', shortcut: `${MOD}+P`, action: () => this.run('PLOT') },
       { separator: true },

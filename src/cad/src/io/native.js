@@ -36,14 +36,22 @@ function validate(data) {
   return data;
 }
 
-/** File kind from a name: 'native' | 'dxf' | null. */
+/** File kind from a name: 'native' | 'dxf' | 'dwg' | null. */
 export function fileKind(name) {
   const n = String(name).toLowerCase();
   if (n.endsWith(NATIVE_EXT)) return 'native';
   if (n.endsWith('.dxf')) return 'dxf';
+  if (n.endsWith('.dwg')) return 'dwg';
   return null;
 }
 
+/** File name extension for a file kind. */
+export function kindExt(kind) {
+  if (kind === 'dxf') return '.dxf';
+  if (kind === 'dwg') return '.dwg';
+  return NATIVE_EXT;
+}
+
 export function baseName(name) {
-  return String(name).replace(/^.*[\\/]/, '').replace(/\.(cad|dxf)$/i, '');
+  return String(name).replace(/^.*[\\/]/, '').replace(/\.(cad|dxf|dwg)$/i, '');
 }
