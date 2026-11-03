@@ -272,11 +272,13 @@ export function trendEquation(fit, format = null) {
     : t.coefficients.map((c, p) => [c, p ? 'x' : '', p > 1 ? String(p) : null]).reverse();
   let any = false;
   for (const [c, unit, power] of terms) {
-    const text = num(Math.abs(c));
-    if (text === '0') continue;
+    // Which terms there are is read in General: a format of the label's own only writes their numbers, so a slope
+    // of 0.3 under "#,##0" reads "0x" rather than leaving the term out.
+    const general = trendNumber(Math.abs(c)), text = num(Math.abs(c));
+    if (general === '0') continue;
     add(any ? (c < 0 ? ' - ' : ' + ') : c < 0 ? '-' : '');
-    // A coefficient of one is left off its x, as Excel writes "y = x + 1".
-    add(`${text === '1' && unit ? '' : text}${unit}`);
+    // A coefficient of one is left off its x, as Excel writes "y = x + 1" (but 1.3 under "#,##0" reads "1x").
+    add(`${general === '1' && text === '1' && unit ? '' : text}${unit}`);
     if (power) add(power, true);
     any = true;
   }
