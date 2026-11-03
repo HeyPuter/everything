@@ -683,6 +683,26 @@ test('in the app, Translate Document opens a translated copy', async ({ page }) 
   expect(errors).toEqual([]);
 });
 
+test('Translate Document translates the document as it was sent, though it is edited while the translation runs', async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await page.goto('/mock.html#/new');
+  const input = page.getByRole('textbox', { name: 'Document text' });
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await input.fill('Hello world.\nSecond line.');
+  await onTab(page, 'review');
+  await page.evaluate(() => document.querySelector('#ribbon-panel-review [aria-label="Translate"][aria-haspopup="menu"]')?.click());
+  await page.getByRole('menuitem', { name: 'Translate Document' }).click();
+  const pane = page.getByRole('complementary', { name: 'Translator pane' });
+  page.on('dialog', d => d.accept());
+  // The answer takes a moment: a paragraph typed at the top meanwhile is not in what was sent.
+  await page.evaluate(() => { const chat = puter.ai.chat; puter.ai.chat = async (...args) => { await new Promise(r => setTimeout(r, 1500)); return chat(...args); }; });
+  await pane.getByRole('button', { name: 'Translate document…' }).click();
+  await expect(pane).toContainText('Translating the document');
+  await page.evaluate(() => { const e = window.__docs.current.view.engine; e.model.select(0); e.execute(() => e.model.replace('Typed meanwhile.\n')); });
+  await expect(input).toHaveValue('[Translated] Hello world.\n[Translated] Second line.', { timeout: 20000 });
+  expect(errors).toEqual([]);
+});
+
 test('a protected document opens with its permissions shown and unlocks with its password', async ({ page }, info) => {
   const errors = []; page.on('pageerror', e => errors.push(e.message));
   await page.setViewportSize({ width: 1440, height: 900 });

@@ -119,15 +119,18 @@ export function createTranslatePane({ editor, pkg, error, openDocument, document
   async function translateDocument() {
     const engine = editor(); if (!engine) return;
     const body = engine.session.body;
+    // The document as it is sent: edits made while the translation runs (a paragraph added, say) must not shift the
+    // translated paragraphs onto others, nor leave the new document's tables out of step with its paragraphs.
+    const sent = body.documentSnapshot();
     const plain = p => p.runs.every(r => !r.image && !r.math && !r.field && !r.noteMark && !r.contentControl && !r.bodySymbol) && !p.fieldMarkers?.length;
-    const texts = body.paragraphs.map(p => plain(p) ? p.runs.filter(r => r.revision?.type !== 'del').map(r => r.text).join('') : '');
+    const texts = sent.paragraphs.map(p => plain(p) ? p.runs.filter(r => r.revision?.type !== 'del').map(r => r.text).join('') : '');
     busy?.abort(); busy = new AbortController();
     const signal = busy.signal;
     status.textContent = 'Translating the document…'; describe();
     try {
       const translated = await translateParagraphs(texts, englishLanguageName(target.value), { chat: prompt => P.aiChat(prompt), signal, onProgress: share => { status.textContent = `Translating the document… ${Math.round(share * 100)}%`; } });
       if (signal.aborted) return;
-      const paragraphs = body.paragraphs.map((p, i) => {
+      const paragraphs = sent.paragraphs.map((p, i) => {
         if (!texts[i].trim()) return p;
         const first = p.runs.find(r => r.text && r.revision?.type !== 'del') || p.runs[0];
         const run = { ...structuredClone(first), text: translated[i] };
@@ -138,7 +141,7 @@ export function createTranslatePane({ editor, pkg, error, openDocument, document
         if (out.bookmarks) out.bookmarks = out.bookmarks.map(m => ({ ...m, offset: Math.min(m.offset, length + (m.blockBoundary === 'after' ? 1 : 0)) }));
         return out;
       });
-      const blob = pkg().export(paragraphs, body.pageSettings, body.numbering, body.styles, body.tables, body.assets, undefined, body.comments);
+      const blob = pkg().export(paragraphs, sent.pageSettings, sent.numbering, sent.styles, sent.tables, body.assets, undefined, sent.comments);
       const name = `${(documentName() || 'Document').replace(/\.docx$/i, '')} (${languageName(target.value)}).docx`;
       status.textContent = 'Translated. Opening the new document…';
       await openDocument(new File([blob], name, { type: P.DOCX_MIME }));
