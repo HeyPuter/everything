@@ -338,6 +338,26 @@ function refusedEntry(body) {
   return body.length > MAX_FORMULA_LENGTH || pastFunctionLimits(body) || wrongArgumentCount(body);
 }
 
+/**
+ * A formula as what it does from where it sits, at row `r` and column `c` (its R1C1 form, in A1 text): a formula filled
+ * along a row or down a column (=A1*2, =B1*2, …) gives the same text in each of its cells.
+ */
+function relativeFormula(f, r, c) {
+  const rows = MAX_ROW + 1, cols = MAX_COL + 1;
+  return mapFormulaRefs(f, (ref) => {
+    const out = { ...ref };
+    if (ref.kind !== 'cols') {
+      if (!ref.absR1) out.r1 = (ref.r1 - r + rows) % rows;
+      if (!ref.absR2) out.r2 = (ref.r2 - r + rows) % rows;
+    }
+    if (ref.kind !== 'rows') {
+      if (!ref.absC1) out.c1 = (ref.c1 - c + cols) % cols;
+      if (!ref.absC2) out.c2 = (ref.c2 - c + cols) % cols;
+    }
+    return out;
+  });
+}
+
 /** Whether a formula body has more opening than closing parentheses outside its string literals: one that stops short of its end. */
 function unclosedParens(body) {
   let open = 0;
@@ -6060,20 +6080,7 @@ export class Workbook extends EventTarget {
       if ((r2 - rg.r1 + 1) * (c2 - rg.c1 + 1) > 400000) return [];
       // A formula is compared by what it does from where it sits (its R1C1 form), as Excel compares it, so a formula
       // filled across a row (=A1*2, =B1*2, …) is one formula, and the cell that breaks the pattern is the difference.
-      const rows = MAX_ROW + 1, cols = MAX_COL + 1;
-      const relative = (f, r, c) => mapFormulaRefs(f, (ref) => {
-        const out = { ...ref };
-        if (ref.kind !== 'cols') {
-          if (!ref.absR1) out.r1 = (ref.r1 - r + rows) % rows;
-          if (!ref.absR2) out.r2 = (ref.r2 - r + rows) % rows;
-        }
-        if (ref.kind !== 'rows') {
-          if (!ref.absC1) out.c1 = (ref.c1 - c + cols) % cols;
-          if (!ref.absC2) out.c2 = (ref.c2 - c + cols) % cols;
-        }
-        return out;
-      });
-      const content = (r, c) => { const cell = sheet.cells.get(cellKey(r, c)); return cell?.f != null ? `=${relative(cell.f, r, c)}` : this.getDisplay(sheetId, r, c); };
+      const content = (r, c) => { const cell = sheet.cells.get(cellKey(r, c)); return cell?.f != null ? `=${relativeFormula(cell.f, r, c)}` : this.getDisplay(sheetId, r, c); };
       const refs = new Map();
       const refAt = (r, c) => { const key = cellKey(r, c); if (!refs.has(key)) refs.set(key, content(r, c)); return refs.get(key); };
       for (let c = rg.c1; c <= c2; c++) {
@@ -13631,10 +13638,15 @@ export class Workbook extends EventTarget {
     try {
       // The cell's own column (`down`) or row, as [row, column] at each place along it.
       const at = (down, i) => (down ? [i, c] : [r, i]);
+      // The cells further out on the chain are still being calculated, and a cell settled here that reads one is taken
+      // to close a circle through them, though none of them reads it. Above the cell that is the order a running total
+      // resolves in, as before; below it and along its row only the cells holding the chain's own formula, filled, are
+      // settled: a total under a chain read from its top read the top, and made the whole chain #CYCLE!.
+      const own = relativeFormula(sheet.cells.get(cellKey(r, c)).f, r, c);
       // Settle the formula cells along the line from `from` towards `to`, the cell's own place, stopping at the first
       // that cannot be. A cell whose own calculation is still on the stack would read as a circle of references, and is
       // passed over. → how many were calculated, and whether one could not be.
-      const settle = (down, from, to) => {
+      const settle = (down, from, to, chainOnly) => {
         const step = from < to ? 1 : -1;
         let count = 0;
         for (let i = from; i !== to; i += step) {
@@ -13643,6 +13655,7 @@ export class Workbook extends EventTarget {
           if (!cell || cell.f == null) continue;
           const key = `${sheet.id}|${rr},${cc}`;
           if (this._cache.has(key) || this._evaluating.has(key)) continue;
+          if (chainOnly && relativeFormula(cell.f, rr, cc) !== own) continue;
           count++;
           const settled = this._compute(sheet, rr, cc);
           if (isError(settled) && settled.error === '#ERROR!') { forget(down); return { count, failed: true }; }
@@ -13665,7 +13678,7 @@ export class Workbook extends EventTarget {
       // stack, and is not tried.
       for (const [down, from] of [[true, 0], [true, end(true)], [false, 0], [false, end(false)]]) {
         if (from === (down ? r : c)) continue;
-        const { count, failed } = settle(down, from, down ? r : c);
+        const { count, failed } = settle(down, from, down ? r : c, !(down && from === 0));
         if (failed || !count) continue;
         if (!this._cache.has(rootKey)) this._compute(sheet, r, c);
         if (this._cache.get(rootKey)?.error !== '#ERROR!') break;
