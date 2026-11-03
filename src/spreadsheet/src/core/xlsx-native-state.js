@@ -31,9 +31,23 @@ function runs(lines) {
   return out;
 }
 
+/** Runs of lines sharing one outline level, [[from, to, level], …]. */
+function levelRuns(levels) {
+  const out = [];
+  for (const [i, level] of [...levels].sort(([a], [b]) => a - b)) {
+    const last = out.at(-1);
+    if (last && last[1] === i - 1 && last[2] === level) last[1] = i;
+    else out.push([i, i, level]);
+  }
+  return out;
+}
+
+const outlineLevel = (value) => Math.max(0, Math.min(7, Math.trunc(Number(value) || 0)));
+
 /**
  * The state of a worksheet (or chart sheet) part: whether it is protected, its tab colour,
- * whether its first view shows gridlines, and its hidden rows and columns.
+ * whether its first view shows gridlines, its hidden rows and columns, and their outline: the
+ * levels of the grouped lines and the summary lines marked collapsed.
  */
 export function nativeSheetState(xml) {
   xml = String(xml || '');
@@ -51,7 +65,7 @@ export function nativeSheetState(xml) {
     .map(key => tab[key] == null ? '' : key === 'rgb' ? tab[key].slice(-6).toUpperCase() : key === 'tint' ? String(Number(tab[key]) || 0) : tab[key].trim()).join('|') : null;
   const view = attributes(head.match(/<(?:\w+:)?sheetView\b[^>]*>/)?.[0]);
   // A row or column hidden, or given no height or width, which Excel shows as hidden too.
-  const hiddenRows = [], hiddenCols = [];
+  const hiddenRows = [], hiddenCols = [], collapsedRows = [], collapsedCols = [], rowLevels = new Map(), colLevels = new Map();
   let r = -1;
   // Every row is looked at on each opening of a file saved here, a million of them on a big sheet: cheaply.
   const rowTags = /<(?:\w+:)?row\b([^>]*)>/g;
@@ -62,11 +76,19 @@ export function nativeSheetState(xml) {
     const n = at >= 0 ? parseInt(attrs.slice(at + 4), 10) : Number(/\sr\s*=\s*["']\s*(\d+)/.exec(attrs)?.[1]);
     r = n > 0 ? n - 1 : r + 1;
     if ((attrs.includes('hidden') || attrs.includes('ht')) && HIDDEN_ROW.test(attrs)) hiddenRows.push(r);
+    if (!attrs.includes('outlineLevel') && !attrs.includes('collapsed')) continue;
+    const a = attributes(attrs);
+    if (outlineLevel(a.outlineLevel)) rowLevels.set(r, outlineLevel(a.outlineLevel));
+    if (on(a.collapsed)) collapsedRows.push(r);
   }
   for (const m of head.matchAll(/<(?:\w+:)?col\b[^>]*>/g)) {
     const a = attributes(m[0]), min = Number(a.min), max = Number(a.max);
     if (!Number.isInteger(min) || !Number.isInteger(max) || min < 1 || max < min || max > 16384) continue;
-    if (on(a.hidden) || (a.width != null && Number(a.width) === 0)) for (let c = min - 1; c < max; c++) hiddenCols.push(c);
+    for (let c = min - 1; c < max; c++) {
+      if (on(a.hidden) || (a.width != null && Number(a.width) === 0)) hiddenCols.push(c);
+      if (outlineLevel(a.outlineLevel)) colLevels.set(c, outlineLevel(a.outlineLevel));
+      if (on(a.collapsed)) collapsedCols.push(c);
+    }
   }
   return {
     protected: chart ? on(protection.content) || on(protection.objects) : on(protection.sheet),
@@ -74,6 +96,10 @@ export function nativeSheetState(xml) {
     gridlines: !off(view.showGridLines),
     hiddenRows: runs(hiddenRows),
     hiddenCols: runs(hiddenCols),
+    rowLevels: levelRuns(rowLevels),
+    colLevels: levelRuns(colLevels),
+    collapsedRows: runs(collapsedRows),
+    collapsedCols: runs(collapsedCols),
   };
 }
 

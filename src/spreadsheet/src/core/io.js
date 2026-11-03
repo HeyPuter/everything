@@ -2241,6 +2241,16 @@ function importSheet(X, ws, name, meta, date1904 = false, definedNames, fileForm
       }
     }
   }
+  // The record's groups, but for an axis whose outline was changed in Excel since this app's last save (levels, or
+  // a group collapsed or expanded there): that axis's groups are the part's. The record still keeps apart two groups
+  // side by side, which the levels alone run together, while the outline is as this app saved it.
+  const ownGroups = () => {
+    const rowsEdited = editedElsewhere('rowLevels') || editedElsewhere('collapsedRows');
+    const colsEdited = editedElsewhere('colLevels') || editedElsewhere('collapsedCols');
+    if (!rowsEdited && !colsEdited) return own.groups || null;
+    const file = fileGroups(ws, filtered) || { rows: [], cols: [] };
+    return { rows: rowsEdited ? file.rows : own.groups?.rows || [], cols: colsEdited ? file.cols : own.groups?.cols || [] };
+  };
   const frozen = partXml ? nativePart?.frozen : own?.frozen;
   const merges = fileMerges((ws?.['!merges'] || []).filter((m) => m?.s && m?.e).map((m) => ({ r1: m.s.r, c1: m.s.c, r2: m.e.r, c2: m.e.c })));
   return {
@@ -2259,7 +2269,7 @@ function importSheet(X, ws, name, meta, date1904 = false, definedNames, fileForm
       : nativePart?.color || (partXml ? xlsxColor(partXml.match(/<(?:\w+:)?tabColor\b[^>]*>/)?.[0], nativeStyles?.colors || themes) : null),
     // An .ods from another program says a protected sheet on its table (see the vendor's !odsProtected).
     protected: own ? editedElsewhere('protected') ? nativePart.protected : !!own.protected : !!part?.protected || (!partXml && !!ws?.['!odsProtected']),
-    groups: own ? own.groups || null : fileGroups(ws, filtered),
+    groups: own ? ownGroups() : fileGroups(ws, filtered),
     advancedFilter: own?.advancedFilter,
     outlineSettings: partXml ? readXlsxOutlineSettings(partXml) : own?.outlineSettings,
     gridlines: own && !editedElsewhere('gridlines') ? own.gridlines !== false : nativePart?.gridlines !== false,
