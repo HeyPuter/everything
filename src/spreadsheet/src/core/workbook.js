@@ -8177,7 +8177,9 @@ export class Workbook extends EventTarget {
     this._outlineStep(sheet, label, () => {
       for (const [key, hidden] of [['rows', sheet.hiddenRows], ['cols', sheet.hiddenCols]]) {
         if (!next[key]) continue;
-        for (const g of sheet.groups[key]) if (g.collapsed) for (let i = g.from; i <= g.to; i++) hidden.delete(i);
+        // A collapsed group that stays (Clear Outline over another block) keeps its lines hidden.
+        const held = this._collapsedLines({ groups: wanted }, key, 0, Infinity);
+        for (const g of sheet.groups[key]) if (g.collapsed) for (let i = g.from; i <= g.to; i++) if (!held.has(i)) hidden.delete(i);
       }
       sheet.groups = wanted;
       if (sheetFilters(sheet).length) this._applyFilter(sheet);
