@@ -283,8 +283,9 @@ export function fieldResultPlan(model, context = fieldEvaluationContext()) {
     const [p, at] = starts.get(range.startParagraph) || [];
     return p ? languageAt(p, range.start - at) : null;
   };
+  const parents = new Set(ranges.map(r => r.parentId).filter(Boolean));
   for (const range of ranges) {
-    if (range.parentId || ranges.some(r => r.parentId === range.field.id)) continue;
+    if (range.parentId || parents.has(range.field.id)) continue;
     // A body PAGE field keeps the number it was given: the context's page is the caret's, not the field's.
     if (range.field.locked || ['SEQ', 'REF', 'PAGE'].includes(range.field.type)) continue;
     if (!context && !['DATE', 'TIME'].includes(range.field.type)) continue;

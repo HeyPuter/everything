@@ -73,10 +73,11 @@ export function fieldUpdatePlan(model, { onIssue = () => {}, notes = null, seque
   // ASK and SET assign a value to a name during a mail merge without creating a bookmark;
   // a REF to such a name keeps its cached result (the merge evaluates it).
   const mergeNames = new Set(ranges.filter(r => ['ASK', 'SET'].includes(r.field.type)).map(r => /^\s*\w+\s+("?)([^\s"]+)\1/.exec(r.field.instruction)?.[2]?.toLowerCase()).filter(Boolean));
+  const parents = new Set(ranges.map(r => r.parentId).filter(Boolean));
   for (const range of ranges) {
     const type = range.field.type;
     if (sequencesOnly && type !== 'SEQ') continue;
-    if (range.field.locked || ranges.some(r => r.parentId === range.field.id)) continue;
+    if (range.field.locked || parents.has(range.field.id)) continue;
     let value = null;
     if (type === 'SEQ') {
       const seq = sequenceInstruction(range.field.instruction);
@@ -137,6 +138,45 @@ export function fieldUpdatePlan(model, { onIssue = () => {}, notes = null, seque
   return [...changes, ...(sequencesOnly ? [] : fieldResultPlan(model))].sort((a, b) => a.range.start - b.range.start);
 }
 
+/**
+ * Replace a field's result with `text` by editing its paragraph alone: the model is given just that paragraph
+ * for the edit, which then costs that paragraph's work instead of the whole document's. Updating every result
+ * through the whole document made Update Fields and Insert Caption quadratic: 200 captions in 2,000 paragraphs
+ * took 5–7 seconds. Only a paragraph whose fields all start and end in it, in a document without block-level
+ * controls (which span paragraphs), is edited this way; the result is the same as the document-wide edit's.
+ * Returns false when it does not apply.
+ */
+function replaceInParagraph(model, range, text, paragraphs) {
+  if (model.fixedText || model.hasBlockControls || range.startParagraph !== range.endParagraph) return false;
+  const place = paragraphs.get(range.startParagraph), all = model.paragraphs;
+  if (!place || all[place.index]?.id !== range.startParagraph) return false;
+  const p = all[place.index], open = new Set();
+  for (const marker of p.fieldMarkers || []) if (marker.type === 'start') open.add(marker.field.id);
+  for (const marker of p.fieldMarkers || []) if (marker.type === 'end' && !open.delete(marker.field.id)) return false;
+  if (open.size) return false;
+  const window = [p];
+  model.paragraphs = window;
+  try {
+    model.select(range.start - place.offset, range.end - place.offset);
+    model.typingFormat = {}; model.typingStyle = null; model.typingDirectCleared = false;
+    model.replaceResult(text, { checkpoint: false });
+  } finally {
+    const edited = model.paragraphs;
+    model.paragraphs = all;
+    all.splice(place.index, 1, ...edited);
+    // A result never holds a paragraph mark, so the edit leaves one paragraph; if not, positions are found again.
+    if (edited.length !== 1) paragraphs.clear();
+  }
+  return true;
+}
+/** Each paragraph's index and document position, by id. */
+function paragraphPlaces(model) {
+  const places = new Map();
+  let offset = 0;
+  model.paragraphs.forEach((p, index) => { places.set(p.id, { index, offset }); offset += p.runs.reduce((n, r) => n + r.text.length, 0) + 1; });
+  return places;
+}
+
 /** Apply the plan inside one editor transaction; returns the number of fields updated. */
 export function updateSequenceFields(model, options) {
   const tracking = model.trackChanges; model.trackChanges = false;
@@ -151,14 +191,19 @@ export function updateSequenceFields(model, options) {
     // plan again after applying, until nothing changes (a few passes; references do not refer to references).
     for (let pass = 0; pass < 3; pass++) {
       let applied = 0;
-      for (const { range, text } of [...fieldUpdatePlan(model, pass ? { ...options, onIssue: () => {} } : options)].reverse()) {
+      const plan = fieldUpdatePlan(model, pass ? { ...options, onIssue: () => {} } : options);
+      // Results are replaced from the last: the paragraphs before each one keep their places.
+      const places = plan.length ? paragraphPlaces(model) : null;
+      for (const { range, text } of [...plan].reverse()) {
         // A result never spans a paragraph mark: replacing one that does would merge paragraphs.
-        if (model.text.slice(range.start, range.end).includes('\n')) continue;
+        if (range.startParagraph !== range.endParagraph && model.text.slice(range.start, range.end).includes('\n')) continue;
         const map = at => at <= range.start ? at : at >= range.end ? at + text.length - (range.end - range.start) : range.start + Math.min(at - range.start, text.length);
         anchor = map(anchor); focus = map(focus);
-        model.select(range.start, range.end);
-        model.typingFormat = {}; model.typingStyle = null; model.typingDirectCleared = false;
-        model.replaceResult(text, { checkpoint: false });
+        if (!places.size || !replaceInParagraph(model, range, text, places)) {
+          model.select(range.start, range.end);
+          model.typingFormat = {}; model.typingStyle = null; model.typingDirectCleared = false;
+          model.replaceResult(text, { checkpoint: false });
+        }
         updated.add(range.field.id); applied++;
       }
       if (!applied) break;
