@@ -6686,18 +6686,23 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
   /*
    * Where the selection was before an Insert rows or columns step, and where the step left it: undoing the
    * step puts the selection back, and redoing it selects the inserted lines again, rather than
-   * leaving a whole-line selection where the lines were. A step is known by its place in the history, counted
-   * from the workbook's history notices, the editor's own undo and redo commands saying which way the count
-   * moves (every undo goes through them). A document loaded afresh starts the count over.
+   * leaving a whole-line selection where the lines were. A step is known by the history's own entry for it,
+   * the editor's undo and redo commands saying which way the history moves (every undo goes through them):
+   * the step an undo takes back is the one that was newest at the last history notice. Counted by notices
+   * instead, a step taken back without them (the formatting of an entry given up with Escape, folded into
+   * one) put the count out, and Undo then put no selection back. What an undo took back waits for its redo
+   * on a stack of its own: a shared workbook's history makes the step it brings again anew.
    */
-  let historyDepth = 0;
   let historyMove = 'push'; // 'undo' or 'redo' while those commands run; a notice outside them is a new step
-  const stepSelections = new Map(); // the step's depth → { before, after }
+  const stepSelections = new WeakMap(); // the history step → { before, after }
+  let newestStep = wb.historyTop; // the newest step as of the last history notice
+  const redoSelections = []; // what each step taken back held (or null), for its redo, the latest last
   function selectionSnapshot() {
     return { sheetId: grid.sheetId, ranges: grid.ranges.map((rg) => ({ ...rg })), active: { ...grid.active } };
   }
   function rememberStepSelection(before) {
-    stepSelections.set(historyDepth, { before, after: selectionSnapshot() });
+    const step = wb.historyTop;
+    if (step) stepSelections.set(step, { before, after: selectionSnapshot() });
   }
   function restoreSelection(snap) {
     if (snap && grid.sheetId === snap.sheetId) grid.setRanges(snap.ranges, snap.active);
@@ -6819,11 +6824,19 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     // The Paste or Auto Fill Options button goes with the next change, or when its sheet is no longer shown.
     const offered = optionButton.current;
     if (offered && (wb.historyTop !== offered.mark || grid.sheetId !== offered.sheetId)) optionButton.hide();
-    if (e.detail?.type === 'load') { historyDepth = 0; stepSelections.clear(); }
+    if (e.detail?.type === 'load') { newestStep = wb.historyTop; redoSelections.length = 0; }
     else if (e.detail?.type === 'history') {
-      if (historyMove === 'undo') { const step = stepSelections.get(historyDepth); historyDepth--; if (step) restoreSelection(step.before); else revealStep(); }
-      else if (historyMove === 'redo') { historyDepth++; const step = stepSelections.get(historyDepth); if (step) restoreSelection(step.after); else revealStep(); }
-      else { historyDepth++; for (const depth of stepSelections.keys()) if (depth >= historyDepth) stepSelections.delete(depth); } // a new step discards the redo branch
+      const undone = newestStep;
+      newestStep = wb.historyTop;
+      if (historyMove === 'undo') {
+        const step = stepSelections.get(undone) || null;
+        redoSelections.push(step);
+        if (step) restoreSelection(step.before); else revealStep();
+      } else if (historyMove === 'redo') {
+        const step = redoSelections.pop() || null;
+        if (step && newestStep) stepSelections.set(newestStep, step);
+        if (step) restoreSelection(step.after); else revealStep();
+      } else redoSelections.length = 0; // a new step discards the redo branch
     }
     updatePivotDisplayNotice();
     notify();
