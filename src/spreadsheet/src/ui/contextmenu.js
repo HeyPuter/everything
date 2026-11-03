@@ -88,9 +88,12 @@ export function openCellContextMenu(ctx, { x, y, kind, chartId, target = null })
     const linked = image && !!ctx.wb.chartById(ctx.sheetId(), chartId)?.pictureRef;
     const scroll = ctx.wb.chartById(ctx.sheetId(), chartId)?.type === 'scroll';
     const textBox = ctx.wb.chartById(ctx.sheetId(), chartId)?.type === 'text';
-    // A right-click on an element of a chart (an axis, a series, a trendline...) offers its Format pane, as a
-    // double-click opens it; a second right-click on a selected series formats the point under it.
-    const element = !image && !textBox && !scroll && !slicer && target?.closest?.('[data-el]') ? elementForNode(target, ctx.chartUi?.chartId === chartId ? ctx.chartUi.element() : null) : null;
+    // A right-click on an element of a chart (an axis, a series, a trendline...) selects it and offers its Format
+    // pane, as a double-click opens it. On a selected series it formats the series; on a selected point, the point.
+    const element = !image && !textBox && !scroll && !slicer && target?.closest?.('[data-el]') ? elementForNode(target, ctx.chartUi?.chartId === chartId ? ctx.chartUi.element() : null, { drill: false }) : null;
+    // The grid has just selected the chart (see grid.js); the chart UI hears of it after this, so it is told now.
+    if (element && ctx.chartUi && ctx.chartUi.chartId !== chartId) ctx.chartUi.chartSelected(chartId);
+    if (element && ctx.chartUi?.chartId === chartId && ctx.chartUi.element() !== element) ctx.run('chart', { action: 'selectElement', element });
     const formatElement = element ? () => { ctx.run('chart', { action: 'selectElement', element }); ctx.run('chart', { action: 'formatPane', element }); } : null;
     openMenu({
       x, y, label: slicer ? 'Slicer actions' : scroll ? 'Scroll bar actions' : image ? 'Image actions' : textBox ? 'Text box actions' : 'Chart actions', restoreFocus: false, onClose: () => ctx.grid.focus(),

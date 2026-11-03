@@ -35,13 +35,17 @@ export function axisName(chart, key) {
 const AXIS_PLOTS = new Set(['line', 'area', 'column', 'bar', 'combo', 'scatter', 'bubble', 'histogram']);
 export const paneTitle = key => PANE_TITLES[key] || KEY_TITLES.find(([pattern]) => pattern.test(key))?.[1] || 'Format';
 
-/** The element key a press on an SVG node names, given the element selected before it (a second press on a series picks its point). */
-export function elementForNode(node, previous = null) {
+/**
+ * The element key a press on an SVG node names, given the element selected before it: a second press on a series
+ * picks its point. A right-click (`drill: false`) keeps to what is selected: a selected series stays the series,
+ * and a point is picked only where one of the series' points is already selected.
+ */
+export function elementForNode(node, previous = null, { drill = true } = {}) {
   const hit = node?.closest?.('[data-el]');
   if (!hit) return 'chartArea';
   const kind = hit.getAttribute('data-el'), j = hit.getAttribute('data-series'), i = hit.getAttribute('data-point');
   if (kind === 'series' && j != null) {
-    if (i != null && (previous === `series:${j}` || previous?.startsWith(`point:${j}:`))) return `point:${j}:${i}`;
+    if (i != null && ((drill && previous === `series:${j}`) || previous?.startsWith(`point:${j}:`))) return `point:${j}:${i}`;
     return `series:${j}`;
   }
   if (kind === 'dataLabels') return `dataLabels:${j ?? 0}`;

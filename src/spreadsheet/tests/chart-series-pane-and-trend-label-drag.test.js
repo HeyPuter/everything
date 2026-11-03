@@ -107,3 +107,57 @@ it('saves a moved trendline label in the file and opens it in the same place', a
   const back = await workbookFromFile(X.CFB.write(zip, { type: 'array', fileType: 'zip' }), 'trend.xlsx');
   expect(back.activeSheet.charts[0].trendlines[0].labelPos).toEqual({ x: 0.25, y: 0.125 });
 });
+
+// A left-click selects a series (all its points light up); a right-click then formats that series, not one point.
+const leftClick = async node => {
+  node.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, button: 0, clientX: 5, clientY: 5 }));
+  node.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, cancelable: true, button: 0, clientX: 5, clientY: 5 }));
+  await flush();
+};
+const rightClick = async node => {
+  node.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 5, clientY: 5 }));
+  await flush();
+};
+const menuLabels = () => [...document.querySelectorAll('[role="menuitem"]')].map(n => n.textContent);
+// jsdom lays nothing out: the series' marks get a box on screen so a selection draws their handles.
+const layOutMarks = () => {
+  const real = Element.prototype.getBoundingClientRect;
+  vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function () {
+    return this.matches?.('[data-el="series"]') ? { left: 10, top: 10, right: 16, bottom: 16, width: 6, height: 6, x: 10, y: 10 } : real.call(this);
+  });
+};
+const handles = () => view.el.querySelectorAll('.chart-el-overlay .chart-el-handle').length;
+const marker = (j, i) => svgNode(`[data-el="series"][data-series="${j}"][data-point="${i}"]`);
+
+it('offers Format Data Series from a right-click on a series a left-click selected', async () => {
+  layOutMarks();
+  await mount();
+  await leftClick(marker(1, 2));
+  const all = handles();
+  expect(all).toBeGreaterThan(1);
+  await rightClick(marker(1, 2));
+  expect(menuLabels().some(t => t.includes('Format Data Series'))).toBe(true);
+  expect(menuLabels().some(t => t.includes('Format Data Point'))).toBe(false);
+  // Still the whole series, not a point.
+  expect(handles()).toBe(all);
+  menuItem('Format Data Series').click(); await flush();
+  expect(pane().querySelector('.chart-pane-title').textContent).toBe('Format Data Series');
+});
+
+it('selects the series a right-click lands on, and formats a point once a left-click picked it', async () => {
+  layOutMarks();
+  await mount();
+  expect(handles()).toBe(0);
+  await rightClick(marker(0, 1));
+  expect(menuLabels().some(t => t.includes('Format Data Series'))).toBe(true);
+  closeMenu(); await flush();
+  // The series is selected now: its points carry handles.
+  expect(handles()).toBeGreaterThan(1);
+  // A second left-click picks the point under it; a right-click on it then formats that point.
+  await leftClick(marker(0, 1));
+  await rightClick(marker(0, 1));
+  // Just that point is selected: a frame round it, no handles on the rest of the series.
+  expect(handles()).toBe(0);
+  expect(view.el.querySelector('.chart-el-overlay .chart-el-frame')).not.toBeNull();
+  expect(menuLabels().some(t => t.includes('Format Data Point'))).toBe(true);
+});
