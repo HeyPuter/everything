@@ -64,6 +64,7 @@ import { odsCellStyle, odsCellPaints, odsRunStyle } from './ods-cell-styles.js';
 import { htmlTableRows } from './html-table.js';
 import { reconcileConditionalFormats } from './xlsx-condformat-reconcile.js';
 import { prepareXlsxValidationLists } from './xlsx-validation.js';
+import { nativeSheetState, nativeStateChanged } from './xlsx-native-state.js';
 import { sheetFilters, sameFilterRange, filterRangeKey, mapSheetFilters } from './sheet-filters.js';
 import { nativeFilterJudge, readXlsxFilter, readXlsxFilterButtons, writeXlsxFilter } from './xlsx-filter.js';
 import { readStyleResets, styleResetAt } from './style-resets.js';
@@ -1734,6 +1735,10 @@ function importSheet(X, ws, name, meta, date1904 = false, definedNames, fileForm
   const own = meta?.sheets?.[name];
   const nativePart = partXml ? sheetPartState(partXml) : null;
   const part = !own ? nativePart : null;
+  // A setting the record holds that Excel changed after this app's last save: the record noted what that save wrote
+  // into the part, and the part now says otherwise. The part's word wins, or reopening would undo the edit.
+  const nativeState = own && partXml && own.nativeState ? nativeSheetState(partXml) : null;
+  const editedElsewhere = (key) => !!nativeState && nativeStateChanged(own.nativeState, nativeState, key);
   const lines = !own ? readXlsxLineStyles(partXml, lineFormats) : null;
   // Native format indexes let reconciliation distinguish edits from inherited fields.
   const formatOf = (fonts || lineFormats) && partXml ? cellFormatIndices(partXml) : null;
@@ -2251,7 +2256,7 @@ function importSheet(X, ws, name, meta, date1904 = false, definedNames, fileForm
     validations: meta?.sheets?.[name]?.validations || (ws?.['!validations'] || []).map(({ _odsName, ...rule }) => rule),
     color: own?.color || part?.color || (!own && partXml ? xlsxColor(partXml.match(/<(?:\w+:)?tabColor\b[^>]*>/)?.[0], nativeStyles?.colors || themes) : null),
     // An .ods from another program says a protected sheet on its table (see the vendor's !odsProtected).
-    protected: own ? !!own.protected : !!part?.protected || (!partXml && !!ws?.['!odsProtected']),
+    protected: own ? editedElsewhere('protected') ? nativePart.protected : !!own.protected : !!part?.protected || (!partXml && !!ws?.['!odsProtected']),
     groups: own ? own.groups || null : fileGroups(ws, filtered),
     advancedFilter: own?.advancedFilter,
     outlineSettings: partXml ? readXlsxOutlineSettings(partXml) : own?.outlineSettings,

@@ -31,6 +31,7 @@ import { toFileFormula } from './xlfn.js';
 import { writeXlsxConditionalFormats } from './xlsx-export-condformat.js';
 import { readXlsxConditionalFormats } from './xlsx-condformat.js';
 import { writeExportMetadata } from './xlsx-export-meta.js';
+import { nativeSheetState } from './xlsx-native-state.js';
 import { normalizeSplit, splitPaneXml, paneName } from './split-panes.js';
 import { conditionalFormatSignature } from './xlsx-condformat-reconcile.js';
 import { createPersonList, writeXlsxThreadedComments, writeXlsxPersons } from './xlsx-threaded-comments.js';
@@ -202,6 +203,12 @@ export async function completeXlsx(X, wb, book, bytes, { sourceWorkbook = null, 
   // A colour filter kept from a file names its colour as a format of this file's own (see writeXlsxFilter).
   const filterColorFormats = (xml) => xml.replace(/\bdxfId="puter-(fill|ink)-([\da-f]{6})"/g,
     (m, kind, hex) => `dxfId="${styles.differential(kind === 'fill' ? { bg: `#${hex}` } : { color: `#${hex}` })}"`);
+  // What each sheet's part says of the settings the private record also holds, so that an edit made to them in another
+  // program is told from this save's own projection when the file is opened again (xlsx-native-state.js).
+  const noteNativeState = (sheet, xml) => {
+    const record = book.PuterExportMeta?.data.sheets[sheet.name];
+    if (record) record.nativeState = nativeSheetState(xml);
+  };
   for (const [i, sheet] of wb.sheets.entries()) {
     if (i && pause) await pause();
     const ws = book.Sheets[sheet.name], path = `/xl/worksheets/sheet${i + 1}.xml`;
@@ -214,8 +221,10 @@ export async function completeXlsx(X, wb, book, bytes, { sourceWorkbook = null, 
       }));
       const properties = sheet.color ? xmlTag('sheetPr', {}, xmlTag('tabColor', { rgb: `FF${sheet.color.slice(1).toUpperCase()}` })) : '';
       const protection = sheet.protected ? xmlTag('sheetProtection', { content: 1, objects: 1 }) : '';
-      set(chartPath, writeXlsxPrint(HEADER + xmlTag('chartsheet', { xmlns: MAIN, 'xmlns:r': REL.slice(0, -1) },
-        properties + views + protection + xmlTag('drawing', { 'r:id': 'puterDrawing' })), sheet.printSettings));
+      const chartXml = writeXlsxPrint(HEADER + xmlTag('chartsheet', { xmlns: MAIN, 'xmlns:r': REL.slice(0, -1) },
+        properties + views + protection + xmlTag('drawing', { 'r:id': 'puterDrawing' })), sheet.printSettings);
+      set(chartPath, chartXml);
+      noteNativeState(sheet, chartXml);
       set(`/xl/chartsheets/_rels/sheet${i + 1}.xml.rels`, HEADER + xmlTag('Relationships', { xmlns: 'http://schemas.openxmlformats.org/package/2006/relationships' },
         xmlTag('Relationship', { Id: 'puterDrawing', Type: `${REL}drawing`, Target: drawing })));
       // SheetJS supplies the workbook's sheet IDs and order. Change only this
@@ -383,7 +392,9 @@ export async function completeXlsx(X, wb, book, bytes, { sourceWorkbook = null, 
     xml = writeXlsxIgnoredErrors(xml, sheet.ignoredErrors);
     xml = writeXlsxRichText(xml, ws, wb.colorPalette, normalFont, wb.fontTheme);
     writeXlsxThreadedComments(sheet, i + 1, persons, { get, set, contentType });
-    set(path, filterColorFormats(richValues.sheet(writeXlsxSheetCustomViews(writeXlsxOutlineSettings(writeXlsxPrint(xml, sheet.printSettings), sheet.outlineSettings), wb.customViews || [], sheet), imageValues)));
+    xml = filterColorFormats(richValues.sheet(writeXlsxSheetCustomViews(writeXlsxOutlineSettings(writeXlsxPrint(xml, sheet.printSettings), sheet.outlineSettings), wb.customViews || [], sheet), imageValues));
+    set(path, xml);
+    noteNativeState(sheet, xml);
   }
   writeXlsxPersons(persons, { get, set, contentType });
   let workbook = get('/xl/workbook.xml');
