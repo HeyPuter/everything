@@ -2552,7 +2552,21 @@ export class TextDocument {
             this.paragraphs[index] = next;
             continue;
           }
-          // A removed paragraph mark merges its paragraph with the next one.
+          // A removed paragraph mark merges its paragraph with the next one. When nothing in the paragraphs it
+          // joins reaches beyond them (fields, note marks, controls, cells or sections), they are joined in a
+          // view of the model holding only them, as replaceWithinParagraph does: removing each of thousands of
+          // paragraph marks within the whole document made Accept All and Reject All take minutes.
+          const lastIndex = indexAt(r.end), span = this.paragraphs.slice(index, lastIndex + 1);
+          if (plain && lastIndex > index && r.end - starts[lastIndex] <= paragraphLength(this.paragraphs[lastIndex])
+            && span.every(q => !q.fieldMarkers?.length && !q.runs.some(run => run.noteMark) && (q.cellId || '') === (p.cellId || ''))
+            && !span.slice(0, -1).some(q => q.sectionEnd)) {
+            const view = Object.create(this);
+            view.paragraphs = [...span];
+            view.selection = { anchor: from, focus: to };
+            view.replaceUntracked('', { checkpoint: false });
+            this.paragraphs.splice(index, span.length, ...view.paragraphs);
+            continue;
+          }
           const limit = documentLength(this.paragraphs), last = Math.min(r.end, limit);
           if (r.end > limit) for (const p of this.paragraphs.slice(-1)) delete p.markRevision;
           // A change can cross a field's start or end (deleting part of a field's result with Track Changes

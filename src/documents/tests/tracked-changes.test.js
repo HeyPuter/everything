@@ -546,3 +546,26 @@ describe('revision UTC times', () => {
     expect(utcTimes(await save(pkg, model))).toEqual([]);
   });
 });
+
+it('accepts and rejects thousands of paragraph-mark changes in linear time', () => {
+  // A reviewer joined and split paragraphs throughout a long document: every other paragraph mark is
+  // deleted by Ada, the rest inserted by Grace, each its own change.
+  const reviewed = () => {
+    const pkg = createDocx(Array.from({ length: 8000 }, (_, i) => paragraph(`Paragraph ${i} text.`, i === 7999 ? {} : { markRevision: i % 2 ? { type: 'ins', author: 'Grace', date: '2026-01-02T00:00:00Z' } : { type: 'del', author: 'Ada', date: '2026-01-01T00:00:00Z' } })));
+    return new TextDocument(pkg.paragraphs, pkg.pageSettings, pkg.numbering, pkg.styles, pkg.tables, pkg.assets, { trackChanges: true });
+  };
+  for (const accept of [true, false]) {
+    const doc = reviewed();
+    expect(doc.revisions).toHaveLength(7999);
+    const started = performance.now();
+    expect(doc.resolveRevisions(accept)).toBe(true);
+    // Each removed mark was joined within the whole document: this took about a minute.
+    expect(performance.now() - started).toBeLessThan(20000);
+    expect(doc.revisions).toEqual([]);
+    // Accepting removes Ada's deleted marks, rejecting Grace's inserted ones; the paragraphs on either side join.
+    const removed = i => accept ? i % 2 === 0 : i % 2 === 1;
+    expect(doc.text).toBe(Array.from({ length: 8000 }, (_, i) => `Paragraph ${i} text.${i === 7999 ? '' : removed(i) ? '' : '\n'}`).join(''));
+    doc.undo();
+    expect(doc.revisions).toHaveLength(7999);
+  }
+}, 300000);
