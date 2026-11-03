@@ -117,3 +117,69 @@ describe('a mention mailed after the save', () => {
     } finally { doc.destroy(); }
   });
 });
+
+// With AutoSave off the mail waits for the save that puts the comment in the file. The tab closed first, the edits
+// stayed on this device in a draft, but the mail was in that tab alone: the save that later wrote the draft sent
+// nothing, and the person mentioned never heard of the comment. The mail waits in this browser with the draft now.
+describe('a mention whose tab was closed before the save', () => {
+  const mailerFor = (mails) => ({ available: () => true, sendMentions: vi.fn(async (mail) => { mails.push(mail); return { sent: mail.recipients.length, failed: 0, results: [] }; }) });
+  const LOC = { origin: 'https://spreadsheet.puter.com', pathname: '/' };
+
+  async function closedBeforeSave() {
+    setAutoSaveEnabled(false);
+    const doc = await savedFile();
+    vi.spyOn(T, 'toast').mockImplementation(() => {});
+    const mails = [];
+    const notifier = createMentionNotifier({ doc, wb: doc.wb, mailer: mailerFor(mails), me: () => ME, location: LOC });
+    notifier.notify(post(doc, '@ana please check'));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(doc.writeDraft()).toBe(true);
+    doc.destroy(); // the tab is closed: the edits are in the draft, the save never came
+    expect(mails).toEqual([]);
+    return doc.path;
+  }
+
+  it('is sent once the draft, opened again, is saved', async () => {
+    const path = await closedBeforeSave();
+    const doc = await Doc.fromPath(path);
+    const mails = [];
+    const notifier = createMentionNotifier({ doc, wb: doc.wb, mailer: mailerFor(mails), me: () => ME, location: LOC });
+    const stop = notifier.resume();
+    try {
+      expect(doc.recoverable).toBeTruthy();
+      await new Promise((r) => setTimeout(r, 20));
+      expect(mails).toEqual([]);
+      expect(doc.restoreDraft()).toBe(true);
+      await new Promise((r) => setTimeout(r, 20));
+      expect(mails).toEqual([]);
+      expect(await doc.save()).toBe(true);
+      await new Promise((r) => setTimeout(r, 20));
+      expect(mails).toHaveLength(1);
+      expect(mails[0].recipients).toEqual([{ email: 'ana@puter.email', name: 'ana' }]);
+      expect(mails[0].comment.cell).toBe(`${doc.wb.sheet(doc.wb.activeSheetId).name}!B4`);
+      expect(mails[0].link).toContain(doc.uid);
+      // Sent once: another visit sends it no more.
+      expect(await doc.save()).toBe(true);
+      const again = [];
+      createMentionNotifier({ doc, wb: doc.wb, mailer: mailerFor(again), me: () => ME, location: LOC }).resume()();
+      await new Promise((r) => setTimeout(r, 20));
+      expect(mails).toHaveLength(1);
+      expect(again).toEqual([]);
+    } finally { stop(); doc.destroy(); }
+  });
+
+  it('is not sent when the draft is discarded', async () => {
+    const path = await closedBeforeSave();
+    const doc = await Doc.fromPath(path);
+    const mails = [];
+    const stop = createMentionNotifier({ doc, wb: doc.wb, mailer: mailerFor(mails), me: () => ME, location: LOC }).resume();
+    try {
+      doc.discardDraft();
+      doc.wb.setInput(doc.wb.activeSheetId, 0, 1, 'other work');
+      expect(await doc.save()).toBe(true);
+      await new Promise((r) => setTimeout(r, 20));
+      expect(mails).toEqual([]);
+    } finally { stop(); doc.destroy(); }
+  });
+});
+

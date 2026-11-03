@@ -6604,6 +6604,8 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     goTo: (sheetId, r, c) => { if (destroyed) return; if (selectLocation(sheetId, { r1: r, c1: c, r2: r, c2: c })) comments.run('showComment'); },
   });
   mentionAlerts.start();
+  // Mails an earlier visit left waiting for a save that never came (the tab was closed first) go once one does.
+  const stopMentionMails = mentionNotifier.resume();
   comments.attach();
   ctx.comments = comments;
   ctx.subscribe(() => comments.sync());
@@ -7270,6 +7272,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       chartUi.destroy();
       comments.destroy();
       mentionAlerts.stop();
+      stopMentionMails();
       findBar.destroy();
       aiPanel?.destroy();
       grid.destroy();
