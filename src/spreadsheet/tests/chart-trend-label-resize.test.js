@@ -104,7 +104,8 @@ it('shrinks a trendline label from its top-left corner, its bottom-right staying
 
 it('keeps a resized label within 4pt to 72pt, and a press on a corner that barely moves changes nothing', async () => {
   layOutLabel();
-  const { chart } = await mount(LABEL);
+  // A chart large enough to hold the label at 72pt from its top-left corner, so only the size limit stops it.
+  const { chart } = await mount({ ...LABEL, w: 2400, h: 1600, trendlines: [{ type: 'linear', dispEq: true, labelPos: { x: 0, y: 0 } }, false] });
   await selectLabel();
   pd(corner('se'), 0, 0); pu(1, 1); await flush();
   expect(chart().trendlines[0].labelSize).toBeUndefined();
@@ -113,6 +114,35 @@ it('keeps a resized label within 4pt to 72pt, and a press on a corner that barel
   await selectLabel();
   pd(corner('nw'), 0, 0); pu(5000, 5000); await flush();
   expect(chart().trendlines[0].labelSize).toBeCloseTo(5.33, 2);
+});
+
+// A label grown past the chart's edge was drawn past it while the corner was dragged, then, let go, was drawn
+// pulled back inside the chart, away from the corner that was meant to stay put.
+it('stops growing a trendline label at the chart\'s edge, its other corner staying put', async () => {
+  layOutLabel();
+  const { chart } = await mount(LABEL);
+  await selectLabel();
+  for (const [c, x, y] of [['se', 5000, 5000], ['nw', -5000, -5000]]) {
+    const before = box(label()), [, , W, H] = label().closest('svg').getAttribute('viewBox').split(' ').map(Number);
+    pd(corner(c), 0, 0);
+    window.dispatchEvent(new PointerEvent('pointermove', { clientX: x, clientY: y }));
+    const scale = Number(/scale\(([\d.e-]+)\)/.exec(label().getAttribute('transform'))[1]);
+    // Shown no larger than the room between the corner that stays and the chart's edge.
+    if (c === 'se') expect(Math.max(before.left + before.width * scale - W, before.top + before.height * scale - H)).toBeLessThan(.01);
+    else expect(Math.min(before.left + before.width * (1 - scale), before.top + before.height * (1 - scale))).toBeGreaterThan(-.01);
+    pu(x, y); await flush();
+    const after = box(label());
+    expect(chart().trendlines[0].labelSize).toBeGreaterThan(before.size);
+    if (c === 'se') {
+      expect(after.left).toBeCloseTo(before.left, 0);
+      expect(after.top).toBeCloseTo(before.top, 0);
+    } else {
+      expect(after.left + after.width).toBeCloseTo(before.left + before.width, 0);
+      expect(after.top + after.height).toBeCloseTo(before.top + before.height, 0);
+    }
+    expect(after.left >= -.01 && after.top >= -.01 && after.left + after.width <= W + .01 && after.top + after.height <= H + .01).toBe(true);
+    await selectLabel();
+  }
 });
 
 it('does not resize a trendline label on a protected sheet', async () => {

@@ -198,13 +198,15 @@ export function createChartUi(ctx) {
     // Which way the corner grows the label, and the corner opposite it, which stays where it is.
     const ex = corner.includes('e') ? 1 : -1, ey = corner.includes('s') ? 1 : -1;
     const fx = ex > 0 ? left : left + w, fy = ey > 0 ? top : top + h;
+    // It grows only as far as the chart's edges from the corner that stays, where the chart draws it once it is let go.
+    const room = Math.min(ex > 0 ? (view.width - fx) / w : fx / w, ey > 0 ? (view.height - fy) / h : fy / h);
     let scale = 1, moved = 0;
     const scaleFor = ev => {
       const dx = (ev.clientX - e.clientX) / sx, dy = (ev.clientY - e.clientY) / sy;
       moved = Math.hypot(dx * sx, dy * sy);
       // How far the pointer went along the label's diagonal, as a share of it.
       const grown = size * (1 + (ex * dx * w + ey * dy * h) / (w * w + h * h));
-      return Math.min(TREND_LABEL_SIZE.max, Math.max(TREND_LABEL_SIZE.min, grown)) / size;
+      return Math.min(TREND_LABEL_SIZE.max, Math.max(TREND_LABEL_SIZE.min, Math.min(grown, size * Math.max(1, room)))) / size;
     };
     const move = ev => {
       scale = scaleFor(ev);
