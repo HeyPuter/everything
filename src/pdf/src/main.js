@@ -298,7 +298,7 @@ function settings() {
   });
 }
 function shortcuts() {
-  modal(
+  const dialog = modal(
     'Keyboard shortcuts',
     el(
       'div',
@@ -329,7 +329,16 @@ function shortcuts() {
         ['Move the pages while held', 'Space'],
       ].map(([label, key]) => el('div', {}, el('span', {}, label), el('kbd', {}, key))),
     ),
-  ).classList.add('app-dialog');
+  );
+  dialog.classList.add('app-dialog');
+  // The list is taller than most windows and holds nothing to focus, which left the keyboard
+  // on the Close button with no way to scroll it. The list itself takes the focus instead, so
+  // the arrow keys, Page Down, and End move through it.
+  const body = dialog.querySelector('.dialog-body');
+  body.tabIndex = 0;
+  body.setAttribute('role', 'region');
+  body.setAttribute('aria-labelledby', dialog.getAttribute('aria-labelledby'));
+  body.focus();
 }
 function about() {
   modal(

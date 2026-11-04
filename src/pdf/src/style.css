@@ -1861,6 +1861,11 @@ dialog.leave-save-dialog {
   line-height: 1.6;
   overflow-y: auto;
 }
+/* A list that scrolls takes the focus itself (the keyboard shortcuts); the dialog clips the
+   usual outside ring. */
+.dialog-body:focus-visible {
+  outline-offset: -3px;
+}
 .dialog-body p {
   font-size: 13px;
   /* A long unbroken file name in a confirmation must wrap, not push the dialog wider. */
