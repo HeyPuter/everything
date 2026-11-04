@@ -18,6 +18,9 @@ test.describe('part modeling', () => {
     await page.getByRole('tab', { name: 'Sketch' }).click();
     await page.locator('[data-cmd="sketch"]').first().click();
     await expect(page.locator('.statusbar')).toContainText('Defined');
+    // Clicks must wait for the camera to finish turning normal to the plane;
+    // the view label only reads "Front" once it has.
+    await expect(page.locator('.view-label')).toHaveText('Front');
     const { x, y } = await canvasCenter(page);
     await page.locator('[data-cmd="tool:rectangle"]').click();
     await page.mouse.click(x, y);
@@ -42,7 +45,7 @@ test.describe('part modeling', () => {
     await waitForFeature(page, 'Extrude1');
     await expect(page.locator('.ti.error')).toHaveCount(0);
     // Undo removes the feature again.
-    await page.keyboard.press('Control+z');
+    await page.keyboard.press('ControlOrMeta+z');
     await expect(page.getByRole('treeitem', { name: 'Extrude1' })).toHaveCount(0);
     expect(errors).toEqual([]);
   });
