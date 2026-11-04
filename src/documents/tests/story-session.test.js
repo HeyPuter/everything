@@ -133,3 +133,34 @@ it('undoes and redoes header and footer options as one step each, saving as befo
   s.undo(); s.undo();
   expect(await parts(s, pkg)).toEqual(pkg.parts);
 });
+
+it('undoes and redoes edits to several stories made as one transaction in one step', async () => {
+  const { pkg, session: s } = await setup();
+  s.run(d => d.replace('Body '));
+  const before = await parts(s, pkg);
+  s.transact(() => {
+    s.activate(first); s.run(d => d.replace('First '));
+    s.activate(even); s.page = 1; s.run(d => d.replace('Even '));
+    s.activate(null); s.run(d => d.replace('More '));
+  });
+  const edited = await parts(s, pkg);
+  expect(s.history).toHaveLength(2);
+  expect(s.undo()).toBe(true);
+  expect(await parts(s, pkg)).toEqual(before);
+  // It ends where the transaction's first change was made.
+  expect(s.path).toBe(first);
+  expect(s.history).toHaveLength(1);
+  expect(s.redo()).toBe(true);
+  expect(await parts(s, pkg)).toEqual(edited);
+  // Round and round, the same two states.
+  s.undo(); s.redo(); s.undo();
+  expect(await parts(s, pkg)).toEqual(before);
+  s.undo();
+  expect(await parts(s, pkg)).toEqual(pkg.parts);
+  s.redo(); s.redo();
+  expect(await parts(s, pkg)).toEqual(edited);
+  // A transaction of one change is that change's own step.
+  s.transact(() => s.run(d => d.replace('Last ')));
+  expect(s.history).toHaveLength(3);
+  expect(s.history.at(-1).steps).toBeUndefined();
+});

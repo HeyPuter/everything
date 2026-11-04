@@ -509,6 +509,8 @@ export class CanvasEditor {
     if (changed) this.onChange();
     return changed;
   }
+  /** Run `action`, whose edits can reach several stories (each in its own command), as one undo step. */
+  transact(action) { return this.session.transact(action); }
   /** The section index of a body page. */
   sectionOfPage(page = this.caretPageIndex) { return this.layout?.pageSections?.[page] ?? 0; }
   updatePageReferences() {

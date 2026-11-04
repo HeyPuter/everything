@@ -441,11 +441,14 @@ export function createInsert({ editor, pkg, error, base = {}, docName = () => ''
     const section = engine.pageStories?.sections?.[engine.sectionOfPage(page)];
     const paths = [...new Set(['header', 'footer'].flatMap(kind => Object.values(section?.[kind] || {})))].filter(path => engine.pageStories.stories[path]?.editable);
     let removed = 0;
-    for (const path of paths) {
-      if (!engine.pageStories.stories[path].paragraphs.some(p => p.runs.some(r => r.field?.type === 'PAGE'))) continue;
-      engine.editStory(path, page);
-      if (engine.execute(() => removePageNumberParagraphs(engine.model))) removed++;
-    }
+    // From the header and the footer alike, one undo step.
+    engine.transact(() => {
+      for (const path of paths) {
+        if (!engine.pageStories.stories[path].paragraphs.some(p => p.runs.some(r => r.field?.type === 'PAGE'))) continue;
+        engine.editStory(path, page);
+        if (engine.execute(() => removePageNumberParagraphs(engine.model))) removed++;
+      }
+    });
     engine.editStory(null); engine.focus();
     if (removed) onChange(); else toast('No page numbers were found in this section’s headers and footers.', { icon: 'info' });
   }

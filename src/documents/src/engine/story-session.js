@@ -123,6 +123,7 @@ export class StorySession {
     model.history = []; model.future = [];
   }
   record(entry) {
+    this.recorded = (this.recorded || 0) + 1;
     this.history.push(entry);
     if (this.history.length > 100) this.history.shift();
     this.future = [];
@@ -218,9 +219,49 @@ export class StorySession {
     this.revision++;
     return true;
   }
+  /**
+   * Make the steps `action` records one undo step, also when they change several stories (Replace All in every
+   * header and footer). The step is named as its first part was.
+   */
+  transact(action) {
+    const start = this.recorded || 0;
+    try { return action(); } finally {
+      const count = Math.min((this.recorded || 0) - start, this.history.length), steps = this.history.slice(this.history.length - count);
+      if (count > 1 && steps.every(step => step.state)) {
+        this.history.splice(this.history.length - count);
+        this.history.push(this.compound(steps, steps[0].label));
+      }
+    }
+  }
+  /** One step made of `steps`, which Undo and Redo apply last to first: the first's story is where it ends. */
+  compound(steps, label) {
+    return { steps, path: steps[0].path, page: steps[0].page, caret: steps[0].caret, ...(label ? { label } : {}) };
+  }
   travel(from, to, validate) {
     if (!from.length) return false;
     const previousPath = this.path, previousPage = this.page, entry = from.at(-1);
+    if (entry.steps) {
+      // Each part puts its story back, the last part first; the state each replaces makes the step back.
+      const applied = [];
+      try {
+        for (const step of [...entry.steps].reverse()) {
+          this.activate(step.path); this.page = step.page;
+          const current = this.capture();
+          applied.push(current);
+          this.restore(step);
+          this.guard?.(current.state, this.model, this.path);
+        }
+        validate?.(this.model);
+      } catch (error) {
+        for (const current of [...applied].reverse()) { this.restore(current); this.model.revision = current.revision; }
+        this.activate(previousPath); this.page = previousPage;
+        throw error;
+      }
+      from.pop(); to.push(this.compound(applied, entry.label));
+      this.revision++;
+      this.prepareSnapshot();
+      return true;
+    }
     if (entry.settings) {
       // The settings go back (or forward) where the caret is: no story's text changes.
       const current = { path: this.path, page: this.page, settings: this.settingsState(), caret: this.caret?.() };

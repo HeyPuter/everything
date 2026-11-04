@@ -350,12 +350,15 @@ export function createFormatArea({ editor, pkg, error, refresh: refreshChrome = 
     }
     if (!all) return engine.session.path === null ? 0 : engine.replaceMatches(query, text, options, false);
     let total = 0;
-    for (const story of searchStories(engine)) {
-      const found = findAdvanced(storyParagraphs(engine, story.path), query, { ...options, ...(options.visibleOnly ? { hidden: hiddenRun } : {}) }, { styles: engine.model.styles, numbering: engine.model.numbering });
-      if (!found.length) continue;
-      if (engine.session.path !== story.path) engine.editStory(story.path, story.page);
-      total += engine.replaceMatches(query, text, options, true);
-    }
+    // Every header and footer changed is one undo step, Replace All.
+    engine.transact(() => {
+      for (const story of searchStories(engine)) {
+        const found = findAdvanced(storyParagraphs(engine, story.path), query, { ...options, ...(options.visibleOnly ? { hidden: hiddenRun } : {}) }, { styles: engine.model.styles, numbering: engine.model.numbering });
+        if (!found.length) continue;
+        if (engine.session.path !== story.path) engine.editStory(story.path, story.page);
+        total += engine.replaceMatches(query, text, options, true);
+      }
+    });
     return total;
   }
   const findApi = {
