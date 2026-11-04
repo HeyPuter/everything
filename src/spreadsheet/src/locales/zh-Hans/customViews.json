@@ -1,0 +1,5 @@
+{
+  "nameMissing": "键入视图的名称。",
+  "nameTaken": "已存在同名视图。",
+  "nameTooLong": "视图名称最多 {max} 个字符。"
+}

@@ -1,0 +1,9 @@
+{
+  "duplicateSheetName": "Two sheets are named \"{name}\"; the file may be damaged",
+  "passwordProtected": "This workbook is protected with a password. Remove the password in the program that set it, then open the file here",
+  "sheetUnreadable": "Sheet \"{name}\" could not be read; the file may be damaged",
+  "tooManyCells": "This file is too large to open here: it holds more cells than a sheet can",
+  "unpacksTo": "This file is too large to open here: its parts unpack to {size} MB",
+  "unpacksToMoreThan": "This file is too large to open here: its parts unpack to more than {size} MB",
+  "unreadable": "This file could not be read. It may be damaged or incomplete, or not a spreadsheet"
+}

@@ -1,3 +1,5 @@
+import { t } from '../i18n/index.js';
+
 /** Worksheet Form scroll bars (not ActiveX controls). */
 export function normalizeScrollControl(raw) {
   const number = (value, fallback) => Number.isFinite(Number(value)) ? Number(value) : fallback;
@@ -41,9 +43,10 @@ export function setScrollControlValue(wb, sheetId, id, value) {
   if (target && (wb.lockedAt(target.sheetId, target.range.r1, target.range.c1)
     || wb.arrayEditBlocked(target.sheetId, target.range))) return false;
   const next = Math.max(control.min, Math.min(control.max, Math.round(value)));
-  wb.transaction('Change scroll bar', () => {
+  const label = t('coreScrollControl.change');
+  wb.transaction(label, () => {
     if (target) wb.setInput(target.sheetId, target.range.r1, target.range.c1, String(next));
-    wb.updateChart(sheetId, id, { value: next }, 'Change scroll bar');
+    wb.updateChart(sheetId, id, { value: next }, label);
   });
   return true;
 }

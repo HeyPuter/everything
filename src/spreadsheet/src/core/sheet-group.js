@@ -25,6 +25,7 @@
  */
 
 import { cellKey, parseKey } from './cell.js';
+import { t, tSource } from '../i18n/index.js';
 
 /** Edits made again, with the same arguments, on every grouped sheet. */
 export const GROUP_REPEATED = [
@@ -59,9 +60,13 @@ export const GROUP_BLOCKED_COMMANDS = new Set([
   'dataForm', 'autoOutline', 'clearOutline', 'outlineSettings',
 ]);
 
-export const GROUP_BLOCKED_REASON = 'Not available while sheets are grouped. Ungroup the sheets first (right-click a sheet tab)';
+/** Why a command is refused while sheets are grouped, in the interface language. */
+export const groupBlockedReason = () => t('sheetGroup.blockedReason');
 /** The same, short enough for the second line of a menu item. */
-export const GROUP_BLOCKED_HINT = 'Ungroup the sheets to use this';
+export const groupBlockedHint = () => t('sheetGroup.blockedHint');
+/** The two in English, for code that has not moved to the functions above yet. */
+export const GROUP_BLOCKED_REASON = tSource('sheetGroup.blockedReason');
+export const GROUP_BLOCKED_HINT = tSource('sheetGroup.blockedHint');
 
 /** The content fields of a cell, which a write of new contents carries over; the rest of a cell is its style. */
 const CONTENT_KEYS = ['v', 'f', 'richText', 'array', 'hyperlink', 'externalResult'];
@@ -280,7 +285,7 @@ export function installSheetGroups(Workbook) {
     const source = this.sheet(sourceId);
     if (!source) return 0;
     let written = 0;
-    this.transaction('Fill across worksheets', () => this._withoutGroup(() => {
+    this.transaction(t('sheetGroup.fillAcross'), () => this._withoutGroup(() => {
       for (const id of targetIds) {
         const sheet = this.sheet(id);
         if (!sheet || id === sourceId || sheet.kind === 'chart') continue;
@@ -308,18 +313,12 @@ export function installSheetGroups(Workbook) {
             }
           }
         }
-        if (entries.length) written += this.setCells(id, entries, 'Fill across worksheets') || 0;
+        if (entries.length) written += this.setCells(id, entries, t('sheetGroup.fillAcross')) || 0;
       }
     }));
     return written;
   };
 }
 
-const LABELS = {
-  insertRows: 'Insert rows', insertCols: 'Insert columns', deleteRows: 'Delete rows', deleteCols: 'Delete columns', deleteLines: 'Delete',
-  insertCells: 'Insert cells', deleteCells: 'Delete cells', setColWidth: 'Resize columns', setRowHeight: 'Resize rows', setDefaultLineSize: 'Resize', mergeCells: 'Merge cells', unmergeCells: 'Unmerge cells',
-  setHidden: 'Hide', groupLines: 'Group', ungroupLines: 'Ungroup', applyStyle: 'Format', applyBorders: 'Borders', toggleStyle: 'Format', clearRange: 'Clear', removeLink: 'Remove link',
-  setInput: 'Edit cell', pasteCells: 'Paste', pasteValues: 'Paste', pasteLiteralValues: 'Paste', pasteStyles: 'Paste formatting', pasteOperation: 'Paste',
-  pasteEntries: 'Paste', fill: 'Fill', fillInput: 'Fill', fillDirection: 'Fill', fillSeries: 'Fill series', formulasToValues: 'Formulas to values', transformText: 'Change text',
-};
-const groupLabel = (name) => `${LABELS[name] || 'Edit'} (grouped sheets)`;
+/** An edit's undo label on grouped sheets, by the Workbook method that made it. */
+const groupLabel = (name) => t('sheetGroup.groupedEdit', { op: name });

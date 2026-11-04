@@ -1,0 +1,5 @@
+{
+  "nameMissing": "Type a name for the view.",
+  "nameTaken": "A view with that name already exists.",
+  "nameTooLong": "A view name can be at most {max} characters."
+}
