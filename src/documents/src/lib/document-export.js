@@ -230,6 +230,15 @@ const escapeLineStart = line => line.replace(/^(?: {4,}|\t)/, space => `&#${spac
   .replace(/^( {0,3})([-+=])/, '$1\\$2').replace(/^( {0,3}\d{1,9})([.)])/, '$1\\$2');
 // Breaks stand as NUL (which document text cannot hold) until the paragraph knows how its lines break.
 const BREAK = '\0';
+// The text without the characters `edge` matches at its start and end, found by scanning from each end. A
+// regular expression anchored only at the end (/\s+$/) tries every start position, so a paragraph with a long
+// stretch of spaces, tabs or line breaks took time growing with the square of that stretch to export.
+function trimmedEdges(text, edge, start = edge) {
+  let from = 0, to = text.length;
+  while (from < to && start.test(text[from])) from++;
+  while (to > from && edge.test(text[to - 1])) to--;
+  return { from, to };
+}
 // A run's escaped text, split around its core when the run writes markers, tags or a link around it. `next`
 // is the character the paragraph's text goes on with after the run.
 function runPieces(run, heading, next) {
@@ -239,7 +248,8 @@ function runPieces(run, heading, next) {
   const strike = run.strikethrough && run.strikethrough !== 'none', bold = run.bold && !heading;
   if (!/[^\s\0]/.test(text) || !(strike || run.italic || bold || ['superscript', 'subscript'].includes(run.verticalAlign) || link)) return { text };
   // Breaks at a run's edges stay outside its emphasis markers, as spaces do.
-  const [, lead, core, trail] = /^([\s\0]*)([\s\S]*?)([\s\0]*)$/.exec(text);
+  const { from, to } = trimmedEdges(text, /[\s\0]/);
+  const lead = text.slice(0, from), core = text.slice(from, to), trail = text.slice(to);
   return { text, lead, core, trail, run, strike, bold, link };
 }
 // The character a run writes first or last (`end`); a marker, tag or link bracket is punctuation.
@@ -300,7 +310,8 @@ const paragraphMarkdown = (p, heading = false, lineBreak = '\\\n') => {
     // An exclamation mark just before a link would make it a picture ("Wow![docs](…)"), which drops its text.
     if (piece.link && !piece.lead && previous.endsWith('!')) written[i - 1] = `${previous.slice(0, -1)}\\!`;
   });
-  return written.join('').replace(/^\0+|\0+$/g, '')
+  const joined = written.join(''), { from, to } = trimmedEdges(joined, /\0/);
+  return joined.slice(from, to)
     .split(BREAK).map(escapeLineStart).join(heading ? ' ' : lineBreak);
 };
 function blocksMarkdown(blocks, model) {
@@ -355,7 +366,8 @@ export function documentMarkdown(model) {
   model = finalModel(model);
   // Only the separators go: a no-break space starting the text is the text's own, and without it a "+ " or
   // "1. " after it would start a list.
-  return `${blocksMarkdown(blocksOf(model), model).replace(/^[ \n]+|[ \t\n]+$/g, '')}\n`;
+  const markdown = blocksMarkdown(blocksOf(model), model), { from, to } = trimmedEdges(markdown, /[ \t\n]/, /[ \n]/);
+  return `${markdown.slice(from, to)}\n`;
 }
 
 /* ---- Plain text ---- */
