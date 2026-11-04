@@ -77,6 +77,14 @@ describe('feature regeneration', () => {
     expect(errorText(new (WebAssembly as any).Exception(new (WebAssembly as any).Tag({ parameters: [] }), []))).not.toMatch(/object/);
   });
 
+  it('fails thin extrudes instead of building a full solid', async () => {
+    const b = new ModelBuilder();
+    const res = await b.build(req([sketch('S1', circle(0, 0, 10)), extrude('E1', 'S1', 5, { thin: { thickness: 1, side: 'inside' } })]));
+    expect(res.status[1].ok).toBe(false);
+    expect(res.status[1].error).toMatch(/Thin features/);
+    expect(b.hasBody).toBe(false);
+  });
+
   it('fillets edges referenced by name and survives a dimension change', async () => {
     const fillet = (): FilletFeature => ({ id: 'F1', name: 'F1', type: 'fillet', edges: [], faces: [], radius: 2 });
     const b = new ModelBuilder();

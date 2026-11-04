@@ -36,6 +36,10 @@ export { BASE_FRAMES };
 
 export class FeatureError extends Error {}
 
+// Thin (wall) extrudes and revolves are not built yet; failing beats
+// silently making a solid where a wall was asked for.
+const THIN_UNSUPPORTED = 'Thin features are not supported yet. Sketch the wall as two offset contours instead.';
+
 interface NamedFace {
   shape: Sh;
   name: string;
@@ -482,6 +486,7 @@ export class ModelBuilder {
   }
 
   private applyExtrude(f: ExtrudeFeature, st: State) {
+    if (f.thin) throw new FeatureError(THIN_UNSUPPORTED);
     const { regions, frame } = this.sketchRegions(f.sketch, st, f.contours);
     const sign = (f.cut ? -1 : 1) * (f.flip ? -1 : 1);
     const dir = scale(frame.n, sign);
@@ -541,6 +546,7 @@ export class ModelBuilder {
   }
 
   private applyRevolve(f: RevolveFeature, st: State) {
+    if (f.thin) throw new FeatureError(THIN_UNSUPPORTED);
     const { regions, frame, sketch } = this.sketchRegions(f.sketch, st, f.contours);
     let axis: { p: Vec3; d: Vec3 };
     if (f.axis) axis = this.resolveAxis(f.axis, st);
