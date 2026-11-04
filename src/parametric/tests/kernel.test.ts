@@ -149,6 +149,32 @@ describe('feature regeneration', () => {
     expect(branch.status[2].error).toMatch(/connected chain/);
   });
 
+  it('lofts and sweeps profiles with an inner loop as hollow solids', async () => {
+    const plane: Feature = { id: 'PL', name: 'PL', type: 'plane', ref: { kind: 'base', plane: 'front' }, offset: 20, flip: false };
+    const loft: Feature = { id: 'LO', name: 'LO', type: 'loft', profiles: ['S1', 'S2'], cut: false, ruled: true };
+    const b = new ModelBuilder();
+    const hollow = await b.build(req([
+      sketch('S1', [...rect(-10, -10, 10, 10), ...circle(0, 0, 4)]), plane,
+      sketch('S2', [...rect(-10, -10, 10, 10), ...circle(0, 0, 4)], { kind: 'feature', id: 'PL' }), loft,
+    ]));
+    expect(hollow.status[3]).toEqual({ id: 'LO', ok: true });
+    expect(volume(b)).toBeCloseTo((400 - Math.PI * 16) * 20, 0);
+    // Contours that cannot be lofted are reported, not silently dropped.
+    const extra = await b.build(req([
+      sketch('S1', [...rect(-10, -10, 10, 10), ...rect(20, 0, 25, 5)]), plane,
+      sketch('S2', rect(-10, -10, 10, 10), { kind: 'feature', id: 'PL' }), loft,
+    ]));
+    expect(extra.status[3].ok).toBe(true);
+    expect(extra.status[3].warning).toMatch(/first closed contour/);
+    // A tube profile sweeps into a pipe.
+    const P = (id: string, x: number, y: number) => ({ id, t: 'point', x, y });
+    const path = sketch('PA', [P('a', 0, 0), P('b', -30, 0), { id: 'l', t: 'line', a: 'a', b: 'b' }] as any[], { kind: 'base', plane: 'right' });
+    const sweep: Feature = { id: 'SW', name: 'SW', type: 'sweep', profile: 'SP', path: 'PA', cut: false };
+    const pipe = await b.build(req([sketch('SP', [...circle(0, 0, 3), ...circle(0, 0, 2)]), path, sweep]));
+    expect(pipe.status[2]).toEqual({ id: 'SW', ok: true });
+    expect(volume(b)).toBeCloseTo(Math.PI * (9 - 4) * 30, 1);
+  });
+
   it('names revolved faces after their profile curves and keeps references through edits', async () => {
     const rebuild = async (dim: string, value: number) => {
       const doc = flangeExample();

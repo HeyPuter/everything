@@ -901,27 +901,47 @@ export class ModelBuilder {
     this.applyInstances(f.id, st, this.seedTools(f.seeds, st), [(s) => mirrored(s, fr.o, fr.n)]);
   }
 
-  private profileWire(sketchId: Id, st: State): { wire: any; frame: Frame } {
+  /** The first closed region of a profile sketch, as an outer wire and hole wires. */
+  private profileLoops(sketchId: Id, st: State): { outer: Seg2[]; holes: Seg2[][]; frame: Frame; extra: boolean } {
     const { regions, frame } = this.sketchRegions(sketchId, st);
-    return { wire: this.loopWire(regions[0].outer.segs, frame), frame };
+    const r = regions[0];
+    return { outer: r.outer.segs, holes: r.holes.map((h) => h.segs), frame, extra: regions.length > 1 };
   }
+
+  private static readonly EXTRA_CONTOURS = 'Only the first closed contour of each profile was used; the other contours were ignored';
 
   private applyLoft(f: LoftFeature, st: State) {
     if (f.profiles.length < 2) throw new FeatureError('Select at least two profiles');
-    const wires = f.profiles.map((id) => this.profileWire(id, st).wire);
+    const profs = f.profiles.map((id) => this.profileLoops(id, st));
+    // Inner loops make a hollow loft when every profile has exactly one
+    // (more than one cannot be matched between profiles reliably).
+    const hollow = profs.every((p) => p.holes.length === 1);
+    if (profs.some((p) => p.extra) || (!hollow && profs.some((p) => p.holes.length))) this.warning = ModelBuilder.EXTRA_CONTOURS;
+    const failed = 'The loft could not be created from these profiles';
     let tool: Sh;
     try {
-      tool = R.loft(wires, { ruled: f.ruled }) as unknown as Sh;
+      tool = R.loft(profs.map((p) => this.loopWire(p.outer, p.frame)), { ruled: f.ruled }) as unknown as Sh;
     } catch {
-      throw new FeatureError('The loft could not be created from these profiles');
+      throw new FeatureError(failed);
     }
-    if (flat(tool)) throw new FeatureError('The loft could not be created from these profiles');
+    if (flat(tool)) throw new FeatureError(failed);
+    if (hollow) {
+      let core: Sh;
+      try {
+        core = R.loft(profs.map((p) => this.loopWire(p.holes[0], p.frame)), { ruled: f.ruled }) as unknown as Sh;
+      } catch {
+        throw new FeatureError(failed);
+      }
+      tool = cut(tool, core);
+      if (isEmpty(tool) || flat(tool)) throw new FeatureError(failed);
+    }
     this.applyTool(f.id, st, tool, this.nameTool(f.id, tool, (_d, k) => `l${k}`), f.cut);
   }
 
   private applySweep(f: SweepFeature, st: State) {
     if (!f.profile || !f.path) throw new FeatureError('Select a profile and a path');
-    const { wire } = this.profileWire(f.profile, st);
+    const prof = this.profileLoops(f.profile, st);
+    if (prof.extra) this.warning = ModelBuilder.EXTRA_CONTOURS;
     const pathSk = st.sketches.get(f.path);
     const pathFr = st.frames.get(f.path);
     if (!pathSk || !pathFr) throw new FeatureError('The path sketch is missing');
@@ -950,12 +970,14 @@ export class ModelBuilder {
     let tool: Sh;
     try {
       const spine = R.assembleWire(edges);
-      tool = R.genericSweep(wire, spine, { frenet: true }) as unknown as Sh;
+      tool = R.genericSweep(this.loopWire(prof.outer, prof.frame), spine, { frenet: true }) as unknown as Sh;
+      // Inner loops of the profile are swept too and removed (a tube profile makes a pipe).
+      for (const h of prof.holes) tool = cut(tool, R.genericSweep(this.loopWire(h, prof.frame), R.assembleWire(edges), { frenet: true }) as unknown as Sh);
     } catch {
       throw new FeatureError(SWEEP_FAILED);
     }
     // A path in the profile's plane sweeps a solid without volume.
-    if (flat(tool)) throw new FeatureError(SWEEP_FAILED);
+    if (isEmpty(tool) || flat(tool)) throw new FeatureError(SWEEP_FAILED);
     this.applyTool(f.id, st, tool, this.nameTool(f.id, tool, (_d, k) => `s${k}`), f.cut);
   }
 
