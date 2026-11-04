@@ -160,6 +160,13 @@ describe('sketch solver', () => {
     expect(p.y).toBeCloseTo(q.y, 7);
   });
 
+  it('keeps the geometry when a dimension value overflows the solver', () => {
+    const ents = [pt('a', -15, -9), pt('b', 15, -3), line('l', 'a', 'b')];
+    const res = solveSketch(ents, [dim('d', 'hdistance', ['l'], 1e300)], { value });
+    expect(res.status).toBe('over');
+    expect([P(ents, 'a').x, P(ents, 'a').y, P(ents, 'b').x, P(ents, 'b').y]).toEqual([-15, -9, 15, -3]);
+  });
+
   it('solves a large chained sketch quickly', () => {
     const ents: SkEntity[] = [];
     const cons: SkConstraint[] = [];
