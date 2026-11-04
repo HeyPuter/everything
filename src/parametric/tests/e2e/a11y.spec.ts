@@ -210,3 +210,38 @@ test('Shift+F10 opens the context menu of the focused tree row', async ({ page }
   await expect(page.getByRole('menu')).toHaveCount(0);
   await expect(page.getByRole('treeitem', { name: 'Hole1' })).toBeFocused();
 });
+
+test('F6 and Shift+F6 move between the window regions', async ({ page }) => {
+  await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  const canvas = page.locator('canvas.gl');
+  await canvas.focus();
+  // From the graphics area back to the design tree's current row in one press.
+  await page.keyboard.press('Shift+F6');
+  await expect(page.getByRole('treeitem', { name: 'Mounting Bracket' })).toBeFocused();
+  await page.keyboard.press('ArrowDown');
+  const row = page.locator('.leftpane .ti:focus');
+  const name = await row.getAttribute('aria-label') ?? await row.innerText();
+  await page.keyboard.press('F6');
+  await expect(canvas).toBeFocused();
+  // Around every region (task pane, status bar, title bar, CommandManager, left pane) and back.
+  const regions: string[] = [];
+  for (let i = 0; i < 6; i++) {
+    await page.keyboard.press('F6');
+    regions.push(await page.evaluate(() => document.activeElement?.closest('.titlebar, .cm, .leftpane, .viewport, .taskpane, .statusbar')?.classList[0] ?? 'none'));
+  }
+  expect(regions).toEqual(['taskpane', 'statusbar', 'titlebar', 'cm', 'leftpane', 'viewport']);
+  // The left pane gives focus back to the row it had.
+  await page.keyboard.press('Shift+F6');
+  await expect(page.locator('.leftpane .ti:focus')).toHaveCount(1);
+  expect(await page.locator('.leftpane .ti:focus').getAttribute('aria-label') ?? await page.locator('.leftpane .ti:focus').innerText()).toBe(name);
+  // A text field cycles too, as in desktop apps.
+  await page.getByRole('combobox', { name: 'Search commands' }).focus();
+  await page.keyboard.press('F6');
+  await expect(page.locator('.cm :focus')).toHaveCount(1);
+  // Listed with the shortcuts.
+  await canvas.focus();
+  await page.keyboard.press('F1');
+  await expect(page.getByRole('dialog', { name: 'Keyboard Shortcuts' })).toContainText('F6, Shift + F6');
+});

@@ -18,6 +18,7 @@ import { attachTooltip, confirmDialog, dialogOpen, toast } from '../ui/overlay';
 import { announce, formatShortcut, h, isTextInput } from '../ui/dom';
 import { icon } from '../ui/icons';
 import { selectTabs, syncTabStops, tabKeys } from '../ui/tabs';
+import { type FocusRegion, cycleRegion, firstTabStop, trackRegionFocus } from '../ui/regions';
 import { CommandRegistry } from './commands';
 import { type PickFilter, PropertyPanel, type UnitContext } from './pm';
 import { Selection, faceRef, type SelItem } from './selection';
@@ -151,6 +152,7 @@ export class App {
     this.commands.onChange(() => this.syncChrome());
     window.addEventListener('themechange', () => this.applyTheme());
     window.addEventListener('keydown', (e) => this.onKey(e));
+    trackRegionFocus(() => this.focusRegions());
     // Whether focus last arrived from a click/tap (toolbar buttons keep focus
     // after a click) or from the keyboard.
     window.addEventListener('pointerdown', () => { this.pointerInput = true; }, true);
@@ -1295,10 +1297,33 @@ export class App {
   private pointerInput = false;
   private focusByPointer = false;
 
+  /** The window's regions, in F6 order. */
+  private focusRegions(): FocusRegion[] {
+    const s = this.shell;
+    const part = (sel: string) => s.root.querySelector<HTMLElement>(sel)!;
+    // The phone sheet slides away rather than hiding.
+    const sheetClosed = window.matchMedia('(max-width: 760px)').matches && !s.leftpane.classList.contains('open');
+    return [
+      { el: part('.titlebar') },
+      { el: part('.cm') },
+      ...(sheetClosed ? [] : [{ el: s.leftpane, target: () => s.lpBody.querySelector<HTMLElement>('.ti[tabindex="0"]') ?? firstTabStop(s.lpBody) }]),
+      { el: s.viewport, target: () => (this.inDrawing ? this.drawing.el : this.viewport.canvas) },
+      { el: s.taskpane },
+      { el: part('.statusbar') },
+    ];
+  }
+
   private onKey(e: KeyboardEvent) {
     if (dialogOpen()) return;
     const target = e.target as HTMLElement;
     const inText = isTextInput(target);
+    // F6 / Shift+F6 move between the window's regions, from text fields too.
+    if (e.key === 'F6' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      e.preventDefault();
+      closeMenus();
+      cycleRegion(this.focusRegions(), document.activeElement, e.shiftKey ? -1 : 1);
+      return;
+    }
     if (e.key === 'Escape') {
       if (inText) return;
       closeMenus();
