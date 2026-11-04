@@ -14,14 +14,22 @@ import { effectiveFontTheme, normalizeFontTheme } from './font-theme.js';
 import { normalizeNormalFont, normalFontStyle } from './normal-font.js';
 import { fontKeyFor } from './format.js';
 import { DEFAULT_EFFECTS_NAME, effectScheme, readEffectSchemeName, writeEffectScheme } from './theme-effects.js';
+import { t } from '../i18n/index.js';
 
 export const THEME_SLOTS = ['lt1', 'dk1', 'lt2', 'dk2', 'accent1', 'accent2', 'accent3', 'accent4', 'accent5', 'accent6', 'hlink', 'folHlink'];
-/** The names the colour tooltips give the theme slots, in index order. */
-export const THEME_SLOT_LABELS = ['Light 1', 'Dark 1', 'Light 2', 'Dark 2', 'Accent 1', 'Accent 2', 'Accent 3', 'Accent 4', 'Accent 5', 'Accent 6', 'Link', 'Visited link'];
-/** The Customize Colors dialog's names, in its order (dark before light), with the slot index each edits. */
+/** The message keys of the names the colour tooltips give the theme slots, in index order. */
+export const THEME_SLOT_LABELS = [
+  'workbookTheme.slot.light1', 'workbookTheme.slot.dark1', 'workbookTheme.slot.light2', 'workbookTheme.slot.dark2',
+  'workbookTheme.slot.accent1', 'workbookTheme.slot.accent2', 'workbookTheme.slot.accent3', 'workbookTheme.slot.accent4',
+  'workbookTheme.slot.accent5', 'workbookTheme.slot.accent6', 'workbookTheme.slot.link', 'workbookTheme.slot.visitedLink',
+];
+/** What the colour tooltips call theme slot `index`: "Accent 1". */
+export const themeSlotLabel = index => (THEME_SLOT_LABELS[index] ? t(THEME_SLOT_LABELS[index]) : '');
+/** The Customize Colors dialog's names (message keys), in its order (dark before light), with the slot index each edits. */
 export const THEME_DIALOG_SLOTS = [
-  ['Dark 1 (text)', 1], ['Light 1 (background)', 0], ['Dark 2 (text)', 3], ['Light 2 (background)', 2],
-  ['Accent 1', 4], ['Accent 2', 5], ['Accent 3', 6], ['Accent 4', 7], ['Accent 5', 8], ['Accent 6', 9], ['Link', 10], ['Visited link', 11],
+  ['workbookTheme.dialogSlot.dark1', 1], ['workbookTheme.dialogSlot.light1', 0], ['workbookTheme.dialogSlot.dark2', 3], ['workbookTheme.dialogSlot.light2', 2],
+  ['workbookTheme.dialogSlot.accent1', 4], ['workbookTheme.dialogSlot.accent2', 5], ['workbookTheme.dialogSlot.accent3', 6], ['workbookTheme.dialogSlot.accent4', 7],
+  ['workbookTheme.dialogSlot.accent5', 8], ['workbookTheme.dialogSlot.accent6', 9], ['workbookTheme.dialogSlot.link', 10], ['workbookTheme.dialogSlot.visitedLink', 11],
 ];
 export const DEFAULT_THEME_NAME = 'Office';
 
@@ -74,6 +82,21 @@ export const THEMES = Object.freeze([
   { name: 'Citrus', colors: 'Citrus', fonts: 'Broadsheet' },
   { name: 'Monochrome', colors: 'Monochrome', fonts: 'Plain' },
 ]);
+
+// The names the app's own themes, colour schemes and font schemes go by on screen. Files keep the names above,
+// which are the schemes' identity; a name the app does not know (a file's own theme) is shown as it is.
+const SCHEME_NAME_KEYS = {
+  Office: 'workbookTheme.scheme.office', Harbor: 'workbookTheme.scheme.harbor', Meadow: 'workbookTheme.scheme.meadow',
+  Ember: 'workbookTheme.scheme.ember', Lagoon: 'workbookTheme.scheme.lagoon', Orchard: 'workbookTheme.scheme.orchard',
+  Slate: 'workbookTheme.scheme.slate', Canyon: 'workbookTheme.scheme.canyon', Aurora: 'workbookTheme.scheme.aurora',
+  Blossom: 'workbookTheme.scheme.blossom', Citrus: 'workbookTheme.scheme.citrus', Monochrome: 'workbookTheme.scheme.monochrome',
+  Ledger: 'workbookTheme.scheme.ledger', Plain: 'workbookTheme.scheme.plain', Humanist: 'workbookTheme.scheme.humanist',
+  Gazette: 'workbookTheme.scheme.gazette', Studio: 'workbookTheme.scheme.studio', Constant: 'workbookTheme.scheme.constant',
+  Signal: 'workbookTheme.scheme.signal', Folio: 'workbookTheme.scheme.folio', Bulletin: 'workbookTheme.scheme.bulletin',
+  Airy: 'workbookTheme.scheme.airy', Broadsheet: 'workbookTheme.scheme.broadsheet', Typewriter: 'workbookTheme.scheme.typewriter',
+};
+/** A theme, colour scheme or font scheme's name in the interface language ("Office" stays Office). */
+export const schemeName = name => (Object.hasOwn(SCHEME_NAME_KEYS, name) ? t(SCHEME_NAME_KEYS[name]) : name);
 
 export const colorScheme = name => COLOR_SCHEMES.find(s => s.name === name) || null;
 export const fontScheme = name => FONT_SCHEMES.find(s => s.name === name) || null;
@@ -157,7 +180,7 @@ export function themeTints(hex) {
   return [0.8, 0.6, 0.4, -0.25, -0.5];
 }
 
-export const tintLabel = tint => !tint ? '' : `${Math.round(Math.abs(tint) * 100)}% ${tint > 0 ? 'lighter' : 'darker'}`;
+export const tintLabel = tint => !tint ? '' : t(tint > 0 ? 'workbookTheme.tintLighter' : 'workbookTheme.tintDarker', { pct: Math.round(Math.abs(tint) * 100) });
 
 /** A theme colour reference resolved against `colors` (the twelve), as styles hold it. */
 export function themeColor(index, tint = 0, colors = DEFAULT_COLOR_PALETTE.theme) {
@@ -173,7 +196,7 @@ export function themeColorGrid(colors) {
   const tints = columns.map(index => themeTints(colors[index]));
   for (let k = 0; k < 5; k++) rows.push(columns.map((index, j) => ({ index, tint: tints[j][k] })));
   return rows.map(row => row.map(({ index, tint }) => ({ index, tint, color: themeColor(index, tint, colors),
-    label: `${THEME_SLOT_LABELS[index]}${tint ? `, ${tintLabel(tint)}` : ''}` })));
+    label: tint ? t('workbookTheme.slotTint', { slot: themeSlotLabel(index), tint: tintLabel(tint) }) : themeSlotLabel(index) })));
 }
 
 /** Re-resolve a colour reference against new theme colours; anything else is returned as it is. */
@@ -246,7 +269,7 @@ const DEFAULT_NORMAL_POINTS = 10;
  * resolved again; cells bound to the heading or body font take the new face, and so does the Normal font
  * (which unformatted cells use). Returns true when anything changed.
  */
-export function applyWorkbookTheme(wb, { name, colors, fonts, effects } = {}, label = 'Theme') {
+export function applyWorkbookTheme(wb, { name, colors, fonts, effects } = {}, label = t('workbookTheme.undo.theme')) {
   const before = themeState(wb);
   const info = { ...(normalizeThemeInfo(wb.themeInfo) || {}) };
   const after = { ...before };
@@ -336,7 +359,7 @@ export function applyGalleryTheme(wb, name) {
   const theme = galleryTheme(name);
   if (!theme) return false;
   const colors = colorScheme(theme.colors), fonts = fontScheme(theme.fonts);
-  return applyWorkbookTheme(wb, { name: theme.name, colors: { name: colors.name, colors: colors.colors }, fonts: { ...fonts }, effects: theme.effects || DEFAULT_EFFECTS_NAME }, `Theme: ${theme.name}`);
+  return applyWorkbookTheme(wb, { name: theme.name, colors: { name: colors.name, colors: colors.colors }, fonts: { ...fonts }, effects: theme.effects || DEFAULT_EFFECTS_NAME }, t('workbookTheme.undo.namedTheme', { name: schemeName(theme.name) }));
 }
 
 /* ---------- Theme-aware looks for the app's own presets ---------- */
@@ -363,7 +386,8 @@ export function themedSeriesColors(wb) {
   return themedColors(wb)?.slice(4, 10) || null;
 }
 
-/** The themed cell styles: each accent full, and at 20%, 40% and 60% over white. */
+/** The themed cell styles: each accent full, and at 20%, 40% and 60% over white. `label` is the style's name as cells
+ * and files store it (Excel's built-in name, so it stays English); themedCellStyleLabel is what the gallery shows. */
 export function themedCellStyles() {
   const out = [];
   for (let n = 1; n <= 6; n++) {
@@ -372,6 +396,11 @@ export function themedCellStyles() {
   }
   return out;
 }
+
+/** What the gallery calls a themed cell style ({ accent, tint } of themedCellStyles): "20% - Accent1" / "20% - 着色 1". */
+export const themedCellStyleLabel = def => (def.tint
+  ? t('workbookTheme.themedStyleTint', { pct: Math.round((1 - def.tint) * 100), n: def.accent })
+  : t('workbookTheme.themedStyleAccent', { n: def.accent }));
 
 /** A themed cell style as a style patch against the workbook's colours (references, so it follows the theme). */
 export function themedCellStylePatch(key, wb) {

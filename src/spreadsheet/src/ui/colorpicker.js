@@ -9,6 +9,7 @@
  */
 
 import { isComposing, el, fieldId } from './dom.js';
+import { t } from '../i18n/index.js';
 
 const RECENT_KEY = 'spreadsheet:recentColors';
 const MAX_RECENT = 6;
@@ -25,15 +26,16 @@ export function normalizeHex(text) {
 // The names of the palettes' own colours (the toolbar's text, fill and border colours, the sheet tab colours and
 // Excel's Standard Colors), as a person reads them, not as a hex code.
 const COLOR_NAMES = new Map([
-  ['#0b0b0b', 'Black'], ['#4f4e4b', 'Charcoal'], ['#6b6964', 'Dark Gray'], ['#918f88', 'Gray'], ['#c3c2b7', 'Silver'],
-  ['#e7e6e1', 'Light Gray'], ['#f2f1ee', 'Lightest Gray'], ['#ffffff', 'White'],
-  ['#c22a2a', 'Red'], ['#b45309', 'Dark Orange'], ['#8a5a00', 'Brown'], ['#006300', 'Dark Green'], ['#0e7490', 'Teal'],
-  ['#0a63f0', 'Blue'], ['#4a3aa7', 'Purple'], ['#9d174d', 'Dark Pink'],
-  ['#fde8e8', 'Light Red'], ['#fdebd3', 'Light Orange'], ['#fef3c7', 'Light Yellow'], ['#e3f5e1', 'Light Green'],
-  ['#dff3f6', 'Light Teal'], ['#e0ecff', 'Light Blue'], ['#ebe6fb', 'Light Purple'], ['#fbe4ef', 'Light Pink'],
-  ['#eb6834', 'Orange'], ['#eda100', 'Amber'], ['#1baf7a', 'Green'], ['#e87ba4', 'Pink'],
-  ['#c00000', 'Dark Red'], ['#ff0000', 'Red'], ['#ffc000', 'Orange'], ['#ffff00', 'Yellow'], ['#92d050', 'Light Green'],
-  ['#00b050', 'Green'], ['#00b0f0', 'Light Blue'], ['#0070c0', 'Blue'], ['#002060', 'Dark Blue'], ['#7030a0', 'Purple'],
+  ['#0b0b0b', 'colorpicker.name.black'], ['#4f4e4b', 'colorpicker.name.charcoal'], ['#6b6964', 'colorpicker.name.darkGray'], ['#918f88', 'colorpicker.name.gray'],
+  ['#c3c2b7', 'colorpicker.name.silver'], ['#e7e6e1', 'colorpicker.name.lightGray'], ['#f2f1ee', 'colorpicker.name.lightestGray'], ['#ffffff', 'colorpicker.name.white'],
+  ['#c22a2a', 'colorpicker.name.red'], ['#b45309', 'colorpicker.name.darkOrange'], ['#8a5a00', 'colorpicker.name.brown'], ['#006300', 'colorpicker.name.darkGreen'],
+  ['#0e7490', 'colorpicker.name.teal'], ['#0a63f0', 'colorpicker.name.blue'], ['#4a3aa7', 'colorpicker.name.purple'], ['#9d174d', 'colorpicker.name.darkPink'],
+  ['#fde8e8', 'colorpicker.name.lightRed'], ['#fdebd3', 'colorpicker.name.lightOrange'], ['#fef3c7', 'colorpicker.name.lightYellow'], ['#e3f5e1', 'colorpicker.name.lightGreen'],
+  ['#dff3f6', 'colorpicker.name.lightTeal'], ['#e0ecff', 'colorpicker.name.lightBlue'], ['#ebe6fb', 'colorpicker.name.lightPurple'], ['#fbe4ef', 'colorpicker.name.lightPink'],
+  ['#eb6834', 'colorpicker.name.orange'], ['#eda100', 'colorpicker.name.amber'], ['#1baf7a', 'colorpicker.name.green'], ['#e87ba4', 'colorpicker.name.pink'],
+  ['#c00000', 'colorpicker.name.darkRed'], ['#ff0000', 'colorpicker.name.red'], ['#ffc000', 'colorpicker.name.orange'], ['#ffff00', 'colorpicker.name.yellow'],
+  ['#92d050', 'colorpicker.name.lightGreen'], ['#00b050', 'colorpicker.name.green'], ['#00b0f0', 'colorpicker.name.lightBlue'], ['#0070c0', 'colorpicker.name.blue'],
+  ['#002060', 'colorpicker.name.darkBlue'], ['#7030a0', 'colorpicker.name.purple'],
 ]);
 
 /**
@@ -44,18 +46,19 @@ export function colorLabel(value) {
   const hex = normalizeHex(value);
   if (!hex) return String(value ?? '');
   const named = COLOR_NAMES.get(hex);
-  if (named) return named;
+  if (named) return t(named);
   const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
   const max = Math.max(r, g, b), min = Math.min(r, g, b), l = (max + min) / 2, d = max - min;
   const s = d === 0 ? 0 : d / (1 - Math.abs(2 * l - 1));
   let name;
-  if (s < 0.15 || d < 0.08) name = l < 0.12 ? 'Black' : l < 0.35 ? 'Dark gray' : l < 0.65 ? 'Gray' : l < 0.93 ? 'Light gray' : 'White';
+  if (s < 0.15 || d < 0.08) name = t(l < 0.12 ? 'colorpicker.gray.black' : l < 0.35 ? 'colorpicker.gray.dark' : l < 0.65 ? 'colorpicker.gray.gray' : l < 0.93 ? 'colorpicker.gray.light' : 'colorpicker.gray.white');
   else {
     const h = (max === r ? ((g - b) / d + 6) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4) * 60;
-    const hue = h < 15 || h >= 345 ? 'red' : h < 45 ? 'orange' : h < 70 ? 'yellow' : h < 165 ? 'green' : h < 195 ? 'teal' : h < 255 ? 'blue' : h < 290 ? 'purple' : 'pink';
-    name = l < 0.3 ? `Dark ${hue}` : l > 0.75 ? `Light ${hue}` : hue[0].toUpperCase() + hue.slice(1);
+    const hue = h < 15 || h >= 345 ? 'colorpicker.hue.red' : h < 45 ? 'colorpicker.hue.orange' : h < 70 ? 'colorpicker.hue.yellow' : h < 165 ? 'colorpicker.hue.green'
+      : h < 195 ? 'colorpicker.hue.teal' : h < 255 ? 'colorpicker.hue.blue' : h < 290 ? 'colorpicker.hue.purple' : 'colorpicker.hue.pink';
+    name = t(hue, { shade: l < 0.3 ? 'dark' : l > 0.75 ? 'light' : 'plain' });
   }
-  return `${name}, ${hex}`;
+  return t('colorpicker.described', { name, hex });
 }
 
 export function recentColors() {
@@ -97,9 +100,11 @@ export function pickCustomColor({ current = null, anchor = null, onPick }) {
 
 /**
  * Menu content below a palette: recent custom colors as swatches, then a
- * "Custom…" swatch and a hex field. `role` matches the palette's swatches.
+ * "Custom…" swatch and a hex field. `role` matches the palette's swatches. `label` is what the colour is, as a
+ * noun in the interface language and in lower case where the language has case ("fill color"): it completes
+ * "Custom fill color…" and "fill color as a hex code". Without it the colour is just a colour.
  */
-export function customColorRows({ current = null, onPick, role = 'menuitemradio', label = 'color' }) {
+export function customColorRows({ current = null, onPick, role = 'menuitemradio', label = null }) {
   const recent = recentColors();
   // The swatches are spelt in lower case; a colour from a file may be in upper case, and is the same colour.
   const chosen = isHex(current) ? current.toLowerCase() : null;
@@ -108,13 +113,13 @@ export function customColorRows({ current = null, onPick, role = 'menuitemradio'
     style: { background: hex }, onclick: () => onPick(hex),
   });
   const customBtn = el('button.swatch.custom', {
-    type: 'button', role, 'aria-checked': 'false', 'aria-label': `Custom ${label}…`, title: 'Custom color…',
+    type: 'button', role, 'aria-checked': 'false', 'aria-label': label ? t('colorpicker.customNamed', { label }) : t('colorpicker.customColor'), title: t('colorpicker.customColor'),
     onclick: (e) => pickCustomColor({ current, anchor: e.currentTarget, onPick }),
   });
   // A red border alone says nothing to a screen reader: the field is marked invalid and told why.
-  const hexHint = el('p.field-error', { id: fieldId('hex-error'), hidden: true, role: 'alert', style: { margin: '0', padding: '0 8px 8px' } }, 'Enter a color like #1a73e8');
+  const hexHint = el('p.field-error', { id: fieldId('hex-error'), hidden: true, role: 'alert', style: { margin: '0', padding: '0 8px 8px' } }, t('colorpicker.hexError'));
   const hexInput = el('input.input.color-hex', {
-    type: 'text', placeholder: '#rrggbb', 'aria-label': `${label} as a hex code`, value: chosen || '',
+    type: 'text', placeholder: '#rrggbb', 'aria-label': label ? t('colorpicker.hexNamed', { label }) : t('colorpicker.hexColor'), value: chosen || '',
     spellcheck: false, autocomplete: 'off', maxlength: 7, 'aria-describedby': hexHint.id,
   });
   const markHex = (invalid) => {
@@ -135,7 +140,7 @@ export function customColorRows({ current = null, onPick, role = 'menuitemradio'
     onPick(v);
   });
   const rows = [];
-  if (recent.length) rows.push(el('div.swatches.swatches-recent', { role: 'group', 'aria-label': 'Recent colors' }, ...recent.map(swatch)));
+  if (recent.length) rows.push(el('div.swatches.swatches-recent', { role: 'group', 'aria-label': t('colorpicker.recentColors') }, ...recent.map(swatch)));
   rows.push(el('div', {}, el('div.color-custom-row', {}, customBtn, hexInput), hexHint));
   return rows;
 }

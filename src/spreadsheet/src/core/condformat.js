@@ -15,32 +15,36 @@ import { MIN_NORMAL } from './numeric.js';
 
 import { formatNumberText, parseInput, dateTimeKind } from './format.js';
 import { extendedDataBar, nativeDataBarFraction } from './data-bar.js';
+import { t, tSource } from '../i18n/index.js';
 
-export const RULE_TYPES = [
-  { value: 'gt', label: 'Greater than', args: 1, numeric: true },
-  { value: 'gte', label: 'Greater than or equal to', args: 1, numeric: true },
-  { value: 'lt', label: 'Less than', args: 1, numeric: true },
-  { value: 'lte', label: 'Less than or equal to', args: 1, numeric: true },
-  { value: 'between', label: 'Between', args: 2, numeric: true },
-  { value: 'eq', label: 'Equal to', args: 1 },
-  { value: 'neq', label: 'Not equal to', args: 1 },
-  { value: 'contains', label: 'Text contains', args: 1 },
-  { value: 'notContains', label: 'Text does not contain', args: 1 },
-  { value: 'beginsWith', label: 'Text begins with', args: 1 },
-  { value: 'endsWith', label: 'Text ends with', args: 1 },
-  { value: 'empty', label: 'Is empty', args: 0 },
-  { value: 'notEmpty', label: 'Is not empty', args: 0 },
-  { value: 'dup', label: 'Is a duplicate', args: 0, rangeWide: true },
-  { value: 'unique', label: 'Is unique', args: 0, rangeWide: true },
-  { value: 'top', label: 'Top N values', args: 1, numeric: true, rangeWide: true },
-  { value: 'bottom', label: 'Bottom N values', args: 1, numeric: true, rangeWide: true },
-  { value: 'date', label: 'Date is', args: 1, date: true },
-  { value: 'formula', label: 'Custom formula is true', args: 1, formula: true },
-  { value: 'scale', label: 'Color scale', args: 0, scale: true },
-  { value: 'databar', label: 'Data bar', args: 0, databar: true },
-  { value: 'bands', label: 'Alternating colors', args: 0, bands: true },
-  { value: 'icons', label: 'Icon set', args: 0, icons: true },
-];
+/** Give each entry a `label` read in the interface language when it is read; `labelKey` stays for English (tSource). */
+const labelled = (entries) => entries.map(([key, entry]) => Object.defineProperty({ labelKey: key, ...entry }, 'label', { get: () => t(key), enumerable: true }));
+
+export const RULE_TYPES = labelled([
+  ['coreCondformat.type.gt', { value: 'gt', args: 1, numeric: true }],
+  ['coreCondformat.type.gte', { value: 'gte', args: 1, numeric: true }],
+  ['coreCondformat.type.lt', { value: 'lt', args: 1, numeric: true }],
+  ['coreCondformat.type.lte', { value: 'lte', args: 1, numeric: true }],
+  ['coreCondformat.type.between', { value: 'between', args: 2, numeric: true }],
+  ['coreCondformat.type.eq', { value: 'eq', args: 1 }],
+  ['coreCondformat.type.neq', { value: 'neq', args: 1 }],
+  ['coreCondformat.type.contains', { value: 'contains', args: 1 }],
+  ['coreCondformat.type.notContains', { value: 'notContains', args: 1 }],
+  ['coreCondformat.type.beginsWith', { value: 'beginsWith', args: 1 }],
+  ['coreCondformat.type.endsWith', { value: 'endsWith', args: 1 }],
+  ['coreCondformat.type.empty', { value: 'empty', args: 0 }],
+  ['coreCondformat.type.notEmpty', { value: 'notEmpty', args: 0 }],
+  ['coreCondformat.type.dup', { value: 'dup', args: 0, rangeWide: true }],
+  ['coreCondformat.type.unique', { value: 'unique', args: 0, rangeWide: true }],
+  ['coreCondformat.type.top', { value: 'top', args: 1, numeric: true, rangeWide: true }],
+  ['coreCondformat.type.bottom', { value: 'bottom', args: 1, numeric: true, rangeWide: true }],
+  ['coreCondformat.type.date', { value: 'date', args: 1, date: true }],
+  ['coreCondformat.type.formula', { value: 'formula', args: 1, formula: true }],
+  ['coreCondformat.type.scale', { value: 'scale', args: 0, scale: true }],
+  ['coreCondformat.type.databar', { value: 'databar', args: 0, databar: true }],
+  ['coreCondformat.type.bands', { value: 'bands', args: 0, bands: true }],
+  ['coreCondformat.type.icons', { value: 'icons', args: 0, icons: true }],
+]);
 
 /** Periods a "Date is" rule can name; each test gets the day serial and today's serial. */
 const DAY = 86400000;
@@ -48,20 +52,20 @@ const EPOCH = 25569; // serial of 1970-01-01
 const ymd = (serial) => { const d = new Date(Math.round((serial - EPOCH) * DAY)); return { y: d.getUTCFullYear(), m: d.getUTCMonth() + 1 }; };
 // Weeks run Sunday to Saturday, as Excel's This week and Last week count them (serial 1 is a Sunday).
 const sundayOf = (serial) => serial - (serial + 6) % 7;
-export const DATE_PERIODS = [
-  { value: 'today', label: 'Today', test: (d, t) => d === t },
-  { value: 'yesterday', label: 'Yesterday', test: (d, t) => d === t - 1 },
-  { value: 'tomorrow', label: 'Tomorrow', test: (d, t) => d === t + 1 },
-  { value: 'last7', label: 'In the last 7 days', test: (d, t) => d <= t && d > t - 7 },
-  { value: 'next7', label: 'In the next 7 days', test: (d, t) => d >= t && d < t + 7 },
-  { value: 'thisWeek', label: 'This week', test: (d, t) => d >= sundayOf(t) && d < sundayOf(t) + 7 },
-  { value: 'lastWeek', label: 'Last week', test: (d, t) => d >= sundayOf(t) - 7 && d < sundayOf(t) },
-  { value: 'thisMonth', label: 'This month', test: (d, t) => { const a = ymd(d); const b = ymd(t); return a.y === b.y && a.m === b.m; } },
-  { value: 'lastMonth', label: 'Last month', test: (d, t) => { const a = ymd(d); const b = ymd(t); return b.m === 1 ? a.y === b.y - 1 && a.m === 12 : a.y === b.y && a.m === b.m - 1; } },
-  { value: 'thisYear', label: 'This year', test: (d, t) => ymd(d).y === ymd(t).y },
-  { value: 'past', label: 'In the past', test: (d, t) => d < t },
-  { value: 'future', label: 'In the future', test: (d, t) => d > t },
-];
+export const DATE_PERIODS = labelled([
+  ['coreCondformat.period.today', { value: 'today', test: (d, today) => d === today }],
+  ['coreCondformat.period.yesterday', { value: 'yesterday', test: (d, today) => d === today - 1 }],
+  ['coreCondformat.period.tomorrow', { value: 'tomorrow', test: (d, today) => d === today + 1 }],
+  ['coreCondformat.period.last7', { value: 'last7', test: (d, today) => d <= today && d > today - 7 }],
+  ['coreCondformat.period.next7', { value: 'next7', test: (d, today) => d >= today && d < today + 7 }],
+  ['coreCondformat.period.thisWeek', { value: 'thisWeek', test: (d, today) => d >= sundayOf(today) && d < sundayOf(today) + 7 }],
+  ['coreCondformat.period.lastWeek', { value: 'lastWeek', test: (d, today) => d >= sundayOf(today) - 7 && d < sundayOf(today) }],
+  ['coreCondformat.period.thisMonth', { value: 'thisMonth', test: (d, today) => { const a = ymd(d); const b = ymd(today); return a.y === b.y && a.m === b.m; } }],
+  ['coreCondformat.period.lastMonth', { value: 'lastMonth', test: (d, today) => { const a = ymd(d); const b = ymd(today); return b.m === 1 ? a.y === b.y - 1 && a.m === 12 : a.y === b.y && a.m === b.m - 1; } }],
+  ['coreCondformat.period.thisYear', { value: 'thisYear', test: (d, today) => ymd(d).y === ymd(today).y }],
+  ['coreCondformat.period.past', { value: 'past', test: (d, today) => d < today }],
+  ['coreCondformat.period.future', { value: 'future', test: (d, today) => d > today }],
+]);
 
 /** Today's date as a serial (the local calendar day, like TODAY()). */
 export function todaySerialUTC(now = new Date()) {
@@ -69,13 +73,13 @@ export function todaySerialUTC(now = new Date()) {
 }
 
 /** Icon sets: three glyphs for the high, middle, and low thirds of a range. */
-export const ICON_SETS = Object.assign(Object.create(null), {
-  arrows: { label: 'Arrows', glyphs: ['▲', '▶', '▼'], colors: ['#1baf7a', '#eda100', '#c22a2a'] },
-  traffic: { label: 'Traffic lights', glyphs: ['●', '●', '●'], colors: ['#1baf7a', '#eda100', '#c22a2a'] },
-  flags: { label: 'Flags', glyphs: ['⚑', '⚑', '⚑'], colors: ['#1baf7a', '#eda100', '#c22a2a'] },
-  stars: { label: 'Stars', glyphs: ['★★★', '★★☆', '★☆☆'], colors: ['#eda100', '#eda100', '#eda100'] },
-  checks: { label: 'Checks', glyphs: ['✔', '!', '✖'], colors: ['#1baf7a', '#eda100', '#c22a2a'] },
-});
+export const ICON_SETS = Object.assign(Object.create(null), Object.fromEntries(Object.entries({
+  arrows: { labelKey: 'coreCondformat.icons.arrows', glyphs: ['▲', '▶', '▼'], colors: ['#1baf7a', '#eda100', '#c22a2a'] },
+  traffic: { labelKey: 'coreCondformat.icons.traffic', glyphs: ['●', '●', '●'], colors: ['#1baf7a', '#eda100', '#c22a2a'] },
+  flags: { labelKey: 'coreCondformat.icons.flags', glyphs: ['⚑', '⚑', '⚑'], colors: ['#1baf7a', '#eda100', '#c22a2a'] },
+  stars: { labelKey: 'coreCondformat.icons.stars', glyphs: ['★★★', '★★☆', '★☆☆'], colors: ['#eda100', '#eda100', '#eda100'] },
+  checks: { labelKey: 'coreCondformat.icons.checks', glyphs: ['✔', '!', '✖'], colors: ['#1baf7a', '#eda100', '#c22a2a'] },
+}).map(([name, set]) => [name, Object.defineProperty(set, 'label', { get: () => t(set.labelKey), enumerable: true })])));
 
 /**
  * Which icon a value gets: the top glyph at or above `hi` percent of the
@@ -226,31 +230,31 @@ const ERROR_RULES = new Set(['empty', 'notEmpty', 'contains', 'notContains', 'be
  *        formulaResult } — supplied by the workbook for the rules that need it.
  */
 export function matchesRule(rule, value, ctx = {}) {
-  const t = rule.type;
-  if ((t === 'dup' || t === 'unique') && rule.duplicateRange != null) {
-    return value != null && (t === 'dup' ? ctx.nativeCount > 1 : ctx.nativeCount === 1);
+  const tk = rule.type;
+  if ((tk === 'dup' || tk === 'unique') && rule.duplicateRange != null) {
+    return value != null && (tk === 'dup' ? ctx.nativeCount > 1 : ctx.nativeCount === 1);
   }
   // A formula rule may deliberately handle the cell error with ISERROR/IFERROR.
-  if (isErr(value) && !ERROR_RULES.has(t)) return false;
-  if (t === 'empty') return value == null || value === '';
-  if (t === 'notEmpty') return !(value == null || value === '');
-  if (t === 'formula') {
+  if (isErr(value) && !ERROR_RULES.has(tk)) return false;
+  if (tk === 'empty') return value == null || value === '';
+  if (tk === 'notEmpty') return !(value == null || value === '');
+  if (tk === 'formula') {
     const r = ctx.formulaResult;
     return r === true || (typeof r === 'number' && r !== 0) || (typeof r === 'string' && r.trim().toUpperCase() === 'TRUE');
   }
-  if (t === 'date') {
+  if (tk === 'date') {
     const v = num(value);
     if (v === null) return false;
     const period = DATE_PERIODS.find((p) => p.value === rule.value);
     return !!period && period.test(Math.floor(v), ctx.today ?? todaySerialUTC());
   }
-  if (t === 'dup' || t === 'unique') {
+  if (tk === 'dup' || tk === 'unique') {
     const id = valueIdentity(value);
     if (id == null) return false;
     const n = ctx.counts?.get(id) || 0;
-    return t === 'dup' ? n > 1 : n === 1;
+    return tk === 'dup' ? n > 1 : n === 1;
   }
-  if (t === 'top' || t === 'bottom') {
+  if (tk === 'top' || tk === 'bottom') {
     const n = Math.trunc(num(rule.value) ?? 0);
     // Only a number ranks, as in Excel: the ranking counts numbers alone, and a number stored as text is text.
     const v = typeof value === 'number' ? value : null;
@@ -258,37 +262,37 @@ export function matchesRule(rule, value, ctx = {}) {
     if (v === null || n < 1 || !sorted.length) return false;
     // Top 10% ranks a share of the numbers: rounded down, but never fewer than one, as Excel counts it.
     const count = rule.percent ? Math.max(1, Math.floor(sorted.length * n / 100)) : n;
-    if (t === 'top') return v >= sorted[Math.min(count, sorted.length) - 1];
+    if (tk === 'top') return v >= sorted[Math.min(count, sorted.length) - 1];
     return v <= sorted[Math.max(0, sorted.length - Math.min(count, sorted.length))];
   }
-  if (t === 'contains' || t === 'notContains' || t === 'beginsWith' || t === 'endsWith') {
+  if (tk === 'contains' || tk === 'notContains' || tk === 'beginsWith' || tk === 'endsWith') {
     const hay = shownText(value).toLowerCase();
     const needle = String(rule.value ?? '').toLowerCase();
     if (!needle) return false;
-    if (t === 'beginsWith') return hay.startsWith(needle);
-    if (t === 'endsWith') return hay.endsWith(needle);
+    if (tk === 'beginsWith') return hay.startsWith(needle);
+    if (tk === 'endsWith') return hay.endsWith(needle);
     const has = hay.includes(needle);
-    return t === 'contains' ? has : !has;
+    return tk === 'contains' ? has : !has;
   }
-  if (t === 'eq' || t === 'neq') {
+  if (tk === 'eq' || tk === 'neq') {
     const a = num(value);
     const b = num(rule.value);
     let same;
     if (a !== null && b !== null) same = a === b;
     else same = shownText(value).toLowerCase() === String(rule.value ?? '').toLowerCase() && value != null;
     if (!same && typeof value === 'number' && b === null) same = typedMoment(rule.value) === value;
-    return t === 'eq' ? same : !same;
+    return tk === 'eq' ? same : !same;
   }
   const v = num(value);
   if (v === null) return false;
   const a = num(rule.value);
-  if (t === 'between') {
+  if (tk === 'between') {
     const b = num(rule.value2);
     if (a === null || b === null) return false;
     return v >= Math.min(a, b) && v <= Math.max(a, b);
   }
   if (a === null) return false;
-  switch (t) {
+  switch (tk) {
     case 'gt': return v > a;
     case 'gte': return v >= a;
     case 'lt': return v < a;
@@ -305,10 +309,10 @@ function hexToRgb(hex) {
 }
 
 /** Interpolate between two hex colors; t in [0, 1]. */
-export function mixColors(from, to, t) {
+export function mixColors(from, to, tk) {
   const a = hexToRgb(from);
   const b = hexToRgb(to);
-  const k = Math.max(0, Math.min(1, t));
+  const k = Math.max(0, Math.min(1, tk));
   const ch = (i) => Math.round(a[i] + (b[i] - a[i]) * k).toString(16).padStart(2, '0');
   return `#${ch(0)}${ch(1)}${ch(2)}`;
 }
@@ -337,26 +341,38 @@ export function scaleColor(rule, value, min, max, limits = null) {
   else if (hi < lo) [lo, hi] = [hi, lo];
   if (value >= hi) return to;
   if (value <= lo) return from;
-  const mix = (a, b, t) => {
+  const mix = (a, b, tk) => {
     const x = hexToRgb(a), y = hexToRgb(b);
     // The channel delta truncates toward zero, including negative deltas.
-    return `#${x.map((v, i) => (v + Math.trunc((y[i] - v) * Math.max(0, Math.min(1, t)))).toString(16).padStart(2, '0')).join('')}`;
+    return `#${x.map((v, i) => (v + Math.trunc((y[i] - v) * Math.max(0, Math.min(1, tk)))).toString(16).padStart(2, '0')).join('')}`;
   };
   if (!rule.mid) return mix(from, to, (value - lo) / (hi - lo));
   return value < mid ? mix(from, middle, (value - lo) / (mid - lo)) : mix(middle, to, (value - mid) / (hi - mid));
 }
 
-export function describeRule(rule) {
-  const t = RULE_TYPES.find((x) => x.value === rule.type);
-  if (!t) return rule.type;
-  if (rule.type === 'between') return `${t.label} ${rule.value} and ${rule.value2}`;
-  if (rule.type === 'formula') return `Formula ${rule.value}`;
-  if (rule.type === 'bands') return rule.header === false ? 'Alternating colors' : 'Alternating colors with a header';
-  if (rule.type === 'databar') return 'Data bar';
-  if (rule.type === 'scale') return rule.mid ? 'Three-color scale' : 'Color scale';
-  if (rule.type === 'icons') return `Icon set: ${(NATIVE_ICON_SETS[rule.iconSet] || ICON_SETS[rule.set] || ICON_SETS.arrows).label}`;
-  if (rule.type === 'date') return `Date is ${(DATE_PERIODS.find((p) => p.value === rule.value)?.label || rule.value).toLowerCase()}`;
-  if (rule.type === 'top' || rule.type === 'bottom') return `${rule.type === 'top' ? 'Top' : 'Bottom'} ${rule.value}${rule.percent ? '%' : ''}`;
-  if (t.args === 1) return `${t.label} ${rule.value}`;
-  return t.label;
+/**
+ * A rule in words, for the Rules Manager: "Greater than 3", "Top 10%". `source` gives it in English, for text not
+ * meant for the person (what the AI model reads).
+ */
+export function describeRule(rule, { source = false } = {}) {
+  const tr = source ? tSource : t;
+  const type = RULE_TYPES.find((x) => x.value === rule.type);
+  if (!type) return rule.type;
+  if (rule.type === 'between') return tr('coreCondformat.describe.between', { value: rule.value, value2: rule.value2 });
+  if (rule.type === 'formula') return tr('coreCondformat.describe.formula', { value: rule.value });
+  if (rule.type === 'bands') return rule.header === false ? tr('coreCondformat.type.bands') : tr('coreCondformat.describe.bandsHeader');
+  if (rule.type === 'databar') return tr('coreCondformat.type.databar');
+  if (rule.type === 'scale') return rule.mid ? tr('coreCondformat.describe.threeColorScale') : tr('coreCondformat.type.scale');
+  if (rule.type === 'icons') {
+    const native = NATIVE_ICON_SETS[rule.iconSet];
+    const set = ICON_SETS[rule.set] || ICON_SETS.arrows;
+    return tr('coreCondformat.describe.icons', { name: native ? native.label : tr(set.labelKey) });
+  }
+  if (rule.type === 'date') return tr('coreCondformat.describe.date', { period: String(rule.value), raw: String(rule.value).toLowerCase() });
+  if (rule.type === 'top' || rule.type === 'bottom') {
+    return tr(rule.type === 'top' ? (rule.percent ? 'coreCondformat.describe.topPercent' : 'coreCondformat.describe.top')
+      : rule.percent ? 'coreCondformat.describe.bottomPercent' : 'coreCondformat.describe.bottom', { value: rule.value });
+  }
+  if (type.args === 1) return tr('coreCondformat.describe.compare', { type: rule.type, value: rule.value });
+  return tr(type.labelKey);
 }

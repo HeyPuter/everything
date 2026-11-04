@@ -1,7 +1,8 @@
-/** Bound dialog inspection even for whole-line selections; untouched mixed edges stay untouched. */
+/** Bound dialog inspection even for whole-line selections; untouched mixed edges stay untouched.
+ * Each edge: [kind, message key of its name, style flag]. */
 export const BORDER_EDGES = [
-  ['top', 'Top', 'bt'], ['bottom', 'Bottom', 'bb'], ['left', 'Left', 'bl'], ['right', 'Right', 'br'],
-  ['horizontal', 'Inside horizontal', 'bb'], ['vertical', 'Inside vertical', 'br'],
+  ['top', 'borderDraft.top', 'bt'], ['bottom', 'borderDraft.bottom', 'bb'], ['left', 'borderDraft.left', 'bl'], ['right', 'borderDraft.right', 'br'],
+  ['horizontal', 'borderDraft.insideHorizontal', 'bb'], ['vertical', 'borderDraft.insideVertical', 'br'],
 ];
 export const penSignature = pen => pen && `${pen.style || 'thin'}:${pen.color || ''}`;
 

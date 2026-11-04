@@ -1,0 +1,5 @@
+{
+  "effects": "Effects",
+  "tile": "{name} effects",
+  "undo": "Theme effects: {name}"
+}
