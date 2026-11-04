@@ -1,4 +1,4 @@
-import { el, MOD_KEY, isComposing } from '../ui/dom.js';
+import { el, MOD_KEY, isComposing, keepDocumentFocus } from '../ui/dom.js';
 import { openMenu } from '../ui/menu.js';
 import { openModal } from '../ui/modal.js';
 import { commandIconEl } from '../ui/ribbon.js';
@@ -64,6 +64,8 @@ export function createStatusBar({ w, a, parts, help }) {
   const left = el('div.ed-status-left', {}, ...['page', 'words', 'proofing', 'language', 'accessibility', 'track', 'area'].map(id => items[id]).filter(Boolean));
   const right = el('div.ed-status-right', {}, items.textMode, items.focus, items.views, el('div.ed-zoom', {}, items.zoomSlider, items.zoom));
   const footer = el('footer.canvas-statusbar.ed-statusbar', { 'aria-label': 'Status bar' }, left, right, help);
+  // Its buttons (the zoom steps, the counts, a right-click for the menu) leave the keyboard in the document.
+  keepDocumentFocus(footer, { buttons: true });
   footer.addEventListener('contextmenu', e => {
     if (e.target.closest('input, select')) return;
     e.preventDefault();
