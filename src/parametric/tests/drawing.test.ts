@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { PdfPage, arcToCubics, parseSvgPath } from '../src/drawing/pdf';
-import { buildSheet, projectedSize, scaleLabel, sheetDims, standardLayout, toPdf, toSvg } from '../src/drawing/sheet';
-import type { DrawingDoc } from '../src/model/types';
+import { PdfPage, arcToCubics, parseSvgPath, pdfString } from '../src/drawing/pdf';
+import { SHEETS, STANDARD_SCALES, buildSheet, projectedSize, scaleLabel, sheetDims, standardLayout, toPdf, toSvg } from '../src/drawing/sheet';
+import type { Vec3 } from '../src/math/vec';
+import type { DrawingDoc, SheetSize } from '../src/model/types';
 
 describe('SVG path parsing', () => {
   it('handles absolute and relative commands with implicit repeats', () => {
@@ -42,6 +43,18 @@ describe('PDF writer', () => {
     const offsets = [...text.matchAll(/^(\d{10}) 00000 n $/gm)].map((m) => Number(m[1]));
     offsets.forEach((o, i) => expect(text.slice(o).startsWith(`${i + 1} 0 obj`)).toBe(true));
   });
+
+  it('keeps accented letters and drawing symbols in text and the title', () => {
+    // WinAnsiEncoding bytes as octal escapes; characters it lacks become '?'.
+    expect(pdfString('Größe Ø10 ±0.5° – 5€ (a\\b) 中\n')).toBe('Gr\\366\\337e \\33010 \\2610.5\\260 \\226 5\\200 \\(a\\\\b\\) ??');
+    const p = new PdfPage(100, 100);
+    p.text('Zoë', 10, 10, 3);
+    const text = new TextDecoder().decode(p.build('Größe'));
+    expect(text).toContain('(Zo\\353) Tj');
+    expect(text).toContain('/Title <FEFF0047007200F600DF0065>');
+    // Still pure ASCII, so the byte offsets in the cross-reference table hold.
+    expect(/^[\x00-\x7f]*$/.test(text)).toBe(true);
+  });
 });
 
 describe('sheet layout', () => {
@@ -75,5 +88,89 @@ describe('sheet layout', () => {
     expect(svg).toContain('>FRONT<');
     const pdf = new TextDecoder().decode(toPdf(sheet.items, sheet.w, sheet.h, 'Plate'));
     expect(pdf).toContain('(Plate) Tj');
+  });
+
+  it('keeps the SVG well-formed when a title holds control characters', () => {
+    const doc: DrawingDoc = { sheet: 'A4', landscape: true, scale: 1, title: 'Bra\u0007cket \ud83d\udd27 <A&B>\u0000\ud800', drawnBy: 'Tab\tbed', notes: 'x\u001by', views: [] };
+    const sheet = buildSheet(doc, new Map(), { partName: 'P', material: 'Steel', units: 'mm', date: '2026-10-12', formatLength: String });
+    const svg = toSvg(sheet.items, sheet.w, sheet.h);
+    expect(svg).not.toMatch(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]|[\ud800-\udbff](?![\udc00-\udfff])/);
+    expect(svg).toContain('>Bracket \ud83d\udd27 &lt;A&amp;B&gt;<');
+    expect(svg).toContain('>xy<');
+    expect(new TextDecoder().decode(toPdf(sheet.items, sheet.w, sheet.h, doc.title))).toContain('(Bra?cket ? <A&B>??) Tj');
+  });
+
+  it('fits long title block entries inside their cells', () => {
+    const notes = 'Break all sharp edges 0.5 x 45°. Anodize clear after machining. Tolerances ISO 2768-mK.';
+    const doc: DrawingDoc = { sheet: 'A4', landscape: true, scale: 1, title: 'T'.repeat(120), drawnBy: 'Short', notes, views: [] };
+    const { items } = buildSheet(doc, new Map(), { partName: 'P', material: 'Steel', units: 'mm', date: '2026-10-12', formatLength: String });
+    const texts = items.filter((i) => i.t === 'text') as Extract<(typeof items)[number], { t: 'text' }>[];
+    const title = texts.find((t) => t.s.startsWith('TTT'))!;
+    const note = texts.find((t) => t.s.startsWith('Break'))!;
+    // Title cell 110 mm, notes cell 60 mm (less 3 mm padding), at about 0.55 em per character.
+    expect(title.s.length * title.size * 0.55).toBeLessThanOrEqual(107);
+    expect(note.s.length * note.size * 0.55).toBeLessThanOrEqual(57);
+    expect(note.size).toBeGreaterThanOrEqual(1.8);
+    expect(note.s.endsWith('…')).toBe(true);
+    // Short values keep their size.
+    expect(texts.find((t) => t.s === 'Short')!.size).toBe(2.8);
+  });
+
+  // Rectangle outlines the size of each view's box projection, centred on 0.
+  const boxProjections = (doc: DrawingDoc, min: Vec3, max: Vec3) =>
+    new Map(doc.views.map((v) => {
+      const [pw, ph] = projectedSize(v.kind, min, max);
+      return [v.id, { id: v.id, visible: [`M ${-pw / 2} ${-ph / 2} H ${pw / 2} V ${ph / 2} H ${-pw / 2} Z`], hidden: [], bounds: [-pw / 2, -ph / 2, pw / 2, ph / 2] as [number, number, number, number] }];
+    }));
+  const info = { partName: 'P', material: 'Steel', units: 'mm', date: '2026-10-12', formatLength: (v: number) => v.toFixed(2) };
+  const labelsOverlappingViews = (doc: DrawingDoc, proj: ReturnType<typeof boxProjections>) => {
+    const sheet = buildSheet(doc, proj, info);
+    const labels = sheet.items.filter((i) => i.t === 'text' && /^[A-Z]+$/.test(i.s) && i.size === 2.6) as Extract<(typeof sheet.items)[number], { t: 'text' }>[];
+    expect(labels.length).toBe(doc.views.length);
+    const hits: string[] = [];
+    for (const l of labels) {
+      const half = (l.s.length * l.size * 0.55) / 2;
+      const x0 = l.anchor === 'start' ? l.x : l.x - half, x1 = x0 + 2 * half, y0 = l.y - l.size * 0.75, y1 = l.y;
+      for (const f of sheet.frames) {
+        const v = doc.views.find((x) => x.id === f.id)!;
+        // A view with dimensions also owns the room they take left of and below it.
+        const dims = v.dims && v.kind !== 'isometric';
+        const fx0 = dims ? f.x0 - 11.5 : f.x0, fy1 = dims ? f.y1 + 10 : f.y1;
+        if (x0 < f.x1 && x1 > fx0 && y0 < fy1 && y1 > f.y0) hits.push(`${l.s} over ${v.kind}`);
+      }
+    }
+    return hits;
+  };
+
+  it('keeps view labels off the other views', () => {
+    // The Pipe Flange: a 90 x 26 disc on A4 at 1:2.
+    const min: Vec3 = [-45, 0, -45], max: Vec3 = [45, 26, 45];
+    const layout = standardLayout(sheetDims({ sheet: 'A4', landscape: true }), min, max);
+    expect(layout.scale).toBe(0.5);
+    const doc: DrawingDoc = { sheet: 'A4', landscape: true, scale: layout.scale, title: '', drawnBy: '', notes: '', views: layout.views.map((v, i) => ({ ...v, id: `v${i + 1}` })) };
+    const proj = boxProjections(doc, min, max);
+    expect(labelsOverlappingViews(doc, proj)).toEqual([]);
+    // Dragged right under the top view's label: the label moves above the top view.
+    const top = doc.views.find((v) => v.kind === 'top')!, front = doc.views.find((v) => v.kind === 'front')!;
+    front.y = top.y + 22.5 + 12;
+    front.x = top.x;
+    expect(labelsOverlappingViews(doc, proj)).toEqual([]);
+    const svg = toSvg(buildSheet(doc, proj, info).items, 297, 210);
+    const y = Number(/<text x="[\d.]+" y="([\d.]+)"[^>]*>TOP</.exec(svg)![1]);
+    expect(y).toBeLessThan(top.y - 22.5);
+  });
+
+  it('lays out standard views with their labels clear of each other on every sheet', () => {
+    const parts: [Vec3, Vec3][] = [[[0, 0, 0], [40, 20, 10]], [[-45, 0, -45], [45, 26, 45]], [[0, 0, 0], [800, 300, 200]], [[0, 0, 0], [10, 120, 10]], [[0, 0, 0], [200, 5, 200]]];
+    for (const sheet of Object.keys(SHEETS) as SheetSize[]) {
+      for (const landscape of [true, false]) {
+        for (const [min, max] of parts) {
+          const layout = standardLayout(sheetDims({ sheet, landscape }), min, max);
+          expect(STANDARD_SCALES).toContain(layout.scale);
+          const doc: DrawingDoc = { sheet, landscape, scale: layout.scale, title: '', drawnBy: '', notes: '', views: layout.views.map((v, i) => ({ ...v, id: `v${i + 1}` })) };
+          expect(labelsOverlappingViews(doc, boxProjections(doc, min, max)), `${sheet} ${landscape} ${max}`).toEqual([]);
+        }
+      }
+    }
   });
 });

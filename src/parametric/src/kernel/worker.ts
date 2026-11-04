@@ -5,7 +5,7 @@
 import init from 'replicad-opencascadejs';
 import wasmUrl from 'replicad-opencascadejs/wasm?url';
 import { solidWorksToStep } from '../formats/sldprt';
-import { ModelBuilder, errorText } from './build';
+import { ModelBuilder, checkStep, errorText } from './build';
 import { setOc } from './occ';
 import type { BuildResult, MeshData, WorkerRequest, WorkerResponse } from './protocol';
 
@@ -72,16 +72,9 @@ self.onmessage = async (ev: MessageEvent<WorkerRequest>) => {
         reply({ id: msg.id, ok: true, result: data }, [data.buffer as ArrayBuffer]);
         return;
       }
-      case 'checkImport': {
-        const probe = new ModelBuilder();
-        const res = await probe.build({
-          features: [{ id: 'i', name: 'i', type: 'import', format: 'step', blob: 'b', fileName: '' }],
-          upTo: 1, blobs: { b: msg.text }, quality: 0,
-        });
-        const st = res.status[0];
-        reply({ id: msg.id, ok: true, result: st.ok ? null : st.error });
+      case 'checkImport':
+        reply({ id: msg.id, ok: true, result: await checkStep(msg.text) });
         return;
-      }
       case 'convertSolidWorks':
         reply({ id: msg.id, ok: true, result: await solidWorksToStep(msg.data, msg.name) });
         return;

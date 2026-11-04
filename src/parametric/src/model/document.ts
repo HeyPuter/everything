@@ -2,8 +2,8 @@
 // parameters (expressions and global variables) into plain numbers for the
 // geometry worker.
 
-import { evaluate, evaluateVariables } from './expr';
-import { PARAM_FIELDS, getPath, setPath } from './features';
+import { convertExpressionUnits, evaluate, evaluateVariables } from './expr';
+import { PARAM_FIELDS, type ParamKind, getPath, setPath } from './features';
 import type { Feature, Id, Param, PartDocument, SkDimension, SketchFeature, UnitSystem } from './types';
 import { isDimension } from './types';
 import { UNIT_SYSTEMS } from './units';
@@ -43,8 +43,90 @@ export function parseDocument(text: string): PartDocument {
   if (!d || d.format !== FORMAT) throw new Error('This file is not a part created with Parametric.');
   if (d.version !== 1) throw new Error('This part was created with a newer version of Parametric.');
   if (!Array.isArray(d.features)) throw new Error('The part file is damaged (no feature list).');
-  const base = newDocument(d.name, d.units && d.units in UNIT_SYSTEMS ? d.units : 'MMGS');
-  return { ...base, ...d, blobs: d.blobs ?? {}, variables: d.variables ?? [] } as PartDocument;
+  if (!d.features.every((f) => f && typeof f === 'object' && typeof f.id === 'string' && typeof f.type === 'string')) {
+    throw new Error('The part file is damaged (invalid feature).');
+  }
+  const units = typeof d.units === 'string' && Object.hasOwn(UNIT_SYSTEMS, d.units) ? d.units : 'MMGS';
+  const base = newDocument(typeof d.name === 'string' ? d.name : undefined, units);
+  const doc = { ...base, ...d, units, blobs: d.blobs ?? {}, variables: Array.isArray(d.variables) ? d.variables : [] } as PartDocument;
+  if (typeof doc.name !== 'string') doc.name = base.name;
+  if (!Number.isInteger(doc.decimals) || doc.decimals < 0 || doc.decimals > 8) doc.decimals = base.decimals;
+  if (doc.rollback != null && !Number.isInteger(doc.rollback)) doc.rollback = null;
+  // New feature ids must not collide with existing ones, even when the file's
+  // counter is missing or stale.
+  let maxId = 0;
+  for (const f of [...doc.features, ...doc.variables]) {
+    const m = /^[a-z]+(\d+)$/i.exec(String(f?.id ?? ''));
+    if (m) maxId = Math.max(maxId, Number(m[1]));
+  }
+  doc.nextId = Math.max(Number.isInteger(doc.nextId) ? doc.nextId : 1, maxId + 1);
+  return doc;
+}
+
+/**
+ * Calls fn with every expression in the document (global variables, feature
+ * values and sketch dimensions) and stores what it returns in its place.
+ */
+export function mapExpressions(doc: PartDocument, fn: (src: string, kind: ParamKind | 'variable') => string) {
+  for (const v of doc.variables) v.expr = fn(v.expr, 'variable');
+  for (const f of doc.features) {
+    for (const fd of PARAM_FIELDS[f.type] ?? []) {
+      const v = getPath(f, fd.path);
+      if (typeof v === 'string') setPath(f, fd.path, fn(v, fd.kind));
+    }
+    if (f.type === 'sketch') for (const c of f.constraints) if (isDimension(c) && typeof c.value === 'string') c.value = fn(c.value, c.type === 'angle' ? 'angle' : 'length');
+  }
+}
+
+/**
+ * Switches the document's units. Numbers are stored in millimetres and keep
+ * their size; expressions are written in display units, so the plain numbers
+ * in them that stand for lengths are converted too. A value whose expression
+ * cannot be converted keeps its size as a plain number. Returns the names of
+ * the values that were unlinked that way.
+ */
+export function changeUnits(doc: PartDocument, units: UnitSystem): string[] {
+  if (doc.units === units || !Object.hasOwn(UNIT_SYSTEMS, units)) return [];
+  const k = UNIT_SYSTEMS[doc.units].scale / UNIT_SYSTEMS[units].scale;
+  const values = (d: PartDocument) => {
+    const st = new DocStore(d);
+    const vars = st.resolve().variables;
+    const out = new Map<string, number>();
+    for (const f of d.features) {
+      for (const fd of PARAM_FIELDS[f.type] ?? []) {
+        const v = getPath(f, fd.path);
+        if (typeof v === 'string') try { out.set(`${f.id}|${fd.path}`, st.evalParam(v, fd.kind, vars)); } catch { /* already an error */ }
+      }
+      if (f.type === 'sketch') for (const c of f.constraints) if (isDimension(c) && typeof c.value === 'string') try { out.set(`${f.id}|${c.id}`, st.dimensionValue(c, vars)); } catch { /* already an error */ }
+    }
+    return out;
+  };
+  const before = values(doc);
+  const items: { src: string; dim: number | 'variable'; name?: string }[] = [];
+  let vi = 0;
+  mapExpressions(doc, (src, kind) => {
+    items.push({ src, dim: kind === 'variable' ? 'variable' : kind === 'length' ? 1 : 0, name: kind === 'variable' ? doc.variables[vi++].name : undefined });
+    return src;
+  });
+  const converted = convertExpressionUnits(items, k);
+  let i = 0;
+  mapExpressions(doc, (src) => converted[i++] ?? src);
+  doc.units = units;
+  // Whatever did not keep its value becomes the plain number it was.
+  const after = values(doc);
+  const unlinked: string[] = [];
+  const same = (a: number, b: number | undefined) => b !== undefined && Math.abs(a - b) <= 1e-9 * Math.max(1, Math.abs(a));
+  for (const f of doc.features) {
+    for (const fd of PARAM_FIELDS[f.type] ?? []) {
+      const was = before.get(`${f.id}|${fd.path}`);
+      if (was !== undefined && !same(was, after.get(`${f.id}|${fd.path}`))) { setPath(f, fd.path, was); unlinked.push(`${f.name} ${fd.label}`); }
+    }
+    if (f.type === 'sketch') for (const c of f.constraints) {
+      const was = before.get(`${f.id}|${c.id}`);
+      if (isDimension(c) && was !== undefined && !same(was, after.get(`${f.id}|${c.id}`))) { c.value = was; unlinked.push(`${c.name}@${f.name}`); }
+    }
+  }
+  return unlinked;
 }
 
 export function serializeDocument(doc: PartDocument): string {

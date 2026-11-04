@@ -69,6 +69,8 @@
 .as-send { flex: none; width: 30px; height: 30px; border-radius: 8px; border: 0; display: grid; place-items: center; background: var(--accent); color: var(--accent-text); }
 .as-send:hover { background: var(--accent-hover); }
 .as-send.stop { background: var(--text-2); }
+.as-limit { font-size: var(--fs-xs); color: var(--danger); line-height: 1.35; }
+.as-limit:empty { display: none; }
 .as-note { font-size: var(--fs-xs); color: var(--text-3); line-height: 1.35; }
 
 @media (max-width: 980px) {
@@ -79,4 +81,8 @@
   .app.assistant-open .taskpane { display: flex; position: absolute; inset: 0; z-index: 25; border-left: 0; }
   .app.assistant-open .tp-strip { display: none; }
   .app.assistant-open .tp-panel.wide { position: static; width: 100%; border-left: 0; }
+}
+@media (pointer: coarse) {
+  /* iOS zooms the page into a text field set smaller than 16px when it takes focus. */
+  .as-input { font-size: 16px; }
 }

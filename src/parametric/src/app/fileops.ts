@@ -6,9 +6,9 @@ import { newDocument, parseDocument, serializeDocument } from '../model/document
 import type { ImportFeature, PartDocument } from '../model/types';
 import {
   type Location, EXT, IMPORT_EXTS, clearRecovery, download, isSolidWorksFile, isStepFile, listParts, loadText, locationLabel, newLocation,
-  pickCloudFile, pickCloudSave, pickDeviceFile, readRecovery, saveText, safeName, writeRecovery, type FileEntry, deletePart, renameCloud,
+  pickCloudFile, pickCloudSave, pickDeviceFile, readRecovery, saveText, safeName, writeRecovery, type FileEntry, deletePart, renameCloud, forgetRecent, rememberRecent,
 } from '../platform/files';
-import { cloudAvailable, puter, signIn, storageError } from '../platform/puter';
+import { cloudAvailable, isMissing, puter, signIn, storageError } from '../platform/puter';
 import { h } from '../ui/dom';
 import { icon } from '../ui/icons';
 import { confirmDialog, promptDialog, showDialog, toast } from '../ui/overlay';
@@ -18,11 +18,16 @@ import { sharedWithMe } from './share';
 export class FileOps {
   private saving = false;
   private recoveryTimer = 0;
+  /** Counts document changes, so a save only clears the edits it wrote. */
+  private revision = 0;
 
   constructor(private app: App) {
-    app.onDocumentChanged = () => this.scheduleRecovery();
+    app.onDocumentChanged = (reason) => {
+      if (reason !== 'saved') this.revision++;
+      this.scheduleRecovery();
+    };
     window.addEventListener('beforeunload', (e) => {
-      if (this.app.store.dirty) {
+      if (this.app.store.dirty || this.app.panel?.edited) {
         e.preventDefault();
         e.returnValue = '';
       }
@@ -31,14 +36,27 @@ export class FileOps {
 
   /** Asks to save or discard unsaved changes. Returns false to abort. */
   async confirmDiscard(action: string): Promise<boolean> {
-    if (!this.app.store.dirty) return true;
+    // A feature panel with changes not yet applied counts as unsaved work too.
+    const panel = this.app.panel?.edited ? this.app.panel : null;
+    if (!this.app.store.dirty && !panel) return true;
     const v = await showDialog({
       title: 'Save changes?',
-      body: h('p', {}, `"${this.app.store.doc.name}" has unsaved changes. Save them before you ${action}?`),
+      body: h('p', {}, `"${this.app.store.doc.name}" has unsaved changes${panel ? ` (including ${panel.title}, which is still open)` : ''}. Save them before you ${action}?`),
       buttons: [{ label: 'Cancel', value: 'cancel', left: true }, { label: "Don't save", value: 'discard' }, { label: 'Save', value: 'save', primary: true }],
     });
-    if (v === 'save') return this.save();
-    return v === 'discard';
+    if (v === 'save') {
+      // Apply the open panel first; a value it refuses keeps everything open.
+      if (panel) {
+        await this.app.closePanel(true);
+        if (this.app.panel) return false;
+      }
+      return this.save();
+    }
+    if (v !== 'discard') return false;
+    // Discarded on purpose: do not offer it for recovery next time.
+    clearTimeout(this.recoveryTimer);
+    await clearRecovery();
+    return true;
   }
 
   async newPart() {
@@ -58,10 +76,9 @@ export class FileOps {
       let loc = app.location;
       if (!loc) loc = await newLocation(doc.name, `part-${Date.now().toString(36)}`);
       const text = serializeDocument(doc);
+      const revision = this.revision;
       app.location = await saveText(loc, doc.name, text);
-      app.store.dirty = false;
-      app.store.emit('saved');
-      await clearRecovery();
+      this.markSaved(revision);
       toast({ kind: 'success', message: `Saved to ${locationLabel(app.location)}`, timeout: 2500 });
       if (app.location.type === 'local' && !cloudAvailable()) {
         maybeNudgeSignIn();
@@ -75,46 +92,71 @@ export class FileOps {
     }
   }
 
+  /** After a write: clean, unless the part changed while it was being written. */
+  private markSaved(revision: number) {
+    const clean = revision === this.revision;
+    if (clean) this.app.store.dirty = false;
+    this.app.store.emit('saved');
+    if (clean) void clearRecovery();
+  }
+
   async saveAs() {
     const app = this.app;
     const name = await promptDialog('Save As', 'Part name', app.store.doc.name, (v) => (v.trim() ? null : 'Enter a name'));
     if (name == null) return;
-    app.store.change('Rename part', (doc) => { doc.name = safeName(name); });
+    const clean = safeName(name);
+    const rename = () => app.store.change('Rename part', (doc) => { doc.name = clean; });
     if (cloudAvailable() && puter()?.ui?.showSaveFilePicker) {
-      const loc = await pickCloudSave(serializeDocument(app.store.doc), app.store.doc.name).catch(() => null);
+      const revision = this.revision;
+      // null when the user cancels the picker; undefined when it failed (save to Parts instead).
+      const loc = await pickCloudSave(serializeDocument({ ...app.store.doc, name: clean }), clean).catch(() => undefined);
+      if (loc === null) return;
       if (loc) {
+        const unchanged = revision === this.revision;
+        rename();
         app.location = loc;
-        app.store.dirty = false;
-        app.store.emit('saved');
+        this.markSaved(unchanged ? this.revision : revision);
         toast({ kind: 'success', message: `Saved to ${locationLabel(loc)}` });
         return;
       }
     }
+    rename();
     app.location = null;
     await this.save();
   }
 
   /** Opens a part from a location (cloud or local). */
   async openLocation(loc: Location, name?: string) {
-    if (!(await this.confirmDiscard('open another part'))) return;
+    let text: string;
     try {
-      const text = await loadText(loc);
-      this.openText(text, loc, name);
+      text = await loadText(loc);
     } catch (e) {
-      toast({ kind: 'error', title: 'Could not open the part', message: storageError(e) });
+      // Gone (deleted or moved elsewhere): drop it from the recent parts too.
+      const missing = isMissing(e);
+      if (missing) forgetRecent(loc);
+      toast({ kind: 'error', title: 'Could not open the part', message: missing ? `"${name || 'The part'}" no longer exists. It may have been moved or deleted.` : storageError(e) });
+      return;
     }
+    await this.openPartText(text, loc, name);
   }
 
   openText(text: string, loc: Location | null, name?: string): boolean {
-    let doc: PartDocument;
-    try {
-      doc = parseDocument(text);
-    } catch (e) {
-      toast({ kind: 'error', title: 'Could not open the part', message: (e as Error).message });
-      return false;
-    }
+    const doc = parsePart(text);
+    if (doc) this.openDoc(doc, loc, name);
+    return !!doc;
+  }
+
+  private openDoc(doc: PartDocument, loc: Location | null, name?: string) {
     if (name && !doc.name) doc.name = name;
     this.app.loadDocument(doc, loc);
+    if (loc) rememberRecent({ location: loc, name: doc.name });
+  }
+
+  /** Reads a part file and, only if it is one, asks about unsaved changes and opens it. */
+  private async openPartText(text: string, loc: Location | null, name?: string): Promise<boolean> {
+    const doc = parsePart(text);
+    if (!doc || !(await this.confirmDiscard('open another part'))) return false;
+    this.openDoc(doc, loc, name);
     return true;
   }
 
@@ -127,24 +169,36 @@ export class FileOps {
     } catch (e) {
       toast({ kind: 'error', message: storageError(e) });
     }
+    // A list role needs list items, so the empty message is shown without it.
     const list = h('div', { class: 'file-list', role: 'list' });
+    const showEmpty = () => {
+      list.removeAttribute('role');
+      list.replaceChildren(h('p', {}, cloudAvailable() ? 'No saved parts yet.' : 'No parts saved in this browser yet. Sign in to Puter to keep parts in your cloud storage.'));
+    };
     let chosen: FileEntry | null = null;
     let close: ((v: string | null) => void) | null = null;
     const done = (e: FileEntry) => { chosen = e; close?.('open'); };
-    if (!entries.length) list.append(h('p', {}, cloudAvailable() ? 'No saved parts yet.' : 'No parts saved in this browser yet. Sign in to Puter to keep parts in your cloud storage.'));
+    if (!entries.length) showEmpty();
     for (const e of entries) {
-      const b = h('button', { class: 'file-item', type: 'button', role: 'listitem' },
+      const b = h('button', { class: 'file-item', type: 'button' },
         e.location.type === 'cloud' ? iconCloud() : iconDevice(),
         h('span', { class: 'txt' }, h('span', { class: 'n' }, e.name), h('span', { class: 'meta' }, `${locationLabel(e.location)}  ${e.modified ? new Date(e.modified).toLocaleString() : ''}`)));
-      b.addEventListener('click', () => done(e));
-      b.addEventListener('contextmenu', async (ev) => {
-        ev.preventDefault();
-        if (await confirmDialog('Delete part', `Delete "${e.name}"? ${e.location.type === 'cloud' ? 'It will be moved to your Puter Trash.' : 'This cannot be undone.'}`, 'Delete', true)) {
-          await deletePart(e.location).catch((err) => toast({ kind: 'error', message: storageError(err) }));
-          b.remove();
+      const del = h('button', { class: 'icon-btn', type: 'button', 'aria-label': `Delete ${e.name}`, title: 'Delete' }, icon('trash', 16));
+      const row = h('div', { class: 'file-row', role: 'listitem' }, b, del);
+      const remove = async () => {
+        if (!(await confirmDialog('Delete part', `Delete "${e.name}"? ${e.location.type === 'cloud' ? 'It will be moved to your Puter Trash.' : 'This cannot be undone.'}`, 'Delete', true))) return;
+        try {
+          await deletePart(e.location);
+          row.remove();
+          if (!list.childElementCount) showEmpty();
+        } catch (err) {
+          toast({ kind: 'error', title: 'Could not delete the part', message: storageError(err) });
         }
-      });
-      list.append(b);
+      };
+      b.addEventListener('click', () => done(e));
+      b.addEventListener('contextmenu', (ev) => { ev.preventDefault(); void remove(); });
+      del.addEventListener('click', () => void remove());
+      list.append(row);
     }
     const body = h('div', {}, list);
     let sharedChosen: { readOnly: boolean } | null = null;
@@ -154,21 +208,24 @@ export class FileOps {
       void sharedWithMe().then((items) => {
         shared.removeAttribute('aria-busy');
         shared.replaceChildren();
-        if (!items.length) shared.append(h('p', { class: 'field-label' }, 'Nothing has been shared with you yet.'));
+        if (!items.length) {
+          shared.removeAttribute('role');
+          shared.append(h('p', { class: 'field-label' }, 'Nothing has been shared with you yet.'));
+        }
         for (const e of items) {
           const readOnly = e.mode === 'read';
-          const b = h('button', { class: 'file-item', type: 'button', role: 'listitem' },
+          const b = h('button', { class: 'file-item', type: 'button' },
             h('span', { 'aria-hidden': 'true', style: { color: 'var(--text-3)' } }, icon('users', 18)),
             h('span', { class: 'txt' }, h('span', { class: 'n' }, e.name), h('span', { class: 'meta' }, [e.owner ? `From ${e.owner}` : '', readOnly ? 'View only' : 'Can edit', e.modified ? new Date(e.modified).toLocaleString() : ''].filter(Boolean).join(' · '))));
           b.addEventListener('click', () => { sharedChosen = { readOnly }; done(e); });
-          shared.append(b);
+          shared.append(h('div', { class: 'file-row', role: 'listitem' }, b));
         }
       });
     }
     const buttons: { label: string; value: string; primary?: boolean; left?: boolean }[] = [{ label: 'From device...', value: 'device', left: true }];
     if (cloudAvailable() && puter()?.ui?.showOpenFilePicker) buttons.push({ label: 'Browse Puter...', value: 'browse', left: true });
     buttons.push({ label: 'Cancel', value: 'cancel' });
-    const v = await showDialog({ title: 'Open', body: [body, h('p', { class: 'field-label' }, 'Right-click one of your parts to delete it.')], buttons, wide: true, onReady: (c) => { close = c; } });
+    const v = await showDialog({ title: 'Open', body, buttons, wide: true, onReady: (c) => { close = c; } });
     if (v === 'open' && chosen) {
       const c = chosen as FileEntry;
       if ((sharedChosen as { readOnly: boolean } | null)?.readOnly) await this.openReadOnlyCopy(c);
@@ -177,10 +234,10 @@ export class FileOps {
     else if (v === 'device') await this.openFromDevice();
     else if (v === 'browse') {
       const r = await pickCloudFile().catch((e) => { toast({ kind: 'error', message: storageError(e) }); return null; });
-      if (r) {
+      if (r && !tooLarge(r.blob.size, r.fileName)) {
         if (isStepFile(r.fileName)) await this.importStepText(await r.blob.text(), r.fileName);
         else if (isSolidWorksFile(r.fileName)) await this.openSolidWorks(new Uint8Array(await r.blob.arrayBuffer()), r.fileName);
-        else if (await this.confirmDiscard('open another part')) this.openText(await r.blob.text(), r.location, r.name);
+        else await this.openPartText(await r.blob.text(), r.location, r.name);
       }
     }
     void app;
@@ -199,19 +256,16 @@ export class FileOps {
 
   async openFromDevice() {
     const file = await pickDeviceFile(`${EXT},.json,${IMPORT_EXTS.join(',')}`);
-    if (!file) return;
+    if (!file || tooLarge(file.size, file.name)) return;
     if (isStepFile(file.name)) { await this.importStepText(await file.text(), file.name); return; }
     if (isSolidWorksFile(file.name)) { await this.openSolidWorks(new Uint8Array(await file.arrayBuffer()), file.name); return; }
-    const text = await file.text();
-    if (!(await this.confirmDiscard('open another part'))) return;
-    this.openText(text, null, file.name.replace(/\.[^.]+$/, ''));
-    this.app.store.dirty = true;
+    if (await this.openPartText(await file.text(), null, file.name.replace(/\.[^.]+$/, ''))) this.app.store.dirty = true;
   }
 
   /** Imports a STEP or SolidWorks file as a solid feature in the current part. */
   async importStep() {
     const file = await pickDeviceFile(IMPORT_EXTS.join(','));
-    if (!file) return;
+    if (!file || tooLarge(file.size, file.name)) return;
     if (isSolidWorksFile(file.name)) {
       const step = await this.convertSolidWorks(new Uint8Array(await file.arrayBuffer()), file.name);
       if (step) await this.importStepText(step, file.name);
@@ -223,11 +277,12 @@ export class FileOps {
   /** Opens a SolidWorks part as a new part whose first feature is its solid. */
   async openSolidWorks(data: Uint8Array, fileName: string) {
     const app = this.app;
-    if (!(await this.confirmDiscard('open another part'))) return;
+    // Converted and checked first: a file that cannot be opened leaves the current part alone.
     const step = await this.convertSolidWorks(data, fileName);
     if (!step) return;
     const err = await app.kernel.checkImport(step).catch((e) => (e as Error).message);
     if (err) { toast({ kind: 'error', title: 'Could not open the SolidWorks part', message: err }); return; }
+    if (!(await this.confirmDiscard('open another part'))) return;
     const doc = newDocument(safeName(fileName.replace(/\.[^.]+$/, '')) || 'Part1', app.settings.defaultUnits);
     const blobId = `b${Date.now().toString(36)}`;
     doc.blobs[blobId] = step;
@@ -239,7 +294,7 @@ export class FileOps {
 
   /** Converts a SolidWorks part to STEP in the geometry worker; null after reporting a failure. */
   private async convertSolidWorks(data: Uint8Array, fileName: string): Promise<string | null> {
-    if (data.length > 200_000_000) { toast({ kind: 'error', message: 'This SolidWorks file is too large to open (200 MB limit).' }); return null; }
+    if (tooLarge(data.length, fileName)) return null;
     const done = toast({ message: `Reading ${fileName}...`, timeout: 0 });
     try {
       const r = await this.app.kernel.convertSolidWorks(data, fileName);
@@ -257,7 +312,8 @@ export class FileOps {
 
   async importStepText(text: string, fileName: string) {
     const app = this.app;
-    if (text.length > 60_000_000) { toast({ kind: 'error', message: 'This STEP file is too large to import (60 MB limit).' }); return; }
+    if (tooLarge(text.length, 'x.step')) return;
+    if (!text.trim()) { toast({ kind: 'error', title: 'Import failed', message: `${fileName} is empty.` }); return; }
     const err = await app.kernel.checkImport(text).catch((e) => (e as Error).message);
     if (err) { toast({ kind: 'error', title: 'Import failed', message: err }); return; }
     const blobId = `b${Date.now().toString(36)}`;
@@ -277,6 +333,9 @@ export class FileOps {
         download(serializeDocument(app.store.doc), `${name}${EXT}`, 'application/json');
         return;
       }
+      // The kernel exports the body it built last: a change made just before
+      // must be built first, or the file has the old geometry.
+      await app.whenBuilt();
       if (!app.bbox) { toast({ kind: 'warning', message: 'There is no geometry to export yet.' }); return; }
       const data = await app.kernel.exportFile(format, Math.max(1, app.settings.quality));
       const blob = new Blob([data as BlobPart], { type: format === 'step' ? 'model/step' : 'model/stl' });
@@ -297,6 +356,8 @@ export class FileOps {
     if (loc?.type === 'cloud') {
       try {
         app.location = await renameCloud(loc, clean);
+        forgetRecent(loc);
+        rememberRecent({ location: app.location, name: clean });
       } catch (e) {
         toast({ kind: 'warning', message: `Renamed in the app, but the file could not be renamed: ${storageError(e)}` });
       }
@@ -356,6 +417,7 @@ export class FileOps {
       if (!it) return;
       try {
         const blob = it.read ? await it.read() : await puter()!.fs.read(it.path);
+        if (tooLarge(blob.size, it.name)) return;
         if (isSolidWorksFile(it.name)) await this.openSolidWorks(new Uint8Array(await blob.arrayBuffer()), it.name);
         else if (isStepFile(it.name)) await this.importStepText(await blob.text(), it.name);
         else this.openText(await blob.text(), { type: 'cloud', path: it.path }, it.name.replace(/\.[^.]+$/, ''));
@@ -363,6 +425,27 @@ export class FileOps {
         toast({ kind: 'error', title: 'Could not open the file', message: storageError(e) });
       }
     });
+  }
+}
+
+const STEP_LIMIT = 60_000_000;
+const SOLIDWORKS_LIMIT = 200_000_000;
+
+/** Checked before a file is read into memory: true after reporting that it is too large. */
+function tooLarge(size: number, fileName: string): boolean {
+  const step = isStepFile(fileName);
+  if (size <= (step ? STEP_LIMIT : isSolidWorksFile(fileName) ? SOLIDWORKS_LIMIT : Infinity)) return false;
+  toast({ kind: 'error', message: step ? 'This STEP file is too large to import (60 MB limit).' : 'This SolidWorks file is too large to open (200 MB limit).' });
+  return true;
+}
+
+/** The part in a file's text, or null after reporting why it is not one. */
+function parsePart(text: string): PartDocument | null {
+  try {
+    return parseDocument(text);
+  } catch (e) {
+    toast({ kind: 'error', title: 'Could not open the part', message: (e as Error).message });
+    return null;
   }
 }
 

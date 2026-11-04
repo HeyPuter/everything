@@ -233,6 +233,8 @@ export function perimeterCircleTool(ed: SketchEditor): SkTool {
       }
     },
     click(s) {
+      // A repeated click (e.g. a double-click) does not count as another point.
+      if (pts.some((q) => dist2(q.p, s.p) < ed.px * 2)) return true;
       pts.push(s);
       if (pts.length < 3) return true;
       const c = circ(pts[0].p, pts[1].p, pts[2].p);
@@ -285,10 +287,16 @@ export function centerArcTool(ed: SketchEditor): SkTool {
     },
     click(s) {
       if (!c) { c = s; return true; }
-      if (!a) { a = s; lastAngle = angle2(sub2(s.p, c.p)); acc = 0; return true; }
+      // Clicks on the centre or back on the start point (e.g. double-clicks)
+      // would make a zero-radius arc or one closed on itself.
+      if (!a) {
+        if (dist2(c.p, s.p) < ed.px * 2) return true;
+        a = s; lastAngle = angle2(sub2(s.p, c.p)); acc = 0; return true;
+      }
       const r = dist2(c.p, a.p);
       const ang = angle2(sub2(s.p, c.p));
       const end: Vec2 = [c.p[0] + r * Math.cos(ang), c.p[1] + r * Math.sin(ang)];
+      if (dist2(end, a.p) < ed.px * 2 || (s.kind === 'point' && s.pointId && s.pointId === a.pointId)) return true;
       const cc = c, aa = a;
       ed.edit('Add arc', (sk, newId) => {
         const cid = ed.commitPoint(sk, cc, newId);
@@ -498,10 +506,11 @@ export function slotTool(ed: SketchEditor): SkTool {
       if (!b) { if (dist2(a.p, s.p) > ed.px * 3) b = s; return true; }
       const u = norm2(sub2(b.p, a.p));
       const w = 2 * Math.abs(cross2(u, sub2(s.p, a.p)));
+      // Too narrow (e.g. a double-click on the second centre): keep waiting for the width.
+      if (w < ed.px * 2) return true;
       const A = a, B = b;
       a = b = null;
       ed.setPreview([]);
-      if (w < ed.px * 2) return true;
       const g = shape(A.p, B.p, w);
       ed.edit('Add slot', (sk, newId) => {
         const ca = ed.commitPoint(sk, A, newId), cb = ed.commitPoint(sk, B, newId);
@@ -568,6 +577,10 @@ export function splineTool(ed: SketchEditor): SkTool {
       pts.length = 0;
       ed.setPreview([]);
       return was;
+    },
+    abort() {
+      pts.length = 0;
+      ed.setPreview([]);
     },
   };
 }

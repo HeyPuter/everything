@@ -6,6 +6,7 @@ import { cloudAvailable, storageError } from '../platform/puter';
 import { h } from '../ui/dom';
 import { icon } from '../ui/icons';
 import { attachTooltip } from '../ui/overlay';
+import { selectTabs, tabKeys } from '../ui/tabs';
 import type { App } from './app';
 import type { FileOps } from './fileops';
 import type { AssistantPanel } from '../assistant/panel';
@@ -26,6 +27,8 @@ export class TaskPane {
       b.addEventListener('click', () => this.toggle(id));
       s.tpStrip.append(b);
     }
+    // Opening a pane can move focus into it, so the arrow keys only move focus.
+    tabKeys(s.tpStrip, { vertical: true, activate: false });
     app.openTaskPane = (id) => this.open(id as PaneId);
     app.toggleTaskPane = (id) => this.toggle(id as PaneId);
     app.taskPaneOpen = () => this.current;
@@ -70,7 +73,7 @@ export class TaskPane {
   }
 
   private sync() {
-    for (const b of this.app.shell.tpStrip.querySelectorAll<HTMLElement>('[role="tab"]')) b.setAttribute('aria-selected', String(b.dataset.pane === this.current));
+    selectTabs(this.app.shell.tpStrip, (b) => b.dataset.pane === this.current);
     this.app.shell.root.classList.toggle('assistant-open', this.current === 'assistant');
     this.app.commands.changed();
   }
@@ -87,14 +90,21 @@ export class TaskPane {
       const parts = await listParts();
       list.textContent = '';
       list.removeAttribute('aria-busy');
-      if (!parts.length) list.append(h('div', { class: 'field-label' }, 'No saved parts yet.'));
+      // A list role needs list items: the empty message is shown without it.
+      if (!parts.length) {
+        list.removeAttribute('role');
+        list.append(h('div', { class: 'field-label' }, 'No saved parts yet.'));
+      }
       for (const p of parts.slice(0, 50)) {
-        const b = h('button', { class: 'file-item', type: 'button', role: 'listitem' }, icon(p.location.type === 'cloud' ? 'cloud' : 'device', 16),
+        // Buttons keep their role; list items wrap them (as in the Open dialog).
+        const b = h('button', { class: 'file-item', type: 'button' }, icon(p.location.type === 'cloud' ? 'cloud' : 'device', 16),
           h('span', { class: 'txt' }, h('span', { class: 'n' }, p.name), h('span', { class: 'meta' }, p.modified ? new Date(p.modified).toLocaleDateString() : locationLabel(p.location))));
         b.addEventListener('click', () => void this.files.openLocation(p.location, p.name));
-        list.append(b);
+        list.append(h('div', { class: 'file-row', role: 'listitem' }, b));
       }
     } catch (e) {
+      list.removeAttribute('aria-busy');
+      list.removeAttribute('role');
       list.textContent = storageError(e);
     }
   }

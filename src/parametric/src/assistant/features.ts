@@ -39,7 +39,6 @@ function choice<T extends string>(v: unknown, options: Record<string, T>, what: 
 const END = { blind: 'blind', through_all: 'throughAll', throughall: 'throughAll', mid_plane: 'midPlane', midplane: 'midPlane', symmetric: 'midPlane' } as const;
 const END2 = { blind: 'blind', through_all: 'throughAll', throughall: 'throughAll' } as const;
 const END_OUT: Record<string, string> = { blind: 'blind', throughAll: 'through_all', midPlane: 'mid_plane' };
-const THIN_SIDE = { outside: 'outside', inside: 'inside', mid: 'mid', both: 'mid', mid_plane: 'mid' } as const;
 const HOLE_KIND = { simple: 'simple', counterbore: 'counterbore', countersink: 'countersink' } as const;
 const CHAMFER_MODE = { distance: 'distance', equal_distance: 'distance', two_distances: 'twoDistance', two_distance: 'twoDistance', distance_angle: 'distanceAngle' } as const;
 const CHAMFER_OUT: Record<string, string> = { distance: 'distance', twoDistance: 'two_distances', distanceAngle: 'distance_angle' };
@@ -58,10 +57,10 @@ export class FeatureCodec {
     const ang = (k: string, what = k) => u.parseParam(a[k], 'angle', what);
     const cnt = (k: string, what = k) => u.parseParam(a[k], 'count', what);
     const need = (...keys: string[]) => { if (!base) for (const k of keys) if (!has(k)) throw new ToolError(`${k} is required`); };
-    const thin = (v: unknown): ThinOptions | null => {
+    // The kernel does not build thin (wall) features; one can only be cleared.
+    const thin = (v: unknown): null => {
       if (v == null || v === false) return null;
-      const o = v as Obj;
-      return { thickness: u.parseParam(o.thickness, 'length', 'thin.thickness'), side: o.side == null ? 'outside' : choice(o.side, THIN_SIDE, 'thin.side') };
+      throw new ToolError('thin: thin (wall) features are not supported. Sketch the wall as a closed profile (e.g. an offset of the outline), or build the solid and use add_shell.');
     };
     const regions = (v: unknown, sketch: Id): Vec2[] | undefined => {
       if (v == null || (Array.isArray(v) && !v.length)) return undefined;
@@ -253,16 +252,17 @@ export class FeatureCodec {
     const L = (p: number | string) => u.param(p, 'length');
     const A = (p: number | string) => u.param(p, 'angle');
     const C = (p: number | string) => u.param(p, 'count');
-    const thin = (t: ThinOptions | null) => (t ? { thickness: L(t.thickness), side: t.side } : null);
+    // Only reported when set (outside the assistant): thin features are not built; edit_feature clears one with thin: null.
+    const thin = (t: ThinOptions | null | undefined) => (t ? { thin: { thickness: L(t.thickness), side: t.side, not_supported: true } } : {});
     const regions = (c?: Vec2[]) => (c?.length ? c.map((p) => [Number(u.len(p[0])), Number(u.len(p[1]))]) : undefined);
     switch (f.type) {
       case 'sketch': return { plane: planeSpec(f.plane), entities: f.entities.length, constraints: f.constraints.length };
       case 'extrude': return {
         sketch: f.sketch, cut: f.cut, end: END_OUT[f.end], depth: f.end === 'throughAll' ? undefined : L(f.depth), reverse: f.flip,
         direction2: f.dir2 ? { end: END_OUT[f.dir2.end], depth: f.dir2.end === 'throughAll' ? undefined : L(f.dir2.depth) } : null,
-        draft: A(f.draft), draft_outward: f.draftOutward, thin: thin(f.thin), regions: regions(f.contours),
+        draft: A(f.draft), draft_outward: f.draftOutward, ...thin(f.thin), regions: regions(f.contours),
       };
-      case 'revolve': return { sketch: f.sketch, cut: f.cut, axis: axisSpec(f.axis) ?? 'first centerline of the sketch', angle: A(f.angle), end: END_OUT[f.end], reverse: f.flip, thin: thin(f.thin), regions: regions(f.contours) };
+      case 'revolve': return { sketch: f.sketch, cut: f.cut, axis: axisSpec(f.axis) ?? 'first centerline of the sketch', angle: A(f.angle), end: END_OUT[f.end], reverse: f.flip, ...thin(f.thin), regions: regions(f.contours) };
       case 'fillet': return { edges: f.edges.map((e) => e.name), faces: f.faces.map((x) => x.name), radius: L(f.radius) };
       case 'chamfer': return { edges: f.edges.map((e) => e.name), faces: f.faces.map((x) => x.name), mode: CHAMFER_OUT[f.mode], distance: L(f.distance), distance2: L(f.distance2), angle: A(f.angle), flip: f.flip };
       case 'shell': return { faces_to_remove: f.faces.map((x) => x.name), thickness: L(f.thickness), outward: f.outward };

@@ -85,18 +85,39 @@ describe('assistant agent', () => {
     const { agent } = scripted([
       [{ type: 'tool', id: 'a', name: 'slow', input: {} }, { type: 'tool', id: 'b', name: 'next', input: {} }],
     ], async (name) => { if (name === 'slow') await gate; return { ok: true, content: 'x' }; });
-    const p = agent.send('go', () => {});
+    let settled = false;
+    const p = agent.send('go', () => {}).finally(() => { settled = true; });
     await new Promise((r) => setTimeout(r, 10));
     agent.stop();
+    // A step that is running is not cut off: its change must land in this exchange (one undo step).
+    await new Promise((r) => setTimeout(r, 10));
+    expect(settled).toBe(false);
+    expect(agent.busy).toBe(true);
     release();
     const res = await p;
     expect(res.stopped).toBe(true);
-    expect(res.steps.map((s) => s.status)).toEqual(['skipped', 'skipped']);
+    expect(res.steps.map((s) => s.status)).toEqual(['done', 'skipped']);
+    expect(agent.busy).toBe(false);
     const tools = agent.messages.filter((m) => m.role === 'tool');
     expect(tools).toHaveLength(2);
     // The next message closes nothing extra: the transcript ends with tool results, then the new user turn.
     const { agent: a2 } = scripted([]);
     expect(a2.busy).toBe(false);
+  });
+
+  it('stays busy after a reset until the running step finishes, and starts the new chat empty', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    const { agent } = scripted([[{ type: 'tool', id: 'a', name: 'slow', input: {} }]], async () => { await gate; return { ok: true, content: 'x' }; });
+    const p = agent.send('go', () => {});
+    await new Promise((r) => setTimeout(r, 10));
+    agent.reset();
+    expect(agent.messages).toEqual([]);
+    expect(agent.busy).toBe(true);
+    release();
+    expect((await p).stopped).toBe(true);
+    expect(agent.busy).toBe(false);
+    expect(agent.messages).toEqual([]);
   });
 
   it('sends attached files with their message, then only names them after a few turns', async () => {

@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { closeMenus, openMenu } from '../src/ui/menu';
-import { confirmDialog, promptDialog, toast } from '../src/ui/overlay';
+import { attachTooltip, confirmDialog, promptDialog, toast } from '../src/ui/overlay';
 import { numberField, parseParam, paramText, type UnitContext } from '../src/app/pm';
+import { Selection } from '../src/app/selection';
 
 const ctx = (units: UnitContext['units'] = 'MMGS'): UnitContext => ({ units, decimals: 2, variables: () => new Map([['Len', 4]]) });
 const key = (el: Element, k: string, init: KeyboardEventInit = {}) => el.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, ...init }));
@@ -42,6 +43,50 @@ describe('menus', () => {
   });
 });
 
+describe('menu focus', () => {
+  it('returns focus to the opener after running an item, also from a submenu', () => {
+    const opener = document.createElement('button');
+    document.body.append(opener);
+    opener.focus();
+    const run = vi.fn(() => document.activeElement);
+    const menu = openMenu([{ label: 'Item', run }, { label: 'More', submenu: () => [{ label: 'Deep', run }] }], 0, 0);
+    (menu.querySelector('[role="menuitem"]') as HTMLElement).click();
+    expect(run).toHaveLastReturnedWith(opener);
+    const menu2 = openMenu([{ label: 'More', submenu: () => [{ label: 'Deep', run }] }], 0, 0);
+    (menu2.querySelector('[role="menuitem"]') as HTMLElement).click();
+    const deep = [...document.querySelectorAll('.menu')][1].querySelector('[role="menuitem"]') as HTMLElement;
+    expect(document.activeElement).toBe(deep);
+    deep.click();
+    expect(document.querySelector('.menu')).toBeNull();
+    expect(run).toHaveLastReturnedWith(opener);
+  });
+});
+
+describe('tooltips', () => {
+  it('do not appear or linger for a control that was removed', () => {
+    vi.useFakeTimers();
+    try {
+      const a = document.createElement('button');
+      const b = document.createElement('button');
+      document.body.append(a, b);
+      attachTooltip(a, 'A');
+      attachTooltip(b, 'B');
+      a.dispatchEvent(new Event('pointerenter'));
+      a.remove();
+      vi.advanceTimersByTime(1000);
+      expect(document.querySelector('.tooltip')).toBeNull();
+      b.dispatchEvent(new Event('pointerenter'));
+      vi.advanceTimersByTime(1000);
+      expect(document.querySelector('.tooltip')?.textContent).toBe('B');
+      b.remove();
+      document.body.dispatchEvent(new Event('pointerover', { bubbles: true }));
+      expect(document.querySelector('.tooltip')).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
 describe('dialogs and toasts', () => {
   it('resolves confirm dialogs and closes on Escape', async () => {
     const p = confirmDialog('Delete', 'Really?', 'Delete', true);
@@ -52,6 +97,18 @@ describe('dialogs and toasts', () => {
     const p2 = confirmDialog('Delete', 'Really?');
     key(document.querySelector('[role="dialog"]')!, 'Escape');
     expect(await p2).toBe(false);
+  });
+
+  it('puts focus inside destructive confirmations, on the safe button', async () => {
+    const opener = document.createElement('button');
+    document.body.append(opener);
+    opener.focus();
+    const p = confirmDialog('Delete', 'Really?', 'Delete', true);
+    await new Promise((r) => requestAnimationFrame(r));
+    expect((document.activeElement as HTMLElement).textContent).toBe('Cancel');
+    key(document.activeElement!, 'Escape');
+    expect(await p).toBe(false);
+    expect(document.activeElement).toBe(opener);
   });
 
   it('validates prompt input', async () => {
@@ -100,9 +157,23 @@ describe('PropertyManager number fields', () => {
     input.value = '-5';
     key(input, 'Enter');
     expect(input.classList.contains('invalid')).toBe(true);
+    expect(input.getAttribute('aria-invalid')).toBe('true');
     input.value = '=Len+1';
     key(input, 'Enter');
     expect(onChange).toHaveBeenLastCalledWith('=Len+1');
     expect(input.classList.contains('expr')).toBe(true);
+  });
+});
+
+describe('selection', () => {
+  it('tells listeners when only the hover changed', () => {
+    const sel = new Selection();
+    const calls: boolean[] = [];
+    sel.on((hoverOnly) => calls.push(hoverOnly));
+    sel.setHover({ kind: 'origin' });
+    sel.setHover({ kind: 'origin' });
+    sel.set([{ kind: 'feature', id: 'f1' }]);
+    sel.setHover(null);
+    expect(calls).toEqual([true, false, true]);
   });
 });

@@ -232,17 +232,14 @@ export function createAgent(o: AgentOptions) {
             content = 'Error: the arguments could not be read as JSON.';
           } else {
             emit({ type: 'step', step: { ...step } });
-            const result = await Promise.race([o.runTool(call.name, call.input), stopSignal]);
-            if (result === STOP) {
-              step.status = 'skipped';
-              content = 'Stopped by the user while running; its effect may or may not have been applied. Check the part before continuing.';
-            } else {
-              step.status = result.ok ? 'done' : 'error';
-              step.changed = !!result.changed;
-              step.summary = result.content.replace(/^Error:\s*/, '').split('\n')[0].slice(0, 300);
-              if (result.image) { step.image = result.image; images.push(result.image); }
-              content = result.content;
-            }
+            // A tool cannot be interrupted: a Stop while it runs waits for it, so
+            // its change lands inside this exchange (one undo step) and is reported.
+            const result = await o.runTool(call.name, call.input).catch((e): ToolResult => ({ ok: false, content: `Error: ${(e as Error)?.message ?? String(e)}` }));
+            step.status = result.ok ? 'done' : 'error';
+            step.changed = !!result.changed;
+            step.summary = result.content.replace(/^Error:\s*/, '').split('\n')[0].slice(0, 300);
+            if (result.image) { step.image = result.image; images.push(result.image); }
+            content = result.content;
           }
           emit({ type: 'step', step: { ...step } });
           messages.push({ role: 'tool', tool_call_id: call.id, content });
@@ -287,7 +284,8 @@ export function createAgent(o: AgentOptions) {
       return exchange(onEvent);
     },
     stop() { running?.stop(); },
-    reset() { running?.stop(); running = null; transcript = []; },
+    /** Starts over; an exchange still running ends at once, or when the step it is running finishes. */
+    reset() { running?.stop(); transcript = []; },
   };
 }
 

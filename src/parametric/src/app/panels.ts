@@ -133,6 +133,19 @@ abstract class FeaturePanel<T extends Feature> extends PropertyPanel {
     return this.editingId ? this.f.name : FEATURE_LABELS[this.f.type];
   }
 
+  /** The feature as the panel first showed it, to tell whether it was changed. */
+  private initial: string | null = null;
+
+  mount(): HTMLElement {
+    const el = super.mount();
+    this.initial ??= JSON.stringify(this.f);
+    return el;
+  }
+
+  get edited(): boolean {
+    return this.initial !== null && JSON.stringify(this.f) !== this.initial;
+  }
+
   preview(): Feature | null {
     return this.f;
   }

@@ -62,6 +62,11 @@ export abstract class PropertyPanel {
 
   cancel(): void {}
 
+  /** True when the panel holds changes that OK would apply. */
+  get edited(): boolean {
+    return false;
+  }
+
   /** Viewport pick filter while this panel is open. */
   filter(): PickFilter {
     return this.activeBox?.filter ?? {};
@@ -196,7 +201,8 @@ export function numberField(o: NumberFieldOptions): HTMLElement {
     }
     if (o.min !== undefined && r.num < o.min) {
       input.classList.add('invalid');
-      input.title = `Must be at least ${o.min}`;
+      input.setAttribute('aria-invalid', 'true');
+      input.title = `Must be at least ${paramText(o.min, o.kind, o.ctx)}`;
       return;
     }
     input.classList.remove('invalid');
@@ -366,6 +372,6 @@ export class SelectionBox {
 
 export function fmt(v: number, kind: ParamKind, ctx: UnitContext): string {
   if (kind === 'length') return `${formatNumber(v / UNIT_SYSTEMS[ctx.units].scale, ctx.decimals)} ${UNIT_SYSTEMS[ctx.units].length}`;
-  if (kind === 'angle') return `${formatNumber(v, 2)}Â°`;
+  if (kind === 'angle') return `${formatNumber(v, 2)}°`;
   return String(v);
 }

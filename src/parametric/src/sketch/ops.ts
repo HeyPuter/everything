@@ -314,13 +314,15 @@ export function lineIntersection(a: Vec2, b: Vec2, c: Vec2, d: Vec2): Vec2 | nul
 // ---------- trim / extend ----------
 
 /** All cut points on curve `e` from other non-construction... curves. */
-function cutPoints(sk: SketchFeature, e: SkCurve): Vec2[] {
+function cutPoints(sk: SketchFeature, e: SkCurve): { p: Vec2; by?: Id }[] {
   const ix = new SketchIndex(sk.entities);
   const mine = primsOf(ix, e);
-  const pts: Vec2[] = [];
+  const pts: { p: Vec2; by?: Id }[] = [];
   for (const o of sk.entities) {
     if (o.t === 'point' || o.id === e.id) continue;
-    for (const p of mine) for (const q of primsOf(ix, o as SkCurve)) pts.push(...intersectPrims(p, q));
+    // `by`: the cutting curve, which the new end point is kept on.
+    const by = o.t === 'spline' ? undefined : o.id;
+    for (const p of mine) for (const q of primsOf(ix, o as SkCurve)) for (const x of intersectPrims(p, q)) pts.push({ p: x, by });
   }
   // Points lying on the curve (e.g. end points of other curves) also cut.
   for (const o of sk.entities) {
@@ -328,10 +330,23 @@ function cutPoints(sk: SketchFeature, e: SkCurve): Vec2[] {
     if (pointIdsOf(e).includes(o.id)) continue;
     const p: Vec2 = [o.x, o.y];
     for (const prim of mine) {
-      if (prim.kind === 'seg' && closestOnSegment(p, prim.a!, prim.b!).d < 1e-7) pts.push(p);
+      if (prim.kind === 'seg' && closestOnSegment(p, prim.a!, prim.b!).d < 1e-7) pts.push({ p });
     }
   }
   return pts;
+}
+
+/** New end point at a cut, kept on the curve that made the cut. */
+function cutEnd(sk: SketchFeature, cut: { p: Vec2; by?: Id }, newId: (p: string) => Id): Id {
+  const id = newId('p');
+  sk.entities.push({ id, t: 'point', x: cut.p[0], y: cut.p[1] });
+  if (cut.by) sk.constraints.push({ id: newId('r'), type: 'coincident', refs: [id, cut.by] });
+  return id;
+}
+
+/** Drops dimensions of a line's own length, which no longer apply once it is trimmed or extended. */
+function dropLengthDimensions(sk: SketchFeature, lineId: Id) {
+  sk.constraints = sk.constraints.filter((k) => !(isDimension(k) && k.refs.length === 1 && k.refs[0] === lineId && (k.type === 'distance' || k.type === 'hdistance' || k.type === 'vdistance')));
 }
 
 /**
@@ -343,7 +358,7 @@ export function trimAt(sk: SketchFeature, curveId: Id, at: Vec2, newId: (p: stri
   const found = ix.get(curveId);
   if (!found || found.t === 'point') return false;
   const e: SkCurve = found;
-  const cuts = cutPoints(sk, e).map((p) => ({ p, t: curveParam(ix, e, p) }));
+  const cuts = cutPoints(sk, e).map((c) => ({ ...c, t: curveParam(ix, e, c.p) }));
   const tc = curveParam(ix, e, at);
   if (e.t === 'line' || e.t === 'arc' || e.t === 'spline') {
     const inner = cuts.filter((c) => c.t > 1e-6 && c.t < 1 - 1e-6);
@@ -352,10 +367,10 @@ export function trimAt(sk: SketchFeature, curveId: Id, at: Vec2, newId: (p: stri
     if (!before && !after) { deleteItems(sk, [curveId]); return true; }
     if (e.t === 'spline') return false;
     const startId = e.a, endId = e.b;
+    if (e.t === 'line') dropLengthDimensions(sk, e.id);
     if (before && after) {
       // Split: keep [start, before] on this entity and add [after, end].
-      const p1 = newId('p'), p2 = newId('p');
-      sk.entities.push({ id: p1, t: 'point', x: before.p[0], y: before.p[1] }, { id: p2, t: 'point', x: after.p[0], y: after.p[1] });
+      const p1 = cutEnd(sk, before, newId), p2 = cutEnd(sk, after, newId);
       const copy = { ...e, id: newId(e.t === 'line' ? 'l' : 'a'), a: p2, b: endId } as SkLine | SkArc;
       e.b = p1;
       sk.entities.push(copy);
@@ -363,14 +378,10 @@ export function trimAt(sk: SketchFeature, curveId: Id, at: Vec2, newId: (p: stri
       return true;
     }
     if (before) {
-      const p1 = newId('p');
-      sk.entities.push({ id: p1, t: 'point', x: before.p[0], y: before.p[1] });
-      e.b = p1;
+      e.b = cutEnd(sk, before, newId);
       dropOrphan(sk, endId);
     } else if (after) {
-      const p1 = newId('p');
-      sk.entities.push({ id: p1, t: 'point', x: after.p[0], y: after.p[1] });
-      e.a = p1;
+      e.a = cutEnd(sk, after, newId);
       dropOrphan(sk, startId);
     }
     cleanupConstraints(sk);
@@ -379,14 +390,12 @@ export function trimAt(sk: SketchFeature, curveId: Id, at: Vec2, newId: (p: stri
   // Circle: needs two cuts and becomes an arc covering the rest.
   if (e.t === 'circle') {
     if (cuts.length < 2) { deleteItems(sk, [curveId]); return true; }
-    const sorted = cuts.map((c) => c.t).sort((a, b) => a - b);
-    let lo = sorted[sorted.length - 1] - 2 * Math.PI, hi = sorted[0];
-    for (let i = 0; i + 1 < sorted.length; i++) if (tc >= sorted[i] && tc <= sorted[i + 1]) { lo = sorted[i]; hi = sorted[i + 1]; }
+    const sorted = [...cuts].sort((a, b) => a.t - b.t);
+    let lo = sorted[sorted.length - 1], hi = sorted[0];
+    for (let i = 0; i + 1 < sorted.length; i++) if (tc >= sorted[i].t && tc <= sorted[i + 1].t) { lo = sorted[i]; hi = sorted[i + 1]; }
     const c = ix.pt(e.c);
-    const pa: Vec2 = [c[0] + e.r * Math.cos(hi), c[1] + e.r * Math.sin(hi)];
-    const pb: Vec2 = [c[0] + e.r * Math.cos(lo), c[1] + e.r * Math.sin(lo)];
-    const ia = newId('p'), ib = newId('p');
-    sk.entities.push({ id: ia, t: 'point', x: pa[0], y: pa[1] }, { id: ib, t: 'point', x: pb[0], y: pb[1] });
+    const on = (cut: typeof lo): typeof lo => ({ ...cut, p: [c[0] + e.r * Math.cos(cut.t), c[1] + e.r * Math.sin(cut.t)] });
+    const ia = cutEnd(sk, on(hi), newId), ib = cutEnd(sk, on(lo), newId);
     const idx = sk.entities.indexOf(e);
     const arc: SkArc = { id: e.id, t: 'arc', c: e.c, a: ia, b: ib, construction: e.construction };
     sk.entities[idx] = arc;
@@ -434,6 +443,7 @@ export function extendAt(sk: SketchFeature, lineId: Id, at: Vec2): boolean {
   const pt = sk.entities.find((e) => e.id === pid) as SkPoint;
   pt.x = best[0];
   pt.y = best[1];
+  dropLengthDimensions(sk, lineId);
   return true;
 }
 
@@ -461,6 +471,14 @@ export function filletCorner(sk: SketchFeature, pointId: Id, radius: number, new
   sk.entities.push({ id: p1, t: 'point', x: t1[0], y: t1[1] }, { id: p2, t: 'point', x: t2[0], y: t2[1] }, { id: pc, t: 'point', x: c[0], y: c[1] });
   lines[0][lines[0].a === pointId ? 'a' : 'b'] = p1;
   lines[1][lines[1].a === pointId ? 'a' : 'b'] = p2;
+  // The lines no longer reach the corner, so their length dimensions would
+  // pull them back over the fillet. They measure to the virtual sharp instead.
+  lines.forEach((l, i) => {
+    const farId = l.a === (i === 0 ? p1 : p2) ? l.b : l.a;
+    for (const k of sk.constraints) {
+      if (isDimension(k) && k.refs.length === 1 && k.refs[0] === l.id && (k.type === 'distance' || k.type === 'hdistance' || k.type === 'vdistance')) k.refs = [farId, pointId];
+    }
+  });
   // Counter-clockwise from the start tangent point to the end one.
   const ccw = cross2(sub2(t1, c), sub2(t2, c)) > 0;
   const arcId = newId('a');

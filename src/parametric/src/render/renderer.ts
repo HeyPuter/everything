@@ -69,10 +69,6 @@ uniform vec3 uCapColor;
 out vec4 outColor;
 void main() {
   if (uClipOn == 1 && dot(vec4(vWorld, 1.0), uClip) > 0.0) discard;
-  if (uFlat == 1) { outColor = vec4(uFlatColor, 1.0); return; }
-  vec3 n = normalize(vN);
-  if (!gl_FrontFacing) n = -n;
-  vec3 v = uOrtho == 1 ? vec3(0.0, 0.0, 1.0) : normalize(-vPosV);
   vec3 base = uColor;
   int st = 0;
   if (uUseState == 1) {
@@ -82,6 +78,19 @@ void main() {
     st = int(texelFetch(uState, tc, 0).r * 255.0 + 0.5);
     if ((st & 4) != 0) discard;
   }
+  if (uFlat != 0) {
+    // Line styles: faces hide what is behind them in the background colour
+    // (1) or are not drawn at all (2, wireframe); a selected or hovered face
+    // still gets a light tint of the shaded style's colour.
+    if (uFlat == 2 && (st & 3) == 0) discard;
+    vec3 tint = (st & 2) != 0 ? uSelColor : uHoverColor;
+    float k = (st & 2) != 0 ? 0.3 : (st & 1) != 0 ? 0.18 : 0.0;
+    outColor = uFlat == 2 ? vec4(tint, k) : vec4(mix(uFlatColor, tint, k), 1.0);
+    return;
+  }
+  vec3 n = normalize(vN);
+  if (!gl_FrontFacing) n = -n;
+  vec3 v = uOrtho == 1 ? vec3(0.0, 0.0, 1.0) : normalize(-vPosV);
   vec3 l1 = normalize(vec3(0.35, 0.55, 1.0));
   vec3 l2 = normalize(vec3(-0.6, -0.25, 0.55));
   float d1 = max(dot(n, l1), 0.0);
@@ -274,9 +283,12 @@ precision highp int;
 flat in int vId;
 in vec3 vWorld;
 uniform mat4 uView;
+uniform vec4 uClip;
+uniform int uClipOn;
 layout(location=0) out uint outId;
 layout(location=1) out float outDepth;
 void main() {
+  if (uClipOn == 1 && dot(vec4(vWorld, 1.0), uClip) > 0.0) discard;
   outId = (3u << 28) | uint(vId);
   outDepth = -(uView * vec4(vWorld, 1.0)).z;
 }`;
@@ -333,6 +345,8 @@ export interface Theme {
   background: [number, number, number];
   model: [number, number, number];
   edge: [number, number, number];
+  /** Visible edges where faces are not shaded (line styles). */
+  wire: [number, number, number];
   hiddenEdge: [number, number, number];
   selection: [number, number, number];
   hover: [number, number, number];
@@ -352,12 +366,15 @@ export class Renderer {
   private progs: Record<string, Prog> = {};
   private model: GpuMesh | null = null;
   private preview: GpuMesh | null = null;
+  /** CPU copies of the meshes, re-uploaded when a lost context is restored. */
+  private modelMesh: MeshData | null = null;
+  private previewMesh: MeshData | null = null;
   private previewKind: 'tool' | 'body' = 'tool';
   previewCut = false;
-  private quad: WebGLBuffer;
-  private faceState: WebGLTexture;
-  private faceColor: WebGLTexture;
-  private edgeState: WebGLTexture;
+  private quad!: WebGLBuffer;
+  private faceState!: WebGLTexture;
+  private faceColor!: WebGLTexture;
+  private edgeState!: WebGLTexture;
   private faceStateData: Uint8Array = new Uint8Array(0);
   private edgeStateData: Uint8Array = new Uint8Array(0);
   private faceColorData: Uint8Array = new Uint8Array(0);
@@ -369,11 +386,18 @@ export class Renderer {
   private pickDepthTex: WebGLTexture | null = null;
   private pickRb: WebGLRenderbuffer | null = null;
   private pickSize = [0, 0];
-  private canFloat: boolean;
+  private canFloat = false;
   private raf = 0;
   private dirty = true;
   dpr = 1;
   onFrame: () => void = () => {};
+  /**
+   * Called before drawing a frame in which the camera moved, zoomed or the
+   * viewport was resized, so pixel-sized overlays and screen-positioned DOM
+   * labels can follow the view in the same frame.
+   */
+  onCamera: () => void = () => {};
+  private camSig = new Float64Array(12);
   lost = false;
 
   constructor(readonly canvas: HTMLCanvasElement, theme: Theme) {
@@ -381,6 +405,17 @@ export class Renderer {
     if (!gl) throw new Error('WebGL 2 is not available in this browser');
     this.gl = gl;
     this.theme = theme;
+    this.initGl();
+    this.camera.onChange = () => this.requestRender();
+    // The browser may drop the context (GPU reset, driver update, too many
+    // contexts). Everything is re-created from the CPU copies on restore.
+    canvas.addEventListener('webglcontextlost', (e) => { e.preventDefault(); this.lost = true; });
+    canvas.addEventListener('webglcontextrestored', () => this.restore());
+  }
+
+  /** Creates programs and the shared buffers and textures. */
+  private initGl() {
+    const gl = this.gl;
     this.canFloat = !!gl.getExtension('EXT_color_buffer_float');
     this.progs.mesh = this.program(MESH_VS, MESH_FS);
     this.progs.seg = this.program(SEG_VS, SEG_FS);
@@ -395,8 +430,24 @@ export class Renderer {
     this.faceState = this.dataTexture();
     this.faceColor = this.dataTexture();
     this.edgeState = this.dataTexture();
-    this.camera.onChange = () => this.requestRender();
-    canvas.addEventListener('webglcontextlost', (e) => { e.preventDefault(); this.lost = true; });
+  }
+
+  private restore() {
+    this.initGl();
+    this.pickFbo = this.pickTex = this.pickDepthTex = this.pickRb = null;
+    this.pickSize = [0, 0];
+    this.pbo = null;
+    this.lost = false;
+    this.model = this.modelMesh ? this.meshToGpu(this.modelMesh) : null;
+    this.preview = this.previewMesh ? this.meshToGpu(this.previewMesh) : null;
+    this.uploadData(this.faceState, this.faceStateData, this.faceStateData.length, 1);
+    this.uploadData(this.edgeState, this.edgeStateData, this.edgeStateData.length, 1);
+    this.uploadData(this.faceColor, this.faceColorData, this.faceColorData.length / 4, 4);
+    // Old GPU handles belong to the lost context; drop them before re-uploading.
+    for (const [k, b] of [...this.lines]) { b.gpu = undefined; this.setLines(k, b); }
+    for (const [k, b] of [...this.points]) { b.gpu = undefined; this.setPoints(k, b); }
+    for (const [k, b] of [...this.tris]) { b.gpu = undefined; this.setTris(k, b); }
+    this.requestRender();
   }
 
   private program(vs: string, fs: string): Prog {
@@ -540,7 +591,8 @@ export class Renderer {
 
   setModel(m: MeshData | null, faceCount: number, edgeCount: number) {
     this.freeMesh(this.model);
-    this.model = m && m.indices.length ? this.meshToGpu(m) : null;
+    this.modelMesh = m && m.indices.length ? m : null;
+    this.model = this.modelMesh ? this.meshToGpu(this.modelMesh) : null;
     this.faceStateData = new Uint8Array(faceCount);
     this.edgeStateData = new Uint8Array(edgeCount);
     this.faceColorData = new Uint8Array(faceCount * 4);
@@ -552,7 +604,8 @@ export class Renderer {
 
   setPreview(m: MeshData | null, kind: 'tool' | 'body' = 'tool', isCut = false) {
     this.freeMesh(this.preview);
-    this.preview = m && m.indices.length ? this.meshToGpu(m) : null;
+    this.previewMesh = m && m.indices.length ? m : null;
+    this.preview = this.previewMesh ? this.meshToGpu(this.previewMesh) : null;
     this.previewKind = kind;
     this.previewCut = isCut;
     this.requestRender();
@@ -676,12 +729,27 @@ export class Renderer {
   private frame(now: number) {
     this.raf = 0;
     const animating = this.camera.tick(now);
+    if (this.cameraMoved()) {
+      this.onCamera();
+      // Overlays updated by the hook are drawn in this frame, not the next.
+      if (this.raf) { cancelAnimationFrame(this.raf); this.raf = 0; }
+      this.dirty = true;
+    }
     if (this.dirty || animating) {
       this.dirty = false;
       this.draw();
       this.onFrame();
     }
     if (animating) this.requestRender();
+  }
+
+  /** True when the view changed since the last check. */
+  private cameraMoved(): boolean {
+    const c = this.camera, s = this.camSig;
+    const v = [c.target[0], c.target[1], c.target[2], c.distance, c.rot[0], c.rot[1], c.rot[2], c.rot[3], c.ortho ? 1 : 0, c.width, c.height, c.fov];
+    let changed = false;
+    for (let i = 0; i < v.length; i++) if (s[i] !== v[i]) { s[i] = v[i]; changed = true; }
+    return changed;
   }
 
   private clipVec(): [number, number, number, number] | null {
@@ -718,8 +786,16 @@ export class Renderer {
       if (style !== 'wireframe') {
         gl.enable(gl.POLYGON_OFFSET_FILL);
         gl.polygonOffset(1, 1);
-        this.drawMesh(body, vp, view, clip, { flat, alpha: 1, useState: showBody, color: this.modelColor ?? this.theme.model });
+        this.drawMesh(body, vp, view, clip, { flat: flat ? 1 : 0, alpha: 1, useState: showBody, color: this.modelColor ?? this.theme.model });
         gl.disable(gl.POLYGON_OFFSET_FILL);
+      } else if (showBody && this.faceStateData.some((s) => s & 3)) {
+        // Wireframe draws no faces: tint just the selected and hovered ones.
+        gl.disable(gl.DEPTH_TEST);
+        gl.enable(gl.BLEND);
+        gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+        this.drawMesh(body, vp, view, clip, { flat: 2, alpha: 1, useState: true, color: this.theme.model });
+        gl.disable(gl.BLEND);
+        gl.enable(gl.DEPTH_TEST);
       }
       if (style !== 'shaded' || !showBody) {
         if (style === 'hiddenVisible' && body.edges) {
@@ -732,7 +808,8 @@ export class Renderer {
         if (body.edges) {
           const wire = style === 'wireframe';
           if (wire) gl.disable(gl.DEPTH_TEST);
-          this.drawSegs(body.edges, vp, viewport, clip, { width: 1.25, color: [...this.theme.edge, 1], useState: showBody, bias: 2e-5 });
+          const ec = flat || wire ? this.theme.wire : this.theme.edge;
+          this.drawSegs(body.edges, vp, viewport, clip, { width: 1.25, color: [...ec, 1], useState: showBody, bias: 2e-5 });
           if (wire) gl.enable(gl.DEPTH_TEST);
         }
       } else if (body.edges && this.edgeStateData.some((s) => s & 3)) {
@@ -750,7 +827,7 @@ export class Renderer {
     gl.depthMask(false);
     if (this.preview && this.previewKind === 'tool') {
       const c = this.previewCut ? this.theme.previewCut : this.theme.preview;
-      this.drawMesh(this.preview, vp, view, null, { flat: false, alpha: 0.5, useState: false, color: c });
+      this.drawMesh(this.preview, vp, view, null, { flat: 0, alpha: 0.5, useState: false, color: c });
       if (this.preview.edges) this.drawSegs(this.preview.edges, vp, viewport, null, { width: 1, color: [c[0] * 0.6, c[1] * 0.6, c[2] * 0.6, 0.9], useState: false, bias: 2e-5 });
     }
     for (const b of ordered(this.tris, 'test')) this.drawTriBatch(b, vp);
@@ -763,7 +840,8 @@ export class Renderer {
     gl.enable(gl.DEPTH_TEST);
   }
 
-  private drawMesh(m: GpuMesh, vp: Float32Array, view: Float32Array, clip: number[] | null, o: { flat: boolean; alpha: number; useState: boolean; color: number[] }) {
+  /** `flat`: 0 shaded, 1 background fill (line styles), 2 only selected/hovered faces, translucent (wireframe). */
+  private drawMesh(m: GpuMesh, vp: Float32Array, view: Float32Array, clip: number[] | null, o: { flat: 0 | 1 | 2; alpha: number; useState: boolean; color: number[] }) {
     const gl = this.gl;
     const { p, u } = this.progs.mesh;
     gl.useProgram(p);
@@ -773,7 +851,7 @@ export class Renderer {
     gl.uniform1f(u.uAlpha, o.alpha);
     gl.uniform1i(u.uUseState, o.useState ? 1 : 0);
     gl.uniform1i(u.uOrtho, this.camera.ortho ? 1 : 0);
-    gl.uniform1i(u.uFlat, o.flat ? 1 : 0);
+    gl.uniform1i(u.uFlat, o.flat);
     gl.uniform3fv(u.uFlatColor, this.theme.background);
     gl.uniform3fv(u.uSelColor, this.theme.selection);
     gl.uniform3fv(u.uHoverColor, this.theme.hover);
@@ -882,6 +960,11 @@ export class Renderer {
     this.pickSize = [w, h];
   }
 
+  /**
+   * Draws ids into the offscreen pick target. It never touches the canvas's
+   * drawing buffer, and WebGL only presents (or clears) that buffer after
+   * draws to it, so a pick needs no redraw of the visible frame.
+   */
   private renderPick(x: number, y: number, want: PickWant, radius: number): PickRegion | null {
     const m = this.model;
     if (!m || this.lost) return null;
@@ -890,7 +973,9 @@ export class Renderer {
     const dpr = this.dpr;
     const R = Math.ceil(radius * dpr);
     const size = R * 2 + 1;
-    const px = Math.round(x * dpr), py = Math.round(this.canvas.height - y * dpr);
+    // The device pixel whose area contains the CSS point (GL rows count up).
+    const px = Math.floor(x * dpr), py = Math.floor(this.canvas.height - y * dpr);
+    if (px < 0 || py < 0 || px >= this.canvas.width || py >= this.canvas.height) return null;
     const x0 = Math.max(0, px - R), y0 = Math.max(0, py - R);
     const w = Math.min(size, this.canvas.width - x0), h = Math.min(size, this.canvas.height - y0);
     if (w <= 0 || h <= 0) return null;
@@ -954,6 +1039,8 @@ export class Renderer {
       gl.uniformMatrix4fv(u.uView, false, view);
       gl.uniform2fv(u.uViewport, viewport);
       gl.uniform1f(u.uSize, 11);
+      gl.uniform1i(u.uClipOn, clip ? 1 : 0);
+      if (clip) gl.uniform4fv(u.uClip, clip);
       gl.bindVertexArray(m.verts.vao);
       gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, m.verts.count);
     }
@@ -980,7 +1067,6 @@ export class Renderer {
     }
     gl.disable(gl.SCISSOR_TEST);
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-    this.requestRender();
     return this.decodePick(ids, depths, r, x, y);
   }
 
@@ -1017,7 +1103,6 @@ export class Renderer {
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     const sync = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0)!;
     gl.flush();
-    this.requestRender();
     return new Promise((resolve) => {
       const poll = () => {
         if (seq !== this.asyncSeq || this.lost) { gl.deleteSync(sync); resolve(undefined); return; }

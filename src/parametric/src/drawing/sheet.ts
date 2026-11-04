@@ -77,16 +77,19 @@ export function standardLayout(sheet: { w: number; h: number }, min: Vec3, max: 
   const f = projectedSize('front', min, max), t = projectedSize('top', min, max), r = projectedSize('right', min, max), i = projectedSize('isometric', min, max);
   const c1 = Math.max(f[0], t[0]), c2 = Math.max(r[0], i[0]);
   const r1 = Math.max(t[1], i[1]), r2 = Math.max(f[1], r[1]);
-  // Room around each view for its dimensions and label.
+  // Room around each view for its dimensions and label: left of a view for
+  // its height dimension, below it for its width dimension and label (the
+  // top row needs that room as much as the bottom one).
   const gap = 15;
+  const top = 5, below = (3 * gap - top) / 2;
   const availW = sheet.w - 2 * MARGIN - 3 * gap;
   const availH = sheet.h - 2 * MARGIN - TITLE_H - 3 * gap;
   const fit = Math.min(availW / Math.max(c1 + c2, 1e-6), availH / Math.max(r1 + r2, 1e-6));
   const scale = STANDARD_SCALES.find((s) => s <= fit) ?? STANDARD_SCALES[STANDARD_SCALES.length - 1];
   const x1 = MARGIN + gap + (c1 * scale) / 2;
   const x2 = MARGIN + 2 * gap + c1 * scale + (c2 * scale) / 2;
-  const y1 = MARGIN + gap + (r1 * scale) / 2;
-  const y2 = MARGIN + 2 * gap + r1 * scale + (r2 * scale) / 2;
+  const y1 = MARGIN + top + (r1 * scale) / 2;
+  const y2 = MARGIN + top + below + r1 * scale + (r2 * scale) / 2;
   return {
     scale,
     views: [
@@ -123,6 +126,9 @@ export interface ViewFrame {
   y1: number;
 }
 
+/** Average Helvetica advance width per em, as in the PDF writer. */
+const TEXT_EM = 0.55;
+const MIN_TEXT = 1.8;
 const VISIBLE_W = 0.35;
 const HIDDEN_W = 0.18;
 const THIN = 0.18;
@@ -134,24 +140,67 @@ export function buildSheet(d: DrawingDoc, projections: Map<string, ProjectionRes
   const frames: ViewFrame[] = [];
   items.push({ t: 'rect', x: MARGIN, y: MARGIN, w: w - 2 * MARGIN, h: h - 2 * MARGIN, sw: 0.5 });
   const s = d.scale;
+  const placed: { v: DrawingView; pr: ProjectionResult; tx: number; ty: number; f: ViewFrame }[] = [];
   for (const v of d.views) {
     const pr = projections.get(v.id);
     if (!pr || !pr.bounds) continue;
     const [bx0, by0, bx1, by1] = pr.bounds;
     const tx = v.x - (s * (bx0 + bx1)) / 2;
     const ty = v.y - (s * (by0 + by1)) / 2;
+    const f = { id: v.id, x0: tx + bx0 * s, y0: ty + by0 * s, x1: tx + bx1 * s, y1: ty + by1 * s };
+    frames.push(f);
+    placed.push({ v, pr, tx, ty, f });
+  }
+  // What a view label must stay clear of: every view with its dimensions,
+  // the labels already placed and the title block.
+  const taken: Box[] = placed.map(({ v, f }) => (hasDims(v) ? [f.x0 - DIM_LEFT, f.y0, f.x1, f.y1 + DIM_BELOW] : [f.x0, f.y0, f.x1, f.y1]));
+  taken.push([w - MARGIN - TITLE_W, h - MARGIN - TITLE_H, w - MARGIN, h - MARGIN]);
+  for (const [i, { v, pr, tx, ty, f }] of placed.entries()) {
+    const [bx0, by0, bx1, by1] = pr.bounds!;
     if (v.hidden) for (const p of pr.hidden) items.push({ t: 'path', d: p, tx, ty, s, w: HIDDEN_W, dash: [1.6, 0.8], view: v.id });
     for (const p of pr.visible) items.push({ t: 'path', d: p, tx, ty, s, w: VISIBLE_W, view: v.id });
-    const fx0 = tx + bx0 * s, fx1 = tx + bx1 * s, fy0 = ty + by0 * s, fy1 = ty + by1 * s;
-    frames.push({ id: v.id, x0: fx0, y0: fy0, x1: fx1, y1: fy1 });
-    items.push({ t: 'text', s: VIEW_LABELS[v.kind].toUpperCase(), x: (fx0 + fx1) / 2, y: fy1 + (v.dims && v.kind !== 'isometric' ? 18 : 7), size: 2.6, anchor: 'middle' });
-    if (v.dims && v.kind !== 'isometric') {
+    const { x0: fx0, x1: fx1, y0: fy0, y1: fy1 } = f;
+    const label = viewLabel(VIEW_LABELS[v.kind].toUpperCase(), f, hasDims(v), taken.filter((_, j) => j !== i), w, h);
+    items.push(label.item);
+    taken.push(label.box);
+    if (hasDims(v)) {
       dimension(items, [fx0, fy1], [fx1, fy1], 'below', info.formatLength(bx1 - bx0));
       dimension(items, [fx0, fy0], [fx0, fy1], 'left', info.formatLength(by1 - by0));
     }
   }
   titleBlock(items, w, h, d, info);
   return { items, frames, w, h };
+}
+
+type Box = [x0: number, y0: number, x1: number, y1: number];
+
+const LABEL_SIZE = 2.6;
+/** How far a view's dimensions reach left of and below its outline. */
+const DIM_LEFT = 12;
+const DIM_BELOW = 10.5;
+
+const hasDims = (v: DrawingView) => v.dims && v.kind !== 'isometric';
+
+/**
+ * A view's label: centred below the view (past its width dimension) unless
+ * something else is there, then above it, then to its right; below when
+ * nothing is free, as before.
+ */
+function viewLabel(s: string, f: ViewFrame, dims: boolean, taken: Box[], w: number, h: number): { item: Item; box: Box } {
+  const half = (s.length * LABEL_SIZE * TEXT_EM) / 2;
+  const cx = (f.x0 + f.x1) / 2;
+  // Each candidate's text box allows 1 mm of air around the capitals.
+  const at = (x: number, y: number, anchor: 'start' | 'middle') => {
+    const x0 = anchor === 'start' ? x : x - half;
+    const box: Box = [x0 - 1, y - LABEL_SIZE * 0.75 - 1, x0 + 2 * half + 1, y + 1];
+    return { item: { t: 'text', s, x, y, size: LABEL_SIZE, anchor } as Item, box };
+  };
+  const below = at(cx, f.y1 + (dims ? 16 : 7), 'middle');
+  const candidates = [below, at(cx, f.y0 - 3, 'middle'), at(f.x1 + 4, (f.y0 + f.y1) / 2 + LABEL_SIZE * 0.375, 'start')];
+  const free = (b: Box) =>
+    b[0] >= MARGIN && b[1] >= MARGIN && b[2] <= w - MARGIN && b[3] <= h - MARGIN &&
+    !taken.some((o) => b[0] < o[2] && b[2] > o[0] && b[1] < o[3] && b[3] > o[1]);
+  return candidates.find((c) => free(c.box)) ?? below;
 }
 
 /** Overall dimension between two points (horizontal below, vertical left). */
@@ -186,20 +235,39 @@ function titleBlock(items: Item[], w: number, h: number, d: DrawingDoc, info: Sh
   items.push({ t: 'line', x1: c1, y1: y, x2: c1, y2: y + TITLE_H, w: 0.25 });
   items.push({ t: 'line', x1: c2, y1: y + row, x2: c2, y2: y + TITLE_H, w: 0.25 });
   const label = (s: string, lx: number, ly: number) => items.push({ t: 'text', s, x: lx + 1.5, y: ly + 3, size: 1.8 });
-  const value = (s: string, lx: number, ly: number, size = 3.2, bold = false) => items.push({ t: 'text', s, x: lx + 1.5, y: ly + row - 2, size, bold });
-  label('TITLE', x, y); value(d.title || info.partName, x, y, 4, true);
-  label('SCALE', c1, y); value(scaleLabel(d.scale), c1, y);
-  label('MATERIAL', x, y + row); value(info.material, x, y + row, 2.8);
-  label('UNITS', c2, y + row); value(info.units, c2, y + row, 2.8);
-  label('DATE', c1, y + row); value(info.date, c1, y + row, 2.8);
-  label('DRAWN BY', x, y + 2 * row); value(d.drawnBy || '', x, y + 2 * row, 2.8);
-  label('SHEET', c2, y + 2 * row); value(`${d.sheet}${d.landscape ? '' : ' portrait'}`, c2, y + 2 * row, 2.8);
-  label('NOTES', c1, y + 2 * row); value(d.notes || '', c1, y + 2 * row, 2.4);
+  // Long values shrink to fit their cell, down to a legible minimum, then are cut short.
+  const value = (s: string, lx: number, ly: number, cellW: number, size = 3.2, bold = false) => {
+    const room = cellW - 3;
+    let fitted = s;
+    if (s.length * size * TEXT_EM > room) {
+      size = Math.max(MIN_TEXT, room / (s.length * TEXT_EM));
+      const max = Math.floor(room / (size * TEXT_EM));
+      if (s.length > max) fitted = `${s.slice(0, Math.max(0, max - 1)).trimEnd()}\u2026`;
+    }
+    items.push({ t: 'text', s: fitted, x: lx + 1.5, y: ly + row - 2, size, bold });
+  };
+  const right = x + TITLE_W;
+  label('TITLE', x, y); value(d.title || info.partName, x, y, c1 - x, 4, true);
+  label('SCALE', c1, y); value(scaleLabel(d.scale), c1, y, right - c1);
+  label('MATERIAL', x, y + row); value(info.material, x, y + row, c2 - x, 2.8);
+  label('UNITS', c2, y + row); value(info.units, c2, y + row, c1 - c2, 2.8);
+  label('DATE', c1, y + row); value(info.date, c1, y + row, right - c1, 2.8);
+  label('DRAWN BY', x, y + 2 * row); value(d.drawnBy || '', x, y + 2 * row, c2 - x, 2.8);
+  label('SHEET', c2, y + 2 * row); value(`${d.sheet}${d.landscape ? '' : ' portrait'}`, c2, y + 2 * row, c1 - c2, 2.8);
+  label('NOTES', c1, y + 2 * row); value(d.notes || '', c1, y + 2 * row, right - c1, 2.4);
 }
 
 // ---------- renderers ----------
 
-const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
+/**
+ * Text for XML: markup characters escaped, and characters XML 1.0 forbids
+ * (control characters, lone surrogates, U+FFFE/U+FFFF) dropped, since one of
+ * them in a title or note makes the whole SVG fail to open.
+ */
+const esc = (s: string) =>
+  s
+    .replace(/[\ud800-\udbff][\udc00-\udfff]|[\u0000-\u0008\u000b\u000c\u000e-\u001f\ufffe\uffff\ud800-\udfff]/g, (c) => (c.length === 2 ? c : ''))
+    .replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
 
 /** SVG document (millimetre units). */
 export function toSvg(items: Item[], w: number, h: number, opts: { background?: string; ink?: string } = {}): string {

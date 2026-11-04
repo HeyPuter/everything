@@ -237,7 +237,8 @@ export function registerCommands(app: App, files: FileOps) {
     { id: 'drawing:svg', label: 'Export SVG', icon: 'download', enabled: () => !!app.store.doc.drawing && app.inDrawing, run: () => app.drawing.exportSvg() },
     { id: 'zoomIn', label: 'Zoom In', icon: 'zoomIn', shortcut: 'Shift+Z', run: () => app.viewport.zoomBy(0.8) },
     { id: 'zoomOut', label: 'Zoom Out', icon: 'zoomOut', shortcut: 'Z', run: () => app.viewport.zoomBy(1.25) },
-    { id: 'previousView', label: 'Previous View', icon: 'previousView', shortcut: 'Ctrl+Shift+Z', run: () => app.viewport.previousView() },
+    // No shortcut: Ctrl+Shift+Z is Redo.
+    { id: 'previousView', label: 'Previous View', icon: 'previousView', run: () => app.viewport.previousView() },
     view('front', 'Front', 'viewFront', 'Ctrl+1'),
     view('back', 'Back', 'viewBack', 'Ctrl+2'),
     view('left', 'Left', 'viewLeft', 'Ctrl+3'),

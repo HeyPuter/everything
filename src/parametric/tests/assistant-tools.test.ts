@@ -5,6 +5,7 @@ import init from 'replicad-opencascadejs';
 import { setOc } from '../src/kernel/occ';
 import type { SketchFeature } from '../src/model/types';
 import { TestHost } from './assistant-host';
+import { toolSpecs } from '../src/assistant/tools';
 
 beforeAll(async () => {
   setOc(await init());
@@ -29,6 +30,19 @@ describe('assistant tools', () => {
     expect(r.content).toContain(top.name);
     const sk = h.store.feature<SketchFeature>('s1')!;
     expect(sk.entities.filter((e) => e.t === 'line').map((e) => e.id).sort()).toEqual(['base_d0', 'base_d1', 'base_l0', 'base_l1', 'base_l2', 'base_l3']);
+  });
+
+  it('offers no thin (wall) option, which the kernel does not build, and refuses one', async () => {
+    for (const name of ['add_extrude', 'add_revolve']) {
+      const spec = toolSpecs().find((t) => t.function.name === name)!;
+      expect(Object.keys((spec.function.parameters as { properties: object }).properties)).not.toContain('thin');
+    }
+    const h = new TestHost();
+    await h.call('create_sketch', { plane: 'top', shapes: [{ type: 'circle', center: [0, 0], radius: 10 }] });
+    const r = await h.call('add_extrude', { sketch: 's1', depth: 10, thin: { thickness: 1 } }, false);
+    expect(r.ok).toBe(false);
+    expect(r.content).toMatch(/thin \(wall\) features are not supported/);
+    expect(h.store.doc.features).toHaveLength(1);
   });
 
   it('drills holes on a face at world points and patterns nothing it should not', async () => {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { evaluate, evaluateVariables, ExprError, referencedNames } from '../src/model/expr';
+import { evaluate, evaluateVariables, ExprError, referencedNames, renameReferences } from '../src/model/expr';
 
 describe('expression evaluator', () => {
   it('handles precedence, unary minus and powers', () => {
@@ -25,6 +25,13 @@ describe('expression evaluator', () => {
     expect(evaluate('1rad', { kind: 'angle' })).toBeCloseTo(57.29578, 4);
   });
 
+  it('accepts the degree sign and rejects stray characters with a readable error', () => {
+    expect(evaluate('45°', { kind: 'angle' })).toBe(45);
+    expect(evaluate('30° + 15', { kind: 'angle' })).toBe(45);
+    expect(evaluate('90 ° / 2', { kind: 'angle' })).toBe(45);
+    expect(() => evaluate('45Â°', { kind: 'angle' })).toThrow(ExprError);
+  });
+
   it('looks up variables and rejects unknown names', () => {
     expect(evaluate('W/2 + 1', { lookup: (n) => (n === 'W' ? 10 : undefined) })).toBe(6);
     expect(() => evaluate('Q + 1')).toThrow(ExprError);
@@ -47,5 +54,11 @@ describe('expression evaluator', () => {
 
   it('lists referenced names', () => {
     expect(referencedNames('Width * 2 + sin(Angle) + 3mm')).toEqual(['Width', 'Angle']);
+  });
+
+  it('renames variable references and nothing else', () => {
+    const m = new Map([['W', 'Width'], ['in', 'Inside'], ['sin', 'Sine']]);
+    expect(renameReferences('W/2 + 3in + "W" - Wx + sin(30) + in', m)).toBe('Width/2 + 3in + "Width" - Wx + sin(30) + Inside');
+    expect(renameReferences('2.5e3 * W', m)).toBe('2.5e3 * Width');
   });
 });

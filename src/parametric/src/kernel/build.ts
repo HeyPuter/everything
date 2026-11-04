@@ -29,12 +29,16 @@ import type {
 import {
   type EdgeDesc, type Sh, type SurfDesc, ShapeIndex, bbox, cut, describeEdge, describeFace, fuse, getOc, gdir,
   hashOf, isEmpty, meshEdgesOf, meshShape, mirrored, planarFaceFrame, pnt, rotated, sameSurface, subShapes, translated,
-  vertexPoint, wrap, xyz,
+  vertexPoint, volumeOf, wrap, xyz,
 } from './occ';
 
 export { BASE_FRAMES };
 
 export class FeatureError extends Error {}
+
+// Thin (wall) extrudes and revolves are not built yet; failing beats
+// silently making a solid where a wall was asked for.
+const THIN_UNSUPPORTED = 'Thin features are not supported yet. Sketch the wall as two offset contours instead.';
 
 interface NamedFace {
   shape: Sh;
@@ -254,15 +258,19 @@ export class ModelBuilder {
     st.faces.forEach((f, i) => { if (f.name === ref.name) cands.push(i); });
     const near = (list: number[]) =>
       list.reduce((best, i) => (best < 0 || dist(st.faces[i].desc.center, ref.sig.c) < dist(st.faces[best].desc.center, ref.sig.c) ? i : best), -1);
-    if (cands.length === 1) return cands[0];
+    const fits = (d: SurfDesc) => d.type === ref.sig.type && (!ref.sig.n || dot(d.d, ref.sig.n) > 0.999);
+    // A single face of that name is it, unless it is plainly another kind of
+    // face (references saved before a naming fix): then the signature decides.
+    if (cands.length === 1 && fits(st.faces[cands[0]].desc)) return cands[0];
     if (cands.length > 1) return near(cands);
     // Fallback: same type and orientation, nearest centre.
     const b = st.body ? bbox(st.body) : null;
     const lim = b ? dist(b.min, b.max) * 0.05 : 1;
     const alt = st.faces
       .map((f, i) => ({ f, i }))
-      .filter(({ f }) => f.desc.type === ref.sig.type && (!ref.sig.n || dot(f.desc.d, ref.sig.n) > 0.999) && dist(f.desc.center, ref.sig.c) < lim);
+      .filter(({ f }) => fits(f.desc) && dist(f.desc.center, ref.sig.c) < lim);
     if (alt.length) return near(alt.map((a) => a.i));
+    if (cands.length === 1) return cands[0];
     throw new FeatureError('A referenced face no longer exists');
   }
 
@@ -369,10 +377,10 @@ export class ModelBuilder {
     });
   }
 
-  private nameTool(featId: Id, tool: Sh, classify: (d: SurfDesc, k: number) => string): NamedFace[] {
+  private nameTool(featId: Id, tool: Sh, classify: (d: SurfDesc, k: number, shape: Sh) => string): NamedFace[] {
     return subShapes(tool, 'face').map((shape, k) => {
       const desc = describeFace(shape);
-      return { shape, desc, name: `${featId}:${classify(desc, k)}`, feature: featId };
+      return { shape, desc, name: `${featId}:${classify(desc, k, shape)}`, feature: featId };
     });
   }
 
@@ -383,6 +391,8 @@ export class ModelBuilder {
       if (!st.body) throw new FeatureError('There is no material to cut');
       body = cut(st.body, tool);
       if (isEmpty(body)) throw new FeatureError('The cut removes all material');
+      const v0 = volumeOf(st.body);
+      if (v0 > 0 && volumeOf(body) >= v0 * (1 - 1e-9)) this.warning = 'The cut does not remove any material. Check its direction.';
     } else {
       body = st.body ? fuse(st.body, tool) : tool;
     }
@@ -482,6 +492,7 @@ export class ModelBuilder {
   }
 
   private applyExtrude(f: ExtrudeFeature, st: State) {
+    if (f.thin) throw new FeatureError(THIN_UNSUPPORTED);
     const { regions, frame } = this.sketchRegions(f.sketch, st, f.contours);
     const sign = (f.cut ? -1 : 1) * (f.flip ? -1 : 1);
     const dir = scale(frame.n, sign);
@@ -492,19 +503,33 @@ export class ModelBuilder {
     if (f.end === 'midPlane') { start = -d1 / 2; total = d1; }
     else if (f.dir2) {
       const d2 = f.dir2.end === 'throughAll' ? this.throughAllDepth(st, frame.o, scale(dir, -1)) : num(f.dir2.depth);
-      if (d2 > 0) { start = -d2; total = d1 + d2; }
+      if (!(d2 > 0)) throw new FeatureError('Direction 2 depth must be greater than zero');
+      start = -d2; total = d1 + d2;
     }
     d1 = total;
-    const pieces: Sh[] = [];
-    for (const r of regions) {
-      const face = this.regionFace(r, frame);
-      let solid: Sh = R.basicFaceExtrusion(face, new R.Vector(scale(dir, d1))) as unknown as Sh;
-      if (start !== 0) solid = translated(solid, scale(dir, start));
-      pieces.push(solid);
-    }
-    let tool = pieces.length === 1 ? pieces[0] : this.fuseAll(pieces);
     const draft = num(f.draft || 0);
-    if (draft > 1e-9) tool = this.draftLateral(tool, frame, dir, start, draft * (f.draftOutward ? -1 : 1));
+    if (draft < 0) throw new FeatureError('The draft angle cannot be negative. Use Draft outward to taper the other way.');
+    const extrudeAll = (from: number, length: number, d: Vec3): Sh => {
+      const pieces: Sh[] = [];
+      for (const r of regions) {
+        const face = this.regionFace(r, frame);
+        let solid: Sh = R.basicFaceExtrusion(face, new R.Vector(scale(d, length))) as unknown as Sh;
+        if (from !== 0) solid = translated(solid, scale(d, from));
+        pieces.push(solid);
+      }
+      return pieces.length === 1 ? pieces[0] : this.fuseAll(pieces);
+    };
+    let tool: Sh;
+    if (draft > 1e-9) {
+      // Both directions taper away from the sketch plane, which keeps the
+      // sketched profile (like other CAD systems do).
+      const angle = draft * (f.draftOutward ? -1 : 1);
+      tool = this.draftLateral(extrudeAll(0, total + start, dir), frame, dir, 0, angle);
+      if (start < 0) {
+        const back = scale(dir, -1);
+        tool = fuse(tool, this.draftLateral(extrudeAll(0, -start, back), frame, back, 0, angle));
+      }
+    } else tool = extrudeAll(start, d1, dir);
     const classify = (d: SurfDesc) => {
       if (d.type === 'plane' && Math.abs(dot(d.d, frame.n)) > 1 - 1e-6) {
         const s = dot(sub(d.center, frame.o), dir);
@@ -541,6 +566,7 @@ export class ModelBuilder {
   }
 
   private applyRevolve(f: RevolveFeature, st: State) {
+    if (f.thin) throw new FeatureError(THIN_UNSUPPORTED);
     const { regions, frame, sketch } = this.sketchRegions(f.sketch, st, f.contours);
     let axis: { p: Vec3; d: Vec3 };
     if (f.axis) axis = this.resolveAxis(f.axis, st);
@@ -554,6 +580,25 @@ export class ModelBuilder {
     let angle = num(f.angle);
     if (angle <= 0) throw new FeatureError('Angle must be greater than zero');
     angle = Math.min(angle, 360);
+    // Map a 3D point back into the sketch plane by undoing the rotation.
+    const a2 = toLocal(frame, axis.p);
+    const b2 = toLocal(frame, add(axis.p, axis.d));
+    const d2: Vec2 = [b2[0] - a2[0], b2[1] - a2[1]];
+    const dl = Math.hypot(d2[0], d2[1]) || 1;
+    d2[0] /= dl; d2[1] /= dl;
+    const perp: Vec2 = [-d2[1], d2[0]];
+    if (Math.abs(dot(axis.d, frame.n)) < 1e-6 && Math.abs(dot(sub(axis.p, frame.o), frame.n)) < 1e-6 * (1 + len(axis.p))) {
+      // A profile on both sides of an in-plane axis would sweep through itself.
+      let lo = 0, hi = 0, size = 0;
+      for (const r of regions) {
+        for (const q of r.outer.poly) {
+          const s = (q[0] - a2[0]) * perp[0] + (q[1] - a2[1]) * perp[1];
+          lo = Math.min(lo, s); hi = Math.max(hi, s); size = Math.max(size, Math.abs(s));
+        }
+      }
+      const tol = 1e-6 * (1 + size);
+      if (lo < -tol && hi > tol) throw new FeatureError('The profile crosses the axis of revolution. Keep it on one side of the axis.');
+    }
     const sgn = f.flip ? -1 : 1;
     const d = scale(axis.d, sgn);
     const pieces: Sh[] = [];
@@ -564,18 +609,27 @@ export class ModelBuilder {
       pieces.push(solid);
     }
     const tool = pieces.length === 1 ? pieces[0] : this.fuseAll(pieces);
-    // Map a 3D point back into the sketch plane by undoing the rotation.
-    const a2 = toLocal(frame, axis.p);
-    const b2 = toLocal(frame, add(axis.p, axis.d));
-    const d2: Vec2 = [b2[0] - a2[0], b2[1] - a2[1]];
-    const dl = Math.hypot(d2[0], d2[1]) || 1;
-    d2[0] /= dl; d2[1] /= dl;
-    const perp: Vec2 = [-d2[1], d2[0]];
     const s0 = regions[0].sample;
     const side = Math.sign((s0[0] - a2[0]) * perp[0] + (s0[1] - a2[1]) * perp[1]) || 1;
-    const classify = (desc: SurfDesc) => {
+    // Mid-plane revolves were turned back by half the angle; undo that to
+    // compare with the sketch plane.
+    const back = f.end === 'midPlane' && angle < 360 ? (angle * Math.PI) / 360 : 0;
+    const inPlane = (p: Vec3) => Math.abs(dot(sub(p, frame.o), frame.n)) < 1e-6 * (1 + len(p));
+    const classify = (desc: SurfDesc, _k: number, shape: Sh) => {
       if (desc.type === 'plane' && Math.abs(dot(desc.d, axis.d)) < 1e-6) {
-        return Math.abs(dot(sub(desc.center, frame.o), frame.n)) < 1e-6 * (1 + len(desc.center)) ? 'cap0' : 'cap1';
+        return inPlane(rotatePoint(desc.center, axis.p, d, back)) ? 'cap0' : 'cap1';
+      }
+      // A full surface of revolution has its centroid on the axis, so locate
+      // the face by its vertices in the sketch plane on the profile's side:
+      // the ends of the profile curve that generated it.
+      const pts = subShapes(shape, 'vertex')
+        .map((v) => rotatePoint(vertexPoint(v), axis.p, d, back))
+        .filter(inPlane)
+        .map((p) => toLocal(frame, p))
+        .filter((q) => side * ((q[0] - a2[0]) * perp[0] + (q[1] - a2[1]) * perp[1]) >= -1e-6 * (1 + Math.hypot(q[0], q[1])));
+      if (pts.length) {
+        const c: Vec2 = [pts.reduce((a, q) => a + q[0], 0) / pts.length, pts.reduce((a, q) => a + q[1], 0) / pts.length];
+        return 'side:' + this.nearestSrc(regions, c);
       }
       const v = sub(desc.center, axis.p);
       const axial = dot(v, axis.d);
@@ -617,7 +671,8 @@ export class ModelBuilder {
     } finally {
       builder.delete();
     }
-    if (isEmpty(body)) throw new FeatureError('The fillet could not be created. Try a smaller radius.');
+    // OpenCascade sometimes returns a degenerate solid instead of failing.
+    if (degenerate(body, st.body)) throw new FeatureError('The fillet could not be created. Try a smaller radius.');
     const mids = ids.map((i) => ({ m: all[i].desc.mid, name: all[i].name }));
     st.faces = this.nameFaces(f.id, body, st, [], (d) => `${f.id}:f:${nearestName(mids, d.center)}`);
     st.body = body;
@@ -651,7 +706,7 @@ export class ModelBuilder {
     } finally {
       builder.delete();
     }
-    if (isEmpty(body)) throw new FeatureError('The chamfer could not be created.');
+    if (degenerate(body, st.body)) throw new FeatureError('The chamfer could not be created. Try a smaller distance.');
     const mids = ids.map((i) => ({ m: all[i].desc.mid, name: all[i].name }));
     st.faces = this.nameFaces(f.id, body, st, [], (d) => `${f.id}:c:${nearestName(mids, d.center)}`);
     st.body = body;
@@ -678,7 +733,11 @@ export class ModelBuilder {
       builder.delete();
       list.delete();
     }
-    if (isEmpty(body)) throw new FeatureError('The shell could not be created.');
+    // A thickness too large for the part can come back as a degenerate or
+    // unchanged solid instead of an error. An inward shell always removes
+    // material (an outward one is only the new walls, so any size goes).
+    const v0 = volumeOf(st.body);
+    if (degenerate(body, st.body) || (!f.outward && v0 > 0 && volumeOf(body) >= v0 * (1 - 1e-6))) throw new FeatureError('The shell could not be created. Try a smaller thickness.');
     const prev = st.faces;
     st.faces = this.nameFaces(f.id, body, st, [], (d) => {
       // Offset faces are parallel to an original face: name after it.
@@ -710,12 +769,14 @@ export class ModelBuilder {
     const prof: [number, number][] = [];
     if (f.kind === 'counterbore') {
       const cr = num(f.cbDiameter) / 2, cd = num(f.cbDepth);
-      if (cr <= r || cd <= 0) throw new FeatureError('Counterbore must be larger than the hole');
+      if (cr <= r) throw new FeatureError('The counterbore diameter must be larger than the hole');
+      if (cd <= 0) throw new FeatureError('Counterbore depth must be greater than zero');
       prof.push([0, 0], [cr, 0], [cr, cd], [r, cd], [r, depth], [0, depth]);
     } else if (f.kind === 'countersink') {
       const sr = num(f.csDiameter) / 2;
       const half = (num(f.csAngle) * Math.PI) / 360;
-      if (sr <= r || half <= 0 || half >= Math.PI / 2) throw new FeatureError('Countersink must be larger than the hole');
+      if (sr <= r) throw new FeatureError('The countersink diameter must be larger than the hole');
+      if (half <= 0 || half >= Math.PI / 2) throw new FeatureError('The countersink angle must be between 0 and 180 degrees');
       const sd = (sr - r) / Math.tan(half);
       prof.push([0, 0], [sr, 0], [r, sd], [r, Math.max(depth, sd + 1e-3)], [0, Math.max(depth, sd + 1e-3)]);
     } else prof.push([0, 0], [r, 0], [r, depth], [0, depth]);
@@ -790,12 +851,15 @@ export class ModelBuilder {
     const n1 = Math.round(num(f.dir1.count));
     if (n1 < 1 || n1 > 1000) throw new FeatureError('Instance count must be between 1 and 1000');
     const v1 = scale(this.dirVector(f.dir1, st), num(f.dir1.spacing));
+    // Zero spacing stacks every instance on the seed: nothing would change.
+    if (n1 > 1 && len(v1) < 1e-9) throw new FeatureError('Direction 1 spacing must not be zero');
     let n2 = 1;
     let v2: Vec3 = [0, 0, 0];
     if (f.dir2) {
       n2 = Math.round(num(f.dir2.count));
       if (n2 < 1 || n2 > 1000) throw new FeatureError('Instance count must be between 1 and 1000');
       v2 = scale(this.dirVector(f.dir2, st), num(f.dir2.spacing));
+      if (n2 > 1 && len(v2) < 1e-9) throw new FeatureError('Direction 2 spacing must not be zero');
     }
     if (n1 * n2 > 2000) throw new FeatureError('Too many instances (maximum 2000)');
     const tfs: ((s: Sh) => Sh)[] = [];
@@ -819,6 +883,9 @@ export class ModelBuilder {
     const d = scale(ax.d, f.flip ? -1 : 1);
     const tfs: ((s: Sh) => Sh)[] = [];
     for (let i = 1; i < n; i++) {
+      // An instance a whole number of turns round lands on the seed (0° or 360° spacing).
+      const turns = (step * i) / 360;
+      if (Math.abs(turns - Math.round(turns)) < 1e-9) throw new FeatureError('Pattern instances fall on top of each other. Check the angle.');
       const a = (step * i * Math.PI) / 180;
       tfs.push((s) => rotated(s, ax.p, d, a));
     }
@@ -840,35 +907,57 @@ export class ModelBuilder {
     this.applyInstances(f.id, st, this.seedTools(f.seeds, st), [(s) => mirrored(s, fr.o, fr.n)]);
   }
 
-  private profileWire(sketchId: Id, st: State): { wire: any; frame: Frame } {
+  /** The first closed region of a profile sketch, as an outer wire and hole wires. */
+  private profileLoops(sketchId: Id, st: State): { outer: Seg2[]; holes: Seg2[][]; frame: Frame; extra: boolean } {
     const { regions, frame } = this.sketchRegions(sketchId, st);
-    return { wire: this.loopWire(regions[0].outer.segs, frame), frame };
+    const r = regions[0];
+    return { outer: r.outer.segs, holes: r.holes.map((h) => h.segs), frame, extra: regions.length > 1 };
   }
+
+  private static readonly EXTRA_CONTOURS = 'Only the first closed contour of each profile was used; the other contours were ignored';
 
   private applyLoft(f: LoftFeature, st: State) {
     if (f.profiles.length < 2) throw new FeatureError('Select at least two profiles');
-    const wires = f.profiles.map((id) => this.profileWire(id, st).wire);
+    const profs = f.profiles.map((id) => this.profileLoops(id, st));
+    // Inner loops make a hollow loft when every profile has exactly one
+    // (more than one cannot be matched between profiles reliably).
+    const hollow = profs.every((p) => p.holes.length === 1);
+    if (profs.some((p) => p.extra) || (!hollow && profs.some((p) => p.holes.length))) this.warning = ModelBuilder.EXTRA_CONTOURS;
+    const failed = 'The loft could not be created from these profiles';
     let tool: Sh;
     try {
-      tool = R.loft(wires, { ruled: f.ruled }) as unknown as Sh;
+      tool = R.loft(profs.map((p) => this.loopWire(p.outer, p.frame)), { ruled: f.ruled }) as unknown as Sh;
     } catch {
-      throw new FeatureError('The loft could not be created from these profiles');
+      throw new FeatureError(failed);
+    }
+    if (flat(tool)) throw new FeatureError(failed);
+    if (hollow) {
+      let core: Sh;
+      try {
+        core = R.loft(profs.map((p) => this.loopWire(p.holes[0], p.frame)), { ruled: f.ruled }) as unknown as Sh;
+      } catch {
+        throw new FeatureError(failed);
+      }
+      tool = cut(tool, core);
+      if (isEmpty(tool) || flat(tool)) throw new FeatureError(failed);
     }
     this.applyTool(f.id, st, tool, this.nameTool(f.id, tool, (_d, k) => `l${k}`), f.cut);
   }
 
   private applySweep(f: SweepFeature, st: State) {
     if (!f.profile || !f.path) throw new FeatureError('Select a profile and a path');
-    const { wire } = this.profileWire(f.profile, st);
+    const prof = this.profileLoops(f.profile, st);
+    if (prof.extra) this.warning = ModelBuilder.EXTRA_CONTOURS;
     const pathSk = st.sketches.get(f.path);
     const pathFr = st.frames.get(f.path);
     if (!pathSk || !pathFr) throw new FeatureError('The path sketch is missing');
     const ix = new SketchIndex(pathSk.entities);
-    const edges: any[] = [];
+    // Path pieces with their sketch end points (none for closed curves).
+    const pieces: { edges: any[]; a?: Vec2; b?: Vec2 }[] = [];
     for (const e of pathSk.entities) {
       if (e.construction) continue;
       const w = (id: string) => toWorld(pathFr, ix.pt(id));
-      if (e.t === 'line') edges.push(R.makeLine(w(e.a), w(e.b)));
+      if (e.t === 'line') pieces.push({ edges: [R.makeLine(w(e.a), w(e.b))], a: ix.pt(e.a), b: ix.pt(e.b) });
       else if (e.t === 'arc') {
         const c = ix.pt(e.c), a = ix.pt(e.a), b = ix.pt(e.b);
         const r = Math.hypot(a[0] - c[0], a[1] - c[1]);
@@ -876,19 +965,25 @@ export class ModelBuilder {
         let a1 = Math.atan2(b[1] - c[1], b[0] - c[0]);
         if (a1 <= a0) a1 += 2 * Math.PI;
         const am = (a0 + a1) / 2;
-        edges.push(R.makeThreePointArc(w(e.a), toWorld(pathFr, [c[0] + r * Math.cos(am), c[1] + r * Math.sin(am)]), w(e.b)));
+        pieces.push({ edges: [R.makeThreePointArc(w(e.a), toWorld(pathFr, [c[0] + r * Math.cos(am), c[1] + r * Math.sin(am)]), w(e.b))], a, b });
       } else if (e.t === 'spline') {
-        for (const bz of splineBeziers(e.pts.map((p) => ix.pt(p)))) edges.push(R.makeBezierCurve(bz.map((p) => toWorld(pathFr, p))));
-      } else if (e.t === 'circle') edges.push(R.makeCircle(e.r, toWorld(pathFr, ix.pt(e.c)), pathFr.n));
+        const pts = e.pts.map((p) => ix.pt(p));
+        pieces.push({ edges: splineBeziers(pts).map((bz) => R.makeBezierCurve(bz.map((p) => toWorld(pathFr, p)))), a: pts[0], b: pts[pts.length - 1] });
+      } else if (e.t === 'circle') pieces.push({ edges: [R.makeCircle(e.r, toWorld(pathFr, ix.pt(e.c)), pathFr.n)] });
     }
+    const edges = chainPieces(pieces).flatMap((p) => p.edges);
     if (!edges.length) throw new FeatureError('The path sketch is empty');
     let tool: Sh;
     try {
       const spine = R.assembleWire(edges);
-      tool = R.genericSweep(wire, spine, { frenet: true }) as unknown as Sh;
+      tool = R.genericSweep(this.loopWire(prof.outer, prof.frame), spine, { frenet: true }) as unknown as Sh;
+      // Inner loops of the profile are swept too and removed (a tube profile makes a pipe).
+      for (const h of prof.holes) tool = cut(tool, R.genericSweep(this.loopWire(h, prof.frame), R.assembleWire(edges), { frenet: true }) as unknown as Sh);
     } catch {
-      throw new FeatureError('The sweep could not be created. The profile should start at the path and be roughly perpendicular to it.');
+      throw new FeatureError(SWEEP_FAILED);
     }
+    // A path in the profile's plane sweeps a solid without volume.
+    if (isEmpty(tool) || flat(tool)) throw new FeatureError(SWEEP_FAILED);
     this.applyTool(f.id, st, tool, this.nameTool(f.id, tool, (_d, k) => `s${k}`), f.cut);
   }
 
@@ -917,6 +1012,7 @@ export class ModelBuilder {
       pln.delete();
       gd.delete();
     }
+    if (degenerate(body, st.body)) throw new FeatureError('The draft could not be created');
     st.faces = this.nameFaces(f.id, body, st, [], (_d, k) => `${f.id}:d${k}`);
     st.body = body;
     st.edges = null;
@@ -929,7 +1025,7 @@ export class ModelBuilder {
     if (!shape) {
       const text = req.blobs[f.blob];
       if (!text) throw new FeatureError('The imported file data is missing');
-      shape = f.format === 'brep' ? (R.deserializeShape(text) as unknown as Sh) : await readStep(text);
+      shape = f.format === 'brep' ? (R.deserializeShape(text) as unknown as Sh) : await readStepCached(text);
       this.importCache.set(f.blob, shape);
     }
     const named = this.nameTool(f.id, shape, (_d, k) => `i${k}`);
@@ -1092,9 +1188,11 @@ export class ModelBuilder {
     const oc = getOc();
     const shapeOf = (t: MeasureTarget): Sh => {
       if (t.kind === 'vertex') {
-        const mv = new oc.BRepBuilderAPI_MakeVertex(pnt(t.p));
+        const gp = pnt(t.p);
+        const mv = new oc.BRepBuilderAPI_MakeVertex(gp);
         const v = wrap(mv.Vertex());
         mv.delete();
+        gp.delete();
         return v;
       }
       if (t.kind === 'face') {
@@ -1107,8 +1205,14 @@ export class ModelBuilder {
       return e.shape;
     };
     const s1 = shapeOf(a), s2 = shapeOf(b);
-    const ext = new oc.BRepExtrema_DistShapeShape(s1.wrapped, s2.wrapped, oc.Extrema_ExtFlag.Extrema_ExtFlag_MIN, oc.Extrema_ExtAlgo.Extrema_ExtAlgo_Grad, new oc.Message_ProgressRange());
+    // The bindings do not expose Extrema_ExtFlag, so the long constructor
+    // cannot be called: load the shapes and run it explicitly.
+    const ext = new oc.BRepExtrema_DistShapeShape();
+    const progress = new oc.Message_ProgressRange();
     try {
+      ext.LoadS1(s1.wrapped);
+      ext.LoadS2(s2.wrapped);
+      ext.Perform(progress);
       if (!ext.IsDone() || ext.NbSolution() < 1) throw new FeatureError('Distance could not be computed');
       const p1 = ext.PointOnShape1(1), p2 = ext.PointOnShape2(1);
       const out = { distance: ext.Value(), p1: xyz(p1), p2: xyz(p2) };
@@ -1116,6 +1220,7 @@ export class ModelBuilder {
       return out;
     } finally {
       ext.delete();
+      progress.delete();
     }
   }
 
@@ -1202,6 +1307,33 @@ export class ModelBuilder {
   }
 }
 
+/**
+ * Recently read STEP files by content. Checking an import reads the file,
+ * and the build that follows reuses that shape instead of reading it again
+ * (seconds for a large file).
+ */
+const stepCache = new Map<string, Sh>();
+
+async function readStepCached(text: string): Promise<Sh> {
+  const key = `${hashString(text)}:${text.length}`;
+  let shape = stepCache.get(key);
+  if (shape) stepCache.delete(key);
+  else shape = await readStep(text);
+  stepCache.set(key, shape);
+  while (stepCache.size > 3) stepCache.delete(stepCache.keys().next().value!);
+  return shape;
+}
+
+/** Null when the STEP text reads into geometry, else a readable error. */
+export async function checkStep(text: string): Promise<string | null> {
+  try {
+    await readStepCached(text);
+    return null;
+  } catch (e) {
+    return errorText(e);
+  }
+}
+
 async function readStep(text: string): Promise<Sh> {
   const oc = getOc();
   const name = `/import-${Date.now()}.step`;
@@ -1224,8 +1356,62 @@ async function readStep(text: string): Promise<Sh> {
 export function errorText(e: unknown): string {
   if (e instanceof FeatureError) return e.message;
   if (e instanceof Error) return e.message || 'The feature could not be built';
-  if (typeof e === 'number') return 'The geometry kernel could not build this feature';
-  return String(e);
+  if (typeof e === 'string' && e) return e;
+  // OpenCascade exceptions surface as numbers or WebAssembly.Exception objects.
+  return 'The geometry kernel could not build this feature';
+}
+
+/**
+ * Orders path pieces end to end (sketch entities come in drawing order,
+ * and a wire is assembled edge by edge, so a piece drawn out of order was
+ * silently left out of the path).
+ */
+function chainPieces<T extends { a?: Vec2; b?: Vec2 }>(pieces: T[]): T[] {
+  if (pieces.length < 2) return pieces;
+  if (pieces.some((p) => !p.a || !p.b)) throw new FeatureError('A closed path must be a single curve');
+  let size = 0;
+  for (const p of pieces) size = Math.max(size, Math.abs(p.a![0]), Math.abs(p.a![1]), Math.abs(p.b![0]), Math.abs(p.b![1]));
+  const tol = 1e-6 * (1 + size);
+  const same = (p: Vec2, q: Vec2) => Math.hypot(p[0] - q[0], p[1] - q[1]) < tol;
+  const rest = pieces.slice(1);
+  const chain = [pieces[0]];
+  let head = pieces[0].a!, tail = pieces[0].b!;
+  while (rest.length) {
+    const i = rest.findIndex((p) => same(p.a!, tail) || same(p.b!, tail) || same(p.a!, head) || same(p.b!, head));
+    if (i < 0) throw new FeatureError('The path must be one connected chain of curves');
+    const [p] = rest.splice(i, 1);
+    if (same(p.a!, tail)) { chain.push(p); tail = p.b!; }
+    else if (same(p.b!, tail)) { chain.push(p); tail = p.a!; }
+    else if (same(p.a!, head)) { chain.unshift(p); head = p.b!; }
+    else { chain.unshift(p); head = p.a!; }
+  }
+  return chain;
+}
+
+const SWEEP_FAILED = 'The sweep could not be created. The profile should start at the path and be roughly perpendicular to it.';
+
+/** True when a generated solid has no volume to speak of. */
+function flat(tool: Sh): boolean {
+  const b = bbox(tool);
+  const size = b ? dist(b.min, b.max) : 0;
+  return !(Math.abs(volumeOf(tool)) > size ** 3 * 1e-9);
+}
+
+/** True when an operation on a solid left no material (empty, flat or inside-out). */
+function degenerate(body: Sh, before: Sh): boolean {
+  if (isEmpty(body)) return true;
+  // Bodies without volume (imported surfaces) cannot be checked this way.
+  const v0 = Math.abs(volumeOf(before));
+  return v0 > 0 && !(volumeOf(body) > v0 * 1e-6);
+}
+
+/** Rotates a point about an axis through p with unit direction d. */
+function rotatePoint(q: Vec3, p: Vec3, d: Vec3, angle: number): Vec3 {
+  if (!angle) return q;
+  const v = sub(q, p);
+  const c = Math.cos(angle), s = Math.sin(angle), k = dot(d, v);
+  const x: Vec3 = [d[1] * v[2] - d[2] * v[1], d[2] * v[0] - d[0] * v[2], d[0] * v[1] - d[1] * v[0]];
+  return add(p, add(add(scale(v, c), scale(x, s)), scale(d, k * (1 - c))));
 }
 
 function segDist(p: Vec2, a: Vec2, b: Vec2): number {

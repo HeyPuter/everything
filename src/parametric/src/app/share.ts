@@ -85,7 +85,8 @@ export async function shareDialog(app: App, files: FileOps) {
       sel.addEventListener('change', async () => {
         try { await fs.share(path, recipient(name), sel.value); status.textContent = `Updated access for ${name}.`; } catch (e) { status.textContent = storageError(e); }
       });
-      const remove = h('button', { class: 'btn small', type: 'button' }, 'Remove');
+      // An icon button keeps the table within the dialog at phone widths.
+      const remove = h('button', { class: 'icon-btn', type: 'button', 'aria-label': `Remove ${name}`, title: 'Remove access' }, icon('trash', 16));
       remove.addEventListener('click', async () => {
         try { await fs.unshare(path, recipient(name)); status.textContent = `${name} no longer has access.`; void render(); } catch (e) { status.textContent = storageError(e); }
       });

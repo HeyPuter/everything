@@ -146,7 +146,7 @@ export function buildShell(cmds: CommandRegistry, menus: { label: string; items:
   const cmTabs = h('div', { class: 'cm-tabs', role: 'tablist', 'aria-label': 'Command groups' });
   const cm = h('section', { class: 'cm', 'aria-label': 'CommandManager' }, cmTools, cmTabs);
 
-  const lpTabs = h('div', { class: 'lp-tabs', role: 'tablist', 'aria-label': 'Panels' });
+  const lpTabs = h('div', { class: 'lp-tabs' });
   const lpBody = h('div', { class: 'lp-body', id: 'left-panel' });
   const leftpane = h('aside', { class: 'leftpane', 'aria-label': 'Design tree and properties' }, lpTabs, lpBody);
   const splitter = h('div', { class: 'splitter', role: 'separator', 'aria-orientation': 'vertical', 'aria-label': 'Resize panel', tabindex: '0', 'aria-valuemin': '200', 'aria-valuemax': '520', 'aria-valuenow': '280' });

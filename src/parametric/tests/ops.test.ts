@@ -89,13 +89,46 @@ describe('editing tools', () => {
     expect(lengths[1]).toBeCloseTo(3, 9);
   });
 
+  it('keeps a trimmed line trimmed and its new end on the cutting line', () => {
+    const s = sk([
+      { id: 'a', t: 'point', x: 0, y: 0 }, { id: 'b', t: 'point', x: 10, y: 0 }, { id: 'h', t: 'line', a: 'a', b: 'b' },
+      { id: 'c', t: 'point', x: 3, y: -2 }, { id: 'd', t: 'point', x: 3, y: 2 }, { id: 'v', t: 'line', a: 'c', b: 'd' },
+    ]);
+    s.constraints.push({ id: 'len', type: 'distance', refs: ['h'], value: 10, at: [5, -3], name: 'D1' });
+    expect(trimAt(s, 'h', [8, 0], idFactory(s))).toBe(true);
+    // The length dimension no longer applies, so solving does not undo the trim.
+    expect(s.constraints.some((c) => c.id === 'len')).toBe(false);
+    solveSketch(s.entities, s.constraints, { value });
+    const h = s.entities.find((e) => e.id === 'h') as SkLine;
+    expect(new SketchIndex(s.entities).pt(h.b)).toEqual([expect.closeTo(3, 9), expect.closeTo(0, 9)]);
+    // Dragging the cutting line carries the trimmed end along.
+    const res = solveSketch(s.entities, s.constraints, { value, drag: { kind: 'points', ids: ['c', 'd'], targets: [[5, -2], [5, 2]] } });
+    expect(res.converged).toBe(true);
+    expect(new SketchIndex(s.entities).pt(h.b)[0]).toBeCloseTo(5, 6);
+  });
+
+  it('trims a circle into an arc whose ends stay on the cutting lines', () => {
+    const s = sk([
+      { id: 'o', t: 'point', x: 0, y: 0 }, { id: 'circ', t: 'circle', c: 'o', r: 5 },
+      { id: 'c', t: 'point', x: -10, y: 3 }, { id: 'd', t: 'point', x: 10, y: 3 }, { id: 'l', t: 'line', a: 'c', b: 'd' },
+    ]);
+    expect(trimAt(s, 'circ', [0, 5], idFactory(s))).toBe(true);
+    const arc = s.entities.find((e) => e.id === 'circ')!;
+    expect(arc.t).toBe('arc');
+    expect(s.constraints.filter((c) => c.type === 'coincident' && c.refs[1] === 'l')).toHaveLength(2);
+    expect(solveSketch(s.entities, s.constraints, { value }).status).toBe('under');
+  });
+
   it('extends a line to the next curve', () => {
     const s = sk([
       { id: 'a', t: 'point', x: 0, y: 0 }, { id: 'b', t: 'point', x: 4, y: 0 }, { id: 'h', t: 'line', a: 'a', b: 'b' },
       { id: 'c', t: 'point', x: 9, y: -5 }, { id: 'd', t: 'point', x: 9, y: 5 }, { id: 'v', t: 'line', a: 'c', b: 'd' },
     ]);
+    s.constraints.push({ id: 'len', type: 'hdistance', refs: ['h'], value: 4, at: [2, -3], name: 'D1' });
     expect(extendAt(s, 'h', [3.9, 0])).toBe(true);
     expect(new SketchIndex(s.entities).pt('b')[0]).toBeCloseTo(9, 9);
+    // The old length would pull the end back.
+    expect(s.constraints).toHaveLength(0);
   });
 
   it('fillets a rectangle corner tangentially', () => {
@@ -108,6 +141,28 @@ describe('editing tools', () => {
     const res = solveSketch(s.entities, s.constraints, { value });
     expect(res.converged).toBe(true);
     expect(filletCorner(s, 'rp0', 50, idFactory(s))).toMatch(/too large/);
+  });
+
+  it('keeps a dimensioned rectangle in shape when a corner is filleted', () => {
+    const s = sk(rect(0, 0, 50, 30, 'r'));
+    s.constraints.push(
+      { id: 'h0', type: 'horizontal', refs: ['rl0'] }, { id: 'h2', type: 'horizontal', refs: ['rl2'] },
+      { id: 'v1', type: 'vertical', refs: ['rl1'] }, { id: 'v3', type: 'vertical', refs: ['rl3'] },
+      { id: 'o', type: 'coincident', refs: ['rp0', 'O'] },
+      { id: 'd1', type: 'distance', refs: ['rl0'], value: 50, at: [25, -5], name: 'D1' },
+      { id: 'd2', type: 'vdistance', refs: ['rl1'], value: 30, at: [55, 15], name: 'D2' },
+    );
+    expect(filletCorner(s, 'rp2', 5, idFactory(s))).toBeNull();
+    expect(filletCorner(s, 'rp0', 4, idFactory(s))).toBeNull();
+    const res = solveSketch(s.entities, s.constraints, { value });
+    expect(res.status).toBe('under');
+    const ix = new SketchIndex(s.entities);
+    // The dimensions now measure to the virtual sharps, which stay at the corners.
+    expect(ix.pt('rp2')).toEqual([expect.closeTo(50, 9), expect.closeTo(30, 9)]);
+    expect(ix.pt('rp0')).toEqual([expect.closeTo(0, 9), expect.closeTo(0, 9)]);
+    expect(measureDimension(s, s.constraints.find((c) => c.id === 'd1') as SkDimension)).toBeCloseTo(50, 9);
+    const arcs = s.entities.filter((e) => e.t === 'arc');
+    expect(arcs.map((a) => arcRadius(ix, a as never)).sort()).toEqual([expect.closeTo(4, 9), expect.closeTo(5, 9)]);
   });
 
   it('offsets a closed rectangle outward', () => {

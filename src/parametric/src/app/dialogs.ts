@@ -4,9 +4,9 @@
 
 import type { Vec3 } from '../math/vec';
 import { dist, dot, normalize, sub } from '../math/vec';
-import { evaluateVariables, referencedNames } from '../model/expr';
+import { evaluateVariables, referencedNames, renameReferences } from '../model/expr';
+import { changeUnits, mapExpressions } from '../model/document';
 import type { MaterialRef, SkDimension, UnitSystem, Variable } from '../model/types';
-import { isDimension } from '../model/types';
 import { UNIT_SYSTEMS, formatNumber } from '../model/units';
 import { BASE_FRAMES } from '../model/planes';
 import { MATERIALS } from '../model/materials';
@@ -29,18 +29,26 @@ export async function equationsDialog(app: App) {
   const rows: Variable[] = structuredClone(doc.variables);
   const tbody = h('tbody');
   const err = h('div', { class: 'field-label', role: 'alert', style: { color: 'var(--danger)' } });
+  // Dimensions and feature values that refer to each variable.
   const dimUses = new Map<string, number>();
-  for (const f of doc.features) {
-    if (f.type !== 'sketch') continue;
-    for (const c of f.constraints) if (isDimension(c) && typeof c.value === 'string') for (const n of referencedNames(c.value.replace(/^=/, ''))) dimUses.set(n, (dimUses.get(n) ?? 0) + 1);
-  }
+  mapExpressions({ ...doc, variables: [] }, (src) => {
+    for (const n of new Set(referencedNames(src.replace(/^=/, '')))) dimUses.set(n, (dimUses.get(n) ?? 0) + 1);
+    return src;
+  });
+  const originalNames = new Map(doc.variables.map((v) => [v.id, v.name]));
   const draw = () => {
     tbody.textContent = '';
     const { values, errors } = evaluateVariables(rows);
     rows.forEach((v, i) => {
       const name = h('input', { class: 'input', value: v.name, 'aria-label': `Name of variable ${i + 1}`, spellcheck: 'false' }) as HTMLInputElement;
       const expr = h('input', { class: 'input', value: v.expr, 'aria-label': `Value or expression of ${v.name || 'variable'}`, spellcheck: 'false' }) as HTMLInputElement;
-      name.addEventListener('change', () => { v.name = name.value.trim(); draw(); });
+      name.addEventListener('change', () => {
+        // Other equations follow a renamed variable (dimensions and features do on OK).
+        const renamed = new Map([[v.name, name.value.trim()]]);
+        v.name = name.value.trim();
+        if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(v.name)) for (const r of rows) if (r !== v) r.expr = renameReferences(r.expr, renamed);
+        draw();
+      });
       expr.addEventListener('change', () => { v.expr = expr.value.trim(); draw(); });
       const val = values.get(v.name);
       const e = errors.get(v.name);
@@ -49,7 +57,7 @@ export async function equationsDialog(app: App) {
       tbody.append(h('tr', {},
         h('td', {}, name), h('td', {}, expr),
         h('td', { class: 'num', style: { color: e ? 'var(--danger)' : '' } }, e ? e : val !== undefined ? formatNumber(val, 4) : ''),
-        h('td', { class: 'num' }, String(dimUses.get(v.name) ?? 0)),
+        h('td', { class: 'num' }, String(dimUses.get(originalNames.get(v.id) ?? v.name) ?? 0)),
         h('td', {}, del)));
     });
   };
@@ -82,7 +90,16 @@ export async function equationsDialog(app: App) {
     },
   });
   if (v === 'ok') {
-    app.store.change('Edit equations', (d) => { d.variables = rows; });
+    const renamed = new Map<string, string>();
+    for (const r of rows) {
+      const was = originalNames.get(r.id);
+      if (was !== undefined && was !== r.name) renamed.set(was, r.name);
+    }
+    app.store.change('Edit equations', (d) => {
+      d.variables = [];
+      if (renamed.size) mapExpressions(d, (src) => renameReferences(src, renamed));
+      d.variables = rows;
+    });
     app.sketchEditor?.resolve();
   }
 }
@@ -141,11 +158,14 @@ export async function propertiesDialog(app: App) {
     buttons: [{ label: 'Cancel', value: 'cancel' }, { label: 'OK', value: 'ok', primary: true }],
   });
   if (v !== 'ok') return;
+  let unlinked: string[] = [];
   app.store.change('Part properties', (d) => {
     d.name = name.value.trim() || d.name;
-    d.units = units.value as UnitSystem;
+    // Expressions are written in the part's units: they are converted so the geometry keeps its size.
+    unlinked = changeUnits(d, units.value as UnitSystem);
     d.decimals = Math.max(0, Math.min(6, Math.round(Number(decimals.value) || 0)));
   });
+  if (unlinked.length) toast({ kind: 'warning', title: 'Some equations were replaced by their values', message: `These could not be converted to the new units and keep their size as plain numbers: ${unlinked.join(', ')}.`, timeout: 9000 });
   app.sketchEditor?.render();
 }
 
@@ -174,6 +194,9 @@ export async function optionsDialog(app: App) {
 // ---------- mass properties ----------
 
 export async function massPropertiesDialog(app: App) {
+  // The kernel answers for the last body it built: let a pending rebuild
+  // (a change made just before) finish first.
+  await app.whenBuilt();
   if (!app.bbox) { toast({ kind: 'warning', message: 'There is no solid body yet.' }); return; }
   const mp = await app.kernel.massProperties().catch((e) => { toast({ kind: 'error', message: (e as Error).message }); return null; });
   if (!mp) return;
@@ -243,6 +266,8 @@ export async function shortcutsDialog(app: App) {
   add('Roll', 'Alt + Left/Right');
   add('Pan', `${isMac ? '⌘' : 'Ctrl'} + Arrow keys`);
   add('Cancel or clear selection', 'Esc');
+  grid.append(h('h3', {}, 'Keyboard navigation'));
+  add('Next or previous area (menu bar, CommandManager, design tree, graphics area, task pane, status bar)', 'F6, Shift + F6');
   await showDialog({ title: 'Keyboard Shortcuts', wide: true, body: grid, buttons: [{ label: 'Close', value: 'ok', primary: true }] });
 }
 

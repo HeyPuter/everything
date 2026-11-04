@@ -2,9 +2,11 @@
 // is the only way to know the modeling features actually produce solids.
 import { beforeAll, describe, expect, it } from 'vitest';
 import init from 'replicad-opencascadejs';
-import { ModelBuilder } from '../src/kernel/build';
-import { setOc } from '../src/kernel/occ';
-import type { Feature, FilletFeature, ShellFeature } from '../src/model/types';
+import { ModelBuilder, checkStep, errorText } from '../src/kernel/build';
+import { getOc, setOc } from '../src/kernel/occ';
+import type { Feature, FilletFeature, ShellFeature, SkDimension, SketchFeature } from '../src/model/types';
+import { flangeExample } from '../src/app/examples';
+import { solveSketch } from '../src/sketch/solver';
 import { circle, extrude, polygon, rect, req, revolve, sketch } from './helpers';
 
 beforeAll(async () => {
@@ -51,6 +53,35 @@ describe('feature regeneration', () => {
     expect(res.bbox!.min[2]).toBeCloseTo(-10, 6);
   });
 
+  it('drafts both directions of an extrusion away from the sketch plane', async () => {
+    const t = Math.tan((5 * Math.PI) / 180);
+    // Square frustum of side 20 at the sketch plane, height h, tapering inward.
+    const frustum = (h: number) => (20 ** 3 - (20 - 2 * h * t) ** 3) / (6 * t);
+    const b = new ModelBuilder();
+    for (const extra of [{ dir2: { end: 'blind' as const, depth: 10 } }, { end: 'midPlane' as const, depth: 20 }]) {
+      const res = await b.build(req([sketch('S1', rect(-10, -10, 10, 10)), extrude('E1', 'S1', 10, { draft: 5, ...extra })]));
+      expect(res.status[1].ok).toBe(true);
+      const mp = b.massProperties()!;
+      expect(mp.volume).toBeCloseTo(2 * frustum(10), 2);
+      expect(mp.center[2]).toBeCloseTo(0, 6);
+      expect(res.bbox!.min[2]).toBeCloseTo(-10, 6);
+      expect(res.bbox!.max[0]).toBeCloseTo(10, 4);
+    }
+    // One direction keeps the sketch profile at the sketch plane.
+    await b.build(req([sketch('S1', rect(-10, -10, 10, 10)), extrude('E1', 'S1', 10, { draft: 5 })]));
+    expect(volume(b)).toBeCloseTo(frustum(10), 2);
+  });
+
+  it('reports negative draft angles and direction 2 depths instead of ignoring them', async () => {
+    const b = new ModelBuilder();
+    const neg = await b.build(req([sketch('S1', rect(0, 0, 10, 10)), extrude('E1', 'S1', 10, { draft: -5 })]));
+    expect(neg.status[1].ok).toBe(false);
+    expect(neg.status[1].error).toMatch(/draft angle/i);
+    const d2 = await b.build(req([sketch('S1', rect(0, 0, 10, 10)), extrude('E1', 'S1', 10, { dir2: { end: 'blind', depth: 0 } })]));
+    expect(d2.status[1].ok).toBe(false);
+    expect(d2.status[1].error).toMatch(/Direction 2/);
+  });
+
   it('revolves a profile about a centerline', async () => {
     const b = new ModelBuilder();
     const ents = [
@@ -60,6 +91,125 @@ describe('feature regeneration', () => {
     ] as any[];
     await b.build(req([sketch('S1', ents), revolve('R1', 'S1')]));
     expect(volume(b)).toBeCloseTo(Math.PI * (100 - 25) * 20, 0);
+  });
+
+  it('rejects a revolve profile that crosses its axis with a readable error', async () => {
+    const b = new ModelBuilder();
+    const axis = [
+      { id: 'a1', t: 'point', x: 0, y: -5 }, { id: 'a2', t: 'point', x: 0, y: 25 },
+      { id: 'axis', t: 'line', a: 'a1', b: 'a2', construction: true },
+    ] as any[];
+    const res = await b.build(req([sketch('S1', [...rect(-5, 0, 10, 20), ...axis]), revolve('R1', 'S1')]));
+    expect(res.status[1].ok).toBe(false);
+    expect(res.status[1].error).toMatch(/crosses the axis/);
+    // Touching the axis is fine.
+    const ok = await b.build(req([sketch('S1', [...rect(0, 0, 10, 20), ...axis]), revolve('R1', 'S1')]));
+    expect(ok.status[1].ok).toBe(true);
+    expect(errorText(new (WebAssembly as any).Exception(new (WebAssembly as any).Tag({ parameters: [] }), []))).not.toMatch(/object/);
+  });
+
+  it('fails thin extrudes instead of building a full solid', async () => {
+    const b = new ModelBuilder();
+    const res = await b.build(req([sketch('S1', circle(0, 0, 10)), extrude('E1', 'S1', 5, { thin: { thickness: 1, side: 'inside' } })]));
+    expect(res.status[1].ok).toBe(false);
+    expect(res.status[1].error).toMatch(/Thin features/);
+    expect(b.hasBody).toBe(false);
+  });
+
+  it('warns when a cut misses the body', async () => {
+    const b = new ModelBuilder();
+    const base: Feature[] = [sketch('S1', rect(-10, -10, 10, 10)), extrude('E1', 'S1', 10), sketch('S2', circle(0, 0, 3))];
+    // Cuts go against the sketch normal by default: away from this body.
+    const miss = await b.build(req([...base, extrude('E2', 'S2', 5, { cut: true, end: 'throughAll' })]));
+    expect(miss.status[3]).toMatchObject({ ok: true, warning: expect.stringMatching(/does not remove any material/) });
+    const hit = await b.build(req([...base, extrude('E2', 'S2', 5, { cut: true, end: 'throughAll', flip: true })]));
+    expect(hit.status[3]).toEqual({ id: 'E2', ok: true });
+  });
+
+  it('sweeps along path segments drawn in any order', async () => {
+    const P = (id: string, x: number, y: number) => ({ id, t: 'point', x, y });
+    const L = (id: string, a: string, b: string) => ({ id, t: 'line', a, b });
+    const prof = sketch('SP', circle(0, 0, 2));
+    // Right plane: sketch x is world -Z, so the path leaves the profile along its normal.
+    const pts = [P('a', 0, 0), P('b', -20, 0), P('c', -20, 20), P('d', -40, 20)];
+    const sweep: Feature = { id: 'SW', name: 'SW', type: 'sweep', profile: 'SP', path: 'PA', cut: false };
+    const right = { kind: 'base', plane: 'right' } as const;
+    for (const lines of [[L('l1', 'a', 'b'), L('l2', 'b', 'c'), L('l3', 'c', 'd')], [L('l1', 'a', 'b'), L('l3', 'd', 'c'), L('l2', 'c', 'b')]]) {
+      const b = new ModelBuilder();
+      const res = await b.build(req([prof, sketch('PA', [...pts, ...lines] as any[], right), sweep]));
+      expect(res.status[2].ok).toBe(true);
+      expect(volume(b)).toBeCloseTo(Math.PI * 4 * 60, 0);
+    }
+    // A sweep that lies in the profile plane has no volume: an error, not an empty solid.
+    const b = new ModelBuilder();
+    const flat = await b.build(req([prof, sketch('PA', [P('a', 0, 0), P('b', 0, 20), L('l1', 'a', 'b')] as any[], right), sweep]));
+    expect(flat.status[2].ok).toBe(false);
+    // Branching paths are rejected.
+    const branch = await b.build(req([prof, sketch('PA', [...pts, P('e', -20, -20), L('l1', 'a', 'b'), L('l2', 'b', 'c'), L('l4', 'b', 'e')] as any[], right), sweep]));
+    expect(branch.status[2].error).toMatch(/connected chain/);
+  });
+
+  it('lofts and sweeps profiles with an inner loop as hollow solids', async () => {
+    const plane: Feature = { id: 'PL', name: 'PL', type: 'plane', ref: { kind: 'base', plane: 'front' }, offset: 20, flip: false };
+    const loft: Feature = { id: 'LO', name: 'LO', type: 'loft', profiles: ['S1', 'S2'], cut: false, ruled: true };
+    const b = new ModelBuilder();
+    const hollow = await b.build(req([
+      sketch('S1', [...rect(-10, -10, 10, 10), ...circle(0, 0, 4)]), plane,
+      sketch('S2', [...rect(-10, -10, 10, 10), ...circle(0, 0, 4)], { kind: 'feature', id: 'PL' }), loft,
+    ]));
+    expect(hollow.status[3]).toEqual({ id: 'LO', ok: true });
+    expect(volume(b)).toBeCloseTo((400 - Math.PI * 16) * 20, 0);
+    // Contours that cannot be lofted are reported, not silently dropped.
+    const extra = await b.build(req([
+      sketch('S1', [...rect(-10, -10, 10, 10), ...rect(20, 0, 25, 5)]), plane,
+      sketch('S2', rect(-10, -10, 10, 10), { kind: 'feature', id: 'PL' }), loft,
+    ]));
+    expect(extra.status[3].ok).toBe(true);
+    expect(extra.status[3].warning).toMatch(/first closed contour/);
+    // A tube profile sweeps into a pipe.
+    const P = (id: string, x: number, y: number) => ({ id, t: 'point', x, y });
+    const path = sketch('PA', [P('a', 0, 0), P('b', -30, 0), { id: 'l', t: 'line', a: 'a', b: 'b' }] as any[], { kind: 'base', plane: 'right' });
+    const sweep: Feature = { id: 'SW', name: 'SW', type: 'sweep', profile: 'SP', path: 'PA', cut: false };
+    const pipe = await b.build(req([sketch('SP', [...circle(0, 0, 3), ...circle(0, 0, 2)]), path, sweep]));
+    expect(pipe.status[2]).toEqual({ id: 'SW', ok: true });
+    expect(volume(b)).toBeCloseTo(Math.PI * (9 - 4) * 30, 1);
+  });
+
+  it('names revolved faces after their profile curves and keeps references through edits', async () => {
+    const rebuild = async (dim: string, value: number) => {
+      const doc = flangeExample();
+      const s = doc.features[0] as SketchFeature;
+      (s.constraints.find((c) => c.id === dim) as SkDimension).value = value;
+      solveSketch(s.entities, s.constraints, { value: (d: SkDimension) => Number(d.value) });
+      const b = new ModelBuilder();
+      const res = await b.build({ features: doc.features, upTo: doc.features.length, blobs: {}, quality: 0 });
+      return { b, res };
+    };
+    const { res } = await rebuild('d1', 12);
+    const top = res.faces.find((f) => f.name === 'f1:side:fl2')!;
+    expect(top.type).toBe('plane');
+    expect(top.normal![1]).toBeCloseTo(1, 9);
+    expect(res.faces.find((f) => f.name === 'f1:side:fl0')!.normal![1]).toBeCloseTo(-1, 9);
+    // Bore radius 12 -> 5, outer radius 45 -> 60: holes, pattern and chamfer still apply.
+    for (const [dim, v, vol] of [['d1', 5, Math.PI * (2000 * 8 + 459 * 18)], ['d2', 60, Math.PI * (3456 * 8 + 340 * 18)]] as const) {
+      const r = await rebuild(dim, v);
+      expect(r.res.status.filter((x) => !x.ok || x.warning)).toEqual([]);
+      // Six 7 mm bolt holes through the 8 mm flange, and a 1.5 mm chamfer on the rim.
+      const holes = 6 * Math.PI * 3.5 ** 2 * 8;
+      const chamfer = 0.5 * 1.5 ** 2 * 2 * Math.PI * (v === 60 ? 60 : 45);
+      expect(volume(r.b)).toBeCloseTo(vol - holes - chamfer, -1);
+    }
+  });
+
+  it('gives mirrored planar faces outward normals', async () => {
+    const b = new ModelBuilder();
+    const res = await b.build(req([sketch('S1', rect(5, 0, 15, 10)), extrude('E1', 'S1', 10), { id: 'M1', name: 'M1', type: 'mirror', seeds: [], plane: { kind: 'base', plane: 'right' } }]));
+    expect(res.faces).toHaveLength(12);
+    for (const f of res.faces) {
+      const c: [number, number, number] = [Math.sign(f.center[0]) * 10, 5, 5];
+      const out = f.normal!.reduce((a, n, i) => a + n * (f.center[i] - c[i]), 0);
+      expect(out, f.name).toBeGreaterThan(0);
+    }
   });
 
   it('fillets edges referenced by name and survives a dimension change', async () => {
@@ -94,6 +244,32 @@ describe('feature regeneration', () => {
     expect(volume(b)).toBeCloseTo(6000 - 28 * 18 * 9, 1);
   });
 
+  it('reports an error instead of a degenerate fillet or shell', async () => {
+    const b = new ModelBuilder();
+    const base: Feature[] = [sketch('S1', rect(-10, -10, 10, 10)), extrude('E1', 'S1', 10)];
+    const r0 = await b.build(req(base));
+    const top = r0.faces.find((f) => f.name === 'E1:cap1')!;
+    const shell = (thickness: number, outward = false): ShellFeature => ({
+      id: 'SH', name: 'Shell', type: 'shell', thickness, outward,
+      faces: [{ name: top.name, sig: { type: top.type, c: top.center, n: top.normal, area: top.area } }],
+    });
+    // Thicker than the part: OpenCascade returns an unchanged or empty solid.
+    for (const t of [10, 15, 50]) {
+      const r = await b.build(req([...base, shell(t)]));
+      expect(r.status[2].ok).toBe(false);
+      expect(r.status[2].error).toMatch(/smaller thickness/);
+      expect(volume(b)).toBeCloseTo(4000, 3);
+    }
+    expect((await b.build(req([...base, shell(2)]))).status[2].ok).toBe(true);
+    expect((await b.build(req([...base, shell(2, true)]))).status[2].ok).toBe(true);
+    // A radius that consumes the whole box comes back as a zero-volume solid.
+    const edges = r0.edges.map((e) => ({ name: e.name, sig: { type: e.type, m: e.mid, len: e.length } }));
+    const fillet: FilletFeature = { id: 'F1', name: 'F1', type: 'fillet', edges, faces: [], radius: 9 };
+    const r = await b.build(req([...base, fillet]));
+    expect(r.status[2].ok).toBe(false);
+    expect(volume(b)).toBeCloseTo(4000, 3);
+  });
+
   it('sketches on a face and patterns a cut', async () => {
     const b = new ModelBuilder();
     const base: Feature[] = [sketch('S1', rect(0, 0, 50, 10)), extrude('E1', 'S1', 5)];
@@ -108,6 +284,20 @@ describe('feature regeneration', () => {
     const res = await b.build(req([...base, s2, cutF, pat]));
     expect(res.status.map((s) => s.ok)).toEqual([true, true, true, true, true]);
     expect(volume(b)).toBeCloseTo(50 * 10 * 5 - 4 * Math.PI * 4 * 5, 1);
+  });
+
+  it('reports patterns whose instances would all land on the seed', async () => {
+    const b = new ModelBuilder();
+    const base: Feature[] = [sketch('S1', rect(-20, -20, 20, 20)), extrude('E1', 'S1', 10), sketch('S2', circle(10, 0, 2)), extrude('E2', 'S2', 10, { cut: true, flip: true })];
+    const circ = (angle: number, equal: boolean): Feature => ({ id: 'P', name: 'P', type: 'circularPattern', seeds: ['E2'], axis: { kind: 'base', axis: 'z' }, count: 4, angle, equal, flip: false });
+    const lin = (spacing: number): Feature => ({ id: 'P', name: 'P', type: 'linearPattern', seeds: ['E2'], dir1: { ref: { kind: 'base', axis: 'y' }, spacing, count: 3, flip: false }, dir2: null });
+    for (const p of [circ(360, false), circ(0, true), circ(720, false)]) {
+      const res = await b.build(req([...base, p]));
+      expect(res.status[4].ok).toBe(false);
+      expect(res.status[4].error).toMatch(/on top of each other/);
+    }
+    expect((await b.build(req([...base, lin(0)]))).status[4].error).toMatch(/spacing must not be zero/);
+    for (const p of [circ(360, true), circ(90, false), lin(-10)]) expect((await b.build(req([...base, p]))).status[4].ok).toBe(true);
   });
 
   it('reports a useful error for an open profile and keeps building later features', async () => {
@@ -143,6 +333,38 @@ describe('feature regeneration', () => {
     expect(step).toContain('ISO-10303-21');
     const stl = b.exportStl(1);
     expect(new DataView(stl.buffer).getUint32(80, true)).toBe(12);
+  });
+
+  it('measures the minimum distance between faces, edges and points', async () => {
+    const b = new ModelBuilder();
+    await b.build(req([sketch('S1', rect(0, 0, 10, 10)), extrude('E1', 'S1', 10)]));
+    const caps = b.faceNames().flatMap((n, i) => (n.startsWith('E1:cap') ? [i] : []));
+    const r = b.measure({ kind: 'face', index: caps[0] }, { kind: 'face', index: caps[1] });
+    expect(r.distance).toBeCloseTo(10, 6);
+    const p = b.measure({ kind: 'vertex', p: [5, 5, 30] }, { kind: 'edge', index: 0 });
+    expect(p.distance).toBeGreaterThan(0);
+    expect(b.measure({ kind: 'vertex', p: [20, 5, 5] }, { kind: 'vertex', p: [20, 5, 8] }).distance).toBeCloseTo(3, 9);
+  });
+
+  it('reads an imported STEP file once for the import check and the build', async () => {
+    const b = new ModelBuilder();
+    await b.build(req([sketch('S1', rect(0, 0, 10, 10)), extrude('E1', 'S1', 10)]));
+    const step = new TextDecoder().decode(b.exportStep());
+    expect(await checkStep('not a STEP file')).toMatch(/could not be read/);
+    const oc = getOc();
+    const Reader = oc.STEPControl_Reader;
+    let reads = 0;
+    oc.STEPControl_Reader = function (...args: unknown[]) { reads++; return new Reader(...args); };
+    try {
+      expect(await checkStep(step)).toBeNull();
+      const imp = new ModelBuilder();
+      const res = await imp.build(req([{ id: 'I1', name: 'I1', type: 'import', format: 'step', blob: 'b1', fileName: 'a.step' }], { blobs: { b1: step } }));
+      expect(res.status[0].ok).toBe(true);
+      expect(volume(imp)).toBeCloseTo(1000, 3);
+    } finally {
+      oc.STEPControl_Reader = Reader;
+    }
+    expect(reads).toBe(1);
   });
 
   it('projects drawing views with visible and hidden lines', async () => {

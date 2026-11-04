@@ -71,6 +71,12 @@ export class Camera {
     return { target: [...this.target] as Vec3, distance: this.distance, rot: [...this.rot] as Quat, ortho: this.ortho };
   }
 
+  /** Where the camera is heading: the end of a running animation, else now. */
+  goal(): CameraState {
+    const to = this.anim?.to;
+    return to ? { target: [...to.target] as Vec3, distance: to.distance, rot: [...to.rot] as Quat, ortho: to.ortho } : this.state();
+  }
+
   setState(s: CameraState) {
     this.target = [...s.target] as Vec3;
     this.distance = s.distance;
@@ -128,6 +134,8 @@ export class Camera {
 
   /** Rolls around the view direction. */
   roll(angle: number) {
+    // Like orbiting, the user takes over the orientation from an animation.
+    this.stopAnimation();
     this.rotateAbout(qAxisAngle(this.back, angle), this.target);
   }
 
@@ -139,15 +147,15 @@ export class Camera {
   }
 
   pan(dxPx: number, dyPx: number) {
-    this.stopAnimation();
     const s = this.pixelSize;
-    this.target = add(this.target, add(scale(this.right, -dxPx * s), scale(this.up, dyPx * s)));
+    const shift = add(scale(this.right, -dxPx * s), scale(this.up, dyPx * s));
+    this.target = add(this.target, shift);
+    this.shiftAnimation(shift, 1);
     this.onChange();
   }
 
   /** factor < 1 zooms in. Keeps the world point under (x, y) fixed. */
   zoomAt(factor: number, x: number, y: number) {
-    this.stopAnimation();
     const minD = 1e-3, maxD = 1e7;
     const nd = Math.min(maxD, Math.max(minD, this.distance * factor));
     const f = nd / this.distance;
@@ -158,7 +166,21 @@ export class Camera {
     const shift = add(scale(this.right, ox * (1 - f)), scale(this.up, oy * (1 - f)));
     this.target = add(this.target, shift);
     this.distance = nd;
+    this.shiftAnimation(shift, f);
     this.onChange();
+  }
+
+  /**
+   * Applies a pan or zoom made during a view animation to both of its ends,
+   * so the animation keeps turning and still lands on its orientation (with
+   * the pan or zoom applied) instead of freezing part-way.
+   */
+  private shiftAnimation(shift: Vec3, factor: number) {
+    const a = this.anim;
+    if (!a) return;
+    const move = (s: CameraState): CameraState => ({ ...s, target: add(s.target, shift), distance: Math.min(1e7, Math.max(1e-3, s.distance * factor)) });
+    a.from = move(a.from);
+    a.to = move(a.to);
   }
 
   /** Target state that frames a bounding sphere. */

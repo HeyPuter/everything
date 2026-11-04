@@ -7,13 +7,13 @@ import { appHost } from '../app/assistant-host';
 import { doSignIn } from '../app/start';
 import { type ChatFn, puterChat } from '../platform/ai';
 import { cloudAvailable, env, puter } from '../platform/puter';
-import { h } from '../ui/dom';
+import { h, nextDomId } from '../ui/dom';
 import { icon } from '../ui/icons';
 import { toast } from '../ui/overlay';
 import { type Agent, type ExchangeResult, type Step, createAgent } from './agent';
 import type { AssistantHost } from './host';
 import { renderMarkdown } from './markdown';
-import { ATTACH_ACCEPT, type Attachment, MAX_ATTACHMENTS, attachmentKind, attachmentProblem, attachmentsTooLarge, formatSize } from './attach';
+import { ATTACH_ACCEPT, type Attachment, MAX_ATTACHMENTS, MAX_TEXT_CHARS, attachmentKind, attachmentProblem, attachmentsTooLarge, formatSize } from './attach';
 import { readAttachment } from './attachments';
 import { SYSTEM_PROMPT, partSnapshot } from './prompt';
 import { runTool, toolSpecs } from './tools';
@@ -110,6 +110,8 @@ export class AssistantPanel {
   private input: HTMLTextAreaElement;
   private sendBtn: HTMLButtonElement;
   private status: HTMLElement;
+  /** Says why the typed message cannot go (too long). */
+  private limit: HTMLElement;
   private agent: Agent;
   private host: AssistantHost;
   private renderQueued = false;
@@ -140,15 +142,20 @@ export class AssistantPanel {
     newChat.addEventListener('click', () => this.reset());
 
     this.log = h('div', { class: 'as-log', role: 'log', 'aria-live': 'polite', 'aria-label': 'Conversation' });
+    // Follow new content only while the user is at the bottom; scrolling up to read stops it.
+    this.log.addEventListener('scroll', () => { const l = this.log; this.stick = l.scrollHeight - l.scrollTop - l.clientHeight < 40; }, { passive: true });
     this.input = h('textarea', { class: 'as-input', rows: 1, placeholder: 'Describe a part or a change…', 'aria-label': 'Message the assistant' }) as HTMLTextAreaElement;
     this.sendBtn = h('button', { class: 'as-send', type: 'button', 'aria-label': 'Send' }, icon('send', 16)) as HTMLButtonElement;
     this.status = h('div', { class: 'as-status', role: 'status' });
-    this.input.addEventListener('input', () => this.grow());
+    this.limit = h('div', { class: 'as-limit', id: nextDomId('as-limit'), 'aria-live': 'polite' });
+    this.input.setAttribute('aria-describedby', this.limit.id);
+    this.input.addEventListener('input', () => { this.grow(); this.checkLength(); });
     this.input.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); void this.submit(); }
-      else if (e.key === 'Escape' && this.agent.busy) { e.preventDefault(); this.agent.stop(); }
+      // keyCode 229: Safari's Enter that commits an IME composition comes with isComposing false.
+      if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && e.keyCode !== 229) { e.preventDefault(); void this.submit(); }
+      else if (e.key === 'Escape' && this.agent.busy) { e.preventDefault(); this.stop(); }
     });
-    this.sendBtn.addEventListener('click', () => (this.agent.busy ? this.agent.stop() : void this.submit()));
+    this.sendBtn.addEventListener('click', () => (this.agent.busy ? this.stop() : void this.submit()));
     // Files go with a message: picked with the paperclip, pasted into the box, or dropped on the panel.
     this.fileInput = h('input', { type: 'file', multiple: true, accept: ATTACH_ACCEPT, hidden: true, tabindex: '-1', 'aria-hidden': 'true' }) as HTMLInputElement;
     this.fileInput.addEventListener('change', () => {
@@ -171,15 +178,44 @@ export class AssistantPanel {
     this.el = h('div', { class: 'assistant' },
       h('div', { class: 'as-bar' }, newChat),
       this.log,
-      h('div', { class: 'as-bottom' }, this.status, composer,
+      h('div', { class: 'as-bottom' }, this.status, composer, this.limit,
         h('div', { class: 'as-note' }, 'Sends your messages and a description of the part to Puter AI. Check designs before relying on them.')));
     this.bindDrop();
     this.renderEmpty();
-    app.store.on((reason) => { if (reason === 'load' && !this.agent.busy && !this.agent.messages.length) this.renderEmpty(); });
+    app.store.on((reason) => {
+      if (reason !== 'load') return;
+      // Another part was opened: the reply in progress was about the one that was closed.
+      if (this.agent.busy) this.stop('Stopped: another part was opened.');
+      else if (!this.agent.messages.length) this.renderEmpty();
+    });
   }
 
   focus() {
     requestAnimationFrame(() => this.input.focus());
+  }
+
+  /**
+   * A button pressed from the keyboard that goes away with the press (idea, Try
+   * again, Undo changes) hands focus to the message box, not to the page.
+   * Tapped or clicked ones do not: on a phone that would open the keyboard.
+   */
+  private keepFocus(e: MouseEvent) {
+    if (e.detail === 0) this.input.focus({ preventScroll: true });
+  }
+
+  /**
+   * A message longer than the assistant takes (megabytes pasted by mistake)
+   * would fail, and stay in the conversation failing every later message.
+   * Returns false, saying so under the box, when the text is too long.
+   */
+  private checkLength(): boolean {
+    const n = this.input.value.trim().length;
+    const over = n > MAX_TEXT_CHARS;
+    const text = over ? `This message has ${n.toLocaleString('en-US')} characters; the assistant takes at most ${MAX_TEXT_CHARS.toLocaleString('en-US')}. Shorten it, or attach long text as a file.` : '';
+    if (this.limit.textContent !== text) this.limit.textContent = text;
+    if (over) this.input.setAttribute('aria-invalid', 'true');
+    else this.input.removeAttribute('aria-invalid');
+    return !over;
   }
 
   private grow() {
@@ -192,7 +228,9 @@ export class AssistantPanel {
     for (const img of this.log.querySelectorAll<HTMLImageElement>('img.as-user-thumb')) URL.revokeObjectURL(img.src);
     this.agent.reset();
     this.turn = null;
-    this.setBusy(false);
+    // A step still running finishes first; its message's run then squashes and clears busy.
+    this.setBusy(this.agent.busy);
+    if (this.agent.busy) this.status.textContent = 'Stopping…';
     this.renderEmpty();
     this.input.focus();
   }
@@ -204,7 +242,7 @@ export class AssistantPanel {
       : ['A 100 × 60 × 8 mm mounting plate with four M5 holes and rounded corners', 'A flanged bushing: 40 mm flange, 20 mm shaft, 10 mm bore', 'An enclosure box 80 × 50 × 30 mm with 2 mm walls, open on top', 'A spur-gear-like disc: 60 mm across with 12 teeth and a 8 mm bore'];
     const chips = h('div', { class: 'as-ideas' }, ...ideas.map((t) => {
       const b = h('button', { class: 'as-idea', type: 'button' }, t);
-      b.addEventListener('click', () => { this.input.value = t; this.grow(); void this.submit(); });
+      b.addEventListener('click', (e) => { this.input.value = t; this.grow(); this.keepFocus(e); void this.submit(); });
       return b;
     }));
     this.log.replaceChildren(h('div', { class: 'as-empty' },
@@ -221,6 +259,21 @@ export class AssistantPanel {
     this.el.classList.toggle('busy', on);
     if (!on) this.status.textContent = '';
   }
+
+  /** The status line is a live region: it is only written when what it says changes. */
+  private setStatus(text: string) {
+    if (this.status.textContent !== text) this.status.textContent = text;
+  }
+
+  /** Stops the reply; a step already running finishes first (it cannot be interrupted). */
+  private stop(reason = 'Stopped.') {
+    this.agent.stop();
+    this.stopReason = reason;
+    if (this.turn) this.status.textContent = 'Stopping…';
+  }
+
+  /** What the footer of a stopped reply says. */
+  private stopReason = 'Stopped.';
 
   /** Whether Puter AI can be used. Signs in to Puter first when needed. */
   private async ready(): Promise<boolean> {
@@ -243,15 +296,25 @@ export class AssistantPanel {
     this.scroll(true);
   }
 
+  /** Whether the conversation follows new content (the user has not scrolled up from the bottom). */
+  private stick = true;
+
   private scroll(force = false) {
-    const l = this.log;
-    if (force || l.scrollHeight - l.scrollTop - l.clientHeight < 120) l.scrollTop = l.scrollHeight;
+    // Judged by where the user left it, not by the distance now: one piece of text
+    // or a screenshot can add more than a screenful at once.
+    if (force) this.stick = true;
+    if (this.stick) this.log.scrollTop = this.log.scrollHeight;
   }
 
   async submit() {
     let text = this.input.value.trim();
     if ((!text && !this.pending.length) || this.agent.busy || this.sending) return;
+    if (!this.checkLength()) { this.input.focus(); return; }
     if (!(await this.ready()) || this.agent.busy) return;
+    // What the box holds now goes: it may have been edited while signing in.
+    text = this.input.value.trim();
+    if (!text && !this.pending.length) return;
+    if (!this.checkLength()) return;
     let items: PendingFile[] = [];
     let files: Attachment[] = [];
     if (this.pending.length) {
@@ -266,6 +329,7 @@ export class AssistantPanel {
       // Too much for one request: nothing goes, and the tray and the text stay.
       const tooLarge = attachmentsTooLarge(files);
       if (tooLarge) { toast({ kind: 'warning', message: tooLarge, timeout: 6000 }); return; }
+      if (!this.checkLength()) return;
       this.pending = this.pending.filter((it) => !waiting.includes(it));
       for (const it of items) it.node.remove();
       this.syncTray();
@@ -275,6 +339,7 @@ export class AssistantPanel {
     }
     this.input.value = '';
     this.grow();
+    this.checkLength();
     this.log.querySelector('.as-empty')?.remove();
     const bubble = h('div', { class: 'as-msg as-user' });
     if (items.length) bubble.append(sentFiles(items));
@@ -378,7 +443,13 @@ export class AssistantPanel {
   private async run(request: string, go: (on: Parameters<Agent['send']>[1]) => Promise<ExchangeResult>) {
     const store = this.app.store;
     const mark = store.undoMark;
+    // Only the latest reply can be asked again: a later message has moved the conversation on.
+    for (const b of this.log.querySelectorAll('.as-retry')) b.remove();
+    this.stopReason = 'Stopped.';
     const turn = this.newTurn();
+    // The conversation is a live region: the reply is announced once it is complete,
+    // not again on every streamed piece (the status line tells what is happening meanwhile).
+    turn.el.setAttribute('aria-busy', 'true');
     this.turn = turn;
     this.setBusy(true);
     this.status.textContent = 'Thinking…';
@@ -395,7 +466,7 @@ export class AssistantPanel {
           }
           turn.text.src += e.text;
           this.queueText(turn.text);
-          this.status.textContent = 'Writing…';
+          this.setStatus('Writing…');
         } else if (e.type === 'step') {
           if (!turn.steps) {
             if (turn.text) this.renderText(turn.text);
@@ -404,41 +475,50 @@ export class AssistantPanel {
             turn.text = null;
           }
           this.renderStep(turn, turn.steps, e.step);
-          this.status.textContent = e.step.status === 'running' ? `${stepLabel(e.step.name, e.step.args)}…` : 'Thinking…';
+          if (this.status.textContent !== 'Stopping…') this.setStatus(e.step.status === 'running' ? `${stepLabel(e.step.name, e.step.args)}…` : 'Thinking…');
         } else if (e.type === 'round') {
-          this.status.textContent = 'Thinking…';
+          this.setStatus('Thinking…');
         }
       });
     } catch (e) {
       res = { stopped: false, error: e as Error, steps: [] };
     }
-    if (this.turn !== turn) return;
-    if (turn.text) this.renderText(turn.text);
-    // Everything this message changed becomes one undo step.
+    // Everything this message changed becomes one undo step, even when New chat cut it off.
     const label = `Assistant: ${short(request, 40)}`;
     let changed = false;
     if (store.undoMark > mark) {
       store.squash(mark, label);
       changed = true;
     }
+    if (this.turn !== turn) {
+      if (!this.turn) this.setBusy(false);
+      return;
+    }
+    if (turn.text) this.renderText(turn.text);
+    turn.el.removeAttribute('aria-busy');
     const after = store.undoMark;
-    if (res.stopped) turn.foot.append(h('span', { class: 'as-meta' }, 'Stopped.'));
+    if (res.stopped) turn.foot.append(h('span', { class: 'as-meta' }, this.stopReason));
     if (res.error) {
-      const retry = h('button', { class: 'btn small', type: 'button' }, 'Try again');
-      retry.addEventListener('click', () => {
+      const retry = h('button', { class: 'btn small as-retry', type: 'button' }, 'Try again');
+      const error = h('div', { class: 'as-error', role: 'alert' }, `The assistant could not answer: ${res.error.message}`);
+      retry.addEventListener('click', (e) => {
         if (this.agent.busy) return;
-        turn.foot.replaceChildren();
+        this.keepFocus(e);
+        // Undo changes stays: what this reply did before it failed is still its own undo step.
+        error.remove();
+        retry.remove();
         void this.run(request, (on) => this.agent.retry(on));
       });
-      turn.foot.append(h('div', { class: 'as-error', role: 'alert' }, `The assistant could not answer: ${res.error.message}`), retry);
+      turn.foot.append(error, retry);
     }
     if (changed) {
       const undo = h('button', { class: 'btn small', type: 'button' }, icon('undo', 14), 'Undo changes');
-      undo.addEventListener('click', () => {
+      undo.addEventListener('click', (e) => {
         if (store.undoMark !== after || store.undoLabel !== label) {
           toast({ kind: 'info', message: 'The part changed since; use Edit > Undo to step back.' });
           return;
         }
+        this.keepFocus(e);
         this.app.commands.run('undo');
         undo.replaceWith(h('span', { class: 'as-meta' }, 'Changes undone.'));
       });
@@ -487,6 +567,7 @@ export class AssistantPanel {
     }
     if (step.image) {
       const img = h('img', { class: 'as-shot', src: step.image, alt: 'What the assistant saw' }) as HTMLImageElement;
+      img.addEventListener('load', () => this.scroll(), { once: true });
       el.append(img);
     }
     this.scroll();

@@ -596,6 +596,7 @@ export class SketchSystem {
   run(): SolveResult {
     const maxIter = this.opts.maxIterations ?? 60;
     const drag = this.opts.drag;
+    const initial = this.x.slice();
     let converged: boolean;
     if (drag) {
       const backup = this.x.slice();
@@ -629,6 +630,12 @@ export class SketchSystem {
         }
       }
     } else converged = this.solveAll(maxIter);
+    // Overflow (e.g. from an absurd dimension value) must never reach the
+    // document as NaN coordinates: keep the geometry as it was instead.
+    if (!this.x.every(Number.isFinite)) {
+      this.x.set(initial);
+      converged = false;
+    }
 
     const r = new Float64Array(this.eqs.length);
     const residual = this.residuals(this.eqs, r);

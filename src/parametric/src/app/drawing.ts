@@ -25,6 +25,11 @@ export class DrawingWorkspace {
   private cache = new Map<string, { kind: DrawingViewKind; version: number; result: ProjectionResult }>();
   private frames: ViewFrame[] = [];
   private pending = false;
+  /** A refresh was asked for while views were being projected. */
+  private refreshAgain = false;
+  /** What the drawing PropertyManager shows, to rebuild it only when that changes. */
+  private panelKey = '';
+  private panelChanging = false;
   private layoutPending = false;
   private sheetW = 297;
   private sheetH = 210;
@@ -55,20 +60,22 @@ export class DrawingWorkspace {
 
   close() {
     this.layoutPending = false;
+    this.refreshAgain = false;
+    this.panelKey = '';
     this.active = false;
     this.el.hidden = true;
   }
 
-  /** Creates a drawing with the standard views laid out on an A4 sheet. */
+  /** Creates a drawing with the standard views laid out on an A4 (or, for inch parts, Letter) sheet. */
   create() {
     const b = this.app.bbox;
-    const sheet = { w: 297, h: 210 };
-    const layout = b ? standardLayout(sheet, b.min, b.max) : { scale: 1, views: [] };
+    const size: SheetSize = this.app.store.doc.units === 'IPS' ? 'Letter' : 'A4';
+    const layout = b ? standardLayout(sheetDims({ sheet: size, landscape: true }), b.min, b.max) : { scale: 1, views: [] };
     // Opened before the first rebuild finished: lay out once the solid exists.
     this.layoutPending = !b;
     this.app.store.change('Create drawing', (d) => {
       d.drawing = {
-        sheet: d.units === 'IPS' ? 'Letter' : 'A4', landscape: true, scale: layout.scale,
+        sheet: size, landscape: true, scale: layout.scale,
         views: layout.views.map((v, i) => ({ ...v, id: `v${i + 1}` })), title: '', drawnBy: '', notes: '',
       };
     });
@@ -90,11 +97,34 @@ export class DrawingWorkspace {
     this.app.store.change(label, (doc) => { if (doc.drawing) fn(doc.drawing); });
   }
 
+  /**
+   * A change made with a control of the drawing PropertyManager, which already
+   * shows it: the panel is not rebuilt, so focus stays (Tab moves on normally).
+   */
+  updateFromPanel(fn: (d: DrawingDoc) => void, label: string) {
+    this.panelChanging = true;
+    try {
+      this.update(fn, label);
+    } finally {
+      this.panelChanging = false;
+    }
+  }
+
+  /** Rebuilds the PropertyManager if what it shows changed (not when a view only moved). */
+  private syncPanel() {
+    const d = this.doc;
+    const key = d ? JSON.stringify([this.selected, this.app.store.doc.name, d.sheet, d.landscape, d.scale, d.title, d.drawnBy, d.notes, d.views.map((v) => [v.id, v.kind, v.hidden, v.dims])]) : '';
+    if (key === this.panelKey) return;
+    this.panelKey = key;
+    if (!this.panelChanging) this.app.refreshPanel();
+  }
+
   // ---------- projections and rendering ----------
 
   /** Projects missing or outdated views, then renders. */
   async refresh() {
-    if (!this.active || this.pending) return;
+    if (!this.active) return;
+    if (this.pending) { this.refreshAgain = true; return; }
     const d = this.doc;
     if (!d) return;
     if (this.layoutPending && this.app.bbox) {
@@ -119,8 +149,8 @@ export class DrawingWorkspace {
       } finally {
         this.pending = false;
       }
-      // The model may have changed while projecting.
-      if (version !== this.app.buildVersion) { void this.refresh(); return; }
+      // The model or the views may have changed while projecting.
+      if (version !== this.app.buildVersion || this.refreshAgain) { this.refreshAgain = false; void this.refresh(); return; }
     }
     this.render();
   }
@@ -165,7 +195,7 @@ export class DrawingWorkspace {
     (this.el.querySelector('.drawing-empty') as HTMLElement).hidden = !!this.app.bbox;
     this.applyTransform();
     this.drawSelection();
-    this.app.refreshPanel();
+    this.syncPanel();
   }
 
   private applyTransform() {
@@ -204,7 +234,27 @@ export class DrawingWorkspace {
 
   private bind() {
     let drag: { kind: 'pan' | 'view'; sx: number; sy: number; ox: number; oy: number; id?: string; moved: boolean } | null = null;
+    // Two fingers pinch to zoom and pan (touch screens have no wheel).
+    const pointers = new Map<number, { x: number; y: number }>();
+    let pinch: { d: number; sx: number; sy: number; zoom: number } | null = null;
+    const pinchState = () => {
+      const [a, b] = [...pointers.values()];
+      const r = this.el.getBoundingClientRect();
+      return { d: Math.hypot(a.x - b.x, a.y - b.y) || 1, mx: (a.x + b.x) / 2 - r.left, my: (a.y + b.y) / 2 - r.top };
+    };
     this.el.addEventListener('pointerdown', (e) => {
+      if (e.pointerType === 'touch') pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pointers.size >= 2) {
+        // A second finger ends any drag (closing its undo step) and starts a pinch.
+        if (drag?.kind === 'view' && drag.moved) this.app.store.endBatch();
+        drag = null;
+        if (pointers.size === 2) {
+          const p = pinchState();
+          pinch = { d: p.d, sx: (p.mx - this.pan.x) / this.zoom, sy: (p.my - this.pan.y) / this.zoom, zoom: this.zoom };
+        }
+        this.el.setPointerCapture(e.pointerId);
+        return;
+      }
       this.el.focus({ preventScroll: true });
       const [x, y] = this.toSheet(e.clientX, e.clientY);
       const id = e.button === 0 ? this.viewAt(x, y) : null;
@@ -213,14 +263,24 @@ export class DrawingWorkspace {
         const v = this.doc!.views.find((q) => q.id === id)!;
         this.selected = id;
         this.drawSelection();
-        this.app.refreshPanel();
+        this.syncPanel();
         drag = { kind: 'view', sx: e.clientX, sy: e.clientY, ox: v.x, oy: v.y, id, moved: false };
       } else {
-        if (e.button === 0 && this.selected) { this.selected = null; this.drawSelection(); this.app.refreshPanel(); }
+        if (e.button === 0 && this.selected) { this.selected = null; this.drawSelection(); this.syncPanel(); }
         drag = { kind: 'pan', sx: e.clientX, sy: e.clientY, ox: this.pan.x, oy: this.pan.y, moved: false };
       }
     });
     this.el.addEventListener('pointermove', (e) => {
+      if (pointers.has(e.pointerId)) pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pinch) {
+        if (pointers.size < 2) return;
+        // Keep the sheet point first under the fingers' midpoint under it.
+        const p = pinchState();
+        this.zoom = Math.max(0.1, Math.min(40, (pinch.zoom * p.d) / pinch.d));
+        this.pan = { x: p.mx - pinch.sx * this.zoom, y: p.my - pinch.sy * this.zoom };
+        this.applyTransform();
+        return;
+      }
       if (!drag) return;
       const dx = e.clientX - drag.sx, dy = e.clientY - drag.sy;
       if (!drag.moved && Math.hypot(dx, dy) < 3) return;
@@ -231,11 +291,13 @@ export class DrawingWorkspace {
         this.applyTransform();
       } else {
         const id = drag.id!, nx = drag.ox + dx / this.zoom, ny = drag.oy + dy / this.zoom;
+        // The change re-renders the sheet (App refreshes the drawing on every document change).
         this.update((d) => { const v = d.views.find((q) => q.id === id); if (v) { v.x = nx; v.y = ny; } }, 'Move view');
-        this.render();
       }
     });
-    const end = () => {
+    const end = (e: PointerEvent) => {
+      pointers.delete(e.pointerId);
+      if (pinch) { if (pointers.size < 2) pinch = null; return; }
       if (drag?.kind === 'view' && drag.moved) this.app.store.endBatch();
       drag = null;
     };
@@ -290,20 +352,27 @@ export class DrawingWorkspace {
     let n = d.views.length + 1;
     while (d.views.some((v) => v.id === `v${n}`)) n++;
     const id = `v${n}`;
-    this.update((dd) => { dd.views.push({ id, kind, x, y, hidden: kind !== 'isometric', dims: kind !== 'isometric' }); }, 'Add view');
     this.selected = id;
+    this.update((dd) => { dd.views.push({ id, kind, x, y, hidden: kind !== 'isometric', dims: kind !== 'isometric' }); }, 'Add view');
   }
 
   // ---------- export ----------
 
-  exportPdf() {
+  /** Waits for views still being projected, so an export right after opening has them. */
+  private async projected() {
+    while (this.pending || this.refreshAgain) await new Promise((r) => setTimeout(r, 50));
+  }
+
+  async exportPdf() {
     if (!this.doc) return;
+    await this.projected();
     const s = this.sheet();
     download(toPdf(s.items, s.w, s.h, this.app.store.doc.name) as BlobPart, `${safeName(this.app.store.doc.name)}.pdf`, 'application/pdf');
   }
 
-  exportSvg() {
+  async exportSvg() {
     if (!this.doc) return;
+    await this.projected();
     const s = this.sheet();
     download(toSvg(s.items, s.w, s.h), `${safeName(this.app.store.doc.name)}.svg`, 'image/svg+xml');
   }
@@ -329,10 +398,10 @@ export class DrawingPanel extends PropertyPanel {
     const ws = this.ws;
     const d = ws.doc;
     if (!d) return [];
-    const sheet = selectField<SheetSize>('Sheet size', d.sheet, (Object.keys(SHEET_LABELS) as SheetSize[]).map((k) => ({ value: k, label: SHEET_LABELS[k] })), (v) => ws.update((x) => { x.sheet = v; }, 'Sheet size'));
+    const sheet = selectField<SheetSize>('Sheet size', d.sheet, (Object.keys(SHEET_LABELS) as SheetSize[]).map((k) => ({ value: k, label: SHEET_LABELS[k] })), (v) => ws.updateFromPanel((x) => { x.sheet = v; }, 'Sheet size'));
     const scales = STANDARD_SCALES.map((s) => ({ value: String(s), label: scaleLabel(s) }));
     if (!scales.some((s) => Number(s.value) === d.scale)) scales.push({ value: String(d.scale), label: scaleLabel(d.scale) });
-    const scale = selectField('Scale', String(d.scale), scales, (v) => ws.update((x) => { x.scale = Number(v); }, 'Sheet scale'));
+    const scale = selectField('Scale', String(d.scale), scales, (v) => ws.updateFromPanel((x) => { x.scale = Number(v); }, 'Sheet scale'));
     const views = h('div', { class: 'relations-list' });
     for (const v of d.views) views.append(this.viewRow(v));
     const addSel = h('select', { class: 'input', 'aria-label': 'View to add' }) as HTMLSelectElement;
@@ -347,20 +416,20 @@ export class DrawingPanel extends PropertyPanel {
     return [
       section('Sheet', [
         sheet,
-        checkbox('Landscape', d.landscape, (v) => ws.update((x) => { x.landscape = v; }, 'Sheet orientation')),
+        checkbox('Landscape', d.landscape, (v) => ws.updateFromPanel((x) => { x.landscape = v; }, 'Sheet orientation')),
         scale,
         h('button', { class: 'btn small', type: 'button', onclick: () => ws.relayout() }, icon('reset', 14), 'Arrange standard views'),
       ]),
       section('Views', [views, h('div', { class: 'row' }, h('div', { class: 'grow' }, addSel), add)]),
       section('Title Block', [
-        field('Title', d.title || this.app.store.doc.name, (v) => ws.update((x) => { x.title = v; }, 'Title')),
-        field('Drawn by', d.drawnBy, (v) => ws.update((x) => { x.drawnBy = v; }, 'Drawn by')),
-        field('Notes', d.notes, (v) => ws.update((x) => { x.notes = v; }, 'Notes')),
+        field('Title', d.title || this.app.store.doc.name, (v) => ws.updateFromPanel((x) => { x.title = v; }, 'Title')),
+        field('Drawn by', d.drawnBy, (v) => ws.updateFromPanel((x) => { x.drawnBy = v; }, 'Drawn by')),
+        field('Notes', d.notes, (v) => ws.updateFromPanel((x) => { x.notes = v; }, 'Notes')),
       ]),
       section('Export', [
         h('div', { class: 'row' },
-          h('button', { class: 'btn small', type: 'button', onclick: () => ws.exportPdf() }, icon('download', 14), 'PDF'),
-          h('button', { class: 'btn small', type: 'button', onclick: () => ws.exportSvg() }, icon('download', 14), 'SVG')),
+          h('button', { class: 'btn small', type: 'button', onclick: () => void ws.exportPdf() }, icon('download', 14), 'PDF'),
+          h('button', { class: 'btn small', type: 'button', onclick: () => void ws.exportSvg() }, icon('download', 14), 'SVG')),
       ]),
     ];
   }
@@ -371,10 +440,10 @@ export class DrawingPanel extends PropertyPanel {
     del.addEventListener('click', () => { ws.selected = v.id; ws.deleteSelected(); });
     const hidden = h('input', { type: 'checkbox', 'aria-label': `Hidden lines in ${VIEW_LABELS[v.kind]} view` }) as HTMLInputElement;
     hidden.checked = v.hidden;
-    hidden.addEventListener('change', () => ws.update((d) => { const x = d.views.find((q) => q.id === v.id); if (x) x.hidden = hidden.checked; }, 'Hidden lines'));
+    hidden.addEventListener('change', () => ws.updateFromPanel((d) => { const x = d.views.find((q) => q.id === v.id); if (x) x.hidden = hidden.checked; }, 'Hidden lines'));
     const dims = h('input', { type: 'checkbox', 'aria-label': `Dimensions in ${VIEW_LABELS[v.kind]} view` }) as HTMLInputElement;
     dims.checked = v.dims;
-    dims.addEventListener('change', () => ws.update((d) => { const x = d.views.find((q) => q.id === v.id); if (x) x.dims = dims.checked; }, 'Dimensions'));
+    dims.addEventListener('change', () => ws.updateFromPanel((d) => { const x = d.views.find((q) => q.id === v.id); if (x) x.dims = dims.checked; }, 'Dimensions'));
     const row = h('div', { class: `rel-btn${ws.selected === v.id ? ' on' : ''}`, style: { cursor: 'default' } },
       h('span', { class: 'grow' }, VIEW_LABELS[v.kind]),
       h('label', { class: 'check', title: 'Hidden lines' }, hidden, h('span', { class: 'field-label' }, 'Hidden')),

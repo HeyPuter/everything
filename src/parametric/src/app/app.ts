@@ -15,8 +15,10 @@ import { VIEWS } from '../render/camera';
 import { cssColor, parseColor } from '../platform/theme';
 import { closeMenus, openMenu, type MenuItem } from '../ui/menu';
 import { attachTooltip, confirmDialog, dialogOpen, toast } from '../ui/overlay';
-import { announce, h, isTextInput } from '../ui/dom';
+import { announce, formatShortcut, h, isTextInput } from '../ui/dom';
 import { icon } from '../ui/icons';
+import { selectTabs, syncTabStops, tabKeys } from '../ui/tabs';
+import { type FocusRegion, cycleRegion, firstTabStop, trackRegionFocus } from '../ui/regions';
 import { CommandRegistry } from './commands';
 import { type PickFilter, PropertyPanel, type UnitContext } from './pm';
 import { Selection, faceRef, type SelItem } from './selection';
@@ -61,6 +63,10 @@ export const DEFAULT_SETTINGS: Settings = {
   autoNormalTo: true,
   defaultUnits: 'MMGS',
 };
+
+/** Controls whose own keyboard activation must win over global shortcuts. */
+const ACTIVATES_ON_ENTER = 'button, a[href], summary, [role="button"], [role="link"], [role="tab"], [role="option"], [role="menuitem"], [role="treeitem"]';
+const ACTIVATES_ON_SPACE = 'input[type="checkbox"], input[type="radio"], select, [role="checkbox"], [role="switch"], [role="radio"]';
 
 /** Hooks implemented by the feature/command modules (set up in main). */
 export interface AppHooks {
@@ -128,6 +134,7 @@ export class App {
       throw e;
     }
     this.renderer.onFrame = () => this.onFrame();
+    this.renderer.onCamera = () => this.onCameraChange();
     this.colors = this.readColors();
     this.viewport.init();
     this.drawing = new DrawingWorkspace(this);
@@ -141,10 +148,16 @@ export class App {
     this.buildTaskPane();
     this.bindShell();
     this.store.on((reason) => this.onStoreChange(reason));
-    this.selection.on(() => this.onSelectionChange());
+    this.selection.on((hoverOnly) => this.onSelectionChange(hoverOnly));
     this.commands.onChange(() => this.syncChrome());
     window.addEventListener('themechange', () => this.applyTheme());
     window.addEventListener('keydown', (e) => this.onKey(e));
+    trackRegionFocus(() => this.focusRegions());
+    // Whether focus last arrived from a click/tap (toolbar buttons keep focus
+    // after a click) or from the keyboard.
+    window.addEventListener('pointerdown', () => { this.pointerInput = true; }, true);
+    window.addEventListener('keydown', () => { this.pointerInput = false; }, true);
+    window.addEventListener('focusin', () => { this.focusByPointer = this.pointerInput; }, true);
     this.renderer.camera.setState(this.renderer.camera.fitState([0, 0, 0], 60));
     this.showLoading(true);
     this.kernel.ready.then(() => {
@@ -163,7 +176,7 @@ export class App {
   readTheme(): Theme {
     const c = (n: string) => cssColor(n);
     return {
-      background: c('--viewport'), model: c('--model'), edge: c('--edge'), hiddenEdge: c('--hidden-edge'), selection: c('--selection'),
+      background: c('--viewport'), model: c('--model'), edge: c('--edge'), wire: c('--wire'), hiddenEdge: c('--hidden-edge'), selection: c('--selection'),
       hover: c('--hover-3d'), preview: c('--preview'), previewCut: c('--preview-cut'), cap: c('--cap'),
     };
   }
@@ -195,12 +208,15 @@ export class App {
 
   private buildLeftTabs() {
     const tabs: [string, string, string][] = [['tree', 'tree', 'Design tree'], ['pm', 'settings', 'PropertyManager']];
+    // The tablist holds only the tabs; the phone sheet's close button sits beside it.
+    const list = h('div', { class: 'lp-tablist', role: 'tablist', 'aria-label': 'Panels' });
     for (const [id, ic, label] of tabs) {
       const b = h('button', { role: 'tab', type: 'button', 'aria-selected': String(id === this.leftTab), 'aria-controls': 'left-panel', 'aria-label': label, title: label, 'data-tab': id }, icon(ic, 16));
       b.addEventListener('click', () => this.showLeft(id as 'tree' | 'pm'));
-      this.shell.lpTabs.append(b);
+      list.append(b);
     }
-    this.shell.lpTabs.append(h('span', { class: 'grow' }));
+    tabKeys(list);
+    this.shell.lpTabs.append(list, h('span', { class: 'grow' }));
     const close = h('button', { class: 'icon-btn mobile-only', type: 'button', 'aria-label': 'Close panel' }, icon('close', 16));
     close.addEventListener('click', () => this.toggleLeftPane(false));
     this.shell.lpTabs.append(close);
@@ -208,7 +224,7 @@ export class App {
 
   showLeft(tab: 'tree' | 'pm') {
     this.leftTab = tab;
-    for (const b of this.shell.lpTabs.querySelectorAll<HTMLElement>('[role="tab"]')) b.setAttribute('aria-selected', String(b.dataset.tab === tab));
+    selectTabs(this.shell.lpTabs, (b) => b.dataset.tab === tab);
     const body = this.shell.lpBody;
     if (tab === 'tree') {
       body.replaceChildren(this.tree.el);
@@ -228,7 +244,7 @@ export class App {
   }
 
   private panelElement(p: PropertyPanel): HTMLElement {
-    const head = h('div', { class: 'pm-head' }, icon(p.icon, 18), h('div', { class: 'title', role: 'heading', 'aria-level': '2' }, p.title));
+    const head = h('div', { class: 'pm-head' }, icon(p.icon, 18), h('div', { class: 'title', role: 'heading', 'aria-level': '2', tabindex: '-1' }, p.title));
     const actions = h('div', { class: 'pm-actions' });
     if (p.confirm) {
       actions.append(
@@ -247,18 +263,10 @@ export class App {
     for (const t of this.hooks.ribbonTabs) {
       const b = h('button', { role: 'tab', type: 'button', 'aria-selected': String(t.id === this.ribbonTab), 'data-tab': t.id }, t.label);
       b.addEventListener('click', () => this.setRibbonTab(t.id));
-      b.addEventListener('keydown', (e) => {
-        const tabs = [...this.shell.cmTabs.querySelectorAll<HTMLElement>('[role="tab"]')];
-        const i = tabs.indexOf(b);
-        if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
-          e.preventDefault();
-          const n = tabs[(i + (e.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length];
-          n.focus();
-          n.click();
-        }
-      });
       this.shell.cmTabs.append(b);
     }
+    // The arrow keys skip the hidden tabs (the Drawing tab in the model, and the reverse).
+    tabKeys(this.shell.cmTabs);
     this.setRibbonTab(this.ribbonTab);
   }
 
@@ -266,10 +274,10 @@ export class App {
     this.ribbonTab = id;
     for (const b of this.shell.cmTabs.querySelectorAll<HTMLElement>('[role="tab"]')) {
       b.setAttribute('aria-selected', String(b.dataset.tab === id));
-      b.setAttribute('tabindex', b.dataset.tab === id ? '0' : '-1');
       // The drawing has its own tab; model tabs are hidden while it is open.
       b.hidden = (b.dataset.tab === 'drawing') !== (id === 'drawing');
     }
+    syncTabStops(this.shell.cmTabs);
     const tab = this.hooks.ribbonTabs.find((t) => t.id === id)!;
     renderRibbon(this.shell.cmTools, tab, this.commands);
   }
@@ -467,26 +475,34 @@ export class App {
       active = 0;
       list.forEach((c, i) => {
         const opt = h('div', { role: 'option', id: `cmdopt-${i}`, 'aria-selected': String(i === 0), 'aria-disabled': this.commands.isEnabled(c.id) ? null : 'true' },
-          icon(c.icon ?? 'settings', 16), h('span', {}, c.label), c.shortcut ? h('span', { class: 'kbd' }, c.shortcut) : null);
+          icon(c.icon ?? 'settings', 16), h('span', {}, c.label), c.shortcut ? h('span', { class: 'kbd' }, formatShortcut(c.shortcut)) : null);
         opt.addEventListener('pointerdown', (e) => { e.preventDefault(); run(c.id); });
         results.append(opt);
       });
       results.hidden = !list.length;
       s.search.setAttribute('aria-expanded', String(!!list.length));
-      s.search.setAttribute('aria-activedescendant', list.length ? 'cmdopt-0' : '');
+      if (list.length) s.search.setAttribute('aria-activedescendant', 'cmdopt-0');
+      else s.search.removeAttribute('aria-activedescendant');
+    };
+    const hide = () => {
+      results.hidden = true;
+      s.search.setAttribute('aria-expanded', 'false');
+      s.search.removeAttribute('aria-activedescendant');
     };
     const run = (id: string) => {
       s.search.value = '';
-      results.hidden = true;
+      hide();
       s.search.blur();
       this.commands.run(id);
     };
     s.search.addEventListener('input', show);
-    s.search.addEventListener('blur', () => setTimeout(() => { results.hidden = true; }, 120));
+    s.search.addEventListener('blur', () => setTimeout(hide, 120));
     s.search.addEventListener('keydown', (e) => {
       const opts = [...results.querySelectorAll<HTMLElement>('[role="option"]')];
       if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
         e.preventDefault();
+        if (!opts.length) return;
+        if (results.hidden) { show(); return; }
         active = (active + (e.key === 'ArrowDown' ? 1 : -1) + opts.length) % Math.max(1, opts.length);
         opts.forEach((o, i) => o.setAttribute('aria-selected', String(i === active)));
         s.search.setAttribute('aria-activedescendant', `cmdopt-${active}`);
@@ -495,7 +511,7 @@ export class App {
         if (list[active]) run(list[active].id);
       } else if (e.key === 'Escape') {
         s.search.value = '';
-        results.hidden = true;
+        hide();
         s.search.blur();
       }
     });
@@ -681,8 +697,13 @@ export class App {
       toast({ kind: 'error', title: 'Rebuild failed', message: (e as Error).message });
       return;
     }
+    // Coalesced requests all resolve with the same newest result: show it once.
+    if (res === this.lastBuildResult) return;
+    this.lastBuildResult = res;
     this.applyBuild(res, performance.now() - t0);
   }
+
+  private lastBuildResult: BuildResult | null = null;
 
   /** Incremented after every rebuild (drawings re-project when it changes). */
   buildVersion = 0;
@@ -716,7 +737,7 @@ export class App {
 
   private showDrawingPanel() {
     this.leftTab = 'pm';
-    for (const b of this.shell.lpTabs.querySelectorAll<HTMLElement>('[role="tab"]')) b.setAttribute('aria-selected', String(b.dataset.tab === 'pm'));
+    selectTabs(this.shell.lpTabs, (b) => b.dataset.tab === 'pm');
     this.shell.lpBody.replaceChildren(this.panelElement(new DrawingPanel(this, this.drawing)));
   }
 
@@ -729,13 +750,14 @@ export class App {
       return b;
     };
     this.sheetTabs = h('div', { class: 'sheet-tabs', role: 'tablist', 'aria-label': 'Model or drawing' }, mk('Model', false), mk('Drawing', true));
+    // Opening the drawing projects the views, so the arrow keys only move focus.
+    tabKeys(this.sheetTabs, { activate: false });
     this.shell.statusMsg.before(this.sheetTabs);
   }
 
   private syncSheetTabs() {
-    const tabs = this.sheetTabs.querySelectorAll('[role="tab"]');
-    tabs[0].setAttribute('aria-selected', String(!this.inDrawing));
-    tabs[1].setAttribute('aria-selected', String(this.inDrawing));
+    const drawing = this.sheetTabs.querySelectorAll('[role="tab"]')[1];
+    selectTabs(this.sheetTabs, (b) => (b === drawing) === this.inDrawing);
   }
 
   private applyBuild(res: BuildResult, ms: number) {
@@ -768,6 +790,7 @@ export class App {
     this.shell.statusRebuild.textContent = `${Math.round(res.ms)} ms`;
     this.shell.statusRebuild.title = `Rebuild took ${Math.round(res.ms)} ms (${Math.round(ms)} ms including transfer)`;
     this.viewport.refreshStates();
+    this.viewport.rehoverSoon();
     this.renderTrees();
     const errors = res.status.filter((s) => !s.ok);
     if (errors.length && !this.panel) {
@@ -841,8 +864,12 @@ export class App {
     return out;
   }
 
-  private onSelectionChange() {
+  private onSelectionChange(hoverOnly = false) {
     this.viewport.refreshStates();
+    // Pre-highlighting only changes the graphics: rebuilding the tree and the
+    // PropertyManager on every hover would also throw away a rename or a
+    // field being typed in.
+    if (hoverOnly) { this.sketchEditor?.queueRender(); return; }
     this.renderTrees();
     this.sketchEditor?.queueRender();
     if (this.sketchEditor) this.refreshSketchPanel();
@@ -862,7 +889,7 @@ export class App {
         const f = this.faces[it.index];
         if (!f) return 'Face';
         const owner = this.store.feature(f.feature);
-        return `Face (${f.type}) of ${owner?.name ?? 'the part'}  Area ${formatLength(Math.sqrt(f.area), units, dec)}Â² equivalent`;
+        return `Face (${f.type}) of ${owner?.name ?? 'the part'}  Area ${formatLength(Math.sqrt(f.area), units, dec)}² equivalent`;
       }
       case 'edge': {
         const e = this.edges[it.index];
@@ -1003,7 +1030,7 @@ export class App {
 
   onCameraChange() {
     this.sketchEditor?.onCamera();
-    this.viewport.drawReferenceGeometry();
+    this.viewport.onCamera();
   }
 
   // ---------- panels ----------
@@ -1012,7 +1039,11 @@ export class App {
     if (this.panel) await this.closePanel(false);
     this.hideContextToolbar();
     this.panel = p;
+    // Opened from the design tree with the keyboard: the panel replaces the
+    // tree, so keyboard focus moves to the panel instead of being lost.
+    const fromPane = this.shell.leftpane.contains(document.activeElement);
     this.showLeft('pm');
+    if (fromPane || document.activeElement === document.body) this.shell.lpBody.querySelector<HTMLElement>('.pm-head .title')?.focus();
     this.shell.confirm.hidden = !p.confirm;
     this.renderConfirmCorner();
     this.setStatus(p.title);
@@ -1026,6 +1057,7 @@ export class App {
   async closePanel(ok: boolean) {
     const p = this.panel;
     if (!p) return;
+    const fromPane = this.shell.leftpane.contains(document.activeElement);
     if (ok) {
       let done = false;
       try {
@@ -1044,12 +1076,20 @@ export class App {
     this.shell.confirm.hidden = !this.sketchEditor;
     this.renderConfirmCorner();
     if (this.sketchEditor) this.refreshSketchPanel();
-    else this.showLeft('tree');
+    else {
+      this.showLeft('tree');
+      // Keyboard focus returns to the feature in the tree rather than being lost with the panel.
+      const id = (p as { f?: Feature }).f?.id ?? p.editingId;
+      if (fromPane || document.activeElement === document.body) {
+        const item = (id && this.tree.el.querySelector<HTMLElement>(`[data-key="${CSS.escape(id)}"]`)) || this.tree.el.querySelector<HTMLElement>('.ti[tabindex="0"]');
+        item?.focus();
+      }
+    }
     this.setStatus(this.defaultStatus());
     this.requestRebuild(true);
     this.viewport.refreshStates();
     this.commands.changed();
-    if (window.matchMedia('(max-width: 760px)').matches && !this.sketchEditor) this.toggleLeftPane(false);
+    if (window.matchMedia('(max-width: 760px)').matches) this.toggleLeftPane(false);
   }
 
   get inSketch(): boolean {
@@ -1106,6 +1146,10 @@ export class App {
     this.renderConfirmCorner();
     this.setRibbonTab('sketch');
     this.refreshSketchPanel();
+    // On phones the sheet would cover the lower half of the sketch (and the
+    // OK corner); it slides away, as when a feature panel closes. The Tree
+    // button brings the sketch PropertyManager back.
+    if (window.matchMedia('(max-width: 760px)').matches) this.toggleLeftPane(false);
     if (this.settings.autoNormalTo) this.viewport.normalTo(frame);
     this.requestRebuild(true);
     this.renderTrees();
@@ -1254,10 +1298,36 @@ export class App {
 
   // ---------- keyboard ----------
 
+  private pointerInput = false;
+  private focusByPointer = false;
+
+  /** The window's regions, in F6 order. */
+  private focusRegions(): FocusRegion[] {
+    const s = this.shell;
+    const part = (sel: string) => s.root.querySelector<HTMLElement>(sel)!;
+    // The phone sheet slides away rather than hiding.
+    const sheetClosed = window.matchMedia('(max-width: 760px)').matches && !s.leftpane.classList.contains('open');
+    return [
+      { el: part('.titlebar') },
+      { el: part('.cm') },
+      ...(sheetClosed ? [] : [{ el: s.leftpane, target: () => s.lpBody.querySelector<HTMLElement>('.ti[tabindex="0"]') ?? firstTabStop(s.lpBody) }]),
+      { el: s.viewport, target: () => (this.inDrawing ? this.drawing.el : this.viewport.canvas) },
+      { el: s.taskpane },
+      { el: part('.statusbar') },
+    ];
+  }
+
   private onKey(e: KeyboardEvent) {
     if (dialogOpen()) return;
     const target = e.target as HTMLElement;
     const inText = isTextInput(target);
+    // F6 / Shift+F6 move between the window's regions, from text fields too.
+    if (e.key === 'F6' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      e.preventDefault();
+      closeMenus();
+      cycleRegion(this.focusRegions(), document.activeElement, e.shiftKey ? -1 : 1);
+      return;
+    }
     if (e.key === 'Escape') {
       if (inText) return;
       closeMenus();
@@ -1278,6 +1348,12 @@ export class App {
     }
     if (target.closest('.tree') && ['Delete', 'Backspace', 'Enter', ' ', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'F2', 'Home', 'End'].includes(e.key)) return;
     if (target.closest('.menu')) return;
+    // Enter and Space activate a control the keyboard moved to (and any in the
+    // task pane); after a click they stay shortcuts (Repeat Last Command,
+    // View Orientation), as they are everywhere else.
+    if ((e.key === 'Enter' || e.key === ' ') && !e.ctrlKey && !e.metaKey && !e.altKey && target !== this.viewport.canvas
+      && (!this.focusByPointer || target.closest('.taskpane'))
+      && target.closest(e.key === ' ' ? `${ACTIVATES_ON_ENTER}, ${ACTIVATES_ON_SPACE}` : ACTIVATES_ON_ENTER)) return;
     if (e.key === 'Enter' && this.panel && !(target instanceof HTMLButtonElement)) {
       e.preventDefault();
       void this.closePanel(true);

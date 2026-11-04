@@ -89,6 +89,8 @@ input, textarea, [contenteditable] { user-select: text; -webkit-user-select: tex
   width: 190px; height: 28px; border: 1px solid var(--border); background: var(--panel); border-radius: var(--radius);
   padding: 0 8px 0 28px; font-size: var(--fs-sm);
 }
+/* The empty field has nothing to clear: without the clear button's reserved space the placeholder fits the narrow (150px) box. */
+.cmd-search input:placeholder-shown::-webkit-search-cancel-button { display: none; }
 .cmd-search .icon { position: absolute; left: 8px; top: 7px; color: var(--text-3); pointer-events: none; }
 .cmd-results {
   position: absolute; right: 0; top: 32px; width: 300px; max-height: 360px; overflow: auto; z-index: 60;
@@ -97,6 +99,8 @@ input, textarea, [contenteditable] { user-select: text; -webkit-user-select: tex
 .cmd-results [role='option'] { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: var(--radius-sm); cursor: pointer; }
 .cmd-results [role='option'][aria-selected='true'], .cmd-results [role='option']:hover { background: var(--accent-weak); }
 .cmd-results .kbd { margin-left: auto; }
+/* --text-3 is too faint on the highlight colour; shortcuts there use --text-2. */
+.cmd-results [role='option'][aria-selected='true'] .kbd, .cmd-results [role='option']:hover .kbd { color: var(--text-2); }
 .avatar-btn { width: 30px; height: 30px; border-radius: 50%; border: 1px solid var(--border); background: var(--panel-2); padding: 0; overflow: hidden; display: grid; place-items: center; font-weight: 600; font-size: var(--fs-sm); color: var(--text-2); }
 .avatar-btn img { width: 100%; height: 100%; object-fit: cover; }
 .mobile-only { display: none !important; }
@@ -175,6 +179,7 @@ a.icon-btn { text-decoration: none; }
 .lp-tabs [role='tab'][aria-selected='true'] { background: var(--accent-weak); border-color: var(--accent-border); color: var(--accent); }
 .lp-tabs [role='tab']:hover { background: var(--hover); }
 .lp-tabs .grow { flex: 1; }
+.lp-tablist { display: flex; gap: 2px; }
 .lp-body { flex: 1; min-height: 0; overflow: auto; position: relative; }
 .splitter { width: 5px; margin-left: -3px; margin-right: -2px; cursor: col-resize; z-index: 5; flex: none; position: relative; touch-action: none; }
 .splitter:hover, .splitter.dragging { background: var(--accent-border); }
@@ -195,6 +200,7 @@ a.icon-btn { text-decoration: none; }
 .ti .twisty[aria-hidden='true'] { visibility: hidden; }
 .ti .label { overflow: hidden; text-overflow: ellipsis; }
 .ti .label .muted { color: var(--text-3); }
+.ti:hover .label .muted { color: var(--text-2); }
 .ti.suppressed .label, .ti.rolled .label { color: var(--text-3); }
 .ti.suppressed .icon, .ti.rolled .icon { opacity: 0.45; }
 .ti.error .label { color: var(--danger); }
@@ -248,7 +254,7 @@ a.icon-btn { text-decoration: none; }
 .seg { display: inline-flex; border: 1px solid var(--border-strong); border-radius: var(--radius); overflow: hidden; }
 .seg button { border: 0; background: var(--panel); padding: 0 10px; height: 28px; display: inline-flex; align-items: center; gap: 5px; color: var(--text-2); }
 .seg button + button { border-left: 1px solid var(--border-strong); }
-.seg button[aria-pressed='true'] { background: var(--accent-weak); color: var(--accent); font-weight: 600; }
+.seg button[aria-pressed='true'] { background: var(--accent-weak); color: var(--accent-on-weak); font-weight: 600; }
 .selbox {
   min-height: 54px; max-height: 140px; overflow: auto; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); background: var(--panel);
   padding: 2px; display: flex; flex-direction: column; gap: 1px; cursor: text;
@@ -352,8 +358,13 @@ a.icon-btn { text-decoration: none; }
 .file-item { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: var(--radius); border: 1px solid transparent; background: none; text-align: left; width: 100%; }
 .file-item:hover { background: var(--hover); }
 .file-item .meta { font-size: var(--fs-xs); color: var(--text-3); }
+/* --text-3 is too faint on the hover colour (4.41:1 light, 3.78:1 dark); hovered rows use --text-2. */
+.file-item:hover .meta { color: var(--text-2); }
 .file-item .txt { min-width: 0; display: flex; flex-direction: column; }
 .file-item .txt .n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-row { display: flex; align-items: center; gap: 2px; }
+.file-row .file-item { flex: 1; min-width: 0; }
+.file-row .icon-btn { width: var(--touch); height: var(--touch); flex: none; }
 .file-section { font-size: var(--fs-sm); font-weight: 600; margin: 14px 0 4px; color: var(--text-2); }
 .swatches { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; }
 .swatch { aspect-ratio: 1; border-radius: var(--radius); border: 1px solid var(--border-strong); padding: 0; }
@@ -386,6 +397,7 @@ a.icon-btn { text-decoration: none; }
 .menu [role^='menuitem'] .ic { width: 18px; display: grid; place-items: center; color: var(--text-2); flex: none; }
 .menu [role^='menuitem'] .lbl { flex: 1; overflow: hidden; text-overflow: ellipsis; }
 .menu [role^='menuitem']:hover, .menu [role^='menuitem']:focus { background: var(--accent-weak); }
+.menu [role^='menuitem']:hover .kbd, .menu [role^='menuitem']:focus .kbd { color: var(--text-2); }
 .menu [role^='menuitem'][aria-disabled='true'] { opacity: 0.42; cursor: default; }
 .menu [role^='menuitem'][aria-disabled='true']:hover { background: none; }
 .menu .sep { height: 1px; background: var(--border); margin: 4px 2px; }
@@ -463,10 +475,14 @@ a.icon-btn { text-decoration: none; }
   .taskpane .tp-panel { position: absolute; right: var(--taskpane-w); top: 0; bottom: 0; z-index: 12; border-left: 1px solid var(--border); background: var(--panel); }
   .quick .hide-tablet { display: none; }
   .doc-state { display: none; }
+  /* The menu bar does not fit beside the quick access buttons and search:
+     it collapses into the menu button, as on phones. */
+  .menubar, .titlebar > .tb-sep { display: none; }
+  .titlebar > .mobile-only { display: inline-grid !important; }
 }
 @media (max-width: 760px) {
   :root { --titlebar-h: 46px; --status-h: 28px; }
-  .menubar, .quick .hide-mobile, .cmd-search, .tb-brand .alpha-tag, .tb-sep.hide-mobile { display: none !important; }
+  .menubar, .quick .hide-mobile, .tb-right .hide-mobile, .cmd-search, .tb-brand .alpha-tag, .tb-sep.hide-mobile { display: none !important; }
   .mobile-only { display: inline-grid !important; }
   .cm-tools { min-height: 56px; padding: 3px 4px 1px; }
   .tool { min-width: 46px; max-width: 64px; }
