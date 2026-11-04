@@ -9992,11 +9992,17 @@ export function createEditor({
     const reply = safe(async () => {
       const text = replyText.value.trim();
       if (!text) return;
-      await run(
-        (doc, id) => addReply(doc, pageIndex, id, { text, author: author() }),
-        'Reply added.',
-        'Reply text',
-      );
+      // A panel drawn again while the reply is added does not carry it over as a draft.
+      replyText.dataset.sent = replyText.value;
+      try {
+        await run(
+          (doc, id) => addReply(doc, pageIndex, id, { text, author: author() }),
+          'Reply added.',
+          'Reply text',
+        );
+      } finally {
+        delete replyText.dataset.sent;
+      }
     });
     // In a note's panel Ctrl+Enter saves the note; in the reply box it sends the reply.
     replyText.addEventListener('keydown', (e) => {
@@ -10187,15 +10193,34 @@ export function createEditor({
     );
     const scroller = previous?.parentElement,
       scrollTop = scroller?.scrollTop;
-    const held = previous?.contains(document.activeElement)
-      ? document.activeElement.getAttribute('aria-label')
-      : null;
+    const active = document.activeElement;
+    const held = previous?.contains(active) ? active.getAttribute('aria-label') : null;
+    // Words typed and not yet saved or sent stay in their fields, where typing goes on.
+    const typed = previous?.drafts?.();
+    if (typed?.text != null && !text.readOnly) text.value = typed.text;
+    if (typed?.reply) thread.replyText.value = typed.reply;
+    panel.drafts = () => {
+      const sent = thread.replyText.dataset.sent ?? '';
+      const reply = thread.replyText.value;
+      return {
+        text: text.value === savedText ? null : text.value,
+        reply: reply.startsWith(sent) ? reply.slice(sent.length) : reply,
+      };
+    };
     properties.show('annotation', entry.kind, panel);
     if (previous && scroller === panel.parentElement) scroller.scrollTop = scrollTop;
-    if (held)
-      [...panel.querySelectorAll('[aria-label]')]
-        .find((control) => control.getAttribute('aria-label') === held)
-        ?.focus({ preventScroll: true });
+    const control =
+      held &&
+      [...panel.querySelectorAll('[aria-label]')].find(
+        (node) => node.getAttribute('aria-label') === held,
+      );
+    control?.focus({ preventScroll: true });
+    if (control && control.value === active.value && typeof active.selectionStart === 'number')
+      control.setSelectionRange(
+        active.selectionStart,
+        active.selectionEnd,
+        active.selectionDirection,
+      );
   }
   /** Comments out as XFDF (as other PDF editors exchange them) or a plain text summary. */
   async function exportComments(kind) {

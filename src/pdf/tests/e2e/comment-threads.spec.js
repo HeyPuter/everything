@@ -160,3 +160,38 @@ test('a shape keeps the keyboard in its panel through replies and changes', asyn
   expect(kept.state).toBe('Completed');
   expect(kept.width).toBe(3);
 });
+
+// Saving the comment's text or zooming draws the panel again, under the words being typed.
+test('a shape keeps a reply being typed while its panel is drawn again', async ({ page }) => {
+  const doc = await PDFDocument.create();
+  doc.addPage([400, 500]);
+  addShapeAnnotation(doc, 0, {
+    kind: 'square',
+    rect: { x: 100, y: 200, width: 80, height: 60 },
+    text: 'Boxed',
+  });
+  await open(page, doc);
+  await page.getByRole('button', { name: 'Select', exact: true }).click();
+  await page.getByRole('button', { name: 'Rectangle: Boxed', exact: true }).click();
+  const props = page.getByRole('complementary', { name: 'Selection properties' });
+  const reply = props.getByLabel('Reply text');
+  // Leaving the Comment field saves it while the first letters of the reply are typed.
+  await props.getByLabel('Comment', { exact: true }).fill('Boxed in');
+  await reply.click();
+  await page.keyboard.type('Looks', { delay: 20 });
+  await settled(page);
+  await expect(props.getByLabel('Comment', { exact: true })).toHaveValue('Boxed in');
+  await expect(reply).toHaveValue('Looks');
+  await page.keyboard.press('ControlOrMeta+=');
+  await settled(page);
+  await expect(reply).toBeFocused();
+  await page.keyboard.type(' right');
+  await expect(reply).toHaveValue('Looks right');
+  await reply.press('ControlOrMeta+Enter');
+  await settled(page);
+  await expect(props.getByRole('list', { name: 'Replies' })).toContainText('Looks right');
+  await expect(reply).toHaveValue('');
+  const [kept] = await saved(page);
+  expect(kept.contents).toBe('Boxed in');
+  expect(repliesOf(kept)).toEqual(['Looks right']);
+});
