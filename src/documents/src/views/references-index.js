@@ -5,6 +5,7 @@
  * layout and settle over a few passes, since a generated table can move the text it lists.
  */
 import { el } from '../ui/dom.js';
+import { nextCitation } from '../engine/authorities.js';
 import { clipText } from '../core/text.js';
 import { check, field, number, openDialog, openPanel, select, tablePreview, text } from './references-ui.js';
 
@@ -149,9 +150,7 @@ export function createIndexCommands(ctx) {
     const next = () => {
       const engine2 = editor(); if (!engine2) return;
       const body = engine2.session.body, from = body.range[1];
-      const pattern = /[A-Z][\w.'&-]*(?: [\w.'&-]+){0,6} v\. [A-Z][\w.'&-]*(?: [\w.'&-]+){0,6}|\d+ U\.S\.C\. § ?\d+\w*|§+ ?\d[\w.()-]*|\bId\.|\bsupra\b/g;
-      pattern.lastIndex = from;
-      const match = pattern.exec(body.text) || (pattern.lastIndex = 0, pattern.exec(body.text));
+      const match = nextCitation(body.text, from);
       if (!match) { status.textContent = 'No more citations found.'; return; }
       body.select(match.index, match.index + match[0].length); engine2.revealCaret?.(); engine2.paint?.(); ctx.onChange();
       long.value = match[0]; short.value = match[0]; status.textContent = '';
