@@ -496,7 +496,29 @@ export class Viewport {
     r.setTris('planes', triPos.length ? { positions: new Float32Array(triPos), colors: new Uint8Array(triCol), depth: 'test', order: 0 } : null);
     r.setLines('planes', linePos.length ? { positions: new Float32Array(linePos), colors: new Uint8Array(lineCol), width: 1.2, depth: 'test', order: 0 } : null);
 
-    // Origin triad.
+    this.drawOrigin();
+    this.drawSketches();
+  }
+
+  /**
+   * Keeps pixel-sized reference geometry in step with the view: the origin
+   * triad on every zoom, sketch tessellation when the zoom changed enough to
+   * make the old polylines visibly coarse. Orbiting changes neither.
+   */
+  onCamera() {
+    const px = this.camera.pixelSize;
+    if (px === this.originPx) return;
+    this.drawOrigin();
+    if (Math.abs(Math.log(px / this.sketchPx)) > Math.log(1.5)) this.drawSketches();
+  }
+
+  private originPx = 0;
+  private sketchPx = 0;
+
+  private drawOrigin() {
+    const app = this.app;
+    const r = this.renderer;
+    this.originPx = this.camera.pixelSize;
     if (this.showOrigin || app.inSketch) {
       const L = this.camera.pixelSize * 34;
       const pos = new Float32Array([0, 0, 0, L, 0, 0, 0, 0, 0, 0, L, 0, 0, 0, 0, 0, 0, L]);
@@ -508,7 +530,6 @@ export class Viewport {
       r.setLines('origin', null);
       r.setPoints('origin', null);
     }
-    this.drawSketches();
   }
 
   /** Visible sketches other than the one being edited. */
@@ -521,6 +542,7 @@ export class Viewport {
     for (const f of app.store.doc.features) consumedSketches(f).forEach((s) => consumed.add(s));
     const built = app.store.doc.features.slice(0, app.store.builtCount);
     const sel = app.selection;
+    this.sketchPx = this.camera.pixelSize;
     if (this.showSketches) {
       for (const f of built) {
         if (f.type !== 'sketch' || f.suppressed) continue;

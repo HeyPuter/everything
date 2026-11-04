@@ -374,6 +374,13 @@ export class Renderer {
   private dirty = true;
   dpr = 1;
   onFrame: () => void = () => {};
+  /**
+   * Called before drawing a frame in which the camera moved, zoomed or the
+   * viewport was resized, so pixel-sized overlays and screen-positioned DOM
+   * labels can follow the view in the same frame.
+   */
+  onCamera: () => void = () => {};
+  private camSig = new Float64Array(12);
   lost = false;
 
   constructor(readonly canvas: HTMLCanvasElement, theme: Theme) {
@@ -676,12 +683,27 @@ export class Renderer {
   private frame(now: number) {
     this.raf = 0;
     const animating = this.camera.tick(now);
+    if (this.cameraMoved()) {
+      this.onCamera();
+      // Overlays updated by the hook are drawn in this frame, not the next.
+      if (this.raf) { cancelAnimationFrame(this.raf); this.raf = 0; }
+      this.dirty = true;
+    }
     if (this.dirty || animating) {
       this.dirty = false;
       this.draw();
       this.onFrame();
     }
     if (animating) this.requestRender();
+  }
+
+  /** True when the view changed since the last check. */
+  private cameraMoved(): boolean {
+    const c = this.camera, s = this.camSig;
+    const v = [c.target[0], c.target[1], c.target[2], c.distance, c.rot[0], c.rot[1], c.rot[2], c.rot[3], c.ortho ? 1 : 0, c.width, c.height, c.fov];
+    let changed = false;
+    for (let i = 0; i < v.length; i++) if (s[i] !== v[i]) { s[i] = v[i]; changed = true; }
+    return changed;
   }
 
   private clipVec(): [number, number, number, number] | null {

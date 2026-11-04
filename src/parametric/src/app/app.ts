@@ -132,6 +132,7 @@ export class App {
       throw e;
     }
     this.renderer.onFrame = () => this.onFrame();
+    this.renderer.onCamera = () => this.onCameraChange();
     this.colors = this.readColors();
     this.viewport.init();
     this.drawing = new DrawingWorkspace(this);
@@ -1031,7 +1032,7 @@ export class App {
 
   onCameraChange() {
     this.sketchEditor?.onCamera();
-    this.viewport.drawReferenceGeometry();
+    this.viewport.onCamera();
   }
 
   // ---------- panels ----------
