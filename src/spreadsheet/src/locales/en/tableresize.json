@@ -1,0 +1,14 @@
+{
+  "done": "Table {name} now covers {range}",
+  "enterRange": "Enter a range on this sheet, like A1:D20.",
+  "failed": "The table could not be resized there.",
+  "gone": "This table no longer exists.",
+  "hint": "The headers must remain in the same row, and the resulting table range must overlap the original table range.",
+  "mustOverlap": "The new range must overlap the original table range.",
+  "newRange": "New data range",
+  "prompt": "Select the new data range for your table:",
+  "protected": "This sheet is protected. Unprotect it to resize the table.",
+  "sameRow": "The headers must remain in the same row.",
+  "title": "Resize Table",
+  "useSelection": "Use selection"
+}

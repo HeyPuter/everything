@@ -11,6 +11,7 @@
  */
 import { tableRows } from './tables.js';
 import { sheetFilters, filterTable } from './sheet-filters.js';
+import { t } from '../i18n/index.js';
 
 const MAX_NAME = 255;
 
@@ -90,46 +91,46 @@ const tableFilter = (sheet, table) => sheetFilters(sheet).find(f => filterTable(
  */
 export function setTableHeaderRow(wb, sheetId, id, on) {
   const sheet = wb.sheet(sheetId);
-  const table = sheet?.tables.find(t => t.id === id);
-  if (!table) return 'Select a table first.';
-  if (wb._gridLocked(sheet)) return 'Unprotect the sheet to change the table.';
+  const table = sheet?.tables.find(tb => tb.id === id);
+  if (!table) return t('tableHeaderRow.selectTable');
+  if (wb._gridLocked(sheet)) return t('tableHeaderRow.unprotect');
   if ((table.headerRow !== false) === !!on) return null;
   const { c1, c2 } = table.range;
   if (!on) {
     const rows = tableRows(table);
-    if (rows.empty) return 'A table needs at least one row of data to hide its header row.';
+    if (rows.empty) return t('tableHeaderRow.needsData');
     const r = rows.header;
-    if (wb.lockedIn(sheetId, { r1: r, r2: r, c1, c2 })) return 'The header row is protected.';
-    if (tableHasSlicers(wb, table)) return 'This table has slicers. Delete them before hiding the header row.';
+    if (wb.lockedIn(sheetId, { r1: r, r2: r, c1, c2 })) return t('tableHeaderRow.headerProtected');
+    if (tableHasSlicers(wb, table)) return t('tableHeaderRow.hasSlicers');
     const names = wb.tableColumns(sheetId, table);
     const filter = tableFilter(sheet, table);
-    wb.transaction('Hide header row', () => {
+    wb.transaction(t('tableHeaderRow.undo.hide'), () => {
       // The filter goes first: its buttons and the rows it hid belong to the header it hangs from.
-      if (filter) wb._setFilter(sheet, null, 'Hide header row', { target: filter });
+      if (filter) wb._setFilter(sheet, null, t('tableHeaderRow.undo.hide'), { target: filter });
       const next = { ...wb.tableById(sheetId, id), headerRow: false, columnNames: names, range: { ...table.range, r1: r + 1 },
         ...(filter?.showButtons === false ? { filterButton: false } : {}) };
-      wb._setTables(sheet, sheet.tables.map(t => (t.id === id ? next : t)), 'Hide header row');
+      wb._setTables(sheet, sheet.tables.map(tb => (tb.id === id ? next : tb)), t('tableHeaderRow.undo.hide'));
       wb.clearRange(sheetId, { r1: r, r2: r, c1, c2 });
     });
     return null;
   }
   const names = wb.tableColumns(sheetId, table);
   let refused = null;
-  wb.transaction('Show header row', () => {
+  wb.transaction(t('tableHeaderRow.undo.show'), () => {
     let live = wb.tableById(sheetId, id);
     let r = live.range.r1 - 1;
     if (r < 0 || wb.tableRowOccupied(sheetId, { r1: r, r2: r, c1, c2 }, id)) {
-      if (!wb.insertRows(sheetId, live.range.r1, 1)) { refused = 'There is no room above the table for its header row.'; return; }
+      if (!wb.insertRows(sheetId, live.range.r1, 1)) { refused = t('tableHeaderRow.noRoom'); return; }
       live = wb.tableById(sheetId, id);
       r = live.range.r1 - 1;
     }
-    if (wb.lockedIn(sheetId, { r1: r, r2: r, c1, c2 })) { refused = 'The row above the table is protected.'; return; }
+    if (wb.lockedIn(sheetId, { r1: r, r2: r, c1, c2 })) { refused = t('tableHeaderRow.rowAboveProtected'); return; }
     const { headerRow, columnNames, filterButton, ...rest } = live;
     const next = { ...rest, range: { ...live.range, r1: r } };
-    wb._setTables(sheet, wb.sheet(sheetId).tables.map(t => (t.id === id ? next : t)), 'Show header row');
-    wb.setCells(sheetId, names.map((name, i) => ({ r, c: c1 + i, cell: { v: name, f: null, s: wb.getCell(sheetId, r, c1 + i)?.s } })), 'Show header row');
+    wb._setTables(sheet, wb.sheet(sheetId).tables.map(tb => (tb.id === id ? next : tb)), t('tableHeaderRow.undo.show'));
+    wb.setCells(sheetId, names.map((name, i) => ({ r, c: c1 + i, cell: { v: name, f: null, s: wb.getCell(sheetId, r, c1 + i)?.s } })), t('tableHeaderRow.undo.show'));
     const range = { r1: r, c1, r2: tableRows(next).dataEnd, c2 };
-    wb._setFilter(wb.sheet(sheetId), { range, criteria: {}, ...(filterButton === false ? { showButtons: false } : {}) }, 'Show header row', { create: true });
+    wb._setFilter(wb.sheet(sheetId), { range, criteria: {}, ...(filterButton === false ? { showButtons: false } : {}) }, t('tableHeaderRow.undo.show'), { create: true });
   });
   return refused;
 }
@@ -137,15 +138,15 @@ export function setTableHeaderRow(wb, sheetId, id, on) {
 /** Table Design ▸ Filter Button: show or hide every AutoFilter button of the table, keeping its criteria. */
 export function setTableFilterButton(wb, sheetId, id, on) {
   const sheet = wb.sheet(sheetId);
-  const table = sheet?.tables.find(t => t.id === id);
-  if (!table) return 'Select a table first.';
-  if (wb._gridLocked(sheet)) return 'Unprotect the sheet to change the table.';
-  if (table.headerRow === false) return 'Turn on the Header Row to use filter buttons.';
+  const table = sheet?.tables.find(tb => tb.id === id);
+  if (!table) return t('tableHeaderRow.selectTable');
+  if (wb._gridLocked(sheet)) return t('tableHeaderRow.unprotect');
+  if (table.headerRow === false) return t('tableHeaderRow.needsHeader');
   const filter = tableFilter(sheet, table);
   const rows = tableRows(table);
   const next = filter ? { ...filter } : { range: { r1: rows.header, c1: table.range.c1, r2: rows.dataEnd, c2: table.range.c2 }, criteria: {} };
   if (on) { delete next.showButtons; delete next.hiddenButtons; } else next.showButtons = false;
-  wb._setFilter(sheet, next, on ? 'Show filter buttons' : 'Hide filter buttons', filter ? { target: filter } : { create: true });
+  wb._setFilter(sheet, next, on ? t('tableHeaderRow.undo.showButtons') : t('tableHeaderRow.undo.hideButtons'), filter ? { target: filter } : { create: true });
   return null;
 }
 
