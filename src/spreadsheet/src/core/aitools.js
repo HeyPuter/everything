@@ -1214,7 +1214,7 @@ function writeCells(wb, args, env) {
     // again, it lost the link and the mixed formatting of its text that it had, though nothing was asked about.
     const cell = wb.getCell(sheetId, r, c);
     if (holds(cell) && (typeof input === 'string' ? keepsValue(wb, sheetId, r, c, cell, input) : cell.f == null && cell.v === input)) { kept++; return; }
-    const problem = typeof input === 'string' ? wb.typedFormulaProblem(input) : null;
+    const problem = typeof input === 'string' ? wb.typedFormulaProblem(input, { source: true }) : null;
     if (problem) { unformed.push(`${cellName(r, c)} (${problem.message})`); return; }
     planned.push({ r, c, input });
   }));
@@ -1252,7 +1252,7 @@ function fillFormula(wb, args, env) {
   if (cells > MAX_WRITE_CELLS) throw new ToolError(`At most ${MAX_WRITE_CELLS} cells per call.`);
   try { parseFormula(text.slice(1)); } catch (e) { throw new ToolError(`The formula could not be read: ${e?.message || 'syntax error'}.`); }
   // One Excel refuses as typed would fill every cell with its text.
-  const problem = wb.typedFormulaProblem(text);
+  const problem = wb.typedFormulaProblem(text, { source: true });
   if (problem) throw new ToolError(`Excel refuses this formula: ${problem.message}.`);
   assertWritable(wb, sheetId, range, { contents: true });
   if (wb.arrayEditBlocked(sheetId, range)) throw new ToolError(`${qualified(wb, sheetId, range)} crosses part of an array formula's result.`);
@@ -2162,7 +2162,7 @@ function createPivotTable(wb, args, env) {
   else if (wb.structureProtected) throw new ToolError('The workbook\'s structure is protected, so no sheet can be added for the pivot table. Give a destination cell on an existing sheet, or the user can turn this off with Review ▸ Protect Workbook.');
   const name = args.new_sheet_name ? String(args.new_sheet_name).trim() : null;
   if (dest && name) throw new ToolError('Give either a destination or a new_sheet_name, not both.');
-  if (name) { const problem = wb.validateSheetName(name); if (problem) throw new ToolError(`"${name}" cannot name a sheet: ${problem}`); }
+  if (name) { const problem = wb.validateSheetName(name, null, { source: true }); if (problem) throw new ToolError(`"${name}" cannot name a sheet: ${problem}`); }
   let built;
   try { built = buildPivot(wb, source.sheetId, spec); } catch (e) { if (e instanceof PivotSizeError) throw new ToolError(e.message); throw e; }
   if (!built.rowCount) throw new ToolError(`"${fields[spec.rowField].label}" has no values to group the rows by.`);
@@ -2717,7 +2717,7 @@ function manageSheet(wb, args, env) {
   }
   if (action === 'add') {
     const name = args.sheet ? String(args.sheet).trim() : null;
-    if (name) { const problem = wb.validateSheetName(name); if (problem) throw new ToolError(`"${name}" cannot name a sheet: ${problem}`); }
+    if (name) { const problem = wb.validateSheetName(name, null, { source: true }); if (problem) throw new ToolError(`"${name}" cannot name a sheet: ${problem}`); }
     const sheet = wb.addSheet(name);
     return { added: sheet?.name };
   }
@@ -2731,7 +2731,7 @@ function manageSheet(wb, args, env) {
   }
   if (action === 'rename') {
     const name = String(args.new_name ?? '').trim();
-    const problem = wb.validateSheetName(name, sheet.id);
+    const problem = wb.validateSheetName(name, sheet.id, { source: true });
     if (problem) throw new ToolError(`"${name}" cannot name a sheet: ${problem}`);
     const old = sheet.name;
     if (!wb.renameSheet(sheet.id, name)) throw new ToolError(`${old} could not be renamed.`);
@@ -3015,7 +3015,7 @@ function addSparklines(wb, args, env) {
   }
   const orientation = args.series_in === 'rows' ? 'rows' : args.series_in === 'columns' ? 'columns' : 'auto';
   let error;
-  wb.transaction(t('aitools.undo.aiEdit'), () => { error = wb.createNativeSparklines(sheetId, { source, location: rangeName(loc), type, orientation, flags }); });
+  wb.transaction(t('aitools.undo.aiEdit'), () => { error = wb.createNativeSparklines(sheetId, { source, location: rangeName(loc), type, orientation, flags, english: true }); });
   if (error) throw new ToolError(`The sparklines could not be added: ${error.message}`);
   return { sparklines: sparklinesIn(wb, sheetId, loc), type: kind, in: qualified(wb, sheetId, loc), data: source };
 }
@@ -3416,7 +3416,7 @@ function manageName(wb, args, env) {
   const note = reachingNote(env, reachesOut(wb, refText));
   let problem;
   if (action === 'define') {
-    wb.transaction(t('aitools.undo.aiEdit'), () => { problem = wb.defineName(name, refText, scope); });
+    wb.transaction(t('aitools.undo.aiEdit'), () => { problem = wb.defineName(name, refText, scope, { source: true }); });
     if (problem) throw new ToolError(`${label} could not be defined: ${problem}.`);
     return {
       defined: scope ? `${quoteSheet(scope)}!${name}` : name, refers_to: refText, scope: scope || 'workbook',
@@ -3427,7 +3427,7 @@ function manageName(wb, args, env) {
   const to = String(args.new_name ?? '').trim();
   if (!to) throw new ToolError('Give new_name, the name to rename it to.');
   if (BUILT_IN_NAME.test(to) && to.toLowerCase() !== existing.name.toLowerCase()) throw builtInRefusal(to);
-  wb.transaction(t('aitools.undo.aiEdit'), () => { problem = wb.renameName(existing.name, scope, to, refText); });
+  wb.transaction(t('aitools.undo.aiEdit'), () => { problem = wb.renameName(existing.name, scope, to, refText, { source: true }); });
   if (problem) throw new ToolError(`${label} could not be renamed to ${to}: ${problem}.`);
   return { renamed: label, to, refers_to: refText, ...(existing.ref !== refText ? { replaced: `It referred to ${existing.ref} before.` } : {}), ...(note ? { note } : {}) };
 }
@@ -3494,7 +3494,7 @@ function goalSeek(wb, args, env) {
   assertNotUnderMerge(wb, sheetId, variable, 'by_changing');
   const from = wb.getDisplay(sheetId, variable.r, variable.c);
   const before = wb.version;
-  const res = wb.goalSeek(sheetId, target, goal, variable, { label: t('aitools.undo.aiEdit') });
+  const res = wb.goalSeek(sheetId, target, goal, variable, { label: t('aitools.undo.aiEdit'), source: true });
   if (!res.ok) {
     const hint = {
       'The cell to set must contain a formula': `${name(target)} holds no formula. set_cell must be a formula that depends on by_changing.`,

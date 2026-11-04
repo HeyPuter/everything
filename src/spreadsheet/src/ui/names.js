@@ -161,20 +161,17 @@ export function openNamesManager(ctx, { define = false } = {}) {
     const name = nameInput.value;
     const ref = refInput.value.trim().replace(/^=/, '');
     const scope = editing ? editing.sheet : scopeInput.value || null; // an edited name stays in its scope
-    let msg;
     // The workbook redefines an existing name given its spelling; adding one must not silently
     // retarget a name every formula already uses. The pencil edits it.
     const key = name.trim().toLowerCase();
     if (!editing && ctx.wb.names.some((n) => (n.sheet || null) === scope && n.name.toLowerCase() === key)) {
       return refuse(nameInput, t('names.alreadyUsed'));
     }
-    // The workbook judges the spelling before the reference: a message about the name (or about a formula
-    // that binds the new spelling as a variable) belongs to the Name field, any other to Refers to.
-    const nameProblem = ctx.wb.validateName(name, editing ? editing.name : null, { sheet: scope });
+    // The workbook says which field a problem belongs to: the spelling (or a formula that binds the new spelling
+    // as a variable) is the Name field's, anything else Refers to's.
     // Editing keeps one name: a new spelling renames it everywhere instead of adding a second one.
-    if (editing) msg = ctx.wb.renameName(editing.name, editing.sheet, name, ref);
-    else msg = ctx.wb.defineName(name, ref, scope);
-    if (msg) return refuse(msg === nameProblem || /LET or LAMBDA/.test(msg) ? nameInput : refInput, msg);
+    const problem = editing ? ctx.wb.renameName(editing.name, editing.sheet, name, ref, { detail: true }) : ctx.wb.defineName(name, ref, scope, { detail: true });
+    if (problem) return refuse(problem.field === 'name' ? nameInput : refInput, problem.message);
     clearError();
     toast(t('names.saved', { name: name.trim() })); // the workbook takes the spelling as typed, a change of case included
     const edited = !!editing, savedLabel = ctx.wb.nameLabel(ctx.wb.namedEntry(name.trim(), scope)).toLowerCase();

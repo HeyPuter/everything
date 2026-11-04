@@ -1794,7 +1794,7 @@ export class Workbook extends EventTarget {
     const sheet = this.sheet(id);
     if (!sheet || sheet.externalCache || sheet.hidden === !!hidden) return false;
     if (hidden && this.visibleSheets.length <= 1) return false;
-    this._structural(hidden ? t('workbook.undo.hideSheet') : t('workbook.undo.showSheet'), () => {
+    this._bookStep(hidden ? t('workbook.undo.hideSheet') : t('workbook.undo.showSheet'), () => {
       sheet.hidden = !!hidden;
       if (hidden && this.activeSheetId === id) {
         const i = this.sheets.indexOf(sheet);
@@ -1897,7 +1897,7 @@ export class Workbook extends EventTarget {
     // A sheet added beside one at the .xlsx default geometry takes it too.
     const beside = this.sheet(this.activeSheetId);
     const excel = beside && beside.defaultColWidth === EXCEL_SHEET_DEFAULTS.defaultColWidth && beside.defaultRowHeight === EXCEL_SHEET_DEFAULTS.defaultRowHeight;
-    return this._structural(t('workbook.undo.addSheet'), () => {
+    return this._bookStep(t('workbook.undo.addSheet'), () => {
       // `newSheetDefaults` is the person's choice for new sheets (the editor sets it from the app's options: the
       // view they open in, whether headers show); it belongs to this session, not to the file.
       const sheet = makeSheet({ name: sheetName, ...(excel ? EXCEL_SHEET_DEFAULTS : {}), ...(excel && beside.defaultVAlign ? { defaultVAlign: beside.defaultVAlign } : {}), ...this.newSheetDefaults });
@@ -1973,7 +1973,7 @@ export class Workbook extends EventTarget {
     const txt = String(name);
     if (this.validateSheetName(txt, id)) return false;
     if (txt === sheet.name) return true;
-    this._structural(t('workbook.undo.renameSheet'), () => {
+    this._bookStep(t('workbook.undo.renameSheet'), () => {
       const old = sheet.name;
       const pivots = (this.nativePivots?.tables || []).filter(p => p.owner === id);
       if (pivots.length) for (const owner of this.sheets) {
@@ -2014,7 +2014,7 @@ export class Workbook extends EventTarget {
     const dropTables = (f) => (goneLower.some((name) => f.toLowerCase().includes(name))
       ? tableRefsToA1(f, () => null, (table) => !!table && goneLower.includes(table.toLowerCase()), goneTables) : f);
     const rewrite = (f) => dropTables(unlink(shrink(f)));
-    this._structural(t('workbook.undo.deleteSheet'), () => {
+    this._bookStep(t('workbook.undo.deleteSheet'), () => {
       // Slicers on other sheets that filtered the sheet's tables go with them.
       if (goneLower.length) this._dropLostSlicers(new Map(goneLower.map((name) => [name, true])));
       this._removeNativePivots((this.nativePivots?.tables || []).filter(p => p.owner === id), t('workbook.undo.deleteSheet'), true);
@@ -2045,7 +2045,7 @@ export class Workbook extends EventTarget {
     const from = this.sheets.findIndex((s) => s.id === id);
     const to = Math.max(0, Math.min(this.sheets.length - 1, toIndex));
     if (from < 0 || from === to) return;
-    this._structural(t('workbook.undo.moveSheet'), () => {
+    this._bookStep(t('workbook.undo.moveSheet'), () => {
       const [s] = this.sheets.splice(from, 1);
       this.sheets.splice(to, 0, s);
     });
@@ -2056,7 +2056,7 @@ export class Workbook extends EventTarget {
     const src = this.sheet(id);
     if (!src || src.externalCache) return null;
     const i = this.sheets.indexOf(src);
-    return this._structural(t('workbook.undo.duplicateSheet'), () => {
+    return this._bookStep(t('workbook.undo.duplicateSheet'), () => {
       // Only this sheet is written out. Serializing the whole book for one of its sheets made a tab-menu
       // click take a second on a book of a sheet per month, for a copy that reads nothing from the others.
       // The copy shows what this person sees, and becomes everyone's: it is in no sheet view of its own.
@@ -2291,7 +2291,7 @@ export class Workbook extends EventTarget {
     const externalWorkbooks = appendExternalWorkbooks(this.externalWorkbooks, json.externalWorkbooks);
     const incomingNames = new Set(json.names.map((n) => n.name.toLowerCase()));
     if (!json.sheets.length) return [];
-    return this._structural(t('workbook.undo.importSheets'), () => {
+    return this._bookStep(t('workbook.undo.importSheets'), () => {
       const renames = new Map();
       const added = [];
       // Names are taken as sheetByName matches them: in any case, and in either Unicode composition.
@@ -2382,7 +2382,7 @@ export class Workbook extends EventTarget {
       if (entry.sheet || !incoming.has(key)) incoming.set(key, entry);
     }
     const { id, name, color, hidden } = this.sheets[i];
-    return this._structural(t('workbook.undo.replaceSheet'), () => {
+    return this._bookStep(t('workbook.undo.replaceSheet'), () => {
       const sheet = makeSheet({ ...json, id, name, color, hidden, freshIds: true });
       if (linked) this._mapSheetFormulas(sheet, f => offsetExternalWorkbookRefs(f, externalOffset));
       this.externalWorkbooks = externalWorkbooks;
@@ -8137,8 +8137,13 @@ export class Workbook extends EventTarget {
    * its undo. A structural step's snapshot of the whole sheet cost a large sheet a third of a second a click and,
    * weighed against the history's budget, pushed every older step out of the history.
    */
-  _outlineStep(sheet, label, change) {
-    recordStep(this, 'structure', label);
+  /** An outline step that only shows or hides detail (collapse, expand): the change history leaves it out. */
+  _viewStep(sheet, label, change) {
+    return this._outlineStep(sheet, label, change, { view: true });
+  }
+
+  _outlineStep(sheet, label, change, { view = false } = {}) {
+    recordStep(this, 'structure', label, { view });
     // The step keeps the lines it hid and showed, not every hidden line: a sheet whose filter hides most of its
     // rows would otherwise hold them all twice over for each group opened.
     const sets = ['hiddenRows', 'hiddenCols', 'filterHidden'];
@@ -8303,7 +8308,7 @@ export class Workbook extends EventTarget {
     const group = sheet.groups[key][at];
     if (!group) return;
     const collapse = !group.collapsed;
-    this._outlineStep(sheet, collapse ? (axis === 'row' ? t('workbook.undo.collapseRows') : t('workbook.undo.collapseColumns')) : (axis === 'row' ? t('workbook.undo.expandRows') : t('workbook.undo.expandColumns')), () => {
+    this._viewStep(sheet, collapse ? (axis === 'row' ? t('workbook.undo.collapseRows') : t('workbook.undo.collapseColumns')) : (axis === 'row' ? t('workbook.undo.expandRows') : t('workbook.undo.expandColumns')), () => {
       sheet.groups = { ...sheet.groups, [key]: sheet.groups[key].map((g, i) => (i === at ? { ...g, collapsed: collapse } : g)) };
       const hidden = axis === 'row' ? sheet.hiddenRows : sheet.hiddenCols;
       const held = collapse ? null : this._collapsedLines(sheet, key, group.from, group.to);
@@ -8323,7 +8328,7 @@ export class Workbook extends EventTarget {
     const key = axis === 'row' ? 'rows' : 'cols';
     const list = sheet.groups[key];
     if (!list.length || list.every((g) => g.collapsed === !!collapsed)) return;
-    this._outlineStep(sheet, collapsed ? (axis === 'row' ? t('workbook.undo.collapseAllRows') : t('workbook.undo.collapseAllColumns')) : (axis === 'row' ? t('workbook.undo.expandAllRows') : t('workbook.undo.expandAllColumns')), () => {
+    this._viewStep(sheet, collapsed ? (axis === 'row' ? t('workbook.undo.collapseAllRows') : t('workbook.undo.collapseAllColumns')) : (axis === 'row' ? t('workbook.undo.expandAllRows') : t('workbook.undo.expandAllColumns')), () => {
       const hidden = axis === 'row' ? sheet.hiddenRows : sheet.hiddenCols;
       sheet.groups = { ...sheet.groups, [key]: list.map((g) => ({ ...g, collapsed: !!collapsed })) };
       for (const g of list) for (let i = g.from; i <= g.to; i++) { if (collapsed) hidden.add(i); else hidden.delete(i); }
@@ -14747,8 +14752,13 @@ export class Workbook extends EventTarget {
   }
 
   /** Run a structural edit with snapshots, for undo, of the sheets it changes (see _capture). */
-  _structural(label, fn) {
-    recordStep(this, 'structure', label);
+  /** A structural edit of the workbook's list of sheets: the change history records it for the book, not a sheet. */
+  _bookStep(label, fn) {
+    return this._structural(label, fn, { book: true });
+  }
+
+  _structural(label, fn, { book = false } = {}) {
+    recordStep(this, 'structure', label, { book });
     if (this._group) {
       // Inside a transaction one pair of snapshots serves every structural step: the state
       // before the first step, and the state at the end of the transaction (captured when
