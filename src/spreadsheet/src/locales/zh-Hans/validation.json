@@ -47,7 +47,7 @@
   "lengthNotWhole": "长度必须为整数",
   "listHint": "以逗号分隔的值、区域（如 Lists!A1:A9 或 Sales[Item]）或命名区域（如 =Options）。值中含有逗号或首尾有空格时，用双引号括起来，值中的引号要写两次。",
   "listOptions": "列表选项",
-  "listPlaceholder": "是, 否, 也许  或  Lists!A1:A9  或  =Options",
+  "listPlaceholder": "A, B, C  或  Lists!A1:A9  或  =Options",
   "longest": "最长",
   "longestOptional": "最长（可选）",
   "maximum": "最大值",
