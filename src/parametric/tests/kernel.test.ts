@@ -53,6 +53,16 @@ describe('feature regeneration', () => {
     expect(res.bbox!.min[2]).toBeCloseTo(-10, 6);
   });
 
+  it('reports negative draft angles and direction 2 depths instead of ignoring them', async () => {
+    const b = new ModelBuilder();
+    const neg = await b.build(req([sketch('S1', rect(0, 0, 10, 10)), extrude('E1', 'S1', 10, { draft: -5 })]));
+    expect(neg.status[1].ok).toBe(false);
+    expect(neg.status[1].error).toMatch(/draft angle/i);
+    const d2 = await b.build(req([sketch('S1', rect(0, 0, 10, 10)), extrude('E1', 'S1', 10, { dir2: { end: 'blind', depth: 0 } })]));
+    expect(d2.status[1].ok).toBe(false);
+    expect(d2.status[1].error).toMatch(/Direction 2/);
+  });
+
   it('revolves a profile about a centerline', async () => {
     const b = new ModelBuilder();
     const ents = [

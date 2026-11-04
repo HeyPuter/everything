@@ -503,7 +503,8 @@ export class ModelBuilder {
     if (f.end === 'midPlane') { start = -d1 / 2; total = d1; }
     else if (f.dir2) {
       const d2 = f.dir2.end === 'throughAll' ? this.throughAllDepth(st, frame.o, scale(dir, -1)) : num(f.dir2.depth);
-      if (d2 > 0) { start = -d2; total = d1 + d2; }
+      if (!(d2 > 0)) throw new FeatureError('Direction 2 depth must be greater than zero');
+      start = -d2; total = d1 + d2;
     }
     d1 = total;
     const pieces: Sh[] = [];
@@ -515,6 +516,7 @@ export class ModelBuilder {
     }
     let tool = pieces.length === 1 ? pieces[0] : this.fuseAll(pieces);
     const draft = num(f.draft || 0);
+    if (draft < 0) throw new FeatureError('The draft angle cannot be negative. Use Draft outward to taper the other way.');
     if (draft > 1e-9) tool = this.draftLateral(tool, frame, dir, start, draft * (f.draftOutward ? -1 : 1));
     const classify = (d: SurfDesc) => {
       if (d.type === 'plane' && Math.abs(dot(d.d, frame.n)) > 1 - 1e-6) {
