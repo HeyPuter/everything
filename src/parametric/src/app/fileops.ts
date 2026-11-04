@@ -293,6 +293,7 @@ export class FileOps {
   async importStepText(text: string, fileName: string) {
     const app = this.app;
     if (tooLarge(text.length, 'x.step')) return;
+    if (!text.trim()) { toast({ kind: 'error', title: 'Import failed', message: `${fileName} is empty.` }); return; }
     const err = await app.kernel.checkImport(text).catch((e) => (e as Error).message);
     if (err) { toast({ kind: 'error', title: 'Import failed', message: err }); return; }
     const blobId = `b${Date.now().toString(36)}`;
