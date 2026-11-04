@@ -104,29 +104,30 @@ function richTextNode(dict) {
 }
 
 /**
- * Every comment in the document as XFDF: notes, markups (with their quad coordinates), text
- * boxes and callouts, shapes, drawings, stamps and carets, replies (inreplyto) and review
- * states. Comments without a name (NM) are named after their object number.
+ * The comments XFDF carries, page by page, each with the name it goes out under: its own (NM),
+ * or one after its object number. Shared or copied annotations can repeat a name, and one
+ * annotation on several pages is a comment on each, so a repeat takes a suffix: XFDF threads
+ * need one name per comment. `nameOf` names a comment's parent too.
  */
-export function exportXfdf(doc) {
-  const pages = doc.getPages();
+function xfdfComments(doc) {
   const names = new Map(),
     used = new Set();
-  const nameOf = (dict, ref) => {
-    if (names.has(dict)) return names.get(dict);
+  const nameOf = (dict, ref, index) => {
+    if (!names.has(dict)) names.set(dict, new Map());
+    const byPage = names.get(dict);
+    if (byPage.has(index)) return byPage.get(index);
     let value =
       text(dict, 'NM') ||
       (ref instanceof PDFRef
         ? `annot-${ref.objectNumber}-${ref.generationNumber}`
         : annotationName());
-    // Shared or copied annotations can repeat a name; XFDF threads need one per comment.
     while (used.has(value)) value = `${value}-${used.size}`;
     used.add(value);
-    names.set(dict, value);
+    byPage.set(index, value);
     return value;
   };
   const items = [];
-  pages.forEach((page, index) => {
+  doc.getPages().forEach((page, index) => {
     for (const ref of annotationsOf(page)?.asArray() || []) {
       const dict = doc.context.lookup(ref);
       if (!(dict instanceof PDFDict)) continue;
@@ -134,17 +135,32 @@ export function exportXfdf(doc) {
       if (ELEMENTS[subtype]) items.push({ dict, ref, index, subtype });
     }
   });
-  for (const { dict, ref } of items) nameOf(dict, ref);
+  for (const item of items) item.name = nameOf(item.dict, item.ref, item.index);
+  /** The name of a reply's parent: the parent on the reply's own page, else wherever it is. */
+  const parentName = (parent, ref, index) => {
+    const byPage = names.get(parent);
+    return byPage?.get(index) ?? byPage?.values().next().value ?? nameOf(parent, ref, index);
+  };
+  return { items, parentName };
+}
+
+/**
+ * Every comment in the document as XFDF: notes, markups (with their quad coordinates), text
+ * boxes and callouts, shapes, drawings, stamps and carets, replies (inreplyto) and review
+ * states. Comments without a name (NM) are named after their object number.
+ */
+export function exportXfdf(doc) {
+  const { items, parentName } = xfdfComments(doc);
   const out = [
     '<?xml version="1.0" encoding="UTF-8"?>',
     `<xfdf xmlns="${XFDF_NS}" xml:space="preserve">`,
     '<annots>',
   ];
-  for (const { dict, ref, index, subtype } of items) {
+  for (const { dict, index, subtype, name: commentName } of items) {
     const attributes = { page: index };
     const rect = numbers(dict.lookup(name('Rect')));
     if (rect?.length === 4 && rect.every(Number.isFinite)) attributes.rect = list(rect);
-    attributes.name = nameOf(dict, ref);
+    attributes.name = commentName;
     const author = text(dict, 'T');
     if (author) attributes.title = author;
     const subject = text(dict, 'Subj');
@@ -163,7 +179,7 @@ export function exportXfdf(doc) {
     if (opacity !== 1) attributes.opacity = fmt(opacity);
     const parent = dict.lookup(name('IRT'));
     if (parent instanceof PDFDict) {
-      attributes.inreplyto = nameOf(parent, dict.get(name('IRT')));
+      attributes.inreplyto = parentName(parent, dict.get(name('IRT')), index);
       attributes.replyType = dict.lookup(name('RT')) === name('Group') ? 'group' : 'reply';
     }
     if (dict.has(name('State'))) {
@@ -525,6 +541,9 @@ export async function importXfdf(doc, xfdf) {
         unnamed.set(`annot-${ref.objectNumber}-${ref.generationNumber}`, { ref, dict, index });
     }
   });
+  // The names export gave the further pages of a named comment that several pages share.
+  for (const { dict, ref, name: nm } of xfdfComments(doc).items)
+    if (ref instanceof PDFRef && text(dict, 'NM') && !named.has(nm)) named.set(nm, ref);
   const sameComment = (element, entry) => {
     if (!entry || Number(element.getAttribute('page')) !== entry.index) return false;
     if (entry.dict.lookup(name('Subtype'))?.decodeText?.() !== SUBTYPES[element.localName])

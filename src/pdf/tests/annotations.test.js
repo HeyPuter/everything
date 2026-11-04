@@ -1223,6 +1223,35 @@ describe('comment exchange', () => {
     expect(listAnnotations(other, 0)[2].replies.map((r) => r.contents)).toEqual(['Looks right']);
   });
 
+  it('carries a comment that two pages share as a comment on each page', async () => {
+    const source = await blank(2);
+    const shared = addShapeAnnotation(source, 0, {
+      kind: 'square',
+      rect: { x: 100, y: 100, width: 100, height: 80 },
+      text: 'On both pages',
+    });
+    const ref = source.getPage(0).node.Annots().get(0);
+    source.getPage(1).node.set(PDFName.of('Annots'), source.context.obj([ref]));
+    // A reviewer's reply on the second page answers the comment there.
+    addReply(source, 1, shared, { text: 'Seen on page 2', author: 'Grace' });
+    const xfdf = exportXfdf(source);
+    const names = [...xfdf.matchAll(/<square [^>]*name="([^"]+)"/g)].map((m) => m[1]);
+    expect(names).toHaveLength(2);
+    expect(new Set(names).size).toBe(2);
+    expect(xfdf).toContain(`inreplyto="${names[1]}"`);
+
+    const target = await blank(2);
+    expect(await importXfdf(target, xfdf)).toEqual({ imported: 3, skipped: 0, duplicates: 0 });
+    expect(listAnnotations(target, 0).map((a) => [a.contents, a.replies.length])).toEqual([
+      ['On both pages', 0],
+    ]);
+    expect(
+      listAnnotations(target, 1).map((a) => [a.contents, a.replies.map((r) => r.contents)]),
+    ).toEqual([['On both pages', ['Seen on page 2']]]);
+    // Back into the PDF it came from, it adds nothing.
+    expect(await importXfdf(source, xfdf)).toEqual({ imported: 0, skipped: 0, duplicates: 3 });
+  });
+
   it('takes the text of comments that carry only rich text', async () => {
     const doc = await blank();
     const body = (paragraphs) =>
