@@ -67,7 +67,7 @@ export function groupsContiguous(wb, sheetId, range, groupCol) {
 /** Does a table share any cell with the range? Subtotals cannot go inside one. */
 export function tableOverlaps(wb, sheetId, range) {
   const n = normalizeRange(range);
-  return (wb.sheet(sheetId)?.tables || []).some(({ range: t }) => t.r1 <= n.r2 && t.r2 >= n.r1 && t.c1 <= n.c2 && t.c2 >= n.c1);
+  return (wb.sheet(sheetId)?.tables || []).some(({ range: g }) => g.r1 <= n.r2 && g.r2 >= n.r1 && g.c1 <= n.c2 && g.c2 >= n.c1);
 }
 
 /** Number-format fields of a style, so a total row shows money as money. */
