@@ -224,6 +224,11 @@ export class AssistantPanel {
     if (!on) this.status.textContent = '';
   }
 
+  /** The status line is a live region: it is only written when what it says changes. */
+  private setStatus(text: string) {
+    if (this.status.textContent !== text) this.status.textContent = text;
+  }
+
   /** Stops the reply; a step already running finishes first (it cannot be interrupted). */
   private stop() {
     this.agent.stop();
@@ -392,6 +397,9 @@ export class AssistantPanel {
     // Only the latest reply can be asked again: a later message has moved the conversation on.
     for (const b of this.log.querySelectorAll('.as-retry')) b.remove();
     const turn = this.newTurn();
+    // The conversation is a live region: the reply is announced once it is complete,
+    // not again on every streamed piece (the status line tells what is happening meanwhile).
+    turn.el.setAttribute('aria-busy', 'true');
     this.turn = turn;
     this.setBusy(true);
     this.status.textContent = 'Thinking…';
@@ -408,7 +416,7 @@ export class AssistantPanel {
           }
           turn.text.src += e.text;
           this.queueText(turn.text);
-          this.status.textContent = 'Writing…';
+          this.setStatus('Writing…');
         } else if (e.type === 'step') {
           if (!turn.steps) {
             if (turn.text) this.renderText(turn.text);
@@ -417,9 +425,9 @@ export class AssistantPanel {
             turn.text = null;
           }
           this.renderStep(turn, turn.steps, e.step);
-          if (this.status.textContent !== 'Stopping…') this.status.textContent = e.step.status === 'running' ? `${stepLabel(e.step.name, e.step.args)}…` : 'Thinking…';
+          if (this.status.textContent !== 'Stopping…') this.setStatus(e.step.status === 'running' ? `${stepLabel(e.step.name, e.step.args)}…` : 'Thinking…');
         } else if (e.type === 'round') {
-          this.status.textContent = 'Thinking…';
+          this.setStatus('Thinking…');
         }
       });
     } catch (e) {
@@ -437,6 +445,7 @@ export class AssistantPanel {
       return;
     }
     if (turn.text) this.renderText(turn.text);
+    turn.el.removeAttribute('aria-busy');
     const after = store.undoMark;
     if (res.stopped) turn.foot.append(h('span', { class: 'as-meta' }, 'Stopped.'));
     if (res.error) {

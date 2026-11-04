@@ -39,7 +39,10 @@ test('the assistant builds a part with tools, shows its steps and undoes it in o
   await box.fill('Make a mounting plate');
   await box.press('Enter');
 
+  // The reply is held from screen readers while it streams and released when complete.
+  await expect(page.locator('.as-bot')).toHaveAttribute('aria-busy', 'true');
   await expect(page.getByText('Done: a', { exact: false })).toBeVisible({ timeout: 60_000 });
+  await expect(page.locator('.as-bot[aria-busy]')).toHaveCount(0);
   for (const name of ['Plate', 'Holes', 'Corners']) await expect(page.getByRole('treeitem', { name })).toBeVisible();
   const steps = page.locator('.as-step');
   await expect(steps).toHaveCount(7);
