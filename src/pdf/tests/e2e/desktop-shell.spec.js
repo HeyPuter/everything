@@ -1526,6 +1526,43 @@ test('Batch process stays open, with its files, until it has files and steps', a
   await expect(dialog.getByLabel('Rotate all pages')).toBeChecked();
 });
 
+test('Batch process shows what Remove hidden information could not examine', async ({ page }) => {
+  await openPdf(page, await numberedPdf(1));
+  await page.getByRole('button', { name: 'Tools', exact: true }).click();
+  const pane = page.getByRole('complementary', { name: 'Tools' });
+  await pane.getByRole('button', { name: 'View more' }).click();
+  await pane.getByRole('button', { name: 'Batch process', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Batch process' });
+  // A page whose content no reader can decode keeps whatever it hides.
+  const odd = await PDFDocument.create();
+  odd
+    .addPage([400, 400])
+    .node.set(
+      PDFName.of('Contents'),
+      odd.context.register(odd.context.stream('unreadable', { Filter: 'UnknownDecode' })),
+    );
+  const chooser = page.waitForEvent('filechooser');
+  await dialog.getByRole('button', { name: 'Add PDFs…' }).click();
+  await (
+    await chooser
+  ).setFiles({
+    name: 'odd.pdf',
+    mimeType: 'application/pdf',
+    buffer: Buffer.from(await odd.save()),
+  });
+  await dialog.getByLabel('Remove hidden information').check();
+  const pending = page.waitForEvent('download');
+  await dialog.getByRole('button', { name: 'Run', exact: true }).click();
+  expect((await pending).suggestedFilename()).toBe('Processed PDFs.zip');
+  const notice = page.getByRole('dialog', { name: 'Check the processed PDFs' });
+  await expect(notice).toContainText('2 files processed.');
+  await expect(notice.getByRole('listitem')).toHaveText([
+    'odd.pdf: Page 1 could not be read, so its hidden content was left.',
+  ]);
+  await notice.getByRole('button', { name: 'OK', exact: true }).click();
+  await expect(notice).toHaveCount(0);
+});
+
 test('Batch process asks for the watermark text before it starts', async ({ page }) => {
   await openPdf(page, await numberedPdf(1));
   await page.getByRole('button', { name: 'Tools', exact: true }).click();

@@ -11409,11 +11409,28 @@ export function createEditor({
         if (parts.length === 1) download(parts[0].bytes, parts[0].name);
         else download(new Blob(zipParts(parts), { type: 'application/zip' }), 'Processed PDFs.zip');
       }
-      toast(
-        failed.length
-          ? `${good.length} processed; ${failed.length} could not be: ${failed.map((f) => `${f.name} (${f.error})`).join('; ')}`
-          : `${good.length} ${good.length === 1 ? 'file' : 'files'} processed.`,
-        { error: failed.length > 0 && !good.length },
+      const summary = failed.length
+        ? `${good.length} processed; ${failed.length} could not be: ${failed.map((f) => `${f.name} (${f.error})`).join('; ')}`
+        : `${good.length} ${good.length === 1 ? 'file' : 'files'} processed.`;
+      const warnings = good.flatMap((result) =>
+        (result.warnings || []).map((warning) => `${result.name}: ${warning}`),
+      );
+      if (!warnings.length) {
+        toast(summary, { error: failed.length > 0 && !good.length });
+        return;
+      }
+      // Content a step could not read was left in the file; that must not pass by in a brief
+      // message, as Remove hidden information on one PDF says too.
+      const notice = modal(
+        'Check the processed PDFs',
+        el(
+          'div',
+          { class: 'stack' },
+          el('p', {}, summary),
+          el('p', {}, 'Not everything went as usual. Check these before you share the files:'),
+          el('ul', {}, ...warnings.map((warning) => el('li', {}, warning))),
+        ),
+        [button('OK', null, () => notice.close(), 'btn primary')],
       );
     } catch (error) {
       if (!['AbortError', 'RenderingCancelledException'].includes(error?.name)) throw error;

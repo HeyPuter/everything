@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { readFile } from 'node:fs/promises';
-import { PDFDocument } from 'pdf-lib';
+import { PDFDocument, PDFName } from 'pdf-lib';
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { runBatch } from '../src/core/batch.js';
 
@@ -94,5 +94,24 @@ it('gives the Bates numbers of a file that fails to the next file', async () => 
     'ABC0005',
     'ABC0006',
     'ABC0007',
+  ]);
+});
+
+it('passes on what Remove hidden information could not examine in a file it produced', async () => {
+  const doc = await PDFDocument.create();
+  const page = doc.addPage([400, 400]);
+  // A page whose content no reader can decode keeps whatever it hides.
+  page.node.set(
+    PDFName.of('Contents'),
+    doc.context.register(doc.context.stream('unreadable', { Filter: 'UnknownDecode' })),
+  );
+  const clean = await pdfOf(1);
+  const results = await runBatch(
+    [{ name: 'odd.pdf', bytes: await doc.save() }, clean],
+    [{ type: 'sanitize' }],
+  );
+  expect(results.map((result) => [result.name, !!result.bytes, result.warnings])).toEqual([
+    ['odd.pdf', true, ['Page 1 could not be read, so its hidden content was left.']],
+    [clean.name, true, []],
   ]);
 });
