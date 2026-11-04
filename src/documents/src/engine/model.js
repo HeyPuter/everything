@@ -659,7 +659,9 @@ export class TextDocument {
     const pass = this.blockCellPass(() => this.setParagraphStyle(id));
     if (pass !== undefined) return pass;
     const targets = this.selectedParagraphs;
-    if (targets.every(p => (p.styleId || '') === id)) return false;
+    // A paragraph with no style has the default one (Normal): applying that to it changes nothing.
+    const normal = this.styles.defaultParagraph || '', effective = styleId => styleId || normal;
+    if (targets.every(p => effective(p.styleId || '') === effective(id || ''))) return false;
     const next = targets.map(p => resolveStyledParagraph({ ...copy(p), styleId: id || null, styleChanged: true }, this.styles, this.numbering));
     this.checkpoint(); targets.forEach((p, i) => Object.assign(p, next[i]));
     this.typingFormat = {}; this.typingStyle = null; this.typingDirectCleared = false; this.stylesEnabled = true; this.didChange(); return true;
