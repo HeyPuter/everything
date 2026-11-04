@@ -10808,7 +10808,7 @@ export function createEditor({
           el(
             'span',
             {},
-            `${issue.message}${issue.count > 1 ? ` (${issue.count})` : ''}${Number.isInteger(issue.page) ? ` — page ${issue.page + 1}` : ''}`,
+            `${issue.message}${issue.count > 1 ? ` (${issue.count})` : ''}${Number.isInteger(issue.page) ? ` — page ${issue.page}` : ''}`,
           ),
         ),
       ),

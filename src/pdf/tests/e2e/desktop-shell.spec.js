@@ -1804,6 +1804,10 @@ test('PDF standards checks PDF/A and converts to it', async ({ page }) => {
     .click();
   const report = page.getByRole('dialog', { name: 'PDF/A-2b check' });
   await expect(report).toContainText(/problems? remains?/);
+  // Problems on the only page name page 1, not page 2.
+  await expect(report.getByRole('listitem').filter({ hasText: 'Helvetica' })).toContainText(
+    /— page 1$/,
+  );
   await report.getByRole('button', { name: 'Close', exact: true }).click();
   await pane.getByRole('button', { name: 'Save as PDF/A…' }).click();
   await page
