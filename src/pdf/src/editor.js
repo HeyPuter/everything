@@ -11259,6 +11259,9 @@ export function createEditor({
   }
   function stopReading() {
     reading = null;
+    // Chrome stays paused through cancel(), and would never speak the next reading; resuming
+    // first, while the paused words are still queued, lets cancel() end them.
+    if (globalThis.speechSynthesis?.paused) speechSynthesis.resume();
     globalThis.speechSynthesis?.cancel();
   }
   function readingItems() {

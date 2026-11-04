@@ -504,6 +504,61 @@ test('Read out loud joins a word hyphenated at the end of a line', async ({ page
     .toBe('Here is an example of a well- Known word.');
 });
 
+test('Read out loud speaks again after being paused and stopped', async ({ page }) => {
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  doc.addPage([600, 800]).drawText('A page to read.', { x: 40, y: 700, size: 14, font });
+  await openPdf(page, doc);
+  // Chrome's speech keeps its paused state through cancel(), and speaks nothing new until it
+  // is resumed with something queued. Utterances here last until they are cancelled.
+  await page.evaluate(() => {
+    window.spoken = [];
+    window.SpeechSynthesisUtterance = class {
+      constructor(text) {
+        this.text = text;
+      }
+    };
+    const queue = [];
+    Object.defineProperty(window, 'speechSynthesis', {
+      configurable: true,
+      value: {
+        paused: false,
+        speak(utterance) {
+          queue.push(utterance);
+          if (!this.paused) window.spoken.push(utterance.text);
+        },
+        pause() {
+          this.paused = true;
+        },
+        resume() {
+          if (queue.length) this.paused = false;
+        },
+        cancel() {
+          for (const utterance of queue.splice(0))
+            setTimeout(() => utterance.onerror?.({ error: 'interrupted' }), 0);
+        },
+      },
+    });
+  });
+  const choose = async (name) => {
+    await page.getByRole('menuitem', { name: 'View', exact: true }).click();
+    await page.getByRole('menuitem', { name: 'Read out loud' }).click();
+    await page.getByRole('menuitem', { name, exact: true }).click();
+  };
+  await choose('Read this page');
+  await expect.poll(() => page.evaluate(() => window.spoken)).toEqual(['A page to read.']);
+  await choose('Pause');
+  await choose('Stop');
+  await choose('Read this page');
+  await expect
+    .poll(() => page.evaluate(() => window.spoken))
+    .toEqual(['A page to read.', 'A page to read.']);
+  await page.getByRole('menuitem', { name: 'View', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Read out loud' }).click();
+  await expect(page.getByRole('menuitem', { name: 'Pause', exact: true })).toBeEnabled();
+  await page.keyboard.press('Escape');
+});
+
 test('Organize pages selects, turns, moves, and deletes several pages', async ({ page }) => {
   await openPdf(page, await numberedPdf(4));
   await page.getByRole('button', { name: 'Tools', exact: true }).click();
