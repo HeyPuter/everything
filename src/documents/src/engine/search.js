@@ -92,6 +92,22 @@ function quoteFolding(query) {
   return families.length ? text => families.reduce((folded, [, curly, straight]) => folded.replace(curly, straight), text) : null;
 }
 
+/**
+ * A paragraph's text with every grapheme in its decomposed form (NFD), and where each grapheme boundary of the
+ * decomposed text lies in the original; null when the text is composed (NFC) already. An accented letter can be
+ * one character (é) or a letter and a combining accent (e + ◌́), as text from macOS file names or some PDFs has it;
+ * the two are the same text (canonically equivalent), and Find matches either form with either. Composed text is
+ * searched for the composed query as it is: no composition reaches across a grapheme boundary, so whole graphemes
+ * match there exactly when they match decomposed.
+ */
+function decomposed(text) {
+  if (text.normalize('NFC') === text) return null;
+  const original = new Map(); let out = '';
+  for (const { segment, index } of inlineSegments(text)) { original.set(out.length, index); out += segment.normalize('NFD'); }
+  original.set(out.length, text.length);
+  return { text: out, original };
+}
+
 export function findText(paragraphs, query, { matchCase = false, wholeWord = false, skipDeleted = false, hidden = null } = {}) {
   checkedSearchText(query);
   if (!query) return [];
@@ -99,21 +115,30 @@ export function findText(paragraphs, query, { matchCase = false, wholeWord = fal
   if (wholeWord && ![...words.segment(query)].some(segment => segment.isWordLike)) return [];
   const fold = quoteFolding(query);
   if (fold) query = fold(query);
-  const matchLiteral = literalMatcher(query, matchCase), simpleQuery = SIMPLE.test(query), matchSimple = simpleQuery && simpleMatcher(query, matchCase);
+  // Simple text is composed (Latin-1 has no decomposed letters), and other text is compared decomposed.
+  const composed = query.normalize('NFC');
+  const matchLiteral = literalMatcher(composed, matchCase), simpleQuery = SIMPLE.test(composed), matchSimple = simpleQuery && simpleMatcher(composed, matchCase);
+  let matchDecomposed = null;
   const matches = []; let at = 0;
   paragraphs.forEach((p, paragraph) => {
     const text = p.runs.map(r => r.text).join(''), searched = fold ? fold(text) : text;
     const deleted = skipDeleted || hidden ? skippedSpans(p, skipDeleted, hidden) : null;
     // Segmenting every paragraph of a long document on each search held up typing while Find was open.
     const simple = simpleQuery && SIMPLE.test(searched);
-    const boundaries = simple ? null : new Set([...inlineSegments(text)].map(s => s.index).concat(text.length));
+    const decomposition = simple ? null : decomposed(searched);
+    const boundaries = simple || decomposition ? null : new Set([...inlineSegments(text)].map(s => s.index).concat(text.length));
     // Whole words: neither end of a match falls inside a word. A query may begin or end with punctuation
     // ("Inc.", "C++", "$100"), whose ends are no word's start or end but still stand apart from the words around.
     const insideWords = new Set();
     if (wholeWord) for (const segment of words.segment(text)) if (segment.isWordLike) for (let i = 1; i < segment.segment.length; i++) insideWords.add(segment.index + i);
     let previousEnd = 0;
-    for (const { start, end } of simple ? matchSimple(searched) : matchLiteral(searched)) {
-      if (start >= previousEnd && (simple || boundaries.has(start) && boundaries.has(end)) && (!wholeWord || !insideWords.has(start) && !insideWords.has(end)) && !overlaps(deleted, start, end)) {
+    for (let { start, end } of simple ? matchSimple(searched) : decomposition ? (matchDecomposed ??= literalMatcher(query.normalize('NFD'), matchCase))(decomposition.text) : matchLiteral(searched)) {
+      // A match in decomposed text counts where it starts and ends on graphemes of the original.
+      if (decomposition) {
+        if (!decomposition.original.has(start) || !decomposition.original.has(end)) continue;
+        start = decomposition.original.get(start); end = decomposition.original.get(end);
+      }
+      if (start >= previousEnd && (simple || decomposition || boundaries.has(start) && boundaries.has(end)) && (!wholeWord || !insideWords.has(start) && !insideWords.has(end)) && !overlaps(deleted, start, end)) {
         matches.push({ start: at + start, end: at + end, paragraph, offset: start, text: text.slice(start, end) }); previousEnd = end;
       }
     }

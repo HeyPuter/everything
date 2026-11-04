@@ -55,15 +55,34 @@ it('uses whole-word boundaries and retries overlapping candidates rejected by a 
   expect(find(text, 'cat', whole)).toEqual([]);
 });
 
-it('keeps combining sequences, emoji modifiers and joined emoji intact, without canonical normalization', () => {
+it('keeps combining sequences, emoji modifiers and joined emoji intact, and finds either form of an accented letter', () => {
   expect(find('Á A 😀 👍🏽 👩‍💻', 'A')).toEqual([[3, 4]]);
   expect(find('Á A 😀 👍🏽 👩‍💻', 'Á')).toEqual([[0, 2]]);
   expect(find('👍🏽 👍', '👍')).toEqual([[5, 7]]);
   expect(find('👩‍💻 👩', '👩')).toEqual([[6, 8]]);
-  expect(find('café café', 'café')).toEqual([[0, 4]]);
-  expect(find('café café', 'café')).toEqual([[5, 10]]);
+  // One character (é) or a letter with a combining accent (e + ◌́): the same text, found with either.
+  expect(find('café cafe\u0301', 'café')).toEqual([[0, 4], [5, 10]]);
+  expect(find('café cafe\u0301', 'cafe\u0301')).toEqual([[0, 4], [5, 10]]);
 });
 
+it('finds canonically equivalent text in either form, on whole graphemes, and replaces what it found', () => {
+  const nfd = text => text.normalize('NFD');
+  // Case folding, whole words and a paragraph mixing both forms.
+  expect(find(`${nfd('Ångström')} ångström`, 'ÅNGSTRÖM')).toEqual([[0, 10], [11, 19]]);
+  expect(find(`${nfd('résumé')} résumés`, 'résumé', { wholeWord: true })).toEqual([[0, 8]]);
+  // Never half an accented letter, in either form: "e" is not found in é.
+  expect(find(`caf${nfd('é')} café`, 'cafe')).toEqual([]);
+  expect(find(`caf${nfd('é')} café`, 'caf')).toEqual([[0, 3], [6, 9]]);
+  // Combining marks in another order are the same letter (Vietnamese ệ written two ways), and Hangul syllables
+  // match their jamo, but a syllable's first jamo alone is no match.
+  expect(find('Việt Việt', 'Việt')).toEqual([[0, 6], [7, 12]]);
+  expect(find('한국 한', '한')).toEqual([[0, 1], [3, 6]]);
+  expect(find('한국', '하')).toEqual([]);
+  const doc = new TextDocument([paragraph(`${nfd('Café')} and café.`)]);
+  expect(doc.findMatches('café').map(m => m.text)).toEqual([nfd('Café'), 'café']);
+  doc.replaceMatches('café', 'bar', {}, true);
+  expect(doc.text).toBe('bar and bar.');
+});
 it('does not join paragraphs, tabs, manual breaks or inline pictures when finding text', () => {
   const paragraphs = [paragraph('nee'), paragraph('dle nee\tdle nee\vdle nee\fdle nee\ufffcdle')];
   expect(findText(paragraphs, 'needle')).toEqual([]);
