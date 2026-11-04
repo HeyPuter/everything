@@ -806,6 +806,28 @@
     min-width: 92px;
   }
 }
+/* The smallest phones (and a desktop window zoomed to 400%): the controls close up to stay on
+   one line, and when a long page count still does not fit, the zoom wraps onto a second line
+   instead of the row spilling off both edges. */
+@media (max-width: 360px) {
+  .editor .page-controls {
+    flex-wrap: wrap;
+    height: auto;
+    min-height: 40px;
+    gap: 0 2px;
+    padding: 0 2px;
+  }
+  .editor .page-controls .page-navigation {
+    gap: 2px;
+    padding-right: 2px;
+  }
+  .editor .page-controls .page-input {
+    width: 36px;
+  }
+  .editor .page-controls .page-navigation > span {
+    margin-right: 2px;
+  }
+}
 @media (forced-colors: active) {
   .editor .quick-tools .tool-btn[aria-pressed='true'],
   .top-tab[aria-pressed='true'],
