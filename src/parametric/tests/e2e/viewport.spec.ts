@@ -378,5 +378,34 @@ test.describe('viewport', () => {
       await page.waitForTimeout(500);
       expect(await page.evaluate(() => (window as unknown as { __dbl: number }).__dbl)).toBe(1);
     });
+
+    test('lifting one of three fingers does not make the view jump', async ({ page }) => {
+      await openApp(page);
+      await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+      await waitForFeature(page, 'Fillet1');
+      const jump = await page.evaluate(() => {
+        const c = document.querySelector('canvas.gl') as HTMLCanvasElement;
+        // Synthetic pointers cannot be captured; the gesture logic is what is under test.
+        c.setPointerCapture = () => {};
+        c.releasePointerCapture = () => {};
+        const r = c.getBoundingClientRect();
+        const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+        const P = (type: string, id: number, x: number, y: number) => c.dispatchEvent(new PointerEvent(type, { pointerId: id, pointerType: 'touch', clientX: x, clientY: y, bubbles: true, buttons: type === 'pointerup' ? 0 : 1 }));
+        const cam = (window as unknown as Win).__parametric.renderer.camera;
+        P('pointerdown', 11, cx - 60, cy - 60);
+        P('pointerdown', 12, cx + 60, cy + 60);
+        P('pointerdown', 13, cx + 80, cy - 150);
+        const t0 = [...cam.target], d0 = cam.distance;
+        P('pointerup', 11, cx - 60, cy - 60);
+        P('pointermove', 13, cx + 81, cy - 150);
+        const moved = Math.hypot(cam.target[0] - t0[0], cam.target[1] - t0[1], cam.target[2] - t0[2]) / cam.pixelSize;
+        P('pointerup', 12, cx + 60, cy + 60);
+        P('pointerup', 13, cx + 81, cy - 150);
+        return { moved, zoom: cam.distance / d0 };
+      });
+      // A 1 px finger move pans about a pixel and barely zooms.
+      expect(jump.moved).toBeLessThan(3);
+      expect(Math.abs(jump.zoom - 1)).toBeLessThan(0.02);
+    });
   });
 });

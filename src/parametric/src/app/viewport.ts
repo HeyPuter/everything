@@ -273,6 +273,9 @@ export class Viewport {
       clearTimeout(this.longPress);
       if (this.gesture.kind === 'touch') {
         if (this.touches.size < 2) this.gesture = { kind: 'none' };
+        // Back to two fingers after a third lifted: measure the new pair
+        // from here, or the next move jumps by the difference between pairs.
+        else if (this.touches.size === 2) this.touchState = this.touchMetrics();
         return;
       }
     }
