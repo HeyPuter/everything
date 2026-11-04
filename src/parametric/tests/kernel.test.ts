@@ -118,6 +118,17 @@ describe('feature regeneration', () => {
     expect(branch.status[2].error).toMatch(/connected chain/);
   });
 
+  it('gives mirrored planar faces outward normals', async () => {
+    const b = new ModelBuilder();
+    const res = await b.build(req([sketch('S1', rect(5, 0, 15, 10)), extrude('E1', 'S1', 10), { id: 'M1', name: 'M1', type: 'mirror', seeds: [], plane: { kind: 'base', plane: 'right' } }]));
+    expect(res.faces).toHaveLength(12);
+    for (const f of res.faces) {
+      const c: [number, number, number] = [Math.sign(f.center[0]) * 10, 5, 5];
+      const out = f.normal!.reduce((a, n, i) => a + n * (f.center[i] - c[i]), 0);
+      expect(out, f.name).toBeGreaterThan(0);
+    }
+  });
+
   it('fillets edges referenced by name and survives a dimension change', async () => {
     const fillet = (): FilletFeature => ({ id: 'F1', name: 'F1', type: 'fillet', edges: [], faces: [], radius: 2 });
     const b = new ModelBuilder();

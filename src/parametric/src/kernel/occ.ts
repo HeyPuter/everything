@@ -144,10 +144,13 @@ export function describeFace(w: Sh): SurfDesc {
     if (t === ga.GeomAbs_Plane) {
       const pl = ad.Plane();
       const ax = pl.Axis();
+      const pos = pl.Position();
       const d0 = ax.Direction();
       let d: Vec3 = xyz(d0);
-      if (reversed) d = scale(d, -1);
-      d0.delete(); ax.delete(); pl.delete();
+      // The surface normal is X × Y, which is opposite to the axis for a
+      // left-handed plane (revolved and mirrored faces have those).
+      if (reversed !== !pos.Direct()) d = scale(d, -1);
+      d0.delete(); ax.delete(); pos.delete(); pl.delete();
       return { type: 'plane', p: center, d, r: 0, center, area };
     }
     if (t === ga.GeomAbs_Cylinder) {
