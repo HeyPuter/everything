@@ -230,6 +230,28 @@ test('the ContextMenu key on the status bar starts its Customize menu on the fir
   await expect(menu).toBeFocused();
 });
 
+test('a Language search that finds nothing applies nothing, not a language an earlier letter showed', async ({ page }) => {
+  await openEditor(page);
+  await text(page).fill('Bonjour');
+  await select(page, 0, 7);
+  const status = page.locator('.ed-statusbar .ed-status-language');
+  await expect(status).toContainText('English (United States)');
+  const history = await page.evaluate(() => window.__docs.current.view.engine.session.history.length);
+  await status.click();
+  const dialog = page.getByRole('dialog', { name: 'Language' });
+  // "z" alone finds a language (German (Switzerland)); "zzzz" finds none.
+  await page.keyboard.type('zzzz');
+  await expect(dialog.getByRole('option')).toHaveCount(0);
+  await expect(dialog.getByText('No languages match.')).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'OK' })).toBeDisabled();
+  await page.keyboard.press('Enter');
+  await expect(dialog).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(dialog).toBeHidden();
+  await expect(status).toContainText('English (United States)');
+  expect(await page.evaluate(() => window.__docs.current.view.engine.session.history.length)).toBe(history);
+});
+
 test('the Language list is one tab stop that the arrow keys move through', async ({ page }) => {
   await openEditor(page);
   await text(page).fill('Bonjour');
