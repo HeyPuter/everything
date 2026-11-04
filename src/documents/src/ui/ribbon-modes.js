@@ -212,10 +212,11 @@ export function createRibbonModes({ workspace, header, toolbar, ribbon, tabs, ti
       if (e.key === 'Escape') { if (level === 'tab') top(); else { hide(); focusEditor(); } return; }
       const ch = /^Key([A-Z])$/.exec(shortcutCode(e))?.[1] || /^Digit([0-9])$/.exec(e.code)?.[1] || (e.key.length === 1 ? e.key.toUpperCase() : null);
       if (!ch) { hide(); return; }
+      // A key no KeyTip goes on with is ignored: the letters typed so far still stand, as the dimmed badges show.
+      if (!codes.some(t => t.code.startsWith(typed + ch))) return;
       typed += ch;
       const exact = codes.find(t => t.code === typed);
       if (exact) { exact.run(); return; }
-      if (!codes.some(t => t.code.startsWith(typed))) { typed = ''; return; }
       // Dim the badges that no longer match.
       for (const tip of layer?.querySelectorAll('.ed-keytip') || []) tip.classList.toggle('is-filtered', !tip.textContent.startsWith(typed));
     }

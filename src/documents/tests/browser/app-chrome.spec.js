@@ -289,6 +289,28 @@ test('the ribbon collapses to its tabs and shows KeyTips for the keyboard', asyn
   await expect(page.locator('.ed-keytip')).toHaveCount(0);
 });
 
+test('a KeyTip letter that goes nowhere is ignored, and the letters typed before it still stand', async ({ page }) => {
+  await openEditor(page);
+  await text(page).fill('Keys');
+  await select(page, 0, 4);
+  await page.keyboard.press('Alt');
+  await page.keyboard.press('h');
+  // On Home, B is Bold and QB is the bulleted list.
+  await expect(page.locator('.ed-keytip', { hasText: /^B$/ })).toBeVisible();
+  await expect(page.locator('.ed-keytip', { hasText: /^QB$/ })).toBeVisible();
+  await page.keyboard.press('q');
+  const dimmed = await page.locator('.ed-keytip.is-filtered').count();
+  expect(dimmed).toBeGreaterThan(0);
+  // No KeyTip starts QZ: the key changes nothing.
+  await expect(page.locator('.ed-keytip', { hasText: /^QZ/ })).toHaveCount(0);
+  await page.keyboard.press('z');
+  await expect(page.locator('.ed-keytip.is-filtered')).toHaveCount(dimmed);
+  await page.keyboard.press('b');
+  await expect(page.locator('.ed-keytip')).toHaveCount(0);
+  expect(await page.evaluate(() => window.__docs.current.view.engine.model.listFormatting)).toBe('bullet');
+  expect((await engine(page)).bold).toBe(false);
+});
+
 test('Down on a tab of a collapsed ribbon shows its commands and moves into them', async ({ page }) => {
   await openEditor(page);
   const card = page.locator('.ed-ribbon');
