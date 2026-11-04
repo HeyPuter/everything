@@ -364,6 +364,30 @@ it('keeps lists, indents, wider lines, paragraph gaps and graphics boundaries se
   }
 });
 
+it('keeps list items with dashes, dots, letters or bracketed numbers apart', async () => {
+  // Word, Google Docs and others mark items with these as well as with "•", "-" and "1.".
+  for (const [marker, shown] of [
+    ['\\226', '\u2013'],
+    ['\\227', '\u2014'],
+    ['\\267', '\u00b7'],
+    ['b\\)', 'b)'],
+    ['B.', 'B.'],
+    ['\\(2\\)', '(2)'],
+    ['ii.', 'ii.'],
+  ]) {
+    const r = await read(
+      await fixture(
+        `BT /F 18 Tf 22 TL 40 300 Td (This is the first item) Tj T* (${marker} Another list item) Tj ET`,
+      ),
+    );
+    const blocks = groupTextParagraphs(r.groups);
+    expect(
+      blocks.map((block) => block.text),
+      shown,
+    ).toEqual(['This is the first item', `${shown} Another list item`]);
+  }
+});
+
 it('reflows an unchanged paragraph onto one baseline only when explicitly requested', async () => {
   const r = await read(
     await fixture(
