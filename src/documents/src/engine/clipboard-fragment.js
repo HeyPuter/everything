@@ -42,6 +42,7 @@ export function copyFragment(model, { hidden = () => false } = {}) {
   // What the selection holds decides (each run is checked below); fields or notes elsewhere do not.
   if (start === end) return null;
   const paragraphs = []; let at = 0, runCount = 0, cell = null;
+  const last = model.paragraphs.at(-1);
   for (const p of model.paragraphs) {
     const length = paragraphText(p).length, from = at, to = at + length;
     at = to + 1;
@@ -67,7 +68,10 @@ export function copyFragment(model, { hidden = () => false } = {}) {
     }
     if (runCount > MAX_RUNS) return null;
     const format = paragraphFormat(p, model.numbering, model.pageSettings), style = model.styles.definitions[p.styleId];
-    paragraphs.push({ text: runs.map(r => r.text).join(''), runs, mark: to >= start && to < end,
+    // The document's last paragraph has no break after it to select, so its mark goes with it when the selection
+    // takes it whole and runs to the document's end, as Select All does: pasted, it keeps its own formatting.
+    const mark = (to >= start && to < end) || (p === last && to === end && from >= start && (from > start || start === 0) && !p.cellId);
+    paragraphs.push({ text: runs.map(r => r.text).join(''), runs, mark,
       styleId: p.styleId || null, styleName: style?.name || null, alignment: format.alignment,
       list: p.list ? { kind: listKind(model.numbering, p.list), level: p.list.level } : null });
   }
@@ -435,6 +439,12 @@ function applyRun(model, from, to, run, foreign) {
 
 /** Insert a fragment at the selection with its formatting. Returns false when nothing was inserted. */
 export function pasteFragment(model, fragment) {
+  // A copy that ends with the document's last paragraph mark ends that paragraph where it goes: text after the
+  // caret keeps its own paragraph and formatting, rather than joining the last pasted paragraph and taking its style.
+  if (!fragment.foreign && fragment.paragraphs.at(-1)?.mark) {
+    const { index, offset } = locate(model.paragraphs, model.range[1]);
+    if (offset < paragraphText(model.paragraphs[index]).length) fragment = { ...fragment, paragraphs: [...fragment.paragraphs, { text: '', runs: [], mark: false }] };
+  }
   const text = fragment.paragraphs.map(p => p.text).join('\n');
   if (!model.replace(text)) return false;
   // The caret ends after the inserted text. With Track Changes on, that text
