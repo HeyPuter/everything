@@ -2,6 +2,8 @@
 
 <h3 align="center">The world’s software. Rebuilt, and open-sourced.</h3>
 
+<p align="center"><strong>English</strong> · <a href="README.zh-CN.md">简体中文</a> · <a href="README.es.md">Español</a></p>
+
 <!-- App names, descriptions, and navigation are native text. The Everything logo, app icons, and decorative hero are images. Demo and source links use project metadata where available; missing destinations point to the link-status note. -->
 
 <p align="center"><img src="assets/hero/variants/34-app-wall-intact.png" width="100%" alt="Everything: a wall of app screenshots extending beyond the frame"></p>
