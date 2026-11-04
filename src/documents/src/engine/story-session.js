@@ -227,7 +227,7 @@ export class StorySession {
     const start = this.recorded || 0;
     try { return action(); } finally {
       const count = Math.min((this.recorded || 0) - start, this.history.length), steps = this.history.slice(this.history.length - count);
-      if (count > 1 && steps.every(step => step.state)) {
+      if (count > 1 && steps.every(step => step.state || step.settings)) {
         this.history.splice(this.history.length - count);
         this.history.push(this.compound(steps, steps[0].label));
       }
@@ -245,6 +245,12 @@ export class StorySession {
       const applied = [];
       try {
         for (const step of [...entry.steps].reverse()) {
+          // A part can be a change of settings (changeSettings), which no story's text holds.
+          if (step.settings) {
+            applied.push({ path: step.path, page: step.page, settings: this.settingsState(), caret: step.caret });
+            this.applySettings(step.settings);
+            continue;
+          }
           this.activate(step.path); this.page = step.page;
           const current = this.capture();
           applied.push(current);
@@ -253,7 +259,10 @@ export class StorySession {
         }
         validate?.(this.model);
       } catch (error) {
-        for (const current of [...applied].reverse()) { this.restore(current); this.model.revision = current.revision; }
+        for (const current of [...applied].reverse()) {
+          if (current.settings) { this.applySettings(current.settings); continue; }
+          this.restore(current); this.model.revision = current.revision;
+        }
         this.activate(previousPath); this.page = previousPage;
         throw error;
       }

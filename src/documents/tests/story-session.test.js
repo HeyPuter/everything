@@ -164,3 +164,21 @@ it('undoes and redoes edits to several stories made as one transaction in one st
   expect(s.history).toHaveLength(3);
   expect(s.history.at(-1).steps).toBeUndefined();
 });
+
+it('takes back a transaction of text and settings changes in one step', async () => {
+  const { pkg, session: s } = await setup();
+  s.settingsHost = { capture: () => pkg.settingsState(), restore: state => pkg.restoreSettings(state) };
+  const original = await parts(s, pkg), was = !!s.definition.sections[0].firstPageDifferent;
+  s.transact(() => {
+    s.run(d => d.replace('Body '));
+    s.changeSettings(() => { pkg.setTitlePage(0, !was); s.definition = { ...s.definition, sections: s.definition.sections.map((v, i) => (i ? v : { ...v, firstPageDifferent: !was })) }; });
+  });
+  const changed = await parts(s, pkg);
+  expect(s.history).toHaveLength(1);
+  s.undo();
+  expect(await parts(s, pkg)).toEqual(original);
+  expect(!!s.definition.sections[0].firstPageDifferent).toBe(was);
+  s.redo();
+  expect(await parts(s, pkg)).toEqual(changed);
+  expect(!!s.definition.sections[0].firstPageDifferent).toBe(!was);
+});

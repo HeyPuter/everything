@@ -74,3 +74,30 @@ test('Undo takes back Different Odd & Even Pages and a page number format', asyn
   await page.getByRole('textbox', { name: 'Document text' }).press('ControlOrMeta+Shift+z');
   await expect.poll(async () => (await engine(page)).numbering).toEqual({ format: 'lowerRoman', start: 3 });
 });
+
+test('Page Setup changing margins and Different First Page together is one undo step', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/mock.html#/new');
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled({ timeout: 20000 });
+  await page.getByRole('textbox', { name: 'Document text' }).focus();
+  await page.keyboard.type('Body');
+  const before = await engine(page);
+  const top = () => page.evaluate(() => window.__docs.current.view.engine.session.body.pageSettings.top);
+  const topBefore = await top();
+  await page.evaluate(() => window.__docs.current.view.commands.openPageSetup());
+  const dialog = page.getByRole('dialog', { name: 'Page Setup' });
+  await dialog.getByLabel('Top margin').fill('2');
+  await dialog.getByRole('tab', { name: 'Layout' }).click();
+  await dialog.getByLabel('Different first page').check();
+  await dialog.getByRole('button', { name: 'Apply' }).click();
+  await expect.poll(async () => (await engine(page)).first).toBe(true);
+  expect(await top()).not.toBe(topBefore);
+  expect((await engine(page)).steps).toBe(before.steps + 1);
+  await page.getByRole('textbox', { name: 'Document text' }).press('ControlOrMeta+z');
+  await expect.poll(async () => (await engine(page)).first).toBe(false);
+  expect(await top()).toBe(topBefore);
+  expect((await engine(page)).steps).toBe(before.steps);
+  await page.getByRole('textbox', { name: 'Document text' }).press('ControlOrMeta+Shift+z');
+  await expect.poll(async () => (await engine(page)).first).toBe(true);
+  expect(await top()).not.toBe(topBefore);
+});

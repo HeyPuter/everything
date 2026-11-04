@@ -95,7 +95,8 @@ export function createLayoutTab({ editor, pkg, error, onChange = () => {}, comma
       const doc = engine.model, section = doc.sectionIndexAt(doc.range[0]), current = doc.sectionPageSettings;
       const definition = engine.pageStories;
       const stories = { firstPageDifferent: !!definition?.sections?.[section]?.firstPageDifferent, evenAndOdd: !!definition?.evenAndOdd };
-      return openPageSetup(current, (patch, { scope, stories: storyPatch }) => {
+      // Apply is one undo step, the page settings with the header and footer options.
+      return openPageSetup(current, (patch, { scope, stories: storyPatch }) => engine.transact(() => {
         let failure = null;
         if (Object.keys(patch).length) {
           const ok = engine.execute(() => engine.model.setPageSettings(patch, { scope, section, breakType: 'nextPage' }), e => { failure = e; }, undefined, true);
@@ -108,7 +109,7 @@ export function createLayoutTab({ editor, pkg, error, onChange = () => {}, comma
         if (storyPatch) setStories(engine, section, storyPatch);
         queueMicrotask(() => engine.focus());
         return true;
-      }, { tab, scopes: scopes(), scope: defaultScope(), firstSection: section === 0, stories,
+      }), { tab, scopes: scopes(), scope: defaultScope(), firstSection: section === 0, stories,
         lineNumbers: base.lineNumberOptions || commands.lineNumberOptions ? () => (commands.lineNumberOptions || base.lineNumberOptions)() : null,
         borders: base.bordersAndShading || commands.bordersAndShading ? () => (commands.bordersAndShading || base.bordersAndShading)('page') : null,
         setDefault: value => { if (saveDefaultPageSettings(value)) toast('New documents will use these page settings', { icon: 'check' }); else error(new Error('Page defaults could not be saved in this browser.')); } });
