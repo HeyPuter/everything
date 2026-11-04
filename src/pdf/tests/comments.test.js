@@ -101,6 +101,33 @@ describe('collecting comments', () => {
     const comments = await withPdf(await doc.save(), (pdf) => collectComments(pdf));
     expect(comments.map((c) => c.text)).toEqual(['Note 0', 'Note 3']);
   });
+  it('lists a reply to a note that is gone, as the page offers it as a note', async () => {
+    const doc = await PDFDocument.create();
+    const page = doc.addPage([300, 300]);
+    addNote(doc, 0, { x: 40, y: 280, text: 'Kept' });
+    addNote(doc, 0, { x: 140, y: 280, text: 'Deleted' });
+    const [kept, , gone] = page.node.Annots().asArray();
+    const reply = (parent, text) =>
+      page.node.Annots().push(
+        doc.context.register(
+          doc.context.obj({
+            Type: 'Annot',
+            Subtype: 'Text',
+            Rect: [40, 260, 60, 280],
+            F: 28,
+            IRT: parent,
+            Contents: PDFString.of(text),
+          }),
+        ),
+      );
+    reply(kept, 'Answered');
+    reply(gone, 'Left behind');
+    // Another editor deleted the second note (and its popup) but not its reply.
+    page.node.Annots().remove(3);
+    page.node.Annots().remove(2);
+    const comments = await withPdf(await doc.save(), (pdf) => collectComments(pdf));
+    expect(comments.map((c) => c.text)).toEqual(['Kept', 'Left behind']);
+  });
   it('returns an empty list for a plain PDF and null when superseded', async () => {
     const doc = await PDFDocument.create();
     doc

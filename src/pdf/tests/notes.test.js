@@ -571,3 +571,35 @@ it('lists a note once, not its replies and review states that Acrobat leaves vis
     [false, 'Grouped'],
   ]);
 });
+
+it('lists a reply whose note is gone as a note, so it can still be opened or deleted', async () => {
+  const doc = await PDFDocument.create();
+  const page = doc.addPage([400, 400]);
+  addNote(doc, 0, { x: 100, y: 300, text: 'Check the totals' });
+  const parent = page.node.Annots().get(0);
+  const reply = doc.context.register(
+    doc.context.obj({
+      Type: 'Annot',
+      Subtype: 'Text',
+      Rect: [100, 280, 120, 300],
+      F: 28,
+      Name: 'Comment',
+      IRT: parent,
+      Contents: PDFHexString.fromText('Done'),
+    }),
+  );
+  page.node.Annots().push(reply);
+  // Another editor deleted the note and left its reply behind.
+  page.node.Annots().remove(1);
+  page.node.Annots().remove(0);
+  expect(listNotes(doc, 0).map((note) => note.text)).toEqual(['Done']);
+  editNote(doc, 0, reply.toString(), { remove: true });
+  expect(page.node.Annots().size()).toBe(0);
+  // Nor is a note that readers do not show (NoView): the Comments panel lists its reply too.
+  addNote(doc, 0, { x: 100, y: 300, text: 'Unseen' });
+  const unseen = page.node.Annots().get(0);
+  doc.context.lookup(unseen).set(PDFName.of('F'), PDFNumber.of(32));
+  doc.context.lookup(reply).set(PDFName.of('IRT'), unseen);
+  page.node.Annots().push(reply);
+  expect(listNotes(doc, 0).map((note) => note.text)).toEqual(['Done']);
+});
