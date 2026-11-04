@@ -1,13 +1,9 @@
 // Regenerate the shipped previews from the real templates and print renderer.
 // No workbooks are constructed when the home screen loads.
 import { readFile, mkdir, writeFile } from 'node:fs/promises';
-import { fileURLToPath } from 'node:url';
 import { JSDOM } from 'jsdom';
-import { runnerImport } from 'vite';
-
-// Through Vite's module runner, as the app is built: the modules use Vite's import.meta.glob (the
-// interface's message catalogs, src/i18n), which Node alone does not have.
-const load = async (path) => (await runnerImport(fileURLToPath(new URL(path, import.meta.url)), { configFile: false, logLevel: 'error' })).module;
+import { TEMPLATES } from '../src/core/templates.js';
+import { buildPrintSheet } from '../src/ui/print.js';
 
 process.env.TZ = 'UTC';
 const NativeDate = Date;
@@ -21,8 +17,6 @@ crypto.randomUUID = () => `00000000-0000-4000-8000-${(++nextId).toString(16).pad
 
 const dom = new JSDOM();
 for (const key of ['document', 'Node', 'XMLSerializer']) globalThis[key] = dom.window[key];
-const { TEMPLATES } = await load('../src/core/templates.js');
-const { buildPrintSheet } = await load('../src/ui/print.js');
 const stylesheet = await readFile(new URL('../src/styles/editor.css', import.meta.url), 'utf8');
 const printCss = stylesheet.slice(stylesheet.indexOf('.print-table {'), stylesheet.indexOf('/* Named ranges manager */'));
 const output = new URL('../src/assets/template-thumbnails/', import.meta.url);

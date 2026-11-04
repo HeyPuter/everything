@@ -37,7 +37,32 @@ export function flattenCatalogs(modules) {
   return out;
 }
 
-const SOURCE = flattenCatalogs(import.meta.glob('../locales/en/*.json', { eager: true, import: 'default' }));
+/**
+ * A language's catalogs read straight from disk, for code run by Node without Vite (a script, a test
+ * that starts its own `node`), where import.meta.glob does not exist. Null in a browser.
+ */
+function catalogsFromDisk(lang) {
+  const fs = globalThis.process?.getBuiltinModule?.('node:fs');
+  if (!fs) return null;
+  const dir = new URL(`../locales/${lang}/`, import.meta.url);
+  const out = {};
+  for (const file of fs.readdirSync(dir)) {
+    if (file.endsWith('.json')) out[file] = JSON.parse(fs.readFileSync(new URL(file, dir), 'utf8'));
+  }
+  return out;
+}
+
+function sourceCatalogs() {
+  try {
+    return import.meta.glob('../locales/en/*.json', { eager: true, import: 'default' });
+  } catch (e) {
+    const fromDisk = catalogsFromDisk(SOURCE_LANGUAGE);
+    if (fromDisk) return fromDisk;
+    throw e;
+  }
+}
+
+const SOURCE = flattenCatalogs(sourceCatalogs());
 
 /** Each language's catalogs, as its own chunk: only the one chosen is downloaded. */
 const LOADERS = {
@@ -186,8 +211,12 @@ export function resolveLanguage({ search = globalThis.location?.search || '', pr
 async function catalogsOf(id) {
   if (id === SOURCE_LANGUAGE) return SOURCE;
   if (id === PSEUDO_LANGUAGE) return new Map([...SOURCE].map(([k, m]) => [k, pseudoLocalize(m)]));
-  const mod = await LOADERS[id]();
-  return flattenCatalogs(mod.default);
+  let catalogs;
+  try { catalogs = (await LOADERS[id]()).default; } catch (e) {
+    catalogs = catalogsFromDisk(id);
+    if (!catalogs) throw e;
+  }
+  return flattenCatalogs(catalogs);
 }
 
 /**
