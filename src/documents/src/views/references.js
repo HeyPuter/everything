@@ -6,6 +6,7 @@
  * on demand, like the rest of the editor's engine.
  */
 import { openMenu } from '../ui/menu.js';
+import { clipText } from '../core/text.js';
 import { el, MOD_KEY, shortcutCode, typesCharacter } from '../ui/dom.js';
 import { createTocCommands } from './references-toc.js';
 import { createNoteCommands } from './references-notes.js';
@@ -290,7 +291,7 @@ export function createReferences({ editor, pkg, error, base = {}, onChange = () 
       const part = definition?.[`${kind}s`]?.part;
       for (const [id, display] of maps[kind]) {
         const story = part && definition.stories[notesModule.footnoteStoryPath(part, id)];
-        const textOf = story ? story.paragraphs.map(p => p.runs.filter(r => !r.noteMark).map(r => r.text).join('')).join(' ').trim().slice(0, 60) : '';
+        const textOf = story ? clipText(story.paragraphs.map(p => p.runs.filter(r => !r.noteMark).map(r => r.text).join('')).join(' ').trim(), 60) : '';
         result.push({ kind, id, display, text: textOf });
       }
     }

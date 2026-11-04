@@ -19,6 +19,7 @@
  *   doc:<room>:presence:<session>   presence entry (expires)
  */
 import * as Y from 'yjs';
+import { clipText } from '../../core/text.js';
 import { canComment, canEdit, canManage, decode, encode, hash, ID, INVITE_ROLES, MAX_UPDATE, MAX_BASE_BYTES, PRESENCE_TTL, randomId } from '../protocol.js';
 import { checkCommentOnly } from '../transports.js';
 
@@ -170,7 +171,7 @@ export class RoomService {
     await this.writeText(base, input.base);
     await this.writeText(cp, input.initial);
     await this.kv.set(`doc:${room}:cp`, { seq: 0, path: cp });
-    await this.kv.set(`doc:${room}:meta`, { owner: user.uuid, ownerName: user.username, name: typeof input.name === 'string' ? input.name.slice(0, 200) : 'Untitled document', created: this.now(), base, schema: 1 });
+    await this.kv.set(`doc:${room}:meta`, { owner: user.uuid, ownerName: user.username, name: typeof input.name === 'string' ? clipText(input.name, 200) : 'Untitled document', created: this.now(), base, schema: 1 });
     await this.kv.set(`doc:${room}:member:${user.uuid}`, { uuid: user.uuid, username: user.username, role: 'owner', joined: this.now() });
     return { room };
   }
@@ -188,7 +189,7 @@ export class RoomService {
       if (text.length < 4000) {
         const existing = await this.kv.get(prefix + p.session);
         if (existing && existing.user !== user.uuid) fail(409, 'Session belongs to another participant.');
-        await this.kv.set(prefix + p.session, { ...p, user: user.uuid, name: String(user.username).slice(0, 80), role: member.role, at: this.now(), expires: this.now() + PRESENCE_TTL }, Math.floor((this.now() + PRESENCE_TTL) / 1000));
+        await this.kv.set(prefix + p.session, { ...p, user: user.uuid, name: clipText(String(user.username), 80), role: member.role, at: this.now(), expires: this.now() + PRESENCE_TTL }, Math.floor((this.now() + PRESENCE_TTL) / 1000));
       }
     }
     const roster = (await this.list(prefix)).map(r => r.value).filter(v => v && v.expires > this.now()).map(({ expires, ...rest }) => rest);

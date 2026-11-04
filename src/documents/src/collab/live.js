@@ -12,6 +12,7 @@
  * them.
  */
 import * as Y from 'yjs';
+import { clipText } from '../core/text.js';
 import { CollabBinding, editorState } from './binding.js';
 import { CollabClient } from './client.js';
 import { createSharedDoc, unsupportedReason } from './shared-doc.js';
@@ -188,7 +189,7 @@ export class LiveSession extends EventTarget {
       ctx.save();
       ctx.fillStyle = person.color || '#1e5aa8';
       ctx.fillRect(x - 0.75, y, 1.5, height);
-      const label = String(person.name || 'Someone').slice(0, 24);
+      const label = clipText(String(person.name || 'Someone'), 24);
       ctx.font = '600 8px system-ui, sans-serif';
       const width = ctx.measureText(label).width + 6;
       ctx.fillRect(x - 0.75, y - 10, width, 10);

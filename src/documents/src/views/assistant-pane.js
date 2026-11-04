@@ -10,6 +10,7 @@
  * pages are offered only where Puter's AI is available.
  */
 import { el, isComposing, MOD_KEY, shortcutCode } from '../ui/dom.js';
+import { clipText } from '../core/text.js';
 import { toast } from '../ui/toast.js';
 import * as P from '../lib/puter.js';
 import { aiActionById, askAi, answerParagraphs, readableText, insertableText, listItems } from '../lib/ai.js';
@@ -163,7 +164,7 @@ export function createAssistantPane({ editor, pkg, error, available = () => P.ca
     const body = el('div.as-answer', {}, ...answer.paragraphs.map(t => el('p', {}, t)));
     if (answer.kind !== 'text') return [body, actions(answer, p, false)];
     const replacing = p.scope === 'selection' && answer.mode !== 'append';
-    const original = replacing ? el('p.as-replaces', {}, `Replaces “${p.text.length > 140 ? `${p.text.slice(0, 140).trim()}…` : p.text}”`) : null;
+    const original = replacing ? el('p.as-replaces', {}, `Replaces “${p.text.length > 140 ? `${clipText(p.text, 140).trim()}…` : p.text}”`) : null;
     // replaceChildren would write a missing line out as the word "null": only the parts there are go in.
     return [el('p.as-kind', {}, replacing ? 'Suggested replacement' : 'Suggested text'), body, original, actions(answer, p, true)].filter(Boolean);
   }

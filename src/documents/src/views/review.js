@@ -4,6 +4,7 @@
  * change goes through the editor's transactions, so undo, saving and read-only rules apply.
  */
 import { el, listItem, isComposing, relativeTime, MOD_KEY, shortcutCode, typesCharacter } from '../ui/dom.js';
+import { clipText } from '../core/text.js';
 import { openMenu } from '../ui/menu.js';
 import { initialsFor } from '../engine/comments.js';
 import { revisionView, registerRevisionAuthors, describeFormatChange } from '../engine/revisions.js';
@@ -95,7 +96,7 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
     const entry = item => {
       const node = listItem(el('button.review-pane-item', { type: 'button', onclick: () => { const current = editor(), index = [...paneList.children].indexOf(node); if (current && index >= 0) paneItems(current).items[index]?.select(); } },
         el('span.review-pane-head', {}, el('strong', {}, item.author || 'Unknown author'), ' ', el('span', {}, item.kind)),
-        el('span.review-pane-text', {}, item.text.replace(/\ufffc/g, '').slice(0, 200) || '(formatting)')));
+        el('span.review-pane-text', {}, clipText(item.text.replace(/\ufffc/g, ''), 200) || '(formatting)')));
       return node;
     };
     // Typing in a tracked change changes what one entry shows: only the entries that changed are built again, so
@@ -504,7 +505,7 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
       el('div.wcc-head', {}, avatar(change.author), el('div.wcc-meta', {}, el('span.wcc-author', {}, change.author || 'Unknown author'), el('span.wcc-date', {}, time(change.date))),
         el('button.icon-btn.wcc-more', { type: 'button', title: 'Accept', 'aria-label': 'Accept change', disabled: !editable, onclick: () => act(true) }, '✓'),
         el('button.icon-btn.wcc-more', { type: 'button', title: 'Reject', 'aria-label': 'Reject change', disabled: !editable, onclick: () => act(false) }, '✕')),
-      el('div.wcc-text.is-clamped', {}, el('span.ed-revision-kind', {}, change.type === 'format' ? 'Formatted: ' : 'Deleted: '), change.type === 'format' ? text : el('del', {}, text.slice(0, 160))));
+      el('div.wcc-text.is-clamped', {}, el('span.ed-revision-kind', {}, change.type === 'format' ? 'Formatted: ' : 'Deleted: '), change.type === 'format' ? text : el('del', {}, clipText(text, 160))));
   }
 
   /* ---- Layout: cards level with their anchors, stacked without overlap ---- */

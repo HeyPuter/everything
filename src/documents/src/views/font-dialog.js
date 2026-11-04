@@ -1,4 +1,5 @@
 import { el, fieldId } from '../ui/dom.js';
+import { clipText } from '../core/text.js';
 import { openModal } from '../ui/modal.js';
 import { UNDERLINE_STYLES } from '../engine/underlines.js';
 import { FALLBACK_SIZES } from '../lib/fontsize.js';
@@ -142,7 +143,7 @@ export function openFontDialog({ format: f, sample = '', apply, onClose, setDefa
   ligatureSelect.value = LIGATURES.some(([v]) => v === f.ligatures) ? f.ligatures : '';
 
   /* ---- Preview ---- */
-  const previewText = el('span', {}, (sample.replace(/\s+/g, ' ').trim().slice(0, 48)) || fontName || 'Aa Bb Cc');
+  const previewText = el('span', {}, clipText(sample.replace(/\s+/g, ' ').trim(), 48) || fontName || 'Aa Bb Cc');
   const previewBox = el('div.ed-font-preview', { 'aria-hidden': 'true' }, previewText);
   function preview() {
     const s = previewText.style, family = current('fontAscii'), asian = eastAsian && current('fontEastAsia');

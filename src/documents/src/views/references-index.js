@@ -5,6 +5,7 @@
  * layout and settle over a few passes, since a generated table can move the text it lists.
  */
 import { el } from '../ui/dom.js';
+import { clipText } from '../core/text.js';
 import { check, field, number, openDialog, openPanel, select, tablePreview, text } from './references-ui.js';
 
 const LEADERS = [['dot', 'Dots ......'], ['hyphen', 'Dashes ------'], ['underscore', 'Line ______'], ['none', '(none)']];
@@ -14,7 +15,7 @@ export function createIndexCommands(ctx) {
   const selectedText = () => {
     const engine = editor(); if (!engine || engine.session.path !== null) return '';
     const [start, end] = engine.model.range;
-    return engine.model.text.slice(start, end).replace(/[\n\t\f\v￼]+/g, ' ').trim().slice(0, 200);
+    return clipText(engine.model.text.slice(start, end).replace(/[\n\t\f\v￼]+/g, ' ').trim(), 200);
   };
 
   /** Run `write(body, module, pages)` until the pages it lists stop moving (at most four passes). */

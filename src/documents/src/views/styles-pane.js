@@ -1,4 +1,5 @@
 import { el, isComposing, styleColor } from '../ui/dom.js';
+import { clipText } from '../core/text.js';
 import { iconEl } from '../ui/icons.js';
 import { openMenu } from '../ui/menu.js';
 import { styleRun } from '../engine/styles.js';
@@ -148,7 +149,7 @@ export function createStylesPane({ editor, readOnly, actions }) {
     const sections = revealFormatting(e.model, { styleName: id => styleDisplayName(e.model.styles.definitions[id]?.name || id) });
     const box = el('input', { type: 'checkbox', checked: distinguish, onchange: () => { distinguish = box.checked; signature = ''; refresh(); } });
     body.replaceChildren(
-      el('p.styles-reveal-sample', {}, (() => { const [a, b] = e.model.range; const text = e.model.text.slice(a, b).replace(/\s+/g, ' ').trim(); return text ? `Selected text: “${text.slice(0, 60)}${text.length > 60 ? '…' : ''}”` : 'Formatting at the cursor'; })()),
+      el('p.styles-reveal-sample', {}, (() => { const [a, b] = e.model.range; const text = e.model.text.slice(a, b).replace(/\s+/g, ' ').trim(); return text ? `Selected text: “${clipText(text, 60)}${text.length > 60 ? '…' : ''}”` : 'Formatting at the cursor'; })()),
       ...sections.map(({ title, entries }) => el('section.styles-reveal-section', { 'aria-label': title }, el('h3', {}, title),
         el('dl.styles-reveal-list', {}, ...entries.flatMap(item => [
           el('dt', {}, el('button.styles-reveal-link', { type: 'button', title: `Change ${item.label.toLowerCase()}`, onclick: () => actions.openTarget(item.target) }, item.label)),

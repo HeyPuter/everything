@@ -3,6 +3,7 @@
 // context menu. Commands run the engine's table operations (table-editing.js,
 // table-styles.js, table-formula.js) as one undoable transaction each.
 import '../styles/tables.css';
+import { clipText } from '../core/text.js';
 import { el, MOD_KEY, isComposing, amountInRange } from '../ui/dom.js';
 import { openMenu } from '../ui/menu.js';
 import { openColorPalette } from '../ui/color-palette.js';
@@ -165,7 +166,7 @@ export function createTableTools({ editor, pkg, error = () => {}, onChange = () 
     const names = new Set(Object.values(styles.definitions).filter(s => s.type === 'table').map(s => s.name.toLowerCase()));
     let name = current || imported ? `${base.name} Copy` : 'Table Style 1';
     for (let n = 2; names.has(name.toLowerCase()); n++) name = current || imported ? `${base.name} Copy ${n}` : `Table Style ${n}`;
-    const spec = mode === 'new' ? { ...structuredClone(base), id: '', name: name.slice(0, 100), family: 'custom' } : structuredClone(current);
+    const spec = mode === 'new' ? { ...structuredClone(base), id: '', name: clipText(name, 100), family: 'custom' } : structuredClone(current);
     if (mode === 'modify' && !current) { error(new Error('This table’s style came with the document. Use New Table Style to make an editable copy of it.')); return; }
     openTableStyleDialog({ title: mode === 'new' ? 'New Table Style' : 'Modify Table Style', spec, look: tableLook(b.table),
       nameTaken: name => Object.values(model().styles.definitions).some(s => s.type === 'table' && s.name.toLowerCase() === name.toLowerCase() && s.id !== (mode === 'modify' ? spec.id : null)) },

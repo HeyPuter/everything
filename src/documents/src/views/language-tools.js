@@ -4,6 +4,7 @@
  * whole document with Puter's AI into a pane (with Insert) or a new document.
  */
 import { el, listboxKeys, isComposing } from '../ui/dom.js';
+import { clipText } from '../core/text.js';
 import { openModal } from '../ui/modal.js';
 import { toast } from '../ui/toast.js';
 import * as P from '../lib/puter.js';
@@ -90,7 +91,7 @@ export function createTranslatePane({ editor, pkg, error, openDocument, document
   };
   function describe() {
     const chosen = selection();
-    source.textContent = chosen ? `Selection: “${chosen.text.slice(0, 120)}${chosen.text.length > 120 ? '…' : ''}”` : 'Select text to translate it here, or translate the whole document into a new one.';
+    source.textContent = chosen ? `Selection: “${clipText(chosen.text, 120)}${chosen.text.length > 120 ? '…' : ''}”` : 'Select text to translate it here, or translate the whole document into a new one.';
     translate.disabled = !chosen || !P.canUseAi() || !!busy;
     wholeDocument.disabled = !P.canUseAi() || !!busy;
     if (!P.canUseAi()) status.textContent = 'Translation needs Puter AI. Open this document in Puter to translate.';

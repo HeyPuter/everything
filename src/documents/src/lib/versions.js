@@ -13,6 +13,7 @@
  */
 
 import * as P from './puter.js';
+import { clipText } from '../core/text.js';
 import { documentRoot } from './document-paths.js';
 
 export const VERSION_INTERVAL_MS = 10 * 60 * 1000;
@@ -105,11 +106,11 @@ export async function readVersionMeta(version) {
   try {
     const blob = await P.readFile(metaPath(version.path));
     const meta = JSON.parse(await blob.text());
-    return meta && typeof meta === 'object' ? { author: typeof meta.author === 'string' ? meta.author.slice(0, 120) : '', label: typeof meta.label === 'string' ? meta.label.slice(0, 120) : '' } : {};
+    return meta && typeof meta === 'object' ? { author: typeof meta.author === 'string' ? clipText(meta.author, 120) : '', label: typeof meta.label === 'string' ? clipText(meta.label, 120) : '' } : {};
   } catch { return {}; }
 }
 export async function writeVersionMeta(version, meta) {
-  const clean = { author: String(meta.author || '').slice(0, 120), label: String(meta.label || '').slice(0, 120) };
+  const clean = { author: clipText(String(meta.author || ''), 120), label: clipText(String(meta.label || ''), 120) };
   await P.writeFile(metaPath(version.path), new Blob([JSON.stringify(clean)], { type: 'application/json' }));
   return clean;
 }

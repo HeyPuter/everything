@@ -14,6 +14,7 @@
  */
 
 import { DOCUMENT_FOLDER, documentRoot, rememberDocumentRoot, learnDocumentPath } from './document-paths.js';
+import { clipText } from '../core/text.js';
 
 export const FOLDER = DOCUMENT_FOLDER;
 export const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
@@ -137,7 +138,7 @@ export function documentStem(name) {
 export function sanitizeName(name) {
   // Trim again after cutting to length: a space at the cut would end the name.
   // A cut through an emoji would leave half of it, which no URL can carry.
-  const clean = String(name || '').replace(/[/\\]/g, ' ').replace(/[\x00-\x1f\x7f\u200b\u200e\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff]/g, '').trim().slice(0, 200).replace(/[\ud800-\udbff]$/, '').trim();
+  const clean = clipText(String(name || '').replace(/[/\\]/g, ' ').replace(/[\x00-\x1f\x7f\u200b\u200e\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff]/g, '').trim(), 200).trim();
   // Dots alone name no file: "..docx" would show as "." and its version history could not follow it.
   return /^\.+$/.test(clean) ? '' : clean;
 }

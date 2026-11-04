@@ -8,6 +8,7 @@
  * shareItems() additions, coauthoringStatus().
  */
 import { zipSync } from 'fflate';
+import { clipText } from '../core/text.js';
 import { el } from '../ui/dom.js';
 import { openMenu } from '../ui/menu.js';
 import { toast } from '../ui/toast.js';
@@ -23,7 +24,7 @@ export function localGuest() {
   try { saved = JSON.parse(sessionStorage.getItem('documents:collab-guest') || 'null'); } catch { /* storage blocked */ }
   const asked = new URLSearchParams(location.search).get('name');
   if (!saved || (asked && saved.name !== asked)) {
-    saved = { id: `guest-${Math.random().toString(36).slice(2, 10)}`, name: (asked || `Guest ${Math.floor(10 + Math.random() * 90)}`).slice(0, 40) };
+    saved = { id: `guest-${Math.random().toString(36).slice(2, 10)}`, name: clipText(asked || `Guest ${Math.floor(10 + Math.random() * 90)}`, 40) };
     try { sessionStorage.setItem('documents:collab-guest', JSON.stringify(saved)); } catch { /* storage blocked */ }
   }
   return saved;
