@@ -45,11 +45,16 @@ export function openRecipientGrid({ list, title = 'New Address List', onSave }) 
     query = ''; search.value = ''; page = Math.floor((draft.rows.length - 1) / PAGE); render(); focus(draft.rows.length - 1);
   };
   const deleteEntry = () => {
-    const index = focusCell?.index ?? draft.rows.length - 1;
+    // The entry being edited, or else the last one shown; never one the search hides, which the person cannot see.
+    const shown = matches(), visible = shown.slice(page * PAGE, page * PAGE + PAGE);
+    const index = focusCell && visible.includes(focusCell.index) ? focusCell.index : visible.at(-1);
+    if (index === undefined) return;
     if (index < 0 || !draft.rows[index]) return;
     draft.rows.splice(index, 1);
     if (!draft.rows.length) draft.rows.push({ values: draft.columns.map(() => ''), included: true });
-    render(); focus(Math.min(index, draft.rows.length - 1), focusCell?.c ?? 0);
+    // The entries after it moved up: the focused cell is known again when the next one takes the focus.
+    const column = focusCell?.c ?? 0; focusCell = null;
+    render(); focus(Math.min(index, draft.rows.length - 1), column);
   };
   // Enter moves down a column; on the last entry it starts a new one.
   table.addEventListener('keydown', e => {
