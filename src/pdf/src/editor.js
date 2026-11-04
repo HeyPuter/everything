@@ -1324,6 +1324,7 @@ export function createEditor({
     insertFile: (after) => pageDialog((version) => mergeDialog(after, version))(),
     insertPictures: (after) => pageAction(() => insertPicturePages(after))(),
     move: safe((indices, to) => movePages(indices, to)),
+    reorder: safe((order, moved) => reorderTo(order, moved)),
     open: (index) => {
       closeOrganizer();
       navigate(index);
@@ -6825,6 +6826,16 @@ export function createEditor({
                   disabled: busy,
                   onSelect: run(() => organizeActions.rotate(chosen, -90)),
                 },
+                ...[
+                  [-1, 'earlier', 'ArrowLeft'],
+                  [1, 'later', 'ArrowRight'],
+                ].map(([delta, word, glyph]) => ({
+                  label: `Move ${chosen.length === 1 ? 'page' : 'pages'} ${word}`,
+                  glyph,
+                  permission: 'assemble',
+                  disabled: busy || !organizer.canMove(delta),
+                  onSelect: () => organizer.move(delta),
+                })),
                 {
                   label: chosen.length === 1 ? 'Duplicate page' : 'Duplicate pages',
                   glyph: 'Copy',
@@ -8275,13 +8286,17 @@ export function createEditor({
     const count = pdf.numPages;
     const rest = [...Array(count).keys()].filter((i) => !moving.includes(i));
     const order = [...rest.slice(0, to), ...moving, ...rest.slice(to)];
+    return reorderTo(order, moving.length);
+  }
+  /** Put the pages in `order`, having moved `moved` of them. */
+  function reorderTo(order, moved) {
     if (order.every((i, k) => i === k)) return;
     return mutate(
       (doc) => {
         reorderPages(doc, order);
         pageIndex = order.indexOf(pageIndex);
       },
-      moving.length === 1 ? 'Page moved.' : `${moving.length} pages moved.`,
+      moved === 1 ? 'Page moved.' : `${moved} pages moved.`,
       'assemble',
     );
   }

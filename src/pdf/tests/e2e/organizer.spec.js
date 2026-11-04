@@ -351,11 +351,11 @@ test('keys that move through Organize pages leave the page behind the grid alone
     .click();
   const grid = page.getByRole('listbox', { name: 'Pages' });
   await expect(grid.getByRole('option', { name: 'Page 1', exact: true })).toBeFocused();
-  // End and Home choose the last and first tiles; Alt and an arrow moves as an arrow does.
+  // End and Home choose the last and first tiles.
   await page.keyboard.press('End');
   await expect(grid.getByRole('option', { name: 'Page 3', exact: true })).toBeFocused();
   await page.keyboard.press('Home');
-  await page.keyboard.press('Alt+ArrowRight');
+  await page.keyboard.press('ArrowRight');
   await expect(grid.getByRole('option', { name: 'Page 2', exact: true })).toBeFocused();
   await page.keyboard.press('End');
   await expect(page.locator('.organize-status')).toHaveText('1 of 3 pages selected');
@@ -366,4 +366,66 @@ test('keys that move through Organize pages leave the page behind the grid alone
     .click();
   // The page that was on view before is on view again.
   await expect(page.locator('.page-caption')).toHaveText('Page 1 of 3');
+});
+
+test('Organize pages moves the chosen pages without dragging, by key or button', async ({
+  page,
+}) => {
+  await mockPuter(page);
+  await page.goto('/#library');
+  await openPdf(page, await tallPdf());
+  await page.getByRole('button', { name: 'Tools', exact: true }).click();
+  const pane = page.getByRole('complementary', { name: 'Tools' });
+  await pane.getByRole('button', { name: 'Organize pages', exact: true }).click();
+  const grid = page.getByRole('listbox', { name: 'Pages' });
+  const toolbar = page.getByRole('toolbar', { name: 'Organize pages' });
+  const earlier = toolbar.getByRole('button', { name: 'Move pages earlier', exact: true });
+  const later = toolbar.getByRole('button', { name: 'Move pages later', exact: true });
+  // The first page cannot go earlier.
+  await expect(earlier).toBeDisabled();
+  await expect(earlier).toHaveAttribute('aria-keyshortcuts', 'Alt+ArrowLeft');
+  // The tools pane offers the same, beside the grid where there is room for both.
+  const paneLater = pane.getByRole('button', { name: 'Move page later', exact: true });
+  const beside = await pane.isVisible();
+  if (beside)
+    await expect(
+      pane.getByRole('button', { name: 'Move page earlier', exact: true }),
+    ).toBeDisabled();
+  await grid.getByRole('option', { name: 'Page 2', exact: true }).click();
+  await grid.getByRole('option', { name: 'Page 2', exact: true }).focus();
+  await page.keyboard.press('Alt+ArrowLeft');
+  await settled(page);
+  // The moved page stays chosen and keeps the keyboard, now in first place.
+  await expect(grid.getByRole('option', { name: 'Page 1', exact: true })).toBeFocused();
+  await expect(grid.getByRole('option', { name: 'Page 1', exact: true })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
+  expect((await exportedHeights(page)).map(([h]) => h)).toEqual([350, 300, 400]);
+  await expect(earlier).toBeDisabled();
+  await later.click();
+  await settled(page);
+  await (beside ? paneLater : later).click();
+  await settled(page);
+  expect((await exportedHeights(page)).map(([h]) => h)).toEqual([300, 400, 350]);
+  await expect(grid.getByRole('option', { name: 'Page 3', exact: true })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
+  await expect(later).toBeDisabled();
+  // Two pages apart each move one place, past the page between them.
+  await grid.getByRole('option', { name: 'Page 1', exact: true }).click();
+  await grid.getByRole('option', { name: 'Page 3', exact: true }).click({ modifiers: ['Shift'] });
+  await grid.getByRole('option', { name: 'Page 2', exact: true }).click({
+    modifiers: ['ControlOrMeta'],
+  });
+  await expect(page.locator('.organize-status')).toHaveText('2 of 3 pages selected');
+  await later.click();
+  await settled(page);
+  expect((await exportedHeights(page)).map(([h]) => h)).toEqual([400, 300, 350]);
+  await expect(page.locator('.organize-status')).toHaveText('2 of 3 pages selected');
+  await expect(grid.getByRole('option', { name: 'Page 2', exact: true })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
 });
