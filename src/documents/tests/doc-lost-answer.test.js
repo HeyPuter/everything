@@ -12,6 +12,12 @@ vi.mock('../src/lib/puter.js', async (importOriginal) => {
       if (failAfterWrite > 0) { failAfterWrite--; throw new TypeError('Failed to fetch'); }
       return { path, modified: clock };
     }),
+    uniqueName: async base => { const stem = real.stripExtension(base); let name = `${stem}.docx`, n = 2; while (fs.has(`Documents/${name}`)) name = `${stem} ${n++}.docx`; return name; },
+    createFileWithMetadata: vi.fn(async (path, blob) => {
+      fs.set(path, { blob, modified: ++clock });
+      if (failAfterWrite > 0) { failAfterWrite--; throw new TypeError('Failed to fetch'); }
+      return { path, modified: clock };
+    }),
     statFile: vi.fn(async path => (fs.has(path) ? { path, modified: fs.get(path).modified } : null)),
     readFile: vi.fn(async path => fs.get(path).blob),
   };
@@ -70,4 +76,21 @@ it('still stops for a change another window made after a lost answer', async () 
   await vi.advanceTimersByTimeAsync(RETRY_MS + 100);
   expect(conflicts).toHaveLength(1);
   expect(await fs.get('Documents/Plan.docx').blob.text()).toBe('theirs');
+});
+
+it('does not make a second file when the answer to a new document\'s first save was lost', async () => {
+  const doc = new Doc({ name: 'Notes' });
+  let content = 'first';
+  doc.attach(async () => new Blob([content]));
+  failAfterWrite = 1;
+  doc.changed();
+  await vi.advanceTimersByTimeAsync(2000);
+  expect(doc.status).toBe('error');
+  expect([...fs.keys()]).toEqual(['Documents/Notes.docx']);
+  content = 'first, then more';
+  await vi.advanceTimersByTimeAsync(RETRY_MS + 100);
+  expect(doc.status).toBe('saved');
+  expect(doc.path).toBe('Documents/Notes.docx');
+  expect([...fs.keys()]).toEqual(['Documents/Notes.docx']);
+  expect(await fs.get('Documents/Notes.docx').blob.text()).toBe('first, then more');
 });

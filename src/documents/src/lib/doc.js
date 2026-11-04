@@ -77,6 +77,18 @@ async function withDocxExtension(item) {
   }
 }
 
+/** Whether the file at `path` (whose stat is `stat`) holds exactly `blob`. */
+async function holds(path, stat, blob) {
+  if (stat?.size != null && stat.size !== blob.size) return false;
+  try {
+    const [file, mine] = await Promise.all([P.readFile(path).then(b => b.arrayBuffer()), blob.arrayBuffer()]);
+    if (file.byteLength !== mine.byteLength) return false;
+    const a = new Uint8Array(file), b = new Uint8Array(mine);
+    for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+    return true;
+  } catch { return false; }
+}
+
 export class Doc extends EventTarget {
   constructor({ name = UNTITLED, path = null, uid = null, blob = null, dirty = false, template = null, pendingImport = null, importInfo = null, modified = null } = {}) {
     super();
@@ -315,18 +327,25 @@ export class Doc extends EventTarget {
       const version = this.version;
       // Edits from here on are not in this save: the longest wait for them starts with the first of them.
       this._pendingSince = null;
-      let target = this.path;
+      let target = this.path, adopted = null;
       if (!this.path || !this.isDocxPath) {
-        // First save, or a non-docx source: pick a fresh name in the folder, the document's own (a rename before this save counts).
-        const base = this.name;
-        const fileName = await P.uniqueName(P.ensureDocx(base));
-        target = `${P.FOLDER}/${fileName}`;
+        // A first save whose file was created but whose answer was lost made the file: this save writes it, not a second one.
+        adopted = await this._lostCreate();
+        if (adopted) target = adopted;
+        else {
+          // First save, or a non-docx source: pick a fresh name in the folder, the document's own (a rename before this save counts).
+          const base = this.name;
+          const fileName = await P.uniqueName(P.ensureDocx(base));
+          target = `${P.FOLDER}/${fileName}`;
+        }
       }
       // The check for another window's hand on the file runs while the export does.
       const [blob, conflict] = await Promise.all([this.exporter(), target === this.path ? this._conflictWith(target) : null]);
       if (conflict) throw conflict;
-      if (target !== this.path) {
+      if (target !== this.path && !adopted) {
+        this._unconfirmedCreate = { path: target, blob, name: this.name };
         const created = await P.createFileWithMetadata(target, blob);
+        this._unconfirmedCreate = null;
         target = created.path;
         this._remoteModified = created.modified;
         // A new file under the name of one that was shared and deleted is not that document: it must not rejoin its room.
@@ -408,16 +427,21 @@ export class Doc extends EventTarget {
    */
   async _ownLostWrite(path, stat) {
     const sent = this._unconfirmed;
-    if (!sent || sent.path !== path || (stat.size != null && stat.size !== sent.blob.size)) return false;
-    try {
-      const [file, mine] = await Promise.all([P.readFile(path).then(b => b.arrayBuffer()), sent.blob.arrayBuffer()]);
-      if (file.byteLength !== mine.byteLength) return false;
-      const a = new Uint8Array(file), b = new Uint8Array(mine);
-      for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
-    } catch { return false; }
+    if (!sent || sent.path !== path || !await holds(path, stat, sent.blob)) return false;
     this._remoteModified = stat.modified;
     this._unconfirmed = null;
     return true;
+  }
+
+  /** The file a first save created whose answer was lost (it holds exactly what was sent), or null. */
+  async _lostCreate() {
+    const sent = this._unconfirmedCreate;
+    this._unconfirmedCreate = null;
+    // Renamed since, the document goes to a file of its new name.
+    if (!sent || sent.name !== this.name) return null;
+    let stat;
+    try { stat = await P.statFile(sent.path); } catch { return null; }
+    return stat && await holds(sent.path, stat, sent.blob) ? sent.path : null;
   }
 
   /** Leave a version snapshot when one is due. Never affects the save status. */
