@@ -91,8 +91,15 @@ export function htmlBody(html, { preserveFallback = false } = {}) {
   return parsed.body ? parsed.body.innerHTML : src;
 }
 
-/** The style-sheet properties carried onto elements: emphasis, decoration, script position, alignment and height. */
-const SHEET_PROPERTIES = ['font-weight', 'font-style', 'text-decoration-line', 'vertical-align', 'text-align', 'height'];
+/** The style-sheet properties carried onto elements: emphasis, decoration, script position, alignment, height and whitespace. */
+const SHEET_PROPERTIES = ['font-weight', 'font-style', 'text-decoration-line', 'vertical-align', 'text-align', 'height', 'white-space'];
+/**
+ * Whitespace handling is carried onto the blocks that hold text (a paragraph, heading or list item), whose tabs and
+ * runs of spaces then stay as the page shows them: the app's own web pages keep a paragraph's tabs and spaces with
+ * p { white-space: pre-wrap }, and lost them on import. A container (a div, a table cell, the body) keeps the
+ * whitespace the converter gives it, rather than taking the line breaks and indentation between its blocks as text.
+ */
+const TEXT_BLOCKS = 'p, li, h1, h2, h3, h4, h5, h6, dt';
 
 /**
  * An empty paragraph the page gives a height is a blank line (Google Docs writes one as <p class="c2"><span></span></p>,
@@ -155,7 +162,7 @@ function inlineSheetFormatting(doc) {
       try { targets = doc.body.querySelectorAll(rule.selectorText); } catch { continue; }
       for (const el of targets) {
         if (!own.has(el)) own.set(el, new Set(SHEET_PROPERTIES.filter((name) => el.style.getPropertyValue(name))));
-        for (const name of properties) if (!own.get(el).has(name)) el.style.setProperty(name, rule.style.getPropertyValue(name));
+        for (const name of properties) if (!own.get(el).has(name) && (name !== 'white-space' || el.matches(TEXT_BLOCKS))) el.style.setProperty(name, rule.style.getPropertyValue(name));
       }
     }
   }
