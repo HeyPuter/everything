@@ -10305,6 +10305,7 @@ export function createEditor({
       );
     });
     const remove = safe(async () => {
+      designer.deleting(field);
       d.close();
       await removeFormField(field);
     });

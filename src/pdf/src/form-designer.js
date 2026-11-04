@@ -131,6 +131,15 @@ export function createFormDesigner({ onMove, onOpen, onDelete, onSelect }) {
     if (done.moved && done.current) onMove(done.field, pdfRect(done.current));
   }
 
+  /** The focus goes on to the field's neighbor once the field is deleted and the boxes redrawn. */
+  function deleting(field) {
+    const index = fields.findIndex((entry) => keyOf(entry) === keyOf(field));
+    if (index < 0) return;
+    const neighbor = fields[index + 1] ?? fields[index - 1];
+    refocus = neighbor ? keyOf(neighbor) : null;
+    refocusFrom = keyOf(field);
+  }
+
   function render(next, nextViewport) {
     fields = next;
     viewport = nextViewport;
@@ -160,10 +169,7 @@ export function createFormDesigner({ onMove, onOpen, onDelete, onSelect }) {
                 onOpen(field);
               } else if (e.key === 'Delete' || e.key === 'Backspace') {
                 e.preventDefault();
-                const index = fields.indexOf(field);
-                const neighbor = fields[index + 1] ?? fields[index - 1];
-                refocus = neighbor ? keyOf(neighbor) : null;
-                refocusFrom = keyOf(field);
+                deleting(field);
                 onDelete(field);
               } else if (e.key.startsWith('Arrow') && !e.altKey && !e.ctrlKey && !e.metaKey) {
                 // Arrow keys nudge a point at a time in the direction they point on screen,
@@ -241,6 +247,7 @@ export function createFormDesigner({ onMove, onOpen, onDelete, onSelect }) {
       refocus = swap(refocus);
       selected = swap(selected);
     },
+    deleting,
     focusField(name) {
       const field = fields.find((entry) => entry.name === name);
       if (field) select(field, true);

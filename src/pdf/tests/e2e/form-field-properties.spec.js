@@ -402,3 +402,24 @@ test('Done on a new field keeps what was set for it', async ({ page }) => {
   const saved = (await PDFDocument.load(await downloaded(page))).getForm();
   expect(saved.getFields().map((field) => field.getName())).toEqual(['Full name']);
 });
+
+test('deleting a field from its properties keeps the focus on the fields', async ({ page }) => {
+  const doc = await PDFDocument.create();
+  const sheet = doc.addPage([600, 400]);
+  for (const [name, y] of [
+    ['Note', 100],
+    ['Other', 200],
+  ])
+    doc.getForm().createTextField(name).addToPage(sheet, { x: 100, y, width: 120, height: 24 });
+  await openPdf(page, doc);
+  await prepareForm(page);
+  await designer(page, 'Note#0').focus();
+  await page.keyboard.press('Enter');
+  const dialog = page.getByRole('dialog', { name: 'Text field properties' });
+  await dialog.getByRole('button', { name: 'Delete field' }).focus();
+  await page.keyboard.press('Enter');
+  await expect(dialog).toBeHidden();
+  await settled(page);
+  await expect(designer(page, 'Note#0')).toHaveCount(0);
+  await expect(designer(page, 'Other#0')).toBeFocused();
+});
