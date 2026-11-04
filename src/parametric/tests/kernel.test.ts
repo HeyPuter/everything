@@ -95,6 +95,29 @@ describe('feature regeneration', () => {
     expect(hit.status[3]).toEqual({ id: 'E2', ok: true });
   });
 
+  it('sweeps along path segments drawn in any order', async () => {
+    const P = (id: string, x: number, y: number) => ({ id, t: 'point', x, y });
+    const L = (id: string, a: string, b: string) => ({ id, t: 'line', a, b });
+    const prof = sketch('SP', circle(0, 0, 2));
+    // Right plane: sketch x is world -Z, so the path leaves the profile along its normal.
+    const pts = [P('a', 0, 0), P('b', -20, 0), P('c', -20, 20), P('d', -40, 20)];
+    const sweep: Feature = { id: 'SW', name: 'SW', type: 'sweep', profile: 'SP', path: 'PA', cut: false };
+    const right = { kind: 'base', plane: 'right' } as const;
+    for (const lines of [[L('l1', 'a', 'b'), L('l2', 'b', 'c'), L('l3', 'c', 'd')], [L('l1', 'a', 'b'), L('l3', 'd', 'c'), L('l2', 'c', 'b')]]) {
+      const b = new ModelBuilder();
+      const res = await b.build(req([prof, sketch('PA', [...pts, ...lines] as any[], right), sweep]));
+      expect(res.status[2].ok).toBe(true);
+      expect(volume(b)).toBeCloseTo(Math.PI * 4 * 60, 0);
+    }
+    // A sweep that lies in the profile plane has no volume: an error, not an empty solid.
+    const b = new ModelBuilder();
+    const flat = await b.build(req([prof, sketch('PA', [P('a', 0, 0), P('b', 0, 20), L('l1', 'a', 'b')] as any[], right), sweep]));
+    expect(flat.status[2].ok).toBe(false);
+    // Branching paths are rejected.
+    const branch = await b.build(req([prof, sketch('PA', [...pts, P('e', -20, -20), L('l1', 'a', 'b'), L('l2', 'b', 'c'), L('l4', 'b', 'e')] as any[], right), sweep]));
+    expect(branch.status[2].error).toMatch(/connected chain/);
+  });
+
   it('fillets edges referenced by name and survives a dimension change', async () => {
     const fillet = (): FilletFeature => ({ id: 'F1', name: 'F1', type: 'fillet', edges: [], faces: [], radius: 2 });
     const b = new ModelBuilder();

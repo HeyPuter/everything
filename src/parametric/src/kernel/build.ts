@@ -881,6 +881,7 @@ export class ModelBuilder {
     } catch {
       throw new FeatureError('The loft could not be created from these profiles');
     }
+    if (flat(tool)) throw new FeatureError('The loft could not be created from these profiles');
     this.applyTool(f.id, st, tool, this.nameTool(f.id, tool, (_d, k) => `l${k}`), f.cut);
   }
 
@@ -891,11 +892,12 @@ export class ModelBuilder {
     const pathFr = st.frames.get(f.path);
     if (!pathSk || !pathFr) throw new FeatureError('The path sketch is missing');
     const ix = new SketchIndex(pathSk.entities);
-    const edges: any[] = [];
+    // Path pieces with their sketch end points (none for closed curves).
+    const pieces: { edges: any[]; a?: Vec2; b?: Vec2 }[] = [];
     for (const e of pathSk.entities) {
       if (e.construction) continue;
       const w = (id: string) => toWorld(pathFr, ix.pt(id));
-      if (e.t === 'line') edges.push(R.makeLine(w(e.a), w(e.b)));
+      if (e.t === 'line') pieces.push({ edges: [R.makeLine(w(e.a), w(e.b))], a: ix.pt(e.a), b: ix.pt(e.b) });
       else if (e.t === 'arc') {
         const c = ix.pt(e.c), a = ix.pt(e.a), b = ix.pt(e.b);
         const r = Math.hypot(a[0] - c[0], a[1] - c[1]);
@@ -903,19 +905,23 @@ export class ModelBuilder {
         let a1 = Math.atan2(b[1] - c[1], b[0] - c[0]);
         if (a1 <= a0) a1 += 2 * Math.PI;
         const am = (a0 + a1) / 2;
-        edges.push(R.makeThreePointArc(w(e.a), toWorld(pathFr, [c[0] + r * Math.cos(am), c[1] + r * Math.sin(am)]), w(e.b)));
+        pieces.push({ edges: [R.makeThreePointArc(w(e.a), toWorld(pathFr, [c[0] + r * Math.cos(am), c[1] + r * Math.sin(am)]), w(e.b))], a, b });
       } else if (e.t === 'spline') {
-        for (const bz of splineBeziers(e.pts.map((p) => ix.pt(p)))) edges.push(R.makeBezierCurve(bz.map((p) => toWorld(pathFr, p))));
-      } else if (e.t === 'circle') edges.push(R.makeCircle(e.r, toWorld(pathFr, ix.pt(e.c)), pathFr.n));
+        const pts = e.pts.map((p) => ix.pt(p));
+        pieces.push({ edges: splineBeziers(pts).map((bz) => R.makeBezierCurve(bz.map((p) => toWorld(pathFr, p)))), a: pts[0], b: pts[pts.length - 1] });
+      } else if (e.t === 'circle') pieces.push({ edges: [R.makeCircle(e.r, toWorld(pathFr, ix.pt(e.c)), pathFr.n)] });
     }
+    const edges = chainPieces(pieces).flatMap((p) => p.edges);
     if (!edges.length) throw new FeatureError('The path sketch is empty');
     let tool: Sh;
     try {
       const spine = R.assembleWire(edges);
       tool = R.genericSweep(wire, spine, { frenet: true }) as unknown as Sh;
     } catch {
-      throw new FeatureError('The sweep could not be created. The profile should start at the path and be roughly perpendicular to it.');
+      throw new FeatureError(SWEEP_FAILED);
     }
+    // A path in the profile's plane sweeps a solid without volume.
+    if (flat(tool)) throw new FeatureError(SWEEP_FAILED);
     this.applyTool(f.id, st, tool, this.nameTool(f.id, tool, (_d, k) => `s${k}`), f.cut);
   }
 
@@ -1255,6 +1261,42 @@ export function errorText(e: unknown): string {
   if (typeof e === 'string' && e) return e;
   // OpenCascade exceptions surface as numbers or WebAssembly.Exception objects.
   return 'The geometry kernel could not build this feature';
+}
+
+/**
+ * Orders path pieces end to end (sketch entities come in drawing order,
+ * and a wire is assembled edge by edge, so a piece drawn out of order was
+ * silently left out of the path).
+ */
+function chainPieces<T extends { a?: Vec2; b?: Vec2 }>(pieces: T[]): T[] {
+  if (pieces.length < 2) return pieces;
+  if (pieces.some((p) => !p.a || !p.b)) throw new FeatureError('A closed path must be a single curve');
+  let size = 0;
+  for (const p of pieces) size = Math.max(size, Math.abs(p.a![0]), Math.abs(p.a![1]), Math.abs(p.b![0]), Math.abs(p.b![1]));
+  const tol = 1e-6 * (1 + size);
+  const same = (p: Vec2, q: Vec2) => Math.hypot(p[0] - q[0], p[1] - q[1]) < tol;
+  const rest = pieces.slice(1);
+  const chain = [pieces[0]];
+  let head = pieces[0].a!, tail = pieces[0].b!;
+  while (rest.length) {
+    const i = rest.findIndex((p) => same(p.a!, tail) || same(p.b!, tail) || same(p.a!, head) || same(p.b!, head));
+    if (i < 0) throw new FeatureError('The path must be one connected chain of curves');
+    const [p] = rest.splice(i, 1);
+    if (same(p.a!, tail)) { chain.push(p); tail = p.b!; }
+    else if (same(p.b!, tail)) { chain.push(p); tail = p.a!; }
+    else if (same(p.a!, head)) { chain.unshift(p); head = p.b!; }
+    else { chain.unshift(p); head = p.a!; }
+  }
+  return chain;
+}
+
+const SWEEP_FAILED = 'The sweep could not be created. The profile should start at the path and be roughly perpendicular to it.';
+
+/** True when a generated solid has no volume to speak of. */
+function flat(tool: Sh): boolean {
+  const b = bbox(tool);
+  const size = b ? dist(b.min, b.max) : 0;
+  return !(Math.abs(volumeOf(tool)) > size ** 3 * 1e-9);
 }
 
 /** True when an operation on a solid left no material (empty, flat or inside-out). */
