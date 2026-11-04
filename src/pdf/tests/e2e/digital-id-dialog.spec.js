@@ -116,3 +116,27 @@ test('each digital ID choice sits beside its radio button', async ({ page }) => 
     expect(label.x - (radio.x + radio.width)).toBeLessThan(24);
   }
 });
+
+test('a digital ID that cannot be used hands the focus to the field to fix', async ({ page }) => {
+  const { createSelfSignedId, exportPkcs12 } = await import('../../src/core/digital-signature.js');
+  const identity = await createSelfSignedId({ name: 'Ada Lovelace', keyType: 'P-256' });
+  const p12 = await exportPkcs12(identity, 'right-password');
+  const chooser = await openChooser(page);
+  const error = chooser.locator('.dialog-error');
+  const proceed = chooser.getByRole('button', { name: 'Continue' });
+  // Continue is disabled while it works; the focus it held was dropped on the page.
+  await proceed.click();
+  await expect(error).toHaveText('Choose a digital ID file.');
+  await expect(chooser.locator('#id-file')).toBeFocused();
+  await chooser
+    .locator('#id-file')
+    .setInputFiles({ name: 'ada.p12', mimeType: 'application/x-pkcs12', buffer: Buffer.from(p12) });
+  await chooser.getByLabel('Password', { exact: true }).fill('wrong-password');
+  await proceed.click();
+  await expect(error).toHaveText('The password is not right for this digital ID file.');
+  await expect(chooser.getByLabel('Password', { exact: true })).toBeFocused();
+  await chooser.getByLabel('Create a new digital ID').check();
+  await proceed.click();
+  await expect(error).toHaveText('Enter the name to sign with.');
+  await expect(chooser.getByLabel('Name', { exact: true })).toBeFocused();
+});
