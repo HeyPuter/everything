@@ -24835,3 +24835,14 @@ the XML is saved as it is. A displayed equation (one `m:oMath` in an `m:oMathPar
 paragraph's text goes in line, as Word pastes it. Gaps: an equation copied together with text copies as text;
 other applications get the linear text. Tests: `tests/drawing-clipboard.test.js`,
 `tests/browser/drawing-clipboard.spec.js`.
+
+## Group and Ungroup with Track Changes on (2026-11-03)
+
+Clauses: ECMA-376 Part 1 §17.13.5.18 `ins` / §17.13.5.14 `del` (run-level revisions), §20.4.2.3 `anchor`,
+the WordprocessingGroup `wpg:wgp` drawing.
+
+Group and Ungroup rewrite the selected floating drawings as one group drawing, or a group as its children. With
+Track Changes on this was recorded as deleting the objects and inserting the new one, so markup showed them twice
+and the file held `w:del` and `w:ins` around the drawings. As in Word, the rearrangement is now not a tracked
+change. Objects that are themselves a pending tracked insertion or deletion keep the earlier behaviour (their
+change is still recorded). Tests: `tests/browser/group-stacking.spec.js`.

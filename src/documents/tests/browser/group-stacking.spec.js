@@ -1,5 +1,7 @@
 import { test, expect } from '@playwright/test';
-import { onTab } from './helpers/editor-tools.js';
+import { readFileSync } from 'node:fs';
+import { unzipSync, strFromU8 } from 'fflate';
+import { onTab, downloadDocx } from './helpers/editor-tools.js';
 
 // Group keeps the objects stacked as they were: one in front stays in front inside the group, whichever
 // is anchored first in the text; Ungroup puts the objects back in the group's place among the others.
@@ -136,5 +138,40 @@ test('the Selection pane keeps keyboard focus while objects are selected and res
   await page.keyboard.press('Alt+ArrowUp');
   await expect.poll(names).toEqual(['Rectangle 1', 'Isosceles Triangle 3', 'Oval 2']);
   expect(await focused()).toBe('Rectangle 1');
+  expect(errors).toEqual([]);
+});
+
+test('with Track Changes on, Group and Ungroup rearrange the objects without recording them as deleted and inserted', async ({ page }, info) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/mock.html#/new');
+  await expect((await onTab(page, 'home')).getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await input(page).focus();
+  for (let i = 0; i < 10; i++) { await page.keyboard.type(`Paragraph ${i + 1} of the text the shapes sit on.`); await page.keyboard.press('Enter'); }
+  await drawShape(page, 'Rectangle', [300, 220], [460, 320]);
+  await drawShape(page, 'Oval', [340, 300], [500, 400]);
+  await onTab(page, 'review');
+  await page.locator('#ribbon-panel-review').getByRole('button', { name: 'Track Changes', exact: true }).click();
+  await expect(page.locator('#ribbon-panel-review').getByRole('button', { name: 'Track Changes', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  const runs = () => page.evaluate(() => window.__docs.current.view.engine.model.paragraphs.flatMap(p => p.runs).filter(r => r.image).map(r => ({ shapes: [...(r.image.shell || '').matchAll(/<a:prstGeom prst="(\w+)"/g)].length, revision: r.revision?.type || null })));
+  await onTab(page, 'shapeFormat');
+  await page.locator('#ribbon-panel-shapeFormat').getByRole('button', { name: 'Selection Pane', exact: true }).click();
+  const pane = page.getByRole('complementary', { name: 'Selection pane' });
+  await pane.getByRole('listitem').filter({ hasText: /^Oval/ }).locator('.pic-selection-name').click();
+  await pane.getByRole('listitem').filter({ hasText: /^Rectangle/ }).locator('.pic-selection-name').click({ modifiers: ['Shift'] });
+  await page.locator('#ribbon-panel-shapeFormat').getByRole('button', { name: 'Group', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Group', exact: true }).click();
+  await expect.poll(runs).toEqual([{ shapes: 2, revision: null }]);
+  await page.locator('#ribbon-panel-shapeFormat').getByRole('button', { name: 'Group', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Ungroup' }).click();
+  await expect.poll(runs).toEqual([{ shapes: 1, revision: null }, { shapes: 1, revision: null }]);
+  // Undo takes the ungrouping back in one step, still untracked.
+  await page.keyboard.press('ControlOrMeta+z');
+  await expect.poll(runs).toEqual([{ shapes: 2, revision: null }]);
+  const path = info.outputPath('tracked-group.docx');
+  const download = page.waitForEvent('download'); await downloadDocx(page); await (await download).saveAs(path);
+  const xml = strFromU8(unzipSync(new Uint8Array(readFileSync(path)))['word/document.xml']);
+  expect(xml).not.toMatch(/<w:(ins|del) /);
+  expect(xml.match(/<wp:anchor /g)).toHaveLength(1);
   expect(errors).toEqual([]);
 });
