@@ -97,6 +97,8 @@ input, textarea, [contenteditable] { user-select: text; -webkit-user-select: tex
 .cmd-results [role='option'] { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: var(--radius-sm); cursor: pointer; }
 .cmd-results [role='option'][aria-selected='true'], .cmd-results [role='option']:hover { background: var(--accent-weak); }
 .cmd-results .kbd { margin-left: auto; }
+/* --text-3 is too faint on the highlight colour; shortcuts there use --text-2. */
+.cmd-results [role='option'][aria-selected='true'] .kbd, .cmd-results [role='option']:hover .kbd { color: var(--text-2); }
 .avatar-btn { width: 30px; height: 30px; border-radius: 50%; border: 1px solid var(--border); background: var(--panel-2); padding: 0; overflow: hidden; display: grid; place-items: center; font-weight: 600; font-size: var(--fs-sm); color: var(--text-2); }
 .avatar-btn img { width: 100%; height: 100%; object-fit: cover; }
 .mobile-only { display: none !important; }
@@ -248,7 +250,7 @@ a.icon-btn { text-decoration: none; }
 .seg { display: inline-flex; border: 1px solid var(--border-strong); border-radius: var(--radius); overflow: hidden; }
 .seg button { border: 0; background: var(--panel); padding: 0 10px; height: 28px; display: inline-flex; align-items: center; gap: 5px; color: var(--text-2); }
 .seg button + button { border-left: 1px solid var(--border-strong); }
-.seg button[aria-pressed='true'] { background: var(--accent-weak); color: var(--accent); font-weight: 600; }
+.seg button[aria-pressed='true'] { background: var(--accent-weak); color: var(--accent-on-weak); font-weight: 600; }
 .selbox {
   min-height: 54px; max-height: 140px; overflow: auto; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); background: var(--panel);
   padding: 2px; display: flex; flex-direction: column; gap: 1px; cursor: text;
@@ -386,6 +388,7 @@ a.icon-btn { text-decoration: none; }
 .menu [role^='menuitem'] .ic { width: 18px; display: grid; place-items: center; color: var(--text-2); flex: none; }
 .menu [role^='menuitem'] .lbl { flex: 1; overflow: hidden; text-overflow: ellipsis; }
 .menu [role^='menuitem']:hover, .menu [role^='menuitem']:focus { background: var(--accent-weak); }
+.menu [role^='menuitem']:hover .kbd, .menu [role^='menuitem']:focus .kbd { color: var(--text-2); }
 .menu [role^='menuitem'][aria-disabled='true'] { opacity: 0.42; cursor: default; }
 .menu [role^='menuitem'][aria-disabled='true']:hover { background: none; }
 .menu .sep { height: 1px; background: var(--border); margin: 4px 2px; }

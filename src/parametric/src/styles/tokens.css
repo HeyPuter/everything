@@ -29,6 +29,8 @@
   --accent-hover: #1a56bb;
   --accent-text: #ffffff;
   --accent-weak: #e3ecfb;
+  /* Accent-coloured text on --accent-weak (4.5:1 in both themes). */
+  --accent-on-weak: #1f63d6;
   --accent-border: #9dbcf0;
   --focus: #1f63d6;
   --danger: #c4312b;
@@ -102,6 +104,7 @@
   --accent-hover: #6aa0ff;
   --accent-text: #0b1220;
   --accent-weak: #1f3354;
+  --accent-on-weak: #7fb0ff;
   --accent-border: #3c62a3;
   --focus: #6aa0ff;
   --danger: #ff6b62;
