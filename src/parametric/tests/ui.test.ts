@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { closeMenus, openMenu } from '../src/ui/menu';
 import { confirmDialog, promptDialog, toast } from '../src/ui/overlay';
 import { numberField, parseParam, paramText, type UnitContext } from '../src/app/pm';
+import { Selection } from '../src/app/selection';
 
 const ctx = (units: UnitContext['units'] = 'MMGS'): UnitContext => ({ units, decimals: 2, variables: () => new Map([['Len', 4]]) });
 const key = (el: Element, k: string, init: KeyboardEventInit = {}) => el.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, ...init }));
@@ -105,5 +106,18 @@ describe('PropertyManager number fields', () => {
     key(input, 'Enter');
     expect(onChange).toHaveBeenLastCalledWith('=Len+1');
     expect(input.classList.contains('expr')).toBe(true);
+  });
+});
+
+describe('selection', () => {
+  it('tells listeners when only the hover changed', () => {
+    const sel = new Selection();
+    const calls: boolean[] = [];
+    sel.on((hoverOnly) => calls.push(hoverOnly));
+    sel.setHover({ kind: 'origin' });
+    sel.setHover({ kind: 'origin' });
+    sel.set([{ kind: 'feature', id: 'f1' }]);
+    sel.setHover(null);
+    expect(calls).toEqual([true, false, true]);
   });
 });

@@ -51,15 +51,16 @@ export function edgeRef(e: EdgeInfo): EdgeRef {
 export class Selection {
   items: SelItem[] = [];
   hover: SelItem | null = null;
-  private listeners = new Set<() => void>();
+  private listeners = new Set<(hoverOnly: boolean) => void>();
 
-  on(fn: () => void): () => void {
+  /** Listeners learn whether only the pre-selection (hover) changed. */
+  on(fn: (hoverOnly: boolean) => void): () => void {
     this.listeners.add(fn);
     return () => this.listeners.delete(fn);
   }
 
-  private emit() {
-    for (const fn of this.listeners) fn();
+  private emit(hoverOnly = false) {
+    for (const fn of this.listeners) fn(hoverOnly);
   }
 
   has(it: SelItem): boolean {
@@ -99,7 +100,7 @@ export class Selection {
     const same = (!it && !this.hover) || (it && this.hover && sameItem(it, this.hover));
     if (same) return;
     this.hover = it;
-    this.emit();
+    this.emit(true);
   }
 
   ofKind<K extends SelItem['kind']>(kind: K): Extract<SelItem, { kind: K }>[] {

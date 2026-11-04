@@ -141,7 +141,7 @@ export class App {
     this.buildTaskPane();
     this.bindShell();
     this.store.on((reason) => this.onStoreChange(reason));
-    this.selection.on(() => this.onSelectionChange());
+    this.selection.on((hoverOnly) => this.onSelectionChange(hoverOnly));
     this.commands.onChange(() => this.syncChrome());
     window.addEventListener('themechange', () => this.applyTheme());
     window.addEventListener('keydown', (e) => this.onKey(e));
@@ -846,8 +846,12 @@ export class App {
     return out;
   }
 
-  private onSelectionChange() {
+  private onSelectionChange(hoverOnly = false) {
     this.viewport.refreshStates();
+    // Pre-highlighting only changes the graphics: rebuilding the tree and the
+    // PropertyManager on every hover would also throw away a rename or a
+    // field being typed in.
+    if (hoverOnly) { this.sketchEditor?.queueRender(); return; }
     this.renderTrees();
     this.sketchEditor?.queueRender();
     if (this.sketchEditor) this.refreshSketchPanel();
