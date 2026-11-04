@@ -4796,15 +4796,15 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     let multi = null;
     if (grid.ranges.length > 1) {
       multi = alignedIndices(grid.ranges.map((rg) => toUsedExtent(rg)));
-      if (!multi) { toast('Copied the last range only: several ranges copy together only when they share the same rows or the same columns', { icon: 'info', duration: 3500 }); }
+      if (!multi) { toast(t('editor.clip.lastRangeOnly'), { icon: 'info', duration: 3500 }); }
       else range = { r1: multi.rows[0], c1: multi.cols[0], r2: multi.rows[multi.rows.length - 1], c2: multi.cols[multi.cols.length - 1] };
     }
     const total = multi ? multi.rows.length * multi.cols.length : (range.r2 - range.r1 + 1) * (range.c2 - range.c1 + 1);
-    if (total > 200000) { toast('Selection too large to copy', { icon: 'alert' }); return null; }
+    if (total > 200000) { toast(t('editor.clip.tooLarge'), { icon: 'alert' }); return null; }
     // Hidden and filtered-out rows (and hidden columns) are skipped:
     // a copy of a filtered list is what is on screen.
     const { rows, cols, all } = multi ? { ...multi, all: false } : wb.visibleIndices(grid.sheetId, range);
-    if (!rows.length || !cols.length) { toast('Only hidden cells are selected', { icon: 'info' }); return null; }
+    if (!rows.length || !cols.length) { toast(t('editor.clip.onlyHidden'), { icon: 'info' }); return null; }
     const sheet = wb.sheet(grid.sheetId);
     // A cut of protected cells is refused before the clipboard is replaced;
     // hidden protected cells are not being cut.
@@ -4925,7 +4925,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     if (!sameCells(now, cells)) return undefined;
     if (from.all) return wb.placeMoved(sheetId, r, c, cells, from);
     if (clip.partialMerge) {
-      toast('Select every row and column of a merged cell to move it. Hidden rows or columns can leave part of it behind', { icon: 'merge', duration: 4000 });
+      toast(t('editor.move.wholeMerge'), { icon: 'merge', duration: 4000 });
       return null;
     }
     // A filtered or multi-range cut moves what was on screen as one packed
@@ -4961,10 +4961,10 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       { checkOnly: true, merges: clip.merges, clearEntries: sheetId === from.sheetId ? clearEntries : [],
         clearMerges: [...sourceMerges, ...destinationMerges] })) return null;
     // As placeMoved, on these sheets alone: carried to grouped sheets, the clearing would erase their own cells.
-    return wb._withoutGroup(() => wb.transaction('Move cells', () => {
+    return wb._withoutGroup(() => wb.transaction(t('editor.undo.moveCells'), () => {
       const carried = wb.preparePackedMoveCells(from.sheetId, sheetId, from.rows, from.cols, r, c, cells);
       wb.moveConditionalFormatsFromCells(from.sheetId, sheetId, from.rows, from.cols, r, c);
-      wb.setCells(from.sheetId, clearEntries, 'Move cells');
+      wb.setCells(from.sheetId, clearEntries, t('editor.undo.moveCells'));
       for (const merge of clip.sourceMerges || []) wb.unmergeCells(from.sheetId, merge);
       for (const merge of destinationMerges) wb.unmergeCells(sheetId, merge);
       if (clip.notes) for (const rr of from.rows) for (const cc of from.cols) wb.setNote(from.sheetId, rr, cc, null);
@@ -4982,10 +4982,10 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
   function explainRefusedMove(sheetId, r, c, cells) {
     const dst = { r1: r, c1: c, r2: r + cells.length - 1, c2: c + cells[0].length - 1 };
     const limit = sheetLimits(sheetId);
-    if (dst.r2 >= limit.rows || dst.c2 >= limit.cols) { toast('The cells cannot be moved there: they would run past the sheet', { icon: 'info', duration: 3500 }); return; }
+    if (dst.r2 >= limit.rows || dst.c2 >= limit.cols) { toast(t('editor.move.pastSheet'), { icon: 'info', duration: 3500 }); return; }
     if (wb.lockedIn(sheetId, dst)) return;
     const inside = (m) => m.r1 >= dst.r1 && m.r2 <= dst.r2 && m.c1 >= dst.c1 && m.c2 <= dst.c2;
-    if (wb.mergesIn(sheetId, dst).some((m) => !inside(m))) toast('The cells cannot be moved onto part of a merged cell. Unmerge it first, or move them elsewhere', { icon: 'info', duration: 3500 });
+    if (wb.mergesIn(sheetId, dst).some((m) => !inside(m))) toast(t('editor.move.ontoMerge'), { icon: 'info', duration: 3500 });
   }
 
   function copyScroll(ch) {
@@ -5012,8 +5012,9 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     e.preventDefault();
     e.clipboardData.setData('text/plain', c.text);
     e.clipboardData.setData('text/html', c.html);
-    statusBar?.announce(`${cut ? 'Cut' : 'Copied'} ${c.multi ? `${c.rows.length} × ${c.cols.length} cells from ${grid.ranges.length} ranges` : selectionName(c.range)}${c.visibleOnly ? ' (visible cells only)' : ''}`);
-    if (c.visibleOnly) toast(`${cut ? 'Cut' : 'Copied'} the visible cells only; hidden rows and columns were skipped`, { icon: 'info', duration: 2500 });
+    statusBar?.announce(c.multi ? t('editor.clip.announceMulti', { cut: String(cut), rows: c.rows.length, cols: c.cols.length, ranges: grid.ranges.length, visible: String(!!c.visibleOnly) })
+      : t('editor.clip.announce', { cut: String(cut), range: selectionName(c.range), visible: String(!!c.visibleOnly) }));
+    if (c.visibleOnly) toast(cut ? t('editor.clip.visibleOnlyCut') : t('editor.clip.visibleOnlyCopied'), { icon: 'info', duration: 2500 });
   }
 
   function onPasteEvent(e) {
@@ -5040,7 +5041,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       return;
     }
     e.preventDefault();
-    if (wb.sheet(grid.sheetId)?.kind === 'chart') { statusBar?.announce('Choose a worksheet to paste cells'); return; }
+    if (wb.sheet(grid.sheetId)?.kind === 'chart') { statusBar?.announce(t('editor.paste.chooseWorksheet')); return; }
     if (pasteBehindObject()) { grid.consumePlainPaste(); return; }
     pasteAndOffer(text, html, grid.consumePlainPaste() ? 'values' : 'all');
   }
@@ -5060,7 +5061,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     if (!made || !mark || mark === before || destroyed) return;
     optionButton.show({
       kind: 'paste', sheetId: from.sheetId, range: { r1: from.active.r, c1: from.active.c, r2: from.active.r, c2: from.active.c }, mark,
-      items: [{ header: 'Paste Picture' }, { key: 'floating', label: 'Place over Cells', icon: 'placeOverCells' }, { key: 'cell', label: 'Place in Cell', icon: 'placeInCell' }],
+      items: [{ header: t('editor.paste.picture') }, { key: 'floating', label: t('editor.paste.placeOverCells'), icon: 'placeOverCells' }, { key: 'cell', label: t('editor.picture.placeInCell'), icon: 'placeInCell' }],
       checked: made,
       onPick: (item) => {
         if (item.key === made || wb.historyTop !== mark || grid.sheetId !== from.sheetId) { optionButton.hide(); return; }
@@ -5123,7 +5124,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
   }
 
   function applyPaste(text, options = {}) {
-    if (wb.sheet(grid.sheetId)?.kind === 'chart') { statusBar?.announce('Choose a worksheet to paste cells'); return; }
+    if (wb.sheet(grid.sheetId)?.kind === 'chart') { statusBar?.announce(t('editor.paste.chooseWorksheet')); return; }
     if (!oneRange('paste into')) return; // a paste lands in one range; several selected would take it in the last alone
     // Paste Special's options (what, operation, skip blanks, transpose), from an old single mode or the dialog's choices.
     const special = pasteOptions(options.paste ?? options.mode ?? (options.valuesOnly ? 'values' : 'all'));
@@ -5158,7 +5159,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       }
       grid.setSelection(S.fromRange(clipped, { ...grid.active }), { scroll: false });
     }
-    const label = internal && clip.cut && mode === 'all' ? 'Move cells' : pasteLabel(special);
+    const label = internal && clip.cut && mode === 'all' ? t('editor.undo.moveCells') : pasteLabel(special);
     // The pasted block and any table expansion it triggers are one action.
     const sheetId = grid.sheetId;
     let refused = false;
@@ -5233,8 +5234,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       // What ran past the last row or column was dropped: say how much, rather than lose it silently.
       const rowsOut = Math.max(0, r + h - limit.rows), colsOut = Math.max(0, c + w - limit.cols);
       if (rowsOut || colsOut) {
-        const count = (n, noun) => (n ? `${n} ${noun}${n === 1 ? '' : 's'}` : '');
-        toast(`${[count(rowsOut, 'row'), count(colsOut, 'column')].filter(Boolean).join(' and ')} did not fit on the sheet`, { icon: 'info', duration: 3500 });
+        toast(rowsOut && colsOut ? t('editor.paste.overflowBoth', { rows: rowsOut, cols: colsOut }) : rowsOut ? t('editor.paste.overflowRows', { count: rowsOut }) : t('editor.paste.overflowCols', { count: colsOut }), { icon: 'info', duration: 3500 });
       }
       const target = grid.range;
       const th = target.r2 - target.r1 + 1;
@@ -5247,8 +5247,8 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       const lost = mergeLosses(sheetId, block, h, w, filled);
       if (lost) {
         toast(lost === 1
-          ? 'Pasted. One value fell under a merged cell and was left out'
-          : `Pasted. ${lost} values fell under merged cells and were left out`, { icon: 'merge', duration: 4500 });
+          ? t('editor.paste.lostOne')
+          : t('editor.paste.lostMany', { count: lost }), { icon: 'merge', duration: 4500 });
       }
       grid.setSelection(S.fromRange(block, { r, c }), { scroll: false });
     };
@@ -5271,19 +5271,19 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     const insertCopied = (h, w, write) => {
       const block = { r1: r, c1: c, r2: r + h - 1, c2: c + w - 1 };
       if (block.r2 >= limit.rows || block.c2 >= limit.cols) {
-        toast(`The copied cells would exceed the paste limit of ${limit.rows.toLocaleString()} rows or ${limit.cols.toLocaleString()} columns`, { icon: 'info' });
+        toast(t('editor.paste.exceedsLimit', { rows: limit.rows, cols: limit.cols }), { icon: 'info' });
         return;
       }
       const direction = mode === 'insertRight' ? 'right' : 'down';
       if (wb.lockedAfterCellInsertion(sheetId, block, direction)) return;
       let ok = false;
-      wb.transaction('Insert copied cells', () => {
+      wb.transaction(t('editor.undo.insertCopiedCells'), () => {
         ok = wb.insertCells(sheetId, block, direction, { merges: copiedMerges, cells });
         if (ok) write();
       });
       if (!ok) {
         if (!wasRefused() && !(wb.sheetGroup || [sheetId]).some((id) => wb.isProtected(id))) toast(shiftProblem(sheetId, block, direction === 'right' ? 'col' : 'row', false)
-          || `The cells cannot be shifted: what is ${direction === 'right' ? 'to their right' : 'below them'} would be pushed past the edge of the sheet`, { icon: 'info', duration: 4000 });
+          || t('editor.shift.pastEdge', { side: direction === 'right' ? 'right' : 'down' }), { icon: 'info', duration: 4000 });
         return;
       }
       selectBlock(h, w, false);
@@ -5317,10 +5317,10 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     if (!cells && mode === 'composed') mode = legacyMode(special, { cells: false }) ?? 'composed';
     // Column widths travel only with cells copied in this spreadsheet, from a sheet that is still there.
     const pasteWidths = (quiet = false) => {
-      if (!internal || !clip.cols) { if (!quiet) toast('Column widths can only be pasted from cells copied in this spreadsheet', { icon: 'info', duration: 3000 }); return false; }
-      if (!wb.sheet(clip.sheetId)) { if (!quiet) toast('The copied cells\' sheet is gone', { icon: 'info' }); return false; }
+      if (!internal || !clip.cols) { if (!quiet) toast(t('editor.paste.widthsOnlyInternal'), { icon: 'info', duration: 3000 }); return false; }
+      if (!wb.sheet(clip.sheetId)) { if (!quiet) toast(t('editor.paste.sheetGone'), { icon: 'info' }); return false; }
       const n = clip.cols.length;
-      wb.transaction('Paste column widths', () => {
+      wb.transaction(t('editor.undo.pasteColumnWidths'), () => {
         for (let j = 0; j < n && c + j < wb.sheet(sheetId).cols; j++) wb.setColWidth(sheetId, c + j, wb.colWidth(clip.sheetId, clip.cols[j]));
       });
       return true;
@@ -5339,7 +5339,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       } else if (text) {
         const rows = parseClipboard(text);
         if (!rows.length) return;
-        if (special.what === 'formats') { toast('Plain text carries no formatting to paste', { icon: 'info', duration: 3000 }); return; }
+        if (special.what === 'formats') { toast(t('editor.paste.plainNoFormats'), { icon: 'info', duration: 3000 }); return; }
         if (!special.what.startsWith('values') && rows.some((row) => row.some(textReachesOut))) doc.distrustExternal();
         data = { ...cellsFromText(rows, (tx) => cellFromInput(tx)), merges: [] };
       }
@@ -5377,11 +5377,11 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     }
     if (mode === 'link') {
       // Links: formulas that point back at the copied cells, so they follow later edits.
-      if (!internal || !clip.rows) { toast('Links can only be pasted from cells copied in this spreadsheet', { icon: 'info', duration: 3000 }); return; }
-      if (!wb.sheet(clip.sheetId)) { toast('The copied cells\' sheet is gone', { icon: 'info' }); return; }
+      if (!internal || !clip.rows) { toast(t('editor.paste.linksOnlyInternal'), { icon: 'info', duration: 3000 }); return; }
+      if (!wb.sheet(clip.sheetId)) { toast(t('editor.paste.sheetGone'), { icon: 'info' }); return; }
       const n = wb.pasteLinks(sheetId, r, c, clip.sheetId, clip.rows, clip.cols);
       if (n) selectBlock(clip.rows.length, clip.cols.length, false);
-      toast(n ? `Pasted ${n} link${n === 1 ? '' : 's'} to the copied cells` : 'No links pasted', { icon: n ? 'link' : 'info' });
+      toast(n ? t('editor.paste.linksPasted', { count: n }) : t('editor.paste.noLinks'), { icon: n ? 'link' : 'info' });
       return;
     }
     if (OPS.includes(mode)) {
@@ -5398,7 +5398,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         }));
       }
       const changed = wb.pasteOperation(sheetId, numbers, r, c, mode, grid.range);
-      toast(changed ? `${{ add: 'Added to', sub: 'Subtracted from', mul: 'Multiplied', div: 'Divided' }[mode]} ${changed} cell${changed === 1 ? '' : 's'}` : 'No cells changed', { icon: changed ? 'check' : 'info' });
+      toast(changed ? t({ add: 'editor.pasteOp.add', sub: 'editor.pasteOp.sub', mul: 'editor.pasteOp.mul', div: 'editor.pasteOp.div' }[mode] || 'editor.pasteOp.changed', { count: changed }) : t('editor.pasteOp.none'), { icon: changed ? 'check' : 'info' });
       if (changed) selectBlock(numbers.length, clipboardWidth(numbers), false);
       return;
     }
@@ -5427,7 +5427,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         endCut();
         if (moved) { selectBlock(h, w, false); return; }
         // The cut went stale, or took part of an array without its formula: what was cut is pasted as a copy.
-        if (moved === false) toast('Copied instead of moved: the cut cells are part of an array whose formula stays where it is', { icon: 'info', duration: 4000 });
+        if (moved === false) toast(t('editor.paste.copiedNotMoved'), { icon: 'info', duration: 4000 });
       }
       const pasted = wb.pasteCells(sheetId, cells, r, c, origin, grid.range, { notes, merges: copiedMerges, conditionalFormats, validations, nativeSparklines, externalWorkbooks, nativePivots: internal ? clip.nativePivots : null });
       if (internal && mode === 'all') pasteThreads(wb, sheetId, clip.threads, r, c);
@@ -5493,7 +5493,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     const rows = parseClipboard(text);
     if (!rows.length) return;
     // Formatting only from another app's plain text: there is none to paste, which is said rather than nothing happening.
-    if (mode === 'formats') { toast('Plain text carries no formatting to paste', { icon: 'info', duration: 3000 }); return; }
+    if (mode === 'formats') { toast(t('editor.paste.plainNoFormats'), { icon: 'info', duration: 3000 }); return; }
     // Pasted text that reads as a reaching formula is outside content too.
     if (rows.some((row) => row.some(textReachesOut))) doc.distrustExternal();
     if (inserting) { insertCopied(rows.length, clipboardWidth(rows), () => wb.pasteValues(sheetId, rows, r, c)); return; }
@@ -5501,7 +5501,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       // Plain text: write only the non-empty cells.
       const entries = [];
       rows.forEach((row, i) => row.forEach((tx, j) => { if (tx !== '' && r + i < limit.rows && c + j < limit.cols && !coveredByMerge(sheetId, r + i, c + j)) entries.push({ r: r + i, c: c + j, cell: cellFromInput(tx, wb.styleAt(sheetId, r + i, c + j), { typed: false }) }); }));
-      wb.setCellsWithTableHeaders(sheetId, entries, 'Paste');
+      wb.setCellsWithTableHeaders(sheetId, entries, t('editor.undo.paste'));
       wrapMultiline(rows);
       selectBlock(rows.length, clipboardWidth(rows), false, true, (i, j) => (rows[i]?.[j] ?? '') !== '');
       return;
@@ -5527,13 +5527,13 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       } else await navigator.clipboard?.writeText(c.text);
     } catch { /* internal clipboard still works */ }
     if (destroyed) return;
-    toast(cut ? 'Cut. The cells move when you paste them' : 'Copied', { icon: cut ? 'cut' : 'copy', duration: cut ? 2200 : 1200 });
+    toast(cut ? t('editor.clip.cut') : t('editor.clip.copied'), { icon: cut ? 'cut' : 'copy', duration: cut ? 2200 : 1200 });
   }
 
   /** The Paste Special dialog over what the clipboard holds; another app's content greys what it cannot carry. */
   async function openPasteSpecial() {
     if (grid.editing) return;
-    if (wb.sheet(grid.sheetId)?.kind === 'chart') { statusBar?.announce('Choose a worksheet to paste cells'); return; }
+    if (wb.sheet(grid.sheetId)?.kind === 'chart') { statusBar?.announce(t('editor.paste.chooseWorksheet')); return; }
     if (!oneRange('paste into')) return;
     const read = await readClipboard();
     if (!read) return;
@@ -5578,12 +5578,12 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     // Never overwrite cells the user moved to or edited while it was pending.
     if (grid.editing || grid.sheetId !== target.sheetId || wb.version !== target.version
       || ['r1', 'c1', 'r2', 'c2'].some((key) => grid.range[key] !== target.range[key])) {
-      toast('The sheet or selection changed. Paste again where you want the data', { icon: 'info', duration: 3500 });
+      toast(t('editor.paste.changed'), { icon: 'info', duration: 3500 });
       return null;
     }
     if (picture) return { text: '', html: '', picture };
     if (text == null) {
-      if (!clip) { toast('Nothing to paste. Use the keyboard shortcut to paste from other apps', { icon: 'info' }); return null; }
+      if (!clip) { toast(t('editor.paste.nothing'), { icon: 'info' }); return null; }
       text = '';
     }
     return { text, html, picture: null };
@@ -5594,7 +5594,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     if (!oneRange('paste into')) return; // said before the clipboard is read, which can wait on a permission prompt
     // Paste Special ▸ Picture and Linked Picture: a picture of the cells copied here.
     if (paste?.picture) {
-      if (!clip || clip.cut || clip.multi || !wb.sheet(clip.sheetId)) { toast('Copy a range of cells first, then paste it as a picture', { icon: 'info', duration: 3000 }); keepFocus(); return; }
+      if (!clip || clip.cut || clip.multi || !wb.sheet(clip.sheetId)) { toast(t('editor.paste.copyRangeFirst'), { icon: 'info', duration: 3000 }); keepFocus(); return; }
       pictures.run('pastePicture', { linked: paste.picture === 'linked', source: { sheetId: clip.sheetId, range: clip.range } });
       return;
     }
@@ -5612,7 +5612,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
    */
   function pasteBehindObject() {
     if (!grid.selectedChart) return false;
-    toast('Select the cells to paste into', { icon: 'info', duration: 2500 });
+    toast(t('editor.paste.selectTarget'), { icon: 'info', duration: 2500 });
     keepFocus();
     return true;
   }
@@ -5697,12 +5697,12 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     const typed = rows.filter((row) => row.target != null && row.target !== '').map((row) => row.r);
     if (examples < 2 || !entries.length || typed.at(-1) !== r || typed.some((rr, i) => i && rr !== typed[i - 1] + 1) || entries.some((e) => e.r < r)) return;
     const mark = wb.historyTop;
-    flashOffer = toast(`Flash Fill can fill ${entries.length} more cell${entries.length === 1 ? '' : 's'} in this column the same way`, {
+    flashOffer = toast(t('editor.flashFill.offer', { count: entries.length }), {
       icon: 'flashFill', duration: 8000,
-      action: { label: 'Fill', onClick: () => {
+      action: { label: t('editor.flashFill.fill'), onClick: () => {
         // Only while the sheet is as it was when offered: an edit since may have changed the pattern.
         if (destroyed || wb.historyTop !== mark || grid.editing) return;
-        if (wb.setCells(sheetId, entries, 'Flash Fill')) statusBar?.announce(`Flash Fill changed ${entries.length} cells`);
+        if (wb.setCells(sheetId, entries, t('editor.undo.flashFill'))) statusBar?.announce(t('editor.flashFill.changedCells', { count: entries.length }));
         keepFocus();
       } },
     });
@@ -5770,12 +5770,12 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     for (let r = range.r1; r <= last; r++) {
       const cell = wb.getCell(sheetId, r, c);
       if (cell?.f != null || (cell?.v != null && typeof cell.v !== 'string')) {
-        toast('Justify works on text only: the cells hold numbers or formulas', { icon: 'info', duration: 3500 });
+        toast(t('editor.justify.textOnly'), { icon: 'info', duration: 3500 });
         return;
       }
       texts.push(cell?.v ?? null);
     }
-    if (!texts.some((tx) => tx != null && String(tx).trim())) { toast('There is no text to justify in the selected column', { icon: 'info' }); return; }
+    if (!texts.some((tx) => tx != null && String(tx).trim())) { toast(t('editor.justify.noText'), { icon: 'info' }); return; }
     let width = 0;
     for (let cc = range.c1; cc <= range.c2; cc++) width += wb.colWidth(sheetId, cc);
     const style = wb.styleAt(sheetId, range.r1, c);
@@ -5785,7 +5785,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     canvas.font = `${style?.italic ? 'italic ' : ''}${style?.bold ? '600 ' : ''}${style?.size || baseSize}px ${fontStack(style?.font) || css.fontFamily || 'system-ui'}`;
     const lines = justifyLines(texts, Math.max(10, width - 8), (tx) => canvas.measureText(tx).width);
     const end = Math.max(last, range.r1 + lines.length - 1);
-    if (range.r1 !== range.r2 && lines.length > range.r2 - range.r1 + 1) toast('The text runs below the selected range', { icon: 'info', duration: 3000 });
+    if (range.r1 !== range.r2 && lines.length > range.r2 - range.r1 + 1) toast(t('editor.justify.runsBelow'), { icon: 'info', duration: 3000 });
     const entries = [];
     for (let r = range.r1; r <= end; r++) {
       const prev = wb.getCell(sheetId, r, c);
@@ -5793,7 +5793,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       entries.push({ r, c, cell: { ...(prev || {}), v: text === '' ? null : text, f: null } });
     }
     if (wb.lockedIn(sheetId, { r1: range.r1, c1: c, r2: end, c2: c })) return;
-    wb.setCellsWithTableHeaders(sheetId, entries, 'Justify');
+    wb.setCellsWithTableHeaders(sheetId, entries, t('editor.undo.justify'));
     grid.setSelection(S.fromRange({ r1: range.r1, c1: range.c1, r2: range.r1 + Math.max(0, lines.length - 1), c2: range.c2 }, { r: range.r1, c: range.c1 }), { scroll: false });
   }
 
@@ -5802,7 +5802,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
   const COMMON_FUNCTIONS = ['SUM', 'AVERAGE', 'COUNT', 'MIN', 'MAX', 'IF', 'SUMIF', 'COUNTIF', 'VLOOKUP', 'XLOOKUP', 'ROUND', 'TODAY', 'CONCAT', 'IFERROR'];
 
   function openFunctionMenu(anchor) {
-    const search = el('input.input', { type: 'search', placeholder: 'Search functions', 'aria-label': 'Search functions', autocomplete: 'off' });
+    const search = el('input.input', { type: 'search', placeholder: t('editor.functions.search'), 'aria-label': t('editor.functions.search'), autocomplete: 'off' });
     const listEl = el('div.fn-list', { role: 'group' });
     const render = () => {
       const q = search.value.trim().toUpperCase();
@@ -5810,16 +5810,16 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       listEl.replaceChildren(...[
         !q && P.canAI() && el('button.menu-item.fn-item', {
           type: 'button', role: 'menuitem', tabindex: -1, onclick: () => { menu.close(); run('aiFormula'); },
-        }, el('span.menu-icon', { html: icon('sparkle', 16) }), el('span.menu-label', {}, el('span.fn-name', {}, 'Write a formula with AI…'), el('span.fn-desc', {}, 'Describe what to calculate; the sheet\'s headers and tables are explained to the AI'))),
-        !q && el('div.menu-header', {}, 'Common'),
+        }, el('span.menu-icon', { html: icon('sparkle', 16) }), el('span.menu-label', {}, el('span.fn-name', {}, t('editor.functions.aiFormula')), el('span.fn-desc', {}, t('editor.functions.aiFormulaDescription')))),
+        !q && el('div.menu-header', {}, t('editor.functions.common')),
         ...names.slice(0, 40).map((n) => el('button.menu-item.fn-item', {
           type: 'button', role: 'menuitem', tabindex: -1, title: signatureFor(n).params ? `${n}(${signatureFor(n).params})` : n,
           onclick: () => { menu.close(); insertFunction(n); },
         }, el('span.menu-icon', { html: icon('fx', 16) }), el('span.menu-label', {}, el('span.fn-name', {}, n), signatureFor(n).description && el('span.fn-desc', {}, signatureFor(n).description)))),
-        !names.length && el('div.menu-header', {}, 'No matches'),
+        !names.length && el('div.menu-header', {}, t('editor.functions.noMatches')),
         el('div.menu-sep', { role: 'separator' }),
         el('button.menu-item.fn-item', { type: 'button', role: 'menuitem', tabindex: -1, onclick: () => { menu.close(); run('insertFunctionDialog'); } },
-          el('span.menu-icon', { html: icon('fx', 16) }), el('span.menu-label', {}, el('span.fn-name', {}, 'More functions…'), el('span.fn-desc', {}, 'Browse every function by category, then fill in its arguments'))),
+          el('span.menu-icon', { html: icon('fx', 16) }), el('span.menu-label', {}, el('span.fn-name', {}, t('editor.functions.more')), el('span.fn-desc', {}, t('editor.functions.moreDescription')))),
       ].filter(Boolean)); // replaceChildren would print a bare `false`
     };
     search.addEventListener('input', render);
@@ -5830,7 +5830,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     });
     render();
     const menu = openMenu({
-      anchor: anchor || formulaBar.el.querySelector('.fx-btn'), label: 'Insert function', minWidth: 260,
+      anchor: anchor || formulaBar.el.querySelector('.fx-btn'), label: t('editor.functions.insert'), minWidth: 260,
       items: [{ custom: el('div.fn-search', {}, search) }, { custom: listEl }],
       onClose: () => keepFocus(),
     });
@@ -5883,7 +5883,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         if (r <= range.r2) arg = { ...range, r2: r - 1 };
         target = { r, c: range.c1 };
       }
-      if (!wb.canEnsureSize(grid.sheetId, target.r + 1, target.c + 1)) { toast('There is no room beside the selection for the result', { icon: 'info' }); return; }
+      if (!wb.canEnsureSize(grid.sheetId, target.r + 1, target.c + 1)) { toast(t('editor.functions.noRoom'), { icon: 'info' }); return; }
       // Several columns each get their own result in the row under them, as Excel's AutoSum gives each column its
       // total: one =SUM(A1:C5) under the first column added the three columns together.
       if (!acrossRow && arg.c1 < arg.c2) {
@@ -5894,7 +5894,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
           const row = { r1: target.r, c1: arg.c1, r2: target.r, c2: arg.c2 };
           if (wb.lockedIn(grid.sheetId, row)) return;
           if (totals.some(({ r: tr, c: tc, text }) => !allowedByRule(wb.validateInput(grid.sheetId, tr, tc, text)))) return;
-          wb.transaction(`Insert ${name}`, () => { for (const { r: tr, c: tc, text } of totals) wb.setInput(grid.sheetId, tr, tc, text); });
+          wb.transaction(t('editor.undo.insertFunction', { name }), () => { for (const { r: tr, c: tc, text } of totals) wb.setInput(grid.sheetId, tr, tc, text); });
           grid.setSelection(S.fromRange(row, { r: target.r, c: arg.c1 }));
           grid.focus();
           return;
@@ -6026,13 +6026,13 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       return saved;
     } catch (e) {
       if (destroyed) return false;
-      if (!leaving) { toast('Could not save to Puter. Your changes are still open', { icon: 'alert', duration: 5000 }); return false; }
+      if (!leaving) { toast(t('editor.save.failedStillOpen'), { icon: 'alert', duration: 5000 }); return false; }
       // Puter would not take the save (offline, out of space). The draft
       // written above keeps the edits on this device, so a save that keeps
       // failing must not keep the user in the editor for ever.
       if (abandoned) return true;
       const kept = !wb.dirty || doc.writeDraft();
-      const choice = await saveFailedDialog(!P.unreachable(e) ? e?.message : navigator.onLine === false ? 'you are offline' : 'Puter could not be reached', kept);
+      const choice = await saveFailedDialog(!P.unreachable(e) ? e?.message : navigator.onLine === false ? t('editor.save.offline') : t('editor.save.unreachable'), kept);
       if (destroyed) return false;
       if (choice === 'retry') return runFlush({ leaving });
       if (choice === 'leave') { abandoned = true; return true; }
@@ -6071,13 +6071,13 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     const answer = new Promise((done) => { resolve = done; });
     const content = el('div', {},
       el('p.modal-text', {}, kept
-        ? `"${doc.name}" is still being saved: the connection may be slow. Wait, and it closes once saved; or leave now, and your changes stay in this browser, ${room ? 'sent when you open it here again' : 'offered again when you open it here'}.`
-        : `"${doc.name}" is still being saved: the connection may be slow. Wait, and it closes once saved. This browser could not keep a copy of your changes, so leaving now may lose them.`),
+        ? (room ? t('editor.stillSaving.keptShared', { name: doc.name }) : t('editor.stillSaving.kept', { name: doc.name }))
+        : t('editor.stillSaving.notKept', { name: doc.name })),
       el('div.row.row-end', { style: { flexWrap: 'wrap' } },
-        el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Keep editing'),
-        el(`button.btn${kept ? '' : '.btn-danger'}`, { type: 'button', onclick: () => { resolve('leave'); modal.close(); } }, kept ? 'Leave' : 'Leave without saving'),
-        el('button.btn.btn-primary', { type: 'button', onclick: () => { resolve('wait'); modal.close(); } }, 'Wait')));
-    const modal = openModal({ title: 'Still saving', content, onClose: () => resolve('stay') });
+        el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, t('editor.leave.keepEditing')),
+        el(`button.btn${kept ? '' : '.btn-danger'}`, { type: 'button', onclick: () => { resolve('leave'); modal.close(); } }, kept ? t('editor.leave.leave') : t('editor.leave.leaveWithoutSaving')),
+        el('button.btn.btn-primary', { type: 'button', onclick: () => { resolve('wait'); modal.close(); } }, t('editor.stillSaving.wait'))));
+    const modal = openModal({ title: t('editor.stillSaving.title'), content, onClose: () => resolve('stay') });
     return { answer, close: () => modal.close() };
   }
 
@@ -6089,20 +6089,17 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     return new Promise((resolve) => {
       const missing = kind === 'missing';
       const unchecked = kind === 'unchecked';
-      const what = missing ? `"${doc.name}" is no longer at ${doc.path}: it was deleted, or moved where it cannot be followed.`
-        : unchecked ? `Whether "${doc.name}" was saved since you opened it, perhaps from another device or tab, could not be checked.`
-          : `"${doc.name}" was saved, moved or renamed since you opened it, perhaps from another device or tab.`;
-      const where = missing ? 'and can be recovered from Unsaved spreadsheets on the home screen' : 'and are offered again when you open this spreadsheet here';
-      const action = missing ? 'put the file back at the old address with them' : unchecked ? 'save them anyway' : 'keep your version and overwrite theirs, which is kept in Version history';
+      const values = { name: doc.name, path: doc.path };
+      const message = missing ? (kept ? t('editor.conflict.missingKept', values) : t('editor.conflict.missingNotKept', values))
+        : unchecked ? (kept ? t('editor.conflict.uncheckedKept', values) : t('editor.conflict.uncheckedNotKept', values))
+          : kept ? t('editor.conflict.changedKept', values) : t('editor.conflict.changedNotKept', values);
       const content = el('div', {},
-        el('p.modal-text', {}, kept
-          ? `${what} Your changes were not saved. Leave, and they stay on this device, ${where}; or ${action}.`
-          : `${what} Your changes were not saved, and this browser could not keep a copy of them either. Leaving now discards them.`),
+        el('p.modal-text', {}, message),
         el('div.row.row-end', { style: { flexWrap: 'wrap' } },
-          el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Keep editing'),
-          el(`button.btn${kept ? '' : '.btn-danger'}`, { type: 'button', onclick: () => { resolve('leave'); modal.close(); } }, kept ? 'Leave' : 'Leave without saving'),
-          el(`button.btn${missing || unchecked ? '.btn-primary' : '.btn-danger'}`, { type: 'button', onclick: () => { resolve('overwrite'); modal.close(); } }, missing ? 'Keep it here' : unchecked ? 'Save anyway' : 'Overwrite with mine')));
-      const modal = openModal({ title: missing ? 'This file was moved or deleted' : unchecked ? 'This file could not be checked' : 'This file changed elsewhere', content, onClose: () => resolve('stay') });
+          el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, t('editor.leave.keepEditing')),
+          el(`button.btn${kept ? '' : '.btn-danger'}`, { type: 'button', onclick: () => { resolve('leave'); modal.close(); } }, kept ? t('editor.leave.leave') : t('editor.leave.leaveWithoutSaving')),
+          el(`button.btn${missing || unchecked ? '.btn-primary' : '.btn-danger'}`, { type: 'button', onclick: () => { resolve('overwrite'); modal.close(); } }, missing ? t('editor.conflict.keepItHere') : unchecked ? t('editor.conflict.saveAnyway') : t('editor.conflict.overwriteWithMine'))));
+      const modal = openModal({ title: missing ? t('editor.conflict.missingTitle') : unchecked ? t('editor.conflict.uncheckedTitle') : t('editor.conflict.changedTitle'), content, onClose: () => resolve('stay') });
     });
   }
 
@@ -6116,33 +6113,29 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       const file = doc.path ? P.displayName(doc.path) : null;
       const content = el('div', {},
         el('p.modal-text', {}, file
-          ? (kept
-            ? `Your changes to "${file}" are not saved yet: they are saved as a new .xlsx file, where you choose. Save it, or leave: your changes stay on this device, and are offered again when you open ${file} here.`
-            : `Your changes to "${file}" are not saved yet: they are saved as a new .xlsx file, where you choose. This browser could not keep a copy of them either: save it, or leave and lose them.`)
-          : kept
-            ? `"${doc.name}" is not saved to Puter yet. Save it where you choose, or leave: your edits stay on this device, and can be recovered from Unsaved spreadsheets on the home screen.`
-            : `"${doc.name}" is not saved to Puter yet, and this browser could not keep a copy of it either. Save it where you choose, or leave and lose it.`),
+          ? (kept ? t('editor.unsaved.fileKept', { file }) : t('editor.unsaved.fileNotKept', { file }))
+          : kept ? t('editor.unsaved.newKept', { name: doc.name }) : t('editor.unsaved.newNotKept', { name: doc.name })),
         el('div.row.row-end', { style: { flexWrap: 'wrap' } },
-          el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Keep editing'),
-          el(`button.btn${kept ? '' : '.btn-danger'}`, { type: 'button', onclick: () => { resolve('leave'); modal.close(); } }, kept ? 'Leave' : 'Leave without saving'),
-          el('button.btn.btn-primary', { type: 'button', onclick: () => { resolve('save'); modal.close(); } }, 'Save…')));
-      const modal = openModal({ title: 'Save before leaving?', content, onClose: () => resolve('stay') });
+          el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, t('editor.leave.keepEditing')),
+          el(`button.btn${kept ? '' : '.btn-danger'}`, { type: 'button', onclick: () => { resolve('leave'); modal.close(); } }, kept ? t('editor.leave.leave') : t('editor.leave.leaveWithoutSaving')),
+          el('button.btn.btn-primary', { type: 'button', onclick: () => { resolve('save'); modal.close(); } }, t('editor.unsaved.save'))));
+      const modal = openModal({ title: t('editor.unsaved.title'), content, onClose: () => resolve('stay') });
     });
   }
 
   /** The save failed on the way out: leave (the local draft keeps the edits), keep editing, or try again. */
   function saveFailedDialog(reason, kept) {
     return new Promise((resolve) => {
-      const why = reason ? ` (${String(reason).replace(/\.$/, '')})` : '';
+      const values = { hasWhy: String(!!reason), why: reason ? String(reason).replace(/\.$/, '') : '' };
       const content = el('div', {},
         el('p.modal-text', {}, kept
-          ? `Puter could not save this spreadsheet${why}. Your changes are kept in this browser, ${room ? 'and sent to the shared workbook when you open it here again' : 'and saving is offered again when you open it here'}.`
-          : `Puter could not save this spreadsheet${why}, and this browser could not keep a copy of your changes either. Leaving now discards them.`),
+          ? (room ? t('editor.saveFailed.keptShared', values) : t('editor.saveFailed.kept', values))
+          : t('editor.saveFailed.notKept', values)),
         el('div.row.row-end', { style: { flexWrap: 'wrap' } },
-          el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Keep editing'),
-          el(`button.btn${kept ? '' : '.btn-danger'}`, { type: 'button', onclick: () => { resolve('leave'); modal.close(); } }, kept ? 'Leave' : 'Leave without saving'),
-          el('button.btn.btn-primary', { type: 'button', onclick: () => { resolve('retry'); modal.close(); } }, 'Retry')));
-      const modal = openModal({ title: 'Could not save', content, onClose: () => resolve('stay') });
+          el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, t('editor.leave.keepEditing')),
+          el(`button.btn${kept ? '' : '.btn-danger'}`, { type: 'button', onclick: () => { resolve('leave'); modal.close(); } }, kept ? t('editor.leave.leave') : t('editor.leave.leaveWithoutSaving')),
+          el('button.btn.btn-primary', { type: 'button', onclick: () => { resolve('retry'); modal.close(); } }, t('editor.saveFailed.retry'))));
+      const modal = openModal({ title: t('editor.saveFailed.title'), content, onClose: () => resolve('stay') });
     });
   }
 
@@ -6150,12 +6143,12 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
   function missingFileDialog() {
     return new Promise((resolve) => {
       const content = el('div', {},
-        el('p.modal-text', {}, `"${doc.name}" is no longer at ${doc.path}: it was deleted, or moved where it cannot be followed. Your changes are still here, and can be saved as a new file or put back at the old address.`),
+        el('p.modal-text', {}, t('editor.missingFile.message', { name: doc.name, path: doc.path })),
         el('div.row.row-end', { style: { flexWrap: 'wrap' } },
-          el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Keep editing'),
-          el('button.btn', { type: 'button', onclick: () => { resolve('keep'); modal.close(); } }, 'Keep it here'),
-          el('button.btn.btn-primary', { type: 'button', onclick: () => { resolve('saveAs'); modal.close(); } }, 'Save as new file')));
-      const modal = openModal({ title: 'This file was moved or deleted', content, onClose: () => resolve('stay') });
+          el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, t('editor.leave.keepEditing')),
+          el('button.btn', { type: 'button', onclick: () => { resolve('keep'); modal.close(); } }, t('editor.conflict.keepItHere')),
+          el('button.btn.btn-primary', { type: 'button', onclick: () => { resolve('saveAs'); modal.close(); } }, t('editor.missingFile.saveAsNew'))));
+      const modal = openModal({ title: t('editor.conflict.missingTitle'), content, onClose: () => resolve('stay') });
     });
   }
 
@@ -6168,11 +6161,11 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     try { return await doc.forceSave(); }
     catch (e) {
       if (e?.message !== THEIRS_NOT_KEPT || destroyed) return false;
-      const why = P.unreachable(e.cause) ? (navigator.onLine === false ? 'you are offline' : 'Puter could not be reached') : (e.cause?.message || e.cause?.error?.message || '');
+      const why = P.unreachable(e.cause) ? (navigator.onLine === false ? t('editor.save.offline') : t('editor.save.unreachable')) : (e.cause?.message || e.cause?.error?.message || '');
       const anyway = await confirmDialog({
-        title: 'Their version could not be kept',
-        message: `What "${doc.name}" holds now could not be kept in Version history${why ? ` (${String(why).replace(/\.$/, '')})` : ''}, so your version was not saved over it. Overwrite it anyway? It cannot be had back.`,
-        confirmLabel: 'Overwrite anyway', cancelLabel: 'Cancel', danger: true, dismissValue: null,
+        title: t('editor.overwrite.title'),
+        message: t('editor.overwrite.message', { name: doc.name, hasWhy: String(!!why), why: why ? String(why).replace(/\.$/, '') : '' }),
+        confirmLabel: t('editor.overwrite.confirm'), cancelLabel: t('common.cancel'), danger: true, dismissValue: null,
       });
       if (destroyed) return false;
       if (!anyway) { keepFocus(); return null; }
@@ -6187,9 +6180,9 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     if (session.signedOut && (!await session.signIn() || destroyed)) return;
     try {
       const saved = await doc.save();
-      if (saved && !wb.dirty) toast('Saved', { icon: 'cloud', duration: 1200 });
+      if (saved && !wb.dirty) toast(t('editor.save.saved'), { icon: 'cloud', duration: 1200 });
     } catch (e) {
-      toast(P.unreachable(e) ? P.failureText(e, 'Could not save') : `Could not save: ${e?.message || 'unknown error'}`, { icon: 'alert', duration: 5000 });
+      toast(P.unreachable(e) ? P.failureText(e, t('editor.saveFailed.title')) : t('editor.save.failedWith', { error: e?.message || t('editor.unknownError') }), { icon: 'alert', duration: 5000 });
     }
   }
 
