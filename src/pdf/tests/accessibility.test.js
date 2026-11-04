@@ -487,6 +487,18 @@ describe('accessibility check', () => {
     expect(outline[0].dest[1].name).toBe('XYZ');
   });
 
+  it('does not add the same bookmarks twice', async () => {
+    const doc = await untaggedPdf({ pages: 2 });
+    autotagDocument(doc);
+    const tagged = await reload(doc);
+    addBookmarksFromHeadings(tagged);
+    const once = await tagged.save();
+    const again = await PDFDocument.load(once, { updateMetadata: false });
+    expect(() => addBookmarksFromHeadings(again)).toThrow(/already has a bookmark/);
+    const { outline } = await renderAll(once);
+    expect(outline.map((item) => item.title)).toEqual(['Annual Report', 'Chapter 2']);
+  });
+
   it('refuses bookmarks without headings', async () => {
     const doc = await taggedPdf([['P']]);
     expect(() => addBookmarksFromHeadings(doc)).toThrow(/no tagged headings/);

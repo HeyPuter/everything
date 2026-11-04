@@ -1746,6 +1746,27 @@ export const normalizeRect = ([a, b, c, d]) => [
   Math.max(b, d),
 ];
 
+/** "page ref|title" of every bookmark that goes to a page of this document. */
+function outlineTargets(doc, root) {
+  const targets = new Set();
+  const seen = new Set();
+  const pending = [root?.get?.(N('First'))];
+  while (pending.length && seen.size < 100000) {
+    const ref = pending.pop();
+    const item = lookup(doc, ref);
+    if (!(item instanceof PDFDict) || seen.has(item)) continue;
+    seen.add(item);
+    const action = get(item, 'A');
+    const dest =
+      get(item, 'Dest') ?? (nameOf(get(action, 'S')) === 'GoTo' ? get(action, 'D') : null);
+    const page = dest instanceof PDFArray ? dest.get(0) : null;
+    const title = clean(textOf(get(item, 'Title')));
+    if (page instanceof PDFRef && title) targets.add(`${page}|${title}`);
+    pending.push(item.get(N('Next')), item.get(N('First')));
+  }
+  return targets;
+}
+
 /**
  * Bookmarks from the H1–H6 headings in the tag tree, nested by level, each opening the top of
  * its heading. Added after any existing bookmarks. Returns false when nothing was added.
@@ -1785,6 +1806,10 @@ export function addBookmarksFromHeadings(doc) {
   if (!entries.length) return false;
   let rootRef = doc.catalog.get(N('Outlines'));
   let root = lookup(doc, rootRef);
+  // Choosing the fix again must not list every heading a second time.
+  const listed = outlineTargets(doc, root);
+  if (entries.every((entry) => listed.has(`${pages[entry.page].ref}|${entry.title}`)))
+    throw new Error('Every tagged heading already has a bookmark.');
   if (!(root instanceof PDFDict)) {
     root = doc.context.obj({ Type: 'Outlines' });
     rootRef = doc.context.register(root);
