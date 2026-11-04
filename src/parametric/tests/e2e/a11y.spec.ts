@@ -67,6 +67,18 @@ test.describe('accessibility', () => {
     await expect(page.getByRole('treeitem', { name: 'Front Plane' })).toBeVisible();
   });
 
+  test('the arrow keys skip the hidden Drawing ribbon tab in the model', async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /New part/ }).click();
+    await page.getByRole('tab', { name: 'Features' }).focus();
+    await page.keyboard.press('ArrowLeft');
+    await expect(page.getByRole('tab', { name: 'View' })).toBeFocused();
+    await expect(page.getByRole('tab', { name: 'View' })).toHaveAttribute('aria-selected', 'true');
+    await expect(page.locator('.cm-tools [data-cmd^="drawing:"]')).toHaveCount(0);
+    await page.keyboard.press('Home');
+    await expect(page.getByRole('tab', { name: 'Features' })).toBeFocused();
+  });
+
   test('menus are reachable from the keyboard', async ({ page }) => {
     await openApp(page);
     await page.getByRole('button', { name: /New part/ }).click();

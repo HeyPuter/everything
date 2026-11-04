@@ -17,7 +17,7 @@ import { closeMenus, openMenu, type MenuItem } from '../ui/menu';
 import { attachTooltip, confirmDialog, dialogOpen, toast } from '../ui/overlay';
 import { announce, formatShortcut, h, isTextInput } from '../ui/dom';
 import { icon } from '../ui/icons';
-import { selectTabs, tabKeys } from '../ui/tabs';
+import { selectTabs, syncTabStops, tabKeys } from '../ui/tabs';
 import { CommandRegistry } from './commands';
 import { type PickFilter, PropertyPanel, type UnitContext } from './pm';
 import { Selection, faceRef, type SelItem } from './selection';
@@ -261,18 +261,10 @@ export class App {
     for (const t of this.hooks.ribbonTabs) {
       const b = h('button', { role: 'tab', type: 'button', 'aria-selected': String(t.id === this.ribbonTab), 'data-tab': t.id }, t.label);
       b.addEventListener('click', () => this.setRibbonTab(t.id));
-      b.addEventListener('keydown', (e) => {
-        const tabs = [...this.shell.cmTabs.querySelectorAll<HTMLElement>('[role="tab"]')];
-        const i = tabs.indexOf(b);
-        if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
-          e.preventDefault();
-          const n = tabs[(i + (e.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length];
-          n.focus();
-          n.click();
-        }
-      });
       this.shell.cmTabs.append(b);
     }
+    // The arrow keys skip the hidden tabs (the Drawing tab in the model, and the reverse).
+    tabKeys(this.shell.cmTabs);
     this.setRibbonTab(this.ribbonTab);
   }
 
@@ -280,10 +272,10 @@ export class App {
     this.ribbonTab = id;
     for (const b of this.shell.cmTabs.querySelectorAll<HTMLElement>('[role="tab"]')) {
       b.setAttribute('aria-selected', String(b.dataset.tab === id));
-      b.setAttribute('tabindex', b.dataset.tab === id ? '0' : '-1');
       // The drawing has its own tab; model tabs are hidden while it is open.
       b.hidden = (b.dataset.tab === 'drawing') !== (id === 'drawing');
     }
+    syncTabStops(this.shell.cmTabs);
     const tab = this.hooks.ribbonTabs.find((t) => t.id === id)!;
     renderRibbon(this.shell.cmTools, tab, this.commands);
   }
