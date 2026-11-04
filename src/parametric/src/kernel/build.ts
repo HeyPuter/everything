@@ -1146,9 +1146,11 @@ export class ModelBuilder {
     const oc = getOc();
     const shapeOf = (t: MeasureTarget): Sh => {
       if (t.kind === 'vertex') {
-        const mv = new oc.BRepBuilderAPI_MakeVertex(pnt(t.p));
+        const gp = pnt(t.p);
+        const mv = new oc.BRepBuilderAPI_MakeVertex(gp);
         const v = wrap(mv.Vertex());
         mv.delete();
+        gp.delete();
         return v;
       }
       if (t.kind === 'face') {
@@ -1161,8 +1163,14 @@ export class ModelBuilder {
       return e.shape;
     };
     const s1 = shapeOf(a), s2 = shapeOf(b);
-    const ext = new oc.BRepExtrema_DistShapeShape(s1.wrapped, s2.wrapped, oc.Extrema_ExtFlag.Extrema_ExtFlag_MIN, oc.Extrema_ExtAlgo.Extrema_ExtAlgo_Grad, new oc.Message_ProgressRange());
+    // The bindings do not expose Extrema_ExtFlag, so the long constructor
+    // cannot be called: load the shapes and run it explicitly.
+    const ext = new oc.BRepExtrema_DistShapeShape();
+    const progress = new oc.Message_ProgressRange();
     try {
+      ext.LoadS1(s1.wrapped);
+      ext.LoadS2(s2.wrapped);
+      ext.Perform(progress);
       if (!ext.IsDone() || ext.NbSolution() < 1) throw new FeatureError('Distance could not be computed');
       const p1 = ext.PointOnShape1(1), p2 = ext.PointOnShape2(1);
       const out = { distance: ext.Value(), p1: xyz(p1), p2: xyz(p2) };
@@ -1170,6 +1178,7 @@ export class ModelBuilder {
       return out;
     } finally {
       ext.delete();
+      progress.delete();
     }
   }
 

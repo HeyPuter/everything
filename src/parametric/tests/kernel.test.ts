@@ -266,6 +266,17 @@ describe('feature regeneration', () => {
     expect(new DataView(stl.buffer).getUint32(80, true)).toBe(12);
   });
 
+  it('measures the minimum distance between faces, edges and points', async () => {
+    const b = new ModelBuilder();
+    await b.build(req([sketch('S1', rect(0, 0, 10, 10)), extrude('E1', 'S1', 10)]));
+    const caps = b.faceNames().flatMap((n, i) => (n.startsWith('E1:cap') ? [i] : []));
+    const r = b.measure({ kind: 'face', index: caps[0] }, { kind: 'face', index: caps[1] });
+    expect(r.distance).toBeCloseTo(10, 6);
+    const p = b.measure({ kind: 'vertex', p: [5, 5, 30] }, { kind: 'edge', index: 0 });
+    expect(p.distance).toBeGreaterThan(0);
+    expect(b.measure({ kind: 'vertex', p: [20, 5, 5] }, { kind: 'vertex', p: [20, 5, 8] }).distance).toBeCloseTo(3, 9);
+  });
+
   it('projects drawing views with visible and hidden lines', async () => {
     const b = new ModelBuilder();
     // 40 x 20 plate, 10 thick, with a hole through it.
