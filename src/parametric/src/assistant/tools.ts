@@ -7,6 +7,7 @@
 import type { MeasureTarget } from '../kernel/protocol';
 import type { Vec3 } from '../math/vec';
 import { cross, dot, len, normalize } from '../math/vec';
+import { changeUnits } from '../model/document';
 import { evaluate, evaluateVariables } from '../model/expr';
 import { consumedSketches, defaultName, dependencies, newSketch } from '../model/features';
 import { MATERIALS } from '../model/materials';
@@ -815,9 +816,15 @@ class Toolkit {
       patch.color = c.toLowerCase();
     }
     if (!Object.keys(patch).length) return 'Nothing to change.';
-    this.store.change('Part properties', (doc) => Object.assign(doc, patch));
+    const { units, ...rest } = patch;
+    let unlinked: string[] = [];
+    this.store.change('Part properties', (doc) => {
+      Object.assign(doc, rest);
+      // Expressions are in display units: convert them so the geometry keeps its size.
+      if (units) unlinked = changeUnits(doc, units);
+    });
     this.changed = true;
-    return `${this.ins.partHeader()}${patch.units ? ' From now on, lengths in tool arguments and results use the new unit.' : ''}`;
+    return `${this.ins.partHeader()}${units ? ' From now on, lengths in tool arguments and results use the new unit.' : ''}${unlinked.length ? ` These equations could not be converted and were replaced by their values: ${unlinked.join(', ')}.` : ''}`;
   }
 
   // ---------- view ----------

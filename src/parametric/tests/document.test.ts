@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DocStore, mapExpressions, newDocument, parseDocument, serializeDocument } from '../src/model/document';
+import { DocStore, changeUnits, mapExpressions, newDocument, parseDocument, serializeDocument } from '../src/model/document';
 import { defaultName, dependencies, newExtrude } from '../src/model/features';
 import type { ExtrudeFeature, Feature, SkDimension, SketchFeature } from '../src/model/types';
 import { rect, sketch } from './helpers';
@@ -124,5 +124,42 @@ describe('document store', () => {
     mapExpressions(doc, (src, kind) => { seen.push(`${kind}:${src}`); return `${src}!`; });
     expect(seen).toEqual(['variable:10', 'length:=W', 'length:=W/2']);
     expect([doc.variables[0].expr, (sk.constraints[sk.constraints.length - 1] as SkDimension).value, e.depth]).toEqual(['10!', '=W!', '=W/2!']);
+  });
+
+  it('converts expressions when the units change, so every value keeps its size', () => {
+    const doc = newDocument();
+    const sk = sketch('s1', rect(0, 0, 10, 10));
+    const dim = (id: string, value: string, type: SkDimension['type'] = 'distance') => ({ id, type, refs: [sk.entities[4].id], value, at: [0, 0], name: id.toUpperCase() } as SkDimension);
+    sk.constraints.push(dim('d1', '=Width/2'), dim('d2', '=Width - 2*Gap + 5'), dim('d3', '=Angle', 'angle'), dim('d4', '=Width*Ratio'), dim('d5', '=sqrt(Area)'), dim('d6', '=0.5in + Gap'));
+    const e = newExtrude('f1', 'Extrude1', 's1', false, 10);
+    e.depth = '=Depth';
+    doc.variables = [
+      { id: 'v1', name: 'Width', expr: '100' }, { id: 'v2', name: 'Gap', expr: 'Width/20' }, { id: 'v3', name: 'Angle', expr: '30' },
+      { id: 'v4', name: 'Ratio', expr: '0.25' }, { id: 'v5', name: 'Depth', expr: '12.7' }, { id: 'v6', name: 'Area', expr: '400' },
+      { id: 'v7', name: 'Count', expr: '4' },
+    ];
+    doc.features = [sk, e];
+    const store = new DocStore(doc);
+    const lengths = () => [...sk.constraints.filter((c) => c.id.startsWith('d')).map((c) => store.dimensionValue(c as SkDimension)), store.evalParam(e.depth, 'length')];
+    const was = lengths();
+    expect(changeUnits(doc, 'IPS')).toEqual([]);
+    expect(doc.units).toBe('IPS');
+    lengths().forEach((v, i) => expect(v).toBeCloseTo(was[i], 9));
+    // Lengths convert, plain ratios, angles, counts and links stay.
+    expect(doc.variables.map((v) => v.expr)).toEqual(['3.93700787402', 'Width/20', '30', '0.25', '0.5', '0.620001240002', '4']);
+    expect(sk.constraints.filter((c) => c.id.startsWith('d')).map((c) => (c as SkDimension).value)).toEqual(['=Width/2', '=Width - 2*Gap + 0.196850393701', '=Angle', '=Width*Ratio', '=sqrt(Area)', '=0.5in + Gap']);
+    expect(e.depth).toBe('=Depth');
+    changeUnits(doc, 'MMGS');
+    expect(doc.variables[0].expr).toBe('100');
+  });
+
+  it('keeps a value that cannot be converted as the number it was', () => {
+    const doc = newDocument();
+    const e = newExtrude('f1', 'Extrude1', 's1', false, 10);
+    e.depth = '=W*W';
+    doc.variables = [{ id: 'v1', name: 'W', expr: '5' }];
+    doc.features = [e];
+    expect(changeUnits(doc, 'IPS')).toEqual(['Extrude1 Depth']);
+    expect(e.depth).toBeCloseTo(25, 9);
   });
 });

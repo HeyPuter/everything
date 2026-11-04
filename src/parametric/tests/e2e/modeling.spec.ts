@@ -115,3 +115,31 @@ test('renaming a global variable keeps the dimensions, features and equations th
   await expect(page.locator('.ti.error')).toHaveCount(0);
   expect(errors).toEqual([]);
 });
+
+test('switching the part to inches keeps the size of values linked to equations', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  type Doc = { variables: { id: string; name: string; expr: string }[]; features: { id: string; depth?: unknown; constraints?: { id: string; value?: unknown }[] }[] };
+  type Handle = { store: { doc: Doc; change(l: string, fn: (d: Doc) => void): void }; whenBuilt(): Promise<void>; bbox: { min: number[]; max: number[] } | null };
+  const size = () => page.evaluate(async () => {
+    const a = (window as unknown as { __parametric: Handle }).__parametric;
+    await a.whenBuilt();
+    return a.bbox!.max.map((v, i) => Math.round((v - a.bbox!.min[i]) * 1000) / 1000);
+  });
+  await page.evaluate(() => (window as unknown as { __parametric: Handle }).__parametric.store.change('Link', (d) => {
+    d.variables = [{ id: 'v1', name: 'Width', expr: '60' }];
+    d.features.find((f) => f.id === 'f1')!.depth = '=Width/2';
+    d.features.find((f) => f.id === 's1')!.constraints!.find((c) => c.id === 'd1')!.value = '=Width';
+  }));
+  expect(await size()).toEqual([60, 40, 30]);
+  await page.evaluate(() => (window as unknown as { __parametric: { commands: { run(id: string): boolean } } }).__parametric.commands.run('properties'));
+  const dlg = page.getByRole('dialog', { name: 'Part Properties' });
+  await dlg.getByRole('combobox', { name: 'Unit system' }).selectOption('IPS');
+  await dlg.getByRole('button', { name: 'OK' }).click();
+  await expect(page.locator('.statusbar')).toContainText('IPS');
+  expect(await size()).toEqual([60, 40, 30]);
+  expect(await page.evaluate(() => (window as unknown as { __parametric: Handle }).__parametric.store.doc.features.find((f) => f.id === 'f1')!.depth)).toBe('=Width/2');
+  await expect(page.locator('.ti.error')).toHaveCount(0);
+  expect(errors).toEqual([]);
+});

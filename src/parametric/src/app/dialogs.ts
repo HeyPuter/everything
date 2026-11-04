@@ -5,7 +5,7 @@
 import type { Vec3 } from '../math/vec';
 import { dist, dot, normalize, sub } from '../math/vec';
 import { evaluateVariables, referencedNames, renameReferences } from '../model/expr';
-import { mapExpressions } from '../model/document';
+import { changeUnits, mapExpressions } from '../model/document';
 import type { MaterialRef, SkDimension, UnitSystem, Variable } from '../model/types';
 import { UNIT_SYSTEMS, formatNumber } from '../model/units';
 import { BASE_FRAMES } from '../model/planes';
@@ -158,11 +158,14 @@ export async function propertiesDialog(app: App) {
     buttons: [{ label: 'Cancel', value: 'cancel' }, { label: 'OK', value: 'ok', primary: true }],
   });
   if (v !== 'ok') return;
+  let unlinked: string[] = [];
   app.store.change('Part properties', (d) => {
     d.name = name.value.trim() || d.name;
-    d.units = units.value as UnitSystem;
+    // Expressions are written in the part's units: they are converted so the geometry keeps its size.
+    unlinked = changeUnits(d, units.value as UnitSystem);
     d.decimals = Math.max(0, Math.min(6, Math.round(Number(decimals.value) || 0)));
   });
+  if (unlinked.length) toast({ kind: 'warning', title: 'Some equations were replaced by their values', message: `These could not be converted to the new units and keep their size as plain numbers: ${unlinked.join(', ')}.`, timeout: 9000 });
   app.sketchEditor?.render();
 }
 
