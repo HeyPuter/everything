@@ -25,7 +25,7 @@ import { conditionalFormulaFields } from '../core/conditional-scale.js';
 import { imageToPng } from '../ui/picture-raster.js';
 
 import { isComposing, el, isMod, MOD_KEY, IS_MAC, formatBytes } from '../ui/dom.js';
-import { t } from '../i18n/index.js';
+import { t, formatDate as formatUiDate, formatNumber as formatUiNumber, formatList } from '../i18n/index.js';
 import { icon } from '../ui/icons.js';
 import { createGrid } from '../ui/grid.js';
 import { ACCOUNTING_CODE, accountingCode, isAccountingCode, FONT_SIZES, ptToPx, pxToPt } from '../ui/toolbar.js';
@@ -198,6 +198,8 @@ import { createLanguagePane } from '../ui/language-pane.js';
 import { translatePrompt } from '../core/formula/functions.js';
 
 const MAX_FORMAT_CELLS = 20000;
+/** Names (sheets, addresses) listed in a sentence: "A, B, C" in English, "A、B、C" in Chinese. */
+const nameList = (items) => formatList(items, { type: 'conjunction', style: 'narrow' });
 // What a protected sheet refuses (refusedByProtection) and what takes one range (oneRange): the callers name the
 // action in English, which picks the whole sentence said in the interface language.
 const PROTECTED_MESSAGES = {
@@ -1614,7 +1616,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     if (wb.externalAllowed !== false) return true;
     const web = queries.filter((q) => q.source?.kind === 'web').map((q) => q.source.url);
     if (!web.length) return true;
-    const ok = await confirmDialog({ title: t('common.refresh'), message: t('editor.external.queriesReadWeb', { urls: web.slice(0, 3).join(', '), more: String(web.length > 3) }), confirmLabel: t('editor.external.allow'), danger: false });
+    const ok = await confirmDialog({ title: t('common.refresh'), message: t('editor.external.queriesReadWeb', { urls: nameList(web.slice(0, 3)), more: String(web.length > 3) }), confirmLabel: t('editor.external.allow'), danger: false });
     if (ok) doc.allowExternal();
     return ok;
   }
@@ -1719,7 +1721,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         const ok = await confirmDialog({
           title: t('editor.longOperation.title'),
           message: t('editor.longOperation.message', { cells }),
-          confirmLabel: t('editor.longOperation.continue'), danger: false,
+          confirmLabel: t('editor.continue'), danger: false,
         });
         if (!ok || destroyed) { keepFocus(); return; }
       }
@@ -2120,13 +2122,13 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         const { patch = {}, border = null, borders: edgeBorders = null } = arg || {};
         const borders = (Array.isArray(edgeBorders) ? edgeBorders : border ? [border] : [])
           .map(b => ({ ...b, color: b.color ?? null, style: b.style ?? 'thin' }));
-        wb.transaction('Format cells', () => {
+        wb.transaction(t('editor.undo.formatCells'), () => {
           const fit = (sid, ranges) => {
             if (sid === grid.sheetId && (patch.wrap || patch.rot || patch.size)) for (const rg of ranges) grid.autoFitRows(rg.r1, Math.min(rg.r2, rg.r1 + 500));
           };
           if (nativeFormatRanges((sid, ranges) => formatNativePivotStyleAndBorders(wb, new Map([[sid, ranges]]), patch, borders,
             { maxCells: MAX_FORMAT_CELLS, defaultSize: 13 }), { cap: false, onApplied: fit })) return;
-          eachRange('Format cells', (rg, _, sid) => {
+          eachRange(t('editor.undo.formatCells'), (rg, _, sid) => {
             if (Object.keys(patch).length) wb.applyStyle(sid, rg, patch);
             for (const b of borders) wb.applyBorders(sid, rg, b.kind, b);
             fit(sid, [rg]);
@@ -2143,7 +2145,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         const sticky = arg === 'sticky';
         if (painter && sticky && onPainterSource()) {
           painter.sticky = true;
-          toast('Formatting copied. Select each range to paint; Escape stops', { icon: 'paint', duration: 3000 });
+          toast(t('editor.painter.copiedSticky'), { icon: 'paint', duration: 3000 });
           notify(); keepFocus();
           return;
         }
@@ -2154,14 +2156,14 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
           return;
         }
         const range = grid.range;
-        if ((range.r2 - range.r1 + 1) * (range.c2 - range.c1 + 1) > 10000) { toast('Select a smaller area to copy formatting from', { icon: 'info' }); return; }
+        if ((range.r2 - range.r1 + 1) * (range.c2 - range.c1 + 1) > 10000) { toast(t('editor.painter.tooLarge'), { icon: 'info' }); return; }
         // Merged blocks and conditional formatting are formatting too, and come along as Excel's painter brings them.
         const lines = (a, b) => Array.from({ length: b - a + 1 }, (_, k) => a + k);
         const rows = lines(range.r1, range.r2), cols = lines(range.c1, range.c2);
         painter = { cells: wb.copyRange(sheetId, range), range, sheetId, sticky,
           merges: copyMergeLayout(wb.sheet(sheetId).merges, rows, cols).ranges, conditionalFormats: wb.copyConditionalFormats(sheetId, rows, cols) };
         grid.el.classList.add('painting');
-        toast(sticky ? 'Formatting copied. Select each range to paint; Escape stops' : 'Formatting copied. Select the cells to paint (Escape cancels)', { icon: 'paint', duration: 3000 });
+        toast(sticky ? t('editor.painter.copiedSticky') : t('editor.painter.copied'), { icon: 'paint', duration: 3000 });
         notify();
         keepFocus();
         return;
@@ -2169,7 +2171,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       // The Clear menu: everything, notes, or links in the selection, each one undo step.
       case 'calcMode':
         wb.setCalcMode(arg);
-        toast(arg === 'manual' ? 'Manual calculation: press F9 to calculate' : arg === 'autoNoTable' ? 'Automatic calculation, but for data tables: press F9 to update them' : 'Automatic calculation', { icon: 'calculator', duration: 2200 });
+        toast(arg === 'manual' ? t('editor.calc.manual') : arg === 'autoNoTable' ? t('editor.calc.autoNoTable') : t('editor.calc.automatic'), { icon: 'calculator', duration: 2200 });
         notify(); keepFocus();
         return;
       case 'insertDialog': case 'deleteDialog':
@@ -2181,8 +2183,8 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         return;
       case 'clearAll':
         if (grid.editing) return;
-        wb.transaction('Clear All', () => {
-          if (eachRange('Clear All', (rg, skipRow, sid) => wb.clearRange(sid, rg, { contents: true, styles: true, skipRow }), { cap: false, skipRows: true }) !== null) clearRulesAndMerges();
+        wb.transaction(t('editor.undo.clearAll'), () => {
+          if (eachRange(t('editor.undo.clearAll'), (rg, skipRow, sid) => wb.clearRange(sid, rg, { contents: true, styles: true, skipRow }), { cap: false, skipRows: true }) !== null) clearRulesAndMerges();
           clearInSelection('notes');
           clearInSelection('links');
         });
@@ -2190,17 +2192,17 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         return;
       case 'clearNotes':
         if (!committed()) return;
-        wb.transaction('Clear Comments and Notes', () => clearInSelection('notes'));
+        wb.transaction(t('editor.undo.clearCommentsAndNotes'), () => clearInSelection('notes'));
         keepFocus();
         return;
       case 'clearLinks':
         if (!committed()) return;
-        wb.transaction('Clear Hyperlinks', () => clearInSelection('links'));
+        wb.transaction(t('editor.undo.clearHyperlinks'), () => clearInSelection('links'));
         keepFocus();
         return;
       case 'clear':
         if (grid.editing) return;
-        eachRange('Clear', (rg, skipRow) => wb.clearRange(sheetId, rg, { contents: true, skipRow }), { cap: false, skipRows: true, contents: true });
+        eachRange(t('editor.undo.clear'), (rg, skipRow) => wb.clearRange(sheetId, rg, { contents: true, skipRow }), { cap: false, skipRows: true, contents: true });
         keepFocus();
         return;
       case 'insertRows': {
@@ -2216,7 +2218,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         const [inserted, said] = refusalSaid(sheetId, () => wb.insertRows(sheetId, at, n));
         if (!inserted) {
           // A protected range or an array formula in the way has said so already; anything else is the sheet's edge.
-          if (!said && !wb.isProtected(sheetId)) toast(`${n === 1 ? 'The row' : 'The rows'} cannot be inserted here: cells would be pushed off the sheet`, { icon: 'alert', duration: 3500 });
+          if (!said && !wb.isProtected(sheetId)) toast(t('editor.insert.rowsOffSheet', { count: n }), { icon: 'alert', duration: 3500 });
           keepFocus();
           return;
         }
@@ -2238,7 +2240,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         if (wb.pivotLineEditBlocked(sheetId, 'col', at, n)) { keepFocus(); return; }
         const [inserted, said] = refusalSaid(sheetId, () => wb.insertCols(sheetId, at, n));
         if (!inserted) {
-          if (!said && !wb.isProtected(sheetId)) toast(`${n === 1 ? 'The column' : 'The columns'} cannot be inserted here: cells would be pushed off the sheet`, { icon: 'alert', duration: 3500 });
+          if (!said && !wb.isProtected(sheetId)) toast(t('editor.insert.columnsOffSheet', { count: n }), { icon: 'alert', duration: 3500 });
           keepFocus();
           return;
         }
@@ -2257,7 +2259,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         const [ok, said] = refusalSaid(sheetId, () => wb.insertCells(sheetId, range, sideways ? 'right' : 'down'));
         if (!ok) {
           if (!said && !wb.isProtected(sheetId)) toast(shiftProblem(sheetId, range, sideways ? 'col' : 'row', false)
-            || `The cells cannot be shifted: what is ${sideways ? 'to their right' : 'below them'} would be pushed past the edge of the sheet`, { icon: 'info', duration: 4000 });
+            || t('editor.shift.pastEdge', { side: sideways ? 'right' : 'down' }), { icon: 'info', duration: 4000 });
           return;
         }
         grid.setSelection(S.fromRange(range, grid.active), { scroll: false });
@@ -2325,7 +2327,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         if (refusedByProtection('sort')) return;
         if (!oneRange('sort')) return;
         // In a sheet view the filters are one's own, but sorting moves the rows themselves, for everyone.
-        if (wb.sheet(sheetId)?.personalView) toast('Sorting reorders the rows for everyone; in a sheet view only the filters are your own', { icon: 'info', duration: 3500 });
+        if (wb.sheet(sheetId)?.personalView) toast(t('editor.sort.sheetView'), { icon: 'info', duration: 3500 });
         let range = grid.range;
         const single = S.isSingle(grid.selection);
         const sheet = wb.sheet(sheetId);
@@ -2340,7 +2342,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         let widened = false;
         if (single || wholeCols) {
           range = single ? sortBlock() : wb.usedRange(sheetId);
-          if (!range) { toast('Nothing to sort', { icon: 'info' }); keepFocus(); return; }
+          if (!range) { toast(t('editor.nothingToSort'), { icon: 'info' }); keepFocus(); return; }
         } else {
           // Data right beside the selection would stay put while the selection's rows moved: offer the whole block.
           const block = sortExpansion(wb, sheetId, range);
@@ -2355,8 +2357,8 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         // The sort dialog's default header rule, shared so a quick sort and the dialog keep the same first row.
         if (r1 < range.r2 && sortHeaderDefault(wb, sheetId, range, { expanded: single || wholeCols || widened })) r1++;
         const rows = { ...range, r1, r2: Math.min(range.r2, sheet.rows - 1) };
-        if (!wb.sortRange(sheetId, rows, col, arg !== 'desc')) { toast(rearrangeProblem(wb, sheetId, rows, 'row') || 'Nothing to sort', { icon: 'info' }); keepFocus(); return; }
-        toast(arg === 'desc' ? 'Sorted Z to A' : 'Sorted A to Z');
+        if (!wb.sortRange(sheetId, rows, col, arg !== 'desc')) { toast(rearrangeProblem(wb, sheetId, rows, 'row') || t('editor.nothingToSort'), { icon: 'info' }); keepFocus(); return; }
+        toast(arg === 'desc' ? t('editor.sort.sortedZToA') : t('editor.sort.sortedAToZ'));
         keepFocus();
         return;
       }
@@ -2375,7 +2377,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
           // A row a filter hides is as invisible as one hidden by hand, so the landing skips both.
           const hiddenAt = (i) => (axis === 'row' ? wb.isRowHidden(sheetId, i) : sheet.hiddenCols.has(i));
           // The workbook keeps at least one line showing; asking to hide them all is told so rather than ignored (a protected sheet it reports itself).
-          if (wb.setHidden(sheetId, axis, indices, true) === false) { if (!(wb.sheetGroup || [sheetId]).some((id) => wb.isProtected(id))) toast(`Every ${axis === 'row' ? 'row' : 'column'} cannot be hidden: the sheet keeps at least one showing`, { icon: 'info', duration: 3000 }); keepFocus(); return; }
+          if (wb.setHidden(sheetId, axis, indices, true) === false) { if (!(wb.sheetGroup || [sheetId]).some((id) => wb.isProtected(id))) toast(t('editor.hide.keepOne', { axis: axis === 'row' ? 'row' : 'col' }), { icon: 'info', duration: 3000 }); keepFocus(); return; }
           // Land on the next visible line so the selection is not invisible.
           let next = to + 1;
           while (next < total && hiddenAt(next)) next++;
@@ -2398,16 +2400,15 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         const axis = arg === 'col' || arg === 'row' ? arg : wholeCols ? 'col' : 'row';
         const from = axis === 'row' ? r.r1 : r.c1;
         const to = axis === 'row' ? r.r2 : r.c2;
-        const what = axis === 'row' ? 'rows' : 'columns';
         if (cmd === 'group') {
           const refusal = wb.groupRefusal(sheetId, axis, from, to);
           const ok = wb.groupLines(sheetId, axis, from, to);
-          const why = refusal === 'depth' ? `Those ${what} cannot be grouped again: an outline goes at most eight levels deep`
-            : `Those ${what} cannot be grouped like that (a group may sit inside another, not across one)`;
-          toast(ok ? `Grouped ${what} ${axis === 'row' ? `${from + 1}–${to + 1}` : `${colName(from)}–${colName(to)}`}. Use the − button beside the headers to collapse` : why, { icon: ok ? 'check' : 'info', duration: 3200 });
+          const why = refusal === 'depth' ? t('editor.group.tooDeep', { axis })
+            : t('editor.group.across', { axis });
+          toast(ok ? t('editor.group.grouped', { axis, from: axis === 'row' ? String(from + 1) : colName(from), to: axis === 'row' ? String(to + 1) : colName(to) }) : why, { icon: ok ? 'check' : 'info', duration: 3200 });
         } else {
           const n = wb.ungroupLines(sheetId, axis, from, to);
-          toast(n ? `Ungrouped ${what}` : `No group of ${what} here`, { icon: n ? 'check' : 'info' });
+          toast(n ? t('editor.group.ungrouped', { axis }) : t('editor.group.noGroup', { axis }), { icon: n ? 'check' : 'info' });
         }
         keepFocus();
         return;
@@ -2456,12 +2457,11 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         ({ frozenRows: rows, frozenCols: cols } = sheet); // what was stored, within the workbook's limits
         // What the grid froze: a pane that would fill most of the window is not drawn, and its lines still scroll.
         const shown = grid.frozen;
-        const count = (n, noun) => `${n} ${noun}${n === 1 ? '' : 's'}`;
-        const both = (a, b) => [a, b].filter(Boolean).join(' and ');
-        const frozenText = both(shown.rows ? count(shown.rows, 'row') : '', shown.cols ? count(shown.cols, 'column') : '');
-        const dropped = both(rows && !shown.rows ? count(rows, 'row') : '', cols && !shown.cols ? count(cols, 'column') : '');
-        const droppedText = dropped ? `${dropped} would fill most of the window, so ${dropped.includes(' and ') || !dropped.startsWith('1 ') ? 'they are' : 'it is'} not frozen` : '';
-        if (frozenText || dropped) toast([frozenText ? `Frozen ${frozenText}` : '', droppedText].filter(Boolean).join('. '), { icon: 'pin', duration: dropped ? 3200 : 1600 });
+        // What was frozen, and what was not because it would fill the window: rows, columns or both of each.
+        const said = (r, c, [both, onlyRows, onlyCols]) => (r && c ? t(both, { rows: r, cols: c }) : r ? t(onlyRows, { count: r }) : c ? t(onlyCols, { count: c }) : '');
+        const frozenText = said(shown.rows, shown.cols, ['editor.freeze.frozenBoth', 'editor.freeze.frozenRows', 'editor.freeze.frozenCols']);
+        const droppedText = said(rows && !shown.rows ? rows : 0, cols && !shown.cols ? cols : 0, ['editor.freeze.droppedBoth', 'editor.freeze.droppedRows', 'editor.freeze.droppedCols']);
+        if (frozenText || droppedText) toast(frozenText && droppedText ? t('editor.freeze.frozenAndDropped', { frozen: frozenText, dropped: droppedText }) : frozenText || droppedText, { icon: 'pin', duration: droppedText ? 3200 : 1600 });
         keepFocus();
         return;
       }
@@ -2482,21 +2482,21 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
           // read that its column was unavailable and the workbook could no longer be saved), and buttons hidden from
           // Table Design could not be brought back from here.
           const on = tableFilterButtonOn(wb, sheetId, table);
-          wb.transaction(on ? 'Remove filter' : 'Filter', () => {
-            if (on && Object.keys(filter.criteria).length) wb._setFilter(sheet, { ...filter, criteria: {} }, 'Remove filter', { target: filter });
+          wb.transaction(on ? t('editor.undo.removeFilter') : t('editor.undo.filter'), () => {
+            if (on && Object.keys(filter.criteria).length) wb._setFilter(sheet, { ...filter, criteria: {} }, t('editor.undo.removeFilter'), { target: filter });
             const problem = setTableFilterButton(wb, sheetId, table.id, !on);
             if (problem) toast(problem, { icon: 'info', duration: 3000 });
           });
-          if (tableFilterButtonOn(wb, sheetId, table) !== on) toast(on ? 'Filter removed' : 'Filter added. Use the buttons in the header row', { icon: 'filter' });
+          if (tableFilterButtonOn(wb, sheetId, table) !== on) toast(on ? t('editor.filter.removed') : t('editor.filter.added'), { icon: 'filter' });
           keepFocus();
           return;
         }
-        if (filter) { wb.activateFilter(sheetId, filter); wb.clearFilter(sheetId); toast('Filter removed', { icon: 'filter' }); keepFocus(); return; }
+        if (filter) { wb.activateFilter(sheetId, filter); wb.clearFilter(sheetId); toast(t('editor.filter.removed'), { icon: 'filter' }); keepFocus(); return; }
         if (!oneRange('create a filter')) return;
         const range = dataRange();
-        if (!range || range.r1 >= range.r2) { toast('Select at least two rows, with headers on top', { icon: 'info' }); keepFocus(); return; }
+        if (!range || range.r1 >= range.r2) { toast(t('editor.filter.needTwoRows'), { icon: 'info' }); keepFocus(); return; }
         wb.setFilterRange(sheetId, range);
-        toast('Filter added. Use the buttons in the header row', { icon: 'filter' });
+        toast(t('editor.filter.added'), { icon: 'filter' });
         keepFocus();
         return;
       }
@@ -2507,7 +2507,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         if (refusedByProtection('sort')) { keepFocus(); return; }
         if (!oneRange('sort')) return;
         let range = sortBlock();
-        if (!range) { toast('Nothing to sort', { icon: 'info' }); return; }
+        if (!range) { toast(t('editor.nothingToSort'), { icon: 'info' }); return; }
         // An explicit selection with data beside it is offered the whole block, as the quick sort offers it.
         const block = !S.isSingle(grid.selection) && sortExpansion(wb, sheetId, range);
         let widened = false;
@@ -2524,7 +2524,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       case 'aiExplain': if (!committed()) return; openAiDialog(ctx, { mode: 'explain' }); return;
       case 'aiAsk': if (!committed()) return; openAiDialog(ctx, { mode: 'ask' }); return;
       case 'aiPanel':
-        if (!aiPanel || !P.canAI()) { toast(appOption('aiFeatures') ? 'AI is not available here' : 'AI features are turned off in Options ▸ Privacy', { icon: 'info' }); return; }
+        if (!aiPanel || !P.canAI()) { toast(appOption('aiFeatures') ? t('editor.ai.unavailable') : t('editor.ai.turnedOff'), { icon: 'info' }); return; }
         // Opened from the keyboard mid-entry, the panel leaves the focus on the cell being typed into.
         if (arg === false || (arg == null && aiPanel.isOpen)) aiPanel.close();
         else aiPanel.open({ focus: !grid.editing, prompt: typeof arg === 'string' ? arg : null });
@@ -2541,18 +2541,18 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         if (existing) { openTableDialog(ctx, { table: existing }); return; }
         if (!oneRange('create a table')) return;
         const range = dataRange(grid.range);
-        if (range.r1 >= range.r2) { toast('Select the header row and at least one row of data', { icon: 'info' }); return; }
+        if (range.r1 >= range.r2) { toast(t('editor.table.needData'), { icon: 'info' }); return; }
         openTableDialog(ctx, { range, style: preset });
         return;
       }
       case 'formatAsTableMenu': {
         // Home ▸ Format as Table: the table styles as a gallery of samples.
         const anchor = arg instanceof HTMLElement ? arg : null;
-        const gallery = el('div.table-gallery', { role: 'group', 'aria-label': 'Table styles' }, ...TABLE_STYLES.map(([key, label, look]) => el('button.table-gallery-item', {
-          type: 'button', role: 'menuitem', title: label, 'aria-label': `${label} table style`, onclick: () => { menu.close(); run('insertTable', { style: key }); },
+        const gallery = el('div.table-gallery', { role: 'group', 'aria-label': t('editor.table.styles') }, ...TABLE_STYLES.map(([key, label, look]) => el('button.table-gallery-item', {
+          type: 'button', role: 'menuitem', title: label, 'aria-label': t('editor.table.styleLabel', { label }), onclick: () => { menu.close(); run('insertTable', { style: key }); },
         }, el('span.ribbon-table-sample', { 'aria-hidden': 'true', style: { '--table-head': look.header, '--table-band': look.band } },
           ...Array.from({ length: 12 }, (_, i) => el('span', { dataset: { row: Math.floor(i / 3) } }))), el('span.table-gallery-label', {}, label))));
-        const menu = openMenu({ anchor, label: 'Format as Table', minWidth: 300, items: [{ header: 'Table styles' }, { custom: gallery }, { separator: true }, { label: 'New Table…', icon: 'table', onSelect: () => run('insertTable') }] });
+        const menu = openMenu({ anchor, label: t('editor.table.formatAsTable'), minWidth: 300, items: [{ header: t('editor.table.styles') }, { custom: gallery }, { separator: true }, { label: t('editor.table.newTable'), icon: 'table', onSelect: () => run('insertTable') }] });
         gallery.querySelector('button')?.focus();
         return;
       }
@@ -2563,7 +2563,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         const tx = wb.tableById(arg.sheetId, arg.id);
         if (!tx) return;
         const sheet = wb.sheet(arg.sheetId);
-        if (sheet.veryHidden) { toast(`${sheet.name} is very hidden, so its tables cannot be opened from here`, { icon: 'info', duration: 3500 }); return; }
+        if (sheet.veryHidden) { toast(t('editor.table.veryHidden', { name: sheet.name }), { icon: 'info', duration: 3500 }); return; }
         if (arg.sheetId !== wb.activeSheetId) wb.setActiveSheet(arg.sheetId);
         if (arg.sheetId !== wb.activeSheetId) return;
         grid.setSelection(S.fromRange(tx.range, { r: tx.range.r1, c: tx.range.c1 }));
@@ -2606,7 +2606,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         const pivot = nativePivotAt(wb, sheetId, grid.active.r, grid.active.c);
         if (cmd === 'insertTimeline') {
           if (pivot) openInsertTimelineDialog(ctx, pivot);
-          else toast('Select a cell in a PivotTable that has a date field to insert a timeline', { icon: 'info', duration: 3000 });
+          else toast(t('editor.timeline.needDatePivot'), { icon: 'info', duration: 3000 });
           return;
         }
         const problem = tx ? tableSlicerProblem(wb, sheetId, tx) : pivot ? null : tableSlicerProblem(wb, sheetId, null);
@@ -2615,14 +2615,14 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         return;
       }
       case 'tableRename': {
-        if (grid.editing) return 'Finish the cell entry before renaming the table.';
-        if (refusedByProtection('rename the table')) return 'Unprotect the sheet to rename the table.';
+        if (grid.editing) return t('editor.table.renameFinishEntry');
+        if (refusedByProtection('rename the table')) return t('editor.table.renameUnprotect');
         const tx = wb.tableAt(sheetId, grid.active.r, grid.active.c);
-        if (!tx || tx.id !== arg?.id) return 'Select this table before renaming it.';
+        if (!tx || tx.id !== arg?.id) return t('editor.table.renameSelect');
         const name = String(arg.name ?? '').trim();
         const problem = wb.validateTableName(name, tx.name);
         if (problem) return problem;
-        return wb.updateTable(sheetId, tx.id, { name }) ? null : 'The table could not be renamed.';
+        return wb.updateTable(sheetId, tx.id, { name }) ? null : t('editor.table.renameFailed');
       }
       case 'tableOption': case 'tableStyle': case 'tableConvert': {
         // Contextual ribbon and menus share the workbook's existing table transactions.
@@ -2664,7 +2664,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         if (refusedByProtection('add or remove subtotals')) { keepFocus(); return; }
         if (!oneRange('add subtotals')) return;
         const range = dataRange();
-        if (!range) { toast('Nothing to subtotal', { icon: 'info' }); return; }
+        if (!range) { toast(t('editor.nothingToSubtotal'), { icon: 'info' }); return; }
         openSubtotalDialog(ctx, range);
         return;
       }
@@ -2680,7 +2680,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       case 'saveCellStyle': {
         if (!arg?.def) return;
         const n = saveCellStyle(wb, arg);
-        toast(arg.oldName ? `Style ${arg.def.name} saved${n ? `; ${n} cell${n === 1 ? '' : 's'} updated` : ''}` : `Style ${arg.def.name} added to Cell Styles`, { icon: 'paint', duration: 2600 });
+        toast(arg.oldName ? (n ? t('editor.style.savedUpdated', { name: arg.def.name, count: n }) : t('editor.style.saved', { name: arg.def.name })) : t('editor.style.added', { name: arg.def.name }), { icon: 'paint', duration: 2600 });
         keepFocus();
         return;
       }
@@ -2688,14 +2688,14 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         if (!committed()) return;
         const ref = typeof arg === 'string' ? (cellStyle(arg) ? { builtin: arg } : { custom: arg }) : arg;
         if (ref?.builtin) {
-          if (!builtinOverride(wb, ref.builtin)) { toast('Built-in styles stay in the gallery. Modify one to change it for this spreadsheet', { icon: 'info', duration: 3200 }); return; }
+          if (!builtinOverride(wb, ref.builtin)) { toast(t('editor.style.builtinStays'), { icon: 'info', duration: 3200 }); return; }
           deleteCellStyle(wb, ref);
-          toast(`${cellStyle(ref.builtin).label} is as built in again`, { icon: 'check' });
+          toast(t('editor.style.restored', { name: cellStyle(ref.builtin).label }), { icon: 'check' });
           keepFocus();
           return;
         }
         if (!customStyleNamed(wb, ref?.custom)) return;
-        const ok = await confirmDialog({ title: `Delete style "${ref.custom}"?`, message: 'Cells formatted with it keep their formatting. You can undo this.', confirmLabel: 'Delete style' });
+        const ok = await confirmDialog({ title: t('editor.style.deleteTitle', { name: ref.custom }), message: t('editor.style.deleteMessage'), confirmLabel: t('editor.style.delete') });
         if (ok) deleteCellStyle(wb, ref);
         keepFocus();
         return;
@@ -2713,7 +2713,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         // A single cell outlines the whole sheet; a selected block only what lies in it.
         const rg = grid.range;
         const n = autoOutline(wb, sheetId, rg.r1 === rg.r2 && rg.c1 === rg.c2 ? null : rg);
-        toast(n ? `Outline built: ${n} group${n === 1 ? '' : 's'} from the summary formulas` : 'No summary formulas (such as SUM or SUBTOTAL next to the cells they total) to build an outline from', { icon: n ? 'check' : 'info', duration: 3600 });
+        toast(n ? t('editor.outline.builtFromFormulas', { count: n }) : t('editor.outline.noFormulasExplained'), { icon: n ? 'check' : 'info', duration: 3600 });
         keepFocus();
         return;
       }
@@ -2722,7 +2722,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         if (refusedByProtection('clear the outline')) return;
         const rg = grid.range;
         const whole = (rg.r1 === rg.r2 && rg.c1 === rg.c2) || (wholeLines(rg, 'col', sheetId) && wholeLines(rg, 'row', sheetId));
-        toast(clearOutline(wb, sheetId, whole ? null : rg) ? 'Outline cleared' : 'No outline here to clear', { icon: 'info' });
+        toast(clearOutline(wb, sheetId, whole ? null : rg) ? t('editor.outline.cleared') : t('editor.outline.nothingToClear'), { icon: 'info' });
         keepFocus();
         return;
       }
@@ -2735,13 +2735,13 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         // From the dialog: keep its settings, then Create or Apply Styles with them, as one step.
         let made = 0;
         let styled = true;
-        wb.transaction(arg.then === 'create' ? 'Auto Outline' : arg.then === 'styles' ? 'Apply outline styles' : 'Outline settings', () => {
+        wb.transaction(arg.then === 'create' ? t('editor.undo.autoOutline') : arg.then === 'styles' ? t('editor.undo.applyOutlineStyles') : t('editor.undo.outlineSettings'), () => {
           wb.setOutlineSettings(sheetId, arg.settings);
           if (arg.then === 'create') made = autoOutline(wb, sheetId);
           if (arg.then === 'styles') styled = applyOutlineStyles(wb, sheetId);
         });
-        if (arg.then === 'create') toast(made ? `Outline built: ${made} group${made === 1 ? '' : 's'}` : 'No summary formulas to build an outline from', { icon: made ? 'check' : 'info', duration: 3200 });
-        if (arg.then === 'styles' && !styled) toast('There is no outline to style yet', { icon: 'info' });
+        if (arg.then === 'create') toast(made ? t('editor.outline.built', { count: made }) : t('editor.outline.noFormulas'), { icon: made ? 'check' : 'info', duration: 3200 });
+        if (arg.then === 'styles' && !styled) toast(t('editor.outline.noneToStyle'), { icon: 'info' });
         grid.refresh();
         keepFocus();
         return;
@@ -2752,28 +2752,28 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         // Every selected range, and only the rows a filter shows, as clearing and formatting cover them; one undo step.
         let n = 0;
         let refused = false;
-        const done = eachRange(arg === 'number' ? 'Convert to numbers' : 'Change text', (rg) => {
+        const done = eachRange(arg === 'number' ? t('editor.undo.convertToNumbers') : t('editor.undo.changeText'), (rg) => {
           const changed = wb.transformText(sheetId, rg, arg);
           if (changed === false) refused = true; else n += changed;
         }, { cap: false });
         // A protected cell refused the change; the workbook's notice has named it.
         if (done === null || (!n && refused)) { keepFocus(); return; }
-        const label = { trim: 'Trimmed', upper: 'Uppercased', lower: 'Lowercased', proper: 'Capitalized', number: 'Converted' }[arg] || 'Changed';
-        toast(n ? `${label} ${n} cell${n === 1 ? '' : 's'}` : arg === 'number' ? 'No text that reads as a number' : 'No text to change', { icon: n ? 'check' : 'info' });
+        const said = { trim: 'editor.textCase.trimmed', upper: 'editor.textCase.uppercased', lower: 'editor.textCase.lowercased', proper: 'editor.textCase.capitalized', number: 'editor.textCase.converted' }[arg] || 'editor.textCase.changed';
+        toast(n ? t(said, { count: n }) : arg === 'number' ? t('editor.textCase.noNumbers') : t('editor.textCase.noText'), { icon: n ? 'check' : 'info' });
         keepFocus();
         return;
       }
       case 'textMenu': {
         const anchor = arg instanceof HTMLElement ? arg : null;
         openMenu({
-          anchor, x: anchor ? null : (arg?.x ?? null), y: anchor ? null : (arg?.y ?? null), label: 'Change text',
+          anchor, x: anchor ? null : (arg?.x ?? null), y: anchor ? null : (arg?.y ?? null), label: t('editor.textCase.menu'),
           items: [
-            { label: 'Trim whitespace', icon: 'text', onSelect: () => run('textCase', 'trim') },
-            { label: 'UPPERCASE', icon: 'text', onSelect: () => run('textCase', 'upper') },
-            { label: 'lowercase', icon: 'text', onSelect: () => run('textCase', 'lower') },
-            { label: 'Capitalize Each Word', icon: 'text', onSelect: () => run('textCase', 'proper') },
+            { label: t('editor.textCase.trim'), icon: 'text', onSelect: () => run('textCase', 'trim') },
+            { label: t('editor.textCase.upper'), icon: 'text', onSelect: () => run('textCase', 'upper') },
+            { label: t('editor.textCase.lower'), icon: 'text', onSelect: () => run('textCase', 'lower') },
+            { label: t('editor.textCase.proper'), icon: 'text', onSelect: () => run('textCase', 'proper') },
             { separator: true },
-            { label: 'Convert text to numbers', icon: 'number', onSelect: () => run('textCase', 'number') },
+            { label: t('editor.textCase.toNumbers'), icon: 'number', onSelect: () => run('textCase', 'number') },
           ],
           onClose: () => keepFocus(),
         });
@@ -2782,18 +2782,18 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       case 'splitTextMenu': {
         // Which separator: detected, or one of the usual ones, or typed.
         const anchor = arg instanceof HTMLElement ? arg : null;
-        const options = [['auto', 'Detect automatically'], [',', 'Comma'], [';', 'Semicolon'], ['\t', 'Tab'], [' ', 'Space'], ['|', 'Pipe |'], ['/', 'Slash /'], ['-', 'Dash -']];
+        const options = [['auto', t('editor.split.detect')], [',', t('editor.split.comma')], [';', t('editor.split.semicolon')], ['\t', t('editor.split.tab')], [' ', t('editor.split.space')], ['|', t('editor.split.pipe')], ['/', t('editor.split.slash')], ['-', t('editor.split.dash')]];
         openMenu({
-          anchor, x: anchor ? null : (arg?.x ?? null), y: anchor ? null : (arg?.y ?? null), label: 'Split text on', minWidth: 200,
+          anchor, x: anchor ? null : (arg?.x ?? null), y: anchor ? null : (arg?.y ?? null), label: t('editor.split.menu'), minWidth: 200,
           items: [
-            { header: 'Separator' },
+            { header: t('editor.split.separator') },
             ...options.map(([d, label]) => ({ label, onSelect: () => run('splitText', d === 'auto' ? null : d) })),
             { separator: true },
-            { label: 'Custom…', onSelect: async () => {
-              const d = await promptDialog({ title: 'Split text', label: 'Separator', value: '', confirmLabel: 'Split', validate: (v) => (v.length ? null : 'Enter a separator') });
+            { label: t('editor.split.custom'), onSelect: async () => {
+              const d = await promptDialog({ title: t('editor.split.title'), label: t('editor.split.separator'), value: '', confirmLabel: t('editor.split.split'), validate: (v) => (v.length ? null : t('editor.split.enterSeparator')) });
               if (d != null) run('splitText', d); else keepFocus();
             } },
-            { label: 'Text to Columns…', icon: 'textToColumns', onSelect: () => run('splitTextDialog') },
+            { label: t('editor.split.textToColumns'), icon: 'textToColumns', onSelect: () => run('splitTextDialog') },
           ],
           onClose: () => keepFocus(),
         });
@@ -2812,7 +2812,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         // The pieces land right of each text: a cell there that holds something is asked about first,
         // rather than written over unasked.
         if (splitWouldOverwrite(arg || null)) {
-          const replace = await confirmDialog({ title: 'Split text to columns', message: 'The destination cells already contain data. Overwrite them?', confirmLabel: 'Overwrite', cancelLabel: 'Cancel', danger: true });
+          const replace = await confirmDialog({ title: t('editor.split.toColumnsTitle'), message: t('editor.split.overwriteMessage'), confirmLabel: t('editor.split.overwrite'), cancelLabel: t('common.cancel'), danger: true });
           if (destroyed) return;
           if (!replace) { keepFocus(); return; }
         }
@@ -2828,16 +2828,16 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
           reason ??= out.reason;
         };
         // Pieces sent elsewhere keep the rows of the text they came from, so the selection is read whole, once.
-        const done = dest ? (wb.lockedIn(sheetId, { ...grid.range, c2: grid.range.c1 }) ? null : splitOne(grid.range)) : eachRange('Split text', splitOne, { cap: false });
+        const done = dest ? (wb.lockedIn(sheetId, { ...grid.range, c2: grid.range.c1 }) ? null : splitOne(grid.range)) : eachRange(t('editor.undo.splitText'), splitOne, { cap: false });
         if (done === null) { keepFocus(); return; } // a protected cell among the selected ranges; the workbook's notice has named it
-        const problem = { room: "Can't split: the pieces would run past the last column", merged: "Can't split: the pieces would land under merged cells" }[reason];
+        const problem = reason === 'room' ? t('editor.split.noRoom') : reason === 'merged' ? t('editor.split.merged') : undefined;
         if (!rows) {
           // A protected cell right of the text refused the split; the workbook's notice has named it.
-          if (reason !== 'protected') toast(problem || (typeof arg === 'string' && arg ? `No text containing "${arg === '\t' ? 'a tab' : arg}" to split` : 'No text with a separator to split'), { icon: 'info' });
+          if (reason !== 'protected') toast(problem || (typeof arg === 'string' && arg ? (arg === '\t' ? t('editor.split.noTextWithTab') : t('editor.split.noTextWith', { separator: arg })) : t('editor.split.noTextWithSeparator')), { icon: 'info' });
           keepFocus();
           return;
         }
-        toast(`Split ${rows} cell${rows === 1 ? '' : 's'} into ${cols} columns`);
+        toast(t('editor.split.done', { rows, cols }));
         // A range the split had to refuse is not passed over in silence.
         if (problem) toast(problem, { icon: 'info' });
         const range = grid.range;
@@ -2852,11 +2852,11 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         if (refusedByProtection('shuffle rows')) return;
         if (!oneRange('shuffle rows')) return;
         let range = dataRange();
-        if (!range || range.r1 >= range.r2) { toast('Select at least two rows to shuffle', { icon: 'info' }); keepFocus(); return; }
+        if (!range || range.r1 >= range.r2) { toast(t('editor.shuffle.needTwoRows'), { icon: 'info' }); keepFocus(); return; }
         if (looksLikeHeader(wb, sheetId, range)) range = { ...range, r1: range.r1 + 1 };
         const moved = wb.shuffleRows(sheetId, range);
         // Protected cells, a table's edge, merges or an array result refuse the shuffle: say which, as the sort does.
-        toast(moved ? `Shuffled ${range.r2 - range.r1 + 1} rows` : rearrangeProblem(wb, sheetId, range, 'row', 'shuffle') || 'Nothing to shuffle', { icon: moved ? 'check' : 'info' });
+        toast(moved ? t('editor.shuffle.done', { count: range.r2 - range.r1 + 1 }) : rearrangeProblem(wb, sheetId, range, 'row', 'shuffle') || t('editor.shuffle.nothing'), { icon: moved ? 'check' : 'info' });
         if (moved) grid.setSelection(S.fromRange(range, { r: range.r1, c: range.c1 }), { scroll: false });
         keepFocus();
         return;
@@ -2866,7 +2866,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         if (refusedByProtection('remove rows')) return;
         if (!oneRange('remove empty rows')) return;
         const range = dataRange();
-        if (!range) { toast('Nothing to check', { icon: 'info' }); keepFocus(); return; }
+        if (!range) { toast(t('editor.nothingToCheck'), { icon: 'info' }); keepFocus(); return; }
         // A protected range can keep every empty row: the workbook's notice names it, and "no empty rows" would contradict it.
         let refused = false;
         const onProtection = ({ detail }) => { if (detail?.type === 'protected' && detail.sheetId === sheetId) refused = true; };
@@ -2874,7 +2874,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         let removed;
         try { removed = wb.removeEmptyRows(sheetId, range); } finally { wb.removeEventListener('change', onProtection); }
         if (!removed && refused) { keepFocus(); return; }
-        toast(removed ? `Removed ${removed} empty row${removed === 1 ? '' : 's'}` : 'No empty rows in the selection', { icon: removed ? 'check' : 'info' });
+        toast(removed ? t('editor.emptyRows.removed', { count: removed }) : t('editor.emptyRows.none'), { icon: removed ? 'check' : 'info' });
         if (removed) {
           // The selection shrinks to the rows left; an active cell that sat below them moves up into the last one.
           const r2 = Math.max(range.r1, range.r2 - removed);
@@ -2891,17 +2891,17 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         // around the cell stopped at a blank row inside it.
         const inTable = S.isSingle(grid.selection) && wb.tableAt(sheetId, grid.active.r, grid.active.c);
         let range = inTable ? { ...inTable.range, r2: inTable.range.r2 - (inTable.totalsRow ? 1 : 0) } : dataRange();
-        if (!range) { toast('Nothing to check', { icon: 'info' }); return; }
+        if (!range) { toast(t('editor.nothingToCheck'), { icon: 'info' }); return; }
         // Data beside an explicit selection would stay put while the selection's duplicates went and the rows
         // below them moved up: the whole block is offered first, as for a sort.
         const block = !S.isSingle(grid.selection) && sortExpansion(wb, sheetId, range);
         let widened = false;
         if (block) {
-          const expand = await confirmSortExpansion({ title: 'Remove duplicates warning', verb: 'removed', action: 'Continue' });
+          const expand = await confirmSortExpansion({ title: t('editor.dedupe.warningTitle'), verb: 'removed', action: t('editor.continue') });
           if (expand == null) return;
           if (expand) { range = block; widened = true; }
         }
-        if (range.r1 >= range.r2) { toast('Select at least two rows', { icon: 'info' }); return; }
+        if (range.r1 >= range.r2) { toast(t('editor.dedupe.needTwoRows'), { icon: 'info' }); return; }
         openDedupeDialog(ctx, range, { expanded: widened });
         return;
       }
@@ -2924,21 +2924,21 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         const to = isCol ? r.c2 : r.r2;
         const current = isCol ? wb.colWidth(sheetId, from) || 100 : wb.rowHeight(sheetId, from) || 26;
         const n = to - from + 1;
-        const what = isCol ? `column${n === 1 ? '' : 's'}` : `row${n === 1 ? '' : 's'}`;
         const min = isCol ? MIN_COL_WIDTH : MIN_ROW_HEIGHT;
         const max = isCol ? MAX_COL_WIDTH : MAX_ROW_HEIGHT;
         const text = await promptDialog({
-          title: isCol ? 'Column width' : 'Row height',
-          label: `${isCol ? 'Width' : 'Height'} in pixels for ${n === 1 ? `${what} ${isCol ? colName(from) : from + 1}` : `${n} ${what}`}`,
-          value: String(current), confirmLabel: 'Resize',
-          validate: (v) => (/^\d+$/.test(v) && Number(v) >= min && Number(v) <= max ? null : `Enter a number from ${min} to ${max}`),
+          title: isCol ? t('editor.resize.columnWidth') : t('editor.resize.rowHeight'),
+          label: isCol ? (n === 1 ? t('editor.resize.widthOne', { column: colName(from) }) : t('editor.resize.widthMany', { count: n }))
+            : n === 1 ? t('editor.resize.heightOne', { row: from + 1 }) : t('editor.resize.heightMany', { count: n }),
+          value: String(current), confirmLabel: t('editor.resize.resize'),
+          validate: (v) => (/^\d+$/.test(v) && Number(v) >= min && Number(v) <= max ? null : t('editor.resize.invalid', { min, max })),
         });
         // Cancelled, the keyboard goes back to the sheet as after a size given, not to the ribbon button that asked.
         if (text == null) { keepFocus(); return; }
         const px = Number(text);
         // Every row (or column) of the sheet: its default size, not a size of their own for a million rows.
         if (wholeLines(r, isCol ? 'row' : 'col', sheetId)) { wb.setDefaultLineSize(sheetId, isCol ? 'col' : 'row', px); keepFocus(); return; }
-        wb.transaction(isCol ? 'Resize columns' : 'Resize rows', () => {
+        wb.transaction(isCol ? t('editor.undo.resizeColumns') : t('editor.undo.resizeRows'), () => {
           for (let i = from; i <= to; i++) {
             if (isCol) wb.setColWidth(sheetId, i, px);
             else wb.setRowHeight(sheetId, i, px);
@@ -2951,8 +2951,8 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         // The columns of every selected range, as one undo step, once the entry has gone in (as for fitRows).
         if (!committed()) return;
         let fitted = false;
-        wb.transaction('Fit columns', () => { for (const { from, to } of lineRuns(grid.ranges, 'col')) if (autofitColumns(from, to)) fitted = true; });
-        if (!fitted) toast('Nothing to fit: the selected columns are empty', { icon: 'info' });
+        wb.transaction(t('editor.undo.fitColumns'), () => { for (const { from, to } of lineRuns(grid.ranges, 'col')) if (autofitColumns(from, to)) fitted = true; });
+        if (!fitted) toast(t('editor.nothingToFit'), { icon: 'info' });
         keepFocus();
         return;
       }
@@ -2969,7 +2969,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         const ranges = cmd === 'fillDown' || cmd === 'fillRight' ? grid.ranges.map((rg) => toUsedExtent(rg, sheetId)) : grid.ranges;
         if (ranges.some((rg) => wb.lockedIn(sheetId, rg))) { keepFocus(); return; }
         const direction = { fillDown: 'down', fillRight: 'right', fillUp: 'up', fillLeft: 'left' }[cmd];
-        wb.transaction('Fill', () => { for (const rg of ranges) wb.fillDirection(sheetId, rg, direction); });
+        wb.transaction(t('editor.undo.fill'), () => { for (const rg of ranges) wb.fillDirection(sheetId, rg, direction); });
         keepFocus();
         return;
       }
@@ -2988,7 +2988,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       case 'insertCopiedCells': {
         if (!committed()) return;
         if (arg === 'down' || arg === 'right') { await pasteFromClipboard({ mode: arg === 'down' ? 'insertDown' : 'insertRight' }); return; }
-        if (!clip) { toast('Copy cells first, then insert them', { icon: 'info' }); keepFocus(); return; }
+        if (!clip) { toast(t('editor.insertCopied.copyFirst'), { icon: 'info' }); keepFocus(); return; }
         openInsertPasteDialog({ range: { r1: 0, c1: 0, r2: (clip.rows?.length || 1) - 1, c2: (clip.cols?.length || 1) - 1 },
           onInsert: (direction) => run('insertCopiedCells', direction), onClose: () => keepFocus() });
         return;
@@ -3000,8 +3000,8 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         if (refusedByProtection('replace formulas')) return;
         // Every selected range, without the rows a filter hides: what is on screen is what freezes, as when clearing.
         let n = 0;
-        if (eachRange('Replace formulas with values', (rg) => { n += wb.formulasToValues(sheetId, rg); }, { cap: false }) === null) { keepFocus(); return; }
-        toast(n ? `Replaced ${n} formula${n === 1 ? '' : 's'} with ${n === 1 ? 'its value' : 'their values'}` : 'No formulas in the selection (errors are left as they are)', { icon: n ? 'check' : 'info', duration: 2500 });
+        if (eachRange(t('editor.undo.replaceFormulas'), (rg) => { n += wb.formulasToValues(sheetId, rg); }, { cap: false }) === null) { keepFocus(); return; }
+        toast(n ? t('editor.formulasToValues.done', { count: n }) : t('editor.formulasToValues.none'), { icon: n ? 'check' : 'info', duration: 2500 });
         keepFocus();
         return;
       }
@@ -3017,7 +3017,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         revealFrom = wb.version;
         let n;
         try { n = wb[cmd](Number(arg) || 1); } finally { historyMove = 'push'; revealFrom = null; }
-        toast(`${cmd === 'undoSteps' ? 'Undid' : 'Redid'} ${n} step${n === 1 ? '' : 's'}`, { icon: cmd === 'undoSteps' ? 'undo' : 'redo', duration: 1500 });
+        toast(cmd === 'undoSteps' ? t('editor.history.undid', { count: n }) : t('editor.history.redid', { count: n }), { icon: cmd === 'undoSteps' ? 'undo' : 'redo', duration: 1500 });
         keepFocus();
         return;
       }
@@ -3055,20 +3055,21 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
           let f = 0;
           for (const cell of sh.cells.values()) { if (cell.v != null || cell.f != null) { n++; if (cell.f != null) f++; } }
           cells += n; formulas += f;
-          return el('tr', {}, el('td', {}, sh.name + (sh.hidden ? ' (hidden)' : '')), el('td.num', {}, n.toLocaleString()), el('td.num', {}, f.toLocaleString()), el('td.num', {}, String(sh.charts.length)), el('td.num', {}, String(sh.tables.length)));
+          return el('tr', {}, el('td', {}, sh.hidden ? t('editor.details.hiddenSheet', { name: sh.name }) : sh.name), el('td.num', {}, formatUiNumber(n)), el('td.num', {}, formatUiNumber(f)), el('td.num', {}, String(sh.charts.length)), el('td.num', {}, String(sh.tables.length)));
         });
         const fact = (k, v) => el('tr', {}, el('th', {}, k), el('td', {}, v));
-        const size = st?.size != null ? formatBytes(st.size) : 'Not saved yet';
-        const when = doc.lastSaved ? new Date(doc.lastSaved).toLocaleString() : (st?.modified ? new Date((st.modified < 1e12 ? st.modified * 1000 : st.modified)).toLocaleString() : (doc.path ? 'Unknown' : 'Not saved yet'));
+        const size = st?.size != null ? formatBytes(st.size) : t('editor.details.notSaved');
+        const dateTime = (d) => formatUiDate(d, { year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric' });
+        const when = doc.lastSaved ? dateTime(new Date(doc.lastSaved)) : (st?.modified ? dateTime(new Date((st.modified < 1e12 ? st.modified * 1000 : st.modified))) : (doc.path ? t('editor.details.unknown') : t('editor.details.notSaved')));
         openModal({
-          title: 'Document details', wide: true,
+          title: t('editor.details.title'), wide: true,
           content: el('div', {},
             el('table.details-table', {}, el('tbody', {},
-              fact('Name', doc.name), fact('Location', doc.path || 'Not saved yet'), fact('Size', size), fact('Last saved', when),
-              fact('Sheets', String(wb.sheets.length)), fact('Cells with content', cells.toLocaleString()), fact('Formulas', formulas.toLocaleString()),
-              fact('Named ranges', String(wb.names.filter((n) => !n.hidden).length)), fact('Tables', String(wb.tableNames().length)), fact('Functions available', String(FUNCTION_NAMES.length)))),
+              fact(t('common.name'), doc.name), fact(t('editor.details.location'), doc.path || t('editor.details.notSaved')), fact(t('editor.details.size'), size), fact(t('editor.details.lastSaved'), when),
+              fact(t('editor.details.sheets'), String(wb.sheets.length)), fact(t('editor.details.cellsWithContent'), formatUiNumber(cells)), fact(t('editor.details.formulas'), formatUiNumber(formulas)),
+              fact(t('editor.details.namedRanges'), String(wb.names.filter((n) => !n.hidden).length)), fact(t('editor.details.tables'), String(wb.tableNames().length)), fact(t('editor.details.functionsAvailable'), String(FUNCTION_NAMES.length)))),
             el('table.details-table.details-sheets', {},
-              el('thead', {}, el('tr', {}, el('th', {}, 'Sheet'), el('th.num', {}, 'Cells'), el('th.num', {}, 'Formulas'), el('th.num', {}, 'Charts'), el('th.num', {}, 'Tables'))),
+              el('thead', {}, el('tr', {}, el('th', {}, t('editor.details.sheet')), el('th.num', {}, t('editor.details.cells')), el('th.num', {}, t('editor.details.formulas')), el('th.num', {}, t('editor.details.charts')), el('th.num', {}, t('editor.details.tables')))),
               el('tbody', {}, ...rows))),
           onClose: () => keepFocus(),
         });
@@ -3088,7 +3089,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         return;
       }
       case 'exportPdf':
-        toast('In the print dialog, choose "Save as PDF" as the destination', { icon: 'fileDown', duration: 4200 });
+        toast(t('editor.pdf.hint'), { icon: 'fileDown', duration: 4200 });
         openPrintDialog(ctx);
         return;
       case 'import': fileInput.click(); return;
@@ -3096,11 +3097,11 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       case 'versions': {
         if (!committed()) return;
         // A shared workbook's snapshots are kept with its owner's file, which someone it was shared with has none of.
-        if (room && !doc.path) { toast('Version history is kept with the owner’s file. Ask the owner to restore an earlier version', { icon: 'info', duration: 4500 }); return; }
+        if (room && !doc.path) { toast(t('editor.versions.ownerFile'), { icon: 'info', duration: 4500 }); return; }
         if (session.signedOut && (!await session.signIn() || destroyed)) return;
         if (!doc.path) await flush({ leaving: false });
         if (destroyed) return;
-        if (!doc.path) { toast('Save the spreadsheet first', { icon: 'info' }); return; }
+        if (!doc.path) { toast(t('editor.saveFirst'), { icon: 'info' }); return; }
         openVersionHistory(doc, { onRestored: () => { grid.refresh(); keepFocus(); } });
         return;
       }
@@ -3136,13 +3137,13 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         // A file on the web (a published CSV, an .xlsx on a server) fetched through Puter.
         if (session.signedOut && (!await session.signIn() || destroyed)) return;
         const url = await promptDialog({
-          title: 'Import from URL', label: 'Address of a .csv, .tsv, .xlsx, or .ods file', placeholder: 'https://example.com/data.csv', confirmLabel: 'Import',
+          title: t('editor.importUrl.title'), label: t('editor.importUrl.label'), placeholder: 'https://example.com/data.csv', confirmLabel: t('editor.importUrl.import'),
           validate: urlProblem,
-          hint: 'The sheets in the file are added to this spreadsheet. The address must allow access from other sites.',
+          hint: t('editor.importUrl.hint'),
         });
         if (!url) { keepFocus(); return; }
         if (!committed()) return;
-        toast('Fetching…', { icon: 'spinner', duration: 1500 });
+        toast(t('editor.importUrl.fetching'), { icon: 'spinner', duration: 1500 });
         try {
           const bytes = await P.fetchBytes(url.trim());
           if (destroyed) return;
@@ -3154,7 +3155,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         } catch (e) {
           if (destroyed) return;
           console.error(e);
-          toast(explained(e) ? e.message : 'Could not fetch or read that file', { icon: 'alert', duration: 5000 });
+          toast(explained(e) ? e.message : t('editor.importUrl.failed'), { icon: 'alert', duration: 5000 });
         }
         keepFocus();
         return;
@@ -3233,7 +3234,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         imported.clear(); // IMPORTRANGE reads its files afresh too
         const asked = wb.clearAsyncCache();
         grid.refresh();
-        toast(asked ? 'Recalculated; AI answers are being asked for again' : 'Recalculated', { icon: 'reset', duration: 1600 });
+        toast(asked ? t('editor.recalc.withAi') : t('editor.recalc.done'), { icon: 'reset', duration: 1600 });
         keepFocus();
         return;
       }
@@ -3263,8 +3264,8 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         // Hiding a grouped sheet hides the whole group, as long as a sheet outside it stays on show.
         const group = cmd === 'hideSheet' && wb.sheetGroup;
         if (group && (!arg || group.includes(arg))) {
-          if (group.length >= wb.visibleSheets.length) { toast('At least one sheet must stay visible. Ungroup the sheets first', { icon: 'eyeOff', duration: 3500 }); return; }
-          wb.transaction('Hide sheets', () => { for (const id of group) wb.setSheetHidden(id, true); });
+          if (group.length >= wb.visibleSheets.length) { toast(t('editor.sheets.keepOneVisible'), { icon: 'eyeOff', duration: 3500 }); return; }
+          wb.transaction(t('editor.undo.hideSheets'), () => { for (const id of group) wb.setSheetHidden(id, true); });
           return;
         }
         wb.setSheetHidden(arg || sheetId, cmd === 'hideSheet');
@@ -3291,10 +3292,10 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         const group = wb.sheetGroup;
         if (group && (!arg || group.includes(arg))) {
           // A grouped sheet goes with the rest of its group, in one step that one undo brings back.
-          if (group.length >= wb.visibleSheets.length) { toast('A spreadsheet needs at least one sheet. Ungroup the sheets first', { icon: 'trash', duration: 3500 }); return; }
-          const ok = await confirmDialog({ title: `Delete ${group.length} sheets?`, message: `${group.map((id) => wb.sheet(id)?.name).join(', ')} and everything on them will be removed. You can undo this.`, confirmLabel: 'Delete sheets' });
+          if (group.length >= wb.visibleSheets.length) { toast(t('editor.sheets.keepOne'), { icon: 'trash', duration: 3500 }); return; }
+          const ok = await confirmDialog({ title: t('editor.sheets.deleteTitle', { count: group.length }), message: t('editor.sheets.deleteMessage', { names: nameList(group.map((id) => wb.sheet(id)?.name ?? '')) }), confirmLabel: t('editor.sheets.delete') });
           if (!ok || destroyed) return;
-          wb.transaction('Delete sheets', () => { for (const id of group) wb.deleteSheet(id); });
+          wb.transaction(t('editor.undo.deleteSheets'), () => { for (const id of group) wb.deleteSheet(id); });
           return;
         }
         const sheet = wb.sheet(arg || sheetId);
@@ -3367,16 +3368,16 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
           // way; a cell with no format of its own takes the one above, so a date stays a date.
           const value = wb.getValue(sheetId, r - 1, c);
           if (grid.editing) grid.insertText(wb.getDisplay(sheetId, r - 1, c));
-          else if (allowedByRule(wb.validateValue(sheetId, r, c, value))) wb.setCells(sheetId, [{ r, c, cell: { v: value, f: null, s: wb.getCell(sheetId, r, c)?.s ?? aboveStyle } }], 'Copy value above');
+          else if (allowedByRule(wb.validateValue(sheetId, r, c, value))) wb.setCells(sheetId, [{ r, c, cell: { v: value, f: null, s: wb.getCell(sheetId, r, c)?.s ?? aboveStyle } }], t('editor.undo.copyValueAbove'));
         } else if (grid.editing) {
           grid.insertText(above ? (above.f != null ? `=${above.f}` : String(above.v)) : String(spilled));
         } else if (above?.f != null) {
           // The same text the chord inserts mid-edit, entered as if typed: a formula is checked by its result, as a typed one is.
           const text = `=${above.f}`;
-          if (allowedByRule(wb.validateInput(sheetId, r, c, text), text)) wb.setInput(sheetId, r, c, text, { label: 'Copy formula above' });
+          if (allowedByRule(wb.validateInput(sheetId, r, c, text), text)) wb.setInput(sheetId, r, c, text, { label: t('editor.undo.copyFormulaAbove') });
         } else if (!above) {
           // A spilled cell holds no formula of its own to bring down, so its value comes instead.
-          if (allowedByRule(wb.validateValue(sheetId, r, c, spilled))) wb.setCells(sheetId, [{ r, c, cell: { v: spilled, f: null, s: wb.getCell(sheetId, r, c)?.s ?? aboveStyle } }], 'Copy value above');
+          if (allowedByRule(wb.validateValue(sheetId, r, c, spilled))) wb.setCells(sheetId, [{ r, c, cell: { v: spilled, f: null, s: wb.getCell(sheetId, r, c)?.s ?? aboveStyle } }], t('editor.undo.copyValueAbove'));
         } else if (allowedByRule(wb.validateValue(sheetId, r, c, above.v))) {
           // A value comes down with its formatting, as a copy would bring it.
           wb.pasteCells(sheetId, wb.copyRange(sheetId, { r1: r - 1, c1: c, r2: r - 1, c2: c }, { sameBook: true }), r, c, { r: r - 1, c });
@@ -3392,7 +3393,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         else if (allowedByRule(wb.validateInput(sheetId, r, c, text), text)) {
           // Today's date (or the time) goes in as if typed: a column at its default width widens to show it, in the
           // same step, rather than leaving ### where the date is, as Excel's Ctrl+; does.
-          wb.transaction(cmd === 'insertDate' ? 'Insert date' : 'Insert time', () => {
+          wb.transaction(cmd === 'insertDate' ? t('editor.undo.insertDate') : t('editor.undo.insertTime'), () => {
             wb.setInput(sheetId, r, c, text);
             grid.widenForEntry(r, c);
           });
@@ -3404,7 +3405,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         // The entry goes in first, as for Freeze Panes: a formula showing another sheet changed that sheet.
         if (!committed()) return;
         const on = wb.sheet(sheetId).gridlines === false;
-        wb.transaction('Gridlines', () => { for (const id of settingSheets()) wb.setGridlines(id, on); });
+        wb.transaction(t('editor.undo.gridlines'), () => { for (const id of settingSheets()) wb.setGridlines(id, on); });
         grid.refresh();
         keepFocus();
         return;
@@ -3413,18 +3414,18 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         if (!committed()) return;
         wb.setZeros(sheetId, wb.sheet(sheetId).zeros === false);
         grid.refresh();
-        toast(wb.sheet(sheetId).zeros === false ? 'Zero values hidden on this sheet' : 'Zero values shown', { icon: 'eye', duration: 1600 });
+        toast(wb.sheet(sheetId).zeros === false ? t('editor.view.zerosHidden') : t('editor.view.zerosShown'), { icon: 'eye', duration: 1600 });
         keepFocus();
         return;
       case 'showFormulas':
         grid.setShowFormulas(!grid.showFormulas);
-        toast(grid.showFormulas ? 'Showing formulas' : 'Showing values', { icon: 'fx', duration: 1400 });
+        toast(grid.showFormulas ? t('editor.view.showingFormulas') : t('editor.view.showingValues'), { icon: 'fx', duration: 1400 });
         notify();
         return;
       case 'focusMode':
         view.focus = !view.focus;
         applyView();
-        toast(view.focus ? 'Focus mode: the toolbar and formula bar are hidden (View menu to bring them back)' : 'Toolbar and formula bar shown', { icon: 'eye', duration: 2600 });
+        toast(view.focus ? t('editor.view.focusOn') : t('editor.view.focusOff'), { icon: 'eye', duration: 2600 });
         keepFocus();
         return;
       case 'formulaBar':
@@ -3437,7 +3438,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         // The entry goes in first, as for Gridlines: a formula showing another sheet hid that sheet's headings.
         if (!committed()) return;
         const on = wb.sheet(sheetId).headers === false;
-        wb.transaction('Row and column headers', () => { for (const id of settingSheets()) wb.setHeaders(id, on); });
+        wb.transaction(t('editor.undo.headers'), () => { for (const id of settingSheets()) wb.setHeaders(id, on); });
         keepFocus();
         return;
       }
@@ -3459,7 +3460,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       case 'toggleSpellcheck':
         view.spell = view.spell === false;
         applyView();
-        toast(view.spell ? 'Spelling is checked while you type text' : 'Spelling suggestions off', { icon: 'text', duration: 1800 });
+        toast(view.spell ? t('editor.view.spellOn') : t('editor.view.spellOff'), { icon: 'text', duration: 1800 });
         keepFocus();
         return;
       case 'fullscreen':
@@ -3500,7 +3501,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       case 'createNames': {
         if (!committed() || !oneRange('create names')) return;
         const range = dataRange(null);
-        if (!range) { toast('Select the labels and the cells to name', { icon: 'info' }); keepFocus(); return; }
+        if (!range) { toast(t('editor.names.selectLabels'), { icon: 'info' }); keepFocus(); return; }
         openCreateNamesDialog(ctx, range);
         return;
       }
@@ -3524,7 +3525,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
           return at ? consolidationSource(wb, at.sheetId, at.range) : null;
         }).filter(Boolean);
         const table = consolidate(sources, arg);
-        if (!table) { toast('There was nothing to consolidate in those references', { icon: 'info', duration: 3000 }); return; }
+        if (!table) { toast(t('editor.consolidate.nothing'), { icon: 'info', duration: 3000 }); return; }
         const { r: r0, c: c0 } = grid.active;
         // The result written over a source would destroy the data it was worked out from: refused, as Excel refuses it.
         const box = { r1: r0, c1: c0, r2: r0 + table.length - 1, c2: c0 + table[0].length - 1 };
@@ -3532,10 +3533,10 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
           const at = resolveRangeText(text);
           return at?.sheetId === sheetId && at.range.r1 <= box.r2 && at.range.r2 >= box.r1 && at.range.c1 <= box.c2 && at.range.c2 >= box.c1;
         });
-        if (overlaps) { toast('The source references overlap the destination. Select a cell outside them, then consolidate again', { icon: 'info', duration: 4000 }); keepFocus(); return; }
+        if (overlaps) { toast(t('editor.consolidate.overlap'), { icon: 'info', duration: 4000 }); keepFocus(); return; }
         const entries = [];
         table.forEach((row, i) => row.forEach((v, j) => entries.push({ r: r0 + i, c: c0 + j, cell: v == null ? null : { v, f: null, s: wb.getCell(sheetId, r0 + i, c0 + j)?.s } })));
-        if (wb.setCells(sheetId, entries, 'Consolidate')) grid.setSelection(S.fromRange({ r1: r0, c1: c0, r2: r0 + table.length - 1, c2: c0 + table[0].length - 1 }, { r: r0, c: c0 }));
+        if (wb.setCells(sheetId, entries, t('editor.undo.consolidate'))) grid.setSelection(S.fromRange({ r1: r0, c1: c0, r2: r0 + table.length - 1, c2: c0 + table[0].length - 1 }, { r: r0, c: c0 }));
         keepFocus();
         return;
       }
@@ -3551,10 +3552,10 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         const entries = quickTotalEntries(wb, sheetId, grid.range, arg?.kind, arg?.direction);
         if (!entries?.length) return;
         if (entries.some((e) => { const cell = wb.getCell(sheetId, e.r, e.c); return cell && (cell.v != null || cell.f != null); })) {
-          toast(`There is already data ${arg.direction === 'rows' ? 'below' : 'to the right of'} the selection`, { icon: 'info', duration: 3000 });
+          toast(t('editor.quickTotals.occupied', { side: arg.direction === 'rows' ? 'below' : 'right' }), { icon: 'info', duration: 3000 });
           return;
         }
-        wb.transaction('Quick totals', () => {
+        wb.transaction(t('editor.undo.quickTotals'), () => {
           for (const e of entries) { wb.setInput(sheetId, e.r, e.c, e.input); wb.applyStyle(sheetId, { r1: e.r, c1: e.c, r2: e.r, c2: e.c }, e.style); }
         });
         keepFocus();
@@ -3568,8 +3569,8 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         const found = invalidCells(wb, sheetId);
         circledSheet = found.cells.length ? sheetId : null;
         grid.setHighlights(found.cells.map((cell) => ({ ...cell, kind: 'invalid' })), -1);
-        if (found.more) toast('This sheet has more than 255 invalid cells. Only 255 are circled', { icon: 'info', duration: 3500 });
-        else statusBar?.announce(found.cells.length ? `${found.cells.length} invalid cell${found.cells.length === 1 ? '' : 's'} circled` : 'No invalid data');
+        if (found.more) toast(t('editor.circles.tooMany'), { icon: 'info', duration: 3500 });
+        else statusBar?.announce(found.cells.length ? t('editor.circles.circled', { count: found.cells.length }) : t('editor.circles.none'));
         keepFocus();
         return;
       }
@@ -3579,7 +3580,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         return;
       case 'altText': {
         const id = arg || grid.selectedChart;
-        if (!id) { toast('Select a picture, chart or text box to describe', { icon: 'info', duration: 2500 }); return; }
+        if (!id) { toast(t('editor.objects.selectToDescribe'), { icon: 'info', duration: 2500 }); return; }
         openAltTextDialog(ctx, id);
         return;
       }
@@ -3587,15 +3588,15 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         // Bring to Front, Bring Forward, Send Backward, Send to Back: the place in the sheet's drawing order of the
         // object named, or of every object selected (whole groups).
         const ids = arrangeTargets(ctx, arg?.id ? [arg.id] : null);
-        if (!ids.length) { toast('Select a chart, picture, shape or text box first', { icon: 'info', duration: 2500 }); return; }
-        if (wb.orderObjects(sheetId, ids, arg?.where)) statusBar?.announce({ front: 'Brought to front', forward: 'Brought forward', backward: 'Sent backward', back: 'Sent to back' }[arg?.where] || 'Order changed');
+        if (!ids.length) { toast(t('editor.objects.selectFirst'), { icon: 'info', duration: 2500 }); return; }
+        if (wb.orderObjects(sheetId, ids, arg?.where)) statusBar?.announce(t({ front: 'editor.objects.broughtToFront', forward: 'editor.objects.broughtForward', backward: 'editor.objects.sentBackward', back: 'editor.objects.sentToBack' }[arg?.where] || 'editor.objects.orderChanged'));
         notify(); keepFocus();
         return;
       }
       case 'alignObjects': {
         const ids = arrangeTargets(ctx);
-        if (wb.alignObjects(sheetId, ids, arg)) statusBar?.announce(['horizontal', 'vertical'].includes(arg) ? `Distributed ${arg}ly` : `Aligned ${arg}`);
-        else if (ids.length < 2) toast('Select two or more objects to align (three to distribute)', { icon: 'info', duration: 2800 });
+        if (wb.alignObjects(sheetId, ids, arg)) statusBar?.announce(['horizontal', 'vertical'].includes(arg) ? t('editor.objects.distributed', { how: arg }) : t('editor.objects.aligned', { how: String(arg) }));
+        else if (ids.length < 2) toast(t('editor.objects.selectToAlign'), { icon: 'info', duration: 2800 });
         notify(); keepFocus();
         return;
       }
@@ -3605,24 +3606,24 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
           const group = wb.regroupObjects(sheetId);
           if (group) grid.selectCharts(wb.sheet(sheetId).charts.filter((o) => o.group === group).map((o) => o.id));
         } else if (arg === 'ungroup') {
-          if (wb.ungroupObjects(sheetId, arrangeTargets(ctx))) statusBar?.announce('Ungrouped');
+          if (wb.ungroupObjects(sheetId, arrangeTargets(ctx))) statusBar?.announce(t('editor.objects.ungrouped'));
         } else {
           const group = wb.groupObjects(sheetId, arrangeTargets(ctx));
-          if (group) { grid.selectCharts(wb.sheet(sheetId).charts.filter((o) => o.group === group).map((o) => o.id)); statusBar?.announce('Grouped'); }
-          else toast('Select two or more objects to group', { icon: 'info', duration: 2500 });
+          if (group) { grid.selectCharts(wb.sheet(sheetId).charts.filter((o) => o.group === group).map((o) => o.id)); statusBar?.announce(t('editor.objects.grouped')); }
+          else toast(t('editor.objects.selectToGroup'), { icon: 'info', duration: 2500 });
         }
         notify(); keepFocus();
         return;
       }
       case 'rotateObjects':
-        if (!wb.rotateObjects(sheetId, arrangeTargets(ctx), arg)) toast('Pictures, shapes and text boxes can be rotated; charts and controls cannot', { icon: 'info', duration: 3000 });
+        if (!wb.rotateObjects(sheetId, arrangeTargets(ctx), arg)) toast(t('editor.objects.cannotRotate'), { icon: 'info', duration: 3000 });
         notify(); keepFocus();
         return;
       case 'snapObjects': {
         const key = arg === 'shape' ? 'snapShape' : 'snapGrid';
         view[key] = !view[key];
         applyView();
-        statusBar?.announce(`${arg === 'shape' ? 'Snap to shape' : 'Snap to grid'} ${view[key] ? 'on' : 'off'}`);
+        statusBar?.announce(arg === 'shape' ? (view[key] ? t('editor.snap.shapeOn') : t('editor.snap.shapeOff')) : view[key] ? t('editor.snap.gridOn') : t('editor.snap.gridOff'));
         notify(); keepFocus();
         return;
       }
@@ -3640,7 +3641,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         notify();
         return;
       case 'deleteObjects':
-        if (Array.isArray(arg) && deleteObjectsWithTimelines(wb, sheetId, arg)) statusBar?.announce(`${arg.length} objects deleted`);
+        if (Array.isArray(arg) && deleteObjectsWithTimelines(wb, sheetId, arg)) statusBar?.announce(t('editor.objects.deleted', { count: arg.length }));
         keepFocus();
         return;
       case 'addWatch': {
@@ -3651,7 +3652,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         for (const rg of grid.ranges) for (let rr = rg.r1; rr <= rg.r2 && cells.length < 100; rr++) for (let cc = rg.c1; cc <= rg.c2 && cells.length < 100; cc++) cells.push({ r: rr, c: cc });
         const added = wb.addWatches(sheetId, cells);
         watchWindow.show();
-        if (!added) toast('Those cells are already watched', { icon: 'info', duration: 2000 });
+        if (!added) toast(t('editor.watch.already'), { icon: 'info', duration: 2000 });
         return;
       }
       case 'flashFill': {
@@ -3660,14 +3661,14 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         if (!committed()) return;
         const { r, c } = grid.active;
         const { entries } = flashFillPlan(sheetId, r, c);
-        if (!entries.length) { toast('Flash Fill found no pattern to fill. Type an example or two, then try again', { icon: 'info', duration: 3200 }); keepFocus(); return; }
-        if (wb.setCells(sheetId, entries, 'Flash Fill')) toast(`Flash Fill changed ${entries.length} cell${entries.length === 1 ? '' : 's'}`, { icon: 'flashFill', duration: 2200 });
+        if (!entries.length) { toast(t('editor.flashFill.noPattern'), { icon: 'info', duration: 3200 }); keepFocus(); return; }
+        if (wb.setCells(sheetId, entries, t('editor.undo.flashFill'))) toast(t('editor.flashFill.changed', { count: entries.length }), { icon: 'flashFill', duration: 2200 });
         keepFocus();
         return;
       }
       case 'protectWorkbook':
         wb.setStructureProtected(!wb.structureProtected);
-        toast(wb.structureProtected ? 'Workbook structure protected: sheets cannot be added, moved, renamed or deleted' : 'Workbook structure unprotected', { icon: 'lock', duration: 2600 });
+        toast(wb.structureProtected ? t('editor.structure.protected') : t('editor.structure.unprotected'), { icon: 'lock', duration: 2600 });
         notify(); keepFocus();
         return;
       // The entry goes in first for these, as for the other inserts: a formula showing another sheet to pick references
@@ -3696,7 +3697,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         });
         const sheet = wb.sheet(sheetId), last = Math.max(grid.active.c, ...placed.map((at) => at.c));
         if (last >= sheet.cols) wb.ensureSize(sheetId, sheet.rows, last + 1);
-        wb.transaction(cmd === 'insertShape' ? 'Insert shape' : 'Insert icons', () => {
+        wb.transaction(cmd === 'insertShape' ? t('editor.undo.insertShape') : t('editor.undo.insertIcons'), () => {
           for (const { p, c, dx: offset } of placed) {
             // A shape stretches to any proportions as it is resized, as Excel's do; an icon keeps its own.
             id = wb.addChart(sheetId, { type: 'image', src: svgDataUrl(p.svg), title: p.label || 'Icon', anchor: { r: grid.active.r, c }, dx: offset, dy: 4, w: p.w, h: p.h,
@@ -4008,7 +4009,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         if (!oneRange('get data from a range')) return;
         getDataTable(ctx, editQuery, { createTable: (then) => {
           const range = dataRange(grid.range);
-          if (range.r1 >= range.r2) { toast('Select the header row and at least one row of data', { icon: 'info' }); return; }
+          if (range.r1 >= range.r2) { toast(t('editor.table.needData'), { icon: 'info' }); return; }
           if (refusedByProtection('create a table')) return;
           openTableDialog(ctx, { range, onCreated: then });
         } });
@@ -4733,7 +4734,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     }
     // A whole-sheet or whole-row selection takes in every empty column: those are not shrunk to slivers.
     if (!measured.size) return false;
-    wb.transaction('Fit columns', () => {
+    wb.transaction(t('editor.undo.fitColumns'), () => {
       for (const c of measured) wb.setColWidth(sheetId, c, Math.min(maxWidth, Math.ceil(widths.get(c))));
     });
     return true;
