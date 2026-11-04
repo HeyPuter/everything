@@ -530,8 +530,31 @@ export function createEditor({
     navigate(value - 1);
   }
   const pageTotal = el('span', { class: 'muted' });
-  const prevButton = iconButton('Previous page', 'ChevronLeft', () => navigateBy(-1));
-  const nextButton = iconButton('Next page', 'ChevronRight', () => navigateBy(1));
+  /** Whether a page or zoom step button is off, including one kept focusable by setStepOff. */
+  const stepOff = (button) => button.disabled || button.getAttribute('aria-disabled') === 'true';
+  /**
+   * Turn a page or zoom step button off. One holding the focus (pressed to the end of its range,
+   * or while the PDF is busy) stays focusable and is marked unavailable instead, as in an
+   * accessible toolbar, so the focus is not dropped onto the page; it turns off fully once the
+   * focus moves on.
+   */
+  function setStepOff(button, off) {
+    const held = off && document.activeElement === button;
+    button.disabled = off && !held;
+    if (held) button.setAttribute('aria-disabled', 'true');
+    else button.removeAttribute('aria-disabled');
+  }
+  function stepButton(label, glyph, onClick, attrs) {
+    const button = iconButton(label, glyph, (e) => (stepOff(button) ? false : onClick(e)), attrs);
+    // A blur from switching windows keeps the button focused, so it stays focusable then.
+    button.addEventListener('blur', () => {
+      if (document.activeElement !== button && button.getAttribute('aria-disabled') === 'true')
+        setStepOff(button, true);
+    });
+    return button;
+  }
+  const prevButton = stepButton('Previous page', 'ChevronLeft', () => navigateBy(-1));
+  const nextButton = stepButton('Next page', 'ChevronRight', () => navigateBy(1));
   /** The steps the zoom buttons, shortcuts, and wheel move through. */
   const ZOOM_LEVELS = [0.25, 0.33, 0.5, 0.67, 0.75, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3, 4];
   const zoomSelect = el(
@@ -557,13 +580,13 @@ export function createEditor({
   /** Names a zoom reached with the buttons or the wheel that has no fixed menu entry. */
   const customZoomOption = el('option', { value: '', 'data-custom': 'true' });
   // The status bar keeps its compact line icons; the glass drawings are for commands.
-  const zoomOutButton = iconButton(
+  const zoomOutButton = stepButton(
     'Zoom out',
     icon('ZoomOut', 18, { plain: true }),
     safe(() => setZoom(zoomStep(-1))),
     { title: withShortcut('Zoom out', 'Mod+Minus') },
   );
-  const zoomInButton = iconButton(
+  const zoomInButton = stepButton(
     'Zoom in',
     icon('ZoomIn', 18, { plain: true }),
     safe(() => setZoom(zoomStep(1))),
@@ -2309,7 +2332,10 @@ export function createEditor({
           '.editor-header button, .statusbar button, .quick-tools button, .right-rail button',
         )
         .forEach((button) => {
-          button.classList.toggle('busy-enabled', refreshing && !button.disabled);
+          button.classList.toggle(
+            'busy-enabled',
+            refreshing && !button.disabled && button.getAttribute('aria-disabled') !== 'true',
+          );
         });
       editorRoot.classList.toggle('refreshing', refreshing);
     }
@@ -2322,8 +2348,8 @@ export function createEditor({
     textTargets.querySelectorAll('button').forEach((button) => {
       button.disabled = busy || !pageReady;
     });
-    zoomInButton.disabled = busy || !pdf || zoom >= ZOOM_LEVELS.at(-1) - 1e-9;
-    zoomOutButton.disabled = busy || !pdf || zoom <= ZOOM_LEVELS[0] + 1e-9;
+    setStepOff(zoomInButton, busy || !pdf || zoom >= ZOOM_LEVELS.at(-1) - 1e-9);
+    setStepOff(zoomOutButton, busy || !pdf || zoom <= ZOOM_LEVELS[0] + 1e-9);
     nameButton.querySelector('span').textContent = name.replace(/\.pdf$/i, '');
     nameButton.setAttribute('aria-label', `Rename ${name}`);
     // The name is clipped on narrow screens, so the tooltip carries it in full.
@@ -2394,8 +2420,8 @@ export function createEditor({
     const destination = clampPageIndex(pendingNavigation?.index ?? pageIndex);
     // Side by side, the buttons turn pairs: the other page of the pair on view is in sight.
     const turn = (index) => (stack.twoUp ? Math.floor(index / 2) : index);
-    prevButton.disabled = !pageCount || turn(destination) === 0;
-    nextButton.disabled = !pageCount || turn(destination) >= turn(pageCount - 1);
+    setStepOff(prevButton, !pageCount || turn(destination) === 0);
+    setStepOff(nextButton, !pageCount || turn(destination) >= turn(pageCount - 1));
     editorRoot.setAttribute('aria-busy', String(busy));
     if (organizer.visible && organizer.busy !== busy) organizer.updateState();
     // The tools pane's commands follow the busy state; redraw only when it changes.
@@ -8032,14 +8058,14 @@ export function createEditor({
         label: 'Zoom in',
         icon: 'ZoomIn',
         shortcut: 'Mod+Plus',
-        disabled: zoomInButton.disabled,
+        disabled: stepOff(zoomInButton),
         onSelect: safe(() => setZoom(zoomStep(1))),
       },
       {
         label: 'Zoom out',
         icon: 'ZoomOut',
         shortcut: 'Mod+Minus',
-        disabled: zoomOutButton.disabled,
+        disabled: stepOff(zoomOutButton),
         onSelect: safe(() => setZoom(zoomStep(-1))),
       },
       { separator: true },
@@ -8120,14 +8146,14 @@ export function createEditor({
         label: 'Previous page',
         icon: 'ChevronLeft',
         shortcut: 'Alt+←',
-        disabled: prevButton.disabled,
+        disabled: stepOff(prevButton),
         onSelect: () => navigateBy(-1),
       },
       {
         label: 'Next page',
         icon: 'ChevronRight',
         shortcut: 'Alt+→',
-        disabled: nextButton.disabled,
+        disabled: stepOff(nextButton),
         onSelect: () => navigateBy(1),
       },
       { separator: true },
