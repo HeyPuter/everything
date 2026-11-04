@@ -175,3 +175,36 @@ test('with Track Changes on, Group and Ungroup rearrange the objects without rec
   expect(xml.match(/<wp:anchor /g)).toHaveLength(1);
   expect(errors).toEqual([]);
 });
+
+test('Bring to Front, Send to Back and Bring Forward move every selected object, keeping their order among themselves', async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/mock.html#/new');
+  await expect((await onTab(page, 'home')).getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await input(page).focus();
+  for (let i = 0; i < 16; i++) { await page.keyboard.type(`Paragraph ${i + 1} of the text the shapes sit on.`); await page.keyboard.press('Enter'); }
+  await drawShape(page, 'Rectangle', [300, 420], [460, 520]);
+  await drawShape(page, 'Oval', [340, 300], [500, 470]);
+  await drawShape(page, 'Isosceles Triangle', [600, 300], [700, 400]);
+  await drawShape(page, 'Diamond', [200, 300], [300, 400]);
+  // Back to front: rectangle, oval, triangle, diamond.
+  const stack = async () => (await drawings(page)).sort((a, b) => a.order - b.order).map(d => d.kind);
+  expect(await stack()).toEqual(['rect', 'ellipse', 'triangle', 'diamond']);
+  await onTab(page, 'shapeFormat');
+  await page.locator('#ribbon-panel-shapeFormat').getByRole('button', { name: 'Selection Pane', exact: true }).click();
+  const pane = page.getByRole('complementary', { name: 'Selection pane' });
+  await pane.getByRole('listitem').filter({ hasText: /^Rectangle/ }).locator('.pic-selection-name').click();
+  await pane.getByRole('listitem').filter({ hasText: /^Oval/ }).locator('.pic-selection-name').click({ modifiers: ['Shift'] });
+  const ribbon = page.locator('#ribbon-panel-shapeFormat');
+  await ribbon.getByRole('button', { name: 'Bring Forward', exact: true }).click();
+  await expect.poll(stack).toEqual(['triangle', 'rect', 'ellipse', 'diamond']);
+  await page.keyboard.press('ControlOrMeta+z');
+  await expect.poll(stack).toEqual(['rect', 'ellipse', 'triangle', 'diamond']);
+  await ribbon.getByRole('button', { name: 'Bring Forward options', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Bring to Front' }).click();
+  await expect.poll(stack).toEqual(['triangle', 'diamond', 'rect', 'ellipse']);
+  await ribbon.getByRole('button', { name: 'Send Backward options', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Send to Back' }).click();
+  await expect.poll(stack).toEqual(['rect', 'ellipse', 'triangle', 'diamond']);
+  expect(errors).toEqual([]);
+});
