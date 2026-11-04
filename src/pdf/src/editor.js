@@ -10277,6 +10277,8 @@ export function createEditor({
             key === 'widgetIndex' || JSON.stringify(value) !== JSON.stringify(initial[key]),
         ),
       );
+      // Nothing changed: no edit to record, and the document stays as it was saved.
+      if (Object.keys(next).every((key) => key === 'widgetIndex')) return d.close();
       await mutateDialog(
         d,
         async (doc) => {

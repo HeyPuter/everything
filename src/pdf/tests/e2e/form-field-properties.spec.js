@@ -367,3 +367,20 @@ test('asking to detect fields again while they are found opens one list', async 
   await page.waitForTimeout(2000);
   await expect(page.locator('dialog[open]')).toHaveCount(1);
 });
+
+test('saving a field’s properties unchanged records no edit', async ({ page }) => {
+  const doc = await PDFDocument.create();
+  doc
+    .getForm()
+    .createTextField('Note')
+    .addToPage(doc.addPage([600, 400]), { x: 100, y: 100, width: 120, height: 24 });
+  await openPdf(page, doc);
+  await prepareForm(page);
+  await designer(page, 'Note#0').dblclick();
+  const dialog = page.getByRole('dialog', { name: 'Text field properties' });
+  await dialog.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(dialog).toBeHidden();
+  await settled(page);
+  await expect(page.getByRole('button', { name: /^Undo/ })).toBeDisabled();
+  await expect(page.getByText('Unsaved changes')).toHaveCount(0);
+});
