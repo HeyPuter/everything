@@ -33,6 +33,23 @@ describe('document store', () => {
     expect(st.doc.blobs.b1).toHaveLength(1000);
   });
 
+  it('leaves the data of deleted imports out of the saved file, but keeps it for undo', () => {
+    const st = new DocStore(newDocument());
+    st.doc.blobs.b1 = 'ISO-10303-21; kept';
+    st.doc.blobs.b2 = 'ISO-10303-21; deleted';
+    st.change('Import', (d) => {
+      d.features.push({ id: 'f1', name: 'Import1', type: 'import', format: 'step', blob: 'b1', fileName: 'a.step' });
+      d.features.push({ id: 'f2', name: 'Import2', type: 'import', format: 'step', blob: 'b2', fileName: 'b.step' });
+    });
+    st.change('Delete', (d) => { d.features = d.features.filter((f) => f.id !== 'f2'); });
+    const saved = parseDocument(serializeDocument(st.doc));
+    expect(Object.keys(saved.blobs)).toEqual(['b1']);
+    expect(serializeDocument(st.doc)).not.toContain('deleted');
+    st.undo();
+    expect(st.doc.blobs.b2).toBe('ISO-10303-21; deleted');
+    expect(Object.keys(parseDocument(serializeDocument(st.doc)).blobs).sort()).toEqual(['b1', 'b2']);
+  });
+
   it('evaluates expressions in feature parameters and sketch dimensions', () => {
     const doc = newDocument('P', 'IPS');
     doc.variables = [{ id: 'v1', name: 'W', expr: '2' }];

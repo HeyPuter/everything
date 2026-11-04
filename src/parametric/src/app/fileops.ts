@@ -2,7 +2,7 @@
 // plus crash recovery of unsaved work in browser storage.
 
 import { defaultName } from '../model/features';
-import { newDocument, parseDocument, serializeDocument } from '../model/document';
+import { newDocument, parseDocument, serializeDocument, withUsedBlobs } from '../model/document';
 import type { ImportFeature, PartDocument } from '../model/types';
 import {
   type Location, EXT, IMPORT_EXTS, clearRecovery, download, isSolidWorksFile, isStepFile, listParts, loadText, locationLabel, newLocation,
@@ -367,7 +367,7 @@ export class FileOps {
     clearTimeout(this.recoveryTimer);
     if (!this.app.store.dirty) return;
     this.recoveryTimer = window.setTimeout(() => {
-      const payload = JSON.stringify({ location: this.app.location, savedAt: Date.now(), doc: this.app.store.doc });
+      const payload = JSON.stringify({ location: this.app.location, savedAt: Date.now(), doc: withUsedBlobs(this.app.store.doc) });
       void writeRecovery(payload);
     }, 4000);
   }

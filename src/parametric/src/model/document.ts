@@ -129,8 +129,19 @@ export function changeUnits(doc: PartDocument, units: UnitSystem): string[] {
   return unlinked;
 }
 
+/**
+ * The document as file text. Imported file data no feature uses any more (the
+ * import was deleted) stays in memory for undo but is left out of the file.
+ */
 export function serializeDocument(doc: PartDocument): string {
-  return JSON.stringify(doc);
+  return JSON.stringify(withUsedBlobs(doc));
+}
+
+export function withUsedBlobs(doc: PartDocument): PartDocument {
+  const used = new Set(doc.features.map((f) => (f.type === 'import' ? f.blob : null)));
+  const keys = Object.keys(doc.blobs ?? {});
+  if (keys.every((k) => used.has(k))) return doc;
+  return { ...doc, blobs: Object.fromEntries(keys.filter((k) => used.has(k)).map((k) => [k, doc.blobs[k]])) };
 }
 
 export interface ResolveResult {
