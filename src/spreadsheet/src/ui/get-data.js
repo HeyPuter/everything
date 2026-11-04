@@ -9,11 +9,12 @@ import { openMenu } from './menu.js';
 import { toast } from './toast.js';
 import { icon } from './icons.js';
 import * as P from '../lib/puter.js';
+import { t } from '../i18n/index.js';
 import { workbookFromFile, detectDelimiter, decodeText } from '../core/io.js';
 import { parseCellRef, colName } from '../core/cell.js';
 import {
   csvTable, initialSteps, applyStep, uniqueQueryName, saveQuery, evaluateQuery, loadResult, unloadQuery, webItems, sheetRows,
-  displayValue, TYPE_MARKS, TYPE_LABELS, DATE_TYPES, queryById, loadedTable,
+  displayValue, TYPE_MARKS, typeLabel, DATE_TYPES, queryById, loadedTable,
 } from '../core/queries.js';
 
 /** What a query may reach outside the workbook through: the web (through Puter), the drive, and the file readers. */
@@ -40,7 +41,7 @@ const newId = () => (globalThis.crypto?.randomUUID?.() || `q${Date.now().toStrin
 /** A preview table: the column names with their type marks, and the first rows. */
 export function previewTable(table, { maxRows = 200, className = 'pq-table' } = {}) {
   const head = el('tr', {}, el('th.pq-corner', { 'aria-hidden': 'true' }),
-    ...table.columns.map((name, i) => el('th', {}, el('span.pq-type', { title: TYPE_LABELS[table.types[i]] || 'Any' }, (TYPE_MARKS[table.types[i]] || 'ABC').replace('\n', '')), el('span.pq-colname', {}, name))));
+    ...table.columns.map((name, i) => el('th', {}, el('span.pq-type', { title: typeLabel(table.types[i]) }, (TYPE_MARKS[table.types[i]] || 'ABC').replace('\n', '')), el('span.pq-colname', {}, name))));
   const body = table.rows.slice(0, maxRows).map((row, n) => el('tr', {}, el('th.pq-rownum', {}, String(n + 1)),
     ...table.columns.map((_, i) => cellNode(row[i], table.types[i]))));
   return el(`table.${className}`, {}, el('thead', {}, head), el('tbody', {}, ...body));
@@ -88,7 +89,7 @@ async function finish(ctx, query, mode, editor) {
 /** Save a new query and load it (to a new sheet, or `at`); says what happened. */
 export async function loadNew(ctx, query, at) {
   const saved = saveQuery(ctx.wb, { ...query, name: uniqueQueryName(ctx.wb, query.name, query.id) });
-  if (at === 'connection') { toast(`Query ${saved.name} saved as a connection`, { icon: 'database' }); ctx.onQueriesChanged?.(); return saved; }
+  if (at === 'connection') { toast(t('getData.savedAsConnection', { name: saved.name }), { icon: 'database' }); ctx.onQueriesChanged?.(); return saved; }
   const res = await evaluateQuery(ctx.wb, saved, queryIo(ctx));
   if (res.error) { toast(res.error.message, { icon: 'alert', duration: 5000 }); ctx.onQueriesChanged?.(); return saved; }
   const out = loadResult(ctx.wb, saved, res.table, { at });
@@ -96,7 +97,7 @@ export async function loadNew(ctx, query, at) {
   else {
     if (!at) ctx.wb.setActiveSheet?.(out.sheetId);
     fitQueryTables(ctx, [saved]);
-    toast(`${out.rows.toLocaleString()} row${out.rows === 1 ? '' : 's'} loaded${out.errors ? `, ${out.errors} error${out.errors === 1 ? '' : 's'}` : ''}`, { icon: 'table', duration: 3000 });
+    toast(out.errors ? t('getData.loadedWithErrors', { rows: out.rows, errors: out.errors }) : t('getData.loaded', { rows: out.rows }), { icon: 'table', duration: 3000 });
   }
   ctx.onQueriesChanged?.();
   return saved;
@@ -104,18 +105,20 @@ export async function loadNew(ctx, query, at) {
 
 /** The split Load button these dialogs end with: Load, or Load To… from its arrow. */
 function loadButtons(onChoose, cancel) {
-  const arrow = el('button.btn.pq-load-arrow', { type: 'button', 'aria-label': 'Load options', html: icon('chevD', 12),
-    onclick: () => openMenu({ anchor: arrow, label: 'Load', items: [
-      { label: 'Load', onSelect: () => onChoose('load') },
-      { label: 'Load To…', onSelect: () => onChoose('loadTo') },
+  const arrow = el('button.btn.pq-load-arrow', { type: 'button', 'aria-label': t('getData.loadOptions'), html: icon('chevD', 12),
+    onclick: () => openMenu({ anchor: arrow, label: t('getData.load'), items: [
+      { label: t('getData.load'), onSelect: () => onChoose('load') },
+      { label: t('getData.loadTo'), onSelect: () => onChoose('loadTo') },
     ] }) });
   return el('div.row.row-end.pq-dialog-buttons', {},
-    el('span.pq-split', {}, el('button.btn.btn-primary', { type: 'button', onclick: () => onChoose('load') }, 'Load'), arrow),
-    el('button.btn', { type: 'button', onclick: () => onChoose('transform') }, 'Transform Data'),
-    el('button.btn.btn-ghost', { type: 'button', onclick: cancel }, 'Cancel'));
+    el('span.pq-split', {}, el('button.btn.btn-primary', { type: 'button', onclick: () => onChoose('load') }, t('getData.load')), arrow),
+    el('button.btn', { type: 'button', onclick: () => onChoose('transform') }, t('getData.transformData')),
+    el('button.btn.btn-ghost', { type: 'button', onclick: cancel }, t('common.cancel')));
 }
 
-const DELIMITERS = [[',', 'Comma'], [';', 'Semicolon'], ['\t', 'Tab'], [' ', 'Space'], [':', 'Colon'], ['=', 'Equals Sign'], ['|', 'Vertical Bar'], ['', '--Custom--']];
+/** The delimiters the text dialog offers: the character, and its label's catalog key. */
+const DELIMITERS = [[',', 'getData.delimiter.comma'], [';', 'getData.delimiter.semicolon'], ['\t', 'getData.delimiter.tab'], [' ', 'getData.delimiter.space'],
+  [':', 'getData.delimiter.colon'], ['=', 'getData.delimiter.equals'], ['|', 'getData.delimiter.bar'], ['', 'getData.delimiter.custom']];
 
 /** Data ▸ From Text/CSV: the file's preview with its delimiter and type detection, then Load or Transform Data. */
 export async function fromText(ctx, editor) {
@@ -128,10 +131,10 @@ export async function fromText(ctx, editor) {
 export function openTextDialog(ctx, { name, path = null, text }, editor) {
   let delimiter = detectDelimiter(text.replace(/^﻿/, ''), name) || ',';
   let detect = true;
-  const custom = el('input.input.pq-custom-delim', { type: 'text', maxlength: 4, 'aria-label': 'Custom delimiter', hidden: true });
-  const delimSel = el('select.select', { 'aria-label': 'Delimiter' }, DELIMITERS.map(([v, label]) => el('option', { value: v }, label)));
+  const custom = el('input.input.pq-custom-delim', { type: 'text', maxlength: 4, 'aria-label': t('getData.customDelimiter'), hidden: true });
+  const delimSel = el('select.select', { 'aria-label': t('getData.delimiterLabel') }, DELIMITERS.map(([v, label]) => el('option', { value: v }, t(label))));
   if (!DELIMITERS.some(([v]) => v === delimiter)) { delimSel.value = ''; custom.hidden = false; custom.value = delimiter; } else delimSel.value = delimiter;
-  const detectSel = el('select.select', { 'aria-label': 'Data Type Detection' }, el('option', { value: 'yes' }, 'Based on first 200 rows'), el('option', { value: 'no' }, 'Do not detect data types'));
+  const detectSel = el('select.select', { 'aria-label': t('getData.typeDetection') }, el('option', { value: 'yes' }, t('getData.detectFirst200')), el('option', { value: 'no' }, t('getData.detectNone')));
   const preview = el('div.pq-preview');
   const steps = () => {
     const base = csvTable(text, delimiter);
@@ -140,7 +143,7 @@ export function openTextDialog(ctx, { name, path = null, text }, editor) {
   };
   const draw = () => {
     const { base, list } = steps();
-    const table = list.reduce((t, s) => applyStep(t, s), base);
+    const table = list.reduce((tbl, s) => applyStep(tbl, s), base);
     preview.replaceChildren(previewTable(table, { maxRows: 50 }));
   };
   delimSel.addEventListener('change', () => { custom.hidden = delimSel.value !== ''; delimiter = delimSel.value || custom.value || ','; draw(); });
@@ -155,9 +158,9 @@ export function openTextDialog(ctx, { name, path = null, text }, editor) {
   const content = el('div.pq-dialog',
     {},
     el('div.pq-dialog-options', {},
-      el('label.field', {}, el('span.field-label', {}, 'File Origin'), el('select.select', { 'aria-label': 'File Origin' }, el('option', {}, '65001: Unicode (UTF-8)'))),
-      el('label.field', {}, el('span.field-label', {}, 'Delimiter'), delimSel, custom),
-      el('label.field', {}, el('span.field-label', {}, 'Data Type Detection'), detectSel)),
+      el('label.field', {}, el('span.field-label', {}, t('getData.fileOrigin')), el('select.select', { 'aria-label': t('getData.fileOrigin') }, el('option', {}, '65001: Unicode (UTF-8)'))),
+      el('label.field', {}, el('span.field-label', {}, t('getData.delimiterLabel')), delimSel, custom),
+      el('label.field', {}, el('span.field-label', {}, t('getData.typeDetection')), detectSel)),
     preview,
     loadButtons(choose, () => modal.close()));
   const modal = openModal({ title: name, content, wide: true, className: 'pq-source-dialog' });
@@ -172,12 +175,12 @@ export function openTextDialog(ctx, { name, path = null, text }, editor) {
 export function openNavigator(ctx, { title, items, make }, editor) {
   let chosen = items[0];
   const preview = el('div.pq-preview');
-  const list = el('div.pq-nav-list', { role: 'listbox', 'aria-label': 'Display Options' });
+  const list = el('div.pq-nav-list', { role: 'listbox', 'aria-label': t('getData.displayOptions') });
   const draw = () => {
     for (const node of list.children) node.setAttribute('aria-selected', String(node._item === chosen));
     const base = { columns: [], types: [], rows: [] };
-    const table = chosen ? initialSteps(rawOf(chosen.rows)).reduce((t, s) => applyStep(t, s), rawOf(chosen.rows)) : base;
-    preview.replaceChildren(chosen ? previewTable(table, { maxRows: 50 }) : el('p.muted', {}, 'Nothing to preview'));
+    const table = chosen ? initialSteps(rawOf(chosen.rows)).reduce((tbl, s) => applyStep(tbl, s), rawOf(chosen.rows)) : base;
+    preview.replaceChildren(chosen ? previewTable(table, { maxRows: 50 }) : el('p.muted', {}, t('getData.nothingToPreview')));
   };
   for (const item of items) {
     const node = el('button.pq-nav-item', { type: 'button', role: 'option', html: icon(item.kind === 'sheet' ? 'normalView' : 'table', 16), onclick: () => { chosen = item; draw(); } });
@@ -193,7 +196,7 @@ export function openNavigator(ctx, { title, items, make }, editor) {
   const content = el('div.pq-dialog', {},
     el('div.pq-nav', {}, el('div.pq-nav-side', {}, el('div.field-label', {}, title), list), preview),
     loadButtons(choose, () => modal.close()));
-  const modal = openModal({ title: 'Navigator', content, wide: true, className: 'pq-source-dialog' });
+  const modal = openModal({ title: t('getData.navigator'), content, wide: true, className: 'pq-source-dialog' });
   draw();
   return modal;
 }
@@ -208,30 +211,30 @@ export async function fromWorkbook(ctx, editor) {
   const picked = await pickFile(['.xlsx', '.xlsm', '.xls', '.ods']);
   if (!picked) return;
   let other;
-  try { other = await workbookFromFile(picked.bytes, picked.name); } catch (e) { toast(e?.message || `Could not read ${picked.name}`, { icon: 'alert', duration: 5000 }); return; }
+  try { other = await workbookFromFile(picked.bytes, picked.name); } catch (e) { toast(e?.message || t('getData.couldNotRead', { name: picked.name }), { icon: 'alert', duration: 5000 }); return; }
   const items = other.sheets.filter((s) => s.kind !== 'chart').map((s) => ({ name: s.name, kind: 'sheet', rows: sheetRows(other, s.id) }));
-  if (!items.length) { toast(`${picked.name} has no sheets to read`, { icon: 'info' }); return; }
+  if (!items.length) { toast(t('getData.noSheets', { name: picked.name }), { icon: 'info' }); return; }
   openNavigator(ctx, { title: picked.name, items, make: (item) => ({ id: newId(), name: item.name,
     source: { kind: 'workbook', name: picked.name, item: item.name, rows: item.rows, ...(picked.path ? { path: picked.path } : {}) },
     steps: initialSteps(rawOf(item.rows)), load: { kind: 'connection' } }) }, editor);
 }
 
 export const urlProblem = (text) => {
-  const t = String(text || '').trim();
-  if (!t) return 'Enter a web address';
-  try { const u = new URL(t); if (!/^https?:$/.test(u.protocol)) return 'Enter an http or https address'; } catch { return 'Enter a full address, such as https://example.com/data.csv'; }
+  const address = String(text || '').trim();
+  if (!address) return t('getData.url.empty');
+  try { const u = new URL(address); if (!/^https?:$/.test(u.protocol)) return t('getData.url.notHttp'); } catch { return t('getData.url.notFull'); }
   return null;
 };
 
 /** Data ▸ From Web: an address, then the Navigator over the page's tables (or the file's sheets, or the text). */
 export async function fromWeb(ctx, editor) {
-  const url = await promptDialog({ title: 'From Web', label: 'URL', placeholder: 'https://example.com/data.csv', confirmLabel: 'OK', validate: urlProblem,
-    hint: 'A web page with tables, a .csv or text file, or a workbook. The address must allow access from other sites.' });
+  const url = await promptDialog({ title: t('getData.fromWeb'), label: t('getData.urlLabel'), placeholder: 'https://example.com/data.csv', confirmLabel: t('common.ok'), validate: urlProblem,
+    hint: t('getData.fromWebHint') });
   if (!url) return;
-  toast('Connecting…', { icon: 'spinner', duration: 1500 });
+  toast(t('getData.connecting'), { icon: 'spinner', duration: 1500 });
   let items;
-  try { items = await webItems(await P.fetchBytes(url.trim()), url.trim(), queryIo(ctx)); } catch (e) { toast(e?.message || 'Could not fetch that address', { icon: 'alert', duration: 5000 }); return; }
-  if (!items.length) { toast('No tables were found at that address', { icon: 'info' }); return; }
+  try { items = await webItems(await P.fetchBytes(url.trim()), url.trim(), queryIo(ctx)); } catch (e) { toast(e?.message || t('getData.couldNotFetch'), { icon: 'alert', duration: 5000 }); return; }
+  if (!items.length) { toast(t('getData.noTablesAtAddress'), { icon: 'info' }); return; }
   const name = (u) => { try { return decodeURIComponent(new URL(u).pathname.split('/').filter(Boolean).pop() || new URL(u).hostname); } catch { return 'Web'; } };
   const make = (item) => ({ id: newId(), name: items.length > 1 ? item.name : stripExt(name(url)), source: { kind: 'web', url: url.trim(), ...(items.length > 1 ? { item: item.name } : {}) },
     steps: initialSteps(rawOf(item.rows)), load: { kind: 'connection' } });
@@ -244,9 +247,9 @@ export function fromTable(ctx, editor, { createTable } = {}) {
   const { wb } = ctx;
   const sheetId = ctx.sheetId(), a = ctx.active();
   const table = wb.tableAt(sheetId, a.r, a.c);
-  const start = (t) => {
-    const name = uniqueQueryName(wb, t.name);
-    const query = { id: newId(), name, source: { kind: 'table', table: t.name }, steps: [], load: { kind: 'connection' } };
+  const start = (tbl) => {
+    const name = uniqueQueryName(wb, tbl.name);
+    const query = { id: newId(), name, source: { kind: 'table', table: tbl.name }, steps: [], load: { kind: 'connection' } };
     evaluateQuery(wb, query, queryIo(ctx), { upTo: 0 }).then(({ table: base }) => {
       if (base) query.steps = initialSteps(base, { promote: false });
       editor?.(ctx, { draft: query });
@@ -263,17 +266,17 @@ export function blankQuery(ctx, editor) {
 
 /** A cell typed as =$A$1, A1, or Sheet2!$B$3: { sheetId, r, c } or null. */
 export function parseLocation(wb, text, sheetId) {
-  let t = String(text || '').trim().replace(/^=/, '');
+  let ref = String(text || '').trim().replace(/^=/, '');
   let sid = sheetId;
-  const bang = t.lastIndexOf('!');
+  const bang = ref.lastIndexOf('!');
   if (bang >= 0) {
-    const name = t.slice(0, bang).replace(/^'(.*)'$/, (m, n) => n.replace(/''/g, "'"));
+    const name = ref.slice(0, bang).replace(/^'(.*)'$/, (m, n) => n.replace(/''/g, "'"));
     const sheet = wb.sheetByName(name);
     if (!sheet) return null;
-    sid = sheet.id; t = t.slice(bang + 1);
+    sid = sheet.id; ref = ref.slice(bang + 1);
   }
-  const ref = parseCellRef(t.replace(/\$/g, '').split(':')[0]);
-  return ref ? { sheetId: sid, r: ref.r, c: ref.c } : null;
+  const cell = parseCellRef(ref.replace(/\$/g, '').split(':')[0]);
+  return cell ? { sheetId: sid, r: cell.r, c: cell.c } : null;
 }
 
 /**
@@ -289,28 +292,28 @@ export function openImportData(ctx, { query, fresh = false, onDone = null }) {
   const a = ctx.active?.() || { r: 0, c: 0 };
   const sheetName = wb.sheet(ctx.sheetId())?.name || '';
   const quoted = /^[A-Za-z_][A-Za-z0-9_.]*$/.test(sheetName) ? sheetName : `'${sheetName.replace(/'/g, "''")}'`;
-  const cellInput = el('input.input', { type: 'text', value: `=${quoted}!$${colName(a.c)}$${a.r + 1}`, 'aria-label': 'Existing worksheet location', spellcheck: false });
+  const cellInput = el('input.input', { type: 'text', value: `=${quoted}!$${colName(a.c)}$${a.r + 1}`, 'aria-label': t('getData.import.locationLabel'), spellcheck: false });
   const { alert, refuse } = fieldAlert('pq-import');
   const radio = (group, value, label, checked, onchange, disabled = false) => el('label.check', {},
     el('input', { type: 'radio', name: group, value, checked, disabled, onchange }), el('span', {}, label));
   const sync = () => { cellInput.disabled = view !== 'table' || where !== 'existing'; for (const n of whereGroup.querySelectorAll('input')) n.disabled = view !== 'table'; };
-  const viewGroup = el('div.field.pq-radio-group', { role: 'radiogroup', 'aria-label': 'Select how you want to view this data in your workbook.' },
-    el('span.field-label', {}, 'Select how you want to view this data in your workbook.'),
-    radio('pq-view', 'table', 'Table', view === 'table', () => { view = 'table'; sync(); }),
-    radio('pq-view', 'pivot', 'PivotTable Report', false, null, true),
-    radio('pq-view', 'chart', 'PivotChart', false, null, true),
-    radio('pq-view', 'connection', 'Only Create Connection', view === 'connection', () => { view = 'connection'; sync(); }));
-  const whereGroup = el('div.field.pq-radio-group', { role: 'radiogroup', 'aria-label': 'Where do you want to put the data?' },
-    el('span.field-label', {}, 'Where do you want to put the data?'),
-    radio('pq-where', 'existing', 'Existing worksheet:', false, () => { where = 'existing'; sync(); }),
+  const viewGroup = el('div.field.pq-radio-group', { role: 'radiogroup', 'aria-label': t('getData.import.viewAs') },
+    el('span.field-label', {}, t('getData.import.viewAs')),
+    radio('pq-view', 'table', t('getData.import.table'), view === 'table', () => { view = 'table'; sync(); }),
+    radio('pq-view', 'pivot', t('getData.import.pivotTable'), false, null, true),
+    radio('pq-view', 'chart', t('getData.import.pivotChart'), false, null, true),
+    radio('pq-view', 'connection', t('getData.import.connectionOnly'), view === 'connection', () => { view = 'connection'; sync(); }));
+  const whereGroup = el('div.field.pq-radio-group', { role: 'radiogroup', 'aria-label': t('getData.import.where') },
+    el('span.field-label', {}, t('getData.import.where')),
+    radio('pq-where', 'existing', t('getData.import.existing'), false, () => { where = 'existing'; sync(); }),
     el('div.pq-indent', {}, cellInput),
-    radio('pq-where', 'new', 'New worksheet', true, () => { where = 'new'; sync(); }));
+    radio('pq-where', 'new', t('getData.import.newSheet'), true, () => { where = 'new'; sync(); }));
   const submit = async (e) => {
     e?.preventDefault();
     let at = null;
     if (view === 'table' && where === 'existing') {
       at = parseLocation(wb, cellInput.value, ctx.sheetId());
-      if (!at) return refuse(cellInput, 'The reference is not valid. Enter a cell such as =$A$1 or =Sheet1!$A$1.');
+      if (!at) return refuse(cellInput, t('getData.import.badReference'));
     }
     modal.close();
     if (fresh) { const saved = await loadNew(ctx, query, view === 'connection' ? 'connection' : at); onDone?.(saved); return; }
@@ -330,15 +333,15 @@ export function openImportData(ctx, { query, fresh = false, onDone = null }) {
       saveQuery(wb, { ...(queryById(wb, live.id) || live), load: previous });
     }
     if (out.error) toast(out.error, { icon: 'alert', duration: 5000 });
-    else { fitQueryTables(ctx, [live]); toast(`${out.rows.toLocaleString()} rows loaded`, { icon: 'table' }); }
+    else { fitQueryTables(ctx, [live]); toast(t('getData.rowsLoaded', { rows: out.rows }), { icon: 'table' }); }
     ctx.onQueriesChanged?.();
     onDone?.(live);
   };
   const content = el('form.pq-import', { onsubmit: submit }, viewGroup, whereGroup,
-    el('label.check.pq-disabled', {}, el('input', { type: 'checkbox', disabled: true }), el('span', {}, 'Add this data to the Data Model')),
+    el('label.check.pq-disabled', {}, el('input', { type: 'checkbox', disabled: true }), el('span', {}, t('getData.import.dataModel'))),
     alert,
-    el('div.row.row-end', {}, el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Cancel'), el('button.btn.btn-primary', { type: 'submit' }, 'OK')));
-  const modal = openModal({ title: 'Import Data', content });
+    el('div.row.row-end', {}, el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, t('common.cancel')), el('button.btn.btn-primary', { type: 'submit' }, t('common.ok'))));
+  const modal = openModal({ title: t('getData.import.title'), content });
   sync();
   return modal;
 }

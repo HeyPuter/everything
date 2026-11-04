@@ -1,0 +1,5 @@
+{
+  "label": "{kind, select, winLoss {盈亏迷你图，{count} 个值，最小值 {min}，最大值 {max}} column {柱形迷你图，{count} 个值，最小值 {min}，最大值 {max}} other {折线迷你图，{count} 个值，最小值 {min}，最大值 {max}}}",
+  "labelEmpty": "{kind, select, winLoss {盈亏迷你图，没有数值} column {柱形迷你图，没有数值} other {折线迷你图，没有数值}}",
+  "labelUnavailable": "{kind, select, winLoss {盈亏迷你图，源数据不可用} column {柱形迷你图，源数据不可用} other {折线迷你图，源数据不可用}}"
+}

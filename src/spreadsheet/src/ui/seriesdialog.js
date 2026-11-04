@@ -12,6 +12,7 @@ import { dateTimeKind, parseInput } from '../core/format.js';
 import * as S from '../core/selection.js';
 import { fillSeriesLines } from '../core/autofill-options.js';
 import { MAX_ROW, MAX_COL } from '../core/refs.js';
+import { t } from '../i18n/index.js';
 
 /** As far as one cell's series runs to its stop value (Workbook.fillSeries). */
 const STOP_REACH = 10000;
@@ -37,32 +38,32 @@ export function openSeriesDialog(ctx) {
   const single = range.r1 === range.r2 && range.c1 === range.c2;
   const first = ctx.wb.getValue(sheetId, range.r1, range.c1);
   const startIsDate = ['date', 'datetime'].includes(dateTimeKind(ctx.wb.getCell(sheetId, range.r1, range.c1)?.s, first));
-  const dirSelect = el('select.select', { 'aria-label': 'Direction' },
-    el('option', { value: 'down', selected: range.r2 > range.r1 || range.c1 === range.c2 }, 'Columns'),
-    el('option', { value: 'right', selected: range.r1 === range.r2 && range.c2 > range.c1 }, 'Rows'));
-  const typeSelect = el('select.select', { 'aria-label': 'Type' },
-    el('option', { value: 'linear', selected: !startIsDate }, 'Linear (add the step)'),
-    el('option', { value: 'growth' }, 'Growth (multiply by the step)'),
-    el('option', { value: 'date', selected: startIsDate }, 'Date'),
-    el('option', { value: 'autofill' }, 'AutoFill (as the fill handle)'));
+  const dirSelect = el('select.select', { 'aria-label': t('seriesdialog.direction') },
+    el('option', { value: 'down', selected: range.r2 > range.r1 || range.c1 === range.c2 }, t('seriesdialog.columns')),
+    el('option', { value: 'right', selected: range.r1 === range.r2 && range.c2 > range.c1 }, t('seriesdialog.rows')));
+  const typeSelect = el('select.select', { 'aria-label': t('seriesdialog.type') },
+    el('option', { value: 'linear', selected: !startIsDate }, t('seriesdialog.linear')),
+    el('option', { value: 'growth' }, t('seriesdialog.growth')),
+    el('option', { value: 'date', selected: startIsDate }, t('seriesdialog.date')),
+    el('option', { value: 'autofill' }, t('seriesdialog.autofill')));
   // Trend: the best-fit line (or growth curve) through the values each row or column starts with, step ignored.
-  const trendBox = el('input', { type: 'checkbox', 'aria-label': 'Trend' });
-  const trendField = el('label.check', {}, trendBox, el('span', {}, 'Trend'));
-  const unitSelect = el('select.select', { 'aria-label': 'Date unit' },
-    el('option', { value: 'day' }, 'Days'),
-    el('option', { value: 'weekday' }, 'Weekdays'),
-    el('option', { value: 'month' }, 'Months'),
-    el('option', { value: 'year' }, 'Years'));
-  const stepInput = el('input.input', { type: 'number', step: 'any', 'aria-label': 'Step', value: '1' });
-  const stopInput = el('input.input', { type: 'number', step: 'any', 'aria-label': 'Stop value', autocomplete: 'off' });
-  const unitField = el('label.field', { hidden: !startIsDate }, el('span.field-label', {}, 'Unit'), el('div.select-wrap', {}, unitSelect));
+  const trendBox = el('input', { type: 'checkbox', 'aria-label': t('seriesdialog.trend') });
+  const trendField = el('label.check', {}, trendBox, el('span', {}, t('seriesdialog.trend')));
+  const unitSelect = el('select.select', { 'aria-label': t('seriesdialog.dateUnit') },
+    el('option', { value: 'day' }, t('seriesdialog.days')),
+    el('option', { value: 'weekday' }, t('seriesdialog.weekdays')),
+    el('option', { value: 'month' }, t('seriesdialog.months')),
+    el('option', { value: 'year' }, t('seriesdialog.years')));
+  const stepInput = el('input.input', { type: 'number', step: 'any', 'aria-label': t('seriesdialog.step'), value: '1' });
+  const stopInput = el('input.input', { type: 'number', step: 'any', 'aria-label': t('seriesdialog.stopValue'), autocomplete: 'off' });
+  const unitField = el('label.field', { hidden: !startIsDate }, el('span.field-label', {}, t('seriesdialog.unit')), el('div.select-wrap', {}, unitSelect));
   const { alert: error, refuse } = fieldAlert('series'); // a start cell without a number is about the sheet, not a field
   // A date series stops at a date, typed the way a cell takes one; the other series stop at a number.
   const syncStop = () => {
     const dates = typeSelect.value === 'date';
     stopInput.type = dates ? 'text' : 'number';
     if (dates) stopInput.removeAttribute('step'); else stopInput.step = 'any';
-    stopInput.placeholder = dates ? `${single ? 'Required' : 'Optional'}: a date like 2024-12-31` : single ? 'Required for a single cell' : 'Optional';
+    stopInput.placeholder = dates ? (single ? t('seriesdialog.stopDateRequired') : t('seriesdialog.stopDateOptional')) : single ? t('seriesdialog.stopRequired') : t('common.optional');
   };
   syncStop();
   const syncTrend = () => {
@@ -80,31 +81,31 @@ export function openSeriesDialog(ctx) {
     e?.preventDefault();
     const own = typeSelect.value === 'autofill' || trendBox.checked;
     if (own) {
-      if (single) return refuse(null, 'Select the cells to fill, starting with the values to continue');
-      if (ctx.wb.isProtected(sheetId)) { toast('This sheet is protected. Unprotect it to fill a series', { icon: 'lock' }); return; }
+      if (single) return refuse(null, t('seriesdialog.selectCells'));
+      if (ctx.wb.isProtected(sheetId)) { toast(t('seriesdialog.protected'), { icon: 'lock' }); return; }
       if (ctx.wb.lockedIn(sheetId, range)) { modal.close(); return; }
       const n = fillSeriesLines(ctx.wb, sheetId, toUsedExtent(ctx.wb, sheetId, range, dirSelect.value, null), { type: typeSelect.value, trend: trendBox.checked, direction: dirSelect.value });
       modal.close();
-      if (!n) { toast('Nothing to fill: start each row or column with values to continue, followed by empty cells', { icon: 'info', duration: 3200 }); return; }
-      toast(`Filled ${n} cell${n === 1 ? '' : 's'}`, { icon: 'check', duration: 1600 });
+      if (!n) { toast(t('seriesdialog.nothingToFillStart'), { icon: 'info', duration: 3200 }); return; }
+      toast(t('seriesdialog.filled', { count: n }), { icon: 'check', duration: 1600 });
       ctx.grid.focus();
       return;
     }
-    if (typeof first !== 'number') return refuse(null, `${rangeName({ ...range, r2: range.r1, c2: range.c1 })} must hold a number or date to start from`);
+    if (typeof first !== 'number') return refuse(null, t('seriesdialog.needsNumber', { cell: rangeName({ ...range, r2: range.r1, c2: range.c1 }) }));
     const step = Number(stepInput.value);
-    if (stepInput.value.trim() === '' || !Number.isFinite(step) || (typeSelect.value === 'growth' && step === 0)) return refuse(stepInput, 'Enter a step');
+    if (stepInput.value.trim() === '' || !Number.isFinite(step) || (typeSelect.value === 'growth' && step === 0)) return refuse(stepInput, t('seriesdialog.enterStep'));
     // Only the stop value bounds a single-cell fill, and a series that stands still never reaches it.
-    if (single && step === 0) return refuse(stepInput, 'With one cell selected, enter a step other than 0 so the series can reach the stop value');
-    if (single && stopInput.value.trim() === '') return refuse(stopInput, 'With one cell selected, enter a stop value');
+    if (single && step === 0) return refuse(stepInput, t('seriesdialog.stepNonZero'));
+    if (single && stopInput.value.trim() === '') return refuse(stopInput, t('seriesdialog.enterStop'));
     let stop = null;
     if (stopInput.value.trim() !== '') {
       if (typeSelect.value === 'date') {
         const parsed = parseInput(stopInput.value.trim());
-        if (typeof parsed.v !== 'number') return refuse(stopInput, 'Enter the stop value as a date, like 2024-12-31');
+        if (typeof parsed.v !== 'number') return refuse(stopInput, t('seriesdialog.stopAsDate'));
         stop = parsed.v;
       } else stop = Number(stopInput.value);
     }
-    if (ctx.wb.isProtected(sheetId)) { toast('This sheet is protected. Unprotect it to fill a series', { icon: 'lock' }); return; }
+    if (ctx.wb.isProtected(sheetId)) { toast(t('seriesdialog.protected'), { icon: 'lock' }); return; }
     // A fill refused for protection is explained by the lock message every tool shares, not blamed on the series.
     if (!single && ctx.wb.lockedIn(sheetId, range)) { modal.close(); return; }
     let refused = false;
@@ -117,30 +118,32 @@ export function openSeriesDialog(ctx) {
     } finally { ctx.wb.removeEventListener('change', onProtection); }
     modal.close();
     if (refused) return;
-    if (!n) { toast('Nothing to fill: the series ends before the next cell', { icon: 'info' }); return; }
+    if (!n) { toast(t('seriesdialog.endsBefore'), { icon: 'info' }); return; }
     if (single) {
       const end = dirSelect.value === 'down' ? { r1: range.r1, c1: range.c1, r2: range.r1 + n, c2: range.c1 } : { r1: range.r1, c1: range.c1, r2: range.r1, c2: range.c1 + n };
       ctx.grid.setSelection(S.fromRange(end, { r: range.r1, c: range.c1 }), { scroll: false });
     }
-    toast(`Filled ${n} cell${n === 1 ? '' : 's'}`, { icon: 'check', duration: 1600 });
+    toast(t('seriesdialog.filled', { count: n }), { icon: 'check', duration: 1600 });
     ctx.grid.focus();
   };
   const content = el('form', { onsubmit: submit },
-    el('p.modal-text', {}, `Starts from ${rangeName({ ...range, r2: range.r1, c2: range.c1 })}${typeof first === 'number' ? ` (${ctx.wb.getDisplay(sheetId, range.r1, range.c1)})` : ''}.`),
+    el('p.modal-text', {}, typeof first === 'number'
+      ? t('seriesdialog.startsFromValue', { cell: rangeName({ ...range, r2: range.r1, c2: range.c1 }), value: ctx.wb.getDisplay(sheetId, range.r1, range.c1) })
+      : t('seriesdialog.startsFrom', { cell: rangeName({ ...range, r2: range.r1, c2: range.c1 }) })),
     el('div.names-fields', {},
-      el('label.field', {}, el('span.field-label', {}, 'Series in'), el('div.select-wrap', {}, dirSelect)),
-      el('label.field', {}, el('span.field-label', {}, 'Type'), el('div.select-wrap', {}, typeSelect))),
+      el('label.field', {}, el('span.field-label', {}, t('seriesdialog.seriesIn')), el('div.select-wrap', {}, dirSelect)),
+      el('label.field', {}, el('span.field-label', {}, t('seriesdialog.type')), el('div.select-wrap', {}, typeSelect))),
     unitField,
     trendField,
     el('div.names-fields', {},
-      el('label.field', {}, el('span.field-label', {}, 'Step value'), stepInput),
-      el('label.field', {}, el('span.field-label', {}, 'Stop value'), stopInput)),
+      el('label.field', {}, el('span.field-label', {}, t('seriesdialog.stepValue')), stepInput),
+      el('label.field', {}, el('span.field-label', {}, t('seriesdialog.stopValue')), stopInput)),
     error,
     el('div.row.row-end', {},
-      el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Cancel'),
-      el('button.btn.btn-primary', { type: 'submit' }, 'Fill')));
+      el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, t('common.cancel')),
+      el('button.btn.btn-primary', { type: 'submit' }, t('seriesdialog.fill'))));
   // Closing by any route (Cancel, Escape, the scrim) hands focus back to the grid, not the toolbar button.
-  const modal = openModal({ title: 'Fill series', content, initialFocus: stepInput, onClose: () => ctx.grid.focus() });
+  const modal = openModal({ title: t('seriesdialog.title'), content, initialFocus: stepInput, onClose: () => ctx.grid.focus() });
   // The suggested step is offered selected, so typing replaces it (where the field took the focus).
   if (document.activeElement === stepInput) stepInput.select();
 }

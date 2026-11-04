@@ -1,5 +1,6 @@
 import { normalizeSlicer, slicerPivotCache } from '../core/slicer.js';
 import { applySlicerPaint, slicerStatePaint } from './slicer-paint.js';
+import { t } from '../i18n/index.js';
 
 // Table slicers use their filter text; native pivots can supply a cache-member
 // key independently of a formatted caption. Numeric zero is a valid identity.
@@ -18,9 +19,9 @@ export function createSlicerControl(doc, change) {
     button.setAttribute('aria-label', name); button.title = name;
     button.style.cssText = 'font:inherit;color:inherit;flex:none;background:transparent;border:0;padding:2px;cursor:pointer'; return button;
   };
-  const multi = action('Multi-select', '☷'), clear = action('Clear filter', '×');
+  const multi = action(t('slicer.multiSelect'), '☷'), clear = action(t('slicer.clearFilter'), '×');
   multi.setAttribute('aria-pressed', 'false'); header.append(caption, multi, clear);
-  const list = doc.createElement('div'); list.className = 'slicer-items'; list.setAttribute('role', 'group'); list.setAttribute('aria-label', 'Filter values');
+  const list = doc.createElement('div'); list.className = 'slicer-items'; list.setAttribute('role', 'group'); list.setAttribute('aria-label', t('slicer.filterValues'));
   list.style.cssText = 'display:block;flex:1;min-height:0;overflow:auto;padding:4px;box-sizing:border-box;overflow-anchor:none';
   const surface = doc.createElement('div'); surface.style.cssText = 'position:relative;width:100%;overflow:clip'; list.append(surface);
   const status = doc.createElement('div'); status.className = 'slicer-status'; status.setAttribute('role', 'status'); status.style.padding = '4px'; status.hidden = true;
@@ -52,7 +53,7 @@ export function createSlicerControl(doc, change) {
     scrollAdjustment = top - list.scrollTop * m.scale;
     lastScroll = list.scrollTop;
   };
-  const label = value => value === '' ? '(Blank)' : value;
+  const label = value => value === '' ? t('slicer.blank') : value;
   const paint = (key, button) => {
     const item = button.slicerItem;
     const state = slicerStatePaint(paints, { ...item, hovered: hovered.has(key) });
@@ -77,7 +78,7 @@ export function createSlicerControl(doc, change) {
   };
   const submit = values => {
     try { return change?.(values); }
-    catch (error) { status.textContent = error.message || 'The slicer could not be updated.'; status.hidden = false; return false; }
+    catch (error) { status.textContent = error.message || t('slicer.couldNotUpdate'); status.hidden = false; return false; }
   };
   const select = (key, event) => {
     if (disabled || !change) return;
@@ -167,7 +168,7 @@ export function createSlicerControl(doc, change) {
       button.slicerItem = item; button.textContent = label(item.value); button.title = label(item.value);
       button.disabled = disabled; button.tabIndex = itemKey(item) === focusedKey ? 0 : -1;
       button.setAttribute('aria-pressed', String(item.selected));
-      button.setAttribute('aria-description', `Item ${index + 1} of ${items.length}${item.available ? '' : '. No matching data under the other filters'}`);
+      button.setAttribute('aria-description', item.available ? t('slicer.itemOf', { n: index + 1, total: items.length }) : t('slicer.itemOfNoData', { n: index + 1, total: items.length }));
       button.style.position = 'absolute';
       const top = !mounted.has(index) ? -m.stride : Math.floor(index / m.columns) * m.stride - m.top + list.scrollTop;
       button.style.top = `${top}px`;
@@ -192,7 +193,7 @@ export function createSlicerControl(doc, change) {
     // The control option is a fallback for callers supplying availability only.
     items = allItems.filter(item => !(item.hidden ?? (control.hideItemsWithNoData && !item.available)));
     disabled = !!options.disabled || nextItems == null || !change;
-    node.hidden = !!control.hidden; node.style.display = node.hidden ? 'none' : 'flex'; node.setAttribute('aria-label', control.title || 'Slicer'); node.setAttribute('aria-disabled', String(disabled));
+    node.hidden = !!control.hidden; node.style.display = node.hidden ? 'none' : 'flex'; node.setAttribute('aria-label', control.title || t('slicer.slicer')); node.setAttribute('aria-disabled', String(disabled));
     if (control.description) node.setAttribute('aria-description', control.description); else node.removeAttribute('aria-description');
     caption.textContent = control.title || ''; caption.title = control.title || ''; header.hidden = control.showCaption === false;
     // Inline display styles otherwise override the browser's hidden rule.
@@ -202,7 +203,7 @@ export function createSlicerControl(doc, change) {
     multi.disabled = disabled; clear.disabled = disabled || !allItems.length || allItems.every(item => item.selected);
     list.setAttribute('aria-busy', 'false');
     status.hidden = nextItems != null && !!items.length;
-    status.textContent = nextItems == null ? control.pivotCache != null ? 'The linked pivot cache is unavailable.' : 'The linked table column is unavailable.' : items.length ? '' : 'No items';
+    status.textContent = nextItems == null ? control.pivotCache != null ? t('slicer.cacheUnavailable') : t('slicer.columnUnavailable') : items.length ? '' : t('slicer.noItems');
     indexes = new Map(items.map((item, i) => [itemKey(item), i]));
     if (!indexes.has(focusedKey)) focusedKey = itemKey(items.find(item => item.selected)) ?? itemKey(items[0]) ?? null;
     // Size the surface before setting scrollTop; browsers clamp against its extent.

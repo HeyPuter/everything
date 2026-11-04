@@ -52,6 +52,7 @@ import { smartArtLook, fallbackPicture } from './smartart.js';
 import { equationBody } from './equation-view.js';
 import { textBoxEffectCss } from '../core/theme-effects.js';
 import { renderChartSvg, renderSparklineSvg, chartCornerRadius } from './chartsvg.js';
+import { t } from '../i18n/index.js';
 import { paintCellFill } from './cell-fill.js';
 import { nativeFillOverridesNormal } from '../core/native-fill.js';
 
@@ -65,13 +66,18 @@ export const PRINT_DEFAULTS = {
 // it, where two lengths cannot, so `11in 17in landscape` was an invalid declaration the browser dropped
 // whole. CSS calls the 11 × 17 inch sheet `ledger`. A paper CSS has no name for (null) is asked for by its
 // two lengths, already turned for landscape. The papers after the first five come in with workbooks from
-// Excel, set up for them, and are the ones the Page Layout view draws.
-export const PAPER_SIZES = [['letter', 'Letter', 'letter'], ['a4', 'A4', 'A4'], ['legal', 'Legal', 'legal'], ['a3', 'A3', 'A3'], ['tabloid', 'Tabloid', 'ledger'],
-  ['a5', 'A5', 'A5'], ['b4', 'B4', 'B4'], ['b5', 'B5', 'JIS-B5'], ['executive', 'Executive', null], ['statement', 'Statement', null], ['folio', 'Folio', null]];
+// Excel, set up for them, and are the ones the Page Layout view draws. The second of each is the catalog key of
+// its name, shown with t().
+export const PAPER_SIZES = [['letter', 'print.paper.letter', 'letter'], ['a4', 'print.paper.a4', 'A4'], ['legal', 'print.paper.legal', 'legal'], ['a3', 'print.paper.a3', 'A3'], ['tabloid', 'print.paper.tabloid', 'ledger'],
+  ['a5', 'print.paper.a5', 'A5'], ['b4', 'print.paper.b4', 'B4'], ['b5', 'print.paper.b5', 'JIS-B5'], ['executive', 'print.paper.executive', null], ['statement', 'print.paper.statement', null], ['folio', 'print.paper.folio', null]];
 /** The papers by SpreadsheetML paperSize code (2 is Letter Small, 10 A4 Small), and back. */
 const PAPER_CODES = { 1: 'letter', 2: 'letter', 3: 'tabloid', 5: 'legal', 6: 'statement', 7: 'executive', 8: 'a3', 9: 'a4', 10: 'a4', 11: 'a5', 12: 'b4', 13: 'b5', 14: 'folio' };
 const CODE_OF_PAPER = { letter: 1, tabloid: 3, legal: 5, statement: 6, executive: 7, a3: 8, a4: 9, a5: 11, b4: 12, b5: 13, folio: 14 };
-export const MARGINS = [['narrow', 'Narrow', '6mm'], ['normal', 'Normal', '12mm'], ['wide', 'Wide', '20mm']];
+/** The margin presets: id, the catalog key of the name shown with t(), and the CSS margin. */
+export const MARGINS = [['narrow', 'print.margins.narrow', '6mm'], ['normal', 'print.margins.normal', '12mm'], ['wide', 'print.margins.wide', '20mm']];
+
+/** The footer printed when none is set and page numbers can be printed: "Page &[Page] of &[Pages]", in the interface language. */
+export const defaultPrintFooter = () => t('print.defaultFooter');
 const printLayouts = new WeakMap();
 const HEADER_VARIANTS = ['evenHeader', 'evenFooter', 'firstHeader', 'firstFooter', 'differentFirst', 'differentOddEven', 'scaleWithDoc'];
 
@@ -200,10 +206,10 @@ const SECTION_RE = /&&|&([LCR])/g;
 export function printTextParts(text) {
   const parts = [];
   const src = String(text || '');
-  const pushText = (t) => {
-    if (!t) return;
+  const pushText = (piece) => {
+    if (!piece) return;
     const prev = parts[parts.length - 1];
-    if (prev && prev.text != null) prev.text += t; else parts.push({ text: t });
+    if (prev && prev.text != null) prev.text += piece; else parts.push({ text: piece });
   };
   let last = 0;
   for (const m of src.matchAll(TOKEN_RE)) {
@@ -263,7 +269,7 @@ export function expandPrintText(text, info = {}) {
   return out.replace(/\s{2,}/g, ' ').trim();
 }
 
-const cssString = (t) => `"${t.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/[\r\n]+/g, ' ')}"`;
+const cssString = (text) => `"${text.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/[\r\n]+/g, ' ')}"`;
 
 /**
  * A CSS `content` value for a page margin box: the text as strings, with
@@ -275,8 +281,8 @@ export function marginBoxContent(text, info = {}) {
     if (!p.token) return p.text ? cssString(p.text) : '';
     if (p.token === 'Page') return info.page != null ? cssString(String(info.page)) : 'counter(page)';
     if (p.token === 'Pages') return 'counter(pages)';
-    const t = tokenText(p.token, info);
-    return t ? cssString(t) : '';
+    const value = tokenText(p.token, info);
+    return value ? cssString(value) : '';
   }).filter(Boolean);
   return parts.length ? parts.join(' ') : null;
 }
@@ -312,9 +318,9 @@ export function pageMarginCss(name, header, footer, info = {}, opts = {}) {
  */
 function sectionSpans(text, info, tag, fallback = '') {
   const s = splitPrintSections(text);
-  const [left, center, right] = [s.left, s.center, s.right].map((t) => expandPrintText(t, info));
+  const [left, center, right] = [s.left, s.center, s.right].map((text) => expandPrintText(text, info));
   if (!left && !right) return [el(tag, {}, center || fallback)];
-  const part = (t, textAlign) => el(tag, { style: { flex: '1 1 0', textAlign } }, t);
+  const part = (text, textAlign) => el(tag, { style: { flex: '1 1 0', textAlign } }, text);
   return [part(left, 'left'), part(center, 'center'), part(right, 'right')];
 }
 
@@ -401,14 +407,14 @@ export function supportsPageMarginBoxes() {
  */
 function checkboxSvg(on, excel = false) {
   if (excel) return '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 13 13" role="img"'
-    + ` aria-label="${on ? 'Checked' : 'Unchecked'}" style="vertical-align: middle; forced-color-adjust: none">`
+    + ` aria-label="${on ? t('print.checked') : t('print.unchecked')}" style="vertical-align: middle; forced-color-adjust: none">`
     + '<rect x="0.5" y="0.5" width="12" height="12" fill="#fff" stroke="#000"/>'
     + (on ? '<path d="M2 6 5 9 11 3" fill="none" stroke="#000" stroke-width="1.5"/>' : '') + '</svg>';
   const box = on
     ? '<rect x="1" y="1" width="13" height="13" rx="3.5" fill="var(--accent)" stroke="var(--accent)" stroke-width="1.5"/>'
       + '<path d="M4 7.6 6.7 10.3 11.3 4.9" fill="none" stroke="var(--accent-ink)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>'
     : '<rect x="1" y="1" width="13" height="13" rx="3.5" fill="var(--surface)" stroke="var(--ink-3)" stroke-width="1.5"/>';
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 15 15" role="img" aria-label="${on ? 'Checked' : 'Unchecked'}" style="vertical-align: middle; forced-color-adjust: none">${box}</svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 15 15" role="img" aria-label="${on ? t('print.checked') : t('print.unchecked')}" style="vertical-align: middle; forced-color-adjust: none">${box}</svg>`;
 }
 
 /** Whether a style paints on paper with no value in the cell: a fill or a border edge. Bold or a number format on a blank cell shows nothing. */
@@ -815,7 +821,7 @@ export function buildPrintTable(wb, sheetId, opts = {}) {
   // sheet — takes the cell's style as it stands and pays nothing for the lookup.
   const lineFormats = !!(wb.defaultStyle(sheet) || sheet.colStyles?.size || sheet.rowStyles?.size || sheet.styleResets?.length);
   paintCellFill(table, wb.nativeDefaultCellFormat?.style.bg);
-  const customTables = sheet.tables.some(t => t.customStyle);
+  const customTables = sheet.tables.some(tbl => tbl.customStyle);
   const nativePivots = wb.hasNativePivotDisplay(sheetId);
   // A synthetic blank cell below can carry display paint. Always read the
   // source format here so its PivotTable borders are not reapplied as direct.
@@ -1328,9 +1334,9 @@ export function buildPrintRoot(wb, sheetId, docName, opts = {}) {
         } }, table);
       }
       const regularText = { header: String(p.header || '').trim(),
-        footer: String(p.footer || '').trim() || (p.native ? '' : marginBoxes ? 'Page &[Page] of &[Pages]' : '&[Date]') };
+        footer: String(p.footer || '').trim() || (p.native ? '' : marginBoxes ? defaultPrintFooter() : '&[Date]') };
       const { header, footer } = printPageText({ ...p, ...regularText }, 0);
-      const info = { file: docName || 'Spreadsheet', path: o.filePath || '', tab: sh.name, now, palette: wb.colorPalette, normalFont: wb.normalFont };
+      const info = { file: docName || t('common.spreadsheet'), path: o.filePath || '', tab: sh.name, now, palette: wb.colorPalette, normalFont: wb.normalFont };
       const showSheetName = wb.sheets.length > 1 || sheets.length > 1;
       const i = pageRules.length;
       const section = el('section.print-section', { className: i > 0 ? 'print-section page-break' : 'print-section' });
@@ -1344,7 +1350,7 @@ export function buildPrintRoot(wb, sheetId, docName, opts = {}) {
       if (marginBoxes || p.richHeaderText) {
         if (p.title !== false) {
           section.append(el('div.print-head', {},
-            el('span.print-title', {}, docName || 'Spreadsheet'),
+            el('span.print-title', {}, docName || t('common.spreadsheet')),
             showSheetName && el('span.print-sub', {}, sh.name)));
         }
         section.append(content);
@@ -1353,7 +1359,7 @@ export function buildPrintRoot(wb, sheetId, docName, opts = {}) {
         const variants = p.differentFirst || p.differentOddEven;
         section.append(...[
           p.title !== false && el('div.print-head', { style: !variants && header ? flowTextAlignment(p) : null },
-            ...sectionSpans(variants ? '' : header, info, 'span.print-title', docName || 'Spreadsheet'),
+            ...sectionSpans(variants ? '' : header, info, 'span.print-title', docName || t('common.spreadsheet')),
             showSheetName && el('span.print-sub', {}, sh.name)),
           (variants || p.title === false) && flowPageText('header', header, info, p),
           content,

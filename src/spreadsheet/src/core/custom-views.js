@@ -10,6 +10,7 @@ import { MAX_ROW, MAX_COL } from './refs.js';
 import { normalizeSheetSelection, normalizeSheetOrigin } from './sheet-selection.js';
 import { normalizeSplit } from './split-panes.js';
 import { normalizePrintSettings } from './print-settings.js';
+import { t } from '../i18n/index.js';
 
 /** The most views a workbook keeps. */
 export const MAX_CUSTOM_VIEWS = 256;
@@ -23,9 +24,9 @@ const lines = (list, max) => Array.isArray(list) ? [...new Set(list.filter(n => 
 /** Is this a name a view can take: some text, not too long, unlike every other view's name (case aside)? */
 export function customViewNameProblem(name, views = [], except = null) {
   const text = String(name ?? '').trim();
-  if (!text) return 'Type a name for the view.';
-  if (text.length > CUSTOM_VIEW_NAME_MAX) return `A view name can be at most ${CUSTOM_VIEW_NAME_MAX} characters.`;
-  if (views.some(v => v.id !== except && v.name.toLowerCase() === text.toLowerCase())) return 'A view with that name already exists.';
+  if (!text) return t('customViews.nameMissing');
+  if (text.length > CUSTOM_VIEW_NAME_MAX) return t('customViews.nameTooLong', { max: CUSTOM_VIEW_NAME_MAX });
+  if (views.some(v => v.id !== except && v.name.toLowerCase() === text.toLowerCase())) return t('customViews.nameTaken');
   return null;
 }
 

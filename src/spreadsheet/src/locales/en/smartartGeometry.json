@@ -1,0 +1,14 @@
+{
+  "shape.chevron": "Chevron",
+  "shape.diamond": "Diamond",
+  "shape.downArrow": "Down Arrow",
+  "shape.ellipse": "Oval",
+  "shape.hexagon": "Hexagon",
+  "shape.homePlate": "Pentagon Arrow",
+  "shape.octagon": "Octagon",
+  "shape.rect": "Rectangle",
+  "shape.rightArrow": "Right Arrow",
+  "shape.roundRect": "Rounded Rectangle",
+  "shape.trapezoid": "Trapezoid",
+  "shape.triangle": "Triangle"
+}

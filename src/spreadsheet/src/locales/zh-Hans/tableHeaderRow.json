@@ -1,0 +1,14 @@
+{
+  "hasSlicers": "此表格有切片器。请先删除切片器，再隐藏标题行。",
+  "headerProtected": "标题行受保护。",
+  "needsData": "表格至少需要一行数据才能隐藏标题行。",
+  "needsHeader": "请先打开标题行，才能使用筛选按钮。",
+  "noRoom": "表格上方没有空间放置标题行。",
+  "rowAboveProtected": "表格上方的行受保护。",
+  "selectTable": "请先选择一个表格。",
+  "undo.hide": "隐藏标题行",
+  "undo.hideButtons": "隐藏筛选按钮",
+  "undo.show": "显示标题行",
+  "undo.showButtons": "显示筛选按钮",
+  "unprotect": "请撤消工作表保护后再更改表格。"
+}

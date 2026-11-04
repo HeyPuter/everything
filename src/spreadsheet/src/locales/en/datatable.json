@@ -1,0 +1,8 @@
+{
+  "columnInput": "Column input cell",
+  "columnInputLabel": "Column input cell:",
+  "invalidRef": "Input cell reference is not valid",
+  "rowInput": "Row input cell",
+  "rowInputLabel": "Row input cell:",
+  "title": "Data Table"
+}

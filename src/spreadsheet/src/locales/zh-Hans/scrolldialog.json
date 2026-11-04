@@ -1,0 +1,12 @@
+{
+  "arrowIncrement": "步长",
+  "horizontal": "水平",
+  "linkedCell": "单元格链接",
+  "maxBelowMin": "最大值不能小于最小值。",
+  "maximum": "最大值",
+  "minimum": "最小值",
+  "pageIncrement": "页步长",
+  "printControl": "打印对象",
+  "singleCell": "请选择单个链接单元格，或将链接留空。",
+  "title": "编辑滚动条"
+}

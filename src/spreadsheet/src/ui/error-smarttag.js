@@ -11,6 +11,7 @@ import { openModal } from './modal.js';
 import { errorCheckAt, textToNumber, ERROR_RULES, errorCheckingOptions, setErrorCheckingOptions } from '../core/error-checking.js';
 import { shiftFormula } from '../core/refs.js';
 import { savePref, syncPref } from '../lib/user-prefs.js';
+import { t } from '../i18n/index.js';
 
 const PREF = 'error-checking';
 
@@ -38,27 +39,27 @@ export function createErrorSmartTag(ctx) {
     switch (check.key) {
       case 'numberStoredAsText': {
         const n = textToNumber(cell?.v);
-        return n == null ? [] : [{ label: 'Convert to Number', onSelect: () => wb.setCells(sheetId, [{ r, c, cell: { ...cell, v: n, f: null, s: cell.s && cell.s.fmt === 'text' ? { ...cell.s, fmt: null } : cell.s } }], 'Convert to number') }];
+        return n == null ? [] : [{ label: t('errorSmarttag.convertToNumber'), onSelect: () => wb.setCells(sheetId, [{ r, c, cell: { ...cell, v: n, f: null, s: cell.s && cell.s.fmt === 'text' ? { ...cell.s, fmt: null } : cell.s } }], t('errorSmarttag.undo.convertToNumber')) }];
       }
       case 'formula': {
         const out = [];
         const above = wb.getCell(sheetId, r - 1, c), left = wb.getCell(sheetId, r, c - 1);
-        if (r > 0 && above?.f != null) out.push({ label: 'Copy Formula from Above', onSelect: () => set(`=${shiftFormula(above.f, 1, 0)}`, 'Copy formula from above') });
-        if (c > 0 && left?.f != null) out.push({ label: 'Copy Formula from Left', onSelect: () => set(`=${shiftFormula(left.f, 0, 1)}`, 'Copy formula from left') });
+        if (r > 0 && above?.f != null) out.push({ label: t('errorSmarttag.copyFromAbove'), onSelect: () => set(`=${shiftFormula(above.f, 1, 0)}`, t('errorSmarttag.undo.copyFromAbove')) });
+        if (c > 0 && left?.f != null) out.push({ label: t('errorSmarttag.copyFromLeft'), onSelect: () => set(`=${shiftFormula(left.f, 0, 1)}`, t('errorSmarttag.undo.copyFromLeft')) });
         return out;
       }
       case 'unlockedFormula':
-        return [{ label: 'Lock Cell', onSelect: () => wb.applyStyle(sheetId, { r1: r, c1: c, r2: r, c2: c }, { locked: null }) }];
+        return [{ label: t('errorSmarttag.lockCell'), onSelect: () => wb.applyStyle(sheetId, { r1: r, c1: c, r2: r, c2: c }, { locked: null }) }];
       case 'twoDigitTextYear': {
         const text = String(cell?.v || '');
         const widen = (century) => text.replace(/(\d{2})\s*$/, (yy) => `${century}${yy}`);
         return [
-          { label: `Convert XX to 19XX`, onSelect: () => set(widen('19'), 'Convert year') },
-          { label: `Convert XX to 20XX`, onSelect: () => set(widen('20'), 'Convert year') },
+          { label: t('errorSmarttag.convertTo19'), onSelect: () => set(widen('19'), t('errorSmarttag.undo.convertYear')) },
+          { label: t('errorSmarttag.convertTo20'), onSelect: () => set(widen('20'), t('errorSmarttag.undo.convertYear')) },
         ];
       }
       case 'evalError':
-        return [{ label: 'Show Calculation Steps…', onSelect: () => ctx.run('evaluateFormula') }];
+        return [{ label: t('errorSmarttag.showSteps'), onSelect: () => ctx.run('evaluateFormula') }];
       default:
         return [];
     }
@@ -72,10 +73,10 @@ export function createErrorSmartTag(ctx) {
       items: [
         { header: check.title },
         ...fixes(check, sheetId, r, c),
-        { label: 'Ignore Error', onSelect: () => ctx.wb.ignoreErrors(sheetId, [{ r1: r, c1: c, r2: r, c2: c }], check.key) },
-        { label: 'Edit in Formula Bar', onSelect: () => ctx.focusFormulaBar?.() },
+        { label: t('errorSmarttag.ignore'), onSelect: () => ctx.wb.ignoreErrors(sheetId, [{ r1: r, c1: c, r2: r, c2: c }], check.key) },
+        { label: t('errorSmarttag.editInFormulaBar'), onSelect: () => ctx.focusFormulaBar?.() },
         { separator: true },
-        { label: 'Error Checking Options…', onSelect: () => openErrorCheckingOptions(ctx) },
+        { label: t('errorSmarttag.options'), onSelect: () => openErrorCheckingOptions(ctx) },
       ],
       onClose: (reason) => { if (reason === 'select') ctx.grid.focus(); },
     });
@@ -98,7 +99,7 @@ export function createErrorSmartTag(ctx) {
     if (vp.width && vp.height && (rect.bottom <= pane.top || rect.top >= pane.bottom || rect.right <= pane.left || rect.left >= pane.right)) { hide(); return; }
     button.hidden = false;
     button.title = check.title;
-    button.setAttribute('aria-label', `Error: ${check.title}`);
+    button.setAttribute('aria-label', t('errorSmarttag.aria', { title: check.title }));
     // It sits just left of the cell, or right of it when there is no room; beside a cell partly under a
     // frozen pane, at the pane's edge.
     const left = rect.left - 22 >= pane.left ? rect.left - 22 : rect.right + 2;
@@ -123,12 +124,12 @@ export function openErrorCheckingOptions(ctx) {
     return el('label.find-option', {}, input, el('span', {}, label));
   };
   const content = el('form', { onsubmit: (e) => { e.preventDefault(); saveErrorChecking(options); modal.close(); ctx.grid?.redraw?.(); ctx.refreshErrorTag?.(); } },
-    box('enabled', 'Enable background error checking'),
-    el('h3.field-label', { style: { margin: '10px 0 4px' } }, 'Error checking rules'),
+    box('enabled', t('errorSmarttag.enable')),
+    el('h3.field-label', { style: { margin: '10px 0 4px' } }, t('errorSmarttag.rules')),
     ...ERROR_RULES.map(([key, label]) => box(key, label)),
     el('div.row.row-end', {},
-      el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Cancel'),
-      el('button.btn.btn-primary', { type: 'submit' }, 'OK')));
-  const modal = openModal({ title: 'Error Checking', content, onClose: () => ctx.grid?.focus?.() });
+      el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, t('common.cancel')),
+      el('button.btn.btn-primary', { type: 'submit' }, t('common.ok'))));
+  const modal = openModal({ title: t('errorSmarttag.title'), content, onClose: () => ctx.grid?.focus?.() });
   return modal;
 }

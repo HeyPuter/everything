@@ -1,0 +1,8 @@
+{
+  "couldNotRead": "无法读取此文件",
+  "empty": "{name} 是空的。",
+  "file": "文件",
+  "notAnImage": "无法将 {name} 作为图片读取。请尝试 PNG 或 JPEG 格式。",
+  "pastedImage": "粘贴的图片",
+  "tooManyPages": "{name} 大约有 {pages} 页；助手最多读取 {max} 页。请将所需页面另存为较短的 PDF 后再附加。"
+}

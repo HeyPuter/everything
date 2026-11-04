@@ -13,11 +13,12 @@ import { openModal, confirmDialog, promptDialog } from './modal.js';
 import { toast } from './toast.js';
 import { createCodeEditor } from './code-editor.js';
 import { openScriptGallery, openScriptReference } from './script-gallery.js';
-import { addScript, updateScript, deleteScript, duplicateScript, scriptById, scriptByName, scriptNameProblem, uniqueScriptName, scriptFingerprint, sampleById, NEW_SCRIPT_CODE } from '../core/scripts.js';
+import { addScript, updateScript, deleteScript, duplicateScript, scriptById, scriptByName, scriptNameProblem, uniqueScriptName, scriptFingerprint, sampleById, sampleName, NEW_SCRIPT_CODE } from '../core/scripts.js';
 import { runScript } from '../core/script-run.js';
 import { startRecorder } from '../core/script-recorder.js';
 import { sandboxTransport } from '../lib/script-sandbox.js';
 import * as Library from '../lib/script-library.js';
+import { t, tRich, formatNumber } from '../i18n/index.js';
 
 const WIDTH_KEY = 'spreadsheet:scripts-pane-width';
 const OUTPUT_KEY = 'spreadsheet:scripts-output-height';
@@ -62,46 +63,46 @@ export function createAutomate(ctx, { env = () => ({}), notify = () => {}, trans
   /* ---------- The pane ---------- */
 
   const editor = createCodeEditor({
-    label: 'Script code',
+    label: t('automate.scriptCode'),
     onChange: (text) => { scheduleSave(text); },
     onRun: () => runOpen(),
     // Ctrl/Cmd+S in the code saves the workbook, the script with it.
     onSave: () => { flushSave(); ctx.run?.('save'); },
   });
   const pickerLabel = el('span.sp-picker-name');
-  const picker = el('button.sp-picker', { type: 'button', 'aria-haspopup': 'menu', 'aria-label': 'Choose a script', onclick: () => openPicker() },
+  const picker = el('button.sp-picker', { type: 'button', 'aria-haspopup': 'menu', 'aria-label': t('automate.chooseScript'), onclick: () => openPicker() },
     el('span.sp-picker-icon', { html: icon('scriptFile', 16) }), pickerLabel, el('span.sp-picker-chev', { html: icon('chevD', 14) }));
-  const more = el('button.icon-btn.sp-more', { type: 'button', 'aria-label': 'More script actions', 'aria-haspopup': 'menu', title: 'More', html: icon('more', 18), onclick: () => openMore() });
-  const runButton = el('button.btn.btn-primary.btn-sm.sp-run', { type: 'button', title: `Run (${MOD_KEY}+Enter)`, 'aria-keyshortcuts': 'Control+Enter Meta+Enter', onclick: () => runOpen() },
-    el('span', { html: icon('runScript', 16) }), el('span', {}, 'Run'));
-  const stopButton = el('button.btn.btn-sm.sp-stop', { type: 'button', hidden: true, onclick: () => stopRun() }, el('span', { html: icon('stopScript', 16) }), el('span', {}, 'Stop'));
+  const more = el('button.icon-btn.sp-more', { type: 'button', 'aria-label': t('automate.moreScriptActions'), 'aria-haspopup': 'menu', title: t('automate.more'), html: icon('more', 18), onclick: () => openMore() });
+  const runButton = el('button.btn.btn-primary.btn-sm.sp-run', { type: 'button', title: t('automate.runShortcut', { mod: MOD_KEY }), 'aria-keyshortcuts': 'Control+Enter Meta+Enter', onclick: () => runOpen() },
+    el('span', { html: icon('runScript', 16) }), el('span', {}, t('automate.run')));
+  const stopButton = el('button.btn.btn-sm.sp-stop', { type: 'button', hidden: true, onclick: () => stopRun() }, el('span', { html: icon('stopScript', 16) }), el('span', {}, t('automate.stop')));
   const status = el('span.sp-status', { role: 'status', 'aria-live': 'polite' });
-  const output = el('div.sp-output', { role: 'log', 'aria-label': 'Script output', tabindex: 0 });
+  const output = el('div.sp-output', { role: 'log', 'aria-label': t('automate.output.label'), tabindex: 0 });
   const outputCount = el('span.sp-output-count');
-  const clearOutput = el('button.icon-btn', { type: 'button', 'aria-label': 'Clear output', title: 'Clear output', html: icon('eraser', 15), onclick: () => { output.replaceChildren(); outputCount.textContent = ''; } });
-  const outputSplit = el('div.sp-split', { role: 'separator', 'aria-orientation': 'horizontal', 'aria-label': 'Resize output', tabindex: 0, 'aria-valuemin': 60, 'aria-valuemax': 600 });
-  const outputBox = el('div.sp-output-box', {}, el('div.sp-output-head', {}, el('span.sp-output-title', {}, 'Output'), outputCount, clearOutput), output);
+  const clearOutput = el('button.icon-btn', { type: 'button', 'aria-label': t('automate.output.clear'), title: t('automate.output.clear'), html: icon('eraser', 15), onclick: () => { output.replaceChildren(); outputCount.textContent = ''; } });
+  const outputSplit = el('div.sp-split', { role: 'separator', 'aria-orientation': 'horizontal', 'aria-label': t('automate.output.resize'), tabindex: 0, 'aria-valuemin': 60, 'aria-valuemax': 600 });
+  const outputBox = el('div.sp-output-box', {}, el('div.sp-output-head', {}, el('span.sp-output-title', {}, t('automate.output.title')), outputCount, clearOutput), output);
   const empty = el('div.sp-empty', { hidden: true },
     el('span.sp-empty-icon', { html: icon('codeEditor', 40) }),
-    el('p.sp-empty-title', {}, 'No scripts in this workbook yet'),
-    el('p.sp-empty-text', {}, 'Write a script, record what you do, or start from a sample. Scripts are saved with the workbook.'),
+    el('p.sp-empty-title', {}, t('automate.empty.title')),
+    el('p.sp-empty-text', {}, t('automate.empty.text')),
     el('div.sp-empty-actions', {},
-      el('button.btn.btn-primary.btn-sm', { type: 'button', onclick: () => newScript() }, 'New Script'),
-      el('button.btn.btn-sm', { type: 'button', onclick: () => toggleRecording() }, 'Record Actions'),
-      el('button.btn.btn-sm.btn-ghost', { type: 'button', onclick: () => gallery() }, 'Browse Samples')));
+      el('button.btn.btn-primary.btn-sm', { type: 'button', onclick: () => newScript() }, t('automate.newScript')),
+      el('button.btn.btn-sm', { type: 'button', onclick: () => toggleRecording() }, t('automate.recordActions')),
+      el('button.btn.btn-sm.btn-ghost', { type: 'button', onclick: () => gallery() }, t('automate.browseSamples'))));
   const work = el('div.sp-work', {},
     el('div.sp-bar', {}, picker, more),
     el('div.sp-actions', {}, runButton, stopButton, status),
     el('div.sp-code', {}, editor.el));
-  const resizer = el('div.sp-resize', { role: 'separator', 'aria-orientation': 'vertical', 'aria-label': 'Resize Code Editor', tabindex: 0, 'aria-valuemin': 320 });
-  const pane = el('section.scripts-pane', { role: 'region', 'aria-label': 'Code Editor', hidden: true },
+  const resizer = el('div.sp-resize', { role: 'separator', 'aria-orientation': 'vertical', 'aria-label': t('automate.resizePane'), tabindex: 0, 'aria-valuemin': 320 });
+  const pane = el('section.scripts-pane', { role: 'region', 'aria-label': t('automate.codeEditor'), hidden: true },
     resizer,
     el('div.sp-head', {},
-      el('h2.sp-title', {}, 'Code Editor'),
-      el('button.icon-btn', { type: 'button', 'aria-label': 'New script', title: 'New script', html: icon('plus', 18), onclick: () => newScript() }),
-      el('button.icon-btn', { type: 'button', 'aria-label': 'All scripts', title: 'All scripts', html: icon('allScripts', 18), onclick: () => gallery() }),
-      el('button.icon-btn', { type: 'button', 'aria-label': 'Script reference', title: 'Script reference', html: icon('scriptReference', 18), onclick: () => openScriptReference() }),
-      el('button.icon-btn', { type: 'button', 'aria-label': 'Close Code Editor', title: 'Close', html: icon('x', 18), onclick: () => hidePane() })),
+      el('h2.sp-title', {}, t('automate.codeEditor')),
+      el('button.icon-btn', { type: 'button', 'aria-label': t('automate.newScriptLower'), title: t('automate.newScriptLower'), html: icon('plus', 18), onclick: () => newScript() }),
+      el('button.icon-btn', { type: 'button', 'aria-label': t('automate.allScriptsLower'), title: t('automate.allScriptsLower'), html: icon('allScripts', 18), onclick: () => gallery() }),
+      el('button.icon-btn', { type: 'button', 'aria-label': t('automate.scriptReferenceLower'), title: t('automate.scriptReferenceLower'), html: icon('scriptReference', 18), onclick: () => openScriptReference() }),
+      el('button.icon-btn', { type: 'button', 'aria-label': t('automate.closePane'), title: t('common.close'), html: icon('x', 18), onclick: () => hidePane() })),
     work, empty, outputSplit, outputBox);
 
   // Widths and heights the user chose, kept for next time.
@@ -173,7 +174,7 @@ export function createAutomate(ctx, { env = () => ({}), notify = () => {}, trans
     empty.hidden = !!current;
     // Without a script of the workbook's open, the output still shows what a sample or one of My Scripts said.
     outputBox.hidden = outputSplit.hidden = !current && !output.childElementCount;
-    pickerLabel.textContent = current?.name || 'No script';
+    pickerLabel.textContent = current?.name || t('automate.noScript');
     if (current && (reload || (editor.getValue() !== current.code && !saveTimer))) editor.setValue(current.code);
     runButton.disabled = !!running || !current;
     more.disabled = !current;
@@ -203,27 +204,27 @@ export function createAutomate(ctx, { env = () => ({}), notify = () => {}, trans
   function openPicker() {
     flushSave();
     const items = (wb.scripts || []).map((s) => ({ label: s.name, radio: true, checked: s.id === openId, onSelect: () => openScript(s.id) }));
-    openMenu({ anchor: picker, label: 'Scripts', minWidth: 240, items: [
-      ...(items.length ? items : [{ label: 'No scripts yet', disabled: true }]),
+    openMenu({ anchor: picker, label: t('automate.scripts'), minWidth: 240, items: [
+      ...(items.length ? items : [{ label: t('automate.noScriptsYet'), disabled: true }]),
       { separator: true },
-      { label: 'New Script', icon: 'plus', onSelect: () => newScript() },
-      { label: 'All Scripts…', icon: 'allScripts', onSelect: () => gallery() },
+      { label: t('automate.newScript'), icon: 'plus', onSelect: () => newScript() },
+      { label: t('automate.allScriptsMenu'), icon: 'allScripts', onSelect: () => gallery() },
     ] });
   }
 
   function openMore() {
     const s = scriptById(wb, openId);
     if (!s) return;
-    openMenu({ anchor: more, label: 'Script actions', minWidth: 220, items: [
-      { label: 'Rename…', icon: 'pencil', onSelect: () => renameScript(s.id) },
-      { label: 'Duplicate', icon: 'duplicate', onSelect: () => { flushSave(); const copy = duplicateScript(wb, s.id); if (copy) { authored.add(scriptFingerprint(copy.code)); openScript(copy.id); } } },
-      { label: 'Delete…', icon: 'trash', onSelect: () => removeScript(s.id) },
+    openMenu({ anchor: more, label: t('automate.scriptActions'), minWidth: 220, items: [
+      { label: t('automate.renameMenu'), icon: 'pencil', onSelect: () => renameScript(s.id) },
+      { label: t('automate.duplicate'), icon: 'duplicate', onSelect: () => { flushSave(); const copy = duplicateScript(wb, s.id); if (copy) { authored.add(scriptFingerprint(copy.code)); openScript(copy.id); } } },
+      { label: t('automate.deleteMenu'), icon: 'trash', onSelect: () => removeScript(s.id) },
       { separator: true },
-      library && { label: 'Save to My Scripts', icon: 'scriptLibrary', onSelect: () => saveToLibrary(s.id) },
-      { label: 'Download as .js', icon: 'download', onSelect: () => { flushSave(); const blob = new Blob([scriptById(wb, s.id).code], { type: 'text/javascript' }); const a = el('a', { href: URL.createObjectURL(blob), download: `${s.name}.js` }); a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000); } },
+      library && { label: t('automate.saveToLibrary'), icon: 'scriptLibrary', onSelect: () => saveToLibrary(s.id) },
+      { label: t('automate.downloadJs'), icon: 'download', onSelect: () => { flushSave(); const blob = new Blob([scriptById(wb, s.id).code], { type: 'text/javascript' }); const a = el('a', { href: URL.createObjectURL(blob), download: `${s.name}.js` }); a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000); } },
       { separator: true },
-      { label: 'Find and Replace', icon: 'find', shortcut: `${MOD_KEY}+F`, onSelect: () => editor.openFind(true) },
-      { label: 'Script Reference', icon: 'scriptReference', onSelect: () => openScriptReference() },
+      { label: t('automate.findReplace'), icon: 'find', shortcut: `${MOD_KEY}+F`, onSelect: () => editor.openFind(true) },
+      { label: t('automate.scriptReference'), icon: 'scriptReference', onSelect: () => openScriptReference() },
     ].filter(Boolean) });
   }
 
@@ -231,7 +232,7 @@ export function createAutomate(ctx, { env = () => ({}), notify = () => {}, trans
     flushSave();
     const s = scriptById(wb, id);
     if (!s) return;
-    const name = await promptDialog({ title: 'Rename Script', label: 'Name', value: s.name, confirmLabel: 'Rename', validate: (v) => scriptNameProblem(wb, v, id) });
+    const name = await promptDialog({ title: t('automate.renameTitle'), label: t('common.name'), value: s.name, confirmLabel: t('common.rename'), validate: (v) => scriptNameProblem(wb, v, id) });
     if (name && name !== s.name) updateScript(wb, id, { name });
     renderPane();
   }
@@ -239,11 +240,11 @@ export function createAutomate(ctx, { env = () => ({}), notify = () => {}, trans
     flushSave();
     const s = scriptById(wb, id);
     if (!s) return;
-    if (!await confirmDialog({ title: 'Delete Script', message: `Delete “${s.name}” from this workbook?`, confirmLabel: 'Delete' })) return;
+    if (!await confirmDialog({ title: t('automate.deleteTitle'), message: t('automate.deleteMessage', { name: s.name }), confirmLabel: t('common.delete') })) return;
     deleteScript(wb, id);
     if (openId === id) openId = wb.scripts?.[0]?.id || null;
     renderPane(true);
-    toast(`Deleted ${s.name}`, { icon: 'trash' });
+    toast(t('automate.deleted', { name: s.name }), { icon: 'trash' });
   }
   async function saveToLibrary(id) {
     flushSave();
@@ -251,16 +252,16 @@ export function createAutomate(ctx, { env = () => ({}), notify = () => {}, trans
     if (!s || !library) return;
     try {
       await library.saveToLibrary(s.name, s.code);
-      toast(`Saved “${s.name}” to My Scripts`, { icon: 'check' });
+      toast(t('automate.savedToLibrary', { name: s.name }), { icon: 'check' });
     } catch (e) {
-      toast(`Could not save to My Scripts: ${e?.message || e}`, { icon: 'alert' });
+      toast(t('automate.saveToLibraryFailed', { reason: String(e?.message || e) }), { icon: 'alert' });
     }
   }
 
   function newScript({ name = 'Script', code = NEW_SCRIPT_CODE, description = '' } = {}) {
     flushSave();
     const s = addScript(wb, { name, code, description });
-    if (!s) { toast('This workbook holds as many scripts as it can', { icon: 'alert' }); return null; }
+    if (!s) { toast(t('automate.tooManyScripts'), { icon: 'alert' }); return null; }
     authored.add(scriptFingerprint(code));
     openScript(s.id);
     return s;
@@ -271,7 +272,7 @@ export function createAutomate(ctx, { env = () => ({}), notify = () => {}, trans
     openScriptGallery(wb, {
       open: (id) => openScript(id),
       run: (script) => runCode(script),
-      add: (script) => { const s = newScript(script); if (s) toast(`Added “${s.name}” to this workbook`); },
+      add: (script) => { const s = newScript(script); if (s) toast(t('automate.added', { name: s.name })); },
       newScript: () => newScript(),
       record: () => toggleRecording(true),
       library: library && { list: () => library.listLibrary(), read: (path) => library.readLibraryScript(path), remove: (path) => library.deleteFromLibrary(path) },
@@ -287,8 +288,8 @@ export function createAutomate(ctx, { env = () => ({}), notify = () => {}, trans
       el('span.sp-log-icon', { html: icon(glyph, 13) }),
       el('span.sp-log-text', {}, text),
       // A line of the script in the editor is a link to it; of another (a sample, one of My Scripts), just its number.
-      line && linkable ? el('button.sp-log-line', { type: 'button', title: `Go to line ${line}`, onclick: () => { if (pane.hidden) showPane(); editor.goToLine(line); } }, `Line ${line}`)
-        : line ? el('span.sp-log-line.sp-log-line-plain', {}, `Line ${line}`) : null);
+      line && linkable ? el('button.sp-log-line', { type: 'button', title: t('automate.output.goToLine', { line }), onclick: () => { if (pane.hidden) showPane(); editor.goToLine(line); } }, t('automate.output.line', { line }))
+        : line ? el('span.sp-log-line.sp-log-line-plain', {}, t('automate.output.line', { line })) : null);
     output.append(entry);
     outputBox.hidden = outputSplit.hidden = false;
     outputCount.textContent = `${output.childElementCount}`;
@@ -308,13 +309,13 @@ export function createAutomate(ctx, { env = () => ({}), notify = () => {}, trans
     if (await library?.isScriptTrusted?.(code)) return true;
     const answer = await new Promise((resolve) => {
       const content = el('div.sp-trust', {},
-        el('p.modal-text', {}, `“${name}” came with this workbook and has not been run on your account before. It can change anything in the workbook, but it runs apart from the app and cannot reach your files, your account or the internet.`),
-        el('p.sp-trust-hint', {}, 'Run it only if you trust where the workbook came from. You can read its code first.'),
+        el('p.modal-text', {}, t('automate.trust.message', { name })),
+        el('p.sp-trust-hint', {}, t('automate.trust.hint')),
         el('div.row.row-end', {},
-          el('button.btn.btn-ghost', { type: 'button', onclick: () => { resolve('review'); modal.close(); } }, 'Review Code'),
-          el('button.btn.btn-ghost', { type: 'button', onclick: () => { resolve(false); modal.close(); } }, 'Cancel'),
-          el('button.btn.btn-primary', { type: 'button', onclick: () => { resolve(true); modal.close(); } }, 'Run Script')));
-      const modal = openModal({ title: 'Run a Script From This File?', content, onClose: () => resolve(false) });
+          el('button.btn.btn-ghost', { type: 'button', onclick: () => { resolve('review'); modal.close(); } }, t('automate.trust.review')),
+          el('button.btn.btn-ghost', { type: 'button', onclick: () => { resolve(false); modal.close(); } }, t('common.cancel')),
+          el('button.btn.btn-primary', { type: 'button', onclick: () => { resolve(true); modal.close(); } }, t('automate.trust.run'))));
+      const modal = openModal({ title: t('automate.trust.title'), content, onClose: () => resolve(false) });
     });
     if (answer === 'review') return 'review';
     if (answer) { authored.add(fingerprint); await library?.trustScript?.(code); }
@@ -323,8 +324,8 @@ export function createAutomate(ctx, { env = () => ({}), notify = () => {}, trans
 
   /** Run a script: { name, code, source: 'workbook' | 'library' | 'sample' | 'recorded', id }. */
   async function runCode(script) {
-    if (running) { toast('A script is already running', { icon: 'info' }); return null; }
-    if (recorder) { toast('Stop recording before running a script', { icon: 'info' }); return null; }
+    if (running) { toast(t('automate.alreadyRunning'), { icon: 'info' }); return null; }
+    if (recorder) { toast(t('automate.stopRecordingFirst'), { icon: 'info' }); return null; }
     if (ctx.grid?.editing && !ctx.grid.commitEdit?.()) return null;
     const ok = await allowed(script);
     if (ok === 'review') { if (script.id) openScript(script.id); return null; }
@@ -335,8 +336,8 @@ export function createAutomate(ctx, { env = () => ({}), notify = () => {}, trans
     const visible = !pane.hidden;
     output.replaceChildren();
     outputCount.textContent = '';
-    log({ level: 'info', text: `Running “${script.name}”…`, quiet: true });
-    status.textContent = 'Running…';
+    log({ level: 'info', text: t('automate.status.runningName', { name: script.name }), quiet: true });
+    status.textContent = t('automate.status.running');
     runButton.disabled = true;
     stopButton.hidden = false;
     editor.setErrorLine(null);
@@ -348,7 +349,7 @@ export function createAutomate(ctx, { env = () => ({}), notify = () => {}, trans
     let result;
     try {
       result = await runScript({
-        wb, code: script.code, transport: runTransport, env: env(), label: `Run script: ${script.name}`, signal: controller.signal,
+        wb, code: script.code, transport: runTransport, env: env(), label: t('automate.undoRun', { name: script.name }), signal: controller.signal,
         onLog: (entry) => { if (entry.clear) { output.replaceChildren(); return; } lastLog = entry; log({ ...entry, linkable: !!script.id && script.id === openId }); },
       });
     } finally {
@@ -361,20 +362,21 @@ export function createAutomate(ctx, { env = () => ({}), notify = () => {}, trans
       renderPane();
       notify();
     }
-    const seconds = ((performance.now() - started) / 1000).toFixed(1);
+    const seconds = formatNumber((performance.now() - started) / 1000, { minimumFractionDigits: 1, maximumFractionDigits: 1, useGrouping: false });
     if (result.ok) {
-      status.textContent = `Finished in ${seconds} s`;
-      log({ level: 'info', text: `Finished in ${seconds} s.${result.changed ? ' Undo takes back everything it changed.' : ''}`, quiet: true });
+      status.textContent = t('automate.status.finished', { seconds });
+      log({ level: 'info', text: result.changed ? t('automate.status.finishedUndo', { seconds }) : t('automate.status.finishedLog', { seconds }), quiet: true });
     } else {
-      const where = result.error.line ? ` (line ${result.error.line})` : '';
-      status.textContent = result.stopped ? 'Stopped' : result.timedOut ? 'Timed out' : `Failed${where}`;
+      status.textContent = result.stopped ? t('automate.status.stopped') : result.timedOut ? t('automate.status.timedOut')
+        : result.error.line ? t('automate.status.failedAt', { line: result.error.line }) : t('automate.status.failed');
       log({ level: 'error', text: result.error.message, line: result.error.line, linkable: !!script.id && script.id === openId });
       if (script.id && script.id === openId && result.error.line) editor.setErrorLine(result.error.line);
     }
     if (!visible) {
       // Run from the ribbon or the gallery with the pane closed: the outcome as a notice, the output a click away.
-      const text = result.ok ? `Ran “${script.name}”${lastLog ? `: ${lastLog.text}` : ''}` : `“${script.name}” failed${result.error.line ? ` at line ${result.error.line}` : ''}: ${result.error.message}`;
-      toast(text.length > 160 ? `${text.slice(0, 157)}…` : text, { icon: result.ok ? 'check' : 'alert', action: { label: 'Show Output', onClick: () => { showPane({ focus: false }); output.focus(); } } });
+      const text = result.ok ? (lastLog ? t('automate.ranSaid', { name: script.name, text: lastLog.text }) : t('automate.ran', { name: script.name }))
+        : result.error.line ? t('automate.failedAt', { name: script.name, line: result.error.line, message: result.error.message }) : t('automate.failed', { name: script.name, message: result.error.message });
+      toast(text.length > 160 ? `${text.slice(0, 157)}…` : text, { icon: result.ok ? 'check' : 'alert', action: { label: t('automate.showOutput'), onClick: () => { showPane({ focus: false }); output.focus(); } } });
       keepFocus();
     }
     return result;
@@ -392,21 +394,21 @@ export function createAutomate(ctx, { env = () => ({}), notify = () => {}, trans
   const recCount = el('span.rec-count');
   const recordBar = el('div.notice-bar.rec-bar', { role: 'status', hidden: true },
     el('span.rec-dot', { 'aria-hidden': 'true' }),
-    el('span.notice-text', {}, el('strong', {}, 'Recording actions. '), 'Your edits are being written as a script. ', recCount),
+    el('span.notice-text', {}, ...tRich('automate.recording.bar', { strong: (c) => el('strong', {}, c), count: recCount })),
     el('span.notice-actions', {},
-      el('button.btn.btn-sm.btn-ghost', { type: 'button', onclick: () => stopRecording(false) }, 'Discard'),
-      el('button.btn.btn-sm.btn-primary', { type: 'button', onclick: () => stopRecording(true) }, 'Stop Recording')));
+      el('button.btn.btn-sm.btn-ghost', { type: 'button', onclick: () => stopRecording(false) }, t('automate.recording.discard')),
+      el('button.btn.btn-sm.btn-primary', { type: 'button', onclick: () => stopRecording(true) }, t('automate.recording.stop'))));
 
   function toggleRecording(on = !recorder) {
     if (on && !recorder) {
-      if (running) { toast('Wait for the script to finish', { icon: 'info' }); return; }
+      if (running) { toast(t('automate.waitForScript'), { icon: 'info' }); return; }
       if (ctx.grid?.editing && !ctx.grid.commitEdit?.()) return;
       recorder = startRecorder(wb, { startSheet: ctx.sheetId?.() ?? wb.activeSheetId, name: 'Recorded actions' });
-      const update = () => { const n = recorder?.count() || 0; recCount.textContent = `${n} step${n === 1 ? '' : 's'} so far.`; };
+      const update = () => { const n = recorder?.count() || 0; recCount.textContent = t('automate.recording.count', { count: n }); };
       recorder.onChange(update);
       update();
       recordBar.hidden = false;
-      ctx.announce?.('Recording actions');
+      ctx.announce?.(t('automate.recording.announce'));
       notify();
       keepFocus();
     } else if (!on && recorder) stopRecording(true);
@@ -419,10 +421,10 @@ export function createAutomate(ctx, { env = () => ({}), notify = () => {}, trans
     recorder = null;
     recordBar.hidden = true;
     notify();
-    if (!save) { toast('Recording discarded', { icon: 'info' }); keepFocus(); return; }
-    if (!steps) { toast('Nothing was recorded', { icon: 'info' }); keepFocus(); return; }
+    if (!save) { toast(t('automate.recording.discarded'), { icon: 'info' }); keepFocus(); return; }
+    if (!steps) { toast(t('automate.recording.nothing'), { icon: 'info' }); keepFocus(); return; }
     const s = newScript({ name: uniqueScriptName(wb, 'Recorded script'), code, description: `${steps} recorded step${steps === 1 ? '' : 's'}.` });
-    if (s) toast(`Recorded ${steps} step${steps === 1 ? '' : 's'} as “${s.name}”`);
+    if (s) toast(t('automate.recording.saved', { count: steps, name: s.name }));
   }
 
   /* ---------- Commands ---------- */
@@ -446,23 +448,23 @@ export function createAutomate(ctx, { env = () => ({}), notify = () => {}, trans
         if (ctx.grid?.editing && !ctx.grid.commitEdit?.()) return;
         const id = addScriptButton(wb, sheetId, ctx.active?.() || { r: 0, c: 0 }, s.name);
         // Left unselected, so it reads as the button it is; Shift+click selects it to move or resize.
-        if (id) toast(`Added a button for “${s.name}”. Click it to run the script; Shift+click selects it`);
-        else toast('A button cannot be added here: the sheet is protected', { icon: 'alert' });
+        if (id) toast(t('automate.buttonAdded', { name: s.name }));
+        else toast(t('automate.buttonProtected'), { icon: 'alert' });
         return;
       }
       case 'runScript': {
-        if (arg?.sample) { const s = sampleById(arg.sample); if (s) await runCode({ name: s.name, code: s.code, source: 'sample' }); return; }
+        if (arg?.sample) { const s = sampleById(arg.sample); if (s) await runCode({ name: sampleName(s), code: s.code, source: 'sample' }); return; }
         if (arg?.path && library) {
           let code;
-          try { code = await library.readLibraryScript(arg.path); } catch (e) { toast(`“${arg.name || 'The script'}” could not be read from My Scripts: ${e?.message || e}`, { icon: 'alert' }); return; }
-          await runCode({ name: arg.name || 'Script', code, source: 'library' });
+          try { code = await library.readLibraryScript(arg.path); } catch (e) { toast(arg.name ? t('automate.libraryReadFailed', { name: arg.name, reason: String(e?.message || e) }) : t('automate.libraryReadFailedUnnamed', { reason: String(e?.message || e) }), { icon: 'alert' }); return; }
+          await runCode({ name: arg.name || t('automate.untitledScript'), code, source: 'library' });
           return;
         }
         if (arg?.name != null) {
           // A script button names its script; a renamed or deleted script leaves the button with nothing to run.
           const named = scriptByName(wb, arg.name);
           if (named) await runCode({ name: named.name, code: named.code, source: 'workbook', id: named.id });
-          else toast(`This button runs “${arg.name}”, which is not in this workbook any more`, { icon: 'alert' });
+          else toast(t('automate.buttonOrphan', { name: arg.name }), { icon: 'alert' });
           return;
         }
         const s = scriptById(wb, arg?.id ?? openId) || (wb.scripts?.length === 1 ? wb.scripts[0] : null);
@@ -493,12 +495,12 @@ export function createAutomate(ctx, { env = () => ({}), notify = () => {}, trans
     /** The workbook's scripts and My Scripts, for the ribbon's Run Script menu. */
     menuItems() {
       const list = (wb.scripts || []).map((s) => ({ label: s.name, icon: 'scriptFile', cmd: 'runScript', arg: { id: s.id } }));
-      return list.length ? list : [{ label: 'No scripts in this workbook', disabled: true }];
+      return list.length ? list : [{ label: t('automate.noScriptsInWorkbook'), disabled: true }];
     },
     /** The scripts a button can be added for, for the ribbon's Script Button menu. */
     buttonItems() {
       const list = (wb.scripts || []).map((s) => ({ label: s.name, icon: 'scriptButton', cmd: 'insertScriptButton', arg: { id: s.id } }));
-      return list.length ? [{ header: 'Add a button that runs' }, ...list] : [{ label: 'No scripts in this workbook to run', disabled: true }];
+      return list.length ? [{ header: t('automate.addButtonHeader') }, ...list] : [{ label: t('automate.noScriptsToRun'), disabled: true }];
     },
     destroy() {
       flushSave();

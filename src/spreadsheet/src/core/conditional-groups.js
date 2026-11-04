@@ -4,6 +4,7 @@ import { shiftFormula, sameSheetName } from './refs.js';
 import { duplicateSourceAreas, duplicateSourceFormula } from './conditional-duplicates.js';
 import { removeRangeRecords, forEachRangeRecordIn } from './range-records.js';
 import { normalizeRange } from './cell.js';
+import { t } from '../i18n/index.js';
 
 const statistical = new Set(['scale', 'databar', 'icons', 'dup', 'unique', 'top', 'bottom']);
 const equal = (a, b) => {
@@ -152,7 +153,7 @@ export function clearRules(wb, sheetId, ranges = null) {
   if (!sheet) return 0;
   const groups = conditionalRuleGroups(sheet.rules);
   let touched = 0;
-  wb.transaction('Clear rules', () => {
+  wb.transaction(t('conditionalGroups.clearRules'), () => {
     for (const group of groups) {
       const areas = group.rules.map(rule => normalizeRange(rule.range));
       const left = ranges ? ranges.reduce((list, cut) => list.flatMap(area => subtractRange(area, normalizeRange(cut))), areas) : [];

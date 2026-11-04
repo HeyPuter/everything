@@ -1,0 +1,8 @@
+{
+  "choosePivot": "Choose the fields of PivotTable {name} to filter with a slicer.",
+  "chooseTable": "Choose the fields of table {name} to filter with a slicer.",
+  "couldNotInsert": "The slicers could not be inserted.",
+  "fields": "Fields",
+  "inserted": "{count, plural, one {Slicer inserted. Click items to filter; {key}-click to choose several} other {{count} slicers inserted. Click items to filter; {key}-click to choose several}}",
+  "title": "Insert Slicers"
+}

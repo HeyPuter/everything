@@ -96,13 +96,17 @@ export function recordCellWrites(wb, sheet, before, after, label, box = null) {
   return entry;
 }
 
-/** Note a change recorded by name alone: rows or columns inserted, a sheet deleted, an undo or redo. */
-export function recordStep(wb, kind, label) {
+/**
+ * Note a change recorded by name alone: rows or columns inserted, a sheet deleted, an undo or redo. `label` is
+ * display text, in the interface language, so what the step is comes from the caller: `view` for one that only
+ * changes how the cells are seen, `book` for one that changes the workbook's list of sheets.
+ */
+export function recordStep(wb, kind, label, { view = false, book = false } = {}) {
   if (wb._recordingOff || !KINDS.has(kind)) return null;
   // Showing or hiding an outline's detail changes the view of the cells, not what they hold.
-  if (kind === 'structure' && /^(Collapse|Expand)\b/.test(label)) return null;
+  if (kind === 'structure' && view) return null;
   // A sheet added, deleted, renamed or moved is a change to the book's list of sheets, not to the sheet shown.
-  const sheet = kind === 'structure' && /\bsheets?\b/i.test(label) ? null : wb.activeSheet;
+  const sheet = kind === 'structure' && book ? null : wb.activeSheet;
   const open = joinable(wb, sheet?.id ?? null, kind);
   if (open && open.label === String(label)) { open.count++; return open; }
   const entry = push(wb, { id: newId(), at: Date.now(), author: wb.changeAuthor || null, kind, label: String(label || 'Edit'), sheetId: sheet?.id ?? null, sheet: sheet?.name ?? null, count: 1, box: null, cells: [] });

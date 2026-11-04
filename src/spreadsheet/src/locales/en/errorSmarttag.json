@@ -1,0 +1,20 @@
+{
+  "aria": "Error: {title}",
+  "convertTo19": "Convert XX to 19XX",
+  "convertTo20": "Convert XX to 20XX",
+  "convertToNumber": "Convert to Number",
+  "copyFromAbove": "Copy Formula from Above",
+  "copyFromLeft": "Copy Formula from Left",
+  "editInFormulaBar": "Edit in Formula Bar",
+  "enable": "Enable background error checking",
+  "ignore": "Ignore Error",
+  "lockCell": "Lock Cell",
+  "options": "Error Checking Options…",
+  "rules": "Error checking rules",
+  "showSteps": "Show Calculation Steps…",
+  "title": "Error Checking",
+  "undo.convertToNumber": "Convert to number",
+  "undo.convertYear": "Convert year",
+  "undo.copyFromAbove": "Copy formula from above",
+  "undo.copyFromLeft": "Copy formula from left"
+}

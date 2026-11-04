@@ -1,0 +1,11 @@
+{
+  "cropAspect": "{ratio}（{kind, select, square {正方形} landscape {横向} other {纵向}}）",
+  "style.blackFrame": "黑色边框",
+  "style.dropShadow": "投影",
+  "style.none": "无样式",
+  "style.oval": "椭圆",
+  "style.rounded": "圆角",
+  "style.roundedFrame": "圆角边框",
+  "style.thinBorder": "细边框",
+  "style.whiteFrame": "白色边框"
+}

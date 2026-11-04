@@ -1,0 +1,12 @@
+{
+  "caption": "标题",
+  "columns": "列数",
+  "errors.columns": "输入 1 到 20,000 之间的整数列数。",
+  "errors.height": "输入 0 像素或以上的项目高度。",
+  "hideNoData": "隐藏没有数据的项",
+  "itemHeight": "项目高度（像素）",
+  "lockPosition": "锁定位置",
+  "print": "打印切片器",
+  "showCaption": "显示标题",
+  "title": "编辑切片器"
+}

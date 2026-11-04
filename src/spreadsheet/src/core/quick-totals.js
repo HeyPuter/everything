@@ -4,9 +4,15 @@
  * and Running Total.
  */
 import { colName } from './cell.js';
+import { t, tSource } from '../i18n/index.js';
 
+/**
+ * [kind, label, catalog key]: the label is read in the interface language each time it is read; the header a
+ * total writes into the sheet is workbook content, so it is the English (tSource).
+ */
+const total = (kind, key) => Object.defineProperty([kind, key, key], 1, { get: () => t(key), enumerable: true });
 export const QUICK_TOTALS = [
-  ['sum', 'Sum'], ['average', 'Average'], ['count', 'Count'], ['percent', '% Total'], ['running', 'Running Total'],
+  total('sum', 'quickTotals.sum'), total('average', 'quickTotals.average'), total('count', 'quickTotals.count'), total('percent', 'quickTotals.percent'), total('running', 'quickTotals.running'),
 ];
 
 const ref = (r, c, absR = false, absC = false) => `${absC ? '$' : ''}${colName(c)}${absR ? '$' : ''}${r + 1}`;
@@ -52,7 +58,7 @@ export function quickTotalEntries(wb, sheetId, range, kind, direction) {
       out.push({ r, c, input, style: kind === 'percent' ? { ...bold, fmt: 'percent' } : bold });
     }
     // The new column is named in the header row.
-    if (header) out.push({ r: r1, c, input: QUICK_TOTALS.find(([k]) => k === kind)[1], style: bold });
+    if (header) out.push({ r: r1, c, input: tSource(QUICK_TOTALS.find(([k]) => k === kind)[2]), style: bold });
   }
   return out;
 }

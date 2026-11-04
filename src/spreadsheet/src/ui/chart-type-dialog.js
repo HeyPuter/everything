@@ -12,6 +12,7 @@ import { chartData, normalizeChart } from '../core/charts.js';
 import { CHART_FAMILIES, DEFAULT_SUBTYPE, changeSubtypePatch, chartSubtype, newExcelChart, subtypeOf } from '../core/chart-subtypes.js';
 import { recommendedSubtypes } from '../core/chart-design.js';
 import { maxOf } from '../core/numeric.js';
+import { t } from '../i18n/index.js';
 
 const familyOf = id => CHART_FAMILIES.find(f => f.subtypes.includes(id)) || CHART_FAMILIES[0];
 
@@ -42,10 +43,10 @@ export function openChartTypeDialog(ctx, { mode = 'recommended', family = null, 
     try { return renderChartSvg(chartData(wb, sheetId, c), c, w, h); } catch { return ''; }
   };
 
-  const tabs = el('div.chart-type-tabs', { role: 'tablist', 'aria-label': 'Chart types' });
+  const tabs = el('div.chart-type-tabs', { role: 'tablist', 'aria-label': t('chartTypeDialog.chartTypes') });
   const body = el('div.chart-type-content');
-  const tabButton = (id, label) => el('button.chart-type-tab', { type: 'button', role: 'tab', 'aria-selected': String(tab === id), onclick: () => { tab = id; render(); } }, label);
-  if (!changing) tabs.append(tabButton('recommended', 'Recommended Charts'), tabButton('all', 'All Charts'));
+  const tabButton = (id, label) => el('button.chart-type-tab', { type: 'button', role: 'tab', 'aria-selected': String(tab === id), dataset: { tab: id }, onclick: () => { tab = id; render(); } }, label);
+  if (!changing) tabs.append(tabButton('recommended', t('chartTypeDialog.recommended')), tabButton('all', t('chartTypeDialog.all')));
 
   const preview = el('div.chart-type-preview', { 'aria-hidden': 'true' });
   const name = el('p.chart-type-name');
@@ -55,7 +56,7 @@ export function openChartTypeDialog(ctx, { mode = 'recommended', family = null, 
   }
 
   function renderRecommended() {
-    const list = el('div.chart-type-list', { role: 'listbox', 'aria-label': 'Recommended Charts' }, ...recommended.map(id => {
+    const list = el('div.chart-type-list', { role: 'listbox', 'aria-label': t('chartTypeDialog.recommended') }, ...recommended.map(id => {
       const s = chartSubtype(id);
       return el('button.chart-type-item', { type: 'button', role: 'option', 'aria-selected': String(id === chosen), title: s.label,
         ondblclick: () => submit(), onclick: () => { chosen = id; render(); } },
@@ -66,10 +67,10 @@ export function openChartTypeDialog(ctx, { mode = 'recommended', family = null, 
 
   function renderAll() {
     const fam = familyOf(chosen);
-    const list = el('div.chart-type-list', { role: 'listbox', 'aria-label': 'Chart families' }, ...CHART_FAMILIES.map(f => el('button.chart-type-item', {
+    const list = el('div.chart-type-list', { role: 'listbox', 'aria-label': t('chartTypeDialog.families') }, ...CHART_FAMILIES.map(f => el('button.chart-type-item', {
       type: 'button', role: 'option', 'aria-selected': String(f === fam), onclick: () => { chosen = f.subtypes.includes(chosen) ? chosen : f.subtypes[0]; if (f !== fam) chosen = f.subtypes[0]; render(); },
     }, el('span', { html: icon(f.icon, 20) }), el('span', {}, f.label))));
-    const row = el('div.chart-subtype-row', { role: 'radiogroup', 'aria-label': `${fam.label} subtypes` }, ...fam.subtypes.map(id => {
+    const row = el('div.chart-subtype-row', { role: 'radiogroup', 'aria-label': t('chartTypeDialog.subtypesOf', { family: fam.label }) }, ...fam.subtypes.map(id => {
       const s = chartSubtype(id);
       return el('button.chart-gallery-tile', { type: 'button', role: 'radio', 'aria-checked': String(id === chosen), title: s.label, 'aria-label': s.label,
         ondblclick: () => submit(), onclick: () => { chosen = id; render(); } }, el('span.chart-gallery-picture', { html: icon(s.icon, 32) }));
@@ -78,7 +79,7 @@ export function openChartTypeDialog(ctx, { mode = 'recommended', family = null, 
   }
 
   function render() {
-    for (const b of tabs.children) b.setAttribute('aria-selected', String((b.textContent === 'All Charts') === (tab === 'all')));
+    for (const b of tabs.children) b.setAttribute('aria-selected', String(b.dataset.tab === tab));
     const focusLabel = document.activeElement?.getAttribute?.('aria-label') || document.activeElement?.textContent;
     body.replaceChildren(tab === 'all' ? renderAll() : renderRecommended());
     showPreview();
@@ -104,8 +105,8 @@ export function openChartTypeDialog(ctx, { mode = 'recommended', family = null, 
     else insertChart(ctx, chosen, range);
   }
   const content = el('form.chart-type-dialog', { onsubmit: submit }, tabs, body,
-    el('div.row.row-end', {}, el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Cancel'), el('button.btn.btn-primary', { type: 'submit' }, 'OK')));
+    el('div.row.row-end', {}, el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, t('common.cancel')), el('button.btn.btn-primary', { type: 'submit' }, t('common.ok'))));
   render();
-  const modal = openModal({ title: changing ? 'Change Chart Type' : 'Insert Chart', content, wide: true, onClose: () => ctx.grid.focus() });
+  const modal = openModal({ title: changing ? t('chartTypeDialog.changeTitle') : t('chartTypeDialog.insertTitle'), content, wide: true, onClose: () => ctx.grid.focus() });
   return modal;
 }

@@ -14,6 +14,7 @@
  */
 
 import { el } from './dom.js';
+import { t } from '../i18n/index.js';
 
 // Any words may follow the opening marks ("```excel formula", "```c#"), as CommonMark has it: a fence not seen for its
 // words drew the code as text, and each fence after it turned the reply over between code and text. After backticks they
@@ -172,15 +173,15 @@ function parseList(lines, start, options, depth) {
 }
 
 function cellsOf(line) {
-  let t = line.trim();
-  if (t.startsWith('|')) t = t.slice(1);
-  if (t.endsWith('|') && !t.endsWith('\\|')) t = t.slice(0, -1);
+  let row = line.trim();
+  if (row.startsWith('|')) row = row.slice(1);
+  if (row.endsWith('|') && !row.endsWith('\\|')) row = row.slice(0, -1);
   const out = [];
   let cur = '';
   let code = false;
-  for (let i = 0; i < t.length; i++) {
-    const ch = t[i];
-    if (ch === '\\' && t[i + 1] === '|') { cur += '|'; i++; continue; }
+  for (let i = 0; i < row.length; i++) {
+    const ch = row[i];
+    if (ch === '\\' && row[i + 1] === '|') { cur += '|'; i++; continue; }
     if (ch === '`') code = !code;
     if (ch === '|' && !code) { out.push(cur.trim()); cur = ''; continue; }
     cur += ch;
@@ -197,10 +198,10 @@ function parseTable(lines, start, options) {
   while (i < lines.length && lines[i].trim() && lines[i].includes('|')) rows.push(cellsOf(lines[i++]));
   const cell = (tag, text, j) => el(tag, aligns[j] ? { style: { textAlign: aligns[j] } } : {}, ...inline(text, options));
   const table = el('table.md-table', {},
-    el('thead', {}, el('tr', {}, ...head.map((t, j) => cell('th', t, j)))),
+    el('thead', {}, el('tr', {}, ...head.map((text, j) => cell('th', text, j)))),
     el('tbody', {}, ...rows.map((row) => el('tr', {}, ...head.map((_, j) => cell('td', row[j] ?? '', j))))));
   // A wide table scrolls within the reply rather than widening the panel.
-  return { node: el('div.md-table-wrap', { tabIndex: 0, role: 'region', 'aria-label': 'Table' }, table), next: i };
+  return { node: el('div.md-table-wrap', { tabIndex: 0, role: 'region', 'aria-label': t('markdown.table') }, table), next: i };
 }
 
 /** Lines of one paragraph, each break kept: the assistant's line breaks are meant. */
@@ -246,7 +247,7 @@ export function inline(text, options = {}) {
     if (escapedAt(src, m.index) || (closer && escapedAt(src, m.index + m[0].length - closer))) { re.lastIndex = m.index + 1; continue; }
     if (m.index > last) out.push(...plainText(src.slice(last, m.index), options));
     if (m[1]) out.push(el('code.md-inline', {}, ...plainText(m[2].replace(/^ (.*) $/, '$1'), options, true)));
-    else if (m[3] !== undefined && m[4] !== undefined && src[m.index] === '!') out.push(el('span.md-image', { title: 'Pictures in replies are not loaded' }, m[3] ? `[${unescape(m[3])}]` : '[picture]'));
+    else if (m[3] !== undefined && m[4] !== undefined && src[m.index] === '!') out.push(el('span.md-image', { title: t('markdown.pictureNotLoaded') }, m[3] ? `[${unescape(m[3])}]` : t('markdown.picture')));
     else if (m[5] !== undefined) out.push(link(unescape(m[6]), inline(m[5], { ...options, refs: null })));
     else if (m[7] && m[8].length > 1 && m[8][0] === m[7][0] && src[m.index + m[0].length] === m[7][0] && /\S/.test(m[8][1])) {
       // ***both***: the bold pattern stops a mark short at each end, which would show as a stray * on either side.
@@ -265,10 +266,10 @@ export function inline(text, options = {}) {
 }
 
 export function safeHref(url) {
-  const t = String(url ?? '').trim();
-  if (/^mailto:[^\s]+$/i.test(t)) return t;
+  const raw = String(url ?? '').trim();
+  if (/^mailto:[^\s]+$/i.test(raw)) return raw;
   try {
-    const u = new URL(t);
+    const u = new URL(raw);
     return u.protocol === 'http:' || u.protocol === 'https:' ? u.href : null;
   } catch { return null; }
 }
@@ -281,7 +282,7 @@ function link(url, children) {
 
 /** Text with the cell references in it as buttons; `code`: as written, its backslashes kept. */
 function plainText(text, options, code = false) {
-  const shown = code ? (t) => t : unescape;
+  const shown = code ? (s) => s : unescape;
   const found = options.refs ? options.refs(text) : [];
   if (!found?.length) return [shown(text)];
   const out = [];
@@ -290,7 +291,7 @@ function plainText(text, options, code = false) {
     if (start < at) continue;
     if (start > at) out.push(shown(text.slice(at, start)));
     const label = text.slice(start, end);
-    out.push(el('button.cell-ref', { type: 'button', title: `Select ${label}`, onclick: () => options.onRef?.(target) }, label));
+    out.push(el('button.cell-ref', { type: 'button', title: t('markdown.selectRef', { ref: label }), onclick: () => options.onRef?.(target) }, label));
     at = end;
   }
   if (at < text.length) out.push(shown(text.slice(at)));

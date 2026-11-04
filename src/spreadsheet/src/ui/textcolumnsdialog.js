@@ -9,10 +9,11 @@ import { el, fieldId } from './dom.js';
 import { openModal, fieldAlert } from './modal.js';
 import { rangeName } from '../core/cell.js';
 import { splitPieces, detectDelimiter, suggestBreaks, splitSourceText } from '../core/text-split.js';
+import { t } from '../i18n/index.js';
 
 const PREVIEW_ROWS = 8;
-const SEPARATORS = [['\t', 'Tab'], [';', 'Semicolon'], [',', 'Comma'], [' ', 'Space']];
-const FORMATS = [['general', 'General'], ['text', 'Text'], ['skip', 'Skip']];
+const SEPARATORS = [['\t', 'textcolumnsdialog.sep.tab'], [';', 'textcolumnsdialog.sep.semicolon'], [',', 'textcolumnsdialog.sep.comma'], [' ', 'textcolumnsdialog.sep.space']];
+const FORMATS = [['general', 'textcolumnsdialog.format.general'], ['text', 'textcolumnsdialog.format.text'], ['skip', 'textcolumnsdialog.format.skip']];
 
 /** The text the split reads (see splitSourceText): the first column of the range, in order. */
 function columnTexts(wb, sheetId, range, limit = 500) {
@@ -61,8 +62,8 @@ export function openTextToColumnsDialog(ctx, { range, onSplit, resolve, allowDes
     const input = el('input', { type: 'radio', name: modeName, id, value, checked: state.mode === value, onchange: () => { state.mode = value; sync(); } });
     return el('label.find-option', { for: id }, input, el('span', {}, label));
   };
-  const modeGroup = el('div.ttc-mode', { role: 'radiogroup', 'aria-label': 'Split by' },
-    modeRadio('delimited', 'Separators, such as commas or tabs'), modeRadio('fixed', 'Fixed width, at character positions'));
+  const modeGroup = el('div.ttc-mode', { role: 'radiogroup', 'aria-label': t('textcolumnsdialog.splitBy') },
+    modeRadio('delimited', t('textcolumnsdialog.mode.delimited')), modeRadio('fixed', t('textcolumnsdialog.mode.fixed')));
 
   /* ---- Separators ---- */
   const check = (label, checked, onchange, extra = {}) => {
@@ -70,30 +71,30 @@ export function openTextToColumnsDialog(ctx, { range, onSplit, resolve, allowDes
     const input = el('input', { type: 'checkbox', id, checked, onchange: () => onchange(input.checked), ...extra });
     return el('label.find-option', { for: id }, input, el('span', {}, label));
   };
-  const otherInput = el('input.input.ttc-other', { type: 'text', maxlength: 1, 'aria-label': 'Other separator', spellcheck: false, autocomplete: 'off', value: state.other,
+  const otherInput = el('input.input.ttc-other', { type: 'text', maxlength: 1, 'aria-label': t('textcolumnsdialog.otherSeparator'), spellcheck: false, autocomplete: 'off', value: state.other,
     oninput: () => { state.other = otherInput.value; otherCheck.querySelector('input').checked = !!state.other; renderPreview(); } });
-  const otherCheck = check('Other', !!state.other, (on) => { if (on) otherInput.focus(); else { otherInput.value = ''; state.other = ''; } renderPreview(); });
-  const qualifier = el('select.select', { 'aria-label': 'Text qualifier', onchange: () => { state.qualifier = qualifier.value; renderPreview(); } },
-    [['"', 'Double quote "'], ["'", "Single quote '"], ['', 'None']].map(([v, label]) => el('option', { value: v, selected: v === state.qualifier }, label)));
-  const delimitedBox = el('fieldset.fc-group.ttc-separators', {}, el('legend', {}, 'Separators'),
-    el('div.ttc-checks', {}, ...SEPARATORS.map(([d, label]) => check(label, state.delimiters.has(d), (on) => {
+  const otherCheck = check(t('textcolumnsdialog.other'), !!state.other, (on) => { if (on) otherInput.focus(); else { otherInput.value = ''; state.other = ''; } renderPreview(); });
+  const qualifier = el('select.select', { 'aria-label': t('textcolumnsdialog.qualifier'), onchange: () => { state.qualifier = qualifier.value; renderPreview(); } },
+    [['"', t('textcolumnsdialog.doubleQuote')], ["'", t('textcolumnsdialog.singleQuote')], ['', t('common.none')]].map(([v, label]) => el('option', { value: v, selected: v === state.qualifier }, label)));
+  const delimitedBox = el('fieldset.fc-group.ttc-separators', {}, el('legend', {}, t('textcolumnsdialog.separators')),
+    el('div.ttc-checks', {}, ...SEPARATORS.map(([d, labelKey]) => check(t(labelKey), state.delimiters.has(d), (on) => {
       if (on) state.delimiters.add(d); else state.delimiters.delete(d);
       renderPreview();
     })), el('div.ttc-other-row', {}, otherCheck, otherInput)),
-    check('Treat repeated separators as one', state.consecutive, (on) => { state.consecutive = on; renderPreview(); }),
-    el('label.field.ttc-qualifier', {}, el('span.field-label', {}, 'Text qualifier'), el('div.select-wrap', {}, qualifier)));
+    check(t('textcolumnsdialog.consecutive'), state.consecutive, (on) => { state.consecutive = on; renderPreview(); }),
+    el('label.field.ttc-qualifier', {}, el('span.field-label', {}, t('textcolumnsdialog.qualifier')), el('div.select-wrap', {}, qualifier)));
 
   /* ---- Fixed width ---- */
   const { alert: breaksError, refuse: refuseBreaks, clear: clearBreaksError } = fieldAlert('ttc-breaks');
-  const breaksInput = el('input.input', { type: 'text', 'aria-label': 'Break positions', spellcheck: false, autocomplete: 'off', placeholder: 'e.g. 8, 20',
+  const breaksInput = el('input.input', { type: 'text', 'aria-label': t('textcolumnsdialog.breakPositions'), spellcheck: false, autocomplete: 'off', placeholder: t('textcolumnsdialog.breaksPlaceholder'),
     value: state.breaks.join(', '), oninput: () => { const b = parseBreaks(breaksInput.value); if (b) { state.breaks = b; renderPreview(); } } });
-  const fixedBox = el('fieldset.fc-group.ttc-fixed', {}, el('legend', {}, 'Breaks'),
-    el('label.field', {}, el('span.field-label', {}, 'Cut before characters'), breaksInput), breaksError,
-    el('p.field-hint', {}, 'Click between characters in the ruler below to add a break, or on a break to remove it.'));
+  const fixedBox = el('fieldset.fc-group.ttc-fixed', {}, el('legend', {}, t('textcolumnsdialog.breaks')),
+    el('label.field', {}, el('span.field-label', {}, t('textcolumnsdialog.cutBefore')), breaksInput), breaksError,
+    el('p.field-hint', {}, t('textcolumnsdialog.rulerHint')));
 
   /* ---- Preview ---- */
   const ruler = el('div.ttc-ruler', { 'aria-hidden': 'true' });
-  const table = el('table.ttc-preview', { 'aria-label': 'Preview' });
+  const table = el('table.ttc-preview', { 'aria-label': t('common.preview') });
   const previewBox = el('div.ttc-preview-wrap', {}, table);
   ruler.addEventListener('click', (e) => {
     const pos = Number(e.target.closest('[data-pos]')?.dataset.pos);
@@ -107,35 +108,35 @@ export function openTextToColumnsDialog(ctx, { range, onSplit, resolve, allowDes
   });
   function renderRuler(sample) {
     // One cell per character of the longest sample line; a break draws a line on the left of its cell.
-    const width = Math.min(160, Math.max(10, ...sample.map((t) => t.length)) + 2);
+    const width = Math.min(160, Math.max(10, ...sample.map((line) => line.length)) + 2);
     const breaks = new Set(state.breaks);
     const scale = el('div.ttc-scale', {}, Array.from({ length: width }, (_, i) => el('span', { dataset: { pos: i }, className: breaks.has(i) ? 'brk' : '' }, i && i % 10 === 0 ? String(i) : i % 5 === 0 && i ? '·' : '')));
-    const lines = sample.map((t) => el('div.ttc-line', {}, Array.from({ length: width }, (_, i) => el('span', { dataset: { pos: i }, className: breaks.has(i) ? 'brk' : '' }, t[i] ?? ''))));
+    const lines = sample.map((line) => el('div.ttc-line', {}, Array.from({ length: width }, (_, i) => el('span', { dataset: { pos: i }, className: breaks.has(i) ? 'brk' : '' }, line[i] ?? ''))));
     ruler.replaceChildren(scale, ...lines);
   }
   function renderPreview() {
     const sample = texts.slice(0, PREVIEW_ROWS);
     const opts = options();
-    const rows = sample.map((t) => splitPieces(t, opts));
+    const rows = sample.map((line) => splitPieces(line, opts));
     const cols = Math.max(1, ...rows.map((r) => r.length));
     state.formats.length = Math.max(state.formats.length, cols);
     const head = el('tr', {}, Array.from({ length: cols }, (_, i) => {
-      const sel = el('select.select.ttc-format', { 'aria-label': `Column ${i + 1} format`,
+      const sel = el('select.select.ttc-format', { 'aria-label': t('textcolumnsdialog.columnFormat', { n: i + 1 }),
         onchange: () => { state.formats[i] = sel.value; renderPreview(); } },
-      FORMATS.map(([v, label]) => el('option', { value: v, selected: (state.formats[i] || 'general') === v }, label)));
+      FORMATS.map(([v, labelKey]) => el('option', { value: v, selected: (state.formats[i] || 'general') === v }, t(labelKey))));
       return el('th', {}, sel);
     }));
     const body = rows.map((parts) => el('tr', {}, Array.from({ length: cols }, (_, i) =>
       el(`td${state.formats[i] === 'skip' ? '.skip' : ''}`, {}, parts[i] ?? ''))));
-    table.replaceChildren(el('thead', {}, head), el('tbody', {}, body.length ? body : [el('tr', {}, el('td.muted', { colSpan: cols }, 'The selected column holds no text to split.'))]));
+    table.replaceChildren(el('thead', {}, head), el('tbody', {}, body.length ? body : [el('tr', {}, el('td.muted', { colSpan: cols }, t('textcolumnsdialog.noText')))]));
     if (state.mode === 'fixed') renderRuler(sample);
   }
 
   /* ---- Destination ---- */
   const { alert: destError, refuse: refuseDest } = fieldAlert('ttc-dest');
   const destDefault = rangeName({ r1: range.r1, c1: range.c1, r2: range.r1, c2: range.c1 });
-  const destInput = el('input.input', { type: 'text', value: destDefault, 'aria-label': 'Destination', spellcheck: false, autocomplete: 'off' });
-  const destField = el('label.field.ttc-dest', { hidden: !allowDest }, el('span.field-label', {}, 'Put the first piece in'), destInput, destError);
+  const destInput = el('input.input', { type: 'text', value: destDefault, 'aria-label': t('textcolumnsdialog.destination'), spellcheck: false, autocomplete: 'off' });
+  const destField = el('label.field.ttc-dest', { hidden: !allowDest }, el('span.field-label', {}, t('textcolumnsdialog.destLabel')), destInput, destError);
 
   function sync() {
     delimitedBox.hidden = state.mode !== 'delimited';
@@ -149,28 +150,28 @@ export function openTextToColumnsDialog(ctx, { range, onSplit, resolve, allowDes
     const opts = options();
     if (opts.mode === 'fixed') {
       const breaks = parseBreaks(breaksInput.value);
-      if (!breaks) return refuseBreaks(breaksInput, 'Enter character positions such as 8, 20');
+      if (!breaks) return refuseBreaks(breaksInput, t('textcolumnsdialog.badBreaks'));
       opts.breaks = breaks;
     }
     const out = { ...opts, formats: [...state.formats].map((f) => f || 'general') };
     const destText = destInput.value.trim();
     if (allowDest && destText && destText.toUpperCase() !== destDefault) {
       const target = resolve?.(destText);
-      if (!target || target.sheetId !== sheetId) return refuseDest(destInput, 'Enter a cell on this sheet, such as C1');
+      if (!target || target.sheetId !== sheetId) return refuseDest(destInput, t('textcolumnsdialog.badDest'));
       out.dest = { r: target.range.r1, c: target.range.c1 };
     }
     modal.close();
     onSplit(out);
   };
   const content = el('form.ttc-form', { onsubmit: submit, novalidate: true },
-    el('p.modal-text', {}, `Cut the text in ${rangeName({ r1: range.r1, c1: range.c1, r2: range.r2, c2: range.c1 })} into columns.`),
-    el('div.ttc-top', {}, el('div.ttc-left', {}, el('span.field-label', {}, 'Split by'), modeGroup, destField), delimitedBox, fixedBox),
-    el('div.field', {}, el('span.field-label', {}, 'Preview'), ruler, previewBox,
-      el('p.field-hint', {}, 'Choose above each column whether its pieces are read as values, kept as typed text, or skipped.')),
+    el('p.modal-text', {}, t('textcolumnsdialog.intro', { range: rangeName({ r1: range.r1, c1: range.c1, r2: range.r2, c2: range.c1 }) })),
+    el('div.ttc-top', {}, el('div.ttc-left', {}, el('span.field-label', {}, t('textcolumnsdialog.splitBy')), modeGroup, destField), delimitedBox, fixedBox),
+    el('div.field', {}, el('span.field-label', {}, t('common.preview')), ruler, previewBox,
+      el('p.field-hint', {}, t('textcolumnsdialog.formatHint'))),
     el('div.row.row-end', {},
-      el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Cancel'),
-      el('button.btn.btn-primary', { type: 'submit' }, 'Split')));
-  const modal = openModal({ title: 'Text to Columns', content, wide: true, className: 'ttc-dialog', onClose: () => ctx.grid?.focus?.() });
+      el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, t('common.cancel')),
+      el('button.btn.btn-primary', { type: 'submit' }, t('textcolumnsdialog.split'))));
+  const modal = openModal({ title: t('textcolumnsdialog.title'), content, wide: true, className: 'ttc-dialog', onClose: () => ctx.grid?.focus?.() });
   sync();
   return modal;
 }

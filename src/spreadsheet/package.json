@@ -14,7 +14,9 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "build:worker": "vite build --config vite.worker.config.js",
-    "deploy:email-worker": "puter worker deploy src/workers/email-worker.js spreadsheet-email"
+    "deploy:email-worker": "puter worker deploy src/workers/email-worker.js spreadsheet-email",
+    "i18n:format": "node dev/i18n-format.mjs",
+    "i18n:check": "vitest run tests/i18n-catalogs.test.js tests/i18n-runtime.test.js"
   },
   "repository": {
     "type": "git",
@@ -27,9 +29,11 @@
   "dependencies": {
     "@noble/hashes": "^2.4.0",
     "@xmldom/xmldom": "0.9.12",
+    "intl-messageformat": "^12.1.4",
     "lucide": "^1.28.0"
   },
   "devDependencies": {
+    "@formatjs/icu-messageformat-parser": "^3.5.22",
     "jsdom": "^27.0.0",
     "vite": "^8.2.0",
     "vitest": "^4.1.10"

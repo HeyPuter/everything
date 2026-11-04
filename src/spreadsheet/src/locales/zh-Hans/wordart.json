@@ -1,0 +1,12 @@
+{
+  "menuLabel": "艺术字",
+  "style.accentOutline": "带轮廓的强调色",
+  "style.deepShadow": "加粗，带深色阴影",
+  "style.glow": "发光强调色",
+  "style.hollow": "空心强调色",
+  "style.inkShadow": "带阴影的墨色",
+  "style.paperShadow": "强调色上的纸色，带阴影",
+  "style.plainAccent": "纯强调色",
+  "style.softGlow": "带柔和发光的文本",
+  "styles": "艺术字样式"
+}

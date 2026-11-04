@@ -5,6 +5,7 @@
 import { el, fieldId } from './dom.js';
 import { openModal, fieldAlert } from './modal.js';
 import { customViewNameProblem, CUSTOM_VIEW_NAME_MAX } from '../core/custom-views.js';
+import { t } from '../i18n/index.js';
 
 /** Add View: a name, and whether the view keeps the page setup and the hidden rows, columns and filters. */
 export function openAddCustomView(ctx, { onDone } = {}) {
@@ -22,7 +23,7 @@ export function openAddCustomView(ctx, { onDone } = {}) {
     // A view of the same name is replaced, as the list shows only one view of each name.
     if (existing && !replacing) {
       replacing = true;
-      return refuse(name, `“${existing.name}” already exists. Choose OK again to replace it with the workbook as it is now.`);
+      return refuse(name, t('customViewsDialog.replaceExisting', { name: existing.name }));
     }
     modal.close();
     Promise.resolve(ctx.run('addCustomView', { name: text, print: print.checked, hidden: hidden.checked }))
@@ -31,30 +32,30 @@ export function openAddCustomView(ctx, { onDone } = {}) {
   let replacing = false;
   name.addEventListener('input', () => { replacing = false; });
   const content = el('form.cv-add', { onsubmit: submit },
-    el('div.field', {}, el('label.field-label', { for: name.id }, 'Name'), name),
-    el('fieldset.check-group.vertical', {}, el('legend.field-label', {}, 'Include in the view'),
-      el('label.check', { for: print.id }, print, el('span', {}, 'Page setup and print settings')),
-      el('label.check', { for: hidden.id }, hidden, el('span', {}, 'Hidden rows and columns, and filters'))),
-    el('p.small.muted', {}, 'Every view keeps each sheet’s zoom, selection, scroll position, frozen panes and view.'),
+    el('div.field', {}, el('label.field-label', { for: name.id }, t('common.name')), name),
+    el('fieldset.check-group.vertical', {}, el('legend.field-label', {}, t('customViewsDialog.include')),
+      el('label.check', { for: print.id }, print, el('span', {}, t('customViewsDialog.includePrint'))),
+      el('label.check', { for: hidden.id }, hidden, el('span', {}, t('customViewsDialog.includeHidden')))),
+    el('p.small.muted', {}, t('customViewsDialog.keeps')),
     alert,
     el('div.row.row-end', {},
-      el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Cancel'),
-      el('button.btn.btn-primary', { type: 'submit' }, 'OK')));
-  const modal = openModal({ title: 'Add View', content, initialFocus: name });
+      el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, t('common.cancel')),
+      el('button.btn.btn-primary', { type: 'submit' }, t('common.ok'))));
+  const modal = openModal({ title: t('customViewsDialog.addTitle'), content, initialFocus: name });
   return modal;
 }
 
 export function openCustomViews(ctx) {
   const { wb } = ctx;
-  const list = el('div.cv-list', { role: 'listbox', tabindex: 0, 'aria-label': 'Views', id: fieldId('cv-list') });
-  const empty = el('p.small.muted.cv-empty', {}, 'No views yet. Choose Add to keep the workbook’s present view under a name.');
+  const list = el('div.cv-list', { role: 'listbox', tabindex: 0, 'aria-label': t('customViewsDialog.views'), id: fieldId('cv-list') });
+  const empty = el('p.small.muted.cv-empty', {}, t('customViewsDialog.empty'));
   const detail = el('p.small.muted.cv-detail', { 'aria-live': 'polite' });
   let current = null;
   const views = () => wb.customViews || [];
   const describe = (v) => {
-    const keeps = [v.print && 'print settings', v.hidden && 'hidden rows, columns and filters'].filter(Boolean);
+    const keeps = v.print && v.hidden ? 'both' : v.print ? 'print' : v.hidden ? 'hidden' : 'view';
     const sheet = wb.sheet(v.activeSheetId)?.name;
-    return `${sheet ? `Opens on ${sheet}. ` : ''}${keeps.length ? `Includes ${keeps.join(' and ')}.` : 'Includes the view of each sheet only.'}`;
+    return sheet ? t('customViewsDialog.detailOnSheet', { sheet, keeps }) : t('customViewsDialog.detail', { keeps });
   };
   const buttons = {};
   const sync = (keep = current) => {
@@ -95,16 +96,16 @@ export function openCustomViews(ctx) {
       (views().length ? list : buttons.add).focus();
     });
   };
-  buttons.show = el('button.btn.btn-primary', { type: 'button', onclick: show }, 'Show');
-  buttons.add = el('button.btn', { type: 'button', onclick: () => openAddCustomView(ctx, { onDone: (id) => { sync(id); list.focus(); } }) }, 'Add…');
-  buttons.delete = el('button.btn', { type: 'button', onclick: remove }, 'Delete');
+  buttons.show = el('button.btn.btn-primary', { type: 'button', onclick: show }, t('common.show'));
+  buttons.add = el('button.btn', { type: 'button', onclick: () => openAddCustomView(ctx, { onDone: (id) => { sync(id); list.focus(); } }) }, t('customViewsDialog.add'));
+  buttons.delete = el('button.btn', { type: 'button', onclick: remove }, t('common.delete'));
   const content = el('div.cv-manager', {},
     el('div.cv-top', {},
-      el('div.cv-list-wrap', {}, el('label.field-label', { for: list.id }, 'Views'), list, empty),
+      el('div.cv-list-wrap', {}, el('label.field-label', { for: list.id }, t('customViewsDialog.views')), list, empty),
       el('div.cv-buttons', {}, buttons.show, buttons.add, buttons.delete)),
     detail,
-    el('div.row.row-end', {}, el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Close')));
-  const modal = openModal({ title: 'Custom Views', content, initialFocus: views().length ? list : buttons.add, onClose: () => ctx.grid?.focus?.() });
+    el('div.row.row-end', {}, el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, t('common.close'))));
+  const modal = openModal({ title: t('customViewsDialog.title'), content, initialFocus: views().length ? list : buttons.add, onClose: () => ctx.grid?.focus?.() });
   sync();
   return { ...modal, refresh: () => sync() };
 }

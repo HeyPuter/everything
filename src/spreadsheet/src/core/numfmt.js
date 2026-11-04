@@ -14,6 +14,7 @@
 
 import { formatGeneral, serialToYMD, ymdToSerial, localeInfo, dateNames, getLocale, CALENDAR_END } from './format.js';
 import { hijriDate, hijriNames } from './hijri.js';
+import { t } from '../i18n/index.js';
 import { sakaDate, sakaNames } from './saka.js';
 import { persianDate, persianNames } from './persian.js';
 import { umalquraDate } from './umalqura.js';
@@ -212,9 +213,9 @@ function tokenize(section) {
       const j = s.indexOf(']', i);
       const inner = j < 0 ? s.slice(i + 1) : s.slice(i + 1, j);
       const directive = bracketDirective(inner);
-      if (j < 0) tokens.bracketError ||= 'Close the bracket: a directive goes between a pair, like [Red] or [>100]';
-      else if (!directive) tokens.bracketError ||= `Invalid code in brackets: [${inner}]`;
-      else if (directive.kind !== 'elapsed' && directives.has(directive.kind)) tokens.bracketError ||= `Use only one ${directive.kind} directive in each section`;
+      if (j < 0) tokens.bracketError ||= t('numfmt.error.bracketOpen');
+      else if (!directive) tokens.bracketError ||= t('numfmt.error.badBracket', { code: inner });
+      else if (directive.kind !== 'elapsed' && directives.has(directive.kind)) tokens.bracketError ||= t('numfmt.error.oneDirective', { kind: directive.kind });
       if (directive) directives.add(directive.kind);
       if (directive?.kind === 'condition') tokens.condition ||= { op: directive.op, limit: directive.limit };
       if (directive?.kind === 'number shape') tokens.numberShape = directive.mode;
@@ -255,7 +256,7 @@ function tokenize(section) {
     if (selector) {
       const calendar = s[i + 1] === '1' ? 'gregorian' : 'hijri';
       if (!selectorPrefix || (selectorEnd != null && (selectorEnd !== i || tokens.selector !== calendar))) {
-        tokens.calendarError ||= 'Place one calendar selector (B1 or B2) before the format content';
+        tokens.calendarError ||= t('numfmt.error.calendarFirst');
       }
       tokens.selector = calendar;
       if (calendar === 'hijri' && !hasFieldLocale) tokens.hijri = true;
@@ -340,36 +341,36 @@ function tokenize(section) {
   const beforeSeconds = new Array(tokens.length);
   for (let j = tokens.length - 1, next = null; j >= 0; j--) {
     beforeSeconds[j] = next === 's';
-    const t = tokens[j];
-    if (t.type === 'date' || t.type === 'elapsed') next = t.text[0];
-    else if (t.type === 'subsecond') next = 's';
+    const tk = tokens[j];
+    if (tk.type === 'date' || tk.type === 'elapsed') next = tk.text[0];
+    else if (tk.type === 'subsecond') next = 's';
   }
   let clock = false, minutesUsed = false;
   for (let j = 0; j < tokens.length; j++) {
-    const t = tokens[j];
-    if ((t.type === 'date' || t.type === 'elapsed') && t.text[0] === 'h') { clock = true; minutesUsed = false; }
-    else if (t.type === 'subsecond' || ((t.type === 'date' || t.type === 'elapsed') && t.text[0] === 's')) clock = true;
-    else if (t.type === 'elapsed' && t.text[0] === 'm') minutesUsed = true;
-    else if (t.type === 'date' && /^m{1,2}$/.test(t.text)) {
-      t.minutes = (clock && !minutesUsed) || beforeSeconds[j];
-      if (t.minutes) minutesUsed = true;
+    const tk = tokens[j];
+    if ((tk.type === 'date' || tk.type === 'elapsed') && tk.text[0] === 'h') { clock = true; minutesUsed = false; }
+    else if (tk.type === 'subsecond' || ((tk.type === 'date' || tk.type === 'elapsed') && tk.text[0] === 's')) clock = true;
+    else if (tk.type === 'elapsed' && tk.text[0] === 'm') minutesUsed = true;
+    else if (tk.type === 'date' && /^m{1,2}$/.test(tk.text)) {
+      tk.minutes = (clock && !minutesUsed) || beforeSeconds[j];
+      if (tk.minutes) minutesUsed = true;
     }
   }
   let elapsed = false, elapsedUnit = null;
-  for (const t of tokens) {
-    t.unit = t.type === 'elapsed' ? t.text[0] : t.type === 'date'
-      ? /^[hs]/.test(t.text) ? t.text[0] : t.minutes ? 'm' : null : null;
-    elapsed ||= t.type === 'elapsed';
-    if (t.unit && (elapsedUnit == null || 'hms'.indexOf(t.unit) < 'hms'.indexOf(elapsedUnit))) elapsedUnit = t.unit;
+  for (const tk of tokens) {
+    tk.unit = tk.type === 'elapsed' ? tk.text[0] : tk.type === 'date'
+      ? /^[hs]/.test(tk.text) ? tk.text[0] : tk.minutes ? 'm' : null : null;
+    elapsed ||= tk.type === 'elapsed';
+    if (tk.unit && (elapsedUnit == null || 'hms'.indexOf(tk.unit) < 'hms'.indexOf(elapsedUnit))) elapsedUnit = tk.unit;
   }
   tokens.elapsedUnit = elapsed ? elapsedUnit : null;
-  tokens.needsClock = tokens.some(t => t.type === 'subsecond' ||
-    (['date', 'elapsed', 'ampm'].includes(t.type) && (!tokens.elapsedUnit || t.unit !== tokens.elapsedUnit)));
+  tokens.needsClock = tokens.some(tk => tk.type === 'subsecond' ||
+    (['date', 'elapsed', 'ampm'].includes(tk.type) && (!tokens.elapsedUnit || tk.unit !== tokens.elapsedUnit)));
   return tokens;
 }
 
 function isDateSection(tokens) {
-  return tokens.some((t) => t.type === 'date' || t.type === 'elapsed' || t.type === 'ampm' || t.type === 'subsecond') && !tokens.some((t) => t.type === 'digit');
+  return tokens.some((tk) => tk.type === 'date' || tk.type === 'elapsed' || tk.type === 'ampm' || tk.type === 'subsecond') && !tokens.some((tk) => tk.type === 'digit');
 }
 
 /** Date/time fields cannot mix with numeric placeholders. Fractional seconds
@@ -381,7 +382,7 @@ function dateTimeCodeError(tokens) {
   for (const token of tokens) {
     if (token.type === 'elapsed') {
       fields++;
-      if ([...precedingUnits].some(unit => 'hms'.indexOf(unit) <= 'hms'.indexOf(token.text[0]))) return 'Place the elapsed-time field before ordinary fields of the same or larger unit';
+      if ([...precedingUnits].some(unit => 'hms'.indexOf(unit) <= 'hms'.indexOf(token.text[0]))) return t('numfmt.error.elapsedOrder');
     }
     else if (token.type === 'ampm') meridiem = true;
     else if (token.type === 'date') {
@@ -389,39 +390,39 @@ function dateTimeCodeError(tokens) {
       if (/^[hs]/.test(token.text) || token.minutes) precedingUnits.add(token.minutes ? 'm' : token.text[0]);
     }
     else if (token.type === 'digit') {
-      if (meridiem) return 'Place numeric placeholders before AM/PM or A/P';
+      if (meridiem) return t('numfmt.error.meridiemDigits');
       digits = true;
     }
-    else if (token.type === 'subsecond' && token.text.length > 4) return 'Use one to three zeros for fractional seconds, such as ss.000';
+    else if (token.type === 'subsecond' && token.text.length > 4) return t('numfmt.error.subsecondZeros');
   }
-  if (digits && tokens.some(t => t.type === 'subsecond')) return 'Use fractional seconds only with clock fields';
-  if ((date || fields) && tokens.some(t => t.type === 'percent')) return 'Quote a literal percent sign in a date/time format';
-  if (digits && (date || fields || tokens.selector)) return 'Quote text among digits, like 0 "days": d, m, y, h, s, e, g and b are date letters';
-  if ((date || fields || meridiem || tokens.selector) && tokens.some(t => t.unquotedDigit)) return 'Quote literal digits in a date/time format, such as yyyy"1"';
-  if (fields > 1) return 'Use one elapsed-time field per section, such as [h]:mm:ss';
-  if (fields && meridiem) return 'Remove AM/PM or A/P from an elapsed-time format';
+  if (digits && tokens.some(tk => tk.type === 'subsecond')) return t('numfmt.error.subsecondClock');
+  if ((date || fields) && tokens.some(tk => tk.type === 'percent')) return t('numfmt.error.datePercent');
+  if (digits && (date || fields || tokens.selector)) return t('numfmt.error.quoteText');
+  if ((date || fields || meridiem || tokens.selector) && tokens.some(tk => tk.unquotedDigit)) return t('numfmt.error.dateDigits');
+  if (fields > 1) return t('numfmt.error.oneElapsed');
+  if (fields && meridiem) return t('numfmt.error.elapsedMeridiem');
   return null;
 }
 
 /** @ designates a final text section; the fourth section is text even without
  * @. Only text, General, meridiem labels and nonnumeric directives belong there. */
 function textSectionError(tokens, index, count) {
-  const at = tokens.some(t => t.type === 'at');
-  if (at && index !== count - 1) return 'Place the text section last in the format';
+  const at = tokens.some(tk => tk.type === 'at');
+  if (at && index !== count - 1) return t('numfmt.error.textLast');
   if (!at && index !== 3) return null;
-  if (tokens.condition) return 'Use conditions only in numeric sections';
-  if (at && tokens.general) return 'Use either @ or General in a text section, not both';
-  if (tokens.some(t => !['lit', 'at', 'general', 'calendar', 'ampm'].includes(t.type) || t.unquotedDigit || t.unquotedSlash)) {
-    return 'Quote numeric and date characters in a text section';
+  if (tokens.condition) return t('numfmt.error.textCondition');
+  if (at && tokens.general) return t('numfmt.error.atAndGeneral');
+  if (tokens.some(tk => !['lit', 'at', 'general', 'calendar', 'ampm'].includes(tk.type) || tk.unquotedDigit || tk.unquotedSlash)) {
+    return t('numfmt.error.textQuote');
   }
   return null;
 }
 
 function dateSectionKind(tokens) {
   if (!isDateSection(tokens)) return null;
-  const time = tokens.some((t) => t.type === 'elapsed' || t.type === 'ampm' || t.type === 'subsecond' || (t.type === 'date' && (/^[hs]/.test(t.text) || t.minutes)));
-  const calendar = tokens.some((t) => t.type === 'date' && /^[ydebg]/.test(t.text))
-    || tokens.some((t) => t.type === 'date' && /^m/.test(t.text) && !t.minutes);
+  const time = tokens.some((tk) => tk.type === 'elapsed' || tk.type === 'ampm' || tk.type === 'subsecond' || (tk.type === 'date' && (/^[hs]/.test(tk.text) || tk.minutes)));
+  const calendar = tokens.some((tk) => tk.type === 'date' && /^[ydebg]/.test(tk.text))
+    || tokens.some((tk) => tk.type === 'date' && /^m/.test(tk.text) && !tk.minutes);
   return calendar ? (time ? 'datetime' : 'date') : 'time';
 }
 
@@ -443,7 +444,7 @@ export function codeScalesPercent(value, code) {
   if (section == null) return false;
   if (systemSectionKind(parsed, section)) return false;
   const tokens = parsed.tokensOf(section);
-  return tokens.some(t => t.type === 'percent') && !tokens.some(t => t.type === 'exp');
+  return tokens.some(tk => tk.type === 'percent') && !tokens.some(tk => tk.type === 'exp');
 }
 
 /** Whether the selected numeric section represents a fraction. Shared with
@@ -455,7 +456,7 @@ export function codeIsFraction(value, code) {
   if (section == null) return false;
   if (systemSectionKind(parsed, section)) return false;
   const tokens = parsed.tokensOf(section);
-  return tokens.some((t) => t.type === 'slash') && !fractionCodeError(tokens);
+  return tokens.some((tk) => tk.type === 'slash') && !fractionCodeError(tokens);
 }
 
 // System formats follow the app's regional setting.
@@ -481,7 +482,7 @@ function systemDateTokens(kind) {
     return quote(value.replace(/[\u00a0\u202f]/g, ' '));
   }).join('');
   const tokens = tokenize(code);
-  const period = tokens.find(t => t.type === 'ampm');
+  const period = tokens.find(tk => tk.type === 'ampm');
   if (period) period.names = [3, 15].map(hour => formatter.formatToParts(new Date(Date.UTC(2001, 0, 2, hour))).find(p => p.type === 'dayPeriod').value);
   systemPatterns.set(key, tokens);
   return tokens;
@@ -604,7 +605,7 @@ function calendarDateNames(calendar, locale, legacyMonth = false) {
 
 function formatDateSection(value, tokens, japanese = false, locale = null, calendar = 0, shape = null) {
   if (!Number.isFinite(value) || value < 0) return FORMAT_OVERFLOW;
-  const hasAmPm = tokens.some((t) => t.type === 'ampm');
+  const hasAmPm = tokens.some((tk) => tk.type === 'ampm');
   // Month and weekday names in the language of the code's [$-…] tag, else of the regional format; beside a day
   // number a month takes the form the language writes there (Russian "15 марта", where the month alone is "март").
   // Explicit Hijri, Hebrew, lunisolar, Saka, Persian and Umm al-Qura calendars convert without B2. Legacy B2
@@ -626,7 +627,7 @@ function formatDateSection(value, tokens, japanese = false, locale = null, calen
     // There are no neutral Korean/ETO weekday names; month names remain valid.
     names = { ...names, days: [5, 17, 18].includes(calendar) ? null : hijriNames(null, false, ordinaryNames).days };
   }
-  const hasDay = tokens.some((t) => t.type === 'date' && /^d{1,2}$/.test(t.text));
+  const hasDay = tokens.some((tk) => tk.type === 'date' && /^d{1,2}$/.test(tk.text));
   let legacyWeekday = null, legacyWeekdayText = null, legacyInitialMonth = false;
   const monthName = (month, len) => {
     // An initial untagged B2 weekday supplies a shared name result, including
@@ -648,7 +649,7 @@ function formatDateSection(value, tokens, japanese = false, locale = null, calen
     return (len === 3 ? (hasDay ? names.months.shortInDate : names.months.short)
       : len === 4 ? (hasDay ? names.months.inDate : names.months.long) : (names.months.narrow || names.months.long.map((m) => Array.from(m)[0])))[month - 1];
   };
-  const fractionDigits = tokens.reduce((n, t) => t.type === 'subsecond' ? Math.max(n, t.text.length - 1) : n, 0);
+  const fractionDigits = tokens.reduce((n, tk) => tk.type === 'subsecond' ? Math.max(n, tk.text.length - 1) : n, 0);
   const { roundingDays, shownDay, secondsExact, clockSeconds, H, M, S, fraction } = clockParts(value, fractionDigits);
   // General reads the numeric workspace left after successive hour/minute
   // decomposition. Preserve that operation order at subsecond boundaries.
@@ -718,15 +719,15 @@ function formatDateSection(value, tokens, japanese = false, locale = null, calen
       ? japaneseEra(shownDay) : null;
   const eraYear = era ? (date.y - era.year + 1) >>> 0 : null;
   let out = '';
-  for (const t of tokens) {
-    const unit = t.unit;
-    if (elapsedUnit && unit === elapsedUnit) { out += shapeGeneral(elapsedText(unit, t.text.length), shape); continue; }
+  for (const tk of tokens) {
+    const unit = tk.unit;
+    if (elapsedUnit && unit === elapsedUnit) { out += shapeGeneral(elapsedText(unit, tk.text.length), shape); continue; }
     // Field evaluation reuses one numeric workspace after decomposing a
     // clock, and again when scaling a fractional-second field. Later elapsed
     // fields use that workspace, while ordinary fields keep the original clock.
-    if (!clockRead && ['date', 'elapsed', 'ampm', 'subsecond'].includes(t.type)) {
-      legacyInitialMonth = t.type === 'date' && /^m{3,}$/.test(t.text);
-      if (tokens.hijri && !locale && calendar === 0 && t.type === 'date' && /^d{3,}$/.test(t.text)) {
+    if (!clockRead && ['date', 'elapsed', 'ampm', 'subsecond'].includes(tk.type)) {
+      legacyInitialMonth = tk.type === 'date' && /^m{3,}$/.test(tk.text);
+      if (tokens.hijri && !locale && calendar === 0 && tk.type === 'date' && /^d{3,}$/.test(tk.text)) {
         // This name path uses the real Gregorian weekday (day zero is clamped
         // to January 1), then retains its result across later numeric fields.
         // It must not change the ordinary pre-March-1900 weekday sequence.
@@ -737,22 +738,22 @@ function formatDateSection(value, tokens, japanese = false, locale = null, calen
       workingValue = secondsExact % 60;
       clockRead = true;
     }
-    switch (t.type) {
-      case 'lit': out += t.rendered ?? t.text; break;
+    switch (tk.type) {
+      case 'lit': out += tk.rendered ?? tk.text; break;
       // General reads the decomposed seconds workspace, including
       // its decimal scaling, wherever the field occurs. Pure elapsed totals
       // do not decompose a clock and leave the original serial available.
       case 'general': out += formatShapedGeneral(needsClock ? generalClock : value, shape); break;
       // AM/PM prints upper case however the code writes it; A/P follows the case of its own letters.
-      case 'ampm': out += meridiemText(t, H, locale); break;
+      case 'ampm': out += meridiemText(tk, H, locale); break;
       case 'elapsed': {
         const n = unit === 'h' ? H : unit === 'm' ? M : S;
-        out += shapeDateField(String(n).padStart(t.text.length, '0'), shape);
+        out += shapeDateField(String(n).padStart(tk.text.length, '0'), shape);
         break;
       }
       case 'date': {
-        const k = t.text[0];
-        const len = t.text.length;
+        const k = tk.text[0];
+        const len = tk.text.length;
         if (k === 'd' && len >= 3 && !names.days) return FORMAT_OVERFLOW;
         if (k === 'd' && len >= 3 && calendar === 8 && neutralLegacy && date.y >= HEBREW_NAME_YEAR_END) return FORMAT_OVERFLOW;
         if (k === 'y' || k === 'b') {
@@ -769,7 +770,7 @@ function formatDateSection(value, tokens, japanese = false, locale = null, calen
             out += calendarYearText(date.y, shape);
             break;
           }
-          const offset = t.localizedYear
+          const offset = tk.localizedYear
             ? (k === 'y' ? CALENDAR_YEAR_OFFSETS[calendar] || 0 : calendar === 7 ? 543 : 0)
             : k === 'b' ? 543 : 0;
           // CJK/Hangul short y fields spell the underlying year with units;
@@ -790,7 +791,7 @@ function formatDateSection(value, tokens, japanese = false, locale = null, calen
         else if (k === 'h') { const h = hasAmPm ? (H % 12 || 12) : H; out += shapeDateField(String(h).padStart(Math.min(len, 2), '0'), shape); }
         else if (k === 's') out += shapeDateField(String(S).padStart(Math.min(len, 2), '0'), shape);
         else if (k === 'm') {
-          if (t.minutes) out += shapeDateField(String(M).padStart(len === 1 ? 1 : 2, '0'), shape);
+          if (tk.minutes) out += shapeDateField(String(M).padStart(len === 1 ? 1 : 2, '0'), shape);
           else {
             const text = len <= 2 ? shapeDateField(String(date.m).padStart(len, '0'), shape) : monthName(date.m, Math.min(len, 5));
             if (text === FORMAT_OVERFLOW) return FORMAT_OVERFLOW;
@@ -801,12 +802,12 @@ function formatDateSection(value, tokens, japanese = false, locale = null, calen
       }
       // The code is written with a period; the fraction of a second uses the locale's decimal mark, like any other decimal.
       case 'subsecond':
-        out += `${localeInfo().decimal}${shapeDigits(fraction.slice(0, t.text.length - 1), shape)}`;
+        out += `${localeInfo().decimal}${shapeDigits(fraction.slice(0, tk.text.length - 1), shape)}`;
         workingValue = (secondsExact % 1) * 10 ** fractionDigits;
         break;
       case 'point': out += '.'; break;
       case 'comma': out += ','; break;
-      case 'slash': case 'percent': case 'at': out += t.text; break;
+      case 'slash': case 'percent': case 'at': out += tk.text; break;
       default: break;
     }
   }
@@ -842,37 +843,37 @@ function fractionFor(value, maxDen) {
 }
 
 function fractionCodeError(tokens) {
-  const slashes = tokens.filter((t) => t.type === 'slash');
+  const slashes = tokens.filter((tk) => tk.type === 'slash');
   if (!slashes.length) return null;
-  if (slashes.length !== 1) return 'A fraction format has one slash between its numerator and denominator';
+  if (slashes.length !== 1) return t('numfmt.error.fractionSlash');
   const after = tokens.slice(tokens.indexOf(slashes[0]) + 1);
-  if (!after.some((t) => t.type === 'digit' || t.type === 'denominator')) return 'A fraction needs a denominator, like ?/? or ?/16';
+  if (!after.some((tk) => tk.type === 'digit' || tk.type === 'denominator')) return t('numfmt.error.fractionDenominator');
   const slash = tokens.indexOf(slashes[0]);
-  const numeratorEnd = tokens.findLastIndex((t, i) => i < slash && t.type === 'digit');
-  const denominatorStart = after.findIndex(t => t.type === 'digit' || t.type === 'denominator');
-  const denominatorEnd = after.findIndex((t, i) => i > denominatorStart && (t.type === 'lit' || t.type === 'percent'));
+  const numeratorEnd = tokens.findLastIndex((tk, i) => i < slash && tk.type === 'digit');
+  const denominatorStart = after.findIndex(tk => tk.type === 'digit' || tk.type === 'denominator');
+  const denominatorEnd = after.findIndex((tk, i) => i > denominatorStart && (tk.type === 'lit' || tk.type === 'percent'));
   // A point may trail the numerator as literal punctuation, or appear after
   // a label following the denominator. It cannot make either field decimal.
-  if (tokens.slice(0, numeratorEnd).some(t => t.type === 'point')
-    || after.slice(0, denominatorEnd < 0 ? after.length : denominatorEnd).some(t => t.type === 'point')) return 'Fraction fields need integer digits; quote a literal decimal point';
-  if (after.some((t) => t.type === 'denominator' && t.text.length > 5)) return 'A literal fraction denominator can have at most five digits';
-  if (after.some((t, i) => t.type === 'denominator' && after[i + 1]?.type === 'digit')) return 'Use either placeholders or a fixed number for the denominator, like ?/?? or ?/16';
+  if (tokens.slice(0, numeratorEnd).some(tk => tk.type === 'point')
+    || after.slice(0, denominatorEnd < 0 ? after.length : denominatorEnd).some(tk => tk.type === 'point')) return t('numfmt.error.fractionInteger');
+  if (after.some((tk) => tk.type === 'denominator' && tk.text.length > 5)) return t('numfmt.error.fractionFiveDigits');
+  if (after.some((tk, i) => tk.type === 'denominator' && after[i + 1]?.type === 'digit')) return t('numfmt.error.fractionFixed');
   return null;
 }
 
 function scientificCodeError(tokens) {
-  const index = tokens.findIndex(t => t.type === 'exp');
+  const index = tokens.findIndex(tk => tk.type === 'exp');
   if (index < 0) return null;
   const before = tokens.slice(0, index), after = tokens.slice(index + 1);
-  if (tokens[index].text[0] !== 'E') return 'Use uppercase E for scientific notation, like 0.00E+00';
-  if (after.some(t => t.type === 'exp')) return 'A scientific format has one exponent';
-  if (!before.some(t => t.type === 'digit') || !after.some(t => t.type === 'digit')) return 'An exponent needs digits on both sides, like 0.00E+00';
-  if (tokens.some(t => t.type === 'slash')) return 'Use a decimal mantissa with an exponent, like 0.00E+00';
+  if (tokens[index].text[0] !== 'E') return t('numfmt.error.exponentCase');
+  if (after.some(tk => tk.type === 'exp')) return t('numfmt.error.oneExponent');
+  if (!before.some(tk => tk.type === 'digit') || !after.some(tk => tk.type === 'digit')) return t('numfmt.error.exponentDigits');
+  if (tokens.some(tk => tk.type === 'slash')) return t('numfmt.error.exponentMantissa');
   // Trailing exponent commas are accepted. Between exponent digits, numeric
   // commas are valid only after a decimal point (in either numeric field).
-  const lastDigit = after.findLastIndex(t => t.type === 'digit');
-  const point = tokens.findIndex(t => t.type === 'point');
-  if (after.some((t, i) => t.type === 'comma' && i < lastDigit && (point < 0 || i + index + 1 < point))) return 'Remove commas between integer exponent digits, like 0E+000';
+  const lastDigit = after.findLastIndex(tk => tk.type === 'digit');
+  const point = tokens.findIndex(tk => tk.type === 'point');
+  if (after.some((tk, i) => tk.type === 'comma' && i < lastDigit && (point < 0 || i + index + 1 < point))) return t('numfmt.error.exponentCommas');
   return null;
 }
 
@@ -887,8 +888,8 @@ function fifteenDigitInteger(n) {
  * placeholders (such a code is refused when typed); printing them as written keeps
  * every letter of "0 days" rather than silently dropping the d, y, and s.
  */
-function asWritten(t) {
-  return t.type === 'date' ? t.raw : t.type === 'elapsed' ? `[${t.text}]` : t.rendered ?? t.text;
+function asWritten(tk) {
+  return tk.type === 'date' ? tk.raw : tk.type === 'elapsed' ? `[${tk.text}]` : tk.rendered ?? tk.text;
 }
 
 
@@ -923,7 +924,7 @@ function formatFractionDenominator(value, tokens, shape = null) {
       const field = tokens.slice(i, end), used = Math.min(remaining, field.length);
       const text = take(used), leftAligned = field[0].text === '?';
       const padding = (leftAligned ? field.slice(used) : field.slice(0, field.length - used))
-        .map((t) => t.text === '?' ? ' ' : t.text === '0' ? '0' : '').join('');
+        .map((tk) => tk.text === '?' ? ' ' : tk.text === '0' ? '0' : '').join('');
       out += shapeDigits(leftAligned ? text + padding : padding + text, shape);
       remaining -= field.length; first = false;
     } else if (token.text === '?') {
@@ -936,7 +937,7 @@ function formatFractionDenominator(value, tokens, shape = null) {
       remaining -= end - i;
     } else {
       while (tokens[end]?.type === 'digit' && tokens[end].text !== '?') end++;
-      const required = tokens.slice(i, end).filter((t) => t.text === '0').length;
+      const required = tokens.slice(i, end).filter((tk) => tk.text === '0').length;
       out += shapeDigits(remaining >= 0 ? take(remaining) + '0'.repeat(end - i) : '0'.repeat(Math.max(1, required)), shape);
       digits = '0'; position = 0; remaining = 1;
     }
@@ -958,7 +959,7 @@ function placeIntegerDigits(digits, tokens) {
 }
 
 function formatNumberSection(value, tokens, autoMinus = false, locale = null, calendar = 0, onUnsignedZero = null, shape = null) {
-  const hasMeridiem = tokens.some(t => t.type === 'ampm');
+  const hasMeridiem = tokens.some(tk => tk.type === 'ampm');
   let periodHour;
   const prepareMeridiem = unsignedZero => {
     if (!hasMeridiem) return true;
@@ -972,21 +973,21 @@ function formatNumberSection(value, tokens, autoMinus = false, locale = null, ca
   };
   const written = token => token.type === 'ampm' ? meridiemText(token, periodHour, locale) : asWritten(token);
   let n = Math.abs(value);
-  const percentCount = tokens.filter((t) => t.type === 'percent').length;
-  const expIdx = tokens.findIndex((t) => t.type === 'exp');
+  const percentCount = tokens.filter((tk) => tk.type === 'percent').length;
+  const expIdx = tokens.findIndex((tk) => tk.type === 'exp');
   const exp = expIdx < 0 ? null : tokens[expIdx];
   const mantissa = exp ? tokens.slice(0, expIdx) : tokens;
-  const pointIdx = mantissa.findIndex((t) => t.type === 'point');
-  const intTokens = (pointIdx < 0 ? mantissa : mantissa.slice(0, pointIdx)).filter((t) => t.type === 'digit');
+  const pointIdx = mantissa.findIndex((tk) => tk.type === 'point');
+  const intTokens = (pointIdx < 0 ? mantissa : mantissa.slice(0, pointIdx)).filter((tk) => tk.type === 'digit');
   // The fraction's placeholders run from the point to the exponent, if any: a slice, so a long fraction costs its length.
-  const fracTokens = pointIdx < 0 ? [] : mantissa.slice(pointIdx + 1).filter((t) => t.type === 'digit');
-  const slash = tokens.find((t) => t.type === 'slash');
+  const fracTokens = pointIdx < 0 ? [] : mantissa.slice(pointIdx + 1).filter((tk) => tk.type === 'digit');
+  const slash = tokens.find((tk) => tk.type === 'slash');
   // A comma run directly between integer placeholders groups. Other numeric
   // commas are ignored unless they follow the last placeholder/decimal point,
   // where each divides by 1000. Scientific formats ignore comma scaling.
   let grouping = false;
   let scale = 0;
-  const lastNumeric = tokens.findLastIndex(t => t.type === 'digit' || t.type === 'point');
+  const lastNumeric = tokens.findLastIndex(tk => tk.type === 'digit' || tk.type === 'point');
   for (let i = 0; i < mantissa.length; i++) {
     if (tokens[i].type !== 'comma') continue;
     const start = i;
@@ -1026,23 +1027,23 @@ function formatNumberSection(value, tokens, autoMinus = false, locale = null, ca
   let fracStr = '';
   if (slash) {
     // Fractions: ?/? style. Whole part when integer digits precede the fraction.
-    const numTokens = tokens.slice(0, tokens.indexOf(slash)).filter((t) => t.type === 'digit');
-    const denTokens = tokens.slice(tokens.indexOf(slash) + 1).filter((t) => t.type === 'digit');
-    const fixedDen = tokens.findLast((t) => t.type === 'denominator');
+    const numTokens = tokens.slice(0, tokens.indexOf(slash)).filter((tk) => tk.type === 'digit');
+    const denTokens = tokens.slice(tokens.indexOf(slash) + 1).filter((tk) => tk.type === 'digit');
+    const fixedDen = tokens.findLast((tk) => tk.type === 'denominator');
     // Literal denominators are encoded as negated signed 16-bit values.
     // Wrapped nonnegative codes select variable precision (zero means seven
     // places), while the original literal still supplies the displayed text.
     // Keep this native TEXT behavior even for literals that wrap its encoding.
-    const variableAfterLiteral = fixedDen && tokens.slice(tokens.indexOf(fixedDen) + 1).some((t) => t.type === 'digit');
+    const variableAfterLiteral = fixedDen && tokens.slice(tokens.indexOf(fixedDen) + 1).some((tk) => tk.type === 'digit');
     const denominatorCode = fixedDen ? (variableAfterLiteral ? 0 : (-Number(fixedDen.text) << 16) >> 16) : null;
     const denominator = denominatorCode < 0 ? -denominatorCode : null;
     const slashIndex = tokens.indexOf(slash);
-    const firstDenominator = tokens.findIndex((t, i) => i > slashIndex && (t.type === 'digit' || t.type === 'denominator'));
+    const firstDenominator = tokens.findIndex((tk, i) => i > slashIndex && (tk.type === 'digit' || tk.type === 'denominator'));
     if (fractionCodeError(tokens)) return FORMAT_OVERFLOW;
-    const denominatorComma = tokens.findIndex((t, i) => i > firstDenominator && t.type === 'comma');
+    const denominatorComma = tokens.findIndex((tk, i) => i > firstDenominator && tk.type === 'comma');
     // Zero can take a trailing scale comma, but that cannot represent
     // a nonzero fraction this way. A comma within its digits is invalid even at zero.
-    if (denominatorComma >= 0 && (n !== 0 || tokens.slice(denominatorComma + 1).some((t) => t.type === 'digit' || t.type === 'denominator'))) return FORMAT_OVERFLOW;
+    if (denominatorComma >= 0 && (n !== 0 || tokens.slice(denominatorComma + 1).some((tk) => tk.type === 'digit' || tk.type === 'denominator'))) return FORMAT_OVERFLOW;
     const firstDigit = tokens.indexOf(numTokens[0]);
     const lastNumeratorDigit = tokens.indexOf(numTokens[numTokens.length - 1]);
     // Empty labels, fill instructions and percent signs still separate whole
@@ -1050,14 +1051,14 @@ function formatNumberSection(value, tokens, autoMinus = false, locale = null, ca
     const blank = text => {
       // Blanking a fraction hides glyphs, not its explicit spacing operations.
       // Layout markers remain attached to their original padding/fill token.
-      const operations = new Set(tokens.filter(t => t.spacing && t.rendered != null).map(t => t.rendered));
+      const operations = new Set(tokens.filter(tk => tk.spacing && tk.rendered != null).map(tk => tk.rendered));
       if (!operations.size) return ' '.repeat(text.length);
       return Array.from(text, char => operations.has(char) ? char : ' ').join('');
     };
-    const separatorIndex = tokens.findLastIndex((t, i) => i > firstDigit && i < lastNumeratorDigit && (t.type === 'lit' || t.type === 'percent'));
+    const separatorIndex = tokens.findLastIndex((tk, i) => i > firstDigit && i < lastNumeratorDigit && (tk.type === 'lit' || tk.type === 'percent'));
     const hasWhole = separatorIndex >= 0;
-    const wholeEnd = hasWhole ? tokens.findLastIndex((t, i) => i < separatorIndex && t.type === 'digit') : -1;
-    const numeratorStart = hasWhole ? tokens.findIndex((t, i) => i > separatorIndex && t.type === 'digit') : firstDigit;
+    const wholeEnd = hasWhole ? tokens.findLastIndex((tk, i) => i < separatorIndex && tk.type === 'digit') : -1;
+    const numeratorStart = hasWhole ? tokens.findIndex((tk, i) => i > separatorIndex && tk.type === 'digit') : firstDigit;
     let whole = hasWhole ? Math.floor(n) : 0;
     const rem = n - whole;
     // At most seven denominator digits are used for the approximation.
@@ -1083,9 +1084,9 @@ function formatNumberSection(value, tokens, autoMinus = false, locale = null, ca
       whole += Math.floor(bestN / bestD);
       bestN %= bestD;
     }
-    const numeratorTokens = tokens.slice(numeratorStart, slashIndex).filter((t) => t.type === 'digit');
-    const mandatoryNumerator = numeratorTokens.some((t) => t.text === '0');
-    const alignNumerator = numeratorTokens.find((t) => t.text !== '#')?.text === '?';
+    const numeratorTokens = tokens.slice(numeratorStart, slashIndex).filter((tk) => tk.type === 'digit');
+    const mandatoryNumerator = numeratorTokens.some((tk) => tk.text === '0');
+    const alignNumerator = numeratorTokens.find((tk) => tk.text !== '#')?.text === '?';
     let wholeText = '';
     const wholeLast = hasWhole ? tokens[wholeEnd].text : null;
     const retainWholeZero = whole === 0 && bestN === 0 && (numeratorTokens[0]?.text !== '0' || wholeLast === '?');
@@ -1093,7 +1094,7 @@ function formatNumberSection(value, tokens, autoMinus = false, locale = null, ca
     if (hasWhole) {
       // The value is already scaled. Keep percentage markers as literal text
       // while applying integer grouping, placeholder padding, and labels.
-      const wholeFormat = tokens.slice(firstDigit, wholeEnd + 1).map((t) => t.type === 'percent' ? { type: 'lit', text: t.text } : t);
+      const wholeFormat = tokens.slice(firstDigit, wholeEnd + 1).map((tk) => tk.type === 'percent' ? { type: 'lit', text: tk.text } : tk);
       // Retain zero in the final integer slot, preserving preceding optional
       // digits, alignment and literals instead of replacing the whole label.
       if (retainWholeZero) wholeFormat[wholeFormat.length - 1] = { type: 'digit', text: '0' };
@@ -1105,7 +1106,7 @@ function formatNumberSection(value, tokens, autoMinus = false, locale = null, ca
     // fractions lines up: numerators pad on the left,
     // denominators on the right, and a whole number blanks its fraction and
     // slash to the same width (2 with "# ?/?" reads "2    ").
-    const blanks = (placeholders) => placeholders.map((t) => (t.text === '?' ? ' ' : t.text === '0' ? '0' : '')).join('');
+    const blanks = (placeholders) => placeholders.map((tk) => (tk.text === '?' ? ' ' : tk.text === '0' ? '0' : '')).join('');
     const padded = (digits, placeholders, alignRight) => {
       const unused = Math.max(0, placeholders.length - digits.length);
       const fill = blanks(alignRight ? placeholders.slice(0, unused) : placeholders.slice(placeholders.length - unused));
@@ -1113,15 +1114,15 @@ function formatNumberSection(value, tokens, autoMinus = false, locale = null, ca
     };
     if (value < 0 && autoMinus && !hasWhole && bestN === 0 && onUnsignedZero) return onUnsignedZero();
     if (!prepareMeridiem(!hasWhole && bestN === 0)) return FORMAT_OVERFLOW;
-    const affix = (part) => part.filter((t) => ['lit', 'percent', 'point', 'date', 'elapsed', 'ampm', 'denominator'].includes(t.type)).map(written).join('');
+    const affix = (part) => part.filter((tk) => ['lit', 'percent', 'point', 'date', 'elapsed', 'ampm', 'denominator'].includes(tk.type)).map(written).join('');
     const numeratorSuffix = affix(tokens.slice(lastNumeratorDigit + 1, slashIndex));
     const denominatorStart = fixedDen ? tokens.indexOf(fixedDen) : firstDenominator;
     // A fixed denominator can have several runs separated by labels. Only
     // the first run is localized; subsequent fixed runs retain their literal digits.
-    const denominatorPrefix = tokens.slice(slashIndex + 1, denominatorStart).map((t) => t.type === 'comma' ? ',' : t.type === 'digit' ? (t.text === '?' ? ' ' : '0')
-      : t === tokens[firstDenominator] ? shapeDigits(affix([t]), shape) : affix([t])).join('');
+    const denominatorPrefix = tokens.slice(slashIndex + 1, denominatorStart).map((tk) => tk.type === 'comma' ? ',' : tk.type === 'digit' ? (tk.text === '?' ? ' ' : '0')
+      : tk === tokens[firstDenominator] ? shapeDigits(affix([tk]), shape) : affix([tk])).join('');
     let frac;
-    const lastDenominatorIndex = tokens.findLastIndex((t) => t.type === 'denominator' || t.type === 'digit');
+    const lastDenominatorIndex = tokens.findLastIndex((tk) => tk.type === 'denominator' || tk.type === 'digit');
     const denominatorText = formatFractionDenominator(bestD, tokens.slice(denominatorStart, lastDenominatorIndex + 1), denominatorStart === firstDenominator ? shape : null);
     const reserveFraction = alignNumerator || tokens[firstDenominator]?.text.startsWith('?');
     const fractionBody = `${shapeDigits(padded(String(bestN), numeratorTokens, true), shape)}${numeratorSuffix}/${denominatorPrefix}${denominatorText}`;
@@ -1129,7 +1130,7 @@ function formatNumberSection(value, tokens, autoMinus = false, locale = null, ca
     const blankEnd = denTokens.length ? tokens.indexOf(denTokens.at(-1)) : lastDenominatorIndex;
     if (showFraction) frac = fractionBody;
     else if (reserveFraction) frac = blank(fractionBody.slice(0, fractionBody.length - affix(tokens.slice(blankEnd + 1, lastDenominatorIndex + 1)).length));
-    else frac = denTokens.map((t) => t.text === '?' ? ' ' : '').join('');
+    else frac = denTokens.map((tk) => tk.text === '?' ? ' ' : '').join('');
     const lastDigit = showFraction ? lastDenominatorIndex : blankEnd;
     let separator = '';
     if (hasWhole) {
@@ -1215,49 +1216,49 @@ function formatNumberSection(value, tokens, autoMinus = false, locale = null, ca
   if (integerSlots.length) intStr = integerSlots.join('');
 
   // Keep each slot attached to its token so embedded literals stay in place.
-  const integerOutput = new Map(intTokens.map((t, i) => [t, integerSlots[i]]));
-  const fractionalOutput = new Map(fracTokens.map((t, i) => [t,
+  const integerOutput = new Map(intTokens.map((tk, i) => [tk, integerSlots[i]]));
+  const fractionalOutput = new Map(fracTokens.map((tk, i) => [tk,
     i === fracTokens.length - 1 ? fractionalDigits.slice(i).join('') : fractionalDigits[i] ?? '',
   ]));
   let exponentOutput = null;
   if (exp) {
     const body = tokens.slice(expIdx + 1);
-    const point = body.findIndex(t => t.type === 'point');
-    const integers = (point < 0 ? body : body.slice(0, point)).filter(t => t.type === 'digit');
-    const fraction = point < 0 ? [] : body.slice(point + 1).filter(t => t.type === 'digit');
+    const point = body.findIndex(tk => tk.type === 'point');
+    const integers = (point < 0 ? body : body.slice(0, point)).filter(tk => tk.type === 'digit');
+    const fraction = point < 0 ? [] : body.slice(point + 1).filter(tk => tk.type === 'digit');
     const digits = String(Math.abs(exponent));
     const slots = placeIntegerDigits(digits, integers);
     const sign = exponent < 0 ? '-' : exp.text[1] === '+' ? '+' : '';
-    exponentOutput = new Map(integers.map((t, i) => [t, (i === 0 ? sign : '') + slots[i]]));
+    exponentOutput = new Map(integers.map((tk, i) => [tk, (i === 0 ? sign : '') + slots[i]]));
     // An exponent is an integer: fractional placeholders contribute only their
     // own zero/padding, with # remaining empty even before a mandatory zero.
-    fraction.forEach(t => exponentOutput.set(t, t.text === '0' ? '0' : t.text === '?' ? ' ' : ''));
+    fraction.forEach(tk => exponentOutput.set(tk, tk.text === '0' ? '0' : tk.text === '?' ? ' ' : ''));
     if (!integers.length && point >= 0) exponentOutput.set(body[point], sign + digits);
   }
 
   // Walk the tokens, emitting the number where its digits sit.
   let out = '';
   let intDone = false;
-  tokens.forEach((t) => {
-    switch (t.type) {
+  tokens.forEach((tk) => {
+    switch (tk.type) {
       case 'digit':
-        if (integerOutput.has(t)) { out += shapeDigits(integerOutput.get(t), shape); intDone = true; }
-        else out += shapeDigits(fractionalOutput.get(t) ?? exponentOutput?.get(t) ?? '', shape);
+        if (integerOutput.has(tk)) { out += shapeDigits(integerOutput.get(tk), shape); intDone = true; }
+        else out += shapeDigits(fractionalOutput.get(tk) ?? exponentOutput?.get(tk) ?? '', shape);
         break;
       case 'point':
         if (!intDone) { out += shapeDigits(intStr, shape); intDone = true; }
-        out += shapeDigits(exponentOutput?.get(t) ?? '', shape);
+        out += shapeDigits(exponentOutput?.get(tk) ?? '', shape);
         // The point prints whenever the code has one: 5 with "0.#" reads "5.".
         out += marks.decimal;
         break;
       case 'exp': {
-        out += t.text[0];
+        out += tk.text[0];
         break;
       }
       case 'percent': out += '%'; break;
       case 'comma': break;
-      case 'lit': out += t.rendered ?? t.text; break;
-      case 'date': case 'elapsed': case 'ampm': out += written(t); break;
+      case 'lit': out += tk.rendered ?? tk.text; break;
+      case 'date': case 'elapsed': case 'ampm': out += written(tk); break;
       default: break;
     }
   });
@@ -1306,12 +1307,12 @@ function parseCode(code) {
   const sections = splitSections(code);
   const tokens = new Map();
   const tokensOf = (section) => {
-    let t = tokens.get(section);
-    if (!t) tokens.set(section, t = tokenize(section));
-    return t;
+    let tk = tokens.get(section);
+    if (!tk) tokens.set(section, tk = tokenize(section));
+    return tk;
   };
   const last = sections[sections.length - 1];
-  const trailingText = last.includes('@') && tokensOf(last).some((t) => t.type === 'at');
+  const trailingText = last.includes('@') && tokensOf(last).some((tk) => tk.type === 'at');
   // A trailing text section does not consume a numeric section. With no
   // numeric sections at all, numbers retain their General display.
   const numeric = sections.length < 4 && trailingText ? (sections.length === 1 ? ['General'] : sections.slice(0, -1)) : sections;
@@ -1331,18 +1332,18 @@ function parseCode(code) {
   // sections and text/Boolean values in TEXT. Cache this grammar check with
   // the parse rather than rescanning a whole column on every render.
   const syntaxError = sections.map((s, i) => {
-    const t = tokensOf(s);
-    return t.bracketError || (i > 1 && t.condition ? 'Use conditions only in the first two sections' : dateTimeCodeError(t))
-      || textSectionError(t, i, sections.length)
-      || (t.general > 1 ? 'Use General only once in each section' : null)
-      || (t.general && t.some(token => token.type === 'digit') ? 'Use either General or numeric placeholders in a section' : null)
-      || (system && (scientificCodeError(t) || fractionCodeError(t)));
+    const tk = tokensOf(s);
+    return tk.bracketError || (i > 1 && tk.condition ? t('numfmt.error.conditionSections') : dateTimeCodeError(tk))
+      || textSectionError(tk, i, sections.length)
+      || (tk.general > 1 ? t('numfmt.error.generalOnce') : null)
+      || (tk.general && tk.some(token => token.type === 'digit') ? t('numfmt.error.generalDigits') : null)
+      || (system && (scientificCodeError(tk) || fractionCodeError(tk)));
   }).find(Boolean);
   // A lone General field (also implied by directives alone) has no implicit
   // fallback section and retains its sign. Decorated General is an ordinary
   // custom section, using the same fallback/sign rules as numeric fields.
   const generalOnly = numeric.length === 1 && numeric[0].trim() !== ''
-    && tokensOf(numeric[0]).every(t => t.type === 'general');
+    && tokensOf(numeric[0]).every(tk => tk.type === 'general');
   parsed = { sections, last, trailingText, numeric, conditions, japanese, locale, calendar, numeral, system, tokensOf, syntaxError, generalOnly };
   if (parsedCodes.size >= PARSED_CODES_MAX) parsedCodes.clear();
   parsedCodes.set(code, parsed);
@@ -1381,7 +1382,7 @@ function pickSection(parsed, value) {
   const positive = pickInitialSection(parsed, -value);
   if (positive.section === selected.section) return selected;
   const tokens = parsed.tokensOf(selected.section);
-  if (!tokens.some(t => t.type === 'digit')) return selected;
+  if (!tokens.some(tk => tk.type === 'digit')) return selected;
   // Rounding away an automatic minus can reselect the conditional section.
   // Use the original magnitude, not zero, for the comparison and rendering.
   // Resolve here so the display, color and format classification agree.
@@ -1395,9 +1396,9 @@ function pickSection(parsed, value) {
  */
 // Callers such as TEXT can choose a distinct overflow result without mistaking
 // a literal "#####" for an unrepresentable value.
-function textTokenContent(t, value, locale) {
-  return t.type === 'at' || t.type === 'general' ? value : t.type === 'lit' ? t.rendered ?? t.text
-    : t.type === 'ampm' ? meridiemText(t, 0, locale) : '';
+function textTokenContent(tk, value, locale) {
+  return tk.type === 'at' || tk.type === 'general' ? value : tk.type === 'lit' ? tk.rendered ?? tk.text
+    : tk.type === 'ampm' ? meridiemText(tk, 0, locale) : '';
 }
 
 function formatCode(value, code, { overflow = '#####', textFunction = false, spacing = null } = {}) {
@@ -1409,7 +1410,7 @@ function formatCode(value, code, { overflow = '#####', textFunction = false, spa
   // fields, and the cached parse must stay reusable by TEXT and other cells.
   const tokensFor = sec => {
     const tokens = parsed.tokensOf(sec);
-    if (!spacing || !tokens.some(t => t.spacing)) return tokens;
+    if (!spacing || !tokens.some(tk => tk.spacing)) return tokens;
     const copy = Object.assign([], tokens);
     for (let i = 0; i < tokens.length; i++) if (tokens[i].spacing) copy[i] = { ...tokens[i], rendered: spacing(tokens[i].spacing) };
     return copy;
@@ -1425,7 +1426,7 @@ function formatCode(value, code, { overflow = '#####', textFunction = false, spa
     // General in the text section shows the text the General way, which is the text itself: it stands where @ would.
     const textTokens = tokensFor(sec);
     if (!textTokens.length && sec.trim() !== '') return value;
-    return textTokens.map(t => textTokenContent(t, value, parsed.numeric[0] === parsed.sections[0] ? parsed.locale : null)).join('');
+    return textTokens.map(tk => textTokenContent(tk, value, parsed.numeric[0] === parsed.sections[0] ? parsed.locale : null)).join('');
   }
   if (typeof value !== 'number' || !Number.isFinite(value)) return '#NUM!';
   const selected = pickSection(parsed, value);
@@ -1453,12 +1454,12 @@ function formatCode(value, code, { overflow = '#####', textFunction = false, spa
     const body = formatDateSection(negativeElapsed ? -value : value, tokens, parsed.japanese, parsed.locale, parsed.calendar, shape);
     return body === FORMAT_OVERFLOW ? overflow : negativeElapsed && minus ? `-${body}` : body;
   }
-  if (!tokens.some((t) => t.type === 'digit')) {
+  if (!tokens.some((tk) => tk.type === 'digit')) {
     // A section with no digits ("n/a", a General literal, a lone percent sign): print the literal parts and any
     // percent sign, with the automatic minus a single section gives a negative number (-n/a); a
     // code with a negative section of its own ("Yes";"No") supplies the sign itself.
-    const text = tokens.map((t) => t.type === 'general' ? formatShapedGeneral(Math.abs(value), shape)
-      : t.type === 'lit' || t.type === 'percent' ? t.rendered ?? t.text : '').join('');
+    const text = tokens.map((tk) => tk.type === 'general' ? formatShapedGeneral(Math.abs(value), shape)
+      : tk.type === 'lit' || tk.type === 'percent' ? tk.rendered ?? tk.text : '').join('');
     return value < 0 && minus ? `-${text}` : text;
   }
   const body = formatNumberSection(value, tokens, minus, parsed.locale, parsed.calendar, null, shape);
@@ -1495,29 +1496,29 @@ export function unformatTimeWithCode(text, code) {
     clock = true;
     const fields = [];
     let pattern = '^', variableDigits = false, supported = true;
-    for (const t of tokens) {
-      if (t.type === 'lit') {
-        pattern += escape(t.text);
-        if (/[^0-9]/.test(t.text)) variableDigits = false;
+    for (const tk of tokens) {
+      if (tk.type === 'lit') {
+        pattern += escape(tk.text);
+        if (/[^0-9]/.test(tk.text)) variableDigits = false;
         continue;
       }
       let key, part, names;
-      if (t.type === 'date' || t.type === 'elapsed') {
+      if (tk.type === 'date' || tk.type === 'elapsed') {
         // A contiguous run with at most one variable-width field is uniquely
         // separable (hmmss, hhmm, [h]mmss). Two variable fields such as hs can
         // name different times and also cause regexp backtracking; keep text.
-        const variable = t.type === 'elapsed' || t.text.length === 1;
+        const variable = tk.type === 'elapsed' || tk.text.length === 1;
         if (variable && variableDigits) { supported = false; break; }
         variableDigits ||= variable;
-        key = t.type === 'elapsed' ? `elapsed-${t.text[0]}` : t.minutes ? 'm' : t.text[0];
-        part = t.type === 'elapsed' ? `(\\d{${Math.min(t.text.length, 2)},15})` : variable ? '(\\d{1,2})' : '(\\d{2})';
-      } else if (t.type === 'subsecond') {
+        key = tk.type === 'elapsed' ? `elapsed-${tk.text[0]}` : tk.minutes ? 'm' : tk.text[0];
+        part = tk.type === 'elapsed' ? `(\\d{${Math.min(tk.text.length, 2)},15})` : variable ? '(\\d{1,2})' : '(\\d{2})';
+      } else if (tk.type === 'subsecond') {
         key = 'fraction';
-        part = escape(localeInfo().decimal) + `(\\d{${t.text.length - 1}})`;
+        part = escape(localeInfo().decimal) + `(\\d{${tk.text.length - 1}})`;
         variableDigits = false;
-      } else if (t.type === 'ampm') {
+      } else if (tk.type === 'ampm') {
         key = 'period';
-        names = [0, 12].map(h => normalize(meridiemText(t, h, parsed.locale)));
+        names = [0, 12].map(h => normalize(meridiemText(tk, h, parsed.locale)));
         part = `(${names.map(escape).join('|')})`;
         variableDigits = false;
       } else { supported = false; break; }
@@ -1566,7 +1567,7 @@ export function unformatTextWithCode(text, code) {
   const tokens = parsed.tokensOf(section);
   if (!tokens.length && section.trim() !== '') return text;
   const locale = parsed.numeric[0] === parsed.sections[0] ? parsed.locale : null;
-  const parts = tokens.map(t => t.type === 'at' || t.type === 'general' ? null : textTokenContent(t, '', locale));
+  const parts = tokens.map(tk => tk.type === 'at' || tk.type === 'general' ? null : textTokenContent(tk, '', locale));
   const count = parts.filter(p => p === null).length;
   if (!count) return undefined;
   const length = (text.length - parts.reduce((n, p) => n + (p?.length || 0), 0)) / count;
@@ -1633,8 +1634,8 @@ export function formatTextParts(value, code) {
  * date letters among digit placeholders. A code that hides numbers on purpose (";;;", '"n/a"') is well formed.
  */
 export function formatCodeError(code) {
-  if (typeof code !== 'string' || !code.trim()) return 'Enter a format code';
-  if (code.length > MAX_FORMAT_CODE_LENGTH) return `A format code can have at most ${MAX_FORMAT_CODE_LENGTH} characters`;
+  if (typeof code !== 'string' || !code.trim()) return t('numfmt.error.empty');
+  if (code.length > MAX_FORMAT_CODE_LENGTH) return t('numfmt.error.tooLong', { max: MAX_FORMAT_CODE_LENGTH });
   let quoted = false;
   let bracket = false;
   for (let i = 0; i < code.length; i++) {
@@ -1645,10 +1646,10 @@ export function formatCodeError(code) {
     else if (ch === '[') bracket = true;
     else if (ch === '\\' || ch === '_' || ch === '*') i++;
   }
-  if (quoted) return 'Close the quotation mark: text goes between a pair, like "kg"';
-  if (bracket) return 'Close the bracket: a colour or condition goes between a pair, like [Red] or [>100]';
+  if (quoted) return t('numfmt.error.quoteOpen');
+  if (bracket) return t('numfmt.error.bracketOpenColor');
   const sections = splitSections(code);
-  if (sections.length > 4) return 'A format code has at most four sections: positive;negative;zero;text';
+  if (sections.length > 4) return t('numfmt.error.sections');
   const parsed = parseCode(code);
   if (parsed.syntaxError) return parsed.syntaxError;
   for (const section of sections) {
@@ -1764,20 +1765,20 @@ export function stepCodeDecimals(code, step) {
   return changed && stepped.length <= MAX_FORMAT_CODE_LENGTH ? stepped : null;
 }
 
-/** A short list of codes to offer in the custom-format dialog. */
+/** A short list of codes to offer in the custom-format dialog: [code, message key of its description]. */
 export const CUSTOM_FORMAT_PRESETS = [
-  ['#,##0.00', 'Number with separators'],
-  ['0.0', 'One decimal'],
-  ['#,##0;[Red](#,##0)', 'Negatives in parentheses'],
-  ['#,##0,"K"', 'Thousands as K'],
-  ['0.0%', 'Percent, one decimal'],
-  ['0.00E+00', 'Scientific'],
-  ['# ?/?', 'Fraction'],
-  ['yyyy-mm-dd', 'ISO date'],
-  ['d mmm yyyy', 'Day month year'],
-  ['dddd, mmmm d', 'Weekday, month day'],
-  ['h:mm AM/PM', '12-hour time'],
-  ['[h]:mm', 'Elapsed hours'],
-  ['"$"#,##0.00;"-$"#,##0.00', 'Currency with minus'],
-  ['@ "units"', 'Text with a suffix'],
+  ['#,##0.00', 'numfmt.preset.numberWithSeparators'],
+  ['0.0', 'numfmt.preset.oneDecimal'],
+  ['#,##0;[Red](#,##0)', 'numfmt.preset.negativesInParentheses'],
+  ['#,##0,"K"', 'numfmt.preset.thousandsAsK'],
+  ['0.0%', 'numfmt.preset.percentOneDecimal'],
+  ['0.00E+00', 'numfmt.preset.scientific'],
+  ['# ?/?', 'numfmt.preset.fraction'],
+  ['yyyy-mm-dd', 'numfmt.preset.isoDate'],
+  ['d mmm yyyy', 'numfmt.preset.dayMonthYear'],
+  ['dddd, mmmm d', 'numfmt.preset.weekdayMonthDay'],
+  ['h:mm AM/PM', 'numfmt.preset.twelveHourTime'],
+  ['[h]:mm', 'numfmt.preset.elapsedHours'],
+  ['"$"#,##0.00;"-$"#,##0.00', 'numfmt.preset.currencyWithMinus'],
+  ['@ "units"', 'numfmt.preset.textWithASuffix'],
 ];

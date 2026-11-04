@@ -1,0 +1,22 @@
+{
+  "added": "已在 {sheet} 上添加数据透视表",
+  "agg.average": "平均值",
+  "agg.count": "计数",
+  "agg.max": "最大值",
+  "agg.min": "最小值",
+  "agg.sum": "求和",
+  "columns": "列",
+  "dataRange": "数据区域（第一行为字段名）",
+  "errors.filterField": "筛选字段必须不同于行字段和列字段",
+  "errors.sameField": "行和列必须是不同的字段",
+  "filterBy": "筛选依据",
+  "insert": "插入到新工作表",
+  "rows": "行",
+  "sameSheet": "源数据必须位于此工作表上",
+  "showing": "显示",
+  "sourceRange": "源区域",
+  "summarizeBy": "汇总方式",
+  "summary": "{shape, select, grid {{rows} 行 × {cols} 列} other {{rows} 行}}，{agg, select, sum {求和} count {计数} average {平均值} max {最大值} other {最小值}}：{field}{filtered, select, yes {，按 {filterField} 筛选（在表格上方的下拉列表中选择值）} other {}}。表格将以随数据更新的公式写入新工作表。",
+  "title": "数据透视表",
+  "values": "值"
+}

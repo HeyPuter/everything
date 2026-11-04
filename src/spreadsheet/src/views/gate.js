@@ -6,6 +6,7 @@
 
 import { el } from '../ui/dom.js';
 import { icon } from '../ui/icons.js';
+import { t } from '../i18n/index.js';
 
 export function errorView(title, message, onRetry) {
   return el('div.auth-view.view', {},
@@ -13,7 +14,7 @@ export function errorView(title, message, onRetry) {
       el('div.empty-icon', { html: icon('wifiOff', 28) }),
       el('h1.auth-title', { style: { fontSize: '22px' } }, title),
       el('p.auth-sub', {}, message),
-      el('button.btn.btn-primary.auth-cta', { type: 'button', onclick: onRetry }, 'Try again')));
+      el('button.btn.btn-primary.auth-cta', { type: 'button', onclick: onRetry }, t('common.tryAgain'))));
 }
 
 /**
@@ -36,7 +37,7 @@ export function signInView({ title, message, onSignIn, onSkip }) {
       waiting = true;
       cta.setAttribute('aria-disabled', 'true');
       cta.setAttribute('aria-busy', 'true');
-      status.textContent = 'Waiting for Puter…';
+      status.textContent = t('gate.waitingForPuter');
       try { await onSignIn(); }
       finally {
         waiting = false;
@@ -45,7 +46,7 @@ export function signInView({ title, message, onSignIn, onSkip }) {
         status.textContent = '';
       }
     },
-  }, 'Sign in to Puter');
+  }, t('gate.signIn'));
   return el('div.auth-view.view', {},
     el('div.auth-card', {},
       el('div.empty-icon', { html: icon('lock', 28) }),
@@ -53,6 +54,6 @@ export function signInView({ title, message, onSignIn, onSkip }) {
       el('p.auth-sub', {}, message),
       el('div.row', { style: { justifyContent: 'center' } },
         cta,
-        el('button.btn.btn-outline', { type: 'button', onclick: onSkip }, 'New spreadsheet')),
+        el('button.btn.btn-outline', { type: 'button', onclick: onSkip }, t('gate.newSpreadsheet'))),
       status));
 }

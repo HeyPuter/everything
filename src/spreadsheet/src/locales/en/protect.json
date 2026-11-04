@@ -1,0 +1,18 @@
+{
+  "alreadyProtected": "{range} is already protected",
+  "cancelEdit": "Cancel edit",
+  "description": "Description",
+  "descriptionPlaceholder": "Why these cells are locked (optional)",
+  "empty": "Nothing on this sheet is protected yet.",
+  "intro": "Edits inside a protected range are refused until it is unprotected here. To lock a whole sheet, use its tab menu.",
+  "protect": "Protect",
+  "protected": "Protected",
+  "protectedToast": "{range} protected",
+  "range": "Range",
+  "rangeLike": "Enter a range like B2:D9",
+  "rangeOnSheet": "Enter a range on this sheet",
+  "title": "Protected ranges",
+  "unprotect": "Unprotect",
+  "unprotectRange": "Unprotect {range}",
+  "unprotected": "{range} unprotected"
+}

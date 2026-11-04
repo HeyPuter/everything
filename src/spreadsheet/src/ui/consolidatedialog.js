@@ -4,15 +4,23 @@ import { openModal, fieldAlert } from './modal.js';
 import { CONSOLIDATE_FUNCTIONS } from '../core/consolidate.js';
 import { rangeName } from '../core/cell.js';
 import { quoteSheet } from '../core/refs.js';
+import { t } from '../i18n/index.js';
+
+/** Each function's name in the interface, by its id in CONSOLIDATE_FUNCTIONS. */
+const FUNCTION_LABELS = {
+  sum: 'consolidatedialog.fn.sum', count: 'consolidatedialog.fn.count', average: 'consolidatedialog.fn.average', max: 'consolidatedialog.fn.max',
+  min: 'consolidatedialog.fn.min', product: 'consolidatedialog.fn.product', countNums: 'consolidatedialog.fn.countNums', stdev: 'consolidatedialog.fn.stdev',
+  stdevp: 'consolidatedialog.fn.stdevp', var: 'consolidatedialog.fn.var', varp: 'consolidatedialog.fn.varp',
+};
 
 export function openConsolidateDialog(ctx) {
   const refs = [];
-  const fn = el('select.select', { 'aria-label': 'Function' }, ...CONSOLIDATE_FUNCTIONS.map(([value, label]) => el('option', { value }, label)));
+  const fn = el('select.select', { 'aria-label': t('consolidatedialog.function') }, ...CONSOLIDATE_FUNCTIONS.map(([value, label]) => el('option', { value }, FUNCTION_LABELS[value] ? t(FUNCTION_LABELS[value]) : label)));
   const sheetName = ctx.wb.sheet(ctx.sheetId())?.name || '';
   const range = ctx.range();
-  const reference = el('input.input', { type: 'text', 'aria-label': 'Reference', autocomplete: 'off', spellcheck: false,
+  const reference = el('input.input', { type: 'text', 'aria-label': t('consolidatedialog.reference'), autocomplete: 'off', spellcheck: false,
     value: range.r1 === range.r2 && range.c1 === range.c2 ? '' : `${quoteSheet(sheetName)}!${rangeName(range)}` });
-  const list = el('select.select.consolidate-refs', { size: 5, 'aria-label': 'All references' });
+  const list = el('select.select.consolidate-refs', { size: 5, 'aria-label': t('consolidatedialog.allReferences') });
   const top = el('input', { type: 'checkbox', id: fieldId('consolidate-top') });
   const left = el('input', { type: 'checkbox', id: fieldId('consolidate-left') });
   const { alert, refuse } = fieldAlert('consolidate');
@@ -20,7 +28,7 @@ export function openConsolidateDialog(ctx) {
   const add = () => {
     const text = reference.value.trim();
     if (!text) return;
-    if (!ctx.resolveRange(text)) { refuse(reference, 'Enter a range such as Sheet1!A1:C10'); return; }
+    if (!ctx.resolveRange(text)) { refuse(reference, t('consolidatedialog.errors.enterRange')); return; }
     if (!refs.includes(text)) refs.push(text);
     reference.value = '';
     sync();
@@ -29,28 +37,28 @@ export function openConsolidateDialog(ctx) {
   const submit = (e) => {
     e.preventDefault();
     if (reference.value.trim()) add();
-    if (!refs.length) { refuse(reference, 'Add at least one reference to consolidate'); return; }
+    if (!refs.length) { refuse(reference, t('consolidatedialog.errors.addReference')); return; }
     // The result goes at the active cell: inside a source it would be written over the data it is made from.
     const at = ctx.active?.();
     const inside = at && refs.find((text) => {
       const hit = ctx.resolveRange(text);
       return hit?.sheetId === ctx.sheetId() && at.r >= hit.range.r1 && at.r <= hit.range.r2 && at.c >= hit.range.c1 && at.c <= hit.range.c2;
     });
-    if (inside) { refuse(list, `The result would be written at the selected cell, inside ${inside}. Select a cell outside the references first`); return; }
+    if (inside) { refuse(list, t('consolidatedialog.errors.resultInside', { ref: inside })); return; }
     modal.close();
     ctx.run('consolidate', { fn: fn.value, refs: [...refs], topRow: top.checked, leftColumn: left.checked });
   };
   const content = el('form.consolidate-dialog', { onsubmit: submit },
-    el('label.field', {}, el('span.field-label', {}, 'Function'), el('div.select-wrap', {}, fn)),
-    el('label.field', {}, el('span.field-label', {}, 'Reference'), el('div.row', {}, reference,
-      el('button.btn', { type: 'button', onclick: add }, 'Add'))),
+    el('label.field', {}, el('span.field-label', {}, t('consolidatedialog.function')), el('div.select-wrap', {}, fn)),
+    el('label.field', {}, el('span.field-label', {}, t('consolidatedialog.reference')), el('div.row', {}, reference,
+      el('button.btn', { type: 'button', onclick: add }, t('common.add')))),
     alert,
-    el('label.field', {}, el('span.field-label', {}, 'All references'), el('div.row', {}, list, el('button.btn', { type: 'button', onclick: remove }, 'Delete'))),
-    el('fieldset.check-group.vertical', {}, el('legend.field-label', {}, 'Use labels in'),
-      el('label.check', { for: top.id }, top, el('span', {}, 'Top row')), el('label.check', { for: left.id }, left, el('span', {}, 'Left column'))),
+    el('label.field', {}, el('span.field-label', {}, t('consolidatedialog.allReferences')), el('div.row', {}, list, el('button.btn', { type: 'button', onclick: remove }, t('common.delete')))),
+    el('fieldset.check-group.vertical', {}, el('legend.field-label', {}, t('consolidatedialog.useLabelsIn')),
+      el('label.check', { for: top.id }, top, el('span', {}, t('consolidatedialog.topRow'))), el('label.check', { for: left.id }, left, el('span', {}, t('consolidatedialog.leftColumn')))),
     el('div.row.row-end', { style: { marginTop: '12px' } },
-      el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Cancel'),
-      el('button.btn.btn-primary', { type: 'submit' }, 'OK')));
-  const modal = openModal({ title: 'Consolidate', content, initialFocus: reference, onClose: () => ctx.grid.focus() });
+      el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, t('common.cancel')),
+      el('button.btn.btn-primary', { type: 'submit' }, t('common.ok'))));
+  const modal = openModal({ title: t('consolidatedialog.title'), content, initialFocus: reference, onClose: () => ctx.grid.focus() });
   return modal;
 }

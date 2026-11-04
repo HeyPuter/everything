@@ -1,0 +1,6 @@
+{
+  "choice": "{menu}: {choice}",
+  "ribbon": "Ribbon",
+  "ribbonGroup": "{tab} ▸ {group} (ribbon)",
+  "ribbonTab": "{tab} (ribbon)"
+}

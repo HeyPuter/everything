@@ -1,0 +1,8 @@
+{
+  "entireColumn": "整列",
+  "entireRow": "整行",
+  "shiftDown": "活动单元格下移",
+  "shiftLeft": "右侧单元格左移",
+  "shiftRight": "活动单元格右移",
+  "shiftUp": "下方单元格上移"
+}

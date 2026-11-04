@@ -12,9 +12,16 @@ import { parseDelimited } from './tsv.js';
 import { parseInput, parseDate, serialToYMD, typedDateKind, dateTimeKind } from './format.js';
 import { tableRows } from './tables.js';
 import { maxOf } from './numeric.js';
+import { t } from '../i18n/index.js';
 
 export const TYPES = ['any', 'text', 'int', 'decimal', 'datetime', 'date', 'time', 'bool'];
-export const TYPE_LABELS = { any: 'Any', text: 'Text', int: 'Whole Number', decimal: 'Decimal Number', datetime: 'Date/Time', date: 'Date', time: 'Time', bool: 'True/False' };
+/** Each type's name on screen, as catalog keys: see typeLabel. */
+export const TYPE_LABELS = {
+  any: 'queries.type.any', text: 'queries.type.text', int: 'queries.type.int', decimal: 'queries.type.decimal',
+  datetime: 'queries.type.datetime', date: 'queries.type.date', time: 'queries.type.time', bool: 'queries.type.bool',
+};
+/** A column type's name in the interface language ("Whole Number"); an unknown type reads as Any. */
+export const typeLabel = (type) => t(TYPE_LABELS[type] || TYPE_LABELS.any);
 /** The marks the editor puts before a column name, as Power Query's header icons read. */
 export const TYPE_MARKS = { any: 'ABC\n123', text: 'ABC', int: '123', decimal: '1.2', datetime: '▦◷', date: '▦', time: '◷', bool: '✓✗' };
 const M_TYPES = { any: 'type any', text: 'type text', int: 'Int64.Type', decimal: 'type number', datetime: 'type datetime', date: 'type date', time: 'type time', bool: 'type logical' };
@@ -22,27 +29,55 @@ const M_TYPES = { any: 'type any', text: 'type text', int: 'Int64.Type', decimal
 export const DATE_TYPES = new Set(['date', 'datetime', 'time']);
 
 export const SOURCE_KINDS = ['csv', 'web', 'workbook', 'table', 'query', 'blank'];
-/** Step types and the name Power Query gives a step of each kind. */
+/** Step types and the name Power Query gives a step of each kind (catalog keys: the name is shown, never stored). */
 export const STEP_NAMES = {
-  promoteHeaders: 'Promoted Headers', demoteHeaders: 'Demoted Headers', changeType: 'Changed Type', removeColumns: 'Removed Columns',
-  selectColumns: 'Removed Other Columns', renameColumns: 'Renamed Columns', filterRows: 'Filtered Rows', sortRows: 'Sorted Rows',
-  removeDuplicates: 'Removed Duplicates', replaceValues: 'Replaced Value', splitColumn: 'Split Column by Delimiter', addIndex: 'Added Index',
-  groupBy: 'Grouped Rows', keepFirst: 'Kept First Rows', keepLast: 'Kept Last Rows', removeFirst: 'Removed Top Rows', removeLast: 'Removed Bottom Rows',
-  removeBlankRows: 'Removed Blank Rows', merge: 'Merged Queries', fillDown: 'Filled Down', fillUp: 'Filled Up', transformText: 'Transformed Text',
-  duplicateColumn: 'Duplicated Column', reorderColumns: 'Reordered Columns', removeErrors: 'Removed Errors', addTextColumn: 'Inserted Text',
+  promoteHeaders: 'queries.step.promoteHeaders', demoteHeaders: 'queries.step.demoteHeaders', changeType: 'queries.step.changeType',
+  removeColumns: 'queries.step.removeColumns', selectColumns: 'queries.step.selectColumns', renameColumns: 'queries.step.renameColumns',
+  filterRows: 'queries.step.filterRows', sortRows: 'queries.step.sortRows', removeDuplicates: 'queries.step.removeDuplicates',
+  replaceValues: 'queries.step.replaceValues', splitColumn: 'queries.step.splitColumn', addIndex: 'queries.step.addIndex',
+  groupBy: 'queries.step.groupBy', keepFirst: 'queries.step.keepFirst', keepLast: 'queries.step.keepLast', removeFirst: 'queries.step.removeFirst',
+  removeLast: 'queries.step.removeLast', removeBlankRows: 'queries.step.removeBlankRows', merge: 'queries.step.merge',
+  fillDown: 'queries.step.fillDown', fillUp: 'queries.step.fillUp', transformText: 'queries.step.transformText',
+  duplicateColumn: 'queries.step.duplicateColumn', reorderColumns: 'queries.step.reorderColumns', removeErrors: 'queries.step.removeErrors',
+  addTextColumn: 'queries.step.addTextColumn',
 };
-const TEXT_OP_NAMES = { lower: 'Lowercased Text', upper: 'Uppercased Text', proper: 'Capitalized Each Word', trim: 'Trimmed Text', clean: 'Cleaned Text' };
-/** The column Add Column ▸ Format adds is named after the format, as Power Query names it. */
+/** The step name of a text transform, by its operation (catalog keys). */
+const TEXT_OP_NAMES = {
+  lower: 'queries.step.lower', upper: 'queries.step.upper', proper: 'queries.step.proper', trim: 'queries.step.trim', clean: 'queries.step.clean',
+};
+/** The step name of Add Column ▸ Format, by its operation (catalog keys). */
+const INSERTED_TEXT_OP_NAMES = {
+  lower: 'queries.step.insertedLower', upper: 'queries.step.insertedUpper', proper: 'queries.step.insertedProper',
+  trim: 'queries.step.insertedTrim', clean: 'queries.step.insertedClean',
+};
+/** The column Add Column ▸ Format adds is named after the format, as Power Query names it. Stored with the step: workbook content, not translated. */
 export const TEXT_COLUMN_NAMES = { lower: 'lowercase', upper: 'UPPERCASE', proper: 'Capitalize Each Word', trim: 'Trim', clean: 'Clean' };
+/** Filter conditions, as catalog keys of the dialog's lowercase phrases ("does not equal"): see filterOpLabel. */
 export const FILTER_OPS = {
-  equals: 'equals', notEquals: 'does not equal', beginsWith: 'begins with', notBeginsWith: 'does not begin with', endsWith: 'ends with',
-  notEndsWith: 'does not end with', contains: 'contains', notContains: 'does not contain', gt: 'is greater than', gte: 'is greater than or equal to',
-  lt: 'is less than', lte: 'is less than or equal to', isNull: 'is null', notNull: 'is not null', isBlank: 'is blank', notBlank: 'is not blank',
-  after: 'is after', onOrAfter: 'is after or equal to', before: 'is before', onOrBefore: 'is before or equal to',
+  equals: 'queries.filterOp.equals', notEquals: 'queries.filterOp.notEquals', beginsWith: 'queries.filterOp.beginsWith',
+  notBeginsWith: 'queries.filterOp.notBeginsWith', endsWith: 'queries.filterOp.endsWith', notEndsWith: 'queries.filterOp.notEndsWith',
+  contains: 'queries.filterOp.contains', notContains: 'queries.filterOp.notContains', gt: 'queries.filterOp.gt', gte: 'queries.filterOp.gte',
+  lt: 'queries.filterOp.lt', lte: 'queries.filterOp.lte', isNull: 'queries.filterOp.isNull', notNull: 'queries.filterOp.notNull',
+  isBlank: 'queries.filterOp.isBlank', notBlank: 'queries.filterOp.notBlank', after: 'queries.filterOp.after', onOrAfter: 'queries.filterOp.onOrAfter',
+  before: 'queries.filterOp.before', onOrBefore: 'queries.filterOp.onOrBefore',
 };
+/** A filter condition's phrase in the interface language ("does not equal"). */
+export const filterOpLabel = (op) => (FILTER_OPS[op] ? t(FILTER_OPS[op]) : op);
+/** Group By's operations and the name a new column gets by default. The name is stored with the step: workbook content, not translated. */
 export const AGGREGATIONS = { sum: 'Sum', avg: 'Average', median: 'Median', min: 'Min', max: 'Max', count: 'Count Rows', countDistinct: 'Count Distinct Rows' };
-export const JOIN_KINDS = { leftOuter: 'Left Outer (all from first, matching from second)', rightOuter: 'Right Outer (all from second, matching from first)',
-  fullOuter: 'Full Outer (all rows from both)', inner: 'Inner (only matching rows)', leftAnti: 'Left Anti (rows only in first)', rightAnti: 'Right Anti (rows only in second)' };
+const AGGREGATION_LABELS = {
+  sum: 'queries.aggregation.sum', avg: 'queries.aggregation.avg', median: 'queries.aggregation.median', min: 'queries.aggregation.min',
+  max: 'queries.aggregation.max', count: 'queries.aggregation.count', countDistinct: 'queries.aggregation.countDistinct',
+};
+/** A Group By operation's name in the interface language, for the Operation list. */
+export const aggregationLabel = (op) => (AGGREGATION_LABELS[op] ? t(AGGREGATION_LABELS[op]) : op);
+/** Merge's join kinds, as catalog keys: see joinKindLabel. */
+export const JOIN_KINDS = {
+  leftOuter: 'queries.joinKind.leftOuter', rightOuter: 'queries.joinKind.rightOuter', fullOuter: 'queries.joinKind.fullOuter',
+  inner: 'queries.joinKind.inner', leftAnti: 'queries.joinKind.leftAnti', rightAnti: 'queries.joinKind.rightAnti',
+};
+/** A join kind's description in the interface language. */
+export const joinKindLabel = (kind) => (JOIN_KINDS[kind] ? t(JOIN_KINDS[kind]) : kind);
 
 export const PREVIEW_ROWS = 200;
 const MAX_QUERIES = 200, MAX_STEPS = 500, MAX_SOURCE_CHARS = 8_000_000, MAX_CELLS = 2_000_000;
@@ -97,7 +132,7 @@ function normalizeStep(raw) {
   switch (raw.type) {
     case 'changeType': {
       step.columns = {};
-      for (const [k, t] of Object.entries(isObj(raw.columns) ? raw.columns : {})) if (TYPES.includes(t)) step.columns[k] = t;
+      for (const [k, ty] of Object.entries(isObj(raw.columns) ? raw.columns : {})) if (TYPES.includes(ty)) step.columns[k] = ty;
       break;
     }
     case 'removeColumns': case 'selectColumns': case 'reorderColumns': case 'removeErrors': step.columns = names(raw.columns); break;
@@ -217,11 +252,11 @@ export function uniqueQueryName(wb, base, exceptId = null) {
 }
 
 export function queryNameProblem(wb, name, exceptId = null) {
-  const t = String(name ?? '').trim();
-  if (!t) return 'Enter a name for the query';
-  if (t.length > 255) return 'That name is too long';
-  if (/[\u0000-\u001f"]/.test(t)) return 'A query name cannot contain quotation marks or control characters';
-  if ((wb.queries || []).some((q) => q.id !== exceptId && q.name.toLowerCase() === t.toLowerCase())) return 'A query with that name already exists';
+  const text = String(name ?? '').trim();
+  if (!text) return t('queries.name.empty');
+  if (text.length > 255) return t('queries.name.tooLong');
+  if (/[\u0000-\u001f"]/.test(text)) return t('queries.name.badCharacters');
+  if ((wb.queries || []).some((q) => q.id !== exceptId && q.name.toLowerCase() === text.toLowerCase())) return t('queries.name.taken');
   return null;
 }
 
@@ -257,7 +292,7 @@ export function deleteQuery(wb, id) {
 export function loadedTable(wb, query) {
   if (query?.load?.kind !== 'table') return null;
   if (query.load.tableId) for (const sheet of wb.sheets) {
-    const table = sheet.tables.find((t) => t.id === query.load.tableId);
+    const table = sheet.tables.find((tb) => tb.id === query.load.tableId);
     if (table) return { sheet, table };
   }
   const found = query.load.table ? wb.tableByName(query.load.table) : null;
@@ -268,7 +303,7 @@ export function loadedTable(wb, query) {
 /** The query whose output is this table, if any. */
 export function queryForTable(wb, sheetId, tableId) {
   const sheet = wb.sheet(sheetId);
-  const table = sheet?.tables.find((t) => t.id === tableId);
+  const table = sheet?.tables.find((tb) => tb.id === tableId);
   if (!table) return null;
   return (wb.queries || []).find((q) => { const hit = loadedTable(wb, q); return hit && hit.table.id === tableId; }) || null;
 }
@@ -281,39 +316,39 @@ const bankers = (n) => {
 };
 
 function numberFromText(text) {
-  const t = String(text).trim();
-  if (t === '') return null;
-  const parsed = parseInput(t, 'en-US');
+  const txt = String(text).trim();
+  if (txt === '') return null;
+  const parsed = parseInput(txt, 'en-US');
   if (typeof parsed.v === 'number' && !typedDateKind(parsed)) return parsed.v;
   return undefined;
 }
 
 function dateFromText(text) {
-  const t = String(text).trim();
-  if (t === '') return null;
-  const hit = parseDate(t, new Date(), 'en-US');
+  const txt = String(text).trim();
+  if (txt === '') return null;
+  const hit = parseDate(txt, new Date(), 'en-US');
   if (hit && Number.isFinite(hit.serial)) return Math.floor(hit.serial);
-  const parsed = parseInput(t, 'en-US');
+  const parsed = parseInput(txt, 'en-US');
   if (['date', 'datetime'].includes(typedDateKind(parsed))) return Math.floor(parsed.v);
   return undefined;
 }
 
 /** Text as a date-time serial (a date alone is its midnight): null for blank text, undefined for text that is neither. */
 function dateTimeFromText(text) {
-  const t = String(text).trim();
-  if (t === '') return null;
-  const hit = parseDate(t, new Date(), 'en-US');
+  const txt = String(text).trim();
+  if (txt === '') return null;
+  const hit = parseDate(txt, new Date(), 'en-US');
   if (hit && Number.isFinite(hit.serial)) return hit.serial;
-  const parsed = parseInput(t, 'en-US');
+  const parsed = parseInput(txt, 'en-US');
   if (typeof parsed.v === 'number' && ['date', 'datetime'].includes(parsed.fmt)) return parsed.v;
   return undefined;
 }
 
 /** Text as a time of day (a fraction of a day; a date-time gives its time): null for blank text, undefined for text that is neither. */
 function timeFromText(text) {
-  const t = String(text).trim();
-  if (t === '') return null;
-  const parsed = parseInput(t, 'en-US');
+  const txt = String(text).trim();
+  if (txt === '') return null;
+  const parsed = parseInput(txt, 'en-US');
   if (typeof parsed.v === 'number' && ['time', 'datetime'].includes(parsed.fmt)) return parsed.v - Math.floor(parsed.v);
   return undefined;
 }
@@ -355,7 +390,7 @@ export function convertValue(v, from, to) {
       if (typeof v === 'boolean') n = v ? 1 : 0;
       else if (typeof v === 'number') n = v;
       else if (text) { n = numberFromText(v); if (n === null) return null; }
-      if (typeof n !== 'number' || !Number.isFinite(n)) return dataError(`We couldn't convert to Number.`);
+      if (typeof n !== 'number' || !Number.isFinite(n)) return dataError(t('queries.error.toNumber'));
       return to === 'int' ? bankers(n) : n;
     }
     case 'date': {
@@ -363,9 +398,9 @@ export function convertValue(v, from, to) {
       if (text) {
         const d = dateFromText(v);
         if (d === null) return null;
-        return d === undefined ? dataError(`We couldn't parse the input provided as a Date value.`) : d;
+        return d === undefined ? dataError(t('queries.error.parseDate')) : d;
       }
-      return dataError(`We cannot convert the value ${v} to type Date.`);
+      return dataError(t('queries.error.convertDate', { value: String(v) }));
     }
     // A date-time keeps its time of day; a time keeps only that (a date alone is midnight, 12:00:00 AM).
     case 'datetime': case 'time': {
@@ -373,18 +408,18 @@ export function convertValue(v, from, to) {
       if (text) {
         const d = to === 'time' ? timeFromText(v) : dateTimeFromText(v);
         if (d === null) return null;
-        return d === undefined ? dataError(`We couldn't parse the input provided as a ${to === 'time' ? 'Time' : 'DateTime'} value.`) : d;
+        return d === undefined ? dataError(t('queries.error.parseDateTime', { kind: to === 'time' ? 'time' : 'datetime' })) : d;
       }
-      return dataError(`We cannot convert the value ${v} to type ${to === 'time' ? 'Time' : 'DateTime'}.`);
+      return dataError(t('queries.error.convertDateTime', { value: String(v), kind: to === 'time' ? 'time' : 'datetime' }));
     }
     case 'bool': {
       if (typeof v === 'boolean') return v;
       if (typeof v === 'number') return v !== 0;
-      const t = v.trim().toLowerCase();
-      if (t === '') return null;
-      if (t === 'true') return true;
-      if (t === 'false') return false;
-      return dataError(`We couldn't convert to Logical.`);
+      const word = v.trim().toLowerCase();
+      if (word === '') return null;
+      if (word === 'true') return true;
+      if (word === 'false') return false;
+      return dataError(t('queries.error.toLogical'));
     }
     default: return v;
   }
@@ -416,8 +451,8 @@ export function detectedTypeStep(table, onlyColumns = null) {
   const columns = {};
   table.columns.forEach((name, i) => {
     if (onlyColumns && !onlyColumns.includes(name)) return;
-    const t = detectType(table.rows.map((r) => r[i]), DATE_TYPES.has(table.types[i]) ? table.types[i] : null);
-    if (t !== 'any') columns[name] = t;
+    const ty = detectType(table.rows.map((r) => r[i]), DATE_TYPES.has(table.types[i]) ? table.types[i] : null);
+    if (ty !== 'any') columns[name] = ty;
   });
   return Object.keys(columns).length ? { id: newId(), type: 'changeType', columns } : null;
 }
@@ -446,12 +481,12 @@ export function displayValue(v, type) {
 /** Text typed into a dialog as a value of the column's type (a number for a number column, a date serial for a date one). */
 export function parseTyped(text, type) {
   if (text == null) return null;
-  const t = String(text);
-  if (type === 'int' || type === 'decimal') { const n = numberFromText(t); return typeof n === 'number' ? n : t; }
-  if (type === 'date') { const d = dateFromText(t); return typeof d === 'number' ? d : t; }
-  if (type === 'datetime' || type === 'time') { const d = type === 'time' ? timeFromText(t) : dateTimeFromText(t); return typeof d === 'number' ? d : t; }
-  if (type === 'bool') { const l = t.trim().toLowerCase(); return l === 'true' ? true : l === 'false' ? false : t; }
-  return t;
+  const txt = String(text);
+  if (type === 'int' || type === 'decimal') { const n = numberFromText(txt); return typeof n === 'number' ? n : txt; }
+  if (type === 'date') { const d = dateFromText(txt); return typeof d === 'number' ? d : txt; }
+  if (type === 'datetime' || type === 'time') { const d = type === 'time' ? timeFromText(txt) : dateTimeFromText(txt); return typeof d === 'number' ? d : txt; }
+  if (type === 'bool') { const l = txt.trim().toLowerCase(); return l === 'true' ? true : l === 'false' ? false : txt; }
+  return txt;
 }
 
 /* ---------- Sources ---------- */
@@ -485,7 +520,7 @@ export function csvTable(text, delimiter = null, detect = simpleDelimiter) {
 /** A table of this workbook as Excel.CurrentWorkbook() gives it: its header names, its data rows, date columns marked. */
 export function workbookTable(wb, name) {
   const found = wb.tableByName(name);
-  if (!found) return { error: `Expression.Error: No table named '${name}' was found in this workbook.` };
+  if (!found) return { error: t('queries.error.noTable', { name }) };
   const { sheet, table } = found;
   const columns = wb.tableColumns(sheet.id, table);
   const { dataStart, dataEnd } = tableRows(table);
@@ -534,15 +569,15 @@ const sniff = (bytes) => (bytes?.[0] === 0x50 && bytes?.[1] === 0x4b ? 'zip' : b
 export async function webItems(bytes, url, io = {}) {
   const kind = sniff(bytes);
   if (kind !== 'text') {
-    if (!io.workbookFromFile) throw new Error('Workbooks cannot be read here');
+    if (!io.workbookFromFile) throw new Error(t('queries.error.noWorkbookReader'));
     const other = await io.workbookFromFile(bytes, String(url).split(/[?#]/)[0].split('/').pop() || 'download.xlsx');
     return other.sheets.filter((s) => s.kind !== 'chart').map((s) => ({ name: s.name, rows: sheetRows(other, s.id) }));
   }
   const text = io.decodeText ? io.decodeText(bytes) : new TextDecoder().decode(bytes);
   if (/<table[\s>]/i.test(text) && typeof DOMParser !== 'undefined') {
     const doc = new DOMParser().parseFromString(text, 'text/html');
-    const tables = [...doc.querySelectorAll('table')].filter((t) => !t.parentElement?.closest('table'));
-    if (tables.length) return tables.map((t, i) => ({ name: t.querySelector('caption')?.textContent.trim() || t.id || `Table ${i}`, rows: htmlRows(t) }));
+    const tables = [...doc.querySelectorAll('table')].filter((tb) => !tb.parentElement?.closest('table'));
+    if (tables.length) return tables.map((tb, i) => ({ name: tb.querySelector('caption')?.textContent.trim() || tb.id || `Table ${i}`, rows: htmlRows(tb) }));
   }
   return [{ name: 'Document', rows: csvTable(text, null, io.detectDelimiter).rows, csv: true }];
 }
@@ -596,23 +631,23 @@ export async function sourceTable(wb, query, io = {}, stack = []) {
     }
     case 'workbook': return rawTable(s.rows.map((r) => r.slice()));
     case 'table': {
-      const t = workbookTable(wb, s.table);
-      if (t.error) throw new Error(t.error);
-      return t;
+      const found = workbookTable(wb, s.table);
+      if (found.error) throw new Error(found.error);
+      return found;
     }
     case 'query': {
       const other = lookupQuery(wb, io, s.query);
-      if (!other) throw new Error(`Expression.Error: The name '${s.query}' wasn't recognized.`);
+      if (!other) throw new Error(t('queries.error.unknownName', { name: s.query }));
       const result = await evaluateQuery(wb, other, io, { stack: [...stack, query.id] });
       if (result.error) throw new Error(result.error.message);
       return result.table;
     }
     case 'web': {
-      if (!io.fetchBytes) throw new Error('DataSource.Error: Web content cannot be fetched here.');
+      if (!io.fetchBytes) throw new Error(t('queries.error.noWebFetch'));
       const bytes = await io.fetchBytes(s.url);
       const items = await webItems(bytes instanceof ArrayBuffer ? new Uint8Array(bytes) : bytes, s.url, io);
       const item = (s.item && items.find((i) => i.name === s.item)) || items[0];
-      if (!item) throw new Error('DataSource.Error: The address returned no table.');
+      if (!item) throw new Error(t('queries.error.noWebTable'));
       return rawTable(item.rows);
     }
     default: return { columns: [], types: [], rows: [] };
@@ -623,7 +658,7 @@ export async function sourceTable(wb, query, io = {}, stack = []) {
 
 const colIndex = (table, name) => {
   const i = table.columns.indexOf(name);
-  if (i < 0) throw new Error(`Expression.Error: The column '${name}' of the table wasn't found.`);
+  if (i < 0) throw new Error(t('queries.error.noColumn', { name }));
   return i;
 };
 
@@ -664,10 +699,10 @@ function matches(cond, v, type) {
     case 'equals': return keyOf(v) === keyOf(want);
     case 'notEquals': return keyOf(v) !== keyOf(want);
     case 'beginsWith': case 'notBeginsWith': case 'endsWith': case 'notEndsWith': case 'contains': case 'notContains': {
-      const t = textOf(v) ?? (v == null ? null : displayValue(v, type));
+      const txt = textOf(v) ?? (v == null ? null : displayValue(v, type));
       const w = String(want ?? '');
-      if (t == null) return op.startsWith('not');
-      const hit = op.includes('egins') ? t.startsWith(w) : op.includes('nds') ? t.endsWith(w) : t.includes(w);
+      if (txt == null) return op.startsWith('not');
+      const hit = op.includes('egins') ? txt.startsWith(w) : op.includes('nds') ? txt.endsWith(w) : txt.includes(w);
       return op.startsWith('not') ? !hit : hit;
     }
     default: {
@@ -738,12 +773,12 @@ export function applyStep(table, step, refs = {}) {
     case 'demoteHeaders':
       return { columns: plainColumns(columns.length), types: types.map(() => 'any'), rows: [columns.slice(), ...rows] };
     case 'changeType': {
-      const plan = Object.entries(step.columns).map(([name, t]) => [colIndex(table, name), t]);
+      const plan = Object.entries(step.columns).map(([name, ty]) => [colIndex(table, name), ty]);
       const nextTypes = types.slice();
-      for (const [i, t] of plan) nextTypes[i] = t;
+      for (const [i, ty] of plan) nextTypes[i] = ty;
       return { columns, types: nextTypes, rows: rows.map((r) => {
         const out = r.slice();
-        for (const [i, t] of plan) out[i] = convertValue(r[i], types[i], t);
+        for (const [i, ty] of plan) out[i] = convertValue(r[i], types[i], ty);
         return out;
       }) };
     }
@@ -760,13 +795,13 @@ export function applyStep(table, step, refs = {}) {
     case 'renameColumns': {
       const next = columns.slice();
       for (const [from, to] of step.renames) next[colIndex(table, from)] = to;
-      if (new Set(next).size !== next.length) throw new Error('Expression.Error: The field names would not be unique.');
+      if (new Set(next).size !== next.length) throw new Error(t('queries.error.duplicateFields'));
       return { columns: next, types, rows };
     }
     case 'filterRows': {
-      const i = colIndex(table, step.column), t = types[i];
+      const i = colIndex(table, step.column), ty = types[i];
       if (!step.conditions.length) return table;
-      const test = (v) => (step.join === 'or' ? step.conditions.some((c) => matches(c, v, t)) : step.conditions.every((c) => matches(c, v, t)));
+      const test = (v) => (step.join === 'or' ? step.conditions.some((c) => matches(c, v, ty)) : step.conditions.every((c) => matches(c, v, ty)));
       return { columns, types, rows: rows.filter((r) => test(r[i])) };
     }
     case 'sortRows': {
@@ -792,13 +827,13 @@ export function applyStep(table, step, refs = {}) {
       return { columns, types, rows: rows.map((r) => {
         const out = r.slice();
         for (const i of idx) {
-          const v = r[i], t = types[i];
-          const textual = t === 'text' || (t === 'any' && typeof v === 'string');
+          const v = r[i], ty = types[i];
+          const textual = ty === 'text' || (ty === 'any' && typeof v === 'string');
           if (textual && !step.matchEntire && typeof step.find === 'string' && step.find !== '' && typeof v === 'string') {
             out[i] = v.split(step.find).join(step.replace == null ? '' : String(step.replace));
           } else {
-            const find = typeof step.find === 'string' && !textual ? parseTyped(step.find, t) : step.find;
-            if (keyOf(v) === keyOf(find) || (find === '' && v == null)) out[i] = typeof step.replace === 'string' && !textual ? parseTyped(step.replace, t) : step.replace;
+            const find = typeof step.find === 'string' && !textual ? parseTyped(step.find, ty) : step.find;
+            if (keyOf(v) === keyOf(find) || (find === '' && v == null)) out[i] = typeof step.replace === 'string' && !textual ? parseTyped(step.replace, ty) : step.replace;
           }
         }
         return out;
@@ -830,7 +865,7 @@ export function applyStep(table, step, refs = {}) {
       };
     }
     case 'addIndex': {
-      if (columns.includes(step.column)) throw new Error(`Expression.Error: The field '${step.column}' already exists in the record.`);
+      if (columns.includes(step.column)) throw new Error(t('queries.error.fieldExists', { name: step.column }));
       const isInt = Number.isInteger(step.start) && Number.isInteger(step.increment);
       return { columns: [...columns, step.column], types: [...types, isInt ? 'int' : 'decimal'], rows: rows.map((r, n) => [...r, step.start + n * step.increment]) };
     }
@@ -885,9 +920,9 @@ export function applyStep(table, step, refs = {}) {
     }
     case 'merge': {
       const other = refs[step.query.toLowerCase()];
-      if (!other) throw new Error(`Expression.Error: The name '${step.query}' wasn't recognized.`);
+      if (!other) throw new Error(t('queries.error.unknownName', { name: step.query }));
       const li = step.left.map((n) => colIndex(table, n)), ri = step.right.map((n) => colIndex(other, n));
-      if (!li.length || li.length !== ri.length) throw new Error('Expression.Error: Choose the same number of matching columns in both tables.');
+      if (!li.length || li.length !== ri.length) throw new Error(t('queries.error.mergeColumnCount'));
       const expand = step.expand.map((n) => colIndex(other, n));
       const added = uniqueNames([...columns, ...step.expand.map((n) => `${step.column}.${n}`)]).slice(columns.length);
       const index = new Map();
@@ -940,7 +975,7 @@ const mergeNames = (query) => [...new Set(query.steps.filter((s) => s.type === '
  * index of the failing step (-1 for the source).
  */
 export async function evaluateQuery(wb, query, io = {}, { upTo = Infinity, stack = [], base = null } = {}) {
-  if (stack.includes(query.id)) return { table: null, error: { step: -1, message: 'Expression.Error: A cyclic reference was encountered during evaluation.' } };
+  if (stack.includes(query.id)) return { table: null, error: { step: -1, message: t('queries.error.cycle') } };
   let table;
   try { table = base || await sourceTable(wb, query, io, stack); } catch (e) { return { table: null, error: { step: -1, message: e?.message || String(e) } }; }
   const steps = query.steps.slice(0, Math.max(0, upTo));
@@ -960,9 +995,9 @@ export async function evaluateQuery(wb, query, io = {}, { upTo = Infinity, stack
 /** The step names Power Query shows: each kind's name, numbered from the second (Changed Type, Changed Type1…), or the user's own. */
 export function stepNames(query) {
   const counts = new Map();
-  return ['Source', ...query.steps.map((s) => {
+  return [t('queries.step.source'), ...query.steps.map((s) => {
     if (s.name) return s.name;
-    const base = s.type === 'transformText' ? TEXT_OP_NAMES[s.op] : s.type === 'addTextColumn' ? `Inserted ${TEXT_OP_NAMES[s.op]}` : STEP_NAMES[s.type];
+    const base = t(s.type === 'transformText' ? TEXT_OP_NAMES[s.op] : s.type === 'addTextColumn' ? INSERTED_TEXT_OP_NAMES[s.op] : STEP_NAMES[s.type]);
     const n = counts.get(base) || 0;
     counts.set(base, n + 1);
     return n ? `${base}${n}` : base;
@@ -991,7 +1026,7 @@ export function stepFormula(query, index) {
   switch (step.type) {
     case 'promoteHeaders': return `= Table.PromoteHeaders(${prev}, [PromoteAllScalars=true])`;
     case 'demoteHeaders': return `= Table.DemoteHeaders(${prev})`;
-    case 'changeType': return `= Table.TransformColumnTypes(${prev},{${Object.entries(step.columns).map(([k, t]) => `{${q(k)}, ${M_TYPES[t]}}`).join(', ')}})`;
+    case 'changeType': return `= Table.TransformColumnTypes(${prev},{${Object.entries(step.columns).map(([k, ty]) => `{${q(k)}, ${M_TYPES[ty]}}`).join(', ')}})`;
     case 'removeColumns': return `= Table.RemoveColumns(${prev},${list(step.columns)})`;
     case 'selectColumns': return `= Table.SelectColumns(${prev},${list(step.columns)})`;
     case 'reorderColumns': return `= Table.ReorderColumns(${prev},${list(step.columns)})`;
@@ -1048,8 +1083,9 @@ export function stepFormula(query, index) {
 /** A short line on what the source is, for the Queries & Connections pane's tooltip. */
 export function sourceSummary(query) {
   const s = query.source;
-  return { csv: () => `Text/CSV: ${s.name}`, web: () => `Web: ${s.url}`, workbook: () => `Workbook: ${s.name} (${s.item})`, table: () => `Table: ${s.table}`,
-    query: () => `Query: ${s.query}`, blank: () => 'Blank query' }[s.kind]?.() || '';
+  return { csv: () => t('queries.source.csv', { name: s.name }), web: () => t('queries.source.web', { url: s.url }),
+    workbook: () => t('queries.source.workbook', { name: s.name, item: s.item }), table: () => t('queries.source.table', { table: s.table }),
+    query: () => t('queries.source.query', { query: s.query }), blank: () => t('queries.source.blank') }[s.kind]?.() || '';
 }
 
 /* ---------- Loading into the sheet ---------- */
@@ -1105,11 +1141,10 @@ function occupied(wb, sheetId, range) {
   return false;
 }
 
-const PROTECTED = 'Part of the place the data goes is protected. Choose another location, or unprotect it first.';
+const protectedMessage = () => t('queries.load.protected');
 
-const blockedMessage = (direction) => (direction === 'left'
-  ? 'A column the query no longer gives could not be taken out of the table (a PivotTable, a protected sheet, merged cells or an array formula is in the way).'
-  : `The refreshed data needs more ${direction === 'down' ? 'rows' : 'columns'}, but the cells ${direction === 'down' ? 'below' : 'beside'} the table could not be moved (a PivotTable, a protected sheet, merged cells or an array formula is in the way).`);
+const blockedMessage = (direction) => (direction === 'left' ? t('queries.load.blockedLeft')
+  : direction === 'down' ? t('queries.load.blockedDown') : t('queries.load.blockedRight'));
 
 /**
  * Write a query's result into the workbook as a table:a new sheet named after the query, or at `at`
@@ -1153,7 +1188,7 @@ function loadStep(wb, id, label, before, after) {
 }
 
 export function loadResult(wb, query, table, { at = null } = {}) {
-  if (!table.columns.length) return { error: 'The query returned no columns to load.' };
+  if (!table.columns.length) return { error: t('queries.load.noColumns') };
   // The result is laid out under the names its columns take in the table, so a refresh finds each column again
   // (a "name2" the table gave the query's second "name" is the query's, not a column added by hand).
   const headers = tableHeaderNames(table.columns);
@@ -1161,14 +1196,14 @@ export function loadResult(wb, query, table, { at = null } = {}) {
   const height = table.rows.length;
   const existing = loadedTable(wb, query);
   let result = null;
-  const label = existing ? 'Refresh' : 'Load query';
+  const label = existing ? t('common.refresh') : t('queries.undo.load');
   const before = loadRecord(query);
   let after = before;
   const write = () => {
     if (existing) {
       const { sheet } = existing;
-      let t = existing.table;
-      const { r1, c1 } = t.range;
+      let tbl = existing.table;
+      const { r1, c1 } = tbl.range;
       // Columns added to the table by hand (a calculated Total beside the query's columns) are the table's own, as in
       // Excel: a refresh keeps them, their formulas and values, and lays the query's columns out around them. They are
       // told apart by the columns the query loaded last time; a table loaded before that was recorded keeps its
@@ -1176,25 +1211,25 @@ export function loadResult(wb, query, table, { at = null } = {}) {
       const resultNames = new Set(table.columns);
       const loaded = query.load?.columns;
       const handmade = (names, tt) => names.map((n, i) => !resultNames.has(n) && (loaded ? !loaded.includes(n) : tt.calc?.[i] != null));
-      let names = wb.tableColumns(sheet.id, t);
-      let own = handmade(names, t);
+      let names = wb.tableColumns(sheet.id, tbl);
+      let own = handmade(names, tbl);
       const keep = own.some(Boolean);
       if (keep) {
         for (let i = names.length - 1; i >= 0; i--) {
           if (own[i] || resultNames.has(names[i])) continue;
-          if (!wb.deleteCells(sheet.id, { r1: t.range.r1, c1: t.range.c1 + i, r2: t.range.r2, c2: t.range.c1 + i }, 'left')) { result = { error: blockedMessage('left') }; return; }
-          t = wb.tableById(sheet.id, t.id);
+          if (!wb.deleteCells(sheet.id, { r1: tbl.range.r1, c1: tbl.range.c1 + i, r2: tbl.range.r2, c2: tbl.range.c1 + i }, 'left')) { result = { error: blockedMessage('left') }; return; }
+          tbl = wb.tableById(sheet.id, tbl.id);
         }
-        names = wb.tableColumns(sheet.id, t);
-        own = handmade(names, t);
+        names = wb.tableColumns(sheet.id, tbl);
+        own = handmade(names, tbl);
       }
       const layout = keep ? [...names, ...table.columns.filter((n) => !names.includes(n))] : table.columns;
       const at = keep ? table.columns.map((n) => layout.indexOf(n)) : null;
-      const old = { ...t.range };
+      const old = { ...tbl.range };
       // A totals row stays the table's last row, under the fresh data: the resize below carries it (and its formulas) along.
-      const foot = t.totalsRow ? 1 : 0;
+      const foot = tbl.totalsRow ? 1 : 0;
       const next = { r1, c1, r2: r1 + Math.max(1, height) + foot, c2: c1 + layout.length - 1 };
-      if (wb.lockedIn(sheet.id, { r1, c1, r2: Math.max(old.r2, next.r2), c2: Math.max(old.c2, next.c2) })) { result = { error: PROTECTED }; return; }
+      if (wb.lockedIn(sheet.id, { r1, c1, r2: Math.max(old.r2, next.r2), c2: Math.max(old.c2, next.c2) })) { result = { error: protectedMessage() }; return; }
       // A table that grows makes room for its new rows and columns, as Excel's refresh inserts cells for new
       // data: what stands beside or below it (a note, a total, another table) moves along instead of being
       // written over. Nothing has changed yet when the cells cannot move, so the refresh stops there.
@@ -1204,7 +1239,7 @@ export function loadResult(wb, query, table, { at = null } = {}) {
       if (next.r2 > old.r2 && occupied(wb, sheet.id, below) && !wb.insertCells(sheet.id, below, 'down')) { result = { error: blockedMessage('down') }; return; }
       if (next.r2 !== old.r2 || next.c2 !== old.c2) {
         let problem = null;
-        if (!wb.resizeTable(sheet.id, t.id, next, { onInvalid: (m) => { problem = m; } })) { result = { error: problem || 'The table could not be resized for the new data.' }; return; }
+        if (!wb.resizeTable(sheet.id, tbl.id, next, { onInvalid: (m) => { problem = m; } })) { result = { error: problem || t('queries.load.resizeFailed') }; return; }
       }
       // The rows that held the old data: up to the old last row, less the totals row now at the new last row.
       const clearData = (cols) => {
@@ -1216,7 +1251,7 @@ export function loadResult(wb, query, table, { at = null } = {}) {
         for (const p of at) if (p < names.length) clearData({ c1: c1 + p, c2: c1 + p });
         if (old.r2 > next.r2) own.forEach((mine, p) => { if (mine) wb.clearRange(sheet.id, { r1: next.r2 + 1, c1: c1 + p, r2: old.r2, c2: c1 + p }); });
         // Rows the table gained take its calculated columns' formulas, as rows typed under a table do.
-        for (let r = old.r2 - foot + 1; r <= next.r2 - foot; r++) wb._fillCalculatedRow(sheet, wb.tableById(sheet.id, t.id), r);
+        for (let r = old.r2 - foot + 1; r <= next.r2 - foot; r++) wb._fillCalculatedRow(sheet, wb.tableById(sheet.id, tbl.id), r);
       } else {
         clearData({ c1: old.c1, c2: old.c2 });
         if (next.c2 < old.c2) wb.clearRange(sheet.id, { r1, c1: next.c2 + 1, r2: r1, c2: old.c2 });
@@ -1246,30 +1281,30 @@ export function loadResult(wb, query, table, { at = null } = {}) {
       // A filter on the table judges the fresh rows, as Excel's refresh applies it again (Preserve column
       // sort/filter/layout): the rows it hid were picked by position, and now hold other records.
       wb._refilterRearranged(sheet, { r1, r2: Math.max(old.r2, next.r2) }, label);
-      query.load = { kind: 'table', table: t.name, sheet: sheet.name, tableId: t.id, columns: [...table.columns] };
-      result = { sheetId: sheet.id, tableId: t.id, rows: height, errors };
+      query.load = { kind: 'table', table: tbl.name, sheet: sheet.name, tableId: tbl.id, columns: [...table.columns] };
+      result = { sheetId: sheet.id, tableId: tbl.id, rows: height, errors };
       return;
     }
     let sheetId, r0 = 0, c0 = 0;
     if (at) { sheetId = at.sheetId; r0 = at.r; c0 = at.c; }
     else {
       const sheet = wb.addSheet(sheetNameFor(wb, query.name));
-      if (!sheet) { result = { error: 'A sheet could not be added (is the workbook protected?).' }; return; }
+      if (!sheet) { result = { error: t('queries.load.noSheet') }; return; }
       sheetId = sheet.id;
     }
     const range = { r1: r0, c1: c0, r2: r0 + Math.max(1, height), c2: c0 + table.columns.length - 1 };
-    if (wb.sheet(sheetId).tables.some((t) => !(range.r2 < t.range.r1 || range.r1 > t.range.r2 || range.c2 < t.range.c1 || range.c1 > t.range.c2))) {
-      result = { error: 'The data would overlap another table. Choose another location.' }; return;
+    if (wb.sheet(sheetId).tables.some((tb) => !(range.r2 < tb.range.r1 || range.r1 > tb.range.r2 || range.c2 < tb.range.c1 || range.c1 > tb.range.c2))) {
+      result = { error: t('queries.load.overlap') }; return;
     }
     // A protected cell there refuses the data, which left an empty table behind reported as loaded.
-    if (at && wb.lockedIn(sheetId, range)) { result = { error: PROTECTED }; return; }
+    if (at && wb.lockedIn(sheetId, range)) { result = { error: protectedMessage() }; return; }
     // Loading over cells that hold something would write over them without a word: the location must be empty.
-    if (at && occupied(wb, sheetId, range)) { result = { error: 'There is data where the table would go. Choose an empty location, or a new worksheet.' }; return; }
+    if (at && occupied(wb, sheetId, range)) { result = { error: t('queries.load.occupied') }; return; }
     const { entries, errors } = resultCells(table, r0, c0);
     wb.setCells(sheetId, entries, label);
     const name = tableNameFor(wb, query.name);
     const tableId = wb.addTable(sheetId, range, { name });
-    if (!tableId) { result = { error: 'A table could not be created there.' }; return; }
+    if (!tableId) { result = { error: t('queries.load.noTable') }; return; }
     query.load = { kind: 'table', table: name, sheet: wb.sheet(sheetId).name, tableId, columns: [...table.columns] };
     result = { sheetId, tableId, rows: height, errors };
   };
@@ -1282,7 +1317,7 @@ export function loadResult(wb, query, table, { at = null } = {}) {
     if (result.errors) query.errorCount = result.errors; else delete query.errorCount;
     after = loadRecord(saveQuery(wb, query));
   }
-  return result || { error: 'Nothing was loaded.' };
+  return result || { error: t('queries.load.nothing') };
 }
 
 /**
@@ -1325,11 +1360,12 @@ export function unloadQuery(wb, query) {
   const before = loadRecord(query);
   let after = before;
   if (hit) {
-    wb.transaction('Load query', () => {
+    const label = t('queries.undo.load');
+    wb.transaction(label, () => {
       const range = { ...hit.table.range };
       wb.deleteTable(hit.sheet.id, hit.table.id);
       alone(wb, () => wb.clearRange(hit.sheet.id, range, { styles: true }));
-      loadStep(wb, query.id, 'Load query', before, () => after);
+      loadStep(wb, query.id, label, before, () => after);
     });
   }
   query.load = { kind: 'connection' };

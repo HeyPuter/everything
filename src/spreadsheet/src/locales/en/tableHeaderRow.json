@@ -1,0 +1,14 @@
+{
+  "hasSlicers": "This table has slicers. Delete them before hiding the header row.",
+  "headerProtected": "The header row is protected.",
+  "needsData": "A table needs at least one row of data to hide its header row.",
+  "needsHeader": "Turn on the Header Row to use filter buttons.",
+  "noRoom": "There is no room above the table for its header row.",
+  "rowAboveProtected": "The row above the table is protected.",
+  "selectTable": "Select a table first.",
+  "undo.hide": "Hide header row",
+  "undo.hideButtons": "Hide filter buttons",
+  "undo.show": "Show header row",
+  "undo.showButtons": "Show filter buttons",
+  "unprotect": "Unprotect the sheet to change the table."
+}

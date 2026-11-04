@@ -18,6 +18,7 @@ import { linkedPictureTarget, rangePicture, svgDataUrl } from '../core/range-pic
 import { normalizeRange } from '../core/cell.js';
 import { placeAlong } from '../core/charts.js';
 import { MAX_ROW, MAX_COL } from '../core/refs.js';
+import { t } from '../i18n/index.js';
 
 /** The commands this module runs for the editor. */
 export const PICTURE_COMMANDS = new Set(['placeOverCells', 'placeObjectInCell', 'cellAltText', 'pictureFormat', 'pastePicture', 'linkedPictureRef']);
@@ -25,7 +26,7 @@ export const PICTURE_COMMANDS = new Set(['placeOverCells', 'placeObjectInCell', 
 const loadImage = (src) => new Promise((resolve, reject) => {
   const image = new Image();
   image.onload = () => resolve(image);
-  image.onerror = () => reject(new Error('That picture could not be read'));
+  image.onerror = () => reject(new Error(t('pictures.unreadable')));
   image.src = src;
 });
 const blobToDataUrl = (blob) => new Promise((resolve, reject) => {
@@ -62,7 +63,8 @@ export function createPictures(ctx, { keepFocus, selectLocation }) {
   const sheetId = () => ctx.sheetId();
   const protectedSheet = (id = sheetId()) => {
     if (!wb.isProtected(id)) return false;
-    toast(`${wb.sheet(id)?.name || 'This sheet'} is protected. Unprotect it to change its pictures`, { icon: 'lock', duration: 3500 });
+    const name = wb.sheet(id)?.name;
+    toast(name ? t('pictures.protectedNamed', { name }) : t('pictures.protected'), { icon: 'lock', duration: 3500 });
     return true;
   };
   /** The floating pictures selected (every one of a selected group). */
@@ -80,13 +82,13 @@ export function createPictures(ctx, { keepFocus, selectLocation }) {
     if (!wb.sheet(id) || wb.lockedIn(id, { r1: at.r, c1: at.c, r2: at.r, c2: at.c })) return false;
     const prev = wb.getCell(id, at.r, at.c);
     const cell = { ...(prev?.s ? { s: prev.s } : {}), ...(prev?.hyperlink ? { hyperlink: prev.hyperlink } : {}), v: cellPicture(ready, { alt }), f: null };
-    return wb.setCells(id, [{ r: at.r, c: at.c, cell }], 'Place picture in cell') > 0;
+    return wb.setCells(id, [{ r: at.r, c: at.c, cell }], t('pictures.undo.placePictureInCell')) > 0;
   }
 
   /** Right-click a cell picture ▸ Place over Cells: the picture floats over the cell it was in, the cell left empty. */
   async function placeOverCells() {
     const id = sheetId(), at = { ...ctx.active() }, cell = wb.getCell(id, at.r, at.c);
-    if (!isCellPicture(cell?.v) || cell.f != null) { toast('Select a cell holding a picture placed in it', { icon: 'info', duration: 3000 }); return; }
+    if (!isCellPicture(cell?.v) || cell.f != null) { toast(t('pictures.selectPlacedPicture'), { icon: 'info', duration: 3000 }); return; }
     if (protectedSheet(id) || wb.lockedIn(id, { r1: at.r, c1: at.c, r2: at.r, c2: at.c })) return;
     const natural = await naturalSize(cell.v.image);
     const obj = objectFromCellPicture(cell.v, at, natural);
@@ -94,18 +96,18 @@ export function createPictures(ctx, { keepFocus, selectLocation }) {
     let objectId = null;
     // The cell keeps its format and link; its content is now the floating picture.
     const keep = { ...(cell.s ? { s: cell.s } : {}), ...(cell.hyperlink ? { hyperlink: cell.hyperlink } : {}) };
-    wb.transaction('Place over cells', () => {
-      wb.setCells(id, [{ r: at.r, c: at.c, cell: Object.keys(keep).length ? { ...keep, v: null, f: null } : null }], 'Place over cells');
+    wb.transaction(t('pictures.undo.placeOverCells'), () => {
+      wb.setCells(id, [{ r: at.r, c: at.c, cell: Object.keys(keep).length ? { ...keep, v: null, f: null } : null }], t('pictures.undo.placeOverCells'));
       objectId = wb.addChart(id, obj);
     });
     if (objectId && sheetId() === id) ctx.grid.selectChart(objectId);
-    ctx.announce?.('The picture now floats over the cells');
+    ctx.announce?.(t('pictures.nowFloats'));
   }
 
   /** A floating picture's context menu or Picture Format ▸ Place in Cell: the picture goes into the cell under its top-left corner. */
   async function placeObjectInCell(chartId) {
     const id = sheetId(), obj = wb.chartById(id, chartId || ctx.grid.selectedChart);
-    if (obj?.type !== 'image') { toast('Select a picture to place in a cell', { icon: 'info', duration: 2500 }); return; }
+    if (obj?.type !== 'image') { toast(t('pictures.selectToPlace'), { icon: 'info', duration: 2500 }); return; }
     if (protectedSheet(id)) return;
     const at = { r: obj.anchor.r, c: obj.anchor.c };
     let src = obj.src;
@@ -116,27 +118,27 @@ export function createPictures(ctx, { keepFocus, selectLocation }) {
       if (live) src = svgDataUrl(live.svg);
       if (!pictureIsPlain(obj) || obj.drawingShape || live) src = await blobToDataUrl(await imageToPng(src, { ...obj, ...(live ? { srcRect: null, fillRect: null } : {}) }));
       src = await cellReadySource(src);
-    } catch (e) { console.error(e); toast('Could not place that picture in a cell', { icon: 'alert' }); return; }
+    } catch (e) { console.error(e); toast(t('pictures.couldNotPlace'), { icon: 'alert' }); return; }
     if (!wb.chartById(id, obj.id) || wb.lockedIn(id, { r1: at.r, c1: at.c, r2: at.r, c2: at.c })) return;
     const value = cellPictureFromObject(obj, src);
     const prev = wb.getCell(id, at.r, at.c);
-    wb.transaction('Place in cell', () => {
-      wb.setCells(id, [{ r: at.r, c: at.c, cell: { ...(prev?.s ? { s: prev.s } : {}), ...(prev?.hyperlink ? { hyperlink: prev.hyperlink } : {}), v: value, f: null } }], 'Place in cell');
+    wb.transaction(t('pictures.undo.placeInCell'), () => {
+      wb.setCells(id, [{ r: at.r, c: at.c, cell: { ...(prev?.s ? { s: prev.s } : {}), ...(prev?.hyperlink ? { hyperlink: prev.hyperlink } : {}), v: value, f: null } }], t('pictures.undo.placeInCell'));
       wb.deleteChart(id, obj.id);
     });
     if (sheetId() === id) { ctx.grid.selectChart(null); selectLocation?.(id, { r1: at.r, c1: at.c, r2: at.r, c2: at.c }); }
-    ctx.announce?.('The picture is now in the cell');
+    ctx.announce?.(t('pictures.nowInCell'));
   }
 
   /** Alt Text for a picture placed in a cell. */
   function cellAltText() {
     const id = sheetId(), at = { ...ctx.active() }, cell = wb.getCell(id, at.r, at.c);
-    if (!isCellPicture(cell?.v)) { toast('Select a cell holding a picture', { icon: 'info', duration: 2500 }); return; }
+    if (!isCellPicture(cell?.v)) { toast(t('pictures.selectCellPicture'), { icon: 'info', duration: 2500 }); return; }
     if (cell.f != null) {
-      toast('This picture comes from a formula: give IMAGE its alt text as the second argument', { icon: 'info', duration: 3500 });
+      toast(t('pictures.fromFormula'), { icon: 'info', duration: 3500 });
       return;
     }
-    const text = el('textarea.input.alt-text-input', { rows: 5, maxlength: CELL_PICTURE_ALT_MAX, 'aria-label': 'Alt text description', placeholder: 'Describe this picture for someone who can\'t see it' });
+    const text = el('textarea.input.alt-text-input', { rows: 5, maxlength: CELL_PICTURE_ALT_MAX, 'aria-label': t('pictures.altDescription'), placeholder: t('pictures.altPlaceholder') });
     text.value = cell.v.alt || '';
     const submit = (e) => {
       e?.preventDefault();
@@ -144,12 +146,12 @@ export function createPictures(ctx, { keepFocus, selectLocation }) {
       modal.close();
     };
     const content = el('form', { onsubmit: submit },
-      el('p.small.muted', {}, 'How would you describe this picture and its context to someone who is blind or has low vision? The description goes with the cell when it is copied, sorted or saved.'),
+      el('p.small.muted', {}, t('pictures.altPrompt')),
       text,
       el('div.row.row-end', {},
-        el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Cancel'),
-        el('button.btn.btn-primary', { type: 'submit' }, 'OK')));
-    const modal = openModal({ title: 'Alt Text', content, initialFocus: text, onClose: () => keepFocus() });
+        el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, t('common.cancel')),
+        el('button.btn.btn-primary', { type: 'submit' }, t('common.ok'))));
+    const modal = openModal({ title: t('pictures.altTitle'), content, initialFocus: text, onClose: () => keepFocus() });
   }
 
   /* ---------- Picture Format ---------- */
@@ -171,7 +173,7 @@ export function createPictures(ctx, { keepFocus, selectLocation }) {
 
   function patchPictures(label, patchOf) {
     const id = sheetId(), pictures = selectedPictures();
-    if (!pictures.length) { toast('Select a picture first', { icon: 'info', duration: 2500 }); return false; }
+    if (!pictures.length) { toast(t('pictures.selectFirst'), { icon: 'info', duration: 2500 }); return false; }
     if (protectedSheet(id)) return false;
     wb.transaction(label, () => { for (const obj of pictures) { const patch = patchOf(obj); if (patch) wb.updateChart(id, obj.id, patch, label); } });
     return true;
@@ -182,35 +184,35 @@ export function createPictures(ctx, { keepFocus, selectLocation }) {
     switch (action) {
       case 'adjust': {
         const adjust = normalizePictureFormat({ adjust: arg.adjust }).adjust || null;
-        patchPictures('Picture corrections', () => ({ adjust }));
-        ctx.announce?.(adjust ? `Brightness ${percent(adjust.brightness)}, contrast ${percent(adjust.contrast)}` : 'Corrections removed');
+        patchPictures(t('pictures.undo.corrections'), () => ({ adjust }));
+        ctx.announce?.(adjust ? t('pictures.correctionsSet', { brightness: percent(adjust.brightness), contrast: percent(adjust.contrast) }) : t('pictures.correctionsRemoved'));
         return;
       }
-      case 'recolor': patchPictures('Picture color', () => ({ recolor: arg.recolor === 'grayscale' ? 'grayscale' : null })); return;
-      case 'transparency': patchPictures('Picture transparency', () => ({ transparency: arg.transparency > 0 ? arg.transparency : null })); return;
+      case 'recolor': patchPictures(t('pictures.undo.color'), () => ({ recolor: arg.recolor === 'grayscale' ? 'grayscale' : null })); return;
+      case 'transparency': patchPictures(t('pictures.undo.transparency'), () => ({ transparency: arg.transparency > 0 ? arg.transparency : null })); return;
       case 'style': {
         const style = PICTURE_STYLES.find((s) => s.id === arg.style);
-        if (style) patchPictures('Picture style', () => ({ ...style.patch }));
+        if (style) patchPictures(t('pictures.undo.style'), () => ({ ...style.patch }));
         return;
       }
-      case 'reset': patchPictures('Reset picture', () => ({ ...RESET_PICTURE })); return;
+      case 'reset': patchPictures(t('pictures.undo.reset'), () => ({ ...RESET_PICTURE })); return;
       case 'resetSize': {
         const pictures = selectedPictures();
         const sizes = new Map(await Promise.all(pictures.map(async (o) => [o.id, placedSize(await naturalSize(o.src))])));
-        patchPictures('Reset picture and size', (o) => resetPictureAndSize(sizes.get(o.id) || { w: o.w, h: o.h }));
+        patchPictures(t('pictures.undo.resetSize'), (o) => resetPictureAndSize(sizes.get(o.id) || { w: o.w, h: o.h }));
         return;
       }
-      case 'size': patchPictures('Size picture', (o) => sizePatch(o, { w: arg.w, h: arg.h })); return;
-      case 'lockAspect': patchPictures('Lock aspect ratio', () => ({ lockAspect: arg.on ? null : false })); return;
-      case 'uncrop': patchPictures('Remove crop', (o) => (o.srcRect || o.fillRect ? croppedPatch(sheetId(), { ...o, fillRect: null }, { x: 0, y: 0, w: 1, h: 1 }) : null)); return;
-      case 'cropAspect': patchPictures('Crop to aspect ratio', (o) => croppedPatch(sheetId(), o, aspectCrop(o, arg.ratio))); return;
+      case 'size': patchPictures(t('pictures.undo.size'), (o) => sizePatch(o, { w: arg.w, h: arg.h })); return;
+      case 'lockAspect': patchPictures(t('pictures.undo.lockAspect'), () => ({ lockAspect: arg.on ? null : false })); return;
+      case 'uncrop': patchPictures(t('pictures.undo.removeCrop'), (o) => (o.srcRect || o.fillRect ? croppedPatch(sheetId(), { ...o, fillRect: null }, { x: 0, y: 0, w: 1, h: 1 }) : null)); return;
+      case 'cropAspect': patchPictures(t('pictures.undo.cropAspect'), (o) => croppedPatch(sheetId(), o, aspectCrop(o, arg.ratio))); return;
       case 'crop': {
         const obj = selectedPictures()[0];
-        if (!obj) { toast('Select a picture to crop', { icon: 'info', duration: 2500 }); return; }
+        if (!obj) { toast(t('pictures.selectToCrop'), { icon: 'info', duration: 2500 }); return; }
         if (protectedSheet()) return;
-        if (obj.pictureRef) { toast('A linked picture shows its whole range: change the range in the formula bar instead', { icon: 'info', duration: 3500 }); return; }
+        if (obj.pictureRef) { toast(t('pictures.linkedNoCrop'), { icon: 'info', duration: 3500 }); return; }
         const id = sheetId();
-        openCropDialog({ picture: obj, onApply: (crop) => { if (wb.chartById(id, obj.id)) wb.updateChart(id, obj.id, croppedPatch(id, wb.chartById(id, obj.id), crop), 'Crop picture'); }, onClose: () => keepFocus() });
+        openCropDialog({ picture: obj, onApply: (crop) => { if (wb.chartById(id, obj.id)) wb.updateChart(id, obj.id, croppedPatch(id, wb.chartById(id, obj.id), crop), t('pictures.undo.crop')); }, onClose: () => keepFocus() });
         return;
       }
       case 'correctionsDialog': openCorrectionsDialog(); return;
@@ -222,16 +224,16 @@ export function createPictures(ctx, { keepFocus, selectLocation }) {
   function openCorrectionsDialog() {
     const id = sheetId(), obj = selectedPictures()[0];
     if (!obj || protectedSheet(id)) return;
-    const row = (label, value, min, max) => {
+    const row = (label, percentLabel, value, min, max) => {
       const range = el('input', { type: 'range', min, max, step: 1, value: Math.round(value * 100), 'aria-label': label });
-      const number = el('input.input.picture-correction-number', { type: 'number', min, max, step: 1, value: Math.round(value * 100), 'aria-label': `${label} (percent)` });
+      const number = el('input.input.picture-correction-number', { type: 'number', min, max, step: 1, value: Math.round(value * 100), 'aria-label': percentLabel });
       range.addEventListener('input', () => { number.value = range.value; preview(); });
       number.addEventListener('input', () => { range.value = number.value; preview(); });
       return { range, number, node: el('label.picture-correction-row', {}, el('span.picture-correction-label', {}, label), range, number, el('span', {}, '%')) };
     };
-    const brightness = row('Brightness', obj.adjust?.brightness || 0, -100, 100);
-    const contrast = row('Contrast', obj.adjust?.contrast || 0, -100, 100);
-    const transparency = row('Transparency', obj.transparency || 0, 0, 100);
+    const brightness = row(t('pictures.brightness'), t('pictures.brightnessPercent'), obj.adjust?.brightness || 0, -100, 100);
+    const contrast = row(t('pictures.contrast'), t('pictures.contrastPercent'), obj.adjust?.contrast || 0, -100, 100);
+    const transparency = row(t('pictures.transparency'), t('pictures.transparencyPercent'), obj.transparency || 0, 0, 100);
     const value = () => ({
       adjust: normalizePictureFormat({ adjust: { brightness: Number(brightness.range.value) / 100, contrast: Number(contrast.range.value) / 100 } }).adjust || null,
       transparency: Math.min(1, Math.max(0, Number(transparency.range.value) / 100)) || null,
@@ -243,18 +245,18 @@ export function createPictures(ctx, { keepFocus, selectLocation }) {
     const reset = el('button.btn.btn-ghost', { type: 'button', onclick: () => {
       for (const f of [brightness, contrast, transparency]) { f.range.value = '0'; f.number.value = '0'; }
       preview();
-    } }, 'Reset');
+    } }, t('common.reset'));
     const content = el('form', { onsubmit: (e) => {
       e.preventDefault();
-      if (wb.chartById(id, obj.id)) wb.updateChart(id, obj.id, value(), 'Picture corrections');
+      if (wb.chartById(id, obj.id)) wb.updateChart(id, obj.id, value(), t('pictures.undo.corrections'));
       modal.close();
     } },
       el('div.picture-corrections-stage', {}, el('span.picture-checker', {}, stage)),
       el('div.picture-corrections', {}, brightness.node, contrast.node, transparency.node),
       el('div.row.row-end', {}, reset, el('span', { style: { flex: '1' } }),
-        el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Cancel'),
-        el('button.btn.btn-primary', { type: 'submit' }, 'OK')));
-    const modal = openModal({ title: 'Picture Corrections', content, initialFocus: brightness.range, onClose: () => keepFocus() });
+        el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, t('common.cancel')),
+        el('button.btn.btn-primary', { type: 'submit' }, t('common.ok'))));
+    const modal = openModal({ title: t('pictures.correctionsTitle'), content, initialFocus: brightness.range, onClose: () => keepFocus() });
   }
 
   /* ---------- Pictures of cells ---------- */
@@ -265,11 +267,11 @@ export function createPictures(ctx, { keepFocus, selectLocation }) {
    */
   function pastePicture({ linked = false, source } = {}) {
     const id = sheetId();
-    if (!source || !wb.sheet(source.sheetId)) { toast('Copy a range of cells first, then paste it as a picture', { icon: 'info', duration: 3000 }); return null; }
+    if (!source || !wb.sheet(source.sheetId)) { toast(t('pictures.copyFirst'), { icon: 'info', duration: 3000 }); return null; }
     if (protectedSheet(id)) return null;
     const range = normalizeRange(source.range);
     const picture = rangePicture(wb, source.sheetId, range);
-    if (!picture) { toast('That range is too large, or all hidden, to show as a picture', { icon: 'info', duration: 3000 }); return null; }
+    if (!picture) { toast(t('pictures.rangeTooLarge'), { icon: 'info', duration: 3000 }); return null; }
     const at = { ...ctx.active() };
     const ref = wb.refTextFor(source.sheetId, range);
     const objectId = wb.addChart(id, {
@@ -279,7 +281,7 @@ export function createPictures(ctx, { keepFocus, selectLocation }) {
     });
     if (!objectId) return null;
     ctx.grid.selectChart(objectId);
-    ctx.announce?.(linked ? `Linked picture of ${ref} pasted. It follows the cells; its reference shows in the formula bar` : `Picture of ${ref} pasted`);
+    ctx.announce?.(linked ? t('pictures.linkedPasted', { ref }) : t('pictures.picturePasted', { ref }));
     return objectId;
   }
 
@@ -290,22 +292,25 @@ export function createPictures(ctx, { keepFocus, selectLocation }) {
    */
   function linkedPictureRef({ id: objectId, text }) {
     const id = sheetId(), obj = wb.chartById(id, objectId);
-    if (obj?.type !== 'image') return 'Select a linked picture';
-    if (wb.isProtected(id)) return `${wb.sheet(id)?.name || 'This sheet'} is protected`;
+    if (obj?.type !== 'image') return t('pictures.selectLinked');
+    if (wb.isProtected(id)) {
+      const name = wb.sheet(id)?.name;
+      return name ? t('pictures.sheetProtectedNamed', { name }) : t('pictures.sheetProtected');
+    }
     const entry = String(text ?? '').trim().replace(/^=/, '').trim();
     if (!entry) {
       const target = obj.pictureRef && linkedPictureTarget(wb, id, obj.pictureRef);
       const last = target && rangePicture(wb, target.sheetId, target.range);
-      wb.updateChart(id, obj.id, { pictureRef: null, ...(last ? { src: svgDataUrl(last.svg) } : {}) }, 'Unlink picture');
+      wb.updateChart(id, obj.id, { pictureRef: null, ...(last ? { src: svgDataUrl(last.svg) } : {}) }, t('pictures.undo.unlink'));
       return null;
     }
     const target = linkedPictureTarget(wb, id, entry);
-    if (!target) return `${entry} is not a range the picture can show`;
+    if (!target) return t('pictures.notARange', { entry });
     const picture = rangePicture(wb, target.sheetId, target.range);
-    if (!picture) return 'That range is too large, or all hidden, to show as a picture';
+    if (!picture) return t('pictures.rangeTooLarge');
     const ref = /^[A-Za-z_\\][\w.\\]*$/.test(entry) && wb.namedRef?.(entry) ? entry : wb.refTextFor(target.sheetId, target.range);
     // A new range brings its own shape: the picture takes the size of the cells it now shows.
-    wb.updateChart(id, obj.id, { pictureRef: ref, src: svgDataUrl(picture.svg), w: Math.max(1, Math.round(picture.w)), h: Math.max(1, Math.round(picture.h)) }, 'Change linked picture');
+    wb.updateChart(id, obj.id, { pictureRef: ref, src: svgDataUrl(picture.svg), w: Math.max(1, Math.round(picture.w)), h: Math.max(1, Math.round(picture.h)) }, t('pictures.undo.changeLinked'));
     return null;
   }
 

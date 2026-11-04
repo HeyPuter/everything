@@ -1,0 +1,14 @@
+{
+  "add": "Add…",
+  "addTitle": "Add View",
+  "detail": "{keeps, select, both {Includes print settings and hidden rows, columns and filters.} print {Includes print settings.} hidden {Includes hidden rows, columns and filters.} other {Includes the view of each sheet only.}}",
+  "detailOnSheet": "Opens on {sheet}. {keeps, select, both {Includes print settings and hidden rows, columns and filters.} print {Includes print settings.} hidden {Includes hidden rows, columns and filters.} other {Includes the view of each sheet only.}}",
+  "empty": "No views yet. Choose Add to keep the workbook’s present view under a name.",
+  "include": "Include in the view",
+  "includeHidden": "Hidden rows and columns, and filters",
+  "includePrint": "Page setup and print settings",
+  "keeps": "Every view keeps each sheet’s zoom, selection, scroll position, frozen panes and view.",
+  "replaceExisting": "“{name}” already exists. Choose OK again to replace it with the workbook as it is now.",
+  "title": "Custom Views",
+  "views": "Views"
+}

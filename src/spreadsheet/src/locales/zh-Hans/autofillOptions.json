@@ -1,0 +1,15 @@
+{
+  "copy": "复制单元格",
+  "days": "以天数填充",
+  "flash": "快速填充",
+  "formats": "仅填充格式",
+  "months": "以月填充",
+  "series": "填充序列",
+  "undo.fill": "填充",
+  "undo.fillGrouped": "填充（成组工作表）",
+  "undo.series": "填充序列",
+  "undo.seriesGrouped": "填充序列（成组工作表）",
+  "values": "不带格式填充",
+  "weekdays": "以工作日填充",
+  "years": "以年填充"
+}

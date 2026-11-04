@@ -8,6 +8,7 @@
 import { el } from './dom.js';
 import { authorInitials } from '../core/comments.js';
 import { isEmail, isUsername } from '../core/mentions.js';
+import { t, compareText } from '../i18n/index.js';
 
 const MAX_SHOWN = 8;
 const open = new Map(); // close() -> the box it belongs to
@@ -35,12 +36,12 @@ export function matchPeople(people, query) {
     return 0;
   };
   const list = people.map((p) => ({ p, s: score(p) })).filter((x) => x.s > 0)
-    .sort((a, b) => b.s - a.s || a.p.name.localeCompare(b.p.name)).map((x) => x.p).slice(0, MAX_SHOWN);
+    .sort((a, b) => b.s - a.s || compareText(a.p.name, b.p.name)).map((x) => x.p).slice(0, MAX_SHOWN);
   const known = (pred) => people.some(pred);
-  if (isEmail(query) && !known((p) => p.email === q)) list.push({ name: q, email: q, typed: true, hint: 'Email address' });
+  if (isEmail(query) && !known((p) => p.email === q)) list.push({ name: q, email: q, typed: true, hint: t('mentionPicker.emailAddress') });
   // A username is offered once nobody listed matches: until then they are the likelier pick.
   else if (query.length >= 2 && isUsername(query) && !list.length) {
-    list.push({ name: query, user: query, typed: true, hint: 'Puter username' });
+    list.push({ name: query, user: query, typed: true, hint: t('mentionPicker.puterUsername') });
   }
   return list;
 }
@@ -55,7 +56,7 @@ let idSeq = 0;
 export function attachMentionPicker(area, { people }) {
   const picked = [];
   const listId = `mention-list-${++idSeq}`;
-  const list = el('ul.mention-list', { id: listId, role: 'listbox', 'aria-label': 'People to mention' });
+  const list = el('ul.mention-list', { id: listId, role: 'listbox', 'aria-label': t('mentionPicker.people') });
   let items = [];
   let active = 0;
   let query = null;
@@ -97,9 +98,9 @@ export function attachMentionPicker(area, { people }) {
       onpointermove: () => { if (active !== i) { active = i; render(); } },
     },
     el('span.mention-avatar', { 'aria-hidden': 'true' }, p.typed ? '@' : authorInitials(p.name)),
-    el('span.mention-who', {}, el('span.mention-name', {}, p.typed ? `Mention ${p.name}` : p.name),
+    el('span.mention-who', {}, el('span.mention-name', {}, p.typed ? t('mentionPicker.mention', { name: p.name }) : p.name),
       el('span.mention-hint', {}, p.hint || (p.email && p.email !== p.name ? p.email : p.user && p.user !== p.name ? `@${p.user}` : ''))))));
-    if (!items.length) list.append(el('li.mention-empty', { role: 'presentation' }, 'Type a Puter username or an email address'));
+    if (!items.length) list.append(el('li.mention-empty', { role: 'presentation' }, t('mentionPicker.empty')));
     area.setAttribute('aria-activedescendant', items.length ? `${listId}-${active}` : '');
   }
 

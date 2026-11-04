@@ -11,6 +11,7 @@
  */
 import { el, isComposing, isMod, IS_MAC } from './dom.js';
 import { icon } from './icons.js';
+import { t } from '../i18n/index.js';
 import { SCRIPT_API, SCRIPT_API_RETURNS, JS_KEYWORDS, JS_LITERALS, JS_GLOBALS } from '../core/script-api-docs.js';
 
 const INDENT = '  ';
@@ -32,7 +33,7 @@ export function tokenizeScript(src) {
   const out = [];
   let i = 0;
   let prev = null; // the last significant token, to tell a regular expression from a division
-  const push = (type, start, end) => { const t = { type, start, end }; out.push(t); if (type !== 'comment') prev = t; return t; };
+  const push = (type, start, end) => { const tok = { type, start, end }; out.push(tok); if (type !== 'comment') prev = tok; return tok; };
   const n = src.length;
   while (i < n) {
     const ch = src[i];
@@ -106,10 +107,10 @@ function highlight(src, tokens, from = 0, to = src.length) {
   let lo = 0, hi = tokens.length;
   while (lo < hi) { const mid = (lo + hi) >> 1; if (tokens[mid].end <= from) lo = mid + 1; else hi = mid; }
   for (let k = lo; k < tokens.length && tokens[k].start < to; k++) {
-    const t = tokens[k], start = Math.max(t.start, from), end = Math.min(t.end, to);
+    const tok = tokens[k], start = Math.max(tok.start, from), end = Math.min(tok.end, to);
     if (start > at) html += escapeHtml(src.slice(at, start));
     const text = escapeHtml(src.slice(start, end));
-    html += t.type === 'word' || t.type === 'punct' && !OPEN[src[t.start]] && !CLOSE[src[t.start]] ? text : `<span class="ce-${t.type === 'punct' ? 'bracket' : t.type}">${text}</span>`;
+    html += tok.type === 'word' || tok.type === 'punct' && !OPEN[src[tok.start]] && !CLOSE[src[tok.start]] ? text : `<span class="ce-${tok.type === 'punct' ? 'bracket' : tok.type}">${text}</span>`;
     at = end;
   }
   return html + escapeHtml(src.slice(at, to)) + '\n';
@@ -119,8 +120,8 @@ function highlight(src, tokens, from = 0, to = src.length) {
 export function matchingBracket(src, tokens, index) {
   const ch = src[index];
   if (!OPEN[ch] && !CLOSE[ch]) return null;
-  const brackets = tokens.filter((t) => t.type === 'punct' && (OPEN[src[t.start]] || CLOSE[src[t.start]]));
-  const at = brackets.findIndex((t) => t.start === index);
+  const brackets = tokens.filter((tok) => tok.type === 'punct' && (OPEN[src[tok.start]] || CLOSE[src[tok.start]]));
+  const at = brackets.findIndex((tok) => tok.start === index);
   if (at < 0) return null;
   let depth = 0;
   if (OPEN[ch]) {
@@ -175,7 +176,7 @@ export function completionsAt(code, caret, { explicit = false } = {}) {
   const before = code.slice(lineStart, caret);
   const tokens = tokenizeScript(code);
   // Never inside a comment or text.
-  if (tokens.some((t) => (t.type === 'comment' || t.type === 'string' || t.type === 'regex') && t.start < caret && caret < t.end + (t.type === 'comment' && code[t.end - 1] !== '/' ? 1 : 0))) return null;
+  if (tokens.some((tok) => (tok.type === 'comment' || tok.type === 'string' || tok.type === 'regex') && tok.start < caret && caret < tok.end + (tok.type === 'comment' && code[tok.end - 1] !== '/' ? 1 : 0))) return null;
   const m = /([A-Za-z_$][\w$]*)?$/.exec(before);
   const prefix = m[1] || '';
   const from = caret - prefix.length;
@@ -197,10 +198,10 @@ export function completionsAt(code, caret, { explicit = false } = {}) {
     }
   } else {
     const words = new Set();
-    for (const t of tokens) if (t.type === 'word' || t.type === 'func') { const w = code.slice(t.start, t.end); if (w.length > 2 && !(t.start <= caret && caret <= t.end)) words.add(w); }
-    for (const k of JS_KEYWORDS) if (matches(k)) items.push({ label: k, detail: 'keyword', kind: 'keyword' });
-    for (const g of JS_GLOBALS) if (matches(g)) items.push({ label: g, detail: g === 'workbook' ? 'the workbook passed to main' : 'global', kind: 'global' });
-    for (const w of words) if (matches(w) && !KEYWORDS.has(w) && !JS_GLOBALS.includes(w)) items.push({ label: w, detail: 'in this script', kind: 'word' });
+    for (const tok of tokens) if (tok.type === 'word' || tok.type === 'func') { const w = code.slice(tok.start, tok.end); if (w.length > 2 && !(tok.start <= caret && caret <= tok.end)) words.add(w); }
+    for (const k of JS_KEYWORDS) if (matches(k)) items.push({ label: k, detail: t('codeEditor.completion.keyword'), kind: 'keyword' });
+    for (const g of JS_GLOBALS) if (matches(g)) items.push({ label: g, detail: g === 'workbook' ? t('codeEditor.completion.workbook') : t('codeEditor.completion.global'), kind: 'global' });
+    for (const w of words) if (matches(w) && !KEYWORDS.has(w) && !JS_GLOBALS.includes(w)) items.push({ label: w, detail: t('codeEditor.completion.inThisScript'), kind: 'word' });
     if (!explicit && items.length === 1 && items[0].label === prefix) items = [];
   }
   items.sort((a, b) => (a.label.toLowerCase().startsWith(lower) === b.label.toLowerCase().startsWith(lower) ? 0 : a.label.toLowerCase().startsWith(lower) ? -1 : 1));
@@ -215,36 +216,36 @@ const VIEW_MARGIN = 60;
  * options: { value, label, onChange(text), onRun(), onSave(), readOnly }. Returns { el, textarea, getValue(),
  * setValue(text), focus(), goToLine(n), setErrorLine(n | null), setReadOnly(on), openFind(replace), destroy() }.
  */
-export function createCodeEditor({ value = '', label = 'Script code', onChange = null, onRun = null, onSave = null, readOnly = false } = {}) {
+export function createCodeEditor({ value = '', label = t('codeEditor.scriptCode'), onChange = null, onRun = null, onSave = null, readOnly = false } = {}) {
   const id = `ce${++editors}`;
   const gutter = el('div.ce-gutter', { 'aria-hidden': 'true' });
   const marks = el('pre.ce-layer.ce-marks', { 'aria-hidden': 'true' });
   const code = el('pre.ce-layer.ce-code', { 'aria-hidden': 'true' });
   const activeLine = el('div.ce-active-line', { 'aria-hidden': 'true' });
   const errorLine = el('div.ce-error-line', { 'aria-hidden': 'true', hidden: true });
-  const listbox = el('div.ce-complete', { id: `${id}-complete`, role: 'listbox', 'aria-label': 'Completions', hidden: true });
+  const listbox = el('div.ce-complete', { id: `${id}-complete`, role: 'listbox', 'aria-label': t('codeEditor.completions'), hidden: true });
   const textarea = el('textarea.ce-input', {
     spellcheck: false, autocapitalize: 'off', autocomplete: 'off', autocorrect: 'off', wrap: 'off',
     'aria-label': label, 'aria-multiline': 'true', 'aria-autocomplete': 'list', 'aria-controls': listbox.id, 'aria-expanded': 'false',
     'aria-keyshortcuts': IS_MAC ? 'Meta+F Meta+Alt+F Control+Space Meta+Enter' : 'Control+F Control+H Control+Space Control+Enter',
-    'aria-description': 'Tab indents; press Escape, then Tab, to move out of the editor.',
+    'aria-description': t('codeEditor.description'),
   });
   textarea.value = value;
   const view = el('div.ce-view', {}, activeLine, errorLine, marks, code, textarea);
   const measure = el('span.ce-measure', { 'aria-hidden': 'true' }, 'MMMMMMMMMM');
 
   // Find and Replace, over the top right of the code.
-  const findInput = el('input.input.ce-find-input', { type: 'text', 'aria-label': 'Find in script', placeholder: 'Find', spellcheck: false });
-  const replaceInput = el('input.input.ce-find-input', { type: 'text', 'aria-label': 'Replace with', placeholder: 'Replace', spellcheck: false });
+  const findInput = el('input.input.ce-find-input', { type: 'text', 'aria-label': t('codeEditor.find.label'), placeholder: t('codeEditor.find.placeholder'), spellcheck: false });
+  const replaceInput = el('input.input.ce-find-input', { type: 'text', 'aria-label': t('codeEditor.find.replaceWith'), placeholder: t('common.replace'), spellcheck: false });
   const findCount = el('span.ce-find-count', { 'aria-live': 'polite' });
-  const caseButton = el('button.icon-btn.ce-find-case', { type: 'button', 'aria-label': 'Match case', 'aria-pressed': 'false', title: 'Match case' }, 'Aa');
+  const caseButton = el('button.icon-btn.ce-find-case', { type: 'button', 'aria-label': t('codeEditor.find.matchCase'), 'aria-pressed': 'false', title: t('codeEditor.find.matchCase') }, 'Aa');
   const findBtn = (name, glyph, fn) => el('button.icon-btn', { type: 'button', 'aria-label': name, title: name, html: icon(glyph, 14), onclick: fn });
   const replaceRow = el('div.ce-find-row', { hidden: true }, replaceInput,
-    el('button.btn.btn-sm', { type: 'button', onclick: () => replaceOne() }, 'Replace'),
-    el('button.btn.btn-sm', { type: 'button', onclick: () => replaceAll() }, 'All'));
-  const findBar = el('div.ce-find', { role: 'search', 'aria-label': 'Find in script', hidden: true },
+    el('button.btn.btn-sm', { type: 'button', onclick: () => replaceOne() }, t('common.replace')),
+    el('button.btn.btn-sm', { type: 'button', onclick: () => replaceAll() }, t('codeEditor.find.replaceAll')));
+  const findBar = el('div.ce-find', { role: 'search', 'aria-label': t('codeEditor.find.label'), hidden: true },
     el('div.ce-find-row', {}, findInput, findCount, caseButton,
-      findBtn('Previous match', 'chevU', () => findNext(-1)), findBtn('Next match', 'chevD', () => findNext(1)), findBtn('Close find', 'x', () => closeFind())),
+      findBtn(t('codeEditor.find.previous'), 'chevU', () => findNext(-1)), findBtn(t('codeEditor.find.next'), 'chevD', () => findNext(1)), findBtn(t('codeEditor.find.close'), 'x', () => closeFind())),
     replaceRow);
   const root = el('div.code-editor', {}, measure, gutter, el('div.ce-scroll', {}, view), findBar, listbox);
 
@@ -533,7 +534,7 @@ export function createCodeEditor({ value = '', label = 'Script code', onChange =
       for (let m = re.exec(textarea.value); m && matches.length < 5000; m = re.exec(textarea.value)) matches.push([m.index, m.index + m[0].length]);
     }
     if (current >= matches.length) current = matches.length - 1;
-    findCount.textContent = !needle ? '' : matches.length ? `${current < 0 ? 0 : current + 1} of ${matches.length}` : 'No results';
+    findCount.textContent = !needle ? '' : matches.length ? t('codeEditor.find.count', { current: current < 0 ? 0 : current + 1, total: matches.length }) : t('codeEditor.find.noResults');
   }
   function findNext(step) {
     computeMatches();
@@ -544,7 +545,7 @@ export function createCodeEditor({ value = '', label = 'Script code', onChange =
     const [s, e] = matches[current];
     textarea.setSelectionRange(s, e);
     revealLine(lineOf(s));
-    findCount.textContent = `${current + 1} of ${matches.length}`;
+    findCount.textContent = t('codeEditor.find.count', { current: current + 1, total: matches.length });
     renderMarks();
   }
   function replaceOne() {
@@ -566,7 +567,7 @@ export function createCodeEditor({ value = '', label = 'Script code', onChange =
     const count = matches.length;
     edit(0, text.length, out, 0);
     computeMatches();
-    findCount.textContent = `Replaced ${count}`;
+    findCount.textContent = t('codeEditor.find.replaced', { count });
   }
   function openFind(withReplace) {
     findBar.hidden = false;

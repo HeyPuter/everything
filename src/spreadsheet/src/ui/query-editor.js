@@ -11,9 +11,11 @@ import { openModal, fieldAlert } from './modal.js';
 import { openMenu, closeMenu } from './menu.js';
 import { toast } from './toast.js';
 import { icon } from './icons.js';
+import { t, tRich, formatDate } from '../i18n/index.js';
 import {
   evaluateQuery, sourceTable, stepNames, stepFormula, saveQuery, loadedTable, refreshQuery, queryNameProblem, uniqueQueryName,
-  displayValue, keyOf, parseTyped, detectedTypeStep, initialSteps, TYPES, TYPE_LABELS, TYPE_MARKS, DATE_TYPES, FILTER_OPS, AGGREGATIONS, JOIN_KINDS, PREVIEW_ROWS, sourceSummary, TEXT_COLUMN_NAMES,
+  displayValue, keyOf, parseTyped, detectedTypeStep, initialSteps, TYPES, typeLabel, TYPE_MARKS, DATE_TYPES, filterOpLabel, AGGREGATIONS, aggregationLabel,
+  JOIN_KINDS, joinKindLabel, PREVIEW_ROWS, sourceSummary, TEXT_COLUMN_NAMES,
 } from '../core/queries.js';
 import { queryIo, cellNode, loadNew, openImportData, urlProblem, fitQueryTables } from './get-data.js';
 import { maxOf } from '../core/numeric.js';
@@ -24,10 +26,26 @@ const TEXT_FILTERS = ['equals', 'notEquals', 'beginsWith', 'notBeginsWith', 'end
 const NUMBER_FILTERS = ['equals', 'notEquals', 'gt', 'gte', 'lt', 'lte'];
 const DATE_FILTERS = ['equals', 'notEquals', 'before', 'onOrBefore', 'after', 'onOrAfter'];
 const filtersFor = (type) => (type === 'int' || type === 'decimal' ? NUMBER_FILTERS : DATE_TYPES.has(type) ? DATE_FILTERS : TEXT_FILTERS);
-const filterMenuName = (type) => (type === 'int' || type === 'decimal' ? 'Number Filters' : type === 'time' ? 'Time Filters' : DATE_TYPES.has(type) ? 'Date Filters' : 'Text Filters');
+const filterMenuName = (type) => (type === 'int' || type === 'decimal' ? t('queryEditor.filters.number') : type === 'time' ? t('queryEditor.filters.time') : DATE_TYPES.has(type) ? t('queryEditor.filters.date') : t('queryEditor.filters.text'));
+/** The filter drop-down's condition items ("Does not equal…"), as catalog keys. */
+const FILTER_MENU = {
+  equals: 'queryEditor.filterMenu.equals', notEquals: 'queryEditor.filterMenu.notEquals', beginsWith: 'queryEditor.filterMenu.beginsWith',
+  notBeginsWith: 'queryEditor.filterMenu.notBeginsWith', endsWith: 'queryEditor.filterMenu.endsWith', notEndsWith: 'queryEditor.filterMenu.notEndsWith',
+  contains: 'queryEditor.filterMenu.contains', notContains: 'queryEditor.filterMenu.notContains', gt: 'queryEditor.filterMenu.gt', gte: 'queryEditor.filterMenu.gte',
+  lt: 'queryEditor.filterMenu.lt', lte: 'queryEditor.filterMenu.lte', before: 'queryEditor.filterMenu.before', onOrBefore: 'queryEditor.filterMenu.onOrBefore',
+  after: 'queryEditor.filterMenu.after', onOrAfter: 'queryEditor.filterMenu.onOrAfter',
+};
+/** The ribbon's tabs (their names are the editor's ids for them) and the label each shows. */
+const TAB_LABELS = { Home: 'queryEditor.tab.home', Transform: 'queryEditor.tab.transform', 'Add Column': 'queryEditor.tab.addColumn' };
+/** Transform ▸ Format and Add Column ▸ Format: each operation and its label's catalog key. */
+const TEXT_FORMATS = [['lower', 'queryEditor.textFormat.lower'], ['upper', 'queryEditor.textFormat.upper'], ['proper', 'queryEditor.textFormat.proper'],
+  ['trim', 'queryEditor.textFormat.trim'], ['clean', 'queryEditor.textFormat.clean']];
+/** The delimiters Split Column offers, as Power Query lists them, and their labels' catalog keys. */
+const SPLIT_DELIMITERS = [[':', 'getData.delimiter.colon'], [',', 'getData.delimiter.comma'], ['=', 'getData.delimiter.equals'], [';', 'getData.delimiter.semicolon'],
+  [' ', 'getData.delimiter.space'], ['\t', 'getData.delimiter.tab'], ['', 'getData.delimiter.custom']];
 
 /** A small dialog with a form: fields, an error line, OK and Cancel. `submit` returns an error message to refuse. */
-function formDialog({ title, fields, submit, okLabel = 'OK', wide = false }) {
+function formDialog({ title, fields, submit, okLabel = t('common.ok'), wide = false }) {
   const { alert, refuse } = fieldAlert('pq');
   const content = el('form.pq-form', { onsubmit: (e) => {
     e.preventDefault();
@@ -35,7 +53,7 @@ function formDialog({ title, fields, submit, okLabel = 'OK', wide = false }) {
     if (problem) { refuse(problem.field || null, problem.message || problem); return; }
     modal.close();
   } }, ...fields, alert,
-  el('div.row.row-end', {}, el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Cancel'), el('button.btn.btn-primary', { type: 'submit' }, okLabel)));
+  el('div.row.row-end', {}, el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, t('common.cancel')), el('button.btn.btn-primary', { type: 'submit' }, okLabel)));
   const modal = openModal({ title, content, wide });
   return modal;
 }
@@ -67,35 +85,35 @@ export function openQueryEditor(ctx, { queryId = null, draft = null } = {}) {
   const markDirty = (q = current()) => { if (q) touched.add(q.id); };
 
   /* ---------- Layout ---------- */
-  const ribbonTabs = el('div.pq-tabs', { role: 'tablist', 'aria-label': 'Power Query Editor ribbon' });
-  const ribbonPanel = el('div.pq-ribbon-panel', { role: 'toolbar', 'aria-label': 'Power Query Editor commands' });
-  const queryList = el('div.pq-query-list', { role: 'listbox', 'aria-label': 'Queries' });
-  const queriesHead = el('div.pq-side-head', {}, 'Queries');
-  const formula = el('div.pq-formula-text', { title: 'The step as a Power Query formula' });
-  const gridHost = el('div.pq-grid', { tabindex: 0, 'aria-label': 'Preview' });
-  const nameInput = el('input.input.pq-name', { type: 'text', 'aria-label': 'Name', spellcheck: false, autocomplete: 'off' });
+  const ribbonTabs = el('div.pq-tabs', { role: 'tablist', 'aria-label': t('queryEditor.ribbonLabel') });
+  const ribbonPanel = el('div.pq-ribbon-panel', { role: 'toolbar', 'aria-label': t('queryEditor.commandsLabel') });
+  const queryList = el('div.pq-query-list', { role: 'listbox', 'aria-label': t('queryEditor.queries') });
+  const queriesHead = el('div.pq-side-head', {}, t('queryEditor.queries'));
+  const formula = el('div.pq-formula-text', { title: t('queryEditor.formulaTitle') });
+  const gridHost = el('div.pq-grid', { tabindex: 0, 'aria-label': t('common.preview') });
+  const nameInput = el('input.input.pq-name', { type: 'text', 'aria-label': t('common.name'), spellcheck: false, autocomplete: 'off' });
   const nameError = el('div.field-error', { role: 'alert', hidden: true });
-  const stepList = el('ol.pq-steps', { 'aria-label': 'Applied Steps' });
+  const stepList = el('ol.pq-steps', { 'aria-label': t('queryEditor.appliedSteps') });
   const statusLeft = el('span.pq-status-left');
   const statusRight = el('span.pq-status-right');
-  const closeBtn = el('button.icon-btn.pq-close', { type: 'button', 'aria-label': 'Close', title: 'Close', html: icon('x', 18), onclick: () => requestClose() });
+  const closeBtn = el('button.icon-btn.pq-close', { type: 'button', 'aria-label': t('common.close'), title: t('common.close'), html: icon('x', 18), onclick: () => requestClose() });
   const root = el('div.pq-editor', {},
-    el('div.pq-titlebar', {}, el('span.pq-title', { html: icon('powerQuery', 18) }, el('span', {}, 'Power Query Editor')), closeBtn),
+    el('div.pq-titlebar', {}, el('span.pq-title', { html: icon('powerQuery', 18) }, el('span', {}, t('queryEditor.title'))), closeBtn),
     el('div.pq-ribbon', {}, ribbonTabs, ribbonPanel),
     el('div.pq-body', {},
-      el('aside.pq-side', { 'aria-label': 'Queries' }, queriesHead, queryList),
-      el('section.pq-main', { 'aria-label': 'Preview' },
+      el('aside.pq-side', { 'aria-label': t('queryEditor.queries') }, queriesHead, queryList),
+      el('section.pq-main', { 'aria-label': t('common.preview') },
         el('div.pq-formula', {}, el('span.pq-fx', { 'aria-hidden': 'true' }, 'fx'), formula),
         gridHost),
-      el('aside.pq-settings', { 'aria-label': 'Query Settings' },
-        el('div.pq-settings-head', {}, 'Query Settings'),
-        el('div.pq-settings-section', {}, 'PROPERTIES'),
-        el('label.field', {}, el('span.field-label', {}, 'Name'), nameInput), nameError,
-        el('div.pq-settings-section', {}, 'APPLIED STEPS'),
+      el('aside.pq-settings', { 'aria-label': t('queryEditor.querySettings') },
+        el('div.pq-settings-head', {}, t('queryEditor.querySettings')),
+        el('div.pq-settings-section', {}, t('queryEditor.propertiesHead')),
+        el('label.field', {}, el('span.field-label', {}, t('common.name')), nameInput), nameError,
+        el('div.pq-settings-section', {}, t('queryEditor.appliedStepsHead')),
         stepList)),
     el('div.pq-status', {}, statusLeft, statusRight));
 
-  const modal = openModal({ title: 'Power Query Editor', content: root, className: 'pq-editor-modal', initialFocus: gridHost });
+  const modal = openModal({ title: t('queryEditor.title'), content: root, className: 'pq-editor-modal', initialFocus: gridHost });
   // The window closes through Close & Load or the close button's question, not a stray click beside it.
   const scrim = modal.panel.parentElement?.querySelector('.modal-scrim');
   scrim?.replaceWith(el('div.modal-scrim'));
@@ -114,7 +132,7 @@ export function openQueryEditor(ctx, { queryId = null, draft = null } = {}) {
   /* ---------- Ribbon ---------- */
   const needCols = (min = 1) => {
     if (selected.length >= min) return true;
-    toast(min > 1 ? 'Select the columns first' : 'Select a column first', { icon: 'info' });
+    toast(min > 1 ? t('queryEditor.selectColumnsFirst') : t('queryEditor.selectColumnFirst'), { icon: 'info' });
     return false;
   };
   const btn = (label, glyph, fn, { large = false, menu = null, title = null } = {}) => {
@@ -130,65 +148,65 @@ export function openQueryEditor(ctx, { queryId = null, draft = null } = {}) {
   };
   const split = (label, glyph, fn, menu) => {
     const face = btn(label, glyph, fn, { large: true });
-    const arrow = el('button.pq-rb.pq-rb-arrow', { type: 'button', 'aria-label': `${label} options`, 'aria-haspopup': 'menu', html: icon('chevD', 10) });
+    const arrow = el('button.pq-rb.pq-rb-arrow', { type: 'button', 'aria-label': t('queryEditor.splitOptions', { label }), 'aria-haspopup': 'menu', html: icon('chevD', 10) });
     arrow.addEventListener('click', () => openMenu({ anchor: arrow, label, items: menu() }));
     return el('span.pq-rb-split', {}, face, arrow);
   };
   const group = (label, ...controls) => el('div.pq-rgroup', { role: 'group', 'aria-label': label }, el('div.pq-rgroup-controls', {}, ...controls), el('div.pq-rgroup-label', {}, label));
-  const typeSelect = el('select.select.pq-type-select', { 'aria-label': 'Data Type', onchange: () => { if (needCols()) changeType(selected, typeSelect.value); } },
-    TYPES.map((t) => el('option', { value: t }, TYPE_LABELS[t])));
-  const typeField = el('label.pq-rb-field', {}, el('span', {}, 'Data Type:'), typeSelect);
+  const typeSelect = el('select.select.pq-type-select', { 'aria-label': t('queryEditor.dataType'), onchange: () => { if (needCols()) changeType(selected, typeSelect.value); } },
+    TYPES.map((ty) => el('option', { value: ty }, typeLabel(ty))));
+  const typeField = el('label.pq-rb-field', {}, el('span', {}, t('queryEditor.dataTypeField')), typeSelect);
   const TABS = {
     Home: () => [
-      group('Close', split('Close & Load', 'closeLoad', () => closeAndLoad(false), () => [
-        { label: 'Close & Load', icon: 'closeLoad', onSelect: () => closeAndLoad(false) },
-        { label: 'Close & Load To…', onSelect: () => closeAndLoad(true) }])),
-      group('Query', btn('Refresh Preview', 'refresh', () => { sourceCache.clear(); compute(); }, { large: true }),
-        btn('Data Source Settings', 'database', () => openSourceDialog(), { title: 'Change the source of this query' })),
-      group('Manage Columns', btn('Choose Columns', 'chooseColumns', null, { large: true, menu: () => [
-        { label: 'Choose Columns…', icon: 'chooseColumns', onSelect: () => chooseColumns() }] }),
-      btn('Remove Columns', 'deleteCols', null, { large: true, menu: () => [
-        { label: 'Remove Columns', icon: 'deleteCols', onSelect: () => removeColumns() },
-        { label: 'Remove Other Columns', onSelect: () => removeOtherColumns() }] })),
-      group('Reduce Rows', btn('Keep Rows', 'keepRows', null, { large: true, menu: () => [
-        { label: 'Keep Top Rows…', onSelect: () => rowsCount('keepFirst') }, { label: 'Keep Bottom Rows…', onSelect: () => rowsCount('keepLast') },
-        { label: 'Keep Duplicates', disabled: true, hint: 'Not available here' }] }),
-      btn('Remove Rows', 'deleteRows', null, { large: true, menu: () => [
-        { label: 'Remove Top Rows…', onSelect: () => rowsCount('removeFirst') }, { label: 'Remove Bottom Rows…', onSelect: () => rowsCount('removeLast') },
+      group(t('common.close'), split(t('queryEditor.closeLoad'), 'closeLoad', () => closeAndLoad(false), () => [
+        { label: t('queryEditor.closeLoad'), icon: 'closeLoad', onSelect: () => closeAndLoad(false) },
+        { label: t('queryEditor.closeLoadTo'), onSelect: () => closeAndLoad(true) }])),
+      group(t('queryEditor.query'), btn(t('queryEditor.refreshPreview'), 'refresh', () => { sourceCache.clear(); compute(); }, { large: true }),
+        btn(t('queryEditor.dataSourceSettings'), 'database', () => openSourceDialog(), { title: t('queryEditor.changeSource') })),
+      group(t('queryEditor.manageColumns'), btn(t('queryEditor.chooseColumns'), 'chooseColumns', null, { large: true, menu: () => [
+        { label: t('queryEditor.chooseColumnsDialog'), icon: 'chooseColumns', onSelect: () => chooseColumns() }] }),
+      btn(t('queryEditor.removeColumns'), 'deleteCols', null, { large: true, menu: () => [
+        { label: t('queryEditor.removeColumns'), icon: 'deleteCols', onSelect: () => removeColumns() },
+        { label: t('queryEditor.removeOtherColumns'), onSelect: () => removeOtherColumns() }] })),
+      group(t('queryEditor.reduceRows'), btn(t('queryEditor.keepRows'), 'keepRows', null, { large: true, menu: () => [
+        { label: t('queryEditor.keepTopRowsDialog'), onSelect: () => rowsCount('keepFirst') }, { label: t('queryEditor.keepBottomRowsDialog'), onSelect: () => rowsCount('keepLast') },
+        { label: t('queryEditor.keepDuplicates'), disabled: true, hint: t('queryEditor.notAvailable') }] }),
+      btn(t('queryEditor.removeRows'), 'deleteRows', null, { large: true, menu: () => [
+        { label: t('queryEditor.removeTopRowsDialog'), onSelect: () => rowsCount('removeFirst') }, { label: t('queryEditor.removeBottomRowsDialog'), onSelect: () => rowsCount('removeLast') },
         { separator: true },
-        { label: 'Remove Duplicates', icon: 'dedupe', onSelect: () => removeDuplicates() },
-        { label: 'Remove Blank Rows', onSelect: () => addStep({ type: 'removeBlankRows' }) },
-        { label: 'Remove Errors', onSelect: () => addStep({ type: 'removeErrors', columns: selected.slice() }) }] })),
-      group('Sort', btn('Sort Ascending', 'sortAsc', () => needCols() && sortBy(selected[0], false)), btn('Sort Descending', 'sortDesc', () => needCols() && sortBy(selected[0], true))),
-      group('Transform', btn('Split Column', 'textToColumns', null, { menu: () => [{ label: 'By Delimiter…', onSelect: () => needCols() && splitColumn(selected[0]) }] }),
-        btn('Group By', 'groupBy', () => groupBy()), typeField,
-        btn('Use First Row as Headers', 'promoteHeaders', null, { menu: () => [
-          { label: 'Use First Row as Headers', onSelect: () => addStep({ type: 'promoteHeaders' }) },
-          { label: 'Use Headers as First Row', onSelect: () => addStep({ type: 'demoteHeaders' }) }] }),
-        btn('Replace Values', 'replace', () => needCols() && replaceValues())),
-      group('Combine', btn('Merge Queries', 'mergeQueries', () => mergeQueries(), { large: true })),
+        { label: t('queryEditor.removeDuplicates'), icon: 'dedupe', onSelect: () => removeDuplicates() },
+        { label: t('queryEditor.removeBlankRows'), onSelect: () => addStep({ type: 'removeBlankRows' }) },
+        { label: t('queryEditor.removeErrors'), onSelect: () => addStep({ type: 'removeErrors', columns: selected.slice() }) }] })),
+      group(t('queryEditor.sort'), btn(t('queryEditor.sortAscending'), 'sortAsc', () => needCols() && sortBy(selected[0], false)), btn(t('queryEditor.sortDescending'), 'sortDesc', () => needCols() && sortBy(selected[0], true))),
+      group(t('queryEditor.transform'), btn(t('queryEditor.splitColumn'), 'textToColumns', null, { menu: () => [{ label: t('queryEditor.byDelimiter'), onSelect: () => needCols() && splitColumn(selected[0]) }] }),
+        btn(t('queryEditor.groupBy'), 'groupBy', () => groupBy()), typeField,
+        btn(t('queryEditor.useFirstRowAsHeaders'), 'promoteHeaders', null, { menu: () => [
+          { label: t('queryEditor.useFirstRowAsHeaders'), onSelect: () => addStep({ type: 'promoteHeaders' }) },
+          { label: t('queryEditor.useHeadersAsFirstRow'), onSelect: () => addStep({ type: 'demoteHeaders' }) }] }),
+        btn(t('queryEditor.replaceValues'), 'replace', () => needCols() && replaceValues())),
+      group(t('queryEditor.combine'), btn(t('queryEditor.mergeQueries'), 'mergeQueries', () => mergeQueries(), { large: true })),
     ],
     Transform: () => [
-      group('Table', btn('Group By', 'groupBy', () => groupBy(), { large: true }),
-        btn('Use First Row as Headers', 'promoteHeaders', () => addStep({ type: 'promoteHeaders' }))),
-      group('Any Column', typeField, btn('Replace Values', 'replace', () => needCols() && replaceValues()),
-        btn('Fill', 'fillDown', null, { menu: () => [{ label: 'Down', icon: 'fillDown', onSelect: () => needCols() && addStep({ type: 'fillDown', columns: selected.slice() }) },
-          { label: 'Up', icon: 'fillUp', onSelect: () => needCols() && addStep({ type: 'fillUp', columns: selected.slice() }) }] }),
-        btn('Rename', 'pencil', () => needCols() && renameColumn(selected[0]))),
-      group('Text Column', btn('Split Column', 'textToColumns', null, { large: true, menu: () => [{ label: 'By Delimiter…', onSelect: () => needCols() && splitColumn(selected[0]) }] }),
-        btn('Format', 'text', null, { large: true, menu: () => textMenu() })),
+      group(t('queryEditor.table'), btn(t('queryEditor.groupBy'), 'groupBy', () => groupBy(), { large: true }),
+        btn(t('queryEditor.useFirstRowAsHeaders'), 'promoteHeaders', () => addStep({ type: 'promoteHeaders' }))),
+      group(t('queryEditor.anyColumn'), typeField, btn(t('queryEditor.replaceValues'), 'replace', () => needCols() && replaceValues()),
+        btn(t('queryEditor.fill'), 'fillDown', null, { menu: () => [{ label: t('queryEditor.fillDown'), icon: 'fillDown', onSelect: () => needCols() && addStep({ type: 'fillDown', columns: selected.slice() }) },
+          { label: t('queryEditor.fillUp'), icon: 'fillUp', onSelect: () => needCols() && addStep({ type: 'fillUp', columns: selected.slice() }) }] }),
+        btn(t('common.rename'), 'pencil', () => needCols() && renameColumn(selected[0]))),
+      group(t('queryEditor.textColumn'), btn(t('queryEditor.splitColumn'), 'textToColumns', null, { large: true, menu: () => [{ label: t('queryEditor.byDelimiter'), onSelect: () => needCols() && splitColumn(selected[0]) }] }),
+        btn(t('queryEditor.format'), 'text', null, { large: true, menu: () => textMenu() })),
     ],
     'Add Column': () => [
-      group('General', btn('Duplicate Column', 'copy', () => needCols() && addStep({ type: 'duplicateColumn', column: selected[0] }), { large: true }),
-        btn('Index Column', 'indexColumn', null, { large: true, menu: () => [
-          { label: 'From 0', onSelect: () => addIndex(0, 1) }, { label: 'From 1', onSelect: () => addIndex(1, 1) },
-          { label: 'Custom…', onSelect: () => customIndex() }] })),
-      group('From Text', btn('Format', 'text', null, { large: true, menu: () => textMenu(true) })),
+      group(t('queryEditor.general'), btn(t('queryEditor.duplicateColumn'), 'copy', () => needCols() && addStep({ type: 'duplicateColumn', column: selected[0] }), { large: true }),
+        btn(t('queryEditor.indexColumn'), 'indexColumn', null, { large: true, menu: () => [
+          { label: t('queryEditor.fromZero'), onSelect: () => addIndex(0, 1) }, { label: t('queryEditor.fromOne'), onSelect: () => addIndex(1, 1) },
+          { label: t('queryEditor.customIndex'), onSelect: () => customIndex() }] })),
+      group(t('queryEditor.fromText'), btn(t('queryEditor.format'), 'text', null, { large: true, menu: () => textMenu(true) })),
     ],
   };
   const drawRibbon = () => {
     ribbonTabs.replaceChildren(...Object.keys(TABS).map((name) => el('button.pq-tab', { type: 'button', role: 'tab', 'aria-selected': String(name === tab),
-      onclick: () => { tab = name; drawRibbon(); } }, name)));
+      onclick: () => { tab = name; drawRibbon(); } }, t(TAB_LABELS[name]))));
     ribbonPanel.replaceChildren(...TABS[tab]());
     syncTypeSelect();
   };
@@ -197,8 +215,8 @@ export function openQueryEditor(ctx, { queryId = null, draft = null } = {}) {
     typeSelect.disabled = !selected.length;
   };
   // Transform ▸ Format changes the selected columns; Add Column ▸ Format adds a formatted copy of the first beside them.
-  const textMenu = (adding = false) => [['lower', 'lowercase'], ['upper', 'UPPERCASE'], ['proper', 'Capitalize Each Word'], ['trim', 'Trim'], ['clean', 'Clean']]
-    .map(([op, label]) => ({ label, onSelect: () => needCols() && addStep(adding ? { type: 'addTextColumn', column: selected[0], op, as: TEXT_COLUMN_NAMES[op] } : { type: 'transformText', columns: selected.slice(), op }) }));
+  const textMenu = (adding = false) => TEXT_FORMATS
+    .map(([op, label]) => ({ label: t(label), onSelect: () => needCols() && addStep(adding ? { type: 'addTextColumn', column: selected[0], op, as: TEXT_COLUMN_NAMES[op] } : { type: 'transformText', columns: selected.slice(), op }) }));
 
   /* ---------- Steps ---------- */
   async function addStep(step, { replacePrevious = false } = {}) {
@@ -217,9 +235,9 @@ export function openQueryEditor(ctx, { queryId = null, draft = null } = {}) {
   const askInsert = () => new Promise((resolve) => {
     let answered = false;
     const done = (v) => { answered = true; m.close(); resolve(v); };
-    const m = openModal({ title: 'Insert Step', content: el('div', {},
-      el('p.modal-text', {}, 'Are you sure you want to insert a step? Inserting an intermediate step may affect subsequent steps which could cause your query to break.'),
-      el('div.row.row-end', {}, el('button.btn.btn-ghost', { type: 'button', onclick: () => done(false) }, 'Cancel'), el('button.btn.btn-primary', { type: 'button', onclick: () => done(true) }, 'Insert'))),
+    const m = openModal({ title: t('queryEditor.insertStep.title'), content: el('div', {},
+      el('p.modal-text', {}, t('queryEditor.insertStep.message')),
+      el('div.row.row-end', {}, el('button.btn.btn-ghost', { type: 'button', onclick: () => done(false) }, t('common.cancel')), el('button.btn.btn-primary', { type: 'button', onclick: () => done(true) }, t('common.insert')))),
     onClose: () => { if (!answered) resolve(false); } });
   });
   const previous = () => { const q = current(); const at = stepIndex(q); return at > 0 ? q.steps[at - 1] : null; };
@@ -263,22 +281,22 @@ export function openQueryEditor(ctx, { queryId = null, draft = null } = {}) {
     };
     if (index === q.steps.length - 1) { go(); return; }
     let answered = false;
-    const m = openModal({ title: 'Delete Step', content: el('div', {},
-      el('p.modal-text', {}, 'Are you sure you want to delete this step? Any subsequent steps may cause errors.'),
-      el('div.row.row-end', {}, el('button.btn.btn-ghost', { type: 'button', onclick: () => m.close() }, 'Cancel'),
-        el('button.btn.btn-primary', { type: 'button', onclick: () => { answered = true; m.close(); go(); } }, 'Delete'))),
+    const m = openModal({ title: t('queryEditor.deleteStep.title'), content: el('div', {},
+      el('p.modal-text', {}, t('queryEditor.deleteStep.message')),
+      el('div.row.row-end', {}, el('button.btn.btn-ghost', { type: 'button', onclick: () => m.close() }, t('common.cancel')),
+        el('button.btn.btn-primary', { type: 'button', onclick: () => { answered = true; m.close(); go(); } }, t('common.delete')))),
     onClose: () => { if (!answered) gridHost.focus(); } });
   }
 
   /* ---------- Dialogs ---------- */
   function rowsCount(type) {
-    const titles = { keepFirst: ['Keep Top Rows', 'Specify how many rows to keep.'], keepLast: ['Keep Bottom Rows', 'Specify how many rows to keep.'],
-      removeFirst: ['Remove Top Rows', 'Specify how many rows to remove from the top.'], removeLast: ['Remove Bottom Rows', 'Specify how many rows to remove from the bottom.'] }[type];
-    const input = el('input.input', { type: 'number', min: 0, step: 1, value: '' , 'aria-label': 'Number of rows' });
-    formDialog({ title: titles[0], fields: [el('p.field-hint', {}, titles[1]), field('Number of rows', input)], submit: () => {
+    const titles = { keepFirst: [t('queryEditor.rows.keepTop'), t('queryEditor.rows.keepHint')], keepLast: [t('queryEditor.rows.keepBottom'), t('queryEditor.rows.keepHint')],
+      removeFirst: [t('queryEditor.rows.removeTop'), t('queryEditor.rows.removeTopHint')], removeLast: [t('queryEditor.rows.removeBottom'), t('queryEditor.rows.removeBottomHint')] }[type];
+    const input = el('input.input', { type: 'number', min: 0, step: 1, value: '' , 'aria-label': t('queryEditor.rows.count') });
+    formDialog({ title: titles[0], fields: [el('p.field-hint', {}, titles[1]), field(t('queryEditor.rows.count'), input)], submit: () => {
       // An empty box is no count: read as 0, Keep Top Rows kept none of them.
       const n = input.value.trim() === '' ? NaN : Number(input.value);
-      if (!Number.isInteger(n) || n < 0) return { field: input, message: 'Enter a whole number' };
+      if (!Number.isInteger(n) || n < 0) return { field: input, message: t('queryEditor.rows.notWhole') };
       addStep({ type, count: n });
       return null;
     } });
@@ -288,28 +306,28 @@ export function openQueryEditor(ctx, { queryId = null, draft = null } = {}) {
     const cols = table()?.columns || [];
     const boxes = cols.map((c) => el('input', { type: 'checkbox', checked: true, value: c }));
     const all = el('input', { type: 'checkbox', checked: true, onchange: () => { for (const b of boxes) b.checked = all.checked; } });
-    const search = el('input.input', { type: 'search', placeholder: 'Search Columns', 'aria-label': 'Search Columns', oninput: () => {
-      const t = search.value.toLowerCase();
-      boxes.forEach((b) => { b.closest('label').hidden = !!t && !b.value.toLowerCase().includes(t); });
+    const search = el('input.input', { type: 'search', placeholder: t('queryEditor.choose.search'), 'aria-label': t('queryEditor.choose.search'), oninput: () => {
+      const needle = search.value.toLowerCase();
+      boxes.forEach((b) => { b.closest('label').hidden = !!needle && !b.value.toLowerCase().includes(needle); });
     } });
-    formDialog({ title: 'Choose Columns', fields: [el('p.field-hint', {}, 'Choose the columns to keep'), search,
-      el('div.pq-checklist', {}, el('label.check', {}, all, el('span', {}, '(Select All Columns)')), ...boxes.map((b) => el('label.check', {}, b, el('span', {}, b.value))))],
+    formDialog({ title: t('queryEditor.chooseColumns'), fields: [el('p.field-hint', {}, t('queryEditor.choose.hint')), search,
+      el('div.pq-checklist', {}, el('label.check', {}, all, el('span', {}, t('queryEditor.choose.all'))), ...boxes.map((b) => el('label.check', {}, b, el('span', {}, b.value))))],
     submit: () => {
       const keep = boxes.filter((b) => b.checked).map((b) => b.value);
-      if (!keep.length) return 'Choose at least one column';
+      if (!keep.length) return t('queryEditor.choose.none');
       addStep({ type: 'selectColumns', columns: keep });
       return null;
     } });
   }
 
   function replaceValues() {
-    const find = el('input.input', { type: 'text', 'aria-label': 'Value To Find' });
-    const repl = el('input.input', { type: 'text', 'aria-label': 'Replace With' });
+    const find = el('input.input', { type: 'text', 'aria-label': t('queryEditor.replace.find') });
+    const repl = el('input.input', { type: 'text', 'aria-label': t('queryEditor.replace.with') });
     const entire = el('input', { type: 'checkbox' });
     const textual = selected.every((c) => ['text', 'any'].includes(typeOf(c)));
-    formDialog({ title: 'Replace Values', fields: [el('p.field-hint', {}, 'Replace one value with another in the selected columns.'),
-      field('Value To Find', find), field('Replace With', repl),
-      textual ? el('details.pq-advanced', {}, el('summary', {}, 'Advanced options'), el('label.check', {}, entire, el('span', {}, 'Match entire cell contents'))) : null],
+    formDialog({ title: t('queryEditor.replaceValues'), fields: [el('p.field-hint', {}, t('queryEditor.replace.hint')),
+      field(t('queryEditor.replace.find'), find), field(t('queryEditor.replace.with'), repl),
+      textual ? el('details.pq-advanced', {}, el('summary', {}, t('queryEditor.replace.advanced')), el('label.check', {}, entire, el('span', {}, t('queryEditor.replace.matchEntire')))) : null],
     submit: () => {
       const cols = table().columns.filter((c) => selected.includes(c));
       const one = typeOf(cols[0]);
@@ -320,22 +338,22 @@ export function openQueryEditor(ctx, { queryId = null, draft = null } = {}) {
   }
 
   function splitColumn(column) {
-    const options = [[':', 'Colon'], [',', 'Comma'], ['=', 'Equals Sign'], [';', 'Semicolon'], [' ', 'Space'], ['\t', 'Tab'], ['', '--Custom--']];
+    const options = SPLIT_DELIMITERS.map(([d, label]) => [d, t(label)]);
     const sample = (table()?.rows || []).map((r) => r[table().columns.indexOf(column)]).find((v) => typeof v === 'string') || '';
     const guess = options.find(([d]) => d && sample.includes(d))?.[0] ?? ',';
-    const sel = select('Select or enter delimiter', options, guess);
-    const custom = el('input.input', { type: 'text', 'aria-label': 'Custom delimiter', hidden: true });
+    const sel = select(t('queryEditor.split.delimiter'), options, guess);
+    const custom = el('input.input', { type: 'text', 'aria-label': t('getData.customDelimiter'), hidden: true });
     sel.addEventListener('change', () => { custom.hidden = sel.value !== ''; });
     const mode = (v, label, checked) => el('label.check', {}, el('input', { type: 'radio', name: 'pq-split', value: v, checked }), el('span', {}, label));
-    const modes = el('div.field.pq-radio-group', { role: 'radiogroup', 'aria-label': 'Split at' }, el('span.field-label', {}, 'Split at'),
-      mode('left', 'Left-most delimiter', false), mode('right', 'Right-most delimiter', false), mode('each', 'Each occurrence of the delimiter', true));
-    formDialog({ title: 'Split Column by Delimiter', fields: [el('p.field-hint', {}, 'Specify the delimiter used to split the text column.'),
-      field('Select or enter delimiter', sel, custom), modes], submit: () => {
+    const modes = el('div.field.pq-radio-group', { role: 'radiogroup', 'aria-label': t('queryEditor.split.at') }, el('span.field-label', {}, t('queryEditor.split.at')),
+      mode('left', t('queryEditor.split.left'), false), mode('right', t('queryEditor.split.right'), false), mode('each', t('queryEditor.split.each'), true));
+    formDialog({ title: t('queryEditor.split.title'), fields: [el('p.field-hint', {}, t('queryEditor.split.hint')),
+      field(t('queryEditor.split.delimiter'), sel, custom), modes], submit: () => {
       const delimiter = sel.value || custom.value;
-      if (!delimiter) return { field: custom, message: 'Enter a delimiter' };
+      if (!delimiter) return { field: custom, message: t('queryEditor.split.noDelimiter') };
       const how = modes.querySelector('input:checked').value;
-      const t = table(), i = t.columns.indexOf(column);
-      const parts = how === 'each' ? maxOf(t.rows.map((r) => (typeof r[i] === 'string' ? r[i].split(delimiter).length : 1)), 1) : 2;
+      const tbl = table(), i = tbl.columns.indexOf(column);
+      const parts = how === 'each' ? maxOf(tbl.rows.map((r) => (typeof r[i] === 'string' ? r[i].split(delimiter).length : 1)), 1) : 2;
       const step = { type: 'splitColumn', column, delimiter, mode: how, count: parts };
       addStep(step).then(() => {
         // Power Query types the new columns at once, as a Changed Type step after the split.
@@ -352,23 +370,23 @@ export function openQueryEditor(ctx, { queryId = null, draft = null } = {}) {
     const keysHost = el('div.pq-group-rows.pq-group-keys');
     const aggsHost = el('div.pq-group-rows.pq-group-aggs');
     const colSelect = (value, label) => select(label, cols.map((c) => [c, c]), value);
-    const addKey = (value) => keysHost.append(el('div.pq-group-row', {}, colSelect(value, 'Group by'),
-      el('button.icon-btn', { type: 'button', 'aria-label': 'Remove grouping', html: icon('x', 14), onclick: (e) => { if (keysHost.children.length > 1) e.currentTarget.parentElement.remove(); } })));
+    const addKey = (value) => keysHost.append(el('div.pq-group-row', {}, colSelect(value, t('queryEditor.group.by')),
+      el('button.icon-btn', { type: 'button', 'aria-label': t('queryEditor.group.removeKey'), html: icon('x', 14), onclick: (e) => { if (keysHost.children.length > 1) e.currentTarget.parentElement.remove(); } })));
     const addAgg = (name = 'Count', op = 'count', column = cols[0]) => {
-      const opSel = select('Operation', Object.entries(AGGREGATIONS), op);
-      const colSel = colSelect(column, 'Column');
+      const opSel = select(t('queryEditor.group.operation'), Object.keys(AGGREGATIONS).map((k) => [k, aggregationLabel(k)]), op);
+      const colSel = colSelect(column, t('queryEditor.group.column'));
       // Count Rows and Count Distinct Rows take the whole group's rows, so they have no column, as in Power Query.
       const sync = () => { colSel.disabled = opSel.value === 'count' || opSel.value === 'countDistinct'; };
       opSel.addEventListener('change', sync); sync();
-      aggsHost.append(el('div.pq-group-row', {}, el('input.input', { type: 'text', value: name, 'aria-label': 'New column name' }), opSel, colSel,
-        el('button.icon-btn', { type: 'button', 'aria-label': 'Remove aggregation', html: icon('x', 14), onclick: (e) => { if (aggsHost.children.length > 1) e.currentTarget.parentElement.remove(); } })));
+      aggsHost.append(el('div.pq-group-row', {}, el('input.input', { type: 'text', value: name, 'aria-label': t('queryEditor.group.newName') }), opSel, colSel,
+        el('button.icon-btn', { type: 'button', 'aria-label': t('queryEditor.group.removeAggregation'), html: icon('x', 14), onclick: (e) => { if (aggsHost.children.length > 1) e.currentTarget.parentElement.remove(); } })));
     };
     addKey(selected[0] || cols[0]);
     addAgg();
-    formDialog({ title: 'Group By', wide: true, fields: [el('p.field-hint', {}, 'Specify the columns to group by and one or more outputs.'),
-      el('div.field-label', {}, 'Group by'), keysHost, el('button.btn.btn-sm', { type: 'button', onclick: () => addKey(cols[0]) }, 'Add grouping'),
-      el('div.pq-group-head', {}, el('span', {}, 'New column name'), el('span', {}, 'Operation'), el('span', {}, 'Column')), aggsHost,
-      el('button.btn.btn-sm', { type: 'button', onclick: () => addAgg(`Column${aggsHost.children.length + 1}`, 'sum') }, 'Add aggregation')],
+    formDialog({ title: t('queryEditor.groupBy'), wide: true, fields: [el('p.field-hint', {}, t('queryEditor.group.hint')),
+      el('div.field-label', {}, t('queryEditor.group.by')), keysHost, el('button.btn.btn-sm', { type: 'button', onclick: () => addKey(cols[0]) }, t('queryEditor.group.addKey')),
+      el('div.pq-group-head', {}, el('span', {}, t('queryEditor.group.newName')), el('span', {}, t('queryEditor.group.operation')), el('span', {}, t('queryEditor.group.column'))), aggsHost,
+      el('button.btn.btn-sm', { type: 'button', onclick: () => addAgg(`Column${aggsHost.children.length + 1}`, 'sum') }, t('queryEditor.group.addAggregation'))],
     submit: () => {
       const keys = [...keysHost.querySelectorAll('select')].map((s) => s.value);
       const aggregations = [...aggsHost.children].map((row) => {
@@ -381,14 +399,14 @@ export function openQueryEditor(ctx, { queryId = null, draft = null } = {}) {
   }
 
   function customIndex() {
-    const start = el('input.input', { type: 'number', value: '0', 'aria-label': 'Starting Index' });
-    const inc = el('input.input', { type: 'number', value: '1', 'aria-label': 'Increment' });
-    formDialog({ title: 'Add Index Column', fields: [field('Starting Index', start), field('Increment', inc)], submit: () => {
+    const start = el('input.input', { type: 'number', value: '0', 'aria-label': t('queryEditor.index.start') });
+    const inc = el('input.input', { type: 'number', value: '1', 'aria-label': t('queryEditor.index.increment') });
+    formDialog({ title: t('queryEditor.index.title'), fields: [field(t('queryEditor.index.start'), start), field(t('queryEditor.index.increment'), inc)], submit: () => {
       // An emptied box is no number (Number('') is 0, which made every index the same).
       const read = (input) => (input.value.trim() === '' ? NaN : Number(input.value));
       const s = read(start), i = read(inc);
-      if (!Number.isFinite(s)) return { field: start, message: 'Enter a number' };
-      if (!Number.isFinite(i)) return { field: inc, message: 'Enter a number' };
+      if (!Number.isFinite(s)) return { field: start, message: t('queryEditor.index.notNumber') };
+      if (!Number.isFinite(i)) return { field: inc, message: t('queryEditor.index.notNumber') };
       addIndex(s, i);
       return null;
     } });
@@ -398,7 +416,7 @@ export function openQueryEditor(ctx, { queryId = null, draft = null } = {}) {
     const th = gridHost.querySelector(`th[data-col="${CSS.escape(column)}"]`);
     const label = th?.querySelector('.pq-colname');
     if (!label) return;
-    const input = el('input.input.pq-rename', { type: 'text', value: column, 'aria-label': `Rename ${column}` });
+    const input = el('input.input.pq-rename', { type: 'text', value: column, 'aria-label': t('queryEditor.renameColumn', { column }) });
     label.replaceWith(input);
     input.focus(); input.select();
     let done = false;
@@ -407,7 +425,7 @@ export function openQueryEditor(ctx, { queryId = null, draft = null } = {}) {
       done = true;
       const name = input.value.trim();
       if (save && name && name !== column) {
-        if (table().columns.includes(name)) { toast(`A column named ${name} already exists`, { icon: 'alert' }); drawGrid(); return; }
+        if (table().columns.includes(name)) { toast(t('queryEditor.columnExists', { name }), { icon: 'alert' }); drawGrid(); return; }
         const prev = previous();
         if (prev?.type === 'renameColumns') addStep({ renames: [...prev.renames.map(([a, b]) => (b === column ? [a, name] : [a, b])), ...(prev.renames.some(([, b]) => b === column) ? [] : [[column, name]])] }, { replacePrevious: true });
         else addStep({ type: 'renameColumns', renames: [[column, name]] });
@@ -427,26 +445,26 @@ export function openQueryEditor(ctx, { queryId = null, draft = null } = {}) {
     const type = typeOf(column);
     const prev = previous();
     const existing = prev?.type === 'filterRows' && prev.column === column && prev.conditions.every((c) => c.op !== 'in' && c.op !== 'notIn') ? prev : null;
-    const ops = [...filtersFor(type), 'isNull', 'notNull'].map((o) => [o, FILTER_OPS[o]]);
+    const ops = [...filtersFor(type), 'isNull', 'notNull'].map((o) => [o, filterOpLabel(o)]);
     const values = [...new Set((table()?.rows || []).map((r) => r[table().columns.indexOf(column)]).filter((v) => v != null).map((v) => displayValue(v, type)))].slice(0, 200);
     const listId = `pq-values-${Math.random().toString(36).slice(2)}`;
     const datalist = el('datalist', { id: listId }, values.map((v) => el('option', { value: v })));
     const row = (c) => {
-      const o = select('Operator', [['', ''], ...ops], c?.op || '');
-      const v = el('input.input', { type: 'text', list: listId, 'aria-label': 'Value', value: c?.value == null ? '' : displayValue(c.value, type) });
+      const o = select(t('queryEditor.filter.operator'), [['', ''], ...ops], c?.op || '');
+      const v = el('input.input', { type: 'text', list: listId, 'aria-label': t('common.value'), value: c?.value == null ? '' : displayValue(c.value, type) });
       return { o, v, node: el('div.pq-filter-row', {}, o, v) };
     };
     const first = row(existing?.conditions[0] || (op ? { op } : null));
     const second = row(existing?.conditions[1]);
     const join = existing?.join || 'and';
-    const joinGroup = el('div.pq-radio-group.pq-inline', { role: 'radiogroup', 'aria-label': 'And or Or' },
-      el('label.check', {}, el('input', { type: 'radio', name: 'pq-join', value: 'and', checked: join === 'and' }), el('span', {}, 'And')),
-      el('label.check', {}, el('input', { type: 'radio', name: 'pq-join', value: 'or', checked: join === 'or' }), el('span', {}, 'Or')));
-    formDialog({ title: 'Filter Rows', wide: true, fields: [el('p.field-hint', {}, 'Apply one or more filter conditions to the rows in this table.'),
-      el('p', {}, 'Keep rows where \'', el('strong', {}, column), '\''), first.node, joinGroup, second.node, datalist],
+    const joinGroup = el('div.pq-radio-group.pq-inline', { role: 'radiogroup', 'aria-label': t('queryEditor.filter.join') },
+      el('label.check', {}, el('input', { type: 'radio', name: 'pq-join', value: 'and', checked: join === 'and' }), el('span', {}, t('queryEditor.filter.and'))),
+      el('label.check', {}, el('input', { type: 'radio', name: 'pq-join', value: 'or', checked: join === 'or' }), el('span', {}, t('queryEditor.filter.or'))));
+    formDialog({ title: t('queryEditor.filter.title'), wide: true, fields: [el('p.field-hint', {}, t('queryEditor.filter.hint')),
+      el('p', {}, ...tRich('queryEditor.filter.keepWhere', { column, strong: (c) => el('strong', {}, c) })), first.node, joinGroup, second.node, datalist],
     submit: () => {
       const conds = [first, second].filter((r) => r.o.value).map((r) => ({ op: r.o.value, value: ['isNull', 'notNull'].includes(r.o.value) ? null : parseTyped(r.v.value, type) }));
-      if (!conds.length) return { field: first.o, message: 'Choose a condition' };
+      if (!conds.length) return { field: first.o, message: t('queryEditor.filter.noCondition') };
       filterBy(column, conds, joinGroup.querySelector('input:checked').value, { replace: !!existing });
       return null;
     } });
@@ -455,12 +473,12 @@ export function openQueryEditor(ctx, { queryId = null, draft = null } = {}) {
   function mergeQueries() {
     const q = current();
     const others = drafts.filter((d) => d.id !== q.id);
-    if (!others.length) { toast('Merge needs another query to match against. Add one with Get Data first.', { icon: 'info', duration: 4000 }); return; }
+    if (!others.length) { toast(t('queryEditor.merge.noOther'), { icon: 'info', duration: 4000 }); return; }
     const cols = table()?.columns || [];
-    const leftSel = select('Matching column in this query', cols.map((c) => [c, c]), selected[0] || cols[0]);
-    const otherSel = select('Second query', others.map((o) => [o.name, o.name]), others[0].name);
-    const rightSel = el('select.select', { 'aria-label': 'Matching column in the second query' });
-    const kindSel = select('Join Kind', Object.entries(JOIN_KINDS), 'leftOuter');
+    const leftSel = select(t('queryEditor.merge.leftColumn'), cols.map((c) => [c, c]), selected[0] || cols[0]);
+    const otherSel = select(t('queryEditor.merge.otherQuery'), others.map((o) => [o.name, o.name]), others[0].name);
+    const rightSel = el('select.select', { 'aria-label': t('queryEditor.merge.rightColumnLabel') });
+    const kindSel = select(t('queryEditor.merge.joinKind'), Object.keys(JOIN_KINDS).map((k) => [k, joinKindLabel(k)]), 'leftOuter');
     const expandHost = el('div.pq-checklist');
     const note = el('p.field-hint');
     let otherTable = null;
@@ -479,16 +497,16 @@ export function openQueryEditor(ctx, { queryId = null, draft = null } = {}) {
       if (li < 0 || ri < 0) { note.textContent = ''; return; }
       const keys = new Set(otherTable.rows.map((r) => keyOf(r[ri])));
       const hit = table().rows.filter((r) => keys.has(keyOf(r[li]))).length;
-      note.textContent = `The selection matches ${hit} of ${table().rows.length} rows from the first table.`;
+      note.textContent = t('queryEditor.merge.matches', { hit, total: table().rows.length });
     };
     otherSel.addEventListener('change', loadOther);
     leftSel.addEventListener('change', updateNote); rightSel.addEventListener('change', updateNote);
     loadOther();
-    formDialog({ title: 'Merge', wide: true, fields: [el('p.field-hint', {}, 'Select tables and matching columns to create a merged table.'),
-      el('div.pq-merge', {}, field(q.name, leftSel), field('Second table', otherSel), field('Matching column', rightSel)),
-      field('Join Kind', kindSel), el('div.field-label', {}, 'Columns to add'), expandHost, note],
+    formDialog({ title: t('queryEditor.merge.title'), wide: true, fields: [el('p.field-hint', {}, t('queryEditor.merge.hint')),
+      el('div.pq-merge', {}, field(q.name, leftSel), field(t('queryEditor.merge.otherTable'), otherSel), field(t('queryEditor.merge.rightColumn'), rightSel)),
+      field(t('queryEditor.merge.joinKind'), kindSel), el('div.field-label', {}, t('queryEditor.merge.expand')), expandHost, note],
     submit: () => {
-      if (!rightSel.value) return { field: rightSel, message: 'Choose the matching column' };
+      if (!rightSel.value) return { field: rightSel, message: t('queryEditor.merge.noColumn') };
       const expand = [...expandHost.querySelectorAll('input:checked')].map((b) => b.value);
       addStep({ type: 'merge', query: otherSel.value, left: [leftSel.value], right: [rightSel.value], kind: kindSel.value, column: otherSel.value, expand });
       return null;
@@ -501,21 +519,21 @@ export function openQueryEditor(ctx, { queryId = null, draft = null } = {}) {
     if (!q) return;
     const s = q.source;
     const tables = wb.tableNames().filter((n) => !drafts.some((d) => d.load?.table === n && d.id === q.id));
-    const kinds = [['table', 'Table in this workbook'], ['query', 'Another query'], ['web', 'Web address'], ['csv', 'Text (comma-separated)']];
-    if (s.kind === 'workbook') kinds.push(['workbook', `Workbook: ${s.name}`]);
-    const kindSel = select('Source', kinds, s.kind === 'blank' ? 'table' : s.kind);
-    const tableSel = select('Table', tables.map((n) => [n, n]), s.table || tables[0]);
-    const querySel = select('Query', drafts.filter((d) => d.id !== q.id).map((d) => [d.name, d.name]), s.query);
-    const url = el('input.input', { type: 'url', value: s.url || '', 'aria-label': 'URL', placeholder: 'https://example.com/data.csv' });
-    const text = el('textarea.input.pq-source-text', { rows: 8, 'aria-label': 'Text', spellcheck: false }, s.kind === 'csv' ? s.text : '');
-    const parts = { table: field('Table', tableSel), query: field('Query', querySel), web: field('URL', url), csv: field('Text', text), workbook: el('p.field-hint', {}, `The values of ${s.item || 'the sheet'} as they were read from ${s.name}.`) };
+    const kinds = [['table', t('queryEditor.source.table')], ['query', t('queryEditor.source.query')], ['web', t('queryEditor.source.web')], ['csv', t('queryEditor.source.csv')]];
+    if (s.kind === 'workbook') kinds.push(['workbook', t('queryEditor.source.workbook', { name: s.name })]);
+    const kindSel = select(t('queryEditor.source.title'), kinds, s.kind === 'blank' ? 'table' : s.kind);
+    const tableSel = select(t('queryEditor.table'), tables.map((n) => [n, n]), s.table || tables[0]);
+    const querySel = select(t('queryEditor.query'), drafts.filter((d) => d.id !== q.id).map((d) => [d.name, d.name]), s.query);
+    const url = el('input.input', { type: 'url', value: s.url || '', 'aria-label': t('queryEditor.source.url'), placeholder: 'https://example.com/data.csv' });
+    const text = el('textarea.input.pq-source-text', { rows: 8, 'aria-label': t('queryEditor.source.text'), spellcheck: false }, s.kind === 'csv' ? s.text : '');
+    const parts = { table: field(t('queryEditor.table'), tableSel), query: field(t('queryEditor.query'), querySel), web: field(t('queryEditor.source.url'), url), csv: field(t('queryEditor.source.text'), text), workbook: el('p.field-hint', {}, s.item ? t('queryEditor.source.workbookItem', { item: s.item, name: s.name }) : t('queryEditor.source.workbookSheet', { name: s.name })) };
     const sync = () => { for (const [k, node] of Object.entries(parts)) node.hidden = k !== kindSel.value; };
     kindSel.addEventListener('change', sync);
-    formDialog({ title: 'Source', wide: true, fields: [field('Source', kindSel), ...Object.values(parts)], submit: () => {
+    formDialog({ title: t('queryEditor.source.title'), wide: true, fields: [field(t('queryEditor.source.title'), kindSel), ...Object.values(parts)], submit: () => {
       const kind = kindSel.value;
       let next;
-      if (kind === 'table') { if (!tableSel.value) return { field: tableSel, message: 'There is no table in this workbook. Create one with Insert ▸ Table.' }; next = { kind, table: tableSel.value }; }
-      else if (kind === 'query') { if (!querySel.value) return { field: querySel, message: 'There is no other query' }; next = { kind, query: querySel.value }; }
+      if (kind === 'table') { if (!tableSel.value) return { field: tableSel, message: t('queryEditor.source.noTable') }; next = { kind, table: tableSel.value }; }
+      else if (kind === 'query') { if (!querySel.value) return { field: querySel, message: t('queryEditor.source.noQuery') }; next = { kind, query: querySel.value }; }
       else if (kind === 'web') { const p = urlProblem(url.value); if (p) return { field: url, message: p }; next = { kind, url: url.value.trim() }; }
       else if (kind === 'csv') next = { kind, name: s.kind === 'csv' ? s.name : 'Text.csv', text: text.value, ...(s.delimiter ? { delimiter: s.delimiter } : {}) };
       else next = s;
@@ -541,41 +559,41 @@ export function openQueryEditor(ctx, { queryId = null, draft = null } = {}) {
     const type = typeOf(column);
     const many = selected.length > 1;
     return [
-      { label: many ? 'Remove Columns' : 'Remove', icon: 'deleteCols', onSelect: () => removeColumns() },
-      { label: 'Remove Other Columns', onSelect: () => removeOtherColumns() },
-      { label: 'Duplicate Column', icon: 'copy', disabled: many, onSelect: () => addStep({ type: 'duplicateColumn', column }) },
+      { label: many ? t('queryEditor.removeColumns') : t('common.remove'), icon: 'deleteCols', onSelect: () => removeColumns() },
+      { label: t('queryEditor.removeOtherColumns'), onSelect: () => removeOtherColumns() },
+      { label: t('queryEditor.duplicateColumn'), icon: 'copy', disabled: many, onSelect: () => addStep({ type: 'duplicateColumn', column }) },
       { separator: true },
-      { label: 'Remove Duplicates', icon: 'dedupe', onSelect: () => removeDuplicates() },
-      { label: 'Remove Errors', onSelect: () => addStep({ type: 'removeErrors', columns: selected.slice() }) },
+      { label: t('queryEditor.removeDuplicates'), icon: 'dedupe', onSelect: () => removeDuplicates() },
+      { label: t('queryEditor.removeErrors'), onSelect: () => addStep({ type: 'removeErrors', columns: selected.slice() }) },
       { separator: true },
-      { label: 'Change Type', submenu: TYPES.map((t) => ({ label: TYPE_LABELS[t], radio: true, checked: !many && t === type, onSelect: () => changeType(selected.slice(), t) })) },
-      { label: 'Transform', submenu: textMenu() },
+      { label: t('queryEditor.changeType'), submenu: TYPES.map((ty) => ({ label: typeLabel(ty), radio: true, checked: !many && ty === type, onSelect: () => changeType(selected.slice(), ty) })) },
+      { label: t('queryEditor.transform'), submenu: textMenu() },
       { separator: true },
-      { label: 'Replace Values…', icon: 'replace', onSelect: () => replaceValues() },
-      { label: 'Fill', submenu: [{ label: 'Down', icon: 'fillDown', onSelect: () => addStep({ type: 'fillDown', columns: selected.slice() }) }, { label: 'Up', icon: 'fillUp', onSelect: () => addStep({ type: 'fillUp', columns: selected.slice() }) }] },
+      { label: t('queryEditor.replaceValuesDialog'), icon: 'replace', onSelect: () => replaceValues() },
+      { label: t('queryEditor.fill'), submenu: [{ label: t('queryEditor.fillDown'), icon: 'fillDown', onSelect: () => addStep({ type: 'fillDown', columns: selected.slice() }) }, { label: t('queryEditor.fillUp'), icon: 'fillUp', onSelect: () => addStep({ type: 'fillUp', columns: selected.slice() }) }] },
       { separator: true },
-      { label: 'Group By…', icon: 'groupBy', onSelect: () => groupBy() },
-      { label: 'Split Column', disabled: many, submenu: [{ label: 'By Delimiter…', onSelect: () => splitColumn(column) }] },
+      { label: t('queryEditor.groupByDialog'), icon: 'groupBy', onSelect: () => groupBy() },
+      { label: t('queryEditor.splitColumn'), disabled: many, submenu: [{ label: t('queryEditor.byDelimiter'), onSelect: () => splitColumn(column) }] },
       { separator: true },
-      { label: 'Rename…', icon: 'pencil', disabled: many, onSelect: () => renameColumn(column) },
+      { label: t('queryEditor.renameDialog'), icon: 'pencil', disabled: many, onSelect: () => renameColumn(column) },
     ];
   }
 
   function tableMenu() {
     return [
-      { label: 'Use First Row as Headers', icon: 'promoteHeaders', onSelect: () => addStep({ type: 'promoteHeaders' }) },
-      { label: 'Use Headers as First Row', onSelect: () => addStep({ type: 'demoteHeaders' }) },
+      { label: t('queryEditor.useFirstRowAsHeaders'), icon: 'promoteHeaders', onSelect: () => addStep({ type: 'promoteHeaders' }) },
+      { label: t('queryEditor.useHeadersAsFirstRow'), onSelect: () => addStep({ type: 'demoteHeaders' }) },
       { separator: true },
-      { label: 'Add Index Column', submenu: [{ label: 'From 0', onSelect: () => addIndex(0, 1) }, { label: 'From 1', onSelect: () => addIndex(1, 1) }, { label: 'Custom…', onSelect: () => customIndex() }] },
-      { label: 'Choose Columns…', icon: 'chooseColumns', onSelect: () => chooseColumns() },
+      { label: t('queryEditor.index.title'), submenu: [{ label: t('queryEditor.fromZero'), onSelect: () => addIndex(0, 1) }, { label: t('queryEditor.fromOne'), onSelect: () => addIndex(1, 1) }, { label: t('queryEditor.customIndex'), onSelect: () => customIndex() }] },
+      { label: t('queryEditor.chooseColumnsDialog'), icon: 'chooseColumns', onSelect: () => chooseColumns() },
       { separator: true },
-      { label: 'Keep Top Rows…', onSelect: () => rowsCount('keepFirst') },
-      { label: 'Remove Top Rows…', onSelect: () => rowsCount('removeFirst') },
-      { label: 'Remove Duplicates', icon: 'dedupe', onSelect: () => addStep({ type: 'removeDuplicates', columns: null }) },
-      { label: 'Remove Blank Rows', onSelect: () => addStep({ type: 'removeBlankRows' }) },
+      { label: t('queryEditor.keepTopRowsDialog'), onSelect: () => rowsCount('keepFirst') },
+      { label: t('queryEditor.removeTopRowsDialog'), onSelect: () => rowsCount('removeFirst') },
+      { label: t('queryEditor.removeDuplicates'), icon: 'dedupe', onSelect: () => addStep({ type: 'removeDuplicates', columns: null }) },
+      { label: t('queryEditor.removeBlankRows'), onSelect: () => addStep({ type: 'removeBlankRows' }) },
       { separator: true },
-      { label: 'Group By…', icon: 'groupBy', onSelect: () => groupBy() },
-      { label: 'Merge Queries…', icon: 'mergeQueries', onSelect: () => mergeQueries() },
+      { label: t('queryEditor.groupByDialog'), icon: 'groupBy', onSelect: () => groupBy() },
+      { label: t('queryEditor.mergeQueriesDialog'), icon: 'mergeQueries', onSelect: () => mergeQueries() },
     ];
   }
 
@@ -585,9 +603,9 @@ export function openQueryEditor(ctx, { queryId = null, draft = null } = {}) {
   /** The filter drop-down: sort, the type's filters, and the column's values to keep. */
   function filterPopup(column, anchor) {
     closePopup();
-    const t = table(), i = t.columns.indexOf(column), type = typeOf(column);
+    const tbl = table(), i = tbl.columns.indexOf(column), type = typeOf(column);
     const counts = new Map();
-    for (const r of t.rows) { const k = keyOf(r[i]); if (!counts.has(k)) counts.set(k, r[i]); }
+    for (const r of tbl.rows) { const k = keyOf(r[i]); if (!counts.has(k)) counts.set(k, r[i]); }
     const values = [...counts.values()].slice(0, 1000);
     const prev = previous();
     const list = prev?.type === 'filterRows' && prev.column === column && prev.conditions.length === 1 && ['in', 'notIn'].includes(prev.conditions[0].op) ? prev.conditions[0] : null;
@@ -596,34 +614,34 @@ export function openQueryEditor(ctx, { queryId = null, draft = null } = {}) {
     const boxes = values.map((v) => el('input', { type: 'checkbox', checked: ticked(v) }));
     boxes.forEach((b, n) => { b._value = values[n]; });
     const all = el('input', { type: 'checkbox', checked: boxes.every((b) => b.checked), onchange: () => { for (const b of boxes) if (!b.closest('label').hidden) b.checked = all.checked; } });
-    const search = el('input.input', { type: 'search', placeholder: 'Search', 'aria-label': 'Search values', oninput: () => {
+    const search = el('input.input', { type: 'search', placeholder: t('common.search'), 'aria-label': t('queryEditor.popup.search'), oninput: () => {
       const q = search.value.toLowerCase();
       boxes.forEach((b) => { b.closest('label').hidden = !!q && !displayValue(b._value, type).toLowerCase().includes(q); });
     } });
     const act = (label, fn, glyph = null) => el('button.pq-pop-item', { type: 'button', html: glyph ? icon(glyph, 16) : '', onclick: () => { closePopup(); fn(); } }, el('span', {}, label));
     const filtersBtn = el('button.pq-pop-item.pq-pop-sub', { type: 'button', 'aria-haspopup': 'menu' }, el('span', {}, filterMenuName(type)), el('span', { html: icon('chevR', 12) }));
     filtersBtn.addEventListener('click', () => openMenu({ anchor: filtersBtn, align: 'start', label: filterMenuName(type),
-      items: [...filtersFor(type).map((op) => ({ label: `${FILTER_OPS[op][0].toUpperCase()}${FILTER_OPS[op].slice(1)}…`, onSelect: () => { closePopup(); filterDialog(column, op); } })),
-        { separator: true }, { label: 'Custom Filter…', onSelect: () => { closePopup(); filterDialog(column); } }] }));
+      items: [...filtersFor(type).map((op) => ({ label: t(FILTER_MENU[op]), onSelect: () => { closePopup(); filterDialog(column, op); } })),
+        { separator: true }, { label: t('queryEditor.popup.customFilter'), onSelect: () => { closePopup(); filterDialog(column); } }] }));
     const truncated = counts.size >= 1000;
     let okBtn = null;
     // Enter in the search box confirms the list, as OK does.
     search.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); okBtn.click(); } });
-    popup = el('div.pq-popup', { role: 'dialog', 'aria-label': `Filter ${column}` },
-      act('Sort Ascending', () => sortBy(column, false), 'sortAsc'),
-      act('Sort Descending', () => sortBy(column, true), 'sortDesc'),
+    popup = el('div.pq-popup', { role: 'dialog', 'aria-label': t('queryEditor.filterColumn', { column }) },
+      act(t('queryEditor.sortAscending'), () => sortBy(column, false), 'sortAsc'),
+      act(t('queryEditor.sortDescending'), () => sortBy(column, true), 'sortDesc'),
       el('div.pq-pop-sep'),
-      act('Clear Filter', () => {
+      act(t('queryEditor.popup.clearFilter'), () => {
         const q = current(), at = stepIndex(q);
         const last = at > 0 ? q.steps[at - 1] : null;
         if (last?.type === 'filterRows' && last.column === column) deleteStep(at - 1);
       }, 'filterClear'),
-      act('Remove Empty', () => filterBy(column, [{ op: 'notBlank' }])),
+      act(t('queryEditor.popup.removeEmpty'), () => filterBy(column, [{ op: 'notBlank' }])),
       filtersBtn,
       search,
-      el('div.pq-checklist.pq-pop-list', {}, el('label.check', {}, all, el('span', {}, '(Select All)')),
+      el('div.pq-checklist.pq-pop-list', {}, el('label.check', {}, all, el('span', {}, t('queryEditor.popup.selectAll'))),
         ...boxes.map((b) => el('label.check', {}, b, el('span', {}, displayValue(b._value, type))))),
-      truncated ? el('p.field-hint', {}, 'List may be incomplete.') : null,
+      truncated ? el('p.field-hint', {}, t('queryEditor.popup.incomplete')) : null,
       el('div.row.row-end', {},
         okBtn = el('button.btn.btn-primary', { type: 'button', onclick: () => {
           // The values a search hides are left out, as in Power Query: "pen" and OK keeps the pens.
@@ -638,8 +656,8 @@ export function openQueryEditor(ctx, { queryId = null, draft = null } = {}) {
           if (list?.op === 'in') filterBy(column, [{ op: 'in', values: list.values.filter((v) => !gone.has(keyOf(v))) }], 'and', { replace: true });
           else if (truncated || list?.op === 'notIn') filterBy(column, [{ op: 'notIn', values: [...(list?.values || []), ...cleared] }], 'and', { replace: !!list });
           else filterBy(column, [{ op: 'in', values: keep }]);
-        } }, 'OK'),
-        el('button.btn', { type: 'button', onclick: () => closePopup() }, 'Cancel')));
+        } }, t('common.ok')),
+        el('button.btn', { type: 'button', onclick: () => closePopup() }, t('common.cancel'))));
     root.append(popup);
     const a = anchor.getBoundingClientRect(), r = root.getBoundingClientRect();
     popup.style.left = `${Math.max(4, Math.min(a.left - r.left, r.width - 280))}px`;
@@ -650,7 +668,7 @@ export function openQueryEditor(ctx, { queryId = null, draft = null } = {}) {
 
   /* ---------- Rendering ---------- */
   function drawQueries() {
-    queriesHead.textContent = `Queries [${drafts.length}]`;
+    queriesHead.textContent = t('queryEditor.queriesCount', { count: drafts.length });
     queryList.replaceChildren(...drafts.map((q) => {
       const item = el('button.pq-query', { type: 'button', role: 'option', 'aria-selected': String(q.id === currentId), title: sourceSummary(q),
         html: icon('table', 16), onclick: () => { if (q.id !== currentId) { currentId = q.id; selected = []; compute(); } } });
@@ -669,8 +687,8 @@ export function openQueryEditor(ctx, { queryId = null, draft = null } = {}) {
       const li = el('li.pq-step', { 'aria-current': i === at ? 'step' : null },
         el('button.pq-step-name', { type: 'button', onclick: () => { stepAt.set(q.id, i); compute(); },
           oncontextmenu: (e) => { e.preventDefault(); stepMenu(i, e); } }, name),
-        i === 0 ? el('button.icon-btn.pq-step-gear', { type: 'button', title: 'Source settings', 'aria-label': 'Source settings', html: icon('sliders', 14), onclick: () => openSourceDialog() }) : null,
-        i > 0 ? el('button.icon-btn.pq-step-delete', { type: 'button', title: `Delete ${name}`, 'aria-label': `Delete ${name}`, html: icon('x', 14), onclick: () => deleteStep(i - 1) }) : null);
+        i === 0 ? el('button.icon-btn.pq-step-gear', { type: 'button', title: t('queryEditor.step.sourceSettings'), 'aria-label': t('queryEditor.step.sourceSettings'), html: icon('sliders', 14), onclick: () => openSourceDialog() }) : null,
+        i > 0 ? el('button.icon-btn.pq-step-delete', { type: 'button', title: t('queryEditor.deleteNamed', { name }), 'aria-label': t('queryEditor.deleteNamed', { name }), html: icon('x', 14), onclick: () => deleteStep(i - 1) }) : null);
       if (failed) li.classList.add('pq-step-error');
       return li;
     }));
@@ -678,24 +696,24 @@ export function openQueryEditor(ctx, { queryId = null, draft = null } = {}) {
 
   function stepMenu(i, e) {
     const q = current();
-    if (i === 0) { openMenu({ x: e.clientX, y: e.clientY, label: 'Source', items: [{ label: 'Edit Settings', onSelect: () => openSourceDialog() }] }); return; }
+    if (i === 0) { openMenu({ x: e.clientX, y: e.clientY, label: t('queryEditor.source.title'), items: [{ label: t('queryEditor.step.editSettings'), onSelect: () => openSourceDialog() }] }); return; }
     const k = i - 1;
-    openMenu({ x: e.clientX, y: e.clientY, label: 'Step', items: [
-      { label: 'Rename', icon: 'pencil', onSelect: () => {
-        const input = el('input.input', { type: 'text', value: stepNames(q)[i], 'aria-label': 'Step name' });
-        formDialog({ title: 'Rename Step', fields: [field('Name', input)], submit: () => {
+    openMenu({ x: e.clientX, y: e.clientY, label: t('queryEditor.step.menu'), items: [
+      { label: t('common.rename'), icon: 'pencil', onSelect: () => {
+        const input = el('input.input', { type: 'text', value: stepNames(q)[i], 'aria-label': t('queryEditor.step.name') });
+        formDialog({ title: t('queryEditor.step.renameTitle'), fields: [field(t('common.name'), input)], submit: () => {
           const name = input.value.trim();
-          if (!name) return { field: input, message: 'Enter a name' };
-          if (stepNames(q).some((n, j) => j !== i && n.toLowerCase() === name.toLowerCase())) return { field: input, message: 'Another step has that name' };
+          if (!name) return { field: input, message: t('queryEditor.step.noName') };
+          if (stepNames(q).some((n, j) => j !== i && n.toLowerCase() === name.toLowerCase())) return { field: input, message: t('queryEditor.step.nameTaken') };
           q.steps[k].name = name; markDirty(q); drawSteps(); drawFormula();
           return null;
         } });
       } },
-      { label: 'Delete', onSelect: () => deleteStep(k) },
-      { label: 'Delete Until End', onSelect: () => { q.steps.splice(k); stepAt.delete(q.id); markDirty(q); compute(); } },
+      { label: t('common.delete'), onSelect: () => deleteStep(k) },
+      { label: t('queryEditor.step.deleteToEnd'), onSelect: () => { q.steps.splice(k); stepAt.delete(q.id); markDirty(q); compute(); } },
       { separator: true },
-      { label: 'Move Before', disabled: k === 0, onSelect: () => { [q.steps[k - 1], q.steps[k]] = [q.steps[k], q.steps[k - 1]]; stepAt.set(q.id, i - 1); markDirty(q); compute(); } },
-      { label: 'Move After', disabled: k === q.steps.length - 1, onSelect: () => { [q.steps[k + 1], q.steps[k]] = [q.steps[k], q.steps[k + 1]]; stepAt.set(q.id, i + 1); markDirty(q); compute(); } },
+      { label: t('queryEditor.step.moveBefore'), disabled: k === 0, onSelect: () => { [q.steps[k - 1], q.steps[k]] = [q.steps[k], q.steps[k - 1]]; stepAt.set(q.id, i - 1); markDirty(q); compute(); } },
+      { label: t('queryEditor.step.moveAfter'), disabled: k === q.steps.length - 1, onSelect: () => { [q.steps[k + 1], q.steps[k]] = [q.steps[k], q.steps[k + 1]]; stepAt.set(q.id, i + 1); markDirty(q); compute(); } },
     ] });
   }
 
@@ -707,30 +725,30 @@ export function openQueryEditor(ctx, { queryId = null, draft = null } = {}) {
   function drawGrid() {
     const q = current();
     if (!q) {
-      gridHost.replaceChildren(el('div.pq-empty', {}, el('p', {}, 'There are no queries in this workbook yet.'), el('p.muted', {}, 'Close this window and choose Data ▸ Get Data to start one.')));
+      gridHost.replaceChildren(el('div.pq-empty', {}, el('p', {}, t('queryEditor.empty.noQueries')), el('p.muted', {}, t('queryEditor.empty.noQueriesHint'))));
       return;
     }
     if (q.source.kind === 'blank' && !q.steps.length) {
-      gridHost.replaceChildren(el('div.pq-empty', {}, el('p', {}, 'This query has no source yet.'),
-        el('button.btn.btn-primary', { type: 'button', onclick: () => openSourceDialog() }, 'Choose a source…')));
+      gridHost.replaceChildren(el('div.pq-empty', {}, el('p', {}, t('queryEditor.empty.noSource')),
+        el('button.btn.btn-primary', { type: 'button', onclick: () => openSourceDialog() }, t('queryEditor.empty.chooseSource'))));
       return;
     }
-    const t = result.table;
-    if (result.error && (!t || result.error.step + 1 === stepIndex(q) || result.error.step === -1)) {
+    const tbl = result.table;
+    if (result.error && (!tbl || result.error.step + 1 === stepIndex(q) || result.error.step === -1)) {
       gridHost.replaceChildren(el('div.pq-error-box', { role: 'alert' }, el('span', { html: icon('alert', 18) }), el('div', {},
         el('strong', {}, result.error.message.split(':')[0].includes('.') ? result.error.message.split(':')[0] : 'Expression.Error'),
         el('p', {}, result.error.message.includes(':') ? result.error.message.slice(result.error.message.indexOf(':') + 1).trim() : result.error.message),
-        result.error.step >= 0 ? el('button.btn.btn-sm', { type: 'button', onclick: () => { stepAt.set(q.id, result.error.step); compute(); } }, 'Go To Error') : null)));
+        result.error.step >= 0 ? el('button.btn.btn-sm', { type: 'button', onclick: () => { stepAt.set(q.id, result.error.step); compute(); } }, t('queryEditor.goToError')) : null)));
       return;
     }
-    if (!t) { gridHost.replaceChildren(); return; }
-    const corner = el('th.pq-corner', {}, el('button.pq-table-btn', { type: 'button', 'aria-label': 'Table actions', title: 'Table actions', html: icon('table', 14),
-      onclick: (e) => openMenu({ anchor: e.currentTarget, label: 'Table', items: tableMenu() }) }));
-    const heads = t.columns.map((name, i) => {
-      const type = t.types[i];
-      const typeBtn = el('button.pq-type', { type: 'button', title: TYPE_LABELS[type], 'aria-label': `${name} type: ${TYPE_LABELS[type]}` }, TYPE_MARKS[type].replace('\n', ''));
-      typeBtn.addEventListener('click', (e) => { e.stopPropagation(); pick(name, e, true); openMenu({ anchor: typeBtn, label: 'Data Type', items: TYPES.map((tp) => ({ label: TYPE_LABELS[tp], radio: true, checked: tp === type, onSelect: () => changeType(selected.slice(), tp) })) }); });
-      const filterBtn = el('button.pq-filter', { type: 'button', 'aria-label': `Filter ${name}`, title: 'Filter and sort', html: icon('chevD', 12) });
+    if (!tbl) { gridHost.replaceChildren(); return; }
+    const corner = el('th.pq-corner', {}, el('button.pq-table-btn', { type: 'button', 'aria-label': t('queryEditor.tableActions'), title: t('queryEditor.tableActions'), html: icon('table', 14),
+      onclick: (e) => openMenu({ anchor: e.currentTarget, label: t('queryEditor.table'), items: tableMenu() }) }));
+    const heads = tbl.columns.map((name, i) => {
+      const type = tbl.types[i];
+      const typeBtn = el('button.pq-type', { type: 'button', title: typeLabel(type), 'aria-label': t('queryEditor.columnType', { name, type: typeLabel(type) }) }, TYPE_MARKS[type].replace('\n', ''));
+      typeBtn.addEventListener('click', (e) => { e.stopPropagation(); pick(name, e, true); openMenu({ anchor: typeBtn, label: t('queryEditor.dataType'), items: TYPES.map((tp) => ({ label: typeLabel(tp), radio: true, checked: tp === type, onSelect: () => changeType(selected.slice(), tp) })) }); });
+      const filterBtn = el('button.pq-filter', { type: 'button', 'aria-label': t('queryEditor.filterColumn', { column: name }), title: t('queryEditor.filterAndSort'), html: icon('chevD', 12) });
       filterBtn.addEventListener('click', (e) => { e.stopPropagation(); pick(name, e, true); filterPopup(name, filterBtn); });
       const th = el('th.pq-col', { dataset: { col: name }, 'aria-selected': String(selected.includes(name)), tabindex: -1 }, typeBtn, el('span.pq-colname', {}, name), filterBtn);
       th.addEventListener('click', (e) => pick(name, e));
@@ -738,8 +756,8 @@ export function openQueryEditor(ctx, { queryId = null, draft = null } = {}) {
       th.addEventListener('contextmenu', (e) => { e.preventDefault(); if (!selected.includes(name)) pick(name, e); openMenu({ x: e.clientX, y: e.clientY, label: name, items: columnMenu(name) }); });
       return th;
     });
-    const rows = t.rows.slice(0, PREVIEW_ROWS).map((row, n) => el('tr', {}, el('th.pq-rownum', {}, String(n + 1)),
-      ...t.columns.map((name, i) => { const td = cellNode(row[i], t.types[i]); if (selected.includes(name)) td.classList.add('pq-selcol'); return td; })));
+    const rows = tbl.rows.slice(0, PREVIEW_ROWS).map((row, n) => el('tr', {}, el('th.pq-rownum', {}, String(n + 1)),
+      ...tbl.columns.map((name, i) => { const td = cellNode(row[i], tbl.types[i]); if (selected.includes(name)) td.classList.add('pq-selcol'); return td; })));
     gridHost.replaceChildren(el('table.pq-table.pq-live', {}, el('thead', {}, el('tr', {}, corner, ...heads)), el('tbody', {}, ...rows)));
   }
 
@@ -757,9 +775,10 @@ export function openQueryEditor(ctx, { queryId = null, draft = null } = {}) {
   }
 
   function drawStatus() {
-    const t = result.table;
-    statusLeft.textContent = t && !result.error ? `${t.columns.length} COLUMN${t.columns.length === 1 ? '' : 'S'}, ${t.rows.length > 999 ? '999+' : t.rows.length} ROW${t.rows.length === 1 ? '' : 'S'}` : '';
-    statusRight.textContent = `PREVIEW DOWNLOADED AT ${downloadedAt.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }).toUpperCase()}`;
+    const tbl = result.table;
+    statusLeft.textContent = !tbl || result.error ? ''
+      : tbl.rows.length > 999 ? t('queryEditor.status.manyRows', { cols: tbl.columns.length }) : t('queryEditor.status.size', { cols: tbl.columns.length, rows: tbl.rows.length });
+    statusRight.textContent = t('queryEditor.status.downloaded', { time: formatDate(downloadedAt, { hour: 'numeric', minute: '2-digit' }).toUpperCase() });
   }
 
   function drawName() {
@@ -814,7 +833,7 @@ export function openQueryEditor(ctx, { queryId = null, draft = null } = {}) {
 
   gridHost.addEventListener('keydown', (e) => {
     if (isComposing(e)) return;
-    if (e.key === 'Delete' && selected.length) { e.preventDefault(); removeColumns(); }
+    if (e.key === t('common.delete') && selected.length) { e.preventDefault(); removeColumns(); }
     if (e.key === 'F2' && selected.length === 1) { e.preventDefault(); renameColumn(selected[0]); }
   });
 
@@ -844,7 +863,7 @@ export function openQueryEditor(ctx, { queryId = null, draft = null } = {}) {
       if (to && q.id === cur?.id) { openImportData(ctx, { query: q }); continue; }
       if (q.load?.kind === 'table' && loadedTable(wb, q)) {
         const res = await refreshQuery(wb, q, queryIo(ctx));
-        if (res.error) toast(`${q.name}: ${res.error}`, { icon: 'alert', duration: 5000 });
+        if (res.error) toast(t('queryEditor.refreshFailed', { name: q.name, error: res.error }), { icon: 'alert', duration: 5000 });
         else fitQueryTables(ctx, [q]);
       }
     }
@@ -854,12 +873,12 @@ export function openQueryEditor(ctx, { queryId = null, draft = null } = {}) {
 
   function requestClose() {
     if (!touched.size) { finish(); ctx.grid?.focus?.(); return; }
-    const m = openModal({ title: 'Power Query Editor', content: el('div', {},
-      el('p.modal-text', {}, 'Do you want to keep your changes?'),
+    const m = openModal({ title: t('queryEditor.title'), content: el('div', {},
+      el('p.modal-text', {}, t('queryEditor.keepChanges.message')),
       el('div.row.row-end', {},
-        el('button.btn.btn-primary', { type: 'button', onclick: () => { m.close(); closeAndLoad(false); } }, 'Keep'),
-        el('button.btn', { type: 'button', onclick: () => { m.close(); finish(); ctx.grid?.focus?.(); } }, 'Discard'),
-        el('button.btn.btn-ghost', { type: 'button', onclick: () => m.close() }, 'Cancel'))) });
+        el('button.btn.btn-primary', { type: 'button', onclick: () => { m.close(); closeAndLoad(false); } }, t('queryEditor.keepChanges.keep')),
+        el('button.btn', { type: 'button', onclick: () => { m.close(); finish(); ctx.grid?.focus?.(); } }, t('queryEditor.keepChanges.discard')),
+        el('button.btn.btn-ghost', { type: 'button', onclick: () => m.close() }, t('common.cancel')))) });
   }
 
   drawRibbon();

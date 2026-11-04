@@ -54,9 +54,10 @@ it('asks whether to save anyway when the file could not be checked, rather than 
 
 it('names the state in the pill: could not be checked, apart from changed elsewhere and moved or deleted', () => {
   const doc = mount();
-  const show = (error) => { doc.status = 'conflict'; doc.error = error; doc.dispatchEvent(new CustomEvent('status')); return pill().textContent; };
-  expect(show('This file could not be checked for changes made elsewhere')).toBe('Could not be checked');
+  // The document says which conflict it is (conflictKind), as its message is in the interface language.
+  const show = (error, kind) => { doc.status = 'conflict'; doc.error = error; doc.conflictKind = kind; doc.dispatchEvent(new CustomEvent('status')); return pill().textContent; };
+  expect(show('This file could not be checked for changes made elsewhere', 'unchecked')).toBe('Could not be checked');
   expect(pill().title).toContain('could not be checked for changes made elsewhere');
-  expect(show('This file changed elsewhere')).toBe('Changed elsewhere');
-  expect(show('This file was moved or deleted')).toBe('Moved or deleted');
+  expect(show('This file changed elsewhere', 'changed')).toBe('Changed elsewhere');
+  expect(show('This file was moved or deleted', 'missing')).toBe('Moved or deleted');
 });

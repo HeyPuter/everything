@@ -14,6 +14,7 @@ import { el, fieldId } from './dom.js';
 import { openModal, confirmDialog, promptDialog } from './modal.js';
 import { toast } from './toast.js';
 import { linkEntries, linkPath, targetForPath, updateLinkValues, changeLinkSource, breakLink, linkUsage } from '../core/edit-links.js';
+import { t } from '../i18n/index.js';
 
 /** What the last look at each source found, by target, for as long as the page is open. */
 const statusByTarget = new Map();
@@ -24,17 +25,46 @@ const readable = (target) => { try { return decodeURI(target); } catch { return 
 const notFound = (e) => e?.code === 'subject_does_not_exist' || e?.code === 'not_found' || /not.?found|does not exist|no such/i.test(String(e?.message || e));
 
 /**
+ * What a look at a source found: { code, sheets? }, code one of ok, unknown, notApplicable, or the errors notOnDrive,
+ * notFound, unreadable and sheetMissing (with the sheets not found).
+ */
+const isError = (status) => !['ok', 'unknown', 'notApplicable'].includes(status.code);
+
+/** A status as the list shows it: "OK", "Error: Source not found". */
+function statusText(status) {
+  switch (status.code) {
+    case 'ok': return t('editlinks.status.ok');
+    case 'notApplicable': return t('editlinks.status.notApplicable');
+    case 'notOnDrive': return t('editlinks.status.notOnDrive');
+    case 'notFound': return t('editlinks.status.notFound');
+    case 'unreadable': return t('editlinks.status.unreadable');
+    case 'sheetMissing': return t('editlinks.status.sheetMissing', { sheets: status.sheets.join(', ') });
+    default: return t('editlinks.status.unknown');
+  }
+}
+
+/** An error status as the reason a link could not be updated: "source not found". */
+function statusReason(status) {
+  switch (status.code) {
+    case 'notOnDrive': return t('editlinks.reason.notOnDrive');
+    case 'notFound': return t('editlinks.reason.notFound');
+    case 'sheetMissing': return t('editlinks.reason.sheetMissing', { sheets: status.sheets.join(', ').toLowerCase() });
+    default: return t('editlinks.reason.unreadable');
+  }
+}
+
+/**
  * Read one link's source: { status, source } where source is the Workbook (null when it could not be read)
- * and status what to show for it.
+ * and status what was found (see isError).
  */
 export async function readLinkSource(host, entry) {
-  if (entry.kind !== 'workbook') return { status: 'Not applicable', source: null };
+  if (entry.kind !== 'workbook') return { status: { code: 'notApplicable' }, source: null };
   const path = linkPath(entry.target, host.docPath?.());
-  if (!path) return { status: 'Error: Source not on this drive', source: null };
+  if (!path) return { status: { code: 'notOnDrive' }, source: null };
   let source;
-  try { source = await host.read(path); } catch (e) { return { status: notFound(e) ? 'Error: Source not found' : 'Error: Source could not be read', source: null }; }
+  try { source = await host.read(path); } catch (e) { return { status: { code: notFound(e) ? 'notFound' : 'unreadable' }, source: null }; }
   const missing = entry.sheets.filter((name) => !source.sheets.some((s) => s.name.toLowerCase() === name.toLowerCase()));
-  return { status: missing.length ? `Error: Sheet not found (${missing.join(', ')})` : 'OK', source };
+  return { status: missing.length ? { code: 'sheetMissing', sheets: missing } : { code: 'ok' }, source };
 }
 
 /**
@@ -54,7 +84,7 @@ export async function updateAllLinks(ctx, host, { quiet = false } = {}) {
     updateLinkValues(ctx.wb, now.index, source);
     updated++;
   }
-  if (!quiet && (updated || failed)) toast(failed ? `Updated ${updated} link${updated === 1 ? '' : 's'}; ${failed} could not be updated` : `Updated ${updated} link${updated === 1 ? '' : 's'}`, { icon: failed ? 'alert' : 'check', duration: 3500 });
+  if (!quiet && (updated || failed)) toast(failed ? t('editlinks.updatedSomeFailed', { updated, failed }) : t('editlinks.updated', { updated }), { icon: failed ? 'alert' : 'check', duration: 3500 });
   return { updated, failed };
 }
 
@@ -63,9 +93,9 @@ export function openLinkStartupDialog(ctx) {
   const { wb } = ctx;
   const name = fieldId('link-startup');
   const choices = [
-    ['ask', 'Ask each time the workbook opens whether to update its links'],
-    ['none', 'Open without asking and keep the last values'],
-    ['update', 'Open without asking and update the links'],
+    ['ask', t('editlinks.startup.ask')],
+    ['none', t('editlinks.startup.none')],
+    ['update', t('editlinks.startup.update')],
   ];
   const radios = choices.map(([value]) => el('input', { type: 'radio', name, value, checked: (wb.linkStartup || 'ask') === value }));
   const content = el('form.el-startup', {
@@ -76,13 +106,13 @@ export function openLinkStartupDialog(ctx) {
       modal.close();
     },
   },
-    el('p.small.muted', {}, 'When this workbook is opened and it has links to other workbooks:'),
-    el('fieldset.el-choices', {}, el('legend.visually-hidden', {}, 'On opening'),
+    el('p.small.muted', {}, t('editlinks.startup.intro')),
+    el('fieldset.el-choices', {}, el('legend.visually-hidden', {}, t('editlinks.startup.legend')),
       ...choices.map(([, label], i) => el('label.el-choice', {}, radios[i], el('span', {}, label)))),
     el('div.row.row-end', {},
-      el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Cancel'),
-      el('button.btn.btn-primary', { type: 'submit' }, 'OK')));
-  const modal = openModal({ title: 'Startup Prompt', content, initialFocus: radios.find((r) => r.checked) });
+      el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, t('common.cancel')),
+      el('button.btn.btn-primary', { type: 'submit' }, t('common.ok'))));
+  const modal = openModal({ title: t('editlinks.startup.title'), content, initialFocus: radios.find((r) => r.checked) });
   return modal;
 }
 
@@ -93,20 +123,20 @@ export function openEditLinks(ctx, host) {
   let busy = false;
 
   const listId = fieldId('edit-links');
-  const list = el('div.el-list', { id: listId, role: 'listbox', 'aria-label': 'Links', tabindex: 0 });
-  const head = el('div.el-row.el-head', { 'aria-hidden': 'true' }, el('span', {}, 'Source'), el('span', {}, 'Type'), el('span', {}, 'Update'), el('span', {}, 'Status'));
+  const list = el('div.el-list', { id: listId, role: 'listbox', 'aria-label': t('editlinks.links'), tabindex: 0 });
+  const head = el('div.el-row.el-head', { 'aria-hidden': 'true' }, el('span', {}, t('editlinks.column.source')), el('span', {}, t('editlinks.column.type')), el('span', {}, t('editlinks.column.update')), el('span', {}, t('editlinks.column.status')));
   const details = el('dl.el-details');
-  const empty = el('p.el-empty.small.muted', { hidden: true }, 'This workbook has no links to other workbooks. A link appears here when a formula refers to cells in another file, such as one brought in with the sheets it was copied with.');
+  const empty = el('p.el-empty.small.muted', { hidden: true }, t('editlinks.empty'));
   const working = el('p.el-working.small', { role: 'status', 'aria-live': 'polite' });
 
   const btn = (label, onclick) => el('button.btn.btn-sm', { type: 'button', onclick }, label);
-  const updateBtn = btn('Update Values', () => update());
-  const changeBtn = btn('Change Source…', () => changeSource());
-  const openBtn = btn('Open Source', () => openSource());
-  const breakBtn = btn('Break Link…', () => breakSelected());
-  const checkBtn = btn('Check Status', () => checkAll());
-  const startupBtn = btn('Startup Prompt…', () => openLinkStartupDialog(ctx));
-  const closeBtn = el('button.btn.btn-sm.btn-primary', { type: 'button', onclick: () => modal.close() }, 'Close');
+  const updateBtn = btn(t('editlinks.updateValues'), () => update());
+  const changeBtn = btn(t('editlinks.changeSourceButton'), () => changeSource());
+  const openBtn = btn(t('editlinks.openSource'), () => openSource());
+  const breakBtn = btn(t('editlinks.breakLinkButton'), () => breakSelected());
+  const checkBtn = btn(t('editlinks.checkStatus'), () => checkAll());
+  const startupBtn = btn(t('editlinks.startupButton'), () => openLinkStartupDialog(ctx));
+  const closeBtn = el('button.btn.btn-sm.btn-primary', { type: 'button', onclick: () => modal.close() }, t('common.close'));
 
   const content = el('div.el-dialog', {},
     el('div.el-top', {},
@@ -119,7 +149,7 @@ export function openEditLinks(ctx, host) {
   function onChange() { if (!busy) render(); }
   const entries = () => linkEntries(wb);
   const current = () => entries().find((e) => e.index === selected) || null;
-  const statusOf = (entry) => (entry.kind === 'workbook' ? statusByTarget.get(entry.target) || 'Unknown' : 'Not applicable');
+  const statusOf = (entry) => (entry.kind === 'workbook' ? statusByTarget.get(entry.target) || { code: 'unknown' } : { code: 'notApplicable' });
 
   function render({ focus = false } = {}) {
     const all = entries();
@@ -134,7 +164,7 @@ export function openEditLinks(ctx, host) {
         el('span.el-source', { title: entry.target }, entry.name),
         el('span', {}, entry.type),
         el('span', {}, entry.update),
-        el('span', { className: `el-status${status.startsWith('Error') ? ' error' : status === 'OK' ? ' ok' : ''}` }, status));
+        el('span', { className: `el-status${isError(status) ? ' error' : status.code === 'ok' ? ' ok' : ''}` }, statusText(status)));
       return row;
     }));
     list.setAttribute('aria-activedescendant', all.length ? `${listId}-${selected}` : '');
@@ -145,9 +175,9 @@ export function openEditLinks(ctx, host) {
     const path = entry ? linkPath(entry.target, host.docPath?.()) : null;
     const uses = entry ? linkUsage(wb, entry.index) : null;
     details.replaceChildren(...(entry ? [
-      el('dt', {}, 'Location'), el('dd', { title: entry.target }, path || readable(entry.target) || '—'),
-      el('dt', {}, 'Sheets'), el('dd', {}, entry.sheets.length ? entry.sheets.join(', ') : '—'),
-      el('dt', {}, 'Read by'), el('dd', {}, `${uses.cells.length} formula${uses.cells.length === 1 ? '' : 's'}${uses.other ? ` and ${uses.other} name${uses.other === 1 ? '' : 's'} or rule${uses.other === 1 ? '' : 's'}` : ''}`),
+      el('dt', {}, t('editlinks.details.location')), el('dd', { title: entry.target }, path || readable(entry.target) || '—'),
+      el('dt', {}, t('editlinks.details.sheets')), el('dd', {}, entry.sheets.length ? entry.sheets.join(', ') : '—'),
+      el('dt', {}, t('editlinks.details.readBy')), el('dd', {}, uses.other ? t('editlinks.details.readByFormulasAndOther', { formulas: uses.cells.length, other: uses.other }) : t('editlinks.details.readByFormulas', { formulas: uses.cells.length })),
     ] : []));
     details.hidden = !entry;
     const workbookLink = entry?.kind === 'workbook';
@@ -190,20 +220,20 @@ export function openEditLinks(ctx, host) {
   async function update() {
     const entry = current();
     if (!entry || entry.kind !== 'workbook' || !await host.allow()) return;
-    await work(`Updating ${entry.name}…`, async () => {
+    await work(t('editlinks.updating', { name: entry.name }), async () => {
       const { status, source } = await readLinkSource(host, entry);
       statusByTarget.set(entry.target, status);
       const now = entries().find((x) => x.target === entry.target && x.kind === 'workbook');
-      if (!source || !now) { toast(`${entry.name} could not be updated: ${status.replace(/^Error: /, '').toLowerCase()}`, { icon: 'alert', duration: 4000 }); return; }
+      if (!source || !now) { toast(t('editlinks.couldNotUpdate', { name: entry.name, reason: statusReason(status) }), { icon: 'alert', duration: 4000 }); return; }
       const { missing } = updateLinkValues(wb, now.index, source);
-      if (missing.length) toast(`Updated ${entry.name}; it no longer has ${missing.join(', ')}`, { icon: 'alert', duration: 4500 });
-      else toast(`Updated values from ${entry.name}`, { icon: 'check', duration: 2500 });
+      if (missing.length) toast(t('editlinks.updatedMissing', { name: entry.name, sheets: missing.join(', ') }), { icon: 'alert', duration: 4500 });
+      else toast(t('editlinks.updatedFrom', { name: entry.name }), { icon: 'check', duration: 2500 });
     });
   }
 
   async function checkAll() {
     if (!await host.allow()) return;
-    await work('Checking the sources…', async () => {
+    await work(t('editlinks.checking'), async () => {
       for (const entry of entries()) {
         if (entry.kind !== 'workbook') continue;
         const { status } = await readLinkSource(host, entry);
@@ -222,21 +252,21 @@ export function openEditLinks(ctx, host) {
       path = picked?.path || null;
     } else {
       path = await promptDialog({
-        title: 'Change Source', label: 'Path of the workbook on your drive', value: linkPath(entry.target, host.docPath?.()) || '',
-        confirmLabel: 'Change', validate: (v) => (String(v).trim().startsWith('/') ? null : 'Enter a full path, starting with /'),
+        title: t('editlinks.changeSource.title'), label: t('editlinks.changeSource.label'), value: linkPath(entry.target, host.docPath?.()) || '',
+        confirmLabel: t('editlinks.changeSource.confirm'), validate: (v) => (String(v).trim().startsWith('/') ? null : t('editlinks.changeSource.fullPath')),
       });
     }
     if (!path || !list.isConnected || list.closest('.closing')) return;
     const target = targetForPath(path, host.docPath?.());
-    await work('Reading the new source…', async () => {
+    await work(t('editlinks.readingNewSource'), async () => {
       const probe = { ...entry, target };
       const allowed = await host.allow();
-      const { status, source } = allowed ? await readLinkSource(host, probe) : { status: 'Unknown', source: null };
+      const { status, source } = allowed ? await readLinkSource(host, probe) : { status: { code: 'unknown' }, source: null };
       const now = entries().find((x) => x.index === entry.index);
       if (!now) return;
       const { missing } = changeLinkSource(wb, entry.index, target, source);
       statusByTarget.set(target, status);
-      toast(missing.length ? `The link now reads ${probe.name || path}, which has no sheet named ${missing.join(', ')}` : `The link now reads ${path.split('/').pop()}`, { icon: missing.length ? 'alert' : 'check', duration: 4000 });
+      toast(missing.length ? t('editlinks.nowReadsMissing', { name: probe.name || path, sheets: missing.join(', ') }) : t('editlinks.nowReads', { name: path.split('/').pop() }), { icon: missing.length ? 'alert' : 'check', duration: 4000 });
     });
   }
 
@@ -252,14 +282,13 @@ export function openEditLinks(ctx, host) {
     const entry = current();
     if (!entry) return;
     const ok = await confirmDialog({
-      title: `Break the link to ${entry.name}?`,
-      message: 'Every formula that reads this workbook is replaced by the value it shows now, so it no longer follows the source. You can undo this.',
-      confirmLabel: 'Break Link',
+      title: t('editlinks.breakConfirm.title', { name: entry.name }),
+      message: t('editlinks.breakConfirm.message'),
+      confirmLabel: t('editlinks.breakConfirm.confirm'),
     });
     if (!ok || !list.isConnected || list.closest('.closing')) return;
     const { converted, removed, kept } = breakLink(wb, entry.index);
-    const what = `${converted} formula${converted === 1 ? '' : 's'} turned into values`;
-    toast(removed ? `Link broken: ${what}` : `${what}; ${kept} place${kept === 1 ? '' : 's'} still read${kept === 1 ? 's' : ''} ${entry.name} (a defined name, a rule, or a protected cell)`, { icon: removed ? 'check' : 'alert', duration: 4500 });
+    toast(removed ? t('editlinks.broken', { converted }) : t('editlinks.brokenKept', { converted, kept, name: entry.name }), { icon: removed ? 'check' : 'alert', duration: 4500 });
     render({ focus: true });
   }
 
@@ -268,6 +297,6 @@ export function openEditLinks(ctx, host) {
   // The list and buttons are set before the dialog opens: Update Values, focused first and then turned off
   // for want of a link, dropped the focus to the page.
   render();
-  const modal = openModal({ title: 'Edit Links', content, wide: true, initialFocus: list.hidden ? closeBtn : list, onClose: () => { wb.removeEventListener('change', onChange); ctx.grid?.focus?.(); } });
+  const modal = openModal({ title: t('editlinks.title'), content, wide: true, initialFocus: list.hidden ? closeBtn : list, onClose: () => { wb.removeEventListener('change', onChange); ctx.grid?.focus?.(); } });
   return modal;
 }

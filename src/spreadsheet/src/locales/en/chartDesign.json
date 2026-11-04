@@ -1,0 +1,16 @@
+{
+  "colorfulPalette": "Colorful Palette {n}",
+  "layout": "Layout {n}",
+  "monochromaticPalette": "Monochromatic Palette {n}",
+  "positionAbove": "Above",
+  "positionBelow": "Below",
+  "positionBestFit": "Best Fit",
+  "positionCenter": "Center",
+  "positionInsideBase": "Inside Base",
+  "positionInsideEnd": "Inside End",
+  "positionLeft": "Left",
+  "positionOutsideEnd": "Outside End",
+  "positionRight": "Right",
+  "positionShow": "Show",
+  "style": "Style {n}"
+}

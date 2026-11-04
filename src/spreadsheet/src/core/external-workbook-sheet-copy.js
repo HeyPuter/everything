@@ -2,6 +2,7 @@ import { mapTableRefs, parseTableSpec, tableRows } from './tables.js';
 import { mapFormulaRefs, quoteSheet, sheetKey, refToText } from './refs.js';
 import { toFileFormula } from './xlfn.js';
 import { normalizeExternalWorkbooks, rebaseExternalWorkbooks } from './external-workbooks.js';
+import { t } from '../i18n/index.js';
 
 /** Preserve both caller-row semantics and the omitted table's data bounds.
  * Plain A1 conversion would read unrelated cells after a paste or table growth. */
@@ -21,7 +22,7 @@ function boundedTableRows(wb, owner, formula, tables) {
 
 function requireLocation(location) {
   if (typeof location === 'string' && location.trim()) return;
-  const error = new Error('Save the source spreadsheet before copying a sheet that references its other sheets.');
+  const error = new Error(t('externalWorkbookSheetCopy.saveSourceFirst'));
   error.code = 'EXTERNAL_SOURCE_LOCATION_REQUIRED';
   throw error;
 }
@@ -38,7 +39,7 @@ export function externalWorkbookSheetCopy(wb, selected, { sourceWorkbook = null 
   const books = [...(rebaseExternalWorkbooks(wb.externalWorkbooks, sourceWorkbook)?.books || [])];
   const sources = new Set(), index = books.length + 1;
   let includeNames = false;
-  const omittedTables = wb.sheets.filter(s => s.id !== selected.id).flatMap(s => s.tables.map(t => t.name));
+  const omittedTables = wb.sheets.filter(s => s.id !== selected.id).flatMap(s => s.tables.map(table => table.name));
   const rewrite = (formula, position = { r: 0, c: 0 }) => {
     formula = boundedTableRows(wb, selected, formula, omittedTables);
     for (const table of omittedTables) formula = wb.structuredToA1(selected.id, position.r, position.c, formula, table, true, { relativeRows: !!position.relativeRows });
@@ -83,7 +84,7 @@ export function externalWorkbookSheetCopy(wb, selected, { sourceWorkbook = null 
           const [r, c] = key.split(',').map(Number);
           const value = wb.getValue(source.id, r, c);
           if (value != null) {
-            if (++count > 1048576) throw new Error('The supporting-cell cache is too large to copy.');
+            if (++count > 1048576) throw new Error(t('externalWorkbookSheetCopy.cacheTooLarge'));
             cells[key] = value;
           }
         }

@@ -1,0 +1,11 @@
+{
+  "cropAspect": "{ratio} ({kind, select, square {square} landscape {landscape} other {portrait}})",
+  "style.blackFrame": "Black Frame",
+  "style.dropShadow": "Drop Shadow",
+  "style.none": "No Style",
+  "style.oval": "Oval",
+  "style.rounded": "Rounded Corners",
+  "style.roundedFrame": "Rounded Frame",
+  "style.thinBorder": "Thin Border",
+  "style.whiteFrame": "White Frame"
+}

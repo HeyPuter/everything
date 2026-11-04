@@ -4,6 +4,7 @@
  */
 import { el, fieldId } from './dom.js';
 import { openModal, fieldAlert } from './modal.js';
+import { t } from '../i18n/index.js';
 
 export const ZOOM_PRESETS = [200, 100, 75, 50, 25];
 
@@ -22,11 +23,11 @@ export function openZoomDialog({ zoom, apply, fit, canFit = true, onClose } = {}
     const input = el('input', { type: 'radio', name, id: fieldId('zoom-option'), value: String(value), checked: false });
     return { input, node: el('label.check.zoom-option', { for: input.id }, input, el('span', {}, label), extra) };
   };
-  const custom = el('input.input.zoom-custom', { type: 'text', inputMode: 'numeric', autocomplete: 'off', value: String(current), 'aria-label': 'Zoom percentage', maxLength: 4 });
+  const custom = el('input.input.zoom-custom', { type: 'text', inputMode: 'numeric', autocomplete: 'off', value: String(current), 'aria-label': t('zoomdialog.percentage'), maxLength: 4 });
   const options = [
     ...ZOOM_PRESETS.map((n) => radio(n, `${n}%`)),
-    radio('fit', 'Fit selection'),
-    radio('custom', 'Custom:', el('span.zoom-custom-wrap', {}, custom, el('span.muted', {}, '%'))),
+    radio('fit', t('zoomdialog.fitSelection')),
+    radio('custom', t('zoomdialog.custom'), el('span.zoom-custom-wrap', {}, custom, el('span.muted', {}, '%'))),
   ];
   const fitOption = options.find((o) => o.input.value === 'fit');
   fitOption.input.disabled = !canFit;
@@ -39,16 +40,16 @@ export function openZoomDialog({ zoom, apply, fit, canFit = true, onClose } = {}
     const choice = options.find((o) => o.input.checked)?.input.value;
     if (choice === 'fit') { modal.close(); fit?.(); return; }
     const percent = choice === 'custom' ? parseZoomPercent(custom.value) : Number(choice);
-    if (percent == null) return refuse(custom, 'Enter a whole percentage from 10% to 400%.');
+    if (percent == null) return refuse(custom, t('zoomdialog.invalid'));
     modal.close();
     apply?.(percent / 100);
   };
   const content = el('form.zoom-dialog', { onsubmit: submit },
-    el('fieldset.check-group.vertical', {}, el('legend.field-label', {}, 'Magnification'), ...options.map((o) => o.node)),
+    el('fieldset.check-group.vertical', {}, el('legend.field-label', {}, t('zoomdialog.magnification')), ...options.map((o) => o.node)),
     alert,
     el('div.row.row-end', {},
-      el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Cancel'),
-      el('button.btn.btn-primary', { type: 'submit' }, 'OK')));
-  const modal = openModal({ title: 'Zoom', content, initialFocus: (options.find((o) => o.input.checked) || options[1]).input, onClose });
+      el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, t('common.cancel')),
+      el('button.btn.btn-primary', { type: 'submit' }, t('common.ok'))));
+  const modal = openModal({ title: t('zoomdialog.title'), content, initialFocus: (options.find((o) => o.input.checked) || options[1]).input, onClose });
   return modal;
 }

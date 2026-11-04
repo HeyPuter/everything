@@ -17,6 +17,7 @@ import { freeNameTokens, tableReferenceTokens } from '../core/formula/names.js';
 import { FUNCTIONS } from '../core/formula/functions.js';
 import { formulaReachesOut } from '../core/reaches-out.js';
 import { isRangeSource } from '../core/validation.js';
+import { t } from '../i18n/index.js';
 
 /**
  * Does what is about to be placed reach outside the spreadsheet: a formula of the placed sheet
@@ -52,19 +53,19 @@ function namedSheetDependencies(wb, sheet, { carryNames = true } = {}) {
     if (info.has(formula)) return info.get(formula);
     let tokens;
     try { tokens = tokenize(formula); } catch { return { foreign: false, dependencies: [] }; }
-    let foreign = tokens.some(t => (t.type === 'ref' || t.type === 'name') && (t.sheetEnd || elsewhere(t.sheet)));
+    let foreign = tokens.some((tok) => (tok.type === 'ref' || tok.type === 'name') && (tok.sheetEnd || elsewhere(tok.sheet)));
     const dependencies = [];
     if (!foreign) {
-      const positions = new Map(tokens.map((t, i) => [t.start, i]));
-      for (const t of freeNameTokens(formula, tokens, { includeCalls: true, includeQualified: true, builtin })) {
-        if (!t.sheet && tokens[positions.get(t.start) + 1]?.type === 'lparen' && builtin(t.value)) continue;
-        const entry = wb.namedEntry(t.value, sheet.name);
+      const positions = new Map(tokens.map((tok, i) => [tok.start, i]));
+      for (const tok of freeNameTokens(formula, tokens, { includeCalls: true, includeQualified: true, builtin })) {
+        if (!tok.sheet && tokens[positions.get(tok.start) + 1]?.type === 'lparen' && builtin(tok.value)) continue;
+        const entry = wb.namedEntry(tok.value, sheet.name);
         if (entry) { if (carryNames) dependencies.push(entry.ref); else foreign = true; }
-        else if (tableAway(t.value)) foreign = true;
+        else if (tableAway(tok.value)) foreign = true;
       }
-      for (const t of tableReferenceTokens(formula, tokens)) {
+      for (const tok of tableReferenceTokens(formula, tokens)) {
         // An unqualified [@Column] names the table around the cell, which stays behind with the rest.
-        if (t.table ? tableAway(t.table) : !carryNames) foreign = true;
+        if (tok.table ? tableAway(tok.table) : !carryNames) foreign = true;
       }
     }
     const result = { foreign: !!foreign, dependencies };
@@ -150,7 +151,7 @@ function detachedSheet(other, sheetId, { carryNames = true } = {}) {
 export function placeImport(wb, sheetId, other, { mode, otherSheetId, at }) {
   if (mode === 'sheets') {
     const added = wb.importSheets(other);
-    return added.length ? (added.length === 1 ? `Added sheet ${added[0].name}` : `Added ${added.length} sheets`) : null;
+    return added.length ? (added.length === 1 ? t('importdialog.done.addedSheet', { name: added[0].name }) : t('importdialog.done.addedSheets', { count: added.length })) : null;
   }
   const src = other.sheet(otherSheetId) || other.sheets[0];
   if (!src) return null;
@@ -158,31 +159,45 @@ export function placeImport(wb, sheetId, other, { mode, otherSheetId, at }) {
   const detached = detachedSheet(other, src.id, { carryNames: mode === 'replace' });
   if (mode === 'replace') {
     const sheet = wb.replaceSheetWith(sheetId, detached, src.id);
-    return sheet ? `Replaced the contents of ${sheet.name}` : null;
+    return sheet ? t('importdialog.done.replaced', { name: sheet.name }) : null;
   }
   const used = wb.usedRange(sheetId);
   const r0 = mode === 'append' ? (used ? used.r2 + 1 : 0) : (at?.r ?? 0);
   const c0 = mode === 'append' ? 0 : (at?.c ?? 0);
   // Appended rows are new lines of the sheet and keep their heights and hidden state; rows an import lands on beside existing data are not.
-  const range = wb.placeSheetAt(sheetId, detached, src.id, r0, c0, mode === 'append' ? 'Append imported rows' : 'Import cells', { lines: mode === 'append' });
+  const range = wb.placeSheetAt(sheetId, detached, src.id, r0, c0, mode === 'append' ? t('importdialog.undo.append') : t('importdialog.undo.cells'), { lines: mode === 'append' });
   if (!range) return null;
   const rows = range.r2 - range.r1 + 1;
   return mode === 'append'
-    ? `Appended ${rows} row${rows === 1 ? '' : 's'} after row ${r0}`
-    : `Imported ${rows} row${rows === 1 ? '' : 's'} at ${cellName(range.r1, range.c1)}`;
+    ? t('importdialog.done.appended', { rows, row: r0 })
+    : t('importdialog.done.imported', { rows, cell: cellName(range.r1, range.c1) });
 }
 
 /**
  * What a delimited file held past the grid's last row or column, which the reader could not
  * keep: said here rather than left to look as though the file ended where the data does.
  */
-export function truncationNote(other) {
+function truncationText(other) {
   const past = other?.importTruncated;
   if (!past?.rows && !past?.cols) return '';
-  const count = (n, what) => `${n.toLocaleString('en-US')} ${what}${n === 1 ? '' : 's'}`;
-  const parts = [past.rows ? count(past.rows, 'row') : null, past.cols ? count(past.cols, 'column') : null].filter(Boolean);
-  return ` The file held ${parts.join(' and ')} past the grid, which could not be read.`;
+  if (past.rows && past.cols) return t('importdialog.truncated.both', { rows: past.rows, cols: past.cols });
+  return past.rows ? t('importdialog.truncated.rows', { rows: past.rows }) : t('importdialog.truncated.cols', { cols: past.cols });
 }
+
+/** The note as a sentence that follows another, its leading space included (or '' when nothing was cut off). */
+export function truncationNote(other) {
+  const text = truncationText(other);
+  return text ? ` ${text}` : '';
+}
+
+/** `text` followed by what the file held past the grid, when it held anything. */
+const withTruncation = (text, other) => {
+  const note = truncationText(other);
+  return note ? t('importdialog.withNote', { text, note }) : text;
+};
+
+/** Sheet names one after another: "Data, Notes, Summary". */
+const nameList = (names) => (names.length ? names.reduce((list, name) => t('importdialog.listItem', { list, item: name })) : '');
 
 /**
  * Why a placement did not happen, in words the user can act on. A pasted or imported block
@@ -190,19 +205,18 @@ export function truncationNote(other) {
  * open with, so appending to a long sheet fails for a reason the general wording never names.
  */
 export function placementError(wb, sheetId, other, { mode, otherSheetId, at }) {
-  const generic = 'Nothing to place there: the sheet is empty, protected, or the block would not fit';
+  const generic = t('importdialog.error.generic');
   const src = other.sheet(otherSheetId) || other.sheets[0];
   const block = src ? other.usedRange(src.id) : null;
   if (!block || mode === 'replace') return generic;
   const dest = wb.usedRange(sheetId);
   const r0 = mode === 'append' ? (dest ? dest.r2 + 1 : 0) : (at?.r ?? 0);
   const c0 = mode === 'append' ? 0 : (at?.c ?? 0);
-  const count = (n) => n.toLocaleString('en-US');
   if (r0 + block.r2 - block.r1 >= MAX_ROWS) {
-    return `An imported block reaches row ${count(MAX_ROWS)} at most, and this one would end at row ${count(r0 + block.r2 - block.r1 + 1)}. Insert it as a new sheet instead.`;
+    return t('importdialog.error.tooManyRows', { max: MAX_ROWS, end: r0 + block.r2 - block.r1 + 1 });
   }
   if (c0 + block.c2 - block.c1 >= MAX_COLS) {
-    return `An imported block reaches column ${colName(MAX_COLS - 1)} at most, and this one would end past it. Insert it as a new sheet instead.`;
+    return t('importdialog.error.tooManyCols', { column: colName(MAX_COLS - 1) });
   }
   return generic;
 }
@@ -218,20 +232,20 @@ export function openImportPlacementDialog(ctx, other, fileName) {
   let mode = 'sheets';
   let otherSheetId = sheets[0]?.id;
 
-  const sheetSel = el('select.select', { 'aria-label': 'Sheet to import' },
+  const sheetSel = el('select.select', { 'aria-label': t('importdialog.sheetToImport') },
     sheets.map((sh) => el('option', { value: sh.id }, sh.name)));
   sheetSel.addEventListener('change', () => { otherSheetId = sheetSel.value; sync(); });
-  const sheetField = el('label.field', {}, el('span.field-label', {}, 'Sheet to place'), sheetSel);
+  const sheetField = el('label.field', {}, el('span.field-label', {}, t('importdialog.sheetToPlace')), sheetSel);
   const summary = el('p.field-hint');
   const error = el('p.field-error', { hidden: true, role: 'alert' });
 
   const options = [
-    ['sheets', sheets.length === 1 ? 'Insert as a new sheet' : `Insert ${sheets.length} new sheets`, 'After the sheets already here'],
-    ['replace', `Replace the current sheet (${sheet.name})`, 'Everything on it is replaced; undo brings it back'],
-    ['append', 'Append rows to the current sheet', used ? `Below row ${used.r2 + 1}, starting in column A` : 'From A1 (the sheet is empty)'],
-    ['cell', `Start at the selected cell (${cellName(active.r, active.c)})`, 'Cells under the block are overwritten'],
+    ['sheets', sheets.length === 1 ? t('importdialog.mode.newSheet') : t('importdialog.mode.newSheets', { count: sheets.length }), t('importdialog.mode.newSheetsNote')],
+    ['replace', t('importdialog.mode.replace', { name: sheet.name }), t('importdialog.mode.replaceNote')],
+    ['append', t('importdialog.mode.append'), used ? t('importdialog.mode.appendNote', { row: used.r2 + 1 }) : t('importdialog.mode.appendEmptyNote')],
+    ['cell', t('importdialog.mode.cell', { cell: cellName(active.r, active.c) }), t('importdialog.mode.cellNote')],
   ];
-  const radios = el('div.field.import-modes', { role: 'radiogroup', 'aria-label': 'Where to put the data' },
+  const radios = el('div.field.import-modes', { role: 'radiogroup', 'aria-label': t('importdialog.where') },
     options.map(([key, label, note]) => el('label.check.import-mode', {},
       el('input', { type: 'radio', name: 'import-mode', value: key, checked: key === mode, onchange: () => { mode = key; sync(); } }),
       el('span', {}, label, el('span.small.muted', { style: { display: 'block' } }, note)))));
@@ -241,14 +255,15 @@ export function openImportPlacementDialog(ctx, other, fileName) {
     error.hidden = true;
     const src = other.sheet(otherSheetId) || sheets[0];
     const range = src ? other.usedRange(src.id) : null;
-    if (mode === 'sheets') summary.textContent = `${fileName}: ${sheets.map((sh) => sh.name).join(', ')}.${truncationNote(other)}`;
-    else if (!range) summary.textContent = `${src?.name || fileName} is empty.${truncationNote(other)}`;
+    if (mode === 'sheets') summary.textContent = withTruncation(t('importdialog.summary.sheets', { file: fileName, sheets: nameList(sheets.map((sh) => sh.name)) }), other);
+    else if (!range) summary.textContent = withTruncation(t('importdialog.summary.empty', { name: src?.name || fileName }), other);
     else {
       // What a placed block carries, exactly: a replaced sheet takes everything, a pasted block the cells
       // and what sits on them, while the file's names, tables and column widths stay behind.
-      const carried = mode === 'replace' ? 'values, formulas, and formatting.'
-        : `values, formulas and formatting, with merges, notes, validation rules and conditional formats${mode === 'append' ? ', and row heights' : ''}; formulas using the file's names or tables arrive as values.`;
-      summary.textContent = `${src.name}: ${range.r2 - range.r1 + 1} row${range.r2 - range.r1 === 0 ? '' : 's'} × ${range.c2 - range.c1 + 1} column${range.c2 - range.c1 === 0 ? '' : 's'} (${cellName(range.r1, range.c1)}:${colName(range.c2)}${range.r2 + 1}), ${carried}${truncationNote(other)}`;
+      summary.textContent = withTruncation(t('importdialog.summary.block', {
+        name: src.name, rows: range.r2 - range.r1 + 1, cols: range.c2 - range.c1 + 1,
+        range: `${cellName(range.r1, range.c1)}:${colName(range.c2)}${range.r2 + 1}`, mode,
+      }), other);
     }
   }
 
@@ -264,7 +279,7 @@ export function openImportPlacementDialog(ctx, other, fileName) {
     if (done && reaching) ctx.doc?.distrustExternal?.();
     else if (reaching) wb.setExternalAllowed(allowed); // nothing was placed: nothing to ask about
     if (!done) {
-      error.textContent = mode === 'sheets' ? 'The file has no sheets to add' : placementError(wb, sheetId, other, { mode, otherSheetId, at: active });
+      error.textContent = mode === 'sheets' ? t('importdialog.error.noSheets') : placementError(wb, sheetId, other, { mode, otherSheetId, at: active });
       error.hidden = false;
       return;
     }
@@ -279,9 +294,9 @@ export function openImportPlacementDialog(ctx, other, fileName) {
     summary,
     error,
     el('div.row.row-end', {},
-      el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Cancel'),
-      el('button.btn.btn-primary', { type: 'submit' }, 'Import')));
-  const modal = openModal({ title: `Import ${fileName}`, content, onClose: () => ctx.grid.focus() });
+      el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, t('common.cancel')),
+      el('button.btn.btn-primary', { type: 'submit' }, t('importdialog.import'))));
+  const modal = openModal({ title: t('importdialog.title', { name: fileName }), content, onClose: () => ctx.grid.focus() });
   sync();
   return modal;
 }

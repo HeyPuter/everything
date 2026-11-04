@@ -1,0 +1,17 @@
+{
+  "andMore": "…and {count} more",
+  "bubbleTip": "{point}, size {size}",
+  "bubbleTipBlank": "{point}, size blank",
+  "chartLabel": "{type} chart",
+  "dataTable": "Chart data",
+  "histogramCount": "Count",
+  "noNonzero": "No nonzero numbers to chart",
+  "noNumbers": "No numbers to chart",
+  "other": "Other",
+  "otherSlices": "Other ({count} slices)",
+  "otherSlicesValue": "Other ({count} slices): {value}",
+  "radarChart": "Radar chart",
+  "waterfallDecrease": "Decrease",
+  "waterfallIncrease": "Increase",
+  "waterfallTotal": "Total"
+}

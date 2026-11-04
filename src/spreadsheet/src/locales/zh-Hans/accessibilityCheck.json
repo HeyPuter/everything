@@ -1,0 +1,21 @@
+{
+  "altText.how": "右键单击该对象，打开其替代文字，写一段简短的说明，或将其标记为装饰性。",
+  "altText.label": "对象没有说明",
+  "altText.why": "看不到屏幕的人要依靠简短的说明来了解图片、图表或形状显示的内容。",
+  "cellPicture": "{cell} 中的图片（{sheet}）",
+  "contrast.how": "选择更深的字体颜色或更浅的填充色，使文本的对比度至少达到 4.5:1。",
+  "contrast.label": "文本在填充色上难以看清",
+  "contrast.why": "与背景区分不明显的文本，低视力或色盲人士很难阅读。",
+  "merged.how": "取消单元格合并，改为跨列居中或自动换行。",
+  "merged.label": "存在合并单元格",
+  "merged.why": "屏幕阅读器在合并单元格中会数错行和列，使工作表难以理解。",
+  "place": "{name}（{sheet}）",
+  "sheetName.how": "双击工作表标签，为它起一个描述其内容的名称。",
+  "sheetName.label": "工作表仍使用默认名称",
+  "sheetName.why": "能说明工作表内容的名称可以帮助大家找到所需内容，而无需逐个打开。",
+  "status.noIssues": "辅助功能：无问题",
+  "status.reviewSuggested": "辅助功能：建议检查",
+  "tableHeader.how": "选择该表格，然后在“表格”选项卡上打开其标题行。",
+  "tableHeader.label": "表格没有标题行",
+  "tableHeader.why": "没有标题行，使用屏幕阅读器的人就无法分辨表格每一列的内容。"
+}

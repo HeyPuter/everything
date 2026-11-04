@@ -1,0 +1,23 @@
+{
+  "choosePlace": "选择放置图表的位置：",
+  "moveChartTitle": "移动图表",
+  "newSheet": "新工作表：",
+  "newSheetName": "新工作表名称",
+  "objectIn": "对象位于",
+  "objectInField": "对象位于：",
+  "ownReferences": "此图表的系列使用各自的引用。请使用“选择数据”更改它们",
+  "selectDataFirst": "请先选择要绘制成图表的数据",
+  "selectSameRows": "请选择位于相同行（或相同列）的区域，才能将它们一起绘制成图表",
+  "tooLarge": "该区域太大，无法创建图表",
+  "undo.addElement": "添加图表元素",
+  "undo.changeColors": "更改颜色",
+  "undo.changeType": "更改图表类型",
+  "undo.chartStyle": "图表样式",
+  "undo.format": "设置图表格式",
+  "undo.insertChartSheet": "插入图表工作表",
+  "undo.moveChart": "移动图表",
+  "undo.quickLayout": "快速布局",
+  "undo.resetStyle": "重设以匹配样式",
+  "undo.size": "调整图表大小",
+  "undo.switchRowColumn": "切换行/列"
+}

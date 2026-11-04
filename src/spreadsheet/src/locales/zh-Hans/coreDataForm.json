@@ -1,0 +1,7 @@
+{
+  "column": "列 {col}",
+  "listGone": "列表已不存在",
+  "rowNotEmpty": "列表下方的行不为空，因此列表无法扩展到该行",
+  "undo.edit": "编辑记录",
+  "undo.new": "新建记录"
+}

@@ -1,0 +1,12 @@
+{
+  "arrayRowsWidth": "数组各行的宽度必须相同",
+  "badReference": "引用无效",
+  "emptyArray": "数组为空",
+  "expected": "此处应为 {what}",
+  "expectedIntersectingReference": "此处应为相交的引用",
+  "expectedReferenceAfterColon": "“:”后应为引用",
+  "onlyCellSpills": "只有单个单元格可以带 # 表示其溢出区域",
+  "spanCannotSpill": "三维引用不能带 #",
+  "unexpectedEnd": "公式意外结束",
+  "unexpectedToken": "意外的标记"
+}

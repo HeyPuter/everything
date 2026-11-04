@@ -4,6 +4,8 @@
  * from the workbook reads, so the dialog and tests share one rule.
  */
 
+import { t } from '../i18n/index.js';
+
 /** A defined-name spelling for a label: invalid characters and spaces become underscores. */
 export function nameForLabel(text) {
   let name = String(text ?? '').trim().replace(/\s+/g, '_').replace(/[^\p{L}\p{M}\p{N}_.\\?]/gu, '_');
@@ -72,7 +74,7 @@ export function createNamesFromSelection(wb, sheetId, range, edges, { replace = 
   const entries = namesFromSelection(wb, sheetId, range, edges);
   const result = { created: 0, replaced: 0, skipped: [], ...(replace ? {} : { kept: 0 }) };
   const before = new Set(wb.names.filter(n => !n.sheet).map(n => n.name.toLowerCase()));
-  wb.transaction('Create names from selection', () => {
+  wb.transaction(t('namesFromSelection.undo'), () => {
     for (const { name, ref } of entries) {
       const existed = wb.names.some(n => !n.sheet && n.name.toLowerCase() === name.toLowerCase());
       if (!replace && before.has(name.toLowerCase())) { result.kept++; continue; }

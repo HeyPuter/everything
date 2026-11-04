@@ -1,0 +1,9 @@
+{
+  "duplicateSheetName": "有两个工作表都名为“{name}”；文件可能已损坏",
+  "passwordProtected": "此工作簿受密码保护。在设置密码的程序中删除密码，然后在这里打开文件",
+  "sheetUnreadable": "无法读取工作表“{name}”；文件可能已损坏",
+  "tooManyCells": "此文件太大，无法在这里打开：它包含的单元格超出了一个工作表的容量",
+  "unpacksTo": "此文件太大，无法在这里打开：其各部分解压后为 {size} MB",
+  "unpacksToMoreThan": "此文件太大，无法在这里打开：其各部分解压后超过 {size} MB",
+  "unreadable": "无法读取此文件。文件可能已损坏或不完整，或者不是电子表格"
+}

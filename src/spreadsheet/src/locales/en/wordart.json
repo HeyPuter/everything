@@ -1,0 +1,12 @@
+{
+  "menuLabel": "WordArt",
+  "style.accentOutline": "Accent with outline",
+  "style.deepShadow": "Bold with deep shadow",
+  "style.glow": "Glowing accent",
+  "style.hollow": "Hollow accent",
+  "style.inkShadow": "Ink with shadow",
+  "style.paperShadow": "Paper on accent, with shadow",
+  "style.plainAccent": "Plain accent",
+  "style.softGlow": "Text with soft glow",
+  "styles": "WordArt styles"
+}

@@ -1,0 +1,20 @@
+{
+  "all": "全部",
+  "argumentRequired": "必须填写 {name}",
+  "argumentsTitle": "函数参数",
+  "calculatedWhenEntered": "（输入后计算）",
+  "categoryField": "或选择类别：",
+  "categoryLabel": "或选择类别",
+  "formulaResult": "计算结果 = {result}",
+  "go": "转到",
+  "invalid": "无效",
+  "mostRecentlyUsed": "最近使用的函数",
+  "noDescription": "此函数没有说明。",
+  "noMatches": "没有匹配的函数。换个说法或选择其他类别试试。",
+  "searchField": "搜索函数：",
+  "searchLabel": "搜索函数",
+  "searchPlaceholder": "输入一条简短说明来描述你想做什么",
+  "selectField": "选择函数：",
+  "selectLabel": "选择函数",
+  "title": "插入函数"
+}

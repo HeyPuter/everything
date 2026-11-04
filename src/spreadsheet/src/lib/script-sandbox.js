@@ -8,6 +8,7 @@
  * The frame relays messages between the app and the worker over a MessageChannel the app hands it; it is the only
  * door, and the app checks everything that comes through it (core/script-host.js).
  */
+import { t } from '../i18n/index.js';
 
 /** The frame's policy: its own inline boot script and blob workers, nothing else; no network at all. */
 export const SANDBOX_CSP = "default-src 'none'; script-src 'unsafe-inline' blob:; worker-src blob:; connect-src 'none'; img-src 'none'; style-src 'none'; form-action 'none'; base-uri 'none'";
@@ -44,12 +45,12 @@ export const SANDBOX_HTML = `<!doctype html><html><head><meta charset="utf-8"><m
  */
 export function sandboxTransport({ host = null } = {}) {
   return (source, onMessage) => {
-    if (typeof Worker !== 'function' || typeof MessageChannel !== 'function') throw new Error('Scripts cannot run in this browser: it has no web workers.');
+    if (typeof Worker !== 'function' || typeof MessageChannel !== 'function') throw new Error(t('scriptSandbox.noWorkers'));
     const frame = document.createElement('iframe');
     frame.setAttribute('sandbox', SANDBOX_FLAGS);
     frame.setAttribute('aria-hidden', 'true');
     frame.setAttribute('tabindex', '-1');
-    frame.title = 'Script sandbox';
+    frame.title = t('scriptSandbox.frameTitle');
     frame.className = 'script-sandbox';
     frame.srcdoc = SANDBOX_HTML;
     const channel = new MessageChannel();

@@ -1,0 +1,14 @@
+{
+  "all": "All",
+  "allHint": "Contents and formatting",
+  "alreadyMatch": "Those cells already match on every grouped sheet",
+  "contents": "Contents",
+  "contentsHint": "Values and formulas; each sheet keeps its formatting",
+  "fill": "Fill",
+  "filled": "{count, plural, one {Filled {ranges} across {count} sheet} other {Filled {ranges} across {count} sheets}}",
+  "formats": "Formats",
+  "formatsHint": "Formatting only; each sheet keeps its values",
+  "intro": "Copies {ranges} from {sheet} to the same cells of {sheets}.",
+  "listJoin": "{a}, {b}",
+  "title": "Fill across worksheets"
+}

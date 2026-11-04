@@ -5,6 +5,7 @@
  * A floating picture and a cell picture convert into each other (Place in Cell / Place over Cells).
  */
 import { normalizeRange } from './cell.js';
+import { t } from '../i18n/index.js';
 
 export const CELL_PICTURE_ALT_MAX = 2000;
 /** A floating picture made from a cell picture is no larger than this at first, as an inserted one is. */
@@ -22,7 +23,7 @@ export function cellPicture(src, { alt = '', fit = 'contain' } = {}) {
 /** What a screen reader and a tooltip say for a cell picture. */
 export function cellPictureLabel(value) {
   if (!isCellPicture(value)) return '';
-  return value.alt ? `Picture: ${value.alt}` : 'Picture';
+  return value.alt ? t('cellPicture.labelWithAlt', { alt: value.alt }) : t('cellPicture.label');
 }
 
 /**
@@ -113,6 +114,6 @@ export function setCellPictureAlt(wb, sheetId, r, c, alt) {
   const next = cellPicture(cell.v.image, { alt, fit: cell.v.fit });
   if (JSON.stringify(next) === JSON.stringify(cell.v)) return true;
   if (wb.lockedIn(sheetId, { r1: r, c1: c, r2: r, c2: c })) return false;
-  wb.setCells(sheetId, [{ r, c, cell: { ...cell, v: next } }], 'Edit alt text');
+  wb.setCells(sheetId, [{ r, c, cell: { ...cell, v: next } }], t('cellPicture.undoEditAlt'));
   return true;
 }

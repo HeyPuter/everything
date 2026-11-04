@@ -1,0 +1,17 @@
+{
+  "name": "{kind, select, linear {线性（{series}）} exp {指数（{series}）} log {对数（{series}）} poly {多项式（{series}）} power {乘幂（{series}）} other {{series}}}",
+  "nameMovingAvg": "{period} 周期移动平均（{series}）",
+  "problemExpIntercept": "指数趋势线只能设置为在零以上与纵坐标轴相交。",
+  "problemExpValues": "指数趋势线要求所有值都大于零。",
+  "problemLogX": "对数趋势线要求所有 x 值都大于零。",
+  "problemMovingAvg": "{period} 个点的移动平均至少需要 {period} 个数据点。",
+  "problemPoints": "此趋势线至少需要 {need} 个 x 值互不相同的点。",
+  "problemPowerValues": "乘幂趋势线要求所有值都大于零。",
+  "problemPowerX": "乘幂趋势线要求所有 x 值都大于零。",
+  "typeExp": "指数",
+  "typeLinear": "线性",
+  "typeLog": "对数",
+  "typeMovingAvg": "移动平均",
+  "typePoly": "多项式",
+  "typePower": "乘幂"
+}

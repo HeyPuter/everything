@@ -1,0 +1,5 @@
+{
+  "menu": "Menu",
+  "noMatches": "No matches",
+  "results": "{count, plural, one {{count} result} other {{count} results}}"
+}

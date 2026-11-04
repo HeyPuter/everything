@@ -1,0 +1,18 @@
+{
+  "alreadyProtected": "{range} 已受保护",
+  "cancelEdit": "取消编辑",
+  "description": "说明",
+  "descriptionPlaceholder": "锁定这些单元格的原因（可选）",
+  "empty": "此工作表上还没有受保护的内容。",
+  "intro": "在此处撤消保护之前，受保护区域内的编辑会被拒绝。若要锁定整个工作表，请使用其工作表标签菜单。",
+  "protect": "保护",
+  "protected": "受保护",
+  "protectedToast": "已保护 {range}",
+  "range": "区域",
+  "rangeLike": "请输入区域，例如 B2:D9",
+  "rangeOnSheet": "请输入此工作表上的区域",
+  "title": "受保护的区域",
+  "unprotect": "撤消保护",
+  "unprotectRange": "撤消保护 {range}",
+  "unprotected": "已撤消保护 {range}"
+}

@@ -14,6 +14,7 @@ import { SMARTART_LAYOUTS, layoutById, DEFAULT_LAYOUT } from './smartart-layouts
 import { shapePath, pathData, connectorHead, DIRECTED, CHANGEABLE_SHAPES } from './smartart-geometry.js';
 import { DEFAULT_COLOR_PALETTE } from './font-color.js';
 import { normalizeNativeDrawing } from './drawingml-native.js';
+import { t, tSource } from '../i18n/index.js';
 
 export { SMARTART_LAYOUTS, layoutById, DEFAULT_LAYOUT, CHANGEABLE_SHAPES };
 export { SMARTART_CATEGORIES } from './smartart-layouts.js';
@@ -201,12 +202,19 @@ export function smartArtItemsFromText(text) {
 /** The outline as plain text, a tab per level. */
 export const smartArtOutlineText = (items) => items.map((it) => `${'\t'.repeat(it.level)}${it.text}`).join('\n');
 
-/** The alt text a diagram reads as when it has none of its own: its layout and its outline. */
-export function smartArtAltText(model) {
+/**
+ * The alt text a diagram reads as when it has none of its own: its layout and its outline, in the interface
+ * language, or with `english` in English (for the description written into a file).
+ */
+export function smartArtAltText(model, { english = false } = {}) {
+  const tr = english ? tSource : t;
   const layout = layoutById(model.layout);
-  const say = (n) => (n.children.length ? `${n.text || 'empty'} (${n.children.map(say).join(', ')})` : n.text || 'empty');
+  const join = (list, key) => list.reduce((a, b) => tr(key, { a, b }));
+  const text = (n) => n.text || tr('coreSmartart.altText.empty');
+  const say = (n) => (n.children.length ? tr('coreSmartart.altText.withChildren', { text: text(n), children: join(n.children.map(say), 'coreSmartart.altText.joinChildren') }) : text(n));
   const roots = smartArtTree(model.items || []);
-  return `${layout?.name || 'SmartArt'} diagram${roots.length ? `: ${roots.map(say).join('; ')}` : ' with no items'}`;
+  const name = layout ? tr(layout.nameKey) : 'SmartArt';
+  return roots.length ? tr('coreSmartart.altText.diagram', { name, items: join(roots.map(say), 'coreSmartart.altText.joinRoots') }) : tr('coreSmartart.altText.noItems', { name });
 }
 
 /* ---------- Colours (SmartArt Design ▸ Change Colors) ---------- */
@@ -219,10 +227,10 @@ export function themePalette(colors = DEFAULT_COLOR_PALETTE.theme) {
 
 const toRgb = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
 const toHex = (rgb) => `#${rgb.map((v) => Math.round(Math.max(0, Math.min(255, v))).toString(16).padStart(2, '0')).join('')}`;
-/** `a` moved the fraction `t` of the way to `b`. */
-export const mix = (a, b, t) => toHex(toRgb(a).map((v, i) => v + (toRgb(b)[i] - v) * t));
-const lighten = (c, t) => mix(c, '#ffffff', t);
-const darken = (c, t) => mix(c, '#000000', t);
+/** `a` moved the fraction `f` of the way to `b`. */
+export const mix = (a, b, f) => toHex(toRgb(a).map((v, i) => v + (toRgb(b)[i] - v) * f));
+const lighten = (c, f) => mix(c, '#ffffff', f);
+const darken = (c, f) => mix(c, '#000000', f);
 function luminance(hex) {
   const [r, g, b] = toRgb(hex).map((v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; });
   return 0.2126 * r + 0.7152 * g + 0.0722 * b;
@@ -230,28 +238,35 @@ function luminance(hex) {
 /** Text on a fill: the theme's light colour on dark fills, its dark colour on light ones. */
 const textOn = (fill, P) => (luminance(fill) > 0.42 ? P.dk1 : P.lt1);
 
-const scheme = (id, name, group, mode, base) => ({ id, name, group, mode, base });
-const ACCENT_NAMES = ['Accent 1', 'Accent 2', 'Accent 3', 'Accent 4', 'Accent 5', 'Accent 6'];
+/**
+ * A colour scheme: `group` identifies the gallery's section it sits in; `name` and `groupName` are its own name
+ * and its section's heading in the interface language (`label` and `groupLabel` give them when they are read).
+ */
+const scheme = (id, label, group, groupLabel, mode, base) => ({
+  id, get name() { return label(); }, group, get groupName() { return groupLabel(); }, mode, base,
+});
+const primary = () => t('coreSmartart.colors.group.primary');
+const colorful = () => t('coreSmartart.colors.group.colorful');
 /**
  * The colour schemes, each from the workbook's theme: a mode (filled, light fill, outline) and the base
  * colour of the shape whose colour place is `ci` among `n` places.
  */
 export const SMARTART_COLOR_SCHEMES = [
-  scheme('dark', 'Dark', 'Primary', 'fill', (ci, n, P) => P.dk2),
-  scheme('darkLight', 'Dark, light fill', 'Primary', 'light', (ci, n, P) => P.dk2),
-  scheme('darkOutline', 'Dark outline', 'Primary', 'outline', (ci, n, P) => P.dk1),
-  scheme('colorful1', 'Colorful', 'Colorful', 'fill', (ci, n, P) => P.accents[ci % 6]),
-  scheme('colorful2', 'Colorful from Accent 2', 'Colorful', 'fill', (ci, n, P) => P.accents[(ci + 1) % 6]),
-  scheme('colorfulOdd', 'Colorful, Accents 1, 3, 5', 'Colorful', 'fill', (ci, n, P) => P.accents[[0, 2, 4][ci % 3]]),
-  scheme('colorfulEven', 'Colorful, Accents 2, 4, 6', 'Colorful', 'fill', (ci, n, P) => P.accents[[1, 3, 5][ci % 3]]),
-  ...ACCENT_NAMES.flatMap((name, k) => [
-    scheme(`accent${k + 1}`, name, name, 'fill', (ci, n, P) => P.accents[k]),
-    scheme(`accent${k + 1}Range`, `${name}, shaded range`, name, 'fill', (ci, n, P) => {
-      const t = n > 1 ? ci / (n - 1) : 0;
-      return t < 0.35 ? mix(darken(P.accents[k], 0.28), P.accents[k], t / 0.35) : mix(P.accents[k], lighten(P.accents[k], 0.5), (t - 0.35) / 0.65);
+  scheme('dark', () => t('coreSmartart.colors.dark'), 'Primary', primary, 'fill', (ci, n, P) => P.dk2),
+  scheme('darkLight', () => t('coreSmartart.colors.darkLight'), 'Primary', primary, 'light', (ci, n, P) => P.dk2),
+  scheme('darkOutline', () => t('coreSmartart.colors.darkOutline'), 'Primary', primary, 'outline', (ci, n, P) => P.dk1),
+  scheme('colorful1', () => t('coreSmartart.colors.colorful'), 'Colorful', colorful, 'fill', (ci, n, P) => P.accents[ci % 6]),
+  scheme('colorful2', () => t('coreSmartart.colors.colorfulFromAccent2'), 'Colorful', colorful, 'fill', (ci, n, P) => P.accents[(ci + 1) % 6]),
+  scheme('colorfulOdd', () => t('coreSmartart.colors.colorfulOdd'), 'Colorful', colorful, 'fill', (ci, n, P) => P.accents[[0, 2, 4][ci % 3]]),
+  scheme('colorfulEven', () => t('coreSmartart.colors.colorfulEven'), 'Colorful', colorful, 'fill', (ci, n, P) => P.accents[[1, 3, 5][ci % 3]]),
+  ...[1, 2, 3, 4, 5, 6].flatMap((n, k) => [
+    scheme(`accent${n}`, () => t('coreSmartart.colors.accent', { n }), `Accent ${n}`, () => t('coreSmartart.colors.accent', { n }), 'fill', (ci, count, P) => P.accents[k]),
+    scheme(`accent${n}Range`, () => t('coreSmartart.colors.accentRange', { n }), `Accent ${n}`, () => t('coreSmartart.colors.accent', { n }), 'fill', (ci, count, P) => {
+      const pos = count > 1 ? ci / (count - 1) : 0;
+      return pos < 0.35 ? mix(darken(P.accents[k], 0.28), P.accents[k], pos / 0.35) : mix(P.accents[k], lighten(P.accents[k], 0.5), (pos - 0.35) / 0.65);
     }),
-    scheme(`accent${k + 1}Light`, `${name}, light fill`, name, 'light', (ci, n, P) => P.accents[k]),
-    scheme(`accent${k + 1}Outline`, `${name}, outline`, name, 'outline', (ci, n, P) => P.accents[k]),
+    scheme(`accent${n}Light`, () => t('coreSmartart.colors.accentLight', { n }), `Accent ${n}`, () => t('coreSmartart.colors.accent', { n }), 'light', (ci, count, P) => P.accents[k]),
+    scheme(`accent${n}Outline`, () => t('coreSmartart.colors.accentOutline', { n }), `Accent ${n}`, () => t('coreSmartart.colors.accent', { n }), 'outline', (ci, count, P) => P.accents[k]),
   ]),
 ];
 export const DEFAULT_COLORS = 'accent1';
@@ -260,12 +275,12 @@ export const colorSchemeById = (id) => SMARTART_COLOR_SCHEMES.find((s) => s.id =
 /* ---------- Styles (SmartArt Design ▸ Styles) ---------- */
 
 export const SMARTART_STYLES = [
-  { id: 'flat', name: 'Flat', description: 'Solid colour with a thin light edge' },
-  { id: 'subtle', name: 'Soft Shadow', description: 'Solid colour lifted by a soft shadow', shadow: { dy: 1.5, blur: 1.4, alpha: 0.32 }, noLine: true },
-  { id: 'moderate', name: 'Gentle Gradient', description: 'A light-to-full gradient with a soft shadow', gradient: [0.32, 0], shadow: { dy: 1.5, blur: 1.6, alpha: 0.28 } },
-  { id: 'intense', name: 'Deep Gradient', description: 'A strong gradient, a darker edge and a deeper shadow', gradient: [0.4, -0.22], shadow: { dy: 3, blur: 2.6, alpha: 0.4 }, lineShade: 0.32 },
-  { id: 'polished', name: 'Glossy', description: 'A bright sheen over the top half', gloss: true, noLine: true, shadow: { dy: 1, blur: 1.2, alpha: 0.25 } },
-  { id: 'outlined', name: 'Bold Outline', description: 'A heavy darker outline round every shape', lineWidth: 3, lineShade: 0.38 },
+  { id: 'flat', get name() { return t('coreSmartart.styles.flat.name'); }, get description() { return t('coreSmartart.styles.flat.description'); } },
+  { id: 'subtle', get name() { return t('coreSmartart.styles.subtle.name'); }, get description() { return t('coreSmartart.styles.subtle.description'); }, shadow: { dy: 1.5, blur: 1.4, alpha: 0.32 }, noLine: true },
+  { id: 'moderate', get name() { return t('coreSmartart.styles.moderate.name'); }, get description() { return t('coreSmartart.styles.moderate.description'); }, gradient: [0.32, 0], shadow: { dy: 1.5, blur: 1.6, alpha: 0.28 } },
+  { id: 'intense', get name() { return t('coreSmartart.styles.intense.name'); }, get description() { return t('coreSmartart.styles.intense.description'); }, gradient: [0.4, -0.22], shadow: { dy: 3, blur: 2.6, alpha: 0.4 }, lineShade: 0.32 },
+  { id: 'polished', get name() { return t('coreSmartart.styles.polished.name'); }, get description() { return t('coreSmartart.styles.polished.description'); }, gloss: true, noLine: true, shadow: { dy: 1, blur: 1.2, alpha: 0.25 } },
+  { id: 'outlined', get name() { return t('coreSmartart.styles.outlined.name'); }, get description() { return t('coreSmartart.styles.outlined.description'); }, lineWidth: 3, lineShade: 0.38 },
 ];
 
 /**
@@ -298,7 +313,7 @@ export function smartArtPaint(shape, model, P, n) {
   // The style: shading, sheen, edges and shadows on the filled shapes.
   const st = SMARTART_STYLES.find((s) => s.id === model.style) || SMARTART_STYLES[0];
   if (p.fill && ['node', 'sub', 'conn', 'deco'].includes(shape.role)) {
-    if (st.gradient && shape.role !== 'sub') p.gradient = st.gradient.map((t) => (t >= 0 ? lighten(p.fill, t) : darken(p.fill, -t)));
+    if (st.gradient && shape.role !== 'sub') p.gradient = st.gradient.map((f) => (f >= 0 ? lighten(p.fill, f) : darken(p.fill, -f)));
     if (st.gloss && shape.role !== 'sub') p.gloss = [lighten(p.fill, 0.55), p.fill, darken(p.fill, 0.1)];
     if (st.shadow && shape.role !== 'deco') p.shadow = st.shadow;
     if (st.noLine && shape.role === 'node' && mode === 'fill' && !fmt?.line) p.line = null;
@@ -375,8 +390,8 @@ export function setText(paras, box, size, align = 'center', valign = 'middle') {
     if (k) y += s * PARA_GAP;
     const w = wrap(p.text, Math.max(1, box.w - indent), s);
     broke ||= w.broke;
-    w.lines.forEach((t, j) => {
-      lines.push({ text: t, size: s, y: y + s * 0.92, indent, ...(j === 0 && bulletX != null ? { bulletX } : {}), item: p.item, para: k });
+    w.lines.forEach((lineText, j) => {
+      lines.push({ text: lineText, size: s, y: y + s * 0.92, indent, ...(j === 0 && bulletX != null ? { bulletX } : {}), item: p.item, para: k });
       y += s * LINE_HEIGHT;
     });
   });
@@ -560,7 +575,7 @@ export function smartArtSvg(model, w, h, opts = {}) {
         if (empty && !opts.placeholders) continue;
         const color = empty ? `${p.text}" fill-opacity="0.45` : p.text;
         if (l.bulletX != null) texts.push(`<text x="${num(l.bulletX)}" y="${num(l.y)}" font-size="${num(l.size)}" fill="${color}" text-anchor="${l.anchor === 'end' ? 'end' : 'start'}">•</text>`);
-        texts.push(`<text x="${num(l.x)}" y="${num(l.y)}" font-size="${num(l.size)}" fill="${color}" text-anchor="${l.anchor}">${esc(empty ? '[Text]' : l.text)}</text>`);
+        texts.push(`<text x="${num(l.x)}" y="${num(l.y)}" font-size="${num(l.size)}" fill="${color}" text-anchor="${l.anchor}">${esc(empty ? t('coreSmartart.placeholder') : l.text)}</text>`);
       }
       if (texts.length) parts.push(`<g font-family="${fontFamily}"${tr}>${texts.join('')}</g>`);
     }

@@ -1,0 +1,16 @@
+{
+  "range.noData": "区域需要一个标题行和至少一行数据",
+  "range.none": "选择要汇总的数据",
+  "range.tooManyRows": "该区域包含 {rows, number} 行数据，而数据透视表最多汇总 {max, number} 行",
+  "range.twoColumns": "区域至少需要两列",
+  "refresh.changed": "此工作表上的数据透视表在创建后已被清除或更改，因此未刷新",
+  "refresh.fieldGone": "字段“{field}”已不在数据透视表的源数据中",
+  "refresh.noRows": "行字段中没有可用于分组的值",
+  "refresh.none": "此工作表上没有可刷新的数据透视表",
+  "refresh.overwrite": "刷新后的数据透视表将覆盖旁边含有数据的单元格",
+  "refresh.protected": "此工作表受保护。请撤消保护后再刷新数据透视表",
+  "refresh.sourceGone": "数据透视表的源数据已不存在",
+  "refresh.tableGone": "此工作表上的数据透视表已不存在",
+  "tooManyColumns": "此数据透视表需要 {cols} 列，而一个工作表最多支持 {max} 列。请选择类别较少的列字段，或选择“无”。",
+  "tooManyRows": "此数据透视表需要 {rows} 行，而一个工作表最多支持 {max} 行。请选择类别较少的行字段，或较小的源区域。"
+}

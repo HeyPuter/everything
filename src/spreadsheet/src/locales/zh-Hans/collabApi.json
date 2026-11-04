@@ -1,0 +1,12 @@
+{
+  "accountChanged": "你的 Puter 账户已更改。请重试。",
+  "bundleInvalid": "协作服务器程序包无效。",
+  "bundleNotLoaded": "无法加载协作服务器程序包。",
+  "couldNotSync": "无法同步此工作簿。",
+  "needsPuter": "共同编辑需要 Puter。请从 Puter 打开此电子表格或检查网络连接，然后重试。",
+  "noAnswer": "共享工作簿没有响应。请稍后重试。",
+  "preparingServer": "正在准备协作服务器…",
+  "startingServer": "正在启动协作服务器…",
+  "stillStarting": "协作服务器仍在启动。请稍后重试。",
+  "unreachable": "无法连接到共享工作簿。请检查网络连接；你的更改已保留，连接恢复后会发送。"
+}

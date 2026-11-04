@@ -1,0 +1,21 @@
+{
+  "altText.how": "Right-click the object, open its alt text, and write a short description, or mark it as decorative.",
+  "altText.label": "Object has no description",
+  "altText.why": "People who can't see the screen rely on a short description to know what a picture, chart or shape shows.",
+  "cellPicture": "Picture in {cell} ({sheet})",
+  "contrast.how": "Choose a darker font color or a lighter fill so the text has a contrast ratio of at least 4.5:1.",
+  "contrast.label": "Text is hard to see against its fill",
+  "contrast.why": "Text that does not stand out from its background is hard to read for people with low vision or color blindness.",
+  "merged.how": "Unmerge the cells, then center the text across the columns or wrap it instead.",
+  "merged.label": "Cells are merged",
+  "merged.why": "Screen readers lose count of rows and columns in merged cells, which makes the sheet hard to follow.",
+  "place": "{name} ({sheet})",
+  "sheetName.how": "Double-click the sheet tab and give it a name that describes its content.",
+  "sheetName.label": "Sheet still has its default name",
+  "sheetName.why": "A sheet name that says what the sheet holds helps people find their way without opening each one.",
+  "status.noIssues": "Accessibility: No issues",
+  "status.reviewSuggested": "Accessibility: Review suggested",
+  "tableHeader.how": "Select the table and switch its header row on from the Table tab.",
+  "tableHeader.label": "Table has no header row",
+  "tableHeader.why": "Without a header row, screen reader users can't tell what each column of a table holds."
+}

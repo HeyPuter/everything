@@ -15,6 +15,7 @@
  */
 import { cellKey, parseKey } from './cell.js';
 import { normalizeMentions, remapMentions, findMentions, isEmail, isUsername } from './mentions.js';
+import { t } from '../i18n/index.js';
 
 export const MAX_COMMENT_TEXT = 10000;
 export const MAX_REPLIES = 100;
@@ -74,27 +75,27 @@ export function readComments(stored) {
   if (!stored || typeof stored !== 'object') return map;
   for (const [key, thread] of Object.entries(stored)) {
     if (!/^\d+,\d+$/.test(key)) continue;
-    const t = normalizeThread(thread);
-    if (t) map.set(key, t);
+    const th = normalizeThread(thread);
+    if (th) map.set(key, th);
   }
   return map;
 }
 
 const cloneItem = (i) => (i.mentions ? { ...i, mentions: i.mentions.map((m) => ({ ...m })) } : { ...i });
-const cloneThread = (t) => ({ done: !!t.done, items: t.items.map(cloneItem), ...(t.assignee ? { assignee: { ...t.assignee } } : {}) });
+const cloneThread = (th) => ({ done: !!th.done, items: th.items.map(cloneItem), ...(th.assignee ? { assignee: { ...th.assignee } } : {}) });
 /** An item with ids of its own, its mentions' too: two comments in one file must not share an id. */
 const freshItem = (i) => ({ ...cloneItem(i), id: newCommentId(), ...(i.mentions ? { mentions: i.mentions.map((m) => ({ ...m, id: newCommentId() })) } : {}) });
 
 /** The stored form of a sheet's threads, or undefined when it has none. */
 export function commentsJSON(map) {
   if (!map?.size) return undefined;
-  return Object.fromEntries([...map].map(([key, t]) => [key, cloneThread(t)]));
+  return Object.fromEntries([...map].map(([key, th]) => [key, cloneThread(th)]));
 }
 
 /** A copy of a sheet's threads with new ids, for a copied sheet: two threads must not share an id in one file. */
 export function freshCommentIds(stored) {
   const map = readComments(stored);
-  for (const t of map.values()) t.items = t.items.map(freshItem);
+  for (const th of map.values()) th.items = th.items.map(freshItem);
   return map;
 }
 
@@ -135,15 +136,15 @@ export function setThread(wb, sheetId, r, c, thread, label = null) {
   const next = thread ? normalizeThread(thread) : null;
   const prev = sheet.comments.get(key) || null;
   if (!prev && !next) return true;
-  const apply = (t) => {
+  const apply = (th) => {
     const live = wb.sheet(sheetId);
     if (!live) return;
-    if (t) live.comments.set(key, cloneThread(t)); else live.comments.delete(key);
+    if (th) live.comments.set(key, cloneThread(th)); else live.comments.delete(key);
     wb._growTo(live, r + 1, c + 1);
     wb._changed('cells', live.id);
   };
   apply(next);
-  wb._push({ label: label || (next ? (prev ? 'Edit comment' : 'New comment') : 'Delete comment'), undo: () => apply(prev), redo: () => apply(next) });
+  wb._push({ label: label || (next ? (prev ? t('coreComments.edit') : t('coreComments.new')) : t('coreComments.delete')), undo: () => apply(prev), redo: () => apply(next) });
   return true;
 }
 
@@ -162,14 +163,14 @@ export function addComment(wb, sheetId, r, c, text, author, now = null, { mentio
   if (!String(text ?? '').trim()) return false;
   const existing = getThread(wb, sheetId, r, c);
   if (existing) return replyToThread(wb, sheetId, r, c, text, author, now, { mentions });
-  return setThread(wb, sheetId, r, c, { done: false, items: [stamp(author, text, now, mentions)] }, 'New comment');
+  return setThread(wb, sheetId, r, c, { done: false, items: [stamp(author, text, now, mentions)] }, t('coreComments.new'));
 }
 
 /** Add a reply at the end of a cell's thread. Replying to a resolved thread reopens it. */
 export function replyToThread(wb, sheetId, r, c, text, author, now = null, { mentions = null } = {}) {
-  const t = getThread(wb, sheetId, r, c);
-  if (!t || !String(text ?? '').trim() || t.items.length > MAX_REPLIES) return false;
-  return setThread(wb, sheetId, r, c, { ...t, done: false, items: [...t.items, stamp(author, text, now, mentions)] }, 'Reply to comment');
+  const th = getThread(wb, sheetId, r, c);
+  if (!th || !String(text ?? '').trim() || th.items.length > MAX_REPLIES) return false;
+  return setThread(wb, sheetId, r, c, { ...th, done: false, items: [...th.items, stamp(author, text, now, mentions)] }, t('coreComments.reply'));
 }
 
 /** The comment last added to a cell's thread (what addComment or replyToThread just wrote), or null. */
@@ -183,45 +184,45 @@ export function lastThreadItem(wb, sheetId, r, c) {
  * while editing) are found as new mentions.
  */
 export function editThreadItem(wb, sheetId, r, c, id, text, { picked = [] } = {}) {
-  const t = getThread(wb, sheetId, r, c);
-  if (!t || !String(text ?? '').trim()) return false;
-  const at = t.items.findIndex((i) => i.id === id);
-  if (at < 0 || (t.items[at].text === text && !picked.length)) return false;
-  const kept = remapMentions(t.items[at].mentions, String(text));
+  const th = getThread(wb, sheetId, r, c);
+  if (!th || !String(text ?? '').trim()) return false;
+  const at = th.items.findIndex((i) => i.id === id);
+  if (at < 0 || (th.items[at].text === text && !picked.length)) return false;
+  const kept = remapMentions(th.items[at].mentions, String(text));
   const mentions = normalizeMentions([...kept, ...findMentions(String(text), picked)], String(text));
-  const items = t.items.map((i, n) => {
+  const items = th.items.map((i, n) => {
     if (n !== at) return i;
     const { mentions: _old, ...rest } = i;
     return { ...rest, text: String(text), ...(mentions.length ? { mentions } : {}) };
   });
-  return setThread(wb, sheetId, r, c, { ...t, items }, 'Edit comment');
+  return setThread(wb, sheetId, r, c, { ...th, items }, t('coreComments.edit'));
 }
 
 /** Delete one comment: a reply leaves the thread, the first comment takes the whole thread with it. */
 export function deleteThreadItem(wb, sheetId, r, c, id) {
-  const t = getThread(wb, sheetId, r, c);
-  if (!t) return false;
-  const at = t.items.findIndex((i) => i.id === id);
+  const th = getThread(wb, sheetId, r, c);
+  if (!th) return false;
+  const at = th.items.findIndex((i) => i.id === id);
   if (at < 0) return false;
-  if (at === 0) return setThread(wb, sheetId, r, c, null, 'Delete thread');
-  return setThread(wb, sheetId, r, c, { ...t, items: t.items.filter((_, n) => n !== at) }, 'Delete reply');
+  if (at === 0) return setThread(wb, sheetId, r, c, null, t('coreComments.deleteThread'));
+  return setThread(wb, sheetId, r, c, { ...th, items: th.items.filter((_, n) => n !== at) }, t('coreComments.deleteReply'));
 }
 
 /** Assign a cell's thread to someone ({ name, user?, email? }), or take the assignment away (null). Undoable. */
 export function setThreadAssignee(wb, sheetId, r, c, person) {
-  const t = getThread(wb, sheetId, r, c);
-  if (!t) return false;
+  const th = getThread(wb, sheetId, r, c);
+  if (!th) return false;
   const next = normalizeAssignee(person);
   const same = (a, b) => (a?.user || a?.email || null) === (b?.user || b?.email || null);
-  if (same(t.assignee, next)) return false;
-  const { assignee: _old, ...rest } = t;
-  return setThread(wb, sheetId, r, c, { ...rest, ...(next ? { assignee: next } : {}) }, next ? 'Assign thread' : 'Unassign thread');
+  if (same(th.assignee, next)) return false;
+  const { assignee: _old, ...rest } = th;
+  return setThread(wb, sheetId, r, c, { ...rest, ...(next ? { assignee: next } : {}) }, next ? t('coreComments.assign') : t('coreComments.unassign'));
 }
 
 export function setThreadResolved(wb, sheetId, r, c, done) {
-  const t = getThread(wb, sheetId, r, c);
-  if (!t || t.done === !!done) return false;
-  return setThread(wb, sheetId, r, c, { ...t, done: !!done }, done ? 'Resolve thread' : 'Reopen thread');
+  const th = getThread(wb, sheetId, r, c);
+  if (!th || th.done === !!done) return false;
+  return setThread(wb, sheetId, r, c, { ...th, done: !!done }, done ? t('coreComments.resolve') : t('coreComments.reopen'));
 }
 
 /** Delete every thread whose cell `inside(r, c)` accepts; returns how many went. */
@@ -270,8 +271,8 @@ export function permuteComments(wb, sheetId, range, axis, moved) {
     if (j === i) continue;
     moves.push({ r, c, thread, to: j == null ? null : axis === 'row' ? { r: j, c } : { r, c: j } });
   }
-  for (const m of moves) setThread(wb, sheetId, m.r, m.c, null, 'Move comment');
-  for (const m of moves) if (m.to) setThread(wb, sheetId, m.to.r, m.to.c, m.thread, 'Move comment');
+  for (const m of moves) setThread(wb, sheetId, m.r, m.c, null, t('coreComments.move'));
+  for (const m of moves) if (m.to) setThread(wb, sheetId, m.to.r, m.to.c, m.thread, t('coreComments.move'));
 }
 
 /**
@@ -291,9 +292,9 @@ export function carryComments(wb, fromSheetId, src, toSheetId, dr, dc) {
     if (inDst(r, c) && !(fromSheetId === toSheetId && inSrc(r, c))) covered.push({ r, c });
   }
   if (!moving.length && !covered.length) return;
-  for (const { r, c } of covered) setThread(wb, toSheetId, r, c, null, 'Move comment');
-  for (const { r, c } of moving) setThread(wb, fromSheetId, r, c, null, 'Move comment');
-  for (const { r, c, thread } of moving) setThread(wb, toSheetId, r + dr, c + dc, thread, 'Move comment');
+  for (const { r, c } of covered) setThread(wb, toSheetId, r, c, null, t('coreComments.move'));
+  for (const { r, c } of moving) setThread(wb, fromSheetId, r, c, null, t('coreComments.move'));
+  for (const { r, c, thread } of moving) setThread(wb, toSheetId, r + dr, c + dc, thread, t('coreComments.move'));
 }
 
 /* ---------- The note older readers see ---------- */
@@ -326,7 +327,7 @@ export function copyThreads(wb, sheetId, rows, cols) {
   const map = commentsOf(wb, sheetId);
   if (!map?.size) return null;
   const grid = rows.map((r) => cols.map((c) => map.get(cellKey(r, c)) || null));
-  return grid.some((row) => row.some(Boolean)) ? grid.map((row) => row.map((t) => t && cloneThread(t))) : null;
+  return grid.some((row) => row.some(Boolean)) ? grid.map((row) => row.map((th) => th && cloneThread(th))) : null;
 }
 
 /**
@@ -337,10 +338,10 @@ export function pasteThreads(wb, sheetId, threads, r0, c0) {
   if (!threads) return;
   const sheet = wb.sheet(sheetId);
   if (!sheet) return;
-  threads.forEach((row, i) => row.forEach((t, j) => {
+  threads.forEach((row, i) => row.forEach((th, j) => {
     const r = r0 + i, c = c0 + j;
-    if (t && sheet.notes.has(cellKey(r, c))) return;
-    const copy = t && { done: t.done, items: t.items.map(freshItem), ...(t.assignee ? { assignee: { ...t.assignee } } : {}) };
-    if (copy || sheet.comments.has(cellKey(r, c))) setThread(wb, sheetId, r, c, copy, 'Paste');
+    if (th && sheet.notes.has(cellKey(r, c))) return;
+    const copy = th && { done: th.done, items: th.items.map(freshItem), ...(th.assignee ? { assignee: { ...th.assignee } } : {}) };
+    if (copy || sheet.comments.has(cellKey(r, c))) setThread(wb, sheetId, r, c, copy, t('coreComments.paste'));
   }));
 }

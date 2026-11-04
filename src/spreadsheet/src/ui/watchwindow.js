@@ -9,21 +9,22 @@ import { el } from './dom.js';
 import { icon } from './icons.js';
 import { cellName } from '../core/cell.js';
 import { parseRefText } from '../core/refs.js';
+import { t } from '../i18n/index.js';
 
 export function createWatchWindow(ctx) {
   // The watches picked, as the workbook's own entries: a structural edit carries a watch to another cell, and it stays picked.
   let chosen = new Set();
   const body = el('tbody');
-  const table = el('table.watch-table', { role: 'grid', 'aria-label': 'Watched cells', 'aria-multiselectable': 'true' },
-    el('thead', {}, el('tr', {}, ...['Book', 'Sheet', 'Name', 'Cell', 'Value', 'Formula'].map((h) => el('th', { scope: 'col' }, h)))), body);
-  const addBtn = el('button.btn.btn-sm', { type: 'button', onclick: () => ctx.run('addWatch') }, el('span', { html: icon('watch', 16) }), el('span', {}, 'Add Watch…'));
+  const table = el('table.watch-table', { role: 'grid', 'aria-label': t('watchwindow.watchedCells'), 'aria-multiselectable': 'true' },
+    el('thead', {}, el('tr', {}, ...[t('watchwindow.book'), t('watchwindow.sheet'), t('common.name'), t('watchwindow.cell'), t('common.value'), t('watchwindow.formula')].map((h) => el('th', { scope: 'col' }, h)))), body);
+  const addBtn = el('button.btn.btn-sm', { type: 'button', onclick: () => ctx.run('addWatch') }, el('span', { html: icon('watch', 16) }), el('span', {}, t('watchwindow.addWatch')));
   const deleteBtn = el('button.btn.btn-sm', { type: 'button', onclick: () => {
     ctx.wb.removeWatches(ctx.wb.watches.filter((w) => chosen.has(w)));
     chosen = new Set();
-  } }, 'Delete Watch');
-  const close = el('button.icon-btn', { type: 'button', 'aria-label': 'Close Watch Window', html: icon('x', 16), onclick: () => api.hide() });
-  const head = el('div.watch-head', {}, el('span.watch-title', {}, 'Watch Window'), close);
-  const root = el('section.watch-window', { role: 'region', 'aria-label': 'Watch Window', hidden: true },
+  } }, t('watchwindow.deleteWatch'));
+  const close = el('button.icon-btn', { type: 'button', 'aria-label': t('watchwindow.close'), html: icon('x', 16), onclick: () => api.hide() });
+  const head = el('div.watch-head', {}, el('span.watch-title', {}, t('watchwindow.title')), close);
+  const root = el('section.watch-window', { role: 'region', 'aria-label': t('watchwindow.title'), hidden: true },
     head, el('div.watch-actions', {}, addBtn, deleteBtn), el('div.watch-scroll', {}, table));
   const nameOf = (sheet, r, c) => {
     for (const n of ctx.wb.names || []) {

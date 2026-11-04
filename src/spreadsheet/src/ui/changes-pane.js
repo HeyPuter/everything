@@ -14,16 +14,18 @@ import { icon } from './icons.js';
 import { confirmDialog } from './modal.js';
 import { changeEntries, clearChangeHistory, entrySheet, entryPlace, detailPlace } from '../core/change-history.js';
 import { rangeName, parseRange, parseCellRef } from '../core/cell.js';
+import { t, formatDate } from '../i18n/index.js';
 
 const PAGE = 50;
-const KIND_LABEL = { undo: 'Undo', redo: 'Redo' };
+/** What an undo or a redo entry says, around the name of the step it undid or redid. */
+const KIND_LABEL = { undo: 'changesPane.undoStep', redo: 'changesPane.redoStep' };
 
 /** A typed range, "B2" or "B2:D9" (absolute marks allowed); null when it is not one. */
 function readRange(text) {
-  const t = String(text || '').trim().replace(/\$/g, '').toUpperCase();
-  if (!t) return null;
-  if (t.includes(':')) return parseRange(t);
-  const cell = parseCellRef(t);
+  const typed = String(text || '').trim().replace(/\$/g, '').toUpperCase();
+  if (!typed) return null;
+  if (typed.includes(':')) return parseRange(typed);
+  const cell = parseCellRef(typed);
   return cell ? { r1: cell.r, c1: cell.c, r2: cell.r, c2: cell.c } : null;
 }
 
@@ -41,28 +43,28 @@ export function createChangesPane(ctx) {
   const expanded = new Set(); // the many-cell cards opened onto their cells, kept open as the list is drawn again
 
   const uid = fieldId('changes');
-  const close = el('button.icon-btn', { type: 'button', 'aria-label': 'Close Changes', html: icon('x', 16), onclick: () => api.hide() });
+  const close = el('button.icon-btn', { type: 'button', 'aria-label': t('changesPane.closeChanges'), html: icon('x', 16), onclick: () => api.hide() });
   const scopeSelect = el('select.select.chg-scope', { id: `${uid}-scope`, onchange: () => { scope = scopeSelect.value; limit = PAGE; render(true); } },
-    el('option', { value: 'all' }, 'All sheets'), el('option', { value: 'sheet' }, 'This sheet'));
+    el('option', { value: 'all' }, t('changesPane.allSheets')), el('option', { value: 'sheet' }, t('changesPane.thisSheet')));
   const rangeInput = el('input.input.chg-range', {
-    id: `${uid}-range`, type: 'text', placeholder: 'Any range', autocomplete: 'off', spellcheck: false,
+    id: `${uid}-range`, type: 'text', placeholder: t('changesPane.anyRange'), autocomplete: 'off', spellcheck: false,
     'aria-describedby': `${uid}-range-hint`,
     oninput: () => { rangeText = rangeInput.value; limit = PAGE; render(true); },
     onkeydown: (e) => { if (e.key === 'Escape' && rangeInput.value) { e.stopPropagation(); setRange(''); } },
   });
-  const useSelection = el('button.btn.btn-sm.chg-use-selection', { type: 'button', title: 'Show the changes to the selected cells', onclick: () => filterToSelection() }, 'Selection');
-  const clearRange = el('button.icon-btn.chg-clear-range', { type: 'button', 'aria-label': 'Show changes anywhere on the sheet', title: 'Any range', html: icon('x', 14), onclick: () => setRange('') });
+  const useSelection = el('button.btn.btn-sm.chg-use-selection', { type: 'button', title: t('changesPane.useSelectionTitle'), onclick: () => filterToSelection() }, t('changesPane.selection'));
+  const clearRange = el('button.icon-btn.chg-clear-range', { type: 'button', 'aria-label': t('changesPane.clearRange'), title: t('changesPane.anyRange'), html: icon('x', 14), onclick: () => setRange('') });
   const rangeHint = el('span.chg-hint', { id: `${uid}-range-hint`, role: 'status', 'aria-live': 'polite' });
   const summary = el('p.chg-summary', { role: 'status', 'aria-live': 'polite' });
-  const list = el('ol.chg-list', { 'aria-label': 'Changes, newest first' });
-  const more = el('button.btn.btn-sm.chg-more', { type: 'button', onclick: () => { limit += PAGE; render(true); } }, 'Load More');
-  const versions = el('button.btn.btn-sm.btn-ghost.chg-versions', { type: 'button', onclick: () => ctx.run?.('versions') }, el('span', { html: icon('clock', 14) }), 'Version History…');
-  const clearAll = el('button.btn.btn-sm.btn-ghost.chg-clear', { type: 'button', onclick: () => clearHistory() }, el('span', { html: icon('trash', 14) }), 'Clear…');
-  const root = el('section.a11y-pane.chg-pane', { role: 'region', 'aria-label': 'Changes', hidden: true },
-    el('div.a11y-head', {}, el('span.a11y-title', {}, 'Changes'), close),
+  const list = el('ol.chg-list', { 'aria-label': t('changesPane.listLabel') });
+  const more = el('button.btn.btn-sm.chg-more', { type: 'button', onclick: () => { limit += PAGE; render(true); } }, t('changesPane.loadMore'));
+  const versions = el('button.btn.btn-sm.btn-ghost.chg-versions', { type: 'button', onclick: () => ctx.run?.('versions') }, el('span', { html: icon('clock', 14) }), t('changesPane.versionHistory'));
+  const clearAll = el('button.btn.btn-sm.btn-ghost.chg-clear', { type: 'button', onclick: () => clearHistory() }, el('span', { html: icon('trash', 14) }), t('changesPane.clear'));
+  const root = el('section.a11y-pane.chg-pane', { role: 'region', 'aria-label': t('changesPane.changes'), hidden: true },
+    el('div.a11y-head', {}, el('span.a11y-title', {}, t('changesPane.changes')), close),
     el('div.chg-filters', {},
-      el('label.chg-field', { for: `${uid}-scope` }, el('span.chg-field-label', {}, 'Sheet'), scopeSelect),
-      el('div.chg-field', {}, el('label.chg-field-label', { for: `${uid}-range` }, 'Range'),
+      el('label.chg-field', { for: `${uid}-scope` }, el('span.chg-field-label', {}, t('changesPane.sheet')), scopeSelect),
+      el('div.chg-field', {}, el('label.chg-field-label', { for: `${uid}-range` }, t('changesPane.range')),
         el('div.chg-range-row', {}, rangeInput, clearRange, useSelection)),
       rangeHint),
     el('div.a11y-body.chg-body', {}, summary, list, more),
@@ -85,7 +87,7 @@ export function createChangesPane(ctx) {
 
   async function clearHistory() {
     if (!wb.changeHistory?.length) return;
-    const ok = await confirmDialog({ title: 'Clear change history?', message: 'The list of changes kept with this spreadsheet will be emptied for everyone who opens it. The cells themselves stay as they are, and saved versions are kept.', confirmLabel: 'Clear history' });
+    const ok = await confirmDialog({ title: t('changesPane.clearTitle'), message: t('changesPane.clearMessage'), confirmLabel: t('changesPane.clearHistory') });
     if (!ok) return;
     clearChangeHistory(wb);
     limit = PAGE;
@@ -93,12 +95,12 @@ export function createChangesPane(ctx) {
   }
 
   const authorName = (author) => {
-    if (!author) return 'Unknown author';
+    if (!author) return t('changesPane.unknownAuthor');
     const me = ctx.currentUser?.();
-    return me && author === me ? 'You' : author;
+    return me && author === me ? t('changesPane.you') : author;
   };
-  const shown = (text) => (text == null ? el('span.chg-blank', {}, 'blank') : el('span.chg-value', { dir: 'auto', title: text }, text));
-  const exactTime = (at) => new Date(at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+  const shown = (text) => (text == null ? el('span.chg-blank', {}, t('changesPane.blank')) : el('span.chg-value', { dir: 'auto', title: text }, text));
+  const exactTime = (at) => formatDate(new Date(at), { dateStyle: 'medium', timeStyle: 'short' });
 
   function reveal(entry, range = entry.box) {
     const sheet = entrySheet(wb, entry);
@@ -110,37 +112,39 @@ export function createChangesPane(ctx) {
     const sheet = entrySheet(wb, entry);
     const place = entryPlace(wb, entry);
     const name = authorName(entry.author);
-    const what = KIND_LABEL[entry.kind] ? `${KIND_LABEL[entry.kind]}: ${entry.label}` : entry.label;
+    // A step's name is kept with the book as it was said when it was made; only the record's own default is the app's to translate.
+    const step = entry.label === 'Edit' ? t('changesPane.edit') : entry.label;
+    const what = KIND_LABEL[entry.kind] ? t(KIND_LABEL[entry.kind], { label: step }) : step;
     const reachable = !!sheet && !!entry.box && !sheet.hidden;
     const head = el('div.chg-head', {},
-      el('span.chg-avatar', { 'aria-hidden': 'true' }, (name === 'Unknown author' ? '?' : name).slice(0, 1).toUpperCase()),
+      el('span.chg-avatar', { 'aria-hidden': 'true' }, (entry.author ? name : '?').slice(0, 1).toUpperCase()),
       el('span.chg-author', {}, name),
       el('time.chg-time', { datetime: new Date(entry.at).toISOString(), title: exactTime(entry.at) }, relativeTime(entry.at)));
     const placeNode = reachable
-      ? el('button.chg-place', { type: 'button', title: `Select ${place}`, onclick: () => reveal(entry) }, place)
-      : el('span.chg-place.chg-place-gone', { title: sheet ? place : 'The sheet is no longer in the workbook' }, place || 'Workbook');
+      ? el('button.chg-place', { type: 'button', title: t('changesPane.selectPlace', { place }), onclick: () => reveal(entry) }, place)
+      : el('span.chg-place.chg-place-gone', { title: sheet ? place : t('changesPane.sheetGone') }, place || t('changesPane.workbook'));
     const body = [el('div.chg-what', {}, el('span.chg-label', {}, what), placeNode)];
     if (entry.kind === 'cells') {
       const single = entry.count === 1 && entry.cells.length === 1;
       if (single) {
         const d = entry.cells[0];
-        body.push(el('div.chg-diff', {}, shown(d.from), el('span.chg-arrow', { 'aria-label': 'changed to', html: icon('arrowRight', 12, 2) }), shown(d.to)));
+        body.push(el('div.chg-diff', {}, shown(d.from), el('span.chg-arrow', { 'aria-label': t('changesPane.changedTo'), html: icon('arrowRight', 12, 2) }), shown(d.to)));
       } else {
         const listed = entry.cells.length;
         const rows = entry.cells.map((d) => el('li.chg-cell', {},
           el('button.chg-cell-ref', { type: 'button', disabled: !reachable, onclick: () => reveal(entry, { r1: d.r, c1: d.c, r2: d.r, c2: d.c }) }, detailPlace(d)),
-          shown(d.from), el('span.chg-arrow', { 'aria-label': 'changed to', html: icon('arrowRight', 12, 2) }), shown(d.to)));
+          shown(d.from), el('span.chg-arrow', { 'aria-label': t('changesPane.changedTo'), html: icon('arrowRight', 12, 2) }), shown(d.to)));
         const rest = entry.partial ? 0 : entry.count - listed;
         const details = el('details.chg-cells', { open: expanded.has(entry.id), ontoggle: () => { if (details.open) expanded.add(entry.id); else expanded.delete(entry.id); } },
-          el('summary', {}, `${entry.count.toLocaleString()} cell${entry.count === 1 ? '' : 's'} changed`),
+          el('summary', {}, t('changesPane.cellsChanged', { count: entry.count })),
           el('ul', {}, ...rows),
-          rest > 0 && el('p.chg-rest', {}, `and ${rest.toLocaleString()} more not listed`));
+          rest > 0 && el('p.chg-rest', {}, t('changesPane.moreNotListed', { count: rest })));
         body.push(details);
       }
     } else if (entry.count > 1) {
-      body.push(el('div.chg-diff.chg-muted', {}, `${entry.count} times`));
+      body.push(el('div.chg-diff.chg-muted', {}, t('changesPane.times', { count: entry.count })));
     }
-    return el('li.chg-card', { className: `chg-card chg-${entry.kind}`, 'aria-label': `${name}, ${relativeTime(entry.at)}: ${what}${place ? ` at ${place}` : ''}` }, head, ...body);
+    return el('li.chg-card', { className: `chg-card chg-${entry.kind}`, 'aria-label': place ? t('changesPane.cardLabelAt', { name, when: relativeTime(entry.at), what, place }) : t('changesPane.cardLabel', { name, when: relativeTime(entry.at), what }) }, head, ...body);
   }
 
   function render(force = false) {
@@ -154,15 +158,19 @@ export function createChangesPane(ctx) {
     lastSignature = signature;
     rangeInput.setAttribute('aria-invalid', String(badRange));
     clearRange.hidden = !rangeText;
-    rangeHint.textContent = badRange ? 'Type a cell or range, like B2 or A1:D20' : range && scope === 'all' ? 'The range is looked for on every sheet' : '';
+    rangeHint.textContent = badRange ? t('changesPane.badRange') : range && scope === 'all' ? t('changesPane.everySheet') : '';
     const filter = { sheetId: scope === 'sheet' ? sheetId : null, range: badRange ? null : range, limit };
     const { entries, more: hasMore } = changeEntries(wb, filter);
     list.replaceChildren(...entries.map(card));
     more.hidden = !hasMore;
     clearAll.disabled = !history.length;
-    if (!history.length) summary.textContent = 'No changes yet. Edits to cells are listed here as they are made.';
-    else if (!entries.length) summary.textContent = range ? `No changes to ${rangeName(range)}${scope === 'sheet' ? ' on this sheet' : ''}.` : 'No changes on this sheet.';
-    else summary.textContent = `${entries.length.toLocaleString()} change${entries.length === 1 ? '' : 's'}${hasMore ? ' shown, older ones below' : ''}${range ? ` to ${rangeName(range)}` : ''}${scope === 'sheet' ? ' on this sheet' : ''}.`;
+    if (!history.length) summary.textContent = t('changesPane.noneYet');
+    else if (!entries.length) summary.textContent = range ? t('changesPane.noneTo', { range: rangeName(range), scope: scope === 'sheet' ? 'sheet' : 'all' }) : t('changesPane.noneOnSheet');
+    else {
+      const counted = { count: entries.length, more: hasMore ? 'yes' : 'no' };
+      if (range) summary.textContent = scope === 'sheet' ? t('changesPane.countToOnSheet', { ...counted, range: rangeName(range) }) : t('changesPane.countTo', { ...counted, range: rangeName(range) });
+      else summary.textContent = scope === 'sheet' ? t('changesPane.countOnSheet', counted) : t('changesPane.count', counted);
+    }
   }
 
   // Edits arrive as the workbook's change events; the times ("2 min ago") are written again each minute.

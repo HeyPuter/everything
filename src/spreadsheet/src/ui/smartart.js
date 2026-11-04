@@ -19,6 +19,7 @@ import {
   themePalette, smartArtPaint, smartArtShapeCommands, normalizeSmartArtItems,
 } from '../core/smartart.js';
 import { pathData } from '../core/smartart-geometry.js';
+import { t, tSource } from '../i18n/index.js';
 
 /** The SmartArt diagram selected on the sheet, if the selection is one. */
 export function activeSmartArt(ctx) {
@@ -52,13 +53,13 @@ const thumbnail = (layout, look, extra = {}) => smartArtSvg({ ...newSmartArt(lay
  * The layout gallery: categories down the side, the layouts of the one chosen in the middle, and the one picked
  * shown large with its description. `onPick(layoutId)` gets the choice (OK, Enter or a double-click).
  */
-export function openSmartArtGallery(ctx, { title = 'Choose a SmartArt Graphic', current = null, okLabel = 'Insert', onPick }) {
+export function openSmartArtGallery(ctx, { title = t('smartart.gallery.title'), current = null, okLabel = t('common.insert'), onPick }) {
   const look = smartArtLook(ctx.wb);
   let category = current ? layoutById(current)?.category || 'all' : 'all';
   let chosen = current || SMARTART_LAYOUTS[0].id;
-  const cats = [['all', 'All'], ...SMARTART_CATEGORIES];
-  const catList = el('div.sa-gallery-cats', { role: 'tablist', 'aria-label': 'Categories', 'aria-orientation': 'vertical' });
-  const grid = el('div.sa-gallery-grid', { role: 'listbox', 'aria-label': 'Layouts' });
+  const cats = [['all', 'smartart.gallery.all'], ...SMARTART_CATEGORIES];
+  const catList = el('div.sa-gallery-cats', { role: 'tablist', 'aria-label': t('smartart.gallery.categories'), 'aria-orientation': 'vertical' });
+  const grid = el('div.sa-gallery-grid', { role: 'listbox', 'aria-label': t('smartart.gallery.layouts') });
   const previewPic = el('div.sa-gallery-preview-pic', { 'aria-hidden': 'true' });
   const previewName = el('h3.sa-gallery-name');
   const previewText = el('p.sa-gallery-desc');
@@ -97,7 +98,7 @@ export function openSmartArtGallery(ctx, { title = 'Choose a SmartArt Graphic', 
         const next = { ArrowDown: at + 1, ArrowUp: at - 1, Home: 0, End: all.length - 1 }[e.key];
         if (next == null || !all[next]) return;
         e.preventDefault(); showCategory(all[next].dataset.key); all[next].focus();
-      } }, label));
+      } }, t(label)));
   }
   grid.addEventListener('keydown', (e) => {
     const ids = [...tiles.keys()], at = ids.indexOf(chosen);
@@ -110,7 +111,7 @@ export function openSmartArtGallery(ctx, { title = 'Choose a SmartArt Graphic', 
   const content = el('form.sa-gallery', { onsubmit: (e) => { e.preventDefault(); submit(); } },
     el('div.sa-gallery-body', {}, catList, grid,
       el('div.sa-gallery-preview', {}, previewPic, previewName, previewText)),
-    el('div.row.row-end.sa-gallery-actions', {}, el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Cancel'), ok));
+    el('div.row.row-end.sa-gallery-actions', {}, el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, t('common.cancel')), ok));
   showCategory(category);
   const modal = openModal({ title, content, wide: true, className: 'sa-gallery-modal', initialFocus: tiles.get(chosen) || grid, onClose: () => ctx.grid?.focus?.() });
   return modal;
@@ -138,7 +139,7 @@ function convertToShapes(ctx, obj) {
   const { shapes, colorPlaces } = smartArtShapes(obj, obj.w, obj.h);
   const at = wb.objectRect(sheetId, obj.id);
   const ids = [];
-  wb.transaction('Convert to Shapes', () => {
+  wb.transaction(t('smartart.undo.convert'), () => {
     const index = wb.sheet(sheetId).charts.findIndex((o) => o.id === obj.id);
     shapes.forEach((s, k) => {
       const p = smartArtPaint(s, obj, P, colorPlaces);
@@ -160,7 +161,7 @@ function convertToShapes(ctx, obj) {
       }
       if (!id) return;
       ids.push(id);
-      wb.placeObjects(sheetId, [{ id, x: at.x + x, y: at.y + y }], 'Convert to Shapes');
+      wb.placeObjects(sheetId, [{ id, x: at.x + x, y: at.y + y }], t('smartart.undo.convert'));
     });
     wb.deleteChart(sheetId, obj.id);
     if (ids.length > 1) wb.groupObjects(sheetId, ids);
@@ -178,7 +179,8 @@ function rotatedBox(s) {
   return { x: s.x + s.w / 2 - w / 2, y: s.y + s.h / 2 - h / 2, w, h };
 }
 
-const ADD_LABELS = { after: 'Add Shape After', before: 'Add Shape Before', above: 'Add Shape Above', below: 'Add Shape Below' };
+/** Add Shape's choices, as catalog keys. */
+const ADD_LABELS = { after: 'smartart.add.after', before: 'smartart.add.before', above: 'smartart.add.above', below: 'smartart.add.below' };
 
 /** Run a SmartArt command; `arg.action` names it. Returns true when something changed. */
 export function runSmartArtAction(ctx, arg = {}) {
@@ -198,11 +200,11 @@ export function runSmartArtAction(ctx, arg = {}) {
     ctx.grid.selectChart(id);
     ctx.smartArt?.select(id, []);
     ctx.smartArt?.showPane({ focus: true });
-    ctx.announce?.(`${layoutById(model.layout).name} SmartArt inserted. Type its text in the Text Pane`);
+    ctx.announce?.(t('smartart.inserted', { name: layoutById(model.layout).name }));
     return true;
   }
   const obj = arg.id ? wb.chartById(sheetId, arg.id) : activeSmartArt(ctx);
-  if (!obj || obj.type !== 'smartart') { toast('Select a SmartArt graphic first', { icon: 'info', duration: 2400 }); return false; }
+  if (!obj || obj.type !== 'smartart') { toast(t('smartart.selectFirst'), { icon: 'info', duration: 2400 }); return false; }
   if (ctx.refused?.('change the SmartArt graphic')) return false;
   const update = (patch, label, opts) => wb.updateSmartArt(sheetId, obj.id, patch, label, opts);
   const picked = pickedItems(ctx, obj);
@@ -212,52 +214,52 @@ export function runSmartArtAction(ctx, arg = {}) {
     case 'pick': ctx.smartArt?.select(obj.id, arg.item == null ? [] : arg.add ? toggle(picked, arg.item) : [arg.item]); ctx.notify?.(); return false;
     case 'textPane': ctx.smartArt?.togglePane(); return false;
     case 'layoutDialog':
-      openSmartArtGallery(ctx, { title: 'Change Layout', current: obj.layout, okLabel: 'OK', onPick: (layout) => runSmartArtAction(ctx, { action: 'layout', layout, id: obj.id }) });
+      openSmartArtGallery(ctx, { title: t('smartart.changeLayout'), current: obj.layout, okLabel: t('common.ok'), onPick: (layout) => runSmartArtAction(ctx, { action: 'layout', layout, id: obj.id }) });
       return false;
     case 'layout': {
       if (!layoutById(arg.layout) || arg.layout === obj.layout) return false;
-      const ok = update({ layout: arg.layout }, 'Change SmartArt layout');
+      const ok = update({ layout: arg.layout }, t('smartart.undo.layout'));
       const layout = layoutById(arg.layout), roots = smartArtTree(obj.items).length;
-      if (ok) say(`Layout: ${layout.name}${layout.maxRoots && roots > layout.maxRoots ? `. It shows ${layout.maxRoots} of the ${roots} top-level items; the rest stay in the text` : ''}`);
+      if (ok) say(layout.maxRoots && roots > layout.maxRoots ? t('smartart.layoutShowsSome', { name: layout.name, shown: layout.maxRoots, total: roots }) : t('smartart.layoutChanged', { name: layout.name }));
       return ok;
     }
-    case 'colors': return update({ colors: arg.colors }, 'Change SmartArt colors');
-    case 'style': return update({ style: arg.style }, 'SmartArt style');
-    case 'rtl': return update({ rtl: !obj.rtl }, 'Right to Left');
+    case 'colors': return update({ colors: arg.colors }, t('smartart.undo.colors'));
+    case 'style': return update({ style: arg.style }, t('smartart.undo.style'));
+    case 'rtl': return update({ rtl: !obj.rtl }, t('smartart.undo.rtl'));
     case 'reset': {
-      const ok = update({ style: 'flat', items: obj.items.map(({ fmt, ...it }) => it) }, 'Reset SmartArt graphic');
-      if (ok) say('Graphic reset: shape formatting and style cleared');
+      const ok = update({ style: 'flat', items: obj.items.map(({ fmt, ...it }) => it) }, t('smartart.undo.reset'));
+      if (ok) say(t('smartart.resetDone'));
       return ok;
     }
     case 'convert': {
       const ids = convertToShapes(ctx, obj);
-      if (ids.length) { ctx.grid.selectCharts(ids); say(`Converted to ${ids.length} shapes`); }
+      if (ids.length) { ctx.grid.selectCharts(ids); say(t('smartart.converted', { count: ids.length })); }
       return !!ids.length;
     }
     case 'add': {
       const where = arg.where || 'after';
       // With no shape selected, a new top-level item goes at the end.
       const res = addSmartArtItem(obj.items, target ?? (where === 'after' ? lastRoot(obj.items) : null), where);
-      if (!res) { toast('No room for another shape there', { icon: 'info', duration: 2200 }); return false; }
-      update({ items: res.items }, ADD_LABELS[where] || 'Add Shape');
+      if (!res) { toast(t('smartart.noRoom'), { icon: 'info', duration: 2200 }); return false; }
+      update({ items: res.items }, ADD_LABELS[where] ? t(ADD_LABELS[where]) : t('smartart.add.shape'));
       ctx.smartArt?.select(obj.id, [res.at]);
       ctx.smartArt?.focusItem?.(res.at);
-      say(`${ADD_LABELS[where] || 'Add Shape'}: item ${res.at + 1}`);
+      say(t('smartart.added', { where: ADD_LABELS[where] ? where : 'other', n: res.at + 1 }));
       return true;
     }
     case 'promote': case 'demote': case 'moveUp': case 'moveDown': {
-      if (target == null) { toast('Select a shape, or put the cursor in an item of the Text Pane', { icon: 'info', duration: 2600 }); return false; }
+      if (target == null) { toast(t('smartart.selectShapeOrItem'), { icon: 'info', duration: 2600 }); return false; }
       const res = action === 'promote' ? promoteSmartArtItem(obj.items, target) : action === 'demote' ? demoteSmartArtItem(obj.items, target)
         : moveSmartArtItem(obj.items, target, action === 'moveUp' ? -1 : 1);
-      if (!res) { say({ promote: 'Already at the top level', demote: 'Cannot demote this item further', moveUp: 'Already first', moveDown: 'Already last' }[action]); return false; }
-      update({ items: res.items }, { promote: 'Promote', demote: 'Demote', moveUp: 'Move Up', moveDown: 'Move Down' }[action]);
+      if (!res) { say(t({ promote: 'smartart.cannot.promote', demote: 'smartart.cannot.demote', moveUp: 'smartart.cannot.moveUp', moveDown: 'smartart.cannot.moveDown' }[action])); return false; }
+      update({ items: res.items }, t({ promote: 'smartart.undo.promote', demote: 'smartart.undo.demote', moveUp: 'smartart.undo.moveUp', moveDown: 'smartart.undo.moveDown' }[action]));
       ctx.smartArt?.select(obj.id, [res.at]);
       ctx.smartArt?.focusItem?.(res.at);
-      say(`${{ promote: 'Promoted', demote: 'Demoted', moveUp: 'Moved up', moveDown: 'Moved down' }[action]}: level ${res.items[res.at].level + 1}`);
+      say(t('smartart.moved', { action, level: res.items[res.at].level + 1 }));
       return true;
     }
     case 'format': case 'scale': case 'shape': case 'resetShape': {
-      if (!picked.length) { toast('Select one or more shapes in the diagram first', { icon: 'info', duration: 2600 }); return false; }
+      if (!picked.length) { toast(t('smartart.selectShapes'), { icon: 'info', duration: 2600 }); return false; }
       const items = obj.items.map((it, i) => {
         if (!picked.includes(i)) return it;
         let fmt = { ...(it.fmt || {}) };
@@ -268,7 +270,7 @@ export function runSmartArtAction(ctx, arg = {}) {
         const { fmt: _drop, ...rest } = it;
         return Object.keys(fmt).length ? { ...rest, fmt } : rest;
       });
-      return update({ items }, { format: 'Format shape', scale: arg.dir > 0 ? 'Larger' : 'Smaller', shape: 'Change Shape', resetShape: 'Reset Shape' }[action]);
+      return update({ items }, t({ format: 'smartart.undo.format', scale: arg.dir > 0 ? 'smartart.undo.larger' : 'smartart.undo.smaller', shape: 'smartart.undo.shape', resetShape: 'smartart.undo.resetShape' }[action]));
     }
     default: return false;
   }
@@ -286,19 +288,21 @@ function lastRoot(items) {
 const flags = (ctx) => ctx?.flags?.() || {};
 const cannot = (ctx) => !!flags(ctx).editing || !activeSmartArt(ctx) || !!ctx.wb.sheet(ctx.sheetId())?.protected;
 const noTarget = (ctx) => { const obj = activeSmartArt(ctx); return !obj || !pickedItems(ctx, obj).length; };
-const cmd = (label, glyph, arg, extra = {}) => ({ label, glyph, ariaLabel: extra.ariaLabel || label, ...extra,
-  resolve: (menus, ctx) => ({ label, cmd: 'smartArt', arg, disabled: cannot(ctx) || !!extra.unavailable?.(ctx), checked: extra.isChecked?.(ctx) }) });
-const menu = (label, glyph, build, extra = {}) => ({ label, glyph, ariaLabel: extra.ariaLabel || label, ...extra,
-  resolve: (menus, ctx) => { const disabled = cannot(ctx) || !!extra.unavailable?.(ctx); return lazySubmenu({ label, disabled }, () => (disabled ? [] : build(ctx))); } });
+// Ribbon buttons are named by catalog key: the label shows in the interface language, and the key tip is
+// worked out from the English (keytips.js), so it is the same letters in every language.
+const cmd = (key, glyph, arg, extra = {}) => ({ label: t(key), keytip: tSource(key), glyph, ariaLabel: extra.ariaLabel || t(key), ...extra,
+  resolve: (menus, ctx) => ({ label: t(key), cmd: 'smartArt', arg, disabled: cannot(ctx) || !!extra.unavailable?.(ctx), checked: extra.isChecked?.(ctx) }) });
+const menu = (key, glyph, build, extra = {}) => ({ label: t(key), keytip: tSource(key), glyph, ariaLabel: extra.ariaLabel || t(key), ...extra,
+  resolve: (menus, ctx) => { const disabled = cannot(ctx) || !!extra.unavailable?.(ctx); return lazySubmenu({ label: t(key), disabled }, () => (disabled ? [] : build(ctx))); } });
 
 /** A grid of pictures inside a menu; a pick closes the menu and runs `onPick`. */
 function tiles(label, list, { columns = 4, className = '' } = {}) {
   const grid = el(`div.chart-gallery-grid.sa-menu-grid${className ? `.${className}` : ''}`, { role: 'group', 'aria-label': label, style: { gridTemplateColumns: `repeat(${columns}, auto)` } },
-    ...list.map((t) => el('button.chart-gallery-tile', {
-      type: 'button', role: t.checked == null ? 'menuitem' : 'menuitemradio', tabindex: -1, title: t.label, 'aria-label': t.label,
-      ...(t.checked == null ? {} : { 'aria-checked': String(!!t.checked) }),
-      onclick: () => { closeMenu(); t.onPick(); },
-    }, el('span.chart-gallery-picture', { html: t.html, 'aria-hidden': 'true' }))));
+    ...list.map((tile) => el('button.chart-gallery-tile', {
+      type: 'button', role: tile.checked == null ? 'menuitem' : 'menuitemradio', tabindex: -1, title: tile.label, 'aria-label': tile.label,
+      ...(tile.checked == null ? {} : { 'aria-checked': String(!!tile.checked) }),
+      onclick: () => { closeMenu(); tile.onPick(); },
+    }, el('span.chart-gallery-picture', { html: tile.html, 'aria-hidden': 'true' }))));
   grid.addEventListener('keydown', (e) => {
     const all = [...grid.querySelectorAll('button')], at = all.indexOf(document.activeElement);
     const step = { ArrowRight: 1, ArrowLeft: -1, ArrowDown: columns, ArrowUp: -columns }[e.key];
@@ -314,20 +318,24 @@ const run = (ctx, arg) => ctx.run('smartArt', arg);
 function layoutMenu(ctx) {
   const obj = activeSmartArt(ctx), look = smartArtLook(ctx.wb), cat = layoutById(obj.layout)?.category;
   const list = SMARTART_LAYOUTS.filter((l) => l.category === cat);
-  return [{ header: `${SMARTART_CATEGORIES.find(([k]) => k === cat)?.[1] || 'Layouts'} layouts` },
-    { custom: tiles('Layouts', list.map((l) => ({ label: l.name, checked: l.id === obj.layout, html: smartArtSvg({ ...obj, layout: l.id, fallback: null }, 160, 106, { ...look, thumbnail: true, idPrefix: `sal-${l.id}` }),
+  const heading = SMARTART_CATEGORIES.find(([k]) => k === cat)?.[2];
+  return [{ header: heading ? t(heading) : t('smartart.gallery.layouts') },
+    { custom: tiles(t('smartart.gallery.layouts'), list.map((l) => ({ label: l.name, checked: l.id === obj.layout, html: smartArtSvg({ ...obj, layout: l.id, fallback: null }, 160, 106, { ...look, thumbnail: true, idPrefix: `sal-${l.id}` }),
       onPick: () => run(ctx, { action: 'layout', layout: l.id }) })), { columns: 3, className: 'sa-layout-tiles' }) },
-    { separator: true }, { label: 'More Layouts…', icon: 'smartArt', cmd: 'smartArt', arg: { action: 'layoutDialog' } }];
+    { separator: true }, { label: t('smartart.menu.moreLayouts'), icon: 'smartArt', cmd: 'smartArt', arg: { action: 'layoutDialog' } }];
 }
 
 /** Change Colors: the theme's schemes, a row of swatches each, under their headings. */
 function colorsMenu(ctx) {
   const obj = activeSmartArt(ctx), look = smartArtLook(ctx.wb), P = themePalette(look.colors);
   const groups = [...new Set(SMARTART_COLOR_SCHEMES.map((s) => s.group))];
-  return groups.flatMap((g) => [{ header: g }, { custom: tiles(g, SMARTART_COLOR_SCHEMES.filter((s) => s.group === g).map((s) => ({
+  return groups.flatMap((g) => {
+    const schemes = SMARTART_COLOR_SCHEMES.filter((s) => s.group === g), heading = schemes[0].groupName;
+    return [{ header: heading }, { custom: tiles(heading, schemes.map((s) => ({
     label: s.name, checked: s.id === obj.colors,
     html: swatchPicture({ ...obj, colors: s.id }, P),
-    onPick: () => run(ctx, { action: 'colors', colors: s.id }) })), { columns: 4, className: 'sa-color-tiles' }) }]);
+    onPick: () => run(ctx, { action: 'colors', colors: s.id }) })), { columns: 4, className: 'sa-color-tiles' }) }];
+  });
 }
 
 /** A colour scheme's sample: three shapes as the scheme paints them. */
@@ -342,54 +350,54 @@ function swatchPicture(model, P) {
 function stylesMenu(ctx) {
   const obj = activeSmartArt(ctx), look = smartArtLook(ctx.wb);
   const sample = { ...obj, items: normalizeSmartArtItems([{ text: '', level: 0 }, { text: '', level: 0 }, { text: '', level: 0 }]), layout: 'basicProcess', fallback: null };
-  return [{ custom: tiles('Styles', SMARTART_STYLES.map((s) => ({ label: `${s.name}: ${s.description}`, checked: s.id === obj.style,
+  return [{ custom: tiles(t('smartart.menu.styles'), SMARTART_STYLES.map((s) => ({ label: t('smartart.menu.styleTip', { name: s.name, description: s.description }), checked: s.id === obj.style,
     html: smartArtSvg({ ...sample, style: s.id }, 120, 60, { ...look, idPrefix: `sas-${s.id}` }), onPick: () => run(ctx, { action: 'style', style: s.id }) })), { columns: 3, className: 'sa-style-tiles' }) }];
 }
 
-const addMenu = () => ['after', 'before', 'above', 'below'].map((where) => ({ label: ADD_LABELS[where], icon: 'addShape', cmd: 'smartArt', arg: { action: 'add', where } }));
+const addMenu = () => ['after', 'before', 'above', 'below'].map((where) => ({ label: t(ADD_LABELS[where]), icon: 'addShape', cmd: 'smartArt', arg: { action: 'add', where } }));
 
 const STANDARD = ['#c00000', '#ff0000', '#ffc000', '#ffff00', '#92d050', '#00b050', '#00b0f0', '#0070c0', '#002060', '#7030a0'];
 function colorMenu(ctx, key) {
   const pick = (hex) => run(ctx, { action: 'format', [key]: hex });
   const noun = { fill: 'fill color', line: 'outline color', color: 'text color' }[key];
   const block = themeColorBlock(ctx.wb, { onPick: (c) => { closeMenu(); pick(c.rgb.toLowerCase()); } });
-  const standard = el('div.swatches', { role: 'group', 'aria-label': 'Standard Colors', 'data-cols': 10 },
+  const standard = el('div.swatches', { role: 'group', 'aria-label': t('smartart.color.standard'), 'data-cols': 10 },
     ...STANDARD.map((c) => el('button.swatch', { type: 'button', role: 'menuitem', tabindex: -1, 'aria-label': c, title: c, style: { background: c }, onclick: () => { closeMenu(); pick(c); } })));
   const custom = customColorRows({ onPick: (hex) => { closeMenu(); pick(hex); }, role: 'menuitem', label: noun });
-  return [...block.map((c) => ({ custom: c })), { header: 'Standard Colors' }, { custom: standard }, ...custom.map((c) => ({ custom: c })), { separator: true },
-    ...(key === 'color' ? [] : [{ label: key === 'fill' ? 'No Fill' : 'No Outline', cmd: 'smartArt', arg: { action: 'format', [key]: 'none' } }]),
-    { label: 'Automatic', cmd: 'smartArt', arg: { action: 'format', [key]: null }, hint: 'The colour scheme’s own' }];
+  return [...block.map((c) => ({ custom: c })), { header: t('smartart.color.standard') }, { custom: standard }, ...custom.map((c) => ({ custom: c })), { separator: true },
+    ...(key === 'color' ? [] : [{ label: key === 'fill' ? t('smartart.color.noFill') : t('smartart.color.noOutline'), cmd: 'smartArt', arg: { action: 'format', [key]: 'none' } }]),
+    { label: t('common.automatic'), cmd: 'smartArt', arg: { action: 'format', [key]: null }, hint: t('smartart.color.automaticHint') }];
 }
 
 function shapeMenu(ctx) {
-  return [{ custom: tiles('Shapes', CHANGEABLE_SHAPES.map(([kind, label]) => ({ label, onPick: () => run(ctx, { action: 'shape', shape: kind }),
+  return [{ custom: tiles(t('smartart.menu.shapes'), CHANGEABLE_SHAPES.map(([kind, label]) => ({ label: t(label), onPick: () => run(ctx, { action: 'shape', shape: kind }),
     html: `<svg viewBox="-2 -2 44 32" width="44" height="32" aria-hidden="true"><path d="${pathData(smartArtShapeCommands({ kind, w: 40, h: 28, adj: {} }))}" fill="var(--accent-wash, #dbe7fb)" stroke="currentColor" stroke-width="1.5"/></svg>` })), { columns: 4, className: 'sa-shape-tiles' }) }];
 }
 
 export function smartArtDesignGroups() {
   return [
     ['Create Graphic',
-      { ...cmd('Add Shape', 'addShape', { action: 'add', where: 'after' }), split: () => addMenu() },
-      cmd('Text Pane', 'textPane', { action: 'textPane' }, { isChecked: (ctx) => !!ctx.smartArt?.paneOpen }),
-      cmd('Promote', 'indentLess', { action: 'promote' }, { unavailable: noTarget }), cmd('Demote', 'indentMore', { action: 'demote' }, { unavailable: noTarget }),
-      cmd('Move Up', 'arrowUp', { action: 'moveUp' }, { unavailable: noTarget }), cmd('Move Down', 'arrowDown', { action: 'moveDown' }, { unavailable: noTarget }),
-      cmd('Right to Left', 'rightToLeft', { action: 'rtl' }, { isChecked: (ctx) => !!activeSmartArt(ctx)?.rtl })],
-    ['Layouts', { ...menu('Change Layout', 'smartArt', layoutMenu), large: true }],
-    ['SmartArt Styles', { ...menu('Change Colors', 'changeColors', colorsMenu), large: true }, { ...menu('Styles', 'chartStyles', stylesMenu, { ariaLabel: 'SmartArt Styles' }), large: true }],
-    ['Reset', { ...cmd('Reset Graphic', 'resetStyle', { action: 'reset' }), large: true }, { ...cmd('Convert to Shapes', 'convertShapes', { action: 'convert' }), large: true }],
+      { ...cmd('smartart.add.shape', 'addShape', { action: 'add', where: 'after' }), split: () => addMenu() },
+      cmd('smartart.ribbon.textPane', 'textPane', { action: 'textPane' }, { isChecked: (ctx) => !!ctx.smartArt?.paneOpen }),
+      cmd('smartart.undo.promote', 'indentLess', { action: 'promote' }, { unavailable: noTarget }), cmd('smartart.undo.demote', 'indentMore', { action: 'demote' }, { unavailable: noTarget }),
+      cmd('smartart.undo.moveUp', 'arrowUp', { action: 'moveUp' }, { unavailable: noTarget }), cmd('smartart.undo.moveDown', 'arrowDown', { action: 'moveDown' }, { unavailable: noTarget }),
+      cmd('smartart.undo.rtl', 'rightToLeft', { action: 'rtl' }, { isChecked: (ctx) => !!activeSmartArt(ctx)?.rtl })],
+    ['Layouts', { ...menu('smartart.changeLayout', 'smartArt', layoutMenu), large: true }],
+    ['SmartArt Styles', { ...menu('smartart.ribbon.changeColors', 'changeColors', colorsMenu), large: true }, { ...menu('smartart.menu.styles', 'chartStyles', stylesMenu, { ariaLabel: t('smartart.ribbon.smartArtStyles') }), large: true }],
+    ['Reset', { ...cmd('smartart.ribbon.resetGraphic', 'resetStyle', { action: 'reset' }), large: true }, { ...cmd('smartart.undo.convert', 'convertShapes', { action: 'convert' }), large: true }],
   ];
 }
 
 export function smartArtFormatGroups() {
   return [
-    ['Shapes', { ...menu('Change Shape', 'changeShape', shapeMenu, { unavailable: noTarget }), large: true },
-      cmd('Larger', 'shapeLarger', { action: 'scale', dir: 1 }, { unavailable: noTarget }), cmd('Smaller', 'shapeSmaller', { action: 'scale', dir: -1 }, { unavailable: noTarget })],
-    ['Shape Styles', menu('Shape Fill', 'shapeFill', (ctx) => colorMenu(ctx, 'fill'), { unavailable: noTarget }),
-      menu('Shape Outline', 'shapeOutline', (ctx) => colorMenu(ctx, 'line'), { unavailable: noTarget }),
-      menu('Text Fill', 'textColor', (ctx) => colorMenu(ctx, 'color'), { unavailable: noTarget }),
-      cmd('Reset Shape', 'resetStyle', { action: 'resetShape' }, { unavailable: noTarget })],
-    ['Accessibility', { label: 'Alt Text', glyph: 'altText', ariaLabel: 'Alt Text', large: true,
-      resolve: (menus, ctx) => ({ label: 'Alt Text', cmd: 'altText', arg: activeSmartArt(ctx)?.id, disabled: cannot(ctx) }) }],
+    ['Shapes', { ...menu('smartart.undo.shape', 'changeShape', shapeMenu, { unavailable: noTarget }), large: true },
+      cmd('smartart.undo.larger', 'shapeLarger', { action: 'scale', dir: 1 }, { unavailable: noTarget }), cmd('smartart.undo.smaller', 'shapeSmaller', { action: 'scale', dir: -1 }, { unavailable: noTarget })],
+    ['Shape Styles', menu('smartart.ribbon.shapeFill', 'shapeFill', (ctx) => colorMenu(ctx, 'fill'), { unavailable: noTarget }),
+      menu('smartart.ribbon.shapeOutline', 'shapeOutline', (ctx) => colorMenu(ctx, 'line'), { unavailable: noTarget }),
+      menu('smartart.ribbon.textFill', 'textColor', (ctx) => colorMenu(ctx, 'color'), { unavailable: noTarget }),
+      cmd('smartart.undo.resetShape', 'resetStyle', { action: 'resetShape' }, { unavailable: noTarget })],
+    ['Accessibility', { label: t('smartart.ribbon.altText'), keytip: tSource('smartart.ribbon.altText'), glyph: 'altText', ariaLabel: t('smartart.ribbon.altText'), large: true,
+      resolve: (menus, ctx) => ({ label: t('smartart.ribbon.altText'), cmd: 'altText', arg: activeSmartArt(ctx)?.id, disabled: cannot(ctx) }) }],
     arrangeGroup({ large: false }),
   ];
 }

@@ -4,11 +4,12 @@ import { toast } from './toast.js';
 import { cellName } from '../core/cell.js';
 import { nativeSparklineAt, nativeSparklineLocation, nativeSparklineColorValues, nativeSparklineDateMismatch } from '../core/native-sparkline-data.js';
 import { effectiveColorPalette } from '../core/font-color.js';
+import { t } from '../i18n/index.js';
 
 export function openSparklineDialog(ctx) {
   const sheetId = ctx.sheetId(), { r, c } = ctx.active(), ref = cellName(r, c);
   const found = nativeSparklineAt(ctx.wb, sheetId, r, c);
-  if (!found) { toast('Select a cell containing a sparkline', { icon: 'info' }); return null; }
+  if (!found) { toast(t('sparklinedialog.selectCell'), { icon: 'info' }); return null; }
   const { group, spark } = found, inputs = {}, originals = {}, colors = {};
   const content = el('form.sparkline-settings', { noValidate: true }), { alert, refuse: showError } = fieldAlert('sparkline');
   const refuse = (field, message) => {
@@ -28,36 +29,44 @@ export function openSparklineDialog(ctx) {
     return input;
   };
   const section = title => { const body = el('div.sparkline-options'); content.append(el('details', {}, el('summary', {}, title), body)); return body; };
-  field(content, 'formula', `Data range for ${ref}`, spark.formula);
-  content.append(el('p.small.muted', {}, group.sparklines.length === 1 ? `These settings apply only to ${ref}.` : `Appearance and axes apply to all ${group.sparklines.length} sparklines in this group. The data range above applies only to ${ref}.`));
+  field(content, 'formula', t('sparklinedialog.dataRangeFor', { ref }), spark.formula);
+  content.append(el('p.small.muted', {}, group.sparklines.length === 1 ? t('sparklinedialog.appliesOnlyTo', { ref })
+    : t('sparklinedialog.appliesToGroup', { count: group.sparklines.length, ref })));
   const main = el('div.sparkline-fields'); content.append(main);
-  field(main, 'type', 'Chart type', group.type, [['line', 'Line'], ['column', 'Column'], ['stacked', 'Win/loss']]);
-  field(main, 'lineWeight', 'Line weight (pt)', group.lineWeight, null, { type: 'number', min: 0, max: 1584, step: 'any', required: true });
-  field(content, 'displayEmptyCellsAs', 'Empty cells', group.displayEmptyCellsAs, [['gap', 'Gaps'], ['zero', 'Zero'], ['span', 'Connect data points']]);
-  check(content, 'displayHidden', 'Include hidden rows and columns');
-  const axes = section('Axes'), limits = el('div.sparkline-fields'); axes.append(limits);
-  for (const [mode, bound, label] of [['minAxisType', 'manualMin', 'Minimum'], ['maxAxisType', 'manualMax', 'Maximum']]) {
-    const select = field(limits, mode, `${label} scale`, group[mode], [['individual', 'Each sparkline'], ['group', 'Same for group'], ['custom', 'Custom']]);
-    const number = field(limits, bound, `${label} value`, group[bound], null, { type: 'number', step: 'any' });
+  field(main, 'type', t('sparklinedialog.chartType'), group.type, [['line', t('sparklinedialog.typeLine')], ['column', t('sparklinedialog.typeColumn')], ['stacked', t('sparklinedialog.typeWinLoss')]]);
+  field(main, 'lineWeight', t('sparklinedialog.lineWeight'), group.lineWeight, null, { type: 'number', min: 0, max: 1584, step: 'any', required: true });
+  field(content, 'displayEmptyCellsAs', t('sparklinedialog.emptyCells'), group.displayEmptyCellsAs, [['gap', t('sparklinedialog.emptyGaps')], ['zero', t('sparklinedialog.emptyZero')], ['span', t('sparklinedialog.emptySpan')]]);
+  check(content, 'displayHidden', t('sparklinedialog.includeHidden'));
+  const axes = section(t('sparklinedialog.axes')), limits = el('div.sparkline-fields'); axes.append(limits);
+  const bounds = [['minAxisType', 'manualMin', t('sparklinedialog.minScale'), t('sparklinedialog.minValue')],
+    ['maxAxisType', 'manualMax', t('sparklinedialog.maxScale'), t('sparklinedialog.maxValue')]];
+  for (const [mode, bound, scaleLabel, valueLabel] of bounds) {
+    const select = field(limits, mode, scaleLabel, group[mode], [['individual', t('sparklinedialog.scaleEach')], ['group', t('sparklinedialog.scaleGroup')], ['custom', t('common.custom')]]);
+    const number = field(limits, bound, valueLabel, group[bound], null, { type: 'number', step: 'any' });
     const sync = () => { number.disabled = select.value !== 'custom'; number.required = !number.disabled; };
     select.addEventListener('change', sync); sync();
   }
-  check(axes, 'displayXAxis', 'Show horizontal axis'); check(axes, 'rightToLeft', 'Plot right to left');
-  const dateAxis = check(axes, 'dateAxis', 'Use a date axis');
-  const dates = field(axes, 'dateFormula', 'Date range for the group', group.dateFormula);
+  check(axes, 'displayXAxis', t('sparklinedialog.showAxis')); check(axes, 'rightToLeft', t('sparklinedialog.rightToLeft'));
+  const dateAxis = check(axes, 'dateAxis', t('sparklinedialog.dateAxis'));
+  const dates = field(axes, 'dateFormula', t('sparklinedialog.dateRange'), group.dateFormula);
   const syncDates = () => { dates.disabled = !dateAxis.checked; }; dateAxis.addEventListener('change', syncDates); syncDates();
-  const markers = section('Markers and colors'), points = el('div.sparkline-fields'); markers.append(points);
-  for (const [key, label] of [['markers', 'All markers (line)'], ['high', 'Highest points'], ['low', 'Lowest points'], ['negative', 'Negative points'], ['first', 'First points'], ['last', 'Last points']]) check(points, key, label);
+  const markers = section(t('sparklinedialog.markersAndColors')), points = el('div.sparkline-fields'); markers.append(points);
+  const pointLabels = [['markers', t('sparklinedialog.allMarkers')], ['high', t('sparklinedialog.high')], ['low', t('sparklinedialog.low')],
+    ['negative', t('sparklinedialog.negative')], ['first', t('sparklinedialog.first')], ['last', t('sparklinedialog.last')]];
+  for (const [key, label] of pointLabels) check(points, key, label);
   const paints = nativeSparklineColorValues(group, effectiveColorPalette(ctx.wb.colorPalette)), colorFields = el('div.sparkline-fields'); markers.append(colorFields);
-  for (const [key, label] of [['Series', 'Series'], ['Axis', 'Axis'], ['Markers', 'Markers'], ['High', 'Highest points'], ['Low', 'Lowest points'], ['Negative', 'Negative points'], ['First', 'First points'], ['Last', 'Last points']]) {
-    const input = field(colorFields, `color${key}`, `${label} color`, paints[key.toLowerCase()], null, { type: 'color', className: 'chart-color-input' });
+  const colorLabels = [['Series', t('sparklinedialog.colorSeries')], ['Axis', t('sparklinedialog.colorAxis')], ['Markers', t('sparklinedialog.colorMarkers')],
+    ['High', t('sparklinedialog.colorHigh')], ['Low', t('sparklinedialog.colorLow')], ['Negative', t('sparklinedialog.colorNegative')],
+    ['First', t('sparklinedialog.colorFirst')], ['Last', t('sparklinedialog.colorLast')]];
+  for (const [key, label] of colorLabels) {
+    const input = field(colorFields, `color${key}`, label, paints[key.toLowerCase()], null, { type: 'color', className: 'chart-color-input' });
     // Untouched theme/indexed colors and tints retain their original meaning.
     input.addEventListener('input', () => {
       if (input.value === originals[`color${key}`]) delete colors[`color${key}`];
       else colors[`color${key}`] = { rgb: `FF${input.value.slice(1).toUpperCase()}` };
     });
   }
-  content.append(alert, el('div.row.row-end', {}, el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Cancel'), el('button.btn.btn-primary', { type: 'submit' }, 'Save')));
+  content.append(alert, el('div.row.row-end', {}, el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, t('common.cancel')), el('button.btn.btn-primary', { type: 'submit' }, t('common.save'))));
   const validRange = input => {
     const location = nativeSparklineLocation(ctx.wb, sheetId, input.value.trim(), { r, c });
     return location && !location.sheetEnd && ctx.wb.sheetByName(location.sheet) && (location.r1 === location.r2 || location.c1 === location.c2) ? location : null;
@@ -66,8 +75,8 @@ export function openSparklineDialog(ctx) {
     event.preventDefault();
     for (const input of Object.values(inputs)) if (input.type === 'number' && !input.disabled) {
       const number = Number(input.value);
-      if (!input.value.trim() || !Number.isFinite(number)) return refuse(input, 'Enter a finite number.');
-      if (input.min !== '' && number < Number(input.min) || input.max !== '' && number > Number(input.max)) return refuse(input, `Enter a number from ${input.min} to ${input.max}.`);
+      if (!input.value.trim() || !Number.isFinite(number)) return refuse(input, t('sparklinedialog.finiteNumber'));
+      if (input.min !== '' && number < Number(input.min) || input.max !== '' && number > Number(input.max)) return refuse(input, t('sparklinedialog.numberRange', { min: input.min, max: input.max }));
     }
     const settings = { ...colors };
     for (const [key, input] of Object.entries(inputs)) {
@@ -76,21 +85,21 @@ export function openSparklineDialog(ctx) {
       if (value !== originals[key]) settings[key] = input.type === 'number' ? Number(value) : value || null;
     }
     const formula = inputs.formula.value.trim(), changedSource = inputs.formula.value !== (spark.formula ?? '');
-    if (changedSource && formula && !validRange(inputs.formula)) return refuse(inputs.formula, 'Choose a single row or column of data, or a name that refers to one.');
-    if (dateAxis.checked && (dateAxis.checked !== group.dateAxis || dates.value !== originals.dateFormula) && !validRange(dates)) return refuse(dates, 'Choose a single row or column of dates.');
+    if (changedSource && formula && !validRange(inputs.formula)) return refuse(inputs.formula, t('sparklinedialog.singleRowOrColumn'));
+    if (dateAxis.checked && (dateAxis.checked !== group.dateAxis || dates.value !== originals.dateFormula) && !validRange(dates)) return refuse(dates, t('sparklinedialog.singleDates'));
     if (dateAxis.checked && (changedSource || dateAxis.checked !== group.dateAxis || dates.value !== originals.dateFormula)) {
-      if (!validRange(dates)) return refuse(dates, 'Choose a single row or column of dates.');
+      if (!validRange(dates)) return refuse(dates, t('sparklinedialog.singleDates'));
       const members = group.sparklines.map(member => member.ref === ref ? { ...member, formula } : member);
       if (nativeSparklineDateMismatch(ctx.wb, sheetId, dates.value.trim(), members))
-        return refuse(dates, 'The date range must have the same number of cells as each sparkline’s data.');
+        return refuse(dates, t('sparklinedialog.dateMismatch'));
     }
     const minimum = inputs.minAxisType.value === 'custom' ? Number(inputs.manualMin.value) : null;
     const maximum = inputs.maxAxisType.value === 'custom' ? Number(inputs.manualMax.value) : null;
-    if (minimum != null && maximum != null && minimum > maximum) return refuse(inputs.manualMax, 'Maximum must be at least the minimum.');
+    if (minimum != null && maximum != null && minimum > maximum) return refuse(inputs.manualMax, t('sparklinedialog.maxBelowMin'));
     const error = ctx.wb.updateNativeSparkline(sheetId, ref, { settings, ...(changedSource ? { formula: formula || null } : {}), expectedGroupUid: group.uid });
     if (error) return refuse(null, error);
     modal.close();
   });
-  const modal = openModal({ title: 'Sparkline settings', content, initialFocus: inputs.formula, onClose: () => ctx.grid.focus() });
+  const modal = openModal({ title: t('sparklinedialog.title'), content, initialFocus: inputs.formula, onClose: () => ctx.grid.focus() });
   return modal;
 }

@@ -14,6 +14,7 @@ import { cellKey, colName } from './cell.js';
 import { editText, parseInput } from './format.js';
 import { tableRows } from './tables.js';
 import { shiftFormula } from './refs.js';
+import { t } from '../i18n/index.js';
 
 /**
  * The list at (r, c) on a sheet: { sheetId, header, first, last, c1, c2, tableId, fields }, where `header`
@@ -28,7 +29,7 @@ export function findList(wb, sheetId, r, c) {
     const header = rows.header;
     const names = wb.tableColumns(sheetId, table);
     const fields = [];
-    for (let cc = c1; cc <= c2; cc++) fields.push({ c: cc, name: names[cc - c1] || `Column ${colName(cc)}` });
+    for (let cc = c1; cc <= c2; cc++) fields.push({ c: cc, name: names[cc - c1] || t('coreDataForm.column', { col: colName(cc) }) });
     return { sheetId, header, first: rows.dataStart, last: rows.dataEnd, c1, c2, tableId: table.id, fields };
   }
   const region = wb.dataRegion(sheetId, r, c);
@@ -36,7 +37,7 @@ export function findList(wb, sheetId, r, c) {
   const fields = [];
   for (let cc = region.c1; cc <= region.c2; cc++) {
     const name = String(wb.getDisplay(sheetId, region.r1, cc) ?? '').trim();
-    fields.push({ c: cc, name: name || `Column ${colName(cc)}` });
+    fields.push({ c: cc, name: name || t('coreDataForm.column', { col: colName(cc) }) });
   }
   return { sheetId, header: region.r1, first: region.r1 + 1, last: region.r2, c1: region.c1, c2: region.c2, tableId: null, fields };
 }
@@ -70,8 +71,8 @@ export function writeRecord(wb, list, i, inputs) {
   const changes = before.filter((f) => !f.formula && inputs[f.c] != null && inputs[f.c] !== f.text);
   if (!changes.length) return 0;
   const version = wb.version;
-  wb.transaction('Edit record', () => {
-    for (const f of changes) wb.setInput(list.sheetId, r, f.c, inputs[f.c], { label: 'Edit record' });
+  wb.transaction(t('coreDataForm.undo.edit'), () => {
+    for (const f of changes) wb.setInput(list.sheetId, r, f.c, inputs[f.c], { label: t('coreDataForm.undo.edit') });
   });
   return wb.version === version ? 0 : changes.length;
 }
@@ -84,10 +85,10 @@ export function appendProblem(wb, list) {
   const r = list.last + 1;
   if (list.tableId) return null;
   const sheet = wb.sheet(list.sheetId);
-  if (!sheet) return 'The list is gone';
+  if (!sheet) return t('coreDataForm.listGone');
   for (let c = list.c1; c <= list.c2; c++) {
     const cell = sheet.cells.get(cellKey(r, c));
-    if (cell && (cell.v != null || cell.f != null)) return 'The row under the list is not empty, so the list cannot grow into it';
+    if (cell && (cell.v != null || cell.f != null)) return t('coreDataForm.rowNotEmpty');
   }
   return null;
 }
@@ -102,7 +103,7 @@ export function appendRecord(wb, list, inputs) {
   const typed = list.fields.filter((f) => inputs[f.c] != null && String(inputs[f.c]) !== '');
   let r = list.last + 1;
   let ok = false;
-  wb.transaction('New record', () => {
+  wb.transaction(t('coreDataForm.undo.new'), () => {
     if (list.tableId) {
       r = wb.addTableRow(list.sheetId, list.tableId);
       if (r < 0) return;
@@ -115,9 +116,9 @@ export function appendRecord(wb, list, inputs) {
         if (cell?.f == null) continue;
         entries.push({ r, c, cell: { v: null, f: shiftFormula(cell.f, 1, 0), s: cell.s } });
       }
-      if (entries.length) wb.setCells(list.sheetId, entries, 'New record');
+      if (entries.length) wb.setCells(list.sheetId, entries, t('coreDataForm.undo.new'));
     }
-    for (const f of typed) if (wb.getCell(list.sheetId, r, f.c)?.f == null) wb.setInput(list.sheetId, r, f.c, String(inputs[f.c]), { label: 'New record' });
+    for (const f of typed) if (wb.getCell(list.sheetId, r, f.c)?.f == null) wb.setInput(list.sheetId, r, f.c, String(inputs[f.c]), { label: t('coreDataForm.undo.new') });
     ok = true;
   });
   if (!ok) return null;
