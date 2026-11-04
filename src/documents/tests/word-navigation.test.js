@@ -56,6 +56,26 @@ it('steps Ctrl+Arrow through Thai, Lao, Khmer and Myanmar words by their diction
  // Latin, Greek and Chinese letter runs keep the native reference's units.
  expect(walk('Alpha beta 中文 words',0,1)).toEqual([6,11,14,19]);
 });
+it('steps Ctrl+Arrow through Chinese and Japanese words as the dictionary finds them',()=>{
+ // A run of ideographs and kana was one word: Ctrl+Right crossed a whole clause, up to its punctuation.
+ const walk=(text,from,direction)=>{const stops=[];let at=from;while(direction<0?at>0:at<text.length){at=wordPosition(text,at,direction);stops.push(at);}return stops;};
+ const chinese='我们今天去北京，很高兴。';
+ const forward=walk(chinese,0,1);
+ expect(forward.length).toBeGreaterThan(5);
+ expect(forward).toContain(2); expect(forward).toContain(7); expect(forward.at(-1)).toBe(chinese.length);
+ expect(walk(chinese,chinese.length,-1)).toEqual([...forward].reverse().slice(1).concat(0));
+ // The steps are those of a double-click's words, besides punctuation.
+ const segments=[...new Intl.Segmenter(undefined,{granularity:'word'}).segment(chinese)].filter(s=>s.isWordLike).map(s=>s.index);
+ expect(walk(chinese,chinese.length,-1).filter(at=>segments.includes(at))).toEqual([...segments].reverse());
+ // Japanese mixed with Latin letters and numbers: a step stops where the script changes, but spaces after a word go with it.
+ const japanese='これはWordで、2024年 test';
+ expect(walk(japanese,0,1)).toEqual([2,3,7,8,9,13,15,19]);
+ expect(walk('Hello 世界 test',0,1)).toEqual([6,9,13]);
+ // Han letters outside the Basic Multilingual Plane are whole letters.
+ expect(walk('𠀀中文 ok',0,1).every(at=>!/[\udc00-\udfff]/.test('𠀀中文 ok'[at]||''))).toBe(true);
+ // A selection inside a word collapses to that word's boundary.
+ expect(wordPosition(chinese,1,-1,true)).toBe(0); expect(wordPosition(chinese,1,1,true)).toBe(2);
+});
 it('finds word steps from the paragraphs around the caret, as from the whole text, and quickly in a long document',()=>{
  // The steps as they were found before, from the whole text.
  const whole=(text,position,direction,inclusive=false)=>{

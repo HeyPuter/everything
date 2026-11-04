@@ -63,16 +63,29 @@ export function dictionaryBreaks(text) {
 }
 
 /**
- * Offsets in `text` between two dictionary-segmented Thai, Lao, Khmer or Myanmar words, or null when
- * there are none. Word-by-word caret movement uses these alone: Chinese and Japanese keep their
- * native word units there, although a line may break between any two ideographs.
+ * Offsets in `text` where Ctrl+Arrow stops inside a run of letters, or null when there are none: between two
+ * dictionary-segmented Thai, Lao, Khmer or Myanmar words, and at the dictionary's word boundaries beside Chinese
+ * or Japanese letters (我们|今天|去|北京, 私|は|東京|に), as Option+Arrow, double-click and the native field's
+ * Ctrl+Backspace find words there. A line may break between any two ideographs, but a word step goes by words.
  */
 export function wordBreaks(text) {
-  if (!words || !COMPLEX.test(text)) return null;
+  const complex = !!words && COMPLEX.test(text), ideographic = !!words && IDEOGRAPHIC_LETTER.test(text);
+  if (!complex && !ideographic) return null;
   const breaks = new Set();
-  complexWordBreaks(text, breaks);
+  if (complex) complexWordBreaks(text, breaks);
+  if (ideographic) {
+    for (const { segment, index } of words.segment(text)) {
+      // Between letters only: spaces and punctuation after a word keep their own word-step rules.
+      if (!index || !LETTER.test(segment)) continue;
+      // The character before the boundary: Han letters outside the BMP take two code units.
+      const before = text.slice(/[\udc00-\udfff]/.test(text[index - 1]) && index > 1 ? index - 2 : index - 1, index);
+      if (IDEOGRAPHIC_LETTER.test(before) || IDEOGRAPHIC_LETTER.test(String.fromCodePoint(segment.codePointAt(0)))) breaks.add(index);
+    }
+  }
   return breaks.size ? breaks : null;
 }
+const LETTER = /^[\p{L}\p{N}\p{M}]/u;
+const IDEOGRAPHIC_LETTER = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Bopomofo}]/u;
 
 function complexWordBreaks(text, breaks) {
   for (const { segment, index } of words.segment(text)) {
