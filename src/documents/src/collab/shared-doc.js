@@ -28,6 +28,8 @@
  */
 import * as Y from 'yjs';
 import { RUN_FORMAT } from '../engine/formatting.js';
+import { validFontSize } from '../engine/font-size.js';
+import { HIGHLIGHTS } from '../engine/backgrounds.js';
 import { diffText } from './text-diff.js';
 
 export const SCHEMA = 1;
@@ -270,6 +272,37 @@ function adoptOrphanedCellParagraphs(paragraphs, tables) {
     if (next?.cellId != null && live.has(next.cellId)) adopt(p, next);
     else { delete p.cellId; delete p.tableStyleId; }
   }
+}
+
+/**
+ * Formatting a participant wrote, held to the values the editor itself writes. Anyone in a room writes the shared
+ * document, and a value no command makes (a color of `000"><img src=…>`) went as written into the HTML an email
+ * merge sends and a copy puts on the clipboard. A color that is not Automatic or six hex digits, a size outside
+ * the font size range, a highlight not in the list and a paragraph alignment that is not a word become the
+ * defaults. Applied to the shared state, and to a snapshot, before it becomes the model (binding.js).
+ */
+const COLOR = /^(?:auto|[0-9a-fA-F]{6})$/;
+function checkedRun(run) {
+  if (!run || typeof run !== 'object') return;
+  for (const key of ['color', 'underlineColor']) if (key in run && !(typeof run[key] === 'string' && COLOR.test(run[key]))) run[key] = RUN_FORMAT[key] ?? 'auto';
+  for (const key of ['fontSize', 'fontSizeCs']) if (key in run && !validFontSize(run[key])) run[key] = RUN_FORMAT[key] ?? 12;
+  if ('highlight' in run && !(typeof run.highlight === 'string' && Object.hasOwn(HIGHLIGHTS, run.highlight))) run.highlight = RUN_FORMAT.highlight ?? 'none';
+}
+export function checkedSharedParagraphs(paragraphs) {
+  for (const p of Array.isArray(paragraphs) ? paragraphs : []) {
+    if (!p || typeof p !== 'object') continue;
+    for (const run of Array.isArray(p.runs) ? p.runs : []) checkedRun(run);
+    if (p.markFormat) checkedRun(p.markFormat);
+    if (p.format && typeof p.format === 'object' && 'alignment' in p.format && !(typeof p.format.alignment === 'string' && /^[A-Za-z]+$/.test(p.format.alignment))) delete p.format.alignment;
+  }
+  return paragraphs;
+}
+/** A shared or snapshot state with its body's and stories' formatting checked (checkedSharedParagraphs). */
+export function checkedSharedState(state) {
+  if (!state || typeof state !== 'object') return state;
+  checkedSharedParagraphs(state.paragraphs);
+  for (const story of Object.values(state.stories || {})) checkedSharedParagraphs(story?.paragraphs);
+  return state;
 }
 
 /** The whole model state the shared document holds. */

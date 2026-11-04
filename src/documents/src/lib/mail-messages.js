@@ -30,13 +30,19 @@ export function plainText(model) {
   return finalParagraphs(model.paragraphs).map(paragraphText).join('\n').replace(/\v/g, '\n').replace(/[\f\u000e]/g, '\n\n').replace(/￼/g, '').replace(/\n{3,}/g, '\n\n').trim() + '\n';
 }
 
+// Only the values the editor writes go into a style attribute: a document shared for co-editing holds what
+// anyone in the room wrote, and a color of `000"><img src=…>` became markup in every merged message.
+const hexColor = value => typeof value === 'string' && /^[0-9a-fA-F]{6}$/.test(value) ? value : null;
+const pointSize = value => typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null;
+const ALIGNMENTS = { center: 'center', right: 'right', both: 'justify', distribute: 'justify', thaiDistribute: 'justify' };
+
 function runHtml(run) {
   if (!run.text || run.image || run.vanish) return '';
   let text = escape(run.text.replace(/￼/g, '')).replace(/\v/g, '<br>').replace(/\t/g, '&emsp;');
   if (!text) return '';
-  const style = [];
-  if (run.color && run.color !== 'auto') style.push(`color:#${run.color}`);
-  if (run.fontSize && run.fontSize !== 12) style.push(`font-size:${run.fontSize}pt`);
+  const style = [], color = hexColor(run.color), size = pointSize(run.fontSize);
+  if (color) style.push(`color:#${color}`);
+  if (size && size !== 12) style.push(`font-size:${size}pt`);
   if (style.length) text = `<span style="${style.join(';')}">${text}</span>`;
   if (run.underline || (run.underlineStyle && run.underlineStyle !== 'none')) text = `<u>${text}</u>`;
   if (run.italic) text = `<i>${text}</i>`;
@@ -46,7 +52,8 @@ function runHtml(run) {
   return text;
 }
 const paragraphHtml = p => {
-  const align = p.format?.alignment && p.format.alignment !== 'left' ? ` style="text-align:${p.format.alignment === 'both' ? 'justify' : p.format.alignment}"` : '';
+  const alignment = Object.hasOwn(ALIGNMENTS, p.format?.alignment ?? '') ? ALIGNMENTS[p.format.alignment] : null;
+  const align = alignment ? ` style="text-align:${alignment}"` : '';
   return `<p${align}>${p.runs.map(runHtml).join('') || '&nbsp;'}</p>`;
 };
 

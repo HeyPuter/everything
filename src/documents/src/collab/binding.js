@@ -23,7 +23,7 @@
 import * as Y from 'yjs';
 import { TextDocument } from '../engine/model.js';
 import { decodeImage } from '../engine/images.js';
-import { readState, writeState, unsupportedReason } from './shared-doc.js';
+import { readState, writeState, unsupportedReason, checkedSharedState } from './shared-doc.js';
 
 export const REMOTE = 'remote';
 const json = value => JSON.stringify(value);
@@ -300,7 +300,7 @@ export class CollabBinding extends EventTarget {
     this.enforceViewOnly();
     let state;
     try {
-      state = this.mode === 'single' ? JSON.parse(this.meta.get('snapshot') || 'null') : readState(this.ydoc);
+      state = checkedSharedState(this.mode === 'single' ? JSON.parse(this.meta.get('snapshot') || 'null') : readState(this.ydoc));
       if (!state) return;
     } catch (error) { this.onError(error); return; }
     const session = engine.session, body = session.body;

@@ -97,11 +97,17 @@ export function copyFragment(model, { hidden = () => false } = {}) {
 
 const escape = text => String(text).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
+// Only the values the editor writes go into a style attribute: a document shared for co-editing holds what anyone
+// in the room wrote, and a color of `000"><img src=…>` became markup in the HTML a copy put on the clipboard.
+const hexColor = value => typeof value === 'string' && /^[0-9a-fA-F]{6}$/.test(value) ? value : null;
+const pointSize = value => typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null;
+const HTML_ALIGNMENTS = { center: 'center', right: 'right', both: 'justify', thaiDistribute: 'justify', distribute: 'justify;text-align-last:justify' };
+
 function runHtml(run) {
-  const f = run.format, style = [];
-  if (f.color && f.color !== 'auto') style.push(`color:#${f.color}`);
-  if (HIGHLIGHTS[f.highlight]) style.push(`background-color:#${HIGHLIGHTS[f.highlight]}`);
-  if (f.fontSize) style.push(`font-size:${f.fontSize}pt`);
+  const f = run.format, style = [], color = hexColor(f.color), size = pointSize(f.fontSize);
+  if (color) style.push(`color:#${color}`);
+  if (typeof f.highlight === 'string' && Object.hasOwn(HIGHLIGHTS, f.highlight) && HIGHLIGHTS[f.highlight]) style.push(`background-color:#${HIGHLIGHTS[f.highlight]}`);
+  if (size) style.push(`font-size:${size}pt`);
   if (f.fontAscii) style.push(`font-family:${escape(JSON.stringify(f.fontAscii))}`);
   if (f.capitalization === 'caps') style.push('text-transform:uppercase');
   if (f.capitalization === 'smallCaps') style.push('font-variant:small-caps');
@@ -127,7 +133,7 @@ export function fragmentHtml(fragment) {
     const heading = /^Heading([1-6])$/.exec(p.styleId || '')?.[1] || (p.styleId === 'Title' ? '1' : null);
     const tag = kind ? 'li' : heading ? `h${heading}` : 'p';
     // Tabs and runs of spaces are the text's own, which HTML collapses into one space unless told otherwise.
-    const align = p.alignment && p.alignment !== 'left' ? `;text-align:${p.alignment === 'both' || p.alignment === 'thaiDistribute' ? 'justify' : p.alignment === 'distribute' ? 'justify;text-align-last:justify' : p.alignment}` : '';
+    const align = Object.hasOwn(HTML_ALIGNMENTS, p.alignment ?? '') ? `;text-align:${HTML_ALIGNMENTS[p.alignment]}` : '';
     html += `<${tag} style="white-space:pre-wrap${align}">${p.runs.map(runHtml).join('') || '<br>'}</${tag}>`;
   }
   if (openList) html += `</${openList}>`;
