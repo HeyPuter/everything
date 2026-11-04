@@ -1,0 +1,8 @@
+{
+  "custom": "自定义：",
+  "fitSelection": "恰好容纳选定区域",
+  "invalid": "请输入 10% 到 400% 之间的整数百分比。",
+  "magnification": "缩放比例",
+  "percentage": "缩放百分比",
+  "title": "缩放"
+}

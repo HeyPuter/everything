@@ -7,11 +7,13 @@
 import { el } from './dom.js';
 import { icon } from './icons.js';
 import { openMenu, closeMenu } from './menu.js';
+import { t } from '../i18n/index.js';
 
 export function createOptionButton({ grid, host, onToggle = null }) {
   let current = null; // { kind, sheetId, range, items, checked, onPick }
   let menu = null;
   let ctrlAlone = false;
+  let menuLabel = ''; // the button's name without its key, for its menu
   const glyph = el('span.option-button-icon', { 'aria-hidden': 'true' });
   const button = el('button.option-button', {
     type: 'button', hidden: true, 'aria-haspopup': 'menu',
@@ -42,9 +44,11 @@ export function createOptionButton({ grid, host, onToggle = null }) {
   function show(next) {
     current = { ...next, range: { ...next.range } };
     glyph.innerHTML = icon(next.kind === 'fill' ? 'fillDown' : 'paste', 16);
-    const name = next.kind === 'fill' ? 'Auto Fill Options' : 'Paste Options';
-    button.setAttribute('aria-label', `${name} (Ctrl)`);
-    button.title = `${name} (Ctrl)`;
+    const name = next.kind === 'fill' ? t('optionButton.autoFillOptions') : t('optionButton.pasteOptions');
+    const withKey = t('optionButton.withKey', { name });
+    menuLabel = name;
+    button.setAttribute('aria-label', withKey);
+    button.title = withKey;
     button.dataset.kind = next.kind;
     button.hidden = false;
     place();
@@ -62,7 +66,7 @@ export function createOptionButton({ grid, host, onToggle = null }) {
     if (!current) return;
     const { items, checked, onPick } = current;
     menu = openMenu({
-      anchor: button, label: button.getAttribute('aria-label').replace(' (Ctrl)', ''), minWidth: 240,
+      anchor: button, label: menuLabel, minWidth: 240,
       items: items.map((item) => (item.header || item.separator ? item : {
         label: item.label, icon: item.icon, radio: true, checked: item.key === checked, disabled: item.disabled,
         onSelect: () => onPick(item),

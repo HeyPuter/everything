@@ -1,0 +1,17 @@
+{
+  "beforeSheet": "Before sheet",
+  "changed": "The sheet or destination changed. Check your selection and try again.",
+  "chooseDestination": "Choose a destination",
+  "copyToAnother": "Copy to another spreadsheet…",
+  "createCopy": "Create a copy",
+  "destinationGone": "Choose another destination; the selected sheet is no longer available.",
+  "end": "End of workbook",
+  "failed": "Could not move or copy this sheet. Check your selection and try again.",
+  "move": "Move",
+  "protected": "The workbook’s structure is protected. Unprotect it under Review ▸ Protect Workbook to move or copy sheets.",
+  "sheet": "Sheet: {name}",
+  "thisSpreadsheet": "This spreadsheet",
+  "title": "Move or Copy",
+  "toWorkbook": "To workbook",
+  "unavailable": "This sheet is no longer available. Close the dialog and select a sheet."
+}

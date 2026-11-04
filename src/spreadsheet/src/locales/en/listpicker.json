@@ -1,0 +1,9 @@
+{
+  "chooseValue": "Choose a value",
+  "next": "Next options",
+  "noMatches": "No matching options",
+  "previous": "Previous options",
+  "range": "{from}–{to} of {count} options",
+  "searchLabel": "Search list options",
+  "searchPlaceholder": "Search options"
+}

@@ -1,0 +1,6 @@
+{
+  "daysAgo": "{count, plural, other {# 天前}}",
+  "hoursAgo": "{count, plural, other {# 小时前}}",
+  "justNow": "刚刚",
+  "minutesAgo": "{count} 分钟前"
+}

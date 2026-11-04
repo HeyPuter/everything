@@ -1,0 +1,5 @@
+{
+  "degrees": "{value} degrees",
+  "hint": "Click or drag to rotate. Arrow keys change one degree; Page Up and Page Down change 15 degrees.",
+  "label": "Text orientation"
+}

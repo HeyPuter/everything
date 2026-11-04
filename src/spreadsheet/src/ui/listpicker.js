@@ -2,6 +2,7 @@
 import { el, fieldId, isComposing } from './dom.js';
 import { icon } from './icons.js';
 import { openMenu } from './menu.js';
+import { t } from '../i18n/index.js';
 
 const PAGE_SIZE = 200;
 
@@ -11,7 +12,7 @@ const PAGE_SIZE = 200;
  */
 export function openValuePicker({ anchor, labels, itemAt, clearItem, onClose, minWidth = 160, current }) {
   const tail = clearItem ? [{ separator: true }, clearItem] : [];
-  const config = { anchor, label: 'Choose a value', minWidth, onClose };
+  const config = { anchor, label: t('listpicker.chooseValue'), minWidth, onClose };
   if (current === undefined) { current = -1; for (let i = 0; i < labels.length && current < 0; i++) if (itemAt(i).checked) current = i; }
   const focusCurrent = (root) => root.querySelector('[role="menuitemcheckbox"][aria-checked="true"]')?.focus();
   if (labels.length <= PAGE_SIZE) {
@@ -21,7 +22,7 @@ export function openValuePicker({ anchor, labels, itemAt, clearItem, onClose, mi
   }
 
   const results = el('div.fn-list', { id: fieldId('list-options') });
-  const search = el('input.input', { type: 'search', 'aria-label': 'Search list options', 'aria-controls': results.id, placeholder: 'Search options', autocomplete: 'off' });
+  const search = el('input.input', { type: 'search', 'aria-label': t('listpicker.searchLabel'), 'aria-controls': results.id, placeholder: t('listpicker.searchPlaceholder'), autocomplete: 'off' });
   const status = el('div.menu-header', { role: 'status', 'aria-live': 'polite' });
   const pages = el('div');
   let matched = labels.map((_, i) => i);
@@ -46,11 +47,11 @@ export function openValuePicker({ anchor, labels, itemAt, clearItem, onClose, mi
       el('span.menu-label', {}, item.label),
       item.shortcut && el('span.menu-shortcut', { 'aria-hidden': 'true' }, item.shortcut));
     }));
-    status.textContent = matched.length ? `${start + 1}–${Math.min(start + PAGE_SIZE, matched.length)} of ${matched.length} options` : 'No matching options';
+    status.textContent = matched.length ? t('listpicker.range', { from: start + 1, to: Math.min(start + PAGE_SIZE, matched.length), count: matched.length }) : t('listpicker.noMatches');
     const changePage = (delta) => { page += delta; render(true); };
     pages.replaceChildren(...[
-      page > 0 && el('button.menu-item', { type: 'button', role: 'menuitem', tabindex: -1, onclick: () => changePage(-1) }, 'Previous options'),
-      start + PAGE_SIZE < matched.length && el('button.menu-item', { type: 'button', role: 'menuitem', tabindex: -1, onclick: () => changePage(1) }, 'Next options'),
+      page > 0 && el('button.menu-item', { type: 'button', role: 'menuitem', tabindex: -1, onclick: () => changePage(-1) }, t('listpicker.previous')),
+      start + PAGE_SIZE < matched.length && el('button.menu-item', { type: 'button', role: 'menuitem', tabindex: -1, onclick: () => changePage(1) }, t('listpicker.next')),
     ].filter(Boolean));
     results.scrollTop = 0;
     if (focus) (results.querySelector('button') || search).focus();
