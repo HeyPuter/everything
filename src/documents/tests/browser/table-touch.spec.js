@@ -58,3 +58,18 @@ test('a finger inside a cell still scrolls the pages', async ({ page }) => {
   await drag(cell.x + cell.w / 2, cell.y + cell.h / 2 + 300, 0, -250);
   await expect.poll(async () => (await table(page)).top).toBeGreaterThan(50);
 });
+
+test.describe('with the whole ribbon showing', () => {
+  test.use({ viewport: { width: 1400, height: 900 }, isMobile: false, hasTouch: true });
+  // Draw Table divides a cell where a finger draws down it; the pages used to take the stroke as a scroll.
+  test('a finger draws a line down a cell with Draw Table', async ({ page }) => {
+    const { drag } = await open(page);
+    await page.evaluate(() => { const e = window.__docs.current.view.engine; e.model.select(7); e.syncInput(); e.onSelection?.(); });
+    await page.locator('[role=tab]', { hasText: 'Table Layout' }).first().tap();
+    await page.getByRole('button', { name: 'Draw Table', exact: true }).first().tap();
+    await expect(page.locator('.canvas-pages')).toHaveAttribute('data-table-cursor', 'crosshair');
+    const top = await page.evaluate(() => { const e = window.__docs.current.view.engine, id = e.model.tables[0].rows[0].cells[0].id; const box = e.selectionLayout.cells.find(c => c.id === id), r = e.canvases[box.page].getBoundingClientRect(); return { x: r.left + (box.x + box.width / 2) * e.zoom, y: r.top + box.y * e.zoom + 2, h: box.height * e.zoom - 4 }; });
+    await drag(top.x, top.y, 0, top.h);
+    await expect.poll(() => page.evaluate(() => window.__docs.current.view.engine.model.tables[0].rows[0].cells.length)).toBe(4);
+  });
+});

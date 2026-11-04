@@ -178,6 +178,9 @@ export function attachTablePointer(engine, { readOnly, widths, heights, error = 
   const CURSORS = { column: 'col-resize', row: 'row-resize', move: 'move', resize: 'nwse-resize', insertRow: 'pointer', insertColumn: 'pointer' };
   function setCursor(value) {
     if (value) engine.pages.dataset.tableCursor = value; else delete engine.pages.dataset.tableCursor;
+    // Draw Table, the eraser and the border painter draw in any direction: a finger on the pages draws rather than
+    // scrolling them while one is on (tables.css).
+    engine.pages.classList.toggle('uses-table-tool', !!mode);
   }
   const modeCursor = () => mode === 'draw' ? 'crosshair' : mode === 'erase' ? 'cell' : mode === 'paint' ? 'copy' : null;
 
