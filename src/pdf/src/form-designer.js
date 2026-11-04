@@ -136,7 +136,12 @@ export function createFormDesigner({ onMove, onOpen, onDelete, onSelect }) {
     const index = fields.findIndex((entry) => keyOf(entry) === keyOf(field));
     if (index < 0) return;
     const neighbor = fields[index + 1] ?? fields[index - 1];
-    refocus = neighbor ? keyOf(neighbor) : null;
+    // The buttons after a deleted one in its group move up a place.
+    refocus = !neighbor
+      ? null
+      : neighbor.name === field.name && neighbor.widgetIndex > field.widgetIndex
+        ? `${neighbor.name}#${neighbor.widgetIndex - 1}`
+        : keyOf(neighbor);
     refocusFrom = keyOf(field);
   }
 

@@ -423,3 +423,20 @@ test('deleting a field from its properties keeps the focus on the fields', async
   await expect(designer(page, 'Note#0')).toHaveCount(0);
   await expect(designer(page, 'Other#0')).toBeFocused();
 });
+
+test('deleting a radio button hands the focus to the next button of its group', async ({
+  page,
+}) => {
+  const doc = await PDFDocument.create();
+  const sheet = doc.addPage([600, 500]);
+  const size = doc.getForm().createRadioGroup('Size');
+  size.addOptionToPage('Small', sheet, { x: 40, y: 340, width: 16, height: 16 });
+  size.addOptionToPage('Large', sheet, { x: 80, y: 340, width: 16, height: 16 });
+  await openPdf(page, doc);
+  await prepareForm(page);
+  await designer(page, 'Size#0').focus();
+  await page.keyboard.press('Delete');
+  await settled(page);
+  await expect(page.locator('.designer-field')).toHaveCount(1);
+  await expect(page.getByRole('button', { name: 'Radio button Size: Large' })).toBeFocused();
+});
