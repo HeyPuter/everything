@@ -1086,7 +1086,42 @@ export function createEditor({
   const pageForms = createFormLayer({
     onChange: () => updateStatus(),
     onCommit: safe(() => finishDrafts()),
+    onTabOut: (direction) => tabToFormPage(direction),
   });
+  // The pages with fields to fill, read from the PDF once the fields are first used.
+  const fillablePages = new WeakMap();
+  pageForms.root.addEventListener('focusin', () => {
+    const source = pdf;
+    if (!source || fillablePages.has(source)) return;
+    fillablePages.set(source, null);
+    const types = new Set(['text', 'checkbox', 'radiobutton', 'combobox', 'listbox']);
+    source.getFieldObjects().then(
+      (fields) =>
+        fillablePages.set(
+          source,
+          new Set(
+            [...(fields?.values() ?? [])]
+              .flat()
+              .filter((w) => types.has(w?.type) && w.editable && !w.hidden && w.page >= 0)
+              .map((w) => w.page),
+          ),
+        ),
+      () => {},
+    );
+  });
+  /** Tab past the page's last field (or before its first) goes on to the next page's fields. */
+  function tabToFormPage(direction) {
+    const pages = pdf && !busy ? fillablePages.get(pdf) : null;
+    if (!pages) return false;
+    const [target] = [...pages]
+      .filter((page) => (page - pageIndex) * direction > 0)
+      .sort((a, b) => (a - b) * direction);
+    if (target === undefined) return false;
+    safe(async () => {
+      if (await navigate(target)) pageForms.focusEdge(direction < 0);
+    })();
+    return true;
+  }
   const properties = createPropertiesPanel();
   // Comments drawn as annotations, selectable in Select.
   const annotationLayer = createAnnotationLayer({

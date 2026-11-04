@@ -150,7 +150,7 @@ regenerate the favicons, Apple touch icon, and 192/512 px app icons in `public/`
 | Fit width            | Ctrl / Command 2                  |
 | Previous / next page | Alt Left / Right                  |
 
-The text/highlight/shape tools also offer a keyboard-accessible placement action. Freehand drawing requires a pointer. Use Tab to move through form fields on the page, or open Fill forms. Enter applies a single-line field; Ctrl / Command Enter applies multiline fields. Escape restores the current field’s value before the draft. Saving and navigation apply all pending field changes.
+The text/highlight/shape tools also offer a keyboard-accessible placement action. Freehand drawing requires a pointer. Use Tab to move through form fields, on to the next page with fields, or open Fill forms. Enter applies a single-line field; Ctrl / Command Enter applies multiline fields. Escape restores the current field’s value before the draft. Saving and navigation apply all pending field changes.
 
 With an image, shape, or drawing selected, drag its body to move it or a corner to resize it. Arrow keys move it 1 pt in screen directions; Shift moves it 10 pt. Delete/Backspace removes it. Escape cancels a pending transform, or closes the object controls when no transform is pending. Object dimensions are in PDF points.
 

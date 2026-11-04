@@ -3,7 +3,11 @@ import { FormDraft, formWidgets, formWidgetLayout } from './core/form-draft.js';
 
 const rgb = (value, fallback) => (value?.length === 3 ? `rgb(${[...value].join(' ')})` : fallback);
 
-export function createFormLayer({ onChange, onCommit }) {
+/**
+ * The page's fields as native controls. `onTabOut(direction)` is asked when Tab or Shift Tab
+ * would leave the page's last or first field; it returns true when it takes the focus on.
+ */
+export function createFormLayer({ onChange, onCommit, onTabOut }) {
   const draft = new FormDraft();
   const root = el('div', { class: 'form-layer', role: 'group', 'aria-label': 'Page form fields' });
   const error = el('p', {
@@ -218,6 +222,11 @@ export function createFormLayer({ onChange, onCommit }) {
         changed(widget, draft.base.get(widget.name));
         clearError();
         sync();
+      } else if (event.key === 'Tab' && !event.altKey && !event.ctrlKey && !event.metaKey) {
+        const stops = [...root.querySelectorAll('.form-control')].filter((c) => !c.disabled);
+        const direction = event.shiftKey ? -1 : 1;
+        if (control === (event.shiftKey ? stops[0] : stops.at(-1)) && onTabOut?.(direction))
+          event.preventDefault();
       }
     });
     return control;
@@ -339,6 +348,13 @@ export function createFormLayer({ onChange, onCommit }) {
     undo,
     redo,
     owns: (element) => root.contains(element),
+    /** Focus the page's first field (`last`: its last one); false when it has none to fill. */
+    focusEdge(last = false) {
+      const stops = [...root.querySelectorAll('.form-control')].filter((c) => !c.disabled);
+      const target = last ? stops.at(-1) : stops[0];
+      target?.focus();
+      return !!target;
+    },
     clearHistory: () => {
       draft.past = [];
       draft.future = [];
