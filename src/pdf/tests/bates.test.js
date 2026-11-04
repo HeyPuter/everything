@@ -48,3 +48,19 @@ it('numbers only the chosen pages, counting from the start number in page order'
   expect(texts[2]).toBe('');
   expect(texts[3]).toContain('DOC00042');
 });
+
+it('writes a Bates prefix in Korean with the Korean face', async () => {
+  vi.mocked(globalThis.fetch).mockImplementation(
+    async (url) =>
+      new Response(
+        await readFile(new URL(`../public/fonts/${String(url).split('/').pop()}`, import.meta.url)),
+      ),
+  );
+  const doc = await PDFDocument.create();
+  doc.addPage([400, 400]);
+  await addHeaderFooter(doc, [0], {
+    slots: { bottomRight: '{bates}' },
+    bates: { prefix: '사건-', start: 7, digits: 4 },
+  });
+  expect((await pageTexts(await doc.save()))[0]).toContain('사건-0007');
+});
