@@ -11,6 +11,15 @@ const objectName = object => { let name = objectNames.get(object); if (name === 
 // caret: Track Changes (a tracked deletion marks text in place, a move marks its source), fields (kept in step
 // across the document), and content controls, which span paragraphs.
 const DOCUMENT_PARTS = ['comments', 'tables', 'styles', 'stylesEnabled', 'numbering', 'pageSettings'];
+// Settings the host keeps, compared by value; their bytes (custom XML parts) by identity, as each write replaces them.
+const byteIds = new WeakMap();
+let nextByteId = 0;
+const hostKey = host => JSON.stringify(host ?? null, (key, value) => {
+  if (!(value instanceof Uint8Array)) return value;
+  if (!byteIds.has(value)) byteIds.set(value, nextByteId++);
+  return `bytes:${byteIds.get(value)}`;
+});
+const sameHost = (a, b) => hostKey(a) === hostKey(b);
 const incrementalTyping = model => !model.trackChanges && !model.hasBodyFields && !model.hasContentControls && !model.hasBlockControls;
 
 // A document has separate text-position spaces, but one chronological undo
@@ -131,8 +140,10 @@ export class StorySession {
   // `label` names the undo step for the host's menus, where the change alone does not say what made it (AutoCorrect).
   // `resume` ({ path, page }) is the header, footer or note being edited when the change was made in another story
   // (the body's section settings from a header): Undo and Redo go back to editing it.
-  run(action, validate = () => {}, { record = true, typing = false, label, resume } = {}) {
-    const before = this.capture(), model = this.model;
+  // `settings`: the action also changes the settings changeSettings keeps (the citation style and sources), which
+  // the step takes back with it.
+  run(action, validate = () => {}, { record = true, typing = false, label, resume, settings = false } = {}) {
+    const before = this.capture(), model = this.model, settingsBefore = settings ? this.settingsState() : null;
     // Text typed or deleted with a key (CanvasEditor typeText and deleteText).
     const typed = typing ? this.typingStart(model, before) : null;
     model.formatTrackingSuppressed = false;
@@ -160,7 +171,7 @@ export class StorySession {
       }
       validate(model);
       if (model.revision !== before.revision) {
-        if (record) { if (label) before.label = label; if (resume) before.resume = resume; this.record(before); }
+        if (record) { if (label) before.label = label; if (resume) before.resume = resume; if (settingsBefore) before.settings = settingsBefore; this.record(before); }
         this.revision++;
         if (this.path !== null && this.body.trackChanges) this.untracked?.(this.path);
       }
@@ -173,6 +184,7 @@ export class StorySession {
       return result;
     } catch (error) {
       this.restore(before); this.model.revision = before.revision;
+      if (settingsBefore) this.applySettings(settingsBefore);
       throw error;
     } finally {
       if (ownCheckpoint) model.checkpoint = ownCheckpoint; else delete model.checkpoint;
@@ -213,7 +225,7 @@ export class StorySession {
     const before = { path: this.path, page: this.page, settings: this.settingsState(), caret: this.caret?.(), ...(label ? { label } : {}) };
     const same = () => {
       const now = this.settingsState(), outline = state => JSON.stringify(state.options?.sections.some(s => s.firstPageDifferent || s.pageNumbering) || state.options?.evenAndOdd || state.options?.footnotes || state.options?.endnotes ? state.options : null);
-      return outline(now) === outline(before.settings) && JSON.stringify(now.host) === JSON.stringify(before.settings.host);
+      return outline(now) === outline(before.settings) && sameHost(now.host, before.settings.host);
     };
     try { change(); } catch (error) { this.applySettings(before.settings); throw error; } finally { this.sectionRevision = undefined; }
     if (same()) return false;
@@ -248,21 +260,24 @@ export class StorySession {
       try {
         for (const step of [...entry.steps].reverse()) {
           // A part can be a change of settings (changeSettings), which no story's text holds.
-          if (step.settings) {
+          if (step.settings && !step.state) {
             applied.push({ path: step.path, page: step.page, settings: this.settingsState(), caret: step.caret });
             this.applySettings(step.settings);
             continue;
           }
           this.activate(step.path); this.page = step.page;
           const current = this.capture();
+          if (step.settings) current.settings = this.settingsState();
           applied.push(current);
           this.restore(step);
+          if (step.settings) this.applySettings(step.settings);
           this.guard?.(current.state, this.model, this.path);
         }
         validate?.(this.model);
       } catch (error) {
         for (const current of [...applied].reverse()) {
-          if (current.settings) { this.applySettings(current.settings); continue; }
+          if (current.settings) this.applySettings(current.settings);
+          if (!current.state) continue;
           this.restore(current); this.model.revision = current.revision;
         }
         this.activate(previousPath); this.page = previousPage;
@@ -273,7 +288,7 @@ export class StorySession {
       this.prepareSnapshot();
       return true;
     }
-    if (entry.settings) {
+    if (entry.settings && !entry.state) {
       // The settings go back (or forward) where the caret is: no story's text changes.
       const current = { path: this.path, page: this.page, settings: this.settingsState(), caret: this.caret?.() };
       this.applySettings(entry.settings);
@@ -286,8 +301,11 @@ export class StorySession {
     this.activate(entry.path);
     this.page = entry.page;
     const current = this.capture();
+    // A step that also changed settings (run's `settings`) puts them back with the text.
+    if (entry.settings) current.settings = this.settingsState();
     try {
       this.restore(entry);
+      if (entry.settings) this.applySettings(entry.settings);
       this.guard?.(current.state, this.model, this.path);
       validate?.(this.model);
       // The step keeps its name (for the host's menus) and the story to go on editing in both directions.
@@ -299,6 +317,7 @@ export class StorySession {
       return true;
     } catch (error) {
       this.restore(current); this.model.revision = current.revision;
+      if (current.settings) this.applySettings(current.settings);
       this.activate(previousPath);
       this.page = previousPage;
       throw error;

@@ -182,3 +182,18 @@ it('takes back a transaction of text and settings changes in one step', async ()
   expect(await parts(s, pkg)).toEqual(changed);
   expect(!!s.definition.sections[0].firstPageDifferent).toBe(!was);
 });
+
+it('takes back settings an edit wrote (run with settings) with the edit, in both directions', () => {
+  const s = new StorySession(new TextDocument([paragraph('Text')]));
+  let stored = { style: 'apa' };
+  s.settingsHost = { capture: () => ({ ...stored }), restore: state => { stored = { ...state }; } };
+  s.run(model => { stored = { style: 'mla' }; model.select(4); model.replace(' (MLA)'); }, undefined, { settings: true });
+  expect(s.history).toHaveLength(1);
+  s.undo();
+  expect([s.model.text, stored.style]).toEqual(['Text', 'apa']);
+  s.redo();
+  expect([s.model.text, stored.style]).toEqual(['Text (MLA)', 'mla']);
+  // A failed edit leaves both as they were.
+  expect(() => s.run(() => { stored = { style: 'ieee' }; throw new Error('refused'); }, undefined, { settings: true })).toThrow('refused');
+  expect(stored.style).toBe('mla');
+});

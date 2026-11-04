@@ -151,7 +151,12 @@ export function createReferences({ editor, pkg, error, base = {}, onChange = () 
    * then refresh page references (all, or `result.only`). Returns the action's result. With `track`, text the
    * action inserts (a caption, a cross-reference) is then a tracked insertion when Track Changes is on.
    */
-  async function runBody(action, { modules = ['captions'], refresh = true, keepFocus = false, track = false, stay = null } = {}) {
+  /**
+   * `after(body, ...modules)` runs in the same undo step once the action is recorded as inserted (Track Changes),
+   * untracked (a citation's bibliography refresh). `settings`: the action also writes settings the step takes back
+   * (the citation sources and style).
+   */
+  async function runBody(action, { modules = ['captions'], refresh = true, keepFocus = false, track = false, stay = null, after = null, settings = false } = {}) {
     const engine = ready(); if (!engine) return false;
     engine.finishComposition();
     const [refreshModule, ...loaded] = await Promise.all([import('../engine/page-reference-refresh.js'), ...modules.map(name => ENGINE[name]())]);
@@ -178,9 +183,10 @@ export function createReferences({ editor, pkg, error, base = {}, onChange = () 
           // Untracked, a caption or cross-reference inserted with Track Changes on stayed after Reject All, and with
           // tracking locked it could not be inserted at all.
           if (before !== null) body.trackInsertion(before, fields);
+          after?.(body, ...loaded);
           if (refresh || result?.only) refreshModule.refreshPageReferences(body, model => engine.layoutModel(model), engine.pageStories, { checkpoint: false, only: result?.only || null });
           return result;
-        });
+        }, undefined, settings ? { settings: true } : undefined);
       } finally {
         body.trackChanges = tracking;
         if (story && engine.session.path === null && engine.editStory(story.path, story.page) && engine.session.path === story.path) {

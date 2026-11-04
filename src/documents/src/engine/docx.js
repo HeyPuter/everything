@@ -2426,12 +2426,16 @@ export class DocxPackage {
   setEvenAndOdd(on) { if (this.readOnly) throw new Error('This document is open read-only.'); this.evenAndOdd = !!on; }
   /** The header, footer and note settings this session set (above and setNoteSettings), for Undo to put back. */
   settingsState() {
-    return { titlePages: [...this.titlePages], pageNumberings: [...this.pageNumberings], evenAndOdd: this.evenAndOdd, noteSettings: this.noteSettings ? JSON.parse(JSON.stringify(this.noteSettings)) : null };
+    return { titlePages: [...this.titlePages], pageNumberings: [...this.pageNumberings], evenAndOdd: this.evenAndOdd, noteSettings: this.noteSettings ? JSON.parse(JSON.stringify(this.noteSettings)) : null,
+      // The custom XML items as they are (the citation sources and style): each write replaces an item's bytes.
+      customXml: Object.entries(this.parts).filter(([path]) => /^customXml\/item\d+\.xml$/.test(path)) };
   }
   restoreSettings(state) {
     if (!state) return;
     this.titlePages = new Map(state.titlePages); this.pageNumberings = new Map(state.pageNumberings); this.evenAndOdd = state.evenAndOdd;
     if (state.noteSettings) this.noteSettings = JSON.parse(JSON.stringify(state.noteSettings)); else delete this.noteSettings;
+    // An item made since stays (with its relationship and content type), as it was made.
+    for (const [path, bytes] of state.customXml || []) if (Object.hasOwn(this.parts, path)) this.parts[path] = bytes;
   }
   /** Remove footnotes and endnotes whose body reference was deleted. */
   pruneFootnotes(parts, paragraphs) {

@@ -37,19 +37,24 @@ export function createCitationCommands(ctx) {
     const [, fields, styles] = await engineModules();
     const { data } = documentData();
     const info = styles.CITATION_STYLES[style];
-    fields.writeBibliographyPart(pkg().parts, { ...data, style, styleName: `${info.name} ${info.edition}`, sources });
+    const write = () => fields.writeBibliographyPart(pkg().parts, { ...data, style, styleName: `${info.name} ${info.edition}`, sources });
     pendingStyle = null;
-    await refreshFields(sources, style, renamed);
+    // Written with the citations it changes, as one undo step: Undo brings back both (the style box follows).
+    if (!await refreshFields(sources, style, renamed, write)) write();
     editor()?.onChange?.();
   }
-  async function refreshFields(sources = documentData().data.sources, style = currentStyle(), renamed = null) {
+  /** Refresh every citation and bibliography, after `write()` (the sources) in the same undo step. Whether it ran. */
+  async function refreshFields(sources = documentData().data.sources, style = currentStyle(), renamed = null, write = null) {
     const engine = editor();
     const paragraphs = engine?.session.body.paragraphs || [];
-    if (!paragraphs.some(p => p.fieldMarkers?.some(m => ['CITATION', 'BIBLIOGRAPHY'].includes(m.field.type)))) return;
+    if (!paragraphs.some(p => p.fieldMarkers?.some(m => ['CITATION', 'BIBLIOGRAPHY'].includes(m.field.type)))) return false;
+    let ran = false;
     await runBody((body, fields) => {
+      ran = true; write?.();
       if (renamed) fields.renameCitedTag(body, ...renamed);
       fields.updateCitations(body, sources, style); fields.updateBibliographies(body, sources, style); return true;
-    }, { modules: ['bibliography'], refresh: false });
+    }, { modules: ['bibliography'], refresh: false, settings: !!write });
+    return ran;
   }
   /**
    * The citation and bibliography refresh as an action for runBody's bibliography module, with the document's
@@ -79,12 +84,23 @@ export function createCitationCommands(ctx) {
   }
 
   /* ---- Insert citation ---- */
-  async function cite(tag, options = {}) {
+  /** Cite `tag`; `added`, a source new to the document, is saved with the citation (Add New Source, a placeholder). */
+  async function cite(tag, options = {}, added = null) {
     const engine = ready(); if (!engine) return;
     const { data, style } = documentData();
-    await runBody((body, fields) => fields.insertCitation(body, { tags: [tag], ...options }, data.sources, style), { modules: ['bibliography'], refresh: false, track: true });
-    // A newly cited source can change IEEE numbering, same-year letters and every bibliography.
-    await refreshFields(data.sources, style);
+    let sources = data.sources, write = null;
+    if (added) {
+      ctx.unprotected?.('its sources');
+      const [, , styles] = await engineModules(), info = styles.CITATION_STYLES[style];
+      sources = [...data.sources, added];
+      write = fields => fields.writeBibliographyPart(pkg().parts, { ...data, style, styleName: `${info.name} ${info.edition}`, sources });
+      pendingStyle = null;
+    }
+    // One undo step: the source saved, the citation, and the IEEE numbering, same-year letters and bibliographies a
+    // newly cited source changes (updated untracked).
+    await runBody((body, fields) => { write?.(fields); return fields.insertCitation(body, { tags: [tag], ...options }, sources, style); }, { modules: ['bibliography'], refresh: false, track: true, settings: !!write,
+      after: (body, fields) => { fields.updateCitations(body, sources, style); fields.updateBibliographies(body, sources, style); } });
+    if (added) editor()?.onChange?.();
   }
 
   const describe = source => {
@@ -99,7 +115,7 @@ export function createCitationCommands(ctx) {
     return [
       ...(data.sources.length ? [{ header: 'Sources in this document' }, ...data.sources.map(source => ({ label: describe(source), hint: source.tag, disabled, onSelect: () => cite(source.tag) }))] : [{ note: 'No sources in this document yet.' }]),
       { separator: true },
-      { label: 'Add New Source…', icon: 'citation', disabled, onSelect: () => sourceDialog({ onSave: async source => { await saveSources([...documentData().data.sources, source]); rememberSources([source]); await cite(source.tag); } }) },
+      { label: 'Add New Source…', icon: 'citation', disabled, onSelect: () => sourceDialog({ onSave: async source => { await cite(source.tag, {}, source); rememberSources([source]); } }) },
       { label: 'Add New Placeholder…', disabled, onSelect: () => placeholderDialog() },
     ];
   }
@@ -113,8 +129,7 @@ export function createCitationCommands(ctx) {
     openDialog({ title: 'Placeholder Name', submitLabel: 'Insert', body: [field('Type a tag name for the source', name, 'Fill in its details later from Manage Sources.')], onSubmit: async () => {
       const tag = name.value.trim();
       if (taken.some(t => t.toLowerCase() === tag.toLowerCase())) throw new Error('A source with that tag already exists in this document.');
-      await saveSources([...data.sources, { tag, type: 'Misc', names: {}, fields: {}, guid: bib.newGuid() }]);
-      await cite(tag);
+      await cite(tag, {}, { tag, type: 'Misc', names: {}, fields: {}, guid: bib.newGuid() });
     } });
     name.select();
   }
