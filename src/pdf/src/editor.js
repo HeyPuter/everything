@@ -8553,12 +8553,12 @@ export function createEditor({
         null,
       );
       if (!committed || !report || destroyed) return;
+      const count = (n, word) => n && `${n} ${word}${n === 1 ? '' : 's'}`;
       const removed = [
-        report.text && `${report.text} characters`,
-        report.images.redacted + report.images.removed &&
-          `${report.images.redacted + report.images.removed} ${report.images.redacted + report.images.removed === 1 ? 'image' : 'images'}`,
-        report.paths && `${report.paths} drawings`,
-        report.annotations && `${report.annotations} annotations`,
+        count(report.text, 'character'),
+        count(report.images.redacted + report.images.removed, 'image'),
+        count(report.paths, 'drawing'),
+        count(report.annotations, 'annotation'),
       ].filter(Boolean);
       const summary = `Redactions applied${removed.length ? `: removed ${removed.join(', ')}` : ''}. Save or download to keep the redacted file.`;
       const warnings = [...new Set([...report.warnings, ...(sanitized?.warnings || [])])];
