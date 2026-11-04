@@ -80,3 +80,7 @@
   .app.assistant-open .tp-strip { display: none; }
   .app.assistant-open .tp-panel.wide { position: static; width: 100%; border-left: 0; }
 }
+@media (pointer: coarse) {
+  /* iOS zooms the page into a text field set smaller than 16px when it takes focus. */
+  .as-input { font-size: 16px; }
+}
