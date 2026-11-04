@@ -195,3 +195,60 @@ test('a shape keeps a reply being typed while its panel is drawn again', async (
   expect(kept.contents).toBe('Boxed in');
   expect(repliesOf(kept)).toEqual(['Looks right']);
 });
+
+// Zooming draws the page again; a selected highlight stays selected, as a shape does.
+test('a highlight keeps its selection and a reply being typed through a zoom', async ({ page }) => {
+  const doc = await PDFDocument.create();
+  doc.addPage([400, 500]).drawText('Highlighted words', { x: 40, y: 400, size: 18 });
+  addHighlight(doc, 0, {
+    quads: [rectQuad({ x: 40, y: 394, width: 150, height: 22 })],
+    text: 'Highlighted words',
+  });
+  await open(page, doc);
+  await page.getByRole('button', { name: 'Edit highlight: Highlighted words' }).click();
+  const props = page.getByRole('complementary', { name: 'Selection properties' });
+  const reply = props.getByLabel('Reply text');
+  await reply.click();
+  await page.keyboard.type('Looks', { delay: 20 });
+  const zoom = page.getByRole('combobox', { name: 'Zoom', exact: true });
+  const before = await zoom.inputValue();
+  // Twice: the second zoom begins while the first draws the page.
+  await page.evaluate(
+    () =>
+      new Promise((resolve) => {
+        const paper = document.querySelector('.paper');
+        const press = () =>
+          document.activeElement.dispatchEvent(
+            new KeyboardEvent('keydown', { key: '=', ctrlKey: true, bubbles: true }),
+          );
+        new MutationObserver((_, observer) => {
+          if (paper.getAttribute('aria-busy') !== 'true') return;
+          observer.disconnect();
+          press();
+          resolve();
+        }).observe(paper, { attributeFilter: ['aria-busy'] });
+        press();
+      }),
+  );
+  await settled(page);
+  await expect.poll(() => zoom.inputValue()).not.toBe(before);
+  await expect(props.getByLabel('Highlight color')).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: 'Edit highlight: Highlighted words' }),
+  ).toHaveAttribute('aria-pressed', 'true');
+  await expect(reply).toBeFocused();
+  await page.keyboard.type(' right');
+  await expect(reply).toHaveValue('Looks right');
+  await reply.press('ControlOrMeta+Enter');
+  await settled(page);
+  await expect(props.getByRole('list', { name: 'Replies' })).toContainText('Looks right');
+  // The highlight on the page keeps the keyboard, when it has it.
+  const target = page.getByRole('button', { name: 'Edit highlight: Highlighted words' });
+  await target.focus();
+  await page.keyboard.press('ControlOrMeta+-');
+  await settled(page);
+  await expect(target).toBeFocused();
+  await expect(target).toHaveAttribute('aria-pressed', 'true');
+  const [kept] = await saved(page);
+  expect(repliesOf(kept)).toEqual(['Looks right']);
+});

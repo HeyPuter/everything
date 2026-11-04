@@ -625,6 +625,7 @@ export function createEditor({
     if (!viewport || destroyed || mode === (pendingZoom?.mode ?? scaleMode)) return;
     // Claim the target before yielding. New commands supersede this request, even when
     // they return to the rendered scale while a draft or document reload is still pending.
+    const previous = pendingZoom;
     const request = (pendingZoom = { mode });
     try {
       // A display-only zoom can redraw the current PDF while an isolated edit is saving.
@@ -649,8 +650,17 @@ export function createEditor({
         (point.y - before.top) / (before.height || 1),
       ];
       scaleMode = mode;
-      await renderPage();
-      if (destroyed || pendingZoom !== request || paper.hidden) return;
+      // A selected markup stays selected, as a shape does, also when this zoom follows one
+      // still drawing the page (which has taken the selection down).
+      const held = (request.held = heldHighlight() || previous?.held);
+      const release = held ? properties.preserveLayout() : () => {};
+      try {
+        await renderPage();
+        if (destroyed || pendingZoom !== request || paper.hidden) return;
+        restoreHighlight(held);
+      } finally {
+        release();
+      }
       const after = paper.getBoundingClientRect();
       workspace.scrollLeft += after.left + fraction[0] * after.width - point.x;
       workspace.scrollTop += after.top + fraction[1] * after.height - point.y;
@@ -3779,6 +3789,45 @@ export function createEditor({
     if (!selectedHighlight) return;
     renderHighlightTargets();
     properties.root.querySelector(`[aria-label="${control}"]`)?.focus({ preventScroll: true });
+  }
+  /** The selected markup's panel as left, for a redraw of the page that clears it. */
+  function heldHighlight() {
+    if (!selectedHighlight) return null;
+    const active = document.activeElement;
+    const held = properties.root.contains(active) ? active : null;
+    return {
+      id: selectedHighlight.id,
+      page: pageIndex,
+      reply: properties.root.querySelector('[aria-label="Reply text"]')?.value ?? '',
+      label: held?.getAttribute('aria-label'),
+      // Or its place on the page, when that has the keyboard.
+      target: highlightTargets.contains(active)
+        ? [...highlightTargets.children].indexOf(active)
+        : -1,
+      range:
+        typeof held?.selectionStart === 'number'
+          ? [held.selectionStart, held.selectionEnd, held.selectionDirection]
+          : null,
+    };
+  }
+  /** Select the markup again after a zoom, with the reply being typed and the keyboard. */
+  function restoreHighlight(held) {
+    if (!held || destroyed || tool !== 'select' || selectedHighlight || pageIndex !== held.page)
+      return;
+    selectedHighlight = highlights.find((h) => h.id === held.id) || null;
+    if (!selectedHighlight) return;
+    renderHighlightTargets();
+    const reply = properties.root.querySelector('[aria-label="Reply text"]');
+    if (reply && held.reply) reply.value = held.reply;
+    if (document.activeElement !== document.body) return;
+    if (held.target >= 0) highlightTargets.children[held.target]?.focus({ preventScroll: true });
+    if (!held.label) return;
+    const control = [...properties.root.querySelectorAll('[aria-label]')].find(
+      (node) => node.getAttribute('aria-label') === held.label,
+    );
+    control?.focus({ preventScroll: true });
+    if (held.range && typeof control?.selectionStart === 'number')
+      control.setSelectionRange(...held.range);
   }
   function closeHighlightEditor() {
     const id = selectedHighlight?.id;
