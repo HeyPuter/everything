@@ -19,12 +19,17 @@ export class CollabError extends Error {
 
 const isDevServer = server => /^https?:\/\/(127\.0\.0\.1|localhost|[a-z0-9.-]+\.localhost)(:\d+)?\/__collab/.test(server);
 
+/** The slowest upload a request is given time for (bytes per millisecond): about 50 kB/s. */
+const SLOWEST_UPLOAD = 50;
+
 export async function call(puter, server, input) {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), input.op === 'create' || input.op === 'base' ? 120_000 : 30_000);
+  const body = JSON.stringify(input);
+  // A change carrying a picture is megabytes: on a slow connection its upload alone takes longer than a small request
+  // is given, and cut off every time it would never go, nor anything queued behind it.
+  const timer = setTimeout(() => controller.abort(), (input.op === 'create' || input.op === 'base' ? 120_000 : 30_000) + Math.ceil(body.length / SLOWEST_UPLOAD));
   try {
     server = workerURL(server);
-    const body = JSON.stringify(input);
     let res;
     if (isDevServer(server)) {
       const user = await puter.auth.getUser();
