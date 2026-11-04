@@ -177,6 +177,7 @@ a.icon-btn { text-decoration: none; }
 .lp-tabs [role='tab'][aria-selected='true'] { background: var(--accent-weak); border-color: var(--accent-border); color: var(--accent); }
 .lp-tabs [role='tab']:hover { background: var(--hover); }
 .lp-tabs .grow { flex: 1; }
+.lp-tablist { display: flex; gap: 2px; }
 .lp-body { flex: 1; min-height: 0; overflow: auto; position: relative; }
 .splitter { width: 5px; margin-left: -3px; margin-right: -2px; cursor: col-resize; z-index: 5; flex: none; position: relative; touch-action: none; }
 .splitter:hover, .splitter.dragging { background: var(--accent-border); }

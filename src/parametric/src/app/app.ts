@@ -199,12 +199,14 @@ export class App {
 
   private buildLeftTabs() {
     const tabs: [string, string, string][] = [['tree', 'tree', 'Design tree'], ['pm', 'settings', 'PropertyManager']];
+    // The tablist holds only the tabs; the phone sheet's close button sits beside it.
+    const list = h('div', { class: 'lp-tablist', role: 'tablist', 'aria-label': 'Panels' });
     for (const [id, ic, label] of tabs) {
       const b = h('button', { role: 'tab', type: 'button', 'aria-selected': String(id === this.leftTab), 'aria-controls': 'left-panel', 'aria-label': label, title: label, 'data-tab': id }, icon(ic, 16));
       b.addEventListener('click', () => this.showLeft(id as 'tree' | 'pm'));
-      this.shell.lpTabs.append(b);
+      list.append(b);
     }
-    this.shell.lpTabs.append(h('span', { class: 'grow' }));
+    this.shell.lpTabs.append(list, h('span', { class: 'grow' }));
     const close = h('button', { class: 'icon-btn mobile-only', type: 'button', 'aria-label': 'Close panel' }, icon('close', 16));
     close.addEventListener('click', () => this.toggleLeftPane(false));
     this.shell.lpTabs.append(close);
