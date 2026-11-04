@@ -118,7 +118,6 @@
   .as-pane, .vh-pane { width: 100%; flex-basis: auto; }
   .vh-preview { position: absolute; inset: 0; z-index: 6; border-left: 0; }
   .as-fab { right: 12px; bottom: calc(12px + var(--view-thumbnails-height, 0px)); }
-  .cl-presence .cl-avatar:nth-child(n+3):not(.cl-more) { display: none; }
   .cl-chip { display: none; }
   .cl-banner { padding: 6px 12px; font-size: 12.5px; }
 }
