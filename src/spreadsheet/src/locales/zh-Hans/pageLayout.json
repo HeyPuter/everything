@@ -1,0 +1,20 @@
+{
+  "addFooter": "添加页脚",
+  "addHeader": "添加页眉",
+  "element.currentDate": "当前日期",
+  "element.currentTime": "当前时间",
+  "element.fileName": "文件名",
+  "element.filePath": "文件路径",
+  "element.numberOfPages": "页数",
+  "element.pageNumber": "页码",
+  "element.sheetName": "工作表名",
+  "goToFooter": "转至页脚",
+  "goToHeader": "转至页眉",
+  "headerAndFooter": "页眉和页脚",
+  "option.alignWithMargins": "与页边距对齐",
+  "option.differentFirst": "首页不同",
+  "option.differentOddEven": "奇偶页不同",
+  "option.scaleWithDoc": "随文档自动缩放",
+  "sectionLabel": "{kind, select, footer {页脚} firstHeader {首页页眉} firstFooter {首页页脚} evenHeader {偶数页页眉} evenFooter {偶数页页脚} other {页眉}}，{side, select, left {左侧} center {中间} other {右侧}}部分",
+  "sectionTitle": "{kind, select, footer {页脚} firstHeader {首页页眉} firstFooter {首页页脚} evenHeader {偶数页页眉} evenFooter {偶数页页脚} other {页眉}}：{side, select, left {左侧} center {中间} other {右侧}}部分"
+}

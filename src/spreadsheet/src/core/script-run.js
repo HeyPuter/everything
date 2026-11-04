@@ -10,6 +10,7 @@
  */
 import RUNTIME from './script-runtime.src.js?raw';
 import { ScriptHost } from './script-host.js';
+import { t } from '../i18n/index.js';
 
 export const DEFAULT_SCRIPT_TIMEOUT = 120_000;
 
@@ -30,7 +31,7 @@ export function scriptSource(code) {
  * onLog({ level, text, line }) receives console output as it comes ({ clear: true } for console.clear()).
  * `signal` (an AbortSignal) stops the run. `env` goes to the ScriptHost (selection, select, autofit, distrust, name).
  */
-export function runScript({ wb, code, transport, env = {}, timeout = DEFAULT_SCRIPT_TIMEOUT, label = 'Run script', onLog = null, signal = null }) {
+export function runScript({ wb, code, transport, env = {}, timeout = DEFAULT_SCRIPT_TIMEOUT, label = t('scriptRun.runScript'), onLog = null, signal = null }) {
   const { source, firstLine, lineCount } = scriptSource(code);
   const host = new ScriptHost(wb, env);
   const mark = wb.historyTop;
@@ -53,7 +54,7 @@ export function runScript({ wb, code, transport, env = {}, timeout = DEFAULT_SCR
     wb.squashHistory(mark, label);
     resolveRun({ ok: !error, error: error || null, stopped: !!extra.stopped, timedOut: !!extra.timedOut, changed: wb.version !== version });
   }
-  function onAbort() { finish({ message: 'The script was stopped.', line: 0 }, { stopped: true }); }
+  function onAbort() { finish({ message: t('scriptRun.stopped'), line: 0 }, { stopped: true }); }
 
   function onMessage(m) {
     if (done || !m || typeof m !== 'object') return;
@@ -74,8 +75,8 @@ export function runScript({ wb, code, transport, env = {}, timeout = DEFAULT_SCR
       case 'log': onLog?.({ level: ['info', 'warn', 'error'].includes(m.level) ? m.level : 'log', text: String(m.text ?? ''), line: Number(m.line) || 0 }); return;
       case 'clear': onLog?.({ clear: true }); return;
       case 'done': finish(null); return;
-      case 'error': finish({ message: `${m.name && m.name !== 'Error' && m.name !== 'ScriptError' ? `${m.name}: ` : ''}${String(m.message ?? 'The script failed')}`, line: Number(m.line) || 0 }); return;
-      case 'load-error': finish({ message: String(m.message || 'The script could not be read').replace(/^Uncaught /, ''), line: scriptLine(Number(m.line)) }); return;
+      case 'error': finish({ message: `${m.name && m.name !== 'Error' && m.name !== 'ScriptError' ? `${m.name}: ` : ''}${String(m.message ?? t('scriptRun.failed'))}`, line: Number(m.line) || 0 }); return;
+      case 'load-error': finish({ message: String(m.message || t('scriptRun.unreadable')).replace(/^Uncaught /, ''), line: scriptLine(Number(m.line)) }); return;
       default:
     }
   }
@@ -85,9 +86,9 @@ export function runScript({ wb, code, transport, env = {}, timeout = DEFAULT_SCR
   try {
     port = transport(source, onMessage);
   } catch (e) {
-    finish({ message: e?.message || 'Scripts cannot run here', line: 0 });
+    finish({ message: e?.message || t('scriptRun.cannotRunHere'), line: 0 });
     return result;
   }
-  if (timeout > 0) timer = setTimeout(() => finish({ message: `The script ran for more than ${Math.round(timeout / 1000)} seconds and was stopped.`, line: 0 }, { timedOut: true }), timeout);
+  if (timeout > 0) timer = setTimeout(() => finish({ message: t('scriptRun.timedOut', { seconds: Math.round(timeout / 1000) }), line: 0 }, { timedOut: true }), timeout);
   return result;
 }

@@ -1,0 +1,10 @@
+{
+  "empty": "{name} is empty.",
+  "tooLarge": "{name} is {size}; the largest {kind, select, pdf {PDF} image {image} other {{kind}}} the assistant takes is {max}.",
+  "tooMany": "Up to {max} files can go with one message.",
+  "tooManyPages": "These PDFs have about {pages} pages together; the assistant reads at most {max} with one message. Send some of them with your next message.",
+  "tooMuch": "These files come to {size} together; the assistant takes at most {max} with one message. Send some of them with your next message.",
+  "unreadable": "{name} cannot be read by the assistant. Attach an image, a PDF or a text file such as a CSV.",
+  "unreadableThis": "This file cannot be read by the assistant. Attach an image, a PDF or a text file such as a CSV.",
+  "useImport": "To bring in {name}, use File › Import. The assistant reads images, PDFs and text files."
+}

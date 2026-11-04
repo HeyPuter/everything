@@ -1,0 +1,20 @@
+{
+  "addFooter": "Add footer",
+  "addHeader": "Add header",
+  "element.currentDate": "Current Date",
+  "element.currentTime": "Current Time",
+  "element.fileName": "File Name",
+  "element.filePath": "File Path",
+  "element.numberOfPages": "Number of Pages",
+  "element.pageNumber": "Page Number",
+  "element.sheetName": "Sheet Name",
+  "goToFooter": "Go to Footer",
+  "goToHeader": "Go to Header",
+  "headerAndFooter": "Header & Footer",
+  "option.alignWithMargins": "Align with Page Margins",
+  "option.differentFirst": "Different First Page",
+  "option.differentOddEven": "Different Odd & Even Pages",
+  "option.scaleWithDoc": "Scale with Document",
+  "sectionLabel": "{kind, select, footer {Footer} firstHeader {First Page Header} firstFooter {First Page Footer} evenHeader {Even Page Header} evenFooter {Even Page Footer} other {Header}}, {side, select, left {Left} center {Center} other {Right}} section",
+  "sectionTitle": "{kind, select, footer {Footer} firstHeader {First Page Header} firstFooter {First Page Footer} evenHeader {Even Page Header} evenFooter {Even Page Footer} other {Header}}: {side, select, left {left} center {center} other {right}} section"
+}

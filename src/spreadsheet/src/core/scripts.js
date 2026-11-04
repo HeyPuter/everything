@@ -8,6 +8,7 @@
  * query, it marks the workbook changed so it saves, and announces 'scripts'.
  */
 import { sha256 } from '@noble/hashes/sha2.js';
+import { t } from '../i18n/index.js';
 
 export const MAX_SCRIPTS = 200;
 export const MAX_SCRIPT_CODE = 512 * 1024;
@@ -19,10 +20,10 @@ const newId = () => (globalThis.crypto?.randomUUID?.() || `s${Date.now().toStrin
 /** A script name problem in words, or null: names are not blank, not overlong, and unique ignoring case. */
 export function scriptNameProblem(wb, name, exceptId = null) {
   const text = String(name ?? '').trim();
-  if (!text) return 'Enter a name for the script';
-  if (text.length > MAX_SCRIPT_NAME) return `A script name can be at most ${MAX_SCRIPT_NAME} characters`;
-  if (/[\u0000-\u001f\\/:*?"<>|]/.test(text)) return 'A script name cannot contain \\ / : * ? " < > |';
-  if ((wb?.scripts || []).some((s) => s.id !== exceptId && s.name.toLowerCase() === text.toLowerCase())) return `There is already a script named "${text}"`;
+  if (!text) return t('scripts.nameProblem.blank');
+  if (text.length > MAX_SCRIPT_NAME) return t('scripts.nameProblem.tooLong', { max: MAX_SCRIPT_NAME });
+  if (/[\u0000-\u001f\\/:*?"<>|]/.test(text)) return t('scripts.nameProblem.badCharacters');
+  if ((wb?.scripts || []).some((s) => s.id !== exceptId && s.name.toLowerCase() === text.toLowerCase())) return t('scripts.nameProblem.taken', { name: text });
   return null;
 }
 
@@ -296,3 +297,18 @@ async function main(workbook) {
 ];
 
 export const sampleById = (id) => SAMPLE_SCRIPTS.find((s) => s.id === id) || null;
+
+/**
+ * A sample's name and description as the gallery shows them, in the interface language. The `name` and `description`
+ * of SAMPLE_SCRIPTS stay English: they are what a sample added to a workbook is saved with, like a template's content.
+ */
+const SAMPLE_LABELS = {
+  'highlight-duplicates': ['scripts.sample.highlightDuplicates.name', 'scripts.sample.highlightDuplicates.description'],
+  'unhide-everything': ['scripts.sample.unhideEverything.name', 'scripts.sample.unhideEverything.description'],
+  'sum-each-column': ['scripts.sample.sumEachColumn.name', 'scripts.sample.sumEachColumn.description'],
+  'table-of-contents': ['scripts.sample.tableOfContents.name', 'scripts.sample.tableOfContents.description'],
+  'header-row': ['scripts.sample.headerRow.name', 'scripts.sample.headerRow.description'],
+  'remove-blank-rows': ['scripts.sample.removeBlankRows.name', 'scripts.sample.removeBlankRows.description'],
+};
+export const sampleName = (sample) => (SAMPLE_LABELS[sample?.id] ? t(SAMPLE_LABELS[sample.id][0]) : sample?.name ?? '');
+export const sampleDescription = (sample) => (SAMPLE_LABELS[sample?.id] ? t(SAMPLE_LABELS[sample.id][1]) : sample?.description ?? '');

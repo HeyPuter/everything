@@ -8,7 +8,8 @@
 
 import { el } from './dom.js';
 import { icon } from './icons.js';
-import { printPaperBox, expandPrintText, splitPrintSections, printPageText, sheetPrintPrefs, manualBreaksApply, printRange } from './print.js';
+import { printPaperBox, expandPrintText, splitPrintSections, printPageText, sheetPrintPrefs, manualBreaksApply, printRange, defaultPrintFooter } from './print.js';
+import { t } from '../i18n/index.js';
 import { printBands, printTitleBands } from './print-pagination.js';
 import { fillColorCss } from '../core/fill-color.js';
 import { fontColorCss } from '../core/font-color.js';
@@ -180,10 +181,10 @@ export function createPrintPreview({ wb, sheetId, docName, filePath = '', getPre
   let page = 0, job = null, frame = 0;
   const canvas = el('canvas.print-preview-page');
   const count = el('span.print-preview-count', { 'aria-live': 'polite' });
-  const prev = el('button.icon-btn.print-preview-step', { type: 'button', 'aria-label': 'Previous page', title: 'Previous page', html: icon('chevL', 16, 2), onclick: () => go(-1) });
-  const next = el('button.icon-btn.print-preview-step', { type: 'button', 'aria-label': 'Next page', title: 'Next page', html: icon('chevR', 16, 2), onclick: () => go(1) });
+  const prev = el('button.icon-btn.print-preview-step', { type: 'button', 'aria-label': t('printPreview.previousPage'), title: t('printPreview.previousPage'), html: icon('chevL', 16, 2), onclick: () => go(-1) });
+  const next = el('button.icon-btn.print-preview-step', { type: 'button', 'aria-label': t('printPreview.nextPage'), title: t('printPreview.nextPage'), html: icon('chevR', 16, 2), onclick: () => go(1) });
   const stage = el('div.print-preview-stage', {}, canvas);
-  const root = el('div.print-preview', { role: 'group', 'aria-label': 'Print preview' }, stage, el('div.print-preview-nav', {}, prev, count, next));
+  const root = el('div.print-preview', { role: 'group', 'aria-label': t('printPreview.label') }, stage, el('div.print-preview-nav', {}, prev, count, next));
 
   function go(step) {
     if (!job) return;
@@ -215,7 +216,7 @@ export function createPrintPreview({ wb, sheetId, docName, filePath = '', getPre
     const { box, scale, stretch = 1, headW = 0, headH = 0, titleH = 0 } = layout;
     const total = job.length;
     // A live region: written only when it changes, or a screen reader reads it out again on every key typed in the dialog.
-    const counted = `Page ${page + 1} of ${total}`;
+    const counted = t('printPreview.pageOf', { page: page + 1, total });
     if (count.textContent !== counted) count.textContent = counted;
     prev.disabled = page === 0;
     next.disabled = page >= total - 1;
@@ -226,7 +227,7 @@ export function createPrintPreview({ wb, sheetId, docName, filePath = '', getPre
     const dpr = window.devicePixelRatio || 1;
     canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr);
     canvas.style.width = `${w}px`; canvas.style.height = `${h}px`;
-    canvas.setAttribute('aria-label', `Page ${page + 1} of ${total}`);
+    canvas.setAttribute('aria-label', counted);
     const g = canvas.getContext?.('2d');
     if (!g) return;
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -236,9 +237,9 @@ export function createPrintPreview({ wb, sheetId, docName, filePath = '', getPre
     const sheet = wb.sheet(shown);
     // Numbered as the print numbers them: from the first sheet's starting number, on through the later sheets.
     const first = job[0].prefs.useFirstPageNumber && Number.isFinite(job[0].prefs.firstPageNumber) ? job[0].prefs.firstPageNumber : 1;
-    const info = { file: docName || 'Spreadsheet', path: filePath, tab: sheet?.name || '', page: first + page, pages: total };
+    const info = { file: docName || t('common.spreadsheet'), path: filePath, tab: sheet?.name || '', page: first + page, pages: total };
     // Header and footer, each in its left, centre and right parts, in the middle of the margin.
-    const regular = { ...prefs, header: String(prefs.header || '').trim(), footer: String(prefs.footer || '').trim() || (prefs.native ? '' : 'Page &[Page] of &[Pages]') };
+    const regular = { ...prefs, header: String(prefs.header || '').trim(), footer: String(prefs.footer || '').trim() || (prefs.native ? '' : defaultPrintFooter()) };
     const texts = printPageText(regular, page);
     g.fillStyle = '#555555';
     g.font = `${Math.max(5, 12 * k)}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
@@ -435,7 +436,7 @@ export function createPrintPreview({ wb, sheetId, docName, filePath = '', getPre
           g.lineWidth = Math.max(0.5, size / 14);
           g.beginPath();
           if (st.underline) { const u = base === 'top' ? y + size * 0.95 : base === 'middle' ? y + size * 0.45 : y - size * 0.15; g.moveTo(x, u); g.lineTo(x + width, u); }
-          if (st.strike) { const t = base === 'top' ? y + size * 0.5 : base === 'middle' ? y : y - size * 0.6; g.moveTo(x, t); g.lineTo(x + width, t); }
+          if (st.strike) { const strikeY = base === 'top' ? y + size * 0.5 : base === 'middle' ? y : y - size * 0.6; g.moveTo(x, strikeY); g.lineTo(x + width, strikeY); }
           g.stroke();
         };
         // Wrapped text in the lines it prints in, set at the top, middle or bottom of its cell; unwrapped, on one line.
@@ -459,7 +460,7 @@ export function createPrintPreview({ wb, sheetId, docName, filePath = '', getPre
           g.fillText(shownText, 0, 0);
         } else if (st.wrap) {
           const lineHeight = size * 1.3;
-          const lines = wrapLines(shownText, Math.max(1, cw - 2 * pad - indent), (t) => g.measureText?.(t)?.width || 0);
+          const lines = wrapLines(shownText, Math.max(1, cw - 2 * pad - indent), (piece) => g.measureText?.(piece)?.width || 0);
           const block = lines.length * lineHeight;
           let y = st.valign === 'top' ? cy + pad : st.valign === 'middle' ? cy + (ch - block) / 2 : cy + ch - pad - block;
           g.textBaseline = 'top';

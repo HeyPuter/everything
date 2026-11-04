@@ -1,0 +1,20 @@
+{
+  "completion.global": "全局",
+  "completion.inThisScript": "在此脚本中",
+  "completion.keyword": "关键字",
+  "completion.workbook": "传给 main 的工作簿",
+  "completions": "补全建议",
+  "description": "Tab 键用于缩进；先按 Esc 再按 Tab 可离开编辑器。",
+  "find.close": "关闭查找",
+  "find.count": "第 {current} 个，共 {total} 个",
+  "find.label": "在脚本中查找",
+  "find.matchCase": "区分大小写",
+  "find.next": "下一个匹配项",
+  "find.noResults": "无结果",
+  "find.placeholder": "查找",
+  "find.previous": "上一个匹配项",
+  "find.replaceAll": "全部",
+  "find.replaceWith": "替换为",
+  "find.replaced": "已替换 {count} 处",
+  "scriptCode": "脚本代码"
+}

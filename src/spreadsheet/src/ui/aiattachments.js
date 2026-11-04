@@ -9,6 +9,7 @@
 
 import { decodeText } from '../core/io.js';
 import { sniffImageType } from '../core/importrange.js';
+import { t, tSource } from '../i18n/index.js';
 import { attachmentKind, attachmentProblem, imageType, estimatePdfPages, textBlock, imageBlock, pdfBlock, VISION_TYPES, MAX_PDF_PAGES, MAX_TEXT_CHARS } from '../core/aiattach.js';
 
 // The API's 5 MB is the base64 it is sent as, a third larger than the image: a 4 MB image is 5.3 MB of it, and refused.
@@ -89,9 +90,9 @@ export async function fitImageForVision(blob, mediaType) {
   // until it is collected, so a few photos fitted in a row would run it out.
   const canvas = document.createElement('canvas');
   try {
-    const t = Math.min(1, THUMB_EDGE / longEdge);
-    const thumb = t === 1 && VISION_TYPES.has(mediaType) ? blob
-      : await drawn(canvas, decoded.img, Math.max(1, Math.round(width * t)), Math.max(1, Math.round(height * t)), keepsAlpha ? 'image/png' : 'image/jpeg', 0.8);
+    const thumbScale = Math.min(1, THUMB_EDGE / longEdge);
+    const thumb = thumbScale === 1 && VISION_TYPES.has(mediaType) ? blob
+      : await drawn(canvas, decoded.img, Math.max(1, Math.round(width * thumbScale)), Math.max(1, Math.round(height * thumbScale)), keepsAlpha ? 'image/png' : 'image/jpeg', 0.8);
     if (VISION_TYPES.has(mediaType) && blob.size <= VISION_MAX_BYTES && longEdge <= VISION_MAX_EDGE) return { blob, mediaType, width, height, fitted: false, thumb };
     let scale = Math.min(1, VISION_MAX_EDGE / longEdge);
     let type = keepsAlpha ? 'image/png' : 'image/jpeg';
@@ -118,7 +119,7 @@ export async function fitImageForVision(blob, mediaType) {
 const reading = (blob, how) => new Promise((resolve, reject) => {
   const reader = new FileReader();
   reader.onload = () => resolve(reader.result);
-  reader.onerror = () => reject(reader.error || new Error('The file could not be read'));
+  reader.onerror = () => reject(reader.error || new Error(t('aiattachments.couldNotRead')));
   reader[how](blob);
 });
 const readBytes = (blob) => (typeof blob.arrayBuffer === 'function' ? blob.arrayBuffer() : reading(blob, 'readAsArrayBuffer'));
@@ -211,21 +212,21 @@ export async function readAttachment(file) {
   const problem = attachmentProblem(file);
   if (problem) throw new AttachmentError(problem);
   const kind = attachmentKind(file);
-  const base = { name: file.name || (kind === 'image' ? 'Pasted image' : 'File'), kind, size: file.size };
+  const base = { name: file.name || (kind === 'image' ? t('aiattachments.pastedImage') : t('aiattachments.file')), kind, size: file.size };
   if (kind === 'image') {
     const fit = await fitImageForVision(file, await imageMediaType(file));
-    if (!fit) throw new AttachmentError(`${base.name} could not be read as an image. Try a PNG or JPEG.`);
+    if (!fit) throw new AttachmentError(t('aiattachments.notAnImage', { name: base.name }));
     return { ...base, thumb: fit.thumb || null, blocks: [imageBlock(fit.mediaType, await toBase64(fit.blob))] };
   }
   if (kind === 'pdf') {
     const bytes = new Uint8Array(await readBytes(file));
     const { text, streams } = await pdfText(bytes);
     const pages = estimatePdfPages(text, streams);
-    if (pages > MAX_PDF_PAGES) throw new AttachmentError(`${base.name} has about ${pages} pages; the assistant reads at most ${MAX_PDF_PAGES}. Attach the pages you need as a shorter PDF.`);
+    if (pages > MAX_PDF_PAGES) throw new AttachmentError(t('aiattachments.tooManyPages', { name: base.name, pages, max: MAX_PDF_PAGES }));
     return { ...base, pages: Math.max(1, pages), blocks: [pdfBlock(bytesToBase64(bytes))] };
   }
   // In the encoding it was saved in: a CSV from Excel on Windows is Windows-1252, an export may be UTF-16.
   const text = decodeText(new Uint8Array(await readBytes(file)));
-  if (!text.trim()) throw new AttachmentError(`${base.name} is empty.`);
-  return { ...base, chars: Math.min(text.length, MAX_TEXT_CHARS), blocks: [textBlock(base.name, text)] };
+  if (!text.trim()) throw new AttachmentError(t('aiattachments.empty', { name: base.name }));
+  return { ...base, chars: Math.min(text.length, MAX_TEXT_CHARS), blocks: [textBlock(file.name || tSource('aiattachments.file'), text)] };
 }

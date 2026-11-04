@@ -1,0 +1,18 @@
+{
+  "nameProblem.badCharacters": "A script name cannot contain \\ / : * ? \" < > |",
+  "nameProblem.blank": "Enter a name for the script",
+  "nameProblem.taken": "There is already a script named \"{name}\"",
+  "nameProblem.tooLong": "A script name can be at most {max} characters",
+  "sample.headerRow.description": "Makes the first row of the data bold with a fill and a bottom border, and freezes it in place.",
+  "sample.headerRow.name": "Style and freeze the header row",
+  "sample.highlightDuplicates.description": "Shades every value that appears more than once in the selection (or the whole sheet when a single cell is selected).",
+  "sample.highlightDuplicates.name": "Highlight duplicates",
+  "sample.removeBlankRows.description": "Deletes every completely empty row inside the data of the active sheet.",
+  "sample.removeBlankRows.name": "Remove blank rows",
+  "sample.sumEachColumn.description": "Adds a bold Total row under the data with a SUM for every column that holds numbers.",
+  "sample.sumEachColumn.name": "Sum each column",
+  "sample.tableOfContents.description": "Adds a Contents sheet at the front listing every sheet, each name a link to it.",
+  "sample.tableOfContents.name": "Make a table of contents",
+  "sample.unhideEverything.description": "Shows every hidden sheet, row and column in the workbook.",
+  "sample.unhideEverything.name": "Unhide everything"
+}

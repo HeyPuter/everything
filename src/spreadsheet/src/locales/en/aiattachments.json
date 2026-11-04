@@ -1,0 +1,8 @@
+{
+  "couldNotRead": "The file could not be read",
+  "empty": "{name} is empty.",
+  "file": "File",
+  "notAnImage": "{name} could not be read as an image. Try a PNG or JPEG.",
+  "pastedImage": "Pasted image",
+  "tooManyPages": "{name} has about {pages} pages; the assistant reads at most {max}. Attach the pages you need as a shorter PDF."
+}

@@ -1,0 +1,8 @@
+{
+  "cannotRunHere": "Scripts cannot run here",
+  "failed": "The script failed",
+  "runScript": "Run script",
+  "stopped": "The script was stopped.",
+  "timedOut": "The script ran for more than {seconds} seconds and was stopped.",
+  "unreadable": "The script could not be read"
+}

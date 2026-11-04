@@ -1,0 +1,18 @@
+{
+  "nameProblem.badCharacters": "脚本名称不能包含 \\ / : * ? \" < > |",
+  "nameProblem.blank": "请输入脚本名称",
+  "nameProblem.taken": "已存在名为“{name}”的脚本",
+  "nameProblem.tooLong": "脚本名称最多包含 {max} 个字符",
+  "sample.headerRow.description": "将数据的第一行设为加粗，添加填充和下边框，并将其冻结。",
+  "sample.headerRow.name": "设置标题行格式并冻结",
+  "sample.highlightDuplicates.description": "为所选内容中出现多次的每个值添加底纹（只选中一个单元格时作用于整个工作表）。",
+  "sample.highlightDuplicates.name": "突出显示重复值",
+  "sample.removeBlankRows.description": "删除活动工作表数据中每个完全空白的行。",
+  "sample.removeBlankRows.name": "删除空白行",
+  "sample.sumEachColumn.description": "在数据下方添加加粗的 Total 行，并为每个包含数字的列添加 SUM 公式。",
+  "sample.sumEachColumn.name": "对每列求和",
+  "sample.tableOfContents.description": "在最前面添加 Contents 工作表，列出每个工作表，每个名称都链接到对应的工作表。",
+  "sample.tableOfContents.name": "创建目录",
+  "sample.unhideEverything.description": "显示工作簿中所有隐藏的工作表、行和列。",
+  "sample.unhideEverything.name": "取消隐藏全部内容"
+}
