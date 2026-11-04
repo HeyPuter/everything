@@ -1147,7 +1147,9 @@ export class Renderer {
     const cam = this.camera;
     const kind: PickKind = best.kind === 1 ? 'face' : best.kind === 2 ? 'edge' : 'vertex';
     let point: Vec3 | null = null;
-    if (best.depth > 0) {
+    // Any depth is valid with a depth target: an orthographic view zoomed in
+    // past a face draws it behind the eye, at a negative eye distance.
+    if (depths && Number.isFinite(best.depth)) {
       const ray = cam.ray(x, y);
       if (cam.ortho) {
         // Move the ray origin onto the eye plane; depth is measured from it.

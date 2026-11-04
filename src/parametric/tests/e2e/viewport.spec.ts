@@ -273,6 +273,29 @@ test.describe('viewport', () => {
     expect(hit === null || hit[2] <= 15).toBe(true);
   });
 
+  test('zoomed in past a face, picking still finds where it was clicked', async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+    await waitForFeature(page, 'Fillet1');
+    await expect.poll(() => page.evaluate(() => !!(window as unknown as Win).__parametric.bbox)).toBe(true);
+    const r = await page.evaluate(() => {
+      const app = (window as unknown as Win).__parametric;
+      const cam = app.renderer.camera;
+      // Orthographic front view zoomed in so far that the eye sits inside the
+      // part, behind the front face (z = 30) that is still drawn.
+      app.viewport.setView('front', false);
+      cam.setState({ ...cam.state(), target: [30, 4, 15], distance: 5 });
+      const hit = app.renderer.pick(cam.width / 2, cam.height / 2, { face: true });
+      app.viewport.showPlanes = true;
+      app.viewport.drawReferenceGeometry();
+      const item = app.viewport.pickItem(cam.width / 2, cam.height / 2, { face: true, plane: true });
+      return { point: hit?.point?.map((v) => Math.round(v * 100) / 100), item: item?.kind };
+    });
+    expect(r.point).toEqual([30, 4, 30]);
+    // The Front Plane behind the face is not picked through it.
+    expect(r.item).toBe('face');
+  });
+
   test('line display styles keep visible edges readable in both themes', async ({ page }) => {
     await openApp(page);
     const contrast = () => page.evaluate(() => {
