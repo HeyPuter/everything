@@ -38,6 +38,23 @@ test.describe('accessibility', () => {
     expect(await seriousViolations(page)).toEqual([]);
   });
 
+  test('a section enabled by a checkbox keeps the checkbox outside its expand button', async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+    await waitForFeature(page, 'Fillet1');
+    await page.getByRole('button', { name: 'Linear Pattern', exact: true }).click();
+    const head = page.getByRole('button', { name: 'Direction 2' });
+    const enable = page.getByRole('checkbox', { name: 'Enable Direction 2' });
+    await expect(head).toHaveAttribute('aria-expanded', 'false');
+    await expect(head.getByRole('checkbox')).toHaveCount(0);
+    await enable.check();
+    await expect(head).toHaveAttribute('aria-expanded', 'true');
+    await head.click();
+    await expect(head).toHaveAttribute('aria-expanded', 'false');
+    await expect(enable).toBeChecked();
+    expect(await seriousViolations(page)).toEqual([]);
+  });
+
   test('part lists pass axe when empty and when filled', async ({ page }) => {
     await openApp(page);
     await page.getByRole('button', { name: /New part/ }).click();

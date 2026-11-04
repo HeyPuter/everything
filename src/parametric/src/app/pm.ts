@@ -114,16 +114,6 @@ export function section(title: string, children: (HTMLElement | null)[], opts: {
   const body = h('div', { class: 'sec-body', id: bodyId }, ...children);
   const sec = h('section', { class: 'pm-section', 'data-collapsed': String(!!opts.collapsed) });
   const head = h('button', { class: 'sec-head', 'aria-expanded': String(!opts.collapsed), 'aria-controls': bodyId, type: 'button' });
-  if (opts.checkbox) {
-    const cb = h('input', { type: 'checkbox', 'aria-label': `Enable ${title}` }) as HTMLInputElement;
-    cb.checked = opts.checkbox.checked;
-    cb.addEventListener('click', (e) => e.stopPropagation());
-    cb.addEventListener('change', () => {
-      opts.checkbox!.onChange(cb.checked);
-      setCollapsed(!cb.checked);
-    });
-    head.append(cb);
-  }
   if (opts.icon) head.append(icon(opts.icon, 16));
   head.append(h('span', {}, title), h('span', { class: 'chev' }, icon('chevronDown', 14)));
   const setCollapsed = (c: boolean) => {
@@ -131,7 +121,17 @@ export function section(title: string, children: (HTMLElement | null)[], opts: {
     head.setAttribute('aria-expanded', String(!c));
   };
   head.addEventListener('click', () => setCollapsed(sec.dataset.collapsed !== 'true'));
-  sec.append(head, body);
+  if (opts.checkbox) {
+    // The checkbox sits beside the expand button, not inside it: a button
+    // cannot contain another control.
+    const cb = h('input', { type: 'checkbox', 'aria-label': `Enable ${title}` }) as HTMLInputElement;
+    cb.checked = opts.checkbox.checked;
+    cb.addEventListener('change', () => {
+      opts.checkbox!.onChange(cb.checked);
+      setCollapsed(!cb.checked);
+    });
+    sec.append(h('div', { class: 'sec-head-check' }, cb, head), body);
+  } else sec.append(head, body);
   return sec;
 }
 
