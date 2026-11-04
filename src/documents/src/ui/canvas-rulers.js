@@ -165,8 +165,23 @@ export function createCanvasRulers({ host, surface, editor, openParagraph, openP
     const origin = d.axis === 'x' && !['left', 'right'].includes(d.kind) ? Math.round(d.c.page.left * 15) : 0;
     return rulerSnap(raw - origin, unit, event.altKey) + origin;
   }
+  // A fingertip covers the small markers (a first-line indent is a 12 by 8 pixel triangle) and lands a little off
+  // them: a touch takes the nearest marker within reach on its ruler, rather than setting a tab stop beside it.
+  const TOUCH_REACH = 16;
+  function touchedHandle(event) {
+    if (event.pointerType !== 'touch') return null;
+    const ruler = event.target.closest?.('.canvas-ruler'); if (!ruler) return null;
+    let best = null, distance = TOUCH_REACH;
+    for (const node of ruler.querySelectorAll('.canvas-ruler-handle')) {
+      if (node.disabled || node.hidden) continue;
+      const r = node.getBoundingClientRect(); if (!r.width && !r.height) continue;
+      const d = Math.hypot(Math.max(r.left - event.clientX, 0, event.clientX - r.right), Math.max(r.top - event.clientY, 0, event.clientY - r.bottom));
+      if (d <= distance) { best = node; distance = d; }
+    }
+    return best;
+  }
   listen(surface, 'pointerdown', event => {
-    let h = event.target.closest('.canvas-ruler-handle');
+    let h = event.target.closest('.canvas-ruler-handle') || touchedHandle(event);
     if (!h || h.disabled || event.button !== 0) return;
     event.preventDefault(); const c = context();
     const kind = h.dataset.kind, tabPosition = h.dataset.position;
@@ -234,7 +249,7 @@ export function createCanvasRulers({ host, surface, editor, openParagraph, openP
     commit(h.dataset.kind, Math.round(position + delta * (event.altKey ? 1 : rulerStep(unit))), c, Number(h.dataset.position), remove);
   });
   listen(horizontal, 'pointerdown', event => {
-    if (event.target.closest('button') || event.button !== 0 || selector.disabled) return;
+    if (event.target.closest('button') || event.button !== 0 || selector.disabled || touchedHandle(event)) return;
     event.preventDefault(); const c = context(); c.e.finishComposition();
     const position = rulerSnap((event.clientX - horizontal.getBoundingClientRect().left) / c.e.zoom * 15 - c.page.left * 15, unit, event.altKey);
     if (position >= 0 && position < (c.page.width - c.page.left - c.page.right) * 15) commit('tab', position + Math.round(c.page.left * 15), context(), NaN);
