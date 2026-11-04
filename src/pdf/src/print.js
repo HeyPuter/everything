@@ -106,6 +106,9 @@ export async function pageImage(
     return picture;
   } finally {
     canvas.width = canvas.height = 0;
+    // PDF.js keeps a drawn page's decoded pictures until told otherwise (printing does so by
+    // itself); saving or reading every page of a scan would otherwise hold all of them.
+    page.cleanup();
   }
 }
 

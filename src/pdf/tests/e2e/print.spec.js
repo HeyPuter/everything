@@ -1,5 +1,14 @@
 import { test, expect } from '@playwright/test';
-import { PDFDocument, PDFName, PDFString, StandardFonts } from 'pdf-lib';
+import {
+  PDFDocument,
+  PDFName,
+  PDFString,
+  StandardFonts,
+  concatTransformationMatrix,
+  drawObject,
+  popGraphicsState,
+  pushGraphicsState,
+} from 'pdf-lib';
 
 const PUTER_MOCK = `window.puter = { env: 'web', auth: { isSignedIn: () => true, getUser: async () => ({username:'test-user'}), signIn: async () => {}, signOut: async () => {} }, fs: { readdir: async () => [], write: async () => ({}) }, ui: { onLaunchedWithItems: () => {}, onItemsOpened: () => {} } };`;
 async function mockPuter(page) {
@@ -334,3 +343,64 @@ for (const kind of ['annotation flags', 'layer usage']) {
     await expect.poll(screenColors).toEqual([0, 0, 255, 255]);
   });
 }
+
+test('pages saved as pictures let go of their decoded pictures afterwards', async ({ page }) => {
+  await mockPuter(page);
+  await page.goto('/#library');
+  // Each page shows a picture of its own, as a scan's pages do.
+  const doc = await PDFDocument.create();
+  for (let i = 0; i < 4; i++) {
+    const sheet = doc.addPage([400, 500]);
+    const picture = doc.context.flateStream(new Uint8Array(400 * 400 * 3).fill(40 + i * 40), {
+      Type: 'XObject',
+      Subtype: 'Image',
+      Width: 400,
+      Height: 400,
+      ColorSpace: 'DeviceRGB',
+      BitsPerComponent: 8,
+    });
+    const name = sheet.node.newXObject('Im', doc.context.register(picture));
+    sheet.pushOperators(
+      pushGraphicsState(),
+      concatTransformationMatrix(300, 0, 0, 300, 50, 100),
+      drawObject(name),
+      popGraphicsState(),
+    );
+  }
+  await openPdf(page, doc);
+  await expect(page.locator('.editor')).toHaveAttribute('aria-busy', 'false');
+  // Watch every page PDF.js draws, through the same PDF.js module the editor loaded.
+  await page.evaluate(async () => {
+    const url = performance
+      .getEntriesByType('resource')
+      .map((entry) => entry.name)
+      .find((name) => name.includes('/deps/pdfjs-dist.js'));
+    const pdfjs = await import(url);
+    const text =
+      '%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj 2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj 3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 10 10]>>endobj\ntrailer<</Root 1 0 R>>';
+    const task = pdfjs.getDocument({ data: Uint8Array.from(text, (c) => c.charCodeAt(0)) });
+    const proto = Object.getPrototypeOf(await (await task.promise).getPage(1));
+    const render = proto.render;
+    window.drawnPages = new Set();
+    proto.render = function (...args) {
+      window.drawnPages.add(this);
+      return render.apply(this, args);
+    };
+  });
+  const pending = page.waitForEvent('download');
+  const bar = page.getByRole('menubar', { name: 'PDF menus' });
+  if (await bar.isVisible()) await bar.getByRole('menuitem', { name: 'File', exact: true }).click();
+  else await page.getByRole('button', { name: 'Menu', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Download pages as images…', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Download pages as images', exact: true });
+  await dialog.getByLabel('Page range', { exact: true }).fill('2-4');
+  await dialog.getByRole('button', { name: 'Download', exact: true }).click();
+  expect((await pending).suggestedFilename()).toBe('test pages.zip');
+  const held = await page.evaluate(() =>
+    [...window.drawnPages]
+      .filter((pdfPage) => pdfPage.pageNumber > 1)
+      .map((pdfPage) => [pdfPage.pageNumber, [...pdfPage.objs].length]),
+  );
+  expect(held.map(([number]) => number).sort()).toEqual([2, 3, 4]);
+  expect(held.filter(([, count]) => count)).toEqual([]);
+});
