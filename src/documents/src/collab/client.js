@@ -17,6 +17,7 @@ import { REMOTE } from './binding.js';
 import { colorFor, randomId, PRESENCE_TTL } from './protocol.js';
 
 const OUTBOX_DB = 'documents-collab';
+const HEX_COLOR = /^#[0-9a-f]{6}$/i;
 
 /**
  * Queued updates per room and account, in IndexedDB with a memory fallback (private windows, tests). `account`: who
@@ -208,7 +209,10 @@ export class CollabClient extends EventTarget {
 
   setRoster(roster) {
     const now = Date.now();
-    this.roster = roster.filter(p => p.session !== this.session && (!p.at || now - p.at < PRESENCE_TTL * 2));
+    // Everything in an entry is its sender's to write; a color goes into an avatar's style and the canvas, so only a
+    // plain hex color is used as given (others get the one their name gives them).
+    this.roster = roster.filter(p => p && p.session !== this.session && (!p.at || now - p.at < PRESENCE_TTL * 2))
+      .map(p => (typeof p.color === 'string' && HEX_COLOR.test(p.color) ? p : { ...p, color: colorFor(p.user || p.name || p.session) }));
     this.dispatchEvent(new CustomEvent('presence', { detail: { roster: this.roster } }));
   }
 
