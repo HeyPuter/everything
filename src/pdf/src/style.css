@@ -87,12 +87,16 @@ textarea {
 button {
   cursor: pointer;
 }
-button:disabled {
+button:disabled,
+.statusbar .icon-btn[aria-disabled='true'],
+.appbar .icon-btn[aria-disabled='true'] {
   cursor: default;
   opacity: 0.4;
 }
 /* Short document refreshes block input without dimming the whole application. */
-button.busy-enabled:disabled {
+button.busy-enabled:disabled,
+.statusbar .icon-btn.busy-enabled[aria-disabled='true'],
+.appbar .icon-btn.busy-enabled[aria-disabled='true'] {
   opacity: 1;
 }
 button,
@@ -197,14 +201,14 @@ button svg {
    tint would otherwise stay on the button. A press shows it everywhere. */
 @media (hover: hover) {
   .btn:hover:is(:not(:disabled), .busy-enabled),
-  .icon-btn:hover:is(:not(:disabled), .busy-enabled),
+  .icon-btn:hover:is(:not(:disabled, [aria-disabled='true']), .busy-enabled),
   .tool-btn:hover:is(:not(:disabled), .busy-enabled) {
     background: var(--surface-2);
     border-color: var(--strong);
   }
 }
 .btn:active:is(:not(:disabled), .busy-enabled),
-.icon-btn:active:is(:not(:disabled), .busy-enabled),
+.icon-btn:active:is(:not(:disabled, [aria-disabled='true']), .busy-enabled),
 .tool-btn:active:is(:not(:disabled), .busy-enabled) {
   background: var(--surface-2);
   border-color: var(--strong);
@@ -306,6 +310,10 @@ textarea {
   margin: 0 auto;
   padding: 40px 36px 32px;
   flex: 1;
+}
+/* It takes the focus when the library replaces a PDF, as the starting point for Tab. */
+.home-main:focus-visible {
+  outline: none;
 }
 .start-grid {
   display: grid;
@@ -868,7 +876,7 @@ textarea {
   padding: 4px;
   color: var(--muted);
 }
-.zoom-controls .icon-btn:hover:is(:not(:disabled), .busy-enabled) {
+.zoom-controls .icon-btn:hover:is(:not(:disabled, [aria-disabled='true']), .busy-enabled) {
   color: var(--ink);
 }
 .zoom-select {
@@ -1639,6 +1647,11 @@ textarea {
   pointer-events: auto;
   cursor: pointer;
 }
+/* A note that can be dragged, as other comments are; a finger drags it rather than the page. */
+.note-target.is-movable {
+  cursor: move;
+  touch-action: none;
+}
 .note-target.no-appearance {
   display: grid;
   place-items: center;
@@ -1861,6 +1874,11 @@ dialog.leave-save-dialog {
   line-height: 1.6;
   overflow-y: auto;
 }
+/* A list that scrolls takes the focus itself (the keyboard shortcuts); the dialog clips the
+   usual outside ring. */
+.dialog-body:focus-visible {
+  outline-offset: -3px;
+}
 .dialog-body p {
   font-size: 13px;
   /* A long unbroken file name in a confirmation must wrap, not push the dialog wider. */
@@ -1971,6 +1989,9 @@ dialog.leave-save-dialog {
   flex: 1;
   min-width: 0;
 }
+.choice-with-input .input.count-input {
+  flex: 0 1 7em;
+}
 /* Watermark and page number dialogs */
 .field-grid {
   display: grid;
@@ -1979,6 +2000,17 @@ dialog.leave-save-dialog {
 }
 .field-grid .field {
   min-width: 0;
+}
+dialog.header-footer-dialog {
+  width: min(600px, calc(100vw - 32px));
+}
+.field-grid.header-slots {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+@media (max-width: 520px) {
+  .field-grid.header-slots {
+    grid-template-columns: 1fr;
+  }
 }
 .field .input,
 .field select {
@@ -2287,8 +2319,13 @@ kbd {
     width: 100%;
     justify-content: space-between;
   }
+  /* The search field gives way on the smallest phones, staying within the list's width. */
+  .search-wrap {
+    flex: 0 1 180px;
+    min-width: 0;
+  }
   .search-input {
-    width: 180px;
+    width: 100%;
   }
   .local-note {
     align-items: flex-start;

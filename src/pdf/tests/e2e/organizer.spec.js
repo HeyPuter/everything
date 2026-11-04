@@ -308,3 +308,124 @@ test('pages keep a visible edge in forced colors, in the view and in the page gr
   await expect(tile.locator('canvas')).toBeVisible();
   expect(await edge(tile.locator('canvas'))).toBe(true);
 });
+
+test("a page's own buttons in Organize pages cannot delete the only page", async ({ page }) => {
+  await mockPuter(page);
+  await page.goto('/#library');
+  const doc = await PDFDocument.create();
+  doc.addPage([400, 300]);
+  doc.addPage([400, 300]);
+  await openPdf(page, doc);
+  await page.getByRole('button', { name: 'Tools', exact: true }).click();
+  await page
+    .getByRole('complementary', { name: 'Tools' })
+    .getByRole('button', { name: 'Organize pages', exact: true })
+    .click();
+  const grid = page.getByRole('listbox', { name: 'Pages' });
+  await expect(grid.getByRole('option')).toHaveCount(2);
+  await expect(grid.getByRole('button', { name: 'Delete page 1', exact: true })).toBeEnabled();
+  await grid.getByRole('option', { name: 'Page 2', exact: true }).hover();
+  await grid.getByRole('button', { name: 'Delete page 2', exact: true }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Delete page', exact: true }).click();
+  await settled(page);
+  await expect(grid.getByRole('option')).toHaveCount(1);
+  // The toolbar's Delete is off with one page left, and so is the page's own.
+  const toolbar = page.getByRole('toolbar', { name: 'Organize pages' });
+  await expect(toolbar.getByRole('button', { name: 'Delete pages', exact: true })).toBeDisabled();
+  await expect(grid.getByRole('button', { name: 'Delete page 1', exact: true })).toBeDisabled();
+  await expect(
+    grid.getByRole('button', { name: 'Rotate page 1 clockwise', exact: true }),
+  ).toBeEnabled();
+});
+
+test('keys that move through Organize pages leave the page behind the grid alone', async ({
+  page,
+}) => {
+  await mockPuter(page);
+  await page.goto('/#library');
+  await openPdf(page, await tallPdf());
+  await page.getByRole('button', { name: 'Tools', exact: true }).click();
+  await page
+    .getByRole('complementary', { name: 'Tools' })
+    .getByRole('button', { name: 'Organize pages', exact: true })
+    .click();
+  const grid = page.getByRole('listbox', { name: 'Pages' });
+  await expect(grid.getByRole('option', { name: 'Page 1', exact: true })).toBeFocused();
+  // End and Home choose the last and first tiles.
+  await page.keyboard.press('End');
+  await expect(grid.getByRole('option', { name: 'Page 3', exact: true })).toBeFocused();
+  await page.keyboard.press('Home');
+  await page.keyboard.press('ArrowRight');
+  await expect(grid.getByRole('option', { name: 'Page 2', exact: true })).toBeFocused();
+  await page.keyboard.press('End');
+  await expect(page.locator('.organize-status')).toHaveText('1 of 3 pages selected');
+  await settled(page);
+  await page
+    .getByRole('toolbar', { name: 'Organize pages' })
+    .getByRole('button', { name: 'Close', exact: true })
+    .click();
+  // The page that was on view before is on view again.
+  await expect(page.locator('.page-caption')).toHaveText('Page 1 of 3');
+});
+
+test('Organize pages moves the chosen pages without dragging, by key or button', async ({
+  page,
+}) => {
+  await mockPuter(page);
+  await page.goto('/#library');
+  await openPdf(page, await tallPdf());
+  await page.getByRole('button', { name: 'Tools', exact: true }).click();
+  const pane = page.getByRole('complementary', { name: 'Tools' });
+  await pane.getByRole('button', { name: 'Organize pages', exact: true }).click();
+  const grid = page.getByRole('listbox', { name: 'Pages' });
+  const toolbar = page.getByRole('toolbar', { name: 'Organize pages' });
+  const earlier = toolbar.getByRole('button', { name: 'Move pages earlier', exact: true });
+  const later = toolbar.getByRole('button', { name: 'Move pages later', exact: true });
+  // The first page cannot go earlier.
+  await expect(earlier).toBeDisabled();
+  await expect(earlier).toHaveAttribute('aria-keyshortcuts', 'Alt+ArrowLeft');
+  // The tools pane offers the same, beside the grid where there is room for both.
+  const paneLater = pane.getByRole('button', { name: 'Move page later', exact: true });
+  const beside = await pane.isVisible();
+  if (beside)
+    await expect(
+      pane.getByRole('button', { name: 'Move page earlier', exact: true }),
+    ).toBeDisabled();
+  await grid.getByRole('option', { name: 'Page 2', exact: true }).click();
+  await grid.getByRole('option', { name: 'Page 2', exact: true }).focus();
+  await page.keyboard.press('Alt+ArrowLeft');
+  await settled(page);
+  // The moved page stays chosen and keeps the keyboard, now in first place.
+  await expect(grid.getByRole('option', { name: 'Page 1', exact: true })).toBeFocused();
+  await expect(grid.getByRole('option', { name: 'Page 1', exact: true })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
+  expect((await exportedHeights(page)).map(([h]) => h)).toEqual([350, 300, 400]);
+  await expect(earlier).toBeDisabled();
+  await later.click();
+  await settled(page);
+  await (beside ? paneLater : later).click();
+  await settled(page);
+  expect((await exportedHeights(page)).map(([h]) => h)).toEqual([300, 400, 350]);
+  await expect(grid.getByRole('option', { name: 'Page 3', exact: true })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
+  await expect(later).toBeDisabled();
+  // Two pages apart each move one place, past the page between them.
+  await grid.getByRole('option', { name: 'Page 1', exact: true }).click();
+  await grid.getByRole('option', { name: 'Page 3', exact: true }).click({ modifiers: ['Shift'] });
+  await grid.getByRole('option', { name: 'Page 2', exact: true }).click({
+    modifiers: ['ControlOrMeta'],
+  });
+  await expect(page.locator('.organize-status')).toHaveText('2 of 3 pages selected');
+  await later.click();
+  await settled(page);
+  expect((await exportedHeights(page)).map(([h]) => h)).toEqual([400, 300, 350]);
+  await expect(page.locator('.organize-status')).toHaveText('2 of 3 pages selected');
+  await expect(grid.getByRole('option', { name: 'Page 2', exact: true })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
+});

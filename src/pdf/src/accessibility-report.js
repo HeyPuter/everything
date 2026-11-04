@@ -48,6 +48,28 @@ export function createAccessibilityReport({ onFix, onGoTo } = {}) {
   const root = el('div', { class: 'a11y-report' }, summary, empty, categories);
   const open = new Map(); // category name → whether it was left expanded
   let busy = false;
+  // A fix disables its button while it runs and the report is drawn again afterwards, which
+  // drops the focus. It comes back to the same rule's Fix button, or to its category once the
+  // rule passes; a category heading that had the focus keeps it.
+  let fixed = null, // the rule whose Fix was chosen last
+    refocus = null;
+  const ruleTarget = (id) => () => {
+    const row = root.querySelector(`[data-rule="${CSS.escape(id)}"]`);
+    return (
+      row?.querySelector('.a11y-fix:not(:disabled)') ||
+      row?.closest('.a11y-category')?.querySelector('summary')
+    );
+  };
+  const categoryTarget = (name) => () =>
+    root.querySelector(`.a11y-category[data-category="${CSS.escape(name)}"] > summary`);
+  const restoreFocus = () => {
+    if (busy || !refocus) return;
+    const target = refocus;
+    refocus = null;
+    const active = document.activeElement;
+    if (active && active !== document.body && !root.contains(active)) return;
+    target()?.focus();
+  };
 
   const fixButton = (rule) => {
     const fix = FIXES[rule.fix];
@@ -56,7 +78,11 @@ export function createAccessibilityReport({ onFix, onGoTo } = {}) {
       {
         type: 'button',
         class: 'btn a11y-fix',
-        onclick: () => !busy && onFix?.(rule.fix, rule),
+        onclick: () => {
+          if (busy) return;
+          fixed = rule.id;
+          onFix?.(rule.fix, rule);
+        },
         'aria-label': `${fix?.label.replace(/…$/, '') || 'Fix'}: ${rule.name}`,
       },
       fix?.label || 'Fix',
@@ -107,7 +133,7 @@ export function createAccessibilityReport({ onFix, onGoTo } = {}) {
     const status = STATUS[rule.status] || STATUS.manual;
     return el(
       'li',
-      { class: `a11y-rule is-${rule.status}` },
+      { class: `a11y-rule is-${rule.status}`, 'data-rule': rule.id },
       el(
         'span',
         { class: 'a11y-status', title: status.label },
@@ -132,7 +158,7 @@ export function createAccessibilityReport({ onFix, onGoTo } = {}) {
       .map((status) => `${counts[status]} ${status === 'manual' ? 'to check' : status}`);
     const node = el(
       'details',
-      { class: 'a11y-category' },
+      { class: 'a11y-category', 'data-category': category.name },
       el(
         'summary',
         {},
@@ -165,6 +191,14 @@ export function createAccessibilityReport({ onFix, onGoTo } = {}) {
     el: root,
     /** Render a checkAccessibility report (or clear the panel with null). */
     show(report) {
+      const active = document.activeElement;
+      let focused = null;
+      if (root.contains(active)) {
+        const rule = active.closest('[data-rule]')?.dataset.rule;
+        const category = active.closest('[data-category]')?.dataset.category;
+        focused = rule ? ruleTarget(rule) : category ? categoryTarget(category) : null;
+      } else if ((!active || active === document.body) && fixed) focused = ruleTarget(fixed);
+      fixed = null;
       empty.hidden = !!report;
       if (!report) {
         summary.replaceChildren();
@@ -190,12 +224,15 @@ export function createAccessibilityReport({ onFix, onGoTo } = {}) {
         `${failed} failed, ${manual} need a manual check, ${passed} passed`,
       );
       categories.replaceChildren(...report.categories.map(categoryBlock));
+      refocus = focused;
+      restoreFocus();
     },
     /** Disable the Fix buttons while a fix or a new check runs. */
     setBusy(value) {
       busy = !!value;
       root.setAttribute('aria-busy', String(busy));
       for (const node of root.querySelectorAll('.a11y-fix')) node.disabled = busy;
+      restoreFocus();
     },
   };
 }

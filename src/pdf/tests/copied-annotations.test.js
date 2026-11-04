@@ -4,6 +4,7 @@ import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { insertPdfPages } from '../src/core/document.js';
 import { extractPages } from '../src/core/pages.js';
 import { addNote, editNote, listNotes } from '../src/core/notes.js';
+import { listAnnotations } from '../src/core/annotations.js';
 
 const n = PDFName.of;
 
@@ -108,11 +109,21 @@ describe('annotations on repeated page selections', () => {
       addNote(out, 0, { x: 20, y: 60, text: 'New note on the first copy' });
       editNote(out, 1, listNotes(out, 1)[0].id, { remove: true });
       const reopened = await PDFDocument.load(await out.save());
-      expect([0, 1, 2].map((i) => listNotes(reopened, i).map((note) => note.text))).toEqual([
-        ['Original note', 'Reply', 'New note on the first copy'],
+      expect(
+        [0, 1, 2].map((i) =>
+          listAnnotations(reopened, i).map((note) => [
+            note.contents,
+            note.replies.map((reply) => reply.contents),
+          ]),
+        ),
+      ).toEqual([
+        [
+          ['Original note', ['Reply']],
+          ['New note on the first copy', []],
+        ],
         // Removing a note takes its reply with it, on that copy only.
         [],
-        ['Original note', 'Reply'],
+        [['Original note', ['Reply']]],
       ]);
     },
   );

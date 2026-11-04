@@ -50,12 +50,15 @@ export async function collectComments(pdf, { isCurrent = () => true } = {}) {
       annotations = [];
     }
     if (!isCurrent()) return null;
+    const ids = new Set(annotations.map((a) => a.id));
     for (const a of annotations) {
       const kind = COMMENT_KINDS[a.subtype];
+      // A reply is listed in its comment's thread; one to a note no longer on the page (another
+      // editor deleted it) is offered on the page as a note of its own, and listed as one.
+      const reply = a.inReplyTo && (a.subtype !== 'Text' || ids.has(a.inReplyTo));
       // A hidden annotation is not on the page, so it cannot be opened from the list either
       // (the page's note and markup lists leave it out too). PDF.js drops NoView ones itself.
-      if (!kind || a.inReplyTo || a.annotationFlags & 2 || !annotationLayerVisible(a, layers))
-        continue;
+      if (!kind || reply || a.annotationFlags & 2 || !annotationLayerVisible(a, layers)) continue;
       comments.push({
         page: index,
         id: a.id,

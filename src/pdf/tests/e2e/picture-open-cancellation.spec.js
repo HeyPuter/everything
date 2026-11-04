@@ -102,7 +102,8 @@ for (const format of ['png', 'jpeg'])
         // A newer editor also needs the held module. For the read phase it can finish
         // opening before the old batch is released, proving cancellation after replacement.
         if (phase === 'read' && ['pdf', 'picture'].includes(newer))
-          await expect(page).toHaveTitle('latest.pdf · PDF Editor');
+          // A PDF made from pictures is new, so it is marked unsaved.
+          await expect(page).toHaveTitle(`${newer === 'pdf' ? '' : '* '}latest.pdf · PDF Editor`);
         if (phase === 'modules') {
           releaseModules();
           await page.evaluate(async () => {
@@ -120,7 +121,7 @@ for (const format of ['png', 'jpeg'])
           ).toBeVisible();
         } else {
           await expect(page).toHaveTitle(
-            `${newer === 'none' ? 'earlier-1' : 'latest'}.pdf · PDF Editor`,
+            `${newer === 'pdf' ? '' : '* '}${newer === 'none' ? 'earlier-1' : 'latest'}.pdf · PDF Editor`,
           );
           await expect(page.locator('.page-caption')).toHaveText(
             `Page 1 of ${newer === 'picture' ? 1 : 2}`,

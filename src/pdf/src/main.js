@@ -298,7 +298,7 @@ function settings() {
   });
 }
 function shortcuts() {
-  modal(
+  const dialog = modal(
     'Keyboard shortcuts',
     el(
       'div',
@@ -329,7 +329,16 @@ function shortcuts() {
         ['Move the pages while held', 'Space'],
       ].map(([label, key]) => el('div', {}, el('span', {}, label), el('kbd', {}, key))),
     ),
-  ).classList.add('app-dialog');
+  );
+  dialog.classList.add('app-dialog');
+  // The list is taller than most windows and holds nothing to focus, which left the keyboard
+  // on the Close button with no way to scroll it. The list itself takes the focus instead, so
+  // the arrow keys, Page Down, and End move through it.
+  const body = dialog.querySelector('.dialog-body');
+  body.tabIndex = 0;
+  body.setAttribute('role', 'region');
+  body.setAttribute('aria-labelledby', dialog.getAttribute('aria-labelledby'));
+  body.focus();
 }
 function about() {
   modal(
@@ -493,17 +502,23 @@ async function openFiles(files) {
   const pictures = files.filter(isPictureFile);
   if (!pictures.length) throw new Error('Choose a PDF, or PNG and JPEG pictures.');
   const name = pictures[0].name.replace(/\.[^.]+$/, '') || 'Pictures';
-  await openDocument(async (signal) => {
-    const [{ imagesToPdf, defaultPaper }, { normalizeImageFiles }] = await Promise.all([
-      import('./core/image-pages.js'),
-      import('./image-codec.js'),
-    ]);
-    signal.throwIfAborted();
-    const images = await normalizeImageFiles(pictures, { lazy: true, signal });
-    // An obsolete batch must not decode and embed pictures after its file reads finish.
-    signal.throwIfAborted();
-    return imagesToPdf(images, { paper: defaultPaper(), signal });
-  }, `${name}.pdf`);
+  // The new PDF exists nowhere else yet, as a combined one does, so it starts out unsaved.
+  await openDocument(
+    async (signal) => {
+      const [{ imagesToPdf, defaultPaper }, { normalizeImageFiles }] = await Promise.all([
+        import('./core/image-pages.js'),
+        import('./image-codec.js'),
+      ]);
+      signal.throwIfAborted();
+      const images = await normalizeImageFiles(pictures, { lazy: true, signal });
+      // An obsolete batch must not decode and embed pictures after its file reads finish.
+      signal.throwIfAborted();
+      return imagesToPdf(images, { paper: defaultPaper(), signal });
+    },
+    `${name}.pdf`,
+    null,
+    { unsaved: true },
+  );
 }
 /** A new PDF is a sheet of the paper the region prints on, as pictures turned into pages are. */
 async function newBlankPdf() {
@@ -589,7 +604,7 @@ async function openDocument(
   readBytes,
   name,
   path = null,
-  { signal: sourceSignal, source = null } = {},
+  { signal: sourceSignal, source = null, unsaved = false } = {},
 ) {
   if (sourceSignal?.aborted) return;
   cloudOpenGeneration++;
@@ -648,15 +663,20 @@ async function openDocument(
     if (token !== openGeneration || !(await canLeave(controller.signal))) return;
     const { createEditor } = await import('./editor.js');
     if (token !== openGeneration) return;
+    const hadFocus = viewHasFocus();
     editor?.destroy();
     homeGeneration++;
     const session = new PdfSession(bytes);
+    // A PDF made here (combined files or pictures) exists nowhere else until it is saved or
+    // downloaded.
+    if (unsaved) session.markSaved(-1);
     nextEditor = createEditor({
       root,
       session,
       name: safeName(name),
       path,
       remote: (path && source?.remote) || null,
+      blank: readBytes === newBlankPdf,
       protection,
       encryptedOriginal,
       settings,
@@ -670,9 +690,12 @@ async function openDocument(
       onOpen: pickDevice,
       onOpenCloud: pickCloud,
       onNew: run(() => openDocument(newBlankPdf, 'Untitled.pdf')),
-      onOpenBytes: run((bytes, name) => openDocument(async () => bytes, name)),
+      onOpenBytes: run((bytes, name) =>
+        openDocument(async () => bytes, name, null, { unsaved: true }),
+      ),
     });
     editor = nextEditor;
+    if (hadFocus) refocusView('.workspace');
     if (location.hash === LIBRARY_HASH)
       history.replaceState(null, '', location.pathname + location.search);
     await nextEditor.ready;
@@ -689,6 +712,18 @@ async function openDocument(
     controller.abort();
   }
 }
+/** Whether the focus is on a control in the current view, which replacing the view removes. */
+const viewHasFocus = () =>
+  document.activeElement !== document.body && root.contains(document.activeElement);
+/**
+ * A view that replaced the one holding the focus takes it, so the keyboard carries on in the
+ * new view instead of starting again from the top of the document. A focus that has already
+ * moved elsewhere is left alone, and so is a view that opens with the app.
+ */
+function refocusView(selector) {
+  if (document.activeElement === document.body || !document.activeElement?.isConnected)
+    root.querySelector(selector)?.focus({ preventScroll: true });
+}
 /** The app's name, and the library view's own heading. */
 function brand() {
   return el('h1', { class: 'brand' }, appIcon(), el('span', {}, 'PDF Editor'));
@@ -701,6 +736,7 @@ function showHome({ accountRefresh = false } = {}) {
   openController?.abort();
   openController = null;
   loading = false;
+  const hadFocus = viewHasFocus();
   editor?.destroy();
   editor = null;
   document.title = 'PDF Editor';
@@ -738,6 +774,12 @@ function showHome({ accountRefresh = false } = {}) {
     el('option', { value: 'size' }, 'Size'),
   );
   const renderFiles = () => {
+    // Replacing the rows drops a focused one; the search field then takes the focus.
+    const hadFocus = list.contains(document.activeElement);
+    drawFiles();
+    if (hadFocus && document.activeElement === document.body) search.focus({ preventScroll: true });
+  };
+  const drawFiles = () => {
     list.replaceChildren();
     if (libraryState === 'loading') {
       list.append(el('div', { class: 'empty-library' }, 'Loading your PDFs…'));
@@ -949,8 +991,12 @@ function showHome({ accountRefresh = false } = {}) {
   async function load() {
     const token = ++loadGeneration;
     const signal = accountController.signal;
-    libraryState = user ? 'loading' : 'ready';
-    renderFiles();
+    // A refresh after renaming, duplicating, or deleting keeps the rows on screen until the new
+    // listing arrives, so a long library is not cut to one line and the reader keeps their place.
+    if (!user || libraryState !== 'ready' || !files.length) {
+      libraryState = user ? 'loading' : 'ready';
+      renderFiles();
+    }
     if (!user) return;
     try {
       await settleAccount(signal);
@@ -1059,6 +1105,7 @@ function showHome({ accountRefresh = false } = {}) {
       ),
     ),
   );
+  if (hadFocus) refocusView('#main');
   load();
 }
 window.addEventListener('beforeunload', (e) => {

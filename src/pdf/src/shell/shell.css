@@ -502,6 +502,8 @@
 }
 .editor .contextbar {
   justify-content: center;
+  /* Its own width decides how much room the options leave the hint (see below). */
+  container-type: inline-size;
   /* One line of fixed height: the page below never moves as hints and options change. */
   flex-wrap: nowrap;
   gap: 12px;
@@ -517,12 +519,32 @@
   font-size: 12px;
   min-width: 0;
   flex: 0 1 auto;
+  /* Two lines fit the bar's height, so a long hint beside a tool's options wraps once before
+     it is shortened. */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  line-height: 1.3;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 .editor .contextbar .tool-options {
   flex: none;
+}
+/* The measuring scale is a short number, not a full-width field. */
+.editor .contextbar .measure-ratio {
+  width: 72px;
+  min-height: 27px;
+  padding: 2px 6px;
+  font-size: 11px;
+}
+/* Where the panels beside the page leave the bar little room, option buttons with an icon show
+   just the icon (keeping their names for assistive technology and as tooltips), so the options
+   and the hint both stay in view, as they do on narrow screens. */
+@container (max-width: 720px) {
+  .editor .contextbar .tool-options .text-btn:has(> svg) > span {
+    display: none;
+  }
 }
 .editor .find-bar {
   /* A row of its own under the tool options, so it covers neither them nor the page. */
@@ -806,6 +828,28 @@
     min-width: 92px;
   }
 }
+/* The smallest phones (and a desktop window zoomed to 400%): the controls close up to stay on
+   one line, and when a long page count still does not fit, the zoom wraps onto a second line
+   instead of the row spilling off both edges. */
+@media (max-width: 360px) {
+  .editor .page-controls {
+    flex-wrap: wrap;
+    height: auto;
+    min-height: 40px;
+    gap: 0 2px;
+    padding: 0 2px;
+  }
+  .editor .page-controls .page-navigation {
+    gap: 2px;
+    padding-right: 2px;
+  }
+  .editor .page-controls .page-input {
+    width: 36px;
+  }
+  .editor .page-controls .page-navigation > span {
+    margin-right: 2px;
+  }
+}
 @media (forced-colors: active) {
   .editor .quick-tools .tool-btn[aria-pressed='true'],
   .top-tab[aria-pressed='true'],
@@ -961,7 +1005,8 @@
   color: var(--ink);
 }
 .find-tool-item:hover,
-.find-tool-item:focus-visible {
+.find-tool-item:focus-visible,
+.find-tool-item.active {
   background: var(--surface-2);
 }
 
@@ -1498,6 +1543,14 @@
   padding: 4px 2px;
   cursor: pointer;
 }
+/* The same boxes as every other dialog's: full size, in the app's color. */
+.result-row input {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: var(--accent);
+}
 
 /* Prepare a form: fields as labelled boxes over the page */
 .form-designer {
@@ -1560,6 +1613,15 @@
 }
 .designer-field.is-selected .designer-resize {
   display: block;
+}
+/* A finger needs a bigger corner to take, as the handles of pictures and shapes have. */
+@media (pointer: coarse) {
+  .designer-resize {
+    right: -12px;
+    bottom: -12px;
+    width: 24px;
+    height: 24px;
+  }
 }
 
 /* Two-page view: pages in pairs, side by side */
@@ -1629,6 +1691,26 @@
 .annotation-target:hover {
   border-color: color-mix(in srgb, var(--select) 60%, transparent);
 }
+/* A line, drawing, or callout takes the pointer only on what it draws (.annotation-hit). */
+.annotation-target.is-outline {
+  pointer-events: none;
+}
+.annotation-hit {
+  position: absolute;
+  overflow: visible;
+  pointer-events: none;
+}
+.annotation-hit path {
+  fill: none;
+  stroke: transparent;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  pointer-events: stroke;
+}
+.annotation-hit rect {
+  fill: transparent;
+  pointer-events: all;
+}
 .annotation-target.is-selected {
   border: 1.5px solid var(--select);
   background: color-mix(in srgb, var(--select) 8%, transparent);
@@ -1658,6 +1740,9 @@
   align-items: center;
   justify-content: space-between;
   gap: 6px;
+}
+.annotation-style .annotation-check {
+  justify-content: flex-start;
 }
 .annotation-style input[type='color'] {
   width: 28px;

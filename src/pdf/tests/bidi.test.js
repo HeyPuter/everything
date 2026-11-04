@@ -47,3 +47,18 @@ it('keeps each character with its own text fragment', () => {
   });
   expect(reorderSegments(shown.segments, 'rtl')).toEqual(visual);
 });
+
+it('mirrors brackets in right-to-left runs, as they are drawn', () => {
+  // On the page, "(" at the left of a Hebrew word closes its parenthesis.
+  const pairs = [
+    ['שלום (עולם)', 'rtl', '(םלוע) םולש'],
+    ['מחיר [100] «טוב»', 'rtl', '«בוט» [100] ריחמ'],
+    ['a < b אם', 'rtl', 'םא a < b'],
+    ['Hello (שלום) there', 'ltr', 'Hello (םולש) there'],
+  ];
+  for (const [reading, direction, visual] of pairs) {
+    expect(reorderText(reading, direction)).toBe(visual);
+    expect(reorderText(visual, direction)).toBe(reading);
+  }
+  expect(readingOrder('(םלוע) םולש').text).toBe('שלום (עולם)');
+});

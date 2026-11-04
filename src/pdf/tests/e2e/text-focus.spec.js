@@ -86,7 +86,10 @@ for (const action of ['keyboard', 'download', 'save', 'tool'])
                 ? download
                 : action === 'save'
                   ? save
-                  : page.locator('.drawing-overlay'),
+                  : action === 'tool'
+                    ? // The tool pressed keeps the focus, as it does with no draft open.
+                      page.getByRole('button', { name: 'Select', exact: true })
+                    : page.locator('.drawing-overlay'),
         ).toBeFocused();
         if (fails) {
           await expect(input).toHaveValue('Keep this draft');

@@ -14,9 +14,10 @@ const field = (id, label, control, hint) =>
     hint && el('p', { class: 'muted field-hint' }, hint),
   );
 
+const WRONG_PASSWORD = 'The password is not right for this digital ID file.';
 function errorText(error) {
   if (error?.name === 'Pkcs12PasswordError' || /password|mac/i.test(error?.message || ''))
-    return 'The password is not right for this digital ID file.';
+    return WRONG_PASSWORD;
   return error?.message || 'This digital ID could not be used.';
 }
 
@@ -37,7 +38,7 @@ export function chooseDigitalId(identities = [], { signal } = {}) {
       ...identities.map((entry, i) =>
         el(
           'label',
-          { class: 'checkbox-row' },
+          { class: 'choice-row' },
           el('input', {
             type: 'radio',
             name: 'digital-id',
@@ -54,7 +55,7 @@ export function chooseDigitalId(identities = [], { signal } = {}) {
       ),
       el(
         'label',
-        { class: 'checkbox-row' },
+        { class: 'choice-row' },
         el('input', {
           type: 'radio',
           name: 'digital-id',
@@ -66,7 +67,7 @@ export function chooseDigitalId(identities = [], { signal } = {}) {
       ),
       el(
         'label',
-        { class: 'checkbox-row' },
+        { class: 'choice-row' },
         el('input', {
           type: 'radio',
           name: 'digital-id',
@@ -137,10 +138,14 @@ export function chooseDigitalId(identities = [], { signal } = {}) {
       if (submit.disabled) return;
       submit.disabled = true;
       const choice = form.querySelector('input[name="digital-id"]:checked')?.value;
-      const fail = (message) => {
+      // Continue is disabled while it works, which drops a focus it had; the field to fix
+      // takes it, so the keyboard is not sent back to the start of the page.
+      const fail = (message, field) => {
         const feedback = dialog.querySelector('.dialog-error');
         feedback.textContent = message;
         feedback.hidden = false;
+        field?.focus();
+        field?.select?.();
       };
       try {
         const { importPkcs12, exportPkcs12, createSelfSignedId, describeIdentity } =
@@ -149,7 +154,7 @@ export function chooseDigitalId(identities = [], { signal } = {}) {
           result = identities[Number(choice.slice(5))];
         } else if (choice === 'file') {
           const chosen = file.files?.[0];
-          if (!chosen) return fail('Choose a digital ID file.');
+          if (!chosen) return fail('Choose a digital ID file.', file);
           const identity = await importPkcs12(
             new Uint8Array(await chosen.arrayBuffer()),
             filePassword.value,
@@ -157,9 +162,9 @@ export function chooseDigitalId(identities = [], { signal } = {}) {
           if (!dialog.open) return;
           result = { identity, summary: describeIdentity(identity) };
         } else {
-          if (!name.value.trim()) return fail('Enter the name to sign with.');
+          if (!name.value.trim()) return fail('Enter the name to sign with.', name);
           if (newPassword.value.length < 6)
-            return fail('Use a password of at least 6 characters for the ID file.');
+            return fail('Use a password of at least 6 characters for the ID file.', newPassword);
           const identity = await createSelfSignedId({
             name: name.value.trim(),
             email: email.value.trim(),
@@ -177,9 +182,16 @@ export function chooseDigitalId(identities = [], { signal } = {}) {
         }
         dialog.close();
       } catch (error) {
-        if (dialog.open) fail(errorText(error));
+        if (dialog.open) {
+          const message = errorText(error);
+          fail(
+            message,
+            choice !== 'file' ? null : message === WRONG_PASSWORD ? filePassword : file,
+          );
+        }
       } finally {
         submit.disabled = false;
+        if (dialog.open && !dialog.contains(document.activeElement)) submit.focus();
       }
     };
     form.onsubmit = (e) => {

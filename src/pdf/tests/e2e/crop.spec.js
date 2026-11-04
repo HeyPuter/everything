@@ -101,7 +101,7 @@ test('dragging a crop area crops the page, Remove crop restores it, and Escape l
   await expect(page.locator('.tool-hint')).toContainText('Drag over the part of the page');
   // Escape in the find bar only closes the find bar; the crop mode stays.
   await page.keyboard.press('ControlOrMeta+f');
-  const find = page.getByRole('searchbox', { name: 'Find in PDF' });
+  const find = page.getByRole('combobox', { name: 'Find in PDF' });
   await find.fill('page');
   await find.press('Escape');
   await expect(page.locator('.find-bar')).toBeHidden();

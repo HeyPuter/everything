@@ -77,3 +77,45 @@ test('comment tools place text boxes, callouts, and shapes from the keyboard', a
     expect(rect.x + rect.width).toBeGreaterThan(200);
   }
 });
+
+// Text boxes are drawn with the app's text font; words it cannot write are reported, and the
+// dialog keeps them to be changed instead of closing with them.
+test('a text box keeps its words when they cannot be added', async ({ page }) => {
+  await page.route('https://js.puter.com/**', (route) => route.abort());
+  const doc = await PDFDocument.create();
+  doc.addPage([400, 500]);
+  await page.goto('/#library');
+  const chooser = page.waitForEvent('filechooser');
+  await page.getByRole('button', { name: /^Open a PDF/ }).click();
+  await (
+    await chooser
+  ).setFiles({
+    name: 'comment-script.pdf',
+    mimeType: 'application/pdf',
+    buffer: Buffer.from(await doc.save()),
+  });
+  await expect(page.locator('.page-caption')).toHaveText('Page 1 of 1');
+  await settled(page);
+  await page.getByRole('button', { name: 'Comment', exact: true }).click();
+  const pane = page.getByRole('complementary', { name: 'Tools' });
+  await pane.getByRole('button', { name: 'Add text comment', exact: true }).click();
+  await page.getByRole('button', { name: 'Place at page center', exact: true }).press('Enter');
+  const dialog = page.getByRole('dialog', { name: 'Text box' });
+  const text = dialog.getByLabel('Text');
+  await text.fill('Total ≈ 40 units');
+  await dialog.getByRole('button', { name: 'Add', exact: true }).click();
+  await expect(dialog.getByRole('alert')).toContainText('does not support “≈”');
+  await expect(text).toHaveValue('Total ≈ 40 units');
+  await expect(text).toBeFocused();
+  await text.fill('Total about 40 units');
+  await text.press('ControlOrMeta+Enter');
+  await expect(dialog).toBeHidden();
+  await settled(page);
+
+  const pending = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Download', exact: true }).click();
+  const saved = await PDFDocument.load(await readFile(await (await pending).path()));
+  expect(listAnnotations(saved, 0).map((entry) => entry.contents)).toEqual([
+    'Total about 40 units',
+  ]);
+});

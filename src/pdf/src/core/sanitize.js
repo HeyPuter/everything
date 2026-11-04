@@ -322,6 +322,13 @@ function countFields(doc, fields) {
   return count;
 }
 
+/** How many things a sanitize report says were removed, warnings aside. */
+export const sanitizedCount = (report) =>
+  Object.entries(report).reduce(
+    (sum, [key, value]) => (key === 'warnings' ? sum : sum + (Number(value) || 0)),
+    0,
+  );
+
 export async function sanitizeDocument(doc, options = {}) {
   const o = { ...SANITIZE_DEFAULTS, ...options };
   const context = doc.context;
@@ -409,10 +416,18 @@ export async function sanitizeDocument(doc, options = {}) {
       names.delete(name('EmbeddedFiles'));
       report.attachments++;
     } else if (o.searchIndex && names.has(name('EmbeddedFiles'))) {
-      // Without removing attachments, still drop embedded search indexes (.pdx).
-      const tree = get(names, 'EmbeddedFiles');
-      const leaves = get(tree, 'Names');
-      if (leaves instanceof PDFArray) {
+      // Without removing attachments, still drop embedded search indexes (.pdx), in every
+      // leaf of the tree: a longer list branches into Kids.
+      const pending = [get(names, 'EmbeddedFiles')];
+      const seen = new Set();
+      while (pending.length && seen.size < 10000) {
+        const node = context.lookup(pending.pop());
+        if (!(node instanceof PDFDict) || seen.has(node)) continue;
+        seen.add(node);
+        const kids = get(node, 'Kids');
+        if (kids instanceof PDFArray) pending.push(...kids.asArray());
+        const leaves = get(node, 'Names');
+        if (!(leaves instanceof PDFArray)) continue;
         const kept = [];
         const items = leaves.asArray();
         for (let i = 0; i + 1 < items.length; i += 2) {
@@ -420,7 +435,7 @@ export async function sanitizeDocument(doc, options = {}) {
           if (/\.(pdx|idx)$/i.test(label)) report.searchIndex++;
           else kept.push(items[i], items[i + 1]);
         }
-        if (kept.length !== items.length) tree.set(name('Names'), context.obj(kept));
+        if (kept.length !== items.length) node.set(name('Names'), context.obj(kept));
       }
     }
     if (o.webCapture)
@@ -460,7 +475,10 @@ export async function sanitizeDocument(doc, options = {}) {
     if (o.javascript && kind === 'JavaScript') return true;
     if (o.actions && EXTERNAL_ACTIONS.has(kind)) return true;
     // A rendition action's script runs alongside its rendition.
-    if (o.javascript && kind === 'Rendition' && action.has(name('JS'))) action.delete(name('JS'));
+    if (o.javascript && kind === 'Rendition' && action.has(name('JS'))) {
+      action.delete(name('JS'));
+      jsCounter.count++;
+    }
     return false;
   };
   const jsCounter = { count: 0 },

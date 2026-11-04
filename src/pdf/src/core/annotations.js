@@ -48,7 +48,7 @@ import {
   text,
 } from './annotation-appearance.js';
 
-export { exportXfdf, importXfdf, exportCommentSummary } from './annotation-xfdf.js';
+export { exportXfdf, importXfdf, exportCommentSummary, MAX_XFDF_SIZE } from './annotation-xfdf.js';
 
 export const MAX_COMMENT_LENGTH = 20000;
 export const MAX_INK_POINTS = 20000;
@@ -549,6 +549,12 @@ function describe(doc, { id, dict }, threads) {
     editable: redrawable(dict, subtype),
     ...statesOf(id, threads),
     replies: repliesOf(id, threads),
+    // Where the members of its group are drawn (a measurement's label), as part of it.
+    group: (threads.children.get(id) || [])
+      .filter(({ dict: member }) => isGroupMember(member) && !stateModelOf(member))
+      .filter(({ dict: member }) => !(flagsOf(member) & (FLAGS.hidden | FLAGS.noview)))
+      .map(({ dict: member }) => boxObject(rectOf(member)))
+      .filter(Boolean),
   };
   switch (subtype) {
     case 'FreeText': {
@@ -607,12 +613,19 @@ function describe(doc, { id, dict }, threads) {
 export function listAnnotations(doc, page) {
   page = pageAt(doc, page);
   const threads = pageThreads(doc, page);
+  // A note's reply whose note is no longer on the page (or not shown) is offered as a note of
+  // its own, as the page and the Comments panel offer it (see listNotes).
+  const shown = new Set(
+    threads.entries.filter(({ dict }) => !(flagsOf(dict) & FLAGS.noview)).map(({ id }) => id),
+  );
+  const orphan = (dict, subtype) =>
+    subtype === 'Text' && !shown.has(dict.get(name('IRT'))?.toString());
   return threads.entries
     .filter(({ dict }) => {
       const subtype = dict.lookup(name('Subtype'))?.decodeText?.();
       return (
         COMMENT_KINDS[subtype] &&
-        !dict.has(name('IRT')) &&
+        (!dict.has(name('IRT')) || orphan(dict, subtype)) &&
         !(flagsOf(dict) & (FLAGS.hidden | FLAGS.noview))
       );
     })
@@ -730,6 +743,16 @@ export async function editAnnotation(doc, page, id, changes = {}) {
   dict.set(name('M'), PDFString.of(pdfDate()));
   if (!properties.length && subtype !== 'FreeText') return idAt(page, position);
 
+  // A comment moved as a whole takes the members of its group along (a measurement's label).
+  const fromRect = changes.rect && rectOf(original),
+    toRect = changes.rect && rectArg(changes.rect);
+  const groupShift =
+    fromRect &&
+    Math.abs(toRect[2] - toRect[0] - (fromRect[2] - fromRect[0])) < 1e-6 &&
+    Math.abs(toRect[3] - toRect[1] - (fromRect[3] - fromRect[1])) < 1e-6
+      ? [toRect[0] - fromRect[0], toRect[1] - fromRect[1]]
+      : null;
+
   // A move keeps the comment's own drawing, which readers place at its new Rect. Redrawing it
   // would lose what this editor cannot draw again: another editor's fonts and rich text, or
   // the caption and leader lines of a measurement.
@@ -752,6 +775,7 @@ export async function editAnnotation(doc, page, id, changes = {}) {
           doc.context.obj(inkStrokes(dict).map((s) => shift(flatPoints(s)))),
         );
       dict.set(name('Rect'), doc.context.obj(to));
+      shiftGroup(doc, page, position, groupShift);
       return idAt(page, position);
     }
   }
@@ -881,7 +905,44 @@ export async function editAnnotation(doc, page, id, changes = {}) {
       box: box ?? undefined,
       style: style ?? undefined,
     });
+  shiftGroup(doc, page, position, groupShift);
   return idAt(page, position);
+}
+
+/** Move the members of the group of the comment at `position` by [dx, dy] with it. */
+function shiftGroup(doc, page, position, shift) {
+  const [dx, dy] = shift || [0, 0];
+  if (!dx && !dy) return;
+  const parent = annotationsOf(page).get(position).toString();
+  for (const ref of annotationsOf(page).asArray()) {
+    const found = doc.context.lookup(ref);
+    if (!(found instanceof PDFDict) || !isGroupMember(found)) continue;
+    if (found.get(name('IRT'))?.toString() !== parent) continue;
+    const member = annotationForEdit(page, found);
+    const move = (flat) => flatPoints(pointsOf(flat).map(({ x, y }) => ({ x: x + dx, y: y + dy })));
+    for (const key of ['Rect', 'L', 'Vertices', 'CL', 'QuadPoints']) {
+      const flat = numbers(member.lookup(name(key)));
+      if (flat?.length && flat.every(Number.isFinite))
+        member.set(name(key), doc.context.obj(move(flat)));
+    }
+    if (member.has(name('InkList')))
+      member.set(
+        name('InkList'),
+        doc.context.obj(inkStrokes(member).map((stroke) => move(flatPoints(stroke)))),
+      );
+  }
+}
+
+/**
+ * Make `memberId` a member of `parentId`'s group (RT /Group): readers draw it as part of that
+ * comment and list the two as one, and it moves and goes with it.
+ */
+export function groupAnnotation(doc, page, memberId, parentId) {
+  page = pageAt(doc, page);
+  const { ref } = locate(doc, page, parentId);
+  const { dict } = locate(doc, page, memberId);
+  dict.set(name('IRT'), ref);
+  dict.set(name('RT'), name('Group'));
 }
 
 /** Remove a comment together with its popup, its replies and its review states. */

@@ -487,6 +487,18 @@ describe('accessibility check', () => {
     expect(outline[0].dest[1].name).toBe('XYZ');
   });
 
+  it('does not add the same bookmarks twice', async () => {
+    const doc = await untaggedPdf({ pages: 2 });
+    autotagDocument(doc);
+    const tagged = await reload(doc);
+    addBookmarksFromHeadings(tagged);
+    const once = await tagged.save();
+    const again = await PDFDocument.load(once, { updateMetadata: false });
+    expect(() => addBookmarksFromHeadings(again)).toThrow(/already has a bookmark/);
+    const { outline } = await renderAll(once);
+    expect(outline.map((item) => item.title)).toEqual(['Annual Report', 'Chapter 2']);
+  });
+
   it('refuses bookmarks without headings', async () => {
     const doc = await taggedPdf([['P']]);
     expect(() => addBookmarksFromHeadings(doc)).toThrow(/no tagged headings/);
@@ -574,6 +586,17 @@ describe('accessibility check', () => {
       status: 'failed',
       fix: 'protection',
     });
+  });
+
+  it('keeps the language a PDF declares when autotagging', async () => {
+    const doc = await untaggedPdf();
+    setLanguage(doc, 'fr-CA');
+    // The editor offers the device's language for a PDF that declares none.
+    autotagDocument(doc, { lang: 'en-US' });
+    expect(doc.catalog.lookup(PDFName.of('Lang')).decodeText()).toBe('fr-CA');
+    const untagged = await untaggedPdf();
+    autotagDocument(untagged, { lang: 'en-US' });
+    expect(untagged.catalog.lookup(PDFName.of('Lang')).decodeText()).toBe('en-US');
   });
 
   it('validates title and language and keeps fixes idempotent', async () => {

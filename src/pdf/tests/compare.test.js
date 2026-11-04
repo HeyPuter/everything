@@ -1,4 +1,4 @@
-import { afterAll, expect, it } from 'vitest';
+import { afterAll, expect, it, vi } from 'vitest';
 import { PDFDocument, StandardFonts, degrees } from 'pdf-lib';
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 import {
@@ -96,6 +96,7 @@ it('reports inserted, deleted, replaced and restyled words, and added and remove
     pagesRemoved: 1,
     pagesMoved: 0,
     imageChanges: 0,
+    otherChanges: 0,
   });
   expect(result.pages.map((p) => [p.oldIndex, p.newIndex, p.status])).toEqual([
     [0, 0, 'changed'],
@@ -307,4 +308,66 @@ it('writes a report that lists every change', async () => {
   expect(text).toContain('Inserted "very"');
   expect(text).toContain('Replaced "three" with "four"');
   expect(text).toContain('Page 3 deleted');
+});
+
+it("writes the report date in digits its font can print, whatever the reader's language", async () => {
+  const { bytes } = await build([intro]);
+  const result = await compareDocuments(await open(bytes), await open(bytes));
+  const native = Date.prototype.toLocaleString;
+  const lines = {};
+  try {
+    for (const locale of ['ar-EG', 'bn-BD', 'ko-KR', 'en-US']) {
+      // The reader's language, as the browser would apply it to a date given no locale.
+      vi.spyOn(Date.prototype, 'toLocaleString').mockImplementation(function (asked, options) {
+        return native.call(this, asked ?? locale, options);
+      });
+      const report = await buildCompareReport(result, { date: new Date(2026, 0, 2, 15, 4) });
+      vi.restoreAllMocks();
+      const page = await (await open(report)).getPage(1);
+      const text = (await page.getTextContent()).items.map((item) => item.str).join('\n');
+      lines[locale] = text.split('\n').find((line) => line.startsWith('Compared:'));
+    }
+  } finally {
+    vi.restoreAllMocks();
+  }
+  expect(lines['ar-EG']).toBe('Compared: 2026-01-02 15:04');
+  expect(lines['ko-KR']).toBe('Compared: 2026-01-02 15:04');
+  expect(lines['bn-BD']).toBe('Compared: 2/1/2026, 3:04:00 PM');
+  expect(lines['en-US']).toBe('Compared: 1/2/2026, 3:04:00 PM');
+});
+
+it('counts a page that changed as a whole, so the summary does not say there are no differences', async () => {
+  const draw = async (x, width = 612) => {
+    const doc = await PDFDocument.create();
+    const font = await doc.embedFont(StandardFonts.Helvetica);
+    const page = doc.addPage([width, 792]);
+    page.drawText('The same words on both versions', { x: 72, y: 700, size: 12, font });
+    page.drawRectangle({ x, y: 100, width: 100, height: 100 });
+    return open(await doc.save());
+  };
+  const moved = await compareDocuments(await draw(100), await draw(300));
+  expect(moved.pages.map((p) => [p.status, p.notes])).toEqual([
+    ['changed', ['Vector graphics differ']],
+  ]);
+  expect(moved.summary).toMatchObject({ total: 1, otherChanges: 1 });
+  expect(describeSummary(moved.summary)).toBe('1 change: 1 other change');
+  const resized = await compareDocuments(await draw(100), await draw(100, 700));
+  expect(describeSummary(resized.summary)).toBe('1 change: 1 other change');
+  const report = await (await open(await buildCompareReport(resized))).getPage(1);
+  const text = (await report.getTextContent()).items.map((item) => item.str).join('\n');
+  expect(text).toContain('1 change: 1 other change');
+  expect(text).toContain('Page size changed');
+});
+
+it('draws only the pages that their words cannot tell apart', async () => {
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  doc.addPage([300, 300]).drawText('Words alone', { x: 20, y: 200, size: 12, font });
+  doc.addPage([300, 300]);
+  const drawn = [];
+  const { pages } = await extractComparable(await open(await doc.save()), {
+    renderPage: (page, index) => drawn.push(index) && `hash ${index}`,
+  });
+  expect(drawn).toEqual([1]);
+  expect(pages.map((page) => page.renderHash)).toEqual([null, 'hash 1']);
 });

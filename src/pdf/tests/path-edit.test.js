@@ -561,3 +561,8 @@ it('saves long freehand strokes without exceeding the JavaScript argument limit'
   expect(paths[0].state.cap).toBe(1);
   expect(paths[0].state.join).toBe(1);
 });
+
+it('finds the paths of a page whose content ends with a stray Q, as readers draw it', async () => {
+  const doc = await raw('q 1 0 0 rg 10 10 50 50 re f Q Q');
+  expect(inspectPaths(doc, 0)).toHaveLength(1);
+});

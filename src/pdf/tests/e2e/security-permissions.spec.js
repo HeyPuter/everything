@@ -285,6 +285,30 @@ test('assembly-only access can rotate and insert pages without content editing o
   await expect(await menuItem(page, 'Extract pages…')).toBeDisabled();
 });
 
+test('Organize pages offers no page changes the PDF does not allow, on its tiles either', async ({
+  page,
+}) => {
+  await openRestricted(page, await restricted());
+  await page.getByRole('button', { name: 'Tools', exact: true }).click();
+  await page
+    .getByRole('complementary', { name: 'Tools' })
+    .getByRole('button', { name: 'Organize pages', exact: true })
+    .click();
+  const grid = page.getByRole('listbox', { name: 'Pages' });
+  await expect(grid.getByRole('option')).toHaveCount(2);
+  const toolbar = page.getByRole('toolbar', { name: 'Organize pages' });
+  await expect(
+    toolbar.getByRole('button', { name: 'Rotate clockwise', exact: true }),
+  ).toBeDisabled();
+  for (const label of [
+    'Rotate page 1 counterclockwise',
+    'Rotate page 1 clockwise',
+    'Delete page 1',
+    'Delete page 2',
+  ])
+    await expect(grid.getByRole('button', { name: label, exact: true })).toBeDisabled();
+});
+
 test('low-resolution printing uses the allowed raster resolution and protects the native print route', async ({
   page,
 }) => {

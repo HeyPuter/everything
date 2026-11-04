@@ -452,3 +452,90 @@ test('recoloring an imported note preserves note and popup bounds through export
   await settled(page);
   await checkExport('#0000ff');
 });
+
+// A sticky note moves as other comments do: dragged, or nudged with the arrow keys.
+test('a note can be dragged or nudged to another spot, and Undo puts it back', async ({ page }) => {
+  await mockPuter(page);
+  await page.goto('/#library');
+  const doc = await PDFDocument.create();
+  doc.addPage([400, 400]);
+  addNote(doc, 0, { x: 100, y: 300, text: 'Move me' });
+  const locked = addNote(doc, 0, { x: 250, y: 300, text: 'Stay put' });
+  const lockedDict = doc.context.lookup(
+    doc
+      .getPage(0)
+      .node.Annots()
+      .asArray()
+      .find((ref) => ref.toString() === locked),
+  );
+  lockedDict.set(PDFName.of('F'), PDFNumber.of(4 | 128));
+  await openPdf(page, doc);
+  await settled(page);
+  await page.getByRole('button', { name: 'Select', exact: true }).click();
+  const target = page.getByRole('button', { name: 'Edit note: Move me', exact: true });
+  const scale = await page.evaluate(() =>
+    parseFloat(
+      getComputedStyle(document.querySelector('.paper')).getPropertyValue('--scale-factor'),
+    ),
+  );
+  const box = await target.boundingBox();
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width / 2 + 25 * scale, box.y + box.height / 2 + 10 * scale, {
+    steps: 5,
+  });
+  await page.mouse.move(box.x + box.width / 2 + 50 * scale, box.y + box.height / 2 + 20 * scale, {
+    steps: 5,
+  });
+  await page.mouse.up();
+  await settled(page);
+  // A drag does not also open the note.
+  await expect(page.getByRole('group', { name: 'Edit note' })).toHaveCount(0);
+  await expect(target).toBeFocused();
+  const near = (notes) => notes.map(({ text, x, y }) => [text, Math.round(x), Math.round(y)]);
+  expect(near(await exportedNotes(page))).toEqual([
+    ['Move me', 150, 280],
+    ['Stay put', 250, 300],
+  ]);
+
+  // Three presses and a Shift press are one move: one point each, ten with Shift.
+  await target.focus();
+  for (const key of ['ArrowRight', 'ArrowRight', 'ArrowRight', 'Shift+ArrowDown'])
+    await page.keyboard.press(key);
+  await settled(page);
+  await expect(target).toBeFocused();
+  expect(near(await exportedNotes(page))[0]).toEqual(['Move me', 153, 270]);
+  await page.getByRole('button', { name: 'Undo', exact: true }).click();
+  await settled(page);
+  expect(near(await exportedNotes(page))[0]).toEqual(['Move me', 150, 280]);
+  await page.getByRole('button', { name: 'Undo', exact: true }).click();
+  await settled(page);
+  expect(near(await exportedNotes(page))[0]).toEqual(['Move me', 100, 300]);
+
+  // A note open for editing stays open when it is moved.
+  await target.click();
+  const props = page.getByRole('complementary', { name: 'Selection properties' });
+  await expect(props.getByLabel('Note text')).toHaveValue('Move me');
+  const from = await target.boundingBox();
+  await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(from.x + from.width / 2 + 20 * scale, from.y + from.height / 2, {
+    steps: 5,
+  });
+  await page.mouse.up();
+  await settled(page);
+  await expect(props.getByLabel('Note text')).toHaveValue('Move me');
+  await expect(target).toHaveAttribute('aria-pressed', 'true');
+  expect(near(await exportedNotes(page))[0]).toEqual(['Move me', 120, 300]);
+
+  // A note whose properties are locked stays where it is.
+  const fixed = page.getByRole('button', { name: 'Edit note: Stay put', exact: true });
+  const at = await fixed.boundingBox();
+  await page.mouse.move(at.x + at.width / 2, at.y + at.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(at.x + 80, at.y + 80, { steps: 5 });
+  await page.mouse.up();
+  await fixed.press('ArrowLeft');
+  await settled(page);
+  expect(near(await exportedNotes(page))[1]).toEqual(['Stay put', 250, 300]);
+});

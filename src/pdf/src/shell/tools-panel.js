@@ -201,12 +201,18 @@ export function createToolsPanel({ catalog, can = () => true, onClose, onChange,
   }
 
   function showAll(focus = false) {
+    const left = current;
     if (current) find(current)?.leave?.();
     current = null;
     waitingFocus = null;
     render();
     onChange?.(null);
-    if (focus) body.querySelector('.tool-row')?.focus();
+    // Back lands on the tool it came from, so the keyboard carries on from there in the list.
+    if (focus)
+      (
+        [...body.querySelectorAll('.tool-row')].find((row) => row.dataset.tool === left) ||
+        body.querySelector('.tool-row')
+      )?.focus();
   }
 
   render();

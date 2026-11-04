@@ -40,7 +40,9 @@ const BATES_SLOTS = {
  * Run `steps` over `files` ([{ name, bytes }]). Options: `signal`, `onProgress({ file, step,
  * files, index })`, `codec` (image codec for compression), and `recognize(bytes, pageIndex)`
  * for OCR, which resolves to an OCR result or null (the browser renders and recognizes pages).
- * Resolves to [{ name, bytes } | { name, error }] in the same order.
+ * Resolves to [{ name, bytes, warnings } | { name, error }] in the same order; `warnings` lists
+ * what a step could not do as usual in a file that was still produced (content it could not read
+ * and so left in place), which must be shown rather than pass by.
  */
 export async function runBatch(files, steps, { signal, onProgress, codec, recognize } = {}) {
   if (!files.length) throw new Error('Add at least one PDF.');
@@ -57,6 +59,7 @@ export async function runBatch(files, steps, { signal, onProgress, codec, recogn
       });
       const session = new PdfSession(file.bytes);
       let bytes = null;
+      const warnings = [];
       // Numbers are taken only by a file that is produced; a file that fails leaves them free.
       let batesUsed = 0;
       for (const step of steps) {
@@ -109,9 +112,14 @@ export async function runBatch(files, steps, { signal, onProgress, codec, recogn
             case 'flatten':
               flattenDocument(doc, { fonts: await flattenFonts(doc) });
               break;
-            case 'sanitize':
-              await sanitizeDocument(doc, { ...SANITIZE_DEFAULTS, ...(step.options || {}) });
+            case 'sanitize': {
+              const report = await sanitizeDocument(doc, {
+                ...SANITIZE_DEFAULTS,
+                ...(step.options || {}),
+              });
+              warnings.push(...(report?.warnings || []));
               break;
+            }
             default:
               throw new Error(`Unknown step: ${step.type}`);
           }
@@ -125,7 +133,7 @@ export async function runBatch(files, steps, { signal, onProgress, codec, recogn
           permissions: protect.permissions || '',
           allow: protect.allow || {},
         });
-      results.push({ name: file.name, bytes });
+      results.push({ name: file.name, bytes, warnings: [...new Set(warnings)] });
       batesNext += batesUsed;
     } catch (error) {
       if (error?.name === 'AbortError') throw error;

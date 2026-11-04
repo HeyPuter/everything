@@ -130,12 +130,12 @@ test('malformed saved drawings are ignored while valid signatures remain usable'
   expect.soft(errors).toEqual([]);
   await expect(dialog.getByRole('button', { name: /^Use saved signature/ })).toHaveCount(2);
   await dialog.getByRole('button', { name: 'Use saved signature 1', exact: true }).click();
-  await expect(page.getByRole('group', { name: 'Edit drawing' })).toBeVisible();
+  await expect(page.getByRole('group', { name: 'Edit signature' })).toBeVisible();
   expect(inspectPaths(await exported(page), 0)).toHaveLength(1);
   expect(JSON.parse(await stored(page))).toEqual({ items: valid });
   await page.getByRole('button', { name: 'Sign', exact: true }).click();
   await dialog.getByRole('button', { name: 'Use saved signature 2: Ada Lovelace' }).click();
-  await expect(page.getByRole('group', { name: 'Edit shape' })).toBeVisible();
+  await expect(page.getByRole('group', { name: 'Edit signature' })).toBeVisible();
   expect(inspectPaths(await exported(page), 0)).toHaveLength(2);
   expect(errors).toEqual([]);
 });
@@ -263,7 +263,7 @@ for (const pointer of ['mouse', 'touch']) {
     expect(bounds[3]).toBeLessThanOrEqual(43);
     await dialog.getByLabel('Remember drawn and typed signatures').check();
     await dialog.getByRole('button', { name: 'Place signature', exact: true }).click();
-    await expect(page.getByRole('group', { name: 'Edit drawing' })).toBeVisible();
+    await expect(page.getByRole('group', { name: 'Edit signature' })).toBeVisible();
     const signature = JSON.parse(await stored(page)).items[0];
     expect(signature.strokes).toHaveLength(1);
     expect(signature.strokes[0].at(-1)[0]).toBeCloseTo(150, 0);
@@ -314,7 +314,7 @@ for (const secondaryAction of ['moves', 'lifts']) {
     await touch('touchEnd', []);
     await dialog.getByLabel('Remember drawn and typed signatures').check();
     await dialog.getByRole('button', { name: 'Place signature', exact: true }).click();
-    await expect(page.getByRole('group', { name: 'Edit drawing' })).toBeVisible();
+    await expect(page.getByRole('group', { name: 'Edit signature' })).toBeVisible();
     const signature = JSON.parse(await stored(page)).items[0];
     expect(signature.strokes).toHaveLength(2);
     for (const [, y] of signature.strokes[0]) expect(Math.abs(y - 40)).toBeLessThan(2);
@@ -394,7 +394,7 @@ test('resizing the signature pad preserves ink proportions and keeps new strokes
   expect(wide[2]).toBeLessThanOrEqual(original.width);
   expect(wide[3]).toBeLessThanOrEqual(original.height);
   await dialog.getByRole('button', { name: 'Place signature', exact: true }).click();
-  await expect(page.getByRole('group', { name: 'Edit drawing' })).toBeVisible();
+  await expect(page.getByRole('group', { name: 'Edit signature' })).toBeVisible();
   const pdfInk = await canvasInkBounds(page.locator('.paper > canvas').first(), {
     width: 400,
     height: 400,
@@ -536,7 +536,7 @@ test('smoothed signature turns fit inside the PDF placement and saved preview', 
     await page.mouse.move(pad.x + x, pad.y + y);
   await page.mouse.up();
   await dialog.getByRole('button', { name: 'Place signature', exact: true }).click();
-  await expect(page.getByRole('group', { name: 'Edit drawing' })).toBeVisible();
+  await expect(page.getByRole('group', { name: 'Edit signature' })).toBeVisible();
 
   const pdfInk = await canvasInkBounds(page.locator('.paper > canvas').first(), {
     width: 400,
@@ -580,7 +580,7 @@ test('a signature dot is visible while drawing, in saved previews, and in the PD
   });
   expect.soft(dot[3]).toBeGreaterThan(128);
   await dialog.getByRole('button', { name: 'Place signature', exact: true }).click();
-  await expect(page.getByRole('group', { name: 'Edit drawing' })).toBeVisible();
+  await expect(page.getByRole('group', { name: 'Edit signature' })).toBeVisible();
   const pdfDot = await page
     .locator('.paper > canvas')
     .first()
@@ -630,10 +630,13 @@ test('a drawn signature lands in the middle as one smooth stroke, selected and r
   await expect(dialog.getByText('Draw your signature here')).toBeHidden();
   await dialog.getByRole('button', { name: 'Place signature' }).click();
   await expect(page.locator('#toast')).toHaveText('Signature added. Drag to move or resize it.');
-  await expect(page.getByRole('group', { name: 'Edit drawing' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Move selected drawing' })).toBeFocused();
+  // A placed signature is named one, not a drawing.
+  await expect(page.getByRole('group', { name: 'Edit signature' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Move selected signature' })).toBeFocused();
+  await expect(page.locator('.properties-heading h2')).toHaveText('Signature');
+  await expect(page.getByRole('button', { name: 'Delete signature' })).toBeVisible();
   const [path] = inspectPaths(await exported(page), 0);
-  expect(path).toMatchObject({ kind: 'drawing', stroked: true, filled: false });
+  expect(path).toMatchObject({ kind: 'signature', stroked: true, filled: false });
   expect((path.svg.match(/M /g) || []).length).toBe(2);
   expect(path.svg).toContain('C');
   // About a third of the page across, centered.
@@ -718,7 +721,7 @@ for (const name of ['John J', 'josephine johnson', 'Jacqueline Johnson J'])
     };
     await check(dialog.getByLabel('Typed signature preview'), 6);
     await dialog.getByRole('button', { name: 'Place signature', exact: true }).click();
-    await expect(page.getByRole('group', { name: 'Edit shape' })).toBeVisible();
+    await expect(page.getByRole('group', { name: 'Edit signature' })).toBeVisible();
     await page.getByRole('button', { name: 'Sign', exact: true }).click();
     await check(
       dialog.getByRole('button', { name: `Use saved signature 1: ${name}` }).locator('canvas'),
@@ -893,9 +896,9 @@ test('a typed signature uses the script font, can be remembered, and comes back 
   await dialog.getByLabel('Signature text').fill('Ada Lovelace');
   await dialog.getByLabel('Remember drawn and typed signatures').check();
   await dialog.getByRole('button', { name: 'Place signature' }).click();
-  await expect(page.getByRole('group', { name: 'Edit shape' })).toBeVisible();
+  await expect(page.getByRole('group', { name: 'Edit signature' })).toBeVisible();
   const [path] = inspectPaths(await exported(page), 0);
-  expect(path).toMatchObject({ kind: 'shape', filled: true, stroked: false });
+  expect(path).toMatchObject({ kind: 'signature', filled: true, stroked: false });
   expect(path.svg).toContain('Z');
   expect(JSON.parse(await stored(page))).toEqual({
     items: [{ type: 'type', text: 'Ada Lovelace' }],
@@ -907,7 +910,7 @@ test('a typed signature uses the script font, can be remembered, and comes back 
   await expect(saved).toBeVisible();
   await expect(dialog.getByLabel('Remember drawn and typed signatures')).toBeChecked();
   await saved.click();
-  await expect(page.getByRole('group', { name: 'Edit shape' })).toBeVisible();
+  await expect(page.getByRole('group', { name: 'Edit signature' })).toBeVisible();
   expect(inspectPaths(await exported(page), 0)).toHaveLength(1);
   // Deleting the last saved signature also clears the device copy.
   await page.getByRole('button', { name: 'Sign', exact: true }).click();
@@ -944,8 +947,8 @@ for (const failure of ['unsupported character', 'font download'])
     failFont = false;
     await dialog.getByLabel('Signature text').fill('Ada Lovelace');
     await dialog.getByRole('button', { name: 'Place signature', exact: true }).click();
-    await expect(page.getByRole('group', { name: 'Edit shape' })).toBeVisible();
-    await expect(page.getByLabel('Shape fill color', { exact: true })).toHaveValue('#2255aa');
+    await expect(page.getByRole('group', { name: 'Edit signature' })).toBeVisible();
+    await expect(page.getByLabel('Signature fill color', { exact: true })).toHaveValue('#2255aa');
     expect(inspectPaths(await exported(page), 0)).toHaveLength(1);
     expect(JSON.parse(await stored(page))).toEqual({
       items: [{ type: 'type', text: 'Ada Lovelace' }],
@@ -977,7 +980,7 @@ test('an older unusable saved signature opens its text for correction', async ({
   await dialog.getByRole('button', { name: 'Delete saved signature 1', exact: true }).click();
   await dialog.getByLabel('Signature text').fill('Ada Lovelace');
   await dialog.getByRole('button', { name: 'Place signature', exact: true }).click();
-  await expect(page.getByRole('group', { name: 'Edit shape' })).toBeVisible();
+  await expect(page.getByRole('group', { name: 'Edit signature' })).toBeVisible();
   expect(inspectPaths(await exported(page), 0)).toHaveLength(1);
   expect(JSON.parse(await stored(page))).toEqual({
     items: [{ type: 'type', text: 'Ada Lovelace' }],
@@ -997,7 +1000,7 @@ for (const initiallyRemembered of [false, true])
     await dialog.getByLabel('Signature text').fill('Ada Lovelace');
     await dialog.getByLabel('Remember drawn and typed signatures').setChecked(initiallyRemembered);
     await dialog.getByRole('button', { name: 'Place signature', exact: true }).click();
-    await expect(page.getByRole('group', { name: 'Edit shape' })).toBeVisible();
+    await expect(page.getByRole('group', { name: 'Edit signature' })).toBeVisible();
     expect((await stored(page)) !== null).toBe(initiallyRemembered);
 
     await page.getByRole('button', { name: 'Sign', exact: true }).click();
@@ -1055,9 +1058,9 @@ test('on a rotated page the signature reads upright on screen', async ({ page })
     .getByRole('dialog', { name: 'Add signature' })
     .getByRole('button', { name: 'Place signature' })
     .click();
-  await expect(page.getByRole('group', { name: 'Edit drawing' })).toBeVisible();
+  await expect(page.getByRole('group', { name: 'Edit signature' })).toBeVisible();
   // The move handle is wider than tall on screen even though the page is turned.
-  const box = await page.getByRole('button', { name: 'Move selected drawing' }).boundingBox();
+  const box = await page.getByRole('button', { name: 'Move selected signature' }).boundingBox();
   expect(box.width).toBeGreaterThan(box.height * 3);
   // In the PDF itself the stroke runs vertically, so that the turned page shows it level.
   const [path] = inspectPaths(await exported(page), 0);
@@ -1275,4 +1278,18 @@ test('the delete button on a saved signature stays legible on its white card in 
   });
   expect(contrast.icon).toBeGreaterThanOrEqual(4.5);
   expect(contrast.ring).toBeGreaterThanOrEqual(3);
+});
+
+test('Enter places a typed signature', async ({ page }) => {
+  await mockPuter(page);
+  await page.goto('/#library');
+  await openPdf(page, await squarePdf());
+  await page.getByRole('button', { name: 'Sign', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Add signature' });
+  await dialog.getByRole('tab', { name: 'Type' }).click();
+  await dialog.getByLabel('Signature text').fill('Ada Lovelace');
+  await page.keyboard.press('Enter');
+  await expect(dialog).toBeHidden();
+  await expect(page.getByRole('group', { name: 'Edit signature' })).toBeVisible();
+  expect(inspectPaths(await exported(page), 0)).toHaveLength(1);
 });

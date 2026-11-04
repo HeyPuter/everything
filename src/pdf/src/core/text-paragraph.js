@@ -3,6 +3,10 @@ import { paragraphVector } from './paragraph-data.js';
 import { hasRightToLeft } from './bidi.js';
 
 const parts = (line) => line.parts || [line];
+// A line that starts a list item: a bullet symbol (Word's symbol-font bullets included), a dash
+// or star, or a number, letter, or roman numeral with "." or ")", or in brackets.
+const LIST_ITEM =
+  /^\s*(?:[•·◦▪▫■□●○‣⁃∙➢➤►▶✓✔❖♦◆◇\uf0a7\uf0b7\uf0d8\uf0fc]\s*\S|[-–—*]\s|\(?(?:\d+|[a-zA-Z]|[ivxlcIVXLC]{1,6})[.)]\s)/u;
 const pathKey = (run) => run.path.map((call) => call.start).join(':');
 const height = (line) => Math.hypot(line.transform[2], line.transform[3]);
 const width = (line) => (line.advance / line.state.size) * height(line);
@@ -128,7 +132,7 @@ export function groupTextParagraphs(lines) {
       parts(line).every((r) => r.groupable) &&
       parts(previous).at(-1).barrier === parts(line)[0].barrier &&
       pathKey(parts(previous)[0]) === pathKey(parts(line)[0]) &&
-      !/^\s*(?:[•*\-]|\d+[.)])\s/.test(line.text) &&
+      !LIST_ITEM.test(line.text) &&
       // Each line of right-to-left text is drawn in its own visual order, so the lines are
       // reordered for editing one by one and stay separate.
       !hasRightToLeft(previous.text) &&

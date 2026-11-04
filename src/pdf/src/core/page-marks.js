@@ -264,11 +264,21 @@ export async function addHeaderFooter(
       throw new Error(`Keep each header or footer under ${MAX_HEADER_TEXT} characters.`);
   const pages = uniquePages(indices);
   const total = doc.getPageCount();
-  // Korean text, typed or from the title or file name, takes the Korean face.
+  // Korean text, typed or from the title, file name, or Bates prefix, takes the Korean face.
   const font = await embedFont(
     doc,
     'regular',
-    used.map((slot) => fillTokens(slots[slot], { page: 1, pages: total, title, file })).join(' '),
+    used
+      .map((slot) =>
+        fillTokens(slots[slot], {
+          page: 1,
+          pages: total,
+          title,
+          file,
+          bates: bates ? batesLabel(bates) : '',
+        }),
+      )
+      .join(' '),
   );
   const placements = [];
   for (const [order, index] of pages.entries()) {

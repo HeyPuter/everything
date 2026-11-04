@@ -88,7 +88,11 @@ export function inspectImages(doc, index, { unmeasuredResources } = {}) {
             stack.push({ ...s });
             break;
           case 'Q':
-            if (!stack.length) throw error();
+            // A stray Q in the page's own content restores nothing, as readers treat it.
+            if (!stack.length) {
+              if (path.length) throw error();
+              break;
+            }
             s = stack.pop();
             break;
           case 'cm':

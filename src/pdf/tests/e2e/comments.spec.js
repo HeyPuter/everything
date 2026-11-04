@@ -84,8 +84,10 @@ test('the Comments tab lists notes and highlights by page and jumps to each', as
   await expect(after.getByRole('tab', { name: /Comments/ })).toContainText('1');
   await after.getByRole('tab', { name: /Comments/ }).click();
   await expect(page.getByRole('group', { name: 'Comments' }).getByRole('button')).toHaveCount(1);
-  // The View menu opens the Comments panel too, and marks it while it shows.
+  // The View menu opens the Comments panel too, and marks it while it shows. (On a phone,
+  // Escape puts away the panel lying over the page, so it is shown again first.)
   await page.keyboard.press('Escape');
+  await showSidebar(page);
   const viewItem = async (name) => {
     const bar = page.getByRole('menubar', { name: 'PDF menus' });
     if (await bar.isVisible())

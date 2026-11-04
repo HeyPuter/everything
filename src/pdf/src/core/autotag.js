@@ -236,7 +236,7 @@ function appendKids(doc, dict, refs) {
  * content outside tags (added later, for instance) gets that content tagged as paragraphs and
  * figures appended to the document element. Returns what was done:
  * `{ pages, skipped: [page indices left untagged], elements: { P: n, H1: n, … } }`, or false
- * when there was nothing to tag. `lang` sets the document language when given.
+ * when there was nothing to tag. `lang` sets the document language when it declares none.
  */
 export function autotagDocument(doc, { lang } = {}) {
   const pages = doc.getPages();
@@ -739,7 +739,9 @@ export function autotagDocument(doc, { lang } = {}) {
     doc.catalog.set(N('MarkInfo'), markInfo);
   }
   markInfo.set(N('Marked'), PDFBool.True);
-  if (lang && /^[A-Za-z]{2,3}(-[A-Za-z0-9]{1,8})*$/.test(lang))
+  // `lang` stands in for a language the PDF does not declare; it never replaces one.
+  const declared = doc.catalog.lookup(N('Lang'));
+  if (lang && /^[A-Za-z]{2,3}(-[A-Za-z0-9]{1,8})*$/.test(lang) && !declared?.decodeText?.().trim())
     doc.catalog.set(N('Lang'), PDFString.of(lang));
   for (const page of pages) if (hasAnnotations(page)) page.node.set(N('Tabs'), N('S'));
   if (incremental) tagAnnotations(doc);

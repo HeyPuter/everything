@@ -17,7 +17,7 @@ import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
  *
  * CompareResult = {
  *   summary: { pages: { old, new }, total, inserted, deleted, replaced, formatting,
- *              pagesAdded, pagesRemoved, pagesMoved, imageChanges },
+ *              pagesAdded, pagesRemoved, pagesMoved, imageChanges, otherChanges },
  *   pages: [{ oldIndex, newIndex, status: 'same'|'changed'|'added'|'removed'|'moved',
  *             notes: string[], changes: Change[] }],
  *   geometry: { old: { view, rotate }[], new: { view, rotate }[] },
@@ -325,7 +325,7 @@ function graphicsOf(ops) {
 
 /**
  * Read what the comparison needs from every page of a PDF.js document. `renderPage(page, index)`
- * may return a hash of a small rendering, which lets pages without text be told apart.
+ * may return a hash of a small rendering, which tells apart pages without text or with pictures.
  */
 export async function extractComparable(pdf, { signal, onProgress, renderPage } = {}) {
   const pages = new Array(pdf.numPages);
@@ -346,15 +346,22 @@ export async function extractComparable(pdf, { signal, onProgress, renderPage } 
     }
     const view = [...page.view];
     const { width, height } = pageTransform({ view, rotate: page.rotate });
+    const words = wordsOf(content, fonts);
+    const graphics = graphicsOf(ops);
     pages[index] = {
       index,
       view,
       rotate: page.rotate,
       width,
       height,
-      words: wordsOf(content, fonts),
-      ...graphicsOf(ops),
-      renderHash: renderPage ? await renderPage(page, index) : null,
+      words,
+      ...graphics,
+      // Drawing every page would slow a long comparison down; only pages whose words cannot
+      // tell them apart are drawn: those without text, and those with pictures.
+      renderHash:
+        renderPage && (!words.length || graphics.images.length)
+          ? await renderPage(page, index)
+          : null,
     };
     page.cleanup?.();
     onProgress?.({ done: ++done, total: pdf.numPages });
@@ -930,6 +937,8 @@ export async function compareDocuments(oldDoc, newDoc, { signal, onProgress, ren
     pagesRemoved: 0,
     pagesMoved: 0,
     imageChanges: 0,
+    // Differences of a page as a whole: its size, rotation, drawing, or appearance.
+    otherChanges: 0,
   };
   const counter = {
     insert: 'inserted',
@@ -946,6 +955,7 @@ export async function compareDocuments(oldDoc, newDoc, { signal, onProgress, ren
       change.id = nextId++;
       summary[counter[change.type]]++;
     }
+    summary.otherChanges += entry.notes.length;
     if (entry.status === 'same' && (entry.changes.length || entry.notes.length))
       entry.status = 'changed';
     if (entry.status === 'added') summary.pagesAdded++;
@@ -960,7 +970,8 @@ export async function compareDocuments(oldDoc, newDoc, { signal, onProgress, ren
     summary.imageChanges +
     summary.pagesAdded +
     summary.pagesRemoved +
-    summary.pagesMoved;
+    summary.pagesMoved +
+    summary.otherChanges;
   onProgress?.({ phase: 'compare', done: 1, total: 1 });
   return {
     summary,
@@ -1032,6 +1043,7 @@ export function describeSummary(summary) {
     summary.pagesAdded && plural(summary.pagesAdded, 'page inserted', 'pages inserted'),
     summary.pagesRemoved && plural(summary.pagesRemoved, 'page deleted', 'pages deleted'),
     summary.pagesMoved && plural(summary.pagesMoved, 'page moved', 'pages moved'),
+    summary.otherChanges && plural(summary.otherChanges, 'other change'),
   ].filter(Boolean);
   return `${plural(summary.total, 'change')}: ${parts.join(', ')}`;
 }
@@ -1088,6 +1100,21 @@ const REPORT_COLORS = {
   image: rgb(0.45, 0.36, 0.84),
   page: rgb(0.08, 0.45, 0.9),
 };
+
+/**
+ * The comparison's date in the reader's own format, in digits the report's standard font can
+ * print. A format still in another script (an Arabic comma, a Korean or Arabic AM/PM) would
+ * print as question marks, so it falls back to a year-month-day date.
+ */
+function reportDate(date, known) {
+  const local = date
+    .toLocaleString(undefined, { numberingSystem: 'latn' })
+    .replace(/[\u200e\u200f\u061c]/g, '')
+    .replace(/\s+/g, ' ');
+  if ([...local].every((ch) => known.has(ch.codePointAt(0)))) return local;
+  const two = (n) => String(n).padStart(2, '0');
+  return `${date.getFullYear()}-${two(date.getMonth() + 1)}-${two(date.getDate())} ${two(date.getHours())}:${two(date.getMinutes())}`;
+}
 
 /**
  * A printable summary of a comparison, like Acrobat's compare report: the two files, the
@@ -1161,7 +1188,7 @@ export async function buildCompareReport(
   write('Compare report', { font: bold, size: 20, gap: 10 });
   write(`Old file: ${oldName} (${plural(result.summary.pages.old, 'page')})`);
   write(`New file: ${newName} (${plural(result.summary.pages.new, 'page')})`);
-  write(`Compared: ${date.toLocaleString()}`, {
+  write(`Compared: ${reportDate(date, known)}`, {
     color: rgb(0.4, 0.4, 0.4),
     gap: 12,
   });

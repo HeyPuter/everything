@@ -71,6 +71,25 @@ describe('links', () => {
     expect(() => normalizeUrl('http://')).toThrow('valid web address');
     expect(() => normalizeUrl('x'.repeat(2100))).toThrow('2,048');
   });
+  it('makes a typed email with a subject a mail link, and a typed phone number a phone link', () => {
+    expect(normalizeUrl('hi@example.com?subject=Our call')).toBe(
+      'mailto:hi@example.com?subject=Our%20call',
+    );
+    expect(normalizeUrl('+1 (555) 123-4567')).toBe('tel:+1(555)123-4567');
+    expect(normalizeUrl('555-1234')).toBe('tel:555-1234');
+    // Addresses written out with numbers stay web addresses.
+    expect(normalizeUrl('192.168.0.1')).toBe('https://192.168.0.1/');
+    expect(normalizeUrl('localhost:3000/x')).toBe('https://localhost:3000/x');
+  });
+  it('refuses mail and phone links without an address, and a number read as an address', () => {
+    expect(() => normalizeUrl('mailto:')).toThrow('Enter the email address');
+    expect(() => normalizeUrl('mailto:?subject=Hi')).toThrow('Enter the email address');
+    expect(() => normalizeUrl('tel:')).toThrow('Enter the phone number');
+    // "12" (a page number typed in the wrong field, say) would link to https://0.0.0.12/.
+    expect(() => normalizeUrl('12')).toThrow('valid web address');
+    expect(() => normalizeUrl('0x7f.1')).toThrow('valid web address');
+    expect(normalizeUrl('http://10.0.0.1:8080/')).toBe('http://10.0.0.1:8080/');
+  });
   it('opens only web, mail, and phone addresses found in a PDF', () => {
     expect(safeLinkUrl('https://example.com/a?b=c#d')).toBe('https://example.com/a?b=c#d');
     expect(safeLinkUrl(' http://example.org ')).toBe('http://example.org/');

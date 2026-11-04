@@ -19,6 +19,9 @@ const TYPE_LABELS = {
   signature: 'Signature field',
 };
 export const fieldTypeLabel = (type) => TYPE_LABELS[type] || 'Field';
+/** Where a box of `size` may start within low..high, or at least no further out than `origin`. */
+const span = (start, size, origin, low, high) =>
+  Math.min(Math.max(start, Math.min(low, origin)), Math.max(high - size, origin));
 
 export function createFormDesigner({ onMove, onOpen, onDelete, onSelect }) {
   const root = el('div', { class: 'form-designer', hidden: true });
@@ -57,6 +60,28 @@ export function createFormDesigner({ onMove, onOpen, onDelete, onSelect }) {
     };
   }
 
+  /**
+   * Keep a moved or resized box on the page, so a field cannot be dropped where nobody can
+   * see or reach it; a box already partly off the page may stay where it was.
+   */
+  function onPage(box, from) {
+    const width = Math.min(box.width, Math.max(viewport.width - box.left, from.width)),
+      height = Math.min(box.height, Math.max(viewport.height - box.top, from.height));
+    return {
+      left: span(box.left, width, from.left, 0, viewport.width),
+      top: span(box.top, height, from.top, 0, viewport.height),
+      width,
+      height,
+    };
+  }
+
+  /** The smallest box a field can have, on screen: 4 points, and big enough to grab. */
+  function smallest() {
+    const [ox, oy] = viewport.convertToViewportPoint(0, 0);
+    const [px, py] = viewport.convertToViewportPoint(1, 0);
+    return Math.max(8, 4.01 * Math.hypot(px - ox, py - oy));
+  }
+
   function place(node, box) {
     Object.assign(node.style, {
       left: `${box.left}px`,
@@ -86,6 +111,22 @@ export function createFormDesigner({ onMove, onOpen, onDelete, onSelect }) {
     const box = screenBox(field);
     drag = { field, node, mode, x: e.clientX, y: e.clientY, box, moved: false, id: e.pointerId };
     node.setPointerCapture(e.pointerId);
+    window.addEventListener('keydown', escapeDrag, true);
+  }
+  /** Escape, or a cancelled pointer, puts the box back where it was, with nothing changed. */
+  function cancelDrag(e) {
+    if (!drag || (e.pointerId !== undefined && e.pointerId !== drag.id)) return;
+    const done = drag;
+    drag = null;
+    window.removeEventListener('keydown', escapeDrag, true);
+    place(done.node, done.box);
+    if (done.node.hasPointerCapture(done.id)) done.node.releasePointerCapture(done.id);
+  }
+  function escapeDrag(e) {
+    if (e.key !== 'Escape' || e.isComposing) return;
+    e.preventDefault();
+    e.stopPropagation();
+    cancelDrag(e);
   }
   function moveDrag(e) {
     if (!drag || e.pointerId !== drag.id) return;
@@ -93,14 +134,16 @@ export function createFormDesigner({ onMove, onOpen, onDelete, onSelect }) {
       dy = e.clientY - drag.y;
     if (!drag.moved && Math.hypot(dx, dy) < 3) return;
     drag.moved = true;
-    const box =
+    const box = onPage(
       drag.mode === 'move'
         ? { ...drag.box, left: drag.box.left + dx, top: drag.box.top + dy }
         : {
             ...drag.box,
-            width: Math.max(8, drag.box.width + dx),
-            height: Math.max(8, drag.box.height + dy),
-          };
+            width: Math.max(smallest(), drag.box.width + dx),
+            height: Math.max(smallest(), drag.box.height + dy),
+          },
+      drag.box,
+    );
     drag.current = box;
     place(drag.node, box);
   }
@@ -108,7 +151,22 @@ export function createFormDesigner({ onMove, onOpen, onDelete, onSelect }) {
     if (!drag || e.pointerId !== drag.id) return;
     const done = drag;
     drag = null;
+    window.removeEventListener('keydown', escapeDrag, true);
     if (done.moved && done.current) onMove(done.field, pdfRect(done.current));
+  }
+
+  /** The focus goes on to the field's neighbor once the field is deleted and the boxes redrawn. */
+  function deleting(field) {
+    const index = fields.findIndex((entry) => keyOf(entry) === keyOf(field));
+    if (index < 0) return;
+    const neighbor = fields[index + 1] ?? fields[index - 1];
+    // The buttons after a deleted one in its group move up a place.
+    refocus = !neighbor
+      ? null
+      : neighbor.name === field.name && neighbor.widgetIndex > field.widgetIndex
+        ? `${neighbor.name}#${neighbor.widgetIndex - 1}`
+        : keyOf(neighbor);
+    refocusFrom = keyOf(field);
   }
 
   function render(next, nextViewport) {
@@ -131,7 +189,7 @@ export function createFormDesigner({ onMove, onOpen, onDelete, onSelect }) {
             onpointerdown: (e) => startDrag(e, field, node, 'move'),
             onpointermove: moveDrag,
             onpointerup: endDrag,
-            onpointercancel: endDrag,
+            onpointercancel: cancelDrag,
             ondblclick: () => onOpen(field),
             onkeydown: (e) => {
               if (e.key === 'Enter') {
@@ -140,10 +198,7 @@ export function createFormDesigner({ onMove, onOpen, onDelete, onSelect }) {
                 onOpen(field);
               } else if (e.key === 'Delete' || e.key === 'Backspace') {
                 e.preventDefault();
-                const index = fields.indexOf(field);
-                const neighbor = fields[index + 1] ?? fields[index - 1];
-                refocus = neighbor ? keyOf(neighbor) : null;
-                refocusFrom = keyOf(field);
+                deleting(field);
                 onDelete(field);
               } else if (e.key.startsWith('Arrow') && !e.altKey && !e.ctrlKey && !e.metaKey) {
                 // Arrow keys nudge a point at a time in the direction they point on screen,
@@ -158,8 +213,22 @@ export function createFormDesigner({ onMove, onOpen, onDelete, onSelect }) {
                 const length = Math.hypot(px - ox, py - oy) || 1;
                 const dx = Math.round(((px - ox) / length) * step * 1000) / 1000,
                   dy = Math.round(((py - oy) / length) * step * 1000) / 1000;
+                // Up to the edge of the page, and no further.
+                const page = pdfRect({
+                  left: 0,
+                  top: 0,
+                  width: viewport.width,
+                  height: viewport.height,
+                });
+                const next = {
+                  x: span(x + dx, width, x, page.x, page.x + page.width),
+                  y: span(y + dy, height, y, page.y, page.y + page.height),
+                  width,
+                  height,
+                };
+                if (next.x === x && next.y === y) return;
                 refocus = refocusFrom = keyOf(field);
-                onMove(field, { x: x + dx, y: y + dy, width, height });
+                onMove(field, next);
               }
             },
             onfocus: () => {
@@ -206,6 +275,21 @@ export function createFormDesigner({ onMove, onOpen, onDelete, onSelect }) {
         key?.startsWith(`${from}#`) ? `${to}#${widgetIndex ?? key.slice(from.length + 1)}` : key;
       refocus = swap(refocus);
       selected = swap(selected);
+    },
+    deleting,
+    /** The field's width and height as the page shows them, in its own units, or null. */
+    shownSize(field) {
+      if (!viewport || !field.rect) return null;
+      const { width, height } = field.rect;
+      return viewport.rotation % 180 ? { width: height, height: width } : { width, height };
+    },
+    /** The field's rectangle at `size` as shown, its top left corner on screen staying put. */
+    resizedRect(field, { width, height }) {
+      const box = screenBox(field);
+      const [ox, oy] = viewport.convertToViewportPoint(0, 0);
+      const [px, py] = viewport.convertToViewportPoint(1, 0);
+      const unit = Math.hypot(px - ox, py - oy);
+      return pdfRect({ left: box.left, top: box.top, width: width * unit, height: height * unit });
     },
     focusField(name) {
       const field = fields.find((entry) => entry.name === name);

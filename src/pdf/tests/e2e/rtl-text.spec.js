@@ -16,11 +16,19 @@ async function openDocument(page, content) {
       Subtype: 'Type1',
       BaseFont: 'Helvetica',
       FirstChar: 1,
-      LastChar: 4,
-      Widths: [600, 600, 600, 600],
+      LastChar: 6,
+      Widths: [600, 600, 600, 600, 333, 333],
       Encoding: {
         Type: 'Encoding',
-        Differences: [1, 'finalmemhebrew', 'vavhebrew', 'lamedhebrew', 'shinhebrew'],
+        Differences: [
+          1,
+          'finalmemhebrew',
+          'vavhebrew',
+          'lamedhebrew',
+          'shinhebrew',
+          'parenleft',
+          'parenright',
+        ],
       },
     }),
   );
@@ -79,3 +87,39 @@ for (const [label, content] of [
     await expect(page.getByRole('button', { name: 'Edit text: לום', exact: true })).toBeVisible();
     expect(await exportedText(page)).toEqual(['לום']);
   });
+
+test('parentheses in right-to-left text open and close the way they read', async ({ page }) => {
+  // "(שלום)" as a PDF draws it: the "(" glyph at the left closes the parenthesis.
+  await openDocument(page, 'BT /F 30 Tf 50 300 Td <050102030406> Tj ET');
+  const target = page.getByRole('button', { name: 'Edit text: (שלום)', exact: true });
+  await expect(target).toBeVisible();
+  await target.dblclick();
+  const input = page.getByRole('textbox', { name: 'Edit text' });
+  await expect(input).toBeFocused();
+  expect(await input.evaluate((node) => node.value)).toBe('(שלום)');
+  await input.evaluate((node) => {
+    if (node.select) node.select();
+    else window.getSelection().selectAllChildren(node);
+  });
+  await page.keyboard.insertText('(לום)');
+  await page.locator('.workspace').click({ position: { x: 4, y: 4 } });
+  await expect(page.locator('.editor')).toHaveAttribute('aria-busy', 'false');
+  // Drawn from the left as "(םול)", so the page shows what was typed.
+  const pending = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Download', exact: true }).click();
+  const doc = await PDFDocument.load(await readFile(await (await pending).path()));
+  const contents = doc.getPage(0).node.Contents();
+  const streams = contents.asArray
+    ? contents.asArray().map((ref) => doc.context.lookup(ref))
+    : [contents];
+  const { inflateSync } = await import('node:zlib');
+  const source = streams
+    .map((stream) => {
+      const bytes = stream.getContents();
+      return Buffer.from(
+        stream.dict.has(PDFName.of('Filter')) ? inflateSync(bytes) : bytes,
+      ).toString('latin1');
+    })
+    .join('\n');
+  expect(source).toContain('<0501020306> Tj');
+});

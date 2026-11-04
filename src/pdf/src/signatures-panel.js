@@ -30,6 +30,8 @@ const when = (date) =>
 export function signatureSummary(reports) {
   if (!reports.length) return null;
   const count = reports.length === 1 ? 'The signature' : `All ${reports.length} signatures`;
+  // A certification signature (the author's) makes the whole document certified.
+  const signed = reports.some((r) => r.certification) ? 'Certified' : 'Signed';
   if (reports.some((r) => r.status === 'invalid'))
     return { tone: 'bad', text: 'At least one signature is invalid.' };
   if (reports.some((r) => r.status === 'modified'))
@@ -42,11 +44,11 @@ export function signatureSummary(reports) {
   if (reports.every((r) => r.status === 'valid'))
     return {
       tone: 'good',
-      text: `Signed, and ${count.toLowerCase()} ${reports.length === 1 ? 'is' : 'are'} valid.`,
+      text: `${signed}, and ${count.toLowerCase()} ${reports.length === 1 ? 'is' : 'are'} valid.`,
     };
   return {
     tone: 'unknown',
-    text: `Signed. ${count} ${reports.length === 1 ? 'is' : 'are'} valid, but the signer’s identity is not trusted on this device.`,
+    text: `${signed}. ${count} ${reports.length === 1 ? 'is' : 'are'} valid, but the signer’s identity is not trusted on this device.`,
   };
 }
 
@@ -65,6 +67,7 @@ export function createSignaturesPanel({ onGoTo, onValidate }) {
       ['Location', report.location],
       ['Contact', report.contactInfo],
       ['Field', report.fieldName],
+      ['Appearance', report.invisible ? 'Invisible' : ''],
       [
         'Certificate',
         report.chain?.length
@@ -137,7 +140,9 @@ export function createSignaturesPanel({ onGoTo, onValidate }) {
                 el('span', { class: 'signature-state' }, report.summary || status.label),
               ),
             ),
+            // An invisible signature shows nowhere on the page.
             Number.isInteger(report.page) &&
+              !report.invisible &&
               button(
                 `Go to signature on page ${report.page + 1}`,
                 null,

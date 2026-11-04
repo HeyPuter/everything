@@ -27,6 +27,7 @@ export const ANNOTATION_KINDS = new Set([
 const movable = (entry) =>
   !entry.locked && !entry.readOnly && annotationAccepts(entry.subtype, 'rect');
 
+const SVG = 'http://www.w3.org/2000/svg';
 /** How long arrow keys rest before their nudges are saved as one move, in milliseconds. */
 const NUDGE_REST = 180;
 
@@ -105,6 +106,89 @@ export function createAnnotationLayer({ onSelect, onMove, onDelete }) {
   }
   window.addEventListener('keyup', endNudgeKey, true);
   window.addEventListener('blur', endNudgeKey);
+  /**
+   * The lines a comment draws when its box is mostly empty page: a line or arrow, a polyline,
+   * a pencil drawing, a callout's leader line (with its text box). Only these take the
+   * pointer, so what lies beside them in the box (text, links, fields, other comments) can
+   * still be clicked. Returns an SVG to put in the target, or null for the whole box.
+   */
+  function outline(entry, box) {
+    const callout = entry.subtype === 'FreeText' && entry.points?.length >= 2 && entry.box;
+    const strokes =
+      entry.subtype === 'Ink'
+        ? entry.points
+        : ['Line', 'PolyLine'].includes(entry.subtype) || callout
+          ? [entry.points]
+          : null;
+    if (!strokes?.length || !strokes.every((stroke) => stroke?.length)) return null;
+    const [ox, oy] = screenOffset(1, 0);
+    const scale = Math.hypot(ox, oy);
+    // As wide as the line and its arrowheads, and never too thin to hit, by touch especially.
+    const least = window.matchMedia?.('(pointer: coarse)').matches ? 28 : 14;
+    const reach = Math.max(least, ((entry.width || 1) * 3 + 8) * scale);
+    const pad = reach / 2;
+    // What its group draws with it (a measurement's label) takes the pointer too.
+    const members = (entry.group || []).map(screenBox);
+    const area = members.reduce(
+      (all, b) => {
+        const left = Math.min(all.left, b.left),
+          top = Math.min(all.top, b.top);
+        return {
+          left,
+          top,
+          width: Math.max(all.left + all.width, b.left + b.width) - left,
+          height: Math.max(all.top + all.height, b.top + b.height) - top,
+        };
+      },
+      { left: box.left, top: box.top, width: box.width, height: box.height },
+    );
+    // Local to the drawing, which starts inside the target's 1px border, shifted by the padding.
+    const local = ({ x, y }) => {
+      const [sx, sy] = viewport.convertToViewportPoint(x, y);
+      return [sx - area.left - 1 + pad, sy - area.top - 1 + pad];
+    };
+    const svg = document.createElementNS(SVG, 'svg');
+    svg.setAttribute('class', 'annotation-hit');
+    svg.setAttribute('aria-hidden', 'true');
+    Object.assign(svg.style, {
+      left: `${area.left - box.left - pad}px`,
+      top: `${area.top - box.top - pad}px`,
+      width: `${area.width + 2 * pad}px`,
+      height: `${area.height + 2 * pad}px`,
+    });
+    const path = document.createElementNS(SVG, 'path');
+    path.setAttribute(
+      'd',
+      strokes
+        .map((stroke) =>
+          stroke
+            .map((point, i) => `${i ? 'L' : 'M'}${local(point).map((v) => v.toFixed(2))}`)
+            .join(''),
+        )
+        .join(''),
+    );
+    path.setAttribute('stroke-width', reach.toFixed(2));
+    svg.append(path);
+    if (callout) {
+      const [x1, y1] = local(entry.box),
+        [x2, y2] = local({ x: entry.box.x + entry.box.width, y: entry.box.y + entry.box.height });
+      const rect = document.createElementNS(SVG, 'rect');
+      rect.setAttribute('x', Math.min(x1, x2));
+      rect.setAttribute('y', Math.min(y1, y2));
+      rect.setAttribute('width', Math.abs(x2 - x1));
+      rect.setAttribute('height', Math.abs(y2 - y1));
+      svg.append(rect);
+    }
+    for (const member of members) {
+      const rect = document.createElementNS(SVG, 'rect');
+      rect.setAttribute('x', member.left - area.left - 1 + pad);
+      rect.setAttribute('y', member.top - area.top - 1 + pad);
+      rect.setAttribute('width', member.width);
+      rect.setAttribute('height', member.height);
+      svg.append(rect);
+    }
+    return svg;
+  }
   const place = (node, box) =>
     Object.assign(node.style, {
       left: `${box.left}px`,
@@ -219,7 +303,13 @@ export function createAnnotationLayer({ onSelect, onMove, onDelete }) {
             if (selected !== entry.id) select(entry);
           },
         });
-        place(node, screenBox(entry.rect));
+        const box = screenBox(entry.rect);
+        place(node, box);
+        const hit = outline(entry, box);
+        if (hit) {
+          node.classList.add('is-outline');
+          node.append(hit);
+        }
         // Only a comment that can move offers the move pointer.
         if (!movable(entry)) node.style.cursor = 'pointer';
         if (entry.id === selected) node.classList.add('is-selected');

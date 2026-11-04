@@ -111,6 +111,24 @@ it('finds a word hyphenated across a line break whole, and keeps real dashes', (
   expect(index.origins[0].slice(3)).toEqual([3, 4, 5, 6]);
 });
 
+it('finds a hyphenated word whole when the line ends in an empty item after the hyphen', () => {
+  // PDF.js ends a line this way when the hyphen is its own item, in another font, say.
+  const index = indexPageText([
+    { str: 'Ends with exam' },
+    { str: '-' },
+    { str: '', hasEOL: true },
+    { str: 'ple word' },
+  ]);
+  expect(index.text).toBe('ends with example word');
+  expect(index.ranges).toEqual([
+    { start: 0, end: 14 },
+    { start: 14, end: 14 },
+    { start: 14, end: 14 },
+    { start: 14, end: 22 },
+  ]);
+  expect(index.origins[1]).toEqual([]);
+});
+
 it('ignores accents, as PDF readers do by default, and keeps highlights on the accented letters', () => {
   const index = indexPageText([
     { str: 'Le CAFÉ ' },
