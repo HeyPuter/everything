@@ -72,6 +72,8 @@ let nextAsset = 0;
 const EAGER_PAGES = 8;
 // Pages off screen are painted once changes have paused this long (schedulePaint).
 const QUIET_PAINT_MS = 600;
+// How long a finger rests on the text before it opens the context menu.
+const LONG_PRESS_MS = 500;
 
 /**
  * The change bars' ranges with those that touch or overlap joined into one, in document order. A bar marks every
@@ -157,16 +159,22 @@ export class CanvasEditor {
     this.measure.onFontsReady = () => { if (!this.destroyed) { try { this.relayout(); this.revealCaret(); } catch (error) { this.onError(error); } } };
     this.measureCache = { clear: () => this.measure.clear() };
     const listen = (node, name, fn) => node.addEventListener(name, fn, { signal: this.abort.signal });
-    listen(this.pages, 'pointerdown', e => this.pointerDown(e));
+    listen(this.pages, 'pointerdown', e => { this.longPressed = false; this.pointerDown(e); });
     // A press anywhere else ends a run of quick presses, as it does natively.
     listen(document, 'pointerdown', e => { if (!this.pages.contains(e.target)) this.lastPress = null; });
     listen(this.pages, 'pointermove', e => this.pointerMove(e));
     listen(this.pages, 'pointerup', e => this.pointerUp(e));
     listen(this.pages, 'pointercancel', () => this.cancelPointer());
     listen(this.pages, 'contextmenu', e => {
-      // A long press opens the menu; lifting that finger is not a tap.
+      e.preventDefault();
+      // The menu a held finger opened already (see longPress) is not opened again by the browser's own.
+      if (this.longPressed) return;
+      this.openContextMenu(e);
+    });
+    // A long press opens the menu; lifting that finger is not a tap.
+    this.openContextMenu = e => {
       this.touch = null;
-      e.preventDefault(); const selected=this.model.selectedImage, position = this.point(e, false), normal=this.pointImage;
+      const selected=this.model.selectedImage, position = this.point(e, false), normal=this.pointImage;
       this.point({clientX:e.clientX,clientY:e.clientY,altKey:true},false);
       const candidate=this.pointImage, picture=normal || (selected && candidate?.image.id===selected.id ? candidate : null);
       if (picture) this.model.select(picture.start, picture.end);
@@ -174,7 +182,7 @@ export class CanvasEditor {
       this.focus(); this.onSelection();
       const behind = !this.model.selectedImage && candidate;
       onContextMenu({event:e, behind, selectBehind:()=>{ if(behind){this.model.select(behind.start,behind.end);this.focus();this.onSelection();} }});
-    });
+    };
     listen(this.pages, 'dblclick', e => this.selectWord(e));
     // A third click selects the paragraph. Pointer events report no click
     // count, so the click that follows the third press carries it.
@@ -1368,8 +1376,25 @@ export class CanvasEditor {
     if (this.pointImage) return false;
     // Scrolling is up to touch-action; this only stops the emulated mouse press from taking focus.
     e.preventDefault();
-    this.touch = { down: e, x: e.clientX, y: e.clientY };
+    const touch = this.touch = { down: e, x: e.clientX, y: e.clientY, moved: false };
+    setTimeout(() => this.longPress(touch), LONG_PRESS_MS);
     return true;
+  }
+  /**
+   * A finger held still on the text opens the context menu, as a right-click does. Not every touch browser
+   * reports a long press as a contextmenu event (Safari on iPhone and iPad does not); one that does is then
+   * ignored for that press.
+   */
+  longPress(touch) {
+    if (this.touch !== touch || touch.moved || this.destroyed) return;
+    this.longPressed = true;
+    this.openContextMenu(touch.down);
+    // Lifting the finger may still be reported as a click, at the menu item now under it: that is not a choice.
+    const done = new AbortController(), end = () => done.abort(), signal = done.signal;
+    this.abort.signal.addEventListener('abort', end, { signal });
+    document.addEventListener('click', e => { e.preventDefault(); e.stopImmediatePropagation(); end(); }, { capture: true, signal });
+    document.addEventListener('pointerup', e => { if (e.pointerId === touch.down.pointerId) setTimeout(end, 400); }, { capture: true, signal });
+    document.addEventListener('pointerdown', end, { capture: true, signal });
   }
   /** Forget the press in progress (the browser took it for a scroll, or a second finger made it a pinch). */
   cancelPointer() { this.touch = null; this.linkPress = null; this.dragging = false; this.dragControl = null; this.stopAutoScroll(); this.imageInteraction.cancel(); }
@@ -1462,6 +1487,7 @@ export class CanvasEditor {
   pointerMove(e) {
     if (this.touch?.down.pointerId === e.pointerId) {
       const dx = Math.abs(e.clientX - this.touch.x), dy = Math.abs(e.clientY - this.touch.y);
+      if (Math.hypot(dx, dy) > 10) this.touch.moved = true;
       if (dx < 10 || dx <= dy) return;
       this.pointerDown(this.touch.down, true);
     }
