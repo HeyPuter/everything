@@ -226,6 +226,13 @@ export function listNotes(doc, index) {
     if (!(dict instanceof PDFDict) || dict.lookup(name('Subtype')) !== name('Text')) return [];
     const flags = dict.lookup(name('F'))?.asNumber?.() || 0;
     if (flags & (2 | 32)) return []; // hidden or NoView
+    // Replies and review states belong to their comment's thread. Acrobat writes them as
+    // visible notes at their parent's spot, where they would cover the parent's icon.
+    if (
+      dict.has(name('IRT')) &&
+      (dict.lookup(name('RT')) !== name('Group') || dict.has(name('State')))
+    )
+      return [];
     const propertiesLocked = !!(flags & 128),
       contentsLocked = !!(flags & 512);
     const rect = numbers(dict.lookup(name('Rect')));

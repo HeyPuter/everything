@@ -537,3 +537,37 @@ it.each([false, true])(
     ).toEqual(move ? [200, 70, 370, 250] : [180, 100, 350, 280]);
   },
 );
+
+it('lists a note once, not its replies and review states that Acrobat leaves visible', async () => {
+  const doc = await PDFDocument.create();
+  const page = doc.addPage([400, 400]);
+  const id = addNote(doc, 0, { x: 100, y: 300, text: 'Check the totals' });
+  const parent = page.node.Annots().get(0);
+  // Acrobat's replies and states: Text annotations at the parent's spot, flagged to print.
+  const thread = (fields) =>
+    page.node.Annots().push(
+      doc.context.register(
+        doc.context.obj({
+          Type: 'Annot',
+          Subtype: 'Text',
+          Rect: [100, 280, 120, 300],
+          F: 28,
+          Name: 'Comment',
+          IRT: parent,
+          ...fields,
+        }),
+      ),
+    );
+  thread({ Contents: PDFHexString.fromText('Done') });
+  thread({
+    Contents: PDFHexString.fromText('Accepted set by Grace'),
+    State: PDFString.of('Accepted'),
+    StateModel: PDFString.of('Review'),
+  });
+  // A note grouped with another comment is drawn as part of it, so it stays listed.
+  thread({ Contents: PDFHexString.fromText('Grouped'), RT: 'Group' });
+  expect(listNotes(doc, 0).map((note) => [note.id === id, note.text])).toEqual([
+    [true, 'Check the totals'],
+    [false, 'Grouped'],
+  ]);
+});
