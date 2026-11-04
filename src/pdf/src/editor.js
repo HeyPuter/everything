@@ -10167,7 +10167,9 @@ export function createEditor({
         'div',
         { class: 'annotation-style' },
         el('label', {}, el('span', {}, 'Color'), color),
-        fillable && el('label', {}, el('span', {}, 'Fill'), fill, noFill),
+        fillable && el('label', {}, el('span', {}, 'Fill'), fill),
+        // Said in words: a bare tick beside Fill read as "filled" for a shape with no fill.
+        fillable && el('label', { class: 'annotation-check' }, noFill, el('span', {}, 'No fill')),
         // A text box without a frame has no line for a width to change.
         annotationAccepts(entry.subtype, 'width') &&
           (entry.subtype !== 'FreeText' || entry.borderColor) &&

@@ -114,6 +114,14 @@ test('the Line width field shows a comment’s own width', async ({ page }) => {
   await width.selectOption('2');
   await settled(page);
   await expect(props.getByLabel('Line width', { exact: true })).toHaveValue('2');
+  // The fill switch says what it does in words, not as a bare tick beside "Fill".
+  const noFill = props.getByRole('checkbox', { name: 'No fill', exact: true });
+  await expect(noFill).toBeChecked();
+  await expect(props.getByText('No fill', { exact: true })).toBeVisible();
+  await noFill.press('Space');
+  await settled(page);
+  await expect(noFill).not.toBeChecked();
+  await expect(noFill).toBeFocused();
 });
 
 // Ctrl+Shift+S downloads without moving the focus, so the field never reports its change.
