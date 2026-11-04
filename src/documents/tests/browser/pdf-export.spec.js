@@ -26,3 +26,31 @@ test('File → Export → PDF downloads every page with searchable text', async 
   try { text = execFileSync('pdftotext', [path, '-'], { encoding: 'utf8' }); } catch { /* poppler is optional */ }
   if (text !== null) expect(text.replace(/\s+/g, ' ')).toMatch(/\w{4,}/);
 });
+
+test('choosing PDF again while one is being made downloads it once', async ({ page }) => {
+  await page.goto('/playground.html');
+  await page.getByRole('button', { name: 'Across pages', exact: true }).click();
+  await expect(page.locator('.canvas-page')).toHaveCount(2);
+  // Each page takes a moment to encode, as a long document's do.
+  await page.evaluate(() => {
+    const toBlob = HTMLCanvasElement.prototype.toBlob;
+    HTMLCanvasElement.prototype.toBlob = function (done, ...rest) { toBlob.call(this, blob => setTimeout(() => done(blob), 400), ...rest); };
+  });
+  const downloads = [];
+  page.on('download', download => downloads.push(download.suggestedFilename()));
+  const choosePdf = async () => {
+    await (await fileCommand(page, 'Export')).click();
+    await page.getByRole('menuitem', { name: 'PDF (.pdf)', exact: true }).click();
+  };
+  const first = page.waitForEvent('download');
+  await choosePdf();
+  await choosePdf();
+  await first;
+  await page.waitForTimeout(2000);
+  expect(downloads).toEqual(['Across two pages.pdf']);
+  // Once it is done, the next request makes another.
+  const again = page.waitForEvent('download');
+  await choosePdf();
+  await again;
+  expect(downloads).toHaveLength(2);
+});

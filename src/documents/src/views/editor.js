@@ -835,14 +835,20 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
   editorCommands.contextTabs = kit => [...(baseContextTabs?.(kit) || []), ...references.contextTabs(kit)];
   const baseFileItems = editorCommands.fileItems;
   editorCommands.fileItems = () => [...(baseFileItems?.() || []), { label: 'Save as PDF', icon: 'pdf', disabled: !engine || failed, onSelect: savePdf }];
-  async function savePdf() {
-    const editor = engine; if (!editor) return;
-    try {
-      editor.finishComposition();
-      const { exportPdf } = await import('../lib/pdf-export.js');
-      const name = P.ensureDocx(title.value || 'Untitled document').replace(/\.docx$/i, '.pdf');
-      P.downloadBlob(await exportPdf(editor, { title: title.value || 'Untitled document' }), name);
-    } catch (e) { if (!destroyed) error(e); }
+  // A PDF asked for again while one is being made (a long document's, chosen again from the menu) is that one:
+  // a second export painted and encoded every page again beside the first, slowed both many times over and
+  // downloaded the file twice.
+  let savingPdf = null;
+  function savePdf() {
+    return savingPdf ||= (async () => {
+      const editor = engine; if (!editor) return;
+      try {
+        editor.finishComposition();
+        const { exportPdf } = await import('../lib/pdf-export.js');
+        const name = P.ensureDocx(title.value || 'Untitled document').replace(/\.docx$/i, '.pdf');
+        P.downloadBlob(await exportPdf(editor, { title: title.value || 'Untitled document' }), name);
+      } catch (e) { if (!destroyed) error(e); }
+    })().finally(() => { savingPdf = null; });
   }
   const reviewHooks = {};
   const review = createReview({ editor: () => engine, pkg: () => pkg, host: () => (engine && !failed ? host : null), error, author: () => session.username, onChange: () => update(), onShift: () => { fitWidth(); rulers?.update(); }, hooks: reviewHooks });
