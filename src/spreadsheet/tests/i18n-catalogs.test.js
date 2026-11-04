@@ -130,7 +130,7 @@ const KEPT_WORDS = new Set(`
   PNG JPEG GIF WebP EMF WMF PDF CSV TSV XLSX XLSM XLS ODS TXT PRN DIF SYLK URL URI HTTP HTTPS API IME RGB
   HSL HEX CMYK GPU CPU ISO ANSI IEEE Ctrl Shift Alt Option Cmd Command Enter Esc Tab Space Home End PgUp
   PgDn Fn Delete Backspace Insert Num Lock Caps Scroll Calibri Cambria Carlito Caladea Arial Aptos AutoSum
-  OLAP OData SQL ODBC LAMBDA LET Wingdings Webdings Symbol Web
+  OLAP OData SQL ODBC LAMBDA LET Wingdings Webdings Symbol Web True False
 `.split(/\s+/).filter(Boolean));
 
 const CJK = /[㐀-䶿一-鿿豈-﫿]/;
