@@ -171,13 +171,16 @@ export function createOrganizeView({
       ? `${n} of ${count()} ${count() === 1 ? 'page' : 'pages'} selected`
       : `${count()} ${count() === 1 ? 'page' : 'pages'}`;
     const busy = isBusy();
-    toolbar.querySelectorAll('button[data-permission]').forEach((b) => {
+    // The buttons on each tile follow the same rules as the toolbar's, so a page that cannot
+    // be turned or deleted does not offer to be.
+    root.querySelectorAll('button[data-permission]').forEach((b) => {
       b.disabled = busy || !can(b.dataset.permission);
     });
     commands.remove.disabled ||= n >= count() || count() < 2;
     tiles.forEach((tile, i) => {
       tile.setAttribute('aria-selected', String(selected.has(i)));
       tile.classList.toggle('is-current', i === currentIndex());
+      tile.querySelector('.organize-tile-delete').disabled ||= count() < 2;
     });
   }
 
@@ -344,7 +347,7 @@ export function createOrganizeView({
             run(async () => {
               if ((await actions.remove([i])) !== false) selected.clear();
             }),
-            { 'data-permission': 'assemble', tabindex: -1 },
+            { 'data-permission': 'assemble', tabindex: -1, class: 'icon-btn organize-tile-delete' },
           ),
         ),
       ),

@@ -308,3 +308,32 @@ test('pages keep a visible edge in forced colors, in the view and in the page gr
   await expect(tile.locator('canvas')).toBeVisible();
   expect(await edge(tile.locator('canvas'))).toBe(true);
 });
+
+test("a page's own buttons in Organize pages cannot delete the only page", async ({ page }) => {
+  await mockPuter(page);
+  await page.goto('/#library');
+  const doc = await PDFDocument.create();
+  doc.addPage([400, 300]);
+  doc.addPage([400, 300]);
+  await openPdf(page, doc);
+  await page.getByRole('button', { name: 'Tools', exact: true }).click();
+  await page
+    .getByRole('complementary', { name: 'Tools' })
+    .getByRole('button', { name: 'Organize pages', exact: true })
+    .click();
+  const grid = page.getByRole('listbox', { name: 'Pages' });
+  await expect(grid.getByRole('option')).toHaveCount(2);
+  await expect(grid.getByRole('button', { name: 'Delete page 1', exact: true })).toBeEnabled();
+  await grid.getByRole('option', { name: 'Page 2', exact: true }).hover();
+  await grid.getByRole('button', { name: 'Delete page 2', exact: true }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Delete page', exact: true }).click();
+  await settled(page);
+  await expect(grid.getByRole('option')).toHaveCount(1);
+  // The toolbar's Delete is off with one page left, and so is the page's own.
+  const toolbar = page.getByRole('toolbar', { name: 'Organize pages' });
+  await expect(toolbar.getByRole('button', { name: 'Delete pages', exact: true })).toBeDisabled();
+  await expect(grid.getByRole('button', { name: 'Delete page 1', exact: true })).toBeDisabled();
+  await expect(
+    grid.getByRole('button', { name: 'Rotate page 1 clockwise', exact: true }),
+  ).toBeEnabled();
+});
