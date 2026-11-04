@@ -738,6 +738,12 @@ function showHome({ accountRefresh = false } = {}) {
     el('option', { value: 'size' }, 'Size'),
   );
   const renderFiles = () => {
+    // Replacing the rows drops a focused one; the search field then takes the focus.
+    const hadFocus = list.contains(document.activeElement);
+    drawFiles();
+    if (hadFocus && document.activeElement === document.body) search.focus({ preventScroll: true });
+  };
+  const drawFiles = () => {
     list.replaceChildren();
     if (libraryState === 'loading') {
       list.append(el('div', { class: 'empty-library' }, 'Loading your PDFs…'));
@@ -949,8 +955,12 @@ function showHome({ accountRefresh = false } = {}) {
   async function load() {
     const token = ++loadGeneration;
     const signal = accountController.signal;
-    libraryState = user ? 'loading' : 'ready';
-    renderFiles();
+    // A refresh after renaming, duplicating, or deleting keeps the rows on screen until the new
+    // listing arrives, so a long library is not cut to one line and the reader keeps their place.
+    if (!user || libraryState !== 'ready' || !files.length) {
+      libraryState = user ? 'loading' : 'ready';
+      renderFiles();
+    }
     if (!user) return;
     try {
       await settleAccount(signal);
