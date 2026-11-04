@@ -3478,9 +3478,14 @@ export function createEditor({
     overlay.classList.toggle('active', area);
     overlay.tabIndex = area ? 0 : -1;
     highlightButton.hidden = area;
-    hint.textContent = area
-      ? 'Drag over an area to highlight it.'
-      : 'Select text, then choose Highlight selection. Use Area for scanned pages.';
+    // Redaction marks share this tool; their hint names their own command.
+    hint.textContent = redacting()
+      ? area
+        ? 'Drag over an area to mark it for redaction.'
+        : 'Select text, then choose Mark selection for redaction. Choose Area to drag over pictures or any part of the page.'
+      : area
+        ? 'Drag over an area to highlight it.'
+        : 'Select text, then choose Highlight selection. Use Area for scanned pages.';
     if (area) {
       if (highlightSelection || highlightCaptureTimer) window.getSelection()?.removeAllRanges();
       clearHighlightSelection();

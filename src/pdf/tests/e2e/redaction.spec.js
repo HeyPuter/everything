@@ -2,6 +2,8 @@ import { test, expect } from '@playwright/test';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 
 const PUTER_MOCK = `window.puter = { env: 'web', auth: { isSignedIn: () => true, getUser: async () => ({username:'test-user'}), signIn: async () => {}, signOut: async () => {} }, fs: { readdir: async () => [], write: async () => ({}) }, ui: { onLaunchedWithItems: () => {}, onItemsOpened: () => {} } };`;
+test.skip(({ isMobile }) => isMobile, 'desktop workspace');
+
 const settled = (page) => expect(page.locator('.editor')).toHaveAttribute('aria-busy', 'false');
 
 test('Apply redactions counts what it removed in words that agree with the numbers', async ({
@@ -82,4 +84,35 @@ test('Find text and redact lists its matches with the dialogs’ own check boxes
       return [style.accentColor, node.getBoundingClientRect().width];
     });
   expect(await look(match)).toEqual(await look(pattern));
+});
+
+test('the redaction tool’s hint names its own command, not Highlight', async ({ page }) => {
+  await page.route('https://js.puter.com/**', (route) =>
+    route.fulfill({ contentType: 'application/javascript', body: PUTER_MOCK }),
+  );
+  await page.goto('/#library');
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  doc.addPage([300, 300]).drawText('Account 12345678', { x: 40, y: 200, size: 14, font });
+  const chooser = page.waitForEvent('filechooser');
+  await page.getByRole('button', { name: /Open a PDF/ }).click();
+  await (
+    await chooser
+  ).setFiles({
+    name: 'account.pdf',
+    mimeType: 'application/pdf',
+    buffer: Buffer.from(await doc.save()),
+  });
+  await expect(page.locator('.page-caption')).toHaveText('Page 1 of 1');
+  await page.getByRole('button', { name: 'Tools', exact: true }).click();
+  const pane = page.getByRole('complementary', { name: 'Tools' });
+  await pane.getByRole('button', { name: 'Redact a PDF', exact: true }).click();
+  await pane.getByRole('button', { name: /Redact text and images/ }).click();
+  const hint = page.locator('.tool-hint');
+  // It read "Select text, then choose Highlight selection", a button the tool does not show.
+  await expect(hint).toHaveText(
+    'Select text, then choose Mark selection for redaction. Choose Area to drag over pictures or any part of the page.',
+  );
+  await page.getByRole('combobox', { name: 'Highlight mode' }).selectOption('area');
+  await expect(hint).toHaveText('Drag over an area to mark it for redaction.');
 });
