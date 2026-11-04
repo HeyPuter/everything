@@ -516,6 +516,8 @@ export class SketchEditor implements ViewportTool {
           lookup: (n) => this.app.variables().get(n),
         });
         if (!(num > 0) && d.type !== 'angle') return { ok: false, e: 'Value must be greater than zero' };
+        // The angle between two lines is 0 to 180 degrees; the label side picks the sector.
+        if (d.type === 'angle' && !(num >= 0 && num <= 180)) return { ok: false, e: 'Angle must be between 0° and 180°' };
         return { ok: true, v: s.startsWith('=') ? s : num };
       } catch (e) {
         return { ok: false, e: (e as Error).message };

@@ -56,4 +56,27 @@ test.describe('sketching', () => {
     expect(before).not.toContain('null');
     expect(errors).toEqual([]);
   });
+
+  test('angle dimensions show degrees, accept a typed degree sign and reject angles over 180', async ({ page }) => {
+    const errors = await openApp(page);
+    const { x, y } = await startSketch(page);
+    await page.locator('[data-cmd="tool:line"]').click();
+    await page.mouse.click(x - 200, y + 100);
+    await page.mouse.click(x - 100, y + 100);
+    await page.mouse.click(x - 150, y + 20);
+    await page.keyboard.press('Escape');
+    await page.keyboard.press('d');
+    await page.mouse.click(x - 140, y + 100);
+    await page.mouse.click(x - 120, y + 60);
+    await page.mouse.click(x - 112, y + 80);
+    const modify = page.getByRole('dialog', { name: /Modify/ });
+    await modify.getByRole('textbox').fill('200');
+    await expect(modify.getByRole('alert')).toHaveText('Angle must be between 0° and 180°');
+    await modify.getByRole('textbox').fill('30°');
+    await expect(modify.getByRole('alert')).toHaveText('');
+    await modify.getByRole('textbox').press('Enter');
+    await expect(page.locator('.dim-label')).toHaveText('30.0°');
+    await expect(page.locator('.statusbar')).toContainText('Under Defined');
+    expect(errors).toEqual([]);
+  });
 });
