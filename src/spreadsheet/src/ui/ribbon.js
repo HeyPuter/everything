@@ -18,7 +18,7 @@ import { pasteGalleryItems } from './pastespecialdialog.js';
 import { chartInsertGroup, chartDesignGroups, chartFormatGroups } from './chart-ribbon.js';
 import { pictureFormatGroups, activePicture } from './picture-ribbon.js';
 import { activeChart } from './chart-actions.js';
-import { GROUP_BLOCKED_COMMANDS, GROUP_BLOCKED_HINT } from '../core/sheet-group.js';
+import { GROUP_BLOCKED_COMMANDS, groupBlockedHint } from '../core/sheet-group.js';
 import { arrangeGroup } from './arrange-ribbon.js';
 import { activeSmartArt, smartArtDesignGroups, smartArtFormatGroups } from './smartart.js';
 import { ribbonLayoutStore, parseCommandId } from '../lib/customize.js';
@@ -88,7 +88,7 @@ const direct = (label, glyph, cmd, arg, { ariaLabel, ...extra } = {}) => {
       const f = ctx?.flags?.() || {};
       // Grouped sheets: a command for one sheet's objects waits, as the menus' does.
       const grouped = !!f.grouped && GROUP_BLOCKED_COMMANDS.has(cmd);
-      return { label: n.label, cmd, arg, disabled: !!f.editing || grouped, hint: grouped ? GROUP_BLOCKED_HINT : undefined, checked: extra.isChecked?.(ctx) };
+      return { label: n.label, cmd, arg, disabled: !!f.editing || grouped, hint: grouped ? groupBlockedHint() : undefined, checked: extra.isChecked?.(ctx) };
     } };
 };
 const large = descriptor => ({ ...descriptor, large: true });
@@ -100,7 +100,7 @@ const threadCmd = (label, glyph, cmd, { needs = null, toggle = false, ariaLabel,
       const f = ctx?.flags?.() || {};
       // Grouped sheets: a comment belongs to one sheet's cell, so adding or deleting one waits, as the menus' does.
       const grouped = !!f.grouped && GROUP_BLOCKED_COMMANDS.has(cmd);
-      return { label: n.label, cmd, disabled: !toggle && (!!f.editing || !!f.chartSheet || grouped || (needs ? !f[needs] : false)), hint: grouped ? GROUP_BLOCKED_HINT : undefined, checked: toggle ? !!f.commentsPane : undefined, shortcut: extra.shortcut };
+      return { label: n.label, cmd, disabled: !toggle && (!!f.editing || !!f.chartSheet || grouped || (needs ? !f[needs] : false)), hint: grouped ? groupBlockedHint() : undefined, checked: toggle ? !!f.commentsPane : undefined, shortcut: extra.shortcut };
     } };
 };
 const NEW_COMMENT_KEY = `${MOD_KEY}+Shift+F2`;
@@ -677,6 +677,8 @@ export function createRibbon(ctx) {
   for (const name of names) {
     const { tab, panel } = makeTab(name);
     tab.dataset.builtinName = name;
+    // Its own name in the interface language, whatever the person renamed it to (Options and the command catalog show it).
+    tab.dataset.builtinLabel = tabLabel(name);
     if (name === 'Home') {
       panel.append(toolbar.el);
       // Escape from a Home command goes back up to the Home tab, as it does from every other tab's commands.
@@ -913,7 +915,7 @@ export function createRibbon(ctx) {
         const item = command(cmd, arg === null ? undefined : arg)(menus);
         if (item && JSON.stringify(item.arg ?? null) === JSON.stringify(arg)) return { ...item, label };
         const grouped = !!f.grouped && GROUP_BLOCKED_COMMANDS.has(cmd);
-        return { label, cmd, arg, disabled: !!f.editing || grouped, hint: grouped ? GROUP_BLOCKED_HINT : undefined };
+        return { label, cmd, arg, disabled: !!f.editing || grouped, hint: grouped ? groupBlockedHint() : undefined };
       } };
   };
   function customGroup(g, catalog) {

@@ -40,6 +40,7 @@
   "share.opening": "Opening the shared workbook…",
   "share.removed": "Removed {name}",
   "share.roleChanged": "{name} {role, select, editor {can now edit} other {can now view}}",
+  "share.roleName": "{role, select, owner {Owner} editor {Can edit} viewer {Can view} other {{role}}}",
   "share.start": "Start editing together",
   "share.stop": "Stop editing together",
   "share.stopMessage": "Everyone else loses access to the live workbook. The file keeps every change made so far and is yours alone again.",

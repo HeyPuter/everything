@@ -43,7 +43,7 @@ export const GROUP_REPLAYED = [
 
 /**
  * Editor commands that act on one sheet's objects (tables, charts, rules, filters, sorting, pictures) and so cannot
- * be applied to a group: the menus grey them out with GROUP_BLOCKED_REASON and the editor refuses them.
+ * be applied to a group: the menus grey them out with groupBlockedReason() and the editor refuses them.
  */
 export const GROUP_BLOCKED_COMMANDS = new Set([
   'sort', 'sortDialog', 'filter', 'filterMenu', 'clearFilters', 'reapplyFilters', 'advancedFilter',
@@ -64,7 +64,7 @@ export const GROUP_BLOCKED_COMMANDS = new Set([
 export const groupBlockedReason = () => t('sheetGroup.blockedReason');
 /** The same, short enough for the second line of a menu item. */
 export const groupBlockedHint = () => t('sheetGroup.blockedHint');
-/** The two in English, for code that has not moved to the functions above yet. */
+/** The two in English, the source language, for comparing with. */
 export const GROUP_BLOCKED_REASON = tSource('sheetGroup.blockedReason');
 export const GROUP_BLOCKED_HINT = tSource('sheetGroup.blockedHint');
 

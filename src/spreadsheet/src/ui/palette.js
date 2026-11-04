@@ -3,7 +3,7 @@
  * (or Alt+/) opens it; typing filters, arrows move, Enter runs.
  */
 
-import { SAMPLE_SCRIPTS } from '../core/scripts.js';
+import { SAMPLE_SCRIPTS, sampleName, sampleDescription } from '../core/scripts.js';
 import { isComposing, el, MOD_KEY, IS_MAC } from './dom.js';
 import { icon } from './icons.js';
 import { ariaKeyShortcuts } from './menu.js';
@@ -296,7 +296,8 @@ export function paletteCommands(flags = {}) {
     c(flags.recording ? 'palette.cmd.stopRecordingActions' : 'palette.cmd.recordActions', 'Automate', 'recordActions', 'recordActions', null, { keywords: 'macro recorder automate script' }),
     c('palette.cmd.allScripts', 'Automate', 'allScripts', 'scriptGallery', null, { keywords: 'gallery samples macros my scripts library' }),
     c('palette.cmd.scriptReference', 'Automate', 'scriptReference', 'scriptReference', null, { keywords: 'api documentation help javascript' }),
-    ...SAMPLE_SCRIPTS.map((sample) => ({ ...named('palette.cmd.runSampleScript', 'Automate', { name: sample.name }), icon: 'runScript', cmd: 'runScript', arg: { sample: sample.id }, keywords: `macro ${sample.description}` })),
+    // A sample's name and description show translated; its English stays searchable.
+    ...SAMPLE_SCRIPTS.map((sample) => ({ ...named('palette.cmd.runSampleScript', 'Automate', { name: sample.name }), label: t('palette.cmd.runSampleScript', { name: sampleName(sample) }), icon: 'runScript', cmd: 'runScript', arg: { sample: sample.id }, keywords: `macro ${sample.description} ${sampleDescription(sample)}` })),
     flags.ai && flags.hasFormula && c('palette.cmd.explainThisFormulaAI', 'Formula', 'sparkle', 'aiExplain', null, { keywords: 'assistant' }),
     flags.ai && c('palette.cmd.askAIAboutThisData', 'Data', 'sparkle', 'aiAsk', null, { keywords: 'question summarize insights assistant analyze' }),
 

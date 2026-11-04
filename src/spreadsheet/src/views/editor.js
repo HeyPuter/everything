@@ -156,7 +156,7 @@ import { openShortcuts } from '../ui/shortcuts.js';
 import { session } from '../lib/session.js';
 import * as P from '../lib/puter.js';
 import { trackEvent } from '../lib/analytics.js';
-import { VIEW_ONLY, CANCELLED, THEIRS_NOT_KEPT, autoSaveEnabled } from '../lib/doc.js';
+import { viewOnlyText, CANCELLED, THEIRS_NOT_KEPT, autoSaveEnabled } from '../lib/doc.js';
 import { cellName, colName, normalizeRange, rangeName, parseRange, parseCellRef, parseKey } from '../core/cell.js';
 import { parseRefText, selectionName, MAX_ROW, MAX_COL } from '../core/refs.js';
 import { formatValue, todaySerial, formatDate, fontStack, indentWidth, parseInput, MAX_DECIMAL_PLACES, AUTOMATIC_FORMAT, cellCurrency, currencyDecimals, localeInfo, editText, hasDecimalPlaces } from '../core/format.js';
@@ -180,7 +180,7 @@ import { pasteOptions, legacyMode, pasteLabel, composePaste, cellsFromText } fro
 import { refill, autoFillChoices, defaultAutoFill, justifyLines } from '../core/autofill-options.js';
 import { openPasteSpecialDialog, openInsertPasteDialog, pasteGallery } from '../ui/pastespecialdialog.js';
 import { createOptionButton } from '../ui/option-button.js';
-import { GROUP_BLOCKED_COMMANDS, GROUP_BLOCKED_REASON } from '../core/sheet-group.js';
+import { GROUP_BLOCKED_COMMANDS, groupBlockedReason } from '../core/sheet-group.js';
 import { openFillAcrossDialog } from '../ui/fillacross.js';
 import { createAutoCorrector, openAutoCorrectDialog, syncAutoCorrectSettings } from '../ui/autocorrect.js';
 import { appOptions, appOption, setAppOptions, onAppOptions, syncAppOptions, displayUserName } from '../lib/app-options.js';
@@ -1697,8 +1697,8 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     if (chartSheet && !chartSheetCommand(cmd) && !AUTOMATE_COMMANDS.has(cmd)) return;
     // A command for one sheet's objects (a table, a chart, a rule, a sort) has no meaning across a group of sheets.
     if (wb.sheetGroup && GROUP_BLOCKED_COMMANDS.has(cmd)) {
-      toast(GROUP_BLOCKED_REASON, { icon: 'layers', duration: 4000 });
-      statusBar?.announce(GROUP_BLOCKED_REASON);
+      toast(groupBlockedReason(), { icon: 'layers', duration: 4000 });
+      statusBar?.announce(groupBlockedReason());
       return;
     }
     if (COMMENT_COMMANDS.has(cmd)) { comments.run(cmd, arg); return; }
@@ -6595,7 +6595,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       error: ['alert', t('editor.status.notSaved')],
       offline: ['cloudOff', t('editor.status.offline')],
       // A file moved or deleted elsewhere, or one that could not be checked, is a conflict too (see doc.js), but not one that changed: the reason names which.
-      conflict: ['alert', /moved or deleted/i.test(doc.error || '') ? t('editor.status.movedOrDeleted') : /could not be checked/i.test(doc.error || '') ? t('editor.status.couldNotCheck') : t('editor.status.changedElsewhere')],
+      conflict: ['alert', doc.conflictKind === 'missing' ? t('editor.status.movedOrDeleted') : doc.conflictKind === 'unchecked' ? t('editor.status.couldNotCheck') : t('editor.status.changedElsewhere')],
     };
     // Shared only to view: said at rest, and in place of a save that was refused (not while offline, which passes).
     if (doc.viewOnly && (doc.status === 'saved' || doc.status === 'error')) map[doc.status] = ['eye', doc.status === 'saved' ? t('editor.status.viewOnly') : t('editor.status.viewOnlyNotSaved')];
@@ -6607,7 +6607,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     const label = noCopy ? t('editor.status.noCopy', { status: base }) : base;
     status.className = `save-status ${doc.status}`;
     status.replaceChildren(el('span', { html: icon(ic, 14, 2), className: ic === 'spinner' ? 'spin' : '' }), el('span.save-label', {}, label));
-    status.title = doc.error ? t('editor.status.withDetail', { label, detail: doc.error }) : doc.viewOnly ? t('editor.status.withDetail', { label, detail: VIEW_ONLY }) : unplaced ? t('editor.status.unplacedTip', { label, mod: MOD_KEY }) : (doc.path ? t('editor.status.withPath', { label, path: doc.path }) : label);
+    status.title = doc.error ? t('editor.status.withDetail', { label, detail: doc.error }) : doc.viewOnly ? t('editor.status.withDetail', { label, detail: viewOnlyText() }) : unplaced ? t('editor.status.unplacedTip', { label, mod: MOD_KEY }) : (doc.path ? t('editor.status.withPath', { label, path: doc.path }) : label);
   }
 
   function refreshTitle() {
@@ -7283,7 +7283,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     if (destroyed || !mode || P.canWriteMode(mode)) return;
     doc.viewOnly = true;
     refreshStatus();
-    toast(VIEW_ONLY, { icon: 'eye', duration: 7000 });
+    toast(viewOnlyText(), { icon: 'eye', duration: 7000 });
   }
   if (!session.signedOut) checkViewOnly();
 

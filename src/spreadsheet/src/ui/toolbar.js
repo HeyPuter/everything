@@ -18,7 +18,7 @@ import { CURRENCIES, FONTS, fontName, fontStack, formatValue, currencyDecimals, 
 import { openCustomFormatDialog } from './numfmtdialog.js';
 import { customColorRows, colorLabel } from './colorpicker.js';
 import { themeColorBlock } from './themes.js';
-import { GROUP_BLOCKED_REASON } from '../core/sheet-group.js';
+import { groupBlockedReason } from '../core/sheet-group.js';
 import { t, tSource } from '../i18n/index.js';
 
 /* Presets built on the custom-format engine; matched by their code. */
@@ -769,7 +769,7 @@ export function createToolbar(ctx, { ribbon = false, ribbonExtras = {} } = {}) {
     for (const b of [sortBtn, filterBtn, freezeBtn, cfBtn, dvBtn]) {
       if (b.dataset.title == null) b.dataset.title = b.title;
       if (grouped) b.disabled = true; else if (b !== sortBtn) b.disabled = false;
-      b.title = grouped ? t('toolbar.blockedTip', { title: b.dataset.title, reason: GROUP_BLOCKED_REASON }) : b.dataset.title;
+      b.title = grouped ? t('toolbar.blockedTip', { title: b.dataset.title, reason: groupBlockedReason() }) : b.dataset.title;
     }
     // Dates, times, text and custom codes without a number have no decimal places to step, so the buttons are greyed as the menus grey them.
     decLess.disabled = decMore.disabled = editing || !hasDecimalPlaces(s);

@@ -40,6 +40,7 @@
   "share.opening": "正在打开共享工作簿…",
   "share.removed": "已移除 {name}",
   "share.roleChanged": "{name} {role, select, editor {现在可以编辑} other {现在可以查看}}",
+  "share.roleName": "{role, select, owner {所有者} editor {可编辑} viewer {可查看} other {{role}}}",
   "share.start": "开始共同编辑",
   "share.stop": "停止共同编辑",
   "share.stopMessage": "其他所有人将无法再访问此实时工作簿。文件会保留到目前为止的所有更改，并重新归你一人所有。",

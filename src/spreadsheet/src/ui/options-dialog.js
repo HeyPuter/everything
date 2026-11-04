@@ -412,9 +412,9 @@ export function openOptionsDialog(ctx, { section = 'general' } = {}) {
       for (const tab of RL.tabsIn(layout(), builtins.map((b) => b.id))) {
         // A built-in tab is known by its English name (its id) and shown by its name in the interface language.
         const builtin = tab.builtin ? builtins.find((b) => b.id === tab.id) : null;
-        const renamed = tab.builtin && tab.name !== tab.id;
+        const renamed = tab.builtin && !!tab.renamed;
         const label = builtin && !renamed ? builtin.label : tab.name;
-        out.push({ id: `tab:${tab.id}`, label, kind: 'tab', checked: !tab.hidden, icon: null, detail: tab.builtin ? (renamed ? t('optionsDialog.ribbon.renamedTab', { name: builtin?.label || tab.id }) : t('optionsDialog.ribbon.tab')) : t('optionsDialog.ribbon.yourTab') });
+        out.push({ id: `tab:${tab.id}`, label, kind: 'tab', checked: !tab.hidden, icon: null, detail: tab.builtin ? (renamed ? t('optionsDialog.ribbon.renamedTab', { name: RL.builtinTabLabel(tab.id) }) : t('optionsDialog.ribbon.tab')) : t('optionsDialog.ribbon.yourTab') });
         const own = layout().groups[tab.id] || [];
         if (builtin) for (const g of builtin.groups) out.push({ id: `fixed:${tab.id}:${g.id}`, label: g.label, kind: 'fixed', depth: 1, muted: true });
         for (const g of own) {
@@ -530,7 +530,7 @@ export function openOptionsDialog(ctx, { section = 'general' } = {}) {
         .filter((g) => g.id) : [];
       const id = tab.dataset.builtinName;
       // A tab renamed by the person shows their name; its own label is kept in data-builtin-label where the ribbon gives one.
-      const label = tab.dataset.builtinLabel || (ribbonLayoutStore.get().names?.[id] ? id : tab.textContent.trim() || id);
+      const label = tab.dataset.builtinLabel || RL.builtinTabLabel(id);
       return { id, label, groups };
     });
   }

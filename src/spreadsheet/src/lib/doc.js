@@ -555,8 +555,14 @@ export class Doc extends EventTarget {
     moveDraft(liveDraftKey(key), this.draftKey);
   }
 
-  _setStatus(status, error = null) {
-    if (this.status === status && this.error === error) return;
+  /**
+   * `conflictKind` says which conflict a 'conflict' status is ('changed', 'missing' or 'unchecked'), so the view
+   * can word it without reading the message, which is in the interface language.
+   */
+  _setStatus(status, error = null, conflictKind = this.conflictKind) {
+    if (status !== 'conflict') conflictKind = null;
+    if (this.status === status && this.error === error && this.conflictKind === conflictKind) return;
+    this.conflictKind = conflictKind;
     this.status = status;
     this.error = error;
     this.dispatchEvent(new CustomEvent('status', { detail: { status, error } }));
@@ -726,7 +732,7 @@ export class Doc extends EventTarget {
         // name, so the user is asked instead.
         const st = await P.statFile(this.path) || await this._followMove();
         if (!st) {
-          this._setStatus('conflict', t('doc.status.movedOrDeleted'));
+          this._setStatus('conflict', t('doc.status.movedOrDeleted'), 'missing');
           this.dispatchEvent(new CustomEvent('conflict', { detail: { kind: 'missing' } }));
           return false;
         }
@@ -752,7 +758,7 @@ export class Doc extends EventTarget {
         else if (newer || resized || (ambiguous && await this._holdsLastWrite(st) === false)) {
           // With no baseline (the look-up failed at open) nobody can say the file changed: the question is put as such.
           const unchecked = this.remoteModified === 0;
-          this._setStatus('conflict', unchecked ? t('doc.status.notChecked') : t('doc.status.changedElsewhere'));
+          this._setStatus('conflict', unchecked ? t('doc.status.notChecked') : t('doc.status.changedElsewhere'), unchecked ? 'unchecked' : 'changed');
           this.dispatchEvent(new CustomEvent('conflict', { detail: { kind: unchecked ? 'unchecked' : 'changed', remoteModified: mod } }));
           return false;
         }

@@ -9,9 +9,9 @@ import { icon } from './icons.js';
 import { openMenu } from './menu.js';
 import { toast } from './toast.js';
 import { confirmDialog, promptDialog } from './modal.js';
-import { colorFor, colorsFor, initials, roleLabel } from '../collab/protocol.js';
+import { colorFor, colorsFor, initials } from '../collab/protocol.js';
 import { invitationLink, startSharing, stopSharing } from '../collab/session.js';
-import { UNREACHABLE } from '../collab/api.js';
+import { unreachableMessage } from '../collab/api.js';
 import { rangeName } from '../core/cell.js';
 import { t, compareText } from '../i18n/index.js';
 
@@ -85,7 +85,7 @@ export function createPeopleBar({ client, wb, jump }) {
 export function roomStatus(client) {
   const { state, pending, message } = client.status;
   // The connection's own explanation says the changes are kept already; any other reason is told it in full.
-  if (state === 'offline') return ['cloudOff', pending ? t('coauthor.status.offlineWaiting', { count: pending }) : t('coauthor.status.offline'), message === UNREACHABLE ? message : t('coauthor.status.offlineKept', { reason: (message || t('coauthor.status.offline')).replace(/[.。]$/, '') })];
+  if (state === 'offline') return ['cloudOff', pending ? t('coauthor.status.offlineWaiting', { count: pending }) : t('coauthor.status.offline'), message === unreachableMessage() ? message : t('coauthor.status.offlineKept', { reason: (message || t('coauthor.status.offline')).replace(/[.。]$/, '') })];
   if (state === 'error') return ['alert', t('coauthor.status.notConnected'), message || t('coauthor.status.unreachable')];
   if (state === 'syncing' || pending) return ['spinner', t('coauthor.status.syncing'), t('coauthor.status.syncingTitle')];
   if (state === 'connecting') return ['spinner', t('coauthor.status.connecting'), t('coauthor.status.connectingTitle')];
@@ -154,7 +154,7 @@ export function coauthorSection({ doc, onStarted }) {
             loadMembers();
           },
         }, ...[['editor', t('coauthor.share.canEdit')], ['viewer', t('coauthor.share.canView')], ['removed', t('common.remove')]].map(([value, label]) => el('option', { value, selected: value === m.role }, label)))
-        : el('span.share-level', {}, roleLabel(m.role));
+        : el('span.share-level', {}, t('coauthor.share.roleName', { role: m.role }));
       return el('div.version-row.share-row', { role: 'listitem' },
         el('span.share-avatar.collab-member-avatar', { 'aria-hidden': 'true', style: { '--peer': colorFor(m.uuid) } }, initials(m.username)),
         el('div.version-main', {},
