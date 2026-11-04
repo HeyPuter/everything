@@ -39,6 +39,8 @@ export async function destinationTarget(pdf, dest) {
 }
 /** As many items as the tree shows; a longer outline is listed this far and says so. */
 const MAX_ITEMS = 2000;
+/** How many levels of an outline may start unfolded. */
+const MAX_OPEN_DEPTH = 8;
 export function createOutlinePanel({ onNavigate, onMenu }) {
   const root = el('div', { class: 'outline' });
   let entries = [], // { button, page, depth, group, parent }
@@ -102,6 +104,10 @@ export function createOutlinePanel({ onNavigate, onMenu }) {
         ]),
     ]);
     if (nextSnapshot === snapshot) return entries.length > 0;
+    // The first time, items open as the PDF says (a positive Count, ISO 32000-1, 12.3.3), a
+    // few levels deep: a browser cannot lay out an outline nested thousands of levels deep
+    // all at once. After that, items stay as the reader left them.
+    const first = snapshot === null;
     const focusedPath = entries.find((entry) => entry.button === document.activeElement)?.path;
     const expanded = new Set(
       entries
@@ -196,7 +202,12 @@ export function createOutlinePanel({ onNavigate, onMenu }) {
           toggle.style.left = `${depth * 14 - 2}px`;
           row.prepend(toggle);
           row.append(entry.group);
-          if (expanded.has(JSON.stringify(entry.path))) setExpanded(entry, true);
+          if (
+            first
+              ? item.count > 0 && depth < MAX_OPEN_DEPTH
+              : expanded.has(JSON.stringify(entry.path))
+          )
+            setExpanded(entry, true);
         }
         label.addEventListener('click', () => {
           if (entry.page != null) onNavigate(entry.page, entry.target);
