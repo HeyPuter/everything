@@ -438,6 +438,29 @@ test('copy and paste formatting, Repeat, and Customize Keyboard bindings', async
   await expect(page.getByRole('dialog', { name: 'Keyboard shortcuts' })).toContainText('Underline');
 });
 
+test('Customize Keyboard keeps listing a command\'s built-in shortcut beside one of your own, and both run it', async ({ page }) => {
+  await openEditor(page);
+  await text(page).fill('Some words');
+  await (await openMenu(page, 'Tools')).getByRole('menuitem', { name: 'Customize Keyboard…' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Customize Keyboard' });
+  const row = name => dialog.locator('.kb-item').filter({ has: page.locator('.kb-label', { hasText: new RegExp(`^${name}$`) }) }).first();
+  const italic = MAC ? 'Cmd+I' : 'Ctrl+I', own = MAC ? 'Cmd+Option+J' : 'Ctrl+Alt+J';
+  await dialog.getByRole('searchbox', { name: 'Search commands' }).fill('italic');
+  await row('Italic').click();
+  await dialog.getByRole('textbox', { name: 'New shortcut' }).click();
+  await page.keyboard.press('ControlOrMeta+Alt+j');
+  await dialog.getByRole('button', { name: 'Assign' }).click();
+  await expect(row('Italic').locator('.kb-keys')).toHaveText(`${own}, ${italic}`);
+  await expect(dialog.locator('.kb-current')).toContainText(italic);
+  await expect(dialog.locator('.kb-current')).toContainText('built in');
+  await dialog.getByRole('button', { name: 'Done' }).click();
+  await select(page, 0, 4);
+  await text(page).press('ControlOrMeta+i');
+  expect((await engine(page)).italic).toBe(true);
+  await text(page).press('ControlOrMeta+Alt+j');
+  expect((await engine(page)).italic).toBe(false);
+});
+
 test('Customize Keyboard no longer lists a built-in shortcut for its command once another command takes it', async ({ page }) => {
   await openEditor(page);
   await (await openMenu(page, 'Tools')).getByRole('menuitem', { name: 'Customize Keyboard…' }).click();
