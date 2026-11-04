@@ -2356,8 +2356,11 @@ export class DocxPackage {
     if (this.readOnly) throw new Error('This document is open read-only.');
     const names = NOTE_KINDS[kind], key = `${kind}s`;
     this.notesParts ||= {};
-    let part = this.pageStories?.[key]?.part || this.notesParts[kind] || relatedPartPath(this.parts, names.part);
-    if (!part) part = kind === 'footnote' ? createFootnotesPart(this.parts) : createNotesPart(this.parts, kind);
+    let part = this.pageStories?.[key]?.part || this.notesParts[kind] || relatedPartPath(this.parts, names.part), created = null;
+    if (!part) {
+      created = { types: this.parts['[Content_Types].xml'], rels: this.parts['word/_rels/document.xml.rels'], notesPart: this.notesParts[kind], footnotesPart: this.footnotesPart };
+      part = kind === 'footnote' ? createFootnotesPart(this.parts) : createNotesPart(this.parts, kind);
+    }
     const used = new Set([...xml(this.parts[part]).getElementsByTagNameNS(W, names.element)].map(n => Number(n.getAttributeNS(W, 'id'))));
     for (const path of this.storyOriginals.keys()) { const id = footnoteStoryId(path); if (id !== null && path.startsWith(`${part}#`)) used.add(Number(id)); }
     let id = 1; while (used.has(id)) id++;
@@ -2366,8 +2369,31 @@ export class DocxPackage {
     this.notesParts[kind] = part;
     if (kind === 'footnote') { this.footnotesPart = part; (this.createdFootnotes ||= new Set()).add(String(id)); }
     ((this.createdNotes ||= {})[kind] ||= new Set()).add(String(id));
+    (this.reservedNotes ||= new Map()).set(path, { kind, id: String(id), part, created });
     // Settings changed in this session (setNoteSettings) override the file's: the note is shown as it is saved.
     return { id: String(id), part, path, settings: { ...NOTE_DEFAULTS[kind], ...this.pageStories?.[key], ...this.noteSettings?.[kind], part } };
+  }
+  /**
+   * Give back a note addNote reserved whose reference never reached the document (the edit was refused, under
+   * Restrict Editing say): the notes part it created, with its relationship and content type, goes again, so the
+   * refused command leaves the package as it was.
+   */
+  releaseNote(note) {
+    const reserved = this.reservedNotes?.get(note?.path);
+    if (!reserved) return false;
+    this.reservedNotes.delete(note.path);
+    this.storyOriginals.delete(note.path);
+    this.createdNotes?.[reserved.kind]?.delete(reserved.id);
+    if (reserved.kind === 'footnote') this.createdFootnotes?.delete(reserved.id);
+    const { created } = reserved;
+    if (created && ![...this.reservedNotes.values()].some(other => other.part === reserved.part)) {
+      delete this.parts[reserved.part];
+      this.parts['[Content_Types].xml'] = created.types;
+      if (created.rels) this.parts['word/_rels/document.xml.rels'] = created.rels; else delete this.parts['word/_rels/document.xml.rels'];
+      if (created.notesPart) this.notesParts[reserved.kind] = created.notesPart; else delete this.notesParts[reserved.kind];
+      if (reserved.kind === 'footnote') { if (created.footnotesPart) this.footnotesPart = created.footnotesPart; else delete this.footnotesPart; }
+    }
+    return true;
   }
   /** Note numbering and placement for the whole document (settings footnotePr/endnotePr); written on the next export. */
   setNoteSettings(kind, values) {

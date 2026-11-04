@@ -57,3 +57,25 @@ for (const mode of ['readOnly', 'trackedChanges']) test(`the design cannot be ch
   await expect(ribbon(page).getByRole('button', { name: 'Themes', exact: true })).toBeEnabled();
   expect(errors).toEqual([]);
 });
+
+// Insert Footnote reserved its note (creating the notes part, its relationship and content type) before the
+// document refused the reference: the saved file of a read-only protected document gained a footnotes part.
+test('Insert Footnote refused by protection leaves the file as it was', async ({ page }, info) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/mock.html#/new');
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  const input = page.getByRole('textbox', { name: 'Document text' });
+  await input.fill('Locked contract text.');
+  await protect(page, 'readOnly');
+  const parts = async name => { const path = info.outputPath(name), download = page.waitForEvent('download'); await downloadDocx(page); await (await download).saveAs(path); return unzipSync(readFileSync(path)); };
+  const before = await parts('before.docx');
+  await input.evaluate(el => { el.focus(); el.setSelectionRange(6, 6); el.dispatchEvent(new Event('select')); });
+  await onTab(page, 'references');
+  await page.locator('#ribbon-panel-references').getByRole('button', { name: 'Insert Footnote', exact: true }).click();
+  await expect(page.getByText(/protected/).first()).toBeVisible();
+  const after = await parts('after.docx');
+  expect(Object.keys(after).sort()).toEqual(Object.keys(before).sort());
+  for (const name of ['[Content_Types].xml', 'word/_rels/document.xml.rels', 'word/document.xml']) expect(strFromU8(after[name] || new Uint8Array()), name).toBe(strFromU8(before[name] || new Uint8Array()));
+  expect(errors).toEqual([]);
+});

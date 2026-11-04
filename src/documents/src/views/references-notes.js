@@ -38,7 +38,7 @@ export function createNoteCommands(ctx) {
           body.select(at, at + mark.length); body.setRunFormat({ verticalAlign: 'superscript' }); body.select(at + mark.length);
         }
         return true;
-      })) return;
+      })) { pkg().releaseNote?.(note); return; }
       // The note opens with its own number mark (or the custom mark), then a space, as existing documents start one.
       const draft = new TextDocument([paragraph('', textStyle ? { styleId: textStyle, styleChanged: true } : {})], body.pageSettings, body.numbering, body.styles, [], body.assets);
       draft.paragraphs[0].runs = mark
