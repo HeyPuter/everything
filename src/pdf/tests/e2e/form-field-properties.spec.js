@@ -311,3 +311,36 @@ test('a field renamed from the keyboard keeps the focus', async ({ page }) => {
   await expect(designer(page, 'Remark#0')).toBeFocused();
   await expect(designer(page, 'Remark#0')).toHaveAttribute('aria-pressed', 'true');
 });
+
+test('a field dragged or nudged past the edge stops at the edge of the page', async ({ page }) => {
+  const doc = await PDFDocument.create();
+  const note = doc.getForm().createTextField('Note');
+  note.addToPage(doc.addPage([600, 400]), { x: 100, y: 300, width: 120, height: 24 });
+  const start = note.acroField.getWidgets()[0].getRectangle();
+  await openPdf(page, doc);
+  await prepareForm(page);
+  const paper = await page.locator('.form-designer').boundingBox();
+  const box = await designer(page, 'Note#0').boundingBox();
+  await page.mouse.move(box.x + 20, box.y + 10);
+  await page.mouse.down();
+  await page.mouse.move(box.x - 400, box.y - 400, { steps: 5 });
+  await page.mouse.up();
+  await settled(page);
+  const dropped = await designer(page, 'Note#0').boundingBox();
+  expect(dropped.x).toBeCloseTo(paper.x, 0);
+  expect(dropped.y).toBeCloseTo(paper.y, 0);
+  let saved = (await PDFDocument.load(await downloaded(page))).getForm().getTextField('Note');
+  let rect = saved.acroField.getWidgets()[0].getRectangle();
+  expect(rect.x).toBeCloseTo(0, 1);
+  expect(rect.y + rect.height).toBeCloseTo(400, 1);
+  expect(rect.width).toBeCloseTo(start.width, 1);
+  // At the edge, the arrow keys do not push it any further.
+  await designer(page, 'Note#0').focus();
+  await page.keyboard.press('Shift+ArrowUp');
+  await page.keyboard.press('Shift+ArrowLeft');
+  await settled(page);
+  saved = (await PDFDocument.load(await downloaded(page))).getForm().getTextField('Note');
+  const nudged = saved.acroField.getWidgets()[0].getRectangle();
+  expect(nudged.x).toBeCloseTo(rect.x, 1);
+  expect(nudged.y).toBeCloseTo(rect.y, 1);
+});

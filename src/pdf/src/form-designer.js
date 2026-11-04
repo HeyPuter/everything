@@ -19,6 +19,9 @@ const TYPE_LABELS = {
   signature: 'Signature field',
 };
 export const fieldTypeLabel = (type) => TYPE_LABELS[type] || 'Field';
+/** Where a box of `size` may start within low..high, or at least no further out than `origin`. */
+const span = (start, size, origin, low, high) =>
+  Math.min(Math.max(start, Math.min(low, origin)), Math.max(high - size, origin));
 
 export function createFormDesigner({ onMove, onOpen, onDelete, onSelect }) {
   const root = el('div', { class: 'form-designer', hidden: true });
@@ -54,6 +57,21 @@ export function createFormDesigner({ onMove, onOpen, onDelete, onSelect }) {
       y: Math.min(ay, by),
       width: Math.abs(bx - ax),
       height: Math.abs(by - ay),
+    };
+  }
+
+  /**
+   * Keep a moved or resized box on the page, so a field cannot be dropped where nobody can
+   * see or reach it; a box already partly off the page may stay where it was.
+   */
+  function onPage(box, from) {
+    const width = Math.min(box.width, Math.max(viewport.width - box.left, from.width)),
+      height = Math.min(box.height, Math.max(viewport.height - box.top, from.height));
+    return {
+      left: span(box.left, width, from.left, 0, viewport.width),
+      top: span(box.top, height, from.top, 0, viewport.height),
+      width,
+      height,
     };
   }
 
@@ -93,14 +111,16 @@ export function createFormDesigner({ onMove, onOpen, onDelete, onSelect }) {
       dy = e.clientY - drag.y;
     if (!drag.moved && Math.hypot(dx, dy) < 3) return;
     drag.moved = true;
-    const box =
+    const box = onPage(
       drag.mode === 'move'
         ? { ...drag.box, left: drag.box.left + dx, top: drag.box.top + dy }
         : {
             ...drag.box,
             width: Math.max(8, drag.box.width + dx),
             height: Math.max(8, drag.box.height + dy),
-          };
+          },
+      drag.box,
+    );
     drag.current = box;
     place(drag.node, box);
   }
@@ -158,8 +178,22 @@ export function createFormDesigner({ onMove, onOpen, onDelete, onSelect }) {
                 const length = Math.hypot(px - ox, py - oy) || 1;
                 const dx = Math.round(((px - ox) / length) * step * 1000) / 1000,
                   dy = Math.round(((py - oy) / length) * step * 1000) / 1000;
+                // Up to the edge of the page, and no further.
+                const page = pdfRect({
+                  left: 0,
+                  top: 0,
+                  width: viewport.width,
+                  height: viewport.height,
+                });
+                const next = {
+                  x: span(x + dx, width, x, page.x, page.x + page.width),
+                  y: span(y + dy, height, y, page.y, page.y + page.height),
+                  width,
+                  height,
+                };
+                if (next.x === x && next.y === y) return;
                 refocus = refocusFrom = keyOf(field);
-                onMove(field, { x: x + dx, y: y + dy, width, height });
+                onMove(field, next);
               }
             },
             onfocus: () => {
