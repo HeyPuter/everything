@@ -28,6 +28,7 @@ describe('expression evaluator', () => {
   it('accepts the degree sign and rejects stray characters with a readable error', () => {
     expect(evaluate('45°', { kind: 'angle' })).toBe(45);
     expect(evaluate('30° + 15', { kind: 'angle' })).toBe(45);
+    expect(evaluate('90 ° / 2', { kind: 'angle' })).toBe(45);
     expect(() => evaluate('45Â°', { kind: 'angle' })).toThrow(ExprError);
   });
 
