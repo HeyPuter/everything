@@ -1372,6 +1372,11 @@ export function createEditor({
   // A touch screen is tapped, not clicked (a double tap edits text as a double click does), so
   // the hints use its words there.
   const touchScreen = window.matchMedia?.('(hover: none) and (pointer: coarse)');
+  // While preparing a form, Select shows the fields as boxes to move and open.
+  const selectHint = () =>
+    preparing
+      ? 'Choose a field type to add a field. Drag fields to move them; double-click one for its properties.'
+      : 'Click to select, drag to move, or double-click text to edit.';
   const forPointer = (text) =>
     touchScreen?.matches
       ? text
@@ -3407,7 +3412,7 @@ export function createEditor({
     markupKind.hidden = tool !== 'highlight' || markupKind.value === 'redact';
     highlightButton.hidden = tool !== 'highlight' || highlightArea();
     hint.textContent = {
-      select: 'Click to select, drag to move, or double-click text to edit.',
+      select: selectHint(),
       text: 'Click existing text to edit, or click an empty area to add text.',
       highlight: 'Select text, then choose Highlight selection. Use Area for scanned pages.',
       ink: 'Draw on the page with a mouse, pen, or touch.',
@@ -10149,6 +10154,7 @@ export function createEditor({
     preparing = on;
     designer.setEnabled(on);
     pageForms.setEnabled(tool === 'select' && !preparing);
+    if (tool === 'select' && access().owner) hint.textContent = forPointer(selectHint());
     if (on) refreshDesigner().catch(() => {});
   }
   /**

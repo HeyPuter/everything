@@ -577,3 +577,21 @@ test('Escape while dragging a field puts it back without an edit', async ({ page
   expect(await designer(page, 'Note#0').boundingBox()).toEqual(before);
   await expect(page.getByRole('button', { name: /^Undo/ })).toBeDisabled();
 });
+
+test('the hint above the page explains Prepare a form while it is open', async ({ page }) => {
+  const doc = await PDFDocument.create();
+  doc.addPage([600, 400]);
+  await openPdf(page, doc);
+  const hint = page.locator('.tool-hint');
+  await expect(hint).toHaveText(/double-click text to edit/);
+  await prepareForm(page);
+  await expect(hint).toHaveText(/Drag fields to move them/);
+  const pane = page.getByRole('complementary', { name: 'Tools' });
+  await pane.getByRole('button', { name: 'Text field', exact: true }).click();
+  await expect(hint).toHaveText(/Drag a box where the field goes/);
+  await page.getByRole('button', { name: 'Place at page center' }).click();
+  await page.getByRole('dialog', { name: 'Text field properties' }).press('Escape');
+  await settled(page);
+  await pane.getByRole('button', { name: 'Back to all tools' }).click();
+  await expect(hint).toHaveText(/double-click text to edit/);
+});
