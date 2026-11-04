@@ -25,6 +25,8 @@ export class DrawingWorkspace {
   private cache = new Map<string, { kind: DrawingViewKind; version: number; result: ProjectionResult }>();
   private frames: ViewFrame[] = [];
   private pending = false;
+  /** A refresh was asked for while views were being projected. */
+  private refreshAgain = false;
   private layoutPending = false;
   private sheetW = 297;
   private sheetH = 210;
@@ -55,6 +57,7 @@ export class DrawingWorkspace {
 
   close() {
     this.layoutPending = false;
+    this.refreshAgain = false;
     this.active = false;
     this.el.hidden = true;
   }
@@ -94,7 +97,8 @@ export class DrawingWorkspace {
 
   /** Projects missing or outdated views, then renders. */
   async refresh() {
-    if (!this.active || this.pending) return;
+    if (!this.active) return;
+    if (this.pending) { this.refreshAgain = true; return; }
     const d = this.doc;
     if (!d) return;
     if (this.layoutPending && this.app.bbox) {
@@ -119,8 +123,8 @@ export class DrawingWorkspace {
       } finally {
         this.pending = false;
       }
-      // The model may have changed while projecting.
-      if (version !== this.app.buildVersion) { void this.refresh(); return; }
+      // The model or the views may have changed while projecting.
+      if (version !== this.app.buildVersion || this.refreshAgain) { this.refreshAgain = false; void this.refresh(); return; }
     }
     this.render();
   }

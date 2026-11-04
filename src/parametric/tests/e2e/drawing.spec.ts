@@ -20,3 +20,21 @@ test('makes a drawing with standard views and exports a PDF', async ({ page }) =
   await expect(page.locator('canvas.gl')).toBeVisible();
   expect(errors).toEqual([]);
 });
+
+test('a view added while the others are still being projected is drawn too', async ({ page }) => {
+  await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  const pending = await page.evaluate(async () => {
+    type Ws = { pending: boolean; addView(kind: string): void };
+    const app = (window as unknown as { __parametric: { openDrawing(): void; drawing: Ws } }).__parametric;
+    app.openDrawing();
+    const t0 = performance.now();
+    while (!app.drawing.pending && performance.now() - t0 < 5000) await new Promise((r) => setTimeout(r, 1));
+    app.drawing.addView('back');
+    return app.drawing.pending;
+  });
+  expect(pending).toBe(true);
+  await expect(page.locator('.paper g[data-view]')).toHaveCount(5);
+  await expect(page.locator('.paper g[data-view="v5"] path').first()).toBeAttached();
+});
