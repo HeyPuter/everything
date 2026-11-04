@@ -18,12 +18,13 @@ import { sheetFilters } from '../core/sheet-filters.js';
  *
  * Without a Puter session there is nowhere to write: autosaves wait (the
  * local draft still keeps the edits) and an explicit save fails with
- * SIGN_IN_TO_SAVE so the view can ask for a sign-in.
+ * signInToSaveText() so the view can ask for a sign-in.
  *
  * status: 'saved' | 'unsaved' | 'saving' | 'error' | 'offline'
  */
 
 import { Workbook, EXCEL_SHEET_DEFAULTS } from '../core/workbook.js';
+import { t, tSource } from '../i18n/index.js';
 import { formulaReachesOut } from '../core/reaches-out.js';
 import { recordStep } from '../core/change-history.js';
 import { isRangeSource } from '../core/validation.js';
@@ -195,18 +196,32 @@ const draftMs = () => {
   const s = Number(optionState.draftDelay);
   return Number.isFinite(s) && s > 1 ? Math.min(s, 3600) * 1000 : 600;
 };
-export const UNTITLED = 'Untitled spreadsheet';
+/** The name a new spreadsheet is given (and its first file, until renamed), in the interface language. */
+export const untitledName = () => t('doc.untitled');
+/** That name in English, the source language. */
+export const UNTITLED = tSource('doc.untitled');
 /** What Save a copy answers when Puter's Save dialog was cancelled: nothing was written, and nothing is wrong. */
 export const CANCELLED = Symbol('cancelled');
 /** How long a shared workbook waits after its last change before its owner's browser writes the .xlsx file. */
 const SHARED_FILE_MS = 15_000;
-export const SIGN_IN_TO_SAVE = 'Sign in to Puter to save this spreadsheet';
-/** Why a spreadsheet shared with the user only to view is not saved. */
-export const VIEW_ONLY = 'You can view this spreadsheet, but not change it. Use File > Save a copy to keep your changes';
-/** Why "Overwrite with mine" did not go ahead: what the file holds could not be kept in Version history first (see forceSave). */
+/** Why a save asked for without a Puter session did not happen, in the interface language. */
+export const signInToSaveText = () => t('doc.signInToSave');
+/** Why a spreadsheet shared with the user only to view is not saved, in the interface language. */
+export const viewOnlyText = () => t('doc.viewOnly');
+// These messages in English, the source language, for comparing with (a t() read at import time would be English
+// for ever all the same): what is shown or thrown is the *Text() function's, in the interface language.
+export const SIGN_IN_TO_SAVE = tSource('doc.signInToSave');
+export const VIEW_ONLY = tSource('doc.viewOnly');
+/**
+ * Why "Overwrite with mine" did not go ahead: what the file holds could not be kept in Version history first (see
+ * forceSave). An identifier, not a label: the editor recognizes the error by this message and puts the question in
+ * words of its own, so it is never shown and stays English.
+ */
 export const THEIRS_NOT_KEPT = 'The version saved elsewhere could not be kept in Version history';
 /** Why the owner's file of a shared workbook, opened while its room could not be reached, is not saved (see holdForRoom). */
-export const SHARED_FILE = 'This spreadsheet is shared for editing together, and the shared workbook could not be reached: it writes this file, and would write over changes saved here. Open the spreadsheet again once connected, or use File > Save a copy to keep your changes';
+export const sharedFileText = () => t('doc.sharedFile');
+/** That message in English (see SIGN_IN_TO_SAVE). */
+export const SHARED_FILE = tSource('doc.sharedFile');
 
 /** A Puter FSItem's modified time in milliseconds (the API gives seconds), or null. */
 function modifiedMs(item) {
@@ -283,7 +298,7 @@ function keepSheetIds(json, wb) {
 }
 
 export class Doc extends EventTarget {
-  constructor({ wb = null, name = UNTITLED, path = null, uid = null, trusted = true } = {}) {
+  constructor({ wb = null, name = untitledName(), path = null, uid = null, trusted = true } = {}) {
     super();
     this.wb = wb || new Workbook();
     this.name = name;
@@ -624,7 +639,7 @@ export class Doc extends EventTarget {
       }
       if (session.signedOut) {
         if (auto) return false;
-        return Promise.reject(new Error(SIGN_IN_TO_SAVE));
+        return Promise.reject(new Error(signInToSaveText()));
       }
       return this._doSave(auto);
     });
@@ -694,8 +709,8 @@ export class Doc extends EventTarget {
 
   async _doSave(auto, force = false) {
     if (this.roomFile) {
-      this._setStatus('error', SHARED_FILE);
-      if (!auto) throw new Error(SHARED_FILE);
+      this._setStatus('error', sharedFileText());
+      if (!auto) throw new Error(sharedFileText());
       return false;
     }
     // A new file goes where the user puts it, which an AutoSave or a retry would ask unbidden: the edits wait in
@@ -711,7 +726,7 @@ export class Doc extends EventTarget {
         // name, so the user is asked instead.
         const st = await P.statFile(this.path) || await this._followMove();
         if (!st) {
-          this._setStatus('conflict', 'This file was moved or deleted');
+          this._setStatus('conflict', t('doc.status.movedOrDeleted'));
           this.dispatchEvent(new CustomEvent('conflict', { detail: { kind: 'missing' } }));
           return false;
         }
@@ -737,7 +752,7 @@ export class Doc extends EventTarget {
         else if (newer || resized || (ambiguous && await this._holdsLastWrite(st) === false)) {
           // With no baseline (the look-up failed at open) nobody can say the file changed: the question is put as such.
           const unchecked = this.remoteModified === 0;
-          this._setStatus('conflict', unchecked ? 'This file could not be checked for changes made elsewhere' : 'This file changed elsewhere');
+          this._setStatus('conflict', unchecked ? t('doc.status.notChecked') : t('doc.status.changedElsewhere'));
           this.dispatchEvent(new CustomEvent('conflict', { detail: { kind: unchecked ? 'unchecked' : 'changed', remoteModified: mod } }));
           return false;
         }
@@ -751,7 +766,7 @@ export class Doc extends EventTarget {
         // First save, or a non-xlsx source: pick a fresh name. A name with nothing left once sanitized
         // ("..", a lone space) would make the nameless dotfile ".xlsx": it is untitled instead.
         const base = this.path ? Doc.nameFor(this.path) : this.name;
-        const fileName = P.ensureXlsx(P.sanitizeName(base) || UNTITLED);
+        const fileName = P.ensureXlsx(P.sanitizeName(base) || untitledName());
         if (asked) target = fileName; // the name the dialog offers
         else {
           // A file from elsewhere on the drive (a .csv double-clicked on the desktop, say) gets its .xlsx beside
@@ -837,7 +852,7 @@ export class Doc extends EventTarget {
       const refused = this.viewOnly && navigator.onLine;
       // Puter refuses some writes with a plain object holding its reason under `error`, not an Error.
       const reason = e?.message || e?.error?.message || String(e);
-      this._setStatus(navigator.onLine ? 'error' : 'offline', refused ? VIEW_ONLY : reason);
+      this._setStatus(navigator.onLine ? 'error' : 'offline', refused ? viewOnlyText() : reason);
       // Try again later; a transient failure should not lose the edit. One that lasts (a full drive,
       // say) is not helped by encoding and sending the whole book every few seconds, so the pauses grow.
       // A save asked for by hand reports its failure to the caller, but leaves the edit in the autosave's
@@ -921,7 +936,7 @@ export class Doc extends EventTarget {
     await this._saveVersion(RESTORE_LABEL);
     // The backup contains the state at serialization, not edits made while
     // it uploads. Those edits must remain available in the current workbook.
-    if (this.wb.version !== version) throw new Error('The spreadsheet changed while preparing to restore. Your edits are intact; try restoring again.');
+    if (this.wb.version !== version) throw new Error(t('doc.restoreChanged'));
     if (distrust) this.distrustExternal();
     // The record of edits (Show Changes) goes on through a restore, which is one more change to it.
     const changeHistory = this.wb.changeHistory;
@@ -939,10 +954,10 @@ export class Doc extends EventTarget {
 
   async _rename(newName) {
     const clean = P.sanitizeName(newName).replace(/\.xlsx$/i, '');
-    if (!clean) return 'Enter a name';
+    if (!clean) return t('doc.enterName');
     if (clean === this.name) return null;
     // A shared workbook is its owner's file: renamed here alone, the name would change in this title bar and nowhere else.
-    if (this.collab && !this.path) return 'This shared workbook is its owner’s file: only its owner can rename it';
+    if (this.collab && !this.path) return t('doc.ownerRenames');
     if (!this.path) {
       const oldKey = this.draftKey;
       this.name = clean;
@@ -961,13 +976,13 @@ export class Doc extends EventTarget {
     const target = `${dir}${clean}${ext}`;
     try {
       // A failed look-up (offline, an expired session) is an answer for the user, not an exception.
-      if (await P.fileExists(target)) return 'A file with that name already exists';
+      if (await P.fileExists(target)) return t('doc.nameTaken');
       // The file as it was just before: whether its new time stands for the rename alone (see _adoptMovedTime).
       const before = await P.statFile(this.path);
       const renamed = await P.renameFile(this.path, `${clean}${ext}`);
       this._adoptMovedTime(renamed, before);
     } catch (e) {
-      return P.failureText(e, 'Could not rename the file');
+      return P.failureText(e, t('doc.renameFailed'));
     }
     await this._adoptPath(target, clean);
     // The room writes a shared workbook's file where its owner's browser last said the file was, which saving says:
@@ -1063,14 +1078,14 @@ export class Doc extends EventTarget {
 
   async _saveAs(newName) {
     const clean = P.sanitizeName(newName).replace(/\.xlsx$/i, '');
-    if (!clean) return 'Enter a name';
+    if (!clean) return t('doc.enterName');
     const asked = P.asksWhereToSave();
     let target = `${P.FOLDER}/${clean}.xlsx`;
     if (!asked) {
       try {
-        if (await P.fileExists(target)) return 'A file with that name already exists';
+        if (await P.fileExists(target)) return t('doc.nameTaken');
       } catch (e) {
-        return P.failureText(e, 'Could not save a copy');
+        return P.failureText(e, t('doc.copyFailed'));
       }
     }
     clearTimeout(this._timer);
@@ -1101,7 +1116,7 @@ export class Doc extends EventTarget {
       // The copy failed; the original is as it was. Its own edits, if any, keep saving as usual.
       this._setStatus(this.wb.dirty ? 'unsaved' : 'saved');
       if (this.wb.dirty) this._changed('cells');
-      return P.failureText(e, 'Could not save a copy');
+      return P.failureText(e, t('doc.copyFailed'));
     }
     clearTimeout(this._draftTimer);
     // A shared workbook's copy is a file of the user's own, where work continues: the room is left.
@@ -1169,7 +1184,7 @@ export class Doc extends EventTarget {
     // The file as it was opened: the room names it as it was when sharing started, before any rename or move, and the
     // owner sees it under the file's name now.
     const file = path ?? client.file?.path ?? null;
-    const name = (owner && file ? Doc.nameFor(file) : client.name) || UNTITLED;
+    const name = (owner && file ? Doc.nameFor(file) : client.name) || untitledName();
     const doc = new Doc({ wb: client.wb, name, path: file, uid: uid ?? client.file?.uid ?? null, trusted: owner || !usesExternalContent(client.wb) });
     doc.collab = client;
     doc._onRoomStatus = () => doc._sharedChanged('room');
@@ -1237,7 +1252,7 @@ export class Doc extends EventTarget {
       this._sharedFileWaiting = true;
       this._sharedChanged('room');
       if (auto) return false;
-      throw new Error(client.status.message || 'Your changes are waiting to be sent. They are kept on this device until the connection returns.');
+      throw new Error(client.status.message || t('doc.waitingToSend'));
     }
     if (!client.canEdit) { this.wb.markClean(); return true; }
     // A save nobody asked for (a sign-in, AutoSave turned on) in a member's browser: what they changed is in the room, and
@@ -1263,7 +1278,7 @@ export class Doc extends EventTarget {
       this._setStatus('saved');
       return true;
     } catch (e) {
-      this._setStatus(client.status.state === 'offline' ? 'offline' : 'error', e?.message || 'Could not save');
+      this._setStatus(client.status.state === 'offline' ? 'offline' : 'error', e?.message || t('doc.saveFailed'));
       // The owner's file is still to be written: leaving writes it (or says it cannot), and it is tried again after a
       // pause that grows while it keeps failing (a full drive, say), as a file's autosave is.
       if (this.isOwner && autoSaveEnabled() && !session.signedOut && !client.halted && !client.closed) {
@@ -1307,11 +1322,11 @@ export class Doc extends EventTarget {
   static fromDraft(key) {
     // Only this account's drafts of spreadsheets that have no file are recovered this way.
     const draft = isUnsavedDraftKey(key) ? loadDraft(key) : null;
-    if (!draft) throw new Error('That unsaved spreadsheet is no longer available');
+    if (!draft) throw new Error(t('doc.draftGone'));
     const doc = Doc._fromDraftRecord(draft);
     // A record that cannot be read or loaded (damaged in storage, or written in another shape) would
     // fail the same way each time it is picked: it is dropped, and the failure put in words for the screen.
-    if (!doc) { clearDraft(key, draftRevision(draft)); throw new Error('Could not read the unsaved spreadsheet'); }
+    if (!doc) { clearDraft(key, draftRevision(draft)); throw new Error(t('doc.draftUnreadable')); }
     // Keep the exact source key, including older title-only drafts, until
     // this recovered document is renamed or gets a cloud path.
     doc._recoveredDraftKey = key;
@@ -1462,7 +1477,7 @@ export class Doc extends EventTarget {
   static async fromBrowserFile(file) {
     const wb = await workbookFromFile(await file.arrayBuffer(), file.name);
     // The name the file will be saved under; one with nothing left once sanitized ("...csv") is untitled.
-    const doc = new Doc({ wb, name: P.sanitizeName(stripExtension(file.name)) || UNTITLED, path: null, trusted: false });
+    const doc = new Doc({ wb, name: P.sanitizeName(stripExtension(file.name)) || untitledName(), path: null, trusted: false });
     // An import is worth keeping even before the first edit.
     doc.wb.dirty = true;
     doc._changed('cells');
@@ -1476,7 +1491,7 @@ export class Doc extends EventTarget {
    * and size, how many sheets, the view and headers they open with, and how the workbook calculates.
    */
   static blank({ excel = false, start = null } = {}) {
-    if (!excel) return new Doc({ wb: new Workbook(null), name: UNTITLED });
+    if (!excel) return new Doc({ wb: new Workbook(null), name: untitledName() });
     const font = start?.fontName && start.fontName !== 'Calibri' ? { name: start.fontName, sz: start.fontSize || 11 }
       : { name: 'Calibri', sz: start?.fontSize || 11, scheme: 'minor' };
     const count = Math.max(1, Math.min(255, Math.round(start?.newSheets || 1)));
@@ -1484,7 +1499,7 @@ export class Doc extends EventTarget {
     const headers = start && start.showHeaders === false ? { headers: false } : {};
     const sheets = Array.from({ length: count }, (_, i) => ({ name: `Sheet${i + 1}`, ...EXCEL_SHEET_DEFAULTS, defaultVAlign: 'bottom', ...view, ...headers }));
     const wb = new Workbook({ normalFont: font, sheets, ...(start?.newCalcMode === 'manual' ? { calcMode: 'manual' } : {}) });
-    return new Doc({ wb, name: UNTITLED });
+    return new Doc({ wb, name: untitledName() });
   }
 }
 
