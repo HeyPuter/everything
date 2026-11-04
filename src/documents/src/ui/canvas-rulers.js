@@ -1,5 +1,10 @@
 import { el } from './dom.js';
 import { recallUnit, rememberUnit, onUnitChange } from '../lib/units.js';
+import { localStore } from '../lib/storage.js';
+
+// View > Ruler is the window's setting, kept on this device as the status bar's is: hidden stays hidden after a reload.
+const RULER_STORE = 'documents:ruler';
+const storedRuler = () => { try { const value = localStore()?.getItem(RULER_STORE); return value === 'shown' ? true : value === 'hidden' ? false : null; } catch { return null; } };
 
 const SYMBOLS = { left: '└', center: '┴', right: '┘', decimal: '⊥', bar: '│' };
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
@@ -16,7 +21,8 @@ export function rulerSnap(value, unit, precise = false) {
 export function createCanvasRulers({ host, surface, editor, openParagraph, openPage }) {
   // Phones show no rulers until View > Ruler asks for them.
   const phone = globalThis.matchMedia?.('(max-width: 700px)');
-  let unit = recallUnit(), visible = !phone?.matches, chosen = false, drag = null, frame = 0, signature = '', tabType = 'left';
+  // A phone starts without rulers whatever a wider window chose.
+  let unit = recallUnit(), visible = phone?.matches ? false : storedRuler() ?? true, chosen = false, drag = null, frame = 0, signature = '', tabType = 'left';
   const abort = new AbortController();
   const listen = (node, event, fn) => node.addEventListener(event, fn, { signal: abort.signal });
   const horizontal = el('div.canvas-ruler.canvas-ruler-horizontal', { role: 'group', 'aria-label': 'Horizontal ruler' });
@@ -242,8 +248,11 @@ export function createCanvasRulers({ host, surface, editor, openParagraph, openP
   const schedule = () => { if (!frame) frame = requestAnimationFrame(() => { frame = 0; update(); }); };
   listen(host, 'scroll', () => { if (drag) cancel(); schedule(); });
   const observer = new ResizeObserver(schedule); observer.observe(host);
-  phone?.addEventListener?.('change', () => { if (!chosen) { visible = !phone.matches; cancel(); update(); } }, { signal: abort.signal });
-  return { update, get visible() { return visible; }, toggle() { visible = !visible; chosen = true; cancel(); update(); },
+  phone?.addEventListener?.('change', () => { if (!chosen) { visible = phone.matches ? false : storedRuler() ?? true; cancel(); update(); } }, { signal: abort.signal });
+  return { update, get visible() { return visible; }, toggle() {
+    visible = !visible; chosen = true; cancel(); update();
+    if (!phone?.matches) try { localStore()?.setItem(RULER_STORE, visible ? 'shown' : 'hidden'); } catch { /* storage unavailable: the choice lasts for this visit */ }
+  },
     setUnit(next) { rememberUnit(next); }, get unit() { return unit; },
     destroy() { abort.abort(); unsubscribe(); observer.disconnect(); cancelAnimationFrame(frame); top.remove(); side.remove(); selector.remove(); guide.remove(); value.remove(); } };
 }

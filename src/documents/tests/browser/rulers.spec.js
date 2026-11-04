@@ -215,3 +215,25 @@ test('ruler numbers and ticks thin out at small zooms instead of overlapping', a
     }
   }
 });
+
+test('a ruler hidden from the View tab stays hidden after a reload, and shown again stays shown', async ({ page }) => {
+  await page.goto('/mock.html#/new');
+  await expect((await onTab(page, 'home')).getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  const ruler = page.getByRole('group', { name: 'Horizontal ruler' });
+  await expect(ruler).toBeVisible();
+  await (await onTab(page, 'view')).getByRole('checkbox', { name: 'Ruler', exact: true }).uncheck();
+  await expect(ruler).toBeHidden();
+  await page.reload();
+  await expect((await onTab(page, 'home')).getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await expect(ruler).toBeHidden();
+  await expect((await onTab(page, 'view')).getByRole('checkbox', { name: 'Ruler', exact: true })).not.toBeChecked();
+  // A phone still starts without one, and a window that grows back keeps the choice.
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(ruler).toBeHidden();
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await expect(ruler).toBeHidden();
+  await (await onTab(page, 'view')).getByRole('checkbox', { name: 'Ruler', exact: true }).check();
+  await page.reload();
+  await expect((await onTab(page, 'home')).getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await expect(ruler).toBeVisible();
+});
