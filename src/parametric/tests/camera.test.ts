@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { Camera, VIEWS } from '../src/render/camera';
 import { qRotate } from '../src/math/vec';
 import { CommandRegistry, eventShortcut } from '../src/app/commands';
+import { registerCommands } from '../src/app/actions';
 import { isMac } from '../src/ui/dom';
 
 const close = (a: number[], b: number[]) => a.forEach((v, i) => expect(v).toBeCloseTo(b[i], 9));
@@ -74,5 +75,13 @@ describe('command registry', () => {
     expect(ran).toBe('save');
     expect(reg.search('zoom').map((c) => c.id)).toEqual(['zoomIn']);
     expect(reg.search('view').map((c) => c.id)).toEqual(['view1']);
+  });
+
+  it('gives every shortcut of the app to one command only', () => {
+    const commands = new CommandRegistry();
+    registerCommands({ commands } as never, {} as never);
+    const owners = new Map<string, string[]>();
+    for (const c of commands.all()) if (c.shortcut) owners.set(c.shortcut.toLowerCase(), [...(owners.get(c.shortcut.toLowerCase()) ?? []), c.id]);
+    expect([...owners].filter(([, ids]) => ids.length > 1)).toEqual([]);
   });
 });
