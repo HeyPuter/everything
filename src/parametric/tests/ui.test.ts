@@ -43,6 +43,25 @@ describe('menus', () => {
   });
 });
 
+describe('menu focus', () => {
+  it('returns focus to the opener after running an item, also from a submenu', () => {
+    const opener = document.createElement('button');
+    document.body.append(opener);
+    opener.focus();
+    const run = vi.fn(() => document.activeElement);
+    const menu = openMenu([{ label: 'Item', run }, { label: 'More', submenu: () => [{ label: 'Deep', run }] }], 0, 0);
+    (menu.querySelector('[role="menuitem"]') as HTMLElement).click();
+    expect(run).toHaveLastReturnedWith(opener);
+    const menu2 = openMenu([{ label: 'More', submenu: () => [{ label: 'Deep', run }] }], 0, 0);
+    (menu2.querySelector('[role="menuitem"]') as HTMLElement).click();
+    const deep = [...document.querySelectorAll('.menu')][1].querySelector('[role="menuitem"]') as HTMLElement;
+    expect(document.activeElement).toBe(deep);
+    deep.click();
+    expect(document.querySelector('.menu')).toBeNull();
+    expect(run).toHaveLastReturnedWith(opener);
+  });
+});
+
 describe('dialogs and toasts', () => {
   it('resolves confirm dialogs and closes on Escape', async () => {
     const p = confirmDialog('Delete', 'Really?', 'Delete', true);

@@ -47,8 +47,13 @@ export function openMenu(items: MenuItem[], x: number, y: number, opts: MenuOpti
   while (stack.length > level) stack.pop()!.close();
   const el = h('div', { class: 'menu', role: 'menu', 'aria-label': opts.label ?? 'Menu', tabindex: '-1' });
   const buttons: HTMLElement[] = [];
+  // Focus goes back where it came from, so a command run from the menu (and
+  // any dialog it opens) does not leave keyboard focus on the page body.
+  const returnFocus = opts.anchor ?? (level === 0 ? document.activeElement as HTMLElement | null : null);
   const closeThis = () => {
+    const hadFocus = el.contains(document.activeElement);
     el.remove();
+    if (hadFocus && returnFocus?.isConnected) returnFocus.focus({ preventScroll: true });
     opts.anchor?.setAttribute('aria-expanded', 'false');
     document.removeEventListener('pointerdown', outside, true);
     opts.onClose?.();
