@@ -19,6 +19,8 @@ import * as RL from '../core/ribbon-layout.js';
 import { chordFromEvent, formatChord, chordProblem, chordConflicts, chordsFor } from '../core/keymap.js';
 import { currentTheme } from './theme.js';
 import { session } from '../lib/session.js';
+import { t, language, languagePreference, setLanguagePreference, resolveLanguage, LANGUAGES, PSEUDO_LANGUAGE } from '../i18n/index.js';
+import { relaunch } from '../lib/relaunch.js';
 
 export const OPTION_SECTIONS = [
   { id: 'general', title: 'General', icon: 'sliders', about: 'How the app starts, what a new workbook looks like, and your name on comments.' },
@@ -137,6 +139,32 @@ export function openOptionsDialog(ctx, { section = 'general' } = {}) {
   const button = (label, onclick, words = []) => row([label, ...words], el('div.opt-actions', {}, el('button.btn.btn-outline.btn-sm', { type: 'button', onclick }, label)));
   const note = (textContent) => el('p.opt-note', {}, textContent);
 
+  /**
+   * The display language: the browser's (the default), or one chosen here. It is read once as the app
+   * opens, so a change reopens the app in place, saving or keeping the open spreadsheet first.
+   */
+  function languageGroup() {
+    const id = fieldId('opt');
+    const hintId = `${id}-hint`;
+    const browser = resolveLanguage({ search: '', preference: 'auto' });
+    const browserName = LANGUAGES.find((l) => l.id === browser)?.name || browser;
+    const choices = [['auto', t('i18n.matchBrowser', { language: browserName })], ...LANGUAGES.map((l) => [l.id, l.name])];
+    if (import.meta.env?.DEV || language() === PSEUDO_LANGUAGE) choices.push([PSEUDO_LANGUAGE, t('i18n.pseudo')]);
+    const note = el('span.opt-hint', { role: 'status' });
+    const select = el('select.select.opt-select', {
+      id, 'aria-describedby': hintId,
+      onchange: async () => {
+        setLanguagePreference(select.value);
+        if (resolveLanguage({ search: '' }) === language()) { note.textContent = ''; return; }
+        if (!await relaunch()) note.textContent = t('i18n.nextTime');
+      },
+    }, choices.map(([v, label]) => el('option', { value: v, selected: v === languagePreference(), lang: v === 'auto' ? null : v }, label)));
+    return group(t('i18n.group'),
+      row(['language display interface translate chinese english 语言 中文', ...choices.map(([, label]) => label)],
+        el('div.opt-field', {}, el('label.opt-label', { for: id }, t('i18n.displayLanguage')), select,
+          el('span.opt-hint', { id: hintId }, t('i18n.displayLanguageHint')), note)));
+  }
+
   /* ---------- Pages ---------- */
 
   const pages = {
@@ -147,6 +175,7 @@ export function openOptionsDialog(ctx, { section = 'general' } = {}) {
         [['system', 'Match the system'], ['light', 'Light'], ['dark', 'Dark']].map(([v, t]) => el('option', { value: v, selected: v === theme }, t)));
       const account = ctx.accountName?.() || '';
       return [
+        languageGroup(),
         group('Appearance',
           row(['theme appearance dark light'], el('div.opt-field', {}, el('label.opt-label', { for: themeId }, 'Theme'), themeSelect)),
           ctx.openLocale && button('Regional format…', () => ctx.openLocale(), ['locale number date format region'])),

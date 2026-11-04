@@ -1,0 +1,9 @@
+{
+  "displayLanguage": "Display language",
+  "displayLanguageHint": "The language of menus, dialogs and messages. Your spreadsheets' contents, sheet names and function names stay as they are.",
+  "group": "Language",
+  "matchBrowser": "Match the browser ({language})",
+  "nextTime": "The new language shows the next time Spreadsheet opens.",
+  "pseudo": "Pseudo-localization (for testing)",
+  "relaunching": "Switching language…"
+}

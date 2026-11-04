@@ -19,6 +19,8 @@ import { roomForFile, openRoom } from './collab/session.js';
 import { appOptions, appOption, syncAppOptions } from './lib/app-options.js';
 import { installAppOptions } from './lib/apply-options.js';
 import { fileProblem } from './core/filetypes.js';
+import { initI18n, t } from './i18n/index.js';
+import { setRelauncher } from './lib/relaunch.js';
 
 const appRoot = document.getElementById('app');
 let current = null; // { kind: 'home' | 'editor' | 'gate', view }
@@ -69,23 +71,21 @@ async function unmount() {
 export function leaveWithoutSessionDialog({ kept = true } = {}) {
   return new Promise((resolve) => {
     const content = el('div', {},
-      el('p.modal-text', {}, kept
-        ? 'This spreadsheet is not saved to Puter yet. Sign in to save it to your own cloud, or leave: your edits stay on this device, and can be recovered from Unsaved spreadsheets on the home screen.'
-        : 'This spreadsheet is not saved anywhere yet, and this browser could not keep a copy of it either. Sign in to Puter to save it to your own cloud, or leave and lose it.'),
+      el('p.modal-text', {}, kept ? t('app.leave.kept') : t('app.leave.notKept')),
       el('div.row.row-end', { style: { flexWrap: 'wrap' } },
-        el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Keep editing'),
-        el('button.btn.btn-danger', { type: 'button', onclick: () => { resolve('leave'); modal.close(); } }, 'Leave without saving'),
-        el('button.btn.btn-primary', { type: 'button', onclick: () => { resolve('sign-in'); modal.close(); } }, 'Sign in and save')));
-    const modal = openModal({ title: 'Save before leaving?', content, onClose: () => resolve('stay') });
+        el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, t('app.leave.keepEditing')),
+        el('button.btn.btn-danger', { type: 'button', onclick: () => { resolve('leave'); modal.close(); } }, t('app.leave.leaveWithoutSaving')),
+        el('button.btn.btn-primary', { type: 'button', onclick: () => { resolve('sign-in'); modal.close(); } }, t('app.leave.signInAndSave'))));
+    const modal = openModal({ title: t('app.leave.title'), content, onClose: () => resolve('stay') });
   });
 }
 
 /** A cloud file was asked for without a session: offer the sign-in, or a new sheet. */
 function mountSignInGate(requestedHash) {
-  document.title = 'Spreadsheet';
+  document.title = t('common.spreadsheet');
   mount('gate', { el: signInView({
-    title: 'Sign in to open this spreadsheet',
-    message: 'Spreadsheets live in your own Puter cloud. Sign in to open this one, or start a new spreadsheet without an account.',
+    title: t('app.signInGate.title'),
+    message: t('app.signInGate.message'),
     onSignIn: async () => { if (await session.signIn() && location.hash === requestedHash) route(); },
     onSkip: () => go('#/'),
   }) });
@@ -103,7 +103,7 @@ function mount(kind, view) {
   show(view.el);
 }
 
-function showLoading(label = 'Opening…') {
+function showLoading(label = t('common.opening')) {
   // The spinner says nothing and nothing takes the focus here, so the wait is carried by a live
   // region: the line goes up empty with the screen and is written a moment later, which is what a
   // screen reader reads out. Without it "Opening…" and "Importing <name>…" passed in silence.
@@ -179,28 +179,28 @@ async function route({ reload = false, file = null, draftKey = null } = {}) {
       // A recovered draft has no file yet: the address must not keep naming the document that was open before.
       history.replaceState(null, '', '#/new');
       try { openEditor(Doc.fromDraft(draftKey)); }
-      catch (e) { toast(e?.message || 'Could not recover the spreadsheet', { icon: 'alert', duration: 5000 }); go(HOME); }
+      catch (e) { toast(e?.message || t('app.couldNotRecover'), { icon: 'alert', duration: 5000 }); go(HOME); }
       return;
     }
     // Device imports share the route queue: a navigation during a slow read
     // must still flush and destroy the imported editor before replacing it.
     if (file) {
-      showLoading(`Importing ${file.name}…`);
+      showLoading(t('app.importing', { name: file.name }));
       try {
         const imported = await Doc.fromBrowserFile(file);
         history.replaceState(null, '', '#/new'); // the imported document has no file yet
         openEditor(imported);
       } catch (e) {
         console.error(e);
-        toast(fileProblem(e) || `Could not read ${file.name}`, { icon: 'alert', duration: 6000 });
+        toast(fileProblem(e) || t('app.couldNotRead', { name: file.name }), { icon: 'alert', duration: 6000 });
         go(HOME);
       }
       return;
     }
     if (r === 'home') {
       mount('home', homeView(nav));
-      document.title = 'Spreadsheet';
-      P.setWindowTitle('Spreadsheet');
+      document.title = t('common.spreadsheet');
+      P.setWindowTitle(t('common.spreadsheet'));
       return;
     }
     // A new workbook starts as the options say: its font, how many sheets, its view and calculation.
@@ -218,7 +218,7 @@ async function route({ reload = false, file = null, draftKey = null } = {}) {
     }
     if (r === 'sample') {
       const wb = sampleWorkbook();
-      const doc = new Doc({ wb, name: 'Sample budget' });
+      const doc = new Doc({ wb, name: t('app.sampleName') });
       wb.dirty = true;
       doc._changed('cells');
       openEditor(doc);
@@ -227,7 +227,7 @@ async function route({ reload = false, file = null, draftKey = null } = {}) {
     // Reading a file without a session would pop the SDK's dialog by itself; ask first, in place.
     if (session.signedOut) { mountSignInGate(location.hash); return; }
     if (r === 'live') {
-      showLoading('Joining the shared workbook…');
+      showLoading(t('app.joiningShared'));
       const { room, server, token, range } = parseHash();
       try {
         const doc = await openRoom({ server, room, token, ...(liveFile || {}) });
@@ -235,11 +235,11 @@ async function route({ reload = false, file = null, draftKey = null } = {}) {
         // The invitation was used: the address left behind opens the workbook for members, without it.
         if (token) history.replaceState(null, '', `#/live/${encodeURIComponent(room)}?${new URLSearchParams({ server })}`);
         openEditor(doc, range);
-        if (token) toast(`You joined "${doc.name}". Everyone here sees changes as they happen`, { icon: 'people', duration: 4000 });
+        if (token) toast(t('app.joinedShared', { name: doc.name }), { icon: 'people', duration: 4000 });
       } catch (e) {
         console.error(e);
         liveFile = null;
-        toast(e?.message || 'Could not open the shared workbook', { icon: 'alert', duration: 6000 });
+        toast(e?.message || t('app.couldNotOpenShared'), { icon: 'alert', duration: 6000 });
         go(HOME);
       }
       return;
@@ -257,13 +257,13 @@ async function route({ reload = false, file = null, draftKey = null } = {}) {
         if (code === 'access_denied' || code === 'forbidden') found = null;
         else {
           console.error(e);
-          toast('Could not open the file', { icon: 'alert', duration: 5000 });
+          toast(t('app.couldNotOpenFile'), { icon: 'alert', duration: 5000 });
           go(HOME);
           return;
         }
       }
       if (!found?.path || found.is_dir || P.inTrash(found.path)) {
-        toast('That spreadsheet does not exist, or has not been shared with you', { icon: 'alert', duration: 5000 });
+        toast(t('app.fileNotShared'), { icon: 'alert', duration: 5000 });
         go(HOME);
         return;
       }
@@ -278,7 +278,7 @@ async function route({ reload = false, file = null, draftKey = null } = {}) {
         // The file is gone, but edits made to it here never reached Puter: they open as a new spreadsheet.
         forgetRecent(path);
         history.replaceState(null, '', '#/new');
-        toast('That file no longer exists. Unsaved changes kept on this device were opened as a new spreadsheet', { icon: 'info', duration: 6000 });
+        toast(t('app.fileGoneDraftOpened'), { icon: 'info', duration: 6000 });
       } else if (!P.samePath(doc.path, path)) forgetRecent(path); // the file was found where the drive keeps it now
       // A file its owner shares for editing together opens as the shared workbook, which may be ahead of the file.
       const shared = doc.path ? await roomForFile(doc.file) : null;
@@ -291,18 +291,18 @@ async function route({ reload = false, file = null, draftKey = null } = {}) {
         } catch (e) {
           console.warn('The shared workbook could not be opened; opening the file instead', e);
           // Closed or deleted (from another device, say), the room writes the file no more: it opens as any file does.
-          if ([404, 410].includes(e?.status)) toast('This spreadsheet is no longer shared for editing together. Opening the file', { icon: 'info', duration: 5000 });
+          if ([404, 410].includes(e?.status)) toast(t('app.noLongerShared'), { icon: 'info', duration: 5000 });
           else {
             // Otherwise the room still writes the file, over whatever would be saved into it here (see Doc.holdForRoom).
             doc.holdForRoom();
-            toast('This spreadsheet is shared for editing together, but the shared workbook could not be reached. The file opens to view only: open it again once connected, or use File > Save a copy to keep changes', { icon: 'info', duration: 8000 });
+            toast(t('app.sharedUnreachable'), { icon: 'info', duration: 8000 });
           }
         }
       }
       openEditor(doc, range);
     } catch (e) {
       console.error(e);
-      toast(P.isNotFound(e) ? 'That file no longer exists' : fileProblem(e) || 'Could not open the file', { icon: 'alert', duration: fileProblem(e) ? 6000 : 5000 });
+      toast(P.isNotFound(e) ? t('app.fileGone') : fileProblem(e) || t('app.couldNotOpenFile'), { icon: 'alert', duration: fileProblem(e) ? 6000 : 5000 });
       if (P.isNotFound(e)) forgetRecent(path);
       go(HOME);
     }
@@ -326,8 +326,12 @@ async function route({ reload = false, file = null, draftKey = null } = {}) {
  * Puter is asked for a sign-in at the first action that needs the cloud.
  */
 async function start() {
+  // The interface language comes first: every screen after this one is drawn in it.
+  await initI18n();
+  document.title = t('common.spreadsheet');
+  setRelauncher(relaunch);
   if (!P.hasSDK()) {
-    show(errorView('Could not reach Puter', 'Puter could not be loaded. Check your connection and try again.', () => location.reload()));
+    show(errorView(t('app.noPuter.title'), t('app.noPuter.message'), () => location.reload()));
     return;
   }
   setupFileDrop();
@@ -373,7 +377,7 @@ function closeWindow() {
 function openDriveItems(items) {
   const item = items.find((it) => it?.path && !P.isDirItem(it));
   if (!item) {
-    if (items.some((it) => P.isDirItem(it))) toast('Cannot open a folder. Drop a spreadsheet (.xlsx, .csv, .ods, …)', { icon: 'info', duration: 3200 });
+    if (items.some((it) => P.isDirItem(it))) toast(t('app.cannotOpenFolder'), { icon: 'info', duration: 3200 });
     return;
   }
   const name = item.name || P.displayName(item.path);
@@ -381,7 +385,7 @@ function openDriveItems(items) {
   if (!booted) {
     // Before the app is up only a spreadsheet can wait: it becomes the first screen.
     if (spreadsheet) launchedPath = item.path;
-    else toast(`Cannot open ${name}. Open a spreadsheet (.xlsx, .csv, .ods, …)`, { icon: 'info', duration: 4000 });
+    else toast(t('app.cannotOpenLaunched', { name }), { icon: 'info', duration: 4000 });
     return;
   }
   // The drop is a deliberate move on the app itself and outranks whatever is over it.
@@ -391,7 +395,7 @@ function openDriveItems(items) {
   const type = imageType(name);
   const view = current?.view;
   if (!type || !view?.acceptDrop) {
-    toast(`Cannot open ${name}. Drop a spreadsheet (.xlsx, .csv, .ods, …)${view?.acceptDrop ? ' or an image' : ''}`, { icon: 'info', duration: 3200 });
+    toast(view?.acceptDrop ? t('app.cannotOpenDroppedOrImage', { name }) : t('app.cannotOpenDropped', { name }), { icon: 'info', duration: 3200 });
     return;
   }
   P.readFile(item.path).then((bytes) => {
@@ -399,7 +403,7 @@ function openDriveItems(items) {
     if (current?.view === view) view.acceptDrop(new File([bytes], name, { type }));
   }, (e) => {
     console.error(e);
-    if (current?.view === view) toast(`Could not read ${name}`, { icon: 'alert' });
+    if (current?.view === view) toast(t('app.couldNotRead', { name }), { icon: 'alert' });
   });
 }
 
@@ -409,9 +413,39 @@ function imageType(name) {
   return IMAGE_TYPES[/\.([^.]+)$/.exec(String(name).toLowerCase())?.[1]] || null;
 }
 
+/**
+ * The display language changed (File ▸ Options): the app reloads in it. The open spreadsheet is saved
+ * or kept first, exactly as leaving it for another screen would; one that has no file yet comes back
+ * from the draft this browser keeps of it.
+ */
+const RESUME_DRAFT = 'spreadsheet:resume-draft';
+async function relaunch() {
+  const view = current?.kind === 'editor' ? current.view : null;
+  if (view && !await view.flush()) return false;
+  const doc = view?.doc;
+  try {
+    if (doc && !doc.path && doc.wb?.dirty && doc.draftKept !== false) sessionStorage.setItem(RESUME_DRAFT, doc.draftKey);
+  } catch { /* storage unavailable: it is still on the home screen's list */ }
+  showLoading(t('i18n.relaunching'));
+  // A language in the address (?lang=) outranks the one just chosen: it goes, so the choice shows.
+  const url = new URL(location.href);
+  if (url.searchParams.has('lang')) { url.searchParams.delete('lang'); history.replaceState(history.state, '', url); }
+  location.reload();
+  return true;
+}
+
+/** The draft relaunch left to reopen, once. */
+function takeResumeDraft() {
+  try {
+    const key = sessionStorage.getItem(RESUME_DRAFT);
+    sessionStorage.removeItem(RESUME_DRAFT);
+    return key;
+  } catch { return null; }
+}
+
 let booted = false;
 async function boot() {
-  showLoading('Loading…');
+  showLoading(t('common.loading'));
   await session.init();
   // The SDK signs the user in on its own before an AI request; the views follow.
   P.onAuth((user) => session.signedInAs(user));
@@ -430,7 +464,8 @@ async function boot() {
   // A file dropped on the loading screen opens now that there is somewhere to open it.
   const dropped = droppedFile;
   droppedFile = null;
-  await route(dropped ? { file: dropped } : undefined);
+  const resumed = dropped ? null : takeResumeDraft();
+  await route(dropped ? { file: dropped } : resumed ? { draftKey: resumed } : undefined);
   setupOfflineBanner();
 }
 
@@ -486,13 +521,13 @@ function openDroppedFile(file, where = {}) {
   closeAllModals();
   if (current?.view.acceptDrop) { current.view.acceptDrop(file, where); return; }
   if (isSpreadsheetFile(file.name)) route({ file });
-  else toast(`Cannot open ${file.name}. Drop a spreadsheet (.xlsx, .csv, .ods, …)`, { icon: 'info', duration: 3200 });
+  else toast(t('app.cannotOpenDropped', { name: file.name }), { icon: 'info', duration: 3200 });
 }
 
 function setupOfflineBanner() {
   const update = () => {
     if (!navigator.onLine && !offlineBanner) {
-      offlineBanner = el('div.offline-banner', { role: 'status', html: icon('wifiOff', 15, 2) }, ' Offline. Changes will save when you reconnect');
+      offlineBanner = el('div.offline-banner', { role: 'status', html: icon('wifiOff', 15, 2) }, ' ', t('app.offline'));
       appRoot.prepend(offlineBanner);
     } else if (navigator.onLine && offlineBanner) {
       offlineBanner.remove();
