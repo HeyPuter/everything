@@ -213,7 +213,15 @@ function titleBlock(items: Item[], w: number, h: number, d: DrawingDoc, info: Sh
 
 // ---------- renderers ----------
 
-const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
+/**
+ * Text for XML: markup characters escaped, and characters XML 1.0 forbids
+ * (control characters, lone surrogates, U+FFFE/U+FFFF) dropped, since one of
+ * them in a title or note makes the whole SVG fail to open.
+ */
+const esc = (s: string) =>
+  s
+    .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\ufffe\uffff]|[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/g, '')
+    .replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
 
 /** SVG document (millimetre units). */
 export function toSvg(items: Item[], w: number, h: number, opts: { background?: string; ink?: string } = {}): string {

@@ -89,6 +89,16 @@ describe('sheet layout', () => {
     expect(pdf).toContain('(Plate) Tj');
   });
 
+  it('keeps the SVG well-formed when a title holds control characters', () => {
+    const doc: DrawingDoc = { sheet: 'A4', landscape: true, scale: 1, title: 'Bra\u0007cket \ud83d\udd27 <A&B>\u0000\ud800', drawnBy: 'Tab\tbed', notes: 'x\u001by', views: [] };
+    const sheet = buildSheet(doc, new Map(), { partName: 'P', material: 'Steel', units: 'mm', date: '2026-10-12', formatLength: String });
+    const svg = toSvg(sheet.items, sheet.w, sheet.h);
+    expect(svg).not.toMatch(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]|[\ud800-\udbff](?![\udc00-\udfff])/);
+    expect(svg).toContain('>Bracket \ud83d\udd27 &lt;A&amp;B&gt;<');
+    expect(svg).toContain('>xy<');
+    expect(new TextDecoder().decode(toPdf(sheet.items, sheet.w, sheet.h, doc.title))).toContain('(Bra?cket ? <A&B>??) Tj');
+  });
+
   it('fits long title block entries inside their cells', () => {
     const notes = 'Break all sharp edges 0.5 x 45°. Anodize clear after machining. Tolerances ISO 2768-mK.';
     const doc: DrawingDoc = { sheet: 'A4', landscape: true, scale: 1, title: 'T'.repeat(120), drawnBy: 'Short', notes, views: [] };
