@@ -4783,8 +4783,30 @@ export function createEditor({
         workspace.focus({ preventScroll: true });
     })();
   });
+  // Each run's target, so the keyboard can return to the text it was editing.
+  let textTargetOf = new WeakMap();
+  /**
+   * Cancel the text draft from the keyboard. Like a picture or shape, the text hands the
+   * keyboard back to its own target, so Tab and Enter carry on from there; new text, or text
+   * whose target is gone, leaves it on the page (`fallback`).
+   */
+  function leaveTextEdit(fallback) {
+    const run = textEdit?.run;
+    const done = finishTextEdit(false);
+    fallback.focus({ preventScroll: true });
+    safe(async () => {
+      await done;
+      const target = run && textTargetOf.get(run);
+      if (
+        target?.isConnected &&
+        [document.body, workspace, overlay].includes(document.activeElement)
+      )
+        target.focus({ preventScroll: true });
+    })();
+  }
   function renderTextTargets() {
     textTargets.replaceChildren();
+    textTargetOf = new WeakMap();
     textTargets.hidden = !['text', 'select'].includes(tool) || !access().edit;
     textTargets.classList.toggle('select-text-objects', tool === 'select');
     if (!access().edit) return;
@@ -4811,6 +4833,7 @@ export function createEditor({
           }
         }),
       });
+      textTargetOf.set(run, target);
       target.addEventListener('pointerdown', (e) => beginTextSelection(e, run));
       Object.assign(target.style, {
         left: `${box.x}px`,
@@ -5091,8 +5114,7 @@ export function createEditor({
       if (e.key === 'Escape') {
         e.preventDefault();
         e.stopPropagation();
-        finishTextEdit(false);
-        overlay.focus();
+        leaveTextEdit(overlay);
       } else if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
         e.preventDefault();
         safe(() => finishTextEdit())();
@@ -5197,8 +5219,7 @@ export function createEditor({
       if (e.key === 'Escape') {
         e.preventDefault();
         e.stopPropagation();
-        finishTextEdit(false);
-        overlay.focus();
+        leaveTextEdit(overlay);
       } else if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
         e.preventDefault();
         safe(() => finishTextEdit())();
@@ -12168,8 +12189,7 @@ export function createEditor({
     if (e.key === 'Escape' && (textEdit || textPointer)) {
       e.preventDefault();
       cancelTextSelection();
-      safe(() => finishTextEdit(false))();
-      workspace.focus({ preventScroll: true });
+      leaveTextEdit(workspace);
       return;
     }
     if (e.key === 'Escape' && selectedHighlight) {
