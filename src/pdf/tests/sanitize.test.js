@@ -394,6 +394,40 @@ describe('sanitizeDocument', () => {
     expect(await recoverable(bytes)).not.toContain('RENDITIONSCRIPT');
   });
 
+  it('removes embedded search indexes from every branch of the attachment list', async () => {
+    const doc = await PDFDocument.create();
+    doc.addPage([400, 400]);
+    const ctx = doc.context;
+    const file = (name, data) =>
+      ctx.register(
+        ctx.obj({
+          Type: 'Filespec',
+          F: PDFString.of(name),
+          EF: { F: ctx.register(ctx.stream(data, { Type: 'EmbeddedFile' })) },
+        }),
+      );
+    // Longer attachment lists branch into Kids; the index sits in the second branch.
+    const leaf = (name, data) =>
+      ctx.register(
+        ctx.obj({
+          Names: [PDFString.of(name), file(name, data)],
+          Limits: [PDFString.of(name), PDFString.of(name)],
+        }),
+      );
+    doc.catalog.set(
+      n('Names'),
+      ctx.obj({
+        EmbeddedFiles: { Kids: [leaf('a-notes.txt', 'NOTES'), leaf('z-index.pdx', 'SEARCHIDX')] },
+      }),
+    );
+    const off = Object.fromEntries(Object.keys(SANITIZE_DEFAULTS).map((key) => [key, false]));
+    const { bytes, report } = await sanitize(await doc.save(), { ...off, searchIndex: true });
+    expect(report.searchIndex).toBe(1);
+    const corpus = await recoverable(bytes);
+    expect(corpus).not.toContain('SEARCHIDX');
+    expect(corpus).toContain('NOTES');
+  });
+
   it('counts nothing when the chosen kinds are absent', async () => {
     const doc = await PDFDocument.create();
     doc.addPage([400, 400]);
