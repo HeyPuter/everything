@@ -1498,6 +1498,14 @@
   padding: 4px 2px;
   cursor: pointer;
 }
+/* The same boxes as every other dialog's: full size, in the app's color. */
+.result-row input {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: var(--accent);
+}
 
 /* Prepare a form: fields as labelled boxes over the page */
 .form-designer {
