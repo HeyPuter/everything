@@ -1,0 +1,13 @@
+{
+  "blank": "(Blank)",
+  "cacheUnavailable": "The linked pivot cache is unavailable.",
+  "clearFilter": "Clear filter",
+  "columnUnavailable": "The linked table column is unavailable.",
+  "couldNotUpdate": "The slicer could not be updated.",
+  "filterValues": "Filter values",
+  "itemOf": "Item {n} of {total}",
+  "itemOfNoData": "Item {n} of {total}. No matching data under the other filters",
+  "multiSelect": "Multi-select",
+  "noItems": "No items",
+  "slicer": "Slicer"
+}

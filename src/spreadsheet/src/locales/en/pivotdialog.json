@@ -1,0 +1,22 @@
+{
+  "added": "Pivot table added on {sheet}",
+  "agg.average": "Average",
+  "agg.count": "Count",
+  "agg.max": "Max",
+  "agg.min": "Min",
+  "agg.sum": "Sum",
+  "columns": "Columns",
+  "dataRange": "Data range (first row holds the field names)",
+  "errors.filterField": "The filter must be a field other than the rows and columns",
+  "errors.sameField": "Rows and columns must be different fields",
+  "filterBy": "Filter by",
+  "insert": "Insert on a new sheet",
+  "rows": "Rows",
+  "sameSheet": "The source must be on this sheet",
+  "showing": "Showing",
+  "sourceRange": "Source range",
+  "summarizeBy": "Summarize by",
+  "summary": "{shape, select, grid {{rows, plural, one {{rows} row} other {{rows} rows}} × {cols, plural, one {{cols} column} other {{cols} columns}}} other {{rows, plural, one {{rows} row} other {{rows} rows}}}}, {agg, select, sum {sum} count {count} average {average} max {max} other {min}} of {field}{filtered, select, yes {, filtered by {filterField} (a dropdown above the table picks the value)} other {}}. The table is written to a new sheet as formulas that follow your data.",
+  "title": "Pivot table",
+  "values": "Values"
+}

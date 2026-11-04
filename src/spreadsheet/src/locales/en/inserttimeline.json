@@ -1,0 +1,17 @@
+{
+  "caption": "Caption",
+  "choose": "Choose the date fields of PivotTable {name} to filter with a timeline.",
+  "couldNotInsert": "The timeline could not be inserted.",
+  "dateFields": "Date fields",
+  "filters": "Filters PivotTable {name} by {field}.",
+  "inserted": "Timeline inserted. Click a period, or drag across several, to filter the PivotTable",
+  "noDates": "PivotTable {name} has no field of dates to build a timeline from",
+  "settingsTitle": "Timeline Settings",
+  "show.header": "Header",
+  "show.lockPosition": "Lock position",
+  "show.print": "Print timeline",
+  "show.scrollbar": "Scrollbar",
+  "show.selectionLabel": "Selection label",
+  "show.timeLevel": "Time level",
+  "title": "Insert Timelines"
+}

@@ -7,13 +7,14 @@ import { openModal, fieldAlert } from './modal.js';
 import { toast } from './toast.js';
 import { insertTimeline, pivotDateFields } from '../core/timeline.js';
 import { decodeXlsxString } from '../core/xlsx-string.js';
+import { t } from '../i18n/index.js';
 
 export function openInsertTimelineDialog(ctx, pivot) {
   const { wb } = ctx;
   const sheetId = ctx.sheetId();
   const fields = pivotDateFields(wb, pivot);
   if (!fields.length) {
-    toast(`PivotTable ${decodeXlsxString(pivot.name)} has no field of dates to build a timeline from`, { icon: 'info', duration: 3200 });
+    toast(t('inserttimeline.noDates', { name: decodeXlsxString(pivot.name) }), { icon: 'info', duration: 3200 });
     return null;
   }
   const { alert, refuse } = fieldAlert('timeline');
@@ -28,41 +29,41 @@ export function openInsertTimelineDialog(ctx, pivot) {
     if (!chosen.length) { modal.close(); return; }
     const ids = [];
     try { wb.transaction('Insert timeline', () => { for (const b of chosen) ids.push(insertTimeline(wb, sheetId, pivot, b.field.index)); }); }
-    catch (error) { refuse(null, error.message || 'The timeline could not be inserted.'); return; }
+    catch (error) { refuse(null, error.message || t('inserttimeline.couldNotInsert')); return; }
     modal.close();
     if (ids.length) {
       ctx.grid.selectChart?.(ids.at(-1));
-      toast('Timeline inserted. Click a period, or drag across several, to filter the PivotTable', { icon: 'timeline', duration: 2800 });
+      toast(t('inserttimeline.inserted'), { icon: 'timeline', duration: 2800 });
     }
   };
   const content = el('form', { onsubmit: submit },
-    el('p.small.muted', {}, `Choose the date fields of PivotTable ${decodeXlsxString(pivot.name)} to filter with a timeline.`),
-    el('div.field', { role: 'group', 'aria-label': 'Date fields' }, el('div.dedupe-cols', {}, ...boxes.map(b => b.node))),
+    el('p.small.muted', {}, t('inserttimeline.choose', { name: decodeXlsxString(pivot.name) })),
+    el('div.field', { role: 'group', 'aria-label': t('inserttimeline.dateFields') }, el('div.dedupe-cols', {}, ...boxes.map(b => b.node))),
     alert,
     el('div.row.row-end', {},
-      el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Cancel'),
-      el('button.btn.btn-primary', { type: 'submit' }, 'OK')));
-  const modal = openModal({ title: 'Insert Timelines', content, initialFocus: boxes[0].input, onClose: () => ctx.grid.focus() });
+      el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, t('common.cancel')),
+      el('button.btn.btn-primary', { type: 'submit' }, t('common.ok'))));
+  const modal = openModal({ title: t('inserttimeline.title'), content, initialFocus: boxes[0].input, onClose: () => ctx.grid.focus() });
   return modal;
 }
 
 export function openTimelineSettingsDialog(ctx, control) {
   const { wb } = ctx;
-  const caption = el('input.input', { type: 'text', value: control.title || '', 'aria-label': 'Caption' });
-  const checks = [['showHeader', 'Header'], ['showSelectionLabel', 'Selection label'], ['showTimeLevel', 'Time level'], ['showHorizontalScrollbar', 'Scrollbar'], ['lockedPosition', 'Lock position'], ['print', 'Print timeline']]
-    .map(([key, label]) => ({ key, input: el('input', { type: 'checkbox', checked: key === 'lockedPosition' ? !!control[key] : control[key] !== false }), label }));
+  const caption = el('input.input', { type: 'text', value: control.title || '', 'aria-label': t('inserttimeline.caption') });
+  const checks = [['showHeader', 'inserttimeline.show.header'], ['showSelectionLabel', 'inserttimeline.show.selectionLabel'], ['showTimeLevel', 'inserttimeline.show.timeLevel'], ['showHorizontalScrollbar', 'inserttimeline.show.scrollbar'], ['lockedPosition', 'inserttimeline.show.lockPosition'], ['print', 'inserttimeline.show.print']]
+    .map(([key, label]) => ({ key, input: el('input', { type: 'checkbox', checked: key === 'lockedPosition' ? !!control[key] : control[key] !== false }), label: t(label) }));
   const submit = e => {
     e?.preventDefault();
     wb.updateChart(ctx.sheetId(), control.id, { title: caption.value, ...Object.fromEntries(checks.map(c => [c.key, c.input.checked])) }, 'Edit timeline');
     modal.close();
   };
   const content = el('form', { onsubmit: submit },
-    el('label.field', {}, el('span.field-label', {}, 'Caption'), caption),
-    el('div.field', {}, el('span.field-label', {}, 'Show'), ...checks.map(c => el('label.check', {}, c.input, el('span', {}, c.label)))),
-    el('p.field-hint', {}, `Filters PivotTable ${decodeXlsxString(control.report.name)} by ${control.field}.`),
+    el('label.field', {}, el('span.field-label', {}, t('inserttimeline.caption')), caption),
+    el('div.field', {}, el('span.field-label', {}, t('common.show')), ...checks.map(c => el('label.check', {}, c.input, el('span', {}, c.label)))),
+    el('p.field-hint', {}, t('inserttimeline.filters', { name: decodeXlsxString(control.report.name), field: control.field })),
     el('div.row.row-end', {},
-      el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Cancel'),
-      el('button.btn.btn-primary', { type: 'submit' }, 'Save')));
-  const modal = openModal({ title: 'Timeline Settings', content, initialFocus: caption, onClose: () => ctx.grid.focus() });
+      el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, t('common.cancel')),
+      el('button.btn.btn-primary', { type: 'submit' }, t('common.save'))));
+  const modal = openModal({ title: t('inserttimeline.settingsTitle'), content, initialFocus: caption, onClose: () => ctx.grid.focus() });
   return modal;
 }

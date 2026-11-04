@@ -1,0 +1,17 @@
+{
+  "caption": "标题",
+  "choose": "选择数据透视表 {name} 中要用日程表筛选的日期字段。",
+  "couldNotInsert": "无法插入日程表。",
+  "dateFields": "日期字段",
+  "filters": "按 {field} 筛选数据透视表 {name}。",
+  "inserted": "已插入日程表。单击一个期间，或拖动选择多个期间，即可筛选数据透视表",
+  "noDates": "数据透视表 {name} 中没有可用于创建日程表的日期字段",
+  "settingsTitle": "日程表设置",
+  "show.header": "标头",
+  "show.lockPosition": "锁定位置",
+  "show.print": "打印日程表",
+  "show.scrollbar": "滚动条",
+  "show.selectionLabel": "选择标签",
+  "show.timeLevel": "时间级别",
+  "title": "插入日程表"
+}

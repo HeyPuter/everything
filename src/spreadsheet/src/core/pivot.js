@@ -12,8 +12,15 @@ import { refToText, mapFormulaRefs, quoteSheet } from './refs.js';
 import { isError, compareStoredValues, criteriaMatcher } from './formula/functions.js';
 import { MAX_ROWS, MAX_COLS } from './workbook.js';
 import { maxOf } from './numeric.js';
+import { t, tSource } from '../i18n/index.js';
 
-export class PivotSizeError extends Error {}
+/** A pivot too large for a sheet: `message` in English (the assistant reads it), `shown` in the interface's language. */
+export class PivotSizeError extends Error {
+  constructor(key, values) {
+    super(tSource(key, values));
+    this.shown = t(key, values);
+  }
+}
 
 export const PIVOT_AGGS = [
   ['sum', 'Sum', 'SUMIFS', 'SUM'],
@@ -29,7 +36,7 @@ export const PIVOT_AGGS = [
  */
 function sourceRange(wb, sheetId, range) {
   const n = normalizeRange(range);
-  const table = (wb.tablesOn?.(sheetId) || []).find((t) => t.totalsRow && t.range.r1 === n.r1 && t.range.r2 === n.r2 && n.c1 >= t.range.c1 && n.c2 <= t.range.c2);
+  const table = (wb.tablesOn?.(sheetId) || []).find((tb) => tb.totalsRow && tb.range.r1 === n.r1 && tb.range.r2 === n.r2 && n.c1 >= tb.range.c1 && n.c2 <= tb.range.c2);
   return table ? { ...n, r2: n.r2 - 1 } : n;
 }
 
@@ -218,8 +225,8 @@ function pivotGroups(wb, sheetId, spec) {
   const top = filters.length ? filters.length + 1 : 0;
   const outputRows = top + rowValues.length + 2;
   const outputCols = colCol == null ? 2 : colValues.length + 2;
-  if (outputRows > MAX_ROWS) throw new PivotSizeError(`This pivot needs ${outputRows} rows; a sheet supports ${MAX_ROWS}. Choose a rows field with fewer categories or a smaller source range.`);
-  if (outputCols > MAX_COLS) throw new PivotSizeError(`This pivot needs ${outputCols} columns; a sheet supports ${MAX_COLS}. Choose a columns field with fewer categories, or choose None.`);
+  if (outputRows > MAX_ROWS) throw new PivotSizeError('pivot.tooManyRows', { rows: outputRows, max: MAX_ROWS });
+  if (outputCols > MAX_COLS) throw new PivotSizeError('pivot.tooManyColumns', { cols: outputCols, max: MAX_COLS });
   return { n, rowCol, colCol, rowValues, colValues, rowStyles, colStyles, filters, top, rows: outputRows, cols: outputCols };
 }
 
@@ -250,7 +257,7 @@ export function buildPivot(wb, sheetId, spec) {
   const valCol = n.c1 + spec.valueField;
   const data = { r1: n.r1 + 1, r2: n.r2 };
   // A pivot over a table names its columns (Sales[Amount]), so it keeps up as the table grows.
-  const table = (wb.tablesOn?.(sheetId) || []).find((t) => t.range.r1 === n.r1 && t.range.c1 === n.c1 && t.range.c2 === n.c2 && (t.range.r2 === n.r2 || (t.totalsRow && t.range.r2 - 1 === n.r2)));
+  const table = (wb.tablesOn?.(sheetId) || []).find((tb) => tb.range.r1 === n.r1 && tb.range.c1 === n.c1 && tb.range.c2 === n.c2 && (tb.range.r2 === n.r2 || (tb.totalsRow && tb.range.r2 - 1 === n.r2)));
   const columns = table ? wb.tableColumns(sheetId, table) : null;
   const ref = (c) => {
     if (table) {
@@ -372,15 +379,18 @@ export function buildPivot(wb, sheetId, spec) {
 export const PIVOT_MAX_ROWS = 50000;
 
 /** Does the range look like a table with a header row and at least one data row? Rows past the sheet's data do not count. */
-export function pivotRangeProblem(wb, sheetId, range) {
-  if (!range) return 'Choose the data to summarize';
+export function pivotRangeProblem(wb, sheetId, range, say = tSource) {
+  if (!range) return say('pivot.range.none');
   const n = normalizeRange(range);
-  if (n.c2 - n.c1 < 1) return 'The range needs at least two columns';
+  if (n.c2 - n.c1 < 1) return say('pivot.range.twoColumns');
   const rows = lastDataRow(wb, sheetId, n) - n.r1;
-  if (rows < 1) return 'The range needs a header row and at least one row of data';
-  if (rows > PIVOT_MAX_ROWS) return `That range holds ${rows.toLocaleString('en-US')} rows of data; a pivot table summarizes up to ${PIVOT_MAX_ROWS.toLocaleString('en-US')}`;
+  if (rows < 1) return say('pivot.range.noData');
+  if (rows > PIVOT_MAX_ROWS) return say('pivot.range.tooManyRows', { rows, max: PIVOT_MAX_ROWS });
   return null;
 }
+
+/** The same problem in the interface's language, for the dialogs (pivotRangeProblem's English is the assistant's). */
+export const pivotRangeProblemShown = (wb, sheetId, range) => pivotRangeProblem(wb, sheetId, range, t);
 
 /* ---------- Placing a built pivot ---------- */
 
@@ -492,7 +502,7 @@ export function pivotDefinitionNames(wb, sourceSheetId, built, pivotSheetName, a
   const n = normalizeRange(spec.range);
   const fields = pivotFields(wb, sourceSheetId, n);
   // A source that is a whole table is named by the table, so it takes in the rows the table grows by.
-  const table = (wb.tablesOn?.(sourceSheetId) || []).find((t) => t.range.r1 === n.r1 && t.range.c1 === n.c1 && t.range.c2 === n.c2 && (t.range.r2 === n.r2 || (t.totalsRow && t.range.r2 - 1 === n.r2)));
+  const table = (wb.tablesOn?.(sourceSheetId) || []).find((tb) => tb.range.r1 === n.r1 && tb.range.c1 === n.c1 && tb.range.c2 === n.c2 && (tb.range.r2 === n.r2 || (tb.totalsRow && tb.range.r2 - 1 === n.r2)));
   const source = table ? `${table.name}[#All]` : absoluteRange(wb.sheet(sourceSheetId).name, n);
   const label = (i) => (i == null ? null : fields[i]?.label ?? null);
   const definition = { row: label(spec.rowField), col: label(spec.colField), value: label(spec.valueField), agg: spec.agg, filter: label(spec.filters?.[0]?.field),
@@ -528,9 +538,9 @@ function fieldsText(definition) {
 
 /** The fields read back from the name's formula: string constants joined with & (one alone in files written before). */
 function parseFields(text) {
-  const t = String(text ?? '').trim();
-  if (!/^"(?:[^"]|"")*"(?:\s*&\s*"(?:[^"]|"")*")*$/.test(t)) return null;
-  const json = [...t.matchAll(/"((?:[^"]|"")*)"/g)].map((m) => m[1].replace(/""/g, '"')).join('');
+  const body = String(text ?? '').trim();
+  if (!/^"(?:[^"]|"")*"(?:\s*&\s*"(?:[^"]|"")*")*$/.test(body)) return null;
+  const json = [...body.matchAll(/"((?:[^"]|"")*)"/g)].map((m) => m[1].replace(/""/g, '"')).join('');
   try { const parsed = JSON.parse(json); return parsed && typeof parsed === 'object' ? parsed : null; } catch { return null; }
 }
 
@@ -578,15 +588,15 @@ export function refreshablePivotSheets(wb) {
 export function refreshPivot(wb, sheetId, { force = false, replaceChanged = false } = {}) {
   const sheet = wb.sheet(sheetId);
   const def = readDefinition(wb, sheetId);
-  if (!def) return { error: 'This sheet has no PivotTable to refresh' };
+  if (!def) return { error: t('pivot.refresh.none') };
   const state = pivotDefinitionState(wb, sheetId);
-  if (state !== 'intact' && !replaceChanged) return { error: 'The PivotTable on this sheet has been cleared or changed since it was built, so it was not refreshed', changed: true };
-  if (wb.isProtected(sheetId)) return { error: 'This sheet is protected. Unprotect it to refresh the PivotTable' };
+  if (state !== 'intact' && !replaceChanged) return { error: t('pivot.refresh.changed'), changed: true };
+  if (wb.isProtected(sheetId)) return { error: t('pivot.refresh.protected') };
   const found = wb.rangeFromText(sheetId, def.source);
   const at = wb.rangeFromText(sheetId, def.area);
-  if (!found) return { error: 'The PivotTable\'s source data is gone' };
-  if (!at || at.sheetId !== sheetId) return { error: 'The PivotTable is gone from this sheet' };
-  const problem = pivotRangeProblem(wb, found.sheetId, found.range);
+  if (!found) return { error: t('pivot.refresh.sourceGone') };
+  if (!at || at.sheetId !== sheetId) return { error: t('pivot.refresh.tableGone') };
+  const problem = pivotRangeProblemShown(wb, found.sheetId, found.range);
   if (problem) return { error: problem };
   const fields = pivotFields(wb, found.sheetId, found.range);
   const field = (label) => {
@@ -597,7 +607,7 @@ export function refreshPivot(wb, sheetId, { force = false, replaceChanged = fals
   const { row, col, value, agg, filter } = def.fields;
   const spec = { range: found.range, rowField: field(row), colField: field(col), valueField: field(value), agg, filters: [] };
   const missing = [[row, spec.rowField], [col, spec.colField], [value, spec.valueField], [filter, field(filter)]].find(([label, i]) => label != null && i === undefined);
-  if (missing) return { error: `The field “${missing[0]}” is no longer in the PivotTable's source` };
+  if (missing) return { error: t('pivot.refresh.fieldGone', { field: missing[0] }) };
   const old = at.range;
   if (filter != null) {
     // The value picked in the filter cell stays picked, while the field still has it; otherwise every row is shown.
@@ -607,8 +617,8 @@ export function refreshPivot(wb, sheetId, { force = false, replaceChanged = fals
     spec.filters = [{ field: field(filter), value: has ?? null }];
   }
   let built;
-  try { built = buildPivot(wb, found.sheetId, spec); } catch (cause) { if (cause instanceof PivotSizeError) return { error: cause.message }; throw cause; }
-  if (!built.rowCount) return { error: 'The rows field has no values to group by' };
+  try { built = buildPivot(wb, found.sheetId, spec); } catch (cause) { if (cause instanceof PivotSizeError) return { error: cause.shown }; throw cause; }
+  if (!built.rowCount) return { error: t('pivot.refresh.noRows') };
   // The formulas name the table's own cells as if it began at A1; where it stands now, they are moved with it.
   const dr = old.r1, dc = old.c1;
   const moved = (f) => (dr || dc ? mapFormulaRefs(f, (ref) => (ref.sheet ? ref : { ...ref, r1: ref.r1 + dr, r2: ref.r2 + dr, c1: ref.c1 + dc, c2: ref.c2 + dc })) : f);
@@ -620,7 +630,7 @@ export function refreshPivot(wb, sheetId, { force = false, replaceChanged = fals
     return { r: r + dr, c: c + dc, cell: cell.f != null ? { ...cell, f: moved(cell.f) } : cell };
   });
   if (!force && entries.some(({ r, c }) => !inOld(r, c) && (() => { const cell = wb.getCell(sheetId, r, c); return cell && (cell.v != null || cell.f != null); })())) {
-    return { error: 'The refreshed PivotTable would cover cells beside it that hold data', overwrite: true };
+    return { error: t('pivot.refresh.overwrite'), overwrite: true };
   }
   // What the old table had where the new one has nothing is cleared.
   for (const key of sheet.cells.keys()) {

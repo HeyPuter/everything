@@ -1,0 +1,16 @@
+{
+  "allPeriods": "All Periods",
+  "errors.noDateField": "Choose a date field of the PivotTable.",
+  "errors.notWorksheet": "The PivotTable is not on a worksheet.",
+  "errors.protected": "Unprotect the sheet to insert a timeline.",
+  "errors.sourceGone": "The PivotTable or date field this timeline filters is no longer there.",
+  "level.days": "DAYS",
+  "level.months": "MONTHS",
+  "level.quarters": "QUARTERS",
+  "level.years": "YEARS",
+  "quarter": "Q{q} {year}",
+  "quarterRange": "Q{from} - Q{to} {year}",
+  "quarterTile": "Q{q}",
+  "range": "{from} - {to}",
+  "rangeInYear": "{from} - {to} {year}"
+}

@@ -1,0 +1,9 @@
+{
+  "clearFilter": "Clear Filter",
+  "couldNotFilter": "The timeline could not filter the PivotTable.",
+  "noDates": "No dates",
+  "periods": "Periods",
+  "timeLevel": "Time level",
+  "timeline": "Timeline",
+  "unavailable": "The PivotTable or date field this timeline filters is unavailable."
+}

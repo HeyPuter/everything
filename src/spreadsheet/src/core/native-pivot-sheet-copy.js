@@ -6,13 +6,14 @@ import { parseModelXml, modelChildren, standaloneModelXml } from './data-model-m
 import { decodeXlsxString, encodeXlsxAttribute } from './xlsx-string.js';
 import { sheetKey } from './refs.js';
 import { snapshotChartData } from './charts.js';
+import { t } from '../i18n/index.js';
 const MAIN = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main';
 const REL = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
 const identity = report => JSON.stringify([report.owner, sheetKey(decodeXlsxString(report.name))]);
 const fail = message => { throw new Error(`Cannot copy pivot sheet: ${message}`); };
 function requireSourceLocation(sourceWorkbook) {
   if (typeof sourceWorkbook === 'string' && sourceWorkbook.trim()) return;
-  const error = new Error('Save the source spreadsheet before copying a pivot that needs its original workbook location.');
+  const error = new Error(t('nativePivotSheetCopy.saveSourceFirst'));
   error.code = 'PIVOT_SOURCE_LOCATION_REQUIRED'; throw error;
 }
 export { rebaseWorkbookTarget as rebasePivotWorkbookTarget } from './workbook-location.js';

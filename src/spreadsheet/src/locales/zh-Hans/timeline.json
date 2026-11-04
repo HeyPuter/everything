@@ -1,0 +1,9 @@
+{
+  "clearFilter": "清除筛选",
+  "couldNotFilter": "日程表无法筛选数据透视表。",
+  "noDates": "没有日期",
+  "periods": "期间",
+  "timeLevel": "时间级别",
+  "timeline": "日程表",
+  "unavailable": "此日程表筛选的数据透视表或日期字段不可用。"
+}
