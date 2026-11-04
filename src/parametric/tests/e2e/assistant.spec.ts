@@ -197,3 +197,45 @@ test('a failed reply can be tried again until a later message moves the conversa
   const roles = await page.evaluate(() => (window as unknown as { __roles: string[][] }).__roles);
   expect(roles.map((r) => r.at(-1))).toEqual(['user', 'user']);
 });
+
+test('sending signed out signs in first, once, and sends what the box holds then', async ({ page }) => {
+  // A stand-in Puter SDK: signed out, sign-in finished by the test, AI answers at once.
+  await page.route('https://js.puter.com/**', (r) => r.fulfill({
+    contentType: 'application/javascript',
+    body: `(() => {
+      let signed = false;
+      const w = window;
+      w.__signIns = 0; w.__sent = [];
+      const none = () => Promise.reject({ error: { code: 'subject_does_not_exist' } });
+      w.puter = {
+        env: 'web',
+        auth: {
+          isSignedIn: () => signed,
+          signIn: () => { w.__signIns++; return new Promise((res) => { w.__finishSignIn = () => { signed = true; res({}); }; }); },
+          signOut: () => { signed = false; },
+          getUser: async () => ({ username: 'tester', uuid: 'u' }),
+          getProfilePicture: async () => null,
+        },
+        fs: { write: none, read: none, readdir: async () => [], delete: none, rename: none, stat: none, mkdir: async () => ({}) },
+        kv: { get: async () => null, set: async () => true, del: async () => true },
+        ai: { chat: async (messages) => { w.__sent.push(messages.at(-1).content); return { async *[Symbol.asyncIterator]() { yield { type: 'text', text: 'Signed-in answer.' }; } }; } },
+      };
+    })();`,
+  }));
+  await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  const box = page.getByRole('textbox', { name: 'Message the assistant' });
+  await box.fill('hello');
+  await box.press('Enter');
+  await expect(page.locator('.as-status')).toHaveText('Signing in to Puter…');
+  await box.press('Enter');
+  await box.fill('hello, edited while signing in');
+  await page.evaluate(() => (window as unknown as { __finishSignIn(): void }).__finishSignIn());
+  await expect(page.getByText('Signed-in answer.')).toBeVisible();
+  await expect(page.locator('.as-user')).toHaveText(['hello, edited while signing in']);
+  await expect(box).toHaveValue('');
+  const r = await page.evaluate(() => { const w = window as unknown as { __signIns: number; __sent: string[] }; return { signIns: w.__signIns, sent: w.__sent }; });
+  expect(r.signIns).toBe(1);
+  expect(r.sent).toHaveLength(1);
+  expect(r.sent[0]).toMatch(/\n\nhello, edited while signing in$/);
+});

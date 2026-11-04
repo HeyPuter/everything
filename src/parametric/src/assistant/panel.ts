@@ -260,6 +260,9 @@ export class AssistantPanel {
     let text = this.input.value.trim();
     if ((!text && !this.pending.length) || this.agent.busy || this.sending) return;
     if (!(await this.ready()) || this.agent.busy) return;
+    // What the box holds now goes: it may have been edited while signing in.
+    text = this.input.value.trim();
+    if (!text && !this.pending.length) return;
     let items: PendingFile[] = [];
     let files: Attachment[] = [];
     if (this.pending.length) {
