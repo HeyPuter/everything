@@ -17,7 +17,7 @@ import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
  *
  * CompareResult = {
  *   summary: { pages: { old, new }, total, inserted, deleted, replaced, formatting,
- *              pagesAdded, pagesRemoved, pagesMoved, imageChanges },
+ *              pagesAdded, pagesRemoved, pagesMoved, imageChanges, otherChanges },
  *   pages: [{ oldIndex, newIndex, status: 'same'|'changed'|'added'|'removed'|'moved',
  *             notes: string[], changes: Change[] }],
  *   geometry: { old: { view, rotate }[], new: { view, rotate }[] },
@@ -930,6 +930,8 @@ export async function compareDocuments(oldDoc, newDoc, { signal, onProgress, ren
     pagesRemoved: 0,
     pagesMoved: 0,
     imageChanges: 0,
+    // Differences of a page as a whole: its size, rotation, drawing, or appearance.
+    otherChanges: 0,
   };
   const counter = {
     insert: 'inserted',
@@ -946,6 +948,7 @@ export async function compareDocuments(oldDoc, newDoc, { signal, onProgress, ren
       change.id = nextId++;
       summary[counter[change.type]]++;
     }
+    summary.otherChanges += entry.notes.length;
     if (entry.status === 'same' && (entry.changes.length || entry.notes.length))
       entry.status = 'changed';
     if (entry.status === 'added') summary.pagesAdded++;
@@ -960,7 +963,8 @@ export async function compareDocuments(oldDoc, newDoc, { signal, onProgress, ren
     summary.imageChanges +
     summary.pagesAdded +
     summary.pagesRemoved +
-    summary.pagesMoved;
+    summary.pagesMoved +
+    summary.otherChanges;
   onProgress?.({ phase: 'compare', done: 1, total: 1 });
   return {
     summary,
@@ -1032,6 +1036,7 @@ export function describeSummary(summary) {
     summary.pagesAdded && plural(summary.pagesAdded, 'page inserted', 'pages inserted'),
     summary.pagesRemoved && plural(summary.pagesRemoved, 'page deleted', 'pages deleted'),
     summary.pagesMoved && plural(summary.pagesMoved, 'page moved', 'pages moved'),
+    summary.otherChanges && plural(summary.otherChanges, 'other change'),
   ].filter(Boolean);
   return `${plural(summary.total, 'change')}: ${parts.join(', ')}`;
 }

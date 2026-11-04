@@ -96,6 +96,7 @@ it('reports inserted, deleted, replaced and restyled words, and added and remove
     pagesRemoved: 1,
     pagesMoved: 0,
     imageChanges: 0,
+    otherChanges: 0,
   });
   expect(result.pages.map((p) => [p.oldIndex, p.newIndex, p.status])).toEqual([
     [0, 0, 'changed'],
@@ -307,4 +308,27 @@ it('writes a report that lists every change', async () => {
   expect(text).toContain('Inserted "very"');
   expect(text).toContain('Replaced "three" with "four"');
   expect(text).toContain('Page 3 deleted');
+});
+
+it('counts a page that changed as a whole, so the summary does not say there are no differences', async () => {
+  const draw = async (x, width = 612) => {
+    const doc = await PDFDocument.create();
+    const font = await doc.embedFont(StandardFonts.Helvetica);
+    const page = doc.addPage([width, 792]);
+    page.drawText('The same words on both versions', { x: 72, y: 700, size: 12, font });
+    page.drawRectangle({ x, y: 100, width: 100, height: 100 });
+    return open(await doc.save());
+  };
+  const moved = await compareDocuments(await draw(100), await draw(300));
+  expect(moved.pages.map((p) => [p.status, p.notes])).toEqual([
+    ['changed', ['Vector graphics differ']],
+  ]);
+  expect(moved.summary).toMatchObject({ total: 1, otherChanges: 1 });
+  expect(describeSummary(moved.summary)).toBe('1 change: 1 other change');
+  const resized = await compareDocuments(await draw(100), await draw(100, 700));
+  expect(describeSummary(resized.summary)).toBe('1 change: 1 other change');
+  const report = await (await open(await buildCompareReport(resized))).getPage(1);
+  const text = (await report.getTextContent()).items.map((item) => item.str).join('\n');
+  expect(text).toContain('1 change: 1 other change');
+  expect(text).toContain('Page size changed');
 });
