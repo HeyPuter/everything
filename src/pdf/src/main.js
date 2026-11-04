@@ -667,6 +667,7 @@ async function openDocument(
       name: safeName(name),
       path,
       remote: (path && source?.remote) || null,
+      blank: readBytes === newBlankPdf,
       protection,
       encryptedOriginal,
       settings,

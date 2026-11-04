@@ -207,6 +207,8 @@ export function createEditor({
   name,
   path,
   remote: initialRemote = null,
+  // The new, empty PDF the app opens with (or New blank PDF), rather than a file.
+  blank = false,
   settings,
   getUser,
   signedOut = () => false,
@@ -8961,7 +8963,11 @@ export function createEditor({
    */
   function combineDialog() {
     const entries = [];
-    const includeCurrent = el('input', { type: 'checkbox', id: 'combine-current', checked: true });
+    const includeCurrent = el('input', {
+      type: 'checkbox',
+      id: 'combine-current',
+      checked: !untouchedBlank(),
+    });
     const list = el('ol', { class: 'combine-list', 'aria-label': 'Files to combine' });
     const empty = el('p', { class: 'muted' }, 'Add PDFs or pictures to combine them.');
     // Rows are drawn again after each change; `focus` names the row and button ([up, down,
@@ -11404,6 +11410,8 @@ export function createEditor({
     editorRoot.classList.remove('comparing');
     workspace.focus({ preventScroll: true });
   }
+  /** The empty PDF the app opened with, still empty: not a file to combine or process. */
+  const untouchedBlank = () => blank && session.revision === 0 && !protection;
   /* ---------- Batch processing ---------- */
   /**
    * Apply one list of steps to several PDFs, as an action wizard does, and download the
@@ -11412,7 +11420,11 @@ export function createEditor({
   async function batchDialog() {
     const { BATCH_STEPS: BATCH_STEP_LABELS } = await import('./core/batch.js');
     const files = [];
-    const includeCurrent = el('input', { type: 'checkbox', id: 'batch-current', checked: true });
+    const includeCurrent = el('input', {
+      type: 'checkbox',
+      id: 'batch-current',
+      checked: !untouchedBlank(),
+    });
     const list = el('ul', { class: 'combine-list', 'aria-label': 'Files to process' });
     const renderFiles = () =>
       list.replaceChildren(
