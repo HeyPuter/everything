@@ -89,5 +89,18 @@ test.describe('accessibility', () => {
     await expect(page.getByRole('heading', { name: 'Section View' })).toBeVisible();
     await expect(page.getByRole('menu')).toHaveCount(0);
   });
+
+  test('command search reports its list state and platform shortcuts', async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /New part/ }).click();
+    const search = page.getByRole('combobox', { name: 'Search commands' });
+    await search.fill('save');
+    await expect(search).toHaveAttribute('aria-expanded', 'true');
+    const mac = await page.evaluate(() => /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent));
+    await expect(page.getByRole('option', { name: /^Save/ }).first()).toContainText(mac ? '⌘S' : 'Ctrl+S');
+    await page.locator('canvas.gl').click({ position: { x: 40, y: 40 } });
+    await expect(page.getByRole('listbox')).toBeHidden();
+    await expect(search).toHaveAttribute('aria-expanded', 'false');
+  });
 });
 

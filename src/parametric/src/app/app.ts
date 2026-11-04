@@ -15,7 +15,7 @@ import { VIEWS } from '../render/camera';
 import { cssColor, parseColor } from '../platform/theme';
 import { closeMenus, openMenu, type MenuItem } from '../ui/menu';
 import { attachTooltip, confirmDialog, dialogOpen, toast } from '../ui/overlay';
-import { announce, h, isTextInput } from '../ui/dom';
+import { announce, formatShortcut, h, isTextInput } from '../ui/dom';
 import { icon } from '../ui/icons';
 import { CommandRegistry } from './commands';
 import { type PickFilter, PropertyPanel, type UnitContext } from './pm';
@@ -473,26 +473,34 @@ export class App {
       active = 0;
       list.forEach((c, i) => {
         const opt = h('div', { role: 'option', id: `cmdopt-${i}`, 'aria-selected': String(i === 0), 'aria-disabled': this.commands.isEnabled(c.id) ? null : 'true' },
-          icon(c.icon ?? 'settings', 16), h('span', {}, c.label), c.shortcut ? h('span', { class: 'kbd' }, c.shortcut) : null);
+          icon(c.icon ?? 'settings', 16), h('span', {}, c.label), c.shortcut ? h('span', { class: 'kbd' }, formatShortcut(c.shortcut)) : null);
         opt.addEventListener('pointerdown', (e) => { e.preventDefault(); run(c.id); });
         results.append(opt);
       });
       results.hidden = !list.length;
       s.search.setAttribute('aria-expanded', String(!!list.length));
-      s.search.setAttribute('aria-activedescendant', list.length ? 'cmdopt-0' : '');
+      if (list.length) s.search.setAttribute('aria-activedescendant', 'cmdopt-0');
+      else s.search.removeAttribute('aria-activedescendant');
+    };
+    const hide = () => {
+      results.hidden = true;
+      s.search.setAttribute('aria-expanded', 'false');
+      s.search.removeAttribute('aria-activedescendant');
     };
     const run = (id: string) => {
       s.search.value = '';
-      results.hidden = true;
+      hide();
       s.search.blur();
       this.commands.run(id);
     };
     s.search.addEventListener('input', show);
-    s.search.addEventListener('blur', () => setTimeout(() => { results.hidden = true; }, 120));
+    s.search.addEventListener('blur', () => setTimeout(hide, 120));
     s.search.addEventListener('keydown', (e) => {
       const opts = [...results.querySelectorAll<HTMLElement>('[role="option"]')];
       if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
         e.preventDefault();
+        if (!opts.length) return;
+        if (results.hidden) { show(); return; }
         active = (active + (e.key === 'ArrowDown' ? 1 : -1) + opts.length) % Math.max(1, opts.length);
         opts.forEach((o, i) => o.setAttribute('aria-selected', String(i === active)));
         s.search.setAttribute('aria-activedescendant', `cmdopt-${active}`);
@@ -501,7 +509,7 @@ export class App {
         if (list[active]) run(list[active].id);
       } else if (e.key === 'Escape') {
         s.search.value = '';
-        results.hidden = true;
+        hide();
         s.search.blur();
       }
     });
