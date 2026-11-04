@@ -261,7 +261,8 @@ export function createCollaboration({ editor, pkg, doc, local, error, onChange =
   }
   const shareItems = () => [
     { label: 'Invite People…', icon: 'invitePeople', disabled: !editor(), onSelect: share },
-    { label: 'Copy Link', icon: 'link', disabled: !editor() || readOnly(), onSelect: async () => {
+    // Only the owner makes links to a document on Puter (the room refuses anyone else).
+    { label: 'Copy Link', icon: 'link', disabled: !editor() || readOnly() || (!!live && !live.local && !live.canManage), onSelect: async () => {
       try { await ensureShared(); const url = await live.inviteLink('editor'); await navigator.clipboard?.writeText(url); toast('Link copied: anyone who opens it can edit'); }
       catch (e) { error(e); }
     } },

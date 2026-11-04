@@ -69,6 +69,8 @@ export class LiveSession extends EventTarget {
   }
 
   get role() { return this.client.role; }
+  /** The owner's name, as the room gave it when this person joined (unknown for local sharing). */
+  get ownerName() { return this.client.info?.ownerName || null; }
   get local() { return !!this.link.local; }
   get status() { return this.client.status; }
   get pending() { return this.client.outbox.size; }
