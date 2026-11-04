@@ -450,18 +450,29 @@ export class SketchEditor implements ViewportTool {
   /** Adds a driving dimension; falls back to driven if it would over-define. */
   addDimension(spec: { type: SkDimension['type']; refs: Id[]; value: number; sector?: number }, at: Vec2, openModify = true): Id | null {
     let newDimId: Id | null = null;
-    this.edit('Add dimension', (sk, newId) => {
-      const id = newId('d');
-      newDimId = id;
-      sk.constraints.push({ id, type: spec.type, refs: spec.refs, value: round(spec.value), at, name: nextDimName(sk), sector: spec.sector });
-    });
-    if (!newDimId) return null;
-    const res = this.solve;
-    if (res && (res.badConstraints.has(newDimId) || res.status === 'over')) {
-      this.edit('Make dimension driven', (sk) => {
-        const d = sk.constraints.find((c) => c.id === newDimId) as SkDimension;
-        d.driven = true;
+    // One undo step, so undoing a dimension that fell back to driven does
+    // not leave it behind as a driving one that over-defines the sketch.
+    this.app.store.beginBatch('Add dimension');
+    let driven = false;
+    try {
+      this.edit('Add dimension', (sk, newId) => {
+        const id = newId('d');
+        newDimId = id;
+        sk.constraints.push({ id, type: spec.type, refs: spec.refs, value: round(spec.value), at, name: nextDimName(sk), sector: spec.sector });
       });
+      const res = this.solve;
+      if (newDimId && res && (res.badConstraints.has(newDimId) || res.status === 'over')) {
+        driven = true;
+        this.edit('Make dimension driven', (sk) => {
+          const d = sk.constraints.find((c) => c.id === newDimId) as SkDimension;
+          d.driven = true;
+        });
+      }
+    } finally {
+      this.app.store.endBatch();
+    }
+    if (!newDimId) return null;
+    if (driven) {
       toast({ kind: 'warning', title: 'Driven dimension', message: 'This dimension would over-define the sketch, so it was added as a driven (reference) dimension.' });
       return newDimId;
     }
