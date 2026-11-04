@@ -174,6 +174,9 @@ export async function optionsDialog(app: App) {
 // ---------- mass properties ----------
 
 export async function massPropertiesDialog(app: App) {
+  // The kernel answers for the last body it built: let a pending rebuild
+  // (a change made just before) finish first.
+  await app.whenBuilt();
   if (!app.bbox) { toast({ kind: 'warning', message: 'There is no solid body yet.' }); return; }
   const mp = await app.kernel.massProperties().catch((e) => { toast({ kind: 'error', message: (e as Error).message }); return null; });
   if (!mp) return;
