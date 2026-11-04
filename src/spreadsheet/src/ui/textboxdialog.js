@@ -8,9 +8,11 @@ import { el, isComposing } from './dom.js';
 import { openModal, fieldAlert } from './modal.js';
 import { TEXT_SIZES, TEXT_MAX_LENGTH, textBoxText } from '../core/charts.js';
 import { EFFECT_LEVELS } from '../core/theme-effects.js';
+import { t } from '../i18n/index.js';
 
-const COLORS = [['', 'Automatic'], ['#1a1a1a', 'Black'], ['#6b6964', 'Gray'], ['#c22a2a', 'Red'], ['#eb6834', 'Orange'], ['#b8860b', 'Gold'], ['#1baf7a', 'Green'], ['#0a63f0', 'Blue'], ['#4a3aa7', 'Purple'], ['#ffffff', 'White']];
-const FILLS = [['', 'None'], ['#ffffff', 'White'], ['#fff7c2', 'Yellow'], ['#e3f0ff', 'Blue'], ['#e2f6ea', 'Green'], ['#fde8e8', 'Red'], ['#f2f1ee', 'Gray'], ['#1a1a1a', 'Black']];
+/** Each colour and fill offered, with its name (a catalog key). */
+const COLORS = [['', 'textboxdialog.color.automatic'], ['#1a1a1a', 'textboxdialog.color.black'], ['#6b6964', 'textboxdialog.color.gray'], ['#c22a2a', 'textboxdialog.color.red'], ['#eb6834', 'textboxdialog.color.orange'], ['#b8860b', 'textboxdialog.color.gold'], ['#1baf7a', 'textboxdialog.color.green'], ['#0a63f0', 'textboxdialog.color.blue'], ['#4a3aa7', 'textboxdialog.color.purple'], ['#ffffff', 'textboxdialog.color.white']];
+const FILLS = [['', 'textboxdialog.color.none'], ['#ffffff', 'textboxdialog.color.white'], ['#fff7c2', 'textboxdialog.color.yellow'], ['#e3f0ff', 'textboxdialog.color.blue'], ['#e2f6ea', 'textboxdialog.color.green'], ['#fde8e8', 'textboxdialog.color.red'], ['#f2f1ee', 'textboxdialog.color.gray'], ['#1a1a1a', 'textboxdialog.color.black']];
 
 /** `fit(text, style)`, with a box being edited, gives the size the box takes for the text saved (WordArt's). */
 export function openTextBoxDialog(ctx, { textbox = null, fit = null } = {}) {
@@ -20,26 +22,26 @@ export function openTextBoxDialog(ctx, { textbox = null, fit = null } = {}) {
   const st = { size: 13, bold: false, italic: false, color: null, bg: null, align: 'left', valign: 'top', border: true, ...(textbox?.style || {}) };
 
   const initialText = textbox ? textBoxText(wb, sheetId, textbox) : '';
-  const textArea = el('textarea.input.textbox-text', { rows: 4, placeholder: 'Type the text…', 'aria-label': 'Text', value: initialText });
+  const textArea = el('textarea.input.textbox-text', { rows: 4, placeholder: t('textboxdialog.placeholder'), 'aria-label': t('textboxdialog.text'), value: initialText });
   const sizes = [...new Set([...TEXT_SIZES, st.size])].sort((a, b) => a - b);
-  const sizeSel = el('select.select', { 'aria-label': 'Font size' }, sizes.map((n) => el('option', { value: String(n), selected: n === st.size }, `${n}`)));
+  const sizeSel = el('select.select', { 'aria-label': t('textboxdialog.fontSize') }, sizes.map((n) => el('option', { value: String(n), selected: n === st.size }, `${n}`)));
   const colorSelect = (label, palette, current) => {
-    const options = current && !palette.some(([value]) => value === current)
-      ? [...palette, [current, `Custom (${current})`]] : palette;
+    const options = (current && !palette.some(([value]) => value === current) ? [...palette, [current, null]] : palette)
+      .map(([value, name]) => [value, name ? t(name) : t('textboxdialog.customColor', { color: value })]);
     return el('select.select', { 'aria-label': label }, options.map(([value, name]) =>
       el('option', { value, selected: (current || '') === value }, name)));
   };
-  const colorSel = colorSelect('Text color', COLORS, st.color);
-  const fillSel = colorSelect('Fill color', FILLS, st.bg);
+  const colorSel = colorSelect(t('textboxdialog.textColor'), COLORS, st.color);
+  const fillSel = colorSelect(t('textboxdialog.fillColor'), FILLS, st.bg);
   // A theme effect (Page Layout ▸ Effects decides how it looks).
-  const effectSel = el('select.select', { 'aria-label': 'Theme effect' }, [['0', 'None'], ...EFFECT_LEVELS.map((label, i) => [String(i + 1), label])]
+  const effectSel = el('select.select', { 'aria-label': t('textboxdialog.themeEffect') }, [['0', t('common.none')], ...EFFECT_LEVELS.map((label, i) => [String(i + 1), label])]
     .map(([value, label]) => el('option', { value, selected: String(st.effectRef || 0) === value }, label)));
   const check = (key, label) => {
     const input = el('input', { type: 'checkbox', checked: !!st[key], onchange: () => { st[key] = input.checked; } });
     return el('label.check', {}, input, el('span', {}, label));
   };
   const seg = (key, options) => {
-    const group = el('div.seg', { role: 'radiogroup', 'aria-label': key === 'align' ? 'Horizontal alignment' : 'Vertical alignment' });
+    const group = el('div.seg', { role: 'radiogroup', 'aria-label': key === 'align' ? t('textboxdialog.horizontalAlignment') : t('textboxdialog.verticalAlignment') });
     const choose = (val) => {
       st[key] = val;
       for (const b of group.children) {
@@ -72,18 +74,18 @@ export function openTextBoxDialog(ctx, { textbox = null, fit = null } = {}) {
 
   function canChange() {
     if (!wb.isProtected(sheetId)) return true;
-    return refuse(null, 'This sheet is protected. Unprotect it before changing text boxes.');
+    return refuse(null, t('textboxdialog.protected'));
   }
 
   const submit = (e) => {
     e?.preventDefault();
     if (!canChange()) return;
     const text = textArea.value.replace(/\r\n/g, '\n');
-    if (!text.trim()) return refuse(textArea, 'Type some text');
-    if (text.length > TEXT_MAX_LENGTH) return refuse(textArea, `Use ${TEXT_MAX_LENGTH.toLocaleString('en-US')} characters or fewer. Your text is still here to edit.`);
+    if (!text.trim()) return refuse(textArea, t('textboxdialog.typeText'));
+    if (text.length > TEXT_MAX_LENGTH) return refuse(textArea, t('textboxdialog.tooLong', { max: TEXT_MAX_LENGTH }));
     const style = { ...st, size: Number(sizeSel.value), color: colorSel.value || null, bg: fillSel.value || null, effectRef: Number(effectSel.value) || undefined };
     if (textbox) {
-      wb.updateChart(sheetId, textbox.id, { text, style, ...(text !== initialText ? { textRef: null, textPrefix: '', textSuffix: '' } : {}), ...(fit ? fit(text, style) : {}) }, 'Edit text box');
+      wb.updateChart(sheetId, textbox.id, { text, style, ...(text !== initialText ? { textRef: null, textPrefix: '', textSuffix: '' } : {}), ...(fit ? fit(text, style) : {}) }, t('textboxdialog.undoEdit'));
     } else {
       const a = ctx.active();
       const lines = text.split('\n');
@@ -97,25 +99,25 @@ export function openTextBoxDialog(ctx, { textbox = null, fit = null } = {}) {
   };
 
   const content = el('form', { onsubmit: submit },
-    el('label.field', {}, el('span.field-label', {}, 'Text'), textArea, error,
-      textbox?.textRef && el('span.field-hint', {}, `Linked to ${textbox.textRef}. Replacing the text removes the link.`),
-      el('span.field-hint', {}, `Up to ${TEXT_MAX_LENGTH.toLocaleString('en-US')} characters`)),
+    el('label.field', {}, el('span.field-label', {}, t('textboxdialog.text')), textArea, error,
+      textbox?.textRef && el('span.field-hint', {}, t('textboxdialog.linked', { ref: textbox.textRef })),
+      el('span.field-hint', {}, t('textboxdialog.upTo', { max: TEXT_MAX_LENGTH }))),
     el('div.row.row-2', {},
-      el('label.field', {}, el('span.field-label', {}, 'Size'), sizeSel),
-      el('div.field', {}, el('span.field-label', {}, 'Style'), el('div.row.textbox-style-checks', {}, check('bold', 'Bold'), check('italic', 'Italic'), check('border', 'Border')))),
+      el('label.field', {}, el('span.field-label', {}, t('textboxdialog.size')), sizeSel),
+      el('div.field', {}, el('span.field-label', {}, t('textboxdialog.style')), el('div.row.textbox-style-checks', {}, check('bold', t('textboxdialog.bold')), check('italic', t('textboxdialog.italic')), check('border', t('textboxdialog.border'))))),
     el('div.row.row-2', {},
-      el('label.field', {}, el('span.field-label', {}, 'Text color'), colorSel),
-      el('label.field', {}, el('span.field-label', {}, 'Fill'), fillSel)),
+      el('label.field', {}, el('span.field-label', {}, t('textboxdialog.textColor')), colorSel),
+      el('label.field', {}, el('span.field-label', {}, t('textboxdialog.fill')), fillSel)),
     el('div.row.row-2', {},
-      el('label.field', {}, el('span.field-label', {}, 'Theme effect'), effectSel), el('span')),
+      el('label.field', {}, el('span.field-label', {}, t('textboxdialog.themeEffect')), effectSel), el('span')),
     el('div.row.row-2', {},
-      el('div.field', {}, el('span.field-label', {}, 'Align'), seg('align', [['left', 'Left'], ['center', 'Center'], ['right', 'Right']])),
-      el('div.field', {}, el('span.field-label', {}, 'Vertical'), seg('valign', [['top', 'Top'], ['middle', 'Middle'], ['bottom', 'Bottom']]))),
-    el('p.field-hint', {}, 'The box floats over the cells: drag it to move, drag its corner to resize. It prints where it sits and is saved with the file.'),
+      el('div.field', {}, el('span.field-label', {}, t('textboxdialog.align')), seg('align', [['left', t('textboxdialog.left')], ['center', t('textboxdialog.center')], ['right', t('textboxdialog.right')]])),
+      el('div.field', {}, el('span.field-label', {}, t('textboxdialog.vertical')), seg('valign', [['top', t('textboxdialog.top')], ['middle', t('textboxdialog.middle')], ['bottom', t('textboxdialog.bottom')]]))),
+    el('p.field-hint', {}, t('textboxdialog.hint')),
     el('div.row.row-end', {},
-      textbox && el('button.btn.btn-ghost.btn-danger', { type: 'button', onclick: () => { if (!canChange()) return; modal.close(); ctx.run('deleteChart', { id: textbox.id, only: true }); } }, 'Delete'),
-      el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Cancel'),
-      el('button.btn.btn-primary', { type: 'submit' }, textbox ? 'Save' : 'Insert')));
-  const modal = openModal({ title: textbox ? 'Edit text box' : 'Insert text box', content, initialFocus: textArea, onClose: () => ctx.grid.focus() });
+      textbox && el('button.btn.btn-ghost.btn-danger', { type: 'button', onclick: () => { if (!canChange()) return; modal.close(); ctx.run('deleteChart', { id: textbox.id, only: true }); } }, t('common.delete')),
+      el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, t('common.cancel')),
+      el('button.btn.btn-primary', { type: 'submit' }, textbox ? t('common.save') : t('common.insert'))));
+  const modal = openModal({ title: textbox ? t('textboxdialog.undoEdit') : t('textboxdialog.insertTitle'), content, initialFocus: textArea, onClose: () => ctx.grid.focus() });
   return modal;
 }

@@ -10,24 +10,26 @@ import { textBoxStyle } from '../core/charts.js';
 import { tintRgb } from '../core/font-color.js';
 import { workbookTheme } from '../core/workbook-theme.js';
 import { fontKeyFor } from '../core/format.js';
+import { t } from '../i18n/index.js';
 
-const shade = (hex, t) => `#${tintRgb(hex.slice(1), t)}`;
+const shade = (hex, amount) => `#${tintRgb(hex.slice(1), amount)}`;
 
 /** The gallery's styles against the theme's colours (index order: lt1, dk1, lt2, dk2, accent1–6). */
 export function wordArtStyles(colors) {
   const [paper, ink, , ink2, a1, a2, , a4, a5, a6] = colors;
   return [
-    { key: 'ink-shadow', label: 'Ink with shadow', style: { color: ink, bold: false, effects: { shadow: '#000000' } } },
-    { key: 'accent-outline', label: 'Accent with outline', style: { color: a1, bold: true, effects: { outline: shade(a1, -0.5), outlineWidth: 1 } } },
-    { key: 'hollow', label: 'Hollow accent', style: { color: paper, bold: true, effects: { outline: a2, outlineWidth: 1.5 } } },
-    { key: 'glow', label: 'Glowing accent', style: { color: a4, bold: true, effects: { glow: shade(a4, 0.6) } } },
-    { key: 'paper-shadow', label: 'Paper on accent, with shadow', style: { color: paper, bold: true, effects: { outline: a1, outlineWidth: 1, shadow: '#000000' } } },
-    { key: 'deep-shadow', label: 'Bold with deep shadow', style: { color: a6, bold: true, effects: { shadow: shade(a6, -0.5) } } },
-    { key: 'soft-glow', label: 'Text with soft glow', style: { color: ink2, bold: false, effects: { glow: shade(a5, 0.6) } } },
-    { key: 'plain-accent', label: 'Plain accent', style: { color: a5, bold: false } },
+    { key: 'ink-shadow', label: t('wordart.style.inkShadow'), style: { color: ink, bold: false, effects: { shadow: '#000000' } } },
+    { key: 'accent-outline', label: t('wordart.style.accentOutline'), style: { color: a1, bold: true, effects: { outline: shade(a1, -0.5), outlineWidth: 1 } } },
+    { key: 'hollow', label: t('wordart.style.hollow'), style: { color: paper, bold: true, effects: { outline: a2, outlineWidth: 1.5 } } },
+    { key: 'glow', label: t('wordart.style.glow'), style: { color: a4, bold: true, effects: { glow: shade(a4, 0.6) } } },
+    { key: 'paper-shadow', label: t('wordart.style.paperShadow'), style: { color: paper, bold: true, effects: { outline: a1, outlineWidth: 1, shadow: '#000000' } } },
+    { key: 'deep-shadow', label: t('wordart.style.deepShadow'), style: { color: a6, bold: true, effects: { shadow: shade(a6, -0.5) } } },
+    { key: 'soft-glow', label: t('wordart.style.softGlow'), style: { color: ink2, bold: false, effects: { glow: shade(a5, 0.6) } } },
+    { key: 'plain-accent', label: t('wordart.style.plainAccent'), style: { color: a5, bold: false } },
   ];
 }
 
+/** The sample text a new WordArt box holds until it is typed over: the box's content, kept as it is. */
 export const WORDART_TEXT = 'Your text here';
 
 /** The box WordArt's text takes, a line for each line typed: WordArt fits its shape to its text rather than wrapping it. */
@@ -66,8 +68,8 @@ export function openWordArtMenu(ctx, anchor) {
     type: 'button', role: 'menuitem', tabindex: -1, 'aria-label': def.label, title: def.label,
     onclick: () => { menu.close(); insertWordArt(ctx, def.key); },
   }, el('span.wordart-sample', { 'aria-hidden': 'true', style: textBoxStyle({ style: { ...def.style, size: 30, font: fontKeyFor(theme.minor, { literal: true }) } }) }, 'A'));
-  const grid = el('div.wordart-gallery', { role: 'group', 'aria-label': 'WordArt styles', 'data-cols': 4 }, ...wordArtStyles(theme.colors).map(tile));
-  const menu = openMenu({ anchor, label: 'WordArt', minWidth: 220, items: [{ custom: grid }] });
+  const grid = el('div.wordart-gallery', { role: 'group', 'aria-label': t('wordart.styles'), 'data-cols': 4 }, ...wordArtStyles(theme.colors).map(tile));
+  const menu = openMenu({ anchor, label: t('wordart.menuLabel'), minWidth: 220, items: [{ custom: grid }] });
   grid.querySelector('button')?.focus();
   return menu;
 }
