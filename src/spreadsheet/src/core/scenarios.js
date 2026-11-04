@@ -123,15 +123,20 @@ export const scenarioLocked = (wb, sheetId, scenario) => !!scenario?.locked && w
 export const scenarioHidden = (wb, sheetId, scenario) => !!scenario?.hidden && wb.isProtected(sheetId);
 const stateOf = (wb, sheetId) => wb.sheet(sheetId)?.scenarios || { list: [], current: 0, show: 0, results: [] };
 
+/** Why a scenario cannot be stored as given, and which of its fields is at fault ('name' or 'cells'), or null. */
+export function scenarioCheck(wb, sheetId, scenario, replacing = null) {
+  const name = String(scenario.name || '').trim();
+  if (!name) return { field: 'name', message: t('scenarios.enterName') };
+  if (name.length > 255) return { field: 'name', message: t('scenarios.nameTooLong') };
+  if (listOf(wb, sheetId).some((s) => s.name.toLowerCase() === name.toLowerCase() && s.name !== replacing)) return { field: 'name', message: t('scenarios.nameTaken') };
+  if (!scenario.cells?.length) return { field: 'cells', message: t('scenarios.enterCells') };
+  if (scenario.cells.length > MAX_CHANGING_CELLS) return { field: 'cells', message: t('scenarios.tooManyCells', { max: MAX_CHANGING_CELLS }) };
+  return null;
+}
+
 /** Why a scenario cannot be stored as given, or null. */
 export function scenarioProblem(wb, sheetId, scenario, replacing = null) {
-  const name = String(scenario.name || '').trim();
-  if (!name) return t('scenarios.enterName');
-  if (name.length > 255) return t('scenarios.nameTooLong');
-  if (listOf(wb, sheetId).some((s) => s.name.toLowerCase() === name.toLowerCase() && s.name !== replacing)) return t('scenarios.nameTaken');
-  if (!scenario.cells?.length) return t('scenarios.enterCells');
-  if (scenario.cells.length > MAX_CHANGING_CELLS) return t('scenarios.tooManyCells', { max: MAX_CHANGING_CELLS });
-  return null;
+  return scenarioCheck(wb, sheetId, scenario, replacing)?.message ?? null;
 }
 
 /** Add a scenario, or replace the one named `replacing`. Returns an error message or null. */

@@ -14,7 +14,7 @@
 import { el, MOD_KEY, IS_MAC } from './dom.js';
 import { openMenu } from './menu.js';
 import { chartSheetCommand } from '../core/chartsheet.js';
-import { CELL_STYLES } from '../core/cellstyles.js';
+import { CELL_STYLES, cellStyleLabel } from '../core/cellstyles.js';
 import { TABLE_STYLES } from '../core/tables.js';
 import { GROUP_BLOCKED_COMMANDS, groupBlockedHint } from '../core/sheet-group.js';
 import { withCustomShortcuts } from './custom-shortcuts.js';
@@ -444,7 +444,7 @@ export function menubarMenus(f = {}) {
     i(k('menubar.format.conditionalFormatting'), 'highlighter', 'condFormat'),
     i(k('menubar.format.alternatingColors'), 'rows', 'bands'),
     sub('menubar.format.cellStyles', 'paint', [
-      ...CELL_STYLES.map((s) => i(s.label, null, 'cellStyle', s.key, {
+      ...CELL_STYLES.map((s) => i(cellStyleLabel(s), null, 'cellStyle', s.key, {
         // A sample of the style as it would look on the sheet: on paper, whatever the app's theme. A preset
         // that names no ink or fill of its own shows the paper's, as the cell it makes will; the menu's own
         // dark tokens made a Note sample near-white ink on its pale yellow fill, and a Heading navy on black.
@@ -458,7 +458,7 @@ export function menubarMenus(f = {}) {
       sep,
       waits(i(k('menubar.format.newCellStyle'), 'plus', 'newCellStyle')),
       sub('menubar.format.modifyAStyle', 'pencil', [
-        ...CELL_STYLES.map((s) => i(s.label, null, 'modifyCellStyle', s.key)),
+        ...CELL_STYLES.map((s) => i(cellStyleLabel(s), null, 'modifyCellStyle', s.key)),
         ...(f.customCellStyles || []).map((name) => i(name, null, 'modifyCellStyle', { custom: name })),
       ].map(waits)),
       (f.customCellStyles || []).length > 1 && sub('menubar.format.deleteAStyle', 'trash', (f.customCellStyles || []).map((name) => i(name, null, 'deleteCellStyle', { custom: name })).map(waits)),

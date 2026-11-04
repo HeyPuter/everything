@@ -7,7 +7,7 @@ import { openModal, fieldAlert, confirmDialog } from './modal.js';
 import { toast } from './toast.js';
 import { parseInput, editText } from '../core/format.js';
 import { cellsText, parseChangingCells, saveScenario, deleteScenario, showScenario, mergeScenarios, createScenarioSummary,
-  currentValues, scenarioProblem, scenarioLocked, scenarioHidden, MAX_CHANGING_CELLS } from '../core/scenarios.js';
+  currentValues, scenarioCheck, scenarioLocked, scenarioHidden, MAX_CHANGING_CELLS } from '../core/scenarios.js';
 import { t } from '../i18n/index.js';
 
 const today = () => new Date().toLocaleDateString(undefined, { year: 'numeric', month: 'numeric', day: 'numeric' });
@@ -81,8 +81,8 @@ export function openScenarioEditor(ctx, existing, { onDone } = {}) {
     if (existing && existing.comment === editComment && existing.name) editComment = `${existing.comment}${existing.comment ? '\n' : ''}Modified on ${today()}`;
     const draft = { name: name.value.trim(), cells: list, comment: editComment, locked: prevent.checked, hidden: hide.checked,
       values: existing && JSON.stringify(existing.cells) === JSON.stringify(list) ? existing.values : null };
-    const problem = scenarioProblem(wb, sheetId, { ...draft, values: [] }, existing?.name ?? null);
-    if (problem) return refuse(problem.includes('cells') ? cells : name, problem);
+    const problem = scenarioCheck(wb, sheetId, { ...draft, values: [] }, existing?.name ?? null);
+    if (problem) return refuse(problem.field === 'cells' ? cells : name, problem.message);
     // A scenario holds values: showing one writes them over a formula in a changing cell, so that is said first, as Excel says it.
     if (list.some((p) => wb.getCell(sheetId, p.r, p.c)?.f != null) && !await confirmDialog({ title: existing ? t('scenarioManager.edit.titleEdit') : t('scenarioManager.edit.titleAdd'),
       message: t('scenarioManager.edit.formulaWarning'), confirmLabel: t('common.ok'), danger: false })) return;

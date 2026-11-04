@@ -123,7 +123,7 @@ import { openTextToColumnsDialog } from '../ui/textcolumnsdialog.js';
 import { splitSourceText } from '../core/text-split.js';
 import { openProtectedRanges } from '../ui/protect.js';
 import { openColumnStats } from '../ui/colstats.js';
-import { cellStyle } from '../core/cellstyles.js';
+import { cellStyle, cellStyleLabel } from '../core/cellstyles.js';
 import { definitionFor, stylePatch, styleFromPreset, customStyleNamed, builtinOverride } from '../core/custom-cell-styles.js';
 import { openCellStylesGallery, openStyleDialog, openMergeStylesDialog, saveCellStyle, deleteCellStyle } from '../ui/cellstyles-ui.js';
 import { autoOutline, clearOutline, applyOutlineStyles } from '../core/auto-outline.js';
@@ -2093,7 +2093,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         const pivotBorders = !own && arg === 'normal' && builtIn ? (builtIn.borders || []).map(b => ({ ...b, color: b.color ?? null, style: b.style ?? 'thin' })) : borders;
         if (!nativeFormatRanges((sid, ranges) => formatNativePivotStyleAndBorders(wb, new Map([[sid, ranges]]), pivotPatch, pivotBorders,
           { maxCells: MAX_FORMAT_CELLS, defaultSize: 13 }), { cap: false })) {
-          wb.transaction(t('editor.undo.cellStyleNamed', { name: preset.label }), () => eachRange(t('editor.undo.cellStyle'), (rg, _, sid) => {
+          wb.transaction(t('editor.undo.cellStyleNamed', { name: cellStyleLabel(preset) }), () => eachRange(t('editor.undo.cellStyle'), (rg, _, sid) => {
             const patch = patchFor(sid);
             wb.applyStyle(sid, rg, patch);
             for (const b of borders) wb.applyBorders(sid, rg, b.kind, b);
@@ -2697,7 +2697,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         if (ref?.builtin) {
           if (!builtinOverride(wb, ref.builtin)) { toast(t('editor.style.builtinStays'), { icon: 'info', duration: 3200 }); return; }
           deleteCellStyle(wb, ref);
-          toast(t('editor.style.restored', { name: cellStyle(ref.builtin).label }), { icon: 'check' });
+          toast(t('editor.style.restored', { name: cellStyleLabel(ref.builtin) }), { icon: 'check' });
           keepFocus();
           return;
         }

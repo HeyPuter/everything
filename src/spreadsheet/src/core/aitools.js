@@ -950,7 +950,7 @@ function sheetDetails(wb, args, env) {
       // In priority order: where rules overlap, the earlier one wins.
       conditional_formats: list(groups, ({ rule, rules }) => ({
         // A rule from a file can hold thousands of areas, and a formula of thousands of characters.
-        id: rule.id, applies_to: lineList(rules.map((p) => rangeName(p.range)), 40), rule: clip(describeRule(rule), 400),
+        id: rule.id, applies_to: lineList(rules.map((p) => rangeName(p.range)), 40), rule: clip(describeRule(rule, { source: true }), 400),
         ...(ruleStyleText(rule.style) ? { format: ruleStyleText(rule.style) } : {}),
         ...(rule.type === 'scale' ? { colors: [rule.from, rule.mid, rule.to].filter(Boolean).join(' → ') } : {}),
       })),
@@ -2536,8 +2536,9 @@ function conditionalRemoval(wb, args, env) {
   if (args.rule_id) {
     const { sheet, id } = ruleSheet(wb, args.rule_id);
     const group = conditionalRuleGroups(sheet.rules).find((g) => g.rules.some((r) => r.id === id));
+    // The model reads the English; the person is shown the rule in the interface language.
     const shown = { rule: describeRule(group.rule), ranges: group.rules.map((p) => rangeName(p.range)).join(', ') };
-    return { sheet, how: 'rule', id, touched: 1, label: `the rule ${shown.rule} on ${shown.ranges}`, shown };
+    return { sheet, how: 'rule', id, touched: 1, label: `the rule ${describeRule(group.rule, { source: true })} on ${shown.ranges}`, shown };
   }
   if (args.range) {
     const { sheetId, range } = resolveRange(wb, args.range, env.sheetId());
