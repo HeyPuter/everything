@@ -43,7 +43,11 @@ export class FileOps {
       buttons: [{ label: 'Cancel', value: 'cancel', left: true }, { label: "Don't save", value: 'discard' }, { label: 'Save', value: 'save', primary: true }],
     });
     if (v === 'save') return this.save();
-    return v === 'discard';
+    if (v !== 'discard') return false;
+    // Discarded on purpose: do not offer it for recovery next time.
+    clearTimeout(this.recoveryTimer);
+    await clearRecovery();
+    return true;
   }
 
   async newPart() {

@@ -148,3 +148,21 @@ test('a recent part that no longer exists says so and leaves the recent list', a
   await expect(toasts.getByText('"Vanished" no longer exists. It may have been moved or deleted.')).toBeVisible();
   expect(await page.evaluate(() => localStorage.getItem('parametric:recent'))).toBe('[]');
 });
+
+test('unsaved work the user chose not to save is not offered for recovery later', async ({ page }) => {
+  await mockPuter(page);
+  await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await app(page);
+  await page.evaluate(() => (window as unknown as { __parametric: AppHandle }).__parametric.store.change('A', (d) => { d.variables.push({ name: 'A', expr: '1' }); }));
+  // The recovery snapshot is written a few seconds after the last change.
+  const recovery = () => page.evaluate(async (url) => (await import(url)).readRecovery(), '/src/platform/files.ts');
+  await expect.poll(recovery, { timeout: 10_000 }).toContain('"name":"A"');
+  const part = JSON.stringify({ format: 'parametric-part', version: 1, name: 'Other', units: 'MMGS', features: [] });
+  const chooser = page.waitForEvent('filechooser');
+  await page.evaluate(() => (window as unknown as { __parametric: AppHandle }).__parametric.commands.run('openDevice'));
+  await (await chooser).setFiles({ name: 'Other.parametric', mimeType: 'application/json', buffer: bytes(part) });
+  await page.getByRole('dialog', { name: 'Save changes?' }).getByRole('button', { name: "Don't save" }).click();
+  await expect(page).toHaveTitle(/Other - Parametric/);
+  await expect.poll(recovery).toBeNull();
+});
