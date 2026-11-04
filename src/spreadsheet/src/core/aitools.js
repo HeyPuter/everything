@@ -2910,14 +2910,14 @@ function splitReplaces(wb, t, entries) {
 const boundsOf = (entries) => entries.reduce((b, { r, c }) => ({ r1: Math.min(b.r1, r), c1: Math.min(b.c1, c), r2: Math.max(b.r2, r), c2: Math.max(b.c2, c) }), { r1: Infinity, c1: Infinity, r2: -1, c2: -1 });
 
 function splitTextToColumns(wb, args, env) {
-  const t = splitArgs(wb, args, env.sheetId());
-  const { sheetId } = t;
+  const split = splitArgs(wb, args, env.sheetId());
+  const { sheetId } = split;
   assertWritable(wb, sheetId, null);
-  const { plans, entries } = splitPlans(wb, t);
+  const { plans, entries } = splitPlans(wb, split);
   if (plans.some(({ plan }) => plan.reason === 'room')) throw new ToolError('The pieces would run past the last column of the sheet. Split into a destination further left, or skip some pieces.');
   if (!entries.length) {
-    const what = t.options?.mode === 'fixed' ? 'is long enough to cut at those positions' : t.options ? 'holds those delimiters' : 'holds a tab, comma, semicolon, pipe or space to split on';
-    throw new ToolError(`No text in ${qualified(wb, sheetId, t.range)} ${what}, so nothing was split.`);
+    const what = split.options?.mode === 'fixed' ? 'is long enough to cut at those positions' : split.options ? 'holds those delimiters' : 'holds a tab, comma, semicolon, pipe or space to split on';
+    throw new ToolError(`No text in ${qualified(wb, sheetId, split.range)} ${what}, so nothing was split.`);
   }
   if (entries.length > MAX_WRITE_CELLS * 10) throw new ToolError(`The split would write ${entries.length.toLocaleString('en-US')} cells; split fewer rows at a time.`);
   // Refused whole, before anything is written, where the workbook would refuse a part of it.
@@ -2936,17 +2936,17 @@ function splitTextToColumns(wb, args, env) {
   wb.transaction(t('aitools.undo.aiEdit'), () => {
     for (const { run, plan } of plans) {
       if (!plan.entries) continue;
-      const out = wb.splitTextToColumns(sheetId, run, t.options);
+      const out = wb.splitTextToColumns(sheetId, run, split.options);
       rows += out.rows;
       cols = Math.max(cols, out.cols);
       reason ??= out.reason;
     }
   });
-  if (!rows) throw new ToolError(reason === 'merged' ? 'The pieces would land inside merged cells.' : reason === 'protected' ? 'The pieces would land in a protected range.' : `${qualified(wb, sheetId, t.range)} could not be split.`);
+  if (!rows) throw new ToolError(reason === 'merged' ? 'The pieces would land inside merged cells.' : reason === 'protected' ? 'The pieces would land in a protected range.' : `${qualified(wb, sheetId, split.range)} could not be split.`);
   const blocked = blockedSpills(wb, sheetId, hit);
   return {
-    split: qualified(wb, sheetId, t.range), cells_split: rows, columns: cols, written: qualified(wb, sheetId, bounds),
-    ...(t.options?.delimiters?.length ? { delimiters: t.options.delimiters } : {}),
+    split: qualified(wb, sheetId, split.range), cells_split: rows, columns: cols, written: qualified(wb, sheetId, bounds),
+    ...(split.options?.delimiters?.length ? { delimiters: split.options.delimiters } : {}),
     ...(blocked.length ? { spills_blocked: blocked.slice(0, 8) } : {}),
     ...(distrusted ? { blocked_note: distrusted } : {}),
   };
