@@ -6,7 +6,7 @@
  * snapshots at `Documents/.versions-by-id/<tag>/`, named after the file's id
  * on the drive, which stays the same through a rename or a move. A snapshot is written after a save when the
  * last one is older than VERSION_INTERVAL_MS (or there is none), and whenever
- * the user asks for one; the oldest go once there are more than MAX_VERSIONS.
+ * the user asks for one; the oldest go once there are more than MAX_VERSIONS, except those given a name.
  * The folder follows the document through renames and goes with it when the
  * document is deleted. Everything here is best effort: a failed snapshot
  * never fails the save.
@@ -138,6 +138,8 @@ async function writeSnapshot(folder, blob, now, keep, meta = null) {
   }
   const versions = await listSnapshots(folder);
   for (const v of versions.slice(keep)) {
+    // A version someone named is one they meant to keep: only the unnamed ones make way.
+    if ((await readVersionMeta(v)).label) continue;
     try { await P.deleteFile(v.path); } catch (e) { console.warn('[documents] could not trim a version', e); }
     try { await P.deleteFile(metaPath(v.path)); } catch { /* no details were kept */ }
   }

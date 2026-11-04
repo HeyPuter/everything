@@ -187,7 +187,7 @@ must be saved to Puter first (the dialog saves it).
 
 File → Browse Version History, the File view's Info page or the title bar's document details
 open a pane listing the saved versions (`lib/versions.js`: one every ten minutes of editing, newest
-30 kept), grouped by day, each with the account that saved it and an optional name, kept beside the
+30 kept, and every named one), grouped by day, each with the account that saved it and an optional name, kept beside the
 snapshot as `<snapshot>.json`. A document in the app folder keeps its snapshots under
 `Documents/.versions/<name>/`; one elsewhere on the drive (inside the Puter desktop, Save puts a new
 document where the user chooses) under `Documents/.versions-by-id/<tag>/`, named after the file's id,

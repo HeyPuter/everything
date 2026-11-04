@@ -32,7 +32,7 @@ export function createVersionHistory({ editor, pkg, doc, error, author, live = (
   const list = el('div.vh-list', { role: 'list', 'aria-label': 'Saved versions' });
   const saveNow = el('button.btn.btn-primary.btn-sm', { type: 'button', onclick: () => saveVersion() }, 'Save a Version Now');
   const status = el('p.vh-status', { role: 'status', 'aria-live': 'polite' });
-  pane.body.append(el('div.vh-actions', {}, saveNow), status, list, hint('Versions are kept as you work: one every ten minutes of editing, and whenever you save one. The newest 30 are kept.'));
+  pane.body.append(el('div.vh-actions', {}, saveNow), status, list, hint('Versions are kept as you work: one every ten minutes of editing, and whenever you save one. The newest 30 are kept, and every version with a name.'));
 
   /* ---- The read-only preview beside the document ---- */
   const previewHost = el('div.vh-preview-host', { 'aria-label': 'Version pages' });
