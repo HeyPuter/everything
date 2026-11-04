@@ -1865,11 +1865,32 @@ test('the Measure tool labels distances and areas at the chosen scale', async ({
   await settled(page);
   const { listAnnotations } = await import('../../src/core/annotations.js');
   const saved = await PDFDocument.load(await downloaded(page));
+  // Each label is part of its measurement's group, so the comments list the shapes once.
   expect(
     listAnnotations(saved, 0)
       .map((a) => a.subtype)
       .sort(),
-  ).toEqual(['FreeText', 'FreeText', 'Line', 'Polygon']);
+  ).toEqual(['Line', 'Polygon']);
+  const annots = saved
+    .getPage(0)
+    .node.Annots()
+    .asArray()
+    .map((ref) => [ref, saved.context.lookup(ref)]);
+  const shapes = new Map(annots.map(([ref, dict]) => [ref, dict.get(PDFName.of('Subtype'))]));
+  const labels = annots
+    .filter(([, dict]) => dict.get(PDFName.of('Subtype')) === PDFName.of('FreeText'))
+    .map(([, dict]) => [
+      shapes.get(dict.get(PDFName.of('IRT'))),
+      dict.get(PDFName.of('RT')),
+      dict.lookup(PDFName.of('Contents'))?.decodeText(),
+    ]);
+  expect(labels).toEqual(
+    expect.arrayContaining([
+      [PDFName.of('Line'), PDFName.of('Group'), expect.stringMatching(/^2\.0\d in$/)],
+      [PDFName.of('Polygon'), PDFName.of('Group'), expect.stringMatching(/4\.0\d sq in/)],
+    ]),
+  );
+  expect(labels).toHaveLength(2);
 });
 
 test('PDF standards checks PDF/A and converts to it', async ({ page }) => {

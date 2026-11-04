@@ -57,6 +57,7 @@ import {
   deleteAnnotation,
   addReply,
   setReviewState,
+  groupAnnotation,
   exportXfdf,
   importXfdf,
   MAX_XFDF_SIZE,
@@ -10084,7 +10085,7 @@ export function createEditor({
     );
     await mutate(
       async (doc) => {
-        addShapeAnnotation(doc, page, {
+        const shape = addShapeAnnotation(doc, page, {
           kind: kind === 'area' ? 'polygon' : kind === 'distance' ? 'line' : 'polyline',
           points,
           color: toolColors.comment,
@@ -10092,7 +10093,7 @@ export function createEditor({
           author,
           text: label,
         });
-        await addTextBox(doc, page, {
+        const caption = await addTextBox(doc, page, {
           rect: labelRect,
           text: label,
           fontSize,
@@ -10102,6 +10103,8 @@ export function createEditor({
           align: 'center',
           author,
         });
+        // The label is part of the measurement: listed with it, and moved or deleted with it.
+        groupAnnotation(doc, page, caption, shape);
       },
       `Measured: ${label}.`,
       'annotate',

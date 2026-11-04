@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { PDFDocument } from 'pdf-lib';
+import { PDFDocument, PDFName } from 'pdf-lib';
 import { readFile } from 'node:fs/promises';
 import { listAnnotations } from '../../src/core/annotations.js';
 
@@ -41,9 +41,15 @@ test('a measurement is labeled in any language', async ({ page }) => {
   const pending = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Download', exact: true }).click();
   const saved = await PDFDocument.load(await readFile(await (await pending).path()));
-  expect(
-    listAnnotations(saved, 0)
-      .filter((a) => a.subtype === 'FreeText')
-      .map((a) => a.contents),
-  ).toEqual([expect.stringMatching(/^2\.0\d in$/)]);
+  // The label is drawn as part of the line, which carries the same words.
+  const [line] = listAnnotations(saved, 0);
+  expect(line.contents).toMatch(/^2\.0\d in$/);
+  expect(line.group).toHaveLength(1);
+  const label = saved
+    .getPage(0)
+    .node.Annots()
+    .asArray()
+    .map((ref) => saved.context.lookup(ref))
+    .find((dict) => dict.lookup(PDFName.of('Subtype')) === PDFName.of('FreeText'));
+  expect(label.lookup(PDFName.of('Contents')).decodeText()).toBe(line.contents);
 });

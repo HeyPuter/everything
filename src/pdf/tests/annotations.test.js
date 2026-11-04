@@ -13,6 +13,7 @@ import {
   editAnnotation,
   exportCommentSummary,
   exportXfdf,
+  groupAnnotation,
   importXfdf,
   listAnnotations,
   listReplies,
@@ -1380,5 +1381,83 @@ describe('flattening', () => {
       // Note icons render the same way flattened, so the pages match nearly pixel for pixel.
       expect(differing).toBeLessThan(inked / 50);
     }
+  });
+});
+
+// A measurement is a line (or path, or area) and a text box with its label, grouped.
+describe('grouped comments', () => {
+  async function measured() {
+    const doc = await blank();
+    const line = addShapeAnnotation(doc, 0, {
+      kind: 'line',
+      points: [
+        { x: 100, y: 400 },
+        { x: 300, y: 400 },
+      ],
+      text: '2.78 in',
+    });
+    const label = await addTextBox(doc, 0, {
+      rect: { x: 180, y: 404, width: 40, height: 14 },
+      text: '2.78 in',
+      fontSize: 9,
+      borderWidth: 0,
+    });
+    groupAnnotation(doc, 0, label, line);
+    return { doc, line, label };
+  }
+  const rectOf = (doc, id) =>
+    doc.context
+      .lookup(
+        doc
+          .getPage(0)
+          .node.Annots()
+          .asArray()
+          .find((ref) => ref.toString() === id),
+      )
+      .lookup(PDFName.of('Rect'))
+      .asArray()
+      .map((n) => Math.round(n.asNumber() * 100) / 100);
+
+  it('lists a measurement once, with where its label is', async () => {
+    const { doc } = await measured();
+    const listed = listAnnotations(doc, 0);
+    expect(listed.map((a) => a.subtype)).toEqual(['Line']);
+    expect(listed[0].replies).toEqual([]);
+    expect(listed[0].group).toHaveLength(1);
+    expect(listed[0].group[0].width).toBeGreaterThan(0);
+  });
+
+  it('moves the label with its line, and leaves it when the line is resized', async () => {
+    const { doc, line, label } = await measured();
+    const before = rectOf(doc, label);
+    const [entry] = listAnnotations(doc, 0);
+    await editAnnotation(doc, 0, line, {
+      rect: { ...entry.rect, x: entry.rect.x + 50, y: entry.rect.y - 20 },
+    });
+    expect(rectOf(doc, label)).toEqual([
+      before[0] + 50,
+      before[1] - 20,
+      before[2] + 50,
+      before[3] - 20,
+    ]);
+    // A change of color redraws the line (the other way a move is made) and moves nothing.
+    await editAnnotation(doc, 0, line, { color: '#0000ff' });
+    const [redrawn] = listAnnotations(doc, 0);
+    await editAnnotation(doc, 0, line, {
+      color: '#ff0000',
+      rect: { ...redrawn.rect, x: redrawn.rect.x - 50 },
+    });
+    expect(rectOf(doc, label)).toEqual([before[0], before[1] - 20, before[2], before[3] - 20]);
+    const [moved] = listAnnotations(doc, 0);
+    await editAnnotation(doc, 0, line, { rect: { ...moved.rect, width: moved.rect.width * 2 } });
+    expect(rectOf(doc, label)).toEqual([before[0], before[1] - 20, before[2], before[3] - 20]);
+  });
+
+  it('deletes the label with its line, and flattens both', async () => {
+    const { doc, line } = await measured();
+    deleteAnnotation(doc, 0, line);
+    expect(doc.getPage(0).node.Annots().size()).toBe(0);
+    const other = (await measured()).doc;
+    expect(flattenDocument(other)).toMatchObject({ annotations: 1 });
   });
 });
