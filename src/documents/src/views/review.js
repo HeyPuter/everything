@@ -249,7 +249,7 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
     },
     get paneShown() { return paneShown; },
     // The ribbon and menus read paneShown for their pressed and checked states: they are told it changed.
-    toggleReviewingPane(on = !paneShown) { paneShown = on; paneSignature = ''; refresh(true); onChange(); },
+    toggleReviewingPane(on = !paneShown) { const opening = on && !paneShown; paneShown = on; paneSignature = ''; refresh(true); onChange(); if (opening) focusPane(); },
     // The Tracking Options dialog shows (and keeps) the orientation chosen here.
     setPaneOrientation(value = 'vertical') { paneOrientation = value; revisionView.options.paneOrientation = value; pane.dataset.orientation = value; refresh(true); },
     /** 'everyone' writes Track Changes into the document; 'mine' tracks this session only. */
@@ -335,10 +335,18 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
     hasComments() { return threads().length > 0; },
     /* ---- Panes and speech, for the title bar, menus and command search ---- */
     get paneShown() { return paneShown; },
-    togglePane(on = !paneShown) { paneShown = !!on; paneSignature = ''; if (paneShown && !showing()) revealComments(); refresh(true); if (!paneShown) editor()?.focus(); },
+    togglePane(on = !paneShown) { const opening = !!on && !paneShown; paneShown = !!on; paneSignature = ''; if (paneShown && !showing()) revealComments(); refresh(true); if (!paneShown) editor()?.focus(); else if (opening) focusPane(); },
     toggleReadAloud() { if (readAloud.active) readAloud.stop(); else readAloud.start(); },
     readAloudActive: () => readAloud.active,
   };
+
+  /**
+   * The keyboard goes into the Reviewing Pane when it opens, as it does into the other panes: Tab from the ribbon
+   * reaches the document, where Tab types, so the pane could not be reached otherwise. Its first entry, or Close.
+   */
+  function focusPane() {
+    queueMicrotask(() => { if (!pane.hidden) (paneList.querySelector('.review-pane-item') || pane.querySelector('button'))?.focus({ preventScroll: true }); });
+  }
 
   function threadAtCaret() {
     const engine = editor(); if (!engine || engine.session.path !== null) return null;
