@@ -46,7 +46,7 @@ import { documentFontAvailable, displayedFont } from '../engine/font-availabilit
 import { openFontPicker } from './font-picker.js';
 import { openFontFiles } from './font-files.js';
 import { openMenu } from '../ui/menu.js';
-import { toast } from '../ui/toast.js';
+import { announce, toast } from '../ui/toast.js';
 import { confirmDialog, promptDialog } from '../ui/modal.js';
 import { saveAsTemplate, templateExists, TEMPLATE_FOLDER } from '../lib/customtemplates.js';
 import { openAppMenu, renderAccountButton } from '../ui/appmenu.js';
@@ -114,6 +114,10 @@ import { parseDiagramDescription } from '../engine/diagram-builder.js';
 
 /** How long leaving the editor waits for a save before asking what to do. */
 export const FLUSH_STALL_MS = 15000;
+/** Printing paints a document of more pages than this a batch of this many pages at a time (printDocument). */
+export const PRINT_BATCH_PAGES = 8;
+/** How long preparing pages for printing goes before a notice says so (printDocument). */
+export const PRINT_NOTICE_MS = 300;
 
 /** First canvas milestone. Cloud persistence remains owned by Doc. */
 /** Whether `file` starts as a ZIP package does (a DOCX under another name). */
@@ -133,31 +137,67 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
   async function printDocument({ pages = null, copies = 1 } = {}) {
     if (!engine || printing) return;
     printing = true; printButton.disabled = true;
+    // Preparing a long document's pages takes a moment: a notice says so (after PRINT_NOTICE_MS) and can cancel it.
+    const cancel = new AbortController(), stopWithEditor = () => cancel.abort();
+    printAbort.signal.addEventListener('abort', stopWithEditor, { once: true });
+    let progress = null, notice = null;
+    const hideProgress = () => { clearTimeout(notice); notice = null; progress?.dismiss(); progress = null; };
     try {
       await engine.fontRefresh;
       // A page range and copies from File > Print choose and repeat sheets; the browser's dialog does the rest.
       // Only the chosen pages are painted.
       const capture = async () => {
-        const range = Array.isArray(pages) && pages.length ? pages : null;
-        const sheets = engine.printSheets(range && range.map(n => n - 1));
-        const chosen = range ? range.map(n => sheets[n - 1]).filter(Boolean) : [...sheets];
-        if (copies <= 1) return chosen;
-        // Every copy shows one picture of each page: copies of the painted canvases took the memory of
-        // a document's worth of print-resolution pages for each copy.
-        const pictures = await Promise.all(chosen.map(sheetPicture));
-        pictureUrls.push(...pictures);
-        for (const sheet of chosen) sheet.width = sheet.height = 0;
-        const out = [];
-        for (let copy = 0; copy < copies; copy++) out.push(...chosen.map((sheet, i) => sheetImage(sheet, pictures[i])));
-        return out;
+        const editor = engine, range = Array.isArray(pages) && pages.length ? pages : null;
+        const count = (editor.printLayout?.() || editor).layout.pages.length;
+        const order = (range ? range.map(n => n - 1) : [...Array(count).keys()]).filter(index => Number.isInteger(index) && index >= 0 && index < count);
+        const wanted = [...new Set(order)].sort((a, b) => a - b);
+        const repeat = list => { const out = []; for (let copy = 0; copy < Math.max(1, copies); copy++) out.push(...list); return out; };
+        // Every page at once, as canvases (a copy of each page shares one picture of it).
+        const atOnce = async () => {
+          const sheets = editor.printSheets(range && range.map(n => n - 1));
+          const chosen = order.map(index => sheets[index]).filter(Boolean);
+          if (copies <= 1) return chosen;
+          const pictures = await Promise.all(chosen.map(sheetPicture));
+          pictureUrls.push(...pictures);
+          for (const sheet of chosen) sheet.width = sheet.height = 0;
+          return repeat(chosen.map((sheet, i) => sheetImage(sheet, pictures[i])));
+        };
+        if (copies <= 1 && wanted.length <= PRINT_BATCH_PAGES) return atOnce();
+        // A longer document is painted a batch at a time, each page kept as a lossless picture of its pixels and its
+        // canvas released: painting every page at print resolution at once held about 13 MB for each page until the
+        // dialog closed (1.2 GB for 92 pages, 2.7 GB at the 200-page limit). Pages painted before an edit made
+        // meanwhile are not mixed with pages painted after it: the document is then printed as it is now, at once.
+        const state = () => [editor.model, editor.model?.revision, editor.session?.revision];
+        const kept = new Map();
+        let painted = null, layout = null;
+        const preparing = () => `Preparing pages for printing… ${kept.size} of ${wanted.length}`;
+        notice = setTimeout(() => {
+          notice = null;
+          if (!cancel.signal.aborted) progress = toast(preparing(), { icon: 'info', duration: Infinity, action: { label: 'Cancel', onClick: () => { cancel.abort(); announce('Printing canceled'); } } });
+        }, PRINT_NOTICE_MS);
+        for (let start = 0; start < wanted.length; start += PRINT_BATCH_PAGES) {
+          if (cancel.signal.aborted) return [];
+          if (painted && state().some((value, i) => value !== painted[i])) return atOnce();
+          const batch = wanted.slice(start, start + PRINT_BATCH_PAGES), sheets = editor.printSheets(batch);
+          try {
+            if (!painted) { painted = state(); layout = (editor.printedLayout || editor).layout; }
+            else if ((editor.printedLayout || editor).layout !== layout) return atOnce();
+            const urls = await Promise.all(batch.map(index => sheetPicture(sheets[index]).then(url => { pictureUrls.push(url); return url; })));
+            batch.forEach((index, i) => kept.set(index, { sheet: sheets[index], url: urls[i] }));
+            progress?.update(preparing());
+          } finally { for (const sheet of sheets) if (sheet) sheet.width = sheet.height = 0; }
+        }
+        if (painted && state().some((value, i) => value !== painted[i])) return atOnce();
+        return repeat(order.filter(index => kept.has(index))).map(index => sheetImage(kept.get(index).sheet, kept.get(index).url));
       };
       const pictureUrls = [];
       try {
-        const printed = await printPages({ host, signal: printAbort.signal, capture });
-        if (!printed && !destroyed) error(new Error('The document could not be prepared for printing. Please try again.'));
+        // The notice goes as the print dialog opens.
+        const printed = await printPages({ host, signal: cancel.signal, capture, onReady: hideProgress });
+        if (!printed && !destroyed && !cancel.signal.aborted) error(new Error('The document could not be prepared for printing. Please try again.'));
       } finally { for (const url of pictureUrls) URL.revokeObjectURL(url); }
     } catch (e) { if (!destroyed) error(e); }
-    finally { printing = false; if (!destroyed) printButton.disabled = !engine; }
+    finally { hideProgress(); printAbort.signal.removeEventListener('abort', stopWithEditor); printing = false; if (!destroyed) printButton.disabled = !engine; }
   }
   // A printed page as a picture its copies share (lossless, at the canvas's own resolution).
   const sheetPicture = sheet => new Promise((resolve, reject) => sheet.toBlob(blob => blob ? resolve(URL.createObjectURL(blob)) : reject(new Error('The document could not be prepared for printing. Please try again.')), 'image/png'));
