@@ -68,7 +68,7 @@
 .ed-quick { display: flex; align-items: center; gap: 2px; min-width: 0; }
 .ed-header .canvas-title-wrap { justify-content: center; flex: none; gap: 6px; min-width: 0; }
 .ed-header .canvas-title { font: 400 13px/1.3 var(--font); text-align: center; padding: 3px 8px; color: var(--ed-ink); }
-.ed-header .canvas-title:hover { background: var(--ed-hover); }
+@media (hover: hover) { .ed-header .canvas-title:hover { background: var(--ed-hover); } }
 .ed-header .canvas-save-status { font-size: 12px; color: var(--ed-ink-3); }
 /* Quiet while all is well; a save that failed, or cannot go out offline, stands out as the editor's own pill does. */
 .ed-header .canvas-save-status:is(.error, .offline) { color: var(--critical); }
@@ -94,7 +94,7 @@
   position: relative; flex: none; height: 30px; padding: 0 10px 2px; border: 0; border-radius: 4px 4px 0 0;
   background: transparent; color: var(--ed-ink-2); font: 400 13px/1 var(--font); cursor: default; white-space: nowrap;
 }
-.ribbon-tab:hover, .ribbon-file:hover { color: var(--ed-ink); background: var(--ed-hover); }
+@media (hover: hover) { .ribbon-tab:hover, .ribbon-file:hover { color: var(--ed-ink); background: var(--ed-hover); } }
 .ribbon-tab[aria-selected="true"] { color: var(--ed-ink); font-weight: 600; }
 .ribbon-tab[aria-selected="true"]::after {
   content: ''; position: absolute; left: 10px; right: 10px; bottom: 0; height: 3px; border-radius: 2px; background: var(--ed-accent);
@@ -131,7 +131,13 @@
 }
 .ribbon-small.has-label { padding: 0 7px 0 5px; }
 .ribbon-small svg.ico { width: 16px; height: 16px; }
-.ribbon-card button:not(:disabled):hover, .ribbon-flyout button:not(:disabled):hover, .ed-quick button:not(:disabled):hover { background: var(--ed-hover); }
+/* Hover tints only where a pointer can hover: on a touch screen a tapped command kept its tint until the next tap.
+   A finger sees the tint while it presses instead. */
+@media (hover: hover) { .ribbon-card button:not(:disabled):hover, .ribbon-flyout button:not(:disabled):hover, .ed-quick button:not(:disabled):hover { background: var(--ed-hover); } }
+@media (hover: none) {
+  :is(.ribbon-card, .ribbon-flyout, .ed-quick) button:not(:disabled):active, button.ed-status-item:active, .ed-status-view:active,
+  .ribbon-tab:active, .ribbon-file:active, .ed-menus-button:active, .ed-pill:not(:disabled):active, .ed-header .canvas-title:active { background: var(--ed-hover); }
+}
 .ribbon-card button[aria-pressed="true"], .ribbon-flyout button[aria-pressed="true"], .ribbon-card button[aria-expanded="true"], .ribbon-flyout button[aria-expanded="true"] { background: var(--ed-press); border-color: transparent; color: var(--ed-ink); box-shadow: none; }
 .ribbon-card button[aria-pressed="mixed"], .ribbon-flyout button[aria-pressed="mixed"] { border: 1px dashed var(--ed-ink-3); }
 .ribbon-card button:disabled, .ribbon-flyout button:disabled, .ed-quick button:disabled { opacity: 1; color: var(--ed-ink-3); }
@@ -171,7 +177,7 @@
 .ribbon-split-arrow .ribbon-caret { margin: 0; }
 .ribbon-split.is-small > button:first-child { border-top-right-radius: 0; border-bottom-right-radius: 0; }
 .ribbon-split.is-small > .ribbon-split-arrow { border-top-left-radius: 0; border-bottom-left-radius: 0; }
-.ribbon-split:hover > button:not(:disabled) { box-shadow: inset 0 0 0 1px var(--ed-line); }
+@media (hover: hover) { .ribbon-split:hover > button:not(:disabled) { box-shadow: inset 0 0 0 1px var(--ed-line); } }
 
 /* Colour commands keep the current colour as a bar under the letter. */
 :is(.ribbon-card, .ribbon-flyout) .ribbon-color.canvas-color-tool { width: auto; gap: 1px; padding: 0 2px 0 4px; }
@@ -272,7 +278,7 @@
   .ed-status-left { flex-shrink: 0; max-width: 100%; }
 }
 .ed-status-item { display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 8px; border: 0; border-radius: 4px; background: transparent; color: inherit; font: inherit; white-space: nowrap; }
-button.ed-status-item:hover, .ed-status-view:hover, .ed-zoom-step:hover { background: var(--ed-hover); }
+@media (hover: hover) { button.ed-status-item:hover, .ed-status-view:hover, .ed-zoom-step:hover { background: var(--ed-hover); } }
 .ed-statusbar .canvas-text-mode { margin-left: 0; padding: 0 6px; }
 .ed-status-view.icon-btn { width: 28px; height: 24px; border-radius: 4px; }
 .ed-status-view[aria-pressed="true"] { background: var(--ed-press); }
