@@ -1495,8 +1495,8 @@ export class TextDocument {
   documentSnapshot() { return copy(this.documentState()); }
   /** The document itself (not a copy), as documentSnapshot() copies it. */
   documentState() { return { comments: this.comments, tables: this.tables, styles: this.styles, stylesEnabled: this.stylesEnabled, numbering: this.numbering, pageSettings: this.pageSettings, paragraphs: this.paragraphs }; }
-  /** A copy of the selection and typing state, which change without one. */
-  typingSnapshot() { return copy({ selection: this.selection, typingFormat: this.typingFormat, typingStyle: this.typingStyle, typingDirectCleared: this.typingDirectCleared }); }
+  /** A copy of the selection (with a block of cells selected) and typing state, which change without one. */
+  typingSnapshot() { return copy({ selection: this.selection, cellBlock: this.cellBlock || null, typingFormat: this.typingFormat, typingStyle: this.typingStyle, typingDirectCleared: this.typingDirectCleared }); }
   restore(state) {
     this.cellBlock = null;
     if (state.comments !== undefined) this.comments = copy(state.comments);
@@ -1507,6 +1507,9 @@ export class TextDocument {
     this.pageSettings = validatePageSettings(state.pageSettings);
     this.selection = { ...state.selection };
     this.typingFormat = { ...state.typingFormat }; this.typingStyle = copy(state.typingStyle || null); this.typingDirectCleared = !!state.typingDirectCleared;
+    // Undo and Redo keep a block of cells selected as it was; one the restored tables no longer have is dropped.
+    this.cellBlock = state.cellBlock ? copy(state.cellBlock) : null;
+    if (this.cellBlock && !this.activeCellBlock) this.cellBlock = null;
     this.findContentFeatures();
     this.didChange();
   }
