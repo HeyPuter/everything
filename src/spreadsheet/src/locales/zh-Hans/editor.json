@@ -396,7 +396,7 @@
   "pivotNotice.one": "数据透视表“{name}”中的部分格式尚不受支持，显示的是缓存的单元格格式。",
   "pivotNotice.withOthers": "数据透视表“{name}”中的部分格式尚不受支持，显示的是缓存的单元格格式。另有 {count} 个数据透视表受影响。",
   "pivotRefresh.changed": "此工作表上的数据透视表在创建后已被清除或更改。刷新会在原位置重新创建它，并替换现有内容。仍要刷新吗？",
-  "pivotRefresh.done": "已刷新数据透视表：# 行",
+  "pivotRefresh.done": "{count, plural, other {已刷新数据透视表：# 行}}",
   "pivotRefresh.larger": "刷新后的数据透视表更大，会替换其旁边单元格中的内容。是否替换？",
   "pivotRefresh.title": "刷新数据透视表",
   "printArea.cleared": "已取消打印区域",
