@@ -17,6 +17,7 @@ import { closeMenus, openMenu, type MenuItem } from '../ui/menu';
 import { attachTooltip, confirmDialog, dialogOpen, toast } from '../ui/overlay';
 import { announce, formatShortcut, h, isTextInput } from '../ui/dom';
 import { icon } from '../ui/icons';
+import { selectTabs, tabKeys } from '../ui/tabs';
 import { CommandRegistry } from './commands';
 import { type PickFilter, PropertyPanel, type UnitContext } from './pm';
 import { Selection, faceRef, type SelItem } from './selection';
@@ -212,6 +213,7 @@ export class App {
       b.addEventListener('click', () => this.showLeft(id as 'tree' | 'pm'));
       list.append(b);
     }
+    tabKeys(list);
     this.shell.lpTabs.append(list, h('span', { class: 'grow' }));
     const close = h('button', { class: 'icon-btn mobile-only', type: 'button', 'aria-label': 'Close panel' }, icon('close', 16));
     close.addEventListener('click', () => this.toggleLeftPane(false));
@@ -220,7 +222,7 @@ export class App {
 
   showLeft(tab: 'tree' | 'pm') {
     this.leftTab = tab;
-    for (const b of this.shell.lpTabs.querySelectorAll<HTMLElement>('[role="tab"]')) b.setAttribute('aria-selected', String(b.dataset.tab === tab));
+    selectTabs(this.shell.lpTabs, (b) => b.dataset.tab === tab);
     const body = this.shell.lpBody;
     if (tab === 'tree') {
       body.replaceChildren(this.tree.el);
@@ -741,7 +743,7 @@ export class App {
 
   private showDrawingPanel() {
     this.leftTab = 'pm';
-    for (const b of this.shell.lpTabs.querySelectorAll<HTMLElement>('[role="tab"]')) b.setAttribute('aria-selected', String(b.dataset.tab === 'pm'));
+    selectTabs(this.shell.lpTabs, (b) => b.dataset.tab === 'pm');
     this.shell.lpBody.replaceChildren(this.panelElement(new DrawingPanel(this, this.drawing)));
   }
 

@@ -45,6 +45,28 @@ test.describe('accessibility', () => {
     expect(await seriousViolations(page)).toEqual([]);
   });
 
+  test('the panel tabs are one tab stop moved with the arrow keys', async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /New part/ }).click();
+    const tree = page.getByRole('tab', { name: 'Design tree' });
+    const pm = page.getByRole('tab', { name: 'PropertyManager' });
+    await expect(tree).toHaveAttribute('tabindex', '0');
+    await expect(pm).toHaveAttribute('tabindex', '-1');
+    await tree.focus();
+    await page.keyboard.press('ArrowRight');
+    await expect(pm).toBeFocused();
+    await expect(pm).toHaveAttribute('aria-selected', 'true');
+    await expect(tree).toHaveAttribute('tabindex', '-1');
+    await page.keyboard.press('Home');
+    await expect(tree).toBeFocused();
+    await expect(tree).toHaveAttribute('aria-selected', 'true');
+    await page.keyboard.press('End');
+    await expect(pm).toBeFocused();
+    await page.keyboard.press('ArrowLeft');
+    await expect(tree).toBeFocused();
+    await expect(page.getByRole('treeitem', { name: 'Front Plane' })).toBeVisible();
+  });
+
   test('menus are reachable from the keyboard', async ({ page }) => {
     await openApp(page);
     await page.getByRole('button', { name: /New part/ }).click();
