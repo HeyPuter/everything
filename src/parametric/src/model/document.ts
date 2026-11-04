@@ -3,7 +3,7 @@
 // geometry worker.
 
 import { evaluate, evaluateVariables } from './expr';
-import { PARAM_FIELDS, getPath, setPath } from './features';
+import { PARAM_FIELDS, type ParamKind, getPath, setPath } from './features';
 import type { Feature, Id, Param, PartDocument, SkDimension, SketchFeature, UnitSystem } from './types';
 import { isDimension } from './types';
 import { UNIT_SYSTEMS } from './units';
@@ -61,6 +61,21 @@ export function parseDocument(text: string): PartDocument {
   }
   doc.nextId = Math.max(Number.isInteger(doc.nextId) ? doc.nextId : 1, maxId + 1);
   return doc;
+}
+
+/**
+ * Calls fn with every expression in the document (global variables, feature
+ * values and sketch dimensions) and stores what it returns in its place.
+ */
+export function mapExpressions(doc: PartDocument, fn: (src: string, kind: ParamKind | 'variable') => string) {
+  for (const v of doc.variables) v.expr = fn(v.expr, 'variable');
+  for (const f of doc.features) {
+    for (const fd of PARAM_FIELDS[f.type] ?? []) {
+      const v = getPath(f, fd.path);
+      if (typeof v === 'string') setPath(f, fd.path, fn(v, fd.kind));
+    }
+    if (f.type === 'sketch') for (const c of f.constraints) if (isDimension(c) && typeof c.value === 'string') c.value = fn(c.value, c.type === 'angle' ? 'angle' : 'length');
+  }
 }
 
 export function serializeDocument(doc: PartDocument): string {

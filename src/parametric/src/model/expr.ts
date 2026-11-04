@@ -193,6 +193,45 @@ export function referencedNames(src: string): string[] {
 }
 
 /**
+ * Rewrites the variable names an expression refers to (old name to new name),
+ * leaving everything else as typed. Unit suffixes and function names are not
+ * references and stay as they are.
+ */
+export function renameReferences(src: string, renamed: Map<string, string>): string {
+  let out = '';
+  let i = 0;
+  let afterNumber = false;
+  while (i < src.length) {
+    const ch = src[i];
+    const rest = src.slice(i);
+    const num = /[0-9.]/.test(ch) ? /^(\d+\.?\d*|\.\d+)(e[+-]?\d+)?/i.exec(rest) : null;
+    if (num) { out += num[0]; i += num[0].length; afterNumber = true; continue; }
+    if ((ch === '"' || ch === "'") && !afterNumber) {
+      const end = src.indexOf(ch, i + 1);
+      if (end > i) {
+        const to = renamed.get(src.slice(i + 1, end));
+        out += to !== undefined ? `${ch}${to}${ch}` : src.slice(i, end + 1);
+        i = end + 1;
+        continue;
+      }
+    }
+    const name = /^[A-Za-z_][A-Za-z0-9_@.]*/.exec(rest);
+    if (name) {
+      const call = /^\s*\(/.test(src.slice(i + name[0].length));
+      const to = afterNumber || call ? undefined : renamed.get(name[0]);
+      out += to ?? name[0];
+      i += name[0].length;
+      afterNumber = false;
+      continue;
+    }
+    out += ch;
+    i++;
+    if (!/\s/.test(ch)) afterNumber = false;
+  }
+  return out;
+}
+
+/**
  * Evaluates global variables in dependency order. Returns values and per-name
  * errors (cycles and unknown names are errors, never exceptions).
  */

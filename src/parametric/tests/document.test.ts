@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DocStore, newDocument, parseDocument, serializeDocument } from '../src/model/document';
+import { DocStore, mapExpressions, newDocument, parseDocument, serializeDocument } from '../src/model/document';
 import { defaultName, dependencies, newExtrude } from '../src/model/features';
 import type { ExtrudeFeature, Feature, SkDimension, SketchFeature } from '../src/model/types';
 import { rect, sketch } from './helpers';
@@ -110,5 +110,19 @@ describe('document store', () => {
     expect(st.builtCount).toBe(1);
     st.change('roll', (d) => { d.rollback = null; });
     expect(st.builtCount).toBe(3);
+  });
+
+  it('visits every expression in the document with its kind', () => {
+    const doc = newDocument();
+    const sk = sketch('s1', rect(0, 0, 10, 10));
+    sk.constraints.push({ id: 'd1', type: 'distance', refs: [sk.entities[4].id], value: '=W', at: [0, 0], name: 'D1' } as SkDimension);
+    const e = newExtrude('f1', 'Extrude1', 's1', false, 10);
+    e.depth = '=W/2';
+    doc.variables = [{ id: 'v1', name: 'W', expr: '10' }];
+    doc.features = [sk, e];
+    const seen: string[] = [];
+    mapExpressions(doc, (src, kind) => { seen.push(`${kind}:${src}`); return `${src}!`; });
+    expect(seen).toEqual(['variable:10', 'length:=W', 'length:=W/2']);
+    expect([doc.variables[0].expr, (sk.constraints[sk.constraints.length - 1] as SkDimension).value, e.depth]).toEqual(['10!', '=W!', '=W/2!']);
   });
 });

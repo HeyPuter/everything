@@ -82,3 +82,36 @@ test.describe('part modeling', () => {
     expect(errors).toEqual([]);
   });
 });
+
+test('renaming a global variable keeps the dimensions, features and equations that use it', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  type Doc = { variables: { id: string; name: string; expr: string }[]; features: { id: string; depth?: unknown; constraints?: { id: string; value?: unknown }[] }[] };
+  type Handle = { store: { doc: Doc; change(l: string, fn: (d: Doc) => void): void }; commands: { run(id: string): boolean } };
+  await page.evaluate(() => {
+    const a = (window as unknown as { __parametric: Handle }).__parametric;
+    a.store.change('Link', (d) => {
+      d.variables = [{ id: 'v1', name: 'W', expr: '30' }, { id: 'v2', name: 'Half', expr: 'W/2' }];
+      d.features.find((f) => f.id === 'f1')!.depth = '=W';
+      d.features.find((f) => f.id === 's1')!.constraints!.find((c) => c.id === 'd2')!.value = '=Half*2';
+    });
+    a.commands.run('equations');
+  });
+  const dlg = page.getByRole('dialog', { name: 'Equations and Global Variables' });
+  // The extrude depth and the equation of Half use W.
+  await expect(dlg.getByRole('row').nth(1)).toContainText('1');
+  await dlg.getByRole('textbox', { name: 'Name of variable 1' }).fill('Width');
+  await dlg.getByRole('textbox', { name: 'Name of variable 1' }).press('Tab');
+  await expect(dlg.getByRole('textbox', { name: 'Value or expression of Half' })).toHaveValue('Width/2');
+  await dlg.getByRole('button', { name: 'OK' }).click();
+  await expect(dlg).toBeHidden();
+  const linked = await page.evaluate(() => {
+    const d = (window as unknown as { __parametric: Handle }).__parametric.store.doc;
+    return [d.features.find((f) => f.id === 'f1')!.depth, d.features.find((f) => f.id === 's1')!.constraints!.find((c) => c.id === 'd2')!.value];
+  });
+  expect(linked).toEqual(['=Width', '=Half*2']);
+  await page.evaluate(() => (window as unknown as { __parametric: { whenBuilt(): Promise<void> } }).__parametric.whenBuilt());
+  await expect(page.locator('.ti.error')).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
