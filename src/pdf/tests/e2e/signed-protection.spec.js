@@ -88,3 +88,14 @@ test('declining to save a signed PDF as PDF/A leaves its PDF/A level as it was',
     page.getByRole('dialog', { name: 'Check PDF/A compliance' }).getByLabel('Level'),
   ).toHaveValue('2b');
 });
+
+test('an invisible signature offers no page to go to', async ({ page }) => {
+  await openSigned(page);
+  await page.getByRole('tab', { name: 'Signatures' }).click();
+  const panel = page.getByRole('tabpanel', { name: 'Signatures' });
+  await expect(panel.getByRole('listitem').first()).toContainText('Signed by Ada Lovelace');
+  // It offered "Go to signature on page 1", where nothing of it shows.
+  await expect(panel.getByRole('button', { name: /Go to signature/ })).toHaveCount(0);
+  await panel.getByText('Details').click();
+  await expect(panel.locator('dd')).toContainText(['Invisible']);
+});

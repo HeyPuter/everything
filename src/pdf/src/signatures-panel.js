@@ -65,6 +65,7 @@ export function createSignaturesPanel({ onGoTo, onValidate }) {
       ['Location', report.location],
       ['Contact', report.contactInfo],
       ['Field', report.fieldName],
+      ['Appearance', report.invisible ? 'Invisible' : ''],
       [
         'Certificate',
         report.chain?.length
@@ -137,7 +138,9 @@ export function createSignaturesPanel({ onGoTo, onValidate }) {
                 el('span', { class: 'signature-state' }, report.summary || status.label),
               ),
             ),
+            // An invisible signature shows nowhere on the page.
             Number.isInteger(report.page) &&
+              !report.invisible &&
               button(
                 `Go to signature on page ${report.page + 1}`,
                 null,
