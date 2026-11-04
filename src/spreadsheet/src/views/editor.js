@@ -2904,7 +2904,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         const block = !S.isSingle(grid.selection) && sortExpansion(wb, sheetId, range);
         let widened = false;
         if (block) {
-          const expand = await confirmSortExpansion({ title: t('editor.dedupe.warningTitle'), verb: 'removed', action: t('editor.continue') });
+          const expand = await confirmSortExpansion({ kind: 'dedupe' });
           if (expand == null) return;
           if (expand) { range = block; widened = true; }
         }

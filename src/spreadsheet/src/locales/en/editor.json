@@ -83,7 +83,6 @@
   "customViews.deleted": "View deleted",
   "customViews.shown": "View {name} shown",
   "dedupe.needTwoRows": "Select at least two rows",
-  "dedupe.warningTitle": "Remove duplicates warning",
   "details.cells": "Cells",
   "details.cellsWithContent": "Cells with content",
   "details.charts": "Charts",

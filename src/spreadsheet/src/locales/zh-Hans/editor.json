@@ -83,7 +83,6 @@
   "customViews.deleted": "已删除视图",
   "customViews.shown": "正在显示视图 {name}",
   "dedupe.needTwoRows": "请至少选择两行",
-  "dedupe.warningTitle": "删除重复值警告",
   "details.cells": "单元格",
   "details.cellsWithContent": "有内容的单元格",
   "details.charts": "图表",

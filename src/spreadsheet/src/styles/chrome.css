@@ -90,7 +90,7 @@
 .quick-access .qat-btn, .quick-access .tb-btn { width: 30px; height: 30px; min-width: 30px; display: grid; place-items: center; border-radius: 5px; color: var(--chrome-ink); }
 .quick-access .tb-btn:disabled { opacity: 0.4; }
 @media (hover: hover) { .quick-access .qat-btn:hover:not(:disabled), .quick-access .tb-btn:hover:not(:disabled) { background: var(--chrome-hover); } }
-@media (max-width: 640px) { .quick-access .qat-btn[aria-label="Save"] { display: none; } }
+@media (max-width: 640px) { .quick-access .qat-btn.qat-save { display: none; } }
 
 /* A large command's drop-down mark sits beside its icon, leaving both label lines in view. */
 .ribbon .tb-btn.ribbon-large[aria-haspopup="menu"] { position: relative; }

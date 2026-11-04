@@ -11,6 +11,7 @@ import { VALIDATION_TYPES, VALIDATION_OPERATORS, describeValidation, CHIP_PALETT
 import { cellName, rangeName } from '../core/cell.js';
 import { formatDate, formatTime, parseTime, ymdToSerial, ERROR_HELP } from '../core/format.js';
 import { parseFormula } from '../core/formula/parser.js';
+import { syntaxErrorText } from '../core/formula/tokenizer.js';
 import { t } from '../i18n/index.js';
 
 /**
@@ -22,7 +23,7 @@ import { t } from '../i18n/index.js';
  * the formula can serve. Shared with the conditional formatting dialog.
  */
 export function customFormulaProblem(wb, sheetId, range, text) {
-  try { parseFormula(ruleFormulaBody(text)); } catch (e) { return t('validation.formulaUnreadable', { detail: e.message }); }
+  try { parseFormula(ruleFormulaBody(text)); } catch (e) { return t('validation.formulaUnreadable', { detail: syntaxErrorText(e) }); }
   const result = wb.evalRuleFormula(sheetId, text, range, range.r1, range.c1);
   const code = result && typeof result === 'object' ? result.error : null;
   if (code === '#NAME?' || code === '#REF!') return t('validation.formulaGives', { cell: cellName(range.r1, range.c1), code, help: ERROR_HELP[code] });
