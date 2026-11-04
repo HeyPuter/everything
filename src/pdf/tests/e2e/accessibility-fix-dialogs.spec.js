@@ -116,3 +116,34 @@ test('the language fix starts from the language the PDF declares', async ({ page
   // It offered the device's language instead, so OK would have replaced French with it.
   await expect(dialog.getByRole('textbox')).toHaveValue('fr-CA');
 });
+
+test('a fix with nothing left to do says so', async ({ page }) => {
+  await page.route('https://js.puter.com/**', (route) => route.fulfill({ body: '' }));
+  await page.goto('/#library');
+  const doc = await PDFDocument.create();
+  doc.addPage([400, 500]);
+  const chooser = page.waitForEvent('filechooser');
+  await page.keyboard.press('ControlOrMeta+o');
+  await (
+    await chooser
+  ).setFiles({
+    name: 'plain.pdf',
+    mimeType: 'application/pdf',
+    buffer: Buffer.from(await doc.save()),
+  });
+  await expect(page.locator('.page-caption')).toHaveText('Page 1 of 1');
+  await settled(page);
+  await page.getByRole('button', { name: 'Tools', exact: true }).click();
+  const pane = page.getByRole('complementary', { name: 'Tools' });
+  await pane.getByRole('button', { name: 'View more' }).click();
+  await pane.getByRole('button', { name: 'Prepare for accessibility', exact: true }).click();
+  await pane.getByRole('button', { name: 'Set tab order' }).click();
+  await expect(page.locator('#toast')).toHaveText('Tab order follows the document structure.');
+  await settled(page);
+  await page.locator('#toast').evaluate((node) => (node.textContent = ''));
+  // Chosen again, it changed nothing and said nothing.
+  await pane.getByRole('button', { name: 'Set tab order' }).click();
+  await expect(page.locator('#toast')).toHaveText(
+    'The tab order already follows the document structure.',
+  );
+});

@@ -10614,13 +10614,22 @@ export function createEditor({
   async function fixAccessibility(fix) {
     const a11y = await import('./core/accessibility.js');
     const { autotagDocument, tagAnnotations } = await import('./core/autotag.js');
-    const run = (operation, message) => mutate(operation, message, 'edit');
+    // A fix with nothing left to do changes nothing; it says so rather than nothing at all.
+    const run = async (operation, message, unchanged) => {
+      let result;
+      await mutate(async (d) => (result = await operation(d)), message, 'edit');
+      if (result === false && unchanged && !destroyed) toast(unchanged);
+    };
     switch (fix) {
       case 'title': {
         const doc = await PDFDocument.load(session.bytes, { updateMetadata: false });
         const title = await promptText('Document title', 'Title', doc.getTitle() || '');
         if (title == null) return;
-        await run((d) => a11y.setTitle(d, title), 'Title set; readers will show it.');
+        await run(
+          (d) => a11y.setTitle(d, title),
+          'Title set; readers will show it.',
+          'The PDF already has this title.',
+        );
         break;
       }
       case 'language': {
@@ -10633,7 +10642,11 @@ export function createEditor({
           current || navigator.language || 'en-US',
         );
         if (lang == null) return;
-        await run((d) => a11y.setLanguage(d, lang.trim()), 'Language set.');
+        await run(
+          (d) => a11y.setLanguage(d, lang.trim()),
+          'Language set.',
+          'The PDF already has this language.',
+        );
         break;
       }
       case 'alt-text':
@@ -10652,16 +10665,32 @@ export function createEditor({
         );
         break;
       case 'tag-annotations':
-        await run((d) => tagAnnotations(d), 'Annotations tagged.');
+        await run(
+          (d) => tagAnnotations(d),
+          'Annotations tagged.',
+          'No annotation is left untagged.',
+        );
         break;
       case 'tab-order':
-        await run((d) => a11y.setTabOrder(d), 'Tab order follows the document structure.');
+        await run(
+          (d) => a11y.setTabOrder(d),
+          'Tab order follows the document structure.',
+          'The tab order already follows the document structure.',
+        );
         break;
       case 'mark-info':
-        await run((d) => a11y.setMarked(d), 'Marked as a tagged PDF.');
+        await run(
+          (d) => a11y.setMarked(d),
+          'Marked as a tagged PDF.',
+          'The PDF is already marked as tagged.',
+        );
         break;
       case 'link-descriptions':
-        await run((d) => a11y.describeLinks(d), 'Links described.');
+        await run(
+          (d) => a11y.describeLinks(d),
+          'Links described.',
+          'No link is missing a description.',
+        );
         break;
       case 'bookmarks':
         await run((d) => a11y.addBookmarksFromHeadings(d), 'Bookmarks added from the headings.');
