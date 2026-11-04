@@ -9741,16 +9741,22 @@ export function createEditor({
     }
   }
   /* ---------- Comments drawn as annotations ---------- */
-  /** Ask for a comment's text; resolves to it, or null when cancelled. */
-  function commentTextDialog(title, value = '') {
+  /**
+   * Ask for a comment's text and add the comment with `add(doc, text)`; resolves when the
+   * dialog closes. Words that cannot be added (a script the text font lacks) stay in the
+   * dialog to be changed, rather than being lost with it.
+   */
+  function commentTextDialog(title, add) {
     return new Promise((resolve) => {
-      let result = null;
       const area = el('textarea', { class: 'input', rows: 4, maxlength: 20000 });
-      area.value = value;
-      const done = () => {
-        result = area.value;
-        d.close();
-      };
+      const done = safe(async () => {
+        try {
+          await mutateDialog(d, (doc) => add(doc, area.value), null, 'annotate');
+        } finally {
+          // The text field, disabled while the comment was added, takes the keyboard back.
+          if (d.open && !destroyed) area.focus();
+        }
+      });
       area.addEventListener('keydown', (e) => {
         if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
           e.preventDefault();
@@ -9763,7 +9769,7 @@ export function createEditor({
         [button('Cancel', null, () => d.close()), button('Add', null, done, 'btn primary')],
         dialogOptions,
       );
-      d.addEventListener('close', () => resolve(result), { once: true });
+      d.addEventListener('close', () => resolve(), { once: true });
       area.focus();
     });
   }
@@ -9908,13 +9914,8 @@ export function createEditor({
       const rect = boxed
         ? normalizeRect(pdfPoint(g.start), pdfPoint(end))
         : readerRect(g.start, 180 * pt, 50 * pt);
-      const text = await commentTextDialog('Text box');
-      if (text == null || destroyed) return;
-      return mutate(
-        (doc) =>
-          addTextBox(doc, g.page, { rect, text, fontSize, borderColor: hex, borderWidth, author }),
-        null,
-        'annotate',
+      return commentTextDialog('Text box', (doc, text) =>
+        addTextBox(doc, g.page, { rect, text, fontSize, borderColor: hex, borderWidth, author }),
       );
     }
     if (g.type === 'callout') {
@@ -9931,21 +9932,16 @@ export function createEditor({
         180 * pt,
         50 * pt,
       );
-      const text = await commentTextDialog('Callout');
-      if (text == null || destroyed) return;
-      return mutate(
-        (doc) =>
-          addCallout(doc, g.page, {
-            rect,
-            anchor,
-            text,
-            fontSize,
-            borderColor: hex,
-            borderWidth,
-            author,
-          }),
-        null,
-        'annotate',
+      return commentTextDialog('Callout', (doc, text) =>
+        addCallout(doc, g.page, {
+          rect,
+          anchor,
+          text,
+          fontSize,
+          borderColor: hex,
+          borderWidth,
+          author,
+        }),
       );
     }
   }
