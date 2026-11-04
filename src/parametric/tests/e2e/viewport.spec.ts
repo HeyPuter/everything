@@ -112,4 +112,21 @@ test.describe('viewport', () => {
     await page.evaluate(() => (window as unknown as { __densityChange: (r: number) => void }).__densityChange(2));
     await expect.poll(async () => (await size())[0]).toBe(Math.round(css * 2));
   });
+
+  test('does not pick vertices cut away by the section view', async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+    await waitForFeature(page, 'Fillet1');
+    const pickCorner = () => page.evaluate(() => {
+      const app = (window as unknown as Win).__parametric;
+      const [x, y] = app.viewport.project([60, 8, 30]);
+      const hit = app.renderer.pick(x, y, { vertex: true });
+      return hit ? [...app.vertexAt(hit.index)!] : null;
+    });
+    await expect.poll(pickCorner).toEqual([60, 8, 30]);
+    // Section away everything in front of z = 15.
+    await page.evaluate(() => { (window as unknown as Win).__parametric.renderer.section = { normal: [0, 0, 1], offset: 15 }; });
+    const hit = await pickCorner();
+    expect(hit === null || hit[2] <= 15).toBe(true);
+  });
 });

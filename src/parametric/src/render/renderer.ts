@@ -274,9 +274,12 @@ precision highp int;
 flat in int vId;
 in vec3 vWorld;
 uniform mat4 uView;
+uniform vec4 uClip;
+uniform int uClipOn;
 layout(location=0) out uint outId;
 layout(location=1) out float outDepth;
 void main() {
+  if (uClipOn == 1 && dot(vec4(vWorld, 1.0), uClip) > 0.0) discard;
   outId = (3u << 28) | uint(vId);
   outDepth = -(uView * vec4(vWorld, 1.0)).z;
 }`;
@@ -1008,6 +1011,8 @@ export class Renderer {
       gl.uniformMatrix4fv(u.uView, false, view);
       gl.uniform2fv(u.uViewport, viewport);
       gl.uniform1f(u.uSize, 11);
+      gl.uniform1i(u.uClipOn, clip ? 1 : 0);
+      if (clip) gl.uniform4fv(u.uClip, clip);
       gl.bindVertexArray(m.verts.vao);
       gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, m.verts.count);
     }
