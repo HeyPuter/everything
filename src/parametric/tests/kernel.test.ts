@@ -268,6 +268,29 @@ describe('feature regeneration', () => {
     }
   });
 
+  it('cuts counterbored holes and rejects a hole shallower than its counterbore', async () => {
+    const b = new ModelBuilder();
+    const base: Feature[] = [sketch('S1', rect(-20, -20, 20, 20)), extrude('E1', 'S1', 3)];
+    const r0 = await b.build(req(base));
+    const top = r0.faces.find((f) => f.name === 'E1:cap1')!;
+    const pos = sketch('S2', [{ id: 'hp', t: 'point', x: 0, y: 0 }], { kind: 'face', face: { name: top.name, sig: { type: 'plane', c: top.center, n: top.normal, area: top.area } } });
+    const hole = (end: 'blind' | 'throughAll', depth: number, cbDepth: number): Feature => ({
+      id: 'H', name: 'H', type: 'hole', sketch: 'S2', kind: 'counterbore', diameter: 4, end, depth, cbDiameter: 8, cbDepth, csDiameter: 8, csAngle: 90, flip: false,
+    });
+    let r = await b.build(req([...base, pos, hole('blind', 2.5, 1)]));
+    expect(r.status[3].ok).toBe(true);
+    expect(4800 - volume(b)).toBeCloseTo(Math.PI * 16 + Math.PI * 4 * 1.5, 3);
+    for (const depth of [1, 0.5]) {
+      r = await b.build(req([...base, pos, hole('blind', depth, 1)]));
+      expect(r.status[3].ok).toBe(false);
+      expect(r.status[3].error).toMatch(/greater than the counterbore depth/);
+    }
+    // Through all with a counterbore deeper than the plate: the counterbore goes through.
+    r = await b.build(req([...base, pos, hole('throughAll', 0, 5)]));
+    expect(r.status[3].ok).toBe(true);
+    expect(4800 - volume(b)).toBeCloseTo(Math.PI * 16 * 3, 3);
+  });
+
   it('reports an error instead of a degenerate fillet or shell', async () => {
     const b = new ModelBuilder();
     const base: Feature[] = [sketch('S1', rect(-10, -10, 10, 10)), extrude('E1', 'S1', 10)];

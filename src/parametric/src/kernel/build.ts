@@ -789,7 +789,11 @@ export class ModelBuilder {
       const cr = num(f.cbDiameter) / 2, cd = num(f.cbDepth);
       if (cr <= r) throw new FeatureError('The counterbore diameter must be larger than the hole');
       if (cd <= 0) throw new FeatureError('Counterbore depth must be greater than zero');
-      prof.push([0, 0], [cr, 0], [cr, cd], [r, cd], [r, depth], [0, depth]);
+      // A shallower hole would turn the profile back on itself and leave a
+      // ring of material in the counterbore.
+      if (f.end !== 'throughAll' && depth <= cd) throw new FeatureError('The hole depth must be greater than the counterbore depth');
+      const d = Math.max(depth, cd + 1e-3);
+      prof.push([0, 0], [cr, 0], [cr, cd], [r, cd], [r, d], [0, d]);
     } else if (f.kind === 'countersink') {
       const sr = num(f.csDiameter) / 2;
       const half = (num(f.csAngle) * Math.PI) / 360;
