@@ -1427,7 +1427,7 @@ test('find matches and highlights words and phrases split across text styles', a
   });
   await openPdf(page, doc);
   await page.getByRole('button', { name: 'Find text or tools', exact: true }).click();
-  const input = page.getByRole('searchbox', { name: 'Find in PDF', exact: true });
+  const input = page.getByRole('combobox', { name: 'Find in PDF', exact: true });
   await input.fill('paperwork');
   await expect(page.locator('.search-count')).toHaveText('1 of 1');
   await expect(page.locator('.page-caption')).toHaveText('Page 2 of 2');
@@ -2113,11 +2113,11 @@ test('cloud save writes a PDF and search navigates to matching pages', async ({ 
     options: { dedupeName: true, overwrite: false },
   });
   await page.getByRole('button', { name: 'Find text or tools', exact: true }).click();
-  await page.getByRole('searchbox', { name: 'Find in PDF', exact: true }).fill('paperwork');
+  await page.getByRole('combobox', { name: 'Find in PDF', exact: true }).fill('paperwork');
   await expect(page.locator('.search-count')).toHaveText('1 of 1');
   await page.getByRole('button', { name: 'Close search', exact: true }).click();
   await page.getByRole('button', { name: 'Find text or tools', exact: true }).click();
-  await expect(page.getByRole('searchbox', { name: 'Find in PDF', exact: true })).toHaveValue('');
+  await expect(page.getByRole('combobox', { name: 'Find in PDF', exact: true })).toHaveValue('');
   await expect(page.locator('.search-count')).toHaveText('');
   await expect(page.locator('.search-hit')).toHaveCount(0);
 });

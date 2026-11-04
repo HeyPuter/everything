@@ -29,7 +29,7 @@ async function prepare(page) {
   });
   await expect(page.locator('.page-caption')).toHaveText('Page 1 of 3');
   await page.getByRole('button', { name: 'Find text or tools', exact: true }).click();
-  const input = page.getByRole('searchbox', { name: 'Find in PDF', exact: true });
+  const input = page.getByRole('combobox', { name: 'Find in PDF', exact: true });
   await input.fill('apple');
   await expect(page.locator('.search-count')).toHaveText('1 of 2');
   return input;

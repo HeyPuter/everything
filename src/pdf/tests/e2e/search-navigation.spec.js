@@ -53,7 +53,7 @@ async function prepare(page) {
       return post.call(this, message, ...rest);
     };
   });
-  return page.getByRole('searchbox', { name: 'Find in PDF', exact: true });
+  return page.getByRole('combobox', { name: 'Find in PDF', exact: true });
 }
 async function goTo(page, number) {
   const input = page.getByRole('spinbutton', { name: 'Page number', exact: true });

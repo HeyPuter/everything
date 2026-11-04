@@ -24,7 +24,7 @@ async function openSearchDocument(
   });
   await expect(page.locator('.page-caption')).toHaveText(`Page 1 of ${doc.getPageCount()}`);
   await page.getByRole('button', { name: 'Find text or tools', exact: true }).click();
-  return page.getByRole('searchbox', { name: 'Find in PDF', exact: true });
+  return page.getByRole('combobox', { name: 'Find in PDF', exact: true });
 }
 
 test('changing or clearing a query immediately retires its old matches', async ({ page }) => {
@@ -153,7 +153,7 @@ test('find matches supplementary-plane letters in either case without splitting 
   });
   await expect(page.locator('.page-caption')).toHaveText('Page 1 of 1');
   await page.getByRole('button', { name: 'Find text or tools', exact: true }).click();
-  const input = page.getByRole('searchbox', { name: 'Find in PDF', exact: true });
+  const input = page.getByRole('combobox', { name: 'Find in PDF', exact: true });
   for (const query of ['\u{10400}', '\u{10428}']) {
     await input.fill(query);
     await expect(page.locator('.search-count')).toHaveText('1 of 2');

@@ -74,7 +74,7 @@ test('Alt+Arrow keys move the caret inside fields instead of changing pages', as
   await page.keyboard.press('Escape');
   await expect(page.getByRole('button', { name: 'Undo', exact: true })).toBeDisabled();
   await page.getByRole('button', { name: 'Find text or tools', exact: true }).click();
-  const find = page.getByRole('searchbox', { name: 'Find in PDF' });
+  const find = page.getByRole('combobox', { name: 'Find in PDF' });
   await find.fill('words');
   await find.press('Alt+ArrowRight');
   await expect(find).toBeFocused();
@@ -259,7 +259,7 @@ test('Escape closes the find bar and clears its highlights', async ({ page }) =>
   await page.goto('/#library');
   await openPdf(page, await multiPagePdf(2));
   await page.keyboard.press('ControlOrMeta+f');
-  const find = page.getByRole('searchbox', { name: 'Find in PDF' });
+  const find = page.getByRole('combobox', { name: 'Find in PDF' });
   await expect(find).toBeFocused();
   await find.fill('words');
   await expect(page.locator('.search-count')).toHaveText('1 of 2');
@@ -746,7 +746,7 @@ test('find starts from the current page and wraps around', async ({ page }) => {
   await page.getByRole('button', { name: 'Next page', exact: true }).click();
   await expect(page.locator('.page-caption')).toHaveText('Page 2 of 3');
   await page.keyboard.press('ControlOrMeta+f');
-  const find = page.getByRole('searchbox', { name: 'Find in PDF' });
+  const find = page.getByRole('combobox', { name: 'Find in PDF' });
   await find.fill('words');
   await expect(page.locator('.search-count')).toHaveText('2 of 3');
   await expect(page.locator('.page-caption')).toHaveText('Page 2 of 3');
@@ -774,7 +774,7 @@ test('find marks only the matched characters inside a text span', async ({ page 
   doc.addPage([400, 400]).drawText('Alpha beta gamma beta', { x: 40, y: 300, size: 18, font });
   await openPdf(page, doc);
   await page.keyboard.press('ControlOrMeta+f');
-  const find = page.getByRole('searchbox', { name: 'Find in PDF' });
+  const find = page.getByRole('combobox', { name: 'Find in PDF' });
   await find.fill('beta');
   await expect(page.locator('.search-count')).toHaveText('1 of 2');
   const hits = page.locator('.search-hit');
@@ -858,7 +858,7 @@ test('Ctrl+Y redoes outside text fields', async ({ page }) => {
   await expect(redo).toBeEnabled();
   await expect(undo).toBeDisabled();
   await page.getByRole('button', { name: 'Find text or tools', exact: true }).click();
-  const find = page.getByRole('searchbox', { name: 'Find in PDF' });
+  const find = page.getByRole('combobox', { name: 'Find in PDF' });
   await find.press('Control+y');
   await expect(redo).toBeEnabled();
   await find.press('Escape');
@@ -1283,7 +1283,7 @@ test('find reuses extracted page text and still sees edits made afterwards', asy
     };
   });
   await page.getByRole('button', { name: 'Find text or tools', exact: true }).click();
-  const input = page.getByRole('searchbox', { name: 'Find in PDF' });
+  const input = page.getByRole('combobox', { name: 'Find in PDF' });
   const count = page.locator('.search-count');
   await input.fill('page 3');
   await expect(count).toHaveText('1 of 1');
@@ -1884,7 +1884,7 @@ test('find counts every match and steps through several on one page before movin
   doc.addPage([400, 400]).drawText('the last apple', { x: 40, y: 300, size: 18, font });
   await openPdf(page, doc);
   await page.keyboard.press('ControlOrMeta+f');
-  const find = page.getByRole('searchbox', { name: 'Find in PDF' });
+  const find = page.getByRole('combobox', { name: 'Find in PDF' });
   await find.fill('apple');
   await expect(page.locator('.search-count')).toHaveText('1 of 4');
   const hits = page.locator('.search-hit');
@@ -2086,7 +2086,7 @@ test('every control sits inside a landmark and each view has one first-level hea
   await expect(page.getByLabel('Shape type')).toBeVisible();
   expect(await landmarks()).toEqual([]);
   await page.getByRole('button', { name: 'Find text or tools', exact: true }).click();
-  await expect(page.getByRole('searchbox', { name: 'Find in PDF' })).toBeVisible();
+  await expect(page.getByRole('combobox', { name: 'Find in PDF' })).toBeVisible();
   expect(await landmarks()).toEqual([]);
 });
 
@@ -2267,7 +2267,7 @@ test('Select all takes the page text, not the application around it', async ({ p
   await expect(page.locator('.highlight-target')).toHaveCount(1);
   // A field with the focus keeps its own Select All, and the page keeps its text unselected.
   await page.getByRole('button', { name: 'Find text or tools', exact: true }).click();
-  const find = page.getByRole('searchbox', { name: 'Find in PDF' });
+  const find = page.getByRole('combobox', { name: 'Find in PDF' });
   await find.fill('words');
   await find.press('ControlOrMeta+a');
   expect(await find.evaluate((node) => [node.selectionStart, node.selectionEnd])).toEqual([0, 5]);

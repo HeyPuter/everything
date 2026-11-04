@@ -41,7 +41,7 @@ for (const how of ['shortcut', 'button'])
       await grid.getByRole('option').first().focus();
       await page.keyboard.press('ControlOrMeta+f');
     } else await page.getByRole('button', { name: 'Find text or tools', exact: true }).click();
-    const find = page.getByRole('searchbox', { name: 'Find in PDF' });
+    const find = page.getByRole('combobox', { name: 'Find in PDF' });
     await expect(find).toBeVisible();
     await expect(find).toBeFocused();
     await expect(grid).toBeHidden();

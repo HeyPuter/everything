@@ -237,7 +237,7 @@ test('keys the comparison answers itself leave the document behind it alone', as
 
   await page.getByRole('button', { name: 'Close compare' }).click();
   await expect(page.locator('.page-caption')).toHaveText('Page 1 of 12');
-  await expect(page.getByRole('searchbox', { name: 'Find in PDF' })).toBeHidden();
+  await expect(page.getByRole('combobox', { name: 'Find in PDF' })).toBeHidden();
 });
 
 test('a comparison describes each change once, however many lines it marks', async ({ page }) => {

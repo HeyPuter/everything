@@ -1877,11 +1877,16 @@ export function createEditor({
       return b;
     }),
   );
+  // The find box is a combobox: the tools its words match are offered in a list beneath it.
   const searchInput = el('input', {
     type: 'search',
     class: 'input',
     placeholder: 'Find text or tools',
     'aria-label': 'Find in PDF',
+    role: 'combobox',
+    'aria-autocomplete': 'list',
+    'aria-expanded': 'false',
+    'aria-controls': 'find-tool-list',
   });
   const searchCount = el('span', { class: 'search-count', role: 'status' });
   let searchTimer;
@@ -1890,12 +1895,36 @@ export function createEditor({
     suggestTools();
   });
   // Typing a tool's name in the find box offers the tool too, beside the matches in the PDF.
-  const toolSuggestions = el('div', {
-    class: 'find-tool-suggestions',
-    role: 'group',
+  const toolList = el('div', {
+    id: 'find-tool-list',
+    role: 'listbox',
     'aria-label': 'Matching tools',
-    hidden: true,
   });
+  const toolSuggestions = el(
+    'div',
+    { class: 'find-tool-suggestions', hidden: true },
+    el('div', { class: 'find-tool-heading', 'aria-hidden': 'true' }, 'Tools'),
+    toolList,
+  );
+  const suggestedTools = () => [...toolList.querySelectorAll('[role="option"]')];
+  /** Show the suggestions, or hide them, and say so on the find box. */
+  function showToolSuggestions(shown) {
+    toolSuggestions.hidden = !shown;
+    searchInput.setAttribute('aria-expanded', String(shown));
+    if (!shown) activateToolOption(-1);
+  }
+  /** Mark the suggestion at `index` (none for -1) as the one Enter opens. */
+  function activateToolOption(index) {
+    const options = suggestedTools();
+    options.forEach((option, i) => {
+      option.setAttribute('aria-selected', String(i === index));
+      option.classList.toggle('active', i === index);
+    });
+    if (options[index]) searchInput.setAttribute('aria-activedescendant', options[index].id);
+    else searchInput.removeAttribute('aria-activedescendant');
+  }
+  const activeToolOption = () =>
+    suggestedTools().findIndex((option) => option.classList.contains('active'));
   function suggestTools() {
     const query = searchInput.value.trim().toLowerCase();
     const matches =
@@ -1910,15 +1939,16 @@ export function createEditor({
                   .includes(query),
             )
             .slice(0, 5);
-    toolSuggestions.hidden = !matches.length;
-    toolSuggestions.replaceChildren(
-      ...(matches.length ? [el('div', { class: 'find-tool-heading' }, 'Tools')] : []),
-      ...matches.map((entry) =>
+    toolList.replaceChildren(
+      ...matches.map((entry, i) =>
         el(
           'button',
           {
             type: 'button',
             class: 'find-tool-item',
+            id: `find-tool-option-${i}`,
+            role: 'option',
+            'aria-selected': 'false',
             'aria-label': `Open tool: ${entry.label}`,
             onclick: safe(async () => {
               closeSearch();
@@ -1932,12 +1962,50 @@ export function createEditor({
         ),
       ),
     );
+    activateToolOption(-1);
+    showToolSuggestions(matches.length > 0);
   }
+  // Reached with Tab, the suggestions take the arrow keys too; Escape goes back to the words.
+  toolList.addEventListener('keydown', (e) => {
+    const options = suggestedTools();
+    const at = options.indexOf(document.activeElement);
+    if (at < 0) return;
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      const next = at + (e.key === 'ArrowDown' ? 1 : -1);
+      (next < 0 ? searchInput : options[next % options.length]).focus();
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      e.stopPropagation();
+      searchInput.focus();
+    }
+  });
   searchInput.addEventListener('keydown', (e) => {
     if (e.isComposing) return;
-    if (e.key === 'Enter') {
+    const options = toolSuggestions.hidden ? [] : suggestedTools();
+    const active = activeToolOption();
+    if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && options.length && !e.altKey) {
+      // The arrow keys move through the suggested tools, as in a combobox; the focus stays here.
+      e.preventDefault();
+      const step = e.key === 'ArrowDown' ? 1 : -1;
+      activateToolOption(
+        active < 0
+          ? step > 0
+            ? 0
+            : options.length - 1
+          : (active + step + options.length) % options.length,
+      );
+    } else if (e.key === 'Enter' && active >= 0 && !e.shiftKey) {
+      e.preventDefault();
+      options[active].click();
+    } else if (e.key === 'Enter') {
       e.preventDefault();
       jumpMatch(e.shiftKey ? -1 : 1);
+    } else if (e.key === 'Escape' && active >= 0) {
+      // A first Escape leaves the suggestions, as in a combobox; the next closes the find bar.
+      e.preventDefault();
+      e.stopPropagation();
+      activateToolOption(-1);
     } else if (e.key === 'Escape') {
       e.preventDefault();
       // Escape closes the find bar and nothing else: the window handler would otherwise also
@@ -1948,7 +2016,7 @@ export function createEditor({
   });
   function closeSearch() {
     searchBar.hidden = true;
-    toolSuggestions.hidden = true;
+    showToolSuggestions(false);
     searchInput.value = '';
     resetSearch();
     workspace.focus();

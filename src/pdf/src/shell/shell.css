@@ -1005,7 +1005,8 @@
   color: var(--ink);
 }
 .find-tool-item:hover,
-.find-tool-item:focus-visible {
+.find-tool-item:focus-visible,
+.find-tool-item.active {
   background: var(--surface-2);
 }
 

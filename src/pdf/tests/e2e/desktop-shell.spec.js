@@ -71,9 +71,68 @@ test('the tool sets open their tools in the tools pane and the list finds every 
 test('the find box also offers matching tools', async ({ page }) => {
   await openPdf(page, await numberedPdf(1));
   await page.getByRole('button', { name: 'Find text or tools', exact: true }).click();
-  await page.getByRole('searchbox', { name: 'Find in PDF' }).fill('compress');
-  await page.getByRole('button', { name: 'Open tool: Compress a PDF' }).click();
+  await page.getByRole('combobox', { name: 'Find in PDF' }).fill('compress');
+  await page.getByRole('option', { name: 'Open tool: Compress a PDF' }).click();
   await expect(page.getByRole('dialog', { name: 'Reduce file size' })).toBeVisible();
+});
+
+test('the arrow keys reach the tools the find box offers, as in a combobox', async ({ page }) => {
+  await openPdf(page, await numberedPdf(1));
+  await page.getByRole('button', { name: 'Find text or tools', exact: true }).click();
+  const find = page.getByRole('combobox', { name: 'Find in PDF' });
+  await expect(find).toHaveAttribute('aria-expanded', 'false');
+  await find.fill('pdf');
+  await expect(find).toHaveAttribute('aria-expanded', 'true');
+  const list = page.getByRole('listbox', { name: 'Matching tools' });
+  await expect(find).toHaveAttribute('aria-controls', await list.getAttribute('id'));
+  const options = list.getByRole('option');
+  const count = await options.count();
+  expect(count).toBeGreaterThan(1);
+  // Arrow Down marks the first tool, and the next; the focus stays in the field.
+  await page.keyboard.press('ArrowDown');
+  await expect(options.nth(0)).toHaveAttribute('aria-selected', 'true');
+  await expect(find).toHaveAttribute(
+    'aria-activedescendant',
+    await options.nth(0).getAttribute('id'),
+  );
+  await page.keyboard.press('ArrowDown');
+  await expect(options.nth(1)).toHaveAttribute('aria-selected', 'true');
+  await expect(options.nth(0)).toHaveAttribute('aria-selected', 'false');
+  await page.keyboard.press('ArrowUp');
+  await page.keyboard.press('ArrowUp');
+  // From the first it wraps to the last.
+  await expect(options.nth(count - 1)).toHaveAttribute('aria-selected', 'true');
+  await expect(find).toBeFocused();
+  // Escape leaves the list first, then closes the find bar as before.
+  await page.keyboard.press('Escape');
+  await expect(find).not.toHaveAttribute('aria-activedescendant', /./);
+  await expect(find).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(find).toBeHidden();
+  // Enter on a marked tool opens it.
+  await page.getByRole('button', { name: 'Find text or tools', exact: true }).click();
+  await find.fill('compress');
+  await page.keyboard.press('ArrowDown');
+  await expect(
+    list.getByRole('option', { name: 'Open tool: Compress a PDF', selected: true }),
+  ).toBeVisible();
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('dialog', { name: 'Reduce file size' })).toBeVisible();
+});
+
+test('Enter in the find box still finds words when no tool is marked', async ({ page }) => {
+  await openPdf(page, await numberedPdf(3));
+  await page.getByRole('button', { name: 'Find text or tools', exact: true }).click();
+  const find = page.getByRole('combobox', { name: 'Find in PDF' });
+  await find.fill('page');
+  await expect(page.locator('.search-count')).toHaveText(/of 3/);
+  await page.keyboard.press('Enter');
+  await expect(page.locator('.search-count')).toHaveText(/^2 of 3/);
+  await page.keyboard.press('Shift+Enter');
+  await expect(page.locator('.search-count')).toHaveText(/^1 of 3/);
+  // A tool the field also matches does not stand in the way of finding the words.
+  await expect(find).toHaveAttribute('aria-expanded', 'true');
+  await expect(find).toBeFocused();
 });
 
 test('Home and End move along the menu bar without turning the page', async ({ page }) => {
@@ -1354,7 +1413,7 @@ test('Scan & OCR makes a scanned page searchable', async ({ page }) => {
   await expect(progress).toBeHidden({ timeout: 120000 });
   await settled(page);
   await page.getByRole('button', { name: 'Find text or tools', exact: true }).click();
-  await page.getByRole('searchbox', { name: 'Find in PDF' }).fill('thirty');
+  await page.getByRole('combobox', { name: 'Find in PDF' }).fill('thirty');
   await expect(page.locator('.search-count')).toHaveText(/1/);
   const bytes = await downloaded(page);
   const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
