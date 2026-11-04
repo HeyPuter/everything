@@ -189,7 +189,7 @@ test('Bring to Front, Send to Back and Bring Forward move every selected object,
   await drawShape(page, 'Diamond', [200, 300], [300, 400]);
   // Back to front: rectangle, oval, triangle, diamond.
   const stack = async () => (await drawings(page)).sort((a, b) => a.order - b.order).map(d => d.kind);
-  expect(await stack()).toEqual(['rect', 'ellipse', 'triangle', 'diamond']);
+  await expect.poll(stack).toEqual(['rect', 'ellipse', 'triangle', 'diamond']);
   await onTab(page, 'shapeFormat');
   await page.locator('#ribbon-panel-shapeFormat').getByRole('button', { name: 'Selection Pane', exact: true }).click();
   const pane = page.getByRole('complementary', { name: 'Selection pane' });
