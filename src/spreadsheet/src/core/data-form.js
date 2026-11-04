@@ -29,7 +29,7 @@ export function findList(wb, sheetId, r, c) {
     const header = rows.header;
     const names = wb.tableColumns(sheetId, table);
     const fields = [];
-    for (let cc = c1; cc <= c2; cc++) fields.push({ c: cc, name: names[cc - c1] || t('dataForm.column', { col: colName(cc) }) });
+    for (let cc = c1; cc <= c2; cc++) fields.push({ c: cc, name: names[cc - c1] || t('coreDataForm.column', { col: colName(cc) }) });
     return { sheetId, header, first: rows.dataStart, last: rows.dataEnd, c1, c2, tableId: table.id, fields };
   }
   const region = wb.dataRegion(sheetId, r, c);
@@ -37,7 +37,7 @@ export function findList(wb, sheetId, r, c) {
   const fields = [];
   for (let cc = region.c1; cc <= region.c2; cc++) {
     const name = String(wb.getDisplay(sheetId, region.r1, cc) ?? '').trim();
-    fields.push({ c: cc, name: name || t('dataForm.column', { col: colName(cc) }) });
+    fields.push({ c: cc, name: name || t('coreDataForm.column', { col: colName(cc) }) });
   }
   return { sheetId, header: region.r1, first: region.r1 + 1, last: region.r2, c1: region.c1, c2: region.c2, tableId: null, fields };
 }
@@ -71,8 +71,8 @@ export function writeRecord(wb, list, i, inputs) {
   const changes = before.filter((f) => !f.formula && inputs[f.c] != null && inputs[f.c] !== f.text);
   if (!changes.length) return 0;
   const version = wb.version;
-  wb.transaction(t('dataForm.undo.edit'), () => {
-    for (const f of changes) wb.setInput(list.sheetId, r, f.c, inputs[f.c], { label: t('dataForm.undo.edit') });
+  wb.transaction(t('coreDataForm.undo.edit'), () => {
+    for (const f of changes) wb.setInput(list.sheetId, r, f.c, inputs[f.c], { label: t('coreDataForm.undo.edit') });
   });
   return wb.version === version ? 0 : changes.length;
 }
@@ -85,10 +85,10 @@ export function appendProblem(wb, list) {
   const r = list.last + 1;
   if (list.tableId) return null;
   const sheet = wb.sheet(list.sheetId);
-  if (!sheet) return t('dataForm.listGone');
+  if (!sheet) return t('coreDataForm.listGone');
   for (let c = list.c1; c <= list.c2; c++) {
     const cell = sheet.cells.get(cellKey(r, c));
-    if (cell && (cell.v != null || cell.f != null)) return t('dataForm.rowNotEmpty');
+    if (cell && (cell.v != null || cell.f != null)) return t('coreDataForm.rowNotEmpty');
   }
   return null;
 }
@@ -103,7 +103,7 @@ export function appendRecord(wb, list, inputs) {
   const typed = list.fields.filter((f) => inputs[f.c] != null && String(inputs[f.c]) !== '');
   let r = list.last + 1;
   let ok = false;
-  wb.transaction(t('dataForm.undo.new'), () => {
+  wb.transaction(t('coreDataForm.undo.new'), () => {
     if (list.tableId) {
       r = wb.addTableRow(list.sheetId, list.tableId);
       if (r < 0) return;
@@ -116,9 +116,9 @@ export function appendRecord(wb, list, inputs) {
         if (cell?.f == null) continue;
         entries.push({ r, c, cell: { v: null, f: shiftFormula(cell.f, 1, 0), s: cell.s } });
       }
-      if (entries.length) wb.setCells(list.sheetId, entries, t('dataForm.undo.new'));
+      if (entries.length) wb.setCells(list.sheetId, entries, t('coreDataForm.undo.new'));
     }
-    for (const f of typed) if (wb.getCell(list.sheetId, r, f.c)?.f == null) wb.setInput(list.sheetId, r, f.c, String(inputs[f.c]), { label: t('dataForm.undo.new') });
+    for (const f of typed) if (wb.getCell(list.sheetId, r, f.c)?.f == null) wb.setInput(list.sheetId, r, f.c, String(inputs[f.c]), { label: t('coreDataForm.undo.new') });
     ok = true;
   });
   if (!ok) return null;
