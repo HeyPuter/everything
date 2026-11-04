@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { Camera, VIEWS } from '../src/render/camera';
 import { qRotate } from '../src/math/vec';
 import { CommandRegistry, eventShortcut } from '../src/app/commands';
@@ -42,6 +42,19 @@ describe('camera', () => {
     const after = c.ray(600, 150);
     close([before.o[0], before.o[1]], [after.o[0], after.o[1]]);
     expect(c.distance).toBeCloseTo(50, 9);
+  });
+
+  it('reports the end of a running animation as its goal', () => {
+    const c = new Camera();
+    c.width = 800; c.height = 600;
+    c.setState({ target: [0, 0, 0], distance: 100, rot: VIEWS.front, ortho: true });
+    expect(c.goal().rot).toEqual(VIEWS.front);
+    vi.stubGlobal('matchMedia', () => ({ matches: false }));
+    c.animateTo({ target: [1, 2, 3], distance: 50, rot: VIEWS.top, ortho: true });
+    vi.unstubAllGlobals();
+    expect(c.animating).toBe(true);
+    expect(c.goal()).toEqual({ target: [1, 2, 3], distance: 50, rot: VIEWS.top, ortho: true });
+    expect(c.rot).toEqual(VIEWS.front);
   });
 
   it('recognises the current standard view', () => {

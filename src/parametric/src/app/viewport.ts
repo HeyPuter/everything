@@ -320,11 +320,11 @@ export class Viewport {
       else if (e.key === 'ArrowUp') cam.pan(0, d);
       else cam.pan(0, -d);
     } else if (e.altKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
-      this.rotateView(cam.back, e.key === 'ArrowLeft' ? step : -step);
-    } else if (e.key === 'ArrowLeft') this.rotateView(cam.up, -step);
-    else if (e.key === 'ArrowRight') this.rotateView(cam.up, step);
-    else if (e.key === 'ArrowUp') this.rotateView(cam.right, -step);
-    else if (e.key === 'ArrowDown') this.rotateView(cam.right, step);
+      this.rotateView('back', e.key === 'ArrowLeft' ? step : -step);
+    } else if (e.key === 'ArrowLeft') this.rotateView('up', -step);
+    else if (e.key === 'ArrowRight') this.rotateView('up', step);
+    else if (e.key === 'ArrowUp') this.rotateView('right', -step);
+    else if (e.key === 'ArrowDown') this.rotateView('right', step);
     else if (e.key === '+' || e.key === '=') cam.zoomAt(0.8, cam.width / 2, cam.height / 2);
     else if (e.key === '-' || e.key === '_') cam.zoomAt(1.25, cam.width / 2, cam.height / 2);
     else handled = false;
@@ -332,16 +332,13 @@ export class Viewport {
   }
 
   /** Animated rotation about a view axis through the target. */
-  rotateView(axis: Vec3, angle: number) {
-    const q = qAxisAngle(axis, angle);
-    const st = this.camera.state();
-    const pivot = this.modelCenter();
-    const rel = sub(st.target, pivot);
-    const qr = [q[0], q[1], q[2], q[3]] as [number, number, number, number];
+  rotateView(axis: 'right' | 'up' | 'back', angle: number) {
+    // Key repeat arrives mid-animation: continue from where the running
+    // rotation ends, not from the intermediate orientation.
+    const st = this.camera.goal();
     const tmp = new Camera();
     tmp.setState(st);
-    tmp.rotateAbout(qr, pivot);
-    void rel;
+    tmp.rotateAbout(qAxisAngle(tmp[axis], angle), this.modelCenter());
     this.camera.animateTo({ ...tmp.state(), ortho: st.ortho }, 180);
   }
 

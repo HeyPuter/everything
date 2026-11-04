@@ -71,6 +71,12 @@ export class Camera {
     return { target: [...this.target] as Vec3, distance: this.distance, rot: [...this.rot] as Quat, ortho: this.ortho };
   }
 
+  /** Where the camera is heading: the end of a running animation, else now. */
+  goal(): CameraState {
+    const to = this.anim?.to;
+    return to ? { target: [...to.target] as Vec3, distance: to.distance, rot: [...to.rot] as Quat, ortho: to.ortho } : this.state();
+  }
+
   setState(s: CameraState) {
     this.target = [...s.target] as Vec3;
     this.distance = s.distance;

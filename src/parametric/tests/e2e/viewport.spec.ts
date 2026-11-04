@@ -76,4 +76,15 @@ test.describe('viewport', () => {
     after.pixel.forEach((v, i) => expect(Math.abs(v - before.pixel[i])).toBeLessThan(12));
     expect(errors).toEqual([]);
   });
+
+  test('repeated arrow keys add up their rotations', async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+    await waitForFeature(page, 'Fillet1');
+    await page.evaluate(() => (window as unknown as Win).__parametric.viewport.setView('front', false));
+    await page.locator('canvas.gl').focus();
+    // Six 15 degree steps, faster than the 180 ms step animation (key repeat).
+    for (let i = 0; i < 6; i++) await page.keyboard.press('ArrowRight');
+    await expect(page.locator('.view-label')).toHaveText('Right');
+  });
 });
