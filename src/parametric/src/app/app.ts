@@ -1089,7 +1089,7 @@ export class App {
     this.requestRebuild(true);
     this.viewport.refreshStates();
     this.commands.changed();
-    if (window.matchMedia('(max-width: 760px)').matches && !this.sketchEditor) this.toggleLeftPane(false);
+    if (window.matchMedia('(max-width: 760px)').matches) this.toggleLeftPane(false);
   }
 
   get inSketch(): boolean {
@@ -1146,6 +1146,10 @@ export class App {
     this.renderConfirmCorner();
     this.setRibbonTab('sketch');
     this.refreshSketchPanel();
+    // On phones the sheet would cover the lower half of the sketch (and the
+    // OK corner); it slides away, as when a feature panel closes. The Tree
+    // button brings the sketch PropertyManager back.
+    if (window.matchMedia('(max-width: 760px)').matches) this.toggleLeftPane(false);
     if (this.settings.autoNormalTo) this.viewport.normalTo(frame);
     this.requestRebuild(true);
     this.renderTrees();
