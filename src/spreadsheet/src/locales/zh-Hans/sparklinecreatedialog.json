@@ -1,0 +1,15 @@
+{
+  "automatic": "自动",
+  "chartType": "类型",
+  "create": "创建",
+  "dataColumn": "数据列",
+  "dataRange": "数据范围",
+  "dataRow": "数据行",
+  "locationRange": "位置范围",
+  "note": "为每个数据行或数据列选择一个目标单元格。单元格中的值保持不变。可在“格式”→“迷你图设置”中更改颜色和坐标轴。",
+  "perRowOrColumn": "每个迷你图对应",
+  "title": "创建迷你图",
+  "typeColumn": "柱形",
+  "typeLine": "折线",
+  "typeWinLoss": "盈亏"
+}

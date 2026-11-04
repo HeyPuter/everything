@@ -1,0 +1,6 @@
+{
+  "lowToHigh": "A range goes from low to high, like 1-5, not {part}.",
+  "notNumber": "\"{part}\" isn''t a number or a range like 1-5.",
+  "tooLarge": "One of the values is too large.",
+  "tooMany": "An axis takes up to {max} values."
+}

@@ -1,6 +1,7 @@
 import { el } from './dom.js';
 import { openModal, fieldAlert } from './modal.js';
 import { rangeName } from '../core/cell.js';
+import { t } from '../i18n/index.js';
 
 export function openSparklineCreateDialog(ctx, { type = null } = {}) {
   const sheetId = ctx.sheetId(), inputs = {};
@@ -11,18 +12,18 @@ export function openSparklineCreateDialog(ctx, { type = null } = {}) {
     input.value = value; inputs[key] = input;
     content.append(el('label.field', {}, el('span.field-label', {}, label), input));
   };
-  field('source', 'Data range', '');
-  field('location', 'Destination range', rangeName(ctx.range()));
-  field('type', 'Chart type', ['line', 'column', 'stacked'].includes(type) ? type : 'line', [['line', 'Line'], ['column', 'Column'], ['stacked', 'Win/loss']]);
-  field('orientation', 'One sparkline per', 'auto', [['auto', 'Automatic'], ['rows', 'Data row'], ['columns', 'Data column']]);
-  content.append(el('p.small.muted', {}, 'Choose one destination cell for each data row or column. Cell values stay in place. You can change colors and axes in Format → Sparkline settings.'));
-  content.append(alert, el('div.row.row-end', {}, el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Cancel'), el('button.btn.btn-primary', { type: 'submit' }, 'Create')));
+  field('source', t('sparklinecreatedialog.dataRange'), '');
+  field('location', t('sparklinecreatedialog.locationRange'), rangeName(ctx.range()));
+  field('type', t('sparklinecreatedialog.chartType'), ['line', 'column', 'stacked'].includes(type) ? type : 'line', [['line', t('sparklinecreatedialog.typeLine')], ['column', t('sparklinecreatedialog.typeColumn')], ['stacked', t('sparklinecreatedialog.typeWinLoss')]]);
+  field('orientation', t('sparklinecreatedialog.perRowOrColumn'), 'auto', [['auto', t('sparklinecreatedialog.automatic')], ['rows', t('sparklinecreatedialog.dataRow')], ['columns', t('sparklinecreatedialog.dataColumn')]]);
+  content.append(el('p.small.muted', {}, t('sparklinecreatedialog.note')));
+  content.append(alert, el('div.row.row-end', {}, el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, t('common.cancel')), el('button.btn.btn-primary', { type: 'submit' }, t('sparklinecreatedialog.create'))));
   content.addEventListener('submit', event => {
     event.preventDefault();
     const error = ctx.wb.createNativeSparklines(sheetId, Object.fromEntries(Object.entries(inputs).map(([key, input]) => [key, input.value])));
     if (error) return refuse(inputs[error.field], error.message);
     modal.close();
   });
-  const modal = openModal({ title: 'Create sparklines', content, initialFocus: inputs.source, onClose: () => ctx.grid.focus() });
+  const modal = openModal({ title: t('sparklinecreatedialog.title'), content, initialFocus: inputs.source, onClose: () => ctx.grid.focus() });
   return modal;
 }

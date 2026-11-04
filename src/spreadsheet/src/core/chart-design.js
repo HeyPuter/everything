@@ -10,6 +10,7 @@ import { quoteSheet } from './refs.js';
 import { CHART_LINE_GREY, CHART_TEXT_GREY, excelChartAppearance, subtypeOf } from './chart-subtypes.js';
 import { DEFAULT_TREND, TREND_TYPES, normalizeTrend, trendFor } from './trendline.js';
 import { errorBarsElementPatch, errorBarsState, normalizeErrorBars } from './error-bars.js';
+import { t } from '../i18n/index.js';
 
 const PIE = new Set(['pie', 'donut']);
 const BARS = new Set(['column', 'bar', 'combo', 'histogram', 'waterfall']);
@@ -17,7 +18,7 @@ const BARS = new Set(['column', 'bar', 'combo', 'histogram', 'waterfall']);
 const AXIS_FREE = new Set(['radar', 'treemap', 'sunburst', 'funnel']);
 const SPECIAL = new Set(['treemap', 'sunburst', 'boxWhisker', 'funnel', 'stock', 'surface']);
 const NO_TRENDLINE = new Set(['radar', 'histogram', 'waterfall']);
-const AXES = t => !PIE.has(t) && !AXIS_FREE.has(t);
+const AXES = type => !PIE.has(type) && !AXIS_FREE.has(type);
 export const isPieChart = chart => PIE.has(chart?.type);
 export const hasAxes = chart => AXES(chart?.type);
 /** Charts drawn in the default style carry an appearance; older app charts keep their own look and fewer options. */
@@ -61,7 +62,7 @@ export function chartElementState(chart) {
     legend: chart.legend === false ? 'none' : chart.legendPos || 'bottom',
     // The kind every series' trendline shares, or 'mixed'.
     trendline: !chart.trendline ? 'none' : (types => (types.size === 1 ? [...types][0] : 'mixed'))(
-      new Set((chart.trendlines?.length ? chart.trendlines : [DEFAULT_TREND]).filter(Boolean).map(t => t.type))),
+      new Set((chart.trendlines?.length ? chart.trendlines : [DEFAULT_TREND]).filter(Boolean).map(trend => trend.type))),
     // The kind every error bar shares (or 'mixed', or 'none'), and which directions have them.
     errorBars: errorBarsState(chart),
   };
@@ -69,11 +70,14 @@ export function chartElementState(chart) {
 
 /** The data label positions available for the chart's type. */
 export function dataLabelPositions(chart) {
-  if (PIE.has(chart.type)) return chart.type === 'donut' ? [['ctr', 'Show']] : [['ctr', 'Center'], ['inEnd', 'Inside End'], ['outEnd', 'Outside End'], ['bestFit', 'Best Fit']];
-  if (['column', 'bar'].includes(chart.type)) return chart.stacked ? [['ctr', 'Center'], ['inEnd', 'Inside End'], ['inBase', 'Inside Base']]
-    : [['ctr', 'Center'], ['inEnd', 'Inside End'], ['inBase', 'Inside Base'], ['outEnd', 'Outside End']];
-  if (['line', 'scatter'].includes(chart.type)) return [['ctr', 'Center'], ['l', 'Left'], ['r', 'Right'], ['t', 'Above'], ['b', 'Below']];
-  return [['show', 'Show']];
+  const center = ['ctr', t('chartDesign.positionCenter')], inEnd = ['inEnd', t('chartDesign.positionInsideEnd')];
+  const inBase = ['inBase', t('chartDesign.positionInsideBase')], outEnd = ['outEnd', t('chartDesign.positionOutsideEnd')];
+  if (PIE.has(chart.type)) return chart.type === 'donut' ? [['ctr', t('chartDesign.positionShow')]] : [center, inEnd, outEnd, ['bestFit', t('chartDesign.positionBestFit')]];
+  if (['column', 'bar'].includes(chart.type)) return chart.stacked ? [center, inEnd, inBase] : [center, inEnd, inBase, outEnd];
+  if (['line', 'scatter'].includes(chart.type)) {
+    return [center, ['l', t('chartDesign.positionLeft')], ['r', t('chartDesign.positionRight')], ['t', t('chartDesign.positionAbove')], ['b', t('chartDesign.positionBelow')]];
+  }
+  return [['show', t('chartDesign.positionShow')]];
 }
 
 /**
@@ -166,29 +170,31 @@ function combine(chart, steps, options) {
   return patch;
 }
 
+/** A Quick Layout preset, named in the interface language when it is shown ("Layout 3"). */
+const layout = (id, steps) => ({ id, get label() { return t('chartDesign.layout', { n: id }); }, steps });
 /** Quick Layout: preset arrangements of the title, legend, axis titles, labels, gridlines and a data table. */
 export const QUICK_LAYOUTS = Object.freeze([
-  { id: 1, label: 'Layout 1', steps: [['chartTitle', 'above'], ['legend', 'right'], ['dataLabels', 'none'], ['dataTable', 'none'], ['gridlines', { axis: 'horizontal', on: true }]] },
-  { id: 2, label: 'Layout 2', steps: [['chartTitle', 'above'], ['legend', 'top'], ['dataLabels', 'outEnd'], ['axes', { axis: 'value', on: false }], ['gridlines', { axis: 'horizontal', on: false }], ['dataTable', 'none']] },
-  { id: 3, label: 'Layout 3', steps: [['chartTitle', 'above'], ['legend', 'bottom'], ['dataLabels', 'none'], ['dataTable', 'none'], ['axes', { axis: 'value', on: true }], ['gridlines', { axis: 'horizontal', on: true }]] },
-  { id: 4, label: 'Layout 4', steps: [['chartTitle', 'none'], ['legend', 'bottom'], ['dataLabels', 'outEnd'], ['dataTable', 'none'], ['gridlines', { axis: 'horizontal', on: false }]] },
-  { id: 5, label: 'Layout 5', steps: [['chartTitle', 'above'], ['legend', 'none'], ['dataTable', 'keys'], ['axisTitles', { axis: 'vertical', on: true }], ['dataLabels', 'none']] },
-  { id: 6, label: 'Layout 6', steps: [['chartTitle', 'above'], ['legend', 'right'], ['axisTitles', { axis: 'vertical', on: true }], ['axisTitles', { axis: 'horizontal', on: true }], ['dataLabels', 'none'], ['dataTable', 'none']] },
-  { id: 7, label: 'Layout 7', steps: [['chartTitle', 'none'], ['legend', 'right'], ['axisTitles', { axis: 'vertical', on: true }], ['axisTitles', { axis: 'horizontal', on: true }], ['gridlines', { axis: 'vertical', on: true }], ['dataLabels', 'none'], ['dataTable', 'none']] },
+  layout(1, [['chartTitle', 'above'], ['legend', 'right'], ['dataLabels', 'none'], ['dataTable', 'none'], ['gridlines', { axis: 'horizontal', on: true }]]),
+  layout(2, [['chartTitle', 'above'], ['legend', 'top'], ['dataLabels', 'outEnd'], ['axes', { axis: 'value', on: false }], ['gridlines', { axis: 'horizontal', on: false }], ['dataTable', 'none']]),
+  layout(3, [['chartTitle', 'above'], ['legend', 'bottom'], ['dataLabels', 'none'], ['dataTable', 'none'], ['axes', { axis: 'value', on: true }], ['gridlines', { axis: 'horizontal', on: true }]]),
+  layout(4, [['chartTitle', 'none'], ['legend', 'bottom'], ['dataLabels', 'outEnd'], ['dataTable', 'none'], ['gridlines', { axis: 'horizontal', on: false }]]),
+  layout(5, [['chartTitle', 'above'], ['legend', 'none'], ['dataTable', 'keys'], ['axisTitles', { axis: 'vertical', on: true }], ['dataLabels', 'none']]),
+  layout(6, [['chartTitle', 'above'], ['legend', 'right'], ['axisTitles', { axis: 'vertical', on: true }], ['axisTitles', { axis: 'horizontal', on: true }], ['dataLabels', 'none'], ['dataTable', 'none']]),
+  layout(7, [['chartTitle', 'none'], ['legend', 'right'], ['axisTitles', { axis: 'vertical', on: true }], ['axisTitles', { axis: 'horizontal', on: true }], ['gridlines', { axis: 'vertical', on: true }], ['dataLabels', 'none'], ['dataTable', 'none']]),
 ]);
 const PIE_LAYOUTS = Object.freeze([
-  { id: 1, label: 'Layout 1', steps: [['chartTitle', 'above'], ['legend', 'none'], ['dataLabels', 'bestFit']] },
-  { id: 2, label: 'Layout 2', steps: [['chartTitle', 'above'], ['legend', 'top'], ['dataLabels', 'inEnd']] },
-  { id: 3, label: 'Layout 3', steps: [['chartTitle', 'none'], ['legend', 'bottom'], ['dataLabels', 'none']] },
-  { id: 4, label: 'Layout 4', steps: [['chartTitle', 'none'], ['legend', 'none'], ['dataLabels', 'ctr']] },
-  { id: 5, label: 'Layout 5', steps: [['chartTitle', 'above'], ['legend', 'right'], ['dataLabels', 'outEnd']] },
+  layout(1, [['chartTitle', 'above'], ['legend', 'none'], ['dataLabels', 'bestFit']]),
+  layout(2, [['chartTitle', 'above'], ['legend', 'top'], ['dataLabels', 'inEnd']]),
+  layout(3, [['chartTitle', 'none'], ['legend', 'bottom'], ['dataLabels', 'none']]),
+  layout(4, [['chartTitle', 'none'], ['legend', 'none'], ['dataLabels', 'ctr']]),
+  layout(5, [['chartTitle', 'above'], ['legend', 'right'], ['dataLabels', 'outEnd']]),
 ]);
 // Charts that name their own parts (a treemap's boxes, a funnel's stages) arrange only the title, legend and labels.
 const PLAIN_LAYOUTS = Object.freeze([
-  { id: 1, label: 'Layout 1', steps: [['chartTitle', 'above'], ['legend', 'top'], ['dataLabels', 'show']] },
-  { id: 2, label: 'Layout 2', steps: [['chartTitle', 'above'], ['legend', 'none'], ['dataLabels', 'show']] },
-  { id: 3, label: 'Layout 3', steps: [['chartTitle', 'none'], ['legend', 'right'], ['dataLabels', 'show']] },
-  { id: 4, label: 'Layout 4', steps: [['chartTitle', 'above'], ['legend', 'bottom'], ['dataLabels', 'none']] },
+  layout(1, [['chartTitle', 'above'], ['legend', 'top'], ['dataLabels', 'show']]),
+  layout(2, [['chartTitle', 'above'], ['legend', 'none'], ['dataLabels', 'show']]),
+  layout(3, [['chartTitle', 'none'], ['legend', 'right'], ['dataLabels', 'show']]),
+  layout(4, [['chartTitle', 'above'], ['legend', 'bottom'], ['dataLabels', 'none']]),
 ]);
 export const quickLayoutsFor = chart => (PIE.has(chart.type) ? PIE_LAYOUTS : AXIS_FREE.has(chart.type) && chart.type !== 'radar' ? PLAIN_LAYOUTS : QUICK_LAYOUTS);
 
@@ -206,21 +212,21 @@ export function colorPalettes(accents) {
   const acc = accents.slice(0, 6);
   const rotate = k => acc.map((_, i) => acc[(i * (k + 1) + k) % acc.length]);
   const colorful = [
-    { id: 'colorful1', label: 'Colorful Palette 1', colors: acc },
-    { id: 'colorful2', label: 'Colorful Palette 2', colors: [acc[1], acc[3], acc[5], acc[1], acc[3], acc[5]].map((c, i) => (i < 3 ? c : shade(c, -0.25))) },
-    { id: 'colorful3', label: 'Colorful Palette 3', colors: [acc[2], acc[4], acc[0], acc[2], acc[4], acc[0]].map((c, i) => (i < 3 ? c : shade(c, -0.25))) },
-    { id: 'colorful4', label: 'Colorful Palette 4', colors: rotate(3) },
+    { id: 'colorful1', label: t('chartDesign.colorfulPalette', { n: 1 }), colors: acc },
+    { id: 'colorful2', label: t('chartDesign.colorfulPalette', { n: 2 }), colors: [acc[1], acc[3], acc[5], acc[1], acc[3], acc[5]].map((c, i) => (i < 3 ? c : shade(c, -0.25))) },
+    { id: 'colorful3', label: t('chartDesign.colorfulPalette', { n: 3 }), colors: [acc[2], acc[4], acc[0], acc[2], acc[4], acc[0]].map((c, i) => (i < 3 ? c : shade(c, -0.25))) },
+    { id: 'colorful4', label: t('chartDesign.colorfulPalette', { n: 4 }), colors: rotate(3) },
   ];
-  const mono = acc.map((c, k) => ({ id: `mono${k + 1}`, label: `Monochromatic Palette ${k + 1}`,
-    colors: [0, -0.25, 0.25, -0.5, 0.45, -0.65].map(t => shade(c, t)) }));
+  const mono = acc.map((c, k) => ({ id: `mono${k + 1}`, label: t('chartDesign.monochromaticPalette', { n: k + 1 }),
+    colors: [0, -0.25, 0.25, -0.5, 0.45, -0.65].map(amount => shade(c, amount)) }));
   return { colorful, monochromatic: mono };
 }
 
-/** A hex colour toward white (t > 0) or black (t < 0). */
-export function shade(hex, t) {
+/** A hex colour toward white (amount > 0) or black (amount < 0). */
+export function shade(hex, amount) {
   const m = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex || '');
   if (!m) return hex;
-  const to = t > 0 ? 255 : 0, k = Math.abs(t);
+  const to = amount > 0 ? 255 : 0, k = Math.abs(amount);
   return `#${[m[1], m[2], m[3]].map(h => Math.round(parseInt(h, 16) * (1 - k) + to * k).toString(16).padStart(2, '0')).join('')}`;
 }
 
@@ -241,8 +247,7 @@ export function colorsPatch(chart, palette, count) {
  * from the default look for the chart's subtype, so applying one replaces the last.
  */
 export const CHART_STYLES = Object.freeze([
-  { id: 1, label: 'Style 1' }, { id: 2, label: 'Style 2' }, { id: 3, label: 'Style 3' }, { id: 4, label: 'Style 4' },
-  { id: 5, label: 'Style 5' }, { id: 6, label: 'Style 6' }, { id: 7, label: 'Style 7' }, { id: 8, label: 'Style 8' },
+  ...[1, 2, 3, 4, 5, 6, 7, 8].map(id => ({ id, get label() { return t('chartDesign.style', { n: id }); } })),
 ]);
 
 export function chartStylePatch(chart, id, { seriesCount = 1 } = {}) {
