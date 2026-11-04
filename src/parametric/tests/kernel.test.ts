@@ -94,6 +94,32 @@ describe('feature regeneration', () => {
     expect(volume(b)).toBeCloseTo(6000 - 28 * 18 * 9, 1);
   });
 
+  it('reports an error instead of a degenerate fillet or shell', async () => {
+    const b = new ModelBuilder();
+    const base: Feature[] = [sketch('S1', rect(-10, -10, 10, 10)), extrude('E1', 'S1', 10)];
+    const r0 = await b.build(req(base));
+    const top = r0.faces.find((f) => f.name === 'E1:cap1')!;
+    const shell = (thickness: number, outward = false): ShellFeature => ({
+      id: 'SH', name: 'Shell', type: 'shell', thickness, outward,
+      faces: [{ name: top.name, sig: { type: top.type, c: top.center, n: top.normal, area: top.area } }],
+    });
+    // Thicker than the part: OpenCascade returns an unchanged or empty solid.
+    for (const t of [10, 15, 50]) {
+      const r = await b.build(req([...base, shell(t)]));
+      expect(r.status[2].ok).toBe(false);
+      expect(r.status[2].error).toMatch(/smaller thickness/);
+      expect(volume(b)).toBeCloseTo(4000, 3);
+    }
+    expect((await b.build(req([...base, shell(2)]))).status[2].ok).toBe(true);
+    expect((await b.build(req([...base, shell(2, true)]))).status[2].ok).toBe(true);
+    // A radius that consumes the whole box comes back as a zero-volume solid.
+    const edges = r0.edges.map((e) => ({ name: e.name, sig: { type: e.type, m: e.mid, len: e.length } }));
+    const fillet: FilletFeature = { id: 'F1', name: 'F1', type: 'fillet', edges, faces: [], radius: 9 };
+    const r = await b.build(req([...base, fillet]));
+    expect(r.status[2].ok).toBe(false);
+    expect(volume(b)).toBeCloseTo(4000, 3);
+  });
+
   it('sketches on a face and patterns a cut', async () => {
     const b = new ModelBuilder();
     const base: Feature[] = [sketch('S1', rect(0, 0, 50, 10)), extrude('E1', 'S1', 5)];

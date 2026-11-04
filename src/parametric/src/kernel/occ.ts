@@ -351,6 +351,17 @@ export function isEmpty(shape: Sh | null): boolean {
   return subShapes(shape, 'face').length === 0;
 }
 
+/** Signed volume of a shape (0 for shapes without solids, negative when inside out). */
+export function volumeOf(shape: Sh): number {
+  const props = new oc.GProp_GProps();
+  try {
+    oc.BRepGProp.VolumeProperties(shape.wrapped, props, true, false, false);
+    return props.Mass();
+  } finally {
+    props.delete();
+  }
+}
+
 export function bbox(shape: Sh): { min: Vec3; max: Vec3 } | null {
   const box = new oc.Bnd_Box();
   try {

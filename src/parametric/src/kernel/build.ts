@@ -29,7 +29,7 @@ import type {
 import {
   type EdgeDesc, type Sh, type SurfDesc, ShapeIndex, bbox, cut, describeEdge, describeFace, fuse, getOc, gdir,
   hashOf, isEmpty, meshEdgesOf, meshShape, mirrored, planarFaceFrame, pnt, rotated, sameSurface, subShapes, translated,
-  vertexPoint, wrap, xyz,
+  vertexPoint, volumeOf, wrap, xyz,
 } from './occ';
 
 export { BASE_FRAMES };
@@ -617,7 +617,8 @@ export class ModelBuilder {
     } finally {
       builder.delete();
     }
-    if (isEmpty(body)) throw new FeatureError('The fillet could not be created. Try a smaller radius.');
+    // OpenCascade sometimes returns a degenerate solid instead of failing.
+    if (degenerate(body, st.body)) throw new FeatureError('The fillet could not be created. Try a smaller radius.');
     const mids = ids.map((i) => ({ m: all[i].desc.mid, name: all[i].name }));
     st.faces = this.nameFaces(f.id, body, st, [], (d) => `${f.id}:f:${nearestName(mids, d.center)}`);
     st.body = body;
@@ -651,7 +652,7 @@ export class ModelBuilder {
     } finally {
       builder.delete();
     }
-    if (isEmpty(body)) throw new FeatureError('The chamfer could not be created.');
+    if (degenerate(body, st.body)) throw new FeatureError('The chamfer could not be created. Try a smaller distance.');
     const mids = ids.map((i) => ({ m: all[i].desc.mid, name: all[i].name }));
     st.faces = this.nameFaces(f.id, body, st, [], (d) => `${f.id}:c:${nearestName(mids, d.center)}`);
     st.body = body;
@@ -678,7 +679,11 @@ export class ModelBuilder {
       builder.delete();
       list.delete();
     }
-    if (isEmpty(body)) throw new FeatureError('The shell could not be created.');
+    // A thickness too large for the part can come back as a degenerate or
+    // unchanged solid instead of an error. An inward shell always removes
+    // material (an outward one is only the new walls, so any size goes).
+    const v0 = volumeOf(st.body);
+    if (degenerate(body, st.body) || (!f.outward && v0 > 0 && volumeOf(body) >= v0 * (1 - 1e-6))) throw new FeatureError('The shell could not be created. Try a smaller thickness.');
     const prev = st.faces;
     st.faces = this.nameFaces(f.id, body, st, [], (d) => {
       // Offset faces are parallel to an original face: name after it.
@@ -917,6 +922,7 @@ export class ModelBuilder {
       pln.delete();
       gd.delete();
     }
+    if (degenerate(body, st.body)) throw new FeatureError('The draft could not be created');
     st.faces = this.nameFaces(f.id, body, st, [], (_d, k) => `${f.id}:d${k}`);
     st.body = body;
     st.edges = null;
@@ -1226,6 +1232,14 @@ export function errorText(e: unknown): string {
   if (e instanceof Error) return e.message || 'The feature could not be built';
   if (typeof e === 'number') return 'The geometry kernel could not build this feature';
   return String(e);
+}
+
+/** True when an operation on a solid left no material (empty, flat or inside-out). */
+function degenerate(body: Sh, before: Sh): boolean {
+  if (isEmpty(body)) return true;
+  // Bodies without volume (imported surfaces) cannot be checked this way.
+  const v0 = Math.abs(volumeOf(before));
+  return v0 > 0 && !(volumeOf(body) > v0 * 1e-6);
 }
 
 function segDist(p: Vec2, a: Vec2, b: Vec2): number {
