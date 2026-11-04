@@ -19,7 +19,7 @@ import {
   themePalette, smartArtPaint, smartArtShapeCommands, normalizeSmartArtItems,
 } from '../core/smartart.js';
 import { pathData } from '../core/smartart-geometry.js';
-import { t } from '../i18n/index.js';
+import { t, tSource } from '../i18n/index.js';
 
 /** The SmartArt diagram selected on the sheet, if the selection is one. */
 export function activeSmartArt(ctx) {
@@ -288,10 +288,12 @@ function lastRoot(items) {
 const flags = (ctx) => ctx?.flags?.() || {};
 const cannot = (ctx) => !!flags(ctx).editing || !activeSmartArt(ctx) || !!ctx.wb.sheet(ctx.sheetId())?.protected;
 const noTarget = (ctx) => { const obj = activeSmartArt(ctx); return !obj || !pickedItems(ctx, obj).length; };
-const cmd = (label, glyph, arg, extra = {}) => ({ label, glyph, ariaLabel: extra.ariaLabel || label, ...extra,
-  resolve: (menus, ctx) => ({ label, cmd: 'smartArt', arg, disabled: cannot(ctx) || !!extra.unavailable?.(ctx), checked: extra.isChecked?.(ctx) }) });
-const menu = (label, glyph, build, extra = {}) => ({ label, glyph, ariaLabel: extra.ariaLabel || label, ...extra,
-  resolve: (menus, ctx) => { const disabled = cannot(ctx) || !!extra.unavailable?.(ctx); return lazySubmenu({ label, disabled }, () => (disabled ? [] : build(ctx))); } });
+// Ribbon buttons are named by catalog key: the label shows in the interface language, and the key tip is
+// worked out from the English (keytips.js), so it is the same letters in every language.
+const cmd = (key, glyph, arg, extra = {}) => ({ label: t(key), keytip: tSource(key), glyph, ariaLabel: extra.ariaLabel || t(key), ...extra,
+  resolve: (menus, ctx) => ({ label: t(key), cmd: 'smartArt', arg, disabled: cannot(ctx) || !!extra.unavailable?.(ctx), checked: extra.isChecked?.(ctx) }) });
+const menu = (key, glyph, build, extra = {}) => ({ label: t(key), keytip: tSource(key), glyph, ariaLabel: extra.ariaLabel || t(key), ...extra,
+  resolve: (menus, ctx) => { const disabled = cannot(ctx) || !!extra.unavailable?.(ctx); return lazySubmenu({ label: t(key), disabled }, () => (disabled ? [] : build(ctx))); } });
 
 /** A grid of pictures inside a menu; a pick closes the menu and runs `onPick`. */
 function tiles(label, list, { columns = 4, className = '' } = {}) {
@@ -374,27 +376,27 @@ function shapeMenu(ctx) {
 
 export function smartArtDesignGroups() {
   return [
-    [t('smartart.ribbon.createGraphic'),
-      { ...cmd(t('smartart.add.shape'), 'addShape', { action: 'add', where: 'after' }), split: () => addMenu() },
-      cmd(t('smartart.ribbon.textPane'), 'textPane', { action: 'textPane' }, { isChecked: (ctx) => !!ctx.smartArt?.paneOpen }),
-      cmd(t('smartart.undo.promote'), 'indentLess', { action: 'promote' }, { unavailable: noTarget }), cmd(t('smartart.undo.demote'), 'indentMore', { action: 'demote' }, { unavailable: noTarget }),
-      cmd(t('smartart.undo.moveUp'), 'arrowUp', { action: 'moveUp' }, { unavailable: noTarget }), cmd(t('smartart.undo.moveDown'), 'arrowDown', { action: 'moveDown' }, { unavailable: noTarget }),
-      cmd(t('smartart.undo.rtl'), 'rightToLeft', { action: 'rtl' }, { isChecked: (ctx) => !!activeSmartArt(ctx)?.rtl })],
-    [t('smartart.ribbon.layouts'), { ...menu(t('smartart.changeLayout'), 'smartArt', layoutMenu), large: true }],
-    [t('smartart.ribbon.smartArtStyles'), { ...menu(t('smartart.ribbon.changeColors'), 'changeColors', colorsMenu), large: true }, { ...menu(t('smartart.menu.styles'), 'chartStyles', stylesMenu, { ariaLabel: t('smartart.ribbon.smartArtStyles') }), large: true }],
-    [t('smartart.ribbon.reset'), { ...cmd(t('smartart.ribbon.resetGraphic'), 'resetStyle', { action: 'reset' }), large: true }, { ...cmd(t('smartart.undo.convert'), 'convertShapes', { action: 'convert' }), large: true }],
+    ['Create Graphic',
+      { ...cmd('smartart.add.shape', 'addShape', { action: 'add', where: 'after' }), split: () => addMenu() },
+      cmd('smartart.ribbon.textPane', 'textPane', { action: 'textPane' }, { isChecked: (ctx) => !!ctx.smartArt?.paneOpen }),
+      cmd('smartart.undo.promote', 'indentLess', { action: 'promote' }, { unavailable: noTarget }), cmd('smartart.undo.demote', 'indentMore', { action: 'demote' }, { unavailable: noTarget }),
+      cmd('smartart.undo.moveUp', 'arrowUp', { action: 'moveUp' }, { unavailable: noTarget }), cmd('smartart.undo.moveDown', 'arrowDown', { action: 'moveDown' }, { unavailable: noTarget }),
+      cmd('smartart.undo.rtl', 'rightToLeft', { action: 'rtl' }, { isChecked: (ctx) => !!activeSmartArt(ctx)?.rtl })],
+    ['Layouts', { ...menu('smartart.changeLayout', 'smartArt', layoutMenu), large: true }],
+    ['SmartArt Styles', { ...menu('smartart.ribbon.changeColors', 'changeColors', colorsMenu), large: true }, { ...menu('smartart.menu.styles', 'chartStyles', stylesMenu, { ariaLabel: t('smartart.ribbon.smartArtStyles') }), large: true }],
+    ['Reset', { ...cmd('smartart.ribbon.resetGraphic', 'resetStyle', { action: 'reset' }), large: true }, { ...cmd('smartart.undo.convert', 'convertShapes', { action: 'convert' }), large: true }],
   ];
 }
 
 export function smartArtFormatGroups() {
   return [
-    [t('smartart.menu.shapes'), { ...menu(t('smartart.undo.shape'), 'changeShape', shapeMenu, { unavailable: noTarget }), large: true },
-      cmd(t('smartart.undo.larger'), 'shapeLarger', { action: 'scale', dir: 1 }, { unavailable: noTarget }), cmd(t('smartart.undo.smaller'), 'shapeSmaller', { action: 'scale', dir: -1 }, { unavailable: noTarget })],
-    [t('smartart.ribbon.shapeStyles'), menu(t('smartart.ribbon.shapeFill'), 'shapeFill', (ctx) => colorMenu(ctx, 'fill'), { unavailable: noTarget }),
-      menu(t('smartart.ribbon.shapeOutline'), 'shapeOutline', (ctx) => colorMenu(ctx, 'line'), { unavailable: noTarget }),
-      menu(t('smartart.ribbon.textFill'), 'textColor', (ctx) => colorMenu(ctx, 'color'), { unavailable: noTarget }),
-      cmd(t('smartart.undo.resetShape'), 'resetStyle', { action: 'resetShape' }, { unavailable: noTarget })],
-    [t('smartart.ribbon.accessibility'), { label: t('smartart.ribbon.altText'), glyph: 'altText', ariaLabel: t('smartart.ribbon.altText'), large: true,
+    ['Shapes', { ...menu('smartart.undo.shape', 'changeShape', shapeMenu, { unavailable: noTarget }), large: true },
+      cmd('smartart.undo.larger', 'shapeLarger', { action: 'scale', dir: 1 }, { unavailable: noTarget }), cmd('smartart.undo.smaller', 'shapeSmaller', { action: 'scale', dir: -1 }, { unavailable: noTarget })],
+    ['Shape Styles', menu('smartart.ribbon.shapeFill', 'shapeFill', (ctx) => colorMenu(ctx, 'fill'), { unavailable: noTarget }),
+      menu('smartart.ribbon.shapeOutline', 'shapeOutline', (ctx) => colorMenu(ctx, 'line'), { unavailable: noTarget }),
+      menu('smartart.ribbon.textFill', 'textColor', (ctx) => colorMenu(ctx, 'color'), { unavailable: noTarget }),
+      cmd('smartart.undo.resetShape', 'resetStyle', { action: 'resetShape' }, { unavailable: noTarget })],
+    ['Accessibility', { label: t('smartart.ribbon.altText'), keytip: tSource('smartart.ribbon.altText'), glyph: 'altText', ariaLabel: t('smartart.ribbon.altText'), large: true,
       resolve: (menus, ctx) => ({ label: t('smartart.ribbon.altText'), cmd: 'altText', arg: activeSmartArt(ctx)?.id, disabled: cannot(ctx) }) }],
     arrangeGroup({ large: false }),
   ];

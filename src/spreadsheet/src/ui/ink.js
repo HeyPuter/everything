@@ -13,7 +13,7 @@ import {
   buildStroke, buildShape, recognizeShape, isInk, inkLines, touchesLines, sweep, insideLasso, nextName, penLabel, widthLabel, normalizePen, penStyle,
   DEFAULT_PENS, MAX_PENS, PEN_WIDTHS, HIGHLIGHTER_WIDTHS, PEN_COLORS, HIGHLIGHTER_COLORS, PEN_KINDS, SHAPE_NAMES, MM_PX,
 } from '../core/ink.js';
-import { t } from '../i18n/index.js';
+import { t, tSource } from '../i18n/index.js';
 
 const STORE = 'spreadsheet:pens';
 const SVG = 'http://www.w3.org/2000/svg';
@@ -410,13 +410,16 @@ export function createInk({ wb, grid, notify = () => {}, subscribe = null, refus
 /* ---------- The Draw tab's groups (read by ribbon.js) ---------- */
 
 const editing = ctx => !!ctx?.flags?.()?.editing;
-const tool = (label, glyph, arg, isChecked) => ({ label, glyph, ariaLabel: label, large: true,
-  resolve: (menus, ctx) => ({ label, cmd: 'drawTool', arg, disabled: !ctx?.ink || editing(ctx), checked: ctx?.ink ? isChecked(ctx.ink) : false }) });
-const toggle = (label, glyph, cmd, key) => ({ label, glyph, ariaLabel: label, large: true,
-  resolve: (menus, ctx) => ({ label, cmd, disabled: !ctx?.ink || editing(ctx), checked: !!ctx?.ink?.[key] }) });
+// Ribbon buttons are named by catalog key: the label shows in the interface language, and the key tip is
+// worked out from the English (keytips.js), so it is the same letters in every language.
+const named = (key) => ({ label: t(key), keytip: tSource(key) });
+const tool = (key, glyph, arg, isChecked) => ({ ...named(key), glyph, ariaLabel: t(key), large: true,
+  resolve: (menus, ctx) => ({ label: t(key), cmd: 'drawTool', arg, disabled: !ctx?.ink || editing(ctx), checked: ctx?.ink ? isChecked(ctx.ink) : false }) });
+const toggle = (labelKey, glyph, cmd, key) => ({ ...named(labelKey), glyph, ariaLabel: t(labelKey), large: true,
+  resolve: (menus, ctx) => ({ label: t(labelKey), cmd, disabled: !ctx?.ink || editing(ctx), checked: !!ctx?.ink?.[key] }) });
 
 /** A pen slot: the ribbon has room for every pen there can be; slots without a pen are hidden. */
-const penSlot = i => ({ label: t('ink.penSlot', { n: i + 1 }), glyph: 'inkPen', ariaLabel: t('ink.penSlot', { n: i + 1 }), large: true,
+const penSlot = i => ({ label: t('ink.penSlot', { n: i + 1 }), keytip: tSource('ink.penSlot', { n: i + 1 }), glyph: 'inkPen', ariaLabel: t('ink.penSlot', { n: i + 1 }), large: true,
   resolve: (menus, ctx) => {
     const p = ctx?.ink?.pens[i];
     return p ? { label: penLabel(p), cmd: 'drawTool', arg: p.id, disabled: editing(ctx), checked: ctx.ink.tool === p.id } : { label: t('ink.penSlot', { n: i + 1 }), disabled: true };
@@ -439,16 +442,17 @@ const penSlot = i => ({ label: t('ink.penSlot', { n: i + 1 }), glyph: 'inkPen', 
     button.title = ctx.ink.tool === p.id ? t('ink.pressAgain', { label }) : label;
   } });
 
+/** The Draw tab's groups. Group names are ids (English), which the ribbon translates and Customize Ribbon keeps. */
 export function drawRibbonGroups() {
   return [
-    [t('ink.ribbon.drawingTools'),
-      tool(t('ink.ribbon.select'), 'inkSelect', 'select', ink => !ink.tool),
-      tool(t('ink.ribbon.lassoSelect'), 'lasso', 'lasso', ink => ink.tool === 'lasso'),
-      tool(t('ink.ribbon.eraser'), 'inkEraser', 'eraser', ink => ink.tool === 'eraser'),
+    ['Drawing Tools',
+      tool('ink.ribbon.select', 'inkSelect', 'select', ink => !ink.tool),
+      tool('ink.ribbon.lassoSelect', 'lasso', 'lasso', ink => ink.tool === 'lasso'),
+      tool('ink.ribbon.eraser', 'inkEraser', 'eraser', ink => ink.tool === 'eraser'),
       ...Array.from({ length: MAX_PENS }, (_, i) => penSlot(i)),
-      { label: t('ink.ribbon.addPen'), glyph: 'addPen', ariaLabel: t('ink.ribbon.addPen'), large: true, resolve: (menus, ctx) => ({ label: t('ink.ribbon.addPen'), disabled: !ctx?.ink || editing(ctx),
+      { label: t('ink.ribbon.addPen'), keytip: tSource('ink.ribbon.addPen'), glyph: 'addPen', ariaLabel: t('ink.ribbon.addPen'), large: true, resolve: (menus, ctx) => ({ label: t('ink.ribbon.addPen'), disabled: !ctx?.ink || editing(ctx),
         submenu: PEN_KINDS.map(kind => ({ label: t(KIND_LABELS[kind]), icon: KIND_GLYPHS[kind], cmd: 'drawAddPen', arg: kind, disabled: !ctx?.ink || ctx.ink.pens.length >= MAX_PENS })) }) }],
-    [t('ink.ribbon.touch'), toggle(t('ink.ribbon.drawWithTouch'), 'drawTouch', 'drawTouch', 'touch')],
-    [t('ink.ribbon.convert'), toggle(t('ink.ribbon.inkToShape'), 'inkToShape', 'drawInkToShape', 'inkToShape')],
+    ['Touch', toggle('ink.ribbon.drawWithTouch', 'drawTouch', 'drawTouch', 'touch')],
+    ['Convert', toggle('ink.ribbon.inkToShape', 'inkToShape', 'drawInkToShape', 'inkToShape')],
   ];
 }
