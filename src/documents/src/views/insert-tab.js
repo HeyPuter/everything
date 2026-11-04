@@ -604,7 +604,16 @@ export function createInsert({ editor, pkg, error, base = {}, docName = () => ''
         source.select(0, source.text.length);
         fragment = formatted ? copyFragment(source) : null;
         text = source.text.replace(/[\uFFFC]/g, '').replace(/[\f\u000e]/g, '\n');
-        if (!fragment) toast('Pictures, tables and fields in that file were inserted as text.', { icon: 'info' });
+        // Inserted as text, the file's tables and fields keep only their text and its pictures and other objects
+        // go: the notice names what that file had of them, and there is none for a file of plain paragraphs.
+        if (!fragment) {
+          const runs = source.paragraphs.flatMap(p => p.runs);
+          const flattened = [source.tables.length && 'tables', source.paragraphs.some(p => p.fieldMarkers?.length) && 'fields'].filter(Boolean);
+          const dropped = runs.some(r => r.image) ? 'pictures' : runs.some(r => r.text.includes('\uFFFC')) ? 'objects' : null;
+          const sentence = (things, done) => `${things.join(' and ').replace(/^\w/, c => c.toUpperCase())} in that file ${done}.`;
+          const notice = [flattened.length && sentence(flattened, 'were inserted as text'), dropped && sentence([dropped], 'were left out')].filter(Boolean).join(' ');
+          if (notice) toast(notice, { icon: 'info' });
+        }
       } else {
         // Decoded and read as opening the file reads it: a byte order mark names UTF-16 (Notepad's "Unicode"), and a
         // file that is not UTF-8 is read in the code page it was written in rather than as replacement characters.
