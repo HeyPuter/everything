@@ -1283,6 +1283,8 @@ export class App {
     }
     if (target.closest('.tree') && ['Delete', 'Backspace', 'Enter', ' ', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'F2', 'Home', 'End'].includes(e.key)) return;
     if (target.closest('.menu')) return;
+    // In the task pane (assistant, parts…) Enter and Space press the focused button, not Repeat / View Orientation.
+    if ((e.key === 'Enter' || e.key === ' ') && target.closest('.taskpane') && target.closest('button, a[href], [role="button"]')) return;
     if (e.key === 'Enter' && this.panel && !(target instanceof HTMLButtonElement)) {
       e.preventDefault();
       void this.closePanel(true);

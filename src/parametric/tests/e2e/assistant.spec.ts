@@ -274,3 +274,20 @@ test('Enter that commits an IME composition does not send', async ({ page }) => 
   await expect(page.locator('.as-user')).toHaveText(['にほんご']);
   expect(await page.evaluate(() => (window as unknown as { __sends: number }).__sends)).toBe(1);
 });
+
+test('the assistant\'s buttons work from the keyboard', async ({ page }) => {
+  await page.addInitScript(() => {
+    (window as unknown as { __assistantChat: unknown }).__assistantChat = async function* () { yield { type: 'text', text: 'Keyboard answer.' }; };
+  });
+  await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  // Enter on an idea sends it (not Repeat Last Command).
+  await page.locator('.as-idea').first().focus();
+  await page.keyboard.press('Enter');
+  await expect(page.getByText('Keyboard answer.')).toBeVisible();
+  // Space on New chat starts over (not the View Orientation menu).
+  await page.getByRole('button', { name: 'New chat' }).focus();
+  await page.keyboard.press(' ');
+  await expect(page.locator('.as-empty')).toBeVisible();
+  await expect(page.getByRole('menu')).toHaveCount(0);
+});
