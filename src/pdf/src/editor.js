@@ -6664,9 +6664,12 @@ export function createEditor({
       }
       if (destroyed) return;
       download(bytes, name);
-      session.markSaved(revision);
       downloadedRevision = revision;
-      if (protection === savedProtection) protectionDirty = false;
+      // For a file kept in Puter a download is a copy: the Puter file still lacks the changes.
+      if (!path) {
+        session.markSaved(revision);
+        if (protection === savedProtection) protectionDirty = false;
+      }
       toast(protection ? 'Password-protected PDF downloaded.' : 'PDF downloaded.');
     } finally {
       downloading = false;

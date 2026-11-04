@@ -2184,7 +2184,7 @@ test('downloading edited cloud content does not claim the cloud copy is saved', 
   const pending = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Download', exact: true }).click();
   await pending;
-  await expect(page.locator('.save-status')).toHaveText('Downloaded');
+  await expect(page.locator('.save-status')).toHaveText('Unsaved changes');
 });
 
 test('tablet dark mode stays accessible and mobile tools remain discoverable', async ({
