@@ -862,7 +862,7 @@ export class App {
         const f = this.faces[it.index];
         if (!f) return 'Face';
         const owner = this.store.feature(f.feature);
-        return `Face (${f.type}) of ${owner?.name ?? 'the part'}  Area ${formatLength(Math.sqrt(f.area), units, dec)}Â² equivalent`;
+        return `Face (${f.type}) of ${owner?.name ?? 'the part'}  Area ${formatLength(Math.sqrt(f.area), units, dec)}² equivalent`;
       }
       case 'edge': {
         const e = this.edges[it.index];
