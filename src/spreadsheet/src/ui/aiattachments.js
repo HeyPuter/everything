@@ -90,9 +90,9 @@ export async function fitImageForVision(blob, mediaType) {
   // until it is collected, so a few photos fitted in a row would run it out.
   const canvas = document.createElement('canvas');
   try {
-    const scale = Math.min(1, THUMB_EDGE / longEdge);
-    const thumb = scale === 1 && VISION_TYPES.has(mediaType) ? blob
-      : await drawn(canvas, decoded.img, Math.max(1, Math.round(width * scale)), Math.max(1, Math.round(height * scale)), keepsAlpha ? 'image/png' : 'image/jpeg', 0.8);
+    const thumbScale = Math.min(1, THUMB_EDGE / longEdge);
+    const thumb = thumbScale === 1 && VISION_TYPES.has(mediaType) ? blob
+      : await drawn(canvas, decoded.img, Math.max(1, Math.round(width * thumbScale)), Math.max(1, Math.round(height * thumbScale)), keepsAlpha ? 'image/png' : 'image/jpeg', 0.8);
     if (VISION_TYPES.has(mediaType) && blob.size <= VISION_MAX_BYTES && longEdge <= VISION_MAX_EDGE) return { blob, mediaType, width, height, fitted: false, thumb };
     let scale = Math.min(1, VISION_MAX_EDGE / longEdge);
     let type = keepsAlpha ? 'image/png' : 'image/jpeg';
