@@ -9,6 +9,7 @@ import { engineApi } from '../lib/engine-api.js';
 import { textStatistics, easeLabel } from '../lib/readability.js';
 import { checkGrammar, SUGGESTION_KINDS } from '../lib/proofing-ai.js';
 import { sidePane, section, button, hint, preference, reveal } from './review-ui.js';
+import { shownText } from './word-count.js';
 
 const AI_ON = preference('documents:editor-ai', false);
 const AI_KINDS = preference('documents:editor-ai-kinds', ['grammar', 'punctuation', 'clarity', 'conciseness']);
@@ -139,7 +140,10 @@ export function createEditorPane({ editor, pkg, proofing, error, onState = () =>
   function renderStats() {
     const engine = editor(); if (!engine) return;
     const [a, b] = engine.model.range, selected = engine.session.path === null && a !== b;
-    const text = selected ? engine.model.text.slice(a, b) : engine.session.body.text;
+    // The text as the view shows it, as the status bar and Word Count count it: a deletion hidden by Simple or No
+    // Markup is not counted or judged (nor an insertion in Original).
+    const body = engine.session.body, tracked = body.revisions.length > 0;
+    const text = tracked ? shownText(body.paragraphs, ...(selected ? [a, b] : [])) : selected ? body.text.slice(a, b) : body.text;
     const s = textStatistics(text);
     scope.textContent = selected ? 'Showing results for the selection.' : 'Showing results for the whole document.';
     const row = (label, value) => [el('dt', {}, label), el('dd', {}, value)];
