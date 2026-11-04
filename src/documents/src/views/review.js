@@ -239,6 +239,14 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
       selectThread(next);
     },
     toggleShown() { if (showing()) commentsShown = false; else revealComments(); refresh(true); onChange(); editor()?.focus(); },
+    /** Open a thread's card with the keyboard in its reply box. */
+    replyTo(id) {
+      const thread = threads().find(t => t.id === id); if (!thread || thread.root.done || !annotating()) return;
+      revealComments();
+      activeId = thread.id; pinned = true; pinnedRange = editor()?.model.range.join() ?? ''; editing = null;
+      refresh(true);
+      queueMicrotask(() => cards.get(thread.id)?.querySelector('.wcc-reply textarea')?.focus());
+    },
     selectThreadById(id) { const thread = threads().find(t => t.id === id); if (thread) { revealComments(); selectThread(thread); } },
     /** Delete every comment by the reviewers shown (Show Markup › Specific People). */
     deleteAllShown() {
@@ -736,6 +744,8 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
     if (!engine.model.comments) return changes;
     const thread = threadAtCaret();
     return [...changes,{ label: 'New Comment', disabled: !commands.canComment(), onSelect: () => commands.newComment() },
+      // The comment cards come after the document, where Tab types: replying from the menu is the keyboard's way in.
+      ...(thread && !thread.root.done ? [{ label: 'Reply to Comment', disabled: !annotating(), onSelect: () => commands.replyTo(thread.id) }] : []),
       ...(thread ? [{ label: thread.root.done ? 'Reopen Comment' : 'Resolve Comment', disabled: !annotating(), onSelect: () => { activeId = thread.id; commands.resolveActive(); } },
         { label: 'Delete Comment', disabled: !annotating(), onSelect: () => { activeId = thread.id; commands.deleteActive(); } }] : [])];
   }
