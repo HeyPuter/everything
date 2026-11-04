@@ -718,20 +718,38 @@ export class ModelBuilder {
     const t = num(f.thickness);
     if (t <= 0) throw new FeatureError('Thickness must be greater than zero');
     const oc = getOc();
-    const list = new oc.NCollection_List_TopoDS_Shape();
     const removed = f.faces.map((r) => this.resolveFace(r, st));
-    for (const i of removed) list.Append(st.faces[i].shape.wrapped);
-    const builder = new oc.BRepOffsetAPI_MakeThickSolid();
     let body: Sh;
-    try {
-      builder.MakeThickSolidByJoin(st.body.wrapped, list, f.outward ? t : -t, 1e-3, oc.BRepOffset_Mode.BRepOffset_Skin, false, false, oc.GeomAbs_JoinType.GeomAbs_Arc, false);
-      builder.Build();
-      body = wrap(builder.Shape());
-    } catch {
-      throw new FeatureError('The shell could not be created. Try a smaller thickness.');
-    } finally {
-      builder.delete();
-      list.delete();
+    if (!removed.length) {
+      // No faces to open: a closed hollow part. The thick-solid builder
+      // would return only the offset solid (the cavity), so offset the
+      // whole body and take the material between the two surfaces.
+      const builder = new oc.BRepOffsetAPI_MakeOffsetShape();
+      const progress = new oc.Message_ProgressRange();
+      try {
+        builder.PerformByJoin(st.body.wrapped, f.outward ? t : -t, 1e-3, oc.BRepOffset_Mode.BRepOffset_Skin, false, false, oc.GeomAbs_JoinType.GeomAbs_Arc, false, progress);
+        const offset = wrap(builder.Shape());
+        body = f.outward ? cut(offset, st.body) : cut(st.body, offset);
+      } catch {
+        throw new FeatureError('The shell could not be created. Try a smaller thickness.');
+      } finally {
+        builder.delete();
+        progress.delete();
+      }
+    } else {
+      const list = new oc.NCollection_List_TopoDS_Shape();
+      for (const i of removed) list.Append(st.faces[i].shape.wrapped);
+      const builder = new oc.BRepOffsetAPI_MakeThickSolid();
+      try {
+        builder.MakeThickSolidByJoin(st.body.wrapped, list, f.outward ? t : -t, 1e-3, oc.BRepOffset_Mode.BRepOffset_Skin, false, false, oc.GeomAbs_JoinType.GeomAbs_Arc, false);
+        builder.Build();
+        body = wrap(builder.Shape());
+      } catch {
+        throw new FeatureError('The shell could not be created. Try a smaller thickness.');
+      } finally {
+        builder.delete();
+        list.delete();
+      }
     }
     // A thickness too large for the part can come back as a degenerate or
     // unchanged solid instead of an error. An inward shell always removes

@@ -244,6 +244,30 @@ describe('feature regeneration', () => {
     expect(volume(b)).toBeCloseTo(6000 - 28 * 18 * 9, 1);
   });
 
+  it('shells a box with no faces removed into a closed hollow part', async () => {
+    const b = new ModelBuilder();
+    const base = [sketch('S1', rect(-10, -10, 10, 10)), extrude('E1', 'S1', 10)];
+    await b.build(req(base));
+    const shell = (thickness: number, outward: boolean): ShellFeature => ({ id: 'SH', name: 'Shell', type: 'shell', thickness, outward, faces: [] });
+    let r = await b.build(req([...base, shell(1, false)]));
+    expect(r.status[2]).toEqual({ id: 'SH', ok: true });
+    // The outer box stays, with an 18 x 18 x 8 cavity inside.
+    expect(volume(b)).toBeCloseTo(4000 - 18 * 18 * 8, 1);
+    expect(r.bbox!.max[2]).toBeCloseTo(10, 6);
+    expect(r.faces).toHaveLength(12);
+    r = await b.build(req([...base, shell(1, true)]));
+    expect(r.status[2]).toEqual({ id: 'SH', ok: true });
+    // Outward: walls round the original box, which becomes the cavity.
+    const outer = 22 * 22 * 12 - (8 * 20 + 4 * 10) * (1 - Math.PI / 4) - 8 * (1 - Math.PI / 6);
+    expect(volume(b)).toBeCloseTo(outer - 4000, 1);
+    expect(r.bbox!.max[2]).toBeCloseTo(11, 6);
+    for (const t of [10, 50]) {
+      r = await b.build(req([...base, shell(t, false)]));
+      expect(r.status[2].ok).toBe(false);
+      expect(volume(b)).toBeCloseTo(4000, 3);
+    }
+  });
+
   it('reports an error instead of a degenerate fillet or shell', async () => {
     const b = new ModelBuilder();
     const base: Feature[] = [sketch('S1', rect(-10, -10, 10, 10)), extrude('E1', 'S1', 10)];
