@@ -77,3 +77,34 @@ test('zoom buttons keep the focus at the largest and smallest zoom', async ({ pa
     await expect(button).toBeFocused();
   }
 });
+
+test('Undo and Redo keep the focus once the history runs out', async ({ page }) => {
+  await openPages(page, 1);
+  // One edit to undo: the page turned.
+  const bar = page.getByRole('menubar', { name: 'PDF menus' });
+  if (await bar.isVisible()) await bar.getByRole('menuitem', { name: 'Page', exact: true }).click();
+  else {
+    await page.getByRole('button', { name: 'Menu', exact: true }).click();
+    await page.getByRole('menuitem', { name: 'Page', exact: true }).click();
+  }
+  await page.getByRole('menuitem', { name: 'Rotate clockwise', exact: true }).click();
+  await expect(page.locator('.save-status')).toHaveText('Unsaved changes');
+  await expect(page.locator('.editor')).toHaveAttribute('aria-busy', 'false');
+  const undo = page.getByRole('button', { name: 'Undo', exact: true });
+  const redo = page.getByRole('button', { name: 'Redo', exact: true });
+  await undo.focus();
+  await page.keyboard.press('Enter');
+  await expect(redo).toBeEnabled();
+  await expect(undo).toBeDisabled();
+  await expect(undo).toBeFocused();
+  await redo.focus();
+  await expect(undo).toHaveAttribute('disabled', '');
+  await page.keyboard.press('Enter');
+  await expect(undo).toBeEnabled();
+  await expect(redo).toBeDisabled();
+  await expect(redo).toBeFocused();
+  // Pressing it again does nothing.
+  await page.keyboard.press('Enter');
+  await expect(page.locator('.save-status')).toHaveText('Unsaved changes');
+  await expect(redo).toBeFocused();
+});

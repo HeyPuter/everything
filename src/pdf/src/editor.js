@@ -472,7 +472,7 @@ export function createEditor({
     safe(() => save()),
     'btn primary',
   );
-  const undoButton = iconButton(
+  const undoButton = stepButton(
     'Undo',
     'Undo2',
     safe(() => history('undo')),
@@ -480,7 +480,7 @@ export function createEditor({
       title: withShortcut('Undo', 'Mod+Z'),
     },
   );
-  const redoButton = iconButton(
+  const redoButton = stepButton(
     'Redo',
     'Redo2',
     safe(() => history('redo')),
@@ -530,11 +530,11 @@ export function createEditor({
     navigate(value - 1);
   }
   const pageTotal = el('span', { class: 'muted' });
-  /** Whether a page or zoom step button is off, including one kept focusable by setStepOff. */
+  /** Whether a step button (page, zoom, Undo, Redo) is off, also when kept focusable. */
   const stepOff = (button) => button.disabled || button.getAttribute('aria-disabled') === 'true';
   /**
-   * Turn a page or zoom step button off. One holding the focus (pressed to the end of its range,
-   * or while the PDF is busy) stays focusable and is marked unavailable instead, as in an
+   * Turn a page, zoom, Undo or Redo button off. One holding the focus (pressed to the end of its
+   * range, or while the PDF is busy) stays focusable and is marked unavailable instead, as in an
    * accessible toolbar, so the focus is not dropped onto the page; it turns off fully once the
    * focus moves on.
    */
@@ -2471,14 +2471,18 @@ export function createEditor({
     };
     highlightTargets.querySelectorAll('button').forEach(setMarkupDisabled);
     properties.root.querySelectorAll('[data-markup-mutation]').forEach(setMarkupDisabled);
-    undoButton.disabled =
-      busy || (!session.past.length && !pendingText && !pageForms.draft.past.length);
-    redoButton.disabled =
+    setStepOff(
+      undoButton,
+      busy || (!session.past.length && !pendingText && !pageForms.draft.past.length),
+    );
+    setStepOff(
+      redoButton,
       busy ||
-      pendingTextEdit() ||
-      pendingNoteEdit() ||
-      pageImages.dirty ||
-      (!pageForms.draft.future.length && (pageForms.draft.dirty || !session.future.length));
+        pendingTextEdit() ||
+        pendingNoteEdit() ||
+        pageImages.dirty ||
+        (!pageForms.draft.future.length && (pageForms.draft.dirty || !session.future.length)),
+    );
     if (pdf) {
       if (!pageInputDirty) pageInput.value = String(pageIndex + 1);
       pageInput.max = String(pdf.numPages);
@@ -3496,8 +3500,8 @@ export function createEditor({
       pageImages.cancel();
       return;
     }
-    // The draft held the focus when undone from the keyboard; the page takes it then. The Undo
-    // button keeps it while it can still undo more.
+    // The draft held the focus when undone from the keyboard; the page takes it then. A pressed
+    // Undo button keeps it, also once it has nothing more to undo (see setStepOff).
     const focusPage = () => {
       if (document.activeElement !== undoButton || undoButton.disabled) overlay.focus();
     };
@@ -8077,14 +8081,14 @@ export function createEditor({
         label: 'Undo',
         icon: 'Undo2',
         shortcut: 'Mod+Z',
-        disabled: undoButton.disabled,
+        disabled: stepOff(undoButton),
         onSelect: safe(() => history('undo')),
       },
       {
         label: 'Redo',
         icon: 'Redo2',
         shortcut: 'Mod+Shift+Z',
-        disabled: redoButton.disabled,
+        disabled: stepOff(redoButton),
         onSelect: safe(() => history('redo')),
       },
       { separator: true },

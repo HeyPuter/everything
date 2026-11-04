@@ -88,13 +88,15 @@ button {
   cursor: pointer;
 }
 button:disabled,
-.statusbar .icon-btn[aria-disabled='true'] {
+.statusbar .icon-btn[aria-disabled='true'],
+.appbar .icon-btn[aria-disabled='true'] {
   cursor: default;
   opacity: 0.4;
 }
 /* Short document refreshes block input without dimming the whole application. */
 button.busy-enabled:disabled,
-.statusbar .icon-btn.busy-enabled[aria-disabled='true'] {
+.statusbar .icon-btn.busy-enabled[aria-disabled='true'],
+.appbar .icon-btn.busy-enabled[aria-disabled='true'] {
   opacity: 1;
 }
 button,
