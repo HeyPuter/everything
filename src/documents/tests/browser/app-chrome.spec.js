@@ -261,6 +261,26 @@ test('the Language list is one tab stop that the arrow keys move through', async
   await expect(page.locator('.ed-statusbar .ed-status-language')).toContainText('French (Canada)');
 });
 
+test('properties typed on the Info page are kept when the File view is left without Save Properties', async ({ page }) => {
+  await openEditor(page);
+  await text(page).fill('Harbour report');
+  const view = page.getByRole('dialog', { name: 'File' });
+  await page.locator('.ribbon-file').click();
+  await view.getByRole('textbox', { name: 'Title', exact: true }).fill('Harbour Report');
+  await page.keyboard.press('Escape');
+  await expect(view).toBeHidden();
+  await page.locator('.ribbon-file').click();
+  await expect(view.getByRole('textbox', { name: 'Title', exact: true })).toHaveValue('Harbour Report');
+  // Going to another page keeps them too.
+  await view.getByRole('textbox', { name: 'Subject', exact: true }).fill('Tides');
+  await view.getByRole('tab', { name: 'Export' }).click();
+  await view.getByRole('tab', { name: 'Info' }).click();
+  await expect(view.getByRole('textbox', { name: 'Subject', exact: true })).toHaveValue('Tides');
+  await view.getByRole('button', { name: 'Back to the document' }).click();
+  await expect(view).toBeHidden();
+  await expect(text(page)).toBeFocused();
+});
+
 test('the ribbon collapses to its tabs and shows KeyTips for the keyboard', async ({ page }) => {
   await openEditor(page);
   const card = page.locator('.ed-ribbon');
