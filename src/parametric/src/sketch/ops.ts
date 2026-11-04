@@ -461,6 +461,14 @@ export function filletCorner(sk: SketchFeature, pointId: Id, radius: number, new
   sk.entities.push({ id: p1, t: 'point', x: t1[0], y: t1[1] }, { id: p2, t: 'point', x: t2[0], y: t2[1] }, { id: pc, t: 'point', x: c[0], y: c[1] });
   lines[0][lines[0].a === pointId ? 'a' : 'b'] = p1;
   lines[1][lines[1].a === pointId ? 'a' : 'b'] = p2;
+  // The lines no longer reach the corner, so their length dimensions would
+  // pull them back over the fillet. They measure to the virtual sharp instead.
+  lines.forEach((l, i) => {
+    const farId = l.a === (i === 0 ? p1 : p2) ? l.b : l.a;
+    for (const k of sk.constraints) {
+      if (isDimension(k) && k.refs.length === 1 && k.refs[0] === l.id && (k.type === 'distance' || k.type === 'hdistance' || k.type === 'vdistance')) k.refs = [farId, pointId];
+    }
+  });
   // Counter-clockwise from the start tangent point to the end one.
   const ccw = cross2(sub2(t1, c), sub2(t2, c)) > 0;
   const arcId = newId('a');

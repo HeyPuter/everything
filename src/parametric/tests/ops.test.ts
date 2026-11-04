@@ -110,6 +110,28 @@ describe('editing tools', () => {
     expect(filletCorner(s, 'rp0', 50, idFactory(s))).toMatch(/too large/);
   });
 
+  it('keeps a dimensioned rectangle in shape when a corner is filleted', () => {
+    const s = sk(rect(0, 0, 50, 30, 'r'));
+    s.constraints.push(
+      { id: 'h0', type: 'horizontal', refs: ['rl0'] }, { id: 'h2', type: 'horizontal', refs: ['rl2'] },
+      { id: 'v1', type: 'vertical', refs: ['rl1'] }, { id: 'v3', type: 'vertical', refs: ['rl3'] },
+      { id: 'o', type: 'coincident', refs: ['rp0', 'O'] },
+      { id: 'd1', type: 'distance', refs: ['rl0'], value: 50, at: [25, -5], name: 'D1' },
+      { id: 'd2', type: 'vdistance', refs: ['rl1'], value: 30, at: [55, 15], name: 'D2' },
+    );
+    expect(filletCorner(s, 'rp2', 5, idFactory(s))).toBeNull();
+    expect(filletCorner(s, 'rp0', 4, idFactory(s))).toBeNull();
+    const res = solveSketch(s.entities, s.constraints, { value });
+    expect(res.status).toBe('under');
+    const ix = new SketchIndex(s.entities);
+    // The dimensions now measure to the virtual sharps, which stay at the corners.
+    expect(ix.pt('rp2')).toEqual([expect.closeTo(50, 9), expect.closeTo(30, 9)]);
+    expect(ix.pt('rp0')).toEqual([expect.closeTo(0, 9), expect.closeTo(0, 9)]);
+    expect(measureDimension(s, s.constraints.find((c) => c.id === 'd1') as SkDimension)).toBeCloseTo(50, 9);
+    const arcs = s.entities.filter((e) => e.t === 'arc');
+    expect(arcs.map((a) => arcRadius(ix, a as never)).sort()).toEqual([expect.closeTo(4, 9), expect.closeTo(5, 9)]);
+  });
+
   it('offsets a closed rectangle outward', () => {
     const s = sk(rect(0, 0, 10, 10, 'r'));
     const created = offsetCurves(s, ['rl0', 'rl1', 'rl2', 'rl3'], 2, idFactory(s));
