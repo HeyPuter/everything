@@ -24846,3 +24846,18 @@ Track Changes on this was recorded as deleting the objects and inserting the new
 and the file held `w:del` and `w:ins` around the drawings. As in Word, the rearrangement is now not a tracked
 change. Objects that are themselves a pending tracked insertion or deletion keep the earlier behaviour (their
 change is still recorded). Tests: `tests/browser/group-stacking.spec.js`.
+
+## Text cut or copied with its pictures, shapes and equations (2026-11-03)
+
+Clauses: ECMA-376 Part 1 §20.4.2.3 `anchor` / §20.4.2.8 `inline` (drawings in runs), §20.4.2.5 `docPr` (unique
+`id`), §22.1.2.77 `oMath`.
+
+Text copied or cut with pictures, shapes, text boxes, groups or equations in it pasted back as text: each drawing
+became "[Image]" (its alternative text) and each equation its linear text, so cutting a paragraph lost its
+pictures. A copy now carries those objects in its formatted fragment for a paste in the same open document and
+story (a token names the document; drawings keep using the parts they already have there). A paste places each
+one where it stood, with a new `docPr` id, in front of the other drawings, and without the `w14:paraId`,
+`w14:textId`, `wp14:anchorId` and `wp14:editId` the original keeps. Gaps: charts and diagrams, objects in
+tracked changes, and pastes into another document, another story, a table cell or text that takes no formatting
+get the text alone; other applications get the plain text. Tests: `tests/text-object-fragment.test.js`,
+`tests/browser/text-object-clipboard.spec.js` (save and reopen).

@@ -3,7 +3,7 @@ import { runFormat } from './formatting.js';
 import { listKind } from './numbering.js';
 import { HIGHLIGHTS } from './backgrounds.js';
 import { showLink } from './link-appearance.js';
-import { normalizeCrop, FULL_TURN } from './images.js';
+import { normalizeCrop, FULL_TURN, OBJECT, validateImage, nextDrawingId } from './images.js';
 
 // Formatted copy and paste. A copy carries HTML for other applications, with
 // the editor's own fragment embedded for an exact paste back here. Pasting
@@ -54,8 +54,9 @@ export function carriesFormatting(model, [start, end] = model.range) {
  * The selection as paragraphs of formatted runs, or null when it holds more than text. `hidden(run)` leaves out text
  * the view hides (a deletion in Simple Markup, hidden text): the fragment cannot carry it as hidden.
  */
-export function copyFragment(model, { hidden = () => false } = {}) {
+export function copyFragment(model, { hidden = () => false, objects = null } = {}) {
   const [start, end] = model.range;
+  let carried = 0;
   // What the selection holds decides (each run is checked below); fields or notes elsewhere do not.
   if (start === end) return null;
   const paragraphs = []; let at = 0, runCount = 0, cell = null;
@@ -73,6 +74,9 @@ export function copyFragment(model, { hidden = () => false } = {}) {
       if (hidden(run)) { offset += run.text.length; continue; }
       const a = Math.max(start, offset), b = Math.min(end, offset + run.text.length);
       const overlaps = b > a || (!run.text && offset >= start && offset < end);
+      // A picture, shape or equation in the text goes with it to a paste in this document (`objects`, below).
+      const object = overlaps && !plainRun(run) && objects ? carriedObject(model, run) : null;
+      if (object) { runs.push({ text: OBJECT_STAND_IN, object, format: {} }); runCount++; carried++; offset += run.text.length; continue; }
       if (overlaps && !plainRun(run)) return null;
       if (b > a) {
         const format = runFormat(run), entry = { text: run.text.slice(a - offset, b - offset), format: Object.fromEntries(RUN_KEYS.map(key => [key, format[key]])) };
@@ -92,7 +96,23 @@ export function copyFragment(model, { hidden = () => false } = {}) {
       styleId: p.styleId || null, styleName: style?.name || null, alignment: format.alignment,
       list: p.list ? { kind: listKind(model.numbering, p.list), level: p.list.level } : null });
   }
-  return paragraphs.length ? { paragraphs } : null;
+  if (!paragraphs.length) return null;
+  return carried ? { paragraphs, objects: { token: objects.token, story: objects.story ?? null } } : { paragraphs };
+}
+
+/**
+ * Objects a copy of text carries for a paste in the same document and story: an equation as its Office Math, a
+ * picture, shape, text box or group as the drawing itself, which keeps its parts there (`objects.token` names the
+ * open document; other documents and other applications get the text alone). Charts and diagrams are not carried.
+ */
+export const OBJECT_STAND_IN = '\ue000';
+const CARRIED_DRAWINGS = /graphicData[^>]*uri="http:\/\/schemas\.(?:openxmlformats\.org\/drawingml\/2006\/picture|microsoft\.com\/office\/word\/2010\/(?:wordprocessingShape|wordprocessingGroup))"/;
+function carriedObject(model, run) {
+  if (run.text !== '\ufffc' || run.revision || run.field || run.noteMark || run.contentControl) return null;
+  if (run.math?.xml) return { math: { xml: run.math.xml, text: run.math.text || '' } };
+  const image = run.image;
+  if (!image || image.kind === 'chart' || image.hidden || !model.assets?.[image.assetId] || (image.shell ? !CARRIED_DRAWINGS.test(image.shell) : !!image.kind)) return null;
+  return { image: JSON.parse(JSON.stringify(image)) };
 }
 
 const escape = text => String(text).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -111,7 +131,7 @@ function runHtml(run) {
   if (f.fontAscii) style.push(`font-family:${escape(JSON.stringify(f.fontAscii))}`);
   if (f.capitalization === 'caps') style.push('text-transform:uppercase');
   if (f.capitalization === 'smallCaps') style.push('font-variant:small-caps');
-  let html = escape(run.text).replace(/\v/g, '<br>');
+  let html = escape(run.object ? '' : run.text).replace(/\v/g, '<br>');
   if (style.length) html = `<span style="${style.join(';')}">${html}</span>`;
   if (f.verticalAlign === 'superscript') html = `<sup>${html}</sup>`;
   if (f.verticalAlign === 'subscript') html = `<sub>${html}</sub>`;
@@ -461,7 +481,10 @@ function applyRun(model, from, to, run, foreign) {
 }
 
 /** Insert a fragment at the selection with its formatting. Returns false when nothing was inserted. */
-export function pasteFragment(model, fragment) {
+export function pasteFragment(model, fragment, { token = null, story = null } = {}) {
+  // Objects go back only into the document and story they were copied from; elsewhere the text goes alone.
+  const carried = !!fragment.objects && !!token && fragment.objects.token === token && (fragment.objects.story ?? null) === story;
+  if (fragment.objects && !carried) fragment = withoutObjects(fragment);
   // A copy that ends with the document's last paragraph mark ends that paragraph where it goes: text after the
   // caret keeps its own paragraph and formatting, rather than joining the last pasted paragraph and taking its style.
   if (!fragment.foreign && fragment.paragraphs.at(-1)?.mark) {
@@ -477,13 +500,45 @@ export function pasteFragment(model, fragment) {
   // snapshots of the whole document would only make a long paste quadratic.
   model.checkpoint = () => {};
   // Formatting leaves the pasted text as it is: commands need not join or count through it each time.
-  try { model.withFixedText(() => applyFragment(model, fragment, start)); } finally { delete model.checkpoint; }
+  try {
+    model.withFixedText(() => applyFragment(model, fragment, start));
+    if (carried) placeObjects(model, fragment, start);
+  } finally { delete model.checkpoint; }
   return true;
+}
+function withoutObjects(fragment) {
+  const paragraphs = fragment.paragraphs.map(p => { const runs = p.runs.filter(run => !run.object); return { ...p, runs, text: runs.map(run => run.text).join('') }; });
+  const { objects: _objects, ...rest } = fragment;
+  return { ...rest, paragraphs };
+}
+/** Put each carried object in place of its stand-in character, from the end so earlier offsets hold. */
+function placeObjects(model, fragment, start) {
+  const places = []; let at = start;
+  for (const p of fragment.paragraphs) { let offset = at; for (const run of p.runs) { if (run.object) places.push({ at: offset, object: run.object }); offset += run.text.length; } at += p.text.length + 1; }
+  const after = model.selection.focus;
+  let order = Math.max(0, ...model.paragraphs.flatMap(p => p.runs).map(r => r.image?.anchor?.order || 0));
+  for (const { at, object } of places.reverse()) {
+    model.select(at, at + 1);
+    if (model.text[at] !== OBJECT_STAND_IN) continue;
+    let placed = false;
+    try {
+      if (object.math?.xml) placed = model.insertMathRun({ xml: String(object.math.xml), text: String(object.math.text || '') });
+      else if (object.image && model.assets?.[object.image.assetId]) {
+        const image = { ...object.image, id: nextDrawingId(model.paragraphs) };
+        // Identifiers that are unique in a document (paragraphs in a text box, a drawing's edit marks) are left off the copy.
+        if (typeof image.shell === 'string') image.shell = image.shell.replace(/\s(?:w14:paraId|w14:textId|wp14:anchorId|wp14:editId)="[^"]*"/g, '');
+        if (image.anchor) image.anchor = { ...image.anchor, order: ++order };
+        placed = model.replace(OBJECT, { checkpoint: false, insertedImage: validateImage(image) });
+      }
+    } catch { placed = false; }
+    if (!placed) { model.select(at, at + 1); if (model.text[at] === OBJECT_STAND_IN) model.replace('', { checkpoint: false }); }
+  }
+  model.select(Math.min(after, model.text.length));
 }
 
 // Another application's run with only plain values (not bold, black) leaves the destination's formatting.
 const plainForeignRun = run => !run.link && RUN_KEYS.every(key => [undefined, null, false, 'auto'].includes(run.format?.[key]));
-const appliedRuns = (fragment, p) => p.runs.filter(run => run.text && !(fragment.foreign && plainForeignRun(run)));
+const appliedRuns = (fragment, p) => p.runs.filter(run => run.text && !run.object && !(fragment.foreign && plainForeignRun(run)));
 
 /**
  * Whether a paste can carry this fragment's formatting. Every paragraph and formatted run is a command

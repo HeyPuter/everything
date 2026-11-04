@@ -95,6 +95,9 @@ export class CanvasEditor {
     this.host = host;
     this.inputLabel = inputLabel;
     this.readOnly = readOnly;
+    // Names this open document on the clipboard: text copied here carries its pictures, shapes and equations only
+    // to a paste in this document (clipboard-fragment.js).
+    this.clipboardToken = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`;
     this.protectedPageFields = protectedPageFields;
     this.session = new StorySession(new TextDocument(paragraphs, pageSettings, numbering, styles, tables, assets, { displayOnly: readOnly, comments, trackChanges }), pageStories);
     this.session.caret = () => ({ affinity: this.caretAffinity, page: this.caretPage });
@@ -2387,7 +2390,7 @@ export class CanvasEditor {
     // pasted here, that stand-in ("[Image]", its title) would only be stray text, so the paste says why it can't.
     if (!picture && this.model.selectedImage) return { text, html: uncopiedHtml(text), uncopied: true };
     // What the view hides (a deletion in Simple Markup, hidden text) is not copied: pasted, it came back as ordinary text.
-    const fragment = !picture && copyFragment(this.model, { hidden: hiddenRun });
+    const fragment = !picture && copyFragment(this.model, { hidden: hiddenRun, objects: { token: this.clipboardToken, story: this.session.path } });
     return { text, html: picture || (fragment ? fragmentHtml(fragment) : '') };
   }
   /** Paste with the clipboard's formatting where the document can take it, else as plain text. */
@@ -2414,7 +2417,7 @@ export class CanvasEditor {
     const equation = htmlEquation(html);
     if (equation) { this.execute(() => this.model.insertMathRun(pastedEquation(this.model, equation))); return; }
     const fragment = html && carriesFormatting(this.model) && !this.model.tableContext ? htmlFragment(html) : null;
-    if (fragment && fragment.paragraphs.some(p => p.text) && formattedPasteFits(fragment) && !(breakless && fragment.paragraphs.some(p => /[\f\u000e]/.test(p.text))) && this.execute(() => pasteFragment(this.model, fragment), () => {}, undefined, true)) return;
+    if (fragment && fragment.paragraphs.some(p => p.text) && formattedPasteFits(fragment) && !(breakless && fragment.paragraphs.some(p => /[\f\u000e]/.test(p.text))) && this.execute(() => pasteFragment(this.model, fragment, { token: this.clipboardToken, story: this.session.path }), () => {}, undefined, true)) return;
     if (text) this.execute(() => this.model.replace(text));
   }
   releaseImages(images) { for (const image of images.values()) if (!this.borrowedImages.has(image)) image.close?.(); images.clear(); }
