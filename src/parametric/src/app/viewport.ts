@@ -610,8 +610,9 @@ export class Viewport {
     const b = this.app.bbox;
     let r = b ? Math.hypot(b.max[0] - b.min[0], b.max[1] - b.min[1], b.max[2] - b.min[2]) / 2 : 0;
     const sk = this.app.sketchEditor?.bounds();
-    if (sk) r = Math.max(r, sk.radius + (b ? 0 : 0));
-    return Math.max(r, b ? 1 : 50);
+    if (sk) r = Math.max(r, sk.radius);
+    // Only guard against a degenerate box: small parts must still fill the view.
+    return Math.max(r, b ? 1e-3 : 50);
   }
 
   zoomToFit(animate = true) {
@@ -619,7 +620,7 @@ export class Viewport {
     let center = this.modelCenter();
     let radius = this.modelRadius();
     const sk = this.app.sketchEditor?.bounds();
-    if (sk && !this.app.bbox) { center = sk.center; radius = Math.max(sk.radius, 5); }
+    if (sk && !this.app.bbox) { center = sk.center; radius = sk.radius; }
     const st = this.camera.fitState(center, radius);
     if (animate) this.camera.animateTo(st);
     else this.camera.setState(st);

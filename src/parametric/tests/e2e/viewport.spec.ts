@@ -144,4 +144,34 @@ test.describe('viewport', () => {
     await expect(page.locator('html')).toHaveAttribute('data-theme-resolved', 'dark');
     expect(await contrast()).toBeGreaterThan(4.5);
   });
+
+  test('zoom to fit fills the view with a sub-millimetre part', async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /New part/ }).click();
+    await page.evaluate(() => {
+      const app = (window as unknown as Win).__parametric;
+      const doc = structuredClone(app.store.doc);
+      const pts = [[0, 0], [0.6, 0], [0.6, 0.4], [0, 0.4]];
+      const entities: import('../../src/model/types').SkEntity[] = pts.map(([x, y], i) => ({ id: `p${i}`, t: 'point', x, y }));
+      pts.forEach((_, i) => entities.push({ id: `l${i}`, t: 'line', a: `p${i}`, b: `p${(i + 1) % 4}` }));
+      doc.features.push({ id: 's1', name: 'Sketch1', type: 'sketch', plane: { kind: 'base', plane: 'front' }, entities, constraints: [] });
+      doc.features.push({ id: 'f1', name: 'Extrude1', type: 'extrude', sketch: 's1', cut: false, end: 'blind', depth: 0.3, flip: false, dir2: null, draft: 0, draftOutward: false, thin: null });
+      app.loadDocument(doc, null);
+    });
+    await waitForFeature(page, 'Extrude1');
+    await expect.poll(() => page.evaluate(() => !!(window as unknown as Win).__parametric.bbox)).toBe(true);
+    const fill = await page.evaluate(() => {
+      const app = (window as unknown as Win).__parametric;
+      app.viewport.zoomToFit(false);
+      const b = app.bbox!;
+      const xs: number[] = [], ys: number[] = [];
+      for (const x of [b.min[0], b.max[0]]) for (const y of [b.min[1], b.max[1]]) for (const z of [b.min[2], b.max[2]]) {
+        const [px, py] = app.viewport.project([x, y, z]);
+        xs.push(px); ys.push(py);
+      }
+      const cam = app.renderer.camera;
+      return Math.max((Math.max(...xs) - Math.min(...xs)) / cam.width, (Math.max(...ys) - Math.min(...ys)) / cam.height);
+    });
+    expect(fill).toBeGreaterThan(0.5);
+  });
 });
