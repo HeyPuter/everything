@@ -108,3 +108,27 @@ test('exporting right after opening the drawing waits for the views', async ({ p
   });
   expect(views).toBe(4);
 });
+
+test('the whole sheet shows when a drawing opens and when its size changes', async ({ page }) => {
+  await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  await page.evaluate(() => {
+    type A = { store: { doc: object }; loadDocument(d: object, h: null): void };
+    const app = (window as unknown as { __parametric: A }).__parametric;
+    const doc = structuredClone(app.store.doc) as Record<string, unknown>;
+    doc.drawing = { sheet: 'A1', landscape: false, scale: 1, views: [{ id: 'v1', kind: 'front', x: 200, y: 300, hidden: true, dims: true }], title: '', drawnBy: '', notes: '' };
+    app.loadDocument(doc, null);
+  });
+  await waitForFeature(page, 'Fillet1');
+  await page.getByRole('tab', { name: 'Drawing' }).click();
+  await expect(page.locator('.paper svg path').first()).toBeAttached({ timeout: 30_000 });
+  const inside = () => page.evaluate(() => {
+    const ws = document.querySelector('.drawing-ws')!.getBoundingClientRect();
+    const p = document.querySelector('.paper')!.getBoundingClientRect();
+    return p.left >= ws.left && p.top >= ws.top && p.right <= ws.right + 0.5 && p.bottom <= ws.bottom + 0.5 && p.height > ws.height / 2;
+  });
+  await expect.poll(inside).toBe(true);
+  await page.getByLabel('Landscape').check();
+  await expect.poll(inside).toBe(true);
+});

@@ -182,6 +182,8 @@ export class DrawingWorkspace {
     if (!d || !this.active) return;
     const s = this.sheet();
     this.frames = s.frames;
+    // A new sheet size or orientation is refitted, or only part of it shows.
+    const resized = s.w !== this.sheetW || s.h !== this.sheetH;
     this.sheetW = s.w;
     this.sheetH = s.h;
     this.paper.innerHTML = toSvg(s.items, s.w, s.h);
@@ -193,7 +195,8 @@ export class DrawingWorkspace {
     this.paper.style.width = `${s.w}px`;
     this.paper.style.height = `${s.h}px`;
     (this.el.querySelector('.drawing-empty') as HTMLElement).hidden = !!this.app.bbox;
-    this.applyTransform();
+    if (resized) this.fit();
+    else this.applyTransform();
     this.drawSelection();
     this.syncPanel();
   }
@@ -214,6 +217,8 @@ export class DrawingWorkspace {
   fit() {
     const r = this.el.getBoundingClientRect();
     if (!r.width) return;
+    // The document's sheet, which the views being projected may not have rendered yet.
+    if (this.doc) ({ w: this.sheetW, h: this.sheetH } = sheetDims(this.doc));
     const m = 24;
     this.zoom = Math.min((r.width - 2 * m) / this.sheetW, (r.height - 2 * m) / this.sheetH);
     this.pan = { x: (r.width - this.sheetW * this.zoom) / 2, y: (r.height - this.sheetH * this.zoom) / 2 };
