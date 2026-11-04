@@ -202,4 +202,12 @@ body:has(.editor:not(.focus-mode) > .statusbar) .offline-banner {
   :is(.insert-icon, .fmt-preset, .fmt-side-toggles .btn, .fmt-list-tile, .ps-preset, .table-align-grid > button)[aria-pressed="true"],
   :is(.pic-layout-item, .fmt-symbol, .list-library-tile, .table-pen-item, .table-style-menu .table-style-swatch)[aria-checked="true"] { outline: 2px solid Highlight; outline-offset: -2px; }
   .draw-pen-swatch[aria-checked="true"] { outline: 2px solid Highlight; outline-offset: 2px; }
+  .pref-tab[aria-selected="true"], .styles-pane-item.is-current { outline: 2px solid Highlight; outline-offset: -2px; }
+  /* Underlined tabs: the theme paints every tab's clear underline in the text color, so each looked chosen. They keep
+     their own colors, in system colors: only the chosen tab is underlined, in the highlight color. */
+  :root :is(.nav-tab, .styles-pane-tab, .ed-font-tab, .pic-dialog-tab, .pic-pane-tab) { forced-color-adjust: none; color: CanvasText; background: Canvas; border-bottom-color: transparent; }
+  :root :is(.nav-tab, .styles-pane-tab, .ed-font-tab, .pic-dialog-tab, .pic-pane-tab):hover { color: Highlight; background: Canvas; }
+  :root :is(.nav-tab, .styles-pane-tab, .ed-font-tab, .pic-dialog-tab, .pic-pane-tab)[aria-selected="true"] { border-bottom-color: Highlight; }
+  :root :is(.nav-tab, .styles-pane-tab, .ed-font-tab, .pic-dialog-tab, .pic-pane-tab):focus-visible { outline: 2px solid Highlight; outline-offset: -2px; }
+  :root :is(.nav-tab, .styles-pane-tab, .ed-font-tab, .pic-dialog-tab, .pic-pane-tab):disabled { color: GrayText; }
 }
