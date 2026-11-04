@@ -191,3 +191,35 @@ test('the focus stays in the accessibility report after a fix', async ({ page })
   await expect(report.locator('.a11y-rule', { hasText: 'Title' }).first()).toHaveClass(/is-passed/);
   await expect(report.locator('summary', { hasText: 'Document' })).toBeFocused();
 });
+
+test('the title fix starts from the title Document details shows', async ({ page }) => {
+  const { setTitle } = await import('../../src/core/accessibility.js');
+  await page.route('https://js.puter.com/**', (route) => route.fulfill({ body: '' }));
+  await page.goto('/#library');
+  const doc = await PDFDocument.create();
+  doc.addPage([400, 500]);
+  setTitle(doc, 'Annual report 2026');
+  // Another editor left an outdated title in the Info dictionary; the XMP metadata, which
+  // carries no older date, is the one readers take.
+  doc.getInfoDict().set(PDFName.of('Title'), PDFString.of('Draft'));
+  doc.getInfoDict().delete(PDFName.of('ModDate'));
+  const chooser = page.waitForEvent('filechooser');
+  await page.keyboard.press('ControlOrMeta+o');
+  await (
+    await chooser
+  ).setFiles({
+    name: 'report.pdf',
+    mimeType: 'application/pdf',
+    buffer: Buffer.from(await doc.save({ updateFieldAppearances: false })),
+  });
+  await expect(page.locator('.page-caption')).toHaveText('Page 1 of 1');
+  await settled(page);
+  await page.getByRole('button', { name: 'Tools', exact: true }).click();
+  const pane = page.getByRole('complementary', { name: 'Tools' });
+  await pane.getByRole('button', { name: 'View more' }).click();
+  await pane.getByRole('button', { name: 'Prepare for accessibility', exact: true }).click();
+  await pane.getByRole('button', { name: 'Set the document title…' }).click();
+  await expect(
+    page.getByRole('dialog', { name: 'Document title' }).getByRole('textbox'),
+  ).toHaveValue('Annual report 2026');
+});

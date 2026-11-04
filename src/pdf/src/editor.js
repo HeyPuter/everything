@@ -10633,7 +10633,9 @@ export function createEditor({
     switch (fix) {
       case 'title': {
         const doc = await PDFDocument.load(session.bytes, { updateMetadata: false });
-        const title = await promptText('Document title', 'Title', doc.getTitle() || '');
+        // The title readers show, as Document details has it: the XMP one unless Info is newer.
+        const { documentDetails } = await import('./core/details.js');
+        const title = await promptText('Document title', 'Title', documentDetails(doc).title);
         if (title == null) return;
         await run(
           (d) => a11y.setTitle(d, title),
