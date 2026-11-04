@@ -1148,15 +1148,20 @@ export function createEditor({
         }),
       )();
     },
+    // Pressing the comment saves its Comment field first; the move or deletion waits for that.
     onMove: (entry, rect) =>
-      safe(() =>
-        mutate((doc) => editAnnotation(doc, pageIndex, entry.id, { rect }), null, 'annotate', {
-          retainScale: true,
-        }),
-      )(),
+      safe(async () => {
+        await annotationTextDraft?.();
+        const move = (doc) => editAnnotation(doc, pageIndex, entry.id, { rect });
+        await mutate(move, null, 'annotate', { retainScale: true });
+      })(),
     onDelete: (entry) => {
       // Without permission to comment, the Delete button is disabled; the key matches it.
-      if (access().annotate) safe(() => removeAnnotation(entry))();
+      if (access().annotate)
+        safe(async () => {
+          await annotationTextDraft?.();
+          await removeAnnotation(entry);
+        })();
     },
   });
   // Prepare a form: the fields of the page as boxes to place, move, size, and open.
@@ -10046,12 +10051,19 @@ export function createEditor({
     // A stamp keeps its own art and a read-only comment takes no change: offer only what applies.
     const editable = entry.editable && !entry.locked && !entry.readOnly && access().annotate;
     const accepts = (key) => editable && annotationAccepts(entry.subtype, key);
+    // Leaving the Comment field for another control saves it, and the click that left it
+    // would otherwise find the editor busy with that save and be dropped: it waits instead.
+    const afterText = (action) =>
+      safe(async () => {
+        await saveText();
+        if (!destroyed) await action();
+      })();
     const apply = (changes, message = null) =>
-      safe(() =>
+      afterText(() =>
         mutate((doc) => editAnnotation(doc, pageIndex, entry.id, changes), message, 'annotate', {
           retainScale: true,
         }),
-      )();
+      );
     const text = el('textarea', {
       class: 'input',
       rows: 3,
@@ -10146,6 +10158,7 @@ export function createEditor({
     const when = (date) =>
       date ? date.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : '';
     const thread = commentThread(entry, async (operation, message, control) => {
+      await saveText();
       await mutate((doc) => operation(doc, entry.id), message, 'annotate', { retainScale: true });
       // A reply sent leaves the reply box ready for the next, as for notes and markups.
       const active = document.activeElement;
@@ -10184,7 +10197,7 @@ export function createEditor({
         'div',
         { class: 'annotation-actions' },
         thread.replyButton,
-        button('Delete', 'Trash2', () => safe(() => removeAnnotation(entry))(), 'btn danger', {
+        button('Delete', 'Trash2', () => afterText(() => removeAnnotation(entry)), 'btn danger', {
           disabled: entry.locked || entry.readOnly || !access().annotate,
         }),
       ),
