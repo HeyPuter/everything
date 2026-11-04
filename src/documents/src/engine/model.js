@@ -24,7 +24,7 @@ import { checkedCellMargins, resolveCellMargins } from './cell-margins.js';
 import { checkedRowHeight, rowHeight } from './row-height.js';
 import { checkedLineSpacing } from './line-spacing.js';
 import { hasDirectRunFormatting, clearedRun, hasDirectMarkFormatting, clearMark, hasDirectParagraphFormatting, clearParagraph } from './direct-formatting.js';
-import { findText, checkedSearchText, replacedRuns, replacedBookmarks } from './search.js';
+import { findText, checkedSearchText, replacedRuns, replacedBookmarks, matchedCase } from './search.js';
 import { advancedFind, replaceAdvanced } from './advanced-search.js';
 import { hiddenRun } from './hidden-text.js';
 import { checkedHyperlinkDestination, hyperlinkLabel, hyperlinkId, hyperlinkAt, hyperlinkRanges, hyperlinkBoundaryChanges } from './hyperlinks.js';
@@ -2109,7 +2109,7 @@ export class TextDocument {
     if (options.advanced) {
       const [start, end] = this.range;
       const matches = this.findMatches(query, options).filter(m => all || m.start === start && m.end === end);
-      return replaceAdvanced(this, matches, text, { wildcards: !!options.wildcards, format: options.replaceFormat || null });
+      return replaceAdvanced(this, matches, text, { wildcards: !!options.wildcards, format: options.replaceFormat || null, matchCase: !!options.matchCase });
     }
     checkedSearchText(text);
     const [start, end] = this.range;
@@ -2117,7 +2117,9 @@ export class TextDocument {
     let matches = this.findMatches(query, options).filter(m => {
       let range=promptFields?macroButtonSelection(promptFields,m.start,m.end):[m.start,m.end];
       if(this.hasNoteMarks)range=noteMarkSelection(this.paragraphs,...range);
-      return (all||range[0]===start&&range[1]===end)&&m.text!==text;
+      // Without Match case, each replacement takes the capitalization of the text it replaces (same length as typed).
+      if (!options.matchCase) m.replacement = matchedCase(m.text, text);
+      return (all||range[0]===start&&range[1]===end)&&m.text!==(m.replacement ?? text);
     });
     if(this.hasMacroButtons||this.hasNoteMarks){
       const fields=promptFields, expanded=[],documentText=this.text;
@@ -2127,6 +2129,7 @@ export class TextDocument {
         const [a,b]=range,previous=expanded.at(-1);
         if(previous&&a<previous.end){previous.end=Math.max(previous.end,b);previous.text=documentText.slice(previous.start,previous.end);continue;}
         expanded.push({...m,start:a,end:b,offset:m.offset+a-m.start,text:documentText.slice(a,b)});
+        if (!options.matchCase) expanded.at(-1).replacement = matchedCase(expanded.at(-1).text, text);
       }
       matches=expanded;
     }
@@ -2226,10 +2229,11 @@ export class TextDocument {
     const starts = this.paragraphsEditAlone ? this.paragraphStarts() : null;
     for (const m of [...matches].reverse()) {
       // Text put back after the author deleted it is found as a move anywhere in the document.
-      if (starts && (!text || !this.lastTrackedDeletion)) { if (this.replaceWithinParagraph(m.paragraph, starts[m.paragraph], m.start, m.end, text)) count++; continue; }
+      const replacement = m.replacement ?? text;
+      if (starts && (!text || !this.lastTrackedDeletion)) { if (this.replaceWithinParagraph(m.paragraph, starts[m.paragraph], m.start, m.end, replacement)) count++; continue; }
       this.selection = { anchor: m.start, focus: m.end };
       this.typingFormat = {}; this.typingStyle = null; this.typingDirectCleared = false;
-      if (this.replace(text, { checkpoint: false })) count++;
+      if (this.replace(replacement, { checkpoint: false })) count++;
     }
     if (!count) { this.selection = before.selection; return 0; }
     this.history.push(before);

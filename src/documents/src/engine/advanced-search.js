@@ -2,7 +2,7 @@ import { paragraphText, paragraphFormat, runFormat } from './model.js';
 import { effectiveStyleId } from './styles.js';
 import { inlineSegments } from './images.js';
 import { MAX_DOCUMENT_CHARACTERS } from './text-limits.js';
-import { skippedSpans, overlaps } from './search.js';
+import { skippedSpans, overlaps, matchedCase } from './search.js';
 
 /**
  * Advanced Find and Replace: special characters, a documented wildcard subset, prefix/suffix and
@@ -283,12 +283,13 @@ export function expandReplacement(template, match, { wildcards = false } = {}) {
  * format: run properties and/or { paragraphStyle } / paragraph properties to apply to the result.
  * Returns the number of replacements.
  */
-export function replaceAdvanced(model, matches, template, { wildcards = false, format = null } = {}) {
+export function replaceAdvanced(model, matches, template, { wildcards = false, format = null, matchCase = false } = {}) {
   if (!matches.length) return 0;
   const { run: runPatch, paragraph: paragraphPatch } = splitFormat(format || {});
   const { paragraphStyle, ...paragraphFormatPatch } = paragraphPatch;
   const formatOnly = !template && (Object.keys(runPatch).length || Object.keys(paragraphPatch).length);
-  const texts = matches.map(m => formatOnly ? m.text : expandReplacement(template, m, { wildcards }));
+  // Without Match case (wildcard searches always match case) the replacement takes the found text's capitalization.
+  const texts = matches.map(m => formatOnly ? m.text : wildcards || matchCase ? expandReplacement(template, m, { wildcards }) : matchedCase(m.text, expandReplacement(template, m, { wildcards })));
   if (model.text.length + matches.reduce((n, m, i) => n + texts[i].length - (m.end - m.start), 0) > MAX_DOCUMENT_CHARACTERS) throw new Error('The replacement would make the document too long.');
   model.checkpoint();
   const checkpoint = model.checkpoint;

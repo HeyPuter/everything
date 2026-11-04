@@ -147,6 +147,28 @@ export function findText(paragraphs, query, { matchCase = false, wholeWord = fal
   return matches;
 }
 
+const isLetter = ch => ch.toLowerCase() !== ch.toUpperCase();
+// Upper case that keeps the text's length (ß stays ß rather than becoming SS), so offsets computed from the typed
+// replacement still hold.
+const upperChar = ch => { const upper = ch.toUpperCase(); return upper.length === ch.length ? upper : ch; };
+
+/**
+ * The replacement as a word processor puts it in when Match case is off: it takes the capitalization of the text it
+ * replaces. Found in capitals (two letters or more), the replacement goes into capitals; found with a capital first
+ * letter, a replacement typed all in lower case gets one too. Otherwise it goes in as typed.
+ */
+export function matchedCase(found, replacement) {
+  const letters = [...String(found || '')].filter(isLetter);
+  if (!replacement || !letters.length) return replacement;
+  if (letters.length > 1 && letters.every(ch => ch === ch.toUpperCase())) return [...replacement].map(upperChar).join('');
+  const typed = [...replacement];
+  if (letters[0] !== letters[0].toUpperCase() || typed.some(ch => isLetter(ch) && ch !== ch.toLowerCase())) return replacement;
+  const at = typed.findIndex(isLetter);
+  if (at < 0) return replacement;
+  typed[at] = upperChar(typed[at]);
+  return typed.join('');
+}
+
 // Build one new run sequence per paragraph instead of repeatedly copying and
 // segmenting the entire document for each occurrence in Replace All.
 export function replacedRuns(runs, matches, replacement) {
@@ -170,7 +192,7 @@ export function replacedRuns(runs, matches, replacement) {
     const removed = consume(match.offset + match.text.length, false, match.offset);
     if (match.replacementRuns) result.push(...match.replacementRuns);
     else if (replacement) {
-      const run = { ...(removed[0].contentControl?.placeholder ? removed[0].contentControl.inputRun : removed[0]), text: replacement };
+      const run = { ...(removed[0].contentControl?.placeholder ? removed[0].contentControl.inputRun : removed[0]), text: match.replacement ?? replacement };
       delete run.noteMark; delete run.bodySymbol; delete run.noBreakHyphen; delete run.vml;
       // New text is nobody's tracked insertion, deletion or formatting change, whatever the found text was.
       delete run.revision; delete run.formatRevision;

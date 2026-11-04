@@ -191,5 +191,6 @@ it('finds an accented letter stored as one character or as a letter and an accen
   expect(texts(find(doc, 'cafe', { matchPrefix: true }))).toEqual(['cafe']);
   // Replacing what was found keeps the text around it.
   expect(doc.replaceMatches('café', 'tea', { advanced: true, matchPrefix: true }, true)).toBe(2);
-  expect(doc.text).toBe(`tea and tea, ${nfd('Résumé')}.\ncafe and caf`);
+  // Without Match case the replacement takes the found text's capital: Café becomes Tea.
+  expect(doc.text).toBe(`Tea and tea, ${nfd('Résumé')}.\ncafe and caf`);
 });

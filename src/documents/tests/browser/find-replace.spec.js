@@ -27,10 +27,10 @@ test('replaces formatted source text and every original match in one undo step, 
   const selected = await input.evaluate(el => [el.selectionStart, el.selectionEnd]); await replacement(page).fill('thread'); await panel(page).getByRole('button', { name: 'Replace', exact: true }).click();
   await expect(input).toHaveValue(original.replace('needle', 'thread')); await expect(count(page)).toHaveText('1 of 13');
   await undo(page).click(); await expect(input).toHaveValue(original); expect(await input.evaluate(el => [el.selectionStart, el.selectionEnd])).toEqual(selected); await redo(page).click();
-  await panel(page).getByRole('button', { name: 'Replace all', exact: true }).click(); const expected = original.replace(/\bneedle\b/gi, 'thread');
+  await panel(page).getByRole('button', { name: 'Replace all', exact: true }).click(); const expected = original.replace(/\bneedle\b/gi, found => found === 'NEEDLE' ? 'THREAD' : found[0] === 'N' ? 'Thread' : 'thread');
   await expect(input).toHaveValue(expected); await expect(count(page)).toHaveText('No matches'); await expect(panel(page).locator('.canvas-find-notice')).toHaveText('Replaced 13 matches.');
   await undo(page).click(); await expect(input).toHaveValue(original.replace('needle', 'thread')); await redo(page).click(); await expect(input).toHaveValue(expected);
-  const position = await input.evaluate(el => el.selectionStart), positions = [...expected.matchAll(/\bthread\b/g)].map(m => m.index);
+  const position = await input.evaluate(el => el.selectionStart), positions = [...expected.matchAll(/\bthread\b/gi)].map(m => m.index);
   const nextIndex = positions.findIndex(at => at >= position);
   await query(page).fill('thread'); await expect(count(page)).toHaveText(`${(nextIndex < 0 ? 0 : nextIndex) + 1} of 14`); await page.screenshot({ path: info.outputPath('find-replace-panel.png') }); await close(page);
   await screenshot(page, info, 0, 'find-replace-page.png'); await screenshot(page, info, 2, 'find-replace-table.png');
