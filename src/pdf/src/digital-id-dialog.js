@@ -37,7 +37,7 @@ export function chooseDigitalId(identities = [], { signal } = {}) {
       ...identities.map((entry, i) =>
         el(
           'label',
-          { class: 'checkbox-row' },
+          { class: 'choice-row' },
           el('input', {
             type: 'radio',
             name: 'digital-id',
@@ -54,7 +54,7 @@ export function chooseDigitalId(identities = [], { signal } = {}) {
       ),
       el(
         'label',
-        { class: 'checkbox-row' },
+        { class: 'choice-row' },
         el('input', {
           type: 'radio',
           name: 'digital-id',
@@ -66,7 +66,7 @@ export function chooseDigitalId(identities = [], { signal } = {}) {
       ),
       el(
         'label',
-        { class: 'checkbox-row' },
+        { class: 'choice-row' },
         el('input', {
           type: 'radio',
           name: 'digital-id',
