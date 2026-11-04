@@ -1774,6 +1774,9 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     created.onPagesPainted = pages => { if (engine === created) outlinePanel.pagesPainted(pages); };
     // Double-clicking a chart, diagram or text box edits it (insert-tab.js).
     created.onOpenDrawing = () => { if (!pkg.readOnly) editorCommands.openSelectedDrawing?.(); };
+    // A key pressed in the document is a new command of its own: a ribbon or menu command noted just before, which
+    // changed nothing, neither names its step nor becomes what Repeat runs (a paste notes itself after its key).
+    created.input.addEventListener('keydown', () => { pendingCommand = null; }, true);
     // Header, footer and note settings the package keeps for saving go back with Undo (StorySession.changeSettings).
     const settingsPackage = pkg;
     created.session.settingsHost = { capture: () => settingsPackage?.settingsState?.(), restore: state => settingsPackage?.restoreSettings?.(state) };

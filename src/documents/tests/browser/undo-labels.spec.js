@@ -142,3 +142,18 @@ test('Redo, not Repeat, after a design change is undone: Edit › Redo, the Redo
   // Bold was never repeated.
   expect(await page.evaluate(() => window.__docs.current.view.engine.model.paragraphs[0].runs.every(r => r.bold))).toBe(true);
 });
+
+test('a keyboard command just after a ribbon command that changed nothing is named for what it did', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/mock.html#/new');
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await page.locator('canvas.canvas-page').first().click({ position: { x: 150, y: 110 } });
+  await page.keyboard.type('Some words');
+  await input(page).press('ControlOrMeta+a');
+  await page.locator('.ribbon-card').getByRole('button', { name: 'Show Formatting Marks' }).click();
+  await input(page).focus();
+  await input(page).press('ControlOrMeta+i');
+  await expect.poll(() => page.evaluate(() => window.__docs.current.view.engine.model.paragraphs[0].runs.every(r => r.italic))).toBe(true);
+  expect(await undoItem(page)).toMatch(/^Undo Formatting/);
+  expect(await page.evaluate(() => window.__docs.current.view.commands.repeatLabel?.())).not.toBe('Show Formatting Marks');
+});
