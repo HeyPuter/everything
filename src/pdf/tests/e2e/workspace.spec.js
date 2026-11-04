@@ -1858,6 +1858,12 @@ test('Extract pages downloads the chosen pages as a new PDF', async ({ page }) =
   // The open document is untouched.
   await expect(page.locator('.page-caption')).toHaveText('Page 2 of 4');
   await expect(page.locator('.save-status')).toHaveText('Local file');
+  // One page is named as one page.
+  await menu(page, 'Extract pages…');
+  const single = page.waitForEvent('download');
+  await dialog.getByRole('button', { name: 'Download pages' }).click();
+  expect((await single).suggestedFilename()).toBe('test page 2.pdf');
+  await expect(page.locator('#toast')).toHaveText('Page 2 downloaded as a new PDF.');
   // A bad range is explained inside the dialog.
   await menu(page, 'Extract pages…');
   await page.getByLabel('Page range', { exact: true }).fill('9');

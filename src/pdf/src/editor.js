@@ -12095,8 +12095,9 @@ export function createEditor({
         const bytes = await exportBytes(extracted);
         if (destroyed || !d.open) return;
         const label = formatPageRange(indices);
-        // A long list of scattered pages would not fit a file name; their count does.
-        const suffix = ` pages ${label}`;
+        // A long list of scattered pages would not fit a file name; their count does. One
+        // page is named as Extract page in the page's menu names it.
+        const suffix = indices.length === 1 ? ` page ${label}` : ` pages ${label}`;
         download(bytes, exportName(suffix.length <= 64 ? suffix : ` ${indices.length} pages`));
         d.close();
         toast(`${indices.length === 1 ? 'Page' : 'Pages'} ${label} downloaded as a new PDF.`);
