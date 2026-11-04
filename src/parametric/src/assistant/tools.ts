@@ -107,7 +107,6 @@ const SKETCH_OPS: Obj = {
   auto_relations: B('Add horizontal/vertical relations to axis-aligned lines and coincident-with-origin to points at (0,0) (default true)'),
 };
 const REGIONS = ARR(POINT, 'Optional points inside the closed regions to use (sketch coordinates); by default every region is used, nested ones alternating material/holes');
-const THIN = { anyOf: [{ type: 'null' }, obj({ thickness: PARAM('Wall thickness'), side: S('Which side of the profile', { enum: ['outside', 'inside', 'mid'] }) }, ['thickness'])], description: 'Thin feature (a wall along the profile) instead of a solid' };
 
 function featureTool(type: FeatureType, description: string, props: Obj, required: string[]): ToolDef {
   return {
@@ -212,7 +211,6 @@ const TOOLS: ToolDef[] = [
     direction2: { anyOf: [{ type: 'null' }, obj({ end: S('End condition', { enum: ['blind', 'through_all'] }), depth: PARAM('Depth') })], description: 'Also extrude the opposite way' },
     draft: PARAM('Draft angle in degrees (tapers the side walls inward)'),
     draft_outward: B('Taper outward instead'),
-    thin: THIN,
     regions: REGIONS,
   }, ['sketch']),
   featureTool('revolve', 'Revolve a sketch\'s closed profiles around an axis into a boss or cut. The profile must lie on one side of the axis.', {
@@ -222,7 +220,6 @@ const TOOLS: ToolDef[] = [
     end: S('One direction or symmetric about the sketch plane', { enum: ['blind', 'mid_plane'] }),
     reverse: B('Revolve the other way'),
     cut: B('Remove material'),
-    thin: THIN,
     regions: REGIONS,
   }, ['sketch']),
   featureTool('fillet', 'Round edges with a constant radius. Faces round every edge of each face.', {
