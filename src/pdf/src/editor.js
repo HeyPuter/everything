@@ -1131,7 +1131,7 @@ export function createEditor({
   const designer = createFormDesigner({
     onMove: (field, rect) =>
       safe(() =>
-        mutate(
+        formDesignEdit(
           async (doc) =>
             (await loadForms()).moveFormWidget(doc, field.name, field.widgetIndex, rect),
           null,
@@ -7016,7 +7016,7 @@ export function createEditor({
                   disabled: noDocument() || !formFields.length,
                   onSelect: () =>
                     safe(() =>
-                      mutate(async (doc) => {
+                      formDesignEdit(async (doc) => {
                         const { setFieldTabOrder } = await loadForms();
                         doc.getPageIndices().forEach((i) => setFieldTabOrder(doc, i, 'row'));
                       }, 'Fields are visited row by row.'),
@@ -7029,7 +7029,7 @@ export function createEditor({
                   disabled: noDocument() || !formFields.length,
                   onSelect: () =>
                     safe(() =>
-                      mutate(async (doc) => {
+                      formDesignEdit(async (doc) => {
                         const { setFieldTabOrder } = await loadForms();
                         doc.getPageIndices().forEach((i) => setFieldTabOrder(doc, i, 'column'));
                       }, 'Fields are visited column by column.'),
@@ -10116,9 +10116,17 @@ export function createEditor({
     pageForms.setEnabled(tool === 'select' && !preparing);
     if (on) refreshDesigner().catch(() => {});
   }
+  /**
+   * An edit of the form's fields. What was typed into a field and not yet applied goes into the
+   * PDF first: the redrawn page starts its fields afresh from the PDF.
+   */
+  async function formDesignEdit(...edit) {
+    await finishDrafts();
+    return mutate(...edit);
+  }
   async function createField(rect, page) {
     let created = null;
-    await mutate(
+    await formDesignEdit(
       async (doc) => {
         created = await (
           await loadForms()
@@ -10138,7 +10146,7 @@ export function createEditor({
     if (field) pageDialog(() => fieldPropertiesDialog(field, { created: true }))();
   }
   async function removeFormField(field) {
-    await mutate(
+    await formDesignEdit(
       async (doc) => (await loadForms()).deleteFormField(doc, field.name, field.widgetIndex),
       `${fieldTypeLabel(field.type)} ${field.name} deleted.`,
       'edit',

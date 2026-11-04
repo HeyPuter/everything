@@ -487,3 +487,26 @@ test('choosing a fill or border color for a field without one applies it', async
   expect(look.getBackgroundColor()).toEqual([1, 1, 0]);
   expect(look.getBorderColor()).toEqual([0, 0, 1]);
 });
+
+test('what was typed into a field stays when Prepare a form moves a field', async ({ page }) => {
+  const doc = await PDFDocument.create();
+  const sheet = doc.addPage([600, 400]);
+  for (const [name, y] of [
+    ['Note', 100],
+    ['Other', 200],
+  ])
+    doc.getForm().createTextField(name).addToPage(sheet, { x: 100, y, width: 120, height: 24 });
+  await openPdf(page, doc);
+  await page.getByRole('textbox', { name: 'Note (on page)' }).fill('typed words');
+  await prepareForm(page);
+  await designer(page, 'Other#0').focus();
+  await page.keyboard.press('ArrowRight');
+  await settled(page);
+  await expect(designer(page, 'Other#0')).toBeVisible();
+  const saved = (await PDFDocument.load(await downloaded(page))).getForm();
+  expect(saved.getTextField('Note').getText()).toBe('typed words');
+  expect(saved.getTextField('Other').acroField.getWidgets()[0].getRectangle().x).toBeCloseTo(
+    100.5,
+    1,
+  );
+});
