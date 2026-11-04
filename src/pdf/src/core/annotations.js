@@ -613,12 +613,19 @@ function describe(doc, { id, dict }, threads) {
 export function listAnnotations(doc, page) {
   page = pageAt(doc, page);
   const threads = pageThreads(doc, page);
+  // A note's reply whose note is no longer on the page (or not shown) is offered as a note of
+  // its own, as the page and the Comments panel offer it (see listNotes).
+  const shown = new Set(
+    threads.entries.filter(({ dict }) => !(flagsOf(dict) & FLAGS.noview)).map(({ id }) => id),
+  );
+  const orphan = (dict, subtype) =>
+    subtype === 'Text' && !shown.has(dict.get(name('IRT'))?.toString());
   return threads.entries
     .filter(({ dict }) => {
       const subtype = dict.lookup(name('Subtype'))?.decodeText?.();
       return (
         COMMENT_KINDS[subtype] &&
-        !dict.has(name('IRT')) &&
+        (!dict.has(name('IRT')) || orphan(dict, subtype)) &&
         !(flagsOf(dict) & (FLAGS.hidden | FLAGS.noview))
       );
     })

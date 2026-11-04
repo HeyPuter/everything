@@ -1461,3 +1461,30 @@ describe('grouped comments', () => {
     expect(flattenDocument(other)).toMatchObject({ annotations: 1 });
   });
 });
+
+// Another editor deleted a note and left its reply: the page and the Comments panel offer the
+// reply as a note of its own, and so does everything that lists the comments.
+it('lists a reply whose note is gone as a comment of its own', async () => {
+  const doc = await blank();
+  const page = doc.getPage(0);
+  const gone = addNote(doc, 0, { x: 100, y: 700, text: 'Deleted' });
+  const reply = addReply(doc, 0, gone, { text: 'Left behind', author: 'Grace' });
+  addReply(doc, 0, reply, { text: 'Answer to it', author: 'Ada' });
+  // Acrobat leaves its replies visible (print, no zoom, no rotate).
+  doc.context
+    .lookup(
+      page.node
+        .Annots()
+        .asArray()
+        .find((ref) => ref.toString() === reply),
+    )
+    .set(PDFName.of('F'), PDFNumber.of(28));
+  const annots = page.node.Annots();
+  for (let i = annots.size() - 1; i >= 0; i--)
+    if ([gone].includes(annots.get(i).toString()) || i === 1) annots.remove(i);
+  const listed = listAnnotations(doc, 0);
+  expect(listed.map((a) => [a.contents, a.replies.map((r) => r.contents)])).toEqual([
+    ['Left behind', ['Answer to it']],
+  ]);
+  expect(exportCommentSummary(doc)).toContain('Left behind');
+});
