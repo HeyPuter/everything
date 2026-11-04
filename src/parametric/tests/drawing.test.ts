@@ -88,4 +88,20 @@ describe('sheet layout', () => {
     const pdf = new TextDecoder().decode(toPdf(sheet.items, sheet.w, sheet.h, 'Plate'));
     expect(pdf).toContain('(Plate) Tj');
   });
+
+  it('fits long title block entries inside their cells', () => {
+    const notes = 'Break all sharp edges 0.5 x 45°. Anodize clear after machining. Tolerances ISO 2768-mK.';
+    const doc: DrawingDoc = { sheet: 'A4', landscape: true, scale: 1, title: 'T'.repeat(120), drawnBy: 'Short', notes, views: [] };
+    const { items } = buildSheet(doc, new Map(), { partName: 'P', material: 'Steel', units: 'mm', date: '2026-10-12', formatLength: String });
+    const texts = items.filter((i) => i.t === 'text') as Extract<(typeof items)[number], { t: 'text' }>[];
+    const title = texts.find((t) => t.s.startsWith('TTT'))!;
+    const note = texts.find((t) => t.s.startsWith('Break'))!;
+    // Title cell 110 mm, notes cell 60 mm (less 3 mm padding), at about 0.55 em per character.
+    expect(title.s.length * title.size * 0.55).toBeLessThanOrEqual(107);
+    expect(note.s.length * note.size * 0.55).toBeLessThanOrEqual(57);
+    expect(note.size).toBeGreaterThanOrEqual(1.8);
+    expect(note.s.endsWith('…')).toBe(true);
+    // Short values keep their size.
+    expect(texts.find((t) => t.s === 'Short')!.size).toBe(2.8);
+  });
 });

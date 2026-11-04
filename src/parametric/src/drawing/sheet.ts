@@ -123,6 +123,9 @@ export interface ViewFrame {
   y1: number;
 }
 
+/** Average Helvetica advance width per em, as in the PDF writer. */
+const TEXT_EM = 0.55;
+const MIN_TEXT = 1.8;
 const VISIBLE_W = 0.35;
 const HIDDEN_W = 0.18;
 const THIN = 0.18;
@@ -186,15 +189,26 @@ function titleBlock(items: Item[], w: number, h: number, d: DrawingDoc, info: Sh
   items.push({ t: 'line', x1: c1, y1: y, x2: c1, y2: y + TITLE_H, w: 0.25 });
   items.push({ t: 'line', x1: c2, y1: y + row, x2: c2, y2: y + TITLE_H, w: 0.25 });
   const label = (s: string, lx: number, ly: number) => items.push({ t: 'text', s, x: lx + 1.5, y: ly + 3, size: 1.8 });
-  const value = (s: string, lx: number, ly: number, size = 3.2, bold = false) => items.push({ t: 'text', s, x: lx + 1.5, y: ly + row - 2, size, bold });
-  label('TITLE', x, y); value(d.title || info.partName, x, y, 4, true);
-  label('SCALE', c1, y); value(scaleLabel(d.scale), c1, y);
-  label('MATERIAL', x, y + row); value(info.material, x, y + row, 2.8);
-  label('UNITS', c2, y + row); value(info.units, c2, y + row, 2.8);
-  label('DATE', c1, y + row); value(info.date, c1, y + row, 2.8);
-  label('DRAWN BY', x, y + 2 * row); value(d.drawnBy || '', x, y + 2 * row, 2.8);
-  label('SHEET', c2, y + 2 * row); value(`${d.sheet}${d.landscape ? '' : ' portrait'}`, c2, y + 2 * row, 2.8);
-  label('NOTES', c1, y + 2 * row); value(d.notes || '', c1, y + 2 * row, 2.4);
+  // Long values shrink to fit their cell, down to a legible minimum, then are cut short.
+  const value = (s: string, lx: number, ly: number, cellW: number, size = 3.2, bold = false) => {
+    const room = cellW - 3;
+    let fitted = s;
+    if (s.length * size * TEXT_EM > room) {
+      size = Math.max(MIN_TEXT, room / (s.length * TEXT_EM));
+      const max = Math.floor(room / (size * TEXT_EM));
+      if (s.length > max) fitted = `${s.slice(0, Math.max(0, max - 1)).trimEnd()}\u2026`;
+    }
+    items.push({ t: 'text', s: fitted, x: lx + 1.5, y: ly + row - 2, size, bold });
+  };
+  const right = x + TITLE_W;
+  label('TITLE', x, y); value(d.title || info.partName, x, y, c1 - x, 4, true);
+  label('SCALE', c1, y); value(scaleLabel(d.scale), c1, y, right - c1);
+  label('MATERIAL', x, y + row); value(info.material, x, y + row, c2 - x, 2.8);
+  label('UNITS', c2, y + row); value(info.units, c2, y + row, c1 - c2, 2.8);
+  label('DATE', c1, y + row); value(info.date, c1, y + row, right - c1, 2.8);
+  label('DRAWN BY', x, y + 2 * row); value(d.drawnBy || '', x, y + 2 * row, c2 - x, 2.8);
+  label('SHEET', c2, y + 2 * row); value(`${d.sheet}${d.landscape ? '' : ' portrait'}`, c2, y + 2 * row, c1 - c2, 2.8);
+  label('NOTES', c1, y + 2 * row); value(d.notes || '', c1, y + 2 * row, right - c1, 2.4);
 }
 
 // ---------- renderers ----------
