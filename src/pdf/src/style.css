@@ -2306,8 +2306,13 @@ kbd {
     width: 100%;
     justify-content: space-between;
   }
+  /* The search field gives way on the smallest phones, staying within the list's width. */
+  .search-wrap {
+    flex: 0 1 180px;
+    min-width: 0;
+  }
   .search-input {
-    width: 180px;
+    width: 100%;
   }
   .local-note {
     align-items: flex-start;
