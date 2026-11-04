@@ -104,6 +104,20 @@ export function openModal({ title, content, onClose, wide = false }) {
     }
   }
   if (!panel.contains(document.activeElement)) panel.focus({ preventScroll: true });
+  // A dialog taller than the window scrolls under its buttons, which then keep a rule above them (components.css),
+  // and a field the keyboard moves to is scrolled clear of them.
+  if (typeof ResizeObserver === 'function') {
+    const foot = panel.querySelector(':scope > :not(.modal-head) > :is(.modal-actions, .fmt-footer, .row-end):last-child');
+    const fit = new ResizeObserver(() => {
+      if (closed) { fit.disconnect(); return; }
+      const over = panel.scrollHeight > panel.clientHeight + 1;
+      panel.classList.toggle('is-overflowing', over);
+      panel.style.scrollPaddingBottom = over && foot ? `${foot.offsetHeight}px` : '';
+    });
+    fit.observe(panel);
+    if (content instanceof Element) fit.observe(content);
+    if (foot) fit.observe(foot);
+  }
 
   return { close, panel };
 }
