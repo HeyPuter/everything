@@ -16,19 +16,78 @@ export function speakableParagraphs(paragraphs, view = revisionView.mode) {
   const skip = view === 'original' ? 'ins' : 'del', out = [];
   let position = 0;
   for (const p of paragraphs) {
-    const start = position, at = [];
+    const start = position, at = [], spoken = [];
     let text = '';
     for (const run of p.runs) {
       if (run.revision?.type !== skip && run.text) {
         text += run.text.replace(/\ufffc/g, ' ');
         for (let i = 0; i < run.text.length; i++) at.push(position + i);
+        spoken.push(run);
       }
       position += run.text.length;
     }
-    if (text.trim()) out.push({ start, end: position, text, at });
+    if (text.trim()) out.push({ start, end: position, text, at, language: speechLanguage(text, spoken) });
     position++;
   }
   return out;
+}
+
+// The scripts a voice is chosen for, with the language a paragraph in that script is read in when its text names
+// none: an English voice says nothing of Chinese, Japanese, Arabic or Thai text, or spells it out letter by letter.
+// Kana is Japanese however many ideographs it is written among. `slot` is the run's language attribute for it.
+const SCRIPTS = [
+  { test: /[\p{Script=Hiragana}\p{Script=Katakana}]/u, language: 'ja', slot: 'fontEastAsiaLanguage' },
+  { test: /\p{Script=Hangul}/u, language: 'ko', slot: 'fontEastAsiaLanguage' },
+  { test: /\p{Script=Han}/u, language: 'zh', slot: 'fontEastAsiaLanguage' },
+  { test: /\p{Script=Arabic}/u, language: 'ar', slot: 'fontBidiLanguage' },
+  { test: /\p{Script=Hebrew}/u, language: 'he', slot: 'fontBidiLanguage' },
+  { test: /\p{Script=Thai}/u, language: 'th' }, { test: /\p{Script=Devanagari}/u, language: 'hi' },
+  { test: /\p{Script=Greek}/u, language: 'el' }, { test: /\p{Script=Cyrillic}/u, language: 'ru' },
+  { test: /\p{Script=Bengali}/u, language: 'bn' }, { test: /\p{Script=Tamil}/u, language: 'ta' },
+  { test: /\p{Script=Khmer}/u, language: 'km' }, { test: /\p{Script=Lao}/u, language: 'lo' },
+  { test: /\p{Script=Myanmar}/u, language: 'my' }, { test: /\p{Script=Georgian}/u, language: 'ka' },
+  { test: /\p{Script=Armenian}/u, language: 'hy' },
+];
+const LETTER = /\p{L}/u;
+
+/**
+ * The language to read a paragraph's text in (a BCP 47 tag), or null for the reader's own: the language its runs are
+ * marked in (w:lang, the attribute for the paragraph's script), or else the usual language of its script. The script
+ * is the one most of its letters are written in, kana counting with the ideographs around it.
+ */
+export function speechLanguage(text, runs = []) {
+  const counts = new Map();
+  for (const ch of text) {
+    if (!LETTER.test(ch)) continue;
+    const script = SCRIPTS.find(s => s.test.test(ch)) || null;
+    counts.set(script, (counts.get(script) || 0) + 1);
+  }
+  // Japanese writes kana among ideographs: a paragraph with both is Japanese.
+  const [kana, , han] = SCRIPTS;
+  if (counts.has(kana) && counts.has(han)) { counts.set(kana, counts.get(kana) + counts.get(han)); counts.delete(han); }
+  let script = null, most = 0;
+  for (const [each, count] of counts) if (count > most) { script = each; most = count; }
+  const marked = run => run[script?.slot || 'fontLanguage'];
+  const named = runs.map(marked).find(language => typeof language === 'string' && /^[a-z]{2,3}(?:-|$)/i.test(language) && !/^x-/i.test(language));
+  return named || script?.language || null;
+}
+
+const sameLanguage = (a, b) => a.split('-')[0].toLowerCase() === b.split('-')[0].toLowerCase();
+
+// Chinese, Japanese, Thai, Lao, Khmer and Myanmar put no spaces between words.
+const SPACELESS = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Thai}\p{Script=Lao}\p{Script=Khmer}\p{Script=Myanmar}]/u;
+let wordSegmenter;
+/**
+ * The word the voice says from `index` of `text`: the `length` characters it reports, or else the text up to the next
+ * space, or in a script without spaces the word the dictionary finds there. Empty when none starts there.
+ */
+export function spokenWord(text, index, length = 0) {
+  const token = /^[^\s]+/u.exec(text.slice(index))?.[0] || '';
+  if (length > 0) return token.slice(0, length);
+  if (!token || !SPACELESS.test(token)) return token;
+  wordSegmenter ??= typeof Intl?.Segmenter === 'function' ? new Intl.Segmenter(undefined, { granularity: 'word' }) : null;
+  const word = wordSegmenter?.segment(token).containing(0)?.segment;
+  return word || token;
 }
 
 export function createReadAloud({ editor, onState = () => {} }) {
@@ -74,11 +133,13 @@ export function createReadAloud({ editor, onState = () => {} }) {
     if (!p) { stop(); return; }
     current = p; from = offset; seen = body()?.text ?? '';
     const said = utterance = new SpeechSynthesisUtterance(p.text.slice(offset));
-    said.lang = document.documentElement.lang || navigator.language || 'en-US';
+    // A paragraph is read in its own language; the reader's when its text names none and is in their script.
+    const own = document.documentElement.lang || navigator.language || 'en-US';
+    said.lang = p.language && !sameLanguage(p.language, own) ? p.language : own;
     said.onboundary = e => {
       if (e.name && e.name !== 'word') return;
       const engine = editor(); if (utterance !== said || !engine) return;
-      const i = from + e.charIndex, word = /^[^\s]+/u.exec(p.text.slice(i))?.[0] || '';
+      const i = from + e.charIndex, word = spokenWord(p.text, i, e.charLength);
       if (!word) return;
       follow();
       // A word edited away is not shown; nor is one while a header, footer or note is being edited.
