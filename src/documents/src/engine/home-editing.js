@@ -35,10 +35,10 @@ export function nextCycleCase(text) {
  * Case-converted text with the same length as the source, so run boundaries and positions stay put. A
  * character whose conversion changes length (ß → SS) keeps its original form.
  */
-export function convertCase(text, mode, sentenceStart = true) {
+export function convertCase(text, mode, sentenceStart = true, { before = '', after = '' } = {}) {
   const chars = [...text];
   let start = sentenceStart, wordStart = true;
-  return chars.map(ch => {
+  return chars.map((ch, index) => {
     const letter = /\p{L}/u.test(ch);
     let out = ch;
     if (letter) {
@@ -49,6 +49,7 @@ export function convertCase(text, mode, sentenceStart = true) {
       else if (mode === 'title') out = wordStart ? upper : lower;
       else if (mode === 'sentence') out = start ? upper : lower;
       if (out.length !== ch.length) out = ch;
+      else if (out === 'σ' && ch === 'Σ' && finalSigma(chars, index, before, after)) out = 'ς';
       start = false;
     }
     if (mode === 'sentence' && /[.!?\n\f\v]/.test(ch)) start = true;
@@ -56,6 +57,19 @@ export function convertCase(text, mode, sentenceStart = true) {
     wordStart = !(letter || /[\p{N}\p{M}'’]/u.test(ch));
     return out;
   }).join('');
+}
+
+// Greek capital sigma lowercases to the final form ς at the end of a word (Unicode's Final_Sigma condition): after a
+// cased letter and before none, skipping the marks and apostrophes the case rules ignore. "ΟΔΟΣ" is "οδος".
+const CASED = /\p{Cased}/u, CASE_IGNORABLE = /\p{Case_Ignorable}/u;
+function finalSigma(chars, index, before, after) {
+  // Whether the first letter the case rules do not skip, from `from` by `step`, is cased; null when there is none.
+  const side = (letters, from, step) => {
+    for (let i = from; i >= 0 && i < letters.length; i += step) if (!CASE_IGNORABLE.test(letters[i])) return CASED.test(letters[i]);
+    return null;
+  };
+  const previous = side(chars, index - 1, -1) ?? side([...before], before.length - 1, -1) ?? false;
+  return previous && !(side(chars, index + 1, 1) ?? side([...after], 0, 1) ?? false);
 }
 
 /** Whether the text before a position ends a sentence, so Sentence case capitalizes the first letter. */
@@ -85,7 +99,7 @@ export function changeCase(model, mode) {
     [start, end] = word;
   }
   if (mode === 'cycle') mode = nextCycleCase(text.slice(start, end));
-  const converted = convertCase(text.slice(start, end), mode, sentenceStartsAt(text, start));
+  const converted = convertCase(text.slice(start, end), mode, sentenceStartsAt(text, start), { before: text.slice(Math.max(0, start - 16), start), after: text.slice(end, end + 16) });
   if (converted === text.slice(start, end)) return false;
   const changes = [];
   let at = 0;
