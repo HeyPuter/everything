@@ -90,13 +90,15 @@ export class TaskPane {
     const list = h('div', { class: 'file-list', role: 'list', 'aria-busy': 'true' }, h('div', { class: 'field-label' }, 'Loading...'));
     body.append(h('div', { class: 'field-label' }, cloudAvailable() ? 'Your parts' : 'Parts in this browser'), list);
     try {
-      const parts = await listParts();
+      let cloudError = '';
+      const parts = await listParts((e) => { cloudError = storageError(e); });
       list.textContent = '';
       list.removeAttribute('aria-busy');
+      if (cloudError) list.before(h('div', { class: 'field-label', role: 'alert' }, `Your cloud parts could not be listed: ${cloudError}`));
       // A list role needs list items: the empty message is shown without it.
       if (!parts.length) {
         list.removeAttribute('role');
-        list.append(h('div', { class: 'field-label' }, 'No saved parts yet.'));
+        list.append(h('div', { class: 'field-label' }, cloudError ? 'No parts saved in this browser.' : 'No saved parts yet.'));
       }
       for (const p of parts.slice(0, 50)) {
         // Buttons keep their role; list items wrap them (as in the Open dialog).

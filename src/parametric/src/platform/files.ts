@@ -162,8 +162,12 @@ export async function renameCloud(location: Location & { type: 'cloud' }, newNam
   return { type: 'cloud', path: item?.path || location.path.replace(/[^/]+$/, `${safeName(newName)}${EXT}`) };
 }
 
-/** Parts the user can open: cloud folder listing plus browser storage. */
-export async function listParts(): Promise<FileEntry[]> {
+/**
+ * Parts the user can open: cloud folder listing plus browser storage. When
+ * the cloud cannot be listed (offline, say), the parts in this browser are
+ * still returned and `onCloudError` is told why the cloud ones are missing.
+ */
+export async function listParts(onCloudError?: (err: unknown) => void): Promise<FileEntry[]> {
   const out: FileEntry[] = [];
   if (cloudAvailable()) {
     try {
@@ -173,7 +177,7 @@ export async function listParts(): Promise<FileEntry[]> {
         out.push({ name: it.name.slice(0, -EXT.length), location: { type: 'cloud', path: it.path }, modified: toMs(it.modified), size: it.size });
       }
     } catch (err) {
-      if (!isMissing(err)) throw err;
+      if (!isMissing(err)) onCloudError?.(err);
     }
   }
   for (const p of readIndex()) out.push({ name: p.name, location: { type: 'local', id: p.id }, modified: p.modified, size: p.size });

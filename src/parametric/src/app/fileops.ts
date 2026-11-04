@@ -163,17 +163,14 @@ export class FileOps {
   /** Open dialog listing cloud and browser-stored parts. */
   async open() {
     const app = this.app;
-    let entries: FileEntry[] = [];
-    try {
-      entries = await listParts();
-    } catch (e) {
-      toast({ kind: 'error', message: storageError(e) });
-    }
+    // Parts in this browser stay listed when the cloud cannot be reached.
+    let cloudError = '';
+    const entries = await listParts((e) => { cloudError = storageError(e); });
     // A list role needs list items, so the empty message is shown without it.
     const list = h('div', { class: 'file-list', role: 'list' });
     const showEmpty = () => {
       list.removeAttribute('role');
-      list.replaceChildren(h('p', {}, cloudAvailable() ? 'No saved parts yet.' : 'No parts saved in this browser yet. Sign in to Puter to keep parts in your cloud storage.'));
+      list.replaceChildren(h('p', {}, cloudError ? 'No parts saved in this browser.' : cloudAvailable() ? 'No saved parts yet.' : 'No parts saved in this browser yet. Sign in to Puter to keep parts in your cloud storage.'));
     };
     let chosen: FileEntry | null = null;
     let close: ((v: string | null) => void) | null = null;
@@ -200,7 +197,7 @@ export class FileOps {
       del.addEventListener('click', () => void remove());
       list.append(row);
     }
-    const body = h('div', {}, list);
+    const body = h('div', {}, cloudError ? h('p', { role: 'alert' }, `Your cloud parts could not be listed: ${cloudError}`) : null, list);
     let sharedChosen: { readOnly: boolean } | null = null;
     if (cloudAvailable()) {
       const shared = h('div', { class: 'file-list', role: 'list', 'aria-busy': 'true' }, h('p', { class: 'field-label' }, 'Loading...'));
