@@ -150,4 +150,23 @@ test.describe('sketching', () => {
     expect(layers).toEqual([]);
     expect(errors).toEqual([]);
   });
+  test('dragging geometry keeps its definition state and colour', async ({ page }) => {
+    const errors = await openApp(page);
+    const { x, y } = await startSketch(page);
+    await page.locator('[data-cmd="tool:rectangle"]').click();
+    await page.mouse.click(x - 100, y + 60);
+    await page.mouse.click(x + 100, y - 60);
+    await page.keyboard.press('Escape');
+    const status = page.locator('.statusbar');
+    await expect(status).toContainText('Under Defined (4 DOF)');
+    await page.mouse.move(x + 100, y);
+    await page.mouse.down();
+    await page.mouse.move(x + 140, y + 10, { steps: 5 });
+    // Mid-drag the rectangle is still under defined (blue), not shown as fully defined.
+    await expect(status).toContainText('Under Defined (4 DOF)');
+    const free = await page.evaluate(() => (window as unknown as { __parametric: { sketchEditor: { solve: { freeEntities: Set<string> } } } }).__parametric.sketchEditor.solve.freeEntities.size);
+    expect(free).toBeGreaterThan(0);
+    await page.mouse.up();
+    expect(errors).toEqual([]);
+  });
 });

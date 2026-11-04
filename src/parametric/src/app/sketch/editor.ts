@@ -289,17 +289,27 @@ export class SketchEditor implements ViewportTool {
       const r = dist2(ix.pt(c.c), raw);
       this.app.store.change('Drag', (doc) => {
         const s2 = doc.features.find((f) => f.id === this.sketchId) as SketchFeature;
-        this.solve = solveSketch(s2.entities, s2.constraints, { value: this.dimValue, drag: { kind: 'radius', id: c.id, r }, analyze: false });
+        this.keepAnalysis(solveSketch(s2.entities, s2.constraints, { value: this.dimValue, drag: { kind: 'radius', id: c.id, r }, analyze: false }));
       }, 'sketch');
     } else if (d.kind === 'points' && d.ids!.length) {
       const dx = raw[0] - d.grab![0], dy = raw[1] - d.grab![1];
       const targets = d.start!.map((p) => [p[0] + dx, p[1] + dy] as Vec2);
       this.app.store.change('Drag', (doc) => {
         const s2 = doc.features.find((f) => f.id === this.sketchId) as SketchFeature;
-        this.solve = solveSketch(s2.entities, s2.constraints, { value: this.dimValue, drag: { kind: 'points', ids: d.ids!, targets }, analyze: false });
+        this.keepAnalysis(solveSketch(s2.entities, s2.constraints, { value: this.dimValue, drag: { kind: 'points', ids: d.ids!, targets }, analyze: false }));
       }, 'sketch');
     }
     this.queueRender();
+  }
+
+  /**
+   * Takes a drag frame's solve, which skips the rank analysis for speed. A
+   * drag never changes the relations, so the definition state (colours, DOF,
+   * status) of the last full solve still holds until the drag ends.
+   */
+  private keepAnalysis(res: SolveResult) {
+    const prev = this.solve;
+    this.solve = prev ? { ...res, status: prev.status, dof: prev.dof, freeEntities: prev.freeEntities, badConstraints: prev.badConstraints, conflicting: prev.conflicting } : res;
   }
 
   pointerUp(e: VPEvent) {
