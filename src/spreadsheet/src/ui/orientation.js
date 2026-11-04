@@ -1,4 +1,5 @@
 import { el, isComposing } from './dom.js';
+import { t } from '../i18n/index.js';
 
 /** Angle picker. All changes are dialog drafts. */
 export function orientationControl(initial, change) {
@@ -23,12 +24,12 @@ export function orientationControl(initial, change) {
   shape('text', { x: 22, y: 83, class: 'fc-angle-text' }, ray).textContent = 'Ab';
   shape('circle', { cx: 12, cy: 90, r: 3, class: 'fc-angle-origin' });
   const node = el('div.fc-orientation-dial', { role: 'slider', tabindex: 0,
-    'aria-label': 'Text orientation', 'aria-orientation': 'vertical', 'aria-valuemin': -90, 'aria-valuemax': 90,
-    title: 'Click or drag to rotate. Arrow keys change one degree; Page Up and Page Down change 15 degrees.' }, svg);
+    'aria-label': t('orientation.label'), 'aria-orientation': 'vertical', 'aria-valuemin': -90, 'aria-valuemax': 90,
+    title: t('orientation.hint') }, svg);
   function update(next) {
     value = Number(next) || 0;
     node.setAttribute('aria-valuenow', String(value));
-    node.setAttribute('aria-valuetext', `${value} degrees`);
+    node.setAttribute('aria-valuetext', t('orientation.degrees', { value }));
     ray.setAttribute('transform', `rotate(${-value} 12 90)`);
   }
   const set = next => { update(Math.max(-90, Math.min(90, next))); change(value); };

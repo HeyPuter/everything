@@ -17,6 +17,7 @@
 import { optionState } from './option-state.js';
 import { IMPORT_EXTENSIONS } from '../core/filetypes.js';
 import { trackEvent, trackExport } from './analytics.js';
+import { t, compareText } from '../i18n/index.js';
 
 export const FOLDER = 'Spreadsheets';
 export const SETTINGS_KEY = 'spreadsheet:settings:v1';
@@ -180,8 +181,8 @@ export function unreachable(err) {
  * failure to connect as `what` ("Could not rename the file") with what to do, not the browser's "Failed to fetch".
  */
 export function failureText(err, what) {
-  if (globalThis.navigator?.onLine === false) return `${what}: you are offline. Connect to the internet, then try again`;
-  if (unreachable(err)) return `${what}: Puter could not be reached. Check your connection, then try again`;
+  if (globalThis.navigator?.onLine === false) return t('puter.failure.offline', { what });
+  if (unreachable(err)) return t('puter.failure.unreachable', { what });
   return String(err?.message || err?.error?.message || (typeof err === 'string' ? err : '')).trim() || what;
 }
 
@@ -480,7 +481,7 @@ function accessRow(share) {
   const pending = !!share?.pending;
   const who = share?.anyone ? 'anyone' : pending ? 'invite' : share?.holder ? 'user' : 'team';
   const team = share?.holderTeam; // { uid, name, handle }, either of the last two possibly null
-  const label = who === 'anyone' ? 'Anyone with the link' : pending ? (share.recipientEmail || 'Invited by email') : who === 'user' ? share.holder : (team?.name || team?.handle || 'A team');
+  const label = who === 'anyone' ? t('puter.access.anyone') : pending ? (share.recipientEmail || t('puter.access.invited')) : who === 'user' ? share.holder : (team?.name || team?.handle || t('puter.access.team'));
   const recipient = share?.inheritedFrom ? null : who === 'user' ? share.holder : who === 'invite' ? share.recipientEmail || null : null;
   return { uid: share?.uid ?? null, who, label, mode: share?.mode || 'read', pending, recipient, inheritedFrom: share?.inheritedFrom || null, issuer: share?.issuer || null };
 }
@@ -511,7 +512,7 @@ export async function shareAccess(path) {
   catch (e) { throw shareError(e); }
   const order = { user: 0, invite: 1, team: 2, anyone: 3 };
   return (shares || []).map(accessRow)
-    .sort((a, b) => order[a.who] - order[b.who] || a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }));
+    .sort((a, b) => order[a.who] - order[b.who] || compareText(a.label, b.label));
 }
 
 /**
@@ -557,7 +558,7 @@ export async function sharedModeOf({ path, uid = null }) {
 /** Leave a share someone else gave this user: their own access to drop. */
 export async function leaveShare(path) {
   const me = await getUser();
-  if (!me?.username) throw new Error('Could not tell who is signed in');
+  if (!me?.username) throw new Error(t('puter.share.whoIsSignedIn'));
   return unshareFile(path, me.username);
 }
 
@@ -574,20 +575,20 @@ export async function puterShareLink(path) {
 export function shareProblem(err) {
   const code = err?.code || err?.error?.code || '';
   switch (code) {
-    case 'user_does_not_exist': return 'No Puter account has that username. Check the spelling, or enter their email address to invite them.';
-    case 'recipient_not_accepting_shares': return 'That person is not accepting shares.';
-    case 'email_not_allowed': return 'That email address cannot receive an invitation.';
-    case 'cannot_share_with_self': return 'That is you. Enter someone else’s username or email address.';
-    case 'cannot_share_with_owner': return 'That person owns this spreadsheet already.';
-    case 'forbidden': return 'Only the owner of this spreadsheet, or someone they let manage it, can share it.';
-    case 'subject_does_not_exist': return 'This spreadsheet cannot be shared from here. Only files you own, or may manage, can be shared.';
-    case 'share_daily_limit_reached': return 'You have shared as much as Puter allows in one day. Try again tomorrow.';
-    case 'phone_verification_required': return 'Puter needs a verified phone number on your account before you can share files.';
-    case 'card_verification_required': return 'Puter needs a verified card on your account before you can share files.';
-    case 'invalid_mode': return 'That level of access cannot be given.';
-    case 'account_is_not_verified': return 'Confirm your email address on Puter before you share files.';
-    case 'too_many_requests': return 'That was too many changes at once. Wait a moment, then try again.';
-    default: return err?.message || err?.error?.message || (typeof err === 'string' ? err : 'Puter could not complete the share');
+    case 'user_does_not_exist': return t('puter.share.noSuchUser');
+    case 'recipient_not_accepting_shares': return t('puter.share.notAccepting');
+    case 'email_not_allowed': return t('puter.share.emailNotAllowed');
+    case 'cannot_share_with_self': return t('puter.share.withSelf');
+    case 'cannot_share_with_owner': return t('puter.share.withOwner');
+    case 'forbidden': return t('puter.share.forbidden');
+    case 'subject_does_not_exist': return t('puter.share.notShareable');
+    case 'share_daily_limit_reached': return t('puter.share.dailyLimit');
+    case 'phone_verification_required': return t('puter.share.phoneVerification');
+    case 'card_verification_required': return t('puter.share.cardVerification');
+    case 'invalid_mode': return t('puter.share.invalidMode');
+    case 'account_is_not_verified': return t('puter.share.notVerified');
+    case 'too_many_requests': return t('puter.share.tooManyRequests');
+    default: return err?.message || err?.error?.message || (typeof err === 'string' ? err : t('puter.share.failed'));
   }
 }
 
@@ -611,8 +612,8 @@ export function hasAI() {
 
 /** How much a web address may serve to a formula or a picture: plenty for any sheet the cell budgets allow, not enough to fill memory. */
 export const MAX_FETCH_BYTES = 20 * 1024 * 1024;
-const tooLarge = (url) => Object.assign(new Error(`The response from ${url} is too large (over ${MAX_FETCH_BYTES / (1024 * 1024)} MB)`), { code: 'too-large' });
-const notPublic = (url) => Object.assign(new Error(`Cannot fetch ${url}: only addresses on the public internet can be fetched, not this computer's or a private network's`), { code: 'not-public' });
+const tooLarge = (url) => Object.assign(new Error(t('puter.fetch.tooLarge', { url, size: MAX_FETCH_BYTES / (1024 * 1024) })), { code: 'too-large' });
+const notPublic = (url) => Object.assign(new Error(t('puter.fetch.notPublic', { url })), { code: 'not-public' });
 
 /**
  * Is `url` a web address on the public internet: http(s), to a host that is not this machine, a
@@ -657,7 +658,7 @@ async function fetchResponse(url) {
   const p = window.puter;
   const doFetch = p?.net?.fetch ? (u) => p.net.fetch(u) : (u) => fetch(u);
   const res = await doFetch(url);
-  if (!res || (typeof res.ok === 'boolean' && !res.ok)) throw new Error(`Could not fetch ${url}`);
+  if (!res || (typeof res.ok === 'boolean' && !res.ok)) throw new Error(t('puter.fetch.failed', { url }));
   return res;
 }
 
@@ -766,7 +767,7 @@ function toolInput(input) {
 function aiError(e) {
   if (e instanceof Error) return e;
   const inner = e?.error && typeof e.error === 'object' ? e.error : e;
-  const message = inner?.message || (typeof e?.error === 'string' ? e.error : '') || (typeof e === 'string' ? e : '') || 'The AI did not answer';
+  const message = inner?.message || (typeof e?.error === 'string' ? e.error : '') || (typeof e === 'string' ? e : '') || t('puter.aiNoAnswer');
   return Object.assign(new Error(message), { code: inner?.code || e?.code });
 }
 

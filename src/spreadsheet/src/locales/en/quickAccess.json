@@ -1,0 +1,23 @@
+{
+  "add": "Add to Quick Access Toolbar",
+  "collapseRibbon": "Collapse the Ribbon",
+  "customize": "Customize Quick Access Toolbar",
+  "customizeMore": "Customize Quick Access Toolbar…",
+  "customizeRibbon": "Customize the Ribbon…",
+  "expandRibbon": "Expand the Ribbon",
+  "filter": "Filter",
+  "find": "Find",
+  "insertChart": "Insert Chart",
+  "moreCommands": "More Commands…",
+  "newSpreadsheet": "New Spreadsheet",
+  "print": "Print",
+  "remove": "Remove from Quick Access Toolbar",
+  "showAbove": "Show Above the Ribbon",
+  "showBelow": "Show Below the Ribbon",
+  "showLabels": "Show Command Labels",
+  "sortAscending": "Sort Ascending",
+  "sortDescending": "Sort Descending",
+  "spelling": "Spelling",
+  "toolbar": "Quick Access Toolbar",
+  "withShortcut": "{label} ({keys})"
+}

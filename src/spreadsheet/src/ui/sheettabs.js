@@ -13,6 +13,7 @@ import { customColorRows, colorLabel } from './colorpicker.js';
 import { confirmDialog, promptDialog } from './modal.js';
 import { openMoveSheetDialog } from './movesheet.js';
 import { placeSheet } from '../core/sheet-placement.js';
+import { t } from '../i18n/index.js';
 
 const TAB_COLORS = ['#c22a2a', '#eb6834', '#eda100', '#1baf7a', '#0a63f0', '#4a3aa7', '#e87ba4', '#6b6964'];
 
@@ -23,7 +24,7 @@ const MENU_BTN_INSET = 28;
 export const sheetHoldsWork = (sheet) => sheet.cells.size > 0 || sheet.charts.length > 0 || sheet.notes.size > 0 || sheet.comments?.size > 0 || sheet.tables.length > 0;
 
 export function createSheetTabs(ctx, { excelLayout = false } = {}) {
-  const strip = el('div.tab-strip', { role: 'tablist', 'aria-label': 'Sheets' });
+  const strip = el('div.tab-strip', { role: 'tablist', 'aria-label': t('sheettabs.sheets') });
   // A tablist may own nothing but tabs, so the active sheet's options button is the tablist's
   // neighbour: next in reading order, and laid over the end of the active tab's chip on screen.
   const menuBtn = el('button.tab-menu-btn', {
@@ -47,26 +48,26 @@ export function createSheetTabs(ctx, { excelLayout = false } = {}) {
   // the arrows move around the cells it shows; a key that activates them (detail 0) leaves focus with them.
   const pointerBackToGrid = (e) => { if (e.detail > 0) ctx.grid?.focus?.(); };
   const addBtn = el('button.icon-btn.tab-add', {
-    type: 'button', html: icon('plus', 18, 2), 'aria-label': 'Add sheet', title: 'Add sheet',
+    type: 'button', html: icon('plus', 18, 2), 'aria-label': t('sheettabs.addSheet'), title: t('sheettabs.addSheet'),
     onclick: (e) => { act('newSheet', null, () => ctx.wb.addSheet()); pointerBackToGrid(e); },
   });
   const openAllSheets = (anchor) => {
       const hidden = hiddenSheets();
       openMenu({
-        anchor, label: 'Sheets', focusChecked: true,
-        search: ctx.wb.sheets.length >= 8 ? 'Search sheets' : null,
+        anchor, label: t('sheettabs.sheets'), focusChecked: true,
+        search: ctx.wb.sheets.length >= 8 ? t('sheettabs.searchSheets') : null,
         minWidth: ctx.wb.sheets.length >= 8 ? 280 : null,
         items: [
           // The active sheet is one choice of several: a radio item, not a checkbox.
           ...ctx.wb.visibleSheets.map((s) => ({ label: s.name, checked: s.id === ctx.wb.activeSheetId, radio: true, onSelect: () => ctx.wb.setActiveSheet(s.id) })),
           hidden.length && { separator: true },
-          hidden.length && { header: 'Hidden' },
+          hidden.length && { header: t('sheettabs.hidden') },
           ...hidden.map((s) => ({ label: s.name, icon: 'eyeOff', onSelect: () => act('showSheet', s.id, () => ctx.wb.setSheetHidden(s.id, false)) })),
         ],
       });
   };
   const allBtn = el('button.icon-btn.tab-all', {
-    type: 'button', html: icon('layers', 18), 'aria-label': 'All sheets', title: 'All sheets',
+    type: 'button', html: icon('layers', 18), 'aria-label': t('sheettabs.allSheets'), title: t('sheettabs.allSheets'),
     onclick: (e) => openAllSheets(e.currentTarget),
   });
   // Ctrl/Cmd+click goes to the first or last tab.
@@ -79,14 +80,14 @@ export function createSheetTabs(ctx, { excelLayout = false } = {}) {
     updateOverflow();
   };
   const scrollLeft = el('button.icon-btn.tab-scroll-btn', {
-    type: 'button', html: icon('chevL', 16, 2), 'aria-label': 'Scroll sheets left', title: 'Scroll sheets left (Ctrl+click: first sheet; right-click: all sheets)',
+    type: 'button', html: icon('chevL', 16, 2), 'aria-label': t('sheettabs.scrollLeft'), title: t('sheettabs.scrollLeftTitle'),
     onclick: (e) => scrollTabs(-1, e.ctrlKey || e.metaKey),
   });
   const scrollRight = el('button.icon-btn.tab-scroll-btn', {
-    type: 'button', html: icon('chevR', 16, 2), 'aria-label': 'Scroll sheets right', title: 'Scroll sheets right (Ctrl+click: last sheet; right-click: all sheets)',
+    type: 'button', html: icon('chevR', 16, 2), 'aria-label': t('sheettabs.scrollRight'), title: t('sheettabs.scrollRightTitle'),
     onclick: (e) => scrollTabs(1, e.ctrlKey || e.metaKey),
   });
-  const navigation = el('div.tab-navigation', { hidden: true, role: 'group', 'aria-label': 'Scroll sheets' }, scrollLeft, scrollRight);
+  const navigation = el('div.tab-navigation', { hidden: true, role: 'group', 'aria-label': t('sheettabs.scrollSheets') }, scrollLeft, scrollRight);
   navigation.addEventListener('pointerdown', (e) => { if (e.button === 0) e.preventDefault(); });
   // Right-clicking the scroll arrows lists every sheet to go to.
   navigation.addEventListener('contextmenu', (e) => { e.preventDefault(); openAllSheets(e.target.closest('button') || navigation); });
@@ -117,7 +118,7 @@ export function createSheetTabs(ctx, { excelLayout = false } = {}) {
     // Under Protect Workbook the name cannot change: say so now, not after a new one has been typed.
     if (ctx.wb._structureLocked()) return;
     const name = await promptDialog({
-      title: 'Rename sheet', label: 'Sheet name', value: sheet.name, confirmLabel: 'Rename', trim: false,
+      title: t('sheettabs.renameSheet'), label: t('sheettabs.sheetName'), value: sheet.name, confirmLabel: t('common.rename'), trim: false,
       validate: (v) => ctx.wb.validateSheetName(v, sheet.id),
     });
     if (name != null) ctx.wb.renameSheet(sheet.id, name);
@@ -128,7 +129,7 @@ export function createSheetTabs(ctx, { excelLayout = false } = {}) {
   const renameVia = (sheet) => act('renameSheet', sheet.id, () => rename(sheet));
 
   /** The question before a sheet holding work goes; the editor's Delete sheet command asks it too. */
-  const confirmDelete = (sheet) => confirmDialog({ title: `Delete "${sheet.name}"?`, message: 'The sheet and everything on it will be removed. You can undo this.', confirmLabel: 'Delete sheet' });
+  const confirmDelete = (sheet) => confirmDialog({ title: t('sheettabs.deleteTitle', { name: sheet.name }), message: t('sheettabs.deleteMessage'), confirmLabel: t('sheettabs.deleteSheet') });
 
   // Without an editor the tabs ask and delete; with one, its command does both, committing an open edit first.
   async function remove(sheet) {
@@ -149,30 +150,30 @@ export function createSheetTabs(ctx, { excelLayout = false } = {}) {
     // Under Protect Workbook, what would add, remove, rename, move, colour, hide or show a sheet is greyed, as in Excel.
     const locked = !!ctx.wb.structureProtected;
     openMenu({
-      anchor, x, y, label: `${sheet.name} options`,
+      anchor, x, y, label: t('sheettabs.sheetOptions', { name: sheet.name }),
       items: [
         // The tab menu, in order: Insert, Delete, Rename, Move or Copy…, Protect, Tab Color, Hide, Unhide; the app's
         // own tab tools follow. The ellipsis marks the items that open a dialog first.
-        { label: 'Insert Sheet', icon: 'insertSheet', disabled: locked, onSelect: () => act('newSheet', null, () => ctx.wb.addSheet()) },
-        { label: holdsWork(sheet) ? 'Delete…' : 'Delete', icon: 'deleteSheet', danger: true, disabled: locked || ctx.wb.visibleSheets.length <= 1, onSelect: () => act('deleteSheet', sheet.id, () => remove(sheet)) },
-        { label: 'Rename…', icon: 'pencil', disabled: locked, onSelect: () => renameVia(sheet) },
-        { label: 'Move or Copy…', icon: 'layers', disabled: locked, onSelect: () => act('moveOrCopySheet', sheet.id, () => openMoveSheetDialog(ctx, sheet.id)) },
+        { label: t('sheettabs.insertSheet'), icon: 'insertSheet', disabled: locked, onSelect: () => act('newSheet', null, () => ctx.wb.addSheet()) },
+        { label: holdsWork(sheet) ? t('sheettabs.deleteEllipsis') : t('common.delete'), icon: 'deleteSheet', danger: true, disabled: locked || ctx.wb.visibleSheets.length <= 1, onSelect: () => act('deleteSheet', sheet.id, () => remove(sheet)) },
+        { label: t('sheettabs.renameEllipsis'), icon: 'pencil', disabled: locked, onSelect: () => renameVia(sheet) },
+        { label: t('sheettabs.moveOrCopy'), icon: 'layers', disabled: locked, onSelect: () => act('moveOrCopySheet', sheet.id, () => openMoveSheetDialog(ctx, sheet.id)) },
         sheet.protected
-          ? { label: 'Unprotect Sheet', icon: 'unprotect', onSelect: () => act('protectSheet', sheet.id, () => ctx.wb.setSheetProtected(sheet.id, false)) }
-          : { label: 'Protect Sheet', icon: 'protectSheet', onSelect: () => act('protectSheet', sheet.id, () => ctx.wb.setSheetProtected(sheet.id, true)) },
-        { label: 'Tab Color', icon: 'fill', disabled: locked, onSelect: () => colorMenu(sheet, anchor, x, y) },
-        { label: 'Hide', icon: 'hideEye', disabled: locked || ctx.wb.visibleSheets.length <= 1, onSelect: () => act('hideSheet', sheet.id, () => ctx.wb.setSheetHidden(sheet.id, true)) },
+          ? { label: t('sheettabs.unprotectSheet'), icon: 'unprotect', onSelect: () => act('protectSheet', sheet.id, () => ctx.wb.setSheetProtected(sheet.id, false)) }
+          : { label: t('sheettabs.protectSheet'), icon: 'protectSheet', onSelect: () => act('protectSheet', sheet.id, () => ctx.wb.setSheetProtected(sheet.id, true)) },
+        { label: t('sheettabs.tabColor'), icon: 'fill', disabled: locked, onSelect: () => colorMenu(sheet, anchor, x, y) },
+        { label: t('common.hide'), icon: 'hideEye', disabled: locked || ctx.wb.visibleSheets.length <= 1, onSelect: () => act('hideSheet', sheet.id, () => ctx.wb.setSheetHidden(sheet.id, true)) },
         // Unhide lists the hidden sheets.
-        { label: 'Unhide', icon: 'showHide', disabled: locked || !hiddenSheets().length, submenu: hiddenSheets().map((h) => ({ label: h.name, icon: 'showHide', onSelect: () => act('showSheet', h.id, () => ctx.wb.setSheetHidden(h.id, false)) })) },
+        { label: t('sheettabs.unhide'), icon: 'showHide', disabled: locked || !hiddenSheets().length, submenu: hiddenSheets().map((h) => ({ label: h.name, icon: 'showHide', onSelect: () => act('showSheet', h.id, () => ctx.wb.setSheetHidden(h.id, false)) })) },
         { separator: true },
-        { label: 'Duplicate', icon: 'duplicate', disabled: locked, onSelect: () => act('duplicateSheet', sheet.id, () => ctx.wb.duplicateSheet(sheet.id)) },
-        ctx.run && { label: 'Copy to another spreadsheet…', icon: 'copy', onSelect: () => ctx.run('copySheetTo', sheet.id) },
-        { label: 'Move left', icon: 'chevL', disabled: locked || !before, onSelect: () => ctx.wb.moveSheet(sheet.id, ctx.wb.sheets.indexOf(before)) },
-        { label: 'Move right', icon: 'chevR', disabled: locked || !after, onSelect: () => ctx.wb.moveSheet(sheet.id, ctx.wb.sheets.indexOf(after)) },
+        { label: t('sheettabs.duplicate'), icon: 'duplicate', disabled: locked, onSelect: () => act('duplicateSheet', sheet.id, () => ctx.wb.duplicateSheet(sheet.id)) },
+        ctx.run && { label: t('sheettabs.copyToAnother'), icon: 'copy', onSelect: () => ctx.run('copySheetTo', sheet.id) },
+        { label: t('sheettabs.moveLeft'), icon: 'chevL', disabled: locked || !before, onSelect: () => ctx.wb.moveSheet(sheet.id, ctx.wb.sheets.indexOf(before)) },
+        { label: t('sheettabs.moveRight'), icon: 'chevR', disabled: locked || !after, onSelect: () => ctx.wb.moveSheet(sheet.id, ctx.wb.sheets.indexOf(after)) },
         { separator: true },
         // Grouping: every sheet on show at once, or back to the one in view.
-        { label: 'Select All Sheets', icon: 'layers', disabled: visible.length <= 1, onSelect: () => act('selectAllSheets', null, () => ctx.wb.groupSheets(visible.map((v) => v.id))) },
-        ctx.wb.sheetGroup && { label: 'Ungroup Sheets', icon: 'layers', onSelect: () => act('ungroupSheets', null, () => ctx.wb.ungroupSheets()) },
+        { label: t('sheettabs.selectAllSheets'), icon: 'layers', disabled: visible.length <= 1, onSelect: () => act('selectAllSheets', null, () => ctx.wb.groupSheets(visible.map((v) => v.id))) },
+        ctx.wb.sheetGroup && { label: t('sheettabs.ungroupSheets'), icon: 'layers', onSelect: () => act('ungroupSheets', null, () => ctx.wb.ungroupSheets()) },
       ].filter(Boolean),
     });
   }
@@ -187,16 +188,16 @@ export function createSheetTabs(ctx, { excelLayout = false } = {}) {
     const paint = (hex) => {
       menu.close();
       const ids = ctx.wb.isSheetGrouped(sheet.id) ? ctx.wb.sheetGroup : [sheet.id];
-      ctx.wb.transaction('Sheet color', () => { for (const id of ids) ctx.wb.setSheetColor(id, hex); });
+      ctx.wb.transaction(t('sheettabs.sheetColorUndo'), () => { for (const id of ids) ctx.wb.setSheetColor(id, hex); });
     };
-    const swatches = el('div.swatches', { role: 'group', 'aria-label': 'Tab colors', 'data-cols': 6 },
-      el('button.swatch.none', { type: 'button', role: 'menuitemradio', 'aria-checked': String(!current), 'aria-label': 'No color', title: 'No color', onclick: () => paint(null) }),
+    const swatches = el('div.swatches', { role: 'group', 'aria-label': t('sheettabs.tabColors'), 'data-cols': 6 },
+      el('button.swatch.none', { type: 'button', role: 'menuitemradio', 'aria-checked': String(!current), 'aria-label': t('sheettabs.noColor'), title: t('sheettabs.noColor'), onclick: () => paint(null) }),
       ...TAB_COLORS.map((hex) => el('button.swatch', {
         type: 'button', role: 'menuitemradio', 'aria-checked': String(current === hex), 'aria-label': colorLabel(hex), title: colorLabel(hex), style: { background: hex },
         onclick: () => paint(hex),
       })));
-    const extra = customColorRows({ current, label: 'tab color', onPick: paint });
-    const menu = openMenu({ anchor, x, y, label: 'Tab color', items: [{ custom: swatches }, ...extra.map((custom) => ({ custom }))] });
+    const extra = customColorRows({ current, label: t('sheettabs.tabColorLower'), onPick: paint });
+    const menu = openMenu({ anchor, x, y, label: t('sheettabs.tabColorMenu'), items: [{ custom: swatches }, ...extra.map((custom) => ({ custom }))] });
     swatches.querySelector('[aria-checked="true"]')?.focus();
   }
 
@@ -215,7 +216,8 @@ export function createSheetTabs(ctx, { excelLayout = false } = {}) {
     const here = peers.get(sheetId);
     if (!here?.length) return null;
     const names = here.map((p) => p.name).join(', ');
-    return el('span.tab-peers', { role: 'img', 'aria-label': `Here: ${names}`, title: `Here: ${names}` },
+    const label = t('sheettabs.peersHere', { names });
+    return el('span.tab-peers', { role: 'img', 'aria-label': label, title: label },
       ...here.slice(0, 3).map((p) => el('span.tab-peer', { style: { '--peer': p.color } })),
       here.length > 3 && el('span.tab-peer-more', {}, `+${here.length - 3}`));
   }
@@ -231,7 +233,7 @@ export function createSheetTabs(ctx, { excelLayout = false } = {}) {
     // Greyed under Protect Workbook, but still answering a click with the reason (the workbook's refusal).
     const locked = !!ctx.wb.structureProtected;
     addBtn.setAttribute('aria-disabled', String(locked));
-    addBtn.title = locked ? 'Add sheet (the workbook\'s structure is protected)' : 'Add sheet';
+    addBtn.title = locked ? t('sheettabs.addSheetLocked') : t('sheettabs.addSheet');
     // The grid is the panel these tabs control: each tab points at it, and it is named by the active tab.
     const panel = ctx.grid?.el || null;
     if (panel) { panel.setAttribute('role', 'tabpanel'); if (!panel.id) panel.id = 'sheet-panel'; }
@@ -271,11 +273,11 @@ export function createSheetTabs(ctx, { excelLayout = false } = {}) {
           if (e.key === 'ContextMenu' || (e.key === 'F10' && e.shiftKey)) { e.preventDefault(); keyMenuAt = Date.now(); tabMenu(s, e.currentTarget); }
         },
       },
-        s.protected && el('span.tab-lock', { role: 'img', html: icon('lock', 12, 2.2), 'aria-label': 'Protected', title: 'Protected sheet' }),
+        s.protected && el('span.tab-lock', { role: 'img', html: icon('lock', 12, 2.2), 'aria-label': t('sheettabs.protected'), title: t('sheettabs.protectedSheet') }),
         // In a sheet view of one's own (View ▸ Sheet View), the tab says which.
         s.personalView && (() => {
-          const name = s.sheetViews?.find((v) => v.id === s.personalView.id)?.name || 'Sheet view';
-          return el('span.tab-view', { role: 'img', html: icon('eye', 12, 2), 'aria-label': `In sheet view ${name}`, title: `Sheet view: ${name}` });
+          const name = s.sheetViews?.find((v) => v.id === s.personalView.id)?.name || t('sheettabs.sheetViewDefault');
+          return el('span.tab-view', { role: 'img', html: icon('eye', 12, 2), 'aria-label': t('sheettabs.inSheetView', { name }), title: t('sheettabs.sheetViewTitle', { name }) });
         })(),
         // A name in a right-to-left script is laid out that way, its number and full stop at its own end, as a cell is.
         el('span.tab-name', { dir: 'auto' }, s.name),
@@ -290,7 +292,7 @@ export function createSheetTabs(ctx, { excelLayout = false } = {}) {
     const chip = strip.querySelector('.tab-item.active');
     if (panel) panel.setAttribute('aria-labelledby', `sheet-tab-${active}`);
     menuBtn.hidden = !chip;
-    menuBtn.setAttribute('aria-label', `${ctx.wb.sheet(active)?.name ?? 'Sheet'} options`);
+    menuBtn.setAttribute('aria-label', ctx.wb.sheet(active) ? t('sheettabs.sheetOptions', { name: ctx.wb.sheet(active).name }) : t('sheettabs.sheetOptionsDefault'));
     placeMenuButton();
     updateOverflow();
     chip?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
@@ -342,7 +344,7 @@ export function createSheetTabs(ctx, { excelLayout = false } = {}) {
   let draggedAt = 0;
   const dropSlot = (x) => {
     const tabs = [...strip.querySelectorAll('.tab')];
-    const index = tabs.findIndex((t) => { const r = t.getBoundingClientRect(); return x < r.left + r.width / 2; });
+    const index = tabs.findIndex((tab) => { const r = tab.getBoundingClientRect(); return x < r.left + r.width / 2; });
     return index < 0 ? tabs.length : index;
   };
   const endDrag = () => {
@@ -390,10 +392,10 @@ export function createSheetTabs(ctx, { excelLayout = false } = {}) {
   strip.addEventListener('keydown', (e) => { if (drag && e.key === 'Escape') { e.preventDefault(); endDrag(); } });
 
   const onChange = (e) => {
-    const t = e.detail?.type;
+    const type = e.detail?.type;
     // Not on 'history': every edit records an undo step, and whatever changes a tab (a rename or colour, a
     // sheet added, moved, hidden or restored by undo) already arrives as a structure or active-sheet change.
-    if (t === 'structure' || t === 'active-sheet' || t === 'load' || t === 'sheet-group') refresh();
+    if (type === 'structure' || type === 'active-sheet' || type === 'load' || type === 'sheet-group') refresh();
   };
   ctx.wb.addEventListener('change', onChange);
   refresh();

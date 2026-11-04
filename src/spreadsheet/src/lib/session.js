@@ -15,6 +15,7 @@
 import { applyTheme } from '../ui/theme.js';
 import { setLocale } from '../core/format.js';
 import * as P from './puter.js';
+import { t } from '../i18n/index.js';
 import { setStorageUser, setGuestStorage, storageScope, adoptGuestStorage, adoptStorageFrom, isAccountScope } from './account-storage.js';
 
 // A failed identity look-up is asked again after this long, then at doubling intervals, up to the cap.
@@ -165,7 +166,7 @@ class Session extends EventTarget {
 
   /** The name to show. */
   get username() {
-    return this.user?.username || (this.state === 'out' ? 'Guest' : 'Puter user');
+    return this.user?.username || (this.state === 'out' ? t('session.guest') : t('session.puterUser'));
   }
 
   async update(patch) {

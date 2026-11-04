@@ -13,15 +13,16 @@ import { menubarMenus, menuLeaves } from './menubar.js';
 import { commandCatalog } from './command-catalog.js';
 import { effectiveShortcut } from './custom-shortcuts.js';
 import { quickAccessStore, commandId, parseCommandId, addToQuickAccess, removeFromQuickAccess } from '../lib/customize.js';
+import { t } from '../i18n/index.js';
 
 /** Commands that open a menu of their own beside the button that ran them. */
 const MENU_COMMANDS = new Set(['functionMenu', 'cellStylesMenu', 'shapesMenu', 'formatAsTableMenu', 'themesMenu', 'themeColorsMenu', 'themeFontsMenu', 'themeEffectsMenu', 'wordArtMenu', 'pasteSpecialMenu']);
 
-/** The commands offered with a tick in the customize menu, for adding or removing at once. */
+/** The commands offered with a tick in the customize menu, for adding or removing at once (with their labels' keys). */
 const COMMON = [
-  ['new', 'New Spreadsheet'], ['open', 'Open'], ['save', 'Save'], ['print', 'Print'], ['spelling', 'Spelling'],
-  ['undo', 'Undo'], ['redo', 'Redo'], [commandId('sort', 'asc'), 'Sort Ascending'], [commandId('sort', 'desc'), 'Sort Descending'],
-  ['find', 'Find'], ['insertChart', 'Insert Chart'], ['filter', 'Filter'],
+  ['new', 'quickAccess.newSpreadsheet'], ['open', 'common.open'], ['save', 'common.save'], ['print', 'quickAccess.print'], ['spelling', 'quickAccess.spelling'],
+  ['undo', 'common.undo'], ['redo', 'common.redo'], [commandId('sort', 'asc'), 'quickAccess.sortAscending'], [commandId('sort', 'desc'), 'quickAccess.sortDescending'],
+  ['find', 'quickAccess.find'], ['insertChart', 'quickAccess.insertChart'], ['filter', 'quickAccess.filter'],
 ];
 
 /**
@@ -32,13 +33,14 @@ export function createQuickAccess(ctx, { root, place = () => {} }) {
   const fixed = new Map(); // id → the editor's own elements for it
   const autoSave = root.querySelector('.autosave-switch');
   for (const node of root.children) {
-    const id = node.dataset.qat || (node.getAttribute('aria-label') === 'Save' ? 'save' : null);
+    // The editor's Save is the one toolbar button it does not tag (its name is translated, so it is not read).
+    const id = node.dataset.qat || (node.getAttribute('aria-label') === 'Save' || node.classList.contains('qat-btn') ? 'save' : null);
     if (!id) continue;
     if (!fixed.has(id)) fixed.set(id, []);
     fixed.get(id).push(node);
   }
   const customize = el('button.icon-btn.qat-btn.qat-customize', {
-    type: 'button', html: icon('chevD', 12, 2), 'aria-label': 'Customize Quick Access Toolbar', title: 'Customize Quick Access Toolbar', 'aria-haspopup': 'menu',
+    type: 'button', html: icon('chevD', 12, 2), 'aria-label': t('quickAccess.customize'), title: t('quickAccess.customize'), 'aria-haspopup': 'menu',
     onclick: () => openCustomizeMenu(customize),
   });
   const made = new Map(); // id → button made here
@@ -58,7 +60,7 @@ export function createQuickAccess(ctx, { root, place = () => {} }) {
       oncontextmenu: (ev) => { ev.preventDefault(); openItemMenu(b, id); },
     }, el('span.qat-icon', { 'aria-hidden': 'true', html: e?.icon ? icon(e.icon, 18) : '' }, e?.icon ? null : label.charAt(0).toUpperCase()), el('span.qat-label', {}, label));
     b._command = { cmd, arg, label, glyph: e?.icon || null };
-    b.addEventListener('pointerenter', () => { const keys = effectiveShortcut({ cmd, arg, shortcut: e?.shortcut }); b.title = keys ? `${label} (${keys})` : label; });
+    b.addEventListener('pointerenter', () => { const keys = effectiveShortcut({ cmd, arg, shortcut: e?.shortcut }); b.title = keys ? t('quickAccess.withShortcut', { label, keys }) : label; });
     return b;
   }
 
@@ -95,9 +97,9 @@ export function createQuickAccess(ctx, { root, place = () => {} }) {
   function openItemMenu(anchor, id) {
     const qat = quickAccessStore.get();
     openMenu({
-      anchor, label: 'Quick Access Toolbar', minWidth: 240,
+      anchor, label: t('quickAccess.toolbar'), minWidth: 240,
       items: [
-        { label: 'Remove from Quick Access Toolbar', icon: 'x', onSelect: () => removeFromQuickAccess(id) },
+        { label: t('quickAccess.remove'), icon: 'x', onSelect: () => removeFromQuickAccess(id) },
         { separator: true },
         ...placementItems(qat),
       ],
@@ -107,9 +109,9 @@ export function createQuickAccess(ctx, { root, place = () => {} }) {
 
   function placementItems(qat) {
     return [
-      { label: 'Customize Quick Access Toolbar…', icon: 'customizeQuickAccess', onSelect: () => ctx.run('options', 'quickAccess') },
-      { label: qat.below ? 'Show Above the Ribbon' : 'Show Below the Ribbon', onSelect: () => quickAccessStore.set({ ...qat, below: !qat.below }) },
-      { label: 'Show Command Labels', checked: qat.labels, onSelect: () => quickAccessStore.set({ ...qat, labels: !qat.labels }) },
+      { label: t('quickAccess.customizeMore'), icon: 'customizeQuickAccess', onSelect: () => ctx.run('options', 'quickAccess') },
+      { label: qat.below ? t('quickAccess.showAbove') : t('quickAccess.showBelow'), onSelect: () => quickAccessStore.set({ ...qat, below: !qat.below }) },
+      { label: t('quickAccess.showLabels'), checked: qat.labels, onSelect: () => quickAccessStore.set({ ...qat, labels: !qat.labels }) },
     ];
   }
 
@@ -117,15 +119,15 @@ export function createQuickAccess(ctx, { root, place = () => {} }) {
     const qat = quickAccessStore.get();
     const canOpen = !!ctx.flags?.()?.pick;
     openMenu({
-      anchor, label: 'Customize Quick Access Toolbar', minWidth: 250,
+      anchor, label: t('quickAccess.customize'), minWidth: 250,
       items: [
-        { header: 'Customize Quick Access Toolbar' },
-        ...COMMON.filter(([id]) => id !== 'open' || canOpen).map(([id, label]) => ({
-          label, checked: qat.items.includes(id),
+        { header: t('quickAccess.customize') },
+        ...COMMON.filter(([id]) => id !== 'open' || canOpen).map(([id, key]) => ({
+          label: t(key), checked: qat.items.includes(id),
           onSelect: () => (qat.items.includes(id) ? removeFromQuickAccess(id) : addToQuickAccess(id)),
         })),
         { separator: true },
-        { label: 'More Commands…', onSelect: () => ctx.run('options', 'quickAccess') },
+        { label: t('quickAccess.moreCommands'), onSelect: () => ctx.run('options', 'quickAccess') },
         ...placementItems(qat).slice(1),
       ],
       onClose: (reason) => { if (reason === 'select') ctx.grid?.focus?.(); },
@@ -143,11 +145,11 @@ export function ribbonButtonMenuItems(ctx, command, { collapsed = false, toggleC
   const on = id && quickAccessStore.get().items.includes(id);
   return [
     id && (on
-      ? { label: 'Remove from Quick Access Toolbar', icon: 'x', onSelect: () => removeFromQuickAccess(id) }
-      : { label: 'Add to Quick Access Toolbar', icon: 'customizeQuickAccess', onSelect: () => addToQuickAccess(id) }),
+      ? { label: t('quickAccess.remove'), icon: 'x', onSelect: () => removeFromQuickAccess(id) }
+      : { label: t('quickAccess.add'), icon: 'customizeQuickAccess', onSelect: () => addToQuickAccess(id) }),
     id && { separator: true },
-    { label: 'Customize Quick Access Toolbar…', onSelect: () => ctx.run('options', 'quickAccess') },
-    { label: 'Customize the Ribbon…', icon: 'customizeRibbon', onSelect: () => ctx.run('options', 'ribbon') },
-    toggleCollapsed && { label: collapsed ? 'Expand the Ribbon' : 'Collapse the Ribbon', onSelect: toggleCollapsed },
+    { label: t('quickAccess.customizeMore'), onSelect: () => ctx.run('options', 'quickAccess') },
+    { label: t('quickAccess.customizeRibbon'), icon: 'customizeRibbon', onSelect: () => ctx.run('options', 'ribbon') },
+    toggleCollapsed && { label: collapsed ? t('quickAccess.expandRibbon') : t('quickAccess.collapseRibbon'), onSelect: toggleCollapsed },
   ].filter(Boolean);
 }

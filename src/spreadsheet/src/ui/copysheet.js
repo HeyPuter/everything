@@ -11,6 +11,7 @@ import { openModal, fieldAlert } from './modal.js';
 import { toast } from './toast.js';
 import * as P from '../lib/puter.js';
 import { workbookFromFile, workbookToXlsx, stripExtension } from '../core/io.js';
+import { t } from '../i18n/index.js';
 
 /** The sheet as a one-sheet workbook, imported into `target`; returns the sheet added there. */
 export function copySheetInto(target, source, sheetId, options = {}) {
@@ -28,8 +29,8 @@ export function openCopySheetDialog(ctx, sheetId) {
   if (ctx.grid?.editing && !ctx.grid.commitEdit()) return;
 
   let mode = 'new';
-  const nameInput = el('input.input', { type: 'text', value: sheet.name, 'aria-label': 'Name of the new spreadsheet', maxlength: 120, autocomplete: 'off' });
-  const fileSel = el('select.select', { 'aria-label': 'Spreadsheet to copy into', disabled: true }, el('option', { value: '' }, 'Loading…'));
+  const nameInput = el('input.input', { type: 'text', value: sheet.name, 'aria-label': t('copysheet.newNameLabel'), maxlength: 120, autocomplete: 'off' });
+  const fileSel = el('select.select', { 'aria-label': t('copysheet.targetLabel'), disabled: true }, el('option', { value: '' }, t('common.loading')));
   const { alert: error, refuse, clear: clearError } = fieldAlert('copy'); // a failed copy is about no field
   const radios = {};
   const labels = {};
@@ -44,7 +45,7 @@ export function openCopySheetDialog(ctx, sheetId) {
   // live region, so each turn of the listing — reading, failed, listed — is announced where it is read.
   const existingReasonId = fieldId('copy-existing');
   const existingReason = el('p.field-hint', { id: existingReasonId, role: 'status', hidden: true });
-  const retryBtn = el('button.btn.btn-ghost.btn-sm', { type: 'button', hidden: true, onclick: () => loadTargets() }, 'Try again');
+  const retryBtn = el('button.btn.btn-ghost.btn-sm', { type: 'button', hidden: true, onclick: () => loadTargets() }, t('common.tryAgain'));
   const say = (message) => { existingReason.textContent = message || ''; existingReason.hidden = !message; };
   function closeExisting(reason, { retry = false } = {}) {
     say(reason);
@@ -62,10 +63,10 @@ export function openCopySheetDialog(ctx, sheetId) {
     radios.existing.removeAttribute('aria-describedby');
     labels.existing.classList.remove('is-disabled');
   }
-  const newField = el('label.field', {}, el('span.field-label', {}, 'Name'), nameInput);
-  const existingField = el('label.field', {}, el('span.field-label', {}, 'Spreadsheet'), fileSel);
-  const hint = el('p.field-hint', {}, `The copy keeps the sheet's values, formulas, formatting, tables, and charts. References to other sheets keep links to this spreadsheet and cached source values.`);
-  const submitBtn = el('button.btn.btn-primary', { type: 'submit' }, 'Copy');
+  const newField = el('label.field', {}, el('span.field-label', {}, t('common.name')), nameInput);
+  const existingField = el('label.field', {}, el('span.field-label', {}, t('copysheet.spreadsheet')), fileSel);
+  const hint = el('p.field-hint', {}, t('copysheet.hint'));
+  const submitBtn = el('button.btn.btn-primary', { type: 'submit' }, t('common.copy'));
 
   function sync() {
     newField.hidden = mode !== 'new';
@@ -79,23 +80,23 @@ export function openCopySheetDialog(ctx, sheetId) {
   // changes the line and is announced again rather than repeating itself in silence.
   let attempted = false;
   function loadTargets() {
-    if (attempted) { say('Looking for your spreadsheets…'); retryBtn.disabled = true; retryBtn.setAttribute('aria-busy', 'true'); }
-    fileSel.replaceChildren(el('option', { value: '' }, 'Loading…'));
+    if (attempted) { say(t('copysheet.looking')); retryBtn.disabled = true; retryBtn.setAttribute('aria-busy', 'true'); }
+    fileSel.replaceChildren(el('option', { value: '' }, t('common.loading')));
     fileSel.disabled = true;
     const failed = attempted;
     return P.listFiles().then((files) => {
       const targets = files.filter((f) => /\.xlsx$/i.test(f.name) && !P.samePath(f.path, ctx.doc?.path));
       fileSel.replaceChildren(...(targets.length
         ? targets.map((f) => el('option', { value: f.path }, stripExtension(f.name)))
-        : [el('option', { value: '' }, 'No other spreadsheets yet')]));
+        : [el('option', { value: '' }, t('copysheet.noOthers'))]));
       fileSel.disabled = !targets.length;
-      if (!targets.length) closeExisting('There is no other spreadsheet in your Spreadsheets folder to copy into.');
-      else openExisting(failed ? 'Your spreadsheets are listed now.' : '');
+      if (!targets.length) closeExisting(t('copysheet.noOthersReason'));
+      else openExisting(failed ? t('copysheet.listedNow') : '');
     }).catch(() => {
-      fileSel.replaceChildren(el('option', { value: '' }, 'Could not list your spreadsheets'));
+      fileSel.replaceChildren(el('option', { value: '' }, t('copysheet.couldNotList')));
       closeExisting(failed
-        ? 'Still could not list your spreadsheets. Check your connection, then choose Try again.'
-        : 'Your spreadsheets could not be listed. Choose Try again to look once more.', { retry: true });
+        ? t('copysheet.stillCouldNotList')
+        : t('copysheet.couldNotListRetry'), { retry: true });
     }).finally(() => {
       attempted = true;
       retryBtn.disabled = false;
@@ -116,7 +117,7 @@ export function openCopySheetDialog(ctx, sheetId) {
     };
     let one, saved = false;
     const saveSource = async () => {
-      if (!await ctx.saveSourceForCopy()) throw new Error('The source spreadsheet could not be saved.');
+      if (!await ctx.saveSourceForCopy()) throw new Error(t('copysheet.sourceNotSaved'));
       saved = true;
     };
     try { one = await build(); }
@@ -132,7 +133,7 @@ export function openCopySheetDialog(ctx, sheetId) {
   async function copy() {
     if (mode === 'new') {
       const clean = P.sanitizeName(nameInput.value).replace(/\.xlsx$/i, '');
-      if (!clean) { refuse(nameInput, 'Enter a name'); return null; }
+      if (!clean) { refuse(nameInput, t('copysheet.enterName')); return null; }
       const fileName = await P.uniqueName(clean);
       const path = `${P.FOLDER}/${fileName}`;
       const one = await oneForPath(path);
@@ -145,24 +146,24 @@ export function openCopySheetDialog(ctx, sheetId) {
     const path = fileSel.value;
     // Submitted while the listing is still on its way: the select cannot be picked from yet, so the
     // message stands on its own instead of marking a control that cannot take the focus.
-    if (!path) { refuse(fileSel.disabled ? null : fileSel, fileSel.disabled ? 'Still reading your spreadsheets. Try again in a moment.' : 'Choose a spreadsheet'); return null; }
+    if (!path) { refuse(fileSel.disabled ? null : fileSel, fileSel.disabled ? t('copysheet.stillReading') : t('copysheet.chooseSpreadsheet')); return null; }
     // Capture the revision before reading: a later stat alone can describe
     // newer bytes than the copy we loaded. A failed check must not overwrite.
     const before = await P.statFile(path);
-    if (!before || (before.modified == null && before.created == null)) throw new Error('Could not verify the destination file. Try again.');
+    if (!before || (before.modified == null && before.created == null)) throw new Error(t('copysheet.couldNotVerify'));
     const other = await workbookFromFile(await P.readFile(path), path);
     const one = await oneForPath(path);
     const added = other.importSheets(one)[0];
     // A file whose workbook structure is protected takes no new sheet. Writing it back unchanged and saying the
     // copy was made would be wrong twice over: nothing was copied, and the file was rewritten for nothing.
     if (!added) {
-      refuse(fileSel, other.structureProtected ? `${stripExtension(P.displayName(path))} has its workbook structure protected, so no sheet can be added to it` : 'The sheet could not be added to that spreadsheet');
+      refuse(fileSel, other.structureProtected ? t('copysheet.structureProtected', { name: stripExtension(P.displayName(path)) }) : t('copysheet.couldNotAdd'));
       return null;
     }
     const blob = await workbookToXlsx(other);
     const after = await P.statFile(path);
     if (!after || ['uid', 'id', 'modified', 'created', 'size'].some((key) => before[key] !== after[key])) {
-      throw new Error('The destination changed while copying. Try again to include its latest changes.');
+      throw new Error(t('copysheet.destinationChanged'));
     }
     await P.writeFile(path, blob);
     return { path, name: stripExtension(P.displayName(path)), sheetName: added.name };
@@ -175,18 +176,18 @@ export function openCopySheetDialog(ctx, sheetId) {
       const done = await copy();
       if (!done) return;
       modal.close();
-      toast(`Copied ${done.sheetName} to ${done.name}`, { icon: 'check', action: { label: 'Open', onClick: () => ctx.run('openFile', done.path) } });
+      toast(t('copysheet.copied', { sheet: done.sheetName, name: done.name }), { icon: 'check', action: { label: t('common.open'), onClick: () => ctx.run('openFile', done.path) } });
     } catch (err) {
       console.error(err);
-      refuse(null, `Could not copy: ${err?.message || 'unknown error'}`);
+      refuse(null, err?.message ? t('copysheet.couldNotCopy', { reason: err.message }) : t('copysheet.couldNotCopyUnknown'));
     } finally {
       submitBtn.disabled = false;
     }
   };
 
   const content = el('form', { onsubmit: submit },
-    el('div.field', {}, el('span.field-label', {}, 'Copy to'),
-      el('div.row', { style: { gap: '18px' } }, radio('new', 'New spreadsheet'), radio('existing', 'Existing spreadsheet')),
+    el('div.field', {}, el('span.field-label', {}, t('copysheet.copyTo')),
+      el('div.row', { style: { gap: '18px' } }, radio('new', t('copysheet.newSpreadsheet')), radio('existing', t('copysheet.existingSpreadsheet'))),
       existingReason,
       retryBtn),
     newField,
@@ -194,9 +195,9 @@ export function openCopySheetDialog(ctx, sheetId) {
     error,
     hint,
     el('div.row.row-end', {},
-      el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Cancel'),
+      el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, t('common.cancel')),
       submitBtn));
-  const modal = openModal({ title: `Copy "${sheet.name}" to another spreadsheet`, content, onClose: () => ctx.grid?.focus() });
+  const modal = openModal({ title: t('copysheet.title', { name: sheet.name }), content, onClose: () => ctx.grid?.focus() });
   sync();
   return modal;
 }

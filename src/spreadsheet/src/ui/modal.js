@@ -1,6 +1,7 @@
 import { isComposing, el, fieldId } from './dom.js';
 import { icon } from './icons.js';
 import { isMenuOpen, closeMenu } from './menu.js';
+import { t } from '../i18n/index.js';
 
 const openDialogs = new Set();
 
@@ -33,7 +34,7 @@ export function openModal({ title, content, onClose, wide = false, initialFocus 
     el('div.sheet-handle'),
     el('div.modal-head', {},
       el('h2.modal-title', {}, title),
-      el('button.icon-btn', { type: 'button', html: icon('x', 20), 'aria-label': 'Close', onclick: () => close() })),
+      el('button.icon-btn', { type: 'button', html: icon('x', 20), 'aria-label': t('common.close'), onclick: () => close() })),
     content);
   // A dialog that opens with a message, such as a confirmation or a warning, is described by it: a screen
   // reader then reads the question with the title, not the title and the focused button alone.
@@ -170,7 +171,7 @@ export function fieldAlert(prefix = 'f') {
 }
 
 /** Confirm dialog. Dismissal defaults to false; callers with two consequential choices can use null. */
-export function confirmDialog({ title, message, confirmLabel = 'Delete', cancelLabel = 'Cancel', danger = true, dismissValue = false }) {
+export function confirmDialog({ title, message, confirmLabel = t('common.delete'), cancelLabel = t('common.cancel'), danger = true, dismissValue = false }) {
   return new Promise((resolve) => {
     const content = el('div', {},
       el('p.modal-text', {}, message),
@@ -188,7 +189,7 @@ export function confirmDialog({ title, message, confirmLabel = 'Delete', cancelL
  * Text prompt. Resolves the trimmed string (unless trim is false), or null when cancelled.
  * `validate(value)` returns an error message or null.
  */
-export function promptDialog({ title, label, value = '', placeholder = '', confirmLabel = 'Save', validate = null, hint = null, trim = true, inputMode = null }) {
+export function promptDialog({ title, label, value = '', placeholder = '', confirmLabel = t('common.save'), validate = null, hint = null, trim = true, inputMode = null }) {
   return new Promise((resolve) => {
     let done = false;
     const finish = (v) => { if (!done) { done = true; resolve(v); } };
@@ -201,7 +202,7 @@ export function promptDialog({ title, label, value = '', placeholder = '', confi
     const submit = (e) => {
       e?.preventDefault();
       const v = trim ? input.value.trim() : input.value;
-      const msg = validate ? validate(v) : (v ? null : 'Enter a name');
+      const msg = validate ? validate(v) : (v ? null : t('modal.enterName'));
       if (msg) {
         error.textContent = msg;
         error.hidden = false;
@@ -216,7 +217,7 @@ export function promptDialog({ title, label, value = '', placeholder = '', confi
       el('label.field', {}, el('span.field-label', {}, label), input, error,
         hint && el('span.field-hint', {}, hint)),
       el('div.row.row-end', {},
-        el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Cancel'),
+        el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, t('common.cancel')),
         el('button.btn.btn-primary', { type: 'submit' }, confirmLabel)));
     const modal = openModal({ title, content, initialFocus: input, onClose: () => finish(null) });
     // The value is offered selected, so typing replaces it (where the field took the focus: not on a phone).

@@ -1,0 +1,16 @@
+{
+  "current": "{name}（当前）",
+  "detail": "在视图中设置的筛选只保留在该视图中；其他人看到的默认视图保持不变。",
+  "duplicate": "此工作表已有同名视图。",
+  "duplicateView": "复制",
+  "empty": "此工作表没有已保存的视图。在“视图 ▸ 工作表视图”中选择“新建”即可创建一个。",
+  "rename": "重命名…",
+  "renameTitle": "重命名视图",
+  "sheetViews": "工作表视图",
+  "switchTo": "切换到",
+  "title": "工作表视图选项",
+  "tooLong": "视图名称最多 {max} 个字符。",
+  "typeName": "请输入视图名称。",
+  "viewsOf": "{name} 的视图",
+  "viewsOfThisSheet": "此工作表的视图"
+}

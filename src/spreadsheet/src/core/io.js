@@ -94,6 +94,7 @@ import { serializeQueries } from './queries.js';
 import { serializeScripts } from './scripts.js';
 import { readXlsxScripts } from './xlsx-scripts.js';
 import { serializeChangeHistory } from './change-history.js';
+import { t } from '../i18n/index.js';
 
 export const META_SHEET = '_puter_meta';
 const META_CHUNK = 30000;
@@ -2702,9 +2703,9 @@ function transitionalPackage(X, bytes) {
 function readFailure(e) {
   const text = String(e?.message || '');
   const tooLarge = /repeat exceeds supported worksheet/.test(text);
-  const message = /password-protected/i.test(text) ? 'This workbook is protected with a password. Remove the password in the program that set it, then open the file here'
-    : tooLarge ? 'This file is too large to open here: it holds more cells than a sheet can'
-    : 'This file could not be read. It may be damaged or incomplete, or not a spreadsheet';
+  const message = /password-protected/i.test(text) ? t('io.passwordProtected')
+    : tooLarge ? t('io.tooManyCells')
+    : t('io.unreadable');
   return Object.assign(new Error(message, { cause: e }), { code: tooLarge ? 'too-large' : 'unreadable' });
 }
 
@@ -2731,8 +2732,8 @@ export async function workbookFromFile(data, filename = '', { sourceWorkbook = n
   }
   const unpacked = declaredUnpackedSize(bytes);
   if (unpacked && (unpacked.largest > MAX_PART_BYTES || unpacked.total > MAX_UNPACKED_BYTES)) {
-    const mb = (n) => `${Math.round(n / (1024 * 1024))} MB`;
-    throw Object.assign(new Error(`This file is too large to open here: its parts unpack to ${Number.isFinite(unpacked.total) ? mb(unpacked.total) : `more than ${mb(MAX_UNPACKED_BYTES)}`}`), { code: 'too-large' });
+    const mb = (n) => Math.round(n / (1024 * 1024));
+    throw Object.assign(new Error(Number.isFinite(unpacked.total) ? t('io.unpacksTo', { size: mb(unpacked.total) }) : t('io.unpacksToMoreThan', { size: mb(MAX_UNPACKED_BYTES) })), { code: 'too-large' });
   }
   const X = await XLSX();
   // cellStyles is what makes SheetJS keep column widths and row heights.
@@ -2758,12 +2759,12 @@ export async function workbookFromFile(data, filename = '', { sourceWorkbook = n
   // leaves it out of the book. Importing that sheet as empty would let the
   // next save overwrite the file without it; refuse the file instead.
   const unreadable = book.Workbook?.UnreadableSheets?.[0];
-  if (unreadable != null) throw Object.assign(new Error(`Sheet "${unreadable}" could not be read; the file may be damaged`), { code: 'unreadable' });
+  if (unreadable != null) throw Object.assign(new Error(t('io.sheetUnreadable', { name: unreadable })), { code: 'unreadable' });
   // The reader keys sheets by name, so the second of two same-named sheets lands on top of
   // the first: one sheet's data would be gone and the other's shown twice, and a save would
   // write the file that way. Excel refuses such a file with a repair prompt; so do we.
   const twice = book.SheetNames.find((name, i) => book.SheetNames.indexOf(name) !== i);
-  if (twice != null) throw Object.assign(new Error(`Two sheets are named "${twice}"; the file may be damaged`), { code: 'unreadable' });
+  if (twice != null) throw Object.assign(new Error(t('io.duplicateSheetName', { name: twice })), { code: 'unreadable' });
   const candidates = book.SheetNames.filter((n) => /^_puter_meta\d*$/i.test(n))
     .map((name) => ({ name, data: readMeta(X, book.Sheets[name]) })).filter((m) => m.data);
   // Prefer marked sidecars; older files used the fixed name without a marker.

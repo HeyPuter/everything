@@ -1,0 +1,4 @@
+{
+  "frameTitle": "Script sandbox",
+  "noWorkers": "Scripts cannot run in this browser: it has no web workers."
+}

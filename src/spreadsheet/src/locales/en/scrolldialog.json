@@ -1,0 +1,12 @@
+{
+  "arrowIncrement": "Arrow increment",
+  "horizontal": "Horizontal",
+  "linkedCell": "Linked cell",
+  "maxBelowMin": "Maximum must be at least the minimum.",
+  "maximum": "Maximum",
+  "minimum": "Minimum",
+  "pageIncrement": "Page increment",
+  "printControl": "Print control",
+  "singleCell": "Choose a single linked cell, or leave the link blank.",
+  "title": "Edit scroll bar"
+}

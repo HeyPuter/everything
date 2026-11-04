@@ -1,0 +1,9 @@
+{
+  "chooseValue": "选择一个值",
+  "next": "下一页选项",
+  "noMatches": "没有匹配的选项",
+  "previous": "上一页选项",
+  "range": "第 {from}–{to} 项，共 {count} 项",
+  "searchLabel": "搜索列表选项",
+  "searchPlaceholder": "搜索选项"
+}

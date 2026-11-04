@@ -12,20 +12,21 @@ import { cellName, parseRange } from '../core/cell.js';
 import { editText } from '../core/format.js';
 import { isSingle } from '../core/selection.js';
 import { selectionName } from '../core/refs.js';
+import { t } from '../i18n/index.js';
 
 export function createFormulaBar(ctx, { fixedActions = false } = {}) {
   // Both fields follow their text's own direction, as the cell and its in-cell editor do: a named range or
   // an entry in Hebrew or Arabic is laid out right to left, with its punctuation and digits at its own end.
   const nameBox = el('input.name-box', {
-    type: 'text', dir: 'auto', 'aria-label': 'Cell reference', spellcheck: false, autocomplete: 'off',
-    title: 'Go to cell or range',
+    type: 'text', dir: 'auto', 'aria-label': t('formulabar.cellReference'), spellcheck: false, autocomplete: 'off',
+    title: t('formulabar.goToCell'),
   });
   const input = el('textarea.formula-input', {
-    rows: 1, dir: 'auto', 'aria-label': 'Formula or value', spellcheck: false, autocomplete: 'off', autocapitalize: 'off',
+    rows: 1, dir: 'auto', 'aria-label': t('formulabar.formulaOrValue'), spellcheck: false, autocomplete: 'off', autocapitalize: 'off',
     placeholder: '',
   });
   const fx = el('button.fx-btn', {
-    type: 'button', html: icon('fx', 18), 'aria-label': 'Insert function', title: 'Insert function', 'aria-haspopup': 'menu',
+    type: 'button', html: icon('fx', 18), 'aria-label': t('formulabar.insertFunction'), title: t('formulabar.insertFunction'), 'aria-haspopup': 'menu',
     onclick: (e) => ctx.run('functionMenu', e.currentTarget),
   });
   // The bar can grow to several lines for long formulas and wrapped text; the choice is remembered.
@@ -33,19 +34,19 @@ export function createFormulaBar(ctx, { fixedActions = false } = {}) {
   try { expanded = localStorage.getItem('spreadsheet:formulabar') === 'tall'; } catch { /* no storage */ }
   const expandBtn = el('button.fx-expand', { type: 'button', 'aria-expanded': 'false', onclick: () => setExpanded(!expanded) });
   // The named ranges, one click (or Alt+Down in the name box) away.
-  const nameMenuBtn = el('button.name-menu-btn', { type: 'button', html: icon('chevD', 14, 2), 'aria-label': 'Named ranges', title: 'Named ranges', 'aria-haspopup': 'menu', onclick: (e) => openNamesMenu(e.currentTarget) });
+  const nameMenuBtn = el('button.name-menu-btn', { type: 'button', html: icon('chevD', 14, 2), 'aria-label': t('formulabar.namedRanges'), title: t('formulabar.namedRanges'), 'aria-haspopup': 'menu', onclick: (e) => openNamesMenu(e.currentTarget) });
   function openNamesMenu(anchor) {
     const names = ctx.wb.names.filter((n) => !n.hidden && !!ctx.wb.parseNamedRef(n.ref));
     const tables = ctx.wb.tableNames?.() || [];
     openMenu({
-      anchor, label: 'Named ranges', minWidth: 200,
+      anchor, label: t('formulabar.namedRanges'), minWidth: 200,
       items: [
-        ...names.map((n) => ({ label: ctx.wb.nameLabel(n), icon: 'tag', onSelect: () => { if (!ctx.goToName?.({ name: n.name, sheet: n.sheet || null })) ctx.announce(`${ctx.wb.nameLabel(n)} could not be found`); ctx.grid.focus(); } })),
-        !names.length && !tables.length && { header: 'No named ranges yet. Type a name in the box to name the selection.' },
-        tables.length ? { header: 'Tables' } : null,
-        ...tables.map((t) => ({ label: t, icon: 'table', onSelect: () => { if (!ctx.goToName?.(t)) ctx.announce(`${t} could not be found`); ctx.grid.focus(); } })),
+        ...names.map((n) => ({ label: ctx.wb.nameLabel(n), icon: 'tag', onSelect: () => { if (!ctx.goToName?.({ name: n.name, sheet: n.sheet || null })) ctx.announce(t('formulabar.notFound', { name: ctx.wb.nameLabel(n) })); ctx.grid.focus(); } })),
+        !names.length && !tables.length && { header: t('formulabar.noNamedRanges') },
+        tables.length ? { header: t('formulabar.tables') } : null,
+        ...tables.map((table) => ({ label: table, icon: 'table', onSelect: () => { if (!ctx.goToName?.(table)) ctx.announce(t('formulabar.notFound', { name: table })); ctx.grid.focus(); } })),
         names.length || tables.length ? { separator: true } : null,
-        { label: 'Manage named ranges…', icon: 'pencil', onSelect: () => ctx.run('names') },
+        { label: t('formulabar.manageNamedRanges'), icon: 'pencil', onSelect: () => ctx.run('names') },
       ],
       // After a choice the sheet takes focus back; after Escape or Tab the menu has put it where it was, the
       // name box with whatever was typed there, or the names button, and it stays there.
@@ -55,24 +56,24 @@ export function createFormulaBar(ctx, { fixedActions = false } = {}) {
   // The ribbon layout keeps these beside the name box; the legacy layout shows them at the
   // far end during an edit. Both use the grid's commit path, including validation and undo.
   const cancelBtn = el('button.fx-action', {
-    type: 'button', html: icon('x', 16, 2), 'aria-label': 'Cancel edit', title: 'Cancel edit (Esc)',
+    type: 'button', html: icon('x', 16, 2), 'aria-label': t('formulabar.cancelEdit'), title: t('formulabar.cancelEditTitle'),
     onclick: () => ctx.grid.cancelEdit(),
   });
   const applyBtn = el('button.fx-action.fx-apply', {
-    type: 'button', html: icon('check', 16, 2), 'aria-label': 'Apply edit', title: 'Apply edit and keep selection',
+    type: 'button', html: icon('check', 16, 2), 'aria-label': t('formulabar.applyEdit'), title: t('formulabar.applyEditTitle'),
     onclick: () => ctx.grid.commitEdit(),
   });
-  const editActions = el('div.fx-actions', { hidden: true, role: 'group', 'aria-label': 'Pending edit' }, cancelBtn, applyBtn);
+  const editActions = el('div.fx-actions', { hidden: true, role: 'group', 'aria-label': t('formulabar.pendingEdit') }, cancelBtn, applyBtn);
   // Preserve the editor's caret and reference-picking state until the action runs. Keyboard users
   // can still focus and activate either button normally.
   editActions.addEventListener('pointerdown', (e) => { if (e.button === 0) e.preventDefault(); });
-  const root = el('div.formula-bar', { role: 'group', 'aria-label': 'Formula bar' }, nameBox, nameMenuBtn, ...(fixedActions ? [editActions, fx, input] : [fx, input, editActions]), expandBtn);
+  const root = el('div.formula-bar', { role: 'group', 'aria-label': t('formulabar.formulaBar') }, nameBox, nameMenuBtn, ...(fixedActions ? [editActions, fx, input] : [fx, input, editActions]), expandBtn);
   root.classList.toggle('fixed-actions', fixedActions);
   function setExpanded(on) {
     expanded = !!on;
     root.classList.toggle('expanded', expanded);
     expandBtn.setAttribute('aria-expanded', String(expanded));
-    const label = expanded ? 'Collapse the formula bar' : 'Expand the formula bar';
+    const label = expanded ? t('formulabar.collapse') : t('formulabar.expand');
     expandBtn.setAttribute('aria-label', label);
     expandBtn.title = label;
     expandBtn.innerHTML = icon(expanded ? 'chevU' : 'chevD', 16, 2);
@@ -138,14 +139,14 @@ export function createFormulaBar(ctx, { fixedActions = false } = {}) {
     const picture = linkedPicture();
     root.classList.toggle('object-formula', !!picture);
     if (picture) {
-      if (document.activeElement !== nameBox) nameBox.value = picture.name || 'Linked picture';
+      if (document.activeElement !== nameBox) nameBox.value = picture.name || t('formulabar.linkedPicture');
       editActions.hidden = !fixedActions;
       if (document.activeElement !== input) input.value = `=${picture.pictureRef}`;
       return;
     }
     const sel = ctx.grid.selection;
     const range = ctx.grid.range;
-    const table = (ctx.wb.tablesOn?.(ctx.sheetId()) || []).find((t) => t.range.r1 === range.r1 && t.range.c1 === range.c1 && t.range.r2 === range.r2 && t.range.c2 === range.c2);
+    const table = (ctx.wb.tablesOn?.(ctx.sheetId()) || []).find((tbl) => tbl.range.r1 === range.r1 && tbl.range.c1 === range.c1 && tbl.range.r2 === range.r2 && tbl.range.c2 === range.c2);
     const named = nameOf(range) || table?.name;
     // Whole columns read C:C and whole rows 3:5, as Excel writes them: C1:C1048576 did not fit in the box.
     if (document.activeElement !== nameBox) nameBox.value = named || (isSingle(sel) ? cellName(sel.active.r, sel.active.c) : selectionName(range));
@@ -192,15 +193,15 @@ export function createFormulaBar(ctx, { fixedActions = false } = {}) {
       // range alone, the one holding the active cell, while the others sit selected.
       if (ctx.grid.ranges.length > 1) {
         nameBox.select();
-        toast('Select one range to name it', { icon: 'info', duration: 3000 });
-        ctx.announce('Select one range to name it');
+        toast(t('formulabar.selectOneRange'), { icon: 'info', duration: 3000 });
+        ctx.announce(t('formulabar.selectOneRange'));
         return;
       }
       // A new name for the current selection, the way the name box works everywhere.
       const err = ctx.wb.validateName(text);
       if (!err) {
         ctx.wb.defineName(text, ctx.wb.refTextFor(ctx.sheetId(), ctx.grid.range));
-        ctx.announce(`Named range ${text} defined`);
+        ctx.announce(t('formulabar.nameDefined', { name: text }));
         ctx.grid.focus();
         return;
       }

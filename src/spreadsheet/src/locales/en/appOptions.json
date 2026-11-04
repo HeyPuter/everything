@@ -1,0 +1,19 @@
+{
+  "commentIndicators.hover": "Indicators, and the note on hover",
+  "commentIndicators.indicator": "Indicators only, comments and notes on click",
+  "commentIndicators.none": "No indicators or pop-ups",
+  "draftDelay.fiveMinutes": "After 5 minutes",
+  "draftDelay.fiveSeconds": "After 5 seconds",
+  "draftDelay.minute": "After a minute",
+  "draftDelay.second": "About a second after each change",
+  "draftDelay.thirtySeconds": "After 30 seconds",
+  "enterDirection.down": "Down",
+  "enterDirection.left": "Left",
+  "enterDirection.right": "Right",
+  "enterDirection.up": "Up",
+  "newCalcMode.automatic": "Automatic",
+  "newCalcMode.manual": "Manual",
+  "newView.normal": "Normal",
+  "newView.pageBreak": "Page Break Preview",
+  "newView.pageLayout": "Page Layout"
+}

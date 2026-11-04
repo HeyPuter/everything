@@ -1,0 +1,6 @@
+{
+  "blockedHint": "取消组合工作表后才能使用",
+  "blockedReason": "工作表成组时不可用。先取消组合工作表（右键单击工作表标签）",
+  "fillAcross": "填充至同组工作表",
+  "groupedEdit": "{op, select, insertRows {插入行（成组工作表）} insertCols {插入列（成组工作表）} deleteRows {删除行（成组工作表）} deleteCols {删除列（成组工作表）} deleteLines {删除（成组工作表）} insertCells {插入单元格（成组工作表）} deleteCells {删除单元格（成组工作表）} setColWidth {调整列宽（成组工作表）} setRowHeight {调整行高（成组工作表）} setDefaultLineSize {调整大小（成组工作表）} mergeCells {合并单元格（成组工作表）} unmergeCells {取消单元格合并（成组工作表）} setHidden {隐藏（成组工作表）} groupLines {组合（成组工作表）} ungroupLines {取消组合（成组工作表）} applyStyle {设置格式（成组工作表）} applyBorders {边框（成组工作表）} toggleStyle {设置格式（成组工作表）} clearRange {清除（成组工作表）} removeLink {删除链接（成组工作表）} setInput {编辑单元格（成组工作表）} pasteCells {粘贴（成组工作表）} pasteValues {粘贴（成组工作表）} pasteLiteralValues {粘贴（成组工作表）} pasteStyles {粘贴格式（成组工作表）} pasteOperation {粘贴（成组工作表）} pasteEntries {粘贴（成组工作表）} fill {填充（成组工作表）} fillInput {填充（成组工作表）} fillDirection {填充（成组工作表）} fillSeries {填充序列（成组工作表）} formulasToValues {公式转换为值（成组工作表）} transformText {更改文本（成组工作表）} other {编辑（成组工作表）}}"
+}

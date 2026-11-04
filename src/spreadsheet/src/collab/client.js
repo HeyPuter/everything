@@ -13,6 +13,7 @@ import { canEdit, hash, keyPair, MAX_PEER_CHANGE, packState, unpackState, verify
 import { PeerNetwork } from './peers.js';
 import { MAX_BATCH, MAX_CHANGE } from './ops.js';
 import { outboxKey } from './outbox.js';
+import { t } from '../i18n/index.js';
 import { sanitizeState } from './server/service.js';
 
 /** Revisions between checkpoints written by an editor's browser. */
@@ -138,7 +139,7 @@ export class RoomClient extends EventTarget {
     }
     this.replica.addEventListener('local', () => { this.persist(); this.flush(); });
     this.replica.addEventListener('remote', (e) => this.dispatchEvent(new CustomEvent('remote', { detail: e.detail })));
-    this.replica.addEventListener('refused', () => this.dispatchEvent(new CustomEvent('refused', { detail: { message: 'You can view this shared workbook but not change it.' } })));
+    this.replica.addEventListener('refused', () => this.dispatchEvent(new CustomEvent('refused', { detail: { message: t('collabClient.viewOnly') } })));
     this.subscribe(res.events);
     this.timers.push(setInterval(() => { if (!this.connectedPeers() || Date.now() - this.lastSync > 20_000) this.scheduleSync(0); }, this.o.poll ?? 4000));
     this.timers.push(setInterval(() => this.checkIn().catch(() => {}), 15_000));
@@ -395,18 +396,18 @@ export class RoomClient extends EventTarget {
       this.roster = res.roster;
       this.noteRole(res.role);
       this.peers?.update(res.ticket, res.signature, res.roster);
-      const here = new Set(res.roster.map((t) => t.session));
+      const here = new Set(res.roster.map((entry) => entry.session));
       for (const s of [...this.people.keys()]) if (!here.has(s)) this.people.delete(s);
       // The worker says when each person last checked in by its own clock, which can be minutes from this browser's.
       if (Number.isFinite(res.serverTime)) this.skew = Date.now() - res.serverTime;
       const skew = this.skew ?? 0;
-      for (const t of res.roster) {
-        if (t.session === this.session) continue;
-        const known = this.people.get(t.session);
-        const at = Number.isFinite(t.at) ? t.at + skew : Date.now();
+      for (const entry of res.roster) {
+        if (entry.session === this.session) continue;
+        const known = this.people.get(entry.session);
+        const at = Number.isFinite(entry.at) ? entry.at + skew : Date.now();
         // A peer's report is newer than what the worker holds.
-        const state = known && known.at > at ? known.state : t.state ?? null;
-        this.people.set(t.session, { session: t.session, user: t.user, username: t.username, role: t.role, state, at: Math.max(known?.at ?? 0, at) });
+        const state = known && known.at > at ? known.state : entry.state ?? null;
+        this.people.set(entry.session, { session: entry.session, user: entry.user, username: entry.username, role: entry.role, state, at: Math.max(known?.at ?? 0, at) });
       }
       this.dispatchEvent(new CustomEvent('people'));
       if (this.full) { this.full = false; this.dispatchEvent(new CustomEvent('status')); }
@@ -501,7 +502,7 @@ export class RoomClient extends EventTarget {
       }
       return;
     }
-    this.status = { state: 'offline', pending: this.replica?.pending.length ?? 0, message: error?.message || 'Offline' };
+    this.status = { state: 'offline', pending: this.replica?.pending.length ?? 0, message: error?.message || t('collabClient.offline') };
     this.dispatchEvent(new CustomEvent('status'));
   }
 
@@ -539,7 +540,7 @@ export class RoomClient extends EventTarget {
    */
   halt() {
     this.halted = true;
-    for (const t of this.timers) clearInterval(t);
+    for (const timer of this.timers) clearInterval(timer);
     clearTimeout(this.syncTimer);
     clearTimeout(this.retryTimer);
     clearTimeout(this.presenceTimer);
@@ -552,7 +553,7 @@ export class RoomClient extends EventTarget {
 
   close() {
     this.closed = true;
-    for (const t of this.timers) clearInterval(t);
+    for (const timer of this.timers) clearInterval(timer);
     clearTimeout(this.syncTimer);
     clearTimeout(this.retryTimer);
     clearTimeout(this.presenceTimer);

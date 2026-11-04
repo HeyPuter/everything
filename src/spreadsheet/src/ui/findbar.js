@@ -12,6 +12,7 @@ import { nestedRepeat } from '../core/formula/regex-safety.js';
 import { cellName, rangeName } from '../core/cell.js';
 import * as S from '../core/selection.js';
 import { createFindResults } from './findresults.js';
+import { t } from '../i18n/index.js';
 
 export function createFindBar(ctx) {
   let open = false;
@@ -26,13 +27,13 @@ export function createFindBar(ctx) {
   const statusId = fieldId('find-status');
   const optionsId = fieldId('find-options');
   const resultsId = fieldId('find-results');
-  const query = el('input.input.find-input', { type: 'search', placeholder: 'Find in sheet', 'aria-label': 'Find', 'aria-describedby': statusId, autocomplete: 'off', spellcheck: false });
-  const replacement = el('input.input.find-input', { type: 'text', placeholder: 'Replace with', 'aria-label': 'Replace with', autocomplete: 'off', spellcheck: false });
+  const query = el('input.input.find-input', { type: 'search', placeholder: t('findbar.findInSheet'), 'aria-label': t('findbar.find'), 'aria-describedby': statusId, autocomplete: 'off', spellcheck: false });
+  const replacement = el('input.input.find-input', { type: 'text', placeholder: t('findbar.replaceWith'), 'aria-label': t('findbar.replaceWith'), autocomplete: 'off', spellcheck: false });
   const count = el('div.find-count', { id: statusId, hidden: true, 'aria-live': 'polite', 'aria-atomic': 'true' }, '');
-  const prevBtn = el('button.icon-btn', { type: 'button', html: icon('chevU', 18), 'aria-label': 'Previous match', title: 'Previous (Shift+Enter)', onclick: () => step(-1) });
-  const nextBtn = el('button.icon-btn', { type: 'button', html: icon('chevD', 18), 'aria-label': 'Next match', title: 'Next (Enter)', onclick: () => step(1) });
-  const closeBtn = el('button.icon-btn', { type: 'button', html: icon('x', 18), 'aria-label': 'Close find', title: 'Close (Esc)', onclick: () => close() });
-  const toggleReplace = el('button.icon-btn', { type: 'button', html: icon('chevR', 18), 'aria-label': 'Show replace', 'aria-expanded': 'false', title: 'Replace', onclick: () => setReplaceMode(!replaceMode) });
+  const prevBtn = el('button.icon-btn', { type: 'button', html: icon('chevU', 18), 'aria-label': t('findbar.previousMatch'), title: t('findbar.previousTitle'), onclick: () => step(-1) });
+  const nextBtn = el('button.icon-btn', { type: 'button', html: icon('chevD', 18), 'aria-label': t('findbar.nextMatch'), title: t('findbar.nextTitle'), onclick: () => step(1) });
+  const closeBtn = el('button.icon-btn', { type: 'button', html: icon('x', 18), 'aria-label': t('findbar.closeFind'), title: t('findbar.closeTitle'), onclick: () => close() });
+  const toggleReplace = el('button.icon-btn', { type: 'button', html: icon('chevR', 18), 'aria-label': t('findbar.showReplace'), 'aria-expanded': 'false', title: t('common.replace'), onclick: () => setReplaceMode(!replaceMode) });
 
   const inputs = {};
   const option = (key, label) => {
@@ -59,7 +60,7 @@ export function createFindBar(ctx) {
     const single = range.r1 === range.r2 && range.c1 === range.c2;
     scope = opts.selection && !single ? { sheetId: ctx.sheetId(), range: { ...range } } : null;
     if (opts.selection && single) { opts.selection = false; inputs.selection.input.checked = false; }
-    inputs.selection.text.textContent = scope ? `Selection only (${rangeName(scope.range)})` : 'Selection only';
+    inputs.selection.text.textContent = scope ? t('findbar.selectionOnlyRange', { range: rangeName(scope.range) }) : t('findbar.selectionOnly');
   }
   /**
    * Rows or columns were inserted, deleted or moved on the sheet the scope was taken from, so the same
@@ -75,24 +76,24 @@ export function createFindBar(ctx) {
     const held = rangeName(scope.range);
     if (ctx.sheetId() === scope.sheetId && !single) scope = { sheetId: scope.sheetId, range: { ...range } };
     else { scope = null; opts.selection = false; inputs.selection.input.checked = false; }
-    inputs.selection.text.textContent = scope ? `Selection only (${rangeName(scope.range)})` : 'Selection only';
+    inputs.selection.text.textContent = scope ? t('findbar.selectionOnlyRange', { range: rangeName(scope.range) }) : t('findbar.selectionOnly');
     if (!scope) {
-      toast('Find is searching the whole sheet: the rows moved under the range “Selection only” held', { icon: 'info', duration: 4000 });
-      ctx.announce('Selection only turned off');
-    } else if (rangeName(scope.range) !== held) ctx.announce(`Selection only, ${rangeName(scope.range)}`);
+      toast(t('findbar.scopeLost'), { icon: 'info', duration: 4000 });
+      ctx.announce(t('findbar.selectionOnlyOff'));
+    } else if (rangeName(scope.range) !== held) ctx.announce(t('findbar.selectionOnlyAnnounce', { range: rangeName(scope.range) }));
     search({ keepIndex: true });
   }
 
   /** Search options as the core takes them: a scope range when one is set. */
   const searchOpts = () => ({ ...opts, range: scope?.range || null });
 
-  const replaceBtn = el('button.btn.btn-sm', { type: 'button', onclick: () => replaceOne() }, 'Replace');
-  const replaceAllBtn = el('button.btn.btn-sm.btn-primary', { type: 'button', onclick: () => replaceAll() }, 'Replace all');
+  const replaceBtn = el('button.btn.btn-sm', { type: 'button', onclick: () => replaceOne() }, t('common.replace'));
+  const replaceAllBtn = el('button.btn.btn-sm.btn-primary', { type: 'button', onclick: () => replaceAll() }, t('findbar.replaceAll'));
   const replaceRow = el('div.find-row.find-replace', { hidden: true }, replacement, replaceBtn, replaceAllBtn);
-  const optionsRow = el('div.find-row.find-options', { id: optionsId, hidden: true }, option('matchCase', 'Match case'), option('wholeCell', 'Entire cell'), option('formulas', 'Search formulas'), option('allSheets', 'All sheets'), option('regex', 'Regular expression'), option('selection', 'Selection only'));
-  const optionsLabel = el('span', {}, 'Options');
+  const optionsRow = el('div.find-row.find-options', { id: optionsId, hidden: true }, option('matchCase', t('findbar.matchCase')), option('wholeCell', t('findbar.entireCell')), option('formulas', t('findbar.searchFormulas')), option('allSheets', t('findbar.allSheets')), option('regex', t('findbar.regex')), option('selection', t('findbar.selectionOnly')));
+  const optionsLabel = el('span', {}, t('common.options'));
   const optionsButton = el('button.find-options-toggle', {
-    type: 'button', 'aria-label': 'Search options', 'aria-expanded': 'false', 'aria-controls': optionsId,
+    type: 'button', 'aria-label': t('findbar.searchOptions'), 'aria-expanded': 'false', 'aria-controls': optionsId,
     onclick: () => {
       optionsRow.hidden = !optionsRow.hidden;
       optionsButton.setAttribute('aria-expanded', String(!optionsRow.hidden));
@@ -107,9 +108,9 @@ export function createFindBar(ctx) {
     root.classList.toggle('find-expanded', resultsVisible);
     if (resultsVisible) { search({ keepIndex: true }); revealMatch(); }
     else refreshStatus();
-  } }, 'Find all');
+  } }, t('findbar.findAll'));
 
-  const root = el('div.find-panel', { role: 'search', 'aria-label': 'Find and replace', hidden: true },
+  const root = el('div.find-panel', { role: 'search', 'aria-label': t('findbar.findAndReplace'), hidden: true },
     el('div.find-row.find-query', {}, toggleReplace, query, prevBtn, nextBtn, closeBtn),
     replaceRow,
     el('div.find-summary', {}, count, findAllButton, optionsButton),
@@ -119,7 +120,7 @@ export function createFindBar(ctx) {
   function patternProblem() {
     if (!opts.regex || !query.value) return null;
     if (compilePattern(query.value, { matchCase: opts.matchCase, wholeCell: opts.wholeCell })) return null;
-    return nestedRepeat(query.value) ? 'This pattern could run for ever' : 'Invalid regular expression';
+    return nestedRepeat(query.value) ? t('findbar.patternRunaway') : t('findbar.invalidRegex');
   }
 
   /** Keep explanations out of the input's row, and make unavailable actions clear without
@@ -133,21 +134,21 @@ export function createFindBar(ctx) {
     const actionFocused = [prevBtn, nextBtn, replaceBtn, replaceAllBtn].includes(document.activeElement);
     prevBtn.disabled = nextBtn.disabled = replaceBtn.disabled = replaceAllBtn.disabled = unavailable;
     if (unavailable && actionFocused) query.focus();
-    count.textContent = !query.value ? '' : problem || (pending ? 'Searching…' : countText(current));
+    count.textContent = !query.value ? '' : problem || (pending ? t('findbar.searching') : countText(current));
     count.hidden = !count.textContent;
     count.classList.toggle('none', !!problem || (!!query.value && !pending && !matches.length));
     const activeOptions = Object.keys(opts).filter(key => key === 'formulas' ? !opts[key] : opts[key]);
-    optionsLabel.textContent = activeOptions.length ? `Options · ${activeOptions.length}` : 'Options';
+    optionsLabel.textContent = activeOptions.length ? t('findbar.optionsCount', { count: activeOptions.length }) : t('common.options');
     const description = activeOptions.length
-      ? `Active options: ${activeOptions.map(key => key === 'formulas' ? 'Cell values only' : inputs[key].text.textContent).join(', ')}`
-      : 'Default search options';
+      ? t('findbar.activeOptions', { options: joinList(activeOptions.map(key => key === 'formulas' ? t('findbar.cellValuesOnly') : inputs[key].text.textContent)) })
+      : t('findbar.defaultOptions');
     optionsButton.title = description;
     optionsButton.setAttribute('aria-description', description);
     optionsButton.classList.toggle('active', !!activeOptions.length);
     findAllButton.disabled = !resultsVisible && (!query.value || !!problem);
-    findAllButton.textContent = resultsVisible ? 'Hide results' : 'Find all';
+    findAllButton.textContent = resultsVisible ? t('findbar.hideResults') : t('findbar.findAll');
     findAllButton.setAttribute('aria-expanded', String(resultsVisible));
-    if (resultsVisible) results.render(matches, current, !query.value ? 'Enter a search term' : problem || (pending ? 'Searching…' : ''));
+    if (resultsVisible) results.render(matches, current, !query.value ? t('findbar.enterTerm') : problem || (pending ? t('findbar.searching') : ''));
   }
 
   let stopped = false; // the last search ran out of time, so the matches are only those found by then
@@ -200,27 +201,31 @@ export function createFindBar(ctx) {
     ctx.grid.setHighlights(local, cur);
   }
 
-  const STOPPED = 'search stopped: the pattern is slow';
-  const STOPPED_PLAIN = 'search stopped: too much to search';
-  /** The notes a search carries: it ran out of time, or its pattern skips the longest cells. */
+  /** The notes a search carries: it ran out of time, or its pattern skips the longest cells. Null for none. */
   function notes() {
     const out = [];
-    if (stopped) out.push(opts.regex ? STOPPED : STOPPED_PLAIN);
+    if (stopped) out.push(opts.regex ? t('findbar.note.stoppedSlow') : t('findbar.note.stoppedTooMuch'));
     const limit = opts.regex && query.value && !patternProblem() ? patternSubjectLimit(query.value, { wholeCell: opts.wholeCell }) : Infinity;
-    if (limit !== Infinity) out.push(`cells over ${limit.toLocaleString()} characters skipped`);
-    return out.length ? ` (${out.join('; ')})` : '';
+    if (limit !== Infinity) out.push(t('findbar.note.cellsSkipped', { limit }));
+    return out.length ? out.reduce((list, note) => t('findbar.note.join', { list, note })) : null;
   }
+  /** A status line, followed by the search's notes in parentheses when it has any. */
+  const withNotes = (text) => { const n = notes(); return n ? t('findbar.withNotes', { text, notes: n }) : text; };
   function countText(i) {
-    if (!matches.length) return patternProblem() || (query.value ? `No matches${notes()}` : '');
+    if (!matches.length) return patternProblem() || (query.value ? withNotes(t('findbar.noMatches')) : '');
     const sheets = new Set(matches.map((m) => m.sheetId)).size;
-    return `${i + 1} of ${matches.length}${opts.allSheets && sheets > 1 ? ` on ${sheets} sheets` : ''}${notes()}`;
+    return withNotes(opts.allSheets && sheets > 1
+      ? t('findbar.countOnSheets', { index: i + 1, total: matches.length, sheets })
+      : t('findbar.count', { index: i + 1, total: matches.length }));
   }
+  /** Items read as one list: "a, b, c" in English. */
+  const joinList = (items) => items.reduce((list, item) => t('findbar.listJoin', { list, item }));
 
   function setReplaceMode(on) {
     replaceMode = on;
     replaceRow.hidden = !on;
     toggleReplace.setAttribute('aria-expanded', String(on));
-    toggleReplace.setAttribute('aria-label', on ? 'Hide replace' : 'Show replace');
+    toggleReplace.setAttribute('aria-label', on ? t('findbar.hideReplace') : t('findbar.showReplace'));
     toggleReplace.innerHTML = icon(on ? 'chevD' : 'chevR', 18);
     if (on) replacement.focus();
     revealMatch();
@@ -274,7 +279,7 @@ export function createFindBar(ctx) {
     if (m && scroll) revealMatch();
     if (m) {
       const sheetName = ctx.wb.sheet(m.sheetId)?.name;
-      ctx.announce(`Match ${i + 1} of ${matches.length}, ${opts.allSheets && sheetName ? `${sheetName} ` : ''}${cellName(m.r, m.c)}`);
+      ctx.announce(matchAnnouncement(i, matches.length, opts.allSheets && sheetName, m));
     }
   }
 
@@ -309,17 +314,22 @@ export function createFindBar(ctx) {
     show(fresh);
   }
 
+  /** "Match 2 of 5, Sheet2 B4": the sheet is named when the search spans every sheet. */
+  function matchAnnouncement(i, total, sheetName, m) {
+    const cell = cellName(m.r, m.c);
+    return sheetName ? t('findbar.matchOnSheet', { index: i + 1, total, sheet: sheetName, cell }) : t('findbar.match', { index: i + 1, total, cell });
+  }
+
   /**
-   * Why a match was left alone, in the words Replace uses: `one` follows the cell's name, `count`
-   * is the noun counted in a summary (singular, plural), `all` follows "the matches are".
+   * Why a match was left alone, in the messages Replace uses: `one` says it of one cell ({cell}), `count`
+   * counts them ({count}) for a summary, `all` says every match is such a one.
    */
   const LEFT_ALONE = {
-    protected: { one: 'is protected', count: ['protected cell', 'protected cells'], all: 'protected', icon: 'lock' },
-    formula: { one: 'is a formula result', count: ['formula result', 'formula results'], all: 'formula results', icon: 'info' },
-    spill: { one: 'is a value spilled by an array formula', count: ['spilled value', 'spilled values'], all: 'values spilled by array formulas', icon: 'info' },
-    display: { one: 'matches only in its number format', count: ['number-format match', 'number-format matches'], all: 'in how the numbers are formatted, not in their values', icon: 'info' },
+    protected: { one: 'findbar.leftAlone.protected.one', count: 'findbar.leftAlone.protected.count', all: 'findbar.leftAlone.protected.all', icon: 'lock' },
+    formula: { one: 'findbar.leftAlone.formula.one', count: 'findbar.leftAlone.formula.count', all: 'findbar.leftAlone.formula.all', icon: 'info' },
+    spill: { one: 'findbar.leftAlone.spill.one', count: 'findbar.leftAlone.spill.count', all: 'findbar.leftAlone.spill.all', icon: 'info' },
+    display: { one: 'findbar.leftAlone.display.one', count: 'findbar.leftAlone.display.count', all: 'findbar.leftAlone.display.all', icon: 'info' },
   };
-  const plural = (k, [one, many]) => `${k} ${k === 1 ? one : many}`;
 
   function replaceOne() {
     if (debounce !== null) search();
@@ -336,7 +346,7 @@ export function createFindBar(ctx) {
     const n = replaceCells(ctx.wb, target.sheetId, [target], query.value, replacement.value, { ...opts, skipped });
     if (!n) {
       const why = LEFT_ALONE[skipped[0]?.reason];
-      if (why) toast(`${cellName(target.r, target.c)} ${why.one} and was left alone`, { icon: why.icon });
+      if (why) toast(t(why.one, { cell: cellName(target.r, target.c) }), { icon: why.icon });
       step(1);
       return;
     }
@@ -353,7 +363,7 @@ export function createFindBar(ctx) {
     const all = collect();
     let n = 0;
     const skipped = [];
-    ctx.wb.transaction('Replace all', () => {
+    ctx.wb.transaction(t('findbar.replaceAll'), () => {
       for (const sheet of ctx.wb.sheets) {
         const mine = all.filter((m) => m.sheetId === sheet.id);
         if (mine.length) n += replaceCells(ctx.wb, sheet.id, mine, query.value, replacement.value, { ...opts, skipped });
@@ -363,15 +373,15 @@ export function createFindBar(ctx) {
     // counted by kind; every match being protected or a formula result is not the same as nothing to replace.
     const counts = new Map();
     for (const { reason } of skipped) counts.set(reason, (counts.get(reason) || 0) + 1);
-    const alone = [...counts].map(([reason, k]) => plural(k, LEFT_ALONE[reason].count)).join(', ');
+    const alone = counts.size ? joinList([...counts].map(([reason, k]) => t(LEFT_ALONE[reason].count, { count: k }))) : '';
     const only = counts.size === 1 && skipped.length === all.length ? LEFT_ALONE[skipped[0].reason] : null;
-    let text = 'Nothing to replace';
+    let text = t('findbar.nothingToReplace');
     let icon = 'info';
-    if (n) { text = `Replaced ${plural(n, ['cell', 'cells'])}${alone ? `; ${alone} left alone` : ''}`; icon = 'check'; }
-    else if (only) { text = `Nothing replaced: the matches are ${only.all}`; icon = only.icon; }
-    else if (alone) text = `Nothing to replace; ${alone} left alone`;
+    if (n) { text = alone ? t('findbar.replacedLeftAlone', { count: n, alone }) : t('findbar.replaced', { count: n }); icon = 'check'; }
+    else if (only) { text = t(only.all); icon = only.icon; }
+    else if (alone) text = t('findbar.nothingToReplaceLeftAlone', { alone });
     // A search cut short by its time budget replaced what it found, which may not be every match.
-    if (stopped) text += '; the search stopped early, so more may remain';
+    if (stopped) text = t('findbar.stoppedEarly', { text });
     toast(text, { icon });
     search();
   }
@@ -489,7 +499,7 @@ export function createFindBar(ctx) {
     scope = null;
     homeSheet = sheetId; // every sheet in order from this one
     const found = patternProblem() ? [] : collect();
-    if (!found.length) { toast(`No matches for “${query.value}”`, { icon: 'info' }); return; }
+    if (!found.length) { toast(t('findbar.noMatchesFor', { query: query.value }), { icon: 'info' }); return; }
     const a = ctx.grid.active;
     const after = found.findIndex((m) => m.sheetId !== sheetId || m.r > a.r || (m.r === a.r && m.c > a.c));
     const i = after < 0 ? 0 : after;
@@ -497,7 +507,7 @@ export function createFindBar(ctx) {
     if (m.sheetId !== sheetId) ctx.wb.setActiveSheet(m.sheetId);
     ctx.grid.setSelection(S.single(m.r, m.c), { scroll: true, announce: false });
     const sheetName = ctx.wb.sheet(m.sheetId)?.name;
-    ctx.announce(`Match ${i + 1} of ${found.length}, ${opts.allSheets && sheetName ? `${sheetName} ` : ''}${cellName(m.r, m.c)}`);
+    ctx.announce(matchAnnouncement(i, found.length, opts.allSheets && sheetName, m));
   }
   return { el: root, open: openPanel, close, findNext, get isOpen() { return open; }, destroy };
 }

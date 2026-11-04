@@ -1,0 +1,5 @@
+{
+  "degrees": "{value} 度",
+  "hint": "单击或拖动以旋转。方向键每次更改 1 度；Page Up 和 Page Down 每次更改 15 度。",
+  "label": "文本方向"
+}
