@@ -146,9 +146,9 @@ export class AssistantPanel {
     this.input.addEventListener('input', () => this.grow());
     this.input.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); void this.submit(); }
-      else if (e.key === 'Escape' && this.agent.busy) { e.preventDefault(); this.agent.stop(); }
+      else if (e.key === 'Escape' && this.agent.busy) { e.preventDefault(); this.stop(); }
     });
-    this.sendBtn.addEventListener('click', () => (this.agent.busy ? this.agent.stop() : void this.submit()));
+    this.sendBtn.addEventListener('click', () => (this.agent.busy ? this.stop() : void this.submit()));
     // Files go with a message: picked with the paperclip, pasted into the box, or dropped on the panel.
     this.fileInput = h('input', { type: 'file', multiple: true, accept: ATTACH_ACCEPT, hidden: true, tabindex: '-1', 'aria-hidden': 'true' }) as HTMLInputElement;
     this.fileInput.addEventListener('change', () => {
@@ -220,6 +220,12 @@ export class AssistantPanel {
     this.sendBtn.classList.toggle('stop', on);
     this.el.classList.toggle('busy', on);
     if (!on) this.status.textContent = '';
+  }
+
+  /** Stops the reply; a step already running finishes first (it cannot be interrupted). */
+  private stop() {
+    this.agent.stop();
+    if (this.turn) this.status.textContent = 'Stopping…';
   }
 
   /** Whether Puter AI can be used. Signs in to Puter first when needed. */
@@ -404,7 +410,7 @@ export class AssistantPanel {
             turn.text = null;
           }
           this.renderStep(turn, turn.steps, e.step);
-          this.status.textContent = e.step.status === 'running' ? `${stepLabel(e.step.name, e.step.args)}…` : 'Thinking…';
+          if (this.status.textContent !== 'Stopping…') this.status.textContent = e.step.status === 'running' ? `${stepLabel(e.step.name, e.step.args)}…` : 'Thinking…';
         } else if (e.type === 'round') {
           this.status.textContent = 'Thinking…';
         }
