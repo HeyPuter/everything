@@ -85,6 +85,16 @@ describe('feature regeneration', () => {
     expect(b.hasBody).toBe(false);
   });
 
+  it('warns when a cut misses the body', async () => {
+    const b = new ModelBuilder();
+    const base: Feature[] = [sketch('S1', rect(-10, -10, 10, 10)), extrude('E1', 'S1', 10), sketch('S2', circle(0, 0, 3))];
+    // Cuts go against the sketch normal by default: away from this body.
+    const miss = await b.build(req([...base, extrude('E2', 'S2', 5, { cut: true, end: 'throughAll' })]));
+    expect(miss.status[3]).toMatchObject({ ok: true, warning: expect.stringMatching(/does not remove any material/) });
+    const hit = await b.build(req([...base, extrude('E2', 'S2', 5, { cut: true, end: 'throughAll', flip: true })]));
+    expect(hit.status[3]).toEqual({ id: 'E2', ok: true });
+  });
+
   it('fillets edges referenced by name and survives a dimension change', async () => {
     const fillet = (): FilletFeature => ({ id: 'F1', name: 'F1', type: 'fillet', edges: [], faces: [], radius: 2 });
     const b = new ModelBuilder();

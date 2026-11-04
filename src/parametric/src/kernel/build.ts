@@ -387,6 +387,8 @@ export class ModelBuilder {
       if (!st.body) throw new FeatureError('There is no material to cut');
       body = cut(st.body, tool);
       if (isEmpty(body)) throw new FeatureError('The cut removes all material');
+      const v0 = volumeOf(st.body);
+      if (v0 > 0 && volumeOf(body) >= v0 * (1 - 1e-9)) this.warning = 'The cut does not remove any material. Check its direction.';
     } else {
       body = st.body ? fuse(st.body, tool) : tool;
     }
@@ -733,12 +735,14 @@ export class ModelBuilder {
     const prof: [number, number][] = [];
     if (f.kind === 'counterbore') {
       const cr = num(f.cbDiameter) / 2, cd = num(f.cbDepth);
-      if (cr <= r || cd <= 0) throw new FeatureError('Counterbore must be larger than the hole');
+      if (cr <= r) throw new FeatureError('The counterbore diameter must be larger than the hole');
+      if (cd <= 0) throw new FeatureError('Counterbore depth must be greater than zero');
       prof.push([0, 0], [cr, 0], [cr, cd], [r, cd], [r, depth], [0, depth]);
     } else if (f.kind === 'countersink') {
       const sr = num(f.csDiameter) / 2;
       const half = (num(f.csAngle) * Math.PI) / 360;
-      if (sr <= r || half <= 0 || half >= Math.PI / 2) throw new FeatureError('Countersink must be larger than the hole');
+      if (sr <= r) throw new FeatureError('The countersink diameter must be larger than the hole');
+      if (half <= 0 || half >= Math.PI / 2) throw new FeatureError('The countersink angle must be between 0 and 180 degrees');
       const sd = (sr - r) / Math.tan(half);
       prof.push([0, 0], [sr, 0], [r, sd], [r, Math.max(depth, sd + 1e-3)], [0, Math.max(depth, sd + 1e-3)]);
     } else prof.push([0, 0], [r, 0], [r, depth], [0, depth]);
