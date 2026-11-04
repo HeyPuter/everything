@@ -41,9 +41,30 @@ export function chordOf(e, mac = IS_MAC) {
   return parts.join('+');
 }
 
-/** Whether a chord can be bound: it needs a modifier, unless it is a function key. */
-export function bindable(chord) {
+/**
+ * Chords the browser (or the system) keeps for itself, which never reach the page: Ctrl+N, Ctrl+T, Ctrl+W (and with
+ * Shift) open and close windows and tabs on Windows and Linux, as do Cmd+N, T, W and Cmd+Q, H, M on a Mac; Ctrl+F4,
+ * Alt+F4 and Ctrl+Tab close and switch tabs. On a Mac the Control forms (Ctrl+T) are free.
+ */
+export function browserReserved(chord, mac = IS_MAC) {
   if (!chord) return false;
+  const parts = chord.split('+'), key = parts.at(-1).toUpperCase(), mods = parts.slice(0, -1).sort().join('+');
+  if ((mods === 'Mod' || mods === 'Mod+Shift') && ['N', 'T', 'W', 'TAB'].includes(key)) return true;
+  if (mac) return mods === 'Mod' && ['Q', 'H', 'M'].includes(key);
+  return (mods === 'Mod' || mods === 'Alt') && key === 'F4';
+}
+
+/** browserReserved for a chord as menus and tooltips show it ("Ctrl+Shift+W", "Ctrl + T", "Cmd+Option+K"). */
+export function displayedChordReserved(text, mac = IS_MAC) {
+  const names = { cmd: 'Mod', ctrl: mac ? 'Ctrl' : 'Mod', control: mac ? 'Ctrl' : 'Mod', option: 'Alt', alt: 'Alt', shift: 'Shift', meta: mac ? 'Mod' : 'Meta' };
+  const parts = String(text || '').split('+').map(part => part.trim()).filter(Boolean);
+  if (parts.length < 2) return false;
+  return browserReserved([...parts.slice(0, -1).map(part => names[part.toLowerCase()] || part), parts.at(-1)].join('+'), mac);
+}
+
+/** Whether a chord can be bound: it needs a modifier, unless it is a function key, and the browser must let the page have it. */
+export function bindable(chord, mac = IS_MAC) {
+  if (!chord || browserReserved(chord, mac)) return false;
   const parts = chord.split('+'), key = parts.at(-1);
   if (/^F\d+$/.test(key)) return true;
   if (['Escape', 'Tab', 'Enter', 'Backspace', 'Delete'].includes(key) && parts.length === 1) return false;
@@ -56,11 +77,11 @@ export function displayChord(chord, mac = IS_MAC) {
   return chord.split('+').map(part => part === 'Mod' ? (mac ? 'Cmd' : 'Ctrl') : part === 'Alt' && mac ? 'Option' : NAMED[part] || ({ ArrowUp: 'Up', ArrowDown: 'Down', ArrowLeft: 'Left', ArrowRight: 'Right' })[part] || part).join('+');
 }
 
-export function loadBindings(storage = localStore()) {
+export function loadBindings(storage = localStore(), mac = IS_MAC) {
   try {
     const value = JSON.parse(storage?.getItem(KEYMAP_STORE) || '{}');
     if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
-    return Object.fromEntries(Object.entries(value).filter(([id, chords]) => typeof id === 'string' && Array.isArray(chords)).map(([id, chords]) => [id, chords.filter(c => typeof c === 'string' && bindable(c))]));
+    return Object.fromEntries(Object.entries(value).filter(([id, chords]) => typeof id === 'string' && Array.isArray(chords)).map(([id, chords]) => [id, chords.filter(c => typeof c === 'string' && bindable(c, mac))]));
   } catch { return {}; }
 }
 
@@ -77,11 +98,11 @@ export function saveBindings(bindings, storage = localStore()) {
  * defaults; an empty list removes them. One chord belongs to one command: binding it elsewhere moves it.
  */
 export function createKeymap({ defaults = {}, run, storage = localStore(), mac = IS_MAC, signal }) {
-  let user = loadBindings(storage);
+  let user = loadBindings(storage, mac);
   const listeners = new Set();
   // Every tab of the app shares the bindings. Another tab's change applies here at once, and a change made here
   // starts from what is stored, so it never puts back the bindings another tab has since changed.
-  const reload = () => { user = loadBindings(storage); };
+  const reload = () => { user = loadBindings(storage, mac); };
   globalThis.addEventListener?.('storage', e => {
     if (e.key !== null && e.key !== KEYMAP_STORE || e.storageArea && e.storageArea !== storage) return;
     reload(); for (const fn of listeners) fn();
@@ -102,7 +123,7 @@ export function createKeymap({ defaults = {}, run, storage = localStore(), mac =
     get custom() { return { ...user }; },
     isCustom: id => Object.hasOwn(user, id),
     assign(id, chord) {
-      if (!bindable(chord)) return false;
+      if (!bindable(chord, mac)) return false;
       reload();
       // The chord leaves whichever command had it.
       for (const other of new Set([...Object.keys(defaults), ...Object.keys(user)])) {

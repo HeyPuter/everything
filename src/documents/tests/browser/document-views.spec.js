@@ -597,12 +597,14 @@ test('side-to-side pages stay whole above the page thumbnails', async ({ page })
   await expect.poll(height).toBeGreaterThan(withStrip + 40);
 });
 
-test('Demote to Body Text offers Ctrl+Shift+N, which the browser leaves to the page, and it works', async ({ page }) => {
+test('Demote to Body Text offers Ctrl+Shift+N where the browser leaves it to the page, and it works', async ({ page }) => {
   await headings(page);
   await (await viewTab(page)).getByRole('button', { name: 'Outline', exact: true }).click();
   const button = ribbon(page).getByRole('button', { name: 'Demote to Body Text', exact: true });
-  // Cmd+Shift+N opens a private window in Mac browsers, so the page never sees it; Ctrl+Shift+N is the chord everywhere.
-  await expect(button).toHaveAttribute('title', /\(Ctrl\+Shift\+N\)/);
+  // Cmd+Shift+N opens a private window in Mac browsers, so the page never sees it: Ctrl+Shift+N is the chord there.
+  // On Windows and Linux Ctrl+Shift+N is the browser's own (a private window), so the button promises no chord.
+  if (process.platform === 'darwin') await expect(button).toHaveAttribute('title', /\(Ctrl\+Shift\+N\)/);
+  else await expect(button).toHaveAttribute('title', 'Demote to Body Text');
   const background = page.locator('.outline-row', { hasText: 'Background' });
   await background.locator('.outline-text').click();
   await page.keyboard.press('Control+Shift+N');

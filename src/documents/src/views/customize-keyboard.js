@@ -1,6 +1,6 @@
 import { el, typesCharacter } from '../ui/dom.js';
 import { openModal } from '../ui/modal.js';
-import { chordOf, bindable, displayChord } from './keymap.js';
+import { chordOf, bindable, displayChord, browserReserved } from './keymap.js';
 
 /**
  * Customize Keyboard: give any command — a ribbon button or a menu item — a shortcut of your own, or
@@ -64,7 +64,9 @@ export function openCustomizeKeyboard({ entries, keymap, onClose, select = null 
       e.preventDefault(); e.stopPropagation();
       const chord = chordOf(e);
       if (!chord) return;
-      if (!bindable(chord)) { capture.value = displayChord(chord); hint.textContent = 'Use a modifier key (Ctrl, Alt, Cmd or Option), or a function key.'; assign.disabled = true; return; }
+      // Most of the browser's own chords never get here; one that does (an installed app's window) still opens a tab elsewhere.
+      if (browserReserved(chord)) { capture.value = displayChord(chord); hint.textContent = `The browser keeps ${displayChord(chord)} for its own windows and tabs, so the document never receives it. Choose another shortcut.`; pending = null; assign.disabled = true; return; }
+      if (!bindable(chord)) { capture.value = displayChord(chord); hint.textContent = 'Use a modifier key (Ctrl, Alt, Cmd or Option), or a function key.'; pending = null; assign.disabled = true; return; }
       // AltGr and Option keys that type a character keep typing it, so they cannot be a shortcut.
       if (typesCharacter(e)) { capture.value = displayChord(chord); hint.textContent = `These keys type ${e.key}. Choose another shortcut.`; pending = null; assign.disabled = true; return; }
       pending = chord; capture.value = displayChord(chord); assign.disabled = false;
