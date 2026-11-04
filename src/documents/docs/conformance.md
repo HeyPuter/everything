@@ -22317,6 +22317,10 @@ Supported subset:
   recorded as a tracked insertion (`w:ins`, with its paragraph marks) when the command inserts one stretch of
   text. A command that also renumbers or rewrites other text (a caption before existing ones, an IEEE citation,
   a rebuilt table) is applied untracked, and with tracking locked it is refused.
+- Index entries and table of authorities citations (§17.16.5.72 XE, §17.16.5.62 TA) marked with Track Changes on,
+  and a new index or table of authorities (§17.16.5.29 INDEX, §17.16.5.67 TOA), are tracked insertions: an entry
+  has no result text, so its field code alone is written inside `w:ins`, and rejecting removes it. Before,
+  these four commands edited untracked and Reject All left the entries and tables in the document.
 - Updating fields (Update Fields, Update page references, mail merge previews) is not itself tracked; a
   result that was wholly a tracked insertion or deletion keeps that change after the update. The field's
   begin/separate/end characters are written outside `w:ins`/`w:del` (an approximation).

@@ -54,7 +54,7 @@ export function createIndexCommands(ctx) {
       if (!main.value.trim()) { status.textContent = 'Type the main entry first.'; main.focus(); return; }
       const selection = selectedText();
       let count = 0;
-      await runBody((body, idx) => { if (all) count = idx.markAllEntries(body, selection, options()); else { idx.markEntry(body, options()); count = 1; } return true; }, { modules: ['index'], refresh: false, keepFocus: true });
+      await runBody((body, idx) => { if (all) count = idx.markAllEntries(body, selection, options()); else { idx.markEntry(body, options()); count = 1; } return true; }, { modules: ['index'], refresh: false, keepFocus: true, track: true });
       status.textContent = all ? `${count} ${count === 1 ? 'entry' : 'entries'} marked.` : 'Entry marked.';
       edited = false;
       ctx.showFieldCodes?.();
@@ -107,7 +107,7 @@ export function createIndexCommands(ctx) {
       const options = { ...idx.parseIndexInstruction(existing?.field.instruction || ' INDEX '), runIn: type.value === 'runin', columns: Math.max(1, Math.min(4, Number(columns.value) || 1)), rightAlign: rightAlign.box.checked,
         entrySeparator: rightAlign.box.checked ? '\t' : ', ', headings: format.value === 'letters' ? 'A' : format.value === 'spaced' ? ' A ' : null, lcid: language.value };
       return runBody(settle((body, m, pages, last) => m.writeIndex(body, { existing: last ? m.indexFields(body.paragraphs).find(r => r.field.id === last.field.id) : indexFor(m, body), options, pageOf: pages, leader: leader.value }),
-        (body, m, range) => resultText(body, m.indexFields(body.paragraphs).find(r => r.field.id === range.field.id))), { modules: ['index'], refresh: false });
+        (body, m, range) => resultText(body, m.indexFields(body.paragraphs).find(r => r.field.id === range.field.id))), { modules: ['index'], refresh: false, track: true });
     } });
   }
   async function updateIndex() {
@@ -140,7 +140,7 @@ export function createIndexCommands(ctx) {
     const mark = async all => {
       if (!long.value.trim()) { status.textContent = 'Type the long citation first.'; long.focus(); return; }
       let count = 0;
-      await runBody((body, m) => { if (all) count = m.markAllAuthorities(body, options()); else { m.markAuthority(body, options()); count = 1; } return true; }, { modules: ['authorities'], refresh: false, keepFocus: true });
+      await runBody((body, m) => { if (all) count = m.markAllAuthorities(body, options()); else { m.markAuthority(body, options()); count = 1; } return true; }, { modules: ['authorities'], refresh: false, keepFocus: true, track: true });
       status.textContent = `${count} ${count === 1 ? 'citation' : 'citations'} marked.`;
       fillExisting();
       ctx.showFieldCodes?.();
@@ -208,7 +208,7 @@ export function createIndexCommands(ctx) {
         if (i < categories.length - 1) doc.select(span.paragraphEnd + 1);
       });
       return true;
-    }, (doc, m) => m.tableFields(doc.paragraphs).map(r => resultText(doc, r)).join('\n')), { modules: ['authorities'], refresh: false }) });
+    }, (doc, m) => m.tableFields(doc.paragraphs).map(r => resultText(doc, r)).join('\n')), { modules: ['authorities'], refresh: false, track: true }) });
   }
   async function updateAuthorities() {
     const engine = ready(); if (!engine) return;

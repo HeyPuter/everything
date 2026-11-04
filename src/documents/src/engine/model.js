@@ -2285,6 +2285,14 @@ export class TextDocument {
    */
   trackInsertion(previousText, previousFields = null) {
     const text = this.text, limit = previousText.length;
+    // Fields without text of their own (index entries, table of authorities citations) change no text: they are
+    // the insertion, code and all.
+    if (text === previousText && previousFields) {
+      const revision = this.newRevision('ins');
+      const added = this.paragraphs.some(p => p.fieldMarkers?.length) ? bodyFieldRanges(this.paragraphs).filter(f => !previousFields.has(f.field.id)) : [];
+      for (const f of added) setFieldRevision(this.paragraphs, f.field.id, revision);
+      return added.length > 0;
+    }
     if (text.length <= limit) return false;
     let start = 0, tail = 0;
     while (start < limit && text[start] === previousText[start]) start++;
