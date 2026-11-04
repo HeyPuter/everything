@@ -352,12 +352,15 @@ export class Renderer {
   private progs: Record<string, Prog> = {};
   private model: GpuMesh | null = null;
   private preview: GpuMesh | null = null;
+  /** CPU copies of the meshes, re-uploaded when a lost context is restored. */
+  private modelMesh: MeshData | null = null;
+  private previewMesh: MeshData | null = null;
   private previewKind: 'tool' | 'body' = 'tool';
   previewCut = false;
-  private quad: WebGLBuffer;
-  private faceState: WebGLTexture;
-  private faceColor: WebGLTexture;
-  private edgeState: WebGLTexture;
+  private quad!: WebGLBuffer;
+  private faceState!: WebGLTexture;
+  private faceColor!: WebGLTexture;
+  private edgeState!: WebGLTexture;
   private faceStateData: Uint8Array = new Uint8Array(0);
   private edgeStateData: Uint8Array = new Uint8Array(0);
   private faceColorData: Uint8Array = new Uint8Array(0);
@@ -369,7 +372,7 @@ export class Renderer {
   private pickDepthTex: WebGLTexture | null = null;
   private pickRb: WebGLRenderbuffer | null = null;
   private pickSize = [0, 0];
-  private canFloat: boolean;
+  private canFloat = false;
   private raf = 0;
   private dirty = true;
   dpr = 1;
@@ -388,6 +391,17 @@ export class Renderer {
     if (!gl) throw new Error('WebGL 2 is not available in this browser');
     this.gl = gl;
     this.theme = theme;
+    this.initGl();
+    this.camera.onChange = () => this.requestRender();
+    // The browser may drop the context (GPU reset, driver update, too many
+    // contexts). Everything is re-created from the CPU copies on restore.
+    canvas.addEventListener('webglcontextlost', (e) => { e.preventDefault(); this.lost = true; });
+    canvas.addEventListener('webglcontextrestored', () => this.restore());
+  }
+
+  /** Creates programs and the shared buffers and textures. */
+  private initGl() {
+    const gl = this.gl;
     this.canFloat = !!gl.getExtension('EXT_color_buffer_float');
     this.progs.mesh = this.program(MESH_VS, MESH_FS);
     this.progs.seg = this.program(SEG_VS, SEG_FS);
@@ -402,8 +416,24 @@ export class Renderer {
     this.faceState = this.dataTexture();
     this.faceColor = this.dataTexture();
     this.edgeState = this.dataTexture();
-    this.camera.onChange = () => this.requestRender();
-    canvas.addEventListener('webglcontextlost', (e) => { e.preventDefault(); this.lost = true; });
+  }
+
+  private restore() {
+    this.initGl();
+    this.pickFbo = this.pickTex = this.pickDepthTex = this.pickRb = null;
+    this.pickSize = [0, 0];
+    this.pbo = null;
+    this.lost = false;
+    this.model = this.modelMesh ? this.meshToGpu(this.modelMesh) : null;
+    this.preview = this.previewMesh ? this.meshToGpu(this.previewMesh) : null;
+    this.uploadData(this.faceState, this.faceStateData, this.faceStateData.length, 1);
+    this.uploadData(this.edgeState, this.edgeStateData, this.edgeStateData.length, 1);
+    this.uploadData(this.faceColor, this.faceColorData, this.faceColorData.length / 4, 4);
+    // Old GPU handles belong to the lost context; drop them before re-uploading.
+    for (const [k, b] of [...this.lines]) { b.gpu = undefined; this.setLines(k, b); }
+    for (const [k, b] of [...this.points]) { b.gpu = undefined; this.setPoints(k, b); }
+    for (const [k, b] of [...this.tris]) { b.gpu = undefined; this.setTris(k, b); }
+    this.requestRender();
   }
 
   private program(vs: string, fs: string): Prog {
@@ -547,7 +577,8 @@ export class Renderer {
 
   setModel(m: MeshData | null, faceCount: number, edgeCount: number) {
     this.freeMesh(this.model);
-    this.model = m && m.indices.length ? this.meshToGpu(m) : null;
+    this.modelMesh = m && m.indices.length ? m : null;
+    this.model = this.modelMesh ? this.meshToGpu(this.modelMesh) : null;
     this.faceStateData = new Uint8Array(faceCount);
     this.edgeStateData = new Uint8Array(edgeCount);
     this.faceColorData = new Uint8Array(faceCount * 4);
@@ -559,7 +590,8 @@ export class Renderer {
 
   setPreview(m: MeshData | null, kind: 'tool' | 'body' = 'tool', isCut = false) {
     this.freeMesh(this.preview);
-    this.preview = m && m.indices.length ? this.meshToGpu(m) : null;
+    this.previewMesh = m && m.indices.length ? m : null;
+    this.preview = this.previewMesh ? this.meshToGpu(this.previewMesh) : null;
     this.previewKind = kind;
     this.previewCut = isCut;
     this.requestRender();

@@ -1,5 +1,7 @@
 import { expect, test } from '@playwright/test';
-import { canvasCenter, openApp } from './helpers';
+import { canvasCenter, openApp, waitForFeature } from './helpers';
+
+type Win = { __parametric: import('../../src/app/app').App };
 
 test.describe('viewport', () => {
   test('sketch dimension labels follow the camera when zooming', async ({ page }) => {
@@ -33,6 +35,45 @@ test.describe('viewport', () => {
     await page.mouse.wheel(0, -200);
     const k = Math.exp(200 * 0.0018);
     await expect.poll(async () => { const [ax, ay] = await centre(); return Math.hypot(ax - (cx + (lx - cx) * k), ay - (cy + (ly - cy) * k)); }).toBeLessThan(3);
+    expect(errors).toEqual([]);
+  });
+
+  test('redraws the model after the WebGL context is lost and restored', async ({ page }) => {
+    const errors = await openApp(page);
+    await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+    await waitForFeature(page, 'Fillet1');
+    // Shaded model colour at the centre of the part, and a pick there.
+    const probe = () => page.evaluate(async () => {
+      const app = (window as unknown as Win).__parametric;
+      const r = app.renderer;
+      const [x, y] = app.viewport.project([30, 3, 25]);
+      const url = r.capture(512);
+      let pixel: number[] = [];
+      if (url) {
+        const img = new Image();
+        img.src = url;
+        await img.decode();
+        const c = document.createElement('canvas');
+        c.width = img.width; c.height = img.height;
+        const ctx = c.getContext('2d')!;
+        ctx.drawImage(img, 0, 0);
+        const k = img.width / r.camera.width;
+        pixel = [...ctx.getImageData(Math.round(x * k), Math.round(y * k), 1, 1).data].slice(0, 3);
+      }
+      return { pick: r.pick(x, y, { face: true })?.kind ?? null, pixel };
+    });
+    await expect.poll(async () => (await probe()).pick).toBe('face');
+    const before = await probe();
+    await page.evaluate(() => {
+      const ext = (window as unknown as Win).__parametric.renderer.gl.getExtension('WEBGL_lose_context')!;
+      (window as unknown as { __lose: WEBGL_lose_context }).__lose = ext;
+      ext.loseContext();
+    });
+    await expect.poll(() => page.evaluate(() => (window as unknown as Win).__parametric.renderer.lost)).toBe(true);
+    await page.evaluate(() => (window as unknown as { __lose: WEBGL_lose_context }).__lose.restoreContext());
+    await expect.poll(async () => (await probe()).pick).toBe('face');
+    const after = await probe();
+    after.pixel.forEach((v, i) => expect(Math.abs(v - before.pixel[i])).toBeLessThan(12));
     expect(errors).toEqual([]);
   });
 });
