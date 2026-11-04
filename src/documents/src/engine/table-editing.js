@@ -1088,7 +1088,7 @@ export function newTable(model, rows, columns, width) {
   styles.definitions[styleId] = { id: styleId, type: 'table', name: 'Canvas table', basedOn: null, properties: {}, reference: {}, run: {}, generated: true };
   const table = { id: tableId('t'), grid, width: { type: 'dxa', value: Math.round(width) }, layout: 'fixed', alignment: 'left', indent: 0, margins: { top: 72, right: 108, bottom: 72, left: 108 },
     borders: Object.fromEntries(['top', 'right', 'bottom', 'left', 'insideH', 'insideV'].map(s => [s, { style: 'single', size: borderSize, color: '000000' }])), styleId, rows: [] };
-  for (let r = 0; r < rows; r++) table.rows.push({ id: tableId('row'), cantSplit: true, minHeight: 0, cells: grid.map(w => ({ id: tableId('cell'), width: { type: 'dxa', value: w }, margins: { ...table.margins }, inheritedMargins: { ...table.margins }, directMargins: {}, vertical: 'top' })) });
+  for (let r = 0; r < rows; r++) table.rows.push({ id: tableId('row'), minHeight: 0, cells: grid.map(w => ({ id: tableId('cell'), width: { type: 'dxa', value: w }, margins: { ...table.margins }, inheritedMargins: { ...table.margins }, directMargins: {}, vertical: 'top' })) });
   return { table, styles };
 }
 function writingWidth(model) {

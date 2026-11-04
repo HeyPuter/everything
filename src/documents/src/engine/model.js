@@ -1314,7 +1314,7 @@ export class TextDocument {
     if (parent) table.parentCellId = parent.cell.id;
     const content = [];
     for (let r = 0; r < rows; r++) {
-      const row = { id: tableId('row'), cantSplit: true, minHeight: 0, cells: [] };
+      const row = { id: tableId('row'), minHeight: 0, cells: [] };
       grid.forEach(w => {
         const cell = { id: tableId('cell'), width: { type: 'dxa', value: w }, margins: { ...table.margins }, inheritedMargins: { ...table.margins }, directMargins: {}, vertical: 'top' };
         row.cells.push(cell);

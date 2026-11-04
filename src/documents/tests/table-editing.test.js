@@ -484,6 +484,16 @@ describe('table commands', () => {
     valid(two);
   });
 
+  it('lets the rows of a new or converted table break across pages, as Word does, and saves no row keep', async () => {
+    const { pkg, doc } = tableDocument(2, 2);
+    expect(doc.tables[0].rows.map(row => !!row.cantSplit)).toEqual([false, false]);
+    expect((await roundTrip(pkg, doc)).xml).not.toContain('cantSplit');
+    const converted = open(createDocx([paragraph('a\tb'), paragraph('c\td'), paragraph('After')], undefined, undefined, undefined, [], {}, WRITING_STYLES));
+    converted.select(0, converted.text.indexOf('After') - 1);
+    T.convertTextToTable(converted, { separator: 'tab' });
+    expect(converted.tables[0].rows.map(row => !!row.cantSplit)).toEqual([false, false]);
+  });
+
   it('converts text to a table and back', async () => {
     const pkg = createDocx([paragraph('Name\tQty'), paragraph('Pens\t2'), paragraph('Ink\t1\textra'), paragraph('After')], undefined, undefined, undefined, [], {}, WRITING_STYLES);
     const doc = open(pkg);

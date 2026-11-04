@@ -23646,6 +23646,8 @@ shells. Supported authoring subset:
   splitting it and leaving an empty paragraph above the table. Inside a paragraph,
   and in a paragraph that directly follows a table at the same level (two adjacent
   `w:tbl` elements would read as one table), the paragraph is split around the table.
+  New rows write no `w:cantSplit` (§17.4.6): they may break across pages, Word's
+  default for a new table, until Table Properties keeps a row together.
 
 - Grid and spans: `w:tblGrid`/`w:gridCol` (§17.4.48/§17.4.16) are rewritten
   after insert/delete/split of columns, cell splits and Draw Table lines;

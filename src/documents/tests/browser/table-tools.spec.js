@@ -303,3 +303,21 @@ test('Shift+Down and Shift+Up from the start of a cell select that cell and the 
   await page.locator('.menu-custom-grid .swatch').first().click();
   expect((await model(page)).tables[0].rows.map(r => r.cells.map(c => c.shading || null))).toEqual([['000000', null, null], ['000000', null, null], [null, null, null]]);
 });
+
+test('a new table\'s row that reaches the bottom of a page breaks across it instead of leaving the page empty below the text', async ({ page }) => {
+  await page.goto('/mock.html#/new');
+  await expect((await onTab(page, 'home')).getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await input(page).focus();
+  const pages = await page.evaluate(() => {
+    const e = window.__docs.current.view.engine, m = e.model;
+    e.execute(() => m.replace(Array.from({ length: 40 }, (_, i) => `Line ${i}`).join('\n') + '\n'));
+    e.insertTable(1, 1);
+    m.selectCell(m.tables[0].rows[0].cells[0].id);
+    e.execute(() => m.replace(Array.from({ length: 12 }, (_, i) => `Cell line ${i}`).join('\n')));
+    const page = text => e.layout.lines.find(l => l.start === m.text.indexOf(text)).page;
+    return { body: page('Line 39'), first: page('Cell line 0'), last: page('Cell line 11') };
+  });
+  // The row starts on the page the text before it ends on, and its last lines continue on the next.
+  expect(pages.first).toBe(pages.body);
+  expect(pages.last).toBe(pages.body + 1);
+});
