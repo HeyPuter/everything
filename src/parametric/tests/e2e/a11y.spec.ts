@@ -195,3 +195,18 @@ test('focus returns to the re-rendered tree row after a dialog closes', async ({
   await page.keyboard.press('Escape');
   await expect(page.getByRole('treeitem', { name: 'Hole1' })).toBeFocused();
 });
+
+test('Shift+F10 opens the context menu of the focused tree row', async ({ page }) => {
+  await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  const hole = page.getByRole('treeitem', { name: 'Hole1' });
+  await hole.focus();
+  await page.keyboard.press('Shift+F10');
+  await expect(page.getByRole('menu', { name: 'Feature menu' })).toHaveCount(1);
+  await expect(page.getByRole('menuitem', { name: 'Edit Feature' })).toBeFocused();
+  await expect(hole).toHaveAttribute('aria-selected', 'true');
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('menu')).toHaveCount(0);
+  await expect(page.getByRole('treeitem', { name: 'Hole1' })).toBeFocused();
+});

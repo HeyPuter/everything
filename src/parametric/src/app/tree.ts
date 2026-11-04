@@ -272,6 +272,15 @@ export class FeatureTree {
         e.stopPropagation();
         items[cur].click();
         break;
+      // The keyboard context menu: browsers on macOS never fire contextmenu for Shift+F10.
+      case 'F10':
+        if (e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey) {
+          e.preventDefault();
+          e.stopPropagation();
+          const r = items[cur].getBoundingClientRect();
+          items[cur].dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: r.left + 24, clientY: r.bottom }));
+        }
+        break;
       case 'F2':
         if (this.app.store.feature(key)) { e.preventDefault(); e.stopPropagation(); this.startRename(key); }
         break;
