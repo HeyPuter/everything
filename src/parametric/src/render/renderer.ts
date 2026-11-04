@@ -336,6 +336,8 @@ export interface Theme {
   background: [number, number, number];
   model: [number, number, number];
   edge: [number, number, number];
+  /** Visible edges where faces are not shaded (line styles). */
+  wire: [number, number, number];
   hiddenEdge: [number, number, number];
   selection: [number, number, number];
   hover: [number, number, number];
@@ -789,7 +791,8 @@ export class Renderer {
         if (body.edges) {
           const wire = style === 'wireframe';
           if (wire) gl.disable(gl.DEPTH_TEST);
-          this.drawSegs(body.edges, vp, viewport, clip, { width: 1.25, color: [...this.theme.edge, 1], useState: showBody, bias: 2e-5 });
+          const ec = flat || wire ? this.theme.wire : this.theme.edge;
+          this.drawSegs(body.edges, vp, viewport, clip, { width: 1.25, color: [...ec, 1], useState: showBody, bias: 2e-5 });
           if (wire) gl.enable(gl.DEPTH_TEST);
         }
       } else if (body.edges && this.edgeStateData.some((s) => s & 3)) {

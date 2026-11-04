@@ -129,4 +129,19 @@ test.describe('viewport', () => {
     const hit = await pickCorner();
     expect(hit === null || hit[2] <= 15).toBe(true);
   });
+
+  test('line display styles keep visible edges readable in both themes', async ({ page }) => {
+    await openApp(page);
+    const contrast = () => page.evaluate(() => {
+      const t = (window as unknown as Win).__parametric.readTheme();
+      const lum = (c: number[]) => { const l = c.map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4)); return 0.2126 * l[0] + 0.7152 * l[1] + 0.0722 * l[2]; };
+      const [a, b] = [lum(t.wire), lum(t.background)].sort((x, y) => y - x);
+      return (a + 0.05) / (b + 0.05);
+    });
+    expect(await contrast()).toBeGreaterThan(4.5);
+    await page.getByRole('button', { name: /Account/ }).click();
+    await page.getByRole('menuitemradio', { name: 'Dark' }).click();
+    await expect(page.locator('html')).toHaveAttribute('data-theme-resolved', 'dark');
+    expect(await contrast()).toBeGreaterThan(4.5);
+  });
 });

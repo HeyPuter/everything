@@ -44,6 +44,8 @@
   --viewport: #e7eaee;
   --model: #b9c3cf;
   --edge: #1b1f24;
+  /* Visible edges in the line styles (hidden lines removed/visible, wireframe). */
+  --wire: #1b1f24;
   --hidden-edge: #8b939d;
   --selection: #2f7cf6;
   --hover-3d: #f29d38;
@@ -117,6 +119,7 @@
   --viewport: #2b2f35;
   --model: #9aa6b4;
   --edge: #0e1013;
+  --wire: #d3d9e1;
   --hidden-edge: #6e7783;
   --selection: #4f95ff;
   --hover-3d: #ffaa4d;

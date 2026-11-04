@@ -173,7 +173,7 @@ export class App {
   readTheme(): Theme {
     const c = (n: string) => cssColor(n);
     return {
-      background: c('--viewport'), model: c('--model'), edge: c('--edge'), hiddenEdge: c('--hidden-edge'), selection: c('--selection'),
+      background: c('--viewport'), model: c('--model'), edge: c('--edge'), wire: c('--wire'), hiddenEdge: c('--hidden-edge'), selection: c('--selection'),
       hover: c('--hover-3d'), preview: c('--preview'), previewCut: c('--preview-cut'), cap: c('--cap'),
     };
   }
