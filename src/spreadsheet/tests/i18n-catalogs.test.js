@@ -67,6 +67,11 @@ function shapeOf(elements, shape = { args: new Set(), tags: new Set(), plurals: 
 const sorted = (set) => [...set].sort();
 
 describe('catalog files', () => {
+  test('no two namespaces differ only in case (a case-insensitive disk keeps one of them)', () => {
+    const names = [...source.keys()].map((n) => n.toLowerCase());
+    expect(names.filter((n, i) => names.indexOf(n) !== i)).toEqual([]);
+  });
+
   test('every language has a folder, and every folder is a language', () => {
     const folders = readdirSync(LOCALES).filter((f) => statSync(join(LOCALES, f)).isDirectory()).sort();
     expect(folders).toEqual(LANGUAGES.map((l) => l.id).sort());
@@ -125,7 +130,7 @@ const KEPT_WORDS = new Set(`
   PNG JPEG GIF WebP EMF WMF PDF CSV TSV XLSX XLSM XLS ODS TXT PRN DIF SYLK URL URI HTTP HTTPS API IME RGB
   HSL HEX CMYK GPU CPU ISO ANSI IEEE Ctrl Shift Alt Option Cmd Command Enter Esc Tab Space Home End PgUp
   PgDn Fn Delete Backspace Insert Num Lock Caps Scroll Calibri Cambria Carlito Caladea Arial Aptos AutoSum
-  OLAP OData SQL ODBC LAMBDA LET Wingdings Webdings Symbol
+  OLAP OData SQL ODBC LAMBDA LET Wingdings Webdings Symbol Web
 `.split(/\s+/).filter(Boolean));
 
 const CJK = /[㐀-䶿一-鿿豈-﫿]/;
