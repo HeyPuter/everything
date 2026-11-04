@@ -6914,47 +6914,48 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       trackEvent('Spreadsheet Edited');
     }
     if (e.detail?.type === 'merge-paste') {
-      const message = e.detail.reason === 'table' ? 'Merged cells cannot be pasted into a table’s header or data rows.'
-        : e.detail.reason === 'invalid' ? 'The copied merged ranges do not fit their cell data.'
-          : 'The copied cells would cross part of a merged cell. Unmerge the destination or choose another range.';
+      const message = e.detail.reason === 'table' ? t('editor.mergePaste.table')
+        : e.detail.reason === 'invalid' ? t('editor.mergePaste.invalid')
+          : t('editor.mergePaste.cross');
       toast(message, { icon: 'merge', duration: 4000 });
       statusBar?.announce(message);
       return;
     }
     if (e.detail?.type === 'pivot-edit') {
-      const message = e.detail.reason === 'bounds' ? 'The whole pivot table must fit within the sheet limits.'
-        : e.detail.reason === 'name' ? `The destination sheet already has a pivot table named “${e.detail.name}”.`
-        : e.detail.reason === 'table-overlap' ? 'A pivot table cannot overlap a table. Choose another range.'
-        : e.detail.reason === 'copy-limit' ? 'The copied pivot tables exceed this spreadsheet’s storage limit.'
-        : e.detail.reason === 'copy-layout' ? 'The pivot table cannot keep its layout at this destination. Choose an unmerged range or paste values only.'
-        : e.detail.reason === 'clear-partial' ? `Select the entire pivot table “${e.detail.name}” to delete it.`
-        : e.detail.reason === 'move-partial' ? `Select the entire pivot table “${e.detail.name}” to move it.`
-        : e.detail.reason === 'overlap' ? `The destination overlaps the pivot table “${e.detail.name}”. Choose another range.`
-        : `This edit would split the pivot table “${e.detail.name}”. Select all of its rows or columns to delete it.`;
+      const name = e.detail.name;
+      const message = e.detail.reason === 'bounds' ? t('editor.pivotEdit.bounds')
+        : e.detail.reason === 'name' ? t('editor.pivotEdit.name', { name })
+        : e.detail.reason === 'table-overlap' ? t('editor.pivotEdit.tableOverlap')
+        : e.detail.reason === 'copy-limit' ? t('editor.pivotEdit.copyLimit')
+        : e.detail.reason === 'copy-layout' ? t('editor.pivotEdit.copyLayout')
+        : e.detail.reason === 'clear-partial' ? t('editor.pivotEdit.clearPartial', { name })
+        : e.detail.reason === 'move-partial' ? t('editor.pivotEdit.movePartial', { name })
+        : e.detail.reason === 'overlap' ? t('editor.pivotEdit.overlap', { name })
+        : t('editor.pivotEdit.split', { name });
       toast(message, { icon: 'info', duration: 4000 });
       statusBar?.announce(message);
       return;
     }
     if (e.detail?.type === 'array-edit') {
       const ref = rangeName(e.detail.range);
-      const message = e.detail.reason === 'overlap' ? `The array at ${ref} would overlap other content. Choose an empty range.`
-        : e.detail.reason === 'bounds' ? 'The whole array must fit within the sheet limits.'
-          : e.detail.reason === 'formula' ? 'Enter a formula starting with =. To remove the array, select its full range and clear it.'
-            : e.detail.reason === 'limits' ? 'Excel does not take this formula: a function has too few or too many arguments, or the formula is too long or nests too deep.'
-              : `Select the entire array ${ref} to change it. You can format individual cells.`;
+      const message = e.detail.reason === 'overlap' ? t('editor.arrayEdit.overlap', { ref })
+        : e.detail.reason === 'bounds' ? t('editor.arrayEdit.bounds')
+          : e.detail.reason === 'formula' ? t('editor.arrayEdit.formula')
+            : e.detail.reason === 'limits' ? t('editor.arrayEdit.limits')
+              : t('editor.arrayEdit.partial', { ref });
       toast(message, { icon: 'info', duration: 4000 });
       statusBar?.announce(message);
       return;
     }
     if (e.detail?.type === 'external-blocked') { externalNotice.hidden = false; return; }
     // Typed text past what a file can store was cut: the cell keeps the first characters, and says so.
-    if (e.detail?.type === 'truncated') { toast(`Text cut to ${e.detail.max.toLocaleString()} characters, the most a cell can hold`, { icon: 'info', duration: 3500 }); return; }
+    if (e.detail?.type === 'truncated') { toast(t('editor.textTruncated', { max: e.detail.max }), { icon: 'info', duration: 3500 }); return; }
     if (e.detail?.type === 'protected' && e.detail.structure) {
       const now = Date.now();
       if (lastProtectedKey !== 'structure' || now - lastProtectedToast > 2500) {
         lastProtectedToast = now; lastProtectedKey = 'structure';
-        toast('The workbook’s structure is protected. Unprotect it under Review ▸ Protect Workbook to add, move, rename or delete sheets', { icon: 'lock', duration: 4000 });
-        statusBar?.announce('The workbook’s structure is protected');
+        toast(t('editor.structure.refused'), { icon: 'lock', duration: 4000 });
+        statusBar?.announce(t('editor.structure.refusedAnnounce'));
       }
       return;
     }
@@ -6967,13 +6968,13 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         lastProtectedToast = now;
         lastProtectedKey = key;
         if (e.detail.range) {
-          const why = e.detail.description ? ` (${e.detail.description})` : '';
-          toast(`${rangeName(e.detail.range)} is protected${why}. Unprotect it under Protected ranges in the cell menu`, { icon: 'lock', duration: 3800 });
-          statusBar?.announce(`${rangeName(e.detail.range)} is protected`);
+          const range = rangeName(e.detail.range);
+          toast(e.detail.description ? t('editor.protectedRange.describedRefused', { range, description: e.detail.description }) : t('editor.protectedRange.refused', { range }), { icon: 'lock', duration: 3800 });
+          statusBar?.announce(t('editor.protectedRange.announce', { range }));
         } else {
-          const name = wb.sheet(e.detail.sheetId)?.name || 'This sheet';
-          toast(`${name} is protected. Unprotect it from the sheet tab menu to make changes`, { icon: 'lock', duration: 3500 });
-          statusBar?.announce(`${name} is protected`);
+          const name = wb.sheet(e.detail.sheetId)?.name || t('editor.protected.thisSheet');
+          toast(t('editor.protected.makeChanges', { name }), { icon: 'lock', duration: 3500 });
+          statusBar?.announce(t('editor.protected.announce', { name }));
         }
       }
       return;
@@ -7025,7 +7026,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     ctx.subscribe(sharePresence);
     setTimeout(() => { sharePresence(); showPeople(); }, 0);
     // Changes made here on an earlier visit, never delivered, that this person may no longer make: not in silence.
-    if (room.dropped) toast(`${room.dropped === 1 ? 'A change' : `${room.dropped} changes`} you made here earlier could not be shared: you can only view this workbook now. Ask its owner for edit access`, { icon: 'alert', duration: 8000 });
+    if (room.dropped) toast(t('editor.room.dropped', { count: room.dropped }), { icon: 'alert', duration: 8000 });
   }
   doc.addEventListener('status', refreshStatus);
   doc.addEventListener('draft', refreshStatus); // whether this browser holds a copy of the edits changed
@@ -7091,13 +7092,13 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       }
       // With no baseline from the open (the look-up failed) nobody knows whether the file changed: the question says so.
       const overwrite = await confirmDialog(e.detail?.kind === 'unchecked' ? {
-        title: 'This file could not be checked',
-        message: `Whether "${doc.name}" was saved since you opened it, perhaps from another device or tab, could not be checked. Save your version anyway, or discard yours and reload the file?`,
-        confirmLabel: 'Save anyway', cancelLabel: 'Reload the file', danger: true, dismissValue: null,
+        title: t('editor.conflict.uncheckedTitle'),
+        message: t('editor.conflict.uncheckedAsk', { name: doc.name }),
+        confirmLabel: t('editor.conflict.saveAnyway'), cancelLabel: t('editor.conflict.reloadFile'), danger: true, dismissValue: null,
       } : {
-        title: 'This file changed elsewhere',
-        message: `"${doc.name}" was saved, moved or renamed since you opened it, perhaps from another device or tab. Keep your version and overwrite theirs (theirs is kept in Version history), or discard yours and reload theirs?`,
-        confirmLabel: 'Overwrite with mine', cancelLabel: 'Reload theirs', danger: true, dismissValue: null,
+        title: t('editor.conflict.changedTitle'),
+        message: t('editor.conflict.changedAsk', { name: doc.name }),
+        confirmLabel: t('editor.conflict.overwriteWithMine'), cancelLabel: t('editor.conflict.reloadTheirs'), danger: true, dismissValue: null,
       });
       if (overwrite) await overwriteWithMine();
       else if (overwrite === false) { wb.markClean(); openPath(doc.path, { reload: true }); }
@@ -7233,27 +7234,25 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
   if (doc.recoverable) {
     const when = new Date(doc.recoverable.savedAt);
     const stamp = when.toDateString() === new Date().toDateString()
-      ? when.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
-      : when.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+      ? formatUiDate(when, { hour: 'numeric', minute: '2-digit' })
+      : formatUiDate(when, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
     recoveryTimer = setTimeout(async () => {
       if (!doc.recoverable) return;
       const restore = await confirmDialog({
-        title: 'Unsaved changes found',
-        message: doc.recoverableMayBeOlder
-          ? `This spreadsheet was edited here at ${stamp}, but those changes never reached Puter, and the file has been saved since. Restoring replaces what is in the file now with those older edits; discarding keeps the file as it is.`
-          : `This spreadsheet was edited here at ${stamp}, but those changes never reached Puter. Restore them? Discarding keeps the file as it is now.`,
-        confirmLabel: 'Restore', cancelLabel: 'Discard', danger: false, dismissValue: null,
+        title: t('editor.recovery.title'),
+        message: doc.recoverableMayBeOlder ? t('editor.recovery.older', { stamp }) : t('editor.recovery.message', { stamp }),
+        confirmLabel: t('editor.recovery.restore'), cancelLabel: t('editor.recovery.discard'), danger: false, dismissValue: null,
       });
       // The editor was left while the question was up (the router closes the dialog as dismissed after the
       // view is gone): the draft stays in storage, offered again on the next open, and nothing is said here.
       if (destroyed) return;
-      if (restore) { doc.restoreDraft(); toast('Unsaved changes restored', { icon: 'check', duration: 2500 }); }
+      if (restore) { doc.restoreDraft(); toast(t('editor.recovery.restored'), { icon: 'check', duration: 2500 }); }
       else if (restore === false) doc.discardDraft();
       else {
         // Dismissed without a decision: the draft is kept, and the offer stays within reach while the editor is.
-        keptDraftToast = toast(`The unsaved changes from ${stamp} are kept until you restore or discard them`, {
+        keptDraftToast = toast(t('editor.recovery.kept', { stamp }), {
           icon: 'info', duration: 8000,
-          action: { label: 'Restore', onClick: () => { if (!destroyed && doc.restoreDraft()) { toast('Unsaved changes restored', { icon: 'check', duration: 2500 }); grid.refresh(); keepFocus(); } } },
+          action: { label: t('editor.recovery.restore'), onClick: () => { if (!destroyed && doc.restoreDraft()) { toast(t('editor.recovery.restored'), { icon: 'check', duration: 2500 }); grid.refresh(); keepFocus(); } } },
         });
       }
       grid.refresh();
@@ -7287,8 +7286,8 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       if (destroyed) return;
       const host = linkHost();
       if (wb.linkStartup === 'update' && wb.externalAllowed !== false) { updateAllLinks(ctx, host); return; }
-      toast('This workbook reads values from other workbooks', { icon: 'link', duration: 9000,
-        action: { label: 'Update links', onClick: async () => { if (await host.allow()) updateAllLinks(ctx, host); } } });
+      toast(t('editor.links.readsOthers'), { icon: 'link', duration: 9000,
+        action: { label: t('editor.links.update'), onClick: async () => { if (await host.allow()) updateAllLinks(ctx, host); } } });
     }, 0);
   }
 
@@ -7372,7 +7371,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       grid.destroy();
       session.removeEventListener?.('change', onSession);
       doc.destroy();
-      document.title = 'Spreadsheet';
+      document.title = t('common.spreadsheet');
     },
   };
 }
