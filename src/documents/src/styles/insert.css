@@ -33,6 +33,8 @@
 
 /* Drawing a shape or text box on the page. */
 .canvas-pages.is-drawing-shape, .canvas-pages.is-drawing-shape canvas { cursor: crosshair; }
+/* A finger drawing a shape draws in any direction: the pages, which otherwise scroll up and down under it, hold still. */
+.canvas-pages.is-drawing-shape { touch-action: none; }
 .insert-draw-band { position: fixed; z-index: 30; pointer-events: none; border: 1px dashed var(--accent); background: color-mix(in srgb, var(--accent) 10%, transparent); }
 .insert-draw-hint { position: fixed; z-index: 30; left: 50%; bottom: calc(var(--statusbar-h, 28px) + 16px); transform: translateX(-50%); max-width: calc(100vw - 32px);
   padding: 8px 14px; border-radius: var(--r-full); background: var(--ink); color: var(--surface); font-size: 13px; pointer-events: none; box-shadow: 0 4px 16px rgb(0 0 0 / .2); }
