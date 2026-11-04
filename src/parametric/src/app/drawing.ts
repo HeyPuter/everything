@@ -235,8 +235,8 @@ export class DrawingWorkspace {
         this.applyTransform();
       } else {
         const id = drag.id!, nx = drag.ox + dx / this.zoom, ny = drag.oy + dy / this.zoom;
+        // The change re-renders the sheet (App refreshes the drawing on every document change).
         this.update((d) => { const v = d.views.find((q) => q.id === id); if (v) { v.x = nx; v.y = ny; } }, 'Move view');
-        this.render();
       }
     });
     const end = () => {
