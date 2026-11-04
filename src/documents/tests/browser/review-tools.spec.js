@@ -1115,3 +1115,27 @@ test('Show Comments is pressed exactly while the comments are shown', async ({ p
     await expect(show).toHaveAttribute('aria-pressed', String(shown));
   }
 });
+
+test('a Hebrew or Arabic comment reads from the right, each line in its own direction', async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const input = await newDocument(page, 'Review this sentence.');
+  await select(input, 0, 6);
+  await onTab(page, 'review');
+  await review(page).getByRole('button', { name: 'New Comment', exact: true }).click();
+  const box = page.locator('.ed-comment-draft textarea');
+  await box.fill('זה טוב מאוד.\nSecond line in English.');
+  // Where each line's text sits in an element: [left gap, right gap], and whether the full stop ends the Hebrew line on its left.
+  const lines = locator => locator.evaluate(el => {
+    const node = el.firstChild?.nodeType === Node.TEXT_NODE ? el.firstChild : null, box = el.getBoundingClientRect();
+    const rect = (from, to) => { const r = document.createRange(); r.setStart(node, from); r.setEnd(node, to); return r.getBoundingClientRect(); };
+    const text = node.data, hebrew = rect(0, text.indexOf('\n')), english = rect(text.indexOf('\n') + 1, text.length), stop = rect(text.indexOf('.'), text.indexOf('.') + 1);
+    return { hebrewRight: Math.round(box.right - hebrew.right) < 20, englishLeft: Math.round(english.left - box.left) < 20, stopOnLeft: stop.right <= rect(0, 1).left + 1 };
+  });
+  expect(await box.evaluate(el => getComputedStyle(el).unicodeBidi)).toBe('plaintext');
+  await box.press('ControlOrMeta+Enter');
+  const text = page.locator('.ed-comment-card .wcc-text').first();
+  await expect(text).toHaveText('זה טוב מאוד.\nSecond line in English.');
+  expect(await lines(text)).toEqual({ hebrewRight: true, englishLeft: true, stopOnLeft: true });
+  expect(errors).toEqual([]);
+});

@@ -20,6 +20,9 @@
 .wcc-date { color: var(--ed-ink-3); font-size: 11px; }
 .wcc-more { width: 26px; height: 26px; font-size: 15px; line-height: 1; color: var(--ed-ink-2); border-radius: 4px; }
 .wcc-more:hover:not(:disabled) { background: var(--ed-hover); }
+/* Each line of a comment takes its direction from its own first letter: Hebrew or Arabic reads from the right with its
+   full stop at its end, beside English lines that read from the left. */
+.wcc-text, .wcc-input { unicode-bidi: plaintext; text-align: start; }
 .wcc-text { margin: 4px 0 0 32px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .wcc-text.is-clamped { display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; }
 .wcc-editor { margin: 6px 0 0; }
