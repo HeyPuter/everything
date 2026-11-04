@@ -71,7 +71,11 @@ export function showDialog(o: DialogOptions): Promise<string | null> {
     openDialogs.push(backdrop);
     o.onReady?.(finish);
     const focusEl = (o.initialFocus && dialog.querySelector<HTMLElement>(o.initialFocus)) || dialog.querySelector<HTMLElement>('input, select, textarea') || foot.querySelector<HTMLElement>('.btn.primary') || dialog;
-    requestAnimationFrame(() => focusEl.focus());
+    requestAnimationFrame(() => {
+      // A long body that scrolls must be reachable from the keyboard to scroll it.
+      if (body.scrollHeight > body.clientHeight + 1) body.tabIndex = 0;
+      focusEl.focus();
+    });
   });
 }
 
