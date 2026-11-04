@@ -65,4 +65,9 @@ test('Header from Top changes the distance of the section being edited', async (
   expect(await sections()).toMatchObject({ path, range: [2, 2] });
   await page.keyboard.press('ControlOrMeta+z');
   await expect.poll(async () => (await sections()).footers).toEqual(before.footers);
+  // Undo and Redo leave the footer being edited, caret where it was, as the change did.
+  expect(await sections()).toMatchObject({ path, range: [2, 2] });
+  await page.keyboard.press('ControlOrMeta+Shift+z');
+  await expect.poll(async () => (await sections()).footers).toEqual([1800, ...before.footers.slice(1)]);
+  expect(await sections()).toMatchObject({ path, range: [2, 2] });
 });

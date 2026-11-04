@@ -664,8 +664,12 @@ export class CanvasEditor {
     try {
       // The caret moves to the restored selection, on the side of a line's end it was on there: Up and Down start
       // from its column there, not the one before.
-      const caret = this.session[direction === 'undo' ? 'history' : 'future'].at(-1)?.caret;
-      if (this.session[direction](() => { this.validateStory(); this.preferredX = null; this.caretAffinity = caret?.affinity || 'forward'; this.caretPage = caret ? caret.page : this.caretPage; this.relayout(); })) this.onChange();
+      const entry = this.session[direction === 'undo' ? 'history' : 'future'].at(-1), caret = entry?.caret, resume = entry?.resume;
+      if (this.session[direction](() => { this.validateStory(); this.preferredX = null; this.caretAffinity = caret?.affinity || 'forward'; this.caretPage = caret ? caret.page : this.caretPage; this.relayout(); })) {
+        // A change made from a header, footer or note to another story (its section's distances) goes on there.
+        if (resume && this.session.path !== resume.path) this.editStory(resume.path, resume.page);
+        this.onChange();
+      }
       this.focus(); this.revealCaret();
     } catch (e) { this.relayout(); this.onError(e); }
   }

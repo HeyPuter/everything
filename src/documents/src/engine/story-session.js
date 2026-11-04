@@ -129,7 +129,9 @@ export class StorySession {
     this.future = [];
   }
   // `label` names the undo step for the host's menus, where the change alone does not say what made it (AutoCorrect).
-  run(action, validate = () => {}, { record = true, typing = false, label } = {}) {
+  // `resume` ({ path, page }) is the header, footer or note being edited when the change was made in another story
+  // (the body's section settings from a header): Undo and Redo go back to editing it.
+  run(action, validate = () => {}, { record = true, typing = false, label, resume } = {}) {
     const before = this.capture(), model = this.model;
     // Text typed or deleted with a key (CanvasEditor typeText and deleteText).
     const typed = typing ? this.typingStart(model, before) : null;
@@ -158,7 +160,7 @@ export class StorySession {
       }
       validate(model);
       if (model.revision !== before.revision) {
-        if (record) { if (label) before.label = label; this.record(before); }
+        if (record) { if (label) before.label = label; if (resume) before.resume = resume; this.record(before); }
         this.revision++;
         if (this.path !== null && this.body.trackChanges) this.untracked?.(this.path);
       }
@@ -288,8 +290,9 @@ export class StorySession {
       this.restore(entry);
       this.guard?.(current.state, this.model, this.path);
       validate?.(this.model);
-      // The step keeps its name (for the host's menus) in both directions.
+      // The step keeps its name (for the host's menus) and the story to go on editing in both directions.
       if (entry.label) current.label = entry.label;
+      if (entry.resume) current.resume = entry.resume;
       from.pop(); to.push(current);
       this.revision++;
       this.prepareSnapshot();

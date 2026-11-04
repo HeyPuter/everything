@@ -474,14 +474,21 @@ export function createReferences({ editor, pkg, error, base = {}, onChange = () 
     // section had them before, so in a document of several sections the change landed on another section).
     const sectionSettings = engine => { const body = engine?.session.body; return body?.sectionSettings?.[engine.sectionOfPage(currentPage(engine))] || body?.pageSettings; };
     const shown = key => String(Math.round((sectionSettings(editor())?.[key] ?? 720) / IN * 100) / 100);
+    // Leaving the header for the body takes the keyboard from the field, whose own change event then fired a second
+    // time, from the body: that one made the change, and its undo step did not return to the header.
+    let settingDistance = false;
     function setDistance(key, value) {
-      const engine = ready(); if (!engine) return;
+      const engine = ready(); if (!engine || settingDistance) return;
+      settingDistance = true;
+      try { applyDistance(engine, key, value); } finally { settingDistance = false; }
+    }
+    function applyDistance(engine, key, value) {
       engine.finishComposition();
       const story = engine.session.path, page = currentPage(engine), section = engine.sectionOfPage(page), { anchor, focus } = engine.model.selection;
       // Sections are the body's: apply there, then return to the header or footer with the caret where it was.
       if (story !== null) engine.editStory(null);
       let failure = null;
-      engine.execute(() => engine.model.setPageSettings({ [key]: value }, { scope: 'section', section }), e => { failure = e; }, undefined, true);
+      engine.execute(() => engine.model.setPageSettings({ [key]: value }, { scope: 'section', section }), e => { failure = e; }, story !== null ? { resume: { path: story, page } } : undefined, true);
       if (story !== null && engine.editStory(story, page) && engine.session.path === story) engine.model.select(anchor, focus);
       if (failure) fail(failure);
       onChange();
