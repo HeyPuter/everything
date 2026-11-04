@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { Camera, VIEWS } from '../src/render/camera';
 import { qRotate } from '../src/math/vec';
 import { CommandRegistry, eventShortcut } from '../src/app/commands';
+import { isMac } from '../src/ui/dom';
 
 const close = (a: number[], b: number[]) => a.forEach((v, i) => expect(v).toBeCloseTo(b[i], 9));
 
@@ -62,9 +63,11 @@ describe('command registry', () => {
       { id: 'off', label: 'Disabled', enabled: () => false, run: () => { ran = 'off'; } },
     );
     const ev = (init: KeyboardEventInit & { code?: string }) => ({ key: '', code: '', ctrlKey: false, metaKey: false, altKey: false, shiftKey: false, ...init }) as KeyboardEvent;
-    expect(reg.match(ev({ key: 's', ctrlKey: true }))?.id).toBe('save');
+    // "Ctrl" in a shortcut means Cmd on macOS (Node reports navigator.platform there too).
+    const primary = isMac ? { metaKey: true } : { ctrlKey: true };
+    expect(reg.match(ev({ key: 's', ...primary }))?.id).toBe('save');
     expect(reg.match(ev({ key: 'Z', shiftKey: true }))?.id).toBe('zoomIn');
-    expect(reg.match(ev({ key: '!', code: 'Digit1', ctrlKey: true }))?.id).toBe('view1');
+    expect(reg.match(ev({ key: '!', code: 'Digit1', ...primary }))?.id).toBe('view1');
     expect(eventShortcut(ev({ key: 'Shift' }))).toBeNull();
     expect(reg.run('off')).toBe(false);
     reg.run('save');
