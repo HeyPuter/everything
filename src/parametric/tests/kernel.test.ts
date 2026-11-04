@@ -364,6 +364,14 @@ describe('feature regeneration', () => {
     const r = await b.build(req([...feats, sketch('S2', circle(20, 20, 5), { kind: 'base', plane: 'front' }), extrude('E2', 'S2', 50, { cut: true, flip: true })]));
     expect(r.status.every((s) => s.ok)).toBe(true);
     expect(volume(b)).toBeCloseTo(40 ** 3 - Math.PI * 25 * 40, 1);
+    // Renaming or hiding a feature changes no geometry: nothing is rebuilt.
+    const renamed = structuredClone(feats);
+    renamed[0].name = 'Base sketch';
+    renamed[0].hidden = true;
+    (renamed[0] as SketchFeature).frame = { o: [0, 0, 0], x: [1, 0, 0], y: [0, 1, 0], n: [0, 0, 1] };
+    const r1 = await b.build(req(feats));
+    const r2 = await b.build(req(renamed));
+    expect(r2.mesh).toBe(r1.mesh);
   });
 
   it('computes mass properties and exports STEP and STL', async () => {

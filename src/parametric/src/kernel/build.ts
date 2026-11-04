@@ -92,6 +92,17 @@ const num = (p: unknown): number => {
   return v;
 };
 
+/**
+ * What a feature's geometry depends on, for the step cache key. Its name,
+ * visibility and a sketch's display frame do not change the geometry, so
+ * renaming or hiding a feature must not rebuild everything after it.
+ */
+function stepText(f: Feature): string {
+  const { name: _name, hidden: _hidden, ...rest } = f;
+  if (rest.type === 'sketch') delete (rest as Partial<SketchFeature>).frame;
+  return JSON.stringify(rest);
+}
+
 /** 53-bit FNV-1a style hash of a string, as base36. */
 export function hashString(s: string, seed = 0): string {
   let h1 = 0x811c9dc5 ^ seed, h2 = 0x1b873593 ^ seed;
@@ -126,7 +137,7 @@ export class ModelBuilder {
     const upTo = Math.max(0, Math.min(req.upTo, req.features.length));
     for (let i = 0; i < upTo; i++) {
       const f = req.features[i];
-      const key = hashString(chain + '\u0000' + JSON.stringify(f));
+      const key = hashString(chain + '\u0000' + stepText(f));
       const cached = this.steps[i];
       if (cached && cached.key === key) {
         state = cached.state;
