@@ -159,7 +159,9 @@ export class CanvasEditor {
     this.measure.onFontsReady = () => { if (!this.destroyed) { try { this.relayout(); this.revealCaret(); } catch (error) { this.onError(error); } } };
     this.measureCache = { clear: () => this.measure.clear() };
     const listen = (node, name, fn) => node.addEventListener(name, fn, { signal: this.abort.signal });
-    listen(this.pages, 'pointerdown', e => { this.longPressed = false; this.pointerDown(e); });
+    listen(this.pages, 'pointerdown', e => { this.longPressed = false; this.holdPages = false; this.pointerDown(e); });
+    // The pages scroll up and down under a finger, except while it moves the selected picture.
+    listen(this.pages, 'touchmove', e => { if (this.holdPages && this.imageInteraction.active && e.cancelable) e.preventDefault(); }, { passive: false });
     // A press anywhere else ends a run of quick presses, as it does natively.
     listen(document, 'pointerdown', e => { if (!this.pages.contains(e.target)) this.lastPress = null; });
     listen(this.pages, 'pointermove', e => this.pointerMove(e));
@@ -1368,10 +1370,11 @@ export class CanvasEditor {
   /**
    * A finger on the pages may be starting a scroll (touch-action: pan-y), so it does not place the
    * caret or bring up the keyboard yet: a tap does that when the finger lifts, and a sideways drag,
-   * which never scrolls, selects from where it went down. Pictures take the press at once.
+   * which never scrolls, selects from where it went down. Pictures take the press at once, and so does a picture
+   * being cropped; a finger elsewhere, with a picture selected or not, may still be scrolling.
    */
   deferTouch(e) {
-    if (e.pointerType !== 'touch' || this.model.selectedImage || this.imageInteraction.active) return false;
+    if (e.pointerType !== 'touch' || this.cropActive || this.imageInteraction.active) return false;
     this.point(e, false);
     if (this.pointImage) return false;
     // Scrolling is up to touch-action; this only stops the emulated mouse press from taking focus.
@@ -1458,7 +1461,12 @@ export class CanvasEditor {
         }
       }
     }
-    if (this.pointImage && !e.shiftKey) { this.model.select(this.pointImage.start, this.pointImage.end); if (this.imageInteraction.begin(e)) { this.onSelection(); return; } }
+    if (this.pointImage && !e.shiftKey) {
+      // A finger on the picture already selected moves it; one on another picture selects it and may still scroll.
+      const held = e.pointerType === 'touch' && this.model.selectedImage?.id === this.pointImage.image.id;
+      this.model.select(this.pointImage.start, this.pointImage.end);
+      if (this.imageInteraction.begin(e)) { this.holdPages = held; this.onSelection(); return; }
+    }
     else if (restoredPromptSelection) this.model.select(...restoredPromptSelection);
     else if (!e.shiftKey && (this.model.macroButtonAt(position)||this.model.placeholderAt(position))) { const range = this.model.macroButtonAt(position)||this.model.placeholderAt(position); this.model.select(range.start, range.end); }
     else {
