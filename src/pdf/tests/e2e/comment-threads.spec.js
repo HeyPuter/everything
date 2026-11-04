@@ -252,3 +252,31 @@ test('a highlight keeps its selection and a reply being typed through a zoom', a
   const [kept] = await saved(page);
   expect(repliesOf(kept)).toEqual(['Looks right']);
 });
+
+// Zooming saves the note's own words; the note stays open, with the reply being typed to it.
+test('a sticky note stays open, with a reply being typed, through a zoom', async ({ page }) => {
+  const doc = await PDFDocument.create();
+  doc.addPage([400, 500]);
+  addNote(doc, 0, { x: 100, y: 400, text: 'Check the totals', author: 'Ada' });
+  await open(page, doc);
+  await page.getByRole('button', { name: 'Edit note: Check the totals' }).click();
+  const props = page.getByRole('complementary', { name: 'Selection properties' });
+  await props.getByLabel('Note text').fill('Check the totals again');
+  const reply = props.getByLabel('Reply text');
+  await reply.click();
+  await page.keyboard.type('On it', { delay: 20 });
+  await page.keyboard.press('ControlOrMeta+=');
+  await settled(page);
+  await expect(props.getByLabel('Note text')).toHaveValue('Check the totals again');
+  await expect(
+    page.getByRole('button', { name: 'Edit note: Check the totals again' }),
+  ).toHaveAttribute('aria-pressed', 'true');
+  await expect(reply).toBeFocused();
+  await page.keyboard.type(' now');
+  await reply.press('ControlOrMeta+Enter');
+  await settled(page);
+  await expect(props.getByRole('list', { name: 'Replies' })).toContainText('On it now');
+  const [kept] = await saved(page);
+  expect(kept.contents).toBe('Check the totals again');
+  expect(repliesOf(kept)).toEqual(['On it now']);
+});

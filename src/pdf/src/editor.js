@@ -642,27 +642,29 @@ export function createEditor({
       )
         await idle();
       if (destroyed || pendingZoom !== request) return;
-      await finishDrafts();
-      if (destroyed || pendingZoom !== request) return;
-      const view = workspace.getBoundingClientRect();
-      const point = anchor || { x: view.left + view.width / 2, y: view.top + view.height / 2 };
-      const before = paper.getBoundingClientRect();
-      const fraction = [
-        (point.x - before.left) / (before.width || 1),
-        (point.y - before.top) / (before.height || 1),
-      ];
-      scaleMode = mode;
-      // A selected markup stays selected, as a shape does, also when this zoom follows one
-      // still drawing the page (which has taken the selection down).
-      const held = (request.held = heldHighlight() || previous?.held);
+      // A selected markup or open note stays selected, as a shape does, also when this zoom
+      // follows one still drawing the page (which has taken the selection down).
+      const held = (request.held = heldSelection() || previous?.held);
       const release = held ? properties.preserveLayout() : () => {};
+      let point, fraction;
       try {
+        await finishDrafts();
+        if (destroyed || pendingZoom !== request) return;
+        const view = workspace.getBoundingClientRect();
+        point = anchor || { x: view.left + view.width / 2, y: view.top + view.height / 2 };
+        const before = paper.getBoundingClientRect();
+        fraction = [
+          (point.x - before.left) / (before.width || 1),
+          (point.y - before.top) / (before.height || 1),
+        ];
+        scaleMode = mode;
         await renderPage();
         if (destroyed || pendingZoom !== request || paper.hidden) return;
-        restoreHighlight(held);
+        await restoreSelection(held);
       } finally {
         release();
       }
+      if (destroyed || pendingZoom !== request || paper.hidden) return;
       const after = paper.getBoundingClientRect();
       workspace.scrollLeft += after.left + fraction[0] * after.width - point.x;
       workspace.scrollTop += after.top + fraction[1] * after.height - point.y;
@@ -3792,37 +3794,47 @@ export function createEditor({
     renderHighlightTargets();
     properties.root.querySelector(`[aria-label="${control}"]`)?.focus({ preventScroll: true });
   }
-  /** The selected markup's panel as left, for a redraw of the page that clears it. */
-  function heldHighlight() {
-    if (!selectedHighlight) return null;
+  /** The selected markup's or note's panel as left, for a redraw of the page that clears it. */
+  function heldSelection() {
+    const kind = selectedHighlight ? 'highlight' : noteEdit?.entry ? 'note' : null;
+    if (!kind) return null;
     const active = document.activeElement;
     const held = properties.root.contains(active) ? active : null;
+    const targets = kind === 'note' ? noteTargets : highlightTargets;
     return {
-      id: selectedHighlight.id,
+      kind,
+      id: kind === 'note' ? noteEdit.entry.id : selectedHighlight.id,
       page: pageIndex,
       reply: properties.root.querySelector('[aria-label="Reply text"]')?.value ?? '',
       label: held?.getAttribute('aria-label'),
       // Or its place on the page, when that has the keyboard.
-      target: highlightTargets.contains(active)
-        ? [...highlightTargets.children].indexOf(active)
-        : -1,
+      target: targets.contains(active) ? [...targets.children].indexOf(active) : -1,
       range:
         typeof held?.selectionStart === 'number'
           ? [held.selectionStart, held.selectionEnd, held.selectionDirection]
           : null,
     };
   }
-  /** Select the markup again after a zoom, with the reply being typed and the keyboard. */
-  function restoreHighlight(held) {
-    if (!held || destroyed || tool !== 'select' || selectedHighlight || pageIndex !== held.page)
-      return;
-    selectedHighlight = highlights.find((h) => h.id === held.id) || null;
-    if (!selectedHighlight) return;
-    renderHighlightTargets();
+  /** Select the markup or note again after a zoom, with the reply being typed and the keyboard. */
+  async function restoreSelection(held) {
+    if (!held || destroyed || pageIndex !== held.page || selectedHighlight || noteEdit) return;
+    if (held.kind === 'note') {
+      const entry = notes.find((note) => note.id === held.id);
+      if (!entry || !['select', 'note'].includes(tool)) return;
+      await openNoteEditor({ entry, canFocus: () => false });
+      if (destroyed || noteEdit?.entry?.id !== held.id) return;
+    } else {
+      if (tool !== 'select') return;
+      selectedHighlight = highlights.find((h) => h.id === held.id) || null;
+      if (!selectedHighlight) return;
+      renderHighlightTargets();
+    }
     const reply = properties.root.querySelector('[aria-label="Reply text"]');
     if (reply && held.reply) reply.value = held.reply;
-    if (document.activeElement !== document.body) return;
-    if (held.target >= 0) highlightTargets.children[held.target]?.focus({ preventScroll: true });
+    // Saving the note's words handed the keyboard to the page meanwhile.
+    if (!canFocusSelection(null)) return;
+    const targets = held.kind === 'note' ? noteTargets : highlightTargets;
+    if (held.target >= 0) targets.children[held.target]?.focus({ preventScroll: true });
     if (!held.label) return;
     const control = [...properties.root.querySelectorAll('[aria-label]')].find(
       (node) => node.getAttribute('aria-label') === held.label,
