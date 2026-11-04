@@ -18,9 +18,14 @@ import { sharedWithMe } from './share';
 export class FileOps {
   private saving = false;
   private recoveryTimer = 0;
+  /** Counts document changes, so a save only clears the edits it wrote. */
+  private revision = 0;
 
   constructor(private app: App) {
-    app.onDocumentChanged = () => this.scheduleRecovery();
+    app.onDocumentChanged = (reason) => {
+      if (reason !== 'saved') this.revision++;
+      this.scheduleRecovery();
+    };
     window.addEventListener('beforeunload', (e) => {
       if (this.app.store.dirty) {
         e.preventDefault();
@@ -58,10 +63,9 @@ export class FileOps {
       let loc = app.location;
       if (!loc) loc = await newLocation(doc.name, `part-${Date.now().toString(36)}`);
       const text = serializeDocument(doc);
+      const revision = this.revision;
       app.location = await saveText(loc, doc.name, text);
-      app.store.dirty = false;
-      app.store.emit('saved');
-      await clearRecovery();
+      this.markSaved(revision);
       toast({ kind: 'success', message: `Saved to ${locationLabel(app.location)}`, timeout: 2500 });
       if (app.location.type === 'local' && !cloudAvailable()) {
         maybeNudgeSignIn();
@@ -75,17 +79,25 @@ export class FileOps {
     }
   }
 
+  /** After a write: clean, unless the part changed while it was being written. */
+  private markSaved(revision: number) {
+    const clean = revision === this.revision;
+    if (clean) this.app.store.dirty = false;
+    this.app.store.emit('saved');
+    if (clean) void clearRecovery();
+  }
+
   async saveAs() {
     const app = this.app;
     const name = await promptDialog('Save As', 'Part name', app.store.doc.name, (v) => (v.trim() ? null : 'Enter a name'));
     if (name == null) return;
     app.store.change('Rename part', (doc) => { doc.name = safeName(name); });
     if (cloudAvailable() && puter()?.ui?.showSaveFilePicker) {
+      const revision = this.revision;
       const loc = await pickCloudSave(serializeDocument(app.store.doc), app.store.doc.name).catch(() => null);
       if (loc) {
         app.location = loc;
-        app.store.dirty = false;
-        app.store.emit('saved');
+        this.markSaved(revision);
         toast({ kind: 'success', message: `Saved to ${locationLabel(loc)}` });
         return;
       }
