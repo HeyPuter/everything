@@ -72,6 +72,7 @@ export class Viewport {
   private viewLabel: HTMLElement;
   private history: ReturnType<Camera['state']>[] = [];
   private longPress = 0;
+  private lastPointerType = '';
   mouse: { x: number; y: number } | null = null;
   /** World point of the last model pick (for placing things on faces). */
   lastPoint: Vec3 | null = null;
@@ -129,6 +130,9 @@ export class Viewport {
     });
     c.addEventListener('wheel', (e) => this.onWheel(e), { passive: false });
     c.addEventListener('dblclick', (e) => {
+      // Touch double taps are recognised in onUp; browsers that also
+      // synthesise a dblclick for them must not run the action twice.
+      if (this.lastPointerType === 'touch') return;
       const ev = this.ev(e);
       if (this.tool?.dblClick?.(ev)) return;
       this.app.onViewportDoubleClick(ev);
@@ -156,6 +160,7 @@ export class Viewport {
   }
 
   private onDown(e: PointerEvent) {
+    this.lastPointerType = e.pointerType;
     this.canvas.focus({ preventScroll: true });
     if (e.pointerType === 'touch') {
       this.touches.set(e.pointerId, { x: e.clientX, y: e.clientY });

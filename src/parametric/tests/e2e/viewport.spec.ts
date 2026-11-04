@@ -174,4 +174,47 @@ test.describe('viewport', () => {
     });
     expect(fill).toBeGreaterThan(0.5);
   });
+
+  const countDoubleClicks = async (page: import('@playwright/test').Page) => {
+    await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+    await waitForFeature(page, 'Fillet1');
+    // The face must be under the point: wait for the built model.
+    await expect.poll(() => page.evaluate(() => {
+      const app = (window as unknown as Win).__parametric;
+      const [x, y] = app.viewport.project([30, 4, 30]);
+      return app.renderer.pick(x, y, { face: true })?.kind;
+    })).toBe('face');
+    return page.evaluate(() => {
+      const app = (window as unknown as Win).__parametric;
+      const w = window as unknown as { __dbl: number };
+      w.__dbl = 0;
+      app.onViewportDoubleClick = () => { w.__dbl++; };
+      const r = app.viewport.canvas.getBoundingClientRect();
+      const [x, y] = app.viewport.project([30, 4, 30]);
+      return [x + r.left, y + r.top];
+    });
+  };
+
+  test('a mouse double click runs the double-click action once', async ({ page }) => {
+    await openApp(page);
+    const [x, y] = await countDoubleClicks(page);
+    await page.mouse.dblclick(x, y);
+    await expect.poll(() => page.evaluate(() => (window as unknown as { __dbl: number }).__dbl)).toBe(1);
+  });
+
+  test.describe('touch', () => {
+    test.use({ viewport: { width: 412, height: 839 }, deviceScaleFactor: 2.625, isMobile: true, hasTouch: true });
+    test('a double tap runs the double-click action once', async ({ page }) => {
+      await openApp(page);
+      const [x, y] = await countDoubleClicks(page);
+      const cdp = await page.context().newCDPSession(page);
+      for (let i = 0; i < 2; i++) {
+        await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] });
+        await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+        await page.waitForTimeout(60);
+      }
+      await page.waitForTimeout(500);
+      expect(await page.evaluate(() => (window as unknown as { __dbl: number }).__dbl)).toBe(1);
+    });
+  });
 });
