@@ -3263,6 +3263,19 @@ export function createEditor({
   // Below desktop widths the tools pane overlays the page, so it starts closed there.
   if (window.matchMedia('(max-width: 1000px)').matches) editorRoot.classList.add('hide-tools');
   syncTopTabs();
+  // A window narrowed past those widths while open (a tablet turned upright, a window snapped
+  // to half the screen) closes the panels that would now lie over the page, as they start
+  // closed there; otherwise the two together left only a sliver of the page in view.
+  const overlaidTools = window.matchMedia('(max-width: 1000px)'),
+    overlaidPages = window.matchMedia('(max-width: 760px)');
+  const onOverlaidTools = (e) => {
+    if (e.matches && !editorRoot.classList.contains('hide-tools')) toggleToolsPanel(false);
+  };
+  const onOverlaidPages = (e) => {
+    if (e.matches && !editorRoot.classList.contains('hide-pages')) hideSidebar();
+  };
+  overlaidTools.addEventListener('change', onOverlaidTools);
+  overlaidPages.addEventListener('change', onOverlaidPages);
   async function mutate(
     operation,
     message,
@@ -12629,6 +12642,8 @@ export function createEditor({
     stack.destroy();
     Promise.resolve(ocrEngine?.terminate()).catch(() => {});
     document.removeEventListener('fullscreenchange', onFullscreen);
+    overlaidTools.removeEventListener('change', onOverlaidTools);
+    overlaidPages.removeEventListener('change', onOverlaidPages);
     window.removeEventListener('keydown', onSpace);
     window.removeEventListener('keyup', onSpace);
     window.removeEventListener('blur', releaseSpace);
