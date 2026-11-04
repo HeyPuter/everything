@@ -146,6 +146,9 @@ export function findReplacePanel(api) {
     replacement.disabled = !!api.readOnly?.();
     all.disabled = replacement.disabled || !matches.length;
     replace.disabled = replacement.disabled || current < 0;
+    // A button that turns itself off (Replace all, with nothing left to find) would drop the keyboard on the page
+    // body, out of the panel's keys: the search field takes it.
+    if ([previous, next, replace, all].some(button => button.disabled && document.activeElement === button)) query.focus();
     return { matches, current };
   }
   function navigate(direction = 0) {
