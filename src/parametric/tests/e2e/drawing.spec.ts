@@ -68,3 +68,21 @@ test('two fingers zoom the sheet, ending a view drag as one undo step', async ({
   await page.evaluate(() => (window as unknown as { __parametric: AppT }).__parametric.store.change('A', (d) => { d.variables.push({ name: 'A', expr: '1' }); }));
   expect((await state()).depth - s0.depth).toBe(2);
 });
+
+test('the title block fields keep keyboard focus and follow undo', async ({ page }) => {
+  await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  await page.getByRole('tab', { name: 'Drawing' }).click();
+  await expect(page.locator('.paper g[data-view]')).toHaveCount(4);
+  await page.getByRole('textbox', { name: 'Title' }).fill('Bracket, left');
+  await page.keyboard.press('Tab');
+  await expect(page.getByRole('textbox', { name: 'Drawn by' })).toBeFocused();
+  await page.keyboard.type('NJ');
+  await page.keyboard.press('Tab');
+  await expect(page.getByRole('textbox', { name: 'Notes' })).toBeFocused();
+  await expect(page.locator('.paper svg')).toContainText('Bracket, left');
+  await expect(page.locator('.paper svg')).toContainText('NJ');
+  await page.evaluate(() => (window as unknown as { __parametric: { store: { undo(): void } } }).__parametric.store.undo());
+  await expect(page.getByRole('textbox', { name: 'Drawn by' })).toHaveValue('');
+});
