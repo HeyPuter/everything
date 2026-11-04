@@ -53,7 +53,8 @@ export function openRecipientGrid({ list, title = 'New Address List', onSave }) 
   };
   // Enter moves down a column; on the last entry it starts a new one.
   table.addEventListener('keydown', e => {
-    if (e.key !== 'Enter' || !e.target.matches('.mm-cell')) return;
+    // Enter that confirms an input method's conversion (a name typed in Japanese) belongs to the composition.
+    if (e.key !== 'Enter' || isComposing(e) || !e.target.matches('.mm-cell')) return;
     e.preventDefault();
     const { index, c } = focusCell || {};
     if (index === undefined) return;
