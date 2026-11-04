@@ -5,21 +5,24 @@
  * Everything here is pure geometry: points are sheet pixels at 100% zoom.
  */
 
+import { t } from '../i18n/index.js';
+
 export const EMU = 9525; // per pixel
 export const MM_PX = 96 / 25.4;
 export const MM_EMU = 36000;
 export const PEN_KINDS = ['pen', 'pencil', 'highlighter'];
 export const PEN_WIDTHS = [0.25, 0.5, 1, 2, 3.5];
 export const HIGHLIGHTER_WIDTHS = [2, 4, 6, 8, 10];
+/** The colours offered, each with its name (a catalog key; colorName gives it in the interface language). */
 export const PEN_COLORS = [
-  ['#000000', 'Black'], ['#ffffff', 'White'], ['#e71224', 'Red'], ['#ffc114', 'Yellow'], ['#16a34a', 'Green'], ['#0063b1', 'Blue'],
-  ['#8b2fc9', 'Purple'], ['#ff6600', 'Orange'], ['#6b7280', 'Gray'], ['#7f1d1d', 'Dark Red'], ['#004e8c', 'Dark Blue'], ['#00a0a0', 'Teal'],
-  ['#e3008c', 'Pink'], ['#8b5a2b', 'Brown'], ['#9acd32', 'Lime'], ['#5b3a8c', 'Dark Purple'], ['#c0c0c0', 'Silver'], ['#1f2937', 'Charcoal'],
+  ['#000000', 'coreInk.color.black'], ['#ffffff', 'coreInk.color.white'], ['#e71224', 'coreInk.color.red'], ['#ffc114', 'coreInk.color.yellow'], ['#16a34a', 'coreInk.color.green'], ['#0063b1', 'coreInk.color.blue'],
+  ['#8b2fc9', 'coreInk.color.purple'], ['#ff6600', 'coreInk.color.orange'], ['#6b7280', 'coreInk.color.gray'], ['#7f1d1d', 'coreInk.color.darkRed'], ['#004e8c', 'coreInk.color.darkBlue'], ['#00a0a0', 'coreInk.color.teal'],
+  ['#e3008c', 'coreInk.color.pink'], ['#8b5a2b', 'coreInk.color.brown'], ['#9acd32', 'coreInk.color.lime'], ['#5b3a8c', 'coreInk.color.darkPurple'], ['#c0c0c0', 'coreInk.color.silver'], ['#1f2937', 'coreInk.color.charcoal'],
 ];
 export const HIGHLIGHTER_COLORS = [
-  ['#ffff00', 'Yellow'], ['#00ff00', 'Bright Green'], ['#00ffff', 'Turquoise'], ['#ff00ff', 'Pink'], ['#0000ff', 'Blue'], ['#ff0000', 'Red'],
-  ['#000080', 'Dark Blue'], ['#008080', 'Teal'], ['#008000', 'Green'], ['#800080', 'Violet'], ['#800000', 'Dark Red'], ['#808000', 'Dark Yellow'],
-  ['#ff8000', 'Orange'], ['#80c0ff', 'Light Blue'], ['#c0c0c0', 'Light Gray'], ['#808080', 'Gray'], ['#ffc0cb', 'Light Pink'], ['#000000', 'Black'],
+  ['#ffff00', 'coreInk.color.yellow'], ['#00ff00', 'coreInk.color.brightGreen'], ['#00ffff', 'coreInk.color.turquoise'], ['#ff00ff', 'coreInk.color.pink'], ['#0000ff', 'coreInk.color.blue'], ['#ff0000', 'coreInk.color.red'],
+  ['#000080', 'coreInk.color.darkBlue'], ['#008080', 'coreInk.color.teal'], ['#008000', 'coreInk.color.green'], ['#800080', 'coreInk.color.violet'], ['#800000', 'coreInk.color.darkRed'], ['#808000', 'coreInk.color.darkYellow'],
+  ['#ff8000', 'coreInk.color.orange'], ['#80c0ff', 'coreInk.color.lightBlue'], ['#c0c0c0', 'coreInk.color.lightGray'], ['#808080', 'coreInk.color.gray'], ['#ffc0cb', 'coreInk.color.lightPink'], ['#000000', 'coreInk.color.black'],
 ];
 export const DEFAULT_PENS = [
   { id: 'pen-1', kind: 'pen', color: '#000000', width: 0.5 },
@@ -28,14 +31,17 @@ export const DEFAULT_PENS = [
   { id: 'pen-4', kind: 'highlighter', color: '#ffff00', width: 6 },
 ];
 export const MAX_PENS = 12;
-const KIND_NAMES = { pen: 'Pen', pencil: 'Pencil', highlighter: 'Highlighter' };
 const HEX = /^#[0-9a-f]{6}$/i;
 
-export const colorName = (hex, kind = 'pen') => (kind === 'highlighter' ? HIGHLIGHTER_COLORS : PEN_COLORS).find(([h]) => h === hex)?.[1]
-  || PEN_COLORS.concat(HIGHLIGHTER_COLORS).find(([h]) => h === hex)?.[1] || hex.toUpperCase();
-export const widthLabel = (mm) => `${mm} mm`;
+/** A pen colour's name in the interface language, or its hex code when it has none. */
+export const colorName = (hex, kind = 'pen') => {
+  const named = (kind === 'highlighter' ? HIGHLIGHTER_COLORS : PEN_COLORS).find(([h]) => h === hex)?.[1]
+    || PEN_COLORS.concat(HIGHLIGHTER_COLORS).find(([h]) => h === hex)?.[1];
+  return named ? t(named) : hex.toUpperCase();
+};
+export const widthLabel = (mm) => t('coreInk.width', { mm });
 /** "Pen: Red, 0.5 mm", as the pen is announced and its tooltip reads. */
-export const penLabel = (pen) => `${KIND_NAMES[pen.kind] || 'Pen'}: ${colorName(pen.color, pen.kind)}, ${widthLabel(pen.width)}`;
+export const penLabel = (pen) => t('coreInk.penLabel', { kind: pen.kind, color: colorName(pen.color, pen.kind), width: widthLabel(pen.width) });
 
 /** A pen read back from storage, or null. */
 export function normalizePen(raw) {
@@ -117,8 +123,8 @@ export function pressureOutline(pts, widthAt) {
   const cap = (p, from, r, steps = 6) => {
     const start = Math.atan2(from.y - p.y, from.x - p.x);
     return Array.from({ length: steps - 1 }, (_, k) => {
-      const t = start - (Math.PI * (k + 1)) / steps;
-      return { x: p.x + r * Math.cos(t), y: p.y + r * Math.sin(t) };
+      const angle = start - (Math.PI * (k + 1)) / steps;
+      return { x: p.x + r * Math.cos(angle), y: p.y + r * Math.sin(angle) };
     });
   };
   return [...left, ...cap(pts[n - 1], left[n - 1], widthAt(n - 1) / 2), ...right.reverse(), ...cap(pts[0], right.at(-1), widthAt(0) / 2)];
@@ -236,6 +242,7 @@ export function recognizeShape(points) {
   return null;
 }
 
+/** The names a recognised shape is given on the sheet (stored in the file, as Excel names them). */
 export const SHAPE_NAMES = { line: 'Straight Connector', rect: 'Rectangle', ellipse: 'Oval', triangle: 'Freeform: Shape' };
 
 /** A recognised shape drawn cleanly in the pen's colour and width, as a native shape (no fill, the pen's outline). */
@@ -291,16 +298,16 @@ export function inkLines(obj) {
   const walk = (n, map, depth = 0) => {
     if (depth > 8) return;
     if (n.name === 'grpSp') {
-      const t = child(child(n, 'grpSpPr'), 'xfrm');
-      const off = child(t, 'off'), ext = child(t, 'ext'), co = child(t, 'chOff'), ce = child(t, 'chExt');
+      const xfrm = child(child(n, 'grpSpPr'), 'xfrm');
+      const off = child(xfrm, 'off'), ext = child(xfrm, 'ext'), co = child(xfrm, 'chOff'), ce = child(xfrm, 'chExt');
       const kx = num(ce, 'cx') ? num(ext, 'cx') / num(ce, 'cx') : 1, ky = num(ce, 'cy') ? num(ext, 'cy') / num(ce, 'cy') : 1;
       const inner = (x, y) => map(num(off, 'x') + (x - num(co, 'x')) * kx, num(off, 'y') + (y - num(co, 'y')) * ky);
       for (const c of n.children) if (['sp', 'grpSp'].includes(c.name)) walk(c, inner, depth + 1);
       return;
     }
     if (n.name !== 'sp') return;
-    const props = child(n, 'spPr'), t = child(props, 'xfrm');
-    const off = child(t, 'off'), ext = child(t, 'ext');
+    const props = child(n, 'spPr'), xfrm = child(props, 'xfrm');
+    const off = child(xfrm, 'off'), ext = child(xfrm, 'ext');
     const line = child(props, 'ln'), stroked = line && !child(line, 'noFill');
     const half = stroked ? num(line, 'w', 9525) / EMU / 2 : 0.5;
     for (const path of child(child(props, 'custGeom'), 'pathLst')?.children || []) {
@@ -329,8 +336,8 @@ export function inkLines(obj) {
 
 function segmentDistance(p, a, b) {
   const dx = b.x - a.x, dy = b.y - a.y, len = dx * dx + dy * dy;
-  const t = len ? Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / len)) : 0;
-  return Math.hypot(p.x - a.x - t * dx, p.y - a.y - t * dy);
+  const along = len ? Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / len)) : 0;
+  return Math.hypot(p.x - a.x - along * dx, p.y - a.y - along * dy);
 }
 export function pointInPolygon(p, poly) {
   let inside = false;

@@ -10,13 +10,17 @@ import { icon } from './icons.js';
 import { customColorRows } from './colorpicker.js';
 import { appOption } from '../lib/app-options.js';
 import {
-  buildStroke, buildShape, recognizeShape, isInk, inkLines, touchesLines, sweep, insideLasso, nextName, penLabel, normalizePen, penStyle,
+  buildStroke, buildShape, recognizeShape, isInk, inkLines, touchesLines, sweep, insideLasso, nextName, penLabel, widthLabel, normalizePen, penStyle,
   DEFAULT_PENS, MAX_PENS, PEN_WIDTHS, HIGHLIGHTER_WIDTHS, PEN_COLORS, HIGHLIGHTER_COLORS, PEN_KINDS, SHAPE_NAMES, MM_PX,
 } from '../core/ink.js';
+import { t } from '../i18n/index.js';
 
 const STORE = 'spreadsheet:pens';
 const SVG = 'http://www.w3.org/2000/svg';
-const KIND_LABELS = { pen: 'Pen', pencil: 'Pencil', highlighter: 'Highlighter' };
+/** Each kind of pen's name (a catalog key). */
+const KIND_LABELS = { pen: 'ink.kind.pen', pencil: 'ink.kind.pencil', highlighter: 'ink.kind.highlighter' };
+/** The noun the colour picker's custom colour is named with (colorpicker.js composes it into its own English). */
+const KIND_COLOR_NOUNS = { pen: 'pen color', pencil: 'pencil color', highlighter: 'highlighter color' };
 const KIND_GLYPHS = { pen: 'inkPen', pencil: 'inkPencil', highlighter: 'inkHighlighter' };
 const attr = v => String(v).replace(/["\\]/g, '\\$&');
 const svgUrl = svg => `data:image/svg+xml;base64,${btoa(unescape(encodeURIComponent(svg)))}`;
@@ -162,14 +166,14 @@ export function createInk({ wb, grid, notify = () => {}, subscribe = null, refus
     const place = grid.placeAt(built.box.x * zoom, built.box.y * zoom);
     const title = nextName(wb.sheet(sid)?.charts, shape ? SHAPE_NAMES[shape.kind] : 'Ink');
     let id = null;
-    wb.transaction(shape ? 'Ink to Shape' : 'Draw', () => {
+    wb.transaction(shape ? t('ink.undo.inkToShape') : t('ink.undo.draw'), () => {
       id = wb.addChart(sid, { type: 'image', src: svgUrl(built.svg), title, ...place, w: built.box.w, h: built.box.h, border: false,
         drawingShape: true, nativeDrawing: built.nativeDrawing });
     });
     // The finished object is drawn on the next frame; the live line stays until then so the stroke never flickers.
     requestAnimationFrame(() => requestAnimationFrame(() => done?.remove()));
     if (!id) { done?.remove(); return; }
-    if (shape) announce(`Converted to ${SHAPE_NAMES[shape.kind].replace('Freeform: Shape', 'a triangle').toLowerCase()}`);
+    if (shape) announce(t('ink.converted', { kind: shape.kind }));
   }
 
   /* ---------- Eraser ---------- */
@@ -199,7 +203,7 @@ export function createInk({ wb, grid, notify = () => {}, subscribe = null, refus
         for (const s of sweep(last, q)) test(s);
         if (hit.size) {
           const sid = grid.sheetId;
-          wb.transaction(hit.size === 1 ? 'Erase ink' : 'Erase ink strokes', () => { for (const id of hit) wb.deleteChart(sid, id); });
+          wb.transaction(hit.size === 1 ? t('ink.undo.erase') : t('ink.undo.eraseStrokes'), () => { for (const id of hit) wb.deleteChart(sid, id); });
         }
         restore();
       },
@@ -228,7 +232,7 @@ export function createInk({ wb, grid, notify = () => {}, subscribe = null, refus
         }).map(o => o.id);
         if (ids.length === 1) { setTool(null); grid.selectChart(ids[0]); return; }
         if (ids.length) showLassoed(ids);
-        announce(ids.length ? `${ids.length} ink strokes selected. Drag to move them, Delete to remove them` : 'No ink inside the lasso');
+        announce(ids.length ? t('ink.lassoSelected', { count: ids.length }) : t('ink.lassoEmpty'));
       },
       cancel: () => {} };
   }
@@ -242,7 +246,7 @@ export function createInk({ wb, grid, notify = () => {}, subscribe = null, refus
   function showLassoed(ids) {
     const box = lassoBox(ids);
     if (!box || !surface) return;
-    const frame = el('div.ink-lasso-box', { role: 'img', 'aria-label': `${ids.length} ink strokes selected` });
+    const frame = el('div.ink-lasso-box', { role: 'img', 'aria-label': t('ink.strokesSelected', { count: ids.length }) });
     surface.append(frame);
     lassoed = { ids, box, frame };
     placeFrame();
@@ -270,8 +274,8 @@ export function createInk({ wb, grid, notify = () => {}, subscribe = null, refus
       end: () => {
         if (Math.abs(dx) < 1 && Math.abs(dy) < 1) return;
         const sid = grid.sheetId;
-        wb.transaction('Move ink', () => {
-          for (const i of items) wb.updateChart(sid, i.id, grid.placeAt(Math.max(0, i.rect.left + dx), Math.max(0, i.rect.top + dy)), 'Move ink');
+        wb.transaction(t('ink.undo.move'), () => {
+          for (const i of items) wb.updateChart(sid, i.id, grid.placeAt(Math.max(0, i.rect.left + dx), Math.max(0, i.rect.top + dy)), t('ink.undo.move'));
         });
         const ids = lassoed?.ids || [];
         requestAnimationFrame(() => { if (lassoed) { lassoed.box = lassoBox(ids) || lassoed.box; placeFrame(); } });
@@ -283,7 +287,7 @@ export function createInk({ wb, grid, notify = () => {}, subscribe = null, refus
     const ids = lassoed?.ids || [];
     clearLasso();
     const sid = grid.sheetId;
-    wb.transaction('Delete ink', () => { for (const id of ids) wb.deleteChart(sid, id); });
+    wb.transaction(t('ink.undo.delete'), () => { for (const id of ids) wb.deleteChart(sid, id); });
   }
 
   /* ---------- Keys: Escape leaves drawing; Delete removes lassoed ink ---------- */
@@ -330,20 +334,20 @@ export function createInk({ wb, grid, notify = () => {}, subscribe = null, refus
     const style = penStyle(p);
     let menu = null;
     const pick = patch => { menu?.close(); update(id, patch); };
-    const thickness = el('div.ink-widths', { role: 'group', 'aria-label': 'Thickness' }, ...widths.map(mm => el('button.ink-width', {
-      type: 'button', role: 'menuitemradio', 'aria-checked': String(p.width === mm), 'aria-label': `${mm} mm`, title: `${mm} mm`,
+    const thickness = el('div.ink-widths', { role: 'group', 'aria-label': t('ink.thickness') }, ...widths.map(mm => el('button.ink-width', {
+      type: 'button', role: 'menuitemradio', 'aria-checked': String(p.width === mm), 'aria-label': widthLabel(mm), title: widthLabel(mm),
       onclick: () => pick({ width: mm }),
       html: `<svg viewBox="0 0 40 20" width="40" height="20" aria-hidden="true"><path d="M5 13c6-8 12-8 15-3s9 5 15-3" fill="none" stroke="${p.color}" stroke-opacity="${style.opacity}" stroke-width="${Math.min(12, Math.max(0.75, mm * MM_PX))}" stroke-linecap="${p.kind === 'highlighter' ? 'butt' : 'round'}"/></svg>`,
     })));
-    const swatches = el('div.swatches', { role: 'group', 'aria-label': 'Colors', 'data-cols': 6 }, ...colors.map(([hex, name]) => el('button.swatch', {
-      type: 'button', role: 'menuitemradio', 'aria-checked': String(p.color === hex), 'aria-label': name, title: name, style: { background: hex },
+    const swatches = el('div.swatches', { role: 'group', 'aria-label': t('ink.colors'), 'data-cols': 6 }, ...colors.map(([hex, name]) => el('button.swatch', {
+      type: 'button', role: 'menuitemradio', 'aria-checked': String(p.color === hex), 'aria-label': t(name), title: t(name), style: { background: hex },
       onclick: () => pick({ color: hex }),
     })));
-    const extra = customColorRows({ current: p.color, label: `${KIND_LABELS[p.kind].toLowerCase()} color`, onPick: hex => pick({ color: hex }) });
+    const extra = customColorRows({ current: p.color, label: KIND_COLOR_NOUNS[p.kind], onPick: hex => pick({ color: hex }) });
     menu = openMenu({ anchor, label: penLabel(p), minWidth: 236, items: [
-      { header: 'Thickness' }, { custom: thickness },
-      { header: 'Colors' }, { custom: swatches }, ...extra.map(custom => ({ custom })),
-      ...(pens.length > 1 ? [{ separator: true }, { label: 'Delete Pen', icon: 'deleteItem', onSelect: () => removePen(id) }] : []),
+      { header: t('ink.thickness') }, { custom: thickness },
+      { header: t('ink.colors') }, { custom: swatches }, ...extra.map(custom => ({ custom })),
+      ...(pens.length > 1 ? [{ separator: true }, { label: t('ink.deletePen'), icon: 'deleteItem', onSelect: () => removePen(id) }] : []),
     ] });
     (swatches.querySelector('[aria-checked="true"]') || thickness.querySelector('[aria-checked="true"]') || swatches.querySelector('button'))?.focus();
     return menu;
@@ -379,7 +383,7 @@ export function createInk({ wb, grid, notify = () => {}, subscribe = null, refus
       case 'drawAddPen': addPen(arg); return;
       case 'drawInkToShape':
         inkToShape = !inkToShape;
-        announce(inkToShape ? 'Ink to Shape on: shapes you draw become clean shapes' : 'Ink to Shape off');
+        announce(inkToShape ? t('ink.inkToShapeOn') : t('ink.inkToShapeOff'));
         if (inkToShape && !pen(tool)) setTool(pens.find(p => p.kind !== 'highlighter')?.id || pens[0].id);
         notify();
         return;
@@ -412,10 +416,10 @@ const toggle = (label, glyph, cmd, key) => ({ label, glyph, ariaLabel: label, la
   resolve: (menus, ctx) => ({ label, cmd, disabled: !ctx?.ink || editing(ctx), checked: !!ctx?.ink?.[key] }) });
 
 /** A pen slot: the ribbon has room for every pen there can be; slots without a pen are hidden. */
-const penSlot = i => ({ label: `Pen ${i + 1}`, glyph: 'inkPen', ariaLabel: `Pen ${i + 1}`, large: true,
+const penSlot = i => ({ label: t('ink.penSlot', { n: i + 1 }), glyph: 'inkPen', ariaLabel: t('ink.penSlot', { n: i + 1 }), large: true,
   resolve: (menus, ctx) => {
     const p = ctx?.ink?.pens[i];
-    return p ? { label: penLabel(p), cmd: 'drawTool', arg: p.id, disabled: editing(ctx), checked: ctx.ink.tool === p.id } : { label: `Pen ${i + 1}`, disabled: true };
+    return p ? { label: penLabel(p), cmd: 'drawTool', arg: p.id, disabled: editing(ctx), checked: ctx.ink.tool === p.id } : { label: t('ink.penSlot', { n: i + 1 }), disabled: true };
   },
   decorate: (button, item, ctx) => {
     const p = ctx?.ink?.pens[i];
@@ -432,19 +436,19 @@ const penSlot = i => ({ label: `Pen ${i + 1}`, glyph: 'inkPen', ariaLabel: `Pen 
     button.style.setProperty('--pen-color', p.color);
     const label = penLabel(p);
     button.setAttribute('aria-label', label);
-    button.title = ctx.ink.tool === p.id ? `${label} (press again for thickness and color)` : label;
+    button.title = ctx.ink.tool === p.id ? t('ink.pressAgain', { label }) : label;
   } });
 
 export function drawRibbonGroups() {
   return [
-    ['Drawing Tools',
-      tool('Select', 'inkSelect', 'select', ink => !ink.tool),
-      tool('Lasso Select', 'lasso', 'lasso', ink => ink.tool === 'lasso'),
-      tool('Eraser', 'inkEraser', 'eraser', ink => ink.tool === 'eraser'),
+    [t('ink.ribbon.drawingTools'),
+      tool(t('ink.ribbon.select'), 'inkSelect', 'select', ink => !ink.tool),
+      tool(t('ink.ribbon.lassoSelect'), 'lasso', 'lasso', ink => ink.tool === 'lasso'),
+      tool(t('ink.ribbon.eraser'), 'inkEraser', 'eraser', ink => ink.tool === 'eraser'),
       ...Array.from({ length: MAX_PENS }, (_, i) => penSlot(i)),
-      { label: 'Add Pen', glyph: 'addPen', ariaLabel: 'Add Pen', large: true, resolve: (menus, ctx) => ({ label: 'Add Pen', disabled: !ctx?.ink || editing(ctx),
-        submenu: PEN_KINDS.map(kind => ({ label: KIND_LABELS[kind], icon: KIND_GLYPHS[kind], cmd: 'drawAddPen', arg: kind, disabled: !ctx?.ink || ctx.ink.pens.length >= MAX_PENS })) }) }],
-    ['Touch', toggle('Draw with Touch', 'drawTouch', 'drawTouch', 'touch')],
-    ['Convert', toggle('Ink to Shape', 'inkToShape', 'drawInkToShape', 'inkToShape')],
+      { label: t('ink.ribbon.addPen'), glyph: 'addPen', ariaLabel: t('ink.ribbon.addPen'), large: true, resolve: (menus, ctx) => ({ label: t('ink.ribbon.addPen'), disabled: !ctx?.ink || editing(ctx),
+        submenu: PEN_KINDS.map(kind => ({ label: t(KIND_LABELS[kind]), icon: KIND_GLYPHS[kind], cmd: 'drawAddPen', arg: kind, disabled: !ctx?.ink || ctx.ink.pens.length >= MAX_PENS })) }) }],
+    [t('ink.ribbon.touch'), toggle(t('ink.ribbon.drawWithTouch'), 'drawTouch', 'drawTouch', 'touch')],
+    [t('ink.ribbon.convert'), toggle(t('ink.ribbon.inkToShape'), 'inkToShape', 'drawInkToShape', 'inkToShape')],
   ];
 }
