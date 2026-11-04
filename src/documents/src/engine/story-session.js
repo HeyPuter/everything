@@ -127,7 +127,8 @@ export class StorySession {
     if (this.history.length > 100) this.history.shift();
     this.future = [];
   }
-  run(action, validate = () => {}, { record = true, typing = false } = {}) {
+  // `label` names the undo step for the host's menus, where the change alone does not say what made it (AutoCorrect).
+  run(action, validate = () => {}, { record = true, typing = false, label } = {}) {
     const before = this.capture(), model = this.model;
     // Text typed or deleted with a key (CanvasEditor typeText and deleteText).
     const typed = typing ? this.typingStart(model, before) : null;
@@ -156,7 +157,7 @@ export class StorySession {
       }
       validate(model);
       if (model.revision !== before.revision) {
-        if (record) this.record(before);
+        if (record) { if (label) before.label = label; this.record(before); }
         this.revision++;
         if (this.path !== null && this.body.trackChanges) this.untracked?.(this.path);
       }

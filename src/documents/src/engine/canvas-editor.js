@@ -2055,7 +2055,7 @@ export class CanvasEditor {
         // A typed list marker ("* ", "1. ") becomes a list.
         if (fix.list) this.model.toggleList(fix.list);
         return changed;
-      }, undefined, undefined, true);
+      }, undefined, { label: fix.list ? 'AutoFormat' : 'AutoCorrect' }, true);
       if (fix.list) return;
     }
     if (/\s/.test(typed)) {
@@ -2079,7 +2079,7 @@ export class CanvasEditor {
       // The replacement ends at the paragraph's end (after any deletion Track Changes keeps): the next paragraph follows.
       this.model.select(this.model.selection.focus + 1);
       return changed;
-    }, undefined, undefined, true);
+    }, undefined, { label: 'AutoCorrect' }, true);
     this.typingGroup = null;
   }
   /** Link the web address or email ending at `end` in a paragraph starting at `from`, and leave the caret at `caret`. */
@@ -2092,7 +2092,7 @@ export class CanvasEditor {
       if (linked) showLink(this.model);
       this.model.select(caret);
       return linked;
-    }, undefined, undefined, true);
+    }, undefined, { label: 'AutoFormat' }, true);
     this.typingGroup = null;
   }
   /**

@@ -33,3 +33,25 @@ test('Edit › Undo names a keyboard paste and a Replace All, not Typing', async
   await expect(input(page)).toHaveValue('One cat two cat');
   expect(await undoItem(page)).toMatch(/^Undo Replace All/);
 });
+
+test('Edit › Undo names a correction made as you type AutoCorrect, and a typed list or link AutoFormat', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/mock.html#/new');
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await page.locator('canvas.canvas-page').first().click({ position: { x: 150, y: 110 } });
+  await page.keyboard.type('She said (c)');
+  await expect(input(page)).toHaveValue('She said ©');
+  expect(await undoItem(page)).toMatch(/^Undo AutoCorrect/);
+  await input(page).press('ControlOrMeta+z');
+  await expect(input(page)).toHaveValue('She said (c)');
+  await page.keyboard.type(' i ');
+  await expect(input(page)).toHaveValue('She said (c) I ');
+  expect(await undoItem(page)).toMatch(/^Undo AutoCorrect/);
+  await page.keyboard.type('see example.com ');
+  expect(await undoItem(page)).toMatch(/^Undo AutoFormat/);
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('1. ');
+  expect(await undoItem(page)).toMatch(/^Undo AutoFormat/);
+  await page.keyboard.type('Item');
+  expect(await undoItem(page)).toMatch(/^Undo Typing/);
+});

@@ -898,7 +898,9 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
   function labelHistory() {
     if (!engine) return;
     const top = engine.session.history.at(-1), length = engine.model.text.length;
-    if (top && !undoLabels.has(top)) {
+    // A step the editor named itself (AutoCorrect) is that: no command noted just before made it.
+    if (top?.label && !undoLabels.has(top)) undoLabels.set(top, top.label);
+    else if (top && !undoLabels.has(top)) {
       const recent = pendingCommand && Date.now() - pendingCommand.at < 3000 ? pendingCommand : null;
       undoLabels.set(top, recent?.label || (length !== lastTextLength ? 'Typing' : 'Formatting'));
       if (recent?.run) editCommands.recordRepeat(recent.label, recent.run);
