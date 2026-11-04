@@ -134,6 +134,8 @@ export class Camera {
 
   /** Rolls around the view direction. */
   roll(angle: number) {
+    // Like orbiting, the user takes over the orientation from an animation.
+    this.stopAnimation();
     this.rotateAbout(qAxisAngle(this.back, angle), this.target);
   }
 

@@ -77,6 +77,12 @@ describe('camera', () => {
     expect(c.tick(t0 + 1000)).toBe(false);
     expect(c.viewName()).toBe('front');
     expect(c.distance).toBeCloseTo(40, 9);
+    // A two-finger roll takes the orientation over, as orbiting does.
+    vi.stubGlobal('matchMedia', () => ({ matches: false }));
+    c.animateTo({ target: [0, 0, 0], distance: 80, rot: VIEWS.top, ortho: true }, 200);
+    vi.unstubAllGlobals();
+    c.roll(0.1);
+    expect(c.animating).toBe(false);
   });
 
   it('recognises the current standard view', () => {
