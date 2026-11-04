@@ -147,3 +147,47 @@ test('a fix with nothing left to do says so', async ({ page }) => {
     'The tab order already follows the document structure.',
   );
 });
+
+test('the focus stays in the accessibility report after a fix', async ({ page }) => {
+  await page.route('https://js.puter.com/**', (route) => route.fulfill({ body: '' }));
+  await page.goto('/#library');
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  doc.addPage([400, 500]).drawText('Results', { x: 40, y: 440, size: 18, font });
+  const chooser = page.waitForEvent('filechooser');
+  await page.keyboard.press('ControlOrMeta+o');
+  await (
+    await chooser
+  ).setFiles({
+    name: 'plain.pdf',
+    mimeType: 'application/pdf',
+    buffer: Buffer.from(await doc.save()),
+  });
+  await expect(page.locator('.page-caption')).toHaveText('Page 1 of 1');
+  await settled(page);
+  await page.getByRole('button', { name: 'Tools', exact: true }).click();
+  const pane = page.getByRole('complementary', { name: 'Tools' });
+  await pane.getByRole('button', { name: 'View more' }).click();
+  await pane.getByRole('button', { name: 'Prepare for accessibility', exact: true }).click();
+  await pane.getByRole('button', { name: 'Accessibility check', exact: true }).click();
+  const report = page.getByRole('tabpanel', { name: 'Accessibility check' });
+  // The Fix button is disabled while it works and the report drawn again, which dropped the
+  // focus on the page; the next Tab started again from the top.
+  await report.getByRole('button', { name: 'Autotag document: Tagged PDF' }).focus();
+  await page.keyboard.press('Enter');
+  await settled(page);
+  await expect(report.locator('.a11y-rule', { hasText: 'Tagged PDF' }).first()).toHaveClass(
+    /is-passed/,
+  );
+  await expect(report.locator('summary', { hasText: 'Document' })).toBeFocused();
+  // A fix that asks first hands the focus back to the report too.
+  await report.getByRole('button', { name: 'Set title: Title' }).focus();
+  await page.keyboard.press('Enter');
+  const dialog = page.getByRole('dialog', { name: 'Document title' });
+  await dialog.getByRole('textbox').fill('Results');
+  await page.keyboard.press('Enter');
+  await expect(dialog).toBeHidden();
+  await settled(page);
+  await expect(report.locator('.a11y-rule', { hasText: 'Title' }).first()).toHaveClass(/is-passed/);
+  await expect(report.locator('summary', { hasText: 'Document' })).toBeFocused();
+});
