@@ -2,7 +2,7 @@
  * List numbers in the ST_NumberFormat values (ECMA-376 Part 1 §17.18.59) that imported documents use
  * beyond the ones the list dialogs offer: full-width and enclosed digits, English ordinals and words,
  * Chinese and Japanese counting numerals and ideographic digits, the ten heavenly stems and twelve
- * earthly branches, the Japanese aiueo and iroha syllabaries, Korean counting numerals and digits, the ganada and chosung
+ * earthly branches, the Japanese aiueo and iroha syllabaries (full- and half-width), Thai and Devanagari digits, Korean counting numerals and digits, the ganada and chosung
  * sequences, Hebrew letter numerals and alphabet, the Arabic abjad and alphabet, and dashes. §17.18.59 names each sequence by example only. A value outside
  * the characters a sequence has (a circled number above 50, a stem above 10) is written as a decimal
  * number, which is this editor's approximation, not a documented reference behavior.
@@ -12,6 +12,7 @@ export const IMPORTED_NUMBER_FORMATS = Object.freeze([
   'decimalEnclosedFullstop', 'decimalEnclosedParen', 'ordinal', 'cardinalText', 'ordinalText', 'chicago',
   'chineseCounting', 'japaneseCounting', 'ideographDigital', 'ideographTraditional', 'ideographZodiac', 'aiueo', 'aiueoFullWidth',
   'ganada', 'chosung', 'numberInDash', 'koreanCounting', 'koreanDigital', 'hebrew1', 'hebrew2', 'arabicAbjad', 'arabicAlpha', 'irohaFullWidth',
+  'iroha', 'thaiNumbers', 'hindiNumbers',
 ]);
 
 const ONES = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve', 'thirteen', 'fourteen', 'fifteen', 'sixteen', 'seventeen', 'eighteen', 'nineteen'];
@@ -67,6 +68,11 @@ function hebrewNumeral(value) {
 const ABJAD = 'أبجدهوزحطيكلمنسعفصقرشتثخذضظغ', ARABIC = 'أبتثجحخدذرزسشصضطظعغفقكلمنهوي';
 const IROHA = 'イロハニホヘトチリヌルヲワカヨタレソツネナラムウヰノオクヤマケフコエテアサキユメミシヱヒモセス';
 
+// §17.18.59 iroha: the same sequence in half-width katakana (ｲ, ﾛ, ﾊ, …). Half-width forms have no ヰ or ヱ, which
+// keep their only (full-width) forms.
+const IROHA_HALF = [...IROHA].map(c => ({ イ: 'ｲ', ロ: 'ﾛ', ハ: 'ﾊ', ニ: 'ﾆ', ホ: 'ﾎ', ヘ: 'ﾍ', ト: 'ﾄ', チ: 'ﾁ', リ: 'ﾘ', ヌ: 'ﾇ', ル: 'ﾙ', ヲ: 'ｦ', ワ: 'ﾜ', カ: 'ｶ', ヨ: 'ﾖ', タ: 'ﾀ', レ: 'ﾚ', ソ: 'ｿ', ツ: 'ﾂ', ネ: 'ﾈ', ナ: 'ﾅ', ラ: 'ﾗ', ム: 'ﾑ', ウ: 'ｳ', ノ: 'ﾉ', オ: 'ｵ', ク: 'ｸ', ヤ: 'ﾔ', マ: 'ﾏ', ケ: 'ｹ', フ: 'ﾌ', コ: 'ｺ', エ: 'ｴ', テ: 'ﾃ', ア: 'ｱ', サ: 'ｻ', キ: 'ｷ', ユ: 'ﾕ', メ: 'ﾒ', ミ: 'ﾐ', シ: 'ｼ', ヒ: 'ﾋ', モ: 'ﾓ', セ: 'ｾ', ス: 'ｽ' })[c] || c);
+// §17.18.59 thaiNumbers and hindiNumbers: the number written in Thai (๑, ๒, ๓) or Devanagari (१, २, ३) digits.
+const digitsIn = (zero, value) => String(value).replace(/[0-9]/g, c => String.fromCodePoint(zero + Number(c)));
 const STEMS = '甲乙丙丁戊己庚辛壬癸', BRANCHES = '子丑寅卯辰巳午未申酉戌亥';
 const AIUEO = 'アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲン';
 const AIUEO_HALF = 'ｱｲｳｴｵｶｷｸｹｺｻｼｽｾｿﾀﾁﾂﾃﾄﾅﾆﾇﾈﾉﾊﾋﾌﾍﾎﾏﾐﾑﾒﾓﾔﾕﾖﾗﾘﾙﾚﾛﾜｦﾝ';
@@ -101,6 +107,9 @@ export function importedNumeral(value, format) {
     case 'arabicAbjad': return inSequence(ABJAD, value);
     case 'arabicAlpha': return inSequence(ARABIC, value);
     case 'irohaFullWidth': return inSequence(IROHA, value);
+    case 'iroha': return inSequence(IROHA_HALF, value);
+    case 'thaiNumbers': return digitsIn(0x0e50, value);
+    case 'hindiNumbers': return digitsIn(0x0966, value);
     case 'ideographDigital': return value >= 0 ? String(value).replace(/[0-9]/g, c => CJK_DIGITS[c]) : String(value);
     case 'aiueo': return inSequence(AIUEO_HALF, value);
     case 'aiueoFullWidth': return inSequence(AIUEO, value);
