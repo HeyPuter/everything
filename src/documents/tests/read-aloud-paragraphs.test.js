@@ -36,6 +36,12 @@ describe('the language a paragraph is read in', () => {
     expect(speechLanguage('سلام دنیا', [{ text: 'سلام دنیا', fontBidiLanguage: 'fa-IR' }])).toBe('fa-IR');
     expect(speechLanguage('Bonjour le monde', [{ text: 'Bonjour le monde', fontLanguage: 'fr-FR', fontEastAsiaLanguage: 'zh-CN' }])).toBe('fr-FR');
     expect(speechLanguage('Hello', [{ text: 'Hello', fontLanguage: 'x-none' }])).toBeNull();
+    // Set Language marks the main attribute: Japanese written in kanji alone is read in Japanese once marked so,
+    // but an English mark (as many documents carry on every run) does not make Russian or Chinese text English.
+    expect(speechLanguage('東京都', [{ text: '東京都', fontLanguage: 'ja-JP' }])).toBe('ja-JP');
+    expect(speechLanguage('東京都', [{ text: '東京都', fontLanguage: 'en-US' }])).toBe('zh');
+    expect(speechLanguage('Привет, мир', [{ text: 'Привет, мир', fontLanguage: 'en-US' }])).toBe('ru');
+    expect(speechLanguage('Привіт, світе', [{ text: 'Привіт, світе', fontLanguage: 'uk-UA' }])).toBe('uk-UA');
   });
   it('is carried with each spoken paragraph', () => {
     const [chinese, english] = speakableParagraphs([{ runs: [run('我们今天去北京')] }, { runs: [run('Hello there')] }], 'all');

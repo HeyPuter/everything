@@ -34,26 +34,31 @@ export function speakableParagraphs(paragraphs, view = revisionView.mode) {
 
 // The scripts a voice is chosen for, with the language a paragraph in that script is read in when its text names
 // none: an English voice says nothing of Chinese, Japanese, Arabic or Thai text, or spells it out letter by letter.
-// Kana is Japanese however many ideographs it is written among. `slot` is the run's language attribute for it.
+// Kana is Japanese however many ideographs it is written among. `slot` is the run's language attribute for the
+// script, and `languages` the languages written in it: a run marked in one of them (with Set Language, which marks
+// the main attribute) names the paragraph's language, but an English mark on Russian text does not.
 const SCRIPTS = [
-  { test: /[\p{Script=Hiragana}\p{Script=Katakana}]/u, language: 'ja', slot: 'fontEastAsiaLanguage' },
-  { test: /\p{Script=Hangul}/u, language: 'ko', slot: 'fontEastAsiaLanguage' },
-  { test: /\p{Script=Han}/u, language: 'zh', slot: 'fontEastAsiaLanguage' },
-  { test: /\p{Script=Arabic}/u, language: 'ar', slot: 'fontBidiLanguage' },
-  { test: /\p{Script=Hebrew}/u, language: 'he', slot: 'fontBidiLanguage' },
-  { test: /\p{Script=Thai}/u, language: 'th' }, { test: /\p{Script=Devanagari}/u, language: 'hi' },
-  { test: /\p{Script=Greek}/u, language: 'el' }, { test: /\p{Script=Cyrillic}/u, language: 'ru' },
-  { test: /\p{Script=Bengali}/u, language: 'bn' }, { test: /\p{Script=Tamil}/u, language: 'ta' },
-  { test: /\p{Script=Khmer}/u, language: 'km' }, { test: /\p{Script=Lao}/u, language: 'lo' },
-  { test: /\p{Script=Myanmar}/u, language: 'my' }, { test: /\p{Script=Georgian}/u, language: 'ka' },
-  { test: /\p{Script=Armenian}/u, language: 'hy' },
+  { test: /[\p{Script=Hiragana}\p{Script=Katakana}]/u, language: 'ja', slot: 'fontEastAsiaLanguage', languages: /^ja/ },
+  { test: /\p{Script=Hangul}/u, language: 'ko', slot: 'fontEastAsiaLanguage', languages: /^ko/ },
+  { test: /\p{Script=Han}/u, language: 'zh', slot: 'fontEastAsiaLanguage', languages: /^(?:zh|ja|ko|yue|wuu|lzh)/ },
+  { test: /\p{Script=Arabic}/u, language: 'ar', slot: 'fontBidiLanguage', languages: /^(?:ar|fa|ur|ps|sd|ug|ckb|ku)/ },
+  { test: /\p{Script=Hebrew}/u, language: 'he', slot: 'fontBidiLanguage', languages: /^(?:he|iw|yi|lad)/ },
+  { test: /\p{Script=Thai}/u, language: 'th', languages: /^th/ },
+  { test: /\p{Script=Devanagari}/u, language: 'hi', languages: /^(?:hi|mr|ne|sa|kok|mai|bho|doi)/ },
+  { test: /\p{Script=Greek}/u, language: 'el', languages: /^(?:el|grc)/ },
+  { test: /\p{Script=Cyrillic}/u, language: 'ru', languages: /^(?:ru|uk|be|bg|mk|sr|kk|ky|tg|mn|ba|tt|cv|ce|os|sah|bs|cnr)/ },
+  { test: /\p{Script=Bengali}/u, language: 'bn', languages: /^(?:bn|as)/ }, { test: /\p{Script=Tamil}/u, language: 'ta', languages: /^ta/ },
+  { test: /\p{Script=Khmer}/u, language: 'km', languages: /^km/ }, { test: /\p{Script=Lao}/u, language: 'lo', languages: /^lo/ },
+  { test: /\p{Script=Myanmar}/u, language: 'my', languages: /^my/ }, { test: /\p{Script=Georgian}/u, language: 'ka', languages: /^ka/ },
+  { test: /\p{Script=Armenian}/u, language: 'hy', languages: /^hy/ },
 ];
 const LETTER = /\p{L}/u;
+const TAG = /^[a-z]{2,3}(?:-|$)/i;
 
 /**
  * The language to read a paragraph's text in (a BCP 47 tag), or null for the reader's own: the language its runs are
- * marked in (w:lang, the attribute for the paragraph's script), or else the usual language of its script. The script
- * is the one most of its letters are written in, kana counting with the ideographs around it.
+ * marked in for the paragraph's script, or else the usual language of that script. The script is the one most of
+ * its letters are written in, kana counting with the ideographs around it.
  */
 export function speechLanguage(text, runs = []) {
   const counts = new Map();
@@ -67,9 +72,9 @@ export function speechLanguage(text, runs = []) {
   if (counts.has(kana) && counts.has(han)) { counts.set(kana, counts.get(kana) + counts.get(han)); counts.delete(han); }
   let script = null, most = 0;
   for (const [each, count] of counts) if (count > most) { script = each; most = count; }
-  const marked = run => run[script?.slot || 'fontLanguage'];
-  const named = runs.map(marked).find(language => typeof language === 'string' && /^[a-z]{2,3}(?:-|$)/i.test(language) && !/^x-/i.test(language));
-  return named || script?.language || null;
+  const named = (key, fits = () => true) => runs.map(run => run[key]).find(language => typeof language === 'string' && TAG.test(language) && fits(language));
+  if (!script) return named('fontLanguage') || null;
+  return (script.slot && named(script.slot)) || named('fontLanguage', language => script.languages.test(language.toLowerCase())) || script.language;
 }
 
 const sameLanguage = (a, b) => a.split('-')[0].toLowerCase() === b.split('-')[0].toLowerCase();
