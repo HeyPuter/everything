@@ -38,3 +38,33 @@ test('a view added while the others are still being projected is drawn too', asy
   await expect(page.locator('.paper g[data-view]')).toHaveCount(5);
   await expect(page.locator('.paper g[data-view="v5"] path').first()).toBeAttached();
 });
+
+test('two fingers zoom the sheet, ending a view drag as one undo step', async ({ page }) => {
+  await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  await page.getByRole('tab', { name: 'Drawing' }).click();
+  await expect(page.locator('.paper g[data-view]')).toHaveCount(4);
+  type Ws = { zoom: number; frames: { x0: number; y0: number; x1: number; y1: number }[]; pan: { x: number; y: number }; el: HTMLElement };
+  type AppT = { drawing: Ws; store: { undoDepth: number; change(l: string, fn: (d: { variables: unknown[] }) => void): void } };
+  const state = () => page.evaluate(() => {
+    const app = (window as unknown as { __parametric: AppT }).__parametric;
+    const ws = app.drawing, box = ws.el.getBoundingClientRect(), f = ws.frames[0];
+    return { zoom: ws.zoom, depth: app.store.undoDepth, cx: box.left + ws.pan.x + ((f.x0 + f.x1) / 2) * ws.zoom, cy: box.top + ws.pan.y + ((f.y0 + f.y1) / 2) * ws.zoom };
+  });
+  const s0 = await state();
+  const cdp = await page.context().newCDPSession(page);
+  const touch = (type: 'touchStart' | 'touchMove' | 'touchEnd', points: [number, number][]) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: points.map(([x, y], id) => ({ x, y, id })) });
+  // One finger drags a view, a second one lands and the two spread apart.
+  const { cx, cy } = s0;
+  await touch('touchStart', [[cx, cy]]);
+  await touch('touchMove', [[cx + 20, cy + 10]]);
+  await touch('touchMove', [[cx + 20, cy + 10], [cx + 120, cy + 10]]);
+  await touch('touchMove', [[cx - 80, cy + 10], [cx + 220, cy + 10]]);
+  await touch('touchEnd', []);
+  const s1 = await state();
+  expect(s1.zoom / s0.zoom).toBeCloseTo(3, 1);
+  // The drag is one undo step and later changes are separate steps again (no batch left open).
+  await page.evaluate(() => (window as unknown as { __parametric: AppT }).__parametric.store.change('A', (d) => { d.variables.push({ name: 'A', expr: '1' }); }));
+  expect((await state()).depth - s0.depth).toBe(2);
+});

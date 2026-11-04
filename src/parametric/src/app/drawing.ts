@@ -208,7 +208,27 @@ export class DrawingWorkspace {
 
   private bind() {
     let drag: { kind: 'pan' | 'view'; sx: number; sy: number; ox: number; oy: number; id?: string; moved: boolean } | null = null;
+    // Two fingers pinch to zoom and pan (touch screens have no wheel).
+    const pointers = new Map<number, { x: number; y: number }>();
+    let pinch: { d: number; sx: number; sy: number; zoom: number } | null = null;
+    const pinchState = () => {
+      const [a, b] = [...pointers.values()];
+      const r = this.el.getBoundingClientRect();
+      return { d: Math.hypot(a.x - b.x, a.y - b.y) || 1, mx: (a.x + b.x) / 2 - r.left, my: (a.y + b.y) / 2 - r.top };
+    };
     this.el.addEventListener('pointerdown', (e) => {
+      if (e.pointerType === 'touch') pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pointers.size >= 2) {
+        // A second finger ends any drag (closing its undo step) and starts a pinch.
+        if (drag?.kind === 'view' && drag.moved) this.app.store.endBatch();
+        drag = null;
+        if (pointers.size === 2) {
+          const p = pinchState();
+          pinch = { d: p.d, sx: (p.mx - this.pan.x) / this.zoom, sy: (p.my - this.pan.y) / this.zoom, zoom: this.zoom };
+        }
+        this.el.setPointerCapture(e.pointerId);
+        return;
+      }
       this.el.focus({ preventScroll: true });
       const [x, y] = this.toSheet(e.clientX, e.clientY);
       const id = e.button === 0 ? this.viewAt(x, y) : null;
@@ -225,6 +245,16 @@ export class DrawingWorkspace {
       }
     });
     this.el.addEventListener('pointermove', (e) => {
+      if (pointers.has(e.pointerId)) pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pinch) {
+        if (pointers.size < 2) return;
+        // Keep the sheet point first under the fingers' midpoint under it.
+        const p = pinchState();
+        this.zoom = Math.max(0.1, Math.min(40, (pinch.zoom * p.d) / pinch.d));
+        this.pan = { x: p.mx - pinch.sx * this.zoom, y: p.my - pinch.sy * this.zoom };
+        this.applyTransform();
+        return;
+      }
       if (!drag) return;
       const dx = e.clientX - drag.sx, dy = e.clientY - drag.sy;
       if (!drag.moved && Math.hypot(dx, dy) < 3) return;
@@ -239,7 +269,9 @@ export class DrawingWorkspace {
         this.update((d) => { const v = d.views.find((q) => q.id === id); if (v) { v.x = nx; v.y = ny; } }, 'Move view');
       }
     });
-    const end = () => {
+    const end = (e: PointerEvent) => {
+      pointers.delete(e.pointerId);
+      if (pinch) { if (pointers.size < 2) pinch = null; return; }
       if (drag?.kind === 'view' && drag.moved) this.app.store.endBatch();
       drag = null;
     };
