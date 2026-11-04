@@ -143,3 +143,16 @@ test('switching the part to inches keeps the size of values linked to equations'
   await expect(page.locator('.ti.error')).toHaveCount(0);
   expect(errors).toEqual([]);
 });
+
+test('keyboard focus moves into a feature panel opened from the tree and back when it closes', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  await page.getByRole('treeitem', { name: 'Extrude1', exact: true }).focus();
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('heading', { name: 'Extrude1' })).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('heading', { name: 'Extrude1' })).toHaveCount(0);
+  await expect(page.getByRole('treeitem', { name: 'Extrude1', exact: true })).toBeFocused();
+  expect(errors).toEqual([]);
+});

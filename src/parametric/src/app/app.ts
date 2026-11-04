@@ -242,7 +242,7 @@ export class App {
   }
 
   private panelElement(p: PropertyPanel): HTMLElement {
-    const head = h('div', { class: 'pm-head' }, icon(p.icon, 18), h('div', { class: 'title', role: 'heading', 'aria-level': '2' }, p.title));
+    const head = h('div', { class: 'pm-head' }, icon(p.icon, 18), h('div', { class: 'title', role: 'heading', 'aria-level': '2', tabindex: '-1' }, p.title));
     const actions = h('div', { class: 'pm-actions' });
     if (p.confirm) {
       actions.append(
@@ -1037,7 +1037,11 @@ export class App {
     if (this.panel) await this.closePanel(false);
     this.hideContextToolbar();
     this.panel = p;
+    // Opened from the design tree with the keyboard: the panel replaces the
+    // tree, so keyboard focus moves to the panel instead of being lost.
+    const fromPane = this.shell.leftpane.contains(document.activeElement);
     this.showLeft('pm');
+    if (fromPane || document.activeElement === document.body) this.shell.lpBody.querySelector<HTMLElement>('.pm-head .title')?.focus();
     this.shell.confirm.hidden = !p.confirm;
     this.renderConfirmCorner();
     this.setStatus(p.title);
@@ -1051,6 +1055,7 @@ export class App {
   async closePanel(ok: boolean) {
     const p = this.panel;
     if (!p) return;
+    const fromPane = this.shell.leftpane.contains(document.activeElement);
     if (ok) {
       let done = false;
       try {
@@ -1069,7 +1074,15 @@ export class App {
     this.shell.confirm.hidden = !this.sketchEditor;
     this.renderConfirmCorner();
     if (this.sketchEditor) this.refreshSketchPanel();
-    else this.showLeft('tree');
+    else {
+      this.showLeft('tree');
+      // Keyboard focus returns to the feature in the tree rather than being lost with the panel.
+      const id = (p as { f?: Feature }).f?.id ?? p.editingId;
+      if (fromPane || document.activeElement === document.body) {
+        const item = (id && this.tree.el.querySelector<HTMLElement>(`[data-key="${CSS.escape(id)}"]`)) || this.tree.el.querySelector<HTMLElement>('.ti[tabindex="0"]');
+        item?.focus();
+      }
+    }
     this.setStatus(this.defaultStatus());
     this.requestRebuild(true);
     this.viewport.refreshStates();

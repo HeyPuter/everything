@@ -68,8 +68,11 @@ export class StartScreen {
   }
 
   hide() {
+    // Chosen with the keyboard: focus goes to the graphics area, not back to the page start.
+    const hadFocus = !!this.el?.contains(document.activeElement);
     this.el?.remove();
     this.el = null;
+    if (hadFocus) this.app.viewport.canvas.focus({ preventScroll: true });
   }
 
   get visible() {
