@@ -1102,6 +1102,21 @@ const REPORT_COLORS = {
 };
 
 /**
+ * The comparison's date in the reader's own format, in digits the report's standard font can
+ * print. A format still in another script (an Arabic comma, a Korean or Arabic AM/PM) would
+ * print as question marks, so it falls back to a year-month-day date.
+ */
+function reportDate(date, known) {
+  const local = date
+    .toLocaleString(undefined, { numberingSystem: 'latn' })
+    .replace(/[\u200e\u200f\u061c]/g, '')
+    .replace(/\s+/g, ' ');
+  if ([...local].every((ch) => known.has(ch.codePointAt(0)))) return local;
+  const two = (n) => String(n).padStart(2, '0');
+  return `${date.getFullYear()}-${two(date.getMonth() + 1)}-${two(date.getDate())} ${two(date.getHours())}:${two(date.getMinutes())}`;
+}
+
+/**
  * A printable summary of a comparison, like Acrobat's compare report: the two files, the
  * counts, and every change listed by page. Returns the PDF bytes.
  */
@@ -1173,7 +1188,7 @@ export async function buildCompareReport(
   write('Compare report', { font: bold, size: 20, gap: 10 });
   write(`Old file: ${oldName} (${plural(result.summary.pages.old, 'page')})`);
   write(`New file: ${newName} (${plural(result.summary.pages.new, 'page')})`);
-  write(`Compared: ${date.toLocaleString()}`, {
+  write(`Compared: ${reportDate(date, known)}`, {
     color: rgb(0.4, 0.4, 0.4),
     gap: 12,
   });

@@ -1,4 +1,4 @@
-import { afterAll, expect, it } from 'vitest';
+import { afterAll, expect, it, vi } from 'vitest';
 import { PDFDocument, StandardFonts, degrees } from 'pdf-lib';
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 import {
@@ -308,6 +308,32 @@ it('writes a report that lists every change', async () => {
   expect(text).toContain('Inserted "very"');
   expect(text).toContain('Replaced "three" with "four"');
   expect(text).toContain('Page 3 deleted');
+});
+
+it("writes the report date in digits its font can print, whatever the reader's language", async () => {
+  const { bytes } = await build([intro]);
+  const result = await compareDocuments(await open(bytes), await open(bytes));
+  const native = Date.prototype.toLocaleString;
+  const lines = {};
+  try {
+    for (const locale of ['ar-EG', 'bn-BD', 'ko-KR', 'en-US']) {
+      // The reader's language, as the browser would apply it to a date given no locale.
+      vi.spyOn(Date.prototype, 'toLocaleString').mockImplementation(function (asked, options) {
+        return native.call(this, asked ?? locale, options);
+      });
+      const report = await buildCompareReport(result, { date: new Date(2026, 0, 2, 15, 4) });
+      vi.restoreAllMocks();
+      const page = await (await open(report)).getPage(1);
+      const text = (await page.getTextContent()).items.map((item) => item.str).join('\n');
+      lines[locale] = text.split('\n').find((line) => line.startsWith('Compared:'));
+    }
+  } finally {
+    vi.restoreAllMocks();
+  }
+  expect(lines['ar-EG']).toBe('Compared: 2026-01-02 15:04');
+  expect(lines['ko-KR']).toBe('Compared: 2026-01-02 15:04');
+  expect(lines['bn-BD']).toBe('Compared: 2/1/2026, 3:04:00 PM');
+  expect(lines['en-US']).toBe('Compared: 1/2/2026, 3:04:00 PM');
 });
 
 it('counts a page that changed as a whole, so the summary does not say there are no differences', async () => {
