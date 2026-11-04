@@ -19,6 +19,7 @@
  */
 
 import { parseDecimal } from './number-text.js';
+import { t, tSource } from '../../i18n/index.js';
 
 const ERRORS = ['#DIV/0!', '#VALUE!', '#REF!', '#NAME?', '#N/A', '#NUM!', '#NULL!', '#CYCLE!', '#SPILL!', '#CALC!'];
 
@@ -66,11 +67,22 @@ function scopedNameToken(match, start) {
     nameStart: start + match[1].length + 1, start, end: start + match[0].length };
 }
 
+/**
+ * A formula that cannot be read. `key` names the reason in the catalogs; the message is its English
+ * (for logs and the AI model), and syntaxErrorText gives it in the interface language.
+ */
 export class FormulaSyntaxError extends Error {
-  constructor(message, pos) {
-    super(message);
+  constructor(key, pos, values) {
+    super(tSource(key, values));
+    this.key = key;
+    this.values = values;
     this.pos = pos;
   }
+}
+
+/** Why a formula could not be read, in the interface language; any other error, its message. */
+export function syntaxErrorText(error) {
+  return error instanceof FormulaSyntaxError ? t(error.key, error.values) : String(error?.message ?? error);
 }
 
 /** Does an identifier run on past the cell reference of `len` characters at the start of `rest`, through a period to more than periods? */
@@ -115,7 +127,7 @@ export function tokenize(src) {
         }
         out += src[j++];
       }
-      if (!closed) throw new FormulaSyntaxError('Unterminated string', i);
+      if (!closed) throw new FormulaSyntaxError('formulaTokenizer.unterminatedString', i);
       tokens.push({ type: 'string', value: out, start: i, end: j });
       i = j;
       continue;
@@ -124,7 +136,7 @@ export function tokenize(src) {
     if (ch === '#') {
       // Typed in any case, as Excel reads them: =#n/a is #N/A.
       const err = ERRORS.find((e) => src.slice(i, i + e.length).toUpperCase() === e);
-      if (!err) throw new FormulaSyntaxError('Unknown error literal', i);
+      if (!err) throw new FormulaSyntaxError('formulaTokenizer.unknownErrorLiteral', i);
       // #REF!A1 is a reference to a deleted sheet, read below; #REF! on its own is the error.
       if (err !== '#REF!' || !REF_RE.test(src.slice(i))) {
         tokens.push({ type: 'error', value: err, start: i, end: i + err.length });
@@ -143,7 +155,7 @@ export function tokenize(src) {
       // Literals are truncated to 15 significant digits, and an out-of-range
       // decimal scale is rejected before evaluating the expression. A later
       // operation (including %) cannot rescue an invalid literal.
-      if (value === null) throw new FormulaSyntaxError('Number out of range', i);
+      if (value === null) throw new FormulaSyntaxError('formulaTokenizer.numberOutOfRange', i);
       tokens.push({ type: 'number', value, start: i, end: i + num[0].length });
       i += num[0].length;
       continue;
@@ -178,7 +190,7 @@ export function tokenize(src) {
           sheet = sheet.slice(0, colon);
         }
         if (!sheet || sheetEnd === '' || sheet.includes(':') || sheetEnd?.includes(':')) {
-          throw new FormulaSyntaxError('Invalid sheet span', i);
+          throw new FormulaSyntaxError('formulaTokenizer.invalidSheetSpan', i);
         }
       }
       if (external) sheet = external + sheet;
@@ -228,7 +240,7 @@ export function tokenize(src) {
     // A bare structured reference inside a table: [@Amount], [Amount].
     if (ch === '[') {
       const end = bracketEnd(src, i);
-      if (end < 0) throw new FormulaSyntaxError('Unclosed "["', i);
+      if (end < 0) throw new FormulaSyntaxError('formulaTokenizer.unclosedBracket', i);
       tokens.push({ type: 'tref', table: null, spec: src.slice(i + 1, end - 1), start: i, end });
       i = end;
       continue;
@@ -244,7 +256,7 @@ export function tokenize(src) {
       // Table1[Amount]: a name followed straight away by brackets is a structured reference.
       if (rest[name[0].length] === '[') {
         const end = bracketEnd(src, i + name[0].length);
-        if (end < 0) throw new FormulaSyntaxError('Unclosed "["', i);
+        if (end < 0) throw new FormulaSyntaxError('formulaTokenizer.unclosedBracket', i);
         tokens.push({ type: 'tref', table: name[0], spec: src.slice(i + name[0].length + 1, end - 1), start: i, end });
         i = end;
         continue;
@@ -276,7 +288,7 @@ export function tokenize(src) {
     if (ch === '}') { tokens.push({ type: 'rbrace', start: i, end: i + 1 }); i++; continue; }
     if (ch === ':') { tokens.push({ type: 'colon', start: i, end: i + 1 }); i++; continue; }
 
-    throw new FormulaSyntaxError(`Unexpected character "${ch}"`, i);
+    throw new FormulaSyntaxError('formulaTokenizer.unexpectedCharacter', i, { ch });
   }
 
   return tokens;

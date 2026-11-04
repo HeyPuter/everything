@@ -1,0 +1,4 @@
+{
+  "cacheTooLarge": "The supporting-cell cache is too large to copy.",
+  "saveSourceFirst": "Save the source spreadsheet before copying a sheet that references its other sheets."
+}

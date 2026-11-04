@@ -8,6 +8,7 @@
 import { isComposing, el, fieldId } from './dom.js';
 import { quoteSheet } from '../core/refs.js';
 import { completionContext, matchFunctions, matchColumns, signatureFor } from '../core/formula/hints.js';
+import { t } from '../i18n/index.js';
 
 /**
  * extraNames(sheetName?) → names visible on that sheet, or the edited sheet
@@ -16,7 +17,7 @@ import { completionContext, matchFunctions, matchColumns, signatureFor } from '.
  * columnsFor(tableName | null) → the columns of a table (null: the table the edited cell sits in)
  */
 export function createFormulaHints({ host, onAccept, extraNames = () => [], extraTables = () => [], extraSheets = () => [], columnsFor = () => [] }) {
-  const root = el('div.fx-hints', { id: fieldId('fx-hints'), hidden: true, role: 'listbox', 'aria-label': 'Formula suggestions' });
+  const root = el('div.fx-hints', { id: fieldId('fx-hints'), hidden: true, role: 'listbox', 'aria-label': t('autocomplete.suggestions') });
   host.append(root);
   let items = [];
   let selected = 0;
@@ -76,8 +77,8 @@ export function createFormulaHints({ host, onAccept, extraNames = () => [], extr
     const sheets = new Set(extraSheets());
     root.replaceChildren(...items.map((name, i) => {
       const isName = named.has(name);
-      const sig = ctx?.kind === 'column' ? { description: name.startsWith('#') ? 'Rows of the table' : `Column of ${ctx.table || 'this table'}` }
-        : isName ? { description: 'Named range' } : tables.has(name) ? { description: 'Table' } : sheets.has(name) ? { description: 'Sheet' } : signatureFor(name);
+      const sig = ctx?.kind === 'column' ? { description: name.startsWith('#') ? t('autocomplete.tableRows') : ctx.table ? t('autocomplete.columnOf', { table: ctx.table }) : t('autocomplete.columnOfThisTable') }
+        : isName ? { description: t('autocomplete.namedRange') } : tables.has(name) ? { description: t('autocomplete.table') } : sheets.has(name) ? { description: t('autocomplete.sheet') } : signatureFor(name);
       return el('div.fx-item', {
         id: `${root.id}-${i}`, role: 'option', 'aria-selected': String(i === selected), className: `fx-item${i === selected ? ' selected' : ''}`,
         onpointerdown: (e) => { e.preventDefault(); accept(i); },

@@ -1,0 +1,10 @@
+{
+  "calcBareFunction": "#CALC!：{text} 是一个函数，需要加上括号来调用，例如 {name}(…)。",
+  "nameNoFunction": "#NAME?：没有名为 {name} 的函数。",
+  "nameNoFunctionGuess": "#NAME?：没有名为 {name} 的函数。你是不是指 {guess}？",
+  "nameNotRangeFunction": "#NAME?：{name} 不是命名区域。你是不是指函数 {fn}()？",
+  "nameUnknownGuess": "#NAME?：{name} 不是命名区域、表格或函数。你是不是指 {guess}？",
+  "nameUnknownText": "#NAME?：{name} 不是命名区域、表格或函数。文本需要加引号：\"…\"。",
+  "refDeletedSheet": "#REF!：{ref} 引用了已删除的工作表。",
+  "refNoSheet": "#REF!：没有名为“{sheet}”的工作表。它可能已被重命名或删除。"
+}

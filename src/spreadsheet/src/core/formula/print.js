@@ -7,6 +7,7 @@ import { refToText, quoteSheet } from '../refs.js';
 import { evaluate, evaluateFormula, evaluateBinding } from './evaluator.js';
 import { parseFormula } from './parser.js';
 import { formatValue } from '../format.js';
+import { t } from '../../i18n/index.js';
 
 const PRECEDENCE = { '=': 1, '<>': 1, '<': 1, '>': 1, '<=': 1, '>=': 1, '&': 2, '+': 3, '-': 3, '*': 4, '/': 4, '^': 5 };
 
@@ -68,16 +69,16 @@ function wrap(node, minPrecedence) {
 
 /** A value as the dialog shows it: ranges as a compact grid, errors by name, text quoted. */
 export function describeValue(value) {
-  if (value == null) return '(blank)';
+  if (value == null) return t('formulaPrint.blank');
   if (typeof value === 'object') {
     if (value.error) return value.error;
     if (value.lambda) return 'LAMBDA';
     if (value.range) {
       const rows = value.values.slice(0, 4).map((row) => row.slice(0, 6).map((v) => describeValue(v)).join(' | ') + (row.length > 6 ? ' | …' : ''));
-      const more = value.values.length > 4 ? `\n… ${value.values.length} rows` : '';
+      const more = value.values.length > 4 ? `\n${t('formulaPrint.moreRows', { count: value.values.length })}` : '';
       return `${rows.join('\n')}${more}`;
     }
-    return '(object)';
+    return t('formulaPrint.object');
   }
   if (typeof value === 'string') return `"${value}"`;
   if (typeof value === 'boolean') return value ? 'TRUE' : 'FALSE';
