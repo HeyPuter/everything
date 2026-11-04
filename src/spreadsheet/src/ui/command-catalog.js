@@ -8,13 +8,26 @@ import { menubarMenus } from './menubar.js';
 import { paletteCommands } from './palette.js';
 import { commandId } from '../lib/customize.js';
 import { parseShortcut } from '../core/keymap.js';
+import { t, compareText, language, SOURCE_LANGUAGE } from '../i18n/index.js';
 
 export { effectiveShortcut, withCustomShortcuts } from './custom-shortcuts.js';
 
 /** Flags that bring every menu item out, whatever is selected now (a note, a formula, a table). */
 const EVERYTHING = { hasFormula: true, hasTable: true, hasNote: true, hasLink: true, canUndo: true, canRedo: true, editing: false, away: false, grouped: false, chartSheet: false };
 
+// The ellipsis ends a label that opens a dialog in every language (Chinese keeps it: 另存为…).
 const tidyLabel = (label) => String(label || '').replace(/…$/, '').trim();
+
+/**
+ * Whether a menu item's own name is one word ("Add", "Down"), too bare to stand alone in a list of every
+ * command. Read on its English name: the item's `labelSource`, or its label when that is English. A name
+ * in another language with no English beside it is taken as bare, so it is always named with its menu.
+ */
+function bareName(item) {
+  const english = item.labelSource ?? (language() === SOURCE_LANGUAGE ? item.label : null);
+  if (english == null) return true;
+  return english.length < 14 && !/\s/.test(english.trim());
+}
 
 /**
  * The catalog: [{ id, cmd, arg, label, icon, where, shortcut }] sorted by name. `ribbonEl` is the ribbon's
@@ -27,9 +40,11 @@ export function commandCatalog(flags = {}, ribbonEl = null) {
     const arg = entry.arg && typeof entry.arg === 'object' && entry.arg.nodeType ? null : entry.arg ?? null;
     const id = commandId(entry.cmd, arg);
     const known = out.get(id);
+    // The name in English too, where it is known and differs, so a search in English finds a command shown in another language.
+    const english = entry.labelSource != null && entry.labelSource !== entry.label ? tidyLabel(entry.labelSource) : null;
     if (known) {
       // The palette's and the ribbon's names stand on their own; a menu item's leans on its menu ("Bold" under Text).
-      if ((entry.rank || 0) > known.rank) { known.label = tidyLabel(entry.label); known.rank = entry.rank; }
+      if ((entry.rank || 0) > known.rank) { known.label = tidyLabel(entry.label); known.english = english; known.rank = entry.rank; }
       known.icon ||= entry.icon || null;
       known.shortcut ||= entry.shortcut || null;
       // A place already named in full (Format ▸ Wrapping) is not named again by its first part (Format).
@@ -39,7 +54,7 @@ export function commandCatalog(flags = {}, ribbonEl = null) {
       }
       return;
     }
-    out.set(id, { id, cmd: entry.cmd, arg, label: tidyLabel(entry.label), rank: entry.rank || 0, icon: entry.icon || null, shortcut: entry.shortcut || null, places: entry.where ? [entry.where] : [] });
+    out.set(id, { id, cmd: entry.cmd, arg, label: tidyLabel(entry.label), english, rank: entry.rank || 0, icon: entry.icon || null, shortcut: entry.shortcut || null, places: entry.where ? [entry.where] : [] });
   };
   const f = { ...flags, ...EVERYTHING, fns: {} };
   for (const menu of menubarMenus(f)) {
@@ -48,8 +63,9 @@ export function commandCatalog(flags = {}, ribbonEl = null) {
         if (item.submenu) walk(item.submenu, [...path, tidyLabel(item.label)]);
         else if (item.cmd && item.label) {
           // A submenu of choices (Paste special's Add, Zoom's Zoom in) is named with what it chooses among.
-          const label = path.length > 1 && item.label.length < 14 && !/\s/.test(item.label.trim()) ? `${path.at(-1)}: ${item.label}` : item.label;
-          add({ cmd: item.cmd, arg: item.arg, label, icon: item.icon, shortcut: item.shortcut, where: path.join(' ▸ ') });
+          const named = path.length > 1 && bareName(item);
+          const label = named ? t('commandCatalog.choice', { menu: path.at(-1), choice: item.label }) : item.label;
+          add({ cmd: item.cmd, arg: item.arg, label, labelSource: item.labelSource, icon: item.icon, shortcut: item.shortcut, where: path.join(' ▸ ') });
         }
       }
     };
@@ -62,23 +78,29 @@ export function commandCatalog(flags = {}, ribbonEl = null) {
       if (!c?.cmd) continue;
       const panel = button.closest('.ribbon-panel');
       const tabId = panel?.getAttribute('aria-labelledby');
-      const tab = tabId ? [...ribbonEl.querySelectorAll('.ribbon-tab')].find((t) => t.id === tabId)?.dataset.builtinName || null : null;
+      // The tab's name as shown; `builtinName` is its English id, shown until the ribbon gives a `builtinLabel`.
+      const tabEl = tabId ? [...ribbonEl.querySelectorAll('.ribbon-tab')].find((node) => node.id === tabId) : null;
+      const tab = tabEl ? tabEl.dataset.builtinLabel || tabEl.dataset.builtinName || null : null;
       const group = button.closest('.ribbon-group')?.getAttribute('aria-label');
       // Buttons the person put on a tab of their own are not a place the command lives.
       if (button.closest('[data-custom-group]')) continue;
-      add({ cmd: c.cmd, arg: c.arg, label: c.label, icon: c.glyph, where: tab ? `${tab}${group ? ` ▸ ${group}` : ''} (ribbon)` : 'Ribbon', rank: 1 });
+      const where = !tab ? t('commandCatalog.ribbon') : group ? t('commandCatalog.ribbonGroup', { tab, group }) : t('commandCatalog.ribbonTab', { tab });
+      add({ cmd: c.cmd, arg: c.arg, label: c.label, labelSource: c.labelSource, icon: c.glyph, where, rank: 1 });
     }
   }
-  return [...out.values()].map(({ places, rank, ...entry }) => ({ ...entry, where: places.join(' · ') }))
-    .sort((a, b) => a.label.localeCompare(b.label) || a.id.localeCompare(b.id));
+  return [...out.values()].map(({ places, rank, english, ...entry }) => ({ ...entry, ...(english ? { english } : {}), where: places.join(' · ') }))
+    .sort((a, b) => compareText(a.label, b.label) || a.id.localeCompare(b.id));
 }
 
-/** Find commands by name, place or shortcut; every word of the query must match. */
+/**
+ * Find commands by name, place or shortcut; every word of the query must match. A name is matched as
+ * shown (a part of it: Chinese puts no space between words) and in English, where the entry knows it.
+ */
 export function searchCatalog(catalog, query) {
   const words = String(query || '').toLowerCase().split(/\s+/).filter(Boolean);
   if (!words.length) return catalog;
   return catalog.filter((entry) => {
-    const text = `${entry.label} ${entry.where} ${entry.shortcut || ''}`.toLowerCase();
+    const text = `${entry.label} ${entry.english ? `${entry.english} ` : ''}${entry.where} ${entry.shortcut || ''}`.toLowerCase();
     return words.every((w) => text.includes(w));
   });
 }
