@@ -386,6 +386,8 @@ export class AssistantPanel {
   private async run(request: string, go: (on: Parameters<Agent['send']>[1]) => Promise<ExchangeResult>) {
     const store = this.app.store;
     const mark = store.undoMark;
+    // Only the latest reply can be asked again: a later message has moved the conversation on.
+    for (const b of this.log.querySelectorAll('.as-retry')) b.remove();
     const turn = this.newTurn();
     this.turn = turn;
     this.setBusy(true);
@@ -435,7 +437,7 @@ export class AssistantPanel {
     const after = store.undoMark;
     if (res.stopped) turn.foot.append(h('span', { class: 'as-meta' }, 'Stopped.'));
     if (res.error) {
-      const retry = h('button', { class: 'btn small', type: 'button' }, 'Try again');
+      const retry = h('button', { class: 'btn small as-retry', type: 'button' }, 'Try again');
       retry.addEventListener('click', () => {
         if (this.agent.busy) return;
         turn.foot.replaceChildren();

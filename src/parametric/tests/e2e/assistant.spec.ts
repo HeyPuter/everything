@@ -170,3 +170,30 @@ test('the assistant starts open without taking focus, and the tab closes it', as
   await page.locator('.tp-strip [data-pane="assistant"]').click();
   await expect(box).toBeHidden();
 });
+
+test('a failed reply can be tried again until a later message moves the conversation on', async ({ page }) => {
+  await page.addInitScript(() => {
+    const w = window as unknown as { __roles: string[][]; __assistantChat: unknown };
+    w.__roles = [];
+    let n = 0;
+    w.__assistantChat = async function* (messages: { role: string }[]) {
+      w.__roles.push(messages.map((m) => m.role));
+      if (n++ === 0) throw new Error('Too many requests');
+      yield { type: 'text', text: `Answer ${n}` };
+    };
+  });
+  await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  const box = page.getByRole('textbox', { name: 'Message the assistant' });
+  await box.fill('first');
+  await box.press('Enter');
+  await expect(page.getByRole('alert')).toContainText('Too many requests');
+  await expect(page.getByRole('button', { name: 'Try again' })).toBeVisible();
+  await box.fill('second');
+  await box.press('Enter');
+  await expect(page.getByText('Answer 2')).toBeVisible();
+  // Asking the first message again would send a conversation that ends with the assistant's reply.
+  await expect(page.getByRole('button', { name: 'Try again' })).toHaveCount(0);
+  const roles = await page.evaluate(() => (window as unknown as { __roles: string[][] }).__roles);
+  expect(roles.map((r) => r.at(-1))).toEqual(['user', 'user']);
+});
