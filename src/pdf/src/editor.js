@@ -8607,7 +8607,7 @@ export function createEditor({
   /** Remove hidden information, choosing which kinds. */
   async function sanitizeDialog() {
     requireAccess('edit');
-    const { sanitizeDocument, SANITIZE_DEFAULTS } = await loadSanitize();
+    const { sanitizeDocument, sanitizedCount, SANITIZE_DEFAULTS } = await loadSanitize();
     const LABELS = {
       metadata: 'Document metadata (author, title, XMP)',
       privateData: 'Private data of other applications',
@@ -8636,10 +8636,32 @@ export function createEditor({
     }));
     const apply = safe(async () => {
       const options = Object.fromEntries(boxes.map((entry) => [entry.key, entry.box.checked]));
-      await mutateDialog(
+      let report = null;
+      const committed = await mutateDialog(
         d,
-        (doc) => sanitizeDocument(doc, options),
-        'Hidden information removed. Save or download to keep the cleaned file.',
+        async (doc) => {
+          report = await sanitizeDocument(doc, options);
+          // Nothing found leaves the file as it was: no undo step, no unsaved changes.
+          if (!sanitizedCount(report)) return false;
+        },
+        null,
+      );
+      if (!report || destroyed || (!committed && sanitizedCount(report))) return;
+      const summary = committed
+        ? 'Hidden information removed. Save or download to keep the cleaned file.'
+        : 'No hidden information of the chosen kinds was found.';
+      if (!report.warnings.length) return toast(summary);
+      // Content that could not be examined may still hide what was asked to go.
+      const notice = modal(
+        'Check the cleaned PDF',
+        el(
+          'div',
+          { class: 'stack' },
+          el('p', {}, summary),
+          el('p', {}, 'Not everything could be examined. Check these before you share the file:'),
+          el('ul', {}, ...[...new Set(report.warnings)].map((warning) => el('li', {}, warning))),
+        ),
+        [button('OK', null, () => notice.close(), 'btn primary')],
       );
     });
     const d = modal(

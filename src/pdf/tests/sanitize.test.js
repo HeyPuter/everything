@@ -13,7 +13,7 @@ import {
 } from 'pdf-lib';
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { PdfSession } from '../src/core/document.js';
-import { SANITIZE_DEFAULTS, sanitizeDocument } from '../src/core/sanitize.js';
+import { SANITIZE_DEFAULTS, sanitizeDocument, sanitizedCount } from '../src/core/sanitize.js';
 
 const n = PDFName.of;
 const tasks = [];
@@ -371,6 +371,35 @@ describe('sanitizeDocument', () => {
     const { bytes, report } = await sanitize(await doc.save());
     expect(report.attachments).toBe(1);
     expect(await recoverable(bytes)).not.toContain('EMBEDDEDCLIP');
+  });
+
+  it('counts a script removed from a rendition action, so the removal is kept', async () => {
+    const doc = await PDFDocument.create();
+    const page = doc.addPage([400, 400]);
+    const play = doc.context.obj({
+      S: 'Rendition',
+      OP: 0,
+      JS: PDFString.of('app.alert("RENDITIONSCRIPT")'),
+    });
+    const link = doc.context.obj({
+      Type: 'Annot',
+      Subtype: 'Screen',
+      Rect: [0, 0, 100, 100],
+      A: play,
+    });
+    page.node.set(n('Annots'), doc.context.obj([doc.context.register(link)]));
+    const off = Object.fromEntries(Object.keys(SANITIZE_DEFAULTS).map((key) => [key, false]));
+    const { bytes, report } = await sanitize(await doc.save(), { ...off, javascript: true });
+    expect(sanitizedCount(report)).toBe(1);
+    expect(await recoverable(bytes)).not.toContain('RENDITIONSCRIPT');
+  });
+
+  it('counts nothing when the chosen kinds are absent', async () => {
+    const doc = await PDFDocument.create();
+    doc.addPage([400, 400]);
+    const off = Object.fromEntries(Object.keys(SANITIZE_DEFAULTS).map((key) => [key, false]));
+    const report = await sanitizeDocument(doc, { ...off, javascript: true, attachments: true });
+    expect(sanitizedCount(report)).toBe(0);
   });
 
   it('has Acrobat-like defaults', () => {

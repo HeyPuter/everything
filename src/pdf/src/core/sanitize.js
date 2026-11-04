@@ -322,6 +322,13 @@ function countFields(doc, fields) {
   return count;
 }
 
+/** How many things a sanitize report says were removed, warnings aside. */
+export const sanitizedCount = (report) =>
+  Object.entries(report).reduce(
+    (sum, [key, value]) => (key === 'warnings' ? sum : sum + (Number(value) || 0)),
+    0,
+  );
+
 export async function sanitizeDocument(doc, options = {}) {
   const o = { ...SANITIZE_DEFAULTS, ...options };
   const context = doc.context;
@@ -460,7 +467,10 @@ export async function sanitizeDocument(doc, options = {}) {
     if (o.javascript && kind === 'JavaScript') return true;
     if (o.actions && EXTERNAL_ACTIONS.has(kind)) return true;
     // A rendition action's script runs alongside its rendition.
-    if (o.javascript && kind === 'Rendition' && action.has(name('JS'))) action.delete(name('JS'));
+    if (o.javascript && kind === 'Rendition' && action.has(name('JS'))) {
+      action.delete(name('JS'));
+      jsCounter.count++;
+    }
     return false;
   };
   const jsCounter = { count: 0 },
