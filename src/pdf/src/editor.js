@@ -6458,10 +6458,12 @@ export function createEditor({
     if (!canOpenDialog(request.version)) return;
     const next = await protectDialog(protection, dialogOptions);
     if (next === undefined || destroyed) return;
-    setProtection(next);
+    await setProtection(next);
   }
-  function setProtection(next) {
+  async function setProtection(next) {
     requireAccess('owner');
+    // Adding, changing, or removing a password rewrites the whole file, as an edit does.
+    if (!(await confirmSignedEdit()) || destroyed) return;
     protection = next;
     protectionDirty = true;
     updateStatus();
@@ -7259,7 +7261,7 @@ export function createEditor({
                 disabled: busy,
                 onSelect: () =>
                   safe(async () => {
-                    if (access().owner || (await unlockOwner())) setProtection(null);
+                    if (access().owner || (await unlockOwner())) await setProtection(null);
                   })(),
               },
             ],
@@ -7667,7 +7669,7 @@ export function createEditor({
         icon: 'LockOpen',
         disabled: busy,
         onSelect: safe(async () => {
-          if (access().owner || (await unlockOwner())) setProtection(null);
+          if (access().owner || (await unlockOwner())) await setProtection(null);
         }),
       },
       { separator: true },

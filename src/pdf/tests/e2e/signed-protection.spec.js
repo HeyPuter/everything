@@ -1,0 +1,65 @@
+import { test, expect } from '@playwright/test';
+import { PDFDocument } from 'pdf-lib';
+import { readFile } from 'node:fs/promises';
+import { createSelfSignedId, signPdf, verifySignatures } from '../../src/core/digital-signature.js';
+
+const PUTER_MOCK = `window.puter = { env: 'web', auth: { isSignedIn: () => true, getUser: async () => ({username:'test-user'}), signIn: async () => {}, signOut: async () => {} }, fs: { readdir: async () => [], write: async () => ({}) }, ui: { onLaunchedWithItems: () => {}, onItemsOpened: () => {} } };`;
+async function openSigned(page) {
+  await page.route('https://js.puter.com/**', (route) =>
+    route.fulfill({ contentType: 'application/javascript', body: PUTER_MOCK }),
+  );
+  await page.goto('/#library');
+  const doc = await PDFDocument.create();
+  doc.addPage([300, 300]).drawText('Contract', { x: 30, y: 200, size: 18 });
+  const id = await createSelfSignedId({ name: 'Ada Lovelace' });
+  const signed = await signPdf(await doc.save(), id, { reason: 'Approved' });
+  const chooser = page.waitForEvent('filechooser');
+  await page.getByRole('button', { name: /Open a PDF/ }).click();
+  await (
+    await chooser
+  ).setFiles({ name: 'signed.pdf', mimeType: 'application/pdf', buffer: Buffer.from(signed) });
+  await expect(page.locator('.page-caption')).toHaveText('Page 1 of 1');
+  await expect(page.locator('.signature-bar')).toContainText('Signed');
+}
+async function protect(page) {
+  await page
+    .getByRole('menubar', { name: 'PDF menus' })
+    .getByRole('menuitem', { name: 'File' })
+    .click();
+  await page.getByRole('menu').getByRole('menuitem', { name: 'Protect with password…' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Protect with password' });
+  await dialog.getByLabel('Password to open').fill('user');
+  await dialog.getByLabel('Confirm password').fill('user');
+  await dialog.getByRole('button', { name: 'Protect', exact: true }).click();
+  await expect(dialog).toBeHidden();
+}
+
+test.skip(({ isMobile }) => isMobile, 'desktop menus');
+
+test('protecting a signed PDF asks first, since encrypting invalidates its signature', async ({
+  page,
+}) => {
+  await openSigned(page);
+  await protect(page);
+  // Encrypting rewrites every string and stream the signature covers.
+  const warning = page.getByRole('dialog', { name: 'Edit a signed PDF?' });
+  await expect(warning).toBeVisible();
+  await warning.getByRole('button', { name: 'Cancel' }).click();
+  await expect(warning).toBeHidden();
+  await expect(page.getByRole('button', { name: 'Protected', exact: true })).toHaveCount(0);
+  const pending = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Download', exact: true }).click();
+  const kept = new Uint8Array(await readFile(await (await pending).path()));
+  expect((await verifySignatures(kept)).map((report) => report.byteRange && report.status)).toEqual(
+    ['valid-unknown-identity'],
+  );
+
+  await protect(page);
+  await page
+    .getByRole('dialog', { name: 'Edit a signed PDF?' })
+    .getByRole('button', { name: 'Edit anyway' })
+    .click();
+  await expect(page.locator('#toast')).toHaveText(
+    'The password is applied when you download or save.',
+  );
+});
