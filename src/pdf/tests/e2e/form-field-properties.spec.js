@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { PDFDocument, PDFName, PDFString, degrees } from 'pdf-lib';
+import { PDFDocument, PDFName, PDFString, StandardFonts, degrees } from 'pdf-lib';
 import { readFile } from 'node:fs/promises';
 
 const PUTER_MOCK = `window.puter = { env: 'web', auth: { isSignedIn: () => true, getUser: async () => ({username:'test-user'}), signIn: async () => {}, signOut: async () => {} }, fs: { readdir: async () => [], write: async () => ({}) }, ui: { onLaunchedWithItems: () => {}, onItemsOpened: () => {} } };`;
@@ -343,4 +343,27 @@ test('a field dragged or nudged past the edge stops at the edge of the page', as
   const nudged = saved.acroField.getWidgets()[0].getRectangle();
   expect(nudged.x).toBeCloseTo(rect.x, 1);
   expect(nudged.y).toBeCloseTo(rect.y, 1);
+});
+
+test('asking to detect fields again while they are found opens one list', async ({ page }) => {
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  for (let i = 0; i < 300; i++) {
+    const sheet = doc.addPage([600, 800]);
+    for (let row = 0; row < 10; row++)
+      sheet.drawText(`Item ${row}: ____________`, { x: 40, y: 700 - row * 40, size: 12, font });
+  }
+  await openPdf(page, doc);
+  await prepareForm(page);
+  await settled(page);
+  // The second request comes while the pages of the first are still being read.
+  await page.evaluate(async () => {
+    const detect = document.querySelector('[aria-label="Detect form fields…"]');
+    detect.click();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    detect.click();
+  });
+  await expect(page.getByRole('dialog', { name: 'Fields found' })).toBeVisible();
+  await page.waitForTimeout(2000);
+  await expect(page.locator('dialog[open]')).toHaveCount(1);
 });

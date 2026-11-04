@@ -10333,17 +10333,21 @@ export function createEditor({
     nameInput.select();
   }
   /** Find fields on a flat form and create the chosen ones, as automatic detection does. */
-  async function detectFieldsDialog() {
+  async function detectFieldsDialog(version = dialogVersion()) {
     requireAccess('edit');
     const { addFormField, detectFormFields } = await loadForms();
+    // A newer request, another dialog, or an edit meanwhile makes these findings stale.
+    const revision = session.revision;
+    const current = () => canOpenDialog(version) && session.revision === revision;
     const doc = await PDFDocument.load(session.bytes, { updateMetadata: false });
     const found = [];
     for (let page = 0; page < doc.getPageCount(); page++) {
+      if (!current()) return;
       const textContent = await (await pdf.getPage(page + 1)).getTextContent();
       for (const candidate of detectFormFields(doc, page, { textContent }))
         found.push({ page, ...candidate });
     }
-    if (destroyed) return;
+    if (!current()) return;
     if (!found.length) {
       toast('No new form fields were found. Add fields with the field tools instead.');
       return;
