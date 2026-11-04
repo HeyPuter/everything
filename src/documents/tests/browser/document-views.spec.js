@@ -328,6 +328,29 @@ test('zoom: dialog presets, many pages, text width and Ctrl + wheel', async ({ p
   await expect(slider).toHaveValue(now);
 });
 
+test('clearing the Zoom dialog\'s percent to type another leaves the zoom alone until a number is there', async ({ page }) => {
+  await page.goto('/playground.html');
+  await page.getByRole('button', { name: 'Across pages', exact: true }).click();
+  await expect(page.getByRole('textbox', { name: 'Document text' })).toHaveValue(/Every page/);
+  const slider = page.getByRole('slider', { name: 'Zoom slider' });
+  await (await viewTab(page)).getByRole('button', { name: 'Zoom', exact: true }).click();
+  const dialog = page.locator('.modal-root:not(.closing)').getByRole('dialog', { name: 'Zoom' });
+  const percent = dialog.getByRole('spinbutton', { name: 'Percent' });
+  await expect(percent).toBeFocused();
+  await page.keyboard.press('Backspace');
+  await expect(percent).toHaveValue('');
+  await expect(slider).toHaveValue('100');
+  // OK with nothing there asks for a number rather than zooming to the smallest size.
+  await page.keyboard.press('Enter');
+  await expect(dialog).toBeVisible();
+  await expect(slider).toHaveValue('100');
+  await page.keyboard.type('150');
+  await expect(slider).toHaveValue('150');
+  await page.keyboard.press('Enter');
+  await expect(dialog).toBeHidden();
+  await expect(slider).toHaveValue('150');
+});
+
 test('the Zoom dialog\'s Many pages grid is one Tab stop that the arrow keys move over', async ({ page }) => {
   await page.goto('/playground.html');
   await page.getByRole('button', { name: 'Across pages', exact: true }).click();

@@ -307,8 +307,9 @@ export function createDocumentViews({ editor, pkg, host, surface, root, error, c
     // Page width that follows the window is restored as that, not as the scale it worked out to.
     const start = engine.zoom, startSetting = w.zoomSetting?.() ?? start, startMulti = engine.pages.classList.contains('is-multipage');
     let choice = null, modal = null, many = [2, 1];
-    const percent = el('input.input', { type: 'number', min: 10, max: 200, step: 1, value: Math.round(start * 100), 'aria-label': 'Percent' });
-    const preview = () => { if (!percent.checkValidity()) return; apply(Number(percent.value) / 100, true); };
+    const percent = el('input.input', { type: 'number', min: 10, max: 200, step: 1, required: true, value: Math.round(start * 100), 'aria-label': 'Percent' });
+    // A field cleared to type another number is not a zoom of 0: it previews nothing until a number is there.
+    const preview = () => { if (percent.value === '' || !percent.checkValidity()) return; apply(Number(percent.value) / 100, true); };
     percent.addEventListener('input', () => { choice = null; for (const r of radios) r.checked = false; preview(); });
     const option = (label, value) => {
       const input = el('input', { type: 'radio', name: 'zoom-choice', value: String(value), onchange: () => { choice = value; if (typeof value === 'number') percent.value = String(Math.round(value * 100)); apply(value, true); } });

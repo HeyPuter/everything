@@ -253,7 +253,7 @@ export function createWordCommands({ editor, pkg, error, zoomControl, fitWidth, 
     },
     zoomDialog() {
       const engine = editor(); if (!engine) return;
-      const percent = el('input.input', { type: 'number', min: 10, max: 200, step: 1, value: Math.round(engine.zoom * 100), 'aria-label': 'Percent' });
+      const percent = el('input.input', { type: 'number', min: 10, max: 200, step: 1, required: true, value: Math.round(engine.zoom * 100), 'aria-label': 'Percent' });
       let modal;
       const apply = value => { modal.close(); if (value === 'fit' || value === 'page') commands.zoomTo(value === 'fit' ? 'width' : 'page'); else commands.setZoom(value); };
       const preset = (label, value) => el('button.btn.btn-outline', { type: 'button', onclick: () => apply(value) }, label);
