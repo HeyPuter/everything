@@ -1,0 +1,22 @@
+{
+  "applyEdit": "Apply edit",
+  "applyEditTitle": "Apply edit and keep selection",
+  "cancelEdit": "Cancel edit",
+  "cancelEditTitle": "Cancel edit (Esc)",
+  "cellReference": "Cell reference",
+  "collapse": "Collapse the formula bar",
+  "expand": "Expand the formula bar",
+  "formulaBar": "Formula bar",
+  "formulaOrValue": "Formula or value",
+  "goToCell": "Go to cell or range",
+  "insertFunction": "Insert function",
+  "linkedPicture": "Linked picture",
+  "manageNamedRanges": "Manage named ranges…",
+  "nameDefined": "Named range {name} defined",
+  "namedRanges": "Named ranges",
+  "noNamedRanges": "No named ranges yet. Type a name in the box to name the selection.",
+  "notFound": "{name} could not be found",
+  "pendingEdit": "Pending edit",
+  "selectOneRange": "Select one range to name it",
+  "tables": "Tables"
+}

@@ -1,0 +1,15 @@
+{
+  "cell": "Cell",
+  "cellLabel": "{sheet} {address}",
+  "enterTerm": "Enter a search term",
+  "findResults": "Find results",
+  "formula": "Formula",
+  "matchingCells": "Matching cells",
+  "next": "Next",
+  "nextPage": "Next results page",
+  "noMatches": "No matches",
+  "previous": "Previous",
+  "previousPage": "Previous results page",
+  "sheet": "Sheet",
+  "summary": "{first}–{last} of {total} results"
+}

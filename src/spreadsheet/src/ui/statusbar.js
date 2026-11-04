@@ -14,8 +14,9 @@ import { selectionName } from '../core/refs.js';
 import { formatGeneral, formatValue, errorHelp } from '../core/format.js';
 import { isError } from '../core/formula/functions.js';
 import { meanFromSum, sumFromTotal } from '../core/numeric.js';
-import { checkAccessibility, accessibilityStatus } from '../core/accessibility-check.js';
+import { checkAccessibility } from '../core/accessibility-check.js';
 import { pageLayoutMetrics, pageNumber } from './page-layout.js';
+import { t, tRich } from '../i18n/index.js';
 
 // The most cells one summary reads: the stored cells (and spilled values) inside the selection, never
 // its area, so a whole column or the whole sheet costs what the sheet holds. Two hundred thousand
@@ -157,9 +158,10 @@ export function summarizeAll(wb, sheetId, ranges) {
 
 /** What the status bar shows, as chosen from its right-click menu (Customize Status Bar). */
 const PREFS_KEY = 'spreadsheet:status-bar';
+// Each item: its id (the key it is remembered by), the catalog key of its label, and whether it is on by default.
 export const STATUS_OPTIONS = [
-  ['mode', 'Cell Mode', true], ['a11y', 'Accessibility Checker', true], ['address', 'Selection Address', false], ['size', 'Sheet Size', false], ['avg', 'Average', true], ['count', 'Count', true], ['numCount', 'Numerical Count', false],
-  ['min', 'Minimum', false], ['max', 'Maximum', false], ['sum', 'Sum', true], ['views', 'View Shortcuts', true], ['zoomSlider', 'Zoom Slider', true], ['zoom', 'Zoom', true],
+  ['mode', 'statusbar.option.cellMode', true], ['a11y', 'statusbar.option.accessibilityChecker', true], ['address', 'statusbar.option.selectionAddress', false], ['size', 'statusbar.option.sheetSize', false], ['avg', 'statusbar.option.average', true], ['count', 'statusbar.option.count', true], ['numCount', 'statusbar.option.numericalCount', false],
+  ['min', 'statusbar.option.minimum', false], ['max', 'statusbar.option.maximum', false], ['sum', 'statusbar.option.sum', true], ['views', 'statusbar.option.viewShortcuts', true], ['zoomSlider', 'statusbar.option.zoomSlider', true], ['zoom', 'statusbar.option.zoom', true],
 ];
 function loadStatusPrefs() {
   const prefs = Object.fromEntries(STATUS_OPTIONS.map(([key, , on]) => [key, on]));
@@ -170,20 +172,26 @@ function loadStatusPrefs() {
   return prefs;
 }
 
-/** The cell mode: Ready, Enter (typing over a cell), Edit (F2 or double-click) or Point (picking a reference). */
+/** The cell mode: Ready, Enter (typing over a cell), Edit (F2 or double-click) or Point (picking a reference). An id; cellModeLabel names it. */
 export function cellMode(editState) {
   if (!editState) return 'Ready';
   if (editState.refInsert && String(editState.text || '').startsWith('=')) return 'Point';
   return editState.mode === 'type' ? 'Enter' : 'Edit';
 }
 
+const CELL_MODE_LABELS = { Ready: 'statusbar.mode.ready', Point: 'statusbar.mode.point', Enter: 'statusbar.mode.enter', Edit: 'statusbar.mode.edit' };
+/** The cell mode as the bar shows it, in the interface language. */
+export const cellModeLabel = (mode) => t(CELL_MODE_LABELS[mode] || CELL_MODE_LABELS.Ready);
+
+const KEY_MODE_LABELS = { end: 'statusbar.keyMode.end', extend: 'statusbar.keyMode.extend', add: 'statusbar.keyMode.add' };
+
 export function createStatusBar(ctx) {
   const prefs = loadStatusPrefs();
-  const modeEl = el('span.status-item.status-mode', { title: 'Cell mode' }, 'Ready');
+  const modeEl = el('span.status-item.status-mode', { title: t('statusbar.cellModeTitle') }, cellModeLabel('Ready'));
   // End Mode, Extend Selection (F8) and Add to Selection (Shift+F8), shown while they are on.
   const keyModeEl = el('span.status-item.status-key-mode', { hidden: true });
   // Under manual calculation, "Calculate" says results are waiting for F9.
-  const calcEl = el('button.status-item.status-calc', { type: 'button', hidden: true, title: 'Calculate now (F9)', onclick: () => ctx.run?.('recalc') }, 'Calculate');
+  const calcEl = el('button.status-item.status-calc', { type: 'button', hidden: true, title: t('statusbar.calculateNowTitle'), onclick: () => ctx.run?.('recalc') }, t('statusbar.calculate'));
   // In Page Layout view, "Page: 2 of 5": the printed page the active cell is on.
   const pageEl = el('span.status-item.status-page', { hidden: true });
   let pageCache = null; // { key, metrics }: the page layout is measured once per workbook version and sheet
@@ -201,22 +209,25 @@ export function createStatusBar(ctx) {
     // it read "Page: 0" or less, or the number of another page. The bar names no page for it.
     if (across < m.printed.a0 || down < m.printed.d0) { pageEl.hidden = true; return; }
     const { number, pages } = pageNumber(m, across, down);
-    pageEl.textContent = `Page: ${number} of ${pages}`;
+    pageEl.textContent = t('statusbar.page', { number, pages });
     pageEl.hidden = false;
   };
   // The accessibility checker, kept running while the workbook changes: "No issues" or "Review suggested".
-  const a11yEl = el('button.status-item.status-a11y', { type: 'button', title: 'Check Accessibility', onclick: () => ctx.run?.('accessibility') },
-    el('span.status-a11y-icon', { html: icon('accessibility', 15) }), el('span.status-a11y-text', {}, 'Accessibility: No issues'));
+  const a11yEl = el('button.status-item.status-a11y', { type: 'button', title: t('statusbar.checkAccessibility'), onclick: () => ctx.run?.('accessibility') },
+    el('span.status-a11y-icon', { html: icon('accessibility', 15) }), el('span.status-a11y-text', {}, t('statusbar.a11y.noIssuesStatus')));
   let a11yVersion = -1, a11yTimer = null;
+  let a11yInvestigate = false; // the checker found something to review (not only tips)
   const refreshAccessibility = () => {
     if (!prefs.a11y || ctx.wb.version === a11yVersion) return;
     clearTimeout(a11yTimer);
     // Inspecting reads every styled cell, so it waits for a pause in editing.
     a11yTimer = setTimeout(() => {
       a11yVersion = ctx.wb.version;
-      const status = accessibilityStatus(checkAccessibility(ctx.wb));
-      a11yEl.querySelector('.status-a11y-text').textContent = `Accessibility: ${status}`;
-      const investigate = status !== 'No issues';
+      // "Review suggested" when anything beyond a tip is found (accessibilityStatus), decided here from the
+      // findings rather than from that status's words, so the label can be drawn in the interface language.
+      const investigate = checkAccessibility(ctx.wb).some((f) => f.severity !== 'tip');
+      a11yInvestigate = investigate;
+      a11yEl.querySelector('.status-a11y-text').textContent = t(investigate ? 'statusbar.a11y.reviewStatus' : 'statusbar.a11y.noIssuesStatus');
       if (investigate !== a11yEl.classList.contains('investigate')) a11yEl.querySelector('.status-a11y-icon').innerHTML = icon(investigate ? 'accessibilityReview' : 'accessibility', 15);
       a11yEl.classList.toggle('investigate', investigate);
     }, a11yVersion < 0 ? 0 : 400);
@@ -225,34 +236,34 @@ export function createStatusBar(ctx) {
   const right = el('div.status-right');
   const ZOOMS = [0.1, 0.25, 0.5, 0.75, 0.9, 1, 1.25, 1.5, 2, 3, 4];
   const zoomLabel = el('button.zoom-label', {
-    type: 'button', title: 'Zoom', 'aria-label': 'Zoom level', 'aria-haspopup': 'menu',
+    type: 'button', title: t('statusbar.zoom'), 'aria-label': t('statusbar.zoomLevel'), 'aria-haspopup': 'menu',
     onclick: (e) => {
       const sheet = ctx.wb.sheet(ctx.sheetId());
       const current = Math.round(ctx.grid.zoom * 100) / 100;
       const levels = ZOOMS.includes(current) ? ZOOMS : [...ZOOMS, current].sort((a, b) => a - b);
       openMenu({
-        anchor: e.currentTarget, align: 'end', label: 'Zoom', minWidth: 120, focusChecked: true,
+        anchor: e.currentTarget, align: 'end', label: t('statusbar.zoom'), minWidth: 120, focusChecked: true,
         items: [
           ...(sheet?.kind === 'chart' ? [
-            { label: 'Fit chart to window', checked: !!sheet.zoomToFit, radio: true, onSelect: () => ctx.run('zoomFit') },
+            { label: t('statusbar.fitChartToWindow'), checked: !!sheet.zoomToFit, radio: true, onSelect: () => ctx.run('zoomFit') },
             { separator: true },
           ] : []),
           // One zoom level of several is a radio item, not a checkbox.
           ...levels.map((z) => ({ label: `${Math.round(z * 100)}%`, checked: !sheet?.zoomToFit && current === z, radio: true, onSelect: () => ctx.run('zoomTo', z) })),
           { separator: true },
-          { label: 'Custom zoom…', icon: 'zoomIn', onSelect: () => ctx.run('zoomCustom') },
-          { label: 'Reset to 100%', icon: 'reset', onSelect: () => ctx.run('zoom', 'reset') },
+          { label: t('statusbar.customZoom'), icon: 'zoomIn', onSelect: () => ctx.run('zoomCustom') },
+          { label: t('statusbar.resetZoom'), icon: 'reset', onSelect: () => ctx.run('zoom', 'reset') },
         ],
         // After a choice the sheet takes focus back; after Escape or Tab the menu has put it on this button, and it stays there.
         onClose: (reason) => { if (reason === 'select') ctx.grid.focus(); },
       });
     },
   }, '100%');
-  const zoomOut = el('button.zoom-btn', { type: 'button', 'aria-label': 'Zoom out', title: 'Zoom out', html: icon('minus', 14, 1.6), onclick: () => { if (zoomOut.getAttribute('aria-disabled') !== 'true') ctx.run('zoom', -0.1); } });
-  const zoomIn = el('button.zoom-btn', { type: 'button', 'aria-label': 'Zoom in', title: 'Zoom in', html: icon('plus', 14, 1.6), onclick: () => { if (zoomIn.getAttribute('aria-disabled') !== 'true') ctx.run('zoom', 0.1); } });
+  const zoomOut = el('button.zoom-btn', { type: 'button', 'aria-label': t('statusbar.zoomOut'), title: t('statusbar.zoomOut'), html: icon('minus', 14, 1.6), onclick: () => { if (zoomOut.getAttribute('aria-disabled') !== 'true') ctx.run('zoom', -0.1); } });
+  const zoomIn = el('button.zoom-btn', { type: 'button', 'aria-label': t('statusbar.zoomIn'), title: t('statusbar.zoomIn'), html: icon('plus', 14, 1.6), onclick: () => { if (zoomIn.getAttribute('aria-disabled') !== 'true') ctx.run('zoom', 0.1); } });
   const zoomSlider = el('input.zoom-slider', {
     type: 'range', min: 10, max: 400, step: 1, value: 100,
-    'aria-label': 'Worksheet zoom', title: 'Zoom: 10% to 400%',
+    'aria-label': t('statusbar.worksheetZoom'), title: t('statusbar.zoomRange'),
     oninput: () => {
       const focused = document.activeElement === zoomSlider;
       ctx.run('zoomTo', Number(zoomSlider.value) / 100);
@@ -261,14 +272,14 @@ export function createStatusBar(ctx) {
       if (focused) zoomSlider.focus({ preventScroll: true });
     },
   });
-  const zoomBox = el('div.zoom-box', { role: 'group', 'aria-label': 'Zoom' }, zoomOut, zoomSlider, zoomIn, zoomLabel);
+  const zoomBox = el('div.zoom-box', { role: 'group', 'aria-label': t('statusbar.zoom') }, zoomOut, zoomSlider, zoomIn, zoomLabel);
   // Normal, Page Layout and Page Break Preview switch the sheet's view, in that order.
   const viewButton = (label, glyph, mode) => el('button.zoom-btn.status-view', {
     type: 'button', 'aria-label': label, title: label, html: icon(glyph, 15, 1.8),
     'aria-pressed': 'false', dataset: { mode }, onclick: () => ctx.run?.('viewMode', mode),
   });
-  const views = el('div.status-views', { role: 'group', 'aria-label': 'Workbook views' },
-    viewButton('Normal', 'normalView', 'normal'), viewButton('Page Layout', 'pageLayout', 'pageLayout'), viewButton('Page Break Preview', 'pageBreak', 'pageBreak'));
+  const views = el('div.status-views', { role: 'group', 'aria-label': t('statusbar.workbookViews') },
+    viewButton(t('statusbar.view.normal'), 'normalView', 'normal'), viewButton(t('statusbar.view.pageLayout'), 'pageLayout', 'pageLayout'), viewButton(t('statusbar.view.pageBreakPreview'), 'pageBreak', 'pageBreak'));
   const live = el('div.visually-hidden', { 'aria-live': 'polite', 'aria-atomic': 'true' });
   const root = el('div.status-bar', {}, el('div.status-left-wrap', {}, modeEl, pageEl, keyModeEl, calcEl, a11yEl, left), el('div.status-right-wrap', {}, right, views, zoomBox), live);
   function applyVisibility() {
@@ -287,9 +298,9 @@ export function createStatusBar(ctx) {
     e.preventDefault();
     const values = currentValues();
     openMenu({
-      x: e.clientX, y: e.clientY, label: 'Customize Status Bar', minWidth: 260,
-      items: [{ header: 'Customize Status Bar' }, ...STATUS_OPTIONS.map(([key, label]) => ({
-        label, checked: !!prefs[key], keepOpen: true, detail: values[key] ?? '', onSelect: () => {
+      x: e.clientX, y: e.clientY, label: t('statusbar.customize'), minWidth: 260,
+      items: [{ header: t('statusbar.customize') }, ...STATUS_OPTIONS.map(([key, label]) => ({
+        label: t(label), checked: !!prefs[key], keepOpen: true, detail: values[key] ?? '', onSelect: () => {
           prefs[key] = !prefs[key];
           try { localStorage.setItem(PREFS_KEY, JSON.stringify(prefs)); } catch { /* optional storage */ }
           applyVisibility(); refresh();
@@ -325,10 +336,10 @@ export function createStatusBar(ctx) {
     const sheet = ctx.wb.sheet(ctx.sheetId());
     const ranges = ctx.grid.ranges || [ctx.grid.range];
     const out = {
-      mode: cellMode(ctx.grid.editState),
-      a11y: a11yEl.querySelector('.status-a11y-text').textContent.replace(/^Accessibility: /, ''),
-      address: ranges.length === 1 ? (isSingle(ctx.grid.selection) ? cellName(ctx.grid.selection.active.r, ctx.grid.selection.active.c) : selectionName(ctx.grid.range)) : `${ranges.length} ranges`,
-      size: sheet && sheet.kind !== 'chart' ? `${sheet.rows.toLocaleString()} × ${sheet.cols.toLocaleString()}` : '',
+      mode: cellModeLabel(cellMode(ctx.grid.editState)),
+      a11y: t(a11yInvestigate ? 'statusbar.a11y.review' : 'statusbar.a11y.noIssues'),
+      address: ranges.length === 1 ? (isSingle(ctx.grid.selection) ? cellName(ctx.grid.selection.active.r, ctx.grid.selection.active.c) : selectionName(ctx.grid.range)) : t('statusbar.ranges', { count: ranges.length }),
+      size: sheet && sheet.kind !== 'chart' ? t('statusbar.sheetSizeValue', { rows: sheet.rows, cols: sheet.cols }) : '',
       zoom: `${Math.round(ctx.grid.zoom * 100)}%`,
     };
     const stats = selectionStats();
@@ -350,10 +361,10 @@ export function createStatusBar(ctx) {
   }
 
   function refresh() {
-    modeEl.textContent = cellMode(ctx.grid.editState);
+    modeEl.textContent = cellModeLabel(cellMode(ctx.grid.editState));
     refreshAccessibility();
     refreshPage();
-    const keyMode = { end: 'End Mode', extend: 'Extend Selection', add: 'Add to Selection' }[ctx.grid.keyMode] || '';
+    const keyMode = KEY_MODE_LABELS[ctx.grid.keyMode] ? t(KEY_MODE_LABELS[ctx.grid.keyMode]) : '';
     keyModeEl.textContent = keyMode;
     keyModeEl.hidden = !keyMode;
     calcEl.hidden = !(ctx.wb.calcMode === 'manual' && ctx.wb.calcPending);
@@ -362,14 +373,14 @@ export function createStatusBar(ctx) {
     zoomSlider.value = Math.round(ctx.grid.zoom * 100);
     zoomSlider.setAttribute('aria-valuetext', `${Math.round(ctx.grid.zoom * 100)}%`);
     zoomLabel.textContent = `${Math.round(ctx.grid.zoom * 100)}%`;
-    zoomLabel.setAttribute('aria-label', `Zoom level: ${zoomLabel.textContent}`); // the spoken name carries the shown value
+    zoomLabel.setAttribute('aria-label', t('statusbar.zoomLevelValue', { value: zoomLabel.textContent })); // the spoken name carries the shown value
     // Keep focus on the last-used control at a limit, while clearly exposing that it cannot step
     // farther. Fit mode may still be left by either control even when the stored scale is a limit.
     const fit = !!ctx.wb.sheet(ctx.sheetId())?.zoomToFit;
     zoomOut.setAttribute('aria-disabled', String(!fit && ctx.grid.zoom <= 0.1));
     zoomIn.setAttribute('aria-disabled', String(!fit && ctx.grid.zoom >= 4));
-    zoomOut.title = !fit && ctx.grid.zoom <= 0.1 ? 'Minimum zoom: 10%' : 'Zoom out';
-    zoomIn.title = !fit && ctx.grid.zoom >= 4 ? 'Maximum zoom: 400%' : 'Zoom in';
+    zoomOut.title = !fit && ctx.grid.zoom <= 0.1 ? t('statusbar.minimumZoom') : t('statusbar.zoomOut');
+    zoomIn.title = !fit && ctx.grid.zoom >= 4 ? t('statusbar.maximumZoom') : t('statusbar.zoomIn');
     const range = ctx.grid.range;
     const ranges = ctx.grid.ranges || [range];
     const sel = ctx.grid.selection;
@@ -377,8 +388,8 @@ export function createStatusBar(ctx) {
     if (!sheet) return;
     if (sheet.kind === 'chart') {
       left.replaceChildren(el('span.status-item', {}, sheet.name));
-      right.replaceChildren(el('span.status-item.muted', {}, 'Chart sheet'));
-      if (sheet.zoomToFit) { zoomLabel.textContent = 'Fit'; zoomLabel.setAttribute('aria-label', 'Zoom: fit chart to window'); }
+      right.replaceChildren(el('span.status-item.muted', {}, t('statusbar.chartSheet')));
+      if (sheet.zoomToFit) { zoomLabel.textContent = t('statusbar.fit'); zoomLabel.setAttribute('aria-label', t('statusbar.zoomFitLabel')); }
       return;
     }
     const filtered = sheet.filterHidden?.size || 0;
@@ -389,7 +400,7 @@ export function createStatusBar(ctx) {
       filterRows += Math.max(0, last - Math.max(end, range.r1));
       end = Math.max(end, last);
     }
-    const filterNote = filtered ? el('span.status-item.muted', {}, `${(filterRows - filtered).toLocaleString()} of ${filterRows.toLocaleString()} rows shown`) : null;
+    const filterNote = filtered ? el('span.status-item.muted', {}, t('statusbar.rowsShown', { shown: filterRows - filtered, total: filterRows })) : null;
     if (isSingle(sel) && ranges.length === 1) {
       const cell = ctx.activeCell();
       const value = ctx.wb.getValue(ctx.sheetId(), sel.active.r, sel.active.c);
@@ -398,30 +409,32 @@ export function createStatusBar(ctx) {
       const help = error ? (typeof value.message === 'string' && value.message) || ctx.wb.errorHelpAt(ctx.sheetId(), sel.active.r, sel.active.c) || errorHelp(error) : null;
       left.replaceChildren(...[
         el('span.status-item.status-address', {}, cellName(sel.active.r, sel.active.c)),
-        cell?.f != null && !error && el('span.status-item.muted', {}, 'Formula'),
-        ctx.wb.tableAt(ctx.sheetId(), sel.active.r, sel.active.c) && el('span.status-item.muted', { title: 'This cell is part of a table' }, ctx.wb.tableAt(ctx.sheetId(), sel.active.r, sel.active.c).name),
-        ctx.wb.protectedRangeAt(ctx.sheetId(), sel.active.r, sel.active.c) && el('span.status-item.muted', { title: ctx.wb.protectedRangeAt(ctx.sheetId(), sel.active.r, sel.active.c).description || 'Protected range' }, 'Protected'),
+        cell?.f != null && !error && el('span.status-item.muted', {}, t('statusbar.formula')),
+        ctx.wb.tableAt(ctx.sheetId(), sel.active.r, sel.active.c) && el('span.status-item.muted', { title: t('statusbar.partOfTable') }, ctx.wb.tableAt(ctx.sheetId(), sel.active.r, sel.active.c).name),
+        ctx.wb.protectedRangeAt(ctx.sheetId(), sel.active.r, sel.active.c) && el('span.status-item.muted', { title: ctx.wb.protectedRangeAt(ctx.sheetId(), sel.active.r, sel.active.c).description || t('statusbar.protectedRange') }, t('statusbar.protected')),
         error && el('span.status-item.status-error', { title: help }, help),
         filterNote,
       ].filter(Boolean));
-      right.replaceChildren(el('span.status-item.muted.status-size', {}, `${sheet.rows.toLocaleString()} rows, ${sheet.cols.toLocaleString()} columns`));
+      right.replaceChildren(el('span.status-item.muted.status-size', {}, t('statusbar.sheetSize', { rows: sheet.rows, cols: sheet.cols })));
       return;
     }
     // Whole columns read C:C and whole rows 3:5, as the Name Box reads them, rather than C1:C1048576.
-    const items = [el('span.status-item.status-address', {}, ranges.length === 1 ? selectionName(range) : ranges.length <= 3 ? ranges.map(selectionName).join(', ') : `${ranges.length} ranges`)];
+    const items = [el('span.status-item.status-address', {}, ranges.length === 1 ? selectionName(range) : ranges.length <= 3 ? ranges.map(selectionName).join(', ') : t('statusbar.ranges', { count: ranges.length }))];
     // The statistics stand at the right, in this order: Average, Count, Numerical Count, Minimum, Maximum, Sum.
     const stats = [];
-    const stat = (label, value, extra = '') => el(`span.status-item.status-stat${extra}`, {}, el('span.muted', {}, `${label}: `), value);
+    // Each statistic is one message, "<label>Average: </label>{value}", its label part muted.
+    const label = (text) => el('span.muted', {}, text);
+    const stat = (parts, extra = '') => el(`span.status-item.status-stat${extra}`, {}, ...parts);
     const summary = selectionStats();
     // A selection of empty cells shows no statistics at all, as in Excel, rather than "Count: 0".
     if (summary?.s.count) {
       const { s, fmt } = summary;
-      if (s.nums && prefs.avg) stats.push(stat('Average', fmt(s.avg)));
-      if (prefs.count) stats.push(stat('Count', String(s.count)));
-      if (prefs.numCount) stats.push(stat('Numerical Count', String(s.nums)));
-      if (s.nums > 1 && prefs.min) stats.push(stat('Minimum', fmt(s.min), '.status-extra'));
-      if (s.nums > 1 && prefs.max) stats.push(stat('Maximum', fmt(s.max), '.status-extra'));
-      if (s.nums && prefs.sum) stats.push(stat('Sum', fmt(s.sum)));
+      if (s.nums && prefs.avg) stats.push(stat(tRich('statusbar.stat.average', { label, value: fmt(s.avg) })));
+      if (prefs.count) stats.push(stat(tRich('statusbar.stat.count', { label, value: String(s.count) })));
+      if (prefs.numCount) stats.push(stat(tRich('statusbar.stat.numericalCount', { label, value: String(s.nums) })));
+      if (s.nums > 1 && prefs.min) stats.push(stat(tRich('statusbar.stat.minimum', { label, value: fmt(s.min) }), '.status-extra'));
+      if (s.nums > 1 && prefs.max) stats.push(stat(tRich('statusbar.stat.maximum', { label, value: fmt(s.max) }), '.status-extra'));
+      if (s.nums && prefs.sum) stats.push(stat(tRich('statusbar.stat.sum', { label, value: fmt(s.sum) })));
     }
     if (filterNote) items.push(filterNote);
     // Laid out from the Sum leftward (editor.css), so a narrow bar leaves out the first ones rather than cutting one off.
