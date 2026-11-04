@@ -612,7 +612,7 @@ export function contrastInk(hex) {
 export function formatBytes(bytes) {
   // An empty file reads as 0 KB; any other file rounds up to at least 1 KB.
   if (!bytes) return '0 KB';
-  return bytes < 1024 * 1024
-    ? `${Math.max(1, Math.round(bytes / 1024))} KB`
-    : `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  // A size that rounds to 1024 KB is a megabyte.
+  const kilobytes = Math.max(1, Math.round(bytes / 1024));
+  return kilobytes < 1024 ? `${kilobytes} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
