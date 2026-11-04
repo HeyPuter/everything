@@ -16,6 +16,7 @@ import { TABLE_STYLES } from './tables.js';
 import { formulaReachesOut } from './reaches-out.js';
 import { dataBounds } from './aiformula.js';
 import { heightForLines } from './textfit.js';
+import { t } from '../i18n/index.js';
 
 /** A request the workbook refused, with the script line that made it. */
 export class ScriptOpError extends Error {
@@ -146,7 +147,7 @@ export class ScriptHost {
       }
       if (Object.keys(patch).length) entries.push({ r, c, cell: { ...cell, v: cell?.v ?? null, f: cell?.f ?? null, s: { ...(cell?.s || {}), ...patch } } });
     }
-    if (entries.length) this.wb.setCells(sheet.id, entries, 'Borders');
+    if (entries.length) this.wb.setCells(sheet.id, entries, t('scriptHost.undo.borders'));
   }
 
   writable(sheet, range) {
@@ -169,7 +170,7 @@ export class ScriptHost {
         fn.call(this, op);
       }
     };
-    this.wb.transaction('Run script', () => (this.wb._withoutGroup ? this.wb._withoutGroup(writes) : writes()));
+    this.wb.transaction(t('scriptHost.undo.runScript'), () => (this.wb._withoutGroup ? this.wb._withoutGroup(writes) : writes()));
   }
 
   /** Answer one read; the answer is plain data. */
@@ -200,8 +201,8 @@ export class ScriptHost {
     const wb = this.wb;
     const id = ref?.token ? this.tableTokens.get(ref.token) : null;
     for (const sheet of wb.sheets) {
-      const t = sheet.tables.find((x) => (id ? x.id === id : x.name.toLowerCase() === String(ref?.name ?? '').toLowerCase()));
-      if (t) return { sheet, table: t };
+      const tb = sheet.tables.find((x) => (id ? x.id === id : x.name.toLowerCase() === String(ref?.name ?? '').toLowerCase()));
+      if (tb) return { sheet, table: tb };
     }
     return this.fail(`There is no table named "${ref?.name ?? ''}".`);
   }
@@ -269,7 +270,7 @@ const READS = {
   tables(op) {
     const back = new Map([...this.sheetTokens].map(([token, id]) => [id, token]));
     const sheets = op.sheet == null ? this.wb.sheets : [this.sheetOf(op.sheet, { grid: false })];
-    return sheets.flatMap((s) => s.tables.map((t) => ({ sheet: back.get(s.id) ?? s.id, name: t.name })));
+    return sheets.flatMap((s) => s.tables.map((tb) => ({ sheet: back.get(s.id) ?? s.id, name: tb.name })));
   },
   tableRange(op) {
     const { sheet, table } = this.tableOf(op.table);
@@ -348,19 +349,19 @@ const WRITES = {
         if (cell && (cell.v != null || cell.f != null)) this.wb.clearRange(sheet.id, { r1: r, c1: c, r2: r, c2: c }, { contents: true, styles: false });
       } else if (typeof value === 'number') {
         if (!Number.isFinite(value)) this.fail(`${cellName(r, c)}: ${value} is not a number a cell can hold.`);
-        this.wb.setInput(sheet.id, r, c, value, { literal: true, label: 'Run script' });
-      } else if (typeof value === 'boolean') this.wb.setInput(sheet.id, r, c, value, { literal: true, label: 'Run script' });
+        this.wb.setInput(sheet.id, r, c, value, { literal: true, label: t('scriptHost.undo.runScript') });
+      } else if (typeof value === 'boolean') this.wb.setInput(sheet.id, r, c, value, { literal: true, label: t('scriptHost.undo.runScript') });
       else if (value instanceof Date) {
         if (Number.isNaN(value.getTime())) this.fail(`${cellName(r, c)}: the date is invalid.`);
         const { serial, fmt } = dateCell(value);
         const s = this.wb.styleAt(sheet.id, r, c);
-        this.wb.setInput(sheet.id, r, c, serial, { literal: true, label: 'Run script', style: !s?.fmt || s.fmt === 'general' ? { fmt } : null });
+        this.wb.setInput(sheet.id, r, c, serial, { literal: true, label: t('scriptHost.undo.runScript'), style: !s?.fmt || s.fmt === 'general' ? { fmt } : null });
       } else if (typeof value === 'string') {
         if (value.length > 32767) this.fail(`${cellName(r, c)}: a cell holds at most 32,767 characters.`);
-        if (op.asText) this.wb.setInput(sheet.id, r, c, value, { literal: true, label: 'Run script' });
+        if (op.asText) this.wb.setInput(sheet.id, r, c, value, { literal: true, label: t('scriptHost.undo.runScript') });
         else {
           if (/^\s*=/.test(value) && formulaReachesOut(value.replace(/^\s*=/, ''))) reaching = true;
-          this.wb.setInput(sheet.id, r, c, value, { label: 'Run script' });
+          this.wb.setInput(sheet.id, r, c, value, { label: t('scriptHost.undo.runScript') });
         }
       } else this.fail(`${cellName(r, c)}: a cell cannot hold that value.`);
     }));
@@ -429,8 +430,8 @@ const WRITES = {
     const { sheet, range } = this.rangeOf(op);
     const wb = this.wb;
     let ok;
-    if (wholeRows(range)) ok = wb.deleteLines(sheet.id, 'row', [{ from: range.r1, to: range.r2 }], 'Run script');
-    else if (wholeCols(range)) ok = wb.deleteLines(sheet.id, 'col', [{ from: range.c1, to: range.c2 }], 'Run script');
+    if (wholeRows(range)) ok = wb.deleteLines(sheet.id, 'row', [{ from: range.r1, to: range.r2 }], t('scriptHost.undo.runScript'));
+    else if (wholeCols(range)) ok = wb.deleteLines(sheet.id, 'col', [{ from: range.c1, to: range.c2 }], t('scriptHost.undo.runScript'));
     else ok = wb.deleteCells(sheet.id, range, op.shift === 'left' ? 'left' : 'up');
     if (!ok) this.fail(`${this.where(sheet, range)} could not be deleted: the sheet may be protected, or a table, merged cell or array formula is in the way.`);
   },
@@ -653,7 +654,7 @@ const WRITES = {
     const { sheet, table } = this.tableOf(op.table);
     this.wb.setTableTotals(sheet.id, table.id, !!op.on);
     // Read again: the workbook replaces a table it changes, so the one found above still has the row it had.
-    const now = this.wb.sheet(sheet.id)?.tables.find((t) => t.id === table.id);
+    const now = this.wb.sheet(sheet.id)?.tables.find((tb) => tb.id === table.id);
     if (!!now?.totalsRow !== !!op.on) this.fail(`The totals row of ${table.name} could not be ${op.on ? 'shown' : 'hidden'}.`);
   },
   tableConvert(op) {
@@ -664,7 +665,7 @@ const WRITES = {
     const { sheet, range: asked } = this.rangeOf(op);
     const range = this.clipped(sheet, asked);
     if (!range) this.fail(`${this.where(sheet, asked)} holds no data to chart.`);
-    if (!CHART_TYPES.some(([t]) => t === op.type)) this.fail(`"${op.type}" is not a chart type. Use one of: ${CHART_TYPES.map(([t]) => t).join(', ')}.`);
+    if (!CHART_TYPES.some(([tb]) => tb === op.type)) this.fail(`"${op.type}" is not a chart type. Use one of: ${CHART_TYPES.map(([tb]) => tb).join(', ')}.`);
     if (range.r2 - range.r1 + 1 > 5000 || range.c2 - range.c1 + 1 > 200) this.fail('That range is too large to chart.');
     let anchor = { r: range.r1, c: (dataBounds(this.wb, sheet.id)?.c2 ?? range.c2) + 2 };
     if (op.at) {

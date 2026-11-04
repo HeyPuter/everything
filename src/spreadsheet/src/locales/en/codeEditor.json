@@ -1,0 +1,20 @@
+{
+  "completion.global": "global",
+  "completion.inThisScript": "in this script",
+  "completion.keyword": "keyword",
+  "completion.workbook": "the workbook passed to main",
+  "completions": "Completions",
+  "description": "Tab indents; press Escape, then Tab, to move out of the editor.",
+  "find.close": "Close find",
+  "find.count": "{current} of {total}",
+  "find.label": "Find in script",
+  "find.matchCase": "Match case",
+  "find.next": "Next match",
+  "find.noResults": "No results",
+  "find.placeholder": "Find",
+  "find.previous": "Previous match",
+  "find.replaceAll": "All",
+  "find.replaceWith": "Replace with",
+  "find.replaced": "Replaced {count}",
+  "scriptCode": "Script code"
+}
