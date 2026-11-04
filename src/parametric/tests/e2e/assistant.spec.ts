@@ -50,7 +50,7 @@ test('the assistant builds a part with tools, shows its steps and undoes it in o
   const calls = await page.evaluate(() => (window as unknown as { __chatCalls: { messages: { role: string; content: unknown }[]; tools: string[]; model: string }[] }).__chatCalls);
   expect(calls).toHaveLength(4);
   expect(calls[0].tools).toContain('create_sketch');
-  expect(calls[0].model).toBe('claude-fable-5-1');
+  expect(calls[0].model).toBe('claude-opus-5-5');
   // The first message carries a snapshot of the part; the screenshot goes with the last round only.
   expect(String(calls[0].messages[1].content)).toContain('<part_state>');
   const last = calls[3].messages;

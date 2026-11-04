@@ -17,28 +17,10 @@ import { readAttachment } from './attachments';
 import { SYSTEM_PROMPT, partSnapshot } from './prompt';
 import { runTool, toolSpecs } from './tools';
 
-export const ASSISTANT_MODELS: { id: string; label: string }[] = [
-  { id: 'claude-fable-5-1', label: 'Claude Fable 5.1 (most capable)' },
-  { id: 'claude-opus-5-5', label: 'Claude Opus 5.5' },
-  { id: 'claude-sonnet-5-5', label: 'Claude Sonnet 5.5 (faster)' },
-  { id: 'claude-haiku-5-5', label: 'Claude Haiku 5.5 (fastest)' },
-];
-const SETTINGS_KEY = 'parametric:assistant';
+export const ASSISTANT_MODEL = 'claude-opus-5-5';
 
 /** Development builds and browser tests may stand in for Puter AI with window.__assistantChat. */
 const devChat = (): ChatFn | null => (import.meta.env.DEV ? (window as unknown as { __assistantChat?: ChatFn }).__assistantChat ?? null : null);
-
-function loadModel(): string {
-  try {
-    const v = JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? '{}') as { model?: string };
-    if (v.model && ASSISTANT_MODELS.some((m) => m.id === v.model)) return v.model;
-  } catch { /* settings are optional */ }
-  return ASSISTANT_MODELS[0].id;
-}
-
-function saveModel(model: string) {
-  try { localStorage.setItem(SETTINGS_KEY, JSON.stringify({ model })); } catch { /* settings are optional */ }
-}
 
 const short = (s: string, n: number) => {
   const t = s.replace(/\s+/g, ' ').trim();
@@ -129,7 +111,6 @@ export class AssistantPanel {
   private status: HTMLElement;
   private agent: Agent;
   private host: AssistantHost;
-  private model = loadModel();
   private renderQueued = false;
   private turn: Turn | null = null;
   /** Set by tests and the dev mock to answer without Puter. */
@@ -151,12 +132,9 @@ export class AssistantPanel {
       runTool: (name, args) => runTool(this.host, name, args),
       system: SYSTEM_PROMPT,
       snapshot: () => partSnapshot(this.host),
-      model: () => this.model,
+      model: () => ASSISTANT_MODEL,
     });
 
-    const modelSel = h('select', { class: 'input as-model', 'aria-label': 'AI model' }) as HTMLSelectElement;
-    for (const m of ASSISTANT_MODELS) modelSel.append(h('option', { value: m.id, selected: m.id === this.model }, m.label));
-    modelSel.addEventListener('change', () => { this.model = modelSel.value; saveModel(this.model); });
     const newChat = h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'New chat', title: 'New chat' }, icon('newChat', 16));
     newChat.addEventListener('click', () => this.reset());
 
@@ -190,7 +168,7 @@ export class AssistantPanel {
     const composer = h('div', { class: 'as-composer' }, this.tray, h('div', { class: 'as-row' }, attachBtn, this.input, this.sendBtn), this.fileInput);
 
     this.el = h('div', { class: 'assistant' },
-      h('div', { class: 'as-bar' }, modelSel, newChat),
+      h('div', { class: 'as-bar' }, newChat),
       this.log,
       h('div', { class: 'as-bottom' }, this.status, composer,
         h('div', { class: 'as-note' }, 'Sends your messages and a description of the part to Puter AI. Check designs before relying on them.')));

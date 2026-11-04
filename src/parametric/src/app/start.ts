@@ -1,4 +1,4 @@
-// Start screen, account menu and the one-time alpha notice.
+// Start screen and account menu.
 
 import { UNIT_SYSTEMS } from '../model/units';
 import type { UnitSystem } from '../model/types';
@@ -13,22 +13,6 @@ import type { App } from './app';
 import { EXAMPLES } from './examples';
 import type { FileOps } from './fileops';
 import { REPO_URL } from './shell';
-
-const ALPHA_KEY = 'parametric:alpha-notice-seen';
-
-export function showAlphaNotice() {
-  let seen = false;
-  try { seen = localStorage.getItem(ALPHA_KEY) === '1'; } catch { /* storage unavailable */ }
-  if (seen) return;
-  toast({
-    kind: 'info',
-    title: 'Early alpha',
-    message: 'Parametric is in early development. Features may change and work could be lost, so please do not use it for production designs yet, and keep a downloaded copy of anything important.',
-    timeout: 0,
-    actions: [{ label: 'I understand', primary: true, run: () => {} }],
-    onClose: () => { try { localStorage.setItem(ALPHA_KEY, '1'); } catch { /* ignore */ } },
-  });
-}
 
 export class StartScreen {
   el: HTMLElement | null = null;

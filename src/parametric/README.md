@@ -35,7 +35,7 @@ It runs entirely in the browser. The geometry kernel is OpenCascade compiled to 
 - An AI design assistant in the right sidebar (Ctrl+J, or the sparkle button). Describe a part or a change ("a 100 × 60 × 8 mm plate with four M5 holes and rounded corners", "make the wall 3 mm", "fillet the top edges") and it builds it with the same features you use: sketches with exact geometry, relations and dimensions, extrudes, revolves, holes, fillets, chamfers, shells, patterns, mirrors, planes, lofts, sweeps and drafts, global variables and equations.
 - It reads the part precisely (feature parameters, sketch entities, faces and edges by name, measurements, mass properties), checks every change by rebuilding, undoes steps that would break a feature, and looks at the model to verify its work.
 - Attach files to a message (paperclip, paste or drop): photos and sketches of a part, dimensioned drawings and datasheets as images or PDFs, DXF outlines or CSV tables. It reads sizes and geometry from them.
-- Everything it changes in one message is a single undo step. It runs on Puter AI (Claude models; pick one at the top of the panel).
+- Everything it changes in one message is a single undo step. It runs on Puter AI (Claude Opus 5.5).
 
 **Drawings**
 - A 2D drawing sheet for each part (Drawing tab in the status bar): front, top, right, left, back, bottom and isometric views projected from the solid, with hidden lines and overall dimensions.

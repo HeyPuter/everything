@@ -1,8 +1,7 @@
 /* ---------- Assistant sidebar ---------- */
 .tp-panel.wide { width: 380px; overflow: hidden; }
 .assistant { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-.as-bar { display: flex; align-items: center; gap: 6px; padding: 6px 8px 6px 12px; border-bottom: 1px solid var(--border); }
-.as-bar .as-model { flex: 1; min-width: 0; height: 26px; font-size: var(--fs-sm); }
+.as-bar { display: flex; align-items: center; justify-content: flex-end; gap: 6px; padding: 6px 8px 6px 12px; border-bottom: 1px solid var(--border); }
 .as-log { flex: 1; min-height: 0; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 12px; user-select: text; -webkit-user-select: text; overscroll-behavior: contain; }
 
 .as-empty { display: flex; flex-direction: column; gap: 8px; color: var(--text-2); margin: auto 0; }

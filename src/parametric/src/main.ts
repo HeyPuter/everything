@@ -2,7 +2,7 @@ import './styles/app.css';
 import { App, DEFAULT_SETTINGS, type Settings } from './app/app';
 import { makeHooks, registerCommands } from './app/actions';
 import { FileOps } from './app/fileops';
-import { StartScreen, bindAccountMenu, refreshAccount, showAlphaNotice } from './app/start';
+import { StartScreen, bindAccountMenu, refreshAccount } from './app/start';
 import { TaskPane, recentItems } from './app/taskpane';
 import { AssistantPanel } from './assistant/panel';
 import { KV_SETTINGS_KEY, kvGet, kvSet, loadPuter, puter } from './platform/puter';
@@ -66,7 +66,6 @@ async function boot() {
   const launched = !!puter()?.ui?.wasLaunchedWithItems?.();
   const restored = launched ? false : await files.checkRecovery();
   if (!restored && !launched) start.show();
-  showAlphaNotice();
 }
 
 window.addEventListener('unhandledrejection', (e) => {
