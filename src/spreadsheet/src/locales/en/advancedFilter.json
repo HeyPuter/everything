@@ -1,0 +1,15 @@
+{
+  "action": "Action",
+  "badCopyTo": "Enter where to copy the records, such as $J$1",
+  "badCriteria": "Enter the criteria range, such as $F$1:$G$3",
+  "badList": "Enter the list range on this sheet, such as $A$1:$D$40",
+  "copied": "{count, plural, one {{count} record copied} other {{count} records copied}}",
+  "copy": "Copy to another location",
+  "copyTo": "Copy to:",
+  "criteriaRange": "Criteria range:",
+  "inPlace": "Filter the list, in-place",
+  "listRange": "List range:",
+  "shown": "{shown} of {total} records shown",
+  "title": "Advanced Filter",
+  "unique": "Unique records only"
+}

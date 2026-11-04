@@ -1,0 +1,8 @@
+{
+  "checkTitle": "Check this value",
+  "defaultMessage": "This value does not meet the cell’s validation rule.",
+  "editValue": "Edit value",
+  "invalidTitle": "Invalid value",
+  "retry": "Retry",
+  "useValue": "Use value"
+}

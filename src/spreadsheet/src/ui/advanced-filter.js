@@ -5,6 +5,7 @@ import { toast } from './toast.js';
 import { rangeName } from '../core/cell.js';
 import { quoteSheet } from '../core/refs.js';
 import { advancedFilter } from '../core/advanced-filter.js';
+import { t } from '../i18n/index.js';
 
 const absolute = (range) => rangeName(range).replace(/([A-Z]+)(\d+)/g, '$$$1$$$2');
 
@@ -26,34 +27,34 @@ export function openAdvancedFilter(ctx) {
   const submit = (e) => {
     e.preventDefault();
     const listRef = ctx.resolveRange(listInput.value.trim());
-    if (!listRef || listRef.sheetId !== sheetId) return refuse(listInput, 'Enter the list range on this sheet, such as $A$1:$D$40');
+    if (!listRef || listRef.sheetId !== sheetId) return refuse(listInput, t('advancedFilter.badList'));
     const critText = criteriaInput.value.trim();
     const critRef = critText ? ctx.resolveRange(critText) : null;
-    if (critText && !critRef) return refuse(criteriaInput, 'Enter the criteria range, such as $F$1:$G$3');
+    if (critText && !critRef) return refuse(criteriaInput, t('advancedFilter.badCriteria'));
     let copyTo = null;
     if (copy.checked) {
       const ref = ctx.resolveRange(copyInput.value.trim());
-      if (!ref) return refuse(copyInput, 'Enter where to copy the records, such as $J$1');
+      if (!ref) return refuse(copyInput, t('advancedFilter.badCopyTo'));
       copyTo = { sheetId: ref.sheetId, range: ref.range };
     }
     const out = advancedFilter(wb, sheetId, { list: listRef.range, criteria: critRef && { sheetId: critRef.sheetId, range: critRef.range }, copyTo, unique: unique.checked });
     if (out.error) return refuse(null, out.error);
     modal.close();
-    toast(copyTo ? `${out.copied} record${out.copied === 1 ? '' : 's'} copied` : `${out.shown} of ${out.shown + out.hidden} records shown`, { icon: 'filter' });
+    toast(copyTo ? t('advancedFilter.copied', { count: out.copied }) : t('advancedFilter.shown', { shown: out.shown, total: out.shown + out.hidden }), { icon: 'filter' });
   };
   const field = (label, input) => el('div.field', {}, el('label.field-label', { for: input.id }, label), input);
   const content = el('form.af-dialog', { onsubmit: submit },
-    el('fieldset.check-group.vertical', {}, el('legend.field-label', {}, 'Action'),
-      el('label.check', { for: inPlace.id }, inPlace, el('span', {}, 'Filter the list, in-place')),
-      el('label.check', { for: copy.id }, copy, el('span', {}, 'Copy to another location'))),
-    field('List range:', listInput),
-    field('Criteria range:', criteriaInput),
-    field('Copy to:', copyInput),
-    el('label.check', { for: unique.id }, unique, el('span', {}, 'Unique records only')),
+    el('fieldset.check-group.vertical', {}, el('legend.field-label', {}, t('advancedFilter.action')),
+      el('label.check', { for: inPlace.id }, inPlace, el('span', {}, t('advancedFilter.inPlace'))),
+      el('label.check', { for: copy.id }, copy, el('span', {}, t('advancedFilter.copy')))),
+    field(t('advancedFilter.listRange'), listInput),
+    field(t('advancedFilter.criteriaRange'), criteriaInput),
+    field(t('advancedFilter.copyTo'), copyInput),
+    el('label.check', { for: unique.id }, unique, el('span', {}, t('advancedFilter.unique'))),
     alert,
     el('div.row.row-end', {},
-      el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Cancel'),
-      el('button.btn.btn-primary', { type: 'submit' }, 'OK')));
-  const modal = openModal({ title: 'Advanced Filter', content, initialFocus: listInput.value ? criteriaInput : listInput, onClose: () => ctx.grid?.focus?.() });
+      el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, t('common.cancel')),
+      el('button.btn.btn-primary', { type: 'submit' }, t('common.ok'))));
+  const modal = openModal({ title: t('advancedFilter.title'), content, initialFocus: listInput.value ? criteriaInput : listInput, onClose: () => ctx.grid?.focus?.() });
   return modal;
 }

@@ -1,0 +1,13 @@
+{
+  "cant": "无法删除 {range} 中的重复值",
+  "column": "{column} 列",
+  "columnHead": "{column} · {head}",
+  "columns": "要比较的列",
+  "intro": "将删除 {range} 中与前面某行重复的行；每组重复行中的第一行保留。",
+  "noColumns": "至少选择一个要比较的列",
+  "none": "未找到重复行",
+  "protected": "此工作表受保护。撤消保护后才能删除重复值",
+  "removed": "已删除 {count, plural, other {{count} 个重复行}}",
+  "selectAll": "全选",
+  "title": "删除重复值"
+}

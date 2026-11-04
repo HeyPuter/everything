@@ -1,0 +1,15 @@
+{
+  "action": "方式",
+  "badCopyTo": "输入要将记录复制到的位置，例如 $J$1",
+  "badCriteria": "输入条件区域，例如 $F$1:$G$3",
+  "badList": "输入此工作表上的列表区域，例如 $A$1:$D$40",
+  "copied": "已复制 {count, plural, other {{count} 条记录}}",
+  "copy": "将筛选结果复制到其他位置",
+  "copyTo": "复制到：",
+  "criteriaRange": "条件区域：",
+  "inPlace": "在原有区域显示筛选结果",
+  "listRange": "列表区域：",
+  "shown": "显示了 {total} 条记录中的 {shown} 条",
+  "title": "高级筛选",
+  "unique": "选择不重复的记录"
+}
