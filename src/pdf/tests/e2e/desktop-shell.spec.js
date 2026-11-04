@@ -1497,6 +1497,21 @@ test('Batch process stays open, with its files, until it has files and steps', a
   await expect(dialog.getByLabel('Rotate all pages')).toBeChecked();
 });
 
+test('Batch process asks for the watermark text before it starts', async ({ page }) => {
+  await openPdf(page, await numberedPdf(1));
+  await page.getByRole('button', { name: 'Tools', exact: true }).click();
+  const pane = page.getByRole('complementary', { name: 'Tools' });
+  await pane.getByRole('button', { name: 'View more' }).click();
+  await pane.getByRole('button', { name: 'Batch process', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Batch process' });
+  await dialog.getByLabel('Add a watermark').check();
+  await dialog.getByLabel('Watermark text').fill('  ');
+  await dialog.getByRole('button', { name: 'Run', exact: true }).click();
+  await expect(dialog.locator('.dialog-error')).toHaveText('Enter the watermark text.');
+  await expect(dialog).toBeVisible();
+  await expect(page.getByRole('dialog', { name: 'Processing files' })).toHaveCount(0);
+});
+
 test('removing a file from Batch process keeps the keyboard focus in the dialog', async ({
   page,
 }) => {

@@ -11257,6 +11257,8 @@ export function createEditor({
             case 'rotate':
               return { type: 'rotate', degrees: Number(value) };
             case 'watermark':
+              // Said here, while the dialog is open, rather than once per file afterwards.
+              if (!value.trim()) throw new Error('Enter the watermark text.');
               return { type: 'watermark', text: value };
             case 'pageNumbers':
               return { type: 'pageNumbers', format: value, position: 'bottom-center' };
