@@ -7042,7 +7042,11 @@ export function createEditor({
                 ? `Fields on page ${pageIndex + 1} (${formFields.length} in all)`
                 : `No fields on page ${pageIndex + 1}`,
               items: onPage.slice(0, 60).map((field) => ({
-                label: `${field.name}`,
+                // The buttons of a radio group share its name; their export values tell them apart.
+                label:
+                  field.type === 'radio' && field.props?.exportValue
+                    ? `${field.name}: ${field.props.exportValue}`
+                    : field.name,
                 hint: fieldTypeLabel(field.type),
                 glyph: 'Pencil',
                 permission: 'edit',

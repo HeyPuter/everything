@@ -440,3 +440,20 @@ test('deleting a radio button hands the focus to the next button of its group', 
   await expect(page.locator('.designer-field')).toHaveCount(1);
   await expect(page.getByRole('button', { name: 'Radio button Size: Large' })).toBeFocused();
 });
+
+test('the fields listed in the tools pane tell the buttons of a radio group apart', async ({
+  page,
+}) => {
+  const doc = await PDFDocument.create();
+  const sheet = doc.addPage([600, 500]);
+  const size = doc.getForm().createRadioGroup('Size');
+  size.addOptionToPage('Small', sheet, { x: 40, y: 340, width: 16, height: 16 });
+  size.addOptionToPage('Large', sheet, { x: 80, y: 340, width: 16, height: 16 });
+  await openPdf(page, doc);
+  await prepareForm(page);
+  const pane = page.getByRole('complementary', { name: 'Tools' });
+  await expect(pane.getByRole('button', { name: /^Size: Small/ })).toBeVisible();
+  await pane.getByRole('button', { name: /^Size: Large/ }).click();
+  const dialog = page.getByRole('dialog', { name: 'Radio button properties' });
+  await expect(dialog.getByLabel('Export value')).toHaveValue('Large');
+});
