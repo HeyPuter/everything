@@ -1,0 +1,14 @@
+{
+  "byChangingCell": "可变单元格",
+  "done": "{cell} 已设为 {value}；{target} 现在为 {result}",
+  "errors.noChangingCell": "输入要更改的单元格，例如 B2",
+  "errors.noSetCell": "输入要设置的单元格，例如 C12",
+  "errors.noValue": "输入要达到的值",
+  "example": "例如 B2",
+  "intro": "查找使公式达到某个值的输入。可一步撤消。",
+  "seek": "求解",
+  "setCell": "目标单元格",
+  "title": "单变量求解",
+  "toValue": "目标值",
+  "wantedResult": "想要的结果"
+}

@@ -11,23 +11,27 @@ import { cellName } from '../core/cell.js';
 import { typedNumber, numberShown } from './typed-number.js';
 import { saveScenario } from '../core/scenarios.js';
 import { RELATIONS, ENGINES, DEFAULT_OPTIONS, emptyModel, readSolverModel, saveSolverModel, prepareSolver, runSolver, applySolverResult,
-  availableReports, modelToCells, modelFromCells, saveModelToCells, parseRanges } from '../core/solver.js';
+  availableReports, modelToCells, modelFromCells, saveModelToCells, parseRanges, solverMessageShown } from '../core/solver.js';
+import { t, formatNumber } from '../i18n/index.js';
 
 const ENGINE_NOTES = {
-  grg: 'For smooth nonlinear models. Starts from the current values and finds a locally optimal solution; turn on Multistart in Options to search from many starting points.',
-  simplex: 'For linear models: the objective and every constraint must be sums of the variable cells times constants. Finds the best solution and supports sensitivity analysis.',
-  evolutionary: 'For models built on functions that are not smooth, such as IF, lookups or rounding. Needs bounds on the variable cells and searches with a population of trial solutions.',
+  grg: 'solver.engineNote.grg',
+  simplex: 'solver.engineNote.simplex',
+  evolutionary: 'solver.engineNote.evolutionary',
 };
-const REPORTS = [['answer', 'Answer'], ['sensitivity', 'Sensitivity'], ['limits', 'Limits']];
+const ENGINE_LABELS = { grg: 'solver.engine.grg', simplex: 'solver.engine.simplex', evolutionary: 'solver.engine.evolutionary' };
+const REPORTS = [['answer', 'solver.results.answer'], ['sensitivity', 'solver.results.sensitivity'], ['limits', 'solver.results.limits']];
 const RELATION_LABEL = { '<=': '<=', '=': '=', '>=': '>=', int: 'int', bin: 'bin', dif: 'dif' };
+/** The right side the model stores for int, bin and dif (English, as Excel saves it). */
 const WORD = { int: 'integer', bin: 'binary', dif: 'AllDifferent' };
+/** How the dialogs show that right side: AllDifferent is the same in every language, as in Excel. */
+const wordLabel = (rel) => (rel === 'int' ? t('solver.word.integer') : rel === 'bin' ? t('solver.word.binary') : rel === 'dif' ? WORD.dif : null);
 
 /** A constraint's right side as the dialogs show it: a number in the regional format, a reference or formula as stored. */
 const rhsShown = (rhs) => (/^[+-]?(\d+\.?\d*|\.\d+)(e[+-]?\d+)?$/i.test(String(rhs ?? '').trim()) ? numberShown(Number(rhs)) : rhs);
 
-const constraintText = (k) => `${k.lhs} ${k.rel === 'int' || k.rel === 'bin' || k.rel === 'dif' ? '= ' + WORD[k.rel] : `${RELATION_LABEL[k.rel]} ${rhsShown(k.rhs)}`}`;
+const constraintText = (k) => `${k.lhs} ${k.rel === 'int' || k.rel === 'bin' || k.rel === 'dif' ? '= ' + wordLabel(k.rel) : `${RELATION_LABEL[k.rel]} ${rhsShown(k.rhs)}`}`;
 const clone = (m) => JSON.parse(JSON.stringify(m));
-const count = (n, word) => `${n.toLocaleString()} ${word}${n === 1 ? '' : 's'}`;
 
 /** A selection as dialog text: absolute references, the ranges joined by commas. */
 function selectionText(ctx) {
@@ -42,25 +46,25 @@ function selectionText(ctx) {
 function openConstraintEditor(ctx, existing, onDone) {
   const sheetId = ctx.sheetId();
   const lhs = el('input.input', { type: 'text', id: fieldId('sv-lhs'), value: existing?.lhs || selectionText(ctx), autocomplete: 'off', spellcheck: false });
-  const rel = el('select.select.sv-rel', { id: fieldId('sv-rel'), 'aria-label': 'Relation' }, ...RELATIONS.map(([key, label]) => el('option', { value: key }, label)));
+  const rel = el('select.select.sv-rel', { id: fieldId('sv-rel'), 'aria-label': t('solver.constraint.relation') }, ...RELATIONS.map(([key, label]) => el('option', { value: key }, label)));
   rel.value = existing?.rel || '<=';
   const rhs = el('input.input', { type: 'text', id: fieldId('sv-rhs'), value: existing && !WORD[existing.rel] ? rhsShown(existing.rhs) : '', autocomplete: 'off', spellcheck: false });
   const { alert, refuse } = fieldAlert('solver-constraint');
   const sync = () => {
-    const word = WORD[rel.value];
+    const word = wordLabel(rel.value);
     rhs.disabled = !!word;
     if (word) rhs.value = word;
-    else if (Object.values(WORD).includes(rhs.value)) rhs.value = '';
+    else if (['int', 'bin', 'dif'].some((r) => wordLabel(r) === rhs.value)) rhs.value = '';
   };
   rel.addEventListener('change', sync);
   sync();
   const collect = () => {
     const left = lhs.value.trim();
     const ranges = parseRanges(ctx.wb, sheetId, left);
-    if (!ranges || ranges.length !== 1) { refuse(lhs, 'Enter one range on this sheet, like $B$4 or $B$4:$B$6'); return null; }
+    if (!ranges || ranges.length !== 1) { refuse(lhs, t('solver.constraint.oneRange')); return null; }
     const word = WORD[rel.value];
     let right = word || rhs.value.trim().replace(/^=/, '');
-    if (!right) { refuse(rhs, 'Enter a number, a cell reference or a formula'); return null; }
+    if (!right) { refuse(rhs, t('solver.constraint.noRhs')); return null; }
     // A number is stored as the model's formulas write one (2.5), whatever the regional format it was typed in.
     const constant = word || /^=/.test(rhs.value.trim()) ? null : typedNumber(right);
     if (constant != null) right = String(constant);
@@ -69,10 +73,10 @@ function openConstraintEditor(ctx, existing, onDone) {
       if (ref && ref.length === 1) {
         const R = ref[0], L = ranges[0];
         const one = R.r1 === R.r2 && R.c1 === R.c2;
-        if (!one && (R.r2 - R.r1 !== L.r2 - L.r1 || R.c2 - R.c1 !== L.c2 - L.c1)) { refuse(rhs, 'Use one cell, or a range the same size as the cell reference'); return null; }
+        if (!one && (R.r2 - R.r1 !== L.r2 - L.r1 || R.c2 - R.c1 !== L.c2 - L.c1)) { refuse(rhs, t('solver.constraint.sameSize')); return null; }
       } else {
         const probe = ctx.wb.evaluateText(sheetId, ranges[0].r1, ranges[0].c1, right);
-        if (probe && typeof probe === 'object' && ['#NAME?', '#REF!'].includes(probe.error)) { refuse(rhs, 'Enter a number, a cell reference or a formula'); return null; }
+        if (probe && typeof probe === 'object' && ['#NAME?', '#REF!'].includes(probe.error)) { refuse(rhs, t('solver.constraint.noRhs')); return null; }
       }
     }
     return { lhs: left, rel: rel.value, rhs: right };
@@ -85,16 +89,16 @@ function openConstraintEditor(ctx, existing, onDone) {
   };
   const content = el('form.sv-constraint', { onsubmit: (e) => { e.preventDefault(); commit(false); } },
     el('div.sv-constraint-row', {},
-      el('div.field', {}, el('label.field-label', { for: lhs.id }, 'Cell reference'), lhs),
-      el('div.field.sv-rel-field', {}, el('label.field-label', { for: rel.id }, 'Relation'), el('div.select-wrap', {}, rel)),
-      el('div.field', {}, el('label.field-label', { for: rhs.id }, 'Constraint'), rhs)),
-    el('p.small.muted', {}, 'The constraint can be a number, a cell or range of the same size, or a formula. int, bin and dif make the cells whole numbers, 0 or 1, or all different (1 to n).'),
+      el('div.field', {}, el('label.field-label', { for: lhs.id }, t('solver.constraint.cellReference')), lhs),
+      el('div.field.sv-rel-field', {}, el('label.field-label', { for: rel.id }, t('solver.constraint.relation')), el('div.select-wrap', {}, rel)),
+      el('div.field', {}, el('label.field-label', { for: rhs.id }, t('solver.constraint.constraint')), rhs)),
+    el('p.small.muted', {}, t('solver.constraint.hint')),
     alert,
     el('div.row.row-end', {},
-      el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Cancel'),
-      el('button.btn', { type: 'button', onclick: () => commit(true) }, 'Add Another'),
-      el('button.btn.btn-primary', { type: 'submit' }, 'OK')));
-  const modal = openModal({ title: existing ? 'Change Constraint' : 'Add Constraint', content, initialFocus: lhs });
+      el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, t('common.cancel')),
+      el('button.btn', { type: 'button', onclick: () => commit(true) }, t('solver.constraint.addAnother')),
+      el('button.btn.btn-primary', { type: 'submit' }, t('common.ok'))));
+  const modal = openModal({ title: existing ? t('solver.constraint.titleChange') : t('solver.constraint.titleAdd'), content, initialFocus: lhs });
   return modal;
 }
 
@@ -106,8 +110,8 @@ function openOptions(options, onDone) {
   const check = (name, on) => el('input', { type: 'checkbox', id: id(name), checked: !!on });
   const f = {
     precision: num('precision', o.precision), scaling: check('scaling', o.scaling), ignoreInteger: check('ignore', o.ignoreInteger),
-    integerOptimality: num('intopt', o.integerOptimality), maxTime: num('time', o.maxTime, { placeholder: 'Unlimited' }), maxIterations: num('iter', o.maxIterations, { placeholder: 'Unlimited' }),
-    maxSubproblems: num('nodes', o.maxSubproblems, { placeholder: 'Unlimited' }), maxFeasible: num('feasible', o.maxFeasible, { placeholder: 'Unlimited' }),
+    integerOptimality: num('intopt', o.integerOptimality), maxTime: num('time', o.maxTime, { placeholder: t('solver.options.unlimited') }), maxIterations: num('iter', o.maxIterations, { placeholder: t('solver.options.unlimited') }),
+    maxSubproblems: num('nodes', o.maxSubproblems, { placeholder: t('solver.options.unlimited') }), maxFeasible: num('feasible', o.maxFeasible, { placeholder: t('solver.options.unlimited') }),
     grgConvergence: num('grg-cvg', o.convergence), forward: el('input', { type: 'radio', name: id('drv'), id: id('fwd'), checked: o.derivatives !== 'central' }),
     central: el('input', { type: 'radio', name: id('drv'), id: id('ctr'), checked: o.derivatives === 'central' }), multistart: check('ms', o.multistart),
     grgPopulation: num('grg-pop', o.population), grgSeed: num('grg-seed', o.seed), grgBounds: check('grg-rbv', o.requireBounds),
@@ -121,25 +125,25 @@ function openOptions(options, onDone) {
   const tick = (label, control) => el('label.check', { for: control.id }, control, el('span', {}, label));
   const panels = {
     all: el('div.sv-opt-panel', {},
-      row('Constraint precision', f.precision), tick('Use automatic scaling', f.scaling),
-      el('fieldset.sv-opt-group', {}, el('legend', {}, 'Integer constraints'), tick('Ignore integer constraints', f.ignoreInteger), row('Integer optimality (%)', f.integerOptimality)),
-      el('fieldset.sv-opt-group', {}, el('legend', {}, 'Solving limits'), row('Max time (seconds)', f.maxTime), row('Iterations', f.maxIterations)),
-      el('fieldset.sv-opt-group', {}, el('legend', {}, 'Evolutionary and integer limits'), row('Max subproblems', f.maxSubproblems), row('Max feasible solutions', f.maxFeasible))),
+      row(t('solver.options.precision'), f.precision), tick(t('solver.options.scaling'), f.scaling),
+      el('fieldset.sv-opt-group', {}, el('legend', {}, t('solver.options.integerGroup')), tick(t('solver.options.ignoreInteger'), f.ignoreInteger), row(t('solver.options.integerOptimality'), f.integerOptimality)),
+      el('fieldset.sv-opt-group', {}, el('legend', {}, t('solver.options.limitsGroup')), row(t('solver.options.maxTime'), f.maxTime), row(t('solver.options.iterations'), f.maxIterations)),
+      el('fieldset.sv-opt-group', {}, el('legend', {}, t('solver.options.evoIntegerGroup')), row(t('solver.options.maxSubproblems'), f.maxSubproblems), row(t('solver.options.maxFeasible'), f.maxFeasible))),
     grg: el('div.sv-opt-panel', {},
-      row('Convergence', f.grgConvergence),
-      el('fieldset.sv-opt-group', {}, el('legend', {}, 'Derivatives'), el('div.row', {}, tick('Forward', f.forward), tick('Central', f.central))),
-      el('fieldset.sv-opt-group', {}, el('legend', {}, 'Multistart'), tick('Use multistart', f.multistart), row('Population size', f.grgPopulation), row('Random seed', f.grgSeed), tick('Require bounds on variables', f.grgBounds))),
+      row(t('solver.options.convergence'), f.grgConvergence),
+      el('fieldset.sv-opt-group', {}, el('legend', {}, t('solver.options.derivatives')), el('div.row', {}, tick(t('solver.options.forward'), f.forward), tick(t('solver.options.central'), f.central))),
+      el('fieldset.sv-opt-group', {}, el('legend', {}, t('solver.options.multistart')), tick(t('solver.options.useMultistart'), f.multistart), row(t('solver.options.population'), f.grgPopulation), row(t('solver.options.seed'), f.grgSeed), tick(t('solver.options.requireBounds'), f.grgBounds))),
     evo: el('div.sv-opt-panel', {},
-      row('Convergence', f.evoConvergence), row('Mutation rate', f.mutationRate), row('Population size', f.evoPopulation), row('Random seed', f.evoSeed),
-      row('Max time without improvement (seconds)', f.maxTimeNoImprove), tick('Require bounds on variables', f.evoBounds)),
+      row(t('solver.options.convergence'), f.evoConvergence), row(t('solver.options.mutationRate'), f.mutationRate), row(t('solver.options.population'), f.evoPopulation), row(t('solver.options.seed'), f.evoSeed),
+      row(t('solver.options.maxTimeNoImprove'), f.maxTimeNoImprove), tick(t('solver.options.requireBounds'), f.evoBounds)),
   };
-  const TABS = [['all', 'All Methods'], ['grg', 'GRG Nonlinear'], ['evo', 'Evolutionary']];
+  const TABS = [['all', 'solver.options.allMethods'], ['grg', 'solver.engine.grg'], ['evo', 'solver.engine.evolutionary']];
   let active = 'all';
   const tabId = fieldId('sv-tabs');
   for (const [key, p] of Object.entries(panels)) { p.id = `${tabId}-${key}-panel`; p.setAttribute('role', 'tabpanel'); p.setAttribute('aria-labelledby', `${tabId}-${key}`); }
-  const tabs = el('div.seg.fc-tabs.sv-tabs', { role: 'tablist', 'aria-label': 'Options for' }, TABS.map(([key, label]) => el('button.seg-btn', {
+  const tabs = el('div.seg.fc-tabs.sv-tabs', { role: 'tablist', 'aria-label': t('solver.options.tabsLabel') }, TABS.map(([key, label]) => el('button.seg-btn', {
     type: 'button', role: 'tab', id: `${tabId}-${key}`, dataset: { key }, 'aria-controls': panels[key].id, onclick: () => { active = key; syncTabs(); },
-  }, label)));
+  }, t(label))));
   const syncTabs = () => {
     for (const b of tabs.children) { b.setAttribute('aria-selected', String(b.dataset.key === active)); b.tabIndex = b.dataset.key === active ? 0 : -1; }
     for (const [key, p] of Object.entries(panels)) p.hidden = key !== active;
@@ -156,9 +160,9 @@ function openOptions(options, onDone) {
   syncTabs();
   const { alert, refuse } = fieldAlert('solver-options');
   const read = (input, { min = -Infinity, max = Infinity, open = false, blank = false, integer = false } = {}) => {
-    const t = input.value.trim();
-    if (!t) return blank ? { ok: true, v: null } : { ok: false };
-    const v = typedNumber(t);
+    const text = input.value.trim();
+    if (!text) return blank ? { ok: true, v: null } : { ok: false };
+    const v = typedNumber(text);
     if (v == null || (open ? v <= min : v < min) || v > max || (integer && !Number.isInteger(v))) return { ok: false };
     return { ok: true, v };
   };
@@ -171,17 +175,17 @@ function openOptions(options, onDone) {
       out[key] = r.v;
       return true;
     };
-    if (!take('precision', f.precision, { min: 0, max: 1, open: true }, 'Enter a precision between 0 and 1', 'all')) return;
-    if (!take('integerOptimality', f.integerOptimality, { min: 0, max: 100 }, 'Enter a percentage from 0 to 100', 'all')) return;
-    if (!take('maxTime', f.maxTime, { min: 0, open: true, blank: true }, 'Enter a number of seconds, or leave it blank for no limit', 'all')) return;
-    if (!take('maxIterations', f.maxIterations, { min: 1, blank: true, integer: true }, 'Enter a whole number of iterations, or leave it blank', 'all')) return;
-    if (!take('maxSubproblems', f.maxSubproblems, { min: 1, blank: true, integer: true }, 'Enter a whole number, or leave it blank', 'all')) return;
-    if (!take('maxFeasible', f.maxFeasible, { min: 1, blank: true, integer: true }, 'Enter a whole number, or leave it blank', 'all')) return;
-    if (!take('convergence', f.grgConvergence, { min: 0, max: 1, open: true }, 'Enter a convergence between 0 and 1', 'grg')) return;
-    if (!take('population', f.grgPopulation, { min: 10, max: 10000, integer: true }, 'Enter a population of 10 to 10000', 'grg')) return;
-    if (!take('seed', f.grgSeed, { min: 0, integer: true }, 'Enter a whole number for the seed (0 picks a new one each time)', 'grg')) return;
-    if (!take('mutationRate', f.mutationRate, { min: 0, max: 1 }, 'Enter a mutation rate from 0 to 1', 'evo')) return;
-    if (!take('maxTimeNoImprove', f.maxTimeNoImprove, { min: 0, open: true }, 'Enter a number of seconds', 'evo')) return;
+    if (!take('precision', f.precision, { min: 0, max: 1, open: true }, t('solver.options.errors.precision'), 'all')) return;
+    if (!take('integerOptimality', f.integerOptimality, { min: 0, max: 100 }, t('solver.options.errors.percentage'), 'all')) return;
+    if (!take('maxTime', f.maxTime, { min: 0, open: true, blank: true }, t('solver.options.errors.maxTime'), 'all')) return;
+    if (!take('maxIterations', f.maxIterations, { min: 1, blank: true, integer: true }, t('solver.options.errors.iterations'), 'all')) return;
+    if (!take('maxSubproblems', f.maxSubproblems, { min: 1, blank: true, integer: true }, t('solver.options.errors.wholeNumber'), 'all')) return;
+    if (!take('maxFeasible', f.maxFeasible, { min: 1, blank: true, integer: true }, t('solver.options.errors.wholeNumber'), 'all')) return;
+    if (!take('convergence', f.grgConvergence, { min: 0, max: 1, open: true }, t('solver.options.errors.convergence'), 'grg')) return;
+    if (!take('population', f.grgPopulation, { min: 10, max: 10000, integer: true }, t('solver.options.errors.population'), 'grg')) return;
+    if (!take('seed', f.grgSeed, { min: 0, integer: true }, t('solver.options.errors.seed'), 'grg')) return;
+    if (!take('mutationRate', f.mutationRate, { min: 0, max: 1 }, t('solver.options.errors.mutationRate'), 'evo')) return;
+    if (!take('maxTimeNoImprove', f.maxTimeNoImprove, { min: 0, open: true }, t('solver.options.errors.seconds'), 'evo')) return;
     Object.assign(out, { scaling: f.scaling.checked, ignoreInteger: f.ignoreInteger.checked, derivatives: f.central.checked ? 'central' : 'forward',
       multistart: f.multistart.checked, requireBounds: f.grgBounds.checked });
     modal.close();
@@ -189,9 +193,9 @@ function openOptions(options, onDone) {
   };
   const content = el('form.sv-options', { onsubmit: submit }, tabs, ...Object.values(panels), alert,
     el('div.row.row-end', {},
-      el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Cancel'),
-      el('button.btn.btn-primary', { type: 'submit' }, 'OK')));
-  const modal = openModal({ title: 'Solver Options', content });
+      el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, t('common.cancel')),
+      el('button.btn.btn-primary', { type: 'submit' }, t('common.ok'))));
+  const modal = openModal({ title: t('solver.options.title'), content });
 }
 
 /** Load/Save Model: a range to read a model from, or the top cell to write it down from. */
@@ -203,14 +207,14 @@ function openLoadSave(ctx, model, onLoad) {
   const { alert, refuse } = fieldAlert('solver-model');
   const load = async () => {
     const ranges = parseRanges(wb, sheetId, range.value);
-    if (!ranges || ranges.length !== 1) return refuse(range, 'Enter the range that holds a saved model, like $H$2:$H$8');
+    if (!ranges || ranges.length !== 1) return refuse(range, t('solver.model.loadRange'));
     const g = ranges[0];
     // A single cell stands for the column of a model saved from it down.
     const span = g.r1 === g.r2 && g.c1 === g.c2 ? { ...g, r2: g.r1 + 200 } : g;
     const out = modelFromCells(wb, sheetId, span);
     if (out.error) return refuse(range, out.error);
     if (model.objective || model.constraints.length) {
-      const ok = await confirmDialog({ title: 'Load Model', message: 'Replace the current model with the one in these cells?', confirmLabel: 'Replace', danger: false });
+      const ok = await confirmDialog({ title: t('solver.model.loadTitle'), message: t('solver.model.loadConfirm'), confirmLabel: t('common.replace'), danger: false });
       if (!ok) return;
     }
     modal.close();
@@ -218,44 +222,44 @@ function openLoadSave(ctx, model, onLoad) {
   };
   const save = async () => {
     const ranges = parseRanges(wb, sheetId, range.value);
-    if (!ranges || ranges.length !== 1) return refuse(range, 'Enter the top cell of an empty column range to save the model to');
+    if (!ranges || ranges.length !== 1) return refuse(range, t('solver.model.saveRange'));
     const { r1, c1 } = ranges[0];
     let used = false;
     for (let r = r1; r < r1 + need; r++) { const cell = wb.getCell(sheetId, r, c1); if (cell && (cell.v != null || cell.f != null)) used = true; }
     if (used) {
-      const ok = await confirmDialog({ title: 'Save Model', message: `The ${need} cells from ${cellName(r1, c1)} down are not all empty. Replace their contents with the model?`, confirmLabel: 'Replace', danger: false });
+      const ok = await confirmDialog({ title: t('solver.model.saveTitle'), message: t('solver.model.saveConfirm', { count: need, cell: cellName(r1, c1) }), confirmLabel: t('common.replace'), danger: false });
       if (!ok) return;
     }
     saveModelToCells(wb, sheetId, r1, c1, model);
     modal.close();
-    toast(`Model saved to ${cellName(r1, c1)}:${cellName(r1 + need - 1, c1)}`, { icon: 'check' });
+    toast(t('solver.model.saved', { range: `${cellName(r1, c1)}:${cellName(r1 + need - 1, c1)}` }), { icon: 'check' });
   };
   const content = el('form.sv-loadsave', { onsubmit: (e) => { e.preventDefault(); load(); } },
-    el('div.field', {}, el('label.field-label', { for: range.id }, 'Model range'), range),
-    el('p.small.muted', {}, `Load reads a model saved in cells. Save writes this model down a column from the cell given, in ${need} cells: formulas you can read and check, with the options in the last cell.`),
+    el('div.field', {}, el('label.field-label', { for: range.id }, t('solver.model.range')), range),
+    el('p.small.muted', {}, t('solver.model.hint', { count: need })),
     alert,
     el('div.row.row-end', {},
-      el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Cancel'),
-      el('button.btn', { type: 'button', onclick: save }, 'Save'),
-      el('button.btn.btn-primary', { type: 'submit' }, 'Load')));
-  const modal = openModal({ title: 'Load/Save Model', content, initialFocus: range });
+      el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, t('common.cancel')),
+      el('button.btn', { type: 'button', onclick: save }, t('common.save')),
+      el('button.btn.btn-primary', { type: 'submit' }, t('solver.model.load'))));
+  const modal = openModal({ title: t('solver.model.title'), content, initialFocus: range });
 }
 
 /** The progress dialog: what the search has reached, and Stop. Returns { update(progress), close }. */
 function openProgress(onStop) {
-  const status = el('p.sv-progress-status', { role: 'status', 'aria-live': 'polite' }, 'Setting up the model…');
+  const status = el('p.sv-progress-status', { role: 'status', 'aria-live': 'polite' }, t('solver.progress.settingUp'));
   const bar = el('div.sv-progress-bar', { 'aria-hidden': 'true' }, el('span'));
-  const stop = el('button.btn.btn-primary', { type: 'button', onclick: () => { stop.disabled = true; stop.textContent = 'Stopping…'; onStop(); } }, 'Stop');
+  const stop = el('button.btn.btn-primary', { type: 'button', onclick: () => { stop.disabled = true; stop.textContent = t('solver.progress.stopping'); onStop(); } }, t('solver.progress.stop'));
   const content = el('div.sv-progress', {}, bar, status, el('div.row.row-end', {}, stop));
-  const modal = openModal({ title: 'Solving…', content, initialFocus: stop });
-  const format = (v) => (Number.isFinite(v) ? Number(v.toPrecision(8)).toLocaleString(undefined, { maximumFractionDigits: 8 }) : '—');
+  const modal = openModal({ title: t('solver.progress.title'), content, initialFocus: stop });
+  const format = (v) => (Number.isFinite(v) ? formatNumber(Number(v.toPrecision(8)), { maximumFractionDigits: 8 }) : '—');
   return {
     update(p) {
       const parts = [];
-      if (p.phase === 'linear') parts.push('Measuring the model');
-      if (p.subproblems) parts.push(`Subproblem ${p.subproblems}`);
-      if (p.evals) parts.push(`Trial solution ${p.evals}`);
-      if (p.objective != null) parts.push(`Objective ${format(p.objective)}`);
+      if (p.phase === 'linear') parts.push(t('solver.progress.measuring'));
+      if (p.subproblems) parts.push(t('solver.progress.subproblem', { n: p.subproblems }));
+      if (p.evals) parts.push(t('solver.progress.trial', { n: p.evals }));
+      if (p.objective != null) parts.push(t('solver.progress.objective', { value: format(p.objective) }));
       status.textContent = parts.join(' · ');
     },
     close: () => modal.close(),
@@ -272,13 +276,13 @@ function openResults(ctx, prepared, result, { onReturn }) {
   const back = el('input', { type: 'checkbox', id: fieldId('sv-back') });
   const reportBoxes = REPORTS.map(([key, label]) => {
     const box = el('input', { type: 'checkbox', id: fieldId(`sv-rep-${key}`), value: key, disabled: !allowed.includes(key) });
-    return el('label.check', { for: box.id, title: allowed.includes(key) ? null : key === 'answer' ? 'There is no solution to report on' : 'Available for a continuous model solved by Simplex LP or GRG Nonlinear' }, box, el('span', {}, label));
+    return el('label.check', { for: box.id, title: allowed.includes(key) ? null : key === 'answer' ? t('solver.results.noSolution') : t('solver.results.continuousOnly') }, box, el('span', {}, t(label)));
   });
   const done = (apply) => {
     if (apply) {
       const reports = reportBoxes.map((l) => l.querySelector('input')).filter((b) => b.checked).map((b) => b.value);
       const { reportSheetIds } = applySolverResult(wb, prepared, result, { keep: keep.checked && result.ok, reports });
-      if (reportSheetIds.length) toast(`${reportSheetIds.length === 1 ? 'Report' : `${reportSheetIds.length} reports`} added before this sheet`, { icon: 'check' });
+      if (reportSheetIds.length) toast(t('solver.results.reportsAdded', { count: reportSheetIds.length }), { icon: 'check' });
     } else {
       applySolverResult(wb, prepared, result, { keep: false });
     }
@@ -288,31 +292,31 @@ function openResults(ctx, prepared, result, { onReturn }) {
   };
   const saveAsScenario = async () => {
     if (!result.x) return;
-    const name = await promptDialog({ title: 'Save Scenario', label: 'Scenario name', confirmLabel: 'Save' });
+    const name = await promptDialog({ title: t('solver.results.saveScenarioTitle'), label: t('solver.results.scenarioName'), confirmLabel: t('common.save') });
     if (!name) return;
     const problem = saveScenario(wb, sheetId, { name, cells: prepared.vars.map((v) => ({ r: v.r, c: v.c })), values: result.x, comment: `Created by Solver on ${new Date().toLocaleDateString()}` });
     if (problem) toast(problem, { icon: 'alert' });
-    else toast(`Scenario “${name}” saved`, { icon: 'check' });
+    else toast(t('solver.results.scenarioSaved', { name }), { icon: 'check' });
   };
   const detail = result.solved && prepared.model.engine === 'grg' && result.status === 'localOptimal'
-    ? 'GRG Nonlinear finds a locally optimal solution. Another starting point, or Multistart in Options, may find a better one.'
-    : result.status === 'optimal' && prepared.model.engine === 'simplex' ? 'Simplex LP found the best solution of this linear model.' : null;
+    ? t('solver.results.grgNote')
+    : result.status === 'optimal' && prepared.model.engine === 'simplex' ? t('solver.results.simplexNote') : null;
   const content = el('form.sv-results', { onsubmit: (e) => { e.preventDefault(); done(true); } },
-    el('p.modal-text.sv-result-message', { 'data-status': result.status }, result.message),
+    el('p.modal-text.sv-result-message', { 'data-status': result.status }, solverMessageShown(result.status)),
     detail && el('p.small.muted', {}, detail),
     el('div.sv-results-grid', {},
-      el('fieldset.check-group.vertical', {}, el('legend.field-label', {}, 'Values'),
-        el('label.check', { for: keep.id }, keep, el('span', {}, 'Keep Solver solution')),
-        el('label.check', { for: restore.id }, restore, el('span', {}, 'Restore original values'))),
-      el('fieldset.check-group.vertical', {}, el('legend.field-label', {}, 'Reports (each on a new sheet)'), ...reportBoxes)),
-    el('label.check', { for: back.id }, back, el('span', {}, 'Return to Solver Parameters')),
-    el('p.small.muted.sv-result-stats', {}, [`${result.seconds.toFixed(2)} s`, count(result.evals, 'trial solution'), result.iterations && count(result.iterations, 'iteration'), result.subproblems && count(result.subproblems, 'subproblem')].filter(Boolean).join(' · ')),
+      el('fieldset.check-group.vertical', {}, el('legend.field-label', {}, t('solver.results.values')),
+        el('label.check', { for: keep.id }, keep, el('span', {}, t('solver.results.keep'))),
+        el('label.check', { for: restore.id }, restore, el('span', {}, t('solver.results.restore')))),
+      el('fieldset.check-group.vertical', {}, el('legend.field-label', {}, t('solver.results.reports')), ...reportBoxes)),
+    el('label.check', { for: back.id }, back, el('span', {}, t('solver.results.returnToParameters'))),
+    el('p.small.muted.sv-result-stats', {}, [t('solver.results.seconds', { seconds: result.seconds.toFixed(2) }), t('solver.results.trialSolutions', { count: result.evals }), result.iterations && t('solver.results.iterations', { count: result.iterations }), result.subproblems && t('solver.results.subproblems', { count: result.subproblems })].filter(Boolean).join(' · ')),
     el('div.row.row-end', {},
-      el('button.btn.btn-ghost.sv-scenario', { type: 'button', disabled: !result.x, onclick: saveAsScenario }, 'Save Scenario…'),
+      el('button.btn.btn-ghost.sv-scenario', { type: 'button', disabled: !result.x, onclick: saveAsScenario }, t('solver.results.saveScenario')),
       el('span.sv-spacer'),
-      el('button.btn.btn-ghost', { type: 'button', onclick: () => done(false) }, 'Cancel'),
-      el('button.btn.btn-primary', { type: 'submit' }, 'OK')));
-  const modal = openModal({ title: 'Solver Results', content, onClose: () => ctx.grid?.focus?.() });
+      el('button.btn.btn-ghost', { type: 'button', onclick: () => done(false) }, t('common.cancel')),
+      el('button.btn.btn-primary', { type: 'submit' }, t('common.ok'))));
+  const modal = openModal({ title: t('solver.results.title'), content, onClose: () => ctx.grid?.focus?.() });
   return modal;
 }
 
@@ -327,18 +331,18 @@ export function openSolver(ctx, start = null) {
   }
   const objective = el('input.input', { type: 'text', id: fieldId('sv-obj'), value: model.objective, autocomplete: 'off', spellcheck: false });
   const goalName = fieldId('sv-goal');
-  const goals = Object.fromEntries([['max', 'Max'], ['min', 'Min'], ['value', 'Value Of:']].map(([key]) => [key, el('input', { type: 'radio', name: goalName, id: fieldId(`sv-goal-${key}`), value: key, checked: model.goal === key })]));
-  const value = el('input.input.sv-value', { type: 'text', inputmode: 'decimal', id: fieldId('sv-val'), value: numberShown(Number(model.value ?? 0)), 'aria-label': 'Value of', autocomplete: 'off', disabled: model.goal !== 'value' });
+  const goals = Object.fromEntries(['max', 'min', 'value'].map((key) => [key, el('input', { type: 'radio', name: goalName, id: fieldId(`sv-goal-${key}`), value: key, checked: model.goal === key })]));
+  const value = el('input.input.sv-value', { type: 'text', inputmode: 'decimal', id: fieldId('sv-val'), value: numberShown(Number(model.value ?? 0)), 'aria-label': t('solver.valueOf'), autocomplete: 'off', disabled: model.goal !== 'value' });
   for (const radio of Object.values(goals)) radio.addEventListener('change', () => { value.disabled = !goals.value.checked; });
-  const variables = el('input.input', { type: 'text', id: fieldId('sv-adj'), value: model.variables, autocomplete: 'off', spellcheck: false, placeholder: 'e.g. $B$2:$B$5' });
-  const list = el('select.select.sm-list.sv-list', { size: 7, id: fieldId('sv-list'), 'aria-label': 'Constraints' });
-  const empty = el('p.small.muted.sm-empty.sv-empty', {}, 'No constraints yet. Choose Add to limit the cells the model uses.');
+  const variables = el('input.input', { type: 'text', id: fieldId('sv-adj'), value: model.variables, autocomplete: 'off', spellcheck: false, placeholder: t('solver.variablesExample') });
+  const list = el('select.select.sm-list.sv-list', { size: 7, id: fieldId('sv-list'), 'aria-label': t('solver.constraints') });
+  const empty = el('p.small.muted.sm-empty.sv-empty', {}, t('solver.noConstraints'));
   const nonNegative = el('input', { type: 'checkbox', id: fieldId('sv-neg'), checked: model.nonNegative !== false });
-  const engine = el('select.select', { id: fieldId('sv-eng') }, ...ENGINES.map(([key, label]) => el('option', { value: key }, label)));
+  const engine = el('select.select', { id: fieldId('sv-eng') }, ...ENGINES.map(([key]) => el('option', { value: key }, t(ENGINE_LABELS[key]))));
   engine.value = model.engine;
-  const note = el('p.small.muted.sv-engine-note', { id: fieldId('sv-note') }, ENGINE_NOTES[model.engine]);
+  const note = el('p.small.muted.sv-engine-note', { id: fieldId('sv-note') }, t(ENGINE_NOTES[model.engine]));
   engine.setAttribute('aria-describedby', note.id);
-  engine.addEventListener('change', () => { note.textContent = ENGINE_NOTES[engine.value]; });
+  engine.addEventListener('change', () => { note.textContent = t(ENGINE_NOTES[engine.value]); });
   let options = { ...DEFAULT_OPTIONS, ...model.options };
   let constraints = model.constraints.map((k) => ({ ...k }));
   const buttons = {};
@@ -355,32 +359,32 @@ export function openSolver(ctx, start = null) {
     variables: variables.value.trim(), constraints: constraints.map((k) => ({ ...k })), nonNegative: nonNegative.checked, engine: engine.value, options: { ...options },
   });
   const add = () => openConstraintEditor(ctx, null, (k, again) => { constraints.push(k); sync(constraints.length - 1); if (again) add(); else list.focus(); });
-  buttons.add = el('button.btn', { type: 'button', onclick: add }, 'Add…');
+  buttons.add = el('button.btn', { type: 'button', onclick: add }, t('solver.add'));
   buttons.change = el('button.btn', { type: 'button', onclick: () => {
     const i = list.selectedIndex;
     if (i < 0) return;
     openConstraintEditor(ctx, constraints[i], (k, again) => { constraints[i] = k; sync(i); if (again) add(); else list.focus(); });
-  } }, 'Change…');
-  buttons.remove = el('button.btn', { type: 'button', onclick: () => { const i = list.selectedIndex; if (i < 0) return; constraints.splice(i, 1); sync(i); (constraints.length ? list : buttons.add).focus(); } }, 'Delete');
+  } }, t('solver.change'));
+  buttons.remove = el('button.btn', { type: 'button', onclick: () => { const i = list.selectedIndex; if (i < 0) return; constraints.splice(i, 1); sync(i); (constraints.length ? list : buttons.add).focus(); } }, t('common.delete'));
   buttons.reset = el('button.btn', { type: 'button', onclick: async () => {
-    const ok = await confirmDialog({ title: 'Reset All', message: 'Clear the objective, variable cells, constraints and options?', confirmLabel: 'Reset', danger: true });
+    const ok = await confirmDialog({ title: t('solver.resetAll'), message: t('solver.resetConfirm'), confirmLabel: t('common.reset'), danger: true });
     if (!ok) return;
     const blank = emptyModel();
     objective.value = ''; variables.value = ''; goals.max.checked = true; value.value = numberShown(0); value.disabled = true;
-    nonNegative.checked = true; engine.value = blank.engine; note.textContent = ENGINE_NOTES[blank.engine];
+    nonNegative.checked = true; engine.value = blank.engine; note.textContent = t(ENGINE_NOTES[blank.engine]);
     options = { ...DEFAULT_OPTIONS }; constraints = [];
     sync();
     objective.focus();
-  } }, 'Reset All');
+  } }, t('solver.resetAll'));
   buttons.loadSave = el('button.btn', { type: 'button', onclick: () => openLoadSave(ctx, current(), (m) => {
     objective.value = m.objective; variables.value = m.variables; goals[m.goal].checked = true; value.value = numberShown(Number(m.value ?? 0)); value.disabled = m.goal !== 'value';
-    nonNegative.checked = m.nonNegative !== false; engine.value = m.engine; note.textContent = ENGINE_NOTES[m.engine];
+    nonNegative.checked = m.nonNegative !== false; engine.value = m.engine; note.textContent = t(ENGINE_NOTES[m.engine]);
     options = { ...DEFAULT_OPTIONS, ...m.options }; constraints = m.constraints.map((k) => ({ ...k }));
     sync(0);
-  }) }, 'Load/Save…');
+  }) }, t('solver.loadSave'));
   list.addEventListener('dblclick', () => buttons.change.click());
   list.addEventListener('keydown', (e) => { if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); buttons.remove.click(); } });
-  const optionsBtn = el('button.btn', { type: 'button', onclick: () => openOptions(options, (next) => { options = { ...options, ...next }; }) }, 'Options…');
+  const optionsBtn = el('button.btn', { type: 'button', onclick: () => openOptions(options, (next) => { options = { ...options, ...next }; }) }, t('solver.optionsButton'));
   const { alert, refuse } = fieldAlert('solver');
 
   let closingTo = null;
@@ -393,12 +397,12 @@ export function openSolver(ctx, start = null) {
   const solve = (e) => {
     e?.preventDefault();
     const m = current();
-    if (m.goal === 'value' && !Number.isFinite(m.value)) return refuse(value, 'Enter the number the objective should reach');
+    if (m.goal === 'value' && !Number.isFinite(m.value)) return refuse(value, t('coreSolver.errors.value'));
     const prepared = prepareSolver(wb, sheetId, m);
     if (prepared.error) {
       const field = { objective, variables, value, constraint: list }[prepared.field] || null;
       if (prepared.field === 'constraint' && Number.isInteger(prepared.index)) list.selectedIndex = prepared.index;
-      return refuse(field, prepared.error);
+      return refuse(field, prepared.shown ?? prepared.error);
     }
     closingTo = prepared;
     modal.close();
@@ -409,30 +413,30 @@ export function openSolver(ctx, start = null) {
     }, (err) => {
       progress.close();
       console.error(err);
-      toast(`Solver stopped: ${err?.message || 'unexpected error'}`, { icon: 'alert', duration: 5000 });
+      toast(err?.message ? t('solver.stoppedWith', { message: err.message }) : t('solver.stoppedUnexpected'), { icon: 'alert', duration: 5000 });
     });
   };
 
   const field = (label, control, extra = null) => el('div.field', {}, el('label.field-label', { for: control.id }, label), control, extra);
   const content = el('form.sv-dialog', { onsubmit: solve },
-    field('Set objective', objective),
-    el('div.sv-goal', { role: 'radiogroup', 'aria-labelledby': `${goalName}-label` }, el('span.field-label.sv-goal-label', { id: `${goalName}-label` }, 'To'),
-      el('label.check', { for: goals.max.id }, goals.max, el('span', {}, 'Max')),
-      el('label.check', { for: goals.min.id }, goals.min, el('span', {}, 'Min')),
-      el('label.check', { for: goals.value.id }, goals.value, el('span', {}, 'Value of')), value),
-    field('By changing variable cells', variables, el('span.small.muted', {}, 'Separate ranges with commas.')),
+    field(t('solver.setObjective'), objective),
+    el('div.sv-goal', { role: 'radiogroup', 'aria-labelledby': `${goalName}-label` }, el('span.field-label.sv-goal-label', { id: `${goalName}-label` }, t('solver.to')),
+      el('label.check', { for: goals.max.id }, goals.max, el('span', {}, t('solver.max'))),
+      el('label.check', { for: goals.min.id }, goals.min, el('span', {}, t('solver.min'))),
+      el('label.check', { for: goals.value.id }, goals.value, el('span', {}, t('solver.valueOf'))), value),
+    field(t('solver.variables'), variables, el('span.small.muted', {}, t('solver.variablesHint'))),
     el('div.sv-constraints', {},
-      el('div.sv-list-wrap', {}, el('label.field-label', { for: list.id }, 'Subject to the constraints'), list, empty),
+      el('div.sv-list-wrap', {}, el('label.field-label', { for: list.id }, t('solver.subjectTo')), list, empty),
       el('div.sm-buttons.sv-buttons', {}, buttons.add, buttons.change, buttons.remove, buttons.reset, buttons.loadSave)),
-    el('label.check', { for: nonNegative.id }, nonNegative, el('span', {}, 'Make unconstrained variables non-negative')),
+    el('label.check', { for: nonNegative.id }, nonNegative, el('span', {}, t('solver.nonNegative'))),
     el('div.sv-engine', {},
-      el('div.field', {}, el('label.field-label', { for: engine.id }, 'Solving method'), el('div.sv-engine-row', {}, el('div.select-wrap', {}, engine), optionsBtn)),
+      el('div.field', {}, el('label.field-label', { for: engine.id }, t('solver.method')), el('div.sv-engine-row', {}, el('div.select-wrap', {}, engine), optionsBtn)),
       note),
     alert,
     el('div.row.row-end', {},
-      el('button.btn.btn-ghost', { type: 'button', onclick: close }, 'Close'),
-      el('button.btn.btn-primary', { type: 'submit' }, 'Solve')));
-  const modal = openModal({ title: 'Solver Parameters', content, wide: true, initialFocus: objective, onClose: () => { if (!closingTo) ctx.grid?.focus?.(); } });
+      el('button.btn.btn-ghost', { type: 'button', onclick: close }, t('common.close')),
+      el('button.btn.btn-primary', { type: 'submit' }, t('solver.solve'))));
+  const modal = openModal({ title: t('solver.title'), content, wide: true, initialFocus: objective, onClose: () => { if (!closingTo) ctx.grid?.focus?.(); } });
   sync(0);
   return modal;
 }
