@@ -61,6 +61,13 @@ test.describe('sketching', () => {
     await page.keyboard.press('Escape');
     await expect(box).toHaveCount(0);
     expect(await points()).toBe(before);
+    // The value field in the panel refuses negative lengths too.
+    await page.locator('.dim-label').click();
+    const field = page.getByRole('textbox', { name: 'Value' });
+    await field.fill('-5');
+    await field.press('Enter');
+    await expect(field).toHaveClass(/invalid/);
+    expect(await points()).toBe(before);
     expect(errors).toEqual([]);
   });
 
