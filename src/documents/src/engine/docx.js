@@ -866,7 +866,7 @@ function writeRunChange(properties, revision, make, previousProperties) {
   return properties;
 }
 /** Insert move range markers around each run of moveFrom/moveTo wrappers (§17.13.5.22–.27). */
-function writeMoveRanges(node, names, counters, make) {
+function writeMoveRanges(node, names, counters, make, created = []) {
   const containers = [node, ...[...node.getElementsByTagNameNS(W, 'hyperlink')]];
   for (const container of containers) {
     let group = [];
@@ -879,6 +879,7 @@ function writeMoveRanges(node, names, counters, make) {
       start.setAttributeNS(W, 'w:author', first.getAttributeNS(W, 'author') || ''); if (first.getAttributeNS(W, 'date')) start.setAttributeNS(W, 'w:date', first.getAttributeNS(W, 'date'));
       const end = make(`${kind}RangeEnd`); end.setAttributeNS(W, 'w:id', id);
       first.before(start); group.at(-1).after(end); group = [];
+      created.push({ key, base, start, end });
     };
     for (const n of children(container)) {
       const move = n.namespaceURI === W && ['moveFrom', 'moveTo'].includes(n.localName);
@@ -886,6 +887,28 @@ function writeMoveRanges(node, names, counters, make) {
       else { flush(); if (move) group.push(n); }
     }
     flush();
+  }
+}
+/**
+ * A move the source recorded as one range spanning paragraphs (Word's move of whole paragraphs, its range ending
+ * in or after the last of them) is one range again, from its first moved content to its last: written a paragraph
+ * at a time, it became a move per paragraph (move1, move1_2…) on each side. Only named moves join; a move
+ * name is unique to its range on each side (§17.13.5.24).
+ */
+function joinMoveRanges(created) {
+  const byName = new Map();
+  for (const range of created) if (range.base !== 'move' && range.start.isConnected) {
+    if (!byName.has(range.key)) byName.set(range.key, []);
+    byName.get(range.key).push(range);
+  }
+  for (const ranges of byName.values()) {
+    if (ranges.length < 2) continue;
+    ranges.sort((a, b) => a.start.compareDocumentPosition(b.start) & 4 ? -1 : 1);
+    const [first] = ranges, last = ranges.at(-1);
+    first.start.setAttributeNS(W, 'w:name', first.base);
+    for (const range of ranges.slice(1)) range.start.remove();
+    for (const range of ranges.slice(0, -1)) range.end.remove();
+    last.end.setAttributeNS(W, 'w:id', first.start.getAttributeNS(W, 'id'));
   }
 }
 // Each unchanged paragraph's source XML, parsed once: every save imports it again (importNode copies it). Saving a
@@ -937,8 +960,8 @@ function removeRenderedPageBreaks(doc) {
 }
 function paragraphWriter(doc, styles, numbering, originals, writeImage, writeLink, sectionSource = p => ({ xml: p.sectionProperties, settings: p.sectionEnd })) {
   const make = name => doc.createElementNS(W, `w:${name}`);
-  const moveNames = new WeakMap(), moveCounters = new Map();
-  return p => {
+  const moveNames = new WeakMap(), moveCounters = new Map(), moveRanges = [];
+  const write = p => {
     const inheritedCaps = id => styleRun(styles, id || styles.defaultCharacter, paragraphRunStyle(p, styles), 'character').capitalization;
     const inheritedStrike = id => styleRun(styles, id || styles.defaultCharacter, paragraphRunStyle(p, styles), 'character').strikethrough;
     const original = originals.get(p.id);
@@ -1191,10 +1214,13 @@ function paragraphWriter(doc, styles, numbering, originals, writeImage, writeLin
         }
         place(r, run);
       }
-      writeMoveRanges(node, moveNames, moveCounters, make);
+      writeMoveRanges(node, moveNames, moveCounters, make, moveRanges);
     }
     return node;
   };
+  // Once every paragraph is in the part: a move written a paragraph at a time is one range again (joinMoveRanges).
+  write.finish = () => joinMoveRanges(moveRanges);
+  return write;
 }
 
 // Controls in a retained drawing belong to its separately validated text story.
@@ -2385,6 +2411,7 @@ export class DocxPackage {
       const writeParagraph = paragraphWriter(doc, styles, numbering, original.paragraphs, writeImage, writeLink);
       root.replaceChildren();
       appendControlledBlocks(root, blocks.map(block => ({ ...block, blockControls: (block.type === 'table' ? block.table : block.paragraph).blockControls })), block => block.type === 'table' ? writeTable(block, doc, writeParagraph) : writeParagraph(block.paragraph), doc);
+      writeParagraph.finish();
       removeRenderedPageBreaks(doc);
       bindImageNamespaces(doc); bindHyperlinkNamespaces(doc);
       if (noteId === null) parts[path] = strToU8(serialize(doc).replace(/^(<\?xml[^?]*encoding=)["'][^"']*["']/i, '$1"UTF-8"'));
@@ -2510,6 +2537,7 @@ export class DocxPackage {
     // The final paragraph the reader added to a body without one stays out of the file while it is untouched.
     blocks = blocks.filter(block => { const original = block.type === 'paragraph' && this.originals.get(block.paragraph.id); return !(original?.added && original.signature === signature(block.paragraph)); });
     appendControlledBlocks(body, blocks.map(block => ({ ...block, blockControls: (block.type === 'table' ? block.table : block.paragraph).blockControls })), block => block.type === 'table' ? writeTable(block, doc, writeParagraph) : writeParagraph(block.paragraph), doc, null, section || null);
+    writeParagraph.finish();
     const sectionParagraphs = paragraphs.filter(p => p.sectionEnd);
     const sourceSectionCount = this.paragraphs.filter(p => p.sectionEnd).length + 1;
     const sectionIndices = [...sectionParagraphs.map((p, i) => p.sectionSourceIndex ?? i), sourceSectionCount - 1];

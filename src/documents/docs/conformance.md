@@ -24769,3 +24769,16 @@ run revision ids (`w:rsidRPr`), proofing marks (`w:proofErr`) and `w:t` as writt
 paragraphs nobody touched. The boundaries are now rebuilt as they were read, and those paragraphs are
 saved byte for byte; a paragraph whose own text changes is still rewritten. Tests:
 `tests/field-paragraph-untouched.test.js` (independently written package).
+
+## Moves of several paragraphs stay one move (2026-11-03)
+
+Clauses: ECMA-376 Part 1 §17.13.5.22–.27 (`moveFrom`, `moveFromRangeStart`/`End`, `moveTo`,
+`moveToRangeStart`/`End`), §17.13.5.24 (a move range's name links its two sides).
+
+Paragraphs inside a move range that crosses paragraphs are written anew on every save (their source XML lacks
+the range's other marker). Their moves were written one range per paragraph, named `move1`, `move1_2`…, so a
+move of two whole paragraphs became two moves in Word's Reviewing pane. Ranges written for the same named move
+on the same side now join into one, from the first moved content to the last; moves without a range name keep a
+range per paragraph. Gaps: a range end Word wrote between paragraphs or at the start of the next one is written
+after the last moved content, inside its paragraph. Tests: `tests/move-range-paragraphs.test.js` (independently
+written package); exports pass `tools/check-docx-schema.py`.
