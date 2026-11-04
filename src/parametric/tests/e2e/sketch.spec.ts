@@ -54,6 +54,13 @@ test.describe('sketching', () => {
     await box.press('Escape');
     expect(await points()).toBe(before);
     expect(before).not.toContain('null');
+    // Esc with focus moved off the value (onto the box's Cancel button) also reverts.
+    await page.locator('.dim-label').dblclick();
+    await box.fill('5');
+    await page.keyboard.press('Shift+Tab');
+    await page.keyboard.press('Escape');
+    await expect(box).toHaveCount(0);
+    expect(await points()).toBe(before);
     expect(errors).toEqual([]);
   });
 

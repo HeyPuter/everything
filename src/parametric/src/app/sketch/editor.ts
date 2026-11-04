@@ -72,6 +72,8 @@ export class SketchEditor implements ViewportTool {
   private labels = new Map<Id, HTMLElement>();
   private badges = new Map<Id, HTMLElement[]>();
   private modify: HTMLElement | null = null;
+  /** Undoes the open modify box's live preview when it closes without applying. */
+  private modifyRevert: (() => void) | null = null;
   showRelations = true;
   showDimensions = true;
   /** Cursor position in sketch coordinates. */
@@ -542,14 +544,19 @@ export class SketchEditor implements ViewportTool {
       }
       return true;
     };
-    const cancel = () => {
-      const dd = this.sketch.constraints.find((c) => c.id === dimId) as SkDimension | undefined;
-      if (dd) dd.value = original;
+    const revert = () => {
+      const dd = this.sketch?.constraints.find((c) => c.id === dimId) as SkDimension | undefined;
+      if (!dd) return;
+      dd.value = original;
       restoreGeometry();
       this.resolve();
+    };
+    const cancel = () => this.closeModify();
+    const ok = () => {
+      if (!apply(false)) return;
+      this.modifyRevert = null;
       this.closeModify();
     };
-    const ok = () => { if (apply(false)) this.closeModify(); };
     input.addEventListener('input', () => apply(true));
     input.addEventListener('keydown', (e) => {
       e.stopPropagation();
@@ -564,6 +571,7 @@ export class SketchEditor implements ViewportTool {
       input, err);
     this.app.viewport.root.append(box);
     this.modify = box;
+    this.modifyRevert = revert;
     const [sx, sy] = this.toScreen(d.at);
     const rootW = this.app.viewport.root.clientWidth;
     box.style.left = `${Math.max(4, Math.min(rootW - 200, sx + 14))}px`;
@@ -575,7 +583,11 @@ export class SketchEditor implements ViewportTool {
     setTimeout(() => document.addEventListener('pointerdown', outside, true), 0);
   }
 
+  /** Closes the modify box; a value that was not applied is reverted. */
   closeModify() {
+    const revert = this.modifyRevert;
+    this.modifyRevert = null;
+    revert?.();
     this.modify?.remove();
     this.modify = null;
   }
