@@ -100,6 +100,7 @@ describe('PropertyManager number fields', () => {
     input.value = '-5';
     key(input, 'Enter');
     expect(input.classList.contains('invalid')).toBe(true);
+    expect(input.getAttribute('aria-invalid')).toBe('true');
     input.value = '=Len+1';
     key(input, 'Enter');
     expect(onChange).toHaveBeenLastCalledWith('=Len+1');

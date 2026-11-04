@@ -196,7 +196,8 @@ export function numberField(o: NumberFieldOptions): HTMLElement {
     }
     if (o.min !== undefined && r.num < o.min) {
       input.classList.add('invalid');
-      input.title = `Must be at least ${o.min}`;
+      input.setAttribute('aria-invalid', 'true');
+      input.title = `Must be at least ${paramText(o.min, o.kind, o.ctx)}`;
       return;
     }
     input.classList.remove('invalid');
