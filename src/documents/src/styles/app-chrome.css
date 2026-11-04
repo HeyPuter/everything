@@ -68,6 +68,8 @@ input:disabled + .ed-switch { opacity: .5; }
 /* Command search */
 .ed-header .ed-search { position: relative; min-width: 0; width: 220px; padding: 0 8px; gap: 6px; cursor: text; }
 .ed-header .ed-search:focus-within { border-color: var(--ed-accent); box-shadow: 0 0 0 1px var(--ed-accent); }
+/* Contrast themes drop the ring's shadow: the field takes an outline in the highlight color instead. */
+@media (forced-colors: active) { .ed-header .ed-search:focus-within { outline: 2px solid Highlight; outline-offset: 0; } }
 .ed-search-input { flex: 1; min-width: 0; height: 26px; padding: 0; border: 0; background: transparent; color: var(--ed-ink); font: 400 12px/1 var(--font); outline: none; }
 .ed-search-input::placeholder { color: var(--ed-ink-3); }
 .ed-search-results {
