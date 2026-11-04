@@ -86,3 +86,25 @@ test('the title block fields keep keyboard focus and follow undo', async ({ page
   await page.evaluate(() => (window as unknown as { __parametric: { store: { undo(): void } } }).__parametric.store.undo());
   await expect(page.getByRole('textbox', { name: 'Drawn by' })).toHaveValue('');
 });
+
+test('exporting right after opening the drawing waits for the views', async ({ page }) => {
+  await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  await page.waitForFunction(() => (window as unknown as { __parametric: { bbox: unknown } }).__parametric.bbox);
+  const views = await page.evaluate(async () => {
+    const app = (window as unknown as { __parametric: { openDrawing(): void; drawing: { exportSvg(): Promise<void> } } }).__parametric;
+    // Capture the download instead of saving it.
+    let href = '';
+    const click = HTMLAnchorElement.prototype.click;
+    HTMLAnchorElement.prototype.click = function (this: HTMLAnchorElement) { href = this.href; };
+    try {
+      app.openDrawing();
+      await app.drawing.exportSvg();
+    } finally {
+      HTMLAnchorElement.prototype.click = click;
+    }
+    return (await (await fetch(href)).text()).match(/data-view=/g)?.length ?? 0;
+  });
+  expect(views).toBe(4);
+});

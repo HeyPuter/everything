@@ -358,14 +358,21 @@ export class DrawingWorkspace {
 
   // ---------- export ----------
 
-  exportPdf() {
+  /** Waits for views still being projected, so an export right after opening has them. */
+  private async projected() {
+    while (this.pending || this.refreshAgain) await new Promise((r) => setTimeout(r, 50));
+  }
+
+  async exportPdf() {
     if (!this.doc) return;
+    await this.projected();
     const s = this.sheet();
     download(toPdf(s.items, s.w, s.h, this.app.store.doc.name) as BlobPart, `${safeName(this.app.store.doc.name)}.pdf`, 'application/pdf');
   }
 
-  exportSvg() {
+  async exportSvg() {
     if (!this.doc) return;
+    await this.projected();
     const s = this.sheet();
     download(toSvg(s.items, s.w, s.h), `${safeName(this.app.store.doc.name)}.svg`, 'image/svg+xml');
   }
@@ -421,8 +428,8 @@ export class DrawingPanel extends PropertyPanel {
       ]),
       section('Export', [
         h('div', { class: 'row' },
-          h('button', { class: 'btn small', type: 'button', onclick: () => ws.exportPdf() }, icon('download', 14), 'PDF'),
-          h('button', { class: 'btn small', type: 'button', onclick: () => ws.exportSvg() }, icon('download', 14), 'SVG')),
+          h('button', { class: 'btn small', type: 'button', onclick: () => void ws.exportPdf() }, icon('download', 14), 'PDF'),
+          h('button', { class: 'btn small', type: 'button', onclick: () => void ws.exportSvg() }, icon('download', 14), 'SVG')),
       ]),
     ];
   }
