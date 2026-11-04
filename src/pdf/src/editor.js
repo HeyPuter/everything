@@ -3496,16 +3496,21 @@ export function createEditor({
       pageImages.cancel();
       return;
     }
+    // The draft held the focus when undone from the keyboard; the page takes it then. The Undo
+    // button keeps it while it can still undo more.
+    const focusPage = () => {
+      if (document.activeElement !== undoButton || undoButton.disabled) overlay.focus();
+    };
     if (action === 'undo' && pendingTextEdit()) {
       await finishTextEdit(false);
-      overlay.focus();
+      focusPage();
       return;
     }
     // A note being typed is undone by discarding the draft, as text is; committing it first
     // would only put the unwanted note on the redo stack.
     if (action === 'undo' && pendingNoteEdit()) {
       closeNoteEditor();
-      overlay.focus();
+      focusPage();
       return;
     }
     // The Redo button is disabled while a draft is pending; the shortcut must match it
@@ -5234,15 +5239,24 @@ export function createEditor({
     }
     // Return lost focus to the page. External output actions manage their own focus
     // recovery, and a control reached while saving must keep its focus.
-    if (
-      !destroyed &&
-      document.activeElement === document.body &&
-      (edit.input.contains(priorFocus) ||
-        edit.panel.contains(priorFocus) ||
-        edit.handles.contains(priorFocus) ||
-        (!saving && !downloading))
-    )
-      overlay.focus({ preventScroll: true });
+    const inDraft = [edit.input, edit.panel, edit.handles].some((part) =>
+      part.contains(priorFocus),
+    );
+    if (!destroyed && document.activeElement === document.body) {
+      // A control pressed outside the draft (a tool, say) was turned off while the edit saved,
+      // which dropped its focus; it takes the focus back, as it keeps it with no draft open.
+      if (
+        !inDraft &&
+        !saving &&
+        !downloading &&
+        priorFocus instanceof HTMLButtonElement &&
+        priorFocus.isConnected &&
+        !priorFocus.disabled &&
+        editorRoot.contains(priorFocus)
+      )
+        priorFocus.focus({ preventScroll: true });
+      else if (inDraft || (!saving && !downloading)) overlay.focus({ preventScroll: true });
+    }
   }
   function textDialog(...args) {
     return selectionProperties(() => openTextEditor(...args));
