@@ -901,8 +901,10 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
   function labelHistory() {
     if (!engine) return;
     const top = engine.session.history.at(-1), length = engine.model.text.length;
-    // A step the editor named itself (AutoCorrect) keeps that name.
-    if (top && !labelOf(top)) {
+    // A step the editor named itself (typing, AutoCorrect) is that: a command noted just before changed nothing, and is
+    // neither its name nor what Repeat runs.
+    if (top?.label) pendingCommand = null;
+    else if (top && !labelOf(top)) {
       const recent = pendingCommand && Date.now() - pendingCommand.at < 3000 ? pendingCommand : null, label = recent?.label || (length !== lastTextLength ? 'Typing' : 'Formatting');
       if (Object.isFrozen(top)) sharedLabels.set(top, label); else top.label = label;
       if (recent?.run) editCommands.recordRepeat(recent.label, recent.run);

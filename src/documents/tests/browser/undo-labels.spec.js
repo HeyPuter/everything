@@ -78,3 +78,16 @@ test('a step keeps its name through Undo and Redo', async ({ page }) => {
   expect(await undoItem(page)).toMatch(/^Undo Paste/);
   expect(await page.evaluate(() => window.__docs.current.view.commands.undoHistory())).toEqual(['Paste', 'Typing']);
 });
+
+test('typing just after a command that changed nothing is Typing, and is what Repeat repeats', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/mock.html#/new');
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await page.locator('canvas.canvas-page').first().click({ position: { x: 150, y: 110 } });
+  await page.keyboard.type('Start ');
+  await page.locator('.ribbon-card').getByRole('button', { name: 'Show Formatting Marks' }).click();
+  await input(page).focus();
+  await page.keyboard.type('abc');
+  expect(await undoItem(page)).toMatch(/^Undo Typing/);
+  expect(await page.evaluate(() => window.__docs.current.view.commands.repeatLabel?.())).not.toBe('Show Formatting Marks');
+});

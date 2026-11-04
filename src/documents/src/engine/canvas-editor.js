@@ -1998,7 +1998,7 @@ export class CanvasEditor {
     // While true, the host may refresh its controls after the frame that shows the typed text.
     this.typing = true;
     let executed;
-    try { executed = this.execute(action, undefined, { record: !merge, typing: true }); } finally { this.typing = false; }
+    try { executed = this.execute(action, undefined, { record: !merge, typing: true, label: 'Typing' }); } finally { this.typing = false; }
     if (executed) {
       this.typingGroup = { revision: this.session.revision, path: this.session.path, at: this.model.selection.focus, last: text.at(-1) };
       if (text.length === 1) this.assistTyping(text);
@@ -2039,7 +2039,7 @@ export class CanvasEditor {
       done = this.execute(() => {
         if (past !== null) this.model.select(past);
         return this.model.delete(direction);
-      }, undefined, { record: !merge, typing: true });
+      }, undefined, { record: !merge, typing: true, label: 'Typing' });
     } finally { this.deleting = false; }
     if (done) this.deleteGroup = { direction, at: this.model.selection.focus, revision: this.session.revision, path: this.session.path };
   }
