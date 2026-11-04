@@ -907,7 +907,9 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     // neither its name nor what Repeat runs.
     if (top?.label) pendingCommand = null;
     else if (top && !labelOf(top)) {
-      const recent = pendingCommand && Date.now() - pendingCommand.at < 3000 ? pendingCommand : null, label = recent?.label || (length !== lastTextLength ? 'Typing' : 'Formatting');
+      // A command is remembered for a few seconds, and while a dialog it opened then is open (or just closing).
+      const fromDialog = command => [...document.querySelectorAll('.modal-root')].some(node => { const opened = Number(node.dataset.opened); return opened >= command.at && opened - command.at < 3000; });
+      const recent = pendingCommand && (Date.now() - pendingCommand.at < 3000 || fromDialog(pendingCommand)) ? pendingCommand : null, label = recent?.label || (length !== lastTextLength ? 'Typing' : 'Formatting');
       if (Object.isFrozen(top)) sharedLabels.set(top, label); else top.label = label;
       if (recent?.run) editCommands.recordRepeat(recent.label, recent.run);
       pendingCommand = null;

@@ -15,7 +15,8 @@ export function closeAllModals() {
 export function openModal({ title, content, onClose, wide = false }) {
   const panel = el('div.modal-panel', { role: 'dialog', 'aria-modal': 'true', 'aria-label': title, tabindex: -1 });
   if (wide) panel.classList.add('wide');
-  const rootNode = el('div.modal-root', {},
+  // When it opened: a change made from it belongs to the command that opened it (the editor's undo step names).
+  const rootNode = el('div.modal-root', { dataset: { opened: String(Date.now()) } },
     el('div.modal-scrim', { onclick: () => close() }),
     panel);
 

@@ -157,3 +157,19 @@ test('a keyboard command just after a ribbon command that changed nothing is nam
   expect(await undoItem(page)).toMatch(/^Undo Formatting/);
   expect(await page.evaluate(() => window.__docs.current.view.commands.repeatLabel?.())).not.toBe('Show Formatting Marks');
 });
+
+test('a change made in a dialog is named after the command that opened it, however long the dialog was open', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/mock.html#/new');
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await page.locator('canvas.canvas-page').first().click({ position: { x: 150, y: 110 } });
+  await page.keyboard.type('Some words');
+  await page.locator('.ribbon-card').getByRole('button', { name: 'Paragraph Settings', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Paragraph' });
+  await dialog.getByLabel('Left indent (in)').fill('0.5');
+  // Longer than a command is remembered without a dialog.
+  await page.waitForTimeout(3300);
+  await dialog.getByRole('button', { name: 'OK' }).click();
+  await expect(dialog).toBeHidden();
+  expect(await undoItem(page)).toMatch(/^Undo Paragraph Settings/);
+});
