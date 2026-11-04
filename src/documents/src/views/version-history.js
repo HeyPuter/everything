@@ -179,7 +179,11 @@ export function createVersionHistory({ editor, pkg, doc, error, author, live = (
       });
       for (const [source, image] of opened.images || []) { const id = renames.get(source) || source; if (!engine.images.has(id)) engine.images.set(id, image); else image.close?.(); }
       engine.relayout(); engine.paint();
-      toast(`Restored “${versionName(v)}”`, { action: { label: 'Undo', onClick: () => engine.undo() } });
+      // The toast's Undo takes back the restore only while it is this person's latest change: after another edit it
+      // would undo that edit and keep the version. (A shared document's own steps are counted, not others'.)
+      const history = engine.session.history, steps = history.length, step = history.at(-1);
+      const latest = () => editor() === engine && engine.session.history.length === steps && engine.session.history.at(-1) === step;
+      toast(`Restored “${versionName(v)}”`, { action: { label: 'Undo', onClick: () => { if (latest()) engine.undo(); else toast('Other changes were made since. Use Undo to step back through them first.', { icon: 'info' }); } } });
       closePreview();
       return true;
     } catch (e) { error(e); }
