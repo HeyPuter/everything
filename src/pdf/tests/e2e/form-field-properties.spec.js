@@ -545,3 +545,35 @@ for (const rotation of [0, 90])
     for (const key of ['x', 'y', 'width', 'height'])
       expect(rect[key]).toBeCloseTo(expected[key], 2);
   });
+
+test('Escape while dragging a field puts it back without an edit', async ({ page }) => {
+  const doc = await PDFDocument.create();
+  const note = doc.getForm().createTextField('Note');
+  note.addToPage(doc.addPage([600, 400]), { x: 100, y: 100, width: 120, height: 24 });
+  await openPdf(page, doc);
+  await prepareForm(page);
+  const before = await designer(page, 'Note#0').boundingBox();
+  await page.mouse.move(before.x + 20, before.y + 10);
+  await page.mouse.down();
+  await page.mouse.move(before.x + 120, before.y + 60, { steps: 5 });
+  await page.keyboard.press('Escape');
+  expect(await designer(page, 'Note#0').boundingBox()).toEqual(before);
+  await page.mouse.move(before.x + 140, before.y + 80, { steps: 2 });
+  await page.mouse.up();
+  await settled(page);
+  expect(await designer(page, 'Note#0').boundingBox()).toEqual(before);
+  await expect(page.getByRole('button', { name: /^Undo/ })).toBeDisabled();
+  // Prepare a form stays open: Escape went to the drag.
+  await expect(page.getByRole('complementary', { name: 'Tools' })).toContainText('Prepare a form');
+  // A drag the system cancels is not applied either.
+  await page.mouse.move(before.x + 20, before.y + 10);
+  await page.mouse.down();
+  await page.mouse.move(before.x + 120, before.y + 60, { steps: 5 });
+  await designer(page, 'Note#0').evaluate((node) =>
+    node.dispatchEvent(new PointerEvent('pointercancel', { pointerId: 1, bubbles: true })),
+  );
+  await page.mouse.up();
+  await settled(page);
+  expect(await designer(page, 'Note#0').boundingBox()).toEqual(before);
+  await expect(page.getByRole('button', { name: /^Undo/ })).toBeDisabled();
+});

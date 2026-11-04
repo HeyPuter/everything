@@ -104,6 +104,22 @@ export function createFormDesigner({ onMove, onOpen, onDelete, onSelect }) {
     const box = screenBox(field);
     drag = { field, node, mode, x: e.clientX, y: e.clientY, box, moved: false, id: e.pointerId };
     node.setPointerCapture(e.pointerId);
+    window.addEventListener('keydown', escapeDrag, true);
+  }
+  /** Escape, or a cancelled pointer, puts the box back where it was, with nothing changed. */
+  function cancelDrag(e) {
+    if (!drag || (e.pointerId !== undefined && e.pointerId !== drag.id)) return;
+    const done = drag;
+    drag = null;
+    window.removeEventListener('keydown', escapeDrag, true);
+    place(done.node, done.box);
+    if (done.node.hasPointerCapture(done.id)) done.node.releasePointerCapture(done.id);
+  }
+  function escapeDrag(e) {
+    if (e.key !== 'Escape' || e.isComposing) return;
+    e.preventDefault();
+    e.stopPropagation();
+    cancelDrag(e);
   }
   function moveDrag(e) {
     if (!drag || e.pointerId !== drag.id) return;
@@ -128,6 +144,7 @@ export function createFormDesigner({ onMove, onOpen, onDelete, onSelect }) {
     if (!drag || e.pointerId !== drag.id) return;
     const done = drag;
     drag = null;
+    window.removeEventListener('keydown', escapeDrag, true);
     if (done.moved && done.current) onMove(done.field, pdfRect(done.current));
   }
 
@@ -165,7 +182,7 @@ export function createFormDesigner({ onMove, onOpen, onDelete, onSelect }) {
             onpointerdown: (e) => startDrag(e, field, node, 'move'),
             onpointermove: moveDrag,
             onpointerup: endDrag,
-            onpointercancel: endDrag,
+            onpointercancel: cancelDrag,
             ondblclick: () => onOpen(field),
             onkeydown: (e) => {
               if (e.key === 'Enter') {
