@@ -6,6 +6,7 @@ import { cloudAvailable, storageError } from '../platform/puter';
 import { h } from '../ui/dom';
 import { icon } from '../ui/icons';
 import { attachTooltip } from '../ui/overlay';
+import { selectTabs, tabKeys } from '../ui/tabs';
 import type { App } from './app';
 import type { FileOps } from './fileops';
 import type { AssistantPanel } from '../assistant/panel';
@@ -26,6 +27,8 @@ export class TaskPane {
       b.addEventListener('click', () => this.toggle(id));
       s.tpStrip.append(b);
     }
+    // Opening a pane can move focus into it, so the arrow keys only move focus.
+    tabKeys(s.tpStrip, { vertical: true, activate: false });
     app.openTaskPane = (id) => this.open(id as PaneId);
     app.toggleTaskPane = (id) => this.toggle(id as PaneId);
     app.taskPaneOpen = () => this.current;
@@ -70,7 +73,7 @@ export class TaskPane {
   }
 
   private sync() {
-    for (const b of this.app.shell.tpStrip.querySelectorAll<HTMLElement>('[role="tab"]')) b.setAttribute('aria-selected', String(b.dataset.pane === this.current));
+    selectTabs(this.app.shell.tpStrip, (b) => b.dataset.pane === this.current);
     this.app.shell.root.classList.toggle('assistant-open', this.current === 'assistant');
     this.app.commands.changed();
   }

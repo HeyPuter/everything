@@ -79,6 +79,26 @@ test.describe('accessibility', () => {
     await expect(page.getByRole('tab', { name: 'Features' })).toBeFocused();
   });
 
+  test('the task pane and sheet tabs are one tab stop each', async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /New part/ }).click();
+    const strip = page.getByRole('tablist', { name: 'Task pane' });
+    await expect(strip.locator('[role="tab"][tabindex="0"]')).toHaveCount(1);
+    await strip.getByRole('tab', { name: 'Assistant' }).focus();
+    await page.keyboard.press('ArrowDown');
+    const parts = strip.getByRole('tab', { name: 'Parts' });
+    await expect(parts).toBeFocused();
+    await expect(parts).toHaveAttribute('aria-selected', 'false');
+    await page.keyboard.press('Enter');
+    await expect(parts).toHaveAttribute('aria-selected', 'true');
+    await expect(strip.locator('[role="tab"][tabindex="0"]')).toHaveCount(1);
+    const sheets = page.getByRole('tablist', { name: 'Model or drawing' });
+    await expect(sheets.getByRole('tab', { name: 'Drawing' })).toHaveAttribute('tabindex', '-1');
+    await sheets.getByRole('tab', { name: 'Model' }).focus();
+    await page.keyboard.press('End');
+    await expect(sheets.getByRole('tab', { name: 'Drawing' })).toBeFocused();
+  });
+
   test('menus are reachable from the keyboard', async ({ page }) => {
     await openApp(page);
     await page.getByRole('button', { name: /New part/ }).click();

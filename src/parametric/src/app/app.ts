@@ -748,13 +748,14 @@ export class App {
       return b;
     };
     this.sheetTabs = h('div', { class: 'sheet-tabs', role: 'tablist', 'aria-label': 'Model or drawing' }, mk('Model', false), mk('Drawing', true));
+    // Opening the drawing projects the views, so the arrow keys only move focus.
+    tabKeys(this.sheetTabs, { activate: false });
     this.shell.statusMsg.before(this.sheetTabs);
   }
 
   private syncSheetTabs() {
-    const tabs = this.sheetTabs.querySelectorAll('[role="tab"]');
-    tabs[0].setAttribute('aria-selected', String(!this.inDrawing));
-    tabs[1].setAttribute('aria-selected', String(this.inDrawing));
+    const drawing = this.sheetTabs.querySelectorAll('[role="tab"]')[1];
+    selectTabs(this.sheetTabs, (b) => (b === drawing) === this.inDrawing);
   }
 
   private applyBuild(res: BuildResult, ms: number) {
