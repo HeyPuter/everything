@@ -62,16 +62,16 @@ export class DrawingWorkspace {
     this.el.hidden = true;
   }
 
-  /** Creates a drawing with the standard views laid out on an A4 sheet. */
+  /** Creates a drawing with the standard views laid out on an A4 (or, for inch parts, Letter) sheet. */
   create() {
     const b = this.app.bbox;
-    const sheet = { w: 297, h: 210 };
-    const layout = b ? standardLayout(sheet, b.min, b.max) : { scale: 1, views: [] };
+    const size: SheetSize = this.app.store.doc.units === 'IPS' ? 'Letter' : 'A4';
+    const layout = b ? standardLayout(sheetDims({ sheet: size, landscape: true }), b.min, b.max) : { scale: 1, views: [] };
     // Opened before the first rebuild finished: lay out once the solid exists.
     this.layoutPending = !b;
     this.app.store.change('Create drawing', (d) => {
       d.drawing = {
-        sheet: d.units === 'IPS' ? 'Letter' : 'A4', landscape: true, scale: layout.scale,
+        sheet: size, landscape: true, scale: layout.scale,
         views: layout.views.map((v, i) => ({ ...v, id: `v${i + 1}` })), title: '', drawnBy: '', notes: '',
       };
     });
