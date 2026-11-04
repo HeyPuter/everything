@@ -722,3 +722,8 @@ it('moves text with very small local coordinates without writing invalid exponen
   expect(extracted.transform[4]).toBeCloseTo(40.1, 8);
   expect(extracted.transform[5]).toBeCloseTo(299.8, 8);
 });
+
+it('offers the text of a page whose content ends with a stray Q, as readers draw it', async () => {
+  const { runs } = await read(await fixture('BT /F 20 Tf 20 300 Td (Stray restore) Tj ET Q'));
+  expect(runs.map((run) => [run.text, run.editable])).toEqual([['Stray restore', true]]);
+});

@@ -112,8 +112,9 @@ export function inspectPaths(doc, index) {
         if (commands.length) eligible = false;
         if (op === 'q') stack.push({ ...state });
         else if (op === 'Q') {
-          if (!stack.length) throw new Error('Unbalanced path state');
-          state = stack.pop();
+          // A stray Q in the page's own content restores nothing, as readers treat it.
+          if (stack.length) state = stack.pop();
+          else if (ancestry.length) throw new Error('Unbalanced path state');
         } else if (op === 'cm') state.ctm = matrix(state.ctm, a);
         else if (op === 'w') state.width = a[0];
         else if (op === 'J') state.cap = a[0];

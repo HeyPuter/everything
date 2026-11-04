@@ -493,7 +493,12 @@ export async function inspectText(doc, index, pdfPage, OPS, layers) {
           stack.push({ ...s });
           break;
         case 'Q':
-          if (!stack.length) throw unsupported();
+          // A stray Q in the page's own content restores nothing, as readers treat it. In a
+          // form, readers would undo the form's own state with it, so that stays unsupported.
+          if (!stack.length) {
+            if (path.length) throw unsupported();
+            break;
+          }
           if (s.paintTag !== stack.at(-1).paintTag) barrier++;
           s = stack.pop();
           break;
