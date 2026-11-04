@@ -121,6 +121,11 @@ export class Viewport {
     c.addEventListener('pointermove', (e) => this.onMove(e));
     c.addEventListener('pointerup', (e) => this.onUp(e));
     c.addEventListener('pointercancel', (e) => this.onUp(e, true));
+    // Capture lost without a pointerup (window switch, OS gesture): end the
+    // gesture so a drag or orbit does not stay stuck to the pointer.
+    c.addEventListener('lostpointercapture', (e) => {
+      if (e.pointerType === 'touch' ? this.touches.has(e.pointerId) : this.gesture.kind !== 'none') this.onUp(e, true);
+    });
     c.addEventListener('pointerleave', () => {
       this.mouse = null;
       if (this.gesture.kind === 'none') {
@@ -219,6 +224,8 @@ export class Viewport {
         return;
       }
     }
+    // A mouse moving with no button down missed its release: end the gesture.
+    if (e.pointerType === 'mouse' && e.buttons === 0 && this.gesture.kind !== 'none' && this.gesture.kind !== 'touch') this.onUp(e, true);
     const ev = this.ev(e);
     this.mouse = { x: ev.x, y: ev.y };
     const g = this.gesture;
@@ -273,7 +280,12 @@ export class Viewport {
     const g = this.gesture;
     this.gesture = { kind: 'none' };
     try { this.canvas.releasePointerCapture(e.pointerId); } catch { /* not captured */ }
-    if (cancelled) return;
+    if (cancelled) {
+      // Let the tool finish its drag (as when a second finger lands), or a
+      // sketch drag stays open and swallows every later undo step.
+      if (g.kind === 'tool') this.tool?.pointerUp?.(ev);
+      return;
+    }
     if (g.kind === 'tool') {
       // A press without movement is a click for the tool.
       if (g.moved) this.tool?.pointerUp?.(ev);

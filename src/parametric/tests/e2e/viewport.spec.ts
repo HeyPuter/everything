@@ -38,6 +38,49 @@ test.describe('viewport', () => {
     expect(errors).toEqual([]);
   });
 
+  test('a drag whose release never arrives does not stay active', async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /New part/ }).click();
+    await page.getByRole('treeitem', { name: 'Front Plane' }).click();
+    await page.getByRole('tab', { name: 'Sketch' }).click();
+    await page.locator('[data-cmd="sketch"]').first().click();
+    await expect(page.locator('.statusbar')).toContainText('Defined');
+    await page.waitForTimeout(400);
+    const { x, y } = await canvasCenter(page);
+    await page.locator('[data-cmd="tool:rectangle"]').click();
+    await page.mouse.click(x, y);
+    await page.mouse.click(x + 160, y - 90);
+    await page.keyboard.press('Escape');
+    const state = () => page.evaluate(() => {
+      const app = (window as unknown as Win).__parametric;
+      return { active: app.viewport.gestureActive, batch: (app.store as unknown as { batchDepth: number }).batchDepth };
+    });
+    const cancel = (type: string) => page.evaluate((t) => {
+      document.querySelector('canvas.gl')!.dispatchEvent(new PointerEvent(t, { pointerId: 1, pointerType: 'mouse', bubbles: true }));
+    }, type);
+    // The browser cancels a sketch corner drag: the drag ends and undo still works.
+    await page.mouse.move(x + 160, y - 90);
+    await page.mouse.down();
+    await page.mouse.move(x + 180, y - 100, { steps: 4 });
+    expect(await state()).toEqual({ active: true, batch: 1 });
+    await cancel('pointercancel');
+    await page.mouse.up();
+    expect(await state()).toEqual({ active: false, batch: 0 });
+    // Pointer capture lost mid-orbit, and a move with no button held.
+    for (const end of ['lostpointercapture', 'move']) {
+      await page.mouse.move(x - 200, y + 150);
+      await page.mouse.down({ button: 'right' });
+      await page.mouse.move(x - 160, y + 120, { steps: 4 });
+      expect((await state()).active).toBe(true);
+      if (end === 'move') await page.evaluate(([cx, cy]) => {
+        document.querySelector('canvas.gl')!.dispatchEvent(new PointerEvent('pointermove', { pointerId: 1, pointerType: 'mouse', bubbles: true, clientX: cx, clientY: cy, buttons: 0 }));
+      }, [x - 150, y + 110]);
+      else await cancel(end);
+      expect((await state()).active).toBe(false);
+      await page.mouse.up({ button: 'right' });
+    }
+  });
+
   test('redraws the model after the WebGL context is lost and restored', async ({ page }) => {
     const errors = await openApp(page);
     await page.getByRole('button', { name: /Mounting Bracket/ }).click();
