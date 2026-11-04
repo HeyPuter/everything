@@ -1,0 +1,16 @@
+{
+  "approval.always": "Ask before every change",
+  "approval.destructive": "Ask before replacing or deleting data",
+  "approval.never": "Make changes without asking",
+  "nothingToAdd": "I have nothing to add.",
+  "stepCut": "The reply reached its length limit while writing this step, so it was not run.",
+  "stoppedAfter": "I stopped after {count} steps. Say \"continue\" if you want me to carry on.",
+  "suggest.budget": "Build a monthly budget with income, expenses and totals",
+  "suggest.chart": "Suggest a chart for this data",
+  "suggest.explainFormulas": "Explain how the formulas on this sheet work",
+  "suggest.loan": "Create a loan calculator with a payment schedule",
+  "suggest.summarize": "Summarize this data",
+  "suggest.totalsRow": "Add a totals row with formulas",
+  "suggest.tracker": "Make a project tracker with owners, due dates and status",
+  "suggest.trends": "What trends or outliers stand out?"
+}

@@ -14,15 +14,20 @@ import { rangeName, cutText } from './cell.js';
 import { dataBounds, describeRange } from './aiformula.js';
 import { TOOLS, TOOL_NAMES, changesWorkbook, qualified } from './aitools.js';
 import { attachmentsIntro, attachmentsGone, attachmentWeight, attachmentsFit, sentBytes } from './aiattach.js';
+import { t, tSource } from '../i18n/index.js';
+import { languageNote } from './aiformula.js';
 
 /** The model the assistant runs on, through Puter's AI. */
 export const AI_MODEL = 'claude-opus-5-5';
 
-/** When the assistant asks before changing the workbook: before every change, before one that takes away data, or never. */
+/**
+ * When the assistant asks before changing the workbook: before every change, before one that takes away data, or never.
+ * Each label is a catalog key: t(mode.label) is what the menu shows.
+ */
 export const APPROVAL_MODES = [
-  { id: 'always', label: 'Ask before every change' },
-  { id: 'destructive', label: 'Ask before replacing or deleting data' },
-  { id: 'never', label: 'Make changes without asking' },
+  { id: 'always', label: 'aiagent.approval.always' },
+  { id: 'destructive', label: 'aiagent.approval.destructive' },
+  { id: 'never', label: 'aiagent.approval.never' },
 ];
 export const DEFAULT_APPROVAL = 'destructive';
 
@@ -80,6 +85,12 @@ Replying
 - Be brief and concrete. Lead with the answer, or with what you changed. Name cells by address (B2:B20, Summary!A1): the user can click them.
 - Use light Markdown: a few bullets or a small table when it helps; no headings in short answers. Don't paste back large amounts of data.
 - When you changed the workbook, end with one line on what changed and where.`;
+
+/** The instructions as sent: SYSTEM_PROMPT, and the person's interface language when it is not English. */
+export function systemPrompt() {
+  const note = languageNote();
+  return note ? `${SYSTEM_PROMPT}\n\n${note}` : SYSTEM_PROMPT;
+}
 
 /* ---------- What the model is told with each message ---------- */
 
@@ -170,7 +181,7 @@ const attachmentsWeight = (m) => m.attachments.reduce((n, a) => n + attachmentWe
  * messages only, and only as many as one request takes, counted by what they take of the request;
  * an older message names its files instead.
  */
-export function requestMessages(messages, { system = SYSTEM_PROMPT, budget = HISTORY_BUDGET } = {}) {
+export function requestMessages(messages, { system = systemPrompt(), budget = HISTORY_BUDGET } = {}) {
   let lastUser = -1;
   for (let i = messages.length - 1; i >= 0; i--) if (messages[i].role === 'user') { lastUser = i; break; }
   // The user messages whose attachments are still sent: the latest few, newest first for as long as all their files
@@ -293,7 +304,7 @@ export function createAgent({ chat, runTool, describe, approve, ready = null, sn
         // is refused by models that require every message but the last to have some, and so is one of only spaces or
         // line breaks (sent with every request after it, it would fail each one).
         const empty = !text.trim() && !calls.length;
-        if (empty) text = 'I have nothing to add.';
+        if (empty) text = tSource('aiagent.nothingToAdd');
         // Cut off while writing its text, the reply says so in the transcript, where the model reads it next time.
         if (cut && !calls.length) text = `${text.trimEnd()}\n\n${CUT_TEXT}`;
         // Cut off while writing a call: its arguments are what was written of them, and it is not run.
@@ -303,7 +314,7 @@ export function createAgent({ chat, runTool, describe, approve, ready = null, sn
           ...(calls.length ? { tool_calls: calls.map((c) => ({ id: c.id, type: 'function', function: { name: c.name, arguments: JSON.stringify(c.input) } })) } : {}),
         });
         if (!calls.length) {
-          if (empty) emit({ type: 'text', text });
+          if (empty) emit({ type: 'text', text: t('aiagent.nothingToAdd') });
           return { stopped: false, cut, steps, ...(empty ? { empty: true } : {}) };
         }
         for (const call of calls) {
@@ -315,7 +326,7 @@ export function createAgent({ chat, runTool, describe, approve, ready = null, sn
             content = 'Not run: the user stopped the assistant.';
           } else if (call.cut) {
             step.status = 'error';
-            step.error = 'The reply reached its length limit while writing this step, so it was not run.';
+            step.error = t('aiagent.stepCut');
             content = CUT_CALL;
           } else if (!TOOL_NAMES.has(call.name)) {
             step.status = 'error';
@@ -374,9 +385,9 @@ export function createAgent({ chat, runTool, describe, approve, ready = null, sn
         }
         if (run.stopped) return { stopped: true, steps };
       }
-      const note = `\n\nI stopped after ${MAX_ROUNDS} steps. Say "continue" if you want me to carry on.`;
-      transcript.push({ role: 'assistant', content: note.trim() });
-      emit({ type: 'text', text: note });
+      // The transcript keeps the English the model reads; the person reads it in their language.
+      transcript.push({ role: 'assistant', content: tSource('aiagent.stoppedAfter', { count: MAX_ROUNDS }) });
+      emit({ type: 'text', text: `\n\n${t('aiagent.stoppedAfter', { count: MAX_ROUNDS })}` });
       return { stopped: false, steps };
     } catch (error) {
       return { stopped: run.stopped, error, steps };
@@ -434,15 +445,15 @@ export function suggestions(wb, sheetId) {
   const used = sheet?.kind === 'chart' ? null : wb.usedRange(sheetId);
   if (!used) {
     return [
-      'Build a monthly budget with income, expenses and totals',
-      'Make a project tracker with owners, due dates and status',
-      'Create a loan calculator with a payment schedule',
+      t('aiagent.suggest.budget'),
+      t('aiagent.suggest.tracker'),
+      t('aiagent.suggest.loan'),
     ];
   }
-  const out = ['Summarize this data', 'What trends or outliers stand out?'];
+  const out = [t('aiagent.suggest.summarize'), t('aiagent.suggest.trends')];
   let hasFormulas = false;
   for (const c of sheet.cells.values()) if (c.f != null) { hasFormulas = true; break; }
-  out.push(hasFormulas ? 'Explain how the formulas on this sheet work' : 'Add a totals row with formulas');
-  out.push('Suggest a chart for this data');
+  out.push(hasFormulas ? t('aiagent.suggest.explainFormulas') : t('aiagent.suggest.totalsRow'));
+  out.push(t('aiagent.suggest.chart'));
   return out;
 }

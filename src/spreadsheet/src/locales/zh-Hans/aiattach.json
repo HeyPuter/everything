@@ -1,0 +1,10 @@
+{
+  "empty": "{name} 是空文件。",
+  "tooLarge": "{name} 的大小为 {size}；{kind, select, pdf {助手可接受的 PDF 文件} image {助手可接受的图片} other {助手可接受的 {kind} 文件}}最大为 {max}。",
+  "tooMany": "一条消息最多可附带 {max} 个文件。",
+  "tooManyPages": "这些 PDF 合计约 {pages} 页；助手每条消息最多读取 {max} 页。请将其中一些放到下一条消息中发送。",
+  "tooMuch": "这些文件合计 {size}；助手每条消息最多接受 {max}。请将其中一些放到下一条消息中发送。",
+  "unreadable": "助手无法读取 {name}。请附加图片、PDF 或文本文件（如 CSV）。",
+  "unreadableThis": "助手无法读取此文件。请附加图片、PDF 或文本文件（如 CSV）。",
+  "useImport": "要导入 {name}，请使用“文件 › 导入”。助手可读取图片、PDF 和文本文件。"
+}

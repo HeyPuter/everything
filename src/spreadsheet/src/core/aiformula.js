@@ -4,6 +4,21 @@
  */
 
 import { colName, parseKey, cutText } from './cell.js';
+import { language } from '../i18n/index.js';
+
+/**
+ * The line that tells the model the person's interface language, so it answers in it; empty in English. The prompts
+ * themselves stay English, which is what the model is instructed in.
+ */
+export function languageNote(lang = language()) {
+  if (!lang || lang === 'en' || lang.startsWith('en-')) return '';
+  let name = lang;
+  try { name = new Intl.DisplayNames(['en'], { type: 'language' }).of(lang) || lang; } catch { /* the tag will do */ }
+  return `The person's interface language is ${name} (${lang}). Reply in that language unless they write to you in another.`;
+}
+
+/** Lines of a prompt with the language note after them, when there is one. */
+const withLanguage = (lines) => { const note = languageNote(); return (note ? [...lines, '', note] : lines).join('\n'); };
 
 /**
  * A short description of the sheet for the model: headers, tables, named
@@ -97,7 +112,7 @@ export function describeRange(wb, sheetId, range, { maxRows = 60, maxCols = 15 }
 }
 
 export function askPrompt(question, context, data) {
-  return [
+  return withLanguage([
     'You answer questions about spreadsheet data for a non-expert. Use the data given; when you compute something, give the figure and say briefly how you got it. Plain language, at most a short paragraph or a few short lines; no headings, no code fences, no markdown.',
     'If the data cannot answer the question, say so in one sentence.',
     '',
@@ -106,7 +121,7 @@ export function askPrompt(question, context, data) {
     data,
     '',
     `Question: ${question}`,
-  ].join('\n');
+  ]);
 }
 
 export function formulaPrompt(request, context) {
@@ -121,13 +136,13 @@ export function formulaPrompt(request, context) {
 }
 
 export function explainPrompt(formula, context) {
-  return [
+  return withLanguage([
     'You explain spreadsheet formulas to a non-expert in two or three short sentences of plain language. No headings, no code fences, no bullet lists.',
     '',
     context,
     '',
     `Formula: =${formula}`,
-  ].join('\n');
+  ]);
 }
 
 /** What carries a formula on past a closing parenthesis: an operator, or a range operator joined to a reference. "--" and dashes open prose. */

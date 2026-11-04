@@ -11,6 +11,7 @@
 
 import { isSpreadsheetFile } from './filetypes.js';
 import { cutText } from './cell.js';
+import { t } from '../i18n/index.js';
 
 /** How many files one message may carry. */
 export const MAX_ATTACHMENTS = 10;
@@ -65,14 +66,14 @@ export const formatSize = (bytes) => (bytes >= 1024 * 1024 ? `${(bytes / (1024 *
  * already. A workbook is pointed to File › Import, which brings in all of it, where the assistant would see only text.
  */
 export function attachmentProblem(file, count = 0) {
-  if (count >= MAX_ATTACHMENTS) return `Up to ${MAX_ATTACHMENTS} files can go with one message.`;
+  if (count >= MAX_ATTACHMENTS) return t('aiattach.tooMany', { max: MAX_ATTACHMENTS });
   const kind = attachmentKind(file);
   if (!kind) {
-    if (isSpreadsheetFile(file?.name || '')) return `To bring in ${file.name}, use File › Import. The assistant reads images, PDFs and text files.`;
-    return `${file?.name || 'This file'} cannot be read by the assistant. Attach an image, a PDF or a text file such as a CSV.`;
+    if (isSpreadsheetFile(file?.name || '')) return t('aiattach.useImport', { name: file.name });
+    return file?.name ? t('aiattach.unreadable', { name: file.name }) : t('aiattach.unreadableThis');
   }
-  if (!file.size) return `${file.name} is empty.`;
-  if (file.size > MAX_FILE_BYTES[kind]) return `${file.name} is ${formatSize(file.size)}; the largest ${kind === 'pdf' ? 'PDF' : kind} the assistant takes is ${formatSize(MAX_FILE_BYTES[kind])}.`;
+  if (!file.size) return t('aiattach.empty', { name: file.name });
+  if (file.size > MAX_FILE_BYTES[kind]) return t('aiattach.tooLarge', { name: file.name, size: formatSize(file.size), kind, max: formatSize(MAX_FILE_BYTES[kind]) });
   return null;
 }
 
@@ -139,10 +140,10 @@ export function attachmentsFit(attachments) {
 /** Why a message's files (as read, with their blocks) cannot go together, in words for the user, or null when they can. */
 export function attachmentsTooLarge(attachments) {
   const pages = pdfPages(attachments);
-  if (pages > MAX_PDF_PAGES) return `These PDFs have about ${pages} pages together; the assistant reads at most ${MAX_PDF_PAGES} with one message. Send some of them with your next message.`;
+  if (pages > MAX_PDF_PAGES) return t('aiattach.tooManyPages', { pages, max: MAX_PDF_PAGES });
   const bytes = attachments.reduce((n, a) => n + sentBytes(a.blocks), 0);
   // In the user's terms: the files' own size, not the base64 they are sent as.
-  if (bytes > MAX_REQUEST_FILE_BYTES) return `These files come to ${formatSize(bytes * 0.75)} together; the assistant takes at most ${formatSize(MAX_REQUEST_FILE_BYTES * 0.75)} with one message. Send some of them with your next message.`;
+  if (bytes > MAX_REQUEST_FILE_BYTES) return t('aiattach.tooMuch', { size: formatSize(bytes * 0.75), max: formatSize(MAX_REQUEST_FILE_BYTES * 0.75) });
   return null;
 }
 
