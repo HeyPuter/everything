@@ -12416,6 +12416,8 @@ export function createEditor({
     );
   }
   function openSearch() {
+    // The Find bar belongs to the page view, which Organize pages stands in for.
+    closeOrganizer();
     searchBar.hidden = false;
     searchInput.focus();
     searchInput.select();
