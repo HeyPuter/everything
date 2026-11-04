@@ -1,6 +1,8 @@
 import { test, expect } from '@playwright/test';
 import { onTab, downloadDocx, showAllTools } from './helpers/editor-tools.js';
 import { reopenDocx } from './helpers/reopen-docx.js';
+import { readFileSync } from 'node:fs';
+import { unzipSync, strFromU8 } from 'fflate';
 
 async function select(input, text) {
   await input.evaluate((el, text) => { const at = el.value.indexOf(text); el.setSelectionRange(at, at + text.length); el.dispatchEvent(new Event('select', { bubbles: true })); }, text);
@@ -100,4 +102,41 @@ test('the Font dialog shows its color buttons\' names in full', async ({ page })
     });
     expect(room, name).toBeGreaterThanOrEqual(0);
   }
+});
+
+test('the Font dialog sets the font Chinese, Japanese and Korean text is shown in', async ({ page }, info) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await page.goto('/mock.html#/new');
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  const input = page.getByRole('textbox', { name: 'Document text' });
+  await input.fill('Latin words\n日本語のテキスト and text');
+  const fonts = () => page.evaluate(() => window.__docs.current.view.engine.layout.lines.flatMap(l => l.fragments.map(f => [f.text, f.fontFamily])));
+  // Latin text alone: no Asian text font to choose.
+  await select(input, 'Latin');
+  await input.press('ControlOrMeta+d');
+  // A dialog that is closing lingers for its exit animation: only an open one counts.
+  const dialog = page.locator('.modal-root:not(.closing)').getByRole('dialog', { name: 'Font' });
+  await expect(dialog.getByRole('combobox', { name: 'Font', exact: true })).toBeVisible();
+  await expect(dialog.getByLabel('Asian text font')).toHaveCount(0);
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+  // Japanese text is shown in the Asian text font, which Font alone left as it was.
+  await select(input, '日本語のテキスト and');
+  await input.press('ControlOrMeta+d');
+  await expect(dialog.getByLabel('Asian text font')).toHaveValue('Noto Sans');
+  await dialog.getByLabel('Asian text font').fill('Cambria');
+  await dialog.getByRole('button', { name: 'OK' }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect.poll(fonts).toEqual([['Latin words', 'Noto Sans'], ['日本語のテキスト', 'Cambria'], [' and text', 'Noto Sans']]);
+  // With only a caret in the paragraph, the dialog offers it too, showing the font there.
+  await input.evaluate(el => { el.setSelectionRange(14, 14); el.dispatchEvent(new Event('select', { bubbles: true })); });
+  await input.press('ControlOrMeta+d');
+  await expect(dialog.getByLabel('Asian text font')).toHaveValue('Cambria');
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+  await page.getByRole('button', { name: 'Undo', exact: true }).click();
+  await expect.poll(fonts).toEqual([['Latin words', 'Noto Sans'], ['日本語のテキスト and text', 'Noto Sans']]);
+  await page.getByRole('button', { name: 'Redo', exact: true }).click();
+  const path = info.outputPath('asian-font.docx');
+  const download = page.waitForEvent('download'); await downloadDocx(page); await (await download).saveAs(path);
+  expect(strFromU8(unzipSync(readFileSync(path))['word/document.xml'])).toContain('<w:rPr><w:rFonts w:eastAsia="Cambria"/></w:rPr><w:t xml:space="preserve">日本語のテキスト and</w:t>');
+  expect(errors).toEqual([]);
 });

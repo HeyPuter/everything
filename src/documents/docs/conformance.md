@@ -114,6 +114,12 @@ block) parts are kept as they are but not used. Unit tests in
 | Geometry and display | Existing Canvas shaping, source-offset and layout contracts | Measurement and paint use the same selected CSS family and fallback. Family changes delimit shaping, including mixed-family numbering and capitalization. Advances feed wrapping, caret stops, table AutoFit and pagination. Available native families use Canvas font bounding-box ascent/descent; bundled Noto retains its independently checked font-table metrics. The toolbar reports the Latin family and a detected unavailable-family substitution. |
 | Editing and preservation | §17.3.2.28 `rPr`; Part 2 package preservation | Model edits change individual slots and remove only the corresponding theme attribute. Style declaration removal restores inheritance. Typing, splitting, clear formatting and undo preserve these semantics. Preserve unrelated theme/font parts byte for byte; no-op/full undo preserves every package entry. Character sets are derived from the font table, not authored as run properties. |
 
+The Font dialog's **Asian text font** (offered when the selection, or the caret's paragraph, holds Chinese,
+Japanese or Korean letters) sets the run's East Asian slot alone (`w:rFonts/@w:eastAsia`, §17.3.2.26), which the
+Character selection rules above use for those letters; **Font** keeps setting the ASCII and high-ANSI slots. The
+Home font box still sets only those two: telling a Latin font from an East Asian one would need the font's
+coverage, which is not read. `tests/browser/font-dialog.spec.js` checks layout, undo and the saved attribute.
+
 `tools/canvas_font_family_fixture.py` independently generates
 `public/fixtures/font-families.docx` with python-docx and original XML. It covers
 partial style overrides, theme precedence, empty marks, AutoFit cells, mixed
