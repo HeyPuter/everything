@@ -21,8 +21,8 @@ const fits = (transform, clips) =>
     ),
   );
 
-/** The kinds of path the PuterPath hint names; a signature placed here is marked as one. */
-const PATH_KINDS = { Shape: 'shape', Drawing: 'drawing', Signature: 'signature' };
+/** The kinds of path the PuterPath hint names; a signature or stamp placed here is marked as one. */
+const PATH_KINDS = { Shape: 'shape', Drawing: 'drawing', Signature: 'signature', Stamp: 'stamp' };
 /** The PuterPath hint that marks a path of the given kind and fill rule. */
 const pathHintTag = (kind, fillRule = 'nonzero') =>
   `/PuterPath << /V 1 /Kind /${Object.keys(PATH_KINDS).find((key) => PATH_KINDS[key] === kind) || 'Drawing'} /Rule /${fillRule === 'evenodd' ? 'EvenOdd' : 'NonZero'} >> BDC`;

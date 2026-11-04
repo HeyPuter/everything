@@ -118,7 +118,7 @@ for (const kind of ['image', 'typed signature', 'drawn signature', 'uploaded sig
           ? 'image'
           : kind.includes('signature')
             ? 'signature'
-            : 'shape';
+            : 'stamp';
       const control = page.getByRole('button', {
         name: `Move selected ${objectKind}`,
         exact: true,

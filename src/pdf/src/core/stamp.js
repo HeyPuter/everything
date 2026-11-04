@@ -4,6 +4,7 @@
  */
 import {
   fillAndStroke,
+  PDFOperator,
   popGraphicsState,
   pushGraphicsState,
   setFillingColor,
@@ -13,7 +14,7 @@ import {
 } from 'pdf-lib';
 import { color } from './document.js';
 import { checkedFontData } from './font-data.js';
-import { fitSignature, pathOperators, turnOperators, typedOutline } from './signature.js';
+import { fitSignature, markPath, pathOperators, turnOperators, typedOutline } from './signature.js';
 
 export const MAX_STAMP_TEXT = 30;
 export const STAMP_PRESETS = [
@@ -154,8 +155,10 @@ export async function drawStamp(
       setStrokingColor(paint),
       setLineWidth(Math.max(0.3, stroke * placed.scale)),
       setLineJoin(1),
+      markPath(doc, 'Stamp'),
       ...pathOperators(commands, map),
       fillAndStroke(),
+      PDFOperator.of('EMC'),
       popGraphicsState(),
       ...unturn,
     );

@@ -107,7 +107,7 @@ for (const label of ['APPROVED', 'Paid in full', 'AbCd '.repeat(6).trim(), 'B\u0
     await expect.poll(async () => Boolean(await normalizedInk(previewCanvas))).toBe(true);
     const preview = await normalizedInk(previewCanvas);
     await dialog.getByRole('button', { name: 'Place stamp', exact: true }).click();
-    await expect(page.getByRole('group', { name: 'Edit shape' })).toBeVisible();
+    await expect(page.getByRole('group', { name: 'Edit stamp' })).toBeVisible();
     const rendered = await normalizedInk(page.locator('.paper > canvas').first());
     expect(Math.abs(preview.aspect / rendered.aspect - 1)).toBeLessThan(0.03);
     const difference =
@@ -194,13 +194,17 @@ test('a preset stamp lands centered as one selected vector shape', async ({ page
   await expect(dialog).toBeHidden();
   await expect(page.locator('#toast')).toHaveText('Stamp added. Drag to move or resize it.');
   await settled(page);
-  // Selected right away, with the shape controls showing its color.
-  await expect(page.getByLabel('Shape fill color', { exact: true })).toHaveValue('#d92626');
-  await expect(page.getByLabel('Shape fill enabled', { exact: true })).toBeChecked();
-  await expect(page.getByLabel('Shape stroke enabled', { exact: true })).toBeChecked();
+  // Selected right away as a stamp, with its color controls showing its color.
+  await expect(
+    page.getByRole('button', { name: 'Move selected stamp', exact: true }),
+  ).toBeVisible();
+  await expect(page.locator('.properties-heading h2')).toHaveText('Stamp');
+  await expect(page.getByLabel('Stamp fill color', { exact: true })).toHaveValue('#d92626');
+  await expect(page.getByLabel('Stamp fill enabled', { exact: true })).toBeChecked();
+  await expect(page.getByLabel('Stamp stroke enabled', { exact: true })).toBeChecked();
   const paths = inspectPaths(await exported(page), 0);
   expect(paths).toHaveLength(1);
-  expect(paths[0]).toMatchObject({ kind: 'shape', filled: true, stroked: true });
+  expect(paths[0]).toMatchObject({ kind: 'stamp', filled: true, stroked: true });
   const [x0, y0, x1, y1] = paths[0].bounds;
   expect(Math.abs((x0 + x1) / 2 - 200)).toBeLessThan(2);
   expect(Math.abs((y0 + y1) / 2 - 200)).toBeLessThan(2);
@@ -235,7 +239,7 @@ for (const failure of ['unsupported character', 'font download'])
     await dialog.getByLabel('Text', { exact: true }).press('Enter');
     await expect(dialog).toBeHidden();
     await settled(page);
-    await expect(page.getByLabel('Shape fill color', { exact: true })).toHaveValue('#2255aa');
+    await expect(page.getByLabel('Stamp fill color', { exact: true })).toHaveValue('#2255aa');
     expect(inspectPaths(await exported(page), 0)).toHaveLength(1);
   });
 
@@ -256,7 +260,7 @@ test('custom stamp text and color are validated and used', async ({ page }) => {
   await dialog.getByLabel('Text').press('Enter');
   await expect(dialog).toBeHidden();
   await settled(page);
-  await expect(page.getByLabel('Shape fill color', { exact: true })).toHaveValue('#0b63c4');
+  await expect(page.getByLabel('Stamp fill color', { exact: true })).toHaveValue('#0b63c4');
   const paths = inspectPaths(await exported(page), 0);
   expect(paths).toHaveLength(1);
   expect(paths[0]).toMatchObject({ filled: true, stroked: true });

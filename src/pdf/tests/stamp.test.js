@@ -73,7 +73,8 @@ describe('stamps', () => {
     const bytes = await doc.save();
     const paths = inspectPaths(await PDFDocument.load(bytes), 0);
     expect(paths).toHaveLength(1);
-    expect(paths[0]).toMatchObject({ kind: 'shape', filled: true, stroked: true });
+    // Marked as a stamp, so it is named one when selected rather than a shape.
+    expect(paths[0]).toMatchObject({ kind: 'stamp', filled: true, stroked: true });
     const seen = await raster(bytes);
     const ink = inkBox(seen);
     // Inside the target box (PDF y up, canvas y down), centered, wide.

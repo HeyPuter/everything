@@ -2946,7 +2946,7 @@ export function createEditor({
         kind: 'image',
         labelIndex: i,
       }));
-      const counts = { shape: 0, drawing: 0, signature: 0 };
+      const counts = { shape: 0, drawing: 0, signature: 0, stamp: 0 };
       const paths = inspectPaths(doc, pageIndex).map((entry, i) => ({
         ...entry,
         ordinal: images.length + i,
