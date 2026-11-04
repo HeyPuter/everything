@@ -307,6 +307,10 @@ textarea {
   padding: 40px 36px 32px;
   flex: 1;
 }
+/* It takes the focus when the library replaces a PDF, as the starting point for Tab. */
+.home-main:focus-visible {
+  outline: none;
+}
 .start-grid {
   display: grid;
   grid-template-columns: minmax(0, 1.6fr) minmax(230px, 1fr);

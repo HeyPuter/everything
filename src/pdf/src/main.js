@@ -657,6 +657,7 @@ async function openDocument(
     if (token !== openGeneration || !(await canLeave(controller.signal))) return;
     const { createEditor } = await import('./editor.js');
     if (token !== openGeneration) return;
+    const hadFocus = viewHasFocus();
     editor?.destroy();
     homeGeneration++;
     const session = new PdfSession(bytes);
@@ -682,6 +683,7 @@ async function openDocument(
       onOpenBytes: run((bytes, name) => openDocument(async () => bytes, name)),
     });
     editor = nextEditor;
+    if (hadFocus) refocusView('.workspace');
     if (location.hash === LIBRARY_HASH)
       history.replaceState(null, '', location.pathname + location.search);
     await nextEditor.ready;
@@ -698,6 +700,18 @@ async function openDocument(
     controller.abort();
   }
 }
+/** Whether the focus is on a control in the current view, which replacing the view removes. */
+const viewHasFocus = () =>
+  document.activeElement !== document.body && root.contains(document.activeElement);
+/**
+ * A view that replaced the one holding the focus takes it, so the keyboard carries on in the
+ * new view instead of starting again from the top of the document. A focus that has already
+ * moved elsewhere is left alone, and so is a view that opens with the app.
+ */
+function refocusView(selector) {
+  if (document.activeElement === document.body || !document.activeElement?.isConnected)
+    root.querySelector(selector)?.focus({ preventScroll: true });
+}
 /** The app's name, and the library view's own heading. */
 function brand() {
   return el('h1', { class: 'brand' }, appIcon(), el('span', {}, 'PDF Editor'));
@@ -710,6 +724,7 @@ function showHome({ accountRefresh = false } = {}) {
   openController?.abort();
   openController = null;
   loading = false;
+  const hadFocus = viewHasFocus();
   editor?.destroy();
   editor = null;
   document.title = 'PDF Editor';
@@ -1078,6 +1093,7 @@ function showHome({ accountRefresh = false } = {}) {
       ),
     ),
   );
+  if (hadFocus) refocusView('#main');
   load();
 }
 window.addEventListener('beforeunload', (e) => {
