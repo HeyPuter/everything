@@ -12,7 +12,7 @@ import {
   drawSignature,
   PEN_WIDTH,
 } from '../src/core/signature.js';
-import { inspectPaths } from '../src/core/path-edit.js';
+import { inspectPaths, editPath } from '../src/core/path-edit.js';
 import { inspectImages, imageCorners } from '../src/core/image-edit.js';
 
 let fontBytes;
@@ -164,7 +164,8 @@ describe('placing signatures', () => {
       const bytes = await doc.save();
       const paths = inspectPaths(await PDFDocument.load(bytes), 0);
       expect(paths).toHaveLength(1);
-      expect(paths[0]).toMatchObject({ kind: 'drawing', stroked: true, filled: false });
+      // Marked as a signature, so it is named one when selected rather than a drawing.
+      expect(paths[0]).toMatchObject({ kind: 'signature', stroked: true, filled: false });
       const ink = inkCounts(await raster(bytes), target);
       expect(ink.inside).toBeGreaterThan(900);
       expect(ink.outside).toBe(0);
@@ -197,7 +198,8 @@ describe('placing signatures', () => {
     const bytes = await doc.save();
     const paths = inspectPaths(await PDFDocument.load(bytes), 0);
     expect(paths).toHaveLength(1);
-    expect(paths[0]).toMatchObject({ kind: 'drawing', stroked: true, filled: false });
+    // Marked as a signature, so it is named one when selected rather than a drawing.
+    expect(paths[0]).toMatchObject({ kind: 'signature', stroked: true, filled: false });
     expect(paths[0].svg).toContain('C');
     expect((paths[0].svg.match(/M /g) || []).length).toBe(2);
     const { inside, outside } = inkCounts(await raster(bytes), target);
@@ -218,7 +220,7 @@ describe('placing signatures', () => {
     const paths = inspectPaths(await PDFDocument.load(bytes), 0);
     expect(paths).toHaveLength(1);
     expect(paths[0]).toMatchObject({
-      kind: 'shape',
+      kind: 'signature',
       filled: true,
       stroked: false,
       fillRule: 'nonzero',
@@ -230,6 +232,14 @@ describe('placing signatures', () => {
     await expect(drawSignature(doc, 0, { type: 'type', text: 'x' }, target)).rejects.toThrow(
       'not ready',
     );
+  });
+  it('keeps a signature named one after its color or stroke is changed', async () => {
+    const doc = await PDFDocument.create();
+    doc.addPage([400, 400]);
+    await drawSignature(doc, 0, { type: 'type', text: 'Ada' }, target, { fontkit });
+    editPath(doc, 0, inspectPaths(doc, 0)[0], { style: { stroked: true, fill: '#cc0000' } });
+    const loaded = await PDFDocument.load(await doc.save());
+    expect(inspectPaths(loaded, 0)).toMatchObject([{ kind: 'signature', stroked: true }]);
   });
   it('places an uploaded picture fitted and centered, and rejects empty input', async () => {
     const doc = await PDFDocument.create();

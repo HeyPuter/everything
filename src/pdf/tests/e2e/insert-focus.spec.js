@@ -116,8 +116,8 @@ for (const kind of ['image', 'typed signature', 'drawn signature', 'uploaded sig
       const objectKind =
         kind === 'image' || kind === 'uploaded signature'
           ? 'image'
-          : kind === 'drawn signature'
-            ? 'drawing'
+          : kind.includes('signature')
+            ? 'signature'
             : 'shape';
       const control = page.getByRole('button', {
         name: `Move selected ${objectKind}`,

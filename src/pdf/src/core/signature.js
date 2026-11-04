@@ -13,6 +13,8 @@ import {
   stroke,
   fill,
   concatTransformationMatrix,
+  PDFName,
+  PDFOperator,
 } from 'pdf-lib';
 import { color, embedOrientedImage, drawOrientedImage } from './document.js';
 import { checkedFontData } from './font-data.js';
@@ -272,6 +274,15 @@ export function fitSignature(box, target) {
  * stroked path of smoothed curves, typed ones one filled path of glyph outlines, so each is a
  * single editable object afterwards; images are placed like any other picture.
  */
+/**
+ * The marks around a drawn or typed signature's path that name it a signature, so that once
+ * placed it is selected and described as one rather than as a drawing or shape.
+ */
+const signatureMark = (doc) =>
+  PDFOperator.of('BDC', [
+    PDFName.of('PuterPath'),
+    doc.context.obj({ V: 1, Kind: 'Signature', Rule: 'NonZero' }),
+  ]);
 export async function drawSignature(
   doc,
   index,
@@ -321,8 +332,10 @@ export async function drawSignature(
       setLineWidth(Math.max(0.5, PEN_WIDTH * placed.scale)),
       setLineCap(1),
       setLineJoin(1),
+      signatureMark(doc),
       ...operators,
       stroke(),
+      PDFOperator.of('EMC'),
       popGraphicsState(),
       ...unturn,
     );
@@ -341,8 +354,10 @@ export async function drawSignature(
       ...turn,
       pushGraphicsState(),
       setFillingColor(paint),
+      signatureMark(doc),
       ...pathOperators(commands, map),
       fill(),
+      PDFOperator.of('EMC'),
       popGraphicsState(),
       ...unturn,
     );

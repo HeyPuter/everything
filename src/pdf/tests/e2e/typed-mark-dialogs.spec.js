@@ -51,7 +51,9 @@ for (const kind of ['signature', 'stamp'])
         await dialog.getByLabel('Remember drawn and typed signatures').check();
       await dialog.getByRole('button', { name: `Place ${kind}`, exact: true }).click();
       await expect(dialog).toHaveCount(0);
-      await expect(page.getByRole('group', { name: 'Edit shape' })).toBeVisible();
+      await expect(
+        page.getByRole('group', { name: kind === 'signature' ? 'Edit signature' : 'Edit shape' }),
+      ).toBeVisible();
       const pending = page.waitForEvent('download');
       await page.getByRole('button', { name: 'Download', exact: true }).click();
       const downloaded = await PDFDocument.load(await readFile(await (await pending).path()));
@@ -92,7 +94,9 @@ for (const kind of ['signature', 'stamp'])
     await input.fill('Ada Lovelace');
     await dialog.getByRole('button', { name: `Place ${kind}`, exact: true }).click();
     await expect(dialog).toHaveCount(0);
-    await expect(page.getByRole('group', { name: 'Edit shape' })).toBeVisible();
+    await expect(
+      page.getByRole('group', { name: kind === 'signature' ? 'Edit signature' : 'Edit shape' }),
+    ).toBeVisible();
   });
 
 for (const kind of ['signature', 'stamp'])
@@ -187,10 +191,14 @@ for (const kind of ['signature', 'stamp'])
       if (moved) {
         await page.keyboard.press('Enter');
         await expect(dialog).toHaveCount(0);
-        await expect(page.getByRole('group', { name: 'Edit shape' })).toHaveCount(0);
+        await expect(
+          page.getByRole('group', { name: kind === 'signature' ? 'Edit signature' : 'Edit shape' }),
+        ).toHaveCount(0);
       } else {
         await dialog.getByRole('button', { name: `Place ${kind}`, exact: true }).click();
         await expect(dialog).toHaveCount(0);
-        await expect(page.getByRole('group', { name: 'Edit shape' })).toBeVisible();
+        await expect(
+          page.getByRole('group', { name: kind === 'signature' ? 'Edit signature' : 'Edit shape' }),
+        ).toBeVisible();
       }
     });
