@@ -12677,6 +12677,9 @@ export function createEditor({
     }
     const modifier = e.ctrlKey || e.metaKey;
     const key = e.key.toLowerCase();
+    // A widget that answers a key itself cancels it: the comparison's list of changes takes
+    // Home and End, its view F3. The page behind must not turn, or its Find bar open, as well.
+    const claimed = e.defaultPrevented;
     const typing = e.target.isContentEditable || /input|textarea|select/i.test(e.target.tagName);
     // Only a field that takes typed text has a native undo of its own; a focused select,
     // checkbox, or color picker (a zoom or size choice, for instance) leaves Undo to the app.
@@ -12695,7 +12698,7 @@ export function createEditor({
     } else if (modifier && key === 'f') {
       e.preventDefault();
       openSearch();
-    } else if ((modifier && !e.altKey && key === 'g') || e.key === 'F3') {
+    } else if (!claimed && ((modifier && !e.altKey && key === 'g') || e.key === 'F3')) {
       // Find next and previous, as browsers and editors bind them.
       e.preventDefault();
       if (searchBar.hidden) openSearch();
@@ -12733,7 +12736,7 @@ export function createEditor({
       if (e.shiftKey) toggleToolsPanel();
       else safe(() => toggleSidebar())();
     } else if (!modifier && !e.altKey && !typing && (e.key === 'Home' || e.key === 'End')) {
-      if (!pdf || e.target.closest?.('.page-sidebar, .tools-pane, .menu')) return;
+      if (!pdf || claimed || e.target.closest?.('.page-sidebar, .tools-pane, .menu')) return;
       e.preventDefault();
       navigate(e.key === 'Home' ? 0 : pageCount - 1);
     } else if (
@@ -12741,6 +12744,7 @@ export function createEditor({
       !e.altKey &&
       !e.shiftKey &&
       !typing &&
+      !claimed &&
       !textEdit &&
       ['v', 'h'].includes(key) &&
       !e.target.closest?.('.page-sidebar, .tools-pane, .menu, .form-layer')
@@ -12761,11 +12765,11 @@ export function createEditor({
       // Ctrl Y is the Windows and Linux redo convention alongside Ctrl Shift Z.
       e.preventDefault();
       safe(() => history('redo'))();
-    } else if (e.altKey && !typing && e.key === 'ArrowRight') {
+    } else if (e.altKey && !typing && !claimed && e.key === 'ArrowRight') {
       // Alt/Option + Arrow moves the caret by word inside fields; only navigate outside them.
       e.preventDefault();
       navigateBy(1);
-    } else if (e.altKey && !typing && e.key === 'ArrowLeft') {
+    } else if (e.altKey && !typing && !claimed && e.key === 'ArrowLeft') {
       e.preventDefault();
       navigateBy(-1);
     }

@@ -200,3 +200,42 @@ for (const same of [false, true])
       }),
     ).toBeVisible();
   });
+
+test('keys the comparison answers itself leave the document behind it alone', async ({ page }) => {
+  await page.route('https://js.puter.com/**', (route) => route.fulfill({ body: '' }));
+  await page.goto('/#library');
+  const opened = page.waitForEvent('filechooser');
+  await page.keyboard.press('ControlOrMeta+o');
+  await (
+    await opened
+  ).setFiles({ name: 'old.pdf', mimeType: 'application/pdf', buffer: await pdfBytes('Alpha') });
+  await expect(page.locator('.page-caption')).toHaveText('Page 1 of 12');
+  await expect(page.locator('.editor')).toHaveAttribute('aria-busy', 'false');
+  await page.getByRole('button', { name: 'Tools', exact: true }).click();
+  const pane = page.getByRole('complementary', { name: 'Tools' });
+  await pane.getByRole('button', { name: 'View more' }).click();
+  await pane.getByRole('button', { name: 'Compare files', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Compare files' });
+  const chosen = page.waitForEvent('filechooser');
+  await dialog.getByRole('button', { name: 'Choose file…' }).click();
+  await (
+    await chosen
+  ).setFiles({ name: 'new.pdf', mimeType: 'application/pdf', buffer: await pdfBytes('Beta') });
+  await dialog.getByRole('button', { name: 'Compare', exact: true }).click();
+  const options = page.getByRole('listbox', { name: 'Changes' }).getByRole('option');
+  await expect(options).toHaveCount(12);
+
+  // End moves to the last change, not to the last page behind the list.
+  await options.first().focus();
+  await page.keyboard.press('End');
+  await expect(options.last()).toBeFocused();
+  await page.keyboard.press('ArrowUp');
+  await expect(options.nth(10)).toBeFocused();
+  // F3 steps through the changes; it does not open the document's Find bar behind the view.
+  await page.keyboard.press('F3');
+  await expect(options.last()).toHaveAttribute('aria-selected', 'true');
+
+  await page.getByRole('button', { name: 'Close compare' }).click();
+  await expect(page.locator('.page-caption')).toHaveText('Page 1 of 12');
+  await expect(page.getByRole('searchbox', { name: 'Find in PDF' })).toBeHidden();
+});
