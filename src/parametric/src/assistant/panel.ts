@@ -185,6 +185,15 @@ export class AssistantPanel {
     requestAnimationFrame(() => this.input.focus());
   }
 
+  /**
+   * A button pressed from the keyboard that goes away with the press (idea, Try
+   * again, Undo changes) hands focus to the message box, not to the page.
+   * Tapped or clicked ones do not: on a phone that would open the keyboard.
+   */
+  private keepFocus(e: MouseEvent) {
+    if (e.detail === 0) this.input.focus({ preventScroll: true });
+  }
+
   private grow() {
     this.input.style.height = 'auto';
     this.input.style.height = `${Math.min(200, this.input.scrollHeight)}px`;
@@ -209,7 +218,7 @@ export class AssistantPanel {
       : ['A 100 × 60 × 8 mm mounting plate with four M5 holes and rounded corners', 'A flanged bushing: 40 mm flange, 20 mm shaft, 10 mm bore', 'An enclosure box 80 × 50 × 30 mm with 2 mm walls, open on top', 'A spur-gear-like disc: 60 mm across with 12 teeth and a 8 mm bore'];
     const chips = h('div', { class: 'as-ideas' }, ...ideas.map((t) => {
       const b = h('button', { class: 'as-idea', type: 'button' }, t);
-      b.addEventListener('click', () => { this.input.value = t; this.grow(); void this.submit(); });
+      b.addEventListener('click', (e) => { this.input.value = t; this.grow(); this.keepFocus(e); void this.submit(); });
       return b;
     }));
     this.log.replaceChildren(h('div', { class: 'as-empty' },
@@ -458,8 +467,9 @@ export class AssistantPanel {
     if (res.stopped) turn.foot.append(h('span', { class: 'as-meta' }, 'Stopped.'));
     if (res.error) {
       const retry = h('button', { class: 'btn small as-retry', type: 'button' }, 'Try again');
-      retry.addEventListener('click', () => {
+      retry.addEventListener('click', (e) => {
         if (this.agent.busy) return;
+        this.keepFocus(e);
         turn.foot.replaceChildren();
         void this.run(request, (on) => this.agent.retry(on));
       });
@@ -467,11 +477,12 @@ export class AssistantPanel {
     }
     if (changed) {
       const undo = h('button', { class: 'btn small', type: 'button' }, icon('undo', 14), 'Undo changes');
-      undo.addEventListener('click', () => {
+      undo.addEventListener('click', (e) => {
         if (store.undoMark !== after || store.undoLabel !== label) {
           toast({ kind: 'info', message: 'The part changed since; use Edit > Undo to step back.' });
           return;
         }
+        this.keepFocus(e);
         this.app.commands.run('undo');
         undo.replaceWith(h('span', { class: 'as-meta' }, 'Changes undone.'));
       });

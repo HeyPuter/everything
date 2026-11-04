@@ -281,10 +281,11 @@ test('the assistant\'s buttons work from the keyboard', async ({ page }) => {
   });
   await openApp(page);
   await page.getByRole('button', { name: /New part/ }).click();
-  // Enter on an idea sends it (not Repeat Last Command).
+  // Enter on an idea sends it (not Repeat Last Command), and focus goes to the message box.
   await page.locator('.as-idea').first().focus();
   await page.keyboard.press('Enter');
   await expect(page.getByText('Keyboard answer.')).toBeVisible();
+  await expect(page.getByRole('textbox', { name: 'Message the assistant' })).toBeFocused();
   // Space on New chat starts over (not the View Orientation menu).
   await page.getByRole('button', { name: 'New chat' }).focus();
   await page.keyboard.press(' ');
