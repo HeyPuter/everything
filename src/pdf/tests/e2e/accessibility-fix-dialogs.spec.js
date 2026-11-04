@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { PDFDocument, StandardFonts } from 'pdf-lib';
+import { PDFDocument, PDFName, PDFString, StandardFonts } from 'pdf-lib';
 import { createCanvas } from '@napi-rs/canvas';
 
 test.skip(({ isMobile }) => isMobile, 'desktop workspace');
@@ -88,4 +88,31 @@ test('the accessibility report scrolls within its panel', async ({ page }) => {
   await expect(last).toBeInViewport();
   expect(await page.locator('.editor').evaluate((node) => node.scrollTop)).toBe(0);
   await expect(page.getByRole('button', { name: 'Tools', exact: true })).toBeInViewport();
+});
+
+test('the language fix starts from the language the PDF declares', async ({ page }) => {
+  await page.route('https://js.puter.com/**', (route) => route.fulfill({ body: '' }));
+  await page.goto('/#library');
+  const doc = await PDFDocument.create();
+  doc.addPage([400, 500]);
+  doc.catalog.set(PDFName.of('Lang'), PDFString.of('fr-CA'));
+  const chooser = page.waitForEvent('filechooser');
+  await page.keyboard.press('ControlOrMeta+o');
+  await (
+    await chooser
+  ).setFiles({
+    name: 'french.pdf',
+    mimeType: 'application/pdf',
+    buffer: Buffer.from(await doc.save()),
+  });
+  await expect(page.locator('.page-caption')).toHaveText('Page 1 of 1');
+  await settled(page);
+  await page.getByRole('button', { name: 'Tools', exact: true }).click();
+  const pane = page.getByRole('complementary', { name: 'Tools' });
+  await pane.getByRole('button', { name: 'View more' }).click();
+  await pane.getByRole('button', { name: 'Prepare for accessibility', exact: true }).click();
+  await pane.getByRole('button', { name: 'Set the document language…' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Document language' });
+  // It offered the device's language instead, so OK would have replaced French with it.
+  await expect(dialog.getByRole('textbox')).toHaveValue('fr-CA');
 });

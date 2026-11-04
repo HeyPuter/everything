@@ -10624,10 +10624,13 @@ export function createEditor({
         break;
       }
       case 'language': {
+        // The language the PDF already declares comes first; the device's when it has none.
+        const doc = await PDFDocument.load(session.bytes, { updateMetadata: false });
+        const current = doc.catalog.lookup(PDFName.of('Lang'))?.decodeText?.().trim();
         const lang = await promptText(
           'Document language',
           'Language (for example en-US or fr-CA)',
-          navigator.language || 'en-US',
+          current || navigator.language || 'en-US',
         );
         if (lang == null) return;
         await run((d) => a11y.setLanguage(d, lang.trim()), 'Language set.');
