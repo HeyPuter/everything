@@ -1127,6 +1127,35 @@ test('declining to edit a signed PDF does not report that its page is not croppe
   await expect(page.locator('#toast')).not.toContainText('not cropped');
 });
 
+test('a page move declined in Organize pages keeps the pages chosen as they were', async ({
+  page,
+}) => {
+  await openPdf(page, await numberedPdf(4));
+  const pane = await signWithNewId(page);
+  await pane.getByRole('button', { name: 'Back to all tools' }).click();
+  await pane.getByRole('button', { name: 'Organize pages', exact: true }).click();
+  const grid = page.getByRole('listbox', { name: 'Pages' });
+  await grid.getByRole('option', { name: 'Page 1', exact: true }).click();
+  await grid
+    .getByRole('option', { name: 'Page 1', exact: true })
+    .dragTo(grid.getByRole('option', { name: 'Page 4', exact: true }), {
+      targetPosition: { x: 150, y: 60 },
+    });
+  const warning = page.getByRole('dialog', { name: 'Edit a signed PDF?' });
+  await warning.getByRole('button', { name: 'Cancel' }).click();
+  await settled(page);
+  await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 300)));
+  // Nothing moved, so the first page is still the one chosen, not the page now in last place.
+  await expect(grid.getByRole('option', { name: 'Page 1', exact: true })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
+  await expect(grid.getByRole('option', { name: 'Page 4', exact: true })).toHaveAttribute(
+    'aria-selected',
+    'false',
+  );
+});
+
 test('Find text and redact removes the matched words from the saved file', async ({ page }) => {
   const doc = await PDFDocument.create();
   const font = await doc.embedFont(StandardFonts.Helvetica);

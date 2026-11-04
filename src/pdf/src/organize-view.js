@@ -430,7 +430,10 @@ export function createOrganizeView({
     const destination = to - before;
     if (moving.every((k, n) => k === destination + n)) return;
     run(async () => {
+      const revision = getRevision();
       await actions.move(moving, destination);
+      // A move that did not happen (declined, or failed) leaves the choice where it was.
+      if (getRevision() === revision) return;
       selected = new Set(moving.map((_, n) => destination + n));
       anchor = destination;
       updateState();
