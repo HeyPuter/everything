@@ -111,7 +111,7 @@
   "external.allow": "允许",
   "external.keepBlocked": "保持阻止",
   "external.notice": "此电子表格会从其他文件或网络获取内容，或向 AI 提问。目前尚未加载或提问任何内容。",
-  "external.queriesReadWeb": "此工作簿中的查询会从网上读取数据（{urls}{more, select, true {, …} other {}}）。是否允许此工作簿访问这些地址？",
+  "external.queriesReadWeb": "此工作簿中的查询会从网上读取数据（{urls}{more, select, true {等} other {}}）。是否允许此工作簿访问这些地址？",
   "external.readLinkedMessage": "此工作簿来自其他位置，因此尚未允许它读取其他文件。是否允许它读取其链接的工作簿？",
   "external.readLinkedTitle": "读取链接的工作簿",
   "filter.added": "已添加筛选。请使用标题行中的按钮",
