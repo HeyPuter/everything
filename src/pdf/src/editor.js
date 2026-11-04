@@ -10871,6 +10871,8 @@ export function createEditor({
       pdfaClaim = previous;
       throw error;
     }
+    // Declined (a signed PDF asks first) or not run: the file claims what it did before.
+    if (!result) pdfaClaim = previous;
     if (!result || destroyed) return;
     const doc = await PDFDocument.load(session.bytes, { updateMetadata: false });
     pdfaClaim = pdfaIdentification(doc);

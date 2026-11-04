@@ -63,3 +63,28 @@ test('protecting a signed PDF asks first, since encrypting invalidates its signa
     'The password is applied when you download or save.',
   );
 });
+
+test('declining to save a signed PDF as PDF/A leaves its PDF/A level as it was', async ({
+  page,
+}) => {
+  await openSigned(page);
+  await page.getByRole('button', { name: 'Tools', exact: true }).click();
+  const pane = page.getByRole('complementary', { name: 'Tools' });
+  await pane.getByRole('button', { name: 'View more' }).click();
+  await pane.getByRole('button', { name: 'PDF standards', exact: true }).click();
+  await pane.getByRole('button', { name: 'Save as PDF/A…' }).click();
+  const convert = page.getByRole('dialog', { name: 'Save as PDF/A' });
+  await convert.getByLabel('Level').selectOption('1b');
+  await convert.getByRole('button', { name: 'Convert' }).click();
+  await page
+    .getByRole('dialog', { name: 'Edit a signed PDF?' })
+    .getByRole('button', { name: 'Cancel' })
+    .click();
+  await expect(page.locator('.editor')).toHaveAttribute('aria-busy', 'false');
+  await expect(page.locator('.standards-bar')).toBeHidden();
+  // The declined level was kept as the file's own: the next check offered it first.
+  await pane.getByRole('button', { name: 'Check compliance…' }).click();
+  await expect(
+    page.getByRole('dialog', { name: 'Check PDF/A compliance' }).getByLabel('Level'),
+  ).toHaveValue('2b');
+});
