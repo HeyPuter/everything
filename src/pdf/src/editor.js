@@ -1754,6 +1754,10 @@ export function createEditor({
       return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
     });
   let redactionMarks = [];
+  const markNumber = (mark) => {
+    const onPage = redactionMarks.filter((other) => other.page === mark.page);
+    return onPage.length > 1 ? ` ${onPage.indexOf(mark) + 1}` : '';
+  };
   /** The marks waiting to be applied, read while the Redact tool is open. */
   async function refreshRedactionMarks() {
     if (toolsPanel.current !== 'redact' || !pdf) return;
@@ -7329,7 +7333,8 @@ export function createEditor({
               ? `${redactionMarks.length} ${redactionMarks.length === 1 ? 'mark' : 'marks'} to apply`
               : 'No marks yet',
             items: redactionMarks.slice(0, 50).map((mark) => ({
-              label: `Remove mark on page ${mark.page + 1}${mark.overlayText ? ` (${mark.overlayText})` : ''}`,
+              // Several marks on one page are numbered, so each has a name of its own.
+              label: `Remove mark${markNumber(mark)} on page ${mark.page + 1}${mark.overlayText ? ` (${mark.overlayText})` : ''}`,
               glyph: 'X',
               permission: 'edit',
               disabled: busy,
