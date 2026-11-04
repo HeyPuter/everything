@@ -1172,3 +1172,28 @@ test('Language marks Japanese and Arabic in their own w:lang attributes, keeping
   expect(xml).not.toMatch(/w:val="(?:ja-JP|ar-SA)"/);
   expect(errors).toEqual([]);
 });
+
+// Text tracked as deleted went to the AI with the rest: it suggested "alot → a lot" in words already deleted, and
+// accepting put them back in the document as an insertion.
+test('AI grammar suggestions leave text tracked as deleted alone', async ({ page }) => {
+  await fakeAi(page);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const input = await newDocument(page, 'Thanks alot for the review. Thanks alot again.');
+  await input.press('ControlOrMeta+Shift+e');
+  await select(input, 7, 12);
+  await input.press('Backspace');
+  // The deletion stays in the text, struck through.
+  await expect(input).toHaveValue('Thanks alot for the review. Thanks alot again.');
+  await onTab(page, 'review');
+  await review(page).getByRole('button', { name: 'Editor', exact: true }).click();
+  const pane = page.getByRole('complementary', { name: 'Editor pane' });
+  await pane.getByRole('checkbox', { name: /Suggest with/ }).check();
+  await pane.getByRole('button', { name: 'Check with AI' }).click();
+  const item = pane.locator('.rv-ai-item');
+  await expect(item).toHaveCount(1);
+  expect((await page.evaluate(() => window.__prompts))[0]).toContain('[1] Thanks for the review. Thanks alot again.');
+  // The one suggestion is in the second sentence, where the text was not deleted.
+  await item.getByRole('button', { name: 'Accept' }).click();
+  await expect(input).toHaveValue('Thanks alot for the review. Thanks alota lot again.');
+  await expect(item).toHaveCount(0);
+});
