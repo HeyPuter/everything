@@ -292,3 +292,28 @@ test('the assistant\'s buttons work from the keyboard', async ({ page }) => {
   await expect(page.locator('.as-empty')).toBeVisible();
   await expect(page.getByRole('menu')).toHaveCount(0);
 });
+
+test('opening another part stops the assistant before it changes that part', async ({ page }) => {
+  await page.addInitScript(() => {
+    const w = window as unknown as { __thinking: boolean; __assistantChat: unknown };
+    w.__assistantChat = async function* (messages: { role: string }[]) {
+      const round = messages.filter((m) => m.role === 'assistant').length;
+      if (round === 0) yield { type: 'tool', id: 'c1', name: 'create_sketch', input: { plane: 'top', shapes: [{ type: 'circle', center: [0, 0], radius: 5 }] } };
+      else if (round === 1) {
+        w.__thinking = true;
+        await new Promise((r) => setTimeout(r, 1000));
+        yield { type: 'tool', id: 'c2', name: 'create_sketch', input: { plane: 'front', name: 'Stray', shapes: [{ type: 'circle', center: [0, 0], radius: 9 }] } };
+      } else yield { type: 'text', text: 'Done.' };
+    };
+  });
+  await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  const box = page.getByRole('textbox', { name: 'Message the assistant' });
+  await box.fill('Two sketches');
+  await box.press('Enter');
+  await page.waitForFunction(() => (window as unknown as { __thinking?: boolean }).__thinking);
+  await page.evaluate(() => (window as unknown as { __parametric: { newDocument(n: string): void } }).__parametric.newDocument('Other part'));
+  await expect(page.getByText('Stopped: another part was opened.')).toBeVisible();
+  await page.waitForTimeout(1500);
+  await expect(page.getByRole('treeitem', { name: 'Stray' })).toHaveCount(0);
+});

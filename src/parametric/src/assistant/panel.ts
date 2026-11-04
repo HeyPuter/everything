@@ -178,7 +178,12 @@ export class AssistantPanel {
         h('div', { class: 'as-note' }, 'Sends your messages and a description of the part to Puter AI. Check designs before relying on them.')));
     this.bindDrop();
     this.renderEmpty();
-    app.store.on((reason) => { if (reason === 'load' && !this.agent.busy && !this.agent.messages.length) this.renderEmpty(); });
+    app.store.on((reason) => {
+      if (reason !== 'load') return;
+      // Another part was opened: the reply in progress was about the one that was closed.
+      if (this.agent.busy) this.stop('Stopped: another part was opened.');
+      else if (!this.agent.messages.length) this.renderEmpty();
+    });
   }
 
   focus() {
@@ -242,10 +247,14 @@ export class AssistantPanel {
   }
 
   /** Stops the reply; a step already running finishes first (it cannot be interrupted). */
-  private stop() {
+  private stop(reason = 'Stopped.') {
     this.agent.stop();
+    this.stopReason = reason;
     if (this.turn) this.status.textContent = 'Stopping…';
   }
+
+  /** What the footer of a stopped reply says. */
+  private stopReason = 'Stopped.';
 
   /** Whether Puter AI can be used. Signs in to Puter first when needed. */
   private async ready(): Promise<boolean> {
@@ -413,6 +422,7 @@ export class AssistantPanel {
     const mark = store.undoMark;
     // Only the latest reply can be asked again: a later message has moved the conversation on.
     for (const b of this.log.querySelectorAll('.as-retry')) b.remove();
+    this.stopReason = 'Stopped.';
     const turn = this.newTurn();
     // The conversation is a live region: the reply is announced once it is complete,
     // not again on every streamed piece (the status line tells what is happening meanwhile).
@@ -464,7 +474,7 @@ export class AssistantPanel {
     if (turn.text) this.renderText(turn.text);
     turn.el.removeAttribute('aria-busy');
     const after = store.undoMark;
-    if (res.stopped) turn.foot.append(h('span', { class: 'as-meta' }, 'Stopped.'));
+    if (res.stopped) turn.foot.append(h('span', { class: 'as-meta' }, this.stopReason));
     if (res.error) {
       const retry = h('button', { class: 'btn small as-retry', type: 'button' }, 'Try again');
       retry.addEventListener('click', (e) => {
