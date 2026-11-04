@@ -55,6 +55,12 @@ it('turns spoken punctuation into text and joins dictation to the text before th
   // A sentence or a paragraph begun within one phrase starts with a capital too.
   expect(joinDictation('Start', spokenText('this is a test period this is another question mark yes'))).toBe(' this is a test. This is another? Yes');
   expect(joinDictation('Done. ', spokenText('first line new line second new paragraph third'))).toBe('First line\vSecond\nThird');
+  // Chinese and Japanese phrases join without spaces, also after Latin text or before it.
+  expect(joinDictation('我们', '今天去北京')).toBe('今天去北京');
+  expect(joinDictation('天气。', '很好')).toBe('很好');
+  expect(joinDictation('東京', 'Tokyo')).toBe('Tokyo');
+  expect(joinDictation('Tokyo', '東京')).toBe('東京');
+  expect(joinDictation('안녕', '하세요')).toBe(' 하세요');
   const off = createDictation({ editor: () => null, readOnly: () => false, host: () => null });
   expect(off.supported).toBe(false);
   expect(off.start()).toBe(false);

@@ -11,6 +11,7 @@ export function spokenText(transcript) {
   // Only spaces are trimmed: a phrase that ends with (or is) a spoken break keeps it.
   return text.replace(/[ \t]+/g, ' ').replace(/^ | $/g, '');
 }
+const UNSPACED = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Bopomofo}\u3000-\u303f\u30fb\u30fc\uff01-\uff65]/u;
 /** Join dictated text to what precedes the caret: a space between words, a capital after a sentence. */
 export function joinDictation(before, text) {
   if (!text) return '';
@@ -18,7 +19,8 @@ export function joinDictation(before, text) {
   // A sentence or paragraph begun within the phrase ("… period this is …", "… new paragraph next …") starts with a capital.
   let out = text.replace(/([.!?] +|[\n\v])(\p{Ll})/gu, (match, end, letter) => end + letter.toLocaleUpperCase());
   if (!before.trim() || /[.!?\n\v]\s*$/.test(before)) out = out.charAt(0).toLocaleUpperCase() + out.slice(1);
-  if (last && !/[\s\n\v(“"]/.test(last) && !/^[.,!?:;\n\v]/.test(out)) out = ' ' + out;
+  // Chinese and Japanese put no space between words, nor beside their own punctuation.
+  if (last && !/[\s\n\v(“"]/.test(last) && !/^[.,!?:;\n\v]/.test(out) && !(UNSPACED.test(last) || UNSPACED.test(out[0]))) out = ' ' + out;
   return out;
 }
 
