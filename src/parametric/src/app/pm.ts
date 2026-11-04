@@ -327,7 +327,9 @@ export class SelectionBox {
     private onChange: (items: SelBoxItem[]) => void,
     readonly opts: { single?: boolean; placeholder?: string; icon?: string } = {},
   ) {
-    this.list = h('div', { class: 'selbox', role: 'listbox', tabindex: '0', 'aria-label': label });
+    // A focusable group (it becomes the pick target on focus) of plain rows:
+    // each row holds a Remove button, which an option of a listbox may not.
+    this.list = h('div', { class: 'selbox', role: 'group', tabindex: '0', 'aria-label': label });
     this.list.addEventListener('click', () => panel.activate(this));
     this.list.addEventListener('focus', () => panel.activate(this));
     const head = h('div', { class: 'row' }, opts.icon ? h('span', { class: 'row-icon', 'aria-hidden': 'true' }, icon(opts.icon, 18)) : null, h('span', { class: 'field-label' }, label));
@@ -373,7 +375,7 @@ export class SelectionBox {
         this.draw();
         this.onChange(this.items);
       });
-      this.list.append(h('div', { class: 'item', role: 'option' }, h('span', {}, it.label), rm));
+      this.list.append(h('div', { class: 'item' }, h('span', {}, it.label), rm));
     });
   }
 }

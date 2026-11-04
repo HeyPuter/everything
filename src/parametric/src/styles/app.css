@@ -261,6 +261,7 @@ a.icon-btn { text-decoration: none; }
 }
 .selbox.active { border-color: var(--accent); outline: 1px solid var(--accent); background: color-mix(in srgb, var(--accent-weak) 45%, var(--panel)); }
 .selbox .empty { color: var(--text-3); font-size: var(--fs-sm); padding: 4px 6px; }
+.selbox.active .empty { color: var(--text-2); }
 .selbox .item { display: flex; align-items: center; gap: 6px; padding: 2px 4px 2px 6px; border-radius: 2px; font-size: var(--fs-sm); }
 .selbox .item:hover { background: var(--hover); }
 .selbox .item .rm { margin-left: auto; width: 20px; height: 20px; }

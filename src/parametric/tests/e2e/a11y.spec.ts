@@ -28,6 +28,16 @@ test.describe('accessibility', () => {
     expect(await seriousViolations(page)).toEqual([]);
   });
 
+  test('feature panels with selection boxes pass axe in the dark theme', async ({ page }) => {
+    await page.emulateMedia({ colorScheme: 'dark' });
+    await openApp(page);
+    await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+    await waitForFeature(page, 'Fillet1');
+    await page.getByRole('button', { name: 'Hole', exact: true }).click();
+    await expect(page.getByRole('group', { name: 'Positions' })).toBeVisible();
+    expect(await seriousViolations(page)).toEqual([]);
+  });
+
   test('part lists pass axe when empty and when filled', async ({ page }) => {
     await openApp(page);
     await page.getByRole('button', { name: /New part/ }).click();
