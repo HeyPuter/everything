@@ -1,5 +1,7 @@
 # Audio Studio
 
+**Live app:** [as.puter.com](https://as.puter.com/)
+
 A waveform and multitrack audio editor for the browser, built on [Puter](https://puter.com). Record, edit, restore, mix and master audio with a docked panel workspace, studio effects and spectral editing. Audio is processed on your device; projects and exported files are stored in your own Puter cloud.
 
 An open-source alternative to Adobe Audition. No framework: vanilla JavaScript modules built with Vite. Puter.js is the only backend.

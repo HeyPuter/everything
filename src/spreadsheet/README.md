@@ -2,6 +2,8 @@
 
 # Spreadsheet
 
+**Live app:** [spreadsheet.puter.com](https://spreadsheet.puter.com/)
+
 An open-source alternative to Microsoft Excel: a fast, private spreadsheet app
 built with vanilla JavaScript (no frameworks),
 Vite, and [Puter.js](https://developer.puter.com) as the only backend. Files

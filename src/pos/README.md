@@ -1,5 +1,7 @@
 # Point of Sale
 
+**Live app:** [pos.puter.com](https://pos.puter.com/)
+
 A fast, friendly register for small shops. Product catalog, checkout, receipts,
 refunds, cash reconciliation, and sales reports, with all data stored in the
 user's own [Puter](https://puter.com) cloud. No server of your own, no payment

@@ -1,5 +1,7 @@
 # Circuits
 
+**Live app:** [circuits.puter.com](https://circuits.puter.com/)
+
 Circuits is a free, open-source alternative to Altium Designer for schematic capture and printed circuit board layout, running in the browser on [Puter](https://developer.puter.com). Draw schematics, check them, lay out and route boards, pour copper, run design rule checks, look at the board in 3D, and export Gerber and drill files for manufacturing. Projects are stored in your own Puter cloud, or in your browser when you are not signed in.
 
 > Circuits is in early alpha. Check fabrication files with a Gerber viewer before ordering boards.

@@ -132,7 +132,7 @@ describe("the shared email worker", () => {
     expect(mail.to).toBe("pat@example.com");
     expect(mail.subject).toBe("Alice A. invited you to Acme on Teamchat");
     const link =
-      "https://puter.com/app/teamchat#/join/alice.puter.work/ABCD-EFGH-JKLM";
+      "https://teamchat.puter.com#/join/alice.puter.work/ABCD-EFGH-JKLM";
     expect(mail.text).toContain(link);
     expect(mail.html).toContain(link);
     expect(mail.html).toContain("See you inside!");
@@ -218,7 +218,7 @@ describe("the shared email worker", () => {
     await post(invite({ app: "https://teamchat.puter.site/" }));
     expect(sends[0].text).toContain("https://teamchat.puter.site#/join/");
     await post(invite({ app: "https://teamchat-look-alike.example.com" }));
-    expect(sends[1].text).toContain("https://puter.com/app/teamchat#/join/");
+    expect(sends[1].text).toContain("https://teamchat.puter.com#/join/");
     await post(invite({ app: "http://localhost:5273/mock.html" }));
     expect(sends[2].text).toContain("http://localhost:5273/mock.html#/join/");
   });

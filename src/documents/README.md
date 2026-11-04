@@ -1,5 +1,7 @@
 # Documents
 
+**Live app:** [documents.puter.com](https://documents.puter.com/)
+
 A browser word processor with an original canvas editor and `.docx` files stored in your own Puter cloud — an open-source alternative to Microsoft Word.
 
 This branch implements the original canvas engine. **AGPL code and dependencies must not be introduced.** The dependency policy is recorded in [AGENTS.md](AGENTS.md) and checked by `npm run check:licenses` and before production builds.

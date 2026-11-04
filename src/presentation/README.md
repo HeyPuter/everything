@@ -1,5 +1,7 @@
 # Presentation
 
+**Live app:** [presentation.puter.com](https://presentation.puter.com/)
+
 A full-featured, open-source alternative to Microsoft PowerPoint that runs in the browser, built with vanilla JavaScript and Vite. Create, edit, present, record, and export real .pptx files. Puter.js is the only backend.
 
 Nobody has to sign in to work: the app opens straight into a new presentation, and Puter asks for a sign-in at the first action that needs the cloud, such as saving or opening a cloud file. The library of presentations has its own address, `#/home`, reached from the editor's back arrow.

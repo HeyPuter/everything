@@ -49,7 +49,7 @@ describe('public library', () => {
       }
       if (path !== '/') {
         expect(document.querySelector('script[src*="puter"]')).toBeNull();
-        expect(document.querySelector('link[rel="canonical"]').href).toBe('https://inventory.zone' + path);
+        expect(document.querySelector('link[rel="canonical"]').href).toBe('https://inventory.puter.com' + path);
         expect(document.querySelector('meta[name="description"]').content.length).toBeGreaterThan(30);
       }
     }
@@ -75,7 +75,7 @@ describe('public library', () => {
 
 afterEach(() => { vi.unstubAllEnvs(); vi.resetModules(); });
 it.each([
-  [undefined, 'https://inventory.zone'],
+  [undefined, 'https://inventory.puter.com'],
   ['https://inventory.example/', 'https://inventory.example'],
 ])('generates matching canonical URLs and sitemap with SITE_URL=%s', async (configuredOrigin, expectedOrigin) => {
   vi.stubEnv('SITE_URL', configuredOrigin);

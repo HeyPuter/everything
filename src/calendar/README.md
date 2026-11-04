@@ -1,5 +1,7 @@
 # Calendar
 
+**Live app:** [calendar.puter.com](https://calendar.puter.com/)
+
 A modern, minimal calendar web app. Vanilla JavaScript (no framework), built with
 Vite, and backed entirely by **[Puter.js](https://developer.puter.com/)** for
 authentication and storage — no server of your own to run, and every user's data

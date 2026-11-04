@@ -1,5 +1,7 @@
 # Notes
 
+**Live app:** [notes.puter.com](https://notes.puter.com/)
+
 A free-form digital notebook on [Puter](https://puter.com): notebooks,
 sections and pages, note containers you can place anywhere on the page,
 tags, ink, tables, pictures, recordings and search. No framework and no

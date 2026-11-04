@@ -1,5 +1,7 @@
 # Wiki
 
+**Live app:** [wiki.puter.com](https://wiki.puter.com/)
+
 Docs, notes and databases for you and your team, on [Puter](https://puter.com).
 Write with blocks, organize pages in a tree, track work in databases, and
 share pages with people who can view, comment or edit them in real time. No

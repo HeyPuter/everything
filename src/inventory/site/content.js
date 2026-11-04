@@ -1,7 +1,7 @@
 import { section as s, figure, table } from './content-helpers.js';
 
 // Default to the public deployment; an explicit empty override omits origin metadata.
-const configuredOrigin = process.env.SITE_URL ?? 'https://inventory.zone';
+const configuredOrigin = process.env.SITE_URL ?? 'https://inventory.puter.com';
 const origin = configuredOrigin ? new URL(configuredOrigin) : null;
 if (origin && !['http:', 'https:'].includes(origin.protocol)) throw new Error('SITE_URL must be an HTTP(S) origin');
 export const SITE_URL = origin?.origin || '';

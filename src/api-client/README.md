@@ -1,5 +1,7 @@
 # API Client
 
+**Live app:** [apic.puter.com](https://apic.puter.com/)
+
 Build, send and test HTTP requests in your browser. API Client is an
 open-source alternative to Postman and Insomnia, built on
 [Puter](https://puter.com). It uses no framework and has no backend of its

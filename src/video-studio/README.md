@@ -1,5 +1,7 @@
 # Video Studio
 
+**Live app:** [vs.puter.com](https://vs.puter.com/)
+
 A multi-track video editor that runs in the browser, an open-source alternative to CapCut: trim and arrange clips on a timeline, add text, graphics, effects, filters, transitions and keyframed motion, generate captions, remove backgrounds, and export finished videos. Projects and media are stored as files in the user's own Puter cloud.
 
 The editor has an assets panel, the player and a details panel on top, the timeline below. On phones it switches to a player, timeline and bottom toolbar with sheets.

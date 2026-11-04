@@ -1,5 +1,7 @@
 # Teamchat
 
+**Live app:** [teamchat.puter.com](https://teamchat.puter.com/)
+
 Team messaging on Puter: workspaces, public and private channels, threads,
 direct messages, reactions, mentions, and file attachments. Vanilla
 JavaScript (no frameworks), Vite, and [Puter.js](https://developer.puter.com)

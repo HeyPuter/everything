@@ -8,7 +8,7 @@ import { financingDocs } from './financing-docs.js';
 import { financingGuides } from './financing-guides.js';
 import { equityReportingGuides } from './equity-reporting-guides.js';
 export const APP_URL = '/';
-export const SITE_URL = 'https://cap-table.io';
+export const SITE_URL = 'https://captable.puter.com';
 export const collections = {
   docs: {
     label: 'Documentation', eyebrow: 'Product documentation',

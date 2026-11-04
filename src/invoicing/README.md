@@ -1,5 +1,7 @@
 # Invoicing & Estimates
 
+**Live app:** [invoicing.puter.com](https://invoicing.puter.com/)
+
 Create quotes, invoices, recurring invoices, receipts, and payment links. Deliberately simpler than a full accounting app, and built to feed one: every payment you record can be exported straight into the [Personal Finance](https://github.com/HeyPuter/accountant) app.
 
 Everything is stored in the user's own [Puter](https://developer.puter.com) cloud. There is no server of ours, no database of ours, and no tracking.
