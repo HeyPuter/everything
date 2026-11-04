@@ -6,6 +6,8 @@ import { t, tRich, tSource, useLanguage, language, resolveLanguage, negotiateLan
 import { pseudoLocalize } from '../src/i18n/pseudo.js';
 import { IntlMessageFormat } from 'intl-messageformat';
 import { execFileSync } from 'node:child_process';
+import { resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 afterEach(async () => {
   await useLanguage('en');
@@ -147,7 +149,8 @@ describe('when a translation is wrong', () => {
 describe('outside Vite', () => {
   test('a script run by plain Node reads the catalogs from disk', () => {
     // Tests and scripts that start their own `node` load app modules without Vite's import.meta.glob.
-    const script = `const m = await import(${JSON.stringify(new URL('../src/i18n/index.js', import.meta.url).href)});
+    // (Under jsdom import.meta.url is an http URL, so the path is taken from the app folder vitest runs in.)
+    const script = `const m = await import(${JSON.stringify(pathToFileURL(resolve('src/i18n/index.js')).href)});
       const en = m.t('common.cancel'); await m.useLanguage('zh-Hans'); console.log(en, m.t('common.cancel'));`;
     const out = execFileSync(process.execPath, ['--input-type=module', '-e', script], { encoding: 'utf8' });
     expect(out.trim()).toBe('Cancel 取消');
