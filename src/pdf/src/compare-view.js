@@ -362,6 +362,9 @@ export function createCompareView({ oldPdf, newPdf, oldName, newName, result, on
   const marksOf = new Map(); // item index -> mark elements
   for (const item of items) {
     const marks = [];
+    // One label for all of a change's marks: an inserted page has a mark per line, and the
+    // label reads through the whole inserted text each time it is made.
+    let title = null;
     const place = (sideName, rects) => {
       const index = sideName === 'old' ? item.entry.oldIndex : item.entry.newIndex;
       const paper = rows[item.row].cells[sideName === 'old' ? 0 : 1].paper;
@@ -372,7 +375,7 @@ export function createCompareView({ oldPdf, newPdf, oldName, newName, result, on
         const pad = 1;
         const mark = el('div', {
           class: `compare-mark is-${item.type}`,
-          title: itemLabel(item),
+          title: (title ??= itemLabel(item)),
           'data-item': item.index,
         });
         Object.assign(mark.style, {

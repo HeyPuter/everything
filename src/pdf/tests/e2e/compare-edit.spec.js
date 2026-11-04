@@ -239,3 +239,64 @@ test('keys the comparison answers itself leave the document behind it alone', as
   await expect(page.locator('.page-caption')).toHaveText('Page 1 of 12');
   await expect(page.getByRole('searchbox', { name: 'Find in PDF' })).toBeHidden();
 });
+
+test('a comparison describes each change once, however many lines it marks', async ({ page }) => {
+  await page.route('https://js.puter.com/**', (route) => route.fulfill({ body: '' }));
+  // Count the change descriptions the view writes. Each reads through all of its change's text,
+  // so writing one per marked line made a long comparison freeze the page as it opened.
+  await page.route('**/src/core/compare.js*', async (route) => {
+    const response = await route.fetch();
+    const body = await response.text();
+    const head = 'export function describeChange(change, limit = 120) {';
+    expect(body).toContain(head);
+    await route.fulfill({
+      response,
+      body: body.replace(
+        head,
+        `${head}\nglobalThis.describedChanges = (globalThis.describedChanges || 0) + 1;`,
+      ),
+    });
+  });
+  const lines = async (pages) => {
+    const doc = await PDFDocument.create();
+    const font = await doc.embedFont(StandardFonts.Helvetica);
+    for (let p = 0; p < pages; p++) {
+      const sheet = doc.addPage([400, 500]);
+      for (let k = 0; k < 30; k++)
+        sheet.drawText(`Line ${k + 1} of page ${p + 1}`, {
+          x: 40,
+          y: 470 - k * 15,
+          size: 10,
+          font,
+        });
+    }
+    return Buffer.from(await doc.save());
+  };
+  await page.goto('/#library');
+  const opened = page.waitForEvent('filechooser');
+  await page.keyboard.press('ControlOrMeta+o');
+  await (
+    await opened
+  ).setFiles({ name: 'old.pdf', mimeType: 'application/pdf', buffer: await lines(1) });
+  await expect(page.locator('.editor')).toHaveAttribute('aria-busy', 'false');
+  await page.getByRole('button', { name: 'Tools', exact: true }).click();
+  const pane = page.getByRole('complementary', { name: 'Tools' });
+  await pane.getByRole('button', { name: 'View more' }).click();
+  await pane.getByRole('button', { name: 'Compare files', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Compare files' });
+  const chosen = page.waitForEvent('filechooser');
+  await dialog.getByRole('button', { name: 'Choose file…' }).click();
+  await (
+    await chosen
+  ).setFiles({ name: 'new.pdf', mimeType: 'application/pdf', buffer: await lines(4) });
+  await dialog.getByRole('button', { name: 'Compare', exact: true }).click();
+  await expect(page.locator('.compare-summary')).toHaveText(
+    '6 changes: 3 insertions, 3 pages inserted',
+  );
+  // Every line of the inserted pages is marked, and each mark is named after its change.
+  const marks = page.locator('.compare-mark.is-insert');
+  await expect(marks).toHaveCount(90);
+  await expect(marks.first()).toHaveAttribute('title', /^Inserted "Line 1 of page 2 /);
+  const described = await page.evaluate(() => globalThis.describedChanges);
+  expect(described).toBeLessThanOrEqual(3 * 3);
+});
