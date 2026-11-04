@@ -90,7 +90,8 @@ export function classicMenus(ctx) {
   const edit = () => {
     const engine = ctx.engine?.();
     const undoLabel = w.undoLabel?.();
-    const canRedo = !!engine?.session.future.length && editable();
+    // Redo also steps forward through a design change undone (a theme, a watermark), as the toolbar's Redo does.
+    const canRedo = !!(engine?.session.future.length || w.packageHistory?.().redo) && editable();
     const repeatLabel = w.repeatLabel?.();
     const clipboard = a.clipboardState?.() || {};
     return withExt('edit', [

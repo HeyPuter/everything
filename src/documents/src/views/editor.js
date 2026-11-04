@@ -351,8 +351,10 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     if (!destroyed) engine?.focus();
   };
   const undo = tool('Undo', 'undo', () => engine?.undo(), { disabled: true, shortcut: `${MOD_KEY}+Z` });
-  // With nothing to redo, Redo becomes Repeat: it runs the last command again, as F4 does.
-  const redo = tool('Redo', 'redo', () => { if (!engine) return; if (engine.session.future.length || !editCommands.canRepeat()) engine.redo(); else editCommands.repeat(); }, { disabled: true, shortcut: `${MOD_KEY}+Shift+Z` });
+  // With nothing to redo, Redo becomes Repeat: it runs the last command again, as F4 does. A design change undone
+  // (a theme, a watermark) is something to redo (onHistoryEnd).
+  const redoable = () => !!engine && (engine.session.future.length > 0 || !collab.live && designVersions.redo.length > 0);
+  const redo = tool('Redo', 'redo', () => { if (!engine) return; if (redoable() || !editCommands.canRepeat()) engine.redo(); else editCommands.repeat(); }, { disabled: true, shortcut: `${MOD_KEY}+Shift+Z` });
   // Format area: Font/Paragraph/Tabs/Borders/Bullets/Style dialogs, Styles pane, paste options, Dictate.
   const formatArea = createFormatArea({ editor: () => engine, pkg: () => pkg, error, refresh: () => chrome?.refresh(), host: () => host, unit: () => rulers?.unit ?? 'in',
     focus: () => engine?.focus(), openFind: options => openFind(options), finder: () => finder, pageSetup: () => pageSetup.click(), clipboard: { state: () => clipboardState() }, hasKeymap: () => !!keymap, keyClaimed: e => !!keymap?.commandFor(chordOf(e)) });
@@ -884,7 +886,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
   editorCommands.extendMenu = (id, kit) => [...(chromeExtendMenu?.(id, kit) || [])];
   const chromeContextMenuItems = editorCommands.contextMenuItems;
   editorCommands.contextMenuItems = (context, kit) => [...(chromeContextMenuItems?.(context, kit) || [])];
-  const editCommands = createEditCommands({ editor: () => engine, pkg: () => pkg, editLink: () => editHyperlink(engine?.input), searchQuery: () => outlinePanel.query, onChange: () => update() });
+  const editCommands = createEditCommands({ editor: () => engine, pkg: () => pkg, editLink: () => editHyperlink(engine?.input), searchQuery: () => outlinePanel.query, onChange: () => update(), redoable: () => redoable() });
   Object.assign(editorCommands, editCommands);
   // Undo steps are named (their `label`) after the command that made them, a name the step keeps through Undo and Redo
   // (StorySession.travel); a command that changed the document is the one Repeat runs. A shared document's steps are
@@ -1304,7 +1306,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     'edit.pasteMatch': () => { if (!engine || !clipboardState().paste) return false; if (editorCommands.pasteMatchFormatting) editorCommands.pasteMatchFormatting(); else pastePlainText(); },
     'edit.pasteSpecial': () => (editorCommands.pasteSpecial ? editorCommands.pasteSpecial() : false),
     'edit.repeat': () => editCommands.repeat(),
-    'edit.redoOrRepeat': () => (engine && !engine.session.future.length && editCommands.canRepeat() ? editCommands.repeat() : false),
+    'edit.redoOrRepeat': () => (engine && !redoable() && editCommands.canRepeat() ? editCommands.repeat() : false),
     'edit.findNext': () => editCommands.findNext(1), 'edit.findPrevious': () => editCommands.findNext(-1),
     'edit.goTo': () => editorCommands.goTo(),
     'format.paragraph': () => { if (editorCommands.paragraphDialog && engine) return editorCommands.paragraphDialog(); if (paragraphGeometry.disabled) return false; paragraphGeometry.click(); },

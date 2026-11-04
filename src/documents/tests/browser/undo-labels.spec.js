@@ -110,3 +110,35 @@ test('a paste switched to text only from its options is still named Paste', asyn
   await expect.poll(() => page.evaluate(() => window.__docs.current.view.engine.model.paragraphs[0].runs.some(r => r.bold))).toBe(false);
   expect(await undoItem(page)).toMatch(/^Undo Paste/);
 });
+
+test('Redo, not Repeat, after a design change is undone: Edit › Redo, the Redo button and Ctrl+Y', async ({ page }) => {
+  test.setTimeout(90000);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/mock.html#/new');
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await page.locator('canvas.canvas-page').first().click({ position: { x: 150, y: 110 } });
+  await page.keyboard.type('Report');
+  // A command Repeat could run again.
+  await input(page).press('ControlOrMeta+a');
+  await page.locator('.ribbon-card').getByRole('button', { name: 'Bold', exact: true }).click();
+  await page.locator('#ribbon-tab-design').click();
+  await page.locator('.ribbon-card').getByRole('button', { name: 'Themes' }).click();
+  await page.getByRole('menu', { name: 'Themes' }).getByRole('menuitemradio', { name: 'Harbor theme' }).click();
+  const label = () => page.evaluate(() => window.__docs.current.view.commands.undoLabel());
+  const undone = async () => {
+    await expect.poll(label).toBe('Theme');
+    await input(page).press('ControlOrMeta+z');
+    await expect.poll(() => page.evaluate(() => window.__docs.current.view.commands.packageHistory().redo)).toBe(true);
+  };
+  await undone();
+  await page.getByRole('menubar', { name: 'Menu bar' }).getByRole('menuitem', { name: 'Edit', exact: true }).click();
+  await page.getByRole('menu', { name: 'Edit', exact: true }).getByRole('menuitem', { name: /^Redo/ }).click();
+  await undone();
+  await expect(page.locator('.ed-quick').getByRole('button', { name: 'Redo', exact: true })).toBeEnabled();
+  await page.locator('.ed-quick').getByRole('button', { name: 'Redo', exact: true }).click();
+  await undone();
+  await input(page).press('ControlOrMeta+y');
+  await expect.poll(label).toBe('Theme');
+  // Bold was never repeated.
+  expect(await page.evaluate(() => window.__docs.current.view.engine.model.paragraphs[0].runs.every(r => r.bold))).toBe(true);
+});
