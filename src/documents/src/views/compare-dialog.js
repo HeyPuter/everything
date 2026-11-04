@@ -93,6 +93,7 @@ export function openCompareDialog({ mode = 'compare', editor, pkg, documentName,
     const result = api.mergeDocuments({ paragraphs: basePkg.paragraphs, tables: basePkg.tables }, { paragraphs: otherPkg.paragraphs, tables: otherPkg.tables }, {
       mode, author: label2, granularity: options.granularity, formatting: options.formatting !== false, caseChanges: options.caseChanges !== false, whiteSpace: options.whiteSpace !== false, tables: options.tables !== false,
       styleIds: new Set(Object.keys(basePkg.styles?.definitions || {})),
+      numbering: basePkg.numbering,
     });
     const blob = basePkg.export(result.paragraphs, basePkg.pageSettings, basePkg.numbering, basePkg.styles, result.tables, basePkg.assets, undefined, basePkg.comments);
     const stem = name => name.replace(/ \(open now\)$/, '').replace(/\.docx$/i, '');

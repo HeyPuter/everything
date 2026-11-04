@@ -10,6 +10,7 @@
 import { trackFormatChanges } from './revisions.js';
 import { documentBlocks } from './tables.js';
 import { readCoreProperties } from './docx-core-properties.js';
+import { hasNumberingDefinition, hasListLevel } from './numbering.js';
 
 const OBJECT = '￼';
 
@@ -140,21 +141,25 @@ function sanitizedRun(run, styleIds) {
   return out.text ? out : null;
 }
 let copies = 0;
-function copiedParagraph(p, { styleIds, cellId, template }) {
+function copiedParagraph(p, { styleIds, cellId, template, numbering }) {
   const out = structuredClone(p);
+  // A list item keeps its list where the result's numbering has that list (two versions of one document share
+  // their lists): copied without it, a list item removed in the revised copy came back unnumbered when the
+  // deletion was rejected, and one added was unnumbered when it was accepted.
+  const keepList = !!p.list && !!numbering && hasNumberingDefinition(numbering, p.list.numId) && hasListLevel(numbering, p.list);
   out.id = `cmp${++copies}`;
   out.runs = p.runs.filter(visible).map(r => sanitizedRun(r, styleIds)).filter(Boolean);
   for (const key of ['bookmarks', 'fieldMarkers', 'sectionEnd', 'sectionProperties', 'sectionSourceIndex', 'blockControls', 'markRevision', 'formatRevision', 'tableStyleId', 'tableStyleRegions', 'cellId', 'pageStory', 'storySource']) delete out[key];
   if (cellId) out.cellId = cellId;
   if (template?.tableStyleId) out.tableStyleId = template.tableStyleId;
   if (template?.tableStyleRegions) out.tableStyleRegions = structuredClone(template.tableStyleRegions);
-  if (out.shell) out.shell = out.shell.replace(/<(?:\w+:)?(numPr|sectPr|pPrChange)\b[\s\S]*?<\/(?:\w+:)?\1>|<(?:\w+:)?(?:numPr|sectPr|pPrChange)\b[^>]*\/>/g, '').replace(/<(?:\w+:)?(?:ins|del|moveFrom|moveTo)\b[^>]*\/>/g, '');
+  if (out.shell) out.shell = out.shell.replace(keepList ? /<(?:\w+:)?(sectPr|pPrChange)\b[\s\S]*?<\/(?:\w+:)?\1>|<(?:\w+:)?(?:sectPr|pPrChange)\b[^>]*\/>/g : /<(?:\w+:)?(numPr|sectPr|pPrChange)\b[\s\S]*?<\/(?:\w+:)?\1>|<(?:\w+:)?(?:numPr|sectPr|pPrChange)\b[^>]*\/>/g, '').replace(/<(?:\w+:)?(?:ins|del|moveFrom|moveTo)\b[^>]*\/>/g, '');
   if (out.styleId && !styleIds.has(out.styleId)) {
     out.styleId = null;
     if (out.shell) out.shell = out.shell.replace(/<(?:\w+:)?pStyle\b[^>]*\/>/g, '');
   }
   if (out.markStyleId && !styleIds.has(out.markStyleId)) { out.markStyleId = null; out.markProperties = ''; out.markPropertiesChanged = true; }
-  out.list = null; delete out.listChanged;
+  if (!keepList) { out.list = null; delete out.listChanged; }
   return out;
 }
 
@@ -299,7 +304,7 @@ function alignBlocks(baseBlocks, otherBlocks, otherFirst) {
  * Compare or combine two documents' paragraph sequences.
  * base/other: { paragraphs, tables }. Returns { paragraphs, tables, stats } for the base structure.
  */
-export function mergeDocuments(base, other, { mode = 'compare', author = 'Author', date = new Date().toISOString().replace(/\.\d+Z$/, 'Z'), granularity = 'word', caseChanges = true, whiteSpace = true, formatting = true, tables: compareTables = true, styleIds = new Set() } = {}) {
+export function mergeDocuments(base, other, { mode = 'compare', author = 'Author', date = new Date().toISOString().replace(/\.\d+Z$/, 'Z'), granularity = 'word', caseChanges = true, whiteSpace = true, formatting = true, tables: compareTables = true, styleIds = new Set(), numbering = null } = {}) {
   const otherIsNew = mode === 'combine';
   const revision = { author, date };
   const normalize = text => { let t = text; if (!caseChanges) t = t.toLowerCase(); if (!whiteSpace && /^\s+$/.test(t)) t = ' '; return t; };
@@ -314,7 +319,7 @@ export function mergeDocuments(base, other, { mode = 'compare', author = 'Author
     const type = otherIsNew ? 'ins' : 'del';
     const paragraphs = block.type === 'paragraph' ? [block.paragraph] : flatten(block);
     for (const p of paragraphs) {
-      const copy = copiedParagraph(p, { styleIds, cellId: scope, template });
+      const copy = copiedParagraph(p, { styleIds, cellId: scope, template, numbering });
       // Text the other reviewer already tracked as inserted keeps its author.
       const sources = p.runs.filter(visible).filter(r => sanitizedRun(r, styleIds));
       copy.runs = copy.runs.map((r, i) => type === 'ins' && sources[i]?.revision?.type === 'ins' ? { ...r, revision: (({ inserted, ...own }) => own)(sources[i].revision) } : mark(r, type, revision));

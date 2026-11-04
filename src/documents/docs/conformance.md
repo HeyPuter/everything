@@ -23853,6 +23853,8 @@ Supported subset:
   non-Latin scripts.
 - Compare/Combine produce a new package from the base document (revised for Compare, original for
   Combine) with `ins`/`del` and `rPrChange`/`pPrChange` revisions authored by the chosen label.
+  A paragraph only the other document has keeps its list (§17.3.1.19 `numPr`) when the base document's numbering
+  defines that list and level; otherwise it is copied unnumbered.
 
 Validation: `tests/document-protection.test.js`, `tests/tracked-formatting.test.js`,
 `tests/compare-documents.test.js`, `tests/review-fixtures.test.js` (fixtures written by
