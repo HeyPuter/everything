@@ -86,4 +86,24 @@ test.describe('sketching', () => {
     await expect(page.locator('.statusbar')).toContainText('Under Defined');
     expect(errors).toEqual([]);
   });
+
+  test('double-clicking a point while drawing does not drop or collapse the shape', async ({ page }) => {
+    const errors = await openApp(page);
+    const { x, y } = await startSketch(page);
+    const kinds = () => page.evaluate(() => (window as unknown as { __parametric: { sketchEditor: { sketch: { entities: { t: string }[] } } } }).__parametric.sketchEditor.sketch.entities.filter((e) => e.t !== 'point').map((e) => e.t).join());
+    // Slot: a double-click on the second centre waits for the width.
+    await page.locator('[data-cmd="tool:slot"]').click();
+    await page.mouse.click(x - 100, y - 80);
+    await page.mouse.dblclick(x, y - 80);
+    await page.mouse.click(x - 50, y - 55);
+    await expect.poll(kinds).toBe('line,line,arc,arc,line');
+    // Centerpoint arc: a double-click on the start point waits for the end.
+    await page.locator('[data-cmd="tool:centerArc"]').click();
+    await page.mouse.click(x, y + 60);
+    await page.mouse.dblclick(x + 80, y + 60);
+    expect(await kinds()).toBe('line,line,arc,arc,line');
+    await page.mouse.click(x, y + 140);
+    await expect.poll(kinds).toBe('line,line,arc,arc,line,arc');
+    expect(errors).toEqual([]);
+  });
 });
