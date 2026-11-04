@@ -964,6 +964,12 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
       const top = engine?.session.history.at(-1);
       return top ? labelOf(top) : !collab.live && designVersions.undo.at(-1)?.label || null;
     },
+    // What Redo puts back, named as when it was made (a shared document's steps are not told apart).
+    redoLabel: () => {
+      if (!engine || collab.live) return null;
+      const next = engine.session.future.at(-1);
+      return next ? next.label || null : designVersions.redo.at(-1)?.label || null;
+    },
     // What Undo steps back through, latest first: the editor's own steps, then the design changes before them (onHistoryEnd).
     undoHistory: () => engine ? [...[...engine.session.history].reverse().map(entry => labelOf(entry) || 'Edit'),
       ...(collab.live ? [] : [...designVersions.undo].reverse().map(entry => entry.label || 'Design Change'))] : [],

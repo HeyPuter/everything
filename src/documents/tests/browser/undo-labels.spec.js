@@ -69,6 +69,10 @@ test('a step keeps its name through Undo and Redo', async ({ page }) => {
   await input(page).press('ControlOrMeta+z');
   await expect(input(page)).toHaveValue('One ');
   expect(await undoItem(page)).toMatch(/^Undo Typing/);
+  // Edit › Redo names what it puts back.
+  await page.getByRole('menubar', { name: 'Menu bar' }).getByRole('menuitem', { name: 'Edit', exact: true }).click();
+  await expect(page.getByRole('menu', { name: 'Edit', exact: true }).getByRole('menuitem', { name: /^Redo/ })).toHaveText(/^Redo Paste/);
+  await page.keyboard.press('Escape');
   await input(page).press('ControlOrMeta+Shift+z');
   await expect(input(page)).toHaveValue('One two');
   expect(await undoItem(page)).toMatch(/^Undo Paste/);
