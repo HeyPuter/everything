@@ -11794,7 +11794,7 @@ export function createEditor({
     const count = pdf.numPages;
     const every = el('input', {
       type: 'number',
-      class: 'input',
+      class: 'input count-input',
       min: 1,
       max: count - 1,
       step: 1,
@@ -11826,7 +11826,11 @@ export function createEditor({
       'div',
       { class: 'choice-list', role: 'radiogroup', 'aria-label': 'How to split' },
       choice('each', `Each page as its own PDF (${count} files)`, count <= MAX_SPLIT_FILES),
-      choice('every', 'Every', count > MAX_SPLIT_FILES, every),
+      // "Every 2 pages": the number alone did not say what it counts.
+      choice('every', 'Every', count > MAX_SPLIT_FILES, [
+        every,
+        el('span', { 'aria-hidden': 'true' }, 'pages'),
+      ]),
       choice('at', 'New part before pages', false, points),
     );
     for (const [input, value] of [

@@ -77,6 +77,10 @@ test('Split PDF downloads the parts as one ZIP, by group size or at chosen pages
   await expect(dialog.getByRole('status')).toHaveText('5 PDFs, downloaded together as a ZIP.');
   await dialog.getByLabel('Pages per part').fill('2');
   await expect(dialog.getByRole('radio', { name: 'Every', exact: true })).toBeChecked();
+  // The number says what it counts: "Every 2 pages".
+  await expect(
+    dialog.locator('.choice-with-input').filter({ has: page.getByLabel('Pages per part') }),
+  ).toContainText('pages');
   await expect(dialog.getByRole('status')).toHaveText('3 PDFs, downloaded together as a ZIP.');
   await dialog.getByLabel('Pages where new parts begin').fill('4');
   await expect(dialog.getByRole('status')).toHaveText('2 PDFs, downloaded together as a ZIP.');

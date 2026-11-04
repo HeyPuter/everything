@@ -1971,6 +1971,9 @@ dialog.leave-save-dialog {
   flex: 1;
   min-width: 0;
 }
+.choice-with-input .input.count-input {
+  flex: 0 1 7em;
+}
 /* Watermark and page number dialogs */
 .field-grid {
   display: grid;
