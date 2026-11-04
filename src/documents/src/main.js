@@ -540,7 +540,7 @@ function setupOfflineBanner() {
       announce('Back online');
       // Only pending edits go out; an untouched new document has no file to write yet.
       const doc = current?.view?.doc;
-      if (doc?.dirty) doc.save({ auto: true }).catch(() => {});
+      if (doc?.dirty) doc.save({ auto: true, fresh: true }).catch(() => {});
     }
   };
   window.addEventListener('online', update);

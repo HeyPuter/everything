@@ -31,6 +31,8 @@ import { documentPathKey } from './document-paths.js';
 export const AUTOSAVE_MS = 1500;
 export const MAX_AUTOSAVE_MS = 30000;
 export const RETRY_MS = 8000;
+/** The longest pause between retries of an autosave that keeps failing: they double from RETRY_MS up to this. */
+export const MAX_RETRY_MS = 5 * 60_000;
 export const UNTITLED = 'Untitled document';
 export const SIGN_IN_TO_SAVE = 'Sign in to Puter to save this document';
 /** Save pressed without a connection: what happens to the changes, rather than the browser's "Failed to fetch". */
@@ -242,6 +244,8 @@ export class Doc extends EventTarget {
     // After the editor has closed (a content error, a reopen) nothing from it may be saved over the file.
     if (this._deleted || this._closed) return;
     this.version += 1;
+    // Someone is at work: a failing save is tried again after the usual pauses, not the long ones it had earned.
+    this._retries = 0;
     if (this.writes === false) { this.savedVersion = this.version; return; }
     this._setStatus('unsaved');
     if (this.exporter && this.autosave) {
@@ -287,7 +291,9 @@ export class Doc extends EventTarget {
    * Save now. Resolves true when the file was written. `now` (with `auto`): the page is going to the
    * background, where the usual pause may never end, so edits made during a save in flight go right after it.
    */
-  async save({ auto = false, now = false } = {}) {
+  async save({ auto = false, now = false, fresh = false } = {}) {
+    // `fresh`: the connection or the session came back, so the pauses between retries start over.
+    if (fresh || !auto) this._retries = 0;
     clearTimeout(this._timer);
     this._timer = null;
     if (this._deleted || this.writes === false) return true;
@@ -405,6 +411,7 @@ export class Doc extends EventTarget {
       this.savedVersion = this.writes === false ? this.version : version;
       this._setStatus(this.dirty ? 'unsaved' : 'saved');
       this._autoFailures = 0;
+      this._retries = 0;
       if (this.dirty && this.autosave) this._schedule(this.autosaveDelay);
       return true;
     } catch (e) {
@@ -422,7 +429,10 @@ export class Doc extends EventTarget {
       // nothing can succeed until the connection is back, and the app saves then.
       // A file another window took over is not retried on its own: the same answer would come back every time.
       if (initialized && !offline && !e?.conflict) {
-        this._schedule(RETRY_MS);
+        // A failure that keeps coming back (storage full) is not tried every few seconds for as long as the document is
+        // open, each try exporting all of it: the pause doubles, up to a few minutes.
+        this._retries = (this._retries || 0) + 1;
+        this._schedule(Math.min(MAX_RETRY_MS, RETRY_MS * 2 ** (this._retries - 1)));
         // An autosave that keeps failing (storage full, the file's permission gone) must not go on failing unseen
         // while the typing goes on: once its retry has failed too, the view says so, once until a save goes through.
         this._autoFailures = (this._autoFailures || 0) + 1;

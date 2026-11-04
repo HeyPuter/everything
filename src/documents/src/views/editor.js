@@ -1731,7 +1731,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     showDocumentTitle();
   };
   doc.addEventListener('path', onPath);
-  const onSession = () => { renderAccountButton(account); updateStatus(); if (session.signedIn && doc.dirty && doc.exporter) doc.save({ auto: true }).catch(error); };
+  const onSession = () => { renderAccountButton(account); updateStatus(); if (session.signedIn && doc.dirty && doc.exporter) doc.save({ auto: true, fresh: true }).catch(error); };
   if (!local) session.addEventListener('change', onSession);
   updateStatus();
 
