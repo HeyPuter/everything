@@ -1312,7 +1312,10 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
       reopen();
     } catch (e) { error(e); }
   }
-  const content = el('div.canvas-editor-content', {}, outlinePanel.node, finder.node, surface, versionHistory.previewNode, review.pane, formatArea.pane.node, proofing.pane, mailings.pane, references.lookupPane, ...reviewTools.panes, pictures.pane, versionHistory.pane.node, assistant.pane.node, chrome.inspector, assistant.fab);
+  const content = el('div.canvas-editor-content', {}, outlinePanel.node, finder.node, surface, versionHistory.previewNode, review.pane, formatArea.pane.node, proofing.pane, mailings.pane, references.lookupPane, ...reviewTools.panes, pictures.pane, versionHistory.pane.node, assistant.pane.node, chrome.inspector);
+  // The Assistant's button floats at the foot of the page area itself, so an open pane (beside the page, or under it
+  // in a narrow window) keeps its own controls uncovered.
+  surface.append(assistant.fab);
   // In a narrow window the panes stack under the page in one scrolling column. A pane puts the keyboard in itself
   // without scrolling (beside the page there is nothing to scroll), so one opened under another took the keyboard out
   // of sight, at once or when the pane above filled in a moment later (Smart Lookup's answer): while the keyboard
