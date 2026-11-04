@@ -1,5 +1,12 @@
 import { test, expect } from '@playwright/test';
-import { PDFDocument, StandardFonts } from 'pdf-lib';
+import {
+  PDFDocument,
+  StandardFonts,
+  concatTransformationMatrix,
+  drawObject,
+  popGraphicsState,
+  pushGraphicsState,
+} from 'pdf-lib';
 
 test.skip(({ isMobile }) => isMobile, 'desktop workspace');
 
@@ -64,4 +71,90 @@ test('the compared pages still draw after the PDF is edited during a comparison'
   await docs.evaluate((node) => (node.scrollTop = 0));
   await expect.poll(() => inkOnFirstPage(page, 'old')).toBeGreaterThan(50);
   await expect.poll(() => inkOnFirstPage(page, 'new')).toBeGreaterThan(50);
+});
+
+/** Pages that each show a picture of their own, as a scan's pages do. */
+async function picturePdfBytes(shade) {
+  const doc = await PDFDocument.create();
+  for (let i = 0; i < 4; i++) {
+    const page = doc.addPage([400, 500]);
+    const picture = doc.context.flateStream(new Uint8Array(400 * 400 * 3).fill(shade + i * 20), {
+      Type: 'XObject',
+      Subtype: 'Image',
+      Width: 400,
+      Height: 400,
+      ColorSpace: 'DeviceRGB',
+      BitsPerComponent: 8,
+    });
+    const name = page.node.newXObject('Im', doc.context.register(picture));
+    page.pushOperators(
+      pushGraphicsState(),
+      concatTransformationMatrix(300, 0, 0, 300, 50, 100),
+      drawObject(name),
+      popGraphicsState(),
+    );
+  }
+  return Buffer.from(await doc.save());
+}
+
+test('the compared pages let go of their decoded pictures once drawn', async ({ page }) => {
+  await page.route('https://js.puter.com/**', (route) => route.fulfill({ body: '' }));
+  await page.goto('/#library');
+  const opened = page.waitForEvent('filechooser');
+  await page.keyboard.press('ControlOrMeta+o');
+  await (
+    await opened
+  ).setFiles({ name: 'old.pdf', mimeType: 'application/pdf', buffer: await picturePdfBytes(40) });
+  await expect(page.locator('.page-caption')).toHaveText('Page 1 of 4');
+  await expect(page.locator('.editor')).toHaveAttribute('aria-busy', 'false');
+  // Watch every page PDF.js draws, through the same PDF.js module the editor loaded.
+  await page.evaluate(async () => {
+    const url = performance
+      .getEntriesByType('resource')
+      .map((entry) => entry.name)
+      .find((name) => name.includes('/deps/pdfjs-dist.js'));
+    const pdfjs = await import(url);
+    const text =
+      '%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj 2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj 3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 10 10]>>endobj\ntrailer<</Root 1 0 R>>';
+    const task = pdfjs.getDocument({ data: Uint8Array.from(text, (c) => c.charCodeAt(0)) });
+    const proto = Object.getPrototypeOf(await (await task.promise).getPage(1));
+    const render = proto.render;
+    window.drawnPages = new Set();
+    proto.render = function (...args) {
+      window.drawnPages.add(this);
+      return render.apply(this, args);
+    };
+  });
+
+  await page.getByRole('button', { name: 'Tools', exact: true }).click();
+  const pane = page.getByRole('complementary', { name: 'Tools' });
+  await pane.getByRole('button', { name: 'View more' }).click();
+  await pane.getByRole('button', { name: 'Compare files', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Compare files' });
+  const chosen = page.waitForEvent('filechooser');
+  await dialog.getByRole('button', { name: 'Choose file…' }).click();
+  await (
+    await chosen
+  ).setFiles({ name: 'new.pdf', mimeType: 'application/pdf', buffer: await picturePdfBytes(120) });
+  await dialog.getByRole('button', { name: 'Compare', exact: true }).click();
+  const papers = page.locator('.compare-paper canvas');
+  await expect(papers).toHaveCount(8);
+  // A drawn page shows its picture in the middle of the sheet.
+  const drawn = () =>
+    papers.evaluateAll(
+      (list) =>
+        list.filter((canvas) => {
+          const pixel = canvas
+            .getContext('2d')
+            .getImageData(canvas.width / 2, canvas.height / 2, 1, 1).data;
+          return pixel[3] > 0;
+        }).length,
+    );
+  await expect.poll(drawn).toBe(8);
+  // Every page of both files has been drawn, and none keeps its picture in memory after.
+  const held = await page.evaluate(() =>
+    [...window.drawnPages].map((pdfPage) => [...pdfPage.objs].length),
+  );
+  expect(held.length).toBeGreaterThanOrEqual(8);
+  expect(held.filter(Boolean)).toEqual([]);
 });

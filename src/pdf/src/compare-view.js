@@ -555,8 +555,9 @@ export function createCompareView({ oldPdf, newPdf, oldName, newName, result, on
   }
   async function draw(paper) {
     const target = scale;
+    let page = null;
     try {
-      const page = await docs[paper.side].getPage(paper.index + 1);
+      page = await docs[paper.side].getPage(paper.index + 1);
       if (destroyed || !paper.visible || target !== scale) return;
       const ratio = Math.min(window.devicePixelRatio || 1, 2);
       let viewport = page.getViewport({ scale: target * ratio });
@@ -583,6 +584,10 @@ export function createCompareView({ oldPdf, newPdf, oldName, newName, result, on
     } catch {
       /* A cancelled or failed drawing leaves the page blank; it is retried when shown again. */
       paper.task = null;
+    } finally {
+      // PDF.js keeps a drawn page's decoded pictures until told otherwise; two scans compared
+      // page by page would hold every picture of both by the end.
+      page?.cleanup();
     }
   }
   function release(paper) {
