@@ -107,3 +107,46 @@ test('text pasted, or a date inserted, with a shape selected goes after its anch
   expect(after.text.slice(0, anchor + 1)).toBe(before.text.slice(0, anchor + 1));
   expect(errors).toEqual([]);
 });
+
+test('an input method composing with a shape selected writes after its anchor and keeps the shape', async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await start(page);
+  await drawShape(page, 'Rectangle', [300, 120], [460, 220]);
+  const before = await state(page), anchor = before.text.indexOf('￼');
+  await selectDrawing(page);
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send('Input.imeSetComposition', { text: '火', selectionStart: 1, selectionEnd: 1 });
+  expect(await state(page)).toMatchObject({ drawings: 1, text: before.text.slice(0, anchor + 1) + '火' + before.text.slice(anchor + 1) });
+  // Over a drawing's character the browser commits each update and starts again: the drawing stays all along.
+  await cdp.send('Input.imeSetComposition', { text: '山', selectionStart: 1, selectionEnd: 1 });
+  await page.evaluate(() => window.__docs.current.view.engine.finishComposition());
+  const after = await state(page);
+  expect(after.drawings).toBe(1);
+  expect(after.text).toMatch(new RegExp(`^${before.text.slice(0, anchor + 1).replace(/[.|]/g, '\\$&')}火?山`));
+  expect(after.text.endsWith(before.text.slice(anchor + 1))).toBe(true);
+  // One undo takes the composed text back and leaves the shape.
+  await page.keyboard.press('ControlOrMeta+z');
+  await expect.poll(async () => (await state(page)).text).toBe(before.text);
+  expect(errors).toEqual([]);
+});
+
+test('an emoji or other text inserted without keys into a selected text box goes into its text', async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await start(page);
+  await (await onTab(page, 'insert')).locator('.ribbon-card').getByRole('button', { name: 'Text Box', exact: true }).click();
+  await page.getByRole('menuitem', { name: /^Simple Text Box/ }).click();
+  const dialog = page.getByRole('dialog', { name: 'Edit drawing text' });
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole('textbox').first().press('ControlOrMeta+a');
+  await page.keyboard.type('Boxed');
+  await dialog.getByRole('button', { name: 'Apply', exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  const before = await state(page);
+  await selectDrawing(page);
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send('Input.insertText', { text: '😀' });
+  await expect(dialog.getByTestId('drawing-text-input')).toHaveValue('Boxed😀');
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+  expect(await state(page)).toMatchObject({ text: before.text, drawings: 1 });
+  expect(errors).toEqual([]);
+});

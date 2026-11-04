@@ -182,6 +182,15 @@ export class CanvasEditor {
     listen(this.input, 'input', e => this.nativeInput(e));
     listen(this.input, 'compositionstart', () => {
       if (this.readOnly) return;
+      // A composition that starts while one is open (the browser committed the last one without ending it) goes on in
+      // its undo step: only where its text begins in the field changes.
+      if (this.composition) { this.compositionStart = this.input.selectionStart; this.compositionText = ''; return; }
+      // A selected floating drawing is not text a composition replaces (keydown, beforeInput): what an input method,
+      // a dead key or a composing emoji picker writes goes after its anchor. The field's composition still replaces
+      // the drawing's character there (moving the field's selection now confuses the input method); the document
+      // keeps it, and reads the field with it put back (keptComposition).
+      this.compositionKeeps = !this.viewOnly && this.selectedFloatingDrawing ? this.model.range[0] : null;
+      if (this.compositionKeeps !== null) this.model.select(this.compositionKeeps + 1);
       const entry = this.session.capture(), before = entry.state, [start, end] = this.model.range;
       const caret = this.model.selection.controlCaret;
       const explicit = caret && inlineControlCaret(this.model.paragraphs, start, caret);
@@ -2165,7 +2174,7 @@ export class CanvasEditor {
     try {
       const revision = this.session.revision;
       this.session.run(() => {
-        const value = this.input.value, a = this.input.selectionStart, b = this.input.selectionEnd;
+        const { value, a, b } = this.keptComposition();
         const text = this.inputText, model = this.model, selection = model.selection, revision = model.revision;
         const typing = [model.typingFormat, model.typingStyle, model.typingDirectCleared];
         this.reconcile(value, false, { caret: a === b ? a : null, backward: /Backward$/.test(e?.inputType || '') });
@@ -2194,6 +2203,20 @@ export class CanvasEditor {
    * Changes on, the text it replaced stays in the document, struck out, but not in the native field;
    * that text lies before the composition, so the selection maps across by the text after it.
    */
+  /**
+   * The field's text and selection as the document reads them. While a composition began over a selected floating
+   * drawing, the field lacks the drawing's character, which the composition replaced there: it is put back.
+   */
+  keptComposition() {
+    let value = this.input.value, a = this.input.selectionStart, b = this.input.selectionEnd;
+    const at = this.composition ? this.compositionKeeps : null;
+    if (at != null && value[at] !== '\ufffc' && value.slice(0, at) === this.inputText.slice(0, at)) {
+      value = value.slice(0, at) + '\ufffc' + value.slice(at);
+      if (a >= at) a++;
+      if (b >= at) b++;
+    }
+    return { value, a, b };
+  }
   followNativeSelection(value, a, b) {
     const text = this.inputText, shift = text.length - value.length;
     if (text !== value && !(this.composition && shift > 0 && text.endsWith(value.slice(a)))) return;
@@ -2219,13 +2242,13 @@ export class CanvasEditor {
     const before = this.composition;
     try {
       this.session.run(() => {
-        const value = this.input.value, a = this.input.selectionStart, b = this.input.selectionEnd;
+        const { value, a, b } = this.keptComposition();
         this.reconcile(value, false);
         // Committing re-reads the text the composition replaced, which leaves the caret before it.
         if (this.inputText !== value) this.followNativeSelection(value, a, b);
       }, () => this.validateStory(), { record: false });
     } catch (e) { this.session.restore(before); this.onError(e); }
-    this.composition = null;
+    this.composition = null; this.compositionKeeps = null;
     // Unchanged without a new revision, and changed with new text; only the rest (text composed and then removed,
     // over a selection Track Changes kept struck out) compares the whole document: a long one took a while for every
     // syllable an input method commits.
