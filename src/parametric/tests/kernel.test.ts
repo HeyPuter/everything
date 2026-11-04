@@ -2,7 +2,7 @@
 // is the only way to know the modeling features actually produce solids.
 import { beforeAll, describe, expect, it } from 'vitest';
 import init from 'replicad-opencascadejs';
-import { ModelBuilder } from '../src/kernel/build';
+import { ModelBuilder, errorText } from '../src/kernel/build';
 import { setOc } from '../src/kernel/occ';
 import type { Feature, FilletFeature, ShellFeature } from '../src/model/types';
 import { circle, extrude, polygon, rect, req, revolve, sketch } from './helpers';
@@ -60,6 +60,21 @@ describe('feature regeneration', () => {
     ] as any[];
     await b.build(req([sketch('S1', ents), revolve('R1', 'S1')]));
     expect(volume(b)).toBeCloseTo(Math.PI * (100 - 25) * 20, 0);
+  });
+
+  it('rejects a revolve profile that crosses its axis with a readable error', async () => {
+    const b = new ModelBuilder();
+    const axis = [
+      { id: 'a1', t: 'point', x: 0, y: -5 }, { id: 'a2', t: 'point', x: 0, y: 25 },
+      { id: 'axis', t: 'line', a: 'a1', b: 'a2', construction: true },
+    ] as any[];
+    const res = await b.build(req([sketch('S1', [...rect(-5, 0, 10, 20), ...axis]), revolve('R1', 'S1')]));
+    expect(res.status[1].ok).toBe(false);
+    expect(res.status[1].error).toMatch(/crosses the axis/);
+    // Touching the axis is fine.
+    const ok = await b.build(req([sketch('S1', [...rect(0, 0, 10, 20), ...axis]), revolve('R1', 'S1')]));
+    expect(ok.status[1].ok).toBe(true);
+    expect(errorText(new (WebAssembly as any).Exception(new (WebAssembly as any).Tag({ parameters: [] }), []))).not.toMatch(/object/);
   });
 
   it('fillets edges referenced by name and survives a dimension change', async () => {

@@ -554,6 +554,25 @@ export class ModelBuilder {
     let angle = num(f.angle);
     if (angle <= 0) throw new FeatureError('Angle must be greater than zero');
     angle = Math.min(angle, 360);
+    // Map a 3D point back into the sketch plane by undoing the rotation.
+    const a2 = toLocal(frame, axis.p);
+    const b2 = toLocal(frame, add(axis.p, axis.d));
+    const d2: Vec2 = [b2[0] - a2[0], b2[1] - a2[1]];
+    const dl = Math.hypot(d2[0], d2[1]) || 1;
+    d2[0] /= dl; d2[1] /= dl;
+    const perp: Vec2 = [-d2[1], d2[0]];
+    if (Math.abs(dot(axis.d, frame.n)) < 1e-6 && Math.abs(dot(sub(axis.p, frame.o), frame.n)) < 1e-6 * (1 + len(axis.p))) {
+      // A profile on both sides of an in-plane axis would sweep through itself.
+      let lo = 0, hi = 0, size = 0;
+      for (const r of regions) {
+        for (const q of r.outer.poly) {
+          const s = (q[0] - a2[0]) * perp[0] + (q[1] - a2[1]) * perp[1];
+          lo = Math.min(lo, s); hi = Math.max(hi, s); size = Math.max(size, Math.abs(s));
+        }
+      }
+      const tol = 1e-6 * (1 + size);
+      if (lo < -tol && hi > tol) throw new FeatureError('The profile crosses the axis of revolution. Keep it on one side of the axis.');
+    }
     const sgn = f.flip ? -1 : 1;
     const d = scale(axis.d, sgn);
     const pieces: Sh[] = [];
@@ -564,13 +583,6 @@ export class ModelBuilder {
       pieces.push(solid);
     }
     const tool = pieces.length === 1 ? pieces[0] : this.fuseAll(pieces);
-    // Map a 3D point back into the sketch plane by undoing the rotation.
-    const a2 = toLocal(frame, axis.p);
-    const b2 = toLocal(frame, add(axis.p, axis.d));
-    const d2: Vec2 = [b2[0] - a2[0], b2[1] - a2[1]];
-    const dl = Math.hypot(d2[0], d2[1]) || 1;
-    d2[0] /= dl; d2[1] /= dl;
-    const perp: Vec2 = [-d2[1], d2[0]];
     const s0 = regions[0].sample;
     const side = Math.sign((s0[0] - a2[0]) * perp[0] + (s0[1] - a2[1]) * perp[1]) || 1;
     const classify = (desc: SurfDesc) => {
@@ -1230,8 +1242,9 @@ async function readStep(text: string): Promise<Sh> {
 export function errorText(e: unknown): string {
   if (e instanceof FeatureError) return e.message;
   if (e instanceof Error) return e.message || 'The feature could not be built';
-  if (typeof e === 'number') return 'The geometry kernel could not build this feature';
-  return String(e);
+  if (typeof e === 'string' && e) return e;
+  // OpenCascade exceptions surface as numbers or WebAssembly.Exception objects.
+  return 'The geometry kernel could not build this feature';
 }
 
 /** True when an operation on a solid left no material (empty, flat or inside-out). */
