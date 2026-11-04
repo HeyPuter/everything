@@ -1,0 +1,19 @@
+{
+  "checked": "已选中",
+  "defaultFooter": "第 &[Page] 页，共 &[Pages] 页",
+  "margins.narrow": "窄",
+  "margins.normal": "常规",
+  "margins.wide": "宽",
+  "paper.a3": "A3",
+  "paper.a4": "A4",
+  "paper.a5": "A5",
+  "paper.b4": "B4",
+  "paper.b5": "B5",
+  "paper.executive": "行政用纸",
+  "paper.folio": "对开纸",
+  "paper.legal": "法律专用纸",
+  "paper.letter": "信纸",
+  "paper.statement": "报表纸",
+  "paper.tabloid": "小报",
+  "unchecked": "未选中"
+}
