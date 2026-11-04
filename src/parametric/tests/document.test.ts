@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { DocStore, newDocument, parseDocument, serializeDocument } from '../src/model/document';
 import { defaultName, dependencies, newExtrude } from '../src/model/features';
-import type { ExtrudeFeature, SkDimension, SketchFeature } from '../src/model/types';
+import type { ExtrudeFeature, Feature, SkDimension, SketchFeature } from '../src/model/types';
 import { rect, sketch } from './helpers';
 
 describe('document store', () => {
@@ -75,6 +75,19 @@ describe('document store', () => {
     expect(defaultName(doc, 'extrude')).toBe('Extrude2');
     expect(defaultName(doc, 'extrude', true)).toBe('Cut-Extrude1');
     expect(dependencies(doc.features[1])).toEqual(['s1']);
+  });
+
+  it('counts face and edge references as dependencies', () => {
+    const face = (name: string) => ({ name, sig: { type: 'plane', c: [0, 0, 0] as [number, number, number], area: 1 } });
+    const onFace = sketch('s2', [], { kind: 'face', face: face('e1:cap1') });
+    expect(dependencies(onFace)).toEqual(['e1']);
+    const fillet: Feature = {
+      id: 'f9', name: 'Fillet1', type: 'fillet', faces: [face('e3:cap1@p4.2')], radius: 1,
+      edges: [{ name: 'e1:side:l1|e2:cap0#1', sig: { type: 'line', m: [0, 0, 0], len: 1 } }],
+    };
+    expect(dependencies(fillet).sort()).toEqual(['e1', 'e2', 'e3', 'p4']);
+    const shell: Feature = { id: 'sh', name: 'Shell1', type: 'shell', faces: [face('f9:f:e1:side:l1|e2:cap0')], thickness: 1, outward: false };
+    expect(dependencies(shell)).toContain('f9');
   });
 
   it('honours the rollback position', () => {
