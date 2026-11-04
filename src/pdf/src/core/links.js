@@ -40,14 +40,20 @@ export function normalizeUrl(value) {
   // A domain followed by a port also matches URI-scheme syntax ("example.com:"). Treat it
   // as a web host, leaving the URL parser to validate the port and the address itself.
   const hostWithPort = /^(?:[^/:?#\s]+\.[^/:?#\s]+|localhost):\d+(?:[/?#]|$)/i.test(text);
-  // A bare email address is a mail link. Given https, it would read as a sign-in name for
-  // the domain instead ("https://name@example.com/") and open that site.
-  const email = /^[^\s/:?#@]+@[^\s/:?#@]+\.[^\s/:?#@]+$/.test(text);
+  // A bare email address is a mail link, also with a subject or other fields after it. Given
+  // https, it would read as a sign-in name for the domain instead ("https://name@example.com/")
+  // and open that site.
+  const email = /^[^\s/:?#@]+@[^\s/:?#@]+\.[^\s/:?#@]+(?:\?.*)?$/.test(text);
+  // A bare phone number, such as "+1 (555) 123-4567", is a phone link. Phone links leave out
+  // the spaces, which their syntax does not allow.
+  const phone = /^\+?[\d\s()-]+$/.test(text) && (text.match(/\d/g) || []).length >= 3;
   const withScheme = email
     ? `mailto:${text}`
-    : /^[a-z][a-z0-9+.-]*:/i.test(text) && !hostWithPort
-      ? text
-      : `https://${text}`;
+    : phone
+      ? `tel:${text.replace(/\s+/g, '')}`
+      : /^[a-z][a-z0-9+.-]*:/i.test(text) && !hostWithPort
+        ? text
+        : `https://${text}`;
   let url;
   try {
     url = new URL(withScheme);
