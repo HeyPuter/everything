@@ -208,3 +208,30 @@ test('Bring to Front, Send to Back and Bring Forward move every selected object,
   await expect.poll(stack).toEqual(['rect', 'ellipse', 'triangle', 'diamond']);
   expect(errors).toEqual([]);
 });
+
+test('Delete with several objects selected removes them all in one undo step', async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/mock.html#/new');
+  await expect((await onTab(page, 'home')).getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await input(page).focus();
+  for (let i = 0; i < 16; i++) { await page.keyboard.type(`Paragraph ${i + 1} of the text the shapes sit on.`); await page.keyboard.press('Enter'); }
+  await drawShape(page, 'Rectangle', [300, 420], [420, 500]);
+  await drawShape(page, 'Oval', [500, 300], [620, 380]);
+  await drawShape(page, 'Isosceles Triangle', [600, 450], [700, 550]);
+  const before = await input(page).inputValue();
+  await onTab(page, 'shapeFormat');
+  await page.locator('#ribbon-panel-shapeFormat').getByRole('button', { name: 'Selection Pane', exact: true }).click();
+  const pane = page.getByRole('complementary', { name: 'Selection pane' });
+  await pane.getByRole('listitem').filter({ hasText: /^Oval/ }).locator('.pic-selection-name').click();
+  await pane.getByRole('listitem').filter({ hasText: /^Isosceles/ }).locator('.pic-selection-name').click({ modifiers: ['Shift'] });
+  await expect.poll(() => page.evaluate(() => window.__docs.current.view.engine.drawingSelection.length)).toBe(2);
+  // In the document, Delete removes both.
+  await input(page).focus();
+  await page.keyboard.press('Delete');
+  await expect.poll(async () => (await drawings(page)).map(d => d.kind)).toEqual(['rect']);
+  await page.keyboard.press('ControlOrMeta+z');
+  await expect.poll(async () => (await drawings(page)).length).toBe(3);
+  expect(await input(page).inputValue()).toBe(before);
+  expect(errors).toEqual([]);
+});
