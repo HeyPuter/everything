@@ -7,7 +7,7 @@
   "borderHint": "先选择线条，再单击预置、图示中的边框或旁边的按钮。已是该线条的边框会被去除。",
   "borderPresets": "边框预置",
   "category": "分类",
-  "codeHint": "各节依次为正数、负数、零（以 ; 分隔）；数字用 0 # ?，还有 %；日期如 d mmm yyyy",
+  "codeHint": "各节依次为正数、负数、零，以分号分隔；数字占位符为 0、#、?，另有 %；日期如 d mmm yyyy",
   "color": "颜色",
   "columnEdges": "列边框",
   "currency": "货币",
