@@ -118,10 +118,12 @@ export function readOnlyMeasurement(measured) {
 // clip a cell's content.
 const FLOW_OFFSETS = new Set([...OFFSET_KEYS, ...STOP_LISTS]);
 const FLOW_HORIZONTAL = new Set(['fragments', 'underlines', 'strikes', 'backgrounds', 'leaders', 'x', 'width', 'contentWidth', 'ignoredTrailingWidth', 'ignoredTabWidth', 'justificationSpacing']);
-function flowJson(measured, horizontal) {
+function flowJson(measured, horizontal, named = null) {
   return JSON.stringify(measured, function (key, value) {
     // A cell's source content is the document's (with its offsets); its measured blocks follow.
     if (FLOW_OFFSETS.has(key) || key === 'content' && Array.isArray(this.blocks)) return undefined;
+    const name = named?.(value);
+    if (name !== undefined) return name;
     const line = Array.isArray(this.stops);
     if (horizontal && line && FLOW_HORIZONTAL.has(key)) return undefined;
     if (value && typeof value === 'object' && Array.isArray(value.stops) && typeof value.start === 'number' && !('empty' in value)) return { ...value, empty: value.start === value.end };
@@ -130,7 +132,7 @@ function flowJson(measured, horizontal) {
 }
 
 export class ParagraphMeasureCache {
-  constructor(limit = 10000) { this.limit = limit; this.entries = new Map(); this.generation = 0; this.names = new Map(); this.nextName = 0; this.flowNames = new WeakMap(); this.flows = new Map(); this.stories = new Map(); this.cells = new Map(); this.view = null; this.viewGenerations = new Map(); }
+  constructor(limit = 10000) { this.limit = limit; this.entries = new Map(); this.generation = 0; this.names = new Map(); this.nextName = 0; this.flowNames = new WeakMap(); this.blockNames = new WeakMap(); this.cellCopies = new WeakMap(); this.flows = new Map(); this.stories = new Map(); this.cells = new Map(); this.view = null; this.viewGenerations = new Map(); }
   /** A page story measured earlier with the same inputs (page-story-measure.js), or undefined. */
   story(key) {
     const entry = this.stories.get(key);
@@ -163,15 +165,30 @@ export class ParagraphMeasureCache {
    * or a table's rows): equal names paginate alike wherever their text and offsets differ.
    */
   flowName(blocks, table = false) {
-    if (table) return this.intern(flowJson(blocks, false));
-    let name = this.flowNames.get(blocks);
-    if (!name) this.flowNames.set(blocks, name = this.#name(flowJson(blocks, true)));
+    if (table) return this.intern(flowJson(blocks, false, this.#namedCellPart));
+    return this.#remembered(this.flowNames, blocks, () => flowJson(blocks, true)).id;
+  }
+  /**
+   * `copy` is a table cell's copy of the measured paragraph `measured` (layout.js), with `extra` added
+   * to each of its lines. Naming a table names that paragraph once (as it was measured, through later
+   * moves) instead of serializing it again for every row of every table on each keystroke.
+   */
+  cellCopy(copy, measured, extra) {
+    this.cellCopies.set(copy, () => ({ cellParagraph: this.#remembered(this.blockNames, measured, () => flowJson(measured, false)).id, extra, format: copy.format === measured.format ? undefined : copy.format }));
+    return copy;
+  }
+  /** `copy` is a table cell's page: the table's page, named `pageName` (intern), with `extra` changed. */
+  cellPage(copy, pageName, extra) { this.cellCopies.set(copy, () => ({ cellPage: pageName, extra })); return copy; }
+  #namedCellPart = value => (value && typeof value === 'object' ? this.cellCopies.get(value)?.() : undefined);
+  #remembered(names, value, json) {
+    let name = names.get(value);
+    if (!name) names.set(value, name = this.#name(json()));
     else {
       // Still in use: keep it, so a paragraph measured again alike gets the same name.
       name.used = this.generation;
       if (!this.names.has(name.text)) this.names.set(name.text, name);
     }
-    return name.id;
+    return name;
   }
   /**
    * A short name for a long key part (page geometry, numbering, what pagination reads), the same
@@ -224,8 +241,11 @@ export class ParagraphMeasureCache {
           if (entry.picturePlan) moved = withPictures(moved, entry.picturePlan, pictures);
         }
         if (moved !== entry.base) readOnlyMeasurement(moved);
-        const name = this.flowNames.get(entry.base);
-        if (name) this.flowNames.set(moved, name);
+        // Offsets are not part of a name: the moved copy keeps the names of the paragraph it was copied from.
+        for (const names of [this.flowNames, this.blockNames]) {
+          const name = names.get(entry.measured) ?? names.get(entry.base);
+          if (name) names.set(moved, name);
+        }
         entry.measured = moved; entry.offset = offset; entry.pictures = pictures;
       }
       return entry.measured;
@@ -241,5 +261,5 @@ export class ParagraphMeasureCache {
     }
     return measured;
   }
-  clear() { this.entries.clear(); this.names.clear(); this.viewGenerations.clear(); this.flowNames = new WeakMap(); this.flows.clear(); this.stories.clear(); this.cells.clear(); }
+  clear() { this.entries.clear(); this.names.clear(); this.viewGenerations.clear(); this.flowNames = new WeakMap(); this.blockNames = new WeakMap(); this.cellCopies = new WeakMap(); this.flows.clear(); this.stories.clear(); this.cells.clear(); }
 }

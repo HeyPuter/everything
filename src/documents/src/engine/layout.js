@@ -468,7 +468,9 @@ function layoutPass(paragraphs, measureBase, page, numbering, tables, pageStorie
           box.margins = margins;
           box.pageBottomInset = padding[rowIndex + cell.rowSpan - 1].bottom / 15 + pageBottomWidths[rowIndex + cell.rowSpan - 1];
           const clipOverflow = flexibleCounts[rowIndex] === flexibleCounts[rowIndex + cell.rowSpan];
-          const cellPage = { ...page, tableDepth: box.depth, allowOverflowIndents: true, clipOverflow, left: box.x + margins.left / 15, right: page.width - x + margins.right / 15, top: page.top + margins.top / 15, bottom: page.bottom + margins.bottom / 15 };
+          const cellGeometry = { tableDepth: box.depth, allowOverflowIndents: true, clipOverflow, left: box.x + margins.left / 15, right: page.width - x + margins.right / 15, top: page.top + margins.top / 15, bottom: page.bottom + margins.bottom / 15 };
+          const cellPage = { ...page, ...cellGeometry };
+          if (flowNames) paragraphCache.cellPage(cellPage, pageKey(page), cellGeometry);
           if (cellPage.left >= page.width - cellPage.right) throw new Error('Cell margins leave no writing space.');
           const nestedFloats = [];
           const previousCell = row.cells[index - 1];
@@ -492,8 +494,10 @@ function layoutPass(paragraphs, measureBase, page, numbering, tables, pageStorie
               if (result.lines.some(l => ['page', 'column'].includes(l.hardBreak))) throw new Error('Page breaks inside table cells are not supported yet.');
               // Only the measured preview changes; retain the authored
               // property and rich paragraph in the model and original file.
-              return { ...result, ...(result.format.pageBreakBefore ? { format: { ...result.format, pageBreakBefore: false } } : {}),
-                lines: result.lines.map(line => ({ ...line, cellId: cell.id, columnLeft: cellPage.left })) };
+              const extra = { cellId: cell.id, columnLeft: cellPage.left };
+              const copy = { ...result, ...(result.format.pageBreakBefore ? { format: { ...result.format, pageBreakBefore: false } } : {}),
+                lines: result.lines.map(line => ({ ...line, ...extra })) };
+              return flowNames ? paragraphCache.cellCopy(copy, result, extra) : copy;
             });
             if (child.table?.floating) {
               if (!anchor) throw new Error('Floating tables require a following anchor paragraph.');
