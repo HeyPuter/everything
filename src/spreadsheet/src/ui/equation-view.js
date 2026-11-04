@@ -3,6 +3,7 @@
  * the printed page, in the box's size, colour and alignment.
  */
 import { el } from './dom.js';
+import { t } from '../i18n/index.js';
 import { textBoxStyle } from '../core/charts.js';
 import { equationMathML, equationText, EQUATION_DEFAULT_SIZE, estimateEquationSize } from '../core/equation.js';
 
@@ -18,7 +19,7 @@ export function equationBody(obj, scale = 1, extra = {}) {
   const style = textBoxStyle(obj, scale);
   return el('div.text-body.equation-body', {
     style: { ...style, justifyContent: { left: 'flex-start', right: 'flex-end' }[obj.style?.align] || 'center', ...extra },
-    role: 'math', 'aria-label': `Equation: ${equationText(obj.equation)}`,
+    role: 'math', 'aria-label': t('equationView.label', { text: equationText(obj.equation) }),
   }, mathElement(obj.equation));
 }
 

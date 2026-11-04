@@ -1,0 +1,21 @@
+{
+  "aspect": "{kind, select, square {{ratio}} landscape {{ratio} 横向} other {{ratio} 纵向}}",
+  "aspectRatio": "纵横比",
+  "crop": "裁剪",
+  "frame": "保留的图片部分",
+  "free": "自由",
+  "handle.bottom": "裁剪下边缘（方向键）",
+  "handle.bottomLeft": "裁剪左下边缘（方向键）",
+  "handle.bottomRight": "裁剪右下边缘（方向键）",
+  "handle.left": "裁剪左边缘（方向键）",
+  "handle.right": "裁剪右边缘（方向键）",
+  "handle.top": "裁剪上边缘（方向键）",
+  "handle.topLeft": "裁剪左上边缘（方向键）",
+  "handle.topRight": "裁剪右上边缘（方向键）",
+  "move": "移动裁剪区域（方向键）",
+  "moveTip": "拖动以移动裁剪区域",
+  "original": "原始",
+  "readout": "保留：工作表上 {w} × {h} 像素（图片的 {percent}%）",
+  "showAll": "全部显示",
+  "title": "裁剪图片"
+}

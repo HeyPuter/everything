@@ -1,4 +1,5 @@
 import { normalizeScrollControl } from '../core/scroll-control.js';
+import { t } from '../i18n/index.js';
 
 export function scrollControlClipboard(doc, control, value) {
   const node = doc.createElement('div');
@@ -20,7 +21,7 @@ export function readScrollControlClipboard(doc, html) {
 export function createScrollControl(doc, change) {
   const root = doc.createElement('div'); root.className = 'form-scroll';
   const button = label => { const b = doc.createElement('button'); b.type = 'button'; b.tabIndex = -1; b.setAttribute('aria-label', label); return b; };
-  const previous = button('Decrease'), next = button('Increase');
+  const previous = button(t('scrollControl.decrease')), next = button(t('scrollControl.increase'));
   const track = doc.createElement('div'); track.className = 'form-scroll-track'; track.tabIndex = 0; track.setAttribute('role', 'scrollbar');
   const thumb = doc.createElement('div'); thumb.className = 'form-scroll-thumb'; track.append(thumb); root.append(previous, track, next);
   let control, value, dragging = null;
@@ -73,8 +74,8 @@ export function createScrollControl(doc, change) {
     previous.disabled = next.disabled = !!control.disabled;
     track.setAttribute('aria-disabled', String(!!control.disabled));
     root.classList.toggle('vertical', !control.horizontal);
-    root.title = control.description || control.title || 'Scroll bar (Shift-drag to move)';
-    track.setAttribute('aria-label', control.description || control.title || 'Scroll bar');
+    root.title = control.description || control.title || t('scrollControl.tooltip');
+    track.setAttribute('aria-label', control.description || control.title || t('scrollControl.label'));
     track.setAttribute('aria-orientation', control.horizontal ? 'horizontal' : 'vertical');
     track.setAttribute('aria-valuemin', String(control.min)); track.setAttribute('aria-valuemax', String(control.max));
     previous.textContent = control.horizontal ? '◀' : '▲'; next.textContent = control.horizontal ? '▶' : '▼';

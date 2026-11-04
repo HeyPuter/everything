@@ -2,6 +2,7 @@ import { imageTransform } from '../core/charts.js';
 import { pictureGeometry } from '../core/picture-geometry.js';
 import { toneCurve } from '../core/picture-format.js';
 import { el } from './dom.js';
+import { t } from '../i18n/index.js';
 import { drawingSvg } from '../core/drawingml-svg.js';
 
 let filterIds = 0;
@@ -40,11 +41,11 @@ function basePictureNode(obj) {
   if (drawing) {
     drawing.setAttribute('role', obj.decorative ? 'presentation' : 'img');
     if (obj.decorative) drawing.setAttribute('aria-hidden', 'true');
-    else drawing.setAttribute('aria-label', obj.description || obj.title || 'Image');
+    else drawing.setAttribute('aria-label', obj.description || obj.title || t('picture.image'));
     drawing.style.transform = imageTransform(obj);
     return drawing;
   }
-  const label = obj.description || obj.title || 'Image';
+  const label = obj.description || obj.title || t('picture.image');
   if (!obj.srcRect && !obj.fillRect && !filter) return el('img', { src: obj.src, alt: obj.decorative ? '' : label, draggable: false, style: { transform: imageTransform(obj), borderRadius: 'inherit' } });
   const root = svg('svg', { viewBox: '0 0 1 1', preserveAspectRatio: 'none', ...(obj.decorative ? { role: 'presentation', 'aria-hidden': 'true' } : { role: 'img', 'aria-label': label }) });
   root.style.transform = imageTransform(obj);

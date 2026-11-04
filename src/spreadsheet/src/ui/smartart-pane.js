@@ -10,25 +10,26 @@ import { icon } from './icons.js';
 import { activeSmartArt } from './smartart.js';
 import { layoutById, smartArtTree, splitSmartArtItem, mergeSmartArtItem, removeSmartArtItem, setSmartArtItemText,
   promoteSmartArtItem, demoteSmartArtItem, moveSmartArtItem, addSmartArtItem, smartArtItemsFromText, SMARTART_MAX_ITEMS } from '../core/smartart.js';
+import { t } from '../i18n/index.js';
 
 export function createSmartArtPane(ctx) {
   const { wb } = ctx;
   let shownId = null, lastKey = null, pendingFocus = null;
-  const title = el('span.selpane-title', {}, 'Text Pane');
-  const close = el('button.icon-btn', { type: 'button', 'aria-label': 'Close Text Pane', html: icon('x', 16), onclick: () => api.hide() });
-  const tool = (label, glyph, action, extra = {}) => el('button.btn.btn-ghost.selpane-tool', { type: 'button', title: `${label}${extra.keys ? ` (${extra.keys})` : ''}`, 'aria-label': label,
+  const title = el('span.selpane-title', {}, t('smartartPane.title'));
+  const close = el('button.icon-btn', { type: 'button', 'aria-label': t('smartartPane.close'), html: icon('x', 16), onclick: () => api.hide() });
+  const tool = (label, glyph, action, extra = {}) => el('button.btn.btn-ghost.selpane-tool', { type: 'button', title: extra.keys ? t('smartartPane.withKeys', { label, keys: extra.keys }) : label, 'aria-label': label,
     onmousedown: (e) => e.preventDefault(), // the cursor stays in the line it acts on
     onclick: () => act(action) }, el('span', { html: icon(glyph, 16) }));
-  const tools = el('div.selpane-tools.sa-pane-tools', { role: 'toolbar', 'aria-label': 'Outline' },
-    tool('Add item after', 'addShape', 'add'), tool('Promote', 'indentLess', 'promote', { keys: 'Shift+Tab' }), tool('Demote', 'indentMore', 'demote', { keys: 'Tab' }),
-    tool('Move up', 'arrowUp', 'moveUp', { keys: 'Alt+Shift+Up' }), tool('Move down', 'arrowDown', 'moveDown', { keys: 'Alt+Shift+Down' }));
-  const list = el('div.sa-pane-list', { role: 'list', 'aria-label': 'Diagram text' });
+  const tools = el('div.selpane-tools.sa-pane-tools', { role: 'toolbar', 'aria-label': t('smartartPane.outline') },
+    tool(t('smartartPane.addAfter'), 'addShape', 'add'), tool(t('smartartPane.promote'), 'indentLess', 'promote', { keys: 'Shift+Tab' }), tool(t('smartartPane.demote'), 'indentMore', 'demote', { keys: 'Tab' }),
+    tool(t('smartartPane.moveUp'), 'arrowUp', 'moveUp', { keys: 'Alt+Shift+Up' }), tool(t('smartartPane.moveDown'), 'arrowDown', 'moveDown', { keys: 'Alt+Shift+Down' }));
+  const list = el('div.sa-pane-list', { role: 'list', 'aria-label': t('smartartPane.diagramText') });
   const note = el('p.sa-pane-note', { hidden: true, role: 'status' });
-  const empty = el('p.selpane-empty', {}, 'Select a SmartArt graphic on the sheet to type its text here.');
+  const empty = el('p.selpane-empty', {}, t('smartartPane.empty'));
   const layoutName = el('strong.sa-pane-layout');
   const layoutText = el('p.sa-pane-desc');
   const foot = el('div.sa-pane-foot', {}, layoutName, layoutText);
-  const root = el('section.selpane.sa-pane', { role: 'region', 'aria-label': 'SmartArt Text Pane', hidden: true },
+  const root = el('section.selpane.sa-pane', { role: 'region', 'aria-label': t('smartartPane.region'), hidden: true },
     el('div.selpane-head', {}, title, close), tools, el('div.selpane-body.sa-pane-body', {}, list, note, empty), foot);
 
   const sheetId = () => ctx.sheetId();
@@ -51,16 +52,16 @@ export function createSmartArtPane(ctx) {
     if (!obj || ctx.refused?.('change the SmartArt graphic')) return;
     if (action === 'add') {
       const res = addSmartArtItem(obj.items, at ?? obj.items.length - 1, 'after');
-      commit(obj, res, 'Add Shape After');
+      commit(obj, res, t('smartartPane.undo.addAfter'));
       return;
     }
     if (at == null) return;
     const caret = inputs()[at]?.selectionStart ?? 0;
     const res = action === 'promote' ? promoteSmartArtItem(obj.items, at) : action === 'demote' ? demoteSmartArtItem(obj.items, at)
       : moveSmartArtItem(obj.items, at, action === 'moveUp' ? -1 : 1);
-    if (!res) { ctx.announce?.({ promote: 'Already at the top level', demote: 'Cannot demote this item further', moveUp: 'Already first', moveDown: 'Already last' }[action]); return; }
-    commit(obj, res, { promote: 'Promote', demote: 'Demote', moveUp: 'Move Up', moveDown: 'Move Down' }[action], res.at, caret);
-    ctx.announce?.(`Level ${res.items[res.at].level + 1}`);
+    if (!res) { ctx.announce?.(t({ promote: 'smartartPane.cannot.promote', demote: 'smartartPane.cannot.demote', moveUp: 'smartartPane.cannot.moveUp', moveDown: 'smartartPane.cannot.moveDown' }[action])); return; }
+    commit(obj, res, t({ promote: 'smartartPane.undo.promote', demote: 'smartartPane.undo.demote', moveUp: 'smartartPane.undo.moveUp', moveDown: 'smartartPane.undo.moveDown' }[action]), res.at, caret);
+    ctx.announce?.(t('smartartPane.level', { level: res.items[res.at].level + 1 }));
   }
 
   const currentIndex = () => {
@@ -79,7 +80,7 @@ export function createSmartArtPane(ctx) {
       e.preventDefault();
       if (obj.items.length >= SMARTART_MAX_ITEMS) return;
       const items = setSmartArtItemText(obj.items, at, value.slice(0, start) + value.slice(end))?.items || obj.items;
-      commit(obj, splitSmartArtItem(items, at, start), 'New item');
+      commit(obj, splitSmartArtItem(items, at, start), t('smartartPane.undo.newItem'));
     } else if (e.key === 'Tab' && !e.altKey && !e.ctrlKey && !e.metaKey) {
       e.preventDefault();
       act(e.shiftKey ? 'promote' : 'demote', at);
@@ -93,15 +94,15 @@ export function createSmartArtPane(ctx) {
       e.preventDefault();
       if (!value && obj.items.length > 1) {
         const res = removeSmartArtItem(obj.items, at);
-        commit(obj, res, 'Delete item', at - 1, inputs()[at - 1]?.value.length ?? 0);
+        commit(obj, res, t('smartartPane.undo.deleteItem'), at - 1, inputs()[at - 1]?.value.length ?? 0);
       } else {
         const res = mergeSmartArtItem(obj.items, at);
-        commit(obj, res, 'Join items', res?.at, res?.offset ?? 0);
+        commit(obj, res, t('smartartPane.undo.joinItems'), res?.at, res?.offset ?? 0);
       }
     } else if (e.key === 'Delete' && start === value.length && end === value.length && at < obj.items.length - 1) {
       e.preventDefault();
       const res = mergeSmartArtItem(obj.items, at + 1);
-      commit(obj, res, 'Join items', at, value.length);
+      commit(obj, res, t('smartartPane.undo.joinItems'), at, value.length);
     } else if (e.key === 'Escape') {
       e.preventDefault(); e.stopPropagation();
       ctx.grid?.focus?.();
@@ -114,7 +115,7 @@ export function createSmartArtPane(ctx) {
     if (ctx.refused?.('change the SmartArt graphic')) { input.value = obj.items[at]?.text ?? ''; return; }
     const res = setSmartArtItemText(obj.items, at, input.value);
     if (!res) return;
-    wb.updateSmartArt(sheetId(), obj.id, { items: res.items }, 'Type SmartArt text', { merge: `text${at}` });
+    wb.updateSmartArt(sheetId(), obj.id, { items: res.items }, t('smartartPane.undo.type'), { merge: `text${at}` });
     ctx.notify?.();
   }
 
@@ -131,7 +132,7 @@ export function createSmartArtPane(ctx) {
     const rest = pasted.slice(1).map((it) => ({ ...it, level: base + it.level - pasted[0].level }));
     const items = [...obj.items.slice(0, at), { ...obj.items[at], text: here }, ...rest, ...obj.items.slice(at + 1)];
     if (tail) items.splice(at + 1 + rest.length, 0, { text: tail, level: base });
-    commit(obj, { items: items.slice(0, SMARTART_MAX_ITEMS), at: at + rest.length }, 'Paste items', at + rest.length, (rest.at(-1)?.text ?? here).length);
+    commit(obj, { items: items.slice(0, SMARTART_MAX_ITEMS), at: at + rest.length }, t('smartartPane.undo.paste'), at + rest.length, (rest.at(-1)?.text ?? here).length);
   }
 
   function render(force = false) {
@@ -153,7 +154,7 @@ export function createSmartArtPane(ctx) {
     const same = shownId === obj.id && rows.length === obj.items.length;
     if (!same) {
       list.replaceChildren(...obj.items.map((it, i) => {
-        const input = el('input.input.sa-pane-input', { type: 'text', value: it.text, spellcheck: true, autocomplete: 'off', placeholder: '[Text]', maxLength: 1000,
+        const input = el('input.input.sa-pane-input', { type: 'text', value: it.text, spellcheck: true, autocomplete: 'off', placeholder: t('smartartPane.placeholder'), maxLength: 1000,
           onkeydown: onKey, oninput: onInput, onpaste: onPaste,
           onfocus: () => { const o = diagram(); if (o) ctx.smartArt?.select(o.id, [inputs().indexOf(input)]); } });
         return el('div.sa-pane-row', { role: 'listitem' }, el('span.sa-pane-bullet', { 'aria-hidden': 'true' }), input);
@@ -165,12 +166,13 @@ export function createSmartArtPane(ctx) {
       if (same && input.value !== it.text && document.activeElement === input && pendingFocus) input.value = it.text;
       row.style.setProperty('--level', String(it.level));
       row.classList.toggle('not-shown', !shown.has(i));
-      input.setAttribute('aria-label', `Item ${i + 1} of ${obj.items.length}, level ${it.level + 1}${shown.has(i) ? '' : ', not shown in this layout'}`);
-      row.title = shown.has(i) ? '' : 'Kept in the text, but this layout does not show it';
+      const where = { n: i + 1, count: obj.items.length, level: it.level + 1 };
+      input.setAttribute('aria-label', shown.has(i) ? t('smartartPane.item', where) : t('smartartPane.itemNotShown', where));
+      row.title = shown.has(i) ? '' : t('smartartPane.notShownTip');
     });
     const hidden = obj.items.length - shown.size;
     note.hidden = !hidden;
-    note.textContent = hidden ? `${layout.name} shows ${layout.maxRoots} top-level item${layout.maxRoots === 1 ? '' : 's'}. The ${hidden} item${hidden === 1 ? '' : 's'} marked × ${hidden === 1 ? 'is' : 'are'} kept in the text and come${hidden === 1 ? 's' : ''} back with another layout.` : '';
+    note.textContent = hidden ? t('smartartPane.hiddenNote', { name: layout.name, max: layout.maxRoots, hidden }) : '';
     layoutName.textContent = layout.name;
     layoutText.textContent = layout.description;
     shownId = obj.id;

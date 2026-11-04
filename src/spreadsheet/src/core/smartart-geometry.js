@@ -106,11 +106,20 @@ export function shapePath(kind, w, h, adj = {}) {
 
 /** The kinds that point one way along the row, which Right to Left turns about. */
 export const DIRECTED = new Set(['chevron', 'homePlate', 'rightArrow', 'leftArrow']);
-/** Shapes a diagram's shape can be changed to (Format ▸ Change Shape), in the menu's order. */
+/** Shapes a diagram's shape can be changed to (Format ▸ Change Shape), in the menu's order: the kind, and its name (a catalog key). */
 export const CHANGEABLE_SHAPES = [
-  ['rect', 'Rectangle'], ['roundRect', 'Rounded Rectangle'], ['ellipse', 'Oval'], ['diamond', 'Diamond'], ['hexagon', 'Hexagon'],
-  ['octagon', 'Octagon'], ['triangle', 'Triangle'], ['trapezoid', 'Trapezoid'], ['chevron', 'Chevron'], ['homePlate', 'Pentagon Arrow'],
-  ['rightArrow', 'Right Arrow'], ['downArrow', 'Down Arrow'],
+  ['rect', 'smartartGeometry.shape.rect'],
+  ['roundRect', 'smartartGeometry.shape.roundRect'],
+  ['ellipse', 'smartartGeometry.shape.ellipse'],
+  ['diamond', 'smartartGeometry.shape.diamond'],
+  ['hexagon', 'smartartGeometry.shape.hexagon'],
+  ['octagon', 'smartartGeometry.shape.octagon'],
+  ['triangle', 'smartartGeometry.shape.triangle'],
+  ['trapezoid', 'smartartGeometry.shape.trapezoid'],
+  ['chevron', 'smartartGeometry.shape.chevron'],
+  ['homePlate', 'smartartGeometry.shape.homePlate'],
+  ['rightArrow', 'smartartGeometry.shape.rightArrow'],
+  ['downArrow', 'smartartGeometry.shape.downArrow'],
 ];
 
 /** The path as SVG path data, offset to (x, y). */
