@@ -95,7 +95,7 @@ test('a text box copied from the Edit menu pastes with its text, and its paragra
   expect(errors).toEqual([]);
 });
 
-test('Cut leaves a chart it cannot carry in place and says so, instead of losing it', async ({ page }) => {
+test('Cut leaves a chart it cannot carry in place, and Copy pastes no stray text, each saying so', async ({ page }) => {
   const errors = []; page.on('pageerror', e => errors.push(e.message));
   await start(page);
   await onTab(page, 'insert');
@@ -109,7 +109,15 @@ test('Cut leaves a chart it cannot carry in place and says so, instead of losing
   await page.keyboard.press('ControlOrMeta+x');
   await expect(page.getByText('This object can’t be cut and pasted yet.', { exact: false })).toBeVisible();
   expect(await charts()).toBe(1);
+  // Copied and pasted, it does not come back as stray text (its title or "[Image]"); the paste says why.
+  const text = await input(page).inputValue();
+  await page.keyboard.press('ControlOrMeta+c');
+  await caretAtEnd(page);
+  await page.keyboard.press('ControlOrMeta+v');
+  await expect(page.getByText('This object can’t be copied and pasted yet.', { exact: false })).toBeVisible();
+  expect(await input(page).inputValue()).toBe(text);
   // Delete still removes it.
+  await input(page).evaluate(el => { const at = el.value.indexOf('\ufffc'); el.setSelectionRange(at, at + 1); el.dispatchEvent(new Event('select', { bubbles: true })); });
   await page.keyboard.press('Delete');
   await expect.poll(charts).toBe(0);
   expect(errors).toEqual([]);

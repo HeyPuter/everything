@@ -4,7 +4,7 @@ import { StorySession } from './story-session.js';
 import { decodeShape } from './canvas-shapes.js';
 import { wordPosition, optionWordPosition } from './word-navigation.js';
 import { carriesFormatting, copyFragment, fragmentHtml, htmlFragment, pasteFragment, formattedPasteFits, copiesPicture, pictureHtml, htmlPicture } from './clipboard-fragment.js';
-import { copiesDrawing, drawingHtml, htmlDrawing, pasteDrawing, equationHtml, htmlEquation, pastedEquation } from './drawing-clipboard.js';
+import { copiesDrawing, drawingHtml, htmlDrawing, pasteDrawing, equationHtml, htmlEquation, pastedEquation, uncopiedHtml, copiedUncopied, UNCOPIED_MESSAGE, UNCUT_MESSAGE } from './drawing-clipboard.js';
 import { xmlAttributeText } from './text-limits.js';
 import { textEdit, followEdit } from './text-edit.js';
 import { showLink } from './link-appearance.js';
@@ -2252,13 +2252,13 @@ export class CanvasEditor {
     const [start, end] = this.model.range;
     if (start === end && !this.model.activeCellBlock) return;
     e.preventDefault();
-    const { text, html } = this.clipboardData();
+    const { text, html, uncopied } = this.clipboardData();
     e.clipboardData.setData('text/plain', text);
     if (html) e.clipboardData.setData('text/html', html);
     if (!cut || this.readOnly || this.viewOnly) return;
     // A chart, diagram or other drawing the clipboard cannot carry would be lost on its way: a paste brings back
     // only its plain-text stand-in. Cut leaves it in place and says so, as the Edit menu offers no Cut for it.
-    if (this.model.selectedImage && !html) { this.onError(new Error('This object can’t be cut and pasted yet. Drag it to move it, or press Delete to remove it.')); return; }
+    if (uncopied) { this.onError(new Error(UNCUT_MESSAGE)); return; }
     this.deleteSelection();
   }
   /**
@@ -2360,6 +2360,9 @@ export class CanvasEditor {
     }
     const text = this.model.clipboardText(noteText, undefined, hiddenRun);
     const picture = pictureHtml(this.model) || drawingHtml(this, text) || equationHtml(this.model);
+    // A chart, diagram or drawing the clipboard cannot carry copies as its text stand-in for other applications;
+    // pasted here, that stand-in ("[Image]", its title) would only be stray text, so the paste says why it can't.
+    if (!picture && this.model.selectedImage) return { text, html: uncopiedHtml(text), uncopied: true };
     // What the view hides (a deletion in Simple Markup, hidden text) is not copied: pasted, it came back as ordinary text.
     const fragment = !picture && copyFragment(this.model, { hidden: hiddenRun });
     return { text, html: picture || (fragment ? fragmentHtml(fragment) : '') };
@@ -2383,6 +2386,7 @@ export class CanvasEditor {
     // A shape, text box or group copied here comes back as the drawing.
     const drawing = htmlDrawing(html);
     if (drawing) { if (!this.readOnly && !this.viewOnly) pasteDrawing(this, drawing).catch(error => this.onError(error)); return; }
+    if (copiedUncopied(html)) { this.onError(new Error(UNCOPIED_MESSAGE)); return; }
     // An equation copied here comes back as the equation, not its linear text.
     const equation = htmlEquation(html);
     if (equation) { this.execute(() => this.model.insertMathRun(pastedEquation(this.model, equation))); return; }

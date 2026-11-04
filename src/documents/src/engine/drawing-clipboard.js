@@ -147,3 +147,12 @@ export function pastedEquation(model, equation) {
   const lines = [...root.children].filter(n => n.namespaceURI === M && n.localName === 'oMath');
   return root.localName === 'oMathPara' && lines.length === 1 ? { ...equation, xml: new XMLSerializer().serializeToString(lines[0]) } : equation;
 }
+
+/* ---------- Objects the clipboard cannot carry ---------- */
+
+/** Marks a copy of a chart, diagram or drawing with pictures, whose text stand-in a paste here does not insert. */
+export const UNCOPIED_ATTRIBUTE = 'data-documents-uncopied';
+export const UNCUT_MESSAGE = 'This object can’t be cut and pasted yet. Drag it to move it, or press Delete to remove it.';
+export const UNCOPIED_MESSAGE = 'This object can’t be copied and pasted yet. Drag it to move it.';
+export const uncopiedHtml = text => `<span ${UNCOPIED_ATTRIBUTE}="1">${escape(text)}</span>`;
+export const copiedUncopied = html => !!html && html.includes(UNCOPIED_ATTRIBUTE) && typeof DOMParser !== 'undefined' && !!new DOMParser().parseFromString(html, 'text/html').querySelector(`[${UNCOPIED_ATTRIBUTE}]`);
