@@ -69,6 +69,20 @@ describe('document store', () => {
     expect(() => parseDocument(JSON.stringify({ ...doc, version: 9 }))).toThrow(/newer version/);
   });
 
+  it('repairs damaged settings and a missing id counter when loading', () => {
+    const raw = { format: 'parametric-part', version: 1, units: 'FOO', decimals: 'x', rollback: 'y', features: [sketch('s1', []), sketch('f7', [])] };
+    const doc = parseDocument(JSON.stringify(raw));
+    expect(doc.units).toBe('MMGS');
+    expect(doc.decimals).toBe(2);
+    expect(doc.rollback).toBeNull();
+    const st = new DocStore(doc);
+    expect(st.unitScale).toBe(1);
+    expect(st.nextId('f')).toBe('f8');
+    expect(parseDocument(JSON.stringify({ ...raw, nextId: 3 })).nextId).toBe(8);
+    expect(parseDocument(JSON.stringify({ ...raw, nextId: 40 })).nextId).toBe(40);
+    expect(() => parseDocument(JSON.stringify({ ...raw, features: [null] }))).toThrow(/damaged/);
+  });
+
   it('names features and tracks dependencies', () => {
     const doc = newDocument();
     doc.features = [sketch('s1', []), { ...newExtrude('e1', 'Extrude1', 's1', false, 1) }];

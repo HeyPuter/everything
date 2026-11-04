@@ -43,8 +43,24 @@ export function parseDocument(text: string): PartDocument {
   if (!d || d.format !== FORMAT) throw new Error('This file is not a part created with Parametric.');
   if (d.version !== 1) throw new Error('This part was created with a newer version of Parametric.');
   if (!Array.isArray(d.features)) throw new Error('The part file is damaged (no feature list).');
-  const base = newDocument(d.name, d.units && d.units in UNIT_SYSTEMS ? d.units : 'MMGS');
-  return { ...base, ...d, blobs: d.blobs ?? {}, variables: d.variables ?? [] } as PartDocument;
+  if (!d.features.every((f) => f && typeof f === 'object' && typeof f.id === 'string' && typeof f.type === 'string')) {
+    throw new Error('The part file is damaged (invalid feature).');
+  }
+  const units = typeof d.units === 'string' && Object.hasOwn(UNIT_SYSTEMS, d.units) ? d.units : 'MMGS';
+  const base = newDocument(typeof d.name === 'string' ? d.name : undefined, units);
+  const doc = { ...base, ...d, units, blobs: d.blobs ?? {}, variables: Array.isArray(d.variables) ? d.variables : [] } as PartDocument;
+  if (typeof doc.name !== 'string') doc.name = base.name;
+  if (!Number.isInteger(doc.decimals) || doc.decimals < 0 || doc.decimals > 8) doc.decimals = base.decimals;
+  if (doc.rollback != null && !Number.isInteger(doc.rollback)) doc.rollback = null;
+  // New feature ids must not collide with existing ones, even when the file's
+  // counter is missing or stale.
+  let maxId = 0;
+  for (const f of [...doc.features, ...doc.variables]) {
+    const m = /^[a-z]+(\d+)$/i.exec(String(f?.id ?? ''));
+    if (m) maxId = Math.max(maxId, Number(m[1]));
+  }
+  doc.nextId = Math.max(Number.isInteger(doc.nextId) ? doc.nextId : 1, maxId + 1);
+  return doc;
 }
 
 export function serializeDocument(doc: PartDocument): string {
