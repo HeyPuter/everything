@@ -1,0 +1,12 @@
+{
+  "arrayRowsWidth": "Array rows must be the same width",
+  "badReference": "Bad reference",
+  "emptyArray": "Empty array",
+  "expected": "Expected {what}",
+  "expectedIntersectingReference": "Expected an intersecting reference",
+  "expectedReferenceAfterColon": "Expected a reference after \":\"",
+  "onlyCellSpills": "Only a single cell can carry # for its spill",
+  "spanCannotSpill": "A 3D span cannot carry #",
+  "unexpectedEnd": "Unexpected end of formula",
+  "unexpectedToken": "Unexpected token"
+}

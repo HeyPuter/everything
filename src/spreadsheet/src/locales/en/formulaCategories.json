@@ -1,0 +1,17 @@
+{
+  "additional": "Additional",
+  "compatibility": "Compatibility",
+  "cube": "Cube",
+  "database": "Database",
+  "dateTime": "Date & Time",
+  "engineering": "Engineering",
+  "financial": "Financial",
+  "functionsOf": "{category} functions",
+  "information": "Information",
+  "logical": "Logical",
+  "lookupReference": "Lookup & Reference",
+  "mathTrig": "Math & Trig",
+  "statistical": "Statistical",
+  "text": "Text",
+  "web": "Web"
+}

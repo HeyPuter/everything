@@ -1,0 +1,10 @@
+{
+  "calcBareFunction": "#CALC!: {text} is a function: call it with parentheses, as in {name}(…).",
+  "nameNoFunction": "#NAME?: There is no function called {name}.",
+  "nameNoFunctionGuess": "#NAME?: There is no function called {name}. Did you mean {guess}?",
+  "nameNotRangeFunction": "#NAME?: {name} is not a named range. Did you mean the function {fn}()?",
+  "nameUnknownGuess": "#NAME?: {name} is not a named range, table, or function. Did you mean {guess}?",
+  "nameUnknownText": "#NAME?: {name} is not a named range, table, or function. Text needs quotes: \"…\".",
+  "refDeletedSheet": "#REF!: {ref} refers to a sheet that was deleted.",
+  "refNoSheet": "#REF!: There is no sheet named \"{sheet}\". It may have been renamed or deleted."
+}

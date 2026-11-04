@@ -1,0 +1,8 @@
+{
+  "invalidSheetSpan": "工作表范围无效",
+  "numberOutOfRange": "数字超出范围",
+  "unclosedBracket": "“[”缺少对应的“]”",
+  "unexpectedCharacter": "意外的字符“{ch}”",
+  "unknownErrorLiteral": "未知的错误值",
+  "unterminatedString": "文本缺少右引号"
+}

@@ -1,0 +1,20 @@
+{
+  "all": "All",
+  "argumentRequired": "{name} is required",
+  "argumentsTitle": "Function Arguments",
+  "calculatedWhenEntered": "(calculated when entered)",
+  "categoryField": "Or select a category:",
+  "categoryLabel": "Or select a category",
+  "formulaResult": "Formula result = {result}",
+  "go": "Go",
+  "invalid": "Invalid",
+  "mostRecentlyUsed": "Most Recently Used",
+  "noDescription": "No description is available for this function.",
+  "noMatches": "No functions match. Try other words or another category.",
+  "searchField": "Search for a function:",
+  "searchLabel": "Search for a function",
+  "searchPlaceholder": "Type a brief description of what you want to do",
+  "selectField": "Select a function:",
+  "selectLabel": "Select a function",
+  "title": "Insert Function"
+}

@@ -47,7 +47,7 @@ export function parseFormula(src, { namePositions = false, tablePositions = fals
   const expect = (type, what) => {
     if (!at(type)) {
       const t = peek();
-      throw new FormulaSyntaxError(`Expected ${what}`, t ? t.start : src.length);
+      throw new FormulaSyntaxError('formulaParser.expected', t ? t.start : src.length, { what });
     }
     return next();
   };
@@ -136,7 +136,7 @@ export function parseFormula(src, { namePositions = false, tablePositions = fals
     let node = referenceRange();
     while (isReference(node) && intersectionSpace() && ['ref', 'tref', 'name', 'lparen', 'error'].includes(peek().type)) {
       const start = peek().start, right = referenceRange();
-      if (!isReference(right)) throw new FormulaSyntaxError('Expected an intersecting reference', start);
+      if (!isReference(right)) throw new FormulaSyntaxError('formulaParser.expectedIntersectingReference', start);
       node = { type: 'intersection', left: node, right, ...(starts ? { start: node.start } : {}) };
     }
     return node;
@@ -168,7 +168,7 @@ export function parseFormula(src, { namePositions = false, tablePositions = fals
       // A plain A1:B2 is one token, so a colon only arrives here between reference expressions.
       const colon = next();
       const right = referenceAtom();
-      if (!isReference(right)) throw new FormulaSyntaxError('Expected a reference after ":"', colon.start);
+      if (!isReference(right)) throw new FormulaSyntaxError('formulaParser.expectedReferenceAfterColon', colon.start);
       node = { type: 'range', left: node, right, ...(starts ? { start: node.start } : {}) };
     }
     return node;
@@ -176,7 +176,7 @@ export function parseFormula(src, { namePositions = false, tablePositions = fals
 
   function primary() {
     const t = peek();
-    if (!t) throw new FormulaSyntaxError('Unexpected end of formula', src.length);
+    if (!t) throw new FormulaSyntaxError('formulaParser.unexpectedEnd', src.length);
 
     switch (t.type) {
       case 'number': next(); return { type: 'num', value: t.value };
@@ -191,9 +191,9 @@ export function parseFormula(src, { namePositions = false, tablePositions = fals
       case 'ref': {
         next();
         const ref = parseRefText(t.text, t.sheet, t.sheetEnd);
-        if (!ref) throw new FormulaSyntaxError('Bad reference', t.start);
-        if (ref.sheetEnd && t.spill) throw new FormulaSyntaxError('A 3D span cannot carry #', t.start);
-        if (t.spill && ref.kind !== 'cell') throw new FormulaSyntaxError('Only a single cell can carry # for its spill', t.start);
+        if (!ref) throw new FormulaSyntaxError('formulaParser.badReference', t.start);
+        if (ref.sheetEnd && t.spill) throw new FormulaSyntaxError('formulaParser.spanCannotSpill', t.start);
+        if (t.spill && ref.kind !== 'cell') throw new FormulaSyntaxError('formulaParser.onlyCellSpills', t.start);
         return { type: 'ref', ref: t.spill ? { ...ref, spill: true } : t.trim ? { ...ref, trim: t.trim } : ref };
       }
       case 'tref': next(); return { type: 'tref', table: t.table, spec: t.spec, ...(tablePositions ? { start: t.start, end: t.end } : {}) };
@@ -228,7 +228,7 @@ export function parseFormula(src, { namePositions = false, tablePositions = fals
         // must be the same width.
         next();
         const rows = [[]];
-        if (at('rbrace')) throw new FormulaSyntaxError('Empty array', t.start);
+        if (at('rbrace')) throw new FormulaSyntaxError('formulaParser.emptyArray', t.start);
         for (;;) {
           rows[rows.length - 1].push(comparison());
           if (at('comma')) {
@@ -238,11 +238,11 @@ export function parseFormula(src, { namePositions = false, tablePositions = fals
           break;
         }
         expect('rbrace', '"}"');
-        if (rows.some((row) => row.length !== rows[0].length)) throw new FormulaSyntaxError('Array rows must be the same width', t.start);
+        if (rows.some((row) => row.length !== rows[0].length)) throw new FormulaSyntaxError('formulaParser.arrayRowsWidth', t.start);
         return { type: 'array', rows };
       }
       default:
-        throw new FormulaSyntaxError('Unexpected token', t.start);
+        throw new FormulaSyntaxError('formulaParser.unexpectedToken', t.start);
     }
   }
 
@@ -254,6 +254,6 @@ export function parseFormula(src, { namePositions = false, tablePositions = fals
     while (at('comma')) { next(); parts.push(comparison()); }
     ast = { type: 'union', parts };
   }
-  if (pos < tokens.length) throw new FormulaSyntaxError('Unexpected token', tokens[pos].start);
+  if (pos < tokens.length) throw new FormulaSyntaxError('formulaParser.unexpectedToken', tokens[pos].start);
   return ast;
 }
