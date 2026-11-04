@@ -24745,3 +24745,16 @@ save restores the drawing and the next save writes it whole. Gaps: SmartArt diag
 objects are not pruned. Tests: `tests/dropped-drawing-parts.test.js` (independently written package),
 `tests/browser/dropped-drawing-parts.spec.js` (Edit Chart Data, delete and Undo after a save; Reset
 Picture), schema-checked with `tools/check-docx-schema.py`.
+
+## Paragraphs holding fields stay as written (2026-11-03)
+
+Clauses: ECMA-376 Part 1 §17.16.18 `fldSimple`, §17.16.4 complex fields (`fldChar`, `instrText`),
+§17.3.1.22 `p`.
+
+A paragraph an edit leaves alone is saved from its source XML. Any edit elsewhere rebuilt the field
+boundaries of every paragraph holding a field (PAGE, DATE, a table of contents and its PAGEREF entries)
+with their properties in another order, so each one read as changed and was rewritten on every save:
+run revision ids (`w:rsidRPr`), proofing marks (`w:proofErr`) and `w:t` as written were dropped from
+paragraphs nobody touched. The boundaries are now rebuilt as they were read, and those paragraphs are
+saved byte for byte; a paragraph whose own text changes is still rewritten. Tests:
+`tests/field-paragraph-untouched.test.js` (independently written package).
