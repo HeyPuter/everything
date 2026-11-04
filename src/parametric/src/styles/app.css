@@ -482,7 +482,7 @@ a.icon-btn { text-decoration: none; }
 }
 @media (max-width: 760px) {
   :root { --titlebar-h: 46px; --status-h: 28px; }
-  .menubar, .quick .hide-mobile, .cmd-search, .tb-brand .alpha-tag, .tb-sep.hide-mobile { display: none !important; }
+  .menubar, .quick .hide-mobile, .tb-right .hide-mobile, .cmd-search, .tb-brand .alpha-tag, .tb-sep.hide-mobile { display: none !important; }
   .mobile-only { display: inline-grid !important; }
   .cm-tools { min-height: 56px; padding: 3px 4px 1px; }
   .tool { min-width: 46px; max-width: 64px; }

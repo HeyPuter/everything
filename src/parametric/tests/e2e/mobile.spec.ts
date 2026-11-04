@@ -8,6 +8,10 @@ test('mobile layout opens the design tree as a sheet and has no page scroll', as
   await waitForFeature(page, 'Fillet1');
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
   expect(overflow).toBeLessThanOrEqual(0);
+  // Share is in the File menu on phones; the title bar keeps the room for the part name.
+  const share = page.locator('.titlebar [data-cmd="share"]');
+  await expect(share).toHaveCount(1);
+  await expect(share).toBeHidden();
   // The sheet (with its close button) passes axe.
   await page.addScriptTag({ path: 'node_modules/axe-core/axe.min.js' });
   const violations = await page.evaluate(async () => {
