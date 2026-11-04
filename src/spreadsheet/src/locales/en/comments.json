@@ -30,6 +30,7 @@
   "replyTo": "Reply to the thread on {cell}",
   "resolveThread": "Resolve thread",
   "resolved": "Resolved",
+  "threadActions": "Thread actions",
   "unassign": "Unassign {name}",
   "undo.deleteComment": "Delete comment",
   "undo.newComment": "New comment",

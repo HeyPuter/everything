@@ -30,6 +30,7 @@
   "replyTo": "回复 {cell} 上的会话",
   "resolveThread": "解决会话",
   "resolved": "已解决",
+  "threadActions": "会话操作",
   "unassign": "取消分配给 {name}",
   "undo.deleteComment": "删除批注",
   "undo.newComment": "新建批注",
