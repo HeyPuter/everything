@@ -48,8 +48,21 @@ const ELEMENTS = {
 const JUSTIFICATION = ['left', 'centered', 'right'];
 const SUBTYPES = Object.fromEntries(Object.entries(ELEMENTS).map(([k, v]) => [v, k]));
 
+/**
+ * Text as XML 1.0 can hold it. PDF strings may carry control characters (a NUL some writers
+ * end strings with, Word's vertical tab for a line break) and unpaired surrogates, which no
+ * XML parser accepts: one would make Acrobat reject the whole file. Line and page breaks
+ * become line breaks; the rest are dropped.
+ */
+const xmlText = (value) =>
+  String(value)
+    .replace(/[\v\f]/g, '\n')
+    .replace(
+      /[\x00-\x08\x0E-\x1F\uFFFE\uFFFF]|[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g,
+      '',
+    );
 const escapeAttribute = (value) =>
-  String(value).replace(
+  xmlText(value).replace(
     /[&<>"\r\n\t]/g,
     (c) =>
       ({
@@ -63,7 +76,7 @@ const escapeAttribute = (value) =>
       })[c],
   );
 const escapeText = (value) =>
-  String(value).replace(
+  xmlText(value).replace(
     /[&<>\r]/g,
     (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '\r': '&#xD;' })[c],
   );
@@ -97,7 +110,7 @@ function richTextNode(dict) {
       },
     }).parseFromString(rc, 'application/xml');
     if (xml.doctype || xml.documentElement?.localName !== 'body') return null;
-    return new XMLSerializer().serializeToString(xml.documentElement);
+    return xmlText(new XMLSerializer().serializeToString(xml.documentElement));
   } catch {
     return null;
   }

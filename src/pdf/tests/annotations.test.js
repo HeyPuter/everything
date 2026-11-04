@@ -1223,6 +1223,25 @@ describe('comment exchange', () => {
     expect(listAnnotations(other, 0)[2].replies.map((r) => r.contents)).toEqual(['Looks right']);
   });
 
+  it('writes XML that parsers accept when comments hold control characters', async () => {
+    const source = await blank();
+    // A NUL that ends a string, Word's vertical tab for a line break, another control.
+    addShapeAnnotation(source, 0, {
+      kind: 'square',
+      rect: { x: 100, y: 100, width: 100, height: 80 },
+      text: 'First line\u000bsecond line\u0000',
+      author: 'Ada\u0001 Lovelace',
+    });
+    const xfdf = exportXfdf(source);
+    expect(xfdf).not.toMatch(
+      /[\x00-\x08\x0B\x0C\x0E-\x1F\uFFFE\uFFFF]|[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/,
+    );
+    const target = await blank();
+    expect(await importXfdf(target, xfdf)).toMatchObject({ imported: 1 });
+    const [square] = listAnnotations(target, 0);
+    expect([square.contents, square.author]).toEqual(['First line\nsecond line', 'Ada Lovelace']);
+  });
+
   it('carries a comment that two pages share as a comment on each page', async () => {
     const source = await blank(2);
     const shared = addShapeAnnotation(source, 0, {
