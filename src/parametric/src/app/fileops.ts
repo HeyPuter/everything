@@ -215,7 +215,7 @@ export class FileOps {
     else if (v === 'device') await this.openFromDevice();
     else if (v === 'browse') {
       const r = await pickCloudFile().catch((e) => { toast({ kind: 'error', message: storageError(e) }); return null; });
-      if (r) {
+      if (r && !tooLarge(r.blob.size, r.fileName)) {
         if (isStepFile(r.fileName)) await this.importStepText(await r.blob.text(), r.fileName);
         else if (isSolidWorksFile(r.fileName)) await this.openSolidWorks(new Uint8Array(await r.blob.arrayBuffer()), r.fileName);
         else await this.openPartText(await r.blob.text(), r.location, r.name);
@@ -237,7 +237,7 @@ export class FileOps {
 
   async openFromDevice() {
     const file = await pickDeviceFile(`${EXT},.json,${IMPORT_EXTS.join(',')}`);
-    if (!file) return;
+    if (!file || tooLarge(file.size, file.name)) return;
     if (isStepFile(file.name)) { await this.importStepText(await file.text(), file.name); return; }
     if (isSolidWorksFile(file.name)) { await this.openSolidWorks(new Uint8Array(await file.arrayBuffer()), file.name); return; }
     if (await this.openPartText(await file.text(), null, file.name.replace(/\.[^.]+$/, ''))) this.app.store.dirty = true;
@@ -246,7 +246,7 @@ export class FileOps {
   /** Imports a STEP or SolidWorks file as a solid feature in the current part. */
   async importStep() {
     const file = await pickDeviceFile(IMPORT_EXTS.join(','));
-    if (!file) return;
+    if (!file || tooLarge(file.size, file.name)) return;
     if (isSolidWorksFile(file.name)) {
       const step = await this.convertSolidWorks(new Uint8Array(await file.arrayBuffer()), file.name);
       if (step) await this.importStepText(step, file.name);
@@ -274,7 +274,7 @@ export class FileOps {
 
   /** Converts a SolidWorks part to STEP in the geometry worker; null after reporting a failure. */
   private async convertSolidWorks(data: Uint8Array, fileName: string): Promise<string | null> {
-    if (data.length > 200_000_000) { toast({ kind: 'error', message: 'This SolidWorks file is too large to open (200 MB limit).' }); return null; }
+    if (tooLarge(data.length, fileName)) return null;
     const done = toast({ message: `Reading ${fileName}...`, timeout: 0 });
     try {
       const r = await this.app.kernel.convertSolidWorks(data, fileName);
@@ -292,7 +292,7 @@ export class FileOps {
 
   async importStepText(text: string, fileName: string) {
     const app = this.app;
-    if (text.length > 60_000_000) { toast({ kind: 'error', message: 'This STEP file is too large to import (60 MB limit).' }); return; }
+    if (tooLarge(text.length, 'x.step')) return;
     const err = await app.kernel.checkImport(text).catch((e) => (e as Error).message);
     if (err) { toast({ kind: 'error', title: 'Import failed', message: err }); return; }
     const blobId = `b${Date.now().toString(36)}`;
@@ -391,6 +391,7 @@ export class FileOps {
       if (!it) return;
       try {
         const blob = it.read ? await it.read() : await puter()!.fs.read(it.path);
+        if (tooLarge(blob.size, it.name)) return;
         if (isSolidWorksFile(it.name)) await this.openSolidWorks(new Uint8Array(await blob.arrayBuffer()), it.name);
         else if (isStepFile(it.name)) await this.importStepText(await blob.text(), it.name);
         else this.openText(await blob.text(), { type: 'cloud', path: it.path }, it.name.replace(/\.[^.]+$/, ''));
@@ -399,6 +400,17 @@ export class FileOps {
       }
     });
   }
+}
+
+const STEP_LIMIT = 60_000_000;
+const SOLIDWORKS_LIMIT = 200_000_000;
+
+/** Checked before a file is read into memory: true after reporting that it is too large. */
+function tooLarge(size: number, fileName: string): boolean {
+  const step = isStepFile(fileName);
+  if (size <= (step ? STEP_LIMIT : isSolidWorksFile(fileName) ? SOLIDWORKS_LIMIT : Infinity)) return false;
+  toast({ kind: 'error', message: step ? 'This STEP file is too large to import (60 MB limit).' : 'This SolidWorks file is too large to open (200 MB limit).' });
+  return true;
 }
 
 /** The part in a file's text, or null after reporting why it is not one. */
