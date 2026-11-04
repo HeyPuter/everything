@@ -1,0 +1,96 @@
+import { test, expect } from '@playwright/test';
+import { readFileSync } from 'node:fs';
+import { unzipSync, strFromU8 } from 'fflate';
+import { onTab, downloadDocx, menuBarMenu } from './helpers/editor-tools.js';
+import { reopenDocx } from './helpers/reopen-docx.js';
+
+// Cut, Copy and Paste of a shape or text box: the drawing comes back, not nothing (a cut used to lose it).
+const input = page => page.getByRole('textbox', { name: 'Document text' });
+test.use({ viewport: { width: 1440, height: 900 }, permissions: ['clipboard-read', 'clipboard-write'] });
+const drawings = page => page.evaluate(() => {
+  const m = window.__docs.current.view.engine.model;
+  let at = 0; const out = [];
+  m.paragraphs.forEach((p, paragraph) => { for (const r of p.runs) { if (r.image) out.push({ paragraph, at, id: r.image.id, order: r.image.anchor?.order, geometry: /prst="(\w+)"/.exec(r.image.shell || '')?.[1], text: [...(r.image.shell || '').matchAll(/<w:t(?:\s[^>]*)?>([^<]*)/g)].map(x => x[1]).join('') }); at += r.text.length; } at++; });
+  return out;
+});
+const caretAtEnd = page => page.evaluate(() => { const e = window.__docs.current.view.engine; e.model.select(e.model.text.length); e.syncInput(); e.paint(); e.onSelection(); e.focus(); });
+async function start(page) {
+  await page.goto('/mock.html#/new');
+  await expect((await onTab(page, 'home')).getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await input(page).focus();
+  for (let i = 0; i < 6; i++) { await page.keyboard.type(`Paragraph ${i + 1} of the text.`); await page.keyboard.press('Enter'); }
+}
+
+test('a shape cut and pasted moves to the caret, and a copy pasted twice makes two more', async ({ page }, info) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await start(page);
+  await onTab(page, 'insert');
+  await page.locator('#ribbon-panel-insert').getByRole('button', { name: 'Shapes', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Oval', exact: true }).click();
+  const box = await page.locator('canvas.canvas-page').first().boundingBox();
+  await page.mouse.move(box.x + 300, box.y + 220); await page.mouse.down();
+  await page.mouse.move(box.x + 460, box.y + 320, { steps: 4 }); await page.mouse.up();
+  await expect(page.locator('#ribbon-tab-shapeFormat')).toBeVisible();
+  const [drawn] = await drawings(page);
+  expect(drawn).toMatchObject({ geometry: 'ellipse' });
+
+  await page.keyboard.press('ControlOrMeta+x');
+  await expect.poll(() => drawings(page)).toEqual([]);
+  await caretAtEnd(page);
+  await page.keyboard.press('ControlOrMeta+v');
+  // The oval is back, in the last paragraph, with its own geometry, and selected.
+  await expect.poll(async () => (await drawings(page)).map(d => [d.paragraph, d.geometry])).toEqual([[6, 'ellipse']]);
+  await expect(page.locator('#ribbon-tab-shapeFormat')).toBeVisible();
+  // Pasting again with the oval selected adds another in front of it; it does not replace it.
+  await page.keyboard.press('ControlOrMeta+v');
+  await expect.poll(async () => (await drawings(page)).length).toBe(2);
+  const [first, second] = await drawings(page);
+  expect(second.id).not.toBe(first.id);
+  expect(second.order).toBeGreaterThan(first.order);
+  // One undo takes the paste back.
+  await page.keyboard.press('ControlOrMeta+z');
+  await expect.poll(async () => (await drawings(page)).length).toBe(1);
+
+  const path = info.outputPath('pasted-shape.docx');
+  const download = page.waitForEvent('download'); await downloadDocx(page); await (await download).saveAs(path);
+  const xml = strFromU8(unzipSync(new Uint8Array(readFileSync(path)))['word/document.xml']);
+  expect(xml.match(/<wp:anchor /g)).toHaveLength(1);
+  expect(xml).toContain('prst="ellipse"');
+  await reopenDocx(page, input(page), path, await input(page).inputValue());
+  expect((await drawings(page)).map(d => [d.paragraph, d.geometry])).toEqual([[6, 'ellipse']]);
+  expect(errors).toEqual([]);
+});
+
+test('a text box copied from the Edit menu pastes with its text, and its paragraphs keep unique identifiers', async ({ page }, info) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await start(page);
+  await (await onTab(page, 'insert')).locator('.ribbon-card').getByRole('button', { name: 'Text Box', exact: true }).click();
+  await page.getByRole('menuitem', { name: /^Simple Text Box/ }).click();
+  const dialog = page.getByRole('dialog', { name: 'Edit drawing text' });
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole('textbox').first().press('ControlOrMeta+a');
+  await page.keyboard.type('Boxed words');
+  await dialog.getByRole('button', { name: 'Apply', exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  await input(page).evaluate(el => { const at = el.value.indexOf('￼'); el.setSelectionRange(at, at + 1); el.dispatchEvent(new Event('select', { bubbles: true })); });
+  await expect(page.getByRole('tab', { name: 'Shape Format' })).toBeVisible();
+  // The Edit menu offers Copy for the text box, as for a picture.
+  const copy = (await menuBarMenu(page, 'Edit')).getByRole('menuitem', { name: 'Copy', exact: true });
+  await expect(copy).toBeEnabled();
+  await copy.click();
+  await caretAtEnd(page);
+  await page.keyboard.press('ControlOrMeta+v');
+  await expect.poll(async () => (await drawings(page)).map(d => d.text)).toEqual(['Boxed words', 'Boxed words']);
+
+  const path = info.outputPath('pasted-text-box.docx');
+  const download = page.waitForEvent('download'); await downloadDocx(page); await (await download).saveAs(path);
+  const xml = strFromU8(unzipSync(new Uint8Array(readFileSync(path)))['word/document.xml']);
+  expect(xml.match(/<wps:txbx>/g)).toHaveLength(2);
+  const ids = [...xml.matchAll(/w14:paraId="([0-9A-F]+)"/g)].map(m => m[1]);
+  expect(new Set(ids).size).toBe(ids.length);
+  const docPr = [...xml.matchAll(/<wp:docPr id="(\d+)"/g)].map(m => m[1]);
+  expect(new Set(docPr).size).toBe(2);
+  await reopenDocx(page, input(page), path, await input(page).inputValue());
+  expect((await drawings(page)).map(d => d.text)).toEqual(['Boxed words', 'Boxed words']);
+  expect(errors).toEqual([]);
+});

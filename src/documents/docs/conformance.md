@@ -24806,3 +24806,18 @@ on the same side now join into one, from the first moved content to the last; mo
 range per paragraph. Gaps: a range end Word wrote between paragraphs or at the start of the next one is written
 after the last moved content, inside its paragraph. Tests: `tests/move-range-paragraphs.test.js` (independently
 written package); exports pass `tools/check-docx-schema.py`.
+
+## Cut, Copy and Paste of shapes and text boxes (2026-11-03)
+
+Clauses: ECMA-376 Part 1 §20.4.2.3 `anchor`, §20.4.2.8 `inline`, §20.4.2.5 `docPr` (its `id` is unique in
+the document), §20.4.2.3 `relativeHeight`; MS-DOCX `w14:paraId` / `wp14:anchorId` (unique identifiers).
+
+A shape, text box or group of shapes copied or cut here carries its `w:drawing` as saving would write it, in
+the clipboard's HTML. A paste in this editor reads it back as Insert reads the drawings it makes and places it
+at the caret (after a selected drawing, which it does not replace) with a new `docPr` id and the front-most
+`relativeHeight`; its offsets keep their meaning relative to the new anchor paragraph. `w14:paraId`,
+`w14:textId`, `wp14:anchorId` and `wp14:editId` are left off the copy, so the pasted drawing does not
+share them with the original. Before, a cut shape was lost: the clipboard held only its plain-text stand-in.
+Gaps: drawings that use package parts (picture fills, charts, diagrams, linked drawings) still do not copy;
+the Edit menu offers Copy and Cut only for drawings that do; other applications get the plain-text stand-in.
+Tests: `tests/browser/drawing-clipboard.spec.js` (save, reopen and the saved `docPr` ids).

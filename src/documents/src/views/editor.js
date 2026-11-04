@@ -212,8 +212,8 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
   const clipboardState = () => {
     if (!engine) return { cut: false, copy: false, paste: false };
     const image = engine.model.selectedImage, editable = !pkg.readOnly && !engine.viewOnly;
-    // A picture copies as itself (charts, diagrams and drawings do not copy yet).
-    const textSelected = engine.model.range[0] !== engine.model.range[1] && (!image || engine.copiesPicture());
+    // A picture, shape, text box or group copies as itself (charts, diagrams and drawings with pictures do not copy yet).
+    const textSelected = engine.model.range[0] !== engine.model.range[1] && (!image || engine.copiesPicture() || engine.copiesDrawing());
     return { cut: editable && textSelected, copy: textSelected, paste: editable && !image };
   };
   // A browser that does not let the page use the clipboard (permission refused, or a frame without it) refuses

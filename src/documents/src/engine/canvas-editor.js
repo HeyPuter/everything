@@ -4,6 +4,7 @@ import { StorySession } from './story-session.js';
 import { decodeShape } from './canvas-shapes.js';
 import { wordPosition, optionWordPosition } from './word-navigation.js';
 import { carriesFormatting, copyFragment, fragmentHtml, htmlFragment, pasteFragment, formattedPasteFits, copiesPicture, pictureHtml, htmlPicture } from './clipboard-fragment.js';
+import { copiesDrawing, drawingHtml, htmlDrawing, pasteDrawing } from './drawing-clipboard.js';
 import { xmlAttributeText } from './text-limits.js';
 import { textEdit, followEdit } from './text-edit.js';
 import { showLink } from './link-appearance.js';
@@ -2265,6 +2266,8 @@ export class CanvasEditor {
   }
   /** Whether the selection is one picture that copies as itself (see clipboardData). */
   copiesPicture() { return copiesPicture(this.model); }
+  /** Whether a copy carries the selected shape, text box or group (drawing-clipboard.js). */
+  copiesDrawing() { return copiesDrawing(this); }
   /** The selection as plain text, and as formatted HTML when it holds only text or one picture. */
   clipboardData() {
     // A note reference copies as the number or mark it shows on the page.
@@ -2284,10 +2287,11 @@ export class CanvasEditor {
       }
       return { text: [...rows.values()].map(cells => cells.join('\t')).join('\n'), html: '' };
     }
-    const picture = pictureHtml(this.model);
+    const text = this.model.clipboardText(noteText, undefined, hiddenRun);
+    const picture = pictureHtml(this.model) || drawingHtml(this, text);
     // What the view hides (a deletion in Simple Markup, hidden text) is not copied: pasted, it came back as ordinary text.
     const fragment = !picture && copyFragment(this.model, { hidden: hiddenRun });
-    return { text: this.model.clipboardText(noteText, undefined, hiddenRun), html: picture || (fragment ? fragmentHtml(fragment) : '') };
+    return { text, html: picture || (fragment ? fragmentHtml(fragment) : '') };
   }
   /** Paste with the clipboard's formatting where the document can take it, else as plain text. */
   pasteData(text, html = '') {
@@ -2303,6 +2307,9 @@ export class CanvasEditor {
     // A picture copied here comes back as the picture, not as its plain-text stand-in.
     const picture = htmlPicture(html);
     if (picture) { if (!this.readOnly && !this.viewOnly) this.insertImageFile(picture.file, picture).catch(error => this.onError(error)); return; }
+    // A shape, text box or group copied here comes back as the drawing.
+    const drawing = htmlDrawing(html);
+    if (drawing) { if (!this.readOnly && !this.viewOnly) pasteDrawing(this, drawing).catch(error => this.onError(error)); return; }
     const fragment = html && carriesFormatting(this.model) && !this.model.tableContext ? htmlFragment(html) : null;
     if (fragment && fragment.paragraphs.some(p => p.text) && formattedPasteFits(fragment) && !(breakless && fragment.paragraphs.some(p => /[\f\u000e]/.test(p.text))) && this.execute(() => pasteFragment(this.model, fragment), () => {}, undefined, true)) return;
     if (text) this.execute(() => this.model.replace(text));
