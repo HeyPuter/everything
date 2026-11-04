@@ -11161,6 +11161,7 @@ export function createEditor({
             dpi: 300,
             type: 'image/png',
             signal: controller.signal,
+            annotations: false,
           });
           return ocrEngine.recognize(picture, { signal: controller.signal });
         },
@@ -11371,10 +11372,13 @@ export function createEditor({
           }
         }
         progress.textContent = `Recognizing page ${index + 1} (${k + 1} of ${pages.length})…`;
+        // Only the page is read: the words of comments and form fields are not part of the
+        // scan, and would stay behind as page text after they change or are removed.
         const picture = await pageImage(thisPdf, index, {
           dpi,
           type: 'image/png',
           signal: controller.signal,
+          annotations: false,
         });
         const result = await ocrEngine.recognize(picture, {
           signal: controller.signal,

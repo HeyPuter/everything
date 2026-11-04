@@ -1337,6 +1337,65 @@ test('Scan & OCR makes a scanned page searchable', async ({ page }) => {
   expect(text).toContain('4217');
 });
 
+test('Scan & OCR reads the scan, not the comments on it', async ({ page }) => {
+  test.setTimeout(180000);
+  const { createCanvas } = await import('@napi-rs/canvas');
+  const canvas = createCanvas(1700, 2200);
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, 1700, 2200);
+  ctx.fillStyle = '#000';
+  ctx.font = '64px sans-serif';
+  ctx.fillText('Invoice number 4217', 200, 400);
+  const doc = await PDFDocument.create();
+  const scan = await doc.embedPng(canvas.toBuffer('image/png'));
+  const sheet = doc.addPage([612, 792]);
+  sheet.drawImage(scan, { x: 0, y: 0, width: 612, height: 792 });
+  // A text box comment over the scan: its words are the comment's, not the page's.
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const appearance = doc.context.register(
+    doc.context.stream('BT /Helv 28 Tf 10 20 Td (REVIEWED BY LEGAL) Tj ET', {
+      Type: 'XObject',
+      Subtype: 'Form',
+      BBox: [0, 0, 360, 60],
+      Resources: { Font: { Helv: font.ref } },
+    }),
+  );
+  const comment = doc.context.register(
+    doc.context.obj({
+      Type: 'Annot',
+      Subtype: 'FreeText',
+      Rect: [100, 300, 460, 360],
+      Contents: PDFString.of('REVIEWED BY LEGAL'),
+      DA: PDFString.of('/Helv 28 Tf 0 g'),
+      AP: { N: appearance },
+      F: 4,
+    }),
+  );
+  sheet.node.set(PDFName.of('Annots'), doc.context.obj([comment]));
+  await openPdf(page, doc);
+  await page.getByRole('button', { name: 'Tools', exact: true }).click();
+  const pane = page.getByRole('complementary', { name: 'Tools' });
+  await pane.getByRole('button', { name: 'Scan & OCR', exact: true }).click();
+  await pane.getByRole('button', { name: 'In this file…' }).click();
+  await page
+    .getByRole('dialog', { name: 'Recognize text' })
+    .getByRole('button', { name: 'Recognize text' })
+    .click();
+  const progress = page.getByRole('dialog', { name: 'Recognizing text' });
+  await expect(progress).toBeVisible();
+  await expect(progress).toBeHidden({ timeout: 120000 });
+  await settled(page);
+  const bytes = await downloaded(page);
+  const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
+  const pdf = await pdfjs.getDocument({ data: bytes.slice() }).promise;
+  const text = (await (await pdf.getPage(1)).getTextContent()).items
+    .map((item) => item.str)
+    .join(' ');
+  expect(text).toContain('4217');
+  expect(text).not.toMatch(/REVIEWED|LEGAL/);
+});
+
 test('Scan & OCR skips a page with text whatever its unit size', async ({ page }) => {
   test.setTimeout(180000);
   // A large-format page written in two-point units: a short heading still covers enough of

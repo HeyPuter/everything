@@ -45,13 +45,14 @@ async function withResolution(blob, dpi) {
 }
 
 /**
- * Render one page to a PNG or JPEG at `dpi`, with its annotations, for saving as a picture.
- * Rejects with an AbortError when `signal` aborts before the picture is ready.
+ * Render one page to a PNG or JPEG at `dpi`, with its annotations unless `annotations` is
+ * false, for saving as a picture. Rejects with an AbortError when `signal` aborts before the
+ * picture is ready.
  */
 export async function pageImage(
   pdf,
   index,
-  { dpi = 144, type = 'image/png', quality = 0.9, signal } = {},
+  { dpi = 144, type = 'image/png', quality = 0.9, signal, annotations = true } = {},
 ) {
   signal?.throwIfAborted();
   const page = await waitFor(() => pdf.getPage(index + 1), signal);
@@ -72,7 +73,7 @@ export async function pageImage(
     const task = page.render({
       canvasContext: canvas.getContext('2d'),
       viewport,
-      annotationMode: pdfjs.AnnotationMode.ENABLE,
+      annotationMode: annotations ? pdfjs.AnnotationMode.ENABLE : pdfjs.AnnotationMode.DISABLE,
     });
     const abort = () => task.cancel();
     signal?.addEventListener('abort', abort, { once: true });
