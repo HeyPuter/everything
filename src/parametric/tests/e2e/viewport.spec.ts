@@ -81,6 +81,34 @@ test.describe('viewport', () => {
     }
   });
 
+  test('a wheel zoom re-picks the hover under a still cursor, and lands a view turn', async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+    await waitForFeature(page, 'Fillet1');
+    const [px, py] = await page.evaluate(() => {
+      const app = (window as unknown as Win).__parametric;
+      const r = app.viewport.canvas.getBoundingClientRect();
+      const [x, y] = app.viewport.project([30, 3, 25]);
+      return [x + r.left, y + r.top];
+    });
+    const hover = () => page.evaluate(() => {
+      const app = (window as unknown as Win).__parametric;
+      const m = app.viewport.mouse!;
+      return { hover: JSON.stringify(app.selection.hover), under: JSON.stringify(app.viewport.pickItem(m.x, m.y, app.pickFilter())) };
+    });
+    await page.mouse.move(px, py);
+    await expect.poll(async () => (await hover()).hover).toContain('"face"');
+    const before = (await hover()).hover;
+    // Zoom out about the still cursor until another entity is under it.
+    for (let i = 0; i < 6; i++) await page.mouse.wheel(0, 300);
+    expect((await hover()).under).not.toBe(before);
+    await expect.poll(async () => { const h = await hover(); return h.hover === h.under; }).toBe(true);
+    // A wheel zoom during a standard view animation still lands on the view.
+    await page.evaluate(() => (window as unknown as Win).__parametric.viewport.setView('front'));
+    await page.mouse.wheel(0, -100);
+    await expect(page.locator('.view-label')).toHaveText('Front');
+  });
+
   test('redraws the model after the WebGL context is lost and restored', async ({ page }) => {
     const errors = await openApp(page);
     await page.getByRole('button', { name: /Mounting Bracket/ }).click();

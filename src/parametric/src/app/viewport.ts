@@ -280,6 +280,7 @@ export class Viewport {
     const g = this.gesture;
     this.gesture = { kind: 'none' };
     try { this.canvas.releasePointerCapture(e.pointerId); } catch { /* not captured */ }
+    if (g.kind === 'orbit' || g.kind === 'pan' || g.kind === 'zoom') this.rehoverSoon();
     if (cancelled) {
       // Let the tool finish its drag (as when a second finger lands), or a
       // sketch drag stays open and swallows every later undo step.
@@ -408,6 +409,20 @@ export class Viewport {
   }
 
   private hoverBusy = false;
+  private rehoverTimer = 0;
+
+  /**
+   * The view moved under a still cursor (wheel zoom, keyboard, animation):
+   * re-pick the hover there once the view settles, not on every frame.
+   */
+  private rehoverSoon() {
+    if (!this.mouse || this.lastPointerType === 'touch') return;
+    clearTimeout(this.rehoverTimer);
+    this.rehoverTimer = window.setTimeout(() => {
+      const m = this.mouse;
+      if (m && this.gesture.kind === 'none' && !this.camera.animating) this.queueHover(m.x, m.y);
+    }, 100);
+  }
 
   /** Picks model geometry and visible reference geometry under the cursor. */
   pickItem(x: number, y: number, f: PickFilter): SelItem | null {
@@ -531,6 +546,7 @@ export class Viewport {
    * make the old polylines visibly coarse. Orbiting changes neither.
    */
   onCamera() {
+    this.rehoverSoon();
     const px = this.camera.pixelSize;
     if (px === this.originPx) return;
     this.drawOrigin();
