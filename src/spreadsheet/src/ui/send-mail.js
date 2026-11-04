@@ -19,6 +19,7 @@ import { rangeName } from '../core/cell.js';
 import {
   parseRecipients, recipientProblem, buildAttachment, attachmentProblem, describeResult, formatSize, COPY_FORMATS, MAX_RECIPIENTS, MAX_MESSAGE,
 } from '../lib/mail.js';
+import { t } from '../i18n/index.js';
 
 let fieldSeq = 0;
 const fid = (name) => `send-${name}-${++fieldSeq}`;
@@ -31,9 +32,11 @@ function field(label, control, hint = null) {
 
 /** Who the mail comes from, as the dialog says it. */
 function fromLine(user) {
-  const name = user?.username || 'you';
-  return el('p.send-from', {}, el('span', { html: icon('user', 14) }), el('span', {},
-    user?.email ? `From ${name}. Replies go to ${user.email}` : `From ${name}, through Puter`));
+  const name = user?.username;
+  const line = name
+    ? (user?.email ? t('sendMail.fromNameReplies', { name, email: user.email }) : t('sendMail.fromName', { name }))
+    : (user?.email ? t('sendMail.fromYouReplies', { email: user.email }) : t('sendMail.fromYou'));
+  return el('p.send-from', {}, el('span', { html: icon('user', 14) }), el('span', {}, line));
 }
 
 /** The To field: addresses separated by commas, with how many were read. */
@@ -45,13 +48,13 @@ function toField(initial = '') {
   });
   const update = () => {
     const { people, invalid } = parseRecipients(input.value);
-    count.textContent = !input.value.trim() ? `Separate addresses with commas. Up to ${MAX_RECIPIENTS} people.`
-      : invalid.length ? `${invalid.length} ${invalid.length === 1 ? 'entry is' : 'entries are'} not an email address`
-        : `${people.length} ${people.length === 1 ? 'recipient' : 'recipients'}`;
+    count.textContent = !input.value.trim() ? t('sendMail.toHint', { max: MAX_RECIPIENTS })
+      : invalid.length ? t('sendMail.invalidEntries', { count: invalid.length })
+        : t('sendMail.recipients', { count: people.length });
   };
   input.addEventListener('input', update);
   update();
-  const node = el('div.field', {}, el('label.field-label', { for: input.id }, 'To'), input, count);
+  const node = el('div.field', {}, el('label.field-label', { for: input.id }, t('sendMail.to')), input, count);
   return { node, input };
 }
 
@@ -66,7 +69,7 @@ function settle(out, said, { modal, to, refuse, setBusy }) {
   setBusy(false);
   to.input.value = unsent.join(', ');
   to.input.dispatchEvent(new Event('input'));
-  refuse(to.input, `Not sent to ${unsent.join(', ')}. Check the ${unsent.length === 1 ? 'address' : 'addresses'} and send again.`);
+  refuse(to.input, t('sendMail.notSentTo', { count: unsent.length, addresses: unsent.join(', ') }));
 }
 
 /** Disable a dialog's controls while it sends, and show it on the primary button. */
@@ -90,21 +93,21 @@ export function openSendCopyDialog({ doc, sheetId, range = null, mailer, user = 
   const { alert, refuse, clear } = fieldAlert('send-copy');
   const to = toField();
   const subject = el('input.input', { type: 'text', value: doc.name, maxlength: 200, autocomplete: 'off' });
-  const message = el('textarea.input.send-message', { rows: 4, maxlength: MAX_MESSAGE, placeholder: 'Add a message (optional)' });
+  const message = el('textarea.input.send-message', { rows: 4, maxlength: MAX_MESSAGE, placeholder: t('sendMail.messagePlaceholder') });
   const formatName = fid('format');
-  const formats = el('div.send-formats', { role: 'radiogroup', 'aria-label': 'Attach as' },
+  const formats = el('div.send-formats', { role: 'radiogroup', 'aria-label': t('sendMail.attachAs') },
     COPY_FORMATS.map(([value, label], i) => el('label.send-format', {},
       el('input', { type: 'radio', name: formatName, value, checked: i === 0 }),
       el('span', { html: icon(value === 'pdf' ? 'fileDown' : value === 'csv' ? 'fileText' : 'sheet', 16) }),
       el('span', {}, label))));
-  const sheetName = wb.sheet(sheetId)?.name || 'this sheet';
+  const sheetName = wb.sheet(sheetId)?.name;
   const scope = el('select.select', {},
-    el('option', { value: 'workbook' }, 'The whole workbook'),
-    el('option', { value: 'sheet' }, `The sheet "${sheetName}"`),
-    range && el('option', { value: 'selection' }, `The selection (${rangeName(range)})`));
-  const scopeField = field('Include', scope);
+    el('option', { value: 'workbook' }, t('sendMail.scope.workbook')),
+    el('option', { value: 'sheet' }, sheetName ? t('sendMail.scope.sheet', { name: sheetName }) : t('sendMail.scope.thisSheet')),
+    range && el('option', { value: 'selection' }, t('sendMail.scope.selection', { range: rangeName(range) })));
+  const scopeField = field(t('sendMail.include'), scope);
   const size = el('p.send-size', { role: 'status' });
-  const sendBtn = el('button.btn.btn-primary', { type: 'submit' }, el('span', { html: icon('send', 16) }), el('span', {}, 'Send'));
+  const sendBtn = el('button.btn.btn-primary', { type: 'submit' }, el('span', { html: icon('send', 16) }), el('span', {}, t('sendMail.send')));
   const format = () => formats.querySelector('input:checked').value;
   let built = null;
   let buildId = 0;
@@ -125,18 +128,18 @@ export function openSendCopyDialog({ doc, sheetId, range = null, mailer, user = 
     syncScope();
     const id = ++buildId;
     built = null;
-    size.textContent = 'Preparing the attachment…';
+    size.textContent = t('sendMail.preparing');
     try {
       const att = await buildAttachment(doc, { format: format(), scope: format() === 'xlsx' ? 'workbook' : scope.value, sheetId, range });
       if (closed || id !== buildId) return;
       built = att;
       const problem = attachmentProblem(att.blob.size);
-      size.textContent = problem || `Attachment: ${att.filename} (${formatSize(att.blob.size)})`;
+      size.textContent = problem || t('sendMail.attachment', { filename: att.filename, size: formatSize(att.blob.size) });
       size.classList.toggle('send-size-error', !!problem);
     } catch (e) {
       if (closed || id !== buildId) return;
       console.error(e);
-      size.textContent = 'Could not prepare the attachment';
+      size.textContent = t('sendMail.couldNotPrepare');
       size.classList.add('send-size-error');
     }
   }
@@ -149,7 +152,7 @@ export function openSendCopyDialog({ doc, sheetId, range = null, mailer, user = 
     if (problem) { refuse(to.input, problem); return; }
     if (!built) await rebuild();
     if (closed) return;
-    if (!built) { refuse(null, 'Could not prepare the attachment'); return; }
+    if (!built) { refuse(null, t('sendMail.couldNotPrepare')); return; }
     const tooBig = attachmentProblem(built.blob.size);
     if (tooBig) { refuse(null, tooBig); return; }
     setBusy(true);
@@ -160,27 +163,27 @@ export function openSendCopyDialog({ doc, sheetId, range = null, mailer, user = 
     } catch (err) {
       if (closed) return;
       setBusy(false);
-      refuse(null, err?.message || 'Could not send the copy');
+      refuse(null, err?.message || t('sendMail.couldNotSendCopy'));
     }
   }
 
   const content = el('form.send-dialog', { onsubmit: send, novalidate: true },
     fromLine(user),
     to.node,
-    field('Subject', subject),
-    field('Message', message),
-    el('div.field', {}, el('span.field-label', { id: `${formatName}-l` }, 'Attach as'), formats),
+    field(t('sendMail.subject'), subject),
+    field(t('sendMail.message'), message),
+    el('div.field', {}, el('span.field-label', { id: `${formatName}-l` }, t('sendMail.attachAs')), formats),
     scopeField,
     size,
     alert,
     el('div.row.row-end', {},
-      el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Cancel'),
+      el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, t('common.cancel')),
       sendBtn));
   formats.setAttribute('aria-labelledby', `${formatName}-l`);
-  const setBusy = busyState(content, sendBtn, 'Sending…');
+  const setBusy = busyState(content, sendBtn, t('sendMail.sending'));
   formats.addEventListener('change', rebuild);
   scope.addEventListener('change', rebuild);
-  const modal = openModal({ title: 'Send a copy', content, initialFocus: to.input, onClose: () => { closed = true; onClose?.(); } });
+  const modal = openModal({ title: t('sendMail.title.copy'), content, initialFocus: to.input, onClose: () => { closed = true; onClose?.(); } });
   modal.panel.classList.add('send-panel');
   rebuild();
   return modal;
@@ -194,8 +197,8 @@ export function openSendLinkDialog({ doc, mailer, user = null, onClose = null, l
   const { alert, refuse, clear } = fieldAlert('send-link');
   const to = toField();
   const mode = el('select.select.share-mode', { id: fid('mode') }, SHARE_MODES.map(([value, label]) => el('option', { value }, label)));
-  const message = el('textarea.input.send-message', { rows: 4, maxlength: MAX_MESSAGE, placeholder: 'Add a message (optional)' });
-  const sendBtn = el('button.btn.btn-primary', { type: 'submit' }, el('span', { html: icon('send', 16) }), el('span', {}, 'Send link'));
+  const message = el('textarea.input.send-message', { rows: 4, maxlength: MAX_MESSAGE, placeholder: t('sendMail.messagePlaceholder') });
+  const sendBtn = el('button.btn.btn-primary', { type: 'submit' }, el('span', { html: icon('send', 16) }), el('span', {}, t('sendMail.sendLink')));
   const client = doc.collab;
   const roomOwner = !!client && client.user?.uuid === client.owner;
   let closed = false;
@@ -219,38 +222,38 @@ export function openSendLinkDialog({ doc, mailer, user = null, onClose = null, l
       if (!roomOwner && P.canShare()) {
         for (const p of parsed.people) {
           try { await P.shareFile(doc.path, p.email, mode.value); }
-          catch (err) { refused.push(err?.message || 'Could not share'); if (err?.code === 'forbidden' || err?.code === 'subject_does_not_exist') break; }
+          catch (err) { refused.push(err?.message || t('sendMail.couldNotShare')); if (err?.code === 'forbidden' || err?.code === 'subject_does_not_exist') break; }
         }
       }
       if (closed) return;
       const link = await linkFor(mode.value);
-      if (!link) throw new Error('Could not make a link to this spreadsheet');
+      if (!link) throw new Error(t('sendMail.couldNotLink'));
       const out = await mailer.sendLink({ workbookName: doc.name, recipients: parsed.people, link, access: mode.value === 'write' ? 'edit' : 'view', message: message.value });
       if (closed) return;
       const said = describeResult(out, { noun: 'link' });
-      if (refused.length) Object.assign(said, { variant: 'danger', message: `${said.message}. Not shared: ${refused[0]}` });
+      if (refused.length) Object.assign(said, { variant: 'danger', message: t('sendMail.notShared', { result: said.message, reason: refused[0] }) });
       settle(out, said, { modal, to, refuse, setBusy });
     } catch (err) {
       if (closed) return;
       setBusy(false);
-      refuse(null, err?.message || 'Could not send the link');
+      refuse(null, err?.message || t('sendMail.couldNotSendLink'));
     }
   }
 
   const content = el('form.send-dialog', { onsubmit: send, novalidate: true },
     fromLine(user),
     to.node,
-    el('div.field', {}, el('label.field-label', { for: mode.id }, 'They can'), mode,
+    el('div.field', {}, el('label.field-label', { for: mode.id }, t('sendMail.theyCan')), mode,
       el('span.field-hint', {}, roomOwner
-        ? 'They get an invitation into this live workbook, valid for 7 days.'
-        : 'Each address is given access to the file. Someone without a Puter account is invited to join.')),
-    field('Message', message),
+        ? t('sendMail.linkHintRoom')
+        : t('sendMail.linkHintFile'))),
+    field(t('sendMail.message'), message),
     alert,
     el('div.row.row-end', {},
-      el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Cancel'),
+      el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, t('common.cancel')),
       sendBtn));
-  const setBusy = busyState(content, sendBtn, 'Sending…');
-  const modal = openModal({ title: `Send a link to "${doc.name}"`, content, initialFocus: to.input, onClose: () => { closed = true; onClose?.(); } });
+  const setBusy = busyState(content, sendBtn, t('sendMail.sending'));
+  const modal = openModal({ title: t('sendMail.title.link', { name: doc.name }), content, initialFocus: to.input, onClose: () => { closed = true; onClose?.(); } });
   modal.panel.classList.add('send-panel');
   return modal;
 }
