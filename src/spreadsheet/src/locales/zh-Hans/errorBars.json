@@ -1,0 +1,9 @@
+{
+  "enterRange": "输入单元格区域（如 =Sheet1!$D$2:$D$10）或数字",
+  "oneRowOrColumn": "误差量必须是一行或一列",
+  "typeCustom": "自定义（来自单元格）",
+  "typeFixed": "固定值",
+  "typePercentage": "百分比",
+  "typeStdDev": "标准偏差",
+  "typeStdErr": "标准误差"
+}

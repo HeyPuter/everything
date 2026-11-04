@@ -1,0 +1,16 @@
+{
+  "colorfulPalette": "彩色调色板 {n}",
+  "layout": "布局 {n}",
+  "monochromaticPalette": "单色调色板 {n}",
+  "positionAbove": "靠上",
+  "positionBelow": "靠下",
+  "positionBestFit": "最佳匹配",
+  "positionCenter": "居中",
+  "positionInsideBase": "轴内侧",
+  "positionInsideEnd": "数据标签内",
+  "positionLeft": "靠左",
+  "positionOutsideEnd": "数据标签外",
+  "positionRight": "靠右",
+  "positionShow": "显示",
+  "style": "样式 {n}"
+}

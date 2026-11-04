@@ -1,0 +1,9 @@
+{
+  "all": "All Charts",
+  "changeTitle": "Change Chart Type",
+  "chartTypes": "Chart types",
+  "families": "Chart families",
+  "insertTitle": "Insert Chart",
+  "recommended": "Recommended Charts",
+  "subtypesOf": "{family} subtypes"
+}

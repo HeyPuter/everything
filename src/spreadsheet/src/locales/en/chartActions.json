@@ -1,0 +1,23 @@
+{
+  "choosePlace": "Choose where you want the chart to be placed:",
+  "moveChartTitle": "Move Chart",
+  "newSheet": "New sheet:",
+  "newSheetName": "New sheet name",
+  "objectIn": "Object in",
+  "objectInField": "Object in:",
+  "ownReferences": "This chart’s series have their own references. Use Select Data to change them",
+  "selectDataFirst": "Select the data to chart first",
+  "selectSameRows": "Select ranges over the same rows (or the same columns) to chart them together",
+  "tooLarge": "That range is too large to chart",
+  "undo.addElement": "Add chart element",
+  "undo.changeColors": "Change colors",
+  "undo.changeType": "Change chart type",
+  "undo.chartStyle": "Chart style",
+  "undo.format": "Format chart",
+  "undo.insertChartSheet": "Insert chart sheet",
+  "undo.moveChart": "Move chart",
+  "undo.quickLayout": "Quick layout",
+  "undo.resetStyle": "Reset to match style",
+  "undo.size": "Size chart",
+  "undo.switchRowColumn": "Switch row/column"
+}

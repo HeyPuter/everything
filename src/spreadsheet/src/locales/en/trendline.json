@@ -1,0 +1,17 @@
+{
+  "name": "{kind, select, linear {Linear ({series})} exp {Expon. ({series})} log {Log. ({series})} poly {Poly. ({series})} power {Power ({series})} other {{series}}}",
+  "nameMovingAvg": "{period} per. Mov. Avg. ({series})",
+  "problemExpIntercept": "An exponential trendline can only be set to cross above zero.",
+  "problemExpValues": "An exponential trendline needs every value above zero.",
+  "problemLogX": "A logarithmic trendline needs every x value above zero.",
+  "problemMovingAvg": "A moving average over {period} points needs at least {period} of them.",
+  "problemPoints": "This trendline needs at least {need} points with different x values.",
+  "problemPowerValues": "A power trendline needs every value above zero.",
+  "problemPowerX": "A power trendline needs every x value above zero.",
+  "typeExp": "Exponential",
+  "typeLinear": "Linear",
+  "typeLog": "Logarithmic",
+  "typeMovingAvg": "Moving Average",
+  "typePoly": "Polynomial",
+  "typePower": "Power"
+}

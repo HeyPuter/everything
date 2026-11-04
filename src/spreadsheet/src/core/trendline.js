@@ -22,14 +22,16 @@
  * draws a linear one, false none on that series.
  */
 import { maxOf, minOf } from './numeric.js';
+import { t } from '../i18n/index.js';
 
-export const TREND_TYPES = Object.freeze([['linear', 'Linear'], ['exp', 'Exponential'], ['log', 'Logarithmic'], ['poly', 'Polynomial'],
-  ['power', 'Power'], ['movingAvg', 'Moving Average']]);
-const TYPES = new Set(TREND_TYPES.map(([t]) => t));
+// [value, label], the label read in the interface language when it is shown.
+const choice = (value, key) => Object.freeze(Object.defineProperty([value], 1, { enumerable: true, get: () => t(key) }));
+export const TREND_TYPES = Object.freeze([choice('linear', 'trendline.typeLinear'), choice('exp', 'trendline.typeExp'),
+  choice('log', 'trendline.typeLog'), choice('poly', 'trendline.typePoly'), choice('power', 'trendline.typePower'),
+  choice('movingAvg', 'trendline.typeMovingAvg')]);
+const TYPES = new Set(TREND_TYPES.map(([id]) => id));
 // The kinds whose fit can be forced through an intercept, as Excel offers Set Intercept.
 export const INTERCEPT_TYPES = new Set(['linear', 'exp', 'poly']);
-// The names a trendline takes in the legend, as Excel gives them: "Linear (Sales)", "2 per. Mov. Avg. (Sales)".
-const SHORT_NAMES = { linear: 'Linear', exp: 'Expon.', log: 'Log.', poly: 'Poly.', power: 'Power' };
 const HEX = /^#[0-9a-f]{6}$/i;
 // The line dashes DrawingML names (CHART_LINE_DASHES draws them).
 const DASHES = new Set(['solid', 'dot', 'dash', 'lgDash', 'dashDot', 'lgDashDot', 'lgDashDotDot', 'sysDash', 'sysDot', 'sysDashDot', 'sysDashDotDot']);
@@ -40,25 +42,25 @@ export const TREND_LABEL_SIZE = Object.freeze({ min: 5.33, max: 96 });
 
 /** A trend with every option in range; anything else stays at Excel's default. */
 export function normalizeTrend(raw) {
-  const t = raw && typeof raw === 'object' ? raw : {};
+  const tr = raw && typeof raw === 'object' ? raw : {};
   return {
-    type: TYPES.has(t.type) ? t.type : 'linear',
-    order: Number.isInteger(t.order) && t.order >= 2 && t.order <= 6 ? t.order : 2,
-    period: Number.isInteger(t.period) && t.period >= 2 && t.period <= 255 ? t.period : 2,
-    forward: between(t.forward, 0, 1e15) ? t.forward : 0,
-    backward: between(t.backward, 0, 1e15) ? t.backward : 0,
-    intercept: Number.isFinite(t.intercept) ? t.intercept : null,
-    dispEq: t.dispEq === true,
-    dispRSqr: t.dispRSqr === true,
-    name: typeof t.name === 'string' ? t.name.slice(0, 255) : '',
-    ...(typeof t.labelFormat === 'string' && t.labelFormat.trim() && t.labelFormat !== 'General' ? { labelFormat: t.labelFormat.slice(0, 255) } : {}),
-    ...(between(t.labelPos?.x, 0, 1) && between(t.labelPos?.y, 0, 1) ? { labelPos: { x: t.labelPos.x, y: t.labelPos.y } }
+    type: TYPES.has(tr.type) ? tr.type : 'linear',
+    order: Number.isInteger(tr.order) && tr.order >= 2 && tr.order <= 6 ? tr.order : 2,
+    period: Number.isInteger(tr.period) && tr.period >= 2 && tr.period <= 255 ? tr.period : 2,
+    forward: between(tr.forward, 0, 1e15) ? tr.forward : 0,
+    backward: between(tr.backward, 0, 1e15) ? tr.backward : 0,
+    intercept: Number.isFinite(tr.intercept) ? tr.intercept : null,
+    dispEq: tr.dispEq === true,
+    dispRSqr: tr.dispRSqr === true,
+    name: typeof tr.name === 'string' ? tr.name.slice(0, 255) : '',
+    ...(typeof tr.labelFormat === 'string' && tr.labelFormat.trim() && tr.labelFormat !== 'General' ? { labelFormat: tr.labelFormat.slice(0, 255) } : {}),
+    ...(between(tr.labelPos?.x, 0, 1) && between(tr.labelPos?.y, 0, 1) ? { labelPos: { x: tr.labelPos.x, y: tr.labelPos.y } }
       // A label moved here takes the place it was moved to instead.
-      : between(t.labelOffset?.x, -1, 1) && between(t.labelOffset?.y, -1, 1) ? { labelOffset: { x: t.labelOffset.x, y: t.labelOffset.y } } : {}),
-    ...(between(t.labelSize, TREND_LABEL_SIZE.min, TREND_LABEL_SIZE.max) ? { labelSize: t.labelSize } : {}),
-    ...(HEX.test(t.color || '') ? { color: t.color.toLowerCase() } : {}),
-    ...(between(t.width, 0.25, 20) ? { width: t.width } : {}),
-    ...(DASHES.has(t.dash) ? { dash: t.dash } : {}),
+      : between(tr.labelOffset?.x, -1, 1) && between(tr.labelOffset?.y, -1, 1) ? { labelOffset: { x: tr.labelOffset.x, y: tr.labelOffset.y } } : {}),
+    ...(between(tr.labelSize, TREND_LABEL_SIZE.min, TREND_LABEL_SIZE.max) ? { labelSize: tr.labelSize } : {}),
+    ...(HEX.test(tr.color || '') ? { color: tr.color.toLowerCase() } : {}),
+    ...(between(tr.width, 0.25, 20) ? { width: tr.width } : {}),
+    ...(DASHES.has(tr.dash) ? { dash: tr.dash } : {}),
   };
 }
 
@@ -67,7 +69,7 @@ export const DEFAULT_TREND = Object.freeze(normalizeTrend({}));
 /** A chart's per-series trends: a normalized trend, or false for a series that has none. */
 export function normalizeTrendlines(raw) {
   if (!Array.isArray(raw) || !raw.length) return null;
-  return raw.slice(0, 255).map(t => (t === false || t === null ? false : normalizeTrend(t)));
+  return raw.slice(0, 255).map(tr => (tr === false || tr === null ? false : normalizeTrend(tr)));
 }
 
 // The charts whose series stand on one another when stacked, and then take no trendline, as in Excel: a trend through
@@ -77,8 +79,8 @@ const STACKING = new Set(['column', 'bar', 'line', 'area']);
 /** The trend drawn on series `j`, or null when it draws none. */
 export function trendFor(chart, j) {
   if (!chart?.trendline || chart.stacked && STACKING.has(chart.type)) return null;
-  const t = chart.trendlines?.[j];
-  return t === false ? null : t || DEFAULT_TREND;
+  const tr = chart.trendlines?.[j];
+  return tr === false ? null : tr || DEFAULT_TREND;
 }
 
 /** Does any of the chart's `seriesCount` series draw a trendline? */
@@ -87,8 +89,10 @@ export const hasTrendlines = (chart, seriesCount) => !!chart?.trendline && Array
 /** The trendline's name in the legend and tooltips: its own, or its kind's and its series'. */
 export function trendName(trend, seriesName) {
   if (trend.name) return trend.name;
-  const kind = trend.type === 'movingAvg' ? `${trend.period} per. Mov. Avg.` : SHORT_NAMES[trend.type];
-  return `${kind} (${seriesName})`;
+  // The names a trendline takes in the legend, as Excel gives them: "Linear (Sales)", "2 per. Mov. Avg. (Sales)".
+  // Only shown: a trendline without a name of its own writes none to the file.
+  if (trend.type === 'movingAvg') return t('trendline.nameMovingAvg', { period: trend.period, series: seriesName });
+  return t('trendline.name', { kind: trend.type, series: seriesName });
 }
 
 /**
@@ -149,11 +153,11 @@ function polyFit(xs, ys, degree, intercept) {
   const ts = xs.map(x => (x - centre) / half);
   const first = forced ? 1 : 0;
   const columns = [];
-  for (let p = first; p <= degree; p++) columns.push(ts.map(t => t ** p));
+  for (let p = first; p <= degree; p++) columns.push(ts.map(v => v ** p));
   const solved = leastSquares(columns, forced ? ys.map(y => y - intercept) : ys);
   if (!solved) return null;
   const d = forced ? [intercept, ...solved] : solved;
-  const predict = x => { const t = (x - centre) / half; let v = 0; for (let p = degree; p >= 0; p--) v = v * t + d[p]; return v; };
+  const predict = x => { const u = (x - centre) / half; let v = 0; for (let p = degree; p >= 0; p--) v = v * u + d[p]; return v; };
   // Σ d_p ((x − centre) / half)^p, expanded into powers of x.
   const coefficients = new Array(degree + 1).fill(0);
   for (let p = 0; p <= degree; p++) {
@@ -265,15 +269,15 @@ export function trendNumber(v, format = null) {
  */
 export function trendEquation(fit, format = null) {
   const num = v => trendNumber(v, format);
-  const t = fit.terms;
-  if (!t) return null;
+  const fitTerms = fit.terms;
+  if (!fitTerms) return null;
   const runs = [{ text: 'y = ' }];
   const add = (text, sup = false) => { const last = runs.at(-1); if (!!last.sup === sup) last.text += text; else runs.push({ text, sup }); };
-  if (t.form === 'exp') { add(`${num(t.a)}e`); add(`${num(t.b)}x`, true); return runs; }
-  if (t.form === 'power') { add(`${num(t.a)}x`); add(num(t.b), true); return runs; }
+  if (fitTerms.form === 'exp') { add(`${num(fitTerms.a)}e`); add(`${num(fitTerms.b)}x`, true); return runs; }
+  if (fitTerms.form === 'power') { add(`${num(fitTerms.a)}x`); add(num(fitTerms.b), true); return runs; }
   // A polynomial (a line is one of degree one) and a logarithmic fit: highest power first.
-  const terms = t.form === 'log' ? [[t.a, 'ln(x)', null], [t.b, '', null]]
-    : t.coefficients.map((c, p) => [c, p ? 'x' : '', p > 1 ? String(p) : null]).reverse();
+  const terms = fitTerms.form === 'log' ? [[fitTerms.a, 'ln(x)', null], [fitTerms.b, '', null]]
+    : fitTerms.coefficients.map((c, p) => [c, p ? 'x' : '', p > 1 ? String(p) : null]).reverse();
   let any = false;
   for (const [c, unit, power] of terms) {
     // Which terms there are is read in General: a format of the label's own only writes their numbers, so a slope
@@ -301,10 +305,10 @@ export function trendProblem(points, trend) {
   if (fitTrend(points, trend)) return null;
   const pts = (points || []).filter(p => p && Number.isFinite(p[0]) && Number.isFinite(p[1]));
   const { type } = trend;
-  if (type === 'movingAvg') return `A moving average over ${trend.period} points needs at least ${trend.period} of them.`;
-  if ((type === 'exp' || type === 'power') && pts.some(p => p[1] <= 0)) return `${type === 'exp' ? 'An exponential' : 'A power'} trendline needs every value above zero.`;
-  if ((type === 'log' || type === 'power') && pts.some(p => p[0] <= 0)) return `A ${type === 'log' ? 'logarithmic' : 'power'} trendline needs every x value above zero.`;
-  if (type === 'exp' && trend.intercept != null && !(trend.intercept > 0)) return 'An exponential trendline can only be set to cross above zero.';
+  if (type === 'movingAvg') return t('trendline.problemMovingAvg', { period: trend.period });
+  if ((type === 'exp' || type === 'power') && pts.some(p => p[1] <= 0)) return type === 'exp' ? t('trendline.problemExpValues') : t('trendline.problemPowerValues');
+  if ((type === 'log' || type === 'power') && pts.some(p => p[0] <= 0)) return type === 'log' ? t('trendline.problemLogX') : t('trendline.problemPowerX');
+  if (type === 'exp' && trend.intercept != null && !(trend.intercept > 0)) return t('trendline.problemExpIntercept');
   const need = type === 'poly' ? trend.order + 1 : 2;
-  return `This trendline needs at least ${need} points with different x values.`;
+  return t('trendline.problemPoints', { need });
 }
