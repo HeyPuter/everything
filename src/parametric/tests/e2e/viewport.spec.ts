@@ -247,6 +247,49 @@ test.describe('viewport', () => {
     expect(await contrast()).toBeGreaterThan(4.5);
   });
 
+  test('line display styles show a selected face', async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+    await waitForFeature(page, 'Fillet1');
+    await expect.poll(() => page.evaluate(() => {
+      const app = (window as unknown as Win).__parametric;
+      const [x, y] = app.viewport.project([30, 3, 25]);
+      return app.renderer.pick(x, y, { face: true })?.kind;
+    })).toBe('face');
+    // Colour at a face's centre, unselected and selected, in each style.
+    const probe = (style: string) => page.evaluate(async (s) => {
+      const app = (window as unknown as Win).__parametric;
+      const r = app.renderer;
+      const [x, y] = app.viewport.project([30, 3, 25]);
+      r.displayStyle = 'shadedEdges';
+      const face = app.viewport.pickItem(x, y, { face: true })!;
+      r.displayStyle = s as typeof r.displayStyle;
+      const pixel = async () => {
+        const img = new Image();
+        img.src = r.capture(512)!;
+        await img.decode();
+        const c = document.createElement('canvas');
+        c.width = img.width; c.height = img.height;
+        const ctx = c.getContext('2d')!;
+        ctx.drawImage(img, 0, 0);
+        const k = img.width / r.camera.width;
+        return [...ctx.getImageData(Math.round(x * k), Math.round(y * k), 1, 1).data].slice(0, 3);
+      };
+      app.selection.set([]);
+      const plain = await pixel();
+      app.selection.set([face]);
+      const selected = await pixel();
+      app.selection.set([]);
+      return { plain, selected, bg: r.theme.background.map((v) => Math.round(v * 255)) };
+    }, style);
+    for (const style of ['hiddenRemoved', 'hiddenVisible', 'wireframe']) {
+      const { plain, selected, bg } = await probe(style);
+      // Unselected faces keep the background colour; a selected one is tinted.
+      plain.forEach((v, i) => expect(Math.abs(v - bg[i])).toBeLessThan(4));
+      expect(Math.abs(selected[2] - plain[2]) + Math.abs(selected[0] - plain[0])).toBeGreaterThan(20);
+    }
+  });
+
   test('zoom to fit fills the view with a sub-millimetre part', async ({ page }) => {
     await openApp(page);
     await page.getByRole('button', { name: /New part/ }).click();

@@ -69,10 +69,6 @@ uniform vec3 uCapColor;
 out vec4 outColor;
 void main() {
   if (uClipOn == 1 && dot(vec4(vWorld, 1.0), uClip) > 0.0) discard;
-  if (uFlat == 1) { outColor = vec4(uFlatColor, 1.0); return; }
-  vec3 n = normalize(vN);
-  if (!gl_FrontFacing) n = -n;
-  vec3 v = uOrtho == 1 ? vec3(0.0, 0.0, 1.0) : normalize(-vPosV);
   vec3 base = uColor;
   int st = 0;
   if (uUseState == 1) {
@@ -82,6 +78,19 @@ void main() {
     st = int(texelFetch(uState, tc, 0).r * 255.0 + 0.5);
     if ((st & 4) != 0) discard;
   }
+  if (uFlat != 0) {
+    // Line styles: faces hide what is behind them in the background colour
+    // (1) or are not drawn at all (2, wireframe); a selected or hovered face
+    // still gets a light tint of the shaded style's colour.
+    if (uFlat == 2 && (st & 3) == 0) discard;
+    vec3 tint = (st & 2) != 0 ? uSelColor : uHoverColor;
+    float k = (st & 2) != 0 ? 0.3 : (st & 1) != 0 ? 0.18 : 0.0;
+    outColor = uFlat == 2 ? vec4(tint, k) : vec4(mix(uFlatColor, tint, k), 1.0);
+    return;
+  }
+  vec3 n = normalize(vN);
+  if (!gl_FrontFacing) n = -n;
+  vec3 v = uOrtho == 1 ? vec3(0.0, 0.0, 1.0) : normalize(-vPosV);
   vec3 l1 = normalize(vec3(0.35, 0.55, 1.0));
   vec3 l2 = normalize(vec3(-0.6, -0.25, 0.55));
   float d1 = max(dot(n, l1), 0.0);
@@ -777,8 +786,16 @@ export class Renderer {
       if (style !== 'wireframe') {
         gl.enable(gl.POLYGON_OFFSET_FILL);
         gl.polygonOffset(1, 1);
-        this.drawMesh(body, vp, view, clip, { flat, alpha: 1, useState: showBody, color: this.modelColor ?? this.theme.model });
+        this.drawMesh(body, vp, view, clip, { flat: flat ? 1 : 0, alpha: 1, useState: showBody, color: this.modelColor ?? this.theme.model });
         gl.disable(gl.POLYGON_OFFSET_FILL);
+      } else if (showBody && this.faceStateData.some((s) => s & 3)) {
+        // Wireframe draws no faces: tint just the selected and hovered ones.
+        gl.disable(gl.DEPTH_TEST);
+        gl.enable(gl.BLEND);
+        gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+        this.drawMesh(body, vp, view, clip, { flat: 2, alpha: 1, useState: true, color: this.theme.model });
+        gl.disable(gl.BLEND);
+        gl.enable(gl.DEPTH_TEST);
       }
       if (style !== 'shaded' || !showBody) {
         if (style === 'hiddenVisible' && body.edges) {
@@ -810,7 +827,7 @@ export class Renderer {
     gl.depthMask(false);
     if (this.preview && this.previewKind === 'tool') {
       const c = this.previewCut ? this.theme.previewCut : this.theme.preview;
-      this.drawMesh(this.preview, vp, view, null, { flat: false, alpha: 0.5, useState: false, color: c });
+      this.drawMesh(this.preview, vp, view, null, { flat: 0, alpha: 0.5, useState: false, color: c });
       if (this.preview.edges) this.drawSegs(this.preview.edges, vp, viewport, null, { width: 1, color: [c[0] * 0.6, c[1] * 0.6, c[2] * 0.6, 0.9], useState: false, bias: 2e-5 });
     }
     for (const b of ordered(this.tris, 'test')) this.drawTriBatch(b, vp);
@@ -823,7 +840,8 @@ export class Renderer {
     gl.enable(gl.DEPTH_TEST);
   }
 
-  private drawMesh(m: GpuMesh, vp: Float32Array, view: Float32Array, clip: number[] | null, o: { flat: boolean; alpha: number; useState: boolean; color: number[] }) {
+  /** `flat`: 0 shaded, 1 background fill (line styles), 2 only selected/hovered faces, translucent (wireframe). */
+  private drawMesh(m: GpuMesh, vp: Float32Array, view: Float32Array, clip: number[] | null, o: { flat: 0 | 1 | 2; alpha: number; useState: boolean; color: number[] }) {
     const gl = this.gl;
     const { p, u } = this.progs.mesh;
     gl.useProgram(p);
@@ -833,7 +851,7 @@ export class Renderer {
     gl.uniform1f(u.uAlpha, o.alpha);
     gl.uniform1i(u.uUseState, o.useState ? 1 : 0);
     gl.uniform1i(u.uOrtho, this.camera.ortho ? 1 : 0);
-    gl.uniform1i(u.uFlat, o.flat ? 1 : 0);
+    gl.uniform1i(u.uFlat, o.flat);
     gl.uniform3fv(u.uFlatColor, this.theme.background);
     gl.uniform3fv(u.uSelColor, this.theme.selection);
     gl.uniform3fv(u.uHoverColor, this.theme.hover);
