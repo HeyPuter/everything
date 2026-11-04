@@ -97,7 +97,7 @@ export function smartArtGroupXml(obj, id, allocateId, { colors, font = 'Calibri'
       + tag('xdr:spPr', {}, xfrm + geometryXml(s) + fillXml(s.kind === 'line' ? { fill: null } : p) + lineXml(s, p) + effectXml(p))
       + textXml(s, p, font, !!obj.rtl));
   }).join('');
-  const descr = obj.decorative ? null : obj.description || smartArtAltText(obj);
+  const descr = obj.decorative ? null : obj.description || smartArtAltText(obj, { english: true });
   return tag('xdr:grpSp', {}, tag('xdr:nvGrpSpPr', {}, tag('xdr:cNvPr', { id, name: obj.name || `Diagram ${id}`, descr }, decorativeXml(obj.decorative) || undefined) + tag('xdr:cNvGrpSpPr'))
     + tag('xdr:grpSpPr', {}, tag('a:xfrm', {}, tag('a:off', { x: 0, y: 0 }) + tag('a:ext', { cx: W, cy: H }) + tag('a:chOff', { x: 0, y: 0 }) + tag('a:chExt', { cx: W, cy: H })))
     + frame + children);

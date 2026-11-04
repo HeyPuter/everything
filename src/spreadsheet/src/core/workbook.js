@@ -9515,8 +9515,8 @@ export class Workbook extends EventTarget {
     const boxes = [...units].map(([id, members]) => ({ id, ...boundsOf(members.map((m) => m.shown)) }));
     const moved = new Map((['horizontal', 'vertical'].includes(how) ? distributeRects(boxes, how) : alignRects(boxes, how)).map((p) => [p.id, p]));
     const places = boxes.flatMap((box) => units.get(box.id).map(({ rect: r }) => ({ id: r.id, x: r.x + moved.get(box.id).x - box.x, y: r.y + moved.get(box.id).y - box.y })));
-    const labels = { left: t('workbook.undo.alignLeft'), center: t('workbook.undo.alignCenter'), right: t('workbook.undo.alignRight'), top: t('workbook.undo.alignTop'), middle: t('workbook.undo.alignMiddle'), bottom: t('workbook.undo.alignBottom'), horizontal: t('workbook.undo.distributeHorizontally'), vertical: t('workbook.undo.distributeVertically') };
-    return this.placeObjects(sheetId, places, labels[how] || t('workbook.undo.align'));
+    const labels = { left: 'workbook.undo.alignLeft', center: 'workbook.undo.alignCenter', right: 'workbook.undo.alignRight', top: 'workbook.undo.alignTop', middle: 'workbook.undo.alignMiddle', bottom: 'workbook.undo.alignBottom', horizontal: 'workbook.undo.distributeHorizontally', vertical: 'workbook.undo.distributeVertically' };
+    return this.placeObjects(sheetId, places, t(labels[how] || 'workbook.undo.align'));
   }
 
   /** Bring to Front ('front'), Bring Forward ('forward'), Send Backward ('backward') or Send to Back ('back') several objects at once (whole groups). */
@@ -9525,7 +9525,8 @@ export class Workbook extends EventTarget {
     if (!sheet || this._locked(sheet)) return false;
     const next = orderObjects(sheet.charts, ids, where);
     if (next.every((ch, i) => ch === sheet.charts[i])) return false;
-    this._setCharts(sheet, next, { front: t('workbook.undo.bringToFront'), forward: t('workbook.undo.bringForward'), backward: t('workbook.undo.sendBackward'), back: t('workbook.undo.sendToBack') }[where]);
+    const key = { front: 'workbook.undo.bringToFront', forward: 'workbook.undo.bringForward', backward: 'workbook.undo.sendBackward', back: 'workbook.undo.sendToBack' }[where];
+    this._setCharts(sheet, next, key && t(key));
     return true;
   }
 
@@ -9581,7 +9582,7 @@ export class Workbook extends EventTarget {
     const sheet = this.sheet(sheetId);
     if (!sheet) return false;
     const patches = new Map(sheet.charts.filter((ch) => ids.includes(ch.id) && canRotate(ch)).map((ch) => [ch.id, rotatePatch(ch, op)]));
-    return this._patchObjects(sheet, patches, { right: t('workbook.undo.rotateRight'), left: t('workbook.undo.rotateLeft'), flipH: t('workbook.undo.flipHorizontal'), flipV: t('workbook.undo.flipVertical') }[op] || t('workbook.undo.rotate'));
+    return this._patchObjects(sheet, patches, t({ right: 'workbook.undo.rotateRight', left: 'workbook.undo.rotateLeft', flipH: 'workbook.undo.flipHorizontal', flipV: 'workbook.undo.flipVertical' }[op] || 'workbook.undo.rotate'));
   }
 
   /** Show or hide objects (the Selection Pane's eye; Show All and Hide All). One undo step. */
@@ -11809,16 +11810,20 @@ export class Workbook extends EventTarget {
     this._push({ label, undo: () => apply(prev), redo: () => apply(next) });
   }
 
-  /** Define (or redefine) a name for a reference. Returns an error message (in English with `source`) or null. */
-  defineName(name, refText, sheet = null, { source = false } = {}) {
+  /**
+   * Define (or redefine) a name for a reference. Returns an error message (in English with `source`) or null; with
+   * `detail`, the error as { message, field }, field 'name' when the name is at fault and 'ref' when what it refers to is.
+   */
+  defineName(name, refText, sheet = null, { source = false, detail = false } = {}) {
+    const fail = (message, field) => (detail ? { message, field } : message);
     const txt = String(name).trim();
     const scope = sheet == null ? null : this.sheetByName(sheet)?.name;
     const existing = this.names.find((n) => (n.sheet || null) === scope && n.name.toLowerCase() === txt.toLowerCase());
     const bad = this.validateName(txt, existing?.name, { sheet, source });
-    if (bad) return bad;
+    if (bad) return fail(bad, 'name');
     const text = String(refText ?? '').trim().replace(/^=/, '');
     const badRef = this._namedRefError(text, scope, source);
-    if (badRef) return badRef;
+    if (badRef) return fail(badRef, 'ref');
     if (existing && existing.ref === text && existing.name === txt) return null; // saved as it was: nothing to undo
     const next = this.names.filter((n) => n !== existing);
     // The spelling as now typed: formulas find the name whatever its case, so a change of case needs no rewrite.
@@ -11847,20 +11852,22 @@ export class Workbook extends EventTarget {
   /**
    * Give the name `name` (scoped to `sheet`, or the workbook) the new spelling `newName` and
    * reference `refText`, following the rename in every formula, rule and name that uses it.
-   * Returns an error message (in English with `source`) or null.
+   * Returns an error message (in English with `source`) or null; with `detail`, the error as { message, field } (see
+   * defineName): a formula binding the new spelling as a LET or LAMBDA variable is the name's fault.
    */
-  renameName(name, sheet, newName, refText, { source = false } = {}) {
+  renameName(name, sheet, newName, refText, { source = false, detail = false } = {}) {
+    const fail = (message, field) => (detail ? { message, field } : message);
     const scope = sheet == null ? null : this.sheetByName(sheet)?.name;
     const key = String(name).trim().toLowerCase();
     const existing = this.names.find((n) => (n.sheet || null) === scope && n.name.toLowerCase() === key);
-    if (!existing) return say(source, 'workbook.names.nameGone');
+    if (!existing) return fail(say(source, 'workbook.names.nameGone'), 'ref'); // where the Name Manager has always shown it
     const to = String(newName).trim();
-    if (to.toLowerCase() === key) return this.defineName(to, refText, sheet, { source });
+    if (to.toLowerCase() === key) return this.defineName(to, refText, sheet, { source, detail });
     const bad = this.validateName(to, null, { sheet, source });
-    if (bad) return bad;
+    if (bad) return fail(bad, 'name');
     const text = String(refText ?? '').trim().replace(/^=/, '');
     const badRef = this._namedRefError(text, scope, source);
-    if (badRef) return badRef;
+    if (badRef) return fail(badRef, 'ref');
     const from = existing.name;
     const label = t('workbook.undo.renameName');
     const rename = (formula, ownerSheet) => {
@@ -11876,7 +11883,7 @@ export class Workbook extends EventTarget {
     this._rewriteFormulas((formula, s) => check(formula, s.name), label);
     this._rewriteNamedFormulas((formula, n) => check(formula, n.sheet || null), label);
     this._rewriteRuleFormulas((formula, owner) => check(formula, owner.name), label);
-    if (captured) return say(source, 'workbook.names.capturedByVariable', { name: to, from });
+    if (captured) return fail(say(source, 'workbook.names.capturedByVariable', { name: to, from }), 'name');
     this.transaction(label, () => {
       this._rewriteFormulas((formula, s) => rename(formula, s.name), label);
       this._rewriteNamedFormulas((formula, n) => rename(formula, n.sheet || null), label);
