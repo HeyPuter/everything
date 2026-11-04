@@ -1980,6 +1980,17 @@ dialog.leave-save-dialog {
 .field-grid .field {
   min-width: 0;
 }
+dialog.header-footer-dialog {
+  width: min(600px, calc(100vw - 32px));
+}
+.field-grid.header-slots {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+@media (max-width: 520px) {
+  .field-grid.header-slots {
+    grid-template-columns: 1fr;
+  }
+}
 .field .input,
 .field select {
   width: 100%;

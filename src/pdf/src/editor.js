@@ -9264,9 +9264,10 @@ export function createEditor({
         { class: 'muted' },
         'Write into any of the six places. {page}, {pages}, {date}, {title}, {file}, and {bates} are filled in for each page.',
       ),
+      // Three across, as the places sit on the page: left, center, and right.
       el(
         'div',
-        { class: 'field-grid' },
+        { class: 'field-grid header-slots' },
         ...HEADER_SLOTS.map((slot) => labeled(`header-${slot}`, labels[slot], inputs[slot])),
       ),
       el('div', { class: 'field-grid' }, labeled('header-size', 'Size (pt)', size)),
@@ -9306,6 +9307,7 @@ export function createEditor({
       button('Cancel', null, () => d.close()),
       button('Add header and footer', 'PanelTopBottomDashed', apply, 'btn primary'),
     ]);
+    d.classList.add('header-footer-dialog');
     (bates ? batesFields.prefix : inputs.topLeft).focus();
   }
   /** Number the chosen pages in a corner or centered at the top or bottom. */
