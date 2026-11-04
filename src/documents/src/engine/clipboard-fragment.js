@@ -400,7 +400,12 @@ function applyParagraph(model, p, foreign, lists = new Map()) {
       if (current === 'bullet' || current === 'number') attempt(() => model.toggleList(current));
       attempt(() => model.toggleList(p.list.kind));
     }
-    for (let i = 0; i < 8 && model.selectedParagraphs[0]?.list && model.selectedParagraphs[0].list.level < p.list.level; i++) attempt(() => model.changeListLevel(1));
+    // A list without the deeper level indents the item instead of changing its level (changeListLevel): once is enough.
+    for (let i = 0; i < 8 && model.selectedParagraphs[0]?.list && model.selectedParagraphs[0].list.level < p.list.level; i++) {
+      const level = model.selectedParagraphs[0].list.level;
+      attempt(() => model.changeListLevel(1));
+      if (model.selectedParagraphs[0]?.list?.level === level) break;
+    }
     continueList(model, p, lists);
   } else if (current === 'bullet' || current === 'number') attempt(() => model.toggleList(current));
 }

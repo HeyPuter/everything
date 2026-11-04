@@ -42,7 +42,7 @@ import { normalizeColor } from './colors.js';
 import { cellContext, tableCells, editableCells, verticalMerges, headerRowCount, tableId, fixedColumnWidths, documentBlocks, cellSpan, rowGrid, spanWidth } from './tables.js';
 import { normalizeCellBlock, cellBlockPlacements } from './table-selection.js';
 import { emptyStyles, resolveStyledParagraph, effectiveStyleId, editedStyle, resolveCharacterRun, paragraphRunStyle } from './styles.js';
-import { emptyNumbering, levelFor, listKind, listGeometry, listMarkers, newList, restartList } from './numbering.js';
+import { emptyNumbering, hasListLevel, hasNumberingDefinition, levelFor, listKind, listGeometry, listMarkers, newList, restartList } from './numbering.js';
 import { INDENT_KEYS, validateIndent, normalizeTabStops, sameValue } from './paragraph-geometry.js';
 import { validatePageSettings, readingPageSize, DOCUMENT_PAGE_KEYS, SECTION_TYPES } from './page-settings.js';
 import { sectionColumnIntervals } from './section-columns.js';
@@ -720,7 +720,12 @@ export class TextDocument {
     if (pass !== undefined) return pass;
     const targets = this.selectedParagraphs;
     if (!targets.every(p => p.list)) return this.adjustIndent(delta * 720);
+    // A list whose definition has no deeper level (Word's one-level List Number and List Bullet definitions,
+    // multiLevelType singleLevel, §17.9.12) indents its items instead, keeping their number, as Word does;
+    // Decrease Indent takes such an indent back before it changes a level.
+    if (delta < 0 && targets.some(p => this.listIndentBeyondLevel(p) > 0)) return this.indentListItems(targets, delta);
     if (targets.some(p => p.list.level + delta < 0 || p.list.level + delta > 8)) return false;
+    if (delta > 0 && targets.some(p => hasNumberingDefinition(this.numbering, p.list.numId) && !hasListLevel(this.numbering, { ...p.list, level: p.list.level + delta }))) return this.indentListItems(targets, delta);
     for (const p of targets) levelFor(this.numbering, { ...p.list, level: p.list.level + delta });
     // A paragraph in the style its list level is linked to (§17.9.23 pStyle: Heading 1 for level 1 of an
     // outline list) takes the style linked to its new level, as in Word: Tab makes a numbered Heading 1 a
@@ -732,6 +737,39 @@ export class TextDocument {
       if (restyled[i]) { Object.assign(p, restyled[i]); return; }
       p.list = { ...p.list, direct: true, level: p.list.level + delta }; p.listChanged = true;
     });
+    this.didChange(); return true;
+  }
+  /** How far a list item is indented past the indent it has without a direct indent of its own. */
+  listIndentBeyondLevel(p) {
+    const { indentLeft, ...rest } = p.formatOverrides || {};
+    if (indentLeft === undefined) return 0;
+    return indentLeft - paragraphFormat({ ...p, formatOverrides: rest }, this.numbering).indentLeft;
+  }
+  /**
+   * Indent list items a tab stop (720 twips) at a time without changing their level. Going back stops at the
+   * item's own indent, where its direct indent is removed so it follows its level again.
+   */
+  indentListItems(targets, delta) {
+    const plans = targets.map(p => {
+      const from = paragraphFormat(p, this.numbering).indentLeft, own = from - this.listIndentBeyondLevel(p);
+      return { p, from, own, to: validateIndent(delta < 0 ? Math.max(own, from + delta * 720) : from + delta * 720) };
+    });
+    if (plans.every(plan => plan.to === plan.from)) return false;
+    this.checkpoint();
+    for (const { p, own, to } of plans) {
+      // The writer takes a direct indent from the paragraph's own format (as adjustIndent sets it); the value it
+      // had there comes back with the item's own indent.
+      const overrides = { ...p.formatOverrides };
+      if (!('indentLeft' in overrides) && !('listIndentPlain' in p)) p.listIndentPlain = p.format?.indentLeft ?? null;
+      if (to === own) {
+        delete overrides.indentLeft;
+        if ('listIndentPlain' in p) { p.format = { ...PARAGRAPH_FORMAT, ...p.format }; if (p.listIndentPlain === null) delete p.format.indentLeft; else p.format.indentLeft = p.listIndentPlain; delete p.listIndentPlain; }
+      } else {
+        overrides.indentLeft = to;
+        p.format = { ...PARAGRAPH_FORMAT, ...p.format, indentLeft: to };
+      }
+      p.formatOverrides = overrides;
+    }
     this.didChange(); return true;
   }
   /** `p` restyled for list level `level` of its list, when its style is linked to its level and another style to that one; else null. */

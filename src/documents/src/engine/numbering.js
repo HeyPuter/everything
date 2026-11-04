@@ -17,6 +17,11 @@ export function levelFor(numbering, list) {
   if (level.error) throw new NumberingDefinitionError(level.error);
   return { ...level, start: override?.start ?? level.start };
 }
+/** Whether the list's numbering definition (or its instance's override) declares `list.level`; false when it, or the definition, is missing. */
+export function hasListLevel(numbering, list) {
+  const instance = numbering?.instances[list.numId], abstract = numbering?.abstracts[instance?.abstractId];
+  return !!(instance?.overrides?.[list.level]?.level || abstract?.levels?.[list.level]);
+}
 // A reference to a numbering instance, or an instance's abstract definition, that the numbering part
 // does not contain leaves the paragraph unnumbered, as Word shows it. Its numPr stays in the source.
 // A definition that is present but could not be read is not missing: levelFor reports its error.
