@@ -61,7 +61,7 @@ export class LiveSession extends EventTarget {
       this.binding = new CollabBinding({ engine, ydoc: client.ydoc, session: { id: client.session, name: user.name }, baseAssets,
         onApplied: () => { if (this.saves) doc.changed(); this.paintPresence(); onApplied(); }, onError });
       client.attach(this.binding);
-      for (const name of ['mode', 'single', 'conflict']) this.binding.addEventListener(name, e => this.dispatchEvent(new CustomEvent(name, { detail: e.detail })));
+      for (const name of ['mode', 'single', 'conflict', 'refused-undo']) this.binding.addEventListener(name, e => this.dispatchEvent(new CustomEvent(name, { detail: e.detail })));
     };
     this.bind();
     this.invites = new Map();

@@ -317,7 +317,8 @@ export class CollabBinding extends EventTarget {
       this.dispatchEvent(new CustomEvent('conflict', { detail: { error } }));
       return;
     }
-    this.conflict = null;
+    // A conflict resolved (someone's next change wrote a state that fits together): the notice about it goes.
+    if (this.conflict) { this.conflict = null; this.dispatchEvent(new CustomEvent('conflict', { detail: { error: null } })); }
     this.applying = true;
     try {
       const oldStyles = body.styles, oldNumbering = body.numbering;
@@ -395,9 +396,19 @@ export class CollabBinding extends EventTarget {
     const stack = direction === 'undo' ? manager.undoStack : manager.redoStack;
     const item = stack.at(-1);
     this.undoSelection = item?.meta.get('selection') || this.captureSelection();
-    const done = direction === 'undo' ? manager.undo() : manager.redo();
+    const conflicted = !!this.conflict;
+    let done = direction === 'undo' ? manager.undo() : manager.redo();
+    // Taking back a table someone else has restructured since (a column they added to the table this person inserted)
+    // leaves cells their structure names without text: nobody's editor could show it. The step is put back as it was,
+    // in the same moment, and refused.
+    if (done && !conflicted && this.conflict) {
+      if (direction === 'undo') manager.redo(); else manager.undo();
+      done = null;
+      this.dispatchEvent(new CustomEvent('refused-undo', { detail: { direction } }));
+    }
     this.undoSelection = null;
-    if (done) { engine.onChange?.(); this.refreshHistory(); }
+    if (done) engine.onChange?.();
+    this.refreshHistory();
     engine.focus?.();
   }
 

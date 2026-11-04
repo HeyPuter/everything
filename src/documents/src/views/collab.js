@@ -137,6 +137,7 @@ export function createCollaboration({ editor, pkg, doc, local, error, onChange =
     }
     for (const name of ['people', 'status', 'saver']) live.addEventListener(name, () => { renderPeople(); onChange(); });
     for (const name of ['role', 'mode', 'single', 'conflict']) live.addEventListener(name, e => { renderBanner(e); renderPeople(); onChange(); });
+    live.addEventListener('refused-undo', e => toast(e.detail?.direction === 'redo' ? 'This cannot be redone: someone else has changed that table since.' : 'This cannot be undone: someone else has changed that table since.', { icon: 'info' }));
     live.addEventListener('ended', e => {
       const reason = e.detail?.reason;
       const session = live; live = null;

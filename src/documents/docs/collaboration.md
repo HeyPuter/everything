@@ -93,7 +93,9 @@ the holder's next change publishes it as shared text and everyone edits again.
 
 Undo and Redo in a shared document use a Yjs `UndoManager` that tracks only this person's
 transactions (typing groups within 0.6 s). Undo takes back your own change and leaves everyone
-else's in place; the caret returns to where the change was. The title bar's Undo button and list
+else's in place; the caret returns to where the change was. An Undo (or Redo) that would leave a table no one's
+editor can show (taking back a table someone else has added a column to since) is put back at once and refused, with a
+notice. The title bar's Undo button and list
 mirror these stacks.
 
 ## Rooms, roles and transport
