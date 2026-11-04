@@ -17,6 +17,23 @@ export const FRAGMENT_ATTRIBUTE = 'data-documents-fragment';
 const RUN_KEYS = ['bold', 'italic', 'underlineStyle', 'strikethrough', 'color', 'highlight', 'fontSize', 'fontAscii', 'verticalAlign', 'capitalization'];
 const MAX_RUNS = 2000;
 
+// Trimming by scanning from the end. A regular expression anchored only at the end (/ +$/) tries every
+// start position, so a page with a long stretch of spaces or line breaks before its last word took time
+// growing with the square of that stretch: a few hundred kilobytes held the window for minutes.
+function trimEnd(text, chars) {
+  let end = text.length;
+  while (end && chars.includes(text[end - 1])) end--;
+  return end === text.length ? text : text.slice(0, end);
+}
+function trimControls(text) {
+  let start = 0, end = text.length;
+  while (start < end && text.charCodeAt(start) <= 0x20) start++;
+  while (end > start && text.charCodeAt(end - 1) <= 0x20) end--;
+  return text.slice(start, end);
+}
+// Whitespace holding a line break is one space, as a browser shows it (\s+ matches each stretch once).
+const joinLines = text => text.replace(/\s+/g, space => space.includes('\n') ? ' ' : space);
+
 const plainRun = run => !run.image && !run.math && !run.vml && !run.bodySymbol && !run.noteMark && !run.contentControl && !run.field && !/[\u000e￼]/.test(run.text);
 // A paragraph a formatted paste can go into: no field, note, content control or object anywhere in it.
 const plainParagraph = p => !p.blockControls?.length && !p.fieldMarkers?.length && p.runs.every(plainRun);
@@ -249,7 +266,7 @@ function fromForeignHtml(body) {
     if (current?.runs.length) {
       // Whitespace around a block's content is layout in HTML, not text.
       if (!current.preStart) current.runs[0].text = current.runs[0].text.replace(/^ +/, '');
-      const last = current.runs.at(-1); if (!current.preEnd) last.text = last.text.replace(/ +$/, '');
+      const last = current.runs.at(-1); if (!current.preEnd) last.text = trimEnd(last.text, ' ');
       current.runs = current.runs.filter(r => r.text);
       // A block holding only no-break spaces is an empty paragraph kept open (Word's <o:p>&nbsp;</o:p>).
       if (/^[ \u00a0]*$/.test(current.runs.map(r => r.text).join(''))) current.runs = [];
@@ -259,7 +276,7 @@ function fromForeignHtml(body) {
   };
   const walk = (node, format, context) => {
     if (node.nodeType === 3) {
-      let text = context.pre ? node.data : node.data.replace(/[\s ]*\n[\s ]*/g, ' ').replace(/[ \t\r\f]+/g, ' ');
+      let text = context.pre ? node.data : joinLines(node.data).replace(/[ \t\r\f]+/g, ' ');
       if (context.pre) text = text.replace(/\r\n?/g, '\n').replace(/\n/g, '\v');
       if (!context.pre && (!current || /[ \t\v]$/.test(current.text) || !current.text) && text.startsWith(' ')) text = text.slice(1);
       append(text, format, context.link, !!context.pre);
@@ -275,7 +292,7 @@ function fromForeignHtml(body) {
     const ctx = { ...context };
     if (tag === 'A') {
       // A browser follows an address with the spaces and line breaks around it (and tabs and line breaks in it) left out.
-      const href = (node.getAttribute('href') || '').replace(/^[\u0000-\u0020]+|[\u0000-\u0020]+$/g, '').replace(/[\t\n\r]/g, '');
+      const href = trimControls(node.getAttribute('href') || '').replace(/[\t\n\r]/g, '');
       if (/^(https?:|mailto:|tel:)/i.test(href)) ctx.link = href;
     }
     // Word writes a tab as no-break spaces styled mso-tab-count, and a run of spaces as no-break spaces styled
@@ -302,7 +319,7 @@ function fromForeignHtml(body) {
     // Every cell after a row's first starts after a tab, an empty one included, so the cells after it stay in their columns.
     if ((tag === 'TD' || tag === 'TH') && current && /^T[DH]$/.test(node.previousElementSibling?.tagName || '')) {
       const last = current.runs.at(-1);
-      if (last) { last.text = last.text.replace(/ +$/, ''); current.text = current.text.replace(/ +$/, ''); }
+      if (last) { last.text = trimEnd(last.text, ' '); current.text = trimEnd(current.text, ' '); }
       append('\t', format, null);
     }
     // A list item's own paragraph wrapper (as some producers write) is the item, not another paragraph.
@@ -331,7 +348,7 @@ function fromForeignHtml(body) {
   for (const p of paragraphs) {
     delete p.filled; delete p.preStart; delete p.preEnd;
     const last = p.runs.at(-1);
-    if (last) { last.text = last.text.replace(/\v+$/, ''); p.runs = p.runs.filter(r => r.text); }
+    if (last) { last.text = trimEnd(last.text, '\v'); p.runs = p.runs.filter(r => r.text); }
     p.text = p.runs.map(r => r.text).join('');
   }
   while (paragraphs.length && !paragraphs[0].text) paragraphs.shift();
