@@ -91,3 +91,22 @@ test('typing just after a command that changed nothing is Typing, and is what Re
   expect(await undoItem(page)).toMatch(/^Undo Typing/);
   expect(await page.evaluate(() => window.__docs.current.view.commands.repeatLabel?.())).not.toBe('Show Formatting Marks');
 });
+
+test('a paste switched to text only from its options is still named Paste', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/mock.html#/new');
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await page.locator('canvas.canvas-page').first().click({ position: { x: 150, y: 110 } });
+  await page.keyboard.type('One ');
+  await input(page).evaluate(el => {
+    el.focus(); const data = new DataTransfer();
+    data.setData('text/plain', 'Big words'); data.setData('text/html', '<b style="font-size:20pt">Big words</b>');
+    el.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }));
+  });
+  await expect(input(page)).toHaveValue('One Big words');
+  expect(await undoItem(page)).toMatch(/^Undo Paste/);
+  await page.getByRole('button', { name: 'Pasted text options' }).click();
+  await page.getByRole('menuitemradio', { name: 'Keep Text Only' }).click();
+  await expect.poll(() => page.evaluate(() => window.__docs.current.view.engine.model.paragraphs[0].runs.some(r => r.bold))).toBe(false);
+  expect(await undoItem(page)).toMatch(/^Undo Paste/);
+});

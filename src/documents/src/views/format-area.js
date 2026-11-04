@@ -462,6 +462,8 @@ export function createFormatArea({ editor, pkg, error, refresh: refreshChrome = 
     const current = lastPaste, engine = ready();
     if (!current || !engine || current.engine !== engine || current.revision !== engine.session.revision || current.mode === mode) return;
     engine.undo();
+    // The paste made again is named Paste in Undo, as the first was.
+    commandsRef().noteCommand?.('Paste');
     pasteWith(engine, mode, current.data);
     lastPaste = { ...current, mode, revision: engine.session.revision };
     showChip(engine);
