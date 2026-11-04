@@ -26,7 +26,7 @@ async function mockPuter(page: Page) {
         },
         async read(path: string) { const f = files.get(path); if (!f) throw { code: 'subject_does_not_exist', message: 'Not found' }; return new Blob([f.text]); },
         async readdir(path: string) { const pre = `/tester/AppData/parametric/${path}/`; return [...files.keys()].filter((k) => k.startsWith(pre)).map(item); },
-        async delete(path: string) { files.delete(path); },
+        async delete(path: string) { if (path.includes('Locked')) throw { message: 'Permission denied' }; files.delete(path); },
         async rename(path: string, name: string) { const np = path.replace(/[^/]+$/, name); files.set(np, files.get(path)!); files.delete(path); return item(np); },
         async stat(path: string) { return item(path); },
         async mkdir() { return {}; },
@@ -165,4 +165,26 @@ test('unsaved work the user chose not to save is not offered for recovery later'
   await page.getByRole('dialog', { name: 'Save changes?' }).getByRole('button', { name: "Don't save" }).click();
   await expect(page).toHaveTitle(/Other - Parametric/);
   await expect.poll(recovery).toBeNull();
+});
+
+test('parts are deleted from the Open dialog with a button, and stay listed when that fails', async ({ page }) => {
+  await mockPuter(page);
+  await page.addInitScript(() => {
+    const files = (window as unknown as Mock).__files;
+    for (const n of ['Bracket', 'Locked']) files.set(`/tester/AppData/parametric/Parts/${n}.parametric`, { text: JSON.stringify({ format: 'parametric-part', version: 1, name: n, units: 'MMGS', features: [] }) });
+  });
+  await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await app(page);
+  await page.evaluate(() => (window as unknown as { __parametric: AppHandle }).__parametric.commands.run('open'));
+  const dialog = page.getByRole('dialog', { name: 'Open' });
+  await expect(dialog.getByRole('listitem')).toHaveCount(2);
+  await dialog.getByRole('button', { name: 'Delete Bracket' }).click();
+  await page.getByRole('dialog', { name: 'Delete part' }).getByRole('button', { name: 'Delete' }).click();
+  await expect(dialog.getByRole('button', { name: /^Bracket/ })).toHaveCount(0);
+  expect(await page.evaluate(() => [...(window as unknown as Mock).__files.keys()])).toEqual(['/tester/AppData/parametric/Parts/Locked.parametric']);
+  await dialog.getByRole('button', { name: 'Delete Locked' }).click();
+  await page.getByRole('dialog', { name: 'Delete part' }).getByRole('button', { name: 'Delete' }).click();
+  await expect(page.getByRole('region', { name: 'Notifications' }).getByText('Permission denied')).toBeVisible();
+  await expect(dialog.getByRole('button', { name: /^Locked/ })).toBeVisible();
 });

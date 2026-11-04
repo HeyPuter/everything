@@ -165,18 +165,24 @@ export class FileOps {
     const done = (e: FileEntry) => { chosen = e; close?.('open'); };
     if (!entries.length) list.append(h('p', {}, cloudAvailable() ? 'No saved parts yet.' : 'No parts saved in this browser yet. Sign in to Puter to keep parts in your cloud storage.'));
     for (const e of entries) {
-      const b = h('button', { class: 'file-item', type: 'button', role: 'listitem' },
+      const b = h('button', { class: 'file-item', type: 'button' },
         e.location.type === 'cloud' ? iconCloud() : iconDevice(),
         h('span', { class: 'txt' }, h('span', { class: 'n' }, e.name), h('span', { class: 'meta' }, `${locationLabel(e.location)}  ${e.modified ? new Date(e.modified).toLocaleString() : ''}`)));
-      b.addEventListener('click', () => done(e));
-      b.addEventListener('contextmenu', async (ev) => {
-        ev.preventDefault();
-        if (await confirmDialog('Delete part', `Delete "${e.name}"? ${e.location.type === 'cloud' ? 'It will be moved to your Puter Trash.' : 'This cannot be undone.'}`, 'Delete', true)) {
-          await deletePart(e.location).catch((err) => toast({ kind: 'error', message: storageError(err) }));
-          b.remove();
+      const del = h('button', { class: 'icon-btn', type: 'button', 'aria-label': `Delete ${e.name}`, title: 'Delete' }, icon('trash', 16));
+      const row = h('div', { class: 'file-row', role: 'listitem' }, b, del);
+      const remove = async () => {
+        if (!(await confirmDialog('Delete part', `Delete "${e.name}"? ${e.location.type === 'cloud' ? 'It will be moved to your Puter Trash.' : 'This cannot be undone.'}`, 'Delete', true))) return;
+        try {
+          await deletePart(e.location);
+          row.remove();
+        } catch (err) {
+          toast({ kind: 'error', title: 'Could not delete the part', message: storageError(err) });
         }
-      });
-      list.append(b);
+      };
+      b.addEventListener('click', () => done(e));
+      b.addEventListener('contextmenu', (ev) => { ev.preventDefault(); void remove(); });
+      del.addEventListener('click', () => void remove());
+      list.append(row);
     }
     const body = h('div', {}, list);
     let sharedChosen: { readOnly: boolean } | null = null;
@@ -189,18 +195,18 @@ export class FileOps {
         if (!items.length) shared.append(h('p', { class: 'field-label' }, 'Nothing has been shared with you yet.'));
         for (const e of items) {
           const readOnly = e.mode === 'read';
-          const b = h('button', { class: 'file-item', type: 'button', role: 'listitem' },
+          const b = h('button', { class: 'file-item', type: 'button' },
             h('span', { 'aria-hidden': 'true', style: { color: 'var(--text-3)' } }, icon('users', 18)),
             h('span', { class: 'txt' }, h('span', { class: 'n' }, e.name), h('span', { class: 'meta' }, [e.owner ? `From ${e.owner}` : '', readOnly ? 'View only' : 'Can edit', e.modified ? new Date(e.modified).toLocaleString() : ''].filter(Boolean).join(' · '))));
           b.addEventListener('click', () => { sharedChosen = { readOnly }; done(e); });
-          shared.append(b);
+          shared.append(h('div', { class: 'file-row', role: 'listitem' }, b));
         }
       });
     }
     const buttons: { label: string; value: string; primary?: boolean; left?: boolean }[] = [{ label: 'From device...', value: 'device', left: true }];
     if (cloudAvailable() && puter()?.ui?.showOpenFilePicker) buttons.push({ label: 'Browse Puter...', value: 'browse', left: true });
     buttons.push({ label: 'Cancel', value: 'cancel' });
-    const v = await showDialog({ title: 'Open', body: [body, h('p', { class: 'field-label' }, 'Right-click one of your parts to delete it.')], buttons, wide: true, onReady: (c) => { close = c; } });
+    const v = await showDialog({ title: 'Open', body, buttons, wide: true, onReady: (c) => { close = c; } });
     if (v === 'open' && chosen) {
       const c = chosen as FileEntry;
       if ((sharedChosen as { readOnly: boolean } | null)?.readOnly) await this.openReadOnlyCopy(c);

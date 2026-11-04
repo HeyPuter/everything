@@ -357,6 +357,9 @@ a.icon-btn { text-decoration: none; }
 .file-item .meta { font-size: var(--fs-xs); color: var(--text-3); }
 .file-item .txt { min-width: 0; display: flex; flex-direction: column; }
 .file-item .txt .n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-row { display: flex; align-items: center; gap: 2px; }
+.file-row .file-item { flex: 1; min-width: 0; }
+.file-row .icon-btn { width: var(--touch); height: var(--touch); flex: none; }
 .file-section { font-size: var(--fs-sm); font-weight: 600; margin: 14px 0 4px; color: var(--text-2); }
 .swatches { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; }
 .swatch { aspect-ratio: 1; border-radius: var(--radius); border: 1px solid var(--border-strong); padding: 0; }
