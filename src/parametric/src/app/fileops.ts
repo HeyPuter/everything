@@ -91,17 +91,23 @@ export class FileOps {
     const app = this.app;
     const name = await promptDialog('Save As', 'Part name', app.store.doc.name, (v) => (v.trim() ? null : 'Enter a name'));
     if (name == null) return;
-    app.store.change('Rename part', (doc) => { doc.name = safeName(name); });
+    const clean = safeName(name);
+    const rename = () => app.store.change('Rename part', (doc) => { doc.name = clean; });
     if (cloudAvailable() && puter()?.ui?.showSaveFilePicker) {
       const revision = this.revision;
-      const loc = await pickCloudSave(serializeDocument(app.store.doc), app.store.doc.name).catch(() => null);
+      // null when the user cancels the picker; undefined when it failed (save to Parts instead).
+      const loc = await pickCloudSave(serializeDocument({ ...app.store.doc, name: clean }), clean).catch(() => undefined);
+      if (loc === null) return;
       if (loc) {
+        const unchanged = revision === this.revision;
+        rename();
         app.location = loc;
-        this.markSaved(revision);
+        this.markSaved(unchanged ? this.revision : revision);
         toast({ kind: 'success', message: `Saved to ${locationLabel(loc)}` });
         return;
       }
     }
+    rename();
     app.location = null;
     await this.save();
   }

@@ -33,7 +33,18 @@ async function mockPuter(page: Page) {
         async listShared() { return { items: [] }; },
       },
       kv: { get: async () => undefined, set: async () => true, del: async () => true },
-      ui: {},
+      ui: {
+        // Puter's save dialog; the test decides what it answers.
+        showSaveFilePicker(data: Blob, name: string) {
+          const answer = (async () => {
+            const path = await (w as unknown as { __savePick: (name: string) => Promise<string | undefined> }).__savePick(name);
+            if (!path) return undefined;
+            files.set(path, { text: await data.text() });
+            return item(path);
+          })();
+          return Object.assign(answer.then((v) => v ?? Promise.reject(new Error('cancelled'))), { undefinedOnCancel: answer });
+        },
+      },
     };
   });
 }
@@ -59,4 +70,35 @@ test('edits made while a save is in progress stay unsaved', async ({ page }) => 
   expect(await page.evaluate(() => (window as unknown as { __parametric: AppHandle }).__parametric.store.dirty)).toBe(true);
   await expect(page).toHaveTitle(/^\* Part1/);
   expect(errors).toEqual([]);
+});
+
+test('cancelling the Save As location saves nothing', async ({ page }) => {
+  await mockPuter(page);
+  await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await app(page);
+  await page.evaluate(() => {
+    const w = window as unknown as { __savePick: () => Promise<undefined>; __parametric: AppHandle };
+    w.__savePick = async () => undefined;
+    w.__parametric.store.change('A', (d) => { d.variables.push({ name: 'A', expr: '10' }); });
+    w.__parametric.commands.run('saveAs');
+  });
+  await page.getByRole('dialog', { name: 'Save As' }).getByRole('textbox').fill('Bracket');
+  await page.getByRole('button', { name: 'OK' }).click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await page.waitForTimeout(500);
+  expect(await page.evaluate(() => [...(window as unknown as Mock).__files.keys()])).toEqual([]);
+  await expect(page).toHaveTitle('* Part1 - Parametric');
+
+  // Choosing a place saves there under the new name.
+  await page.evaluate(() => {
+    const w = window as unknown as { __savePick: (name: string) => Promise<string>; __parametric: AppHandle };
+    w.__savePick = async (name) => `/tester/Documents/${name}`;
+    w.__parametric.commands.run('saveAs');
+  });
+  await page.getByRole('dialog', { name: 'Save As' }).getByRole('textbox').fill('Bracket');
+  await page.getByRole('button', { name: 'OK' }).click();
+  await expect(page).toHaveTitle('Bracket - Parametric');
+  const files = await page.evaluate(() => [...(window as unknown as Mock).__files.entries()].map(([k, v]) => [k, JSON.parse(v.text).name]));
+  expect(files).toEqual([['/tester/Documents/Bracket.parametric', 'Bracket']]);
 });
