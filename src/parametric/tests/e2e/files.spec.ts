@@ -128,3 +128,23 @@ test('a file that is not a part is refused before asking to discard, and changes
   await expect(page.getByRole('region', { name: 'Notifications' }).getByText('This file is not a valid part file.').first()).toBeVisible();
   await expect(page.getByRole('dialog')).toHaveCount(0);
 });
+
+test('a recent part that no longer exists says so and leaves the recent list', async ({ page }) => {
+  await mockPuter(page);
+  await page.addInitScript(() => {
+    if (sessionStorage.getItem('seeded')) return;
+    sessionStorage.setItem('seeded', '1');
+    localStorage.setItem('parametric:recent', JSON.stringify([
+      { location: { type: 'cloud', path: '/tester/AppData/parametric/Parts/Gone.parametric' }, name: 'Gone', opened: 2 },
+      { location: { type: 'local', id: 'part-missing' }, name: 'Vanished', opened: 1 },
+    ]));
+  });
+  await openApp(page);
+  const toasts = page.getByRole('region', { name: 'Notifications' });
+  await page.getByRole('button', { name: /^Gone/ }).click();
+  await expect(toasts.getByText('"Gone" no longer exists. It may have been moved or deleted.')).toBeVisible();
+  await page.reload();
+  await page.getByRole('button', { name: /^Vanished/ }).click();
+  await expect(toasts.getByText('"Vanished" no longer exists. It may have been moved or deleted.')).toBeVisible();
+  expect(await page.evaluate(() => localStorage.getItem('parametric:recent'))).toBe('[]');
+});

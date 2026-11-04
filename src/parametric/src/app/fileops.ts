@@ -6,9 +6,9 @@ import { newDocument, parseDocument, serializeDocument } from '../model/document
 import type { ImportFeature, PartDocument } from '../model/types';
 import {
   type Location, EXT, IMPORT_EXTS, clearRecovery, download, isSolidWorksFile, isStepFile, listParts, loadText, locationLabel, newLocation,
-  pickCloudFile, pickCloudSave, pickDeviceFile, readRecovery, saveText, safeName, writeRecovery, type FileEntry, deletePart, renameCloud,
+  pickCloudFile, pickCloudSave, pickDeviceFile, readRecovery, saveText, safeName, writeRecovery, type FileEntry, deletePart, renameCloud, forgetRecent,
 } from '../platform/files';
-import { cloudAvailable, puter, signIn, storageError } from '../platform/puter';
+import { cloudAvailable, isMissing, puter, signIn, storageError } from '../platform/puter';
 import { h } from '../ui/dom';
 import { icon } from '../ui/icons';
 import { confirmDialog, promptDialog, showDialog, toast } from '../ui/overlay';
@@ -118,7 +118,10 @@ export class FileOps {
     try {
       text = await loadText(loc);
     } catch (e) {
-      toast({ kind: 'error', title: 'Could not open the part', message: storageError(e) });
+      // Gone (deleted or moved elsewhere): drop it from the recent parts too.
+      const missing = isMissing(e);
+      if (missing) forgetRecent(loc);
+      toast({ kind: 'error', title: 'Could not open the part', message: missing ? `"${name || 'The part'}" no longer exists. It may have been moved or deleted.` : storageError(e) });
       return;
     }
     await this.openPartText(text, loc, name);

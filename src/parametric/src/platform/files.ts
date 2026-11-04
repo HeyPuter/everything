@@ -103,7 +103,10 @@ async function cloudWrite(path: string, text: string) {
 }
 
 async function cloudRead(path: string): Promise<string> {
-  const blob = await puter()!.fs.read(path);
+  const p = puter();
+  if (!p?.fs) throw new Error('Puter is not available right now. Check your connection and try again.');
+  if (!cloudAvailable()) throw new Error('Sign in to Puter to open parts saved in your cloud.');
+  const blob = await p.fs.read(path);
   return blob.text();
 }
 

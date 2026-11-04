@@ -138,9 +138,10 @@ export async function signOut(): Promise<void> {
 
 /** True when an error from puter.fs means the path does not exist. */
 export function isMissing(err: unknown): boolean {
-  const e = err as { code?: string; error?: { code?: string }; message?: string; status?: number };
+  const e = err as { code?: string; error?: { code?: string }; message?: string; status?: number; name?: string };
   const code = e?.code || e?.error?.code || e?.message || '';
-  return /subject_does_not_exist|not_found|does not exist|404/i.test(String(code)) || e?.status === 404;
+  // NotFoundError: a file missing from browser storage (OPFS).
+  return /subject_does_not_exist|not_found|does not exist|404/i.test(String(code)) || e?.status === 404 || e?.name === 'NotFoundError';
 }
 
 /** Human readable error text for storage failures. */
