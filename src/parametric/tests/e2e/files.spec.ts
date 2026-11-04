@@ -188,3 +188,21 @@ test('parts are deleted from the Open dialog with a button, and stay listed when
   await expect(page.getByRole('region', { name: 'Notifications' }).getByText('Permission denied')).toBeVisible();
   await expect(dialog.getByRole('button', { name: /^Locked/ })).toBeVisible();
 });
+
+test('opening a part puts it first in the recent parts', async ({ page }) => {
+  await mockPuter(page);
+  await page.addInitScript(() => {
+    const files = (window as unknown as Mock).__files;
+    for (const n of ['Bracket', 'Gear']) files.set(`/tester/AppData/parametric/Parts/${n}.parametric`, { text: JSON.stringify({ format: 'parametric-part', version: 1, name: n, units: 'MMGS', features: [] }) });
+  });
+  await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await app(page);
+  const recent = () => page.evaluate(() => (JSON.parse(localStorage.getItem('parametric:recent') || '[]') as { name: string }[]).map((r) => r.name));
+  for (const name of ['Gear', 'Bracket']) {
+    await page.evaluate(() => (window as unknown as { __parametric: AppHandle }).__parametric.commands.run('open'));
+    await page.getByRole('dialog', { name: 'Open' }).getByRole('button', { name: new RegExp(`^${name}`) }).click();
+    await expect(page).toHaveTitle(`${name} - Parametric`);
+  }
+  expect(await recent()).toEqual(['Bracket', 'Gear']);
+});

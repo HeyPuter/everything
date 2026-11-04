@@ -6,7 +6,7 @@ import { newDocument, parseDocument, serializeDocument } from '../model/document
 import type { ImportFeature, PartDocument } from '../model/types';
 import {
   type Location, EXT, IMPORT_EXTS, clearRecovery, download, isSolidWorksFile, isStepFile, listParts, loadText, locationLabel, newLocation,
-  pickCloudFile, pickCloudSave, pickDeviceFile, readRecovery, saveText, safeName, writeRecovery, type FileEntry, deletePart, renameCloud, forgetRecent,
+  pickCloudFile, pickCloudSave, pickDeviceFile, readRecovery, saveText, safeName, writeRecovery, type FileEntry, deletePart, renameCloud, forgetRecent, rememberRecent,
 } from '../platform/files';
 import { cloudAvailable, isMissing, puter, signIn, storageError } from '../platform/puter';
 import { h } from '../ui/dom';
@@ -140,6 +140,7 @@ export class FileOps {
   private openDoc(doc: PartDocument, loc: Location | null, name?: string) {
     if (name && !doc.name) doc.name = name;
     this.app.loadDocument(doc, loc);
+    if (loc) rememberRecent({ location: loc, name: doc.name });
   }
 
   /** Reads a part file and, only if it is one, asks about unsaved changes and opens it. */
@@ -333,6 +334,8 @@ export class FileOps {
     if (loc?.type === 'cloud') {
       try {
         app.location = await renameCloud(loc, clean);
+        forgetRecent(loc);
+        rememberRecent({ location: app.location, name: clean });
       } catch (e) {
         toast({ kind: 'warning', message: `Renamed in the app, but the file could not be renamed: ${storageError(e)}` });
       }
