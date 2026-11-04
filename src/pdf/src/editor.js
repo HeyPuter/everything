@@ -5971,9 +5971,14 @@ export function createEditor({
     await finishDrafts();
     const doc = await workingDocument(version);
     if (!doc) return;
-    const fields = listFields(doc);
-    if (!fields.length) {
-      toast('This PDF has no fillable fields. Use Text to write on the page.');
+    // Push buttons hold nothing to fill in.
+    const fields = listFields(doc).filter((field) => !field.button);
+    if (!fields.some((field) => field.type !== 'unsupported')) {
+      toast(
+        fields.some((field) => field.signature)
+          ? 'This PDF has no fields to fill in. Sign its signature fields with Sign with a certificate.'
+          : 'This PDF has no fillable fields. Use Text to write on the page.',
+      );
       return;
     }
     const controls = new Map();
@@ -5997,7 +6002,9 @@ export function createEditor({
           el(
             'p',
             { class: 'muted' },
-            `${field.tooltip || field.name}: this field type is not editable here.`,
+            field.signature
+              ? `${field.tooltip || field.name}: a signature field. Sign it with Sign with a certificate.`
+              : `${field.tooltip || field.name}: this field type is not editable here.`,
           ),
         );
         return;

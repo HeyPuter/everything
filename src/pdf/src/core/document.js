@@ -11,6 +11,8 @@ import {
   PDFDropdown,
   PDFOptionList,
   PDFRadioGroup,
+  PDFButton,
+  PDFSignature,
   AcroTextFlags,
   PDFName,
   PDFOperator,
@@ -1514,7 +1516,13 @@ export function listFields(doc) {
         spellcheck: field instanceof PDFDropdown && field.isSpellChecked(),
       };
     }
-    return { ...base, type: 'unsupported' };
+    // Push buttons hold no value; signature fields are signed with a certificate.
+    return {
+      ...base,
+      type: 'unsupported',
+      ...(field instanceof PDFSignature && { signature: true }),
+      ...(field instanceof PDFButton && { button: true }),
+    };
   });
 }
 /** A field's value as a calculation reads it: its text, choice, or export value. */
