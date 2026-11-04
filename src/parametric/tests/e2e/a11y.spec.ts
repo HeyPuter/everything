@@ -39,4 +39,38 @@ test.describe('accessibility', () => {
     await page.keyboard.press('Escape');
     await expect(page.getByRole('menu')).toHaveCount(0);
   });
+
+  test('the design tree keeps keyboard focus and a rename survives hovering the model', async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+    await waitForFeature(page, 'Fillet1');
+    const hole = page.getByRole('treeitem', { name: 'Hole1' });
+    await hole.focus();
+    // Space selects without opening the view orientation menu and keeps focus in the tree.
+    await page.keyboard.press('Space');
+    await expect(hole).toHaveAttribute('aria-selected', 'true');
+    await expect(page.getByRole('menu')).toHaveCount(0);
+    await expect(hole).toBeFocused();
+    await page.keyboard.press('ArrowDown');
+    await expect(page.getByRole('treeitem', { name: 'Fillet1' })).toBeFocused();
+    await page.keyboard.press('ArrowUp');
+    // Enter opens the feature for editing and leaves it open.
+    await page.keyboard.press('Enter');
+    await expect(page.getByRole('heading', { name: 'Hole1' })).toBeVisible();
+    await page.waitForTimeout(300);
+    await expect(page.getByRole('heading', { name: 'Hole1' })).toBeVisible();
+    await page.getByRole('button', { name: 'Cancel', exact: true }).first().click();
+    await page.getByRole('tab', { name: 'Design tree' }).click();
+    await hole.focus();
+    await page.keyboard.press('F2');
+    const input = page.getByRole('textbox', { name: 'Feature name' });
+    await expect(input).toBeFocused();
+    await page.keyboard.type('Bolt holes');
+    const box = (await page.locator('canvas.gl').boundingBox())!;
+    for (let i = 0; i < 8; i++) await page.mouse.move(box.x + box.width * (0.3 + i * 0.05), box.y + box.height * (0.4 + i * 0.03));
+    await page.waitForTimeout(300);
+    await expect(input).toHaveValue('Bolt holes');
+    await page.keyboard.press('Enter');
+    await expect(page.getByRole('treeitem', { name: 'Bolt holes' })).toBeFocused();
+  });
 });
