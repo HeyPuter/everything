@@ -1307,7 +1307,7 @@ export class CanvasEditor {
       return { id: b.id, name: b.name, start: b.start, end: b.end, page: printed(at, line.paragraphId)?.text ?? String(line.page + 1) };
     });
   }
-  addBookmark(name) { return this.execute(() => this.model.addBookmark(name)); }
+  addBookmark(name, options) { return this.execute(() => this.model.addBookmark(name, options)); }
   // A bookmark listed from a header or footer is the body's: renaming or deleting it works there.
   renameBookmark(id, name) { if (this.session.path !== null) this.editStory(null); return this.execute(() => this.model.renameBookmark(id, name)); }
   removeBookmark(id) { if (this.session.path !== null) this.editStory(null); return this.execute(() => this.model.removeBookmark(id)); }

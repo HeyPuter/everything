@@ -1713,7 +1713,21 @@ export class TextDocument {
     this.comments = this.comments.filter(c => !ids.includes(c.id));
     this.didChange(); return true;
   }
-  addBookmark(name) {
+  /**
+   * Bookmark the selection as `name`. With `move`, a bookmark of that name (in any letter case) moves here instead of
+   * the name being refused, as Add does in the Bookmark dialog; it keeps its name, so links and fields still find it.
+   */
+  addBookmark(name, { move = false } = {}) {
+    const existing = move ? this.bookmarks.filter(e => typeof name === 'string' && e.name?.toLowerCase() === name.toLowerCase()) : [];
+    if (existing.length) {
+      checkedBookmarkName(name);
+      const ids = new Set(existing.map(e => e.id)), [start, end] = this.range;
+      this.checkpoint();
+      for (const p of this.paragraphs) if (p.bookmarks?.some(m => !m.comment && !m.perm && ids.has(m.id))) { p.bookmarks = p.bookmarks.filter(m => m.comment || m.perm || !ids.has(m.id)); if (!p.bookmarks.length) delete p.bookmarks; }
+      const markers = newBookmarkMarkers(this.paragraphs, existing[0].name);
+      for (const [i, position] of [start, end].entries()) { const at = locate(this.paragraphs, position); (this.paragraphs[at.index].bookmarks ||= []).push({ ...markers[i], offset: at.offset }); }
+      this.didChange(); return true;
+    }
     const markers = newBookmarkMarkers(this.paragraphs, name), [start, end] = this.range;
     this.checkpoint();
     for (const [i, position] of [start, end].entries()) { const at = locate(this.paragraphs, position); (this.paragraphs[at.index].bookmarks ||= []).push({ ...markers[i], offset: at.offset }); }

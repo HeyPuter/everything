@@ -65,3 +65,28 @@ it('refuses a bookmark name that differs from another only by case', () => {
   expect(d.renameBookmark(intro.id, 'INTRO')).toBe(true);
   expect(d.bookmarks.map(b => b.name).sort()).toEqual(['INTRO', 'Other']);
 });
+
+// The Bookmark dialog's Add with a name already in use refused it; Word moves that bookmark to the selection. Moving
+// keeps the name, so cross-references show the new place's text on Update Fields, and one Undo puts it back.
+it('moves a bookmark added again under its name, for cross-references too, in one undo step', async () => {
+  const { insertCrossReference, referenceTargets } = await import('../src/engine/captions.js');
+  const d = new TextDocument([paragraph('Alpha section. Beta section.'), paragraph('See ')]);
+  d.select(0, 5); d.addBookmark('Intro');
+  d.select(d.text.length); insertCrossReference(d, referenceTargets(d).bookmarks[0]);
+  expect(d.text.split('\n')[1]).toBe('See Alpha');
+  const steps = d.history.length;
+  d.select(15, 19);
+  expect(() => d.addBookmark('INTRO')).toThrow('A bookmark with that name already exists.');
+  expect(d.addBookmark('INTRO', { move: true })).toBe(true);
+  expect(d.history.length).toBe(steps + 1);
+  expect(d.bookmarks.filter(b => !b.name.startsWith('_')).map(b => [b.name, d.text.slice(b.start, b.end)])).toEqual([['Intro', 'Beta']]);
+  updateSequenceFields(d, {});
+  expect(d.text.split('\n')[1]).toBe('See Beta');
+  // (Update Fields here is not an undo step of its own: the editor makes it one.)
+  d.undo();
+  expect(d.text.split('\n')[1]).toBe('See Alpha');
+  expect(d.bookmarks.filter(b => !b.name.startsWith('_')).map(b => [b.name, d.text.slice(b.start, b.end)])).toEqual([['Intro', 'Alpha']]);
+  // A new name is added as before.
+  d.select(15, 19); d.addBookmark('Second', { move: true });
+  expect(d.bookmarks.map(b => b.name).sort()).toEqual(['Intro', 'Second']);
+});

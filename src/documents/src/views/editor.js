@@ -424,7 +424,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     if (!engine) return; engine.finishComposition();
     // Hidden bookmarks (named with a leading underscore: _Toc…, _Ref…, _GoBack) belong to fields and links; renaming or
     // deleting one broke them, so the dialog lists only the author's own, as desktop word processors do by default.
-    bookmarkModal = openBookmarks({ entries: () => (engine?.bookmarks || []).filter(b => !b.name?.startsWith('_')), add: name => engine?.addBookmark(name), rename: (id, name) => engine?.renameBookmark(id, name), remove: id => engine?.removeBookmark(id), navigate: id => engine?.goToBookmark(id) });
+    bookmarkModal = openBookmarks({ entries: () => (engine?.bookmarks || []).filter(b => !b.name?.startsWith('_')), add: (name, options) => engine?.addBookmark(name, options), rename: (id, name) => engine?.renameBookmark(id, name), remove: id => engine?.removeBookmark(id), navigate: id => engine?.goToBookmark(id) });
   });
   const underline = tool('Underline', 'underline', () => engine?.toggleUnderline(), { disabled: true, 'aria-pressed': 'false', shortcut: `${MOD_KEY}+U` });
   const clearTextFormatting = tool('Clear direct text formatting', 'clearFormat', () => engine?.clearDirectTextFormatting(), { shortcut: `${MOD_KEY}+Space`, title: `Clear direct text formatting (${MOD_KEY}+Space). Keep styles and links.` });
