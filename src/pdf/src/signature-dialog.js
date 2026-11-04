@@ -285,6 +285,12 @@ export function signatureDialog({ signal } = {}) {
       maxlength: MAX_SIGNATURE_TEXT,
       autocomplete: 'name',
       oninput: () => repaint(),
+      // Enter places the typed signature, as Enter confirms a name typed in other dialogs.
+      onkeydown: (e) => {
+        if (e.key !== 'Enter' || e.isComposing || e.repeat) return;
+        e.preventDefault();
+        place();
+      },
     });
     const typePreview = el('canvas', {
       class: 'signature-preview',

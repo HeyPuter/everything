@@ -1276,3 +1276,17 @@ test('the delete button on a saved signature stays legible on its white card in 
   expect(contrast.icon).toBeGreaterThanOrEqual(4.5);
   expect(contrast.ring).toBeGreaterThanOrEqual(3);
 });
+
+test('Enter places a typed signature', async ({ page }) => {
+  await mockPuter(page);
+  await page.goto('/#library');
+  await openPdf(page, await squarePdf());
+  await page.getByRole('button', { name: 'Sign', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Add signature' });
+  await dialog.getByRole('tab', { name: 'Type' }).click();
+  await dialog.getByLabel('Signature text').fill('Ada Lovelace');
+  await page.keyboard.press('Enter');
+  await expect(dialog).toBeHidden();
+  await expect(page.getByRole('group', { name: 'Edit shape' })).toBeVisible();
+  expect(inspectPaths(await exported(page), 0)).toHaveLength(1);
+});
