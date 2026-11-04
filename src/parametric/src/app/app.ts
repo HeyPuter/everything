@@ -681,8 +681,13 @@ export class App {
       toast({ kind: 'error', title: 'Rebuild failed', message: (e as Error).message });
       return;
     }
+    // Coalesced requests all resolve with the same newest result: show it once.
+    if (res === this.lastBuildResult) return;
+    this.lastBuildResult = res;
     this.applyBuild(res, performance.now() - t0);
   }
+
+  private lastBuildResult: BuildResult | null = null;
 
   /** Incremented after every rebuild (drawings re-project when it changes). */
   buildVersion = 0;
