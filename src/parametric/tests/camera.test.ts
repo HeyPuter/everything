@@ -57,6 +57,28 @@ describe('camera', () => {
     expect(c.rot).toEqual(VIEWS.front);
   });
 
+  it('keeps a view animation running through a zoom or pan', () => {
+    const c = new Camera();
+    c.width = 800; c.height = 600;
+    c.setState({ target: [0, 0, 0], distance: 100, rot: VIEWS.isometric, ortho: true });
+    vi.stubGlobal('matchMedia', () => ({ matches: false }));
+    c.animateTo({ target: [0, 0, 0], distance: 80, rot: VIEWS.front, ortho: true }, 200);
+    vi.unstubAllGlobals();
+    const t0 = performance.now();
+    c.tick(t0 + 60);
+    const mid = c.state();
+    c.zoomAt(0.5, 400, 300);
+    // The zoom shows at once...
+    expect(c.distance).toBeCloseTo(mid.distance * 0.5, 9);
+    expect(c.animating).toBe(true);
+    c.pan(10, 0);
+    expect(c.animating).toBe(true);
+    // ...and the turn still lands on the standard view, zoomed.
+    expect(c.tick(t0 + 1000)).toBe(false);
+    expect(c.viewName()).toBe('front');
+    expect(c.distance).toBeCloseTo(40, 9);
+  });
+
   it('recognises the current standard view', () => {
     const c = new Camera();
     c.rot = VIEWS.right;
