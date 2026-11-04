@@ -198,6 +198,7 @@ a.icon-btn { text-decoration: none; }
 .ti .twisty[aria-hidden='true'] { visibility: hidden; }
 .ti .label { overflow: hidden; text-overflow: ellipsis; }
 .ti .label .muted { color: var(--text-3); }
+.ti:hover .label .muted { color: var(--text-2); }
 .ti.suppressed .label, .ti.rolled .label { color: var(--text-3); }
 .ti.suppressed .icon, .ti.rolled .icon { opacity: 0.45; }
 .ti.error .label { color: var(--danger); }
@@ -355,6 +356,8 @@ a.icon-btn { text-decoration: none; }
 .file-item { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: var(--radius); border: 1px solid transparent; background: none; text-align: left; width: 100%; }
 .file-item:hover { background: var(--hover); }
 .file-item .meta { font-size: var(--fs-xs); color: var(--text-3); }
+/* --text-3 is too faint on the hover colour (4.41:1 light, 3.78:1 dark); hovered rows use --text-2. */
+.file-item:hover .meta { color: var(--text-2); }
 .file-item .txt { min-width: 0; display: flex; flex-direction: column; }
 .file-item .txt .n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .file-row { display: flex; align-items: center; gap: 2px; }
