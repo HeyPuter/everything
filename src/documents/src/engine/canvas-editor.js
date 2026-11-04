@@ -162,7 +162,7 @@ export class CanvasEditor {
     listen(document, 'pointerdown', e => { if (!this.pages.contains(e.target)) this.lastPress = null; });
     listen(this.pages, 'pointermove', e => this.pointerMove(e));
     listen(this.pages, 'pointerup', e => this.pointerUp(e));
-    listen(this.pages, 'pointercancel', () => { this.touch = null; this.linkPress = null; this.dragging = false; this.dragControl = null; this.stopAutoScroll(); this.imageInteraction.cancel(); });
+    listen(this.pages, 'pointercancel', () => this.cancelPointer());
     listen(this.pages, 'contextmenu', e => {
       // A long press opens the menu; lifting that finger is not a tap.
       this.touch = null;
@@ -1371,6 +1371,8 @@ export class CanvasEditor {
     this.touch = { down: e, x: e.clientX, y: e.clientY };
     return true;
   }
+  /** Forget the press in progress (the browser took it for a scroll, or a second finger made it a pinch). */
+  cancelPointer() { this.touch = null; this.linkPress = null; this.dragging = false; this.dragControl = null; this.stopAutoScroll(); this.imageInteraction.cancel(); }
   pointerDown(e, tapped = false) {
     // Control+click is a Mac's secondary click: the context menu follows, and the selection it acts on stays.
     if (e.button !== 0 || MAC && e.ctrlKey) return;
