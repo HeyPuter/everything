@@ -502,17 +502,23 @@ async function openFiles(files) {
   const pictures = files.filter(isPictureFile);
   if (!pictures.length) throw new Error('Choose a PDF, or PNG and JPEG pictures.');
   const name = pictures[0].name.replace(/\.[^.]+$/, '') || 'Pictures';
-  await openDocument(async (signal) => {
-    const [{ imagesToPdf, defaultPaper }, { normalizeImageFiles }] = await Promise.all([
-      import('./core/image-pages.js'),
-      import('./image-codec.js'),
-    ]);
-    signal.throwIfAborted();
-    const images = await normalizeImageFiles(pictures, { lazy: true, signal });
-    // An obsolete batch must not decode and embed pictures after its file reads finish.
-    signal.throwIfAborted();
-    return imagesToPdf(images, { paper: defaultPaper(), signal });
-  }, `${name}.pdf`);
+  // The new PDF exists nowhere else yet, as a combined one does, so it starts out unsaved.
+  await openDocument(
+    async (signal) => {
+      const [{ imagesToPdf, defaultPaper }, { normalizeImageFiles }] = await Promise.all([
+        import('./core/image-pages.js'),
+        import('./image-codec.js'),
+      ]);
+      signal.throwIfAborted();
+      const images = await normalizeImageFiles(pictures, { lazy: true, signal });
+      // An obsolete batch must not decode and embed pictures after its file reads finish.
+      signal.throwIfAborted();
+      return imagesToPdf(images, { paper: defaultPaper(), signal });
+    },
+    `${name}.pdf`,
+    null,
+    { unsaved: true },
+  );
 }
 /** A new PDF is a sheet of the paper the region prints on, as pictures turned into pages are. */
 async function newBlankPdf() {
@@ -661,7 +667,8 @@ async function openDocument(
     editor?.destroy();
     homeGeneration++;
     const session = new PdfSession(bytes);
-    // A PDF made here (combined files) exists nowhere else until it is saved or downloaded.
+    // A PDF made here (combined files or pictures) exists nowhere else until it is saved or
+    // downloaded.
     if (unsaved) session.markSaved(-1);
     nextEditor = createEditor({
       root,

@@ -90,3 +90,31 @@ test('a combined PDF counts as unsaved until it is saved or downloaded', async (
   await page.getByRole('button', { name: 'Back to your PDFs', exact: true }).click();
   await expect(page.getByRole('button', { name: 'New blank PDF', exact: true })).toBeVisible();
 });
+
+test('a PDF made from pictures counts as unsaved; a new blank PDF does not', async ({ page }) => {
+  // A plain 2 by 2 PNG.
+  const png = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAEElEQVR4nGNocFAAIgYIBQAaDgOBnA45xwAAAABJRU5ErkJggg==',
+    'base64',
+  );
+  await page.getByRole('button', { name: 'Back to your PDFs', exact: true }).click();
+  const chooser = page.waitForEvent('filechooser');
+  await page.getByRole('button', { name: 'Pictures to PDF', exact: true }).click();
+  await (await chooser).setFiles([{ name: 'scan.png', mimeType: 'image/png', buffer: png }]);
+  await expect(page.locator('.page-caption')).toHaveText('Page 1 of 1');
+  await expect(page.locator('.editor')).toHaveAttribute('aria-busy', 'false');
+  // Like a combined PDF, it exists only here: leaving must not lose it without a word.
+  await expect(page.locator('.save-status')).toHaveText('Unsaved changes');
+  await expect(page).toHaveTitle('* scan.pdf · PDF Editor');
+  await page.getByRole('button', { name: 'Back to your PDFs', exact: true }).click();
+  const leave = page.getByRole('dialog', { name: 'Save before leaving?' });
+  await leave.getByRole('button', { name: 'Leave without saving', exact: true }).click();
+  // An untouched new blank PDF has nothing to lose, so it leaves without asking.
+  await page.getByRole('button', { name: 'New blank PDF', exact: true }).click();
+  await expect(page.locator('.page-caption')).toHaveText('Page 1 of 1');
+  await expect(page.locator('.save-status')).not.toHaveText('Unsaved changes');
+  await expect(page).toHaveTitle('Untitled.pdf · PDF Editor');
+  await page.getByRole('button', { name: 'Back to your PDFs', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Pictures to PDF', exact: true })).toBeVisible();
+  await expect(leave).toBeHidden();
+});

@@ -268,7 +268,8 @@ test('oversized rotated photos are rejected before decoding and a smaller photo 
   const chooser = page.waitForEvent('filechooser');
   await page.keyboard.press('ControlOrMeta+o');
   await (await chooser).setFiles({ name: 'photo.jpg', mimeType: 'image/jpeg', buffer: bytes });
-  await expect(page).toHaveTitle('photo.pdf · PDF Editor');
+  // The new PDF made from the photo is not saved anywhere yet.
+  await expect(page).toHaveTitle('* photo.pdf · PDF Editor');
   await settled(page);
   const { width, height } = (await downloaded(page)).getPage(0).getSize();
   expect(height).toBeGreaterThan(width);
