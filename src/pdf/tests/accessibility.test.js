@@ -588,6 +588,17 @@ describe('accessibility check', () => {
     });
   });
 
+  it('keeps the language a PDF declares when autotagging', async () => {
+    const doc = await untaggedPdf();
+    setLanguage(doc, 'fr-CA');
+    // The editor offers the device's language for a PDF that declares none.
+    autotagDocument(doc, { lang: 'en-US' });
+    expect(doc.catalog.lookup(PDFName.of('Lang')).decodeText()).toBe('fr-CA');
+    const untagged = await untaggedPdf();
+    autotagDocument(untagged, { lang: 'en-US' });
+    expect(untagged.catalog.lookup(PDFName.of('Lang')).decodeText()).toBe('en-US');
+  });
+
   it('validates title and language and keeps fixes idempotent', async () => {
     const doc = await untaggedPdf();
     expect(() => setTitle(doc, '   ')).toThrow(/title/);
