@@ -103,7 +103,9 @@ it('finds many matches in one long paragraph in linear time, still never splitti
   expect(find(doc, 'ab')).toHaveLength(9000);
   expect(performance.now() - started).toBeLessThan(2000);
   expect(texts(find(doc, 'ae'))).toEqual([]);
-  expect(texts(find(doc, 'ae^?'))).toEqual(['aé']);
+  // The accented letter (stored as e and a combining accent) is one character, as é is.
+  expect(texts(find(doc, 'ae^?'))).toEqual([]);
+  expect(texts(find(doc, 'a^?')).at(-1)).toBe('a\u0065\u0301');
 });
 
 it('never matches across a table boundary, and adds no undo step when nothing is replaced', () => {
@@ -171,4 +173,23 @@ it('does not take a section break for a paragraph mark', () => {
   expect(doc.replaceMatches('^p', ' ', { advanced: true }, true)).toBe(0);
   expect(doc.paragraphs).toHaveLength(2);
   expect(doc.paragraphs[0].sectionEnd).toBeTruthy();
+});
+
+it('finds an accented letter stored as one character or as a letter and an accent, with the options on', () => {
+  const nfd = text => text.normalize('NFD');
+  const { doc } = documentWith([`${nfd('Café')} and café, ${nfd('Résumé')}.`, 'cafe and caf']);
+  const options = [{ matchPrefix: true }, { matchSuffix: true }, { wholeWord: true }, { ignorePunctuation: true }, { ignoreWhitespace: true }];
+  for (const option of options) {
+    expect(texts(find(doc, 'café', option)), JSON.stringify(option)).toEqual([nfd('Café'), 'café']);
+    expect(texts(find(doc, nfd('café'), option)), JSON.stringify(option)).toEqual([nfd('Café'), 'café']);
+  }
+  // A wildcard's one character is the whole accented letter, and ^$ takes it as one letter.
+  expect(texts(find(doc, 'caf?', { wildcards: true }))).toEqual(['café', 'cafe']);
+  expect(texts(find(doc, 'Caf?', { wildcards: true }))).toEqual([nfd('Café')]);
+  expect(texts(find(doc, 'R^$sum^$', { matchCase: true }))).toEqual([nfd('Résumé')]);
+  // Never half a letter: "cafe" is not found in an accented café, in either form.
+  expect(texts(find(doc, 'cafe', { matchPrefix: true }))).toEqual(['cafe']);
+  // Replacing what was found keeps the text around it.
+  expect(doc.replaceMatches('café', 'tea', { advanced: true, matchPrefix: true }, true)).toBe(2);
+  expect(doc.text).toBe(`tea and tea, ${nfd('Résumé')}.\ncafe and caf`);
 });
