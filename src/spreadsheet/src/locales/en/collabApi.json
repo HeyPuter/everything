@@ -1,0 +1,12 @@
+{
+  "accountChanged": "Your Puter account changed. Try again.",
+  "bundleInvalid": "The collaboration server bundle is invalid.",
+  "bundleNotLoaded": "The collaboration server bundle could not load.",
+  "couldNotSync": "Could not synchronize this workbook.",
+  "needsPuter": "Editing together needs Puter. Open the spreadsheet from Puter or check your connection, then try again.",
+  "noAnswer": "The shared workbook did not answer. Try again shortly.",
+  "preparingServer": "Preparing the collaboration server…",
+  "startingServer": "Starting the collaboration server…",
+  "stillStarting": "The collaboration server is still starting. Try again shortly.",
+  "unreachable": "Could not reach the shared workbook. Check your connection; your changes are kept and sent when it returns."
+}

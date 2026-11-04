@@ -10,6 +10,7 @@ import { browserOutbox } from './outbox.js';
 import { shareLink } from './protocol.js';
 import { Doc, SHARED_FILE } from '../lib/doc.js';
 import { workbookToXlsx } from '../core/io.js';
+import { t } from '../i18n/index.js';
 
 const fileKey = (file) => `spreadsheet-collab-file-v1:${file.uid || file.path}`;
 
@@ -31,7 +32,7 @@ export async function startSharing(doc, progress = () => {}) {
   if (doc.roomFile) throw new Error(SHARED_FILE);
   const puter = collabPuter();
   const server = await deploy(puter, progress);
-  progress('Sharing the workbook…');
+  progress(t('collabSession.sharing'));
   const file = doc.path ? { path: doc.path, uid: doc.uid || null } : null;
   const room = await RoomClient.create({ puter, server, wb: doc.wb, name: doc.name, file });
   if (file) await puter.kv.set(fileKey(file), { server, room, at: Date.now() });
