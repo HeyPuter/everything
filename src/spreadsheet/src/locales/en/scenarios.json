@@ -1,0 +1,16 @@
+{
+  "enterCells": "Enter the changing cells, such as B1:B3",
+  "enterName": "Enter a name for the scenario",
+  "nameTaken": "A scenario with that name already exists",
+  "nameTooLong": "A scenario name can be up to 255 characters",
+  "noNewSheet": "The workbook would not take a new sheet",
+  "none": "There are no scenarios on this sheet",
+  "protected": "This scenario is protected: unprotect the sheet to change it",
+  "tooManyCells": "A scenario can change up to {max} cells",
+  "undo.add": "Add scenario",
+  "undo.delete": "Delete scenario",
+  "undo.edit": "Edit scenario",
+  "undo.merge": "Merge scenarios",
+  "undo.show": "Show scenario {name}",
+  "undo.summary": "Scenario summary"
+}

@@ -1,0 +1,7 @@
+{
+  "invalidExternalLinks": "The copied external workbook links are invalid. Copy the cells again.",
+  "mergeDimensions": "The copied cells and merged ranges have different dimensions.",
+  "missingExternalLinks": "The copied cells are missing their external workbook links. Copy the cells again.",
+  "overlappingMerges": "This table contains overlapping merged cells.",
+  "tooLarge": "This table is too large to paste. Copy at most 200,000 cells."
+}

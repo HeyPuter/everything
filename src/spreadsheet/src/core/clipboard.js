@@ -35,8 +35,9 @@ import { readClipboardStyles } from './clipboard-css.js';
 import { clipboardMarkupStamp, hasClipboardSnapshot } from './clipboard-integrity.js';
 import { fixedArraySize } from './fixed-arrays.js';
 import { prepareOfficeStrings } from './clipboard-html.js';
+import { t } from '../i18n/index.js';
 
-const MISSING_EXTERNAL_LINKS = 'The copied cells are missing their external workbook links. Copy the cells again.';
+const MISSING_EXTERNAL_LINKS = () => t('clipboard.missingExternalLinks');
 function copiedExternalLinksValid(formulas, links) {
   for (const formula of formulas) {
     let tokens; try { tokens = tokenize(formula); } catch { continue; }
@@ -59,7 +60,7 @@ function copiedFormulas(cells, conditionalFormats, validations, nativeSparklines
 
 const MAX_EMBED_CELLS = 5000;
 const MAX_CLIPBOARD_CELLS = 200000; // matches the editor's copy limit
-const TOO_LARGE = 'This table is too large to paste. Copy at most 200,000 cells.';
+const TOO_LARGE = () => t('clipboard.tooLarge');
 // Modern Excel errors are values in Office HTML, but remain ordinary text when
 // typed into a cell or pasted without a spreadsheet type hint.
 const OFFICE_ERRORS = new Set([...TYPED_ERRORS, '#SPILL!', '#CALC!', '#CONNECT!', '#BLOCKED!', '#UNKNOWN!', '#FIELD!', '#BUSY!', '#GETTING_DATA']);
@@ -470,12 +471,12 @@ function hslChannels(hue, s, l) {
  * One CSS colour (a hex, an rgb() or hsl() call, or a name) as #rrggbb; null
  * for a fully transparent one, a keyword such as inherit, or anything else.
  */
-function colorToken(t) {
-  let m = /^#([0-9a-f]{6})([0-9a-f]{2})?$/.exec(t);
+function colorToken(tx) {
+  let m = /^#([0-9a-f]{6})([0-9a-f]{2})?$/.exec(tx);
   if (m) return m[2] === '00' ? null : `#${m[1]}`;
-  m = /^#([0-9a-f]{3})([0-9a-f])?$/.exec(t);
+  m = /^#([0-9a-f]{3})([0-9a-f])?$/.exec(tx);
   if (m) return m[2] === '0' ? null : `#${m[1].replace(/./g, (ch) => ch + ch)}`;
-  m = /^(rgb|hsl)a?\((.*)\)$/.exec(t);
+  m = /^(rgb|hsl)a?\((.*)\)$/.exec(tx);
   if (m) {
     // Channels are separated by commas or spaces and the alpha by a comma or a slash; a percentage scales to the channel's range.
     const parts = m[2].split(/\s*[,/]\s*|\s+/).filter(Boolean);
@@ -486,19 +487,19 @@ function colorToken(t) {
     if (channels.some((n) => !Number.isFinite(n))) return null;
     return `#${channels.map((n) => Math.round(Math.max(0, Math.min(255, n))).toString(16).padStart(2, '0')).join('')}`;
   }
-  return NAMED_COLORS.get(t) || null;
+  return NAMED_COLORS.get(tx) || null;
 }
 
 /** The space-separated tokens of a CSS value, a function call kept whole with the spaces inside its parentheses. */
-function cssTokens(t) {
+function cssTokens(tx) {
   const out = [];
   let depth = 0;
   let start = 0;
-  for (let i = 0; i <= t.length; i++) {
-    const ch = t[i];
+  for (let i = 0; i <= tx.length; i++) {
+    const ch = tx[i];
     if (ch === '(') depth++;
     else if (ch === ')') depth = Math.max(0, depth - 1);
-    else if (!depth && (ch === undefined || ch === ' ' || ch === '\t' || ch === '\n')) { if (i > start) out.push(t.slice(start, i)); start = i + 1; }
+    else if (!depth && (ch === undefined || ch === ' ' || ch === '\t' || ch === '\n')) { if (i > start) out.push(tx.slice(start, i)); start = i + 1; }
   }
   return out;
 }
@@ -510,10 +511,10 @@ function cssTokens(t) {
  */
 function readColor(v) {
   if (!v) return null;
-  const t = v.trim().toLowerCase();
-  if (!t) return null;
-  if (!/\s/.test(t)) return colorToken(t);
-  for (const token of cssTokens(t)) { const color = colorToken(token); if (color) return color; }
+  const tx = v.trim().toLowerCase();
+  if (!tx) return null;
+  if (!/\s/.test(tx)) return colorToken(tx);
+  for (const token of cssTokens(tx)) { const color = colorToken(token); if (color) return color; }
   return null;
 }
 
@@ -1149,7 +1150,7 @@ export function parseHtmlClipboard(html, plainText) {
     try {
       externalWorkbooks = normalizeExternalWorkbooks(JSON.parse(table.getAttribute('data-spreadsheet-external-workbooks')));
       if (!externalWorkbooks || !copiedExternalLinksValid(externalWorkbooks.books.flatMap(book => book.names.map(name => name.ref)), externalWorkbooks)) throw new Error('Missing supporting data');
-    } catch { return { error: 'The copied external workbook links are invalid. Copy the cells again.' }; }
+    } catch { return { error: t('clipboard.invalidExternalLinks') }; }
   }
   const embedded = snapshot && table.getAttribute('data-spreadsheet-cells');
   let embeddedResult;
@@ -1168,7 +1169,7 @@ export function parseHtmlClipboard(html, plainText) {
         Array.isArray(row) && row.length === width && row.every(validEmbeddedCell))
         && cells.every((row, r) => row.every((cell, c) => !cell?.array
           || r + cell.array.rows <= cells.length && c + cell.array.cols <= width))) {
-        if (cells.length * width > MAX_CLIPBOARD_CELLS) return { error: TOO_LARGE };
+        if (cells.length * width > MAX_CLIPBOARD_CELLS) return { error: TOO_LARGE() };
         const values = readValues(cells.length, width);
         const at = /^(\d{1,7}),(\d{1,5})$/.exec(table.getAttribute('data-spreadsheet-origin') || '');
         const origin = at ? { r: Number(at[1]), c: Number(at[2]) } : null;
@@ -1177,7 +1178,7 @@ export function parseHtmlClipboard(html, plainText) {
         const nativeSparklines = readSparklines(cells.length, width);
 
         const formulas = copiedFormulas(cells, conditionalFormats, validations, nativeSparklines);
-        if (!copiedExternalLinksValid(formulas, externalWorkbooks)) return { error: MISSING_EXTERNAL_LINKS };
+        if (!copiedExternalLinksValid(formulas, externalWorkbooks)) return { error: MISSING_EXTERNAL_LINKS() };
         embeddedResult = { ...(externalWorkbooks ? { externalWorkbooks } : {}), ...(nativeSparklines ? { nativeSparklines } : {}), ...(validations ? { validations } : {}), ...(conditionalFormats ? { conditionalFormats } : {}), cells: cells.map((row) => row.map(cleanEmbeddedCell)), ...(values ? { values } : {}), ...(origin ? { origin } : {}) };
       }
     } catch { /* fall through to the markup */ }
@@ -1206,7 +1207,7 @@ export function parseHtmlClipboard(html, plainText) {
   for (const tr of htmlTableRows(table)) {
     const raw = compactRows ? styles(tr).get('mso-xlrowspan') : null;
     const count = /^\+?\d+$/.test(raw || '') ? Math.max(1, Number(raw)) : 1;
-    if (tableRows.length + count > MAX_CLIPBOARD_CELLS) return { error: TOO_LARGE };
+    if (tableRows.length + count > MAX_CLIPBOARD_CELLS) return { error: TOO_LARGE() };
     for (let i = 0; i < count; i++) tableRows.push({ tr, repeated: count > 1, blank: i > 0 });
   }
   const groupEnds = new Map();
@@ -1237,11 +1238,11 @@ export function parseHtmlClipboard(html, plainText) {
       const display = repeated || ignore.includes('colspan') || ignore.includes('colspan-rowspan');
       // Include empty rows and span placeholders in the pasted rectangle.
       // Check before creating cells so a small table cannot amplify into an unbounded allocation.
-      if (tableRows.length * (c + span) > MAX_CLIPBOARD_CELLS) return { error: TOO_LARGE };
+      if (tableRows.length * (c + span) > MAX_CLIPBOARD_CELLS) return { error: TOO_LARGE() };
       const groupEnd = groupEnds.get(tr.parentElement);
       const end = repeated || ignore.includes('colspan') ? r + 1
         : td.rowSpan === 0 ? groupEnd : Math.min(r + td.rowSpan, groupEnd);
-      for (let i = 1; i < span; i++) if (row[c + i]) return { error: 'This table contains overlapping merged cells.' };
+      for (let i = 1; i < span; i++) if (row[c + i]) return { error: t('clipboard.overlappingMerges') };
       if (span > 1 || end > r + 1) (display ? displaySpans : merges).push({ r1: r, c1: c, r2: end - 1, c2: c + span - 1 });
       const content = embeddedResult || blank ? { text: '', runs: [] } : cellText(td, styles);
       const { text } = content;
@@ -1294,7 +1295,7 @@ export function parseHtmlClipboard(html, plainText) {
   if (!width) return null;
   if (embeddedResult) {
     // A malformed private shape must not let a span reach beyond its cells.
-    if (rows.length !== embeddedResult.cells.length || width !== embeddedResult.cells[0].length) return { error: 'The copied cells and merged ranges have different dimensions.' };
+    if (rows.length !== embeddedResult.cells.length || width !== embeddedResult.cells[0].length) return { error: t('clipboard.mergeDimensions') };
     return { ...embeddedResult, ...(merges.length ? { merges } : {}) };
   }
   // Every row spans the table's width, short rows and empty <tr> elements
@@ -1376,7 +1377,7 @@ export function parseHtmlClipboard(html, plainText) {
   }
   const nativeSparklines = readSparklines(rows.length, width);
   if (nativeSparklines) {
-    if (!copiedExternalLinksValid(sparklineFormulas(nativeSparklines), externalWorkbooks)) return { error: MISSING_EXTERNAL_LINKS };
+    if (!copiedExternalLinksValid(sparklineFormulas(nativeSparklines), externalWorkbooks)) return { error: MISSING_EXTERNAL_LINKS() };
     // Sparse native groups are independent of the smaller full-cell snapshot.
     // Derive scalar cells from the verified HTML, then use the ordinary cell
     // paste path for atomic native metadata, merges, tiling and paste specials.

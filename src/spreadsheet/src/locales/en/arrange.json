@@ -1,0 +1,13 @@
+{
+  "name.chart": "Chart {n}",
+  "name.equation": "Equation {n}",
+  "name.group": "Group {n}",
+  "name.picture": "Picture {n}",
+  "name.scrollBar": "Scroll Bar {n}",
+  "name.shape": "Shape {n}",
+  "name.slicer": "Slicer {n}",
+  "name.smartArt": "SmartArt {n}",
+  "name.textBox": "Text Box {n}",
+  "name.timeline": "Timeline {n}",
+  "name.wordArt": "WordArt {n}"
+}

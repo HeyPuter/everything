@@ -8,10 +8,11 @@
  */
 import { cellName, parseCellRef, colName } from './cell.js';
 import { NUMBER_FORMAT_KEYS } from './format.js';
+import { t } from '../i18n/index.js';
 
 export const MAX_CHANGING_CELLS = 32;
 
-const xmlEscape = (t) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+const xmlEscape = (tx) => tx.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
   .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, '');
 
 const validCell = (p) => p && Number.isInteger(p.r) && Number.isInteger(p.c) && p.r >= 0 && p.c >= 0;
@@ -65,7 +66,7 @@ export function mapScenarioCells(sheet, move) {
 /** "B1,B3:B4" as a list of cells, or null when it names something else. */
 export function parseChangingCells(text) {
   const out = [];
-  for (const part of String(text).split(/[,;]/).map((t) => t.trim().replace(/\$/g, '')).filter(Boolean)) {
+  for (const part of String(text).split(/[,;]/).map((tx) => tx.trim().replace(/\$/g, '')).filter(Boolean)) {
     const [a, b] = part.split(':');
     const p = parseCellRef(a), q = b ? parseCellRef(b) : p;
     if (!p || !q) return null;
@@ -125,11 +126,11 @@ const stateOf = (wb, sheetId) => wb.sheet(sheetId)?.scenarios || { list: [], cur
 /** Why a scenario cannot be stored as given, or null. */
 export function scenarioProblem(wb, sheetId, scenario, replacing = null) {
   const name = String(scenario.name || '').trim();
-  if (!name) return 'Enter a name for the scenario';
-  if (name.length > 255) return 'A scenario name can be up to 255 characters';
-  if (listOf(wb, sheetId).some((s) => s.name.toLowerCase() === name.toLowerCase() && s.name !== replacing)) return 'A scenario with that name already exists';
-  if (!scenario.cells?.length) return 'Enter the changing cells, such as B1:B3';
-  if (scenario.cells.length > MAX_CHANGING_CELLS) return `A scenario can change up to ${MAX_CHANGING_CELLS} cells`;
+  if (!name) return t('scenarios.enterName');
+  if (name.length > 255) return t('scenarios.nameTooLong');
+  if (listOf(wb, sheetId).some((s) => s.name.toLowerCase() === name.toLowerCase() && s.name !== replacing)) return t('scenarios.nameTaken');
+  if (!scenario.cells?.length) return t('scenarios.enterCells');
+  if (scenario.cells.length > MAX_CHANGING_CELLS) return t('scenarios.tooManyCells', { max: MAX_CHANGING_CELLS });
   return null;
 }
 
@@ -138,11 +139,11 @@ export function saveScenario(wb, sheetId, scenario, replacing = null) {
   const problem = scenarioProblem(wb, sheetId, scenario, replacing);
   if (problem) return problem;
   const state = stateOf(wb, sheetId);
-  if (replacing != null && scenarioLocked(wb, sheetId, state.list.find((s) => s.name === replacing))) return 'This scenario is protected: unprotect the sheet to change it';
+  if (replacing != null && scenarioLocked(wb, sheetId, state.list.find((s) => s.name === replacing))) return t('scenarios.protected');
   const entry = { name: scenario.name.trim(), cells: scenario.cells, values: scenario.values, comment: scenario.comment || '', user: scenario.user || '', locked: scenario.locked !== false, hidden: !!scenario.hidden };
   const at = replacing == null ? -1 : state.list.findIndex((s) => s.name === replacing);
   const list = at < 0 ? [...state.list, entry] : state.list.map((s, i) => (i === at ? entry : s));
-  setScenarios(wb, sheetId, { ...state, list, current: at < 0 ? list.length - 1 : at }, at < 0 ? 'Add scenario' : 'Edit scenario');
+  setScenarios(wb, sheetId, { ...state, list, current: at < 0 ? list.length - 1 : at }, at < 0 ? t('scenarios.undo.add') : t('scenarios.undo.edit'));
   return null;
 }
 
@@ -151,7 +152,7 @@ export function deleteScenario(wb, sheetId, name) {
   if (scenarioLocked(wb, sheetId, state.list.find((s) => s.name === name))) return false;
   const list = state.list.filter((s) => s.name !== name);
   if (list.length === state.list.length) return false;
-  return setScenarios(wb, sheetId, { ...state, list }, 'Delete scenario');
+  return setScenarios(wb, sheetId, { ...state, list }, t('scenarios.undo.delete'));
 }
 
 /** The values the changing cells hold now (constants; a formula's result), for a new scenario. */
@@ -174,12 +175,12 @@ export function showScenario(wb, sheetId, name) {
     const v = sc.values[k];
     return { r: p.r, c: p.c, cell: v === '' || v == null ? (old?.s ? { v: null, f: null, s: old.s } : null) : { v, f: null, ...(old?.s ? { s: old.s } : {}) } };
   });
-  wb.transaction(`Show scenario ${sc.name}`, () => {
-    wb.setCells(sheetId, entries, `Show scenario ${sc.name}`);
+  wb.transaction(t('scenarios.undo.show', { name: sc.name }), () => {
+    wb.setCells(sheetId, entries, t('scenarios.undo.show', { name: sc.name }));
     // The scenario shown is the sheet's setting, as the list is: Undo takes it back with the values, and in a
     // shared workbook everyone (and the file) has it, rather than only the browser it was shown in.
     if (sheet.scenarios && (sheet.scenarios.current !== i || sheet.scenarios.show !== i)) {
-      setScenarios(wb, sheetId, { ...sheet.scenarios, current: i, show: i }, `Show scenario ${sc.name}`);
+      setScenarios(wb, sheetId, { ...sheet.scenarios, current: i, show: i }, t('scenarios.undo.show', { name: sc.name }));
     }
   });
   return true;
@@ -197,7 +198,7 @@ export function mergeScenarios(wb, sheetId, fromSheetId) {
     taken.add(name.toLowerCase());
     return { ...s, name, cells: s.cells.map((p) => ({ ...p })), values: [...s.values] };
   });
-  setScenarios(wb, sheetId, { ...state, list: [...state.list, ...added] }, 'Merge scenarios');
+  setScenarios(wb, sheetId, { ...state, list: [...state.list, ...added] }, t('scenarios.undo.merge'));
   return added.length;
 }
 
@@ -247,7 +248,7 @@ function cellLabel(wb, sheet, p) {
 export function createScenarioSummary(wb, sheetId, resultCells = []) {
   const sheet = wb.sheet(sheetId);
   const list = listOf(wb, sheetId);
-  if (!sheet || !list.length) return { error: 'There are no scenarios on this sheet' };
+  if (!sheet || !list.length) return { error: t('scenarios.none') };
   const out = scenarioOutcomes(wb, sheetId, resultCells);
   const entries = [];
   const put = (r, c, v, s) => entries.push({ r, c, cell: { v, ...(s ? { s } : {}) } });
@@ -286,21 +287,21 @@ export function createScenarioSummary(wb, sheetId, resultCells = []) {
   put(r++, 1, 'Notes: the Current Values column shows the changing cells as they were when this summary was made.');
   put(r, 1, 'The changing cells of each scenario are listed in the rows above.');
   let summaryId = null;
-  wb.transaction('Scenario summary', () => {
+  wb.transaction(t('scenarios.undo.summary'), () => {
     const index = wb.sheets.findIndex((s) => s.id === sheetId);
     let name = 'Scenario Summary', k = 2;
     while (wb.sheetByName(name)) name = `Scenario Summary ${k++}`;
     const added = wb.addSheet(name, Math.max(0, index));
     if (!added) return;
     summaryId = added.id;
-    wb.setCells(summaryId, entries, 'Scenario summary');
+    wb.setCells(summaryId, entries, t('scenarios.undo.summary'));
     wb.setColWidth(summaryId, 0, 16);
     wb.setColWidth(summaryId, 1, 120);
     wb.setColWidth(summaryId, 2, 90);
     for (let c = 3; c < 4 + out.names.length; c++) wb.setColWidth(summaryId, c, 100);
-    if (sheet.scenarios) setScenarios(wb, sheetId, { ...sheet.scenarios, results: resultCells.map((p) => ({ r1: p.r, c1: p.c, r2: p.r, c2: p.c })) }, 'Scenario summary');
+    if (sheet.scenarios) setScenarios(wb, sheetId, { ...sheet.scenarios, results: resultCells.map((p) => ({ r1: p.r, c1: p.c, r2: p.r, c2: p.c })) }, t('scenarios.undo.summary'));
   });
-  return summaryId ? { sheetId: summaryId } : { error: 'The workbook would not take a new sheet' };
+  return summaryId ? { sheetId: summaryId } : { error: t('scenarios.noNewSheet') };
 }
 
 /* ---------- XLSX ---------- */
@@ -323,7 +324,7 @@ export function scenariosXml(scenarios) {
   return `<scenarios${s.current ? ` current="${s.current}"` : ''}${s.show ? ` show="${s.show}"` : ''}${results}>${body}</scenarios>`;
 }
 
-const unescapeXml = (t) => t.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(+n)).replace(/&#x([0-9a-f]+);/gi, (_, n) => String.fromCodePoint(parseInt(n, 16))).replace(/&amp;/g, '&');
+const unescapeXml = (tx) => tx.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(+n)).replace(/&#x([0-9a-f]+);/gi, (_, n) => String.fromCodePoint(parseInt(n, 16))).replace(/&amp;/g, '&');
 const attrsOf = (tag) => {
   const out = {};
   for (const m of tag.matchAll(/([\w:]+)\s*=\s*"([^"]*)"/g)) out[m[1].replace(/^\w+:/, '')] = unescapeXml(m[2]);
@@ -350,8 +351,8 @@ export function parseScenariosXml(xml) {
     }
     list.push({ name: a.name || '', cells, values, comment: a.comment || '', user: a.user || '', locked: a.locked === '1' || a.locked === 'true', hidden: a.hidden === '1' || a.hidden === 'true' });
   }
-  const results = String(top.sqref || '').split(/\s+/).filter(Boolean).map((t) => {
-    const [a, b] = t.replace(/\$/g, '').split(':');
+  const results = String(top.sqref || '').split(/\s+/).filter(Boolean).map((tx) => {
+    const [a, b] = tx.replace(/\$/g, '').split(':');
     const p = parseCellRef(a), q = b ? parseCellRef(b) : p;
     return p && q ? { r1: Math.min(p.r, q.r), c1: Math.min(p.c, q.c), r2: Math.max(p.r, q.r), c2: Math.max(p.c, q.c) } : null;
   }).filter(Boolean);

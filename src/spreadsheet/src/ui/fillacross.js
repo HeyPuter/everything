@@ -6,6 +6,7 @@ import { el, fieldId } from './dom.js';
 import { openModal } from './modal.js';
 import { toast } from './toast.js';
 import { rangeName } from '../core/cell.js';
+import { t } from '../i18n/index.js';
 
 export function openFillAcrossDialog(ctx) {
   const wb = ctx.wb;
@@ -14,7 +15,9 @@ export function openFillAcrossDialog(ctx) {
   if (!targets.length) return null;
   const ranges = ctx.ranges();
   const name = fieldId('fill-across');
-  const choices = [['all', 'All', 'Contents and formatting'], ['contents', 'Contents', 'Values and formulas; each sheet keeps its formatting'], ['formats', 'Formats', 'Formatting only; each sheet keeps its values']];
+  const choices = [['all', t('fillacross.all'), t('fillacross.allHint')], ['contents', t('fillacross.contents'), t('fillacross.contentsHint')], ['formats', t('fillacross.formats'), t('fillacross.formatsHint')]];
+  // A list of references or sheet names: "A1:B2, D4" in English, "A1:B2、D4" in Chinese.
+  const join = (items) => items.reduce((a, b) => t('fillacross.listJoin', { a, b }));
   const radios = choices.map(([value, label, hint], i) => el('label.check', {},
     el('input', { type: 'radio', name, value, checked: i === 0 }),
     el('span', {}, el('span', {}, label), el('span.small.muted', { style: { display: 'block' } }, hint))));
@@ -24,16 +27,16 @@ export function openFillAcrossDialog(ctx) {
     const what = content.querySelector(`input[name="${name}"]:checked`)?.value || 'all';
     modal.close();
     const written = wb.fillAcrossSheets(sourceId, targets, ranges, what);
-    const message = written ? `Filled ${ranges.map(rangeName).join(', ')} across ${sheetNames.length} sheet${sheetNames.length === 1 ? '' : 's'}` : 'Those cells already match on every grouped sheet';
+    const message = written ? t('fillacross.filled', { ranges: join(ranges.map(rangeName)), count: sheetNames.length }) : t('fillacross.alreadyMatch');
     toast(message, { icon: 'layers', duration: 2800 });
     ctx.announce?.(message);
   };
   const content = el('form.fill-across', { onsubmit: submit },
-    el('p.small.muted.modal-text', {}, `Copies ${ranges.map(rangeName).join(', ')} from ${wb.sheet(sourceId)?.name} to the same cells of ${sheetNames.join(', ')}.`),
-    el('fieldset.check-group.vertical', { role: 'radiogroup', 'aria-label': 'Fill' }, ...radios),
+    el('p.small.muted.modal-text', {}, t('fillacross.intro', { ranges: join(ranges.map(rangeName)), sheet: wb.sheet(sourceId)?.name, sheets: join(sheetNames) })),
+    el('fieldset.check-group.vertical', { role: 'radiogroup', 'aria-label': t('fillacross.fill') }, ...radios),
     el('div.row.row-end', { style: { marginTop: '14px' } },
-      el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Cancel'),
-      el('button.btn.btn-primary', { type: 'submit' }, 'Fill')));
-  const modal = openModal({ title: 'Fill across worksheets', content, initialFocus: content.querySelector('input:checked'), onClose: () => ctx.grid?.focus?.() });
+      el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, t('common.cancel')),
+      el('button.btn.btn-primary', { type: 'submit' }, t('fillacross.fill'))));
+  const modal = openModal({ title: t('fillacross.title'), content, initialFocus: content.querySelector('input:checked'), onClose: () => ctx.grid?.focus?.() });
   return modal;
 }
