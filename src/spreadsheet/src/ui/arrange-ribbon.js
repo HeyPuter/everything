@@ -5,6 +5,7 @@
  */
 import { lazySubmenu } from './menu.js';
 import { withGroups, canRotate } from '../core/arrange.js';
+import { t, tSource } from '../i18n/index.js';
 
 const flags = (ctx) => ctx?.flags?.() || {};
 /** The objects selected on the sheet, and what the Arrange commands can do with them. */
@@ -22,18 +23,26 @@ function selection(ctx) {
 }
 const off = (s) => s.busy || s.locked || !s.ids.length;
 
-/** A command button or menu item acting on the objects selected. */
-const item = (label, glyph, cmd, arg, need = off) => ({ label, glyph, ariaLabel: label,
-  resolve: (menus, ctx) => ({ label, icon: glyph, cmd, arg, disabled: need(selection(ctx)) }) });
-const entry = (label, glyph, cmd, arg, disabled) => ({ label, icon: glyph, cmd, arg, disabled });
+/**
+ * A ribbon descriptor's names from the catalog `key`: its label, and `keytip`, the English its key tip is worked
+ * out from (see keytips.js), so it is the same in every language.
+ */
+const naming = (key) => ({ label: t(key), ariaLabel: t(key), keytip: tSource(key) });
+/** A command button acting on the objects selected. */
+const item = (key, glyph, cmd, arg, need = off) => {
+  const n = naming(key);
+  return { ...n, glyph, resolve: (menus, ctx) => ({ label: n.label, icon: glyph, cmd, arg, disabled: need(selection(ctx)) }) };
+};
+/** A menu item acting on the objects selected. */
+const entry = (key, glyph, cmd, arg, disabled) => ({ label: t(key), icon: glyph, cmd, arg, disabled });
 
 const forwardMenu = (menus, ctx) => {
   const s = selection(ctx);
-  return [entry('Bring Forward', 'bringForward', 'orderObject', { where: 'forward' }, off(s)), entry('Bring to Front', 'bringForward', 'orderObject', { where: 'front' }, off(s))];
+  return [entry('arrangeRibbon.bringForward', 'bringForward', 'orderObject', { where: 'forward' }, off(s)), entry('arrangeRibbon.bringToFront', 'bringForward', 'orderObject', { where: 'front' }, off(s))];
 };
 const backwardMenu = (menus, ctx) => {
   const s = selection(ctx);
-  return [entry('Send Backward', 'sendBackward', 'orderObject', { where: 'backward' }, off(s)), entry('Send to Back', 'sendBackward', 'orderObject', { where: 'back' }, off(s))];
+  return [entry('arrangeRibbon.sendBackward', 'sendBackward', 'orderObject', { where: 'backward' }, off(s)), entry('arrangeRibbon.sendToBack', 'sendBackward', 'orderObject', { where: 'back' }, off(s))];
 };
 
 /** Align's menu: the six alignments, the two distributions, and the snapping switches. */
@@ -41,54 +50,59 @@ export function alignMenu(ctx) {
   const s = selection(ctx), f = flags(ctx);
   // A group aligns and distributes as one object (see Workbook.alignObjects): one group alone has nothing to line up with.
   const units = new Set(s.objects.map((o) => o.group || o.id)).size;
-  const align = (label, how, glyph) => entry(label, glyph, 'alignObjects', how, off(s) || units < 2);
+  const align = (key, how, glyph) => entry(key, glyph, 'alignObjects', how, off(s) || units < 2);
   return [
-    align('Align Left', 'left', 'alignObjects'), align('Align Center', 'center', 'alignCenter'), align('Align Right', 'right', 'alignRight'),
+    align('arrangeRibbon.alignLeft', 'left', 'alignObjects'), align('arrangeRibbon.alignCenter', 'center', 'alignCenter'), align('arrangeRibbon.alignRight', 'right', 'alignRight'),
     { separator: true },
-    align('Align Top', 'top', 'valignTop'), align('Align Middle', 'middle', 'valignMiddle'), align('Align Bottom', 'bottom', 'valignBottom'),
+    align('arrangeRibbon.alignTop', 'top', 'valignTop'), align('arrangeRibbon.alignMiddle', 'middle', 'valignMiddle'), align('arrangeRibbon.alignBottom', 'bottom', 'valignBottom'),
     { separator: true },
-    entry('Distribute Horizontally', 'distributeH', 'alignObjects', 'horizontal', off(s) || units < 3),
-    entry('Distribute Vertically', 'distributeV', 'alignObjects', 'vertical', off(s) || units < 3),
+    entry('arrangeRibbon.distributeHorizontally', 'distributeH', 'alignObjects', 'horizontal', off(s) || units < 3),
+    entry('arrangeRibbon.distributeVertically', 'distributeV', 'alignObjects', 'vertical', off(s) || units < 3),
     { separator: true },
-    { label: 'Snap to Grid', cmd: 'snapObjects', arg: 'grid', checked: !!f.snapGrid, hint: 'Line up with cell edges (Alt: free)' },
-    { label: 'Snap to Shape', cmd: 'snapObjects', arg: 'shape', checked: !!f.snapShape, hint: 'Line up with other objects' },
-    { label: 'View Gridlines', cmd: 'gridlines', checked: f.gridlines !== false },
+    { label: t('arrangeRibbon.snapToGrid'), cmd: 'snapObjects', arg: 'grid', checked: !!f.snapGrid, hint: t('arrangeRibbon.snapToGridHint') },
+    { label: t('arrangeRibbon.snapToShape'), cmd: 'snapObjects', arg: 'shape', checked: !!f.snapShape, hint: t('arrangeRibbon.snapToShapeHint') },
+    { label: t('arrangeRibbon.viewGridlines'), cmd: 'gridlines', checked: f.gridlines !== false },
   ];
 }
 
 const groupMenu = (ctx) => {
   const s = selection(ctx);
   return [
-    entry('Group', 'groupObjects', 'groupObjects', 'group', s.busy || s.locked || !s.canGroup),
-    entry('Regroup', 'groupObjects', 'groupObjects', 'regroup', s.busy || s.locked || !s.canRegroup),
-    entry('Ungroup', 'ungroup', 'groupObjects', 'ungroup', s.busy || s.locked || !s.grouped),
+    entry('arrangeRibbon.group', 'groupObjects', 'groupObjects', 'group', s.busy || s.locked || !s.canGroup),
+    entry('arrangeRibbon.regroup', 'groupObjects', 'groupObjects', 'regroup', s.busy || s.locked || !s.canRegroup),
+    entry('arrangeRibbon.ungroup', 'ungroup', 'groupObjects', 'ungroup', s.busy || s.locked || !s.grouped),
   ];
 };
 
 const rotateMenu = (ctx) => {
   const s = selection(ctx), no = s.busy || s.locked || !s.rotatable;
   return [
-    entry('Rotate Right 90°', 'rotateObjects', 'rotateObjects', 'right', no),
-    entry('Rotate Left 90°', 'rotateLeft', 'rotateObjects', 'left', no),
-    entry('Flip Vertical', 'flipV', 'rotateObjects', 'flipV', no),
-    entry('Flip Horizontal', 'flipH', 'rotateObjects', 'flipH', no),
+    entry('arrangeRibbon.rotateRight90', 'rotateObjects', 'rotateObjects', 'right', no),
+    entry('arrangeRibbon.rotateLeft90', 'rotateLeft', 'rotateObjects', 'left', no),
+    entry('arrangeRibbon.flipVertical', 'flipV', 'rotateObjects', 'flipV', no),
+    entry('arrangeRibbon.flipHorizontal', 'flipH', 'rotateObjects', 'flipH', no),
   ];
 };
 
-const menu = (label, glyph, build) => ({ label, glyph, ariaLabel: label,
-  resolve: (menus, ctx) => lazySubmenu({ label }, () => build(ctx)) });
+const menu = (key, glyph, build) => {
+  const n = naming(key);
+  return { ...n, glyph, resolve: (menus, ctx) => lazySubmenu({ label: n.label }, () => build(ctx)) };
+};
 
-/** The group, as [name, ...descriptors]; `large` gives the first buttons the large size Page Layout uses. */
+/**
+ * The group, as [name, ...descriptors]; `large` gives the first buttons the large size Page Layout uses. The name is
+ * the group's id, in English: the ribbon shows its own name for it (see groupNaming in ribbon.js).
+ */
 export function arrangeGroup({ large = true } = {}) {
   const big = (d) => (large ? { ...d, large: true } : d);
   return ['Arrange',
-    big({ ...item('Bring Forward', 'bringForward', 'orderObject', { where: 'forward' }), split: forwardMenu }),
-    big({ ...item('Send Backward', 'sendBackward', 'orderObject', { where: 'backward' }), split: backwardMenu }),
-    big({ label: 'Selection Pane', glyph: 'selectionPane', ariaLabel: 'Selection Pane',
-      resolve: (menus, ctx) => ({ label: 'Selection Pane', cmd: 'selectionPane', checked: !!flags(ctx).selectionPane, disabled: !!flags(ctx).editing }) }),
-    menu('Align', 'alignObjects', alignMenu),
-    menu('Group', 'groupObjects', groupMenu),
-    menu('Rotate', 'rotateObjects', rotateMenu),
+    big({ ...item('arrangeRibbon.bringForward', 'bringForward', 'orderObject', { where: 'forward' }), split: forwardMenu }),
+    big({ ...item('arrangeRibbon.sendBackward', 'sendBackward', 'orderObject', { where: 'backward' }), split: backwardMenu }),
+    big({ ...naming('arrangeRibbon.selectionPane'), glyph: 'selectionPane',
+      resolve: (menus, ctx) => ({ label: t('arrangeRibbon.selectionPane'), cmd: 'selectionPane', checked: !!flags(ctx).selectionPane, disabled: !!flags(ctx).editing }) }),
+    menu('arrangeRibbon.align', 'alignObjects', alignMenu),
+    menu('arrangeRibbon.group', 'groupObjects', groupMenu),
+    menu('arrangeRibbon.rotate', 'rotateObjects', rotateMenu),
   ];
 }
 
