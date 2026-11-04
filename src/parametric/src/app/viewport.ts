@@ -643,6 +643,8 @@ export class Viewport {
 
   // ---------- triad and label ----------
 
+  private triadKey = '';
+
   private buildTriad(): SVGSVGElement {
     const ns = 'http://www.w3.org/2000/svg';
     const svg = document.createElementNS(ns, 'svg');
@@ -664,6 +666,10 @@ export class Viewport {
   updateTriad() {
     const ns = 'http://www.w3.org/2000/svg';
     const cam = this.camera;
+    // Called every frame (hover pre-selection redraws too); rebuild only on rotation.
+    const key = cam.rot.join();
+    if (key === this.triadKey) return;
+    this.triadKey = key;
     const right = cam.right, up = cam.up, back = cam.back;
     const axes: { a: string; v: Vec3; color: string }[] = [
       { a: 'x', v: [1, 0, 0], color: 'var(--axis-x)' },
