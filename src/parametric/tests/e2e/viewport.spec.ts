@@ -38,6 +38,37 @@ test.describe('viewport', () => {
     expect(errors).toEqual([]);
   });
 
+  test('relation badges do not swallow clicks while a sketch tool is active', async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /New part/ }).click();
+    await page.getByRole('treeitem', { name: 'Front Plane' }).click();
+    await page.getByRole('tab', { name: 'Sketch' }).click();
+    await page.locator('[data-cmd="sketch"]').first().click();
+    await expect(page.locator('.statusbar')).toContainText('Defined');
+    await page.waitForTimeout(400);
+    const { x, y } = await canvasCenter(page);
+    await page.locator('[data-cmd="tool:rectangle"]').click();
+    await page.mouse.click(x, y);
+    await page.mouse.click(x + 160, y - 90);
+    await page.keyboard.press('Escape');
+    // The bottom edge's Horizontal badge sits up and right of its midpoint.
+    const badge = page.locator('.rel-badge[aria-label="horizontal relation"]').filter({ visible: true });
+    const boxes = await badge.evaluateAll((els) => els.map((e) => { const b = e.getBoundingClientRect(); return [b.x + b.width / 2, b.y + b.height / 2]; }));
+    boxes.sort((a, b) => b[1] - a[1]);
+    const [bx, by] = boxes[0];
+    expect(Math.hypot(bx - (x + 94), by - (y - 14))).toBeLessThan(4);
+    // Smart Dimension: pick the edge, then place the dimension on the badge.
+    await page.keyboard.press('d');
+    await page.mouse.click(x + 80, y);
+    await page.mouse.click(bx, by);
+    await expect(page.getByRole('dialog', { name: /Modify/ })).toBeVisible();
+    await page.keyboard.press('Escape');
+    // With no tool active, clicking a badge (the top edge's) still selects its relation.
+    await page.keyboard.press('Escape');
+    await page.mouse.click(boxes[1][0], boxes[1][1]);
+    await expect(page.locator('.rel-badge.selected')).toHaveCount(1);
+  });
+
   test('a drag whose release never arrives does not stay active', async ({ page }) => {
     await openApp(page);
     await page.getByRole('button', { name: /New part/ }).click();

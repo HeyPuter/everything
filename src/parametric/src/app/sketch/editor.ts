@@ -810,6 +810,9 @@ export class SketchEditor implements ViewportTool {
           el.style.top = `${y - 14}px`;
           el.classList.toggle('bad', bad.has(c.id));
           el.classList.toggle('selected', sel.has(c.id));
+          // While a tool is placing geometry or a dimension, a click on a
+          // badge belongs to the tool (it often lands near a line's midpoint).
+          el.style.pointerEvents = this.tool ? 'none' : '';
         });
       }
     }
