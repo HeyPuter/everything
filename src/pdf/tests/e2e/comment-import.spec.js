@@ -53,6 +53,25 @@ test('importing comments says how many could not be added', async ({ page }) => 
   // A file whose comments are all here already has nothing new to add, and that is all.
   await importFile('again.xfdf', xfdf(comment(0, 'kept')));
   await expect(toast).toHaveText('There were no new comments to import.');
+  await page.keyboard.press('Escape');
+
+  // Replies and review statuses are told apart from comments, as the Comments panel lists them.
+  const reply = (name, parent, extra = '') =>
+    `<text flags="print,nozoom,norotate" inreplyto="${parent}" name="${name}" page="0" rect="100,160,120,180" title="Grace"${extra}><contents>${name}</contents></text>`;
+  await importFile(
+    'thread.xfdf',
+    xfdf(
+      comment(0, 'asked'),
+      reply('answered', 'asked'),
+      reply('thanked', 'answered'),
+      reply('done', 'asked', ' state="Completed" statemodel="Review"'),
+    ),
+  );
+  await expect(toast).toHaveText('1 comment, 2 replies, and 1 review status imported.');
+  await settled(page);
+  await page.keyboard.press('Escape');
+  await importFile('reply.xfdf', xfdf(reply('later', 'asked')));
+  await expect(toast).toHaveText('1 reply imported.');
 });
 
 // A file too large to import is turned down before it is read, which would hold up the tab.

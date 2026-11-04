@@ -516,7 +516,7 @@ function dictFromElement(doc, page, element, subtype) {
  * Add the comments in an XFDF file to their pages, drawing each one's appearance. Comments
  * whose name a page already has are skipped, so importing the same file twice adds nothing;
  * replies follow their parents, which may be comments already in the document. Returns
- * { imported, skipped, duplicates }.
+ * { imported, comments, replies, statuses, skipped, duplicates }.
  */
 export async function importXfdf(doc, xfdf) {
   const source = String(xfdf ?? '');
@@ -569,7 +569,9 @@ export async function importXfdf(doc, xfdf) {
       rect.every((value, i) => Number.isFinite(value) && Math.abs(value - own[i]) < 0.01)
     );
   };
-  const result = { imported: 0, skipped: 0, duplicates: 0 };
+  // What was imported, also counted as a reader sees it: comments of their own, and the replies
+  // and review statuses in their threads (members of a comment's group are drawn as part of it).
+  const result = { imported: 0, comments: 0, replies: 0, statuses: 0, skipped: 0, duplicates: 0 };
   let pending = elements.filter((element) => {
     if (SUBTYPES[element.localName]) return true;
     result.skipped++;
@@ -645,6 +647,9 @@ export async function importXfdf(doc, xfdf) {
       }
       named.set(text(dict, 'NM'), ref);
       result.imported++;
+      if (!parentName) result.comments++;
+      else if (dict.has(name('State'))) result.statuses++;
+      else if (dict.lookup(name('RT')) !== name('Group')) result.replies++;
     }
     if (next.length === pending.length) {
       result.skipped += next.length;

@@ -10371,8 +10371,17 @@ export function createEditor({
       );
       if (!result) return;
       const { imported, skipped } = result;
+      // Counted as the Comments panel shows them: replies and review statuses are not comments
+      // of their own.
+      const count = (n, one, many) => (n ? [`${n} ${n === 1 ? one : many}`] : []);
+      const parts = [
+        ...count(result.comments, 'comment', 'comments'),
+        ...count(result.replies, 'reply', 'replies'),
+        ...count(result.statuses, 'review status', 'review statuses'),
+      ];
+      if (!parts.length) parts.push(...count(imported, 'comment', 'comments'));
       const added = imported
-        ? `${imported} ${imported === 1 ? 'comment' : 'comments'} imported.`
+        ? `${new Intl.ListFormat('en').format(parts)} imported.`
         : skipped
           ? 'No comments were imported.'
           : 'There were no new comments to import.';

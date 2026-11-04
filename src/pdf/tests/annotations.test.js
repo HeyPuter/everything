@@ -1062,7 +1062,14 @@ describe('comment exchange', () => {
 
     const target = await blank(2);
     const result = await importXfdf(target, xfdf);
-    expect(result).toEqual({ imported: 16, skipped: 0, duplicates: 0 });
+    expect(result).toEqual({
+      imported: 16,
+      comments: 13,
+      replies: 2,
+      statuses: 1,
+      skipped: 0,
+      duplicates: 0,
+    });
     for (const index of [0, 1])
       expect(listAnnotations(target, index).map(essence)).toEqual(
         listAnnotations(source, index).map(essence),
@@ -1070,6 +1077,9 @@ describe('comment exchange', () => {
     // Importing the same comments again adds nothing.
     expect(await importXfdf(target, xfdf)).toEqual({
       imported: 0,
+      comments: 0,
+      replies: 0,
+      statuses: 0,
       skipped: 0,
       duplicates: 16,
     });
@@ -1112,8 +1122,12 @@ describe('comment exchange', () => {
 <text page="0" rect="1,1,2,2" inreplyto="missing" name="orphan"><contents>?</contents></text>
 </annots>
 </xfdf>`;
+    // Seven comments are added, but a reader sees five: a reply and a status are in a thread.
     expect(await importXfdf(doc, xfdf)).toEqual({
       imported: 7,
+      comments: 5,
+      replies: 1,
+      statuses: 1,
       skipped: 3,
       duplicates: 0,
     });
@@ -1203,7 +1217,14 @@ describe('comment exchange', () => {
 
     // Back into the same PDF: nothing is added twice, and the reply joins its comment.
     const same = await PDFDocument.load(bytes);
-    expect(await importXfdf(same, reviewed)).toEqual({ imported: 1, skipped: 0, duplicates: 2 });
+    expect(await importXfdf(same, reviewed)).toEqual({
+      imported: 1,
+      comments: 0,
+      replies: 1,
+      statuses: 0,
+      skipped: 0,
+      duplicates: 2,
+    });
     const [kept, note] = listAnnotations(same, 0);
     expect([kept.contents, note.contents]).toEqual(['Unnamed', 'Unnamed note']);
     expect(kept.replies.map((r) => r.contents)).toEqual(['Looks right']);
@@ -1214,7 +1235,14 @@ describe('comment exchange', () => {
     const [moved] = listAnnotations(other, 0);
     await editAnnotation(other, 0, moved.id, { rect: { ...moved.rect, x: moved.rect.x + 50 } });
     expect(listAnnotations(other, 0)[0].id).toBe(moved.id);
-    expect(await importXfdf(other, reviewed)).toEqual({ imported: 2, skipped: 0, duplicates: 1 });
+    expect(await importXfdf(other, reviewed)).toEqual({
+      imported: 2,
+      comments: 1,
+      replies: 1,
+      statuses: 0,
+      skipped: 0,
+      duplicates: 1,
+    });
     expect(listAnnotations(other, 0).map((a) => a.contents)).toEqual([
       'Unnamed',
       'Unnamed note',
@@ -1260,7 +1288,14 @@ describe('comment exchange', () => {
     expect(xfdf).toContain(`inreplyto="${names[1]}"`);
 
     const target = await blank(2);
-    expect(await importXfdf(target, xfdf)).toEqual({ imported: 3, skipped: 0, duplicates: 0 });
+    expect(await importXfdf(target, xfdf)).toEqual({
+      imported: 3,
+      comments: 2,
+      replies: 1,
+      statuses: 0,
+      skipped: 0,
+      duplicates: 0,
+    });
     expect(listAnnotations(target, 0).map((a) => [a.contents, a.replies.length])).toEqual([
       ['On both pages', 0],
     ]);
@@ -1268,7 +1303,14 @@ describe('comment exchange', () => {
       listAnnotations(target, 1).map((a) => [a.contents, a.replies.map((r) => r.contents)]),
     ).toEqual([['On both pages', ['Seen on page 2']]]);
     // Back into the PDF it came from, it adds nothing.
-    expect(await importXfdf(source, xfdf)).toEqual({ imported: 0, skipped: 0, duplicates: 3 });
+    expect(await importXfdf(source, xfdf)).toEqual({
+      imported: 0,
+      comments: 0,
+      replies: 0,
+      statuses: 0,
+      skipped: 0,
+      duplicates: 3,
+    });
   });
 
   it('takes the text of comments that carry only rich text', async () => {
