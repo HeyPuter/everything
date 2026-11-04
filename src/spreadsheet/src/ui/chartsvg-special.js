@@ -5,6 +5,7 @@
  * colours and layout; an older app chart in the theme's own colours.
  */
 import { axisLabel, niceScale, chartPointStyle, chartXGridlines, waterfallSteps } from '../core/charts.js';
+import { t } from '../i18n/index.js';
 import { axisFraction, chartAxisScale } from '../core/chart-axis-scale.js';
 import { formatValue, fontStack } from '../core/format.js';
 import { maxOf, minOf } from '../core/numeric.js';
@@ -18,7 +19,9 @@ export const SPECIAL_CHART_TYPES = new Set(['treemap', 'sunburst', 'boxWhisker',
 
 const AXIS_TITLED = new Set(['boxWhisker', 'stock', 'surface', 'waterfall']);
 
-const TYPE_NAMES = { treemap: 'Treemap', sunburst: 'Sunburst', boxWhisker: 'Box and whisker chart', funnel: 'Funnel chart', stock: 'Stock chart', surface: 'Surface chart', waterfall: 'Waterfall chart' };
+// The chart's accessible name when it has neither a description nor a title, as message keys.
+const TYPE_NAMES = { treemap: 'chartsvgSpecial.name.treemap', sunburst: 'chartsvgSpecial.name.sunburst', boxWhisker: 'chartsvgSpecial.name.boxWhisker',
+  funnel: 'chartsvgSpecial.name.funnel', stock: 'chartsvgSpecial.name.stock', surface: 'chartsvgSpecial.name.surface', waterfall: 'chartsvgSpecial.name.waterfall' };
 
 /** Text styles: the appearance's, or the theme's ink for an app chart without one. */
 function textStyles(a) {
@@ -52,7 +55,7 @@ function fitText(value, width, style) {
  */
 function chartFrame(chart, width, height, entries, describe) {
   const W = Math.max(120, width), H = Math.max(80, height), a = chart.appearance || null, st = textStyles(a);
-  const parts = [`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="${esc(chart.description || chart.title || TYPE_NAMES[chart.type] || 'Chart')}" style="${PLOT_STYLE}">`];
+  const parts = [`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="${esc(chart.description || chart.title || t(TYPE_NAMES[chart.type] || 'chartsvgSpecial.name.chart'))}" style="${PLOT_STYLE}">`];
   if (describe) parts.push(`<desc>${esc(describe)}</desc>`);
   parts.push(a ? chartAreaRect(a, W, H) + elementEffectDefs(a) : `<rect width="${W}" height="${H}" fill="var(--surface)"/>`);
   let titleBottom = 0;
@@ -120,7 +123,7 @@ export function renderSpecialChart(data, chart, width, height) {
     case 'funnel': return renderFunnel(data, chart, width, height);
     case 'stock': return renderStock(data, chart, width, height);
     case 'surface': return renderSurface(data, chart, width, height);
-    default: return message(chart, width, height, 'This chart type cannot be drawn');
+    default: return message(chart, width, height, t('chartsvgSpecial.cannotDraw'));
   }
 }
 
@@ -145,11 +148,13 @@ const pathTip = (node, style) => `${node.path.join(' › ')}: ${valueText(node.v
 
 function renderTreemap(data, chart, width, height) {
   const root = hierarchyOf(data);
-  if (!root.children.length) return message(chart, width, height, 'No positive numbers to chart');
+  if (!root.children.length) return message(chart, width, height, t('chartsvgSpecial.noPositive'));
   const nodes = hierarchyNodes(root), leaves = nodes.filter(n => !n.children.length);
   const style = data.series[0]?.style ?? data.valueStyle ?? null;
   const entries = root.children.map((n, i) => ({ name: n.name, i, paint: branchPaint(chart, root, n) }));
-  const fr = chartFrame(chart, width, height, entries, `Treemap of ${leaves.length} ${leaves.length === 1 ? 'item' : 'items'}${root.children.length > 1 && hierarchyDepth(root) > 1 ? ` in ${root.children.length} groups` : ''}, ${pathTip(root.children[0], style)} the largest group.`);
+  const fr = chartFrame(chart, width, height, entries, root.children.length > 1 && hierarchyDepth(root) > 1
+    ? t('chartsvgSpecial.describe.treemapGroups', { count: leaves.length, groups: root.children.length, largest: pathTip(root.children[0], style) })
+    : t('chartsvgSpecial.describe.treemap', { count: leaves.length, largest: pathTip(root.children[0], style) }));
   const { parts, plot, st, a } = fr;
   const mode = chart.treemapLabels || 'overlapping', labelStyle = st.label;
   const layout = treemapLayout(root, plot, { labels: mode, bannerHeight: labelStyle.size * 1.6, gap: 2 });
@@ -201,11 +206,11 @@ function arcPath(cx, cy, r0, r1, a0, a1) {
 
 function renderSunburst(data, chart, width, height) {
   const root = hierarchyOf(data);
-  if (!root.children.length) return message(chart, width, height, 'No positive numbers to chart');
+  if (!root.children.length) return message(chart, width, height, t('chartsvgSpecial.noPositive'));
   const style = data.series[0]?.style ?? data.valueStyle ?? null;
   const depth = hierarchyDepth(root), arcs = sunburstLayout(root);
   const entries = root.children.map((n, i) => ({ name: n.name, i, paint: branchPaint(chart, root, n) }));
-  const fr = chartFrame(chart, width, height, entries, `Sunburst of ${depth} ${depth === 1 ? 'ring' : 'rings'} around ${root.children.length} ${root.children.length === 1 ? 'branch' : 'branches'}; ${pathTip(root.children[0], style)} the largest.`);
+  const fr = chartFrame(chart, width, height, entries, t('chartsvgSpecial.describe.sunburst', { depth, branches: root.children.length, largest: pathTip(root.children[0], style) }));
   const { parts, plot, st, a } = fr;
   const cx = plot.x + plot.w / 2, cy = plot.y + plot.h / 2, R = Math.max(10, Math.min(plot.w, plot.h) / 2);
   const hole = R / (depth + 1) * .45, ring = (R - hole) / Math.max(1, depth);
@@ -284,11 +289,11 @@ function renderBoxWhisker(data, chart, width, height) {
   const opts = chart.box || { quartiles: 'exclusive', meanMarkers: true, meanLine: false, innerPoints: false, outliers: true, gapWidth: 100 };
   const grouped = boxGroups(data);
   const stats = grouped.series.map(s => s.groups.map(values => boxStats(values, opts.quartiles)));
-  if (!stats.some(list => list.some(Boolean))) return message(chart, width, height, 'No numbers to chart');
+  if (!stats.some(list => list.some(Boolean))) return message(chart, width, height, t('chartsvgSpecial.noNumbers'));
   const entries = grouped.series.map((s, i) => ({ name: s.name, i, paint: seriesPaint(chart, i) }));
   const first = stats.flat().find(Boolean);
   const fr = chartFrame(chart, width, height, entries,
-    `Box and whisker chart of ${grouped.series.length} ${grouped.series.length === 1 ? 'series' : 'series'} over ${grouped.categories.length} ${grouped.categories.length === 1 ? 'group' : 'groups'}; first median ${valueText(first.median, data.valueStyle)}.`);
+    t('chartsvgSpecial.describe.box', { series: grouped.series.length, groups: grouped.categories.length, median: valueText(first.median, data.valueStyle) }));
   const { parts, plot, st, a } = fr;
   const all = stats.flat().filter(Boolean);
   const lo = minOf(all.map(s => s.min)), hi = maxOf(all.map(s => s.max));
@@ -329,14 +334,15 @@ function renderBoxWhisker(data, chart, width, height) {
       // A box coloured on its own (Format Data Point) keeps that colour; the rest take the series'.
       const own = pointColors.get(i), color = own && own !== 'none' ? own : seriesColor(chart, j), paint = own || seriesPaint(chart, j), dark = shadeColor(color, -.35);
       const x0 = plot.x + slot * i + boxW * gap / 2 + boxW * j, cxm = x0 + boxW / 2, w = boxW * .8, left = cxm - w / 2;
-      const tip = `${series.name}${grouped.categories[i] ? ` · ${grouped.categories[i]}` : ''}: median ${valueText(s.median, style)}, quartiles ${valueText(s.q1, style)}–${valueText(s.q3, style)}, mean ${valueText(s.mean, style)}, ${s.n} ${s.n === 1 ? 'value' : 'values'}`;
+      const tip = t('chartsvgSpecial.boxTip', { name: `${series.name}${grouped.categories[i] ? ` · ${grouped.categories[i]}` : ''}`,
+        median: valueText(s.median, style), q1: valueText(s.q1, style), q3: valueText(s.q3, style), mean: valueText(s.mean, style), count: s.n });
       parts.push(`<g class="chart-box" data-el="series" data-series="${j}" data-point="${i}"><title>${esc(tip)}</title>`,
         `<path class="chart-whisker" d="M ${f(cxm)} ${f(y(s.high))} V ${f(y(s.q3))} M ${f(cxm)} ${f(y(s.q1))} V ${f(y(s.low))} M ${f(cxm - w / 4)} ${f(y(s.high))} H ${f(cxm + w / 4)} M ${f(cxm - w / 4)} ${f(y(s.low))} H ${f(cxm + w / 4)}" stroke="${esc(dark)}" stroke-width="1" fill="none"/>`,
         `<rect class="chart-box-body" x="${f(left)}" y="${f(y(s.q3))}" width="${f(w)}" height="${f(Math.max(.75, y(s.q1) - y(s.q3)))}" fill="${esc(paint)}" stroke="${esc(dark)}" stroke-width="1"/>`,
         `<line class="chart-box-median" x1="${f(left)}" y1="${f(y(s.median))}" x2="${f(left + w)}" y2="${f(y(s.median))}" stroke="${esc(inkOn(color))}" stroke-width="1.5"/>`);
       if (opts.meanMarkers) parts.push(chartMarker('x', cxm, y(s.mean), Math.min(8, w / 2), 'none', inkOn(color), '', 'chart-box-mean'));
       if (opts.innerPoints) for (const v of s.inner.slice(0, pointsPerBox)) parts.push(`<circle class="chart-box-point" cx="${f(cxm)}" cy="${f(y(v))}" r="1.8" fill="${esc(dark)}"/>`);
-      if (opts.outliers) for (const v of s.outliers.slice(0, pointsPerBox)) parts.push(`<circle class="chart-box-outlier" cx="${f(cxm)}" cy="${f(y(v))}" r="2.5" fill="none" stroke="${esc(dark)}" stroke-width="1"><title>${esc(`${series.name}: outlier ${valueText(v, style)}`)}</title></circle>`);
+      if (opts.outliers) for (const v of s.outliers.slice(0, pointsPerBox)) parts.push(`<circle class="chart-box-outlier" cx="${f(cxm)}" cy="${f(y(v))}" r="2.5" fill="none" stroke="${esc(dark)}" stroke-width="1"><title>${esc(t('chartsvgSpecial.outlierTip', { name: series.name, value: valueText(v, style) }))}</title></circle>`);
       parts.push('</g>');
       means.push([cxm, y(s.mean)]);
       if (labelsOn(chart) && w >= 4) {
@@ -362,12 +368,12 @@ function renderBoxWhisker(data, chart, width, height) {
  */
 export function renderWaterfall(data, chart, width, height) {
   const s = data.series[0];
-  if (!s || !s.values.some(Number.isFinite)) return message(chart, width, height, 'No numbers to chart');
+  if (!s || !s.values.some(Number.isFinite)) return message(chart, width, height, t('chartsvgSpecial.noNumbers'));
   const style = s.style ?? data.valueStyle ?? null;
   const paint = kind => (kind === 'increase' ? seriesPaint(chart, 0) : kind === 'decrease' ? chart.colors?.[1] || 'var(--critical, #c22a2a)' : chart.colors?.[2] || 'var(--ink-3, #918f88)');
-  const entries = [['Increase', 'increase'], ['Decrease', 'decrease'], ['Total', 'total']].map(([name, kind], i) => ({ name, i, paint: paint(kind) }));
-  let steps = waterfallSteps(s.values), categories = [...data.categories.slice(0, s.values.length), 'Total'];
-  const fr = chartFrame(chart, width, height, entries, `Waterfall chart of ${s.values.length} changes ending at a total of ${valueText(steps.at(-1).to, style)}.`);
+  const entries = [[t('chartsvgSpecial.increase'), 'increase'], [t('chartsvgSpecial.decrease'), 'decrease'], [t('chartsvgSpecial.total'), 'total']].map(([name, kind], i) => ({ name, i, paint: paint(kind) }));
+  let steps = waterfallSteps(s.values), categories = [...data.categories.slice(0, s.values.length), t('chartsvgSpecial.total')];
+  const fr = chartFrame(chart, width, height, entries, t('chartsvgSpecial.describe.waterfall', { count: s.values.length, total: valueText(steps.at(-1).to, style) }));
   const { parts, plot, st, a } = fr;
   const lo = Math.min(0, ...steps.map(b => Math.min(b.from, b.to))), hi = Math.max(0, ...steps.map(b => Math.max(b.from, b.to)));
   const scale = chartAxisScale(lo, hi, { min: chart.yMin, max: chart.yMax, step: a?.yStep, ticks: 5 });
@@ -427,10 +433,10 @@ export function renderWaterfall(data, chart, width, height) {
 function renderFunnel(data, chart, width, height) {
   const s = data.series[0];
   const points = s ? data.categories.map((c, i) => ({ c, i, v: s.values[i] })).filter(p => Number.isFinite(p.v)) : [];
-  if (!points.length) return message(chart, width, height, 'No numbers to chart');
+  if (!points.length) return message(chart, width, height, t('chartsvgSpecial.noNumbers'));
   const style = s.style ?? data.valueStyle ?? null;
   const fr = chartFrame(chart, width, height, [{ name: s.name, i: 0, paint: seriesPaint(chart, 0) }],
-    `Funnel of ${points.length} stages from ${points[0].c} (${valueText(points[0].v, style)}) to ${points.at(-1).c} (${valueText(points.at(-1).v, style)}).`);
+    t('chartsvgSpecial.describe.funnel', { count: points.length, first: points[0].c, firstValue: valueText(points[0].v, style), last: points.at(-1).c, lastValue: valueText(points.at(-1).v, style) }));
   const { parts, plot, st, a } = fr;
   const short = categoryShortener(points.map(p => p.c), 22);
   const showAxis = !a?.hideXAxis && a?.xLabelPosition !== 'none';
@@ -458,7 +464,7 @@ function renderFunnel(data, chart, width, height) {
 function renderStock(data, chart, width, height) {
   const kind = chart.stock || 'hlc';
   const stock = stockSeries(data, kind);
-  if (stock.missing) return message(chart, width, height, `A stock chart needs ${stock.missing.join(', ')} columns, in that order`);
+  if (stock.missing) return message(chart, width, height, t('chartsvgSpecial.stockMissing', { kind }));
   const n = stock.categories.length, volume = !!stock.volume, open = !!stock.open;
   const priceStyle = stock.styles.close;
   const up = chart.colors?.[volume ? 1 : 0] || (chart.appearance ? '#ffffff' : 'var(--surface)'), down = chart.colors?.[volume ? 2 : 1] || (chart.appearance ? '#404040' : 'var(--ink-2)');
@@ -471,9 +477,11 @@ function renderStock(data, chart, width, height) {
     { name: stock.names.close, i: (volume ? 3 : 2) + (open ? 1 : 0), paint: lineInk, key: 'marker', symbol: 'dash' },
   ];
   const prices = [stock.high, stock.low, stock.close, ...(open ? [stock.open] : [])].flat().filter(Number.isFinite);
-  if (!prices.length) return message(chart, width, height, 'No prices to chart');
+  if (!prices.length) return message(chart, width, height, t('chartsvgSpecial.noPrices'));
   const last = stock.close.findLastIndex(Number.isFinite);
-  const fr = chartFrame(chart, width, height, entries, `Stock chart of ${n} periods; prices from ${valueText(minOf(prices), priceStyle)} to ${valueText(maxOf(prices), priceStyle)}${last >= 0 ? `, last close ${valueText(stock.close[last], priceStyle)}` : ''}.`);
+  const fr = chartFrame(chart, width, height, entries, last >= 0
+    ? t('chartsvgSpecial.describe.stockClose', { count: n, min: valueText(minOf(prices), priceStyle), max: valueText(maxOf(prices), priceStyle), close: valueText(stock.close[last], priceStyle) })
+    : t('chartsvgSpecial.describe.stock', { count: n, min: valueText(minOf(prices), priceStyle), max: valueText(maxOf(prices), priceStyle) }));
   const { parts, plot, st, a } = fr;
   const priceScale = chartAxisScale(minOf(prices), maxOf(prices), { min: volume ? a?.y2Min : chart.yMin, max: volume ? a?.y2Max : chart.yMax, ticks: 5 });
   const volumes = volume ? stock.volume.filter(Number.isFinite) : [];
@@ -494,7 +502,8 @@ function renderStock(data, chart, width, height) {
   for (let i = 0; i < n; i++) {
     const x = plot.x + slot * (i + .5);
     const h = stock.high[i], l = stock.low[i], c = stock.close[i], o = open ? stock.open[i] : null;
-    const tip = budget ? `<title>${esc(`${stock.categories[i]}: ${[open ? `open ${valueText(o, priceStyle)}` : '', `high ${valueText(h, priceStyle)}`, `low ${valueText(l, priceStyle)}`, `close ${valueText(c, priceStyle)}`, volume ? `volume ${valueText(stock.volume[i], stock.styles.volume)}` : ''].filter(Boolean).join(', ')}`)}</title>` : '';
+    const tip = budget ? `<title>${esc(t('chartsvgSpecial.stockTip', { date: stock.categories[i], hasOpen: open ? 'yes' : 'no', open: valueText(o, priceStyle), high: valueText(h, priceStyle),
+      low: valueText(l, priceStyle), close: valueText(c, priceStyle), hasVolume: volume ? 'yes' : 'no', volume: volume ? valueText(stock.volume[i], stock.styles.volume) : '' }))}</title>` : '';
     parts.push(`<g class="chart-stock-period" data-el="series" data-series="${volume ? 1 : 0}" data-point="${i}">${tip}`);
     if (volume && Number.isFinite(stock.volume[i])) parts.push(`<rect class="chart-stock-volume" x="${f(x - barW / 2)}" y="${f(yv(Math.max(0, stock.volume[i])))}" width="${f(barW)}" height="${f(Math.max(0, yv(0) - yv(Math.max(0, stock.volume[i]))))}" fill="${esc(seriesPaint(chart, 0))}" fill-opacity=".85"/>`);
     if (Number.isFinite(h) && Number.isFinite(l)) parts.push(`<line class="chart-stock-hilo" x1="${f(x)}" y1="${f(yp(h))}" x2="${f(x)}" y2="${f(yp(l))}" stroke="${esc(lineInk)}" stroke-width="1"/>`);
@@ -536,7 +545,7 @@ function renderSurface(data, chart, width, height) {
   const grid = sampledGrid(surfaceGrid(data), MARK_BUDGET * 2);
   if (grid.rows < 2 || grid.cols < 2) return message(chart, width, height, 'A surface needs at least two rows and two columns of numbers');
   const values = grid.z.flat().filter(Number.isFinite);
-  if (!values.length) return message(chart, width, height, 'No numbers to chart');
+  if (!values.length) return message(chart, width, height, t('chartsvgSpecial.noNumbers'));
   const a = chart.appearance;
   const bands = surfaceBands(minOf(values), maxOf(values), { min: chart.yMin, max: chart.yMax, step: a?.yStep, niceScale });
   const style = data.valueStyle;
@@ -544,7 +553,7 @@ function renderSurface(data, chart, width, height) {
   const view = chart.surfaceView || 'surface3d', wire = view === 'wireframe3d' || view === 'wireframeContour';
   const entries = bands.bands.map((b, k) => ({ name: bandLabel(b), i: k, paint: seriesPaint(chart, k), key: wire ? 'line' : 'box' }));
   const fr = chartFrame(chart, width, height, entries,
-    `${view.endsWith('ontour') ? 'Contour' : 'Surface'} chart of ${grid.rows} by ${grid.cols} values from ${valueText(minOf(values), style)} to ${valueText(maxOf(values), style)} in ${bands.bands.length} bands.`);
+    t('chartsvgSpecial.describe.surface', { view: view.endsWith('ontour') ? 'contour' : 'surface', rows: grid.rows, cols: grid.cols, min: valueText(minOf(values), style), max: valueText(maxOf(values), style), bands: bands.bands.length }));
   const bandOf = z => Math.max(0, Math.min(bands.bands.length - 1, Math.floor((z - bands.min) / bands.step)));
   const tris = surfaceTriangles(grid);
   if (view === 'contour' || view === 'wireframeContour') drawContour(fr, chart, grid, bands, tris, bandOf, wire);
@@ -567,12 +576,12 @@ function drawContour(fr, chart, grid, bands, tris, bandOf, wire) {
     const paint = seriesPaint(chart, k);
     if (wire) {
       // The contour line at the band's lower edge, drawn in the band's colour.
-      const d = tris.map(t => isoSegment(t, band.lo)).filter(Boolean).map(([p, q]) => `M${f(X(p[0]))} ${f(Y(p[1]))}L${f(X(q[0]))} ${f(Y(q[1]))}`).join('');
+      const d = tris.map(tri => isoSegment(tri, band.lo)).filter(Boolean).map(([p, q]) => `M${f(X(p[0]))} ${f(Y(p[1]))}L${f(X(q[0]))} ${f(Y(q[1]))}`).join('');
       if (d) parts.push(`<path class="chart-contour-line" d="${d}" fill="none" stroke="${esc(paint)}" stroke-width="1.5" data-el="series" data-series="${k}"/>`);
       return;
     }
-    const polys = tris.map(t => bandPolygon(t, band.lo, k === bands.bands.length - 1 ? Infinity : band.hi)).filter(Boolean);
-    if (k === 0) polys.push(...tris.map(t => bandPolygon(t, -Infinity, band.lo)).filter(Boolean));
+    const polys = tris.map(tri => bandPolygon(tri, band.lo, k === bands.bands.length - 1 ? Infinity : band.hi)).filter(Boolean);
+    if (k === 0) polys.push(...tris.map(tri => bandPolygon(tri, -Infinity, band.lo)).filter(Boolean));
     if (polys.length) parts.push(`<g class="chart-contour-band" data-el="series" data-series="${k}" fill="${esc(paint)}" stroke="${esc(paint)}" stroke-width=".6" stroke-linejoin="round">${polys.map(p => `<polygon points="${pts(p)}"/>`).join('')}</g>`);
   });
   const slot = plot.w / Math.max(1, grid.rows - 1);
@@ -638,10 +647,10 @@ function drawSurface3d(fr, chart, grid, bands, tris, bandOf, wire, style) {
   } else {
     // Each triangle cut into its value bands, painted back to front so the nearer surface covers the farther.
     const pieces = [];
-    for (const t of tris) {
-      const depth = t.reduce((sum, p) => sum + at(...p).depth, 0) / 3;
+    for (const tri of tris) {
+      const depth = tri.reduce((sum, p) => sum + at(...p).depth, 0) / 3;
       bands.bands.forEach((band, b) => {
-        const poly = bandPolygon(t, b === 0 ? -Infinity : band.lo, b === bands.bands.length - 1 ? Infinity : band.hi);
+        const poly = bandPolygon(tri, b === 0 ? -Infinity : band.lo, b === bands.bands.length - 1 ? Infinity : band.hi);
         if (poly) pieces.push({ depth, b, poly });
       });
     }

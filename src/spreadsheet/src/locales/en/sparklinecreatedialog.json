@@ -1,0 +1,15 @@
+{
+  "automatic": "Automatic",
+  "chartType": "Chart type",
+  "create": "Create",
+  "dataColumn": "Data column",
+  "dataRange": "Data range",
+  "dataRow": "Data row",
+  "locationRange": "Destination range",
+  "note": "Choose one destination cell for each data row or column. Cell values stay in place. You can change colors and axes in Format → Sparkline settings.",
+  "perRowOrColumn": "One sparkline per",
+  "title": "Create sparklines",
+  "typeColumn": "Column",
+  "typeLine": "Line",
+  "typeWinLoss": "Win/loss"
+}
