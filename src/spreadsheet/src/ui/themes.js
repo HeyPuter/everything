@@ -10,8 +10,10 @@ import { FONTS, fontStack, fontKeyFor } from '../core/format.js';
 import { sameFontColor } from '../core/font-color.js';
 import {
   THEMES, COLOR_SCHEMES, FONT_SCHEMES, THEME_DIALOG_SLOTS, colorScheme, fontScheme,
-  workbookTheme, applyGalleryTheme, applyWorkbookTheme, themeColorGrid, themedCellStyles, themedCellStylePatch,
+  workbookTheme, applyGalleryTheme, applyWorkbookTheme, themeColorGrid, themedCellStyles, themedCellStylePatch, themedCellStyleLabel, schemeName,
 } from '../core/workbook-theme.js';
+import { effectSchemeName } from '../core/theme-effects.js';
+import { t } from '../i18n/index.js';
 
 const CUSTOM_COLORS_KEY = 'spreadsheet:themeColors';
 const CUSTOM_FONTS_KEY = 'spreadsheet:themeFonts';
@@ -34,8 +36,9 @@ function remember(key, valid, entry) {
 }
 
 /** What the menus call a built-in scheme. The default theme, colours, fonts and effects keep the name
- * "Office" in workbook files, where other spreadsheet apps look for it; on screen they are "Default". */
-export const schemeLabel = name => (name === 'Office' ? 'Default' : name);
+ * "Office" in workbook files, where other spreadsheet apps look for it; on screen they are "Default". The app's
+ * other schemes are named in the interface language; a name of the person's own or a file's is shown as it is. */
+export const schemeLabel = name => (name === 'Office' ? t('common.default') : effectSchemeName(schemeName(name)));
 
 const editing = ctx => !!ctx.grid?.editing && !ctx.grid.commitEdit?.();
 const done = (ctx, changed) => { if (changed) ctx.grid?.focus?.(); };
@@ -53,7 +56,8 @@ export function openThemesMenu(ctx, anchor) {
     const checked = current.name === theme.name;
     return el('button.theme-tile', {
       type: 'button', role: 'menuitemradio', 'aria-checked': String(checked), tabindex: -1,
-      'aria-label': `${schemeLabel(theme.name)} theme`, title: `${schemeLabel(theme.name)}\nColors: ${schemeLabel(theme.colors)} · Fonts: ${fonts.major} / ${fonts.minor}`,
+      'aria-label': t('themes.themeTile', { name: schemeLabel(theme.name) }),
+      title: t('themes.themeTileTip', { name: schemeLabel(theme.name), colors: schemeLabel(theme.colors), major: fonts.major, minor: fonts.minor }),
       onclick: () => { menu.close(); done(ctx, applyGalleryTheme(ctx.wb, theme.name)); },
     },
     el('span.theme-tile-sample', { style: { background: colors[0], color: colors[1] }, 'aria-hidden': 'true' },
@@ -61,11 +65,11 @@ export function openThemesMenu(ctx, anchor) {
       el('span.theme-tile-bars', {}, ...[4, 5, 6, 7, 8, 9].map(i => el('span', { style: { background: colors[i] } })))),
     el('span.theme-tile-name', {}, schemeLabel(theme.name)));
   };
-  const grid = el('div.theme-gallery', { role: 'group', 'aria-label': 'Themes', 'data-cols': 4 }, ...THEMES.map(tile));
+  const grid = el('div.theme-gallery', { role: 'group', 'aria-label': t('themes.themes'), 'data-cols': 4 }, ...THEMES.map(tile));
   const menu = openMenu({
-    anchor, label: 'Themes', minWidth: 360,
-    items: [{ header: 'Built-In' }, { custom: grid }, { separator: true },
-      { label: 'Reset to Default Theme', icon: 'reset', onSelect: () => done(ctx, applyGalleryTheme(ctx.wb, 'Office')) }],
+    anchor, label: t('themes.themes'), minWidth: 360,
+    items: [{ header: t('themes.builtIn') }, { custom: grid }, { separator: true },
+      { label: t('themes.resetTheme'), icon: 'reset', onSelect: () => done(ctx, applyGalleryTheme(ctx.wb, 'Office')) }],
     onClose: reason => { if (reason === 'select') ctx.grid?.focus?.(); },
   });
   (grid.querySelector('[aria-checked="true"]') || grid.querySelector('button'))?.focus();
@@ -79,15 +83,15 @@ export function openThemeColorsMenu(ctx, anchor) {
   const row = scheme => el('button.menu-item.theme-scheme-item', {
     type: 'button', role: 'menuitemradio', tabindex: -1, 'aria-checked': String(current.colorsName === scheme.name
       && scheme.colors.every((c, i) => c === current.colors[i])),
-    onclick: () => { menu.close(); done(ctx, applyWorkbookTheme(ctx.wb, { colors: { name: scheme.name, colors: scheme.colors } }, `Theme colors: ${schemeLabel(scheme.name)}`)); },
+    onclick: () => { menu.close(); done(ctx, applyWorkbookTheme(ctx.wb, { colors: { name: scheme.name, colors: scheme.colors } }, t('themes.undo.colors', { name: schemeLabel(scheme.name) }))); },
   }, strip(scheme.colors), el('span.menu-label', {}, schemeLabel(scheme.name)));
   const custom = customColorSchemes();
   const menu = openMenu({
-    anchor, label: 'Colors', minWidth: 260,
+    anchor, label: t('themes.colors'), minWidth: 260,
     items: [
-      ...(custom.length ? [{ header: 'Custom' }, ...custom.map(s => ({ custom: row(s) }))] : []),
-      { header: 'Built-In' }, ...COLOR_SCHEMES.map(s => ({ custom: row(s) })), { separator: true },
-      { label: 'Customize Colors…', icon: 'palette', onSelect: () => openCustomizeColorsDialog(ctx) },
+      ...(custom.length ? [{ header: t('common.custom') }, ...custom.map(s => ({ custom: row(s) }))] : []),
+      { header: t('themes.builtIn') }, ...COLOR_SCHEMES.map(s => ({ custom: row(s) })), { separator: true },
+      { label: t('themes.customizeColors'), icon: 'palette', onSelect: () => openCustomizeColorsDialog(ctx) },
     ],
     onClose: reason => { if (reason === 'select') ctx.grid?.focus?.(); },
   });
@@ -103,8 +107,8 @@ export function openThemeFontsMenu(ctx, anchor) {
   const row = scheme => el('button.menu-item.theme-font-item', {
     type: 'button', role: 'menuitemradio', tabindex: -1,
     'aria-checked': String(current.major === scheme.major && current.minor === scheme.minor && (current.fontsName === scheme.name || scheme.name === 'Office')),
-    'aria-label': `${schemeLabel(scheme.name)}: ${scheme.major}, ${scheme.minor}`,
-    onclick: () => { menu.close(); done(ctx, applyWorkbookTheme(ctx.wb, { fonts: { ...scheme } }, `Theme fonts: ${schemeLabel(scheme.name)}`)); },
+    'aria-label': t('themes.fontSchemeItem', { name: schemeLabel(scheme.name), major: scheme.major, minor: scheme.minor }),
+    onclick: () => { menu.close(); done(ctx, applyWorkbookTheme(ctx.wb, { fonts: { ...scheme } }, t('themes.undo.fonts', { name: schemeLabel(scheme.name) }))); },
   },
   el('span.theme-font-aa', { 'aria-hidden': 'true', style: { fontFamily: face(scheme.major) } }, 'Aa'),
   el('span.theme-font-text', {}, el('span.theme-font-name', {}, schemeLabel(scheme.name)),
@@ -112,11 +116,11 @@ export function openThemeFontsMenu(ctx, anchor) {
     el('span.theme-font-face', { style: { fontFamily: face(scheme.minor) } }, scheme.minor)));
   const custom = customFontSchemes();
   const menu = openMenu({
-    anchor, label: 'Fonts', minWidth: 240,
+    anchor, label: t('themes.fonts'), minWidth: 240,
     items: [
-      ...(custom.length ? [{ header: 'Custom' }, ...custom.map(s => ({ custom: row(s) }))] : []),
-      { header: 'Built-In' }, ...FONT_SCHEMES.map(s => ({ custom: row(s) })), { separator: true },
-      { label: 'Customize Fonts…', icon: 'text', onSelect: () => openCustomizeFontsDialog(ctx) },
+      ...(custom.length ? [{ header: t('common.custom') }, ...custom.map(s => ({ custom: row(s) }))] : []),
+      { header: t('themes.builtIn') }, ...FONT_SCHEMES.map(s => ({ custom: row(s) })), { separator: true },
+      { label: t('themes.customizeFonts'), icon: 'text', onSelect: () => openCustomizeFontsDialog(ctx) },
     ],
     onClose: reason => { if (reason === 'select') ctx.grid?.focus?.(); },
   });
@@ -124,7 +128,8 @@ export function openThemeFontsMenu(ctx, anchor) {
   return menu;
 }
 
-const nextName = (prefix, taken) => { let n = 1; while (taken.includes(`${prefix} ${n}`)) n++; return `${prefix} ${n}`; };
+/** The first "Custom 1", "Custom 2", … not yet taken: the name a new scheme starts with. */
+const nextName = (taken) => { let n = 1; while (taken.includes(t('themes.customName', { n }))) n++; return t('themes.customName', { n }); };
 
 /** Create New Theme Colors: the twelve colours, a sample, a name; Save applies them to the workbook. */
 export function openCustomizeColorsDialog(ctx) {
@@ -134,41 +139,42 @@ export function openCustomizeColorsDialog(ctx) {
   const preview = el('div.theme-colors-preview', { 'aria-hidden': 'true' });
   const paintPreview = () => preview.replaceChildren(
     el('div.theme-preview-page', { style: { background: colors[0], color: colors[1] } },
-      el('div.theme-preview-text', {}, 'Text'),
+      el('div.theme-preview-text', {}, t('themes.previewText')),
       el('div.theme-preview-bars', {}, ...[4, 5, 6, 7, 8, 9].map(i => el('span', { style: { background: colors[i], height: `${40 + i * 6}%` } }))),
-      el('div.theme-preview-links', {}, el('span', { style: { color: colors[10] } }, 'Hyperlink'), ' ', el('span', { style: { color: colors[11] } }, 'Followed'))),
+      el('div.theme-preview-links', {}, el('span', { style: { color: colors[10] } }, t('themes.previewHyperlink')), ' ', el('span', { style: { color: colors[11] } }, t('themes.previewFollowed')))),
     el('div.theme-preview-page', { style: { background: colors[3], color: colors[2] } },
-      el('div.theme-preview-text', {}, 'Text'),
+      el('div.theme-preview-text', {}, t('themes.previewText')),
       el('div.theme-preview-bars', {}, ...[4, 5, 6, 7, 8, 9].map(i => el('span', { style: { background: colors[i], height: `${40 + i * 6}%` } })))));
-  const inputs = THEME_DIALOG_SLOTS.map(([label, index]) => {
+  const inputs = THEME_DIALOG_SLOTS.map(([key, index]) => {
+    const label = t(key);
     const input = el('input.theme-color-input', { type: 'color', value: colors[index], 'aria-label': label,
       oninput: () => { colors[index] = input.value.toLowerCase(); paintPreview(); } });
     return { input, index, row: el('label.theme-color-row', {}, el('span', {}, label), input) };
   });
   const taken = customColorSchemes().map(s => s.name);
-  const name = el('input.input', { type: 'text', value: nextName('Custom', taken), maxlength: 64, 'aria-label': 'Name', spellcheck: false });
+  const name = el('input.input', { type: 'text', value: nextName(taken), maxlength: 64, 'aria-label': t('common.name'), spellcheck: false });
   const { alert, refuse } = fieldAlert('theme-colors');
   const submit = e => {
     e?.preventDefault();
     const title = name.value.trim();
-    if (!title || /[<>"\u0000-\u001f]/.test(title)) return refuse(name, 'Type a name without < > or "');
-    if (COLOR_SCHEMES.some(s => s.name === title)) return refuse(name, 'A built-in color scheme has that name');
+    if (!title || /[<>"\u0000-\u001f]/.test(title)) return refuse(name, t('themes.badName'));
+    if (COLOR_SCHEMES.some(s => s.name === title)) return refuse(name, t('themes.builtInColorsName'));
     remember(CUSTOM_COLORS_KEY, validColors, { name: title, colors });
     modal.close();
-    done(ctx, applyWorkbookTheme(ctx.wb, { colors: { name: title, colors } }, `Theme colors: ${title}`));
+    done(ctx, applyWorkbookTheme(ctx.wb, { colors: { name: title, colors } }, t('themes.undo.colors', { name: title })));
   };
   const reset = () => { start.forEach((c, i) => { colors[i] = c; }); for (const { input, index } of inputs) input.value = colors[index]; paintPreview(); };
   paintPreview();
   const content = el('form.theme-colors-dialog', { onsubmit: submit },
     el('div.theme-colors-body', {},
-      el('fieldset.theme-colors-fields', {}, el('legend', {}, 'Theme colors'), ...inputs.map(i => i.row)),
-      el('div.theme-colors-sample', {}, el('span.field-label', {}, 'Sample'), preview)),
-    el('label.field', {}, el('span.field-label', {}, 'Name'), name, alert),
+      el('fieldset.theme-colors-fields', {}, el('legend', {}, t('themes.themeColors')), ...inputs.map(i => i.row)),
+      el('div.theme-colors-sample', {}, el('span.field-label', {}, t('themes.sample')), preview)),
+    el('label.field', {}, el('span.field-label', {}, t('common.name')), name, alert),
     el('div.row.row-end', {},
-      el('button.btn.btn-ghost', { type: 'button', onclick: reset }, 'Reset'),
-      el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Cancel'),
-      el('button.btn.btn-primary', { type: 'submit' }, 'Save')));
-  const modal = openModal({ title: 'Create New Theme Colors', content, initialFocus: inputs[0].input, wide: true, onClose: () => ctx.grid?.focus?.() });
+      el('button.btn.btn-ghost', { type: 'button', onclick: reset }, t('common.reset')),
+      el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, t('common.cancel')),
+      el('button.btn.btn-primary', { type: 'submit' }, t('common.save'))));
+  const modal = openModal({ title: t('themes.createColors'), content, initialFocus: inputs[0].input, wide: true, onClose: () => ctx.grid?.focus?.() });
   return modal;
 }
 
@@ -178,35 +184,35 @@ export function openCustomizeFontsDialog(ctx) {
   const current = workbookTheme(ctx.wb);
   const names = [...new Set([current.major, current.minor, ...FONTS.filter(f => f[2]).map(f => f[1])])];
   const select = (label, value) => el('select.select', { 'aria-label': label }, ...names.map(n => el('option', { value: n, selected: n === value }, n)));
-  const heading = select('Heading font', current.major), body = select('Body font', current.minor);
+  const heading = select(t('themes.headingFont'), current.major), body = select(t('themes.bodyFont'), current.minor);
   const sample = el('div.theme-fonts-sample', { 'aria-hidden': 'true' });
   const paint = () => sample.replaceChildren(
-    el('div', { style: { fontFamily: fontStack(fontKeyFor(heading.value, { literal: true })) || '', fontSize: '20px' } }, 'Heading'),
-    el('div', { style: { fontFamily: fontStack(fontKeyFor(body.value, { literal: true })) || '' } }, 'Body text body text body text. Body text body text.'));
+    el('div', { style: { fontFamily: fontStack(fontKeyFor(heading.value, { literal: true })) || '', fontSize: '20px' } }, t('themes.sampleHeading')),
+    el('div', { style: { fontFamily: fontStack(fontKeyFor(body.value, { literal: true })) || '' } }, t('themes.sampleBody')));
   heading.onchange = paint; body.onchange = paint; paint();
   const taken = customFontSchemes().map(s => s.name);
-  const name = el('input.input', { type: 'text', value: nextName('Custom', taken), maxlength: 64, 'aria-label': 'Name', spellcheck: false });
+  const name = el('input.input', { type: 'text', value: nextName(taken), maxlength: 64, 'aria-label': t('common.name'), spellcheck: false });
   const { alert, refuse } = fieldAlert('theme-fonts');
   const submit = e => {
     e?.preventDefault();
     const title = name.value.trim();
-    if (!title || /[<>"\u0000-\u001f]/.test(title)) return refuse(name, 'Type a name without < > or "');
-    if (FONT_SCHEMES.some(s => s.name === title)) return refuse(name, 'A built-in font scheme has that name');
+    if (!title || /[<>"\u0000-\u001f]/.test(title)) return refuse(name, t('themes.badName'));
+    if (FONT_SCHEMES.some(s => s.name === title)) return refuse(name, t('themes.builtInFontsName'));
     const scheme = { name: title, major: heading.value, minor: body.value };
     remember(CUSTOM_FONTS_KEY, validFonts, scheme);
     modal.close();
-    done(ctx, applyWorkbookTheme(ctx.wb, { fonts: scheme }, `Theme fonts: ${title}`));
+    done(ctx, applyWorkbookTheme(ctx.wb, { fonts: scheme }, t('themes.undo.fonts', { name: title })));
   };
   const content = el('form', { onsubmit: submit },
     el('div.row.row-2', {},
-      el('label.field', {}, el('span.field-label', {}, 'Heading font:'), heading),
-      el('label.field', {}, el('span.field-label', {}, 'Body font:'), body)),
-    el('div.field', {}, el('span.field-label', {}, 'Sample'), sample),
-    el('label.field', {}, el('span.field-label', {}, 'Name'), name, alert),
+      el('label.field', {}, el('span.field-label', {}, t('themes.headingFontLabel')), heading),
+      el('label.field', {}, el('span.field-label', {}, t('themes.bodyFontLabel')), body)),
+    el('div.field', {}, el('span.field-label', {}, t('themes.sample')), sample),
+    el('label.field', {}, el('span.field-label', {}, t('common.name')), name, alert),
     el('div.row.row-end', {},
-      el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Cancel'),
-      el('button.btn.btn-primary', { type: 'submit' }, 'Save')));
-  const modal = openModal({ title: 'Create New Theme Fonts', content, initialFocus: heading, onClose: () => ctx.grid?.focus?.() });
+      el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, t('common.cancel')),
+      el('button.btn.btn-primary', { type: 'submit' }, t('common.save'))));
+  const modal = openModal({ title: t('themes.createFonts'), content, initialFocus: heading, onClose: () => ctx.grid?.focus?.() });
   return modal;
 }
 
@@ -215,27 +221,28 @@ export function openCustomizeFontsDialog(ctx) {
  * `current` is the cell's colour (a reference is matched by slot and tint); `onPick`
  * receives the colour reference.
  */
-export function themeColorBlock(wb, { current = null, onPick, label = 'Theme colors' }) {
+export function themeColorBlock(wb, { current = null, onPick, label = t('themes.themeColors') }) {
   const grid = themeColorGrid(workbookTheme(wb).colors);
   const swatches = el('div.swatches.swatches-theme', { role: 'group', 'aria-label': label, 'data-cols': 10 },
     ...grid.flat().map(cell => el('button.swatch', {
       type: 'button', role: 'menuitemradio', tabindex: -1,
       'aria-checked': String(!!current && typeof current === 'object' && sameFontColor(current, cell.color)),
-      'aria-label': cell.label, title: `${cell.label} (${cell.color.rgb})`,
+      'aria-label': cell.label, title: t('themes.swatchTip', { label: cell.label, rgb: cell.color.rgb }),
       style: { background: cell.color.rgb }, onclick: () => onPick(cell.color, cell.label),
     })));
-  return [el('div.menu-header', {}, 'Theme Colors'), swatches];
+  return [el('div.menu-header', {}, t('themes.themeColorsHeader')), swatches];
 }
 
 /** The Cell Styles menu's Themed Cell Styles: the accents at 20%, 40% and 60%, and full, in the theme's colours. */
 export function themedCellStyleItems(wb, onPick) {
   const styles = themedCellStyles();
   const order = [20, 40, 60, 0].flatMap(pct => styles.filter(s => (pct ? s.key.endsWith(`-${pct}`) : !s.key.includes('-'))));
-  const grid = el('div.themed-cell-styles', { role: 'group', 'aria-label': 'Themed Cell Styles', 'data-cols': 6 },
+  const grid = el('div.themed-cell-styles', { role: 'group', 'aria-label': t('themes.themedCellStyles'), 'data-cols': 6 },
     ...order.map(def => {
       const { patch } = themedCellStylePatch(def.key, wb);
-      return el('button.menu-item.cell-style-item.themed-cell-style', { type: 'button', role: 'menuitem', tabindex: -1, title: def.label, onclick: () => onPick(def.key) },
-        el('span.cell-style-sample.sheet-paper', { style: { color: patch.color.rgb, background: patch.bg.rgb } }, def.label));
+      const label = themedCellStyleLabel(def);
+      return el('button.menu-item.cell-style-item.themed-cell-style', { type: 'button', role: 'menuitem', tabindex: -1, title: label, onclick: () => onPick(def.key) },
+        el('span.cell-style-sample.sheet-paper', { style: { color: patch.color.rgb, background: patch.bg.rgb } }, label));
     }));
-  return [{ header: 'Themed Cell Styles' }, { custom: grid }];
+  return [{ header: t('themes.themedCellStyles') }, { custom: grid }];
 }
