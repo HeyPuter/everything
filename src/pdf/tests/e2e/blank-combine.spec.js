@@ -63,3 +63,30 @@ test('a blank PDF that has been worked on is still offered first', async ({ page
   const dialog = await tool(page, 'Combine files');
   await expect(dialog.getByLabel('Start with Untitled.pdf')).toBeChecked();
 });
+
+test('a combined PDF counts as unsaved until it is saved or downloaded', async ({ page }) => {
+  const dialog = await tool(page, 'Combine files');
+  const chooser = page.waitForEvent('filechooser');
+  await dialog.getByRole('button', { name: 'Add files…' }).click();
+  await (
+    await chooser
+  ).setFiles([
+    { name: 'a.pdf', mimeType: 'application/pdf', buffer: await twoPages() },
+    { name: 'b.pdf', mimeType: 'application/pdf', buffer: await twoPages() },
+  ]);
+  await dialog.getByRole('button', { name: 'Combine', exact: true }).click();
+  await expect(page.locator('.page-caption')).toHaveText('Page 1 of 4');
+  // The combined PDF exists only here: leaving must not lose it without a word.
+  await expect(page.locator('.save-status')).toHaveText('Unsaved changes');
+  await expect(page).toHaveTitle('* Combined.pdf · PDF Editor');
+  await page.getByRole('button', { name: 'Back to your PDFs', exact: true }).click();
+  const leave = page.getByRole('dialog', { name: 'Save before leaving?' });
+  await leave.getByRole('button', { name: 'Keep editing', exact: true }).click();
+  await expect(page.locator('.page-caption')).toHaveText('Page 1 of 4');
+  const pending = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Download', exact: true }).click();
+  await pending;
+  await expect(page.locator('.save-status')).toHaveText('Downloaded');
+  await page.getByRole('button', { name: 'Back to your PDFs', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'New blank PDF', exact: true })).toBeVisible();
+});

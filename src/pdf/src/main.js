@@ -598,7 +598,7 @@ async function openDocument(
   readBytes,
   name,
   path = null,
-  { signal: sourceSignal, source = null } = {},
+  { signal: sourceSignal, source = null, unsaved = false } = {},
 ) {
   if (sourceSignal?.aborted) return;
   cloudOpenGeneration++;
@@ -661,6 +661,8 @@ async function openDocument(
     editor?.destroy();
     homeGeneration++;
     const session = new PdfSession(bytes);
+    // A PDF made here (combined files) exists nowhere else until it is saved or downloaded.
+    if (unsaved) session.markSaved(-1);
     nextEditor = createEditor({
       root,
       session,
@@ -681,7 +683,9 @@ async function openDocument(
       onOpen: pickDevice,
       onOpenCloud: pickCloud,
       onNew: run(() => openDocument(newBlankPdf, 'Untitled.pdf')),
-      onOpenBytes: run((bytes, name) => openDocument(async () => bytes, name)),
+      onOpenBytes: run((bytes, name) =>
+        openDocument(async () => bytes, name, null, { unsaved: true }),
+      ),
     });
     editor = nextEditor;
     if (hadFocus) refocusView('.workspace');
