@@ -26,7 +26,7 @@ export function showDialog(o: DialogOptions): Promise<string | null> {
     const titleId = nextDomId('dlg');
     const body = h('div', { class: 'dialog-body' }, ...(Array.isArray(o.body) ? o.body : [o.body]));
     const foot = h('div', { class: 'dialog-foot' });
-    const dialog = h('div', { class: `dialog${o.wide ? ' wide' : ''}`, role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': titleId },
+    const dialog = h('div', { class: `dialog${o.wide ? ' wide' : ''}`, role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': titleId, tabindex: '-1' },
       h('div', { class: 'dialog-head' }, h('h2', { id: titleId }, o.title),
         h('button', { class: 'icon-btn', 'aria-label': 'Close', onclick: () => finish(null) }, icon('close', 18))),
       body, foot);
@@ -70,7 +70,9 @@ export function showDialog(o: DialogOptions): Promise<string | null> {
     document.body.append(backdrop);
     openDialogs.push(backdrop);
     o.onReady?.(finish);
-    const focusEl = (o.initialFocus && dialog.querySelector<HTMLElement>(o.initialFocus)) || dialog.querySelector<HTMLElement>('input, select, textarea') || foot.querySelector<HTMLElement>('.btn.primary') || dialog;
+    // Destructive confirmations have no primary button: focus starts on the
+    // first (safe) button, so Escape and Tab work inside the dialog.
+    const focusEl = (o.initialFocus && dialog.querySelector<HTMLElement>(o.initialFocus)) || dialog.querySelector<HTMLElement>('input, select, textarea') || foot.querySelector<HTMLElement>('.btn.primary') || foot.querySelector<HTMLElement>('.btn:not([disabled])') || dialog;
     requestAnimationFrame(() => {
       // A long body that scrolls must be reachable from the keyboard to scroll it.
       if (body.scrollHeight > body.clientHeight + 1) body.tabIndex = 0;

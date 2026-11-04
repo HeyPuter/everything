@@ -99,6 +99,18 @@ describe('dialogs and toasts', () => {
     expect(await p2).toBe(false);
   });
 
+  it('puts focus inside destructive confirmations, on the safe button', async () => {
+    const opener = document.createElement('button');
+    document.body.append(opener);
+    opener.focus();
+    const p = confirmDialog('Delete', 'Really?', 'Delete', true);
+    await new Promise((r) => requestAnimationFrame(r));
+    expect((document.activeElement as HTMLElement).textContent).toBe('Cancel');
+    key(document.activeElement!, 'Escape');
+    expect(await p).toBe(false);
+    expect(document.activeElement).toBe(opener);
+  });
+
   it('validates prompt input', async () => {
     const p = promptDialog('Name', 'Name', 'abc', (v) => (v.length < 2 ? 'Too short' : null));
     const input = document.querySelector('[role="dialog"] input') as HTMLInputElement;
