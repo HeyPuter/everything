@@ -1865,6 +1865,14 @@ export class CanvasEditor {
     if (levelChord && ['ArrowLeft', 'ArrowRight'].includes(e.key) && this.model.selectedParagraphs.every(p => p.list)) {
       e.preventDefault(); this.changeListLevel(e.key === 'ArrowRight' ? 1 : -1); return;
     }
+    // A selected floating drawing (a shape, text box or picture placed on the page) is not text the keys type over,
+    // as in Word: Enter edits its text, Tab and Shift+Tab go to the next or previous drawing, and Ctrl+Enter breaks
+    // the page after its anchor. Typed text goes into its text (beforeInput). Each used to delete the drawing.
+    if (!this.readOnly && !this.viewOnly && this.selectedFloatingDrawing && !e.altKey && (e.key === 'Enter' || e.key === 'Tab' && !mod)) {
+      if (e.key === 'Tab') { e.preventDefault(); this.selectNextDrawing(e.shiftKey ? -1 : 1); return; }
+      if (!mod) { e.preventDefault(); this.typeIntoDrawing(''); return; }
+      this.model.select(this.model.range[1]);
+    }
     if (e.key === 'Enter' && !e.altKey) {
       e.preventDefault();
       if (!this.readOnly && !this.viewOnly) this.narrowCellBlock();
@@ -1940,6 +1948,9 @@ export class CanvasEditor {
     // the caret the field would delete the hidden words, struck out already, and the key did nothing.
     if (e.inputType === 'deleteWordBackward' || e.inputType === 'deleteWordForward') this.passHiddenText(e.inputType === 'deleteWordBackward' ? -1 : 1);
     if (e.inputType === 'historyUndo' || e.inputType === 'historyRedo') { e.preventDefault(); e.inputType === 'historyUndo' ? this.undo() : this.redo(); return; }
+    if (['insertText', 'insertLineBreak', 'insertParagraph', 'insertReplacementText'].includes(e.inputType) && this.selectedFloatingDrawing) {
+      e.preventDefault(); this.typeIntoDrawing(e.inputType === 'insertText' ? e.data || '' : ''); return;
+    }
     const actions = {
       insertText: () => this.model.replace(e.data || ''),
       insertLineBreak: () => this.model.replace('\v'),
@@ -2270,6 +2281,26 @@ export class CanvasEditor {
   }
   /** Whether the selection is one picture that copies as itself (see clipboardData). */
   copiesPicture() { return copiesPicture(this.model); }
+  /** The selected drawing when it floats on the page (not in line with the text), else null. */
+  get selectedFloatingDrawing() { const image = this.model.selectedImage; return image && isPositionedImage(image) ? image : null; }
+  /**
+   * Text typed (or Enter) with a floating drawing selected goes into the drawing's text, as in Word: the host opens
+   * its text (onDrawingTyping returns whether it could). A drawing with no text to edit keeps the keys from it.
+   */
+  typeIntoDrawing(text) {
+    this.finishComposition();
+    if (!this.onDrawingTyping?.(text)) this.syncInput();
+  }
+  /** Tab and Shift+Tab with a drawing selected select the next or previous drawing in the text, round to the first. */
+  selectNextDrawing(direction) {
+    const starts = []; let at = 0;
+    this.model.paragraphs.forEach(p => { for (const run of p.runs) { if (run.image) starts.push(at); at += run.text.length; } at++; });
+    const current = starts.indexOf(this.model.range[0]);
+    if (starts.length < 2 || current < 0) return;
+    const next = starts[(current + direction + starts.length) % starts.length];
+    this.model.select(next, next + 1); this.preferredX = null;
+    this.syncInput(); this.paint(); this.revealCaret(); this.onSelection();
+  }
   /** Whether a copy carries the selected shape, text box or group (drawing-clipboard.js). */
   copiesDrawing() { return copiesDrawing(this); }
   /** The selection as plain text, and as formatted HTML when it holds only text or one picture. */

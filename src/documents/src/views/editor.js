@@ -829,10 +829,10 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     return pkg.drawingTextFrames(image, engine.model.assets).map(frame => ({ label: `Text frame ${frame.index + 1}`, disabled: !!frame.reason || !!diagram || !!pkg.readOnly, hint: frame.reason || diagram,
       // `options.select`: text to select when the editor opens (a new drawing's sample text).
       onSelect: async options => {
-        const editor = engine, select = typeof options?.select === 'string' ? options.select : null;
+        const editor = engine, select = typeof options?.select === 'string' ? options.select : null, type = typeof options?.type === 'string' ? options.type : null;
         try {
           const { openDrawingText } = await import('./drawing-text.js');
-          if (!destroyed && engine === editor && editor.model.selectedImage === image) drawingTextModal = openDrawingText({ engine, pkg, image, frame: frame.index, select });
+          if (!destroyed && engine === editor && editor.model.selectedImage === image) drawingTextModal = openDrawingText({ engine, pkg, image, frame: frame.index, select, type });
         } catch (e) { if (!destroyed) error(e); }
       } }));
   };
@@ -1905,6 +1905,12 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     reviewTools.attach(editor);
     engineApi().attachShapeEditing(editor, error, () => pkg);
     pictures.attach(editor);
+    // Text typed with a shape or text box selected goes into its text (Edit Text), as in Word.
+    editor.onDrawingTyping = text => {
+      const item = engine === editor ? editorCommands.drawingTextItems()?.find(entry => !entry.disabled) : null;
+      if (!item) return false;
+      item.onSelect({ type: text }); return true;
+    };
   }
   /**
    * Apply a package change: transform(blob) resolves to the changed package (a Blob) or null for none. `label` names
