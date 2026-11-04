@@ -158,3 +158,45 @@ test('the compared pages let go of their decoded pictures once drawn', async ({ 
   expect(held.length).toBeGreaterThanOrEqual(8);
   expect(held.filter(Boolean)).toEqual([]);
 });
+
+for (const same of [false, true])
+  test(`scans whose pictures ${same ? 'match' : 'differ'} are compared by how their pages look`, async ({
+    page,
+  }) => {
+    await page.route('https://js.puter.com/**', (route) => route.fulfill({ body: '' }));
+    await page.goto('/#library');
+    const opened = page.waitForEvent('filechooser');
+    await page.keyboard.press('ControlOrMeta+o');
+    await (
+      await opened
+    ).setFiles({ name: 'old.pdf', mimeType: 'application/pdf', buffer: await picturePdfBytes(40) });
+    await expect(page.locator('.page-caption')).toHaveText('Page 1 of 4');
+    await expect(page.locator('.editor')).toHaveAttribute('aria-busy', 'false');
+    await page.getByRole('button', { name: 'Tools', exact: true }).click();
+    const pane = page.getByRole('complementary', { name: 'Tools' });
+    await pane.getByRole('button', { name: 'View more' }).click();
+    await pane.getByRole('button', { name: 'Compare files', exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: 'Compare files' });
+    const chosen = page.waitForEvent('filechooser');
+    await dialog.getByRole('button', { name: 'Choose file…' }).click();
+    await (
+      await chosen
+    ).setFiles({
+      name: 'new.pdf',
+      mimeType: 'application/pdf',
+      buffer: await picturePdfBytes(same ? 40 : 120),
+    });
+    await dialog.getByRole('button', { name: 'Compare', exact: true }).click();
+    const summary = page.locator('.compare-summary');
+    if (same) {
+      await expect(summary).toHaveText('No differences found');
+      return;
+    }
+    // The pictures have the same size and place on both sides; only their pixels differ.
+    await expect(summary).toHaveText('4 changes: 4 other changes');
+    await expect(
+      page.getByRole('listbox', { name: 'Changes' }).getByRole('option', {
+        name: 'Page appearance differs, page 1',
+      }),
+    ).toBeVisible();
+  });

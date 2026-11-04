@@ -332,3 +332,16 @@ it('counts a page that changed as a whole, so the summary does not say there are
   expect(text).toContain('1 change: 1 other change');
   expect(text).toContain('Page size changed');
 });
+
+it('draws only the pages that their words cannot tell apart', async () => {
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  doc.addPage([300, 300]).drawText('Words alone', { x: 20, y: 200, size: 12, font });
+  doc.addPage([300, 300]);
+  const drawn = [];
+  const { pages } = await extractComparable(await open(await doc.save()), {
+    renderPage: (page, index) => drawn.push(index) && `hash ${index}`,
+  });
+  expect(drawn).toEqual([1]);
+  expect(pages.map((page) => page.renderHash)).toEqual([null, 'hash 1']);
+});

@@ -325,7 +325,7 @@ function graphicsOf(ops) {
 
 /**
  * Read what the comparison needs from every page of a PDF.js document. `renderPage(page, index)`
- * may return a hash of a small rendering, which lets pages without text be told apart.
+ * may return a hash of a small rendering, which tells apart pages without text or with pictures.
  */
 export async function extractComparable(pdf, { signal, onProgress, renderPage } = {}) {
   const pages = new Array(pdf.numPages);
@@ -346,15 +346,22 @@ export async function extractComparable(pdf, { signal, onProgress, renderPage } 
     }
     const view = [...page.view];
     const { width, height } = pageTransform({ view, rotate: page.rotate });
+    const words = wordsOf(content, fonts);
+    const graphics = graphicsOf(ops);
     pages[index] = {
       index,
       view,
       rotate: page.rotate,
       width,
       height,
-      words: wordsOf(content, fonts),
-      ...graphicsOf(ops),
-      renderHash: renderPage ? await renderPage(page, index) : null,
+      words,
+      ...graphics,
+      // Drawing every page would slow a long comparison down; only pages whose words cannot
+      // tell them apart are drawn: those without text, and those with pictures.
+      renderHash:
+        renderPage && (!words.length || graphics.images.length)
+          ? await renderPage(page, index)
+          : null,
     };
     page.cleanup?.();
     onProgress?.({ done: ++done, total: pdf.numPages });

@@ -56,6 +56,30 @@ const arrow = () => {
   return svg;
 };
 
+/**
+ * A fingerprint of how a page looks, from a small drawing of it, for compareDocuments'
+ * renderPage: pages that differ in their pictures or colors, as two scans do, have no words
+ * to tell them apart.
+ */
+export async function pageFingerprint(page) {
+  const natural = page.getViewport({ scale: 1 });
+  const viewport = page.getViewport({ scale: 96 / Math.max(natural.width, natural.height, 1) });
+  const canvas = el('canvas', {
+    width: Math.max(1, Math.round(viewport.width)),
+    height: Math.max(1, Math.round(viewport.height)),
+  });
+  try {
+    const context = canvas.getContext('2d', { willReadFrequently: true });
+    await page.render({ canvasContext: context, viewport }).promise;
+    const { data } = context.getImageData(0, 0, canvas.width, canvas.height);
+    let hash = 0x811c9dc5;
+    for (let i = 0; i < data.length; i++) hash = Math.imul(hash ^ data[i], 0x01000193);
+    return hash >>> 0;
+  } finally {
+    canvas.width = canvas.height = 0;
+  }
+}
+
 export function createCompareView({ oldPdf, newPdf, oldName, newName, result, onClose }) {
   const docs = { old: oldPdf, new: newPdf };
   const geometry = {

@@ -11083,7 +11083,7 @@ export function createEditor({
   async function runCompare(other, { currentIsNew = false } = {}) {
     if (busy || destroyed || !pdf) return;
     const { compareDocuments } = await import('./core/compare.js');
-    const { createCompareView } = await import('./compare-view.js');
+    const { createCompareView, pageFingerprint } = await import('./compare-view.js');
     closeComparison();
     busy = true;
     updateStatus();
@@ -11108,6 +11108,7 @@ export function createEditor({
       const [oldName, newName] = currentIsNew ? [other.name, name] : [name, other.name];
       const result = await compareDocuments(oldPdf, newPdf, {
         signal: controller.signal,
+        renderPage: pageFingerprint,
         onProgress: ({ phase, done: finished, total }) => {
           bar.value = total ? (phase === 'read' ? 0.9 : 1) * (finished / total) : 0;
           progress.textContent =
