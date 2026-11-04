@@ -21,3 +21,24 @@ it('takes Office Math from a copy, with run formatting, and refuses anything els
   expect(htmlEquation(carried('<m:oMath'))).toBe(null);
   expect(htmlEquation('<p>no equation</p>')).toBe(null);
 });
+
+it('finds fields in pasted drawing XML that load something from elsewhere, however their instruction is written', async () => {
+  const { externalField } = await import('../src/engine/drawing-clipboard.js');
+  const read = body => externalField(new DOMParser().parseFromString(`<w:drawing xmlns:w="${W}"><w:txbxContent>${body}</w:txbxContent></w:drawing>`, 'application/xml').documentElement);
+  const complex = (...parts) => `<w:p><w:r><w:fldChar w:fldCharType="begin"/></w:r>${parts.map(p => `<w:r><w:instrText xml:space="preserve">${p}</w:instrText></w:r>`).join('')}<w:r><w:fldChar w:fldCharType="separate"/></w:r><w:r><w:t>result</w:t></w:r><w:r><w:fldChar w:fldCharType="end"/></w:r></w:p>`;
+  expect(read(complex(' INCLUDEPICTURE "https://example.com/a.png" \\d '))).toBe('INCLUDEPICTURE');
+  // Split across runs, in any case, with any spacing.
+  expect(read(complex('  inclu', 'dePicture ', '"https://example.com/a.png"'))).toBe('inclu' + 'dePicture');
+  expect(read(`<w:p><w:fldSimple w:instr="&#9;IncludeText &quot;\\\\server\\share\\a.docx&quot;"><w:r><w:t>x</w:t></w:r></w:fldSimple></w:p>`)).toBe('IncludeText');
+  for (const name of ['LINK Excel.Sheet.12 "a.xlsx" "" \\a', 'DDE x y', 'DDEAUTO x y', 'IMPORT a.png', 'INCLUDE a.docx']) expect(read(complex(name))).toBe(name.split(' ')[0]);
+  // A tracked deletion's instruction comes back live if the deletion is rejected.
+  expect(read(`<w:p><w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:delInstrText>INCLUDEPICTURE "a.png"</w:delInstrText></w:r><w:r><w:fldChar w:fldCharType="end"/></w:r></w:p>`)).toBe('INCLUDEPICTURE');
+  // A field named by a field nested at its start, and a field left without its end.
+  expect(read(`<w:p><w:r><w:fldChar w:fldCharType="begin"/></w:r>${complex('QUOTE "INCLUDEPICTURE"').slice(5, -6)}<w:r><w:instrText> "a.png"</w:instrText></w:r><w:r><w:fldChar w:fldCharType="end"/></w:r></w:p>`)).toBe('named by another field');
+  expect(read('<w:p><w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText>LINK a b</w:instrText></w:r></w:p>')).toBe('LINK');
+  // Fields that load nothing, a link field's result text and a nested field inside an instruction are fine.
+  expect(read(complex('PAGE \\* MERGEFORMAT'))).toBe(null);
+  expect(read(complex('MERGEFIELD Link'))).toBe(null);
+  expect(read(`<w:p><w:r><w:t>INCLUDEPICTURE "a.png"</w:t></w:r></w:p>`)).toBe(null);
+  expect(read(`<w:p><w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText>IF 1 = 1 </w:instrText></w:r>${complex('PAGE').slice(5, -6)}<w:r><w:fldChar w:fldCharType="end"/></w:r></w:p>`)).toBe(null);
+});

@@ -63,6 +63,41 @@ export function htmlDrawing(html) {
 }
 
 /**
+ * Fields that load a file, picture or another program's data when the document is opened or its fields are
+ * updated (ECMA-376 Part 1 §17.16.5.28 INCLUDEPICTURE, §17.16.5.29 INCLUDETEXT, §17.16.5.32 LINK, §17.16.5.13
+ * DDE, §17.16.5.14 DDEAUTO; INCLUDE and IMPORT are Word's older names for them). A drawing pasted from another
+ * page's clipboard HTML holding one would put that link into the user's saved file unseen.
+ */
+const EXTERNAL_FIELDS = new Set(['INCLUDEPICTURE', 'INCLUDETEXT', 'INCLUDE', 'IMPORT', 'LINK', 'DDE', 'DDEAUTO']);
+/**
+ * The first field in drawing XML that loads something from outside the document, by its name as written
+ * (INCLUDEPICTURE…), or null. A complex field's instruction is the text of all its w:instrText (and
+ * w:delInstrText) runs between its begin and separate marks, however they are split; a field named by
+ * another field nested at its start is counted as one, since its name is only known once that field runs.
+ */
+export function externalField(root) {
+  const nested = '\u0001', open = [];
+  const check = instruction => {
+    const name = /^\s*(\S+)/.exec(instruction)?.[1] || '';
+    if (name.startsWith(nested)) return 'named by another field';
+    return EXTERNAL_FIELDS.has(name.toUpperCase()) ? name : null;
+  };
+  for (const element of [root, ...root.getElementsByTagName('*')]) {
+    if (element.namespaceURI !== W) continue;
+    if (element.localName === 'fldSimple') { const found = check(element.getAttributeNS(W, 'instr') || ''); if (found) return found; }
+    else if (element.localName === 'fldChar') {
+      const type = element.getAttributeNS(W, 'fldCharType');
+      if (type === 'begin') { if (open.length && !open.at(-1).done) open.at(-1).text += nested; open.push({ text: '', done: false }); }
+      else if (type === 'separate' && open.length) open.at(-1).done = true;
+      else if (type === 'end' && open.length) { const found = check(open.pop().text); if (found) return found; }
+    } else if ((element.localName === 'instrText' || element.localName === 'delInstrText') && open.length && !open.at(-1).done) open.at(-1).text += element.textContent;
+  }
+  // A field left without its end still has its instruction.
+  for (const field of open) { const found = check(field.text); if (found) return found; }
+  return null;
+}
+
+/**
  * Paste a copied drawing at the caret (after a selected drawing, which it does not replace), in front of the
  * other drawings as a new one goes. Returns whether the document changed.
  */
@@ -76,6 +111,8 @@ export async function pasteDrawing(editor, { xml }) {
   // Only a drawing element, with no relationship (a part the clipboard does not carry).
   const root = doc.documentElement, related = [root, ...root.getElementsByTagName('*')].some(element => [...element.attributes].some(a => a.namespaceURI === R));
   if (doc.getElementsByTagName('parsererror').length || root.namespaceURI !== W || root.localName !== 'drawing' || related) throw new Error('The copied drawing could not be read.');
+  const field = externalField(root);
+  if (field) throw new Error(`This drawing can’t be pasted: its text holds a field that can load a file or picture from elsewhere when the document is opened (${field}).`);
   const id = String(nextDrawingId(model));
   for (const docPr of doc.getElementsByTagNameNS('http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing', 'docPr')) { docPr.setAttribute('id', id); break; }
   const anchor = doc.getElementsByTagNameNS('http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing', 'anchor')[0];
