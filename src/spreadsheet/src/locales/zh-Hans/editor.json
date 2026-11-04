@@ -271,6 +271,7 @@
   "objects.deleted": "已删除 {count} 个对象",
   "objects.distributed": "{how, select, horizontal {已横向分布} other {已纵向分布}}",
   "objects.grouped": "已组合",
+  "objects.objectDeleted": "{noun, select, slicer {已删除切片器} timeline {已删除日程表} image {已删除图片} SmartArt {已删除 SmartArt} equation {已删除公式} WordArt {已删除艺术字} scrollbar {已删除滚动条} textbox {已删除文本框} chart {已删除图表} other {已删除对象}}",
   "objects.orderChanged": "已更改顺序",
   "objects.selectFirst": "请先选择图表、图片、形状或文本框",
   "objects.selectToAlign": "请选择两个或更多对象进行对齐（分布需要三个）",

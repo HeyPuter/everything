@@ -271,6 +271,7 @@
   "objects.deleted": "{count} objects deleted",
   "objects.distributed": "{how, select, horizontal {Distributed horizontally} other {Distributed vertically}}",
   "objects.grouped": "Grouped",
+  "objects.objectDeleted": "{noun, select, slicer {Slicer deleted} timeline {Timeline deleted} image {Image deleted} SmartArt {SmartArt deleted} equation {Equation deleted} WordArt {WordArt deleted} scrollbar {Scroll bar deleted} textbox {Text box deleted} chart {Chart deleted} other {Object deleted}}",
   "objects.orderChanged": "Order changed",
   "objects.selectFirst": "Select a chart, picture, shape or text box first",
   "objects.selectToAlign": "Select two or more objects to align (three to distribute)",

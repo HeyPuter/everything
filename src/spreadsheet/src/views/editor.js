@@ -25,7 +25,7 @@ import { conditionalFormulaFields } from '../core/conditional-scale.js';
 import { imageToPng } from '../ui/picture-raster.js';
 
 import { isComposing, el, isMod, MOD_KEY, IS_MAC, formatBytes } from '../ui/dom.js';
-import { t, formatDate as formatUiDate, formatNumber as formatUiNumber, formatList } from '../i18n/index.js';
+import { t, hasMessage, formatDate as formatUiDate, formatNumber as formatUiNumber, formatList } from '../i18n/index.js';
 import { icon } from '../ui/icons.js';
 import { createGrid } from '../ui/grid.js';
 import { ACCOUNTING_CODE, accountingCode, isAccountingCode, FONT_SIZES, ptToPx, pxToPt } from '../ui/toolbar.js';
@@ -1010,7 +1010,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       el('div.row.row-end', {},
         existing && el('button.btn.btn-danger', { type: 'button', onclick: () => { wb.removeLink(sheetId, r, c); modal.close(); grid.focus(); } }, t('editor.link.remove')),
         el('div.grow'),
-        el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Cancel'),
+        el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, t('common.cancel')),
         el('button.btn.btn-primary', { type: 'submit' }, existing ? t('common.save') : t('common.insert'))));
     // Starts on the address for an existing link or a cell with text, else on the text; through openModal, whose screen-size guard keeps a phone's keyboard down.
     // Cancelled, it gives the keyboard back to the sheet, as when it is saved, not to the ribbon button it was opened from.
@@ -1035,7 +1035,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       el('div.row.row-end', {},
         existing && el('button.btn.btn-danger', { type: 'button', onclick: () => { wb.setNote(sheetId, r, c, null); modal.close(); grid.focus(); } }, t('common.delete')),
         el('div.grow'),
-        el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Cancel'),
+        el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, t('common.cancel')),
         el('button.btn.btn-primary', { type: 'submit' }, existing ? t('common.save') : t('editor.note.add'))));
     area.addEventListener('keydown', (e) => { if (isComposing(e)) return; if (e.key === 'Enter' && isMod(e)) submit(e); });
     const modal = openModal({ title: existing ? t('editor.note.editTitle') : t('editor.note.add'), content, initialFocus: area, onClose: () => keepFocus() });
@@ -1420,14 +1420,21 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
   /**
    * A protected sheet refuses every edit. Commands that would only report
    * "nothing to do" (or a change that did not happen) say so instead.
+   *
+   * `what` says what was refused, as one of:
+   * - an action named in English, a key of PROTECTED_MESSAGES ('insert a chart'), which picks the whole sentence;
+   * - a catalog key of a whole sentence with a {name} argument for the sheet's name
+   *   ('charts.protectedInsert': "{name} is protected. Unprotect it from the sheet tab menu to insert a chart");
+   * - a function of the sheet's name returning the whole sentence, translated.
+   * Any other text is put into the general sentence as it is (English words then stay English).
    */
   function refusedByProtection(what = 'make changes') {
     if (!wb.isProtected(grid.sheetId)) return false;
     const name = wb.sheet(grid.sheetId)?.name || t('editor.protected.thisSheet');
     lastProtectedToast = Date.now();
     lastProtectedKey = String(grid.sheetId);
-    const key = PROTECTED_MESSAGES[what];
-    toast(key ? t(key, { name }) : t('editor.protected.other', { name, action: what }), { icon: 'lock', duration: 3500 });
+    const key = typeof what === 'string' ? PROTECTED_MESSAGES[what] || (hasMessage(what) ? what : null) : null;
+    toast(typeof what === 'function' ? what(name) : key ? t(key, { name }) : t('editor.protected.other', { name, action: what }), { icon: 'lock', duration: 3500 });
     statusBar?.announce(t('editor.protected.announce', { name }));
     return true;
   }
@@ -4206,7 +4213,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         else if (!wb.deleteChart(sheetId, id)) return;
         // Named as the undo step names it: a scroll bar or an equation is not a chart or a text box.
         const noun = kind === 'timeline' ? 'timeline' : objectNoun(obj);
-        toast(`${noun[0].toUpperCase()}${noun.slice(1)} deleted`, { icon: 'trash', duration: 1600 });
+        toast(t('editor.objects.objectDeleted', { noun: noun.replace(/ /g, '') }), { icon: 'trash', duration: 1600 });
         keepFocus();
         return;
       }
