@@ -4939,8 +4939,10 @@ export function createEditor({
   let finishingForms;
   /** Saves the words typed into the selected comment's Comment field, which saves on change. */
   let annotationTextDraft = null;
-  async function finishDrafts(skipImages = false) {
+  async function finishDrafts(skipImages = false, { noteMoving = false } = {}) {
     await annotationLayer.finish();
+    // A note's move is saved first (it saves the other drafts, without waiting for itself).
+    if (!noteMoving && (noteNudge || noteMove)) await saveNoteNudge();
     // A save or download from the keyboard leaves the field focused, so its change is not yet
     // saved; the words typed go out with the PDF too.
     await annotationTextDraft?.();
@@ -5745,6 +5747,141 @@ export function createEditor({
     !noteEdit.entry?.readOnly &&
     (noteEdit.textarea.value.trim() !== (noteEdit.entry?.text || '') ||
       (!!noteEdit.entry && noteEdit.color.value !== noteEdit.entry.hex));
+  // A note dragged or nudged with the arrow keys, as a PDF offset not yet saved, and the move
+  // being saved. Nudges are shown at once and saved as one move once the keys rest.
+  let noteNudge = null,
+    noteNudgeTimer = 0,
+    noteMove = null,
+    noteDrag = null,
+    noteDragged = false;
+  /** A screen offset on the page as a PDF offset, and back, for any page rotation. */
+  function pageOffset(dx, dy, toScreen = false) {
+    const convert = (x, y) =>
+      toScreen ? viewport.convertToViewportPoint(x, y) : viewport.convertToPdfPoint(x, y);
+    const [ax, ay] = convert(0, 0),
+      [bx, by] = convert(dx, dy);
+    return [bx - ax, by - ay];
+  }
+  function showNoteNudge(target, [dx, dy]) {
+    target.style.transform = dx || dy ? `translate(${dx}px, ${dy}px)` : '';
+  }
+  /** Save the note's pending move, after any move still being saved. */
+  function saveNoteNudge() {
+    clearTimeout(noteNudgeTimer);
+    if (!noteNudge) return noteMove;
+    const { id, ox, oy } = noteNudge;
+    noteNudge = null;
+    const run = (noteMove ?? Promise.resolve())
+      .then(safe(() => moveNote(id, ox, oy)))
+      .finally(() => {
+        if (noteMove === run) noteMove = null;
+      });
+    noteMove = run;
+    return run;
+  }
+  async function moveNote(id, ox, oy) {
+    const reopen = noteEdit?.entry?.id === id;
+    const focused = document.activeElement?.dataset?.noteId === id;
+    await finishDrafts(false, { noteMoving: true });
+    const entry = notes.find((note) => note.id === id);
+    if (destroyed || !entry || !access().annotate) return renderNoteTargets();
+    try {
+      await mutate(
+        (doc) => editNote(doc, pageIndex, id, { x: entry.x + ox, y: entry.y + oy }),
+        null,
+        'annotate',
+        { retainScale: true },
+      );
+    } finally {
+      // A move that was not made shows the note back where it is.
+      if (!destroyed) renderNoteTargets();
+    }
+    if (destroyed || tool === 'hand') return;
+    const moved = notes.find((note) => note.id === id);
+    // Not waited for: the editor waits for the drafts, this move among them.
+    if (reopen && moved) safe(() => openNoteEditor({ entry: moved, canFocus: () => false }))();
+    if (focused && document.activeElement === document.body)
+      [...noteTargets.children]
+        .find((node) => node.dataset.noteId === id)
+        ?.focus({
+          preventScroll: true,
+        });
+  }
+  /** Drag a note, or nudge it with the arrow keys (Shift for ten points), as shapes move. */
+  function makeNoteMovable(target, entry, box) {
+    target.classList.add('is-movable');
+    const id = entry.id;
+    // Kept on the page: a note dragged off it could not be reached again.
+    const clamp = (dx, dy) => [
+      Math.min(Math.max(dx, -box.left), viewport.width - box.left - box.width),
+      Math.min(Math.max(dy, -box.top), viewport.height - box.top - box.height),
+    ];
+    target.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0 || busy || !pageReady) return;
+      saveNoteNudge();
+      noteDrag = { id, pointer: e.pointerId, x: e.clientX, y: e.clientY, moved: false };
+      target.setPointerCapture(e.pointerId);
+    });
+    target.addEventListener('pointermove', (e) => {
+      if (noteDrag?.id !== id || noteDrag.pointer !== e.pointerId) return;
+      const [dx, dy] = clamp(e.clientX - noteDrag.x, e.clientY - noteDrag.y);
+      if (!noteDrag.moved && Math.hypot(dx, dy) < 3) return;
+      noteDrag.moved = true;
+      noteDrag.offset = [dx, dy];
+      showNoteNudge(target, [dx, dy]);
+    });
+    target.addEventListener('pointerup', (e) => {
+      if (noteDrag?.id !== id || noteDrag.pointer !== e.pointerId) return;
+      const done = noteDrag;
+      noteDrag = null;
+      if (!done.moved) return;
+      // The click that ends a drag does not open the note.
+      noteDragged = true;
+      setTimeout(() => (noteDragged = false), 0);
+      const [ox, oy] = pageOffset(...done.offset);
+      noteNudge = { id, ox, oy };
+      saveNoteNudge();
+    });
+    target.addEventListener('pointercancel', () => {
+      if (noteDrag?.id !== id) return;
+      noteDrag = null;
+      showNoteNudge(target, [0, 0]);
+    });
+    target.addEventListener('keydown', (e) => {
+      if (!e.key.startsWith('Arrow') || e.altKey || e.ctrlKey || e.metaKey) return;
+      e.preventDefault();
+      if (noteNudge && noteNudge.id !== id) saveNoteNudge();
+      noteNudge ??= { id, ox: 0, oy: 0 };
+      // The way the key points on screen, a point (ten with Shift) on the page at any zoom.
+      const [ux, uy] = pageOffset(
+        { ArrowLeft: -1, ArrowRight: 1 }[e.key] || 0,
+        { ArrowUp: -1, ArrowDown: 1 }[e.key] || 0,
+      );
+      const step = (e.shiftKey ? 10 : 1) / (Math.hypot(ux, uy) || 1);
+      const [ox, oy] = [ux * step, uy * step];
+      const [sx, sy] = pageOffset(noteNudge.ox + ox, noteNudge.oy + oy, true);
+      const [cx, cy] = clamp(sx, sy);
+      [noteNudge.ox, noteNudge.oy] = pageOffset(cx, cy);
+      showNoteNudge(target, [cx, cy]);
+      clearTimeout(noteNudgeTimer);
+    });
+    target.addEventListener('keyup', (e) => {
+      if (!e.key.startsWith('Arrow') || noteNudge?.id !== id) return;
+      clearTimeout(noteNudgeTimer);
+      noteNudgeTimer = setTimeout(saveNoteNudge, 180);
+    });
+    // Leaving the note saves its nudges after the same rest; a save or another edit (which
+    // finishes the drafts) saves them at once. Saving on the spot would disable a button
+    // pressed meanwhile before its click.
+    target.addEventListener('blur', () => {
+      if (noteNudge?.id !== id) return;
+      clearTimeout(noteNudgeTimer);
+      noteNudgeTimer = setTimeout(saveNoteNudge, 180);
+    });
+    // Nudges not yet saved stay in view when the page is drawn again.
+    if (noteNudge?.id === id)
+      showNoteNudge(target, clamp(...pageOffset(noteNudge.ox, noteNudge.oy, true)));
+  }
   /** Clickable icons for the page's notes, shown in Select and with the Note tool. */
   function renderNoteTargets() {
     noteTargets.replaceChildren();
@@ -5766,7 +5903,7 @@ export function createEditor({
         'data-note-id': entry.id,
         onclick: safe(() =>
           selectionProperties(async () => {
-            if (busy || !pageReady) return;
+            if (busy || !pageReady || noteDragged) return;
             if (noteEdit?.entry?.id === entry.id) return;
             const focusFrom = document.activeElement;
             cancelTextSelection();
@@ -5796,6 +5933,13 @@ export function createEditor({
         target.style.setProperty('--note-ink', contrastInk(entry.hex));
         target.append(icon('StickyNote', 16, { plain: true }));
       }
+      if (!entry.readOnly && !entry.propertiesLocked && access().annotate)
+        makeNoteMovable(target, entry, {
+          left,
+          top,
+          width: Math.abs(corners[1][0] - corners[0][0]),
+          height: Math.abs(corners[1][1] - corners[0][1]),
+        });
       noteTargets.append(target);
     }
   }

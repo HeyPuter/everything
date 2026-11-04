@@ -603,3 +603,33 @@ it('lists a reply whose note is gone as a note, so it can still be opened or del
   page.node.Annots().push(reply);
   expect(listNotes(doc, 0).map((note) => note.text)).toEqual(['Done']);
 });
+
+it('moving a note keeps its own icon and carries its popup along', async () => {
+  const doc = await PDFDocument.create();
+  const page = doc.addPage([400, 400]);
+  const id = addNote(doc, 0, { x: 100, y: 300, text: 'Moved' });
+  const dict = doc.context.lookup(page.node.Annots().get(0));
+  // Another editor's icon, which this one cannot draw again.
+  const icon = doc.context.register(
+    doc.context.stream('0 0 1 rg 0 0 24 24 re f', {
+      Type: 'XObject',
+      Subtype: 'Form',
+      BBox: [0, 0, 24, 24],
+    }),
+  );
+  dict.set(PDFName.of('AP'), doc.context.obj({ N: icon }));
+  dict.set(PDFName.of('Rect'), doc.context.obj([100, 276, 124, 300]));
+  const popup = dict.lookup(PDFName.of('Popup'));
+  popup.set(PDFName.of('Rect'), doc.context.obj([130, 180, 310, 300]));
+  editNote(doc, 0, id, { x: 150, y: 250 });
+  const moved = doc.context.lookup(page.node.Annots().get(0));
+  const numbersOf = (d) =>
+    d
+      .lookup(PDFName.of('Rect'))
+      .asArray()
+      .map((n) => n.asNumber());
+  expect(moved.lookup(PDFName.of('AP')).get(PDFName.of('N'))).toBe(icon);
+  expect(numbersOf(moved)).toEqual([150, 226, 174, 250]);
+  expect(numbersOf(moved.lookup(PDFName.of('Popup')))).toEqual([180, 130, 360, 250]);
+  expect(listNotes(doc, 0)[0]).toMatchObject({ x: 150, y: 250, text: 'Moved' });
+});

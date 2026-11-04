@@ -1643,6 +1643,11 @@ textarea {
   pointer-events: auto;
   cursor: pointer;
 }
+/* A note that can be dragged, as other comments are; a finger drags it rather than the page. */
+.note-target.is-movable {
+  cursor: move;
+  touch-action: none;
+}
 .note-target.no-appearance {
   display: grid;
   place-items: center;

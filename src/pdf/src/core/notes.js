@@ -330,13 +330,22 @@ export function editNote(doc, index, id, { text, hex, x, y, remove = false } = {
     if (!entry.propertiesLocked) ensureNoteAppearance(doc, page, dict);
     return;
   }
-  appearance(
-    doc,
-    dict,
-    [nextX, nextY - entry.height, nextX + entry.width, nextY],
-    nextHex,
-    pageRotation(page),
-  );
+  // A move alone keeps the note's own icon (another editor's, perhaps), drawn at its new Rect;
+  // a standard note without one gains this editor's, as when its words are edited.
+  if (nextHex.toLowerCase() === entry.hex) {
+    dict.set(
+      name('Rect'),
+      doc.context.obj([nextX, nextY - entry.height, nextX + entry.width, nextY]),
+    );
+    ensureNoteAppearance(doc, page, dict);
+  } else
+    appearance(
+      doc,
+      dict,
+      [nextX, nextY - entry.height, nextX + entry.width, nextY],
+      nextHex,
+      pageRotation(page),
+    );
   const popupDict = dict.lookup(name('Popup'));
   if (moved && popupDict instanceof PDFDict) {
     const rect = numbers(popupDict.lookup(name('Rect')));
