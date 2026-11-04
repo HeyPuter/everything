@@ -19,3 +19,16 @@ test('mobile layout opens the design tree as a sheet and has no page scroll', as
   await page.getByRole('treeitem', { name: 'Fillet1' }).dblclick();
   await expect(page.getByRole('heading', { name: 'Fillet1' })).toBeVisible();
 });
+
+test('tablet title bar keeps every control on screen', async ({ page }) => {
+  await page.setViewportSize({ width: 768, height: 1024 });
+  await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  const offscreen = await page.evaluate(() => [...document.querySelectorAll<HTMLElement>('.titlebar button, .titlebar a, .titlebar input')]
+    .filter((el) => el.offsetParent && el.getBoundingClientRect().right > window.innerWidth)
+    .map((el) => el.getAttribute('aria-label') ?? el.textContent));
+  expect(offscreen).toEqual([]);
+  expect((await page.locator('.doc-title').boundingBox())!.width).toBeGreaterThan(40);
+  await page.getByRole('button', { name: 'Menu', exact: true }).click();
+  await expect(page.getByRole('menuitem', { name: 'File' })).toBeVisible();
+});

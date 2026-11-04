@@ -467,6 +467,10 @@ a.icon-btn { text-decoration: none; }
   .taskpane .tp-panel { position: absolute; right: var(--taskpane-w); top: 0; bottom: 0; z-index: 12; border-left: 1px solid var(--border); background: var(--panel); }
   .quick .hide-tablet { display: none; }
   .doc-state { display: none; }
+  /* The menu bar does not fit beside the quick access buttons and search:
+     it collapses into the menu button, as on phones. */
+  .menubar, .titlebar > .tb-sep { display: none; }
+  .titlebar > .mobile-only { display: inline-grid !important; }
 }
 @media (max-width: 760px) {
   :root { --titlebar-h: 46px; --status-h: 28px; }
