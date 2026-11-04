@@ -36,6 +36,8 @@ export interface SkTool {
   exclude?(): Set<Id>;
   /** Esc: abort the current operation. Return true if something was aborted. */
   cancel(): boolean;
+  /** Drops the current operation without committing anything (defaults to cancel). */
+  abort?(): void;
   /** Tool options for the PropertyManager. */
   options?(): HTMLElement[];
   /** Whether the cursor should snap at all. */
@@ -80,6 +82,7 @@ export class SketchEditor implements ViewportTool {
   cursorPt: Vec2 | null = null;
   private lastSnap: Snap | null = null;
   private renderQueued = 0;
+  private unsubscribe: () => void;
 
   constructor(readonly app: App, sketchId: Id, frame: Frame) {
     this.sketchId = sketchId;
@@ -87,6 +90,15 @@ export class SketchEditor implements ViewportTool {
     this.tipEl = h('div', { class: 'cursor-tip', hidden: true, 'aria-hidden': 'true' });
     this.app.viewport.root.append(this.tipEl);
     this.resolve(false);
+    // Undo and redo replace the geometry a tool may be in the middle of
+    // using (a line chain's last point, picked entities): drop that state so
+    // the next click cannot reference points that no longer exist.
+    this.unsubscribe = app.store.on((reason) => {
+      if (reason !== 'undo' && reason !== 'redo') return;
+      if (this.tool) { if (this.tool.abort) this.tool.abort(); else this.tool.cancel(); }
+      this.modifyRevert = null;
+      this.closeModify();
+    });
   }
 
   get sketch(): SketchFeature {
@@ -893,6 +905,7 @@ export class SketchEditor implements ViewportTool {
   }
 
   dispose() {
+    this.unsubscribe();
     this.tool?.cancel();
     this.closeModify();
     this.tipEl.remove();

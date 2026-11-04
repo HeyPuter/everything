@@ -113,4 +113,24 @@ test.describe('sketching', () => {
     await expect.poll(kinds).toBe('line,line,arc,arc,line,arc');
     expect(errors).toEqual([]);
   });
+
+  test('undo in the middle of a line chain starts a fresh chain', async ({ page }) => {
+    const errors = await openApp(page);
+    const { x, y } = await startSketch(page);
+    await page.locator('[data-cmd="tool:line"]').click();
+    await page.mouse.click(x - 100, y + 60);
+    await page.mouse.click(x + 100, y + 20);
+    await page.keyboard.press('ControlOrMeta+z');
+    await page.mouse.click(x + 100, y - 80);
+    await page.mouse.click(x - 50, y - 80);
+    // One new line whose end points both exist (not one hanging off the undone point).
+    const dangling = () => page.evaluate(() => {
+      const ents = (window as unknown as { __parametric: { sketchEditor: { sketch: { entities: { id: string; t: string; a?: string; b?: string }[] } } } }).__parametric.sketchEditor.sketch.entities;
+      const ids = new Set(ents.map((e) => e.id));
+      const lines = ents.filter((e) => e.t === 'line');
+      return { lines: lines.length, dangling: lines.filter((l) => !ids.has(l.a!) || !ids.has(l.b!)).length };
+    });
+    await expect.poll(dangling).toEqual({ lines: 1, dangling: 0 });
+    expect(errors).toEqual([]);
+  });
 });

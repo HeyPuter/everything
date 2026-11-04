@@ -578,6 +578,10 @@ export function splineTool(ed: SketchEditor): SkTool {
       ed.setPreview([]);
       return was;
     },
+    abort() {
+      pts.length = 0;
+      ed.setPreview([]);
+    },
   };
 }
 
