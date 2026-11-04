@@ -7,20 +7,24 @@ import { el, formatBytes, relativeTime } from './dom.js';
 import { icon } from './icons.js';
 import { openModal, confirmDialog, focusListRow } from './modal.js';
 import { toast } from './toast.js';
-import { listVersions, deleteVersion, AUTO_VERSION_MS } from '../lib/versions.js';
+import { listVersions, deleteVersion, AUTO_VERSION_MS, RESTORE_LABEL, OVERWRITE_LABEL } from '../lib/versions.js';
+import { t, formatDate } from '../i18n/index.js';
 
 const when = (at) => {
   const d = new Date(at);
-  const abs = d.toLocaleString(undefined, { month: 'short', day: 'numeric', year: d.getFullYear() === new Date().getFullYear() ? undefined : 'numeric', hour: 'numeric', minute: '2-digit' });
-  return `${relativeTime(at)} · ${abs}`;
+  const abs = formatDate(d, { month: 'short', day: 'numeric', year: d.getFullYear() === new Date().getFullYear() ? undefined : 'numeric', hour: 'numeric', minute: '2-digit' });
+  return t('versions.when', { relative: relativeTime(at), date: abs });
 };
+
+/** A version's label as shown: the ones the app gives on its own (kept in file names, in English) in the interface language. */
+const labelText = (label) => (label === RESTORE_LABEL ? t('versions.beforeRestore') : label === OVERWRITE_LABEL ? t('versions.beforeOverwrite') : label);
 
 /** Open the dialog for `doc` (a Doc with a path). `onRestored` runs after a restore. */
 export function openVersionHistory(doc, { onRestored } = {}) {
-  const list = el('div.version-list', { role: 'list', 'aria-label': 'Versions' });
-  const labelInput = el('input.input', { type: 'text', placeholder: 'Label (optional), e.g. Before Q3 changes', 'aria-label': 'Version label', maxlength: 40 });
-  const saveBtn = el('button.btn.btn-primary', { type: 'submit' }, 'Save a version now');
-  const hint = el('p.field-hint', {}, `A version is saved on its own about every ${Math.round(AUTO_VERSION_MS / 60000)} minutes while you work. Restoring keeps a version of the current state first.`);
+  const list = el('div.version-list', { role: 'list', 'aria-label': t('versions.versions') });
+  const labelInput = el('input.input', { type: 'text', placeholder: t('versions.labelPlaceholder'), 'aria-label': t('versions.versionLabel'), maxlength: 40 });
+  const saveBtn = el('button.btn.btn-primary', { type: 'submit' }, t('versions.saveNow'));
+  const hint = el('p.field-hint', {}, t('versions.hint', { minutes: Math.round(AUTO_VERSION_MS / 60000) }));
   let busy = false;
   let closed = false;
   let loadId = 0;
@@ -43,7 +47,7 @@ export function openVersionHistory(doc, { onRestored } = {}) {
     say(text);
     list.removeAttribute('role');
     list.replaceChildren(el('div.version-empty', {}, el('p', {}, text),
-      offerRetry && el('button.btn.btn-sm.btn-outline', { type: 'button', onclick: retry }, 'Try again')));
+      offerRetry && el('button.btn.btn-sm.btn-outline', { type: 'button', onclick: retry }, t('common.tryAgain'))));
   }
 
   // The button pressed is replaced by the wait: the focus goes to what the reading brought, a row's
@@ -58,7 +62,7 @@ export function openVersionHistory(doc, { onRestored } = {}) {
   async function refresh() {
     if (closed) return;
     const requestId = ++loadId;
-    notice('Loading…');
+    notice(t('common.loading'));
     let versions = [];
     // The snapshot of a save made a moment ago may still be on its way: listed before it lands, the history read
     // "No versions yet" and stayed so, and a version saved by hand on the strength of that doubled it.
@@ -66,19 +70,19 @@ export function openVersionHistory(doc, { onRestored } = {}) {
     catch (e) {
       if (closed || requestId !== loadId) return;
       console.error(e);
-      notice('Could not read the versions', { retry: true });
+      notice(t('versions.readFailed'), { retry: true });
       return;
     }
     if (closed || requestId !== loadId) return;
-    if (!versions.length) { notice('No versions yet. Save one now, or keep working and one will appear.'); return; }
-    say(`${versions.length} version${versions.length === 1 ? '' : 's'}`);
+    if (!versions.length) { notice(t('versions.none')); return; }
+    say(t('versions.count', { count: versions.length }));
     list.setAttribute('role', 'list');
     list.replaceChildren(...versions.map((v, idx) => el('div.version-row', { role: 'listitem' },
       el('div.version-main', {},
-        el('div.version-when', {}, v.label || when(v.at)),
-        el('div.version-meta', {}, `${v.label ? `${when(v.at)} · ` : ''}${formatBytes(v.size)}`)),
-      el('button.btn.btn-sm', { type: 'button', dataset: { action: 'restore' }, onclick: () => restore(v) }, 'Restore'),
-      el('button.icon-btn', { type: 'button', html: icon('trash', 16), 'aria-label': `Delete the version from ${when(v.at)}`, title: 'Delete', dataset: { action: 'delete' }, onclick: () => remove(v, idx) }))));
+        el('div.version-when', {}, labelText(v.label) || when(v.at)),
+        el('div.version-meta', {}, v.label ? t('versions.metaLabelled', { when: when(v.at), size: formatBytes(v.size) }) : formatBytes(v.size))),
+      el('button.btn.btn-sm', { type: 'button', dataset: { action: 'restore' }, onclick: () => restore(v) }, t('versions.restore')),
+      el('button.icon-btn', { type: 'button', html: icon('trash', 16), 'aria-label': t('versions.deleteFrom', { when: when(v.at) }), title: t('common.delete'), dataset: { action: 'delete' }, onclick: () => remove(v, idx) }))));
     setBusy(busy);
   }
 
@@ -93,11 +97,11 @@ export function openVersionHistory(doc, { onRestored } = {}) {
       const entry = await doc.saveVersion(labelInput.value);
       if (closed || entry === null) return;
       labelInput.value = '';
-      toast('Version saved', { icon: 'check', duration: 2000 });
+      toast(t('versions.saved'), { icon: 'check', duration: 2000 });
       await refresh();
     } catch (e) {
       console.error(e);
-      if (!closed) toast('Could not save a version', { icon: 'alert', duration: 4000 });
+      if (!closed) toast(t('versions.saveFailed'), { icon: 'alert', duration: 4000 });
     } finally {
       setBusy(false);
       if (from && !closed && !content.contains(document.activeElement)) (from.isConnected ? from : labelInput).focus();
@@ -110,20 +114,20 @@ export function openVersionHistory(doc, { onRestored } = {}) {
     setBusy(true, { keepButtons: true });
     try {
       const ok = await confirmDialog({
-        title: 'Restore this version?',
-        message: `The spreadsheet goes back to how it was ${when(v.at)}${v.label ? ` (${v.label})` : ''}. The current state is kept as a version first, so nothing is lost.`,
-        confirmLabel: 'Restore', danger: false,
+        title: t('versions.restoreTitle'),
+        message: v.label ? t('versions.restoreMessageLabelled', { when: when(v.at), label: labelText(v.label) }) : t('versions.restoreMessage', { when: when(v.at) }),
+        confirmLabel: t('versions.restore'), danger: false,
       });
       if (!ok || closed) return;
       setBusy(true);
       await doc.restoreVersion(v.path);
       if (closed) return;
       modal.close();
-      toast('Version restored', { icon: 'check', duration: 2500 });
+      toast(t('versions.restored'), { icon: 'check', duration: 2500 });
       onRestored?.();
     } catch (e) {
       console.error(e);
-      if (!closed) toast(e?.message || 'Could not restore that version', { icon: 'alert', duration: 4000 });
+      if (!closed) toast(e?.message || t('versions.restoreFailed'), { icon: 'alert', duration: 4000 });
     } finally { setBusy(false); }
   }
 
@@ -131,7 +135,7 @@ export function openVersionHistory(doc, { onRestored } = {}) {
     if (busy || closed) return;
     setBusy(true, { keepButtons: true });
     try {
-      const ok = await confirmDialog({ title: 'Delete this version?', message: `The version from ${when(v.at)} is removed for good.`, confirmLabel: 'Delete' });
+      const ok = await confirmDialog({ title: t('versions.deleteTitle'), message: t('versions.deleteMessage', { when: when(v.at) }), confirmLabel: t('common.delete') });
       if (!ok || closed) return;
       setBusy(true);
       await deleteVersion(v.path);
@@ -141,7 +145,7 @@ export function openVersionHistory(doc, { onRestored } = {}) {
       if (!closed) await refresh();
     } catch (e) {
       console.error(e);
-      if (!closed) toast('Could not delete the version', { icon: 'alert' });
+      if (!closed) toast(t('versions.deleteFailed'), { icon: 'alert' });
     } finally {
       setBusy(false);
       // The row that took the deleted one's place (or the same row, when the delete failed), else the label field.
@@ -155,7 +159,7 @@ export function openVersionHistory(doc, { onRestored } = {}) {
     hint,
     status,
     list);
-  const modal = openModal({ title: 'Version history', content, onClose: () => { closed = true; } });
+  const modal = openModal({ title: t('versions.title'), content, onClose: () => { closed = true; } });
   refresh();
   return modal;
 }

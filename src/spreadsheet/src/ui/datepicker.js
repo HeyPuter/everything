@@ -10,9 +10,18 @@ import { icon } from './icons.js';
 import { toast } from './toast.js';
 import { cellName } from '../core/cell.js';
 import { todaySerial, dateTimeKind, ymdToSerial, serialToYMD } from '../core/format.js';
+import { t, formatDate } from '../i18n/index.js';
 
-const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-const WEEKDAYS = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'];
+/** A month's name in the interface language ("November"), for month 1–12. */
+const monthName = (m) => formatDate(new Date(Date.UTC(2000, m - 1, 1)), { month: 'long', timeZone: 'UTC' });
+/** A month and its year in the interface language: "November 2026", "2026年11月". */
+const monthTitle = (y, m) => {
+  const date = new Date(Date.UTC(2000, m - 1, 1));
+  date.setUTCFullYear(y);
+  return formatDate(date, { year: 'numeric', month: 'long', timeZone: 'UTC' });
+};
+/** The weekday headings, Monday first, as two-letter abbreviations: Intl has no form that short in every language. */
+const WEEKDAYS = ['datepicker.weekdayMon', 'datepicker.weekdayTue', 'datepicker.weekdayWed', 'datepicker.weekdayThu', 'datepicker.weekdayFri', 'datepicker.weekdaySat', 'datepicker.weekdaySun'];
 // The days a date cell can show (format.js formatDate prints ##### outside them):
 // from the calendar's day zero to the last day of 9999.
 const FIRST_SERIAL = 0;
@@ -43,7 +52,7 @@ export function openDatePicker(ctx, r, c) {
   const sheetId = ctx.sheetId();
   // A protected cell takes no date; say so instead of opening a picker whose choice would vanish.
   if (wb.lockedAt?.(sheetId, r, c)) {
-    toast(`${cellName(r, c)} is protected. Unprotect it to pick a date`, { icon: 'lock' });
+    toast(t('datepicker.protected', { cell: cellName(r, c) }), { icon: 'lock' });
     return null;
   }
   const value = wb.getValue(sheetId, r, c);
@@ -56,7 +65,7 @@ export function openDatePicker(ctx, r, c) {
   // A cell holding a serial the sheet shows as ##### opens on the nearest day it can show.
   let focused = clampSerial(current ?? today);
   let { y, m } = serialToParts(focused);
-  const body = el('div.datepicker', { role: 'group', 'aria-label': 'Calendar' });
+  const body = el('div.datepicker', { role: 'group', 'aria-label': t('datepicker.calendar') });
   const error = el('p.field-error', { hidden: true, role: 'alert' });
   let menu = null;
 
@@ -84,7 +93,7 @@ export function openDatePicker(ctx, r, c) {
   const allowed = (value) => {
     const verdict = wb.validateValue(sheetId, r, c, value);
     if (!verdict.ok && verdict.rule?.strict !== false) {
-      error.textContent = verdict.message || 'This date does not meet the cell’s validation rule.';
+      error.textContent = verdict.message || t('datepicker.invalid');
       error.hidden = false;
       return false;
     }
@@ -96,31 +105,32 @@ export function openDatePicker(ctx, r, c) {
     const prev = wb.getCell(sheetId, r, c);
     const kind = dateTimeKind(prev?.s, value);
     const fmt = prev?.s?.fmt === 'custom' && (kind === 'date' || kind === 'datetime') ? 'custom' : kind === 'datetime' ? 'datetime' : 'date';
-    wb.setInput(sheetId, r, c, serial + frac, { literal: true, style: { fmt }, label: 'Pick date' });
+    wb.setInput(sheetId, r, c, serial + frac, { literal: true, style: { fmt }, label: t('datepicker.undoPick') });
     ctx.grid.focus();
   };
   const render = () => {
     const days = calendarDays(y, m);
+    const previous = t('datepicker.previousMonth'), next = t('datepicker.nextMonth');
     body.replaceChildren(
       el('div.dp-head', {},
-        el('button.icon-btn', { type: 'button', html: icon('chevL', 16), 'aria-label': 'Previous month', disabled: partsToSerial(y, m, 1) <= FIRST_SERIAL + 1, onclick: () => moveMonth(-1, 'Previous month') }),
-        el('span.dp-title', { 'aria-live': 'polite' }, `${MONTHS[m - 1]} ${y}`),
-        el('button.icon-btn', { type: 'button', html: icon('chevR', 16), 'aria-label': 'Next month', disabled: partsToSerial(y, m + 1, 1) > LAST_SERIAL, onclick: () => moveMonth(1, 'Next month') })),
+        el('button.icon-btn', { type: 'button', html: icon('chevL', 16), 'aria-label': previous, disabled: partsToSerial(y, m, 1) <= FIRST_SERIAL + 1, onclick: () => moveMonth(-1, previous) }),
+        el('span.dp-title', { 'aria-live': 'polite' }, monthTitle(y, m)),
+        el('button.icon-btn', { type: 'button', html: icon('chevR', 16), 'aria-label': next, disabled: partsToSerial(y, m + 1, 1) > LAST_SERIAL, onclick: () => moveMonth(1, next) })),
       el('div.dp-grid', {},
-        ...WEEKDAYS.map((w) => el('span.dp-wd', { 'aria-hidden': 'true' }, w)),
+        ...WEEKDAYS.map((key) => el('span.dp-wd', { 'aria-hidden': 'true' }, t(key))),
         ...days.map((day) => {
           const serial = partsToSerial(day.y, day.m, day.d);
           return el('button.dp-day', {
             type: 'button', tabindex: -1, dataset: { serial }, disabled: serial < FIRST_SERIAL || serial > LAST_SERIAL,
             className: `dp-day${day.other ? ' other' : ''}${serial === today ? ' today' : ''}${serial === current ? ' selected' : ''}`,
-            'aria-label': `${day.d} ${MONTHS[day.m - 1]} ${day.y}`, 'aria-pressed': String(serial === current),
+            'aria-label': t('datepicker.dayLabel', { day: day.d, month: monthName(day.m), year: day.y }), 'aria-pressed': String(serial === current),
             onfocus: () => { focused = serial; },
             onclick: () => pick(serial),
           }, String(day.d));
         })),
       el('div.dp-foot', {},
-        el('button.btn.btn-ghost.btn-sm', { type: 'button', onclick: () => pick(today) }, 'Today'),
-        current != null && el('button.btn.btn-ghost.btn-sm', { type: 'button', onclick: () => { if (!allowed(null)) return; menu.close(); wb.setInput(sheetId, r, c, ''); ctx.grid.focus(); } }, 'Clear')),
+        el('button.btn.btn-ghost.btn-sm', { type: 'button', onclick: () => pick(today) }, t('datepicker.today')),
+        current != null && el('button.btn.btn-ghost.btn-sm', { type: 'button', onclick: () => { if (!allowed(null)) return; menu.close(); wb.setInput(sheetId, r, c, ''); ctx.grid.focus(); } }, t('common.clear'))),
       error);
   };
   body.addEventListener('keydown', (e) => {
@@ -142,7 +152,7 @@ export function openDatePicker(ctx, r, c) {
   // The calendar is laid out before the menu opens, so the menu measures its real height
   // when deciding whether to sit below the cell or flip above it.
   render();
-  menu = openMenu({ anchor, label: 'Pick a date', minWidth: 252, items: [{ custom: body }], onClose: () => ctx.grid.focus() });
+  menu = openMenu({ anchor, label: t('datepicker.pickADate'), minWidth: 252, items: [{ custom: body }], onClose: () => ctx.grid.focus() });
   setTimeout(focusDay, 0);
   return menu;
 }

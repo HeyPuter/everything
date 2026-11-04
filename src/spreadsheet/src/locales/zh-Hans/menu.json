@@ -1,0 +1,5 @@
+{
+  "menu": "菜单",
+  "noMatches": "无匹配项",
+  "results": "{count, plural, other {{count} 个结果}}"
+}

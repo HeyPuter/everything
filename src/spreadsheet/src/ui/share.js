@@ -11,18 +11,24 @@ import { toast } from './toast.js';
 import * as P from '../lib/puter.js';
 import { fileLink } from '../lib/links.js';
 import { coauthorSection } from './coauthor.js';
+import { t } from '../i18n/index.js';
 
-export const SHARE_MODES = [['read', 'Can view'], ['write', 'Can edit']];
-const modeLabel = (mode) => (mode === 'write' || mode === 'manage' ? 'Can edit' : 'Can view');
-/** What a change of access says, as in "ana can now edit". */
-const nowCan = (mode) => (mode === 'write' || mode === 'manage' ? 'can now edit' : 'can now view');
+/** [mode, label] for each level of access; the label is read when drawn, in the interface language. */
+export const SHARE_MODES = [
+  Object.defineProperty(['read'], 1, { enumerable: true, get: () => t('share.canView') }),
+  Object.defineProperty(['write'], 1, { enumerable: true, get: () => t('share.canEdit') }),
+];
+const canEdit = (mode) => mode === 'write' || mode === 'manage';
+const modeLabel = (mode) => (canEdit(mode) ? t('share.canEdit') : t('share.canView'));
+/** The `mode` a message's select reads: edit or view. */
+const accessLevel = (mode) => (canEdit(mode) ? 'edit' : 'view');
 
 /** What a row says under the name: how the access came about, when that is not plain. */
 function rowMeta(row) {
-  if (row.who === 'anyone') return `Anyone signed in to Puter who has the link · ${modeLabel(row.mode).toLowerCase()}`;
-  if (row.pending) return 'Invited · access starts when they join Puter with this address';
-  if (row.inheritedFrom) return `Through the folder ${P.displayName(row.inheritedFrom)}`;
-  if (row.mode === 'manage') return 'Can edit and share';
+  if (row.who === 'anyone') return t('share.metaAnyone', { mode: accessLevel(row.mode) });
+  if (row.pending) return t('share.metaInvited');
+  if (row.inheritedFrom) return t('share.metaThroughFolder', { folder: P.displayName(row.inheritedFrom) });
+  if (row.mode === 'manage') return t('share.metaCanShare');
   return null;
 }
 
@@ -34,13 +40,13 @@ function rowMeta(row) {
 export function openShareDialog({ path, name, uid = null, onChange = null, doc = null, onLive = null, onEmailLink = null }) {
   const { alert, refuse, clear } = fieldAlert('share');
   const who = el('input.input', {
-    type: 'text', placeholder: 'Username or email address', 'aria-label': 'Username or email address',
+    type: 'text', placeholder: t('share.whoPlaceholder'), 'aria-label': t('share.whoPlaceholder'),
     autocomplete: 'off', autocapitalize: 'off', spellcheck: false, enterkeyhint: 'send',
   });
-  const mode = el('select.select.share-mode', { 'aria-label': 'Access' }, SHARE_MODES.map(([value, label]) => el('option', { value }, label)));
-  const shareBtn = el('button.btn.btn-primary', { type: 'submit' }, 'Share');
-  const list = el('div.version-list.share-list', { role: 'list', 'aria-label': 'People with access' });
-  const linkBtn = el('button.btn.btn-outline', { type: 'button', html: icon('link', 16), onclick: () => copyLink() }, el('span', {}, 'Copy link'));
+  const mode = el('select.select.share-mode', { 'aria-label': t('share.access') }, SHARE_MODES.map(([value, label]) => el('option', { value }, label)));
+  const shareBtn = el('button.btn.btn-primary', { type: 'submit' }, t('share.share'));
+  const list = el('div.version-list.share-list', { role: 'list', 'aria-label': t('share.peopleWithAccess') });
+  const linkBtn = el('button.btn.btn-outline', { type: 'button', html: icon('link', 16), onclick: () => copyLink() }, el('span', {}, t('share.copyLink')));
   let busy = false;
   let closed = false;
   let loadId = 0;
@@ -60,7 +66,7 @@ export function openShareDialog({ path, name, uid = null, onChange = null, doc =
     say(text);
     list.removeAttribute('role');
     list.replaceChildren(el('div.version-empty', {}, el('p', {}, text),
-      offerRetry && el('button.btn.btn-sm.btn-outline', { type: 'button', onclick: retry }, 'Try again')));
+      offerRetry && el('button.btn.btn-sm.btn-outline', { type: 'button', onclick: retry }, t('common.tryAgain'))));
   }
 
   async function retry() {
@@ -75,7 +81,7 @@ export function openShareDialog({ path, name, uid = null, onChange = null, doc =
     const requestId = ++loadId;
     // Only a list with nothing in it yet says it is loading: read again after a change, the rows stay
     // in place until the new ones replace them, so the dialog neither jumps nor loses the focused control.
-    if (!list.querySelector('.share-row')) notice('Loading…');
+    if (!list.querySelector('.share-row')) notice(t('common.loading'));
     let rows;
     try { rows = await P.shareAccess(path); }
     catch (e) {
@@ -90,12 +96,12 @@ export function openShareDialog({ path, name, uid = null, onChange = null, doc =
         clear();
         notice(e.message);
         if (hadFocus) doneBtn.focus();
-      } else notice('Could not read who has access', { retry: true });
+      } else notice(t('share.readFailed'), { retry: true });
       return;
     }
     if (closed || requestId !== loadId) return;
-    if (!rows.length) { notice('Only you can open this spreadsheet. Add someone above to share it.'); return; }
-    say(`${rows.length} ${rows.length === 1 ? 'person or group has' : 'people or groups have'} access`);
+    if (!rows.length) { notice(t('share.onlyYou')); return; }
+    say(t('share.accessCount', { count: rows.length }));
     list.setAttribute('role', 'list');
     list.replaceChildren(...rows.map((row, idx) => {
       const meta = rowMeta(row);
@@ -106,7 +112,7 @@ export function openShareDialog({ path, name, uid = null, onChange = null, doc =
       const own = !!row.recipient;
       const level = own && !row.pending && row.mode !== 'manage'
         ? el('select.select.share-mode', {
-          'aria-label': `Access for ${row.label}`, dataset: { action: 'mode' },
+          'aria-label': t('share.accessFor', { name: row.label }), dataset: { action: 'mode' },
           onchange: (e) => changeMode(row, e.currentTarget.value, idx),
         }, SHARE_MODES.map(([value, label]) => el('option', { value, selected: value === (row.mode === 'write' ? 'write' : 'read') }, label)))
         : row.who !== 'anyone' && el('span.share-level', {}, modeLabel(row.mode));
@@ -119,8 +125,8 @@ export function openShareDialog({ path, name, uid = null, onChange = null, doc =
         level,
         own && el('button.icon-btn', {
           type: 'button', html: icon('x', 16), dataset: { action: 'remove' },
-          'aria-label': row.pending ? `Cancel the invitation to ${row.label}` : `Remove ${row.label}`,
-          title: row.pending ? 'Cancel the invitation' : 'Remove access',
+          'aria-label': row.pending ? t('share.cancelInvitationTo', { name: row.label }) : t('share.removeName', { name: row.label }),
+          title: row.pending ? t('share.cancelInvitation') : t('share.removeAccess'),
           onclick: () => remove(row, idx),
         }));
     }));
@@ -130,8 +136,8 @@ export function openShareDialog({ path, name, uid = null, onChange = null, doc =
   async function add() {
     if (busy || closed) return;
     const recipient = who.value.trim();
-    if (!recipient) { refuse(who, 'Enter a username or an email address'); return; }
-    if (/\s/.test(recipient)) { refuse(who, 'A username or an email address has no spaces'); return; }
+    if (!recipient) { refuse(who, t('share.enterRecipient')); return; }
+    if (/\s/.test(recipient)) { refuse(who, t('share.noSpaces')); return; }
     clear();
     const from = document.activeElement;
     setBusy(true);
@@ -140,7 +146,7 @@ export function openShareDialog({ path, name, uid = null, onChange = null, doc =
       if (closed) return;
       who.value = '';
       const named = share.pending ? (share.label || recipient) : (share.recipient || recipient);
-      toast(share.pending ? `Invited ${named}` : share.isNew ? `Shared with ${named}` : `${named} ${nowCan(share.mode)}`, { icon: 'check', duration: 2500 });
+      toast(share.pending ? t('share.invited', { name: named }) : share.isNew ? t('share.sharedWith', { name: named }) : t('share.nowCan', { name: named, mode: accessLevel(share.mode) }), { icon: 'check', duration: 2500 });
       onChange?.();
       await refresh();
     } catch (e) {
@@ -148,7 +154,7 @@ export function openShareDialog({ path, name, uid = null, onChange = null, doc =
       console.error(e);
       // The field is enabled again first: the refusal puts the focus on it.
       setBusy(false);
-      refuse(who, e?.message || 'Could not share the spreadsheet');
+      refuse(who, e?.message || t('share.shareFailed'));
       return;
     } finally {
       if (busy) setBusy(false);
@@ -162,11 +168,11 @@ export function openShareDialog({ path, name, uid = null, onChange = null, doc =
     try {
       await P.shareFile(path, row.recipient, next);
       if (closed) return;
-      toast(`${row.label} ${nowCan(next)}`, { icon: 'check', duration: 2000 });
+      toast(t('share.nowCan', { name: row.label, mode: accessLevel(next) }), { icon: 'check', duration: 2000 });
       onChange?.();
     } catch (e) {
       console.error(e);
-      if (!closed) toast(e?.message || 'Could not change the access', { icon: 'alert', duration: 4000 });
+      if (!closed) toast(e?.message || t('share.changeFailed'), { icon: 'alert', duration: 4000 });
     } finally {
       // The rows are read again either way: a refused change must not leave the list showing it.
       if (!closed) await refresh();
@@ -181,12 +187,12 @@ export function openShareDialog({ path, name, uid = null, onChange = null, doc =
     try {
       await P.unshareFile(path, row.recipient);
       if (closed) return;
-      toast(row.pending ? `Invitation to ${row.label} cancelled` : `Removed ${row.label}`, { icon: 'check', duration: 2000 });
+      toast(row.pending ? t('share.invitationCancelled', { name: row.label }) : t('share.removed', { name: row.label }), { icon: 'check', duration: 2000 });
       onChange?.();
       await refresh();
     } catch (e) {
       console.error(e);
-      if (!closed) toast(e?.message || 'Could not remove the access', { icon: 'alert', duration: 4000 });
+      if (!closed) toast(e?.message || t('share.removeFailed'), { icon: 'alert', duration: 4000 });
     } finally {
       setBusy(false);
       // The row that took the removed one's place (or the same row, when the removal failed), else the name field.
@@ -211,37 +217,37 @@ export function openShareDialog({ path, name, uid = null, onChange = null, doc =
       }
     } finally { setBusy(false); }
     if (closed) return;
-    if (!url) { toast('Could not make a link to this spreadsheet', { icon: 'alert', duration: 3500 }); return; }
+    if (!url) { toast(t('share.linkFailed'), { icon: 'alert', duration: 3500 }); return; }
     try {
       await navigator.clipboard.writeText(url);
-      toast('Link copied. Only people with access can open it', { icon: 'link', duration: 3000 });
+      toast(t('share.linkCopied'), { icon: 'link', duration: 3000 });
     } catch {
-      await promptDialog({ title: 'Link to this spreadsheet', label: 'Address (copy it from here)', value: url, confirmLabel: 'Done' });
+      await promptDialog({ title: t('share.linkTitle'), label: t('share.linkLabel'), value: url, confirmLabel: t('common.done') });
     }
   }
 
   const addForm = el('form.share-add', { onsubmit: (e) => { e.preventDefault(); add(); } }, who, mode, shareBtn);
-  const hint = el('p.field-hint', {}, 'Share with a Puter username, or an email address: someone without an account is invited to join.');
-  const doneBtn = el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Done');
+  const hint = el('p.field-hint', {}, t('share.hint'));
+  const doneBtn = el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, t('common.done'));
   // Editing together (see coauthor.js) comes first: it is what most people sharing a spreadsheet want.
   const live = doc && coauthorSection({ doc, onStarted: (room) => { modal.close(); onLive?.(room); } });
   // A shared workbook opened by someone it was shared with has no file of theirs: only the live part applies.
   const fileless = !path && !!live;
   const content = fileless ? el('div.share-dialog', {}, live, el('div.row.share-foot', {}, el('div.grow'), doneBtn)) : el('div.share-dialog', {},
     live,
-    live && el('h3.share-h3', {}, 'Share the file'),
+    live && el('h3.share-h3', {}, t('share.shareTheFile')),
     addForm,
     alert,
     hint,
-    el('h3.share-h3', {}, 'People with access'),
+    el('h3.share-h3', {}, t('share.peopleWithAccess')),
     status,
     list,
     el('div.row.share-foot', {},
       linkBtn,
-      onEmailLink && el('button.btn.btn-outline', { type: 'button', html: icon('sendLink', 16), onclick: () => { modal.close(); onEmailLink(); } }, el('span', {}, 'Email a link…')),
+      onEmailLink && el('button.btn.btn-outline', { type: 'button', html: icon('sendLink', 16), onclick: () => { modal.close(); onEmailLink(); } }, el('span', {}, t('share.emailLink'))),
       el('div.grow'),
       doneBtn));
-  const modal = openModal({ title: `Share "${name}"`, content, initialFocus: fileless ? null : who, onClose: () => { closed = true; } });
+  const modal = openModal({ title: t('share.title', { name }), content, initialFocus: fileless ? null : who, onClose: () => { closed = true; } });
   modal.panel.classList.add('share-panel');
   if (!fileless) refresh();
   return modal;

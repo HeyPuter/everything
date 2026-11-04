@@ -26,6 +26,7 @@
 
 import { isComposing, el, fieldId } from './dom.js';
 import { icon } from './icons.js';
+import { t } from '../i18n/index.js';
 
 let current = null;
 
@@ -87,7 +88,7 @@ function closedMenu() {
   return { close() {}, closeAll() {}, menu, owns: () => false, focusBack() {}, focusFirst() {}, focusLast() {} };
 }
 
-export function openMenu({ anchor, items, x = null, y = null, altRight = null, align = 'start', label = 'Menu', onClose = null, minWidth = null, restoreFocus = true, parent = null, onNavigate = null, opener = null, autoFocus = true, search = null, focusChecked = false }) {
+export function openMenu({ anchor, items, x = null, y = null, altRight = null, align = 'start', label = t('menu.menu'), onClose = null, minWidth = null, restoreFocus = true, parent = null, onNavigate = null, opener = null, autoFocus = true, search = null, focusChecked = false }) {
   if (!parent) {
     // A second press on the button that opened the menu closes it, as a menu-bar title does, instead of
     // opening a fresh copy over the one the press left in place (the press on an anchor is the anchor's to handle).
@@ -135,7 +136,7 @@ export function openMenu({ anchor, items, x = null, y = null, altRight = null, a
       const count = entries.filter(node => !node.hidden).length;
       choicesHost.hidden = !count;
       searchStatus.hidden = !query;
-      searchStatus.textContent = count ? `${count} ${count === 1 ? 'result' : 'results'}` : 'No matches';
+      searchStatus.textContent = count ? t('menu.results', { count }) : t('menu.noMatches');
       menu.scrollTop = 0;
     });
     searchInput.addEventListener('keydown', (e) => {
