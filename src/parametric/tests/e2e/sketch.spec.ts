@@ -133,4 +133,21 @@ test.describe('sketching', () => {
     await expect.poll(dangling).toEqual({ lines: 1, dangling: 0 });
     expect(errors).toEqual([]);
   });
+  test('leaving a sketch with a tool still active leaves no sketch drawn over the model', async ({ page }) => {
+    const errors = await openApp(page);
+    const { x, y } = await startSketch(page);
+    await page.locator('[data-cmd="tool:circle"]').click();
+    await page.mouse.click(x, y);
+    await page.mouse.click(x + 60, y);
+    await page.mouse.move(x + 100, y + 30);
+    // The circle tool is still active: cancelling it queues a preview redraw.
+    await page.locator('button.ok[aria-label="Exit sketch"]').click();
+    await page.waitForTimeout(200);
+    const layers = await page.evaluate(() => {
+      const r = (window as unknown as { __parametric: { renderer: { lines: Map<string, unknown>; points: Map<string, unknown> } } }).__parametric.renderer;
+      return [...r.lines.keys(), ...r.points.keys()].filter((k) => k.startsWith('sk-'));
+    });
+    expect(layers).toEqual([]);
+    expect(errors).toEqual([]);
+  });
 });

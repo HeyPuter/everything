@@ -82,6 +82,7 @@ export class SketchEditor implements ViewportTool {
   cursorPt: Vec2 | null = null;
   private lastSnap: Snap | null = null;
   private renderQueued = 0;
+  private disposed = false;
   private unsubscribe: () => void;
 
   constructor(readonly app: App, sketchId: Id, frame: Frame) {
@@ -611,7 +612,7 @@ export class SketchEditor implements ViewportTool {
   // ---------- rendering ----------
 
   queueRender() {
-    if (this.renderQueued) return;
+    if (this.renderQueued || this.disposed) return;
     this.renderQueued = requestAnimationFrame(() => {
       this.renderQueued = 0;
       this.render();
@@ -631,7 +632,7 @@ export class SketchEditor implements ViewportTool {
 
   render() {
     const sk = this.sketch;
-    if (!sk) return;
+    if (!sk || this.disposed) return;
     const r = this.app.renderer;
     const fr = this.frame;
     const ix = new SketchIndex(sk.entities);
@@ -908,6 +909,11 @@ export class SketchEditor implements ViewportTool {
     this.unsubscribe();
     this.tool?.cancel();
     this.closeModify();
+    // Nothing may draw after this: a render queued by the tool's cancel (its
+    // preview) would otherwise bring the sketch layers back in the model view.
+    this.disposed = true;
+    cancelAnimationFrame(this.renderQueued);
+    this.renderQueued = 0;
     this.tipEl.remove();
     this.boxEl?.remove();
     for (const el of this.labels.values()) el.remove();
