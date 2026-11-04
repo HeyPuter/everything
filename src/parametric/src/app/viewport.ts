@@ -135,7 +135,18 @@ export class Viewport {
     });
     c.addEventListener('keydown', (e) => this.onKey(e));
     new ResizeObserver(() => this.resize()).observe(this.root);
+    this.watchPixelRatio();
     this.resize();
+  }
+
+  /**
+   * Moving the window to a display with another pixel density changes
+   * devicePixelRatio without resizing anything, so the ResizeObserver stays
+   * silent and the canvas would keep the old backing-store resolution.
+   */
+  private watchPixelRatio() {
+    const mq = window.matchMedia?.(`(resolution: ${window.devicePixelRatio || 1}dppx)`);
+    mq?.addEventListener('change', () => { this.resize(); this.watchPixelRatio(); }, { once: true });
   }
 
   resize() {

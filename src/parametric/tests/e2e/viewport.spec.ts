@@ -87,4 +87,29 @@ test.describe('viewport', () => {
     for (let i = 0; i < 6; i++) await page.keyboard.press('ArrowRight');
     await expect(page.locator('.view-label')).toHaveText('Right');
   });
+
+  test('follows a change of device pixel ratio without a resize', async ({ page }) => {
+    // Moving the window to a denser display changes devicePixelRatio and fires
+    // a resolution media query change, but no resize. Emulate exactly that.
+    await page.addInitScript(() => {
+      const listeners: (() => void)[] = [];
+      const mm = window.matchMedia.bind(window);
+      window.matchMedia = (q: string) => {
+        const mq = mm(q);
+        if (/resolution/.test(q)) mq.addEventListener = (_t: string, fn: unknown) => { listeners.push(fn as () => void); };
+        return mq;
+      };
+      (window as unknown as { __densityChange: (r: number) => void }).__densityChange = (r) => {
+        Object.defineProperty(window, 'devicePixelRatio', { configurable: true, get: () => r });
+        listeners.splice(0).forEach((fn) => fn());
+      };
+    });
+    await openApp(page);
+    const size = () => page.evaluate(() => { const r = (window as unknown as Win).__parametric.renderer; return [r.canvas.width, r.camera.width]; });
+    await expect.poll(async () => (await size())[1]).toBeGreaterThan(100);
+    const [w1, css] = await size();
+    expect(w1).toBe(Math.round(css));
+    await page.evaluate(() => (window as unknown as { __densityChange: (r: number) => void }).__densityChange(2));
+    await expect.poll(async () => (await size())[0]).toBe(Math.round(css * 2));
+  });
 });
