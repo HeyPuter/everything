@@ -4855,8 +4855,13 @@ export function createEditor({
     }
   }
   let finishingForms;
+  /** Saves the words typed into the selected comment's Comment field, which saves on change. */
+  let annotationTextDraft = null;
   async function finishDrafts(skipImages = false) {
     await annotationLayer.finish();
+    // A save or download from the keyboard leaves the field focused, so its change is not yet
+    // saved; the words typed go out with the PDF too.
+    await annotationTextDraft?.();
     if (!skipImages) await pageImages.finish();
     await finishTextEdit();
     await finishNoteEdit();
@@ -10034,6 +10039,7 @@ export function createEditor({
   }
   /** The selected comment's text, look, replies, and review status in the properties panel. */
   function showAnnotationProperties(entry) {
+    annotationTextDraft = null;
     if (!entry) return properties.clear('annotation');
     // A stamp keeps its own art and a read-only comment takes no change: offer only what applies.
     const editable = entry.editable && !entry.locked && !entry.readOnly && access().annotate;
@@ -10052,7 +10058,25 @@ export function createEditor({
       readOnly: !!entry.lockedContents || !!entry.readOnly || !access().annotate,
     });
     text.value = entry.contents || '';
-    text.addEventListener('change', () => apply({ contents: text.value }));
+    // Saved once, from whichever comes first: the field's change or a save of the PDF.
+    let savedText = text.value,
+      savingText = null;
+    const saveText = () => {
+      if (text.readOnly || !text.isConnected || text.value === savedText) return savingText;
+      const previous = savedText,
+        value = (savedText = text.value);
+      return (savingText = mutate(
+        (doc) => editAnnotation(doc, pageIndex, entry.id, { contents: value }),
+        null,
+        'annotate',
+        { retainScale: true },
+      ).catch((error) => {
+        savedText = previous;
+        throw error;
+      }));
+    };
+    annotationTextDraft = saveText;
+    text.addEventListener('change', () => safe(saveText)());
     const color = el('input', {
       type: 'color',
       value: entry.color || '#e5322d',
