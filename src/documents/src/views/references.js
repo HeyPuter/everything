@@ -85,9 +85,10 @@ export function createReferences({ editor, pkg, error, base = {}, onChange = () 
       // Each needs headers of its own, new parts the others would not receive (unshared).
       unshared(option === 'first' ? 'Different first page headers' : 'Different odd and even page headers', 'turned on or off');
       const kind = activeStoryKind(), page = currentPage(engine), section = engine.sectionOfPage(page);
-      if (option === 'first') { pkg().setTitlePage(section, on); engine.setStoryOptions({ section, firstPageDifferent: on }); }
-      else { pkg().setEvenAndOdd(on); engine.setStoryOptions({ evenAndOdd: on }); }
-      engine.onChange();
+      engine.changeSettings(() => {
+        if (option === 'first') { pkg().setTitlePage(section, on); engine.setStoryOptions({ section, firstPageDifferent: on }); }
+        else { pkg().setEvenAndOdd(on); engine.setStoryOptions({ evenAndOdd: on }); }
+      });
       if (kind === 'header' || kind === 'footer') await story(kind, page);
       onChange();
     } catch (e) { fail(e); }

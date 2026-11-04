@@ -127,14 +127,12 @@ export function createNoteCommands(ctx) {
   function applySettings(kind, values) {
     const engine = ready(); if (!engine) return;
     ctx.unprotected?.('its footnote and endnote settings');
-    pkg().setNoteSettings(kind, values);
-    const definition = engine.session.definition, key = settingsKey(kind);
-    if (definition?.[key]) {
-      engine.session.definition = { ...definition, [key]: { ...definition[key], ...values } };
-      engine.session.sectionRevision = undefined;
-      engine.relayout();
-    }
-    engine.onChange?.();
+    // One undo step, which takes back what is saved and what is shown.
+    engine.changeSettings(() => {
+      pkg().setNoteSettings(kind, values);
+      const definition = engine.session.definition, key = settingsKey(kind);
+      if (definition?.[key]) engine.session.definition = { ...definition, [key]: { ...definition[key], ...values } };
+    });
     onChange();
   }
 

@@ -106,3 +106,30 @@ describe('a section break in a one-section document with a footer', () => {
     expect(pageStoryPath(session.pageStories, 1, kind, 2, true)).toBe(pageStoryPath(session.pageStories, 0, kind, 1, true));
   });
 });
+
+it('undoes and redoes header and footer options as one step each, saving as before them', async () => {
+  const { pkg, session: s } = await setup();
+  s.settingsHost = { capture: () => pkg.settingsState(), restore: state => pkg.restoreSettings(state) };
+  const setOptions = (section, patch) => {
+    if ('firstPageDifferent' in patch) pkg.setTitlePage(section, patch.firstPageDifferent);
+    if ('pageNumbering' in patch) pkg.setPageNumbering(section, patch.pageNumbering);
+    s.definition = { ...s.definition, sections: s.definition.sections.map((value, i) => (i === section ? { ...value, ...patch } : value)) };
+  };
+  s.run(d => d.replace('Body '));
+  const typed = await parts(s, pkg), was = s.definition.sections[0].firstPageDifferent;
+  expect(s.changeSettings(() => setOptions(0, { firstPageDifferent: !was, pageNumbering: { format: 'upperRoman' } }))).toBe(true);
+  // Setting what is already set is no step.
+  expect(s.changeSettings(() => setOptions(0, { firstPageDifferent: !was }))).toBe(false);
+  expect(s.history).toHaveLength(2);
+  const changed = await parts(s, pkg);
+  expect(new TextDecoder().decode(changed['word/document.xml'])).toContain('upperRoman');
+  expect(s.undo()).toBe(true);
+  expect(s.definition.sections[0]).toMatchObject({ firstPageDifferent: was });
+  expect(s.definition.sections[0].pageNumbering).toBeUndefined();
+  expect(s.model.text.startsWith('Body ')).toBe(true);
+  expect(await parts(s, pkg)).toEqual(typed);
+  s.redo();
+  expect(await parts(s, pkg)).toEqual(changed);
+  s.undo(); s.undo();
+  expect(await parts(s, pkg)).toEqual(pkg.parts);
+});

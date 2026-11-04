@@ -2424,6 +2424,15 @@ export class DocxPackage {
   setPageNumbering(section, value) { if (this.readOnly) throw new Error('This document is open read-only.'); this.pageNumberings.set(section, value ? { format: value.format || 'decimal', ...(Number.isInteger(value.start) ? { start: value.start } : {}) } : null); }
   /** Different odd and even page headers (settings evenAndOddHeaders); written on the next export. */
   setEvenAndOdd(on) { if (this.readOnly) throw new Error('This document is open read-only.'); this.evenAndOdd = !!on; }
+  /** The header, footer and note settings this session set (above and setNoteSettings), for Undo to put back. */
+  settingsState() {
+    return { titlePages: [...this.titlePages], pageNumberings: [...this.pageNumberings], evenAndOdd: this.evenAndOdd, noteSettings: this.noteSettings ? JSON.parse(JSON.stringify(this.noteSettings)) : null };
+  }
+  restoreSettings(state) {
+    if (!state) return;
+    this.titlePages = new Map(state.titlePages); this.pageNumberings = new Map(state.pageNumberings); this.evenAndOdd = state.evenAndOdd;
+    if (state.noteSettings) this.noteSettings = JSON.parse(JSON.stringify(state.noteSettings)); else delete this.noteSettings;
+  }
   /** Remove footnotes and endnotes whose body reference was deleted. */
   pruneFootnotes(parts, paragraphs) {
     for (const kind of ['footnote', 'endnote']) {

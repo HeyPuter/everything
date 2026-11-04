@@ -174,9 +174,61 @@ export class StorySession {
       if (ownCheckpoint) model.checkpoint = ownCheckpoint; else delete model.checkpoint;
     }
   }
+  /**
+   * Settings kept beside the stories' text: each section's first-page and page-numbering options, odd-and-even
+   * pages and the note settings (in the definition), and what the host keeps of them for saving (`settingsHost`,
+   * the package's side). The headers, footers and notes themselves are not among them: a story added since stays.
+   */
+  settingsState() {
+    const definition = this.definition;
+    return {
+      options: definition && { evenAndOdd: !!definition.evenAndOdd, footnotes: definition.footnotes, endnotes: definition.endnotes,
+        sections: definition.sections.map(section => ({ firstPageDifferent: !!section.firstPageDifferent, pageNumbering: section.pageNumbering })) },
+      host: this.settingsHost?.capture(),
+    };
+  }
+  applySettings({ options, host }) {
+    const definition = this.definition;
+    if (definition) {
+      const next = { ...definition, evenAndOdd: !!options?.evenAndOdd, sections: definition.sections.map((section, i) => {
+        const kept = options?.sections[i], value = { ...section, firstPageDifferent: !!kept?.firstPageDifferent };
+        if (kept?.pageNumbering) value.pageNumbering = kept.pageNumbering; else delete value.pageNumbering;
+        return value;
+      }) };
+      // Note settings are set before they change (a note adds them): ones a later note added stay.
+      for (const key of ['footnotes', 'endnotes']) if (options?.[key] !== undefined) next[key] = options[key];
+      this.definition = next; this.sectionRevision = undefined;
+    }
+    this.settingsHost?.restore(host);
+  }
+  /**
+   * Change those settings (`change()`) as one undo step, like an edit to the text. A change that leaves them as
+   * they were records nothing. Whether anything changed.
+   */
+  changeSettings(change) {
+    const before = { path: this.path, page: this.page, settings: this.settingsState(), caret: this.caret?.() };
+    const same = () => {
+      const now = this.settingsState(), outline = state => JSON.stringify(state.options?.sections.some(s => s.firstPageDifferent || s.pageNumbering) || state.options?.evenAndOdd || state.options?.footnotes || state.options?.endnotes ? state.options : null);
+      return outline(now) === outline(before.settings) && JSON.stringify(now.host) === JSON.stringify(before.settings.host);
+    };
+    try { change(); } catch (error) { this.applySettings(before.settings); throw error; } finally { this.sectionRevision = undefined; }
+    if (same()) return false;
+    this.record(before);
+    this.revision++;
+    return true;
+  }
   travel(from, to, validate) {
     if (!from.length) return false;
     const previousPath = this.path, previousPage = this.page, entry = from.at(-1);
+    if (entry.settings) {
+      // The settings go back (or forward) where the caret is: no story's text changes.
+      const current = { path: this.path, page: this.page, settings: this.settingsState(), caret: this.caret?.() };
+      this.applySettings(entry.settings);
+      try { validate?.(this.model); } catch (error) { this.applySettings(current.settings); throw error; }
+      from.pop(); to.push(current);
+      this.revision++;
+      return true;
+    }
     this.activate(entry.path);
     this.page = entry.page;
     const current = this.capture();

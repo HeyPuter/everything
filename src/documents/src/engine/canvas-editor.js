@@ -497,6 +497,18 @@ export class CanvasEditor {
     this.session.sectionRevision = undefined;
     if (this.session.path !== null) this.editStory(null); else this.relayout();
   }
+  /**
+   * Change header, footer and note settings (`change()` sets them in the package and here, setStoryOptions) as one
+   * undo step. Whether anything changed.
+   */
+  changeSettings(change) {
+    if (this.readOnly || this.viewOnly) return false;
+    this.finishComposition();
+    let changed;
+    try { changed = this.session.changeSettings(change); } finally { this.relayout(); }
+    if (changed) this.onChange();
+    return changed;
+  }
   /** The section index of a body page. */
   sectionOfPage(page = this.caretPageIndex) { return this.layout?.pageSections?.[page] ?? 0; }
   updatePageReferences() {
@@ -742,8 +754,13 @@ export class CanvasEditor {
       this.storyPage = this.session.page;
       const occurrences = this.storyLayout.positions.filter(p => p.path === this.session.path);
       this.storyPage = occurrences.find(p => p.page === this.storyPage)?.page ?? occurrences[0]?.page;
-      if (this.storyPage === undefined) this.session.activate(null);
-      else this.session.page = this.storyPage;
+      if (this.storyPage === undefined) {
+        // A header or footer no page shows any more (Different First Page undone while editing the first page's)
+        // gives way to the one of its kind its page now shows, as the place being edited; else the body.
+        const stories = this.pageStories.stories, kind = stories[this.session.path]?.kind, page = this.session.page;
+        const shown = (kind === 'header' || kind === 'footer') && this.storyLayout.positions.find(p => p.page === page && stories[p.path]?.kind === kind && stories[p.path].editable);
+        if (shown) { this.session.activate(shown.path); this.storyPage = this.session.page = shown.page; } else this.session.activate(null);
+      } else this.session.page = this.storyPage;
     }
     // Section line numbers are labels beside the finished body lines (§17.6.8); views without pages show none.
     const body = this.session.body;

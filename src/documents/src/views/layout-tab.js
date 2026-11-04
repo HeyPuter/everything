@@ -208,9 +208,11 @@ export function createLayoutTab({ editor, pkg, error, onChange = () => {}, comma
   }
   function setStories(engine, section, patch) {
     try {
-      if ('firstPageDifferent' in patch) { pkg().setTitlePage(section, patch.firstPageDifferent); engine.setStoryOptions({ section, firstPageDifferent: patch.firstPageDifferent }); }
-      if ('evenAndOdd' in patch) { pkg().setEvenAndOdd(patch.evenAndOdd); engine.setStoryOptions({ evenAndOdd: patch.evenAndOdd }); }
-      engine.onChange(); onChange();
+      engine.changeSettings(() => {
+        if ('firstPageDifferent' in patch) { pkg().setTitlePage(section, patch.firstPageDifferent); engine.setStoryOptions({ section, firstPageDifferent: patch.firstPageDifferent }); }
+        if ('evenAndOdd' in patch) { pkg().setEvenAndOdd(patch.evenAndOdd); engine.setStoryOptions({ evenAndOdd: patch.evenAndOdd }); }
+      });
+      onChange();
     } catch (e) { error(e); }
   }
 
