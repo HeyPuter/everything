@@ -415,10 +415,10 @@ export class Viewport {
   private rehoverTimer = 0;
 
   /**
-   * The view moved under a still cursor (wheel zoom, keyboard, animation):
+   * The view or model changed under a still cursor (wheel zoom, keyboard, animation, rebuild):
    * re-pick the hover there once the view settles, not on every frame.
    */
-  private rehoverSoon() {
+  rehoverSoon() {
     if (!this.mouse || this.lastPointerType === 'touch') return;
     clearTimeout(this.rehoverTimer);
     this.rehoverTimer = window.setTimeout(() => {

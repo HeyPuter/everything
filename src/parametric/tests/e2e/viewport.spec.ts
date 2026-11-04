@@ -112,6 +112,30 @@ test.describe('viewport', () => {
     }
   });
 
+  test('a rebuild re-picks the hover under a still cursor', async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+    await waitForFeature(page, 'Fillet1');
+    const [px, py] = await page.evaluate(() => {
+      const app = (window as unknown as Win).__parametric;
+      const r = app.viewport.canvas.getBoundingClientRect();
+      const [x, y] = app.viewport.project([30, 3, 25]);
+      return [x + r.left, y + r.top];
+    });
+    const hover = () => page.evaluate(() => {
+      const app = (window as unknown as Win).__parametric;
+      const m = app.viewport.mouse!;
+      return { hover: JSON.stringify(app.selection.hover), under: JSON.stringify(app.viewport.pickItem(m.x, m.y, app.pickFilter())) };
+    });
+    await page.mouse.move(px, py);
+    await expect.poll(async () => (await hover()).hover).toContain('"face"');
+    const before = (await hover()).hover;
+    // A thinner base plate: the hovered face still exists but is no longer under the cursor.
+    await page.evaluate(() => (window as unknown as Win).__parametric.store.change('Depth', (d) => { (d.features[1] as { depth: number }).depth = 5; }));
+    await expect.poll(async () => (await hover()).under).not.toBe(before);
+    await expect.poll(async () => { const h = await hover(); return h.hover === h.under; }).toBe(true);
+  });
+
   test('a wheel zoom re-picks the hover under a still cursor, and lands a view turn', async ({ page }) => {
     await openApp(page);
     await page.getByRole('button', { name: /Mounting Bracket/ }).click();

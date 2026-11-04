@@ -788,6 +788,7 @@ export class App {
     this.shell.statusRebuild.textContent = `${Math.round(res.ms)} ms`;
     this.shell.statusRebuild.title = `Rebuild took ${Math.round(res.ms)} ms (${Math.round(ms)} ms including transfer)`;
     this.viewport.refreshStates();
+    this.viewport.rehoverSoon();
     this.renderTrees();
     const errors = res.status.filter((s) => !s.ok);
     if (errors.length && !this.panel) {
