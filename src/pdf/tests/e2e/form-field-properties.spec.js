@@ -457,3 +457,33 @@ test('the fields listed in the tools pane tell the buttons of a radio group apar
   const dialog = page.getByRole('dialog', { name: 'Radio button properties' });
   await expect(dialog.getByLabel('Export value')).toHaveValue('Large');
 });
+
+test('choosing a fill or border color for a field without one applies it', async ({ page }) => {
+  const doc = await PDFDocument.create();
+  const note = doc.getForm().createTextField('Note');
+  note.addToPage(doc.addPage([600, 400]), {
+    x: 100,
+    y: 100,
+    width: 120,
+    height: 24,
+    borderColor: undefined,
+    backgroundColor: undefined,
+  });
+  await openPdf(page, doc);
+  await prepareForm(page);
+  await designer(page, 'Note#0').dblclick();
+  const dialog = page.getByRole('dialog', { name: 'Text field properties' });
+  await expect(dialog.getByLabel('No fill')).toBeChecked();
+  await expect(dialog.getByLabel('No border')).toBeChecked();
+  await dialog.getByLabel('Fill color').fill('#ffff00');
+  await dialog.getByLabel('Border color').fill('#0000ff');
+  await expect(dialog.getByLabel('No fill')).not.toBeChecked();
+  await expect(dialog.getByLabel('No border')).not.toBeChecked();
+  await dialog.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(dialog).toBeHidden();
+  await settled(page);
+  const saved = (await PDFDocument.load(await downloaded(page))).getForm().getTextField('Note');
+  const look = saved.acroField.getWidgets()[0].getAppearanceCharacteristics();
+  expect(look.getBackgroundColor()).toEqual([1, 1, 0]);
+  expect(look.getBorderColor()).toEqual([0, 0, 1]);
+});

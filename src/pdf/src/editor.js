@@ -10163,6 +10163,9 @@ export function createEditor({
     const noBorder = checkbox('field-no-border', 'No border', !props.borderColor);
     const fill = el('input', { type: 'color', value: props.backgroundColor || '#ffffff' });
     const noFill = checkbox('field-no-fill', 'No fill', !props.backgroundColor);
+    // Choosing a color means having one.
+    border.addEventListener('input', () => (noBorder.box.checked = false));
+    fill.addEventListener('input', () => (noFill.box.checked = false));
     const fontSize = el('input', {
       class: 'input',
       type: 'number',
