@@ -1,5 +1,7 @@
 # 3D
 
+**Live app:** [3d.puter.com](https://3d.puter.com/)
+
 A Blender alternative that runs entirely in the browser: modeling, sculpting, UV editing, shader /
 geometry / compositor nodes, animation and rigging, physics, path-traced and real-time rendering,
 video editing, motion tracking, Grease Pencil and scripting, with nothing to install. It is written

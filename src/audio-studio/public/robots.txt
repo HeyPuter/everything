@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://audio-editor.app/sitemap.xml
+Sitemap: https://as.puter.com/sitemap.xml

@@ -1,5 +1,7 @@
 # Checkers
 
+**Live app:** [checkers.puter.com](https://checkers.puter.com/)
+
 Play American checkers (English draughts) against the computer or a friend.
 No frameworks — just vanilla JavaScript, HTML, and CSS, built with Vite.
 

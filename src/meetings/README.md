@@ -1,5 +1,7 @@
 # Puter Meetings
 
+**Live app:** [meetings.puter.com](https://meetings.puter.com/)
+
 A Google Meet-style video meeting app built **entirely on [Puter.js](https://docs.puter.com)** — no backend servers, no frontend frameworks. Realtime communication runs over the **Puter Peer API** (WebRTC data channels with Puter-managed signaling and TURN relays), and audio/video flows peer-to-peer between participants.
 
 ## Features

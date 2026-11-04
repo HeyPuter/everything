@@ -1,5 +1,7 @@
 # Photo Studio
 
+**Live app:** [ps.puter.com](https://ps.puter.com/)
+
 Photo Studio is an open-source alternative to Adobe Photoshop: a browser-based raster image editor covering layers, masks, adjustment layers, selections, painting and retouching tools, filters, type, shapes and paths, color management and PSD interchange. It is built with vanilla TypeScript, HTML, CSS and Vite; WebGPU is the primary compositor, with a WebGL2 fallback. Puter.js provides optional cloud storage and AI services. There is no application server, database or API key to configure.
 
 ## Run

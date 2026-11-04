@@ -1,5 +1,7 @@
 # Project Management
 
+**Live app:** [projects.puter.com](https://projects.puter.com/)
+
 Lightweight project management on [Puter](https://puter.com): kanban boards, timelines, milestones, assignees, comments, and attachments. Think Trello or Asana, not enterprise Jira.
 
 Built with vanilla JavaScript and [Puter.js](https://docs.puter.com) — no frontend framework, no backend of our own. Every byte of your data lives in your own Puter account.

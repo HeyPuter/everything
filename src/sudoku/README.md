@@ -1,5 +1,7 @@
 # Sudoku
 
+**Live app:** [sudoku.puter.com](https://sudoku.puter.com/)
+
 A Sudoku that generates its own puzzles, grades them by the reasoning they
 actually demand, and explains its hints instead of just filling in the answer.
 No frameworks: plain JavaScript, Vite, and Puter.js for the optional account.

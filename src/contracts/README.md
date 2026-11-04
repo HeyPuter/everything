@@ -1,5 +1,7 @@
 # Contract Manager
 
+**Live app:** [contracts.puter.com](https://contracts.puter.com/)
+
 Store agreements, track renewal dates, extract obligations, and connect documents to contacts. A fast, app-like PWA-style web app built entirely on [Puter](https://developer.puter.com): your data lives in your own Puter cloud, never on anyone's servers.
 
 ## Features

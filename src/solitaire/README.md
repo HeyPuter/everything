@@ -1,5 +1,7 @@
 # Solitaire
 
+**Live app:** [solitaire.puter.com](https://solitaire.puter.com/)
+
 Klondike solitaire, built with Vite and plain JavaScript (ES modules, no
 framework). The game menu in the header picks draw-one or draw-three
 Klondike, either with Vegas scoring (a $52 ante, $5 per card played home,

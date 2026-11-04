@@ -1,5 +1,7 @@
 # CAD
 
+**Live app:** [cad.puter.com](https://cad.puter.com/)
+
 Free, open-source 2D drafting and design in the browser. An open-source alternative to AutoCAD, DraftSight and BricsCAD for precise technical drawings: draw, edit, dimension, hatch, organize with layers and blocks, and exchange DWG and DXF files.
 
 Built with vanilla JavaScript, WebGL2, Vite, [Lucide](https://lucide.dev) icons, and [Puter.js](https://docs.puter.com) as the only backend. There is no framework and no server of its own.

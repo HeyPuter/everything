@@ -1,5 +1,7 @@
 # Fleet
 
+**Live app:** [fleet.puter.com](https://fleet.puter.com/)
+
 Free, open-source fleet management for teams that run vehicles and equipment: delivery vans, pickups, trucks, trailers, forklifts, and EVs. An open-source alternative to Fleetio, Whip Around, and similar fleet maintenance software.
 
 Built with vanilla JavaScript, Vite, [Lucide](https://lucide.dev) icons, and [Puter.js](https://docs.puter.com) as the only backend. There is no framework and no server of its own.

@@ -1,5 +1,7 @@
 # Records
 
+**Live app:** [records.puter.com](https://records.puter.com/)
+
 An open-source alternative to Airtable. Records is a relational database
 that feels like a spreadsheet: tables of typed fields, records linked across
 tables, and views that show the same data as a grid, board, calendar,

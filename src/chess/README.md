@@ -1,5 +1,7 @@
 # Chess
 
+**Live app:** [chess.puter.com](https://chess.puter.com/)
+
 Play chess against the computer or a friend. No frameworks — just vanilla JavaScript, HTML, and CSS, built with Vite.
 
 ## Features

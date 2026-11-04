@@ -1,5 +1,7 @@
 # Puter Mail
 
+**Live app:** [email.puter.com](https://email.puter.com/)
+
 For the composer review, shipped improvements, remaining Gmail gaps, and verification steps, see [Composer audit](docs/composer-audit.md).
 
 For measured loading/search improvements, benchmark reproduction, and remaining limits, see [Performance report](docs/performance.md).

@@ -1,5 +1,7 @@
 # PDF Editor
 
+**Live app:** [pdf.puter.com](https://pdf.puter.com/)
+
 <img src="icon.png" alt="PDF Editor icon" width="96" />
 
 A focused, framework-free PDF web app for Puter. Built with vanilla JavaScript, Vite, PDF.js, pdf-lib, and Lucide. Warm neutral surfaces and red accents reflect the app icon.

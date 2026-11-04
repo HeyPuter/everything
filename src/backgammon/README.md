@@ -1,5 +1,7 @@
 # Backgammon
 
+**Live app:** [backgammon.puter.com](https://backgammon.puter.com/)
+
 Play backgammon against the computer or a friend. No frameworks — just vanilla
 JavaScript, HTML, and CSS, built with Vite.
 
