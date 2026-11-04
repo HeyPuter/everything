@@ -148,3 +148,13 @@ export function createKeymap({ defaults = {}, run, storage = localStore(), mac =
     },
   };
 }
+
+/**
+ * The shortcuts a command shows (in its tooltip, menu item and aria-keyshortcuts), as this platform writes them:
+ * its built-in one (`builtIn`, as shown) unless a shortcut of your own on another command has taken it, then your own.
+ */
+export function shownShortcuts(keymap, id, builtIn, mac = IS_MAC) {
+  const own = keymap.chordsFor(id).map(chord => displayChord(chord, mac));
+  const taken = !!builtIn && Object.entries(keymap.custom).some(([other, chords]) => other !== id && chords.some(chord => displayChord(chord, mac).toLowerCase() === builtIn.toLowerCase()));
+  return [...new Set([...(builtIn && !taken ? [builtIn] : []), ...own])];
+}

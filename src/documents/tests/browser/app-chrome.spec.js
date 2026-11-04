@@ -478,6 +478,31 @@ test('Customize Keyboard keeps listing a command\'s built-in shortcut beside one
   expect((await engine(page)).italic).toBe(false);
 });
 
+test('tooltips and menus name the chords the keymap runs now, after a change in this tab or another', async ({ page, context }) => {
+  await openEditor(page);
+  const mod = MAC ? 'Cmd' : 'Ctrl', meta = MAC ? 'Meta' : 'Control';
+  const button = name => page.locator('.ribbon-card').getByRole('button', { name, exact: true });
+  await expect(button('Bold')).toHaveAttribute('title', `Bold (${mod}+B)`);
+  // Another tab gives Bold's chord and the Font dialog's to Italic.
+  const other = await context.newPage();
+  await other.goto('/mock.html#/new');
+  await expect(other.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await other.evaluate(() => localStorage.setItem('documents:keybindings', JSON.stringify({ 'ribbon:home/font/Italic': ['Mod+B', 'Mod+D'] })));
+  await expect(button('Bold')).toHaveAttribute('title', 'Bold');
+  await expect(button('Bold')).not.toHaveAttribute('aria-keyshortcuts', /./);
+  await expect(button('Italic')).toHaveAttribute('title', `Italic (${mod}+I)`);
+  await expect(button('Italic')).toHaveAttribute('aria-keyshortcuts', `${meta}+I ${meta}+B ${meta}+D`);
+  const format = await openMenu(page, 'Format');
+  await expect(format.getByRole('menuitem', { name: /^Font…/ })).not.toContainText(`${mod}+D`);
+  await page.keyboard.press('Escape');
+  // Taken back, the chords show where they were.
+  await other.evaluate(() => localStorage.removeItem('documents:keybindings'));
+  await expect(button('Bold')).toHaveAttribute('title', `Bold (${mod}+B)`);
+  await expect(button('Bold')).toHaveAttribute('aria-keyshortcuts', `${meta}+B`);
+  await expect((await openMenu(page, 'Format')).getByRole('menuitem', { name: /^Font…/ })).toContainText(`${mod}+D`);
+  await other.close();
+});
+
 test('Customize Keyboard no longer lists a built-in shortcut for its command once another command takes it', async ({ page }) => {
   await openEditor(page);
   await (await openMenu(page, 'Tools')).getByRole('menuitem', { name: 'Customize Keyboard…' }).click();

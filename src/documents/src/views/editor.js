@@ -83,7 +83,8 @@ import { createBackstage } from './backstage.js';
 import { openPreferences } from './preferences.js';
 import { createStatusBar } from './status-bar.js';
 import { openDocumentMenu } from './document-context-menu.js';
-import { createKeymap, displayChord, chordOf } from './keymap.js';
+import { createKeymap, displayChord, chordOf, shownShortcuts } from './keymap.js';
+import { syncShownShortcuts, withShownShortcuts } from '../ui/command-index.js';
 import { openCustomizeKeyboard } from './customize-keyboard.js';
 import { MARKUP_VIEWS } from './review.js';
 import { documentHtml, documentMarkdown, documentPlainText } from '../lib/document-export.js';
@@ -1388,6 +1389,12 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     return entry.run();
   }, signal: printAbort.signal });
   keymap.onChange(() => chrome.refresh());
+  // Tooltips, aria-keyshortcuts and menu items name the chords the keymap runs now, after a change here or in another tab.
+  const shownFor = (id, builtIn) => shownShortcuts(keymap, id, builtIn);
+  const syncShortcuts = () => syncShownShortcuts(chrome.entries().filter(entry => entry.control), shownFor);
+  keymap.onChange(syncShortcuts);
+  if (Object.keys(keymap.custom).length) syncShortcuts();
+  editorCommands.menuShortcuts = (items, prefix) => withShownShortcuts(items, prefix, shownFor);
   root.addEventListener('keydown', e => { if (!e.target.closest?.('.backstage') || e.key === 'Escape') keymap.handle(e); }, true);
   // Escape in the text, then Tab, goes to the ribbon (its tab row, where the arrows and Down lead into the commands),
   // as the keyboard sheet says: the next control in the page's order was the assistant button or the status bar.
