@@ -88,10 +88,18 @@ const cellText = (cell, paragraphText, cellBreak, lineBreak) => cell.content.map
   : paragraphText(c.paragraph)).join(lineBreak);
 
 /* ---- HTML ---- */
-function runHtml(run, heading = false) {
+// Chinese, Japanese and Korean letters, whose forms a browser chooses by the text's language (直 differs in each).
+const EAST_ASIAN = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}\p{Script=Bopomofo}]/u;
+const LANGUAGE_TAG = /^[A-Za-z]{2,8}(?:-[A-Za-z\d]{1,8})*$/;
+function runHtml(run, heading = false, page = 'en') {
   // Line, page and column breaks all start a new line: a web page has no pages or columns to break.
-  let html = escapeHtml(runText(run)).replace(/[\v\f\u000e]/g, '<br>');
+  const text = runText(run);
+  let html = escapeHtml(text).replace(/[\v\f\u000e]/g, '<br>');
   if (!html) return '';
+  // East Asian text marked in a language other than the page's (§17.3.2.20 w:lang/@w:eastAsia) says so, so a
+  // Japanese document's kanji show in their Japanese forms and are read out in Japanese.
+  const eastAsian = String(run.fontEastAsiaLanguage || '');
+  if (LANGUAGE_TAG.test(eastAsian) && eastAsian.toLowerCase() !== page.toLowerCase() && EAST_ASIAN.test(text)) html = `<span lang="${eastAsian}">${html}</span>`;
   if (run.verticalAlign === 'superscript') html = `<sup>${html}</sup>`;
   if (run.verticalAlign === 'subscript') html = `<sub>${html}</sub>`;
   if (run.strikethrough && run.strikethrough !== 'none') html = `<s>${html}</s>`;
@@ -146,7 +154,7 @@ function blocksHtml(blocks, model, numbers = itemNumbers(model), markers = itemM
         lists.push({ tag, depth, number: start });
       }
     }
-    const inner = escapeHtml(headingNumber(p, level, markers)) + p.runs.map(run => runHtml(run, !!level)).join('') || '<br>';
+    const inner = escapeHtml(headingNumber(p, level, markers)) + p.runs.map(run => runHtml(run, !!level, pageLanguage(model))).join('') || '<br>';
     const alignment = p.format?.alignment;
     const align = ['center', 'right', 'both'].includes(alignment) ? ` style="text-align:${alignment === 'both' ? 'justify' : alignment}"` : '';
     html += tag ? `<li${value != null ? ` value="${value}"` : ''}${align}>${inner}` : level ? `<h${level}${align}>${inner}</h${level}>` : `<p${align}>${inner}</p>`;
@@ -158,7 +166,7 @@ function blocksHtml(blocks, model, numbers = itemNumbers(model), markers = itemM
 /** The page's language (WCAG 3.1.1): the document's default (§17.3.2.20 w:lang in the default run properties), else English. */
 const pageLanguage = model => {
   const tag = String(model.styles?.defaults?.run?.fontLanguage || '');
-  return /^[A-Za-z]{2,8}(?:-[A-Za-z\d]{1,8})*$/.test(tag) ? tag : 'en';
+  return LANGUAGE_TAG.test(tag) ? tag : 'en';
 };
 
 /** A standalone, readable web page of the document. */

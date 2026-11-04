@@ -430,3 +430,16 @@ describe('the web page language', () => {
     expect(documentHtml(doc)).toContain('<html lang="en">');
   });
 });
+
+describe('Web page languages', () => {
+  it('marks East Asian text with its language where it differs from the page\'s', () => {
+    const doc = new TextDocument([paragraph('English, 日本語の直 and more.'), paragraph('中文直'), paragraph('Plain')]);
+    doc.select(9, 14); doc.setRunFormat({ fontEastAsiaLanguage: 'ja-JP' });
+    doc.select(25, 28); doc.setRunFormat({ fontEastAsiaLanguage: 'zh-CN' });
+    // A run marked Japanese but holding Latin text only needs no mark.
+    doc.select(29, 34); doc.setRunFormat({ fontEastAsiaLanguage: 'ja-JP' });
+    const html = documentHtml(doc);
+    expect(html).toContain('<html lang="en">');
+    expect(body(html)).toBe('<p>English, <span lang="ja-JP">日本語の直</span> and more.</p><p><span lang="zh-CN">中文直</span></p><p>Plain</p>');
+  });
+});

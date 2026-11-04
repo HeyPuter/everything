@@ -23906,7 +23906,10 @@ package, layout or read-only status; it is not written to the file (it is not `w
 (headings, paragraphs, lists, tables, links, bold/italic/underline/strike/super/subscript); headers,
 footers, notes, comments, pictures and page layout are omitted. They are not OOXML output. They
 read the text with tracked changes accepted (§17.13.5), and a heading numbered through a list
-(§17.9) stays a heading with its number written before its text.
+(§17.9) stays a heading with its number written before its text. The web page's language is the document
+default's Latin language (`w:lang/@w:val`, §17.3.2.20); a run of Chinese, Japanese or Korean text whose East Asian
+language (`@w:eastAsia`) differs from it is a `<span lang>` in that language, so browsers choose that language's
+ideograph forms.
 ### Mailings: envelopes, labels and mail merge (2026-10-13)
 
 The Mailings tab stores mail merge as WordprocessingML that other word
