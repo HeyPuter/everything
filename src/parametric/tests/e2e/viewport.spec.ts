@@ -130,6 +130,17 @@ test.describe('viewport', () => {
     await page.mouse.move(px, py);
     await expect.poll(async () => (await hover()).hover).toContain('"face"');
     const before = (await hover()).hover;
+    // Hover picks render offscreen: moving within one face redraws nothing.
+    await page.evaluate(() => {
+      const r = (window as unknown as Win).__parametric.renderer as unknown as { draw: () => void };
+      const w = window as unknown as { __draws: number };
+      const draw = r.draw.bind(r);
+      w.__draws = 0;
+      r.draw = () => { w.__draws++; draw(); };
+    });
+    for (let i = 1; i <= 8; i++) { await page.mouse.move(px + (i % 3), py + (i % 2)); await page.waitForTimeout(30); }
+    expect((await hover()).hover).toBe(before);
+    expect(await page.evaluate(() => (window as unknown as { __draws: number }).__draws)).toBe(0);
     // Zoom out about the still cursor until another entity is under it.
     for (let i = 0; i < 6; i++) await page.mouse.wheel(0, 300);
     expect((await hover()).under).not.toBe(before);

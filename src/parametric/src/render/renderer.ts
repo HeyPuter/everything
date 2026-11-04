@@ -960,6 +960,11 @@ export class Renderer {
     this.pickSize = [w, h];
   }
 
+  /**
+   * Draws ids into the offscreen pick target. It never touches the canvas's
+   * drawing buffer, and WebGL only presents (or clears) that buffer after
+   * draws to it, so a pick needs no redraw of the visible frame.
+   */
   private renderPick(x: number, y: number, want: PickWant, radius: number): PickRegion | null {
     const m = this.model;
     if (!m || this.lost) return null;
@@ -1062,7 +1067,6 @@ export class Renderer {
     }
     gl.disable(gl.SCISSOR_TEST);
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-    this.requestRender();
     return this.decodePick(ids, depths, r, x, y);
   }
 
@@ -1099,7 +1103,6 @@ export class Renderer {
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     const sync = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0)!;
     gl.flush();
-    this.requestRender();
     return new Promise((resolve) => {
       const poll = () => {
         if (seq !== this.asyncSeq || this.lost) { gl.deleteSync(sync); resolve(undefined); return; }
