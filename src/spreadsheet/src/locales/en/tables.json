@@ -1,0 +1,15 @@
+{
+  "name.cellLike": "That looks like a cell reference",
+  "name.characters": "Names start with a letter or underscore and use only letters, digits, underscores, and periods",
+  "name.empty": "Enter a name",
+  "name.taken": "That name is already used",
+  "name.tooLong": "That name is too long",
+  "style.blue": "Blue",
+  "style.gray": "Gray",
+  "style.green": "Green",
+  "style.light": "Light",
+  "style.none": "None",
+  "style.orange": "Orange",
+  "style.purple": "Purple",
+  "style.red": "Red"
+}

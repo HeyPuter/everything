@@ -8,49 +8,53 @@
 import { el, fieldId, isComposing } from './dom.js';
 import { openModal } from './modal.js';
 import { PASTE_WHAT, OPERATIONS, EXTERNAL_WHAT } from '../core/paste-special.js';
+import { t } from '../i18n/index.js';
 
 /** The Paste gallery (Home ▸ Paste arrow, the Paste Options button): label, icon, options. */
 export function pasteGallery({ external = false } = {}) {
   if (external) {
     return [
-      { label: 'Keep Source Formatting', icon: 'paste', paste: { what: 'all' } },
-      { label: 'Match Destination Formatting', icon: 'paint', paste: { what: 'formulas' } },
-      { label: 'Values', icon: 'number', paste: { what: 'values' } },
-      { label: 'Transpose', icon: 'swap', paste: { what: 'all', transpose: true } },
+      { label: t('pastespecialdialog.gallery.keepSource'), icon: 'paste', paste: { what: 'all' } },
+      { label: t('pastespecialdialog.gallery.matchDestination'), icon: 'paint', paste: { what: 'formulas' } },
+      { label: t('pastespecialdialog.gallery.values'), icon: 'number', paste: { what: 'values' } },
+      { label: t('pastespecialdialog.gallery.transpose'), icon: 'swap', paste: { what: 'all', transpose: true } },
     ];
   }
   return [
-    { header: 'Paste' },
-    { label: 'Paste', icon: 'paste', paste: { what: 'all' } },
-    { label: 'Formulas', icon: 'fx', paste: { what: 'formulas' } },
-    { label: 'Formulas & Number Formatting', icon: 'percent', paste: { what: 'formulasNumFmt' } },
-    { label: 'Keep Source Formatting', icon: 'paint', paste: { what: 'allSourceTheme' } },
-    { label: 'No Borders', icon: 'borderNone', paste: { what: 'noBorders' } },
-    { label: 'Keep Source Column Widths', icon: 'cols', paste: { what: 'allWidths' } },
-    { label: 'Transpose', icon: 'swap', paste: { what: 'all', transpose: true } },
-    { header: 'Paste Values' },
-    { label: 'Values', icon: 'number', paste: { what: 'values' } },
-    { label: 'Values & Number Formatting', icon: 'percent', paste: { what: 'valuesNumFmt' } },
-    { label: 'Values & Source Formatting', icon: 'paint', paste: { what: 'valuesSourceFmt' } },
-    { header: 'Other Paste Options' },
-    { label: 'Formatting', icon: 'paint', paste: { what: 'formats' } },
-    { label: 'Paste Link', icon: 'link', paste: { link: true } },
+    { header: t('pastespecialdialog.gallery.paste') },
+    { label: t('pastespecialdialog.gallery.paste'), icon: 'paste', paste: { what: 'all' } },
+    { label: t('pastespecialdialog.gallery.formulas'), icon: 'fx', paste: { what: 'formulas' } },
+    { label: t('pastespecialdialog.gallery.formulasNumFmt'), icon: 'percent', paste: { what: 'formulasNumFmt' } },
+    { label: t('pastespecialdialog.gallery.keepSource'), icon: 'paint', paste: { what: 'allSourceTheme' } },
+    { label: t('pastespecialdialog.gallery.noBorders'), icon: 'borderNone', paste: { what: 'noBorders' } },
+    { label: t('pastespecialdialog.gallery.keepWidths'), icon: 'cols', paste: { what: 'allWidths' } },
+    { label: t('pastespecialdialog.gallery.transpose'), icon: 'swap', paste: { what: 'all', transpose: true } },
+    { header: t('pastespecialdialog.gallery.pasteValues') },
+    { label: t('pastespecialdialog.gallery.values'), icon: 'number', paste: { what: 'values' } },
+    { label: t('pastespecialdialog.gallery.valuesNumFmt'), icon: 'percent', paste: { what: 'valuesNumFmt' } },
+    { label: t('pastespecialdialog.gallery.valuesSourceFmt'), icon: 'paint', paste: { what: 'valuesSourceFmt' } },
+    { header: t('pastespecialdialog.gallery.other') },
+    { label: t('pastespecialdialog.gallery.formatting'), icon: 'paint', paste: { what: 'formats' } },
+    { label: t('pastespecialdialog.gallery.pasteLink'), icon: 'link', paste: { link: true } },
     // A picture of the copied cells, as they look now or (linked) as they come to look.
-    { label: 'Picture', icon: 'pastePicture', paste: { picture: true } },
-    { label: 'Linked Picture', icon: 'linkedPicture', paste: { picture: 'linked' } },
+    { label: t('pastespecialdialog.gallery.picture'), icon: 'pastePicture', paste: { picture: true } },
+    { label: t('pastespecialdialog.gallery.linkedPicture'), icon: 'linkedPicture', paste: { picture: 'linked' } },
   ];
 }
 
 /** The gallery as menu-bar items running `pasteWith`, ending in Paste Special…. */
 export function pasteGalleryItems({ disabled = false } = {}) {
   return [...pasteGallery().map((item) => (item.header ? item : { label: item.label, icon: item.icon, cmd: 'pasteWith', arg: item.paste, disabled })),
-    { separator: true }, { label: 'Paste Special…', icon: 'paste', cmd: 'pasteSpecialMenu', disabled }];
+    { separator: true }, { label: t('pastespecialdialog.pasteSpecialMenu'), icon: 'paste', cmd: 'pasteSpecialMenu', disabled }];
 }
 
-/** The label with its access letter underlined (the first occurrence). */
+/**
+ * The label with its access letter underlined (the first occurrence); a label without the letter (a
+ * translation) is followed by it in parentheses, as in Excel's Chinese edition: 转置(E).
+ */
 function underlined(label, key) {
   const at = label.toUpperCase().indexOf(key);
-  if (at < 0) return [label];
+  if (at < 0) return [label, '(', el('u', {}, key), ')'];
   return [label.slice(0, at), el('u', {}, label[at]), label.slice(at + 1)];
 }
 
@@ -61,7 +65,7 @@ function underlined(label, key) {
 export function openPasteSpecialDialog({ external = false, onPaste, onPasteLink, onClose, initial = null }) {
   const whatName = fieldId('paste-what'), opName = fieldId('paste-op');
   const radio = (name, [value, label, key], checked, disabled) => {
-    const node = el('label.check', { dataset: { key } }, el('input', { type: 'radio', name, value, checked, disabled }), el('span', {}, ...underlined(label, key)));
+    const node = el('label.check', { dataset: { key } }, el('input', { type: 'radio', name, value, checked, disabled }), el('span', {}, ...underlined(t(label), key)));
     node.classList.toggle('is-disabled', !!disabled);
     return node;
   };
@@ -69,9 +73,9 @@ export function openPasteSpecialDialog({ external = false, onPaste, onPasteLink,
   const opRadios = OPERATIONS.map((choice) => radio(opName, choice, choice[0] === (initial?.operation || 'none'), false));
   const skip = el('input', { type: 'checkbox', checked: !!initial?.skipBlanks });
   const transpose = el('input', { type: 'checkbox', checked: !!initial?.transpose });
-  const skipLabel = el('label.check', { dataset: { key: 'B' } }, skip, el('span', {}, ...underlined('Skip blanks', 'B')));
-  const transposeLabel = el('label.check', { dataset: { key: 'E' } }, transpose, el('span', {}, ...underlined('Transpose', 'E')));
-  const link = el('button.btn.btn-ghost', { type: 'button', dataset: { key: 'L' }, onclick: () => { if (link.disabled) return; modal.close(); onPasteLink?.(); } }, el('span', {}, ...underlined('Paste Link', 'L')));
+  const skipLabel = el('label.check', { dataset: { key: 'B' } }, skip, el('span', {}, ...underlined(t('pastespecialdialog.skipBlanks'), 'B')));
+  const transposeLabel = el('label.check', { dataset: { key: 'E' } }, transpose, el('span', {}, ...underlined(t('pastespecialdialog.transpose'), 'E')));
+  const link = el('button.btn.btn-ghost', { type: 'button', dataset: { key: 'L' }, onclick: () => { if (link.disabled) return; modal.close(); onPasteLink?.(); } }, el('span', {}, ...underlined(t('pastespecialdialog.gallery.pasteLink'), 'L')));
   const value = (name) => form.querySelector(`input[name="${name}"]:checked`)?.value;
   const options = () => ({ what: value(whatName) || 'all', operation: value(opName) || 'none', skipBlanks: skip.checked, transpose: transpose.checked });
   // What a choice rules out, greyed in the dialog: no arithmetic on formats, notes, rules or widths,
@@ -103,16 +107,16 @@ export function openPasteSpecialDialog({ external = false, onPaste, onPasteLink,
       sync();
     },
   },
-  el('fieldset.paste-special-group', { role: 'radiogroup', 'aria-label': 'Paste' }, el('legend', {}, 'Paste'), el('div.paste-special-grid', {}, ...whatRadios)),
-  el('fieldset.paste-special-group', { role: 'radiogroup', 'aria-label': 'Operation' }, el('legend', {}, 'Operation'), el('div.paste-special-grid.paste-special-ops', {}, ...opRadios)),
+  el('fieldset.paste-special-group', { role: 'radiogroup', 'aria-label': t('pastespecialdialog.gallery.paste') }, el('legend', {}, t('pastespecialdialog.gallery.paste')), el('div.paste-special-grid', {}, ...whatRadios)),
+  el('fieldset.paste-special-group', { role: 'radiogroup', 'aria-label': t('pastespecialdialog.operation') }, el('legend', {}, t('pastespecialdialog.operation')), el('div.paste-special-grid.paste-special-ops', {}, ...opRadios)),
   el('div.paste-special-checks', {}, skipLabel, transposeLabel),
   el('div.row.paste-special-actions', {},
     link,
     el('span.paste-special-gap'),
-    el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Cancel'),
-    el('button.btn.btn-primary', { type: 'submit' }, 'OK')));
+    el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, t('common.cancel')),
+    el('button.btn.btn-primary', { type: 'submit' }, t('common.ok'))));
   sync();
-  const modal = openModal({ title: 'Paste Special', content: form, className: 'paste-special-panel', initialFocus: form.querySelector(`input[name="${whatName}"]:checked`), onClose });
+  const modal = openModal({ title: t('pastespecialdialog.title'), content: form, className: 'paste-special-panel', initialFocus: form.querySelector(`input[name="${whatName}"]:checked`), onClose });
   return modal;
 }
 
@@ -121,15 +125,15 @@ export function openInsertPasteDialog({ range, onInsert, onClose }) {
   const name = fieldId('insert-paste');
   // As Insert Cells… does: a selection wider than it is tall shifts down, otherwise right.
   const wide = range ? range.c2 - range.c1 > range.r2 - range.r1 : false;
-  const radios = [['right', 'Shift cells right', !wide], ['down', 'Shift cells down', wide]].map(([value, label, checked]) => el('label.check', {},
+  const radios = [['right', t('pastespecialdialog.insert.shiftRight'), !wide], ['down', t('pastespecialdialog.insert.shiftDown'), wide]].map(([value, label, checked]) => el('label.check', {},
     el('input', { type: 'radio', name, value, checked }), el('span', {}, label)));
   const form = el('form.insert-delete-cells', {
     onsubmit: (e) => { e.preventDefault(); const value = form.querySelector(`input[name="${name}"]:checked`)?.value; modal.close(); if (value) onInsert?.(value); },
   },
-  el('fieldset.check-group.vertical', { role: 'radiogroup', 'aria-label': 'Insert Paste' }, ...radios),
+  el('fieldset.check-group.vertical', { role: 'radiogroup', 'aria-label': t('pastespecialdialog.insert.title') }, ...radios),
   el('div.row.row-end', { style: { marginTop: '14px' } },
-    el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Cancel'),
-    el('button.btn.btn-primary', { type: 'submit' }, 'OK')));
-  const modal = openModal({ title: 'Insert Paste', content: form, initialFocus: form.querySelector('input:checked'), onClose });
+    el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, t('common.cancel')),
+    el('button.btn.btn-primary', { type: 'submit' }, t('common.ok'))));
+  const modal = openModal({ title: t('pastespecialdialog.insert.title'), content: form, initialFocus: form.querySelector('input:checked'), onClose });
   return modal;
 }

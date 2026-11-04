@@ -1,0 +1,19 @@
+{
+  "recent": "Recently used symbols",
+  "searchLabel": "Search symbols",
+  "searchPlaceholder": "Search by name or code",
+  "subset": "Subset",
+  "subset.arrows": "Arrows",
+  "subset.currency": "Currency Symbols",
+  "subset.dingbats": "Dingbats",
+  "subset.greek": "Greek",
+  "subset.latin1": "Latin-1 Supplement",
+  "subset.letterlike": "Letterlike Symbols",
+  "subset.math": "Mathematical Operators",
+  "subset.misc": "Miscellaneous Symbols",
+  "subset.numberForms": "Number Forms",
+  "subset.punctuation": "General Punctuation",
+  "subset.shapes": "Geometric Shapes",
+  "symbols": "Symbols",
+  "title": "Symbol"
+}

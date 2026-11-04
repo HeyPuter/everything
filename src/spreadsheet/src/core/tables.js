@@ -25,17 +25,21 @@ import { tokenize } from './formula/tokenizer.js';
 import { freeNameTokens, tableReferenceTokens } from './formula/names.js';
 import { colName } from './cell.js';
 import { fontStack, XLSX_BORDER_STYLES } from './format.js';
+import { t, tSource } from '../i18n/index.js';
+
+/** [key, label, look]: the label is read in the interface language each time it is read. */
+const style = (key, label, look) => Object.defineProperty([key, label, look], 1, { get: () => t(label), enumerable: true });
 
 // The default looks are medium-weight styles in the default theme's accents (header in the accent, rows banded in its tint).
 export const TABLE_STYLES = [
-  ['blue', 'Blue', { header: '#4472c4', headerText: '#ffffff', band: '#d9e1f2', total: '#d9e1f2' }],
-  ['gray', 'Gray', { header: '#a5a5a5', headerText: '#ffffff', band: '#ededed', total: '#ededed' }],
-  ['green', 'Green', { header: '#70ad47', headerText: '#ffffff', band: '#e2efda', total: '#e2efda' }],
-  ['orange', 'Orange', { header: '#ed7d31', headerText: '#ffffff', band: '#fce4d6', total: '#fce4d6' }],
-  ['purple', 'Purple', { header: '#4a3aa7', headerText: '#ffffff', band: '#ebe6fb', total: '#d9d1f5' }],
-  ['red', 'Red', { header: '#991b1b', headerText: '#ffffff', band: '#fde8e8', total: '#f8cfcf' }],
-  ['light', 'Light', { header: '#e7e6e1', headerText: '#0b0b0b', band: '#f7f7f5', total: '#e7e6e1' }],
-  ['none', 'None', { header: 'transparent', headerText: 'inherit', band: 'transparent', total: 'transparent' }],
+  style('blue', 'tables.style.blue', { header: '#4472c4', headerText: '#ffffff', band: '#d9e1f2', total: '#d9e1f2' }),
+  style('gray', 'tables.style.gray', { header: '#a5a5a5', headerText: '#ffffff', band: '#ededed', total: '#ededed' }),
+  style('green', 'tables.style.green', { header: '#70ad47', headerText: '#ffffff', band: '#e2efda', total: '#e2efda' }),
+  style('orange', 'tables.style.orange', { header: '#ed7d31', headerText: '#ffffff', band: '#fce4d6', total: '#fce4d6' }),
+  style('purple', 'tables.style.purple', { header: '#4a3aa7', headerText: '#ffffff', band: '#ebe6fb', total: '#d9d1f5' }),
+  style('red', 'tables.style.red', { header: '#991b1b', headerText: '#ffffff', band: '#fde8e8', total: '#f8cfcf' }),
+  style('light', 'tables.style.light', { header: '#e7e6e1', headerText: '#0b0b0b', band: '#f7f7f5', total: '#e7e6e1' }),
+  style('none', 'tables.style.none', { header: 'transparent', headerText: 'inherit', band: 'transparent', total: 'transparent' }),
 ];
 
 export function tableStyle(key) {
@@ -129,13 +133,29 @@ export const MAX_TABLE_NAME_LENGTH = 255;
 
 /** Why a table name is unacceptable, or null. */
 export function validateTableName(name, taken = []) {
-  const t = String(name ?? '').trim();
-  if (!t) return 'Enter a name';
-  if (!TABLE_NAME_RE.test(t)) return 'Names start with a letter or underscore and use only letters, digits, underscores, and periods';
-  if (CELL_LIKE.test(t) || /^R\d*C\d*$/i.test(t) || /^[RC]$/i.test(t)) return 'That looks like a cell reference';
-  if (t.length > MAX_TABLE_NAME_LENGTH) return 'That name is too long';
-  if (taken.some((n) => n.toLowerCase() === t.toLowerCase())) return 'That name is already used';
+  const key = tableNameProblem(name, taken);
+  return key ? tSource(key) : null;
+}
+
+/**
+ * The catalog key of why a table name is unacceptable, or null. validateTableName gives its English, which
+ * the AI tools and scripts are told; the Table dialog shows it in the interface language (tableNameMessage).
+ */
+export function tableNameProblem(name, taken = []) {
+  const s = String(name ?? '').trim();
+  if (!s) return 'tables.name.empty';
+  if (!TABLE_NAME_RE.test(s)) return 'tables.name.characters';
+  if (CELL_LIKE.test(s) || /^R\d*C\d*$/i.test(s) || /^[RC]$/i.test(s)) return 'tables.name.cellLike';
+  if (s.length > MAX_TABLE_NAME_LENGTH) return 'tables.name.tooLong';
+  if (taken.some((n) => n.toLowerCase() === s.toLowerCase())) return 'tables.name.taken';
   return null;
+}
+
+const NAME_PROBLEMS = ['tables.name.empty', 'tables.name.characters', 'tables.name.cellLike', 'tables.name.tooLong', 'tables.name.taken'];
+/** A message from validateTableName in the interface language (any other message as it is). */
+export function tableNameMessage(message) {
+  const key = NAME_PROBLEMS.find((k) => tSource(k) === message);
+  return key ? t(key) : message;
 }
 
 /** The rows of a table: header (null when the Header Row is turned off), data (first..last), totals (or null). */
@@ -309,18 +329,18 @@ export function resolveTableSpec(table, columns, spec, cell) {
 export function mapTableRefs(formula, fn, includeBare = false) {
   let tokens;
   try { tokens = tokenize(formula); } catch { return formula; }
-  const bare = includeBare ? new Map(freeNameTokens(formula, tokens).map((t) => [t.start, t])) : null;
+  const bare = includeBare ? new Map(freeNameTokens(formula, tokens).map((tok) => [tok.start, tok])) : null;
   // A LAMBDA's optional parameter, [b], is written like a column reference but names nothing in a table.
-  const refs = new Set(tableReferenceTokens(formula, tokens).map((t) => t.start));
+  const refs = new Set(tableReferenceTokens(formula, tokens).map((tok) => tok.start));
   let out = '';
   let last = 0;
-  for (const t of tokens) {
-    const isBare = bare?.get(t.start);
-    if (!refs.has(t.start) && !isBare) continue;
-    const next = fn(isBare ? t.value : t.table, isBare ? '' : t.spec, isBare || t);
+  for (const tok of tokens) {
+    const isBare = bare?.get(tok.start);
+    if (!refs.has(tok.start) && !isBare) continue;
+    const next = fn(isBare ? tok.value : tok.table, isBare ? '' : tok.spec, isBare || tok);
     if (next == null) continue;
-    out += formula.slice(last, t.start) + next;
-    last = t.end;
+    out += formula.slice(last, tok.start) + next;
+    last = tok.end;
   }
   return out + formula.slice(last);
 }
@@ -332,8 +352,8 @@ export function hasTableRefs(formula, tableNames = []) {
     const tokens = tokenize(formula);
     if (tableReferenceTokens(formula, tokens).length) return true; // not a LAMBDA's [optional] parameter
     const names = new Set(tableNames.map((name) => name.toUpperCase()));
-    if (!tokens.some((t) => t.type === 'name' && names.has(t.value))) return false;
-    return freeNameTokens(formula, tokens).some((t) => names.has(t.value));
+    if (!tokens.some((tok) => tok.type === 'name' && names.has(tok.value))) return false;
+    return freeNameTokens(formula, tokens).some((tok) => names.has(tok.value));
   } catch { return false; }
 }
 

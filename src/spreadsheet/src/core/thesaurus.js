@@ -2,6 +2,7 @@
  * The thesaurus's pure parts: the question Puter's AI is asked about a word, reading its answer into senses
  * (a part of speech, a short meaning, synonyms and antonyms), and putting a chosen word into a cell's text.
  */
+import { t } from '../i18n/index.js';
 
 /** The question for one word, asking for a JSON answer the pane can lay out. */
 export function thesaurusPrompt(word) {
@@ -46,20 +47,26 @@ export function matchCase(like, word) {
  * first appearance as a whole word (in any case), cased as it was. Null when the text does not hold the word.
  */
 export function replaceInText(text, word, replacement) {
-  const t = String(text ?? ''), w = String(word).trim();
+  const s = String(text ?? ''), w = String(word).trim();
   if (!w) return null;
-  if (t.trim().toLowerCase() === w.toLowerCase()) return t.replace(t.trim(), matchCase(t.trim(), replacement));
+  if (s.trim().toLowerCase() === w.toLowerCase()) return s.replace(s.trim(), matchCase(s.trim(), replacement));
   const escaped = w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const m = new RegExp(`(^|[^\\p{L}\\p{N}])(${escaped})(?=$|[^\\p{L}\\p{N}])`, 'iu').exec(t);
+  const m = new RegExp(`(^|[^\\p{L}\\p{N}])(${escaped})(?=$|[^\\p{L}\\p{N}])`, 'iu').exec(s);
   if (!m) return null;
   const at = m.index + m[1].length;
-  return t.slice(0, at) + matchCase(m[2], replacement) + t.slice(at + m[2].length);
+  return s.slice(0, at) + matchCase(m[2], replacement) + s.slice(at + m[2].length);
 }
 
 /** The word a cell's text offers for looking up: the text itself when it is short, else its first word. */
 export function lookupWord(text) {
-  const t = String(text ?? '').trim();
-  if (!t) return '';
-  if (t.length <= 40 && t.split(/\s+/).length <= 3) return t;
-  return (/[\p{L}][\p{L}'’-]*/u.exec(t) || [''])[0];
+  const s = String(text ?? '').trim();
+  if (!s) return '';
+  if (s.length <= 40 && s.split(/\s+/).length <= 3) return s;
+  return (/[\p{L}][\p{L}'’-]*/u.exec(s) || [''])[0];
 }
+
+/** The parts of speech the prompt asks for, as the pane names them. */
+const POS_LABELS = { noun: 'thesaurus.pos.noun', verb: 'thesaurus.pos.verb', adjective: 'thesaurus.pos.adjective', adverb: 'thesaurus.pos.adverb', other: 'thesaurus.pos.other' };
+
+/** A sense's part of speech in the interface language; one the prompt did not ask for is shown as the model gave it. */
+export const posLabel = (pos) => (Object.hasOwn(POS_LABELS, pos) ? t(POS_LABELS[pos]) : pos);
