@@ -27,7 +27,7 @@ export class FileOps {
       this.scheduleRecovery();
     };
     window.addEventListener('beforeunload', (e) => {
-      if (this.app.store.dirty) {
+      if (this.app.store.dirty || this.app.panel?.edited) {
         e.preventDefault();
         e.returnValue = '';
       }
@@ -36,13 +36,22 @@ export class FileOps {
 
   /** Asks to save or discard unsaved changes. Returns false to abort. */
   async confirmDiscard(action: string): Promise<boolean> {
-    if (!this.app.store.dirty) return true;
+    // A feature panel with changes not yet applied counts as unsaved work too.
+    const panel = this.app.panel?.edited ? this.app.panel : null;
+    if (!this.app.store.dirty && !panel) return true;
     const v = await showDialog({
       title: 'Save changes?',
-      body: h('p', {}, `"${this.app.store.doc.name}" has unsaved changes. Save them before you ${action}?`),
+      body: h('p', {}, `"${this.app.store.doc.name}" has unsaved changes${panel ? ` (including ${panel.title}, which is still open)` : ''}. Save them before you ${action}?`),
       buttons: [{ label: 'Cancel', value: 'cancel', left: true }, { label: "Don't save", value: 'discard' }, { label: 'Save', value: 'save', primary: true }],
     });
-    if (v === 'save') return this.save();
+    if (v === 'save') {
+      // Apply the open panel first; a value it refuses keeps everything open.
+      if (panel) {
+        await this.app.closePanel(true);
+        if (this.app.panel) return false;
+      }
+      return this.save();
+    }
     if (v !== 'discard') return false;
     // Discarded on purpose: do not offer it for recovery next time.
     clearTimeout(this.recoveryTimer);

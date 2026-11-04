@@ -62,6 +62,11 @@ export abstract class PropertyPanel {
 
   cancel(): void {}
 
+  /** True when the panel holds changes that OK would apply. */
+  get edited(): boolean {
+    return false;
+  }
+
   /** Viewport pick filter while this panel is open. */
   filter(): PickFilter {
     return this.activeBox?.filter ?? {};

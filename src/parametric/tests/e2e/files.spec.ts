@@ -234,3 +234,38 @@ test('an STL exported right after a change has the changed geometry', async ({ p
   expect((await download).suggestedFilename()).toBe('Mounting Bracket.stl');
   expect(await height).toBeCloseTo(80, 3);
 });
+
+test('a feature panel with changes not applied asks before another part replaces it', async ({ page }) => {
+  await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await expect(page.getByRole('treeitem', { name: 'Fillet1' })).toBeVisible();
+  await page.getByRole('treeitem', { name: 'Extrude1', exact: true }).dblclick();
+  const depth = page.getByRole('textbox', { name: /Depth/ }).first();
+  await depth.fill('55');
+  await depth.press('Tab');
+  type Handle = { panel: unknown; store: { dirty: boolean; doc: { name: string; features: { id: string; depth?: unknown }[] } }; commands: { run(id: string): boolean } };
+  const run = (id: string) => page.evaluate((c) => (window as unknown as { __parametric: Handle }).__parametric.commands.run(c), id);
+  await run('new');
+  const ask = page.getByRole('dialog', { name: 'Save changes?' });
+  await expect(ask).toContainText('Extrude1');
+  await ask.getByRole('button', { name: 'Cancel' }).click();
+  await expect(page.locator('.doc-title')).toHaveText('Mounting Bracket');
+  await expect(depth).toHaveValue('55');
+  // Save applies the panel first, then saves.
+  await run('new');
+  await ask.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(page.locator('.doc-title')).not.toHaveText('Mounting Bracket');
+  // The saved part has the depth typed in the panel.
+  const saved = await page.evaluate(async () => {
+    const texts: string[] = [];
+    const walk = async (d: FileSystemDirectoryHandle) => {
+      for await (const h of (d as unknown as { values(): AsyncIterable<FileSystemHandle> }).values()) {
+        if (h.kind === 'directory') await walk(h as FileSystemDirectoryHandle);
+        else texts.push(await (await (h as FileSystemFileHandle).getFile()).text());
+      }
+    };
+    await walk(await navigator.storage.getDirectory());
+    return texts.some((t) => t.includes('"name":"Mounting Bracket"') && t.includes('"depth":55'));
+  });
+  expect(saved).toBe(true);
+});
