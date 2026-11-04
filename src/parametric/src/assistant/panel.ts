@@ -126,13 +126,23 @@ export class AssistantPanel {
   private sending = false;
   private readQueue: { item: PendingFile; resolve: (a: Attachment) => void; reject: (e: unknown) => void }[] = [];
   private reading = 0;
+  /** Where the message being answered started in the undo history, and its undo step's name. */
+  private undoRun: { mark: number; label: string } | null = null;
 
   constructor(private app: App) {
     this.host = appHost(app);
     this.agent = createAgent({
       chat: (m, o) => (this.chat ?? devChat() ?? puterChat)(m, o),
       tools: toolSpecs,
-      runTool: (name, args) => runTool(this.host, name, args),
+      runTool: async (name, args) => {
+        const r = await runTool(this.host, name, args);
+        // The message's changes are folded into one undo step as they come: a long
+        // build would otherwise push older history, and its own start, off the
+        // bottom of the undo stack before the message ends.
+        const run = this.undoRun;
+        if (run && this.app.store.undoMark > run.mark + 1) this.app.store.squash(run.mark, run.label);
+        return r;
+      },
       system: SYSTEM_PROMPT,
       snapshot: () => partSnapshot(this.host),
       model: () => ASSISTANT_MODEL,
@@ -443,6 +453,9 @@ export class AssistantPanel {
   private async run(request: string, go: (on: Parameters<Agent['send']>[1]) => Promise<ExchangeResult>) {
     const store = this.app.store;
     const mark = store.undoMark;
+    const label = `Assistant: ${short(request, 40)}`;
+    const undoRun = { mark, label };
+    this.undoRun = undoRun;
     // Only the latest reply can be asked again: a later message has moved the conversation on.
     for (const b of this.log.querySelectorAll('.as-retry')) b.remove();
     this.stopReason = 'Stopped.';
@@ -483,8 +496,8 @@ export class AssistantPanel {
     } catch (e) {
       res = { stopped: false, error: e as Error, steps: [] };
     }
+    if (this.undoRun === undoRun) this.undoRun = null;
     // Everything this message changed becomes one undo step, even when New chat cut it off.
-    const label = `Assistant: ${short(request, 40)}`;
     let changed = false;
     if (store.undoMark > mark) {
       store.squash(mark, label);

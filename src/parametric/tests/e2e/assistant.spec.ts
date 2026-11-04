@@ -367,3 +367,25 @@ test('trying a failed reply again keeps the Undo changes of what it already did'
   await expect(page.getByText('Changes undone.')).toBeVisible();
   await expect(page.getByRole('treeitem', { name: 'Sketch1' })).toHaveCount(0);
 });
+
+test('a message with more changes than the undo history holds is still undone in one step, and keeps older history', async ({ page }) => {
+  await page.addInitScript(() => {
+    (window as unknown as { __assistantChat: unknown }).__assistantChat = async function* (messages: { role: string }[]) {
+      if (messages.some((m) => m.role === 'assistant')) { yield { type: 'text', text: 'Set them all.' }; return; }
+      for (let i = 1; i <= 130; i++) yield { type: 'tool', id: `c${i}`, name: 'set_variables', input: { set: [{ name: `V${i}`, value: i }] } };
+    };
+  });
+  await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  type P = { __parametric: { store: { change(l: string, f: (d: { variables: unknown[] }) => void): void; doc: { variables: { name: string }[] }; undoDepth: number } } };
+  // Some history of the user's own from before the message.
+  await page.evaluate(() => (window as unknown as P).__parametric.store.change('Mine', (d) => { d.variables.push({ id: 'mine', name: 'Mine', expr: '1' }); }));
+  const box = page.getByRole('textbox', { name: 'Message the assistant' });
+  await box.fill('Make 130 variables');
+  await box.press('Enter');
+  await expect(page.getByText('Set them all.')).toBeVisible({ timeout: 60_000 });
+  expect(await page.evaluate(() => (window as unknown as P).__parametric.store.doc.variables.length)).toBe(131);
+  expect(await page.evaluate(() => (window as unknown as P).__parametric.store.undoDepth)).toBe(2);
+  await page.getByRole('button', { name: 'Undo changes' }).click();
+  expect(await page.evaluate(() => (window as unknown as P).__parametric.store.doc.variables.map((v) => v.name))).toEqual(['Mine']);
+});
