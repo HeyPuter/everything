@@ -112,21 +112,23 @@ test('a file that is not a part is refused before asking to discard, and changes
   await page.getByRole('button', { name: /New part/ }).click();
   await app(page);
   await expect(page).toHaveTitle('Part1 - Parametric');
-  for (const [name, text] of [['empty.parametric', ''], ['notes.json', '{"hello": 1}'], ['cut.parametric', '{"format":"parametric-part","version":1,"feat']]) {
+  for (const [name, text] of [['empty.parametric', ''], ['notes.json', '{"hello": 1}'], ['cut.parametric', '{"format":"parametric-part","version":1,"feat'], ['fake.sldprt', 'not a SolidWorks part'.repeat(40)]]) {
     const chooser = page.waitForEvent('filechooser');
     await page.evaluate(() => (window as unknown as { __parametric: AppHandle }).__parametric.commands.run('openDevice'));
     await (await chooser).setFiles({ name, mimeType: 'application/json', buffer: bytes(text) });
-    await expect(page.getByRole('region', { name: 'Notifications' }).getByText('Could not open the part').first()).toBeVisible();
+    await expect(page.getByRole('region', { name: 'Notifications' }).getByText(/Could not open the (part|SolidWorks file)/).first()).toBeVisible();
     await expect(page.getByRole('dialog')).toHaveCount(0);
     await expect(page).toHaveTitle('Part1 - Parametric');
   }
   // With unsaved changes: still no question about them.
   await page.evaluate(() => (window as unknown as { __parametric: AppHandle }).__parametric.store.change('A', (d) => { d.variables.push({ name: 'A', expr: '1' }); }));
-  const chooser = page.waitForEvent('filechooser');
-  await page.evaluate(() => (window as unknown as { __parametric: AppHandle }).__parametric.commands.run('openDevice'));
-  await (await chooser).setFiles({ name: 'x.parametric', mimeType: 'application/json', buffer: bytes('nope') });
-  await expect(page.getByRole('region', { name: 'Notifications' }).getByText('This file is not a valid part file.').first()).toBeVisible();
-  await expect(page.getByRole('dialog')).toHaveCount(0);
+  for (const [name, message] of [['x.parametric', 'This file is not a valid part file.'], ['x.sldprt', 'This is not a SolidWorks part file.']]) {
+    const chooser = page.waitForEvent('filechooser');
+    await page.evaluate(() => (window as unknown as { __parametric: AppHandle }).__parametric.commands.run('openDevice'));
+    await (await chooser).setFiles({ name, mimeType: 'application/octet-stream', buffer: bytes('nope'.repeat(200)) });
+    await expect(page.getByRole('region', { name: 'Notifications' }).getByText(message).first()).toBeVisible();
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+  }
 });
 
 test('a recent part that no longer exists says so and leaves the recent list', async ({ page }) => {

@@ -259,11 +259,12 @@ export class FileOps {
   /** Opens a SolidWorks part as a new part whose first feature is its solid. */
   async openSolidWorks(data: Uint8Array, fileName: string) {
     const app = this.app;
-    if (!(await this.confirmDiscard('open another part'))) return;
+    // Converted and checked first: a file that cannot be opened leaves the current part alone.
     const step = await this.convertSolidWorks(data, fileName);
     if (!step) return;
     const err = await app.kernel.checkImport(step).catch((e) => (e as Error).message);
     if (err) { toast({ kind: 'error', title: 'Could not open the SolidWorks part', message: err }); return; }
+    if (!(await this.confirmDiscard('open another part'))) return;
     const doc = newDocument(safeName(fileName.replace(/\.[^.]+$/, '')) || 'Part1', app.settings.defaultUnits);
     const blobId = `b${Date.now().toString(36)}`;
     doc.blobs[blobId] = step;
