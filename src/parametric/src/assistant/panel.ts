@@ -140,6 +140,8 @@ export class AssistantPanel {
     newChat.addEventListener('click', () => this.reset());
 
     this.log = h('div', { class: 'as-log', role: 'log', 'aria-live': 'polite', 'aria-label': 'Conversation' });
+    // Follow new content only while the user is at the bottom; scrolling up to read stops it.
+    this.log.addEventListener('scroll', () => { const l = this.log; this.stick = l.scrollHeight - l.scrollTop - l.clientHeight < 40; }, { passive: true });
     this.input = h('textarea', { class: 'as-input', rows: 1, placeholder: 'Describe a part or a change…', 'aria-label': 'Message the assistant' }) as HTMLTextAreaElement;
     this.sendBtn = h('button', { class: 'as-send', type: 'button', 'aria-label': 'Send' }, icon('send', 16)) as HTMLButtonElement;
     this.status = h('div', { class: 'as-status', role: 'status' });
@@ -256,9 +258,14 @@ export class AssistantPanel {
     this.scroll(true);
   }
 
+  /** Whether the conversation follows new content (the user has not scrolled up from the bottom). */
+  private stick = true;
+
   private scroll(force = false) {
-    const l = this.log;
-    if (force || l.scrollHeight - l.scrollTop - l.clientHeight < 120) l.scrollTop = l.scrollHeight;
+    // Judged by where the user left it, not by the distance now: one piece of text
+    // or a screenshot can add more than a screenful at once.
+    if (force) this.stick = true;
+    if (this.stick) this.log.scrollTop = this.log.scrollHeight;
   }
 
   async submit() {
@@ -512,6 +519,7 @@ export class AssistantPanel {
     }
     if (step.image) {
       const img = h('img', { class: 'as-shot', src: step.image, alt: 'What the assistant saw' }) as HTMLImageElement;
+      img.addEventListener('load', () => this.scroll(), { once: true });
       el.append(img);
     }
     this.scroll();

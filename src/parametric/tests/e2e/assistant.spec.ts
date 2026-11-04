@@ -242,3 +242,18 @@ test('sending signed out signs in first, once, and sends what the box holds then
   expect(r.sent).toHaveLength(1);
   expect(r.sent[0]).toMatch(/\n\nhello, edited while signing in$/);
 });
+
+test('the conversation follows a long reply that arrives in one piece', async ({ page }) => {
+  await page.setViewportSize({ width: 1400, height: 700 });
+  await page.addInitScript(() => {
+    (window as unknown as { __assistantChat: unknown }).__assistantChat = async function* () {
+      yield { type: 'text', text: Array.from({ length: 40 }, (_, i) => `Line ${i} of the reply.`).join('\n\n') };
+    };
+  });
+  await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  const box = page.getByRole('textbox', { name: 'Message the assistant' });
+  await box.fill('hi');
+  await box.press('Enter');
+  await expect(page.getByText('Line 39 of the reply.')).toBeInViewport();
+});
