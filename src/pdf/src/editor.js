@@ -10327,10 +10327,12 @@ export function createEditor({
       e.preventDefault();
       save();
     };
+    // A new field is already on the page: Done keeps it with whatever was set here.
     const d = modal(`${fieldTypeLabel(field.type)} properties`, form, [
       button('Delete field', 'Trash2', remove, 'btn danger'),
-      button(created ? 'Done' : 'Cancel', null, () => d.close()),
-      button('Save', null, save, 'btn primary'),
+      ...(created
+        ? [button('Done', null, save, 'btn primary')]
+        : [button('Cancel', null, () => d.close()), button('Save', null, save, 'btn primary')]),
     ]);
     nameInput.select();
   }

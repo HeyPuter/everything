@@ -1446,7 +1446,7 @@ test('Prepare a form adds fields, edits their properties, and detects blanks', a
   await dialog.getByLabel('Name', { exact: true }).fill('Full name');
   await dialog.getByLabel('Tooltip (read to screen reader users)').fill('Your full name');
   await dialog.getByLabel('Required').check();
-  await dialog.getByRole('button', { name: 'Save', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Done', exact: true }).click();
   await settled(page);
   await expect(page.getByRole('button', { name: 'Text field Full name' })).toBeVisible();
   await pane.getByRole('button', { name: 'Detect form fields…' }).click();

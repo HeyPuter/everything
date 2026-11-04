@@ -384,3 +384,21 @@ test('saving a field’s properties unchanged records no edit', async ({ page })
   await expect(page.getByRole('button', { name: /^Undo/ })).toBeDisabled();
   await expect(page.getByText('Unsaved changes')).toHaveCount(0);
 });
+
+test('Done on a new field keeps what was set for it', async ({ page }) => {
+  const doc = await PDFDocument.create();
+  doc.addPage([600, 400]);
+  await openPdf(page, doc);
+  await prepareForm(page);
+  const pane = page.getByRole('complementary', { name: 'Tools' });
+  await pane.getByRole('button', { name: 'Text field', exact: true }).click();
+  await page.getByRole('button', { name: 'Place at page center' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Text field properties' });
+  await dialog.getByLabel('Name', { exact: true }).fill('Full name');
+  await dialog.getByRole('button', { name: 'Done', exact: true }).click();
+  await expect(dialog).toBeHidden();
+  await settled(page);
+  await expect(designer(page, 'Full name#0')).toBeVisible();
+  const saved = (await PDFDocument.load(await downloaded(page))).getForm();
+  expect(saved.getFields().map((field) => field.getName())).toEqual(['Full name']);
+});
