@@ -317,3 +317,26 @@ test('opening another part stops the assistant before it changes that part', asy
   await page.waitForTimeout(1500);
   await expect(page.getByRole('treeitem', { name: 'Stray' })).toHaveCount(0);
 });
+
+test('trying a failed reply again keeps the Undo changes of what it already did', async ({ page }) => {
+  await page.addInitScript(() => {
+    let n = 0;
+    (window as unknown as { __assistantChat: unknown }).__assistantChat = async function* () {
+      n++;
+      if (n === 1) yield { type: 'tool', id: 'c1', name: 'create_sketch', input: { plane: 'top', shapes: [{ type: 'circle', center: [0, 0], radius: 5 }] } };
+      else if (n === 2) throw new Error('Network error');
+      else yield { type: 'text', text: 'Recovered.' };
+    };
+  });
+  await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  const box = page.getByRole('textbox', { name: 'Message the assistant' });
+  await box.fill('Sketch a circle');
+  await box.press('Enter');
+  await page.getByRole('button', { name: 'Try again' }).click();
+  await expect(page.getByText('Recovered.')).toBeVisible();
+  await expect(page.locator('.as-error')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Undo changes' }).click();
+  await expect(page.getByText('Changes undone.')).toBeVisible();
+  await expect(page.getByRole('treeitem', { name: 'Sketch1' })).toHaveCount(0);
+});

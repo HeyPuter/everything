@@ -477,13 +477,16 @@ export class AssistantPanel {
     if (res.stopped) turn.foot.append(h('span', { class: 'as-meta' }, this.stopReason));
     if (res.error) {
       const retry = h('button', { class: 'btn small as-retry', type: 'button' }, 'Try again');
+      const error = h('div', { class: 'as-error', role: 'alert' }, `The assistant could not answer: ${res.error.message}`);
       retry.addEventListener('click', (e) => {
         if (this.agent.busy) return;
         this.keepFocus(e);
-        turn.foot.replaceChildren();
+        // Undo changes stays: what this reply did before it failed is still its own undo step.
+        error.remove();
+        retry.remove();
         void this.run(request, (on) => this.agent.retry(on));
       });
-      turn.foot.append(h('div', { class: 'as-error', role: 'alert' }, `The assistant could not answer: ${res.error.message}`), retry);
+      turn.foot.append(error, retry);
     }
     if (changed) {
       const undo = h('button', { class: 'btn small', type: 'button' }, icon('undo', 14), 'Undo changes');
