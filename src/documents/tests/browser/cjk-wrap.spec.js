@@ -46,3 +46,28 @@ test('wraps Chinese and Japanese beside every character under the East Asian lin
  const e=unzipSync(readFileSync(editedPath));for(const name of Object.keys(a))if(name!=='word/document.xml')expect(Buffer.from(e[name]).equals(Buffer.from(a[name])),name).toBe(true);
  await reopenDocx(page,input,editedPath,edited);await check(editedPath);
 });
+
+test('ideographs take the forms of the language their text is marked in', async ({ page }) => {
+  await page.goto('/mock.html#/new');
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  // Only where this browser has Japanese and Chinese forms of 直 to choose from.
+  const distinct = await page.evaluate(() => {
+    const draw = lang => { const c = document.createElement('canvas'); c.width = c.height = 64; const ctx = c.getContext('2d'); if (!('lang' in ctx)) return ''; ctx.lang = lang; ctx.font = '48px "Canvas Noto Sans"'; ctx.fillText('直', 4, 52); return c.toDataURL(); };
+    return draw('ja-JP') !== draw('zh-CN');
+  });
+  test.skip(!distinct, 'This browser has one form of these ideographs.');
+  const input = page.getByRole('textbox', { name: 'Document text' });
+  await input.fill('直骨角\nother');
+  const box = await page.locator('canvas.canvas-page').first().boundingBox();
+  const shot = async () => {
+    const r = await page.evaluate(() => { const e = window.__docs.current.view.engine, l = e.selectionLayout.lines[0]; return { x: l.stops[0].x * e.zoom, w: (l.stops.at(-1).x - l.stops[0].x) * e.zoom, y: l.y * e.zoom, h: l.height * e.zoom }; });
+    return (await page.screenshot({ clip: { x: box.x + r.x, y: box.y + r.y, width: r.w - 2, height: r.h } })).toString('base64');
+  };
+  // As a Japanese document marks its text (w:lang/@w:eastAsia), then as a Chinese one does.
+  const mark = language => page.evaluate(language => { const e = window.__docs.current.view.engine; e.model.select(0, 3); e.execute(() => e.model.setRunFormat({ fontEastAsiaLanguage: language })); e.model.select(8); e.syncInput(); e.paint(); }, language);
+  await mark('ja-JP'); const japanese = await shot();
+  await mark('zh-CN'); const chinese = await shot();
+  await mark('ja-JP');
+  expect(await shot()).toBe(japanese);
+  expect(chinese).not.toBe(japanese);
+});
