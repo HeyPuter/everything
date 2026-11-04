@@ -490,14 +490,27 @@ export function formattedPasteFits(fragment) {
   return true;
 }
 
+/**
+ * Formatting a run is a command over its whole paragraph, which splits and joins each of the paragraph's runs,
+ * so a paragraph of thousands of formatted runs took time growing with the square of their number: a web page
+ * or Markdown file of a few dozen kilobytes ("*a*a*a…", "<b>a</b> <b>a</b> …"), opened or inserted, held the
+ * window for minutes. A paragraph's runs cost about their number each; past this many steps in all, a
+ * paragraph's text goes in without its character formatting, as a paste past MAX_RUNS does.
+ */
+const MAX_RUN_STEPS = 1000000;
+
 function applyFragment(model, fragment, start) {
   const after = start + fragment.paragraphs.reduce((n, p) => n + p.text.length + 1, -1);
-  let at = start;
+  let at = start, steps = 0;
   const lists = new Map();
   for (const p of fragment.paragraphs) {
     if (p.mark) { model.select(at); applyParagraph(model, p, !!fragment.foreign, lists); }
     let offset = at;
-    const applied = new Set(appliedRuns(fragment, p));
+    let applied = appliedRuns(fragment, p);
+    const cost = applied.length * p.runs.length;
+    if (steps + cost > MAX_RUN_STEPS) applied = [];
+    else steps += cost;
+    applied = new Set(applied);
     for (const run of p.runs) { if (applied.has(run)) applyRun(model, offset, offset + run.text.length, run, !!fragment.foreign); offset += run.text.length; }
     at += p.text.length + 1;
   }
