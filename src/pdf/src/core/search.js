@@ -41,7 +41,10 @@ export function indexPageText(items) {
   const origins = [];
   let length = 0;
   let trailingSpace = false,
-    last = '';
+    tail = '',
+    // The last item that added text, and its chunk: a line can end in an empty item after
+    // the item holding its hyphen.
+    held = null;
   const strings = items.filter((item) => typeof item.str === 'string');
   strings.forEach((item, i) => {
     let chunk = '';
@@ -65,11 +68,20 @@ export function indexPageText(items) {
     // A word hyphenated at the end of a line is found whole, as PDF readers find it.
     const hyphenated =
       item.hasEOL &&
-      /\p{L}[-\u00ad\u2010]$/u.test(last + chunk) &&
+      /\p{L}[-\u00ad\u2010]$/u.test(tail + chunk) &&
       /^\p{Ll}/u.test(strings[i + 1]?.str || '');
-    if (hyphenated) {
+    if (hyphenated && chunk) {
       chunk = chunk.slice(0, -1);
       origin.pop();
+    } else if (hyphenated) {
+      // The hyphen ended an earlier item (in another font, say): take it off that one.
+      const [at, chunkAt] = held;
+      chunks[chunkAt] = chunks[chunkAt].slice(0, -1);
+      origins[at].pop();
+      ranges[at].end--;
+      for (let k = at + 1; k < ranges.length; k++)
+        ranges[k] = { start: length - 1, end: length - 1 };
+      length--;
     }
     const start = length;
     chunks.push(chunk);
@@ -78,13 +90,15 @@ export function indexPageText(items) {
     ranges.push({ start, end: length });
     if (chunk) {
       trailingSpace = chunk.endsWith(' ');
-      last = chunk.at(-1);
+      tail = (tail + chunk).slice(-2);
+      held = [i, chunks.length - 1];
     }
     if (item.hasEOL && !trailingSpace && !hyphenated) {
       chunks.push(' ');
       length++;
       trailingSpace = true;
-      last = ' ';
+      tail = ' ';
+      held = null;
     }
   });
   return { text: chunks.join(''), ranges, origins };

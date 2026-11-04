@@ -1,12 +1,17 @@
 import { test, expect } from '@playwright/test';
 import { PDFDocument, PDFName, StandardFonts } from 'pdf-lib';
 
-async function openSearchDocument(page, pages = ['apple apple', 'banana banana', 'apple banana']) {
+async function openSearchDocument(
+  page,
+  pages = ['apple apple', 'banana banana', 'apple banana'],
+  draw = null,
+) {
   await page.route('https://js.puter.com/**', (route) => route.abort());
   const doc = await PDFDocument.create();
   const font = await doc.embedFont(StandardFonts.Helvetica);
   for (const words of pages)
     doc.addPage([400, 400]).drawText(words, { font, x: 40, y: 300, size: 18, lineHeight: 24 });
+  await draw?.(doc);
   await page.goto('/#library');
   const chooser = page.waitForEvent('filechooser');
   await page.getByRole('button', { name: /^Open a PDF/ }).click();
@@ -17,7 +22,7 @@ async function openSearchDocument(page, pages = ['apple apple', 'banana banana',
     mimeType: 'application/pdf',
     buffer: Buffer.from(await doc.save()),
   });
-  await expect(page.locator('.page-caption')).toHaveText(`Page 1 of ${pages.length}`);
+  await expect(page.locator('.page-caption')).toHaveText(`Page 1 of ${doc.getPageCount()}`);
   await page.getByRole('button', { name: 'Find text or tools', exact: true }).click();
   return page.getByRole('searchbox', { name: 'Find in PDF', exact: true });
 }
@@ -231,6 +236,21 @@ test('a word hyphenated at the end of a line is found whole', async ({ page }) =
   await input.fill('example');
   await expect(page.locator('.search-count')).toHaveText('1 of 1');
   // Both halves are marked on the page, and the hyphen between them is not.
+  await expect(page.locator('.search-hit-current')).toHaveText(['exam', 'ple']);
+});
+
+test('a word is found whole when its line-end hyphen is set in another font', async ({ page }) => {
+  const input = await openSearchDocument(page, [], async (doc) => {
+    const regular = await doc.embedFont(StandardFonts.Helvetica);
+    const bold = await doc.embedFont(StandardFonts.HelveticaBold);
+    const sheet = doc.addPage([400, 400]);
+    sheet.drawText('Here is an exam', { font: regular, x: 40, y: 300, size: 18 });
+    const x = 40 + regular.widthOfTextAtSize('Here is an exam', 18);
+    sheet.drawText('-', { font: bold, x, y: 300, size: 18 });
+    sheet.drawText('ple of a hyphenated word', { font: regular, x: 40, y: 276, size: 18 });
+  });
+  await input.fill('example');
+  await expect(page.locator('.search-count')).toHaveText('1 of 1');
   await expect(page.locator('.search-hit-current')).toHaveText(['exam', 'ple']);
 });
 
