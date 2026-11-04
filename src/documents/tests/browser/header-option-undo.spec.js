@@ -22,6 +22,7 @@ test('Undo takes back Different First Page, and Redo applies it again', async ({
   await first.check();
   await expect.poll(async () => (await engine(page)).first).toBe(true);
   expect((await engine(page)).steps).toBe(before.steps + 1);
+  expect(await page.evaluate(() => window.__docs.current.view.commands.undoLabel())).toBe('Different First Page');
   await page.keyboard.press('ControlOrMeta+z');
   await expect.poll(async () => (await engine(page)).first).toBe(false);
   await expect(first).not.toBeChecked();

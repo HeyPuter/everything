@@ -205,10 +205,10 @@ export class StorySession {
   }
   /**
    * Change those settings (`change()`) as one undo step, like an edit to the text. A change that leaves them as
-   * they were records nothing. Whether anything changed.
+   * they were records nothing. Whether anything changed. `label` names the step, as run's does.
    */
-  changeSettings(change) {
-    const before = { path: this.path, page: this.page, settings: this.settingsState(), caret: this.caret?.() };
+  changeSettings(change, { label } = {}) {
+    const before = { path: this.path, page: this.page, settings: this.settingsState(), caret: this.caret?.(), ...(label ? { label } : {}) };
     const same = () => {
       const now = this.settingsState(), outline = state => JSON.stringify(state.options?.sections.some(s => s.firstPageDifferent || s.pageNumbering) || state.options?.evenAndOdd || state.options?.footnotes || state.options?.endnotes ? state.options : null);
       return outline(now) === outline(before.settings) && JSON.stringify(now.host) === JSON.stringify(before.settings.host);

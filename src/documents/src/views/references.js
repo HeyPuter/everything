@@ -88,7 +88,7 @@ export function createReferences({ editor, pkg, error, base = {}, onChange = () 
       engine.changeSettings(() => {
         if (option === 'first') { pkg().setTitlePage(section, on); engine.setStoryOptions({ section, firstPageDifferent: on }); }
         else { pkg().setEvenAndOdd(on); engine.setStoryOptions({ evenAndOdd: on }); }
-      });
+      }, option === 'first' ? 'Different First Page' : 'Different Odd & Even Pages');
       if (kind === 'header' || kind === 'footer') await story(kind, page);
       onChange();
     } catch (e) { fail(e); }

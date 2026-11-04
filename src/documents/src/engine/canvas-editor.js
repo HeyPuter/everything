@@ -499,13 +499,13 @@ export class CanvasEditor {
   }
   /**
    * Change header, footer and note settings (`change()` sets them in the package and here, setStoryOptions) as one
-   * undo step. Whether anything changed.
+   * undo step, named `label` when given. Whether anything changed.
    */
-  changeSettings(change) {
+  changeSettings(change, label) {
     if (this.readOnly || this.viewOnly) return false;
     this.finishComposition();
     let changed;
-    try { changed = this.session.changeSettings(change); } finally { this.relayout(); }
+    try { changed = this.session.changeSettings(change, { label }); } finally { this.relayout(); }
     if (changed) this.onChange();
     return changed;
   }
