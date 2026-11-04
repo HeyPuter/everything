@@ -208,3 +208,29 @@ test('opening a part puts it first in the recent parts', async ({ page }) => {
   }
   expect(await recent()).toEqual(['Bracket', 'Gear']);
 });
+
+test('an STL exported right after a change has the changed geometry', async ({ page }) => {
+  await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await expect(page.getByRole('treeitem', { name: 'Fillet1' })).toBeVisible();
+  await page.evaluate(() => (window as unknown as { __parametric: { whenBuilt(): Promise<void> } }).__parametric.whenBuilt());
+  const download = page.waitForEvent('download');
+  // Capture the exported file, then make the extrude 80 deep and export at once.
+  const height = page.evaluate(() => new Promise<number>((resolve) => {
+    const create = URL.createObjectURL.bind(URL);
+    URL.createObjectURL = (b: Blob | MediaSource) => {
+      void (b as Blob).arrayBuffer().then((buf) => {
+        const v = new DataView(buf);
+        let lo = Infinity, hi = -Infinity;
+        for (let i = 0, n = v.getUint32(80, true); i < n; i++) for (let k = 0; k < 3; k++) { const z = v.getFloat32(84 + i * 50 + 12 + k * 12 + 8, true); lo = Math.min(lo, z); hi = Math.max(hi, z); }
+        resolve(hi - lo);
+      });
+      return create(b);
+    };
+    const a = (window as unknown as { __parametric: { store: { change(l: string, fn: (d: { features: { id: string; depth?: number }[] }) => void): void }; commands: { run(id: string): boolean } } }).__parametric;
+    a.store.change('Depth', (d) => { d.features.find((f) => f.id === 'f1')!.depth = 80; });
+    a.commands.run('exportStl');
+  }));
+  expect((await download).suggestedFilename()).toBe('Mounting Bracket.stl');
+  expect(await height).toBeCloseTo(80, 3);
+});

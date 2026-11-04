@@ -315,6 +315,9 @@ export class FileOps {
         download(serializeDocument(app.store.doc), `${name}${EXT}`, 'application/json');
         return;
       }
+      // The kernel exports the body it built last: a change made just before
+      // must be built first, or the file has the old geometry.
+      await app.whenBuilt();
       if (!app.bbox) { toast({ kind: 'warning', message: 'There is no geometry to export yet.' }); return; }
       const data = await app.kernel.exportFile(format, Math.max(1, app.settings.quality));
       const blob = new Blob([data as BlobPart], { type: format === 'step' ? 'model/step' : 'model/stl' });
