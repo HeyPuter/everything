@@ -851,12 +851,15 @@ export class ModelBuilder {
     const n1 = Math.round(num(f.dir1.count));
     if (n1 < 1 || n1 > 1000) throw new FeatureError('Instance count must be between 1 and 1000');
     const v1 = scale(this.dirVector(f.dir1, st), num(f.dir1.spacing));
+    // Zero spacing stacks every instance on the seed: nothing would change.
+    if (n1 > 1 && len(v1) < 1e-9) throw new FeatureError('Direction 1 spacing must not be zero');
     let n2 = 1;
     let v2: Vec3 = [0, 0, 0];
     if (f.dir2) {
       n2 = Math.round(num(f.dir2.count));
       if (n2 < 1 || n2 > 1000) throw new FeatureError('Instance count must be between 1 and 1000');
       v2 = scale(this.dirVector(f.dir2, st), num(f.dir2.spacing));
+      if (n2 > 1 && len(v2) < 1e-9) throw new FeatureError('Direction 2 spacing must not be zero');
     }
     if (n1 * n2 > 2000) throw new FeatureError('Too many instances (maximum 2000)');
     const tfs: ((s: Sh) => Sh)[] = [];
@@ -880,6 +883,9 @@ export class ModelBuilder {
     const d = scale(ax.d, f.flip ? -1 : 1);
     const tfs: ((s: Sh) => Sh)[] = [];
     for (let i = 1; i < n; i++) {
+      // An instance a whole number of turns round lands on the seed (0° or 360° spacing).
+      const turns = (step * i) / 360;
+      if (Math.abs(turns - Math.round(turns)) < 1e-9) throw new FeatureError('Pattern instances fall on top of each other. Check the angle.');
       const a = (step * i * Math.PI) / 180;
       tfs.push((s) => rotated(s, ax.p, d, a));
     }

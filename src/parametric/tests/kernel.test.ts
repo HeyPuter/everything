@@ -286,6 +286,20 @@ describe('feature regeneration', () => {
     expect(volume(b)).toBeCloseTo(50 * 10 * 5 - 4 * Math.PI * 4 * 5, 1);
   });
 
+  it('reports patterns whose instances would all land on the seed', async () => {
+    const b = new ModelBuilder();
+    const base: Feature[] = [sketch('S1', rect(-20, -20, 20, 20)), extrude('E1', 'S1', 10), sketch('S2', circle(10, 0, 2)), extrude('E2', 'S2', 10, { cut: true, flip: true })];
+    const circ = (angle: number, equal: boolean): Feature => ({ id: 'P', name: 'P', type: 'circularPattern', seeds: ['E2'], axis: { kind: 'base', axis: 'z' }, count: 4, angle, equal, flip: false });
+    const lin = (spacing: number): Feature => ({ id: 'P', name: 'P', type: 'linearPattern', seeds: ['E2'], dir1: { ref: { kind: 'base', axis: 'y' }, spacing, count: 3, flip: false }, dir2: null });
+    for (const p of [circ(360, false), circ(0, true), circ(720, false)]) {
+      const res = await b.build(req([...base, p]));
+      expect(res.status[4].ok).toBe(false);
+      expect(res.status[4].error).toMatch(/on top of each other/);
+    }
+    expect((await b.build(req([...base, lin(0)]))).status[4].error).toMatch(/spacing must not be zero/);
+    for (const p of [circ(360, true), circ(90, false), lin(-10)]) expect((await b.build(req([...base, p]))).status[4].ok).toBe(true);
+  });
+
   it('reports a useful error for an open profile and keeps building later features', async () => {
     const b = new ModelBuilder();
     const open = [{ id: 'a', t: 'point', x: 0, y: 0 }, { id: 'b', t: 'point', x: 10, y: 0 }, { id: 'l', t: 'line', a: 'a', b: 'b' }] as any[];
