@@ -77,7 +77,8 @@ export class StartScreen {
   }
 }
 
-export async function doSignIn(app: App) {
+/** Signs in with Puter and updates the account button; resolves to whether it worked. */
+export async function doSignIn(app: App): Promise<boolean> {
   try {
     const ok = await signIn();
     if (ok) {
@@ -85,8 +86,10 @@ export async function doSignIn(app: App) {
       await refreshAccount(app);
       app.loadRemoteSettings();
     }
+    return ok;
   } catch (e) {
     toast({ kind: 'error', title: 'Sign-in failed', message: (e as Error).message });
+    return false;
   }
 }
 

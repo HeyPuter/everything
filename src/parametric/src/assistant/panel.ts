@@ -4,8 +4,9 @@
 
 import type { App } from '../app/app';
 import { appHost } from '../app/assistant-host';
+import { doSignIn } from '../app/start';
 import { type ChatFn, puterChat } from '../platform/ai';
-import { cloudAvailable, env, puter, signIn } from '../platform/puter';
+import { cloudAvailable, env, puter } from '../platform/puter';
 import { h } from '../ui/dom';
 import { icon } from '../ui/icons';
 import { toast } from '../ui/overlay';
@@ -221,23 +222,19 @@ export class AssistantPanel {
     if (!on) this.status.textContent = '';
   }
 
-  /** Whether Puter AI can be used; otherwise explains why in the conversation. */
-  private ready(): boolean {
+  /** Whether Puter AI can be used. Signs in to Puter first when needed. */
+  private async ready(): Promise<boolean> {
     if (this.chat || devChat()) return true;
     const sdk = puter() as unknown as { ai?: unknown } | null;
     if (!sdk?.ai) {
       this.notice('The assistant needs Puter, which is not available right now. Check your connection and reload the page.');
       return false;
     }
-    if (env() !== 'app' && !cloudAvailable()) {
-      const btn = h('button', { class: 'btn small primary', type: 'button' }, 'Sign in to Puter');
-      btn.addEventListener('click', () => {
-        void signIn().then((ok) => { if (ok) { btn.closest('.as-msg')?.remove(); void this.submit(); } }).catch((e) => toast({ kind: 'error', message: (e as Error).message }));
-      });
-      this.notice('Sign in to your Puter account to use the assistant (it runs on Puter AI).', btn);
-      return false;
-    }
-    return true;
+    if (env() === 'app' || cloudAvailable()) return true;
+    // Sending is a click or Enter press, so the sign-in window opens without being blocked.
+    this.sending = true;
+    this.status.textContent = 'Signing in to Puter…';
+    try { return await doSignIn(this.app); } finally { this.sending = false; this.status.textContent = ''; }
   }
 
   private notice(text: string, action?: HTMLElement) {
@@ -254,7 +251,7 @@ export class AssistantPanel {
   async submit() {
     let text = this.input.value.trim();
     if ((!text && !this.pending.length) || this.agent.busy || this.sending) return;
-    if (!this.ready()) return;
+    if (!(await this.ready()) || this.agent.busy) return;
     let items: PendingFile[] = [];
     let files: Attachment[] = [];
     if (this.pending.length) {
