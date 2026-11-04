@@ -62,6 +62,10 @@ export const DEFAULT_SETTINGS: Settings = {
   defaultUnits: 'MMGS',
 };
 
+/** Controls whose own keyboard activation must win over global shortcuts. */
+const ACTIVATES_ON_ENTER = 'button, a[href], summary, [role="button"], [role="link"], [role="tab"], [role="option"], [role="menuitem"], [role="treeitem"]';
+const ACTIVATES_ON_SPACE = 'input[type="checkbox"], input[type="radio"], select, [role="checkbox"], [role="switch"], [role="radio"]';
+
 /** Hooks implemented by the feature/command modules (set up in main). */
 export interface AppHooks {
   ribbonTabs: RibbonTab[];
@@ -1287,8 +1291,10 @@ export class App {
     }
     if (target.closest('.tree') && ['Delete', 'Backspace', 'Enter', ' ', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'F2', 'Home', 'End'].includes(e.key)) return;
     if (target.closest('.menu')) return;
-    // In the task pane (assistant, parts…) Enter and Space press the focused button, not Repeat / View Orientation.
-    if ((e.key === 'Enter' || e.key === ' ') && target.closest('.taskpane') && target.closest('button, a[href], [role="button"]')) return;
+    // Enter and Space activate the focused control; they are only shortcuts
+    // (Repeat Last Command, View Orientation) elsewhere.
+    if ((e.key === 'Enter' || e.key === ' ') && !e.ctrlKey && !e.metaKey && !e.altKey && target !== this.viewport.canvas
+      && target.closest(e.key === ' ' ? `${ACTIVATES_ON_ENTER}, ${ACTIVATES_ON_SPACE}` : ACTIVATES_ON_ENTER)) return;
     if (e.key === 'Enter' && this.panel && !(target instanceof HTMLButtonElement)) {
       e.preventDefault();
       void this.closePanel(true);

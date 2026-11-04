@@ -73,4 +73,21 @@ test.describe('accessibility', () => {
     await page.keyboard.press('Enter');
     await expect(page.getByRole('treeitem', { name: 'Bolt holes' })).toBeFocused();
   });
+
+  test('Enter and Space activate the focused button instead of global shortcuts', async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+    await waitForFeature(page, 'Fillet1');
+    // Something to repeat with Enter (Repeat Last Command).
+    await page.getByRole('button', { name: 'Zoom to Fit' }).click();
+    const perspective = page.getByRole('button', { name: 'Perspective' });
+    await perspective.focus();
+    await page.keyboard.press('Enter');
+    await expect(perspective).toHaveAttribute('aria-pressed', 'true');
+    await page.getByRole('button', { name: 'Section View' }).focus();
+    await page.keyboard.press('Space');
+    await expect(page.getByRole('heading', { name: 'Section View' })).toBeVisible();
+    await expect(page.getByRole('menu')).toHaveCount(0);
+  });
 });
+
