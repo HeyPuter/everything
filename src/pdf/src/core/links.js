@@ -62,12 +62,20 @@ export function normalizeUrl(value) {
   }
   if (!['http:', 'https:', 'mailto:', 'tel:'].includes(url.protocol))
     throw new Error('Links can open web pages, email addresses, or phone numbers.');
+  if (url.protocol === 'mailto:' && !url.pathname.trim())
+    throw new Error('Enter the email address to link to.');
+  if (url.protocol === 'tel:' && !/\d/.test(url.pathname))
+    throw new Error('Enter the phone number to link to.');
   if (
     (url.protocol === 'http:' || url.protocol === 'https:') &&
     !url.hostname.includes('.') &&
     url.hostname !== 'localhost' &&
     !url.hostname.startsWith('[') // The URL parser accepts bracketed hosts only for valid IPv6.
   )
+    throw new Error('Enter a valid web address, like example.com/page.');
+  // The URL parser reads a bare number as an IPv4 address ("12" as 0.0.0.12); only an
+  // address typed out in full is meant as one.
+  if (/^[\d.]+$/.test(url.hostname) && !withScheme.toLowerCase().includes(url.hostname))
     throw new Error('Enter a valid web address, like example.com/page.');
   // Encoding Unicode and adding https can expand a short input. Validate the stored value
   // here too, so the dialog can keep it open for correction before add/update normalizes again.
