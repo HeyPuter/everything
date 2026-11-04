@@ -39,15 +39,15 @@ function setup() {
 // though the dialog and the tooltip's own reason spoke of a moved or deleted file.
 it('says the file was moved or deleted when that is the conflict, changed elsewhere when it changed, and could not be checked when nobody knows', () => {
   const { doc, pill } = setup();
-  doc._setStatus('conflict', 'This file was moved or deleted');
+  doc._setStatus('conflict', 'This file was moved or deleted', 'missing');
   expect(pill.textContent).toBe('Moved or deleted');
   expect(pill.title).toBe('Moved or deleted: This file was moved or deleted');
   expect(pill.classList.contains('conflict')).toBe(true);
-  doc._setStatus('conflict', 'This file changed elsewhere');
+  doc._setStatus('conflict', 'This file changed elsewhere', 'changed');
   expect(pill.textContent).toBe('Changed elsewhere');
   expect(pill.title).toBe('Changed elsewhere: This file changed elsewhere');
   // An unknown baseline is its own state: nobody knows that the file changed.
-  doc._setStatus('conflict', 'This file could not be checked for changes made elsewhere');
+  doc._setStatus('conflict', 'This file could not be checked for changes made elsewhere', 'unchecked');
   expect(pill.textContent).toBe('Could not be checked');
   expect(pill.title).toBe('Could not be checked: This file could not be checked for changes made elsewhere');
 });
