@@ -83,3 +83,67 @@ export async function pasteDrawing(editor, { xml }) {
   const fragment = await readDrawingFragment(new XMLSerializer().serializeToString(doc), { sourceParts: pkg.parts, assetId: freshDrawingAssetId(model) });
   return placeDrawing(editor, fragment, { revision });
 }
+
+/* ---------- Equations ---------- */
+
+/**
+ * A selected equation (one Office Math object, ECMA-376 Part 1 §22.1.2.77 oMath / §22.1.2.78 oMathPara) copies
+ * as its Office Math XML beside its linear text, so a paste here inserts the equation again instead of its text.
+ */
+export const EQUATION_ATTRIBUTE = 'data-documents-equation';
+const M = 'http://schemas.openxmlformats.org/officeDocument/2006/math';
+const XMLNS = 'http://www.w3.org/2000/xmlns/';
+
+/** The selected equation run's math ({ xml, text }), or null. */
+export function selectedEquation(model) {
+  const [start, end] = model.range;
+  if (end !== start + 1) return null;
+  let at = 0;
+  for (const p of model.paragraphs) {
+    for (const run of p.runs) { if (at === start && run.math && run.text.length === 1) return run.math; at += run.text.length; if (at > start) return null; }
+    at += 1;
+  }
+  return null;
+}
+
+/** HTML carrying the selected equation for a paste here, or ''. */
+export function equationHtml(model) {
+  const math = selectedEquation(model);
+  if (!math?.xml || math.xml.length > MAX_XML) return '';
+  return `<span ${EQUATION_ATTRIBUTE}="${escape(JSON.stringify({ xml: math.xml, text: math.text || '' }))}">${escape(math.text || '')}</span>`;
+}
+
+/**
+ * The equation a copy from this editor carries in its HTML ({ xml, text }), or null. The XML is written into the
+ * saved document as it is, so it must be Office Math alone: an m:oMath or m:oMathPara whose elements and
+ * attributes are all in the math or the WordprocessingML namespace, with no WordprocessingML element that
+ * holds other content (a drawing, an object, a field, a note).
+ */
+export function htmlEquation(html) {
+  if (typeof DOMParser === 'undefined' || !html || !html.includes(EQUATION_ATTRIBUTE)) return null;
+  const node = new DOMParser().parseFromString(html, 'text/html').querySelector(`[${EQUATION_ATTRIBUTE}]`);
+  let data;
+  try { data = JSON.parse(node?.getAttribute(EQUATION_ATTRIBUTE) || 'null'); } catch { return null; }
+  if (typeof data?.xml !== 'string' || data.xml.length > MAX_XML || typeof data.text !== 'string') return null;
+  const doc = new DOMParser().parseFromString(data.xml, 'application/xml'), root = doc.documentElement;
+  if (doc.getElementsByTagName('parsererror').length || root.namespaceURI !== M || !['oMath', 'oMathPara'].includes(root.localName)) return null;
+  const RUN_CONTENT = new Set(['rPr', 'rFonts', 'b', 'bCs', 'i', 'iCs', 'color', 'sz', 'szCs', 'u', 'strike', 'dstrike', 'highlight', 'shd', 'vertAlign', 'lang', 'caps', 'smallCaps', 'spacing', 'kern', 'w', 'position', 'vanish', 'rStyle', 'effect', 'em', 'emboss', 'imprint', 'outline', 'shadow', 'noProof', 'rtl', 'cs', 'specVanish', 'webHidden', 'eastAsianLayout', 'fitText', 'bdr', 't', 'br', 'tab', 'sym', 'ins', 'del', 'rPrChange', 'moveFrom', 'moveTo']);
+  for (const element of [root, ...root.getElementsByTagName('*')]) {
+    if (element.namespaceURI === W ? !RUN_CONTENT.has(element.localName) : element.namespaceURI !== M) return null;
+    if ([...element.attributes].some(a => a.namespaceURI !== XMLNS && a.namespaceURI !== M && a.namespaceURI !== W && !(a.namespaceURI === 'http://www.w3.org/XML/1998/namespace' && a.localName === 'space'))) return null;
+  }
+  return { xml: new XMLSerializer().serializeToString(root), text: data.text.slice(0, 100000) };
+}
+
+/**
+ * The equation as a paste at the selection puts it: a displayed equation (one m:oMath in an m:oMathPara) pasted
+ * among the text of a paragraph goes in line, as Word pastes it, since a display equation is its paragraph's
+ * only content.
+ */
+export function pastedEquation(model, equation) {
+  const [start, end] = model.range, text = model.text, from = text.lastIndexOf('\n', start - 1) + 1, next = text.indexOf('\n', end), to = next < 0 ? text.length : next;
+  if (!(text.slice(from, start) + text.slice(end, to)).trim()) return equation;
+  const root = new DOMParser().parseFromString(equation.xml, 'application/xml').documentElement;
+  const lines = [...root.children].filter(n => n.namespaceURI === M && n.localName === 'oMath');
+  return root.localName === 'oMathPara' && lines.length === 1 ? { ...equation, xml: new XMLSerializer().serializeToString(lines[0]) } : equation;
+}

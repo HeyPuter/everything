@@ -24821,3 +24821,17 @@ share them with the original. Before, a cut shape was lost: the clipboard held o
 Gaps: drawings that use package parts (picture fills, charts, diagrams, linked drawings) still do not copy;
 the Edit menu offers Copy and Cut only for drawings that do; other applications get the plain-text stand-in.
 Tests: `tests/browser/drawing-clipboard.spec.js` (save, reopen and the saved `docPr` ids).
+
+## Cut, Copy and Paste of equations (2026-11-03)
+
+Clauses: ECMA-376 Part 1 §22.1.2.77 `oMath`, §22.1.2.78 `oMathPara`, §22.1.2.87 `r` (math run, whose
+`w:rPr` is WordprocessingML run formatting).
+
+A selected equation copies as its Office Math XML beside its linear text; a paste here inserts the equation
+again (before, it came back as its linear text). The copy is accepted only if its root is `m:oMath` or
+`m:oMathPara` and every element is in the math namespace or is WordprocessingML run content (`w:rPr` and its
+properties, `w:t`, `w:br`, `w:tab`, `w:sym`, revision marks), with no attribute of another namespace, since
+the XML is saved as it is. A displayed equation (one `m:oMath` in an `m:oMathPara`) pasted among a
+paragraph's text goes in line, as Word pastes it. Gaps: an equation copied together with text copies as text;
+other applications get the linear text. Tests: `tests/drawing-clipboard.test.js`,
+`tests/browser/drawing-clipboard.spec.js`.

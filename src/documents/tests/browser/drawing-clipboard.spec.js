@@ -114,3 +114,46 @@ test('Cut leaves a chart it cannot carry in place and says so, instead of losing
   await expect.poll(charts).toBe(0);
   expect(errors).toEqual([]);
 });
+
+test('an equation cut and pasted stays an equation, and a displayed one pasted among text goes in line', async ({ page }, info) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await start(page);
+  const equations = () => page.evaluate(() => window.__docs.current.view.engine.model.paragraphs.flatMap((p, paragraph) => p.runs.filter(r => r.math).map(r => ({ paragraph, display: r.math.xml.includes('oMathPara'), fraction: r.math.xml.includes('<m:f>') }))));
+  const selectEquation = () => page.evaluate(() => {
+    const engine = window.__docs.current.view.engine, model = engine.model;
+    let at = 0, found = -1;
+    for (const p of model.paragraphs) { for (const run of p.runs) { if (run.math && found < 0) found = at; at += run.text.length; } at++; }
+    model.select(found, found + 1); engine.syncInput(); engine.paint(); engine.onSelection(); engine.focus();
+  });
+  // A displayed equation of its own (Insert Equation in an empty paragraph).
+  await caretAtEnd(page);
+  await onTab(page, 'insert');
+  await page.getByRole('button', { name: 'Equation gallery' }).click();
+  await page.getByRole('menuitem', { name: /^Sum of the first n integers/ }).click();
+  await expect.poll(async () => (await equations(page)).length).toBe(1);
+  const [inserted] = await equations(page);
+  expect(inserted).toMatchObject({ display: true, fraction: true });
+
+  await selectEquation();
+  await page.keyboard.press('ControlOrMeta+x');
+  await expect.poll(equations).toEqual([]);
+  // Into the end of the first paragraph's text.
+  await page.evaluate(() => { const e = window.__docs.current.view.engine; e.model.select(e.model.text.indexOf('\n')); e.syncInput(); e.paint(); e.onSelection(); e.focus(); });
+  await page.keyboard.press('ControlOrMeta+v');
+  await expect.poll(equations).toEqual([{ paragraph: 0, display: false, fraction: true }]);
+  expect(await input(page).inputValue()).toMatch(/^Paragraph 1 of the text\.￼\n/);
+  // Copied again and pasted into an empty paragraph, it stays as it is.
+  await selectEquation();
+  await page.keyboard.press('ControlOrMeta+c');
+  await caretAtEnd(page);
+  await page.keyboard.press('ControlOrMeta+v');
+  await expect.poll(async () => (await equations(page)).length).toBe(2);
+
+  const path = info.outputPath('pasted-equation.docx');
+  const download = page.waitForEvent('download'); await downloadDocx(page); await (await download).saveAs(path);
+  const xml = strFromU8(unzipSync(new Uint8Array(readFileSync(path)))['word/document.xml']);
+  expect(xml.match(/<m:f>/g)).toHaveLength(2);
+  await reopenDocx(page, input(page), path, await input(page).inputValue());
+  expect((await equations(page)).map(e => e.fraction)).toEqual([true, true]);
+  expect(errors).toEqual([]);
+});

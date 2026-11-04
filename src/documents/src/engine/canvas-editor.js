@@ -4,7 +4,7 @@ import { StorySession } from './story-session.js';
 import { decodeShape } from './canvas-shapes.js';
 import { wordPosition, optionWordPosition } from './word-navigation.js';
 import { carriesFormatting, copyFragment, fragmentHtml, htmlFragment, pasteFragment, formattedPasteFits, copiesPicture, pictureHtml, htmlPicture } from './clipboard-fragment.js';
-import { copiesDrawing, drawingHtml, htmlDrawing, pasteDrawing } from './drawing-clipboard.js';
+import { copiesDrawing, drawingHtml, htmlDrawing, pasteDrawing, equationHtml, htmlEquation, pastedEquation } from './drawing-clipboard.js';
 import { xmlAttributeText } from './text-limits.js';
 import { textEdit, followEdit } from './text-edit.js';
 import { showLink } from './link-appearance.js';
@@ -2292,7 +2292,7 @@ export class CanvasEditor {
       return { text: [...rows.values()].map(cells => cells.join('\t')).join('\n'), html: '' };
     }
     const text = this.model.clipboardText(noteText, undefined, hiddenRun);
-    const picture = pictureHtml(this.model) || drawingHtml(this, text);
+    const picture = pictureHtml(this.model) || drawingHtml(this, text) || equationHtml(this.model);
     // What the view hides (a deletion in Simple Markup, hidden text) is not copied: pasted, it came back as ordinary text.
     const fragment = !picture && copyFragment(this.model, { hidden: hiddenRun });
     return { text, html: picture || (fragment ? fragmentHtml(fragment) : '') };
@@ -2314,6 +2314,9 @@ export class CanvasEditor {
     // A shape, text box or group copied here comes back as the drawing.
     const drawing = htmlDrawing(html);
     if (drawing) { if (!this.readOnly && !this.viewOnly) pasteDrawing(this, drawing).catch(error => this.onError(error)); return; }
+    // An equation copied here comes back as the equation, not its linear text.
+    const equation = htmlEquation(html);
+    if (equation) { this.execute(() => this.model.insertMathRun(pastedEquation(this.model, equation))); return; }
     const fragment = html && carriesFormatting(this.model) && !this.model.tableContext ? htmlFragment(html) : null;
     if (fragment && fragment.paragraphs.some(p => p.text) && formattedPasteFits(fragment) && !(breakless && fragment.paragraphs.some(p => /[\f\u000e]/.test(p.text))) && this.execute(() => pasteFragment(this.model, fragment), () => {}, undefined, true)) return;
     if (text) this.execute(() => this.model.replace(text));
