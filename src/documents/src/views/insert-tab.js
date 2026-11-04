@@ -125,6 +125,9 @@ export function createInsert({ editor, pkg, error, base = {}, docName = () => ''
     } catch (e) { fail(e); return false; }
   }
   const afterSelectedDrawing = engine => { if (engine.model.selectedImage) { engine.model.select(engine.model.range[1]); engine.syncInput(); } };
+  // Text, a symbol or a field inserted with a floating drawing selected goes after its anchor: the drawing is not text
+  // it replaces (an in-line picture is, as a character is).
+  const afterFloatingDrawing = engine => { if (engine.selectedFloatingDrawing) { engine.model.select(engine.model.range[1]); engine.syncInput(); } };
   const sceneFragment = (engine, xml) => readDrawingFragment(xml, { sourceParts: pkg().parts, assetId: freshDrawingAssetId(engine.model) });
   const withDescription = (xml, text) => text ? xml.replace(/(<wp:docPr [^>]*?)(\/?>)/, (_, open, close) => `${open} descr="${String(text).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/\n/g, '&#10;')}"${close}`) : xml;
   // The text a new text box or WordArt takes from the selection it replaces. A selection that holds more than
@@ -528,6 +531,7 @@ export function createInsert({ editor, pkg, error, base = {}, docName = () => ''
     openDateTime({ onClose: () => queueMicrotask(() => editor()?.focus()), onInsert: ({ picture, text, field }) => {
       const engine = ready(); if (!engine) return;
       // Fields live in the body; a header or footer gets the date as text.
+      afterFloatingDrawing(engine);
       if (field && engine.session.path === null) run(engine, () => insertBodyField(engine.model, fieldInstruction({ name: /[Mdy]/.test(picture) ? 'DATE' : 'TIME', picture }), text));
       else run(engine, () => engine.model.replace(text));
     } });
@@ -535,6 +539,7 @@ export function createInsert({ editor, pkg, error, base = {}, docName = () => ''
   function insertFieldInstruction(instruction, cached = null) {
     const engine = ready(); if (!engine) return false;
     toBody(engine);
+    afterFloatingDrawing(engine);
     const value = cached ?? evaluateField(instruction, { ...fieldContext(), text: engine.model.text }) ?? '';
     return run(engine, () => insertBodyField(engine.model, instruction, value));
   }
@@ -575,6 +580,7 @@ export function createInsert({ editor, pkg, error, base = {}, docName = () => ''
     const engine = ready(); if (!engine) return;
     engine.finishComposition();
     const { pasteFragment, carriesFormatting } = await import('../engine/clipboard-fragment.js');
+    afterFloatingDrawing(engine);
     run(engine, () => entry.fragment && carriesFormatting(engine.model) && !engine.model.tableContext ? pasteFragment(engine.model, entry.fragment) : engine.model.replace(entry.text));
   }
   function quickPartsItems() {
@@ -634,6 +640,7 @@ export function createInsert({ editor, pkg, error, base = {}, docName = () => ''
         }
         else text = raw.replace(/\n+$/, '');
       }
+      afterFloatingDrawing(engine);
       run(engine, () => fragment ? pasteFragment(engine.model, fragment) : engine.model.replace(text));
     } catch (e) { fail(e); }
   }
@@ -691,7 +698,7 @@ export function createInsert({ editor, pkg, error, base = {}, docName = () => ''
   /* ---- Symbols ---- */
   function placeSymbol(ch, font = null) {
     const engine = ready(); if (!engine) return;
-    engine.finishComposition();
+    engine.finishComposition(); afterFloatingDrawing(engine);
     run(engine, () => {
       const start = engine.model.range[0];
       engine.model.replace(ch);
@@ -812,6 +819,7 @@ export function createInsert({ editor, pkg, error, base = {}, docName = () => ''
       e.preventDefault();
       if (code === 'KeyP') { insertPageNumber('current', PAGE_NUMBER_DESIGNS[0], null); return; }
       const picture = code === 'KeyD' ? 'M/d/yyyy' : 'h:mm am/pm', engine = ready();
+      afterFloatingDrawing(engine);
       if (engine.session.path !== null) run(engine, () => engine.model.replace(formatDatePicture(new Date(), picture)));
       else insertFieldInstruction(fieldInstruction({ name: code === 'KeyD' ? 'DATE' : 'TIME', picture }));
     }

@@ -2339,6 +2339,8 @@ export class CanvasEditor {
     // Over a block of table cells, a paste from a menu (which reads the clipboard itself, with no paste event) replaces
     // the first cell's text, as the keyboard's does, not every cell the block's text range runs through.
     if (!this.readOnly && !this.viewOnly) this.narrowCellBlock();
+    // Over a selected floating drawing a paste goes after its anchor, as typing does not replace it (keydown).
+    if (!this.readOnly && !this.viewOnly && this.selectedFloatingDrawing) { this.model.select(this.model.range[1]); this.syncInput(); }
     // A picture copied here comes back as the picture, not as its plain-text stand-in.
     const picture = htmlPicture(html);
     if (picture) { if (!this.readOnly && !this.viewOnly) this.insertImageFile(picture.file, picture).catch(error => this.onError(error)); return; }

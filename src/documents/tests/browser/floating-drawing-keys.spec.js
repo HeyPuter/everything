@@ -87,3 +87,23 @@ test('text typed with a text box selected goes on after its text, in Edit Text, 
   await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
   expect(errors).toEqual([]);
 });
+
+test('text pasted, or a date inserted, with a shape selected goes after its anchor and keeps the shape', async ({ page, context }) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await start(page);
+  await drawShape(page, 'Rectangle', [300, 120], [460, 220]);
+  const before = await state(page), anchor = before.text.indexOf('￼');
+  await page.evaluate(() => navigator.clipboard.writeText('pasted'));
+  await selectDrawing(page);
+  await page.keyboard.press('ControlOrMeta+v');
+  await expect.poll(async () => (await state(page)).text).toBe(before.text.slice(0, anchor + 1) + 'pasted' + before.text.slice(anchor + 1));
+  expect((await state(page)).drawings).toBe(1);
+  await selectDrawing(page);
+  await page.keyboard.press('Alt+Shift+D');
+  await expect.poll(async () => (await state(page)).text.length).toBeGreaterThan(before.text.length + 'pasted'.length);
+  const after = await state(page);
+  expect(after.drawings).toBe(1);
+  expect(after.text.slice(0, anchor + 1)).toBe(before.text.slice(0, anchor + 1));
+  expect(errors).toEqual([]);
+});
