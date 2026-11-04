@@ -23,6 +23,8 @@ export const dialogOpen = () => openDialogs.length > 0;
 export function showDialog(o: DialogOptions): Promise<string | null> {
   return new Promise((resolve) => {
     const prevFocus = document.activeElement as HTMLElement | null;
+    const prevParents: HTMLElement[] = [];
+    for (let p = prevFocus?.parentElement; p && p !== document.body; p = p.parentElement) prevParents.push(p);
     const titleId = nextDomId('dlg');
     const body = h('div', { class: 'dialog-body' }, ...(Array.isArray(o.body) ? o.body : [o.body]));
     const foot = h('div', { class: 'dialog-foot' });
@@ -37,7 +39,7 @@ export function showDialog(o: DialogOptions): Promise<string | null> {
       done = true;
       backdrop.remove();
       openDialogs.splice(openDialogs.indexOf(backdrop), 1);
-      prevFocus?.focus?.();
+      restoreFocus(prevFocus, prevParents);
       resolve(v);
     };
     for (const b of o.buttons ?? [{ label: 'Close', primary: true, value: 'ok' }]) {
@@ -79,6 +81,24 @@ export function showDialog(o: DialogOptions): Promise<string | null> {
       focusEl.focus();
     });
   });
+}
+
+/**
+ * Focus goes back to the dialog's opener. When the opener was re-rendered
+ * meanwhile (a design tree row after a rebuild), its replacement (same
+ * data-key) or else the current tab stop of its nearest remaining container
+ * gets focus, instead of the page body.
+ */
+function restoreFocus(prev: HTMLElement | null, parents: HTMLElement[]) {
+  if (!prev?.focus) return;
+  if (prev.isConnected) { prev.focus(); return; }
+  const box = parents.find((p) => p.isConnected);
+  if (!box) return;
+  const key = prev.dataset.key;
+  const target = (key ? box.querySelector<HTMLElement>(`[data-key="${CSS.escape(key)}"]`) : null)
+    ?? box.querySelector<HTMLElement>('[tabindex="0"]')
+    ?? box.querySelector<HTMLElement>('button:not([disabled]), [href], input:not([disabled]), select, textarea');
+  target?.focus();
 }
 
 export async function confirmDialog(title: string, message: string, ok = 'OK', danger = false): Promise<boolean> {

@@ -182,3 +182,16 @@ test.describe('accessibility', () => {
   });
 });
 
+
+test('focus returns to the re-rendered tree row after a dialog closes', async ({ page }) => {
+  await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  await page.getByRole('treeitem', { name: 'Hole1' }).focus();
+  await page.keyboard.press('Delete');
+  await expect(page.getByRole('dialog', { name: 'Delete' })).toBeVisible();
+  // A rebuild finishing while the dialog is open re-renders the tree rows.
+  await page.evaluate(() => (window as unknown as { __parametric: { renderTrees(): void } }).__parametric.renderTrees());
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('treeitem', { name: 'Hole1' })).toBeFocused();
+});
