@@ -2138,8 +2138,15 @@ export class CanvasEditor {
       }, () => { this.validateStory(); this.relayout(); this.revealCaret(); }, { record: !this.composition });
       if (!this.composition && revision !== this.session.revision) this.onChange();
     } catch (e) {
-      if (this.composition) this.input.value = this.inputText;
-      this.onError(e); this.relayout();
+      // A composition the document refuses (in a protected part) takes the field's text back, and its caret too:
+      // setting the text alone left the caret at the field's end, where the input method's next keystroke put the
+      // composed text instead, at the end of the document.
+      if (this.composition) { this.input.value = this.inputText; this.input.setSelectionRange(...this.model.range); }
+      this.onError(e);
+      // Setting the field's text ends the browser's composition without a compositionend event: end ours with it,
+      // or the keys after it (arrows, a typed letter) were left to the field while the document stood still.
+      if (this.composition) this.finishComposition();
+      this.relayout();
     }
   }
   /**
