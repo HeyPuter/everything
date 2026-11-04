@@ -435,8 +435,7 @@ export function attachTablePointer(engine, { readOnly, widths, heights, error = 
     if (model.cellBlock) return;
     const { anchor, focus } = model.selection;
     if (anchor === focus) return;
-    const at = offset => model.paragraphs[locateParagraph(model.paragraphs, offset).index]?.cellId || null;
-    const a = at(anchor), b = at(focus > anchor && locateParagraph(model.paragraphs, focus).offset === 0 ? focus - 1 : focus);
+    const [a, b] = T.selectionEndCells(model);
     if (!a || !b || a === b) return;
     let block;
     try { block = T.selectionBlock(model); } catch { return; }

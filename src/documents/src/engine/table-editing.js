@@ -36,11 +36,7 @@ export function integerWidths(widths, total = sum(widths)) {
 export function selectionBlock(model) {
   const active = model.activeCellBlock;
   if (active) return active;
-  const [start, end] = model.range;
-  const at = offset => model.paragraphs[locate(model.paragraphs, offset).index].cellId || null;
-  // A selection ending at the start of a paragraph does not reach into it.
-  const last = end > start && locate(model.paragraphs, end).offset === 0 ? end - 1 : end;
-  const a = at(start), b = at(last);
+  const [a, b] = selectionEndCells(model);
   if (!a && !b) return null;
   const chain = id => { const out = []; for (let cell = id; cell;) { const context = cellContext(model.tables, cell); out.push({ table: context.table, cell }); cell = context.table.parentCellId; } return out; };
   const from = chain(a || b), to = chain(b || a);
@@ -49,6 +45,24 @@ export function selectionBlock(model) {
     if (match) { const block = blockBetween(item.table, match.cell, item.cell); return block && { ...block, table: item.table }; }
   }
   return null;
+}
+
+/**
+ * The cells (ids, or null outside a table) holding the start and the end of the text selection. A selection that
+ * ends at the start of a paragraph after its own cell's text (a cell's paragraph selected with its mark) or after
+ * the table does not reach into that paragraph. One that ends at the start of another cell's text does: Shift+Down
+ * from the start of a cell, or a drag to the start of the cell below, reaches the cell the caret is in.
+ */
+export function selectionEndCells(model) {
+  const [start, end] = model.range;
+  const at = offset => model.paragraphs[locate(model.paragraphs, offset).index]?.cellId || null;
+  const a = at(start);
+  let b = at(end);
+  if (end > start && locate(model.paragraphs, end).offset === 0) {
+    const before = at(end - 1);
+    if (!b || before === a) b = before;
+  }
+  return [a, b];
 }
 
 /**

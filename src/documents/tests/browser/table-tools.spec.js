@@ -283,3 +283,23 @@ test('Distribute Rows keeps a long table’s height when its heading row repeats
   await expect.poll(async () => (await measured()).set[1]).toBe(even);
   expect(new Set((await measured()).set)).toEqual(new Set([even]));
 });
+
+test('Shift+Down and Shift+Up from the start of a cell select that cell and the one below or above it', async ({ page }) => {
+  await newTable(page, 3, 3, []);
+  // Empty cells: the caret is always at the start of the cell's text.
+  await goToCell(page, 1, 1);
+  await input(page).press('Shift+ArrowDown');
+  await expect.poll(async () => (await model(page)).block).toEqual({ top: 1, bottom: 2, left: 1, right: 2 });
+  // Home forgets the column the earlier Up and Down keys kept.
+  await goToCell(page, 2, 1); await input(page).press('Home');
+  await input(page).press('Shift+ArrowUp');
+  await expect.poll(async () => (await model(page)).block).toEqual({ top: 1, bottom: 2, left: 1, right: 2 });
+  await goToCell(page, 0, 0); await input(page).press('Home');
+  await input(page).press('Shift+ArrowDown');
+  await expect.poll(async () => (await model(page)).block).toEqual({ top: 0, bottom: 1, left: 0, right: 1 });
+  // The block's command reaches only its cells.
+  await onTab(page, 'tableDesign');
+  await ribbon(page).getByRole('button', { name: 'Shading colors', exact: true }).click();
+  await page.locator('.menu-custom-grid .swatch').first().click();
+  expect((await model(page)).tables[0].rows.map(r => r.cells.map(c => c.shading || null))).toEqual([['000000', null, null], ['000000', null, null], [null, null, null]]);
+});
