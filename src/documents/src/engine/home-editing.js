@@ -73,8 +73,13 @@ function finalSigma(chars, index, before, after) {
 }
 
 /** Whether the text before a position ends a sentence, so Sentence case capitalizes the first letter. */
+// The spaces, opening quotes and brackets just before a position are found by stepping back over them: a
+// regular expression anchored only at the end (/[\s"…]+$/) tries every start position, so a run of thousands
+// of quotation marks earlier in the paragraph made each change of case take seconds.
 function sentenceStartsAt(text, position) {
-  const before = text.slice(0, position).replace(/[\s"'“‘(\[]+$/u, '');
+  let end = position;
+  while (end > 0 && /[\s"'“‘(\[]/u.test(text[end - 1])) end--;
+  const before = text.slice(0, end);
   return !before || /[.!?\n\f\v]$/.test(before);
 }
 
