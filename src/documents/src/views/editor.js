@@ -1118,7 +1118,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
   // Design change undone afterwards would reopen the package as it was then, without them.
   // The pictures each package had when it was opened: its parts hold their bytes, which pictures added later lack.
   const openedAssets = new WeakMap();
-  const collab = createCollaboration({ editor: () => (failed ? null : engine), pkg: () => pkg, baseAssets: () => openedAssets.get(pkg) || Object.keys(pkg?.assets || {}), doc, local, error, onChange: () => { if (collab?.live) { designVersions.undo = []; designVersions.redo = []; } update(); }, documentName: () => title.value, user: collabUser,
+  const collab = createCollaboration({ editor: () => (failed ? null : engine), pkg: () => pkg, baseAssets: () => openedAssets.get(pkg) || Object.keys(pkg?.assets || {}), doc, local, error, onChange: () => { if (collab?.live) { designVersions.undo = []; designVersions.redo = []; } update(); updateStatus(); }, documentName: () => title.value, user: collabUser,
     saveFirst: () => save(), exportDocx: exportDocxBlob, exportPdf: exportPdfBlob, signIn: async () => !session.signedOut || await session.signIn(), readOnly: () => !!pkg?.readOnly });
   const versionHistory = createVersionHistory({ editor: () => (failed ? null : engine), pkg: () => pkg, doc, error, author: () => session.username, live: () => collab.live,
     restoreFile: version => restoreVersionFile(version, { confirm: false }), onChange: () => fitWidth(),
@@ -1655,10 +1655,13 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     if (destroyed || failed) return;
     if (pkg?.readOnly) { renderStatus('Read only', 'monitor'); status.disabled = true; saveButton.disabled = true; return; }
     const signedOut = !local && session.signedOut;
+    // A tab that leaves saving to the owner's has its edits safe only once the room has them.
+    const waiting = doc.writes === false && collab?.live?.status === 'offline' ? collab.live.pending : -1;
     const [label, name, state] = signedOut ? ['Sign in to save', 'cloud', 'signed-out']
       : doc.status === 'saving' ? ['Saving…', 'spinner', 'saving']
       : doc.status === 'error' ? ['Not saved', 'alert', 'error']
       : doc.status === 'offline' ? ['Offline', 'wifiOff', 'offline']
+      : waiting >= 0 ? ['Offline', 'wifiOff', 'offline']
       // A shared document's other tabs leave saving to the owner's (see collab/live.js).
       : doc.writes === false ? (local ? ['Shared in this browser', 'monitor', 'local'] : ['Shared · saved by the owner', 'cloud', 'saved'])
       // Inside the Puter desktop a new document's edits wait for a first Save to ask where they go: AutoSave cannot write them yet.
@@ -1667,6 +1670,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
       : local ? ['On this device', 'monitor', 'local']
       : doc.path ? ['Saved to Puter', 'cloud', 'saved'] : ['Not saved yet', 'cloud', 'unsaved'];
     renderStatus(label, name, state);
+    if (waiting >= 0) status.title = waiting ? `Offline: ${waiting === 1 ? 'a change is' : `${waiting} changes are`} waiting to reach the others` : 'Offline: the shared document cannot be reached';
     if (label === 'Not saved yet' && doc.waitsForPlace) status.title = 'Not saved yet. Save to choose where it goes; AutoSave starts then';
     status.disabled = !signedOut && (!doc.exporter || doc.status === 'saving');
     if (doc.exporter) saveButton.disabled = false;
