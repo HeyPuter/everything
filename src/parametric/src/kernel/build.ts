@@ -258,15 +258,19 @@ export class ModelBuilder {
     st.faces.forEach((f, i) => { if (f.name === ref.name) cands.push(i); });
     const near = (list: number[]) =>
       list.reduce((best, i) => (best < 0 || dist(st.faces[i].desc.center, ref.sig.c) < dist(st.faces[best].desc.center, ref.sig.c) ? i : best), -1);
-    if (cands.length === 1) return cands[0];
+    const fits = (d: SurfDesc) => d.type === ref.sig.type && (!ref.sig.n || dot(d.d, ref.sig.n) > 0.999);
+    // A single face of that name is it, unless it is plainly another kind of
+    // face (references saved before a naming fix): then the signature decides.
+    if (cands.length === 1 && fits(st.faces[cands[0]].desc)) return cands[0];
     if (cands.length > 1) return near(cands);
     // Fallback: same type and orientation, nearest centre.
     const b = st.body ? bbox(st.body) : null;
     const lim = b ? dist(b.min, b.max) * 0.05 : 1;
     const alt = st.faces
       .map((f, i) => ({ f, i }))
-      .filter(({ f }) => f.desc.type === ref.sig.type && (!ref.sig.n || dot(f.desc.d, ref.sig.n) > 0.999) && dist(f.desc.center, ref.sig.c) < lim);
+      .filter(({ f }) => fits(f.desc) && dist(f.desc.center, ref.sig.c) < lim);
     if (alt.length) return near(alt.map((a) => a.i));
+    if (cands.length === 1) return cands[0];
     throw new FeatureError('A referenced face no longer exists');
   }
 
@@ -373,10 +377,10 @@ export class ModelBuilder {
     });
   }
 
-  private nameTool(featId: Id, tool: Sh, classify: (d: SurfDesc, k: number) => string): NamedFace[] {
+  private nameTool(featId: Id, tool: Sh, classify: (d: SurfDesc, k: number, shape: Sh) => string): NamedFace[] {
     return subShapes(tool, 'face').map((shape, k) => {
       const desc = describeFace(shape);
-      return { shape, desc, name: `${featId}:${classify(desc, k)}`, feature: featId };
+      return { shape, desc, name: `${featId}:${classify(desc, k, shape)}`, feature: featId };
     });
   }
 
@@ -593,9 +597,25 @@ export class ModelBuilder {
     const tool = pieces.length === 1 ? pieces[0] : this.fuseAll(pieces);
     const s0 = regions[0].sample;
     const side = Math.sign((s0[0] - a2[0]) * perp[0] + (s0[1] - a2[1]) * perp[1]) || 1;
-    const classify = (desc: SurfDesc) => {
+    // Mid-plane revolves were turned back by half the angle; undo that to
+    // compare with the sketch plane.
+    const back = f.end === 'midPlane' && angle < 360 ? (angle * Math.PI) / 360 : 0;
+    const inPlane = (p: Vec3) => Math.abs(dot(sub(p, frame.o), frame.n)) < 1e-6 * (1 + len(p));
+    const classify = (desc: SurfDesc, _k: number, shape: Sh) => {
       if (desc.type === 'plane' && Math.abs(dot(desc.d, axis.d)) < 1e-6) {
-        return Math.abs(dot(sub(desc.center, frame.o), frame.n)) < 1e-6 * (1 + len(desc.center)) ? 'cap0' : 'cap1';
+        return inPlane(rotatePoint(desc.center, axis.p, d, back)) ? 'cap0' : 'cap1';
+      }
+      // A full surface of revolution has its centroid on the axis, so locate
+      // the face by its vertices in the sketch plane on the profile's side:
+      // the ends of the profile curve that generated it.
+      const pts = subShapes(shape, 'vertex')
+        .map((v) => rotatePoint(vertexPoint(v), axis.p, d, back))
+        .filter(inPlane)
+        .map((p) => toLocal(frame, p))
+        .filter((q) => side * ((q[0] - a2[0]) * perp[0] + (q[1] - a2[1]) * perp[1]) >= -1e-6 * (1 + Math.hypot(q[0], q[1])));
+      if (pts.length) {
+        const c: Vec2 = [pts.reduce((a, q) => a + q[0], 0) / pts.length, pts.reduce((a, q) => a + q[1], 0) / pts.length];
+        return 'side:' + this.nearestSrc(regions, c);
       }
       const v = sub(desc.center, axis.p);
       const axial = dot(v, axis.d);
@@ -1305,6 +1325,15 @@ function degenerate(body: Sh, before: Sh): boolean {
   // Bodies without volume (imported surfaces) cannot be checked this way.
   const v0 = Math.abs(volumeOf(before));
   return v0 > 0 && !(volumeOf(body) > v0 * 1e-6);
+}
+
+/** Rotates a point about an axis through p with unit direction d. */
+function rotatePoint(q: Vec3, p: Vec3, d: Vec3, angle: number): Vec3 {
+  if (!angle) return q;
+  const v = sub(q, p);
+  const c = Math.cos(angle), s = Math.sin(angle), k = dot(d, v);
+  const x: Vec3 = [d[1] * v[2] - d[2] * v[1], d[2] * v[0] - d[0] * v[2], d[0] * v[1] - d[1] * v[0]];
+  return add(p, add(add(scale(v, c), scale(x, s)), scale(d, k * (1 - c))));
 }
 
 function segDist(p: Vec2, a: Vec2, b: Vec2): number {

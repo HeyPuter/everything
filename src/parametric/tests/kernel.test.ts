@@ -4,7 +4,9 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import init from 'replicad-opencascadejs';
 import { ModelBuilder, errorText } from '../src/kernel/build';
 import { setOc } from '../src/kernel/occ';
-import type { Feature, FilletFeature, ShellFeature } from '../src/model/types';
+import type { Feature, FilletFeature, ShellFeature, SkDimension, SketchFeature } from '../src/model/types';
+import { flangeExample } from '../src/app/examples';
+import { solveSketch } from '../src/sketch/solver';
 import { circle, extrude, polygon, rect, req, revolve, sketch } from './helpers';
 
 beforeAll(async () => {
@@ -116,6 +118,32 @@ describe('feature regeneration', () => {
     // Branching paths are rejected.
     const branch = await b.build(req([prof, sketch('PA', [...pts, P('e', -20, -20), L('l1', 'a', 'b'), L('l2', 'b', 'c'), L('l4', 'b', 'e')] as any[], right), sweep]));
     expect(branch.status[2].error).toMatch(/connected chain/);
+  });
+
+  it('names revolved faces after their profile curves and keeps references through edits', async () => {
+    const rebuild = async (dim: string, value: number) => {
+      const doc = flangeExample();
+      const s = doc.features[0] as SketchFeature;
+      (s.constraints.find((c) => c.id === dim) as SkDimension).value = value;
+      solveSketch(s.entities, s.constraints, { value: (d: SkDimension) => Number(d.value) });
+      const b = new ModelBuilder();
+      const res = await b.build({ features: doc.features, upTo: doc.features.length, blobs: {}, quality: 0 });
+      return { b, res };
+    };
+    const { res } = await rebuild('d1', 12);
+    const top = res.faces.find((f) => f.name === 'f1:side:fl2')!;
+    expect(top.type).toBe('plane');
+    expect(top.normal![1]).toBeCloseTo(1, 9);
+    expect(res.faces.find((f) => f.name === 'f1:side:fl0')!.normal![1]).toBeCloseTo(-1, 9);
+    // Bore radius 12 -> 5, outer radius 45 -> 60: holes, pattern and chamfer still apply.
+    for (const [dim, v, vol] of [['d1', 5, Math.PI * (2000 * 8 + 459 * 18)], ['d2', 60, Math.PI * (3456 * 8 + 340 * 18)]] as const) {
+      const r = await rebuild(dim, v);
+      expect(r.res.status.filter((x) => !x.ok || x.warning)).toEqual([]);
+      // Six 7 mm bolt holes through the 8 mm flange, and a 1.5 mm chamfer on the rim.
+      const holes = 6 * Math.PI * 3.5 ** 2 * 8;
+      const chamfer = 0.5 * 1.5 ** 2 * 2 * Math.PI * (v === 60 ? 60 : 45);
+      expect(volume(r.b)).toBeCloseTo(vol - holes - chamfer, -1);
+    }
   });
 
   it('gives mirrored planar faces outward normals', async () => {
