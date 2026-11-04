@@ -19,7 +19,7 @@ vi.mock('../src/lib/puter.js', async (importOriginal) => {
 
 const { Doc, versioning, publishing } = await import('../src/lib/doc.js');
 const P = await import('../src/lib/puter.js');
-const { rememberedRoom, rememberRoom, moveRoom, forgetRoom } = await import('../src/collab/room-memory.js');
+const { rememberedRoom, rememberRoom, moveRoom, forgetRoom, fileOfRoom } = await import('../src/collab/room-memory.js');
 const { rememberDocumentRoot } = await import('../src/lib/document-paths.js');
 const { hash } = await import('../src/collab/protocol.js');
 
@@ -34,6 +34,18 @@ describe('the room a shared file rejoins', () => {
     vi.stubGlobal('navigator', { onLine: true });
   });
   afterEach(() => vi.unstubAllGlobals());
+
+  it('knows the file a room belongs to, through a rename, and forgets it with the room', async () => {
+    await rememberRoom('Documents/Plan.docx', ROOM);
+    expect(await fileOfRoom(ROOM)).toBe('Documents/Plan.docx');
+    // Another server's room of the same id is not this one.
+    expect(await fileOfRoom({ ...ROOM, server: 'https://documents-xyz.puter.work' })).toBeNull();
+    await moveRoom('Documents/Plan.docx', 'Documents/Budget.docx');
+    expect(await fileOfRoom(ROOM)).toBe('Documents/Budget.docx');
+    // Sharing stopped or the file deleted: the room's file is no longer known.
+    await forgetRoom('Documents/Budget.docx');
+    expect(await fileOfRoom(ROOM)).toBeNull();
+  });
 
   it('follows the file when it is renamed', async () => {
     P.__fs.set('Documents/Plan.docx', new Blob(['x']));

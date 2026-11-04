@@ -9,6 +9,8 @@ import { hash } from './protocol.js';
 import { DOCUMENT_FOLDER, documentPathKey, documentRoot } from '../lib/document-paths.js';
 
 const ROOM_KEY = 'documents-collab-room:';
+/** The other way round: the file a room this account shared belongs to (room id → path), checked against ROOM_KEY when read. */
+const FILE_KEY = 'documents-collab-file:';
 
 /** The SDK, when there is one (the mock SDK in development). */
 const sdk = () => (typeof puter !== 'undefined' ? puter : null);
@@ -41,8 +43,31 @@ export async function rememberRoom(path, value) {
     const [key, ...others] = await keysFor(path);
     if (value) await owner.kv.set(key, value); else await owner.kv.del(key);
     for (const other of others) await owner.kv.del(other);
+    if (value?.room) await rememberFile(value, path);
   }
   catch { /* the owner can share again */ }
+}
+
+/** Remember which file a room belongs to (a rename moves it along: moveRoom remembers the room under the new path). */
+export async function rememberFile(link, path) {
+  const owner = sdk();
+  if (!owner?.kv || !link?.room || !path) return;
+  try { await owner.kv.set(FILE_KEY + link.room, path); } catch { /* best effort */ }
+}
+
+/**
+ * The file a room this account shared belongs to, or null: the room is still remembered for that file (a file deleted,
+ * renamed elsewhere or shared again since leaves a memory that no longer matches, and is not followed).
+ */
+export async function fileOfRoom(link) {
+  const owner = sdk();
+  if (!owner?.kv || !link?.room) return null;
+  try {
+    const path = await owner.kv.get(FILE_KEY + link.room);
+    if (typeof path !== 'string' || !path) return null;
+    const room = await rememberedRoom(path);
+    return room?.room === link.room && room?.server === link.server ? path : null;
+  } catch { return null; }
 }
 
 /** A renamed file keeps its room, and only its own: a room left under the new name (a file shared there, then deleted elsewhere) is forgotten. */

@@ -1662,6 +1662,8 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
       : doc.status === 'error' ? ['Not saved', 'alert', 'error']
       : doc.status === 'offline' ? ['Offline', 'wifiOff', 'offline']
       : waiting >= 0 ? ['Offline', 'wifiOff', 'offline']
+      // The owner joined their own room from a link, and its file is not known here: nothing saves it until the file is opened.
+      : doc.writes === false && !local && !doc.path && collab?.live?.role === 'owner' ? ['Shared · open its file to save', 'cloudOff', 'unsaved']
       // A shared document's other tabs leave saving to the owner's (see collab/live.js).
       : doc.writes === false ? (local ? ['Shared in this browser', 'monitor', 'local'] : ['Shared · saved by the owner', 'cloud', 'saved'])
       // Inside the Puter desktop a new document's edits wait for a first Save to ask where they go: AutoSave cannot write them yet.
@@ -1670,6 +1672,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
       : local ? ['On this device', 'monitor', 'local']
       : doc.path ? ['Saved to Puter', 'cloud', 'saved'] : ['Not saved yet', 'cloud', 'unsaved'];
     renderStatus(label, name, state);
+    if (label === 'Shared · open its file to save') status.title = 'You own this shared document. Changes made here are kept with it, and saved to its file when you open it from your documents';
     if (waiting >= 0) status.title = waiting ? `Offline: ${waiting === 1 ? 'a change is' : `${waiting} changes are`} waiting to reach the others` : 'Offline: the shared document cannot be reached';
     if (label === 'Not saved yet' && doc.waitsForPlace) status.title = 'Not saved yet. Save to choose where it goes; AutoSave starts then';
     status.disabled = !signedOut && (!doc.exporter || doc.status === 'saving');

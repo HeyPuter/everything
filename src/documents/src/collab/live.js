@@ -17,7 +17,7 @@ import { CollabClient } from './client.js';
 import { createSharedDoc, unsupportedReason } from './shared-doc.js';
 import { BroadcastRoom, WorkerTransport } from './transports.js';
 import { call, deploy, prepareCall } from './api.js';
-import { rememberedRoom, rememberRoom } from './room-memory.js';
+import { rememberedRoom, rememberRoom, rememberFile } from './room-memory.js';
 import { canEdit, canManage, decode, encode, randomId, shareLink, INVITE_ROLES } from './protocol.js';
 
 const hexToRgba = (hex, alpha) => { const n = parseInt(hex.slice(1), 16); return `rgba(${n >> 16}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`; };
@@ -317,6 +317,8 @@ export async function reconnect(path, user, saved) {
     const transport = workerTransport(saved.server, saved.room, null);
     const client = new CollabClient({ transport, user, room: saved.room, sendDelay: 150 });
     await client.connect();
+    // Rooms shared before files were remembered for them learn their file now (the owner's invitation link opens it).
+    rememberFile(saved, path);
     return { client, link: saved };
   } catch (error) {
     // Sharing was stopped (or the room is gone): forget it.
