@@ -291,6 +291,60 @@ test('links with script, data, or file addresses never become anchors', async ({
   ]);
 });
 
+test('next-page links are followed, and links that run scripts can be removed', async ({
+  page,
+}) => {
+  await mockPuter(page);
+  await page.goto('/#library');
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const sheet = doc.addPage([400, 400]);
+  for (let i = 2; i <= 3; i++)
+    doc.addPage([400, 400]).drawText(`Page ${i}`, { x: 40, y: 340, size: 18, font });
+  const actions = [
+    [{ S: 'Named', N: 'NextPage' }, 340],
+    [{ S: 'JavaScript', JS: PDFString.of('app.alert(1)') }, 280],
+    [{ S: 'SubmitForm', F: { FS: 'URL', F: PDFString.of('https://example.com/') } }, 220],
+    [{ S: 'Named', N: 'LastPage' }, 160],
+  ];
+  for (const [action, y] of actions) {
+    sheet.drawText(action.N || action.S, { x: 40, y: y + 4, size: 12, font });
+    sheet.node.addAnnot(
+      doc.context.register(
+        doc.context.obj({
+          Type: 'Annot',
+          Subtype: 'Link',
+          Rect: [40, y - 4, 360, y + 18],
+          Border: [0, 0, 0],
+          A: action,
+        }),
+      ),
+    );
+  }
+  await openPdf(page, doc);
+  await settled(page);
+  const pageLinks = page.getByRole('button', { name: 'Link to another page', exact: true });
+  const unsupported = page.getByRole('button', { name: 'Link with an unsupported action' });
+  await expect(pageLinks).toHaveCount(2);
+  await expect(unsupported).toHaveCount(2);
+  // A link that runs a script is never followed, but its menu can remove it.
+  await unsupported.first().click({ button: 'right' });
+  const linkMenu = page.getByRole('menu');
+  await expect(linkMenu.getByRole('menuitem', { name: /Open link|Go to linked page/ })).toHaveCount(
+    0,
+  );
+  await linkMenu.getByRole('menuitem', { name: 'Remove link', exact: true }).click();
+  await expect(page.locator('#toast')).toHaveText('Link removed.');
+  await settled(page);
+  await expect(unsupported).toHaveCount(1);
+  // "Next page" opens on the page it goes to, and goes there.
+  await pageLinks.first().click();
+  const editor = page.getByRole('dialog', { name: 'Edit link' });
+  await expect(editor.getByRole('spinbutton', { name: 'Page to link to' })).toHaveValue('2');
+  await editor.getByRole('button', { name: 'Go to linked page' }).click();
+  await expect(page.locator('.page-caption')).toHaveText('Page 2 of 3');
+});
+
 test('the Link tool links a dragged area to a typed address or a page, with undo', async ({
   page,
 }) => {

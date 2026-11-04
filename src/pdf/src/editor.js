@@ -2585,17 +2585,21 @@ export function createEditor({
       // PDF.js validates `url`; `unsafeUrl` is whatever the file said, so it is checked here
       // before it can be opened. A link whose address is refused stays listed so it
       // can still be edited or removed, but it opens nothing.
+      // Every link is listed, so one that opens another file, starts a program, or runs a
+      // script can still be corrected or removed; "next page" and the like are followed.
       links = visibleAnnotations
-        .filter((a) => a.subtype === 'Link' && (a.url || a.unsafeUrl || a.dest))
+        .filter((a) => a.subtype === 'Link')
         .map((a) => {
           const url = a.url || safeLinkUrl(a.unsafeUrl);
+          const action = !url && !a.dest && namedPage(a.action, 0) != null ? a.action : null;
           return {
             id: a.id,
             rect: a.rect,
             url,
             address: a.unsafeUrl || a.url || '',
             dest: a.dest,
-            blocked: !url && !a.dest && !!a.unsafeUrl,
+            action,
+            blocked: !url && !a.dest && !action,
             readOnly: !!(a.annotationFlags & 64),
             locked: !!(a.annotationFlags & 128),
           };
@@ -4092,6 +4096,11 @@ export function createEditor({
       return url;
     }
   };
+  /** The page a named navigation action ("NextPage" and the like) goes to from `from`. */
+  function namedPage(action, from) {
+    const last = pageCount - 1;
+    return { FirstPage: 0, LastPage: last, NextPage: from + 1, PrevPage: from - 1 }[action] ?? null;
+  }
   async function followLink(link) {
     if (link.readOnly) return;
     if (link.url) {
@@ -4099,7 +4108,16 @@ export function createEditor({
       return;
     }
     if (link.blocked) {
-      toast('This link has an address that cannot be opened here.');
+      toast(
+        link.address
+          ? 'This link has an address that cannot be opened here.'
+          : 'This link opens something that cannot be opened here.',
+      );
+      return;
+    }
+    if (link.action) {
+      const to = namedPage(link.action, pageIndex);
+      if (to >= 0 && to < pageCount && to !== pageIndex) await navigate(to);
       return;
     }
     // Resolving a named destination or page reference can wait on the PDF worker.
@@ -4180,7 +4198,9 @@ export function createEditor({
         'aria-label': link.url
           ? `Link to ${linkLabel(link.url)}`
           : link.blocked
-            ? 'Link with an unsupported address'
+            ? link.address
+              ? 'Link with an unsupported address'
+              : 'Link with an unsupported action'
             : 'Link to another page',
         'aria-haspopup': canEditLink(link) ? 'dialog' : 'menu',
         onclick: safe(() => {
@@ -4240,7 +4260,11 @@ export function createEditor({
     editingLink = operation;
     try {
       await deselectObjects();
-      const destination = link.dest ? await destinationPage(pdf, link.dest) : null;
+      const destination = link.dest
+        ? await destinationPage(pdf, link.dest)
+        : link.action
+          ? Math.min(pageCount - 1, Math.max(0, namedPage(link.action, sourcePage)))
+          : null;
       if (!canOpenDialog(version) || sourcePage !== pageIndex) return;
       const initial = { url: link.url || link.address || '', page: destination };
       // Safari does not focus buttons on pointer activation. Give the dialog a
