@@ -52,3 +52,40 @@ test('the accessibility report updates after alternate text is saved', async ({ 
     /is-passed/,
   );
 });
+
+test('the accessibility report scrolls within its panel', async ({ page }) => {
+  await page.route('https://js.puter.com/**', (route) => route.fulfill({ body: '' }));
+  await page.goto('/#library');
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  doc.addPage([400, 500]).drawText('Results', { x: 40, y: 440, size: 18, font });
+  const chooser = page.waitForEvent('filechooser');
+  await page.keyboard.press('ControlOrMeta+o');
+  await (
+    await chooser
+  ).setFiles({
+    name: 'plain.pdf',
+    mimeType: 'application/pdf',
+    buffer: Buffer.from(await doc.save()),
+  });
+  await expect(page.locator('.page-caption')).toHaveText('Page 1 of 1');
+  await settled(page);
+  await page.getByRole('button', { name: 'Tools', exact: true }).click();
+  const pane = page.getByRole('complementary', { name: 'Tools' });
+  await pane.getByRole('button', { name: 'View more' }).click();
+  await pane.getByRole('button', { name: 'Prepare for accessibility', exact: true }).click();
+  await pane.getByRole('button', { name: 'Accessibility check', exact: true }).click();
+  const report = page.getByRole('tabpanel', { name: 'Accessibility check' });
+  const last = report.locator('summary').last();
+  await expect(last).toHaveText(/Headings/);
+  // The report is longer than the window. Its last rows were out of reach of the wheel, and
+  // moving the focus to them scrolled the whole editor up, menus and all, out of the window.
+  const box = await report.boundingBox();
+  await page.mouse.move(box.x + box.width / 2, box.y + 100);
+  await page.mouse.wheel(0, 3000);
+  await expect.poll(() => report.evaluate((node) => node.scrollTop)).toBeGreaterThan(0);
+  await last.focus();
+  await expect(last).toBeInViewport();
+  expect(await page.locator('.editor').evaluate((node) => node.scrollTop)).toBe(0);
+  await expect(page.getByRole('button', { name: 'Tools', exact: true })).toBeInViewport();
+});
