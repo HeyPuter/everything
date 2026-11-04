@@ -1598,6 +1598,14 @@ and style dialogs offer Distributed; the Justify toolbar button is not pressed
 for it. `tests/distributed-alignment.test.js` and
 `tests/browser/justification.spec.js` cover widths, carets, import and editing.
 
+Thai justification (`w:jc w:val="thaiDistribute"`, §17.18.44 "Thai Language Justification": inter-word and
+inter-character spacing are both widened, the inter-character space "slightly") opens and stays editable. Its lines
+are laid out as distributed ones, by equal gaps after every character, except the paragraph's last line, which
+keeps its natural spacing as justified text does: an approximation, as the clause gives no amounts. The value is
+kept on save, through editing and Format Painter; the Paragraph dialog shows it as Thai Distributed for a paragraph
+that has it, and no toolbar alignment button is pressed. Kashida alignments (`lowKashida`, `mediumKashida`,
+`highKashida`) remain unsupported. `tests/distributed-alignment.test.js` covers layout, editing and save.
+
 **Remaining gaps:** Thai distribution (`thaiDistribute`), Arabic kashida (justified Arabic widens spaces only), expansion
 after center/right/decimal tabs (such lines stay natural), language-specific justification rules and exact
 reference spacing across compatibility versions. No reference application was available

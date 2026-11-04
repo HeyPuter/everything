@@ -1042,8 +1042,12 @@ function measureParagraph(p, documentOffset, measure, page, listMarker, numberin
     const lastLine = end === chars.length || hardBreak === 'page' && end === chars.length - 1 && !page.splitPgBreakAndParaMark;
     // Distributed alignment (§17.18.44 distribute) spreads every line, the last one included.
     const distribute = format.alignment === 'distribute';
-    if (distribute || format.alignment === 'both' && !contraction && !lastLine && !(hardBreak === 'line' && page.doNotExpandShiftReturn)) {
-      const range = justificationRange(span, measured, right, builder.field.tab, distribute);
+    // Thai justification (§17.18.44 thaiDistribute) widens the gaps between characters as well as between words,
+    // as distributed alignment does, but leaves the last line as justified text does: this editor's approximation of
+    // its "slight" inter-character optimization.
+    const thai = format.alignment === 'thaiDistribute';
+    if (distribute || (format.alignment === 'both' || thai) && !contraction && !lastLine && !(hardBreak === 'line' && page.doNotExpandShiftReturn)) {
+      const range = justificationRange(span, measured, right, builder.field.tab, distribute || thai);
       if (range) {
         let spacing = range.spacing;
         for (let attempt = 0; attempt < 4; attempt++) {
