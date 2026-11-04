@@ -332,7 +332,12 @@ export class Doc extends EventTarget {
         // A new file under the name of one that was shared and deleted is not that document: it must not rejoin its room.
         await forgetRoom(target);
       }
-      else this._remoteModified = (await P.writeFile(target, blob))?.modified ?? null;
+      else {
+        // Until the drive answers, this write may or may not have landed (an answer lost with the connection).
+        this._unconfirmed = { path: target, blob };
+        this._remoteModified = (await P.writeFile(target, blob))?.modified ?? null;
+        this._unconfirmed = null;
+      }
       // A failed export or write must not advertise a file that does not exist,
       // or make a clean document's next save short-circuit as already saved.
       if (target !== this.path) {
@@ -392,8 +397,27 @@ export class Doc extends EventTarget {
     try { stat = await P.statFile(path); } catch { return null; }
     const conflict = (message) => Object.assign(new Error(message), { conflict: true });
     if (stat === null) return conflict('This file was moved or deleted in another window. Use Save a copy to keep your changes');
+    if (stat.modified != null && String(stat.modified) !== String(this._remoteModified) && await this._ownLostWrite(path, stat)) return null;
     if (stat.modified != null && String(stat.modified) !== String(this._remoteModified)) return conflict('This document was changed in another window. Use Save a copy to keep your changes, or reopen it to see theirs');
     return null;
+  }
+
+  /**
+   * Whether the file's new time stamp is this window's own write whose answer was lost (the connection dropped after
+   * the drive took it): the file holds exactly what that write sent. Its time stamp is then this window's to know.
+   */
+  async _ownLostWrite(path, stat) {
+    const sent = this._unconfirmed;
+    if (!sent || sent.path !== path || (stat.size != null && stat.size !== sent.blob.size)) return false;
+    try {
+      const [file, mine] = await Promise.all([P.readFile(path).then(b => b.arrayBuffer()), sent.blob.arrayBuffer()]);
+      if (file.byteLength !== mine.byteLength) return false;
+      const a = new Uint8Array(file), b = new Uint8Array(mine);
+      for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+    } catch { return false; }
+    this._remoteModified = stat.modified;
+    this._unconfirmed = null;
+    return true;
   }
 
   /** Leave a version snapshot when one is due. Never affects the save status. */
