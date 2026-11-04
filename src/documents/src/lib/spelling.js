@@ -19,9 +19,12 @@ export function proofingText(text, paragraphs) {
     for (const run of paragraph.runs) {
       const end = offset + run.text.length;
       // No-proofing text, text marked in another language (§17.3.2.20) and text already tracked as deleted are
-      // not checked: correcting a deleted word would bring it back.
+      // not checked: correcting a deleted word would bring it back. Deleted text is not there in the edited
+      // document, so the letters around it join (word joiners, which words keep and checking leaves out): with
+      // spaces, "colo[u]r" was checked as "colo" and "r".
       if ((run.noProof || foreignLanguage(run.fontLanguage) || run.revision?.type === 'del') && end > offset) {
-        pieces.push(text.slice(start, offset), ' '.repeat(end - offset));
+        const joined = run.revision?.type === 'del' && !run.noProof && !foreignLanguage(run.fontLanguage);
+        pieces.push(text.slice(start, offset), (joined ? '\u2060' : ' ').repeat(end - offset));
         start = end;
       }
       offset = end;
