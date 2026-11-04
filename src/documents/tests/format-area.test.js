@@ -62,6 +62,16 @@ it('turns spoken punctuation into text and joins dictation to the text before th
   expect(joinDictation('Tokyo', '東京')).toBe('東京');
   expect(joinDictation('안녕', '하세요')).toBe(' 하세요');
   const off = createDictation({ editor: () => null, readOnly: () => false, host: () => null });
+  // Speech is recognized in the browser's language, not the interface's (the page's lang, English for everyone).
+  const started = [];
+  vi.stubGlobal('webkitSpeechRecognition', class { start() { started.push(this.lang); } stop() {} });
+  vi.stubGlobal('navigator', { ...navigator, language: 'ja-JP' });
+  document.documentElement.lang = 'en';
+  const dictation = createDictation({ editor: () => null, readOnly: () => false, host: () => null });
+  expect(dictation.start()).toBe(true);
+  expect(started).toEqual(['ja-JP']);
+  dictation.destroy();
+  document.documentElement.removeAttribute('lang');
   expect(off.supported).toBe(false);
   expect(off.start()).toBe(false);
 });

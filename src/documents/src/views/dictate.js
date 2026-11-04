@@ -49,7 +49,9 @@ export function createDictation({ editor, readOnly, host, onState = () => {}, er
     if (!Recognition || active || readOnly()) return false;
     recognition = new Recognition();
     recognition.continuous = true; recognition.interimResults = true;
-    recognition.lang = document.documentElement.lang || navigator.language || 'en-US';
+    // The language the person speaks: their browser's. The page's own language is the interface's (English for
+    // everyone), which made Japanese or Spanish speech come out as English words.
+    recognition.lang = navigator.language || document.documentElement.lang || 'en-US';
     recognition.onresult = event => {
       let pending = '';
       for (let i = event.resultIndex; i < event.results.length; i++) {
