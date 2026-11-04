@@ -7,7 +7,7 @@ import { el, formatBytes, relativeTime } from './dom.js';
 import { icon } from './icons.js';
 import { openModal, confirmDialog, focusListRow } from './modal.js';
 import { toast } from './toast.js';
-import { listVersions, deleteVersion, AUTO_VERSION_MS, RESTORE_LABEL, OVERWRITE_LABEL } from '../lib/versions.js';
+import { listVersions, deleteVersion, AUTO_VERSION_MS } from '../lib/versions.js';
 import { t, formatDate } from '../i18n/index.js';
 
 const when = (at) => {
@@ -16,8 +16,12 @@ const when = (at) => {
   return t('versions.when', { relative: relativeTime(at), date: abs });
 };
 
-/** A version's label as shown: the ones the app gives on its own (kept in file names, in English) in the interface language. */
-const labelText = (label) => (label === RESTORE_LABEL ? t('versions.beforeRestore') : label === OVERWRITE_LABEL ? t('versions.beforeOverwrite') : label);
+/**
+ * A version's label as shown: the ones the app gives on its own (RESTORE_LABEL and OVERWRITE_LABEL in
+ * lib/versions.js, kept in the snapshots' file names in English) in the interface language.
+ */
+const APP_LABELS = new Map([['Before restore', 'versions.beforeRestore'], ['Before overwrite', 'versions.beforeOverwrite']]);
+const labelText = (label) => (APP_LABELS.has(label) ? t(APP_LABELS.get(label)) : label);
 
 /** Open the dialog for `doc` (a Doc with a path). `onRestored` runs after a restore. */
 export function openVersionHistory(doc, { onRestored } = {}) {
