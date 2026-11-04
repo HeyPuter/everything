@@ -105,6 +105,21 @@ describe('assistant agent', () => {
     expect(a2.busy).toBe(false);
   });
 
+  it('stays busy after a reset until the running step finishes, and starts the new chat empty', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    const { agent } = scripted([[{ type: 'tool', id: 'a', name: 'slow', input: {} }]], async () => { await gate; return { ok: true, content: 'x' }; });
+    const p = agent.send('go', () => {});
+    await new Promise((r) => setTimeout(r, 10));
+    agent.reset();
+    expect(agent.messages).toEqual([]);
+    expect(agent.busy).toBe(true);
+    release();
+    expect((await p).stopped).toBe(true);
+    expect(agent.busy).toBe(false);
+    expect(agent.messages).toEqual([]);
+  });
+
   it('sends attached files with their message, then only names them after a few turns', async () => {
     const photo: Attachment = { name: 'sketch.jpg', kind: 'image', size: 10, blocks: [imageBlock('image/jpeg', 'IMG')] };
     const drawing: Attachment = { name: 'drawing.pdf', kind: 'pdf', size: 10, pages: 2, blocks: [pdfBlock('PDF')] };

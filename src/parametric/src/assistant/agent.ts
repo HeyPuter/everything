@@ -284,7 +284,8 @@ export function createAgent(o: AgentOptions) {
       return exchange(onEvent);
     },
     stop() { running?.stop(); },
-    reset() { running?.stop(); running = null; transcript = []; },
+    /** Starts over; an exchange still running ends at once, or when the step it is running finishes. */
+    reset() { running?.stop(); transcript = []; },
   };
 }
 

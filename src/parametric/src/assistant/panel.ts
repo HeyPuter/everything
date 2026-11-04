@@ -192,7 +192,9 @@ export class AssistantPanel {
     for (const img of this.log.querySelectorAll<HTMLImageElement>('img.as-user-thumb')) URL.revokeObjectURL(img.src);
     this.agent.reset();
     this.turn = null;
-    this.setBusy(false);
+    // A step still running finishes first; its message's run then squashes and clears busy.
+    this.setBusy(this.agent.busy);
+    if (this.agent.busy) this.status.textContent = 'Stopping…';
     this.renderEmpty();
     this.input.focus();
   }
@@ -418,15 +420,18 @@ export class AssistantPanel {
     } catch (e) {
       res = { stopped: false, error: e as Error, steps: [] };
     }
-    if (this.turn !== turn) return;
-    if (turn.text) this.renderText(turn.text);
-    // Everything this message changed becomes one undo step.
+    // Everything this message changed becomes one undo step, even when New chat cut it off.
     const label = `Assistant: ${short(request, 40)}`;
     let changed = false;
     if (store.undoMark > mark) {
       store.squash(mark, label);
       changed = true;
     }
+    if (this.turn !== turn) {
+      if (!this.turn) this.setBusy(false);
+      return;
+    }
+    if (turn.text) this.renderText(turn.text);
     const after = store.undoMark;
     if (res.stopped) turn.foot.append(h('span', { class: 'as-meta' }, 'Stopped.'));
     if (res.error) {
