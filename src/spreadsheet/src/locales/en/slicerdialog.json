@@ -1,0 +1,12 @@
+{
+  "caption": "Caption",
+  "columns": "Columns",
+  "errors.columns": "Enter a whole number of columns from 1 to 20,000.",
+  "errors.height": "Enter an item height of 0 pixels or more.",
+  "hideNoData": "Hide items with no data",
+  "itemHeight": "Item height (pixels)",
+  "lockPosition": "Lock position",
+  "print": "Print slicer",
+  "showCaption": "Show caption",
+  "title": "Edit slicer"
+}

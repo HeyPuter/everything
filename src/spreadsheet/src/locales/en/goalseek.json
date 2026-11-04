@@ -1,0 +1,14 @@
+{
+  "byChangingCell": "By changing cell",
+  "done": "{cell} set to {value}; {target} is now {result}",
+  "errors.noChangingCell": "Enter the cell to change, like B2",
+  "errors.noSetCell": "Enter the cell to set, like C12",
+  "errors.noValue": "Enter the value to reach",
+  "example": "e.g. B2",
+  "intro": "Finds the input that makes a formula reach a value. One undo step.",
+  "seek": "Seek",
+  "setCell": "Set cell",
+  "title": "Goal seek",
+  "toValue": "To value",
+  "wantedResult": "Wanted result"
+}

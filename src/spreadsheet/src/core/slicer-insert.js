@@ -24,6 +24,7 @@ import { decodeXlsxString, encodeXlsxAttribute } from './xlsx-string.js';
 import { MAX_COL, MAX_ROW, parseRefText, sheetKey } from './refs.js';
 import { placeAlong } from './charts.js';
 import { compareStoredValues } from './formula/functions.js';
+import { t } from '../i18n/index.js';
 
 const MAIN = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main';
 const X14 = 'http://schemas.microsoft.com/office/spreadsheetml/2009/9/main';
@@ -78,9 +79,9 @@ function standingAt(wb, sheetId, at) {
 
 /** Why slicers cannot be inserted for this table now, or null. */
 export function tableSlicerProblem(wb, sheetId, table) {
-  if (!table) return 'Select a cell in a table or PivotTable to insert slicers.';
-  if (table.headerRow === false) return 'Turn on the table’s Header Row to insert slicers.';
-  if (wb.isProtected?.(sheetId)) return 'Unprotect the sheet to insert slicers.';
+  if (!table) return t('slicerInsert.selectCell');
+  if (table.headerRow === false) return t('slicerInsert.headerRow');
+  if (wb.isProtected?.(sheetId)) return t('slicerInsert.protected');
   return null;
 }
 
@@ -133,8 +134,8 @@ export function pivotSlicerFields(wb, pivot) {
   const data = readNativePivotCache(cache, { includeRecords: false });
   const used = new Set((wb.nativePivots.slicers || []).filter(s => s.cache === cache.key).map(s => sheetKey(decodeXlsxString(parseModelXml(s.xml).getAttribute('sourceName') || ''))));
   return data.fields.map((field, index) => ({ index, name: field.name, items: field.items,
-    problem: !field.databaseField || field.serverField ? 'A calculated or grouped field cannot have a slicer here.'
-      : !field.items.length && !cache.records ? 'The file holds no saved records for this field; refresh the PivotTable in the program that saved it, then open it again.' : null,
+    problem: !field.databaseField || field.serverField ? t('slicerInsert.calculatedField')
+      : !field.items.length && !cache.records ? t('slicerInsert.noRecords') : null,
     existing: used.has(sheetKey(field.name)) }));
 }
 
@@ -217,7 +218,7 @@ function withAvailability(slicer, pivots, sheets) {
 
 /** Insert one slicer per chosen field index of a PivotTable report. Returns the new control ids. */
 export function insertPivotSlicers(wb, sheetId, pivot, fieldIndexes, { at = null } = {}) {
-  if (wb.isProtected?.(sheetId)) throw new Error('Unprotect the sheet to insert slicers.');
+  if (wb.isProtected?.(sheetId)) throw new Error(t('slicerInsert.protected'));
   const fields = pivotSlicerFields(wb, pivot);
   const chosen = fieldIndexes.map(i => fields[i]).filter(f => f && !f.problem);
   if (!chosen.length) return [];

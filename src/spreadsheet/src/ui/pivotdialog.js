@@ -7,10 +7,14 @@
 import { el } from './dom.js';
 import { openModal, fieldAlert } from './modal.js';
 import { toast } from './toast.js';
-import { buildPivot, previewPivot, pivotFields, pivotFieldValues, pivotAllLabel, pivotRangeProblem, writePivotSheet, PivotSizeError, PIVOT_AGGS } from '../core/pivot.js';
+import { buildPivot, previewPivot, pivotFields, pivotFieldValues, pivotAllLabel, pivotRangeProblemShown, writePivotSheet, PivotSizeError, PIVOT_AGGS } from '../core/pivot.js';
 import { formatValue, dateTimeKind } from '../core/format.js';
 import { rangeName } from '../core/cell.js';
 import * as S from '../core/selection.js';
+import { t } from '../i18n/index.js';
+
+/** How the dialog names each way to summarize (PIVOT_AGGS's own labels are the ones written into the table). */
+const AGG_LABELS = { sum: 'pivotdialog.agg.sum', count: 'pivotdialog.agg.count', average: 'pivotdialog.agg.average', max: 'pivotdialog.agg.max', min: 'pivotdialog.agg.min' };
 
 /**
  * Write a built pivot table to a new sheet named after its source, as one undo step; returns the new sheet's name,
@@ -19,7 +23,7 @@ import * as S from '../core/selection.js';
 export function insertPivotSheet(wb, sheetId, built) {
   const sheet = writePivotSheet(wb, sheetId, built);
   if (!sheet) return null;
-  toast(`Pivot table added on ${sheet.name}`, { icon: 'check' });
+  toast(t('pivotdialog.added', { sheet: sheet.name }), { icon: 'check' });
   return sheet.name;
 }
 
@@ -29,13 +33,13 @@ export function openPivotDialog(ctx) {
   const sheetId = ctx.sheetId();
   const initial = ctx.dataRange ? ctx.dataRange(ctx.range()) : S.isSingle(ctx.selection()) ? (wb.usedRange(sheetId) || ctx.range()) : ctx.range();
 
-  const rangeInput = el('input.input', { type: 'text', value: rangeName(initial), 'aria-label': 'Source range', spellcheck: false, autocomplete: 'off' });
-  const rowsSel = el('select.select', { 'aria-label': 'Rows' });
-  const colsSel = el('select.select', { 'aria-label': 'Columns' });
-  const valuesSel = el('select.select', { 'aria-label': 'Values' });
-  const aggSel = el('select.select', { 'aria-label': 'Summarize by' }, PIVOT_AGGS.map(([key, label]) => el('option', { value: key }, label)));
-  const filterSel = el('select.select', { 'aria-label': 'Filter by' });
-  const filterValueSel = el('select.select', { 'aria-label': 'Showing' });
+  const rangeInput = el('input.input', { type: 'text', value: rangeName(initial), 'aria-label': t('pivotdialog.sourceRange'), spellcheck: false, autocomplete: 'off' });
+  const rowsSel = el('select.select', { 'aria-label': t('pivotdialog.rows') });
+  const colsSel = el('select.select', { 'aria-label': t('pivotdialog.columns') });
+  const valuesSel = el('select.select', { 'aria-label': t('pivotdialog.values') });
+  const aggSel = el('select.select', { 'aria-label': t('pivotdialog.summarizeBy') }, PIVOT_AGGS.map(([key]) => el('option', { value: key }, t(AGG_LABELS[key]))));
+  const filterSel = el('select.select', { 'aria-label': t('pivotdialog.filterBy') });
+  const filterValueSel = el('select.select', { 'aria-label': t('pivotdialog.showing') });
   let filterValues = [];
   let filterColumn = null;
   // A refusal names the field it is about; a table too large to write names none.
@@ -47,7 +51,7 @@ export function openPivotDialog(ctx) {
     // A1:D20, a named range, or a table name / Table[Column]; the source must be on this sheet.
     const parsed = wb.rangeFromText(sheetId, rangeInput.value.trim());
     const range = parsed && parsed.sheetId === sheetId ? parsed.range : null;
-    const problem = parsed && parsed.sheetId !== sheetId ? 'The source must be on this sheet' : pivotRangeProblem(wb, sheetId, range);
+    const problem = parsed && parsed.sheetId !== sheetId ? t('pivotdialog.sameSheet') : pivotRangeProblemShown(wb, sheetId, range);
     // Judged as it is typed: a problem marks the range field without taking the focus from it.
     if (problem) refuse(rangeInput, problem, { focus: false }); else clearError();
     if (problem) { fields = []; return null; }
@@ -56,9 +60,9 @@ export function openPivotDialog(ctx) {
     const keep = (sel) => { const v = sel.value; return () => { if ([...sel.options].some((o) => o.value === v)) sel.value = v; }; };
     const restore = [keep(rowsSel), keep(colsSel), keep(valuesSel), keep(filterSel)];
     rowsSel.replaceChildren(...fields.map((f) => el('option', { value: String(f.index) }, f.label)));
-    colsSel.replaceChildren(el('option', { value: '' }, 'None'), ...fields.map((f) => el('option', { value: String(f.index) }, f.label)));
+    colsSel.replaceChildren(el('option', { value: '' }, t('common.none')), ...fields.map((f) => el('option', { value: String(f.index) }, f.label)));
     valuesSel.replaceChildren(...fields.map((f) => el('option', { value: String(f.index) }, f.label)));
-    filterSel.replaceChildren(el('option', { value: '' }, 'None'), ...fields.map((f) => el('option', { value: String(f.index) }, f.label)));
+    filterSel.replaceChildren(el('option', { value: '' }, t('common.none')), ...fields.map((f) => el('option', { value: String(f.index) }, f.label)));
     restore.forEach((fn) => fn());
     // The values the filter can show: "(All)" plus the field's distinct values.
     const wanted = filterValueSel.value === '' ? null : filterValues[Number(filterValueSel.value)];
@@ -93,7 +97,7 @@ export function openPivotDialog(ctx) {
     try { return (preview ? previewPivot : buildPivot)(wb, sheetId, spec); }
     catch (cause) {
       if (!(cause instanceof PivotSizeError)) throw cause;
-      refuse(null, cause.message);
+      refuse(null, cause.shown);
       return null;
     }
   }
@@ -104,8 +108,10 @@ export function openPivotDialog(ctx) {
     const spec = currentSpec(range);
     const built = build(spec, true);
     if (!built) { summary.textContent = ''; return; }
-    const filterNote = spec.filters.length ? `, filtered by ${fields[spec.filters[0].field].label} (a dropdown above the table picks the value)` : '';
-    summary.textContent = `${built.rowCount} row${built.rowCount === 1 ? '' : 's'}${spec.colField != null ? ` × ${built.colCount} column${built.colCount === 1 ? '' : 's'}` : ''}, ${PIVOT_AGGS.find((a) => a[0] === spec.agg)[1].toLowerCase()} of ${fields[spec.valueField].label}${filterNote}. The table is written to a new sheet as formulas that follow your data.`;
+    summary.textContent = t('pivotdialog.summary', {
+      shape: spec.colField != null ? 'grid' : 'list', rows: built.rowCount, cols: built.colCount, agg: spec.agg, field: fields[spec.valueField].label,
+      filtered: spec.filters.length ? 'yes' : 'no', filterField: spec.filters.length ? fields[spec.filters[0].field].label : '',
+    });
   }
 
   function currentSpec(range) {
@@ -127,32 +133,32 @@ export function openPivotDialog(ctx) {
     const range = loadFields();
     if (!range) { rangeInput.focus(); return; }
     const spec = currentSpec(range);
-    if (spec.colField === spec.rowField) return refuse(colsSel, 'Rows and columns must be different fields');
-    if (spec.filters.length && (spec.filters[0].field === spec.rowField || spec.filters[0].field === spec.colField)) return refuse(filterSel, 'The filter must be a field other than the rows and columns');
+    if (spec.colField === spec.rowField) return refuse(colsSel, t('pivotdialog.errors.sameField'));
+    if (spec.filters.length && (spec.filters[0].field === spec.rowField || spec.filters[0].field === spec.colField)) return refuse(filterSel, t('pivotdialog.errors.filterField'));
     const built = build(spec);
     if (!built) return;
-    if (!built.rowCount) return refuse(rowsSel, 'The rows field has no values to group by');
+    if (!built.rowCount) return refuse(rowsSel, t('pivot.refresh.noRows'));
     if (!insertPivotSheet(wb, sheetId, built)) return;
     modal.close();
     ctx.grid.focus();
   };
 
   const content = el('form', { onsubmit: submit },
-    el('label.field', {}, el('span.field-label', {}, 'Data range (first row holds the field names)'), rangeInput, error),
+    el('label.field', {}, el('span.field-label', {}, t('pivotdialog.dataRange')), rangeInput, error),
     el('div.row.row-2', {},
-      el('label.field', {}, el('span.field-label', {}, 'Rows'), rowsSel),
-      el('label.field', {}, el('span.field-label', {}, 'Columns'), colsSel)),
+      el('label.field', {}, el('span.field-label', {}, t('pivotdialog.rows')), rowsSel),
+      el('label.field', {}, el('span.field-label', {}, t('pivotdialog.columns')), colsSel)),
     el('div.row.row-2', {},
-      el('label.field', {}, el('span.field-label', {}, 'Values'), valuesSel),
-      el('label.field', {}, el('span.field-label', {}, 'Summarize by'), aggSel)),
+      el('label.field', {}, el('span.field-label', {}, t('pivotdialog.values')), valuesSel),
+      el('label.field', {}, el('span.field-label', {}, t('pivotdialog.summarizeBy')), aggSel)),
     el('div.row.row-2', {},
-      el('label.field', {}, el('span.field-label', {}, 'Filter by'), filterSel),
-      el('label.field', {}, el('span.field-label', {}, 'Showing'), filterValueSel)),
+      el('label.field', {}, el('span.field-label', {}, t('pivotdialog.filterBy')), filterSel),
+      el('label.field', {}, el('span.field-label', {}, t('pivotdialog.showing')), filterValueSel)),
     summary,
     el('div.row.row-end', {},
-      el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Cancel'),
-      el('button.btn.btn-primary', { type: 'submit' }, 'Insert on a new sheet')));
-  const modal = openModal({ title: 'Pivot table', content, onClose: () => ctx.grid.focus() });
+      el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, t('common.cancel')),
+      el('button.btn.btn-primary', { type: 'submit' }, t('pivotdialog.insert'))));
+  const modal = openModal({ title: t('pivotdialog.title'), content, onClose: () => ctx.grid.focus() });
   refresh();
   return modal;
 }

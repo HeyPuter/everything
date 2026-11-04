@@ -1,0 +1,16 @@
+{
+  "allPeriods": "所有期间",
+  "errors.noDateField": "选择数据透视表的一个日期字段。",
+  "errors.notWorksheet": "数据透视表不在工作表上。",
+  "errors.protected": "撤消工作表保护后才能插入日程表。",
+  "errors.sourceGone": "此日程表筛选的数据透视表或日期字段已不存在。",
+  "level.days": "日",
+  "level.months": "月",
+  "level.quarters": "季度",
+  "level.years": "年",
+  "quarter": "{year} 年第 {q} 季度",
+  "quarterRange": "{year} 年第 {from} - {to} 季度",
+  "quarterTile": "Q{q}",
+  "range": "{from} - {to}",
+  "rangeInYear": "{year} 年 {from} - {to}"
+}

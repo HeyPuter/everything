@@ -7,11 +7,12 @@ import { el, fieldId } from './dom.js';
 import { openModal } from './modal.js';
 import { toast } from './toast.js';
 import { recommendPivots } from '../core/pivot-recommend.js';
-import { buildPivot, pivotRangeProblem, PivotSizeError } from '../core/pivot.js';
+import { buildPivot, pivotRangeProblemShown, PivotSizeError } from '../core/pivot.js';
 import { formatValue } from '../core/format.js';
 import { rangeName } from '../core/cell.js';
 import * as S from '../core/selection.js';
 import { insertPivotSheet } from './pivotdialog.js';
+import { t } from '../i18n/index.js';
 
 /** A preview value as the pivot shows it, in the value column's number format (a count in General). */
 const shownValue = (pick, v) => formatValue(v, pick.format);
@@ -21,11 +22,11 @@ export function openRecommendedPivots(ctx) {
   const { wb } = ctx;
   const sheetId = ctx.sheetId();
   const range = ctx.dataRange ? ctx.dataRange(ctx.range()) : S.isSingle(ctx.selection()) ? (wb.usedRange(sheetId) || ctx.range()) : ctx.range();
-  const problem = range ? pivotRangeProblem(wb, sheetId, range) : 'Select a list with a header row';
+  const problem = range ? pivotRangeProblemShown(wb, sheetId, range) : t('recommendedPivots.selectList');
   if (problem) { toast(problem, { icon: 'info', duration: 3500 }); return null; }
   const picks = recommendPivots(wb, sheetId, range);
   if (!picks.length) {
-    toast('No recommendations for this data. Use Blank PivotTable to build one', { icon: 'info', duration: 3500 });
+    toast(t('recommendedPivots.none'), { icon: 'info', duration: 3500 });
     ctx.run('pivot');
     return null;
   }
@@ -42,7 +43,7 @@ export function openRecommendedPivots(ctx) {
     list.setAttribute('aria-activedescendant', active.id);
     active.scrollIntoView?.({ block: 'nearest' });
   };
-  const list = el('div.rec-pivot-list', { role: 'listbox', 'aria-label': 'Recommended PivotTables', tabindex: 0,
+  const list = el('div.rec-pivot-list', { role: 'listbox', 'aria-label': t('recommendedPivots.title'), tabindex: 0,
     onkeydown: (e) => {
       if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); chosen = Math.max(0, Math.min(picks.length - 1, chosen + (e.key === 'ArrowDown' ? 1 : -1))); show(); }
       if (e.key === 'Enter') { e.preventDefault(); insert(); }
@@ -53,20 +54,20 @@ export function openRecommendedPivots(ctx) {
   const insert = () => {
     let built;
     try { built = buildPivot(wb, sheetId, picks[chosen].spec); }
-    catch (cause) { if (cause instanceof PivotSizeError) { toast(cause.message, { icon: 'alert' }); return; } throw cause; }
+    catch (cause) { if (cause instanceof PivotSizeError) { toast(cause.shown, { icon: 'alert' }); return; } throw cause; }
     if (!insertPivotSheet(wb, sheetId, built)) return;
     modal.close();
     ctx.grid.focus();
   };
   const content = el('div.rec-pivots', {},
-    el('p.small.muted', {}, `Data: ${wb.sheet(sheetId).name}!${rangeName(range)}`),
+    el('p.small.muted', {}, t('recommendedPivots.data', { range: `${wb.sheet(sheetId).name}!${rangeName(range)}` })),
     el('div.rec-pivot-body', {}, list, preview),
     el('div.row.rec-pivot-foot', {},
-      el('button.btn.btn-ghost', { type: 'button', onclick: () => { modal.close(); ctx.run('pivot'); } }, 'Blank PivotTable'),
+      el('button.btn.btn-ghost', { type: 'button', onclick: () => { modal.close(); ctx.run('pivot'); } }, t('recommendedPivots.blank')),
       el('div.row.rec-pivot-actions', {},
-        el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Cancel'),
-        el('button.btn.btn-primary', { type: 'button', onclick: insert }, 'OK'))));
-  const modal = openModal({ title: 'Recommended PivotTables', content, wide: true, initialFocus: list, onClose: () => ctx.grid.focus() });
+        el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, t('common.cancel')),
+        el('button.btn.btn-primary', { type: 'button', onclick: insert }, t('common.ok')))));
+  const modal = openModal({ title: t('recommendedPivots.title'), content, wide: true, initialFocus: list, onClose: () => ctx.grid.focus() });
   show();
   return modal;
 }

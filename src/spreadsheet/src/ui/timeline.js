@@ -6,6 +6,7 @@
  * level; the caller filters and hands back fresh state with update().
  */
 import { TIMELINE_LEVELS, timelinePeriods, timelineSelectionLabel } from '../core/timeline.js';
+import { t } from '../i18n/index.js';
 
 const TILE = 44, GAP = 2;
 
@@ -17,16 +18,16 @@ export function createTimelineControl(doc, change) {
   const header = make('div', 'timeline-header', 'display:flex;align-items:center;gap:4px;padding:4px 6px;flex:none;border-bottom:1px solid var(--hairline,#e1e1e1)');
   const caption = make('span', '', 'flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600');
   const clear = make('button', 'timeline-clear', 'font:inherit;color:inherit;background:transparent;border:0;padding:2px 4px;cursor:pointer');
-  clear.type = 'button'; clear.textContent = '×'; clear.title = 'Clear Filter'; clear.setAttribute('aria-label', 'Clear Filter');
+  clear.type = 'button'; clear.textContent = '×'; clear.title = t('timeline.clearFilter'); clear.setAttribute('aria-label', t('timeline.clearFilter'));
   header.append(caption, clear);
   const bar = make('div', 'timeline-bar', 'display:flex;align-items:center;gap:6px;padding:4px 6px 0;flex:none');
   const label = make('span', 'timeline-label', 'flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap');
   const level = make('select', 'timeline-level', 'font:inherit;font-size:11px;color:var(--accent,#2b579a);background:transparent;border:0;cursor:pointer');
-  level.setAttribute('aria-label', 'Time level');
-  for (const [key, text] of TIMELINE_LEVELS) { const o = doc.createElement('option'); o.value = key; o.textContent = text; level.append(o); }
+  level.setAttribute('aria-label', t('timeline.timeLevel'));
+  for (const [key, name] of TIMELINE_LEVELS) { const o = doc.createElement('option'); o.value = key; o.textContent = t(name); level.append(o); }
   bar.append(label, level);
   const strip = make('div', 'timeline-strip', 'flex:1;min-height:0;overflow-x:auto;overflow-y:hidden;padding:2px 6px 4px;box-sizing:border-box');
-  strip.setAttribute('role', 'listbox'); strip.setAttribute('aria-multiselectable', 'true'); strip.setAttribute('aria-label', 'Periods');
+  strip.setAttribute('role', 'listbox'); strip.setAttribute('aria-multiselectable', 'true'); strip.setAttribute('aria-label', t('timeline.periods'));
   const groups = make('div', 'timeline-groups', 'display:flex;height:16px;white-space:nowrap');
   const tiles = make('div', 'timeline-tiles', 'position:relative;height:calc(100% - 16px);min-height:28px');
   strip.append(groups, tiles);
@@ -36,7 +37,7 @@ export function createTimelineControl(doc, change) {
   let control = null, state = null, periods = [], disabled = false, anchor = null, focusIndex = 0, drag = null;
   const selectedRange = () => state?.start == null ? null : [state.start, state.end];
   const submit = (start, end) => {
-    try { return change?.(start, end, control.level); } catch (error) { status.textContent = error.message || 'The timeline could not filter the PivotTable.'; status.hidden = false; return false; }
+    try { return change?.(start, end, control.level); } catch (error) { status.textContent = error.message || t('timeline.couldNotFilter'); status.hidden = false; return false; }
   };
   const choose = (a, b) => {
     const first = periods[Math.min(a, b)], last = periods[Math.max(a, b)];
@@ -117,7 +118,7 @@ export function createTimelineControl(doc, change) {
     const levelChanged = control?.level !== nextControl.level;
     const rangeChanged = state?.start !== nextState?.start || state?.end !== nextState?.end;
     control = nextControl; state = nextState; disabled = !!options.disabled || !nextState || !change;
-    node.setAttribute('aria-label', control.title || 'Timeline');
+    node.setAttribute('aria-label', control.title || t('timeline.timeline'));
     caption.textContent = control.title || ''; header.style.display = control.showHeader === false ? 'none' : 'flex';
     label.textContent = timelineSelectionLabel(state?.start, state?.end, control.level);
     label.style.display = control.showSelectionLabel === false ? 'none' : '';
@@ -129,7 +130,7 @@ export function createTimelineControl(doc, change) {
     periods = state ? timelinePeriods(state.min, state.max, control.level) : [];
     if (focusIndex >= periods.length) focusIndex = Math.max(0, periods.length - 1);
     status.hidden = !!periods.length;
-    if (!periods.length) status.textContent = nextState == null ? 'The PivotTable or date field this timeline filters is unavailable.' : 'No dates';
+    if (!periods.length) status.textContent = nextState == null ? t('timeline.unavailable') : t('timeline.noDates');
     render();
     // Bring the chosen range into view when the level or the range changes (from the first period when none is chosen).
     if (levelChanged || rangeChanged) {

@@ -17,6 +17,7 @@ import { colName } from './cell.js';
 import { maxOf, minOf } from './numeric.js';
 import { quoteSheet } from './refs.js';
 import { Workbook } from './workbook.js';
+import { t } from '../i18n/index.js';
 
 /* ---------- The sheet's own functions ---------- */
 
@@ -84,13 +85,13 @@ const finish = (out) => ({ title: out.title, cells: out.cells, colWidths: out.co
  * A blank cell is null; text, a logical value or an error refuses the range, unless `allowText` (the
  * complex numbers of Fourier Analysis) lets text through.
  */
-export function readGroups(wb, sheetId, range, { by = 'columns', labels = false, name = 'Input range', allowText = false, defaultLabel = null } = {}) {
+export function readGroups(wb, sheetId, range, { by = 'columns', labels = false, name = t('coreAnalysisTools.inputRange'), allowText = false, defaultLabel = null } = {}) {
   const { r1, c1, r2, c2 } = range;
   const byRows = by === 'rows';
   const outer = byRows ? r2 - r1 + 1 : c2 - c1 + 1;
   const inner = byRows ? c2 - c1 + 1 : r2 - r1 + 1;
   const first = labels ? 1 : 0;
-  if (inner - first < 1) return { error: `${name} has no data${labels ? ' below its labels' : ''}.` };
+  if (inner - first < 1) return { error: labels ? t('coreAnalysisTools.errors.noDataBelowLabels', { name }) : t('coreAnalysisTools.errors.noData', { name }) };
   const groups = [];
   for (let i = 0; i < outer; i++) {
     const at = (j) => (byRows ? { r: r1 + i, c: c1 + j } : { r: r1 + j, c: c1 + i });
@@ -101,7 +102,7 @@ export function readGroups(wb, sheetId, range, { by = 'columns', labels = false,
       if (v == null || v === '') values.push(null);
       else if (isNum(v)) values.push(v);
       else if (allowText && typeof v === 'string') values.push(v);
-      else return { error: `${name} contains non-numeric data (cell ${colName(c)}${r + 1}).` };
+      else return { error: t('coreAnalysisTools.errors.nonNumeric', { name, cell: `${colName(c)}${r + 1}` }) };
     }
     const head = labels ? wb.getValue(sheetId, at(0).r, at(0).c) : null;
     const label = head != null && head !== '' && !isError(head) ? String(head) : defaultLabel ? defaultLabel(i) : `${byRows ? 'Row' : 'Column'} ${i + 1}`;
@@ -125,7 +126,7 @@ export function readBlock(wb, sheetId, range) {
   return rows;
 }
 
-const checkAlpha = (alpha) => (isNum(alpha) && alpha > 0 && alpha < 1 ? null : 'Alpha must be a number between 0 and 1.');
+const checkAlpha = (alpha) => (isNum(alpha) && alpha > 0 && alpha < 1 ? null : t('coreAnalysisTools.errors.alpha'));
 const fail = (error) => ({ error });
 
 /* ---------- Anova ---------- */
@@ -140,11 +141,11 @@ const anovaRow = (name, ss, df, msWithin, alpha, dfWithin) => {
 export function anovaSingleFactor(groups, { alpha = 0.05 } = {}) {
   const bad = checkAlpha(alpha); if (bad) return fail(bad);
   const data = groups.map((g) => ({ label: g.label, xs: nums(g.values) }));
-  if (data.length < 2) return fail('Single-factor Anova needs at least two groups.');
-  if (data.some((g) => !g.xs.length)) return fail('Each group needs at least one number.');
+  if (data.length < 2) return fail(t('coreAnalysisTools.errors.anova1NeedsTwoGroups'));
+  if (data.some((g) => !g.xs.length)) return fail(t('coreAnalysisTools.errors.groupNeedsNumber'));
   const all = data.flatMap((g) => g.xs);
   const k = data.length, N = all.length;
-  if (N - k < 1) return fail('Single-factor Anova needs more values than groups.');
+  if (N - k < 1) return fail(t('coreAnalysisTools.errors.anova1MoreValues'));
   const grand = mean(all);
   const ssb = sum(data.map((g) => g.xs.length * (mean(g.xs) - grand) ** 2));
   const ssw = sum(data.map((g) => sqDev(g.xs)));
@@ -173,15 +174,15 @@ export function anovaSingleFactor(groups, { alpha = 0.05 } = {}) {
 export function anovaTwoFactorReplication(block, { rowsPerSample = 1, alpha = 0.05 } = {}) {
   const bad = checkAlpha(alpha); if (bad) return fail(bad);
   const n = Math.trunc(rowsPerSample);
-  if (!(n >= 2)) return fail('Rows per sample must be a whole number of 2 or more.');
+  if (!(n >= 2)) return fail(t('coreAnalysisTools.errors.rowsPerSample'));
   const dataRows = block.length - 1, b = (block[0]?.length || 0) - 1;
-  if (b < 2 || dataRows < 2) return fail('Select the labels and at least two columns and two samples of data.');
-  if (dataRows % n) return fail(`The data rows must divide evenly into samples of ${n} rows.`);
+  if (b < 2 || dataRows < 2) return fail(t('coreAnalysisTools.errors.anova2repSelect'));
+  if (dataRows % n) return fail(t('coreAnalysisTools.errors.anova2repDivide', { n }));
   const a = dataRows / n;
-  if (a < 2) return fail('Two-factor Anova needs at least two samples.');
+  if (a < 2) return fail(t('coreAnalysisTools.errors.anova2NeedsTwoSamples'));
   const cell = (i, k, j) => block[1 + i * n + k][1 + j];
   for (let i = 0; i < a; i++) for (let k = 0; k < n; k++) for (let j = 0; j < b; j++) {
-    if (!isNum(cell(i, k, j))) return fail('Input range must hold a number in every data cell.');
+    if (!isNum(cell(i, k, j))) return fail(t('coreAnalysisTools.errors.numberInEveryCell'));
   }
   const colLabels = Array.from({ length: b }, (_, j) => (block[0][1 + j] != null ? String(block[0][1 + j]) : `Column ${j + 1}`));
   const rowLabels = Array.from({ length: a }, (_, i) => (block[1 + i * n][0] != null ? String(block[1 + i * n][0]) : `Sample ${i + 1}`));
@@ -235,8 +236,8 @@ export function anovaTwoFactorReplication(block, { rowsPerSample = 1, alpha = 0.
 export function anovaTwoFactor(rows, { rowLabels = [], colLabels = [], alpha = 0.05 } = {}) {
   const bad = checkAlpha(alpha); if (bad) return fail(bad);
   const a = rows.length, b = rows[0]?.length || 0;
-  if (a < 2 || b < 2) return fail('Two-factor Anova needs at least two rows and two columns of data.');
-  if (rows.some((row) => row.length !== b || row.some((v) => !isNum(v)))) return fail('Input range must hold a number in every data cell.');
+  if (a < 2 || b < 2) return fail(t('coreAnalysisTools.errors.anova2NeedsRowsColumns'));
+  if (rows.some((row) => row.length !== b || row.some((v) => !isNum(v)))) return fail(t('coreAnalysisTools.errors.numberInEveryCell'));
   const rowXs = (i) => rows[i];
   const colXs = (j) => rows.map((row) => row[j]);
   const all = rows.flat();
@@ -268,10 +269,10 @@ export function anovaTwoFactor(rows, { rowLabels = [], colLabels = [], alpha = 0
 
 /* ---------- Correlation and covariance ---------- */
 
-function pairMatrix(groups, title, pair) {
-  if (groups.length < 2) return fail(`${title} needs at least two ${'variables'}.`);
+function pairMatrix(groups, title, pair, needsTwo) {
+  if (groups.length < 2) return fail(needsTwo);
   const length = groups[0].values.length;
-  if (groups.some((g) => g.values.length !== length)) return fail('Every variable needs the same number of observations.');
+  if (groups.some((g) => g.values.length !== length)) return fail(t('coreAnalysisTools.errors.sameObservations'));
   const out = output(title);
   groups.forEach((g, j) => out.put(0, 1 + j, g.label, HEAD));
   out.put(0, 0, '', HEAD);
@@ -286,12 +287,12 @@ function pairMatrix(groups, title, pair) {
 
 /** Correlation: the Pearson correlation of every pair of variables, as CORREL works it out. */
 export function correlation(groups) {
-  return pairMatrix(groups, 'Correlation', (x, y, same) => (same ? 1 : call('CORREL', x, y)));
+  return pairMatrix(groups, 'Correlation', (x, y, same) => (same ? 1 : call('CORREL', x, y)), t('coreAnalysisTools.errors.correlationNeedsTwo'));
 }
 
 /** Covariance: the population covariance of every pair, as COVARIANCE.P (the diagonal is VAR.P). */
 export function covariance(groups) {
-  return pairMatrix(groups, 'Covariance', (x, y) => call('COVARIANCE.P', x, y));
+  return pairMatrix(groups, 'Covariance', (x, y) => call('COVARIANCE.P', x, y), t('coreAnalysisTools.errors.covarianceNeedsTwo'));
 }
 
 /* ---------- Descriptive statistics ---------- */
@@ -301,10 +302,10 @@ export function covariance(groups) {
  * The confidence level of the mean is T.INV.2T(1 - level, n - 1) times the standard error.
  */
 export function descriptiveStatistics(groups, { summary = true, confidence = null, kthLargest = null, kthSmallest = null } = {}) {
-  if (!summary && confidence == null && kthLargest == null && kthSmallest == null) return fail('Choose at least one of the statistics to show.');
-  if (confidence != null && !(confidence > 0 && confidence < 1)) return fail('The confidence level must be between 0% and 100%.');
-  for (const [k, what] of [[kthLargest, 'Kth largest'], [kthSmallest, 'Kth smallest']]) {
-    if (k != null && !(Number.isInteger(k) && k >= 1)) return fail(`${what} must be a whole number of 1 or more.`);
+  if (!summary && confidence == null && kthLargest == null && kthSmallest == null) return fail(t('coreAnalysisTools.errors.chooseStatistic'));
+  if (confidence != null && !(confidence > 0 && confidence < 1)) return fail(t('coreAnalysisTools.errors.confidenceRange'));
+  for (const [k, what] of [[kthLargest, 'coreAnalysisTools.errors.kthLargestWhole'], [kthSmallest, 'coreAnalysisTools.errors.kthSmallestWhole']]) {
+    if (k != null && !(Number.isInteger(k) && k >= 1)) return fail(t(what));
   }
   const out = output('Descriptive Statistics');
   groups.forEach((g, gi) => {
@@ -323,8 +324,8 @@ export function descriptiveStatistics(groups, { summary = true, confidence = nul
     if (kthSmallest != null) rows.push([`Smallest(${kthSmallest})`, call('SMALL', xs, kthSmallest)]);
     if (confidence != null) {
       const sd = call('STDEV.S', xs);
-      const t = xs.length > 1 ? call('T.INV.2T', 1 - confidence, xs.length - 1) : DIV0;
-      rows.push([`Confidence Level(${(confidence * 100).toFixed(1)}%)`, isError(sd) ? sd : isError(t) ? t : t * sd / Math.sqrt(xs.length)]);
+      const tc = xs.length > 1 ? call('T.INV.2T', 1 - confidence, xs.length - 1) : DIV0;
+      rows.push([`Confidence Level(${(confidence * 100).toFixed(1)}%)`, isError(sd) ? sd : isError(tc) ? tc : tc * sd / Math.sqrt(xs.length)]);
     }
     rows.forEach(([name, v], i) => { out.put(1 + i, c, name); out.put(1 + i, c + 1, v); });
     out.style(rows.length, c, LAST); out.style(rows.length, c + 1, LAST);
@@ -347,21 +348,21 @@ const groupSource = (g) => (g.ref ? { abs: g.ref } : { literal: g.values });
  * forecast errors up to it, from the fourth point on.
  */
 export function exponentialSmoothing(group, { damping = 0.3, labels = false, standardErrors = false, chart = false } = {}) {
-  if (!(isNum(damping) && damping >= 0 && damping <= 1)) return fail('The damping factor must be between 0 and 1.');
+  if (!(isNum(damping) && damping >= 0 && damping <= 1)) return fail(t('coreAnalysisTools.errors.dampingRange'));
   const xs = group.values;
-  if (xs.length < 2 || xs.some((v) => !isNum(v))) return fail(xs.some((v) => v == null) ? 'Input range must not hold blank cells.' : 'Exponential smoothing needs at least two values.');
+  if (xs.length < 2 || xs.some((v) => !isNum(v))) return fail(xs.some((v) => v == null) ? t('coreAnalysisTools.errors.noBlankCells') : t('coreAnalysisTools.errors.smoothingNeedsTwo'));
   const alpha = 1 - damping;
   const f = [NA, xs[0]];
-  for (let t = 2; t < xs.length; t++) f.push(alpha * xs[t - 1] + damping * f[t - 1]);
+  for (let ti = 2; ti < xs.length; ti++) f.push(alpha * xs[ti - 1] + damping * f[ti - 1]);
   const out = output('Exponential Smoothing');
   const top = labels ? 1 : 0;
   if (labels) { out.put(0, 0, 'Forecast', HEAD); if (standardErrors) out.put(0, 1, 'Standard Error', HEAD); }
-  f.forEach((v, t) => out.put(top + t, 0, v));
+  f.forEach((v, ti) => out.put(top + ti, 0, v));
   if (standardErrors) {
-    for (let t = 0; t < xs.length; t++) {
-      if (t < 3) { out.put(top + t, 1, NA); continue; }
-      const errs = [t - 2, t - 1, t].map((i) => (xs[i] - f[i]) ** 2);
-      out.put(top + t, 1, Math.sqrt(sum(errs) / 3));
+    for (let ti = 0; ti < xs.length; ti++) {
+      if (ti < 3) { out.put(top + ti, 1, NA); continue; }
+      const errs = [ti - 2, ti - 1, ti].map((i) => (xs[i] - f[i]) ** 2);
+      out.put(top + ti, 1, Math.sqrt(sum(errs) / 3));
     }
   }
   if (chart) out.charts.push(lineChart('Exponential Smoothing', [
@@ -378,21 +379,21 @@ export function exponentialSmoothing(group, { damping = 0.3, labels = false, sta
  */
 export function movingAverage(group, { interval = 3, labels = false, standardErrors = false, chart = false } = {}) {
   const k = Math.trunc(interval);
-  if (!(k >= 2)) return fail('The interval must be a whole number of 2 or more.');
+  if (!(k >= 2)) return fail(t('coreAnalysisTools.errors.intervalWhole'));
   const xs = group.values;
-  if (xs.some((v) => !isNum(v))) return fail('Input range must not hold blank cells.');
-  if (xs.length < k) return fail(`The input needs at least ${k} values for an interval of ${k}.`);
-  const f = xs.map((_, t) => (t < k - 1 ? NA : mean(xs.slice(t - k + 1, t + 1))));
+  if (xs.some((v) => !isNum(v))) return fail(t('coreAnalysisTools.errors.noBlankCells'));
+  if (xs.length < k) return fail(t('coreAnalysisTools.errors.intervalNeedsValues', { k }));
+  const f = xs.map((_, ti) => (ti < k - 1 ? NA : mean(xs.slice(ti - k + 1, ti + 1))));
   const out = output('Moving Average');
   const top = labels ? 1 : 0;
   if (labels) { out.put(0, 0, 'Forecast', HEAD); if (standardErrors) out.put(0, 1, 'Standard Error', HEAD); }
-  f.forEach((v, t) => out.put(top + t, 0, v));
+  f.forEach((v, ti) => out.put(top + ti, 0, v));
   if (standardErrors) {
-    for (let t = 0; t < xs.length; t++) {
-      if (t < 2 * k - 2) { out.put(top + t, 1, NA); continue; }
+    for (let ti = 0; ti < xs.length; ti++) {
+      if (ti < 2 * k - 2) { out.put(top + ti, 1, NA); continue; }
       let s = 0;
-      for (let i = t - k + 1; i <= t; i++) s += (xs[i] - f[i]) ** 2;
-      out.put(top + t, 1, Math.sqrt(s / k));
+      for (let i = ti - k + 1; i <= ti; i++) s += (xs[i] - f[i]) ** 2;
+      out.put(top + ti, 1, Math.sqrt(s / k));
     }
   }
   if (chart) out.charts.push(lineChart('Moving Average', [
@@ -419,9 +420,9 @@ function twoTable(out, rows) {
 export function fTest(g1, g2, { alpha = 0.05 } = {}) {
   const bad = checkAlpha(alpha); if (bad) return fail(bad);
   const x = nums(g1.values), y = nums(g2.values);
-  if (x.length < 2 || y.length < 2) return fail('Each variable needs at least two numbers.');
+  if (x.length < 2 || y.length < 2) return fail(t('coreAnalysisTools.errors.twoNumbersEach'));
   const v1 = sqDev(x) / (x.length - 1), v2 = sqDev(y) / (y.length - 1);
-  if (v2 === 0) return fail('The second variable has no variance, so F cannot be worked out.');
+  if (v2 === 0) return fail(t('coreAnalysisTools.errors.ftestNoVariance'));
   const F = v1 / v2, d1 = x.length - 1, d2 = y.length - 1;
   const upper = F >= 1;
   const out = output('F-Test Two-Sample for Variances');
@@ -439,10 +440,10 @@ export function fTest(g1, g2, { alpha = 0.05 } = {}) {
   return finish(out);
 }
 
-const tTails = (t, df, alpha) => {
-  const at = Math.abs(t);
+const tTails = (tStat, df, alpha) => {
+  const at = Math.abs(tStat);
   return [
-    ['t Stat', t],
+    ['t Stat', tStat],
     ['P(T<=t) one-tail', call('T.DIST.RT', at, df)],
     ['t Critical one-tail', call('T.INV', 1 - alpha, df)],
     ['P(T<=t) two-tail', call('T.DIST.2T', at, df)],
@@ -456,54 +457,54 @@ const tTails = (t, df, alpha) => {
  */
 export function tTest(g1, g2, { kind = 'paired', difference = 0, alpha = 0.05 } = {}) {
   const bad = checkAlpha(alpha); if (bad) return fail(bad);
-  if (!isNum(difference)) return fail('The hypothesized mean difference must be a number.');
+  if (!isNum(difference)) return fail(t('coreAnalysisTools.errors.differenceNumber'));
   let x, y;
   if (kind === 'paired') {
-    if (g1.values.length !== g2.values.length) return fail('A paired test needs two ranges of the same size.');
+    if (g1.values.length !== g2.values.length) return fail(t('coreAnalysisTools.errors.pairedSameSize'));
     const pairs = g1.values.map((v, i) => [v, g2.values[i]]);
-    if (pairs.some(([a, b]) => isNum(a) !== isNum(b))) return fail('Each pair needs both of its values: a blank cell in one range must be blank in the other.');
+    if (pairs.some(([a, b]) => isNum(a) !== isNum(b))) return fail(t('coreAnalysisTools.errors.pairedBothValues'));
     const kept = pairs.filter(([a]) => isNum(a));
     x = kept.map(([a]) => a); y = kept.map(([, b]) => b);
   } else { x = nums(g1.values); y = nums(g2.values); }
-  if (x.length < 2 || y.length < 2) return fail('Each variable needs at least two numbers.');
+  if (x.length < 2 || y.length < 2) return fail(t('coreAnalysisTools.errors.twoNumbersEach'));
   const m1 = mean(x), m2 = mean(y), v1 = sqDev(x) / (x.length - 1), v2 = sqDev(y) / (y.length - 1);
   const out = output('');
   const rows = [['Mean', m1, m2], ['Variance', v1, v2], ['Observations', x.length, y.length]];
-  let t, df;
+  let tStat, df;
   if (kind === 'paired') {
     out.title = 't-Test: Paired Two Sample for Means';
     const d = x.map((a, i) => a - y[i]);
     const sd = Math.sqrt(sqDev(d) / (d.length - 1));
     df = d.length - 1;
-    t = (mean(d) - difference) / (sd / Math.sqrt(d.length));
+    tStat = (mean(d) - difference) / (sd / Math.sqrt(d.length));
     rows.push(['Pearson Correlation', call('CORREL', x, y)], ['Hypothesized Mean Difference', difference], ['df', df]);
   } else if (kind === 'equal') {
     out.title = 't-Test: Two-Sample Assuming Equal Variances';
     df = x.length + y.length - 2;
     const pooled = ((x.length - 1) * v1 + (y.length - 1) * v2) / df;
-    t = (m1 - m2 - difference) / Math.sqrt(pooled * (1 / x.length + 1 / y.length));
+    tStat = (m1 - m2 - difference) / Math.sqrt(pooled * (1 / x.length + 1 / y.length));
     rows.push(['Pooled Variance', pooled], ['Hypothesized Mean Difference', difference], ['df', df]);
   } else {
     out.title = 't-Test: Two-Sample Assuming Unequal Variances';
     const a = v1 / x.length, b = v2 / y.length;
     df = Math.round((a + b) ** 2 / (a * a / (x.length - 1) + b * b / (y.length - 1)));
-    t = (m1 - m2 - difference) / Math.sqrt(a + b);
+    tStat = (m1 - m2 - difference) / Math.sqrt(a + b);
     rows.push(['Hypothesized Mean Difference', difference], ['df', df]);
   }
-  if (!Number.isFinite(t)) return fail('The samples have no variance, so t cannot be worked out.');
+  if (!Number.isFinite(tStat)) return fail(t('coreAnalysisTools.errors.ttestNoVariance'));
   out.put(0, 0, out.title, TITLE);
   twoHeader(out, g1, g2);
-  twoTable(out, [...rows, ...tTails(t, df, alpha)]);
+  twoTable(out, [...rows, ...tTails(tStat, df, alpha)]);
   return finish(out);
 }
 
 /** z-Test: Two Sample for Means, with the two variances known. */
 export function zTest(g1, g2, { difference = 0, variance1, variance2, alpha = 0.05 } = {}) {
   const bad = checkAlpha(alpha); if (bad) return fail(bad);
-  if (!(isNum(variance1) && variance1 > 0) || !(isNum(variance2) && variance2 > 0)) return fail('Enter each known variance as a number greater than 0.');
-  if (!isNum(difference)) return fail('The hypothesized mean difference must be a number.');
+  if (!(isNum(variance1) && variance1 > 0) || !(isNum(variance2) && variance2 > 0)) return fail(t('coreAnalysisTools.errors.knownVariance'));
+  if (!isNum(difference)) return fail(t('coreAnalysisTools.errors.differenceNumber'));
   const x = nums(g1.values), y = nums(g2.values);
-  if (!x.length || !y.length) return fail('Each variable needs at least one number.');
+  if (!x.length || !y.length) return fail(t('coreAnalysisTools.errors.oneNumberEach'));
   const z = (mean(x) - mean(y) - difference) / Math.sqrt(variance1 / x.length + variance2 / y.length);
   const tail = 1 - call('NORM.S.DIST', Math.abs(z), true);
   const out = output('z-Test: Two Sample for Means');
@@ -535,9 +536,9 @@ function complexOf(v) {
 export function fourier(group, { inverse = false, labels = false } = {}) {
   const raw = group.values;
   const n = raw.length;
-  if (n < 2 || n > 4096 || (n & (n - 1))) return fail('Fourier analysis needs 2, 4, 8, … up to 4096 values (a power of 2).');
+  if (n < 2 || n > 4096 || (n & (n - 1))) return fail(t('coreAnalysisTools.errors.fourierPowerOfTwo'));
   const zs = raw.map(complexOf);
-  if (zs.some((z) => !z)) return fail('Input range must hold numbers or complex numbers such as 3+2i in every cell.');
+  if (zs.some((z) => !z)) return fail(t('coreAnalysisTools.errors.fourierComplex'));
   const re = zs.map((z) => z.re), im = zs.map((z) => z.im);
   // Bit-reversal order, then butterflies.
   for (let i = 1, j = 0; i < n; i++) {
@@ -579,11 +580,11 @@ export function fourier(group, { inverse = false, labels = false } = {}) {
  */
 export function histogram(group, { bins = null, binLabel = null, pareto = false, cumulative = false, chart = false } = {}) {
   const xs = nums(group.values);
-  if (!xs.length) return fail('Input range holds no numbers.');
+  if (!xs.length) return fail(t('coreAnalysisTools.errors.noNumbers'));
   let edges;
   if (bins && bins.length) {
     edges = nums(bins).sort((a, b) => a - b);
-    if (!edges.length) return fail('Bin range holds no numbers.');
+    if (!edges.length) return fail(t('coreAnalysisTools.errors.binNoNumbers'));
   } else {
     const lo = minOf(xs), hi = maxOf(xs);
     const m = Math.max(1, Math.round(Math.sqrt(xs.length)));
@@ -630,10 +631,10 @@ export function seededRandom(seed) {
   let a = (seed == null || seed === '' ? Math.floor(Math.random() * 2 ** 32) : Math.trunc(Number(seed))) >>> 0;
   return () => {
     a = (a + 0x6d2b79f5) >>> 0;
-    let t = a;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    let h = a;
+    h = Math.imul(h ^ (h >>> 15), h | 1);
+    h ^= h + Math.imul(h ^ (h >>> 7), h | 61);
+    return ((h ^ (h >>> 14)) >>> 0) / 4294967296;
   };
 }
 
@@ -684,41 +685,41 @@ export const DISTRIBUTIONS = ['uniform', 'normal', 'bernoulli', 'binomial', 'poi
  */
 export function randomNumbers({ variables = 1, count = 1, distribution = 'uniform', seed = null, params = {} } = {}) {
   const cols = Math.trunc(variables);
-  if (!(cols >= 1 && cols <= 1000)) return fail('The number of variables must be a whole number from 1 to 1000.');
+  if (!(cols >= 1 && cols <= 1000)) return fail(t('coreAnalysisTools.errors.variablesRange'));
   const rand = seededRandom(seed);
   let draw;
   let rows = Math.trunc(count);
   const P = params;
   switch (distribution) {
     case 'uniform':
-      if (!isNum(P.from) || !isNum(P.to)) return fail('Enter the two numbers the values fall between.');
+      if (!isNum(P.from) || !isNum(P.to)) return fail(t('coreAnalysisTools.errors.uniformBounds'));
       draw = () => P.from + (P.to - P.from) * rand();
       break;
     case 'normal':
-      if (!isNum(P.mean) || !(isNum(P.sd) && P.sd >= 0)) return fail('Enter a mean and a standard deviation of 0 or more.');
+      if (!isNum(P.mean) || !(isNum(P.sd) && P.sd >= 0)) return fail(t('coreAnalysisTools.errors.normalParams'));
       draw = () => P.mean + P.sd * normalDraw(rand);
       break;
     case 'bernoulli':
-      if (!(isNum(P.p) && P.p >= 0 && P.p <= 1)) return fail('The p value must be between 0 and 1.');
+      if (!(isNum(P.p) && P.p >= 0 && P.p <= 1)) return fail(t('coreAnalysisTools.errors.pRange'));
       draw = () => (rand() < P.p ? 1 : 0);
       break;
     case 'binomial': {
       const n = Math.trunc(P.trials);
-      if (!(isNum(P.p) && P.p >= 0 && P.p <= 1)) return fail('The p value must be between 0 and 1.');
-      if (!(n >= 1 && n <= 1e6)) return fail('The number of trials must be a whole number of 1 or more.');
+      if (!(isNum(P.p) && P.p >= 0 && P.p <= 1)) return fail(t('coreAnalysisTools.errors.pRange'));
+      if (!(n >= 1 && n <= 1e6)) return fail(t('coreAnalysisTools.errors.trialsWhole'));
       draw = binomialDrawer(rand, n, P.p);
       break;
     }
     case 'poisson':
-      if (!(isNum(P.lambda) && P.lambda > 0)) return fail('Lambda must be a number greater than 0.');
+      if (!(isNum(P.lambda) && P.lambda > 0)) return fail(t('coreAnalysisTools.errors.lambdaPositive'));
       draw = () => poissonDraw(rand, P.lambda);
       break;
     case 'patterned': {
       const { from, to, step } = P;
       const each = Math.trunc(P.repeatEach ?? 1), times = Math.trunc(P.repeatSequence ?? 1);
-      if (!isNum(from) || !isNum(to) || !isNum(step) || step <= 0) return fail('Enter the first and last numbers and a step greater than 0.');
-      if (to < from) return fail('The last number must not be less than the first.');
-      if (!(each >= 1) || !(times >= 1)) return fail('The repeat counts must be whole numbers of 1 or more.');
+      if (!isNum(from) || !isNum(to) || !isNum(step) || step <= 0) return fail(t('coreAnalysisTools.errors.patternedParams'));
+      if (to < from) return fail(t('coreAnalysisTools.errors.patternedOrder'));
+      if (!(each >= 1) || !(times >= 1)) return fail(t('coreAnalysisTools.errors.repeatWhole'));
       const seq = [];
       for (let i = 0; ; i++) {
         const v = Number((from + i * step).toPrecision(15));
@@ -733,19 +734,19 @@ export function randomNumbers({ variables = 1, count = 1, distribution = 'unifor
     }
     case 'discrete': {
       const vals = P.values || [], probs = P.probabilities || [];
-      if (!vals.length || vals.length !== probs.length) return fail('The value and probability range needs two columns: values and their probabilities.');
-      if (vals.some((v) => !isNum(v)) || probs.some((p) => !isNum(p) || p < 0)) return fail('The value and probability range must hold numbers, with no negative probability.');
+      if (!vals.length || vals.length !== probs.length) return fail(t('coreAnalysisTools.errors.discreteColumns'));
+      if (vals.some((v) => !isNum(v)) || probs.some((p) => !isNum(p) || p < 0)) return fail(t('coreAnalysisTools.errors.discreteNumbers'));
       const total = sum(probs);
-      if (Math.abs(total - 1) > 1e-9) return fail('The probabilities must add up to 1.');
+      if (Math.abs(total - 1) > 1e-9) return fail(t('coreAnalysisTools.errors.probabilitiesSum'));
       const cdf = []; let acc = 0;
       for (const p of probs) { acc += p; cdf.push(acc); }
       draw = () => { const u = rand(); const i = cdf.findIndex((c) => u < c); return vals[i < 0 ? vals.length - 1 : i]; };
       break;
     }
-    default: return fail('Choose a distribution.');
+    default: return fail(t('coreAnalysisTools.errors.chooseDistribution'));
   }
-  if (distribution !== 'patterned' && !(rows >= 1 && rows <= 1048576)) return fail('The number of random numbers must be a whole number of 1 or more.');
-  if (rows * cols > 1e6) return fail('That is more than a million numbers; ask for fewer.');
+  if (distribution !== 'patterned' && !(rows >= 1 && rows <= 1048576)) return fail(t('coreAnalysisTools.errors.randomCountWhole'));
+  if (rows * cols > 1e6) return fail(t('coreAnalysisTools.errors.tooManyNumbers'));
   const out = output('Random Number Generation');
   for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) out.put(r, c, draw(c));
   return finish(out);
@@ -754,16 +755,16 @@ export function randomNumbers({ variables = 1, count = 1, distribution = 'unifor
 /** Sampling: every `period`-th value (periodic) or `count` values drawn at random with replacement. */
 export function sampling(values, { method = 'periodic', period = 1, count = 1, seed = null, label = null } = {}) {
   const xs = nums(values);
-  if (!xs.length) return fail('Input range holds no numbers.');
+  if (!xs.length) return fail(t('coreAnalysisTools.errors.noNumbers'));
   let picked;
   if (method === 'periodic') {
     const p = Math.trunc(period);
-    if (!(p >= 1)) return fail('The period must be a whole number of 1 or more.');
-    if (p > xs.length) return fail(`The period cannot be more than the ${xs.length} values in the input.`);
+    if (!(p >= 1)) return fail(t('coreAnalysisTools.errors.periodWhole'));
+    if (p > xs.length) return fail(t('coreAnalysisTools.errors.periodTooLarge', { count: xs.length }));
     picked = xs.filter((_, i) => (i + 1) % p === 0);
   } else {
     const n = Math.trunc(count);
-    if (!(n >= 1 && n <= 1048576)) return fail('The number of samples must be a whole number of 1 or more.');
+    if (!(n >= 1 && n <= 1048576)) return fail(t('coreAnalysisTools.errors.samplesWhole'));
     const rand = seededRandom(seed);
     picked = Array.from({ length: n }, () => xs[Math.floor(rand() * xs.length)]);
   }
@@ -804,17 +805,17 @@ export function rankAndPercentile(groups) {
 export function regression(y, xs, options = {}) {
   const { confidence = 0.95, constantZero = false, residuals = false, standardized = false, residualPlots = false,
     lineFitPlots = false, normalPlot = false, yLabel = 'Y', xLabels = [], yRef = null, xRefs = [] } = options;
-  if (!(confidence > 0 && confidence < 1)) return fail('The confidence level must be between 0% and 100%.');
+  if (!(confidence > 0 && confidence < 1)) return fail(t('coreAnalysisTools.errors.confidenceRange'));
   const n = y.length, k = xs.length;
-  if (!k) return fail('Select at least one X column.');
-  if (k > 64) return fail('Regression takes at most 64 X columns.');
-  if (xs.some((col) => col.length !== n)) return fail('The Y range and the X range must have the same number of rows.');
-  if (y.some((v) => !isNum(v)) || xs.some((col) => col.some((v) => !isNum(v)))) return fail('Regression needs a number in every row of the Y and X ranges.');
+  if (!k) return fail(t('coreAnalysisTools.errors.regressionSelectX'));
+  if (k > 64) return fail(t('coreAnalysisTools.errors.regressionMaxX'));
+  if (xs.some((col) => col.length !== n)) return fail(t('coreAnalysisTools.errors.regressionSameRows'));
+  if (y.some((v) => !isNum(v)) || xs.some((col) => col.some((v) => !isNum(v)))) return fail(t('coreAnalysisTools.errors.regressionNumbers'));
   const minRows = k + (constantZero ? 1 : 2);
-  if (n < minRows) return fail(`Regression with ${k} X column${k === 1 ? '' : 's'} needs at least ${minRows} rows of data.`);
+  if (n < minRows) return fail(t('coreAnalysisTools.errors.regressionMinRows', { k, minRows }));
   const X = matrix(y.map((_, i) => xs.map((col) => col[i])));
   const fit = fnOf('LINEST')([column(y), X, !constantZero, true]);
-  if (isError(fit) || !isRange(fit)) return fail('The regression could not be worked out for this data.');
+  if (isError(fit) || !isRange(fit)) return fail(t('coreAnalysisTools.errors.regressionFailed'));
   const s = fit.values;
   const coef = s[0].slice(0, k).reverse(), se = s[1].slice(0, k).reverse();
   const b = s[0][k], seB = s[1][k];
@@ -840,8 +841,8 @@ export function regression(y, xs, options = {}) {
   const header = ['', 'Coefficients', 'Standard Error', 't Stat', 'P-value', ...levels.flatMap((c) => [`Lower ${pct(c)}`, `Upper ${pct(c)}`])];
   const coefRow = (name, c, e) => {
     if (isError(e) || !isNum(e)) return [name, c, NA, NA, NA, ...levels.flatMap(() => [NA, NA])];
-    const t = c / e;
-    return [name, c, e, t, call('T.DIST.2T', Math.abs(t), df),
+    const tStat = c / e;
+    return [name, c, e, tStat, call('T.DIST.2T', Math.abs(tStat), df),
       ...levels.flatMap((lv) => { const w = call('T.INV.2T', 1 - lv, df) * e; return [c - w, c + w]; })];
   };
   const coefRows = [constantZero ? ['Intercept', 0, NA, NA, NA, ...levels.flatMap(() => [NA, NA])] : coefRow('Intercept', b, seB),
@@ -910,6 +911,41 @@ export const TOOLS = [
   ['tunequal', 't-Test: Two-Sample Assuming Unequal Variances'],
   ['ztest', 'z-Test: Two Sample for Means'],
 ];
+
+/** Each tool's name as the interface shows it; TOOLS keeps the English, which is the title its output writes. */
+const TOOL_KEYS = {
+  anova1: 'coreAnalysisTools.tools.anova1',
+  anova2rep: 'coreAnalysisTools.tools.anova2rep',
+  anova2: 'coreAnalysisTools.tools.anova2',
+  correlation: 'coreAnalysisTools.tools.correlation',
+  covariance: 'coreAnalysisTools.tools.covariance',
+  descriptive: 'coreAnalysisTools.tools.descriptive',
+  smoothing: 'coreAnalysisTools.tools.smoothing',
+  ftest: 'coreAnalysisTools.tools.ftest',
+  fourier: 'coreAnalysisTools.tools.fourier',
+  histogram: 'coreAnalysisTools.tools.histogram',
+  moving: 'coreAnalysisTools.tools.moving',
+  random: 'coreAnalysisTools.tools.random',
+  rank: 'coreAnalysisTools.tools.rank',
+  regression: 'coreAnalysisTools.tools.regression',
+  sampling: 'coreAnalysisTools.tools.sampling',
+  tpaired: 'coreAnalysisTools.tools.tpaired',
+  tequal: 'coreAnalysisTools.tools.tequal',
+  tunequal: 'coreAnalysisTools.tools.tunequal',
+  ztest: 'coreAnalysisTools.tools.ztest',
+};
+
+/** A tool's name in the interface language, by its id. */
+export function toolLabel(id) {
+  return TOOL_KEYS[id] ? t(TOOL_KEYS[id]) : id;
+}
+
+/** The undo step's name for a layout, from the (English) title its output carries. */
+function analysisLabel(title) {
+  if (title === 'Inverse Fourier Analysis') return t('coreAnalysisTools.tools.fourierInverse');
+  const id = TOOLS.find(([, name]) => name === title)?.[0];
+  return id ? toolLabel(id) : title || t('coreAnalysisTools.dataAnalysis');
+}
 
 /* ---------- Writing the output ---------- */
 
@@ -982,7 +1018,7 @@ function readRangeColumn(wb, { sheetId, range }) {
  * (a new sheet before the active one, the output at A1). `sourceWb` is the workbook the charts' input
  * references point into (another one turns them into literal values). Returns { sheetId, range } or { error }.
  */
-export function writeAnalysisOutput(wb, layout, target, { label = layout.title || 'Data analysis', sourceWb = wb } = {}) {
+export function writeAnalysisOutput(wb, layout, target, { label = analysisLabel(layout.title), sourceWb = wb } = {}) {
   const { rows, cols } = layoutSize(layout);
   let result = null;
   let problem = null;
@@ -993,7 +1029,7 @@ export function writeAnalysisOutput(wb, layout, target, { label = layout.title |
       if (name && wb.validateSheetName(name)) { problem = wb.validateSheetName(name); return; }
       const index = Math.max(0, wb.sheets.findIndex((s) => s.id === wb.activeSheetId));
       const sheet = wb.addSheet(name || null, index);
-      if (!sheet) { problem = 'The workbook would not take a new sheet.'; return; }
+      if (!sheet) { problem = t('coreAnalysisTools.errors.noNewSheet'); return; }
       sheetId = sheet.id; fresh = true;
     } else {
       sheetId = target.sheetId; r0 = target.r; c0 = target.c;
@@ -1002,10 +1038,10 @@ export function writeAnalysisOutput(wb, layout, target, { label = layout.title |
       const sheet = wb.sheet(sheetId);
       const cut = sheet && wb._fixedArrays(sheet).ranges.some((a) => a.r1 <= box.r2 && a.r2 >= box.r1 && a.c1 <= box.c2 && a.c2 >= box.c1
         && !(a.r1 >= box.r1 && a.r2 <= box.r2 && a.c1 >= box.c1 && a.c2 <= box.c2));
-      if (cut) { problem = 'The output range would change part of an array. Choose another place for the output.'; return; }
+      if (cut) { problem = t('coreAnalysisTools.errors.outputArray'); return; }
       // A protected range in the way refuses every cell of the output (setCells writes all or none): said here,
       // before any chart goes in, rather than the output reported written where nothing was.
-      if (sheet && !sheet.protected && wb.lockedIn(sheetId, box)) { problem = 'The output range holds protected cells. Choose another place for the output.'; return; }
+      if (sheet && !sheet.protected && wb.lockedIn(sheetId, box)) { problem = t('coreAnalysisTools.errors.outputProtectedCells'); return; }
     }
     const entries = [];
     for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
@@ -1018,14 +1054,14 @@ export function writeAnalysisOutput(wb, layout, target, { label = layout.title |
     wb.ensureSize?.(sheetId, r0 + rows, c0 + cols);
     if (entries.length && !wb.setCells(sheetId, entries, label) && entries.some((e) => e.cell)) {
       const sheet = wb.sheet(sheetId);
-      if (sheet?.protected) { problem = 'The output range is on a protected sheet.'; return; }
+      if (sheet?.protected) { problem = t('coreAnalysisTools.errors.outputProtectedSheet'); return; }
     }
     if (fresh) for (const [c, w] of Object.entries(layout.colWidths || {})) wb.setColWidth(sheetId, Number(c), w);
     const sheetName = wb.sheet(sheetId).name;
     for (const chart of layout.charts || []) wb.addChart(sheetId, chartSpec(wb, sourceWb, chart, sheetName, r0, c0));
     result = { sheetId, range: { r1: r0, c1: c0, r2: r0 + rows - 1, c2: c0 + cols - 1 } };
   });
-  return problem ? { error: problem } : result || { error: 'The output could not be written.' };
+  return problem ? { error: problem } : result || { error: t('coreAnalysisTools.errors.outputFailed') };
 }
 
 /** A new workbook of one sheet named `sheetName` holding the layout, for the New Workbook output. */

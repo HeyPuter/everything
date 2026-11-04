@@ -1,0 +1,8 @@
+{
+  "columnInput": "输入引用列的单元格",
+  "columnInputLabel": "输入引用列的单元格：",
+  "invalidRef": "输入单元格引用无效",
+  "rowInput": "输入引用行的单元格",
+  "rowInputLabel": "输入引用行的单元格：",
+  "title": "模拟运算表"
+}

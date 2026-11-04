@@ -1,0 +1,23 @@
+{
+  "allReferences": "所有引用位置",
+  "errors.addReference": "请至少添加一个要合并计算的引用位置",
+  "errors.enterRange": "请输入区域，如 Sheet1!A1:C10",
+  "errors.resultInside": "结果将写入所选单元格，而该单元格位于 {ref} 内。请先选择引用位置以外的单元格",
+  "fn.average": "平均值",
+  "fn.count": "计数",
+  "fn.countNums": "数值计数",
+  "fn.max": "最大值",
+  "fn.min": "最小值",
+  "fn.product": "乘积",
+  "fn.stdev": "标准偏差",
+  "fn.stdevp": "总体标准偏差",
+  "fn.sum": "求和",
+  "fn.var": "方差",
+  "fn.varp": "总体方差",
+  "function": "函数",
+  "leftColumn": "最左列",
+  "reference": "引用位置",
+  "title": "合并计算",
+  "topRow": "首行",
+  "useLabelsIn": "标签位置"
+}

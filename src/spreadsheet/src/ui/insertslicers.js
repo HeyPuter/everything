@@ -7,6 +7,7 @@ import { openModal, fieldAlert } from './modal.js';
 import { toast } from './toast.js';
 import { insertTableSlicers, insertPivotSlicers, pivotSlicerFields } from '../core/slicer-insert.js';
 import { decodeXlsxString } from '../core/xlsx-string.js';
+import { t } from '../i18n/index.js';
 
 /** source: { table } or { pivot }. */
 export function openInsertSlicersDialog(ctx, { table = null, pivot = null }) {
@@ -28,22 +29,21 @@ export function openInsertSlicersDialog(ctx, { table = null, pivot = null }) {
     let ids;
     try {
       ids = table ? insertTableSlicers(wb, sheetId, table.id, chosen) : insertPivotSlicers(wb, sheetId, pivot, chosen);
-    } catch (error) { refuse(null, error.message || 'The slicers could not be inserted.'); return; }
+    } catch (error) { refuse(null, error.message || t('insertslicers.couldNotInsert')); return; }
     modal.close();
     if (ids.length) {
       ctx.grid.selectChart?.(ids[ids.length - 1]);
       // On a Mac a Control-click is a right-click: several items are chosen with Command there, as the slicer reads it.
-      toast(`${ids.length === 1 ? 'Slicer' : `${ids.length} slicers`} inserted. Click items to filter; ${MOD_KEY}-click to choose several`, { icon: 'filter', duration: 2600 });
+      toast(t('insertslicers.inserted', { count: ids.length, key: MOD_KEY }), { icon: 'filter', duration: 2600 });
     }
   };
-  const source = table ? `table ${table.name}` : `PivotTable ${decodeXlsxString(pivot.name)}`;
   const content = el('form', { onsubmit: submit },
-    el('p.small.muted', {}, `Choose the fields of ${source} to filter with a slicer.`),
-    el('div.field', { role: 'group', 'aria-label': 'Fields' }, el('div.dedupe-cols.slicer-fields', {}, ...boxes.map(b => b.node))),
+    el('p.small.muted', {}, table ? t('insertslicers.chooseTable', { name: table.name }) : t('insertslicers.choosePivot', { name: decodeXlsxString(pivot.name) })),
+    el('div.field', { role: 'group', 'aria-label': t('insertslicers.fields') }, el('div.dedupe-cols.slicer-fields', {}, ...boxes.map(b => b.node))),
     alert,
     el('div.row.row-end', {},
-      el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Cancel'),
-      el('button.btn.btn-primary', { type: 'submit' }, 'OK')));
-  const modal = openModal({ title: 'Insert Slicers', content, initialFocus: boxes.find(b => !b.input.disabled)?.input, onClose: () => ctx.grid.focus() });
+      el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, t('common.cancel')),
+      el('button.btn.btn-primary', { type: 'submit' }, t('common.ok'))));
+  const modal = openModal({ title: t('insertslicers.title'), content, initialFocus: boxes.find(b => !b.input.disabled)?.input, onClose: () => ctx.grid.focus() });
   return modal;
 }

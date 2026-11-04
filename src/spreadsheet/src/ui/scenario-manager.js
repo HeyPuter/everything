@@ -8,6 +8,7 @@ import { toast } from './toast.js';
 import { parseInput, editText } from '../core/format.js';
 import { cellsText, parseChangingCells, saveScenario, deleteScenario, showScenario, mergeScenarios, createScenarioSummary,
   currentValues, scenarioProblem, scenarioLocked, scenarioHidden, MAX_CHANGING_CELLS } from '../core/scenarios.js';
+import { t } from '../i18n/index.js';
 
 const today = () => new Date().toLocaleDateString(undefined, { year: 'numeric', month: 'numeric', day: 'numeric' });
 /** A stored value as the Values step shows it: as a cell opened for editing would, so it reads back as itself in
@@ -29,13 +30,13 @@ function openValues(ctx, draft, { replacing, onDone }) {
   const sheetId = ctx.sheetId();
   const start = draft.values?.length === draft.cells.length ? draft.values : currentValues(wb, sheetId, draft.cells);
   const inputs = draft.cells.map((p, i) => el('input.input', { type: 'text', value: valueText(start[i]), autocomplete: 'off', spellcheck: false,
-    'aria-label': `Value for ${cellsText([p])}` }));
+    'aria-label': t('scenarioManager.values.valueFor', { cell: cellsText([p]) }) }));
   const { alert, refuse } = fieldAlert('scenario-values');
   const collect = () => {
     const values = [];
     for (const input of inputs) {
       const text = input.value.trim();
-      if (text.startsWith('=')) { refuse(input, 'Enter a value, not a formula: a scenario stores constants'); return null; }
+      if (text.startsWith('=')) { refuse(input, t('scenarioManager.values.noFormula')); return null; }
       const v = parseInput(text).v;
       values.push(v == null ? '' : v);
     }
@@ -51,14 +52,14 @@ function openValues(ctx, draft, { replacing, onDone }) {
     if (again) openScenarioEditor(ctx, null, { onDone });
   };
   const content = el('form.sm-values', { onsubmit: (e) => { e.preventDefault(); commit(false); } },
-    el('p.small.muted', {}, 'Enter values for each of the changing cells.'),
-    el('div.sm-values-list', {}, ...draft.cells.map((p, i) => el('label.sm-value-row', {}, el('span.sm-value-index', {}, `${i + 1}:`), el('span.sm-value-cell', {}, cellsText([p])), inputs[i]))),
+    el('p.small.muted', {}, t('scenarioManager.values.intro')),
+    el('div.sm-values-list', {}, ...draft.cells.map((p, i) => el('label.sm-value-row', {}, el('span.sm-value-index', {}, t('scenarioManager.values.index', { n: i + 1 })), el('span.sm-value-cell', {}, cellsText([p])), inputs[i]))),
     alert,
     el('div.row.row-end', {},
-      el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Cancel'),
-      replacing == null ? el('button.btn', { type: 'button', onclick: () => commit(true) }, 'Add') : null,
-      el('button.btn.btn-primary', { type: 'submit' }, 'OK')));
-  const modal = openModal({ title: 'Scenario Values', content, initialFocus: inputs[0] });
+      el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, t('common.cancel')),
+      replacing == null ? el('button.btn', { type: 'button', onclick: () => commit(true) }, t('common.add')) : null,
+      el('button.btn.btn-primary', { type: 'submit' }, t('common.ok'))));
+  const modal = openModal({ title: t('scenarioManager.values.title'), content, initialFocus: inputs[0] });
 }
 
 /** Add Scenario / Edit Scenario: name, changing cells, comment and protection. */
@@ -75,7 +76,7 @@ export function openScenarioEditor(ctx, existing, { onDone } = {}) {
   const submit = async (e) => {
     e.preventDefault();
     const list = parseChangingCells(cells.value);
-    if (!list) return refuse(cells, 'Enter the changing cells as cell references, such as B1:B3 or B1,B4');
+    if (!list) return refuse(cells, t('scenarioManager.edit.badCells'));
     let editComment = comment.value;
     if (existing && existing.comment === editComment && existing.name) editComment = `${existing.comment}${existing.comment ? '\n' : ''}Modified on ${today()}`;
     const draft = { name: name.value.trim(), cells: list, comment: editComment, locked: prevent.checked, hidden: hide.checked,
@@ -83,24 +84,24 @@ export function openScenarioEditor(ctx, existing, { onDone } = {}) {
     const problem = scenarioProblem(wb, sheetId, { ...draft, values: [] }, existing?.name ?? null);
     if (problem) return refuse(problem.includes('cells') ? cells : name, problem);
     // A scenario holds values: showing one writes them over a formula in a changing cell, so that is said first, as Excel says it.
-    if (list.some((p) => wb.getCell(sheetId, p.r, p.c)?.f != null) && !await confirmDialog({ title: existing ? 'Edit Scenario' : 'Add Scenario',
-      message: 'One or more of the changing cells hold a formula. Showing a scenario replaces those formulas with the scenario\'s values.', confirmLabel: 'OK', danger: false })) return;
+    if (list.some((p) => wb.getCell(sheetId, p.r, p.c)?.f != null) && !await confirmDialog({ title: existing ? t('scenarioManager.edit.titleEdit') : t('scenarioManager.edit.titleAdd'),
+      message: t('scenarioManager.edit.formulaWarning'), confirmLabel: t('common.ok'), danger: false })) return;
     modal.close();
     openValues(ctx, draft, { replacing: existing?.name ?? null, onDone });
   };
   const content = el('form.sm-edit', { onsubmit: submit },
-    el('div.field', {}, el('label.field-label', { for: name.id }, 'Scenario name:'), name),
-    el('div.field', {}, el('label.field-label', { for: cells.id }, 'Changing cells:'), cells,
-      el('span.small.muted', {}, 'Separate non-adjacent cells with commas.')),
-    el('div.field', {}, el('label.field-label', { for: comment.id }, 'Comment:'), comment),
-    el('fieldset.check-group.vertical', {}, el('legend.field-label', {}, 'Protection'),
-      el('label.check', { for: prevent.id }, prevent, el('span', {}, 'Prevent changes')),
-      el('label.check', { for: hide.id }, hide, el('span', {}, 'Hide'))),
+    el('div.field', {}, el('label.field-label', { for: name.id }, t('scenarioManager.edit.name')), name),
+    el('div.field', {}, el('label.field-label', { for: cells.id }, t('scenarioManager.changingCells')), cells,
+      el('span.small.muted', {}, t('scenarioManager.edit.cellsHint'))),
+    el('div.field', {}, el('label.field-label', { for: comment.id }, t('scenarioManager.comment')), comment),
+    el('fieldset.check-group.vertical', {}, el('legend.field-label', {}, t('scenarioManager.edit.protection')),
+      el('label.check', { for: prevent.id }, prevent, el('span', {}, t('scenarioManager.edit.preventChanges'))),
+      el('label.check', { for: hide.id }, hide, el('span', {}, t('scenarioManager.edit.hide')))),
     alert,
     el('div.row.row-end', {},
-      el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Cancel'),
-      el('button.btn.btn-primary', { type: 'submit' }, 'OK')));
-  const modal = openModal({ title: existing ? 'Edit Scenario' : 'Add Scenario', content, initialFocus: name });
+      el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, t('common.cancel')),
+      el('button.btn.btn-primary', { type: 'submit' }, t('common.ok'))));
+  const modal = openModal({ title: existing ? t('scenarioManager.edit.titleEdit') : t('scenarioManager.edit.titleAdd'), content, initialFocus: name });
   return modal;
 }
 
@@ -108,30 +109,30 @@ function openMerge(ctx, onDone) {
   const { wb } = ctx;
   const sheetId = ctx.sheetId();
   const others = wb.sheets.filter((s) => s.id !== sheetId && s.kind !== 'chart');
-  const list = el('select.select.sm-list', { size: 6, 'aria-label': 'Sheet' }, ...others.map((s) => el('option', { value: s.id }, s.name)));
+  const list = el('select.select.sm-list', { size: 6, 'aria-label': t('scenarioManager.merge.sheet') }, ...others.map((s) => el('option', { value: s.id }, s.name)));
   const note = el('p.small.muted', {}, '');
   const describe = () => {
     const s = wb.sheet(list.value);
     const n = s?.scenarios?.list?.length || 0;
-    note.textContent = s ? `There ${n === 1 ? 'is 1 scenario' : `are ${n} scenarios`} on the source sheet.` : '';
+    note.textContent = s ? t('scenarioManager.merge.count', { count: n }) : '';
   };
   list.addEventListener('change', describe);
   if (others.length) { list.selectedIndex = 0; describe(); }
   const { alert, refuse } = fieldAlert('scenario-merge');
   const submit = (e) => {
     e.preventDefault();
-    if (!list.value) return refuse(list, 'Choose the sheet to merge scenarios from');
+    if (!list.value) return refuse(list, t('scenarioManager.merge.noSheet'));
     const n = mergeScenarios(wb, sheetId, list.value);
-    if (!n) return refuse(list, 'That sheet has no scenarios');
+    if (!n) return refuse(list, t('scenarioManager.merge.noScenarios'));
     modal.close();
     onDone?.();
   };
   const content = el('form', { onsubmit: submit },
-    el('div.field', {}, el('span.field-label', {}, 'Merge scenarios from sheet:'), list), note, alert,
+    el('div.field', {}, el('span.field-label', {}, t('scenarioManager.merge.from')), list), note, alert,
     el('div.row.row-end', {},
-      el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Cancel'),
-      el('button.btn.btn-primary', { type: 'submit' }, 'OK')));
-  const modal = openModal({ title: 'Merge Scenarios', content, initialFocus: list });
+      el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, t('common.cancel')),
+      el('button.btn.btn-primary', { type: 'submit' }, t('common.ok'))));
+  const modal = openModal({ title: t('scenarioManager.merge.title'), content, initialFocus: list });
 }
 
 function openSummary(ctx, close) {
@@ -147,33 +148,33 @@ function openSummary(ctx, close) {
     e.preventDefault();
     const text = results.value.trim();
     const cells = text ? parseChangingCells(text) : [];
-    if (!cells) return refuse(results, 'Enter the result cells as cell references, such as C10');
+    if (!cells) return refuse(results, t('scenarioManager.summary.badCells'));
     const out = createScenarioSummary(wb, sheetId, cells);
     if (out.error) return refuse(null, out.error);
     modal.close();
     close();
     wb.setActiveSheet(out.sheetId);
-    toast('Scenario summary created', { icon: 'check' });
+    toast(t('scenarioManager.summary.created'), { icon: 'check' });
   };
   const content = el('form', { onsubmit: submit },
-    el('fieldset.check-group.vertical', {}, el('legend.field-label', {}, 'Report type'),
-      el('label.check', { for: summary.id }, summary, el('span', {}, 'Scenario summary')),
-      el('label.check', { for: pivot.id, title: 'Not available yet' }, pivot, el('span', {}, 'Scenario PivotTable report'))),
-    el('div.field', {}, el('label.field-label', { for: results.id }, 'Result cells:'), results),
+    el('fieldset.check-group.vertical', {}, el('legend.field-label', {}, t('scenarioManager.summary.reportType')),
+      el('label.check', { for: summary.id }, summary, el('span', {}, t('scenarioManager.summary.summary'))),
+      el('label.check', { for: pivot.id, title: t('scenarioManager.summary.notAvailable') }, pivot, el('span', {}, t('scenarioManager.summary.pivot')))),
+    el('div.field', {}, el('label.field-label', { for: results.id }, t('scenarioManager.summary.resultCells')), results),
     alert,
     el('div.row.row-end', {},
-      el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Cancel'),
-      el('button.btn.btn-primary', { type: 'submit' }, 'OK')));
-  const modal = openModal({ title: 'Scenario Summary', content, initialFocus: results });
+      el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, t('common.cancel')),
+      el('button.btn.btn-primary', { type: 'submit' }, t('common.ok'))));
+  const modal = openModal({ title: t('scenarioManager.summary.title'), content, initialFocus: results });
 }
 
 export function openScenarioManager(ctx) {
   const { wb } = ctx;
   const sheetId = ctx.sheetId();
-  const listBox = el('select.select.sm-list', { size: 8, 'aria-label': 'Scenarios' });
+  const listBox = el('select.select.sm-list', { size: 8, 'aria-label': t('scenarioManager.scenarios') });
   const cellsOut = el('output.sm-detail');
   const commentOut = el('output.sm-detail.sm-detail-comment');
-  const empty = el('p.small.muted.sm-empty', {}, 'No Scenarios defined. Choose Add to add scenarios.');
+  const empty = el('p.small.muted.sm-empty', {}, t('scenarioManager.empty'));
   // On a protected sheet a hidden scenario is not listed, and one with Prevent changes cannot be edited or deleted.
   const scenarios = () => (wb.sheet(sheetId)?.scenarios?.list || []).filter((s) => !scenarioHidden(wb, sheetId, s));
   const selected = () => scenarios().find((s) => s.name === listBox.value) || null;
@@ -200,23 +201,23 @@ export function openScenarioManager(ctx) {
     showScenario(wb, sheetId, s.name);
     sync(s.name);
   };
-  buttons.add = el('button.btn', { type: 'button', onclick: () => openScenarioEditor(ctx, null, { onDone: (name) => sync(name) }) }, 'Add…');
+  buttons.add = el('button.btn', { type: 'button', onclick: () => openScenarioEditor(ctx, null, { onDone: (name) => sync(name) }) }, t('scenarioManager.add'));
   // Deleting the last scenario turns Delete off and hides the list: the focus goes on to Add rather than to the page.
-  buttons.delete = el('button.btn', { type: 'button', onclick: () => { const s = selected(); if (s && deleteScenario(wb, sheetId, s.name)) { sync(); if (buttons.delete.disabled) (listBox.hidden ? buttons.add : listBox).focus(); } } }, 'Delete');
-  buttons.edit = el('button.btn', { type: 'button', onclick: () => { const s = selected(); if (s) openScenarioEditor(ctx, s, { onDone: (name) => sync(name) }); } }, 'Edit…');
-  buttons.merge = el('button.btn', { type: 'button', onclick: () => openMerge(ctx, () => sync()) }, 'Merge…');
-  buttons.summary = el('button.btn', { type: 'button', onclick: () => openSummary(ctx, () => modal.close()) }, 'Summary…');
-  buttons.show = el('button.btn.btn-primary', { type: 'button', onclick: show }, 'Show');
+  buttons.delete = el('button.btn', { type: 'button', onclick: () => { const s = selected(); if (s && deleteScenario(wb, sheetId, s.name)) { sync(); if (buttons.delete.disabled) (listBox.hidden ? buttons.add : listBox).focus(); } } }, t('common.delete'));
+  buttons.edit = el('button.btn', { type: 'button', onclick: () => { const s = selected(); if (s) openScenarioEditor(ctx, s, { onDone: (name) => sync(name) }); } }, t('scenarioManager.editButton'));
+  buttons.merge = el('button.btn', { type: 'button', onclick: () => openMerge(ctx, () => sync()) }, t('scenarioManager.mergeButton'));
+  buttons.summary = el('button.btn', { type: 'button', onclick: () => openSummary(ctx, () => modal.close()) }, t('scenarioManager.summaryButton'));
+  buttons.show = el('button.btn.btn-primary', { type: 'button', onclick: show }, t('common.show'));
   const content = el('div.sm-manager', {},
     el('div.sm-top', {},
-      el('div.sm-list-wrap', {}, el('span.field-label', {}, 'Scenarios:'), listBox, empty),
+      el('div.sm-list-wrap', {}, el('span.field-label', {}, t('scenarioManager.scenariosLabel')), listBox, empty),
       el('div.sm-buttons', {}, buttons.add, buttons.delete, buttons.edit, buttons.merge, buttons.summary)),
     el('div.sm-details', {},
-      el('span.field-label', {}, 'Changing cells:'), cellsOut,
-      el('span.field-label', {}, 'Comment:'), commentOut),
-    el('div.row.row-end', {}, buttons.show, el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Close')));
+      el('span.field-label', {}, t('scenarioManager.changingCells')), cellsOut,
+      el('span.field-label', {}, t('scenarioManager.comment')), commentOut),
+    el('div.row.row-end', {}, buttons.show, el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, t('common.close'))));
   // The list and buttons are set before the dialog opens, so the focus starts on a control that is shown and on.
   sync();
-  const modal = openModal({ title: 'Scenario Manager', content, initialFocus: listBox.hidden ? buttons.add : listBox, onClose: () => ctx.grid?.focus?.() });
+  const modal = openModal({ title: t('scenarioManager.title'), content, initialFocus: listBox.hidden ? buttons.add : listBox, onClose: () => ctx.grid?.focus?.() });
   return { ...modal, select: (name) => sync(name), refresh: () => sync() };
 }
