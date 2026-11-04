@@ -1,0 +1,13 @@
+{
+  "additionalInfo": "Additional Information",
+  "close": "Close Accessibility",
+  "errors": "Errors ({count})",
+  "howToFix": "How to Fix:",
+  "noIssues": "No accessibility issues found. People with disabilities should not have difficulty reading this workbook.",
+  "results": "Inspection Results",
+  "ruleCount": "{label} ({count})",
+  "tips": "Tips ({count})",
+  "title": "Accessibility",
+  "warnings": "Warnings ({count})",
+  "whyFix": "Why Fix:"
+}

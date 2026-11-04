@@ -1,0 +1,13 @@
+{
+  "additionalInfo": "其他信息",
+  "close": "关闭辅助功能",
+  "errors": "错误（{count}）",
+  "howToFix": "修复方法：",
+  "noIssues": "未发现辅助功能问题。残障人士阅读此工作簿应该不会有困难。",
+  "results": "检查结果",
+  "ruleCount": "{label}（{count}）",
+  "tips": "提示（{count}）",
+  "title": "辅助功能",
+  "warnings": "警告（{count}）",
+  "whyFix": "修复原因："
+}

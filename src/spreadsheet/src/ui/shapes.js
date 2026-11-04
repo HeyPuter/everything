@@ -6,6 +6,7 @@ import { el } from './dom.js';
 import { openMenu } from './menu.js';
 import { openModal } from './modal.js';
 import { COMMAND_ICONS } from './command-icons.js';
+import { t } from '../i18n/index.js';
 
 const FILL = '#3a78d0', LINE = '#2a5ea8';
 const poly = (pts) => `<polygon points="${pts}" fill="${FILL}" stroke="${LINE}" stroke-width="2"/>`;
@@ -28,6 +29,34 @@ export const SHAPES = [
   ['callout', 'Speech Bubble: Rectangle', 'Callouts', 160, 104, `<path d="M4 4h92v64H40l-20 26 4-26H4z" fill="${FILL}" stroke="${LINE}" stroke-width="2"/>`],
   ['heart', 'Heart', 'Basic Shapes', 110, 100, `<path d="M50 94C18 70 2 52 2 30 2 14 14 4 28 4c10 0 18 6 22 14C54 10 62 4 72 4c14 0 26 10 26 26 0 22-16 40-48 64z" fill="${FILL}" stroke="${LINE}" stroke-width="2"/>`],
 ];
+
+/** Each shape's name and each group's heading in the gallery, as catalog keys (SHAPES keeps the English name an inserted shape is called by in the file). */
+const SHAPE_LABELS = {
+  line: 'shapes.shape.line',
+  arrow: 'shapes.shape.arrow',
+  rect: 'shapes.shape.rect',
+  roundRect: 'shapes.shape.roundRect',
+  oval: 'shapes.shape.oval',
+  triangle: 'shapes.shape.triangle',
+  diamond: 'shapes.shape.diamond',
+  pentagon: 'shapes.shape.pentagon',
+  hexagon: 'shapes.shape.hexagon',
+  rightArrow: 'shapes.shape.rightArrow',
+  leftArrow: 'shapes.shape.leftArrow',
+  upArrow: 'shapes.shape.upArrow',
+  downArrow: 'shapes.shape.downArrow',
+  star: 'shapes.shape.star',
+  callout: 'shapes.shape.callout',
+  heart: 'shapes.shape.heart',
+};
+const GROUP_LABELS = {
+  'Lines': 'shapes.group.lines',
+  'Rectangles': 'shapes.group.rectangles',
+  'Basic Shapes': 'shapes.group.basicShapes',
+  'Block Arrows': 'shapes.group.blockArrows',
+  'Stars and Banners': 'shapes.group.starsAndBanners',
+  'Callouts': 'shapes.group.callouts',
+};
 
 export function shapeSvg(key) {
   const shape = SHAPES.find(([k]) => k === key);
@@ -58,11 +87,13 @@ export const svgDataUrl = (svg) => `data:image/svg+xml;base64,${btoa(unescape(en
 export function openShapesMenu(anchor, run) {
   const groups = [...new Set(SHAPES.map(([, , group]) => group))];
   const section = (group) => el('div.shape-group', {},
-    el('div.menu-header', {}, group),
-    el('div.shape-grid', { role: 'group', 'aria-label': group }, ...SHAPES.filter(([, , g]) => g === group).map(([key, label, , , , body, viewBox = '0 0 100 100']) =>
-      el('button.shape-cell', { type: 'button', role: 'menuitem', title: label, 'aria-label': label, onclick: () => { menu.close(); run('insertShape', key); },
-        html: `<svg viewBox="${viewBox}" width="26" height="22" preserveAspectRatio="xMidYMid meet" aria-hidden="true">${body}</svg>` }))));
-  const menu = openMenu({ anchor, label: 'Shapes', minWidth: 260, items: groups.map((group) => ({ custom: section(group) })) });
+    el('div.menu-header', {}, t(GROUP_LABELS[group])),
+    el('div.shape-grid', { role: 'group', 'aria-label': t(GROUP_LABELS[group]) }, ...SHAPES.filter(([, , g]) => g === group).map(([key, , , , , body, viewBox = '0 0 100 100']) => {
+      const label = t(SHAPE_LABELS[key]);
+      return el('button.shape-cell', { type: 'button', role: 'menuitem', title: label, 'aria-label': label, onclick: () => { menu.close(); run('insertShape', key); },
+        html: `<svg viewBox="${viewBox}" width="26" height="22" preserveAspectRatio="xMidYMid meet" aria-hidden="true">${body}</svg>` });
+    })));
+  const menu = openMenu({ anchor, label: t('shapes.menuLabel'), minWidth: 260, items: groups.map((group) => ({ custom: section(group) })) });
   menu?.el?.querySelector?.('.shape-cell')?.focus?.();
   return menu;
 }
@@ -71,8 +102,8 @@ export function openShapesMenu(anchor, run) {
 export function openIconsDialog(ctx) {
   const names = Object.keys(COMMAND_ICONS).filter((n) => !/^border(?!s$)|^(decLess|decMore|errorCheck2|pageBreak2)$/.test(n));
   const chosen = new Set();
-  const search = el('input.input', { type: 'search', placeholder: 'Search icons', 'aria-label': 'Search icons', autocomplete: 'off' });
-  const grid = el('div.icon-pick-grid', { role: 'listbox', 'aria-multiselectable': 'true', 'aria-label': 'Icons' });
+  const search = el('input.input', { type: 'search', placeholder: t('shapes.searchIcons'), 'aria-label': t('shapes.searchIcons'), autocomplete: 'off' });
+  const grid = el('div.icon-pick-grid', { role: 'listbox', 'aria-multiselectable': 'true', 'aria-label': t('shapes.icons') });
   const label = (n) => n.replace(/([A-Z])/g, ' $1').toLowerCase();
   const show = () => {
     const q = search.value.trim().toLowerCase();
@@ -82,12 +113,12 @@ export function openIconsDialog(ctx) {
       html: `<img alt="" src="${svgDataUrl(iconSvg(n, 40).svg)}" width="40" height="40">`,
     })));
   };
-  const insertBtn = el('button.btn.btn-primary', { type: 'submit', disabled: true }, 'Insert');
+  const insertBtn = el('button.btn.btn-primary', { type: 'submit', disabled: true }, t('common.insert'));
   search.addEventListener('input', show);
   const content = el('form.icons-dialog', { onsubmit: (e) => { e.preventDefault(); if (!chosen.size) return; modal.close(); ctx.run('insertIcons', [...chosen]); } },
     search, grid,
-    el('div.row.row-end', { style: { marginTop: '12px' } }, el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Cancel'), insertBtn));
+    el('div.row.row-end', { style: { marginTop: '12px' } }, el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, t('common.cancel')), insertBtn));
   show();
-  const modal = openModal({ title: 'Insert Icons', content, wide: true, initialFocus: search, onClose: () => ctx.grid.focus() });
+  const modal = openModal({ title: t('shapes.insertIcons'), content, wide: true, initialFocus: search, onClose: () => ctx.grid.focus() });
   return modal;
 }

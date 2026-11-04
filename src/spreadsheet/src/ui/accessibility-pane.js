@@ -7,8 +7,9 @@
 import { el } from './dom.js';
 import { icon } from './icons.js';
 import { checkAccessibility, groupFindings } from '../core/accessibility-check.js';
+import { t } from '../i18n/index.js';
 
-const TIER = { error: 'Errors', warning: 'Warnings', tip: 'Tips' };
+const TIER = { error: 'accessibilityPane.errors', warning: 'accessibilityPane.warnings', tip: 'accessibilityPane.tips' };
 
 export function createAccessibilityPane(ctx) {
   let chosenRule = null;
@@ -16,16 +17,16 @@ export function createAccessibilityPane(ctx) {
   let findings = [];
   const results = el('div.a11y-results');
   const info = el('div.a11y-info', { hidden: true });
-  const close = el('button.icon-btn', { type: 'button', 'aria-label': 'Close Accessibility', html: icon('x', 16), onclick: () => api.hide() });
-  const root = el('section.a11y-pane', { role: 'region', 'aria-label': 'Accessibility', hidden: true },
-    el('div.a11y-head', {}, el('span.a11y-title', {}, 'Accessibility'), close),
-    el('div.a11y-body', {}, el('h3.a11y-heading', {}, 'Inspection Results'), results, info));
+  const close = el('button.icon-btn', { type: 'button', 'aria-label': t('accessibilityPane.close'), html: icon('x', 16), onclick: () => api.hide() });
+  const root = el('section.a11y-pane', { role: 'region', 'aria-label': t('accessibilityPane.title'), hidden: true },
+    el('div.a11y-head', {}, el('span.a11y-title', {}, t('accessibilityPane.title')), close),
+    el('div.a11y-body', {}, el('h3.a11y-heading', {}, t('accessibilityPane.results')), results, info));
 
   const describe = (rule) => {
     if (!rule) { info.hidden = true; return; }
     info.hidden = false;
-    info.replaceChildren(el('h3.a11y-heading', {}, 'Additional Information'),
-      el('h4', {}, 'Why Fix:'), el('p', {}, rule.why), el('h4', {}, 'How to Fix:'), el('p', {}, rule.how));
+    info.replaceChildren(el('h3.a11y-heading', {}, t('accessibilityPane.additionalInfo')),
+      el('h4', {}, t('accessibilityPane.whyFix')), el('p', {}, rule.why), el('h4', {}, t('accessibilityPane.howToFix')), el('p', {}, rule.how));
   };
 
   function render(force = false) {
@@ -40,17 +41,17 @@ export function createAccessibilityPane(ctx) {
     const focusKey = focused?.dataset.key, onSummary = focused?.tagName === 'DETAILS';
     if (!findings.length) {
       results.replaceChildren(el('p.a11y-clear', {}, el('span', { html: icon('check', 18, 2) }),
-        'No accessibility issues found. People with disabilities should not have difficulty reading this workbook.'));
+        t('accessibilityPane.noIssues')));
       describe(null);
       return;
     }
     const groups = groupFindings(findings).filter((g) => g.count);
     const open = (key, fallback) => opened.get(key) ?? fallback;
     results.replaceChildren(...groups.map((group) => el('details.a11y-tier', { open: open(`tier:${group.severity}`, true), dataset: { key: `tier:${group.severity}` } },
-      el('summary', {}, `${TIER[group.severity]} (${group.count})`),
+      el('summary', {}, t(TIER[group.severity], { count: group.count })),
       ...group.rules.map((rule) => {
         const node = el('details.a11y-rule', { open: open(`rule:${rule.rule}`, chosenRule === rule.rule), dataset: { key: `rule:${rule.rule}` } },
-          el('summary', { onclick: () => { chosenRule = rule.rule; describe(rule); } }, `${rule.label} (${rule.items.length})`),
+          el('summary', { onclick: () => { chosenRule = rule.rule; describe(rule); } }, t('accessibilityPane.ruleCount', { label: rule.label, count: rule.items.length })),
           el('ul', {}, ...rule.items.map((item) => el('li', {}, el('button.a11y-item', {
             type: 'button', dataset: { key: `item:${rule.rule}:${item.label}` }, onclick: () => { chosenRule = rule.rule; describe(rule); ctx.reveal(item); },
           }, item.label)))));

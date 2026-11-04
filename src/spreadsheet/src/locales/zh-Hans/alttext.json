@@ -1,0 +1,11 @@
+{
+  "decorativeHelp": "装饰性对象可增加视觉趣味，但不传达信息（例如样式边框）。使用屏幕阅读器的人会听到这些对象是装饰性的。",
+  "descriptionLabel": "替代文字说明",
+  "markDecorative": "标记为装饰性",
+  "placeholder": "为看不到它的人描述此内容",
+  "prompt": "你会如何向盲人或低视力人士描述此对象及其上下文？",
+  "readFromText": "如果留空，将朗读图形中的文字。",
+  "title": "替代文字",
+  "undoEdit": "编辑替代文字",
+  "useDiagramText": "使用图示中的文字"
+}

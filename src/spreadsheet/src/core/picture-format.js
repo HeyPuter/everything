@@ -15,6 +15,7 @@
  *   lockAspect  false  when resizing may change the picture's proportions
  */
 import { pictureRect } from './picture-geometry.js';
+import { t } from '../i18n/index.js';
 
 const clamp = (n, lo, hi) => Math.min(hi, Math.max(lo, n));
 const round = (n, places = 4) => Math.round(n * 10 ** places) / 10 ** places;
@@ -100,6 +101,9 @@ export const CROP_ASPECTS = [
   ['Portrait', '3:4', 3 / 4], ['Portrait', '2:3', 2 / 3], ['Portrait', '9:16', 9 / 16],
 ];
 
+/** Crop to Aspect Ratio's words for one of CROP_ASPECTS: "1:1 (square)", "4:3 (landscape)". */
+export const cropAspectLabel = (kind, ratio) => t('pictureFormat.cropAspect', { kind: kind.toLowerCase(), ratio });
+
 /**
  * The largest crop of the picture with `ratio` (shown width over height) about the centre of the
  * current crop: what choosing an aspect ratio under Crop does.
@@ -181,16 +185,16 @@ export function applyPictureFilter(data, obj) {
 
 /* ---------- Picture styles ---------- */
 
-/** The Picture Styles gallery: each a patch of outline, shape and shadow. */
+/** The Picture Styles gallery: each a patch of outline, shape and shadow, and its name in the interface language. */
 export const PICTURE_STYLES = [
-  { id: 'none', label: 'No Style', patch: { outline: null, shape: null, shadow: false } },
-  { id: 'whiteFrame', label: 'White Frame', patch: { outline: { width: 6, color: '#ffffff' }, shape: null, shadow: true } },
-  { id: 'blackFrame', label: 'Black Frame', patch: { outline: { width: 6, color: '#1f1f1f' }, shape: null, shadow: false } },
-  { id: 'thinBorder', label: 'Thin Border', patch: { outline: { width: 1.5, color: '#7f7f7f' }, shape: null, shadow: false } },
-  { id: 'dropShadow', label: 'Drop Shadow', patch: { outline: null, shape: null, shadow: true } },
-  { id: 'rounded', label: 'Rounded Corners', patch: { outline: null, shape: 'roundRect', shadow: false } },
-  { id: 'roundedFrame', label: 'Rounded Frame', patch: { outline: { width: 4, color: '#ffffff' }, shape: 'roundRect', shadow: true } },
-  { id: 'oval', label: 'Oval', patch: { outline: null, shape: 'ellipse', shadow: false } },
+  { id: 'none', get label() { return t('pictureFormat.style.none'); }, patch: { outline: null, shape: null, shadow: false } },
+  { id: 'whiteFrame', get label() { return t('pictureFormat.style.whiteFrame'); }, patch: { outline: { width: 6, color: '#ffffff' }, shape: null, shadow: true } },
+  { id: 'blackFrame', get label() { return t('pictureFormat.style.blackFrame'); }, patch: { outline: { width: 6, color: '#1f1f1f' }, shape: null, shadow: false } },
+  { id: 'thinBorder', get label() { return t('pictureFormat.style.thinBorder'); }, patch: { outline: { width: 1.5, color: '#7f7f7f' }, shape: null, shadow: false } },
+  { id: 'dropShadow', get label() { return t('pictureFormat.style.dropShadow'); }, patch: { outline: null, shape: null, shadow: true } },
+  { id: 'rounded', get label() { return t('pictureFormat.style.rounded'); }, patch: { outline: null, shape: 'roundRect', shadow: false } },
+  { id: 'roundedFrame', get label() { return t('pictureFormat.style.roundedFrame'); }, patch: { outline: { width: 4, color: '#ffffff' }, shape: 'roundRect', shadow: true } },
+  { id: 'oval', get label() { return t('pictureFormat.style.oval'); }, patch: { outline: null, shape: 'ellipse', shadow: false } },
 ];
 
 const sameOutline = (a, b) => (!a && !b) || (!!a && !!b && a.width === b.width && a.color === b.color);

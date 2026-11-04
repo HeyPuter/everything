@@ -1,0 +1,13 @@
+{
+  "bringForward": "Bring Forward",
+  "close": "Close Selection Pane",
+  "empty": "There are no charts, pictures, shapes or text boxes on this sheet.",
+  "hideAll": "Hide All",
+  "hideObject": "Hide {name}",
+  "objectName": "Object name",
+  "objects": "Objects on this sheet",
+  "sendBackward": "Send Backward",
+  "showAll": "Show All",
+  "showObject": "Show {name}",
+  "title": "Selection"
+}
