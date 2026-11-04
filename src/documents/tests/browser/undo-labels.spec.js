@@ -55,3 +55,26 @@ test('Edit › Undo names a correction made as you type AutoCorrect, and a typed
   await page.keyboard.type('Item');
   expect(await undoItem(page)).toMatch(/^Undo Typing/);
 });
+
+test('a step keeps its name through Undo and Redo', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/mock.html#/new');
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await page.locator('canvas.canvas-page').first().click({ position: { x: 150, y: 110 } });
+  await page.keyboard.type('One ');
+  await input(page).focus();
+  await paste(page, 'two');
+  await expect(input(page)).toHaveValue('One two');
+  expect(await undoItem(page)).toMatch(/^Undo Paste/);
+  await input(page).press('ControlOrMeta+z');
+  await expect(input(page)).toHaveValue('One ');
+  expect(await undoItem(page)).toMatch(/^Undo Typing/);
+  await input(page).press('ControlOrMeta+Shift+z');
+  await expect(input(page)).toHaveValue('One two');
+  expect(await undoItem(page)).toMatch(/^Undo Paste/);
+  // Twice round, and in the Undo history too.
+  await input(page).press('ControlOrMeta+z');
+  await input(page).press('ControlOrMeta+Shift+z');
+  expect(await undoItem(page)).toMatch(/^Undo Paste/);
+  expect(await page.evaluate(() => window.__docs.current.view.commands.undoHistory())).toEqual(['Paste', 'Typing']);
+});

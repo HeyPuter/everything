@@ -226,6 +226,7 @@ export class StorySession {
       const current = { path: this.path, page: this.page, settings: this.settingsState(), caret: this.caret?.() };
       this.applySettings(entry.settings);
       try { validate?.(this.model); } catch (error) { this.applySettings(current.settings); throw error; }
+      if (entry.label) current.label = entry.label;
       from.pop(); to.push(current);
       this.revision++;
       return true;
@@ -237,6 +238,8 @@ export class StorySession {
       this.restore(entry);
       this.guard?.(current.state, this.model, this.path);
       validate?.(this.model);
+      // The step keeps its name (for the host's menus) in both directions.
+      if (entry.label) current.label = entry.label;
       from.pop(); to.push(current);
       this.revision++;
       this.prepareSnapshot();

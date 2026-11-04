@@ -886,8 +886,11 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
   editorCommands.contextMenuItems = (context, kit) => [...(chromeContextMenuItems?.(context, kit) || [])];
   const editCommands = createEditCommands({ editor: () => engine, pkg: () => pkg, editLink: () => editHyperlink(engine?.input), searchQuery: () => outlinePanel.query, onChange: () => update() });
   Object.assign(editorCommands, editCommands);
-  // Undo steps are named after the command that made them; a command that changed the document is the one Repeat runs.
-  const undoLabels = new WeakMap();
+  // Undo steps are named (their `label`) after the command that made them, a name the step keeps through Undo and Redo
+  // (StorySession.travel); a command that changed the document is the one Repeat runs. A shared document's steps are
+  // one frozen placeholder (collab binding), named here instead.
+  const sharedLabels = new WeakMap();
+  const labelOf = entry => entry?.label || sharedLabels.get(entry) || null;
   let pendingCommand = null, lastTextLength = null;
   // No label forgets the one noted: the command it named changed nothing, and the next edit is not it. A name alone
   // (a paste, whichever command started it) keeps the same command a menu noted just before, with what Repeat runs.
@@ -898,11 +901,10 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
   function labelHistory() {
     if (!engine) return;
     const top = engine.session.history.at(-1), length = engine.model.text.length;
-    // A step the editor named itself (AutoCorrect) is that: no command noted just before made it.
-    if (top?.label && !undoLabels.has(top)) undoLabels.set(top, top.label);
-    else if (top && !undoLabels.has(top)) {
-      const recent = pendingCommand && Date.now() - pendingCommand.at < 3000 ? pendingCommand : null;
-      undoLabels.set(top, recent?.label || (length !== lastTextLength ? 'Typing' : 'Formatting'));
+    // A step the editor named itself (AutoCorrect) keeps that name.
+    if (top && !labelOf(top)) {
+      const recent = pendingCommand && Date.now() - pendingCommand.at < 3000 ? pendingCommand : null, label = recent?.label || (length !== lastTextLength ? 'Typing' : 'Formatting');
+      if (Object.isFrozen(top)) sharedLabels.set(top, label); else top.label = label;
       if (recent?.run) editCommands.recordRepeat(recent.label, recent.run);
       pendingCommand = null;
     }
@@ -954,10 +956,10 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     // Undo history.
     undoLabel: () => {
       const top = engine?.session.history.at(-1);
-      return top ? undoLabels.get(top) || null : !collab.live && designVersions.undo.at(-1)?.label || null;
+      return top ? labelOf(top) : !collab.live && designVersions.undo.at(-1)?.label || null;
     },
     // What Undo steps back through, latest first: the editor's own steps, then the design changes before them (onHistoryEnd).
-    undoHistory: () => engine ? [...[...engine.session.history].reverse().map(entry => undoLabels.get(entry) || 'Edit'),
+    undoHistory: () => engine ? [...[...engine.session.history].reverse().map(entry => labelOf(entry) || 'Edit'),
       ...(collab.live ? [] : [...designVersions.undo].reverse().map(entry => entry.label || 'Design Change'))] : [],
     async undoSteps(count) {
       let left = count;
