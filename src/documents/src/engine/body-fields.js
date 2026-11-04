@@ -143,15 +143,20 @@ export function removeFields(paragraphs, ids) {
   }
 }
 
+// A paragraph's markers are written as the reader writes them (same keys, in the same order, and the list in
+// the paragraph's own place), so a paragraph an edit elsewhere left alone reads the same as when it was opened:
+// the writer saves such a paragraph's source XML as it was (docx.js compares them as JSON). Rebuilt in another
+// order, every paragraph holding a field was rewritten on each save after any edit.
 export function placeBodyFields(paragraphs, ranges) {
-  const output = paragraphs.map(p => { const copy = { ...p }; delete copy.fieldMarkers; return copy; });
+  const output = paragraphs.map(p => { const copy = { ...p }; if (copy.fieldMarkers) copy.fieldMarkers = []; return copy; });
   const events = ranges.flatMap(r => [{ position:r.start, type:'start', field:r.field, order:r.startOrder, link:r.startLink, contentControlId:r.contentControlId }, { position:r.end, type:'end', field:r.field, order:r.endOrder, link:r.endLink, contentControlId:r.contentControlId }]).sort((a,b)=>a.position-b.position || (a.order??0)-(b.order??0));
   let index = 0, at = 0;
   for (const event of events) {
     while (index < output.length-1 && event.position > at+length(output[index])) at += length(output[index++])+1;
     if (event.position > at+length(output[index])) throw new Error('Body field position exceeds document contents.');
-    (output[index].fieldMarkers ||= []).push({ type:event.type, field:event.field, offset:event.position-at, order:event.order, ...(event.link?{link:event.link}:{}), ...(event.contentControlId?{contentControlId:event.contentControlId}:{}) });
+    (output[index].fieldMarkers ||= []).push({ type:event.type, offset:event.position-at, field:event.field, order:event.order, ...(event.link?{link:event.link}:{}), ...(event.contentControlId?{contentControlId:event.contentControlId}:{}) });
   }
+  for (const p of output) if (p.fieldMarkers && !p.fieldMarkers.length) delete p.fieldMarkers;
   bodyFieldRanges(output);
   return output;
 }

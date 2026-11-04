@@ -133,3 +133,23 @@ export function mergeEngineCounts(stats, counts) {
   if (Number.isInteger(counts.paragraphs) && counts.paragraphs >= 0) out.paragraphs = counts.paragraphs;
   return out;
 }
+
+let graphemeSegmenter;
+/**
+ * The start of `text`, at most `max` UTF-16 code units long, ending between two characters a reader sees: never
+ * inside an emoji (two code units, or several joined), a flag, or a letter and its accents. A cut that would halve
+ * one leaves it out (a character longer than `max` on its own is kept whole). Text within the limit is returned as is.
+ */
+export function clipText(text, max) {
+  const s = String(text ?? '');
+  if (s.length <= max) return s;
+  graphemeSegmenter ??= typeof Intl?.Segmenter === 'function' ? new Intl.Segmenter(undefined, { granularity: 'grapheme' }) : null;
+  if (!graphemeSegmenter) return s.slice(0, /[\ud800-\udbff]/.test(s[max - 1] || '') ? max - 1 : max);
+  // Graphemes past the cut do not matter: segmenting a bounded window keeps a long text cheap.
+  let end = 0;
+  for (const { segment, index } of graphemeSegmenter.segment(s.slice(0, max + 64))) {
+    if (index + segment.length > max) return s.slice(0, end || index + segment.length);
+    end = index + segment.length;
+  }
+  return s.slice(0, end);
+}

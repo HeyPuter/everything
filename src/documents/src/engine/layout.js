@@ -468,7 +468,9 @@ function layoutPass(paragraphs, measureBase, page, numbering, tables, pageStorie
           box.margins = margins;
           box.pageBottomInset = padding[rowIndex + cell.rowSpan - 1].bottom / 15 + pageBottomWidths[rowIndex + cell.rowSpan - 1];
           const clipOverflow = flexibleCounts[rowIndex] === flexibleCounts[rowIndex + cell.rowSpan];
-          const cellPage = { ...page, tableDepth: box.depth, allowOverflowIndents: true, clipOverflow, left: box.x + margins.left / 15, right: page.width - x + margins.right / 15, top: page.top + margins.top / 15, bottom: page.bottom + margins.bottom / 15 };
+          const cellGeometry = { tableDepth: box.depth, allowOverflowIndents: true, clipOverflow, left: box.x + margins.left / 15, right: page.width - x + margins.right / 15, top: page.top + margins.top / 15, bottom: page.bottom + margins.bottom / 15 };
+          const cellPage = { ...page, ...cellGeometry };
+          if (flowNames) paragraphCache.cellPage(cellPage, pageKey(page), cellGeometry);
           if (cellPage.left >= page.width - cellPage.right) throw new Error('Cell margins leave no writing space.');
           const nestedFloats = [];
           const previousCell = row.cells[index - 1];
@@ -492,8 +494,10 @@ function layoutPass(paragraphs, measureBase, page, numbering, tables, pageStorie
               if (result.lines.some(l => ['page', 'column'].includes(l.hardBreak))) throw new Error('Page breaks inside table cells are not supported yet.');
               // Only the measured preview changes; retain the authored
               // property and rich paragraph in the model and original file.
-              return { ...result, ...(result.format.pageBreakBefore ? { format: { ...result.format, pageBreakBefore: false } } : {}),
-                lines: result.lines.map(line => ({ ...line, cellId: cell.id, columnLeft: cellPage.left })) };
+              const extra = { cellId: cell.id, columnLeft: cellPage.left };
+              const copy = { ...result, ...(result.format.pageBreakBefore ? { format: { ...result.format, pageBreakBefore: false } } : {}),
+                lines: result.lines.map(line => ({ ...line, ...extra })) };
+              return flowNames ? paragraphCache.cellCopy(copy, result, extra) : copy;
             });
             if (child.table?.floating) {
               if (!anchor) throw new Error('Floating tables require a following anchor paragraph.');
@@ -1038,8 +1042,12 @@ function measureParagraph(p, documentOffset, measure, page, listMarker, numberin
     const lastLine = end === chars.length || hardBreak === 'page' && end === chars.length - 1 && !page.splitPgBreakAndParaMark;
     // Distributed alignment (§17.18.44 distribute) spreads every line, the last one included.
     const distribute = format.alignment === 'distribute';
-    if (distribute || format.alignment === 'both' && !contraction && !lastLine && !(hardBreak === 'line' && page.doNotExpandShiftReturn)) {
-      const range = justificationRange(span, measured, right, builder.field.tab, distribute);
+    // Thai justification (§17.18.44 thaiDistribute) widens the gaps between characters as well as between words,
+    // as distributed alignment does, but leaves the last line as justified text does: this editor's approximation of
+    // its "slight" inter-character optimization.
+    const thai = format.alignment === 'thaiDistribute';
+    if (distribute || (format.alignment === 'both' || thai) && !contraction && !lastLine && !(hardBreak === 'line' && page.doNotExpandShiftReturn)) {
+      const range = justificationRange(span, measured, right, builder.field.tab, distribute || thai);
       if (range) {
         let spacing = range.spacing;
         for (let attempt = 0; attempt < 4; attempt++) {

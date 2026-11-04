@@ -866,7 +866,7 @@ function writeRunChange(properties, revision, make, previousProperties) {
   return properties;
 }
 /** Insert move range markers around each run of moveFrom/moveTo wrappers (§17.13.5.22–.27). */
-function writeMoveRanges(node, names, counters, make) {
+function writeMoveRanges(node, names, counters, make, created = []) {
   const containers = [node, ...[...node.getElementsByTagNameNS(W, 'hyperlink')]];
   for (const container of containers) {
     let group = [];
@@ -879,6 +879,7 @@ function writeMoveRanges(node, names, counters, make) {
       start.setAttributeNS(W, 'w:author', first.getAttributeNS(W, 'author') || ''); if (first.getAttributeNS(W, 'date')) start.setAttributeNS(W, 'w:date', first.getAttributeNS(W, 'date'));
       const end = make(`${kind}RangeEnd`); end.setAttributeNS(W, 'w:id', id);
       first.before(start); group.at(-1).after(end); group = [];
+      created.push({ key, base, start, end });
     };
     for (const n of children(container)) {
       const move = n.namespaceURI === W && ['moveFrom', 'moveTo'].includes(n.localName);
@@ -886,6 +887,28 @@ function writeMoveRanges(node, names, counters, make) {
       else { flush(); if (move) group.push(n); }
     }
     flush();
+  }
+}
+/**
+ * A move the source recorded as one range spanning paragraphs (Word's move of whole paragraphs, its range ending
+ * in or after the last of them) is one range again, from its first moved content to its last: written a paragraph
+ * at a time, it became a move per paragraph (move1, move1_2…) on each side. Only named moves join; a move
+ * name is unique to its range on each side (§17.13.5.24).
+ */
+function joinMoveRanges(created) {
+  const byName = new Map();
+  for (const range of created) if (range.base !== 'move' && range.start.isConnected) {
+    if (!byName.has(range.key)) byName.set(range.key, []);
+    byName.get(range.key).push(range);
+  }
+  for (const ranges of byName.values()) {
+    if (ranges.length < 2) continue;
+    ranges.sort((a, b) => a.start.compareDocumentPosition(b.start) & 4 ? -1 : 1);
+    const [first] = ranges, last = ranges.at(-1);
+    first.start.setAttributeNS(W, 'w:name', first.base);
+    for (const range of ranges.slice(1)) range.start.remove();
+    for (const range of ranges.slice(0, -1)) range.end.remove();
+    last.end.setAttributeNS(W, 'w:id', first.start.getAttributeNS(W, 'id'));
   }
 }
 // Each unchanged paragraph's source XML, parsed once: every save imports it again (importNode copies it). Saving a
@@ -926,10 +949,19 @@ function documentSkeleton(bytes) {
   }
   return xml(text);
 }
+// Cached page-break hints (§17.3.3.13 lastRenderedPageBreak) leave a part its edits rewrite. A run that held
+// nothing but a hint goes with it, rather than staying behind as an empty run in an untouched paragraph.
+function removeRenderedPageBreaks(doc) {
+  for (const hint of [...doc.getElementsByTagNameNS(W, 'lastRenderedPageBreak')]) {
+    const run = hint.parentNode;
+    hint.remove();
+    if (run?.namespaceURI === W && run.localName === 'r' && ![...run.children].some(n => !(n.namespaceURI === W && n.localName === 'rPr')) && !run.textContent.trim()) run.remove();
+  }
+}
 function paragraphWriter(doc, styles, numbering, originals, writeImage, writeLink, sectionSource = p => ({ xml: p.sectionProperties, settings: p.sectionEnd })) {
   const make = name => doc.createElementNS(W, `w:${name}`);
-  const moveNames = new WeakMap(), moveCounters = new Map();
-  return p => {
+  const moveNames = new WeakMap(), moveCounters = new Map(), moveRanges = [];
+  const write = p => {
     const inheritedCaps = id => styleRun(styles, id || styles.defaultCharacter, paragraphRunStyle(p, styles), 'character').capitalization;
     const inheritedStrike = id => styleRun(styles, id || styles.defaultCharacter, paragraphRunStyle(p, styles), 'character').strikethrough;
     const original = originals.get(p.id);
@@ -1182,10 +1214,13 @@ function paragraphWriter(doc, styles, numbering, originals, writeImage, writeLin
         }
         place(r, run);
       }
-      writeMoveRanges(node, moveNames, moveCounters, make);
+      writeMoveRanges(node, moveNames, moveCounters, make, moveRanges);
     }
     return node;
   };
+  // Once every paragraph is in the part: a move written a paragraph at a time is one range again (joinMoveRanges).
+  write.finish = () => joinMoveRanges(moveRanges);
+  return write;
 }
 
 // Controls in a retained drawing belong to its separately validated text story.
@@ -2321,8 +2356,11 @@ export class DocxPackage {
     if (this.readOnly) throw new Error('This document is open read-only.');
     const names = NOTE_KINDS[kind], key = `${kind}s`;
     this.notesParts ||= {};
-    let part = this.pageStories?.[key]?.part || this.notesParts[kind] || relatedPartPath(this.parts, names.part);
-    if (!part) part = kind === 'footnote' ? createFootnotesPart(this.parts) : createNotesPart(this.parts, kind);
+    let part = this.pageStories?.[key]?.part || this.notesParts[kind] || relatedPartPath(this.parts, names.part), created = null;
+    if (!part) {
+      created = { types: this.parts['[Content_Types].xml'], rels: this.parts['word/_rels/document.xml.rels'], notesPart: this.notesParts[kind], footnotesPart: this.footnotesPart };
+      part = kind === 'footnote' ? createFootnotesPart(this.parts) : createNotesPart(this.parts, kind);
+    }
     const used = new Set([...xml(this.parts[part]).getElementsByTagNameNS(W, names.element)].map(n => Number(n.getAttributeNS(W, 'id'))));
     for (const path of this.storyOriginals.keys()) { const id = footnoteStoryId(path); if (id !== null && path.startsWith(`${part}#`)) used.add(Number(id)); }
     let id = 1; while (used.has(id)) id++;
@@ -2331,8 +2369,31 @@ export class DocxPackage {
     this.notesParts[kind] = part;
     if (kind === 'footnote') { this.footnotesPart = part; (this.createdFootnotes ||= new Set()).add(String(id)); }
     ((this.createdNotes ||= {})[kind] ||= new Set()).add(String(id));
+    (this.reservedNotes ||= new Map()).set(path, { kind, id: String(id), part, created });
     // Settings changed in this session (setNoteSettings) override the file's: the note is shown as it is saved.
     return { id: String(id), part, path, settings: { ...NOTE_DEFAULTS[kind], ...this.pageStories?.[key], ...this.noteSettings?.[kind], part } };
+  }
+  /**
+   * Give back a note addNote reserved whose reference never reached the document (the edit was refused, under
+   * Restrict Editing say): the notes part it created, with its relationship and content type, goes again, so the
+   * refused command leaves the package as it was.
+   */
+  releaseNote(note) {
+    const reserved = this.reservedNotes?.get(note?.path);
+    if (!reserved) return false;
+    this.reservedNotes.delete(note.path);
+    this.storyOriginals.delete(note.path);
+    this.createdNotes?.[reserved.kind]?.delete(reserved.id);
+    if (reserved.kind === 'footnote') this.createdFootnotes?.delete(reserved.id);
+    const { created } = reserved;
+    if (created && ![...this.reservedNotes.values()].some(other => other.part === reserved.part)) {
+      delete this.parts[reserved.part];
+      this.parts['[Content_Types].xml'] = created.types;
+      if (created.rels) this.parts['word/_rels/document.xml.rels'] = created.rels; else delete this.parts['word/_rels/document.xml.rels'];
+      if (created.notesPart) this.notesParts[reserved.kind] = created.notesPart; else delete this.notesParts[reserved.kind];
+      if (reserved.kind === 'footnote') { if (created.footnotesPart) this.footnotesPart = created.footnotesPart; else delete this.footnotesPart; }
+    }
+    return true;
   }
   /** Note numbering and placement for the whole document (settings footnotePr/endnotePr); written on the next export. */
   setNoteSettings(kind, values) {
@@ -2376,7 +2437,8 @@ export class DocxPackage {
       const writeParagraph = paragraphWriter(doc, styles, numbering, original.paragraphs, writeImage, writeLink);
       root.replaceChildren();
       appendControlledBlocks(root, blocks.map(block => ({ ...block, blockControls: (block.type === 'table' ? block.table : block.paragraph).blockControls })), block => block.type === 'table' ? writeTable(block, doc, writeParagraph) : writeParagraph(block.paragraph), doc);
-      for (const hint of [...doc.getElementsByTagNameNS(W, 'lastRenderedPageBreak')]) hint.remove();
+      writeParagraph.finish();
+      removeRenderedPageBreaks(doc);
       bindImageNamespaces(doc); bindHyperlinkNamespaces(doc);
       if (noteId === null) parts[path] = strToU8(serialize(doc).replace(/^(<\?xml[^?]*encoding=)["'][^"']*["']/i, '$1"UTF-8"'));
     }
@@ -2388,6 +2450,19 @@ export class DocxPackage {
   setPageNumbering(section, value) { if (this.readOnly) throw new Error('This document is open read-only.'); this.pageNumberings.set(section, value ? { format: value.format || 'decimal', ...(Number.isInteger(value.start) ? { start: value.start } : {}) } : null); }
   /** Different odd and even page headers (settings evenAndOddHeaders); written on the next export. */
   setEvenAndOdd(on) { if (this.readOnly) throw new Error('This document is open read-only.'); this.evenAndOdd = !!on; }
+  /** The header, footer and note settings this session set (above and setNoteSettings), for Undo to put back. */
+  settingsState() {
+    return { titlePages: [...this.titlePages], pageNumberings: [...this.pageNumberings], evenAndOdd: this.evenAndOdd, noteSettings: this.noteSettings ? JSON.parse(JSON.stringify(this.noteSettings)) : null,
+      // The custom XML items as they are (the citation sources and style): each write replaces an item's bytes.
+      customXml: Object.entries(this.parts).filter(([path]) => /^customXml\/item\d+\.xml$/.test(path)) };
+  }
+  restoreSettings(state) {
+    if (!state) return;
+    this.titlePages = new Map(state.titlePages); this.pageNumberings = new Map(state.pageNumberings); this.evenAndOdd = state.evenAndOdd;
+    if (state.noteSettings) this.noteSettings = JSON.parse(JSON.stringify(state.noteSettings)); else delete this.noteSettings;
+    // An item made since stays (with its relationship and content type), as it was made.
+    for (const [path, bytes] of state.customXml || []) if (Object.hasOwn(this.parts, path)) this.parts[path] = bytes;
+  }
   /** Remove footnotes and endnotes whose body reference was deleted. */
   pruneFootnotes(parts, paragraphs) {
     for (const kind of ['footnote', 'endnote']) {
@@ -2501,6 +2576,7 @@ export class DocxPackage {
     // The final paragraph the reader added to a body without one stays out of the file while it is untouched.
     blocks = blocks.filter(block => { const original = block.type === 'paragraph' && this.originals.get(block.paragraph.id); return !(original?.added && original.signature === signature(block.paragraph)); });
     appendControlledBlocks(body, blocks.map(block => ({ ...block, blockControls: (block.type === 'table' ? block.table : block.paragraph).blockControls })), block => block.type === 'table' ? writeTable(block, doc, writeParagraph) : writeParagraph(block.paragraph), doc, null, section || null);
+    writeParagraph.finish();
     const sectionParagraphs = paragraphs.filter(p => p.sectionEnd);
     const sourceSectionCount = this.paragraphs.filter(p => p.sectionEnd).length + 1;
     const sectionIndices = [...sectionParagraphs.map((p, i) => p.sectionSourceIndex ?? i), sourceSectionCount - 1];
@@ -2519,7 +2595,7 @@ export class DocxPackage {
     if (this.titlePages.size) writeTitlePages(outputSections, this.titlePages, sectionOrder);
     if (this.pageNumberings.size) writePageNumbering(outputSections, this.pageNumberings, sectionOrder);
     // These are cached renderer hints, not author-inserted breaks; edits invalidate them.
-    for (const hint of [...doc.getElementsByTagNameNS(W, 'lastRenderedPageBreak')]) hint.remove();
+    removeRenderedPageBreaks(doc);
     // A comment's reference can sit in an unchanged paragraph away from its range, whose source XML is reused:
     // drop references to comments deleted since opening (and the run that only carried one).
     if (comments) {

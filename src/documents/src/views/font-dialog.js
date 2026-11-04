@@ -1,10 +1,12 @@
 import { el, fieldId } from '../ui/dom.js';
+import { clipText } from '../core/text.js';
 import { openModal } from '../ui/modal.js';
 import { UNDERLINE_STYLES } from '../engine/underlines.js';
 import { FALLBACK_SIZES } from '../lib/fontsize.js';
 import { openTextColor } from './text-color.js';
 import { fontChoices } from './font-picker.js';
 import { revealInvalidControls } from './format-dialog-kit.js';
+import { canvasFontFamily, cssFontString } from '../engine/font-families.js';
 
 const STYLES = [['regular', 'Regular'], ['italic', 'Italic'], ['bold', 'Bold'], ['boldItalic', 'Bold Italic']];
 const SCALES = [200, 150, 100, 90, 80, 66, 50, 33];
@@ -18,7 +20,18 @@ const swatch = color => !color || color === 'auto' ? '#000' : `#${color}`;
  *
  * format: the selection's run formatting (null where mixed). apply(patch) returns false on failure.
  */
-export function openFontDialog({ format: f, sample = '', apply, onClose, setDefault = null, textEffects = null, ligatures = false, title = 'Font' }) {
+// Chinese, Japanese and Korean letters, which runs show in their East Asian font (w:rFonts/@w:eastAsia).
+const EAST_ASIAN = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}\p{Script=Bopomofo}]/u;
+/**
+ * Whether the Font dialog offers the selection's Asian text font: when the selection, or with only a caret the
+ * paragraph it is in, holds East Asian text. `range` is [start, end] in `text`.
+ */
+export function selectsEastAsianText(text, [start, end]) {
+  if (start === end) { start = text.lastIndexOf('\n', start - 1) + 1; end = text.indexOf('\n', end); if (end < 0) end = text.length; }
+  return EAST_ASIAN.test(text.slice(start, end));
+}
+
+export function openFontDialog({ format: f, sample = '', apply, onClose, setDefault = null, textEffects = null, ligatures = false, title = 'Font', eastAsian = false }) {
   const patch = {};
   const set = values => { Object.assign(patch, values); preview(); };
   const unset = (...keys) => { for (const key of keys) delete patch[key]; preview(); };
@@ -29,6 +42,10 @@ export function openFontDialog({ format: f, sample = '', apply, onClose, setDefa
   const fonts = el('datalist', { id: 'ed-font-dialog-fonts' }, ...fontChoices().map(name => el('option', { value: name })));
   const font = el('input.input', { type: 'text', value: fontName || '', placeholder: fontName ? '' : 'Mixed', list: fonts.id, 'aria-label': 'Font', autocomplete: 'off',
     oninput: () => { const name = font.value.trim(); if (name) set({ fontAscii: name, fontHAnsi: name }); else unset('fontAscii', 'fontHAnsi'); } });
+  // Chinese, Japanese and Korean text is shown in the run's Asian text font, which Font alone leaves as it was.
+  const asianName = f.fontEastAsia ?? '';
+  const asianFont = eastAsian && el('input.input', { type: 'text', value: asianName, placeholder: asianName ? '' : 'Mixed', list: fonts.id, 'aria-label': 'Asian text font', autocomplete: 'off',
+    oninput: () => { const name = asianFont.value.trim(); if (name) set({ fontEastAsia: name }); else unset('fontEastAsia'); } });
   const style = el('select.input', { 'aria-label': 'Font style', onchange: () => set({ bold: style.value.startsWith('bold'), italic: /italic/i.test(style.value) }) },
     ...(fontStyle(f) ? [] : [el('option', { value: '', disabled: true }, 'Mixed')]), ...STYLES.map(([value, label]) => el('option', { value }, label)));
   style.value = fontStyle(f);
@@ -126,11 +143,12 @@ export function openFontDialog({ format: f, sample = '', apply, onClose, setDefa
   ligatureSelect.value = LIGATURES.some(([v]) => v === f.ligatures) ? f.ligatures : '';
 
   /* ---- Preview ---- */
-  const previewText = el('span', {}, (sample.replace(/\s+/g, ' ').trim().slice(0, 48)) || fontName || 'Aa Bb Cc');
+  const previewText = el('span', {}, clipText(sample.replace(/\s+/g, ' ').trim(), 48) || fontName || 'Aa Bb Cc');
   const previewBox = el('div.ed-font-preview', { 'aria-hidden': 'true' }, previewText);
   function preview() {
-    const s = previewText.style, family = current('fontAscii');
-    s.fontFamily = family ? `"${family}", system-ui, sans-serif` : '';
+    const s = previewText.style, family = current('fontAscii'), asian = eastAsian && current('fontEastAsia');
+    // Latin letters in the Latin font (the bundled Noto Sans under its page name), the rest in the Asian font.
+    s.fontFamily = !asian ? (family ? `"${family}", system-ui, sans-serif` : '') : `${family ? canvasFontFamily({ fontFamily: family }) : '"Canvas Noto Sans"'}, ${cssFontString(asian)}, system-ui, sans-serif`;
     s.fontWeight = current('bold') ? '700' : '400';
     s.fontStyle = current('italic') ? 'italic' : 'normal';
     s.fontSize = `${Math.min(28, Math.max(8, current('fontSize') || 12)) * 4 / 3}px`;
@@ -157,6 +175,7 @@ export function openFontDialog({ format: f, sample = '', apply, onClose, setDefa
   const row = (label, control) => el('label.ed-font-field', {}, el('span.field-label', {}, label), control);
   const fontPanel = el('div.ed-font-panel', { role: 'tabpanel', id: 'ed-font-tab-font', 'aria-labelledby': 'ed-font-tab-font-button' },
     el('div.ed-font-grid', {}, row('Font', font), row('Font style', style), row('Size', size)),
+    asianFont && el('div.ed-font-grid', {}, row('Asian text font', asianFont)),
     el('div.ed-font-grid', {}, row('Font color', colorButton('Font color', 'color')), row('Underline style', underline), row('Underline color', colorButton('Underline color', 'underlineColor'))),
     effectGrid, fonts, sizes);
   const advancedPanel = el('div.ed-font-panel', { role: 'tabpanel', id: 'ed-font-tab-advanced', 'aria-labelledby': 'ed-font-tab-advanced-button', hidden: true },

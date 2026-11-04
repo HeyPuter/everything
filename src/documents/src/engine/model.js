@@ -24,7 +24,7 @@ import { checkedCellMargins, resolveCellMargins } from './cell-margins.js';
 import { checkedRowHeight, rowHeight } from './row-height.js';
 import { checkedLineSpacing } from './line-spacing.js';
 import { hasDirectRunFormatting, clearedRun, hasDirectMarkFormatting, clearMark, hasDirectParagraphFormatting, clearParagraph } from './direct-formatting.js';
-import { findText, checkedSearchText, replacedRuns, replacedBookmarks } from './search.js';
+import { findText, checkedSearchText, replacedRuns, replacedBookmarks, matchedCase } from './search.js';
 import { advancedFind, replaceAdvanced } from './advanced-search.js';
 import { hiddenRun } from './hidden-text.js';
 import { checkedHyperlinkDestination, hyperlinkLabel, hyperlinkId, hyperlinkAt, hyperlinkRanges, hyperlinkBoundaryChanges } from './hyperlinks.js';
@@ -42,7 +42,7 @@ import { normalizeColor } from './colors.js';
 import { cellContext, tableCells, editableCells, verticalMerges, headerRowCount, tableId, fixedColumnWidths, documentBlocks, cellSpan, rowGrid, spanWidth } from './tables.js';
 import { normalizeCellBlock, cellBlockPlacements } from './table-selection.js';
 import { emptyStyles, resolveStyledParagraph, effectiveStyleId, editedStyle, resolveCharacterRun, paragraphRunStyle } from './styles.js';
-import { emptyNumbering, levelFor, listKind, listGeometry, listMarkers, newList, restartList } from './numbering.js';
+import { emptyNumbering, hasListLevel, hasNumberingDefinition, levelFor, listKind, listGeometry, listMarkers, newList, restartList } from './numbering.js';
 import { INDENT_KEYS, validateIndent, normalizeTabStops, sameValue } from './paragraph-geometry.js';
 import { validatePageSettings, readingPageSize, DOCUMENT_PAGE_KEYS, SECTION_TYPES } from './page-settings.js';
 import { sectionColumnIntervals } from './section-columns.js';
@@ -588,7 +588,7 @@ export class TextDocument {
       } else if (Object.hasOwn(PAGINATION_DEFAULTS, key) || Object.hasOwn(PARAGRAPH_FLAGS, key) || key === 'contextualSpacing') {
         if (typeof value !== 'boolean') throw new Error('Paragraph pagination must be on or off.');
       } else if (key === 'alignment') {
-        if (!['left', 'center', 'right', 'both', 'distribute'].includes(value)) throw new Error('Choose left, center, right, justified or distributed alignment.');
+        if (!['left', 'center', 'right', 'both', 'distribute', 'thaiDistribute'].includes(value)) throw new Error('Choose left, center, right, justified or distributed alignment.');
       } else if (key === 'lineRule') {
         if (!['auto', 'exact', 'atLeast'].includes(value)) throw new Error('Unsupported line spacing rule.');
       } else if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > 600) {
@@ -659,7 +659,9 @@ export class TextDocument {
     const pass = this.blockCellPass(() => this.setParagraphStyle(id));
     if (pass !== undefined) return pass;
     const targets = this.selectedParagraphs;
-    if (targets.every(p => (p.styleId || '') === id)) return false;
+    // A paragraph with no style has the default one (Normal): applying that to it changes nothing.
+    const normal = this.styles.defaultParagraph || '', effective = styleId => styleId || normal;
+    if (targets.every(p => effective(p.styleId || '') === effective(id || ''))) return false;
     const next = targets.map(p => resolveStyledParagraph({ ...copy(p), styleId: id || null, styleChanged: true }, this.styles, this.numbering));
     this.checkpoint(); targets.forEach((p, i) => Object.assign(p, next[i]));
     this.typingFormat = {}; this.typingStyle = null; this.typingDirectCleared = false; this.stylesEnabled = true; this.didChange(); return true;
@@ -720,7 +722,12 @@ export class TextDocument {
     if (pass !== undefined) return pass;
     const targets = this.selectedParagraphs;
     if (!targets.every(p => p.list)) return this.adjustIndent(delta * 720);
+    // A list whose definition has no deeper level (Word's one-level List Number and List Bullet definitions,
+    // multiLevelType singleLevel, §17.9.12) indents its items instead, keeping their number, as Word does;
+    // Decrease Indent takes such an indent back before it changes a level.
+    if (delta < 0 && targets.some(p => this.listIndentBeyondLevel(p) > 0)) return this.indentListItems(targets, delta);
     if (targets.some(p => p.list.level + delta < 0 || p.list.level + delta > 8)) return false;
+    if (delta > 0 && targets.some(p => hasNumberingDefinition(this.numbering, p.list.numId) && !hasListLevel(this.numbering, { ...p.list, level: p.list.level + delta }))) return this.indentListItems(targets, delta);
     for (const p of targets) levelFor(this.numbering, { ...p.list, level: p.list.level + delta });
     // A paragraph in the style its list level is linked to (§17.9.23 pStyle: Heading 1 for level 1 of an
     // outline list) takes the style linked to its new level, as in Word: Tab makes a numbered Heading 1 a
@@ -732,6 +739,39 @@ export class TextDocument {
       if (restyled[i]) { Object.assign(p, restyled[i]); return; }
       p.list = { ...p.list, direct: true, level: p.list.level + delta }; p.listChanged = true;
     });
+    this.didChange(); return true;
+  }
+  /** How far a list item is indented past the indent it has without a direct indent of its own. */
+  listIndentBeyondLevel(p) {
+    const { indentLeft, ...rest } = p.formatOverrides || {};
+    if (indentLeft === undefined) return 0;
+    return indentLeft - paragraphFormat({ ...p, formatOverrides: rest }, this.numbering).indentLeft;
+  }
+  /**
+   * Indent list items a tab stop (720 twips) at a time without changing their level. Going back stops at the
+   * item's own indent, where its direct indent is removed so it follows its level again.
+   */
+  indentListItems(targets, delta) {
+    const plans = targets.map(p => {
+      const from = paragraphFormat(p, this.numbering).indentLeft, own = from - this.listIndentBeyondLevel(p);
+      return { p, from, own, to: validateIndent(delta < 0 ? Math.max(own, from + delta * 720) : from + delta * 720) };
+    });
+    if (plans.every(plan => plan.to === plan.from)) return false;
+    this.checkpoint();
+    for (const { p, own, to } of plans) {
+      // The writer takes a direct indent from the paragraph's own format (as adjustIndent sets it); the value it
+      // had there comes back with the item's own indent.
+      const overrides = { ...p.formatOverrides };
+      if (!('indentLeft' in overrides) && !('listIndentPlain' in p)) p.listIndentPlain = p.format?.indentLeft ?? null;
+      if (to === own) {
+        delete overrides.indentLeft;
+        if ('listIndentPlain' in p) { p.format = { ...PARAGRAPH_FORMAT, ...p.format }; if (p.listIndentPlain === null) delete p.format.indentLeft; else p.format.indentLeft = p.listIndentPlain; delete p.listIndentPlain; }
+      } else {
+        overrides.indentLeft = to;
+        p.format = { ...PARAGRAPH_FORMAT, ...p.format, indentLeft: to };
+      }
+      p.formatOverrides = overrides;
+    }
     this.didChange(); return true;
   }
   /** `p` restyled for list level `level` of its list, when its style is linked to its level and another style to that one; else null. */
@@ -1274,7 +1314,7 @@ export class TextDocument {
     if (parent) table.parentCellId = parent.cell.id;
     const content = [];
     for (let r = 0; r < rows; r++) {
-      const row = { id: tableId('row'), cantSplit: true, minHeight: 0, cells: [] };
+      const row = { id: tableId('row'), minHeight: 0, cells: [] };
       grid.forEach(w => {
         const cell = { id: tableId('cell'), width: { type: 'dxa', value: w }, margins: { ...table.margins }, inheritedMargins: { ...table.margins }, directMargins: {}, vertical: 'top' };
         row.cells.push(cell);
@@ -1457,8 +1497,8 @@ export class TextDocument {
   documentSnapshot() { return copy(this.documentState()); }
   /** The document itself (not a copy), as documentSnapshot() copies it. */
   documentState() { return { comments: this.comments, tables: this.tables, styles: this.styles, stylesEnabled: this.stylesEnabled, numbering: this.numbering, pageSettings: this.pageSettings, paragraphs: this.paragraphs }; }
-  /** A copy of the selection and typing state, which change without one. */
-  typingSnapshot() { return copy({ selection: this.selection, typingFormat: this.typingFormat, typingStyle: this.typingStyle, typingDirectCleared: this.typingDirectCleared }); }
+  /** A copy of the selection (with a block of cells selected) and typing state, which change without one. */
+  typingSnapshot() { return copy({ selection: this.selection, cellBlock: this.cellBlock || null, typingFormat: this.typingFormat, typingStyle: this.typingStyle, typingDirectCleared: this.typingDirectCleared }); }
   restore(state) {
     this.cellBlock = null;
     if (state.comments !== undefined) this.comments = copy(state.comments);
@@ -1469,6 +1509,9 @@ export class TextDocument {
     this.pageSettings = validatePageSettings(state.pageSettings);
     this.selection = { ...state.selection };
     this.typingFormat = { ...state.typingFormat }; this.typingStyle = copy(state.typingStyle || null); this.typingDirectCleared = !!state.typingDirectCleared;
+    // Undo and Redo keep a block of cells selected as it was; one the restored tables no longer have is dropped.
+    this.cellBlock = state.cellBlock ? copy(state.cellBlock) : null;
+    if (this.cellBlock && !this.activeCellBlock) this.cellBlock = null;
     this.findContentFeatures();
     this.didChange();
   }
@@ -1670,7 +1713,21 @@ export class TextDocument {
     this.comments = this.comments.filter(c => !ids.includes(c.id));
     this.didChange(); return true;
   }
-  addBookmark(name) {
+  /**
+   * Bookmark the selection as `name`. With `move`, a bookmark of that name (in any letter case) moves here instead of
+   * the name being refused, as Add does in the Bookmark dialog; it keeps its name, so links and fields still find it.
+   */
+  addBookmark(name, { move = false } = {}) {
+    const existing = move ? this.bookmarks.filter(e => typeof name === 'string' && e.name?.toLowerCase() === name.toLowerCase()) : [];
+    if (existing.length) {
+      checkedBookmarkName(name);
+      const ids = new Set(existing.map(e => e.id)), [start, end] = this.range;
+      this.checkpoint();
+      for (const p of this.paragraphs) if (p.bookmarks?.some(m => !m.comment && !m.perm && ids.has(m.id))) { p.bookmarks = p.bookmarks.filter(m => m.comment || m.perm || !ids.has(m.id)); if (!p.bookmarks.length) delete p.bookmarks; }
+      const markers = newBookmarkMarkers(this.paragraphs, existing[0].name);
+      for (const [i, position] of [start, end].entries()) { const at = locate(this.paragraphs, position); (this.paragraphs[at.index].bookmarks ||= []).push({ ...markers[i], offset: at.offset }); }
+      this.didChange(); return true;
+    }
     const markers = newBookmarkMarkers(this.paragraphs, name), [start, end] = this.range;
     this.checkpoint();
     for (const [i, position] of [start, end].entries()) { const at = locate(this.paragraphs, position); (this.paragraphs[at.index].bookmarks ||= []).push({ ...markers[i], offset: at.offset }); }
@@ -2066,7 +2123,7 @@ export class TextDocument {
     if (options.advanced) {
       const [start, end] = this.range;
       const matches = this.findMatches(query, options).filter(m => all || m.start === start && m.end === end);
-      return replaceAdvanced(this, matches, text, { wildcards: !!options.wildcards, format: options.replaceFormat || null });
+      return replaceAdvanced(this, matches, text, { wildcards: !!options.wildcards, format: options.replaceFormat || null, matchCase: !!options.matchCase });
     }
     checkedSearchText(text);
     const [start, end] = this.range;
@@ -2074,7 +2131,9 @@ export class TextDocument {
     let matches = this.findMatches(query, options).filter(m => {
       let range=promptFields?macroButtonSelection(promptFields,m.start,m.end):[m.start,m.end];
       if(this.hasNoteMarks)range=noteMarkSelection(this.paragraphs,...range);
-      return (all||range[0]===start&&range[1]===end)&&m.text!==text;
+      // Without Match case, each replacement takes the capitalization of the text it replaces (same length as typed).
+      if (!options.matchCase) m.replacement = matchedCase(m.text, text);
+      return (all||range[0]===start&&range[1]===end)&&m.text!==(m.replacement ?? text);
     });
     if(this.hasMacroButtons||this.hasNoteMarks){
       const fields=promptFields, expanded=[],documentText=this.text;
@@ -2084,6 +2143,7 @@ export class TextDocument {
         const [a,b]=range,previous=expanded.at(-1);
         if(previous&&a<previous.end){previous.end=Math.max(previous.end,b);previous.text=documentText.slice(previous.start,previous.end);continue;}
         expanded.push({...m,start:a,end:b,offset:m.offset+a-m.start,text:documentText.slice(a,b)});
+        if (!options.matchCase) expanded.at(-1).replacement = matchedCase(expanded.at(-1).text, text);
       }
       matches=expanded;
     }
@@ -2183,10 +2243,11 @@ export class TextDocument {
     const starts = this.paragraphsEditAlone ? this.paragraphStarts() : null;
     for (const m of [...matches].reverse()) {
       // Text put back after the author deleted it is found as a move anywhere in the document.
-      if (starts && (!text || !this.lastTrackedDeletion)) { if (this.replaceWithinParagraph(m.paragraph, starts[m.paragraph], m.start, m.end, text)) count++; continue; }
+      const replacement = m.replacement ?? text;
+      if (starts && (!text || !this.lastTrackedDeletion)) { if (this.replaceWithinParagraph(m.paragraph, starts[m.paragraph], m.start, m.end, replacement)) count++; continue; }
       this.selection = { anchor: m.start, focus: m.end };
       this.typingFormat = {}; this.typingStyle = null; this.typingDirectCleared = false;
-      if (this.replace(text, { checkpoint: false })) count++;
+      if (this.replace(replacement, { checkpoint: false })) count++;
     }
     if (!count) { this.selection = before.selection; return 0; }
     this.history.push(before);
@@ -2242,6 +2303,14 @@ export class TextDocument {
    */
   trackInsertion(previousText, previousFields = null) {
     const text = this.text, limit = previousText.length;
+    // Fields without text of their own (index entries, table of authorities citations) change no text: they are
+    // the insertion, code and all.
+    if (text === previousText && previousFields) {
+      const revision = this.newRevision('ins');
+      const added = this.paragraphs.some(p => p.fieldMarkers?.length) ? bodyFieldRanges(this.paragraphs).filter(f => !previousFields.has(f.field.id)) : [];
+      for (const f of added) setFieldRevision(this.paragraphs, f.field.id, revision);
+      return added.length > 0;
+    }
     if (text.length <= limit) return false;
     let start = 0, tail = 0;
     while (start < limit && text[start] === previousText[start]) start++;

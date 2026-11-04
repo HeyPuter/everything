@@ -46,7 +46,8 @@ export function createDesignTab({ editor, pkg, error, onChange = () => {}, comma
   /** A gallery choice in a menu closes the menus and returns to the document before acting. */
   const choose = action => () => { closeMenu(); editor()?.focus(); action(); };
   const ready = () => { const engine = editor(); return engine && !pkg()?.readOnly && !engine.viewOnly ? engine : null; };
-  const editable = () => !!ready() && !!base.changePackage;
+  // Under Restrict Editing or Lock Tracking the design stays as it is (editor.js changePackage refuses it too).
+  const editable = () => !!ready() && !!base.changePackage && !base.protectionEnforced?.();
   let api = null;
   const loading = design().then(module => { api = module; onChange(); }).catch(() => {});
   // What the open package declares, read once per package and each part only when asked for; the theme the

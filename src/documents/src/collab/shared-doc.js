@@ -28,6 +28,8 @@
  */
 import * as Y from 'yjs';
 import { RUN_FORMAT } from '../engine/formatting.js';
+import { validFontSize } from '../engine/font-size.js';
+import { HIGHLIGHTS } from '../engine/backgrounds.js';
 import { diffText } from './text-diff.js';
 
 export const SCHEMA = 1;
@@ -272,6 +274,37 @@ function adoptOrphanedCellParagraphs(paragraphs, tables) {
   }
 }
 
+/**
+ * Formatting a participant wrote, held to the values the editor itself writes. Anyone in a room writes the shared
+ * document, and a value no command makes (a color of `000"><img src=…>`) went as written into the HTML an email
+ * merge sends and a copy puts on the clipboard. A color that is not Automatic or six hex digits, a size outside
+ * the font size range, a highlight not in the list and a paragraph alignment that is not a word become the
+ * defaults. Applied to the shared state, and to a snapshot, before it becomes the model (binding.js).
+ */
+const COLOR = /^(?:auto|[0-9a-fA-F]{6})$/;
+function checkedRun(run) {
+  if (!run || typeof run !== 'object') return;
+  for (const key of ['color', 'underlineColor']) if (key in run && !(typeof run[key] === 'string' && COLOR.test(run[key]))) run[key] = RUN_FORMAT[key] ?? 'auto';
+  for (const key of ['fontSize', 'fontSizeCs']) if (key in run && !validFontSize(run[key])) run[key] = RUN_FORMAT[key] ?? 12;
+  if ('highlight' in run && !(typeof run.highlight === 'string' && Object.hasOwn(HIGHLIGHTS, run.highlight))) run.highlight = RUN_FORMAT.highlight ?? 'none';
+}
+export function checkedSharedParagraphs(paragraphs) {
+  for (const p of Array.isArray(paragraphs) ? paragraphs : []) {
+    if (!p || typeof p !== 'object') continue;
+    for (const run of Array.isArray(p.runs) ? p.runs : []) checkedRun(run);
+    if (p.markFormat) checkedRun(p.markFormat);
+    if (p.format && typeof p.format === 'object' && 'alignment' in p.format && !(typeof p.format.alignment === 'string' && /^[A-Za-z]+$/.test(p.format.alignment))) delete p.format.alignment;
+  }
+  return paragraphs;
+}
+/** A shared or snapshot state with its body's and stories' formatting checked (checkedSharedParagraphs). */
+export function checkedSharedState(state) {
+  if (!state || typeof state !== 'object') return state;
+  checkedSharedParagraphs(state.paragraphs);
+  for (const story of Object.values(state.stories || {})) checkedSharedParagraphs(story?.paragraphs);
+  return state;
+}
+
 /** The whole model state the shared document holds. */
 export function readState(ydoc) {
   const paragraphs = readBody(ydoc.getText('body'));
@@ -428,13 +461,25 @@ function attributeChange(before = {}, after = {}) {
   return change;
 }
 
-/** Set and delete registers so `map` holds `entries` (key → JSON text). */
-export function writeRegisters(map, entries, { keep = () => false } = {}) {
+/** Set and delete registers so `map` holds `entries` (key → JSON text). `same(key, current, next)`: a difference that is no change. */
+export function writeRegisters(map, entries, { keep = () => false, same = () => false } = {}) {
   let changed = false;
   for (const key of [...map.keys()]) if (!entries.has(key) && !keep(key)) { map.delete(key); changed = true; }
-  for (const [key, value] of entries) if (map.get(key) !== value) { map.set(key, value); changed = true; }
+  for (const [key, value] of entries) {
+    const current = map.get(key);
+    if (current !== value && !(current !== undefined && same(key, current, value))) { map.set(key, value); changed = true; }
+  }
   return changed;
 }
+
+/**
+ * A table's place among the tables is recorded once, when the table is written: it moves when someone adds or removes
+ * a table before it, which is no change to that table. Written again with this copy's version of it, the table would
+ * lose a row or column someone else added to it meanwhile (two writes to one register keep one), and an Undo of the
+ * table's insertion would find it no longer its own.
+ */
+const withoutOrder = text => { try { const { _order, ...rest } = JSON.parse(text); return json(rest); } catch { return text; } };
+const sameTable = (key, current, next) => key.startsWith('t:') && typeof current === 'string' && withoutOrder(current) === withoutOrder(next);
 
 export function encodeComments(comments) {
   return new Map((comments || []).map((c, i) => [String(c.id), json({ ...c, _order: i })]));
@@ -449,7 +494,7 @@ export function writeState(ydoc, state, origin = null, cache = null) {
     let before = null;
     if (!cache?.body) { before = readBody(ydoc.getText('body')); adoptOrphanedCellParagraphs(before, readParts(ydoc.getMap('parts'), before).tables); }
     changed = writeBody(ydoc.getText('body'), before, state.paragraphs, cache) || changed;
-    changed = writeRegisters(ydoc.getMap('parts'), encodeParts(state)) || changed;
+    changed = writeRegisters(ydoc.getMap('parts'), encodeParts(state), { same: sameTable }) || changed;
     if (state.comments) {
       if (!ydoc.getMap('comments').has(PRESENT)) ydoc.getMap('comments').set(PRESENT, 'true');
       // Comment order is recorded once; reordering alone is not a change.

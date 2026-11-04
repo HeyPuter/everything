@@ -131,3 +131,24 @@ describe('endnotes', () => {
     expect(d.text.endsWith('See note 6')).toBe(true);
   });
 });
+
+// A note reserved for a reference the document then refused (Restrict Editing) is given back: the notes part,
+// relationship and content type the reservation created go again, and the next note takes its number.
+it('releases a reserved note whose reference never reached the document', async () => {
+  const blank = createDocx([paragraph('Body.')], undefined, undefined, undefined, [], {}, WRITING_STYLES);
+  const pkg = await DocxPackage.open(new Uint8Array(await blank.export().arrayBuffer()));
+  const parts = { ...pkg.parts };
+  for (const kind of ['footnote', 'endnote']) {
+    const note = kind === 'footnote' ? pkg.addFootnote() : pkg.addEndnote();
+    expect(Object.keys(pkg.parts).length).toBeGreaterThan(Object.keys(parts).length);
+    expect(pkg.releaseNote(note)).toBe(true);
+    expect(pkg.parts).toEqual(parts);
+    expect(pkg.releaseNote(note)).toBe(false);
+  }
+  // With a note kept, releasing a later one keeps the part, and its number is used again.
+  const kept = pkg.addFootnote(), refused = pkg.addFootnote();
+  expect([kept.id, refused.id]).toEqual(['1', '2']);
+  pkg.releaseNote(refused);
+  expect(pkg.parts[kept.part]).toBeDefined();
+  expect(pkg.addFootnote().id).toBe('2');
+});

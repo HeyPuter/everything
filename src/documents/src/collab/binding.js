@@ -23,7 +23,7 @@
 import * as Y from 'yjs';
 import { TextDocument } from '../engine/model.js';
 import { decodeImage } from '../engine/images.js';
-import { readState, writeState, unsupportedReason } from './shared-doc.js';
+import { readState, writeState, unsupportedReason, checkedSharedState } from './shared-doc.js';
 
 export const REMOTE = 'remote';
 const json = value => JSON.stringify(value);
@@ -115,6 +115,12 @@ export class CollabBinding extends EventTarget {
 
   /** Apply a role: viewers cannot change anything; commenters only comment (via a protection guard). */
   setRole(role, { commentGuard } = {}) {
+    // Edits made with more access cannot be taken back with less: the room would refuse the Undo (and everything
+    // queued with it). A commenter's or viewer's history starts again.
+    if (role !== this.role && (role === 'commenter' || role === 'viewer') && (this.undoManager.undoStack.length || this.undoManager.redoStack.length)) {
+      this.undoManager.clear();
+      this.refreshHistory();
+    }
     this.role = role;
     this.roleGuard = role === 'commenter' ? commentGuard : null;
     this.enforceViewOnly();
@@ -294,7 +300,7 @@ export class CollabBinding extends EventTarget {
     this.enforceViewOnly();
     let state;
     try {
-      state = this.mode === 'single' ? JSON.parse(this.meta.get('snapshot') || 'null') : readState(this.ydoc);
+      state = checkedSharedState(this.mode === 'single' ? JSON.parse(this.meta.get('snapshot') || 'null') : readState(this.ydoc));
       if (!state) return;
     } catch (error) { this.onError(error); return; }
     const session = engine.session, body = session.body;
@@ -311,7 +317,8 @@ export class CollabBinding extends EventTarget {
       this.dispatchEvent(new CustomEvent('conflict', { detail: { error } }));
       return;
     }
-    this.conflict = null;
+    // A conflict resolved (someone's next change wrote a state that fits together): the notice about it goes.
+    if (this.conflict) { this.conflict = null; this.dispatchEvent(new CustomEvent('conflict', { detail: { error: null } })); }
     this.applying = true;
     try {
       const oldStyles = body.styles, oldNumbering = body.numbering;
@@ -389,9 +396,19 @@ export class CollabBinding extends EventTarget {
     const stack = direction === 'undo' ? manager.undoStack : manager.redoStack;
     const item = stack.at(-1);
     this.undoSelection = item?.meta.get('selection') || this.captureSelection();
-    const done = direction === 'undo' ? manager.undo() : manager.redo();
+    const conflicted = !!this.conflict;
+    let done = direction === 'undo' ? manager.undo() : manager.redo();
+    // Taking back a table someone else has restructured since (a column they added to the table this person inserted)
+    // leaves cells their structure names without text: nobody's editor could show it. The step is put back as it was,
+    // in the same moment, and refused.
+    if (done && !conflicted && this.conflict) {
+      if (direction === 'undo') manager.redo(); else manager.undo();
+      done = null;
+      this.dispatchEvent(new CustomEvent('refused-undo', { detail: { direction } }));
+    }
     this.undoSelection = null;
-    if (done) { engine.onChange?.(); this.refreshHistory(); }
+    if (done) engine.onChange?.();
+    this.refreshHistory();
     engine.focus?.();
   }
 

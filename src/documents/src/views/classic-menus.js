@@ -90,12 +90,13 @@ export function classicMenus(ctx) {
   const edit = () => {
     const engine = ctx.engine?.();
     const undoLabel = w.undoLabel?.();
-    const canRedo = !!engine?.session.future.length && editable();
+    // Redo also steps forward through a design change undone (a theme, a watermark), as the toolbar's Redo does.
+    const canRedo = !!(engine?.session.future.length || w.packageHistory?.().redo) && editable(), redoLabel = canRedo ? w.redoLabel?.() : null;
     const repeatLabel = w.repeatLabel?.();
     const clipboard = a.clipboardState?.() || {};
     return withExt('edit', [
       { label: !c.undo.disabled ? `Undo${undoLabel ? ` ${undoLabel}` : ''}` : 'Can’t Undo', icon: 'undo', shortcut: `${MOD_KEY}+Z`, disabled: c.undo.disabled, onSelect: () => c.undo.click() },
-      canRedo ? { label: 'Redo', icon: 'redo', shortcut: `${MOD_KEY}+Y`, onSelect: () => c.redo.click() }
+      canRedo ? { label: `Redo${redoLabel ? ` ${redoLabel}` : ''}`, icon: 'redo', shortcut: `${MOD_KEY}+Y`, onSelect: () => c.redo.click() }
         : { label: w.canRepeat?.() ? `Repeat ${repeatLabel}` : 'Can’t Repeat', icon: 'redo', shortcut: sc('edit.repeat', `${MOD_KEY}+Y`), disabled: !w.canRepeat?.(), onSelect: () => w.repeat?.() },
       sep,
       { label: 'Cut', icon: 'cut', shortcut: `${MOD_KEY}+X`, disabled: !clipboard.cut, onSelect: () => a.cut?.() },

@@ -25,11 +25,14 @@ import { movePublication, unpublishAt } from './publish.js';
 import { moveStar } from './starred.js';
 import { forgetRoom, moveRoom } from '../collab/room-memory.js';
 import { HANWORD_IMPORTABLE, decodeTextFile, importHanword, importKind, toInsertPayload } from './importers.js';
-import { rememberMade, forgetMade } from './made.js';
+import { rememberMade, forgetMade, inAppFolder, inTrash } from './made.js';
+import { documentPathKey } from './document-paths.js';
 
 export const AUTOSAVE_MS = 1500;
 export const MAX_AUTOSAVE_MS = 30000;
 export const RETRY_MS = 8000;
+/** The longest pause between retries of an autosave that keeps failing: they double from RETRY_MS up to this. */
+export const MAX_RETRY_MS = 5 * 60_000;
 export const UNTITLED = 'Untitled document';
 export const SIGN_IN_TO_SAVE = 'Sign in to Puter to save this document';
 /** Save pressed without a connection: what happens to the changes, rather than the browser's "Failed to fetch". */
@@ -77,6 +80,35 @@ async function withDocxExtension(item) {
   }
 }
 
+/** What a file this window wrote held: its size, and a digest of its bytes (the blob itself is let go once digested). */
+function fingerprint(blob) {
+  if (!blob || typeof blob.arrayBuffer !== 'function') return null;
+  const digest = Promise.resolve().then(() => blob.arrayBuffer()).then(b => crypto.subtle.digest('SHA-256', b)).then(d => [...new Uint8Array(d)].join(',')).catch(() => null);
+  return { size: blob.size, digest };
+}
+
+/** Whether the file at `path` (whose stat is `stat`) holds what `print` describes. */
+async function matches(path, stat, print) {
+  if (!print || (stat?.size != null && stat.size !== print.size)) return false;
+  try {
+    const [mine, file] = await Promise.all([print.digest, P.readFile(path).then(b => fingerprint(b).digest)]);
+    return !!mine && mine === file;
+  } catch { return false; }
+}
+
+/** Whether the file at `path` (whose stat is `stat`) holds exactly `blob`. */
+async function holds(path, stat, blob) {
+  if (!blob) return false;
+  if (stat?.size != null && stat.size !== blob.size) return false;
+  try {
+    const [file, mine] = await Promise.all([P.readFile(path).then(b => b.arrayBuffer()), blob.arrayBuffer()]);
+    if (file.byteLength !== mine.byteLength) return false;
+    const a = new Uint8Array(file), b = new Uint8Array(mine);
+    for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+    return true;
+  } catch { return false; }
+}
+
 export class Doc extends EventTarget {
   constructor({ name = UNTITLED, path = null, uid = null, blob = null, dirty = false, template = null, pendingImport = null, importInfo = null, modified = null } = {}) {
     super();
@@ -84,6 +116,10 @@ export class Doc extends EventTarget {
     this.path = path;
     /** The file's id on the drive, which names the version history of a file outside the app folder; null when unknown. */
     this.uid = uid;
+    /** The file's id on the drive whatever its history goes by: a file renamed or moved elsewhere is found by it. */
+    this._fileUid = uid;
+    /** What the file held when this window last read or wrote it (fingerprint): the same file renamed elsewhere holds it still. */
+    this._written = path && blob ? fingerprint(blob) : null;
     /** The file's time stamp as this window last saw it (from writing it, or given at opening); null when unknown. Another window's write changes it. */
     this._remoteModified = modified ?? null;
     /** Template id to lay out once the engine is ready (new documents only). */
@@ -208,6 +244,8 @@ export class Doc extends EventTarget {
     // After the editor has closed (a content error, a reopen) nothing from it may be saved over the file.
     if (this._deleted || this._closed) return;
     this.version += 1;
+    // Someone is at work: a failing save is tried again after the usual pauses, not the long ones it had earned.
+    this._retries = 0;
     if (this.writes === false) { this.savedVersion = this.version; return; }
     this._setStatus('unsaved');
     if (this.exporter && this.autosave) {
@@ -253,7 +291,9 @@ export class Doc extends EventTarget {
    * Save now. Resolves true when the file was written. `now` (with `auto`): the page is going to the
    * background, where the usual pause may never end, so edits made during a save in flight go right after it.
    */
-  async save({ auto = false, now = false } = {}) {
+  async save({ auto = false, now = false, fresh = false } = {}) {
+    // `fresh`: the connection or the session came back, so the pauses between retries start over.
+    if (fresh || !auto) this._retries = 0;
     clearTimeout(this._timer);
     this._timer = null;
     if (this._deleted || this.writes === false) return true;
@@ -315,24 +355,43 @@ export class Doc extends EventTarget {
       const version = this.version;
       // Edits from here on are not in this save: the longest wait for them starts with the first of them.
       this._pendingSince = null;
-      let target = this.path;
+      let target = this.path, adopted = null;
       if (!this.path || !this.isDocxPath) {
-        // First save, or a non-docx source: pick a fresh name in the folder, the document's own (a rename before this save counts).
-        const base = this.name;
-        const fileName = await P.uniqueName(P.ensureDocx(base));
-        target = `${P.FOLDER}/${fileName}`;
+        // A first save whose file was created but whose answer was lost made the file: this save writes it, not a second one.
+        adopted = await this._lostCreate();
+        if (adopted) target = adopted;
+        else {
+          // First save, or a non-docx source: pick a fresh name in the folder, the document's own (a rename before this save counts).
+          const base = this.name;
+          const fileName = await P.uniqueName(P.ensureDocx(base));
+          target = `${P.FOLDER}/${fileName}`;
+        }
       }
       // The check for another window's hand on the file runs while the export does.
-      const [blob, conflict] = await Promise.all([this.exporter(), target === this.path ? this._conflictWith(target) : null]);
+      const current = target === this.path;
+      const [blob, conflict] = await Promise.all([this.exporter(), current ? this._conflictWith(target) : null]);
       if (conflict) throw conflict;
-      if (target !== this.path) {
+      // The file was renamed or moved elsewhere meanwhile, and the check followed it: the write goes where it is now.
+      if (current) target = this.path;
+      if (target !== this.path && !adopted) {
+        this._unconfirmedCreate = { path: target, blob, name: this.name };
         const created = await P.createFileWithMetadata(target, blob);
+        this._unconfirmedCreate = null;
         target = created.path;
+        this._fileUid = created.uid ?? null;
         this._remoteModified = created.modified;
         // A new file under the name of one that was shared and deleted is not that document: it must not rejoin its room.
         await forgetRoom(target);
       }
-      else this._remoteModified = (await P.writeFile(target, blob))?.modified ?? null;
+      else {
+        // Until the drive answers, this write may or may not have landed (an answer lost with the connection).
+        this._unconfirmed = { path: target, blob };
+        const written = await P.writeFile(target, blob);
+        this._remoteModified = written?.modified ?? null;
+        this._fileUid = written?.uid || written?.id || this._fileUid;
+        this._unconfirmed = null;
+      }
+      this._written = fingerprint(blob);
       // A failed export or write must not advertise a file that does not exist,
       // or make a clean document's next save short-circuit as already saved.
       if (target !== this.path) {
@@ -352,6 +411,7 @@ export class Doc extends EventTarget {
       this.savedVersion = this.writes === false ? this.version : version;
       this._setStatus(this.dirty ? 'unsaved' : 'saved');
       this._autoFailures = 0;
+      this._retries = 0;
       if (this.dirty && this.autosave) this._schedule(this.autosaveDelay);
       return true;
     } catch (e) {
@@ -369,7 +429,10 @@ export class Doc extends EventTarget {
       // nothing can succeed until the connection is back, and the app saves then.
       // A file another window took over is not retried on its own: the same answer would come back every time.
       if (initialized && !offline && !e?.conflict) {
-        this._schedule(RETRY_MS);
+        // A failure that keeps coming back (storage full) is not tried every few seconds for as long as the document is
+        // open, each try exporting all of it: the pause doubles, up to a few minutes.
+        this._retries = (this._retries || 0) + 1;
+        this._schedule(Math.min(MAX_RETRY_MS, RETRY_MS * 2 ** (this._retries - 1)));
         // An autosave that keeps failing (storage full, the file's permission gone) must not go on failing unseen
         // while the typing goes on: once its retry has failed too, the view says so, once until a save goes through.
         this._autoFailures = (this._autoFailures || 0) + 1;
@@ -391,9 +454,63 @@ export class Doc extends EventTarget {
     let stat;
     try { stat = await P.statFile(path); } catch { return null; }
     const conflict = (message) => Object.assign(new Error(message), { conflict: true });
+    if (stat === null && await this._followMove(path)) return null;
     if (stat === null) return conflict('This file was moved or deleted in another window. Use Save a copy to keep your changes');
+    if (stat.modified != null && String(stat.modified) !== String(this._remoteModified) && await this._ownLostWrite(path, stat)) return null;
     if (stat.modified != null && String(stat.modified) !== String(this._remoteModified)) return conflict('This document was changed in another window. Use Save a copy to keep your changes, or reopen it to see theirs');
     return null;
+  }
+
+  /**
+   * Whether the file's new time stamp is this window's own write whose answer was lost (the connection dropped after
+   * the drive took it): the file holds exactly what that write sent. Its time stamp is then this window's to know.
+   */
+  async _ownLostWrite(path, stat) {
+    const sent = this._unconfirmed;
+    if (!sent || sent.path !== path || !await holds(path, stat, sent.blob)) return false;
+    this._remoteModified = stat.modified;
+    this._unconfirmed = null;
+    return true;
+  }
+
+  /**
+   * The file is no longer at `path`: renamed or moved elsewhere (in the Puter desktop, say), it is found by its id. When it
+   * still holds what this window last wrote, it is this document under another name: the document follows it (title,
+   * address, star, list entry, shared room, history and published page) and goes on saving there. A file changed
+   * meanwhile, in the trash or gone is not followed; the caller reports it as before.
+   */
+  async _followMove(path) {
+    const uid = this._fileUid, print = this._written;
+    if (!uid || !print || path !== this.path) return false;
+    let st;
+    try { st = await P.statByUid(uid); } catch { return false; }
+    const to = st?.path ? documentPathKey(st.path) : null;
+    if (!to || to === path || st.is_dir || st.isDir || inTrash(st.path) || !/\.docx$/i.test(to)) return false;
+    if (!await matches(st.path, st, print)) return false;
+    if (this.path !== path || this._deleted || this._closed) return false;
+    this._remoteModified = st.modified ?? null;
+    this.path = to;
+    this.name = Doc.nameFor(to);
+    // A file outside the app folder keeps its history by its id, and is listed from the record of files made elsewhere.
+    if (inAppFolder(to)) forgetMade(path);
+    else { this.uid = st.uid || st.id || uid; rememberMade({ path: to, uid: this.uid }); }
+    moveStar(path, to);
+    await moveRoom(path, to);
+    if (versioning.enabled) await renameVersions(path, to);
+    if (publishing.enabled) movePublication(path, to).catch((e) => console.warn('[documents] the published page could not follow the move', e));
+    this._emitPath();
+    return true;
+  }
+
+  /** The file a first save created whose answer was lost (it holds exactly what was sent), or null. */
+  async _lostCreate() {
+    const sent = this._unconfirmedCreate;
+    this._unconfirmedCreate = null;
+    // Renamed since, the document goes to a file of its new name.
+    if (!sent || sent.name !== this.name) return null;
+    let stat;
+    try { stat = await P.statFile(sent.path); } catch { return null; }
+    return stat && await holds(sent.path, stat, sent.blob) ? sent.path : null;
   }
 
   /** Leave a version snapshot when one is due. Never affects the save status. */
@@ -435,7 +552,8 @@ export class Doc extends EventTarget {
   async restoreVersion(versionPath, { stillWanted = () => true } = {}) {
     return this._withFileLock(async () => {
       if (this._deleted || !this.path) throw new Error('This document is no longer open');
-      const path = this.path, version = this.version;
+      let path = this.path;
+      const version = this.version;
       const checkCurrent = () => {
         if (!stillWanted()) throw new Error('Restoration cancelled');
         if (this.version !== version) throw new Error('The document changed while preparing to restore. Your edits are kept; try restoring again.');
@@ -450,6 +568,8 @@ export class Doc extends EventTarget {
         // Another window's newer save must not be written over, as autosave and rename refuse to.
         const conflict = await this._conflictWith(path);
         if (conflict) throw conflict;
+        // Followed to where it was renamed or moved meanwhile.
+        path = this.path;
         if (this._snapshotting) await this._snapshotting;
         const current = await this.toBlob();
         checkCurrent();
@@ -462,6 +582,7 @@ export class Doc extends EventTarget {
         // This is our own write. Edits made while it is in flight must compare
         // against its new timestamp when autosave resumes.
         this._remoteModified = (await P.writeFile(path, restored))?.modified ?? null;
+        this._written = fingerprint(restored);
         // Edits made during the write stay dirty and autosave over the restored
         // bytes. Never reload over them or advertise them as already saved.
         if (this.version !== version) checkCurrent();
@@ -537,7 +658,10 @@ export class Doc extends EventTarget {
     const ext = this.isDocxPath ? '.docx' : dot > slash ? this.path.slice(dot) : '';
     const target = `${dir}${clean}${ext}`;
     try {
-      const [exists, conflict] = await Promise.all([P.fileExists(target), this._conflictWith(this.path)]);
+      const checked = this.path;
+      const [exists, conflict] = await Promise.all([P.fileExists(target), this._conflictWith(checked)]);
+      // Renamed or moved elsewhere meanwhile, and followed: the new name goes to the file where it is now.
+      if (!conflict && this.path !== checked) return this._rename(newName, stillWanted);
       if (exists) return 'A file with that name already exists';
       // A fresh rename timestamp must not bless content changed by another
       // window as the version currently open in this editor.
@@ -628,6 +752,8 @@ export class Doc extends EventTarget {
         // A new file under the name of one that was shared and deleted is not that document: it must not rejoin its room.
         await forgetRoom(path);
         this._remoteModified = st?.modified ?? item.modified ?? null;
+        this._fileUid = st?.uid || st?.id || item.uid || null;
+        this._written = fingerprint(blob);
         this.path = path;
         this._placedAs = path;
         this.uid = st?.uid || st?.id || item.uid || null;
@@ -689,7 +815,10 @@ export class Doc extends EventTarget {
         this._setStatus(this.dirty ? 'unsaved' : 'saved');
         return 'Saving a copy cancelled';
       }
-      this._remoteModified = (await P.writeFile(target, blob, { overwrite: false }))?.modified ?? null;
+      const written = await P.writeFile(target, blob, { overwrite: false });
+      this._remoteModified = written?.modified ?? null;
+      this._fileUid = written?.uid || written?.id || null;
+      this._written = fingerprint(blob);
       await forgetRoom(target);
       this.size = blob?.size ?? this.size;
       this.path = target;

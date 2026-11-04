@@ -1270,10 +1270,11 @@ describe('an autosave that keeps failing', () => {
     expect(told).toEqual([]);
     await vi.advanceTimersByTimeAsync(RETRY_MS + 5);
     expect(told).toEqual(['Storage capacity exceeded']);
-    await vi.advanceTimersByTimeAsync(RETRY_MS + 5);
+    // The pauses between retries double.
+    await vi.advanceTimersByTimeAsync(RETRY_MS * 2 + 5);
     expect(told).toHaveLength(1);
     // The next retry goes through: the edits are saved, and a later run of failures is told again.
-    await vi.advanceTimersByTimeAsync(RETRY_MS + 5);
+    await vi.advanceTimersByTimeAsync(RETRY_MS * 4 + 5);
     expect(doc.status).toBe('saved');
     full(); full();
     doc.changed();

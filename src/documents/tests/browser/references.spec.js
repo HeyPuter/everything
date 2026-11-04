@@ -602,3 +602,15 @@ test('Remove Table of Contents with Track Changes on is a tracked deletion', asy
   await page.evaluate(() => { const engine = window.__docs.current.view.engine; engine.execute(() => engine.session.body.resolveRevisions(true)); });
   await expect.poll(() => engineText(page)).toBe(withTable.slice(withTable.indexOf('Introduction\nEngines')));
 });
+
+test('Mark Index Entry takes a long selection up to a whole character, not half an emoji', async ({ page }) => {
+  await openEditor(page);
+  const text = `${'a'.repeat(199)}😀 more`;
+  await input(page).fill(text);
+  await page.evaluate(() => { const m = window.__docs.current.view.engine.model; m.select(0, m.text.length); });
+  await onTab(page, 'references');
+  await ribbon(page).getByRole('button', { name: 'Mark Entry', exact: true }).click();
+  const mark = page.getByRole('dialog', { name: 'Mark Index Entry' });
+  // The entry is cut to 200 code units: the emoji across the cut is left out, not halved into a lone surrogate.
+  await expect(mark.getByLabel('Main entry')).toHaveValue('a'.repeat(199));
+});

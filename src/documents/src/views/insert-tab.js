@@ -125,6 +125,9 @@ export function createInsert({ editor, pkg, error, base = {}, docName = () => ''
     } catch (e) { fail(e); return false; }
   }
   const afterSelectedDrawing = engine => { if (engine.model.selectedImage) { engine.model.select(engine.model.range[1]); engine.syncInput(); } };
+  // Text, a symbol or a field inserted with a floating drawing selected goes after its anchor: the drawing is not text
+  // it replaces (an in-line picture is, as a character is).
+  const afterFloatingDrawing = engine => { if (engine.selectedFloatingDrawing) { engine.model.select(engine.model.range[1]); engine.syncInput(); } };
   const sceneFragment = (engine, xml) => readDrawingFragment(xml, { sourceParts: pkg().parts, assetId: freshDrawingAssetId(engine.model) });
   const withDescription = (xml, text) => text ? xml.replace(/(<wp:docPr [^>]*?)(\/?>)/, (_, open, close) => `${open} descr="${String(text).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/\n/g, '&#10;')}"${close}`) : xml;
   // The text a new text box or WordArt takes from the selection it replaces. A selection that holds more than
@@ -428,9 +431,8 @@ export function createInsert({ editor, pkg, error, base = {}, docName = () => ''
       // Page numbering is a section setting no protected edit check sees: refused under Restrict Editing.
       if (base.protectedDocument?.()) throw new Error('This document is protected against editing, so its page numbering cannot be changed. Stop protection under Review > Restrict Editing first.');
       const value = format === 'decimal' && start === null ? null : { format, ...(start !== null ? { start } : {}) };
-      pkg().setPageNumbering(section, value);
-      engine.setStoryOptions({ section, pageNumbering: value });
-      engine.onChange(); onChange();
+      engine.changeSettings(() => { pkg().setPageNumbering(section, value); engine.setStoryOptions({ section, pageNumbering: value }); });
+      onChange();
     } });
   }
   function removePageNumbers() {
@@ -442,11 +444,14 @@ export function createInsert({ editor, pkg, error, base = {}, docName = () => ''
     const section = engine.pageStories?.sections?.[engine.sectionOfPage(page)];
     const paths = [...new Set(['header', 'footer'].flatMap(kind => Object.values(section?.[kind] || {})))].filter(path => engine.pageStories.stories[path]?.editable);
     let removed = 0;
-    for (const path of paths) {
-      if (!engine.pageStories.stories[path].paragraphs.some(p => p.runs.some(r => r.field?.type === 'PAGE'))) continue;
-      engine.editStory(path, page);
-      if (engine.execute(() => removePageNumberParagraphs(engine.model))) removed++;
-    }
+    // From the header and the footer alike, one undo step.
+    engine.transact(() => {
+      for (const path of paths) {
+        if (!engine.pageStories.stories[path].paragraphs.some(p => p.runs.some(r => r.field?.type === 'PAGE'))) continue;
+        engine.editStory(path, page);
+        if (engine.execute(() => removePageNumberParagraphs(engine.model))) removed++;
+      }
+    });
     engine.editStory(null); engine.focus();
     if (removed) onChange(); else toast('No page numbers were found in this section’s headers and footers.', { icon: 'info' });
   }
@@ -526,6 +531,7 @@ export function createInsert({ editor, pkg, error, base = {}, docName = () => ''
     openDateTime({ onClose: () => queueMicrotask(() => editor()?.focus()), onInsert: ({ picture, text, field }) => {
       const engine = ready(); if (!engine) return;
       // Fields live in the body; a header or footer gets the date as text.
+      afterFloatingDrawing(engine);
       if (field && engine.session.path === null) run(engine, () => insertBodyField(engine.model, fieldInstruction({ name: /[Mdy]/.test(picture) ? 'DATE' : 'TIME', picture }), text));
       else run(engine, () => engine.model.replace(text));
     } });
@@ -533,6 +539,7 @@ export function createInsert({ editor, pkg, error, base = {}, docName = () => ''
   function insertFieldInstruction(instruction, cached = null) {
     const engine = ready(); if (!engine) return false;
     toBody(engine);
+    afterFloatingDrawing(engine);
     const value = cached ?? evaluateField(instruction, { ...fieldContext(), text: engine.model.text }) ?? '';
     return run(engine, () => insertBodyField(engine.model, instruction, value));
   }
@@ -573,6 +580,7 @@ export function createInsert({ editor, pkg, error, base = {}, docName = () => ''
     const engine = ready(); if (!engine) return;
     engine.finishComposition();
     const { pasteFragment, carriesFormatting } = await import('../engine/clipboard-fragment.js');
+    afterFloatingDrawing(engine);
     run(engine, () => entry.fragment && carriesFormatting(engine.model) && !engine.model.tableContext ? pasteFragment(engine.model, entry.fragment) : engine.model.replace(entry.text));
   }
   function quickPartsItems() {
@@ -604,7 +612,16 @@ export function createInsert({ editor, pkg, error, base = {}, docName = () => ''
         source.select(0, source.text.length);
         fragment = formatted ? copyFragment(source) : null;
         text = source.text.replace(/[\uFFFC]/g, '').replace(/[\f\u000e]/g, '\n');
-        if (!fragment) toast('Pictures, tables and fields in that file were inserted as text.', { icon: 'info' });
+        // Inserted as text, the file's tables and fields keep only their text and its pictures and other objects
+        // go: the notice names what that file had of them, and there is none for a file of plain paragraphs.
+        if (!fragment) {
+          const runs = source.paragraphs.flatMap(p => p.runs);
+          const flattened = [source.tables.length && 'tables', source.paragraphs.some(p => p.fieldMarkers?.length) && 'fields'].filter(Boolean);
+          const dropped = runs.some(r => r.image) ? 'pictures' : runs.some(r => r.text.includes('\uFFFC')) ? 'objects' : null;
+          const sentence = (things, done) => `${things.join(' and ').replace(/^\w/, c => c.toUpperCase())} in that file ${done}.`;
+          const notice = [flattened.length && sentence(flattened, 'were inserted as text'), dropped && sentence([dropped], 'were left out')].filter(Boolean).join(' ');
+          if (notice) toast(notice, { icon: 'info' });
+        }
       } else {
         // Decoded and read as opening the file reads it: a byte order mark names UTF-16 (Notepad's "Unicode"), and a
         // file that is not UTF-8 is read in the code page it was written in rather than as replacement characters.
@@ -617,12 +634,17 @@ export function createInsert({ editor, pkg, error, base = {}, docName = () => ''
           // Without formatting (in a table cell, or a document with notes or fields) a web page's or Markdown file's
           // text goes in as its paragraphs, not as the markup: the raw text content of a page runs paragraphs
           // together and includes the text of scripts and styles, and Markdown would show its # and ** marks.
-          const converted = htmlFragment(kind === 'markdown' ? (await import('../lib/markdown-html.js')).markdownHtml(raw) : raw, { copied: false });
+          // Markdown is read off the page's thread, and as its lines of text when that takes too long (markdownHtmlOffThread).
+          const markdown = kind === 'markdown' ? await (await import('../lib/markdown-html.js')).markdownHtmlOffThread(raw) : null;
+          if (ready() !== engine) return;
+          if (markdown?.plain) toast('That Markdown file took too long to read, so it was inserted as plain text.', { icon: 'info' });
+          const converted = htmlFragment(markdown ? markdown.html : raw, { copied: false });
           fragment = formatted ? converted : null;
           text = converted ? converted.paragraphs.map(p => p.text).join('\n') : '';
         }
         else text = raw.replace(/\n+$/, '');
       }
+      afterFloatingDrawing(engine);
       run(engine, () => fragment ? pasteFragment(engine.model, fragment) : engine.model.replace(text));
     } catch (e) { fail(e); }
   }
@@ -680,7 +702,7 @@ export function createInsert({ editor, pkg, error, base = {}, docName = () => ''
   /* ---- Symbols ---- */
   function placeSymbol(ch, font = null) {
     const engine = ready(); if (!engine) return;
-    engine.finishComposition();
+    engine.finishComposition(); afterFloatingDrawing(engine);
     run(engine, () => {
       const start = engine.model.range[0];
       engine.model.replace(ch);
@@ -801,6 +823,7 @@ export function createInsert({ editor, pkg, error, base = {}, docName = () => ''
       e.preventDefault();
       if (code === 'KeyP') { insertPageNumber('current', PAGE_NUMBER_DESIGNS[0], null); return; }
       const picture = code === 'KeyD' ? 'M/d/yyyy' : 'h:mm am/pm', engine = ready();
+      afterFloatingDrawing(engine);
       if (engine.session.path !== null) run(engine, () => engine.model.replace(formatDatePicture(new Date(), picture)));
       else insertFieldInstruction(fieldInstruction({ name: code === 'KeyD' ? 'DATE' : 'TIME', picture }));
     }

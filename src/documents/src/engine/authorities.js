@@ -151,3 +151,19 @@ export function markAllAuthorities(doc, options) {
   const entries = sorted.map((position, i) => ({ position, instruction: authorityInstruction(i === 0 && first ? options : { short: options.short || options.long, bold: options.bold, italic: options.italic }) }));
   return insertEntryFields(doc, entries.reverse()).length;
 }
+
+/**
+ * The next likely citation at or after `from` in `text` ("Brown v. Board", "42 U.S.C. § 1983", "§ 12.3", "Id.",
+ * "supra"), from the start again past the end: a RegExp match, or null. Each kind starts only where a word, a
+ * number or a run of section signs starts. Started anywhere, a long word, number or run of section signs (in a
+ * document anyone can send) was scanned again from each of its characters, and Mark Citation's Next took
+ * seconds to minutes.
+ */
+const CITATION = /(?<![\w.'&-])[A-Z][\w.'&-]*(?: [\w.'&-]+){0,6} v\. [A-Z][\w.'&-]*(?: [\w.'&-]+){0,6}|(?<!\d)\d+ U\.S\.C\. § ?\d+\w*|(?<!§)§+ ?\d[\w.()-]*|\bId\.|\bsupra\b/g;
+export function nextCitation(text, from = 0) {
+  CITATION.lastIndex = from;
+  const match = CITATION.exec(text);
+  if (match || !from) return match;
+  CITATION.lastIndex = 0;
+  return CITATION.exec(text);
+}

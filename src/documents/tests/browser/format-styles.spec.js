@@ -131,6 +131,39 @@ test('Styles pane keeps keyboard focus on a control whose change redraws the pan
   expect(errors).toEqual([]);
 });
 
+test('the Styles pane list is one Tab stop: the arrows move between styles, Right to a style\'s options', async ({ page }) => {
+  const { errors } = await blank(page, 'Plain words here');
+  await ribbon(page, 'Styles Pane').click();
+  const pane = page.getByRole('complementary', { name: 'Styles pane' });
+  const apply = name => pane.getByRole('button', { name: `Apply ${name} (paragraph style)`, exact: true });
+  await pane.getByRole('button', { name: 'Clear Formatting', exact: true }).focus();
+  // Tab lands on the selection's style, and the next Tab leaves the list.
+  await page.keyboard.press('Tab');
+  await expect(apply('Normal')).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(pane.getByLabel('List', { exact: true })).toBeFocused();
+  await page.keyboard.press('Shift+Tab');
+  await expect(apply('Normal')).toBeFocused();
+  await page.keyboard.press('ArrowDown');
+  await expect(apply('Heading 1')).toBeFocused();
+  await page.keyboard.press('ArrowRight');
+  await expect(pane.getByRole('button', { name: 'Heading 1 options', exact: true })).toBeFocused();
+  await page.keyboard.press('ArrowLeft');
+  await expect(apply('Heading 1')).toBeFocused();
+  await page.keyboard.press('End');
+  await expect(pane.locator('.styles-pane-apply').last()).toBeFocused();
+  await page.keyboard.press('Home');
+  await expect(apply('Normal')).toBeFocused();
+  // The style chosen last is where Tab comes back to.
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('Tab');
+  await page.keyboard.press('Shift+Tab');
+  await expect(apply('Heading 1')).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(pane.locator('.styles-pane-current-name')).toHaveText('Heading 1');
+  expect(errors).toEqual([]);
+});
+
 test('Modify Style refuses a name another style already has', async ({ page }, info) => {
   const { errors } = await blank(page, 'Plain words here');
   await ribbon(page, 'Styles Pane').click();

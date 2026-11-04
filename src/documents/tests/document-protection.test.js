@@ -110,6 +110,17 @@ describe('protected documents', () => {
     expect(permissionRanges(again.model.paragraphs).map(r => again.model.text.slice(r.start, r.end))).toEqual(['Open wide', 'For Ada']);
   });
 
+  it('writes a Japanese or Arabic default language to its own w:lang attribute, keeping the Latin default', async () => {
+    const { pkg, model } = await open(protectedDocx());
+    expect(pkg.reviewSettings.defaultLanguage).toBe('en-GB');
+    pkg.reviewSettings = { ...pkg.reviewSettings, defaultLanguage: 'ja-JP' };
+    let styles = strFromU8((await save(pkg, model))['word/styles.xml']);
+    expect(styles).toMatch(/<w:lang w:val="en-GB" w:eastAsia="ja-JP"\/>/);
+    pkg.reviewSettings = { ...pkg.reviewSettings, defaultLanguage: 'ar-SA' };
+    styles = strFromU8((await save(pkg, model))['word/styles.xml']);
+    expect(styles).toMatch(/<w:lang w:val="en-GB" w:bidi="ar-SA"\/>/);
+  });
+
   it('writes protection, write protection, proofing flags, markup view, language and style locks', async () => {
     const { pkg, model } = await open(protectedDocx({ settings: '' }));
     expect(pkg.reviewSettings.protection).toBeNull();

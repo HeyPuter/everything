@@ -88,10 +88,18 @@ const cellText = (cell, paragraphText, cellBreak, lineBreak) => cell.content.map
   : paragraphText(c.paragraph)).join(lineBreak);
 
 /* ---- HTML ---- */
-function runHtml(run, heading = false) {
+// Chinese, Japanese and Korean letters, whose forms a browser chooses by the text's language (直 differs in each).
+const EAST_ASIAN = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}\p{Script=Bopomofo}]/u;
+const LANGUAGE_TAG = /^[A-Za-z]{2,8}(?:-[A-Za-z\d]{1,8})*$/;
+function runHtml(run, heading = false, page = 'en') {
   // Line, page and column breaks all start a new line: a web page has no pages or columns to break.
-  let html = escapeHtml(runText(run)).replace(/[\v\f\u000e]/g, '<br>');
+  const text = runText(run);
+  let html = escapeHtml(text).replace(/[\v\f\u000e]/g, '<br>');
   if (!html) return '';
+  // East Asian text marked in a language other than the page's (§17.3.2.20 w:lang/@w:eastAsia) says so, so a
+  // Japanese document's kanji show in their Japanese forms and are read out in Japanese.
+  const eastAsian = String(run.fontEastAsiaLanguage || '');
+  if (LANGUAGE_TAG.test(eastAsian) && eastAsian.toLowerCase() !== page.toLowerCase() && EAST_ASIAN.test(text)) html = `<span lang="${eastAsian}">${html}</span>`;
   if (run.verticalAlign === 'superscript') html = `<sup>${html}</sup>`;
   if (run.verticalAlign === 'subscript') html = `<sub>${html}</sub>`;
   if (run.strikethrough && run.strikethrough !== 'none') html = `<s>${html}</s>`;
@@ -146,9 +154,9 @@ function blocksHtml(blocks, model, numbers = itemNumbers(model), markers = itemM
         lists.push({ tag, depth, number: start });
       }
     }
-    const inner = escapeHtml(headingNumber(p, level, markers)) + p.runs.map(run => runHtml(run, !!level)).join('') || '<br>';
+    const inner = escapeHtml(headingNumber(p, level, markers)) + p.runs.map(run => runHtml(run, !!level, pageLanguage(model))).join('') || '<br>';
     const alignment = p.format?.alignment;
-    const align = ['center', 'right', 'both'].includes(alignment) ? ` style="text-align:${alignment === 'both' ? 'justify' : alignment}"` : '';
+    const align = ['center', 'right', 'both', 'thaiDistribute'].includes(alignment) ? ` style="text-align:${alignment === 'both' || alignment === 'thaiDistribute' ? 'justify' : alignment}"` : '';
     html += tag ? `<li${value != null ? ` value="${value}"` : ''}${align}>${inner}` : level ? `<h${level}${align}>${inner}</h${level}>` : `<p${align}>${inner}</p>`;
   }
   closeLists();
@@ -158,7 +166,7 @@ function blocksHtml(blocks, model, numbers = itemNumbers(model), markers = itemM
 /** The page's language (WCAG 3.1.1): the document's default (§17.3.2.20 w:lang in the default run properties), else English. */
 const pageLanguage = model => {
   const tag = String(model.styles?.defaults?.run?.fontLanguage || '');
-  return /^[A-Za-z]{2,8}(?:-[A-Za-z\d]{1,8})*$/.test(tag) ? tag : 'en';
+  return LANGUAGE_TAG.test(tag) ? tag : 'en';
 };
 
 /** A standalone, readable web page of the document. */
@@ -222,6 +230,15 @@ const escapeLineStart = line => line.replace(/^(?: {4,}|\t)/, space => `&#${spac
   .replace(/^( {0,3})([-+=])/, '$1\\$2').replace(/^( {0,3}\d{1,9})([.)])/, '$1\\$2');
 // Breaks stand as NUL (which document text cannot hold) until the paragraph knows how its lines break.
 const BREAK = '\0';
+// The text without the characters `edge` matches at its start and end, found by scanning from each end. A
+// regular expression anchored only at the end (/\s+$/) tries every start position, so a paragraph with a long
+// stretch of spaces, tabs or line breaks took time growing with the square of that stretch to export.
+function trimmedEdges(text, edge, start = edge) {
+  let from = 0, to = text.length;
+  while (from < to && start.test(text[from])) from++;
+  while (to > from && edge.test(text[to - 1])) to--;
+  return { from, to };
+}
 // A run's escaped text, split around its core when the run writes markers, tags or a link around it. `next`
 // is the character the paragraph's text goes on with after the run.
 function runPieces(run, heading, next) {
@@ -231,7 +248,8 @@ function runPieces(run, heading, next) {
   const strike = run.strikethrough && run.strikethrough !== 'none', bold = run.bold && !heading;
   if (!/[^\s\0]/.test(text) || !(strike || run.italic || bold || ['superscript', 'subscript'].includes(run.verticalAlign) || link)) return { text };
   // Breaks at a run's edges stay outside its emphasis markers, as spaces do.
-  const [, lead, core, trail] = /^([\s\0]*)([\s\S]*?)([\s\0]*)$/.exec(text);
+  const { from, to } = trimmedEdges(text, /[\s\0]/);
+  const lead = text.slice(0, from), core = text.slice(from, to), trail = text.slice(to);
   return { text, lead, core, trail, run, strike, bold, link };
 }
 // The character a run writes first or last (`end`); a marker, tag or link bracket is punctuation.
@@ -292,7 +310,8 @@ const paragraphMarkdown = (p, heading = false, lineBreak = '\\\n') => {
     // An exclamation mark just before a link would make it a picture ("Wow![docs](…)"), which drops its text.
     if (piece.link && !piece.lead && previous.endsWith('!')) written[i - 1] = `${previous.slice(0, -1)}\\!`;
   });
-  return written.join('').replace(/^\0+|\0+$/g, '')
+  const joined = written.join(''), { from, to } = trimmedEdges(joined, /\0/);
+  return joined.slice(from, to)
     .split(BREAK).map(escapeLineStart).join(heading ? ' ' : lineBreak);
 };
 function blocksMarkdown(blocks, model) {
@@ -347,7 +366,8 @@ export function documentMarkdown(model) {
   model = finalModel(model);
   // Only the separators go: a no-break space starting the text is the text's own, and without it a "+ " or
   // "1. " after it would start a list.
-  return `${blocksMarkdown(blocksOf(model), model).replace(/^[ \n]+|[ \t\n]+$/g, '')}\n`;
+  const markdown = blocksMarkdown(blocksOf(model), model), { from, to } = trimmedEdges(markdown, /[ \t\n]/, /[ \n]/);
+  return `${markdown.slice(from, to)}\n`;
 }
 
 /* ---- Plain text ---- */

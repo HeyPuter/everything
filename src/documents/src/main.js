@@ -385,6 +385,15 @@ async function openInvitation(link, requestedHash) {
   if (!link.local && session.signedOut) { mountSignInGate(requestedHash, 'shared document'); return; }
   showLoading('Joining the shared document', { cancel: () => go(HOME) });
   try {
+    // The owner's own invitation (from their mail, say) opens the file the room belongs to: that is the document they
+    // own, saved as they edit. Joined from the link, it would be a copy of the room that nothing saves.
+    if (!link.local) {
+      const { fileOfRoom } = await import('./collab/room-memory.js');
+      const path = await unlessLeft(requestedHash, fileOfRoom(link));
+      if (path === LEFT) return LEFT;
+      if (location.hash !== requestedHash) return;
+      if (path) { history.replaceState(null, '', `#/edit/${encodeURIComponent(path)}`); return; }
+    }
     const { joinRoom } = await import('./collab/live.js');
     const user = { id: session.user?.uuid || session.username, name: session.username };
     const joining = joinRoom(link, user);
@@ -531,7 +540,7 @@ function setupOfflineBanner() {
       announce('Back online');
       // Only pending edits go out; an untouched new document has no file to write yet.
       const doc = current?.view?.doc;
-      if (doc?.dirty) doc.save({ auto: true }).catch(() => {});
+      if (doc?.dirty) doc.save({ auto: true, fresh: true }).catch(() => {});
     }
   };
   window.addEventListener('online', update);

@@ -93,7 +93,9 @@ the holder's next change publishes it as shared text and everyone edits again.
 
 Undo and Redo in a shared document use a Yjs `UndoManager` that tracks only this person's
 transactions (typing groups within 0.6 s). Undo takes back your own change and leaves everyone
-else's in place; the caret returns to where the change was. The title bar's Undo button and list
+else's in place; the caret returns to where the change was. An Undo (or Redo) that would leave a table no one's
+editor can show (taking back a table someone else has added a column to since) is put back at once and refused, with a
+notice. The title bar's Undo button and list
 mirror these stacks.
 
 ## Rooms, roles and transport
@@ -187,7 +189,7 @@ must be saved to Puter first (the dialog saves it).
 
 File → Browse Version History, the File view's Info page or the title bar's document details
 open a pane listing the saved versions (`lib/versions.js`: one every ten minutes of editing, newest
-30 kept), grouped by day, each with the account that saved it and an optional name, kept beside the
+30 kept, and every named one), grouped by day, each with the account that saved it and an optional name, kept beside the
 snapshot as `<snapshot>.json`. A document in the app folder keeps its snapshots under
 `Documents/.versions/<name>/`; one elsewhere on the drive (inside the Puter desktop, Save puts a new
 document where the user chooses) under `Documents/.versions-by-id/<tag>/`, named after the file's id,

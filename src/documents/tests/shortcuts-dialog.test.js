@@ -44,3 +44,12 @@ it('on a Mac lists Go To under Cmd+Option+G, since Cmd+G finds the next match, a
   expect(chordsFor('Move paragraphs up or down')).toEqual(['Ctrl + Shift + Up / Down']);
   expect(document.querySelector('.modal-panel').textContent).not.toMatch(/\bAlt\b/);
 });
+
+it('no longer promises a built-in chord that a shortcut of your own now runs', () => {
+  openShortcuts({ custom: [[`${MOD_KEY} + B`, 'Italic'], [`${MOD_KEY} + Shift + Z`, 'Word Count']] });
+  // Bold had only this chord; Redo keeps its other one.
+  expect(chordsFor('Bold')).toEqual([]);
+  expect(chordsFor('Redo')).toEqual([`${MOD_KEY} + Y`]);
+  expect(chordsFor('Italic')).toEqual([`${MOD_KEY} + I`, `${MOD_KEY} + B`]);
+  expect(chordsFor('Word Count')).toEqual([`${MOD_KEY} + Shift + Z`]);
+});

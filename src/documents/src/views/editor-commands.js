@@ -239,21 +239,17 @@ export function createWordCommands({ editor, pkg, error, zoomControl, fitWidth, 
           row('Words', stats.words), row('Characters (no spaces)', stats.noSpaces), row('Characters (with spaces)', stats.characters), row('Paragraphs', stats.paragraphs))),
         el('div.modal-actions', {}, el('button.btn.btn-primary', { type: 'button', onclick: e => e.target.closest('.modal-panel')?.querySelector('.modal-head .icon-btn')?.click() }, 'Close'))) });
     },
-    setZoom(value, at) { const engine = editor(); if (!engine) return; zoomControl.set(value, at); engine.focus(); },
+    setZoom(value, at, { focus = true } = {}) { const engine = editor(); if (!engine) return; zoomControl.set(value, at); if (focus) engine.focus(); },
     zoomSetting() { return zoomControl.value; },
     zoomTo(kind) {
       const engine = editor(); if (!engine) return;
-      if (kind === 'width') { zoomControl.set('fit'); fitWidth(); }
-      else {
-        const host = engine.host, widest = Math.max(...engine.layout.pages.map(p => p.width)), tallest = Math.max(...engine.layout.pages.map(p => p.height));
-        const scale = Math.min((host.clientWidth - 48) / widest, (host.clientHeight - 48) / tallest);
-        zoomControl.set(Math.max(0.1, Math.min(2, Math.floor(scale * 100) / 100)));
-      }
+      // Whole page goes on fitting the page as the window changes size, as Fit width does.
+      zoomControl.set(kind === 'width' ? 'fit' : 'page'); fitWidth();
       engine.focus();
     },
     zoomDialog() {
       const engine = editor(); if (!engine) return;
-      const percent = el('input.input', { type: 'number', min: 10, max: 200, step: 1, value: Math.round(engine.zoom * 100), 'aria-label': 'Percent' });
+      const percent = el('input.input', { type: 'number', min: 10, max: 200, step: 1, required: true, value: Math.round(engine.zoom * 100), 'aria-label': 'Percent' });
       let modal;
       const apply = value => { modal.close(); if (value === 'fit' || value === 'page') commands.zoomTo(value === 'fit' ? 'width' : 'page'); else commands.setZoom(value); };
       const preset = (label, value) => el('button.btn.btn-outline', { type: 'button', onclick: () => apply(value) }, label);

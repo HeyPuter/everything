@@ -114,6 +114,17 @@ block) parts are kept as they are but not used. Unit tests in
 | Geometry and display | Existing Canvas shaping, source-offset and layout contracts | Measurement and paint use the same selected CSS family and fallback. Family changes delimit shaping, including mixed-family numbering and capitalization. Advances feed wrapping, caret stops, table AutoFit and pagination. Available native families use Canvas font bounding-box ascent/descent; bundled Noto retains its independently checked font-table metrics. The toolbar reports the Latin family and a detected unavailable-family substitution. |
 | Editing and preservation | §17.3.2.28 `rPr`; Part 2 package preservation | Model edits change individual slots and remove only the corresponding theme attribute. Style declaration removal restores inheritance. Typing, splitting, clear formatting and undo preserve these semantics. Preserve unrelated theme/font parts byte for byte; no-op/full undo preserves every package entry. Character sets are derived from the font table, not authored as run properties. |
 
+A run's East Asian language (`w:lang/@w:eastAsia`, §17.3.2.20, resolved through styles and document defaults) is
+the canvas text's language when it is measured and painted, so ideographs that fall back past the run's fonts take
+that language's forms (Japanese 直 rather than the Chinese form the interface's English would pick).
+`tests/browser/cjk-wrap.spec.js` compares the painted forms where the browser offers both.
+
+The Font dialog's **Asian text font** (offered when the selection, or the caret's paragraph, holds Chinese,
+Japanese or Korean letters) sets the run's East Asian slot alone (`w:rFonts/@w:eastAsia`, §17.3.2.26), which the
+Character selection rules above use for those letters; **Font** keeps setting the ASCII and high-ANSI slots. The
+Home font box still sets only those two: telling a Latin font from an East Asian one would need the font's
+coverage, which is not read. `tests/browser/font-dialog.spec.js` checks layout, undo and the saved attribute.
+
 `tools/canvas_font_family_fixture.py` independently generates
 `public/fixtures/font-families.docx` with python-docx and original XML. It covers
 partial style overrides, theme precedence, empty marks, AutoFit cells, mixed
@@ -1586,6 +1597,14 @@ their advances; a line of one character stays at the start edge. The Paragraph
 and style dialogs offer Distributed; the Justify toolbar button is not pressed
 for it. `tests/distributed-alignment.test.js` and
 `tests/browser/justification.spec.js` cover widths, carets, import and editing.
+
+Thai justification (`w:jc w:val="thaiDistribute"`, §17.18.44 "Thai Language Justification": inter-word and
+inter-character spacing are both widened, the inter-character space "slightly") opens and stays editable. Its lines
+are laid out as distributed ones, by equal gaps after every character, except the paragraph's last line, which
+keeps its natural spacing as justified text does: an approximation, as the clause gives no amounts. The value is
+kept on save, through editing and Format Painter; the Paragraph dialog shows it as Thai Distributed for a paragraph
+that has it, and no toolbar alignment button is pressed. Kashida alignments (`lowKashida`, `mediumKashida`,
+`highKashida`) remain unsupported. `tests/distributed-alignment.test.js` covers layout, editing and save.
 
 **Remaining gaps:** Thai distribution (`thaiDistribute`), Arabic kashida (justified Arabic widens spaces only), expansion
 after center/right/decimal tabs (such lines stay natural), language-specific justification rules and exact
@@ -22298,6 +22317,10 @@ Supported subset:
   recorded as a tracked insertion (`w:ins`, with its paragraph marks) when the command inserts one stretch of
   text. A command that also renumbers or rewrites other text (a caption before existing ones, an IEEE citation,
   a rebuilt table) is applied untracked, and with tracking locked it is refused.
+- Index entries and table of authorities citations (§17.16.5.72 XE, §17.16.5.62 TA) marked with Track Changes on,
+  and a new index or table of authorities (§17.16.5.29 INDEX, §17.16.5.67 TOA), are tracked insertions: an entry
+  has no result text, so its field code alone is written inside `w:ins`, and rejecting removes it. Before,
+  these four commands edited untracked and Reject All left the entries and tables in the document.
 - Updating fields (Update Fields, Update page references, mail merge previews) is not itself tracked; a
   result that was wholly a tracked insertion or deletion keeps that change after the update. The field's
   begin/separate/end characters are written outside `w:ins`/`w:del` (an approximation).
@@ -23623,6 +23646,8 @@ shells. Supported authoring subset:
   splitting it and leaving an empty paragraph above the table. Inside a paragraph,
   and in a paragraph that directly follows a table at the same level (two adjacent
   `w:tbl` elements would read as one table), the paragraph is split around the table.
+  New rows write no `w:cantSplit` (§17.4.6): they may break across pages, Word's
+  default for a new table, until Table Properties keeps a row together.
 
 - Grid and spans: `w:tblGrid`/`w:gridCol` (§17.4.48/§17.4.16) are rewritten
   after insert/delete/split of columns, cell splits and Draw Table lines;
@@ -23828,6 +23853,8 @@ Supported subset:
   non-Latin scripts.
 - Compare/Combine produce a new package from the base document (revised for Compare, original for
   Combine) with `ins`/`del` and `rPrChange`/`pPrChange` revisions authored by the chosen label.
+  A paragraph only the other document has keeps its list (§17.3.1.19 `numPr`) when the base document's numbering
+  defines that list and level; otherwise it is copied unnumbered.
 
 Validation: `tests/document-protection.test.js`, `tests/tracked-formatting.test.js`,
 `tests/compare-documents.test.js`, `tests/review-fixtures.test.js` (fixtures written by
@@ -23875,9 +23902,15 @@ Tests: `tests/core-properties.test.js` with the independently written fixture
 round trip in `tests/browser/app-chrome.spec.js`.
 
 **Proofing language (§17.3.2.20 `w:lang`, §17.3.2.23 `w:noProof`).** The status bar's language
-picker (the same language list as Review → Language, including Thai) applies `w:lang/@w:val` (a BCP 47 tag) and optionally `w:noProof` to the selection through the
-engine's run formatting, so it is one undo step and round-trips. East Asian and complex-script
-language attributes (`w:eastAsia`, `w:bidi`) are preserved but not offered in the picker. The spelling
+picker (the same language list as Review → Language, including Thai) applies a BCP 47 tag and optionally `w:noProof` to the selection through the
+engine's run formatting, so it is one undo step and round-trips. §17.3.2.20 gives a run three languages, one per
+kind of text: `@w:val` for Latin text, `@w:eastAsia` for East Asian text and `@w:bidi` for complex-script text. A
+Chinese, Japanese or Korean tag is written to `@w:eastAsia`; Arabic, Hebrew, Persian, Urdu and the other
+right-to-left languages, Thai, Lao, Khmer, Myanmar and the Indic languages to `@w:bidi`; every other tag to `@w:val`.
+The other two attributes keep their values. Translate marks its inserted text the same way, and Set As Default
+writes the document default (`docDefaults/rPrDefault/rPr/lang`) to the attribute for its language, while the
+default read back stays the Latin one (`@w:val`). The status bar and the dialogs show the language of the
+attribute that matches the script of the selected text (or the text before the caret). The spelling
 checker itself checks English; other languages are marked for other editors.
 
 **Viewing (no OOXML representation).** The Editing / Reviewing / Viewing switch is an editor state.
@@ -23889,7 +23922,10 @@ package, layout or read-only status; it is not written to the file (it is not `w
 (headings, paragraphs, lists, tables, links, bold/italic/underline/strike/super/subscript); headers,
 footers, notes, comments, pictures and page layout are omitted. They are not OOXML output. They
 read the text with tracked changes accepted (§17.13.5), and a heading numbered through a list
-(§17.9) stays a heading with its number written before its text.
+(§17.9) stays a heading with its number written before its text. The web page's language is the document
+default's Latin language (`w:lang/@w:val`, §17.3.2.20); a run of Chinese, Japanese or Korean text whose East Asian
+language (`@w:eastAsia`) differs from it is a `<span lang>` in that language, so browsers choose that language's
+ideograph forms.
 ### Mailings: envelopes, labels and mail merge (2026-10-13)
 
 The Mailings tab stores mail merge as WordprocessingML that other word
@@ -24694,6 +24730,7 @@ reason in the document itself. Each row has a unit regression that fails without
 | Comment styles for new comments | ECMA-376 Part 1 §17.13.4.2 `comment`, §17.13.4.5 `commentReference`, §17.7.4.17 `style`; built-in style names "annotation text" and "annotation reference" | New comments are written with the paragraph style `CommentText` and a reference run in the character style `CommentReference`, as Word writes them, but a document that had no comments usually defines neither, so the saved file referred to undefined styles. When a comment is added, the styles part now gets Word's definitions of whichever is missing (`annotation text`: based on the default paragraph style, single line spacing, 10 pt; `annotation reference`: based on the default character style, 8 pt; both priority 99, semi-hidden, unhidden when used). Existing definitions are left as they are, unchanged comments do not touch the styles part, and a package without a styles part is not given one. Unit regression `tests/comment-styles.test.js`; the export passes `check:conformance`. |
 | Revised document author in Compare | ECMA-376 Part 2 §11 core properties (the part the package relationship names; `cp:lastModifiedBy`, `dc:creator`) | Compare labels the revised document's changes with its last author. It read `docProps/core.xml` by name, so a package whose core properties part has another name (System.IO.Packaging's `package/services/metadata/core-properties/<id>.psmdcp`) gave no author and the changes fell back to the user's name. It now reads the relationship-named part, as document property fields do. Unit regression in `tests/compare-documents.test.js` (its fixture package now declares the core properties relationship). |
 | More imported list number formats | ECMA-376 Part 1 §17.9.17 `numFmt`, §17.18.59 ST_NumberFormat | Extends "Imported list number formats": `koreanCounting` (Sino-Korean numerals with 십 백 천 만, one dropped before 십, 백 and 천, as in Japanese), `koreanDigital` (digit by digit, 영 for zero), `hebrew1` (Hebrew letter numerals below 1000, with טו and טז for 15 and 16), `hebrew2` (the 22 letters), `arabicAbjad` and `arabicAlpha` (28 letters each, from أ) and `irohaFullWidth` (47 kana) are now numbered and editable. Values past a sequence, and Hebrew numerals from 1000, are written in decimal digits (this editor's approximation). Hebrew and Arabic labels are laid out in the paragraph's direction; right-to-left paragraphs remain unsupported. The rejection fixtures now use `thaiCounting` as their unsupported format. Unit regression in `tests/imported-numbering-formats.test.js`. |
+| Half-width iroha, Thai and Devanagari digits | ECMA-376 Part 1 §17.9.17 `numFmt`, §17.18.59 ST_NumberFormat | `iroha` (the 47-kana iroha of `irohaFullWidth` in half-width katakana, ｲ ﾛ ﾊ as the clause's example shows; ヰ and ヱ have no half-width forms and keep their full-width ones), `thaiNumbers` (the number in Thai digits ๐–๙) and `hindiNumbers` (in Devanagari digits ०–९) are numbered and editable; the format is kept on save. Still read-only, because §17.18.59 leaves them unclear: `chineseCountingThousand`, `taiwaneseCountingThousand` and `taiwaneseDigital` (the clause's example writes 10 as 一○, digit by digit, which contradicts the 十 these counting systems are taken to use; the zero character is not named), `taiwaneseCounting` (only 1–10 shown), `hindiVowels` and `hindiConsonants` (their examples are each other's letters), `thaiLetters` and `russianLower`/`russianUpper` (which letters the sequences skip is not given), and the counting words `thaiCounting`, `hindiCounting` and `vietnameseCounting`. Unit regression in `tests/imported-numbering-formats.test.js`. |
 
 ## Word watermarks (VML in headers and footers)
 
@@ -24745,3 +24782,84 @@ save restores the drawing and the next save writes it whole. Gaps: SmartArt diag
 objects are not pruned. Tests: `tests/dropped-drawing-parts.test.js` (independently written package),
 `tests/browser/dropped-drawing-parts.spec.js` (Edit Chart Data, delete and Undo after a save; Reset
 Picture), schema-checked with `tools/check-docx-schema.py`.
+
+## Paragraphs holding fields stay as written (2026-11-03)
+
+Clauses: ECMA-376 Part 1 §17.16.18 `fldSimple`, §17.16.4 complex fields (`fldChar`, `instrText`),
+§17.3.1.22 `p`.
+
+A paragraph an edit leaves alone is saved from its source XML. Any edit elsewhere rebuilt the field
+boundaries of every paragraph holding a field (PAGE, DATE, a table of contents and its PAGEREF entries)
+with their properties in another order, so each one read as changed and was rewritten on every save:
+run revision ids (`w:rsidRPr`), proofing marks (`w:proofErr`) and `w:t` as written were dropped from
+paragraphs nobody touched. The boundaries are now rebuilt as they were read, and those paragraphs are
+saved byte for byte; a paragraph whose own text changes is still rewritten. Tests:
+`tests/field-paragraph-untouched.test.js` (independently written package).
+
+## Moves of several paragraphs stay one move (2026-11-03)
+
+Clauses: ECMA-376 Part 1 §17.13.5.22–.27 (`moveFrom`, `moveFromRangeStart`/`End`, `moveTo`,
+`moveToRangeStart`/`End`), §17.13.5.24 (a move range's name links its two sides).
+
+Paragraphs inside a move range that crosses paragraphs are written anew on every save (their source XML lacks
+the range's other marker). Their moves were written one range per paragraph, named `move1`, `move1_2`…, so a
+move of two whole paragraphs became two moves in Word's Reviewing pane. Ranges written for the same named move
+on the same side now join into one, from the first moved content to the last; moves without a range name keep a
+range per paragraph. Gaps: a range end Word wrote between paragraphs or at the start of the next one is written
+after the last moved content, inside its paragraph. Tests: `tests/move-range-paragraphs.test.js` (independently
+written package); exports pass `tools/check-docx-schema.py`.
+
+## Cut, Copy and Paste of shapes and text boxes (2026-11-03)
+
+Clauses: ECMA-376 Part 1 §20.4.2.3 `anchor`, §20.4.2.8 `inline`, §20.4.2.5 `docPr` (its `id` is unique in
+the document), §20.4.2.3 `relativeHeight`; MS-DOCX `w14:paraId` / `wp14:anchorId` (unique identifiers).
+
+A shape, text box or group of shapes copied or cut here carries its `w:drawing` as saving would write it, in
+the clipboard's HTML. A paste in this editor reads it back as Insert reads the drawings it makes and places it
+at the caret (after a selected drawing, which it does not replace) with a new `docPr` id and the front-most
+`relativeHeight`; its offsets keep their meaning relative to the new anchor paragraph. `w14:paraId`,
+`w14:textId`, `wp14:anchorId` and `wp14:editId` are left off the copy, so the pasted drawing does not
+share them with the original. Before, a cut shape was lost: the clipboard held only its plain-text stand-in.
+Gaps: drawings that use package parts (picture fills, charts, diagrams, linked drawings) still do not copy;
+the Edit menu offers Copy and Cut only for drawings that do; other applications get the plain-text stand-in.
+Tests: `tests/browser/drawing-clipboard.spec.js` (save, reopen and the saved `docPr` ids).
+
+## Cut, Copy and Paste of equations (2026-11-03)
+
+Clauses: ECMA-376 Part 1 §22.1.2.77 `oMath`, §22.1.2.78 `oMathPara`, §22.1.2.87 `r` (math run, whose
+`w:rPr` is WordprocessingML run formatting).
+
+A selected equation copies as its Office Math XML beside its linear text; a paste here inserts the equation
+again (before, it came back as its linear text). The copy is accepted only if its root is `m:oMath` or
+`m:oMathPara` and every element is in the math namespace or is WordprocessingML run content (`w:rPr` and its
+properties, `w:t`, `w:br`, `w:tab`, `w:sym`, revision marks), with no attribute of another namespace, since
+the XML is saved as it is. A displayed equation (one `m:oMath` in an `m:oMathPara`) pasted among a
+paragraph's text goes in line, as Word pastes it. Gaps: an equation copied together with text copies as text;
+other applications get the linear text. Tests: `tests/drawing-clipboard.test.js`,
+`tests/browser/drawing-clipboard.spec.js`.
+
+## Group and Ungroup with Track Changes on (2026-11-03)
+
+Clauses: ECMA-376 Part 1 §17.13.5.18 `ins` / §17.13.5.14 `del` (run-level revisions), §20.4.2.3 `anchor`,
+the WordprocessingGroup `wpg:wgp` drawing.
+
+Group and Ungroup rewrite the selected floating drawings as one group drawing, or a group as its children. With
+Track Changes on this was recorded as deleting the objects and inserting the new one, so markup showed them twice
+and the file held `w:del` and `w:ins` around the drawings. As in Word, the rearrangement is now not a tracked
+change. Objects that are themselves a pending tracked insertion or deletion keep the earlier behaviour (their
+change is still recorded). Tests: `tests/browser/group-stacking.spec.js`.
+
+## Text cut or copied with its pictures, shapes and equations (2026-11-03)
+
+Clauses: ECMA-376 Part 1 §20.4.2.3 `anchor` / §20.4.2.8 `inline` (drawings in runs), §20.4.2.5 `docPr` (unique
+`id`), §22.1.2.77 `oMath`.
+
+Text copied or cut with pictures, shapes, text boxes, groups or equations in it pasted back as text: each drawing
+became "[Image]" (its alternative text) and each equation its linear text, so cutting a paragraph lost its
+pictures. A copy now carries those objects in its formatted fragment for a paste in the same open document and
+story (a token names the document; drawings keep using the parts they already have there). A paste places each
+one where it stood, with a new `docPr` id, in front of the other drawings, and without the `w14:paraId`,
+`w14:textId`, `wp14:anchorId` and `wp14:editId` the original keeps. Gaps: charts and diagrams, objects in
+tracked changes, and pastes into another document, another story, a table cell or text that takes no formatting
+get the text alone; other applications get the plain text. Tests: `tests/text-object-fragment.test.js`,
+`tests/browser/text-object-clipboard.spec.js` (save and reopen).

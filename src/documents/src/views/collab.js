@@ -8,6 +8,7 @@
  * shareItems() additions, coauthoringStatus().
  */
 import { zipSync } from 'fflate';
+import { clipText } from '../core/text.js';
 import { el } from '../ui/dom.js';
 import { openMenu } from '../ui/menu.js';
 import { toast } from '../ui/toast.js';
@@ -23,7 +24,7 @@ export function localGuest() {
   try { saved = JSON.parse(sessionStorage.getItem('documents:collab-guest') || 'null'); } catch { /* storage blocked */ }
   const asked = new URLSearchParams(location.search).get('name');
   if (!saved || (asked && saved.name !== asked)) {
-    saved = { id: `guest-${Math.random().toString(36).slice(2, 10)}`, name: (asked || `Guest ${Math.floor(10 + Math.random() * 90)}`).slice(0, 40) };
+    saved = { id: `guest-${Math.random().toString(36).slice(2, 10)}`, name: clipText(asked || `Guest ${Math.floor(10 + Math.random() * 90)}`, 40) };
     try { sessionStorage.setItem('documents:collab-guest', JSON.stringify(saved)); } catch { /* storage blocked */ }
   }
   return saved;
@@ -62,11 +63,15 @@ export function createCollaboration({ editor, pkg, doc, local, error, onChange =
   const banner = el('div.cl-banner', { role: 'status', hidden: true });
 
   function people() { return live ? live.people() : []; }
+  // A narrow window has room for two avatars; "+N" counts everyone left out.
+  const narrow = typeof matchMedia === 'function' ? matchMedia('(max-width: 700px)') : null;
+  const onNarrow = () => renderPeople();
+  narrow?.addEventListener?.('change', onNarrow);
   function renderPeople() {
     const list = people();
     avatars.hidden = !live;
     if (!live) { avatars.replaceChildren(); return; }
-    const shown = list.slice(0, 4), extra = list.length - shown.length;
+    const shown = list.slice(0, narrow?.matches ? 2 : 4), extra = list.length - shown.length;
     avatars.replaceChildren(...shown.map(p => el('button.cl-avatar', { type: 'button', style: `--cl-color: ${p.color || colorFor(p.name)}`, title: `${p.name}${p.me ? ' (you)' : ''} · ${roleLabel(p.role || 'editor')}`,
       'aria-label': `${p.name}${p.me ? ' (you)' : ''}, ${roleLabel(p.role || 'editor')}`, onclick: e => peopleMenu(e.currentTarget, !!e.detail) }, initials(p.name))),
     ...(extra > 0 ? [el('button.cl-avatar.cl-more', { type: 'button', 'aria-label': `${extra} more`, onclick: e => peopleMenu(e.currentTarget, !!e.detail) }, `+${extra}`)] : []), chip);
@@ -133,6 +138,7 @@ export function createCollaboration({ editor, pkg, doc, local, error, onChange =
     }
     for (const name of ['people', 'status', 'saver']) live.addEventListener(name, () => { renderPeople(); onChange(); });
     for (const name of ['role', 'mode', 'single', 'conflict']) live.addEventListener(name, e => { renderBanner(e); renderPeople(); onChange(); });
+    live.addEventListener('refused-undo', e => toast(e.detail?.direction === 'redo' ? 'This cannot be redone: someone else has changed that table since.' : 'This cannot be undone: someone else has changed that table since.', { icon: 'info' }));
     live.addEventListener('ended', e => {
       const reason = e.detail?.reason;
       const session = live; live = null;
@@ -261,7 +267,8 @@ export function createCollaboration({ editor, pkg, doc, local, error, onChange =
   }
   const shareItems = () => [
     { label: 'Invite People…', icon: 'invitePeople', disabled: !editor(), onSelect: share },
-    { label: 'Copy Link', icon: 'link', disabled: !editor() || readOnly(), onSelect: async () => {
+    // Only the owner makes links to a document on Puter (the room refuses anyone else).
+    { label: 'Copy Link', icon: 'link', disabled: !editor() || readOnly() || (!!live && !live.local && !live.canManage), onSelect: async () => {
       try { await ensureShared(); const url = await live.inviteLink('editor'); await navigator.clipboard?.writeText(url); toast('Link copied: anyone who opens it can edit'); }
       catch (e) { error(e); }
     } },
@@ -294,6 +301,7 @@ export function createCollaboration({ editor, pkg, doc, local, error, onChange =
     refresh() { renderChip(); },
     destroy() {
       destroyed = true; dialog?.close();
+      narrow?.removeEventListener?.('change', onNarrow);
       doc.removeEventListener?.('path', onPath);
       // A room joined from an invitation whose session never began (the editor closed while opening, or could
       // not open the document) is left here; a session that began leaves it when it ends.

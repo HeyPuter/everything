@@ -10,6 +10,7 @@
  * pages are offered only where Puter's AI is available.
  */
 import { el, isComposing, MOD_KEY, shortcutCode } from '../ui/dom.js';
+import { clipText } from '../core/text.js';
 import { toast } from '../ui/toast.js';
 import * as P from '../lib/puter.js';
 import { aiActionById, askAi, answerParagraphs, readableText, insertableText, listItems } from '../lib/ai.js';
@@ -22,6 +23,8 @@ const plural = (n, one, many = `${one}s`) => `${n.toLocaleString()} ${n === 1 ? 
 
 export function createAssistantPane({ editor, pkg, error, available = () => P.canUseAi(), chat = prompt => P.aiChat(prompt) }) {
   let scope = 'selection', history = [], busy = false, stopped = null;
+  // Each reply's Undo button, with whether the reply's step is still the latest one.
+  const undoSteps = new Map();
   const pane = sidePane({ title: 'Assistant', label: 'Assistant pane', className: 'as-pane', onOpen: () => { renderContext(); renderEmpty(); fab.setAttribute('aria-expanded', 'true'); titleButton.setAttribute('aria-pressed', 'true'); }, onClose: () => { fab.setAttribute('aria-expanded', 'false'); titleButton.setAttribute('aria-pressed', 'false'); editor()?.focus(); } });
   pane.heading.prepend(el('span.as-mark', { 'aria-hidden': 'true' }, commandIconEl('assistant', 16)));
   const newChat = el('button.btn.btn-ghost.btn-sm.as-new', { type: 'button', onclick: () => { stopped = null; busy = false; send.disabled = false; history = []; log.replaceChildren(); renderEmpty(); input.focus(); } }, 'New chat');
@@ -163,7 +166,7 @@ export function createAssistantPane({ editor, pkg, error, available = () => P.ca
     const body = el('div.as-answer', {}, ...answer.paragraphs.map(t => el('p', {}, t)));
     if (answer.kind !== 'text') return [body, actions(answer, p, false)];
     const replacing = p.scope === 'selection' && answer.mode !== 'append';
-    const original = replacing ? el('p.as-replaces', {}, `Replaces “${p.text.length > 140 ? `${p.text.slice(0, 140).trim()}…` : p.text}”`) : null;
+    const original = replacing ? el('p.as-replaces', {}, `Replaces “${p.text.length > 140 ? `${clipText(p.text, 140).trim()}…` : p.text}”`) : null;
     // replaceChildren would write a missing line out as the word "null": only the parts there are go in.
     return [el('p.as-kind', {}, replacing ? 'Suggested replacement' : 'Suggested text'), body, original, actions(answer, p, true)].filter(Boolean);
   }
@@ -212,7 +215,14 @@ export function createAssistantPane({ editor, pkg, error, available = () => P.ca
     if (!ok) return;
     engine.focus();
     button.disabled = true;
-    const undo = el('button.btn.btn-ghost.btn-sm', { type: 'button', onclick: () => { editor()?.undo(); undo.disabled = true; applied.textContent = 'Undone'; } }, 'Undo');
+    // The reply's own step, which this Undo takes back only while it is the latest: after another edit it would
+    // have undone that edit instead and left the reply in place.
+    const step = engine.session.history.at(-1), latest = () => editor() === engine && !!step && engine.session.history.at(-1) === step;
+    const undo = el('button.btn.btn-ghost.btn-sm', { type: 'button', onclick: () => {
+      if (!latest()) { undo.disabled = true; return; }
+      engine.undo(); undoSteps.delete(undo); undo.disabled = true; applied.textContent = 'Undone';
+    } }, 'Undo');
+    undoSteps.set(undo, latest);
     const applied = el('span.as-applied', { role: 'status' }, how === 'replace' ? 'Replaced' : 'Inserted');
     row.replaceChildren(applied, undo);
   }
@@ -250,6 +260,7 @@ export function createAssistantPane({ editor, pkg, error, available = () => P.ca
     /** The editor's selection moved: what goes with a message follows it. */
     refresh() {
       fab.hidden = titleButton.hidden = !available() || !editor();
+      for (const [button, latest] of undoSteps) { if (!button.isConnected) undoSteps.delete(button); else button.disabled = !latest(); }
       if (pane.isOpen && !busy) { renderContext(); if (!log.querySelector('.as-message')) renderEmpty(); }
     },
     commands: {

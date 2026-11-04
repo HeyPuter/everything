@@ -66,6 +66,27 @@ describe('cell blocks', () => {
     const b = T.selectionBlock(doc);
     expect([b.top, b.bottom, b.left, b.right]).toEqual([0, 2, 0, 2]);
   });
+
+  it('takes a selection ending at the start of another cell\'s text as reaching that cell, and one ending after its own cell\'s text as not', () => {
+    const { doc } = tableDocument();
+    const rect = () => { const b = T.selectionBlock(doc); return [b.top, b.bottom, b.left, b.right]; };
+    // Shift+Down from the start of b1 ends at the start of c1: the cells b1 and c1, not b1 to c0 in reading order.
+    doc.select(doc.text.indexOf('b1'), doc.text.indexOf('c1'));
+    expect(rect()).toEqual([1, 2, 1, 2]);
+    expect(T.selectionEndCells(doc)).toEqual([cellAt(doc, 1, 1).id, cellAt(doc, 2, 1).id]);
+    // Shift+Up from the start of c1, and Shift+Down from the start of the first cell.
+    doc.select(doc.text.indexOf('c1'), doc.text.indexOf('b1'));
+    expect(rect()).toEqual([1, 2, 1, 2]);
+    doc.select(doc.text.indexOf('a0'), doc.text.indexOf('b0'));
+    expect(rect()).toEqual([0, 1, 0, 1]);
+    // A cell's text selected with its mark stays in that cell.
+    doc.select(doc.text.indexOf('a1'), doc.text.indexOf('a2'));
+    expect(rect()).toEqual([0, 0, 1, 2]);
+    expect(T.selectionEndCells(doc)).toEqual([cellAt(doc, 0, 1).id, cellAt(doc, 0, 1).id]);
+    // A selection out of the last row to the start of the paragraph after the table ends in that row.
+    doc.select(doc.text.indexOf('c0'), doc.text.length);
+    expect(rect()).toEqual([2, 2, 0, 3]);
+  });
 });
 
 describe('rows and columns', () => {
@@ -461,6 +482,16 @@ describe('table commands', () => {
     expect(documentBlocks(two.paragraphs, two.tables).map(b => b.type)).toEqual(['paragraph', 'table', 'paragraph', 'table', 'paragraph']);
     expect(two.tables.indexOf(second)).toBeGreaterThanOrEqual(0);
     valid(two);
+  });
+
+  it('lets the rows of a new or converted table break across pages, as Word does, and saves no row keep', async () => {
+    const { pkg, doc } = tableDocument(2, 2);
+    expect(doc.tables[0].rows.map(row => !!row.cantSplit)).toEqual([false, false]);
+    expect((await roundTrip(pkg, doc)).xml).not.toContain('cantSplit');
+    const converted = open(createDocx([paragraph('a\tb'), paragraph('c\td'), paragraph('After')], undefined, undefined, undefined, [], {}, WRITING_STYLES));
+    converted.select(0, converted.text.indexOf('After') - 1);
+    T.convertTextToTable(converted, { separator: 'tab' });
+    expect(converted.tables[0].rows.map(row => !!row.cantSplit)).toEqual([false, false]);
   });
 
   it('converts text to a table and back', async () => {

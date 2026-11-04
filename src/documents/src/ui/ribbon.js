@@ -10,6 +10,7 @@
 
 import { el, isComposing } from './dom.js';
 import { commandIcon } from './command-icons.js';
+import { displayedChordReserved } from '../views/keymap.js';
 
 /** An icon from the office set as a live SVG element. */
 export function commandIconEl(name, size = 16) {
@@ -77,6 +78,8 @@ export function split(main, { label, open, size = 'small' } = {}) {
 
 /** A button the ribbon owns, for commands that have no editor control of their own. */
 export function command(label, icon, onclick, { size = 'small', text = null, shortcut = null, caret = false, attrs = {} } = {}) {
+  // A chord the browser keeps for itself on this platform (Ctrl+Shift+N opens a private window) is not offered.
+  if (displayedChordReserved(shortcut)) shortcut = null;
   const button = el('button', { type: 'button', 'aria-label': label, title: shortcut ? `${label} (${shortcut})` : label, onclick, ...attrs });
   if (shortcut) button.dataset.shortcut = shortcut;
   button.dataset.icon = icon;

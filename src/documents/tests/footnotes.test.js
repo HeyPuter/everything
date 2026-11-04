@@ -1,4 +1,4 @@
-import { beforeAll, afterAll, it, expect, describe } from 'vitest';
+import { beforeAll, afterAll, it, expect, describe, vi } from 'vitest';
 import { JSDOM } from 'jsdom';
 import { zipSync, unzipSync, strToU8, strFromU8 } from 'fflate';
 import { DocxPackage, createDocx, WRITING_STYLES } from '../src/engine/docx.js';
@@ -196,6 +196,41 @@ describe('footnotes', () => {
     expect(plain(lay())).toBe(plain(layout(pkg, model)));
     expect(passes).toBeGreaterThan(blocks);
   }, 120000);
+
+  it('names a table for footnote settling without serializing its cells again on each keystroke', async () => {
+    const { pkg, model } = await open(notedDocx());
+    model.select(model.text.length); model.replace('\nAfter');
+    model.select(model.text.length); model.insertTable(20, 2);
+    model.paragraphs.filter(p => p.cellId).forEach((p, i) => { p.runs = [{ ...model.paragraphs[0].runs[0], text: `Cell ${i} words` }]; });
+    const cache = new ParagraphMeasureCache(), remembered = (text, style) => measure(text, style);
+    remembered.paragraphCache = () => cache;
+    const lay = () => { cache.nextGeneration(); return layoutDocument(model.paragraphs, remembered, pageGeometry(model.pageSettings), model.numbering, model.tables, pkg.pageStories, { styles: model.styles }); };
+    const plain = body => JSON.stringify({ pages: body.pageCount, lines: body.lines.map(l => [l.paragraphId, l.page, l.y, l.start, l.end, l.cellId]), notes: body.footnoteAreas });
+    const first = lay();
+    expect(plain(first)).toBe(plain(layout(pkg, model)));
+    // Typing before the table moves its cells' offsets, not their lines: the table keeps its name, and
+    // its rows name the cells' measured paragraphs instead of serializing them (with their text) again.
+    model.select(3); model.replace('typed ');
+    const serialized = vi.spyOn(JSON, 'stringify');
+    let typed, rows;
+    try {
+      typed = lay();
+      rows = serialized.mock.results.filter(r => typeof r.value === 'string' && r.value.includes('"tableRow"'));
+    } finally { serialized.mockRestore(); }
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows.filter(r => r.value.includes('Cell 7'))).toEqual([]);
+    expect(typed.flowSignature).toBe(first.flowSignature);
+    expect(plain(typed)).toBe(plain(layout(pkg, model)));
+    // A cell that wraps to another line paginates differently: the table's name changes with it.
+    const cell = model.paragraphs.find(p => p.cellId && p.runs[0].text === 'Cell 7 words');
+    model.select(model.paragraphOffset(model.paragraphs.indexOf(cell)) + 4); model.replace('grows past the width of its column and wraps onto more lines than before ');
+    const grown = lay();
+    expect(grown.flowSignature).not.toBe(typed.flowSignature);
+    expect(plain(grown)).toBe(plain(layout(pkg, model)));
+    // Typed into the same cell without a new line, it keeps its height, and the name returns to what it was.
+    model.undo();
+    expect(lay().flowSignature).toBe(typed.flowSignature);
+  });
 
   it('tracks a footnote inserted with Track Changes on, so rejecting it removes the note', async () => {
     const { pkg, model } = await open(notedDocx());

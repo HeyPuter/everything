@@ -13,7 +13,7 @@
   border: 1px solid transparent; border-radius: var(--r-sm); color: var(--ink);
   background: transparent; font: 600 15px/1.4 var(--font); text-overflow: ellipsis;
 }
-.canvas-title:hover { border-color: transparent; background: var(--surface-2); }
+@media (hover: hover) { .canvas-title:hover { border-color: transparent; background: var(--surface-2); } }
 .canvas-title:focus { border-color: var(--control-border); background: var(--surface); }
 .canvas-save-status { flex: none; min-width: 0; gap: 5px; padding: 5px 4px; border-radius: 6px; font-size: 12px; }
 .canvas-save-status .save-label { display: inline; }
@@ -97,7 +97,7 @@
 .canvas-text-mode input { accent-color: var(--accent); margin: 0; }
 .canvas-zoom { display: flex; align-items: center; gap: 4px; white-space: nowrap; }
 .canvas-zoom select { appearance: none; color: var(--ink); background: var(--surface) var(--select-chevron) no-repeat right 4px center; border: 1px solid transparent; border-radius: 4px; font-size: 11px; padding: 3px 20px 3px 6px; cursor: pointer; }
-.canvas-zoom select:hover { border-color: var(--hairline-strong); background-color: var(--surface-2); }
+@media (hover: hover) { .canvas-zoom select:hover { border-color: var(--hairline-strong); background-color: var(--surface-2); } }
 .canvas-zoom select:focus-visible { border-color: var(--control-border); }
 .playground-nav { padding: 6px 12px; gap: 12px; font-size: 12px; }
 .playground-nav .btn { font-size: 12px; padding: 5px 9px; min-height: 30px; }
@@ -175,7 +175,7 @@
 .canvas-outline-entry[aria-current] { background: var(--accent-wash); color: var(--accent-strong); font-weight: 600; }
 .canvas-outline-page { margin-left: auto; }
 .canvas-toolbar .canvas-font-label { display: inline-block; min-width: 104px; max-width: 155px; height: 30px; padding: 4px 22px 4px 7px; border: 1px solid transparent; border-radius: 5px; background: var(--select-chevron) no-repeat right 5px center; text-align: start; }
-.canvas-font-label:hover { background-color: var(--surface-2); border-color: var(--hairline-strong); }
+@media (hover: hover) { .canvas-font-label:hover { background-color: var(--surface-2); border-color: var(--hairline-strong); } }
 .canvas-toolbar .canvas-style-select { width: 120px; }
 .canvas-inspector[hidden], .canvas-outline-panel[hidden], .canvas-advanced-section[hidden] { display: none; }
 

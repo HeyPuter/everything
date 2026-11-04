@@ -152,3 +152,32 @@ export function reorderDrawings(model, frontToBack) {
   model.didChange();
   return true;
 }
+
+/**
+ * Bring Forward, Send Backward, Bring to Front and Send to Back for several selected floating drawings, as Word
+ * restacks a multiple selection: each moves within its layer (behind or in front of the text), and the selected
+ * drawings keep their order among themselves. Forward and Backward step the selection past the next drawing that
+ * is not selected. Returns whether the order changed.
+ */
+export function arrangeDrawings(model, images, direction) {
+  if (!['forward', 'backward', 'front', 'back'].includes(direction)) throw new Error('Unknown image arrangement.');
+  const chosen = new Set(images.filter(isPositionedImage));
+  const runs = model.paragraphs.flatMap(p => p.runs).filter(r => isPositionedImage(r.image));
+  const next = new Map();
+  let order = 1;
+  for (const behind of [true, false]) {
+    const layer = runs.filter(r => !!r.image.anchor.behind === behind).sort((a, b) => a.image.anchor.order - b.image.anchor.order);
+    const picked = run => chosen.has(run.image);
+    let list = layer;
+    if (direction === 'front') list = [...layer.filter(r => !picked(r)), ...layer.filter(picked)];
+    else if (direction === 'back') list = [...layer.filter(picked), ...layer.filter(r => !picked(r))];
+    else if (direction === 'forward') { list = [...layer]; for (let i = list.length - 2; i >= 0; i--) if (picked(list[i]) && !picked(list[i + 1])) [list[i], list[i + 1]] = [list[i + 1], list[i]]; }
+    else { list = [...layer]; for (let i = 1; i < list.length; i++) if (picked(list[i]) && !picked(list[i - 1])) [list[i], list[i - 1]] = [list[i - 1], list[i]]; }
+    for (const run of list) { if (run.image.anchor.order !== order) next.set(run, { ...run.image, anchor: { ...run.image.anchor, order }, anchorChanged: true }); order++; }
+  }
+  if (!next.size) return false;
+  model.checkpoint();
+  for (const [run, image] of next) run.image = image;
+  model.didChange();
+  return true;
+}

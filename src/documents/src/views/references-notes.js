@@ -22,6 +22,7 @@ export function createNoteCommands(ctx) {
         // The shortcut pressed in a header or footer used to leave it and put the note wherever the caret was last in the text.
         throw new Error('Footnotes and endnotes go in the text of the document. Close the header or footer first.');
       }
+      ctx.trackableStories?.();
       unshared(`New ${kind}s`);
       const { TextDocument, paragraph } = await import('../engine/model.js');
       const body = engine.session.body;
@@ -38,7 +39,7 @@ export function createNoteCommands(ctx) {
           body.select(at, at + mark.length); body.setRunFormat({ verticalAlign: 'superscript' }); body.select(at + mark.length);
         }
         return true;
-      })) return;
+      })) { pkg().releaseNote?.(note); return; }
       // The note opens with its own number mark (or the custom mark), then a space, as existing documents start one.
       const draft = new TextDocument([paragraph('', textStyle ? { styleId: textStyle, styleChanged: true } : {})], body.pageSettings, body.numbering, body.styles, [], body.assets);
       draft.paragraphs[0].runs = mark
@@ -127,14 +128,12 @@ export function createNoteCommands(ctx) {
   function applySettings(kind, values) {
     const engine = ready(); if (!engine) return;
     ctx.unprotected?.('its footnote and endnote settings');
-    pkg().setNoteSettings(kind, values);
-    const definition = engine.session.definition, key = settingsKey(kind);
-    if (definition?.[key]) {
-      engine.session.definition = { ...definition, [key]: { ...definition[key], ...values } };
-      engine.session.sectionRevision = undefined;
-      engine.relayout();
-    }
-    engine.onChange?.();
+    // One undo step, which takes back what is saved and what is shown.
+    engine.changeSettings(() => {
+      pkg().setNoteSettings(kind, values);
+      const definition = engine.session.definition, key = settingsKey(kind);
+      if (definition?.[key]) engine.session.definition = { ...definition, [key]: { ...definition[key], ...values } };
+    });
     onChange();
   }
 
@@ -155,14 +154,15 @@ export function createNoteCommands(ctx) {
     // What the document has now: only settings that differ from it are written, so Apply with nothing changed
     // leaves settings.xml as it was, and a footnote change adds no endnote settings.
     const applied = { footnote: { ...settings.footnote }, endnote: { ...settings.endnote } };
-    const applyChanged = () => {
+    // Footnote and endnote settings changed together are one undo step.
+    const applyChanged = () => (editor() || { transact: fn => fn() }).transact(() => {
       for (const k of ['footnote', 'endnote']) {
         const changed = Object.fromEntries(['format', 'start', 'restart', 'position'].filter(key => pending[k][key] !== applied[k][key]).map(key => [key, pending[k][key]]));
         if (!Object.keys(changed).length) continue;
         applySettings(k, changed);
         applied[k] = { ...applied[k], ...changed };
       }
-    };
+    });
     function remember() {
       if (!restart.options.length) return; // Not filled in yet.
       pending[kind] = { ...pending[kind], format: format.value, start: Math.max(1, Math.min(32767, Math.round(Number(start.value)) || 1)), restart: restart.value, position: kind === 'footnote' ? footPosition.value : endPosition.value };

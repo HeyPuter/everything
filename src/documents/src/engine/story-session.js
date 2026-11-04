@@ -11,6 +11,15 @@ const objectName = object => { let name = objectNames.get(object); if (name === 
 // caret: Track Changes (a tracked deletion marks text in place, a move marks its source), fields (kept in step
 // across the document), and content controls, which span paragraphs.
 const DOCUMENT_PARTS = ['comments', 'tables', 'styles', 'stylesEnabled', 'numbering', 'pageSettings'];
+// Settings the host keeps, compared by value; their bytes (custom XML parts) by identity, as each write replaces them.
+const byteIds = new WeakMap();
+let nextByteId = 0;
+const hostKey = host => JSON.stringify(host ?? null, (key, value) => {
+  if (!(value instanceof Uint8Array)) return value;
+  if (!byteIds.has(value)) byteIds.set(value, nextByteId++);
+  return `bytes:${byteIds.get(value)}`;
+});
+const sameHost = (a, b) => hostKey(a) === hostKey(b);
 const incrementalTyping = model => !model.trackChanges && !model.hasBodyFields && !model.hasContentControls && !model.hasBlockControls;
 
 // A document has separate text-position spaces, but one chronological undo
@@ -123,12 +132,18 @@ export class StorySession {
     model.history = []; model.future = [];
   }
   record(entry) {
+    this.recorded = (this.recorded || 0) + 1;
     this.history.push(entry);
     if (this.history.length > 100) this.history.shift();
     this.future = [];
   }
-  run(action, validate = () => {}, { record = true, typing = false } = {}) {
-    const before = this.capture(), model = this.model;
+  // `label` names the undo step for the host's menus, where the change alone does not say what made it (AutoCorrect).
+  // `resume` ({ path, page }) is the header, footer or note being edited when the change was made in another story
+  // (the body's section settings from a header): Undo and Redo go back to editing it.
+  // `settings`: the action also changes the settings changeSettings keeps (the citation style and sources), which
+  // the step takes back with it.
+  run(action, validate = () => {}, { record = true, typing = false, label, resume, settings = false } = {}) {
+    const before = this.capture(), model = this.model, settingsBefore = settings ? this.settingsState() : null;
     // Text typed or deleted with a key (CanvasEditor typeText and deleteText).
     const typed = typing ? this.typingStart(model, before) : null;
     model.formatTrackingSuppressed = false;
@@ -156,7 +171,7 @@ export class StorySession {
       }
       validate(model);
       if (model.revision !== before.revision) {
-        if (record) this.record(before);
+        if (record) { if (label) before.label = label; if (resume) before.resume = resume; if (settingsBefore) before.settings = settingsBefore; this.record(before); }
         this.revision++;
         if (this.path !== null && this.body.trackChanges) this.untracked?.(this.path);
       }
@@ -169,27 +184,140 @@ export class StorySession {
       return result;
     } catch (error) {
       this.restore(before); this.model.revision = before.revision;
+      if (settingsBefore) this.applySettings(settingsBefore);
       throw error;
     } finally {
       if (ownCheckpoint) model.checkpoint = ownCheckpoint; else delete model.checkpoint;
     }
   }
+  /**
+   * Settings kept beside the stories' text: each section's first-page and page-numbering options, odd-and-even
+   * pages and the note settings (in the definition), and what the host keeps of them for saving (`settingsHost`,
+   * the package's side). The headers, footers and notes themselves are not among them: a story added since stays.
+   */
+  settingsState() {
+    const definition = this.definition;
+    return {
+      options: definition && { evenAndOdd: !!definition.evenAndOdd, footnotes: definition.footnotes, endnotes: definition.endnotes,
+        sections: definition.sections.map(section => ({ firstPageDifferent: !!section.firstPageDifferent, pageNumbering: section.pageNumbering })) },
+      host: this.settingsHost?.capture(),
+    };
+  }
+  applySettings({ options, host }) {
+    const definition = this.definition;
+    if (definition) {
+      const next = { ...definition, evenAndOdd: !!options?.evenAndOdd, sections: definition.sections.map((section, i) => {
+        const kept = options?.sections[i], value = { ...section, firstPageDifferent: !!kept?.firstPageDifferent };
+        if (kept?.pageNumbering) value.pageNumbering = kept.pageNumbering; else delete value.pageNumbering;
+        return value;
+      }) };
+      // Note settings are set before they change (a note adds them): ones a later note added stay.
+      for (const key of ['footnotes', 'endnotes']) if (options?.[key] !== undefined) next[key] = options[key];
+      this.definition = next; this.sectionRevision = undefined;
+    }
+    this.settingsHost?.restore(host);
+  }
+  /**
+   * Change those settings (`change()`) as one undo step, like an edit to the text. A change that leaves them as
+   * they were records nothing. Whether anything changed. `label` names the step, as run's does.
+   */
+  changeSettings(change, { label } = {}) {
+    const before = { path: this.path, page: this.page, settings: this.settingsState(), caret: this.caret?.(), ...(label ? { label } : {}) };
+    const same = () => {
+      const now = this.settingsState(), outline = state => JSON.stringify(state.options?.sections.some(s => s.firstPageDifferent || s.pageNumbering) || state.options?.evenAndOdd || state.options?.footnotes || state.options?.endnotes ? state.options : null);
+      return outline(now) === outline(before.settings) && sameHost(now.host, before.settings.host);
+    };
+    try { change(); } catch (error) { this.applySettings(before.settings); throw error; } finally { this.sectionRevision = undefined; }
+    if (same()) return false;
+    this.record(before);
+    this.revision++;
+    return true;
+  }
+  /**
+   * Make the steps `action` records one undo step, also when they change several stories (Replace All in every
+   * header and footer). The step is named as its first part was.
+   */
+  transact(action) {
+    const start = this.recorded || 0;
+    try { return action(); } finally {
+      const count = Math.min((this.recorded || 0) - start, this.history.length), steps = this.history.slice(this.history.length - count);
+      if (count > 1 && steps.every(step => step.state || step.settings)) {
+        this.history.splice(this.history.length - count);
+        this.history.push(this.compound(steps, steps[0].label));
+      }
+    }
+  }
+  /** One step made of `steps`, which Undo and Redo apply last to first: the first's story is where it ends. */
+  compound(steps, label) {
+    return { steps, path: steps[0].path, page: steps[0].page, caret: steps[0].caret, ...(label ? { label } : {}) };
+  }
   travel(from, to, validate) {
     if (!from.length) return false;
     const previousPath = this.path, previousPage = this.page, entry = from.at(-1);
+    if (entry.steps) {
+      // Each part puts its story back, the last part first; the state each replaces makes the step back.
+      const applied = [];
+      try {
+        for (const step of [...entry.steps].reverse()) {
+          // A part can be a change of settings (changeSettings), which no story's text holds.
+          if (step.settings && !step.state) {
+            applied.push({ path: step.path, page: step.page, settings: this.settingsState(), caret: step.caret });
+            this.applySettings(step.settings);
+            continue;
+          }
+          this.activate(step.path); this.page = step.page;
+          const current = this.capture();
+          if (step.settings) current.settings = this.settingsState();
+          applied.push(current);
+          this.restore(step);
+          if (step.settings) this.applySettings(step.settings);
+          this.guard?.(current.state, this.model, this.path);
+        }
+        validate?.(this.model);
+      } catch (error) {
+        for (const current of [...applied].reverse()) {
+          if (current.settings) this.applySettings(current.settings);
+          if (!current.state) continue;
+          this.restore(current); this.model.revision = current.revision;
+        }
+        this.activate(previousPath); this.page = previousPage;
+        throw error;
+      }
+      from.pop(); to.push(this.compound(applied, entry.label));
+      this.revision++;
+      this.prepareSnapshot();
+      return true;
+    }
+    if (entry.settings && !entry.state) {
+      // The settings go back (or forward) where the caret is: no story's text changes.
+      const current = { path: this.path, page: this.page, settings: this.settingsState(), caret: this.caret?.() };
+      this.applySettings(entry.settings);
+      try { validate?.(this.model); } catch (error) { this.applySettings(current.settings); throw error; }
+      if (entry.label) current.label = entry.label;
+      from.pop(); to.push(current);
+      this.revision++;
+      return true;
+    }
     this.activate(entry.path);
     this.page = entry.page;
     const current = this.capture();
+    // A step that also changed settings (run's `settings`) puts them back with the text.
+    if (entry.settings) current.settings = this.settingsState();
     try {
       this.restore(entry);
+      if (entry.settings) this.applySettings(entry.settings);
       this.guard?.(current.state, this.model, this.path);
       validate?.(this.model);
+      // The step keeps its name (for the host's menus) and the story to go on editing in both directions.
+      if (entry.label) current.label = entry.label;
+      if (entry.resume) current.resume = entry.resume;
       from.pop(); to.push(current);
       this.revision++;
       this.prepareSnapshot();
       return true;
     } catch (error) {
       this.restore(current); this.model.revision = current.revision;
+      if (current.settings) this.applySettings(current.settings);
       this.activate(previousPath);
       this.page = previousPage;
       throw error;

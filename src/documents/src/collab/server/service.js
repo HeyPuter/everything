@@ -19,6 +19,7 @@
  *   doc:<room>:presence:<session>   presence entry (expires)
  */
 import * as Y from 'yjs';
+import { clipText } from '../../core/text.js';
 import { canComment, canEdit, canManage, decode, encode, hash, ID, INVITE_ROLES, MAX_UPDATE, MAX_BASE_BYTES, PRESENCE_TTL, randomId } from '../protocol.js';
 import { checkCommentOnly } from '../transports.js';
 
@@ -75,15 +76,18 @@ export class RoomService {
   async admit(room, user, token) {
     const meta = await this.meta(room);
     const prior = await this.kv.get(`doc:${room}:member:${user.uuid}`);
-    if (prior?.role === 'removed') fail(403, 'Your access to this shared document was removed.');
-    if (prior) return;
+    const removed = () => fail(403, 'Your access to this shared document was removed.');
+    if (prior && prior.role !== 'removed') return;
     let role = null;
     if (typeof token === 'string' && token) {
       if (token.length > 200) fail(400, 'Invalid invitation.');
       const invite = await this.kv.get(`doc:${room}:invite:${await hash(token)}`);
       if (!invite || invite.expires < this.now()) fail(403, 'This invitation has expired or was revoked.');
+      // Someone removed stays out with the links they had; one the owner made after the removal brings them back.
+      if (prior && !(invite.created > (prior.removed ?? Infinity))) removed();
       role = invite.role;
-    } else {
+    } else if (prior) removed();
+    else {
       const named = await this.kv.get(`doc:${room}:named:${user.username.toLowerCase()}`);
       if (named && named.expires >= this.now()) role = named.role;
     }
@@ -167,7 +171,7 @@ export class RoomService {
     await this.writeText(base, input.base);
     await this.writeText(cp, input.initial);
     await this.kv.set(`doc:${room}:cp`, { seq: 0, path: cp });
-    await this.kv.set(`doc:${room}:meta`, { owner: user.uuid, ownerName: user.username, name: typeof input.name === 'string' ? input.name.slice(0, 200) : 'Untitled document', created: this.now(), base, schema: 1 });
+    await this.kv.set(`doc:${room}:meta`, { owner: user.uuid, ownerName: user.username, name: typeof input.name === 'string' ? clipText(input.name, 200) : 'Untitled document', created: this.now(), base, schema: 1 });
     await this.kv.set(`doc:${room}:member:${user.uuid}`, { uuid: user.uuid, username: user.username, role: 'owner', joined: this.now() });
     return { room };
   }
@@ -185,7 +189,7 @@ export class RoomService {
       if (text.length < 4000) {
         const existing = await this.kv.get(prefix + p.session);
         if (existing && existing.user !== user.uuid) fail(409, 'Session belongs to another participant.');
-        await this.kv.set(prefix + p.session, { ...p, user: user.uuid, name: String(user.username).slice(0, 80), role: member.role, at: this.now(), expires: this.now() + PRESENCE_TTL }, Math.floor((this.now() + PRESENCE_TTL) / 1000));
+        await this.kv.set(prefix + p.session, { ...p, user: user.uuid, name: clipText(String(user.username), 80), role: member.role, at: this.now(), expires: this.now() + PRESENCE_TTL }, Math.floor((this.now() + PRESENCE_TTL) / 1000));
       }
     }
     const roster = (await this.list(prefix)).map(r => r.value).filter(v => v && v.expires > this.now()).map(({ expires, ...rest }) => rest);
@@ -280,7 +284,7 @@ export class RoomService {
     if (!record) fail(404, 'Member not found.');
     const role = input.role;
     if (role !== 'removed' && !INVITE_ROLES.includes(role)) fail(400, 'Invalid role.');
-    await this.kv.set(`${prefix}member:${target}`, { ...record, role });
+    await this.kv.set(`${prefix}member:${target}`, { ...record, role, ...(role === 'removed' ? { removed: this.now() } : {}) });
     for (const row of await this.list(`${prefix}presence:`)) if (row.value?.user === target) await this.kv.del(row.key);
     return { ok: true };
   }

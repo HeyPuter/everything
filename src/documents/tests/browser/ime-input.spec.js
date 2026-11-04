@@ -140,3 +140,32 @@ test('a Korean word, committed a syllable at a time, undoes in one step as a typ
   await input(page).press('ControlOrMeta+Shift+z');
   await expect(input(page)).toHaveValue('안녕하 ');
 });
+
+test('text composed where the document is protected goes nowhere, and the keys after it still move the caret', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/mock.html#/new');
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await input(page).fill('Locked text. Open text.');
+  await input(page).evaluate(el => { el.focus(); el.setSelectionRange(13, 23); el.dispatchEvent(new Event('select', { bubbles: true })); });
+  await page.getByRole('tab', { name: 'Review' }).click();
+  await page.getByRole('button', { name: 'Restrict Editing' }).filter({ visible: true }).first().click();
+  const pane = page.getByRole('complementary', { name: 'Restrict Editing pane' });
+  await pane.getByRole('checkbox', { name: 'Allow only this type of editing in the document:' }).check();
+  await pane.getByRole('checkbox', { name: 'Everyone' }).check();
+  await pane.getByRole('button', { name: 'Yes, Start Enforcing Protection' }).click();
+  await page.getByRole('dialog', { name: 'Start Enforcing Protection' }).getByRole('button', { name: 'OK', exact: true }).click();
+  await expect(pane).toContainText('protected from unintentional editing');
+  await input(page).evaluate(el => { el.focus(); el.setSelectionRange(3, 3); el.dispatchEvent(new Event('select', { bubbles: true })); });
+  const cdp = await page.context().newCDPSession(page);
+  for (const text of ['に', 'にほ', '日本']) await cdp.send('Input.imeSetComposition', { text, selectionStart: text.length, selectionEnd: text.length });
+  await cdp.send('Input.insertText', { text: '日本' });
+  // Refused, as a typed letter is: not put at the end of the field, inside the editable region there.
+  expect(await state(page)).toEqual({ text: 'Locked text. Open text.', range: [3, 3], composing: false, focused: true });
+  await input(page).press('ArrowRight');
+  expect(await state(page)).toMatchObject({ range: [4, 4] });
+  // In the editable region an input method composes as usual.
+  await input(page).evaluate(el => { el.setSelectionRange(18, 18); el.dispatchEvent(new Event('select', { bubbles: true })); });
+  for (const text of ['か', 'かん']) await cdp.send('Input.imeSetComposition', { text, selectionStart: text.length, selectionEnd: text.length });
+  await cdp.send('Input.insertText', { text: 'かん' });
+  expect(await state(page)).toEqual({ text: 'Locked text. Open かんtext.', range: [20, 20], composing: false, focused: true });
+});

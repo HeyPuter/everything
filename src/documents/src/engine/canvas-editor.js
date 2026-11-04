@@ -4,6 +4,7 @@ import { StorySession } from './story-session.js';
 import { decodeShape } from './canvas-shapes.js';
 import { wordPosition, optionWordPosition } from './word-navigation.js';
 import { carriesFormatting, copyFragment, fragmentHtml, htmlFragment, pasteFragment, formattedPasteFits, copiesPicture, pictureHtml, htmlPicture } from './clipboard-fragment.js';
+import { copiesDrawing, drawingHtml, htmlDrawing, pasteDrawing, equationHtml, htmlEquation, pastedEquation, uncopiedHtml, copiedUncopied, UNCOPIED_MESSAGE, UNCUT_MESSAGE } from './drawing-clipboard.js';
 import { xmlAttributeText } from './text-limits.js';
 import { textEdit, followEdit } from './text-edit.js';
 import { showLink } from './link-appearance.js';
@@ -46,8 +47,8 @@ import { setCanvasTextStyle, setCanvasFontAlternatives, loadCanvasFonts } from '
 import { hasRunBackground, runBackground, foregroundBackground, runBackgroundRect } from './backgrounds.js';
 import { paintColor } from './colors.js';
 import { TextDocument, boundaries, locate, paragraphFormat, paragraphText } from './model.js';
-import { cellContext } from './tables.js';
-import { cellBlockRects, cellBlockPlacements, wholeRows } from './table-selection.js';
+import { cellContext, rowGrid, verticalMerges } from './tables.js';
+import { cellBlockRects, cellBlockPlacements, wholeRows, blockBetween } from './table-selection.js';
 import { clearCells, splitTable, insertTablePageBreak } from './table-editing.js';
 import { paragraphEdges } from './paragraph-geometry.js';
 import { pageGeometry } from './page-settings.js';
@@ -71,6 +72,8 @@ let nextAsset = 0;
 const EAGER_PAGES = 8;
 // Pages off screen are painted once changes have paused this long (schedulePaint).
 const QUIET_PAINT_MS = 600;
+// How long a finger rests on the text before it opens the context menu.
+const LONG_PRESS_MS = 500;
 
 /**
  * The change bars' ranges with those that touch or overlap joined into one, in document order. A bar marks every
@@ -94,6 +97,9 @@ export class CanvasEditor {
     this.host = host;
     this.inputLabel = inputLabel;
     this.readOnly = readOnly;
+    // Names this open document on the clipboard: text copied here carries its pictures, shapes and equations only
+    // to a paste in this document (clipboard-fragment.js).
+    this.clipboardToken = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`;
     this.protectedPageFields = protectedPageFields;
     this.session = new StorySession(new TextDocument(paragraphs, pageSettings, numbering, styles, tables, assets, { displayOnly: readOnly, comments, trackChanges }), pageStories);
     this.session.caret = () => ({ affinity: this.caretAffinity, page: this.caretPage });
@@ -153,16 +159,24 @@ export class CanvasEditor {
     this.measure.onFontsReady = () => { if (!this.destroyed) { try { this.relayout(); this.revealCaret(); } catch (error) { this.onError(error); } } };
     this.measureCache = { clear: () => this.measure.clear() };
     const listen = (node, name, fn) => node.addEventListener(name, fn, { signal: this.abort.signal });
-    listen(this.pages, 'pointerdown', e => this.pointerDown(e));
+    listen(this.pages, 'pointerdown', e => { this.longPressed = false; this.holdPages = false; this.pointerDown(e); });
+    // The pages scroll up and down under a finger, except while it moves the selected picture.
+    listen(this.pages, 'touchmove', e => { if (this.holdPages && this.imageInteraction.active && e.cancelable) e.preventDefault(); }, { passive: false });
     // A press anywhere else ends a run of quick presses, as it does natively.
     listen(document, 'pointerdown', e => { if (!this.pages.contains(e.target)) this.lastPress = null; });
     listen(this.pages, 'pointermove', e => this.pointerMove(e));
     listen(this.pages, 'pointerup', e => this.pointerUp(e));
-    listen(this.pages, 'pointercancel', () => { this.touch = null; this.linkPress = null; this.dragging = false; this.dragControl = null; this.stopAutoScroll(); this.imageInteraction.cancel(); });
+    listen(this.pages, 'pointercancel', () => this.cancelPointer());
     listen(this.pages, 'contextmenu', e => {
-      // A long press opens the menu; lifting that finger is not a tap.
+      e.preventDefault();
+      // The menu a held finger opened already (see longPress) is not opened again by the browser's own.
+      if (this.longPressed) return;
+      this.openContextMenu(e);
+    });
+    // A long press opens the menu; lifting that finger is not a tap.
+    this.openContextMenu = e => {
       this.touch = null;
-      e.preventDefault(); const selected=this.model.selectedImage, position = this.point(e, false), normal=this.pointImage;
+      const selected=this.model.selectedImage, position = this.point(e, false), normal=this.pointImage;
       this.point({clientX:e.clientX,clientY:e.clientY,altKey:true},false);
       const candidate=this.pointImage, picture=normal || (selected && candidate?.image.id===selected.id ? candidate : null);
       if (picture) this.model.select(picture.start, picture.end);
@@ -170,7 +184,7 @@ export class CanvasEditor {
       this.focus(); this.onSelection();
       const behind = !this.model.selectedImage && candidate;
       onContextMenu({event:e, behind, selectBehind:()=>{ if(behind){this.model.select(behind.start,behind.end);this.focus();this.onSelection();} }});
-    });
+    };
     listen(this.pages, 'dblclick', e => this.selectWord(e));
     // A third click selects the paragraph. Pointer events report no click
     // count, so the click that follows the third press carries it.
@@ -181,6 +195,15 @@ export class CanvasEditor {
     listen(this.input, 'input', e => this.nativeInput(e));
     listen(this.input, 'compositionstart', () => {
       if (this.readOnly) return;
+      // A composition that starts while one is open (the browser committed the last one without ending it) goes on in
+      // its undo step: only where its text begins in the field changes.
+      if (this.composition) { this.compositionStart = this.input.selectionStart; this.compositionText = ''; return; }
+      // A selected floating drawing is not text a composition replaces (keydown, beforeInput): what an input method,
+      // a dead key or a composing emoji picker writes goes after its anchor. The field's composition still replaces
+      // the drawing's character there (moving the field's selection now confuses the input method); the document
+      // keeps it, and reads the field with it put back (keptComposition).
+      this.compositionKeeps = !this.viewOnly && this.selectedFloatingDrawing ? this.model.range[0] : null;
+      if (this.compositionKeeps !== null) this.model.select(this.compositionKeeps + 1);
       const entry = this.session.capture(), before = entry.state, [start, end] = this.model.range;
       const caret = this.model.selection.controlCaret;
       const explicit = caret && inlineControlCaret(this.model.paragraphs, start, caret);
@@ -497,6 +520,20 @@ export class CanvasEditor {
     this.session.sectionRevision = undefined;
     if (this.session.path !== null) this.editStory(null); else this.relayout();
   }
+  /**
+   * Change header, footer and note settings (`change()` sets them in the package and here, setStoryOptions) as one
+   * undo step, named `label` when given. Whether anything changed.
+   */
+  changeSettings(change, label) {
+    if (this.readOnly || this.viewOnly) return false;
+    this.finishComposition();
+    let changed;
+    try { changed = this.session.changeSettings(change, { label }); } finally { this.relayout(); }
+    if (changed) this.onChange();
+    return changed;
+  }
+  /** Run `action`, whose edits can reach several stories (each in its own command), as one undo step. */
+  transact(action) { return this.session.transact(action); }
   /** The section index of a body page. */
   sectionOfPage(page = this.caretPageIndex) { return this.layout?.pageSections?.[page] ?? 0; }
   updatePageReferences() {
@@ -650,8 +687,12 @@ export class CanvasEditor {
     try {
       // The caret moves to the restored selection, on the side of a line's end it was on there: Up and Down start
       // from its column there, not the one before.
-      const caret = this.session[direction === 'undo' ? 'history' : 'future'].at(-1)?.caret;
-      if (this.session[direction](() => { this.validateStory(); this.preferredX = null; this.caretAffinity = caret?.affinity || 'forward'; this.caretPage = caret ? caret.page : this.caretPage; this.relayout(); })) this.onChange();
+      const entry = this.session[direction === 'undo' ? 'history' : 'future'].at(-1), caret = entry?.caret, resume = entry?.resume;
+      if (this.session[direction](() => { this.validateStory(); this.preferredX = null; this.caretAffinity = caret?.affinity || 'forward'; this.caretPage = caret ? caret.page : this.caretPage; this.relayout(); })) {
+        // A change made from a header, footer or note to another story (its section's distances) goes on there.
+        if (resume && this.session.path !== resume.path) this.editStory(resume.path, resume.page);
+        this.onChange();
+      }
       this.focus(); this.revealCaret();
     } catch (e) { this.relayout(); this.onError(e); }
   }
@@ -742,8 +783,13 @@ export class CanvasEditor {
       this.storyPage = this.session.page;
       const occurrences = this.storyLayout.positions.filter(p => p.path === this.session.path);
       this.storyPage = occurrences.find(p => p.page === this.storyPage)?.page ?? occurrences[0]?.page;
-      if (this.storyPage === undefined) this.session.activate(null);
-      else this.session.page = this.storyPage;
+      if (this.storyPage === undefined) {
+        // A header or footer no page shows any more (Different First Page undone while editing the first page's)
+        // gives way to the one of its kind its page now shows, as the place being edited; else the body.
+        const stories = this.pageStories.stories, kind = stories[this.session.path]?.kind, page = this.session.page;
+        const shown = (kind === 'header' || kind === 'footer') && this.storyLayout.positions.find(p => p.page === page && stories[p.path]?.kind === kind && stories[p.path].editable);
+        if (shown) { this.session.activate(shown.path); this.storyPage = this.session.page = shown.page; } else this.session.activate(null);
+      } else this.session.page = this.storyPage;
     }
     // Section line numbers are labels beside the finished body lines (§17.6.8); views without pages show none.
     const body = this.session.body;
@@ -1271,7 +1317,7 @@ export class CanvasEditor {
       return { id: b.id, name: b.name, start: b.start, end: b.end, page: printed(at, line.paragraphId)?.text ?? String(line.page + 1) };
     });
   }
-  addBookmark(name) { return this.execute(() => this.model.addBookmark(name)); }
+  addBookmark(name, options) { return this.execute(() => this.model.addBookmark(name, options)); }
   // A bookmark listed from a header or footer is the body's: renaming or deleting it works there.
   renameBookmark(id, name) { if (this.session.path !== null) this.editStory(null); return this.execute(() => this.model.renameBookmark(id, name)); }
   removeBookmark(id) { if (this.session.path !== null) this.editStory(null); return this.execute(() => this.model.removeBookmark(id)); }
@@ -1324,17 +1370,37 @@ export class CanvasEditor {
   /**
    * A finger on the pages may be starting a scroll (touch-action: pan-y), so it does not place the
    * caret or bring up the keyboard yet: a tap does that when the finger lifts, and a sideways drag,
-   * which never scrolls, selects from where it went down. Pictures take the press at once.
+   * which never scrolls, selects from where it went down. Pictures take the press at once, and so does a picture
+   * being cropped; a finger elsewhere, with a picture selected or not, may still be scrolling.
    */
   deferTouch(e) {
-    if (e.pointerType !== 'touch' || this.model.selectedImage || this.imageInteraction.active) return false;
+    if (e.pointerType !== 'touch' || this.cropActive || this.imageInteraction.active) return false;
     this.point(e, false);
     if (this.pointImage) return false;
     // Scrolling is up to touch-action; this only stops the emulated mouse press from taking focus.
     e.preventDefault();
-    this.touch = { down: e, x: e.clientX, y: e.clientY };
+    const touch = this.touch = { down: e, x: e.clientX, y: e.clientY, moved: false };
+    setTimeout(() => this.longPress(touch), LONG_PRESS_MS);
     return true;
   }
+  /**
+   * A finger held still on the text opens the context menu, as a right-click does. Not every touch browser
+   * reports a long press as a contextmenu event (Safari on iPhone and iPad does not); one that does is then
+   * ignored for that press.
+   */
+  longPress(touch) {
+    if (this.touch !== touch || touch.moved || this.destroyed) return;
+    this.longPressed = true;
+    this.openContextMenu(touch.down);
+    // Lifting the finger may still be reported as a click, at the menu item now under it: that is not a choice.
+    const done = new AbortController(), end = () => done.abort(), signal = done.signal;
+    this.abort.signal.addEventListener('abort', end, { signal });
+    document.addEventListener('click', e => { e.preventDefault(); e.stopImmediatePropagation(); end(); }, { capture: true, signal });
+    document.addEventListener('pointerup', e => { if (e.pointerId === touch.down.pointerId) setTimeout(end, 400); }, { capture: true, signal });
+    document.addEventListener('pointerdown', end, { capture: true, signal });
+  }
+  /** Forget the press in progress (the browser took it for a scroll, or a second finger made it a pinch). */
+  cancelPointer() { this.touch = null; this.linkPress = null; this.dragging = false; this.dragControl = null; this.stopAutoScroll(); this.imageInteraction.cancel(); }
   pointerDown(e, tapped = false) {
     // Control+click is a Mac's secondary click: the context menu follows, and the selection it acts on stays.
     if (e.button !== 0 || MAC && e.ctrlKey) return;
@@ -1395,7 +1461,12 @@ export class CanvasEditor {
         }
       }
     }
-    if (this.pointImage && !e.shiftKey) { this.model.select(this.pointImage.start, this.pointImage.end); if (this.imageInteraction.begin(e)) { this.onSelection(); return; } }
+    if (this.pointImage && !e.shiftKey) {
+      // A finger on the picture already selected moves it; one on another picture selects it and may still scroll.
+      const held = e.pointerType === 'touch' && this.model.selectedImage?.id === this.pointImage.image.id;
+      this.model.select(this.pointImage.start, this.pointImage.end);
+      if (this.imageInteraction.begin(e)) { this.holdPages = held; this.onSelection(); return; }
+    }
     else if (restoredPromptSelection) this.model.select(...restoredPromptSelection);
     else if (!e.shiftKey && (this.model.macroButtonAt(position)||this.model.placeholderAt(position))) { const range = this.model.macroButtonAt(position)||this.model.placeholderAt(position); this.model.select(range.start, range.end); }
     else {
@@ -1424,6 +1495,7 @@ export class CanvasEditor {
   pointerMove(e) {
     if (this.touch?.down.pointerId === e.pointerId) {
       const dx = Math.abs(e.clientX - this.touch.x), dy = Math.abs(e.clientY - this.touch.y);
+      if (Math.hypot(dx, dy) > 10) this.touch.moved = true;
       if (dx < 10 || dx <= dy) return;
       this.pointerDown(this.touch.down, true);
     }
@@ -1651,6 +1723,11 @@ export class CanvasEditor {
       key = forward ? 'ArrowRight' : 'ArrowLeft';
     }
     if (!['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown'].includes(key)) this.preferredX = null;
+    // With a block of table cells selected, Shift+Left and Shift+Right grow or shrink it by a cell, as in Word,
+    // rather than moving its corner a character at a time through the cell's text.
+    // Up and Down likewise go a row at a time, not a line at a time through a cell of several lines.
+    if (shift && !word && !currentLine?.cellText && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(key) && this.model.activeCellBlock
+      && this.extendCellBlock(key === 'ArrowLeft' ? -1 : key === 'ArrowRight' ? 1 : 0, key === 'ArrowUp' ? -1 : key === 'ArrowDown' ? 1 : 0)) return;
     const { focus, anchor } = this.model.selection;
     // Ctrl word navigation follows the Windows native reference. Option follows
     // native Mac text fields: word starts going left, word ends going right.
@@ -1841,6 +1918,14 @@ export class CanvasEditor {
     if (levelChord && ['ArrowLeft', 'ArrowRight'].includes(e.key) && this.model.selectedParagraphs.every(p => p.list)) {
       e.preventDefault(); this.changeListLevel(e.key === 'ArrowRight' ? 1 : -1); return;
     }
+    // A selected floating drawing (a shape, text box or picture placed on the page) is not text the keys type over,
+    // as in Word: Enter edits its text, Tab and Shift+Tab go to the next or previous drawing, and Ctrl+Enter breaks
+    // the page after its anchor. Typed text goes into its text (beforeInput). Each used to delete the drawing.
+    if (!this.readOnly && !this.viewOnly && this.selectedFloatingDrawing && !e.altKey && (e.key === 'Enter' || e.key === 'Tab' && !mod)) {
+      if (e.key === 'Tab') { e.preventDefault(); this.selectNextDrawing(e.shiftKey ? -1 : 1); return; }
+      if (!mod) { e.preventDefault(); this.typeIntoDrawing(''); return; }
+      this.model.select(this.model.range[1]);
+    }
     if (e.key === 'Enter' && !e.altKey) {
       e.preventDefault();
       if (!this.readOnly && !this.viewOnly) this.narrowCellBlock();
@@ -1916,6 +2001,9 @@ export class CanvasEditor {
     // the caret the field would delete the hidden words, struck out already, and the key did nothing.
     if (e.inputType === 'deleteWordBackward' || e.inputType === 'deleteWordForward') this.passHiddenText(e.inputType === 'deleteWordBackward' ? -1 : 1);
     if (e.inputType === 'historyUndo' || e.inputType === 'historyRedo') { e.preventDefault(); e.inputType === 'historyUndo' ? this.undo() : this.redo(); return; }
+    if (['insertText', 'insertLineBreak', 'insertParagraph', 'insertReplacementText'].includes(e.inputType) && this.selectedFloatingDrawing) {
+      e.preventDefault(); this.typeIntoDrawing(e.inputType === 'insertText' ? e.data || '' : ''); return;
+    }
     const actions = {
       insertText: () => this.model.replace(e.data || ''),
       insertLineBreak: () => this.model.replace('\v'),
@@ -1981,7 +2069,7 @@ export class CanvasEditor {
     // While true, the host may refresh its controls after the frame that shows the typed text.
     this.typing = true;
     let executed;
-    try { executed = this.execute(action, undefined, { record: !merge, typing: true }); } finally { this.typing = false; }
+    try { executed = this.execute(action, undefined, { record: !merge, typing: true, label: 'Typing' }); } finally { this.typing = false; }
     if (executed) {
       this.typingGroup = { revision: this.session.revision, path: this.session.path, at: this.model.selection.focus, last: text.at(-1) };
       if (text.length === 1) this.assistTyping(text);
@@ -2022,7 +2110,7 @@ export class CanvasEditor {
       done = this.execute(() => {
         if (past !== null) this.model.select(past);
         return this.model.delete(direction);
-      }, undefined, { record: !merge, typing: true });
+      }, undefined, { record: !merge, typing: true, label: 'Typing' });
     } finally { this.deleting = false; }
     if (done) this.deleteGroup = { direction, at: this.model.selection.focus, revision: this.session.revision, path: this.session.path };
   }
@@ -2038,7 +2126,7 @@ export class CanvasEditor {
         // A typed list marker ("* ", "1. ") becomes a list.
         if (fix.list) this.model.toggleList(fix.list);
         return changed;
-      }, undefined, undefined, true);
+      }, undefined, { label: fix.list ? 'AutoFormat' : 'AutoCorrect' }, true);
       if (fix.list) return;
     }
     if (/\s/.test(typed)) {
@@ -2062,7 +2150,7 @@ export class CanvasEditor {
       // The replacement ends at the paragraph's end (after any deletion Track Changes keeps): the next paragraph follows.
       this.model.select(this.model.selection.focus + 1);
       return changed;
-    }, undefined, undefined, true);
+    }, undefined, { label: 'AutoCorrect' }, true);
     this.typingGroup = null;
   }
   /** Link the web address or email ending at `end` in a paragraph starting at `from`, and leave the caret at `caret`. */
@@ -2075,7 +2163,7 @@ export class CanvasEditor {
       if (linked) showLink(this.model);
       this.model.select(caret);
       return linked;
-    }, undefined, undefined, true);
+    }, undefined, { label: 'AutoFormat' }, true);
     this.typingGroup = null;
   }
   /**
@@ -2125,7 +2213,7 @@ export class CanvasEditor {
     try {
       const revision = this.session.revision;
       this.session.run(() => {
-        const value = this.input.value, a = this.input.selectionStart, b = this.input.selectionEnd;
+        const { value, a, b } = this.keptComposition();
         const text = this.inputText, model = this.model, selection = model.selection, revision = model.revision;
         const typing = [model.typingFormat, model.typingStyle, model.typingDirectCleared];
         this.reconcile(value, false, { caret: a === b ? a : null, backward: /Backward$/.test(e?.inputType || '') });
@@ -2138,8 +2226,15 @@ export class CanvasEditor {
       }, () => { this.validateStory(); this.relayout(); this.revealCaret(); }, { record: !this.composition });
       if (!this.composition && revision !== this.session.revision) this.onChange();
     } catch (e) {
-      if (this.composition) this.input.value = this.inputText;
-      this.onError(e); this.relayout();
+      // A composition the document refuses (in a protected part) takes the field's text back, and its caret too:
+      // setting the text alone left the caret at the field's end, where the input method's next keystroke put the
+      // composed text instead, at the end of the document.
+      if (this.composition) { this.input.value = this.inputText; this.input.setSelectionRange(...this.model.range); }
+      this.onError(e);
+      // Setting the field's text ends the browser's composition without a compositionend event: end ours with it,
+      // or the keys after it (arrows, a typed letter) were left to the field while the document stood still.
+      if (this.composition) this.finishComposition();
+      this.relayout();
     }
   }
   /**
@@ -2147,6 +2242,20 @@ export class CanvasEditor {
    * Changes on, the text it replaced stays in the document, struck out, but not in the native field;
    * that text lies before the composition, so the selection maps across by the text after it.
    */
+  /**
+   * The field's text and selection as the document reads them. While a composition began over a selected floating
+   * drawing, the field lacks the drawing's character, which the composition replaced there: it is put back.
+   */
+  keptComposition() {
+    let value = this.input.value, a = this.input.selectionStart, b = this.input.selectionEnd;
+    const at = this.composition ? this.compositionKeeps : null;
+    if (at != null && value[at] !== '\ufffc' && value.slice(0, at) === this.inputText.slice(0, at)) {
+      value = value.slice(0, at) + '\ufffc' + value.slice(at);
+      if (a >= at) a++;
+      if (b >= at) b++;
+    }
+    return { value, a, b };
+  }
   followNativeSelection(value, a, b) {
     const text = this.inputText, shift = text.length - value.length;
     if (text !== value && !(this.composition && shift > 0 && text.endsWith(value.slice(a)))) return;
@@ -2172,13 +2281,13 @@ export class CanvasEditor {
     const before = this.composition;
     try {
       this.session.run(() => {
-        const value = this.input.value, a = this.input.selectionStart, b = this.input.selectionEnd;
+        const { value, a, b } = this.keptComposition();
         this.reconcile(value, false);
         // Committing re-reads the text the composition replaced, which leaves the caret before it.
         if (this.inputText !== value) this.followNativeSelection(value, a, b);
       }, () => this.validateStory(), { record: false });
     } catch (e) { this.session.restore(before); this.onError(e); }
-    this.composition = null;
+    this.composition = null; this.compositionKeeps = null;
     // Unchanged without a new revision, and changed with new text; only the rest (text composed and then removed,
     // over a selection Track Changes kept struck out) compares the whole document: a long one took a while for every
     // syllable an input method commits.
@@ -2205,10 +2314,14 @@ export class CanvasEditor {
     const [start, end] = this.model.range;
     if (start === end && !this.model.activeCellBlock) return;
     e.preventDefault();
-    const { text, html } = this.clipboardData();
+    const { text, html, uncopied } = this.clipboardData();
     e.clipboardData.setData('text/plain', text);
     if (html) e.clipboardData.setData('text/html', html);
-    if (cut) this.deleteSelection();
+    if (!cut || this.readOnly || this.viewOnly) return;
+    // A chart, diagram or other drawing the clipboard cannot carry would be lost on its way: a paste brings back
+    // only its plain-text stand-in. Cut leaves it in place and says so, as the Edit menu offers no Cut for it.
+    if (uncopied) { this.onError(new Error(UNCUT_MESSAGE)); return; }
+    this.deleteSelection();
   }
   /**
    * Remove the selection, as a cut or Clear Contents does: the selected text, or the contents of a block of table
@@ -2235,6 +2348,59 @@ export class CanvasEditor {
   }
   /** Whether the selection is one picture that copies as itself (see clipboardData). */
   copiesPicture() { return copiesPicture(this.model); }
+  /**
+   * Move the corner of the selected block of cells (the selection's focus) to the cell beside its cell: `dx` 1 to
+   * the right or -1 to the left in its row, `dy` 1 below or -1 above in its column. Returns whether the key was
+   * taken; at the table's left or right edge the block stays as it is.
+   */
+  extendCellBlock(dx, dy = 0) {
+    const model = this.model, block = model.activeCellBlock, { anchor, focus } = model.selection;
+    const cellAt = offset => model.paragraphs[locate(model.paragraphs, offset).index]?.cellId || null;
+    let context, from;
+    try { context = cellContext(model.tables, cellAt(focus)); from = cellContext(model.tables, cellAt(anchor)); } catch { return false; }
+    if (!context || context.table !== block.table || from?.table !== block.table) return false;
+    const table = block.table, merge = verticalMerges(table).get(context.cell.id);
+    const rowIndex = dy > 0 ? (merge?.endRow ?? context.rowIndex) + 1 : dy < 0 ? (merge?.rowIndex ?? context.rowIndex) - 1 : context.rowIndex;
+    const column = dx > 0 ? context.end : dx < 0 ? context.column - 1 : context.column;
+    const row = table.rows[rowIndex];
+    // Up from the first row or Down from the last goes on out of the table, as a text selection.
+    if (!row) return false;
+    const beside = rowGrid(row).find(c => c.column <= column && column < c.end)?.cell;
+    // A cell merged down from above is selected through the cell it continues.
+    const target = beside && (verticalMerges(table).get(beside.id)?.cell || beside);
+    const last = target ? model.paragraphs.findLastIndex(p => p.cellId === target.id) : -1;
+    const next = last >= 0 && blockBetween(table, from.cell.id, target.id);
+    if (next) {
+      // The corner goes to the end of the cell's text, and the block is the rectangle between the two corner cells.
+      model.select(anchor, model.paragraphOffset(last) + paragraphText(model.paragraphs[last]).length);
+      model.cellBlock = { tableId: table.id, top: next.top, bottom: next.bottom, left: next.left, right: next.right };
+    }
+    this.caretAffinity = 'forward'; this.preferredX = null;
+    this.syncInput(); this.paint(); this.revealCaret(); this.onSelection();
+    return true;
+  }
+  /** The selected drawing when it floats on the page (not in line with the text), else null. */
+  get selectedFloatingDrawing() { const image = this.model.selectedImage; return image && isPositionedImage(image) ? image : null; }
+  /**
+   * Text typed (or Enter) with a floating drawing selected goes into the drawing's text, as in Word: the host opens
+   * its text (onDrawingTyping returns whether it could). A drawing with no text to edit keeps the keys from it.
+   */
+  typeIntoDrawing(text) {
+    this.finishComposition();
+    if (!this.onDrawingTyping?.(text)) this.syncInput();
+  }
+  /** Tab and Shift+Tab with a drawing selected select the next or previous drawing in the text, round to the first. */
+  selectNextDrawing(direction) {
+    const starts = []; let at = 0;
+    this.model.paragraphs.forEach(p => { for (const run of p.runs) { if (run.image) starts.push(at); at += run.text.length; } at++; });
+    const current = starts.indexOf(this.model.range[0]);
+    if (starts.length < 2 || current < 0) return;
+    const next = starts[(current + direction + starts.length) % starts.length];
+    this.model.select(next, next + 1); this.preferredX = null;
+    this.syncInput(); this.paint(); this.revealCaret(); this.onSelection();
+  }
+  /** Whether a copy carries the selected shape, text box or group (drawing-clipboard.js). */
+  copiesDrawing() { return copiesDrawing(this); }
   /** The selection as plain text, and as formatted HTML when it holds only text or one picture. */
   clipboardData() {
     // A note reference copies as the number or mark it shows on the page.
@@ -2254,10 +2420,14 @@ export class CanvasEditor {
       }
       return { text: [...rows.values()].map(cells => cells.join('\t')).join('\n'), html: '' };
     }
-    const picture = pictureHtml(this.model);
+    const text = this.model.clipboardText(noteText, undefined, hiddenRun);
+    const picture = pictureHtml(this.model) || drawingHtml(this, text) || equationHtml(this.model);
+    // A chart, diagram or drawing the clipboard cannot carry copies as its text stand-in for other applications;
+    // pasted here, that stand-in ("[Image]", its title) would only be stray text, so the paste says why it can't.
+    if (!picture && this.model.selectedImage) return { text, html: uncopiedHtml(text), uncopied: true };
     // What the view hides (a deletion in Simple Markup, hidden text) is not copied: pasted, it came back as ordinary text.
-    const fragment = !picture && copyFragment(this.model, { hidden: hiddenRun });
-    return { text: this.model.clipboardText(noteText, undefined, hiddenRun), html: picture || (fragment ? fragmentHtml(fragment) : '') };
+    const fragment = !picture && copyFragment(this.model, { hidden: hiddenRun, objects: { token: this.clipboardToken, story: this.session.path } });
+    return { text, html: picture || (fragment ? fragmentHtml(fragment) : '') };
   }
   /** Paste with the clipboard's formatting where the document can take it, else as plain text. */
   pasteData(text, html = '') {
@@ -2270,11 +2440,20 @@ export class CanvasEditor {
     // Over a block of table cells, a paste from a menu (which reads the clipboard itself, with no paste event) replaces
     // the first cell's text, as the keyboard's does, not every cell the block's text range runs through.
     if (!this.readOnly && !this.viewOnly) this.narrowCellBlock();
+    // Over a selected floating drawing a paste goes after its anchor, as typing does not replace it (keydown).
+    if (!this.readOnly && !this.viewOnly && this.selectedFloatingDrawing) { this.model.select(this.model.range[1]); this.syncInput(); }
     // A picture copied here comes back as the picture, not as its plain-text stand-in.
     const picture = htmlPicture(html);
     if (picture) { if (!this.readOnly && !this.viewOnly) this.insertImageFile(picture.file, picture).catch(error => this.onError(error)); return; }
+    // A shape, text box or group copied here comes back as the drawing.
+    const drawing = htmlDrawing(html);
+    if (drawing) { if (!this.readOnly && !this.viewOnly) pasteDrawing(this, drawing).catch(error => this.onError(error)); return; }
+    if (copiedUncopied(html)) { this.onError(new Error(UNCOPIED_MESSAGE)); return; }
+    // An equation copied here comes back as the equation, not its linear text.
+    const equation = htmlEquation(html);
+    if (equation) { this.execute(() => this.model.insertMathRun(pastedEquation(this.model, equation))); return; }
     const fragment = html && carriesFormatting(this.model) && !this.model.tableContext ? htmlFragment(html) : null;
-    if (fragment && fragment.paragraphs.some(p => p.text) && formattedPasteFits(fragment) && !(breakless && fragment.paragraphs.some(p => /[\f\u000e]/.test(p.text))) && this.execute(() => pasteFragment(this.model, fragment), () => {}, undefined, true)) return;
+    if (fragment && fragment.paragraphs.some(p => p.text) && formattedPasteFits(fragment) && !(breakless && fragment.paragraphs.some(p => /[\f\u000e]/.test(p.text))) && this.execute(() => pasteFragment(this.model, fragment, { token: this.clipboardToken, story: this.session.path }), () => {}, undefined, true)) return;
     if (text) this.execute(() => this.model.replace(text));
   }
   releaseImages(images) { for (const image of images.values()) if (!this.borrowedImages.has(image)) image.close?.(); images.clear(); }

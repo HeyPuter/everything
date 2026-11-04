@@ -5,6 +5,7 @@
 // styles for formatting restrictions (§17.7.4 style `locked`). Only declarations that change are
 // rewritten; everything else in the settings and styles parts is kept as it was.
 import { strToU8 } from 'fflate';
+import { languageProperty } from './font-families.js';
 import { parseXml, declareContentType } from './docx-xml.js';
 import { relatedPartPath } from './docx-relationships.js';
 
@@ -137,7 +138,10 @@ export function writeReviewSettings(parts, next, initial) {
       let lang = child(rPr, 'lang');
       if (next.defaultLanguage) {
         if (!lang) { lang = make('lang'); rPr.insertBefore(lang, children(rPr).find(n => n.namespaceURI === W && ['eastAsianLayout', 'specVanish', 'oMath', 'rPrChange'].includes(n.localName)) || null); }
-        lang.setAttributeNS(W, 'w:val', next.defaultLanguage);
+        // The attribute for the language's kind of text (§17.3.2.20): a Japanese default is the East Asian one, and the
+        // Latin default stays as it was.
+        const attribute = { fontEastAsiaLanguage: 'eastAsia', fontBidiLanguage: 'bidi', fontLanguage: 'val' }[languageProperty(next.defaultLanguage)];
+        lang.setAttributeNS(W, `w:${attribute}`, next.defaultLanguage);
       } else if (lang) { lang.removeAttributeNS(W, 'val'); if (!lang.attributes.length) lang.remove(); }
     }
     if (locksChanged) {

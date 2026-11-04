@@ -132,8 +132,12 @@ export function endsWithAbbreviation(prev) {
 export function sentenceCapital(before, typed) {
   // Any lowercase letter with a single uppercase form ("é" too, not "ß", whose capital is two letters).
   if (typeof before !== 'string' || !/^\p{Ll}$/u.test(typed) || typed.toUpperCase().length !== typed.length || !before.endsWith(typed)) return null;
-  // An opening quote or bracket may stand between the sentence's start and its first letter.
-  const prev = before.slice(0, -1).replace(/["'“‘(\[]+$/, '');
+  // An opening quote or bracket may stand between the sentence's start and its first letter. They are found by
+  // stepping back over them: a regular expression anchored only at the end (/["…]+$/) tries every start position,
+  // so a run of thousands of quotation marks earlier in the paragraph made each letter typed after it take seconds.
+  let end = before.length - 1;
+  while (end > 0 && /["'“‘(\[]/.test(before[end - 1])) end--;
+  const prev = before.slice(0, end);
   const atParagraphStart = /^\s*$/.test(prev);
   // An ellipsis ends a sentence too, whether typed as three periods or as the character autocorrect makes of them.
   const afterSentenceEnd = /[.!?…]["'”’)\]]?\s+$/.test(prev) && !endsWithAbbreviation(prev);

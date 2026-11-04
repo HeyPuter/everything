@@ -1,4 +1,4 @@
-import { el, MOD_KEY, isComposing } from '../ui/dom.js';
+import { el, MOD_KEY, isComposing, keepDocumentFocus } from '../ui/dom.js';
 import { openMenu } from '../ui/menu.js';
 import { openModal } from '../ui/modal.js';
 import { commandIconEl } from '../ui/ribbon.js';
@@ -64,6 +64,8 @@ export function createStatusBar({ w, a, parts, help }) {
   const left = el('div.ed-status-left', {}, ...['page', 'words', 'proofing', 'language', 'accessibility', 'track', 'area'].map(id => items[id]).filter(Boolean));
   const right = el('div.ed-status-right', {}, items.textMode, items.focus, items.views, el('div.ed-zoom', {}, items.zoomSlider, items.zoom));
   const footer = el('footer.canvas-statusbar.ed-statusbar', { 'aria-label': 'Status bar' }, left, right, help);
+  // Its buttons (the zoom steps, the counts, a right-click for the menu) leave the keyboard in the document.
+  keepDocumentFocus(footer, { buttons: true });
   footer.addEventListener('contextmenu', e => {
     if (e.target.closest('input, select')) return;
     e.preventDefault();
@@ -104,6 +106,10 @@ export function createStatusBar({ w, a, parts, help }) {
       if (q && shown.length && !shown.includes(chosen)) chosen = shown[0];
       list.replaceChildren(...shown.map(tag => el('button.ed-choice', { type: 'button', role: 'option', dataset: { tag },
         onclick: () => { chosen = tag; mark(); }, ondblclick: () => apply() }, languageName(tag), el('span.ed-choice-hint', {}, tag))));
+      // A filter that shows no language leaves nothing to apply: OK waits for one on screen, rather than applying
+      // one an earlier letter of the filter happened to show.
+      empty.hidden = shown.length > 0;
+      ok.disabled = !editable || !shown.length;
       mark();
     };
     list.addEventListener('keydown', e => {
@@ -120,12 +126,14 @@ export function createStatusBar({ w, a, parts, help }) {
     filter.addEventListener('input', render);
     filter.addEventListener('keydown', e => { if (e.key === 'ArrowDown' && !isComposing(e)) { e.preventDefault(); mark()?.focus(); } });
     const editable = !!w.setLanguage && !!a.hasDocument?.() && !w.documentReadOnly?.();
+    const empty = el('p.field-hint', { role: 'status', hidden: true }, 'No languages match.');
+    const ok = el('button.btn.btn-primary', { type: 'submit', disabled: !editable }, 'OK');
     const apply = () => { modal.close(); w.setLanguage?.(chosen, { noProof: noProof.checked }); };
-    const modal = openModal({ title: 'Language', onClose: () => queueMicrotask(() => a.focusEditor?.()), content: el('form.ed-dialog-body', { onsubmit: e => { e.preventDefault(); if (editable) apply(); else modal.close(); } },
-      el('p.field-hint', {}, editable ? 'Mark the selected text as:' : 'The language of the text at the cursor:'), filter, list,
+    const modal = openModal({ title: 'Language', onClose: () => queueMicrotask(() => a.focusEditor?.()), content: el('form.ed-dialog-body', { onsubmit: e => { e.preventDefault(); if (ok.disabled && editable) return; if (editable) apply(); else modal.close(); } },
+      el('p.field-hint', {}, editable ? 'Mark the selected text as:' : 'The language of the text at the cursor:'), filter, list, empty,
       el('label.ed-check', {}, noProof, 'Do not check spelling or grammar'),
       el('p.field-hint', {}, 'Spelling checks English text. Other languages are marked in the document so other editors check them with their dictionaries.'),
-      el('div.modal-actions', {}, el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Cancel'), el('button.btn.btn-primary', { type: 'submit', disabled: !editable }, 'OK'))) });
+      el('div.modal-actions', {}, el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Cancel'), ok)) });
     noProof.disabled = !editable;
     render();
     filter.focus();

@@ -89,3 +89,39 @@ test('adds a bookmark named in another script from the Bookmarks dialog',async({
   await expect(page.getByRole('listbox',{name:'Document bookmarks',exact:true}).locator('option')).toHaveText([/^Закладка_1 ·/]);
   await expect(page.getByRole('dialog').getByRole('alert')).toBeHidden();
 });
+
+// Add with a name already in use refused it ("A bookmark with that name already exists."); Word moves the bookmark
+// to the selection, and a cross-reference to it then shows the new place on Update Fields.
+test('Add with a bookmark name already in use moves that bookmark to the selection', async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/mock.html#/new');
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  const input = page.getByRole('textbox', { name: 'Document text' });
+  await input.fill('Alpha section. Beta section.\nSee ');
+  await choose(input, 'Alpha');
+  await addBookmark(page, 'Intro');
+  await page.evaluate(async () => {
+    const { insertCrossReference, referenceTargets } = await import('/src/engine/captions.js');
+    const e = window.__docs.current.view.engine, m = e.model;
+    e.execute(() => { m.select(m.text.length); insertCrossReference(m, referenceTargets(m).bookmarks[0]); return true; });
+  });
+  await expect(input).toHaveValue('Alpha section. Beta section.\nSee Alpha');
+  await choose(input, 'Beta');
+  await manager(page);
+  const dialog = page.getByRole('dialog', { name: 'Bookmarks' });
+  await dialog.getByRole('textbox', { name: 'Bookmark name', exact: true }).fill('intro');
+  await dialog.getByRole('button', { name: 'Add bookmark', exact: true }).click();
+  await expect(dialog.getByRole('alert')).toBeHidden();
+  await expect(dialog.getByRole('listbox', { name: 'Document bookmarks' }).locator('option')).toHaveText([/^Intro · page 1$/]);
+  await close(page);
+  const bookmarks = () => page.evaluate(() => { const b = window.__docs.current.view.engine.session.body; return b.bookmarks.filter(x => !x.name.startsWith('_')).map(x => [x.name, b.text.slice(x.start, x.end)]); });
+  expect(await bookmarks()).toEqual([['Intro', 'Beta']]);
+  await input.focus(); await input.press('F9');
+  await expect(input).toHaveValue('Alpha section. Beta section.\nSee Beta');
+  // One Undo takes back the update, the next the move.
+  await input.press('ControlOrMeta+z');
+  await input.press('ControlOrMeta+z');
+  await expect.poll(bookmarks).toEqual([['Intro', 'Alpha']]);
+  expect(errors).toEqual([]);
+});

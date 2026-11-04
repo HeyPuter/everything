@@ -35,7 +35,15 @@ export function createMailings({ editor, pkg, error, onChange = () => {}, markDi
   let loaded = null; modules().then(m => { loaded = m; mm.refreshUi(); }).catch(() => {});
 
   const state = () => pkg()?.mailMerge || BLANK;
-  const records = () => loaded ? loaded.fields.mergeRecords(state().list) : [];
+  // The ribbon's record controls ask at every refresh (each keystroke), about twenty times: the records are worked
+  // out once per list, which every change replaces, instead of reading a long list's rows each time.
+  let listed = null;
+  const records = () => {
+    if (!loaded) return [];
+    const list = state().list;
+    if (listed?.list !== list) listed = { list, value: loaded.fields.mergeRecords(list) };
+    return listed.value;
+  };
   const mapping = () => {
     const s = state();
     if (Object.keys(s.mapping || {}).length || !s.list || !loaded) return s.mapping || {};

@@ -555,7 +555,22 @@ export function createImageInteraction(editor) {
       return false;
     }
     if (e.key === 'Escape' && extras.length) { setExtras([]); return false; }
-    if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key) || e.metaKey || editor.readOnly || editor.viewOnly || editor.session.path !== null) return false;
+    // Delete or Backspace with several drawings selected removes them all, in one undo step, as in Word.
+    if (['Delete', 'Backspace'].includes(e.key) && extras.length && !e.metaKey && !e.ctrlKey && !e.altKey && !editor.readOnly && !editor.viewOnly) {
+      const ids = new Set([primaryId, ...extras]);
+      e.preventDefault();
+      editor.execute(() => {
+        const starts = []; let at = 0;
+        editor.model.paragraphs.forEach(p => { for (const run of p.runs) { if (run.image && ids.has(run.image.id)) starts.push(at); at += run.text.length; } at++; });
+        if (!starts.length) return false;
+        editor.model.checkpoint();
+        for (const start of starts.reverse()) { editor.model.select(start, start + 1); editor.model.replace('', { checkpoint: false }); }
+        return true;
+      });
+      setExtras([]); editor.onSelection?.();
+      return true;
+    }
+    if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key) || e.metaKey || editor.readOnly || editor.viewOnly) return false;
     const f = frame(); if (!f?.floating) return false;
     e.preventDefault();
     const step = e.shiftKey ? 10 : e.ctrlKey || e.altKey ? .1 : 1;

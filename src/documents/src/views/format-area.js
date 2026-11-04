@@ -18,7 +18,7 @@ import { PASTE_MODES, pastePayload, availablePasteModes } from '../engine/paste-
 import { fragmentHtml } from '../engine/clipboard-fragment.js';
 import { levelFor } from '../engine/numbering.js';
 import { styleDisplayName } from '../lib/style-names.js';
-import { openFontDialog } from './font-dialog.js';
+import { openFontDialog, selectsEastAsianText } from './font-dialog.js';
 import { openParagraphDialog } from './paragraph-dialog.js';
 import { openTabsDialog } from './tabs-dialog.js';
 import { openBordersAndShading } from './borders-shading.js';
@@ -69,7 +69,7 @@ export function createFormatArea({ editor, pkg, error, refresh: refreshChrome = 
     engine.finishComposition();
     const [start, end] = engine.model.range;
     const format = seed ? { ...NULL_RUN, ...seed } : engine.model.runCommandFormatting;
-    return track(openFontDialog({ title, format, sample: engine.model.text.slice(start, end), onClose: capture ? null : later,
+    return track(openFontDialog({ title, format, sample: engine.model.text.slice(start, end), onClose: capture ? null : later, eastAsian: selectsEastAsianText(engine.model.text, [start, end]),
       ligatures: !capture && !!engine.model.styles?.openTypeFeatures,
       textEffects: capture || readOnly() ? null : () => textEffectsDialog(),
       setDefault: capture || readOnly() ? null : async (patch, fail) => {
@@ -83,9 +83,9 @@ export function createFormatArea({ editor, pkg, error, refresh: refreshChrome = 
       },
       apply: async (patch, fail) => {
         if (capture) { capture(patch); return true; }
-        if (patch.fontAscii) {
-          await prepareCanvasFont(patch.fontAscii);
-          if (documentFontAvailable(patch.fontAscii, engine.model.styles.fontAlternatives) !== true) { fail(new Error(`${patch.fontAscii} could not be loaded on this device. Choose another font.`)); return false; }
+        for (const name of new Set([patch.fontAscii, patch.fontEastAsia].filter(Boolean))) {
+          await prepareCanvasFont(name);
+          if (documentFontAvailable(name, engine.model.styles.fontAlternatives) !== true) { fail(new Error(`${name} could not be loaded on this device. Choose another font.`)); return false; }
         }
         if (editor() !== engine) return false;
         return engine.execute(() => engine.model.setRunFormat(patch), fail, undefined, true);
@@ -350,12 +350,15 @@ export function createFormatArea({ editor, pkg, error, refresh: refreshChrome = 
     }
     if (!all) return engine.session.path === null ? 0 : engine.replaceMatches(query, text, options, false);
     let total = 0;
-    for (const story of searchStories(engine)) {
-      const found = findAdvanced(storyParagraphs(engine, story.path), query, { ...options, ...(options.visibleOnly ? { hidden: hiddenRun } : {}) }, { styles: engine.model.styles, numbering: engine.model.numbering });
-      if (!found.length) continue;
-      if (engine.session.path !== story.path) engine.editStory(story.path, story.page);
-      total += engine.replaceMatches(query, text, options, true);
-    }
+    // Every header and footer changed is one undo step, Replace All.
+    engine.transact(() => {
+      for (const story of searchStories(engine)) {
+        const found = findAdvanced(storyParagraphs(engine, story.path), query, { ...options, ...(options.visibleOnly ? { hidden: hiddenRun } : {}) }, { styles: engine.model.styles, numbering: engine.model.numbering });
+        if (!found.length) continue;
+        if (engine.session.path !== story.path) engine.editStory(story.path, story.page);
+        total += engine.replaceMatches(query, text, options, true);
+      }
+    });
     return total;
   }
   const findApi = {
@@ -459,6 +462,8 @@ export function createFormatArea({ editor, pkg, error, refresh: refreshChrome = 
     const current = lastPaste, engine = ready();
     if (!current || !engine || current.engine !== engine || current.revision !== engine.session.revision || current.mode === mode) return;
     engine.undo();
+    // The paste made again is named Paste in Undo, as the first was.
+    commandsRef().noteCommand?.('Paste');
     pasteWith(engine, mode, current.data);
     lastPaste = { ...current, mode, revision: engine.session.revision };
     showChip(engine);

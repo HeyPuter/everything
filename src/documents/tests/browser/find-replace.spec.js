@@ -27,10 +27,10 @@ test('replaces formatted source text and every original match in one undo step, 
   const selected = await input.evaluate(el => [el.selectionStart, el.selectionEnd]); await replacement(page).fill('thread'); await panel(page).getByRole('button', { name: 'Replace', exact: true }).click();
   await expect(input).toHaveValue(original.replace('needle', 'thread')); await expect(count(page)).toHaveText('1 of 13');
   await undo(page).click(); await expect(input).toHaveValue(original); expect(await input.evaluate(el => [el.selectionStart, el.selectionEnd])).toEqual(selected); await redo(page).click();
-  await panel(page).getByRole('button', { name: 'Replace all', exact: true }).click(); const expected = original.replace(/\bneedle\b/gi, 'thread');
+  await panel(page).getByRole('button', { name: 'Replace all', exact: true }).click(); const expected = original.replace(/\bneedle\b/gi, found => found === 'NEEDLE' ? 'THREAD' : found[0] === 'N' ? 'Thread' : 'thread');
   await expect(input).toHaveValue(expected); await expect(count(page)).toHaveText('No matches'); await expect(panel(page).locator('.canvas-find-notice')).toHaveText('Replaced 13 matches.');
   await undo(page).click(); await expect(input).toHaveValue(original.replace('needle', 'thread')); await redo(page).click(); await expect(input).toHaveValue(expected);
-  const position = await input.evaluate(el => el.selectionStart), positions = [...expected.matchAll(/\bthread\b/g)].map(m => m.index);
+  const position = await input.evaluate(el => el.selectionStart), positions = [...expected.matchAll(/\bthread\b/gi)].map(m => m.index);
   const nextIndex = positions.findIndex(at => at >= position);
   await query(page).fill('thread'); await expect(count(page)).toHaveText(`${(nextIndex < 0 ? 0 : nextIndex) + 1} of 14`); await page.screenshot({ path: info.outputPath('find-replace-panel.png') }); await close(page);
   await screenshot(page, info, 0, 'find-replace-page.png'); await screenshot(page, info, 2, 'find-replace-table.png');
@@ -224,4 +224,20 @@ test('searches and replaces in the main document while a footer is being edited'
   await page.getByRole('textbox', { name: 'Footer text' }).press('Shift+F4');
   await expect.poll(story).toBe(null);
   expect(await body.evaluate(el => el.value.slice(el.selectionStart, el.selectionEnd))).toBe('page');
+});
+
+test('after Replace all finds nothing more, the keyboard stays in the panel: Escape closes it and returns to the text', async ({ page }) => {
+  await page.goto('/mock.html#/new');
+  const input = page.getByRole('textbox', { name: 'Document text' });
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await input.fill('cat dog cat bird');
+  await open(page, input); await query(page).fill('cat'); await replacement(page).fill('cow');
+  const all = panel(page).getByRole('button', { name: 'Replace all', exact: true });
+  await all.focus(); await page.keyboard.press('Enter');
+  await expect(input).toHaveValue('cow dog cow bird'); await expect(all).toBeDisabled();
+  await expect(query(page)).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(panel(page)).toBeHidden(); await expect(input).toBeFocused();
+  await page.keyboard.press(process.platform === 'darwin' ? 'Meta+z' : 'Control+z');
+  await expect(input).toHaveValue('cat dog cat bird');
 });

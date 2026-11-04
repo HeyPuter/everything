@@ -96,3 +96,5 @@ button[aria-label="Pen Color"] { position: relative; }
   background: linear-gradient(var(--ink-3), var(--ink-3)) center / 1px 100% no-repeat, var(--surface-3); border: 1px solid var(--ink-3); border-radius: 2px; }
 .table-ruler-marker.is-edge { cursor: default; opacity: .6; }
 .table-ruler-marker.is-dragging { border-color: var(--accent); background-color: var(--accent-wash); }
+/* While Draw Table, the eraser or the border painter is on, a finger draws on the pages instead of scrolling them. */
+.canvas-pages.uses-table-tool { touch-action: none; }

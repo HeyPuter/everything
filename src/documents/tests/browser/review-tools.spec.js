@@ -1115,3 +1115,85 @@ test('Show Comments is pressed exactly while the comments are shown', async ({ p
     await expect(show).toHaveAttribute('aria-pressed', String(shown));
   }
 });
+
+test('a Hebrew or Arabic comment reads from the right, each line in its own direction', async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const input = await newDocument(page, 'Review this sentence.');
+  await select(input, 0, 6);
+  await onTab(page, 'review');
+  await review(page).getByRole('button', { name: 'New Comment', exact: true }).click();
+  const box = page.locator('.ed-comment-draft textarea');
+  await box.fill('זה טוב מאוד.\nSecond line in English.');
+  // Where each line's text sits in an element: [left gap, right gap], and whether the full stop ends the Hebrew line on its left.
+  const lines = locator => locator.evaluate(el => {
+    const node = el.firstChild?.nodeType === Node.TEXT_NODE ? el.firstChild : null, box = el.getBoundingClientRect();
+    const rect = (from, to) => { const r = document.createRange(); r.setStart(node, from); r.setEnd(node, to); return r.getBoundingClientRect(); };
+    const text = node.data, hebrew = rect(0, text.indexOf('\n')), english = rect(text.indexOf('\n') + 1, text.length), stop = rect(text.indexOf('.'), text.indexOf('.') + 1);
+    return { hebrewRight: Math.round(box.right - hebrew.right) < 20, englishLeft: Math.round(english.left - box.left) < 20, stopOnLeft: stop.right <= rect(0, 1).left + 1 };
+  });
+  expect(await box.evaluate(el => getComputedStyle(el).unicodeBidi)).toBe('plaintext');
+  await box.press('ControlOrMeta+Enter');
+  const text = page.locator('.ed-comment-card .wcc-text').first();
+  await expect(text).toHaveText('זה טוב מאוד.\nSecond line in English.');
+  expect(await lines(text)).toEqual({ hebrewRight: true, englishLeft: true, stopOnLeft: true });
+  expect(errors).toEqual([]);
+});
+
+test('Language marks Japanese and Arabic in their own w:lang attributes, keeping the Latin language', async ({ page }, info) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  const input = await newDocument(page, 'Bonjour 日本語 مرحبا end');
+  const mark = async (start, end, tag, via) => {
+    await select(input, start, end);
+    if (via === 'status') await page.locator('.ed-status-language').click();
+    else {
+      await onTab(page, 'review');
+      await page.evaluate(() => document.querySelector('#ribbon-panel-review [aria-label="Language"][aria-haspopup="menu"]')?.click());
+      await page.getByRole('menuitem', { name: 'Set Proofing Language…' }).click();
+    }
+    const dialog = page.locator('.modal-root:not(.closing)').getByRole('dialog', { name: 'Language' });
+    await dialog.getByRole('searchbox').fill(tag);
+    await dialog.getByRole('option').first().click();
+    await dialog.getByRole('button', { name: 'OK', exact: true }).click();
+    await expect(dialog).toHaveCount(0);
+  };
+  // French first, over the whole line: the Latin language every run keeps.
+  await mark(0, 22, 'fr-FR', 'status');
+  await mark(8, 11, 'ja-JP', 'review');
+  await mark(12, 17, 'ar-SA', 'status');
+  const language = page.locator('.ed-status-language');
+  await select(input, 9); await expect(language).toContainText('Japanese');
+  await select(input, 14); await expect(language).toContainText('Arabic');
+  await select(input, 3); await expect(language).toContainText('French');
+  const { parts } = await exported(page, info, 'languages.docx');
+  const xml = strFromU8(parts['word/document.xml']);
+  expect(xml).toContain('<w:lang w:val="fr-FR" w:eastAsia="ja-JP"/></w:rPr><w:t xml:space="preserve">日本語</w:t>');
+  expect(xml).toContain('<w:lang w:val="fr-FR" w:bidi="ar-SA"/></w:rPr><w:t xml:space="preserve">مرحبا</w:t>');
+  expect(xml).not.toMatch(/w:val="(?:ja-JP|ar-SA)"/);
+  expect(errors).toEqual([]);
+});
+
+// Text tracked as deleted went to the AI with the rest: it suggested "alot → a lot" in words already deleted, and
+// accepting put them back in the document as an insertion.
+test('AI grammar suggestions leave text tracked as deleted alone', async ({ page }) => {
+  await fakeAi(page);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const input = await newDocument(page, 'Thanks alot for the review. Thanks alot again.');
+  await input.press('ControlOrMeta+Shift+e');
+  await select(input, 7, 12);
+  await input.press('Backspace');
+  // The deletion stays in the text, struck through.
+  await expect(input).toHaveValue('Thanks alot for the review. Thanks alot again.');
+  await onTab(page, 'review');
+  await review(page).getByRole('button', { name: 'Editor', exact: true }).click();
+  const pane = page.getByRole('complementary', { name: 'Editor pane' });
+  await pane.getByRole('checkbox', { name: /Suggest with/ }).check();
+  await pane.getByRole('button', { name: 'Check with AI' }).click();
+  const item = pane.locator('.rv-ai-item');
+  await expect(item).toHaveCount(1);
+  expect((await page.evaluate(() => window.__prompts))[0]).toContain('[1] Thanks for the review. Thanks alot again.');
+  // The one suggestion is in the second sentence, where the text was not deleted.
+  await item.getByRole('button', { name: 'Accept' }).click();
+  await expect(input).toHaveValue('Thanks alot for the review. Thanks alota lot again.');
+  await expect(item).toHaveCount(0);
+});

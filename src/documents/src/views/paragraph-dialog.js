@@ -35,7 +35,8 @@ export function lineSetting(choice, amount) {
  */
 export function openParagraphDialog({ format: f, unit = 'in', canSetOutline = true, apply, openTabs, setDefault, onClose, initialTab = 'indents' }) {
   /* ---- Indents and Spacing ---- */
-  const alignment = select('Alignment', ALIGNMENTS, f.alignment, { mixed: f.alignment === null });
+  // Thai Distributed (§17.18.44 thaiDistribute) is offered where a paragraph has it, so the dialog shows it and keeps it.
+  const alignment = select('Alignment', f.alignment === 'thaiDistribute' ? [...ALIGNMENTS, ['thaiDistribute', 'Thai Distributed']] : ALIGNMENTS, f.alignment, { mixed: f.alignment === null });
   const outline = select('Outline level', OUTLINE, f.outlineLevel === null ? '' : String(f.outlineLevel), { mixed: f.outlineLevel === null });
   outline.disabled = !canSetOutline;
   if (!canSetOutline) outline.title = 'Built-in heading styles have a fixed outline level.';
@@ -85,7 +86,7 @@ export function openParagraphDialog({ format: f, unit = 'in', canSetOutline = tr
     const s = sample.sample.style, scale = 1 / 1440 * 40; // 40px per inch in the miniature page
     const twips = input => { const v = input.read?.(); return v ?? 0; };
     const align = alignment.value || 'left';
-    s.textAlign = align === 'both' || align === 'distribute' ? 'justify' : align;
+    s.textAlign = align === 'both' || align === 'distribute' || align === 'thaiDistribute' ? 'justify' : align;
     s.textAlignLast = align === 'distribute' ? 'justify' : '';
     const leftTw = twips(left), rightTw = twips(right);
     s.marginLeft = `${Math.max(-20, leftTw * scale)}px`; s.marginRight = `${Math.max(-20, rightTw * scale)}px`;

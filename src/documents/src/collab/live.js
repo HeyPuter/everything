@@ -12,12 +12,13 @@
  * them.
  */
 import * as Y from 'yjs';
+import { clipText } from '../core/text.js';
 import { CollabBinding, editorState } from './binding.js';
 import { CollabClient } from './client.js';
 import { createSharedDoc, unsupportedReason } from './shared-doc.js';
 import { BroadcastRoom, WorkerTransport } from './transports.js';
-import { call, deploy } from './api.js';
-import { rememberedRoom, rememberRoom } from './room-memory.js';
+import { call, deploy, prepareCall } from './api.js';
+import { rememberedRoom, rememberRoom, rememberFile } from './room-memory.js';
 import { canEdit, canManage, decode, encode, randomId, shareLink, INVITE_ROLES } from './protocol.js';
 
 const hexToRgba = (hex, alpha) => { const n = parseInt(hex.slice(1), 16); return `rgba(${n >> 16}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`; };
@@ -29,7 +30,7 @@ export { rememberedRoom };
 
 function workerTransport(server, room, token) {
   const owner = sdk();
-  return new WorkerTransport({ call: (op, input) => call(owner, server, { ...input, op }), room, token });
+  return new WorkerTransport({ call: (op, input) => call(owner, server, { ...input, op }), prepare: (op, input) => prepareCall(owner, server, { ...input, op }), room, token });
 }
 
 /**
@@ -61,7 +62,7 @@ export class LiveSession extends EventTarget {
       this.binding = new CollabBinding({ engine, ydoc: client.ydoc, session: { id: client.session, name: user.name }, baseAssets,
         onApplied: () => { if (this.saves) doc.changed(); this.paintPresence(); onApplied(); }, onError });
       client.attach(this.binding);
-      for (const name of ['mode', 'single', 'conflict']) this.binding.addEventListener(name, e => this.dispatchEvent(new CustomEvent(name, { detail: e.detail })));
+      for (const name of ['mode', 'single', 'conflict', 'refused-undo']) this.binding.addEventListener(name, e => this.dispatchEvent(new CustomEvent(name, { detail: e.detail })));
     };
     this.bind();
     this.invites = new Map();
@@ -69,6 +70,8 @@ export class LiveSession extends EventTarget {
   }
 
   get role() { return this.client.role; }
+  /** The owner's name, as the room gave it when this person joined (unknown for local sharing). */
+  get ownerName() { return this.client.info?.ownerName || null; }
   get local() { return !!this.link.local; }
   get status() { return this.client.status; }
   get pending() { return this.client.outbox.size; }
@@ -114,6 +117,13 @@ export class LiveSession extends EventTarget {
     this.publishPresence(true);
     // Presence lapses without a renewal; renew it while the document is open.
     this.renew = setInterval(() => this.publishPresence(true), 8000);
+    // Closing the tab says goodbye, so the others' title bars and pages drop this person's avatar and caret (and another
+    // owner tab takes over saving) at once rather than when the presence lapses. A page kept for Back comes back with
+    // its presence published again.
+    this.onPageHide = () => { if (!this.ended) this.client.transport?.farewell?.(); };
+    this.onPageShow = e => { if (e.persisted) this.publishPresence(true); };
+    globalThis.addEventListener?.('pagehide', this.onPageHide);
+    globalThis.addEventListener?.('pageshow', this.onPageShow);
   }
 
   /**
@@ -179,7 +189,7 @@ export class LiveSession extends EventTarget {
       ctx.save();
       ctx.fillStyle = person.color || '#1e5aa8';
       ctx.fillRect(x - 0.75, y, 1.5, height);
-      const label = String(person.name || 'Someone').slice(0, 24);
+      const label = clipText(String(person.name || 'Someone'), 24);
       ctx.font = '600 8px system-ui, sans-serif';
       const width = ctx.measureText(label).width + 6;
       ctx.fillRect(x - 0.75, y - 10, width, 10);
@@ -241,6 +251,8 @@ export class LiveSession extends EventTarget {
     if (this.ended) return;
     this.ended = true;
     clearInterval(this.renew); clearTimeout(this.presenceTimer);
+    globalThis.removeEventListener?.('pagehide', this.onPageHide);
+    globalThis.removeEventListener?.('pageshow', this.onPageShow);
     this.restoreHooks?.();
     const at = this.engine.overlays?.indexOf(this.overlay) ?? -1;
     if (at >= 0) this.engine.overlays.splice(at, 1);
@@ -306,6 +318,8 @@ export async function reconnect(path, user, saved) {
     const transport = workerTransport(saved.server, saved.room, null);
     const client = new CollabClient({ transport, user, room: saved.room, sendDelay: 150 });
     await client.connect();
+    // Rooms shared before files were remembered for them learn their file now (the owner's invitation link opens it).
+    rememberFile(saved, path);
     return { client, link: saved };
   } catch (error) {
     // Sharing was stopped (or the room is gone): forget it.

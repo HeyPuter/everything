@@ -4,6 +4,7 @@
  * change goes through the editor's transactions, so undo, saving and read-only rules apply.
  */
 import { el, listItem, isComposing, relativeTime, MOD_KEY, shortcutCode, typesCharacter } from '../ui/dom.js';
+import { clipText } from '../core/text.js';
 import { openMenu } from '../ui/menu.js';
 import { initialsFor } from '../engine/comments.js';
 import { revisionView, registerRevisionAuthors, describeFormatChange } from '../engine/revisions.js';
@@ -95,7 +96,7 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
     const entry = item => {
       const node = listItem(el('button.review-pane-item', { type: 'button', onclick: () => { const current = editor(), index = [...paneList.children].indexOf(node); if (current && index >= 0) paneItems(current).items[index]?.select(); } },
         el('span.review-pane-head', {}, el('strong', {}, item.author || 'Unknown author'), ' ', el('span', {}, item.kind)),
-        el('span.review-pane-text', {}, item.text.replace(/\ufffc/g, '').slice(0, 200) || '(formatting)')));
+        el('span.review-pane-text', {}, clipText(item.text.replace(/\ufffc/g, ''), 200) || '(formatting)')));
       return node;
     };
     // Typing in a tracked change changes what one entry shows: only the entries that changed are built again, so
@@ -238,6 +239,14 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
       selectThread(next);
     },
     toggleShown() { if (showing()) commentsShown = false; else revealComments(); refresh(true); onChange(); editor()?.focus(); },
+    /** Open a thread's card with the keyboard in its reply box. */
+    replyTo(id) {
+      const thread = threads().find(t => t.id === id); if (!thread || thread.root.done || !annotating()) return;
+      revealComments();
+      activeId = thread.id; pinned = true; pinnedRange = editor()?.model.range.join() ?? ''; editing = null;
+      refresh(true);
+      queueMicrotask(() => cards.get(thread.id)?.querySelector('.wcc-reply textarea')?.focus());
+    },
     selectThreadById(id) { const thread = threads().find(t => t.id === id); if (thread) { revealComments(); selectThread(thread); } },
     /** Delete every comment by the reviewers shown (Show Markup › Specific People). */
     deleteAllShown() {
@@ -248,7 +257,7 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
     },
     get paneShown() { return paneShown; },
     // The ribbon and menus read paneShown for their pressed and checked states: they are told it changed.
-    toggleReviewingPane(on = !paneShown) { paneShown = on; paneSignature = ''; refresh(true); onChange(); },
+    toggleReviewingPane(on = !paneShown) { const opening = on && !paneShown; paneShown = on; paneSignature = ''; refresh(true); onChange(); if (opening) focusPane(); },
     // The Tracking Options dialog shows (and keeps) the orientation chosen here.
     setPaneOrientation(value = 'vertical') { paneOrientation = value; revisionView.options.paneOrientation = value; pane.dataset.orientation = value; refresh(true); },
     /** 'everyone' writes Track Changes into the document; 'mine' tracks this session only. */
@@ -334,10 +343,18 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
     hasComments() { return threads().length > 0; },
     /* ---- Panes and speech, for the title bar, menus and command search ---- */
     get paneShown() { return paneShown; },
-    togglePane(on = !paneShown) { paneShown = !!on; paneSignature = ''; if (paneShown && !showing()) revealComments(); refresh(true); if (!paneShown) editor()?.focus(); },
+    togglePane(on = !paneShown) { const opening = !!on && !paneShown; paneShown = !!on; paneSignature = ''; if (paneShown && !showing()) revealComments(); refresh(true); if (!paneShown) editor()?.focus(); else if (opening) focusPane(); },
     toggleReadAloud() { if (readAloud.active) readAloud.stop(); else readAloud.start(); },
     readAloudActive: () => readAloud.active,
   };
+
+  /**
+   * The keyboard goes into the Reviewing Pane when it opens, as it does into the other panes: Tab from the ribbon
+   * reaches the document, where Tab types, so the pane could not be reached otherwise. Its first entry, or Close.
+   */
+  function focusPane() {
+    queueMicrotask(() => { if (!pane.hidden) (paneList.querySelector('.review-pane-item') || pane.querySelector('button'))?.focus({ preventScroll: true }); });
+  }
 
   function threadAtCaret() {
     const engine = editor(); if (!engine || engine.session.path !== null) return null;
@@ -504,7 +521,7 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
       el('div.wcc-head', {}, avatar(change.author), el('div.wcc-meta', {}, el('span.wcc-author', {}, change.author || 'Unknown author'), el('span.wcc-date', {}, time(change.date))),
         el('button.icon-btn.wcc-more', { type: 'button', title: 'Accept', 'aria-label': 'Accept change', disabled: !editable, onclick: () => act(true) }, '✓'),
         el('button.icon-btn.wcc-more', { type: 'button', title: 'Reject', 'aria-label': 'Reject change', disabled: !editable, onclick: () => act(false) }, '✕')),
-      el('div.wcc-text.is-clamped', {}, el('span.ed-revision-kind', {}, change.type === 'format' ? 'Formatted: ' : 'Deleted: '), change.type === 'format' ? text : el('del', {}, text.slice(0, 160))));
+      el('div.wcc-text.is-clamped', {}, el('span.ed-revision-kind', {}, change.type === 'format' ? 'Formatted: ' : 'Deleted: '), change.type === 'format' ? text : el('del', {}, clipText(text, 160))));
   }
 
   /* ---- Layout: cards level with their anchors, stacked without overlap ---- */
@@ -727,6 +744,8 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
     if (!engine.model.comments) return changes;
     const thread = threadAtCaret();
     return [...changes,{ label: 'New Comment', disabled: !commands.canComment(), onSelect: () => commands.newComment() },
+      // The comment cards come after the document, where Tab types: replying from the menu is the keyboard's way in.
+      ...(thread && !thread.root.done ? [{ label: 'Reply to Comment', disabled: !annotating(), onSelect: () => commands.replyTo(thread.id) }] : []),
       ...(thread ? [{ label: thread.root.done ? 'Reopen Comment' : 'Resolve Comment', disabled: !annotating(), onSelect: () => { activeId = thread.id; commands.resolveActive(); } },
         { label: 'Delete Comment', disabled: !annotating(), onSelect: () => { activeId = thread.id; commands.deleteActive(); } }] : [])];
   }

@@ -31,6 +31,19 @@ describe('Change Case', () => {
     expect(convertCase('Straße', 'upper')).toBe('STRAßE');
     expect(convertCase('aBc', 'toggle')).toBe('AbC');
   });
+  it('lowercases a Greek sigma at the end of a word to the final form', async () => {
+    expect(convertCase('ΟΔΟΣ ΚΑΙ ΣΟΦΙΑ. ΤΕΛΟΣ', 'lower')).toBe('οδος και σοφια. τελος');
+    expect(convertCase('ΟΔΟΣ ΚΑΙ ΣΟΦΙΑ. ΤΕΛΟΣ', 'title')).toBe('Οδος Και Σοφια. Τελος');
+    expect(convertCase('ΟΔΟΣ ΚΑΙ ΣΟΦΙΑ. ΤΕΛΟΣ', 'sentence')).toBe('Οδος και σοφια. Τελος');
+    expect(convertCase('ΟΔΟΣ', 'toggle')).toBe('οδος');
+    // A lone sigma is no word's end; an apostrophe after a word's end does not hide it; Σ before an elision does.
+    expect(convertCase('Σ ΟΣ\' ΣΑΣ.', 'lower')).toBe('σ ος\' σας.');
+    // Selected alone, a sigma takes its place in the word around it from the text beside the selection.
+    const { doc } = await styledDocument(['ΟΔΟΣ ΚΑΙ ΣΟΦΙΑ']);
+    doc.select(3, 4); expect(changeCase(doc, 'lower')).toBe(true);
+    doc.select(9, 10); expect(changeCase(doc, 'lower')).toBe(true);
+    expect(doc.text).toBe('ΟΔΟς ΚΑΙ σΟΦΙΑ');
+  });
   it('cycles lowercase, capitalized and uppercase as Shift+F3 does', () => {
     expect(nextCycleCase('hello there')).toBe('title');
     expect(nextCycleCase('Hello There')).toBe('upper');

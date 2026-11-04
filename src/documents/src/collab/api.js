@@ -19,12 +19,17 @@ export class CollabError extends Error {
 
 const isDevServer = server => /^https?:\/\/(127\.0\.0\.1|localhost|[a-z0-9.-]+\.localhost)(:\d+)?\/__collab/.test(server);
 
+/** The slowest upload a request is given time for (bytes per millisecond): about 50 kB/s. */
+const SLOWEST_UPLOAD = 50;
+
 export async function call(puter, server, input) {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), input.op === 'create' || input.op === 'base' ? 120_000 : 30_000);
+  const body = JSON.stringify(input);
+  // A change carrying a picture is megabytes: on a slow connection its upload alone takes longer than a small request
+  // is given, and cut off every time it would never go, nor anything queued behind it.
+  const timer = setTimeout(() => controller.abort(), (input.op === 'create' || input.op === 'base' ? 120_000 : 30_000) + Math.ceil(body.length / SLOWEST_UPLOAD));
   try {
     server = workerURL(server);
-    const body = JSON.stringify(input);
     let res;
     if (isDevServer(server)) {
       const user = await puter.auth.getUser();
@@ -44,6 +49,22 @@ export async function call(puter, server, input) {
     if (!res.ok) throw new CollabError(data?.message || 'Could not synchronize this document.', res.status || 500);
     return data;
   } finally { clearTimeout(timer); }
+}
+
+/**
+ * A request made ready to go the moment it is needed (the page closing, when nothing awaited would still run): signed
+ * now, and sent keepalive, so it outlives the page. Resolves a function that sends it.
+ */
+export async function prepareCall(puter, server, input) {
+  server = workerURL(server);
+  const body = JSON.stringify(input);
+  if (isDevServer(server)) {
+    const user = await puter.auth.getUser();
+    const headers = { 'Content-Type': 'application/json', 'x-collab-dev-user': JSON.stringify({ uuid: user.uuid, username: user.username }) };
+    return () => fetch(`${server}/api`, { method: 'POST', headers, body, keepalive: true });
+  }
+  const headers = { 'Content-Type': 'application/json', ...await authorize(puter, server, body) };
+  return () => puter.workers.exec(`${server}/api`, { method: 'POST', headers, body, keepalive: true, redirect: 'error' });
 }
 
 /**

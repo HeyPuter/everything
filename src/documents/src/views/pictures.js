@@ -16,7 +16,7 @@ import { galleryItems } from './insert-gallery.js';
 import { formatDrawing, formatDrawings, drawingKind, drawingParts, currentDrawingXml } from '../engine/drawing-format.js';
 import { describeDrawing, setFill, setOutline, setEffects, set3d, setGeometry, setTransform, setBlipEffects, setCrop, setBodyProperties, setDocProperties, writeFrame, readFrame, themeColors,
   child, childrenOf, A, WP, R } from '../engine/drawing-xml.js';
-import { frameOf, offsetsFor, moveDrawings, alignmentMoves, POSITION_PRESETS, presetPosition } from '../engine/drawing-arrange.js';
+import { frameOf, offsetsFor, moveDrawings, alignmentMoves, arrangeDrawings, POSITION_PRESETS, presetPosition } from '../engine/drawing-arrange.js';
 import { groupDrawings, ungroupDrawing, groupUnavailable } from '../engine/drawing-groups.js';
 import { EMU_PER_PX, isPositionedImage, normalizedRotation, ANGLE_PER_DEGREE } from '../engine/images.js';
 import { SHAPE_PRESETS, LINE_PRESETS } from '../engine/authored-shapes.js';
@@ -313,6 +313,13 @@ export function createPictures({ editor, pkg, error, onChange = () => {}, base =
   function arrange(direction) {
     const engine = ready(), image = selected(); if (!engine || !image) return false;
     engine.finishComposition();
+    // Several selected objects move together, keeping their order among themselves.
+    const images = selection();
+    if (images.length > 1 && ['forward', 'backward', 'front', 'back'].includes(direction)) {
+      if (images.some(other => !isPositionedImage(other))) { fail(new Error('Set the objects\' text wrapping to arrange them in layers.')); return false; }
+      const ok = engine.execute(() => arrangeDrawings(engine.model, images, direction));
+      engine.focus(); refreshPanes(); return ok;
+    }
     if (!isPositionedImage(image)) {
       if (direction === 'inFront' || direction === 'behind') return setWrap(direction === 'behind' ? 'behind' : 'front');
       fail(new Error('Set the object\'s text wrapping to arrange it in layers.')); return false;

@@ -1,6 +1,8 @@
 import { test, expect } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { unzipSync } from 'fflate';
+import { downloadDocx } from './helpers/editor-tools.js';
+import { reopenDocx } from './helpers/reopen-docx.js';
 
 test('double-click selects the header drawing outside its anchor line, with delete, undo and export', async ({ page }, info) => {
   const source = 'public/fixtures/header-drawings.docx';
@@ -44,4 +46,48 @@ test('double-click selects the header drawing outside its anchor line, with dele
   expect(await download('undo')).toEqual(original);
   await page.locator('canvas.canvas-page').first().dblclick({ position: target.bodyPoint });
   await expect(page.getByRole('textbox', { name: 'Document text', exact: true })).toHaveValue('Body page 1\ufffc\nBody page 2\nBody page 3');
+});
+
+test('the arrow keys nudge a floating drawing in a header, as in the body, with undo and saving', async ({ page }, info) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await page.goto('/mock.html#/new');
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  page.once('dialog', dialog => dialog.accept());
+  await page.getByLabel('Open DOCX file').setInputFiles('public/fixtures/header-drawings-footer-text.docx');
+  await expect(page.getByRole('textbox', { name: 'Document text', exact: true })).toHaveValue('Body page 1\ufffc\nBody page 2\nBody page 3');
+  await expect.poll(() => page.evaluate(() => !!window.__docs?.current?.view?.engine?.pageStories)).toBe(true);
+  const header = await page.evaluate(() => Object.entries(window.__docs.current.view.engine.pageStories.stories).find(([, s]) => s.kind === 'header')[0]);
+  const select = () => page.evaluate(path => {
+    const e = window.__docs.current.view.engine; e.editStory(path);
+    const at = e.model.text.indexOf('￼'); e.model.select(at, at + 1); e.syncInput(); e.paint(); e.onSelection(); e.focus();
+  }, header);
+  const state = () => page.evaluate(() => {
+    const e = window.__docs.current.view.engine, image = e.model.selectedImage, frame = (e.selectionLayout.floatingObjects || []).find(f => f.image.id === image?.id);
+    return { path: e.session.path, x: image?.anchor.x, y: image?.anchor.y, frame: frame && { x: frame.x, y: frame.y } };
+  });
+  await select();
+  const before = await state();
+  expect(before.path).toBe(header);
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('Shift+ArrowDown');
+  const after = await state();
+  expect(after).toMatchObject({ path: header, x: before.x + 9525, y: before.y + 95250 });
+  expect(after.frame.x - before.frame.x).toBeCloseTo(1, 3);
+  expect(after.frame.y - before.frame.y).toBeCloseTo(10, 3);
+  // Each nudge is one undo step.
+  await page.keyboard.press('ControlOrMeta+z');
+  await expect.poll(async () => (await state()).y).toBe(before.y);
+  await page.keyboard.press('ControlOrMeta+y');
+  await expect.poll(async () => (await state()).y).toBe(after.y);
+  await page.evaluate(() => window.__docs.current.view.engine.editStory(null));
+  const path = info.outputPath('nudged-header.docx');
+  const download = page.waitForEvent('download'); await downloadDocx(page); await (await download).saveAs(path);
+  const parts = unzipSync(readFileSync(path)), xml = new TextDecoder().decode(parts[header]);
+  expect(xml).toContain(`<wp:posOffset>${after.x}</wp:posOffset>`);
+  expect(xml).toContain(`<wp:posOffset>${after.y}</wp:posOffset>`);
+  const input = page.getByRole('textbox', { name: 'Document text', exact: true });
+  await reopenDocx(page, input, path, await input.inputValue());
+  await select();
+  expect(await state()).toMatchObject({ path: header, x: after.x, y: after.y });
+  expect(errors).toEqual([]);
 });

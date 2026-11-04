@@ -39,6 +39,9 @@ export function createBackstage(api) {
   const root = el('div.backstage', { 'aria-label': 'File', hidden: true },
     el('aside.bs-side', {}, back, nav, footer), el('main.bs-main', {}, panel));
   let current = 'info', opener = null, token = 0;
+  // Property edits not yet saved with Save Properties, applied as the page is left (Back, Escape, another page).
+  let leavePage = null;
+  const leave = () => { const commit = leavePage; leavePage = null; try { commit?.(); } catch { /* the edits could not be applied */ } };
 
   // Escape closes the File view wherever the keyboard is (a button that disabled itself while working
   // leaves focus on the page body), unless a dialog or menu above it takes the key.
@@ -78,6 +81,7 @@ export function createBackstage(api) {
     for (const [key, tab] of tabs) { tab.setAttribute('aria-selected', String(key === id)); tab.tabIndex = key === id ? 0 : -1; }
     panel.setAttribute('aria-labelledby', `bs-tab-${id}`);
     const request = ++token;
+    leave();
     panel.replaceChildren(...[builders[id]?.(request)].flat().filter(Boolean));
     panel.scrollTop = 0;
     // In a narrow window the pages run along a row that scrolls sideways: the focus brings a half-hidden one wholly
@@ -143,6 +147,11 @@ export function createBackstage(api) {
     field('title', 'Title'), field('subject', 'Subject'), field('creator', 'Author'), field('keywords', 'Keywords'),
     field('category', 'Category'), field('contentStatus', 'Status'), field('description', 'Comments', { multiline: true }),
     el('div.bs-actions', {}, el('button.btn.btn-primary', { type: 'submit', disabled: readOnly || !api.setProperties }, 'Save Properties'), saved));
+    // Typed properties are kept when the page is left without Save Properties, as a desktop File view keeps them.
+    if (!readOnly && api.setProperties) leavePage = () => {
+      const data = Object.fromEntries(new FormData(form).entries());
+      if (Object.entries(data).some(([key, value]) => value !== (props[key] || ''))) api.setProperties(data);
+    };
     const dates = el('dl.bs-facts', {},
       ...fact('Created', props.created ? new Date(props.created).toLocaleString() : '—'),
       ...fact('Last modified', props.modified ? new Date(props.modified).toLocaleString() : '—'),
@@ -320,6 +329,7 @@ export function createBackstage(api) {
   function close({ focus = true } = {}) {
     if (root.hidden) return;
     root.hidden = true; token++;
+    leave();
     root.removeAttribute('role'); root.removeAttribute('aria-modal');
     window.removeEventListener('keydown', onEscape, true);
     across?.removeEventListener?.('change', orient);

@@ -6,7 +6,7 @@ import { DocxPackage, W } from '../src/engine/docx.js';
 import { TextDocument } from '../src/engine/model.js';
 import { layoutDocument, font, caretRect, hitTest } from '../src/engine/layout.js';
 import { pageGeometry } from '../src/engine/page-settings.js';
-import { FONT_DEFAULTS, fontSlot } from '../src/engine/font-families.js';
+import { FONT_DEFAULTS, fontSlot, languageProperty, textLanguageProperty } from '../src/engine/font-families.js';
 import { fontMetrics } from '../src/engine/font-metrics.js';
 import { measureTextGeometry } from '../src/engine/text-geometry.js';
 
@@ -150,4 +150,16 @@ it('preserves whitespace font declarations through editing, reopening and exact 
  expect(names(await DocxPackage.open(await save(pkg,doc)))).toEqual(before);
  sameParts(await save(pkg,doc),pkg.parts,['word/document.xml']);
  doc.undo();sameParts(await save(pkg,doc),pkg.parts);
+});
+
+it('names the w:lang attribute for each kind of language and text (§17.3.2.20)', () => {
+  for (const tag of ['ja-JP', 'zh-CN', 'zh-TW', 'ko-KR', 'yue-HK']) expect(languageProperty(tag), tag).toBe('fontEastAsiaLanguage');
+  for (const tag of ['ar-SA', 'he-IL', 'fa-IR', 'ur-PK', 'th-TH', 'hi-IN', 'bn-IN', 'ta-IN']) expect(languageProperty(tag), tag).toBe('fontBidiLanguage');
+  for (const tag of ['en-US', 'fr-FR', 'vi-VN', 'ru-RU', 'el-GR', 'tr-TR', '']) expect(languageProperty(tag), tag).toBe('fontLanguage');
+  expect(textLanguageProperty('  日本語')).toBe('fontEastAsiaLanguage');
+  expect(textLanguageProperty('「한국어」')).toBe('fontEastAsiaLanguage');
+  expect(textLanguageProperty('مرحبا')).toBe('fontBidiLanguage');
+  expect(textLanguageProperty('ภาษาไทย')).toBe('fontBidiLanguage');
+  expect(textLanguageProperty('Привет')).toBe('fontLanguage');
+  expect(textLanguageProperty('123 ')).toBe('fontLanguage');
 });

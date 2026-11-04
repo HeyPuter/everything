@@ -299,7 +299,49 @@ export function createDocumentViews({ editor, pkg, host, surface, root, error, c
   // Safari's pinch gesture.
   let gestureZoom = null;
   host.addEventListener('gesturestart', e => { e.preventDefault(); gestureZoom = editor()?.zoom ?? 1; });
-  host.addEventListener('gesturechange', e => { e.preventDefault(); if (gestureZoom && mode !== 'read' && mode !== 'outline') w.setZoom?.(Math.max(0.1, Math.min(2, Math.round(gestureZoom * e.scale * 100) / 100)), { clientX: e.clientX, clientY: e.clientY }); });
+  host.addEventListener('gesturechange', e => { e.preventDefault(); if (gestureZoom && !pinch && mode !== 'read' && mode !== 'outline') w.setZoom?.(Math.max(0.1, Math.min(2, Math.round(gestureZoom * e.scale * 100) / 100)), { clientX: e.clientX, clientY: e.clientY }); });
+
+  // Two fingers on a touch screen pinch the zoom about the point between them and carry the pages in any direction.
+  // One finger scrolls up and down and a sideways drag selects text, so this is also how a page zoomed wider than
+  // the screen is moved sideways. The zoom changes without the keyboard: a pinch is not a tap on the text.
+  const fingers = new Map();
+  let pinch = null;
+  const between = () => { const [a, b] = [...fingers.values()]; return { span: Math.max(1, Math.hypot(a.x - b.x, a.y - b.y)), x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }; };
+  host.addEventListener('pointerdown', e => {
+    if (e.pointerType !== 'touch') return;
+    fingers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pinch) { e.stopPropagation(); return; }
+    const engine = editor();
+    if (fingers.size !== 2 || !engine || mode === 'read' || mode === 'outline' || engine.pages.classList.contains('draws-with-touch')) return;
+    e.stopPropagation();
+    engine.cancelPointer();
+    const { span, x, y } = between();
+    pinch = { span, zoom: engine.zoom, x, y };
+  }, true);
+  host.addEventListener('pointermove', e => {
+    if (!fingers.has(e.pointerId)) return;
+    fingers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (!pinch) return;
+    e.stopPropagation();
+    const engine = editor(); if (!engine || fingers.size < 2) return;
+    const { span, x, y } = between();
+    // Whole pixels, as everywhere the pages scroll: the rest of a move is carried to the next.
+    const dx = Math.round(x - pinch.x), dy = Math.round(y - pinch.y);
+    if (dx) { host.scrollLeft -= dx; pinch.x += dx; }
+    if (dy) { host.scrollTop -= dy; pinch.y += dy; }
+    const to = Math.max(0.1, Math.min(2, Math.round(pinch.zoom * span / pinch.span * 100) / 100));
+    if (to !== engine.zoom) w.setZoom?.(to, { clientX: x, clientY: y }, { focus: false });
+  }, true);
+  const lift = e => {
+    if (!fingers.delete(e.pointerId) || !pinch) return;
+    // The finger still down after the pinch neither selects nor taps when it lifts.
+    e.stopPropagation();
+    if (!fingers.size) pinch = null;
+  };
+  host.addEventListener('pointerup', lift, true);
+  host.addEventListener('pointercancel', lift, true);
+  // The browser would scroll the pages up and down under the pinch.
+  host.addEventListener('touchmove', e => { if (pinch && e.cancelable) e.preventDefault(); }, { passive: false });
 
   /** View → Zoom: presets, fit choices, many pages and a percentage, previewed live. */
   function zoomDialog() {
@@ -307,8 +349,9 @@ export function createDocumentViews({ editor, pkg, host, surface, root, error, c
     // Page width that follows the window is restored as that, not as the scale it worked out to.
     const start = engine.zoom, startSetting = w.zoomSetting?.() ?? start, startMulti = engine.pages.classList.contains('is-multipage');
     let choice = null, modal = null, many = [2, 1];
-    const percent = el('input.input', { type: 'number', min: 10, max: 200, step: 1, value: Math.round(start * 100), 'aria-label': 'Percent' });
-    const preview = () => { if (!percent.checkValidity()) return; apply(Number(percent.value) / 100, true); };
+    const percent = el('input.input', { type: 'number', min: 10, max: 200, step: 1, required: true, value: Math.round(start * 100), 'aria-label': 'Percent' });
+    // A field cleared to type another number is not a zoom of 0: it previews nothing until a number is there.
+    const preview = () => { if (percent.value === '' || !percent.checkValidity()) return; apply(Number(percent.value) / 100, true); };
     percent.addEventListener('input', () => { choice = null; for (const r of radios) r.checked = false; preview(); });
     const option = (label, value) => {
       const input = el('input', { type: 'radio', name: 'zoom-choice', value: String(value), onchange: () => { choice = value; if (typeof value === 'number') percent.value = String(Math.round(value * 100)); apply(value, true); } });
@@ -345,8 +388,8 @@ export function createDocumentViews({ editor, pkg, host, surface, root, error, c
     const disabledFit = mode !== 'print';
     if (disabledFit) for (const r of radios.slice(3)) { r.disabled = true; r.parentElement.title = 'Available in Print Layout'; }
     // The choice the zoom is at now starts checked: 100% at 100%, Page width while the page follows the window.
-    const current = startMulti ? null : radios.find(r => !r.disabled && (startSetting === 'fit' ? r.value === 'width' : Number(r.value) === startSetting));
-    if (current) { current.checked = true; choice = current.value === 'width' ? 'width' : Number(current.value); }
+    const current = startMulti ? null : radios.find(r => !r.disabled && (startSetting === 'fit' ? r.value === 'width' : startSetting === 'page' ? r.value === 'page' : Number(r.value) === startSetting));
+    if (current) { current.checked = true; choice = current.value === 'width' || current.value === 'page' ? current.value : Number(current.value); }
     function apply(value, live) {
       if (value === 'width') w.zoomTo?.('width');
       else if (value === 'page') w.zoomTo?.('page');
