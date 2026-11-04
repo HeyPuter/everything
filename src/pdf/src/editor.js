@@ -237,6 +237,8 @@ export function createEditor({
     pageReady = false,
     renderedWorkspaceWidth = 0,
     renderedWorkspaceHeight = 0,
+    // The page sizes arrived after the fitted zoom was chosen from the first page's alone.
+    fitSizesStale = false,
     tool = 'select',
     destroyed = false,
     busy = true,
@@ -2445,7 +2447,13 @@ export function createEditor({
       pageIndex = Math.min(pageIndex, pdf.numPages - 1);
       const rebuilt = stack.count !== pageCount;
       if (rebuilt) stack.rebuild(pageCount);
-      stack.loadSizes(next);
+      // Fit width and fit page follow the largest page, whose size can arrive after the
+      // current page has been fitted; the zoom then catches up, as it does after a resize.
+      stack.loadSizes(next).then(() => {
+        if (destroyed || pdf !== next) return;
+        fitSizesStale = true;
+        refitPage();
+      });
       renderThumbnails();
       toolsPanel.refresh();
       organizer.refresh();
@@ -2541,6 +2549,7 @@ export function createEditor({
       if (!textCheckpoint && !keepScale) {
         renderedWorkspaceWidth = workspace.clientWidth;
         renderedWorkspaceHeight = workspace.clientHeight;
+        fitSizesStale = false;
         zoom = computeZoom(natural);
       }
       syncZoomSelect();
@@ -2766,7 +2775,10 @@ export function createEditor({
       if (announcer.textContent !== pageCaption.textContent)
         announcer.textContent = pageCaption.textContent;
       updateStatus();
-      setTimeout(() => stack.recheck(), 0);
+      setTimeout(() => {
+        stack.recheck();
+        if (fitSizesStale) refitPage();
+      }, 0);
       if (preparing) refreshDesigner().catch(() => {});
     } catch (e) {
       if (e.name !== 'RenderingCancelledException' && token === pageRenderGeneration && !destroyed)
@@ -12526,7 +12538,11 @@ export function createEditor({
     (scaleMode === 'fit' && workspace.clientWidth !== renderedWorkspaceWidth) ||
     (scaleMode === 'page' &&
       (workspace.clientWidth !== renderedWorkspaceWidth ||
-        workspace.clientHeight !== renderedWorkspaceHeight));
+        workspace.clientHeight !== renderedWorkspaceHeight)) ||
+    (fitSizesStale &&
+      (scaleMode === 'fit' || scaleMode === 'page') &&
+      !!viewport &&
+      Math.abs(computeZoom(viewport.clone({ scale: 1 })) - zoom) > 1e-6);
   /** Defer refitting while properties are open, keeping page handles and selection stable. */
   function refitPage() {
     if (!busy && !destroyed && !properties.active && !textEdit && !noteEdit && needsRefit())
