@@ -2,7 +2,7 @@ import { MAX_FONT_SIZE } from '../engine/font-size.js';
 import { selectionLanguage, languageProperty } from '../engine/font-families.js';
 import { stepFontSize, FALLBACK_SIZES } from '../lib/fontsize.js';
 import { statusWordCount } from './word-count.js';
-import { previewNotice, pictureFontNotice, scriptFontNotice, omittedPictureNotice } from './preview-notice.js';
+import { previewNotice, pictureFontNotice, scriptFontNotice, omittedPictureNotice, plainMarkdownNotice } from './preview-notice.js';
 import { importNotice } from '../ui/importnotice.js';
 import { createCanvasRulers } from '../ui/canvas-rulers.js';
 import { openParagraphBorders, paragraphBorderLabel } from './paragraph-borders.js';
@@ -1981,7 +1981,10 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     // Plain text becomes one paragraph per line, without the file's final line ending.
     const imported = doc.pendingImport, importedText = imported?.type === 'text' ? imported.value.replace(/\n+$/, '') : null;
     // Markdown and HTML become headings, lists, paragraphs and character formatting.
-    const importedHtml = imported?.type === 'markdown' ? (await import('../lib/markdown-html.js')).markdownHtml(imported.value) : imported?.type === 'html' ? imported.value : null;
+    // Markdown is read off the page's thread: some text takes its parser minutes (markdownHtmlOffThread).
+    const readMarkdown = imported?.type === 'markdown' ? await (await import('../lib/markdown-html.js')).markdownHtmlOffThread(imported.value) : null;
+    if (destroyed) return;
+    const importedHtml = readMarkdown ? readMarkdown.html : imported?.type === 'html' ? imported.value : null;
     if (imported && importedText === null && importedHtml === null) throw new Error('This file type cannot be opened here. Open a .docx, Markdown, HTML or plain-text file.');
     const template = !doc.blob && doc.template ? templateById(doc.template) : null;
     const blank = () => createDocx([paragraph()], defaultPageSettings(), undefined, undefined, [], {}, WRITING_STYLES);
@@ -2054,7 +2057,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     const previewIssues = [...(pkg.previewIssues || []), ...engine.storyLayout.unsupported.map(issue =>
       `${issue.path}, page ${issue.page + 1}: ${issue.message}`)];
     // A converted Hanword file says it is an editable copy, and lists what its conversion approximated.
-    const notices = [importNotice(doc.importInfo), ...(pkg.readOnly ? previewNotice({ ...pkg, previewIssues }) : []), ...pictureFontNotice(pkg), ...omittedPictureNotice(omittedPictures)].filter(Boolean);
+    const notices = [importNotice(doc.importInfo), ...(pkg.readOnly ? previewNotice({ ...pkg, previewIssues }) : []), ...pictureFontNotice(pkg), ...omittedPictureNotice(omittedPictures), ...plainMarkdownNotice(!!readMarkdown?.plain)].filter(Boolean);
     if (pkg.fieldRefreshIssues?.length) notices.push(el('div', {}, 'Some page references could not be updated. Cached results were retained. ', el('ul', {}, ...[...new Set(pkg.fieldRefreshIssues)].map(issue => el('li', {}, issue)))));
     message.replaceChildren(...notices);
     // update() may already have run while the editor attached; the script-font notice it added was just replaced.

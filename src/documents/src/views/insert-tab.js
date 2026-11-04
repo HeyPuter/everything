@@ -634,7 +634,11 @@ export function createInsert({ editor, pkg, error, base = {}, docName = () => ''
           // Without formatting (in a table cell, or a document with notes or fields) a web page's or Markdown file's
           // text goes in as its paragraphs, not as the markup: the raw text content of a page runs paragraphs
           // together and includes the text of scripts and styles, and Markdown would show its # and ** marks.
-          const converted = htmlFragment(kind === 'markdown' ? (await import('../lib/markdown-html.js')).markdownHtml(raw) : raw, { copied: false });
+          // Markdown is read off the page's thread, and as its lines of text when that takes too long (markdownHtmlOffThread).
+          const markdown = kind === 'markdown' ? await (await import('../lib/markdown-html.js')).markdownHtmlOffThread(raw) : null;
+          if (ready() !== engine) return;
+          if (markdown?.plain) toast('That Markdown file took too long to read, so it was inserted as plain text.', { icon: 'info' });
+          const converted = htmlFragment(markdown ? markdown.html : raw, { copied: false });
           fragment = formatted ? converted : null;
           text = converted ? converted.paragraphs.map(p => p.text).join('\n') : '';
         }
