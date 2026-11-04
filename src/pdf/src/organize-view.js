@@ -215,6 +215,14 @@ export function createOrganizeView({
   }
 
   function onKey(e, i) {
+    // The keys the grid answers are its own: the editor's shortcuts for the same keys (Home
+    // and End go to the first and last page) would change the page behind the grid.
+    if (handleKey(e, i)) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+  }
+  function handleKey(e, i) {
     const step = {
       ArrowLeft: -1,
       ArrowRight: 1,
@@ -224,7 +232,6 @@ export function createOrganizeView({
       End: Infinity,
     }[e.key];
     if (step != null) {
-      e.preventDefault();
       const next = Math.max(
         0,
         Math.min(
@@ -235,22 +242,16 @@ export function createOrganizeView({
       const reached = focusTile(next);
       if (e.shiftKey) select(reached, { shiftKey: true });
       else if (!(e.ctrlKey || e.metaKey)) select(reached);
-      return;
+      return true;
     }
-    if (e.key === ' ') {
-      e.preventDefault();
-      select(i, { ctrlKey: true });
-    } else if (e.key === 'Enter') {
-      e.preventDefault();
-      actions.open(i);
-    } else if ((e.key === 'Delete' || e.key === 'Backspace') && !isBusy()) {
-      e.preventDefault();
-      commands.remove.click();
-    } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
-      e.preventDefault();
+    if (e.key === ' ') select(i, { ctrlKey: true });
+    else if (e.key === 'Enter') actions.open(i);
+    else if ((e.key === 'Delete' || e.key === 'Backspace') && !isBusy()) commands.remove.click();
+    else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
       selected = new Set(tiles.map((_, k) => k));
       updateState();
-    }
+    } else return false;
+    return true;
   }
 
   function dropIndex(e) {

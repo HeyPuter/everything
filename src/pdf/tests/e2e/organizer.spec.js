@@ -337,3 +337,33 @@ test("a page's own buttons in Organize pages cannot delete the only page", async
     grid.getByRole('button', { name: 'Rotate page 1 clockwise', exact: true }),
   ).toBeEnabled();
 });
+
+test('keys that move through Organize pages leave the page behind the grid alone', async ({
+  page,
+}) => {
+  await mockPuter(page);
+  await page.goto('/#library');
+  await openPdf(page, await tallPdf());
+  await page.getByRole('button', { name: 'Tools', exact: true }).click();
+  await page
+    .getByRole('complementary', { name: 'Tools' })
+    .getByRole('button', { name: 'Organize pages', exact: true })
+    .click();
+  const grid = page.getByRole('listbox', { name: 'Pages' });
+  await expect(grid.getByRole('option', { name: 'Page 1', exact: true })).toBeFocused();
+  // End and Home choose the last and first tiles; Alt and an arrow moves as an arrow does.
+  await page.keyboard.press('End');
+  await expect(grid.getByRole('option', { name: 'Page 3', exact: true })).toBeFocused();
+  await page.keyboard.press('Home');
+  await page.keyboard.press('Alt+ArrowRight');
+  await expect(grid.getByRole('option', { name: 'Page 2', exact: true })).toBeFocused();
+  await page.keyboard.press('End');
+  await expect(page.locator('.organize-status')).toHaveText('1 of 3 pages selected');
+  await settled(page);
+  await page
+    .getByRole('toolbar', { name: 'Organize pages' })
+    .getByRole('button', { name: 'Close', exact: true })
+    .click();
+  // The page that was on view before is on view again.
+  await expect(page.locator('.page-caption')).toHaveText('Page 1 of 3');
+});
