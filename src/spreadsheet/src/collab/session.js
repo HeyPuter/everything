@@ -8,7 +8,7 @@ import { RoomClient } from './client.js';
 import { collabPuter, deploy, call } from './api.js';
 import { browserOutbox } from './outbox.js';
 import { shareLink } from './protocol.js';
-import { Doc, SHARED_FILE } from '../lib/doc.js';
+import { Doc, sharedFileText } from '../lib/doc.js';
 import { workbookToXlsx } from '../core/io.js';
 import { t } from '../i18n/index.js';
 
@@ -29,7 +29,7 @@ export async function roomForFile(file) {
 
 /** Share the open workbook for editing together: deploy the worker, create the room, remember it for the file. */
 export async function startSharing(doc, progress = () => {}) {
-  if (doc.roomFile) throw new Error(SHARED_FILE);
+  if (doc.roomFile) throw new Error(sharedFileText());
   const puter = collabPuter();
   const server = await deploy(puter, progress);
   progress(t('collabSession.sharing'));
