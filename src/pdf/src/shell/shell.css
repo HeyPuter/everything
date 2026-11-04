@@ -1646,6 +1646,26 @@
 .annotation-target:hover {
   border-color: color-mix(in srgb, var(--select) 60%, transparent);
 }
+/* A line, drawing, or callout takes the pointer only on what it draws (.annotation-hit). */
+.annotation-target.is-outline {
+  pointer-events: none;
+}
+.annotation-hit {
+  position: absolute;
+  overflow: visible;
+  pointer-events: none;
+}
+.annotation-hit path {
+  fill: none;
+  stroke: transparent;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  pointer-events: stroke;
+}
+.annotation-hit rect {
+  fill: transparent;
+  pointer-events: all;
+}
 .annotation-target.is-selected {
   border: 1.5px solid var(--select);
   background: color-mix(in srgb, var(--select) 8%, transparent);
