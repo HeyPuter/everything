@@ -6,7 +6,26 @@
  *
  * A built-in tab's id is its name ("Home"); a tab of the person's own has an id starting "custom-". The
  * functions here are pure: each returns a new layout, and none knows about the screen.
+ *
+ * A built-in tab's id stays its English name in every language (it is what a layout keeps); the name shown for
+ * it is builtinTabLabel's.
  */
+import { t, tSource } from '../i18n/index.js';
+
+/** The catalog key of each built-in tab's name, by its id; the contextual tabs too. */
+const BUILTIN_TAB_KEYS = {
+  Home: 'ribbonLayout.tab.home', Insert: 'ribbonLayout.tab.insert', Draw: 'ribbonLayout.tab.draw', 'Page Layout': 'ribbonLayout.tab.pageLayout',
+  Formulas: 'ribbonLayout.tab.formulas', Data: 'ribbonLayout.tab.data', Review: 'ribbonLayout.tab.review', View: 'ribbonLayout.tab.view',
+  Automate: 'ribbonLayout.tab.automate', Table: 'ribbonLayout.tab.table', 'Chart Design': 'ribbonLayout.tab.chartDesign', Format: 'ribbonLayout.tab.format',
+  'SmartArt Design': 'ribbonLayout.tab.smartArtDesign', 'SmartArt Format': 'ribbonLayout.tab.smartArtFormat', 'Picture Format': 'ribbonLayout.tab.pictureFormat',
+};
+
+/** The name a built-in tab shows, in the interface language (its id for a tab not known here). */
+export const builtinTabLabel = (id) => (Object.hasOwn(BUILTIN_TAB_KEYS, id) ? t(BUILTIN_TAB_KEYS[id]) : id);
+/** The same name in English: what the tab's key tip is worked out from, so it is the same in every language. */
+export const builtinTabSourceLabel = (id) => (Object.hasOwn(BUILTIN_TAB_KEYS, id) ? tSource(BUILTIN_TAB_KEYS[id]) : id);
+const newTabName = () => t('ribbonLayout.newTab');
+const newGroupName = () => t('ribbonLayout.newGroup');
 
 export const EMPTY_LAYOUT = Object.freeze({ order: [], hidden: [], names: {}, tabs: [], groups: {} });
 
@@ -18,14 +37,14 @@ const isId = (v) => typeof v === 'string' && v.length > 0 && v.length <= 400;
 export function normalizeLayout(raw) {
   const src = raw && typeof raw === 'object' ? raw : {};
   const tabs = (Array.isArray(src.tabs) ? src.tabs : [])
-    .filter((t) => t && /^custom-[\w-]{1,40}$/.test(t.id))
-    .map((t) => ({ id: t.id, name: cleanName(t.name, 'New Tab') }));
+    .filter((tab) => tab && /^custom-[\w-]{1,40}$/.test(tab.id))
+    .map((tab) => ({ id: tab.id, name: cleanName(tab.name, newTabName()) }));
   const groups = {};
   if (src.groups && typeof src.groups === 'object') {
     for (const [tab, list] of Object.entries(src.groups)) {
       if (!Array.isArray(list)) continue;
       const kept = list.filter((g) => g && /^group-[\w-]{1,40}$/.test(g.id))
-        .map((g) => ({ id: g.id, name: cleanName(g.name, 'New Group'), commands: [...new Set((Array.isArray(g.commands) ? g.commands : []).filter(isId))].slice(0, 60) }));
+        .map((g) => ({ id: g.id, name: cleanName(g.name, newGroupName()), commands: [...new Set((Array.isArray(g.commands) ? g.commands : []).filter(isId))].slice(0, 60) }));
       if (kept.length) groups[tab] = kept;
     }
   }
@@ -39,25 +58,27 @@ export function normalizeLayout(raw) {
 }
 
 /**
- * The tabs in the order shown, given the built-in ones: [{ id, name, builtin, hidden }]. Tabs the order does not
- * mention (new built-in ones, say) keep their place after the ones it does.
+ * The tabs in the order shown, given the built-in ones: [{ id, name, builtin, hidden, renamed }]. A built-in tab's
+ * name is the person's for it, or else its own in the interface language; `renamed` says which. Tabs the order
+ * does not mention (new built-in ones, say) keep their place after the ones it does.
  */
 export function tabsIn(layout, builtins) {
-  const all = [...builtins.map((id) => ({ id, builtin: true })), ...layout.tabs.map((t) => ({ id: t.id, builtin: false }))];
-  const known = new Map(all.map((t) => [t.id, t]));
+  const all = [...builtins.map((id) => ({ id, builtin: true })), ...layout.tabs.map((tab) => ({ id: tab.id, builtin: false }))];
+  const known = new Map(all.map((tab) => [tab.id, tab]));
   const ordered = layout.order.filter((id) => known.has(id)).map((id) => known.get(id));
-  const rest = all.filter((t) => !layout.order.includes(t.id));
+  const rest = all.filter((tab) => !layout.order.includes(tab.id));
   // A tab left out of the order goes after the last listed tab that came before it among the built-ins.
   const out = [...ordered];
-  for (const t of rest) {
-    const at = all.indexOf(t);
+  for (const tab of rest) {
+    const at = all.indexOf(tab);
     const before = all.slice(0, at).reverse().find((p) => out.includes(p));
-    out.splice(before ? out.indexOf(before) + 1 : 0, 0, t);
+    out.splice(before ? out.indexOf(before) + 1 : 0, 0, tab);
   }
-  return out.map((t) => ({
-    ...t,
-    name: t.builtin ? layout.names[t.id] || t.id : layout.tabs.find((c) => c.id === t.id).name,
-    hidden: layout.hidden.includes(t.id),
+  return out.map((tab) => ({
+    ...tab,
+    name: tab.builtin ? layout.names[tab.id] || builtinTabLabel(tab.id) : layout.tabs.find((c) => c.id === tab.id).name,
+    hidden: layout.hidden.includes(tab.id),
+    renamed: tab.builtin && !!layout.names[tab.id],
   }));
 }
 
@@ -67,32 +88,35 @@ const fresh = (prefix, taken) => {
     if (!taken.has(id)) return id;
   }
 };
-const allIds = (layout) => new Set([...layout.tabs.map((t) => t.id), ...Object.values(layout.groups).flat().map((g) => g.id)]);
+const allIds = (layout) => new Set([...layout.tabs.map((tab) => tab.id), ...Object.values(layout.groups).flat().map((g) => g.id)]);
 
 /** A new tab of the person's own, after `afterId` (or at the end), with one empty group in it. */
-export function addTab(layout, builtins, name = 'New Tab', afterId = null) {
+export function addTab(layout, builtins, name = newTabName(), afterId = null) {
   const id = fresh('custom', allIds(layout));
-  const group = { id: fresh('group', new Set([...allIds(layout), id])), name: 'New Group', commands: [] };
-  const order = tabsIn(layout, builtins).map((t) => t.id);
+  const group = { id: fresh('group', new Set([...allIds(layout), id])), name: newGroupName(), commands: [] };
+  const order = tabsIn(layout, builtins).map((tab) => tab.id);
   const at = afterId && order.includes(afterId) ? order.indexOf(afterId) + 1 : order.length;
   order.splice(at, 0, id);
-  return { ...layout, order, tabs: [...layout.tabs, { id, name: cleanName(name, 'New Tab') }], groups: { ...layout.groups, [id]: [group] }, created: { tab: id, group: group.id } };
+  return { ...layout, order, tabs: [...layout.tabs, { id, name: cleanName(name, newTabName()) }], groups: { ...layout.groups, [id]: [group] }, created: { tab: id, group: group.id } };
 }
 
 /** A new empty group at the end of a tab. */
-export function addGroup(layout, tabId, name = 'New Group') {
+export function addGroup(layout, tabId, name = newGroupName()) {
   const id = fresh('group', allIds(layout));
-  const list = [...(layout.groups[tabId] || []), { id, name: cleanName(name, 'New Group'), commands: [] }];
+  const list = [...(layout.groups[tabId] || []), { id, name: cleanName(name, newGroupName()), commands: [] }];
   return { ...layout, groups: { ...layout.groups, [tabId]: list }, created: { group: id } };
 }
 
-/** Rename a tab (built-in or own) or a group of the person's own. A built-in tab given its own name again loses the rename. */
+/**
+ * Rename a tab (built-in or own) or a group of the person's own. A built-in tab given its own name again (its id, or
+ * the name it shows in the interface language) loses the rename.
+ */
 export function rename(layout, id, name) {
-  if (layout.tabs.some((t) => t.id === id)) return { ...layout, tabs: layout.tabs.map((t) => (t.id === id ? { ...t, name: cleanName(name, t.name) } : t)) };
+  if (layout.tabs.some((tab) => tab.id === id)) return { ...layout, tabs: layout.tabs.map((tab) => (tab.id === id ? { ...tab, name: cleanName(name, tab.name) } : tab)) };
   const groups = mapGroups(layout, (g) => (g.id === id ? { ...g, name: cleanName(name, g.name) } : g));
   if (groups) return { ...layout, groups };
   const names = { ...layout.names };
-  if (!name || !name.trim() || name.trim() === id) delete names[id]; else names[id] = cleanName(name, id);
+  if (!name || !name.trim() || name.trim() === id || name.trim() === builtinTabLabel(id)) delete names[id]; else names[id] = cleanName(name, id);
   return { ...layout, names };
 }
 
@@ -121,7 +145,7 @@ export function setTabHidden(layout, tabId, hidden) {
 
 /** Move a tab one place along (-1 earlier, +1 later) among the tabs shown in the list. */
 export function moveTab(layout, builtins, tabId, step) {
-  const order = tabsIn(layout, builtins).map((t) => t.id);
+  const order = tabsIn(layout, builtins).map((tab) => tab.id);
   const at = order.indexOf(tabId);
   const to = at + step;
   if (at < 0 || to < 0 || to >= order.length) return layout;
@@ -170,10 +194,10 @@ export function moveCommand(layout, groupId, commandId, step) {
 
 /** Remove a tab of the person's own (with its groups) or a group of their own. Built-in tabs cannot be removed, only hidden. */
 export function removeItem(layout, id) {
-  if (layout.tabs.some((t) => t.id === id)) {
+  if (layout.tabs.some((tab) => tab.id === id)) {
     const groups = { ...layout.groups };
     delete groups[id];
-    return { ...layout, tabs: layout.tabs.filter((t) => t.id !== id), order: layout.order.filter((t) => t !== id), hidden: layout.hidden.filter((t) => t !== id), groups };
+    return { ...layout, tabs: layout.tabs.filter((tab) => tab.id !== id), order: layout.order.filter((tab) => tab !== id), hidden: layout.hidden.filter((tab) => tab !== id), groups };
   }
   const found = findGroup(layout, id);
   if (!found) return layout;
