@@ -2451,6 +2451,15 @@ export function createEditor({
         return;
       }
       pdf = next;
+      // A PDF that asks to be shown by its title is named by the title it has now: details,
+      // an accessibility fix, removing hidden information, or undo can each change it.
+      Promise.all([next.getViewerPreferences(), next.getMetadata()])
+        .then(([prefs, { info }]) => {
+          if (destroyed || pdf !== next) return;
+          shownTitle = (prefs?.get('DisplayDocTitle') && String(info?.Title ?? '').trim()) || null;
+          updateStatus();
+        })
+        .catch(() => {});
       // One layer configuration per document, shared by every picture of its pages, so the
       // Layers panel's switches apply everywhere.
       documentLayers = next.getOptionalContentConfig({ intent: 'display' }).then((config) => {
