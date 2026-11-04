@@ -623,7 +623,8 @@ export class Viewport {
   // ---------- view helpers ----------
 
   pushHistory() {
-    this.history.push(this.camera.state());
+    // Mid-animation, the view being left is the one the camera was heading to.
+    this.history.push(this.camera.goal());
     if (this.history.length > 30) this.history.shift();
   }
 

@@ -149,6 +149,12 @@ test.describe('viewport', () => {
     await page.evaluate(() => (window as unknown as Win).__parametric.viewport.setView('front'));
     await page.mouse.wheel(0, -100);
     await expect(page.locator('.view-label')).toHaveText('Front');
+    // Previous View after a view change made mid-animation goes back to the
+    // view that animation was heading to, not a half-turned one.
+    await page.evaluate(() => { const v = (window as unknown as Win).__parametric.viewport; v.setView('right'); v.setView('top'); });
+    await expect(page.locator('.view-label')).toHaveText('Top');
+    await page.evaluate(() => (window as unknown as Win).__parametric.viewport.previousView());
+    await expect(page.locator('.view-label')).toHaveText('Right');
   });
 
   test('redraws the model after the WebGL context is lost and restored', async ({ page }) => {
