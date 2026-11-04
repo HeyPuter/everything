@@ -166,26 +166,29 @@ export function createReferences({ editor, pkg, error, base = {}, onChange = () 
     const body = engine.session.body, tracking = body.trackChanges;
     body.trackChanges = false;
     let result;
-    try {
-      engine.execute(() => {
-        const before = track && tracking ? body.text : null;
-        // Fields there were before, so the ones the action adds are recorded as inserted with their text.
-        const fields = before !== null ? new Set(body.paragraphs.flatMap(p => (p.fieldMarkers || []).map(m => m.field.id))) : null;
-        result = action(body, ...loaded);
-        if (result === false) return false;
-        // Untracked, a caption or cross-reference inserted with Track Changes on stayed after Reject All, and with
-        // tracking locked it could not be inserted at all.
-        if (before !== null) body.trackInsertion(before, fields);
-        if (refresh || result?.only) refreshModule.refreshPageReferences(body, model => engine.layoutModel(model), engine.pageStories, { checkpoint: false, only: result?.only || null });
-        return result;
-      });
-    } finally {
-      body.trackChanges = tracking;
-      if (story && engine.session.path === null && engine.editStory(story.path, story.page) && engine.session.path === story.path) {
-        engine.model.select(story.anchor, story.focus);
-        stay(engine);
+    // The body's change and the one `stay` makes in the header or footer (F9's own fields there) are one undo step.
+    engine.transact(() => {
+      try {
+        engine.execute(() => {
+          const before = track && tracking ? body.text : null;
+          // Fields there were before, so the ones the action adds are recorded as inserted with their text.
+          const fields = before !== null ? new Set(body.paragraphs.flatMap(p => (p.fieldMarkers || []).map(m => m.field.id))) : null;
+          result = action(body, ...loaded);
+          if (result === false) return false;
+          // Untracked, a caption or cross-reference inserted with Track Changes on stayed after Reject All, and with
+          // tracking locked it could not be inserted at all.
+          if (before !== null) body.trackInsertion(before, fields);
+          if (refresh || result?.only) refreshModule.refreshPageReferences(body, model => engine.layoutModel(model), engine.pageStories, { checkpoint: false, only: result?.only || null });
+          return result;
+        });
+      } finally {
+        body.trackChanges = tracking;
+        if (story && engine.session.path === null && engine.editStory(story.path, story.page) && engine.session.path === story.path) {
+          engine.model.select(story.anchor, story.focus);
+          stay(engine);
+        }
       }
-    }
+    });
     if (!keepFocus) engine.focus();
     onChange();
     return result;
