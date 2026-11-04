@@ -1,0 +1,6 @@
+{
+  "choice": "{menu}：{choice}",
+  "ribbon": "功能区",
+  "ribbonGroup": "{tab} ▸ {group}（功能区）",
+  "ribbonTab": "{tab}（功能区）"
+}

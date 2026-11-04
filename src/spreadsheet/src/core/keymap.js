@@ -7,6 +7,7 @@
  * The key is named from the physical key where it has one (KeyK → K, Digit1 → 1), so Shift or Option
  * changing the character typed (Option+K is ˚ on a Mac) does not change the chord.
  */
+import { t } from '../i18n/index.js';
 
 const MOD_ORDER = ['Mod', 'Ctrl', 'Meta', 'Alt', 'Shift'];
 
@@ -106,12 +107,13 @@ export function chordParts(chord) {
   return { mods: new Set(parts.slice(0, -1)), key: parts.at(-1) || '' };
 }
 
-/** Chords the browser or the system keeps for itself, or that the editor needs as they are. */
+/** Chords the browser or the system keeps for itself, or that the editor needs as they are: the message saying who keeps it. */
 const RESERVED = {
-  'Mod+C': 'Copy', 'Mod+X': 'Cut', 'Mod+V': 'Paste', 'Mod+W': 'the browser (close the tab)', 'Mod+T': 'the browser (new tab)',
-  'Mod+N': 'the browser (new window)', 'Mod+Q': 'the browser (quit)', 'Mod+Shift+T': 'the browser (reopen a tab)',
-  'Mod+Shift+N': 'the browser (private window)', 'Mod+Shift+W': 'the browser (close the window)', 'Mod+R': 'the browser (reload)',
-  'Mod+Tab': 'the system (switch apps)', 'Alt+Tab': 'the system (switch apps)', 'Alt+F4': 'the system (close the window)',
+  'Mod+C': 'keymap.keptBy.copy', 'Mod+X': 'keymap.keptBy.cut', 'Mod+V': 'keymap.keptBy.paste', 'Mod+W': 'keymap.keptBy.browserCloseTab',
+  'Mod+T': 'keymap.keptBy.browserNewTab', 'Mod+N': 'keymap.keptBy.browserNewWindow', 'Mod+Q': 'keymap.keptBy.browserQuit',
+  'Mod+Shift+T': 'keymap.keptBy.browserReopenTab', 'Mod+Shift+N': 'keymap.keptBy.browserPrivateWindow',
+  'Mod+Shift+W': 'keymap.keptBy.browserCloseWindow', 'Mod+R': 'keymap.keptBy.browserReload',
+  'Mod+Tab': 'keymap.keptBy.systemSwitchApps', 'Alt+Tab': 'keymap.keptBy.systemSwitchApps', 'Alt+F4': 'keymap.keptBy.systemCloseWindow',
 };
 
 /**
@@ -120,12 +122,12 @@ const RESERVED = {
  * with the browser or the system.
  */
 export function chordProblem(chord) {
-  if (!chord) return 'Press a key combination';
+  if (!chord) return t('keymap.pressCombination');
   const { mods, key } = chordParts(chord);
   const fn = /^F([1-9]|1[0-2])$/.test(key);
-  if (!fn && !['Mod', 'Ctrl', 'Meta', 'Alt'].some((m) => mods.has(m))) return 'Use Ctrl, ⌘, Alt or Option with the key, or a function key (F1 to F12), so typing into cells keeps working';
-  if (key === 'Escape' || key === 'Tab') return `${key === 'Tab' ? 'Tab' : 'Escape'} moves the focus and closes dialogs, so it cannot be a shortcut`;
-  if (RESERVED[chord]) return `That combination is kept by ${RESERVED[chord]}`;
+  if (!fn && !['Mod', 'Ctrl', 'Meta', 'Alt'].some((m) => mods.has(m))) return t('keymap.needsModifier');
+  if (key === 'Escape' || key === 'Tab') return t('keymap.movesFocus', { key });
+  if (RESERVED[chord]) return t(RESERVED[chord]);
   return null;
 }
 
