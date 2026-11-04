@@ -174,6 +174,33 @@ test('the assistant starts open without taking focus, and the tab closes it', as
   await expect(box).toBeHidden();
 });
 
+test('a message too long for the assistant is held back with a reason, not sent', async ({ page }) => {
+  await page.addInitScript(() => {
+    const w = window as unknown as { __sent: number[]; __assistantChat: unknown };
+    w.__sent = [];
+    w.__assistantChat = async function* (messages: { content: unknown }[]) {
+      w.__sent.push(JSON.stringify(messages.at(-1)!.content).length);
+      yield { type: 'text', text: 'Got it.' };
+    };
+  });
+  await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  const box = page.getByRole('textbox', { name: 'Message the assistant' });
+  await box.fill('x'.repeat(100001));
+  await expect(box).toHaveAttribute('aria-invalid', 'true');
+  await box.press('Enter');
+  await expect(page.locator('.as-limit')).toContainText('100,001 characters');
+  await expect(box).toHaveAccessibleDescription(/at most 100,000/);
+  await expect(page.locator('.as-user')).toHaveCount(0);
+  // Shortened, it goes.
+  await box.fill('x'.repeat(100000));
+  await expect(page.locator('.as-limit')).toBeHidden();
+  await box.press('Enter');
+  await expect(page.getByText('Got it.')).toBeVisible();
+  const sent = await page.evaluate(() => (window as unknown as { __sent: number[] }).__sent);
+  expect(sent).toHaveLength(1);
+});
+
 test('a failed reply can be tried again until a later message moves the conversation on', async ({ page }) => {
   await page.addInitScript(() => {
     const w = window as unknown as { __roles: string[][]; __assistantChat: unknown };

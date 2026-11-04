@@ -7,13 +7,13 @@ import { appHost } from '../app/assistant-host';
 import { doSignIn } from '../app/start';
 import { type ChatFn, puterChat } from '../platform/ai';
 import { cloudAvailable, env, puter } from '../platform/puter';
-import { h } from '../ui/dom';
+import { h, nextDomId } from '../ui/dom';
 import { icon } from '../ui/icons';
 import { toast } from '../ui/overlay';
 import { type Agent, type ExchangeResult, type Step, createAgent } from './agent';
 import type { AssistantHost } from './host';
 import { renderMarkdown } from './markdown';
-import { ATTACH_ACCEPT, type Attachment, MAX_ATTACHMENTS, attachmentKind, attachmentProblem, attachmentsTooLarge, formatSize } from './attach';
+import { ATTACH_ACCEPT, type Attachment, MAX_ATTACHMENTS, MAX_TEXT_CHARS, attachmentKind, attachmentProblem, attachmentsTooLarge, formatSize } from './attach';
 import { readAttachment } from './attachments';
 import { SYSTEM_PROMPT, partSnapshot } from './prompt';
 import { runTool, toolSpecs } from './tools';
@@ -110,6 +110,8 @@ export class AssistantPanel {
   private input: HTMLTextAreaElement;
   private sendBtn: HTMLButtonElement;
   private status: HTMLElement;
+  /** Says why the typed message cannot go (too long). */
+  private limit: HTMLElement;
   private agent: Agent;
   private host: AssistantHost;
   private renderQueued = false;
@@ -145,7 +147,9 @@ export class AssistantPanel {
     this.input = h('textarea', { class: 'as-input', rows: 1, placeholder: 'Describe a part or a change…', 'aria-label': 'Message the assistant' }) as HTMLTextAreaElement;
     this.sendBtn = h('button', { class: 'as-send', type: 'button', 'aria-label': 'Send' }, icon('send', 16)) as HTMLButtonElement;
     this.status = h('div', { class: 'as-status', role: 'status' });
-    this.input.addEventListener('input', () => this.grow());
+    this.limit = h('div', { class: 'as-limit', id: nextDomId('as-limit'), 'aria-live': 'polite' });
+    this.input.setAttribute('aria-describedby', this.limit.id);
+    this.input.addEventListener('input', () => { this.grow(); this.checkLength(); });
     this.input.addEventListener('keydown', (e) => {
       // keyCode 229: Safari's Enter that commits an IME composition comes with isComposing false.
       if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && e.keyCode !== 229) { e.preventDefault(); void this.submit(); }
@@ -174,7 +178,7 @@ export class AssistantPanel {
     this.el = h('div', { class: 'assistant' },
       h('div', { class: 'as-bar' }, newChat),
       this.log,
-      h('div', { class: 'as-bottom' }, this.status, composer,
+      h('div', { class: 'as-bottom' }, this.status, composer, this.limit,
         h('div', { class: 'as-note' }, 'Sends your messages and a description of the part to Puter AI. Check designs before relying on them.')));
     this.bindDrop();
     this.renderEmpty();
@@ -197,6 +201,21 @@ export class AssistantPanel {
    */
   private keepFocus(e: MouseEvent) {
     if (e.detail === 0) this.input.focus({ preventScroll: true });
+  }
+
+  /**
+   * A message longer than the assistant takes (megabytes pasted by mistake)
+   * would fail, and stay in the conversation failing every later message.
+   * Returns false, saying so under the box, when the text is too long.
+   */
+  private checkLength(): boolean {
+    const n = this.input.value.trim().length;
+    const over = n > MAX_TEXT_CHARS;
+    const text = over ? `This message has ${n.toLocaleString('en-US')} characters; the assistant takes at most ${MAX_TEXT_CHARS.toLocaleString('en-US')}. Shorten it, or attach long text as a file.` : '';
+    if (this.limit.textContent !== text) this.limit.textContent = text;
+    if (over) this.input.setAttribute('aria-invalid', 'true');
+    else this.input.removeAttribute('aria-invalid');
+    return !over;
   }
 
   private grow() {
@@ -290,10 +309,12 @@ export class AssistantPanel {
   async submit() {
     let text = this.input.value.trim();
     if ((!text && !this.pending.length) || this.agent.busy || this.sending) return;
+    if (!this.checkLength()) { this.input.focus(); return; }
     if (!(await this.ready()) || this.agent.busy) return;
     // What the box holds now goes: it may have been edited while signing in.
     text = this.input.value.trim();
     if (!text && !this.pending.length) return;
+    if (!this.checkLength()) return;
     let items: PendingFile[] = [];
     let files: Attachment[] = [];
     if (this.pending.length) {
@@ -308,6 +329,7 @@ export class AssistantPanel {
       // Too much for one request: nothing goes, and the tray and the text stay.
       const tooLarge = attachmentsTooLarge(files);
       if (tooLarge) { toast({ kind: 'warning', message: tooLarge, timeout: 6000 }); return; }
+      if (!this.checkLength()) return;
       this.pending = this.pending.filter((it) => !waiting.includes(it));
       for (const it of items) it.node.remove();
       this.syncTray();
@@ -317,6 +339,7 @@ export class AssistantPanel {
     }
     this.input.value = '';
     this.grow();
+    this.checkLength();
     this.log.querySelector('.as-empty')?.remove();
     const bubble = h('div', { class: 'as-msg as-user' });
     if (items.length) bubble.append(sentFiles(items));
