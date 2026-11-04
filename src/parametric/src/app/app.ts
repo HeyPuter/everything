@@ -149,6 +149,11 @@ export class App {
     this.commands.onChange(() => this.syncChrome());
     window.addEventListener('themechange', () => this.applyTheme());
     window.addEventListener('keydown', (e) => this.onKey(e));
+    // Whether focus last arrived from a click/tap (toolbar buttons keep focus
+    // after a click) or from the keyboard.
+    window.addEventListener('pointerdown', () => { this.pointerInput = true; }, true);
+    window.addEventListener('keydown', () => { this.pointerInput = false; }, true);
+    window.addEventListener('focusin', () => { this.focusByPointer = this.pointerInput; }, true);
     this.renderer.camera.setState(this.renderer.camera.fitState([0, 0, 0], 60));
     this.showLoading(true);
     this.kernel.ready.then(() => {
@@ -1277,6 +1282,9 @@ export class App {
 
   // ---------- keyboard ----------
 
+  private pointerInput = false;
+  private focusByPointer = false;
+
   private onKey(e: KeyboardEvent) {
     if (dialogOpen()) return;
     const target = e.target as HTMLElement;
@@ -1301,9 +1309,11 @@ export class App {
     }
     if (target.closest('.tree') && ['Delete', 'Backspace', 'Enter', ' ', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'F2', 'Home', 'End'].includes(e.key)) return;
     if (target.closest('.menu')) return;
-    // Enter and Space activate the focused control; they are only shortcuts
-    // (Repeat Last Command, View Orientation) elsewhere.
+    // Enter and Space activate a control the keyboard moved to (and any in the
+    // task pane); after a click they stay shortcuts (Repeat Last Command,
+    // View Orientation), as they are everywhere else.
     if ((e.key === 'Enter' || e.key === ' ') && !e.ctrlKey && !e.metaKey && !e.altKey && target !== this.viewport.canvas
+      && (!this.focusByPointer || target.closest('.taskpane'))
       && target.closest(e.key === ' ' ? `${ACTIVATES_ON_ENTER}, ${ACTIVATES_ON_SPACE}` : ACTIVATES_ON_ENTER)) return;
     if (e.key === 'Enter' && this.panel && !(target instanceof HTMLButtonElement)) {
       e.preventDefault();

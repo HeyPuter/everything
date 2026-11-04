@@ -80,7 +80,14 @@ test.describe('accessibility', () => {
     await waitForFeature(page, 'Fillet1');
     // Something to repeat with Enter (Repeat Last Command).
     await page.getByRole('button', { name: 'Zoom to Fit' }).click();
+    // After a click the focused button leaves Space to View Orientation.
+    await page.keyboard.press('Space');
+    await expect(page.getByRole('menu', { name: 'View orientation' })).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('menu')).toHaveCount(0);
+    // Focus moved by the keyboard: the button wins.
     const perspective = page.getByRole('button', { name: 'Perspective' });
+    await page.keyboard.press('Shift');
     await perspective.focus();
     await page.keyboard.press('Enter');
     await expect(perspective).toHaveAttribute('aria-pressed', 'true');
