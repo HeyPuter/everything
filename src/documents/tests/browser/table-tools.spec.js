@@ -321,3 +321,26 @@ test('a new table\'s row that reaches the bottom of a page breaks across it inst
   expect(pages.first).toBe(pages.body);
   expect(pages.last).toBe(pages.body + 1);
 });
+
+test('with cells selected, Shift+Right and Shift+Left grow and shrink the block a cell at a time', async ({ page }) => {
+  await newTable(page, 3, 3, ['Alpha', 'Beta', 'Gamma', 'Delta', 'Epsilon', 'Zeta', 'Eta', 'Theta', 'Iota']);
+  await goToCell(page, 0, 0); await input(page).press('Home');
+  await input(page).press('Shift+ArrowDown');
+  await expect.poll(async () => (await model(page)).block).toEqual({ top: 0, bottom: 1, left: 0, right: 1 });
+  await input(page).press('Shift+ArrowRight');
+  await expect.poll(async () => (await model(page)).block).toEqual({ top: 0, bottom: 1, left: 0, right: 2 });
+  await input(page).press('Shift+ArrowRight');
+  await expect.poll(async () => (await model(page)).block).toEqual({ top: 0, bottom: 1, left: 0, right: 3 });
+  // At the table's edge the block stays.
+  await input(page).press('Shift+ArrowRight');
+  await expect.poll(async () => (await model(page)).block).toEqual({ top: 0, bottom: 1, left: 0, right: 3 });
+  await input(page).press('Shift+ArrowLeft');
+  await expect.poll(async () => (await model(page)).block).toEqual({ top: 0, bottom: 1, left: 0, right: 2 });
+  await input(page).press('Shift+ArrowDown');
+  await expect.poll(async () => (await model(page)).block).toEqual({ top: 0, bottom: 2, left: 0, right: 2 });
+  // The block's cells are the ones a command reaches.
+  await onTab(page, 'tableDesign');
+  await ribbon(page).getByRole('button', { name: 'Shading colors', exact: true }).click();
+  await page.locator('.menu-custom-grid .swatch').first().click();
+  expect((await model(page)).tables[0].rows.map(r => r.cells.map(c => c.shading || null))).toEqual([['000000', '000000', null], ['000000', '000000', null], ['000000', '000000', null]]);
+});

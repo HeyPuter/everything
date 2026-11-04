@@ -47,9 +47,9 @@ import { setCanvasTextStyle, setCanvasFontAlternatives, loadCanvasFonts } from '
 import { hasRunBackground, runBackground, foregroundBackground, runBackgroundRect } from './backgrounds.js';
 import { paintColor } from './colors.js';
 import { TextDocument, boundaries, locate, paragraphFormat, paragraphText } from './model.js';
-import { cellContext } from './tables.js';
+import { cellContext, rowGrid, verticalMerges } from './tables.js';
 import { cellBlockRects, cellBlockPlacements, wholeRows } from './table-selection.js';
-import { clearCells, splitTable, insertTablePageBreak } from './table-editing.js';
+import { clearCells, splitTable, insertTablePageBreak, selectionEndCells } from './table-editing.js';
 import { paragraphEdges } from './paragraph-geometry.js';
 import { pageGeometry } from './page-settings.js';
 import { pageBorderStrokes } from './page-borders.js';
@@ -1675,6 +1675,9 @@ export class CanvasEditor {
       key = forward ? 'ArrowRight' : 'ArrowLeft';
     }
     if (!['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown'].includes(key)) this.preferredX = null;
+    // With a block of table cells selected, Shift+Left and Shift+Right grow or shrink it by a cell, as in Word,
+    // rather than moving its corner a character at a time through the cell's text.
+    if (shift && !word && !rotatedCrossLine && ['ArrowLeft', 'ArrowRight'].includes(key) && this.model.activeCellBlock && this.extendCellBlock(key === 'ArrowLeft' ? -1 : 1)) return;
     const { focus, anchor } = this.model.selection;
     // Ctrl word navigation follows the Windows native reference. Option follows
     // native Mac text fields: word starts going left, word ends going right.
@@ -2281,6 +2284,29 @@ export class CanvasEditor {
   }
   /** Whether the selection is one picture that copies as itself (see clipboardData). */
   copiesPicture() { return copiesPicture(this.model); }
+  /**
+   * Move the corner of the selected block of cells (the selection's focus) to the cell beside its cell in the
+   * focus row: `direction` 1 to the right, -1 to the left. Returns whether the key was taken; at the table's edge
+   * the block stays as it is.
+   */
+  extendCellBlock(direction) {
+    const model = this.model, block = model.activeCellBlock, { anchor, focus } = model.selection;
+    const [first, last] = selectionEndCells(model), id = focus >= anchor ? last : first;
+    let context;
+    try { context = id && cellContext(model.tables, id); } catch { return false; }
+    if (!context || context.table !== block.table) return false;
+    const column = direction > 0 ? context.end : context.column - 1;
+    const beside = rowGrid(context.row).find(c => c.column <= column && column < c.end)?.cell;
+    if (beside) {
+      // A cell merged down from above is selected through the cell it continues.
+      const owner = verticalMerges(context.table).get(beside.id)?.cell || beside;
+      const index = model.paragraphs.findIndex(p => p.cellId === owner.id);
+      if (index >= 0) model.select(anchor, model.paragraphOffset(index));
+    }
+    this.caretAffinity = 'forward'; this.preferredX = null;
+    this.syncInput(); this.paint(); this.revealCaret(); this.onSelection();
+    return true;
+  }
   /** The selected drawing when it floats on the page (not in line with the text), else null. */
   get selectedFloatingDrawing() { const image = this.model.selectedImage; return image && isPositionedImage(image) ? image : null; }
   /**
