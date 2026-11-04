@@ -5,6 +5,7 @@
  * menu items (contextMenuItems) through the editor's command object.
  */
 import { isComposing, MOD_KEY, shortcutCode } from '../ui/dom.js';
+import { selectionLanguage, languageProperty } from '../engine/font-families.js';
 import { toast } from '../ui/toast.js';
 import { openMenu } from '../ui/menu.js';
 import { revisionView } from '../engine/revisions.js';
@@ -43,8 +44,9 @@ export function createReviewTools({ editor, pkg, error, author, review, proofing
     const engine = ready(); if (!engine) return;
     engine.finishComposition();
     const format = engine.model.runFormatting || {};
-    openLanguageDialog({ language: format.fontLanguage || pkg()?.reviewSettings?.defaultLanguage || 'en-US', noProof: !!format.noProof, defaultLanguage: pkg()?.reviewSettings?.defaultLanguage,
-      apply: ({ language, noProof }) => { engine.setRunFormat({ fontLanguage: language, noProof }); proofing.recheck?.(); },
+    openLanguageDialog({ language: selectionLanguage(engine.model) || pkg()?.reviewSettings?.defaultLanguage || 'en-US', noProof: !!format.noProof, defaultLanguage: pkg()?.reviewSettings?.defaultLanguage,
+      // Each language is written to the attribute for its kind of text (§17.3.2.20): Japanese to w:eastAsia, Arabic to w:bidi.
+      apply: ({ language, noProof }) => { engine.setRunFormat({ [languageProperty(language)]: language, noProof }); proofing.recheck?.(); },
       setDefault: language => { setSettings({ defaultLanguage: language }); },
       onClose: () => queueMicrotask(() => editor()?.focus()) });
   }

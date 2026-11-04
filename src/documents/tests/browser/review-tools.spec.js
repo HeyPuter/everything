@@ -1139,3 +1139,36 @@ test('a Hebrew or Arabic comment reads from the right, each line in its own dire
   expect(await lines(text)).toEqual({ hebrewRight: true, englishLeft: true, stopOnLeft: true });
   expect(errors).toEqual([]);
 });
+
+test('Language marks Japanese and Arabic in their own w:lang attributes, keeping the Latin language', async ({ page }, info) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  const input = await newDocument(page, 'Bonjour 日本語 مرحبا end');
+  const mark = async (start, end, tag, via) => {
+    await select(input, start, end);
+    if (via === 'status') await page.locator('.ed-status-language').click();
+    else {
+      await onTab(page, 'review');
+      await page.evaluate(() => document.querySelector('#ribbon-panel-review [aria-label="Language"][aria-haspopup="menu"]')?.click());
+      await page.getByRole('menuitem', { name: 'Set Proofing Language…' }).click();
+    }
+    const dialog = page.locator('.modal-root:not(.closing)').getByRole('dialog', { name: 'Language' });
+    await dialog.getByRole('searchbox').fill(tag);
+    await dialog.getByRole('option').first().click();
+    await dialog.getByRole('button', { name: 'OK', exact: true }).click();
+    await expect(dialog).toHaveCount(0);
+  };
+  // French first, over the whole line: the Latin language every run keeps.
+  await mark(0, 22, 'fr-FR', 'status');
+  await mark(8, 11, 'ja-JP', 'review');
+  await mark(12, 17, 'ar-SA', 'status');
+  const language = page.locator('.ed-status-language');
+  await select(input, 9); await expect(language).toContainText('Japanese');
+  await select(input, 14); await expect(language).toContainText('Arabic');
+  await select(input, 3); await expect(language).toContainText('French');
+  const { parts } = await exported(page, info, 'languages.docx');
+  const xml = strFromU8(parts['word/document.xml']);
+  expect(xml).toContain('<w:lang w:val="fr-FR" w:eastAsia="ja-JP"/></w:rPr><w:t xml:space="preserve">日本語</w:t>');
+  expect(xml).toContain('<w:lang w:val="fr-FR" w:bidi="ar-SA"/></w:rPr><w:t xml:space="preserve">مرحبا</w:t>');
+  expect(xml).not.toMatch(/w:val="(?:ja-JP|ar-SA)"/);
+  expect(errors).toEqual([]);
+});

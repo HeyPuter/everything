@@ -57,3 +57,34 @@ export const canvasFontFamily = style => {
   const family = (style.fontFamily || style.fontAscii || 'Noto Sans').trim();
   return isBundledFont(family) ? '"Canvas Noto Sans"' : `${cssFontString(family)}, "Canvas Noto Sans"`;
 };
+
+// ECMA-376 §17.3.2.20 lang: a run names three languages, one per kind of text it may hold. @w:val is the language
+// of its Latin text, @w:eastAsia of its East Asian text and @w:bidi of its complex-script text (right-to-left
+// scripts, and Thai, Lao, Khmer, Myanmar and the Indic scripts, whose shaping is complex). Marking text as Japanese
+// sets the East Asian language and leaves the Latin one as it was, as desktop word processors do.
+const EAST_ASIAN_LANGUAGE = /^(?:zh|ja|ko|yue|wuu|hak|nan|gan|hsn|lzh|ii)(?:-|$)/i;
+const COMPLEX_SCRIPT_LANGUAGE = /^(?:ar|he|iw|yi|fa|ur|ps|sd|ug|ckb|syr|dv|th|lo|km|my|bo|dz|si|hi|mr|ne|sa|kok|mai|bn|as|pa|gu|or|ta|te|kn|ml)(?:-|$)/i;
+/** The run property that holds a language (a BCP 47 tag): fontEastAsiaLanguage, fontBidiLanguage or fontLanguage. */
+export function languageProperty(tag) {
+  const value = String(tag || '');
+  return EAST_ASIAN_LANGUAGE.test(value) ? 'fontEastAsiaLanguage' : COMPLEX_SCRIPT_LANGUAGE.test(value) ? 'fontBidiLanguage' : 'fontLanguage';
+}
+const EAST_ASIAN_LETTER = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}\p{Script=Bopomofo}]/u;
+const COMPLEX_SCRIPT_LETTER = /[\p{Script=Arabic}\p{Script=Hebrew}\p{Script=Syriac}\p{Script=Thaana}\p{Script=Thai}\p{Script=Lao}\p{Script=Khmer}\p{Script=Myanmar}\p{Script=Tibetan}\p{Script=Sinhala}\p{Script=Devanagari}\p{Script=Bengali}\p{Script=Gurmukhi}\p{Script=Gujarati}\p{Script=Oriya}\p{Script=Tamil}\p{Script=Telugu}\p{Script=Kannada}\p{Script=Malayalam}]/u;
+/** The run property that names the language of `text`, by the script of its first letter: Latin text (or none) is fontLanguage. */
+export function textLanguageProperty(text) {
+  const letter = /\p{L}/u.exec(String(text || ''))?.[0] || '';
+  return EAST_ASIAN_LETTER.test(letter) ? 'fontEastAsiaLanguage' : COMPLEX_SCRIPT_LETTER.test(letter) ? 'fontBidiLanguage' : 'fontLanguage';
+}
+/**
+ * The language of the selected text, or of the text before the caret, as the document marks it: the run language
+ * for its script (falling back to the document default, then to the Latin language), null where it is mixed.
+ */
+export function selectionLanguage(model) {
+  const [a, b] = model.range, text = model.text;
+  const sample = a !== b ? text.slice(a, b) : text.slice(Math.max(0, a - 2), a) || text.slice(a, a + 2);
+  const key = textLanguageProperty(sample), format = model.runFormatting || {}, defaults = model.styles?.defaults?.run || {};
+  const latin = () => format.fontLanguage === null ? null : format.fontLanguage || defaults.fontLanguage || 'en-US';
+  if (key === 'fontLanguage') return latin();
+  return format[key] === null ? null : format[key] || defaults[key] || latin();
+}

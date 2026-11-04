@@ -1,4 +1,5 @@
 import { MAX_FONT_SIZE } from '../engine/font-size.js';
+import { selectionLanguage, languageProperty } from '../engine/font-families.js';
 import { stepFontSize, FALLBACK_SIZES } from '../lib/fontsize.js';
 import { statusWordCount } from './word-count.js';
 import { previewNotice, pictureFontNotice, scriptFontNotice, omittedPictureNotice } from './preview-notice.js';
@@ -943,9 +944,10 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     },
     documentReadOnly: () => !!pkg?.readOnly,
     // Language of the selection (w:lang) and whether it is proofed.
-    currentLanguage: () => { if (!engine) return 'en-US'; const value = engine.model.runFormatting.fontLanguage; return value === null ? null : value || engine.model.styles?.defaults?.run?.fontLanguage || 'en-US'; },
+    // Japanese text shows its East Asian language and Arabic its complex-script one (§17.3.2.20).
+    currentLanguage: () => engine ? selectionLanguage(engine.model) : 'en-US',
     noProofing: () => engine?.model.runFormatting.noProof === true,
-    setLanguage: (tag, { noProof = false } = {}) => { if (!engine || pkg.readOnly || engine.viewOnly) return; engine.setRunFormat({ fontLanguage: tag, noProof: !!noProof }); proofing.changed(); },
+    setLanguage: (tag, { noProof = false } = {}) => { if (!engine || pkg.readOnly || engine.viewOnly) return; engine.setRunFormat({ [languageProperty(tag)]: tag, noProof: !!noProof }); proofing.changed(); },
     languageDialog: () => statusBar?.openLanguageDialog(),
     // Undo history.
     undoLabel: () => {

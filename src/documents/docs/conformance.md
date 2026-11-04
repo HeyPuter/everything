@@ -23886,9 +23886,15 @@ Tests: `tests/core-properties.test.js` with the independently written fixture
 round trip in `tests/browser/app-chrome.spec.js`.
 
 **Proofing language (§17.3.2.20 `w:lang`, §17.3.2.23 `w:noProof`).** The status bar's language
-picker (the same language list as Review → Language, including Thai) applies `w:lang/@w:val` (a BCP 47 tag) and optionally `w:noProof` to the selection through the
-engine's run formatting, so it is one undo step and round-trips. East Asian and complex-script
-language attributes (`w:eastAsia`, `w:bidi`) are preserved but not offered in the picker. The spelling
+picker (the same language list as Review → Language, including Thai) applies a BCP 47 tag and optionally `w:noProof` to the selection through the
+engine's run formatting, so it is one undo step and round-trips. §17.3.2.20 gives a run three languages, one per
+kind of text: `@w:val` for Latin text, `@w:eastAsia` for East Asian text and `@w:bidi` for complex-script text. A
+Chinese, Japanese or Korean tag is written to `@w:eastAsia`; Arabic, Hebrew, Persian, Urdu and the other
+right-to-left languages, Thai, Lao, Khmer, Myanmar and the Indic languages to `@w:bidi`; every other tag to `@w:val`.
+The other two attributes keep their values. Translate marks its inserted text the same way, and Set As Default
+writes the document default (`docDefaults/rPrDefault/rPr/lang`) to the attribute for its language, while the
+default read back stays the Latin one (`@w:val`). The status bar and the dialogs show the language of the
+attribute that matches the script of the selected text (or the text before the caret). The spelling
 checker itself checks English; other languages are marked for other editors.
 
 **Viewing (no OOXML representation).** The Editing / Reviewing / Viewing switch is an editor state.
