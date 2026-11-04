@@ -926,6 +926,15 @@ function documentSkeleton(bytes) {
   }
   return xml(text);
 }
+// Cached page-break hints (§17.3.3.13 lastRenderedPageBreak) leave a part its edits rewrite. A run that held
+// nothing but a hint goes with it, rather than staying behind as an empty run in an untouched paragraph.
+function removeRenderedPageBreaks(doc) {
+  for (const hint of [...doc.getElementsByTagNameNS(W, 'lastRenderedPageBreak')]) {
+    const run = hint.parentNode;
+    hint.remove();
+    if (run?.namespaceURI === W && run.localName === 'r' && ![...run.children].some(n => !(n.namespaceURI === W && n.localName === 'rPr')) && !run.textContent.trim()) run.remove();
+  }
+}
 function paragraphWriter(doc, styles, numbering, originals, writeImage, writeLink, sectionSource = p => ({ xml: p.sectionProperties, settings: p.sectionEnd })) {
   const make = name => doc.createElementNS(W, `w:${name}`);
   const moveNames = new WeakMap(), moveCounters = new Map();
@@ -2376,7 +2385,7 @@ export class DocxPackage {
       const writeParagraph = paragraphWriter(doc, styles, numbering, original.paragraphs, writeImage, writeLink);
       root.replaceChildren();
       appendControlledBlocks(root, blocks.map(block => ({ ...block, blockControls: (block.type === 'table' ? block.table : block.paragraph).blockControls })), block => block.type === 'table' ? writeTable(block, doc, writeParagraph) : writeParagraph(block.paragraph), doc);
-      for (const hint of [...doc.getElementsByTagNameNS(W, 'lastRenderedPageBreak')]) hint.remove();
+      removeRenderedPageBreaks(doc);
       bindImageNamespaces(doc); bindHyperlinkNamespaces(doc);
       if (noteId === null) parts[path] = strToU8(serialize(doc).replace(/^(<\?xml[^?]*encoding=)["'][^"']*["']/i, '$1"UTF-8"'));
     }
@@ -2519,7 +2528,7 @@ export class DocxPackage {
     if (this.titlePages.size) writeTitlePages(outputSections, this.titlePages, sectionOrder);
     if (this.pageNumberings.size) writePageNumbering(outputSections, this.pageNumberings, sectionOrder);
     // These are cached renderer hints, not author-inserted breaks; edits invalidate them.
-    for (const hint of [...doc.getElementsByTagNameNS(W, 'lastRenderedPageBreak')]) hint.remove();
+    removeRenderedPageBreaks(doc);
     // A comment's reference can sit in an unchanged paragraph away from its range, whose source XML is reused:
     // drop references to comments deleted since opening (and the run that only carried one).
     if (comments) {
