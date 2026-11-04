@@ -344,3 +344,22 @@ test('with cells selected, Shift+Right and Shift+Left grow and shrink the block 
   await page.locator('.menu-custom-grid .swatch').first().click();
   expect((await model(page)).tables[0].rows.map(r => r.cells.map(c => c.shading || null))).toEqual([['000000', '000000', null], ['000000', '000000', null], ['000000', '000000', null]]);
 });
+
+test('with cells selected, Shift+Down and Shift+Up go a row at a time past cells of several lines', async ({ page }) => {
+  await newTable(page, 2, 4, ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H']);
+  // Three lines in the first column's second cell.
+  await goToCell(page, 1, 0);
+  await page.evaluate(() => { const e = window.__docs.current.view.engine; e.execute(() => e.model.replace('C\nmore\nlines')); });
+  await goToCell(page, 0, 1); await input(page).press('End');
+  await input(page).press('Shift+ArrowLeft'); await input(page).press('Shift+ArrowLeft');
+  await expect.poll(async () => (await model(page)).block).toEqual({ top: 0, bottom: 0, left: 0, right: 2 });
+  await input(page).press('Shift+ArrowDown');
+  await expect.poll(async () => (await model(page)).block).toEqual({ top: 0, bottom: 1, left: 0, right: 2 });
+  await input(page).press('Shift+ArrowDown');
+  await expect.poll(async () => (await model(page)).block).toEqual({ top: 0, bottom: 2, left: 0, right: 2 });
+  await input(page).press('Shift+ArrowUp');
+  await expect.poll(async () => (await model(page)).block).toEqual({ top: 0, bottom: 1, left: 0, right: 2 });
+  // Down from the last row leaves the table, as before.
+  await input(page).press('Shift+ArrowDown'); await input(page).press('Shift+ArrowDown'); await input(page).press('Shift+ArrowDown');
+  await expect.poll(() => page.evaluate(() => { const m = window.__docs.current.view.engine.model; return m.selection.focus === m.text.length && !m.paragraphs.at(-1).cellId; })).toBe(true);
+});

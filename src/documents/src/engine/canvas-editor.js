@@ -48,8 +48,8 @@ import { hasRunBackground, runBackground, foregroundBackground, runBackgroundRec
 import { paintColor } from './colors.js';
 import { TextDocument, boundaries, locate, paragraphFormat, paragraphText } from './model.js';
 import { cellContext, rowGrid, verticalMerges } from './tables.js';
-import { cellBlockRects, cellBlockPlacements, wholeRows } from './table-selection.js';
-import { clearCells, splitTable, insertTablePageBreak, selectionEndCells } from './table-editing.js';
+import { cellBlockRects, cellBlockPlacements, wholeRows, blockBetween } from './table-selection.js';
+import { clearCells, splitTable, insertTablePageBreak } from './table-editing.js';
 import { paragraphEdges } from './paragraph-geometry.js';
 import { pageGeometry } from './page-settings.js';
 import { pageBorderStrokes } from './page-borders.js';
@@ -1677,7 +1677,9 @@ export class CanvasEditor {
     if (!['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown'].includes(key)) this.preferredX = null;
     // With a block of table cells selected, Shift+Left and Shift+Right grow or shrink it by a cell, as in Word,
     // rather than moving its corner a character at a time through the cell's text.
-    if (shift && !word && !rotatedCrossLine && ['ArrowLeft', 'ArrowRight'].includes(key) && this.model.activeCellBlock && this.extendCellBlock(key === 'ArrowLeft' ? -1 : 1)) return;
+    // Up and Down likewise go a row at a time, not a line at a time through a cell of several lines.
+    if (shift && !word && !currentLine?.cellText && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(key) && this.model.activeCellBlock
+      && this.extendCellBlock(key === 'ArrowLeft' ? -1 : key === 'ArrowRight' ? 1 : 0, key === 'ArrowUp' ? -1 : key === 'ArrowDown' ? 1 : 0)) return;
     const { focus, anchor } = this.model.selection;
     // Ctrl word navigation follows the Windows native reference. Option follows
     // native Mac text fields: word starts going left, word ends going right.
@@ -2285,23 +2287,31 @@ export class CanvasEditor {
   /** Whether the selection is one picture that copies as itself (see clipboardData). */
   copiesPicture() { return copiesPicture(this.model); }
   /**
-   * Move the corner of the selected block of cells (the selection's focus) to the cell beside its cell in the
-   * focus row: `direction` 1 to the right, -1 to the left. Returns whether the key was taken; at the table's edge
-   * the block stays as it is.
+   * Move the corner of the selected block of cells (the selection's focus) to the cell beside its cell: `dx` 1 to
+   * the right or -1 to the left in its row, `dy` 1 below or -1 above in its column. Returns whether the key was
+   * taken; at the table's left or right edge the block stays as it is.
    */
-  extendCellBlock(direction) {
+  extendCellBlock(dx, dy = 0) {
     const model = this.model, block = model.activeCellBlock, { anchor, focus } = model.selection;
-    const [first, last] = selectionEndCells(model), id = focus >= anchor ? last : first;
-    let context;
-    try { context = id && cellContext(model.tables, id); } catch { return false; }
-    if (!context || context.table !== block.table) return false;
-    const column = direction > 0 ? context.end : context.column - 1;
-    const beside = rowGrid(context.row).find(c => c.column <= column && column < c.end)?.cell;
-    if (beside) {
-      // A cell merged down from above is selected through the cell it continues.
-      const owner = verticalMerges(context.table).get(beside.id)?.cell || beside;
-      const index = model.paragraphs.findIndex(p => p.cellId === owner.id);
-      if (index >= 0) model.select(anchor, model.paragraphOffset(index));
+    const cellAt = offset => model.paragraphs[locate(model.paragraphs, offset).index]?.cellId || null;
+    let context, from;
+    try { context = cellContext(model.tables, cellAt(focus)); from = cellContext(model.tables, cellAt(anchor)); } catch { return false; }
+    if (!context || context.table !== block.table || from?.table !== block.table) return false;
+    const table = block.table, merge = verticalMerges(table).get(context.cell.id);
+    const rowIndex = dy > 0 ? (merge?.endRow ?? context.rowIndex) + 1 : dy < 0 ? (merge?.rowIndex ?? context.rowIndex) - 1 : context.rowIndex;
+    const column = dx > 0 ? context.end : dx < 0 ? context.column - 1 : context.column;
+    const row = table.rows[rowIndex];
+    // Up from the first row or Down from the last goes on out of the table, as a text selection.
+    if (!row) return false;
+    const beside = rowGrid(row).find(c => c.column <= column && column < c.end)?.cell;
+    // A cell merged down from above is selected through the cell it continues.
+    const target = beside && (verticalMerges(table).get(beside.id)?.cell || beside);
+    const last = target ? model.paragraphs.findLastIndex(p => p.cellId === target.id) : -1;
+    const next = last >= 0 && blockBetween(table, from.cell.id, target.id);
+    if (next) {
+      // The corner goes to the end of the cell's text, and the block is the rectangle between the two corner cells.
+      model.select(anchor, model.paragraphOffset(last) + paragraphText(model.paragraphs[last]).length);
+      model.cellBlock = { tableId: table.id, top: next.top, bottom: next.bottom, left: next.left, right: next.right };
     }
     this.caretAffinity = 'forward'; this.preferredX = null;
     this.syncInput(); this.paint(); this.revealCaret(); this.onSelection();
