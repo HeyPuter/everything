@@ -17,6 +17,7 @@ import { looksLikeHeader } from './sortdialog.js';
 // could send their contents anywhere: inserting one that reaches out asks first, as pasting it
 // from a web page does (the same scan serves the open and paste paths, so none of them drifts).
 import { textReachesOut } from '../core/reaches-out.js';
+import { t } from '../i18n/index.js';
 
 // What describeSheet (core/aiformula.js) sends along with the table, named
 // range, and sheet names: the first row of the data as headers (31 columns at
@@ -24,13 +25,14 @@ import { textReachesOut } from '../core/reaches-out.js';
 function sheetDataNote(wb, sheetId) {
   const used = dataBounds(wb, sheetId);
   const name = wb.sheet(sheetId).name;
-  if (!used) return `Data sent: only the names of the sheets, tables, and named ranges; ${name} has no data.`;
+  if (!used) return t('aidialog.dataNote.noData', { name });
   const headers = `${cellName(used.r1, used.c1)}:${cellName(used.r1, Math.min(used.c2, used.c1 + 30))}`;
   const sample = sampleRange(wb, sheetId, used);
-  const rows = !sample ? '' : sample.r1 === sample.r2
-    ? ` and row ${sample.r1 + 1} of ${colName(sample.c1)}:${colName(sample.c2)}`
-    : ` and rows ${sample.r1 + 1}–${sample.r2 + 1} of ${colName(sample.c1)}:${colName(sample.c2)}`;
-  return `Data sent: headers in ${headers}${rows} on ${name}, values as shown, with the names of the sheets, tables, and named ranges.`;
+  if (!sample) return t('aidialog.dataNote.headers', { headers, name });
+  const columns = `${colName(sample.c1)}:${colName(sample.c2)}`;
+  return sample.r1 === sample.r2
+    ? t('aidialog.dataNote.headersRow', { headers, row: sample.r1 + 1, columns, name })
+    : t('aidialog.dataNote.headersRows', { headers, from: sample.r1 + 1, to: sample.r2 + 1, columns, name });
 }
 
 // An ask quotes the selection, or the sheet's data when one cell is selected,
@@ -76,14 +78,16 @@ function askText(wb, sheetId, { whole, header }) {
 /** The note saying what an ask sends: exactly the cells askText quotes. */
 function askNote(wb, sheetId, { single, whole, sent, header }) {
   const cut = sent.r2 < whole.r2 || sent.c2 < whole.c2;
-  const part = cut ? `the first ${ASK_ROWS} rows and ${ASK_COLS} columns of ${single ? 'the sheet\'s data ' : ''}${rangeName(whole)}` : single ? 'the sheet\'s data' : '';
-  const aside = single ? `${part}; select cells first to ask about part of it` : part;
-  const headers = header ? ` and its header${header.range.c1 === header.range.c2 ? '' : 's'} ${rangeName(header.range)}` : '';
-  return `Data sent: ${rangeName(sent)}${aside ? ` (${aside})` : ''}${headers} on ${wb.sheet(sheetId).name}, values as shown, with the names of the sheets, tables, and named ranges.`;
+  const values = {
+    sent: rangeName(sent), whole: rangeName(whole), rows: ASK_ROWS, cols: ASK_COLS, sheet: wb.sheet(sheetId).name,
+    headers: !header ? 'none' : header.range.c1 === header.range.c2 ? 'one' : 'many', headerRange: header ? rangeName(header.range) : '',
+  };
+  if (single) return cut ? t('aidialog.askNote.sheetCut', values) : t('aidialog.askNote.sheet', values);
+  return cut ? t('aidialog.askNote.rangeCut', values) : t('aidialog.askNote.range', values);
 }
 
 export function openAiDialog(ctx, { mode = 'write' } = {}) {
-  if (!P.canAI()) { toast('AI is not available here', { icon: 'info' }); return null; }
+  if (!P.canAI()) { toast(t('aidialog.notAvailable'), { icon: 'info' }); return null; }
   const { wb } = ctx;
   const sheetId = ctx.sheetId();
   const active = ctx.active();
@@ -91,7 +95,7 @@ export function openAiDialog(ctx, { mode = 'write' } = {}) {
   const existing = cell?.f != null ? cell.f : null;
   // A formula hidden on a protected sheet is shown nowhere (the formula bar leaves it out): neither here nor to the AI.
   if (mode === 'explain' && existing != null && wb.formulaHiddenAt?.(sheetId, active.r, active.c)) {
-    toast(`The formula in ${cellName(active.r, active.c)} is hidden while the sheet is protected.`, { icon: 'info' });
+    toast(t('aidialog.formulaHidden', { cell: cellName(active.r, active.c) }), { icon: 'info' });
     return null;
   }
   const explainable = mode === 'explain' && existing;
@@ -101,8 +105,8 @@ export function openAiDialog(ctx, { mode = 'write' } = {}) {
 
   const request = el('textarea.input.ai-request', {
     rows: 3, spellcheck: true,
-    placeholder: asking ? 'e.g. Which category is most over budget? Summarize these expenses in two sentences.' : 'e.g. total of Planned where Category is Rent, or the number of days until the due date in C2',
-    'aria-label': asking ? 'Your question about the data' : 'What should the formula calculate?',
+    placeholder: asking ? t('aidialog.askPlaceholder') : t('aidialog.formulaPlaceholder'),
+    'aria-label': asking ? t('aidialog.questionLabel') : t('aidialog.formulaLabel'),
   });
   // Enter asks, as it sends in the assistant's box; Shift+Enter starts a new line.
   request.addEventListener('keydown', (e) => {
@@ -116,10 +120,10 @@ export function openAiDialog(ctx, { mode = 'write' } = {}) {
   const { alert: error, refuse, clear: clearError } = fieldAlert('ai');
   const showError = (message) => refuse(null, message);
   const result = el('div.numfmt-preview.ai-result', { hidden: true, 'aria-live': 'polite' });
-  const insertBtn = el('button.btn.btn-primary', { type: 'button', hidden: true }, `Insert into ${cellName(active.r, active.c)}`);
-  const copyBtn = el('button.btn', { type: 'button', hidden: true, onclick: async () => { try { await navigator.clipboard.writeText(answer || ''); toast('Answer copied', { icon: 'check', duration: 1500 }); } catch { toast('Could not copy', { icon: 'info' }); } } }, 'Copy answer');
-  const writeBtn = el('button.btn', { type: 'button', hidden: true, onclick: () => { if (answer) writeResult(`'${answer}`, 'Answer'); } }, `Write into ${cellName(active.r, active.c)}`);
-  const askBtn = el('button.btn.btn-primary', { type: 'submit' }, explainable ? 'Explain' : asking ? 'Ask' : 'Write formula');
+  const insertBtn = el('button.btn.btn-primary', { type: 'button', hidden: true }, t('aidialog.insertInto', { cell: cellName(active.r, active.c) }));
+  const copyBtn = el('button.btn', { type: 'button', hidden: true, onclick: async () => { try { await navigator.clipboard.writeText(answer || ''); toast(t('aidialog.answerCopied'), { icon: 'check', duration: 1500 }); } catch { toast(t('aidialog.couldNotCopy'), { icon: 'info' }); } } }, t('aidialog.copyAnswer'));
+  const writeBtn = el('button.btn', { type: 'button', hidden: true, onclick: () => { if (answer) writeResult(`'${answer}`, 'answer'); } }, t('aidialog.writeInto', { cell: cellName(active.r, active.c) }));
+  const askBtn = el('button.btn.btn-primary', { type: 'submit' }, explainable ? t('aidialog.explain') : asking ? t('aidialog.ask') : t('aidialog.writeFormula'));
   let formula = null;
   let answer = null;
   let busy = false;
@@ -127,32 +131,32 @@ export function openAiDialog(ctx, { mode = 'write' } = {}) {
   function writeResult(input, kind) {
     if (!wb.sheet(sheetId) || wb.lockedAt(sheetId, active.r, active.c)) {
       showError(wb.sheet(sheetId)
-        ? `${cellName(active.r, active.c)} is protected. Unprotect it before inserting the result.`
-        : 'The destination sheet no longer exists.');
+        ? t('aidialog.cellProtected', { cell: cellName(active.r, active.c) })
+        : t('aidialog.sheetGone'));
       return;
     }
     // A cell inside a multi-cell array formula takes no entry of its own: the write would be refused without a word,
     // and the dialog would close saying it was made.
     const array = wb.fixedArrayAt?.(sheetId, active.r, active.c);
     if (array && (array.rows > 1 || array.cols > 1)) {
-      showError(`${cellName(active.r, active.c)} is part of the array formula in ${rangeName(array)}, which can only be changed as a whole. Select another cell and ask again.`);
+      showError(t('aidialog.inArray', { cell: cellName(active.r, active.c), range: rangeName(array) }));
       return;
     }
     // A formula Excel refuses as typed would go in as its text, the dialog closing as though it were written.
     const problem = wb.typedFormulaProblem(input);
     if (problem) {
-      showError(`${problem.message}. Ask again for another formula.`);
+      showError(t('aidialog.formulaProblem', { problem: problem.message }));
       return;
     }
     const verdict = wb.validateInput(sheetId, active.r, active.c, input);
     if (!verdict.ok && verdict.rule?.strict !== false) {
-      showError(verdict.message || 'This result does not meet the cell’s validation rule.');
+      showError(verdict.message || t('aidialog.failsValidation'));
       return;
     }
     if (textReachesOut(input)) ctx.doc?.distrustExternal?.(); // before the cell exists, or it reaches out once unasked
     wb.setInput(sheetId, active.r, active.c, input);
     modal.close();
-    toast(`${kind} written into ${cellName(active.r, active.c)}`, { icon: 'sparkle', duration: 2200 });
+    toast(t('aidialog.written', { kind, cell: cellName(active.r, active.c) }), { icon: 'sparkle', duration: 2200 });
     ctx.grid.focus();
   }
 
@@ -165,15 +169,15 @@ export function openAiDialog(ctx, { mode = 'write' } = {}) {
     // An ask quotes its own cells, so the sheet is described without any of its cells: only what the note names goes.
     const context = describeSheet(wb, sheetId, active, { cells: !asking });
     // An empty box used to send the focus back without a word: say what to type, and mark the box.
-    if (!explainable && !request.value.trim()) return refuse(request, asking ? 'Type a question about the data' : 'Type what the formula should calculate');
-    if (asking && !toAsk) { showError('There is no data on this sheet to ask about.'); return; }
+    if (!explainable && !request.value.trim()) return refuse(request, asking ? t('aidialog.typeQuestion') : t('aidialog.typeFormula'));
+    if (asking && !toAsk) { showError(t('aidialog.noData')); return; }
     const prompt = explainable ? explainPrompt(existing, context)
       : asking ? askPrompt(request.value.trim(), context, askText(wb, sheetId, toAsk))
         : formulaPrompt(request.value.trim(), context);
     busy = true;
     askBtn.disabled = true;
     askBtn.setAttribute('aria-busy', 'true');
-    status.textContent = 'Asking Puter AI…';
+    status.textContent = t('aidialog.asking');
     result.hidden = true;
     insertBtn.hidden = true;
     copyBtn.hidden = true;
@@ -186,19 +190,19 @@ export function openAiDialog(ctx, { mode = 'write' } = {}) {
         result.hidden = false;
         copyBtn.hidden = false;
         writeBtn.hidden = false;
-        status.textContent = 'The AI can be wrong: check figures against the sheet.';
+        status.textContent = t('aidialog.answerCaution');
       } else if (explainable) {
         result.textContent = String(reply).trim();
         result.hidden = false;
         status.textContent = '';
       } else {
         formula = extractFormula(reply);
-        if (!formula) { status.textContent = 'The reply held no formula. Try describing it differently.'; result.textContent = String(reply).trim().slice(0, 400); result.hidden = false; }
-        else { result.textContent = formula; result.hidden = false; insertBtn.hidden = false; status.textContent = 'Check it before you use it: the AI can be wrong.'; }
+        if (!formula) { status.textContent = t('aidialog.noFormula'); result.textContent = String(reply).trim().slice(0, 400); result.hidden = false; }
+        else { result.textContent = formula; result.hidden = false; insertBtn.hidden = false; status.textContent = t('aidialog.formulaCaution'); }
       }
     } catch (err) {
       status.textContent = '';
-      showError(`Could not ask the AI: ${err?.message || 'unknown error'}`);
+      showError(err?.message ? t('aidialog.couldNotAsk', { message: err.message }) : t('aidialog.couldNotAskUnknown'));
     } finally {
       busy = false;
       askBtn.disabled = false;
@@ -206,7 +210,7 @@ export function openAiDialog(ctx, { mode = 'write' } = {}) {
     }
   }
   insertBtn.addEventListener('click', () => {
-    if (formula) writeResult(formula, 'Formula');
+    if (formula) writeResult(formula, 'formula');
   });
 
   const dataNote = asking
@@ -214,19 +218,19 @@ export function openAiDialog(ctx, { mode = 'write' } = {}) {
     : el('p.field-hint', {}, sheetDataNote(wb, sheetId));
   const content = el('form', { onsubmit: ask },
     explainable
-      ? el('div.field', {}, el('span.field-label', {}, `Formula in ${cellName(active.r, active.c)}`), el('div.numfmt-preview', {}, `=${existing}`))
-      : el('label.field', {}, el('span.field-label', {}, asking ? 'Your question' : 'What should the formula calculate?'), request),
+      ? el('div.field', {}, el('span.field-label', {}, t('aidialog.formulaIn', { cell: cellName(active.r, active.c) })), el('div.numfmt-preview', {}, `=${existing}`))
+      : el('label.field', {}, el('span.field-label', {}, asking ? t('aidialog.yourQuestion') : t('aidialog.formulaLabel')), request),
     dataNote,
     status,
     result,
     error,
     el('div.row.row-end', { style: { marginTop: '14px' } },
-      el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Close'),
+      el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, t('common.close')),
       copyBtn,
       writeBtn,
       insertBtn,
       askBtn));
-  const modal = openModal({ title: explainable ? 'Explain this formula' : asking ? 'Ask AI about this data' : 'Write a formula with AI', content, initialFocus: explainable ? null : request, onClose: () => ctx.grid.focus() });
+  const modal = openModal({ title: explainable ? t('aidialog.title.explain') : asking ? t('aidialog.title.ask') : t('aidialog.title.write'), content, initialFocus: explainable ? null : request, onClose: () => ctx.grid.focus() });
   if (explainable) ask();
   return modal;
 }
