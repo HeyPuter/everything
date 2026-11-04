@@ -1,0 +1,7 @@
+{
+  "column": "Column {col}",
+  "listGone": "The list is gone",
+  "rowNotEmpty": "The row under the list is not empty, so the list cannot grow into it",
+  "undo.edit": "Edit record",
+  "undo.new": "New record"
+}

@@ -1,0 +1,7 @@
+{
+  "invalidExternalLinks": "复制的外部工作簿链接无效。请重新复制这些单元格。",
+  "mergeDimensions": "复制的单元格与合并区域的尺寸不同。",
+  "missingExternalLinks": "复制的单元格缺少其外部工作簿链接。请重新复制这些单元格。",
+  "overlappingMerges": "此表格包含重叠的合并单元格。",
+  "tooLarge": "此表格太大，无法粘贴。最多可复制 200,000 个单元格。"
+}

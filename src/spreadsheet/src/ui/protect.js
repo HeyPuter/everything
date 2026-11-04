@@ -9,24 +9,25 @@ import { icon } from './icons.js';
 import { openModal, focusListRow, fieldAlert } from './modal.js';
 import { toast } from './toast.js';
 import { normalizeRange, rangeName } from '../core/cell.js';
+import { t } from '../i18n/index.js';
 
 export function openProtectedRanges(ctx) {
   const sheetId = ctx.sheetId();
   const wb = ctx.wb;
-  const list = el('div.cf-list', { role: 'list', 'aria-label': 'Protected ranges' });
+  const list = el('div.cf-list', { role: 'list', 'aria-label': t('protect.title') });
   let editingId = null;
-  const rangeInput = el('input.input', { type: 'text', 'aria-label': 'Range', value: rangeName(ctx.range()), spellcheck: false, autocomplete: 'off' });
-  const descInput = el('input.input', { type: 'text', 'aria-label': 'Description', placeholder: 'Why these cells are locked (optional)', autocomplete: 'off', maxlength: 200 });
+  const rangeInput = el('input.input', { type: 'text', 'aria-label': t('protect.range'), value: rangeName(ctx.range()), spellcheck: false, autocomplete: 'off' });
+  const descInput = el('input.input', { type: 'text', 'aria-label': t('protect.description'), placeholder: t('protect.descriptionPlaceholder'), autocomplete: 'off', maxlength: 200 });
   const { alert: error, refuse, clear: clearError } = fieldAlert('protect'); // every refusal here is about the range
-  const saveBtn = el('button.btn.btn-primary', { type: 'submit' }, 'Protect');
+  const saveBtn = el('button.btn.btn-primary', { type: 'submit' }, t('protect.protect'));
   // Hiding the button it was pressed on would drop the focus to the page: it goes to the form's first field, as in Named ranges.
-  const cancelEdit = el('button.btn.btn-ghost', { type: 'button', hidden: true, onclick: () => { resetForm(); rangeInput.focus(); } }, 'Cancel edit');
+  const cancelEdit = el('button.btn.btn-ghost', { type: 'button', hidden: true, onclick: () => { resetForm(); rangeInput.focus(); } }, t('protect.cancelEdit'));
 
   function resetForm() {
     editingId = null;
     rangeInput.value = rangeName(ctx.range());
     descInput.value = '';
-    saveBtn.textContent = 'Protect';
+    saveBtn.textContent = t('protect.protect');
     cancelEdit.hidden = true;
     clearError();
   }
@@ -36,14 +37,14 @@ export function openProtectedRanges(ctx) {
     editingId = p.id;
     rangeInput.value = rangeName(p.range);
     descInput.value = p.description || '';
-    saveBtn.textContent = 'Save';
+    saveBtn.textContent = t('common.save');
     cancelEdit.hidden = false;
     rangeInput.focus();
   }
   function render() {
     clear(list);
     const items = wb.sheet(sheetId)?.protectedRanges || [];
-    if (!items.length) { list.append(el('p.small.muted', { style: { padding: '6px 2px' } }, 'Nothing on this sheet is protected yet.')); return; }
+    if (!items.length) { list.append(el('p.small.muted', { style: { padding: '6px 2px' } }, t('protect.empty'))); return; }
     // Unprotecting rebuilds the rows; the focus goes back to the row that took the place of the
     // unprotected one, or to the range field when none is left.
     items.forEach((p, idx) => {
@@ -51,8 +52,8 @@ export function openProtectedRanges(ctx) {
         el('button.names-main', { type: 'button', onclick: () => load(p) },
           el('span.menu-icon', { html: icon('lock', 16) }),
           el('span.names-name', {}, rangeName(p.range)),
-          el('span.names-ref', {}, p.description || 'Protected')),
-        el('button.icon-btn', { type: 'button', html: icon('unlock', 16), 'aria-label': `Unprotect ${rangeName(p.range)}`, title: 'Unprotect', dataset: { action: 'delete' }, onclick: () => { wb.unprotectRange(sheetId, p.id); if (editingId === p.id) resetForm(); render(); toast(`${rangeName(p.range)} unprotected`, { icon: 'unlock' }); focusListRow(list, idx, 'delete', rangeInput); } })));
+          el('span.names-ref', {}, p.description || t('protect.protected'))),
+        el('button.icon-btn', { type: 'button', html: icon('unlock', 16), 'aria-label': t('protect.unprotectRange', { range: rangeName(p.range) }), title: t('protect.unprotect'), dataset: { action: 'delete' }, onclick: () => { wb.unprotectRange(sheetId, p.id); if (editingId === p.id) resetForm(); render(); toast(t('protect.unprotected', { range: rangeName(p.range) }), { icon: 'unlock' }); focusListRow(list, idx, 'delete', rangeInput); } })));
     });
   }
   const submit = (e) => {
@@ -61,24 +62,24 @@ export function openProtectedRanges(ctx) {
     // The same reading as every other range box: within this sheet's limits, or a name for such a range.
     const parsed = wb.rangeFromText(sheetId, text);
     const range = parsed && parsed.sheetId === sheetId ? normalizeRange(parsed.range) : null;
-    if (!range) return refuse(rangeInput, parsed ? 'Enter a range on this sheet' : 'Enter a range like B2:D9');
+    if (!range) return refuse(rangeInput, parsed ? t('protect.rangeOnSheet') : t('protect.rangeLike'));
     // The same cells twice would take two unprotects to free, so a second entry is refused.
     const twin = (wb.sheet(sheetId)?.protectedRanges || []).find(({ id, range: p }) => id !== editingId && p.r1 === range.r1 && p.c1 === range.c1 && p.r2 === range.r2 && p.c2 === range.c2);
-    if (twin) return refuse(rangeInput, `${rangeName(range)} is already protected`);
+    if (twin) return refuse(rangeInput, t('protect.alreadyProtected', { range: rangeName(range) }));
     clearError();
     if (editingId) wb.updateProtectedRange(sheetId, editingId, { range, description: descInput.value.trim() });
     else wb.protectRange(sheetId, range, descInput.value.trim());
-    toast(`${rangeName(range)} protected`, { icon: 'lock' });
+    toast(t('protect.protectedToast', { range: rangeName(range) }), { icon: 'lock' });
     resetForm();
     render();
   };
   const form = el('form.cf-form', { onsubmit: submit },
     el('div.names-fields', {},
-      el('label.field', {}, el('span.field-label', {}, 'Range'), rangeInput),
-      el('label.field', {}, el('span.field-label', {}, 'Description'), descInput)),
+      el('label.field', {}, el('span.field-label', {}, t('protect.range')), rangeInput),
+      el('label.field', {}, el('span.field-label', {}, t('protect.description')), descInput)),
     error,
     el('div.row.row-end', {}, cancelEdit, saveBtn));
-  const modal = openModal({ title: 'Protected ranges', content: el('div', {}, el('p.small.muted', {}, 'Edits inside a protected range are refused until it is unprotected here. To lock a whole sheet, use its tab menu.'), list, form), wide: true, onClose: () => ctx.grid?.focus?.() });
+  const modal = openModal({ title: t('protect.title'), content: el('div', {}, el('p.small.muted', {}, t('protect.intro')), list, form), wide: true, onClose: () => ctx.grid?.focus?.() });
   resetForm();
   render();
   return modal;

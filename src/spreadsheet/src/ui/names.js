@@ -9,6 +9,7 @@ import { tableRows } from '../core/tables.js';
 import { icon } from './icons.js';
 import { openModal, fieldAlert } from './modal.js';
 import { toast } from './toast.js';
+import { t, compareText } from '../i18n/index.js';
 
 /** `define` opens the New Name dialog by itself, as Define Name does, without the review list behind it. */
 export function openNamesManager(ctx, { define = false } = {}) {
@@ -16,44 +17,44 @@ export function openNamesManager(ctx, { define = false } = {}) {
   const list = el('div.names-list.names-review-scroll');
   const body = el('tbody');
   const header = el('tr');
-  const tableView = el('table.names-review', { 'aria-label': 'Named ranges' }, el('thead', {}, header), body);
-  const search = el('input.input', { type: 'search', 'aria-label': 'Search names', placeholder: 'Search names, scopes or references', autocomplete: 'off', spellcheck: false });
-  const filter = el('select.select', { 'aria-label': 'Filter names' },
-    ...[['all', 'All names'], ['sheet', 'Worksheet scope'], ['workbook', 'Workbook scope'], ['defined', 'Defined names'], ['table', 'Table names']].map(([value, label]) => el('option', { value }, label)),
-    el('option', { disabled: true }, 'Names with errors (unavailable)'), el('option', { disabled: true }, 'Names without errors (unavailable)'));
+  const tableView = el('table.names-review', { 'aria-label': t('names.namedRanges') }, el('thead', {}, header), body);
+  const search = el('input.input', { type: 'search', 'aria-label': t('names.search'), placeholder: t('names.searchPlaceholder'), autocomplete: 'off', spellcheck: false });
+  const filter = el('select.select', { 'aria-label': t('names.filter.label') },
+    ...[['all', 'names.filter.all'], ['sheet', 'names.filter.sheet'], ['workbook', 'names.filter.workbook'], ['defined', 'names.filter.defined'], ['table', 'names.filter.table']].map(([value, label]) => el('option', { value }, t(label))),
+    el('option', { disabled: true }, t('names.filter.withErrors')), el('option', { disabled: true }, t('names.filter.withoutErrors')));
   const summary = el('span.small.muted', { role: 'status' });
   let start = 0, sortKey = null, descending = false;
-  const previous = el('button.btn.btn-ghost.btn-sm', { type: 'button', 'aria-label': 'Previous names page', onclick: () => { start = Math.max(0, start - PAGE_SIZE); render(); } }, 'Previous');
-  const next = el('button.btn.btn-ghost.btn-sm', { type: 'button', 'aria-label': 'Next names page', onclick: () => { start += PAGE_SIZE; render(); } }, 'Next');
-  const columns = [['name', 'Name'], ['value', 'Value preview'], ['ref', 'Refers to'], ['scope', 'Scope'], ['kind', 'Type']];
-  for (const [key, label] of columns) header.append(el('th', { scope: 'col', dataset: { sort: key } },
-    key === 'value' ? label : el('button', { type: 'button', 'aria-label': `Sort names by ${label}`, onclick: () => {
+  const previous = el('button.btn.btn-ghost.btn-sm', { type: 'button', 'aria-label': t('names.previousPage'), onclick: () => { start = Math.max(0, start - PAGE_SIZE); render(); } }, t('names.previous'));
+  const next = el('button.btn.btn-ghost.btn-sm', { type: 'button', 'aria-label': t('names.nextPage'), onclick: () => { start += PAGE_SIZE; render(); } }, t('common.next'));
+  const columns = [['name', 'common.name'], ['value', 'names.column.value'], ['ref', 'names.refersTo'], ['scope', 'names.scope'], ['kind', 'names.column.type']];
+  for (const [key, labelKey] of columns) { const label = t(labelKey); header.append(el('th', { scope: 'col', dataset: { sort: key } },
+    key === 'value' ? label : el('button', { type: 'button', 'aria-label': t('names.sortBy', { column: label }), onclick: () => {
       descending = sortKey === key ? !descending : false; sortKey = key; start = 0; render();
-    } }, label)));
-  header.append(el('th', { scope: 'col' }, 'Actions'));
+    } }, label))); }
+  header.append(el('th', { scope: 'col' }, t('names.column.actions')));
   list.append(tableView);
   search.addEventListener('input', () => { start = 0; render(); });
   filter.addEventListener('change', () => { start = 0; render(); });
-  const nameInput = el('input.input', { type: 'text', placeholder: 'Name, e.g. Sales', 'aria-label': 'Name', autocomplete: 'off', spellcheck: false });
-  const refInput = el('input.input', { type: 'text', placeholder: 'Sheet1!$A$1:$B$5  or  =LAMBDA(x, x*2)', 'aria-label': 'Refers to', autocomplete: 'off', spellcheck: false, value: ctx.wb.refTextFor(ctx.sheetId(), ctx.grid.range) || '' });
-  const scopeInput = el('select.select', { 'aria-label': 'Scope' },
-    el('option', { value: '' }, 'Workbook'),
+  const nameInput = el('input.input', { type: 'text', placeholder: t('names.namePlaceholder'), 'aria-label': t('common.name'), autocomplete: 'off', spellcheck: false });
+  const refInput = el('input.input', { type: 'text', placeholder: 'Sheet1!$A$1:$B$5  or  =LAMBDA(x, x*2)', 'aria-label': t('names.refersTo'), autocomplete: 'off', spellcheck: false, value: ctx.wb.refTextFor(ctx.sheetId(), ctx.grid.range) || '' });
+  const scopeInput = el('select.select', { 'aria-label': t('names.scope') },
+    el('option', { value: '' }, t('names.workbook')),
     ...ctx.wb.sheets.map((sheet) => el('option', { value: sheet.name }, sheet.name)));
   // A name keeps its scope while it is edited: moved to a sheet, it would be gone from every
   // formula on the other sheets, and the rename that follows a new spelling cannot follow a move.
-  const scopeHint = el('span.field-hint', { hidden: true }, 'Kept while editing. For another scope, save a new name and delete this one.');
+  const scopeHint = el('span.field-hint', { hidden: true }, t('names.scopeHint'));
   const { alert: error, refuse, clear: clearError } = fieldAlert('names');
-  const saveBtn = el('button.btn.btn-primary', { type: 'submit' }, 'Save name');
+  const saveBtn = el('button.btn.btn-primary', { type: 'submit' }, t('names.saveName'));
   let editor = null;
   let editing = null; // the existing name the form is changing: { name, sheet }
   const stopEditing = () => {
-    editing = null; saveBtn.textContent = 'Save name'; cancelEdit.hidden = true; scopeInput.disabled = false; scopeHint.hidden = true;
-    if (editor) { editor.panel.setAttribute('aria-label', 'New Name'); editor.panel.querySelector('.modal-title').textContent = 'New Name'; }
+    editing = null; saveBtn.textContent = t('names.saveName'); cancelEdit.hidden = true; scopeInput.disabled = false; scopeHint.hidden = true;
+    if (editor) { editor.panel.setAttribute('aria-label', t('names.newNameTitle')); editor.panel.querySelector('.modal-title').textContent = t('names.newNameTitle'); }
   };
   const clearForm = () => { nameInput.value = ''; refInput.value = ''; scopeInput.value = ''; clearError(); };
   // A way out of editing that keeps the name as it was: typing a different spelling while editing
   // renames the name everywhere, where a new name may have been meant.
-  const cancelEdit = el('button.btn.btn-ghost', { type: 'button', hidden: true, onclick: () => { stopEditing(); clearForm(); nameInput.focus(); } }, 'New name instead');
+  const cancelEdit = el('button.btn.btn-ghost', { type: 'button', hidden: true, onclick: () => { stopEditing(); clearForm(); nameInput.focus(); } }, t('names.newNameInstead'));
   // Clearing the name means starting over with a new one, not renaming the edited one to nothing.
   nameInput.addEventListener('input', () => { if (editing && !nameInput.value.trim()) stopEditing(); });
 
@@ -84,14 +85,14 @@ export function openNamesManager(ctx, { define = false } = {}) {
     const tables = ctx.wb.sheets.flatMap(sheet => (sheet.tables || []).map(table => {
       const rows = tableRows(table);
       const dataRange = rows.empty ? null : { ...table.range, r1: rows.dataStart, r2: rows.dataEnd };
-      return { name: table.name, label: table.name, ref: ctx.wb.refTextFor(sheet.id, dataRange || table.range), scope: 'Workbook', kind: 'Table', sheet, table, dataRange };
+      return { name: table.name, label: table.name, ref: ctx.wb.refTextFor(sheet.id, dataRange || table.range), scope: t('names.workbook'), kind: 'Table', kindLabel: t('names.kind.table'), sheet, table, dataRange };
     }));
-    const names = ctx.wb.names.filter(n => !n.hidden).map(entry => ({ name: entry.name, label: ctx.wb.nameLabel(entry), ref: entry.ref, scope: entry.sheet || 'Workbook', kind: 'Defined name', entry }));
+    const names = ctx.wb.names.filter(n => !n.hidden).map(entry => ({ name: entry.name, label: ctx.wb.nameLabel(entry), ref: entry.ref, scope: entry.sheet || t('names.workbook'), kind: 'Defined name', kindLabel: t('names.kind.defined'), entry }));
     const term = search.value.trim().toLocaleLowerCase();
     let rows = [...tables, ...names].filter(row => (filter.value !== 'sheet' || !!row.entry?.sheet)
       && (filter.value !== 'workbook' || !row.entry?.sheet) && (filter.value !== 'defined' || !!row.entry)
-      && (filter.value !== 'table' || !!row.table) && (!term || [row.label, row.ref, row.scope, row.kind].some(value => value.toLocaleLowerCase().includes(term))));
-    if (sortKey) rows = rows.sort((a, b) => a[sortKey].localeCompare(b[sortKey], undefined, { numeric: true, sensitivity: 'base' }) * (descending ? -1 : 1));
+      && (filter.value !== 'table' || !!row.table) && (!term || [row.label, row.ref, row.scope, row.kind, row.kindLabel, row.entry?.sheet ? '' : 'Workbook'].some(value => value.toLocaleLowerCase().includes(term))));
+    if (sortKey) { const field = sortKey === 'kind' ? 'kindLabel' : sortKey; rows = rows.sort((a, b) => compareText(a[field], b[field]) * (descending ? -1 : 1)); }
     return rows;
   }
 
@@ -105,7 +106,7 @@ export function openNamesManager(ctx, { define = false } = {}) {
     const rows = records();
     start = Math.min(start, Math.max(0, Math.floor((rows.length - 1) / PAGE_SIZE) * PAGE_SIZE));
     const shown = rows.slice(start, start + PAGE_SIZE);
-    summary.textContent = rows.length ? `${start + 1}–${start + shown.length} of ${rows.length} names` : 'No matching names';
+    summary.textContent = rows.length ? t('names.summary', { from: start + 1, to: start + shown.length, total: rows.length }) : t('names.noMatching');
     previous.hidden = next.hidden = rows.length <= PAGE_SIZE;
     previous.disabled = start === 0; next.disabled = start + PAGE_SIZE >= rows.length;
     for (const th of header.children) {
@@ -114,34 +115,34 @@ export function openNamesManager(ctx, { define = false } = {}) {
     }
     if (!rows.length) {
       body.append(el('tr', {}, el('td', { colSpan: 6 }, ctx.wb.names.some(n => !n.hidden) || ctx.wb.sheets.some(s => s.tables?.length)
-        ? 'No names match these filters.' : 'No named ranges yet. Choose New name, or use the name box on the sheet.')));
+        ? t('names.noMatchFilters') : t('names.empty'))));
       return;
     }
     shown.forEach((record, index) => {
       const { entry: n, table, sheet, label } = record;
-      const go = el('button.names-main', { type: 'button', title: table ? 'Go to table' : 'Go to range', onclick: () => {
+      const go = el('button.names-main', { type: 'button', title: table ? t('names.goToTable') : t('names.goToRange'), onclick: () => {
         modal.close(); ctx.run('goToName', table ? table.name : { name: n.name, sheet: n.sheet || null });
       } }, el('span.names-name', { dir: 'auto' }, label));
-      const editButton = el('button.icon-btn', { type: 'button', html: icon('pencil', 16), 'aria-label': table ? `Edit table ${table.name}` : `Edit ${label}`, onclick: () => {
+      const editButton = el('button.icon-btn', { type: 'button', html: icon('pencil', 16), 'aria-label': table ? t('names.editTable', { name: table.name }) : t('names.edit', { name: label }), dataset: { action: 'edit' }, onclick: () => {
         if (table) { modal.close(); ctx.run('editTableById', { sheetId: sheet.id, id: table.id }); return; }
         openEditor(n);
       } });
-      const remove = el('button.icon-btn', { type: 'button', html: icon('trash', 16), 'aria-label': table ? `Convert ${table.name} to a plain range` : `Delete ${label}`, dataset: { action: 'delete' }, onclick: () => {
+      const remove = el('button.icon-btn', { type: 'button', html: icon('trash', 16), 'aria-label': table ? t('names.convertTable', { name: table.name }) : t('names.delete', { name: label }), dataset: { action: 'delete' }, onclick: () => {
         if (table) {
-          if (ctx.wb.isProtected(sheet.id)) { toast(`${sheet.name} is protected. Unprotect it to convert ${table.name}`, { icon: 'lock' }); return; }
-          ctx.wb.deleteTable(sheet.id, table.id); toast(`${table.name} is a plain range again`, { icon: 'table' });
+          if (ctx.wb.isProtected(sheet.id)) { toast(t('names.sheetProtected', { sheet: sheet.name, name: table.name }), { icon: 'lock' }); return; }
+          ctx.wb.deleteTable(sheet.id, table.id); toast(t('names.convertedTable', { name: table.name }), { icon: 'table' });
         } else {
           ctx.wb.deleteName(n.name, n.sheet);
           if (editing && editing.name.toLowerCase() === n.name.toLowerCase() && editing.sheet === (n.sheet || null)) { stopEditing(); clearForm(); }
-          toast(`Deleted ${label}`, { icon: 'trash' });
+          toast(t('names.deleted', { name: label }), { icon: 'trash' });
         }
         render(); focusAfterDelete(index);
       } });
       const value = preview(record);
       body.append(el('tr.names-review-row', {}, el('td', {}, go),
-        el('td.names-value', { title: value === '—' ? 'Preview unavailable for this expression' : value }, value),
+        el('td.names-value', { title: value === '—' ? t('names.previewUnavailable') : value }, value),
         el('td.names-ref', { title: record.ref }, record.ref), el('td', {}, el('span', { dir: 'auto' }, record.scope)),
-        el('td', {}, record.kind), el('td.names-review-actions', {}, editButton, remove)));
+        el('td', {}, record.kindLabel), el('td.names-review-actions', {}, editButton, remove)));
       go.addEventListener('keydown', e => {
         if (isComposing(e) || e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
         const to = { ArrowDown: start + index + 1, ArrowUp: start + index - 1, Home: 0, End: rows.length - 1,
@@ -165,7 +166,7 @@ export function openNamesManager(ctx, { define = false } = {}) {
     // retarget a name every formula already uses. The pencil edits it.
     const key = name.trim().toLowerCase();
     if (!editing && ctx.wb.names.some((n) => (n.sheet || null) === scope && n.name.toLowerCase() === key)) {
-      return refuse(nameInput, 'That name is already used. Edit it from the list to change what it refers to');
+      return refuse(nameInput, t('names.alreadyUsed'));
     }
     // The workbook judges the spelling before the reference: a message about the name (or about a formula
     // that binds the new spelling as a variable) belongs to the Name field, any other to Refers to.
@@ -175,50 +176,50 @@ export function openNamesManager(ctx, { define = false } = {}) {
     else msg = ctx.wb.defineName(name, ref, scope);
     if (msg) return refuse(msg === nameProblem || /LET or LAMBDA/.test(msg) ? nameInput : refInput, msg);
     clearError();
-    toast(`Saved ${name.trim()}`); // the workbook takes the spelling as typed, a change of case included
+    toast(t('names.saved', { name: name.trim() })); // the workbook takes the spelling as typed, a change of case included
     const edited = !!editing, savedLabel = ctx.wb.nameLabel(ctx.wb.namedEntry(name.trim(), scope)).toLowerCase();
     editor.close();
     render();
     const row = [...body.children].find(row => row.querySelector('.names-name')?.textContent.toLowerCase() === savedLabel);
-    (edited && row?.querySelector('[aria-label^="Edit "]') || newButton).focus({ preventScroll: true });
+    (edited && row?.querySelector('[data-action="edit"]') || newButton).focus({ preventScroll: true });
   };
 
   // Keep the review list intact while the existing form is in a child dialog. Filters, sort and
   // pagination survive both cancellation and saving; the shared modal stack traps focus in the editor.
   const form = el('form.names-form', { onsubmit: submit },
     el('div.names-editor-fields', {},
-      el('label.field', {}, el('span.field-label', {}, 'Name'), nameInput),
-      el('label.field', {}, el('span.field-label', {}, 'Scope'), scopeInput, scopeHint),
-      el('label.field', {}, el('span.field-label', {}, 'Comment'),
-        el('textarea.input', { disabled: true, rows: 3, 'aria-label': 'Name comment', placeholder: 'Name comments are unavailable' })),
-      el('label.field', {}, el('span.field-label', {}, 'Refers to'),
+      el('label.field', {}, el('span.field-label', {}, t('common.name')), nameInput),
+      el('label.field', {}, el('span.field-label', {}, t('names.scope')), scopeInput, scopeHint),
+      el('label.field', {}, el('span.field-label', {}, t('names.comment')),
+        el('textarea.input', { disabled: true, rows: 3, 'aria-label': t('names.commentLabel'), placeholder: t('names.commentUnavailable') })),
+      el('label.field', {}, el('span.field-label', {}, t('names.refersTo')),
         el('div.names-editor-reference', {}, refInput,
-          el('button.icon-btn', { type: 'button', disabled: true, html: icon('table', 16), 'aria-label': 'Choose a range (unavailable)', title: 'Range picking is unavailable; type the reference instead' })))),
+          el('button.icon-btn', { type: 'button', disabled: true, html: icon('table', 16), 'aria-label': t('names.chooseRange'), title: t('names.chooseRangeHint') })))),
     error,
     el('div.row.row-end.names-editor-footer', {}, cancelEdit,
-      el('button.btn.btn-ghost', { type: 'button', onclick: () => editor?.close() }, 'Cancel'), saveBtn));
+      el('button.btn.btn-ghost', { type: 'button', onclick: () => editor?.close() }, t('common.cancel')), saveBtn));
 
   function openEditor(entry = null) {
     editor?.close(); stopEditing(); clearForm();
     if (entry) {
       editing = { name: entry.name, sheet: entry.sheet || null };
-      saveBtn.textContent = 'Save changes'; cancelEdit.hidden = false;
+      saveBtn.textContent = t('names.saveChanges'); cancelEdit.hidden = false;
       nameInput.value = entry.name; refInput.value = entry.ref; scopeInput.value = entry.sheet || '';
       scopeInput.disabled = true; scopeHint.hidden = false;
     } else refInput.value = ctx.wb.refTextFor(ctx.sheetId(), ctx.grid.range) || '';
-    editor = openModal({ title: entry ? 'Edit Name' : 'New Name', content: form, className: 'names-editor', initialFocus: nameInput,
+    editor = openModal({ title: entry ? t('names.editNameTitle') : t('names.newNameTitle'), content: form, className: 'names-editor', initialFocus: nameInput,
       onClose: () => { editor = null; stopEditing(); clearForm(); if (define) ctx.grid?.focus?.(); } });
     if (entry && matchMedia('(min-width: 640px)').matches) nameInput.select();
   }
 
-  const newButton = el('button.btn', { type: 'button', 'aria-label': 'New name', onclick: () => openEditor() }, 'New name');
+  const newButton = el('button.btn', { type: 'button', 'aria-label': t('names.newName'), onclick: () => openEditor() }, t('names.newName'));
   const content = el('div', {},
     el('div.names-review-tools', {}, newButton, search, el('div.select-wrap', {}, filter)),
     el('div.row.names-review-pages', {}, summary, previous, next), list,
-    el('p.field-hint', {}, 'Value previews show constants or up to six cells of a direct range. Formula previews and error filters are unavailable.'),
-    el('div.row.row-end', {}, el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Close')));
+    el('p.field-hint', {}, t('names.previewHint')),
+    el('div.row.row-end', {}, el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, t('common.close'))));
   if (define) { openEditor(); return; }
-  const modal = openModal({ title: 'Name Manager', content, wide: true, className: 'names-manager', initialFocus: newButton,
+  const modal = openModal({ title: t('names.manager'), content, wide: true, className: 'names-manager', initialFocus: newButton,
     onClose: () => { editor?.close(); ctx.grid?.focus?.(); } });
   render();
 }

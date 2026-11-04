@@ -1,0 +1,20 @@
+{
+  "aria": "错误：{title}",
+  "convertTo19": "将 XX 转换为 19XX",
+  "convertTo20": "将 XX 转换为 20XX",
+  "convertToNumber": "转换为数字",
+  "copyFromAbove": "从上部复制公式",
+  "copyFromLeft": "从左侧复制公式",
+  "editInFormulaBar": "在编辑栏中编辑",
+  "enable": "允许后台错误检查",
+  "ignore": "忽略错误",
+  "lockCell": "锁定单元格",
+  "options": "错误检查选项…",
+  "rules": "错误检查规则",
+  "showSteps": "显示计算步骤…",
+  "title": "错误检查",
+  "undo.convertToNumber": "转换为数字",
+  "undo.convertYear": "转换年份",
+  "undo.copyFromAbove": "从上部复制公式",
+  "undo.copyFromLeft": "从左侧复制公式"
+}

@@ -9,6 +9,7 @@
 import { el, fieldId, MOD_KEY, isComposing } from './dom.js';
 import { openModal } from './modal.js';
 import { loadPref, savePref, syncPref } from '../lib/user-prefs.js';
+import { t } from '../i18n/index.js';
 import { normalizeAutoCorrect, correctBeforeCaret, correctWord, isWordEnd, isFormulaText, DEFAULT_AUTOCORRECT } from '../core/autocorrect.js';
 
 const PREF = 'autocorrect';
@@ -55,7 +56,7 @@ export function createAutoCorrector({ settings = autoCorrectSettings, announce =
       input.value = res.text;
       input.setSelectionRange(res.caret, res.caret);
       last = { el: input, before, beforeCaret: caret, after: res.text, afterCaret: res.caret, correction: res.correction };
-      announce?.(`Corrected ${res.correction.from} to ${res.correction.to}. ${MOD_KEY}+Z puts it back`);
+      announce?.(t('autocorrect.corrected', { from: res.correction.from, to: res.correction.to, key: MOD_KEY }));
       return true;
     },
     undo(input) {
@@ -63,7 +64,7 @@ export function createAutoCorrector({ settings = autoCorrectSettings, announce =
       input.value = last.before;
       input.setSelectionRange(last.beforeCaret, last.beforeCaret);
       kept.push({ from: last.correction.from, start: last.correction.start });
-      announce?.(`Kept ${last.correction.from} as typed`);
+      announce?.(t('autocorrect.kept', { word: last.correction.from }));
       last = null;
       return true;
     },
@@ -84,28 +85,28 @@ export function createAutoCorrector({ settings = autoCorrectSettings, announce =
 export function openAutoCorrectDialog({ onSaved = null, onClose = null } = {}) {
   const draft = structuredClone(autoCorrectSettings());
   const options = [
-    ['twoInitialCaps', 'Correct TWo INitial CApitals'],
-    ['sentenceCaps', 'Capitalize the first letter of sentences'],
-    ['dayNames', 'Capitalize names of days'],
-    ['capsLock', 'Correct accidental use of cAPS LOCK'],
-    ['replaceText', 'Replace text as you type'],
-    ['mathSymbols', 'Turn \\names into math symbols (\\alpha → α, \\infty → ∞)'],
+    ['twoInitialCaps', t('autocorrect.option.twoInitialCaps')],
+    ['sentenceCaps', t('autocorrect.option.sentenceCaps')],
+    ['dayNames', t('autocorrect.option.dayNames')],
+    ['capsLock', t('autocorrect.option.capsLock')],
+    ['replaceText', t('autocorrect.option.replaceText')],
+    ['mathSymbols', t('autocorrect.option.mathSymbols')],
   ];
   const boxes = Object.fromEntries(options.map(([key]) => [key, el('input', { type: 'checkbox', checked: draft[key] })]));
   const checks = el('fieldset.check-group.vertical.autocorrect-options', {},
-    el('legend.field-label', {}, 'While typing in cells (never in formulas)'),
+    el('legend.field-label', {}, t('autocorrect.whileTyping')),
     ...options.map(([key, label]) => el('label.check', {}, boxes[key], el('span', {}, label))));
 
   // The replacement list: the two fields pick an entry as they are typed, and Add (or Replace) and Delete act on it.
-  const fromInput = el('input.input', { type: 'text', 'aria-label': 'Replace', autocomplete: 'off', spellcheck: false, maxlength: 64 });
-  const toInput = el('input.input', { type: 'text', 'aria-label': 'With', autocomplete: 'off', spellcheck: false, maxlength: 255 });
-  const addBtn = el('button.btn.btn-sm', { type: 'button', onclick: () => addEntry() }, 'Add');
-  const delBtn = el('button.btn.btn-ghost.btn-sm', { type: 'button', onclick: () => deleteEntry() }, 'Delete');
+  const fromInput = el('input.input', { type: 'text', 'aria-label': t('common.replace'), autocomplete: 'off', spellcheck: false, maxlength: 64 });
+  const toInput = el('input.input', { type: 'text', 'aria-label': t('autocorrect.with'), autocomplete: 'off', spellcheck: false, maxlength: 255 });
+  const addBtn = el('button.btn.btn-sm', { type: 'button', onclick: () => addEntry() }, t('common.add'));
+  const delBtn = el('button.btn.btn-ghost.btn-sm', { type: 'button', onclick: () => deleteEntry() }, t('common.delete'));
   const listId = fieldId('autocorrect-list');
-  const list = el('div.autocorrect-list', { id: listId, role: 'listbox', 'aria-label': 'Replacements', tabindex: 0 });
+  const list = el('div.autocorrect-list', { id: listId, role: 'listbox', 'aria-label': t('autocorrect.replacements'), tabindex: 0 });
   const count = el('span.small.muted', { role: 'status' });
-  const exceptionsBtn = el('button.btn.btn-ghost.btn-sm', { type: 'button', onclick: () => openExceptions() }, 'Exceptions…');
-  const resetBtn = el('button.btn.btn-ghost.btn-sm', { type: 'button', onclick: () => { draft.replacements = DEFAULT_AUTOCORRECT.replacements.map((e) => ({ ...e })); render(); } }, 'Restore the starting list');
+  const exceptionsBtn = el('button.btn.btn-ghost.btn-sm', { type: 'button', onclick: () => openExceptions() }, t('autocorrect.exceptionsButton'));
+  const resetBtn = el('button.btn.btn-ghost.btn-sm', { type: 'button', onclick: () => { draft.replacements = DEFAULT_AUTOCORRECT.replacements.map((e) => ({ ...e })); render(); } }, t('autocorrect.restore'));
 
   const match = () => draft.replacements.findIndex((e) => e.from === fromInput.value.trim());
   // The entries beginning with what was typed in Replace come first. Only typing sets it: an entry picked from
@@ -121,10 +122,10 @@ export function openAutoCorrectDialog({ onSaved = null, onClose = null } = {}) {
       onclick: () => { fromInput.value = e.from; toInput.value = e.to; render(); },
     }, el('span.autocorrect-from', { dir: 'auto' }, e.from), el('span.autocorrect-arrow', { 'aria-hidden': 'true' }, '→'), el('span.autocorrect-to', { dir: 'auto' }, e.to))));
     list.querySelector('[aria-selected="true"]')?.scrollIntoView?.({ block: 'nearest' });
-    addBtn.textContent = exact >= 0 ? 'Replace' : 'Add';
+    addBtn.textContent = exact >= 0 ? t('common.replace') : t('common.add');
     addBtn.disabled = !fromInput.value.trim() || /\s/.test(fromInput.value.trim()) || (exact >= 0 && draft.replacements[exact].to === toInput.value);
     delBtn.disabled = exact < 0;
-    count.textContent = `${draft.replacements.length} replacement${draft.replacements.length === 1 ? '' : 's'}`;
+    count.textContent = t('autocorrect.count', { count: draft.replacements.length });
   }
   function addEntry() {
     const from = fromInput.value.trim();
@@ -162,11 +163,11 @@ export function openAutoCorrectDialog({ onSaved = null, onClose = null } = {}) {
   });
 
   function openExceptions() {
-    const lists = [['firstLetterExceptions', 'First letter', 'Words after which the next word does not start a sentence (abbreviations)'],
-      ['initialCapsExceptions', 'Two initial capitals', 'Words to leave with two capitals at the start']];
-    const areas = lists.map(([key, label, hint]) => {
-      const area = el('textarea.input', { rows: 8, 'aria-label': `${label} exceptions`, spellcheck: false, value: draft[key].join('\n') });
-      return { key, area, node: el('label.field', {}, el('span.field-label', {}, label), el('span.field-hint', {}, `${hint}, one per line`), area) };
+    const lists = [['firstLetterExceptions', t('autocorrect.exceptions.firstLetter'), t('autocorrect.exceptions.firstLetterAria'), t('autocorrect.exceptions.firstLetterHint')],
+      ['initialCapsExceptions', t('autocorrect.exceptions.initialCaps'), t('autocorrect.exceptions.initialCapsAria'), t('autocorrect.exceptions.initialCapsHint')]];
+    const areas = lists.map(([key, label, name, hint]) => {
+      const area = el('textarea.input', { rows: 8, 'aria-label': name, spellcheck: false, value: draft[key].join('\n') });
+      return { key, area, node: el('label.field', {}, el('span.field-label', {}, label), el('span.field-hint', {}, hint), area) };
     });
     const content = el('form.autocorrect-exceptions', { onsubmit: (e) => {
       e.preventDefault();
@@ -174,9 +175,9 @@ export function openAutoCorrectDialog({ onSaved = null, onClose = null } = {}) {
       sub.close();
     } }, ...areas.map((a) => a.node),
     el('div.row.row-end', {},
-      el('button.btn.btn-ghost', { type: 'button', onclick: () => sub.close() }, 'Cancel'),
-      el('button.btn.btn-primary', { type: 'submit' }, 'OK')));
-    const sub = openModal({ title: 'AutoCorrect exceptions', content, initialFocus: areas[0].area });
+      el('button.btn.btn-ghost', { type: 'button', onclick: () => sub.close() }, t('common.cancel')),
+      el('button.btn.btn-primary', { type: 'submit' }, t('common.ok'))));
+    const sub = openModal({ title: t('autocorrect.exceptions.title'), content, initialFocus: areas[0].area });
   }
 
   const submit = (e) => {
@@ -190,15 +191,15 @@ export function openAutoCorrectDialog({ onSaved = null, onClose = null } = {}) {
     el('div.autocorrect-top', {}, checks, el('div.autocorrect-side', {}, exceptionsBtn)),
     el('div.autocorrect-replace', {},
       el('div.autocorrect-fields', {},
-        el('label.field', {}, el('span.field-label', {}, 'Replace'), fromInput),
-        el('label.field', {}, el('span.field-label', {}, 'With'), toInput)),
+        el('label.field', {}, el('span.field-label', {}, t('common.replace')), fromInput),
+        el('label.field', {}, el('span.field-label', {}, t('autocorrect.with')), toInput)),
       list,
       el('div.row.autocorrect-actions', {}, count, el('span.spacer'), resetBtn, delBtn, addBtn)),
-    el('p.small.muted', {}, `A correction made while typing can be put back with ${MOD_KEY}+Z straight away; one made as an entry is committed is an undo step of its own.`),
+    el('p.small.muted', {}, t('autocorrect.undoHint', { key: MOD_KEY })),
     el('div.row.row-end', {},
-      el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Cancel'),
-      el('button.btn.btn-primary', { type: 'submit' }, 'OK')));
+      el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, t('common.cancel')),
+      el('button.btn.btn-primary', { type: 'submit' }, t('common.ok'))));
   render();
-  const modal = openModal({ title: 'AutoCorrect', content, wide: true, initialFocus: fromInput, onClose });
+  const modal = openModal({ title: t('autocorrect.title'), content, wide: true, initialFocus: fromInput, onClose });
   return modal;
 }

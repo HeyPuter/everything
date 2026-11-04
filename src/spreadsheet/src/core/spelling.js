@@ -8,9 +8,10 @@
  * or two swapped), nearest first, cased as the word was typed.
  */
 
+/** The dictionaries, each with the catalog key of its name (shown with t()). */
 export const LANGUAGES = [
-  { code: 'en-US', label: 'English (United States)' },
-  { code: 'en-GB', label: 'English (United Kingdom)' },
+  { code: 'en-US', label: 'coreSpelling.enUS' },
+  { code: 'en-GB', label: 'coreSpelling.enGB' },
 ];
 
 /** Undo the front coding of a generated list: each line, the shared length (a character code minus 48), then the rest. */

@@ -7,6 +7,7 @@
 import { el, fieldId } from './dom.js';
 import { openModal } from './modal.js';
 import { outlineSettingsOf } from '../core/workbook.js';
+import { t } from '../i18n/index.js';
 
 export function openOutlineSettings(ctx) {
   const { wb } = ctx;
@@ -17,9 +18,9 @@ export function openOutlineSettings(ctx) {
     const input = el('input', { type: 'checkbox', id, checked, 'aria-describedby': `${id}-hint` });
     return { input, node: el('div.outline-setting', {}, input, el('label', { for: id }, label), el('span.field-hint', { id: `${id}-hint` }, hint)) };
   };
-  const below = box('Summary rows below detail', current.summaryBelow, 'Totals come after the rows they add up; off, they head them.');
-  const right = box('Summary columns to right of detail', current.summaryRight, 'Totals come after the columns they add up; off, they lead them.');
-  const auto = box('Automatic styles', current.autoStyles, 'Set summary rows and columns in bold when the outline is created.');
+  const below = box(t('outlineSettings.below'), current.summaryBelow, t('outlineSettings.belowHint'));
+  const right = box(t('outlineSettings.right'), current.summaryRight, t('outlineSettings.rightHint'));
+  const auto = box(t('outlineSettings.autoStyles'), current.autoStyles, t('outlineSettings.autoStylesHint'));
   const read = () => ({ summaryBelow: below.input.checked, summaryRight: right.input.checked, autoStyles: auto.input.checked });
   // OK, Create and Apply Styles all keep the settings shown; the two buttons then act with them, in the same undo step.
   const finish = (then = null) => {
@@ -27,14 +28,14 @@ export function openOutlineSettings(ctx) {
     ctx.run('outlineSettings', { settings: read(), then });
   };
   const content = el('form.outline-settings', { onsubmit: (e) => { e.preventDefault(); finish(); } },
-    el('fieldset', {}, el('legend', {}, 'Direction'), below.node, right.node),
+    el('fieldset', {}, el('legend', {}, t('outlineSettings.direction')), below.node, right.node),
     auto.node,
     el('div.row.style-dialog-actions', {},
-      el('button.btn.btn-ghost', { type: 'button', onclick: () => finish('create') }, 'Create'),
-      el('button.btn.btn-ghost', { type: 'button', onclick: () => finish('styles') }, 'Apply Styles'),
+      el('button.btn.btn-ghost', { type: 'button', onclick: () => finish('create') }, t('outlineSettings.create')),
+      el('button.btn.btn-ghost', { type: 'button', onclick: () => finish('styles') }, t('outlineSettings.applyStyles')),
       el('span.spacer'),
-      el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Cancel'),
-      el('button.btn.btn-primary', { type: 'submit' }, 'OK')));
-  const modal = openModal({ title: 'Outline Settings', content, initialFocus: below.input, onClose: () => ctx.grid?.focus?.() });
+      el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, t('common.cancel')),
+      el('button.btn.btn-primary', { type: 'submit' }, t('common.ok'))));
+  const modal = openModal({ title: t('outlineSettings.title'), content, initialFocus: below.input, onClose: () => ctx.grid?.focus?.() });
   return modal;
 }
