@@ -153,14 +153,15 @@ export function createNoteCommands(ctx) {
     // What the document has now: only settings that differ from it are written, so Apply with nothing changed
     // leaves settings.xml as it was, and a footnote change adds no endnote settings.
     const applied = { footnote: { ...settings.footnote }, endnote: { ...settings.endnote } };
-    const applyChanged = () => {
+    // Footnote and endnote settings changed together are one undo step.
+    const applyChanged = () => (editor() || { transact: fn => fn() }).transact(() => {
       for (const k of ['footnote', 'endnote']) {
         const changed = Object.fromEntries(['format', 'start', 'restart', 'position'].filter(key => pending[k][key] !== applied[k][key]).map(key => [key, pending[k][key]]));
         if (!Object.keys(changed).length) continue;
         applySettings(k, changed);
         applied[k] = { ...applied[k], ...changed };
       }
-    };
+    });
     function remember() {
       if (!restart.options.length) return; // Not filled in yet.
       pending[kind] = { ...pending[kind], format: format.value, start: Math.max(1, Math.min(32767, Math.round(Number(start.value)) || 1)), restart: restart.value, position: kind === 'footnote' ? footPosition.value : endPosition.value };
