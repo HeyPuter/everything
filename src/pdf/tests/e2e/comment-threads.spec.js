@@ -1,7 +1,12 @@
 import { test, expect } from '@playwright/test';
 import { PDFDocument } from 'pdf-lib';
 import { readFile } from 'node:fs/promises';
-import { addReply, listAnnotations, setReviewState } from '../../src/core/annotations.js';
+import {
+  addReply,
+  addShapeAnnotation,
+  listAnnotations,
+  setReviewState,
+} from '../../src/core/annotations.js';
 import { addNote } from '../../src/core/notes.js';
 import { addHighlight, rectQuad } from '../../src/core/highlight.js';
 
@@ -105,4 +110,53 @@ test('a highlight shows its replies and status and takes new ones', async ({ pag
   const [kept] = await saved(page);
   expect(repliesOf(kept)).toEqual(['Why this?', 'It matters']);
   expect(kept.state).toBe('Rejected');
+});
+
+// A shape's panel is drawn again after each change; the keyboard stays where it was used.
+test('a shape keeps the keyboard in its panel through replies and changes', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 640 });
+  const doc = await PDFDocument.create();
+  doc.addPage([400, 500]);
+  addShapeAnnotation(doc, 0, {
+    kind: 'square',
+    rect: { x: 100, y: 200, width: 80, height: 60 },
+    text: 'Boxed',
+  });
+  await open(page, doc);
+  await page.getByRole('button', { name: 'Select', exact: true }).click();
+  await page.getByRole('button', { name: 'Rectangle: Boxed', exact: true }).click();
+  const props = page.getByRole('complementary', { name: 'Selection properties' });
+  const scroller = props.locator('.properties-content');
+  const reply = props.getByLabel('Reply text');
+  await reply.fill('First');
+  await reply.press('ControlOrMeta+Enter');
+  await settled(page);
+  await expect(props.getByRole('list', { name: 'Replies' })).toContainText('First');
+  await expect(reply).toBeFocused();
+  // The panel, scrolled down to the reply box, stays there for the next reply.
+  await scroller.evaluate((node) => (node.scrollTop = node.scrollHeight));
+  const scrolled = await scroller.evaluate((node) => node.scrollTop);
+  expect(scrolled).toBeGreaterThan(0);
+  await reply.fill('Second');
+  await reply.press('ControlOrMeta+Enter');
+  await settled(page);
+  await expect(props.getByRole('list', { name: 'Replies' })).toContainText('Second');
+  await expect(reply).toBeFocused();
+  expect(await scroller.evaluate((node) => node.scrollTop)).toBeGreaterThanOrEqual(scrolled);
+  const status = props.getByLabel('Review status');
+  await status.focus();
+  await status.selectOption('Completed');
+  await settled(page);
+  await expect(status).toHaveValue('Completed');
+  await expect(status).toBeFocused();
+  const width = props.getByLabel('Line width', { exact: true });
+  await width.focus();
+  await width.selectOption('3');
+  await settled(page);
+  await expect(width).toHaveValue('3');
+  await expect(width).toBeFocused();
+  const [kept] = await saved(page);
+  expect(repliesOf(kept)).toEqual(['First', 'Second']);
+  expect(kept.state).toBe('Completed');
+  expect(kept.width).toBe(3);
 });

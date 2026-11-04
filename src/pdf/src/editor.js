@@ -10143,12 +10143,18 @@ export function createEditor({
       });
     const when = (date) =>
       date ? date.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : '';
-    const thread = commentThread(entry, (operation, message) =>
-      mutate((doc) => operation(doc, entry.id), message, 'annotate', { retainScale: true }),
-    );
+    const thread = commentThread(entry, async (operation, message, control) => {
+      await mutate((doc) => operation(doc, entry.id), message, 'annotate', { retainScale: true });
+      // A reply sent leaves the reply box ready for the next, as for notes and markups.
+      const active = document.activeElement;
+      if (!destroyed && (active === document.body || properties.root.contains(active)))
+        [...properties.root.querySelectorAll('.annotation-props [aria-label]')]
+          .find((node) => node.getAttribute('aria-label') === control)
+          ?.focus({ preventScroll: true });
+    });
     const panel = el(
       'div',
-      { class: 'annotation-props' },
+      { class: 'annotation-props', 'data-comment-id': entry.id },
       el(
         'p',
         { class: 'muted annotation-meta' },
@@ -10179,7 +10185,21 @@ export function createEditor({
         }),
       ),
     );
+    // Redrawn after an edit, the panel keeps its place and the keyboard on the same control.
+    const previous = properties.root.querySelector(
+      `.annotation-props[data-comment-id="${entry.id}"]`,
+    );
+    const scroller = previous?.parentElement,
+      scrollTop = scroller?.scrollTop;
+    const held = previous?.contains(document.activeElement)
+      ? document.activeElement.getAttribute('aria-label')
+      : null;
     properties.show('annotation', entry.kind, panel);
+    if (previous && scroller === panel.parentElement) scroller.scrollTop = scrollTop;
+    if (held)
+      [...panel.querySelectorAll('[aria-label]')]
+        .find((control) => control.getAttribute('aria-label') === held)
+        ?.focus({ preventScroll: true });
   }
   /** Comments out as XFDF (as other PDF editors exchange them) or a plain text summary. */
   async function exportComments(kind) {
