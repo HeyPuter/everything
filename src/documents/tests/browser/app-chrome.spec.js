@@ -353,6 +353,23 @@ test('a KeyTip letter that goes nowhere is ignored, and the letters typed before
   expect((await engine(page)).bold).toBe(false);
 });
 
+test('Escape in the text, then Tab, goes to the ribbon, and Escape there comes back', async ({ page }) => {
+  await openEditor(page);
+  await text(page).fill('Words');
+  await text(page).focus();
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('Tab');
+  await expect(page.locator('#ribbon-tab-home')).toBeFocused();
+  await page.keyboard.press('ArrowDown');
+  await expect(page.locator('#ribbon-panel-home').getByRole('button', { name: 'Paste', exact: true })).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(text(page)).toBeFocused();
+  expect((await engine(page)).text).toBe('Words');
+  // Without Escape first, Tab is typed into the text.
+  await page.keyboard.press('Tab');
+  expect((await engine(page)).text).toBe('Words\t');
+});
+
 test('Down on a tab of a collapsed ribbon shows its commands and moves into them', async ({ page }) => {
   await openEditor(page);
   const card = page.locator('.ed-ribbon');

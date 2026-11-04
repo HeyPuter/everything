@@ -1389,6 +1389,14 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
   }, signal: printAbort.signal });
   keymap.onChange(() => chrome.refresh());
   root.addEventListener('keydown', e => { if (!e.target.closest?.('.backstage') || e.key === 'Escape') keymap.handle(e); }, true);
+  // Escape in the text, then Tab, goes to the ribbon (its tab row, where the arrows and Down lead into the commands),
+  // as the keyboard sheet says: the next control in the page's order was the assistant button or the status bar.
+  root.addEventListener('keydown', e => {
+    if (e.key !== 'Tab' || e.shiftKey || e.ctrlKey || e.metaKey || e.altKey || e.defaultPrevented || !engine?.leaveWithTab || e.target !== engine.input || engine.session.path !== null) return;
+    const tab = chrome.ribbon.tablist.querySelector('.ribbon-tab[aria-selected="true"]');
+    if (!tab?.getClientRects().length) return;
+    e.preventDefault(); e.stopPropagation(); engine.leaveWithTab = false; tab.focus();
+  }, true);
   /** A bullet or number typed with a space at the start of a paragraph that is not yet a list item. */
   const listMarker = (before, typed, list) => {
     if (list || typed !== ' ') return null;
