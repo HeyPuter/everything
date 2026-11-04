@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { PdfPage, arcToCubics, parseSvgPath } from '../src/drawing/pdf';
+import { PdfPage, arcToCubics, parseSvgPath, pdfString } from '../src/drawing/pdf';
 import { buildSheet, projectedSize, scaleLabel, sheetDims, standardLayout, toPdf, toSvg } from '../src/drawing/sheet';
 import type { DrawingDoc } from '../src/model/types';
 
@@ -41,6 +41,18 @@ describe('PDF writer', () => {
     // Every object offset in the table points at "n 0 obj".
     const offsets = [...text.matchAll(/^(\d{10}) 00000 n $/gm)].map((m) => Number(m[1]));
     offsets.forEach((o, i) => expect(text.slice(o).startsWith(`${i + 1} 0 obj`)).toBe(true));
+  });
+
+  it('keeps accented letters and drawing symbols in text and the title', () => {
+    // WinAnsiEncoding bytes as octal escapes; characters it lacks become '?'.
+    expect(pdfString('Größe Ø10 ±0.5° – 5€ (a\\b) 中\n')).toBe('Gr\\366\\337e \\33010 \\2610.5\\260 \\226 5\\200 \\(a\\\\b\\) ??');
+    const p = new PdfPage(100, 100);
+    p.text('Zoë', 10, 10, 3);
+    const text = new TextDecoder().decode(p.build('Größe'));
+    expect(text).toContain('(Zo\\353) Tj');
+    expect(text).toContain('/Title <FEFF0047007200F600DF0065>');
+    // Still pure ASCII, so the byte offsets in the cross-reference table hold.
+    expect(/^[\x00-\x7f]*$/.test(text)).toBe(true);
   });
 });
 

@@ -4,6 +4,30 @@
 
 const PT = 72 / 25.4;
 
+// WinAnsiEncoding (the built-in fonts' encoding) is Latin-1 except for 0x80-0x9F.
+const WIN_ANSI_HIGH = '\u20ac\u0081\u201a\u0192\u201e\u2026\u2020\u2021\u02c6\u2030\u0160\u2039\u0152\u008d\u017d\u008f\u0090\u2018\u2019\u201c\u201d\u2022\u2013\u2014\u02dc\u2122\u0161\u203a\u0153\u009d\u017e\u0178';
+
+/** Text as the body of a PDF literal string in WinAnsiEncoding, ASCII only (octal escapes). */
+export function pdfString(str: string): string {
+  let out = '';
+  for (const ch of str) {
+    const u = ch.codePointAt(0)!;
+    let b = u >= 0x20 && u < 0x7f ? u : u >= 0xa0 && u <= 0xff ? u : 0x80 + WIN_ANSI_HIGH.indexOf(ch);
+    if (b === 0x7f || (b >= 0x80 && b < 0xa0 && WIN_ANSI_HIGH.charCodeAt(b - 0x80) < 0xa0)) b = 0x3f; // not encodable: '?'
+    if (b === 0x28 || b === 0x29 || b === 0x5c) out += `\\${ch}`;
+    else if (b < 0x80) out += String.fromCharCode(b);
+    else out += `\\${b.toString(8)}`;
+  }
+  return out;
+}
+
+/** A PDF text string (document information) in UTF-16BE, so any character survives. */
+function pdfTextString(str: string): string {
+  let hex = 'FEFF';
+  for (let i = 0; i < str.length; i++) hex += str.charCodeAt(i).toString(16).padStart(4, '0').toUpperCase();
+  return `<${hex}>`;
+}
+
 export type Seg = { op: 'M' | 'L'; p: [number, number] } | { op: 'C'; c1: [number, number]; c2: [number, number]; p: [number, number] } | { op: 'Z' };
 
 /** Parses SVG path data into absolute move/line/cubic/close segments. */
@@ -165,7 +189,7 @@ export class PdfPage {
     // Helvetica advance widths are about 0.55 em on average.
     const w = str.length * size * 0.55 / PT;
     const dx = opts.anchor === 'middle' ? -w / 2 : opts.anchor === 'end' ? -w : 0;
-    const esc = str.replace(/[\\()]/g, (m) => `\\${m}`).replace(/[^\x20-\x7e]/g, '?');
+    const esc = pdfString(str);
     const font = opts.bold ? '/F2' : '/F1';
     if (opts.rotate) {
       const r = (opts.rotate * Math.PI) / 180;
@@ -185,7 +209,7 @@ export class PdfPage {
     objs.push('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>');
     objs.push('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>');
     objs.push(`<< /Length ${content.length} >>\nstream\n${content}\nendstream`);
-    objs.push(`<< /Title (${title.replace(/[\\()]/g, (m) => `\\${m}`).replace(/[^\x20-\x7e]/g, '?')}) /Producer (Parametric) >>`);
+    objs.push(`<< /Title ${pdfTextString(title)} /Producer (Parametric) >>`);
     let out = '%PDF-1.4\n';
     const offsets: number[] = [];
     objs.forEach((o, i) => {
