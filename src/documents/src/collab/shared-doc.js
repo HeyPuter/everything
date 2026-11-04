@@ -428,13 +428,25 @@ function attributeChange(before = {}, after = {}) {
   return change;
 }
 
-/** Set and delete registers so `map` holds `entries` (key → JSON text). */
-export function writeRegisters(map, entries, { keep = () => false } = {}) {
+/** Set and delete registers so `map` holds `entries` (key → JSON text). `same(key, current, next)`: a difference that is no change. */
+export function writeRegisters(map, entries, { keep = () => false, same = () => false } = {}) {
   let changed = false;
   for (const key of [...map.keys()]) if (!entries.has(key) && !keep(key)) { map.delete(key); changed = true; }
-  for (const [key, value] of entries) if (map.get(key) !== value) { map.set(key, value); changed = true; }
+  for (const [key, value] of entries) {
+    const current = map.get(key);
+    if (current !== value && !(current !== undefined && same(key, current, value))) { map.set(key, value); changed = true; }
+  }
   return changed;
 }
+
+/**
+ * A table's place among the tables is recorded once, when the table is written: it moves when someone adds or removes
+ * a table before it, which is no change to that table. Written again with this copy's version of it, the table would
+ * lose a row or column someone else added to it meanwhile (two writes to one register keep one), and an Undo of the
+ * table's insertion would find it no longer its own.
+ */
+const withoutOrder = text => { try { const { _order, ...rest } = JSON.parse(text); return json(rest); } catch { return text; } };
+const sameTable = (key, current, next) => key.startsWith('t:') && typeof current === 'string' && withoutOrder(current) === withoutOrder(next);
 
 export function encodeComments(comments) {
   return new Map((comments || []).map((c, i) => [String(c.id), json({ ...c, _order: i })]));
@@ -449,7 +461,7 @@ export function writeState(ydoc, state, origin = null, cache = null) {
     let before = null;
     if (!cache?.body) { before = readBody(ydoc.getText('body')); adoptOrphanedCellParagraphs(before, readParts(ydoc.getMap('parts'), before).tables); }
     changed = writeBody(ydoc.getText('body'), before, state.paragraphs, cache) || changed;
-    changed = writeRegisters(ydoc.getMap('parts'), encodeParts(state)) || changed;
+    changed = writeRegisters(ydoc.getMap('parts'), encodeParts(state), { same: sameTable }) || changed;
     if (state.comments) {
       if (!ydoc.getMap('comments').has(PRESENT)) ydoc.getMap('comments').set(PRESENT, 'true');
       // Comment order is recorded once; reordering alone is not a change.
