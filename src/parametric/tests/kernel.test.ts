@@ -2,8 +2,8 @@
 // is the only way to know the modeling features actually produce solids.
 import { beforeAll, describe, expect, it } from 'vitest';
 import init from 'replicad-opencascadejs';
-import { ModelBuilder, errorText } from '../src/kernel/build';
-import { setOc } from '../src/kernel/occ';
+import { ModelBuilder, checkStep, errorText } from '../src/kernel/build';
+import { getOc, setOc } from '../src/kernel/occ';
 import type { Feature, FilletFeature, ShellFeature, SkDimension, SketchFeature } from '../src/model/types';
 import { flangeExample } from '../src/app/examples';
 import { solveSketch } from '../src/sketch/solver';
@@ -330,6 +330,27 @@ describe('feature regeneration', () => {
     const p = b.measure({ kind: 'vertex', p: [5, 5, 30] }, { kind: 'edge', index: 0 });
     expect(p.distance).toBeGreaterThan(0);
     expect(b.measure({ kind: 'vertex', p: [20, 5, 5] }, { kind: 'vertex', p: [20, 5, 8] }).distance).toBeCloseTo(3, 9);
+  });
+
+  it('reads an imported STEP file once for the import check and the build', async () => {
+    const b = new ModelBuilder();
+    await b.build(req([sketch('S1', rect(0, 0, 10, 10)), extrude('E1', 'S1', 10)]));
+    const step = new TextDecoder().decode(b.exportStep());
+    expect(await checkStep('not a STEP file')).toMatch(/could not be read/);
+    const oc = getOc();
+    const Reader = oc.STEPControl_Reader;
+    let reads = 0;
+    oc.STEPControl_Reader = function (...args: unknown[]) { reads++; return new Reader(...args); };
+    try {
+      expect(await checkStep(step)).toBeNull();
+      const imp = new ModelBuilder();
+      const res = await imp.build(req([{ id: 'I1', name: 'I1', type: 'import', format: 'step', blob: 'b1', fileName: 'a.step' }], { blobs: { b1: step } }));
+      expect(res.status[0].ok).toBe(true);
+      expect(volume(imp)).toBeCloseTo(1000, 3);
+    } finally {
+      oc.STEPControl_Reader = Reader;
+    }
+    expect(reads).toBe(1);
   });
 
   it('projects drawing views with visible and hidden lines', async () => {

@@ -1019,7 +1019,7 @@ export class ModelBuilder {
     if (!shape) {
       const text = req.blobs[f.blob];
       if (!text) throw new FeatureError('The imported file data is missing');
-      shape = f.format === 'brep' ? (R.deserializeShape(text) as unknown as Sh) : await readStep(text);
+      shape = f.format === 'brep' ? (R.deserializeShape(text) as unknown as Sh) : await readStepCached(text);
       this.importCache.set(f.blob, shape);
     }
     const named = this.nameTool(f.id, shape, (_d, k) => `i${k}`);
@@ -1298,6 +1298,33 @@ export class ModelBuilder {
   /** Hash of the body's topology (for tests). */
   topologyHash(): number {
     return this.current.body ? hashOf(this.current.body.wrapped) : 0;
+  }
+}
+
+/**
+ * Recently read STEP files by content. Checking an import reads the file,
+ * and the build that follows reuses that shape instead of reading it again
+ * (seconds for a large file).
+ */
+const stepCache = new Map<string, Sh>();
+
+async function readStepCached(text: string): Promise<Sh> {
+  const key = `${hashString(text)}:${text.length}`;
+  let shape = stepCache.get(key);
+  if (shape) stepCache.delete(key);
+  else shape = await readStep(text);
+  stepCache.set(key, shape);
+  while (stepCache.size > 3) stepCache.delete(stepCache.keys().next().value!);
+  return shape;
+}
+
+/** Null when the STEP text reads into geometry, else a readable error. */
+export async function checkStep(text: string): Promise<string | null> {
+  try {
+    await readStepCached(text);
+    return null;
+  } catch (e) {
+    return errorText(e);
   }
 }
 
