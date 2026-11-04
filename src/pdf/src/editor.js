@@ -59,6 +59,7 @@ import {
   setReviewState,
   exportXfdf,
   importXfdf,
+  MAX_XFDF_SIZE,
   exportCommentSummary,
   annotationAccepts,
   REVIEW_STATES,
@@ -10356,6 +10357,8 @@ export function createEditor({
     input.onchange = safe(async () => {
       const file = input.files?.[0];
       if (!file) return;
+      // Reading a file that cannot be imported anyway would only hold up the tab.
+      if (file.size > MAX_XFDF_SIZE) throw new Error('This comments file is too large to import.');
       const xfdf = await file.text();
       let result = null;
       await mutate(

@@ -48,7 +48,7 @@ import {
   text,
 } from './annotation-appearance.js';
 
-export { exportXfdf, importXfdf, exportCommentSummary } from './annotation-xfdf.js';
+export { exportXfdf, importXfdf, exportCommentSummary, MAX_XFDF_SIZE } from './annotation-xfdf.js';
 
 export const MAX_COMMENT_LENGTH = 20000;
 export const MAX_INK_POINTS = 20000;
