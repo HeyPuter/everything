@@ -12373,6 +12373,10 @@ export function createEditor({
   function onKey(e) {
     // Native dialogs own the keyboard while open, including Escape.
     if (e.isComposing || document.querySelector('dialog[open]')) return;
+    if (e.key === 'Escape' && closeOverlaidPanel(e.target)) {
+      e.preventDefault();
+      return;
+    }
     const formatKey = { b: 'bold', i: 'italic', u: 'underline' }[e.key.toLowerCase()];
     if (
       textEdit &&
@@ -12533,6 +12537,34 @@ export function createEditor({
     }
   }
   window.addEventListener('keydown', onKey);
+  /**
+   * Where the tools pane or the side panel lies over the page, Escape from inside it (or from
+   * the control that opened it) closes it as it would a popover, and the focus goes back to
+   * that control. Docked beside the page they stay, as panels do.
+   */
+  function closeOverlaidPanel(target) {
+    if (!(target instanceof Node)) return false;
+    if (
+      !editorRoot.classList.contains('hide-tools') &&
+      window.matchMedia('(max-width: 1000px)').matches &&
+      (toolsPane.contains(target) || topTabs.contains(target))
+    ) {
+      const opener = topTabs.querySelector('.top-tab[aria-pressed="true"]');
+      toggleToolsPanel(false);
+      opener?.focus({ preventScroll: true });
+      return true;
+    }
+    if (
+      !editorRoot.classList.contains('hide-pages') &&
+      window.matchMedia('(max-width: 760px)').matches &&
+      (sidebar.contains(target) || sidebarTabs.contains(target))
+    ) {
+      hideSidebar();
+      sidebarTabs.querySelector('[aria-selected="true"]')?.focus({ preventScroll: true });
+      return true;
+    }
+    return false;
+  }
   /** Whether a fitted page was rendered for a workspace of another size than the current one. */
   const needsRefit = () =>
     (scaleMode === 'fit' && workspace.clientWidth !== renderedWorkspaceWidth) ||
