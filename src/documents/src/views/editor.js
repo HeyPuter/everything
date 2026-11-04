@@ -1940,6 +1940,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     // Viewing mode, and a shared document held read-only while it connects, change nothing: the reopened editor
     // would also have come back editable.
     if (!engine || pkg?.readOnly || engine.viewOnly || reopening) return false;
+    if (designProtected()) return false;
     // The editor reopens on the changed package, which the room does not hold: the others would not get it, and
     // the editor would stop sharing with them.
     if (collab.live) { error(new Error('Themes, style sets, watermarks and page backgrounds cannot be changed while the document is shared. Stop sharing to change them.')); return false; }
@@ -1965,9 +1966,19 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     } catch (e) { if (!destroyed) error(e); return false; }
     finally { reopening = false; if (!destroyed) update(); }
   }
+  /**
+   * Restrict Editing and Lock Tracking cover the design too: a theme, style set, watermark or page color is not a
+   * change the protection allows or tracking can record, and reopening on the changed package went around the guard.
+   */
+  function designProtected() {
+    if (!reviewTools.protectionEnforced) return false;
+    error(new Error(reviewTools.trackingLocked ? 'Design changes can’t be tracked, and tracking is locked. Unlock tracking to make them.' : 'This document is protected, so its design cannot be changed. Stop protection under Review > Restrict Editing first.'));
+    return true;
+  }
   async function stepDesignVersion(direction) {
     const from = direction === 'undo' ? designVersions.undo : designVersions.redo, to = direction === 'undo' ? designVersions.redo : designVersions.undo;
     if (collab.live || engine?.viewOnly) return false;
+    if (from.length && designProtected()) return false;
     const entry = from.pop(); if (!entry) return false;
     reopening = true;
     // Text typed while the earlier package opens keeps the document as it is (the step is not taken).
@@ -1978,7 +1989,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
   }
   editorCommands.changePackage = changePackage;
   // The context menu's Undo and Redo also step through package-level (Design) changes.
-  editorCommands.packageHistory = () => ({ undo: !collab.live && designVersions.undo.length > 0, redo: !collab.live && designVersions.redo.length > 0 });
+  editorCommands.packageHistory = () => ({ undo: !collab.live && !reviewTools.protectionEnforced && designVersions.undo.length > 0, redo: !collab.live && !reviewTools.protectionEnforced && designVersions.redo.length > 0 });
   editorCommands.exportPackage = () => engine && !pkg?.readOnly ? engine.export(pkg) : null;
 
   const ready = (async () => {
