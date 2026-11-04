@@ -1,0 +1,9 @@
+{
+  "exampleFormats": "Example formats",
+  "examples": "Examples",
+  "formatCode": "Format code",
+  "hint": "Sections for positive;negative;zero;text, digits 0 # ?, thousands with commas, %, E+00, dates like d mmm yyyy, times like h:mm AM/PM, text in quotes.",
+  "preview": "{value} → {text}",
+  "title": "Custom number format",
+  "typeToPreview": "Type a code to preview it"
+}
