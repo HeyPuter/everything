@@ -10154,7 +10154,7 @@ export function createEditor({
   }
   /** Name, tooltip, flags, and the settings of the field's type. */
   async function fieldPropertiesDialog(field, { created = false } = {}) {
-    const { BUTTON_STYLES, listFormFields, updateFormField } = await loadForms();
+    const { BUTTON_STYLES, listFormFields, moveFormWidget, updateFormField } = await loadForms();
     const props = field.props || {};
     const checkbox = (id, label, checked) => {
       const box = el('input', { type: 'checkbox', id, checked: !!checked });
@@ -10182,6 +10182,19 @@ export function createEditor({
       step: 'any',
       value: props.fontSize ?? 0,
     });
+    // The size as the page shows it: the keyboard's way to resize a field.
+    const shown = designer.shownSize(field);
+    const dimension = (value) =>
+      el('input', {
+        class: 'input',
+        type: 'number',
+        min: 4,
+        step: 'any',
+        value: Math.round(value * 100) / 100,
+      });
+    const size = shown && { width: dimension(shown.width), height: dimension(shown.height) };
+    const sizeOf = () =>
+      size && { width: Number(size.width.value), height: Number(size.height.value) };
     const specific = [];
     const read = {};
     if (field.type === 'text' || field.type === 'date') {
@@ -10284,7 +10297,8 @@ export function createEditor({
     });
     // Only what was changed is written: an unchanged default value or "Checked by default"
     // would otherwise reset what was filled in, and a widget is a target, not a change.
-    const initial = collect();
+    const initial = collect(),
+      initialSize = JSON.stringify(sizeOf());
     const save = safe(async () => {
       const next = Object.fromEntries(
         Object.entries(collect()).filter(
@@ -10292,12 +10306,15 @@ export function createEditor({
             key === 'widgetIndex' || JSON.stringify(value) !== JSON.stringify(initial[key]),
         ),
       );
+      const resized = JSON.stringify(sizeOf()) !== initialSize;
       // Nothing changed: no edit to record, and the document stays as it was saved.
-      if (Object.keys(next).every((key) => key === 'widgetIndex')) return d.close();
+      if (!resized && Object.keys(next).every((key) => key === 'widgetIndex')) return d.close();
+      const rect = resized ? designer.resizedRect(field, sizeOf()) : null;
       await mutateDialog(
         d,
         async (doc) => {
           const renamed = await updateFormField(doc, field.name, next);
+          let widgetIndex = field.widgetIndex;
           if (renamed !== field.name) {
             // A radio button named after another group joined it, after that group's buttons.
             const joined =
@@ -10312,7 +10329,9 @@ export function createEditor({
                   )?.widgetIndex
                 : undefined;
             designer.renamed(field.name, renamed, joined);
+            widgetIndex = joined ?? widgetIndex;
           }
+          if (rect) await moveFormWidget(doc, renamed, widgetIndex, rect);
           return renamed;
         },
         null,
@@ -10338,6 +10357,13 @@ export function createEditor({
         labeled('field-fill', 'Fill color', fill, noFill.row),
       ),
       labeled('field-size', 'Font size (0 fits the box)', fontSize),
+      size &&
+        el(
+          'div',
+          { class: 'field-grid' },
+          labeled('field-width', 'Width (pt)', size.width),
+          labeled('field-height', 'Height (pt)', size.height),
+        ),
     );
     form.onsubmit = (e) => {
       e.preventDefault();

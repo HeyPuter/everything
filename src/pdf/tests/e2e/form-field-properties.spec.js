@@ -510,3 +510,38 @@ test('what was typed into a field stays when Prepare a form moves a field', asyn
     1,
   );
 });
+
+for (const rotation of [0, 90])
+  test(`a field can be resized from its properties on a page turned ${rotation} degrees`, async ({
+    page,
+  }) => {
+    const doc = await PDFDocument.create();
+    const sheet = doc.addPage([600, 400]);
+    sheet.setRotation(degrees(rotation));
+    const note = doc.getForm().createTextField('Note');
+    note.addToPage(sheet, { x: 100, y: 100, width: 120, height: 24 });
+    const start = note.acroField.getWidgets()[0].getRectangle();
+    await openPdf(page, doc);
+    await prepareForm(page);
+    await designer(page, 'Note#0').focus();
+    await page.keyboard.press('Enter');
+    const dialog = page.getByRole('dialog', { name: 'Text field properties' });
+    // As the page shows it: turned a quarter, the field stands upright.
+    const [width, height] = rotation ? [start.height, start.width] : [start.width, start.height];
+    await expect(dialog.getByLabel('Width (pt)')).toHaveValue(String(width));
+    await expect(dialog.getByLabel('Height (pt)')).toHaveValue(String(height));
+    await dialog.getByLabel('Width (pt)').fill(String(width + 40));
+    await dialog.getByLabel('Height (pt)').fill(String(height + 10));
+    await page.keyboard.press('Enter');
+    await expect(dialog).toBeHidden();
+    await settled(page);
+    await expect(designer(page, 'Note#0')).toBeFocused();
+    const saved = (await PDFDocument.load(await downloaded(page))).getForm().getTextField('Note');
+    const rect = saved.acroField.getWidgets()[0].getRectangle();
+    // The top left corner on screen stays where it was.
+    const expected = rotation
+      ? { x: start.x, y: start.y, width: start.width + 10, height: start.height + 40 }
+      : { x: start.x, y: start.y - 10, width: start.width + 40, height: start.height + 10 };
+    for (const key of ['x', 'y', 'width', 'height'])
+      expect(rect[key]).toBeCloseTo(expected[key], 2);
+  });

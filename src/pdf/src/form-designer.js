@@ -253,6 +253,20 @@ export function createFormDesigner({ onMove, onOpen, onDelete, onSelect }) {
       selected = swap(selected);
     },
     deleting,
+    /** The field's width and height as the page shows them, in its own units, or null. */
+    shownSize(field) {
+      if (!viewport || !field.rect) return null;
+      const { width, height } = field.rect;
+      return viewport.rotation % 180 ? { width: height, height: width } : { width, height };
+    },
+    /** The field's rectangle at `size` as shown, its top left corner on screen staying put. */
+    resizedRect(field, { width, height }) {
+      const box = screenBox(field);
+      const [ox, oy] = viewport.convertToViewportPoint(0, 0);
+      const [px, py] = viewport.convertToViewportPoint(1, 0);
+      const unit = Math.hypot(px - ox, py - oy);
+      return pdfRect({ left: box.left, top: box.top, width: width * unit, height: height * unit });
+    },
     focusField(name) {
       const field = fields.find((entry) => entry.name === name);
       if (field) select(field, true);
