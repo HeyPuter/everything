@@ -257,3 +257,20 @@ test('the conversation follows a long reply that arrives in one piece', async ({
   await box.press('Enter');
   await expect(page.getByText('Line 39 of the reply.')).toBeInViewport();
 });
+
+test('Enter that commits an IME composition does not send', async ({ page }) => {
+  await page.addInitScript(() => {
+    const w = window as unknown as { __sends: number; __assistantChat: unknown };
+    w.__sends = 0;
+    w.__assistantChat = async function* () { w.__sends++; yield { type: 'text', text: 'ok' }; };
+  });
+  await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  const box = page.getByRole('textbox', { name: 'Message the assistant' });
+  await box.fill('にほんご');
+  // Safari's keydown for that Enter: isComposing false, keyCode 229.
+  await box.evaluate((el) => el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', keyCode: 229, bubbles: true, cancelable: true })));
+  await box.press('Enter');
+  await expect(page.locator('.as-user')).toHaveText(['にほんご']);
+  expect(await page.evaluate(() => (window as unknown as { __sends: number }).__sends)).toBe(1);
+});

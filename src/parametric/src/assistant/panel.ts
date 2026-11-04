@@ -147,7 +147,8 @@ export class AssistantPanel {
     this.status = h('div', { class: 'as-status', role: 'status' });
     this.input.addEventListener('input', () => this.grow());
     this.input.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); void this.submit(); }
+      // keyCode 229: Safari's Enter that commits an IME composition comes with isComposing false.
+      if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && e.keyCode !== 229) { e.preventDefault(); void this.submit(); }
       else if (e.key === 'Escape' && this.agent.busy) { e.preventDefault(); this.stop(); }
     });
     this.sendBtn.addEventListener('click', () => (this.agent.busy ? this.stop() : void this.submit()));
