@@ -114,25 +114,32 @@ export class FileOps {
 
   /** Opens a part from a location (cloud or local). */
   async openLocation(loc: Location, name?: string) {
-    if (!(await this.confirmDiscard('open another part'))) return;
+    let text: string;
     try {
-      const text = await loadText(loc);
-      this.openText(text, loc, name);
+      text = await loadText(loc);
     } catch (e) {
       toast({ kind: 'error', title: 'Could not open the part', message: storageError(e) });
+      return;
     }
+    await this.openPartText(text, loc, name);
   }
 
   openText(text: string, loc: Location | null, name?: string): boolean {
-    let doc: PartDocument;
-    try {
-      doc = parseDocument(text);
-    } catch (e) {
-      toast({ kind: 'error', title: 'Could not open the part', message: (e as Error).message });
-      return false;
-    }
+    const doc = parsePart(text);
+    if (doc) this.openDoc(doc, loc, name);
+    return !!doc;
+  }
+
+  private openDoc(doc: PartDocument, loc: Location | null, name?: string) {
     if (name && !doc.name) doc.name = name;
     this.app.loadDocument(doc, loc);
+  }
+
+  /** Reads a part file and, only if it is one, asks about unsaved changes and opens it. */
+  private async openPartText(text: string, loc: Location | null, name?: string): Promise<boolean> {
+    const doc = parsePart(text);
+    if (!doc || !(await this.confirmDiscard('open another part'))) return false;
+    this.openDoc(doc, loc, name);
     return true;
   }
 
@@ -198,7 +205,7 @@ export class FileOps {
       if (r) {
         if (isStepFile(r.fileName)) await this.importStepText(await r.blob.text(), r.fileName);
         else if (isSolidWorksFile(r.fileName)) await this.openSolidWorks(new Uint8Array(await r.blob.arrayBuffer()), r.fileName);
-        else if (await this.confirmDiscard('open another part')) this.openText(await r.blob.text(), r.location, r.name);
+        else await this.openPartText(await r.blob.text(), r.location, r.name);
       }
     }
     void app;
@@ -220,10 +227,7 @@ export class FileOps {
     if (!file) return;
     if (isStepFile(file.name)) { await this.importStepText(await file.text(), file.name); return; }
     if (isSolidWorksFile(file.name)) { await this.openSolidWorks(new Uint8Array(await file.arrayBuffer()), file.name); return; }
-    const text = await file.text();
-    if (!(await this.confirmDiscard('open another part'))) return;
-    this.openText(text, null, file.name.replace(/\.[^.]+$/, ''));
-    this.app.store.dirty = true;
+    if (await this.openPartText(await file.text(), null, file.name.replace(/\.[^.]+$/, ''))) this.app.store.dirty = true;
   }
 
   /** Imports a STEP or SolidWorks file as a solid feature in the current part. */
@@ -381,6 +385,16 @@ export class FileOps {
         toast({ kind: 'error', title: 'Could not open the file', message: storageError(e) });
       }
     });
+  }
+}
+
+/** The part in a file's text, or null after reporting why it is not one. */
+function parsePart(text: string): PartDocument | null {
+  try {
+    return parseDocument(text);
+  } catch (e) {
+    toast({ kind: 'error', title: 'Could not open the part', message: (e as Error).message });
+    return null;
   }
 }
 

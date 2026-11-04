@@ -49,6 +49,9 @@ async function mockPuter(page: Page) {
   });
 }
 
+// File bytes for Playwright, which wants a Node Buffer (the project has no Node types).
+const bytes = (s: string) => (globalThis as unknown as { Buffer: { from(s: string): never } }).Buffer.from(s);
+
 const app = (page: Page) => page.waitForFunction(() => (window as unknown as { __parametric?: unknown }).__parametric);
 
 test('edits made while a save is in progress stay unsaved', async ({ page }) => {
@@ -101,4 +104,27 @@ test('cancelling the Save As location saves nothing', async ({ page }) => {
   await expect(page).toHaveTitle('Bracket - Parametric');
   const files = await page.evaluate(() => [...(window as unknown as Mock).__files.entries()].map(([k, v]) => [k, JSON.parse(v.text).name]));
   expect(files).toEqual([['/tester/Documents/Bracket.parametric', 'Bracket']]);
+});
+
+test('a file that is not a part is refused before asking to discard, and changes nothing', async ({ page }) => {
+  await mockPuter(page);
+  await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await app(page);
+  await expect(page).toHaveTitle('Part1 - Parametric');
+  for (const [name, text] of [['empty.parametric', ''], ['notes.json', '{"hello": 1}'], ['cut.parametric', '{"format":"parametric-part","version":1,"feat']]) {
+    const chooser = page.waitForEvent('filechooser');
+    await page.evaluate(() => (window as unknown as { __parametric: AppHandle }).__parametric.commands.run('openDevice'));
+    await (await chooser).setFiles({ name, mimeType: 'application/json', buffer: bytes(text) });
+    await expect(page.getByRole('region', { name: 'Notifications' }).getByText('Could not open the part').first()).toBeVisible();
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await expect(page).toHaveTitle('Part1 - Parametric');
+  }
+  // With unsaved changes: still no question about them.
+  await page.evaluate(() => (window as unknown as { __parametric: AppHandle }).__parametric.store.change('A', (d) => { d.variables.push({ name: 'A', expr: '1' }); }));
+  const chooser = page.waitForEvent('filechooser');
+  await page.evaluate(() => (window as unknown as { __parametric: AppHandle }).__parametric.commands.run('openDevice'));
+  await (await chooser).setFiles({ name: 'x.parametric', mimeType: 'application/json', buffer: bytes('nope') });
+  await expect(page.getByRole('region', { name: 'Notifications' }).getByText('This file is not a valid part file.').first()).toBeVisible();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
 });
