@@ -110,11 +110,19 @@ import { installSheetGroups } from './sheet-group.js';
 import { normalizeChangeHistory, recordCellWrites, recordStep } from './change-history.js';
 import { eachStoredCell } from './sparse-range.js';
 import { nativeFilterJudge } from './xlsx-filter.js';
+import { t, tSource } from '../i18n/index.js';
 
 /** What a floating object is called in undo labels and notices: chart, image, text box, WordArt…, as the Selection Pane names it. */
 export function objectNoun(obj) {
   return obj?.type === 'slicer' ? 'slicer' : obj?.type === 'scroll' ? 'scroll bar' : obj?.type === 'image' ? 'image' : obj?.type === 'smartart' ? 'SmartArt' : obj?.type === 'text' ? obj.equation ? 'equation' : obj.style?.effects ? 'WordArt' : 'text box' : 'chart';
 }
+
+/** objectNoun as the `kind` the workbook.undo.*Object messages select on. */
+const OBJECT_KINDS = { slicer: 'slicer', 'scroll bar': 'scrollBar', image: 'image', SmartArt: 'smartArt', equation: 'equation', WordArt: 'wordArt', 'text box': 'textBox' };
+const objectKind = (obj) => OBJECT_KINDS[objectNoun(obj)] || 'chart';
+
+/** A message in the interface language, or in English (`source`) for the AI model and other readers of English. */
+const say = (source, key, values) => (source ? tSource(key, values) : t(key, values));
 
 // Charts whose series Select Data lists one by one (see chartSeriesSources): a range they read can be turned into references.
 const SERIES_CHART_TYPES = new Set(['column', 'bar', 'line', 'area', 'pie', 'donut', 'scatter', 'bubble', 'combo', 'radar']);
@@ -285,19 +293,19 @@ function pastFunctionLimits(body) {
   const open = []; // per open parenthesis or brace: { call, args, name }
   let calls = 0;
   for (let i = 0; i < tokens.length; i++) {
-    const t = tokens[i];
-    if (t.type === 'lparen') {
+    const tok = tokens[i];
+    if (tok.type === 'lparen') {
       // A name before it calls a function, as does a closing parenthesis: LAMBDA(x,x)(1).
       const prev = tokens[i - 1];
       const call = prev?.type === 'name' || prev?.type === 'rparen';
       open.push({ call, args: tokens[i + 1]?.type === 'rparen' ? 0 : 1, name: prev?.type === 'name' ? prev.value : null });
-      if (call && ++calls > MAX_FUNCTION_NESTING) return { kind: 'nesting', start: prev.type === 'name' ? prev.start : t.start, end: t.start };
-    } else if (t.type === 'lbrace') open.push({ call: false, args: 0 });
-    else if (t.type === 'rparen' || t.type === 'rbrace') {
+      if (call && ++calls > MAX_FUNCTION_NESTING) return { kind: 'nesting', start: prev.type === 'name' ? prev.start : tok.start, end: tok.start };
+    } else if (tok.type === 'lbrace') open.push({ call: false, args: 0 });
+    else if (tok.type === 'rparen' || tok.type === 'rbrace') {
       if (open.pop()?.call) calls--;
-    } else if (t.type === 'comma') {
+    } else if (tok.type === 'comma') {
       const top = open[open.length - 1];
-      if (top?.call && ++top.args > MAX_FUNCTION_ARGUMENTS) return { kind: 'arguments', name: top.name, start: t.start, end: t.start };
+      if (top?.call && ++top.args > MAX_FUNCTION_ARGUMENTS) return { kind: 'arguments', name: top.name, start: tok.start, end: tok.start };
     }
   }
   return null;
@@ -340,8 +348,6 @@ function refusedEntry(body) {
   return body.length > MAX_FORMULA_LENGTH || !!pastFunctionLimits(body) || !!wrongArgumentCount(body);
 }
 
-const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
-
 /**
  * Where in a formula body a call of `name` given `count` arguments is: its name's start, the end of its opening
  * parenthesis, the start of its closing one (the body's end when it has none) and the commas between its arguments.
@@ -353,19 +359,19 @@ function locateCall(body, name, count) {
   const open = [];
   const found = (call, close) => (call?.name === name && call.args === count ? { start: call.start, open: call.open, close, commas: call.commas } : null);
   for (let i = 0; i < tokens.length; i++) {
-    const t = tokens[i];
-    if (t.type === 'lparen') {
+    const tok = tokens[i];
+    if (tok.type === 'lparen') {
       const prev = tokens[i - 1];
       const named = prev?.type === 'name';
-      open.push({ name: named ? upperName(prev.value) : null, start: named ? prev.start : t.start, open: t.end, commas: [],
+      open.push({ name: named ? upperName(prev.value) : null, start: named ? prev.start : tok.start, open: tok.end, commas: [],
         args: tokens[i + 1]?.type === 'rparen' ? 0 : 1 });
-    } else if (t.type === 'lbrace') open.push({ name: null, commas: [] });
-    else if (t.type === 'rparen' || t.type === 'rbrace') {
-      const hit = found(open.pop(), t.start);
+    } else if (tok.type === 'lbrace') open.push({ name: null, commas: [] });
+    else if (tok.type === 'rparen' || tok.type === 'rbrace') {
+      const hit = found(open.pop(), tok.start);
       if (hit) return hit;
-    } else if (t.type === 'comma') {
+    } else if (tok.type === 'comma') {
       const top = open[open.length - 1];
-      if (top?.name) { top.args++; top.commas.push(t.start); }
+      if (top?.name) { top.args++; top.commas.push(tok.start); }
     }
   }
   for (let call = open.pop(); call; call = open.pop()) { const hit = found(call, body.length); if (hit) return hit; }
@@ -377,30 +383,29 @@ function locateCall(body, name, count) {
  * { message, start, end }, the part of the text to put the caret on (the call at fault), or null when the entry is
  * taken. The same entries setInput keeps as the text typed (see refusedEntry and cellFromInput).
  */
-function typedFormulaProblem(text, closeParentheses) {
+function typedFormulaProblem(text, closeParentheses, source = false) {
   const raw = text == null ? '' : String(text);
   const { f } = parseInput(raw);
   if (f == null) return null;
   const at = raw.length - f.length; // where the body starts, after its =
   const span = (start, end = start) => ({ start: at + Math.min(start, f.length), end: at + Math.min(end, f.length) });
-  const count = (n) => n.toLocaleString('en-US');
-  const tooLong = (n) => ({ message: `A formula can be at most ${count(MAX_FORMULA_LENGTH)} characters long; this one has ${count(n)}`, ...span(f.length) });
+  const tooLong = (n) => ({ message: say(source, 'workbook.formula.tooLong', { max: MAX_FORMULA_LENGTH, count: n }), ...span(f.length) });
   if (f.length > MAX_FORMULA_LENGTH) return tooLong(f.length);
-  if (formulaNesting(f) > MAX_FORMULA_NESTING) return { message: `Parentheses can be nested at most ${MAX_FORMULA_NESTING} levels deep`, ...span(f.length) };
+  if (formulaNesting(f) > MAX_FORMULA_NESTING) return { message: say(source, 'workbook.formula.parenthesesTooDeep', { max: MAX_FORMULA_NESTING }), ...span(f.length) };
   const body = closeParentheses(f);
   if (body.length > MAX_FORMULA_LENGTH) return tooLong(body.length);
   const limit = pastFunctionLimits(body);
-  if (limit?.kind === 'nesting') return { message: `Functions can be nested at most ${MAX_FUNCTION_NESTING} levels deep`, ...span(limit.start, limit.end) };
-  if (limit) return { message: `${limit.name || 'A function'} can take at most ${MAX_FUNCTION_ARGUMENTS} arguments`, ...span(limit.start) };
+  if (limit?.kind === 'nesting') return { message: say(source, 'workbook.formula.functionsTooDeep', { max: MAX_FUNCTION_NESTING }), ...span(limit.start, limit.end) };
+  if (limit) return { message: limit.name ? say(source, 'workbook.formula.tooManyArguments', { name: limit.name, max: MAX_FUNCTION_ARGUMENTS }) : say(source, 'workbook.formula.tooManyArgumentsUnnamed', { max: MAX_FUNCTION_ARGUMENTS }), ...span(limit.start) };
   const call = wrongArgumentCount(body);
   if (!call) return null;
   const [min, max] = ARITY.get(call.name), given = call.args.length;
   const where = locateCall(body, call.name, given);
   if (given < min) {
-    return { message: min === max ? `${call.name} needs ${plural(min, 'argument')}` : `${call.name} needs at least ${plural(min, 'argument')}`,
+    return { message: say(source, min === max ? 'workbook.formula.needsExactly' : 'workbook.formula.needsAtLeast', { name: call.name, count: min }),
       ...(where ? span(where.close) : span(f.length)) };
   }
-  return { message: max === 0 ? `${call.name} takes no arguments` : min === max ? `${call.name} takes only ${plural(max, 'argument')}` : `${call.name} takes at most ${plural(max, 'argument')}`,
+  return { message: say(source, max === 0 ? 'workbook.formula.takesNone' : min === max ? 'workbook.formula.takesOnly' : 'workbook.formula.takesAtMost', { name: call.name, count: max }),
     // The arguments too many are selected, for Delete to take them out.
     ...(where ? span(max === 0 ? where.open : where.commas[max - 1], where.close) : span(f.length)) };
 }
@@ -669,7 +674,7 @@ function sortComparator(caseSensitive) {
   const empty = (v) => v == null || v === '';
   const collator = textCollator(caseSensitive);
   // Excel's text order ignores apostrophes and hyphens, save that of two texts the same but for a hyphen, the one with it comes last.
-  const bare = (t) => (t.includes('-') || t.includes("'") ? t.replace(/['-]/g, '') : t);
+  const bare = (txt) => (txt.includes('-') || txt.includes("'") ? txt.replace(/['-]/g, '') : txt);
   const compareText = (a, b) => {
     const x = bare(a), y = bare(b);
     return collator.compare(x, y) || (a.length - x.length) - (b.length - y.length);
@@ -1132,7 +1137,7 @@ export function makeSheet({ id, name, kind, rows, cols, colWidths, rowHeights, r
     hiddenRows: new Set((hiddenRows || []).map(Number).filter((n) => Number.isInteger(n) && n >= 0 && n <= MAX_ROW)),
     hiddenCols: new Set((hiddenCols || []).map(Number).filter((n) => Number.isInteger(n) && n >= 0 && n <= MAX_COL)),
     merges: (merges || []).map((m) => normalizeRange(m)).filter((m) => validStoredRange(m) && (m.r1 !== m.r2 || m.c1 !== m.c2)),
-    notes: new Map(Object.entries(notes || {}).filter(([, t]) => typeof t === 'string' && t.trim())),
+    notes: new Map(Object.entries(notes || {}).filter(([, txt]) => typeof txt === 'string' && txt.trim())),
     // Threaded comments (see comments.js); a copied sheet's threads get ids of their own.
     comments: (freshIds ? freshCommentIds : readComments)(arguments[0]?.comments),
     rules: arrayOrEmpty(rules).filter((r) => r && validStoredRange(r.range) && r.type).map((r) => ({ ...r, id: idOf(r.id), range: normalizeRange(r.range), style: cloneStyle(r.style),
@@ -1149,22 +1154,22 @@ export function makeSheet({ id, name, kind, rows, cols, colWidths, rowHeights, r
       if (freshIds && ch.type === 'slicer') { delete ch.nativeName; delete ch.nativeCacheName; }
       return { ...ch, id: idOf(ch.id) };
     }),
-    tables: arrayOrEmpty(tables).filter((t) => t && validStoredRange(t.range) && typeof t.name === 'string' && t.name.trim()).map((t) => ({
-      id: idOf(t.id), name: t.name.trim(), range: normalizeRange(t.range), totalsRow: !!t.totalsRow,
-      style: typeof t.style === 'string' ? t.style : 'blue', banded: t.banded !== false,
-      ...(t.firstColumn === true ? { firstColumn: true } : {}),
-      ...(t.lastColumn === true ? { lastColumn: true } : {}),
-      ...(t.bandedColumns === true ? { bandedColumns: true } : {}),
-      ...normalizeTableHeaderState(t),
-      ...(t.customStyle ? { customStyle: normalizeCustomTableStyle(t.customStyle) } : {}),
+    tables: arrayOrEmpty(tables).filter((tbl) => tbl && validStoredRange(tbl.range) && typeof tbl.name === 'string' && tbl.name.trim()).map((tbl) => ({
+      id: idOf(tbl.id), name: tbl.name.trim(), range: normalizeRange(tbl.range), totalsRow: !!tbl.totalsRow,
+      style: typeof tbl.style === 'string' ? tbl.style : 'blue', banded: tbl.banded !== false,
+      ...(tbl.firstColumn === true ? { firstColumn: true } : {}),
+      ...(tbl.lastColumn === true ? { lastColumn: true } : {}),
+      ...(tbl.bandedColumns === true ? { bandedColumns: true } : {}),
+      ...normalizeTableHeaderState(tbl),
+      ...(tbl.customStyle ? { customStyle: normalizeCustomTableStyle(tbl.customStyle) } : {}),
       // The Excel style a file named (TableStyleMedium9), written back while the table keeps it.
-      ...(!t.customStyle && typeof t.nativeStyle === 'string' && /^TableStyle(?:Light|Medium|Dark)\d{1,2}$/.test(t.nativeStyle) ? { nativeStyle: t.nativeStyle } : {}),
+      ...(!tbl.customStyle && typeof tbl.nativeStyle === 'string' && /^TableStyle(?:Light|Medium|Dark)\d{1,2}$/.test(tbl.nativeStyle) ? { nativeStyle: tbl.nativeStyle } : {}),
       // Templates normally start at the first data row. An explicit origin
       // follows structural edits without losing relative cross-sheet refs.
-      ...(Number.isInteger(t.calcRow) && t.calcRow >= 0 ? { calcRow: t.calcRow } : {}),
-      ...(t.calcArray && typeof t.calcArray === 'object' ? { calcArray: Object.fromEntries(Object.entries(t.calcArray).filter(([k, v]) => /^\d+$/.test(k) && v === true && typeof t.calc?.[k] === 'string')) } : {}),
-      calc: Object.fromEntries(Object.entries(t.calc && typeof t.calc === 'object' ? t.calc : {}).filter(([k, f]) => /^\d+$/.test(k) && typeof f === 'string')),
-    })).filter((t) => t.range.r2 >= t.range.r1 && t.range.c2 >= t.range.c1),
+      ...(Number.isInteger(tbl.calcRow) && tbl.calcRow >= 0 ? { calcRow: tbl.calcRow } : {}),
+      ...(tbl.calcArray && typeof tbl.calcArray === 'object' ? { calcArray: Object.fromEntries(Object.entries(tbl.calcArray).filter(([k, v]) => /^\d+$/.test(k) && v === true && typeof tbl.calc?.[k] === 'string')) } : {}),
+      calc: Object.fromEntries(Object.entries(tbl.calc && typeof tbl.calc === 'object' ? tbl.calc : {}).filter(([k, f]) => /^\d+$/.test(k) && typeof f === 'string')),
+    })).filter((tbl) => tbl.range.r2 >= tbl.range.r1 && tbl.range.c2 >= tbl.range.c1),
     cells: new Map(),
   };
   if (personalView && sheet.sheetViews?.some((v) => v.id === personalView.id)) {
@@ -1255,25 +1260,25 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
 /** A URL the browser can open, or null when the text is not one. */
 export function textUrl(text) {
-  const t = String(text || '').trim();
+  const txt = String(text || '').trim();
   // Browsers drop embedded control characters when parsing a URL's scheme, as safeLinkUrl also guards.
-  if (!t || /[\s\x00-\x1f\x7f]/.test(t)) return null;
-  if (URL_RE.test(t)) return normalizeUrl(t);
-  if (URL_SCHEME_RE.test(t)) return null;
+  if (!txt || /[\s\x00-\x1f\x7f]/.test(txt)) return null;
+  if (URL_RE.test(txt)) return normalizeUrl(txt);
+  if (URL_SCHEME_RE.test(txt)) return null;
   // A sheet-reference separator follows the sheet name; # and ! can also occur in an email local part.
-  if (t.startsWith('#') && t.lastIndexOf('!') > t.lastIndexOf('@')) return null;
-  if (EMAIL_RE.test(t)) return `mailto:${t}`;
+  if (txt.startsWith('#') && txt.lastIndexOf('!') > txt.lastIndexOf('@')) return null;
+  if (EMAIL_RE.test(txt)) return `mailto:${txt}`;
   return null;
 }
 
 export function normalizeUrl(url) {
-  const t = String(url).trim();
+  const txt = String(url).trim();
   // Explicit URLs and workbook locations must not be reclassified as email addresses.
-  if (t.startsWith('#') || URL_SCHEME_RE.test(t)) return t;
-  if (/^www\./i.test(t)) return `https://${t}`;
-  if (EMAIL_RE.test(t)) return `mailto:${t}`;
-  if (/^[\w-]+(\.[\w-]+)+([/?#].*)?$/.test(t)) return `https://${t}`;
-  return t;
+  if (txt.startsWith('#') || URL_SCHEME_RE.test(txt)) return txt;
+  if (/^www\./i.test(txt)) return `https://${txt}`;
+  if (EMAIL_RE.test(txt)) return `mailto:${txt}`;
+  if (/^[\w-]+(\.[\w-]+)+([/?#].*)?$/.test(txt)) return `https://${txt}`;
+  return txt;
 }
 
 /** Only workbook locations and ordinary network links may become clickable. */
@@ -1340,7 +1345,7 @@ export function sheetShapeJSON(s, { live = false, defaultHidden = null } = {}) {
     validations: s.validations.map((v) => ({ ...v, range: { ...v.range } })),
     ...(s.sparklineGroups.length ? { sparklineGroups: normalizeNativeSparklineGroups(s.sparklineGroups) } : {}),
     charts: s.charts.map((ch) => ({ ...ch, ...(ch.cellAnchor ? { cellAnchor: normalizeCellAnchor(ch.cellAnchor) } : {}), range: { ...ch.range }, anchor: { ...ch.anchor } })),
-    tables: s.tables.length ? s.tables.map((t) => ({ ...t, range: { ...t.range }, ...(t.calc ? { calc: { ...t.calc } } : {}), ...(t.calcArray ? { calcArray: { ...t.calcArray } } : {}) })) : undefined,
+    tables: s.tables.length ? s.tables.map((tbl) => ({ ...tbl, range: { ...tbl.range }, ...(tbl.calc ? { calc: { ...tbl.calc } } : {}), ...(tbl.calcArray ? { calcArray: { ...tbl.calcArray } } : {}) })) : undefined,
     colWidths: Object.fromEntries(s.colWidths),
     ...(s.nativeWidths ? { nativeWidths: normalizeNativeWidths(s.nativeWidths) } : {}),
     ...(s.nativeDefaultHeight ? { nativeDefaultHeight: normalizeNativeDefaultHeight(s.nativeDefaultHeight) } : {}),
@@ -1789,7 +1794,7 @@ export class Workbook extends EventTarget {
     const sheet = this.sheet(id);
     if (!sheet || sheet.externalCache || sheet.hidden === !!hidden) return false;
     if (hidden && this.visibleSheets.length <= 1) return false;
-    this._structural(hidden ? 'Hide sheet' : 'Show sheet', () => {
+    this._structural(hidden ? t('workbook.undo.hideSheet') : t('workbook.undo.showSheet'), () => {
       sheet.hidden = !!hidden;
       if (hidden && this.activeSheetId === id) {
         const i = this.sheets.indexOf(sheet);
@@ -1872,16 +1877,17 @@ export class Workbook extends EventTarget {
     return name;
   }
 
-  validateSheetName(name, exceptId = null) {
-    const t = String(name ?? '');
-    if (!t) return 'Sheet name cannot be empty';
-    if (t.length > 31) return 'Sheet name must be 31 characters or fewer';
-    if (INVALID_SHEET_CHARS.test(t)) return 'Sheet name cannot contain [ ] : * ? / \\';
+  /** Why `name` cannot name a sheet, or null: in the interface language, or in English with `source` (for the AI model). */
+  validateSheetName(name, exceptId = null, { source = false } = {}) {
+    const txt = String(name ?? '');
+    if (!txt) return say(source, 'workbook.sheetName.empty');
+    if (txt.length > 31) return say(source, 'workbook.sheetName.tooLong');
+    if (INVALID_SHEET_CHARS.test(txt)) return say(source, 'workbook.sheetName.invalidCharacters');
     // Excel refuses these, so a saved file could not be opened there.
-    if (t.startsWith("'") || t.endsWith("'")) return "Sheet name cannot start or end with an apostrophe";
-    if (t.toLowerCase() === 'history') return 'History is a reserved sheet name; choose another';
-    const dup = this.sheetByName(t);
-    if (dup && dup.id !== exceptId) return 'A sheet with that name already exists';
+    if (txt.startsWith("'") || txt.endsWith("'")) return say(source, 'workbook.sheetName.apostrophe');
+    if (txt.toLowerCase() === 'history') return say(source, 'workbook.sheetName.reserved');
+    const dup = this.sheetByName(txt);
+    if (dup && dup.id !== exceptId) return say(source, 'workbook.sheetName.taken');
     return null;
   }
 
@@ -1891,7 +1897,7 @@ export class Workbook extends EventTarget {
     // A sheet added beside one at the .xlsx default geometry takes it too.
     const beside = this.sheet(this.activeSheetId);
     const excel = beside && beside.defaultColWidth === EXCEL_SHEET_DEFAULTS.defaultColWidth && beside.defaultRowHeight === EXCEL_SHEET_DEFAULTS.defaultRowHeight;
-    return this._structural('Add sheet', () => {
+    return this._structural(t('workbook.undo.addSheet'), () => {
       // `newSheetDefaults` is the person's choice for new sheets (the editor sets it from the app's options: the
       // view they open in, whether headers show); it belongs to this session, not to the file.
       const sheet = makeSheet({ name: sheetName, ...(excel ? EXCEL_SHEET_DEFAULTS : {}), ...(excel && beside.defaultVAlign ? { defaultVAlign: beside.defaultVAlign } : {}), ...this.newSheetDefaults });
@@ -1964,19 +1970,19 @@ export class Workbook extends EventTarget {
     if (this._structureLocked()) return false;
     const sheet = this.sheet(id);
     if (!sheet || sheet.externalCache) return false;
-    const t = String(name);
-    if (this.validateSheetName(t, id)) return false;
-    if (t === sheet.name) return true;
-    this._structural('Rename sheet', () => {
+    const txt = String(name);
+    if (this.validateSheetName(txt, id)) return false;
+    if (txt === sheet.name) return true;
+    this._structural(t('workbook.undo.renameSheet'), () => {
       const old = sheet.name;
       const pivots = (this.nativePivots?.tables || []).filter(p => p.owner === id);
       if (pivots.length) for (const owner of this.sheets) {
-        const charts = owner.charts.map(chart => renamePivotChartSheet(chart, pivots, old, t));
+        const charts = owner.charts.map(chart => renamePivotChartSheet(chart, pivots, old, txt));
         if (charts.some((chart, i) => chart !== owner.charts[i])) owner.charts = charts;
       }
-      sheet.name = t;
-      for (const s of this.sheets) this._renameSheetReferences(s, old, t);
-      this.names = this.names.map((n) => ({ ...n, ...(n.sheet === old ? { sheet: t } : {}), ref: renameSheetInFormula(n.ref, old, t) }));
+      sheet.name = txt;
+      for (const s of this.sheets) this._renameSheetReferences(s, old, txt);
+      this.names = this.names.map((n) => ({ ...n, ...(n.sheet === old ? { sheet: txt } : {}), ref: renameSheetInFormula(n.ref, old, txt) }));
     });
     return true;
   }
@@ -2001,23 +2007,23 @@ export class Workbook extends EventTarget {
     // References to the sheet's cells are written as Excel writes them, #REF!A1 (a sheet-qualified name becomes the
     // error itself), and read #REF!; kept verbatim, a later sheet given the same name would silently take them over.
     const unlink = (f) => (f.includes('!') ? mapFormulaRefs(f, (ref) => (isGone(ref.sheet) && !ref.sheetEnd ? { ...ref, sheet: '#REF!' } : ref),
-      (t) => (isGone(t.sheet) ? '#REF!' : null)) : f);
+      (tok) => (isGone(tok.sheet) ? '#REF!' : null)) : f);
     // Structured references to the sheet's tables have nothing left to name and read #REF!, as references to its cells do.
-    const goneTables = this.sheets[i].tables.map((t) => t.name);
+    const goneTables = this.sheets[i].tables.map((tbl) => tbl.name);
     const goneLower = goneTables.map((name) => name.toLowerCase());
     const dropTables = (f) => (goneLower.some((name) => f.toLowerCase().includes(name))
       ? tableRefsToA1(f, () => null, (table) => !!table && goneLower.includes(table.toLowerCase()), goneTables) : f);
     const rewrite = (f) => dropTables(unlink(shrink(f)));
-    this._structural('Delete sheet', () => {
+    this._structural(t('workbook.undo.deleteSheet'), () => {
       // Slicers on other sheets that filtered the sheet's tables go with them.
       if (goneLower.length) this._dropLostSlicers(new Map(goneLower.map((name) => [name, true])));
-      this._removeNativePivots((this.nativePivots?.tables || []).filter(p => p.owner === id), 'Delete sheet', true);
+      this._removeNativePivots((this.nativePivots?.tables || []).filter(p => p.owner === id), t('workbook.undo.deleteSheet'), true);
       if (this.nativePivots) this.nativePivots = { ...this.nativePivots, caches: this.nativePivots.caches.map(c =>
         c.sourceSheetId === id && c.sourceRef ? { ...c, sourceSheetId: null, sourceRef: '#REF!' } : c) };
       for (const s of this.sheets) {
         if (s.id === id) continue;
         for (const cell of s.cells.values()) if (cell.f != null) cell.f = rewrite(cell.f);
-        s.tables = s.tables.map((t) => (t.calc ? { ...t, calc: Object.fromEntries(Object.entries(t.calc).map(([c, f]) => [c, rewrite(f)])) } : t));
+        s.tables = s.tables.map((tbl) => (tbl.calc ? { ...tbl, calc: Object.fromEntries(Object.entries(tbl.calc).map(([c, f]) => [c, rewrite(f)])) } : tbl));
         Object.assign(s, this._ruleFormulaUpdates(s, rewrite));
       }
       // Names scoped to the sheet go with it. One that pointed at it alone stays, reading #REF!, so its
@@ -2039,7 +2045,7 @@ export class Workbook extends EventTarget {
     const from = this.sheets.findIndex((s) => s.id === id);
     const to = Math.max(0, Math.min(this.sheets.length - 1, toIndex));
     if (from < 0 || from === to) return;
-    this._structural('Move sheet', () => {
+    this._structural(t('workbook.undo.moveSheet'), () => {
       const [s] = this.sheets.splice(from, 1);
       this.sheets.splice(to, 0, s);
     });
@@ -2050,7 +2056,7 @@ export class Workbook extends EventTarget {
     const src = this.sheet(id);
     if (!src || src.externalCache) return null;
     const i = this.sheets.indexOf(src);
-    return this._structural('Duplicate sheet', () => {
+    return this._structural(t('workbook.undo.duplicateSheet'), () => {
       // Only this sheet is written out. Serializing the whole book for one of its sheets made a tab-menu
       // click take a second on a book of a sheet per month, for a copy that reads nothing from the others.
       // The copy shows what this person sees, and becomes everyone's: it is in no sheet view of its own.
@@ -2171,21 +2177,21 @@ export class Workbook extends EventTarget {
       scanned.add(scanKey);
       let tokens;
       try { tokens = tokenize(formula); } catch { continue; }
-      const positions = new Map(tokens.map((t, i) => [t.start, i]));
-      for (const t of freeNameTokens(formula, tokens, { includeCalls: true, includeQualified: true })) {
-        if (t.sheet && !isWorkbookNameScope(t.sheet) && t.sheet.toLowerCase() !== lower) continue;
-        const i = positions.get(t.start), called = tokens[i + 1]?.type === 'lparen';
-        const builtin = !t.sheet && called && (FUNCTIONS[t.value] || ['LET', 'LAMBDA', 'ISOMITTED'].includes(t.value));
+      const positions = new Map(tokens.map((tok, i) => [tok.start, i]));
+      for (const tok of freeNameTokens(formula, tokens, { includeCalls: true, includeQualified: true })) {
+        if (tok.sheet && !isWorkbookNameScope(tok.sheet) && tok.sheet.toLowerCase() !== lower) continue;
+        const i = positions.get(tok.start), called = tokens[i + 1]?.type === 'lparen';
+        const builtin = !tok.sheet && called && (FUNCTIONS[tok.value] || ['LET', 'LAMBDA', 'ISOMITTED'].includes(tok.value));
         if (!builtin) {
-          const workbookScope = isWorkbookNameScope(t.sheet) || !t.sheet && global;
-          keep(workbookScope ? globals.get(t.value) : locals.get(t.value) || globals.get(t.value), workbookScope);
+          const workbookScope = isWorkbookNameScope(tok.sheet) || !tok.sheet && global;
+          keep(workbookScope ? globals.get(tok.value) : locals.get(tok.value) || globals.get(tok.value), workbookScope);
           continue;
         }
-        if (t.value !== 'INDIRECT' && t.value !== 'HYPERLINK') continue;
+        if (tok.value !== 'INDIRECT' && tok.value !== 'HYPERLINK') continue;
         const arg = tokens[i + 2], end = tokens[i + 3]?.type;
         if (arg?.type === 'string' && (end === 'comma' || end === 'rparen')) {
           const text = arg.value.trim();
-          if (t.value === 'INDIRECT' || text.startsWith('#')) pending.push({ formula: text.replace(/^#/, ''), global });
+          if (tok.value === 'INDIRECT' || text.startsWith('#')) pending.push({ formula: text.replace(/^#/, ''), global });
         } else {
           // A computed address can name any definition. Keep the namespace
           // without evaluating potentially expensive or asynchronous formulas.
@@ -2227,14 +2233,14 @@ export class Workbook extends EventTarget {
    */
   _renameTablesUniquely(incoming, reservedNames = [], hasDefinedName = null) {
     const defined = new Set(reservedNames.map((name) => name.toLowerCase()));
-    const taken = new Set(this.sheets.filter((s) => !incoming.includes(s)).flatMap((s) => s.tables.map((t) => t.name.toLowerCase())));
+    const taken = new Set(this.sheets.filter((s) => !incoming.includes(s)).flatMap((s) => s.tables.map((tbl) => tbl.name.toLowerCase())));
     for (const name of [...this.names.map((n) => n.name), ...reservedNames]) taken.add(name.toLowerCase());
-    const originalNames = new Set(incoming.flatMap((s) => s.tables.map((t) => t.name.toLowerCase())));
+    const originalNames = new Set(incoming.flatMap((s) => s.tables.map((tbl) => tbl.name.toLowerCase())));
     const renames = [];
     for (const sheet of incoming) {
-      for (const t of sheet.tables) {
-        if (!taken.has(t.name.toLowerCase())) { taken.add(t.name.toLowerCase()); continue; }
-        let base = t.name.replace(/\d+$/, '') || 'Table';
+      for (const tbl of sheet.tables) {
+        if (!taken.has(tbl.name.toLowerCase())) { taken.add(tbl.name.toLowerCase()); continue; }
+        let base = tbl.name.replace(/\d+$/, '') || 'Table';
         const candidate = (index) => {
           const suffix = String(index);
           return `${base.slice(0, MAX_TABLE_NAME_LENGTH - suffix.length)}${suffix}`;
@@ -2245,8 +2251,8 @@ export class Workbook extends EventTarget {
         let n = 2;
         let next = candidate(n);
         while (taken.has(next.toLowerCase()) || originalNames.has(next.toLowerCase())) next = candidate(++n);
-        renames.push([t.name, next]);
-        t.name = next;
+        renames.push([tbl.name, next]);
+        tbl.name = next;
         taken.add(next.toLowerCase());
       }
     }
@@ -2261,8 +2267,8 @@ export class Workbook extends EventTarget {
         return formula;
       };
       for (const cell of sheet.cells.values()) if (cell.f != null) cell.f = rewrite(cell.f);
-      for (const t of sheet.tables) {
-        for (const k of Object.keys(t.calc || {})) t.calc[k] = rewrite(t.calc[k]);
+      for (const tbl of sheet.tables) {
+        for (const k of Object.keys(tbl.calc || {})) tbl.calc[k] = rewrite(tbl.calc[k]);
       }
       Object.assign(sheet, this._ruleFormulaUpdates(sheet, rewrite));
     }
@@ -2285,7 +2291,7 @@ export class Workbook extends EventTarget {
     const externalWorkbooks = appendExternalWorkbooks(this.externalWorkbooks, json.externalWorkbooks);
     const incomingNames = new Set(json.names.map((n) => n.name.toLowerCase()));
     if (!json.sheets.length) return [];
-    return this._structural('Import sheets', () => {
+    return this._structural(t('workbook.undo.importSheets'), () => {
       const renames = new Map();
       const added = [];
       // Names are taken as sheetByName matches them: in any case, and in either Unicode composition.
@@ -2376,7 +2382,7 @@ export class Workbook extends EventTarget {
       if (entry.sheet || !incoming.has(key)) incoming.set(key, entry);
     }
     const { id, name, color, hidden } = this.sheets[i];
-    return this._structural('Replace sheet', () => {
+    return this._structural(t('workbook.undo.replaceSheet'), () => {
       const sheet = makeSheet({ ...json, id, name, color, hidden, freshIds: true });
       if (linked) this._mapSheetFormulas(sheet, f => offsetExternalWorkbookRefs(f, externalOffset));
       this.externalWorkbooks = externalWorkbooks;
@@ -2418,7 +2424,7 @@ export class Workbook extends EventTarget {
    * or null when there is nothing to place, the destination is protected,
    * or it would not fit.
    */
-  placeSheetAt(sheetId, other, otherSheetId, r0, c0, label = 'Import cells', { lines = false } = {}) {
+  placeSheetAt(sheetId, other, otherSheetId, r0, c0, label = t('workbook.undo.importCells'), { lines = false } = {}) {
     const used = other.usedRange(otherSheetId);
     const sheet = this.sheet(sheetId);
     if (!used || !sheet || this._gridLocked(sheet)) return null;
@@ -2488,7 +2494,7 @@ export class Workbook extends EventTarget {
       // merge can be made there, and a merge clipped down to one cell is no longer a merge.
       const merges = src.merges.filter(overlaps).map(moved)
         .filter((m) => (m.r1 !== m.r2 || m.c1 !== m.c2)
-          && !sheet.tables.some((t) => !(m.r2 < t.range.r1 || m.r1 > tableRows(t).dataEnd || m.c2 < t.range.c1 || m.c1 > t.range.c2)));
+          && !sheet.tables.some((tbl) => !(m.r2 < tbl.range.r1 || m.r1 > tableRows(tbl).dataEnd || m.c2 < tbl.range.c1 || m.c1 > tbl.range.c2)));
       if (merges.length) this._setMerges(sheet, [...sheet.merges, ...merges], label);
       const shift = (g, f) => shiftFormula(String(reindex(f) ?? ''), clip(g).r1 - g.r1 + dr, clip(g).c1 - g.c1 + dc);
       const validations = src.validations.filter((v) => overlaps(v.range)).map((v) => ({
@@ -2515,9 +2521,9 @@ export class Workbook extends EventTarget {
   /**
    * Help for the error a cell shows, specific where the formula tells:
    * "There is no function called SUMM. Did you mean SUM?" Null when the
-   * cell holds no error.
+   * cell holds no error. `options` go to explainError ({ source: true } for English, for the AI model).
    */
-  errorHelpAt(sheetId, r, c) {
+  errorHelpAt(sheetId, r, c, options) {
     const v = this.getValue(sheetId, r, c);
     if (!isError(v)) return null;
     const own = this.getCell(sheetId, r, c);
@@ -2527,9 +2533,9 @@ export class Workbook extends EventTarget {
       // A hidden name (a pivot table's definition, Excel's _xlnm._FilterDatabase) works in a formula but is never offered.
       names: this.namesForSheet(sheetId).filter((n) => !n.hidden).map((n) => n.name),
       hidden: this.namesForSheet(sheetId).filter((n) => n.hidden).map((n) => n.name),
-      tables: this.sheets.flatMap((sh) => sh.tables.map((t) => t.name)),
+      tables: this.sheets.flatMap((sh) => sh.tables.map((tbl) => tbl.name)),
       hasSheet: (name) => !!this.sheetByName(name),
-    });
+    }, options);
   }
 
   /* ---------- Cells ---------- */
@@ -2638,13 +2644,14 @@ export class Workbook extends EventTarget {
   /**
    * Why Excel refuses `text` typed into a cell as a formula, for the editor to keep the entry open and say so:
    * { message, start, end } (the part of the text at fault), or null. setInput keeps such an entry as the text typed.
+   * The message is in the interface language, or in English with `source` (for the AI model).
    */
-  typedFormulaProblem(text) {
-    return typedFormulaProblem(text, (f) => this._closeParentheses(f));
+  typedFormulaProblem(text, { source = false } = {}) {
+    return typedFormulaProblem(text, (f) => this._closeParentheses(f), source);
   }
 
   /** Type a value into a cell, optionally patching its style; literal values bypass input parsing. */
-  setInput(sheetId, r, c, text, { literal = false, style = null, label = 'Edit cell', preserveRichText = false, typed = false } = {}) {
+  setInput(sheetId, r, c, text, { literal = false, style = null, label = t('workbook.undo.editCell'), preserveRichText = false, typed = false } = {}) {
     const sheet = this.sheet(sheetId);
     // A refused edit must not trigger table expansion or calculated columns.
     if (!sheet || !inGrid(r, c, gridLimits(sheet)) || this.lockedAt(sheetId, r, c)) return;
@@ -2758,14 +2765,14 @@ export class Workbook extends EventTarget {
     }
     const first = shiftFormula(cell.f, (table.calcRow ?? rows.dataStart) - r, 0);
     const next = { ...table, calc: { ...table.calc, [offset]: first } };
-    this._setTables(sheet, sheet.tables.map((t) => (t.id === table.id ? next : t)), 'Edit cell');
-    if (entries.length) this.setCells(sheet.id, entries, 'Edit cell');
+    this._setTables(sheet, sheet.tables.map((tbl) => (tbl.id === table.id ? next : tbl)), t('workbook.undo.editCell'));
+    if (entries.length) this.setCells(sheet.id, entries, t('workbook.undo.editCell'));
   }
 
   /** Write a table's calculated columns into one data row (a row that was just added). */
   _fillCalculatedRow(sheet, table, r, skipCol = -1) {
     const entries = this._calculatedRowEntries(sheet, table, r, skipCol);
-    if (entries.length) this.setCells(sheet.id, entries, 'Resize table');
+    if (entries.length) this.setCells(sheet.id, entries, t('workbook.undo.resizeTable'));
   }
 
   /** The calculated-column cells a data row still lacks, as setCells entries. */
@@ -2789,7 +2796,7 @@ export class Workbook extends EventTarget {
    * Replace a batch of cells in one undoable step. `cell` is { v, f, s } or
    * null to clear. Rows and columns grow to fit. Returns the number changed.
    */
-  setCells(sheetId, entries, label = 'Edit', { arrayRange = null } = {}) {
+  setCells(sheetId, entries, label = t('workbook.undo.edit'), { arrayRange = null } = {}) {
     const sheet = this.sheet(sheetId);
     if (!sheet || !entries.length) return 0;
     // On a protected sheet only cells the user unlocked take new contents, and they keep their unlocked mark.
@@ -2947,7 +2954,7 @@ export class Workbook extends EventTarget {
     if (this.arrayEditBlocked(sheetId, range, { whole: true })) return 0;
     const { entries, count } = this.formulaValueSnapshot(sheetId, [range]);
     // A protected sheet or range refuses the whole batch: then nothing was replaced, whatever was counted.
-    if (!entries.length || !this.setCells(sheetId, entries, 'Replace formulas with values')) return 0;
+    if (!entries.length || !this.setCells(sheetId, entries, t('workbook.undo.replaceFormulasWithValues'))) return 0;
     return count;
   }
 
@@ -3146,17 +3153,17 @@ export class Workbook extends EventTarget {
         }
       }
     }
-    if (!lines) { this.setCellsWithTableHeaders(sheetId, entries, 'Format', { r1, c1, r2: rows, c2: cols }); return; }
-    this.transaction('Format', () => {
-      this._setLineStyles(sheet, lines.axis, lines.indices, patch, 'Format');
+    if (!lines) { this.setCellsWithTableHeaders(sheetId, entries, t('workbook.undo.format'), { r1, c1, r2: rows, c2: cols }); return; }
+    this.transaction(t('workbook.undo.format'), () => {
+      this._setLineStyles(sheet, lines.axis, lines.indices, patch, t('workbook.undo.format'));
       const area = lines.axis === 'col' ? { ...GRID_RANGE, c1, c2 } : { ...GRID_RANGE, r1, r2 };
-      this._setStyleResets(sheet, removeStyleResets(sheet.styleResets, area, Object.keys(patch)), 'Format');
-      this.setCellsWithTableHeaders(sheetId, entries, 'Format', { r1, c1, r2: rows, c2: cols });
+      this._setStyleResets(sheet, removeStyleResets(sheet.styleResets, area, Object.keys(patch)), t('workbook.undo.format'));
+      this.setCellsWithTableHeaders(sheetId, entries, t('workbook.undo.format'), { r1, c1, r2: rows, c2: cols });
     });
   }
 
   /** Batch edits that rename table headers must keep references and templates in step. */
-  setCellsWithTableHeaders(sheetId, entries, label = 'Edit', range = null, options = {}) {
+  setCellsWithTableHeaders(sheetId, entries, label = t('workbook.undo.edit'), range = null, options = {}) {
     const sheet = this.sheet(sheetId);
     if (!sheet || !entries.length) return 0;
     if (!sheet.tables.length) return this.setCells(sheetId, entries, label, options);
@@ -3168,7 +3175,7 @@ export class Workbook extends EventTarget {
       }
     }
     const { r1, c1, r2, c2 } = range;
-    const headers = sheet.tables.filter((t) => t.headerRow !== false && t.range.r1 >= r1 && t.range.r1 <= r2 && t.range.c1 <= c2 && t.range.c2 >= c1)
+    const headers = sheet.tables.filter((tbl) => tbl.headerRow !== false && tbl.range.r1 >= r1 && tbl.range.r1 <= r2 && tbl.range.c1 <= c2 && tbl.range.c2 >= c1)
       .map((table) => ({ table, names: this.tableColumns(sheet.id, table) }));
     if (!headers.length) return this.setCells(sheet.id, entries, label, options);
     // Explicit formula edits already express the user's chosen references.
@@ -3240,7 +3247,7 @@ export class Workbook extends EventTarget {
     }
     // Through setCells, not the internal writer: a header rewritten here is an edit like any other and a
     // protected one refuses it and says so, rather than the only door in the app that writes through protection.
-    if (fixes.length) this.setCells(sheet.id, fixes, 'Rename column');
+    if (fixes.length) this.setCells(sheet.id, fixes, t('workbook.undo.renameColumn'));
     return names;
   }
 
@@ -3266,14 +3273,14 @@ export class Workbook extends EventTarget {
       const { r, c } = parseKey(key);
       if (r >= area.r1 && r <= area.r2 && c >= area.c1 && c <= area.c2) clear(r, c, cell);
     }
-    this.transaction('Borders', () => {
+    this.transaction(t('workbook.undo.borders'), () => {
       // Whole lines should export as line defaults, not a million explicit
       // blank exceptions. Crossing defaults on the other axis still need a reset.
       const patch = Object.fromEntries(BORDER_STYLE_KEYS.map(k => [k, null]));
       for (const axis of lines?.wholeSheet ? ['col', 'row'] : lines ? [lines.axis] : []) {
         const defaults = axis === 'col' ? sheet.colStyles : sheet.rowStyles;
         const first = axis === 'col' ? area.c1 : area.r1, last = axis === 'col' ? area.c2 : area.r2;
-        this._setLineStyles(sheet, axis, [...defaults.keys()].filter(i => i >= first && i <= last), patch, 'Borders');
+        this._setLineStyles(sheet, axis, [...defaults.keys()].filter(i => i >= first && i <= last), patch, t('workbook.undo.borders'));
       }
       const keys = new Set();
       const collect = (st) => { for (const k of BORDER_STYLE_KEYS) if (st?.[k] != null && st[k] !== false) keys.add(k); };
@@ -3284,8 +3291,8 @@ export class Workbook extends EventTarget {
       collectLines(sheet.colStyles, area.c1, area.c2);
       collectLines(sheet.rowStyles, area.r1, area.r2);
       const kept = removeStyleResets(sheet.styleResets, area, BORDER_STYLE_KEYS);
-      this._setStyleResets(sheet, keys.size ? [...kept, { range: area, keys: [...keys] }] : kept, 'Borders');
-      this.setCells(sheet.id, entries, 'Borders');
+      this._setStyleResets(sheet, keys.size ? [...kept, { range: area, keys: [...keys] }] : kept, t('workbook.undo.borders'));
+      this.setCells(sheet.id, entries, t('workbook.undo.borders'));
     });
   }
 
@@ -3328,21 +3335,21 @@ export class Workbook extends EventTarget {
       const { r, c } = parseKey(key);
       if (r >= area.r1 && r <= area.r2 && c >= area.c1 && c <= area.c2) restyle(r, c, cell);
     }
-    this.transaction('Borders', () => {
+    this.transaction(t('workbook.undo.borders'), () => {
       const patch = { ...(options.color !== undefined ? { bc: options.color } : {}), ...(options.style !== undefined ? { bs: options.style } : {}) };
       for (const axis of wholeSheet ? ['col', 'row'] : lines ? [lines.axis] : []) {
         const defaults = axis === 'col' ? before.colStyles : before.rowStyles;
         const first = axis === 'col' ? area.c1 : area.r1, last = axis === 'col' ? area.c2 : area.r2;
         const indices = [...defaults].filter(([i, st]) => i >= first && i <= last && (st.bt || st.bb || st.bl || st.br)).map(([i]) => i);
-        this._setLineStyles(sheet, axis, indices, patch, 'Borders');
+        this._setLineStyles(sheet, axis, indices, patch, t('workbook.undo.borders'));
       }
       const regions = [...restyledBorderRegions(before, area, beforeAt, (r, c) => this._lineStyle(sheet, r, c), options)];
-      this._setStyleResets(sheet, assignStyleExceptionRegions(sheet.styleResets, regions), 'Borders');
+      this._setStyleResets(sheet, assignStyleExceptionRegions(sheet.styleResets, regions), t('workbook.undo.borders'));
       // Changing inherited storage from shared settings to per-side values
       // must not displace a stored cell's existing shared color or weight.
       // Compare after the inherited edit, so no-op cells stay out of history.
       this.setCells(sheet.id, entries.filter(({ r, c, border }) => !sameJSON(border,
-        borderSnapshot({ ...this._lineStyle(sheet, r, c), ...sheet.cells.get(cellKey(r, c))?.s }))), 'Borders');
+        borderSnapshot({ ...this._lineStyle(sheet, r, c), ...sheet.cells.get(cellKey(r, c))?.s }))), t('workbook.undo.borders'));
     });
   }
 
@@ -3381,7 +3388,7 @@ export class Workbook extends EventTarget {
       const border = paint({ ...beforeAt(r, c), ...cell.s }, r, c);
       if (border) candidates.push({ r, c, cell: { ...cell, s: { ...cell.s, ...border } }, border });
     });
-    this.transaction('Borders', () => {
+    this.transaction(t('workbook.undo.borders'), () => {
       for (const axis of wholeSheet ? ['col', 'row'] : lines ? [lines.axis] : []) {
         // Group equal patches so a sheet-wide pen creates one undoable line
         // update, rather than thousands of independent history closures.
@@ -3402,15 +3409,15 @@ export class Workbook extends EventTarget {
           if (!groups.has(signature)) groups.set(signature, { patch, indices: [] });
           groups.get(signature).indices.push(i);
         }
-        for (const { patch, indices } of groups.values()) this._setLineStyles(sheet, axis, indices, patch, 'Borders');
+        for (const { patch, indices } of groups.values()) this._setLineStyles(sheet, axis, indices, patch, t('workbook.undo.borders'));
       }
       const regions = [...changedBorderRegions(before, area, beforeAt, (r, c) => this._lineStyle(sheet, r, c), paint,
         { rows: [area.r1 + 1, area.r2], cols: [area.c1 + 1, area.c2] }, borderPaintState)];
-      this._setStyleResets(sheet, assignStyleExceptionRegions(sheet.styleResets, regions), 'Borders');
+      this._setStyleResets(sheet, assignStyleExceptionRegions(sheet.styleResets, regions), t('workbook.undo.borders'));
       const entries = candidates.filter(({ r, c, border }) => !sameJSON(borderPaintState(border),
         borderPaintState({ ...this._lineStyle(sheet, r, c), ...sheet.cells.get(cellKey(r, c))?.s })));
       this._mirrorMergeBorders(sheet, area, entries, options.perSide || options.remove ? {} : options);
-      this.setCells(sheet.id, entries, 'Borders');
+      this.setCells(sheet.id, entries, t('workbook.undo.borders'));
     });
   }
 
@@ -3479,7 +3486,7 @@ export class Workbook extends EventTarget {
       entries.push({ r, c, cell: { ...prev, v: prev?.v ?? null, f: prev?.f ?? null, s: Object.keys(st).length ? st : undefined } });
     }
     this._mirrorMergeBorders(sheet, { r1, c1, r2: rows, c2: cols }, entries, { color, style });
-    this.setCells(sheetId, entries, 'Borders');
+    this.setCells(sheetId, entries, t('workbook.undo.borders'));
   }
 
   /** Retain anchor border summaries for merged-cell editing and copied styles. */
@@ -3543,8 +3550,8 @@ export class Workbook extends EventTarget {
         this._emit('protected', sheetId, protectedRange); return;
       }
     }
-    this.transaction('Clear', () => {
-      this._removeNativePivots(plan.removed, 'Clear');
+    this.transaction(t('workbook.undo.clear'), () => {
+      this._removeNativePivots(plan.removed, t('workbook.undo.clear'));
       this._clearRange(sheetId, area, options);
     });
   }
@@ -3595,20 +3602,20 @@ export class Workbook extends EventTarget {
     // or the format would come back on the next cell typed into it (see applyStyle).
     const lines = styles ? this._wholeLines(sheet, { r1, c1, r2, c2 }, skipRow) : null;
     const arrayOptions = contents ? { arrayRange: areaToClear } : {};
-    if (!styles) { this.setCellsWithTableHeaders(sheetId, entries, 'Clear', areaToClear, arrayOptions); return; }
-    this.transaction('Clear', () => {
-      if (lines) this._setLineStyles(sheet, lines.axis, lines.indices, null, 'Clear');
+    if (!styles) { this.setCellsWithTableHeaders(sheetId, entries, t('workbook.undo.clear'), areaToClear, arrayOptions); return; }
+    this.transaction(t('workbook.undo.clear'), () => {
+      if (lines) this._setLineStyles(sheet, lines.axis, lines.indices, null, t('workbook.undo.clear'));
       // Select all is represented as whole columns, but a sheet can carry row defaults too.
       // Clear both sets without materializing the empty cells those defaults used to format.
       const wholeSheet = lines && r1 === 0 && c1 === 0 && r2 >= sheet.rows - 1 && c2 >= sheet.cols - 1;
       if (wholeSheet) {
         const other = lines.axis === 'col' ? 'row' : 'col';
         const defaults = other === 'row' ? sheet.rowStyles : sheet.colStyles;
-        this._setLineStyles(sheet, other, [...defaults.keys()], null, 'Clear');
+        this._setLineStyles(sheet, other, [...defaults.keys()], null, t('workbook.undo.clear'));
       }
       const area = intersection(GRID_RANGE, lines?.wholeSheet ? GRID_RANGE : lines?.axis === 'col' ? { ...GRID_RANGE, c1, c2 }
         : lines?.axis === 'row' ? { ...GRID_RANGE, r1, r2 } : { r1, c1, r2, c2 });
-      if (wholeSheet) this._setStyleResets(sheet, [], 'Clear');
+      if (wholeSheet) this._setStyleResets(sheet, [], t('workbook.undo.clear'));
       else if (area) {
         // Only inherited keys need exceptions. Own styles are removed below, including on blank cells.
         const keys = new Set();
@@ -3616,9 +3623,9 @@ export class Workbook extends EventTarget {
         for (const [r, st] of sheet.rowStyles) if (r >= area.r1 && r <= area.r2 && !skipRow?.(r)) for (const k of Object.keys(st)) keys.add(k);
         const kept = removeStyleResets(sheet.styleResets, area, null, skipRow);
         const added = keys.size ? rowRuns(area, skipRow ? (r) => !skipRow(r) : null).map((range) => ({ range, keys: [...keys] })) : [];
-        this._setStyleResets(sheet, [...kept, ...added], 'Clear');
+        this._setStyleResets(sheet, [...kept, ...added], t('workbook.undo.clear'));
       }
-      this.setCellsWithTableHeaders(sheetId, entries, 'Clear', areaToClear, arrayOptions);
+      this.setCellsWithTableHeaders(sheetId, entries, t('workbook.undo.clear'), areaToClear, arrayOptions);
     });
   }
 
@@ -3744,48 +3751,49 @@ export class Workbook extends EventTarget {
   }
 
   /** Create a native group without replacing scalar values or existing charts. */
-  createNativeSparklines(sheetId, { source = '', location = '', type = 'line', orientation = 'auto', flags = {} } = {}) {
-    const sheet = this.sheet(sheetId), bad = (field, message) => ({ field, message });
-    if (!sheet) return bad('location', 'Choose a worksheet destination.');
-    if (!nativeSparklineChoices.type.includes(type)) return bad('type', 'Choose a sparkline type.');
-    if (!['auto', 'rows', 'columns'].includes(orientation)) return bad('orientation', 'Choose rows or columns.');
+  createNativeSparklines(sheetId, { source = '', location = '', type = 'line', orientation = 'auto', flags = {}, english = false } = {}) {
+    // The message is in the interface language, or in English with `english` (for the AI model).
+    const sheet = this.sheet(sheetId), bad = (field, key) => ({ field, message: say(english, key) });
+    if (!sheet) return bad('location', 'workbook.sparklines.chooseSheet');
+    if (!nativeSparklineChoices.type.includes(type)) return bad('type', 'workbook.sparklines.chooseType');
+    if (!['auto', 'rows', 'columns'].includes(orientation)) return bad('orientation', 'workbook.sparklines.chooseOrientation');
     const tokens = text => { try { return tokenize(String(text).trim().replace(/^=/, '')); } catch { return []; } };
     const loc = tokens(location);
     if (loc.length !== 1 || loc[0].type !== 'ref' || loc[0].sheetEnd || loc[0].spill || loc[0].sheet && !sameSheetName(loc[0].sheet, sheet.name))
-      return bad('location', 'Choose a cell range on this worksheet.');
+      return bad('location', 'workbook.sparklines.chooseRangeOnSheet');
     let dest = parseRefText(loc[0].text);
-    if (!dest || !['cell', 'range'].includes(dest.kind)) return bad('location', 'Choose a bounded cell range.');
+    if (!dest || !['cell', 'range'].includes(dest.kind)) return bad('location', 'workbook.sparklines.chooseBoundedRange');
     const merge = this.mergeAt(sheetId, dest.r1, dest.c1);
     if (merge && ['r1', 'r2', 'c1', 'c2'].every(k => merge[k] === dest[k])) dest = { ...dest, r2: dest.r1, c2: dest.c1 };
-    if (dest.r1 !== dest.r2 && dest.c1 !== dest.c2) return bad('location', 'Choose a single row or column of destination cells.');
+    if (dest.r1 !== dest.r2 && dest.c1 !== dest.c2) return bad('location', 'workbook.sparklines.chooseOneLine');
     if (dest.r2 >= Math.max(MAX_ROWS, sheet.rows) || dest.c2 >= Math.max(MAX_COLS, sheet.cols))
-      return bad('location', 'The destination exceeds the worksheet size limit.');
+      return bad('location', 'workbook.sparklines.pastSheetEnd');
     const formula = String(source).trim().replace(/^=/, ''), srcTokens = tokens(formula);
     const data = nativeSparklineLocation(this, sheetId, formula, { r: dest.r1, c: dest.c1 });
     const dataSheet = data && this.sheetByName(data.sheet);
-    if (!data || data.sheetEnd || !dataSheet || dataSheet.kind === 'chart') return bad('source', 'Choose an available data range or range name.');
+    if (!data || data.sheetEnd || !dataSheet || dataSheet.kind === 'chart') return bad('source', 'workbook.sparklines.chooseData');
     const count = Math.max(dest.r2 - dest.r1, dest.c2 - dest.c1) + 1;
     const rows = data.r2 - data.r1 + 1, cols = data.c2 - data.c1 + 1;
     let byRows = orientation === 'rows';
     if (orientation === 'auto') byRows = rows === count && (cols !== count || dest.r1 !== dest.r2);
-    if ((byRows ? rows : cols) !== count) return bad('source', 'The number of data rows or columns must match the destination cells.');
+    if ((byRows ? rows : cols) !== count) return bad('source', 'workbook.sparklines.countMismatch');
     // A vector name/spill can stay live as one native series. Slicing a dynamic
     // matrix into fixed addresses would silently discard its binding semantics.
     if (count > 1 && (srcTokens[0]?.type !== 'ref' || srcTokens[0]?.spill))
-      return bad('source', 'Use a direct data range for multiple sparklines, or one destination for a named vector.');
+      return bad('source', 'workbook.sparklines.directRange');
     const sparklines = [];
     for (let i = 0; i < count; i++) {
       const r = dest.r1 + (dest.r1 === dest.r2 ? 0 : i), c = dest.c1 + (dest.c1 === dest.c2 ? 0 : i);
       const merged = this.mergeAt(sheetId, r, c);
-      if (merged && (merged.r1 !== r || merged.c1 !== c)) return bad('location', 'A destination is inside a merged cell. Choose its top-left cell.');
+      if (merged && (merged.r1 !== r || merged.c1 !== c)) return bad('location', 'workbook.sparklines.insideMerge');
       sparklines.push({ ref: cellName(r, c), formula: count === 1 ? formula : refToText({ ...data, kind: 'range',
         ...(byRows ? { r1: data.r1 + i, r2: data.r1 + i } : { c1: data.c1 + i, c2: data.c1 + i }),
         sheet: srcTokens[0].sheet,
       }) });
     }
     const occupied = new Set(sheet.sparklineGroups.flatMap(g => g.sparklines.map(s => s.ref)));
-    if (sparklines.some(s => occupied.has(s.ref))) return bad('location', 'A destination already contains a sparkline. Clear it or choose another cell.');
-    if (this._gridLocked(sheet) || this.lockedIn(sheetId, dest)) return bad('location', 'A destination is protected.');
+    if (sparklines.some(s => occupied.has(s.ref))) return bad('location', 'workbook.sparklines.occupied');
+    if (this._gridLocked(sheet) || this.lockedIn(sheetId, dest)) return bad('location', 'workbook.sparklines.destinationProtected');
     // Excel's defaults for a new group: an empty cell is a gap in the line (not a drop to zero), and the
     // negative, high, low, first and last points and markers take accent colours once turned on, not black.
     const shade = (tint) => ({ theme: 4, ...(tint ? { tint } : {}) });
@@ -3795,7 +3803,7 @@ export class Workbook extends EventTarget {
       colorMarkers: shade(-0.499984740745262), colorFirst: shade(0.39997558519241921), colorLast: shade(0.39997558519241921),
       colorHigh: shade(), colorLow: shade(), uid: `{${crypto.randomUUID().toUpperCase()}}`, sparklines }])[0];
     this._growTo(sheet, dest.r2 + 1, dest.c2 + 1);
-    this._writeRuleFormulaUpdates(sheet, { sparklineGroups: [...sheet.sparklineGroups, group] }, 'Insert sparklines');
+    this._writeRuleFormulaUpdates(sheet, { sparklineGroups: [...sheet.sparklineGroups, group] }, t('workbook.undo.insertSparklines'));
     return null;
   }
 
@@ -3803,12 +3811,12 @@ export class Workbook extends EventTarget {
   updateNativeSparkline(sheetId, ref, { settings = {}, formula, expectedGroupUid } = {}) {
     const sheet = this.sheet(sheetId);
     const group = sheet?.sparklineGroups.find(g => g.sparklines.some(s => s.ref === ref));
-    if (!group) return 'Select a cell containing a sparkline.';
-    if (expectedGroupUid != null && group.uid !== expectedGroupUid) return 'This sparkline group changed. Reopen its settings.';
+    if (!group) return t('workbook.sparklines.selectOne');
+    if (expectedGroupUid != null && group.uid !== expectedGroupUid) return t('workbook.sparklines.groupChanged');
     const fields = new Set([...nativeSparklineFlags, ...nativeSparklineColors, ...Object.keys(nativeSparklineChoices), 'lineWeight', 'manualMin', 'manualMax', 'dateFormula']);
     const next = { ...group };
     for (const [key, value] of Object.entries(settings)) {
-      if (!fields.has(key)) return 'Unknown sparkline setting.';
+      if (!fields.has(key)) return t('workbook.sparklines.unknownSetting');
       if (value == null) delete next[key]; else next[key] = value;
     }
     next.sparklines = group.sparklines.map(spark => {
@@ -3819,13 +3827,13 @@ export class Workbook extends EventTarget {
     let normalized;
     try { [normalized] = normalizeNativeSparklineGroups([next]); }
     catch (error) { return error.message; }
-    if (normalized.minAxisType === 'custom' && normalized.maxAxisType === 'custom' && normalized.manualMin > normalized.manualMax) return 'Maximum must be at least the minimum.';
+    if (normalized.minAxisType === 'custom' && normalized.maxAxisType === 'custom' && normalized.manualMin > normalized.manualMax) return t('workbook.sparklines.maximumBelowMinimum');
     if (sameJSON(group, normalized)) return null;
     const shared = !sameJSON({ ...group, sparklines: [] }, { ...normalized, sparklines: [] });
     if (this._gridLocked(sheet) || (shared ? group.sparklines : group.sparklines.filter(s => s.ref === ref)).some(s => {
       const pos = parseRefText(s.ref); return this.lockedAt(sheetId, pos.r1, pos.c1);
-    })) return 'A sparkline affected by this change is protected.';
-    this._writeRuleFormulaUpdates(sheet, { sparklineGroups: sheet.sparklineGroups.map(g => g === group ? normalized : g) }, 'Edit sparkline');
+    })) return t('workbook.sparklines.protectedPeriod');
+    this._writeRuleFormulaUpdates(sheet, { sparklineGroups: sheet.sparklineGroups.map(g => g === group ? normalized : g) }, t('workbook.undo.editSparkline'));
     return null;
   }
 
@@ -3852,14 +3860,14 @@ export class Workbook extends EventTarget {
     if (this._gridLocked(sheet) || removed.some(spark => {
       const p = parseRefText(spark.ref); return this.lockedAt(sheetId, p.r1, p.c1);
     })) return null;
-    this._writeRuleFormulaUpdates(sheet, { sparklineGroups: next }, groups ? 'Clear sparkline groups' : 'Clear sparklines');
+    this._writeRuleFormulaUpdates(sheet, { sparklineGroups: next }, groups ? t('workbook.undo.clearSparklineGroups') : t('workbook.undo.clearSparklines'));
     return removed.length;
   }
 
   /** Change membership without changing any series source or scalar cell. */
   regroupNativeSparklines(sheetId, ranges, { ungroup = false, templateRef = null, skipRow = null } = {}) {
     const sheet = this.sheet(sheetId);
-    if (!sheet) return 'Select cells containing sparklines';
+    if (!sheet) return t('workbook.sparklines.selectSome');
     const selected = ranges.map(normalizeRange), picked = new Map(), members = [];
     for (const group of sheet.sparklineGroups) {
       const sparks = group.sparklines.filter(spark => {
@@ -3868,22 +3876,22 @@ export class Workbook extends EventTarget {
       });
       if (sparks.length) { picked.set(group, new Set(sparks)); members.push(...sparks.map(spark => ({ group, spark }))); }
     }
-    if (!members.length) return 'Select cells containing sparklines';
+    if (!members.length) return t('workbook.sparklines.selectSome');
     const template = members.find(({ spark }) => spark.ref === templateRef);
     if (!ungroup) {
-      if (members.length < 2) return 'Select at least two sparklines to group';
-      if (!template) return 'The active sparkline must be in the selection';
+      if (members.length < 2) return t('workbook.sparklines.selectTwo');
+      if (!template) return t('workbook.sparklines.activeOutside');
       if (picked.size === 1 && members.length === template.group.sparklines.length) return null;
     }
     if (!ungroup && template.group.dateAxis && template.group.dateFormula) {
       if (nativeSparklineDateMismatch(this, sheetId, template.group.dateFormula, members.map(({ spark }) => spark)))
-        return 'The active sparkline’s date range must match every selected data range';
+        return t('workbook.sparklines.dateRangeMismatch');
     }
     const affected = ungroup ? members.filter(({ group }) => group.sparklines.length > 1) : members;
     if (!affected.length) return null;
     if (this._gridLocked(sheet) || affected.some(({ spark }) => {
       const p = parseRefText(spark.ref); return this.lockedAt(sheetId, p.r1, p.c1);
-    })) return 'A sparkline affected by this change is protected';
+    })) return t('workbook.sparklines.protected');
     const fresh = (group, sparklines) => normalizeNativeSparklineGroups([{
       ...group, uid: `{${crypto.randomUUID().toUpperCase()}}`, sparklines,
     }])[0];
@@ -3900,7 +3908,7 @@ export class Workbook extends EventTarget {
       const sparks = [template.spark, ...members.filter(m => m !== template).map(m => m.spark)];
       added.push(fresh(template.group, sparks));
     }
-    this._writeRuleFormulaUpdates(sheet, { sparklineGroups: [...kept, ...added] }, ungroup ? 'Ungroup sparklines' : 'Group sparklines');
+    this._writeRuleFormulaUpdates(sheet, { sparklineGroups: [...kept, ...added] }, ungroup ? t('workbook.undo.ungroupSparklines') : t('workbook.undo.groupSparklines'));
     return null;
   }
 
@@ -3925,7 +3933,7 @@ export class Workbook extends EventTarget {
       if (contiguous) tables.push({ pivot: { ...pivot }, range: { r1: r, c1: c, r2: r + area.r2 - area.r1, c2: c + area.c2 - area.c1 } });
     }
     return tables.length ? { workbook: this, tables, dxfs: this.nativePivots.dxfs, styles: this.nativePivots.styles, formats: this.nativePivots.formats,
-      caches: this.nativePivots.caches.filter(c => tables.some(t => t.pivot.cache === c.key)) } : null;
+      caches: this.nativePivots.caches.filter(c => tables.some(tbl => tbl.pivot.cache === c.key)) } : null;
   }
 
   /** Preflight the entire paste before either the cells or native reports change. */
@@ -3951,7 +3959,7 @@ export class Workbook extends EventTarget {
       const area = { r1: r0 + ry * h + range.r1, r2: r0 + ry * h + range.r2, c1: c0 + rx * w + range.c1, c2: c0 + rx * w + range.c2 };
       if (area.r1 < 0 || area.c1 < 0 || area.r2 >= limit.rows || area.c2 >= limit.cols) return refused('bounds', pivot.name);
       if (!this.nativePivots.caches.some(c => c.key === pivot.cache)) return refused('copy-layout', pivot.name);
-      if (sheet.tables.some(t => intersection(t.range, area))) return refused('table-overlap', pivot.name);
+      if (sheet.tables.some(tbl => intersection(tbl.range, area))) return refused('table-overlap', pivot.name);
       // Destination merges must not alter the report's copied geometry.
       if ((plan.remaining || sheet.merges).some(m => intersection(m, area) && !merges.some(copy => sameRange(m, copy)))) return refused('copy-layout', pivot.name);
       reports.push({ pivot: { ...pivot }, owner: sheetId, ref: refToText(area), ry, rx });
@@ -3972,11 +3980,11 @@ export class Workbook extends EventTarget {
       if (!normalizeNativePivots(next)) return refused('copy-limit');
     } catch { return refused('copy-layout'); }
     if (options.checkOnly) return true;
-    return this.transaction('Paste', () => {
+    return this.transaction(t('workbook.undo.paste'), () => {
       const result = this.pasteCells(sheetId, cells, r0, c0, origin, target, options), previous = this.nativePivots;
       const apply = value => { this.nativePivots = value; this._changed('pivots', sheetId); };
       apply(next);
-      this._push({ label: 'Paste', undo: () => apply(previous), redo: () => apply(next) });
+      this._push({ label: t('workbook.undo.paste'), undo: () => apply(previous), redo: () => apply(next) });
       return result;
     });
   }
@@ -4047,7 +4055,7 @@ export class Workbook extends EventTarget {
         const area = { r1: r, c1: c, r2: r + ((transpose ? size?.cols : size?.rows) ?? 1) - 1, c2: c + ((transpose ? size?.rows : size?.cols) ?? 1) - 1 };
         const reason = !size || i + size.rows > cells.length || j + size.cols > cells[0].length
           || area.r2 >= limit.rows || area.c2 >= limit.cols ? 'bounds'
-          : existingMerges.some(m => intersection(m, area)) || sheet.tables.some(t => intersection(t.range, area)) ? 'overlap' : null;
+          : existingMerges.some(m => intersection(m, area)) || sheet.tables.some(tbl => intersection(tbl.range, area)) ? 'overlap' : null;
         if (reason) {
           this._arrayRefused(sheet, area, reason);
           return checkOnly ? false : clipped(r0 + (transpose ? cells[0].length : repeat.rows * cells.length), c0 + (transpose ? cells.length : repeat.cols * cells[0].length));
@@ -4231,8 +4239,8 @@ export class Workbook extends EventTarget {
         ? { ...rule, source: reindex(rule.source) } : rule) ?? null;
       options.nativeSparklines = nativeSparklines ? { ...nativeSparklines, groups: mapNativeSparklineReferences(nativeSparklines.groups, reindex) } : null;
       let result;
-      this.transaction('Paste', () => {
-        this._structural('Paste', () => { this.externalWorkbooks = combined; });
+      this.transaction(t('workbook.undo.paste'), () => {
+        this._structural(t('workbook.undo.paste'), () => { this.externalWorkbooks = combined; });
         result = this._commitPaste(sheetId, mapped, noteWrites, options);
       });
       return result;
@@ -4265,7 +4273,7 @@ export class Workbook extends EventTarget {
       for (const m of plan.ranges) {
         const array = this._fixedArrays(sheet).overlapping(m).next().value;
         if (array) { this._arrayRefused(sheet, array, 'overlap'); return false; }
-        if (sheet.tables.some(t => intersection(m, { ...t.range, r2: tableRows(t).dataEnd }))) {
+        if (sheet.tables.some(tbl => intersection(m, { ...tbl.range, r2: tableRows(tbl).dataEnd }))) {
           this._emit('merge-paste', sheetId, { reason: 'table' }); return false;
         }
         for (const declaration of declarations) {
@@ -4288,7 +4296,7 @@ export class Workbook extends EventTarget {
         const prev = sheet.cells.get(cellKey(r, c));
         if (prev?.v != null || prev?.f != null) written.push({ r, c, cell: { v: null, f: null, s: prev.s } });
       }
-      const label = formatRange ? 'Paste formatting' : 'Paste';
+      const label = formatRange ? t('workbook.undo.pasteFormatting') : t('workbook.undo.paste');
       this.transaction(label, () => {
         this._commitPaste(sheetId, written, noteWrites, { conditionalFormats, validations, nativeSparklines });
         if (formatRange ? plan.changed : plan.ranges.length) this._setMerges(sheet, plan.next, label);
@@ -4301,27 +4309,27 @@ export class Workbook extends EventTarget {
       if (sheet.protectedRanges.length && combined.some(({ r, c }) => this.lockedAt(sheetId, r, c))) return false;
       return !this._fixedWritesBlocked(sheet, combined);
     }
-    if (!sheet || !noteWrites.length && conditionalFormats === null && validations === null && nativeSparklines === null) { this.setCellsWithTableHeaders(sheetId, entries, 'Paste'); return; }
+    if (!sheet || !noteWrites.length && conditionalFormats === null && validations === null && nativeSparklines === null) { this.setCellsWithTableHeaders(sheetId, entries, t('workbook.undo.paste')); return; }
     if (this._fixedWritesBlocked(sheet, entries)) return;
     // The same refusal as setCells: one protected cell keeps the whole paste out.
     if (this._gridLocked(sheet) || (sheet.protectedRanges.length && entries.some(({ r, c }) => this._protectedAt(sheet, r, c)))) {
-      this.setCellsWithTableHeaders(sheetId, entries, 'Paste');
+      this.setCellsWithTableHeaders(sheetId, entries, t('workbook.undo.paste'));
       return;
     }
-    this.transaction('Paste', () => {
+    this.transaction(t('workbook.undo.paste'), () => {
       const groups = replacePastedNativeSparklines(sheet.sparklineGroups, nativeSparklines, entries);
       if (groups !== sheet.sparklineGroups) {
         for (const group of groups) for (const spark of group.sparklines) {
           const ref = parseRefText(spark.ref); this._growTo(sheet, ref.r1 + 1, ref.c1 + 1);
         }
-        this._writeRuleFormulaUpdates(sheet, { sparklineGroups: groups }, 'Paste');
+        this._writeRuleFormulaUpdates(sheet, { sparklineGroups: groups }, t('workbook.undo.paste'));
       }
-      this.setCellsWithTableHeaders(sheetId, entries, 'Paste');
+      this.setCellsWithTableHeaders(sheetId, entries, t('workbook.undo.paste'));
       for (const { r, c, text } of noteWrites) this.setNote(sheetId, r, c, text);
       const rules = replaceConditionalFormats(sheet.rules, conditionalFormats, entries, newId, sheet.name);
-      if (rules !== sheet.rules) this._setRules(sheet, rules, 'Paste');
+      if (rules !== sheet.rules) this._setRules(sheet, rules, t('workbook.undo.paste'));
       const nextValidations = replaceValidations(sheet.validations, validations, entries, newId);
-      if (nextValidations !== sheet.validations) this._setValidations(sheet, nextValidations, 'Paste');
+      if (nextValidations !== sheet.validations) this._setValidations(sheet, nextValidations, t('workbook.undo.paste'));
     });
   }
 
@@ -4374,7 +4382,7 @@ export class Workbook extends EventTarget {
       const value = Number.isInteger(result) ? result : Number(result.toPrecision(15));
       entries.push({ r, c, cell: { v: value, f: null, ...kept } });
     }));
-    return this.setCellsWithTableHeaders(sheetId, entries, 'Paste operation');
+    return this.setCellsWithTableHeaders(sheetId, entries, t('workbook.undo.pasteOperation'));
   }
 
   /**
@@ -4415,7 +4423,7 @@ export class Workbook extends EventTarget {
       return this._commitPaste(sheetId, entries, [], { merges: mapped, formatRange, conditionalFormats: rules, externalWorkbooks, formatsOnly: true });
     }
     if (rules !== null) return this._commitPaste(sheetId, entries, [], { conditionalFormats: rules, externalWorkbooks, formatsOnly: true });
-    this.setCellsWithTableHeaders(sheetId, entries, 'Paste formatting');
+    this.setCellsWithTableHeaders(sheetId, entries, t('workbook.undo.pasteFormatting'));
   }
 
   /** Paste plain text (a 2D array of strings) with type inference. */
@@ -4438,7 +4446,7 @@ export class Workbook extends EventTarget {
     if (r2 < r0 || c2 < c0 || this.lockedIn(sheetId, { r1: r0, c1: c0, r2, c2 })) return 0;
     const prefix = srcSheetId === sheetId ? '' : `${quoteSheet(src.name)}!`;
     let n = 0;
-    this.transaction('Paste links', () => {
+    this.transaction(t('workbook.undo.pasteLinks'), () => {
       rows.forEach((r, i) => cols.forEach((c, j) => {
         const tr = r0 + i;
         const tc = c0 + j;
@@ -4470,7 +4478,7 @@ export class Workbook extends EventTarget {
         }));
       }
     }
-    this.setCellsWithTableHeaders(sheetId, entries, 'Paste');
+    this.setCellsWithTableHeaders(sheetId, entries, t('workbook.undo.paste'));
   }
 
   /** Paste a snapshot of computed values without reparsing text or changing formatting, tiling across `target` like pasteCells. */
@@ -4494,7 +4502,7 @@ export class Workbook extends EventTarget {
         }));
       }
     }
-    return this.setCellsWithTableHeaders(sheetId, entries, 'Paste values');
+    return this.setCellsWithTableHeaders(sheetId, entries, t('workbook.undo.pasteValues'));
   }
 
   /** Apply only after the caller has validated the complete cell move. */
@@ -4502,7 +4510,7 @@ export class Workbook extends EventTarget {
     const source = this.sheet(sourceId), target = this.sheet(targetId);
     const updates = moveConditionalFormats(this.sheets, source, target, blocks, newId,
       (sheet, range, r) => this._visibleOrdinal(sheet, range.r1, range.r2, r));
-    for (const [sheet, rules] of updates) if (rules !== sheet.rules) this._writeRuleFormulaUpdates(sheet, { rules }, 'Move cells');
+    for (const [sheet, rules] of updates) if (rules !== sheet.rules) this._writeRuleFormulaUpdates(sheet, { rules }, t('workbook.undo.moveCells'));
   }
 
   /** Prepare a preflighted packed cut inside its transaction. Rewrite dependencies
@@ -4532,10 +4540,10 @@ export class Workbook extends EventTarget {
     this._rewriteFormulas((formula, owner, r, c, template) => {
       if (!template && (owner === source && move.sourceCell(r, c) || owner === target && move.targetCell(r, c))) return formula;
       return move.follow(formula, owner.name);
-    }, 'Move cells');
-    this._rewriteNamedFormulas((formula, name) => move.follow(formula, name.sheet || null, name.relative === true), 'Move cells');
+    }, t('workbook.undo.moveCells'));
+    this._rewriteNamedFormulas((formula, name) => move.follow(formula, name.sheet || null, name.relative === true), t('workbook.undo.moveCells'));
     // Conditional formats and native sparklines have their own destination move.
-    this._rewriteRuleFormulas((formula, owner) => move.follow(formula, owner.name), 'Move cells', { conditional: false, sparklines: false });
+    this._rewriteRuleFormulas((formula, owner) => move.follow(formula, owner.name), t('workbook.undo.moveCells'), { conditional: false, sparklines: false });
     return carried;
   }
 
@@ -4587,9 +4595,9 @@ export class Workbook extends EventTarget {
     // covers whole gives way to it, as it gives way to a paste.
     const insideDst = (m) => m.r1 >= dst.r1 && m.r2 <= dst.r2 && m.c1 >= dst.c1 && m.c2 <= dst.c2;
     if (sheet.merges.some((m) => !inside(m) && overlaps(m, dst) && !insideDst(m))) return null;
-    const movingTables = sheet.tables.filter((t) => inside(t.range));
-    if (sheet.tables.some((t) => !inside(t.range) && overlaps(t.range, src) && !(src.r1 >= t.range.r1 && src.r2 <= t.range.r2 && src.c1 >= t.range.c1 && src.c2 <= t.range.c2))) return null;
-    if (movingTables.some((t) => sheet.tables.some((o) => !inside(o.range) && overlaps(shifted(t.range), o.range)))) return null;
+    const movingTables = sheet.tables.filter((tbl) => inside(tbl.range));
+    if (sheet.tables.some((tbl) => !inside(tbl.range) && overlaps(tbl.range, src) && !(src.r1 >= tbl.range.r1 && src.r2 <= tbl.range.r2 && src.c1 >= tbl.range.c1 && src.c2 <= tbl.range.c2))) return null;
+    if (movingTables.some((tbl) => sheet.tables.some((o) => !inside(o.range) && overlaps(shifted(tbl.range), o.range)))) return null;
     // A 3D span (Sheet1:Two!A1) names the same cells on every sheet between two tabs, so one sheet's
     // moved block cannot take it along; it stays where it is.
     // A whole-column (or row) reference is inside only whole columns (or rows) that move: B:B follows column B.
@@ -4607,12 +4615,12 @@ export class Workbook extends EventTarget {
       return inDst(ref) ? null : ref;
     });
     // The table a cell is in that the block does not carry: a formula moved out of one names it (_leaveTable).
-    const staying = (r, c) => sheet.tables.find((t) => !movingTables.includes(t) && r >= t.range.r1 && r <= t.range.r2 && c >= t.range.c1 && c <= t.range.c2)?.name;
-    this.transaction('Move cells', () => {
+    const staying = (r, c) => sheet.tables.find((tbl) => !movingTables.includes(tbl) && r >= tbl.range.r1 && r <= tbl.range.r2 && c >= tbl.range.c1 && c <= tbl.range.c2)?.name;
+    this.transaction(t('workbook.undo.moveCells'), () => {
       this._detachChartsFromMove(sheet, src, inside);
       this._moveNativePivots(sheetId, src, sheetId, dst);
       this._moveConditionalFormats(sheetId, sheetId, [{ source: src, target: dst }]);
-      this._setStyleResets(sheet, moveStyleResets(sheet.styleResets, src, dst), 'Move cells');
+      this._setStyleResets(sheet, moveStyleResets(sheet.styleResets, src, dst), t('workbook.undo.moveCells'));
       const entries = new Map();
       const put = (r, c, cell) => entries.set(cellKey(r, c), { r, c, cell });
       const carry = (r, c) => {
@@ -4637,32 +4645,32 @@ export class Workbook extends EventTarget {
       this._rewriteFormulas((formula, owner, r, c, template) => {
         if (!template && owner === sheet && entries.has(cellKey(r, c))) return formula;
         return follow(formula, owner.name);
-      }, 'Move cells');
+      }, t('workbook.undo.moveCells'));
       const names = this.names.map((n) => ({ ...n, ref: follow(n.ref, n.sheet || null, n.relative === true) }));
-      if (names.some((n, i) => n.ref !== this.names[i].ref)) this._setNames(names, 'Move cells');
+      if (names.some((n, i) => n.ref !== this.names[i].ref)) this._setNames(names, t('workbook.undo.moveCells'));
       // Tables inside the block keep their name, columns, and templates (which followed above like any
       // formula). They step aside while the cells are written, so their headers leaving and landing are
       // not taken for renames, and return at their new place in their old order.
-      const ids = new Set(movingTables.map((t) => t.id));
+      const ids = new Set(movingTables.map((tbl) => tbl.id));
       const order = sheet.tables;
-      const moved = new Map(order.filter((t) => ids.has(t.id)).map((t) => [t.id, { ...t, range: shifted(t.range), ...(t.calcRow != null ? { calcRow: t.calcRow + dr } : {}) }]));
-      if (ids.size) this._setTables(sheet, order.filter((t) => !ids.has(t.id)), 'Move cells');
+      const moved = new Map(order.filter((tbl) => ids.has(tbl.id)).map((tbl) => [tbl.id, { ...tbl, range: shifted(tbl.range), ...(tbl.calcRow != null ? { calcRow: tbl.calcRow + dr } : {}) }]));
+      if (ids.size) this._setTables(sheet, order.filter((tbl) => !ids.has(tbl.id)), t('workbook.undo.moveCells'));
       // A cell landing on (or leaving) a table header renames that column, as a pasted header does.
-      this.setCellsWithTableHeaders(sheetId, [...entries.values()], 'Move cells', {
+      this.setCellsWithTableHeaders(sheetId, [...entries.values()], t('workbook.undo.moveCells'), {
         r1: Math.min(src.r1, dst.r1), c1: Math.min(src.c1, dst.c1), r2: Math.max(src.r2, dst.r2), c2: Math.max(src.c2, dst.c2),
       });
       if (ids.size) {
-        const live = new Map(sheet.tables.map((t) => [t.id, t]));
-        this._setTables(sheet, order.map((t) => moved.get(t.id) || live.get(t.id)), 'Move cells');
+        const live = new Map(sheet.tables.map((tbl) => [tbl.id, tbl]));
+        this._setTables(sheet, order.map((tbl) => moved.get(tbl.id) || live.get(tbl.id)), t('workbook.undo.moveCells'));
       }
       // A moving table's filter goes with it, its column criteria re-keyed; the moved cells decide anew what it hides.
       // So does a sheet's filter whose whole list the block carries (unless it would land on a table): left behind,
       // it went on hiding the rows its list had left, emptied, while the list itself lay unfiltered elsewhere.
       for (const f of sheetFilters(sheet)) {
-        const owner = movingTables.find(t => t.range.r1 === f.range.r1 && t.range.c1 === f.range.c1 && t.range.c2 === f.range.c2);
-        const carried = !owner && !filterTable(sheet, f) && inside(f.range) && !sheet.tables.some((t) => overlaps(t.range, shifted(f.range)));
+        const owner = movingTables.find(tbl => tbl.range.r1 === f.range.r1 && tbl.range.c1 === f.range.c1 && tbl.range.c2 === f.range.c2);
+        const carried = !owner && !filterTable(sheet, f) && inside(f.range) && !sheet.tables.some((tbl) => overlaps(tbl.range, shifted(f.range)));
         if (owner || carried) this._setFilter(sheet, { ...f, range: shifted(f.range), criteria: Object.fromEntries(Object.entries(f.criteria).map(([c, crit]) => [Number(c) + dc, crit])),
-          ...(f.hiddenButtons ? { hiddenButtons: f.hiddenButtons.map(c => c + dc) } : {}) }, 'Move cells', { target: f });
+          ...(f.hiddenButtons ? { hiddenButtons: f.hiddenButtons.map(c => c + dc) } : {}) }, t('workbook.undo.moveCells'), { target: f });
       }
       // Notes travel with their cells; notes already at the destination go.
       const moving = [];
@@ -4678,17 +4686,17 @@ export class Workbook extends EventTarget {
       if (sheet.merges.length) {
         const kept = sheet.merges.filter((m) => !inside(m) && !overlaps(m, dst));
         const moved = sheet.merges.filter(inside).map((m) => ({ r1: m.r1 + dr, c1: m.c1 + dc, r2: m.r2 + dr, c2: m.c2 + dc }));
-        if (kept.length + moved.length !== sheet.merges.length || moved.length) this._setMerges(sheet, [...kept, ...moved], 'Move cells');
+        if (kept.length + moved.length !== sheet.merges.length || moved.length) this._setMerges(sheet, [...kept, ...moved], t('workbook.undo.moveCells'));
       }
       // Validation goes with the cells it covers, replacing the destination's as a paste does; chart
       // sources that lie wholly inside the block travel with it. A picture's, text box's or SmartArt's range is
       // only the cell it sits on, and the object stays where it is, so its range stays too.
       const validations = moveValidations(sheet.validations, null, src, dst, newId).target;
-      if (validations !== sheet.validations) this._setValidations(sheet, validations, 'Move cells');
+      if (validations !== sheet.validations) this._setValidations(sheet, validations, t('workbook.undo.moveCells'));
       const follows = (ch) => !PLACED_DRAWING_TYPES.has(ch.type) && inside(ch.range);
-      if (sheet.charts.some(follows)) this._setCharts(sheet, sheet.charts.map((ch) => (follows(ch) ? { ...ch, range: shifted(ch.range) } : ch)), 'Move cells');
+      if (sheet.charts.some(follows)) this._setCharts(sheet, sheet.charts.map((ch) => (follows(ch) ? { ...ch, range: shifted(ch.range) } : ch)), t('workbook.undo.moveCells'));
       this._moveScenarioCells(sheet, inside, shifted);
-      this._rewriteRuleFormulas((formula, owner) => follow(formula, owner.name), 'Move cells', { conditional: false });
+      this._rewriteRuleFormulas((formula, owner) => follow(formula, owner.name), t('workbook.undo.moveCells'), { conditional: false });
       // Whole lines reach the sheet's edge, which the sheet need not grow to show: only as far as it already goes.
       this._moveNativeSparklines(sheet, sheet, src, dst, wholeCols || wholeRows
         ? { r2: wholeCols ? Math.min(dst.r2, sheet.rows - 1) : dst.r2, c2: wholeRows ? Math.min(dst.c2, sheet.cols - 1) : dst.c2 } : dst);
@@ -4720,7 +4728,7 @@ export class Workbook extends EventTarget {
       this._changed('cells', live.id);
     };
     apply(after);
-    this._push({ label: 'Move cells', undo: () => apply(before), redo: () => apply(after) });
+    this._push({ label: t('workbook.undo.moveCells'), undo: () => apply(before), redo: () => apply(after) });
   }
 
   /** Scenario changing cells (and result cells) inside a moved block follow it, as one undo step of the move. */
@@ -4728,7 +4736,7 @@ export class Workbook extends EventTarget {
     if (!sheet.scenarios) return;
     const probe = { scenarios: sheet.scenarios };
     mapScenarioCells(probe, (m) => (inside(m) ? shifted(m) : m));
-    if (!sameJSON(probe.scenarios, sheet.scenarios)) setScenarios(this, sheet.id, probe.scenarios, 'Move cells');
+    if (!sameJSON(probe.scenarios, sheet.scenarios)) setScenarios(this, sheet.id, probe.scenarios, t('workbook.undo.moveCells'));
   }
 
   /** Carry native sparkline destinations with a cut, retaining shared settings.
@@ -4751,7 +4759,7 @@ export class Workbook extends EventTarget {
     const move = packedMoveReferences(source.name, target.name, rows, cols, r, c);
     for (const owner of this.sheets) {
       const groups = mapNativeSparklineReferences(owner.sparklineGroups, formula => move.follow(formula, owner.name));
-      if (groups !== owner.sparklineGroups) this._writeRuleFormulaUpdates(owner, { sparklineGroups: groups }, 'Move cells');
+      if (groups !== owner.sparklineGroups) this._writeRuleFormulaUpdates(owner, { sparklineGroups: groups }, t('workbook.undo.moveCells'));
     }
     this._moveNativeSparklineCells(source, target, move, { r2: r + rows.length - 1, c2: c + cols.length - 1 });
   }
@@ -4780,7 +4788,7 @@ export class Workbook extends EventTarget {
       return remaining.length ? [{ ...group, sparklines: remaining }] : [];
     });
     if (!across) {
-      if (!sameJSON(kept, source.sparklineGroups)) this._writeRuleFormulaUpdates(source, { sparklineGroups: kept }, 'Move cells');
+      if (!sameJSON(kept, source.sparklineGroups)) this._writeRuleFormulaUpdates(source, { sparklineGroups: kept }, t('workbook.undo.moveCells'));
       return;
     }
     const landing = target.sparklineGroups.flatMap(group => {
@@ -4789,9 +4797,9 @@ export class Workbook extends EventTarget {
       });
       return sparklines.length ? [{ ...group, sparklines }] : [];
     });
-    if (!sameJSON(kept, source.sparklineGroups)) this._writeRuleFormulaUpdates(source, { sparklineGroups: kept }, 'Move cells');
+    if (!sameJSON(kept, source.sparklineGroups)) this._writeRuleFormulaUpdates(source, { sparklineGroups: kept }, t('workbook.undo.moveCells'));
     const next = [...landing, ...moving];
-    if (!sameJSON(next, target.sparklineGroups)) this._writeRuleFormulaUpdates(target, { sparklineGroups: next }, 'Move cells');
+    if (!sameJSON(next, target.sparklineGroups)) this._writeRuleFormulaUpdates(target, { sparklineGroups: next }, t('workbook.undo.moveCells'));
   }
 
   /** Does the block take some cells of a spilled array without its anchor? Those values have no cell of their own to move. */
@@ -4830,7 +4838,7 @@ export class Workbook extends EventTarget {
       const sourceRefs = chartSeriesSources(this, sheet.id, ch);
       return sourceRefs.length ? { ...ch, sourceRefs } : ch;
     });
-    if (next.some((ch, i) => ch !== sheet.charts[i])) this._setCharts(sheet, next, 'Move cells');
+    if (next.some((ch, i) => ch !== sheet.charts[i])) this._setCharts(sheet, next, t('workbook.undo.moveCells'));
   }
 
   placeMoved(sheetId, r0, c0, cells, from) {
@@ -4866,11 +4874,11 @@ export class Workbook extends EventTarget {
     const overlapsDst = (m) => overlaps(m, dst);
     const insideDst = (m) => m.r1 >= dst.r1 && m.r2 <= dst.r2 && m.c1 >= dst.c1 && m.c2 <= dst.c2;
     if (sheet.merges.some((m) => (across || !inside(m)) && overlapsDst(m) && !insideDst(m))) return null;
-    const movingTables = source.tables.filter((t) => inside(t.range));
-    const ids = new Set(movingTables.map((t) => t.id));
-    if (source.tables.some((t) => !inside(t.range) && overlaps(t.range, src) && !(src.r1 >= t.range.r1 && src.r2 <= t.range.r2 && src.c1 >= t.range.c1 && src.c2 <= t.range.c2))) return null;
+    const movingTables = source.tables.filter((tbl) => inside(tbl.range));
+    const ids = new Set(movingTables.map((tbl) => tbl.id));
+    if (source.tables.some((tbl) => !inside(tbl.range) && overlaps(tbl.range, src) && !(src.r1 >= tbl.range.r1 && src.r2 <= tbl.range.r2 && src.c1 >= tbl.range.c1 && src.c2 <= tbl.range.c2))) return null;
     // On another sheet every table is in the way, the moving ones being still on the source sheet.
-    if (movingTables.some((t) => sheet.tables.some((o) => (across || !ids.has(o.id)) && overlaps(shifted(t.range), o.range)))) return null;
+    if (movingTables.some((tbl) => sheet.tables.some((o) => (across || !ids.has(o.id)) && overlaps(shifted(tbl.range), o.range)))) return null;
     // A 3D span stays where it is, as when the block is dragged: it names every sheet between two tabs.
     const inSrc = (ref) => !ref.sheetEnd && ref.kind !== 'cols' && ref.kind !== 'rows' && ref.r1 >= src.r1 && ref.r2 <= src.r2 && ref.c1 >= src.c1 && ref.c2 <= src.c2;
     // The cells the block lands on are gone, as in Excel: a reference wholly inside them that the block does not
@@ -4896,23 +4904,23 @@ export class Workbook extends EventTarget {
       if (inDst(ref, target)) return null;
       return across && ref.sheet == null ? { ...ref, sheet: source.name } : ref;
     });
-    this.transaction('Move cells', () => {
+    this.transaction(t('workbook.undo.moveCells'), () => {
       this._detachChartsFromMove(source, src, across ? () => false : inside);
       this._moveNativePivots(source.id, src, sheetId, dst);
       this._moveConditionalFormats(source.id, sheetId, [{ source: src, target: dst }]);
       this._rewriteFormulas((formula, owner, r, c, template) => {
         if (!template && owner === sheet && r >= dst.r1 && r <= dst.r2 && c >= dst.c1 && c <= dst.c2) return formula; // overwritten below
         return follow(formula, owner.name);
-      }, 'Move cells');
+      }, t('workbook.undo.moveCells'));
       const names = this.names.map((n) => ({ ...n, ref: follow(n.ref, n.sheet || null, n.relative === true) }));
-      if (names.some((n, i) => n.ref !== this.names[i].ref)) this._setNames(names, 'Move cells');
+      if (names.some((n, i) => n.ref !== this.names[i].ref)) this._setNames(names, t('workbook.undo.moveCells'));
       // Tables inside the block keep their name, columns, and templates, which keep pointing at what they
       // pointed at as moved formulas do. They step aside while the cells are written, so their headers
       // leaving and landing are not taken for renames, and return at their new place.
       const order = source.tables;
-      const moved = movingTables.map((t) => ({ ...t, range: shifted(t.range), ...(t.calcRow != null ? { calcRow: t.calcRow + dr } : {}),
-        calc: Object.fromEntries(Object.entries(t.calc || {}).map(([c, f]) => [c, carry(f)])) }));
-      if (ids.size) this._setTables(source, order.filter((t) => !ids.has(t.id)), 'Move cells');
+      const moved = movingTables.map((tbl) => ({ ...tbl, range: shifted(tbl.range), ...(tbl.calcRow != null ? { calcRow: tbl.calcRow + dr } : {}),
+        calc: Object.fromEntries(Object.entries(tbl.calc || {}).map(([c, f]) => [c, carry(f)])) }));
+      if (ids.size) this._setTables(source, order.filter((tbl) => !ids.has(tbl.id)), t('workbook.undo.moveCells'));
       // The block leaves its place first, so where old and new place overlap the landing cells win.
       this._clearRange(source.id, src, { contents: true, styles: true });
       const entries = [];
@@ -4922,27 +4930,27 @@ export class Workbook extends EventTarget {
         if (cell?.f != null) cell.f = this._leaveTable(carry(cell.f), this.tableAt(source.id, src.r1 + i, src.c1 + j)?.name, this.tableAt(sheetId, r0 + i, c0 + j)?.name);
         entries.push({ r: r0 + i, c: c0 + j, cell });
       }));
-      this.setCellsWithTableHeaders(sheetId, entries, 'Move cells');
+      this.setCellsWithTableHeaders(sheetId, entries, t('workbook.undo.moveCells'));
       if (ids.size) {
-        if (across) this._setTables(sheet, [...sheet.tables, ...moved], 'Move cells');
+        if (across) this._setTables(sheet, [...sheet.tables, ...moved], t('workbook.undo.moveCells'));
         else {
-          const live = new Map(sheet.tables.map((t) => [t.id, t]));
-          const byId = new Map(moved.map((t) => [t.id, t]));
-          this._setTables(sheet, order.map((t) => byId.get(t.id) || live.get(t.id)), 'Move cells');
+          const live = new Map(sheet.tables.map((tbl) => [tbl.id, tbl]));
+          const byId = new Map(moved.map((tbl) => [tbl.id, tbl]));
+          this._setTables(sheet, order.map((tbl) => byId.get(tbl.id) || live.get(tbl.id)), t('workbook.undo.moveCells'));
         }
       }
       // Every moving table carries its filter, including onto a sheet with existing filters. A sheet's filter whose
       // whole list the block carries goes with it too, where it can (onto a sheet without a filter of its own, and
       // over no table): left behind, it went on hiding the rows its list had left while the list lay unfiltered.
       for (const f of sheetFilters(source)) {
-        const owner = movingTables.find(t => t.range.r1 === f.range.r1 && t.range.c1 === f.range.c1 && t.range.c2 === f.range.c2);
-        const carried = !owner && !filterTable(source, f) && inside(f.range) && !sheet.tables.some((t) => overlaps(t.range, shifted(f.range)))
+        const owner = movingTables.find(tbl => tbl.range.r1 === f.range.r1 && tbl.range.c1 === f.range.c1 && tbl.range.c2 === f.range.c2);
+        const carried = !owner && !filterTable(source, f) && inside(f.range) && !sheet.tables.some((tbl) => overlaps(tbl.range, shifted(f.range)))
           && (!across || !sheetFilters(sheet).some((g) => !filterTable(sheet, g)));
         if (!owner && !carried) continue;
         const next = { ...f, range: shifted(f.range), criteria: Object.fromEntries(Object.entries(f.criteria).map(([c, crit]) => [Number(c) + dc, crit])),
           ...(f.hiddenButtons ? { hiddenButtons: f.hiddenButtons.map(c => c + dc) } : {}) };
-        if (!across) this._setFilter(sheet, next, 'Move cells', { target: f });
-        else { this._setFilter(source, null, 'Move cells', { target: f }); this._setFilter(sheet, next, 'Move cells', { create: true }); }
+        if (!across) this._setFilter(sheet, next, t('workbook.undo.moveCells'), { target: f });
+        else { this._setFilter(source, null, t('workbook.undo.moveCells'), { target: f }); this._setFilter(sheet, next, t('workbook.undo.moveCells'), { create: true }); }
       }
       // Notes, merges, validation rules and conditional formats inside the cut block travel
       // with it, as they do when the block is dragged; whatever they land on gives way.
@@ -4954,18 +4962,18 @@ export class Workbook extends EventTarget {
       for (const { r, c, text } of movingNotes) this.setNote(sheetId, r + dr, c + dc, text);
       carryComments(this, source.id, src, sheetId, dr, dc);
       const movedMerges = source.merges.filter(inside).map(shifted);
-      if (across && movedMerges.length) this._setMerges(source, source.merges.filter((m) => !inside(m)), 'Move cells');
+      if (across && movedMerges.length) this._setMerges(source, source.merges.filter((m) => !inside(m)), t('workbook.undo.moveCells'));
       const keptMerges = sheet.merges.filter((m) => !overlapsDst(m) && (across || !inside(m)));
-      if (keptMerges.length !== sheet.merges.length || movedMerges.length) this._setMerges(sheet, [...keptMerges, ...movedMerges], 'Move cells');
+      if (keptMerges.length !== sheet.merges.length || movedMerges.length) this._setMerges(sheet, [...keptMerges, ...movedMerges], t('workbook.undo.moveCells'));
       // Validation goes with the cells it covers, the part of a rule outside the block staying behind, and
       // replaces the destination's, as a paste does.
       const validations = moveValidations(source.validations, across ? sheet.validations : null, src, dst, newId);
-      if (across && validations.source !== source.validations) this._setValidations(source, validations.source, 'Move cells');
-      if (validations.target !== sheet.validations) this._setValidations(sheet, validations.target, 'Move cells');
-      if (!across && sheet.charts.some((ch) => inside(ch.range))) this._setCharts(sheet, sheet.charts.map((ch) => (inside(ch.range) ? { ...ch, range: shifted(ch.range) } : ch)), 'Move cells');
+      if (across && validations.source !== source.validations) this._setValidations(source, validations.source, t('workbook.undo.moveCells'));
+      if (validations.target !== sheet.validations) this._setValidations(sheet, validations.target, t('workbook.undo.moveCells'));
+      if (!across && sheet.charts.some((ch) => inside(ch.range))) this._setCharts(sheet, sheet.charts.map((ch) => (inside(ch.range) ? { ...ch, range: shifted(ch.range) } : ch)), t('workbook.undo.moveCells'));
       // A scenario's cells are its own sheet's: they follow a block moved within the sheet.
       if (!across) this._moveScenarioCells(sheet, inside, shifted);
-      this._rewriteRuleFormulas((formula, owner) => follow(formula, owner.name), 'Move cells', { conditional: false });
+      this._rewriteRuleFormulas((formula, owner) => follow(formula, owner.name), t('workbook.undo.moveCells'), { conditional: false });
       this._moveNativeSparklines(source, sheet, src, dst);
     });
     return dst;
@@ -5194,10 +5202,10 @@ export class Workbook extends EventTarget {
     if ((sparkTargets.size || mergePlan) && (this._gridLocked(sheet) ||
         entries.some(({ r, c }) => this._protectedAt(sheet, r, c)) ||
         this._fixedWritesBlocked(sheet, entries))) {
-      this.setCellsWithTableHeaders(sheetId, entries, 'Fill');
+      this.setCellsWithTableHeaders(sheetId, entries, t('workbook.undo.fill'));
       return;
     }
-    this.transaction('Fill', () => {
+    this.transaction(t('workbook.undo.fill'), () => {
       let nativeChanged = false;
       if (sparkTargets.size) {
         // Filled members stay in the source group: date categories and shared
@@ -5211,13 +5219,13 @@ export class Workbook extends EventTarget {
             const ref = parseRefText(spark.ref);
             this._growTo(sheet, ref.r1 + 1, ref.c1 + 1);
           }
-          this._writeRuleFormulaUpdates(sheet, { sparklineGroups: next }, 'Fill');
+          this._writeRuleFormulaUpdates(sheet, { sparklineGroups: next }, t('workbook.undo.fill'));
           nativeChanged = true;
         }
       }
       // A fill over a table header renames its column and keeps the headers distinct, as a paste does.
-      const changed = this.setCellsWithTableHeaders(sheetId, entries, 'Fill');
-      if (mergePlan?.ranges.length) this._setMerges(sheet, mergePlan.next, 'Fill');
+      const changed = this.setCellsWithTableHeaders(sheetId, entries, t('workbook.undo.fill'));
+      if (mergePlan?.ranges.length) this._setMerges(sheet, mergePlan.next, t('workbook.undo.fill'));
       // Data validation goes with the fill, as Excel's fill handle and Fill Down carry it (the usual way to take a
       // dropdown down a column, an empty one included): each copy of the source block lays down the rules of the
       // cells it repeats, a custom formula's relative references following each cell, in place of the filled
@@ -5229,7 +5237,7 @@ export class Workbook extends EventTarget {
         const [r0, rows] = vertical ? tile(src.r1, h, tgt.r1, tgt.r2) : [src.r1, 1];
         const [c0, cols] = vertical ? [src.c1, 1] : tile(src.c1, w, tgt.c1, tgt.c2);
         const next = replaceValidations(sheet.validations, mapPastedValidations(copied, h, w, r0, c0, { rows, cols }), entries, newId);
-        if (next !== sheet.validations) this._setValidations(sheet, next, 'Fill');
+        if (next !== sheet.validations) this._setValidations(sheet, next, t('workbook.undo.fill'));
       }
       if (formats) this.fillConditionalFormats(sheetId, src, tgt, entries);
       // Rows filled under a table join it, whether the fill handle was dragged or double-clicked or Ctrl+D
@@ -5258,7 +5266,7 @@ export class Workbook extends EventTarget {
     const [r0, rows] = vertical ? tile(src.r1, h, tgt.r1, tgt.r2) : [src.r1, 1];
     const [c0, cols] = vertical ? [src.c1, 1] : tile(src.c1, w, tgt.c1, tgt.c2);
     const next = replaceConditionalFormats(sheet.rules, mapPastedConditionalFormats(copied, h, w, r0, c0, { rows, cols }), cells, newId, sheet.name);
-    if (next !== sheet.rules) this._setRules(sheet, next, 'Fill');
+    if (next !== sheet.rules) this._setRules(sheet, next, t('workbook.undo.fill'));
   }
 
   /**
@@ -5275,9 +5283,9 @@ export class Workbook extends EventTarget {
     const size = vertical ? src.r2 - src.r1 + 1 : src.c2 - src.c1 + 1;
     const [start, lo, hi] = vertical ? [src.r1, tgt.r1, tgt.r2] : [src.c1, tgt.c1, tgt.c2];
     const incoming = [];
-    for (let t = Math.floor((lo - start) / size); start + t * size <= hi; t++) {
-      if (t === 0) continue;
-      const d = t * size;
+    for (let txt = Math.floor((lo - start) / size); start + txt * size <= hi; txt++) {
+      if (txt === 0) continue;
+      const d = txt * size;
       for (const m of own) {
         const next = vertical ? { ...m, r1: m.r1 + d, r2: m.r2 + d } : { ...m, c1: m.c1 + d, c2: m.c2 + d };
         if ((vertical ? next.r1 < lo || next.r2 > hi : next.c1 < lo || next.c2 > hi) || next.r2 >= limit.rows || next.c2 >= limit.cols) continue;
@@ -5291,7 +5299,7 @@ export class Workbook extends EventTarget {
     for (const m of plan.ranges) {
       const array = this._fixedArrays(sheet).overlapping(m).next().value;
       if (array) { this._arrayRefused(sheet, array, 'overlap'); return false; }
-      if (sheet.tables.some(t => intersection(m, { ...t.range, r2: tableRows(t).dataEnd }))) {
+      if (sheet.tables.some(tbl => intersection(m, { ...tbl.range, r2: tableRows(tbl).dataEnd }))) {
         this._emit('merge-paste', sheet.id, { reason: 'table' }); return false;
       }
     }
@@ -5325,9 +5333,9 @@ export class Workbook extends EventTarget {
         entries.push({ r, c, cell });
       }
     }
-    this.transaction('Fill', () => {
+    this.transaction(t('workbook.undo.fill'), () => {
       // Rows entered right under a table join it, as pasted rows do.
-      if (this.setCellsWithTableHeaders(sheetId, entries, 'Fill')) this.extendTableToCover(sheetId, { r1, c1, r2, c2 });
+      if (this.setCellsWithTableHeaders(sheetId, entries, t('workbook.undo.fill'))) this.extendTableToCover(sheetId, { r1, c1, r2, c2 });
     });
   }
 
@@ -5455,7 +5463,7 @@ export class Workbook extends EventTarget {
     const end = entries[entries.length - 1];
     if (this.lockedIn(sheetId, { r1: begin.r, c1: begin.c, r2: end.r, c2: end.c })) return 0;
     // setCells grows the sheet only after its protection checks succeed.
-    this.setCells(sheetId, entries, 'Fill series');
+    this.setCells(sheetId, entries, t('workbook.undo.fillSeries'));
     return entries.length;
   }
 
@@ -5526,18 +5534,18 @@ export class Workbook extends EventTarget {
    * result that would scatter) or 'pivot' (a PivotTable report).
    */
   _rearrangeCheck(sheet, range, axis) {
-    const hit = sheet.tables.filter((t) => !(range.r2 < t.range.r1 || range.r1 > t.range.r2 || range.c2 < t.range.c1 || range.c1 > t.range.c2));
+    const hit = sheet.tables.filter((tbl) => !(range.r2 < tbl.range.r1 || range.r1 > tbl.range.r2 || range.c2 < tbl.range.c1 || range.c1 > tbl.range.c2));
     let out = range;
     if (hit.length > 1 || (axis === 'col' && hit.length)) return { reason: 'table' };
     if (hit.length === 1) {
-      const [t] = hit;
-      if (range.r1 < t.range.r1 || range.r2 > t.range.r2) return { reason: 'table' };
+      const [tbl] = hit;
+      if (range.r1 < tbl.range.r1 || range.r2 > tbl.range.r2) return { reason: 'table' };
       // A table's row is the unit that moves: a range inside the table takes in its other columns,
       // so no record comes apart. One that reaches past a side of the table would
       // move the table's rows with only some of the columns outside it, and is refused.
-      if (range.c1 >= t.range.c1 && range.c2 <= t.range.c2) out = { ...range, c1: t.range.c1, c2: t.range.c2 };
-      else if (range.c1 > t.range.c1 || range.c2 < t.range.c2) return { reason: 'table' };
-      const { dataStart, dataEnd } = tableRows(t);
+      if (range.c1 >= tbl.range.c1 && range.c2 <= tbl.range.c2) out = { ...range, c1: tbl.range.c1, c2: tbl.range.c2 };
+      else if (range.c1 > tbl.range.c1 || range.c2 < tbl.range.c2) return { reason: 'table' };
+      const { dataStart, dataEnd } = tableRows(tbl);
       out = { ...out, r1: Math.max(range.r1, dataStart), r2: Math.min(range.r2, dataEnd) };
       if (out.r1 > out.r2) return { reason: 'table' };
     }
@@ -5630,16 +5638,16 @@ export class Workbook extends EventTarget {
         if (note && row.r !== r) notes.push({ from: { r: row.r, c }, to: { r, c }, note });
       });
     });
-    this.transaction('Sort', () => {
+    this.transaction(t('workbook.undo.sort'), () => {
       if (sheet.styleResets.length) {
         const movedRows = new Map(rows.map((row, i) => [row.r, places[i]]));
-        this._setStyleResets(sheet, permuteStyleResets(sheet.styleResets, { r1, r2, c1, c2: trimmed.c2 }, 'row', (r) => movedRows.get(r) ?? r), 'Sort');
+        this._setStyleResets(sheet, permuteStyleResets(sheet.styleResets, { r1, r2, c1, c2: trimmed.c2 }, 'row', (r) => movedRows.get(r) ?? r), t('workbook.undo.sort'));
       }
-      this.setCells(sheetId, entries, 'Sort');
+      this.setCells(sheetId, entries, t('workbook.undo.sort'));
       this._moveNotes(sheetId, notes);
       const sortedRows = new Map(rows.map((row, i) => [row.r, places[i]]));
       permuteComments(this, sheetId, { r1, r2, c1, c2 }, 'row', (r) => sortedRows.get(r) ?? r);
-      this._refilterRearranged(sheet, { r1, r2 }, 'Sort');
+      this._refilterRearranged(sheet, { r1, r2 }, t('workbook.undo.sort'));
     });
     return true;
   }
@@ -5719,16 +5727,16 @@ export class Workbook extends EventTarget {
         if (note && col.c !== c) notes.push({ from: { r, c: col.c }, to: { r, c }, note });
       });
     });
-    this.transaction('Sort', () => {
+    this.transaction(t('workbook.undo.sort'), () => {
       if (sheet.styleResets.length) {
         const movedCols = new Map(cols.map((col, i) => [col.c, places[i]]));
-        this._setStyleResets(sheet, permuteStyleResets(sheet.styleResets, { r1, r2: n.r2, c1, c2 }, 'col', (c) => movedCols.get(c) ?? c), 'Sort');
+        this._setStyleResets(sheet, permuteStyleResets(sheet.styleResets, { r1, r2: n.r2, c1, c2 }, 'col', (c) => movedCols.get(c) ?? c), t('workbook.undo.sort'));
       }
-      this.setCells(sheetId, entries, 'Sort');
+      this.setCells(sheetId, entries, t('workbook.undo.sort'));
       this._moveNotes(sheetId, notes);
       const sortedCols = new Map(cols.map((col, j) => [col.c, places[j]]));
       permuteComments(this, sheetId, { r1, r2, c1, c2 }, 'col', (c) => sortedCols.get(c) ?? c);
-      this._refilterRearranged(sheet, { r1, r2 }, 'Sort');
+      this._refilterRearranged(sheet, { r1, r2 }, t('workbook.undo.sort'));
     });
     return true;
   }
@@ -5784,15 +5792,15 @@ export class Workbook extends EventTarget {
       });
     });
     if (moved) {
-      this.transaction('Randomize range', () => {
+      this.transaction(t('workbook.undo.randomizeRange'), () => {
         const movedRows = new Map(rows.map((row, i) => [row.r, places[i]]));
         if (sheet.styleResets.length) {
-          this._setStyleResets(sheet, permuteStyleResets(sheet.styleResets, trimmed, 'row', (r) => movedRows.get(r) ?? r), 'Randomize range');
+          this._setStyleResets(sheet, permuteStyleResets(sheet.styleResets, trimmed, 'row', (r) => movedRows.get(r) ?? r), t('workbook.undo.randomizeRange'));
         }
-        this.setCells(sheetId, entries, 'Randomize range');
+        this.setCells(sheetId, entries, t('workbook.undo.randomizeRange'));
         this._moveNotes(sheetId, notes);
         permuteComments(this, sheetId, trimmed, 'row', (r) => movedRows.get(r) ?? r);
-        this._refilterRearranged(sheet, { r1, r2 }, 'Randomize range');
+        this._refilterRearranged(sheet, { r1, r2 }, t('workbook.undo.randomizeRange'));
       });
     }
     return moved;
@@ -5810,13 +5818,13 @@ export class Workbook extends EventTarget {
     const n = normalizeRange(range);
     const fn = {
       // Leading, trailing and repeated spaces go; the line breaks of wrapped text stay.
-      trim: (t) => t.split('\n').map((line) => line.trim().replace(/[^\S\n]+/g, ' ')).join('\n').trim(),
-      upper: (t) => t.toUpperCase(),
-      lower: (t) => t.toLowerCase(),
-      proper: (t) => t.toLowerCase().replace(/(^|[^\p{L}])(\p{L})/gu, (m, p, ch) => p + ch.toUpperCase()),
+      trim: (txt) => txt.split('\n').map((line) => line.trim().replace(/[^\S\n]+/g, ' ')).join('\n').trim(),
+      upper: (txt) => txt.toUpperCase(),
+      lower: (txt) => txt.toLowerCase(),
+      proper: (txt) => txt.toLowerCase().replace(/(^|[^\p{L}])(\p{L})/gu, (m, p, ch) => p + ch.toUpperCase()),
       // Text that reads as a number, date, percent, or currency becomes that value.
-      number: (t) => {
-        const parsed = parseInput(t.trim());
+      number: (txt) => {
+        const parsed = parseInput(txt.trim());
         return parsed && parsed.f == null && parsed.v != null && typeof parsed.v !== 'string' ? parsed : null;
       },
     }[kind];
@@ -5830,7 +5838,7 @@ export class Workbook extends EventTarget {
       if (r < n.r1 || r > n.r2 || c < n.c1 || c > n.c2) continue;
       if (kind === 'number') {
         // A table's headers are text (see addTable): one that reads as a number stays as it is.
-        if (sheet.tables.some((t) => tableRows(t).header === r && c >= t.range.c1 && c <= t.range.c2)) continue;
+        if (sheet.tables.some((tbl) => tableRows(tbl).header === r && c >= tbl.range.c1 && c <= tbl.range.c2)) continue;
         const parsed = fn(cell.v);
         if (!parsed) continue;
         // Drop a "plain text" format so the number shows as one; take the format the text implied (%, $, a date).
@@ -5857,7 +5865,7 @@ export class Workbook extends EventTarget {
     // Every entry changes its cell, so the only write that changes nothing is one a protected cell refused.
     // Over a table's header row the change renames columns: the names stay distinct and the formulas that
     // used the old names follow, as they do when a header is typed, pasted or filled.
-    return this.setCellsWithTableHeaders(sheetId, entries, kind === 'number' ? 'Convert to numbers' : 'Change text', n) || false;
+    return this.setCellsWithTableHeaders(sheetId, entries, kind === 'number' ? t('workbook.undo.convertToNumbers') : t('workbook.undo.changeText'), n) || false;
   }
 
   /**
@@ -5887,7 +5895,7 @@ export class Workbook extends EventTarget {
     }
     // Pieces written over a table's header row rename its columns: the names stay distinct and the
     // formulas that used the old names follow, as when a header is typed or pasted over.
-    if (!this.setCellsWithTableHeaders(sheetId, entries, 'Split text')) return { rows: 0, cols: 0 };
+    if (!this.setCellsWithTableHeaders(sheetId, entries, t('workbook.undo.splitText'))) return { rows: 0, cols: 0 };
     return { rows: plan.rows, cols: plan.cols };
   }
 
@@ -5914,7 +5922,7 @@ export class Workbook extends EventTarget {
       split = texts.map(({ r, cell, text }) => ({ r, cell, parts: splitPieces(text, { ...DEFAULT_SPLIT, ...options }) }));
     } else {
       // The delimiter most rows contain wins; space is the last resort.
-      const delim = delimiter || detectDelimiter(texts.map((t) => t.text));
+      const delim = delimiter || detectDelimiter(texts.map((tok) => tok.text));
       if (!delim) return {};
       // Quoted fields keep their delimiter: "Smith, John",42 splits into two. A line
       // break inside a cell (Alt+Enter) is part of its piece, not the row break it is
@@ -5980,7 +5988,7 @@ export class Workbook extends EventTarget {
     if (empty.length < blank.length) this.lockedIn(sheetId, { r1: blank.find(locked), r2: blank.find(locked), c1: 0, c2: MAX_COL });
     if (!empty.length) return 0;
     // Every empty row goes in one deletion, so thousands of them scattered down a sheet cost no more than one block.
-    this.deleteLines(sheetId, 'row', empty.map((r) => ({ from: r, to: r })), 'Remove empty rows');
+    this.deleteLines(sheetId, 'row', empty.map((r) => ({ from: r, to: r })), t('workbook.undo.removeEmptyRows'));
     return empty.length;
   }
 
@@ -6020,12 +6028,12 @@ export class Workbook extends EventTarget {
       if (keptRows.has(r)) continue;
       for (let c = n.c1; c <= n.c2; c++) if (sheet.notes.has(cellKey(r, c))) notes.push({ from: { r, c }, to: null, note: null });
     }
-    this.transaction('Remove duplicates', () => {
+    this.transaction(t('workbook.undo.removeDuplicates'), () => {
       if (sheet.styleResets.length) {
         const movedRows = new Map(kept.map((row, i) => [row.r, start + i]));
-        this._setStyleResets(sheet, permuteStyleResets(sheet.styleResets, { ...n, r1: start }, 'row', (r) => movedRows.get(r)), 'Remove duplicates');
+        this._setStyleResets(sheet, permuteStyleResets(sheet.styleResets, { ...n, r1: start }, 'row', (r) => movedRows.get(r)), t('workbook.undo.removeDuplicates'));
       }
-      this.setCells(sheetId, entries, 'Remove duplicates');
+      this.setCells(sheetId, entries, t('workbook.undo.removeDuplicates'));
       // Duplicates' notes go first, before a kept row's note moves into one of their rows.
       for (const m of notes) if (!m.to) this.setNote(sheetId, m.from.r, m.from.c, null);
       this._moveNotes(sheetId, notes.filter((m) => m.to));
@@ -6034,7 +6042,7 @@ export class Workbook extends EventTarget {
       // data rows they stayed banded and counted by ROWS(T[#Data]) while holding nothing, and a row typed
       // into one got no calculated columns — nothing fills those for a row already inside the table.
       if (table) this.resizeTable(sheetId, table.id, { ...table.range, r2: table.range.r2 - removed });
-      this._refilterRearranged(sheet, { r1: start, r2: n.r2 }, 'Remove duplicates');
+      this._refilterRearranged(sheet, { r1: start, r2: n.r2 }, t('workbook.undo.removeDuplicates'));
     });
     return removed;
   }
@@ -6054,7 +6062,7 @@ export class Workbook extends EventTarget {
     const n = this._dataRowsOnly(sheet, asked);
     if (!n) return false;
     // Inside a table the header row is the table's own and was trimmed away already.
-    const table = sheet.tables.find((t) => n.r1 > t.range.r1 && n.r2 <= t.range.r2 && n.c1 >= t.range.c1 && n.c2 <= t.range.c2) || null;
+    const table = sheet.tables.find((tbl) => n.r1 > tbl.range.r1 && n.r2 <= tbl.range.r2 && n.c1 >= tbl.range.c1 && n.c2 <= tbl.range.c2) || null;
     const start = header && !table ? n.r1 + 1 : n.r1;
     if (start > n.r2) return 0;
     // The columns asked for decide whether two rows match: a table's other columns, taken in so that
@@ -6234,23 +6242,25 @@ export class Workbook extends EventTarget {
    * `target` evaluate to `goal`. Secant iterations with a widening step when
    * the formula is flat; the trial values never touch history, only the
    * answer is written (one undo step). Returns { ok, value, result,
-   * iterations } or { ok: false, reason }. `label` names the undo step.
+   * iterations } or { ok: false, reason }. `label` names the undo step. The reason is in the
+   * interface language, or in English with `source` (for the AI model, which reads it).
    */
-  goalSeek(sheetId, target, goal, variable, { maxIter = 200, tol = 1e-9, label = 'Goal seek' } = {}) {
+  goalSeek(sheetId, target, goal, variable, { maxIter = 200, tol = 1e-9, label = t('workbook.undo.goalSeek'), source = false } = {}) {
+    const refuse = (key) => ({ ok: false, reason: say(source, key) });
     const sheet = this.sheet(sheetId);
-    if (!sheet) return { ok: false, reason: 'No such sheet' };
-    if (this._gridLocked(sheet)) return { ok: false, reason: 'The sheet is protected' };
-    if (this.lockedAt(sheetId, variable.r, variable.c)) return { ok: false, reason: 'The cell to change is protected' };
+    if (!sheet) return refuse('workbook.goalSeek.noSuchSheet');
+    if (this._gridLocked(sheet)) return refuse('workbook.goalSeek.sheetProtected');
+    if (this.lockedAt(sheetId, variable.r, variable.c)) return refuse('workbook.goalSeek.changingCellProtected');
     const tKey = cellKey(target.r, target.c);
     const vKey = cellKey(variable.r, variable.c);
     const tCell = sheet.cells.get(tKey);
-    if (!tCell || tCell.f == null) return { ok: false, reason: 'The cell to set must contain a formula' };
-    if (tKey === vKey) return { ok: false, reason: 'Choose a different cell to change' };
+    if (!tCell || tCell.f == null) return refuse('workbook.goalSeek.setCellNeedsFormula');
+    if (tKey === vKey) return refuse('workbook.goalSeek.sameCell');
     const vCell = sheet.cells.get(vKey);
-    if (vCell && vCell.f != null) return { ok: false, reason: 'The cell to change must hold a number, not a formula' };
+    if (vCell && vCell.f != null) return refuse('workbook.goalSeek.changingCellHasFormula');
     // A blank cell showing part of a spilled result is not free to take a number: one would block the spill.
-    if (vCell?.v == null && this.spillAt(sheetId, variable.r, variable.c)) return { ok: false, reason: 'The cell to change shows part of an array formula\'s result' };
-    if (!Number.isFinite(goal)) return { ok: false, reason: 'Enter a number to reach' };
+    if (vCell?.v == null && this.spillAt(sheetId, variable.r, variable.c)) return refuse('workbook.goalSeek.changingCellInArray');
+    if (!Number.isFinite(goal)) return refuse('workbook.goalSeek.goalNotNumber');
     const original = vCell ? cloneCell(vCell) : null;
     const start = typeof vCell?.v === 'number' ? vCell.v : 0;
     let met = false; // the goal is reached with the cell as it is: nothing to write, and a blank cell stays blank
@@ -6318,7 +6328,7 @@ export class Workbook extends EventTarget {
     }
     if (original) sheet.cells.set(vKey, original); else sheet.cells.delete(vKey);
     this._invalidate();
-    if (result === null || Number.isNaN(result)) return { ok: false, reason: Number.isNaN(result) ? 'The formula does not produce a number' : 'Could not find a value that reaches the goal', iterations };
+    if (result === null || Number.isNaN(result)) return { ok: false, reason: say(source, Number.isNaN(result) ? 'workbook.goalSeek.notANumber' : 'workbook.goalSeek.notFound'), iterations };
     if (met) return { ok: true, value: start, result: this.getValue(sheetId, target.r, target.c), iterations };
     this.setCells(sheetId, [{ r: variable.r, c: variable.c, cell: { v: clean, f: null, s: original?.s } }], label);
     return { ok: true, value: clean, result: this.getValue(sheetId, target.r, target.c), iterations };
@@ -6398,33 +6408,33 @@ export class Workbook extends EventTarget {
     try { tokens = tokenize(formula); } catch { return []; }
     const out = [];
     for (let i = 0; i < tokens.length; i++) {
-      const t = tokens[i];
-      if (t.type === 'ref') {
-        const ref = parseRefText(t.text, t.sheet);
+      const tok = tokens[i];
+      if (tok.type === 'ref') {
+        const ref = parseRefText(tok.text, tok.sheet);
         if (!ref) continue;
         // A 3D span reads the cells on every sheet it covers.
-        const sheetNames = t.sheetEnd ? this.sheetsBetween(t.sheet, t.sheetEnd) || [] : [ref.sheet ?? ownerSheet];
+        const sheetNames = tok.sheetEnd ? this.sheetsBetween(tok.sheet, tok.sheetEnd) || [] : [ref.sheet ?? ownerSheet];
         for (const sheetName of sheetNames) {
           // A1# reads the whole spill of A1. Asked only which formulas it reads, as the walk of a deep chain asks,
           // that is the anchor: finding its spill calculates it, and down a chain of spills that ran out of stack.
-          if (t.spill && spillAnchors) { out.push({ ref: { ...ref, kind: 'range', r2: ref.r1, c2: ref.c1, sheet: sheetName } }); continue; }
-          const spill = t.spill ? this.spillRangeAt(this.sheetByName(sheetName)?.id, ref.r1, ref.c1) : null;
+          if (tok.spill && spillAnchors) { out.push({ ref: { ...ref, kind: 'range', r2: ref.r1, c2: ref.c1, sheet: sheetName } }); continue; }
+          const spill = tok.spill ? this.spillRangeAt(this.sheetByName(sheetName)?.id, ref.r1, ref.c1) : null;
           out.push({ ref: spill ? { ...ref, kind: 'range', ...spill, sheet: sheetName } : { ...ref, sheet: sheetName } });
         }
-      } else if (t.type === 'name') {
-        const named = this.namedRef(t.value, t.sheet ?? ownerSheet, owner || { r: 0, c: 0 }); // as the formula's own sheet resolves it
-        if (named) out.push({ ref: { kind: 'range', ...named }, name: t.value });
-        else if (!t.sheet && tokens[i + 1]?.type !== 'lparen') {
+      } else if (tok.type === 'name') {
+        const named = this.namedRef(tok.value, tok.sheet ?? ownerSheet, owner || { r: 0, c: 0 }); // as the formula's own sheet resolves it
+        if (named) out.push({ ref: { kind: 'range', ...named }, name: tok.value });
+        else if (!tok.sheet && tokens[i + 1]?.type !== 'lparen') {
           // A table named on its own, as in VLOOKUP(x,Sales,2,FALSE), reads its data rows, as the evaluator reads it.
           const sheet = this.sheetByName(ownerSheet);
-          const ref = sheet ? this._resolveTableRef(sheet, owner || { r: -1, c: -1 }, t.value, '') : null;
-          if (ref && !isError(ref)) out.push({ ref, name: t.value });
+          const ref = sheet ? this._resolveTableRef(sheet, owner || { r: -1, c: -1 }, tok.value, '') : null;
+          if (ref && !isError(ref)) out.push({ ref, name: tok.value });
         }
-      } else if (t.type === 'tref') {
+      } else if (tok.type === 'tref') {
         // Table1[Column] reads the column's cells, [@Column] the one on the formula's own row; a table or
         // column that is not there reads nothing, as a [@Column] outside any table does.
         const sheet = this.sheetByName(ownerSheet);
-        const ref = sheet ? this._resolveTableRef(sheet, owner || { r: -1, c: -1 }, t.table, t.spec) : null;
+        const ref = sheet ? this._resolveTableRef(sheet, owner || { r: -1, c: -1 }, tok.table, tok.spec) : null;
         if (ref && !isError(ref)) out.push({ ref });
       }
     }
@@ -6440,10 +6450,10 @@ export class Workbook extends EventTarget {
     // cell insert them there too): the table's filter, which ends at the last data row and would otherwise
     // stop short of them, takes them in, and the charts, conditional formats and validation rules that
     // ended at that row grow over them, as they do when a table without a totals row grows.
-    const tables = sheet?.tables.filter(t => t.totalsRow && t.range.r2 === at) || [];
+    const tables = sheet?.tables.filter(tbl => tbl.totalsRow && tbl.range.r2 === at) || [];
     if (!tables.length) return this._insert(sheetId, 'row', at, n);
     let inserted = false;
-    this.transaction('Insert rows', () => {
+    this.transaction(t('workbook.undo.insertRows'), () => {
       inserted = this._insert(sheetId, 'row', at, n);
       if (!inserted) return;
       const live = this.sheet(sheetId);
@@ -6451,8 +6461,8 @@ export class Workbook extends EventTarget {
       for (const table of tables) {
         // The table's own filter, which the insertion took down to the new rows; not a worksheet filter over its top rows.
         const filter = sheetFilters(live).find(f => f.range.r1 === table.range.r1 && f.range.c1 === table.range.c1 && f.range.c2 === table.range.c2 && f.range.r2 === at - 1 + n);
-        if (filter) this._setFilter(live, { ...filter, range: { ...filter.range, r2: at - 1 + n } }, 'Insert rows', { show, target: filter });
-        this._growTableDependents(live, table, at - 1, at - 1 + n, 'Insert rows');
+        if (filter) this._setFilter(live, { ...filter, range: { ...filter.range, r2: at - 1 + n } }, t('workbook.undo.insertRows'), { show, target: filter });
+        this._growTableDependents(live, table, at - 1, at - 1 + n, t('workbook.undo.insertRows'));
       }
     });
     return inserted;
@@ -6469,9 +6479,9 @@ export class Workbook extends EventTarget {
     if (!sheet || !ats.length) return false;
     if (ats.length === 1) return this.insertRows(sheetId, ats[0], 1);
     // A row inside a table takes its calculated columns, and one above its totals row grows its filter.
-    if (!ats.some((at) => sheet.tables.some((t) => t.range.r1 < at && at <= t.range.r2))) return this._insertLines(sheetId, 'row', ats.map((at) => ({ at, n: 1 })));
+    if (!ats.some((at) => sheet.tables.some((tbl) => tbl.range.r1 < at && at <= tbl.range.r2))) return this._insertLines(sheetId, 'row', ats.map((at) => ({ at, n: 1 })));
     let inserted = true;
-    this.transaction('Insert rows', () => {
+    this.transaction(t('workbook.undo.insertRows'), () => {
       for (const at of [...ats].sort((a, b) => b - a)) if (!(inserted = this.insertRows(sheetId, at, 1))) return;
     });
     return inserted;
@@ -6643,14 +6653,14 @@ export class Workbook extends EventTarget {
       for (const ch of sheet.charts) { includePoint(ch.anchor.r, ch.anchor.c); includeRange(ch.range); }
       if (extent > limit) return false;
     }
-    const label = remove ? 'Delete cells' : 'Insert cells';
+    const label = remove ? t('workbook.undo.deleteCells') : t('workbook.undo.insertCells');
     // Tables the deletion takes away whole, and table columns it takes away: references to them become #REF!.
-    const lostTables = remove && this._lostTableColumns(sheet, (t) => {
-      if (!touchesBand(t.range) || !insideBand(t.range)) return null;
-      if (t.range[lo] >= at && t.range[hi] < at + n) return true;
+    const lostTables = remove && this._lostTableColumns(sheet, (tbl) => {
+      if (!touchesBand(tbl.range) || !insideBand(tbl.range)) return null;
+      if (tbl.range[lo] >= at && tbl.range[hi] < at + n) return true;
       if (axis === 'row') return null;
       const cols = [];
-      for (let c = Math.max(at, t.range.c1); c <= Math.min(at + n - 1, t.range.c2); c++) cols.push(c - t.range.c1);
+      for (let c = Math.max(at, tbl.range.c1); c <= Math.min(at + n - 1, tbl.range.c2); c++) cols.push(c - tbl.range.c1);
       return cols;
     });
     this._structural(label, () => {
@@ -6669,7 +6679,7 @@ export class Workbook extends EventTarget {
           return range ? [{ ...record, range }] : [];
         });
         for (const m of sheet.merges) inherited = removeStyleResets(inherited, m);
-        if (axis === 'row') for (const t of sheet.tables) if (t.headerRow !== false) inherited = removeStyleResets(inherited, { ...t.range, r2: t.range.r1 });
+        if (axis === 'row') for (const tbl of sheet.tables) if (tbl.headerRow !== false) inherited = removeStyleResets(inherited, { ...tbl.range, r2: tbl.range.r1 });
         if (inherited.length) sheet.styleResets = compactStyleResets([...sheet.styleResets,
           ...inherited.map((record) => ({ ...record, range: { ...record.range, [lo]: at, [hi]: Math.min(at + n - 1, limit) } }))]);
       }
@@ -6688,7 +6698,7 @@ export class Workbook extends EventTarget {
       // its style alone, never its value. A table's header row keeps its look to itself, as does a merged block; cells
       // inserted from the clipboard bring their own.
       const lends = (r, c) => !paste && (axis === 'row' ? r : c) === at - 1 && !sheet.merges.some((m) => r >= m.r1 && r <= m.r2 && c >= m.c1 && c <= m.c2)
-        && !(axis === 'row' && sheet.tables.some((t) => t.headerRow !== false && t.range.r1 === r && c >= t.range.c1 && c <= t.range.c2));
+        && !(axis === 'row' && sheet.tables.some((tbl) => tbl.headerRow !== false && tbl.range.r1 === r && c >= tbl.range.c1 && c <= tbl.range.c2));
       const lent = [];
       const moved = new Map();
       for (const [key, cell] of sheet.cells) {
@@ -6737,19 +6747,19 @@ export class Workbook extends EventTarget {
         const i = moveIndex(axis === 'row' ? r : c);
         return i == null ? null : axis === 'row' ? { r: i, c } : { r, c: i };
       });
-      sheet.tables = sheet.tables.map((t) => {
-        if (!touchesBand(t.range)) return t;
+      sheet.tables = sheet.tables.map((tbl) => {
+        if (!touchesBand(tbl.range)) return tbl;
         // A table without its Header Row keeps its column names on itself: the columns whose cells are deleted take theirs along.
-        if (remove && axis === 'col' && t.headerRow === false) t = headerlessDeleteColumns(t, (c) => c >= at && c < at + n);
-        const range = adjust(t.range);
+        if (remove && axis === 'col' && tbl.headerRow === false) tbl = headerlessDeleteColumns(tbl, (c) => c >= at && c < at + n);
+        const range = adjust(tbl.range);
         if (range.r2 < range.r1 || range.c2 < range.c1) return null;
-        const origin = t.calcRow ?? tableRows(t).dataStart;
+        const origin = tbl.calcRow ?? tableRows(tbl).dataStart;
         const offset = remove && axis === 'row' && origin >= at && origin < at + n ? at + n - origin : 0;
-        const calc = axis === 'col' ? shiftCalc(t.calc, t.range.c1, at, n, remove)
-          : Object.fromEntries(Object.entries(t.calc || {}).map(([c, f]) => [c, offset ? shiftFormula(f, offset, 0) : f]));
-        const totalsDeleted = remove && axis === 'row' && t.range.r2 >= at && t.range.r2 < at + n;
-        return { ...t, range, calc, totalsRow: t.totalsRow && !totalsDeleted,
-          ...(axis === 'col' && t.calcArray ? { calcArray: shiftCalc(t.calcArray, t.range.c1, at, n, remove) } : {}),
+        const calc = axis === 'col' ? shiftCalc(tbl.calc, tbl.range.c1, at, n, remove)
+          : Object.fromEntries(Object.entries(tbl.calc || {}).map(([c, f]) => [c, offset ? shiftFormula(f, offset, 0) : f]));
+        const totalsDeleted = remove && axis === 'row' && tbl.range.r2 >= at && tbl.range.r2 < at + n;
+        return { ...tbl, range, calc, totalsRow: tbl.totalsRow && !totalsDeleted,
+          ...(axis === 'col' && tbl.calcArray ? { calcArray: shiftCalc(tbl.calcArray, tbl.range.c1, at, n, remove) } : {}),
           ...(axis === 'row' ? { calcRow: moveIndex(origin) ?? at } : {}) };
       }).filter(Boolean);
       sheet.charts = sheet.charts.map((ch) => {
@@ -6790,21 +6800,21 @@ export class Workbook extends EventTarget {
           if (cell.f == null) continue;
           cell.f = follow(cell.f, s.name);
         }
-        s.tables = s.tables.map((t) => !t.calc ? t : { ...t, calc: Object.fromEntries(
-          Object.entries(t.calc).map(([c, f]) => [c, follow(f, s.name)]),
+        s.tables = s.tables.map((tbl) => !tbl.calc ? tbl : { ...tbl, calc: Object.fromEntries(
+          Object.entries(tbl.calc).map(([c, f]) => [c, follow(f, s.name)]),
         ) });
       }
       this.names = this.names.map((nm) => ({ ...nm, ref: follow(nm.ref, nm.sheet || null, nm.relative === true) }));
       // Cells shifted right across a table's rows make new columns of it, named as columns inserted inside it are, so its
       // references keep reading the columns they name.
-      if (!remove && axis === 'col') for (const t of sheet.tables) if (insideBand(t.range) && t.range.c1 < at && at + n - 1 <= t.range.c2) this._nameInsertedTableColumns(sheet, t, at, n);
+      if (!remove && axis === 'col') for (const tbl of sheet.tables) if (insideBand(tbl.range) && tbl.range.c1 < at && at + n - 1 <= tbl.range.c2) this._nameInsertedTableColumns(sheet, tbl, at, n);
       // A row inserted among a table's data rows by shifting its cells down is a new table row, and
       // gets the calculated columns as one inserted with the row tools does. The templates were
       // adjusted above, so the shift is not applied to the fresh formulas a second time.
       if (!remove && axis === 'row') {
-        for (const t of sheet.tables) {
-          if (!(t.range.r1 < at && at + n - 1 <= tableRows(t).dataEnd)) continue;
-          for (let r = at; r < at + n; r++) for (const { r: rr, c, cell } of this._calculatedRowEntries(sheet, t, r)) sheet.cells.set(cellKey(rr, c), cell);
+        for (const tbl of sheet.tables) {
+          if (!(tbl.range.r1 < at && at + n - 1 <= tableRows(tbl).dataEnd)) continue;
+          for (let r = at; r < at + n; r++) for (const { r: rr, c, cell } of this._calculatedRowEntries(sheet, tbl, r)) sheet.cells.set(cellKey(rr, c), cell);
         }
       }
       this._refreshFilters(this.sheets);
@@ -6855,8 +6865,8 @@ export class Workbook extends EventTarget {
       const range = parseRefText(pivot.ref || '');
       if (!range || range.r1 < src.r1 || range.r2 > src.r2 || range.c1 < src.c1 || range.c2 > src.c2) continue;
       const dr = dst.r1 - src.r1, dc = dst.c1 - src.c1;
-      if (this.sheet(targetId).tables.some(t => t.range.r1 <= range.r2 + dr && t.range.r2 >= range.r1 + dr
-        && t.range.c1 <= range.c2 + dc && t.range.c2 >= range.c1 + dc)) {
+      if (this.sheet(targetId).tables.some(tbl => tbl.range.r1 <= range.r2 + dr && tbl.range.r2 >= range.r1 + dr
+        && tbl.range.c1 <= range.c2 + dc && tbl.range.c2 >= range.c1 + dc)) {
         conflict = { pivot, range, reason: 'table-overlap' }; break;
       }
     }
@@ -6903,7 +6913,7 @@ export class Workbook extends EventTarget {
     if (previous === next) return;
     const apply = value => { this.nativePivots = value; this._changed('pivots', targetId); };
     apply(next);
-    this._push({ label: 'Move cells', undo: () => apply(previous), redo: () => apply(next) });
+    this._push({ label: t('workbook.undo.moveCells'), undo: () => apply(previous), redo: () => apply(next) });
     if (sourceId === targetId) return;
     const oldSheet = this.sheet(sourceId).name, newSheet = this.sheet(targetId).name;
     const moved = previous.tables.filter((p, i) => p.owner === sourceId && next.tables[i].owner === targetId);
@@ -6914,7 +6924,7 @@ export class Workbook extends EventTarget {
         if (next !== chart) changed = true;
         return next;
       });
-      if (changed) this._setDependentCharts(sheet, charts, 'Move cells');
+      if (changed) this._setDependentCharts(sheet, charts, t('workbook.undo.moveCells'));
     }
   }
 
@@ -6933,7 +6943,7 @@ export class Workbook extends EventTarget {
     const sheet = this.sheet(sheetId);
     if (!sheet) return false;
     if (this.nativePivotOverlap(sheetId, area)
-      || sheet.tables.some(t => t.id !== excludeTableId && intersection(t.range, area))
+      || sheet.tables.some(tbl => tbl.id !== excludeTableId && intersection(tbl.range, area))
       || sheet.merges.some(m => intersection(m, area))
       || this._fixedArrays(sheet).overlapping(area).next().value) return true;
     for (let c = area.c1; c <= area.c2; c++) {
@@ -7034,14 +7044,14 @@ export class Workbook extends EventTarget {
     for (const ch of sheet.charts) includeIndex(axis === 'row' ? ch.anchor.r : ch.anchor.c);
     if (extent > limit) return false;
     const clamp = (range) => (range[hi] > limit ? { ...range, [hi]: limit } : range);
-    this._structural(axis === 'row' ? 'Insert rows' : 'Insert columns', () => {
+    this._structural(axis === 'row' ? t('workbook.undo.insertRows') : t('workbook.undo.insertColumns'), () => {
       // The tables' own filters, told apart now from a worksheet filter over the top of a table (see below).
       const tableFilters = axis === 'row' ? sheetFilters(sheet).filter(f => filterTable(sheet, f)).map(f => f.range) : [];
       this.nativePivots = mapNativePivotRanges(this.nativePivots, sheetId, ref => adjustRefForInsertedLines(ref, axis, lines));
       // The line before the new ones lends them its formatting (from above, or from
       // the left): the style alone, never a value, formula or note. A table's header row
       // keeps its look to itself (it is the table's), as do the cells of a merged block.
-      const lends = (r, c) => !(axis === 'row' && sheet.tables.some((t) => tableRows(t).header === r && c >= t.range.c1 && c <= t.range.c2))
+      const lends = (r, c) => !(axis === 'row' && sheet.tables.some((tbl) => tableRows(tbl).header === r && c >= tbl.range.c1 && c <= tbl.range.c2))
         && !sheet.merges.some((m) => r >= m.r1 && r <= m.r2 && c >= m.c1 && c <= m.c2);
       // Rules, validations and cleared formats are few: they follow the places one at a time, from the bottom up.
       for (const { at, n } of bottomUp) {
@@ -7052,7 +7062,7 @@ export class Workbook extends EventTarget {
           return range ? [{ ...record, range }] : [];
         });
         for (const m of sheet.merges) inherited = removeStyleResets(inherited, m);
-        if (axis === 'row') for (const t of sheet.tables) if (t.headerRow !== false) inherited = removeStyleResets(inherited, { ...t.range, r2: t.range.r1 });
+        if (axis === 'row') for (const tbl of sheet.tables) if (tbl.headerRow !== false) inherited = removeStyleResets(inherited, { ...tbl.range, r2: tbl.range.r1 });
         if (inherited.length) sheet.styleResets = compactStyleResets([...sheet.styleResets,
           ...inherited.map((record) => ({ ...record, range: { ...record.range, [lo]: at, [hi]: at + n - 1 } }))]);
       }
@@ -7142,20 +7152,20 @@ export class Workbook extends EventTarget {
         }) };
       });
       // A table grows when lines land inside it, but not when they are added right below its last row.
-      sheet.tables = sheet.tables.map((t) => {
-        const origin = t.calcRow ?? tableRows(t).dataStart;
-        return { ...t, range: clamp(grow(t.range)), calc: axis === 'col' ? shiftCalc(t.calc, t.range.c1, at, n, false) : t.calc,
-          ...(axis === 'col' && t.calcArray ? { calcArray: shiftCalc(t.calcArray, t.range.c1, at, n, false) } : {}),
+      sheet.tables = sheet.tables.map((tbl) => {
+        const origin = tbl.calcRow ?? tableRows(tbl).dataStart;
+        return { ...tbl, range: clamp(grow(tbl.range)), calc: axis === 'col' ? shiftCalc(tbl.calc, tbl.range.c1, at, n, false) : tbl.calc,
+          ...(axis === 'col' && tbl.calcArray ? { calcArray: shiftCalc(tbl.calcArray, tbl.range.c1, at, n, false) } : {}),
           ...(axis === 'row' ? { calcRow: move(origin) } : {}) };
       });
       // Columns inserted inside a table get header names of their own, so no two columns share one.
-      if (axis === 'col') for (const t of sheet.tables) if (t.range.c1 < at && at + n - 1 <= t.range.c2) this._nameInsertedTableColumns(sheet, t, at, n);
+      if (axis === 'col') for (const tbl of sheet.tables) if (tbl.range.c1 < at && at + n - 1 <= tbl.range.c2) this._nameInsertedTableColumns(sheet, tbl, at, n);
       // A table's filter reaches its last data row, including rows inserted under a table that had none. A worksheet
       // filter over the table's first rows and columns is no table's: it keeps its own extent.
       if (axis === 'row') {
         const owned = new Set(tableFilters.map(m => filterRangeKey({ range: clamp(grow(m)) })));
         mapSheetFilters(sheet, f => {
-          const owner = owned.has(filterRangeKey(f)) && sheet.tables.find(t => t.range.r1 === f.range.r1 && t.range.c1 === f.range.c1 && t.range.c2 === f.range.c2);
+          const owner = owned.has(filterRangeKey(f)) && sheet.tables.find(tbl => tbl.range.r1 === f.range.r1 && tbl.range.c1 === f.range.c1 && tbl.range.c2 === f.range.c2);
           const end = owner ? tableRows(owner).dataEnd : -1;
           return owner && f.range.r2 < end ? { ...f, range: { ...f.range, r2: end } } : f;
         });
@@ -7182,9 +7192,9 @@ export class Workbook extends EventTarget {
       // Rows inserted among a table's data rows are new table rows: they get the calculated
       // columns, as rows added below the table do. The structural snapshot covers the undo.
       if (axis === 'row') {
-        for (const { start, n } of blocks) for (const t of sheet.tables) {
-          if (!(t.range.r1 < start && start + n - 1 <= tableRows(t).dataEnd)) continue;
-          for (let r = start; r < start + n; r++) for (const { r: rr, c, cell } of this._calculatedRowEntries(sheet, t, r)) sheet.cells.set(cellKey(rr, c), cell);
+        for (const { start, n } of blocks) for (const tbl of sheet.tables) {
+          if (!(tbl.range.r1 < start && start + n - 1 <= tableRows(tbl).dataEnd)) continue;
+          for (let r = start; r < start + n; r++) for (const { r: rr, c, cell } of this._calculatedRowEntries(sheet, tbl, r)) sheet.cells.set(cellKey(rr, c), cell);
         }
       }
       // Formula addresses and cached positions must both be current before
@@ -7201,17 +7211,17 @@ export class Workbook extends EventTarget {
    * Name the `n` columns just inserted at `at` inside table `t` (whose range already takes them in), inside a structural
    * step: each gets a free ColumnN name in its header cell, or among the names a table without its Header Row keeps.
    */
-  _nameInsertedTableColumns(sheet, t, at, n) {
+  _nameInsertedTableColumns(sheet, tbl, at, n) {
     this._invalidate(); // header displays are read at their moved positions
-    const others = this.tableColumns(sheet.id, t).filter((_, i) => t.range.c1 + i < at || t.range.c1 + i >= at + n);
+    const others = this.tableColumns(sheet.id, tbl).filter((_, i) => tbl.range.c1 + i < at || tbl.range.c1 + i >= at + n);
     // A table whose Header Row is off keeps its names on itself: the new columns are named there.
-    if (t.headerRow === false) { headerlessInsertColumns(t, at - t.range.c1, n, (taken, i) => this._freeColumnName(taken, i)); return; }
+    if (tbl.headerRow === false) { headerlessInsertColumns(tbl, at - tbl.range.c1, n, (taken, i) => this._freeColumnName(taken, i)); return; }
     for (let c = at; c < at + n; c++) {
-      const name = this._freeColumnName(others, c - t.range.c1);
+      const name = this._freeColumnName(others, c - tbl.range.c1);
       others.push(name);
       // The header cell keeps the formatting it inherited from the column to its left.
-      const inherited = sheet.cells.get(cellKey(t.range.r1, c))?.s;
-      sheet.cells.set(cellKey(t.range.r1, c), { v: name, f: null, ...(inherited ? { s: inherited } : {}) });
+      const inherited = sheet.cells.get(cellKey(tbl.range.r1, c))?.s;
+      sheet.cells.set(cellKey(tbl.range.r1, c), { v: name, f: null, ...(inherited ? { s: inherited } : {}) });
     }
   }
 
@@ -7245,8 +7255,8 @@ export class Workbook extends EventTarget {
     if (everything) lines = deleteMap([{ from: 0, to: total - 2 }]);
     const { runs } = lines;
     // Tables deleted whole, and table columns deleted: the structured references to them become #REF!.
-    const lostTables = this._lostTableColumns(sheet, (t) => {
-      const [first, last] = axis === 'row' ? [t.range.r1, t.range.r2] : [t.range.c1, t.range.c2];
+    const lostTables = this._lostTableColumns(sheet, (tbl) => {
+      const [first, last] = axis === 'row' ? [tbl.range.r1, tbl.range.r2] : [tbl.range.c1, tbl.range.c2];
       if (lines.before(last + 1) - lines.before(first) === last - first + 1) return true;
       if (axis === 'row') return null;
       const cols = [];
@@ -7260,22 +7270,22 @@ export class Workbook extends EventTarget {
     const renamed = [];
     if (axis === 'row') {
       for (const { from, to } of runs) {
-        for (const t of sheet.tables) {
-          if (t.headerRow === false || !(t.range.r1 >= from && t.range.r1 <= to && t.range.r2 > to)) continue;
-          renamed.push({ id: t.id, name: t.name, before: this.tableColumns(sheet.id, t) });
-          for (let c = t.range.c1; c <= t.range.c2; c++) {
+        for (const tbl of sheet.tables) {
+          if (tbl.headerRow === false || !(tbl.range.r1 >= from && tbl.range.r1 <= to && tbl.range.r2 > to)) continue;
+          renamed.push({ id: tbl.id, name: tbl.name, before: this.tableColumns(sheet.id, tbl) });
+          for (let c = tbl.range.c1; c <= tbl.range.c2; c++) {
             const cell = sheet.cells.get(cellKey(to + 1, c));
             if (cell?.f != null || (cell?.v != null && typeof cell.v !== 'string')) promoted.push({ r: lines.move(to + 1), c, cell: { v: this.getDisplay(sheet.id, to + 1, c) || null, f: null, s: cell.s } });
           }
         }
       }
     }
-    this._structural(label || (axis === 'row' ? 'Delete rows' : 'Delete columns'), () => {
+    this._structural(label || (axis === 'row' ? t('workbook.undo.deleteRows') : t('workbook.undo.deleteColumns')), () => {
       if (lostTables) { this._dropLostSlicers(lostTables); this._dropLostTableReferences(lostTables); }
       this._removeNativePivots((this.nativePivots?.tables || []).filter(p => {
         const ref = p.owner === sheetId && parseRefText(p.ref || '');
         return ref && !adjustRefForDeletedLines(ref, axis, refLines);
-      }), label || 'Delete lines', true);
+      }), label || t('workbook.undo.deleteLines'), true);
       this.nativePivots = mapNativePivotRanges(this.nativePivots, sheetId, ref => adjustRefForDeletedLines(ref, axis, refLines));
       this._mapWatches(sheetId, (r, c) => {
         const i = refLines.move(axis === 'row' ? r : c);
@@ -7370,36 +7380,36 @@ export class Workbook extends EventTarget {
         filter: (f) => refLines.runs.reduceRight((g, run) => g && adjustFilterForEdit(g, { ownerSheet: sheet.name, sheetName: sheet.name, axis, at: run.from,
           count: run.to - run.from + 1, remove: true, sheetsBetween: (a, b) => this._editedSpan(a, b), newId }), f) });
       // A table survives while its header row and at least one column remain.
-      sheet.tables = sheet.tables.map((t) => {
-        const origin = t.calcRow ?? tableRows(t).dataStart;
+      sheet.tables = sheet.tables.map((tbl) => {
+        const origin = tbl.calcRow ?? tableRows(tbl).dataStart;
         // If the origin is deleted, use the formula for the first surviving
         // row before adjusting references for the deletion itself.
         const shift = axis === 'row' && lines.deleted(origin) ? lines.next(origin) - origin : 0;
-        let calc = t.calc, calcArray = t.calcArray;
+        let calc = tbl.calc, calcArray = tbl.calcArray;
         if (axis === 'col') {
           // Calculated columns are keyed from the table's first column, so they follow the runs one at a time, right to left.
-          let c1 = t.range.c1;
+          let c1 = tbl.range.c1;
           for (let i = runs.length - 1; i >= 0; i--) {
             const { from, to } = runs[i];
             calc = shiftCalc(calc, c1, from, to - from + 1, true);
             if (calcArray) calcArray = shiftCalc(calcArray, c1, from, to - from + 1, true);
             c1 = c1 > to ? c1 - (to - from + 1) : c1 >= from ? from : c1;
           }
-        } else calc = Object.fromEntries(Object.entries(t.calc || {}).map(([c, f]) => [c, shiftFormula(f, shift, 0)]));
-        const range = shrink(t.range);
-        if (axis === 'col' && t.headerRow === false) t = headerlessDeleteColumns(t, (c) => lines.deleted(c));
+        } else calc = Object.fromEntries(Object.entries(tbl.calc || {}).map(([c, f]) => [c, shiftFormula(f, shift, 0)]));
+        const range = shrink(tbl.range);
+        if (axis === 'col' && tbl.headerRow === false) tbl = headerlessDeleteColumns(tbl, (c) => lines.deleted(c));
         // The totals row goes with its line; and one left as the table's only row is the header now
         // (promoted above), not a header that is its own totals row, which nothing could add a row to.
-        const totalsDeleted = axis === 'row' && (lines.deleted(t.range.r2) || range.r2 === range.r1);
-        return { ...t, range, calc, ...(calcArray ? { calcArray } : {}), totalsRow: t.totalsRow && !totalsDeleted,
+        const totalsDeleted = axis === 'row' && (lines.deleted(tbl.range.r2) || range.r2 === range.r1);
+        return { ...tbl, range, calc, ...(calcArray ? { calcArray } : {}), totalsRow: tbl.totalsRow && !totalsDeleted,
           ...(axis === 'row' ? { calcRow: origin - lines.before(origin) } : {}) };
       })
-        .filter((t) => t.range.c2 >= t.range.c1 && t.range.r2 >= t.range.r1);
+        .filter((tbl) => tbl.range.c2 >= tbl.range.c1 && tbl.range.r2 >= tbl.range.r1);
       for (const { r, c, cell } of promoted) sheet.cells.set(cellKey(r, c), cell);
       // The promoted row's texts are the columns' new names: references follow them, as when a header is retyped.
       if (renamed.length) this._invalidate(); // header displays are read at their moved positions
       for (const { id, name, before } of renamed) {
-        const live = sheet.tables.find((t) => t.id === id);
+        const live = sheet.tables.find((tbl) => tbl.id === id);
         if (!live) continue;
         const after = this.tableColumns(sheet.id, live);
         // The promoted row may repeat a name across its columns; the later ones are numbered (a, a2), as typed duplicates are.
@@ -7423,7 +7433,7 @@ export class Workbook extends EventTarget {
             const { r, c } = parseKey(key);
             cell.f = renameColumnsInFormula(cell.f, name, names, this.tableAt(s.id, r, c)?.name || null);
           }
-          s.tables = s.tables.map((t) => ({ ...t, calc: Object.fromEntries(Object.entries(t.calc || {}).map(([k, f]) => [k, renameColumnsInFormula(f, name, names, t.name)])) }));
+          s.tables = s.tables.map((tbl) => ({ ...tbl, calc: Object.fromEntries(Object.entries(tbl.calc || {}).map(([k, f]) => [k, renameColumnsInFormula(f, name, names, tbl.name)])) }));
           // Rules, validations, and filter conditions that name the column follow too; a bare [@Col] is read
           // where each rule sits (a list source from A1, the sheet's address context, as _resolveSource does).
           const owner = (rule) => (rule.type === 'list' && rule.relativeSource !== true ? this.tableAt(s.id, 0, 0) : this.tableAt(s.id, rule.range.r1, rule.range.c1))?.name || null;
@@ -7433,7 +7443,7 @@ export class Workbook extends EventTarget {
         this.names = this.names.map((n) => ({ ...n, ref: renameColumnsInFormula(n.ref, name, names, null) }));
       }
       for (const table of filteredTables) {
-        const live = sheet.tables.find(t => t.id === table.id);
+        const live = sheet.tables.find(tbl => tbl.id === table.id);
         if (live && !sheetFilters(sheet).some(f => filterTable(sheet, f) === live)) {
           const f = { range: { r1: live.range.r1, c1: live.range.c1, r2: tableRows(live).dataEnd, c2: live.range.c2 }, criteria: {} };
           if (!sheet.filter) sheet.filter = f; else sheet.otherFilters.push(f);
@@ -7535,9 +7545,9 @@ export class Workbook extends EventTarget {
       return { ...m, [lo]: span.lo, [hi]: span.hi };
     };
     const straddles = (m) => !mapSpan(axis === 'row' ? m.r1 : m.c1, axis === 'row' ? m.r2 : m.c2).contiguous;
-    for (const t of sheet.tables) {
-      const range = mapRange(t.range);
-      if (straddles(t.range) || (axis === 'row' && (map(t.range.r1) !== range.r1 || (t.totalsRow && map(t.range.r2) !== range.r2)))) return null;
+    for (const tbl of sheet.tables) {
+      const range = mapRange(tbl.range);
+      if (straddles(tbl.range) || (axis === 'row' && (map(tbl.range.r1) !== range.r1 || (tbl.totalsRow && map(tbl.range.r2) !== range.r2)))) return null;
     }
     // A merged block the move would cut through, taking a line out of it or landing lines inside it, is refused, as
     // sorting through one is, rather than dropping the merge; one the moved lines carry whole follows them.
@@ -7558,7 +7568,7 @@ export class Workbook extends EventTarget {
       return span.hi - span.lo > (axis === 'row' ? p.range.r2 - p.range.r1 : p.range.c2 - p.range.c1);
     });
     if (grown) { this._emit('protected', sheet.id, { range: grown.range, description: grown.description }); return null; }
-    const label = axis === 'row' ? 'Move rows' : 'Move columns';
+    const label = axis === 'row' ? t('workbook.undo.moveRows') : t('workbook.undo.moveColumns');
     // Rule and filter formulas are rewritten through their own writers; the transaction folds
     // those steps into this one structural undo entry.
     this.transaction(label, () => this._structural(label, () => {
@@ -7713,18 +7723,18 @@ export class Workbook extends EventTarget {
       this._mapAdvancedFilters(sheet.id, moveRect);
       this._mapWatches(sheetId, (r, c) => (axis === 'row' ? { r: map(r), c } : { r, c: map(c) }));
       sheet.charts = sheet.charts.map((ch) => ({ ...ch, ...mapCellDrawing(ch, p => ({ ...p, [axis === 'row' ? 'r' : 'c']: map(p[axis === 'row' ? 'r' : 'c']) })), range: moveRect(ch.range), anchor: ch.anchorMode === 'absolute' ? ch.anchor : { r: axis === 'row' ? map(ch.anchor.r) : ch.anchor.r, c: axis === 'col' ? map(ch.anchor.c) : ch.anchor.c } }));
-      sheet.tables = sheet.tables.map((t) => {
-        const range = mapRange(t.range);
+      sheet.tables = sheet.tables.map((tbl) => {
+        const range = mapRange(tbl.range);
         // A table without its Header Row keeps its column names on itself: each goes with its column.
         let columnNames;
-        if (axis === 'col' && t.headerRow === false) {
+        if (axis === 'col' && tbl.headerRow === false) {
           columnNames = [];
-          headerlessTableColumns(t).forEach((name, i) => { columnNames[map(t.range.c1 + i) - range.c1] = name; });
+          headerlessTableColumns(tbl).forEach((name, i) => { columnNames[map(tbl.range.c1 + i) - range.c1] = name; });
         }
-        return { ...t, range, ...(columnNames ? { columnNames } : {}),
-          calc: axis === 'col' ? Object.fromEntries(Object.entries(t.calc || {}).map(([c, f]) => [map(t.range.c1 + Number(c)) - range.c1, f])) : t.calc,
-          ...(axis === 'col' && t.calcArray ? { calcArray: Object.fromEntries(Object.entries(t.calcArray).map(([c, v]) => [map(t.range.c1 + Number(c)) - range.c1, v])) } : {}),
-          ...(axis === 'row' ? { calcRow: map(t.calcRow ?? tableRows(t).dataStart) } : {}) };
+        return { ...tbl, range, ...(columnNames ? { columnNames } : {}),
+          calc: axis === 'col' ? Object.fromEntries(Object.entries(tbl.calc || {}).map(([c, f]) => [map(tbl.range.c1 + Number(c)) - range.c1, f])) : tbl.calc,
+          ...(axis === 'col' && tbl.calcArray ? { calcArray: Object.fromEntries(Object.entries(tbl.calcArray).map(([c, v]) => [map(tbl.range.c1 + Number(c)) - range.c1, v])) } : {}),
+          ...(axis === 'row' ? { calcRow: map(tbl.calcRow ?? tableRows(tbl).dataStart) } : {}) };
       });
       const moveFilter = (old) => {
         const range = moveRect(old.range);
@@ -7756,8 +7766,8 @@ export class Workbook extends EventTarget {
         if (s === sheet) s.charts = s.charts.map(chart => mapChartReferences(chart, f => renumber(f, s.name)));
         if (s === sheet) s.sparklineGroups = mapNativeSparklineDestinations(s.sparklineGroups, mapRange);
         for (const cell of s.cells.values()) if (cell.f != null) cell.f = renumber(cell.f, s.name);
-        s.tables = s.tables.map((t) => !t.calc ? t : { ...t, calc: Object.fromEntries(
-          Object.entries(t.calc).map(([c, f]) => [c, renumber(f, s.name)]),
+        s.tables = s.tables.map((tbl) => !tbl.calc ? tbl : { ...tbl, calc: Object.fromEntries(
+          Object.entries(tbl.calc).map(([c, f]) => [c, renumber(f, s.name)]),
         ) });
       }
       this.names = this.names.map((n) => ({ ...n, ref: renumber(n.ref, n.sheet || null, n.relative === true) }));
@@ -7816,7 +7826,7 @@ export class Workbook extends EventTarget {
         if (cell.f == null) continue;
         cell.f = adjust(cell.f);
       }
-      s.tables = s.tables.map((t) => ({ ...t, calc: Object.fromEntries(Object.entries(t.calc || {}).map(([c, f]) => [c, adjust(f)])) }));
+      s.tables = s.tables.map((tbl) => ({ ...tbl, calc: Object.fromEntries(Object.entries(tbl.calc || {}).map(([c, f]) => [c, adjust(f)])) }));
     }
     // A name without a sheet reads its unqualified references relative to whichever sheet calls it, so no single edit can move them.
     this.names = this.names.map((n) => ({ ...n, ref: adjustFormula(n.ref, { ownerSheet: n.sheet || null, sheetName, axis, at, count, remove, lines, relativeName: n.relative === true, sheetsBetween: (a, b) => this._editedSpan(a, b) }) }));
@@ -7840,7 +7850,7 @@ export class Workbook extends EventTarget {
       this._changed('layout', live.id);
     };
     apply(w);
-    this._push({ label: 'Resize column', undo: () => apply(prev), redo: () => apply(w) });
+    this._push({ label: t('workbook.undo.resizeColumn'), undo: () => apply(prev), redo: () => apply(w) });
   }
 
   setRowHeight(sheetId, r, height, { auto = false } = {}) {
@@ -7866,7 +7876,7 @@ export class Workbook extends EventTarget {
       this._changed('layout', live.id);
     };
     apply(h, mode);
-    this._push({ label: 'Resize row', undo: () => apply(prev, previousMode), redo: () => apply(h, mode) });
+    this._push({ label: t('workbook.undo.resizeRow'), undo: () => apply(prev, previousMode), redo: () => apply(h, mode) });
   }
 
 
@@ -7898,7 +7908,7 @@ export class Workbook extends EventTarget {
       this._changed('layout', live.id);
     };
     apply(after);
-    this._push({ label: row ? 'Resize rows' : 'Resize columns', undo: () => apply(before), redo: () => apply(after) });
+    this._push({ label: row ? t('workbook.undo.resizeRows') : t('workbook.undo.resizeColumns'), undo: () => apply(before), redo: () => apply(after) });
   }
 
   /** Refresh derived auto-fit caches without creating edits or disturbing formula caches/history. */
@@ -7944,7 +7954,7 @@ export class Workbook extends EventTarget {
       this._changed('structure', live.id);
     };
     apply(next);
-    this._push({ label: next ? 'Protect sheet' : 'Unprotect sheet', undo: () => apply(prev), redo: () => apply(next) });
+    this._push({ label: next ? t('workbook.undo.protectSheet') : t('workbook.undo.unprotectSheet'), undo: () => apply(prev), redo: () => apply(next) });
   }
 
   /** True (and announced) when the sheet is protected, so a mutation should stop. */
@@ -8099,7 +8109,7 @@ export class Workbook extends EventTarget {
     const twin = sheet.protectedRanges.find(({ range: p }) => p.r1 === n.r1 && p.c1 === n.c1 && p.r2 === n.r2 && p.c2 === n.c2);
     if (twin) return twin.id;
     const entry = { id: newId(), range: n, description: String(description || '').slice(0, 200) };
-    this._setProtectedRanges(sheet, [...sheet.protectedRanges, entry], 'Protect range');
+    this._setProtectedRanges(sheet, [...sheet.protectedRanges, entry], t('workbook.undo.protectRange'));
     return entry.id;
   }
 
@@ -8110,13 +8120,13 @@ export class Workbook extends EventTarget {
     const next = sheet.protectedRanges.slice();
     next[i] = { ...next[i], ...patch, id, range: normalizeRange(patch.range || next[i].range) };
     if (JSON.stringify(next[i]) === JSON.stringify(sheet.protectedRanges[i])) return; // nothing changed: no step, as updateChart
-    this._setProtectedRanges(sheet, next, 'Edit protected range');
+    this._setProtectedRanges(sheet, next, t('workbook.undo.editProtectedRange'));
   }
 
   unprotectRange(sheetId, id) {
     const sheet = this.sheet(sheetId);
     if (!sheet || !sheet.protectedRanges.some((p) => p.id === id)) return;
-    this._setProtectedRanges(sheet, sheet.protectedRanges.filter((p) => p.id !== id), 'Unprotect range');
+    this._setProtectedRanges(sheet, sheet.protectedRanges.filter((p) => p.id !== id), t('workbook.undo.unprotectRange'));
   }
 
   /* ---------- Outline groups ---------- */
@@ -8204,7 +8214,7 @@ export class Workbook extends EventTarget {
     // In sheet order (by first line, the longer first), after any group over the same lines: the list stays sorted.
     let at = 0;
     while (at < list.length && (list[at].from < lo || (list[at].from === lo && list[at].to >= hi))) at++;
-    this._outlineStep(sheet, axis === 'row' ? 'Group rows' : 'Group columns', () => {
+    this._outlineStep(sheet, axis === 'row' ? t('workbook.undo.groupRows') : t('workbook.undo.groupColumns'), () => {
       sheet.groups = { ...sheet.groups, [key]: [...list.slice(0, at), { from: lo, to: hi, collapsed: false }, ...list.slice(at)] };
     });
     return true;
@@ -8266,7 +8276,7 @@ export class Workbook extends EventTarget {
       if (around.length) gone = [around[0]];
     }
     if (!gone.length) return 0;
-    this._outlineStep(sheet, axis === 'row' ? 'Ungroup rows' : 'Ungroup columns', () => {
+    this._outlineStep(sheet, axis === 'row' ? t('workbook.undo.ungroupRows') : t('workbook.undo.ungroupColumns'), () => {
       const removed = new Set(gone);
       sheet.groups = { ...sheet.groups, [key]: list.filter((g) => !removed.has(g)) };
       const hidden = axis === 'row' ? sheet.hiddenRows : sheet.hiddenCols;
@@ -8293,7 +8303,7 @@ export class Workbook extends EventTarget {
     const group = sheet.groups[key][at];
     if (!group) return;
     const collapse = !group.collapsed;
-    this._outlineStep(sheet, collapse ? (axis === 'row' ? 'Collapse rows' : 'Collapse columns') : (axis === 'row' ? 'Expand rows' : 'Expand columns'), () => {
+    this._outlineStep(sheet, collapse ? (axis === 'row' ? t('workbook.undo.collapseRows') : t('workbook.undo.collapseColumns')) : (axis === 'row' ? t('workbook.undo.expandRows') : t('workbook.undo.expandColumns')), () => {
       sheet.groups = { ...sheet.groups, [key]: sheet.groups[key].map((g, i) => (i === at ? { ...g, collapsed: collapse } : g)) };
       const hidden = axis === 'row' ? sheet.hiddenRows : sheet.hiddenCols;
       const held = collapse ? null : this._collapsedLines(sheet, key, group.from, group.to);
@@ -8313,7 +8323,7 @@ export class Workbook extends EventTarget {
     const key = axis === 'row' ? 'rows' : 'cols';
     const list = sheet.groups[key];
     if (!list.length || list.every((g) => g.collapsed === !!collapsed)) return;
-    this._outlineStep(sheet, collapsed ? (axis === 'row' ? 'Collapse all rows' : 'Collapse all columns') : (axis === 'row' ? 'Expand all rows' : 'Expand all columns'), () => {
+    this._outlineStep(sheet, collapsed ? (axis === 'row' ? t('workbook.undo.collapseAllRows') : t('workbook.undo.collapseAllColumns')) : (axis === 'row' ? t('workbook.undo.expandAllRows') : t('workbook.undo.expandAllColumns')), () => {
       const hidden = axis === 'row' ? sheet.hiddenRows : sheet.hiddenCols;
       sheet.groups = { ...sheet.groups, [key]: list.map((g) => ({ ...g, collapsed: !!collapsed })) };
       for (const g of list) for (let i = g.from; i <= g.to; i++) { if (collapsed) hidden.add(i); else hidden.delete(i); }
@@ -8332,7 +8342,7 @@ export class Workbook extends EventTarget {
     const key = axis === 'row' ? 'rows' : 'cols';
     const groups = this.outlineGroups(sheetId, axis);
     if (!groups.length || groups.every((g) => g.collapsed === (g.level >= level))) return false;
-    this._outlineStep(sheet, axis === 'row' ? 'Show row level' : 'Show column level', () => {
+    this._outlineStep(sheet, axis === 'row' ? t('workbook.undo.showRowLevel') : t('workbook.undo.showColumnLevel'), () => {
       sheet.groups = { ...sheet.groups, [key]: groups.map(({ level: depth, ...g }) => ({ ...g, collapsed: depth >= level })) };
       const hidden = axis === 'row' ? sheet.hiddenRows : sheet.hiddenCols;
       const held = this._collapsedLines(sheet, key, 0, Infinity);
@@ -8356,7 +8366,7 @@ export class Workbook extends EventTarget {
       this._changed('layout', live.id);
     };
     apply(next);
-    this._push({ label: 'Outline settings', undo: () => apply(prev), redo: () => apply(next) });
+    this._push({ label: t('workbook.undo.outlineSettings'), undo: () => apply(prev), redo: () => apply(next) });
     return true;
   }
 
@@ -8364,7 +8374,7 @@ export class Workbook extends EventTarget {
    * Replace every outline group on an axis (or both, when axis is null) with `groups`, as one step: Auto Outline
    * and Clear Outline. Lines a removed group had hidden come back; a new group starts expanded.
    */
-  replaceGroups(sheetId, next, label = 'Outline') {
+  replaceGroups(sheetId, next, label = t('workbook.undo.outline')) {
     const sheet = this.sheet(sheetId);
     if (!sheet || this._gridLocked(sheet)) return false;
     const wanted = normalizeGroups({ rows: next.rows ?? sheet.groups.rows, cols: next.cols ?? sheet.groups.cols });
@@ -8414,20 +8424,20 @@ export class Workbook extends EventTarget {
 
   /** Show or hide the faint lines between cells on a sheet (a view setting that is saved). Undoable. */
   setGridlines(sheetId, on) {
-    this._setSheetSwitch(sheetId, 'gridlines', on, 'Gridlines');
+    this._setSheetSwitch(sheetId, 'gridlines', on, t('workbook.undo.gridlines'));
   }
 
   /** Row and column headings belong to the worksheet view, independently of printed headings. */
   setHeaders(sheetId, on) {
-    this._setSheetSwitch(sheetId, 'headers', on, 'Row and column headers');
+    this._setSheetSwitch(sheetId, 'headers', on, t('workbook.undo.rowAndColumnHeaders'));
   }
 
   /** Show or hide zero values on a sheet (a hidden zero is still 0 to formulas). Undoable. */
   setZeros(sheetId, on) {
-    this._setSheetSwitch(sheetId, 'zeros', on, 'Show zeros');
+    this._setSheetSwitch(sheetId, 'zeros', on, t('workbook.undo.showZeros'));
   }
 
-  setPrintSettings(sheetId, settings, label = 'Page setup') {
+  setPrintSettings(sheetId, settings, label = t('workbook.undo.pageSetup')) {
     const sheet = this.sheet(sheetId);
     if (!sheet) return false;
     const prev = sheet.printSettings, next = normalizePrintSettings(settings);
@@ -8447,7 +8457,7 @@ export class Workbook extends EventTarget {
    * Replace the sheet's manual page breaks (see page-breaks.js): `rows` and `cols` list the first line of
    * each new page. One undo step; a sheet without page setup of its own gets the default one.
    */
-  setPageBreaks(sheetId, { rows, cols }, label = 'Page breaks') {
+  setPageBreaks(sheetId, { rows, cols }, label = t('workbook.undo.pageBreaks')) {
     const sheet = this.sheet(sheetId);
     if (!sheet || sheet.kind === 'chart') return false;
     const current = sheet.printSettings || normalizePrintSettings({});
@@ -8509,7 +8519,7 @@ export class Workbook extends EventTarget {
       this._changed('layout', sheetId);
     };
     apply(next);
-    this._push({ label: next ? 'Background' : 'Delete background', undo: () => apply(prev), redo: () => apply(next) });
+    this._push({ label: next ? t('workbook.undo.background') : t('workbook.undo.deleteBackground'), undo: () => apply(prev), redo: () => apply(next) });
     return true;
   }
 
@@ -8539,13 +8549,13 @@ export class Workbook extends EventTarget {
     if (at < 0 && this.customViews.length >= MAX_CUSTOM_VIEWS) return null;
     const next = this.customViews.slice();
     if (at >= 0) next[at] = { ...view, id: this.customViews[at].id }; else next.push(view);
-    this._setCustomViews(next, 'Add view');
+    this._setCustomViews(next, t('workbook.undo.addView'));
     return next[at >= 0 ? at : next.length - 1].id;
   }
 
   deleteCustomView(id) {
     if (!this.customViews.some((v) => v.id === id)) return false;
-    this._setCustomViews(this.customViews.filter((v) => v.id !== id), 'Delete view');
+    this._setCustomViews(this.customViews.filter((v) => v.id !== id), t('workbook.undo.deleteView'));
     return true;
   }
 
@@ -8570,11 +8580,11 @@ export class Workbook extends EventTarget {
     const before = new Map(entries.map(([sheet]) => [sheet.id, frame(sheet)]));
     const target = (sheet, state) => {
       const was = before.get(sheet.id);
-      const t = { ...was, frozenRows: state.frozenRows, frozenCols: state.frozenCols, frozenOrigin: state.frozenOrigin || null,
+      const txt = { ...was, frozenRows: state.frozenRows, frozenCols: state.frozenCols, frozenOrigin: state.frozenOrigin || null,
         split: state.split || null, gridlines: state.gridlines, headers: state.headers, zeros: state.zeros, hidden: state.sheetHidden };
-      if (view.hidden && state.hiddenRows) Object.assign(t, { hiddenRows: state.hiddenRows, hiddenCols: state.hiddenCols, filter: state.filter, otherFilters: state.otherFilters, filterHidden: null });
-      if (view.print && 'printSettings' in state && sheet.kind !== 'chart') t.printSettings = state.printSettings;
-      return t;
+      if (view.hidden && state.hiddenRows) Object.assign(txt, { hiddenRows: state.hiddenRows, hiddenCols: state.hiddenCols, filter: state.filter, otherFilters: state.otherFilters, filterHidden: null });
+      if (view.print && 'printSettings' in state && sheet.kind !== 'chart') txt.printSettings = state.printSettings;
+      return txt;
     };
     const after = new Map(entries.map(([sheet, state]) => [sheet.id, target(sheet, state)]));
     // Never every sheet hidden: the view's active sheet stays in view whatever the view says of it.
@@ -8601,7 +8611,7 @@ export class Workbook extends EventTarget {
       this._changed('structure', null);
     };
     apply(after);
-    this._push({ label: `Show view ${view.name}`, undo: () => apply(before), redo: () => apply(after) });
+    this._push({ label: t('workbook.undo.showView', { name: view.name }), undo: () => apply(before), redo: () => apply(after) });
     // Navigation: where each sheet was, as it was zoomed and in which view.
     for (const [sheet, state] of entries) {
       if (sheet.kind !== 'chart') {
@@ -8667,7 +8677,7 @@ export class Workbook extends EventTarget {
   enterSheetView(sheetId, viewId, options) {
     const sheet = this.sheet(sheetId), view = sheet?.sheetViews?.find((v) => v.id === viewId);
     if (!view || sheet.personalView?.id === viewId) return false;
-    return this._sheetViewStep(sheet, `Switch to ${view.name}`, (s) => {
+    return this._sheetViewStep(sheet, t('workbook.undo.switchToView', { name: view.name }), (s) => {
       this._captureSheetView(s);
       const saved = s.personalView?.saved || { filter: copyFilter(s.filter), otherFilters: (s.otherFilters || []).map(copyFilter) };
       // A temporary view left for another one goes, as it does on Exit.
@@ -8683,7 +8693,7 @@ export class Workbook extends EventTarget {
     const sheet = this.sheet(sheetId);
     if (!sheet || sheet.kind === 'chart') return null;
     const id = newId();
-    const ok = this._sheetViewStep(sheet, 'New sheet view', (s) => {
+    const ok = this._sheetViewStep(sheet, t('workbook.undo.newSheetView'), (s) => {
       this._captureSheetView(s);
       const saved = s.personalView?.saved || { filter: copyFilter(s.filter), otherFilters: (s.otherFilters || []).map(copyFilter) };
       const views = (s.sheetViews || []).filter((v) => !(v.temporary && v.id === s.personalView?.id));
@@ -8697,7 +8707,7 @@ export class Workbook extends EventTarget {
   keepSheetView(sheetId, name) {
     const sheet = this.sheet(sheetId), id = sheet?.personalView?.id, text = String(name ?? '').trim().slice(0, 255);
     if (!id || !text || sheet.sheetViews.some((v) => v.id !== id && v.name.toLowerCase() === text.toLowerCase())) return false;
-    return this._sheetViewStep(sheet, 'Keep sheet view', (s) => {
+    return this._sheetViewStep(sheet, t('workbook.undo.keepSheetView'), (s) => {
       this._captureSheetView(s);
       s.sheetViews = s.sheetViews.map((v) => (v.id === id ? (({ temporary, ...rest }) => ({ ...rest, name: text }))(v) : v));
     }, { shared: true });
@@ -8707,7 +8717,7 @@ export class Workbook extends EventTarget {
   exitSheetView(sheetId, options) {
     const sheet = this.sheet(sheetId);
     if (!sheet?.personalView) return false;
-    return this._sheetViewStep(sheet, 'Exit sheet view', (s) => {
+    return this._sheetViewStep(sheet, t('workbook.undo.exitSheetView'), (s) => {
       this._captureSheetView(s);
       const { id, saved } = s.personalView;
       if (s.sheetViews.find((v) => v.id === id)?.temporary) s.sheetViews = s.sheetViews.filter((v) => v.id !== id);
@@ -8720,7 +8730,7 @@ export class Workbook extends EventTarget {
   renameSheetView(sheetId, viewId, name) {
     const sheet = this.sheet(sheetId), text = String(name ?? '').trim().slice(0, 255);
     if (!sheet?.sheetViews?.some((v) => v.id === viewId) || !text || sheet.sheetViews.some((v) => v.id !== viewId && v.name.toLowerCase() === text.toLowerCase())) return false;
-    return this._sheetViewStep(sheet, 'Rename sheet view', (s) => {
+    return this._sheetViewStep(sheet, t('workbook.undo.renameSheetView'), (s) => {
       s.sheetViews = s.sheetViews.map((v) => (v.id === viewId ? (({ temporary, ...rest }) => ({ ...rest, name: text }))(v) : v));
     }, { shared: true });
   }
@@ -8733,7 +8743,7 @@ export class Workbook extends EventTarget {
     let name = `${source.name} (2)`;
     for (let n = 3; sheet.sheetViews.some((v) => v.name.toLowerCase() === name.toLowerCase()); n++) name = `${source.name} (${n})`;
     const id = newId();
-    const ok = this._sheetViewStep(sheet, 'Duplicate sheet view', (s) => {
+    const ok = this._sheetViewStep(sheet, t('workbook.undo.duplicateSheetView'), (s) => {
       const at = s.sheetViews.findIndex((v) => v.id === viewId);
       s.sheetViews = [...s.sheetViews.slice(0, at + 1), { ...JSON.parse(JSON.stringify(source)), id, name, temporary: undefined }, ...s.sheetViews.slice(at + 1)]
         .map((v) => (v.temporary === undefined ? (({ temporary, ...rest }) => rest)(v) : v));
@@ -8744,7 +8754,7 @@ export class Workbook extends EventTarget {
   deleteSheetView(sheetId, viewId) {
     const sheet = this.sheet(sheetId);
     if (!sheet?.sheetViews?.some((v) => v.id === viewId)) return false;
-    return this._sheetViewStep(sheet, 'Delete sheet view', (s) => {
+    return this._sheetViewStep(sheet, t('workbook.undo.deleteSheetView'), (s) => {
       if (s.personalView?.id === viewId) {
         const { saved } = s.personalView;
         delete s.personalView;
@@ -8797,7 +8807,7 @@ export class Workbook extends EventTarget {
       this._changed('structure', live.id);
     };
     apply(next);
-    this._push({ label: 'Sheet color', undo: () => apply(prev), redo: () => apply(next), changesSheets: true });
+    this._push({ label: t('workbook.undo.sheetColor'), undo: () => apply(prev), redo: () => apply(next), changesSheets: true });
   }
 
   /** Freeze `rows` and `cols` from the current frozen origin (normally A1); 0 unfreezes. Freezing removes a split. */
@@ -8820,7 +8830,7 @@ export class Workbook extends EventTarget {
       this._changed('layout', live.id);
     };
     apply(next);
-    this._push({ label: next.rows || next.cols ? 'Freeze panes' : 'Unfreeze panes', undo: () => apply(prev), redo: () => apply(next) });
+    this._push({ label: next.rows || next.cols ? t('workbook.undo.freezePanes') : t('workbook.undo.unfreezePanes'), undo: () => apply(prev), redo: () => apply(next) });
   }
 
   /**
@@ -8845,7 +8855,7 @@ export class Workbook extends EventTarget {
       this._changed('layout', live.id);
     };
     apply(next);
-    this._push({ label: next.split ? 'Split' : 'Remove split', undo: () => apply(prev), redo: () => apply(next) });
+    this._push({ label: next.split ? t('workbook.undo.split') : t('workbook.undo.removeSplit'), undo: () => apply(prev), redo: () => apply(next) });
   }
 
   /** Where the top-left pane of a split window is scrolled to: navigation, saved without dirtying the book. */
@@ -8927,13 +8937,13 @@ export class Workbook extends EventTarget {
     if (!sheet) return;
     const n = normalizeRange(range);
     if (n.r1 >= n.r2) return;
-    this._setFilter(sheet, { range: n, criteria: {} }, 'Create filter', { create: true });
+    this._setFilter(sheet, { range: n, criteria: {} }, t('workbook.undo.createFilter'), { create: true });
   }
 
   clearFilter(sheetId) {
     const sheet = this.sheet(sheetId);
     if (!sheet?.filter) return;
-    this._setFilter(sheet, null, 'Remove filter');
+    this._setFilter(sheet, null, t('workbook.undo.removeFilter'));
   }
 
   /**
@@ -8949,7 +8959,7 @@ export class Workbook extends EventTarget {
     // Only the filter those rows joined: one over another block of the sheet is left alone.
     if (!f || f.range.r1 > from || f.range.r2 < from) return false;
     if (r2 <= f.range.r2 && !show.length) return false;
-    this._setFilter(sheet, { ...f, range: { ...f.range, r2: Math.max(f.range.r2, r2) } }, 'Filter', { show, target: f });
+    this._setFilter(sheet, { ...f, range: { ...f.range, r2: Math.max(f.range.r2, r2) } }, t('workbook.undo.filter'), { show, target: f });
     return true;
   }
 
@@ -8973,7 +8983,7 @@ export class Workbook extends EventTarget {
         ? { ...criteria, formulaParts: previous.formulaParts } : criteria;
     }
     else delete next.criteria[col];
-    this._setFilter(sheet, next, 'Filter', { target });
+    this._setFilter(sheet, next, t('workbook.undo.filter'), { target });
   }
 
   /**
@@ -9302,7 +9312,7 @@ export class Workbook extends EventTarget {
     if (this._locked(sheet)) return null;
     const full = absoluteDrawingAnchor(sheet, normalizeChart({ ...chart, id: newId() }));
     if (!full) return null;
-    this._setCharts(sheet, [...sheet.charts, full], `Insert ${objectNoun(full)}`);
+    this._setCharts(sheet, [...sheet.charts, full], t('workbook.undo.insertObject', { kind: objectKind(full) }));
     return full.id;
   }
 
@@ -9314,7 +9324,7 @@ export class Workbook extends EventTarget {
     if (this._locked(sheet)) return null;
     const full = this._duplicateOf(sheet, ch);
     if (!full) return null;
-    this._setCharts(sheet, [...sheet.charts, full], `Duplicate ${objectNoun(full)}`);
+    this._setCharts(sheet, [...sheet.charts, full], t('workbook.undo.duplicateObject', { kind: objectKind(full) }));
     return full.id;
   }
 
@@ -9334,7 +9344,7 @@ export class Workbook extends EventTarget {
       if (full) copies.push(full);
     }
     if (!copies.length) return [];
-    this._setCharts(sheet, [...sheet.charts, ...copies], copies.length === 1 ? `Duplicate ${objectNoun(copies[0])}` : 'Duplicate objects');
+    this._setCharts(sheet, [...sheet.charts, ...copies], copies.length === 1 ? t('workbook.undo.duplicateObject', { kind: objectKind(copies[0]) }) : t('workbook.undo.duplicateObjects'));
     return copies.map((c) => c.id);
   }
 
@@ -9364,7 +9374,7 @@ export class Workbook extends EventTarget {
     return this.sheet(sheetId)?.charts.find((ch) => ch.id === id) || null;
   }
 
-  updateChart(sheetId, id, patch, label = 'Edit chart') {
+  updateChart(sheetId, id, patch, label = t('workbook.undo.editChart')) {
     const sheet = this.sheet(sheetId);
     if (!sheet) return;
     if (this._locked(sheet)) return;
@@ -9384,7 +9394,7 @@ export class Workbook extends EventTarget {
    * With `merge`, a change following one with the same key within a few seconds joins its undo step, so the
    * words typed into one item of the Text Pane undo together rather than letter by letter.
    */
-  updateSmartArt(sheetId, id, patch, label = 'Edit SmartArt', { merge = null } = {}) {
+  updateSmartArt(sheetId, id, patch, label = t('workbook.undo.editSmartArt'), { merge = null } = {}) {
     const before = this._history.at(-1);
     const ch = this.chartById(sheetId, id);
     if (ch?.type !== 'smartart') return false;
@@ -9413,7 +9423,7 @@ export class Workbook extends EventTarget {
     const next = compactRangeFlags([...prev, ...ranges.map((range) => ({ range: normalizeRange(range), keys: [key] }))]);
     const apply = (list) => { const live = this.sheet(sheetId); if (!live) return; live.ignoredErrors = list; this.dirty = true; this._changed('cells', sheetId); };
     apply(next);
-    this._push({ label: 'Ignore error', undo: () => apply(prev), redo: () => apply(next) });
+    this._push({ label: t('workbook.undo.ignoreError'), undo: () => apply(prev), redo: () => apply(next) });
     return true;
   }
 
@@ -9427,7 +9437,7 @@ export class Workbook extends EventTarget {
     const to = { front: next.length, back: 0, forward: Math.min(next.length, i + 1), backward: Math.max(0, i - 1) }[where];
     if (to == null || to === i) return false;
     next.splice(to, 0, obj);
-    this._setCharts(sheet, next, where === 'front' || where === 'forward' ? 'Bring to front' : 'Send to back');
+    this._setCharts(sheet, next, where === 'front' || where === 'forward' ? t('workbook.undo.bringToFront') : t('workbook.undo.sendToBack'));
     return true;
   }
 
@@ -9470,7 +9480,7 @@ export class Workbook extends EventTarget {
   }
 
   /** Move objects so their top-left corners land at { id, x, y } (pixels at 100% zoom), re-anchored to the cells there. One undo step. */
-  placeObjects(sheetId, places, label = 'Move objects') {
+  placeObjects(sheetId, places, label = t('workbook.undo.moveObjects')) {
     const sheet = this.sheet(sheetId);
     if (!sheet) return false;
     const patches = new Map();
@@ -9505,8 +9515,8 @@ export class Workbook extends EventTarget {
     const boxes = [...units].map(([id, members]) => ({ id, ...boundsOf(members.map((m) => m.shown)) }));
     const moved = new Map((['horizontal', 'vertical'].includes(how) ? distributeRects(boxes, how) : alignRects(boxes, how)).map((p) => [p.id, p]));
     const places = boxes.flatMap((box) => units.get(box.id).map(({ rect: r }) => ({ id: r.id, x: r.x + moved.get(box.id).x - box.x, y: r.y + moved.get(box.id).y - box.y })));
-    const labels = { left: 'Align left', center: 'Align center', right: 'Align right', top: 'Align top', middle: 'Align middle', bottom: 'Align bottom', horizontal: 'Distribute horizontally', vertical: 'Distribute vertically' };
-    return this.placeObjects(sheetId, places, labels[how] || 'Align');
+    const labels = { left: 'workbook.undo.alignLeft', center: 'workbook.undo.alignCenter', right: 'workbook.undo.alignRight', top: 'workbook.undo.alignTop', middle: 'workbook.undo.alignMiddle', bottom: 'workbook.undo.alignBottom', horizontal: 'workbook.undo.distributeHorizontally', vertical: 'workbook.undo.distributeVertically' };
+    return this.placeObjects(sheetId, places, t(labels[how] || 'workbook.undo.align'));
   }
 
   /** Bring to Front ('front'), Bring Forward ('forward'), Send Backward ('backward') or Send to Back ('back') several objects at once (whole groups). */
@@ -9515,7 +9525,8 @@ export class Workbook extends EventTarget {
     if (!sheet || this._locked(sheet)) return false;
     const next = orderObjects(sheet.charts, ids, where);
     if (next.every((ch, i) => ch === sheet.charts[i])) return false;
-    this._setCharts(sheet, next, { front: 'Bring to front', forward: 'Bring forward', backward: 'Send backward', back: 'Send to back' }[where]);
+    const key = { front: 'workbook.undo.bringToFront', forward: 'workbook.undo.bringForward', backward: 'workbook.undo.sendBackward', back: 'workbook.undo.sendToBack' }[where];
+    this._setCharts(sheet, next, key && t(key));
     return true;
   }
 
@@ -9525,7 +9536,7 @@ export class Workbook extends EventTarget {
     if (!sheet || this._locked(sheet) || !sheet.charts.some((ch) => ch.id === id)) return false;
     const next = moveObjectTo(sheet.charts, id, to);
     if (next.every((ch, i) => ch === sheet.charts[i])) return false;
-    this._setCharts(sheet, next, 'Reorder objects');
+    this._setCharts(sheet, next, t('workbook.undo.reorderObjects'));
     return true;
   }
 
@@ -9536,7 +9547,7 @@ export class Workbook extends EventTarget {
     const group = `g${newId().replace(/[^\w]/g, '').slice(0, 24)}`;
     const next = groupObjects(sheet.charts, ids, group);
     if (!next) return null;
-    this._setCharts(sheet, next, 'Group');
+    this._setCharts(sheet, next, t('workbook.undo.group'));
     return group;
   }
 
@@ -9549,7 +9560,7 @@ export class Workbook extends EventTarget {
     if (!next) return false;
     const last = [...groups].at(-1);
     (this._ungrouped ||= new Map()).set(sheetId, { group: last, ids: sheet.charts.filter((ch) => ch.group === last).map((ch) => ch.id) });
-    this._setCharts(sheet, next, 'Ungroup');
+    this._setCharts(sheet, next, t('workbook.undo.ungroup'));
     return true;
   }
 
@@ -9571,7 +9582,7 @@ export class Workbook extends EventTarget {
     const sheet = this.sheet(sheetId);
     if (!sheet) return false;
     const patches = new Map(sheet.charts.filter((ch) => ids.includes(ch.id) && canRotate(ch)).map((ch) => [ch.id, rotatePatch(ch, op)]));
-    return this._patchObjects(sheet, patches, { right: 'Rotate right', left: 'Rotate left', flipH: 'Flip horizontal', flipV: 'Flip vertical' }[op] || 'Rotate');
+    return this._patchObjects(sheet, patches, t({ right: 'workbook.undo.rotateRight', left: 'workbook.undo.rotateLeft', flipH: 'workbook.undo.flipHorizontal', flipV: 'workbook.undo.flipVertical' }[op] || 'workbook.undo.rotate'));
   }
 
   /** Show or hide objects (the Selection Pane's eye; Show All and Hide All). One undo step. */
@@ -9579,21 +9590,21 @@ export class Workbook extends EventTarget {
     const sheet = this.sheet(sheetId);
     if (!sheet) return false;
     const patches = new Map(sheet.charts.filter((ch) => ids.includes(ch.id) && !!ch.hidden !== !!hidden).map((ch) => [ch.id, { hidden: !!hidden }]));
-    return this._patchObjects(sheet, patches, hidden ? 'Hide objects' : 'Show objects');
+    return this._patchObjects(sheet, patches, hidden ? t('workbook.undo.hideObjects') : t('workbook.undo.showObjects'));
   }
 
   /** The Selection Pane's rename: an object's own name (empty gives it back its default one). */
   renameObject(sheetId, id, name) {
     const sheet = this.sheet(sheetId);
     if (!sheet) return false;
-    return this._patchObjects(sheet, new Map([[id, { name: String(name ?? '').trim().slice(0, OBJECT_NAME_MAX) }]]), 'Rename object');
+    return this._patchObjects(sheet, new Map([[id, { name: String(name ?? '').trim().slice(0, OBJECT_NAME_MAX) }]]), t('workbook.undo.renameObject'));
   }
 
   /** Delete several objects at once, as one undo step. */
   deleteObjects(sheetId, ids) {
     const sheet = this.sheet(sheetId);
     if (!sheet || this._locked(sheet) || !sheet.charts.some((ch) => ids.includes(ch.id))) return false;
-    this._setCharts(sheet, sheet.charts.filter((ch) => !ids.includes(ch.id)), ids.length === 1 ? `Delete ${objectNoun(sheet.charts.find((ch) => ch.id === ids[0]))}` : 'Delete objects');
+    this._setCharts(sheet, sheet.charts.filter((ch) => !ids.includes(ch.id)), ids.length === 1 ? t('workbook.undo.deleteObject', { kind: objectKind(sheet.charts.find((ch) => ch.id === ids[0])) }) : t('workbook.undo.deleteObjects'));
     return true;
   }
 
@@ -9601,7 +9612,7 @@ export class Workbook extends EventTarget {
     const sheet = this.sheet(sheetId);
     if (!sheet || !sheet.charts.some((ch) => ch.id === id)) return false;
     if (this._locked(sheet)) return false;
-    this._setCharts(sheet, sheet.charts.filter((ch) => ch.id !== id), `Delete ${objectNoun(sheet.charts.find((ch) => ch.id === id))}`);
+    this._setCharts(sheet, sheet.charts.filter((ch) => ch.id !== id), t('workbook.undo.deleteObject', { kind: objectKind(sheet.charts.find((ch) => ch.id === id)) }));
     return true;
   }
 
@@ -9622,7 +9633,7 @@ export class Workbook extends EventTarget {
     if (!sheet) return null;
     const id = newId();
     const full = { ...rule, id, range: normalizeRange(rule.range), style: cloneStyle(rule.style) };
-    return this._setRules(sheet, [...sheet.rules, full], 'Add rule') ? id : null;
+    return this._setRules(sheet, [...sheet.rules, full], t('workbook.undo.addRule')) ? id : null;
   }
 
   updateRule(sheetId, id, patch) {
@@ -9640,7 +9651,7 @@ export class Workbook extends EventTarget {
     if (style) merged.style = cloneStyle(style); else delete merged.style;
     next[i] = merged;
     if (sameRule(sheet.rules[i], merged, RULE_DEFAULTS)) return true; // nothing changed: no step, as updateChart
-    return this._setRules(sheet, next, 'Edit rule');
+    return this._setRules(sheet, next, t('workbook.undo.editRule'));
   }
 
   /** Edit all adjacent pieces of a logical rule in one reversible operation. */
@@ -9663,14 +9674,14 @@ export class Workbook extends EventTarget {
     if (originals.length === pieces.length && originals.every((rule, i) => sameRule(rule, pieces[i], RULE_DEFAULTS))) return true;
     const start = original ? sheet.rules.indexOf(original) : sheet.rules.length;
     const next = [...sheet.rules.slice(0, start), ...pieces, ...sheet.rules.slice(start + originals.length)];
-    return this._setRules(sheet, next, original ? 'Edit rule' : 'Add rule');
+    return this._setRules(sheet, next, original ? t('workbook.undo.editRule') : t('workbook.undo.addRule'));
   }
 
   deleteRuleGroup(sheetId, id) {
     const sheet = this.sheet(sheetId), group = sheet && conditionalRuleGroups(sheet.rules).find(group => group.rules.some(rule => rule.id === id));
     if (!group) return false;
     const ids = new Set(group.rules.map(rule => rule.id));
-    return this._setRules(sheet, sheet.rules.filter(rule => !ids.has(rule.id)), 'Delete rule');
+    return this._setRules(sheet, sheet.rules.filter(rule => !ids.has(rule.id)), t('workbook.undo.deleteRule'));
   }
 
   moveRuleGroup(sheetId, id, delta) {
@@ -9678,13 +9689,13 @@ export class Workbook extends EventTarget {
     const groups = conditionalRuleGroups(sheet.rules), i = groups.findIndex(group => group.rules.some(rule => rule.id === id)), j = i + (delta < 0 ? -1 : 1);
     if (i < 0 || j < 0 || j >= groups.length) return false;
     [groups[i], groups[j]] = [groups[j], groups[i]];
-    return this._setRules(sheet, groups.flatMap(group => group.rules), 'Reorder rules');
+    return this._setRules(sheet, groups.flatMap(group => group.rules), t('workbook.undo.reorderRules'));
   }
 
   deleteRule(sheetId, id) {
     const sheet = this.sheet(sheetId);
     if (!sheet || !sheet.rules.some((r) => r.id === id)) return false;
-    return this._setRules(sheet, sheet.rules.filter((r) => r.id !== id), 'Delete rule');
+    return this._setRules(sheet, sheet.rules.filter((r) => r.id !== id), t('workbook.undo.deleteRule'));
   }
 
   /** Move a rule earlier (delta < 0) or later in the list; where rules overlap, the earlier one wins. */
@@ -9696,7 +9707,7 @@ export class Workbook extends EventTarget {
     if (i < 0 || j < 0 || j >= sheet.rules.length) return false;
     const next = [...sheet.rules];
     [next[i], next[j]] = [next[j], next[i]];
-    return this._setRules(sheet, next, 'Reorder rules');
+    return this._setRules(sheet, next, t('workbook.undo.reorderRules'));
   }
 
   /**
@@ -10041,9 +10052,9 @@ export class Workbook extends EventTarget {
   /* ---------- Tables ---------- */
 
   _tableStyleAt(sheet, r, c, own = this.styleAt(sheet.id, r, c), visibleOrdinal = undefined) {
-    const t = sheet.tables.find((x) => r >= x.range.r1 && r <= x.range.r2 && c >= x.range.c1 && c <= x.range.c2);
-    if (!t || t.style === 'none') return null;
-    const look = themedTableLook(t.style, tableStyle(t.style), this);
+    const tbl = sheet.tables.find((x) => r >= x.range.r1 && r <= x.range.r2 && c >= x.range.c1 && c <= x.range.c2);
+    if (!tbl || tbl.style === 'none') return null;
+    const look = themedTableLook(tbl.style, tableStyle(tbl.style), this);
     const normalColor = this.normalFont ? fontColorInPalette(this.normalFont.color || 'windowtext', this.colorPalette) : DEFAULT_FONT_COLOR;
     const withTextColor = out => {
       if (own && Object.hasOwn(own, 'color')) {
@@ -10052,20 +10063,20 @@ export class Workbook extends EventTarget {
       }
       return out;
     };
-    const rows = tableRows(t);
-    if (t.customStyle) {
-      const ordinal = t.banded ? visibleOrdinal ?? this._visibleOrdinal(sheet, rows.dataStart, rows.dataEnd, r) : -1;
-      const firstSize = t.customStyle.firstRowStripe?.stripeSize || 1, secondSize = t.customStyle.secondRowStripe?.stripeSize || 1;
+    const rows = tableRows(tbl);
+    if (tbl.customStyle) {
+      const ordinal = tbl.banded ? visibleOrdinal ?? this._visibleOrdinal(sheet, rows.dataStart, rows.dataEnd, r) : -1;
+      const firstSize = tbl.customStyle.firstRowStripe?.stripeSize || 1, secondSize = tbl.customStyle.secondRowStripe?.stripeSize || 1;
       const stripe = ordinal < 0 ? 0 : ordinal % (firstSize + secondSize) < firstSize ? 1 : 2;
       // Every table cell has one of a small, bounded set of coats. Share their
       // layered edge paints until the workbook changes, including filtering.
-      const position = Number(r === t.range.r1) + 2 * Number(r === t.range.r2)
+      const position = Number(r === tbl.range.r1) + 2 * Number(r === tbl.range.r2)
         + 4 * Number(r === rows.dataStart) + 8 * Number(r === rows.dataEnd);
-      const key = position * 12 + (Number(c === t.range.c1) + 2 * Number(c === t.range.c2)) * 3 + stripe;
-      const cacheKey = `table-style|${sheet.id}|${t.id}`;
+      const key = position * 12 + (Number(c === tbl.range.c1) + 2 * Number(c === tbl.range.c2)) * 3 + stripe;
+      const cacheKey = `table-style|${sheet.id}|${tbl.id}`;
       let cache = this._statsCache.get(cacheKey);
       if (!cache) { cache = new Map(); this._statsCache.set(cacheKey, cache); }
-      if (!cache.has(key)) cache.set(key, customTableStyleAt(t, r, c, ordinal));
+      if (!cache.has(key)) cache.set(key, customTableStyleAt(tbl, r, c, ordinal));
       const out = { ...cache.get(key), coat: true };
       // Explicit cell text formatting wins over the table's text formatting. Fills carry `coat`
       // so renderers also keep direct fills, while conditional rules can still override either.
@@ -10086,10 +10097,10 @@ export class Workbook extends EventTarget {
     if (r === rows.header) return withTextColor({ bg: look.header, color: look.headerText, bold: true, coat: true });
     if (rows.totals != null && r === rows.totals) return withTextColor({ bg: look.total, bold: true, coat: true });
     const out = {};
-    if (t.banded && (visibleOrdinal ?? this._visibleOrdinal(sheet, rows.dataStart, rows.dataEnd, r)) % 2 === 0) out.bg = look.band;
+    if (tbl.banded && (visibleOrdinal ?? this._visibleOrdinal(sheet, rows.dataStart, rows.dataEnd, r)) % 2 === 0) out.bg = look.band;
     // Banded Columns: every other column from the first takes the stripe colour too, under the row stripes.
-    if (t.bandedColumns && !out.bg && (c - t.range.c1) % 2 === 0) out.bg = look.band;
-    if (t.firstColumn && c === t.range.c1 || t.lastColumn && c === t.range.c2) out.bold = own?.bold ?? true;
+    if (tbl.bandedColumns && !out.bg && (c - tbl.range.c1) % 2 === 0) out.bg = look.band;
+    if (tbl.firstColumn && c === tbl.range.c1 || tbl.lastColumn && c === tbl.range.c2) out.bold = own?.bold ?? true;
     return Object.keys(out).length ? withTextColor({ ...out, coat: true }) : null;
   }
 
@@ -10136,25 +10147,25 @@ export class Workbook extends EventTarget {
   }
 
   tableById(sheetId, id) {
-    return this.sheet(sheetId)?.tables.find((t) => t.id === id) || null;
+    return this.sheet(sheetId)?.tables.find((tbl) => tbl.id === id) || null;
   }
 
   /** The table by name, anywhere in the workbook: { sheet, table } or null. */
   tableByName(name) {
     const key = String(name ?? '').trim().toLowerCase();
     for (const sheet of this.sheets) {
-      const table = sheet.tables.find((t) => t.name.toLowerCase() === key);
+      const table = sheet.tables.find((tbl) => tbl.name.toLowerCase() === key);
       if (table) return { sheet, table };
     }
     return null;
   }
 
   tableAt(sheetId, r, c) {
-    return this.sheet(sheetId)?.tables.find((t) => r >= t.range.r1 && r <= t.range.r2 && c >= t.range.c1 && c <= t.range.c2) || null;
+    return this.sheet(sheetId)?.tables.find((tbl) => r >= tbl.range.r1 && r <= tbl.range.r2 && c >= tbl.range.c1 && c <= tbl.range.c2) || null;
   }
 
   tableNames() {
-    return this.sheets.flatMap((s) => s.tables.map((t) => t.name));
+    return this.sheets.flatMap((s) => s.tables.map((tbl) => tbl.name));
   }
 
   uniqueTableName() {
@@ -10197,7 +10208,7 @@ export class Workbook extends EventTarget {
     let found;
     if (tableName) found = this.tableByName(tableName);
     else {
-      const own = sheet.tables.find((t) => cell.r >= t.range.r1 && cell.r <= t.range.r2 && cell.c >= t.range.c1 && cell.c <= t.range.c2);
+      const own = sheet.tables.find((tbl) => cell.r >= tbl.range.r1 && cell.r <= tbl.range.r2 && cell.c >= tbl.range.c1 && cell.c <= tbl.range.c2);
       found = own ? { sheet, table: own } : null;
     }
     if (!found) return err(tableName ? '#NAME?' : '#REF!');
@@ -10242,11 +10253,11 @@ export class Workbook extends EventTarget {
       for (let c = Math.max(area.c1, table.range.c1); c <= Math.min(area.c2, table.range.c2); c++) {
         const cell = sheet.cells.get(cellKey(r, c));
         if (!cell?.f?.includes('[')) continue;
-        const f = mapTableRefs(cell.f, (t, spec) => (t && spec && t.toLowerCase() === name ? `[${spec}]` : null));
+        const f = mapTableRefs(cell.f, (txt, spec) => (txt && spec && txt.toLowerCase() === name ? `[${spec}]` : null));
         if (f !== cell.f) entries.push({ r, c, cell: { ...cell, f } });
       }
     }
-    if (entries.length) this.setCells(sheet.id, entries, 'Resize table');
+    if (entries.length) this.setCells(sheet.id, entries, t('workbook.undo.resizeTable'));
     return true;
   }
 
@@ -10272,18 +10283,18 @@ export class Workbook extends EventTarget {
    * Table[Column]. Returns { sheetId, range } or null.
    */
   rangeFromText(sheetId, text) {
-    const t = String(text ?? '').trim();
-    if (!t) return null;
+    const txt = String(text ?? '').trim();
+    if (!txt) return null;
     const sheet = this.sheet(sheetId);
     if (!sheet) return null;
-    const named = this.namedRef(t);
+    const named = this.namedRef(txt);
     if (named) { const target = this.sheetByName(named.sheet); return target ? { sheetId: target.id, range: { r1: named.r1, c1: named.c1, r2: named.r2, c2: named.c2 } } : null; }
-    const found = TABLE_NAME_RE.test(t) ? this.tableByName(t) : null;
+    const found = TABLE_NAME_RE.test(txt) ? this.tableByName(txt) : null;
     // A bare table name stands for its header and data: the totals row is never data, so a chart, a pivot or
     // a rule given the name does not take the Total row for a row of it. Table[#All] still names every row.
     if (found) return { sheetId: found.sheet.id, range: { ...found.table.range, r2: tableRows(found.table).dataEnd } };
     try {
-      const tokens = tokenize(t.toUpperCase() === t ? t : t);
+      const tokens = tokenize(txt.toUpperCase() === txt ? txt : txt);
       if (tokens.length === 1 && tokens[0].type === 'tref') {
         const ref = this._resolveTableRef(sheet, { r: 0, c: 0 }, tokens[0].table, tokens[0].spec);
         if (isError(ref)) return null;
@@ -10318,7 +10329,7 @@ export class Workbook extends EventTarget {
       && this.pivotLineEditBlocked(sheetId, 'row', n.r2 + 1, 1)) return null;
     const array = this._fixedArrays(sheet).overlapping({ ...n, r2: n.r2 + (opts.totalsRow ? 1 : 0) }).next().value;
     if (array) { this._arrayRefused(sheet, array, 'overlap'); return null; }
-    if (sheet.tables.some((t) => !(n.r2 < t.range.r1 || n.r1 > t.range.r2 || n.c2 < t.range.c1 || n.c1 > t.range.c2))) return null;
+    if (sheet.tables.some((tbl) => !(n.r2 < tbl.range.r1 || n.r1 > tbl.range.r2 || n.c2 < tbl.range.c1 || n.c1 > tbl.range.c2))) return null;
     if (opts.totalsRow && this.lockedIn(sheetId, { r1: n.r2 + 1, r2: n.r2 + 1, c1: n.c1, c2: n.c2 })) return null;
     // Merged cells have no place in a table, where every row and column is its own: unmerge first.
     if (this.mergesIn(sheetId, n).length) return null;
@@ -10356,17 +10367,17 @@ export class Workbook extends EventTarget {
       if (text !== shown || cell?.f != null || (cell?.v != null && typeof cell.v !== 'string')) fixes.push({ r: n.r1, c, cell: { v: text, f: null, s: cell?.s } });
     }
     if (fixes.some(({ r, c }) => this.lockedAt(sheetId, r, c))) return null;
-    this.transaction('Create table', () => {
+    this.transaction(t('workbook.undo.createTable'), () => {
       for (const { r, c } of spills.values()) this.formulasToValues(sheetId, { r1: r, c1: c, r2: r, c2: c });
-      if (fixes.length) this.setCells(sheetId, fixes, 'Create table');
-      this._setTables(sheet, [...sheet.tables, table], 'Create table');
+      if (fixes.length) this.setCells(sheetId, fixes, t('workbook.undo.createTable'));
+      this._setTables(sheet, [...sheet.tables, table], t('workbook.undo.createTable'));
       // A filter already on exactly this range keeps its criteria and the rows it shows when
       // the list becomes a table. Other tables and the worksheet retain their filters.
       const prior = sheetFilters(sheet).find(f => sameFilterRange(f, { range: n }));
       const kept = !!prior && prior.range.r1 === n.r1 && prior.range.c1 === n.c1 && prior.range.r2 === n.r2 && prior.range.c2 === n.c2;
       const show = [];
       if (kept) for (let r = n.r1 + 1; r <= n.r2; r++) if (!sheet.filterHidden.has(r)) show.push(r);
-      this._setFilter(sheet, { ...(kept ? prior : {}), range: { ...n }, criteria: kept ? { ...prior.criteria } : {} }, 'Create table', { create: true, ...(kept ? { show } : {}) });
+      this._setFilter(sheet, { ...(kept ? prior : {}), range: { ...n }, criteria: kept ? { ...prior.criteria } : {} }, t('workbook.undo.createTable'), { create: true, ...(kept ? { show } : {}) });
       if (opts.totalsRow) this.setTableTotals(sheetId, id, true);
     });
     return id;
@@ -10375,7 +10386,7 @@ export class Workbook extends EventTarget {
   /** Rename, restyle, or toggle banding. A rename rewrites every formula that mentions the table. */
   updateTable(sheetId, id, patch) {
     const sheet = this.sheet(sheetId);
-    const table = sheet?.tables.find((t) => t.id === id);
+    const table = sheet?.tables.find((tbl) => tbl.id === id);
     if (!table || this._gridLocked(sheet)) return false;
     if (patch.totalsRow !== undefined && !!patch.totalsRow !== table.totalsRow) {
       const r = table.range.r2 + (patch.totalsRow ? 1 : 0);
@@ -10404,20 +10415,20 @@ export class Workbook extends EventTarget {
     const previousPivots = this.nativePivots;
     const renamedPivots = rename ? renameNativePivotTableSource(previousPivots, ...rename,
       (name, scope) => !!this.namedEntry(name, scope)) : previousPivots;
-    this.transaction('Edit table', () => {
-      this._setTables(sheet, sheet.tables.map((t) => (t.id === id ? next : t)), 'Edit table');
+    this.transaction(t('workbook.undo.editTable'), () => {
+      this._setTables(sheet, sheet.tables.map((tbl) => (tbl.id === id ? next : tbl)), t('workbook.undo.editTable'));
       if (rename) {
         if (renamedPivots !== previousPivots) {
           const apply = value => { this.nativePivots = value; this._changed('pivots'); };
           apply(renamedPivots);
-          this._push({ label: 'Rename table', undo: () => apply(previousPivots), redo: () => apply(renamedPivots) });
+          this._push({ label: t('workbook.undo.renameTable'), undo: () => apply(previousPivots), redo: () => apply(renamedPivots) });
         }
         const includeBare = !this.names.some((n) => n.name.toLowerCase() === rename[0].toLowerCase());
         const bareBySheet = new Map(this.sheets.map((s) => [s.name, !this.namedEntry(rename[0], s.name)]));
         const rewrite = (f, scope) => renameTableInFormula(f, rename[0], rename[1], scope ? bareBySheet.get(scope) : includeBare);
-        this._rewriteFormulas((f, s) => rewrite(f, s.name), 'Rename table');
-        this._rewriteNamedFormulas((f, n) => rewrite(f, n.sheet), 'Rename table');
-        this._rewriteRuleFormulas((f, s) => rewrite(f, s.name), 'Rename table');
+        this._rewriteFormulas((f, s) => rewrite(f, s.name), t('workbook.undo.renameTable'));
+        this._rewriteNamedFormulas((f, n) => rewrite(f, n.sheet), t('workbook.undo.renameTable'));
+        this._rewriteRuleFormulas((f, s) => rewrite(f, s.name), t('workbook.undo.renameTable'));
       }
       if (patch.totalsRow !== undefined && !!patch.totalsRow !== table.totalsRow) this.setTableTotals(sheetId, id, !!patch.totalsRow);
     });
@@ -10427,11 +10438,11 @@ export class Workbook extends EventTarget {
   /** Turn the totals row on (a "Total" label and SUBTOTAL(109, ...) under each numeric column) or off (its cells cleared). */
   setTableTotals(sheetId, id, on) {
     const sheet = this.sheet(sheetId);
-    const table = sheet?.tables.find((t) => t.id === id);
+    const table = sheet?.tables.find((tbl) => tbl.id === id);
     if (!table || this._gridLocked(sheet) || !!on === table.totalsRow) return;
     const targetRow = table.range.r2 + (on ? 1 : 0);
     if (targetRow > this._lastGridRow(sheet) || this.lockedIn(sheetId, { r1: targetRow, r2: targetRow, c1: table.range.c1, c2: table.range.c2 })) return;
-    this.transaction(on ? 'Add totals row' : 'Remove totals row', () => {
+    this.transaction(on ? t('workbook.undo.addTotalsRow') : t('workbook.undo.removeTotalsRow'), () => {
       if (on) {
         const r = table.range.r2 + 1;
         // A totals row must not consume unrelated cells, a merged block, or another
@@ -10483,13 +10494,13 @@ export class Workbook extends EventTarget {
           }
         }
         const grown = { ...this.tableById(sheetId, id), totalsRow: true, range: { ...table.range, r2: r } };
-        this._setTables(sheet, sheet.tables.map((t) => (t.id === id ? grown : t)), 'Add totals row');
-        if (entries.length) this.setCells(sheetId, entries, 'Add totals row');
+        this._setTables(sheet, sheet.tables.map((tbl) => (tbl.id === id ? grown : tbl)), t('workbook.undo.addTotalsRow'));
+        if (entries.length) this.setCells(sheetId, entries, t('workbook.undo.addTotalsRow'));
       } else {
         const r = table.range.r2;
         this.clearRange(sheetId, { r1: r, c1: table.range.c1, r2: r, c2: table.range.c2 });
         const shrunk = { ...table, totalsRow: false, range: { ...table.range, r2: r - 1 } };
-        this._setTables(sheet, sheet.tables.map((t) => (t.id === id ? shrunk : t)), 'Remove totals row');
+        this._setTables(sheet, sheet.tables.map((tbl) => (tbl.id === id ? shrunk : tbl)), t('workbook.undo.removeTotalsRow'));
       }
     });
   }
@@ -10497,23 +10508,23 @@ export class Workbook extends EventTarget {
   /** Convert to a plain range, retaining table formatting and rewriting structured references. */
   deleteTable(sheetId, id) {
     const sheet = this.sheet(sheetId);
-    const table = sheet?.tables.find((t) => t.id === id);
+    const table = sheet?.tables.find((tbl) => tbl.id === id);
     if (!table || this._gridLocked(sheet)) return;
     const appearance = tableConversionStyle(this, sheet, table);
-    this.transaction('Convert table to range', () => {
+    this.transaction(t('workbook.undo.convertTableToRange'), () => {
       // Its slicers go with the table: they filter through it, and a range has nothing for them to filter.
-      this._dropLostSlicers(new Map([[table.name.toLowerCase(), true]]), (s, charts) => this._setCharts(s, charts, 'Convert table to range'));
-      this._rewriteFormulas((f, s, r, c) => this.structuredToA1(s.id, r, c, f, table.name), 'Convert table to range');
-      this._rewriteNamedFormulas((f) => this.structuredToA1(sheetId, tableRows(table).dataStart, table.range.c1, f, table.name, true), 'Convert table to range');
+      this._dropLostSlicers(new Map([[table.name.toLowerCase(), true]]), (s, charts) => this._setCharts(s, charts, t('workbook.undo.convertTableToRange')));
+      this._rewriteFormulas((f, s, r, c) => this.structuredToA1(s.id, r, c, f, table.name), t('workbook.undo.convertTableToRange'));
+      this._rewriteNamedFormulas((f) => this.structuredToA1(sheetId, tableRows(table).dataStart, table.range.c1, f, table.name, true), t('workbook.undo.convertTableToRange'));
       // Conditional formats, validations, and filter conditions name the table too. Each reads
       // from its own top-left cell, and a [@Column] reference row by row, so those rows stay relative.
-      this._rewriteRuleFormulas((f, s, rule) => this.structuredToA1(s.id, rule.range.r1, rule.range.c1, f, table.name, false, { relativeRows: true }), 'Convert table to range');
-      this._setStyleResets(sheet, assignStyleExceptionRegions(sheet.styleResets, appearance.regions), 'Convert table to range');
+      this._rewriteRuleFormulas((f, s, rule) => this.structuredToA1(s.id, rule.range.r1, rule.range.c1, f, table.name, false, { relativeRows: true }), t('workbook.undo.convertTableToRange'));
+      this._setStyleResets(sheet, assignStyleExceptionRegions(sheet.styleResets, appearance.regions), t('workbook.undo.convertTableToRange'));
       this._writeCells(sheet, appearance.cells.map(({ r, c, style }) => ({ r, c,
-        cell: { ...sheet.cells.get(cellKey(r, c)), s: style } })), 'Convert table to range');
-      this._setTables(sheet, sheet.tables.filter((t) => t.id !== id), 'Convert table to range');
+        cell: { ...sheet.cells.get(cellKey(r, c)), s: style } })), t('workbook.undo.convertTableToRange'));
+      this._setTables(sheet, sheet.tables.filter((tbl) => tbl.id !== id), t('workbook.undo.convertTableToRange'));
       const filter = sheetFilters(sheet).find(f => f.range.r1 === table.range.r1 && f.range.c1 === table.range.c1 && f.range.c2 === table.range.c2);
-      if (filter) this._setFilter(sheet, null, 'Convert table to range', { target: filter });
+      if (filter) this._setFilter(sheet, null, t('workbook.undo.convertTableToRange'), { target: filter });
     });
   }
 
@@ -10542,10 +10553,10 @@ export class Workbook extends EventTarget {
     };
     // Do not tear apart merges or array results while passing the footer
     // through data. Entire blocks that move together remain supported.
-    if (sheet.merges.some((m) => !staysTogether(m))) { onInvalid?.('That resize would split merged cells.'); return null; }
+    if (sheet.merges.some((m) => !staysTogether(m))) { onInvalid?.(t('workbook.resizeTable.splitsMerge')); return null; }
     for (const a of this._ensureSpills(sheet).anchors.values()) {
       if (!staysTogether({ r1: a.r, r2: a.r + a.rows - 1, c1: a.c, c2: a.c + a.cols - 1 })) {
-        onInvalid?.('That resize would split an array result.');
+        onInvalid?.(t('workbook.resizeTable.splitsArray'));
         return null;
       }
     }
@@ -10587,7 +10598,7 @@ export class Workbook extends EventTarget {
       const target = ref.sheet ?? ownerSheet;
       return target != null && target.toLowerCase() === sheet.name.toLowerCase() ? moveRef(ref) : ref;
     });
-    return () => this._structural('Move totals row', () => {
+    return () => this._structural(t('workbook.undo.moveTotalsRow'), () => {
       // Walk stored content once; a large sparse table must not require
       // allocating its entire rectangle just to relocate one footer.
       const moveEntries = (entries) => {
@@ -10612,9 +10623,9 @@ export class Workbook extends EventTarget {
         anchor: ch.anchorMode === 'absolute' ? ch.anchor : { ...ch.anchor, r: ch.anchor.c >= c1 && ch.anchor.c <= c2 ? mapRow(ch.anchor.r) : ch.anchor.r } }));
       for (const owner of this.sheets) {
         for (const cell of owner.cells.values()) if (cell.f != null) cell.f = renumber(cell.f, owner.name);
-        owner.tables = owner.tables.map((t) => ({ ...t,
-          ...(owner === sheet && t.id === table.id ? { calcRow: mapRow(t.calcRow ?? tableRows(t).dataStart) } : {}),
-          ...(t.calc ? { calc: Object.fromEntries(Object.entries(t.calc).map(([c, f]) => [c, renumber(f, owner.name)])) } : {}),
+        owner.tables = owner.tables.map((tbl) => ({ ...tbl,
+          ...(owner === sheet && tbl.id === table.id ? { calcRow: mapRow(tbl.calcRow ?? tableRows(tbl).dataStart) } : {}),
+          ...(tbl.calc ? { calc: Object.fromEntries(Object.entries(tbl.calc).map(([c, f]) => [c, renumber(f, owner.name)])) } : {}),
         }));
       }
       this.names = this.names.map((name) => ({ ...name, ref: renumber(name.ref, name.sheet || null) }));
@@ -10626,25 +10637,25 @@ export class Workbook extends EventTarget {
   /** Resize a table to a new range (the header row stays put); used when typing just beyond its edge. */
   resizeTable(sheetId, id, range, { onInvalid } = {}) {
     const sheet = this.sheet(sheetId);
-    const table = sheet?.tables.find((t) => t.id === id);
+    const table = sheet?.tables.find((tbl) => tbl.id === id);
     if (!table || this._gridLocked(sheet)) return false;
     const n = normalizeRange(range);
     if (!validStoredRange(n) || n.r1 !== table.range.r1 || n.r2 < n.r1 + (table.headerRow === false ? 0 : 1)) {
-      onInvalid?.('The resized table must include its original header row, at least one more row, and stay within the sheet limits.');
+      onInvalid?.(t('workbook.resizeTable.badRange'));
       return false;
     }
     if (this._tablePivotEditBlocked(sheetId, n)) {
-      onInvalid?.('The resized table would overlap a PivotTable.');
+      onInvalid?.(t('workbook.resizeTable.overlapsPivot'));
       return false;
     }
     const array = this._fixedArrays(sheet).overlapping(n).next().value;
     if (array) {
       this._arrayRefused(sheet, array, 'overlap');
-      onInvalid?.('The resized table would cover an array formula.');
+      onInvalid?.(t('workbook.resizeTable.coversArray'));
       return false;
     }
-    if (sheet.tables.some((t) => t.id !== id && !(n.r2 < t.range.r1 || n.r1 > t.range.r2 || n.c2 < t.range.c1 || n.c1 > t.range.c2))) {
-      onInvalid?.('That resize would overlap another table.');
+    if (sheet.tables.some((tbl) => tbl.id !== id && !(n.r2 < tbl.range.r1 || n.r1 > tbl.range.r2 || n.c2 < tbl.range.c1 || n.c1 > tbl.range.c2))) {
+      onInvalid?.(t('workbook.resizeTable.overlapsTable'));
       return false;
     }
     const moveFooter = this._tableFooterMove(sheet, table, n, onInvalid);
@@ -10653,7 +10664,7 @@ export class Workbook extends EventTarget {
     // merged label already in the totals row keeps moving with the footer.
     const old = table.range;
     if (this.mergesIn(sheetId, n).some((m) => m.r1 < old.r1 || m.r2 > old.r2 || m.c1 < old.c1 || m.c2 > old.c2)) {
-      onInvalid?.('The resized table would cover merged cells. Unmerge them first.');
+      onInvalid?.(t('workbook.resizeTable.coversMerge'));
       return false;
     }
     // A column a table grows over is given a name of its own, which rewrites its header cell (see
@@ -10663,15 +10674,15 @@ export class Workbook extends EventTarget {
     for (let c = n.c1; c <= n.c2; c++) {
       if (c >= old.c1 && c <= old.c2) continue;
       if (this.lockedAt(sheetId, n.r1, c)) {
-        onInvalid?.('The resized table would rename a protected column header. Unprotect it first.');
+        onInvalid?.(t('workbook.resizeTable.protectedHeader'));
         return false;
       }
     }
     // Columns the resize leaves out take their slicers with them, as a deleted column does.
     const names = this.tableColumns(sheetId, table);
     const cut = new Set(names.filter((_, i) => old.c1 + i < n.c1 || old.c1 + i > n.c2).map((name) => name.toLowerCase()));
-    this.transaction('Resize table', () => {
-      if (cut.size) this._dropLostSlicers(new Map([[table.name.toLowerCase(), cut]]), (s, charts) => this._setCharts(s, charts, 'Resize table'));
+    this.transaction(t('workbook.undo.resizeTable'), () => {
+      if (cut.size) this._dropLostSlicers(new Map([[table.name.toLowerCase(), cut]]), (s, charts) => this._setCharts(s, charts, t('workbook.undo.resizeTable')));
       moveFooter();
       const live = this.tableById(sheetId, id);
       // A blank header reads as the ColumnN of its place, and a moved left edge changes its place: the name
@@ -10683,7 +10694,7 @@ export class Workbook extends EventTarget {
           const cell = sheet.cells.get(cellKey(n.r1, c));
           if ((!cell || (cell.v == null && cell.f == null)) && !this.spillAt(sheetId, n.r1, c)) kept.push({ r: n.r1, c, cell: { v: before[c - old.c1], f: null, s: cell?.s } });
         }
-        if (kept.length) this.setCells(sheetId, kept, 'Resize table');
+        if (kept.length) this.setCells(sheetId, kept, t('workbook.undo.resizeTable'));
       }
       // Calculated columns are keyed by their offset from the left edge: a moved edge re-keys them, and a
       // column cut off takes its template with it.
@@ -10691,7 +10702,7 @@ export class Workbook extends EventTarget {
       const calc = Object.fromEntries(Object.entries(live.calc || {}).flatMap(([k, f]) => { const o = Number(k) + dc; return o >= 0 && o <= n.c2 - n.c1 ? [[o, f]] : []; }));
       const calcArray = live.calcArray && Object.fromEntries(Object.entries(live.calcArray).flatMap(([k, value]) => { const o = Number(k) + dc; return o >= 0 && o <= n.c2 - n.c1 ? [[o, value]] : []; }));
       const next = { ...live, range: n, calc, ...(calcArray ? { calcArray } : {}), ...headerlessResizeNames(live, n) };
-      this._setTables(sheet, sheet.tables.map((t) => (t.id === id ? next : t)), 'Resize table');
+      this._setTables(sheet, sheet.tables.map((tbl) => (tbl.id === id ? next : tbl)), t('workbook.undo.resizeTable'));
       const joined = [];
       for (let c = n.c1; c <= n.c2; c++) if (c < old.c1 || c > old.c2) joined.push(c);
       if (joined.length) this._nameJoinedColumns(sheet, id, joined);
@@ -10704,10 +10715,10 @@ export class Workbook extends EventTarget {
         // rows inserted into a filtered list do; otherwise a row typed under it would vanish as it landed.
         const show = [];
         for (let r = oldEnd + 1; r <= newEnd; r++) show.push(r);
-        this._setFilter(sheet, { ...filter, range: { r1: n.r1, c1: n.c1, r2: newEnd, c2: n.c2 }, criteria: Object.fromEntries(Object.entries(filter.criteria).filter(([c]) => Number(c) >= n.c1 && Number(c) <= n.c2)), ...(filter.hiddenButtons ? { hiddenButtons: filter.hiddenButtons.filter(c => c >= n.c1 && c <= n.c2) } : {}) }, 'Resize table', { show, target: filter });
+        this._setFilter(sheet, { ...filter, range: { r1: n.r1, c1: n.c1, r2: newEnd, c2: n.c2 }, criteria: Object.fromEntries(Object.entries(filter.criteria).filter(([c]) => Number(c) >= n.c1 && Number(c) <= n.c2)), ...(filter.hiddenButtons ? { hiddenButtons: filter.hiddenButtons.filter(c => c >= n.c1 && c <= n.c2) } : {}) }, t('workbook.undo.resizeTable'), { show, target: filter });
       }
-      if (!wasSelected && sheet.filter && table.totalsRow && n.r2 !== table.range.r2) this._setFilter(sheet, sheet.filter, 'Resize table');
-      this._growTableDependents(sheet, table, oldEnd, newEnd, 'Resize table');
+      if (!wasSelected && sheet.filter && table.totalsRow && n.r2 !== table.range.r2) this._setFilter(sheet, sheet.filter, t('workbook.undo.resizeTable'));
+      this._growTableDependents(sheet, table, oldEnd, newEnd, t('workbook.undo.resizeTable'));
     });
     return true;
   }
@@ -10763,7 +10774,7 @@ export class Workbook extends EventTarget {
    */
   addTableRow(sheetId, id) {
     const sheet = this.sheet(sheetId);
-    const table = sheet?.tables.find((t) => t.id === id);
+    const table = sheet?.tables.find((tbl) => tbl.id === id);
     if (!table || this._gridLocked(sheet) || table.range.r2 >= this._lastGridRow(sheet)) return -1;
     const rows = tableRows(table);
     const r = rows.dataEnd + 1;
@@ -10771,7 +10782,7 @@ export class Workbook extends EventTarget {
     // another table. Make space, as we already do above an existing totals row.
     const occupied = table.totalsRow || this.tableRowOccupied(sheetId, { ...table.range, r1: r, r2: r }, id);
     let added = false;
-    this.transaction('Add table row', () => {
+    this.transaction(t('workbook.undo.addTableRow'), () => {
       // Room is made by inserting a row; refused (a protected range in the way, or the sheet's last line),
       // the table must not grow over the content that is there instead.
       if (occupied && !this.insertRows(sheetId, r, 1)) return;
@@ -10799,20 +10810,20 @@ export class Workbook extends EventTarget {
       && n.r1 <= tableRows(x).dataEnd);
     if (beside) {
       let widened = false;
-      this.transaction('Resize table', () => { widened = this.resizeTable(sheetId, beside.id, { ...beside.range, c2: n.c2 }) && this._joinTable(sheet, this.tableById(sheetId, beside.id), n); });
+      this.transaction(t('workbook.undo.resizeTable'), () => { widened = this.resizeTable(sheetId, beside.id, { ...beside.range, c2: n.c2 }) && this._joinTable(sheet, this.tableById(sheetId, beside.id), n); });
       return widened;
     }
-    const t = sheet.tables.find((x) => !x.totalsRow && n.r2 > x.range.r2 && n.r1 >= x.range.r1 + 1 && n.r1 <= x.range.r2 + 1
+    const tbl = sheet.tables.find((x) => !x.totalsRow && n.r2 > x.range.r2 && n.r1 >= x.range.r1 + 1 && n.r1 <= x.range.r2 + 1
       && n.c1 >= x.range.c1 && n.c1 <= x.range.c2);
-    if (!t) return false;
+    if (!tbl) return false;
     // A block starting below/inside the table only adds rows; its extra columns
     // remain outside. Column growth requires a block starting beside the table.
-    const oldEnd = t.range.r2;
-    const grown = { ...t.range, r2: n.r2 };
+    const oldEnd = tbl.range.r2;
+    const grown = { ...tbl.range, r2: n.r2 };
     let extended = false;
-    this.transaction('Extend table', () => {
-      if (!this.resizeTable(sheetId, t.id, grown)) return;
-      const live = this.tableById(sheetId, t.id);
+    this.transaction(t('workbook.undo.extendTable'), () => {
+      if (!this.resizeTable(sheetId, tbl.id, grown)) return;
+      const live = this.tableById(sheetId, tbl.id);
       this._joinTable(sheet, live, { ...n, r1: Math.max(n.r1, oldEnd + 1) });
       // Only the rows that just joined: a row already in the table keeps whatever the block wrote over it.
       for (let r = Math.max(n.r1, oldEnd + 1); r <= n.r2; r++) this._fillCalculatedRow(sheet, live, r);
@@ -10827,12 +10838,12 @@ export class Workbook extends EventTarget {
    */
   _lostTableColumns(sheet, lost) {
     const gone = new Map();
-    for (const t of sheet.tables) {
-      const out = lost(t);
-      if (out === true) { gone.set(t.name.toLowerCase(), true); continue; }
+    for (const tbl of sheet.tables) {
+      const out = lost(tbl);
+      if (out === true) { gone.set(tbl.name.toLowerCase(), true); continue; }
       if (!out?.length) continue;
-      const names = this.tableColumns(sheet.id, t);
-      gone.set(t.name.toLowerCase(), new Set(out.map((i) => names[i]?.toLowerCase()).filter(Boolean)));
+      const names = this.tableColumns(sheet.id, tbl);
+      gone.set(tbl.name.toLowerCase(), new Set(out.map((i) => names[i]?.toLowerCase()).filter(Boolean)));
     }
     return gone.size ? gone : null;
   }
@@ -10887,7 +10898,7 @@ export class Workbook extends EventTarget {
         const next = drop(cell.f, this.tableAt(s.id, r, c)?.name || null);
         if (next !== cell.f) cell.f = next;
       }
-      s.tables = s.tables.map((t) => (t.calc ? { ...t, calc: Object.fromEntries(Object.entries(t.calc).map(([k, f]) => [k, drop(f, t.name)])) } : t));
+      s.tables = s.tables.map((tbl) => (tbl.calc ? { ...tbl, calc: Object.fromEntries(Object.entries(tbl.calc).map(([k, f]) => [k, drop(f, tbl.name)])) } : tbl));
       const owner = (rule) => (rule?.range ? this.tableAt(s.id, rule.type === 'list' && rule.relativeSource !== true ? 0 : rule.range.r1, rule.type === 'list' && rule.relativeSource !== true ? 0 : rule.range.c1)?.name : null) || null;
       Object.assign(s, this._ruleFormulaUpdates(s, (f, rule) => drop(f, owner(rule))));
     }
@@ -10906,10 +10917,10 @@ export class Workbook extends EventTarget {
       const explicit = rewrite(formula);
       for (const { table } of renamed) {
         if (rewrite(formula, table.name) === explicit) continue;
-        const t = table.range;
+        const txt = table.range;
         parts = parts.flatMap(part => {
           if (part.owner) return [part];
-          const g = part.range, r1 = Math.max(g.r1, t.r1), c1 = Math.max(g.c1, t.c1), r2 = Math.min(g.r2, t.r2), c2 = Math.min(g.c2, t.c2);
+          const g = part.range, r1 = Math.max(g.r1, txt.r1), c1 = Math.max(g.c1, txt.c1), r2 = Math.min(g.r2, txt.r2), c2 = Math.min(g.c2, txt.c2);
           if (r1 > r2 || c1 > c2) return [part];
           const out = [], add = (r1, c1, r2, c2, owner = null) => {
             if (r1 <= r2 && c1 <= c2) out.push({ range: { r1, c1, r2, c2 }, owner });
@@ -11061,9 +11072,9 @@ export class Workbook extends EventTarget {
       // New table rows use these templates, so they must follow the same
       // renames as formulas already present in the sheet.
       let changed = false;
-      const tables = s.tables.map((t) => ({ ...t, calc: Object.fromEntries(
-        Object.entries(t.calc || {}).map(([c, f]) => {
-          const next = fn(f, s, t.calcRow ?? tableRows(t).dataStart, t.range.c1 + Number(c), true);
+      const tables = s.tables.map((tbl) => ({ ...tbl, calc: Object.fromEntries(
+        Object.entries(tbl.calc || {}).map(([c, f]) => {
+          const next = fn(f, s, tbl.calcRow ?? tableRows(tbl).dataStart, tbl.range.c1 + Number(c), true);
           if (next !== f) changed = true;
           return [c, next];
         })),
@@ -11079,16 +11090,16 @@ export class Workbook extends EventTarget {
    */
   _autoExpandTable(sheet, r, c, cell) {
     if (!cell || (cell.v == null && cell.f == null) || !sheet.tables.length) return;
-    for (const t of sheet.tables) {
-      const rows = tableRows(t);
-      if (!t.totalsRow && r === t.range.r2 + 1 && c >= t.range.c1 && c <= t.range.c2 && !this.tableAt(sheet.id, r, c)) {
-        if (!this.resizeTable(sheet.id, t.id, { ...t.range, r2: r })) return;
-        this._fillCalculatedRow(sheet, this.tableById(sheet.id, t.id), r, c);
+    for (const tbl of sheet.tables) {
+      const rows = tableRows(tbl);
+      if (!tbl.totalsRow && r === tbl.range.r2 + 1 && c >= tbl.range.c1 && c <= tbl.range.c2 && !this.tableAt(sheet.id, r, c)) {
+        if (!this.resizeTable(sheet.id, tbl.id, { ...tbl.range, r2: r })) return;
+        this._fillCalculatedRow(sheet, this.tableById(sheet.id, tbl.id), r, c);
         return;
       }
-      if (c === t.range.c2 + 1 && r >= t.range.r1 && r <= rows.dataEnd && !this.tableAt(sheet.id, r, c)) {
+      if (c === tbl.range.c2 + 1 && r >= tbl.range.r1 && r <= rows.dataEnd && !this.tableAt(sheet.id, r, c)) {
         // The new column is named as the table grows over it (see _nameJoinedColumns).
-        this.resizeTable(sheet.id, t.id, { ...t.range, c2: c });
+        this.resizeTable(sheet.id, tbl.id, { ...tbl.range, c2: c });
         return;
       }
     }
@@ -11112,7 +11123,7 @@ export class Workbook extends EventTarget {
       this._changed('layout', live.id);
     };
     move(from, to);
-    this._push({ label: 'Filter', undo: () => move(to, from), redo: () => move(from, to) });
+    this._push({ label: t('workbook.undo.filter'), undo: () => move(to, from), redo: () => move(from, to) });
   }
 
   /** The worksheet filter whose list (r, c) lies just under, within its columns, or null. */
@@ -11132,7 +11143,7 @@ export class Workbook extends EventTarget {
     const table = this.tableById(sheet.id, id);
     if (table.headerRow === false) {
       // No header cells to write: the names live on the table (see table-header-row.js).
-      this._setTables(sheet, sheet.tables.map((t) => (t.id === id ? headerlessJoinColumns(t, (taken, i) => this._freeColumnName(taken, i)) : t)), 'Resize table');
+      this._setTables(sheet, sheet.tables.map((tbl) => (tbl.id === id ? headerlessJoinColumns(tbl, (taken, i) => this._freeColumnName(taken, i)) : tbl)), t('workbook.undo.resizeTable'));
       for (const c of cols) this._adoptCalculatedColumn(sheet, id, c);
       return;
     }
@@ -11151,7 +11162,7 @@ export class Workbook extends EventTarget {
       names[i] = this._freeColumnName(names.filter((_, j) => j !== i), i);
       blanks.push({ r, c, cell: { v: names[i], f: null, s: cell?.s } });
     }
-    if (blanks.length) this.setCells(sheet.id, blanks, 'Resize table');
+    if (blanks.length) this.setCells(sheet.id, blanks, t('workbook.undo.resizeTable'));
     this._uniqueTableHeaders(sheet, table, new Set(cols.map((c) => c - table.range.c1)));
     for (const c of cols) this._adoptCalculatedColumn(sheet, id, c);
   }
@@ -11201,7 +11212,7 @@ export class Workbook extends EventTarget {
     const range = normalizeRange(rule.range);
     // A range gets one rule: replace whatever covered exactly the same cells.
     const kept = sheet.validations.filter((v) => !(v.range.r1 === range.r1 && v.range.c1 === range.c1 && v.range.r2 === range.r2 && v.range.c2 === range.c2));
-    this._setValidations(sheet, [...kept, { ...rule, id, range }], 'Add validation');
+    this._setValidations(sheet, [...kept, { ...rule, id, range }], t('workbook.undo.addValidation'));
     return id;
   }
 
@@ -11216,13 +11227,13 @@ export class Workbook extends EventTarget {
     const j = next.findIndex((v) => v.id === id);
     next[j] = { ...next[j], ...patch, id, range };
     if (next.length === sheet.validations.length && sameRule(sheet.validations[i], next[j], VALIDATION_DEFAULTS)) return true; // nothing changed: no step
-    return this._setValidations(sheet, next, 'Edit validation');
+    return this._setValidations(sheet, next, t('workbook.undo.editValidation'));
   }
 
   deleteValidation(sheetId, id) {
     const sheet = this.sheet(sheetId);
     if (!sheet || !sheet.validations.some((v) => v.id === id)) return false;
-    return this._setValidations(sheet, sheet.validations.filter((v) => v.id !== id), 'Delete validation');
+    return this._setValidations(sheet, sheet.validations.filter((v) => v.id !== id), t('workbook.undo.deleteValidation'));
   }
 
   /** Take validation off a block of cells; rules reaching past it keep their parts outside (see clearValidationsIn). One undo step. */
@@ -11230,7 +11241,7 @@ export class Workbook extends EventTarget {
     const sheet = this.sheet(sheetId);
     if (!sheet) return false;
     const next = clearValidationsIn(sheet.validations, normalizeRange(range), newId);
-    return next !== sheet.validations && this._setValidations(sheet, next, 'Clear validation');
+    return next !== sheet.validations && this._setValidations(sheet, next, t('workbook.undo.clearValidation'));
   }
 
   /** The last rule covering (r, c) wins, so newer rules override older ones. */
@@ -11268,8 +11279,8 @@ export class Workbook extends EventTarget {
         if (tokens.length === 1 && tokens[0].type === 'ref') ref = { ...parseRefText(tokens[0].text, null), sheet: sheet.name, spill: tokens[0].spill };
         // Sales[Item]: a table column, which keeps up as the table grows.
         if (tokens.length === 1 && tokens[0].type === 'tref') {
-          const t = this._resolveTableRef(sheet, { r: 0, c: 0 }, tokens[0].table, tokens[0].spec);
-          ref = isError(t) ? null : t;
+          const txt = this._resolveTableRef(sheet, { r: 0, c: 0 }, tokens[0].table, tokens[0].spec);
+          ref = isError(txt) ? null : txt;
         }
       } catch { ref = null; }
     }
@@ -11542,7 +11553,7 @@ export class Workbook extends EventTarget {
           } else if (token.type === 'comma' && depth === 1) separator = token.end;
         }
       }
-      this.setInput(sheetId, r, c, `=HYPERLINK(${quote(u)},${expression})`, { style: s, label: 'Set link' });
+      this.setInput(sheetId, r, c, `=HYPERLINK(${quote(u)},${expression})`, { style: s, label: t('workbook.undo.setLink') });
       return true;
     }
     const richText = editRichText(previous?.richText, previous?.v, value);
@@ -11552,8 +11563,8 @@ export class Workbook extends EventTarget {
     if (previous?.f != null && this.getValue(sheetId, r, c) === value) {
       cell.f = previous.f; cell.v = previous.v;
     }
-    this.transaction('Set link', () => {
-      if (!this.setCells(sheetId, [{ r, c, cell }], 'Set link')) return;
+    this.transaction(t('workbook.undo.setLink'), () => {
+      if (!this.setCells(sheetId, [{ r, c, cell }], t('workbook.undo.setLink'))) return;
       // Entering a new label retains the ordinary typed-entry table behavior.
       // Merely annotating existing content must not resize nearby tables or
       // turn an unchanged calculation into a calculated-column template.
@@ -11639,7 +11650,7 @@ export class Workbook extends EventTarget {
     // formatting. Removing it must not freeze a live calculation.
     this.setCells(sheetId, [{ r, c, cell: cell?.hyperlink
       ? { ...cell, hyperlink: undefined, s }
-      : { v, f: null, s, ...(cell?.richText ? { richText: normalizeRichText(cell.richText, v) } : {}) } }], 'Remove link');
+      : { v, f: null, s, ...(cell?.richText ? { richText: normalizeRichText(cell.richText, v) } : {}) } }], t('workbook.undo.removeLink'));
   }
 
   /* ---------- Notes ---------- */
@@ -11667,24 +11678,24 @@ export class Workbook extends EventTarget {
       this._changed('cells', live.id);
     };
     apply(next);
-    this._push({ label: next ? (prev ? 'Edit note' : 'Add note') : 'Delete note', undo: () => apply(prev), redo: () => apply(next) });
+    this._push({ label: next ? (prev ? t('workbook.undo.editNote') : t('workbook.undo.addNote')) : t('workbook.undo.deleteNote'), undo: () => apply(prev), redo: () => apply(next) });
   }
 
   /* ---------- Named ranges ---------- */
 
-  /** null when the name is acceptable, else a message. */
-  validateName(name, exceptName = null, { allowTableName = false, sheet = null } = {}) {
-    const t = String(name ?? '').trim();
-    if (!t) return 'Enter a name';
+  /** null when the name is acceptable, else a message: in the interface language, or in English with `source` (for the AI model). */
+  validateName(name, exceptName = null, { allowTableName = false, sheet = null, source = false } = {}) {
+    const txt = String(name ?? '').trim();
+    if (!txt) return say(source, 'workbook.names.empty');
     // The .xlsx limit; judged before the spelling, whose pattern would otherwise blame a long name's first letter.
-    if ([...t].length > 255) return 'Names are at most 255 characters';
-    if (LOOKS_LIKE_REF.test(t)) return 'That looks like a cell reference';
-    if (!NAME_RE.test(t)) return 'Names start with a letter, underscore, or backslash and then use letters, numbers, underscores, periods, backslashes, or question marks';
-    if (/^(TRUE|FALSE)$/i.test(t)) return 'That name is reserved';
+    if ([...txt].length > 255) return say(source, 'workbook.names.tooLong');
+    if (LOOKS_LIKE_REF.test(txt)) return say(source, 'workbook.names.looksLikeReference');
+    if (!NAME_RE.test(txt)) return say(source, 'workbook.names.invalidCharacters');
+    if (/^(TRUE|FALSE)$/i.test(txt)) return say(source, 'workbook.names.reserved');
     const scope = sheet == null ? null : this.sheetByName(sheet)?.name;
-    if (sheet != null && !scope) return 'That sheet no longer exists';
-    if (this.names?.some((n) => (n.sheet || null) === scope && n.name.toLowerCase() === t.toLowerCase() && n.name.toLowerCase() !== String(exceptName || '').toLowerCase())) return 'That name is already used';
-    if (!allowTableName && this.tableByName(t)) return 'That name is already used';
+    if (sheet != null && !scope) return say(source, 'workbook.names.sheetGone');
+    if (this.names?.some((n) => (n.sheet || null) === scope && n.name.toLowerCase() === txt.toLowerCase() && n.name.toLowerCase() !== String(exceptName || '').toLowerCase())) return say(source, 'workbook.names.taken');
+    if (!allowTableName && this.tableByName(txt)) return say(source, 'workbook.names.taken');
     return null;
   }
 
@@ -11799,60 +11810,66 @@ export class Workbook extends EventTarget {
     this._push({ label, undo: () => apply(prev), redo: () => apply(next) });
   }
 
-  /** Define (or redefine) a name for a reference. Returns an error message or null. */
-  defineName(name, refText, sheet = null) {
-    const t = String(name).trim();
+  /**
+   * Define (or redefine) a name for a reference. Returns an error message (in English with `source`) or null; with
+   * `detail`, the error as { message, field }, field 'name' when the name is at fault and 'ref' when what it refers to is.
+   */
+  defineName(name, refText, sheet = null, { source = false, detail = false } = {}) {
+    const fail = (message, field) => (detail ? { message, field } : message);
+    const txt = String(name).trim();
     const scope = sheet == null ? null : this.sheetByName(sheet)?.name;
-    const existing = this.names.find((n) => (n.sheet || null) === scope && n.name.toLowerCase() === t.toLowerCase());
-    const bad = this.validateName(t, existing?.name, { sheet });
-    if (bad) return bad;
+    const existing = this.names.find((n) => (n.sheet || null) === scope && n.name.toLowerCase() === txt.toLowerCase());
+    const bad = this.validateName(txt, existing?.name, { sheet, source });
+    if (bad) return fail(bad, 'name');
     const text = String(refText ?? '').trim().replace(/^=/, '');
-    const badRef = this._namedRefError(text, scope);
-    if (badRef) return badRef;
-    if (existing && existing.ref === text && existing.name === t) return null; // saved as it was: nothing to undo
+    const badRef = this._namedRefError(text, scope, source);
+    if (badRef) return fail(badRef, 'ref');
+    if (existing && existing.ref === text && existing.name === txt) return null; // saved as it was: nothing to undo
     const next = this.names.filter((n) => n !== existing);
     // The spelling as now typed: formulas find the name whatever its case, so a change of case needs no rewrite.
-    next.push({ name: t, ref: text, ...(existing?.hidden ? { hidden: true } : {}), ...(scope ? { sheet: scope } : {}), ...(existing?.relative ? { relative: true } : {}), ...(existing?.comment ? { comment: existing.comment } : {}) });
+    next.push({ name: txt, ref: text, ...(existing?.hidden ? { hidden: true } : {}), ...(scope ? { sheet: scope } : {}), ...(existing?.relative ? { relative: true } : {}), ...(existing?.comment ? { comment: existing.comment } : {}) });
     next.sort((a, b) => a.name.localeCompare(b.name));
-    this._setNames(next, 'Define name');
+    this._setNames(next, t('workbook.undo.defineName'));
     return null;
   }
 
   /** Why `text` cannot be what a name refers to, or null when it can. */
-  _namedRefError(text, scope) {
+  _namedRefError(text, scope, source = false) {
     const ref = this.parseNamedRef(text);
     if (ref) {
       // The syntax can be right and the sheet still missing; such a name would only ever give #REF!.
       const missing = [ref.sheet, ref.sheetEnd].find((name) => name && !this.sheetByName(name));
-      return missing ? `There is no sheet called ${missing}` : null;
+      return missing ? say(source, 'workbook.names.noSuchSheet', { name: missing }) : null;
     }
     // Not a reference: it may be a formula, but a lone unknown word is a typo, not a formula.
     const ast = this._astOrNull(text);
     const loneWord = ast?.type === 'call' && ast.bare && !FUNCTIONS[ast.name] && !this.namedEntry(ast.name, ast.sheet || scope);
     const bareRef = ast?.type === 'ref'; // a reference without its sheet
-    if (!ast || loneWord || bareRef) return 'Enter a reference like Sheet1!$A$1:$B$5, or a formula like =LAMBDA(x, x*2)';
+    if (!ast || loneWord || bareRef) return say(source, 'workbook.names.badReference');
     return null;
   }
 
   /**
    * Give the name `name` (scoped to `sheet`, or the workbook) the new spelling `newName` and
    * reference `refText`, following the rename in every formula, rule and name that uses it.
-   * Returns an error message or null.
+   * Returns an error message (in English with `source`) or null; with `detail`, the error as { message, field } (see
+   * defineName): a formula binding the new spelling as a LET or LAMBDA variable is the name's fault.
    */
-  renameName(name, sheet, newName, refText) {
+  renameName(name, sheet, newName, refText, { source = false, detail = false } = {}) {
+    const fail = (message, field) => (detail ? { message, field } : message);
     const scope = sheet == null ? null : this.sheetByName(sheet)?.name;
     const key = String(name).trim().toLowerCase();
     const existing = this.names.find((n) => (n.sheet || null) === scope && n.name.toLowerCase() === key);
-    if (!existing) return 'That name no longer exists';
+    if (!existing) return fail(say(source, 'workbook.names.nameGone'), 'ref'); // where the Name Manager has always shown it
     const to = String(newName).trim();
-    if (to.toLowerCase() === key) return this.defineName(to, refText, sheet);
-    const bad = this.validateName(to, null, { sheet });
-    if (bad) return bad;
+    if (to.toLowerCase() === key) return this.defineName(to, refText, sheet, { source, detail });
+    const bad = this.validateName(to, null, { sheet, source });
+    if (bad) return fail(bad, 'name');
     const text = String(refText ?? '').trim().replace(/^=/, '');
-    const badRef = this._namedRefError(text, scope);
-    if (badRef) return badRef;
+    const badRef = this._namedRefError(text, scope, source);
+    if (badRef) return fail(badRef, 'ref');
     const from = existing.name;
-    const label = 'Rename name';
+    const label = t('workbook.undo.renameName');
     const rename = (formula, ownerSheet) => {
       const out = this._renameNameIn(formula, ownerSheet, from, scope, to);
       // HYPERLINK("#Name") contains a string the token rewrite does not see;
@@ -11866,7 +11883,7 @@ export class Workbook extends EventTarget {
     this._rewriteFormulas((formula, s) => check(formula, s.name), label);
     this._rewriteNamedFormulas((formula, n) => check(formula, n.sheet || null), label);
     this._rewriteRuleFormulas((formula, owner) => check(formula, owner.name), label);
-    if (captured) return `A formula uses ${to} as a LET or LAMBDA variable where ${from} appears`;
+    if (captured) return fail(say(source, 'workbook.names.capturedByVariable', { name: to, from }), 'name');
     this.transaction(label, () => {
       this._rewriteFormulas((formula, s) => rename(formula, s.name), label);
       this._rewriteNamedFormulas((formula, n) => rename(formula, n.sheet || null), label);
@@ -11904,20 +11921,20 @@ export class Workbook extends EventTarget {
     const variable = upperName(to);
     let out = '';
     let last = 0;
-    const positions = new Map(tokens.map((t, i) => [t.start, i]));
+    const positions = new Map(tokens.map((tok, i) => [tok.start, i]));
     // A LET or LAMBDA variable spelled like the name is not a use of it.
-    for (const t of freeNameTokens(formula, tokens, { includeCalls: true, includeQualified: true })) {
-      if (t.value.toLowerCase() !== key || isExternalFormulaToken(t)) continue;
+    for (const tok of freeNameTokens(formula, tokens, { includeCalls: true, includeQualified: true })) {
+      if (tok.value.toLowerCase() !== key || isExternalFormulaToken(tok)) continue;
       // Nor is a call to the built-in of that spelling: RATE(…) is the function, whatever a name "rate" holds.
-      if (!t.sheet && FUNCTIONS[t.value] && tokens[positions.get(t.start) + 1]?.type === 'lparen') continue;
+      if (!tok.sheet && FUNCTIONS[tok.value] && tokens[positions.get(tok.start) + 1]?.type === 'lparen') continue;
       // A name reaches the definition on its own sheet first, then the workbook's.
-      const on = String(t.sheet ?? ownerSheet ?? '').toLowerCase();
+      const on = String(tok.sheet ?? ownerSheet ?? '').toLowerCase();
       const local = this.names.some((n) => n.sheet && n.sheet.toLowerCase() === on && n.name.toLowerCase() === key);
       const reaches = scope ? on === scope.toLowerCase() : !local;
       if (!reaches) continue;
-      if (t.locals?.has(variable)) return null;
-      out += formula.slice(last, t.nameStart ?? t.start) + to;
-      last = t.end;
+      if (tok.locals?.has(variable)) return null;
+      out += formula.slice(last, tok.nameStart ?? tok.start) + to;
+      last = tok.end;
     }
     return out + formula.slice(last);
   }
@@ -11954,7 +11971,7 @@ export class Workbook extends EventTarget {
     const scope = sheet == null ? null : this.sheetByName(sheet)?.name;
     const next = this.names.filter((n) => (n.sheet || null) !== scope || n.name.toLowerCase() !== String(name).toLowerCase());
     if (next.length === this.names.length) return;
-    this._setNames(next, 'Delete name');
+    this._setNames(next, t('workbook.undo.deleteName'));
   }
 
   /* ---------- Merged cells ---------- */
@@ -12033,7 +12050,7 @@ export class Workbook extends EventTarget {
       if ((n.r2 - n.r1 + 1) * (n.c2 - n.c1 + 1) > 20000) return false;
       // A table's header and data cells cannot be merged: each column keeps its own name and each
       // row its own cells. The totals row is a footer whose label may span columns.
-      if (sheet.tables.some((t) => !(n.r2 < t.range.r1 || n.r1 > tableRows(t).dataEnd || n.c2 < t.range.c1 || n.c1 > t.range.c2))) return false;
+      if (sheet.tables.some((tbl) => !(n.r2 < tbl.range.r1 || n.r1 > tableRows(tbl).dataEnd || n.c2 < tbl.range.c1 || n.c1 > tbl.range.c2))) return false;
       // Replacing an overlapping merge also changes cells outside the new range. (A merge an earlier block
       // replaced was checked with that block, and a block merged before this one was checked itself.)
       if ([n, ...existing(n).map((i) => sheet.merges[i])].some((g) => this.lockedIn(sheetId, g))) return false;
@@ -12041,7 +12058,7 @@ export class Workbook extends EventTarget {
       return true;
     });
     if (!blocks.length) return merged;
-    this.transaction('Merge cells', () => {
+    this.transaction(t('workbook.undo.mergeCells'), () => {
       for (const n of blocks) {
         const entries = [];
         for (let r = n.r1; r <= n.r2; r++) {
@@ -12055,14 +12072,14 @@ export class Workbook extends EventTarget {
         // Said here, once they are, so every door hears it — a script, a template, an import, a menu entry —
         // and not only the one caller that counts the cells itself beforehand. A batch merging several blocks
         // announces the last of them, as a batch does for every kind of change (see _announce).
-        const dropped = entries.length ? this.setCells(sheetId, entries, 'Merge cells') : 0;
+        const dropped = entries.length ? this.setCells(sheetId, entries, t('workbook.undo.mergeCells')) : 0;
         if (dropped) this._announce('merged-values-dropped', sheetId, { range: { ...n }, count: dropped });
       }
       // Each block replaces the merges it overlaps: those on the sheet, and those of the blocks before it.
       const later = rectFinder(blocks);
       const replaced = new Set(blocks.flatMap((n) => existing(n)));
       const kept = sheet.merges.filter((m, i) => !replaced.has(i));
-      this._setMerges(sheet, [...kept, ...blocks.filter((n, k) => !later(n).some((j) => j > k)).map((n) => ({ ...n }))], 'Merge cells');
+      this._setMerges(sheet, [...kept, ...blocks.filter((n, k) => !later(n).some((j) => j > k)).map((n) => ({ ...n }))], t('workbook.undo.mergeCells'));
     });
     return merged;
   }
@@ -12089,9 +12106,9 @@ export class Workbook extends EventTarget {
       if (!s.bt && !s.bb && !s.bl && !s.br) { delete s.bc; delete s.bs; }
       entries.push({ r: m.r1, c: m.c1, cell: { ...prev, s: Object.keys(s).length ? s : undefined } });
     }
-    this.transaction('Unmerge cells', () => {
-      this._setMerges(sheet, sheet.merges.filter((m) => !hit.includes(m)), 'Unmerge cells');
-      if (entries.length) this.setCells(sheetId, entries, 'Unmerge cells');
+    this.transaction(t('workbook.undo.unmergeCells'), () => {
+      this._setMerges(sheet, sheet.merges.filter((m) => !hit.includes(m)), t('workbook.undo.unmergeCells'));
+      if (entries.length) this.setCells(sheetId, entries, t('workbook.undo.unmergeCells'));
     });
   }
 
@@ -12152,7 +12169,7 @@ export class Workbook extends EventTarget {
   }
 
   /** Record (or, with null, forget) the advanced filter run in place on a sheet: one undo step, see normalizeAdvancedFilter. */
-  setAdvancedFilterState(sheetId, state, label = 'Advanced filter') {
+  setAdvancedFilterState(sheetId, state, label = t('workbook.undo.advancedFilter')) {
     const sheet = this.sheet(sheetId);
     if (!sheet) return;
     const next = normalizeAdvancedFilter(state);
@@ -12196,7 +12213,7 @@ export class Workbook extends EventTarget {
       this._changed('layout', live.id);
     };
     apply(hidden);
-    this._push({ label: hidden ? `Hide ${axis === 'row' ? 'rows' : 'columns'}` : `Show ${axis === 'row' ? 'rows' : 'columns'}`, undo: () => apply(!hidden), redo: () => apply(hidden) });
+    this._push({ label: hidden ? t(axis === 'row' ? 'workbook.undo.hideRows' : 'workbook.undo.hideColumns') : t(axis === 'row' ? 'workbook.undo.showRows' : 'workbook.undo.showColumns'), undo: () => apply(!hidden), redo: () => apply(hidden) });
     return true;
   }
 
@@ -12662,7 +12679,7 @@ export class Workbook extends EventTarget {
     for (const a of this._fixedArrays(source).overlapping(src)) {
       const moved = { r1: a.r1 + dr, c1: a.c1 + dc, r2: a.r2 + dr, c2: a.c2 + dc };
       if (target.merges.some(m => !carried(m) && intersection(m, moved))
-        || target.tables.some(t => !carried(t.range) && intersection(t.range, moved))) return this._arrayRefused(target, moved, 'overlap');
+        || target.tables.some(tbl => !carried(tbl.range) && intersection(tbl.range, moved))) return this._arrayRefused(target, moved, 'overlap');
     }
     return false;
   }
@@ -12714,7 +12731,7 @@ export class Workbook extends EventTarget {
       const limit = gridLimits(sheet);
       if (a.r2 > MAX_ROW || a.c2 > MAX_COL || a.r2 >= limit.rows || a.c2 >= limit.cols) return this._arrayRefused(sheet, a, 'bounds');
       if (this.lockedIn(sheet.id, a)) return true;
-      if (sheet.merges.some(m => intersection(a, m)) || sheet.tables.some(t => intersection(a, t.range))) return this._arrayRefused(sheet, a, 'overlap');
+      if (sheet.merges.some(m => intersection(a, m)) || sheet.tables.some(tbl => intersection(a, tbl.range))) return this._arrayRefused(sheet, a, 'overlap');
       for (const existing of index.overlapping(a)) {
         if (existing.key === key) continue;
         const next = writes.has(existing.key) ? writes.get(existing.key) : sheet.cells.get(existing.key);
@@ -12745,20 +12762,20 @@ export class Workbook extends EventTarget {
    */
   createDataTable(sheetId, range, rowInput, colInput) {
     const sheet = this.sheet(sheetId), area = normalizeRange(range);
-    if (!sheet) return { ok: false, reason: 'No such sheet' };
-    if (area.r2 - area.r1 < 1 || area.c2 - area.c1 < 1) return { ok: false, reason: 'Select the formulas, the values to try and the cells for the results: at least two rows and two columns' };
-    if (!rowInput && !colInput) return { ok: false, reason: 'Enter a row input cell, a column input cell, or both' };
+    if (!sheet) return { ok: false, reason: t('workbook.goalSeek.noSuchSheet') };
+    if (area.r2 - area.r1 < 1 || area.c2 - area.c1 < 1) return { ok: false, reason: t('workbook.dataTable.tooSmall') };
+    if (!rowInput && !colInput) return { ok: false, reason: t('workbook.dataTable.noInput') };
     for (const input of [rowInput, colInput]) {
-      if (input && input.r >= area.r1 && input.r <= area.r2 && input.c >= area.c1 && input.c <= area.c2) return { ok: false, reason: 'Input cell reference is not valid: it lies inside the table' };
+      if (input && input.r >= area.r1 && input.r <= area.r2 && input.c >= area.c1 && input.c <= area.c2) return { ok: false, reason: t('workbook.dataTable.inputInside') };
     }
     const results = { r1: area.r1 + 1, c1: area.c1 + 1, r2: area.r2, c2: area.c2 };
     const name = (p) => (p ? cellName(p.r, p.c) : '');
-    if (this.lockedIn(sheetId, results)) return { ok: false, reason: 'The sheet is protected' };
-    return this.setArrayFormula(sheetId, results, `=TABLE(${name(rowInput)},${name(colInput)})`, 'Data table')
-      ? { ok: true, range: results } : { ok: false, reason: 'Cannot change part of an array' };
+    if (this.lockedIn(sheetId, results)) return { ok: false, reason: t('workbook.goalSeek.sheetProtected') };
+    return this.setArrayFormula(sheetId, results, `=TABLE(${name(rowInput)},${name(colInput)})`, t('workbook.undo.dataTable'))
+      ? { ok: true, range: results } : { ok: false, reason: t('workbook.dataTable.partOfArray') };
   }
 
-  setArrayFormula(sheetId, range, text, label = 'Edit array formula') {
+  setArrayFormula(sheetId, range, text, label = t('workbook.undo.editArrayFormula')) {
     const sheet = this.sheet(sheetId), area = normalizeRange(range);
     if (!sheet || !validStoredRange(area) || this.lockedIn(sheetId, area)
       || this.arrayEditBlocked(sheetId, area, { whole: true })) return false;
@@ -14336,7 +14353,7 @@ export class Workbook extends EventTarget {
    * Edit Links: put a new set of supporting-workbook links in place (fresh values, another source, a link
    * dropped). One undo step; every formula is worked out again from the links' cached cells.
    */
-  setExternalWorkbooks(next, label = 'Edit links') {
+  setExternalWorkbooks(next, label = t('workbook.undo.editLinks')) {
     const prev = this.externalWorkbooks;
     const value = next?.books?.length ? normalizeExternalWorkbooks(next) : null;
     const apply = (v) => { this.externalWorkbooks = v; this._changed('structure'); };
@@ -14555,7 +14572,7 @@ export class Workbook extends EventTarget {
    * Replace the workbook's named cell styles (see custom-cell-styles.js) as an undo step. Inside a transaction the
    * cells a modified style reformats join the same step.
    */
-  setCellStyles(next, label = 'Cell styles') {
+  setCellStyles(next, label = t('workbook.undo.cellStyles')) {
     const prev = this.cellStyles;
     const value = normalizeCellStyles(next);
     if (JSON.stringify(prev) === JSON.stringify(value)) return false;
