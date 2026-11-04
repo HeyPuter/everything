@@ -16,7 +16,7 @@ import { CollabBinding, editorState } from './binding.js';
 import { CollabClient } from './client.js';
 import { createSharedDoc, unsupportedReason } from './shared-doc.js';
 import { BroadcastRoom, WorkerTransport } from './transports.js';
-import { call, deploy } from './api.js';
+import { call, deploy, prepareCall } from './api.js';
 import { rememberedRoom, rememberRoom } from './room-memory.js';
 import { canEdit, canManage, decode, encode, randomId, shareLink, INVITE_ROLES } from './protocol.js';
 
@@ -29,7 +29,7 @@ export { rememberedRoom };
 
 function workerTransport(server, room, token) {
   const owner = sdk();
-  return new WorkerTransport({ call: (op, input) => call(owner, server, { ...input, op }), room, token });
+  return new WorkerTransport({ call: (op, input) => call(owner, server, { ...input, op }), prepare: (op, input) => prepareCall(owner, server, { ...input, op }), room, token });
 }
 
 /**
@@ -114,6 +114,13 @@ export class LiveSession extends EventTarget {
     this.publishPresence(true);
     // Presence lapses without a renewal; renew it while the document is open.
     this.renew = setInterval(() => this.publishPresence(true), 8000);
+    // Closing the tab says goodbye, so the others' title bars and pages drop this person's avatar and caret (and another
+    // owner tab takes over saving) at once rather than when the presence lapses. A page kept for Back comes back with
+    // its presence published again.
+    this.onPageHide = () => { if (!this.ended) this.client.transport?.farewell?.(); };
+    this.onPageShow = e => { if (e.persisted) this.publishPresence(true); };
+    globalThis.addEventListener?.('pagehide', this.onPageHide);
+    globalThis.addEventListener?.('pageshow', this.onPageShow);
   }
 
   /**
@@ -241,6 +248,8 @@ export class LiveSession extends EventTarget {
     if (this.ended) return;
     this.ended = true;
     clearInterval(this.renew); clearTimeout(this.presenceTimer);
+    globalThis.removeEventListener?.('pagehide', this.onPageHide);
+    globalThis.removeEventListener?.('pageshow', this.onPageShow);
     this.restoreHooks?.();
     const at = this.engine.overlays?.indexOf(this.overlay) ?? -1;
     if (at >= 0) this.engine.overlays.splice(at, 1);

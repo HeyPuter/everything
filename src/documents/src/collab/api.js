@@ -47,6 +47,22 @@ export async function call(puter, server, input) {
 }
 
 /**
+ * A request made ready to go the moment it is needed (the page closing, when nothing awaited would still run): signed
+ * now, and sent keepalive, so it outlives the page. Resolves a function that sends it.
+ */
+export async function prepareCall(puter, server, input) {
+  server = workerURL(server);
+  const body = JSON.stringify(input);
+  if (isDevServer(server)) {
+    const user = await puter.auth.getUser();
+    const headers = { 'Content-Type': 'application/json', 'x-collab-dev-user': JSON.stringify({ uuid: user.uuid, username: user.username }) };
+    return () => fetch(`${server}/api`, { method: 'POST', headers, body, keepalive: true });
+  }
+  const headers = { 'Content-Type': 'application/json', ...await authorize(puter, server, body) };
+  return () => puter.workers.exec(`${server}/api`, { method: 'POST', headers, body, keepalive: true, redirect: 'error' });
+}
+
+/**
  * Deploy (or update) this account's room worker and return its address. Only
  * a worker this account created and recorded in its private KV is updated; an
  * invitation link never triggers a deployment. The mock SDK names the dev server.
