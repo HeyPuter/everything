@@ -94,3 +94,23 @@ test('a text box copied from the Edit menu pastes with its text, and its paragra
   expect((await drawings(page)).map(d => d.text)).toEqual(['Boxed words', 'Boxed words']);
   expect(errors).toEqual([]);
 });
+
+test('Cut leaves a chart it cannot carry in place and says so, instead of losing it', async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await start(page);
+  await onTab(page, 'insert');
+  await page.locator('#ribbon-panel-insert').getByRole('button', { name: 'Chart', exact: true }).click();
+  const chart = page.getByRole('dialog', { name: 'Insert Chart' });
+  await chart.getByRole('button', { name: 'Insert', exact: true }).click();
+  await expect(chart).toBeHidden();
+  const charts = () => page.evaluate(() => window.__docs.current.view.engine.model.paragraphs.flatMap(p => p.runs).filter(r => r.image?.kind === 'chart').length);
+  expect(await charts()).toBe(1);
+  await input(page).evaluate(el => { const at = el.value.indexOf('￼'); el.setSelectionRange(at, at + 1); el.dispatchEvent(new Event('select', { bubbles: true })); });
+  await page.keyboard.press('ControlOrMeta+x');
+  await expect(page.getByText('This object can’t be cut and pasted yet.', { exact: false })).toBeVisible();
+  expect(await charts()).toBe(1);
+  // Delete still removes it.
+  await page.keyboard.press('Delete');
+  await expect.poll(charts).toBe(0);
+  expect(errors).toEqual([]);
+});

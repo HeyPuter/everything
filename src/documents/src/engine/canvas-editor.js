@@ -2239,7 +2239,11 @@ export class CanvasEditor {
     const { text, html } = this.clipboardData();
     e.clipboardData.setData('text/plain', text);
     if (html) e.clipboardData.setData('text/html', html);
-    if (cut) this.deleteSelection();
+    if (!cut || this.readOnly || this.viewOnly) return;
+    // A chart, diagram or other drawing the clipboard cannot carry would be lost on its way: a paste brings back
+    // only its plain-text stand-in. Cut leaves it in place and says so, as the Edit menu offers no Cut for it.
+    if (this.model.selectedImage && !html) { this.onError(new Error('This object can’t be cut and pasted yet. Drag it to move it, or press Delete to remove it.')); return; }
+    this.deleteSelection();
   }
   /**
    * Remove the selection, as a cut or Clear Contents does: the selected text, or the contents of a block of table
