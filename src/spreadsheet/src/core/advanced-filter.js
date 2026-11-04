@@ -10,6 +10,7 @@
  */
 import { criteriaMatcher } from './formula/functions.js';
 import { sheetFilters } from './sheet-filters.js';
+import { t } from '../i18n/index.js';
 
 const headerKey = (v) => String(v ?? '').trim().toLowerCase();
 const isError = (v) => v != null && typeof v === 'object' && 'error' in v;
@@ -32,7 +33,7 @@ export function matchingRows(wb, sheetId, list, criteria) {
   const records = values.slice(1);
   if (!criteria) return records.map((_, i) => list.r1 + 1 + i);
   const crit = wb.rangeValues(criteria.sheetId ?? sheetId, criteria.range);
-  if (crit.length < 2) return { error: 'The criteria range needs a header row and at least one row of conditions' };
+  if (crit.length < 2) return { error: t('coreAdvancedFilter.criteriaTooShort') };
   const critSheet = criteria.sheetId ?? sheetId;
   const tests = [];
   for (let i = 1; i < crit.length; i++) {
@@ -52,7 +53,7 @@ export function matchingRows(wb, sheetId, list, criteria) {
       }
       const v = crit[i][j];
       if (v == null || v === '') continue;
-      if (at < 0) return { error: `The criteria header "${crit[0][j] ?? ''}" names no column of the list` };
+      if (at < 0) return { error: t('coreAdvancedFilter.unknownHeader', { header: String(crit[0][j] ?? '') }) };
       row.push({ at, match: advancedMatcher(v) });
     }
     tests.push(row);
@@ -61,7 +62,7 @@ export function matchingRows(wb, sheetId, list, criteria) {
   const out = [];
   records.forEach((rec, i) => {
     const sheetRow = list.r1 + 1 + i;
-    if (tests.some((row) => row.every((t) => (t.computed ? t.computed(sheetRow) : t.match(isError(rec[t.at]) ? rec[t.at] : rec[t.at] ?? null))))) out.push(sheetRow);
+    if (tests.some((row) => row.every((test) => (test.computed ? test.computed(sheetRow) : test.match(isError(rec[test.at]) ? rec[test.at] : rec[test.at] ?? null))))) out.push(sheetRow);
   });
   return out;
 }
@@ -87,7 +88,7 @@ function uniqueRows(wb, sheetId, rows, columns) {
  * { shown, hidden } or { copied } or { error }.
  */
 export function advancedFilter(wb, sheetId, { list, criteria = null, copyTo = null, unique = false }) {
-  if (!list || list.r2 <= list.r1) return { error: 'The list range needs a header row and at least one record' };
+  if (!list || list.r2 <= list.r1) return { error: t('coreAdvancedFilter.listTooShort') };
   // A list typed as whole columns ($A:$D) holds records only as far down as the sheet's data goes: the blank rows
   // below it are no records. Judged one by one they took seconds, and in place they were all hidden, the sheet
   // seeming to end under the data. The list itself is kept as given, so a Reapply takes in rows added since.
@@ -101,7 +102,7 @@ export function advancedFilter(wb, sheetId, { list, criteria = null, copyTo = nu
     const keep = new Set(rows);
     const hide = [], show = [];
     for (let r = records.r1 + 1; r <= records.r2; r++) (keep.has(r) ? show : hide).push(r);
-    wb.transaction('Advanced filter', () => {
+    wb.transaction(t('coreAdvancedFilter.undo'), () => {
       wb.setHidden(sheetId, 'row', show, false);
       if (hide.length) wb.setHidden(sheetId, 'row', hide, true);
       // Kept on the sheet, where its ranges follow inserted, deleted and moved rows, for Clear and Reapply.
@@ -116,11 +117,11 @@ export function advancedFilter(wb, sheetId, { list, criteria = null, copyTo = nu
   const destHeaders = wb.rangeValues(dest, { r1: copyTo.range.r1, c1: copyTo.range.c1, r2: copyTo.range.r1, c2: copyTo.range.c2 })[0];
   const named = destHeaders.map((h) => headers.findIndex((x) => headerKey(x) === headerKey(h) && headerKey(h)));
   const columns = copyTo.range.c2 > copyTo.range.c1 || named[0] >= 0 ? named.filter((i) => i >= 0).map((i) => list.c1 + i) : allColumns;
-  if (!columns.length) return { error: 'The copy-to range must name columns of the list, or be a single cell' };
+  if (!columns.length) return { error: t('coreAdvancedFilter.copyToColumns') };
   if (unique) rows = uniqueRows(wb, sheetId, rows, columns);
   // A one-row destination is filled as far down as the records go; a taller one is the limit.
   const limit = copyTo.range.r2 > copyTo.range.r1 ? copyTo.range.r2 - copyTo.range.r1 : Infinity;
-  if (rows.length > limit) return { error: 'The copy-to range is too small for the records that match' };
+  if (rows.length > limit) return { error: t('coreAdvancedFilter.copyToSmall') };
   const entries = [];
   const copyCell = (fromRow, c, toRow, toCol) => {
     const cell = wb.getCell(sheetId, fromRow, c);
@@ -142,11 +143,11 @@ export function advancedFilter(wb, sheetId, { list, criteria = null, copyTo = nu
   // The records are written where they are read from no more than over the conditions: copied over its own list (or
   // criteria), the list was overwritten by its own extract.
   const meets = (g) => g.r1 <= box.r2 && g.r2 >= box.r1 && g.c1 <= box.c2 && g.c2 >= box.c1;
-  if (dest === sheetId && meets(records)) return { error: 'The copy-to range overlaps the list range. Choose a place outside the list' };
-  if (criteria && (criteria.sheetId ?? sheetId) === dest && meets(criteria.range)) return { error: 'The copy-to range overlaps the criteria range. Choose a place outside it' };
+  if (dest === sheetId && meets(records)) return { error: t('coreAdvancedFilter.overlapsList') };
+  if (criteria && (criteria.sheetId ?? sheetId) === dest && meets(criteria.range)) return { error: t('coreAdvancedFilter.overlapsCriteria') };
   // A protected destination refuses the copy: said so, rather than reporting records copied that were not.
-  if (wb.lockedIn(dest, box)) return { error: 'The copy-to range is protected. Choose another place, or unprotect it first' };
-  wb.setCells(dest, entries, 'Advanced filter');
+  if (wb.lockedIn(dest, box)) return { error: t('coreAdvancedFilter.protected') };
+  wb.setCells(dest, entries, t('coreAdvancedFilter.undo'));
   return { copied: rows.length, columns: columns.length };
 }
 
@@ -163,10 +164,11 @@ export function clearSheetFilters(wb, sheetId, at = null) {
   const advancedHere = !!sheet.advancedFilter && inside(sheet.advancedFilter.list);
   const all = !here.length && !advancedHere;
   let changed = false;
-  wb.transaction('Clear filter', () => {
+  const label = t('coreAdvancedFilter.clearUndo');
+  wb.transaction(label, () => {
     for (const f of all ? sheetFilters(sheet) : here) {
       if (!Object.keys(f.criteria || {}).length) continue;
-      wb._setFilter(sheet, { ...f, criteria: {} }, 'Clear filter', { target: f });
+      wb._setFilter(sheet, { ...f, criteria: {} }, label, { target: f });
       changed = true;
     }
     // The advanced filter run in place shows every record of its list again, wherever the list has moved to.
@@ -174,7 +176,7 @@ export function clearSheetFilters(wb, sheetId, at = null) {
     if (last && (all || advancedHere)) {
       const hidden = [...sheet.hiddenRows].filter((r) => r > last.list.r1 && r <= last.list.r2);
       if (hidden.length) wb.setHidden(sheetId, 'row', hidden, false);
-      wb.setAdvancedFilterState(sheetId, null, 'Clear filter');
+      wb.setAdvancedFilterState(sheetId, null, label);
       changed = true;
     }
   });

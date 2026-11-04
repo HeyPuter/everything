@@ -25,24 +25,34 @@ import { formatDate, formatTime, formatGeneral, formatNumberText } from './forma
 import { numberOfText } from './condformat.js';
 import { tokenize } from './formula/tokenizer.js';
 import { parseRefText, isAbsoluteRef } from './refs.js';
+import { t, tSource } from '../i18n/index.js';
 
+/** The rule types, each with its label's catalog key. */
 export const VALIDATION_TYPES = [
-  { value: 'any', label: 'Any value' },
-  { value: 'whole', label: 'Whole number' },
-  { value: 'number', label: 'Decimal' },
-  { value: 'list', label: 'Dropdown list' },
-  { value: 'date', label: 'Date' },
-  { value: 'time', label: 'Time' },
-  { value: 'text', label: 'Text length' },
-  { value: 'formula', label: 'Custom formula is true' },
-  { value: 'checkbox', label: 'Checkbox' },
+  { value: 'any', label: 'coreValidation.type.any' },
+  { value: 'whole', label: 'coreValidation.type.whole' },
+  { value: 'number', label: 'coreValidation.type.number' },
+  { value: 'list', label: 'coreValidation.type.list' },
+  { value: 'date', label: 'coreValidation.type.date' },
+  { value: 'time', label: 'coreValidation.type.time' },
+  { value: 'text', label: 'coreValidation.type.text' },
+  { value: 'formula', label: 'coreValidation.type.formula' },
+  { value: 'checkbox', label: 'coreValidation.type.checkbox' },
 ];
 
+/** The comparisons, each with its label's catalog key. */
 export const VALIDATION_OPERATORS = [
-  ['between', 'Between'], ['notBetween', 'Not between'], ['equal', 'Equal to'], ['notEqual', 'Not equal to'],
-  ['greaterThan', 'Greater than'], ['lessThan', 'Less than'],
-  ['greaterThanOrEqual', 'Greater than or equal to'], ['lessThanOrEqual', 'Less than or equal to'],
+  ['between', 'coreValidation.operator.between'], ['notBetween', 'coreValidation.operator.notBetween'],
+  ['equal', 'coreValidation.operator.equal'], ['notEqual', 'coreValidation.operator.notEqual'],
+  ['greaterThan', 'coreValidation.operator.greaterThan'], ['lessThan', 'coreValidation.operator.lessThan'],
+  ['greaterThanOrEqual', 'coreValidation.operator.greaterThanOrEqual'], ['lessThanOrEqual', 'coreValidation.operator.lessThanOrEqual'],
 ];
+/** The comparisons as a rule's description reads them ("Whole number: between 1 and 10"), as catalog keys. */
+const OPERATOR_PHRASES = {
+  between: 'coreValidation.phrase.between', notBetween: 'coreValidation.phrase.notBetween', equal: 'coreValidation.phrase.equal',
+  notEqual: 'coreValidation.phrase.notEqual', greaterThan: 'coreValidation.phrase.greaterThan', lessThan: 'coreValidation.phrase.lessThan',
+  greaterThanOrEqual: 'coreValidation.phrase.greaterThanOrEqual', lessThanOrEqual: 'coreValidation.phrase.lessThanOrEqual',
+};
 export const VALIDATION_COMPARISONS = Object.freeze({ equal: '=', notEqual: '<>', greaterThan: '>', lessThan: '<', greaterThanOrEqual: '>=', lessThanOrEqual: '<=' });
 /** Non-default criteria use min as their first operand; max is used only by two-bound comparisons. */
 export function compareValidation(value, rule) {
@@ -86,8 +96,8 @@ export function ruleFormulaBody(formula) {
  * without one take a color from the palette in turn.
  */
 export const CHIP_PALETTE = [
-  ['#e3edfd', 'Blue'], ['#e2f6ea', 'Green'], ['#fff3c4', 'Yellow'], ['#fde3e0', 'Red'],
-  ['#efe4fb', 'Purple'], ['#ffe8d1', 'Orange'], ['#dcf4f6', 'Teal'], ['#ececea', 'Gray'],
+  ['#e3edfd', 'coreValidation.color.blue'], ['#e2f6ea', 'coreValidation.color.green'], ['#fff3c4', 'coreValidation.color.yellow'], ['#fde3e0', 'coreValidation.color.red'],
+  ['#efe4fb', 'coreValidation.color.purple'], ['#ffe8d1', 'coreValidation.color.orange'], ['#dcf4f6', 'coreValidation.color.teal'], ['#ececea', 'coreValidation.color.gray'],
 ];
 const CHIP_INK = '#1a1a1a';
 
@@ -160,9 +170,9 @@ const RANGE_SOURCE = new RegExp(`^(?:(?:'(?:[^']|'')+'|[A-Za-z_][\\w.]*)!(?:${CE
 /** References and explicit formulas are distinct from literal list options. */
 export function isRangeSource(source) {
   if (Array.isArray(source)) return false;
-  const t = String(source ?? '').trim();
-  return t.startsWith('=') || RANGE_SOURCE.test(t)
-    || /^[A-Za-z_][\w.]*\[.*\]$/.test(t); // a table column: Sales[Item]
+  const text = String(source ?? '').trim();
+  return text.startsWith('=') || RANGE_SOURCE.test(text)
+    || /^[A-Za-z_][\w.]*\[.*\]$/.test(text); // a table column: Sales[Item]
 }
 
 /**
@@ -176,10 +186,10 @@ export function relativeListSource(source) {
   if (!text.startsWith('=')) return false;
   let tokens;
   try { tokens = tokenize(text.slice(1)); } catch { return false; }
-  if (!tokens.some((t, i) => t.type === 'name' && tokens[i + 1]?.type === 'lparen')) return false;
-  return tokens.some((t) => {
-    if (t.type !== 'ref' || t.sheetEnd) return false;
-    const ref = parseRefText(t.text, t.sheet);
+  if (!tokens.some((tok, i) => tok.type === 'name' && tokens[i + 1]?.type === 'lparen')) return false;
+  return tokens.some((tok) => {
+    if (tok.type !== 'ref' || tok.sheetEnd) return false;
+    const ref = parseRefText(tok.text, tok.sheet);
     return !!ref && !isAbsoluteRef(ref);
   });
 }
@@ -256,11 +266,17 @@ function optionsEntry(values) {
 }
 
 /** Why a dropdown offers nothing: its source names no cells or none of them holds a value, or it is empty. */
+/** "Pick one of: Yes, No, Maybe", naming the first six options. */
+function pickOne(options) {
+  const items = options.slice(0, 6).reduce((list, item) => t('coreValidation.check.listItem', { list, item }));
+  return options.length > 6 ? t('coreValidation.check.pickOneMore', { items }) : t('coreValidation.check.pickOne', { items });
+}
+
 function emptyListMessage(rule) {
   const source = Array.isArray(rule.source) ? '' : String(rule.source ?? '').trim();
   return isRangeSource(source)
-    ? `This dropdown has no values to pick: its source ${source} is empty or no longer exists`
-    : 'This dropdown has no values to pick. Add some under Data validation in the cell menu';
+    ? t('coreValidation.check.emptySource', { source })
+    : t('coreValidation.check.emptyList');
 }
 
 /**
@@ -270,7 +286,7 @@ function emptyListMessage(rule) {
 export function checkValue(rule, value, resolveRange, evalFormula) {
   if (rule.type === 'any') return { ok: true };
   const blank = value == null || value === '';
-  if (blank) return rule.allowBlank === false ? { ok: false, message: rule.message || 'This cell cannot be empty' } : { ok: true };
+  if (blank) return rule.allowBlank === false ? { ok: false, message: rule.message || t('coreValidation.check.blank') } : { ok: true };
   if (value != null && typeof value === 'object') return { ok: true }; // errors are the formula's problem
   switch (rule.type) {
     case 'list': {
@@ -283,46 +299,46 @@ export function checkValue(rule, value, resolveRange, evalFormula) {
       // A number typed as text ("10") is the option 10; the sets answer in one lookup however long the list.
       const n = numberOfText(text);
       const ok = lower.has(text.toLowerCase()) || (n != null && numbers.has(n));
-      return ok ? { ok: true } : { ok: false, message: rule.message || `Pick one of: ${options.slice(0, 6).join(', ')}${options.length > 6 ? ', …' : ''}` };
+      return ok ? { ok: true } : { ok: false, message: rule.message || pickOne(options) };
     }
     case 'number': {
       // Text counts when it spells a plain numeral; "0x10" or "Infinity", which Number() would take, is text.
       const n = typeof value === 'number' ? value : numberOfText(value);
-      if (n == null || !Number.isFinite(n)) return { ok: false, message: rule.message || 'Enter a number' };
-      if (rule.operator && rule.operator !== 'between') return compareValidation(n, rule) ? { ok: true } : { ok: false, message: rule.message || 'This number does not meet the comparison' };
-      if (rule.min != null && n < rule.min) return { ok: false, message: rule.message || `Enter a number of at least ${boundText(rule, rule.min)}` };
-      if (rule.max != null && n > rule.max) return { ok: false, message: rule.message || `Enter a number of at most ${boundText(rule, rule.max)}` };
+      if (n == null || !Number.isFinite(n)) return { ok: false, message: rule.message || t('coreValidation.check.number') };
+      if (rule.operator && rule.operator !== 'between') return compareValidation(n, rule) ? { ok: true } : { ok: false, message: rule.message || t('coreValidation.check.numberComparison') };
+      if (rule.min != null && n < rule.min) return { ok: false, message: rule.message || t('coreValidation.check.numberMin', { min: boundText(rule, rule.min) }) };
+      if (rule.max != null && n > rule.max) return { ok: false, message: rule.message || t('coreValidation.check.numberMax', { max: boundText(rule, rule.max) }) };
       return { ok: true };
     }
     case 'text': {
       // A number counts the characters LEN counts in it: 0.1+0.2 is "0.3", not "0.30000000000000004".
       const len = [...(typeof value === 'boolean' ? (value ? 'TRUE' : 'FALSE') : typeof value === 'number' ? formatNumberText(value) : String(value))].length;
-      if (rule.operator && rule.operator !== 'between') return compareValidation(len, rule) ? { ok: true } : { ok: false, message: rule.message || 'This text length does not meet the comparison' };
-      if (rule.min != null && len < rule.min) return { ok: false, message: rule.message || `Enter at least ${rule.min} character${rule.min === 1 ? '' : 's'}` };
-      if (rule.max != null && len > rule.max) return { ok: false, message: rule.message || `Enter at most ${rule.max} character${rule.max === 1 ? '' : 's'}` };
+      if (rule.operator && rule.operator !== 'between') return compareValidation(len, rule) ? { ok: true } : { ok: false, message: rule.message || t('coreValidation.check.lengthComparison') };
+      if (rule.min != null && len < rule.min) return { ok: false, message: rule.message || t('coreValidation.check.lengthMin', { min: rule.min }) };
+      if (rule.max != null && len > rule.max) return { ok: false, message: rule.message || t('coreValidation.check.lengthMax', { max: rule.max }) };
       return { ok: true };
     }
     case 'date': {
-      if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) return { ok: false, message: rule.message || 'Enter a date' };
-      if (rule.operator && rule.operator !== 'between') return compareValidation(value, rule) ? { ok: true } : { ok: false, message: rule.message || 'This date does not meet the comparison' };
-      if (rule.min != null && value < rule.min) return { ok: false, message: rule.message || `Enter a date on or after ${formatDate(rule.min, 'iso')}` };
-      if (rule.max != null && value > rule.max) return { ok: false, message: rule.message || `Enter a date on or before ${formatDate(rule.max, 'iso')}` };
+      if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) return { ok: false, message: rule.message || t('coreValidation.check.date') };
+      if (rule.operator && rule.operator !== 'between') return compareValidation(value, rule) ? { ok: true } : { ok: false, message: rule.message || t('coreValidation.check.dateComparison') };
+      if (rule.min != null && value < rule.min) return { ok: false, message: rule.message || t('coreValidation.check.dateMin', { min: formatDate(rule.min, 'iso') }) };
+      if (rule.max != null && value > rule.max) return { ok: false, message: rule.message || t('coreValidation.check.dateMax', { max: formatDate(rule.max, 'iso') }) };
       return { ok: true };
     }
     case 'whole':
     case 'time': {
       const ok = typeof value === 'number' && Number.isFinite(value)
         && (rule.type !== 'whole' || Number.isInteger(value)) && compareValidation(value, rule);
-      return ok ? { ok: true } : { ok: false, message: rule.message || (rule.type === 'whole' ? 'Enter a whole number that meets the comparison' : 'Enter a time that meets the comparison') };
+      return ok ? { ok: true } : { ok: false, message: rule.message || (rule.type === 'whole' ? t('coreValidation.check.whole') : t('coreValidation.check.time')) };
     }
     case 'formula': {
       if (!evalFormula) return { ok: true };
       const r = evalFormula(rule.source);
       const ok = r === true || (typeof r === 'number' && r !== 0) || (typeof r === 'string' && r.trim().toUpperCase() === 'TRUE');
-      return ok ? { ok: true } : { ok: false, message: rule.message || 'This value does not meet the rule' };
+      return ok ? { ok: true } : { ok: false, message: rule.message || t('coreValidation.check.formula') };
     }
     case 'checkbox':
-      return typeof value === 'boolean' ? { ok: true } : { ok: false, message: 'Use the checkbox' };
+      return typeof value === 'boolean' ? { ok: true } : { ok: false, message: t('coreValidation.check.checkbox') };
     default:
       return { ok: true };
   }
@@ -337,32 +353,45 @@ function boundText(rule, v) {
   return formatGeneral(n);
 }
 
-export function describeValidation(rule) {
-  if (rule.type === 'any') return 'Any value';
+/**
+ * A rule in a few words ("Number between 1 and 10"). In English unless `display` is set: the AI model reads
+ * it as well; the rules list on screen asks for the interface language.
+ */
+export function describeValidation(rule, { display = false } = {}) {
+  const tr = display ? t : tSource;
+  if (rule.type === 'any') return tr('coreValidation.describe.any');
   if (['whole', 'time'].includes(rule.type) || rule.operator && rule.operator !== 'between') {
-    const label = VALIDATION_TYPES.find(t => t.value === rule.type)?.label || rule.type;
-    const operator = VALIDATION_OPERATORS.find(([op]) => op === (rule.operator || 'between'))?.[1] || 'Comparison';
-    return `${label}: ${operator.toLowerCase()} ${boundText(rule, rule.min)}${['between', 'notBetween'].includes(rule.operator || 'between') ? ` and ${boundText(rule, rule.max)}` : ''}`;
+    const key = VALIDATION_TYPES.find(type => type.value === rule.type)?.label;
+    const type = key ? tr(key) : rule.type;
+    const op = rule.operator || 'between';
+    const operator = OPERATOR_PHRASES[op] ? tr(OPERATOR_PHRASES[op]) : tr('coreValidation.phrase.comparison');
+    return ['between', 'notBetween'].includes(op)
+      ? tr('coreValidation.describe.comparisonTwo', { type, operator, min: boundText(rule, rule.min), max: boundText(rule, rule.max) })
+      : tr('coreValidation.describe.comparison', { type, operator, min: boundText(rule, rule.min) });
   }
-  if (rule.type === 'list') return `${isRangeSource(rule.source) ? `List from ${rule.source}` : `List: ${joinList(splitList(rule.source))}`}${rule.chips ? ' (colored chips)' : ''}`;
+  if (rule.type === 'list') {
+    const chips = rule.chips ? 'yes' : 'no';
+    return isRangeSource(rule.source) ? tr('coreValidation.describe.listFrom', { source: rule.source, chips })
+      : tr('coreValidation.describe.list', { items: joinList(splitList(rule.source)), chips });
+  }
   if (rule.type === 'number') {
-    if (rule.min != null && rule.max != null) return `Number between ${boundText(rule, rule.min)} and ${boundText(rule, rule.max)}`;
-    if (rule.min != null) return `Number at least ${boundText(rule, rule.min)}`;
-    if (rule.max != null) return `Number at most ${boundText(rule, rule.max)}`;
-    return 'Any number';
+    if (rule.min != null && rule.max != null) return tr('coreValidation.describe.numberBetween', { min: boundText(rule, rule.min), max: boundText(rule, rule.max) });
+    if (rule.min != null) return tr('coreValidation.describe.numberMin', { min: boundText(rule, rule.min) });
+    if (rule.max != null) return tr('coreValidation.describe.numberMax', { max: boundText(rule, rule.max) });
+    return tr('coreValidation.describe.anyNumber');
   }
   if (rule.type === 'text') {
-    if (rule.min != null && rule.max != null) return `Text of ${rule.min} to ${rule.max} characters`;
-    if (rule.min != null) return `Text of at least ${rule.min} characters`;
-    if (rule.max != null) return `Text of at most ${rule.max} characters`;
-    return 'Any text';
+    if (rule.min != null && rule.max != null) return tr('coreValidation.describe.textBetween', { min: rule.min, max: rule.max });
+    if (rule.min != null) return tr('coreValidation.describe.textMin', { min: rule.min });
+    if (rule.max != null) return tr('coreValidation.describe.textMax', { max: rule.max });
+    return tr('coreValidation.describe.anyText');
   }
   if (rule.type === 'date') {
-    if (rule.min != null && rule.max != null) return `Date between ${formatDate(rule.min, 'iso')} and ${formatDate(rule.max, 'iso')}`;
-    if (rule.min != null) return `Date on or after ${formatDate(rule.min, 'iso')}`;
-    if (rule.max != null) return `Date on or before ${formatDate(rule.max, 'iso')}`;
-    return 'Any date';
+    if (rule.min != null && rule.max != null) return tr('coreValidation.describe.dateBetween', { min: formatDate(rule.min, 'iso'), max: formatDate(rule.max, 'iso') });
+    if (rule.min != null) return tr('coreValidation.describe.dateMin', { min: formatDate(rule.min, 'iso') });
+    if (rule.max != null) return tr('coreValidation.describe.dateMax', { max: formatDate(rule.max, 'iso') });
+    return tr('coreValidation.describe.anyDate');
   }
-  if (rule.type === 'formula') return `Formula ${rule.source}`;
-  return 'Checkbox';
+  if (rule.type === 'formula') return tr('coreValidation.describe.formula', { source: rule.source });
+  return tr('coreValidation.describe.checkbox');
 }

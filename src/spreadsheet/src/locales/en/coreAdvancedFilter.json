@@ -1,0 +1,12 @@
+{
+  "clearUndo": "Clear filter",
+  "copyToColumns": "The copy-to range must name columns of the list, or be a single cell",
+  "copyToSmall": "The copy-to range is too small for the records that match",
+  "criteriaTooShort": "The criteria range needs a header row and at least one row of conditions",
+  "listTooShort": "The list range needs a header row and at least one record",
+  "overlapsCriteria": "The copy-to range overlaps the criteria range. Choose a place outside it",
+  "overlapsList": "The copy-to range overlaps the list range. Choose a place outside the list",
+  "protected": "The copy-to range is protected. Choose another place, or unprotect it first",
+  "undo": "Advanced filter",
+  "unknownHeader": "The criteria header \"{header}\" names no column of the list"
+}

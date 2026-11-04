@@ -1,0 +1,8 @@
+{
+  "checkTitle": "检查此值",
+  "defaultMessage": "此值与此单元格定义的数据验证限制不匹配。",
+  "editValue": "编辑值",
+  "invalidTitle": "无效值",
+  "retry": "重试",
+  "useValue": "使用此值"
+}
