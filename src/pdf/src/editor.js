@@ -1692,6 +1692,7 @@ export function createEditor({
   );
   const measureRatio = el('input', {
     type: 'number',
+    class: 'input measure-ratio',
     min: 0.0001,
     step: 'any',
     value: 1,
