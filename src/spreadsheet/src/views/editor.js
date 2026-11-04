@@ -6191,8 +6191,8 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
 
   async function renameDoc() {
     const name = await promptDialog({
-      title: 'Rename spreadsheet', label: 'Name', value: doc.name, confirmLabel: 'Rename',
-      validate: (v) => (fileBaseName(v) ? null : 'Enter a name'),
+      title: t('editor.rename.title'), label: t('common.name'), value: doc.name, confirmLabel: t('common.rename'),
+      validate: (v) => (fileBaseName(v) ? null : t('editor.rename.enterName')),
     });
     if (name == null || name === doc.name) return;
     const err = await doc.rename(name);
@@ -6211,11 +6211,11 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     if (grid.editing && !grid.commitEdit()) return false;
     if (session.signedOut && (!await session.signIn() || destroyed)) return false;
     if (!doc.path || !doc.isXlsxPath) {
-      try { await doc.save(); } catch (e) { toast(e?.message || 'Could not save the spreadsheet', { icon: 'alert', duration: 4000 }); return false; }
+      try { await doc.save(); } catch (e) { toast(e?.message || t('editor.save.couldNotSave'), { icon: 'alert', duration: 4000 }); return false; }
       if (destroyed) return false;
     }
     // Puter's Save dialog cancelled (see doc.asksWhereToSave), there is no file, or only the .csv the edits never reach.
-    if (!doc.path || !doc.isXlsxPath) { toast('Save the spreadsheet first, then share it', { icon: 'info' }); return false; }
+    if (!doc.path || !doc.isXlsxPath) { toast(t('editor.share.saveFirst'), { icon: 'info' }); return false; }
     return true;
   }
 
@@ -6224,17 +6224,17 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     automate?.flush();
     if (session.signedOut && (!await session.signIn() || destroyed)) return;
     // Inside Puter its Save dialog asks for the name and the folder; elsewhere the copy goes in the app folder, named here.
-    const name = P.asksWhereToSave() ? `${doc.name} copy` : await promptDialog({
-      title: 'Save a copy', label: 'Name', value: `${doc.name} copy`, confirmLabel: 'Save copy',
-      hint: `Saved to ${P.FOLDER}/ in your Puter cloud. You will continue in the copy.`,
-      validate: (v) => (fileBaseName(v) ? null : 'Enter a name'),
+    const name = P.asksWhereToSave() ? t('editor.saveCopy.defaultName', { name: doc.name }) : await promptDialog({
+      title: t('editor.saveCopy.title'), label: t('common.name'), value: t('editor.saveCopy.defaultName', { name: doc.name }), confirmLabel: t('editor.saveCopy.confirm'),
+      hint: t('editor.saveCopy.hint', { folder: P.FOLDER }),
+      validate: (v) => (fileBaseName(v) ? null : t('editor.rename.enterName')),
     });
     if (name == null) return;
     const err = await doc.saveAs(name);
     if (destroyed || err === CANCELLED) return;
     if (err) toast(err, { icon: 'alert' });
     else {
-      toast('Copy saved', { icon: 'cloud' });
+      toast(t('editor.saveCopy.saved'), { icon: 'cloud' });
       // A shared workbook's copy is no longer shared: it opens again as the file it is.
       if (room) openPath(doc.path, { reload: true });
       else refreshTitle();
@@ -6252,7 +6252,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       // An export goes to this device, as an import comes from it; saving to Puter is Save and Save a copy.
       P.downloadBlob(blob, name);
     } catch (e) {
-      toast(`Could not export: ${e?.message || 'unknown error'}`, { icon: 'alert' });
+      toast(t('editor.export.failedWith', { error: e?.message || t('editor.unknownError') }), { icon: 'alert' });
     }
   }
 
@@ -6297,14 +6297,14 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
           src = canvas.toDataURL('image/png');
         }
         if (destroyed) return;
-        if (wb.isProtected(sheetId)) { toast('This sheet is protected. Unprotect it before changing its background', { icon: 'lock', duration: 3500 }); return; }
+        if (wb.isProtected(sheetId)) { toast(t('editor.background.protected'), { icon: 'lock', duration: 3500 }); return; }
         if (wb.setSheetBackground(sheetId, src)) {
-          toast('Background set. It shows behind the cells on screen and is not printed', { icon: 'image', duration: 3000 });
-          statusBar?.announce('Sheet background set');
-        } else toast('That picture is too large for a background', { icon: 'info', duration: 3000 });
+          toast(t('editor.background.set'), { icon: 'image', duration: 3000 });
+          statusBar?.announce(t('editor.background.setAnnounce'));
+        } else toast(t('editor.background.tooLarge'), { icon: 'info', duration: 3000 });
       } catch (e) {
         if (destroyed) return;
-        toast(e?.code === 'too-large' ? `${f.name} is too large (over ${MAX_IMAGE_BYTES / (1024 * 1024)} MB)` : 'Could not read that image', { icon: 'alert', duration: 3500 });
+        toast(e?.code === 'too-large' ? t('editor.picture.tooLarge', { name: f.name, mb: MAX_IMAGE_BYTES / (1024 * 1024) }) : t('editor.picture.readFailed'), { icon: 'alert', duration: 3500 });
       }
       keepFocus();
     },
@@ -6328,7 +6328,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       const { src, width, height } = await readImageFile(f);
       if (destroyed || !wb.sheet(sheetId)) return null;
       if (wb.isProtected(sheetId) && !inCell) {
-        toast('This sheet is protected. Unprotect it before inserting or replacing images', { icon: 'lock', duration: 3500 });
+        toast(t('editor.picture.protected'), { icon: 'lock', duration: 3500 });
         return null;
       }
       if (inCell) {
@@ -6336,7 +6336,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         const alt = f.name && !/^(?:pasted )?image(?:\.\w+)?$/i.test(f.name) ? f.name.replace(/\.[^.]+$/, '') : '';
         if (await pictures.placeSourceInCell(src, { sheetId, at: anchor, alt })) {
           made = 'cell';
-          statusBar?.announce(`Picture placed in ${cellName(anchor.r, anchor.c)}`);
+          statusBar?.announce(t('editor.picture.placedIn', { cell: cellName(anchor.r, anchor.c) }));
         }
       } else if (replaceId) {
         const old = wb.chartById(sheetId, replaceId);
@@ -6345,8 +6345,8 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         // of the old picture) and in its own proportions, as large as fits in the frame from its top-left corner.
         const scale = Math.min(old.w / width, old.h / height);
         wb.updateChart(sheetId, replaceId, { src, title: f.name, srcRect: null, fillRect: null,
-          ...(Number.isFinite(scale) && scale > 0 ? { w: Math.max(1, Math.round(width * scale)), h: Math.max(1, Math.round(height * scale)) } : {}) }, 'Replace image');
-        toast('Image replaced', { icon: 'image', duration: 1600 });
+          ...(Number.isFinite(scale) && scale > 0 ? { w: Math.max(1, Math.round(width * scale)), h: Math.max(1, Math.round(height * scale)) } : {}) }, t('editor.undo.replaceImage'));
+        toast(t('editor.picture.replaced'), { icon: 'image', duration: 1600 });
       } else {
         // Fit large pictures to a sensible on-sheet size; they keep their proportions.
         const scale = Math.min(1, 480 / width, 320 / height);
@@ -6354,13 +6354,13 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         if (!id) return null;
         made = 'floating';
         if (atDestination()) grid.selectChart(id);
-        toast('Image inserted. Drag to move, drag the corner to resize', { icon: 'image', duration: 2600 });
+        toast(t('editor.picture.inserted'), { icon: 'image', duration: 2600 });
       }
     } catch (e) {
       if (destroyed) return;
       // A picture over the size cap is refused by its code, and told apart from one that could not be decoded.
-      if (e?.code === 'too-large') toast(`${f.name} is too large to put on the sheet (over ${MAX_IMAGE_BYTES / (1024 * 1024)} MB)`, { icon: 'info', duration: 3500 });
-      else { console.error(e); toast('Could not read that image', { icon: 'alert' }); }
+      if (e?.code === 'too-large') toast(t('editor.picture.tooLargeForSheet', { name: f.name, mb: MAX_IMAGE_BYTES / (1024 * 1024) }), { icon: 'info', duration: 3500 });
+      else { console.error(e); toast(t('editor.picture.readFailed'), { icon: 'alert' }); }
     }
     if (atDestination()) keepFocus();
     return made;
@@ -6393,7 +6393,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     if (grid.editing && !grid.commitEdit()) return;
     if (f.type.startsWith('image/')) { replaceImageId = null; await insertImageFile(f); return; }
     if (isSpreadsheetFile(f.name)) { if (await flush() && !destroyed) importFile(f); return; }
-    toast(`Cannot open ${f.name}. Drop a spreadsheet (.xlsx, .csv, .ods, …) or an image`, { icon: 'info', duration: 3200 });
+    toast(t('editor.drop.cannotOpen', { name: f.name }), { icon: 'info', duration: 3200 });
   }
   // Import into this spreadsheet: a dialog places the file's sheets (new sheets, the current sheet, appended rows, or at the selected cell).
   const sheetsInput = el('input', {
@@ -6414,7 +6414,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       } catch (e) {
         if (destroyed) return;
         console.error(e);
-        toast(fileProblem(e) || `Could not read ${f.name}`, { icon: 'alert', duration: 6000 });
+        toast(fileProblem(e) || t('editor.drop.couldNotRead', { name: f.name }), { icon: 'alert', duration: 6000 });
       }
       keepFocus();
     },
@@ -6428,12 +6428,12 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
   const FLAG_MS = 4000;
   /** Show where someone is: their sheet, with their selection. */
   const jumpTo = (person) => {
-    if (!person.sheet || !wb.sheet(person.sheet)) { toast(`${person.name} has not picked a cell yet`, { icon: 'info', duration: 2200 }); return; }
+    if (!person.sheet || !wb.sheet(person.sheet)) { toast(t('editor.people.noCell', { name: person.name }), { icon: 'info', duration: 2200 }); return; }
     if (grid.editing && !grid.commitEdit()) return;
     if (wb.activeSheetId !== person.sheet) wb.setActiveSheet(person.sheet);
     const target = person.sel || { r1: person.active.r, c1: person.active.c, r2: person.active.r, c2: person.active.c };
     grid.setRanges([target], person.active || { r: target.r1, c: target.c1 });
-    statusBar?.announce(`At ${person.name}'s selection`);
+    statusBar?.announce(t('editor.people.atSelection', { name: person.name }));
     keepFocus();
   };
   const peopleBar = room ? createPeopleBar({ client: room, wb, jump: jumpTo }) : null;
@@ -6467,9 +6467,9 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     for (const p of people) if (p.sheet) bySheet.set(p.sheet, [...(bySheet.get(p.sheet) || []), { name: p.name, color: p.color }]);
     sheetTabs.setPeers(bySheet);
   };
-  const onRoomRefused = (e) => toast(e.detail?.message || 'That change could not be shared', { icon: 'alert', duration: 4000 });
-  const onRoomRole = (e) => toast(e.detail?.role === 'viewer' ? 'You can now only view this shared workbook' : 'You can now edit this shared workbook', { icon: 'info', duration: 4000 });
-  const onRoomClosed = (e) => toast(`${e.detail?.message || 'This shared workbook is no longer available'} What you see stays open; use File > Save a copy to keep it.`, { icon: 'alert', duration: 8000 });
+  const onRoomRefused = (e) => toast(e.detail?.message || t('editor.room.refused'), { icon: 'alert', duration: 4000 });
+  const onRoomRole = (e) => toast(e.detail?.role === 'viewer' ? t('editor.room.viewer') : t('editor.room.editor'), { icon: 'info', duration: 4000 });
+  const onRoomClosed = (e) => toast(e.detail?.message ? t('editor.room.closedWith', { message: e.detail.message }) : t('editor.room.closed'), { icon: 'alert', duration: 8000 });
   // Rows or columns someone else inserted, deleted or moved carry this person's selection along with the cells.
   const onRoomRemote = (e) => {
     const lines = (e.detail?.ops || []).filter((op) => op.axis);
@@ -6510,49 +6510,49 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
   const onRoomVisible = () => { if (document.visibilityState === 'visible') room?.resume(); };
 
   // The tooltip carries the whole name: the title is cut short with an ellipsis when the window is narrow.
-  const titleTip = () => `Rename "${doc.name}"`;
+  const titleTip = () => t('editor.title.renameTip', { name: doc.name });
   // A name in a right-to-left script is laid out that way, its number at its own end, as a cell is.
   const titleBtn = el('button.doc-title', { type: 'button', dir: 'auto', title: titleTip(), onclick: () => run('rename') }, doc.name);
   // Beside the name while several sheets are grouped: what is typed lands on all of them.
-  const groupBadge = el('span.doc-group-badge', { hidden: true, title: 'Several sheets are grouped: edits apply to each of them. Click a sheet outside the group, or right-click a tab, to ungroup.' }, '[Group]');
+  const groupBadge = el('span.doc-group-badge', { hidden: true, title: t('editor.title.groupTip') }, t('editor.title.groupBadge'));
   // A plain status while signed in; without a session it is the button that starts the sign-in and the save.
   const status = el('button.save-status', { type: 'button', 'aria-live': 'polite', disabled: true, onclick: () => { if (session.signedOut || doc.asksWhereToSave) run('save'); } });
-  const searchBtn = el('button.icon-btn.desktop-only', { type: 'button', html: icon('search', 20), 'aria-label': 'Search the menus', title: `Search the menus (${MOD_KEY}+Shift+P)`, onclick: () => run('palette') });
+  const searchBtn = el('button.icon-btn.desktop-only', { type: 'button', html: icon('search', 20), 'aria-label': t('editor.topbar.searchMenus'), title: t('editor.topbar.searchMenusTip', { mod: MOD_KEY }), onclick: () => run('palette') });
   const avatar = el('button.icon-btn.user-btn', {
-    type: 'button', 'aria-label': 'Account menu', 'aria-haspopup': 'menu',
+    type: 'button', 'aria-label': t('editor.topbar.accountMenu'), 'aria-haspopup': 'menu',
     onclick: (e) => openAppMenu(e.currentTarget, { onOptions: () => run('options') }),
   });
   renderAccountButton(avatar);
 
   // Save, Undo and Redo stand in the title row as a quick access toolbar; the ribbon fills it.
   // The AutoSave switch leads the row: off, edits wait for Save (they are still kept in this browser's draft).
-  const autoSaveSwitch = el('button.autosave-switch', { type: 'button', role: 'switch', 'aria-label': 'AutoSave', 'aria-checked': String(autoSaveEnabled()),
-    title: 'AutoSave: save changes as you work', onclick: () => {
+  const autoSaveSwitch = el('button.autosave-switch', { type: 'button', role: 'switch', 'aria-label': t('editor.autoSave.label'), 'aria-checked': String(autoSaveEnabled()),
+    title: t('editor.autoSave.tip'), onclick: () => {
       const on = autoSaveSwitch.getAttribute('aria-checked') !== 'true';
       doc.setAutoSave?.(on);
       autoSaveSwitch.setAttribute('aria-checked', String(on));
-      statusBar?.announce(on ? 'AutoSave on' : `AutoSave off. Changes are saved when you press ${MOD_KEY}+S`);
-    } }, el('span.autosave-label', {}, 'AutoSave'), el('span.autosave-track', { 'aria-hidden': 'true' }, el('span.autosave-knob')));
-  const quickAccess = el('div.quick-access', { role: 'toolbar', 'aria-label': 'Quick access' },
+      statusBar?.announce(on ? t('editor.autoSave.on') : t('editor.autoSave.off', { mod: MOD_KEY }));
+    } }, el('span.autosave-label', {}, t('editor.autoSave.label')), el('span.autosave-track', { 'aria-hidden': 'true' }, el('span.autosave-knob')));
+  const quickAccess = el('div.quick-access', { role: 'toolbar', 'aria-label': t('editor.topbar.quickAccess') },
     autoSaveSwitch,
-    el('button.icon-btn.qat-btn', { type: 'button', html: icon('save', 18), 'aria-label': 'Save', title: `Save (${MOD_KEY}+S)`, onclick: () => run('save') }));
+    el('button.icon-btn.qat-btn.qat-save', { type: 'button', html: icon('save', 18), 'aria-label': t('common.save'), title: t('editor.topbar.saveTip', { mod: MOD_KEY }), onclick: () => run('save') }));
   ctx.quickAccess = quickAccess;
   // The menu bar sits in the title row, left of the centred name;
   // its menus are built from the moment's state when opened. After Escape the menu has put focus back on its title, and
   // after Tab the browser moves on from there; after a choice or a press elsewhere the grid takes focus back.
   const menubar = createMenubar({ flags: commandFlags, run, onClose: (reason) => { if (reason !== 'escape' && reason !== 'tab') keepFocus(); } });
   const topbar = el('div.topbar', {},
-    el('button.icon-btn', { type: 'button', html: icon('back', 20), 'aria-label': 'Back to all spreadsheets', title: 'All spreadsheets', onclick: () => run('home') }),
+    el('button.icon-btn', { type: 'button', html: icon('back', 20), 'aria-label': t('editor.topbar.back'), title: t('editor.topbar.allSpreadsheets'), onclick: () => run('home') }),
     el('span.brand-mark.desktop-only', { html: icon('brand', 16, 2.2), 'aria-hidden': 'true' }),
     quickAccess,
     el('div.topbar-menus', {}, menubar.el),
     el('div.topbar-title-wrap', {}, titleBtn, groupBadge, status),
     el('div.topbar-actions', {}, searchBtn,
       // The Comments button beside Share: the sheet's comment threads in the Comments pane.
-      el('button.icon-btn.desktop-only.topbar-comments', { type: 'button', html: icon('chat', 20), 'aria-label': 'Comments', title: 'Comments', onclick: () => run('toggleComments') }),
+      el('button.icon-btn.desktop-only.topbar-comments', { type: 'button', html: icon('chat', 20), 'aria-label': t('editor.topbar.comments'), title: t('editor.topbar.comments'), onclick: () => run('toggleComments') }),
       peopleBar?.el,
-      ...(P.canShare() ? [el('button.btn.share-btn.desktop-only', { type: 'button', title: 'Share this spreadsheet', onclick: () => run('share') },
-      el('span', { html: icon('share', 16) }), el('span', {}, 'Share'))] : []), avatar));
+      ...(P.canShare() ? [el('button.btn.share-btn.desktop-only', { type: 'button', title: t('editor.topbar.shareTip'), onclick: () => run('share') },
+      el('span', { html: icon('share', 16) }), el('span', {}, t('editor.topbar.share')))] : []), avatar));
   const header = el('header.editor-header', {}, topbar);
 
   function refreshStatus() {
@@ -6571,9 +6571,9 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       const noCopy = doc.status === 'unsaved' && doc.draftKept === false;
       status.className = 'save-status signed-out';
       status.disabled = false;
-      status.replaceChildren(el('span', { html: icon('cloudOff', 14, 2) }), el('span.save-label', {}, noCopy ? 'Sign in to save. This browser could not keep a copy' : 'Sign in to save'));
-      status.title = noCopy ? 'Not saved, and this browser could not keep a copy of the changes. Sign in to Puter to save this spreadsheet to your own cloud' : 'Not saved. Sign in to Puter to save this spreadsheet to your own cloud';
-      status.setAttribute('aria-label', noCopy ? 'Not saved, and this browser could not keep a copy. Sign in to Puter to save this spreadsheet' : 'Not saved. Sign in to Puter to save this spreadsheet');
+      status.replaceChildren(el('span', { html: icon('cloudOff', 14, 2) }), el('span.save-label', {}, noCopy ? t('editor.status.signInNoCopy') : t('editor.status.signIn')));
+      status.title = noCopy ? t('editor.status.signInNoCopyTip') : t('editor.status.signInTip');
+      status.setAttribute('aria-label', noCopy ? t('editor.status.signInNoCopyLabel') : t('editor.status.signInLabel'));
       return;
     }
     // A new file waits for Save, which asks where it goes (see doc.asksWhereToSave): AutoSave does not write it,
@@ -6582,34 +6582,34 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     status.disabled = !unplaced;
     status.removeAttribute('aria-label');
     const map = {
-      saved: ['cloud', 'Saved'],
-      saving: ['spinner', 'Saving…'],
-      unsaved: ['clock', 'Unsaved changes'],
-      error: ['alert', 'Not saved'],
-      offline: ['cloudOff', 'Offline'],
+      saved: ['cloud', t('editor.save.saved')],
+      saving: ['spinner', t('editor.status.saving')],
+      unsaved: ['clock', t('editor.status.unsaved')],
+      error: ['alert', t('editor.status.notSaved')],
+      offline: ['cloudOff', t('editor.status.offline')],
       // A file moved or deleted elsewhere, or one that could not be checked, is a conflict too (see doc.js), but not one that changed: the reason names which.
-      conflict: ['alert', /moved or deleted/i.test(doc.error || '') ? 'Moved or deleted' : /could not be checked/i.test(doc.error || '') ? 'Could not be checked' : 'Changed elsewhere'],
+      conflict: ['alert', /moved or deleted/i.test(doc.error || '') ? t('editor.status.movedOrDeleted') : /could not be checked/i.test(doc.error || '') ? t('editor.status.couldNotCheck') : t('editor.status.changedElsewhere')],
     };
     // Shared only to view: said at rest, and in place of a save that was refused (not while offline, which passes).
-    if (doc.viewOnly && (doc.status === 'saved' || doc.status === 'error')) map[doc.status] = ['eye', doc.status === 'saved' ? 'View only' : 'View only · Not saved'];
-    if (unplaced) map.unsaved = ['clock', 'Not saved yet'];
+    if (doc.viewOnly && (doc.status === 'saved' || doc.status === 'error')) map[doc.status] = ['eye', doc.status === 'saved' ? t('editor.status.viewOnly') : t('editor.status.viewOnlyNotSaved')];
+    if (unplaced) map.unsaved = ['clock', t('editor.details.notSaved')];
     const [ic, base] = map[doc.status] || map.saved;
     // Unsaved edits are normally copied into this browser's draft; when they could not be (the book
     // outgrew local storage), the pill says so, since a closed tab would then lose them.
     const noCopy = doc.status === 'unsaved' && doc.draftKept === false;
-    const label = noCopy ? `${base}. This browser could not keep a copy` : base;
+    const label = noCopy ? t('editor.status.noCopy', { status: base }) : base;
     status.className = `save-status ${doc.status}`;
     status.replaceChildren(el('span', { html: icon(ic, 14, 2), className: ic === 'spinner' ? 'spin' : '' }), el('span.save-label', {}, label));
-    status.title = doc.error ? `${label}: ${doc.error}` : doc.viewOnly ? `${label}: ${VIEW_ONLY}` : unplaced ? `${label}. Save (${MOD_KEY}+S) to choose where it goes in Puter` : (doc.path ? `${label} · ${doc.path}` : label);
+    status.title = doc.error ? t('editor.status.withDetail', { label, detail: doc.error }) : doc.viewOnly ? t('editor.status.withDetail', { label, detail: VIEW_ONLY }) : unplaced ? t('editor.status.unplacedTip', { label, mod: MOD_KEY }) : (doc.path ? t('editor.status.withPath', { label, path: doc.path }) : label);
   }
 
   function refreshTitle() {
     titleBtn.textContent = doc.name;
     titleBtn.title = titleTip();
     groupBadge.hidden = !wb.sheetGroup;
-    const group = wb.sheetGroup ? ' [Group]' : '';
-    document.title = `${doc.name}${group} · Spreadsheet`;
-    P.setWindowTitle(`${doc.name}${group}`);
+    const name = wb.sheetGroup ? t('editor.title.grouped', { name: doc.name }) : doc.name;
+    document.title = t('editor.title.document', { name, app: t('common.spreadsheet') });
+    P.setWindowTitle(name);
     refreshStatus();
   }
 
@@ -6732,10 +6732,10 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
   // Content from other files or the web waits for a yes in a file from elsewhere.
   const externalNotice = el('div.notice-bar', { role: 'status', hidden: true },
     el('span.notice-icon', { html: icon('alert', 16, 2) }),
-    el('span.notice-text', {}, 'This spreadsheet pulls in content from other files or the web, or asks the AI. Nothing has been loaded or asked yet.'),
+    el('span.notice-text', {}, t('editor.external.notice')),
     el('span.notice-actions', {},
-      el('button.btn.btn-sm', { type: 'button', onclick: () => { externalNotice.hidden = true; keepFocus(); } }, 'Keep blocked'),
-      el('button.btn.btn-sm.btn-primary', { type: 'button', onclick: () => { doc.allowExternal(); externalNotice.hidden = true; grid.refresh(); notify(); keepFocus(); } }, 'Allow')));
+      el('button.btn.btn-sm', { type: 'button', onclick: () => { externalNotice.hidden = true; keepFocus(); } }, t('editor.external.keepBlocked')),
+      el('button.btn.btn-sm.btn-primary', { type: 'button', onclick: () => { doc.allowExternal(); externalNotice.hidden = true; grid.refresh(); notify(); keepFocus(); } }, t('editor.external.allow'))));
   const pivotNoticeText = el('span.notice-text');
   const pivotNotice = el('div.notice-bar.pivot-display-notice', { role: 'status', hidden: true },
     el('span.notice-icon', { html: icon('alert', 16, 2) }), pivotNoticeText);
@@ -6743,8 +6743,8 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     const issues = wb.nativePivotDisplayIssues(grid.sheetId);
     pivotNotice.hidden = !issues.length;
     pivotNoticeText.textContent = issues.length
-      ? `Some formatting in PivotTable “${issues[0].name}” is not supported yet. Cached cell formatting is shown.${issues.length > 1 ? ` ${issues.length - 1} other PivotTable${issues.length > 2 ? 's are' : ' is'} affected.` : ''}` : '';
-    pivotNotice.title = issues.map(issue => `${issue.name}: ${issue.message}`).join('\n');
+      ? (issues.length > 1 ? t('editor.pivotNotice.withOthers', { name: issues[0].name, count: issues.length - 1 }) : t('editor.pivotNotice.one', { name: issues[0].name })) : '';
+    pivotNotice.title = issues.map(issue => t('editor.refresh.failedOne', { name: issue.name, error: issue.message })).join('\n');
   }
   updatePivotDisplayNotice();
   const root = el('div.editor.view', {},
