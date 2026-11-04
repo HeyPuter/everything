@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { closeMenus, openMenu } from '../src/ui/menu';
-import { confirmDialog, promptDialog, toast } from '../src/ui/overlay';
+import { attachTooltip, confirmDialog, promptDialog, toast } from '../src/ui/overlay';
 import { numberField, parseParam, paramText, type UnitContext } from '../src/app/pm';
 import { Selection } from '../src/app/selection';
 
@@ -59,6 +59,31 @@ describe('menu focus', () => {
     deep.click();
     expect(document.querySelector('.menu')).toBeNull();
     expect(run).toHaveLastReturnedWith(opener);
+  });
+});
+
+describe('tooltips', () => {
+  it('do not appear or linger for a control that was removed', () => {
+    vi.useFakeTimers();
+    try {
+      const a = document.createElement('button');
+      const b = document.createElement('button');
+      document.body.append(a, b);
+      attachTooltip(a, 'A');
+      attachTooltip(b, 'B');
+      a.dispatchEvent(new Event('pointerenter'));
+      a.remove();
+      vi.advanceTimersByTime(1000);
+      expect(document.querySelector('.tooltip')).toBeNull();
+      b.dispatchEvent(new Event('pointerenter'));
+      vi.advanceTimersByTime(1000);
+      expect(document.querySelector('.tooltip')?.textContent).toBe('B');
+      b.remove();
+      document.body.dispatchEvent(new Event('pointerover', { bubbles: true }));
+      expect(document.querySelector('.tooltip')).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

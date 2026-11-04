@@ -151,7 +151,9 @@ export function toast(o: ToastOptions): () => void {
 // ---------- Tooltips ----------
 
 let tip: HTMLElement | null = null;
+let tipOwner: HTMLElement | null = null;
 let tipTimer = 0;
+let tipWatch = false;
 
 export function attachTooltip(el: HTMLElement, title: string, shortcut?: string, desc?: string) {
   if (matchMedia?.('(pointer: coarse)').matches) return;
@@ -159,6 +161,17 @@ export function attachTooltip(el: HTMLElement, title: string, shortcut?: string,
     clearTimeout(tipTimer);
     tipTimer = window.setTimeout(() => {
       hideTooltip();
+      // The control may have been re-rendered away meanwhile (toolbars are
+      // rebuilt when the CommandManager tab changes).
+      if (!el.isConnected) return;
+      tipOwner = el;
+      if (!tipWatch) {
+        tipWatch = true;
+        // A removed control never gets pointerleave: hide on the next move elsewhere.
+        document.addEventListener('pointerover', (e) => {
+          if (tip && (!tipOwner?.isConnected || !tipOwner.contains(e.target as Node))) hideTooltip();
+        }, true);
+      }
       tip = h('div', { class: 'tooltip', role: 'tooltip' }, h('div', { class: 'tt-title' }, h('span', {}, title), shortcut ? h('span', { class: 'kbd' }, formatShortcut(shortcut)) : null), desc ? h('div', { class: 'tt-desc' }, desc) : null);
       document.body.append(tip);
       const r = el.getBoundingClientRect();
@@ -182,4 +195,5 @@ export function hideTooltip() {
   clearTimeout(tipTimer);
   tip?.remove();
   tip = null;
+  tipOwner = null;
 }
