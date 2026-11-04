@@ -33,6 +33,9 @@ export function createReferences({ editor, pkg, error, base = {}, onChange = () 
    * under Restrict Editing they are refused, as typing is.
    */
   const unprotected = what => { if (base.protectedDocument?.()) throw new Error(`This document is protected against editing, so ${what} cannot be changed. Stop protection under Review > Restrict Editing first.`); };
+  // Headers, footers and notes hold no tracked changes here, so with tracking locked they cannot be edited (the guard
+  // refuses it): a new one would stay as it was made, an empty header or a note with only its number.
+  const trackableStories = () => { if (base.trackingLocked?.()) throw new Error('Changes to this document are tracked, and headers, footers and notes cannot be changed with tracking here.'); };
   /**
    * A new header, footer or note is a new part of this tab's package. The room shares the text of the stories
    * everyone's package has, not new parts: the others would never see it, and a note's reference would reach
@@ -66,7 +69,7 @@ export function createReferences({ editor, pkg, error, base = {}, onChange = () 
       if (!engine.pageStories.stories[existing]?.editable) throw new Error(`This document's ${kind} cannot be edited yet.`);
       engine.editStory(existing, page); return existing;
     }
-    unprotected(`its ${kind}s`);
+    unprotected(`its ${kind}s`); trackableStories();
     unshared(`New ${kind}s`);
     const { TextDocument, paragraph } = await import('../engine/model.js');
     const body = engine.session.body;
@@ -81,7 +84,7 @@ export function createReferences({ editor, pkg, error, base = {}, onChange = () 
   async function setStoryOption(option, on) {
     try {
       const engine = ready(); if (!engine) return;
-      unprotected('its headers and footers');
+      unprotected('its headers and footers'); trackableStories();
       // Each needs headers of its own, new parts the others would not receive (unshared).
       unshared(option === 'first' ? 'Different first page headers' : 'Different odd and even page headers', 'turned on or off');
       const kind = activeStoryKind(), page = currentPage(engine), section = engine.sectionOfPage(page);
@@ -199,7 +202,7 @@ export function createReferences({ editor, pkg, error, base = {}, onChange = () 
     onChange();
     return result;
   }
-  const ctx = { editor, pkg, error, ready, fail, runBody, pageOf, unprotected, unshared, onChange: () => onChange(), showFieldCodes: () => base.showFieldCodes?.() };
+  const ctx = { editor, pkg, error, ready, fail, runBody, pageOf, unprotected, trackableStories, unshared, onChange: () => onChange(), showFieldCodes: () => base.showFieldCodes?.() };
   const toc = createTocCommands(ctx);
   const notes = createNoteCommands(ctx);
   const citations = createCitationCommands(ctx);

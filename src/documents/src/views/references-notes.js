@@ -22,6 +22,7 @@ export function createNoteCommands(ctx) {
         // The shortcut pressed in a header or footer used to leave it and put the note wherever the caret was last in the text.
         throw new Error('Footnotes and endnotes go in the text of the document. Close the header or footer first.');
       }
+      ctx.trackableStories?.();
       unshared(`New ${kind}s`);
       const { TextDocument, paragraph } = await import('../engine/model.js');
       const body = engine.session.body;

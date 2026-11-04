@@ -874,7 +874,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
   const protectionHooks = {};
   const protectedDocument = () => !!protectionHooks.protectedDocument?.();
   const references = createReferences({ editor: () => engine, pkg: () => pkg, error, onChange: () => update(),
-    base: { protectedDocument, shared: () => !!collab?.live, canEditHeader: editorCommands.canEditHeader, editHeader: editorCommands.editHeader, canUpdateFields: editorCommands.canUpdateFields, updateFields: editorCommands.updateFields,
+    base: { protectedDocument, trackingLocked: () => !!protectionHooks.trackingLocked?.(), shared: () => !!collab?.live, canEditHeader: editorCommands.canEditHeader, editHeader: editorCommands.editHeader, canUpdateFields: editorCommands.canUpdateFields, updateFields: editorCommands.updateFields,
       openBookmarks: () => bookmarks.click(), showFieldCodes: () => { if (engine && !editorCommands.marksVisible?.()) editorCommands.toggleMarks?.(); } } });
   const baseExtendMenu = editorCommands.extendMenu, baseContextMenuItems = editorCommands.contextMenuItems;
   Object.assign(editorCommands, references.commands);
@@ -1120,6 +1120,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
   // Under protection (other than Lock Tracking) the Mailings commands, which rewrite the document and its settings, are unavailable,
   // and so are new headers and footers and note and page-number settings, which no protected edit check sees.
   mailingHooks.protectedDocument = protectionHooks.protectedDocument = () => reviewTools.protectionEnforced && !reviewTools.trackingLocked;
+  protectionHooks.trackingLocked = () => reviewTools.trackingLocked;
   Object.assign(reviewHooks, { tints: reviewTools.tints, trackingLocked: () => reviewTools.trackingLocked, protection: () => reviewTools.protection, people: () => reviewTools.people(), commentsPane: reviewTools.commands.commentsPane, trackingOptions: reviewTools.commands.trackingOptions, showMarkupItems: reviewTools.commands.showMarkupItems, lockTracking: reviewTools.commands.lockTracking });
   Object.assign(editorCommands, reviewTools.commands);
   const reviewFileItems = editorCommands.fileItems;
