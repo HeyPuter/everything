@@ -239,7 +239,8 @@ export class SketchEditor implements ViewportTool {
       const ent = ix.get(hit.id)!;
       if (!this.app.selection.has({ kind: 'sk', id: hit.id }) && !e.shift && !e.ctrl) this.app.selection.set([{ kind: 'sk', id: hit.id }]);
       if (ent.t === 'circle' && hit.kind === 'curve') {
-        this.drag = { kind: 'radius', circle: ent.id, moved: false };
+        // A circle whose radius is fixed keeps it; the drag does nothing.
+        this.drag = { kind: this.solve && !this.solve.freeEntities.has(ent.id) ? 'points' : 'radius', ids: [], circle: ent.id, moved: false };
       } else {
         // Drag every selected point (and curves' points) together.
         const ids = new Set<Id>();
@@ -248,7 +249,14 @@ export class SketchEditor implements ViewportTool {
           if (se) for (const p of pointIdsOf(se)) ids.add(p);
         }
         ids.delete(ORIGIN_ID);
-        const list = [...ids];
+        // Points the relations and dimensions already fix cannot follow the
+        // cursor. Pulling them there anyway made the solver project the sketch
+        // back from the cursor, which can land on a mirrored solution (a fully
+        // defined rectangle flipped across its anchor), and on large sketches
+        // every frame paid for a failing solve.
+        const free = this.solve?.freeEntities;
+        const list = [...ids].filter((id) => !free || free.has(id));
+        if (ids.size && !list.length) this.app.setStatus('This geometry is fully defined, so it cannot be dragged.');
         this.drag = { kind: 'points', ids: list, start: list.map((id) => ix.pt(id)), grab: raw, moved: false };
       }
       this.app.store.beginBatch('Drag sketch geometry');

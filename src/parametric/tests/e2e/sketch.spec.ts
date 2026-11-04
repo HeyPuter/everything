@@ -169,4 +169,42 @@ test.describe('sketching', () => {
     await page.mouse.up();
     expect(errors).toEqual([]);
   });
+  test('dragging a fully defined rectangle leaves it where it is', async ({ page }) => {
+    const errors = await openApp(page);
+    const { x, y } = await startSketch(page);
+    await page.locator('[data-cmd="tool:rectangle"]').click();
+    await page.mouse.click(x - 100, y + 60);
+    await page.mouse.click(x + 100, y - 60);
+    await page.keyboard.press('Escape');
+    // Anchor the first corner at the origin and dimension both sides.
+    const corners = () => page.evaluate(() => {
+      type Ent = { id: string; t: string; x: number; y: number; a: string };
+      type Ed = { sketch: { entities: Ent[]; constraints: unknown[] }; edit(l: string, f: (sk: { entities: Ent[]; constraints: unknown[] }) => void): void };
+      const ed = (window as unknown as { __parametric: { sketchEditor: Ed } }).__parametric.sketchEditor;
+      if (!ed.sketch.constraints.some((c) => (c as { id: string }).id === 'anchor')) {
+        ed.edit('setup', (sk) => {
+          const lines = sk.entities.filter((e) => e.t === 'line');
+          sk.constraints.push({ id: 'anchor', type: 'coincident', refs: [lines[0].a, 'O'] },
+            { id: 'dw', type: 'distance', refs: [lines[0].id], value: 30, at: [0, -10], name: 'D1' },
+            { id: 'dh', type: 'distance', refs: [lines[1].id], value: 20, at: [40, 10], name: 'D2' });
+        });
+      }
+      return ed.sketch.entities.filter((e) => e.t === 'point').map((e) => [Math.round(e.x * 1e6) / 1e6, Math.round(e.y * 1e6) / 1e6]);
+    });
+    const before = await corners();
+    await expect(page.locator('.statusbar')).toContainText('Fully Defined');
+    // Grab the corner opposite the anchor and pull it across to the other side.
+    const c = await page.evaluate(() => {
+      const ed = (window as unknown as { __parametric: { sketchEditor: { toScreen(p: number[]): number[] } } }).__parametric.sketchEditor;
+      return ed.toScreen([30, 20]);
+    });
+    const box = (await page.locator('canvas.gl').boundingBox())!;
+    await page.mouse.move(box.x + c[0], box.y + c[1]);
+    await page.mouse.down();
+    await page.mouse.move(box.x + c[0] - 300, box.y + c[1] + 250, { steps: 6 });
+    await page.mouse.up();
+    expect(await corners()).toEqual(before);
+    await expect(page.locator('.statusbar')).toContainText('Fully Defined');
+    expect(errors).toEqual([]);
+  });
 });
