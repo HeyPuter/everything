@@ -160,11 +160,16 @@ export class FileOps {
     } catch (e) {
       toast({ kind: 'error', message: storageError(e) });
     }
+    // A list role needs list items, so the empty message is shown without it.
     const list = h('div', { class: 'file-list', role: 'list' });
+    const showEmpty = () => {
+      list.removeAttribute('role');
+      list.replaceChildren(h('p', {}, cloudAvailable() ? 'No saved parts yet.' : 'No parts saved in this browser yet. Sign in to Puter to keep parts in your cloud storage.'));
+    };
     let chosen: FileEntry | null = null;
     let close: ((v: string | null) => void) | null = null;
     const done = (e: FileEntry) => { chosen = e; close?.('open'); };
-    if (!entries.length) list.append(h('p', {}, cloudAvailable() ? 'No saved parts yet.' : 'No parts saved in this browser yet. Sign in to Puter to keep parts in your cloud storage.'));
+    if (!entries.length) showEmpty();
     for (const e of entries) {
       const b = h('button', { class: 'file-item', type: 'button' },
         e.location.type === 'cloud' ? iconCloud() : iconDevice(),
@@ -176,6 +181,7 @@ export class FileOps {
         try {
           await deletePart(e.location);
           row.remove();
+          if (!list.childElementCount) showEmpty();
         } catch (err) {
           toast({ kind: 'error', title: 'Could not delete the part', message: storageError(err) });
         }
@@ -193,7 +199,10 @@ export class FileOps {
       void sharedWithMe().then((items) => {
         shared.removeAttribute('aria-busy');
         shared.replaceChildren();
-        if (!items.length) shared.append(h('p', { class: 'field-label' }, 'Nothing has been shared with you yet.'));
+        if (!items.length) {
+          shared.removeAttribute('role');
+          shared.append(h('p', { class: 'field-label' }, 'Nothing has been shared with you yet.'));
+        }
         for (const e of items) {
           const readOnly = e.mode === 'read';
           const b = h('button', { class: 'file-item', type: 'button' },

@@ -28,6 +28,23 @@ test.describe('accessibility', () => {
     expect(await seriousViolations(page)).toEqual([]);
   });
 
+  test('part lists pass axe when empty and when filled', async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /New part/ }).click();
+    const run = (id: string) => page.evaluate((id) => (window as unknown as { __parametric: { commands: { run(id: string): void } } }).__parametric.commands.run(id), id);
+    await run('open');
+    await expect(page.getByRole('dialog', { name: 'Open' })).toContainText('No parts saved');
+    expect(await seriousViolations(page)).toEqual([]);
+    await page.keyboard.press('Escape');
+    await run('saveAs');
+    await page.getByRole('dialog', { name: 'Save As' }).getByRole('textbox').fill('Bracket');
+    await page.getByRole('button', { name: 'OK' }).click();
+    await expect(page).toHaveTitle('Bracket - Parametric');
+    await page.getByRole('tab', { name: 'Parts' }).click();
+    await expect(page.locator('.tp-panel').getByRole('listitem').getByRole('button', { name: /Bracket/ })).toBeVisible();
+    expect(await seriousViolations(page)).toEqual([]);
+  });
+
   test('menus are reachable from the keyboard', async ({ page }) => {
     await openApp(page);
     await page.getByRole('button', { name: /New part/ }).click();

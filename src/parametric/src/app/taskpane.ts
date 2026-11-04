@@ -87,14 +87,21 @@ export class TaskPane {
       const parts = await listParts();
       list.textContent = '';
       list.removeAttribute('aria-busy');
-      if (!parts.length) list.append(h('div', { class: 'field-label' }, 'No saved parts yet.'));
+      // A list role needs list items: the empty message is shown without it.
+      if (!parts.length) {
+        list.removeAttribute('role');
+        list.append(h('div', { class: 'field-label' }, 'No saved parts yet.'));
+      }
       for (const p of parts.slice(0, 50)) {
-        const b = h('button', { class: 'file-item', type: 'button', role: 'listitem' }, icon(p.location.type === 'cloud' ? 'cloud' : 'device', 16),
+        // Buttons keep their role; list items wrap them (as in the Open dialog).
+        const b = h('button', { class: 'file-item', type: 'button' }, icon(p.location.type === 'cloud' ? 'cloud' : 'device', 16),
           h('span', { class: 'txt' }, h('span', { class: 'n' }, p.name), h('span', { class: 'meta' }, p.modified ? new Date(p.modified).toLocaleDateString() : locationLabel(p.location))));
         b.addEventListener('click', () => void this.files.openLocation(p.location, p.name));
-        list.append(b);
+        list.append(h('div', { class: 'file-row', role: 'listitem' }, b));
       }
     } catch (e) {
+      list.removeAttribute('aria-busy');
+      list.removeAttribute('role');
       list.textContent = storageError(e);
     }
   }
