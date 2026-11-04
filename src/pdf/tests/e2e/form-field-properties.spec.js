@@ -595,3 +595,30 @@ test('the hint above the page explains Prepare a form while it is open', async (
   await pane.getByRole('button', { name: 'Back to all tools' }).click();
   await expect(hint).toHaveText(/double-click text to edit/);
 });
+
+test('a field resized as small as it goes at a high zoom stays the smallest size', async ({
+  page,
+}) => {
+  const doc = await PDFDocument.create();
+  const note = doc.getForm().createTextField('Note');
+  note.addToPage(doc.addPage([300, 200]), { x: 20, y: 100, width: 120, height: 24 });
+  await openPdf(page, doc);
+  await page.getByLabel('Zoom', { exact: true }).selectOption('4');
+  await settled(page);
+  await prepareForm(page);
+  const field = designer(page, 'Note#0');
+  await field.scrollIntoViewIfNeeded();
+  await field.click({ position: { x: 5, y: 5 } });
+  const handle = field.locator('.designer-resize');
+  const box = await handle.boundingBox();
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x - 2000, box.y - 2000, { steps: 5 });
+  await page.mouse.up();
+  await settled(page);
+  await expect(page.locator('#toast')).not.toContainText('4 points');
+  const saved = (await PDFDocument.load(await downloaded(page))).getForm().getTextField('Note');
+  const rect = saved.acroField.getWidgets()[0].getRectangle();
+  expect(rect.width).toBeCloseTo(4, 1);
+  expect(rect.height).toBeCloseTo(4, 1);
+});

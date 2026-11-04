@@ -75,6 +75,13 @@ export function createFormDesigner({ onMove, onOpen, onDelete, onSelect }) {
     };
   }
 
+  /** The smallest box a field can have, on screen: 4 points, and big enough to grab. */
+  function smallest() {
+    const [ox, oy] = viewport.convertToViewportPoint(0, 0);
+    const [px, py] = viewport.convertToViewportPoint(1, 0);
+    return Math.max(8, 4.01 * Math.hypot(px - ox, py - oy));
+  }
+
   function place(node, box) {
     Object.assign(node.style, {
       left: `${box.left}px`,
@@ -132,8 +139,8 @@ export function createFormDesigner({ onMove, onOpen, onDelete, onSelect }) {
         ? { ...drag.box, left: drag.box.left + dx, top: drag.box.top + dy }
         : {
             ...drag.box,
-            width: Math.max(8, drag.box.width + dx),
-            height: Math.max(8, drag.box.height + dy),
+            width: Math.max(smallest(), drag.box.width + dx),
+            height: Math.max(smallest(), drag.box.height + dy),
           },
       drag.box,
     );
