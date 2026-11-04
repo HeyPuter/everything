@@ -1300,7 +1300,6 @@ describe('implicit intersection and optional LAMBDA parameters', () => {
   it('@range picks the value on the formula\'s row or column', () => {
     const cells = { A1: '10', A2: '20', A3: '30', B1: '1', C1: '2', D1: '3' };
     // calc() puts the formula in row 100, column Z: use explicit cells instead.
-    const { Workbook } = require('../src/core/workbook.js');
     const wb = new Workbook();
     const id = wb.sheets[0].id;
     for (const [a1, text] of Object.entries(cells)) { const { r, c } = parseCellRef(a1); wb.setInput(id, r, c, text); }
