@@ -203,7 +203,8 @@ export async function createFileWithMetadata(path, blob) {
   const name = item?.name || displayName(item?.path || path);
   const target = `${path.slice(0, path.lastIndexOf('/') + 1)}${name}`;
   learnDocumentPath(target, item?.path, owner);
-  return { path: target, modified: item?.modified ?? null };
+  const uid = item?.uid || item?.id;
+  return { path: target, modified: item?.modified ?? null, ...(uid ? { uid } : {}) };
 }
 
 export async function deleteFile(path) {
