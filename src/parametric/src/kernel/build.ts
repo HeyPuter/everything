@@ -507,17 +507,29 @@ export class ModelBuilder {
       start = -d2; total = d1 + d2;
     }
     d1 = total;
-    const pieces: Sh[] = [];
-    for (const r of regions) {
-      const face = this.regionFace(r, frame);
-      let solid: Sh = R.basicFaceExtrusion(face, new R.Vector(scale(dir, d1))) as unknown as Sh;
-      if (start !== 0) solid = translated(solid, scale(dir, start));
-      pieces.push(solid);
-    }
-    let tool = pieces.length === 1 ? pieces[0] : this.fuseAll(pieces);
     const draft = num(f.draft || 0);
     if (draft < 0) throw new FeatureError('The draft angle cannot be negative. Use Draft outward to taper the other way.');
-    if (draft > 1e-9) tool = this.draftLateral(tool, frame, dir, start, draft * (f.draftOutward ? -1 : 1));
+    const extrudeAll = (from: number, length: number, d: Vec3): Sh => {
+      const pieces: Sh[] = [];
+      for (const r of regions) {
+        const face = this.regionFace(r, frame);
+        let solid: Sh = R.basicFaceExtrusion(face, new R.Vector(scale(d, length))) as unknown as Sh;
+        if (from !== 0) solid = translated(solid, scale(d, from));
+        pieces.push(solid);
+      }
+      return pieces.length === 1 ? pieces[0] : this.fuseAll(pieces);
+    };
+    let tool: Sh;
+    if (draft > 1e-9) {
+      // Both directions taper away from the sketch plane, which keeps the
+      // sketched profile (like other CAD systems do).
+      const angle = draft * (f.draftOutward ? -1 : 1);
+      tool = this.draftLateral(extrudeAll(0, total + start, dir), frame, dir, 0, angle);
+      if (start < 0) {
+        const back = scale(dir, -1);
+        tool = fuse(tool, this.draftLateral(extrudeAll(0, -start, back), frame, back, 0, angle));
+      }
+    } else tool = extrudeAll(start, d1, dir);
     const classify = (d: SurfDesc) => {
       if (d.type === 'plane' && Math.abs(dot(d.d, frame.n)) > 1 - 1e-6) {
         const s = dot(sub(d.center, frame.o), dir);

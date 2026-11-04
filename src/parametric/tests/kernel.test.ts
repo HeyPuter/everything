@@ -53,6 +53,25 @@ describe('feature regeneration', () => {
     expect(res.bbox!.min[2]).toBeCloseTo(-10, 6);
   });
 
+  it('drafts both directions of an extrusion away from the sketch plane', async () => {
+    const t = Math.tan((5 * Math.PI) / 180);
+    // Square frustum of side 20 at the sketch plane, height h, tapering inward.
+    const frustum = (h: number) => (20 ** 3 - (20 - 2 * h * t) ** 3) / (6 * t);
+    const b = new ModelBuilder();
+    for (const extra of [{ dir2: { end: 'blind' as const, depth: 10 } }, { end: 'midPlane' as const, depth: 20 }]) {
+      const res = await b.build(req([sketch('S1', rect(-10, -10, 10, 10)), extrude('E1', 'S1', 10, { draft: 5, ...extra })]));
+      expect(res.status[1].ok).toBe(true);
+      const mp = b.massProperties()!;
+      expect(mp.volume).toBeCloseTo(2 * frustum(10), 2);
+      expect(mp.center[2]).toBeCloseTo(0, 6);
+      expect(res.bbox!.min[2]).toBeCloseTo(-10, 6);
+      expect(res.bbox!.max[0]).toBeCloseTo(10, 4);
+    }
+    // One direction keeps the sketch profile at the sketch plane.
+    await b.build(req([sketch('S1', rect(-10, -10, 10, 10)), extrude('E1', 'S1', 10, { draft: 5 })]));
+    expect(volume(b)).toBeCloseTo(frustum(10), 2);
+  });
+
   it('reports negative draft angles and direction 2 depths instead of ignoring them', async () => {
     const b = new ModelBuilder();
     const neg = await b.build(req([sketch('S1', rect(0, 0, 10, 10)), extrude('E1', 'S1', 10, { draft: -5 })]));
