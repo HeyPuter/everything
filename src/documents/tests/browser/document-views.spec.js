@@ -351,6 +351,38 @@ test('clearing the Zoom dialog\'s percent to type another leaves the zoom alone 
   await expect(slider).toHaveValue('150');
 });
 
+test('One Page keeps the whole page in view as the window changes size, until another zoom is chosen', async ({ page }) => {
+  await page.goto('/playground.html');
+  await page.getByRole('button', { name: 'Across pages', exact: true }).click();
+  await expect(page.getByRole('textbox', { name: 'Document text' })).toHaveValue(/Every page/);
+  const slider = page.getByRole('slider', { name: 'Zoom slider' });
+  const pageFits = () => page.evaluate(() => {
+    const host = document.querySelector('.canvas-host').getBoundingClientRect(), first = document.querySelector('canvas.canvas-page').getBoundingClientRect();
+    return first.height <= host.height && first.width <= host.width;
+  });
+  await (await viewTab(page)).getByRole('button', { name: 'One Page', exact: true }).click();
+  const tall = Number(await slider.inputValue());
+  expect(await pageFits()).toBe(true);
+  await page.setViewportSize({ width: 1100, height: 640 });
+  await expect.poll(async () => Number(await slider.inputValue())).toBeLessThan(tall);
+  expect(await pageFits()).toBe(true);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await expect(slider).toHaveValue(String(tall));
+  // The Zoom dialog opens on Whole page, and Cancel keeps it.
+  await (await viewTab(page)).getByRole('button', { name: 'Zoom', exact: true }).click();
+  const dialog = page.locator('.modal-root:not(.closing)').getByRole('dialog', { name: 'Zoom' });
+  await expect(dialog.getByRole('radio', { name: 'Whole page' })).toBeChecked();
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+  await page.setViewportSize({ width: 1100, height: 640 });
+  await expect.poll(async () => Number(await slider.inputValue())).toBeLessThan(tall);
+  // A zoom step leaves the mode: the zoom then stays as it is.
+  await page.getByRole('button', { name: 'Zoom In', exact: true }).click();
+  const stepped = await slider.inputValue();
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.waitForTimeout(300);
+  await expect(slider).toHaveValue(stepped);
+});
+
 test('the Zoom dialog\'s Many pages grid is one Tab stop that the arrow keys move over', async ({ page }) => {
   await page.goto('/playground.html');
   await page.getByRole('button', { name: 'Across pages', exact: true }).click();

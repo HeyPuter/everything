@@ -243,12 +243,8 @@ export function createWordCommands({ editor, pkg, error, zoomControl, fitWidth, 
     zoomSetting() { return zoomControl.value; },
     zoomTo(kind) {
       const engine = editor(); if (!engine) return;
-      if (kind === 'width') { zoomControl.set('fit'); fitWidth(); }
-      else {
-        const host = engine.host, widest = Math.max(...engine.layout.pages.map(p => p.width)), tallest = Math.max(...engine.layout.pages.map(p => p.height));
-        const scale = Math.min((host.clientWidth - 48) / widest, (host.clientHeight - 48) / tallest);
-        zoomControl.set(Math.max(0.1, Math.min(2, Math.floor(scale * 100) / 100)));
-      }
+      // Whole page goes on fitting the page as the window changes size, as Fit width does.
+      zoomControl.set(kind === 'width' ? 'fit' : 'page'); fitWidth();
       engine.focus();
     },
     zoomDialog() {

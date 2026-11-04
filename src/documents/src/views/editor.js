@@ -758,8 +758,9 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
   const templateButton = button('Save as template…', saveTemplate, { disabled: true });
   // Choosing any other zoom leaves View → Multiple Pages.
   const singlePages = () => engine?.pages.classList.remove('is-multipage');
-  const zoom = el('select', { 'aria-label': 'Zoom', onchange: () => { singlePages(); if (zoom.value === 'fit') fitWidth(); else engine?.setZoom(Number(zoom.value)); syncZoom(); } },
-    el('option', { value: 'fit' }, 'Fit width'),
+  // Fit width and Whole page are modes, not scales: the page goes on fitting as the window or a pane changes size.
+  const zoom = el('select', { 'aria-label': 'Zoom', onchange: () => { singlePages(); if (zoom.value === 'fit' || zoom.value === 'page') fitWidth(); else engine?.setZoom(Number(zoom.value)); syncZoom(); } },
+    el('option', { value: 'fit' }, 'Fit width'), el('option', { value: 'page' }, 'Whole page'),
     ...[0.5, 0.75, 1, 1.25, 1.5, 2].map(n => el('option', { value: n, selected: n === 1 }, `${n * 100}%`)));
   if (window.matchMedia('(max-width: 700px)').matches) zoom.value = 'fit';
   // A zoom from the slider or the Zoom dialog that is not a preset shows as one more choice.
@@ -768,15 +769,15 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
   const zoomControl = {
     set(value, at) {
       singlePages();
-      if (value === 'fit') { zoom.value = 'fit'; fitWidth(); syncZoom(); return; }
+      if (value === 'fit' || value === 'page') { zoom.value = value; fitWidth(); syncZoom(); return; }
       const scale = Math.max(0.1, Math.min(2, Number(value)));
       const preset = [...zoom.options].find(o => o !== customZoom && Number(o.value) === scale);
       if (preset) zoom.value = preset.value;
       else { customZoom.value = String(scale); customZoom.textContent = `${Math.round(scale * 100)}%`; customZoom.hidden = false; zoom.value = customZoom.value; }
       engine?.setZoom(scale, at); syncZoom();
     },
-    /** The zoom as chosen: 'fit' while the page follows the window's width, otherwise the scale. */
-    get value() { return zoom.value === 'fit' ? 'fit' : engine?.zoom ?? 1; },
+    /** The zoom as chosen: 'fit' while the page follows the window's width, 'page' while a whole page fits it, otherwise the scale. */
+    get value() { return zoom.value === 'fit' || zoom.value === 'page' ? zoom.value : engine?.zoom ?? 1; },
   };
   // A drag hands the keyboard back to the text when it ends; the arrow keys, which end a change at every press, keep it on the slider.
   let zoomDragged = false;
@@ -797,12 +798,16 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     zoomSlider.value = String(percent); zoomSlider.setAttribute('aria-valuetext', `${percent}%`);
     zoomOut.setAttribute('aria-disabled', String(percent <= 10)); zoomIn.setAttribute('aria-disabled', String(percent >= 200));
   }
+  /** Fit the page to the window again, at Fit width or Whole page. */
   function fitWidth() {
-    if (!engine || zoom.value !== 'fit' || !host.clientWidth) return;
+    if (!engine || (zoom.value !== 'fit' && zoom.value !== 'page') || !host.clientWidth) return;
     const style = getComputedStyle(engine.pages);
     const padding = parseFloat(style.paddingLeft) + parseFloat(style.paddingRight);
     const width = Math.max(...engine.layout.pages.map(page => page.width));
-    const scale = Math.max(0.1, Math.min(2, (host.clientWidth - padding - 2) / width));
+    const fit = zoom.value === 'page'
+      ? Math.floor(Math.min((host.clientWidth - 48) / width, (host.clientHeight - 48) / Math.max(...engine.layout.pages.map(page => page.height))) * 100) / 100
+      : (host.clientWidth - padding - 2) / width;
+    const scale = Math.max(0.1, Math.min(2, fit));
     if (Math.abs(engine.zoom - scale) > 0.001) engine.setZoom(scale);
     syncZoom();
   }
