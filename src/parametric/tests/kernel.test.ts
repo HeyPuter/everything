@@ -372,6 +372,8 @@ describe('feature regeneration', () => {
     const r1 = await b.build(req(feats));
     const r2 = await b.build(req(renamed));
     expect(r2.mesh).toBe(r1.mesh);
+    // The exact bounding box (slow for filleted bodies) is not computed again.
+    expect(r2.bbox).toBe(r1.bbox);
   });
 
   it('computes mass properties and exports STEP and STL', async () => {

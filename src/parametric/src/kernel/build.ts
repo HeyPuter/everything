@@ -103,6 +103,19 @@ function stepText(f: Feature): string {
   return JSON.stringify(rest);
 }
 
+const boxes = new WeakMap<Sh, ReturnType<typeof bbox>>();
+
+/**
+ * Bounding box of a shape, computed once per shape: shapes are never changed
+ * in place, and an exact box of a filleted body takes hundreds of
+ * milliseconds, which every rebuild (even a fully cached one) paid again.
+ */
+function boxOf(shape: Sh): ReturnType<typeof bbox> {
+  let b = boxes.get(shape);
+  if (b === undefined) boxes.set(shape, (b = bbox(shape)));
+  return b;
+}
+
 /** 53-bit FNV-1a style hash of a string, as base36. */
 export function hashString(s: string, seed = 0): string {
   let h1 = 0x811c9dc5 ^ seed, h2 = 0x1b873593 ^ seed;
@@ -187,7 +200,7 @@ export class ModelBuilder {
       edges: this.meshCache.edges,
       status,
       frames,
-      bbox: state.body ? bbox(state.body) : null,
+      bbox: state.body ? boxOf(state.body) : null,
       ms: performance.now() - t0,
       preview: null,
     };
@@ -260,7 +273,7 @@ export class ModelBuilder {
 
   private tol(st: State): number {
     if (!st.body) return 1e-6;
-    const b = bbox(st.body);
+    const b = boxOf(st.body);
     return b ? Math.max(1e-7, dist(b.min, b.max) * 1e-7) : 1e-6;
   }
 
@@ -275,7 +288,7 @@ export class ModelBuilder {
     if (cands.length === 1 && fits(st.faces[cands[0]].desc)) return cands[0];
     if (cands.length > 1) return near(cands);
     // Fallback: same type and orientation, nearest centre.
-    const b = st.body ? bbox(st.body) : null;
+    const b = st.body ? boxOf(st.body) : null;
     const lim = b ? dist(b.min, b.max) * 0.05 : 1;
     const alt = st.faces
       .map((f, i) => ({ f, i }))
@@ -294,7 +307,7 @@ export class ModelBuilder {
     const base = ref.name.replace(/#\d+$/, '');
     const same = edges.flatMap((e, i) => (e.name.replace(/#\d+$/, '') === base ? [i] : []));
     if (same.length) return near(same);
-    const b = st.body ? bbox(st.body) : null;
+    const b = st.body ? boxOf(st.body) : null;
     const lim = b ? dist(b.min, b.max) * 0.02 : 1;
     const alt = edges.flatMap((e, i) => (e.desc.type === ref.sig.type && dist(e.desc.mid, ref.sig.m) < lim ? [i] : []));
     if (alt.length) return near(alt);
@@ -491,7 +504,7 @@ export class ModelBuilder {
 
   /** Distance from a plane point along dir to just past the far side of the body. */
   private throughAllDepth(st: State, origin: Vec3, dir: Vec3): number {
-    const b = st.body ? bbox(st.body) : null;
+    const b = st.body ? boxOf(st.body) : null;
     if (!b) return 1000;
     let far = 0;
     for (let i = 0; i < 8; i++) {
@@ -1068,7 +1081,7 @@ export class ModelBuilder {
   // ---- output ----
 
   private meshParams(shape: Sh, quality: number): { tol: number; ang: number } {
-    const b = bbox(shape);
+    const b = boxOf(shape);
     const diag = b ? dist(b.min, b.max) : 1;
     const q = Math.max(0, Math.min(2, quality));
     return { tol: Math.max(diag * [0.002, 0.0006, 0.0002][q], 1e-4), ang: [0.5, 0.25, 0.12][q] };
