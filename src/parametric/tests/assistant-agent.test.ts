@@ -80,6 +80,14 @@ describe('assistant agent', () => {
     expect(out.at(-1)!.content).toContain('<part_state>');
   });
 
+  it('cuts a tool result too large for the model to take', async () => {
+    const { agent, requests } = scripted([[{ type: 'tool', id: 'a', name: 'get_sketch', input: {} }], [{ type: 'text', text: 'ok' }]], () => ({ ok: true, content: 'x'.repeat(2_000_000) }));
+    await agent.send('read it', () => {});
+    const tool = requests[1].find((m) => m.role === 'tool')!;
+    expect(tool.content.length).toBeLessThan(100000);
+    expect(tool.content).toMatch(/cut: the result had 2,000,000 characters/);
+  });
+
   it('lets go of screenshots once they will not be sent again', async () => {
     const shot = { ok: true, content: 'look', image: `data:image/jpeg;base64,${'A'.repeat(400000)}` };
     const { agent, requests } = scripted([

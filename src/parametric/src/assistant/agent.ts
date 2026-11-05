@@ -17,6 +17,12 @@ import type { ToolResult, ToolSpec } from './tools';
 export const MAX_OUTPUT_TOKENS = 16000;
 /** A tool result from an earlier message is cut to this much in later requests. */
 const OLD_RESULT_CHARS = 1500;
+/**
+ * One tool result is cut to this much (about 20k tokens): a sketch of an
+ * imported drawing or get_model on every feature can run to megabytes, and a
+ * request that outgrows the model's context fails, again on every retry.
+ */
+const MAX_RESULT_CHARS = 80000;
 /** Roughly how much transcript is sent at most (characters). */
 const HISTORY_BUDGET = 300000;
 const STATE_OPEN = '<part_state>';
@@ -244,7 +250,9 @@ export function createAgent(o: AgentOptions) {
             step.changed = !!result.changed;
             step.summary = result.content.replace(/^Error:\s*/, '').split('\n')[0].slice(0, 300);
             if (result.image) { step.image = result.image; images.push(result.image); }
-            content = result.content;
+            content = result.content.length > MAX_RESULT_CHARS
+              ? `${result.content.slice(0, MAX_RESULT_CHARS)}\n[…cut: the result had ${result.content.length.toLocaleString('en-US')} characters. Ask for less at a time (fewer features, a filter or a limit).]`
+              : result.content;
           }
           emit({ type: 'step', step: { ...step } });
           messages.push({ role: 'tool', tool_call_id: call.id, content });
