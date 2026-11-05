@@ -2,6 +2,7 @@
  * Drawing commands: lines, polylines, circles, arcs, shapes, curves, points.
  */
 import { opts } from '../input.js';
+import { formatLinear } from '../../core/units.js';
 import { splineFromFitPoints } from '../../core/geom/index.js';
 import { TAU, norm, dist, angleOf, polar, circle3, arc3, tangentBulge, endTangent, polygonPoints, circleTTR } from './util.js';
 
@@ -427,8 +428,13 @@ async function finishCenterArc(ed, c, s) {
 }
 
 async function arcStartEndRadius(ed, s) {
-  const e = await ed.getPoint('End point', { base: s });
-  if (!e || e.option) return;
+  let e;
+  for (;;) {
+    e = await ed.getPoint('End point', { base: s });
+    if (!e || e.option) return;
+    if (dist(s, e) > 1e-12) break;
+    ed.ui.log('The end point must differ from the start point.', 'error');
+  }
   const mk = (p) => {
     const r = Math.max(dist(s, e) / 2, dist(s, p));
     // Centre on the left of start->end for a counter-clockwise minor arc.
@@ -442,9 +448,16 @@ async function arcStartEndRadius(ed, s) {
       cy = my + ux * h;
     return ed.make('arc', { cx, cy, r, start: norm(Math.atan2(s.y - cy, s.x - cx)), end: norm(Math.atan2(e.y - cy, e.x - cx)) });
   };
-  const r = await ed.getDistance('Radius', { base: s, preview: (p) => [mk(p)] });
-  if (typeof r !== 'number') return;
-  ed.commit('Arc', () => ed.drawing.add(mk(polar(s, 0, r))));
+  for (;;) {
+    const r = await ed.getDistance('Radius', { base: s, preview: (p) => [mk(p)] });
+    if (typeof r !== 'number') return;
+    // A radius under half the chord cannot reach both ends.
+    if (r >= dist(s, e) / 2 - 1e-9) {
+      ed.commit('Arc', () => ed.drawing.add(mk(polar(s, 0, r))));
+      return;
+    }
+    ed.ui.log(`The radius must be at least ${formatLinear(dist(s, e) / 2, ed.header)}.`, 'error');
+  }
 }
 
 export const ELLIPSE = {
