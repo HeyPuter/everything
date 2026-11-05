@@ -108,6 +108,11 @@ export function availableRelations(sk: SketchFeature, ids: Id[]): RelationType[]
   } else if (n === 2 && lines === 1 && circs === 1) out.push('tangent');
   else if (n === 2 && pts === 1 && lines === 1) out.push('coincident', 'midpoint');
   else if (n === 2 && pts === 1 && circs === 1) out.push('coincident', 'concentric');
+  else if (n === 2 && pts === 1 && count('spline') === 1) {
+    // A spline already passes through its own points.
+    const sp = sk.entities.find((e) => e.t === 'spline' && ids.includes(e.id));
+    if (sp?.t === 'spline' && !ids.some((id) => sp.pts.includes(id))) out.push('coincident');
+  }
   else if (n === 3 && pts === 2 && lines === 1 && kinds[2] === 'line') out.push('symmetric');
   else if (n === 3 && circs === 2 && lines === 1 && kinds[2] === 'line') out.push('symmetric');
   if (!ids.includes(ORIGIN_ID)) out.push('fix');

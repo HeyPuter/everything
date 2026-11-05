@@ -21,6 +21,19 @@ describe('relations', () => {
     expect(availableRelations(s, ['O'])).toEqual([]);
   });
 
+  it('offers a point on a spline, which the solver keeps there', () => {
+    const s = sk([
+      { id: 's0', t: 'point', x: 0, y: 0 }, { id: 's1', t: 'point', x: 10, y: 6 }, { id: 's2', t: 'point', x: 20, y: 0 },
+      { id: 'sp', t: 'spline', pts: ['s0', 's1', 's2'] }, { id: 'q', t: 'point', x: 9, y: 2 },
+    ]);
+    expect(availableRelations(s, ['q', 'sp'])).toEqual(['coincident', 'fix']);
+    expect(availableRelations(s, ['s1', 'sp'])).toEqual(['fix']);
+    s.constraints.push(...makeRelations(s, 'coincident', ['q', 'sp'], idFactory(s)));
+    expect(solveSketch(s.entities, s.constraints, { value }).badConstraints.size).toBe(0);
+    const ix = new SketchIndex(s.entities);
+    expect(distanceToCurve(ix, ix.get('sp') as never, ix.pt('q')).d).toBeLessThan(1e-3);
+  });
+
   it('creates one horizontal relation per line and solves them', () => {
     const s = sk([{ id: 'a', t: 'point', x: 0, y: 0 }, { id: 'b', t: 'point', x: 5, y: 1 }, { id: 'l1', t: 'line', a: 'a', b: 'b' },
       { id: 'c', t: 'point', x: 0, y: 3 }, { id: 'd', t: 'point', x: 5, y: 2 }, { id: 'l2', t: 'line', a: 'c', b: 'd' }]);
