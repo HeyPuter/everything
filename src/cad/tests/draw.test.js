@@ -314,3 +314,21 @@ describe('polyline cancel', () => {
     expect(t.all()).toHaveLength(0);
   });
 });
+
+describe('transparent commands', () => {
+  it("runs a typed 'ZOOM in the middle of a command and resumes it", async () => {
+    await t.type('LINE', '0,0');
+    const scale = t.ed.camera.scale;
+    await t.type("'Z", 'I');
+    expect(t.ed.camera.scale).toBeCloseTo(scale * 2);
+    expect(t.ed.request?.prompt).toBe('Next point');
+    await t.type('10,0', '');
+    expect(t.all('line')).toHaveLength(1);
+  });
+
+  it('refuses a typed non-view command inside another command', async () => {
+    await t.type('LINE', '0,0', "'CIRCLE");
+    expect(t.logs.at(-1)[0]).toBe('error');
+    expect(t.ed.request?.prompt).toBe('Next point');
+  });
+});

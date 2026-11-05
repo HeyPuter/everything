@@ -507,6 +507,13 @@ export class Editor {
       this._resolve(null);
       return;
     }
+    // 'ZOOM, 'PAN, ...: a view command in the middle of this one.
+    if (t[0] === "'" && r.kind !== 'string') {
+      const def = this.find(t);
+      if (def?.transparent) this.run(def);
+      else this.ui.log(`${t.slice(1)} cannot be used inside another command.`, 'error');
+      return;
+    }
     // Snap overrides typed at a point prompt (END, MID, CEN, ...).
     const ov = SNAP_KEYWORDS[t.toUpperCase()];
     if (ov && (r.kind === 'point' || r.kind === 'distance' || r.kind === 'angle') && !matchOption(t, r.options)) {
