@@ -250,3 +250,34 @@ describe('wire tool', () => {
     expect(ed.tool.pts).not.toBeNull();
   });
 });
+
+describe('wire tool backspace', () => {
+  const G = mil(100);
+  const at = (x, y) => ({ x, y, rawX: x, rawY: y, sx: 0, sy: 0 });
+  const key = (ed, combo) => ed.tool.key({}, combo);
+
+  it('removes the whole last click, including the corner it added', async () => {
+    app = await boot();
+    const ed = app.activeEditor;
+    app.settings.set('schCorner', '90start');
+    ed.startTool('wire');
+    const X = 10 * G,
+      Y = 75 * G;
+    ed.tool.click(at(X, Y));
+    ed.tool.click(at(X + 4 * G, Y + 3 * G));
+    expect(ed.tool.pts).toEqual([X, Y, X + 4 * G, Y, X + 4 * G, Y + 3 * G]);
+    ed.tool.click(at(X + 6 * G, Y + 3 * G));
+    key(ed, 'Backspace');
+    expect(ed.tool.pts).toEqual([X, Y, X + 4 * G, Y, X + 4 * G, Y + 3 * G]);
+    key(ed, 'Backspace');
+    expect(ed.tool.pts).toEqual([X, Y]);
+    // Nothing is left to commit: Escape places no stub.
+    const n = ed.doc.store.undoLabel;
+    key(ed, 'Escape');
+    expect(ed.doc.store.undoLabel).toBe(n);
+    // A further Backspace with only the start point drops the wire.
+    ed.tool.click(at(X, Y));
+    key(ed, 'Backspace');
+    expect(ed.tool.pts).toBeNull();
+  });
+});
