@@ -20,6 +20,17 @@
   background: var(--scrim);
 }
 
+/* A backdrop click on a dialog with edits keeps it open and nudges it instead. */
+.dialog.nudge {
+  animation: dialog-nudge 0.2s ease-out;
+}
+
+@keyframes dialog-nudge {
+  50% {
+    transform: scale(1.015);
+  }
+}
+
 .dialog.size-sm {
   width: min(400px, calc(100vw - 24px));
 }

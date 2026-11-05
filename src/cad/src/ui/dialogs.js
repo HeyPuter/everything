@@ -574,7 +574,7 @@ export async function colorDialog(app, initial, { allowBy = true } = {}) {
     update();
     syncRoving();
   });
-  const r = await openDialog({ title: 'Select color', body, size: 'lg', actions: [{ label: 'Cancel' }, { label: 'OK', primary: true, onClick: () => ({ v: value }) }] });
+  const r = await openDialog({ title: 'Select color', body, size: 'lg', isDirty: () => value !== initial, actions: [{ label: 'Cancel' }, { label: 'OK', primary: true, onClick: () => ({ v: value }) }] });
   return r ? r.v : null;
 }
 
@@ -811,7 +811,9 @@ async function styleManager(app, { title, table, headerKey, make, fields, label,
   renderList();
   renderForm();
   const body = h('div.style-dlg', h('div.style-side', list, actions), form);
-  const r = await openDialog({ title, body, size: 'lg', actions: [{ label: 'Cancel' }, { label: 'OK', primary: true, value: true }] });
+  // New, Delete and Set current change the list without a field edit.
+  const isDirty = () => current !== d.header[headerKey] || work.size !== names.length || names.some((n) => !work.has(n));
+  const r = await openDialog({ title, body, size: 'lg', isDirty, actions: [{ label: 'Cancel' }, { label: 'OK', primary: true, value: true }] });
   if (!r) return;
   d.transaction(title, () => {
     for (const n of names) if (!work.has(n)) d.setTable(table, n, null);
