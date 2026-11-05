@@ -866,6 +866,7 @@ export class Renderer {
         // Shaded mode still shows hovered/selected edges.
         this.drawSegs(body.edges, vp, viewport, clip, { width: 1.25, color: [0, 0, 0, 0], useState: true, bias: 2e-5, onlyStates: true });
       }
+      if (!showBody && this.model) this.drawModelStates(this.model, vp, view, viewport, clip, style === 'wireframe');
     }
 
     for (const b of ordered(this.lines, 'test')) this.drawLineBatch(b, vp, viewport, clip);
@@ -888,6 +889,30 @@ export class Renderer {
     for (const b of ordered(this.points, 'always')) this.drawPointBatch(b, vp, viewport);
     gl.disable(gl.BLEND);
     gl.enable(gl.DEPTH_TEST);
+  }
+
+  /**
+   * A feature's result previewed in place of the model (fillet, shell...) has
+   * other faces and edges than the model, which is what the selection and
+   * hover refer to and what is picked: draw the model's selected and hovered
+   * faces and edges over the preview, or picks there show nothing.
+   */
+  private drawModelStates(m: GpuMesh, vp: Float32Array, view: Float32Array, viewport: number[], clip: number[] | null, wire: boolean) {
+    const gl = this.gl;
+    const faces = this.faceStateData.some((s) => s & 3);
+    const edges = !!m.edges && this.edgeStateData.some((s) => s & 3);
+    if (!faces && !edges) return;
+    if (wire) gl.disable(gl.DEPTH_TEST);
+    if (faces) {
+      gl.enable(gl.BLEND);
+      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+      gl.depthMask(false);
+      this.drawMesh(m, vp, view, clip, { flat: 2, alpha: 1, useState: true, color: this.theme.model });
+      gl.depthMask(true);
+      gl.disable(gl.BLEND);
+    }
+    if (edges) this.drawSegs(m.edges!, vp, viewport, clip, { width: 1.25, color: [0, 0, 0, 0], useState: true, bias: 2e-5, onlyStates: true });
+    if (wire) gl.enable(gl.DEPTH_TEST);
   }
 
   private cut: { mesh: MeshData; key: string; gpu: GpuSegs | null } | null = null;

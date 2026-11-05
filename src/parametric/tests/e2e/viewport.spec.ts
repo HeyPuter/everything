@@ -840,6 +840,43 @@ test.describe('viewport', () => {
     }
   });
 
+  test('edges picked for a fillet stay highlighted over its preview', async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+    await waitForFeature(page, 'Fillet1');
+    await expect.poll(() => page.evaluate(() => !!(window as unknown as Win).__parametric.bbox)).toBe(true);
+    await page.evaluate(() => (window as unknown as Win).__parametric.commands.run('fillet'));
+    // A long straight edge in view, picked from the screen.
+    const p = await page.evaluate(() => {
+      const app = (window as unknown as Win).__parametric;
+      for (const e of app.edges) {
+        if (e.type !== 'line' || e.length < 20) continue;
+        const [x, y] = app.viewport.project(e.mid);
+        if (app.renderer.pick(x, y, { edge: true })?.kind === 'edge') return [x, y];
+      }
+      return null;
+    });
+    expect(p).not.toBeNull();
+    const box = (await page.locator('canvas.gl').boundingBox())!;
+    await page.mouse.click(box.x + p![0], box.y + p![1]);
+    await page.mouse.move(box.x + 4, box.y + box.height / 2);
+    await expect.poll(() => page.evaluate(() => (window as unknown as Win).__parametric.renderer.hasPreviewBody), { timeout: 30_000 }).toBe(true);
+    // The pixel nearest the selection colour around where the edge was picked,
+    // read straight after a draw (a JPEG capture blurs a thin line).
+    const d = await page.evaluate(([x, y]) => {
+      const r = (window as unknown as Win).__parametric.renderer;
+      r.capture(16);
+      const gl = r.gl, k = r.dpr;
+      const data = new Uint8Array(7 * 7 * 4);
+      gl.readPixels(Math.round(x * k) - 3, r.canvas.height - Math.round(y * k) - 4, 7, 7, gl.RGBA, gl.UNSIGNED_BYTE, data);
+      const sel = r.theme.selection.map((v) => v * 255);
+      let best = Infinity;
+      for (let i = 0; i < data.length; i += 4) best = Math.min(best, Math.hypot(data[i] - sel[0], data[i + 1] - sel[1], data[i + 2] - sel[2]));
+      return best;
+    }, p!);
+    expect(d).toBeLessThan(40);
+  });
+
   test('zoom to fit fills the view with a sub-millimetre part', async ({ page }) => {
     await openApp(page);
     await page.getByRole('button', { name: /New part/ }).click();
