@@ -81,6 +81,11 @@ export class Units {
     try { return this.store.evalParam(p, 'length'); } catch { return NaN; }
   }
 
+  /** A stored angle parameter's value now in degrees (NaN when it does not evaluate). */
+  evalAngle(p: Param): number {
+    try { return this.store.evalParam(p, 'angle'); } catch { return NaN; }
+  }
+
   /** Evaluated value of a stored parameter, as display text with unit. */
   paramText(p: Param, kind: Kind): string {
     let v: number;

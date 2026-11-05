@@ -187,6 +187,7 @@ export class Inspector {
       if (o.nameContains) list = list.filter(({ f }) => f.name.includes(o.nameContains!));
       if (o.near) { const p = o.near; list.sort((a, b) => dist(a.f.center, p) - dist(b.f.center, p)); }
       const shown = list.slice(0, o.limit);
+      if (!list.length && o.type) return `0 of ${faces.length} faces match. Face types in the body: ${[...new Set(faces.map((f) => f.type))].join(', ')}.`;
       return `${list.length} of ${faces.length} faces match${list.length > shown.length ? ` (showing ${shown.length})` : ''}:\n${shown.map(({ f }) => `- ${this.faceLine(f)}`).join('\n')}`;
     }
     let list = edges.map((e, i) => ({ e, i }));
@@ -201,6 +202,7 @@ export class Inspector {
     if (o.near) { const p = o.near; list.sort((a, b) => dist(a.e.mid, p) - dist(b.e.mid, p)); }
     const shown = list.slice(0, o.limit);
     const head = o.ofFace && fi < 0 ? `No face named ${o.ofFace}. ` : '';
+    if (!list.length && o.type) return `${head}0 of ${edges.length} edges match. Edge types in the body: ${[...new Set(edges.map((e) => e.type))].join(', ')}.`;
     return `${head}${list.length} of ${edges.length} edges match${list.length > shown.length ? ` (showing ${shown.length})` : ''}:\n${shown.map(({ e }) => `- ${this.edgeLine(e)}`).join('\n')}`;
   }
 }

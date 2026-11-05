@@ -55,6 +55,22 @@ export class Refs {
     return f;
   }
 
+  /**
+   * A display name to give a feature (self, when renaming one). A name another
+   * feature or a base plane answers to is refused: references by name would
+   * find that one instead.
+   */
+  newName(v: unknown, self?: Feature, what = 'name'): string {
+    const s = str(v), low = s.toLowerCase();
+    if (self && (low === self.name.toLowerCase() || low === self.id.toLowerCase())) return s;
+    if (BASE_ALIASES[low]) throw new ToolError(`${what}: "${s}" names the base plane ${BASE_ALIASES[low]}, so plane arguments would mean that plane. Choose another name.`);
+    const id = this.features.find((x) => x.id.toLowerCase() === low);
+    if (id) throw new ToolError(`${what}: "${s}" is the id of ${id.id} (${id.name}). Choose another name.`);
+    const named = this.features.find((x) => x !== self && x.name.toLowerCase() === low);
+    if (named) throw new ToolError(`${what}: "${s}" is already the name of ${named.id}. Choose another name.`);
+    return s;
+  }
+
   sketch(v: unknown, what = 'sketch'): SketchFeature {
     const f = this.feature(v, what);
     if (f.type !== 'sketch') throw new ToolError(`${what}: ${f.id} (${f.name}) is a ${f.type}, not a sketch`);
@@ -84,19 +100,29 @@ export class Refs {
     throw new ToolError(`${what}: no edge named "${s}" in the current model. Similar names: ${similar(s, edges.map((x) => x.name)).join(', ')}. Use find_geometry to list edges.`);
   }
 
-  faceRefs(v: unknown, what: string): FaceRef[] {
-    const list = Array.isArray(v) ? v : v == null || v === '' ? [] : [v];
-    return list.map((x, i) => faceRef(this.faceInfo(x, `${what}[${i}]`)));
+  /** The error for a name that is neither a face nor an edge (measure takes either). */
+  noFaceOrEdge(s: string, what: string): ToolError {
+    const names = [...this.host.faces.map((x) => x.name), ...this.host.edges.map((x) => x.name)];
+    if (!names.length) return new ToolError(`${what}: the part has no faces or edges yet`);
+    return new ToolError(`${what}: no face or edge named "${s}" in the current model. Similar names: ${similar(s, names).join(', ')}. Use find_geometry to list faces and edges.`);
   }
 
-  edgeRefs(v: unknown, what: string): EdgeRef[] {
+  // A name a feature already stores keeps its reference: what it names may be gone
+  // from the final body (a fillet's own edges), and the model gives back what get_model said.
+  faceRefs(v: unknown, what: string, stored: FaceRef[] = []): FaceRef[] {
     const list = Array.isArray(v) ? v : v == null || v === '' ? [] : [v];
-    return list.map((x, i) => edgeRef(this.edgeInfo(x, `${what}[${i}]`)));
+    return list.map((x, i) => stored.find((r) => r.name === str(x)) ?? faceRef(this.faceInfo(x, `${what}[${i}]`)));
   }
 
-  plane(v: unknown, what = 'plane'): PlaneRef {
+  edgeRefs(v: unknown, what: string, stored: EdgeRef[] = []): EdgeRef[] {
+    const list = Array.isArray(v) ? v : v == null || v === '' ? [] : [v];
+    return list.map((x, i) => stored.find((r) => r.name === str(x)) ?? edgeRef(this.edgeInfo(x, `${what}[${i}]`)));
+  }
+
+  plane(v: unknown, what = 'plane', stored: PlaneRef | null = null): PlaneRef {
     const s = str(v);
     if (!s) throw new ToolError(`${what}: give "front", "top", "right", a reference plane feature or a planar face name`);
+    if (stored?.kind === 'face' && stored.face.name === s) return stored;
     const base = BASE_ALIASES[s.toLowerCase()];
     if (base) return { kind: 'base', plane: base };
     const feat = this.features.find((x) => x.id === s) ?? this.features.find((x) => x.name.toLowerCase() === s.toLowerCase());
@@ -112,7 +138,8 @@ export class Refs {
     throw new ToolError(`${what}: "${s}" is not a base plane (front, top, right), a reference plane or a face of the current model`);
   }
 
-  axis(v: unknown, what = 'axis'): AxisRef {
+  axis(v: unknown, what = 'axis', stored: AxisRef | null = null): AxisRef {
+    if ((stored?.kind === 'edge' || stored?.kind === 'face') && axisSpec(stored) === str(v)) return stored;
     if (v && typeof v === 'object' && !Array.isArray(v)) {
       const o = v as Record<string, unknown>;
       if (o.sketch != null && o.line != null) {
@@ -122,8 +149,8 @@ export class Refs {
         if (!e || e.t !== 'line') throw new ToolError(`${what}.line: ${sk.id} has no line "${id}"`);
         return { kind: 'sketchLine', sketch: sk.id, entity: id };
       }
-      if (o.edge != null) return this.axis(o.edge, what);
-      if (o.face != null) return this.axis(o.face, what);
+      if (o.edge != null) return this.axis(o.edge, what, stored);
+      if (o.face != null) return this.axis(o.face, what, stored);
       if (o.base != null) return this.axis(o.base, what);
     }
     const s = str(v);

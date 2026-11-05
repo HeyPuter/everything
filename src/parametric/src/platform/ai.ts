@@ -19,6 +19,8 @@ export type ChatMessage =
     attachments?: AttachmentMeta[];
     /** Kept in the transcript only: this message holds screenshots taken by a tool. */
     screenshot?: boolean;
+    /** Kept in the transcript only: the AI service refused this message's files, which are no longer sent. */
+    filesRefused?: boolean;
   }
   | { role: 'assistant'; content: string | null; tool_calls?: ChatToolCall[] }
   | { role: 'tool'; tool_call_id: string; content: string };
@@ -26,6 +28,8 @@ export type ChatMessage =
 export type StreamPart =
   | { type: 'text'; text: string }
   | { type: 'tool'; id: string; name: string; input: Record<string, unknown> }
+  /** The model has begun writing a call to this tool (its arguments are still coming). */
+  | { type: 'toolStart'; name: string }
   /** The reply stopped at the output token limit. */
   | { type: 'cut' };
 
@@ -133,13 +137,18 @@ function marked(content: string | ChatPart[] | null, cache: Block): Block[] | nu
 
 /**
  * The request with prompt-cache breakpoints (Puter passes them to Claude, and
- * caches nothing unless asked): the instructions, which the tools come
- * before; the message that started the current turn; and the newest message.
- * Each round of a reply then reads everything before it from the cache
- * instead of paying for it again, the turn's start anchoring rounds that add
- * more blocks than the cache looks back over. A tool result goes in Claude's
- * own shape, which keeps the breakpoint: Puter rebuilds an OpenAI tool
- * message without it. The messages given are not changed.
+ * caches nothing unless asked; Claude takes at most four):
+ * - the instructions, which the tools come before;
+ * - the end of the last finished turn, and on a turn's first request the end
+ *   of the one before. Earlier turns are sent shortened (no snapshot, results
+ *   cut), so they read the same in every later request; a new turn reads them
+ *   from the cache written by the turn before, instead of paying to write the
+ *   whole conversation again;
+ * - the message that started the current turn, anchoring rounds that add more
+ *   blocks than the cache looks back over;
+ * - the newest message, which the next round reads up to.
+ * A tool result goes in Claude's own shape, which keeps the breakpoint: Puter
+ * rebuilds an OpenAI tool message without it. The messages given are not changed.
  */
 export function withCacheBreakpoints(messages: ChatMessage[]): unknown[] {
   const out: unknown[] = [...messages];
@@ -152,18 +161,25 @@ export function withCacheBreakpoints(messages: ChatMessage[]): unknown[] {
       out[i] = { role: 'user', content: [{ type: 'tool_result', tool_use_id: m.tool_call_id, content: m.content, cache_control: cache }] };
       return;
     }
-    if (m.role === 'assistant') return;
+    // A breakpoint on a reply's text would sit before its tool calls, not at its end.
+    if (m.role === 'assistant' && m.tool_calls?.length) return;
     const content = marked(m.content, cache);
     if (content) out[i] = { ...m, content };
   };
   if (messages[0]?.role === 'system') markAt(0, CACHE_LONG);
-  let turn = -1;
-  for (let i = messages.length - 1; i > 0 && turn < 0; i--) {
+  // Where each turn starts: a message the user wrote, after the instructions or a finished reply.
+  const starts: number[] = [];
+  for (let i = 1; i < messages.length; i++) {
     const prev = messages[i - 1];
-    if (messages[i].role === 'user' && (prev.role === 'system' || (prev.role === 'assistant' && !prev.tool_calls?.length))) turn = i;
+    if (messages[i].role === 'user' && (prev.role === 'system' || (prev.role === 'assistant' && !prev.tool_calls?.length))) starts.push(i);
   }
-  if (turn > 0) markAt(turn, CACHE);
-  if (messages.length > 1) markAt(messages.length - 1, CACHE);
+  const turn = starts.at(-1) ?? -1;
+  const last = messages.length - 1;
+  // A finished turn ends with the reply before the next turn's start.
+  if (turn === last && starts.length > 2) markAt(starts.at(-2)! - 1, CACHE);
+  if (starts.length > 1) markAt(turn - 1, CACHE);
+  if (turn > 0 && turn < last) markAt(turn, CACHE);
+  if (last > 0) markAt(last, CACHE);
   return out;
 }
 
@@ -173,7 +189,20 @@ export async function* puterChat(messages: ChatMessage[], opts: ChatOptions = {}
   if (!p?.ai?.chat) throw Object.assign(new Error('The assistant needs Puter, which is not available right now. Check your connection and reload.'), { code: 'puter_unavailable' });
   const options: Record<string, unknown> = { stream: true };
   if (opts.model) options.model = opts.model;
-  if (opts.tools?.length) options.tools = opts.tools;
+  // Puter starts a request on the healthiest route that serves the model: after
+  // anyone's recent failure on Anthropic's, that is a reseller, which has none of
+  // this conversation in its prompt cache and may drop images. Pinned, Anthropic
+  // serves first, and Puter still falls back when it fails.
+  if (opts.model?.startsWith('claude-')) options.provider = 'claude';
+  if (opts.tools?.length) {
+    options.tools = opts.tools;
+    // Puter lets the model call one tool per reply unless asked: independent
+    // reads (the part, its edges, a sketch) would each cost a round trip.
+    options.parallelToolCalls = true;
+    // Say when a call begins, not only when it is complete: a sketch of many
+    // shapes can take the model a minute to write.
+    options.streamToolInput = true;
+  }
   if (opts.maxTokens) options.max_tokens = opts.maxTokens;
   // The SDK aborts its request on the signal. The stream is also ended
   // directly: a generator's return() waits for the part it is waiting on, and
@@ -194,6 +223,7 @@ export async function* puterChat(messages: ChatMessage[], opts: ChatOptions = {}
         if (!part) continue;
         if (part.type === 'error' || (part.success === false && part.error)) throw aiError(part.error ?? part);
         if (part.type === 'tool_use') yield { type: 'tool', id: String(part.id ?? newCallId()), name: String(part.name ?? ''), input: toolInput(part.input) };
+        else if (part.type === 'tool_use_start') yield { type: 'toolStart', name: String(part.name ?? '') };
         else if (part.type === 'usage') {
           // Puter ends a reply the account's credits ran out during as if it reached the length limit.
           if ((part.metadata as { usage_limited?: boolean } | undefined)?.usage_limited) {

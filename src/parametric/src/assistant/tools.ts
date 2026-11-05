@@ -130,7 +130,7 @@ const TOOLS: ToolDef[] = [
   {
     name: 'get_sketch',
     description: 'Everything in one sketch: its plane and how sketch coordinates map to world space, every entity with ids and coordinates, relations and dimensions, definition status (degrees of freedom, conflicts) and the closed profiles it forms.',
-    parameters: obj({ sketch: S('Sketch id or name') }, ['sketch']),
+    parameters: obj({ sketch: S('Sketch id or name'), from: N('Long sketches: start the entity and relation lists at this index (the answer says where the rest starts)') }, ['sketch']),
     run: async (a, k) => k.getSketch(a),
   },
   {
@@ -399,10 +399,16 @@ export async function runTool(host: AssistantHost, name: string, args: unknown):
 
 const list = (v: unknown): unknown[] => (Array.isArray(v) ? v : v == null ? [] : [v]);
 const str = (v: unknown) => (typeof v === 'string' ? v.trim() : typeof v === 'number' ? String(v) : '');
+// Types as the kernel names them, from the words a model may use ("planar", "Line" matched nothing).
+const TYPE_WORDS: Record<string, string> = { planar: 'plane', flat: 'plane', cylindrical: 'cylinder', conical: 'cone', spherical: 'sphere', toroidal: 'torus', straight: 'line', circular: 'circle', arc: 'circle', spline: 'bspline' };
+const typeName = (s: string) => TYPE_WORDS[s.toLowerCase()] ?? s.toLowerCase();
 const vec3 = (v: unknown, what: string): Vec3 => {
   if (!Array.isArray(v) || v.length !== 3 || v.some((x) => typeof x !== 'number' || !Number.isFinite(x))) throw new ToolError(`${what}: expected [x, y, z]`);
   return v as Vec3;
 };
+
+/** What apply answers for a change that leaves the document as it was. */
+const NOTHING_CHANGED = 'Nothing changed.';
 
 class Toolkit {
   readonly u: Units;
@@ -430,7 +436,7 @@ class Toolkit {
     const warnedBefore = this.ins.warnings();
     const mark = this.store.undoMark;
     this.store.change(label, mutate);
-    if (this.store.undoMark === mark) return 'Nothing changed.';
+    if (this.store.undoMark === mark) return NOTHING_CHANGED;
     await this.host.settle();
     const after = this.ins.errors();
     const fresh = [...after].filter(([id, msg]) => before.get(id) !== msg);
@@ -438,7 +444,8 @@ class Toolkit {
       const names = (id: Id) => { const f = this.store.feature(id); return f ? `${id} "${f.name}"` : id; };
       this.store.revertTo(mark);
       await this.host.settle();
-      throw new ToolError(`the change made ${fresh.map(([id, msg]) => `${names(id)} fail: ${msg}`).join('; ')}. It was undone; the part is as it was before this call.`);
+      // Kernel messages end with their own full stop ("Use Blind.. It was undone").
+      throw new ToolError(`the change made ${fresh.map(([id, msg]) => `${names(id)} fail: ${msg.replace(/\.$/, '')}`).join('; ')}. It was undone; the part is as it was before this call.`);
     }
     this.changed = true;
     const lines: string[] = [];
@@ -487,12 +494,20 @@ class Toolkit {
       solve = solveSketch(copy.entities, copy.constraints, { value: (d) => this.store.dimensionValue(d, vars) });
     } catch { /* report without status */ }
     const ix = new SketchIndex(copy.entities);
-    const ents = copy.entities.map((e) => `- ${entityLine(copy, e, this.u, ix)}`);
-    const cons = copy.constraints.map((c) => `- ${constraintLine(copy, c, this.u, this.store)}`);
+    // A curve's line gives its points' ids and coordinates: listing them again doubled a long sketch.
+    const onCurves = new Set(copy.entities.flatMap((e) => (e.t === 'line' ? [e.a, e.b] : e.t === 'arc' ? [e.c, e.a, e.b] : e.t === 'circle' ? [e.c] : e.t === 'spline' ? e.pts : [])));
+    const shown = copy.entities.filter((e) => e.t !== 'point' || e.construction || !onCurves.has(e.id));
+    // At most 120 of each per answer, like create_sketch; from pages through the rest.
+    const from = Math.max(0, Math.round(Number(a.from) || 0));
+    const page = <T>(items: T[], line: (x: T) => string) => {
+      const out = items.slice(from, from + 120).map((x) => `- ${line(x)}`);
+      if (items.length > from + 120) out.push(`- … ${items.length - from - 120} more (get_sketch with from: ${from + 120})`);
+      return out.length ? out : [items.length ? `- none from ${from} on` : '- none'];
+    };
     return [
       this.ins.sketchFrameText(sk),
-      `Entities (${ents.length}); "O" is the sketch origin:`, ...(ents.length ? ents : ['- none']),
-      `Relations and dimensions (${cons.length}):`, ...(cons.length ? cons : ['- none']),
+      `Entities (${copy.entities.length}; points on curves are given with the curves); "O" is the sketch origin:`, ...page(shown, (e) => entityLine(copy, e, this.u, ix)),
+      `Relations and dimensions (${copy.constraints.length}):`, ...page(copy.constraints, (c) => constraintLine(copy, c, this.u, this.store)),
       sketchReport(copy, solve, this.u, this.store),
     ].join('\n');
   }
@@ -501,13 +516,17 @@ class Toolkit {
     // "edge" listed faces, and an unknown of_face listed every edge (up to 400) as a match.
     const kind = /^edges?$/i.test(str(a.kind)) ? 'edges' : /^faces?$/i.test(str(a.kind)) ? 'faces' : null;
     if (!kind) throw new ToolError('kind: "faces" or "edges"');
+    // A filter for the other kind was ignored, and every face or edge reported as matching.
+    if (kind === 'edges' && a.normal != null) throw new ToolError('normal: faces only; for edges use direction (straight edges along it, circular edges around it)');
+    if (kind === 'faces' && a.direction != null) throw new ToolError('direction: edges only; for faces use normal');
+    if (kind === 'faces' && a.of_face != null) throw new ToolError('of_face: edges only (the edges bounding that face)');
     if (!this.host.faces.length) return 'The part has no body yet.';
     const feature = a.feature != null ? this.refs.feature(a.feature).id : undefined;
     if (a.of_face != null) this.refs.faceInfo(a.of_face, 'of_face');
     const limit = Math.max(1, Math.min(400, Math.round(Number(a.limit) || 60)));
     const scaled = (v: unknown, what: string) => vec3(v, what).map((x) => x * this.u.scale) as Vec3;
     return this.ins.findGeometry({
-      kind, feature, type: a.type ? str(a.type) : undefined,
+      kind, feature, type: a.type ? typeName(str(a.type)) : undefined,
       normal: a.normal != null ? vec3(a.normal, 'normal') : undefined,
       direction: a.direction != null ? vec3(a.direction, 'direction') : undefined,
       ofFace: a.of_face != null ? str(a.of_face) : undefined,
@@ -524,8 +543,8 @@ class Toolkit {
     if (fi >= 0) return { t: { kind: 'face', index: fi }, label: `face ${s}`, normal: this.host.faces[fi].normal };
     const ei = this.host.edges.findIndex((e) => e.name === s);
     if (ei >= 0) return { t: { kind: 'edge', index: ei }, label: `edge ${s}`, dir: this.host.edges[ei].dir };
-    this.refs.faceInfo(s, what);
-    throw new ToolError(`${what}: not found`);
+    // A misspelt edge name was answered with "no face named" and face names only.
+    throw this.refs.noFaceOrEdge(s, what);
   }
 
   async measure(a: Obj): Promise<string> {
@@ -604,11 +623,13 @@ class Toolkit {
 
   /** Solves an edited sketch; refuses edits that conflict or newly over-define it. */
   private checkSolve(ed: SketchEdit, previouslyBad: Set<Id>) {
+    // Sizes are measured before solving: a failed solve leaves the geometry half-way (a 40 mm line read 35 mm).
+    const unsolved = structuredClone(ed.sk);
     const solve = ed.solve();
     const newBad = [...solve.badConstraints].filter((id) => !previouslyBad.has(id));
     if (!solve.converged || newBad.length) {
       const bad = ed.sk.constraints.filter((c) => newBad.includes(c.id) || (!solve.converged && solve.conflicting.has(c.id)));
-      throw new ToolError(`the sketch cannot be solved: ${solve.converged ? 'it would be over-defined' : 'the constraints conflict'}. ${bad.length ? `Problem constraints: ${bad.map((c) => constraintLine(ed.sk, c, this.u, this.store)).join('; ')}. ` : ''}Nothing was changed. Remove redundant relations/dimensions (e.g. a rectangle already has horizontal/vertical relations; equal sides need one dimension) or fix the values.`);
+      throw new ToolError(`the sketch cannot be solved: ${solve.converged ? 'it would be over-defined' : 'the constraints conflict'}. ${bad.length ? `Problem constraints: ${bad.map((c) => constraintLine(unsolved, c, this.u, this.store)).join('; ')}. ` : ''}Nothing was changed. Remove redundant relations/dimensions (e.g. a rectangle already has horizontal/vertical relations; equal sides need one dimension) or fix the values.`);
     }
     return solve;
   }
@@ -634,7 +655,7 @@ class Toolkit {
     const frame = this.refs.planeFrame(plane);
     if (!frame) throw new ToolError('plane: that plane is not available in the current model (is it rolled back or failing?)');
     const id = this.store.nextId('s');
-    const name = a.name ? str(a.name) : defaultName(this.doc, 'sketch');
+    const name = a.name ? this.refs.newName(a.name) : defaultName(this.doc, 'sketch');
     const sk = newSketch(id, name, plane);
     sk.frame = frame;
     const ed = new SketchEdit(sk, frame, this.u, this.store);
@@ -662,7 +683,7 @@ class Toolkit {
       prevBad = solveSketch(copy.entities, copy.constraints, { value: (d) => this.store.dimensionValue(d, vars) }).badConstraints;
     } catch { /* treat as clean */ }
     const ed = new SketchEdit(sk, frame, this.u, this.store);
-    if (a.name != null) ed.sk.name = str(a.name) || sk.name;
+    if (a.name != null) ed.sk.name = str(a.name) ? this.refs.newName(a.name, sk) : sk.name;
     this.applySketchOps(ed, a);
     const solve = this.checkSolve(ed, prevBad);
     // A move the sketch's relations or dimensions undo would otherwise read as done.
@@ -715,7 +736,7 @@ class Toolkit {
     delete args.points;
     const id = this.store.nextId('f');
     const cut = args.cut === true;
-    const name = args.name ? str(args.name) : defaultName(this.doc, type, cut);
+    const name = args.name ? this.refs.newName(args.name) : defaultName(this.doc, type, cut);
     delete args.name;
     // A position sketch made here is not in the document yet: resolve the hole against it.
     const feature = pre.length ? this.withTemp(pre, () => this.ins.codec.build(type, args, null, id, name)) : this.ins.codec.build(type, args, null, id, name);
@@ -760,13 +781,15 @@ class Toolkit {
       if (f.type === 'hole' && (params.on != null || params.points != null)) throw new ToolError(`the centres of ${f.id} are the stand-alone points of its sketch ${f.sketch}: move or add them with edit_sketch (move_points, or shapes of type "point"). Nothing was changed.`);
       next = this.ins.codec.build(f.type, params, f, f.id, f.name);
     }
-    if (a.name != null && str(a.name)) next.name = str(a.name);
+    if (a.name != null && str(a.name)) next.name = this.refs.newName(a.name, f);
     if (typeof a.suppressed === 'boolean') next.suppressed = a.suppressed || undefined;
     if (typeof a.hidden === 'boolean') next.hidden = a.hidden;
     const build = await this.apply(`Edit ${f.name}`, (doc) => {
       const i = doc.features.findIndex((x) => x.id === f.id);
       if (i >= 0) doc.features[i] = next;
     }, { subject: f.id });
+    // It read "Updated … → ok." with every argument, then "Nothing changed.".
+    if (build === NOTHING_CHANGED) return `Nothing changed: ${f.id} "${f.name}" is already as given.`;
     const lines = [`Updated ${f.id} "${next.name}" → ${this.ins.status(next, this.store.indexOf(f.id))}.`];
     if (next.type !== 'sketch') lines.push(`Arguments now: ${JSON.stringify(this.ins.codec.args(next))}`);
     lines.push(build);

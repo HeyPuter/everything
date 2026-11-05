@@ -196,9 +196,9 @@ export function attachmentsGone(list: { name: string }[]): string {
   return `[Attached to this message: ${names}. ${one ? 'It is' : 'They are'} no longer shown; if you need ${one ? 'it' : 'them'} again, ask the user to attach ${one ? 'it' : 'them'} again.]`;
 }
 
-/** About how much of the request an attachment takes, in transcript-budget characters (about four to a token). */
-export function attachmentWeight(a: AttachmentMeta): number {
-  if (a.kind === 'image') return 6400;
-  if (a.kind === 'pdf') return Math.max(1, a.pages || 1) * 8000;
-  return a.chars || 0;
+/** A message's files that the AI service refused: named, and why the model never saw them. */
+export function attachmentsRefused(list: { name: string }[]): string {
+  const names = list.map((a) => quoteName(a.name)).join(', ');
+  const one = list.length === 1;
+  return `[Attached to this message: ${names}. The AI service could not read ${one ? 'it' : 'them'}, so ${one ? 'it was' : 'they were'} not shown to you. Ask the user for what you need from ${one ? 'it' : 'them'}, for example as an image or typed in.]`;
 }

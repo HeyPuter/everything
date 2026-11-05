@@ -16,7 +16,7 @@ import { renderMarkdown } from './markdown';
 import { ATTACH_ACCEPT, type Attachment, MAX_ATTACHMENTS, MAX_TEXT_CHARS, attachmentKind, attachmentProblem, attachmentsTooLarge, formatSize } from './attach';
 import { readAttachment } from './attachments';
 import { SYSTEM_PROMPT, partSnapshot } from './prompt';
-import { runTool, toolSpecs } from './tools';
+import { changesDocument, runTool, toolSpecs } from './tools';
 
 export const ASSISTANT_MODEL = 'claude-opus-5-5';
 
@@ -39,22 +39,22 @@ export function stepLabel(name: string, a: Record<string, unknown>): string {
   if (featureNames[name]) return `Add ${featureNames[name].toLowerCase()}${a.name ? ` "${s(a.name)}"` : ''}`;
   switch (name) {
     case 'get_model': return 'Read the part';
-    case 'get_sketch': return `Read sketch ${s(a.sketch)}`;
+    case 'get_sketch': return a.sketch ? `Read sketch ${s(a.sketch)}` : 'Read a sketch';
     case 'find_geometry': return `Find ${a.kind === 'edges' ? 'edges' : 'faces'}`;
     case 'measure': return 'Measure';
     case 'mass_properties': return 'Mass properties';
     case 'calculate': return 'Calculate';
     case 'capture_view': return `Look at the model${a.orientation ? ` (${s(a.orientation)})` : ''}`;
-    case 'create_sketch': return `Sketch on ${s(a.plane)}`;
-    case 'edit_sketch': return `Edit sketch ${s(a.sketch)}`;
-    case 'edit_feature': return `Edit ${s(a.feature)}`;
-    case 'delete_features': return `Delete ${Array.isArray(a.features) ? a.features.join(', ') : s(a.features)}`;
+    case 'create_sketch': return a.plane ? `Sketch on ${s(a.plane)}` : 'Create a sketch';
+    case 'edit_sketch': return a.sketch ? `Edit sketch ${s(a.sketch)}` : 'Edit a sketch';
+    case 'edit_feature': return a.feature ? `Edit ${s(a.feature)}` : 'Edit a feature';
+    case 'delete_features': return a.features ? `Delete ${Array.isArray(a.features) ? a.features.join(', ') : s(a.features)}` : 'Delete features';
     case 'set_rollback': return 'Move the rollback bar';
     case 'set_variables': return 'Set variables';
     case 'set_part': return 'Part properties';
     case 'set_view': return 'Change the view';
     case 'drawing': return 'Drawing';
-    case 'run_command': return `Run ${s(a.command).replace(/_/g, ' ')}`;
+    case 'run_command': return a.command ? `Run ${s(a.command).replace(/_/g, ' ')}` : 'Run a command';
     default: return name;
   }
 }
@@ -102,6 +102,8 @@ interface Turn {
   steps: HTMLElement | null;
   stepEls: Map<string, HTMLElement>;
   foot: HTMLElement;
+  /** Text of the round being written: it joins the conversation only when the round completes. */
+  draft: HTMLElement | null;
 }
 
 export class AssistantPanel {
@@ -149,6 +151,7 @@ export class AssistantPanel {
       system: SYSTEM_PROMPT,
       snapshot: () => partSnapshot(this.host),
       model: () => ASSISTANT_MODEL,
+      changes: changesDocument,
     });
 
     this.newChat = h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'New chat', title: 'New chat' }, icon('newChat', 16)) as HTMLButtonElement;
@@ -470,7 +473,7 @@ export class AssistantPanel {
     const foot = h('div', { class: 'as-foot' });
     const el = h('div', { class: 'as-msg as-bot' }, body, foot);
     this.log.append(el);
-    return { el, body, text: null, steps: null, stepEls: new Map(), foot };
+    return { el, body, text: null, steps: null, stepEls: new Map(), foot, draft: null };
   }
 
   private async run(request: string, go: (on: Parameters<Agent['send']>[1]) => Promise<ExchangeResult>) {
@@ -501,9 +504,11 @@ export class AssistantPanel {
             turn.steps = null;
           }
           turn.text.src += e.text;
+          turn.draft = turn.text.el;
           this.queueText(turn.text);
           this.setStatus('Writing…');
         } else if (e.type === 'step') {
+          turn.draft = null;
           if (!turn.steps) {
             if (turn.text) this.renderText(turn.text);
             turn.steps = h('ol', { class: 'as-steps', 'aria-label': 'Steps' });
@@ -512,10 +517,16 @@ export class AssistantPanel {
           }
           this.renderStep(turn, turn.steps, e.step);
           if (this.status.textContent !== 'Stopping…') this.setStatus(e.step.status === 'running' ? `${stepLabel(e.step.name, e.step.args)}…` : 'Thinking…');
+        } else if (e.type === 'writing') {
+          if (this.status.textContent !== 'Stopping…') this.setStatus(`${stepLabel(e.name, {})}…`);
         } else if (e.type === 'round') {
+          turn.draft = null;
           this.setStatus('Thinking…');
         } else if (e.type === 'retry') {
           if (this.status.textContent !== 'Stopping…') this.setStatus(`The AI service did not answer. Trying again (${e.attempt} of ${MAX_RETRIES})…`);
+        } else if (e.type === 'filesRefused') {
+          const names = e.names.join(', ');
+          toast({ kind: 'warning', message: `The AI service could not read ${names}, so the assistant answers without ${e.names.length === 1 ? 'it' : 'them'}.`, timeout: 8000 });
         }
       });
     } catch (e) {
@@ -545,6 +556,9 @@ export class AssistantPanel {
         // Undo changes stays: what this reply did before it failed is still its own undo step.
         error.remove();
         retry.remove();
+        // Text the failure broke off never joined the conversation; the new reply replaces it.
+        turn.draft?.remove();
+        if (!turn.body.textContent?.trim() && !turn.body.querySelector('li, img') && !turn.foot.childElementCount) turn.el.remove();
         void this.run(request, (on) => this.agent.retry(on));
       });
       turn.foot.append(error, retry);

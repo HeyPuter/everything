@@ -228,6 +228,56 @@ test('a failed reply can be tried again until a later message moves the conversa
   expect(roles.map((r) => r.at(-1))).toEqual(['user', 'user']);
 });
 
+test('trying again after a reply broke off mid-sentence leaves only the new reply on screen', async ({ page }) => {
+  await page.addInitScript(() => {
+    const w = window as unknown as { __assistantChat: unknown };
+    let n = 0;
+    w.__assistantChat = async function* () {
+      if (n++ === 0) {
+        yield { type: 'text', text: 'I will make the bracket 60 mm wi' };
+        throw new Error('The connection was reset');
+      }
+      yield { type: 'text', text: 'Made the bracket 60 mm wide.' };
+    };
+  });
+  await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  const box = page.getByRole('textbox', { name: 'Message the assistant' });
+  await box.fill('a bracket');
+  await box.press('Enter');
+  // What arrived before the failure is shown with it.
+  await expect(page.getByRole('alert')).toContainText('The connection was reset');
+  await expect(page.getByText('I will make the bracket 60 mm wi')).toBeVisible();
+  await page.getByRole('button', { name: 'Try again' }).click();
+  await expect(page.getByText('Made the bracket 60 mm wide.')).toBeVisible();
+  // The broken-off text was never part of the conversation: it goes with the error.
+  await expect(page.getByText('I will make the bracket 60 mm wi')).toHaveCount(0);
+  await expect(page.locator('.as-bot')).toHaveCount(1);
+});
+
+test('the status says which step the model is writing before the step is complete', async ({ page }) => {
+  await page.addInitScript(() => {
+    const w = window as unknown as { __release: () => void; __assistantChat: unknown };
+    let n = 0;
+    w.__assistantChat = async function* () {
+      if (n++ > 0) { yield { type: 'text', text: 'Sketched.' }; return; }
+      yield { type: 'toolStart', name: 'create_sketch' };
+      await new Promise<void>((r) => { w.__release = r; });
+      yield { type: 'tool', id: 'c1', name: 'create_sketch', input: { plane: 'top', shapes: [{ type: 'circle', center: [0, 0], radius: 5 }] } };
+    };
+  });
+  await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  const box = page.getByRole('textbox', { name: 'Message the assistant' });
+  await box.fill('a circle');
+  await box.press('Enter');
+  await expect(page.locator('.as-status')).toHaveText('Create a sketch…');
+  await page.waitForFunction(() => typeof (window as unknown as { __release?: () => void }).__release === 'function');
+  await page.evaluate(() => (window as unknown as { __release: () => void }).__release());
+  await expect(page.getByText('Sketched.')).toBeVisible();
+  await expect(page.locator('.as-step.done')).toHaveText(/Sketch on top/);
+});
+
 test('a reply the service was too busy for is sent again by itself', async ({ page }) => {
   await page.addInitScript(() => {
     const w = window as unknown as { __calls: number; __assistantChat: unknown };

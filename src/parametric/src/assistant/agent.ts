@@ -11,7 +11,7 @@
 // results and only with the round that took them.
 
 import { type ChatFn, type ChatMessage, type ChatPart, type ChatToolCall, isTransientError } from '../platform/ai';
-import { ATTACHMENT_TURNS, type Attachment, type AttachmentMeta, attachmentMeta, attachmentWeight, attachmentsFit, attachmentsGone, attachmentsIntro } from './attach';
+import { ATTACHMENT_TURNS, type Attachment, type AttachmentMeta, attachmentMeta, attachmentsFit, attachmentsGone, attachmentsIntro, attachmentsRefused } from './attach';
 import type { ToolResult, ToolSpec } from './tools';
 
 export const MAX_OUTPUT_TOKENS = 16000;
@@ -47,9 +47,13 @@ export interface Step {
 export type AgentEvent =
   | { type: 'text'; text: string }
   | { type: 'step'; step: Step }
+  /** The model has begun writing a call to this tool. */
+  | { type: 'writing'; name: string }
   | { type: 'round' }
   /** A request failed in a way that may pass: it is sent again after a wait. */
-  | { type: 'retry'; attempt: number; error: Error };
+  | { type: 'retry'; attempt: number; error: Error }
+  /** The AI service refused these files; the reply goes on without them. */
+  | { type: 'filesRefused'; names: string[] };
 
 export interface ExchangeResult {
   stopped: boolean;
@@ -65,6 +69,8 @@ export interface AgentOptions {
   system: string;
   snapshot: () => string;
   model: () => string;
+  /** Whether a tool changes the part: after one fails, the reply's later ones are not run. */
+  changes?: (name: string) => boolean;
   /** Milliseconds to wait before retry n (tests). */
   retryDelay?: (n: number) => number;
 }
@@ -86,7 +92,6 @@ type UserMessage = Extract<ChatMessage, { role: 'user' }>;
 const isUser = (m: ChatMessage): m is UserMessage => m.role === 'user';
 /** A message the user wrote (not the screenshots a tool took). */
 const isTurn = (m: ChatMessage): m is UserMessage => isUser(m) && !m.screenshot;
-const filesWeight = (m: UserMessage) => (m.attachments ?? []).reduce((n, a) => n + attachmentWeight(a), 0);
 
 /** What the user wrote, with any files attached, as a message's content. */
 export function userContent(text: string, snapshot: string, attachments: Attachment[] = []): string | ChatPart[] {
@@ -99,13 +104,16 @@ export function userContent(text: string, snapshot: string, attachments: Attachm
  * The transcript as sent: instructions first; earlier messages' snapshots,
  * long tool results and screenshots left out; files only with the latest few
  * messages that fit in one request (older ones are named instead); the oldest
- * turns dropped whole past the budget. The latest turn is sent as it is,
- * unless it alone outgrows the budget (a long build has no limit on rounds):
+ * turns dropped whole past the budget. Files do not count against it: they
+ * have their own limits (attachmentsFit), and a long PDF would otherwise push
+ * every earlier turn out of its request and the next ones. The latest turn is
+ * sent as it is, unless it alone outgrows the budget (a long build has no limit on rounds):
  * then its earlier tool results are cut, oldest first, and the newest round's
  * results, which the model is about to answer, stay whole.
- * noShots leaves out the current screenshot too (a route that refuses images).
+ * noShots leaves out the current screenshot too (a route that refuses images);
+ * noFilesAt names the files of the message at that index instead of sending them.
  */
-export function requestMessages(transcript: ChatMessage[], system: string, { budget = HISTORY_BUDGET, noShots = false } = {}): ChatMessage[] {
+export function requestMessages(transcript: ChatMessage[], system: string, { budget = HISTORY_BUDGET, noShots = false, noFilesAt = -1 } = {}): ChatMessage[] {
   let lastUser = -1;
   for (let i = transcript.length - 1; i >= 0; i--) if (isTurn(transcript[i])) { lastUser = i; break; }
   // Screenshots go only with the round that took them: the newest image message of the current turn.
@@ -117,7 +125,7 @@ export function requestMessages(transcript: ChatMessage[], system: string, { bud
   const turns = transcript.map((m, i) => (isTurn(m) ? i : -1)).filter((i) => i >= 0).slice(-ATTACHMENT_TURNS).reverse();
   for (const i of turns) {
     const m = transcript[i] as UserMessage;
-    if (!m.attachments?.length || !Array.isArray(m.content)) { recent.add(i); continue; }
+    if (!m.attachments?.length || !Array.isArray(m.content) || m.filesRefused || i === noFilesAt) { recent.add(i); continue; }
     carried.push(...m.attachments);
     if (i !== lastUser && !attachmentsFit(carried)) break;
     recent.add(i);
@@ -133,13 +141,15 @@ export function requestMessages(transcript: ChatMessage[], system: string, { bud
       }
       const text = userText(m.content);
       if (m.attachments?.length) {
-        if (Array.isArray(m.content) && (i >= lastUser || recent.has(i))) {
-          weights.set(i, filesWeight(m));
+        const refused = m.filesRefused || i === noFilesAt;
+        if (Array.isArray(m.content) && !refused && (i >= lastUser || recent.has(i))) {
           if (i >= lastUser) return { role: 'user', content: m.content };
           return { role: 'user', content: [{ type: 'text', text: text || NO_TEXT }, ...m.content.slice(1)] };
         }
-        const gone = attachmentsGone(m.attachments);
-        return { role: 'user', content: text && text !== NO_TEXT ? `${text}\n\n${gone}` : gone };
+        const gone = refused ? attachmentsRefused(m.attachments) : attachmentsGone(m.attachments);
+        // The current message keeps its snapshot.
+        const words = i >= lastUser && Array.isArray(m.content) ? String((m.content[0] as { text?: string }).text ?? '') : text;
+        return { role: 'user', content: words && words !== NO_TEXT ? `${words}\n\n${gone}` : gone };
       }
       return { role: 'user', content: i >= lastUser ? m.content : text };
     }
@@ -150,13 +160,20 @@ export function requestMessages(transcript: ChatMessage[], system: string, { bud
   const size = (m: ChatMessage, i: number) => (typeof m.content === 'string' ? m.content.length : Array.isArray(m.content) ? ((m.content[0] as { text?: string })?.text?.length ?? 0) + (weights.get(i) ?? 0) : 0) + ('tool_calls' in m ? JSON.stringify(m.tool_calls ?? '').length : 0);
   let total = out.reduce((n, m, i) => n + size(m, i), 0);
   let start = 0;
-  while (total > budget) {
+  // Old turns go in steps of a quarter of the budget, not one at a time as the
+  // conversation grows: where it starts then stays put for several requests,
+  // which read it from the prompt cache instead of paying to write it all again.
+  const step = budget / 4;
+  const excess = total > budget ? Math.ceil((total - budget) / step) * step : 0;
+  let dropped = 0;
+  while (dropped < excess) {
     let next = -1;
     for (let i = start + 1; i < out.length; i++) if (isTurn(transcript[i])) { next = i; break; }
     if (next < 0 || next > lastUser) break;
-    for (let i = start; i < next; i++) total -= size(out[i], i);
+    for (let i = start; i < next; i++) dropped += size(out[i], i);
     start = next;
   }
+  total -= dropped;
   let newest = out.length;
   while (newest > lastUser + 1 && (out[newest - 1].role === 'tool' || isUser(transcript[newest - 1]))) newest--;
   for (let i = lastUser + 1; i < newest && total > budget; i++) {
@@ -167,6 +184,25 @@ export function requestMessages(transcript: ChatMessage[], system: string, { bud
     out[i] = shorter;
   }
   return [{ role: 'system', content: system }, ...out.slice(start)];
+}
+
+/** Whether a failure is about the account (credits, sign-in), not about what was sent. */
+function aboutAccount(e: unknown): boolean {
+  const err = e as { code?: unknown; message?: unknown } | null;
+  if (['upstream_credits_exhausted', 'upstream_auth_failed', 'permission_denied', 'insufficient_funds', 'auth_canceled', 'auth_required', 'puter_unavailable'].includes(String(err?.code ?? ''))) return true;
+  return /insufficient|credit|funds|balance|sign in|log in|unauthori[sz]ed/i.test(String(err?.message ?? ''));
+}
+
+/** The newest message whose files are still sent, or -1. */
+function newestFiles(messages: ChatMessage[]): number {
+  let turns = 0;
+  for (let i = messages.length - 1; i >= 0 && turns < ATTACHMENT_TURNS; i--) {
+    const m = messages[i];
+    if (!isTurn(m)) continue;
+    turns++;
+    if (m.attachments?.length && !m.filesRefused && Array.isArray(m.content) && m.content.length > 1) return i;
+  }
+  return -1;
 }
 
 /** Drops the image data of screenshots already taken (requests show them as NO_IMAGE). */
@@ -187,6 +223,8 @@ export function createAgent(o: AgentOptions) {
     running = run;
     const steps: Step[] = [];
     let imagesRefused = false;
+    /** The message whose files were left out of a request that then went through (-1: none tried). */
+    let noFilesAt = -1;
     try {
       // No limit on rounds: the model works until it answers, or the user presses Stop.
       for (let round = 0; ; round++) {
@@ -196,7 +234,7 @@ export function createAgent(o: AgentOptions) {
         /** The reply's last part was a tool call: a cut there fell inside that call's arguments. */
         let endedInCall = false;
         const calls: { id: string; name: string; input: Record<string, unknown> }[] = [];
-        let req = requestMessages(messages, o.system, { noShots: imagesRefused });
+        let req = requestMessages(messages, o.system, { noShots: imagesRefused, noFilesAt });
         let retries = 0;
         for (;;) {
           try {
@@ -210,6 +248,7 @@ export function createAgent(o: AgentOptions) {
               const part = next.value;
               if (part.type === 'text') { text += part.text; endedInCall = false; emit({ type: 'text', text: part.text }); }
               else if (part.type === 'tool') { calls.push({ id: part.id || newId(), name: part.name, input: part.input }); endedInCall = true; }
+              else if (part.type === 'toolStart') emit({ type: 'writing', name: part.name });
               else if (part.type === 'cut') wasCut = true;
             }
             break;
@@ -229,8 +268,21 @@ export function createAgent(o: AgentOptions) {
             }
             // A request with a screenshot that fails before anything arrived: try once more without images.
             const hasShot = messages.some((m, i) => m.role === 'user' && m.screenshot && i > messages.findLastIndex((x) => x.role === 'user' && !x.screenshot));
-            if (hasShot && !imagesRefused) { imagesRefused = true; req = requestMessages(messages, o.system, { noShots: true }); continue; }
+            if (hasShot && !imagesRefused) { imagesRefused = true; req = requestMessages(messages, o.system, { noShots: true, noFilesAt }); continue; }
+            // A file the service cannot read (a PDF it cannot open, say) fails every request it goes
+            // with, the next messages' too: once more without the newest files, unless the account is why.
+            const files = noFilesAt < 0 && !isTransientError(e) && !aboutAccount(e) ? newestFiles(messages) : -1;
+            if (files >= 0) { noFilesAt = files; req = requestMessages(messages, o.system, { noShots: imagesRefused, noFilesAt }); continue; }
             throw e;
+          }
+        }
+        // That went through: those files are not sent again, and the user is told.
+        if (noFilesAt >= 0 && !run.stopped) {
+          const m = messages[noFilesAt] as UserMessage;
+          if (!m.filesRefused) {
+            m.filesRefused = true;
+            if (Array.isArray(m.content)) m.content = [m.content[0]];
+            emit({ type: 'filesRefused', names: (m.attachments ?? []).map((a) => a.name) });
           }
         }
         if (run.stopped) {
@@ -253,13 +305,20 @@ export function createAgent(o: AgentOptions) {
           return { stopped: false, cut: wasCut, steps };
         }
         const images: string[] = [];
+        /** A change in this reply that failed: the later ones were written expecting it to work. */
+        let failed: string | null = null;
         for (const call of calls) {
           const step: Step = { id: call.id, name: call.name, args: call.input, status: 'running' };
           steps.push(step);
+          const changes = !!o.changes?.(call.name);
           let content: string;
           if (run.stopped) {
             step.status = 'skipped';
             content = 'Not run: the user stopped the assistant.';
+          } else if (failed && changes) {
+            step.status = 'skipped';
+            step.summary = 'Not run: an earlier change in this reply failed.';
+            content = `Not run: ${failed} earlier in this reply failed, and this change may depend on it. The part is as that error left it; call this again if it still applies.`;
           } else if (lastCut && call === last) {
             step.status = 'error';
             step.summary = 'The reply hit its length limit while writing this step.';
@@ -281,6 +340,7 @@ export function createAgent(o: AgentOptions) {
               ? `${result.content.slice(0, MAX_RESULT_CHARS)}\n[…cut: the result had ${result.content.length.toLocaleString('en-US')} characters. Ask for less at a time (fewer features, a filter or a limit).]`
               : result.content;
           }
+          if (changes && step.status === 'error') failed ??= call.name;
           emit({ type: 'step', step: { ...step } });
           messages.push({ role: 'tool', tool_call_id: call.id, content });
         }

@@ -398,4 +398,152 @@ describe('assistant tools', () => {
     expect(one.content).toMatch(/f2 "Plate" \(extrude\) → ok\nArguments: \{"sketch":"s1"/);
     expect(one.content).toContain('Faces of f2');
   });
+
+  it('takes back the arguments get_model gives also when what they name is gone from the final body', async () => {
+    const { h } = await plate();
+    const list = await h.call('find_geometry', { kind: 'edges', direction: [0, 1, 0] });
+    const names = [...list.content.matchAll(/^- (\S+) \| line/gm)].map((m) => m[1]);
+    await h.call('add_fillet', { edges: names.slice(0, 3), radius: 5 });
+    // The filleted edges are gone after the fillet: "no edge named" refused the arguments as given.
+    const args = JSON.parse(/Arguments: (.*)/.exec((await h.call('get_model', { features: ['f3'] })).content)![1]);
+    await h.call('edit_feature', { feature: 'f3', params: { ...args, radius: 3 } });
+    expect(await h.volume()).toBeCloseTo(40000 - 3 * (9 - (Math.PI * 9) / 4) * 10, 1);
+    // A new name still resolves against the body, and one that is neither stored nor there is refused.
+    await h.call('edit_feature', { feature: 'f3', params: { edges: [...args.edges, names[3]] } });
+    expect(await h.volume()).toBeCloseTo(40000 - 4 * (9 - (Math.PI * 9) / 4) * 10, 1);
+    const stale = await h.call('edit_feature', { feature: 'f3', params: { edges: [...args.edges, 'f2:side:base_l9|f2:cap1'] } }, false);
+    expect(stale.content).toMatch(/edges\[3\]: no edge named "f2:side:base_l9\|f2:cap1"/);
+    // A pattern whose direction edge a later chamfer took away.
+    await h.call('add_hole', { on: topFace(h), points: [[-20, 10, 0]], diameter: 4 });
+    const hole = h.store.doc.features.at(-1)!.id;
+    const edge = h.edges.find((x) => x.dir && Math.abs(x.dir[0]) > 0.99 && x.a[1] > 9)!.name;
+    await h.call('add_linear_pattern', { features: [hole], direction: edge, spacing: 10, count: 3 });
+    const pat = h.store.doc.features.at(-1)!.id;
+    await h.call('add_chamfer', { edges: [edge], distance: 1 });
+    const pargs = JSON.parse(/Arguments: (.*)/.exec((await h.call('get_model', { features: [pat] })).content)![1]);
+    await h.call('edit_feature', { feature: pat, params: { ...pargs, count: 4 } });
+    expect(h.faces.filter((f) => f.feature === pat)).toHaveLength(3);
+  });
+
+  it('refuses a find_geometry filter that does not apply to the kind listed', async () => {
+    const { h } = await plate();
+    // These were ignored: "12 of 12 edges match" for edges with a normal.
+    expect((await h.call('find_geometry', { kind: 'edges', normal: [0, 1, 0] }, false)).content).toMatch(/^Error: normal: faces only; for edges use direction/);
+    expect((await h.call('find_geometry', { kind: 'faces', direction: [0, 1, 0] }, false)).content).toMatch(/^Error: direction: edges only; for faces use normal/);
+    expect((await h.call('find_geometry', { kind: 'faces', of_face: topFace(h) }, false)).content).toMatch(/^Error: of_face: edges only/);
+  });
+
+  it('takes find_geometry types in other words and says which types there are', async () => {
+    const { h } = await plate();
+    // "planar" and "Line" matched nothing, with no hint why.
+    expect((await h.call('find_geometry', { kind: 'faces', type: 'planar' })).content).toMatch(/^6 of 6 faces match/);
+    expect((await h.call('find_geometry', { kind: 'edges', type: 'Line' })).content).toMatch(/^12 of 12 edges match/);
+    expect((await h.call('find_geometry', { kind: 'faces', type: 'cylinder' })).content).toMatch(/^0 of 6 faces match\. Face types in the body: plane\./);
+  });
+
+  it('refuses a feature name that another feature or a base plane answers to', async () => {
+    const { h } = await plate();
+    // Renamed "s1", the extrude could no longer be named: "s1" always found the sketch.
+    expect((await h.call('edit_feature', { feature: 'f2', name: 's1' }, false)).content).toMatch(/^Error: name: "s1" is the id of s1/);
+    expect((await h.call('add_plane', { reference: 'front', offset: 20, name: 'top' }, false)).content).toMatch(/^Error: name: "top" names the base plane top/);
+    expect((await h.call('create_sketch', { plane: 'front', name: 'plate', shapes: [{ type: 'point', at: [0, 0] }] }, false)).content).toMatch(/^Error: name: "plate" is already the name of f2/);
+    expect((await h.call('edit_sketch', { sketch: 's1', name: 'Plate' }, false)).content).toMatch(/already the name of f2/);
+    expect(h.store.doc.features.map((f) => f.name)).toEqual(['Sketch1', 'Plate']);
+    // A feature keeps its own name, in any case.
+    await h.call('edit_feature', { feature: 'f2', name: 'PLATE' });
+    await h.call('edit_feature', { feature: 'f2', name: 'Base plate' });
+    expect(h.store.feature('f2')!.name).toBe('Base plate');
+  });
+
+  it('describes a long sketch in parts, every point still given with its id and coordinates', async () => {
+    const h = new TestHost();
+    const pts = Array.from({ length: 400 }, (_, i) => [Math.round(Math.cos((i / 400) * 2 * Math.PI) * 1000) / 10, Math.round(Math.sin((i / 400) * 2 * Math.PI) * 1000) / 10]);
+    await h.call('create_sketch', { plane: 'front', shapes: [{ type: 'polyline', id: 'p', points: pts, closed: true }, { type: 'point', id: 'pin', at: [0, 0] }] });
+    // All 801 entities came back at once (52,000 characters), every polyline point twice.
+    const first = await h.call('get_sketch', { sketch: 's1' });
+    expect(first.content.length).toBeLessThan(15000);
+    expect(first.content).toMatch(/- … 281 more \(get_sketch with from: 120\)/);
+    let all = '';
+    for (let from = 0; from < 401; from += 120) all += (await h.call('get_sketch', { sketch: 's1', from })).content;
+    expect(all).toMatch(/^- pin point \(0, 0\)$/m);
+    const listed = new Set([...all.matchAll(/\b(p_p\d+)\(-?[\d.]+, -?[\d.]+\)/g)].map((m) => m[1]));
+    expect(listed.size).toBe(400);
+  });
+
+  it('gives the sketch\'s own sizes when an edit cannot be solved', async () => {
+    const h = new TestHost();
+    await h.call('create_sketch', { plane: 'front', shapes: [{ type: 'rectangle', id: 'r', corner1: [0, 0], corner2: [40, 20] }], dimensions: [{ refs: ['r_l0'], value: 40 }] });
+    // The sizes came from the failed solve's half-way state: "[r_l0] 35 mm".
+    const r = await h.call('edit_sketch', { sketch: 's1', dimensions: [{ refs: ['r_p0', 'r_p1'], type: 'hdistance', value: 30 }] }, false);
+    expect(r.content).toMatch(/Problem constraints: d6 D1 distance \[r_l0\] 40 mm; d1 D2 hdistance \[r_p0, r_p1\] 40 mm\./);
+  });
+
+  it('refuses a length, radius or diameter of zero or less', async () => {
+    const h = new TestHost();
+    await h.call('set_variables', { set: [{ name: 'Gap', value: 0 }] });
+    await h.call('create_sketch', { plane: 'front', shapes: [{ type: 'rectangle', id: 'r', corner1: [0, 0], corner2: [40, 20] }, { type: 'circle', id: 'c', center: [20, 10], radius: 5 }], dimensions: [{ refs: ['r_l0'], value: 40 }] });
+    // A zero length was solved: "Updated sketch s1" with a profile of "area 1.84495e-9 mm², x 0 to 0".
+    const zero = await h.call('edit_sketch', { sketch: 's1', set_dimensions: [{ dimension: 'D1', value: 0 }] }, false);
+    expect(zero.content).toMatch(/^Error: set_dimensions\[0\]\.value: a distance must be greater than zero/);
+    expect((await h.call('edit_sketch', { sketch: 's1', dimensions: [{ refs: ['c'], value: '=Gap' }] }, false)).content).toMatch(/dimensions\[0\]\.value: a diameter must be greater than zero \(=Gap is 0 mm\)/);
+    expect((await h.call('edit_sketch', { sketch: 's1', dimensions: [{ refs: ['r_l1'], value: -20 }] }, false)).content).toMatch(/greater than zero/);
+    expect(h.store.feature<SketchFeature>('s1')!.constraints.filter((c) => c.type === 'distance')).toHaveLength(1);
+  });
+
+  it('shows a dimension linked to a variable with its expression once', async () => {
+    const h = new TestHost();
+    await h.call('set_variables', { set: [{ name: 'W', value: 20 }] });
+    const r = await h.call('create_sketch', { plane: 'front', shapes: [{ type: 'rectangle', id: 'r', corner1: [0, 0], corner2: [40, 20] }], dimensions: [{ refs: ['r_l0'], value: '=W*2' }] });
+    // It read "D1 distance [r_l0] 40 mm = =W*2".
+    expect(r.content).toContain('D1 distance [r_l0] 40 mm (=W*2)');
+  });
+
+  it('suggests edges as well as faces for a name measure does not know', async () => {
+    const { h } = await plate();
+    const edge = h.edges.find((e) => e.name.startsWith('f2:cap1|'))!.name;
+    // It said "no face named", suggesting only faces, for a misspelt edge name.
+    const r = await h.call('measure', { a: `${edge}x`, b: topFace(h) }, false);
+    expect(r.content).toMatch(/^Error: a: no face or edge named ".*x" in the current model\. Similar names: .*\|.*Use find_geometry/);
+    expect(r.content).toContain(edge);
+  });
+
+  it('changes only the second direction\'s arguments that are given', async () => {
+    const h = new TestHost();
+    await h.call('create_sketch', { plane: 'front', shapes: [{ type: 'circle', center: [0, 0], radius: 5 }] });
+    await h.call('add_extrude', { sketch: 's1', depth: 10, direction2: { end: 'blind', depth: 4 } });
+    // "direction2.depth is required for a blind second direction", though it had one.
+    await h.call('edit_feature', { feature: 'f2', params: { direction2: { end: 'blind' } } });
+    expect(h.bbox!.min[2]).toBeCloseTo(-4);
+    await h.call('edit_feature', { feature: 'f2', params: { direction2: { depth: 6 } } });
+    expect(h.bbox!.min[2]).toBeCloseTo(-6);
+    const fresh = new TestHost();
+    await fresh.call('create_sketch', { plane: 'front', shapes: [{ type: 'circle', center: [0, 0], radius: 5 }] });
+    expect((await fresh.call('add_extrude', { sketch: 's1', depth: 10, direction2: { end: 'blind' } }, false)).content).toMatch(/direction2\.depth is required/);
+  });
+
+  it('refuses a revolve angle over 360 degrees', async () => {
+    const h = new TestHost();
+    await h.call('create_sketch', { plane: 'front', shapes: [{ type: 'centerline', from: [0, 0], to: [0, 10] }, { type: 'rectangle', corner1: [10, 0], corner2: [15, 5] }] });
+    // 720 was stored and reported back while the kernel built 360.
+    expect((await h.call('add_revolve', { sketch: 's1', angle: 720 }, false)).content).toMatch(/^Error: angle: at most 360/);
+    await h.call('add_revolve', { sketch: 's1', angle: 360 });
+    const rev = h.store.doc.features.at(-1)!.id;
+    expect((await h.call('edit_feature', { feature: rev, params: { angle: '=400' } }, false)).content).toMatch(/angle: at most 360/);
+  });
+
+  it('says plainly when an edit_feature changes nothing', async () => {
+    const { h } = await plate();
+    // It read "Updated f2 "Plate" → ok." with every argument, then "Nothing changed.".
+    const r = await h.call('edit_feature', { feature: 'Plate', params: { depth: 10 } });
+    expect(r.content).toBe('Nothing changed: f2 "Plate" is already as given.');
+    expect(r.changed).toBe(false);
+  });
+
+  it('ends an undone change\'s reason with one full stop', async () => {
+    const h = new TestHost();
+    await h.call('create_sketch', { plane: 'front', shapes: [{ type: 'circle', center: [0, 0], radius: 5 }] });
+    // "… Use Blind.. It was undone".
+    const r = await h.call('add_extrude', { sketch: 's1', depth: 10, direction2: { end: 'through_all' } }, false);
+    expect(r.content).toMatch(/Use Blind\. It was undone/);
+  });
 });

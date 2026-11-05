@@ -90,8 +90,12 @@ export class FeatureCodec {
         if (has('reverse')) f.flip = bool(a.reverse, 'reverse');
         if (has('direction2')) {
           const d = a.direction2 as Obj | null;
-          f.dir2 = d ? { end: d.end == null ? 'blind' : choice(d.end, END2, 'direction2.end'), depth: d.depth == null ? 0 : u.parseParam(d.depth, 'length', 'direction2.depth') } : null;
-          if (f.dir2 && f.dir2.end === 'blind' && d?.depth == null) throw new ToolError('direction2.depth is required for a blind second direction');
+          // What is not given stays as it was, like the feature's other arguments; a depth alone means blind, as above.
+          const cur = f.dir2;
+          const kept = cur && (typeof cur.depth === 'string' || cur.depth > 0) ? cur.depth : null;
+          const depth = d?.depth != null ? u.parseParam(d.depth, 'length', 'direction2.depth') : kept;
+          f.dir2 = d ? { end: d.end != null ? choice(d.end, END2, 'direction2.end') : d.depth != null ? 'blind' : cur?.end ?? 'blind', depth: depth ?? 0 } : null;
+          if (f.dir2 && f.dir2.end === 'blind' && depth == null) throw new ToolError('direction2.depth is required for a blind second direction');
         }
         if (has('draft')) f.draft = ang('draft');
         if (has('draft_outward')) f.draftOutward = bool(a.draft_outward, 'draft_outward');
@@ -105,8 +109,9 @@ export class FeatureCodec {
         const f = out?.type === 'revolve' ? out : newRevolve(id, name, '', cut);
         f.cut = cut;
         if (has('sketch')) f.sketch = refs.sketch(a.sketch).id;
-        if (has('axis')) f.axis = a.axis == null ? null : refs.axis(a.axis);
-        if (has('angle')) f.angle = ang('angle');
+        if (has('axis')) f.axis = a.axis == null ? null : refs.axis(a.axis, 'axis', f.axis);
+        // The kernel builds at most a full turn: 720 was kept and reported back while 360 was built.
+        if (has('angle')) { f.angle = ang('angle'); if (u.evalAngle(f.angle) > 360) throw new ToolError('angle: at most 360 (a full revolve)'); }
         if (has('end')) f.end = choice(a.end, { blind: 'blind', one_direction: 'blind', mid_plane: 'midPlane', midplane: 'midPlane', symmetric: 'midPlane' }, 'end');
         if (has('reverse')) f.flip = bool(a.reverse, 'reverse');
         if (has('thin')) f.thin = thin(a.thin);
@@ -117,8 +122,8 @@ export class FeatureCodec {
         need('radius');
         const f = out?.type === 'fillet' ? out : newFillet(id, name, 1);
         if (has('radius')) f.radius = len('radius');
-        if (has('edges')) f.edges = refs.edgeRefs(a.edges, 'edges');
-        if (has('faces')) f.faces = refs.faceRefs(a.faces, 'faces');
+        if (has('edges')) f.edges = refs.edgeRefs(a.edges, 'edges', f.edges);
+        if (has('faces')) f.faces = refs.faceRefs(a.faces, 'faces', f.faces);
         if (!f.edges.length && !f.faces.length) throw new ToolError('give edges and/or faces (every edge of a face is filleted)');
         return f;
       }
@@ -130,8 +135,8 @@ export class FeatureCodec {
         if (has('distance2')) f.distance2 = len('distance2');
         if (has('angle')) f.angle = ang('angle');
         if (has('flip')) f.flip = bool(a.flip, 'flip');
-        if (has('edges')) f.edges = refs.edgeRefs(a.edges, 'edges');
-        if (has('faces')) f.faces = refs.faceRefs(a.faces, 'faces');
+        if (has('edges')) f.edges = refs.edgeRefs(a.edges, 'edges', f.edges);
+        if (has('faces')) f.faces = refs.faceRefs(a.faces, 'faces', f.faces);
         if (!f.edges.length && !f.faces.length) throw new ToolError('give edges and/or faces (every edge of a face is chamfered)');
         return f;
       }
@@ -139,7 +144,7 @@ export class FeatureCodec {
         need('thickness');
         const f = out?.type === 'shell' ? out : newShell(id, name, 1);
         if (has('thickness')) f.thickness = len('thickness');
-        if (has('faces_to_remove')) f.faces = refs.faceRefs(a.faces_to_remove, 'faces_to_remove');
+        if (has('faces_to_remove')) f.faces = refs.faceRefs(a.faces_to_remove, 'faces_to_remove', f.faces);
         if (has('outward')) f.outward = bool(a.outward, 'outward');
         return f;
       }
@@ -168,7 +173,7 @@ export class FeatureCodec {
         need('features', 'direction', 'spacing', 'count');
         const f = out?.type === 'linearPattern' ? out : newLinearPattern(id, name, [], 10);
         if (has('features')) f.seeds = refs.features_(a.features, 'features').map((x) => x.id);
-        if (has('direction')) f.dir1.ref = refs.axis(a.direction, 'direction');
+        if (has('direction')) f.dir1.ref = refs.axis(a.direction, 'direction', f.dir1.ref);
         if (has('spacing')) f.dir1.spacing = len('spacing');
         if (has('count')) f.dir1.count = cnt('count');
         if (has('reverse')) f.dir1.flip = bool(a.reverse, 'reverse');
@@ -177,7 +182,7 @@ export class FeatureCodec {
           if (!d) f.dir2 = null;
           else {
             const cur: PatternDir = f.dir2 ?? { ref: null, spacing: 10, count: 2, flip: false };
-            if (d.direction !== undefined) cur.ref = refs.axis(d.direction, 'direction2.direction');
+            if (d.direction !== undefined) cur.ref = refs.axis(d.direction, 'direction2.direction', cur.ref);
             if (d.spacing !== undefined) cur.spacing = u.parseParam(d.spacing, 'length', 'direction2.spacing');
             if (d.count !== undefined) cur.count = u.parseParam(d.count, 'count', 'direction2.count');
             if (d.reverse !== undefined) cur.flip = bool(d.reverse, 'direction2.reverse');
@@ -191,7 +196,7 @@ export class FeatureCodec {
         need('features', 'axis', 'count');
         const f = out?.type === 'circularPattern' ? out : newCircularPattern(id, name, []);
         if (has('features')) f.seeds = refs.features_(a.features, 'features').map((x) => x.id);
-        if (has('axis')) f.axis = refs.axis(a.axis);
+        if (has('axis')) f.axis = refs.axis(a.axis, 'axis', f.axis);
         if (has('count')) f.count = cnt('count');
         if (has('angle')) f.angle = ang('angle');
         if (has('equal_spacing')) f.equal = bool(a.equal_spacing, 'equal_spacing');
@@ -202,13 +207,13 @@ export class FeatureCodec {
         need('plane');
         const f = out?.type === 'mirror' ? out : newMirror(id, name, []);
         if (has('features')) f.seeds = refs.features_(a.features, 'features').map((x) => x.id);
-        if (has('plane')) f.plane = refs.plane(a.plane);
+        if (has('plane')) f.plane = refs.plane(a.plane, 'plane', f.plane);
         return f;
       }
       case 'plane': {
         need('reference');
         const f = out?.type === 'plane' ? out : newPlane(id, name, null, 0);
-        if (has('reference')) f.ref = refs.plane(a.reference, 'reference');
+        if (has('reference')) f.ref = refs.plane(a.reference, 'reference', f.ref);
         if (has('offset')) f.offset = len('offset');
         if (has('reverse')) f.flip = bool(a.reverse, 'reverse');
         return f;
@@ -235,8 +240,8 @@ export class FeatureCodec {
       case 'draft': {
         need('faces', 'neutral_plane', 'angle');
         const f = out?.type === 'draft' ? out : newDraft(id, name);
-        if (has('faces')) f.faces = refs.faceRefs(a.faces, 'faces');
-        if (has('neutral_plane')) f.neutral = refs.plane(a.neutral_plane, 'neutral_plane');
+        if (has('faces')) f.faces = refs.faceRefs(a.faces, 'faces', f.faces);
+        if (has('neutral_plane')) f.neutral = refs.plane(a.neutral_plane, 'neutral_plane', f.neutral);
         if (has('angle')) f.angle = ang('angle');
         if (has('reverse')) f.flip = bool(a.reverse, 'reverse');
         return f;
