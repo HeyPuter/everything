@@ -1101,6 +1101,91 @@
 .organize-size input {
   width: 110px;
 }
+.organize-commands {
+  display: contents;
+}
+/* A phone: the status, tile size and Close share the first row, and the commands take the
+   second, icons only (their names stay for assistive technology and as tooltips), scrolling
+   sideways where the screen is too narrow for all of them. The toolbar wrapped onto three or
+   four rows here, taking the room the pages need. */
+@media (max-width: 760px) {
+  .organize-toolbar {
+    gap: 0 4px;
+    min-height: 0;
+    padding: 2px max(8px, var(--safe-right)) 2px max(8px, var(--safe-left));
+  }
+  .organize-title {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .organize-status {
+    flex: 1 1 0;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .organize-sep,
+  .organize-size svg,
+  .organize-btn span,
+  .organize-close span {
+    display: none;
+  }
+  .organize-size {
+    min-height: 40px;
+  }
+  .organize-size input {
+    width: 84px;
+  }
+  .organize-close {
+    margin-left: 0;
+  }
+  .organize-toolbar .icon-btn,
+  .organize-btn,
+  .organize-close {
+    width: 40px;
+    min-width: 40px;
+    min-height: 40px;
+    padding: 0;
+    justify-content: center;
+    border-color: transparent;
+    background: transparent;
+  }
+  .organize-commands {
+    order: 1;
+    flex: 1 0 100%;
+    display: flex;
+    gap: 2px;
+    overflow-x: auto;
+    scrollbar-width: none;
+    scroll-padding-inline: 24px;
+  }
+  .organize-commands.more-start {
+    mask-image: linear-gradient(to right, transparent, #000 24px);
+  }
+  .organize-commands.more-end {
+    mask-image: linear-gradient(to left, transparent, #000 24px);
+  }
+  .organize-commands.more-start.more-end {
+    mask-image: linear-gradient(
+      to right,
+      transparent,
+      #000 24px,
+      #000 calc(100% - 24px),
+      transparent
+    );
+  }
+}
+/* Spaced so that on the smallest phones a button is cut by the fade, showing there are more. */
+@media (max-width: 360px) {
+  .organize-commands {
+    gap: 6px;
+  }
+}
 .organize-grid {
   flex: 1;
   min-height: 0;

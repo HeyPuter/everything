@@ -633,3 +633,81 @@ test('with no page chosen, Insert in Organize pages offers the same place as the
   if (await pane.isVisible())
     await expect(pane.getByRole('heading', { name: 'Insert after page 1' })).toBeVisible();
 });
+
+for (const [width, height] of [
+  [320, 700],
+  [390, 844],
+])
+  test(`the Organize pages toolbar takes two rows on a ${width}px phone`, async ({ page }) => {
+    await page.setViewportSize({ width, height });
+    await mockPuter(page);
+    await page.goto('/#library');
+    await openPdf(page, await tallPdf());
+    await page.getByRole('button', { name: 'Tools', exact: true }).click();
+    await page
+      .getByRole('complementary', { name: 'Tools' })
+      .getByRole('button', { name: 'Organize pages', exact: true })
+      .click();
+    const toolbar = page.getByRole('toolbar', { name: 'Organize pages' });
+    const grid = page.getByRole('listbox', { name: 'Pages' });
+    // The middle page, so that every command is enabled.
+    await grid.getByRole('option', { name: 'Page 2', exact: true }).click();
+    await expect(page.locator('.organize-status')).toHaveText('1 of 3 pages selected');
+    // It wrapped onto three rows at 390px and four at 320px, leaving the pages little room.
+    expect((await toolbar.boundingBox()).height).toBeLessThan(100);
+    await expect(toolbar.getByRole('heading', { name: 'Organize pages' })).toBeAttached();
+    const names = [
+      'Insert',
+      'Rotate counterclockwise',
+      'Rotate clockwise',
+      'Move pages earlier',
+      'Move pages later',
+      'Duplicate pages',
+      'Extract pages',
+      'Delete pages',
+      'Close',
+    ];
+    const bar = await toolbar.boundingBox();
+    for (const name of names) {
+      const button = toolbar.getByRole('button', { name, exact: true });
+      // Each keeps its name and a finger-sized target, and the keyboard brings it into view.
+      await button.focus();
+      await expect(button).toBeFocused();
+      const box = await button.boundingBox();
+      expect(box.width).toBeGreaterThanOrEqual(40);
+      expect(box.height).toBeGreaterThanOrEqual(40);
+      await expect
+        .poll(async () => {
+          const { x, width: w } = await button.boundingBox();
+          return x >= bar.x && x + w <= bar.x + bar.width;
+        })
+        .toBe(true);
+    }
+    await expect(page.getByRole('slider', { name: 'Page tile size' })).toBeVisible();
+    // Delete, at the far end of the row, still works from there.
+    await toolbar.getByRole('button', { name: 'Delete pages', exact: true }).click();
+    await expect(page.getByRole('dialog')).toContainText('Remove page 2?');
+  });
+
+test('the Organize pages toolbar keeps its labels and one row of commands on a desktop', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await mockPuter(page);
+  await page.goto('/#library');
+  await openPdf(page, await tallPdf());
+  await page.getByRole('button', { name: 'Tools', exact: true }).click();
+  await page
+    .getByRole('complementary', { name: 'Tools' })
+    .getByRole('button', { name: 'Organize pages', exact: true })
+    .click();
+  const toolbar = page.getByRole('toolbar', { name: 'Organize pages' });
+  await expect(toolbar.getByRole('heading', { name: 'Organize pages' })).toBeVisible();
+  await expect(toolbar.getByText('Insert', { exact: true })).toBeVisible();
+  await expect(toolbar.getByText('Close', { exact: true })).toBeVisible();
+  const middle = async (name) => {
+    const { y, height } = await toolbar.getByRole('button', { name, exact: true }).boundingBox();
+    return y + height / 2;
+  };
+  expect(await middle('Delete pages')).toBeCloseTo(await middle('Insert'), 0);
+});

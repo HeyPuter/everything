@@ -205,12 +205,11 @@ export function createOrganizeView({
       ],
     });
   }
-  const toolbar = el(
+  // One row of their own on a phone, scrolling sideways when it runs short, with a fade on each
+  // side that has more of them.
+  const commandRow = el(
     'div',
-    { class: 'organize-toolbar', role: 'toolbar', 'aria-label': 'Organize pages' },
-    el('h2', { class: 'organize-title' }, 'Organize pages'),
-    status,
-    el('span', { class: 'organize-sep', 'aria-hidden': 'true' }),
+    { class: 'organize-commands' },
     commands.insert,
     commands.left,
     commands.right,
@@ -219,6 +218,21 @@ export function createOrganizeView({
     commands.duplicate,
     commands.extract,
     commands.remove,
+  );
+  const markOverflow = () => {
+    const { scrollLeft, scrollWidth, clientWidth } = commandRow;
+    commandRow.classList.toggle('more-start', scrollLeft > 1);
+    commandRow.classList.toggle('more-end', scrollLeft + clientWidth < scrollWidth - 1);
+  };
+  commandRow.addEventListener('scroll', markOverflow, { passive: true });
+  new ResizeObserver(markOverflow).observe(commandRow);
+  const toolbar = el(
+    'div',
+    { class: 'organize-toolbar', role: 'toolbar', 'aria-label': 'Organize pages' },
+    el('h2', { class: 'organize-title' }, 'Organize pages'),
+    status,
+    el('span', { class: 'organize-sep', 'aria-hidden': 'true' }),
+    commandRow,
     el('span', { class: 'organize-sep', 'aria-hidden': 'true' }),
     el(
       'label',
