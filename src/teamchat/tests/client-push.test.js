@@ -153,3 +153,44 @@ describe('dismissing shown notifications', () => {
     }
   });
 });
+
+describe('push health', () => {
+  it('tells the workers when Puter already has pushes on but the account never turned them on', async () => {
+    const { store } = await setup('app');
+    await store.autoEnablePush();
+    expect(store.profile.prefs.push).toBe(true);
+    expect(puter.workers.exec).toHaveBeenCalledWith(expect.stringContaining('/pn'), expect.objectContaining({ method: 'POST' }));
+  });
+
+  it('registers a workspace on bootstrap while on in this browser and never decided', async () => {
+    const { store } = await setup();
+    store.pushStatus = 'on';
+    await store._reconcilePush(REF, null);
+    expect(puter.workers.exec).toHaveBeenCalledWith(expect.stringContaining('/pn'), expect.objectContaining({ method: 'POST' }));
+  });
+
+  it('says why notifications would not arrive', async () => {
+    const { store } = await setup('app');
+    expect(store.pushHealth().state).toBeNull(); // not read yet
+    await store.refreshPushStatus();
+    expect(store.pushHealth()).toEqual({ state: null, reach: null, team: null });
+    puter.notifications.status.mockResolvedValue('off');
+    await store.refreshPushStatus();
+    expect(store.pushHealth().state).toBe('off');
+    store.profile.prefs.push = false;
+    expect(store.pushHealth().state).toBeNull();
+    store.profile.prefs.push = true;
+    store._notePushReach({ reach: 'recipient_not_accepting_shares', team: null });
+    expect(store.pushHealth()).toMatchObject({ reach: 'recipient_not_accepting_shares' });
+  });
+
+  it('puts the reason in words, the device first', async () => {
+    await setup('app');
+    const { pushProblem } = await import('../src/ui/pushnotice.js');
+    expect(pushProblem({ state: null, reach: null, team: null })).toBeNull();
+    expect(pushProblem({ state: 'blocked', reach: 'x', team: null }).key).toBe('blocked');
+    expect(pushProblem({ state: null, reach: 'events_kv_handle_not_delegated', team: null }).text).toMatch(/owner/);
+    expect(pushProblem({ state: null, reach: null, team: 'events_kv_handle_not_delegated' })).toMatchObject({ team: 'events_kv_handle_not_delegated' });
+    expect(pushProblem({ state: null, reach: 'odd_code', team: null }).text).toMatch(/odd_code/);
+  });
+});

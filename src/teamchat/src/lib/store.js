@@ -444,6 +444,8 @@ class Store extends EventTarget {
     this._readTimers = new Map(); // `${wsId}:${conv}` -> the debounce of a read about to be sent (see markRead)
     this._readPending = new Map(); // the same keys -> what the debounce will do, for the page going away to do it now (see _flushReads)
     this.pushStatus = 'off';
+    this.pushKnown = false; // pushStatus read from Puter at least once
+    this.pushReach = null; // the open workspace's word on reaching this member ({ reach, team }, see worker/events.js pushStatus)
     this._localSeen = new Map(); // conv -> highest seq the user has actually seen on screen
     this._wsFetch = 0; // refreshWorkspace() calls made, and the newest one applied: answers apply in order asked
     this._wsApplied = 0;
@@ -1383,6 +1385,7 @@ class Store extends EventTarget {
     const linked = this._linkedState();
     this.ws = data.workspace;
     this.me = data.me;
+    this._notePushReach(data.push);
     this.act = { c: { ...linked.c, ...(data.activity.c || {}) }, p: linked.p, ps: linked.ps, w: data.activity.w || 0, u: data.activity.u?.[this.uuid] || 0 };
     this._mergePresence(data.activity.p, data.activity.ps);
     this.since = (data.now || Date.now()) - 2000;
@@ -1457,6 +1460,7 @@ class Store extends EventTarget {
     // Keep the newest activity we already know, apply the doc updates.
     this.ws = data.workspace;
     this.me = data.me;
+    this._notePushReach(data.push);
     this.act.w = data.activity.w || this.act.w;
     this.act.u = data.activity.u?.[this.uuid] || this.act.u;
     for (const [conv, v] of Object.entries(data.activity.c || {})) {
@@ -3033,7 +3037,15 @@ class Store extends EventTarget {
   async autoEnablePush() {
     if (typeof puter === 'undefined' || !puter.notifications) return;
     if (this.profile?.prefs?.push === false) return;
-    if ((await this.refreshPushStatus()) === 'on') return;
+    if ((await this.refreshPushStatus()) === 'on') {
+      // On in this browser (granted on the desktop, or before the account
+      // remembered it) but never told to the workers: nothing was sent here.
+      if (this.profile?.prefs?.push !== true && !this._pushToggling) {
+        await this.updatePrefs({ push: true, pushDeclined: false }).catch(() => {});
+        await Promise.allSettled(this._pushRefs().map((ref) => this._registerPush(ref)));
+      }
+      return;
+    }
     const web = puter.env === 'web';
     if (web && (!notificationsSupported() || (isIos() && !isStandalone()))) return;
     const allowed = web ? notificationsGranted() : await puter.notifications.hasPermission().catch(() => false);
@@ -3047,9 +3059,12 @@ class Store extends EventTarget {
     } catch {
       return;
     }
+    if (this._pushAsking) return;
+    this._pushAsking = true;
     const ask = () => {
       document.removeEventListener('pointerdown', ask, true);
       document.removeEventListener('keydown', ask, true);
+      this._pushAsking = false;
       try {
         localStorage.setItem(NOTIFY_ASKED_KEY, '1');
       } catch { /* asked again next load */ }
@@ -3062,8 +3077,44 @@ class Store extends EventTarget {
 
   async refreshPushStatus() {
     this.pushStatus = await puterPushStatus();
+    this.pushKnown = true;
     this.emit('push');
     return this.pushStatus;
+  }
+
+  _notePushReach(push) {
+    const next = push && typeof push === 'object' ? { reach: push.reach || null, team: push.team || null } : null;
+    if (JSON.stringify(next) === JSON.stringify(this.pushReach)) return;
+    this.pushReach = next;
+    this.emit('push');
+  }
+
+  /**
+   * Why notifications would not reach this member here, or null when
+   * nothing stands in the way or they turned them off themselves:
+   * 'unsupported', 'home-screen', 'blocked' (the browser refuses them),
+   * 'off' (not on in this browser), or the open workspace's worker's
+   * refusal code (`reach`). `team` is the owner's: a refusal that keeps
+   * every other member from them.
+   */
+  pushHealth() {
+    const reach = this.pushReach?.reach || null;
+    const team = this.pushReach?.team || null;
+    if (typeof puter === 'undefined' || !puter.notifications) return { state: 'unsupported', reach, team };
+    if (this.profile?.prefs?.push === false) return { state: null, reach: null, team };
+    const web = puter.env === 'web';
+    if (web && isIos() && !isStandalone()) return { state: 'home-screen', reach, team };
+    if (web && !notificationsSupported()) return { state: 'unsupported', reach, team };
+    if (web && Notification.permission === 'denied') return { state: 'blocked', reach, team };
+    // Asked from the first click or key press still to come (autoEnablePush).
+    if (this.pushStatus !== 'on') return { state: this.pushKnown && !this._pushAsking ? 'off' : null, reach, team };
+    return { state: null, reach, team };
+  }
+
+  /** The tab came back: a change made in the browser's settings meanwhile is picked up. */
+  async recheckPush() {
+    if (this._pushToggling || !this.profile) return;
+    await this.autoEnablePush();
   }
 
   /**
@@ -3112,7 +3163,7 @@ class Store extends EventTarget {
   async _reconcilePush(ref, pn) {
     // Workers hear of it once pushes were turned on somewhere, not from the default alone.
     const push = this.profile?.prefs?.push;
-    if (push === true) await this._registerPush(ref);
+    if (push === true || (push == null && this.pushStatus === 'on')) await this._registerPush(ref);
     else if (push === false && pn) await api.pushUnregister(ref);
   }
 

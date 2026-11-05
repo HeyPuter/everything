@@ -450,6 +450,18 @@ this browser; the desktop switch revokes the app's push permission across
 devices and turns stored reminders off. Signing out first removes this page's
 push handler and, on the web, this browser's subscription.
 
+When pushes don't reach this device and weren't turned off here,
+`src/js/push-notice.js` keeps a toast up saying why (`pushHealth()`: not set
+up, blocked in the browser, Calendar turned off in Puter's settings, not on the
+Home Screen, or the code `enable()` failed with), with **Turn on** where a
+click can fix it; closing it hides it on this device for a week
+(`cal:push-notice`). The account menu shows the same reason under the switch.
+On load and when the tab comes back (at most once a minute), a browser that
+allows notifications is enabled again, stored reminders are turned back on if
+pushes are, and a push handler that failed to register is registered again.
+A revoked app is only re-asked from a click. The mail handler and RSVP worker
+log the code of a notification they couldn't send.
+
 - **Reminders.** Enabling pushes also enables stored reminders for the account.
   While Calendar is open and online, `src/js/stored-reminders.js` reconciles the
   next seven days of reminder fire times on load, after edits, and every 15
@@ -872,6 +884,7 @@ src/
     mail-reply.js          # answering an emailed invitation by email (iTIP REPLY)
     mail-dialog.js         # connect, policy, blocked senders
     push.js                # push notifications: onPush, clicks, the settings switch
+    push-notice.js         # the notice shown when pushes don't reach this device
     stored-reminders.js    # account-wide deferred reminder reconciliation
     windows-zones.js       # Windows/Mozilla TZID names -> IANA
     booking.js             # booking links: configs, busy-time push, booking pull

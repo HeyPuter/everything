@@ -192,6 +192,8 @@ Every page load with notifications on calls `onPush('mail', …)`, which says wh
 
 Where a server has no push service, or the handler is not published, the app falls back to a notification the tab shows itself while it is open but not focused.
 
+When new mail cannot reach this device and it was not turned off here, a notice above the rows says why, with the one fix: **Turn on** (enables from the click), **How to allow** (the browser blocks the site), or **How to set up** (iPhone and iPad outside the Home Screen). It also names a subscription that will not run: the handler not published or suspended, no credit, background permission withdrawn, or a temporary account. Before this device has been asked it says nothing, since the first click asks. The menu switch shows the same reason under it. Dismissing hides that reason for seven days (`puter-mail:push-notice`). On load, and when the tab returns (at most once a minute), pushes meant to be on are turned on again where the browser allows it, and a lapsed subscription is made again. The handlers log notify failures with their code.
+
 Signing out first stops this page's `onPush()` handler, then, on a website, `disable()`s this browser's subscription (bounded to 4 s); inside the Puter desktop `disable()` would revoke every device, so only the handler goes. The account's new-mail subscription stays for other devices.
 
 On iPhone and iPad a site can only receive pushes once it is added to the Home Screen and opened from there; the app detects that case and says how, rather than asking. `public/manifest.json` makes the Home Screen app standalone.

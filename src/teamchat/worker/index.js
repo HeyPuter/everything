@@ -58,7 +58,7 @@ import { unfurl, readImage, allowedUrl, readCapped } from './unfurl.js';
 import { vapidKeys, sendPush, pushAllowed } from './push.js';
 import { signal } from './signal.js';
 import {
-  eventsBlock, serverEventsStatus, clearEventsVerdict, releaseHandle, remintHandle, REVOKE_BATCH_MAX, workerAppUid, ensureHandle,
+  eventsBlock, serverEventsStatus, clearEventsVerdict, releaseHandle, remintHandle, REVOKE_BATCH_MAX, workerAppUid, ensureHandle, pushStatus,
 } from './events.js';
 import { ringBlock, ringCount, bumpRingEpoch } from './ring.js';
 import { EV_SHARDS, EV_RING_SHARDS, RING_SLOTS, pushGroup } from '../src/shared/events.js';
@@ -1705,6 +1705,8 @@ const PUSH_FANOUT = 50;
 const PUSH_DEVICES = 5;
 /** A heartbeat this recent means a tab of theirs is in view here (one every 30 seconds). */
 const PUSH_PRESENT_MS = 75_000;
+/** notify() refusals not worth telling the member about. */
+const PUSH_PASSING = new Set(['too_many_requests', 'rate_limited', 'subject_does_not_exist', 'kv_share_notify_not_enabled']);
 
 /** Notify opted-in members; legacy devices still receive Web Push. Never fails a post. */
 async function sendPushes(ws, uuids, n, readDocs = null) {
@@ -1760,7 +1762,10 @@ async function sendPushes(ws, uuids, n, readDocs = null) {
     if (pn && pushAllowed(pn.prefs)) {
       jobs.push((async () => {
         const handle = u === owner ? null : await ensureHandle(ws.id, u, doc, ws.name).catch(() => null);
-        if (u !== owner && !handle) return;
+        if (u !== owner && !handle) {
+          console.warn('teamchat push: no share to notify', u);
+          return;
+        }
         try {
           await me.puter.notifications.notify({
             title: n.title.slice(0, 120), text: (n.body || quiet).slice(0, 240),
@@ -1770,7 +1775,13 @@ async function sendPushes(ws, uuids, n, readDocs = null) {
             ...(n.call ? { priority: 'high', ttl: 60 } : {}),
             ...(handle ? { to: { handle } } : {}),
           });
+          if (doc?.pnErr) await kv().remove(KEYS.member(ws.id, u), 'pnErr').catch(() => {});
         } catch (err) {
+          const code = String(err?.code || 'unknown');
+          console.warn('teamchat push: notify refused', u, code);
+          // Read back by the member's bootstrap (see pushStatus) to say why
+          // nothing arrives; rate limits and the two repaired below pass on their own.
+          if (!PUSH_PASSING.has(code)) await kv().update(KEYS.member(ws.id, u), { pnErr: { code, at: Date.now() } }).catch(() => {});
           if (err?.code === 'subject_does_not_exist') {
             await kv().remove(KEYS.member(ws.id, u), 'ev').catch(() => {});
           } else if (err?.code === 'kv_share_notify_not_enabled') {
@@ -2551,10 +2562,12 @@ router.get('/api/ws/:ws', route(async ({ params, request, user, defer }) => {
   // The keys to the ring entries of what the caller can read (see worker/ring.js).
   const keyed = [...Object.keys(channels).filter((cid) => !channels[cid].orphan), ...Object.keys(doc.dms || {})];
   const ring = await ringBlock(ws, id.uuid, events, keyed, knownCounters).catch(() => null);
+  const push = await pushStatus(ws.id, id.uuid, doc).catch(() => null);
   if (heartbeat) await heartbeat;
   return {
     now: readAt,
     ...(events ? { events } : {}),
+    ...(push ? { push } : {}),
     ...(ring ? { ring } : {}),
     workspace: {
       id: ws.id, name: ws.name, owner: ws.owner, sample: !!ws.sample, createdAt: ws.createdAt,

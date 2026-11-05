@@ -23,7 +23,7 @@ import { openCategoryRename } from './category-dialog.js';
 import { openMailDialog } from './mail-dialog.js';
 import { renderSidebar } from './sidebar.js';
 import { occurrenceNear } from './recurrence.js';
-import { notificationTarget, pushAvailable, needsHomeScreen, pushStatus, turnPushOn, turnPushOff, releasePush } from './push.js';
+import { notificationTarget, pushAvailable, needsHomeScreen, pushStatus, pushHealth, pushReason, turnPushOn, turnPushOff, releasePush } from './push.js';
 import { openContextMenu, closeContextMenu, isContextMenuOpen, onContextMenuClose } from './context-menu.js';
 import { onDragEnd } from './drag.js';
 import { HOLIDAY_COUNTRIES, detectCountry, countryName } from './holidays.js';
@@ -1003,11 +1003,15 @@ export function createApp(root, { store, user, rsvp = null, contacts = null, inv
         .finally(refresh);
     }, { name: 'push' });
     const input = row.querySelector('input');
+    // Why pushes don't reach this device, when they should.
+    const reason = el('p', { class: 'popover__meta', style: { padding: '0 12px 8px', margin: '0' }, hidden: true });
     function refresh() {
       input.disabled = true;
-      Promise.resolve(pushStatus(p))
-        .then((status) => {
-          input.checked = status === 'on';
+      Promise.resolve(pushHealth(p))
+        .then((health) => {
+          input.checked = health === 'on';
+          reason.textContent = pushReason(health);
+          reason.hidden = !reason.textContent;
         })
         .catch(() => {})
         .finally(() => {
@@ -1015,7 +1019,7 @@ export function createApp(root, { store, user, rsvp = null, contacts = null, inv
         });
     }
     refresh();
-    return row;
+    return el('div', {}, [row, reason]);
   }
 
   function settingToggle(label, checked, onToggle, { name = '' } = {}) {

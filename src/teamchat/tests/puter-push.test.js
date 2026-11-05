@@ -180,4 +180,37 @@ describe('direct Puter notifications', () => {
     expect((await posting).ok).toBe(true);
     rt.setStores({ onAnswered: null });
   });
+
+  it('tells each member in the bootstrap whether its notifications reach them', async () => {
+    const { wsId } = await setup();
+    expect((await as(bob).get(`/api/ws/${wsId}`)).data.push).toEqual({ reach: null, team: null });
+    expect((await as(alice).get(`/api/ws/${wsId}`)).data.push).toEqual({ reach: null, team: null });
+  });
+
+  it('names a refused share to the member, and to the owner when it holds every member back', async () => {
+    const { wsId } = await setup([bob, carol]);
+    await rt.kv.remove(KEYS.member(wsId, carol.uuid), 'ev');
+    vi.spyOn(rt.kv, 'share').mockRejectedValue({ code: 'events_kv_handle_not_delegated' });
+    expect((await as(carol).get(`/api/ws/${wsId}`)).data.push).toEqual({ reach: 'events_kv_handle_not_delegated', team: null });
+    expect((await as(alice).get(`/api/ws/${wsId}`)).data.push).toEqual({ reach: null, team: 'events_kv_handle_not_delegated' });
+  });
+
+  it('remembers a lasting notify refusal for the member until a send goes through', async () => {
+    const { wsId, dm } = await setup(); await register(wsId);
+    vi.spyOn(rt.notifications, 'notify').mockRejectedValueOnce({ code: 'recipient_not_accepting_notifications' });
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    await post(wsId, dm, 'refused');
+    expect((await as(bob).get(`/api/ws/${wsId}`)).data.push.reach).toBe('recipient_not_accepting_notifications');
+    await post(wsId, dm, 'delivered');
+    expect((await rt.kv.get(KEYS.member(wsId, bob.uuid))).pnErr).toBeUndefined();
+    expect((await as(bob).get(`/api/ws/${wsId}`)).data.push.reach).toBeNull();
+  });
+
+  it('records no refusal for a rate limit', async () => {
+    const { wsId, dm } = await setup(); await register(wsId);
+    vi.spyOn(rt.notifications, 'notify').mockRejectedValueOnce({ code: 'too_many_requests' });
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    await post(wsId, dm, 'busy');
+    expect((await rt.kv.get(KEYS.member(wsId, bob.uuid))).pnErr).toBeUndefined();
+  });
 });

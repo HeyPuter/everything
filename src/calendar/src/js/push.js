@@ -23,6 +23,27 @@ let started = false;
 let route = null;
 let pendingClick = null;
 let pushListener = null;
+// Waiting for the first click or key press to ask.
+let askArmed = false;
+// The code the last enable() here failed with, until pushes are on again.
+let enableError = null;
+const changeListeners = new Set();
+
+/** Called after pushes are turned on or off here, whatever the outcome. */
+export function onPushChange(fn) {
+  changeListeners.add(fn);
+  return () => changeListeners.delete(fn);
+}
+
+function changed() {
+  for (const fn of changeListeners) {
+    try {
+      fn();
+    } catch (err) {
+      console.warn('[calendar] push listener', err);
+    }
+  }
+}
 
 function sdk() {
   return typeof puter !== 'undefined' ? puter : null;
@@ -79,6 +100,11 @@ export function startPush(p = sdk()) {
     // Closes the same notification on the user's other devices.
     if (click && click.uid) p.notifications.dismiss(click.uid).catch(() => {});
   });
+  listenForPushes(p);
+}
+
+/** Registers the channel's push handler, again if the last attempt failed. */
+function listenForPushes(p) {
   // Saved as source and re-run in sw.js, so it can't use anything around it.
   pushListener = Promise.resolve(
     p.notifications.onPush(
@@ -97,6 +123,7 @@ export function startPush(p = sdk()) {
     console.warn('[calendar] push handler not registered', err);
     return null;
   });
+  return pushListener;
 }
 
 /**
@@ -106,21 +133,31 @@ export function startPush(p = sdk()) {
  */
 export async function autoEnablePush(p = sdk(), store = null) {
   if (!pushAvailable(p) || pushOffHere()) return;
-  if ((await pushStatus(p)) === 'on') return;
+  if ((await pushStatus(p)) === 'on') {
+    // On here, yet reminders aren't stored or the handler never registered: repair both.
+    if (store && store.getSettings && store.getSettings().storedReminders !== true) {
+      await store.saveSettings({ storedReminders: true }).catch((err) => console.warn('[calendar] reminder setting', err));
+    }
+    if (started && !(await pushListener)) listenForPushes(p);
+    return;
+  }
   const web = p.env === 'web';
   if (web && needsHomeScreen()) return;
   const allowed = web ? Notification.permission === 'granted' : await p.notifications.hasPermission().catch(() => false);
   if (allowed) {
-    await turnPushOn(p, store);
+    // No click here, so a revoked app waits for the notice's button.
+    await turnPushOn(p, store, { ask: false });
     return;
   }
-  if (web && Notification.permission === 'denied') return;
+  if (askArmed || (web && Notification.permission === 'denied')) return;
   try {
     if (localStorage.getItem(ASKED_KEY)) return;
   } catch {
     return;
   }
+  askArmed = true;
   const ask = () => {
+    askArmed = false;
     document.removeEventListener('pointerdown', ask, true);
     document.removeEventListener('keydown', ask, true);
     try {
@@ -188,16 +225,32 @@ export async function pushEnabled(p = sdk()) {
   return (await pushStatus(p)) === 'on';
 }
 
-/** Call from a click: `enable()` asks the browser before anything else. */
-export async function turnPushOn(p = sdk(), store = null) {
+/** Whether a first-click prompt is waiting; the notice holds off until it has run. */
+export const pushAskPending = () => askArmed;
+
+/**
+ * Call from a click: `enable()` asks the browser before anything else.
+ * `ask: false` (no click to ask from) leaves a revoked app off.
+ */
+export async function turnPushOn(p = sdk(), store = null, { ask = true } = {}) {
   const n = p.notifications;
   rememberOff(false);
   let on;
   try {
-    on = await n.enable(PUSH_OPTIONS);
+    try {
+      on = await n.enable(PUSH_OPTIONS);
+    } catch (err) {
+      if (!err || err.code !== 'push_revoked' || !ask) throw err;
+      on = (await n.requestPermission()) && (await n.enable(PUSH_OPTIONS));
+    }
+    enableError = null;
   } catch (err) {
-    if (!err || err.code !== 'push_revoked') throw err;
-    on = (await n.requestPermission()) && (await n.enable(PUSH_OPTIONS));
+    enableError = (err && err.code) || 'push_failed';
+    if (ask) throw err;
+    console.warn('[calendar] push not turned on', enableError);
+    on = false;
+  } finally {
+    changed();
   }
   if (on && store) await store.saveSettings({ storedReminders: true }).catch((err) => console.warn('[calendar] reminder setting', err));
   return on;
@@ -209,7 +262,55 @@ export async function turnPushOn(p = sdk(), store = null) {
  */
 export async function turnPushOff(p = sdk(), store = null) {
   rememberOff(true);
-  await p.notifications.disable(PUSH_OPTIONS);
+  try {
+    await p.notifications.disable(PUSH_OPTIONS);
+  } finally {
+    changed();
+  }
   if (p.env === 'app' && store) await store.saveSettings({ storedReminders: false }).catch((err) => console.warn('[calendar] reminder setting', err));
   return true;
 }
+
+/**
+ * Whether pushes reach this browser, and why not: 'on', 'off-by-user',
+ * 'unsupported', 'home-screen', 'blocked', 'not-set-up', 'revoked' (turned
+ * off in Puter's settings), or the code enable() last failed with here.
+ */
+export async function pushHealth(p = sdk()) {
+  if (!p || !p.notifications) return 'unsupported';
+  if (p.env === 'web' && needsHomeScreen()) return 'home-screen';
+  if (!pushAvailable(p)) return 'unsupported';
+  const status = await pushStatus(p).catch(() => 'unavailable');
+  if (status === 'on') {
+    enableError = null;
+    return 'on';
+  }
+  if (pushOffHere()) return 'off-by-user';
+  if (status === 'blocked') return 'blocked';
+  if (status === 'unavailable') return 'unsupported';
+  if (enableError === 'push_revoked') return 'revoked';
+  return enableError || 'not-set-up';
+}
+
+/** What to tell the user about a pushHealth() state; '' when there's nothing to say. */
+export function pushReason(health) {
+  switch (health) {
+    case 'on':
+    case 'off-by-user':
+    case 'unsupported':
+      return '';
+    case 'home-screen':
+      return 'For notifications on iPhone or iPad, tap Share, then Add to Home Screen, and open Calendar from there.';
+    case 'blocked':
+      return 'Notifications are blocked for this site. Allow them in your browser’s site settings.';
+    case 'not-set-up':
+      return 'Notifications are off on this device.';
+    case 'revoked':
+      return 'Calendar is turned off in Puter’s notification settings.';
+    default:
+      return `Notifications could not be turned on here (${health}).`;
+  }
+}
+
+/** States the user can fix with a click (turnPushOn); the rest need the browser or the Home Screen. */
+export const pushFixable = (health) => !['on', 'off-by-user', 'unsupported', 'home-screen', 'blocked'].includes(health);

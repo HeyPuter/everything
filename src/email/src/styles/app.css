@@ -1983,6 +1983,24 @@
 .folder-note .btn { flex: none; }
 .folder-note .btn:hover { color: var(--danger); }
 
+/* New mail cannot reach this device: said once above the rows, with the fix. */
+.push-notice {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 8px 8px 16px;
+  font-size: 13px;
+  color: var(--ink-2);
+  border-bottom: 1px solid var(--hairline);
+}
+.push-notice[hidden] { display: none; }
+.push-notice .btn-icon { display: flex; flex: none; color: var(--ink-3); }
+.push-notice-text { flex: 1; min-width: 0; }
+.push-notice .btn, .push-notice .icon-btn { flex: none; }
+@media (max-width: 800px) {
+  .push-notice { flex-wrap: wrap; }
+}
+
 /* -- unsubscribe --------------------------------------------------------------------- */
 
 /* Beside the sender, where Gmail puts it: small, plain, and a link rather than

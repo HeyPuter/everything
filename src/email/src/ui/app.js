@@ -14,6 +14,7 @@ import { discardComposer } from './compose.js';
 import {
   turnOnPush, turnOffPush, ensureSubscription, listenForPushes, stopListening,
   pushNeedsHomeScreen, openHomeScreenHint, pushErrorCode, notificationStatus, dismissNewMail,
+  pushHealth, subscriptionIssue, healthText, healthAction, openUnblockHint,
 } from './push.js';
 import {
   createMailbox, enrichMessage, moveMessage, boxPath, BOX_DIRS, dayFolder, messageOrder,
@@ -76,6 +77,11 @@ const THREAD_LS_KEY = 'puter-mail:conversations';
 const NOTIFY_OFF_LS_KEY = 'puter-mail:notify-off';
 // Set once this device has been asked; after that only the menu asks.
 const NOTIFY_ASKED_LS_KEY = 'puter-mail:notify-asked';
+// When the "notifications are off" notice was put away, and for what.
+const PUSH_NOTICE_LS_KEY = 'puter-mail:push-notice';
+const PUSH_NOTICE_SNOOZE_MS = 7 * 24 * 3600_000;
+// A tab coming back checks pushes again, at most this often.
+const PUSH_CHECK_MS = 60_000;
 // Seconds a send can be taken back for, and the one it is until changed.
 const UNDO_SEND_CHOICES = [0, 5, 10, 20, 30];
 const UNDO_SEND_DEFAULT = 5;
@@ -634,6 +640,7 @@ export function renderApp(root, ctx) {
       label: 'Notify me on this device',
       icon: 'bell',
       checked: notifyWanted(),
+      sub: ctx.canPush ? healthText(currentHealth()) : null,
       // On or off, not one of a set: the three themes above are the set.
       toggle: true,
       onSelect: () => setNotify(!notifyWanted()),
@@ -1006,6 +1013,9 @@ export function renderApp(root, ctx) {
   // Mail that arrived while the user was reading something, or was scrolled
   // down the list, is announced here rather than by moving what they are
   // looking at.
+  // Says when new mail cannot reach this device, and the one way to fix it.
+  const pushNotice = el('div.push-notice', { role: 'status', hidden: true });
+
   const newMailPill = el('button.new-mail', {
     type: 'button', hidden: true,
     onclick: () => {
@@ -1031,6 +1041,7 @@ export function renderApp(root, ctx) {
       newMailPill,
       meta,
     ),
+    pushNotice,
     listEl,
   );
 
@@ -4914,6 +4925,8 @@ export function renderApp(root, ctx) {
    */
   let browserPushStatus = 'off';
   let subscriptionReady = false;
+  // Why the account's new-mail subscription will not run (see subscriptionIssue).
+  let subscriptionProblem = null;
   const pushOn = () => Boolean(ctx.canPush) && browserPushStatus === 'on';
   const refreshPushStatus = async () => {
     if (ctx.canPush) browserPushStatus = await notificationStatus();
@@ -4938,6 +4951,68 @@ export function renderApp(root, ctx) {
   // With pushes the switch is this browser's push status; the tab's own
   // banner stays the fallback while one is open.
   const notifyWanted = () => (ctx.canPush ? pushOn() : tabNotifyOn());
+  const currentHealth = () => pushHealth({
+    canPush: Boolean(ctx.canPush),
+    off: notifyOff(),
+    homeScreen: pushNeedsHomeScreen(),
+    env: globalThis.puter?.env === 'app' ? 'app' : 'web',
+    status: browserPushStatus,
+    permission: window.Notification?.permission,
+    subscription: subscriptionProblem,
+  });
+
+  const noticeSnoozed = (health) => {
+    try {
+      const put = JSON.parse(storage.getItem(PUSH_NOTICE_LS_KEY) ?? 'null');
+      return put?.health === health && put.until > Date.now();
+    } catch {
+      return false;
+    }
+  };
+  const asked = () => {
+    try {
+      return Boolean(storage.getItem(NOTIFY_ASKED_LS_KEY));
+    } catch {
+      return true;
+    }
+  };
+
+  const updatePushNotice = () => {
+    if (!frame.isConnected) return;
+    const health = currentHealth();
+    const text = ctx.sample ? null : healthText(health);
+    // Not yet asked here: the first click asks, which says it better.
+    const waiting = health === 'not-set-up' && window.Notification?.permission === 'default' && !asked();
+    if (!text || waiting || noticeSnoozed(health)) {
+      pushNotice.hidden = true;
+      clear(pushNotice);
+      return;
+    }
+    const action = healthAction(health);
+    clear(pushNotice);
+    append(pushNotice, [
+      el('span.btn-icon', { html: icon('bell', 15), 'aria-hidden': 'true' }),
+      el('span.push-notice-text', {}, text),
+      action && el('button.btn.btn-small', {
+        type: 'button',
+        // From the click: turnOnPush() reaches enable() before any await.
+        onclick: action === 'turn-on' ? () => setNotify(true)
+          : action === 'unblock' ? () => openUnblockHint()
+            : () => openHomeScreenHint(),
+      }, action === 'turn-on' ? 'Turn on' : action === 'unblock' ? 'How to allow' : 'How to set up'),
+      el('button.icon-btn', {
+        type: 'button', html: icon('x', 16), 'aria-label': 'Dismiss', title: 'Dismiss',
+        onclick: () => {
+          try {
+            storage.setItem(PUSH_NOTICE_LS_KEY, JSON.stringify({ health, until: Date.now() + PUSH_NOTICE_SNOOZE_MS }));
+          } catch {}
+          pushNotice.hidden = true;
+        },
+      }),
+    ]);
+    pushNotice.hidden = false;
+  };
+
   // What the handler runs with: whether to name sender and subject, and the
   // user's own addresses, whose mail to themselves is not announced.
   const pushContext = () => ({ previews: previewsOn(), self: [...ownAddresses] });
@@ -4998,11 +5073,14 @@ export function renderApp(root, ctx) {
       result = await startPush();
     } catch (error) {
       working();
+      subscriptionProblem = subscriptionIssue(error) ?? subscriptionProblem;
       await refreshPushStatus();
       return fallBackToTab(pushProblem(error));
     }
     working();
+    if (result === 'declined') subscriptionProblem = 'permission_revoked';
     if (result === 'on') {
+      subscriptionProblem = null;
       await refreshPushStatus();
       subscriptionReady = true;
       toast(pushOn() ? 'You will be notified when mail arrives.' : 'Notification setup saved. This browser is being confirmed.',
@@ -5038,12 +5116,17 @@ export function renderApp(root, ctx) {
   /** Resolves whether notifications ended up on. */
   const setNotify = async (on) => {
     rememberNotifyOff(!on);
-    if (on) return ctx.canPush ? enablePush() : enableTabNotify();
+    if (on) {
+      const turning = ctx.canPush ? enablePush() : enableTabNotify();
+      turning.finally(updatePushNotice).catch(() => {});
+      return turning;
+    }
     if (ctx.canPush) {
       subscriptionReady = false;
       await turnOffPush();
       await refreshPushStatus();
     }
+    updatePushNotice();
     toast('New mail notifications are off.', { iconName: 'bell' });
     return false;
   };
@@ -5559,7 +5642,7 @@ export function renderApp(root, ctx) {
       syncInbox();
       pullFlags();
       checkSnoozes();
-      refreshPushStatus();
+      if (ctx.canPush && !ctx.sample) checkPush();
       if (folder === 'inbox' && !ctx.sample) dismissNewMail().catch(() => {});
     }, listening);
     window.addEventListener('online', () => {
@@ -5637,15 +5720,16 @@ export function renderApp(root, ctx) {
   // Notifications are on unless turned off. Where this browser already allows
   // them, pushes are turned on without asking; where it hasn't decided, it is
   // asked once, from the first click or key press.
+  const browserAllows = async () => (globalThis.puter?.env !== 'app'
+    ? window.Notification?.permission === 'granted'
+    : Boolean(await Promise.resolve(globalThis.puter?.notifications?.hasPermission?.()).catch(() => false)));
   const autoNotify = async () => {
     if (ctx.sample || notifyOff() || !frame.isConnected) return;
     const web = globalThis.puter?.env !== 'app';
     if (web && !window.Notification) return;
     if (ctx.canPush) {
       if (pushNeedsHomeScreen()) return;
-      const allowed = web ? Notification.permission === 'granted'
-        : await Promise.resolve(globalThis.puter?.notifications?.hasPermission?.()).catch(() => false);
-      if (allowed) {
+      if (await browserAllows()) {
         await quietPush();
         return;
       }
@@ -5672,23 +5756,60 @@ export function renderApp(root, ctx) {
   // Not from a control of its own: Puter's "Notifications are on" push is the
   // confirmation, and failures are only logged.
   const quietPush = () => startPush().then(async (result) => {
+    if (result === 'declined') subscriptionProblem = 'permission_revoked';
     if (result !== 'on') return;
+    subscriptionProblem = null;
     await refreshPushStatus();
     subscriptionReady = true;
-  }).catch((error) => console.warn('[puter-mail] notifications not turned on', error));
+  }).catch((error) => {
+    subscriptionProblem = subscriptionIssue(error) ?? subscriptionProblem;
+    console.warn('[puter-mail] notifications not turned on', error);
+  }).finally(async () => {
+    await refreshPushStatus().catch(() => {});
+    updatePushNotice();
+  });
+
+  /**
+   * Repair what can be repaired without asking, and say what cannot: on
+   * load, and when the tab comes back. Pushes meant to be on where the
+   * browser allows them are turned on again; with them on, the account's
+   * subscription is made again if it lapsed, or its suspension is named.
+   */
+  let pushCheckedAt = 0;
+  let pushChecking = null;
+  const checkPush = ({ load = false } = {}) => {
+    if (!load && Date.now() - pushCheckedAt < PUSH_CHECK_MS) return pushChecking;
+    pushCheckedAt = Date.now();
+    pushChecking = (async () => {
+      const on = await refreshPushStatus().catch(() => false);
+      if (!frame.isConnected) return;
+      if (!on) {
+        if (load) await autoNotify();
+        else if (!notifyOff() && !pushNeedsHomeScreen() && await browserAllows()) await quietPush();
+        updatePushNotice();
+        return;
+      }
+      listenForPushes();
+      try {
+        await ensureSubscription(pushContext());
+        subscriptionReady = true;
+        subscriptionProblem = null;
+      } catch (error) {
+        subscriptionReady = false;
+        subscriptionProblem = subscriptionIssue(error);
+        console.warn('[puter-mail] new-mail subscription', pushErrorCode(error) || error);
+        // A problem the notice names is said there; anything else, once.
+        if (load && !subscriptionProblem) fallBackToTab(pushProblem(error));
+      }
+      updatePushNotice();
+    })().finally(() => {
+      pushChecking = null;
+    });
+    return pushChecking;
+  };
 
   if (!ctx.canPush && !ctx.sample) autoNotify();
-  if (ctx.canPush && !ctx.sample) refreshPushStatus().then((on) => {
-    if (!on) return autoNotify();
-    if (!frame.isConnected) return;
-    listenForPushes();
-    ensureSubscription(pushContext()).then(() => {
-      subscriptionReady = true;
-    }).catch((error) => {
-      subscriptionReady = false;
-      fallBackToTab(pushProblem(error));
-    });
-  });
+  if (ctx.canPush && !ctx.sample) checkPush({ load: true });
   return {
     mailWrite,
     async refreshInbox() {

@@ -133,6 +133,7 @@ export function toast(
           if (gone) return;
           dismiss();
           handBack();
+          onDismiss?.();
         },
       }),
   );

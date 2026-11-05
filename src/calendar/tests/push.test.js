@@ -245,3 +245,97 @@ describe('push: on by default', () => {
     expect(notifications.disable).not.toHaveBeenCalled();
   });
 });
+
+describe('push: health', () => {
+  function web(permission, overrides = {}) {
+    vi.stubGlobal('Notification', { permission });
+    vi.stubGlobal('PushManager', function PushManager() {});
+    Object.defineProperty(navigator, 'serviceWorker', { value: {}, configurable: true });
+    return { env: 'web', notifications: makeNotifications({ status: vi.fn(async () => 'off'), ...overrides }) };
+  }
+
+  beforeEach(() => {
+    localStorage.clear();
+    vi.unstubAllGlobals();
+  });
+
+  it('names each state, and the reason and fix that go with it', async () => {
+    const { pushHealth, pushReason, pushFixable } = await freshPush();
+    expect(await pushHealth(null)).toBe('unsupported');
+    expect(await pushHealth(web('granted', { status: vi.fn(async () => 'on') }))).toBe('on');
+    expect(await pushHealth(web('denied', { status: vi.fn(async () => 'blocked') }))).toBe('blocked');
+    expect(await pushHealth(web('default', { status: vi.fn(async () => 'unavailable') }))).toBe('unsupported');
+    expect(await pushHealth(web('default'))).toBe('not-set-up');
+    localStorage.setItem('cal:push-off', '1');
+    expect(await pushHealth(web('default'))).toBe('off-by-user');
+    // Pushes that still arrive read as on, whatever was chosen here.
+    expect(await pushHealth(web('granted', { status: vi.fn(async () => 'on') }))).toBe('on');
+
+    expect(pushReason('on')).toBe('');
+    expect(pushReason('off-by-user')).toBe('');
+    expect(pushReason('blocked')).toContain('site settings');
+    expect(pushReason('push_subscribe_failed')).toContain('push_subscribe_failed');
+    expect(pushFixable('not-set-up')).toBe(true);
+    expect(pushFixable('revoked')).toBe(true);
+    expect(pushFixable('blocked')).toBe(false);
+    expect(pushFixable('home-screen')).toBe(false);
+  });
+
+  it('without a click, a revoked app is left off and reported, not asked about', async () => {
+    const { autoEnablePush, pushHealth } = await freshPush();
+    const revoked = Object.assign(new Error('revoked'), { code: 'push_revoked' });
+    const p = web('granted', { enable: vi.fn().mockRejectedValue(revoked) });
+    await autoEnablePush(p, { saveSettings: vi.fn() });
+    expect(p.notifications.requestPermission).not.toHaveBeenCalled();
+    expect(await pushHealth(p)).toBe('revoked');
+  });
+
+  it('reports the code a failed enable() left behind, until pushes are on', async () => {
+    const { autoEnablePush, pushHealth } = await freshPush();
+    const failed = Object.assign(new Error('nope'), { code: 'push_worker_unavailable' });
+    const p = web('granted', { enable: vi.fn().mockRejectedValue(failed) });
+    await autoEnablePush(p, null);
+    expect(await pushHealth(p)).toBe('push_worker_unavailable');
+    p.notifications.status.mockResolvedValue('on');
+    expect(await pushHealth(p)).toBe('on');
+    p.notifications.status.mockResolvedValue('off');
+    expect(await pushHealth(p)).toBe('not-set-up');
+  });
+
+  it('when on, turns stored reminders back on and re-registers a handler that failed', async () => {
+    const { startPush, autoEnablePush } = await freshPush();
+    const p = web('granted', {
+      status: vi.fn(async () => 'on'),
+      onPush: vi.fn().mockRejectedValueOnce(new Error('sw')).mockResolvedValue({ off() {} }),
+    });
+    startPush(p);
+    const store = { getSettings: () => ({ storedReminders: false }), saveSettings: vi.fn(async () => {}) };
+    await autoEnablePush(p, store);
+    expect(store.saveSettings).toHaveBeenCalledWith({ storedReminders: true });
+    expect(p.notifications.onPush).toHaveBeenCalledTimes(2);
+    expect(p.notifications.enable).not.toHaveBeenCalled();
+  });
+
+  it('arms the first-click ask once, however often it is re-run', async () => {
+    const { autoEnablePush, pushAskPending } = await freshPush();
+    const p = web('default');
+    await autoEnablePush(p, null);
+    await autoEnablePush(p, null);
+    expect(pushAskPending()).toBe(true);
+    document.dispatchEvent(new Event('pointerdown'));
+    expect(p.notifications.enable).toHaveBeenCalledTimes(1);
+    expect(pushAskPending()).toBe(false);
+  });
+
+  it('tells listeners after turning on or off', async () => {
+    const { turnPushOn, turnPushOff, onPushChange } = await freshPush();
+    const seen = vi.fn();
+    const off = onPushChange(seen);
+    const p = web('granted');
+    await turnPushOn(p);
+    await turnPushOff(p);
+    off();
+    await turnPushOn(p);
+    expect(seen).toHaveBeenCalledTimes(2);
+  });
+});

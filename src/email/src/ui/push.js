@@ -155,6 +155,70 @@ export async function turnOffPush() {
 }
 
 /**
+ * Whether new mail reaches this browser, and if not, why: 'on',
+ * 'off-by-user', 'unsupported', 'home-screen', 'blocked', 'revoked',
+ * 'not-set-up', or 'suspended:<reason>' when the account's subscription
+ * will not run. `status` is notifications.status(); `subscription` is the
+ * reason from subscriptionIssue(), null while it stands.
+ */
+export function pushHealth({
+  canPush = true, off = false, homeScreen = false, env = 'web', status = 'off', permission = 'default', subscription = null,
+} = {}) {
+  if (!canPush) return 'unsupported';
+  if (off) return 'off-by-user';
+  if (env === 'web' && homeScreen) return 'home-screen';
+  if (status === 'unavailable') return 'unsupported';
+  if (status === 'on') return subscription ? `suspended:${subscription}` : 'on';
+  if (subscription === 'permission_revoked') return 'revoked';
+  if (env === 'web' && permission === 'denied') return 'blocked';
+  // Inside the desktop, blocked means the app's push grant was withdrawn.
+  if (status === 'blocked') return env === 'web' ? 'blocked' : 'revoked';
+  return 'not-set-up';
+}
+
+/** A failed ensureSubscription() as the reason pushHealth() takes; null for a transient failure. */
+export function subscriptionIssue(error) {
+  switch (pushErrorCode(error)) {
+    case 'events_handler_not_found':
+    case 'events_handler_hash_mismatch':
+      return 'handler_not_found';
+    case 'events_handler_suspended':
+      return 'handler_suspended';
+    case 'insufficient_funds':
+      return 'no_credit';
+    case 'events_background_consent_required':
+      return 'permission_revoked';
+    case 'events_durable_requires_account':
+      return 'requires_account';
+    default:
+      return null;
+  }
+}
+
+const HEALTH_TEXT = {
+  'home-screen': 'New mail notifications are off: on iPhone and iPad, add Puter Mail to your Home Screen first.',
+  blocked: 'New mail notifications are off: this browser blocks them for Puter Mail.',
+  revoked: 'New mail notifications are off: Puter Mail no longer has permission to notify you.',
+  'not-set-up': 'New mail notifications are off in this browser.',
+  'suspended:permission_revoked': 'New mail notifications are off: Puter Mail needs permission to run while it is closed.',
+  'suspended:no_credit': 'New mail notifications are paused until your Puter account has credit.',
+  'suspended:handler_not_found': 'New mail notifications are off: the notification handler is not published on this Puter.',
+  'suspended:handler_suspended': 'New mail notifications are off: the notification handler needs to be published again.',
+  'suspended:requires_account': 'New mail notifications need a full Puter account.',
+};
+
+/** What to tell the user about a health state, or null when there is nothing to say. */
+export const healthText = (health) => HEALTH_TEXT[health] ?? null;
+
+/** The one thing a user can do about a health state: 'turn-on', 'unblock', 'home-screen', or null. */
+export function healthAction(health) {
+  if (health === 'not-set-up' || health === 'revoked' || health === 'suspended:permission_revoked') return 'turn-on';
+  if (health === 'blocked') return 'unblock';
+  if (health === 'home-screen') return 'home-screen';
+  return null;
+}
+
+/**
  * A website on iPhone or iPad outside the Home Screen, where enable() resolves
  * false without asking. Inside the Puter desktop pushes go through Puter.
  */
@@ -172,6 +236,23 @@ export function openHomeScreenHint() {
     ),
   );
   const modal = openModal({ title: 'Add to Home Screen', content: body });
+  body.append(el('button.btn.btn-primary.btn-block', {
+    type: 'button', onclick: () => modal.close(),
+  }, 'Got it'));
+  return modal;
+}
+
+/** How to let notifications through again once the browser blocks them. */
+export function openUnblockHint() {
+  const body = el('div', {},
+    el('p.onboard-lead', {}, 'This browser is blocking notifications from Puter Mail. To allow them:'),
+    el('ol.push-steps', {},
+      el('li', {}, 'Click the icon at the left of the address bar (a lock or sliders).'),
+      el('li', {}, 'Set Notifications to Allow.'),
+      el('li', {}, 'Reload Puter Mail.'),
+    ),
+  );
+  const modal = openModal({ title: 'Allow notifications', content: body });
   body.append(el('button.btn.btn-primary.btn-block', {
     type: 'button', onclick: () => modal.close(),
   }, 'Got it'));

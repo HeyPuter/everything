@@ -46,6 +46,7 @@ async function wakeSnooze({ event, ctx, user }) {
       });
     } catch (error) {
       if (!throttled(error)) throw error;
+      console.warn('[mail-snooze] notify throttled', error?.code || error?.status);
     }
     if (parse(await user.kv.get(key))?.token === ctx.token) await user.kv.del(key);
   } catch (error) {
@@ -55,5 +56,6 @@ async function wakeSnooze({ event, ctx, user }) {
       || error?.name === 'TimeoutError'
       || (error?.name === 'TypeError' && /fetch|network/i.test(error?.message ?? ''));
     if (transient) throw Object.assign(new Error(error?.message || 'wake failed'), { retry: true });
+    console.warn('[mail-snooze] wake failed', error?.code || status || error?.message);
   }
 }

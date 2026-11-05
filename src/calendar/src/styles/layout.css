@@ -1592,6 +1592,19 @@
     color: #0043ec;
   }
 }
+.toast__close {
+  display: flex;
+  flex: none;
+  padding: var(--sp-1);
+  margin-right: calc(var(--sp-2) * -1);
+  color: inherit;
+  opacity: 0.7;
+  border-radius: var(--r-sm);
+}
+.toast__close:hover,
+.toast__close:focus-visible {
+  opacity: 1;
+}
 .toast--danger .icon {
   color: var(--danger);
 }

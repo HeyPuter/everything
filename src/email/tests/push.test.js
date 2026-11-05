@@ -1,5 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { turnOnPush, turnOffPush, ensureSubscription, stopListening, listenForPushes, dismissNewMail } from '../src/ui/push.js';
+import {
+  turnOnPush, turnOffPush, ensureSubscription, stopListening, listenForPushes, dismissNewMail,
+  pushHealth, subscriptionIssue, healthText, healthAction,
+} from '../src/ui/push.js';
 import { NOTIFY_HANDLER, NEW_MAIL_SUBJECT, clickedMessage, needsHomeScreen } from '../src/lib/notify.js';
 
 /**
@@ -290,5 +293,46 @@ describe('dismissNewMail()', () => {
       delete navigator.serviceWorker;
       delete globalThis.puter;
     }
+  });
+});
+
+describe('push health', () => {
+  it.each([
+    [{ canPush: false }, 'unsupported'],
+    [{ off: true, status: 'on' }, 'off-by-user'],
+    [{ homeScreen: true }, 'home-screen'],
+    [{ homeScreen: true, env: 'app' }, 'not-set-up'],
+    [{ status: 'unavailable' }, 'unsupported'],
+    [{ status: 'on' }, 'on'],
+    [{ status: 'on', subscription: 'no_credit' }, 'suspended:no_credit'],
+    [{ status: 'off', subscription: 'permission_revoked' }, 'revoked'],
+    [{ status: 'off', permission: 'denied' }, 'blocked'],
+    [{ status: 'blocked', env: 'app' }, 'revoked'],
+    [{ status: 'off', permission: 'default' }, 'not-set-up'],
+  ])('%o is %s', (input, expected) => {
+    expect(pushHealth(input)).toBe(expected);
+  });
+
+  it.each([
+    ['events_handler_not_found', 'handler_not_found'],
+    ['events_handler_hash_mismatch', 'handler_not_found'],
+    ['events_handler_suspended', 'handler_suspended'],
+    ['insufficient_funds', 'no_credit'],
+    ['events_background_consent_required', 'permission_revoked'],
+    ['events_durable_requires_account', 'requires_account'],
+    ['network_error', null],
+  ])('a subscription failing with %s reads as %s', (code, expected) => {
+    expect(subscriptionIssue({ code })).toBe(expected);
+  });
+
+  it('names a reason and the one fix for each problem', () => {
+    expect(healthText('on')).toBeNull();
+    expect(healthText('off-by-user')).toBeNull();
+    expect(healthText('blocked')).toMatch(/blocks/);
+    expect(healthAction('not-set-up')).toBe('turn-on');
+    expect(healthAction('suspended:permission_revoked')).toBe('turn-on');
+    expect(healthAction('blocked')).toBe('unblock');
+    expect(healthAction('home-screen')).toBe('home-screen');
+    expect(healthAction('suspended:no_credit')).toBeNull();
   });
 });
