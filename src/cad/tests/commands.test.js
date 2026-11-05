@@ -299,6 +299,18 @@ describe('editing commands', () => {
     expect(v.rot).toBeCloseTo(Math.PI / 2);
   });
 
+  it('dimensions the radius of a polyline arc segment', async () => {
+    await t.type('PLINE', '0,0', '10,0', 'A', '10,10', '');
+    await t.type('DIMRADIUS');
+    await t.pick(15, 5);
+    await t.type('20,5');
+    const [d] = t.all('dimension');
+    expect(d.dimType).toBe('radius');
+    expect(d.x1).toBeCloseTo(10);
+    expect(d.y1).toBeCloseTo(5);
+    expect(Math.hypot(d.x2 - d.x1, d.y2 - d.y1)).toBeCloseTo(5);
+  });
+
   describe('hatch picks', () => {
     // Even-odd area of the hatch at (x, y).
     const filled = (h, x, y) =>

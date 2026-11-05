@@ -305,8 +305,13 @@ async function radial(ed, type) {
     cy = e.cy,
     r = e.r;
   if (e.type === 'polyline') {
-    ed.ui.log('Select an arc or a circle.', 'error');
-    return;
+    // The arc segment under the pick.
+    const arc = closestPoint(e, pick.x, pick.y)?.prim;
+    if (arc?.t !== 'arc') {
+      ed.ui.log('Select an arc segment of the polyline.', 'error');
+      return;
+    }
+    ({ cx, cy, r } = arc);
   }
   const make = (p, text) => {
     const a = Math.atan2(p.y - cy, p.x - cx);
