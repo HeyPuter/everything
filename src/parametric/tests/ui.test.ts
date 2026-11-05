@@ -2,7 +2,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { closeMenus, openMenu } from '../src/ui/menu';
 import { attachTooltip, confirmDialog, dialogOpen, promptDialog, showDialog, toast } from '../src/ui/overlay';
-import { numberField, parseParam, paramText, type UnitContext } from '../src/app/pm';
+import { numberField, parseParam, paramText, retireNumberFields, type UnitContext } from '../src/app/pm';
 import { Selection } from '../src/app/selection';
 
 const ctx = (units: UnitContext['units'] = 'MMGS'): UnitContext => ({ units, decimals: 2, variables: () => new Map([['Len', 4]]) });
@@ -162,6 +162,24 @@ describe('PropertyManager number fields', () => {
     key(input, 'Enter');
     expect(onChange).toHaveBeenLastCalledWith('=Len+1');
     expect(input.classList.contains('expr')).toBe(true);
+  });
+
+  it.each(['retired', 'removed'])('ignores delayed edits and change events from a %s numeric field', (state) => {
+    vi.useFakeTimers();
+    try {
+      const onChange = vi.fn();
+      const el = numberField({ label: 'Depth', value: 10, kind: 'length', ctx: ctx(), onChange });
+      document.body.append(el);
+      const input = el.querySelector('input')!;
+      input.value = '40';
+      input.dispatchEvent(new InputEvent('input', { bubbles: true }));
+      if (state === 'retired') retireNumberFields(el);
+      else el.remove();
+      vi.advanceTimersByTime(500);
+      expect(onChange).not.toHaveBeenCalled();
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+      expect(onChange).not.toHaveBeenCalled();
+    } finally { vi.useRealTimers(); }
   });
 
   it('offers the full keyboard where minus signs, units or expressions can be typed', () => {

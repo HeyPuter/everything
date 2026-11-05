@@ -195,11 +195,16 @@ export function parseParam(text: string, kind: ParamKind, ctx: UnitContext, allo
 }
 
 type PendingValueMap = (value: Param) => Param;
-const numberFieldSettlers = new WeakMap<HTMLInputElement, (ctx: UnitContext, map?: PendingValueMap) => void>();
+const numberFieldSettlers = new WeakMap<HTMLInputElement, (ctx?: UnitContext, map?: PendingValueMap) => void>();
 
 /** Settles delayed edits in their original context and retires controls being replaced. */
 export function settleNumberFields(root: HTMLElement, ctx: UnitContext, map?: PendingValueMap) {
   for (const input of root.querySelectorAll('input')) numberFieldSettlers.get(input)?.(ctx, map);
+}
+
+/** Discards pending input when history has replaced the state being edited. */
+export function retireNumberFields(root: HTMLElement) {
+  for (const input of root.querySelectorAll('input')) numberFieldSettlers.get(input)?.();
 }
 
 export function numberField(o: NumberFieldOptions): HTMLElement {
@@ -225,7 +230,9 @@ export function numberField(o: NumberFieldOptions): HTMLElement {
   let composing = false;
   let retired = false;
   const commit = (live = false, ctx = o.ctx, map?: PendingValueMap) => {
-    if (composing || retired) return;
+    // Removed controls may still have a debounce or native change queued.
+    // They no longer own the model state (e.g. after Undo rebuilt the panel).
+    if (composing || retired || !input.isConnected) return;
     const r = parseParam(input.value, o.kind, ctx, o.allowExpr !== false);
     if (!r.ok) {
       input.classList.add('invalid');
@@ -258,7 +265,7 @@ export function numberField(o: NumberFieldOptions): HTMLElement {
   numberFieldSettlers.set(input, (ctx, map) => {
     const pending = !!timer;
     cancelPending();
-    if (pending) commit(false, ctx, map);
+    if (pending && ctx) commit(false, ctx, map);
     retired = true;
   });
   const scheduleCommit = () => {

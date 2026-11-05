@@ -39,6 +39,58 @@ async function startSketch(page: Page) {
 }
 
 test.describe('sketching', () => {
+  for (const action of ['undo', 'redo', 'replace', 'save'] as const) test(`pending sketch input is handled before ${action} removes its field`, async ({ page }) => {
+    const errors = await openApp(page);
+    await startSketch(page);
+    await page.evaluate((action) => {
+      const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+      a.sketchEditor!.edit('Add dimensioned circle', (sk) => {
+        sk.entities.push({ id: 'pc', t: 'point', x: 0, y: 0 }, { id: 'circle', t: 'circle', c: 'pc', r: 15 });
+        sk.constraints.push({ id: 'diameter', type: 'diameter', refs: ['circle'], value: 30, at: [20, 20], name: 'D1' });
+      });
+      a.sketchEditor!.edit('Resize circle', (sk) => { (sk.constraints[0] as import('../../src/model/types').SkDimension).value = 35; });
+      if (action === 'redo') a.commands.run('undo');
+      a.selection.set([{ kind: 'skdim', id: 'diameter' }]);
+    }, action);
+    await page.getByRole('textbox', { name: 'Value', exact: true }).fill('40');
+    if (action === 'save') await page.keyboard.press('ControlOrMeta+s');
+    else await page.evaluate((action) => {
+      const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+      if (action === 'undo' || action === 'redo') a.commands.run(action);
+      else a.newDocument('Replacement');
+    }, action);
+    await page.waitForTimeout(550);
+    const state = await page.evaluate(() => {
+      const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+      const sk = a.store.doc.features.find((f) => f.type === 'sketch');
+      return { name: a.store.doc.name, value: sk?.constraints.find((c) => c.id === 'diameter'), dirty: a.store.dirty, canRedo: a.store.canRedo, inSketch: a.inSketch };
+    });
+    expect(errors).toEqual([]);
+    if (action === 'replace') expect(state).toMatchObject({ name: 'Replacement', dirty: false });
+    else {
+      expect(state.value).toMatchObject({ value: action === 'save' ? 40 : action === 'redo' ? 35 : 30 });
+      if (action === 'undo' || action === 'redo') {
+        expect(state.canRedo).toBe(action === 'undo');
+        // The replacement field remains editable after retiring the old one.
+        await page.getByRole('textbox', { name: 'Value', exact: true }).fill('42');
+        await page.getByRole('textbox', { name: 'Value', exact: true }).press('Enter');
+        expect(await page.evaluate(() => {
+          const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+          return (a.sketchEditor!.sketch.constraints[0] as import('../../src/model/types').SkDimension).value;
+        })).toBe(42);
+      }
+      else {
+        expect(state).toMatchObject({ dirty: false, inSketch: false });
+        const saved = await page.evaluate(async (url) => {
+          const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+          const { loadText } = await import(url);
+          return JSON.parse(await loadText(a.location!));
+        }, '/src/platform/files.ts');
+        expect(saved.features[0].constraints[0].value).toBe(40);
+      }
+    }
+  });
+
   test('a collapsed mirror axis gives feedback without adding geometry or undo history', async ({ page }) => {
     const errors = await openApp(page);
     await startSketch(page);

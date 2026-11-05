@@ -20,7 +20,7 @@ import { icon } from '../ui/icons';
 import { selectTabs, syncTabStops, tabKeys } from '../ui/tabs';
 import { type FocusRegion, cycleRegion, firstTabStop, trackRegionFocus } from '../ui/regions';
 import { CommandRegistry } from './commands';
-import { type PickFilter, PropertyPanel, type UnitContext } from './pm';
+import { type PickFilter, PropertyPanel, retireNumberFields, type UnitContext } from './pm';
 import { Selection, faceRef, type SelItem } from './selection';
 import { type Shell, buildShell, renderRibbon, syncCommandButtons, type RibbonTab } from './shell';
 import { SketchEditor } from './sketch/editor';
@@ -682,6 +682,10 @@ export class App {
       this.refreshAll();
     }
     if (reason === 'undo' || reason === 'redo') {
+      // Rebuilding a focused field can emit change before it is detached.
+      // Its pending value belongs to the state that history just replaced.
+      const field = this.shell.lpBody.querySelector<HTMLElement>('.sketch-dimension-field');
+      if (field) retireNumberFields(field);
       // Sketch edits undo inside the sketch; anything else leaves the editor in sync.
       if (this.sketchEditor && !this.store.feature(this.sketchEditor.sketchId)) this.exitModes();
       this.sketchEditor?.resolve();
