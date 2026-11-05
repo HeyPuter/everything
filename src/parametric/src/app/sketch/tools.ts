@@ -4,7 +4,7 @@
 import type { Id, SkArc, SkLine, SketchFeature } from '../../model/types';
 import { type Vec2, angle2, cross2, dist2, norm2, sub2 } from '../../math/vec';
 import { ORIGIN_ID, SketchIndex, splineBeziers, bezierPoint, circumcenter } from '../../sketch/geom';
-import { extendAt, filletCorner, smartDimension, trimAt } from '../../sketch/ops';
+import { extendAt, filletCorner, smartDimension, trimAt, zeroDimensionReason } from '../../sketch/ops';
 import { h } from '../../ui/dom';
 import { toast } from '../../ui/overlay';
 import { numberField } from '../pm';
@@ -764,6 +764,8 @@ export function dimensionTool(ed: SketchEditor): SkTool {
       picked = [];
       ed.setPreview([]);
       ed.app.selection.clear();
+      const zero = zeroDimensionReason(ed.sketch, spec);
+      if (zero) { toast({ kind: 'warning', title: 'Nothing to dimension', message: zero }); return true; }
       ed.addDimension(spec, s.p);
       void ids;
       return true;

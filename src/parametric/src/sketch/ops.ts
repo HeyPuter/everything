@@ -315,6 +315,24 @@ export function smartDimension(sk: SketchFeature, ids: Id[], at: Vec2): DimSpec 
   return byPlacement(center(a), center(b), [a, b]);
 }
 
+/**
+ * Why a dimension measuring zero cannot be added (dimensions must be greater
+ * than zero, and a zero distance is a relation, not a size), or null.
+ */
+export function zeroDimensionReason(sk: SketchFeature, spec: DimSpec): string | null {
+  if (spec.type === 'angle' || spec.value > 1e-9) return null;
+  const k = spec.refs.map((id) => kindOf(sk, id));
+  const lines = k.filter((x) => x === 'line').length;
+  if (lines === 2) return 'These lines are in line with each other, so there is no distance to dimension. Use a Collinear relation to keep them that way.';
+  if (lines === 1) {
+    const l = sk.entities.find((e) => e.id === spec.refs[k.indexOf('line')]) as SkLine;
+    if (spec.refs.length === 2 && (spec.refs.includes(l.a) || spec.refs.includes(l.b))) return 'That point is an end of the line, so its distance to the line is always zero. Pick another point or line to dimension to.';
+    return 'That point lies on the line, so there is no distance to dimension. Use a Coincident relation to keep it on the line.';
+  }
+  if (k.some((x) => x === 'circle' || x === 'arc')) return 'These centres are at the same place, so there is no distance to dimension. Use a Concentric or Coincident relation to keep them together.';
+  return 'These points are at the same place, so there is no distance to dimension. Use a Coincident relation to keep them together.';
+}
+
 export function lineIntersection(a: Vec2, b: Vec2, c: Vec2, d: Vec2): Vec2 | null {
   const r = sub2(b, a), s = sub2(d, c);
   const den = cross2(r, s);

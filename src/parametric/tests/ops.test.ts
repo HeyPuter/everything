@@ -3,7 +3,7 @@ import type { SkDimension, SkEntity, SkLine, SketchFeature } from '../src/model/
 import { ORIGIN_ID, SketchIndex, arcAngles, arcRadius, distanceToCurve } from '../src/sketch/geom';
 import {
   availableRelations, deleteItems, extendAt, filletCorner, idFactory, makeRelations, measureDimension, mirrorEntities,
-  offsetCurves, pickMirrorAxis, relationsOf, smartDimension, trimAt,
+  offsetCurves, pickMirrorAxis, relationsOf, smartDimension, trimAt, zeroDimensionReason,
 } from '../src/sketch/ops';
 import { solveSketch } from '../src/sketch/solver';
 import { buildProfiles } from '../src/sketch/profiles';
@@ -82,6 +82,23 @@ describe('dimensions', () => {
     { id: 'l', t: 'line', a: 'a', b: 'c' }, { id: 'circle', t: 'circle', c: 'a', r: 5 },
     { id: 'd', t: 'point', x: 20, y: 50 }, { id: 'arc', t: 'arc', c: 'a', a: 'b', b: 'd' },
   ]);
+
+  it('explains a zero distance instead of adding it as an over-defining dimension', () => {
+    const s = sk([
+      ...rect(0, 0, 10, 5, 'r'), { id: 'on', t: 'point', x: 4, y: 0 }, { id: 'off', t: 'point', x: 4, y: 2 },
+      { id: 'q0', t: 'point', x: 12, y: 0 }, { id: 'q1', t: 'point', x: 15, y: 0 }, { id: 'col', t: 'line', a: 'q0', b: 'q1' },
+      { id: 'twin', t: 'point', x: 4, y: 2 }, { id: 'cc', t: 'point', x: 4, y: 2 }, { id: 'circ', t: 'circle', c: 'cc', r: 1 },
+    ]);
+    const reason = (ids: string[]) => zeroDimensionReason(s, smartDimension(s, ids, [5, -5])!);
+    expect(reason(['rl0', 'rp0'])).toMatch(/end of the line/);
+    expect(reason(['rl0', 'on'])).toMatch(/Coincident/);
+    expect(reason(['rl0', 'col'])).toMatch(/Collinear/);
+    expect(reason(['off', 'twin'])).toMatch(/same place/);
+    expect(reason(['off', 'circ'])).toMatch(/Concentric/);
+    expect(reason(['rl0', 'off'])).toBeNull();
+    expect(reason(['rl0'])).toBeNull();
+    expect(reason(['rl0', 'rl1'])).toBeNull();
+  });
 
   it.each(['a', ORIGIN_ID, 'l', 'circle', 'arc', 'sp2'])('rejects unsupported spline dimensions paired with %s in either order', (other) => {
     const s = splineSketch();
