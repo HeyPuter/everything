@@ -191,6 +191,28 @@ test.describe('sketching', () => {
     expect(errors).toEqual([]);
   });
 
+  test('a crossing box selects a line it cuts through between its end points', async ({ page }) => {
+    const errors = await openApp(page);
+    const { x, y } = await startSketch(page);
+    await page.locator('[data-cmd="tool:line"]').first().click();
+    await page.mouse.click(x - 200, y + 40);
+    await page.mouse.click(x + 200, y + 40);
+    await page.keyboard.press('Escape');
+    await page.keyboard.press('Escape');
+    const box = async (from: [number, number], to: [number, number]) => {
+      await page.mouse.move(x + from[0], y + from[1]);
+      await page.mouse.down();
+      await page.mouse.move(x + to[0], y + to[1], { steps: 4 });
+      await page.mouse.up();
+      return page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.selection.items.length);
+    };
+    // Window (left to right) needs the whole line; crossing (right to left) takes what it touches.
+    expect(await box([-30, 10], [30, 70])).toBe(0);
+    expect(await box([30, 10], [-30, 30])).toBe(0);
+    expect(await box([30, 10], [-30, 70])).toBe(1);
+    expect(errors).toEqual([]);
+  });
+
   test('a center rectangle is under defined with four degrees of freedom, not over defined', async ({ page }) => {
     const errors = await openApp(page);
     await startSketch(page);

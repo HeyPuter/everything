@@ -499,9 +499,19 @@ export class SketchEditor implements ViewportTool {
   private boxSelect(a: { x: number; y: number }, b: { x: number; y: number }, additive: boolean) {
     const crossing = b.x < a.x;
     const x0 = Math.min(a.x, b.x), x1 = Math.max(a.x, b.x), y0 = Math.min(a.y, b.y), y1 = Math.max(a.y, b.y);
-    const inside = (p: Vec2) => {
-      const s = this.toScreen(p);
-      return s[0] >= x0 && s[0] <= x1 && s[1] >= y0 && s[1] <= y1;
+    const inScreen = (s: [number, number]) => s[0] >= x0 && s[0] <= x1 && s[1] >= y0 && s[1] <= y1;
+    const inside = (p: Vec2) => inScreen(this.toScreen(p));
+    // Crossing selection takes curves the box cuts through, not only those with
+    // a tessellation point inside it: a line has points only at its ends.
+    const crosses = (a: [number, number], b: [number, number]) => {
+      let t0 = 0, t1 = 1;
+      const dx = b[0] - a[0], dy = b[1] - a[1];
+      for (const [p, q] of [[-dx, a[0] - x0], [dx, x1 - a[0]], [-dy, a[1] - y0], [dy, y1 - a[1]]]) {
+        if (p === 0) { if (q < 0) return false; continue; }
+        const r = q / p;
+        if (p < 0) { if (r > t1) return false; if (r > t0) t0 = r; } else { if (r < t0) return false; if (r < t1) t1 = r; }
+      }
+      return true;
     };
     const sk = this.sketch;
     const ix = new SketchIndex(sk.entities);
@@ -512,9 +522,9 @@ export class SketchEditor implements ViewportTool {
         if (!used.has(e.id) && inside([e.x, e.y])) picked.push(e.id);
         continue;
       }
-      const poly = tessellate(ix, e, this.px * 2);
-      const hits = poly.map(inside);
-      if (crossing ? hits.some(Boolean) : hits.every(Boolean)) picked.push(e.id);
+      const poly = tessellate(ix, e, this.px * 2).map((p) => this.toScreen(p));
+      const hit = crossing ? poly.some((p, i) => inScreen(p) || (i > 0 && crosses(poly[i - 1], p))) : poly.every(inScreen);
+      if (hit) picked.push(e.id);
     }
     const items = picked.map((id) => ({ kind: 'sk' as const, id }));
     if (additive) items.forEach((it) => this.app.selection.add(it));
