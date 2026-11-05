@@ -40,6 +40,13 @@ media?.addEventListener('change', () => {
   if (getThemeChoice() === 'system') applyTheme('system');
 });
 
+// The choice made in another tab applies to this one too.
+if (typeof window !== 'undefined') {
+  window.addEventListener('storage', (e) => {
+    if (e.key === KEY || e.key === null) applyTheme();
+  });
+}
+
 /** Reads a CSS colour token as linear 0..1 RGB for the renderer. */
 export function cssColor(name: string, el: Element = document.documentElement): [number, number, number] {
   const v = getComputedStyle(el).getPropertyValue(name).trim();

@@ -167,3 +167,24 @@ test('account image quality retessellates the visible body without editing the p
   expect(await page.evaluate(() => (window as unknown as SettingsWindow).__parametric.store.dirty)).toBe(false);
   expect(errors).toEqual([]);
 });
+
+test('preferences and the theme changed in another tab apply here and are not overwritten by this tab', async ({ context }) => {
+  type W = { __parametric: import('../../src/app/app').App };
+  const open = async () => {
+    const page = await context.newPage();
+    const errors = await openApp(page);
+    await page.waitForFunction(() => (window as unknown as Partial<W>).__parametric);
+    return { page, errors };
+  };
+  const a = await open(), b = await open();
+  await a.page.evaluate(async (url) => {
+    (window as unknown as W).__parametric.commands.run('showPlanes');
+    (await import(url)).setThemeChoice('dark');
+  }, '/src/platform/theme.ts');
+  await expect(b.page.locator('html')).toHaveAttribute('data-theme-resolved', 'dark');
+  await expect.poll(() => b.page.evaluate(() => (window as unknown as W).__parametric.settings.showPlanes)).toBe(true);
+  // A change made here keeps the other tab's change.
+  await b.page.evaluate(() => (window as unknown as W).__parametric.commands.run('showOrigin'));
+  expect(await b.page.evaluate(() => JSON.parse(localStorage.getItem('parametric:settings')!))).toMatchObject({ showPlanes: true, showOrigin: true });
+  expect([...a.errors, ...b.errors]).toEqual([]);
+});
