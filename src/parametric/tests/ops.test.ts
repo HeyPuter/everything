@@ -900,6 +900,67 @@ describe('editing tools', () => {
     }
   });
 
+  it.each(['arc', 'arc ending on the axis', 'filleted corner', 'slot'])('mirrors a %s without over-defining the copy, and the copy follows the source', (shape) => {
+    const s = sk([{ id: 'a', t: 'point', x: 0, y: -10 }, { id: 'b', t: 'point', x: 0, y: 30 }, { id: 'axis', t: 'line', a: 'a', b: 'b', construction: true }]);
+    s.constraints.push({ id: 'fixAxis', type: 'fix', refs: ['axis'] });
+    let ids: string[];
+    if (shape === 'arc') {
+      s.entities.push({ id: 'c', t: 'point', x: 20, y: 10 }, { id: 'p', t: 'point', x: 30, y: 10 }, { id: 'q', t: 'point', x: 20, y: 20 },
+        { id: 'arc', t: 'arc', c: 'c', a: 'p', b: 'q' });
+      ids = ['arc'];
+    } else if (shape === 'arc ending on the axis') {
+      s.entities.push({ id: 'c', t: 'point', x: 10, y: 10 }, { id: 'p', t: 'point', x: 10, y: 0 }, { id: 'q', t: 'point', x: 0, y: 10 },
+        { id: 'arc', t: 'arc', c: 'c', a: 'p', b: 'q' });
+      ids = ['arc'];
+    } else if (shape === 'filleted corner') {
+      s.entities.push({ id: 'k', t: 'point', x: 30, y: 0 }, { id: 'h0', t: 'point', x: 5, y: 0 }, { id: 'v0', t: 'point', x: 30, y: 20 },
+        { id: 'h', t: 'line', a: 'h0', b: 'k' }, { id: 'v', t: 'line', a: 'k', b: 'v0' });
+      s.constraints.push({ id: 'hh', type: 'horizontal', refs: ['h'] }, { id: 'vv', type: 'vertical', refs: ['v'] });
+      expect(filletCorner(s, 'k', 4, idFactory(s))).toBeNull();
+      ids = ['h', 'v', s.entities.find((e) => e.t === 'arc')!.id];
+    } else {
+      // A slot drawn by the tool: two tangent arcs, two lines and a construction axis sharing the arc centres.
+      s.entities.push(
+        { id: 'ca', t: 'point', x: 10, y: 5 }, { id: 'cb', t: 'point', x: 30, y: 5 },
+        { id: 'p1', t: 'point', x: 10, y: 8 }, { id: 'p2', t: 'point', x: 10, y: 2 }, { id: 'q1', t: 'point', x: 30, y: 8 }, { id: 'q2', t: 'point', x: 30, y: 2 },
+        { id: 'l1', t: 'line', a: 'p1', b: 'q1' }, { id: 'l2', t: 'line', a: 'q2', b: 'p2' },
+        { id: 'arcB', t: 'arc', c: 'cb', a: 'q2', b: 'q1' }, { id: 'arcA', t: 'arc', c: 'ca', a: 'p1', b: 'p2' },
+        { id: 'slotAxis', t: 'line', a: 'ca', b: 'cb', construction: true },
+      );
+      s.constraints.push(
+        { id: 't1', type: 'tangent', refs: ['l1', 'arcA'] }, { id: 't2', type: 'tangent', refs: ['l1', 'arcB'] },
+        { id: 't3', type: 'tangent', refs: ['l2', 'arcA'] }, { id: 't4', type: 'tangent', refs: ['l2', 'arcB'] },
+        { id: 'eq', type: 'equal', refs: ['arcA', 'arcB'] }, { id: 'hz', type: 'horizontal', refs: ['slotAxis'] },
+      );
+      ids = ['l1', 'l2', 'arcA', 'arcB', 'slotAxis'];
+    }
+    const before = solveSketch(s.entities, s.constraints, { value });
+    expect(before.status).toBe('under');
+    const made = mirrorEntities(s, ids, 'axis', idFactory(s));
+    const after = solveSketch(s.entities, s.constraints, { value });
+    // Mirrored geometry adds no freedom and no redundant relation.
+    expect(after.badConstraints.size).toBe(0);
+    expect(after.status).toBe('under');
+    // (An end point shared with the copy is also held on the axis.)
+    expect(after.dof).toBe(before.dof - (shape === 'arc ending on the axis' ? 1 : 0));
+    // Moving the source moves the copy with it, still mirrored.
+    const src = s.entities.find((e) => e.t === 'arc' && !made.includes(e.id)) as Extract<SkEntity, { t: 'arc' }>;
+    const start = new SketchIndex(s.entities).pt(src.a);
+    const moved = solveSketch(s.entities, s.constraints, { value, drag: { kind: 'points', ids: [src.a], targets: [[start[0] + 2, start[1] + 1]] } });
+    expect(moved.converged).toBe(true);
+    const ix = new SketchIndex(s.entities);
+    for (const id of made) {
+      const copy = ix.get(id)!;
+      const orig = ix.get(ids[made.indexOf(id)])!;
+      if (copy.t !== 'arc' || orig.t !== 'arc') continue;
+      const c = ix.pt(orig.c), mc = ix.pt(copy.c);
+      expect(mc[0]).toBeCloseTo(-c[0], 6);
+      expect(mc[1]).toBeCloseTo(c[1], 6);
+      expect(arcRadius(ix, copy)).toBeCloseTo(arcRadius(ix, orig), 6);
+      expect(ix.pt(copy.a)[0]).toBeCloseTo(-ix.pt(orig.b)[0], 6);
+    }
+  });
+
   it('keeps shared circle centers and repeated spline points on the mirror axis', () => {
     const s = sk([
       { id: 'a', t: 'point', x: 0, y: -10 }, { id: 'b', t: 'point', x: 0, y: 10 }, { id: 'axis', t: 'line', a: 'a', b: 'b', construction: true },

@@ -148,8 +148,9 @@ export class SketchSystem {
 
   private buildEquations() {
     // Internal: arc end points stay on the arc's circle.
+    const mirrored = this.mirroredArcs();
     for (const e of this.entities) {
-      if (e.t !== 'arc') continue;
+      if (e.t !== 'arc' || mirrored.has(e.id)) continue;
       const c = this.P(e.c), a = this.P(e.a), b = this.P(e.b);
       if (!c || !a || !b) continue;
       this.add([...c.v, ...a.v, ...b.v], (x) => {
@@ -162,6 +163,57 @@ export class SketchSystem {
         if (!c.driven) this.buildDimension(c);
       } else this.buildRelation(c);
     }
+  }
+
+  /**
+   * Arcs whose centre and end points are mirror images (symmetric relations
+   * about one line, as Mirror Entities makes them) of an earlier arc's. Their
+   * end points stay on their circle because the source arc's do, so that
+   * equation would only make every mirrored arc redundant (over defined).
+   */
+  private mirroredArcs(): Set<Id> {
+    const out = new Set<Id>();
+    const partners = new Map<string, Set<Id>>();
+    const key = (axis: Id, p: Id) => `${axis}\n${p}`;
+    const pair = (axis: Id, p: Id, q: Id) => {
+      const k = key(axis, p);
+      const set = partners.get(k);
+      if (set) set.add(q); else partners.set(k, new Set([q]));
+    };
+    const axes = new Set<Id>();
+    const onAxis = new Set<string>();
+    for (const c of this.constraints) {
+      if (isDimension(c) || c.refs.length < 2) continue;
+      if (c.type === 'symmetric' && c.refs.length === 3) {
+        const [p, q, axis] = c.refs;
+        if (!this.isPointLike(p) || !this.isPointLike(q) || !this.line(axis)) continue;
+        pair(axis, p, q);
+        pair(axis, q, p);
+        axes.add(axis);
+      } else if (c.type === 'coincident' && c.refs.length === 2) {
+        onAxis.add(key(c.refs[1], c.refs[0]));
+        onAxis.add(key(c.refs[0], c.refs[1]));
+      }
+    }
+    if (!axes.size) return out;
+    // A point held on the axis is its own mirror image.
+    const mirrors = (axis: Id, p: Id, q: Id) => {
+      if (partners.get(key(axis, p))?.has(q)) return true;
+      if (p !== q) return false;
+      const l = this.entity.get(axis) as Extract<SkEntity, { t: 'line' }>;
+      return p === l.a || p === l.b || onAxis.has(key(axis, p));
+    };
+    const arcs = this.entities.filter((e): e is Extract<SkEntity, { t: 'arc' }> => e.t === 'arc');
+    for (let j = 1; j < arcs.length; j++) {
+      const f = arcs[j];
+      search: for (const axis of axes) {
+        for (let i = 0; i < j; i++) {
+          const e = arcs[i];
+          if (mirrors(axis, e.c, f.c) && mirrors(axis, e.a, f.b) && mirrors(axis, e.b, f.a)) { out.add(f.id); break search; }
+        }
+      }
+    }
+    return out;
   }
 
   private pointOnCurve(pid: Id, cid: Id, owner: Id) {

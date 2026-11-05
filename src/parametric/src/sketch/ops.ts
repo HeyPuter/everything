@@ -764,7 +764,8 @@ export function mirrorEntities(sk: SketchFeature, ids: Id[], axisId: Id, newId: 
     else if (e.t === 'circle') sk.entities.push({ id: nid, t: 'circle', c: mapPoint(e.c), r: e.r, construction: e.construction });
     else if (e.t === 'arc') sk.entities.push({ id: nid, t: 'arc', c: mapPoint(e.c), a: mapPoint(e.b), b: mapPoint(e.a), construction: e.construction });
     else if (e.t === 'spline') sk.entities.push({ id: nid, t: 'spline', pts: e.pts.map(mapPoint), construction: e.construction });
-    if (e.t === 'circle' || e.t === 'arc') sk.constraints.push({ id: newId('r'), type: 'equal', refs: [e.id, nid] });
+    // A mirrored arc's radius already follows from its symmetric points.
+    if (e.t === 'circle') sk.constraints.push({ id: newId('r'), type: 'equal', refs: [e.id, nid] });
     created.push(nid);
   }
   if (onAxis.length) {
