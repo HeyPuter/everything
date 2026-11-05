@@ -166,3 +166,41 @@ for (const scenario of ['next recipient', 'repeated Enter', 'failed request'] as
   await expect(who).toHaveValue('');
   expect(errors).toEqual([]);
 });
+
+test('failed access updates restore the last confirmed permission and allow retry', async ({ page }) => {
+  const errors = await sharingApp(page);
+  await page.evaluate(() => {
+    type W = { __parametric: import('../../src/app/app').App; puter: { fs: { getShares: () => Promise<unknown>; share: (...args: unknown[]) => Promise<unknown> } }; releaseAccess: () => void; accessStarted: boolean };
+    const w = window as unknown as W;
+    const share = w.puter.fs.share;
+    let calls = 0;
+    const gate = new Promise<void>((resolve) => { w.releaseAccess = resolve; });
+    w.puter.fs.getShares = async () => [{ holder: 'friend', mode: 'write' }];
+    w.puter.fs.share = async (...args) => {
+      const result = await share(...args);
+      if (++calls !== 2) throw new Error('Permission denied');
+      w.accessStarted = true; await gate; return result;
+    };
+    w.__parametric.commands.run('share');
+  });
+  const dialog = page.getByRole('dialog', { name: 'Share Original', exact: true });
+  const access = dialog.getByRole('combobox', { name: 'Access for friend', exact: true });
+  const remove = dialog.getByRole('button', { name: 'Remove friend', exact: true });
+  await access.selectOption('read');
+  await expect(dialog).toContainText('Permission denied');
+  await expect(access).toHaveValue('write');
+  await access.selectOption('read');
+  await page.waitForFunction(() => (window as unknown as { accessStarted: boolean }).accessStarted);
+  await expect(access).toBeDisabled();
+  await expect(remove).toBeDisabled();
+  await page.evaluate(() => (window as unknown as { releaseAccess: () => void }).releaseAccess());
+  await expect(dialog).toContainText('Updated access for friend');
+  await expect(access).toHaveValue('read');
+  await expect(access).toBeEnabled();
+  await expect(remove).toBeEnabled();
+  await access.selectOption('write');
+  await expect(dialog).toContainText('Permission denied');
+  await expect(access).toHaveValue('read');
+  expect(await page.evaluate(() => (window as unknown as { shareCalls: ShareCall[] }).shareCalls.map((c) => c.mode))).toEqual(['read', 'read', 'write']);
+  expect(errors).toEqual([]);
+});

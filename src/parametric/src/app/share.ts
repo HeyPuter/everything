@@ -97,14 +97,29 @@ export async function shareDialog(app: App, files: FileOps) {
         if (v === s.mode) o.selected = true;
         return o;
       })) as HTMLSelectElement;
+      let updating = false;
       sel.addEventListener('change', async () => {
-        if (!isCurrent()) return;
-        try { await fs.share(path, recipient(name), sel.value); status.textContent = `Updated access for ${name}.`; } catch (e) { status.textContent = storageError(e); }
+        if (updating || !isCurrent()) return;
+        const next = sel.value;
+        updating = true;
+        sel.disabled = remove.disabled = true;
+        status.textContent = `Updating access for ${name}...`;
+        try {
+          await fs.share(path, recipient(name), next);
+          s.mode = next;
+          status.textContent = `Updated access for ${name}.`;
+        } catch (e) {
+          sel.value = s.mode;
+          status.textContent = `Could not update access for ${name}: ${storageError(e)}`;
+        } finally {
+          updating = false;
+          sel.disabled = remove.disabled = false;
+        }
       });
       // An icon button keeps the table within the dialog at phone widths.
       const remove = h('button', { class: 'icon-btn', type: 'button', 'aria-label': `Remove ${name}`, title: 'Remove access' }, icon('trash', 16));
       remove.addEventListener('click', async () => {
-        if (!isCurrent()) return;
+        if (updating || !isCurrent()) return;
         try { await fs.unshare(path, recipient(name)); status.textContent = `${name} no longer has access.`; void render(); } catch (e) { status.textContent = storageError(e); }
       });
       return h('tr', {}, h('td', {}, name, s.pending ? h('span', { class: 'field-label' }, ' (invited)') : null), h('td', {}, sel), h('td', { style: { textAlign: 'right' } }, remove));
