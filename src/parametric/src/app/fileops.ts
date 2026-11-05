@@ -293,14 +293,16 @@ export class FileOps {
 
   /** Imports a STEP or SolidWorks file as a solid feature in the current part. */
   async importStep() {
+    const documentVersion = this.documentVersion;
     const file = await pickDeviceFile(IMPORT_EXTS.join(','));
-    if (!file || tooLarge(file.size, file.name)) return;
+    if (!file || documentVersion !== this.documentVersion || tooLarge(file.size, file.name)) return;
     if (isSolidWorksFile(file.name)) {
       const step = await this.convertSolidWorks(new Uint8Array(await file.arrayBuffer()), file.name);
-      if (step) await this.importStepText(step, file.name);
+      if (step && documentVersion === this.documentVersion) await this.importStepText(step, file.name);
       return;
     }
-    await this.importStepText(await file.text(), file.name);
+    const text = await file.text();
+    if (documentVersion === this.documentVersion) await this.importStepText(text, file.name);
   }
 
   /** Opens a SolidWorks part as a new part whose first feature is its solid. */
@@ -341,16 +343,18 @@ export class FileOps {
 
   async importStepText(text: string, fileName: string) {
     const app = this.app;
+    const documentVersion = this.documentVersion;
     if (tooLarge(text.length, 'x.step')) return;
     if (!text.trim()) { toast({ kind: 'error', title: 'Import failed', message: `${fileName} is empty.` }); return; }
     const err = await app.kernel.checkImport(text).catch((e) => (e as Error).message);
+    if (documentVersion !== this.documentVersion) return;
     if (err) { toast({ kind: 'error', title: 'Import failed', message: err }); return; }
     const blobId = `b${Date.now().toString(36)}`;
     const id = app.store.nextId('f');
     app.store.doc.blobs[blobId] = text;
     const f: ImportFeature = { id, name: defaultName(app.store.doc, 'import'), type: 'import', format: 'step', blob: blobId, fileName };
     app.insertFeature(f);
-    setTimeout(() => app.viewport.zoomToFit(), 300);
+    setTimeout(() => { if (documentVersion === this.documentVersion) app.viewport.zoomToFit(); }, 300);
     toast({ kind: 'success', message: `Imported ${fileName}` });
   }
 

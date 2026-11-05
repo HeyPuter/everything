@@ -668,3 +668,48 @@ for (const change of ['edits', 'a new part'] as const) test(`saving before New k
   expect(await savedNames()).toEqual(['Original', 'Keep']);
   expect(errors).toEqual([]);
 });
+
+for (const stage of ['convertSolidWorks', 'checkImport'] as const) test(`an import finishing ${stage} after New does not modify the new part`, async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await app(page);
+  await page.evaluate((stage) => {
+    type W = { __parametric: import('../../src/app/app').App; importStarted: boolean; releaseImport: () => void; pendingImport: Promise<void> };
+    const w = window as unknown as W;
+    const gate = new Promise<void>((r) => { w.releaseImport = r; });
+    if (stage === 'convertSolidWorks') {
+      const convert = w.__parametric.kernel.convertSolidWorks.bind(w.__parametric.kernel);
+      w.__parametric.kernel.convertSolidWorks = async (...args) => { const result = await convert(...args); w.importStarted = true; await gate; return result; };
+    } else {
+      const check = w.__parametric.kernel.checkImport.bind(w.__parametric.kernel);
+      w.__parametric.kernel.checkImport = async (...args) => { const result = await check(...args); w.importStarted = true; await gate; return result; };
+    }
+  }, stage);
+  const chooser = page.waitForEvent('filechooser');
+  await page.evaluate(() => {
+    const w = window as unknown as { __parametric: import('../../src/app/app').App; pendingImport: Promise<void> };
+    w.pendingImport = Promise.resolve(w.__parametric.commands.get('importStep')!.run());
+  });
+  const path = decodeURIComponent(new URL('../fixtures/sldprt/cube-hole-sw2022.sldprt', import.meta.url).pathname);
+  await (await chooser).setFiles(path);
+  await page.waitForFunction(() => (window as unknown as { importStarted: boolean }).importStarted);
+  await page.evaluate(async () => { await (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.commands.get('new')!.run(); });
+  await expect(page).toHaveTitle('Part2 - Parametric');
+  await page.evaluate(async () => {
+    const w = window as unknown as { releaseImport: () => void; pendingImport: Promise<void> };
+    w.releaseImport();
+    await w.pendingImport;
+  });
+  const untouched = await page.evaluate(() => {
+    const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+    return { features: a.store.doc.features, blobs: Object.keys(a.store.doc.blobs), dirty: a.store.dirty };
+  });
+  expect(untouched).toEqual({ features: [], blobs: [], dirty: false });
+  const retry = page.waitForEvent('filechooser');
+  await page.evaluate(() => (window as unknown as { __parametric: AppHandle }).__parametric.commands.run('importStep'));
+  await (await retry).setFiles(path);
+  await expect(page.getByRole('treeitem', { name: 'Imported1' })).toBeVisible();
+  await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.whenBuilt());
+  await expect(page.locator('.ti.error')).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
