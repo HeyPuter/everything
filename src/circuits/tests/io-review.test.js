@@ -519,3 +519,59 @@ describe('board edge check', () => {
     expect(edges.find((v) => v.ids[0] === 'near').actual).toBe(mm(0.075));
   });
 });
+
+describe('damaged KiCad files', () => {
+  const PCB = `(kicad_pcb (version 20221018) (generator pcbnew)
+  (layers (0 "F.Cu" signal) (31 "B.Cu" signal) (44 "Edge.Cuts" user))
+  (gr_rect (start 0 0) (end 50 30) (stroke (width 0.1)) (layer "Edge.Cuts"))
+  (segment (start 5 5) (end 15 5) (width 0.25) (layer "F.Cu") (net 0))
+  (segment (start 15 5) (end 15 15) (width 0.25) (layer "F.Cu") (net 0))
+)`;
+  const SCH = `(kicad_sch (version 20231120) (generator "eeschema") (paper "A4")
+  (wire (pts (xy 10 10) (xy 20 10)) (uuid "w1"))
+  (text "Note \\"quoted\\"" (at 30 30 0) (uuid "t1"))
+)`;
+
+  it('still imports complete files with trailing whitespace', async () => {
+    const { project } = await importKicad([
+      { name: 'a.kicad_pcb', text: `${PCB}\n\n  \r\n` },
+      { name: 'a.kicad_sch', text: `${SCH}\n` },
+      { name: 'a.kicad_pro', text: '{ "board": {} }\n' },
+    ]);
+    expect(project.documents.map((d) => d.kind).sort()).toEqual(['pcb', 'sch']);
+  });
+
+  it('refuses a file that is cut off, naming it', async () => {
+    const cut = (t, at) => t.slice(0, Math.floor(t.length * at));
+    for (const at of [0.5, 0.97]) {
+      await expect(importKicad([{ name: 'cut.kicad_pcb', text: cut(PCB, at) }])).rejects.toThrow(
+        /cut\.kicad_pcb is damaged or incomplete.*cut off/,
+      );
+      await expect(
+        importKicad([
+          { name: 'cut.kicad_sch', text: cut(SCH, at) },
+          { name: 'ok.kicad_pcb', text: PCB },
+        ]),
+      ).rejects.toThrow(/cut\.kicad_sch is damaged/);
+    }
+    // Ends inside a quoted text.
+    await expect(
+      importKicad([{ name: 's.kicad_sch', text: SCH.slice(0, SCH.indexOf('quoted')) }]),
+    ).rejects.toThrow(/quoted text/);
+    await expect(
+      importKicad([
+        { name: 'a.kicad_pcb', text: PCB },
+        { name: 'a.kicad_pro', text: '{ "board": { "design_set' },
+      ]),
+    ).rejects.toThrow(/a\.kicad_pro is damaged/);
+  });
+
+  it('refuses a selection with nothing to import', async () => {
+    await expect(importKicad([{ name: 'a.kicad_pro', text: '{}' }])).rejects.toThrow(
+      /No KiCad schematic/,
+    );
+    await expect(
+      importKicad([{ name: 'x.kicad_pcb', text: '(kicad_sch (version 1))' }]),
+    ).rejects.toThrow(/No schematic or board/);
+  });
+});

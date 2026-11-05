@@ -236,7 +236,7 @@ describe('board import', () => {
 
   it('never throws on damaged input and reports it', async () => {
     const { project, warnings } = await importKicad([
-      { name: 'broken.kicad_pcb', text: '(kicad_pcb (footprint "X" (pad "1" smd custom (at 0 0) (size 1 1) (layers "F.Cu")))' },
+      { name: 'broken.kicad_pcb', text: '(kicad_pcb (footprint "X" (pad "1" smd custom (at 0 0) (size 1 1) (layers "F.Cu"))))' },
       { name: 'notes.txt', text: 'hello' },
     ]);
     expect(() => parseProject(project)).not.toThrow();

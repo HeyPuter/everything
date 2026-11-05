@@ -74,7 +74,7 @@ function chainLoops(pieces, closed, warnings) {
 
 export function importBoard(file, warnings) {
   let root;
-  try { root = parseSexpr(file.text); } catch (err) { warnings.add(`${file.name}: ${err.message}`); return null; }
+  try { root = file.root || parseSexpr(file.text); } catch (err) { warnings.add(`${file.name}: ${err.message}`); return null; }
   if (root[0] !== 'kicad_pcb') { warnings.add(`${file.name} is not a board file.`); return null; }
 
   // Nets.

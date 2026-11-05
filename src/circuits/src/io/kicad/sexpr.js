@@ -49,6 +49,7 @@ export function parseSexpr(text) {
         if (d === QUOTE) break;
         j++;
       }
+      if (j >= n) throw new Error('The file ends inside a quoted text (it looks cut off).');
       out += text.slice(start, j);
       if (cur) cur.push(out);
       i = j + 1;
@@ -72,7 +73,10 @@ export function parseSexpr(text) {
     }
     i = j;
   }
-  if (!root && cur) root = stack.length ? stack[0] : cur;
+  if (!root && cur) {
+    const open = stack.length + 1;
+    throw new Error(`The file ends before ${open} of its lists ${open === 1 ? 'is' : 'are'} closed (it looks cut off).`);
+  }
   if (!root) throw new Error('The file has no S-expression content.');
   return root;
 }

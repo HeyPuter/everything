@@ -206,7 +206,7 @@ function propHidden(p) {
 export function importSchematics(files, warnings) {
   const parsed = [];
   for (const f of files) {
-    try { parsed.push({ ...f, root: parseSexpr(f.text) }); } catch (err) { warnings.add(`${f.name}: ${err.message}`); }
+    try { parsed.push({ ...f, root: f.root || parseSexpr(f.text) }); } catch (err) { warnings.add(`${f.name}: ${err.message}`); }
   }
   // Root sheet first: the one no other sheet refers to.
   const referenced = new Set();
