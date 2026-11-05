@@ -546,12 +546,15 @@ export const SELECTSIMILAR = {
   async run(ed) {
     const ids = await ed.getSelection('Select example objects');
     if (!ids.length) return;
-    const keys = new Set(ids.map((id) => {
-      const e = ed.drawing.get(id);
-      return `${e.type}|${e.layer}`;
-    }));
+    // Same type, layer and name (block, style or hatch pattern), like
+    // AutoCAD's default SELECTSIMILARMODE.
+    const name = (e) => (e.type === 'insert' ? e.name : e.type === 'hatch' ? e.pattern : e.style);
+    const key = (e) => `${e.type}|${e.layer}|${name(e) ?? ''}`;
+    const keys = new Set(ids.map((id) => key(ed.drawing.get(id))));
     const out = [];
-    for (const [id, e] of ed.drawing.entities) if (keys.has(`${e.type}|${e.layer}`) && ed.drawing.layerEditable(e.layer)) out.push(id);
+    for (const [id, e] of ed.drawing.entities) {
+      if (keys.has(key(e)) && ed.drawing.layerEditable(e.layer)) out.push(id);
+    }
     ed.setSelection(out);
   },
 };

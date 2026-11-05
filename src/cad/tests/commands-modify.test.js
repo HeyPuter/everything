@@ -229,3 +229,35 @@ describe('EXPLODE', () => {
     expect(strokes(texts.flatMap((e) => layoutText(e).strokes))).toBe(before);
   });
 });
+
+describe('SELECTSIMILAR', () => {
+  it('matches block names, styles and patterns as well as type and layer', async () => {
+    const box = (name) => ({
+      name,
+      bx: 0,
+      by: 0,
+      entities: [{ ...base, id: 1, type: 'circle', cx: 0, cy: 0, r: 1 }],
+    });
+    t.drawing.transaction('Blocks', () => {
+      t.drawing.setBlock('A', box('A'));
+      t.drawing.setBlock('B', box('B'));
+    });
+    const ins = (name, x) => add({ type: 'insert', name, x, y: 0, sx: 1, sy: 1, rot: 0 });
+    ins('A', 0);
+    ins('B', 10);
+    ins('A', 20);
+    const hatch = (pattern, x) =>
+      add({
+        type: 'hatch',
+        pattern,
+        scale: 1,
+        angle: 0,
+        loops: [[x, 50, 0, x + 5, 50, 0, x + 5, 55, 0]],
+      });
+    hatch('SOLID', 0);
+    hatch('ANSI31', 10);
+    t.ed.setSelection([1, 4]);
+    await t.type('SELECTSIMILAR');
+    expect([...t.ed.selection].sort()).toEqual([1, 3, 4]);
+  });
+});
