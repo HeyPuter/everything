@@ -743,10 +743,19 @@ async function styleManager(app, { title, table, headerKey, make, fields, label,
         form.append(c);
         continue;
       } else {
-        ctl = num(f.deg ? +((st[f.key] * 180) / Math.PI).toFixed(6) : st[f.key], { min: f.min ?? null });
-        ctl.addEventListener('change', () => {
-          const v = Number(ctl.value);
-          if (Number.isFinite(v)) st[f.key] = f.deg ? (v * Math.PI) / 180 : v;
+        const shown = () => (f.deg ? +((st[f.key] * 180) / Math.PI).toFixed(6) : st[f.key]);
+        const inp = (ctl = num(shown(), { min: f.min ?? null }));
+        inp.addEventListener('change', () => {
+          const v = Number(inp.value);
+          if (inp.value.trim() !== '' && Number.isFinite(v) && !(v < (f.min ?? -Infinity))) {
+            st[f.key] = f.deg ? (v * Math.PI) / 180 : v;
+            inp.removeAttribute('aria-invalid');
+            return;
+          }
+          // Out of range or not a number: keep the previous value.
+          inp.value = shown();
+          inp.setAttribute('aria-invalid', 'true');
+          setTimeout(() => inp.removeAttribute('aria-invalid'), 1200);
         });
       }
       form.append(field(f.label, ctl, f.hint));
