@@ -1579,13 +1579,14 @@ export function createEditor({
       String(edit ? edit.strikethrough : textStrikethrough),
     );
     const textOptions = tool === 'text' || !!edit;
-    sizeInput.hidden =
-      boldButton.hidden =
+    boldButton.hidden =
       italicButton.hidden =
       underlineButton.hidden =
       strikethroughButton.hidden =
         !textOptions;
-    widthInput.hidden = !['shape', 'ink'].includes(tool);
+    // Text boxes and callouts take a size too; drawings and shapes, comments too, a width.
+    sizeInput.hidden = !textOptions && !['textbox', 'callout'].includes(tool);
+    widthInput.hidden = !['shape', 'ink', 'cshape', 'pencil'].includes(tool);
     toolOptions.hidden = (tool === 'select' || tool === 'hand') && !edit;
     centerButton.hidden = !!edit || UNPLACEABLE.includes(tool);
     if (tool === 'select') colorInput.hidden = !edit;
@@ -3609,7 +3610,7 @@ export function createEditor({
       certsign: 'Drag a box where the signature should appear.',
       textbox: 'Drag a box for the text comment, or click to place one.',
       callout: 'Drag from the spot the comment points at to where its box goes.',
-      cshape: 'Drag to draw the shape as a comment. Hold Shift to keep it regular.',
+      cshape: 'Drag to draw a shape. Hold Shift to keep it regular.',
       pencil: 'Draw on the page; each stroke becomes a comment you can move or delete.',
       measure: measureHint(),
       field:
