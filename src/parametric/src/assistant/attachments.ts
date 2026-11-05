@@ -136,15 +136,31 @@ async function imageMediaType(file: File): Promise<string> {
   return VISION_TYPES.has(declared) ? 'image/x-unknown' : declared;
 }
 
-/** Text in the encoding it was saved in: UTF-8, UTF-16 with a byte-order mark, or Windows-1252. */
+/** Text in the encoding it was saved in: UTF-8, UTF-16 (with or without a byte-order mark), or Windows-1252. */
 export function decodeText(b: Uint8Array): string {
   if (b.length >= 2 && b[0] === 0xff && b[1] === 0xfe) return new TextDecoder('utf-16le').decode(b);
   if (b.length >= 2 && b[0] === 0xfe && b[1] === 0xff) return new TextDecoder('utf-16be').decode(b);
+  // UTF-16 without a mark is valid UTF-8 with a NUL beside every Latin letter, which
+  // text never holds: decoded as UTF-8 the model would get twice the characters.
+  const odd = utf16Side(b);
+  if (odd) return new TextDecoder(odd).decode(b);
   try {
     return new TextDecoder('utf-8', { fatal: true }).decode(b);
   } catch {
     try { return new TextDecoder('windows-1252').decode(b); } catch { return new TextDecoder('utf-8').decode(b); }
   }
+}
+
+/** 'utf-16le' or 'utf-16be' when most of the first bytes' even or odd half is zero, as in UTF-16 Latin text. */
+function utf16Side(b: Uint8Array): 'utf-16le' | 'utf-16be' | null {
+  const n = Math.min(b.length, 2048) & ~1;
+  if (n < 4) return null;
+  let even = 0, odd = 0;
+  for (let i = 0; i < n; i += 2) { if (b[i] === 0) even++; if (b[i + 1] === 0) odd++; }
+  const half = n / 2;
+  if (odd > half * 0.6 && even < half * 0.1) return 'utf-16le';
+  if (even > half * 0.6 && odd < half * 0.1) return 'utf-16be';
+  return null;
 }
 
 async function inflate(data: Uint8Array, room: number): Promise<string> {
