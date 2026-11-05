@@ -149,7 +149,9 @@ export class App {
       if (document.visibilityState === 'hidden') this.flushAutosave();
     });
     window.addEventListener('pagehide', () => this.flushAutosave());
-    this.cmdline.log('Ready. Type a command, or pick a tool from the ribbon. Press F1 for help.', 'muted');
+    // Phones have the tool bar instead of the ribbon, and usually no F1 key.
+    const phone = matchMedia('(max-width: 599px)').matches;
+    this.cmdline.log(phone ? 'Ready. Pick a tool below, or type a command.' : 'Ready. Type a command, or pick a tool from the ribbon. Press F1 for help.', 'muted');
     if (!this.ownsSession) toast('The app is also open in another tab. Drawings in this tab are not kept for recovery, so save your work.', { timeout: 9000 });
   }
 
