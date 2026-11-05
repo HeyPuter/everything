@@ -1298,10 +1298,16 @@ export class Editor {
       state.snap = { sx: s.x, sy: s.y, mode: this.snap.mode, label };
     }
     if (!this.active && this.grips) {
+      // Grips closer than 2 px look the same: draw one, so a selected polyline
+      // with 100k vertices does not paint 200k squares on every move.
+      const seen = new Set();
       for (let i = 0; i < this.grips.length; i++) {
         const g = this.grips[i];
         const s = cam.toScreen(g.x, g.y);
         if (s.x < -10 || s.y < -10 || s.x > cam.width + 10 || s.y > cam.height + 10) continue;
+        const key = Math.round(s.x / 2) * 8192 + Math.round(s.y / 2);
+        if (seen.has(key) && i !== this.hoverGrip) continue;
+        seen.add(key);
         state.grips.push({ sx: s.x, sy: s.y, state: i === this.hoverGrip ? 'hover' : 'cold' });
       }
     }

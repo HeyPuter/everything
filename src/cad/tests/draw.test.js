@@ -490,3 +490,26 @@ describe('touch hit areas', () => {
     expect(t.ed.hoverGrip).toBe(-1);
   });
 });
+
+describe('grip painting', () => {
+  it('paints one grip per spot for dense polylines and keeps the hovered one', async () => {
+    const pts = [];
+    for (let k = 0; k < 5000; k++) pts.push(k * 0.001, 0, 0);
+    let id;
+    t.drawing.transaction('pl', () => {
+      id = t.drawing.add(t.ed.make('polyline', { pts, closed: false, width: 0 })).id;
+    });
+    t.ed.setSelection([id]);
+    expect(t.ed.grips.length).toBe(9999);
+    let painted;
+    t.ed.overlay.draw = (state) => (painted = state);
+    t.ed.cursor.inside = true;
+    const g = t.ed.grips[2500];
+    const s = t.ed.camera.toScreen(g.x, g.y);
+    t.ed._updateCursor(s.x, s.y);
+    t.ed._paintOverlay();
+    // 5 world units at 4 px per unit: about 10 distinct 2 px spots.
+    expect(painted.grips.length).toBeLessThan(40);
+    expect(painted.grips.filter((p) => p.state === 'hover')).toHaveLength(1);
+  });
+});
