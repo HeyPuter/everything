@@ -248,6 +248,36 @@ describe('assistant agent', () => {
     expect((await readAttachment(pdf)).pages).toBe(1);
   });
 
+  it('does not run a tool call cut off at the output limit, which Puter delivers with empty arguments', async () => {
+    // Puter parses a cut-off call's JSON to {} and reports the stop in its usage line.
+    const stream = (parts: Record<string, unknown>[]) => ({ async *[Symbol.asyncIterator]() { yield* parts; } });
+    const replies = [
+      [{ type: 'text', text: 'Sketching.' }, { type: 'tool_use', id: 'a', name: 'get_model', input: {} }, { type: 'tool_use', id: 'b', name: 'set_rollback', input: {} }, { type: 'usage', usage: { output_tokens: 900 }, stopReason: 'max_tokens', finish_reason: 'length' }],
+      [{ type: 'text', text: 'ok' }],
+    ];
+    (globalThis as unknown as { puter?: unknown }).puter = { ai: { chat: async () => stream(replies.shift()!) } };
+    const ran: string[] = [];
+    try {
+      const agent = createAgent({
+        chat: puterChat, tools: () => [], system: 'S', snapshot: () => '', model: () => 'm',
+        runTool: async (n) => { ran.push(n); return { ok: true, content: 'done' }; },
+      });
+      const res = await agent.send('go', () => {});
+      expect(ran).toEqual(['get_model']);
+      expect(res.steps.map((s) => s.status)).toEqual(['done', 'error']);
+      const results = agent.messages.filter((m) => m.role === 'tool');
+      expect(results.at(-1)!.content).toMatch(/reached the output limit/);
+    } finally {
+      delete (globalThis as unknown as { puter?: unknown }).puter;
+    }
+  });
+
+  it('runs a reply\'s calls when the output limit cut off text written after them', async () => {
+    const { agent } = scripted([[{ type: 'tool', id: 'a', name: 'get_model', input: {} }, { type: 'text', text: 'And then' }, { type: 'cut' }], [{ type: 'text', text: 'ok' }]]);
+    const res = await agent.send('go', () => {});
+    expect(res.steps.map((s) => s.status)).toEqual(['done']);
+  });
+
   it('keeps going past many rounds until the model answers', async () => {
     const replies: Reply[] = Array.from({ length: 60 }, (_, i) => [{ type: 'tool', id: `c${i}`, name: 'get_model', input: {} }] as StreamPart[]);
     replies.push([{ type: 'text', text: 'finished' }]);

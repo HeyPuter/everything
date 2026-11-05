@@ -185,6 +185,8 @@ export function createAgent(o: AgentOptions) {
         if (round) emit({ type: 'round' });
         let text = '';
         let wasCut = false;
+        /** The reply's last part was a tool call: a cut there fell inside that call's arguments. */
+        let endedInCall = false;
         const calls: { id: string; name: string; input: Record<string, unknown> }[] = [];
         let req = requestMessages(messages, o.system, { noShots: imagesRefused });
         let attempt = 0;
@@ -198,8 +200,8 @@ export function createAgent(o: AgentOptions) {
               if (next === STOP) { abort.abort(); Promise.resolve(iter.return?.()).catch(() => {}); break; }
               if (next.done) break;
               const part = next.value;
-              if (part.type === 'text') { text += part.text; emit({ type: 'text', text: part.text }); }
-              else if (part.type === 'tool') calls.push({ id: part.id || newId(), name: part.name, input: part.input });
+              if (part.type === 'text') { text += part.text; endedInCall = false; emit({ type: 'text', text: part.text }); }
+              else if (part.type === 'tool') { calls.push({ id: part.id || newId(), name: part.name, input: part.input }); endedInCall = true; }
               else if (part.type === 'cut') wasCut = true;
             }
             break;
@@ -217,8 +219,10 @@ export function createAgent(o: AgentOptions) {
         const empty = !text.trim() && !calls.length;
         if (empty) text = 'I have nothing to add.';
         if (wasCut && !calls.length) text = `${text.trimEnd()}\n\n[My reply was cut off: it reached the length limit.]`;
+        // Puter hands over a call whose JSON the limit cut off as {} (not as unreadable text),
+        // so the call is judged by where the reply stopped: running it would act on no arguments.
         const last = calls.at(-1);
-        const lastCut = wasCut && !!last && last.input.__unreadable != null;
+        const lastCut = wasCut && !!last && (endedInCall || last.input.__unreadable != null);
         messages.push({
           role: 'assistant', content: text.trim() ? text : null,
           ...(calls.length ? { tool_calls: calls.map((c): ChatToolCall => ({ id: c.id, type: 'function', function: { name: c.name, arguments: JSON.stringify(c.input) } })) } : {}),

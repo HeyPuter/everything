@@ -65,6 +65,9 @@ function toolInput(input: unknown): Record<string, unknown> {
 
 const reachedLimit = (usage: { output_tokens?: number; completion_tokens?: number } | undefined, max?: number) =>
   !!max && Number(usage?.output_tokens ?? usage?.completion_tokens) >= max;
+/** Whether a stream's closing usage line says the reply stopped at the output limit. */
+const stoppedAtLimit = (part: Record<string, unknown>, max?: number) =>
+  part.stopReason === 'max_tokens' || part.finish_reason === 'length' || reachedLimit(part.usage as never, max);
 
 let callSeq = 0;
 const newCallId = () => `call_${Date.now().toString(36)}_${(++callSeq).toString(36)}`;
@@ -96,7 +99,7 @@ export async function* puterChat(messages: ChatMessage[], opts: ChatOptions = {}
         if (!part) continue;
         if (part.type === 'error' || (part.success === false && part.error)) throw aiError(part.error ?? part);
         if (part.type === 'tool_use') yield { type: 'tool', id: String(part.id ?? newCallId()), name: String(part.name ?? ''), input: toolInput(part.input) };
-        else if (part.type === 'usage') { if (reachedLimit(part.usage as never, opts.maxTokens)) yield { type: 'cut' }; }
+        else if (part.type === 'usage') { if (stoppedAtLimit(part, opts.maxTokens)) yield { type: 'cut' }; }
         else if (part.type !== 'reasoning' && typeof part.text === 'string' && part.text) yield { type: 'text', text: part.text };
       }
     } catch (e) {
