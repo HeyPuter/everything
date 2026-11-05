@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { Drawing } from '../src/core/drawing.js';
+import { freeTableName } from '../src/core/schema.js';
 
 const line = (x1, y1, x2, y2) => ({ type: 'line', layer: '0', color: 256, linetype: 'ByLayer', lineweight: -1, ltscale: 1, x1, y1, x2, y2 });
 
@@ -199,5 +200,11 @@ describe('Drawing', () => {
     expect(d.layerVisible('Locked')).toBe(true);
     expect(d.layerEditable('Locked')).toBe(false);
     expect(d.layerEditable('0')).toBe(true);
+  });
+
+  it('picks a free table name in any letter case', () => {
+    const t = new Map([['LAYER1', {}], ['layer2', {}]]);
+    expect(freeTableName(t, 'Layer')).toBe('Layer3');
+    expect(freeTableName(new Map(), 'Style')).toBe('Style1');
   });
 });

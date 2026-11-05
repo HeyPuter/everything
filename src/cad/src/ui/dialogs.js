@@ -7,7 +7,7 @@ import { h, clear, MOD } from './dom.js';
 import { icon } from './icons.js';
 import { openDialog, toast } from './dialog.js';
 import { PALETTE, colorLabel, colorCss, rgbToHex } from '../core/colors.js';
-import { COLOR_BYLAYER, COLOR_BYBLOCK, UNITS } from '../core/schema.js';
+import { COLOR_BYLAYER, COLOR_BYBLOCK, UNITS, freeTableName, tableKey } from '../core/schema.js';
 import { STANDARD_LINETYPES } from '../core/linetypes.js';
 import { defaultTextStyle, defaultDimStyle } from '../core/styles.js';
 import { formatLinear, formatAngle } from '../core/units.js';
@@ -785,9 +785,7 @@ async function styleManager(app, { title, table, headerKey, make, fields, label,
     h('button.btn.sm', {
       type: 'button',
       onClick: () => {
-        let i = 1;
-        while (work.has(`Style${i}`)) i++;
-        const n = `Style${i}`;
+        const n = freeTableName(work, 'Style');
         work.set(n, { ...make(n), ...work.get(selected), name: n });
         selected = n;
         renderList();
@@ -879,7 +877,7 @@ function countStyleUses(d, test) {
 export async function linetypesDialog(app) {
   const d = app.doc.drawing;
   const rows = STANDARD_LINETYPES.map((lt) => {
-    const loaded = d.linetypes.has(lt.name);
+    const loaded = !!tableKey(d.linetypes, lt.name);
     const c = check(`${lt.name}  ${lt.description}`, loaded, { 'data-name': lt.name });
     return c;
   });
@@ -892,8 +890,10 @@ export async function linetypesDialog(app) {
     for (const c of rows) {
       const inp = c.querySelector('input');
       const name = inp.dataset.name;
-      if (inp.checked && !d.linetypes.has(name)) d.setTable('linetypes', name, { ...STANDARD_LINETYPES.find((l) => l.name === name) });
-      if (!inp.checked && d.linetypes.has(name) && name !== 'Continuous' && !used.has(name)) d.setTable('linetypes', name, null);
+      // An imported DASHED is the standard Dashed: names ignore case.
+      const key = tableKey(d.linetypes, name);
+      if (inp.checked && !key) d.setTable('linetypes', name, { ...STANDARD_LINETYPES.find((l) => l.name === name) });
+      if (!inp.checked && key && name !== 'Continuous' && !used.has(key)) d.setTable('linetypes', key, null);
     }
     const v = Number(lts.value);
     if (v > 0 && v !== d.header.ltscale) d.setHeader({ ltscale: v });

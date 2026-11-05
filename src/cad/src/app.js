@@ -204,7 +204,8 @@ export class App {
   }
 
   addDoc(drawing, name, file = null, id = null) {
-    for (const lt of STANDARD_LINETYPES) if (!drawing.linetypes.has(lt.name)) drawing.linetypes.set(lt.name, { ...lt });
+    // Not beside an imported DASHED: names ignore case.
+    for (const lt of STANDARD_LINETYPES) if (!tableKey(drawing.linetypes, lt.name)) drawing.linetypes.set(lt.name, { ...lt });
     const doc = new Doc(drawing, name);
     if (id) doc.id = id;
     doc.file = file;

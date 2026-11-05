@@ -186,6 +186,13 @@ export function tableKey(map, name) {
   return null;
 }
 
+/** The first free name base1, base2... in a layer, block or style table, in any letter case. */
+export function freeTableName(map, base) {
+  let i = 1;
+  while (tableKey(map, `${base}${i}`)) i++;
+  return `${base}${i}`;
+}
+
 /** Fields every new entity gets unless the caller sets them. */
 export function baseProps(header) {
   return {

@@ -5,7 +5,7 @@
 import { h, clear } from './dom.js';
 import { icon } from './icons.js';
 import { colorLabel, colorCss } from '../core/colors.js';
-import { defaultLayer, LINEWEIGHTS, LW_DEFAULT } from '../core/schema.js';
+import { defaultLayer, freeTableName, LINEWEIGHTS, LW_DEFAULT } from '../core/schema.js';
 import { lwLabel } from './combos.js';
 import { confirmDialog } from './dialog.js';
 import { preserveFocus } from './focus.js';
@@ -220,10 +220,7 @@ export class LayerManager {
   }
 
   uniqueName(base = 'Layer') {
-    const d = this.drawing;
-    let i = 1;
-    while (d.layers.has(`${base}${i}`)) i++;
-    return `${base}${i}`;
+    return freeTableName(this.drawing.layers, base);
   }
 
   newLayer() {
