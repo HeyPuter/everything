@@ -10379,7 +10379,16 @@ export function createEditor({
         ? normalizeRect(pdfPoint(g.start), pdfPoint(end))
         : readerRectOnPage(g.start, 180 * pt, 50 * pt);
       return commentTextDialog('Text box', (doc, text) =>
-        addTextBox(doc, g.page, { rect, text, fontSize, borderColor: hex, borderWidth, author }),
+        addTextBox(doc, g.page, {
+          rect,
+          text,
+          fontSize,
+          borderColor: hex,
+          borderWidth,
+          author,
+          // Taller, as the words need, so none are hidden below the box.
+          fit: true,
+        }),
       );
     }
     if (g.type === 'callout') {
@@ -10415,6 +10424,7 @@ export function createEditor({
           borderColor: hex,
           borderWidth,
           author,
+          fit: true,
         }),
       );
     }

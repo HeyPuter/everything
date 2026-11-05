@@ -167,6 +167,88 @@ const subtypesOf = (doc, index = 0) =>
 const near = (a, b, tolerance = 0.01) => a.every((value, i) => Math.abs(value - b[i]) <= tolerance);
 
 describe('text boxes', () => {
+  // A text box placed with a click is 50 points tall, whatever was typed into it: the lines
+  // that did not fit were cut off at its bottom edge, out of sight.
+  it('grows a fitted text box down the page, as it reads, to show all of its words', async () => {
+    const words = 'One\nTwo\nThree\nFour\nFive\nSix and a much longer line that wraps in the box';
+    for (const rotation of [0, 90, 180, 270]) {
+      const doc = await blank(1, [400, 400]);
+      doc.getPage(0).setRotation(degrees(rotation));
+      const turned = rotation % 180 !== 0;
+      // 180 wide and 50 tall as the page is read.
+      const rect = turned
+        ? { x: 100, y: 100, width: 50, height: 180 }
+        : { x: 100, y: 250, width: 180, height: 50 };
+      const id = await addTextBox(doc, 0, { rect, text: words, fit: true });
+      const { box } = listAnnotations(doc, 0).find((entry) => entry.id === id);
+      const [readerWidth, readerHeight] = turned
+        ? [box.height, box.width]
+        : [box.width, box.height];
+      expect(readerWidth, `${rotation}`).toBeCloseTo(180, 6);
+      // Seven lines of 12 point text, with room around them.
+      expect(readerHeight, `${rotation}`).toBeGreaterThan(7 * 12 * 1.2);
+      // The top edge, as the page is read, stays where it was put.
+      const top = {
+        0: [box.y + box.height, 300],
+        90: [box.x, 100],
+        180: [box.y, 250],
+        270: [box.x + box.width, 150],
+      }[rotation];
+      expect(top[0], `${rotation}`).toBeCloseTo(top[1], 6);
+      // Every line is drawn inside the box.
+      const view = await render(await doc.save());
+      const ink = view.inkBox();
+      expect(ink.y1 - ink.y0).toBeGreaterThan(7 * 12 * 1.2);
+    }
+    // Words that fit leave the box as it was.
+    const doc = await blank(1, [400, 400]);
+    const id = await addTextBox(doc, 0, {
+      rect: { x: 100, y: 250, width: 180, height: 50 },
+      text: 'Short',
+      fit: true,
+    });
+    expect(listAnnotations(doc, 0).find((entry) => entry.id === id).box).toEqual({
+      x: 100,
+      y: 250,
+      width: 180,
+      height: 50,
+    });
+  });
+
+  it('moves a fitted box up from the bottom of the page and keeps a callout off its point', async () => {
+    const words = 'One\nTwo\nThree\nFour\nFive\nSix';
+    const doc = await blank(1, [400, 400]);
+    const low = await addTextBox(doc, 0, {
+      rect: { x: 100, y: 0, width: 180, height: 50 },
+      text: words,
+      fit: true,
+    });
+    const { box } = listAnnotations(doc, 0).find((entry) => entry.id === low);
+    expect(box.y).toBeCloseTo(0, 6);
+    expect(box.height).toBeGreaterThan(6 * 12 * 1.2);
+    // A box that would grow over its point keeps its size; the callout is still made.
+    const callout = await addCallout(doc, 0, {
+      rect: { x: 100, y: 250, width: 180, height: 50 },
+      anchor: { x: 150, y: 220 },
+      text: words,
+      fit: true,
+    });
+    expect(listAnnotations(doc, 0).find((entry) => entry.id === callout).box.height).toBeCloseTo(
+      50,
+      6,
+    );
+    // One with room grows.
+    const roomy = await addCallout(doc, 0, {
+      rect: { x: 100, y: 250, width: 180, height: 50 },
+      anchor: { x: 50, y: 380 },
+      text: words,
+      fit: true,
+    });
+    const grown = listAnnotations(doc, 0).find((entry) => entry.id === roomy);
+    expect(grown.box.height).toBeGreaterThan(6 * 12 * 1.2);
+    expect(grown.points[0]).toEqual({ x: 50, y: 380 });
+  });
+
   it('reads the same on a page whose units are larger than points', async () => {
     // Letter paper in units of ten points, as large drawings are made, beside plain Letter.
     const views = [];
