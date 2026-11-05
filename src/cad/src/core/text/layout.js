@@ -321,6 +321,21 @@ export function layoutMText(ent, style) {
   return { strokes, box: fr.box, lines: fr.n };
 }
 
+/**
+ * Each line of an 'mtext' entity as single-line text placement:
+ * [{ value, x, y, halign }], (x, y) being the alignment point on the line's
+ * baseline. Laying these out as 'text' reproduces layoutMText's strokes.
+ */
+export function mtextLines(ent, style) {
+  const fr = mtextFrame(ent, style);
+  const halign = fr.fx === 0.5 ? 'center' : fr.fx === 1 ? 'right' : 'left';
+  const lx = fr.left + fr.fx * fr.frameW;
+  return fr.texts.map((value, i) => {
+    const ly = fr.top - fr.p.h - i * fr.pitch;
+    return { value, x: fr.x + fr.cs * lx - fr.sn * ly, y: fr.y + fr.sn * lx + fr.cs * ly, halign };
+  });
+}
+
 /** Axis-aligned [minX, minY, maxX, maxY] of a flat point list. */
 function extent(pts) {
   let x0 = Infinity,

@@ -24,6 +24,7 @@ import {
 } from '../../core/geom/index.js';
 import { insertMatrix, mulMatrix } from '../../core/tessellate.js';
 import { buildDimension, buildLeader } from '../../core/dims.js';
+import { mtextLines } from '../../core/text/layout.js';
 import { COLOR_BYBLOCK, LW_BYBLOCK } from '../../core/schema.js';
 import { M, TAU, dist, angleOf, norm, fresh } from './util.js';
 
@@ -845,18 +846,23 @@ export function explodeOne(ed, e) {
       return out;
     }
     case 'mtext': {
-      const lines = String(e.value).split('\n');
-      const pitch = e.h * 1.6667 * (e.lineSpacing || 1);
-      return lines.map((v, i) => ({
-        ...e,
+      // One text per laid-out line (paragraphs and word wrap), aligned like
+      // the attachment so every line stays where it was drawn.
+      const st = d.textStyles.get(e.style);
+      const rest = { ...e };
+      for (const k of ['width', 'attach', 'lineSpacing']) delete rest[k];
+      const lines = mtextLines(e, st).filter((l) => l.value.trim());
+      if (!lines.length) return null;
+      return lines.map((l) => ({
+        ...rest,
         type: 'text',
-        value: v,
-        x: e.x + Math.sin(e.rot || 0) * (pitch * i + e.h),
-        y: e.y - Math.cos(e.rot || 0) * (pitch * i + e.h),
-        halign: 'left',
+        value: l.value,
+        x: l.x,
+        y: l.y,
+        halign: l.halign,
         valign: 'baseline',
-        widthFactor: 1,
-        oblique: 0,
+        widthFactor: e.widthFactor > 0 ? e.widthFactor : st?.widthFactor > 0 ? st.widthFactor : 1,
+        oblique: e.oblique ?? st?.oblique ?? 0,
       }));
     }
     case 'hatch':

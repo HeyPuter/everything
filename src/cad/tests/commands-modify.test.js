@@ -9,6 +9,7 @@ import { Camera } from '../src/render/camera.js';
 import { Drawing } from '../src/core/drawing.js';
 import { SpatialIndex } from '../src/core/spatial.js';
 import { buildRegistry } from '../src/editor/commands/index.js';
+import { layoutText, layoutMText } from '../src/core/text/layout.js';
 
 globalThis.requestAnimationFrame ??= (cb) => setTimeout(cb, 0);
 globalThis.cancelAnimationFrame ??= (id) => clearTimeout(id);
@@ -194,5 +195,37 @@ describe('STRETCH', () => {
     // The window holds only the first vertex.
     await t.type('STRETCH', '-1,-1', '1,1', '0,0', '-5,0');
     expect(t.drawing.get(1).loops[0]).toEqual([-5, 0, 0, 10, 0, 0, 10, 10, 0, 0, 10, 0]);
+  });
+});
+
+describe('EXPLODE', () => {
+  const strokes = (list) =>
+    list
+      .map((s) => s.map((v) => v.toFixed(6)).join(','))
+      .sort()
+      .join('|');
+
+  it('explodes mtext into texts drawn exactly where its lines were', async () => {
+    const mt = {
+      type: 'mtext',
+      x: 3,
+      y: 4,
+      h: 2,
+      rot: 0.3,
+      value: 'Hello wide world\\Pbar\n\nlast line',
+      style: 'Standard',
+      width: 14,
+      attach: 'mc',
+      lineSpacing: 1.2,
+    };
+    add(mt);
+    const before = strokes(layoutMText({ ...base, ...mt }).strokes);
+    t.ed.setSelection([1]);
+    await t.type('EXPLODE');
+    const texts = t.all('text');
+    expect(t.all('mtext')).toHaveLength(0);
+    expect(texts.map((e) => e.value)).toEqual(['Hello wide', 'world', 'bar', 'last line']);
+    expect(texts.every((e) => e.halign === 'center' && e.attach === undefined)).toBe(true);
+    expect(strokes(texts.flatMap((e) => layoutText(e).strokes))).toBe(before);
   });
 });
