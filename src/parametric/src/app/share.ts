@@ -64,7 +64,14 @@ export async function shareDialog(app: App, files: FileOps) {
     if (signal.aborted || app.store.doc.name !== name) return;
     if (originalLocation?.type === 'cloud' && (app.location?.type !== 'cloud' || app.location.path !== originalLocation.path)) return;
     if (!ok || app.location?.type !== 'cloud') {
-      toast({ title: 'Share', message: 'Save the part to your Puter cloud first, then share it.' });
+      // Save keeps a part where it is: a part kept in this browser needs Save As to reach the cloud.
+      const local = ok && app.location?.type === 'local';
+      toast({
+        title: 'Share',
+        message: local ? 'This part is saved in this browser. Save a copy to your Puter cloud, then share it.' : 'Save the part to your Puter cloud first, then share it.',
+        actions: local ? [{ label: 'Save As...', primary: true, run: () => void Promise.resolve(files.saveAs()).then(() => { if (app.location?.type === 'cloud') return shareDialog(app, files); }) }] : undefined,
+        timeout: local ? 12000 : undefined,
+      });
       return;
     }
   }
