@@ -98,6 +98,32 @@ function expectGone(corpus, secret) {
   expect(lower).not.toContain(utf16(secret));
 }
 
+// A small grayscale (one-component) JPEG, written by macOS's image tools from a textured gradient.
+const GRAY_JPEG =
+  '/9j/wAALCAAwAGABAREA/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9' +
+  'AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVW' +
+  'V1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW' +
+  '19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/9sAQwAEBAQEBAQGBAQGCQYGBgkMCQkJCQwPDAwMDAwPEg8PDw8PDxISEhIS' +
+  'EhISFRUVFRUVGRkZGRkcHBwcHBwcHBwc/90ABAAM/9oACAEBAAA/AO28N3f2dV3E8Dg8D6nqfX/PSvVLbV4Eg6gdgPvd' +
+  'OPTt+P8AjmanqscoKht4P3cEDAx6HAz/APXrxLxPIZFYjaWOSp6HkY44/CvDNe0y4nJJUkqDzgj8c46jHvXMQaJOJcFW' +
+  'KAjqCOBknPuDx9a9G0GzaArIynAP0HT9M+9e8+HbmK2Malck8Ef4n27ivWbXWrVEzuCjaQNuP8nn/PrS1PV450JToeSP' +
+  'UZ46/wCTXjHiOWO4VvLbd1P056nHFeDa3p00zE7SC3QL0B9j6fSv/9Bh1n+z8Mh2gAH2646dT/WoV8abAfLYADjB64yD' +
+  'jg/5/GkTxY90nLB1PHzHp6fUn+dWw7XozncGHBwck8Y/z2qwPDEd2N2zgYOf9odgacPA+T5hjAYEc4A79SOxPXn8Kil0' +
+  'IWDDAKgZBJHsO2SeKqnUGs0AUn5WJyPTPt/Id6rN40KN/reg+7k/XnGDn8KF8WeeXi8wswAxnPAx6c/yq+k32whkcbur' +
+  'dcZPfuKlj8OJdn5fnLevBP8AXnNf/9HhPEtxMplVQxOOCePfNeTXeqXCysqkt6/3j2GBxkVp6Pqc7SpliA2FwOvuc+o6' +
+  '17n4YV5MDdwWySRzjv8Aj+HWvetCsEZEDqoHDZzxz3B6ZrrrjToVQA/KVHJGOuCP8/5NedeIreOIPuUZY5Hr/P8Al618' +
+  '8eKJDAXQjDEFiTg9fXFeQXepzK5Mjktk5UfXke+f1/CremanI0itu6HjHXv/AF7Zr27wqwl/1iLknGe3Ycj6/n7V9BaF' +
+  'YxsIy6Lgjntx9P8AGv/S5LW7B7ksec54GMnp3/pXns/ht5WchTtznoef17fyq5YaBJE6sVweODwAMkdfTj/Oa9Z0CA2g' +
+  'TcuwLyx9/T6fjn6V65pOtrCqFztAAOPTvx6dOMfnXSP4lhk3KGyTkEcDnoM9+ecnr+FcTrmsQXKttJKnp1447D6D/PNe' +
+  'M67am7BQIMDAGOwPvn0rzm88OTznzUUjJzjP06ZHHTNTWPh+aKRvNAAPcjjofQc+1esaJD9hUEjywPXAJ4PevWdJ1aKB' +
+  'UEjZIHYjsPr2r//T17LSjcgBV+X1H97tnp9fT610CeDUOTsOGJAJGRjIJ47/AOe9VrnwmId+A3TGSR19z6/riuVvV+yK' +
+  'QAflOM8AjHX1HT6VyF14lNrIoEh7gnPPHfnn8v8AGs8+NmdtxkI+bjrkkD159hW9Y61LeFfmG7J+XJHB64APTPQ+2a66' +
+  'w08XhXdFweSByecdPr7n+ldPF4OWVSFXr7HaMnpnjsfTPNQXPhQW/wA5RWPTjg++c/56Vy97btYhiASyfwjOPxA479K4' +
+  'u58QtaHaG5GGHc9eo/8A1kV//9TvfDAi+XAX7vHuDx+I9/xr2CzW3ePc/Q9eOnGc+p4HH0zWZrCQGLggcde2R+H/AOvk' +
+  'V4D4pVUEm5WOASSvPX6+x5r5916SWOUgA7u3XGQT7D8OK4+B7jzdxzk7QCOSOMg+9en+GlkDLli33Sc9yT6/y5/nX0b4' +
+  'XUEAE7SB7j5R07cV7LYrG0YWQgo3OCfU5xxmqWqJbrHIgXjG3HQD365rwjxWFEcmGODyPbn0Hv05r5615pEdmHBBPCjO' +
+  'Tz7/AOfxr//Z';
+
 async function makePdf(pages, { setup } = {}) {
   const doc = await PDFDocument.create();
   const font = await doc.embedFont(StandardFonts.Helvetica);
@@ -678,6 +704,89 @@ describe('images', () => {
     // The original's scan data is not left behind (its header tables can match the new one's).
     const middle = jpeg.length >> 1;
     expect(Buffer.from(out).includes(jpeg.subarray(middle, middle + 60))).toBe(false);
+  });
+
+  it('keeps a redacted grayscale scan a JPEG, as three equal colour components', async () => {
+    // A 96 × 48 one-component (DeviceGray) JPEG, as scanners write pages in shades of gray.
+    const jpeg = Buffer.from(GRAY_JPEG, 'base64');
+    const original = new JpegImage();
+    original.parse(jpeg);
+    expect(original.numComponents).toBe(1);
+    const before = original.getData({ width: 96, height: 48 });
+    const scan = (intent) =>
+      makePdf([
+        {
+          content: 'q 96 0 0 48 0 0 cm /Scan Do Q',
+          resources: (doc) => {
+            if (intent)
+              doc.catalog.set(
+                n('OutputIntents'),
+                doc.context.obj([
+                  {
+                    Type: 'OutputIntent',
+                    S: 'GTS_PDFA1',
+                    DestOutputProfile: doc.context.register(doc.context.stream('', { N: intent })),
+                  },
+                ]),
+              );
+            return {
+              XObject: {
+                Scan: doc.context.register(
+                  doc.context.stream(jpeg, {
+                    Type: 'XObject',
+                    Subtype: 'Image',
+                    Width: 96,
+                    Height: 48,
+                    ColorSpace: 'DeviceGray',
+                    BitsPerComponent: 8,
+                    Filter: 'DCTDecode',
+                  }),
+                ),
+              },
+            };
+          },
+        },
+      ]);
+    const codec = {
+      async encodeJpeg({ data, width, height }, quality) {
+        const out = createCanvas(width, height);
+        const context = out.getContext('2d');
+        const pixels = context.createImageData(width, height);
+        pixels.data.set(data);
+        context.putImageData(pixels, 0, 0);
+        return new Uint8Array(out.toBuffer('image/jpeg', Math.round(quality * 100)));
+      },
+    };
+    const bytes = await scan();
+    const area = [[0, [[0, 0, 30, 48]]]];
+    const lossless = await redact(bytes, area);
+    const { bytes: out, report } = await redact(bytes, area, { codec });
+    expect(report.images.redacted).toBe(1);
+    expect(out.length).toBeLessThan(lossless.bytes.length);
+    const doc = await PDFDocument.load(out);
+    const [image] = Object.values(pageImages(doc));
+    expect(image.dict.lookup(n('Filter'))).toBe(n('DCTDecode'));
+    expect(image.dict.lookup(n('ColorSpace'))).toBe(n('DeviceRGB'));
+    const decoder = new JpegImage();
+    decoder.parse(image.contents);
+    const pixels = decoder.getData({ width: 96, height: 48 });
+    for (let y = 0; y < 48; y += 5)
+      for (let x = 0; x < 96; x += 5) {
+        const rgb = [...pixels.subarray((y * 96 + x) * 3, (y * 96 + x) * 3 + 3)];
+        // The painted area decodes as the fill; the rest as the scan, in gray.
+        if (x < 30) for (const value of rgb) expect(value).toBeLessThan(10);
+        else if (x > 34)
+          for (const value of rgb) expect(Math.abs(value - before[y * 96 + x])).toBeLessThan(40);
+        expect(Math.max(...rgb) - Math.min(...rgb)).toBeLessThan(10);
+      }
+    const middle = jpeg.length >> 1;
+    expect(Buffer.from(out).includes(jpeg.subarray(middle, middle + 60))).toBe(false);
+    // A file meant for CMYK printing (PDF/A or PDF/X with a CMYK output intent) may not use
+    // DeviceRGB: its scan stays gray, stored losslessly.
+    const printed = await redact(await scan(4), area, { codec });
+    const [kept] = Object.values(pageImages(await PDFDocument.load(printed.bytes)));
+    expect(kept.dict.lookup(n('ColorSpace'))).toBe(n('DeviceGray'));
+    expect(kept.dict.lookup(n('Filter'))).toBe(n('FlateDecode'));
   });
 
   it('redacts inline images and stencil masks', async () => {
