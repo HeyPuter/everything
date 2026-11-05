@@ -1257,6 +1257,10 @@ body.clean-screen .app-root {
   .workspace.dock-open .cmdline {
     bottom: calc(var(--dock-h, 0px) + 8px);
   }
+  /* The canvas left above the palette is short: messages stop before the navigation bar. */
+  .workspace.dock-open .cmd-history {
+    padding-right: 54px;
+  }
 }
 
 /* Phone -------------------------------------------------------------------------------------- */
