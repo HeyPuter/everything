@@ -2654,7 +2654,7 @@ export function createEditor({
       if (rebuilt) stack.rebuild(pageCount);
       // Fit width and fit page follow the largest page, whose size can arrive after the
       // current page has been fitted; the zoom then catches up, as it does after a resize.
-      stack.loadSizes(next).then(() => {
+      stack.loadSizes(next, session.geometry).then(() => {
         if (destroyed || pdf !== next) return;
         fitSizesStale = true;
         refitPage();
