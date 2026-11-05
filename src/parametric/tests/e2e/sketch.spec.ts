@@ -1199,6 +1199,42 @@ test.describe('sketching', () => {
     expect(errors).toEqual([]);
   });
 
+  test('a touch long press opens the context menu in sketch mode without moving or box-selecting', async ({ page }) => {
+    const errors = await openApp(page);
+    const { x, y } = await startSketch(page);
+    await page.locator('[data-cmd="tool:rectangle"]').click();
+    await page.mouse.click(x - 100, y + 60);
+    await page.mouse.click(x + 100, y - 60);
+    await page.keyboard.press('Escape');
+    const cdp = await page.context().newCDPSession(page);
+    const touch = (type: 'touchStart' | 'touchEnd', points: [number, number][]) =>
+      cdp.send('Input.dispatchTouchEvent', { type, touchPoints: points.map(([px, py], id) => ({ x: px, y: py, id })) });
+    const state = () => page.evaluate(() => {
+      const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+      return { pts: JSON.stringify(a.sketchEditor!.sketch.entities), sel: a.selection.items.length, undo: a.store.undoDepth, batch: (a.store as unknown as { batchDepth: number }).batchDepth };
+    });
+    const before = await state();
+    const menu = page.getByRole('menu', { name: 'Context menu' });
+    // On the rectangle's right side, then on empty canvas.
+    for (const [px, py] of [[x + 100, y], [x + 200, y + 120]]) {
+      await touch('touchStart', [[px, py]]);
+      await expect(menu).toBeVisible();
+      await touch('touchEnd', []);
+      await page.keyboard.press('Escape');
+      await expect(menu).toHaveCount(0);
+    }
+    const after = await state();
+    expect(after.pts).toBe(before.pts);
+    expect(after.undo).toBe(before.undo);
+    // No drag is left open to swallow the next undo step.
+    expect(after.batch).toBe(0);
+    // A short tap still selects.
+    await touch('touchStart', [[x + 100, y]]);
+    await touch('touchEnd', []);
+    await expect.poll(async () => (await state()).sel).toBe(1);
+    expect(errors).toEqual([]);
+  });
+
   test('dragging a fully defined rectangle leaves it where it is', async ({ page }) => {
     const errors = await openApp(page);
     const { x, y } = await startSketch(page);

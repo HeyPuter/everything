@@ -419,6 +419,15 @@ export class SketchEditor implements ViewportTool {
     }
   }
 
+  /** A touch long press in select mode opens the context menu instead. */
+  longPress(e: VPEvent): boolean {
+    if (this.tool) return false;
+    // `e` is the press itself, which pointerUp treats as an interrupted
+    // gesture: it ends the drag or box selection without applying either.
+    this.pointerUp(e);
+    return true;
+  }
+
   click(e: VPEvent): boolean {
     // A press that did not move ends any drag that pointerDown started.
     const d = this.drag;

@@ -35,6 +35,11 @@ export interface ViewportTool {
   pointerUp?(e: VPEvent): void;
   click?(e: VPEvent): boolean;
   dblClick?(e: VPEvent): boolean;
+  /**
+   * A touch press the tool claimed was held still: return true to give it up
+   * (the tool drops the press) so the press opens the context menu instead.
+   */
+  longPress?(e: VPEvent): boolean;
   hover?(e: VPEvent): void;
   leave?(): void;
 }
@@ -206,7 +211,16 @@ export class Viewport {
     }
     if (e.button !== 0) return;
     if (this.tool?.pointerDown?.(ev)) {
-      this.gesture = { kind: 'tool', id: e.pointerId, x: ev.x, y: ev.y, moved: false };
+      const g = this.gesture = { kind: 'tool', id: e.pointerId, x: ev.x, y: ev.y, moved: false };
+      if (e.pointerType === 'touch' && this.tool.longPress) {
+        clearTimeout(this.longPress);
+        this.longPress = window.setTimeout(() => {
+          if (this.gesture === g && !g.moved && this.tool?.longPress?.(ev)) {
+            this.gesture = { kind: 'none' };
+            this.app.onViewportContextMenu(ev, e.clientX, e.clientY);
+          }
+        }, 550);
+      }
       return;
     }
     this.gesture = { kind: 'pending', x: ev.x, y: ev.y, button: 0, id: e.pointerId, e: ev };
