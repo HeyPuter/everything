@@ -669,7 +669,7 @@ for (const change of ['edits', 'a new part'] as const) test(`saving before New k
   expect(errors).toEqual([]);
 });
 
-for (const stage of ['convertSolidWorks', 'checkImport'] as const) test(`an import finishing ${stage} after New does not modify the new part`, async ({ page }) => {
+for (const command of ['importStep', 'openDevice'] as const) for (const stage of ['convertSolidWorks', 'checkImport'] as const) test(`a ${command} finishing ${stage} after New does not modify the new part`, async ({ page }) => {
   const errors = await openApp(page);
   await page.getByRole('button', { name: /New part/ }).click();
   await app(page);
@@ -686,10 +686,10 @@ for (const stage of ['convertSolidWorks', 'checkImport'] as const) test(`an impo
     }
   }, stage);
   const chooser = page.waitForEvent('filechooser');
-  await page.evaluate(() => {
+  await page.evaluate((command) => {
     const w = window as unknown as { __parametric: import('../../src/app/app').App; pendingImport: Promise<void> };
-    w.pendingImport = Promise.resolve(w.__parametric.commands.get('importStep')!.run());
-  });
+    w.pendingImport = Promise.resolve(w.__parametric.commands.get(command)!.run());
+  }, command);
   const path = decodeURIComponent(new URL('../fixtures/sldprt/cube-hole-sw2022.sldprt', import.meta.url).pathname);
   await (await chooser).setFiles(path);
   await page.waitForFunction(() => (window as unknown as { importStarted: boolean }).importStarted);
@@ -706,7 +706,7 @@ for (const stage of ['convertSolidWorks', 'checkImport'] as const) test(`an impo
   });
   expect(untouched).toEqual({ features: [], blobs: [], dirty: false });
   const retry = page.waitForEvent('filechooser');
-  await page.evaluate(() => (window as unknown as { __parametric: AppHandle }).__parametric.commands.run('importStep'));
+  await page.evaluate((command) => (window as unknown as { __parametric: AppHandle }).__parametric.commands.run(command), command);
   await (await retry).setFiles(path);
   await expect(page.getByRole('treeitem', { name: 'Imported1' })).toBeVisible();
   await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.whenBuilt());
@@ -1124,5 +1124,122 @@ for (const command of ['rename', 'saveAs', 'new'] as const) test(`the ${command}
     return { name: a.store.doc.name, variables: a.store.doc.variables.map((v) => v.name), location: a.location, dirty: a.store.dirty };
   })).toEqual({ name: 'Replacement', variables: ['Keep'], location: null, dirty: true });
   expect(await page.evaluate(() => [...(window as unknown as Mock).__files.keys()])).toEqual([]);
+  expect(errors).toEqual([]);
+});
+
+for (const source of ['listed part', 'shared part', 'cloud picker', 'desktop launch', 'device file'] as const) test(`a delayed open from ${source} does not replace a newer part`, async ({ page }) => {
+  await mockPuter(page);
+  await page.addInitScript((source) => {
+    type Item = { name: string; path: string; read?: () => Promise<Blob> };
+    type W = Mock & { puter: { fs: { read: (path: string) => Promise<Blob>; listShared: () => Promise<unknown> }; ui: { onLaunchedWithItems: (fn: (items: Item[]) => Promise<void>) => void; showOpenFilePicker: () => Promise<Item> } }; launchPart: (items: Item[]) => Promise<void>; openStarted: boolean; releaseOpen: () => void };
+    const w = window as unknown as W;
+    const path = '/tester/AppData/parametric/Parts/Older.parametric';
+    w.__files.set(path, { text: JSON.stringify({ format: 'parametric-part', version: 1, name: 'Older', features: [] }) });
+    const gate = new Promise<void>((resolve) => { w.releaseOpen = resolve; });
+    const read = w.puter.fs.read;
+    w.puter.fs.read = async (path) => { const blob = await read(path); w.openStarted = true; await gate; return blob; };
+    w.puter.ui.onLaunchedWithItems = (fn) => { w.launchPart = fn; };
+    w.puter.ui.showOpenFilePicker = async () => ({ name: 'Older.parametric', path, read: () => w.puter.fs.read(path) });
+    if (source === 'shared part') w.puter.fs.listShared = async () => ({ items: [{ name: 'Older.parametric', path, mode: 'read', owner: 'other' }] });
+    if (source === 'device file') {
+      const text = File.prototype.text;
+      File.prototype.text = async function () { const value = await text.call(this); w.openStarted = true; await gate; return value; };
+    }
+  }, source);
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  if (source === 'desktop launch') {
+    await page.evaluate(() => {
+      const w = window as unknown as { launchPart: (items: { name: string; path: string }[]) => Promise<void>; pendingOpen: Promise<void> };
+      w.pendingOpen = w.launchPart([{ name: 'Older.parametric', path: '/tester/AppData/parametric/Parts/Older.parametric' }]);
+    });
+  } else if (source === 'device file') {
+    const chooser = page.waitForEvent('filechooser');
+    await page.evaluate(() => {
+      const w = window as unknown as { __parametric: import('../../src/app/app').App; pendingOpen: Promise<void> };
+      w.pendingOpen = Promise.resolve(w.__parametric.commands.get('openDevice')!.run());
+    });
+    await (await chooser).setFiles({ name: 'Older.parametric', mimeType: 'application/json', buffer: bytes(JSON.stringify({ format: 'parametric-part', version: 1, name: 'Older', features: [] })) });
+  } else {
+    await page.evaluate(() => {
+      const w = window as unknown as { __parametric: import('../../src/app/app').App; pendingOpen: Promise<void> };
+      w.pendingOpen = Promise.resolve(w.__parametric.commands.get('open')!.run());
+    });
+    const open = page.getByRole('dialog', { name: 'Open', exact: true });
+    if (source === 'cloud picker') await open.getByRole('button', { name: 'Browse Puter...', exact: true }).click();
+    else if (source === 'shared part') await open.getByRole('button', { name: /Older.*View only/ }).click();
+    else await open.getByRole('button', { name: /^Older/ }).click();
+  }
+  await page.waitForFunction(() => (window as unknown as { openStarted: boolean }).openStarted);
+  await page.evaluate(async () => {
+    const w = window as unknown as { __parametric: import('../../src/app/app').App; releaseOpen: () => void; pendingOpen: Promise<void> };
+    await w.__parametric.commands.get('new')!.run();
+    w.releaseOpen();
+    await w.pendingOpen;
+  });
+  expect(await page.evaluate(() => {
+    const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+    return { name: a.store.doc.name, features: a.store.doc.features, location: a.location, dirty: a.store.dirty };
+  })).toEqual({ name: 'Part2', features: [], location: null, dirty: false });
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
+for (const stage of ['listing', 'dialog'] as const) test(`the Open dialog does not outlive its document during ${stage}`, async ({ page }) => {
+  await mockPuter(page);
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await page.evaluate((stage) => {
+    type W = { __parametric: import('../../src/app/app').App; puter: { fs: { readdir: (...args: unknown[]) => Promise<unknown> } }; listStarted: boolean; releaseList: () => void; pendingOpen: Promise<void> };
+    const w = window as unknown as W;
+    const gate = new Promise<void>((resolve) => { w.releaseList = resolve; });
+    const readdir = w.puter.fs.readdir;
+    w.puter.fs.readdir = async (...args) => { w.listStarted = true; if (stage === 'listing') await gate; return readdir(...args); };
+    w.pendingOpen = Promise.resolve(w.__parametric.commands.get('open')!.run());
+  }, stage);
+  const dialog = page.getByRole('dialog', { name: 'Open', exact: true });
+  if (stage === 'listing') await page.waitForFunction(() => (window as unknown as { listStarted: boolean }).listStarted);
+  else await expect(dialog).toBeVisible();
+  await page.evaluate(async () => {
+    const w = window as unknown as { __parametric: import('../../src/app/app').App; releaseList: () => void; pendingOpen: Promise<void>; openDone: boolean };
+    await w.__parametric.commands.get('new')!.run();
+    w.releaseList();
+    void w.pendingOpen.then(() => { w.openDone = true; });
+  });
+  await expect.poll(() => page.evaluate(() => (window as unknown as { openDone: boolean }).openDone)).toBe(true);
+  await expect(dialog).toHaveCount(0);
+  await expect(page).toHaveTitle('Part2 - Parametric');
+  expect(errors).toEqual([]);
+});
+
+for (const first of ['older', 'newer'] as const) test(`overlapping opens keep the latest choice when the ${first} read finishes first`, async ({ page }) => {
+  await mockPuter(page);
+  await page.addInitScript(() => {
+    type Item = { name: string; path: string; read: () => Promise<Blob> };
+    const w = window as unknown as { puter: { ui: { onLaunchedWithItems: (fn: (items: Item[]) => Promise<void>) => void } }; launchPart: (items: Item[]) => Promise<void> };
+    w.puter.ui.onLaunchedWithItems = (fn) => { w.launchPart = fn; };
+  });
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await page.evaluate(() => {
+    type Item = { name: string; path: string; read: () => Promise<Blob> };
+    const w = window as unknown as { launchPart: (items: Item[]) => Promise<void>; releases: Record<string, () => void>; opens: Record<string, Promise<void>> };
+    w.releases = {}; w.opens = {};
+    for (const name of ['older', 'newer']) {
+      const gate = new Promise<void>((resolve) => { w.releases[name] = resolve; });
+      w.opens[name] = w.launchPart([{ name: `${name}.parametric`, path: `/tester/${name}.parametric`, read: async () => {
+        await gate;
+        return new Blob([JSON.stringify({ format: 'parametric-part', version: 1, name, features: [] })]);
+      } }]);
+    }
+  });
+  for (const name of [first, first === 'older' ? 'newer' : 'older']) {
+    await page.evaluate(async (name) => {
+      const w = window as unknown as { releases: Record<string, () => void>; opens: Record<string, Promise<void>> };
+      w.releases[name](); await w.opens[name];
+    }, name);
+    await expect(page).toHaveTitle(name === 'older' && first === 'older' ? 'Part1 - Parametric' : 'newer - Parametric');
+  }
+  expect(await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.location)).toEqual({ type: 'cloud', path: '/tester/newer.parametric' });
   expect(errors).toEqual([]);
 });

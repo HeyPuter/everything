@@ -27,10 +27,14 @@ export class FileOps {
   private revision = 0;
   /** Changes only when another document opens, not on edits or undo. */
   private documentVersion = 0;
+  private openRequest: AbortController | null = null;
 
   constructor(private app: App) {
     app.onDocumentChanged = (reason) => {
-      if (reason === 'load') this.documentVersion++;
+      if (reason === 'load') {
+        this.documentVersion++;
+        this.openRequest?.abort();
+      }
       if (reason !== 'saved') this.revision++;
       this.scheduleRecovery();
     };
@@ -64,24 +68,25 @@ export class FileOps {
   }
 
   /** Asks to save or discard unsaved changes. Returns false to abort. */
-  async confirmDiscard(action: string): Promise<boolean> {
+  async confirmDiscard(action: string, signal = this.app.documentSignal): Promise<boolean> {
+    if (signal.aborted) return false;
     const documentVersion = this.documentVersion;
     // A feature panel with changes not yet applied counts as unsaved work too.
     const panel = this.app.panel?.edited ? this.app.panel : null;
     if (!this.app.store.dirty && !panel) return true;
     const v = await showDialog({
-      title: 'Save changes?', signal: this.app.documentSignal,
+      title: 'Save changes?', signal,
       body: h('p', {}, `"${this.app.store.doc.name}" has unsaved changes${panel ? ` (including ${panel.title}, which is still open)` : ''}. Save them before you ${action}?`),
       buttons: [{ label: 'Cancel', value: 'cancel', left: true }, { label: "Don't save", value: 'discard' }, { label: 'Save', value: 'save', primary: true }],
     });
-    if (documentVersion !== this.documentVersion) return false;
+    if (documentVersion !== this.documentVersion || signal.aborted) return false;
     if (v === 'save') {
       // Apply the open panel first; a value it refuses keeps everything open.
       if (panel) {
         await this.app.closePanel(true);
-        if (this.app.panel || documentVersion !== this.documentVersion) return false;
+        if (this.app.panel || documentVersion !== this.documentVersion || signal.aborted) return false;
       }
-      if (!(await this.save()) || documentVersion !== this.documentVersion) return false;
+      if (!(await this.save()) || documentVersion !== this.documentVersion || signal.aborted) return false;
       // A successful write can still leave newer edits unsaved.
       if (this.app.store.dirty || this.app.panel?.edited) {
         toast({ kind: 'warning', message: 'More changes were made while saving. They are still open and unsaved.' });
@@ -94,7 +99,7 @@ export class FileOps {
     clearTimeout(this.recoveryTimer);
     this.recoveryTimer = 0;
     await this.clearRecoveryCopies();
-    return documentVersion === this.documentVersion;
+    return documentVersion === this.documentVersion && !signal.aborted;
   }
 
   async newPart() {
@@ -189,8 +194,15 @@ export class FileOps {
     });
   }
 
+  /** Each new Open choice supersedes earlier reads, pickers and confirmations. */
+  private beginOpen(): AbortSignal {
+    this.openRequest?.abort();
+    this.openRequest = new AbortController();
+    return this.openRequest.signal;
+  }
+
   /** Opens a part from a location (cloud or local). */
-  async openLocation(loc: Location, name?: string) {
+  async openLocation(loc: Location, name?: string, signal = this.beginOpen()) {
     let text: string;
     try {
       text = await loadText(loc);
@@ -201,7 +213,7 @@ export class FileOps {
       toast({ kind: 'error', title: 'Could not open the part', message: missing ? `"${name || 'The part'}" no longer exists. It may have been moved or deleted.` : storageError(e) });
       return;
     }
-    await this.openPartText(text, loc, name);
+    if (!signal.aborted) await this.openPartText(text, loc, name, signal);
   }
 
   openText(text: string, loc: Location | null, name?: string): boolean {
@@ -217,19 +229,20 @@ export class FileOps {
   }
 
   /** Reads a part file and, only if it is one, asks about unsaved changes and opens it. */
-  private async openPartText(text: string, loc: Location | null, name?: string): Promise<boolean> {
+  private async openPartText(text: string, loc: Location | null, name: string | undefined, signal: AbortSignal): Promise<boolean> {
     const doc = parsePart(text);
-    if (!doc || !(await this.confirmDiscard('open another part'))) return false;
+    if (!doc || !(await this.confirmDiscard('open another part', signal)) || signal.aborted) return false;
     this.openDoc(doc, loc, name);
     return true;
   }
 
   /** Open dialog listing cloud and browser-stored parts. */
   async open() {
-    const app = this.app;
+    const signal = this.beginOpen();
     // Parts in this browser stay listed when the cloud cannot be reached.
     let cloudError = '';
     const entries = await listParts((e) => { cloudError = storageError(e); });
+    if (signal.aborted) return;
     // A list role needs list items, so the empty message is shown without it.
     const list = h('div', { class: 'file-list', role: 'list' });
     const showEmpty = () => {
@@ -291,26 +304,22 @@ export class FileOps {
     const buttons: { label: string; value: string; primary?: boolean; left?: boolean }[] = [{ label: 'From device...', value: 'device', left: true }];
     if (cloudAvailable() && puter()?.ui?.showOpenFilePicker) buttons.push({ label: 'Browse Puter...', value: 'browse', left: true });
     buttons.push({ label: 'Cancel', value: 'cancel' });
-    const v = await showDialog({ title: 'Open', body, buttons, wide: true, onReady: (c) => { close = c; } });
+    const v = await showDialog({ title: 'Open', signal, body, buttons, wide: true, onReady: (c) => { close = c; } });
+    if (signal.aborted) return;
     if (v === 'open' && chosen) {
       const c = chosen as FileEntry;
-      if ((sharedChosen as { readOnly: boolean } | null)?.readOnly) await this.openReadOnlyCopy(c);
-      else await this.openLocation(c.location, c.name);
+      if ((sharedChosen as { readOnly: boolean } | null)?.readOnly) await this.openReadOnlyCopy(c, signal);
+      else await this.openLocation(c.location, c.name, signal);
     }
-    else if (v === 'device') await this.openFromDevice();
+    else if (v === 'device') await this.openFromDevice(signal);
     else if (v === 'browse') {
       const r = await pickCloudFile().catch((e) => { toast({ kind: 'error', message: storageError(e) }); return null; });
-      if (r && !tooLarge(r.blob.size, r.fileName)) {
-        if (isStepFile(r.fileName)) await this.importStepText(await r.blob.text(), r.fileName);
-        else if (isSolidWorksFile(r.fileName)) await this.openSolidWorks(new Uint8Array(await r.blob.arrayBuffer()), r.fileName);
-        else await this.openPartText(await r.blob.text(), r.location, r.name);
-      }
+      if (r) await this.openBlob(r.blob, r.fileName, r.location, signal);
     }
-    void app;
   }
 
   /** View-only shares open detached: saving makes a copy in the user's own Parts. */
-  private async openReadOnlyCopy(e: FileEntry) {
+  private async openReadOnlyCopy(e: FileEntry, signal: AbortSignal) {
     let text: string;
     try {
       text = await loadText(e.location);
@@ -319,16 +328,27 @@ export class FileOps {
       return;
     }
     // Read and checked first: a file that cannot be opened leaves the current part alone.
-    if (!(await this.openPartText(text, null, e.name))) return;
+    if (signal.aborted || !(await this.openPartText(text, null, e.name, signal))) return;
     toast({ message: `"${e.name}" is shared with you as view only. Saving keeps your own copy.`, timeout: 6000 });
   }
 
-  async openFromDevice() {
+  async openFromDevice(signal = this.beginOpen()) {
     const file = await pickDeviceFile(`${EXT},.json,${IMPORT_EXTS.join(',')}`);
-    if (!file || tooLarge(file.size, file.name)) return;
-    if (isStepFile(file.name)) { await this.importStepText(await file.text(), file.name); return; }
-    if (isSolidWorksFile(file.name)) { await this.openSolidWorks(new Uint8Array(await file.arrayBuffer()), file.name); return; }
-    if (await this.openPartText(await file.text(), null, file.name.replace(/\.[^.]+$/, ''))) this.app.store.dirty = true;
+    if (file && await this.openBlob(file, file.name, null, signal)) this.app.store.dirty = true;
+  }
+
+  /** A delayed picker or file read must not act on a replacement document. */
+  private async openBlob(blob: Blob, fileName: string, loc: Location | null, signal: AbortSignal): Promise<boolean> {
+    if (signal.aborted || tooLarge(blob.size, fileName)) return false;
+    if (isSolidWorksFile(fileName)) {
+      const data = new Uint8Array(await blob.arrayBuffer());
+      if (!signal.aborted) await this.openSolidWorks(data, fileName, signal);
+      return false;
+    }
+    const text = await blob.text();
+    if (signal.aborted) return false;
+    if (isStepFile(fileName)) { await this.importStepText(text, fileName, signal); return false; }
+    return this.openPartText(text, loc, fileName.replace(/\.[^.]+$/, ''), signal);
   }
 
   /** Imports a STEP or SolidWorks file as a solid feature in the current part. */
@@ -346,14 +366,15 @@ export class FileOps {
   }
 
   /** Opens a SolidWorks part as a new part whose first feature is its solid. */
-  async openSolidWorks(data: Uint8Array, fileName: string) {
+  async openSolidWorks(data: Uint8Array, fileName: string, signal = this.beginOpen()) {
     const app = this.app;
     // Converted and checked first: a file that cannot be opened leaves the current part alone.
     const step = await this.convertSolidWorks(data, fileName);
-    if (!step) return;
+    if (!step || signal.aborted) return;
     const err = await app.kernel.checkImport(step).catch((e) => (e as Error).message);
+    if (signal.aborted) return;
     if (err) { toast({ kind: 'error', title: 'Could not open the SolidWorks part', message: err }); return; }
-    if (!(await this.confirmDiscard('open another part'))) return;
+    if (!(await this.confirmDiscard('open another part', signal)) || signal.aborted) return;
     const doc = newDocument(safeName(fileName.replace(/\.[^.]+$/, '')) || 'Part1', app.settings.defaultUnits);
     const blobId = newBlobId(doc);
     doc.blobs[blobId] = step;
@@ -381,13 +402,13 @@ export class FileOps {
     }
   }
 
-  async importStepText(text: string, fileName: string) {
+  async importStepText(text: string, fileName: string, signal = this.app.documentSignal) {
     const app = this.app;
     const documentVersion = this.documentVersion;
     if (tooLarge(text.length, 'x.step')) return;
     if (!text.trim()) { toast({ kind: 'error', title: 'Import failed', message: `${fileName} is empty.` }); return; }
     const err = await app.kernel.checkImport(text).catch((e) => (e as Error).message);
-    if (documentVersion !== this.documentVersion) return;
+    if (documentVersion !== this.documentVersion || signal.aborted) return;
     if (err) { toast({ kind: 'error', title: 'Import failed', message: err }); return; }
     const blobId = newBlobId(app.store.doc);
     const id = app.store.nextId('f');
@@ -567,12 +588,10 @@ export class FileOps {
     ui.onLaunchedWithItems(async (items) => {
       const it = items?.[0];
       if (!it) return;
+      const signal = this.beginOpen();
       try {
         const blob = it.read ? await it.read() : await puter()!.fs.read(it.path);
-        if (tooLarge(blob.size, it.name)) return;
-        if (isSolidWorksFile(it.name)) await this.openSolidWorks(new Uint8Array(await blob.arrayBuffer()), it.name);
-        else if (isStepFile(it.name)) await this.importStepText(await blob.text(), it.name);
-        else await this.openPartText(await blob.text(), { type: 'cloud', path: it.path }, it.name.replace(/\.[^.]+$/, ''));
+        await this.openBlob(blob, it.name, { type: 'cloud', path: it.path }, signal);
       } catch (e) {
         toast({ kind: 'error', title: 'Could not open the file', message: storageError(e) });
       }
