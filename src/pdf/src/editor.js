@@ -2143,6 +2143,9 @@ export function createEditor({
   }
   async function toggleToolsPanel(show = editorRoot.classList.contains('hide-tools')) {
     const hadFocus = toolsPane.contains(document.activeElement);
+    // On a phone both panels lie over the page, and the tools pane covered most of the side
+    // panel; one overlay at a time, as with popovers.
+    if (show && window.matchMedia('(max-width: 760px)').matches) hideSidebar();
     editorRoot.classList.toggle('hide-tools', !show);
     if (!show && hadFocus) workspace.focus({ preventScroll: true });
     syncTopTabs();
@@ -3238,6 +3241,12 @@ export function createEditor({
         return;
       }
     const hadFocus = sidebar.contains(document.activeElement);
+    if (
+      show &&
+      window.matchMedia('(max-width: 760px)').matches &&
+      !editorRoot.classList.contains('hide-tools')
+    )
+      toggleToolsPanel(false);
     editorRoot.classList.toggle('hide-pages', !show);
     pagesButton.setAttribute('aria-expanded', String(show));
     // A control inside a panel that just closed would leave focus on nothing; hand it back to

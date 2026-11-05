@@ -76,6 +76,29 @@ test('the comments panel covers the page but not the tools, and keeps an open no
   );
 });
 
+test('the tools pane and the side panel take turns instead of covering each other', async ({
+  page,
+}) => {
+  await openPdf(page, await pages(3));
+  const pane = page.getByRole('complementary', { name: 'Tools' });
+  const panel = page.getByRole('complementary', { name: 'Pages panel' });
+  await page.getByRole('button', { name: 'Tools', exact: true }).click();
+  await expect(pane).toBeVisible();
+  await page.getByRole('tab', { name: 'Pages', exact: true }).click();
+  await expect(panel).toBeVisible();
+  await expect(pane).toBeHidden();
+  // The page thumbnails are under the reader's finger, not under the tools pane.
+  const thumb = await panel.locator('.thumb-paper').first().boundingBox();
+  const hit = await page.evaluate(
+    ([x, y]) => !!document.elementFromPoint(x, y)?.closest('.page-sidebar'),
+    [thumb.x + thumb.width / 2, thumb.y + thumb.height / 2],
+  );
+  expect(hit).toBe(true);
+  await page.getByRole('button', { name: 'Tools', exact: true }).click();
+  await expect(pane).toBeVisible();
+  await expect(panel).toBeHidden();
+});
+
 test('selecting text keeps the page and its controls where they were', async ({ page }) => {
   await openPdf(page, await pages(1));
   const target = page.getByRole('button', { name: 'Edit text: Page 1 words', exact: true });
