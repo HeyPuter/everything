@@ -71,6 +71,8 @@ export async function signOut() {
 /** True when an error from puter.fs means the path does not exist. */
 export function isMissing(err) {
   const code = err?.code || err?.error?.code || err?.message || '';
+  // NotFoundError: the browser's own file storage (OPFS) has no such file.
+  if (err?.name === 'NotFoundError') return true;
   return /subject_does_not_exist|not_found|does not exist|404/i.test(String(code)) || err?.status === 404;
 }
 

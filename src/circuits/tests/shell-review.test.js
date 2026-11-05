@@ -538,3 +538,17 @@ describe('navigator', () => {
     expect(vcc().getAttribute('aria-pressed')).toBe('true');
   });
 });
+
+describe('missing browser projects', () => {
+  it('says the file no longer exists and drops it from the recent list', async () => {
+    localStorage.clear();
+    const { app } = await bootLocal();
+    const gone = { type: 'local', id: 'p-gone' };
+    storage.rememberRecent({ location: gone, name: 'Gone' });
+    expect(await app.openLocation(gone)).toBe(false);
+    expect(document.querySelector('.toast.error').textContent).toContain(
+      'the file no longer exists',
+    );
+    expect(storage.recentProjects()).toEqual([]);
+  });
+});
