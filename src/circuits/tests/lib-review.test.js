@@ -455,3 +455,31 @@ describe('component editor mirroring', () => {
     expect(mirrorLib(text(0), 0, 0, 'x').rot).toBe(0);
   });
 });
+
+describe('component editor footprint drawing', () => {
+  it('draws a filled circle with its outline width, as the board and Gerber do', () => {
+    const doc = new LibDoc({ def: structuredClone(findComponent('res-0603')) });
+    const app = {
+      settings: { get: () => undefined, on: () => () => {} },
+      commands: { run: vi.fn() },
+      renderTabs: vi.fn(),
+      updateActiveBar: vi.fn(),
+    };
+    const ed = new LibEditor(app, null, doc);
+    doc.mode = 'footprint';
+    const calls = [];
+    const b = {
+      circle: (...a) => calls.push(['circle', ...a]),
+      ring: (...a) => calls.push(['ring', ...a]),
+    };
+    const dot = { t: 'circle', cx: 0, cy: 0, r: mm(0.5), w: mm(0.2), layer: 'topOverlay' };
+    ed.drawObject(b, { ...dot, fill: true });
+    ed.drawObject(b, { ...dot, fill: true, w: 0 });
+    ed.drawObject(b, dot);
+    expect(calls.map((c) => [c[0], c[3]])).toEqual([
+      ['circle', mm(0.6)],
+      ['circle', mm(0.5)],
+      ['ring', mm(0.5)],
+    ]);
+  });
+});

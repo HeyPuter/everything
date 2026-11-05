@@ -287,7 +287,8 @@ export class LibEditor extends CanvasView {
         if (o.fill) b.rect((o.x1 + o.x2) / 2, (o.y1 + o.y2) / 2, Math.abs(o.x2 - o.x1), Math.abs(o.y2 - o.y1), 0, 0, c);
         else b.rectOutline(o.x1, o.y1, o.x2, o.y2, w, c);
         break;
-      case 'circle': if (o.fill) b.circle(o.cx, o.cy, o.r, c); else b.ring(o.cx, o.cy, o.r, w, c); break;
+      // A filled circle's outline adds half its width all round, as on the board and in Gerber.
+      case 'circle': if (o.fill) b.circle(o.cx, o.cy, o.r + (o.w || 0) / 2, c); else b.ring(o.cx, o.cy, o.r, w, c); break;
       case 'arc': b.arc(o.cx, o.cy, o.r, o.a0, o.sweep, w, c); break;
       case 'text': b.text(o.text, o.x, o.y, o.size || mm(1), c, { rot: o.rot || 0, align: o.align, mirror: !!o.mirror, upright: true }); break;
       default:
