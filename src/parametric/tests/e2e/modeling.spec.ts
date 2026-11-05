@@ -339,3 +339,19 @@ test('keyboard focus moves into a feature panel opened from the tree and back wh
   await expect(page.getByRole('treeitem', { name: 'Extrude1', exact: true })).toBeFocused();
   expect(errors).toEqual([]);
 });
+
+test('OK keeps a feature panel open while a value cannot be read', async ({ page }) => {
+  await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  await page.getByRole('treeitem', { name: 'Extrude1' }).dblclick();
+  const depth = page.getByRole('textbox', { name: 'Depth' }).first();
+  await depth.fill('abc');
+  await page.locator('.confirm-corner').getByRole('button', { name: 'OK' }).click();
+  await expect(page.locator('.pm-msg')).toContainText('Depth');
+  await expect(depth).toBeFocused();
+  await depth.fill('25');
+  await page.locator('.confirm-corner').getByRole('button', { name: 'OK' }).click();
+  await expect(page.getByRole('treeitem', { name: 'Extrude1' })).toBeVisible();
+  expect(await page.evaluate(() => (window as unknown as { __parametric: { store: { doc: { features: { name: string; depth?: number }[] } } } }).__parametric.store.doc.features.find((f) => f.name === 'Extrude1')?.depth)).toBe(25);
+});

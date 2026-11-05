@@ -1063,6 +1063,7 @@ export class App {
     if (!p) return;
     const fromPane = this.shell.leftpane.contains(document.activeElement);
     if (ok) {
+      if (!p.checkFields()) return;
       let done = false;
       try {
         done = await p.ok();

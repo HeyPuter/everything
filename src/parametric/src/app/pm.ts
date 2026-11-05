@@ -101,6 +101,19 @@ export abstract class PropertyPanel {
     this.msgEl.textContent = text;
   }
 
+  /**
+   * False (with the reason shown and the field focused) while a visible field
+   * holds text that could not be read, so OK does not silently apply the
+   * field's last valid value instead.
+   */
+  checkFields(): boolean {
+    const bad = [...this.el.querySelectorAll<HTMLInputElement>('.input[aria-invalid="true"]')].find((x) => x.getClientRects().length > 0);
+    if (!bad) return true;
+    this.setMessage('error', `${bad.getAttribute('aria-label') ?? 'Value'}: ${bad.title || 'not a valid value'}`);
+    bad.focus();
+    return false;
+  }
+
   activate(box: SelectionBox) {
     this.activeBox = box;
     this.boxes.forEach((b) => b.setActive(b === box));
