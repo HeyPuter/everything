@@ -489,7 +489,28 @@ export class Viewport {
     mark(app.selection.hover, STATE_HOVER);
     for (const it of app.extraHighlights()) mark(it, STATE_SELECTED);
     this.renderer.setStates(faces, edges);
+    this.drawVertices();
     this.drawReferenceGeometry();
+  }
+
+  /** Hovered and selected vertices as dots: they have no faces or edges to light up. */
+  private drawVertices() {
+    const app = this.app;
+    const t = this.renderer.theme;
+    const pos: number[] = [], col: number[] = [];
+    const add = (it: SelItem | null, c: [number, number, number]) => {
+      if (it?.kind !== 'vertex') return;
+      pos.push(...it.p);
+      col.push(c[0] * 255, c[1] * 255, c[2] * 255, 255);
+    };
+    // Selected after hovered, so a selected vertex keeps the selection colour on top.
+    add(app.selection.hover, t.hover);
+    for (const it of [...app.selection.items, ...app.extraHighlights()]) add(it, t.selection);
+    const n = pos.length / 3;
+    this.renderer.setPoints('vertices', n ? {
+      positions: new Float32Array(pos), colors: new Uint8Array(col),
+      sizeStyle: new Float32Array(n * 2).map((_, i) => (i % 2 ? 1 : 9)), depth: 'always', order: 6,
+    } : null);
   }
 
   private planeColor(item: SelItem): [number, number, number, number] {

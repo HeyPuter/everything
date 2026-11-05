@@ -387,6 +387,41 @@ test.describe('viewport', () => {
     expect(picked).toEqual(['vertex', 'vertex']);
   });
 
+  test('a hovered or selected vertex shows as a dot', async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+    await waitForFeature(page, 'Fillet1');
+    await expect.poll(() => page.evaluate(() => !!(window as unknown as Win).__parametric.bbox)).toBe(true);
+    const r = await page.evaluate(async () => {
+      const app = (window as unknown as Win).__parametric;
+      const [x, y] = app.viewport.project([60, 8, 30]);
+      const pixels = async () => {
+        const img = new Image();
+        img.src = app.renderer.capture(4096)!;
+        await img.decode();
+        const c = document.createElement('canvas');
+        c.width = img.width; c.height = img.height;
+        const ctx = c.getContext('2d')!;
+        ctx.drawImage(img, 0, 0);
+        const k = img.width / app.renderer.camera.width;
+        return [-1.5, 1.5].map((dx) => [...ctx.getImageData(Math.round((x + dx) * k), Math.round(y * k), 1, 1).data].slice(0, 3));
+      };
+      const before = await pixels();
+      const d = (a: number[], b: number[]) => Math.hypot(...a.map((v, i) => v - b[i]));
+      // Left and right of the vertex, inside the dot: now in the hover or selection colour.
+      const shown = async (colour: number[]) => {
+        const c = colour.map((v) => v * 255);
+        return (await pixels()).map((p, i) => d(p, c) < d(before[i], c) / 3);
+      };
+      app.selection.setHover({ kind: 'vertex', p: [60, 8, 30] });
+      const hover = await shown(app.renderer.theme.hover);
+      app.selection.setHover(null);
+      app.selection.set([{ kind: 'vertex', p: [60, 8, 30] }]);
+      return { hover, selected: await shown(app.renderer.theme.selection) };
+    });
+    expect(r).toEqual({ hover: [true, true], selected: [true, true] });
+  });
+
   test('line display styles keep visible edges readable in both themes', async ({ page }) => {
     await openApp(page);
     const contrast = () => page.evaluate(() => {
