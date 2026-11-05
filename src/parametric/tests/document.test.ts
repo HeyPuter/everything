@@ -100,6 +100,26 @@ describe('document store', () => {
     expect(() => parseDocument(JSON.stringify({ ...raw, features: [null] }))).toThrow(/damaged/);
   });
 
+  it('refuses a damaged sketch and repairs damaged values that would break the app later', () => {
+    const raw = { format: 'parametric-part', version: 1, features: [sketch('s1', [])] };
+    expect(() => parseDocument(JSON.stringify({ ...raw, features: [{ id: 'f1', type: 'sketch', name: 'S' }] }))).toThrow(/damaged \(invalid sketch\)/);
+    expect(() => parseDocument(JSON.stringify({ ...raw, features: [{ ...sketch('f1', []), plane: null }] }))).toThrow(/invalid sketch/);
+    const doc = parseDocument(JSON.stringify({
+      ...raw,
+      variables: [null, { name: 5 }, { id: 'v2', name: 'W', expr: 10 }, { name: 'H', expr: '2*W' }],
+      features: [...raw.features, { id: 'f3', type: 'plane' }],
+      blobs: 5, material: 'steel', color: 7, drawing: { views: 3 },
+    }));
+    expect(doc.variables.map((v) => [v.id, v.name, v.expr])).toEqual([['v2', 'W', '10'], ['v4', 'H', '2*W']]);
+    expect(new DocStore(doc).resolve().variables.get('H')).toBe(20);
+    expect(doc.features[1].name).toBe('f3');
+    expect(doc.blobs).toEqual({});
+    expect(doc.material).toBeNull();
+    expect(doc.color).toBe('#b8c4d2');
+    expect(doc.drawing).toBeNull();
+    expect(doc.nextId).toBe(5);
+  });
+
   it('names features and tracks dependencies', () => {
     const doc = newDocument();
     doc.features = [sketch('s1', []), { ...newExtrude('e1', 'Extrude1', 's1', false, 1) }];
