@@ -2150,3 +2150,19 @@ test('removing an attachment hands the focus to the file that takes its place', 
   await settled(page);
   await expect(panel.getByRole('button', { name: 'Save second.txt' })).toBeFocused();
 });
+
+test('every command in a tool set lines its label up with the others', async ({ page }) => {
+  await openPdf(page, await numberedPdf(2));
+  for (const name of ['Edit', 'Comment', 'Export', 'Fill & Sign']) {
+    await page.getByRole('button', { name, exact: true }).first().click();
+    const pane = page.getByRole('complementary', { name: 'Tools' });
+    await expect(pane.locator('.tool-command').first()).toBeVisible();
+    // A tool's colored icon is 20px wide and a line icon 18px; the labels after them started
+    // 2px apart, which showed as a ragged column in Add comments.
+    const starts = await pane
+      .locator('.tool-command:visible .tool-command-text')
+      .evaluateAll((labels) => labels.map((label) => label.getBoundingClientRect().left));
+    expect(starts.length).toBeGreaterThan(2);
+    expect(new Set(starts.map((x) => Math.round(x))).size, name).toBe(1);
+  }
+});

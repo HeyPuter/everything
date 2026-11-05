@@ -444,6 +444,11 @@
   margin: 0 1px;
   color: var(--muted);
 }
+/* An 18px line icon takes the room of a 20px tool icon, so every label in a list starts at the
+   same place. */
+.tool-command > svg.ico:not(.tool-icon) {
+  margin: 0 1px;
+}
 .tools-more {
   margin: 6px 10px;
   padding: 2px 0;
