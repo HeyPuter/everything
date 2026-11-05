@@ -100,3 +100,24 @@ test('a density error does not prevent selecting a preset material', async ({ pa
     .toEqual({ name: 'Aluminum 6061', density: 2700 });
   expect(errors).toEqual([]);
 });
+
+test('a custom material sharing a preset name keeps its own density when reopened', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await page.evaluate(() => {
+    const a = (window as unknown as Handle).__parametric;
+    a.store.change('Custom alloy', (d) => { d.material = { name: 'Aluminum 6061', density: 2550 }; });
+    a.commands.run('material');
+  });
+  const dialog = page.getByRole('dialog', { name: 'Material', exact: true });
+  await dialog.getByRole('button', { name: 'Apply' }).click();
+  expect(await page.evaluate(() => (window as unknown as Handle).__parametric.store.doc.material))
+    .toEqual({ name: 'Aluminum 6061', density: 2550 });
+  await page.evaluate(() => (window as unknown as Handle).__parametric.commands.run('material'));
+  await expect(dialog.getByLabel('Material', { exact: true })).toHaveValue('__custom');
+  await expect(dialog.getByLabel('Custom material name')).toHaveValue('Aluminum 6061');
+  await expect(dialog.getByLabel('Density in kg per cubic metre')).toHaveValue('2550');
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+  expect(errors).toEqual([]);
+});
+

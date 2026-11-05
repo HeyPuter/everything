@@ -154,18 +154,19 @@ export async function equationsDialog(app: App) {
 export async function materialDialog(app: App) {
   const signal = app.documentSignal;
   const cur = app.store.doc.material;
+  const preset = cur && MATERIALS.find((m) => m.name === cur.name && m.density === cur.density);
   const select = h('select', { class: 'input', 'aria-label': 'Material' }) as HTMLSelectElement;
   select.append(h('option', { value: '' }, 'Not specified'));
   for (const m of MATERIALS) {
     const o = h('option', { value: m.name }, `${m.name}  (${m.density} kg/m³)`) as HTMLOptionElement;
-    if (cur?.name === m.name) o.selected = true;
+    if (preset === m) o.selected = true;
     select.append(o);
   }
   select.append(h('option', { value: '__custom' }, 'Custom...'));
-  const customName = h('input', { class: 'input', value: cur && !MATERIALS.some((m) => m.name === cur.name) ? cur.name : 'Custom material', 'aria-label': 'Custom material name' }) as HTMLInputElement;
+  const customName = h('input', { class: 'input', value: cur && !preset ? cur.name : 'Custom material', 'aria-label': 'Custom material name' }) as HTMLInputElement;
   const customDensity = h('input', { class: 'input', type: 'number', min: '0', step: 'any', value: String(cur?.density ?? 1000), 'aria-label': 'Density in kg per cubic metre' }) as HTMLInputElement;
   const custom = h('div', { class: 'grid-form' }, h('label', {}, 'Name'), customName, h('label', {}, 'Density (kg/m³)'), customDensity);
-  if (cur && !MATERIALS.some((m) => m.name === cur.name)) select.value = '__custom';
+  if (cur && !preset) select.value = '__custom';
   const error = h('div', { id: nextDomId('density-error'), class: 'field-label', role: 'alert', style: { color: 'var(--danger)' } });
   customDensity.setAttribute('aria-describedby', error.id);
   const validate = () => {
