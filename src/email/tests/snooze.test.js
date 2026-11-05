@@ -69,7 +69,9 @@ describe('local snooze times', () => {
         return [at.getHours(), (at-now)/3600000];
       })));`;
     const result = execFileSync(process.execPath, ['--input-type=module', '-e', script], {
-      env: { ...process.env, TZ: 'America/Vancouver' }, encoding: 'utf8',
+      // US rules: clocks change on 8 March and 1 November 2026. Vancouver's
+      // rules differ between tzdata releases, so it can't be the fixture.
+      env: { ...process.env, TZ: 'America/New_York' }, encoding: 'utf8',
     });
     expect(JSON.parse(result)).toEqual([[8, 23], [8, 25]]);
   });
