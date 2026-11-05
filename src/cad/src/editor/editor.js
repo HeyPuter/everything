@@ -1387,14 +1387,16 @@ async function gripEdit(ed, grip, fromPointer) {
       const label = { stretch: 'Stretch to point', move: 'Move to point', rotate: 'Rotation angle', scale: 'Scale factor', mirror: 'Second point of mirror line' }[m];
       const matrixFor = (p) => gripMatrix(m, base, p);
       if (m === 'stretch') {
-        const ent = ed.drawing.get(grip.id);
-        ed.renderer.setHidden(new Set([grip.id]));
+        const hot = coincidentGrips(ed, ids, grip);
+        const stretched = (p) =>
+          hot.map(({ id, ent, idx }) => [id, idx.reduce((e, i) => applyGrip(e, i, p.x, p.y), ent)]);
+        ed.renderer.setHidden(new Set(hot.map((h) => h.id)));
         ed.renderer.setDragMatrix(null);
         const r = await ed.getPoint(`${label} (Space for next mode)`, {
           base,
           options,
           drag: fromPointer,
-          preview: (p) => [applyGrip(ent, grip.i, p.x, p.y)],
+          preview: (p) => stretched(p).map(([, e]) => e),
         });
         fromPointer = false;
         if (r === null) {
@@ -1411,8 +1413,12 @@ async function gripEdit(ed, grip, fromPointer) {
           copy = true;
           continue;
         }
-        const next = applyGrip(ent, grip.i, r.x, r.y);
-        ed.commit('Stretch', () => (copy ? ed.drawing.add({ ...next, id: undefined }) : ed.drawing.replace(grip.id, next)));
+        ed.commit('Stretch', () => {
+          for (const [id, next] of stretched(r)) {
+            if (copy) ed.drawing.add({ ...next, id: undefined });
+            else ed.drawing.replace(id, next);
+          }
+        });
         if (!copy) return;
         continue;
       }
@@ -1462,6 +1468,28 @@ async function gripEdit(ed, grip, fromPointer) {
     ed.renderer.setDragMatrix(null);
     ed.renderer.setHidden(new Set());
   }
+}
+
+/**
+ * Grips of the selection that sit on the picked grip, so a shared corner
+ * stretches every object meeting there. Returns [{ id, ent, idx: [grip indices] }].
+ */
+function coincidentGrips(ed, ids, grip) {
+  const tol = 1e-9 * Math.max(1, Math.abs(grip.x), Math.abs(grip.y));
+  const out = [{ id: grip.id, ent: ed.drawing.get(grip.id), idx: [grip.i] }];
+  for (const id of ids) {
+    const ent = ed.drawing.get(id);
+    if (!ent || !ed.drawing.layerEditable(ent.layer)) continue;
+    const idx = [];
+    gripsOf(ent).forEach((g, i) => {
+      if (id === grip.id && i === grip.i) return;
+      if (Math.abs(g.x - grip.x) <= tol && Math.abs(g.y - grip.y) <= tol) idx.push(i);
+    });
+    if (!idx.length) continue;
+    if (id === grip.id) out[0].idx.push(...idx);
+    else out.push({ id, ent, idx });
+  }
+  return out;
 }
 
 function gripMatrix(mode, base, p) {

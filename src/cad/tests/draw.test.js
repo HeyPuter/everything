@@ -262,3 +262,22 @@ describe('grip editing', () => {
     expect([l.x1, l.y1, l.x2, l.y2]).toEqual([0, 0, 20, 0]);
   });
 });
+
+describe('shared grips', () => {
+  it('stretches every selected object that meets at the picked grip', async () => {
+    await t.type('LINE', '0,0', '10,0', '10,10', '');
+    await t.type('CIRCLE', '30,30', '5');
+    t.ed.setSelection([...t.drawing.entities.keys()]);
+    const i = t.ed.grips.findIndex((g) => g.x === 10 && g.y === 0);
+    t.ed._startGripEdit(i, null);
+    await flush();
+    await t.type('12,3');
+    const [a, b] = t.all('line');
+    expect([a.x2, a.y2]).toEqual([12, 3]);
+    expect([b.x1, b.y1]).toEqual([12, 3]);
+    expect([a.x1, a.y1, b.x2, b.y2]).toEqual([0, 0, 10, 10]);
+    expect(t.all('circle')[0]).toMatchObject({ cx: 30, cy: 30, r: 5 });
+    t.drawing.undo();
+    expect([t.all('line')[1].x1, t.all('line')[1].y1]).toEqual([10, 0]);
+  });
+});
