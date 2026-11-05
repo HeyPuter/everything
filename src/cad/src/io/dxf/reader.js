@@ -1541,6 +1541,9 @@ class DxfParser {
     }
     const closed = (flags & 1) !== 0;
     if (degree < 1) degree = 1;
+    // a closed spline's fit points end with the first one again; keep it once
+    const nfit = fit.length;
+    if (closed && nfit >= 6 && fit[0] === fit[nfit - 2] && fit[1] === fit[nfit - 1]) fit.length = nfit - 2;
     const n = ctrl.length >> 1;
     let rational = false;
     for (const w of weights) {

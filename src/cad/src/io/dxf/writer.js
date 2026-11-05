@@ -941,7 +941,10 @@ class DxfWriter {
     let deg = Math.trunc(+e.degree) || 3;
     let ctrl = e.ctrl || [];
     let knots = e.knots || [];
-    const fit = e.fit || [];
+    const fit = (e.fit || []).slice();
+    // closed fit-point splines list their first point again at the end
+    const nf0 = fit.length;
+    if (e.closed && nf0 >= 6 && (fit[0] !== fit[nf0 - 2] || fit[1] !== fit[nf0 - 1])) fit.push(fit[0], fit[1]);
     if (ctrl.length < (deg + 1) * 2) {
       const f = fit.length >= 4 ? fitToSpline(fit, !!e.closed) : null;
       if (!f) throw new Error('not enough control points');
@@ -968,6 +971,13 @@ class DxfWriter {
     this.n(42, 1e-10);
     this.n(43, 1e-10);
     if (nf) this.n(44, 1e-10);
+    // Readers rebuild fit-point splines from the fit points; the end derivatives
+    // (per unit of chord length) make them rebuild this exact curve.
+    const tan = nf >= 2 && deg === 3 ? endTangents(ctrl, knots, fit) : null;
+    if (tan) {
+      this.pt(12, tan[0], tan[1]);
+      this.pt(13, tan[2], tan[3]);
+    }
     for (const k of knots) this.n(40, k);
     for (let k = 0; k < nc; k++) this.pt(10, ctrl[k * 2], ctrl[k * 2 + 1]);
     for (let k = 0; k < nf; k++) this.pt(11, fit[k * 2], fit[k * 2 + 1]);
@@ -1256,6 +1266,28 @@ function arrowGeometry(type) {
     return [{ ...base, id: 1, type: 'polyline', pts: [-0.25, 0, 1, 0.25, 0, 1], closed: true, width: 0.5 }];
   }
   return [];
+}
+
+/**
+ * Start and end derivatives [x0, y0, x1, y1] of a cubic spline with respect to
+ * the chord length of its fit points, or null when they cannot be measured.
+ */
+function endTangents(ctrl, knots, fit) {
+  const n = ctrl.length >> 1;
+  const L = knots.length;
+  let chord = 0;
+  for (let i = 2; i < fit.length - 1; i += 2) chord += Math.hypot(fit[i] - fit[i - 2], fit[i + 1] - fit[i - 1]);
+  const span = knots[L - 1] - knots[0];
+  const a = knots[4] - knots[3];
+  const b = knots[L - 4] - knots[L - 5];
+  if (n < 4 || !(chord > 0) || !(span > 0) || !(a > 0) || !(b > 0)) return null;
+  const f = span / chord;
+  return [
+    ((3 * (ctrl[2] - ctrl[0])) / a) * f,
+    ((3 * (ctrl[3] - ctrl[1])) / a) * f,
+    ((3 * (ctrl[2 * n - 2] - ctrl[2 * n - 4])) / b) * f,
+    ((3 * (ctrl[2 * n - 1] - ctrl[2 * n - 3])) / b) * f,
+  ];
 }
 
 /**

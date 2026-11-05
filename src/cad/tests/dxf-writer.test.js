@@ -4,6 +4,7 @@ import { parseDxf } from '../src/io/dxf/reader.js';
 import { handleMessage } from '../src/io/dxf/worker.js';
 import { defaultHeader, defaultLayer } from '../src/core/schema.js';
 import { defaultTextStyle, defaultDimStyle } from '../src/core/styles.js';
+import { splineFromFitPoints } from '../src/core/geom/index.js';
 
 const TAU = Math.PI * 2;
 
@@ -339,6 +340,28 @@ describe('writeDxf: options and edge cases', () => {
     expect(drawing.layers.map((l) => l.name)).toEqual(['0']);
     expect(drawing.textStyles.map((s) => s.name)).toEqual(['Standard']);
     expect(drawing.dimStyles.map((s) => s.name)).toEqual(['Standard']);
+  });
+
+  it('writes fit-point splines so that readers rebuild the same curve', () => {
+    // Readers (AutoCAD, the ODA File Converter) recompute fit-point splines from the fit
+    // points and end derivatives; this reader does it the same way, so ignore our control points.
+    const open = [0, 0, 5, 5, 10, 0, 15, 8];
+    const closed = [0, 0, 10, 0, 10, 10, 0, 10, 3, 4];
+    const entities = [
+      ent('spline', { id: 1, ...splineFromFitPoints(open), fit: open, closed: false }),
+      ent('spline', { id: 2, ...splineFromFitPoints(closed, true), fit: closed, closed: true }),
+    ];
+    const text = writeDxf({ layers: [defaultLayer('0')], entities });
+    // the closed spline lists its first fit point again at the end
+    expect(text.split('\r\n').filter((l, i, a) => a[i - 1] === ' 74').slice(-2)).toEqual(['4', '6']);
+    const rebuilt = text.replace(/\r\n 73\r\n\d+/g, '\r\n 73\r\n0').replace(/\r\n 10\r\n[^\r]*\r\n 20\r\n[^\r]*\r\n 30\r\n[^\r]*/g, '');
+    const { drawing } = parseDxf(rebuilt);
+    drawing.entities.forEach((e, i) => {
+      expect(e.closed).toBe(entities[i].closed);
+      expect(e.fit).toEqual(entities[i].fit);
+      expect(e.ctrl.length).toBe(entities[i].ctrl.length);
+      e.ctrl.forEach((v, j) => expect(Math.abs(v - entities[i].ctrl[j])).toBeLessThan(1e-9));
+    });
   });
 
   it('skips invalid entities without corrupting the output', () => {
