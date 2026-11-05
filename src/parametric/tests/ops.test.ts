@@ -3,7 +3,7 @@ import type { SkDimension, SkEntity, SkLine, SketchFeature } from '../src/model/
 import { ORIGIN_ID, SketchIndex, arcAngles, arcRadius, distanceToCurve } from '../src/sketch/geom';
 import {
   availableRelations, deleteItems, extendAt, filletCorner, idFactory, makeRelations, measureDimension, mirrorEntities,
-  offsetCurves, relationsOf, smartDimension, trimAt,
+  offsetCurves, pickMirrorAxis, relationsOf, smartDimension, trimAt,
 } from '../src/sketch/ops';
 import { solveSketch } from '../src/sketch/solver';
 import { buildProfiles } from '../src/sketch/profiles';
@@ -949,6 +949,31 @@ describe('editing tools', () => {
     }
     const res = solveSketch(s.entities, s.constraints, { value });
     expect(res.converged).toBe(true);
+  });
+
+  it('mirrors a box selection about its centerline, not a center rectangle diagonal or a fillet construction line', () => {
+    // Center rectangle (with construction diagonals) left of a centerline drawn later.
+    const s = sk([
+      ...rect(-30, -5, -10, 5, 'r'),
+      { id: 'd1', t: 'line', a: 'rp0', b: 'rp2', construction: true }, { id: 'd2', t: 'line', a: 'rp1', b: 'rp3', construction: true },
+      { id: 'a', t: 'point', x: 0, y: -20 }, { id: 'b', t: 'point', x: 0, y: 20 }, { id: 'axis', t: 'line', a: 'a', b: 'b', construction: true },
+    ]);
+    const box = s.entities.filter((e) => e.t === 'line').map((e) => e.id);
+    expect(pickMirrorAxis(s, box)).toEqual({ axis: 'axis' });
+    // Unambiguous selections keep their axis: the only centerline, else the last line.
+    expect(pickMirrorAxis(s, ['rl0', 'd1', 'rl1'])).toEqual({ axis: 'd1' });
+    expect(pickMirrorAxis(s, ['rl0', 'rl1', 'rl2'])).toEqual({ axis: 'rl2' });
+    expect(pickMirrorAxis(s, ['rp0'])).toBeNull();
+    // A fillet that keeps the full side length as a construction line.
+    s.constraints.push({ id: 'eq', type: 'equal', refs: ['rl0', 'rl2'] });
+    filletCorner(s, 'rp1', 2, idFactory(s));
+    const box2 = s.entities.filter((e) => e.t === 'line' || e.t === 'arc').map((e) => e.id);
+    expect(s.entities.filter((e) => e.t === 'line' && e.construction).length).toBeGreaterThan(3);
+    expect(pickMirrorAxis(s, box2)).toEqual({ axis: 'axis' });
+    // Only connected centerlines (a center rectangle alone), or two free ones: ask.
+    expect(pickMirrorAxis(s, ['rl0', 'rl1', 'rl2', 'rl3', 'd1', 'd2'])).toHaveProperty('error');
+    s.entities.push({ id: 'h0', t: 'point', x: 5, y: 0 }, { id: 'h1', t: 'point', x: 9, y: 0 }, { id: 'h', t: 'line', a: 'h0', b: 'h1', construction: true });
+    expect(pickMirrorAxis(s, [...box2, 'h'])).toHaveProperty('error');
   });
 
   it.each([0, Math.PI / 4])('keeps a shared endpoint on its moving mirror axis at angle %s', (angle) => {

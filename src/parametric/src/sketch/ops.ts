@@ -800,6 +800,29 @@ export function mirrorAxisDirection(ix: SketchIndex, axisId: Id): Vec2 | null {
   return u.every(Number.isFinite) && (u[0] !== 0 || u[1] !== 0) ? u : null;
 }
 
+/**
+ * The line a selection is mirrored about: its centerline, or else its last
+ * line. With several centerlines, construction lines that end on other selected
+ * curves (a center rectangle's diagonals, the full length a fillet keeps) are
+ * part of the shape, not the axis; if that still leaves no single centerline
+ * the choice is ambiguous and an error message is returned instead.
+ */
+export function pickMirrorAxis(sk: SketchFeature, ids: Id[]): { axis: Id } | { error: string } | null {
+  const ix = new SketchIndex(sk.entities);
+  const lines = ids.map((id) => ix.get(id)).filter((e): e is SkLine => e?.t === 'line');
+  const centerlines = lines.filter((l) => l.construction);
+  if (!centerlines.length) return lines.length ? { axis: lines[lines.length - 1].id } : null;
+  if (centerlines.length === 1) return { axis: centerlines[0].id };
+  const curvePoints = (e: SkEntity): Id[] => e.t === 'line' || e.t === 'arc' ? [e.a, e.b, ...(e.t === 'arc' ? [e.c] : [])]
+    : e.t === 'circle' ? [e.c] : e.t === 'spline' ? e.pts : [];
+  const free = centerlines.filter((l) => !ids.some((id) => {
+    const e = id === l.id ? undefined : ix.get(id);
+    return !!e && curvePoints(e).some((p) => p === l.a || p === l.b);
+  }));
+  if (free.length === 1) return { axis: free[0].id };
+  return { error: 'Several centerlines are selected. Deselect all but the one to mirror about.' };
+}
+
 /** Mirrors entities about a line, adding symmetric relations for points. */
 export function mirrorEntities(sk: SketchFeature, ids: Id[], axisId: Id, newId: (p: string) => Id): Id[] {
   const ix = new SketchIndex(sk.entities);

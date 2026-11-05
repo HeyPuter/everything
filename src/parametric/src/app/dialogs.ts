@@ -12,7 +12,7 @@ import { UNIT_SYSTEMS, formatNumber } from '../model/units';
 import { BASE_FRAMES } from '../model/planes';
 import { MATERIALS } from '../model/materials';
 import { uniqueId } from '../model/ids';
-import { mirrorAxisDirection, mirrorEntities, offsetCurves } from '../sketch/ops';
+import { mirrorAxisDirection, mirrorEntities, offsetCurves, pickMirrorAxis } from '../sketch/ops';
 import { SketchIndex } from '../sketch/geom';
 import { convertEdges } from '../sketch/convert';
 import { setThemeChoice, getThemeChoice, type ThemeChoice } from '../platform/theme';
@@ -699,9 +699,10 @@ export function mirrorSketchEntities(app: App) {
   if (!ed) return;
   const ids = ed.selectedIds();
   const sk = ed.sketch;
-  const lines = ids.filter((id) => sk.entities.find((e) => e.id === id)?.t === 'line');
   // The mirror line is the selected centerline, or the last selected line.
-  const axis = lines.find((id) => sk.entities.find((e) => e.id === id)?.construction) ?? lines[lines.length - 1];
+  const pick = pickMirrorAxis(sk, ids);
+  if (pick && 'error' in pick) { toast({ kind: 'warning', message: pick.error }); return; }
+  const axis = pick?.axis;
   if (!axis || ids.length < 2) { toast({ kind: 'warning', message: 'Select the entities to mirror and a line (ideally a centerline) to mirror about.' }); return; }
   if (!mirrorAxisDirection(new SketchIndex(sk.entities), axis)) { toast({ kind: 'warning', message: 'Choose a mirror axis with distinct endpoints.' }); return; }
   ed.edit('Mirror entities', (s2, newId) => { mirrorEntities(s2, ids.filter((x) => x !== axis), axis, newId); });
