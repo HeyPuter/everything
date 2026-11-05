@@ -643,3 +643,31 @@ it('works out the form’s own sums and other simple calculations after filling'
     await task.destroy();
   }
 });
+
+it('a number field does not take its thousands separator for a decimal mark', async () => {
+  const source = await PDFDocument.create();
+  const page = source.addPage();
+  const form = source.getForm();
+  const formatted = (fieldName, y, script) => {
+    const created = form.createTextField(fieldName);
+    created.addToPage(page, { x: 50, y, width: 150, height: 20 });
+    created.acroField.dict.set(
+      PDFName.of('AA'),
+      source.context.obj({ F: { S: 'JavaScript', JS: PDFHexString.fromText(script) } }),
+    );
+  };
+  formatted('Dollars', 700, 'AFNumber_Format(2, 0, 0, 0, "$", true);');
+  formatted('Euros', 650, 'AFNumber_Format(2, 2, 0, 0, " €", false);');
+  // Thousands without a separator: either mark is a decimal mark.
+  formatted('Rate', 600, 'AFPercent_Format(1, 1);');
+  const doc = await PDFDocument.load(await source.save());
+  // A dollar amount written with a thousands comma would show as $1.23.
+  await expect(fillFields(doc, { Dollars: '1,234' })).rejects.toThrow(
+    'Enter a number in Dollars, such as 1234.5.',
+  );
+  await expect(fillFields(doc, { Euros: '1.234' })).rejects.toThrow(
+    'Enter a number in Euros, such as 1234,5.',
+  );
+  await fillFields(doc, { Dollars: '1234.5', Euros: '1234,5', Rate: '0,5' });
+  expect(listFields(doc).map(({ value }) => value)).toEqual(['1234.5', '1234,5', '0,5']);
+});

@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { PDFDocument, PDFName, PDFString, StandardFonts, degrees } from 'pdf-lib';
+import { PDFDocument, PDFName, PDFNumber, PDFString, StandardFonts, degrees } from 'pdf-lib';
 import { readFile } from 'node:fs/promises';
 
 const PUTER_MOCK = `window.puter = { env: 'web', auth: { isSignedIn: () => true, getUser: async () => ({username:'test-user'}), signIn: async () => {}, signOut: async () => {} }, fs: { readdir: async () => [], write: async () => ({}) }, ui: { onLaunchedWithItems: () => {}, onItemsOpened: () => {} } };`;
@@ -546,6 +546,34 @@ for (const rotation of [0, 90])
       expect(rect[key]).toBeCloseTo(expected[key], 2);
   });
 
+// A zoom in the middle of dragging a field redrew the fields but left the drag going: letting go
+// over another field then dropped the dragged one there, at a place worked out for the old zoom.
+test('a zoom ends a field drag, leaving the field where it was', async ({ page }) => {
+  const doc = await PDFDocument.create();
+  const sheet = doc.addPage([400, 500]);
+  const form = doc.getForm();
+  form.createTextField('Top').addToPage(sheet, { x: 60, y: 400, width: 120, height: 24 });
+  form.createTextField('Bottom').addToPage(sheet, { x: 60, y: 200, width: 120, height: 24 });
+  await openPdf(page, doc);
+  await prepareForm(page);
+  const start = await designer(page, 'Top#0').boundingBox();
+  await page.mouse.move(start.x + 10, start.y + 10);
+  await page.mouse.down();
+  await page.mouse.move(start.x + 60, start.y + 30, { steps: 4 });
+  await page.keyboard.press('ControlOrMeta+=');
+  await expect(page.getByLabel('Zoom', { exact: true })).not.toHaveValue('fit');
+  await settled(page);
+  const bottom = await designer(page, 'Bottom#0').boundingBox();
+  await page.mouse.move(bottom.x + 20, bottom.y + 10, { steps: 4 });
+  await page.mouse.up();
+  await settled(page);
+  await expect(page.getByRole('button', { name: /^Undo/ })).toBeDisabled();
+  const saved = (await PDFDocument.load(await downloaded(page))).getForm();
+  const rect = saved.getTextField('Top').acroField.getWidgets()[0].getRectangle();
+  expect(rect.y).toBeCloseTo(399.5, 1);
+  expect(rect.width).toBeCloseTo(121, 1);
+});
+
 test('Escape while dragging a field puts it back without an edit', async ({ page }) => {
   const doc = await PDFDocument.create();
   const note = doc.getForm().createTextField('Note');
@@ -621,4 +649,142 @@ test('a field resized as small as it goes at a high zoom stays the smallest size
   const rect = saved.acroField.getWidgets()[0].getRectangle();
   expect(rect.width).toBeCloseTo(4, 1);
   expect(rect.height).toBeCloseTo(4, 1);
+});
+
+test('the fields found by Detect form fields sit beside their check boxes', async ({ page }) => {
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const sheet = doc.addPage([600, 800]);
+  sheet.drawText('Name: ____________________', { x: 40, y: 700, size: 12, font });
+  await openPdf(page, doc);
+  await prepareForm(page);
+  await page.getByRole('button', { name: 'Detect form fields…' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Fields found' });
+  const box = await dialog.getByRole('checkbox').first().boundingBox();
+  const text = await dialog.locator('.result-row span').first().boundingBox();
+  // The name starts after the box, with room between them, and they share a middle line.
+  expect(text.x).toBeGreaterThanOrEqual(box.x + box.width + 6);
+  expect(Math.abs(text.y + text.height / 2 - (box.y + box.height / 2))).toBeLessThan(2);
+  await expect(dialog.locator('.result-row span').first()).toHaveCSS('font-weight', '500');
+});
+
+test('a click with a field tool places a field there, kept on the page', async ({ page }) => {
+  const doc = await PDFDocument.create();
+  doc.addPage([600, 400]);
+  await openPdf(page, doc);
+  await prepareForm(page);
+  const pane = page.getByRole('complementary', { name: 'Tools' });
+  const paper = await page.locator('.drawing-overlay').boundingBox();
+  const unit = paper.width / 600;
+  // A text field starts where the page was clicked.
+  await pane.getByRole('button', { name: 'Text field', exact: true }).click();
+  await page.mouse.click(paper.x + 100 * unit, paper.y + 50 * unit);
+  let dialog = page.getByRole('dialog', { name: 'Text field properties' });
+  await dialog.getByLabel('Name', { exact: true }).fill('Name');
+  await dialog.getByRole('button', { name: 'Done', exact: true }).click();
+  await settled(page);
+  // A check box is centered on the click; one clicked at the page's corner stays on it.
+  await pane.getByRole('button', { name: 'Check box', exact: true }).click();
+  await page.mouse.click(paper.x + 300 * unit, paper.y + 200 * unit);
+  dialog = page.getByRole('dialog', { name: 'Check box properties' });
+  await dialog.getByLabel('Name', { exact: true }).fill('Middle');
+  await dialog.getByRole('button', { name: 'Done', exact: true }).click();
+  await settled(page);
+  await page.mouse.click(paper.x + paper.width - 2, paper.y + paper.height - 2);
+  dialog = page.getByRole('dialog', { name: 'Check box properties' });
+  await dialog.getByLabel('Name', { exact: true }).fill('Corner');
+  await dialog.getByRole('button', { name: 'Done', exact: true }).click();
+  await settled(page);
+  const form = (await PDFDocument.load(await downloaded(page))).getForm();
+  const rect = (fieldName) => form.getField(fieldName).acroField.getWidgets()[0].getRectangle();
+  const near = (actual, expected) =>
+    Object.entries(expected).forEach(([key, value]) => expect(actual[key]).toBeCloseTo(value, 0));
+  near(rect('Name'), { x: 100, y: 400 - 50 - 22, width: 160, height: 22 });
+  near(rect('Middle'), { x: 300 - 7, y: 200 - 7, width: 14, height: 14 });
+  near(rect('Corner'), { x: 600 - 14, y: 0, width: 14, height: 14 });
+});
+
+// A page in units of four points, as large drawings set a UserUnit: a field placed with a click
+// has its usual size in points, not four times that, and starts where the page was clicked.
+test('a click with a field tool places a field of the usual size on a page with large units', async ({
+  page,
+}) => {
+  const doc = await PDFDocument.create();
+  doc.addPage([150, 200]).node.set(PDFName.of('UserUnit'), PDFNumber.of(4));
+  await openPdf(page, doc);
+  await prepareForm(page);
+  const pane = page.getByRole('complementary', { name: 'Tools' });
+  const paper = await page.locator('.drawing-overlay').boundingBox();
+  const unit = paper.width / 150;
+  await pane.getByRole('button', { name: 'Text field', exact: true }).click();
+  await page.mouse.click(paper.x + 20 * unit, paper.y + 30 * unit);
+  const dialog = page.getByRole('dialog', { name: 'Text field properties' });
+  await dialog.getByLabel('Name', { exact: true }).fill('Name');
+  await dialog.getByRole('button', { name: 'Done', exact: true }).click();
+  await settled(page);
+  const form = (await PDFDocument.load(await downloaded(page))).getForm();
+  const rect = form.getField('Name').acroField.getWidgets()[0].getRectangle();
+  // 160 by 22 points is 40 by 5.5 units of four points.
+  for (const [key, value] of Object.entries({ x: 20, y: 200 - 30 - 5.5, width: 40, height: 5.5 }))
+    expect(rect[key]).toBeCloseTo(value, 0);
+});
+
+test('a tab order already in place records no edit and says so', async ({ page }) => {
+  const doc = await PDFDocument.create();
+  const sheet = doc.addPage([600, 500]);
+  for (const [name, y] of [
+    ['A', 400],
+    ['B', 300],
+  ])
+    doc.getForm().createTextField(name).addToPage(sheet, { x: 40, y, width: 150, height: 24 });
+  sheet.node.set(PDFName.of('Tabs'), PDFName.of('R'));
+  await openPdf(page, doc);
+  await prepareForm(page);
+  const pane = page.getByRole('complementary', { name: 'Tools' });
+  await pane.getByRole('button', { name: 'Tab order: by rows' }).click();
+  await settled(page);
+  await expect(page.locator('#toast')).toHaveText('Fields are already visited row by row.');
+  await expect(page.getByRole('button', { name: /^Undo/ })).toBeDisabled();
+  await expect(page.getByText('Unsaved changes')).toHaveCount(0);
+  // A new order is an edit, once.
+  await pane.getByRole('button', { name: 'Tab order: by columns' }).click();
+  await settled(page);
+  await expect(page.locator('#toast')).toHaveText('Fields are visited column by column.');
+  await expect(page.getByRole('button', { name: /^Undo/ })).toBeEnabled();
+  await pane.getByRole('button', { name: 'Tab order: by columns' }).click();
+  await settled(page);
+  await expect(page.locator('#toast')).toHaveText('Fields are already visited column by column.');
+});
+
+test('Save and Enter take and refuse the same field settings', async ({ page }) => {
+  const doc = await PDFDocument.create();
+  doc
+    .getForm()
+    .createTextField('Note')
+    .addToPage(doc.addPage([600, 400]), { x: 100, y: 100, width: 120, height: 24 });
+  await openPdf(page, doc);
+  await prepareForm(page);
+  const dialog = page.getByRole('dialog', { name: 'Text field properties' });
+  const size = dialog.getByLabel('Font size (0 fits the box)');
+  // Refused by Save as by Enter, before anything is changed.
+  await designer(page, 'Note#0').dblclick();
+  await size.fill('-3');
+  await dialog.getByLabel('Character limit').fill('0');
+  await dialog.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(dialog).toBeVisible();
+  expect(await size.evaluate((node) => node.validity.valid)).toBe(false);
+  await expect(page.getByRole('button', { name: /^Undo/ })).toBeDisabled();
+  await size.fill('2');
+  await dialog.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(dialog).toBeVisible();
+  expect(await dialog.getByLabel('Character limit').evaluate((n) => n.validity.valid)).toBe(false);
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+  // A large size taken by Save is taken by Enter too.
+  await designer(page, 'Note#0').dblclick();
+  await size.fill('100');
+  await size.press('Enter');
+  await expect(dialog).toBeHidden();
+  await settled(page);
+  const field = (await PDFDocument.load(await downloaded(page))).getForm().getTextField('Note');
+  expect(field.acroField.getDefaultAppearance()).toMatch(/ 100 Tf/);
 });

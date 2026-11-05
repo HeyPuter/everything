@@ -27,7 +27,9 @@ import {
   findRedactionMatches,
   findTextRects,
   listRedactionMarks,
+  overlayTextUnsupported,
   removeRedactionMark,
+  selectionRedactionRects,
 } from '../src/core/redact.js';
 
 const n = PDFName.of;
@@ -95,6 +97,32 @@ function expectGone(corpus, secret) {
   expect(lower).not.toContain(hexOf(secret).toLowerCase());
   expect(lower).not.toContain(utf16(secret));
 }
+
+// A small grayscale (one-component) JPEG, written by macOS's image tools from a textured gradient.
+const GRAY_JPEG =
+  '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' +
+  'Tz7/AOfxr//Z';
 
 async function makePdf(pages, { setup } = {}) {
   const doc = await PDFDocument.create();
@@ -226,6 +254,36 @@ describe('text', () => {
     expect(itemX(items, 'Account')).toBeCloseTo(72, 3);
     expect(itemX(items, 'Name')).toBeCloseTo(72, 3);
     expectGone(await recoverable(out), 'SECRET');
+  });
+
+  it('takes what a whole-page mark’s page draws beyond its boxes too', async () => {
+    // Text and drawings placed outside the media box show in no reader, but the file holds them.
+    const content = [
+      'BT /F 12 Tf 40 200 Td (Shown SECRET) Tj ET',
+      'BT /F 12 Tf 40 -50 Td (Hidden OFFPAGE) Tj ET',
+      'BT /F 12 Tf 900 200 Td (Beyond RIGHTSIDE) Tj ET',
+      '500 500 20 20 re f',
+    ].join('\n');
+    const bytes = await makePdf([
+      { content, size: [300, 300] },
+      { content, size: [300, 300] },
+    ]);
+    const { bytes: out, report } = await redact(bytes, [
+      [0, [[0, 0, 300, 300]]],
+      // An ordinary mark keeps to its area.
+      [1, [[30, 190, 200, 215]]],
+    ]);
+    expect(report.paths).toBe(1);
+    expect(await pageText(out, 0)).toBe('');
+    expect(await pageText(out, 1)).not.toContain('SECRET');
+    const second = pageSource((await PDFDocument.load(out)).getPage(1));
+    for (const word of ['OFFPAGE', 'RIGHTSIDE'])
+      expect(second.includes(word) || second.includes(hexOf(word).toUpperCase())).toBe(true);
+    const first = pageSource((await PDFDocument.load(out)).getPage(0));
+    for (const word of ['SECRET', 'OFFPAGE', 'RIGHTSIDE']) {
+      expect(first).not.toContain(word);
+      expect(first.toLowerCase()).not.toContain(hexOf(word).toLowerCase());
+    }
   });
 
   it('removes invisible OCR text and text in rotated, scaled coordinates', async () => {
@@ -583,6 +641,154 @@ describe('images', () => {
     expect(Buffer.from(out).includes(jpeg.subarray(200, 260))).toBe(false);
   });
 
+  it('keeps a redacted colour JPEG a JPEG when an encoder is at hand', async () => {
+    // A photo-like picture: stored losslessly after redaction, a JPEG grows several times over.
+    const canvas = createCanvas(320, 160);
+    const ctx = canvas.getContext('2d');
+    for (let y = 0; y < 160; y += 4)
+      for (let x = 0; x < 320; x += 4) {
+        ctx.fillStyle = `rgb(${(x * 7 + y * 3) % 256}, ${(x * y) % 256}, ${(y * 11) % 256})`;
+        ctx.fillRect(x, y, 4, 4);
+      }
+    const jpeg = canvas.toBuffer('image/jpeg', 80);
+    const picture = (doc, data, space) =>
+      doc.context.register(
+        doc.context.stream(data, {
+          Type: 'XObject',
+          Subtype: 'Image',
+          Width: 320,
+          Height: 160,
+          ColorSpace: space,
+          BitsPerComponent: 8,
+          Filter: 'DCTDecode',
+        }),
+      );
+    const bytes = await makePdf([
+      {
+        content: 'q 320 0 0 160 0 0 cm /Photo Do Q',
+        resources: (doc) => ({ XObject: { Photo: picture(doc, jpeg, 'DeviceRGB') } }),
+      },
+    ]);
+    const encoded = [];
+    const codec = {
+      async encodeJpeg({ data, width, height }, quality) {
+        const out = createCanvas(width, height);
+        const context = out.getContext('2d');
+        const pixels = context.createImageData(width, height);
+        pixels.data.set(data);
+        context.putImageData(pixels, 0, 0);
+        encoded.push(quality);
+        return new Uint8Array(out.toBuffer('image/jpeg', Math.round(quality * 100)));
+      },
+    };
+    const lossless = await redact(bytes, [[0, [[0, 0, 100, 160]]]]);
+    const { bytes: out, report } = await redact(bytes, [[0, [[0, 0, 100, 160]]]], { codec });
+    expect(report.images.redacted).toBe(1);
+    expect(encoded).toEqual([0.92]);
+    expect(out.length).toBeLessThan(lossless.bytes.length / 2);
+    const doc = await PDFDocument.load(out);
+    const [image] = Object.values(pageImages(doc));
+    expect(image.dict.lookup(n('Filter'))).toBe(n('DCTDecode'));
+    expect(image.dict.lookup(n('ColorSpace'))).toBe(n('DeviceRGB'));
+    // The area was painted before encoding: it decodes as the fill, give or take a little.
+    const decoder = new JpegImage();
+    decoder.parse(image.contents);
+    const pixels = decoder.getData({ width: 320, height: 160 });
+    for (const [x, y] of [
+      [2, 2],
+      [50, 80],
+      [90, 150],
+    ])
+      for (const value of pixels.subarray((y * 320 + x) * 3, (y * 320 + x) * 3 + 3))
+        expect(value).toBeLessThan(8);
+    // The original's scan data is not left behind (its header tables can match the new one's).
+    const middle = jpeg.length >> 1;
+    expect(Buffer.from(out).includes(jpeg.subarray(middle, middle + 60))).toBe(false);
+  });
+
+  it('keeps a redacted grayscale scan a JPEG, as three equal colour components', async () => {
+    // A 96 × 48 one-component (DeviceGray) JPEG, as scanners write pages in shades of gray.
+    const jpeg = Buffer.from(GRAY_JPEG, 'base64');
+    const original = new JpegImage();
+    original.parse(jpeg);
+    expect(original.numComponents).toBe(1);
+    const before = original.getData({ width: 96, height: 48 });
+    const scan = (intent) =>
+      makePdf([
+        {
+          content: 'q 96 0 0 48 0 0 cm /Scan Do Q',
+          resources: (doc) => {
+            if (intent)
+              doc.catalog.set(
+                n('OutputIntents'),
+                doc.context.obj([
+                  {
+                    Type: 'OutputIntent',
+                    S: 'GTS_PDFA1',
+                    DestOutputProfile: doc.context.register(doc.context.stream('', { N: intent })),
+                  },
+                ]),
+              );
+            return {
+              XObject: {
+                Scan: doc.context.register(
+                  doc.context.stream(jpeg, {
+                    Type: 'XObject',
+                    Subtype: 'Image',
+                    Width: 96,
+                    Height: 48,
+                    ColorSpace: 'DeviceGray',
+                    BitsPerComponent: 8,
+                    Filter: 'DCTDecode',
+                  }),
+                ),
+              },
+            };
+          },
+        },
+      ]);
+    const codec = {
+      async encodeJpeg({ data, width, height }, quality) {
+        const out = createCanvas(width, height);
+        const context = out.getContext('2d');
+        const pixels = context.createImageData(width, height);
+        pixels.data.set(data);
+        context.putImageData(pixels, 0, 0);
+        return new Uint8Array(out.toBuffer('image/jpeg', Math.round(quality * 100)));
+      },
+    };
+    const bytes = await scan();
+    const area = [[0, [[0, 0, 30, 48]]]];
+    const lossless = await redact(bytes, area);
+    const { bytes: out, report } = await redact(bytes, area, { codec });
+    expect(report.images.redacted).toBe(1);
+    expect(out.length).toBeLessThan(lossless.bytes.length);
+    const doc = await PDFDocument.load(out);
+    const [image] = Object.values(pageImages(doc));
+    expect(image.dict.lookup(n('Filter'))).toBe(n('DCTDecode'));
+    expect(image.dict.lookup(n('ColorSpace'))).toBe(n('DeviceRGB'));
+    const decoder = new JpegImage();
+    decoder.parse(image.contents);
+    const pixels = decoder.getData({ width: 96, height: 48 });
+    for (let y = 0; y < 48; y += 5)
+      for (let x = 0; x < 96; x += 5) {
+        const rgb = [...pixels.subarray((y * 96 + x) * 3, (y * 96 + x) * 3 + 3)];
+        // The painted area decodes as the fill; the rest as the scan, in gray.
+        if (x < 30) for (const value of rgb) expect(value).toBeLessThan(10);
+        else if (x > 34)
+          for (const value of rgb) expect(Math.abs(value - before[y * 96 + x])).toBeLessThan(40);
+        expect(Math.max(...rgb) - Math.min(...rgb)).toBeLessThan(10);
+      }
+    const middle = jpeg.length >> 1;
+    expect(Buffer.from(out).includes(jpeg.subarray(middle, middle + 60))).toBe(false);
+    // A file meant for CMYK printing (PDF/A or PDF/X with a CMYK output intent) may not use
+    // DeviceRGB: its scan stays gray, stored losslessly.
+    const printed = await redact(await scan(4), area, { codec });
+    const [kept] = Object.values(pageImages(await PDFDocument.load(printed.bytes)));
+    expect(kept.dict.lookup(n('ColorSpace'))).toBe(n('DeviceGray'));
+    expect(kept.dict.lookup(n('Filter'))).toBe(n('FlateDecode'));
+  });
+
   it('redacts inline images and stencil masks', async () => {
     const data = Buffer.from(Uint8Array.from({ length: 4 * 4 * 3 }, (_, i) => 60 + i));
     const content = Buffer.concat([
@@ -670,6 +876,76 @@ describe('images', () => {
     expect([...decodeSamples(image)]).toEqual([
       200, 200, 200, 200, 200, 200, 0, 0, 0, 200, 200, 200,
     ]);
+  });
+});
+
+describe('black-and-white scans', () => {
+  // Fax-coded and JBIG2 scans can only be read by rendering them; the rendering was stored at
+  // 24 bits a pixel, so a redacted page of a black-and-white scan grew some thirty times over.
+  const W = 400,
+    H = 300;
+  const scan = () =>
+    makePdf([
+      {
+        content: `q ${W} 0 0 ${H} 0 0 cm /Scan Do Q`,
+        size: [W, H],
+        resources: (doc) => ({
+          XObject: {
+            Scan: doc.context.register(
+              doc.context.stream(new Uint8Array(64).fill(7), {
+                Type: 'XObject',
+                Subtype: 'Image',
+                Width: W,
+                Height: H,
+                ColorSpace: 'DeviceGray',
+                BitsPerComponent: 1,
+                Filter: 'CCITTFaxDecode',
+                DecodeParms: { K: -1, Columns: W, Rows: H },
+              }),
+            ),
+          },
+        }),
+      },
+    ]);
+  // Lines of "text": black dots on white, as the page renders.
+  const ink = (x, y) => y % 20 < 12 && (x * 7 + y * 3) % 5 < 2;
+  const render = (gray) => async (bytes, w, h) => {
+    const data = new Uint8ClampedArray(w * h * 4).fill(255);
+    for (let y = 0; y < h; y++)
+      for (let x = 0; x < w; x++)
+        if (ink(x, y)) data.fill(gray, (y * w + x) * 4, (y * w + x) * 4 + 3);
+    return { data };
+  };
+
+  it('stores a redacted black-and-white scan at one bit a pixel', async () => {
+    const { bytes: out, report } = await redact(await scan(), [[0, [[0, 200, 100, 300]]]], {
+      codec: { render: render(0) },
+    });
+    expect(report.images).toEqual({ redacted: 1, removed: 0 });
+    const [image] = Object.values(pageImages(await PDFDocument.load(out)));
+    expect(image.dict.lookup(n('ColorSpace'))).toBe(n('DeviceGray'));
+    expect(image.dict.lookup(n('BitsPerComponent')).asNumber()).toBe(1);
+    expect(out.length).toBeLessThan(W * H * 0.4);
+    const bits = decodeSamples(image);
+    const row = W / 8;
+    const white = (x, y) => (bits[y * row + (x >> 3)] & (0x80 >> (x & 7))) !== 0;
+    for (let y = 0; y < H; y += 7)
+      for (let x = 0; x < W; x += 3)
+        // The top left quarter is the black fill; elsewhere the scan as it was.
+        expect(white(x, y)).toBe(x < 100 && y < 100 ? false : !ink(x, y));
+  });
+
+  it('keeps the colour of a fill that is neither black nor white, and of gray renderings', async () => {
+    const red = await redact(await scan(), [[0, [[0, 200, 100, 300]], { fill: '#ff0000' }]], {
+      codec: { render: render(0) },
+    });
+    const [colored] = Object.values(pageImages(await PDFDocument.load(red.bytes)));
+    expect(colored.dict.lookup(n('ColorSpace'))).toBe(n('DeviceRGB'));
+    const gray = await redact(await scan(), [[0, [[0, 200, 100, 300]]]], {
+      codec: { render: render(90) },
+    });
+    const [shaded] = Object.values(pageImages(await PDFDocument.load(gray.bytes)));
+    expect(shaded.dict.lookup(n('ColorSpace'))).toBe(n('DeviceRGB'));
   });
 });
 
@@ -793,6 +1069,21 @@ describe('vector graphics, annotations, and fields', () => {
     expect(overlay.transform[4] + overlay.width).toBeLessThanOrEqual(x + advance('SECRET') + 0.01);
   });
 
+  it('says when overlay text has characters its font cannot show', async () => {
+    expect(overlayTextUnsupported('Exempt (b)(6) – Rédigé')).toEqual([]);
+    expect(overlayTextUnsupported('機密 ✓ 機密')).toEqual(['機', '密', '✓']);
+    const bytes = await makePdf([{ content: 'BT /F 12 Tf 72 300 Td (SECRET) Tj ET' }]);
+    // The characters were dropped from the applied mark without a word.
+    const { report } = await redact(bytes, [
+      [0, [[70, 290, 130, 315]], { overlayText: '機密 Confidential' }],
+    ]);
+    expect(report.warnings).toContain(
+      'Overlay text on page 1 has characters the overlay font cannot show; they were left out.',
+    );
+    const plain = await redact(bytes, [[0, [[70, 290, 130, 315]], { overlayText: 'Redacted' }]]);
+    expect(plain.report.warnings).toEqual([]);
+  });
+
   it('sets overlay text upright on rotated pages and clears Alt text of redacted figures', async () => {
     const bytes = await makePdf([
       {
@@ -893,6 +1184,42 @@ describe('find text & redact', () => {
       expectGone(corpus, secret);
   });
 
+  it('finds numbers set with non-breaking hyphens, en dashes, and minus signs', async () => {
+    // Word processors keep a number on one line with non-breaking hyphens (U+2011), and en
+    // dashes and minus signs stand in for hyphens; none of these numbers were found.
+    const doc = await PDFDocument.create();
+    doc.registerFontkit(fontkit);
+    const font = await doc.embedFont(
+      await readFile(new URL('../public/fonts/NotoSans-Regular.ttf', import.meta.url)),
+    );
+    const page = doc.addPage([500, 300]);
+    page.drawText('Call 555\u2011123\u20114567 or (555) 123\u20134567', {
+      x: 20,
+      y: 250,
+      size: 12,
+      font,
+    });
+    page.drawText('SSN 078\u221205\u22121120 card 4111\u20111111\u20111111\u20111111', {
+      x: 20,
+      y: 200,
+      size: 12,
+      font,
+    });
+    page.drawText('Born 2024\u201103\u201105 and 05\u201303\u20132024', {
+      x: 20,
+      y: 150,
+      size: 12,
+      font,
+    });
+    const reopened = await PDFDocument.load(await doc.save());
+    const found = async (pattern) =>
+      (await findTextRects(reopened, 0, REDACTION_PATTERNS[pattern])).map((m) => m.text);
+    expect(await found('phone')).toEqual(['555\u2011123\u20114567', '(555) 123\u20134567']);
+    expect(await found('ssn')).toEqual(['078\u221205\u22121120']);
+    expect(await found('creditCard')).toEqual(['4111\u20111111\u20111111\u20111111']);
+    expect(await found('date')).toEqual(['2024\u201103\u201105', '05\u201303\u20132024']);
+  });
+
   it('places exact rects on the matched glyphs from the page content itself', async () => {
     const bytes = await makePdf([
       {
@@ -928,6 +1255,25 @@ describe('find text & redact', () => {
     for (const kept of ['Call:', 'today', 'Wrapping', 'here']) expect(text).toContain(kept);
   });
 
+  it('reads a page once for several searches that share a cache', async () => {
+    const bytes = await makePdf([
+      { content: 'BT /F 10 Tf 30 300 Td (Call 555-123-4567 or jane.doe@example.org) Tj ET' },
+    ]);
+    const doc = await PDFDocument.load(bytes);
+    const queries = ['call', REDACTION_PATTERNS.phone, REDACTION_PATTERNS.email];
+    const plain = [];
+    for (const query of queries) plain.push(await findTextRects(doc, 0, query));
+    // Each search walked the page's content again; Find text and redact runs six per page.
+    const cache = new Map();
+    const shared = [];
+    for (const query of queries) shared.push(await findTextRects(doc, 0, query, { cache }));
+    expect(shared).toEqual(plain);
+    expect([...cache.keys()]).toEqual([0]);
+    const layout = cache.get(0);
+    await findTextRects(doc, 0, 'jane', { cache });
+    expect(cache.get(0)).toBe(layout);
+  });
+
   it('finds text in embedded CID fonts through their ToUnicode map', async () => {
     const doc = await PDFDocument.create();
     doc.registerFontkit(fontkit);
@@ -941,6 +1287,39 @@ describe('find text & redact', () => {
     const { bytes: out } = await redact(bytes, [[0, matches[0].rects]]);
     expect((await pageText(out)).replace(/\s+/g, ' ')).toBe('SSN on file');
   });
+});
+
+it('marks a text selection on its glyphs, not on the line box that reaches the next line', async () => {
+  // Word sets single-spaced 12 pt text 13.8 pt apart; Noto Sans (like Arial) reaches further
+  // above and below its baseline than that leaves between two lines.
+  const doc = await PDFDocument.create();
+  doc.registerFontkit(fontkit);
+  const font = await doc.embedFont(
+    await readFile(new URL('../public/fonts/NotoSans-Regular.ttf', import.meta.url)),
+  );
+  const sheet = doc.addPage([400, 300]);
+  ['Alpha SECRET Bravo', 'Charlie Delta Echo'].forEach((line, i) =>
+    sheet.drawText(line, { x: 40, y: 200 - i * 13.8, size: 12, font }),
+  );
+  const bytes = await doc.save();
+  // The quad a browser measures for the selected word: its CSS line box, from 0.3 em below the
+  // baseline to 1.1 em above it, and a little wider than the word.
+  const x0 = 40 + font.widthOfTextAtSize('Alpha ', 12) - 1,
+    x1 = 40 + font.widthOfTextAtSize('Alpha SECRET', 12) + 1;
+  const quad = [x0, 213.2, x1, 213.2, x0, 196.4, x1, 196.4];
+  const rects = await selectionRedactionRects(await PDFDocument.load(bytes), 0, [quad]);
+  expect(rects).toHaveLength(1);
+  expect(rects[0][1]).toBeGreaterThan(196.4);
+  const { bytes: out, report } = await redact(bytes, [[0, rects]]);
+  expect(report.text).toBe('SECRET'.length);
+  const text = await pageText(out);
+  expect(text).not.toContain('SECRET');
+  expect(text).toContain('Charlie Delta Echo');
+  // A quad over no glyph (the layer and the page disagree) is marked as it stands.
+  const empty = [300, 100, 340, 100, 300, 90, 340, 90];
+  expect(await selectionRedactionRects(await PDFDocument.load(bytes), 0, [empty])).toEqual([
+    [300, 90, 340, 100],
+  ]);
 });
 
 it('finds hyphenated patterns in text drawn with a standard font', async () => {

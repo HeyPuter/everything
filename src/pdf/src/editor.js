@@ -1,7 +1,7 @@
 import * as pdfjs from 'pdfjs-dist';
 import workerUrl from 'virtual:pdf-worker-url';
 import { PDFDocument, PDFName, PDFString } from 'pdf-lib';
-import { savePdf } from './core/version.js';
+import { loadPdfDocument, savePdf } from './core/version.js';
 import { indexPageText, searchQuery } from './core/search.js';
 import { inspectText, matrix, textColor } from './core/text-edit.js';
 import { groupTextRuns, replaceTextGroup } from './core/text-group.js';
@@ -606,12 +606,15 @@ export function createEditor({
     // Side by side, the 12px gap between the pages is not zoomed, and each page is sized in
     // whole pixels: an even width keeps two rounded halves from overflowing it.
     const room = stack.twoUp ? 2 * Math.floor((width - gutter - 12) / 2) : width - gutter;
-    if (mode === 'fit') return Math.min(1.5, Math.max(0.15, room / natural.width));
+    // A fitted page fits however large it is (a poster, a roll plot): a 15% floor left pages
+    // over about 4,000 points wide spilling out of a view that still said Fit width.
+    const least = 0.02;
+    if (mode === 'fit') return Math.min(1.5, Math.max(least, room / natural.width));
     if (mode === 'page') {
       // The sheet shares the workspace height with its padding and the caption beneath it.
       const vertical = width < 600 ? 70 : 92;
       return Math.max(
-        0.15,
+        least,
         Math.min(3, room / natural.width, (height - vertical) / natural.height),
       );
     }
@@ -626,7 +629,13 @@ export function createEditor({
       direction > 0
         ? ZOOM_LEVELS.filter((level) => level > requested * 1.01)
         : ZOOM_LEVELS.filter((level) => level < requested / 1.01).reverse();
-    return String(levels[0] ?? (direction > 0 ? ZOOM_LEVELS.at(-1) : ZOOM_LEVELS[0]));
+    // Past the last step the zoom stays: zooming out of a page fitted below 25% used to jump
+    // up to 25%, the opposite way.
+    if (levels[0] !== undefined) return String(levels[0]);
+    const end = direction > 0 ? ZOOM_LEVELS.at(-1) : ZOOM_LEVELS[0];
+    return (direction > 0 ? requested < end : requested > end)
+      ? String(end)
+      : (pendingZoom?.mode ?? scaleMode);
   }
   /** Show the current scale mode in the menu, adding an entry for an unlisted zoom. */
   function syncZoomSelect() {
@@ -788,12 +797,36 @@ export function createEditor({
     canEdit: () => !!access().edit,
     onAdd: safe(() => attachFile()),
     onSave: safe(async (key, fileName) => {
+      const pageFile = pageFiles.get(key);
+      if (pageFile) {
+        const bytes = await pdf.getAttachmentContent(pageFile.fileId);
+        if (!bytes) throw new Error('This attachment could not be read.');
+        return download(bytes, fileName, 'application/octet-stream');
+      }
       const doc = await PDFDocument.load(session.bytes, { updateMetadata: false });
       const bytes = attachmentBytes(doc, key);
       if (!bytes) throw new Error('This attachment could not be read.');
       download(bytes, fileName, 'application/octet-stream');
     }),
     onRemove: safe(async (key, fileName) => {
+      const pageFile = pageFiles.get(key);
+      if (pageFile) {
+        // A file attached on a page goes with its paperclip comment.
+        requireAccess('annotate');
+        if (
+          !(await confirmAction(
+            'Remove attachment?',
+            `Remove ${fileName} and its paperclip from page ${pageFile.page + 1}? You can undo this while the PDF is open.`,
+            'Remove',
+          ))
+        )
+          return;
+        return mutate(
+          (doc) => deleteAnnotation(doc, pageFile.page, editorAnnotationId(pageFile.id)),
+          `${fileName} removed.`,
+          'annotate',
+        );
+      }
       requireAccess('edit');
       if (
         !(await confirmAction(
@@ -806,6 +839,46 @@ export function createEditor({
       await mutate((doc) => removeAttachment(doc, key) || false, `${fileName} removed.`);
     }),
   });
+  // PDF.js lists the document's own attachments; files attached to paperclip comments on the
+  // pages are listed after them, labelled with their page, so they can be saved too. Finding
+  // those reads every page's comments, so it waits until the panel is open.
+  let pageFiles = new Map();
+  function loadAttachments(next) {
+    const isCurrent = () => !destroyed && pdf === next;
+    attachments.load(
+      {
+        getAttachments: async () => {
+          const found = await next.getAttachments().catch(() => null);
+          const entries = found instanceof Map ? [...found] : Object.entries(found || {});
+          const files = new Map();
+          if (sidebarTab === 'attachments') {
+            const keys = new Set(entries.map(([key]) => key));
+            const annotations = await next
+              .getAnnotationsByType(new Set([pdfjs.AnnotationType.FILEATTACHMENT]))
+              .catch(() => null);
+            for (const a of (annotations || []).sort((x, y) => x.pageIndex - y.pageIndex)) {
+              if (!a.fileId || !a.file) continue;
+              let key = `page-file:${a.id}`;
+              while (keys.has(key)) key += '+';
+              keys.add(key);
+              files.set(key, { fileId: a.fileId, page: a.pageIndex, id: a.id });
+              const where = `Page ${a.pageIndex + 1}`;
+              entries.push([
+                key,
+                {
+                  filename: a.file.filename,
+                  description: a.file.description ? `${where} · ${a.file.description}` : where,
+                },
+              ]);
+            }
+          }
+          if (isCurrent()) pageFiles = files;
+          return new Map(entries);
+        },
+      },
+      { isCurrent },
+    );
+  }
   attachments.el.id = 'sidebar-panel-attachments';
   attachments.el.setAttribute('role', 'tabpanel');
   attachments.el.setAttribute('aria-labelledby', 'sidebar-tab-attachments');
@@ -1029,6 +1102,7 @@ export function createEditor({
       tab.tabIndex = on ? 0 : -1;
     });
     if (id === 'pages') revealThumbnail();
+    else if (id === 'attachments' && pdf) loadAttachments(pdf);
     else if (id === 'outline') outline.setCurrent(pageIndex, { reveal: true });
   }
   // PDF.js names annotations "12R"; the editors use pdf-lib's "12 0 R".
@@ -1570,13 +1644,14 @@ export function createEditor({
       String(edit ? edit.strikethrough : textStrikethrough),
     );
     const textOptions = tool === 'text' || !!edit;
-    sizeInput.hidden =
-      boldButton.hidden =
+    boldButton.hidden =
       italicButton.hidden =
       underlineButton.hidden =
       strikethroughButton.hidden =
         !textOptions;
-    widthInput.hidden = !['shape', 'ink'].includes(tool);
+    // Text boxes and callouts take a size too; drawings and shapes, comments too, a width.
+    sizeInput.hidden = !textOptions && !['textbox', 'callout'].includes(tool);
+    widthInput.hidden = !['shape', 'ink', 'cshape', 'pencil'].includes(tool);
     toolOptions.hidden = (tool === 'select' || tool === 'hand') && !edit;
     centerButton.hidden = !!edit || UNPLACEABLE.includes(tool);
     if (tool === 'select') colorInput.hidden = !edit;
@@ -1794,13 +1869,6 @@ export function createEditor({
   // highlighting. These settings are what new marks look like once applied.
   const redactionStyle = { fill: '#000000', overlayText: '', repeat: false };
   const redacting = () => tool === 'highlight' && markupKind.value === 'redact';
-  /** Rectangles [x1, y1, x2, y2] around the quads of a text selection. */
-  const quadRects = (quads) =>
-    quads.map((q) => {
-      const xs = [q[0], q[2], q[4], q[6]],
-        ys = [q[1], q[3], q[5], q[7]];
-      return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
-    });
   let redactionMarks = [];
   const markNumber = (mark) => {
     const onPage = redactionMarks.filter((other) => other.page === mark.page);
@@ -1809,7 +1877,7 @@ export function createEditor({
   /** The marks waiting to be applied, read while the Redact tool is open. */
   async function refreshRedactionMarks() {
     if (toolsPanel.current !== 'redact' || !pdf) return;
-    const doc = await PDFDocument.load(session.bytes, { updateMetadata: false });
+    const doc = await loadPdfDocument(session.bytes, { updateMetadata: false });
     if (destroyed) return;
     redactionMarks = (await loadRedaction()).listRedactionMarks(doc);
     toolsPanel.refresh();
@@ -1927,6 +1995,12 @@ export function createEditor({
     suggestedTools().findIndex((option) => option.classList.contains('active'));
   function suggestTools() {
     const query = searchInput.value.trim().toLowerCase();
+    // Words are matched from their start, as typed: "rot" finds the tool that rotates pages,
+    // not Protect a PDF, which merely contains the letters.
+    const words = new RegExp(
+      `(?:^|[^\\p{L}\\p{N}])${query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`,
+      'u',
+    );
     const matches =
       query.length < 2
         ? []
@@ -1934,9 +2008,9 @@ export function createEditor({
             .filter(
               (entry) =>
                 !entry.hidden &&
-                `${entry.label} ${entry.keywords || ''} ${entry.description || ''}`
-                  .toLowerCase()
-                  .includes(query),
+                words.test(
+                  `${entry.label} ${entry.keywords || ''} ${entry.description || ''}`.toLowerCase(),
+                ),
             )
             .slice(0, 5);
     toolList.replaceChildren(
@@ -1954,7 +2028,11 @@ export function createEditor({
               closeSearch();
               if (entry.run && !entry.sections) return toolsPanel.open(entry.id);
               toolsPanel.open(entry.id);
-              if (editorRoot.classList.contains('hide-tools')) await toggleToolsPanel(true);
+              // A tool with a view of its own (Organize pages) shows it; where the pane would
+              // cover that view, the pane stays aside, as when the tool is chosen in the pane.
+              const covers = window.matchMedia('(max-width: 1000px)').matches;
+              if (editorRoot.classList.contains('hide-tools') && !(entry.takesView && covers))
+                await toggleToolsPanel(true);
             }),
           },
           toolIcon(entry.icon || entry.id, 18),
@@ -2143,6 +2221,9 @@ export function createEditor({
   }
   async function toggleToolsPanel(show = editorRoot.classList.contains('hide-tools')) {
     const hadFocus = toolsPane.contains(document.activeElement);
+    // On a phone both panels lie over the page, and the tools pane covered most of the side
+    // panel; one overlay at a time, as with popovers.
+    if (show && window.matchMedia('(max-width: 760px)').matches) hideSidebar();
     editorRoot.classList.toggle('hide-tools', !show);
     if (!show && hadFocus) workspace.focus({ preventScroll: true });
     syncTopTabs();
@@ -2573,7 +2654,7 @@ export function createEditor({
       if (rebuilt) stack.rebuild(pageCount);
       // Fit width and fit page follow the largest page, whose size can arrive after the
       // current page has been fitted; the zoom then catches up, as it does after a resize.
-      stack.loadSizes(next).then(() => {
+      stack.loadSizes(next, session.geometry).then(() => {
         if (destroyed || pdf !== next) return;
         fitSizesStale = true;
         refitPage();
@@ -2589,7 +2670,7 @@ export function createEditor({
         if (!hasOutline && sidebarTab === 'outline') showSidebarTab('pages');
         if (hasOutline) outline.setCurrent(pageIndex);
       });
-      attachments.load(next, { isCurrent });
+      loadAttachments(next);
       validateSignatures().catch(() => {});
       documentLayers
         .then((config) => {
@@ -2712,6 +2793,32 @@ export function createEditor({
         hiddenAnnotations.add(editorAnnotationId(annotation.id));
         return false;
       });
+      // PDF.js draws nothing for a redaction mark without an appearance stream, as other tools
+      // may write them; such marks are outlined as the app's own marks are, so they are seen.
+      const bareRedactions = new Set(
+        visibleAnnotations
+          .filter((a) => a.subtype === 'Redact' && !a.hasAppearance && !(a.annotationFlags & 34))
+          .map((a) => a.id),
+      );
+      if (bareRedactions.size) {
+        const doc =
+          editDocument || (await PDFDocument.load(session.bytes, { updateMetadata: false }));
+        const { pageRedactionOutlines } = await loadRedaction();
+        if (token !== pageRenderGeneration || destroyed) return;
+        editDocument = doc;
+        const context = rendered.getContext('2d');
+        context.setTransform(ratio, 0, 0, ratio, 0, 0);
+        context.lineWidth = nextViewport.scale;
+        for (const mark of pageRedactionOutlines(doc, pageIndex)) {
+          if (!bareRedactions.has(mark.id)) continue;
+          context.strokeStyle = mark.outline;
+          for (const [x1, y1, x2, y2] of mark.rects) {
+            const [a, b] = nextViewport.convertToViewportPoint(x1 + 0.5, y1 + 0.5);
+            const [c, d] = nextViewport.convertToViewportPoint(x2 - 0.5, y2 - 0.5);
+            context.strokeRect(Math.min(a, c), Math.min(b, d), Math.abs(c - a), Math.abs(d - b));
+          }
+        }
+      }
       viewport = nextViewport;
       pagePixelRatio = ratio;
       stack.place(paper, pageIndex);
@@ -2776,7 +2883,7 @@ export function createEditor({
       let buttonSelections;
       if (ambiguousButtons.size) {
         const doc =
-          editDocument || (await PDFDocument.load(session.bytes, { updateMetadata: false }));
+          editDocument || (await loadPdfDocument(session.bytes, { updateMetadata: false }));
         if (token !== pageRenderGeneration || destroyed) return;
         editDocument = doc;
         buttonSelections = formButtonSelections(doc, ambiguousButtons);
@@ -2797,7 +2904,7 @@ export function createEditor({
       let radioChoices;
       if (radios.length && (editDocument || sharedRadio)) {
         const doc =
-          editDocument || (await PDFDocument.load(session.bytes, { updateMetadata: false }));
+          editDocument || (await loadPdfDocument(session.bytes, { updateMetadata: false }));
         if (token !== pageRenderGeneration || destroyed) return;
         editDocument = doc;
         radioChoices = radioButtonChoices(doc);
@@ -2812,7 +2919,7 @@ export function createEditor({
         )
       ) {
         const doc =
-          editDocument || (await PDFDocument.load(session.bytes, { updateMetadata: false }));
+          editDocument || (await loadPdfDocument(session.bytes, { updateMetadata: false }));
         if (token !== pageRenderGeneration || destroyed) return;
         editDocument = doc;
         listSelections = sharedChoiceSelections(doc);
@@ -2834,7 +2941,7 @@ export function createEditor({
         visibleAnnotations.some((a) => ['Highlight', 'Underline', 'StrikeOut'].includes(a.subtype))
       ) {
         const doc =
-          editDocument || (await PDFDocument.load(session.bytes, { updateMetadata: false }));
+          editDocument || (await loadPdfDocument(session.bytes, { updateMetadata: false }));
         if (token !== pageRenderGeneration || destroyed) return;
         editDocument = doc;
         highlights = listHighlights(doc, pageIndex).filter(
@@ -2845,7 +2952,7 @@ export function createEditor({
       notes = [];
       if (visibleAnnotations.some((a) => a.subtype === 'Text')) {
         const doc =
-          editDocument || (await PDFDocument.load(session.bytes, { updateMetadata: false }));
+          editDocument || (await loadPdfDocument(session.bytes, { updateMetadata: false }));
         if (token !== pageRenderGeneration || destroyed) return;
         editDocument = doc;
         notes = listNotes(doc, pageIndex).filter((entry) => !hiddenAnnotations.has(entry.id));
@@ -2854,7 +2961,7 @@ export function createEditor({
       let annotationEntries = [];
       if (visibleAnnotations.some((a) => ANNOTATION_KINDS.has(a.subtype))) {
         const doc =
-          editDocument || (await PDFDocument.load(session.bytes, { updateMetadata: false }));
+          editDocument || (await loadPdfDocument(session.bytes, { updateMetadata: false }));
         if (token !== pageRenderGeneration || destroyed) return;
         editDocument = doc;
         try {
@@ -2921,7 +3028,7 @@ export function createEditor({
     let runs = [];
     try {
       const [doc, layers] = await Promise.all([
-        editDocument || PDFDocument.load(session.bytes, { updateMetadata: false }),
+        editDocument || loadPdfDocument(session.bytes, { updateMetadata: false }),
         documentLayers || pdf.getOptionalContentConfig({ intent: 'display' }),
       ]);
       if (token !== pageRenderGeneration || destroyed) return false;
@@ -2941,8 +3048,7 @@ export function createEditor({
     if (imageRunCache.has(pageIndex)) return true;
     let images = [];
     try {
-      const doc =
-        editDocument || (await PDFDocument.load(session.bytes, { updateMetadata: false }));
+      const doc = editDocument || (await loadPdfDocument(session.bytes, { updateMetadata: false }));
       if (token !== pageRenderGeneration || destroyed) return false;
       editDocument = doc;
       images = inspectImages(doc, pageIndex).map((entry, i) => ({
@@ -2972,6 +3078,8 @@ export function createEditor({
     return true;
   }
   let revealedThumbnail = -1;
+  // A page moved from its thumbnail's menu: the keyboard goes with it ({ from, to }).
+  let movedThumbnail = null;
   /** Keep the current page's thumbnail inside the panel's scroll viewport. */
   function revealThumbnail() {
     if (editorRoot.classList.contains('hide-pages')) return;
@@ -2988,6 +3096,7 @@ export function createEditor({
           menu: focused.classList.contains('thumb-menu'),
         }
       : null;
+    if (restore && movedThumbnail?.from === restore.index) restore.index = movedThumbnail.to;
     const canvases = [...thumbnails.querySelectorAll('.thumb-paper canvas')];
     thumbnails.replaceChildren();
     const stop = Number.isInteger(restore?.index)
@@ -3238,6 +3347,12 @@ export function createEditor({
         return;
       }
     const hadFocus = sidebar.contains(document.activeElement);
+    if (
+      show &&
+      window.matchMedia('(max-width: 760px)').matches &&
+      !editorRoot.classList.contains('hide-tools')
+    )
+      toggleToolsPanel(false);
     editorRoot.classList.toggle('hide-pages', !show);
     pagesButton.setAttribute('aria-expanded', String(show));
     // A control inside a panel that just closed would leave focus on nothing; hand it back to
@@ -3450,6 +3565,9 @@ export function createEditor({
     const controls = [
       ...dialog.querySelectorAll('input, select, textarea, .dialog-actions .primary'),
     ].map((control) => ({ control, disabled: control.disabled }));
+    // Disabling the focused control drops the focus; a dialog left open (the edit failed, a
+    // header too wide, say) gives it back so the keyboard is still where it was.
+    const focused = dialog.contains(document.activeElement) ? document.activeElement : null;
     controls.forEach(({ control }) => {
       control.disabled = true;
     });
@@ -3476,6 +3594,13 @@ export function createEditor({
       controls.forEach(({ control, disabled }) => {
         control.disabled = disabled;
       });
+      if (
+        dialog.open &&
+        focused?.isConnected &&
+        !focused.disabled &&
+        !dialog.contains(document.activeElement)
+      )
+        focused.focus();
     }
     return committed;
   }
@@ -3592,11 +3717,11 @@ export function createEditor({
       certsign: 'Drag a box where the signature should appear.',
       textbox: 'Drag a box for the text comment, or click to place one.',
       callout: 'Drag from the spot the comment points at to where its box goes.',
-      cshape: 'Drag to draw the shape as a comment. Hold Shift to keep it regular.',
+      cshape: 'Drag to draw a shape. Hold Shift to keep it regular.',
       pencil: 'Draw on the page; each stroke becomes a comment you can move or delete.',
       measure: measureHint(),
       field:
-        'Drag a box where the field goes. Drag fields to move them; double-click one for its properties.',
+        'Drag a box where the field goes, or click to place one. Drag fields to move them; double-click one for its properties.',
     }[tool];
     hint.textContent = forPointer(hint.textContent);
     syncStyleButtons();
@@ -3701,20 +3826,19 @@ export function createEditor({
     if (!highlightSelection || busy || !pageReady) return;
     const selection = highlightSelection;
     await mutate(
-      async (doc) =>
-        markupKind.value === 'redact'
-          ? (await loadRedaction()).addRedactionMarks(
-              doc,
-              pageIndex,
-              quadRects(selection.quads),
-              redactionStyle,
-            )
-          : addHighlight(doc, pageIndex, {
-              ...selection,
-              hex: color,
-              kind: markupKind.value,
-              author: getUser()?.username || '',
-            }),
+      async (doc) => {
+        if (markupKind.value !== 'redact')
+          return addHighlight(doc, pageIndex, {
+            ...selection,
+            hex: color,
+            kind: markupKind.value,
+            author: getUser()?.username || '',
+          });
+        // On the selected glyphs: the selection's line boxes can reach into the next line.
+        const { addRedactionMarks, selectionRedactionRects } = await loadRedaction();
+        const rects = await selectionRedactionRects(doc, pageIndex, selection.quads);
+        return addRedactionMarks(doc, pageIndex, rects, redactionStyle);
+      },
       null,
       markupKind.value === 'redact' ? 'edit' : 'annotate',
     );
@@ -3747,6 +3871,29 @@ export function createEditor({
   document.addEventListener('pointermove', followTextDrag, true);
   document.addEventListener('pointerup', endTextDrag, true);
   document.addEventListener('pointercancel', endTextDrag, true);
+  /** Delete a markup, from its Delete button or the Delete key; `control` takes focus back. */
+  async function deleteHighlight(entry, control) {
+    try {
+      await finishDrafts();
+      await mutate(
+        (doc) => editHighlight(doc, pageIndex, entry.id, { remove: true }),
+        null,
+        'annotate',
+      );
+    } catch (error) {
+      if (!destroyed && control.isConnected && document.activeElement === document.body)
+        control.focus({ preventScroll: true });
+      throw error;
+    }
+    if (!destroyed && document.activeElement === document.body) overlay.focus();
+  }
+  /** The Delete and Backspace keys delete a markup, as they delete other comments. */
+  const deleteHighlightKey = (entry) => (e) => {
+    if (!['Delete', 'Backspace'].includes(e.key) || e.repeat || !access().annotate) return;
+    e.preventDefault();
+    const control = e.currentTarget;
+    safe(() => deleteHighlight(entry, control))();
+  };
   function renderHighlightTargets() {
     highlightTargets.hidden = tool !== 'select';
     highlightTargets.replaceChildren();
@@ -3772,6 +3919,7 @@ export function createEditor({
           'aria-pressed': selectedHighlight?.id === entry.id,
           'data-highlight-id': entry.id,
           disabled: !access().annotate,
+          onkeydown: deleteHighlightKey(entry),
           onclick: safe(() =>
             selectionProperties(async () => {
               if (busy || !pageReady) return;
@@ -3810,6 +3958,7 @@ export function createEditor({
       value: entry.hex,
       'aria-label': `${Label} color`,
       'data-markup-mutation': '',
+      onkeydown: deleteHighlightKey(entry),
       onchange: safe((e) =>
         selectionProperties(async () => {
           if (busy || !pageReady) return;
@@ -3854,22 +4003,7 @@ export function createEditor({
       button(
         `Delete ${label}`,
         'Trash2',
-        safe(async (e) => {
-          const remove = e.currentTarget;
-          try {
-            await finishDrafts();
-            await mutate(
-              (doc) => editHighlight(doc, pageIndex, entry.id, { remove: true }),
-              null,
-              'annotate',
-            );
-          } catch (error) {
-            if (!destroyed && remove.isConnected && document.activeElement === document.body)
-              remove.focus({ preventScroll: true });
-            throw error;
-          }
-          if (!destroyed && document.activeElement === document.body) overlay.focus();
-        }),
+        safe((e) => deleteHighlight(entry, e.currentTarget)),
         'text-btn',
         { 'data-markup-mutation': '' },
       ),
@@ -4023,6 +4157,16 @@ export function createEditor({
   const readerRect = (p, width, height) => {
     const unit = screenUnit();
     return normalizeRect(pdfPoint(p), pdfPoint({ x: p.x + width * unit, y: p.y + height * unit }));
+  };
+  /** readerRect, moved back as far as it takes to fit on the page: a click by the edge. */
+  const readerRectOnPage = (p, width, height) => {
+    const unit = screenUnit();
+    const fit = (at, size, room) => Math.max(0, Math.min(at, room - size * unit));
+    return readerRect(
+      { x: fit(p.x, width, viewport.width), y: fit(p.y, height, viewport.height) },
+      width,
+      height,
+    );
   };
   overlay.addEventListener('pointerdown', (e) => {
     if (busy || !pageReady || gesture || !e.isPrimary || tool === 'select' || e.button !== 0)
@@ -4232,8 +4376,25 @@ export function createEditor({
       } else if (g.type === 'field') {
         clearOverlay();
         const end = screenPoint(e);
-        if (Math.hypot(end.x - g.start.x, end.y - g.start.y) < 8) return;
-        await createField(normalizeRect(pdfPoint(g.start), pdfPoint(end)), g.page);
+        if (Math.hypot(end.x - g.start.x, end.y - g.start.y) >= 8)
+          await createField(normalizeRect(pdfPoint(g.start), pdfPoint(end)), g.page);
+        else {
+          // A click places a field of the usual size there, as a drag sizes one: a box
+          // centered on the point, other fields starting at it, and all on the page.
+          // The usual size is in points; a page with large units (UserUnit) needs fewer of them.
+          const [width, height] = (
+            ['checkbox', 'radio'].includes(fieldType) ? [14, 14] : [160, 22]
+          ).map((points) => points / viewport.userUnit);
+          const unit = screenUnit();
+          const centered = width === height;
+          const at = (value, size, room) =>
+            Math.max(0, Math.min(value - (centered ? size / 2 : 0), room - size));
+          const start = {
+            x: at(g.start.x, width * unit, viewport.width),
+            y: at(g.start.y, height * unit, viewport.height),
+          };
+          await createField(readerRect(start, width, height), g.page);
+        }
       } else if (g.type === 'certsign') {
         clearOverlay();
         const end = screenPoint(e);
@@ -4682,7 +4843,8 @@ export function createEditor({
         row: labeled(`crop-${key}`, `${key[0].toUpperCase()}${key.slice(1)} (pt)`, input),
       };
     });
-    const choices = pageChoices('crop-pages', pdf.numPages);
+    // Every page can be chosen at once, as the crop area offers; the current page stays first.
+    const choices = pageChoices('crop-pages', pdf.numPages, { all: true, start: 'current' });
     const form = el(
       'form',
       { class: 'stack' },
@@ -4968,27 +5130,50 @@ export function createEditor({
     pageImages.refresh();
     if (gesture) updateDrawingGesture(gesture.event);
   });
+  /** Whether a press lets go of the text, note, markup or object selected or edited beside it. */
+  const pressesAway = (e) =>
+    e.button === 0 &&
+    e.isPrimary &&
+    (!busy || finishingText || !!pageImages.selected) &&
+    !e.target.closest(
+      '.text-target, .text-edit-handles, .page-text-input, .image-target, .path-target, .image-controls button, .note-target, .highlight-target, .form-widget, .link-target, .drawing-overlay.active',
+    ) &&
+    !!(
+      textEdit ||
+      finishingText ||
+      noteEdit ||
+      pageImages.selected ||
+      pageImages.active ||
+      selectedHighlight ||
+      textPointer
+    );
+  // A finger put down beside the selection may be starting to scroll or pinch the page rather
+  // than tapping away from it: what is selected or being typed stays until the finger lifts from
+  // a tap. Letting go at once closed a note or a text edit (and its keyboard) whenever the page
+  // was scrolled, and a pinch then found the editor busy saving and did not zoom.
+  let touchAway = null;
+  workspace.addEventListener('pointerup', (e) => {
+    const tap = touchAway;
+    if (tap?.id !== e.pointerId) return;
+    touchAway = null;
+    if (Math.hypot(e.clientX - tap.x, e.clientY - tap.y) < 10) letGo(e);
+  });
+  workspace.addEventListener('pointercancel', (e) => {
+    if (touchAway?.id === e.pointerId) touchAway = null;
+  });
   workspace.addEventListener('pointerdown', (e) => {
+    if (e.pointerType !== 'touch') return letGo(e);
+    // A second finger makes it a pinch.
+    if (!e.isPrimary) return void (touchAway = null);
+    touchAway = { id: e.pointerId, x: e.clientX, y: e.clientY };
+    // The field being typed in keeps the focus, and the keyboard, meanwhile.
+    if (pressesAway(e)) e.preventDefault();
+  });
+  function letGo(e) {
     // A press anywhere else lets go of a selected comment.
     if (annotationLayer.selected && !e.target.closest('.annotation-target'))
       annotationLayer.clear();
-    if (e.button !== 0 || !e.isPrimary || (busy && !finishingText && !pageImages.selected)) return;
-    if (
-      e.target.closest(
-        '.text-target, .text-edit-handles, .page-text-input, .image-target, .path-target, .image-controls button, .note-target, .highlight-target, .form-widget, .link-target, .drawing-overlay.active',
-      )
-    )
-      return;
-    if (
-      !textEdit &&
-      !finishingText &&
-      !noteEdit &&
-      !pageImages.selected &&
-      !pageImages.active &&
-      !selectedHighlight &&
-      !textPointer
-    )
-      return;
+    if (!pressesAway(e)) return;
     e.preventDefault();
     safe(async () => {
       const priorFocus = document.activeElement;
@@ -5000,7 +5185,7 @@ export function createEditor({
       )
         workspace.focus({ preventScroll: true });
     })();
-  });
+  }
   // Each run's target, so the keyboard can return to the text it was editing.
   let textTargetOf = new WeakMap();
   /**
@@ -5096,6 +5281,7 @@ export function createEditor({
       } catch (error) {
         pageForms.restore(snapshot);
         pageForms.showError(error.message, {
+          field: error.field,
           focus:
             document.activeElement === document.body ||
             document.activeElement === priorFocus ||
@@ -5952,11 +6138,36 @@ export function createEditor({
       Math.min(Math.max(dx, -box.left), viewport.width - box.left - box.width),
       Math.min(Math.max(dy, -box.top), viewport.height - box.top - box.height),
     ];
+    // Escape during a drag puts the note back; releasing the pointer then neither moves nor
+    // opens it.
+    const escapeDrag = (e) => {
+      if (e.key !== 'Escape' || e.isComposing || noteDrag?.id !== id) return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (target.hasPointerCapture(noteDrag.pointer))
+        target.releasePointerCapture(noteDrag.pointer);
+      noteDrag = null;
+      window.removeEventListener('keydown', escapeDrag, true);
+      showNoteNudge(target, [0, 0]);
+      noteDragged = true;
+      window.addEventListener('pointerup', () => setTimeout(() => (noteDragged = false), 0), {
+        capture: true,
+        once: true,
+      });
+    };
     target.addEventListener('pointerdown', (e) => {
       if (e.button !== 0 || busy || !pageReady) return;
       saveNoteNudge();
-      noteDrag = { id, pointer: e.pointerId, x: e.clientX, y: e.clientY, moved: false };
+      noteDrag = {
+        id,
+        pointer: e.pointerId,
+        x: e.clientX,
+        y: e.clientY,
+        moved: false,
+        stop: () => window.removeEventListener('keydown', escapeDrag, true),
+      };
       target.setPointerCapture(e.pointerId);
+      window.addEventListener('keydown', escapeDrag, true);
     });
     target.addEventListener('pointermove', (e) => {
       if (noteDrag?.id !== id || noteDrag.pointer !== e.pointerId) return;
@@ -5970,6 +6181,7 @@ export function createEditor({
       if (noteDrag?.id !== id || noteDrag.pointer !== e.pointerId) return;
       const done = noteDrag;
       noteDrag = null;
+      window.removeEventListener('keydown', escapeDrag, true);
       if (!done.moved) return;
       // The click that ends a drag does not open the note.
       noteDragged = true;
@@ -5981,9 +6193,34 @@ export function createEditor({
     target.addEventListener('pointercancel', () => {
       if (noteDrag?.id !== id) return;
       noteDrag = null;
+      window.removeEventListener('keydown', escapeDrag, true);
       showNoteNudge(target, [0, 0]);
     });
     target.addEventListener('keydown', (e) => {
+      // Delete and Backspace delete the note, as they delete other comments.
+      if ((e.key === 'Delete' || e.key === 'Backspace') && !e.repeat) {
+        e.preventDefault();
+        if (noteNudge?.id === id) {
+          noteNudge = null;
+          clearTimeout(noteNudgeTimer);
+        }
+        safe(async () => {
+          if (busy || !pageReady) return;
+          if (noteEdit?.entry?.id === id) return finishNoteEdit(true);
+          const ordinal = notes.findIndex((note) => note.id === id);
+          await finishDrafts();
+          const current = notes.find((note) => note.id === id) || notes[ordinal];
+          if (!current || destroyed) return;
+          await mutate(
+            (doc) => editNote(doc, pageIndex, current.id, { remove: true }),
+            null,
+            'annotate',
+          );
+          if (!destroyed && document.activeElement === document.body)
+            overlay.focus({ preventScroll: true });
+        })();
+        return;
+      }
       if (!e.key.startsWith('Arrow') || e.altKey || e.ctrlKey || e.metaKey) return;
       e.preventDefault();
       if (noteNudge && noteNudge.id !== id) saveNoteNudge();
@@ -6020,6 +6257,10 @@ export function createEditor({
   }
   /** Clickable icons for the page's notes, shown in Select and with the Note tool. */
   function renderNoteTargets() {
+    // A drag cannot go on across a redraw (a zoom, say): its target and pointer capture are
+    // gone. Left behind, it took the next Escape and the next click on the note.
+    noteDrag?.stop();
+    noteDrag = null;
     noteTargets.replaceChildren();
     noteTargets.hidden = !['select', 'note'].includes(tool);
     if (!viewport) return;
@@ -6181,7 +6422,7 @@ export function createEditor({
     textarea.addEventListener('input', updateStatus);
     // A new icon hangs right and down from the click as the page is shown, turned or not.
     const size = NOTE_SIZE / viewport.userUnit;
-    const corner = entry ? null : readerRect(point, size, size);
+    const corner = entry ? null : readerRectOnPage(point, size, size);
     noteEdit = {
       entry,
       point: entry ? { x: entry.x, y: entry.y } : { x: corner.x, y: corner.y + corner.height },
@@ -6380,7 +6621,7 @@ export function createEditor({
    */
   async function workingDocument(version = dialogVersion()) {
     const revision = session.revision;
-    const doc = editDocument || (await PDFDocument.load(session.bytes, { updateMetadata: false }));
+    const doc = editDocument || (await loadPdfDocument(session.bytes, { updateMetadata: false }));
     if (!canOpenDialog(version) || busy || session.revision !== revision) return null;
     editDocument = doc;
     return doc;
@@ -6537,7 +6778,19 @@ export function createEditor({
             .map((o) => o.value);
         else values[key] = control.value;
       });
-      await mutateDialog(d, (doc) => fillFields(doc, values), 'Form saved.', 'fill');
+      try {
+        await mutateDialog(d, (doc) => fillFields(doc, values), 'Form saved.', 'fill');
+      } catch (error) {
+        // A value refused for its field: the message shows, then the field takes the focus.
+        const refused = d.open && controls.get(error?.field)?.control;
+        if (!refused) throw error;
+        toast(error.message, { error: true });
+        refused.setAttribute('aria-invalid', 'true');
+        refused.addEventListener('input', () => refused.removeAttribute('aria-invalid'), {
+          once: true,
+        });
+        refused.focus();
+      }
     });
     form.onsubmit = (e) => {
       e.preventDefault();
@@ -7448,7 +7701,7 @@ export function createEditor({
         permission: 'edit',
         keywords: 'form fields fillable acroform text field checkbox radio dropdown',
         description:
-          'Add fillable fields: choose a field type, then drag a box on the page. Double-click a field for its properties.',
+          'Add fillable fields: choose a field type, then drag a box on the page or click to place one. Double-click a field for its properties.',
         enter: () => setPreparing(true),
         leave: () => {
           setPreparing(false);
@@ -7497,26 +7750,14 @@ export function createEditor({
                   glyph: 'ListChecks',
                   permission: 'edit',
                   disabled: noDocument() || !formFields.length,
-                  onSelect: () =>
-                    safe(() =>
-                      formDesignEdit(async (doc) => {
-                        const { setFieldTabOrder } = await loadForms();
-                        doc.getPageIndices().forEach((i) => setFieldTabOrder(doc, i, 'row'));
-                      }, 'Fields are visited row by row.'),
-                    )(),
+                  onSelect: () => safe(() => orderFieldTabs('row'))(),
                 },
                 {
                   label: 'Tab order: by columns',
                   glyph: 'ListChecks',
                   permission: 'edit',
                   disabled: noDocument() || !formFields.length,
-                  onSelect: () =>
-                    safe(() =>
-                      formDesignEdit(async (doc) => {
-                        const { setFieldTabOrder } = await loadForms();
-                        doc.getPageIndices().forEach((i) => setFieldTabOrder(doc, i, 'column'));
-                      }, 'Fields are visited column by column.'),
-                    )(),
+                  onSelect: () => safe(() => orderFieldTabs('column'))(),
                 },
               ],
             },
@@ -8106,6 +8347,7 @@ export function createEditor({
       {
         label: 'Go to page…',
         icon: 'Hash',
+        shortcut: 'Mod+Alt+G',
         disabled: !pdf || pdf.numPages < 2 || busy,
         onSelect: safe(goToPage),
       },
@@ -8320,12 +8562,23 @@ export function createEditor({
         onSelect: pageDialog(async () => {
           const title = await promptText('Add bookmark', 'Bookmark name', `Page ${index + 1}`);
           if (title == null || destroyed) return;
+          let added = false;
           await mutate(
-            (doc) => addBookmark(doc, { title, pageIndex: index }),
+            (doc) => {
+              addBookmark(doc, { title, pageIndex: index });
+              added = true;
+            },
             'Bookmark added. Find it in the Outline tab.',
             'assemble',
           );
-          if (!destroyed && !editorRoot.classList.contains('hide-pages')) showSidebarTab('outline');
+          if (!added || destroyed || editorRoot.classList.contains('hide-pages')) return;
+          // The thumbnail whose menu added the bookmark goes with its panel; the Outline tab,
+          // there now that the PDF has a bookmark, takes the focus instead of the page body.
+          const fromThumbnail = thumbnails.contains(document.activeElement);
+          showSidebarTab('outline');
+          const tab = sidebarTabs.querySelector('[data-tab="outline"]');
+          tab.hidden = false;
+          if (fromThumbnail) tab.focus({ preventScroll: true });
         }),
       },
       { separator: true },
@@ -8551,6 +8804,7 @@ export function createEditor({
     return mutate(
       (doc) => {
         movePage(doc, from, to);
+        movedThumbnail = { from, to };
         pageIndex =
           from === current
             ? to
@@ -8562,7 +8816,7 @@ export function createEditor({
       },
       null,
       'assemble',
-    );
+    ).finally(() => (movedThumbnail = null));
   }
   /**
    * Sign with a certificate: choose a digital ID, then append a signature to the PDF as it is
@@ -8759,12 +9013,21 @@ export function createEditor({
             ...patterns.map((entry) => REDACTION_PATTERNS[entry.key]),
           ];
           const report = {};
+          // Text found by both the typed words and a pattern (or two patterns) is listed once.
+          const seen = new Set();
+          // Every search of the page reads its glyphs once.
+          const cache = new Map();
           for (const q of queries)
             for (const match of await findTextRects(doc, page, q, {
               wholeWord: whole.checked,
               report,
-            }))
+              cache,
+            })) {
+              const key = JSON.stringify(match.rects);
+              if (seen.has(key)) continue;
+              seen.add(key);
               found.push({ page, ...match });
+            }
           if (report.unsearchable) unsearchable.push(page);
         }
         status.textContent = [
@@ -8864,13 +9127,21 @@ export function createEditor({
       id: 'redact-repeat',
       checked: redactionStyle.repeat,
     });
-    const save = () => {
+    const save = safe(async () => {
+      // Applied marks draw overlay text in Helvetica; other characters would be left out.
+      const missing = (await loadRedaction()).overlayTextUnsupported(overlay.value);
+      if (missing.length) {
+        overlay.focus();
+        throw new Error(
+          `Overlay text cannot show ${missing.slice(0, 5).join(' ')}. Use Latin letters, digits, and punctuation.`,
+        );
+      }
       redactionStyle.fill = fill.value;
       redactionStyle.overlayText = overlay.value;
       redactionStyle.repeat = repeat.checked;
       d.close();
       toast('New redaction marks use these settings.');
-    };
+    });
     const form = el(
       'form',
       { class: 'stack' },
@@ -8905,13 +9176,11 @@ export function createEditor({
           for (const index of indices) {
             const page = doc.getPage(index);
             // The whole page, including what its crop box hides but the file still holds.
+            // A box may list its corners either way round ([612 792 0 0]).
             const boxes = [page.getMediaBox(), page.getCropBox()];
-            const area = [
-              Math.min(...boxes.map((box) => box.x)),
-              Math.min(...boxes.map((box) => box.y)),
-              Math.max(...boxes.map((box) => box.x + box.width)),
-              Math.max(...boxes.map((box) => box.y + box.height)),
-            ];
+            const xs = boxes.flatMap((box) => [box.x, box.x + box.width]),
+              ys = boxes.flatMap((box) => [box.y, box.y + box.height]);
+            const area = [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
             addRedactionMarks(doc, index, [area], redactionStyle);
           }
         },
@@ -8950,11 +9219,17 @@ export function createEditor({
       const count = (n, word) => n && `${n} ${word}${n === 1 ? '' : 's'}`;
       const removed = [
         count(report.text, 'character'),
-        count(report.images.redacted + report.images.removed, 'image'),
+        count(report.images.removed, 'image'),
         count(report.paths, 'drawing'),
         count(report.annotations, 'annotation'),
       ].filter(Boolean);
-      const summary = `Redactions applied${removed.length ? `: removed ${removed.join(', ')}` : ''}. Save or download to keep the redacted file.`;
+      // A picture under part of a mark keeps the rest: it was not removed.
+      const done = [
+        removed.length && `removed ${removed.join(', ')}`,
+        report.images.redacted &&
+          `erased the marked part of ${count(report.images.redacted, 'image')}`,
+      ].filter(Boolean);
+      const summary = `Redactions applied${done.length ? `: ${done.join('; ')}` : ''}. Save or download to keep the redacted file.`;
       const warnings = [...new Set([...report.warnings, ...(sanitized?.warnings || [])])];
       if (!warnings.length) return toast(summary);
       // What could not be handled as usual must not pass by in a brief message: someone could
@@ -8987,7 +9262,8 @@ export function createEditor({
           el(
             'span',
             {},
-            'Also remove hidden information (metadata, scripts, attachments, hidden text and layers)',
+            // Everything it takes, links and recognized text above all, which readers miss.
+            'Also remove hidden information (metadata, scripts, attachments, links to websites and files, hidden text including recognized OCR text, and hidden layers)',
           ),
           sanitize,
         ),
@@ -9031,6 +9307,8 @@ export function createEditor({
       }),
     }));
     const apply = safe(async () => {
+      if (!boxes.some((entry) => entry.box.checked))
+        throw new Error('Choose at least one kind of information to remove.');
       const options = Object.fromEntries(boxes.map((entry) => [entry.key, entry.box.checked]));
       let report = null;
       const committed = await mutateDialog(
@@ -9414,7 +9692,11 @@ export function createEditor({
     input.select();
   }
   /** A radio list of page choices shared by the print and extract dialogs. */
-  function pageChoices(group, count, { all = group === 'print-pages' } = {}) {
+  function pageChoices(
+    group,
+    count,
+    { all = group === 'print-pages', start = all ? 'all' : 'current' } = {},
+  ) {
     const rangeInput = el('input', {
       type: 'text',
       class: 'input',
@@ -9437,8 +9719,8 @@ export function createEditor({
     const list = el(
       'div',
       { class: 'choice-list', role: 'radiogroup', 'aria-label': 'Pages to include' },
-      all && choice('all', `All pages (${count})`, true),
-      choice('current', `Current page (${pageIndex + 1})`, !all),
+      all && choice('all', `All pages (${count})`, start === 'all'),
+      choice('current', `Current page (${pageIndex + 1})`, start === 'current'),
       el('div', { class: 'choice-with-input' }, rangeChoice, rangeInput),
     );
     return {
@@ -9641,6 +9923,7 @@ export function createEditor({
     const apply = safe(async () => {
       const indices = choices.indices();
       const slots = Object.fromEntries(HEADER_SLOTS.map((slot) => [slot, inputs[slot].value]));
+      const numbered = Object.values(slots).some((text) => /\{bates\}/i.test(text));
       await mutateDialog(
         d,
         (doc) =>
@@ -9649,7 +9932,7 @@ export function createEditor({
             size: size.value,
             title: details.title || '',
             file: name.replace(/\.pdf$/i, ''),
-            bates: Object.values(slots).some((text) => /\{bates\}/i.test(text))
+            bates: numbered
               ? {
                   prefix: batesFields.prefix.value,
                   suffix: batesFields.suffix.value,
@@ -9659,7 +9942,7 @@ export function createEditor({
                 }
               : null,
           }),
-        `Header and footer added to ${pagesPhrase(indices)}.`,
+        `${bates && numbered ? 'Bates numbers' : 'Header and footer'} added to ${pagesPhrase(indices)}.`,
       );
     });
     form.onsubmit = (e) => {
@@ -9668,7 +9951,9 @@ export function createEditor({
     };
     const d = modal(bates ? 'Bates numbering' : 'Header and footer', form, [
       button('Cancel', null, () => d.close()),
-      button('Add header and footer', 'PanelTopBottomDashed', apply, 'btn primary'),
+      bates
+        ? button('Add Bates numbers', 'Hash', apply, 'btn primary')
+        : button('Add header and footer', 'PanelTopBottomDashed', apply, 'btn primary'),
     ]);
     d.classList.add('header-footer-dialog');
     (bates ? batesFields.prefix : inputs.topLeft).focus();
@@ -9782,6 +10067,9 @@ export function createEditor({
   async function runPrint(indices) {
     requireAccess('print');
     if (busy || destroyed) return;
+    // The Print button is disabled while the pages are prepared, which drops its focus; it
+    // takes the focus back afterwards, as Undo does, unless the focus has moved on.
+    const opener = document.activeElement;
     busy = true;
     updateStatus();
     const controller = new AbortController();
@@ -9814,6 +10102,13 @@ export function createEditor({
       if (d.open) d.close();
       busy = false;
       updateStatus();
+      if (
+        opener?.isConnected &&
+        opener !== document.body &&
+        !opener.disabled &&
+        (!document.activeElement || document.activeElement === document.body)
+      )
+        opener.focus({ preventScroll: true });
     }
   }
   /** Save one page as a PNG picture at 144 dpi, with its annotations. */
@@ -10028,7 +10323,7 @@ export function createEditor({
       'images-dpi',
       [
         ['72', '72 dpi (screen)'],
-        ['144', '144 dpi (sharp on screens)'],
+        ['144', '144 dpi (sharp)'],
         ['300', '300 dpi (print)'],
       ],
       '144',
@@ -10044,7 +10339,7 @@ export function createEditor({
       ),
       el(
         'div',
-        { class: 'field-grid' },
+        { class: 'field-grid image-export-fields' },
         labeled('images-format', 'Format', format),
         labeled('images-dpi', 'Resolution', dpi),
       ),
@@ -10135,6 +10430,12 @@ export function createEditor({
     return new Promise((resolve) => {
       const area = el('textarea', { class: 'input', rows: 4, maxlength: 20000 });
       const done = safe(async () => {
+        // An empty box would be a frame with nothing to read, left on the page.
+        if (!area.value.trim()) {
+          toast(`Write something in the ${title.toLowerCase()}.`, { error: true });
+          area.focus();
+          return;
+        }
         try {
           await mutateDialog(d, (doc) => add(doc, area.value), null, 'annotate');
         } finally {
@@ -10217,11 +10518,13 @@ export function createEditor({
     const fontSize = 9 / viewport.userUnit;
     const labelWidth = label.length * fontSize * 0.6 + 8 / viewport.userUnit,
       labelHeight = fontSize * 1.6;
-    // The label sits centered just above the middle, as the page reads, turned or not.
+    // The label sits centered just above the middle, as the page reads, turned or not; below
+    // it by the top edge of the page, and moved in from the sides, so it stays on the page.
     const [cx, cy] = viewport.convertToViewportPoint(center.x, center.y);
     const unit = screenUnit();
-    const labelRect = readerRect(
-      { x: cx - (labelWidth / 2) * unit, y: cy - (2 + labelHeight) * unit },
+    const above = cy - (2 + labelHeight) * unit;
+    const labelRect = readerRectOnPage(
+      { x: cx - (labelWidth / 2) * unit, y: above >= 0 ? above : cy + 2 * unit },
       labelWidth,
       labelHeight,
     );
@@ -10257,7 +10560,8 @@ export function createEditor({
   async function placeComment(g, end) {
     const author = getUser()?.username || '';
     const hex = g.hex;
-    const width = Math.max(0.5, g.width);
+    // At least half a point, in the page's own units, which may be larger than points.
+    const width = Math.max(0.5 / viewport.userUnit, g.width);
     const moved = Math.hypot(end.x - g.start.x, end.y - g.start.y) >= 4;
     // A drag along a line holds no box: a text box then takes its clicked size, and a box
     // shape is not drawn, as for a click, instead of hiding its words or failing.
@@ -10300,9 +10604,18 @@ export function createEditor({
     if (g.type === 'textbox') {
       const rect = boxed
         ? normalizeRect(pdfPoint(g.start), pdfPoint(end))
-        : readerRect(g.start, 180 * pt, 50 * pt);
+        : readerRectOnPage(g.start, 180 * pt, 50 * pt);
       return commentTextDialog('Text box', (doc, text) =>
-        addTextBox(doc, g.page, { rect, text, fontSize, borderColor: hex, borderWidth, author }),
+        addTextBox(doc, g.page, {
+          rect,
+          text,
+          fontSize,
+          borderColor: hex,
+          borderWidth,
+          author,
+          // Taller, as the words need, so none are hidden below the box.
+          fit: true,
+        }),
       );
     }
     if (g.type === 'callout') {
@@ -10311,14 +10624,24 @@ export function createEditor({
       // The box grows from the dragged-to corner away from its point, which it must not cover:
       // leftwards when dragged to the left, upwards when dragged straight up.
       const unit = screenUnit() * pt;
-      const rect = readerRect(
-        {
-          x: corner.x < g.start.x ? corner.x - 180 * unit : corner.x,
-          y: corner.x === g.start.x && corner.y < g.start.y ? corner.y - 50 * unit : corner.y,
-        },
-        180 * pt,
-        50 * pt,
-      );
+      const [w, h] = [180 * unit, 50 * unit];
+      const x = corner.x < g.start.x ? corner.x - w : corner.x;
+      const y = corner.x === g.start.x && corner.y < g.start.y ? corner.y - h : corner.y;
+      // Moved onto the page, as long as it does not cover the point; a click by the right
+      // edge may put the box on the point's left instead.
+      const onPage = [x, ...(moved ? [] : [g.start.x - 60 - w])]
+        .map((left) => ({
+          x: Math.max(0, Math.min(left, viewport.width - w)),
+          y: Math.max(0, Math.min(y, viewport.height - h)),
+        }))
+        .find(
+          (box) =>
+            g.start.x < box.x ||
+            g.start.x > box.x + w ||
+            g.start.y < box.y ||
+            g.start.y > box.y + h,
+        );
+      const rect = readerRect(onPage ?? { x, y }, 180 * pt, 50 * pt);
       return commentTextDialog('Callout', (doc, text) =>
         addCallout(doc, g.page, {
           rect,
@@ -10328,6 +10651,7 @@ export function createEditor({
           borderColor: hex,
           borderWidth,
           author,
+          fit: true,
         }),
       );
     }
@@ -10495,20 +10819,21 @@ export function createEditor({
       disabled: !accepts('fill'),
       onchange: () => apply({ fill: noFill.checked ? null : fill.value }),
     });
+    // Widths and sizes in points, which a page with a UserUnit makes larger than its units.
+    const pagePt = viewport.userUnit;
+    const points = (entry.width ?? 1) * pagePt;
     const width = el(
       'select',
       {
         'aria-label': 'Line width',
         disabled: !accepts('width'),
-        onchange: () => apply({ width: Number(width.value) }),
+        onchange: () => apply({ width: Number(width.value) / pagePt }),
       },
       // A width from another editor is listed too, so the field shows the width it has.
-      ...[0.5, 1, 2, 3, 4, 6, 8, Math.round((entry.width ?? 1) * 100) / 100]
+      ...[0.5, 1, 2, 3, 4, 6, 8, Math.round(points * 100) / 100]
         .filter((n, i, all) => all.findIndex((m) => Math.abs(m - n) < 0.01) === i)
         .sort((a, b) => a - b)
-        .map((n) =>
-          el('option', { value: n, selected: Math.abs((entry.width ?? 1) - n) < 0.01 }, `${n} pt`),
-        ),
+        .map((n) => el('option', { value: n, selected: Math.abs(points - n) < 0.01 }, `${n} pt`)),
     );
     const opacity = el('input', {
       type: 'range',
@@ -10524,17 +10849,16 @@ export function createEditor({
       entry.subtype === 'FreeText' &&
       el('input', {
         type: 'number',
-        // The sizes a text box takes, 1 to 288 points in the page's own units; the field
-        // reports any other value itself.
-        min: 1 / viewport.userUnit,
-        max: 288 / viewport.userUnit,
+        // The sizes a text box takes, 1 to 288 points; the field reports any other value itself.
+        min: 1,
+        max: 288,
         step: 'any',
         required: true,
-        value: entry.fontSize || 12,
+        value: Number(((entry.fontSize || 12 / pagePt) * pagePt).toPrecision(12)),
         'aria-label': 'Font size',
         disabled: !accepts('fontSize'),
         onchange: () => {
-          if (fontSize.reportValidity()) apply({ fontSize: Number(fontSize.value) });
+          if (fontSize.reportValidity()) apply({ fontSize: Number(fontSize.value) / pagePt });
         },
       });
     const when = (date) =>
@@ -10604,6 +10928,19 @@ export function createEditor({
         reply: reply.startsWith(sent) ? reply.slice(sent.length) : reply,
       };
     };
+    // Escape lets go of the comment from its settings too, as from the comment itself; words
+    // typed into its text are kept.
+    panel.addEventListener('keydown', (e) => {
+      if (e.key !== 'Escape' || e.isComposing || e.defaultPrevented) return;
+      e.preventDefault();
+      e.stopPropagation();
+      safe(async () => {
+        await saveText();
+        if (destroyed) return;
+        annotationLayer.clear();
+        overlay.focus({ preventScroll: true });
+      })();
+    });
     properties.show('annotation', entry.kind, panel);
     if (previous && scroller === panel.parentElement) scroller.scrollTop = scrollTop;
     const control =
@@ -10628,6 +10965,11 @@ export function createEditor({
     if (destroyed) return;
     const doc = await PDFDocument.load(session.bytes, { updateMetadata: false });
     const base = safeName(name).replace(/\.pdf$/i, '');
+    // A file with nothing in it would only leave the reader wondering what went wrong.
+    if (!doc.getPages().some((page) => listAnnotations(doc, page).length)) {
+      toast('This PDF has no comments to export.');
+      return;
+    }
     if (kind === 'summary') {
       download(
         new Blob([exportCommentSummary(doc)], { type: 'text/plain' }),
@@ -10693,7 +11035,7 @@ export function createEditor({
   };
   async function refreshDesigner() {
     if (!preparing || !pdf || !viewport) return;
-    const doc = editDocument || (await PDFDocument.load(session.bytes, { updateMetadata: false }));
+    const doc = editDocument || (await loadPdfDocument(session.bytes, { updateMetadata: false }));
     if (!preparing || destroyed) return;
     editDocument = doc;
     const { listFormFields } = await loadForms();
@@ -10752,6 +11094,17 @@ export function createEditor({
       'edit',
     );
   }
+  /** Visit every page's fields by rows or by columns; an order already in place is no edit. */
+  async function orderFieldTabs(order) {
+    let changed = null;
+    await formDesignEdit(async (doc) => {
+      const { setFieldTabOrder } = await loadForms();
+      const results = doc.getPageIndices().map((i) => setFieldTabOrder(doc, i, order));
+      changed = results.some((result) => result !== false);
+      return changed ? undefined : false;
+    }, `Fields are visited ${order} by ${order}.`);
+    if (changed === false && !destroyed) toast(`Fields are already visited ${order} by ${order}.`);
+  }
   /** Name, tooltip, flags, and the settings of the field's type. */
   async function fieldPropertiesDialog(field, { created = false } = {}) {
     const { BUTTON_STYLES, listFormFields, moveFormWidget, updateFormField } = await loadForms();
@@ -10778,7 +11131,8 @@ export function createEditor({
       class: 'input',
       type: 'number',
       min: 0,
-      max: 72,
+      // As large as a field's text can be set.
+      max: 300,
       step: 'any',
       value: props.fontSize ?? 0,
     });
@@ -10803,7 +11157,7 @@ export function createEditor({
       const maxLength = el('input', {
         class: 'input',
         type: 'number',
-        min: 0,
+        min: 1,
         step: 1,
         value: props.maxLength ?? '',
         placeholder: 'No limit',
@@ -10900,6 +11254,8 @@ export function createEditor({
     const initial = collect(),
       initialSize = JSON.stringify(sizeOf());
     const save = safe(async () => {
+      // Save checks the values as Enter does, with the same messages.
+      if (!form.reportValidity()) return;
       const next = Object.fromEntries(
         Object.entries(collect()).filter(
           ([key, value]) =>
@@ -11635,6 +11991,11 @@ export function createEditor({
       box: el('input', { type: 'checkbox', id: `batch-step-${type}` }),
       label,
     }));
+    // Setting a step's option means the step is wanted, as typing a split point chooses that
+    // way of splitting; otherwise a changed option was left out of the run without a word.
+    for (const step of steps)
+      for (const event of ['input', 'change'])
+        controls[step.type]?.addEventListener(event, () => (step.box.checked = true));
     const stepRows = steps.map((step) =>
       el(
         'div',
@@ -12136,6 +12497,8 @@ export function createEditor({
         session.bytes,
       );
       const result = await exportDocument(thisPdf, session.bytes, format, {
+        // Layers turned off in the Layers panel are left out, as they are on screen.
+        layers: documentLayers || undefined,
         pages,
         signal: controller.signal,
         slideBackgrounds,
@@ -12742,6 +13105,26 @@ export function createEditor({
       delete node.dataset.searchHits;
     }
   }
+  /**
+   * The letter of a Ctrl or Command shortcut. On a Cyrillic, Greek, Hebrew, or Arabic layout the
+   * key reports its own letter (Ctrl+Z arrives as "я"), so no shortcut worked; the key's place on
+   * the keyboard names it instead, as the browser's own shortcuts do. AltGr typing is left alone.
+   */
+  const shortcutKey = (e) =>
+    (e.ctrlKey || e.metaKey) &&
+    !e.altKey &&
+    /^Key[A-Z]$/.test(e.code) &&
+    e.key.length === 1 &&
+    !/[\x00-\x7f]/.test(e.key)
+      ? e.code.slice(3).toLowerCase()
+      : e.key.toLowerCase();
+  /**
+   * Whether Alt with Ctrl or ⌘ goes with G. Option changes the letter a Mac reports (⌥G is "©"),
+   * so the key's place names it then; AltGr, which Windows reports as Ctrl and Alt, types instead.
+   */
+  const goToPageKey = (e) =>
+    !e.getModifierState?.('AltGraph') &&
+    (e.key.toLowerCase() === 'g' || (e.code === 'KeyG' && !/^[a-z]$/i.test(e.key)));
   function onKey(e) {
     // Native dialogs own the keyboard while open, including Escape.
     if (e.isComposing || document.querySelector('dialog[open]')) return;
@@ -12749,7 +13132,7 @@ export function createEditor({
       e.preventDefault();
       return;
     }
-    const formatKey = { b: 'bold', i: 'italic', u: 'underline' }[e.key.toLowerCase()];
+    const formatKey = { b: 'bold', i: 'italic', u: 'underline' }[shortcutKey(e)];
     if (
       textEdit &&
       !busy &&
@@ -12814,7 +13197,7 @@ export function createEditor({
       return;
     }
     const modifier = e.ctrlKey || e.metaKey;
-    const key = e.key.toLowerCase();
+    const key = shortcutKey(e);
     // A widget that answers a key itself cancels it: the comparison's list of changes takes
     // Home and End, its view F3. The page behind must not turn, or its Find bar open, as well.
     const claimed = e.defaultPrevented;
@@ -12852,7 +13235,12 @@ export function createEditor({
       // Fit page, actual size, and fit width, as desktop PDF editors bind them.
       e.preventDefault();
       safe(() => setZoom({ 0: 'page', 1: '1', 2: 'fit' }[e.key]))();
-    } else if (modifier && e.shiftKey && !e.altKey && key === 'n') {
+    } else if (
+      (modifier && e.shiftKey && !e.altKey && key === 'n') ||
+      (modifier && e.altKey && !e.shiftKey && goToPageKey(e))
+    ) {
+      // Ctrl/⌘ Shift N is Acrobat's binding, but Chrome, Edge, and Safari keep it for a new
+      // private window and the page never hears it; Ctrl/⌘ Alt G (Preview's) always arrives.
       e.preventDefault();
       if (pdf && pdf.numPages > 1 && !busy) safe(goToPage)();
     } else if (modifier && !e.shiftKey && !e.altKey && key === 'd') {
@@ -12983,6 +13371,67 @@ export function createEditor({
     },
     { passive: false },
   );
+  // On a touch screen two fingers zoom the page around the point between them, as in a PDF
+  // reader. The browser's own pinch magnified the whole application instead, pushing the tools
+  // off screen and stretching the rendered page into a blur. The page is scaled while the
+  // fingers move and drawn afresh at the new zoom once they lift.
+  let pinch = null;
+  const touchSpan = ([a, b]) => Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+  // Where a finger rests on something that takes touches itself (a drawing tool's surface, an
+  // object being moved), the browser never zoomed either, so neither does the page.
+  const takesTouch = (node) => {
+    for (let at = node; at && at !== workspace; at = at.parentElement)
+      if (getComputedStyle(at).touchAction === 'none') return true;
+    return false;
+  };
+  function endPinch(commit) {
+    if (!pinch) return;
+    const { scale, x, y } = pinch;
+    pinch = null;
+    pageStackElement.style.transform = pageStackElement.style.transformOrigin = '';
+    if (!commit || destroyed || Math.abs(scale - 1) < 0.02) return;
+    const next = Math.max(0.02, Math.round(zoom * scale * 100) / 100);
+    safe(() => setZoom(String(next), { x, y }))();
+  }
+  workspace.addEventListener(
+    'touchstart',
+    (e) => {
+      if (e.touches.length !== 2) return endPinch(false);
+      const touches = [...e.touches];
+      if (
+        !pdf ||
+        busy ||
+        touches.some((t) => !workspace.contains(t.target) || takesTouch(t.target))
+      )
+        return;
+      panning = null;
+      editorRoot.classList.remove('panning');
+      const x = (touches[0].clientX + touches[1].clientX) / 2,
+        y = (touches[0].clientY + touches[1].clientY) / 2;
+      pinch = { span: touchSpan(touches) || 1, x, y, scale: 1 };
+      const box = pageStackElement.getBoundingClientRect();
+      pageStackElement.style.transformOrigin = `${x - box.left}px ${y - box.top}px`;
+    },
+    { passive: true },
+  );
+  workspace.addEventListener(
+    'touchmove',
+    (e) => {
+      if (!pinch || e.touches.length !== 2) return;
+      if (e.cancelable) e.preventDefault();
+      // Within the zoom's range; a page fitted below its smallest step does not shrink further.
+      const least = Math.min(zoom, ZOOM_LEVELS[0]),
+        most = Math.max(zoom, ZOOM_LEVELS.at(-1));
+      const wanted = (zoom * touchSpan([...e.touches])) / pinch.span;
+      pinch.scale = Math.min(most, Math.max(least, wanted)) / zoom;
+      pageStackElement.style.transform = `scale(${pinch.scale})`;
+    },
+    { passive: false },
+  );
+  workspace.addEventListener('touchend', (e) => {
+    if (e.touches.length < 2) endPinch(true);
+  });
+  workspace.addEventListener('touchcancel', () => endPinch(false));
   let resizeTimer;
   const resizeObserver = new ResizeObserver(() => {
     // Where the page starts below the tool rows: on narrow screens the navigation panel
@@ -13062,7 +13511,7 @@ export function createEditor({
     if (!destroyed) await applyInitialView().catch(() => {});
   })();
   async function applyInitialView() {
-    const doc = await PDFDocument.load(session.bytes, { updateMetadata: false });
+    const doc = await loadPdfDocument(session.bytes, { updateMetadata: false });
     if (destroyed) return;
     const view = readInitialView(doc);
     pdfaClaim = readPdfaClaim(doc);

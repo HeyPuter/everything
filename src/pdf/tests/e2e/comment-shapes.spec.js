@@ -140,27 +140,27 @@ test('a line, a drawing, and a callout take clicks only where they are drawn', a
       at(x, y),
     );
   // On each drawn line, its comment; beside it, inside its box, what lies beneath.
-  expect(await hit(200, 200)).toBe('Line');
-  expect(await hit(379, 21)).toBe('Line');
+  expect(await hit(200, 200)).toBe('Arrow');
+  expect(await hit(379, 21)).toBe('Arrow');
   expect(await hit(40, 100)).toBe('Drawing');
   expect(await hit(100, 100)).not.toBe('Drawing');
-  expect(await hit(120, 240)).toBe('Text box: Look');
-  expect(await hit(280, 220)).toBe('Text box: Look');
-  expect(await hit(100, 200)).not.toBe('Text box: Look');
+  expect(await hit(120, 240)).toBe('Callout: Look');
+  expect(await hit(280, 220)).toBe('Callout: Look');
+  expect(await hit(100, 200)).not.toBe('Callout: Look');
   expect(await hit(240, 334)).toBe('Edit text: Words beside the arrow');
   await page.mouse.dblclick(...at(240, 334));
   await expect(page.getByRole('textbox', { name: 'Edit text' })).toBeFocused();
   await page.keyboard.press('Escape');
   await settled(page);
-  // The line itself still selects and drags.
+  // The line itself still selects and drags (as far as the page's edge lets it).
   await page.mouse.move(...at(200, 200));
   await page.mouse.down();
-  await page.mouse.move(...at(220, 200), { steps: 4 });
+  await page.mouse.move(...at(210, 200), { steps: 4 });
   await page.mouse.up();
   await settled(page);
   const pending = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Download', exact: true }).click();
   const saved = await PDFDocument.load(await readFile(await (await pending).path()));
   const [line] = listAnnotations(saved, 0);
-  expect(line.points[0].x).toBeCloseTo(40, 0);
+  expect(line.points[0].x).toBeCloseTo(30, 0);
 });

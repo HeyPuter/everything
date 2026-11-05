@@ -300,3 +300,83 @@ test('a comparison describes each change once, however many lines it marks', asy
   const described = await page.evaluate(() => globalThis.describedChanges);
   expect(described).toBeLessThanOrEqual(3 * 3);
 });
+
+test('on a narrow screen the list of changes steps aside once a change is chosen', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 760 });
+  await page.route('https://js.puter.com/**', (route) => route.fulfill({ body: '' }));
+  await page.goto('/#library');
+  const opened = page.waitForEvent('filechooser');
+  await page.keyboard.press('ControlOrMeta+o');
+  await (
+    await opened
+  ).setFiles({ name: 'old.pdf', mimeType: 'application/pdf', buffer: await pdfBytes('Alpha') });
+  await expect(page.locator('.editor')).toHaveAttribute('aria-busy', 'false');
+  await page.getByRole('button', { name: 'Tools', exact: true }).click();
+  const pane = page.getByRole('complementary', { name: 'Tools' });
+  await pane.getByRole('button', { name: 'View more' }).click();
+  await pane.getByRole('button', { name: 'Compare files', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Compare files' });
+  const chosen = page.waitForEvent('filechooser');
+  await dialog.getByRole('button', { name: 'Choose file…' }).click();
+  await (
+    await chosen
+  ).setFiles({ name: 'new.pdf', mimeType: 'application/pdf', buffer: await pdfBytes('Beta') });
+  await dialog.getByRole('button', { name: 'Compare', exact: true }).click();
+  const list = page.getByRole('listbox', { name: 'Changes' });
+  const toggle = page.getByRole('button', { name: 'Show list of changes' });
+  // The list starts hidden here, since it would cover the documents.
+  await expect(list).toBeHidden();
+  await toggle.click();
+  await list.getByRole('option').nth(5).click();
+  // It steps aside to show the change it was covering.
+  await expect(list).toBeHidden();
+  await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.locator('.compare-docs')).toBeFocused();
+  await expect(page.locator('.compare-position')).toHaveText('6 of 12');
+  // From the keyboard as well.
+  await toggle.click();
+  await list.getByRole('option').nth(5).focus();
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('Enter');
+  await expect(list).toBeHidden();
+  await expect(page.locator('.compare-position')).toHaveText('7 of 12');
+});
+
+test("on a phone the comparison's toolbar takes two rows, not three", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 760 });
+  await page.route('https://js.puter.com/**', (route) => route.fulfill({ body: '' }));
+  await page.goto('/#library');
+  const opened = page.waitForEvent('filechooser');
+  await page.keyboard.press('ControlOrMeta+o');
+  await (
+    await opened
+  ).setFiles({ name: 'old.pdf', mimeType: 'application/pdf', buffer: await pdfBytes('Alpha') });
+  await expect(page.locator('.editor')).toHaveAttribute('aria-busy', 'false');
+  await page.getByRole('button', { name: 'Tools', exact: true }).click();
+  const pane = page.getByRole('complementary', { name: 'Tools' });
+  await pane.getByRole('button', { name: 'View more' }).click();
+  await pane.getByRole('button', { name: 'Compare files', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Compare files' });
+  const chosen = page.waitForEvent('filechooser');
+  await dialog.getByRole('button', { name: 'Choose file…' }).click();
+  await (
+    await chosen
+  ).setFiles({ name: 'new.pdf', mimeType: 'application/pdf', buffer: await pdfBytes('Beta') });
+  await dialog.getByRole('button', { name: 'Compare', exact: true }).click();
+  const close = page.getByRole('button', { name: 'Close compare' });
+  await expect(close).toBeVisible();
+  // Close sits beside Export report and the filters, rather than alone on a third row.
+  const middle = async (locator) => {
+    const box = await locator.boundingBox();
+    return Math.round(box.y + box.height / 2);
+  };
+  const exportRow = await middle(page.getByRole('button', { name: 'Export report' }));
+  expect(await middle(close)).toBe(exportRow);
+  expect(
+    Math.abs((await middle(page.getByRole('group', { name: 'Show changes' }))) - exportRow),
+  ).toBeLessThan(3);
+  // The filters keep their group name for assistive technology.
+  await expect(page.getByRole('group', { name: 'Show changes' })).toBeVisible();
+});

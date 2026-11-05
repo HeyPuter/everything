@@ -68,7 +68,7 @@ for (const rotation of [0, 90, 270])
     expect(textBox.width / unit).toBeCloseTo(180, -1);
     expect(textBox.height / unit).toBeCloseTo(50, -1);
     // A clicked callout's box sits up and to the right of its point, 180 points wide.
-    const callout = await page.getByRole('button', { name: 'Text box: Point here' }).boundingBox();
+    const callout = await page.getByRole('button', { name: 'Callout: Point here' }).boundingBox();
     expect(callout.x).toBeCloseTo(anchor.x, -1);
     expect(callout.x + callout.width).toBeCloseTo(anchor.x + 60 + 180 * unit, -1);
     expect(callout.y).toBeCloseTo(anchor.y - 60, -1);

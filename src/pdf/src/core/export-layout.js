@@ -51,6 +51,9 @@ export const OPS = {
   setFillRGBColor: 59,
   setStrokeCMYKColor: 60,
   setFillCMYKColor: 61,
+  beginMarkedContent: 69,
+  beginMarkedContentProps: 70,
+  endMarkedContent: 71,
   paintFormXObjectBegin: 74,
   paintFormXObjectEnd: 75,
   beginGroup: 76,
@@ -217,7 +220,7 @@ const lightness = (hex) => {
 /* ---------------------------------------------------------------- page reading */
 
 /** Walk the operator list for text colours, rules, filled boxes and image placements. */
-function walkOperators(list, view) {
+function walkOperators(list, view, visible = () => true) {
   const runs = [],
     rules = [],
     fills = [],
@@ -232,10 +235,37 @@ function walkOperators(list, view) {
     mode: 0,
   };
   const stack = [];
+  // Marked content on layers that are off: what the page does not show is not exported.
+  const marked = [];
+  let hidden = 0;
   const { fnArray, argsArray } = list;
   for (let i = 0; i < fnArray.length; i++) {
     const fn = fnArray[i],
       args = argsArray[i];
+    if (fn === OPS.beginMarkedContent || fn === OPS.beginMarkedContentProps) {
+      let off = false;
+      if (fn === OPS.beginMarkedContentProps && args?.[0] === 'OC')
+        try {
+          off = !visible(args[1]);
+        } catch {
+          off = false;
+        }
+      marked.push(off);
+      if (off) hidden++;
+      continue;
+    }
+    if (fn === OPS.endMarkedContent) {
+      if (marked.pop()) hidden--;
+      continue;
+    }
+    if (
+      hidden &&
+      (fn === OPS.constructPath ||
+        fn === OPS.paintImageXObject ||
+        fn === OPS.paintInlineImageXObject ||
+        fn === OPS.paintImageXObjectRepeat)
+    )
+      continue;
     switch (fn) {
       case OPS.save:
       case OPS.beginGroup:
@@ -302,6 +332,7 @@ function walkOperators(list, view) {
           fill: state.fill,
           stroke: state.stroke,
           mode: state.mode,
+          hidden: hidden > 0,
         });
         break;
       }
@@ -475,14 +506,22 @@ function addPath(args, state, view, rules, fills, vectors) {
  * Everything the exporter needs from one page: text spans with styles, ruling lines, filled
  * boxes and image placements (with their pictures).
  */
-export async function readPage(pdf, page, { images, signal } = {}) {
+export async function readPage(pdf, page, { images, signal, layers } = {}) {
   const viewport = page.getViewport({ scale: 1 });
   const view = viewport.transform;
   const content = await page.getTextContent();
   signal?.throwIfAborted();
   const list = await page.getOperatorList();
   signal?.throwIfAborted();
-  const graphics = walkOperators(list, view);
+  // The layers as shown: the reader's choices when given, else the document's default.
+  let config = null;
+  try {
+    config = await (layers ?? pdf.getOptionalContentConfig?.({ intent: 'display' }));
+  } catch {
+    config = null;
+  }
+  signal?.throwIfAborted();
+  const graphics = walkOperators(list, view, (props) => config?.isVisible?.(props) ?? true);
 
   const fonts = new Map();
   const fontFor = (id) => {
@@ -526,7 +565,7 @@ export async function readPage(pdf, page, { images, signal } = {}) {
         cursor = at + key.length;
       }
     }
-    if (!item.str.trim()) continue;
+    if (!item.str.trim() || run?.hidden) continue;
     const m = mul(view, item.transform);
     const size = Math.hypot(m[2], m[3]),
       scaleX = Math.hypot(m[0], m[1]);

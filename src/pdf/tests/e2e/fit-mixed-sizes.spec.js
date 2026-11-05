@@ -45,3 +45,41 @@ test('a PDF whose wide page comes later opens fitted to the widest page', async 
   expect(first.x).toBeGreaterThanOrEqual(view.x);
   expect(first.x + first.width).toBeLessThanOrEqual(view.x + view.width);
 });
+
+test('a page far wider than the view still fits its width and the whole page', async ({ page }) => {
+  // A roll plot or banner: 120 by 36 inches.
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  doc.addPage([8640, 2592]).drawText('Banner', { x: 200, y: 1200, size: 400, font });
+  await open(page, doc);
+  const zoom = page.getByLabel('Zoom', { exact: true });
+  await expect(zoom).toHaveValue('fit');
+  await expect.poll(() => overflow(page)).toBeLessThanOrEqual(0);
+  await zoom.selectOption('page');
+  await expect(page.locator('.editor')).toHaveAttribute('aria-busy', 'false');
+  await expect.poll(() => overflow(page)).toBeLessThanOrEqual(0);
+  const view = await page.locator('.workspace').boundingBox();
+  const sheet = await page.locator('.page-slot[data-page="0"]').boundingBox();
+  expect(sheet.width).toBeLessThanOrEqual(view.width);
+  expect(sheet.height).toBeLessThanOrEqual(view.height);
+});
+
+test('zooming out of a page fitted below the smallest zoom step keeps it fitted', async ({
+  page,
+}) => {
+  const doc = await PDFDocument.create();
+  doc.addPage([8640, 2592]);
+  await open(page, doc);
+  const zoom = page.getByLabel('Zoom', { exact: true });
+  await expect(zoom).toHaveValue('fit');
+  await page.locator('.workspace').focus();
+  await page.keyboard.press('ControlOrMeta+Minus');
+  await page.locator('.workspace').dispatchEvent('wheel', { deltaY: 100, ctrlKey: true });
+  await expect(page.getByRole('button', { name: 'Zoom out', exact: true })).toBeDisabled();
+  await expect(page.locator('.editor')).toHaveAttribute('aria-busy', 'false');
+  // Zooming out never zooms in: the page stays fitted rather than jumping up to 25%.
+  await expect(zoom).toHaveValue('fit');
+  await expect.poll(() => overflow(page)).toBeLessThanOrEqual(0);
+  await page.keyboard.press('ControlOrMeta+Equal');
+  await expect(zoom).toHaveValue('0.25');
+});

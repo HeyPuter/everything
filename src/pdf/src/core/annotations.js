@@ -19,7 +19,7 @@ import {
   removeAnnotationThread,
 } from './structure.js';
 import { editNote, listNotes, parsePdfDate } from './notes.js';
-import { COMMENT_KINDS } from './comments.js';
+import { COMMENT_KINDS, commentLabel } from './comments.js';
 import {
   DRAWABLE,
   FLAGS,
@@ -30,6 +30,7 @@ import {
   drawAppearance,
   endingsOf,
   flatPoints,
+  freeTextHeight,
   freeTextStyle,
   hexToRgb,
   inkStrokes,
@@ -205,7 +206,61 @@ function setOpacity(dict, opacity) {
 }
 
 /**
- * Add a text box comment (FreeText, intent FreeText) whose text wraps inside `rect`. On a
+ * `box` made taller, down the page as the reader sees it on a page turned by `rotation`, when
+ * `value` needs more room than it has; moved back up as far as the page allows when that would
+ * take it past the bottom. A callout's box is left as it was rather than cover its `anchor`.
+ */
+async function fittedBox(doc, page, box, value, style, rotation, anchor = null) {
+  // As drawn: another turn than a quarter's reads upright.
+  if (![90, 180, 270].includes(rotation)) rotation = 0;
+  const turned = rotation % 180 !== 0;
+  const [x0, y0, x1, y1] = box;
+  const needed = await freeTextHeight(
+    doc,
+    value,
+    turned ? y1 - y0 : x1 - x0,
+    style,
+    pageUserUnit(page),
+  );
+  const extra = needed - (turned ? x1 - x0 : y1 - y0);
+  if (!(extra > 1e-6)) return box;
+  // Down the page: -y upright, +x turned a quarter clockwise, +y upside down, -x the other way.
+  const axis = turned ? 0 : 1,
+    down = rotation === 90 || rotation === 180 ? 1 : -1;
+  const grown = [...box];
+  if (down < 0) grown[axis] -= extra;
+  else grown[axis + 2] += extra;
+  const crop = page.getCropBox();
+  const low = axis ? crop.y : crop.x,
+    high = low + (axis ? crop.height : crop.width);
+  let shift = 0;
+  if (down < 0 && grown[axis] < low)
+    shift = Math.max(0, Math.min(low - grown[axis], high - grown[axis + 2]));
+  else if (down > 0 && grown[axis + 2] > high)
+    shift = -Math.max(0, Math.min(grown[axis + 2] - high, grown[axis] - low));
+  grown[axis] += shift;
+  grown[axis + 2] += shift;
+  const covers = (b) =>
+    anchor && anchor.x >= b[0] && anchor.x <= b[2] && anchor.y >= b[1] && anchor.y <= b[3];
+  if (!covers(grown)) return grown;
+  // A callout's box placed above its point (as one clicked by the foot of the page is) grows
+  // up the page instead, away from the point, rather than hide its last lines.
+  const raised = [...box];
+  if (down < 0) raised[axis + 2] += extra;
+  else raised[axis] -= extra;
+  let back = 0;
+  if (down < 0 && raised[axis + 2] > high)
+    back = -Math.max(0, Math.min(raised[axis + 2] - high, raised[axis] - low));
+  else if (down > 0 && raised[axis] < low)
+    back = Math.max(0, Math.min(low - raised[axis], high - raised[axis + 2]));
+  raised[axis] += back;
+  raised[axis + 2] += back;
+  return covers(raised) ? box : raised;
+}
+
+/**
+ * Add a text box comment (FreeText, intent FreeText) whose text wraps inside `rect`; with
+ * `fit`, the box grows down the page to show all of its text. On a
  * turned page the box records the turn (Rotate) and its text reads upright. Returns its ID.
  */
 export async function addTextBox(doc, page, options = {}) {
@@ -220,9 +275,12 @@ export async function addTextBox(doc, page, options = {}) {
   const rotation = pageRotation(page);
   if (rotation) dict.set(name('Rotate'), PDFNumber.of(rotation));
   setOpacity(dict, options.opacity);
+  const style = textBoxStyle(page, options);
   await refreshAppearance(doc, page, dict, {
-    box,
-    style: textBoxStyle(page, options),
+    box: options.fit
+      ? await fittedBox(doc, page, box, text(dict, 'Contents'), style, rotation)
+      : box,
+    style,
   });
   return register(doc, page, dict);
 }
@@ -260,10 +318,13 @@ export function calloutLine(box, anchor, rotation = 0, unit = 1) {
   return [anchor, knee, end];
 }
 
-/** Add a callout: a text box with a leader line ending in an arrow at `anchor`. */
+/**
+ * Add a callout: a text box with a leader line ending in an arrow at `anchor`; with `fit`, the
+ * box grows down the page to show all of its text.
+ */
 export async function addCallout(doc, page, options = {}) {
   page = pageAt(doc, page);
-  const box = rectArg(options.rect, 'where the callout’s text goes');
+  let box = rectArg(options.rect, 'where the callout’s text goes');
   const [anchor] = pointsArg([options.anchor], 1, 'where the callout points');
   const rotation = pageRotation(page);
   const dict = baseDict(doc, page, 'FreeText', {
@@ -272,6 +333,9 @@ export async function addCallout(doc, page, options = {}) {
     subject: 'Callout',
     intent: 'FreeTextCallout',
   });
+  const style = textBoxStyle(page, options);
+  if (options.fit)
+    box = await fittedBox(doc, page, box, text(dict, 'Contents'), style, rotation, anchor);
   if (rotation) dict.set(name('Rotate'), PDFNumber.of(rotation));
   dict.set(
     name('CL'),
@@ -279,10 +343,7 @@ export async function addCallout(doc, page, options = {}) {
   );
   dict.set(name('LE'), name(endingArg(options.ending ?? 'OpenArrow')));
   setOpacity(dict, options.opacity);
-  await refreshAppearance(doc, page, dict, {
-    box,
-    style: textBoxStyle(page, options),
-  });
+  await refreshAppearance(doc, page, dict, { box, style });
   return register(doc, page, dict);
 }
 
@@ -518,11 +579,12 @@ function describe(doc, { id, dict }, threads) {
   const flags = flagsOf(dict);
   const rect = rectOf(dict);
   const { width, dash } = borderOf(dict);
+  const intent = dict.lookup(name('IT'))?.decodeText?.() ?? null;
   const entry = {
     id,
     subtype,
-    kind: COMMENT_KINDS[subtype]?.label ?? subtype,
-    intent: dict.lookup(name('IT'))?.decodeText?.() ?? null,
+    kind: commentLabel(subtype, intent),
+    intent,
     rect: boxObject(rect),
     contents: text(dict, 'Contents'),
     author: text(dict, 'T'),
@@ -899,6 +961,26 @@ export async function editAnnotation(doc, page, id, changes = {}) {
     }
   }
   setOpacity(dict, changes.opacity);
+  // New words, or larger ones, that no longer fit grow the box, unless it was given its size.
+  if (
+    style &&
+    box &&
+    (textChanged || changes.fontSize !== undefined) &&
+    !changes.rect &&
+    !changes.box
+  ) {
+    const callout = pointsOf(numbers(dict.lookup(name('CL'))));
+    const anchor = callout.length >= 2 ? callout[0] : null;
+    const fitted = await fittedBox(doc, page, box, text(dict, 'Contents'), style, rotation, anchor);
+    if (fitted !== box) {
+      box = fitted;
+      if (anchor)
+        dict.set(
+          name('CL'),
+          doc.context.obj(flatPoints(calloutLine(box, anchor, rotation, pageUserUnit(page)))),
+        );
+    }
+  }
   // Stamps, carets and attachments keep their own art, which readers fit to the new Rect.
   if (!['Stamp', 'Caret', 'FileAttachment'].includes(subtype))
     await refreshAppearance(doc, page, dict, {

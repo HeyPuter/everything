@@ -1,4 +1,4 @@
-import { PDFName } from 'pdf-lib';
+import { PDFDocument, PDFName } from 'pdf-lib';
 
 const VERSION = PDFName.of('Version');
 const parse = (value) => (/^\d+\.\d+$/.test(value) ? value.split('.').map(Number) : [0, 0]);
@@ -19,11 +19,21 @@ export function inheritPdfVersion(doc, source) {
 }
 
 /**
+ * pdf-lib pauses on a timer every 100 objects it reads and every 50 it writes, and browsers
+ * hold back each of those nested timers by at least 4 ms. A 500-page PDF spent about 130 ms of
+ * every edit waiting on them rather than working. Pausing every few thousand objects still
+ * breaks up the reading and writing of a large PDF, for a small fraction of that wait.
+ */
+const OBJECTS_PER_TICK = 2000;
+export const loadPdfDocument = (bytes, options) =>
+  PDFDocument.load(bytes, { parseSpeed: OBJECTS_PER_TICK, ...options });
+
+/**
  * Both pdf-lib writers always emit a 1.7 header. Declare any higher requirement in the
  * catalog before saving, which works with both xref formats without patching byte offsets.
  */
 export function savePdf(doc, options) {
   const version = pdfVersion(doc);
   if (newer(version, [1, 7])) doc.catalog.set(VERSION, PDFName.of(version.join('.')));
-  return doc.save(options);
+  return doc.save({ objectsPerTick: OBJECTS_PER_TICK, ...options });
 }

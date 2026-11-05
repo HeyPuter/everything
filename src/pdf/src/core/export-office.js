@@ -17,6 +17,8 @@
  *     slideBackgrounds  PPTX: put each rendered page behind the slide's text (needs renderPage)
  *     singleSheet  XLSX: one worksheet for the whole document instead of one per page
  *     title, author     document properties (title defaults to the PDF's own title)
+ *     layers       PDF.js optional content config (or a promise of one): content on layers it
+ *                  hides is left out; defaults to the document's own default visibility
  *   }
  *
  *   analyzeDocument(pdf, bytes, options) -> Promise<DocModel>   the layout model the writers use
@@ -64,7 +66,7 @@ export const EXPORT_FORMATS = {
 export async function analyzeDocument(
   pdf,
   bytes,
-  { pages, onProgress, signal, renderPage, total } = {},
+  { pages, onProgress, signal, renderPage, total, layers } = {},
 ) {
   signal?.throwIfAborted();
   const indices = (
@@ -72,6 +74,9 @@ export async function analyzeDocument(
   ).filter((i) => Number.isInteger(i) && i >= 0 && i < pdf.numPages);
   if (!indices.length) throw new Error('Choose at least one page to export.');
   const source = await createImageSource(pdf, bytes);
+  // Read the layer visibility once for every page.
+  const shown = layers ?? pdf.getOptionalContentConfig?.({ intent: 'display' });
+  shown?.catch?.(() => {});
   const images = {
     resolve: (page, id, orientation) => source.resolve(page, id, orientation),
     inline: async (data, orientation) => {
@@ -95,7 +100,7 @@ export async function analyzeDocument(
     signal?.throwIfAborted();
     const page = await pdf.getPage(index + 1);
     signal?.throwIfAborted();
-    const scan = await readPage(pdf, page, { images, signal });
+    const scan = await readPage(pdf, page, { images, signal, layers: shown });
     scan.index = index;
     // Pages drawn only with vector art keep their look as a picture, when one can be rendered.
     if (
@@ -141,6 +146,16 @@ async function documentTitle(pdf) {
     return '';
   }
 }
+/** The PDF's own language (its /Lang), when it is a usable language tag. */
+async function documentLanguage(pdf) {
+  try {
+    const { info } = await pdf.getMetadata();
+    const lang = typeof info?.Language === 'string' ? info.Language.trim() : '';
+    return /^[A-Za-z]{2,3}(-[A-Za-z0-9]{1,8})*$/.test(lang) ? lang : '';
+  } catch {
+    return '';
+  }
+}
 
 /** Export the PDF to `format`; see the module comment for options. */
 export async function exportDocument(pdf, bytes, format, options = {}) {
@@ -154,7 +169,9 @@ export async function exportDocument(pdf, bytes, format, options = {}) {
   const title = options.title ?? (await documentTitle(pdf));
   let done = pageCount;
   let output;
-  const common = { title, author: options.author, signal };
+  // Screen readers pronounce the exported text in the PDF's own language.
+  const lang = (await documentLanguage(pdf)) || undefined;
+  const common = { title, author: options.author, signal, lang };
   if (format === 'docx') output = await writeDocx(model, common);
   else if (format === 'xlsx')
     output = await writeXlsx(model, {
@@ -178,7 +195,7 @@ export async function exportDocument(pdf, bytes, format, options = {}) {
     }
     output = await writePptx(model, { ...common, backgrounds: rendered });
   } else if (format === 'txt') output = new TextEncoder().encode(writeText(model));
-  else if (format === 'html') output = new TextEncoder().encode(writeHtml(model, { title }));
+  else if (format === 'html') output = new TextEncoder().encode(writeHtml(model, { title, lang }));
   else output = new TextEncoder().encode(writeRtf(model));
   signal?.throwIfAborted();
   onProgress?.(total, total);

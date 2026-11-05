@@ -23,11 +23,12 @@ for (const action of ['Download', 'Rename', 'Delete', 'Duplicate'])
       await expect(page.locator('.account-label')).toHaveText('Alice');
       await page.getByRole('button', { name: 'Options for private.pdf', exact: true }).click();
       await page.getByRole('button', { name: action, exact: true }).click();
-      if (action === 'Rename')
-        await page
-          .getByRole('dialog', { name: 'Rename PDF', exact: true })
-          .getByRole('button', { name: 'Continue', exact: true })
-          .click();
+      if (action === 'Rename') {
+        // An unchanged name asks nothing of Puter, so the rename needs a new one.
+        const dialog = page.getByRole('dialog', { name: 'Rename PDF', exact: true });
+        await dialog.getByLabel('File name').fill('renamed');
+        await dialog.getByRole('button', { name: 'Continue', exact: true }).click();
+      }
       if (action === 'Delete')
         await page
           .getByRole('dialog', { name: 'Delete PDF?', exact: true })

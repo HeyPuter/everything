@@ -21,7 +21,9 @@ export function createFormLayer({ onChange, onCommit, onTabOut }) {
   let widgets = [],
     controls = new Map(),
     key,
-    pendingFocus = null;
+    pendingFocus = null,
+    // The field an error is about, when it names one; otherwise every changed field.
+    invalidField = null;
 
   function rememberFocus() {
     const active = document.activeElement;
@@ -91,9 +93,11 @@ export function createFormLayer({ onChange, onCommit, onTabOut }) {
         }
       }
       control.closest('.form-widget').classList.toggle('has-draft', draft.changes.has(widget.name));
-      control.setAttribute('aria-invalid', String(!error.hidden && draft.changes.has(widget.name)));
+      control.setAttribute('aria-invalid', String(!error.hidden && isInvalid(widget)));
     }
   }
+  const isInvalid = (widget) =>
+    invalidField ? widget.name === invalidField : draft.changes.has(widget.name);
   function changed(widget, value, editingControl) {
     if (widget.readOnly || !draft.set(widget.name, value)) return;
     clearError();
@@ -103,13 +107,15 @@ export function createFormLayer({ onChange, onCommit, onTabOut }) {
   function clearError() {
     error.hidden = true;
     error.textContent = '';
+    invalidField = null;
     for (const control of controls.values()) control.removeAttribute('aria-errormessage');
   }
-  function showError(message, { focus = true } = {}) {
+  function showError(message, { focus = true, field = null } = {}) {
     error.hidden = false;
     error.textContent = message;
+    invalidField = widgets.some((widget) => widget.name === field) ? field : null;
     sync();
-    const widget = widgets.find((widget) => draft.changes.has(widget.name));
+    const widget = widgets.find(isInvalid);
     const control = widget && controls.get(widget.id);
     if (control) {
       control.setAttribute('aria-errormessage', error.id);
@@ -162,7 +168,10 @@ export function createFormLayer({ onChange, onCommit, onTabOut }) {
           multiple: widget.multiple,
           size: !widget.combo ? Math.max(2, Math.min(6, widget.options.length)) : null,
         },
-        !widget.multiple &&
+        // A list box shows its own rows, where the PDF draws them; an extra first row would
+        // put each option one row below its drawing, under the next option's.
+        widget.combo &&
+          !widget.multiple &&
           el('option', { value: '', 'data-placeholder': true }, 'Choose an option'),
         ...widget.options.map((option) =>
           el('option', { value: option.value }, option.label || '(Empty option)'),

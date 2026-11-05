@@ -1,5 +1,6 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { readFile } from 'node:fs/promises';
+import fontkit from '@pdf-lib/fontkit';
 import {
   PDFArray,
   PDFDict,
@@ -504,9 +505,12 @@ it('takes only numbers in number and percent fields', async () => {
     'Enter a number in Amount due, such as 1234.5.',
   );
   await expect(fillFields(doc, { Rate: '5%' })).rejects.toThrow('Enter a number in Rate');
-  await fillFields(doc, { Amount: '-1234.5', Rate: '0,25', Note: 'twelve' });
+  // The fields group thousands with commas: 0,25 would read as 25 thousandths to some and as
+  // 25 to others.
+  await expect(fillFields(doc, { Rate: '0,25' })).rejects.toThrow('such as 1234.5.');
+  await fillFields(doc, { Amount: '-1234.5', Rate: '0.25', Note: 'twelve' });
   await fillFields(doc, { Amount: '' });
-  expect(listFields(doc).map((field) => field.value)).toEqual(['', '0,25', 'twelve']);
+  expect(listFields(doc).map((field) => field.value)).toEqual(['', '0.25', 'twelve']);
 });
 
 it('shows number and percent fields as their formats do, keeping the value typed', async () => {
@@ -1136,4 +1140,61 @@ it('lists fields made by other tools', async () => {
   );
   expect(doc.getForm().acroForm.dict.lookup(name('DR')) instanceof PDFDict).toBe(true);
   expect(page.node.lookup(name('Annots')) instanceof PDFArray).toBe(true);
+});
+
+it('puts a detected blank over its underscores, whatever the widths of its label', async () => {
+  const doc = await PDFDocument.create();
+  const page = doc.addPage([612, 792]);
+  const lines = [
+    // Narrow letters before the blank, then wide ones; a serif face; a fixed-width one.
+    ['Zip: ', StandardFonts.Helvetica, 700],
+    ['WWW MMM: ', StandardFonts.Helvetica, 650],
+    ['Initials: ', StandardFonts.TimesRoman, 600],
+    ['Zip: ', StandardFonts.Courier, 550],
+  ];
+  const starts = [];
+  for (const [label, face, y] of lines) {
+    const font = await doc.embedFont(face);
+    page.drawText(`${label}______________`, { x: 50, y, size: 12, font });
+    starts.push(50 + font.widthOfTextAtSize(label, 12));
+  }
+  const bytes = await doc.save();
+  const textContent = await withPdfjs(bytes, (p) => p.getTextContent());
+  for (const options of [{}, { textContent }]) {
+    const found = detectFormFields(await PDFDocument.load(bytes), 0, options);
+    expect(found).toHaveLength(4);
+    found.forEach(({ rect }, i) => expect(Math.abs(rect.x - starts[i])).toBeLessThan(1.5));
+  }
+});
+
+it('detects check boxes typed as box characters, named after the words beside them', async () => {
+  const doc = await PDFDocument.create();
+  doc.registerFontkit(fontkit);
+  // A word processor's "□ Yes □ No": the boxes are characters of a font that has them.
+  const font = await doc.embedFont(
+    await readFile(new URL('../public/fonts/NotoSansKR-Regular.ttf', import.meta.url)),
+    { subset: true },
+  );
+  const page = doc.addPage([612, 792]);
+  page.drawText('Do you agree?   □ Yes   □ No', { x: 50, y: 700, size: 12, font });
+  const square = font.widthOfTextAtSize('□', 12);
+  const starts = ['Do you agree?   ', 'Do you agree?   □ Yes   '].map(
+    (before) => 50 + font.widthOfTextAtSize(before, 12),
+  );
+  const bytes = await doc.save();
+  const textContent = await withPdfjs(bytes, (p) => p.getTextContent());
+  const found = detectFormFields(await PDFDocument.load(bytes), 0, { textContent });
+  expect(found.map(({ type, name }) => [type, name])).toEqual([
+    ['checkbox', 'Yes'],
+    ['checkbox', 'No'],
+  ]);
+  // Each box sits on its character, around the middle of the line.
+  found.forEach(({ rect }, i) => {
+    expect(rect.x).toBeGreaterThanOrEqual(starts[i] - 0.5);
+    expect(rect.x + rect.width).toBeLessThanOrEqual(starts[i] + square + 0.5);
+    expect(rect.width).toBeGreaterThanOrEqual(6);
+    expect(rect.height).toBeCloseTo(rect.width, 1);
+    expect(rect.y).toBeLessThan(704);
+    expect(rect.y + rect.height).toBeGreaterThan(704);
+  });
 });

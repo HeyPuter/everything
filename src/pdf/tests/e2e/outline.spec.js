@@ -783,3 +783,69 @@ for (const nested of [false, true]) {
     await check(true);
   });
 }
+
+test('a bookmark menu opens from the keyboard with Shift+F10', async ({ page }) => {
+  await mockPuter(page);
+  await page.goto('/#library');
+  const doc = await PDFDocument.create();
+  for (let i = 0; i < 2; i++) doc.addPage([400, 400]);
+  addOutline(doc, [
+    { title: 'Intro', page: 0 },
+    { title: 'End', page: 1 },
+  ]);
+  await openPdf(page, doc);
+  await showPanel(page);
+  await page
+    .getByRole('tablist', { name: 'Side panel' })
+    .getByRole('tab', { name: 'Outline' })
+    .click();
+  const tree = page.getByRole('tree', { name: 'Document outline' });
+  const end = tree.getByRole('treeitem', { name: 'End' });
+  await end.focus();
+  // Mac keyboards have no menu key, and macOS browsers turn Shift+F10 into no menu event.
+  await page.keyboard.press('Shift+F10');
+  const menu = page.getByRole('menu', { name: 'Bookmark' });
+  await expect(menu.getByRole('menuitem', { name: 'Rename bookmark…', exact: true })).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(menu).toHaveCount(0);
+  await expect(end).toBeFocused();
+  await page.keyboard.press('Shift+F10');
+  await page.keyboard.press('ArrowDown');
+  await expect(menu.getByRole('menuitem', { name: 'Remove bookmark', exact: true })).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(page.locator('#toast')).toHaveText('Bookmark removed.');
+  await expect(page.locator('.editor')).toHaveAttribute('aria-busy', 'false');
+  await expect(tree.getByRole('treeitem')).toHaveCount(1);
+});
+
+test("a bookmark added from a thumbnail's menu leaves the focus on the Outline tab", async ({
+  page,
+}) => {
+  await mockPuter(page);
+  await page.goto('/#library');
+  const doc = await PDFDocument.create();
+  for (let i = 0; i < 3; i++) doc.addPage([300, 300]);
+  await openPdf(page, doc);
+  await showPanel(page);
+  await page.getByRole('button', { name: 'Page 2 actions', exact: true }).focus();
+  await page.keyboard.press('Enter');
+  await page
+    .getByRole('menu')
+    .getByRole('menuitem', { name: 'Add bookmark for this page…' })
+    .click();
+  await page
+    .getByRole('dialog', { name: 'Add bookmark' })
+    .getByLabel('Bookmark name')
+    .press('Enter');
+  await expect(page.locator('#toast')).toHaveText('Bookmark added. Find it in the Outline tab.');
+  await expect(page.locator('.editor')).toHaveAttribute('aria-busy', 'false');
+  // The thumbnail went with the Pages panel; the focus did not fall to the page body.
+  const tab = page
+    .getByRole('tablist', { name: 'Side panel' })
+    .getByRole('tab', { name: 'Outline' });
+  await expect(tab).toBeFocused();
+  await expect(tab).toHaveAttribute('aria-selected', 'true');
+  await expect(
+    page.getByRole('tree', { name: 'Document outline' }).getByRole('treeitem', { name: 'Page 2' }),
+  ).toBeVisible();
+});

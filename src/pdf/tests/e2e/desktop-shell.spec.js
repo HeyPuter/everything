@@ -76,6 +76,53 @@ test('the find box also offers matching tools', async ({ page }) => {
   await expect(page.getByRole('dialog', { name: 'Reduce file size' })).toBeVisible();
 });
 
+test('the find box offers tools whose words start with what was typed', async ({ page }) => {
+  await openPdf(page, await numberedPdf(1));
+  await page.getByRole('button', { name: 'Find text or tools', exact: true }).click();
+  const find = page.getByRole('combobox', { name: 'Find in PDF' });
+  await find.fill('rot');
+  // Organize pages rotates them; Protect a PDF only contains the letters.
+  await expect(page.getByRole('option', { name: 'Open tool: Organize pages' })).toBeVisible();
+  await expect(page.getByRole('option', { name: 'Open tool: Protect a PDF' })).toHaveCount(0);
+  await find.fill('prot');
+  await expect(page.getByRole('option', { name: 'Open tool: Protect a PDF' })).toBeVisible();
+  await find.fill('pdf/a');
+  await expect(page.getByRole('option', { name: /Open tool: .*standards/i })).toBeVisible();
+});
+
+test('shortcuts work on a keyboard layout without Latin letters', async ({ page }) => {
+  await openPdf(page, await numberedPdf(2));
+  const cdp = await page.context().newCDPSession(page);
+  // What a Russian layout sends for Ctrl and the keys marked F and Z: its own letters.
+  const press = async (key, code, keyCode, modifiers = 2) => {
+    for (const type of ['rawKeyDown', 'keyUp'])
+      await cdp.send('Input.dispatchKeyEvent', {
+        type,
+        key,
+        code,
+        modifiers,
+        windowsVirtualKeyCode: keyCode,
+      });
+  };
+  await page.locator('.workspace').focus();
+  await press('а', 'KeyF', 70);
+  await expect(page.getByRole('combobox', { name: 'Find in PDF' })).toBeFocused();
+  await page.keyboard.press('Escape');
+  await page.locator('.menubar').getByRole('menuitem', { name: 'Page', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Rotate clockwise', exact: true }).click();
+  const undo = page.getByRole('button', { name: 'Undo', exact: true });
+  await expect(undo).toBeEnabled();
+  await page.locator('.workspace').focus();
+  await press('я', 'KeyZ', 90);
+  await expect(undo).toBeDisabled();
+  // Ctrl+Shift+Z redoes.
+  await press('Я', 'KeyZ', 90, 2 | 8);
+  await expect(undo).toBeEnabled();
+  const chooser = page.waitForEvent('filechooser');
+  await press('щ', 'KeyO', 79);
+  await chooser;
+});
+
 test('the arrow keys reach the tools the find box offers, as in a combobox', async ({ page }) => {
   await openPdf(page, await numberedPdf(1));
   await page.getByRole('button', { name: 'Find text or tools', exact: true }).click();
@@ -203,6 +250,32 @@ test('in a short window the quick tools scroll within the page area', async ({ p
   expect(button.y + button.height).toBeLessThanOrEqual(area.y + area.height);
   expect(await page.locator('.editor').evaluate((node) => node.scrollTop)).toBe(0);
   await expect(page.getByRole('menubar', { name: 'PDF menus' })).toBeInViewport();
+});
+
+test('a phone turned sideways keeps the tools and page controls on one row', async ({ page }) => {
+  await page.setViewportSize({ width: 750, height: 342 });
+  await openPdf(page, await numberedPdf(2));
+  const [tools, controls, view] = await Promise.all([
+    page.getByRole('toolbar', { name: 'PDF tools' }).boundingBox(),
+    page.locator('.page-controls').boundingBox(),
+    page.locator('.workspace').boundingBox(),
+  ]);
+  // Side by side above the page, rather than a row each.
+  expect(Math.abs(controls.y - tools.y)).toBeLessThanOrEqual(1);
+  expect(controls.x).toBeGreaterThanOrEqual(tools.x + tools.width - 1);
+  expect(view.y).toBeGreaterThanOrEqual(tools.y + tools.height - 1);
+  expect(view.y).toBeLessThanOrEqual(
+    Math.max(tools.y + tools.height, controls.y + controls.height) + 1,
+  );
+  // Every tool and control is on screen and usable.
+  await expect(page.getByRole('button', { name: 'Fill forms', exact: true })).toBeInViewport({
+    ratio: 1,
+  });
+  await expect(page.getByRole('button', { name: 'Zoom in', exact: true })).toBeInViewport({
+    ratio: 1,
+  });
+  await page.getByRole('button', { name: 'Next page', exact: true }).click();
+  await expect(page.locator('.page-caption')).toHaveText('Page 2 of 2');
 });
 
 test('pages scroll continuously and the page in view becomes the current page', async ({
@@ -1006,7 +1079,7 @@ test('Bates numbering asks for a start number instead of starting at zero', asyn
   await pane.getByRole('button', { name: 'Bates numbering', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Bates numbering' });
   await dialog.getByLabel('Start number').fill('');
-  await dialog.getByRole('button', { name: 'Add header and footer' }).click();
+  await dialog.getByRole('button', { name: 'Add Bates numbers', exact: true }).click();
   await expect(dialog.locator('.dialog-error')).toHaveText(
     'Start Bates numbers between 0 and 999,999,999.',
   );
@@ -1023,7 +1096,10 @@ test('Bates numbering stamps padded numbers across the chosen pages', async ({ p
   await dialog.getByLabel('Prefix').fill('CASE-');
   await dialog.getByLabel('Start number').fill('7');
   await dialog.getByLabel('Number of digits').fill('4');
-  await dialog.getByRole('button', { name: 'Add header and footer' }).click();
+  // The button names what it adds, as the other page-mark dialogs do.
+  await expect(dialog.getByRole('button', { name: 'Add header and footer' })).toHaveCount(0);
+  await dialog.getByRole('button', { name: 'Add Bates numbers', exact: true }).click();
+  await expect(page.locator('#toast')).toHaveText('Bates numbers added to 3 pages.');
   await settled(page);
   const bytes = await downloaded(page);
   const text = new TextDecoder('latin1').decode(bytes);
@@ -2073,4 +2149,70 @@ test('removing an attachment hands the focus to the file that takes its place', 
   await expect(page.getByRole('button', { name: 'Undo', exact: true })).toBeEnabled();
   await settled(page);
   await expect(panel.getByRole('button', { name: 'Save second.txt' })).toBeFocused();
+});
+
+test('every command in a tool set lines its label up with the others', async ({ page }) => {
+  await openPdf(page, await numberedPdf(2));
+  for (const name of ['Edit', 'Comment', 'Export', 'Fill & Sign']) {
+    await page.getByRole('button', { name, exact: true }).first().click();
+    const pane = page.getByRole('complementary', { name: 'Tools' });
+    await expect(pane.locator('.tool-command').first()).toBeVisible();
+    // A tool's colored icon is 20px wide and a line icon 18px; the labels after them started
+    // 2px apart, which showed as a ragged column in Add comments.
+    const starts = await pane
+      .locator('.tool-command:visible .tool-command-text')
+      .evaluateAll((labels) => labels.map((label) => label.getBoundingClientRect().left));
+    expect(starts.length).toBeGreaterThan(2);
+    expect(new Set(starts.map((x) => Math.round(x))).size, name).toBe(1);
+  }
+});
+
+test("the file name's keyboard focus ring shows in its tab", async ({ page }) => {
+  await openPdf(page, await numberedPdf(1));
+  const name = page.getByRole('button', { name: 'Rename test.pdf', exact: true });
+  await page.getByRole('button', { name: 'Back to your PDFs', exact: true }).focus();
+  for (let i = 0; i < 20 && !(await name.evaluate((b) => b === document.activeElement)); i++)
+    await page.keyboard.press('Tab');
+  await expect(name).toBeFocused();
+  // The tab clips a long name, and that clipping hid the whole ring around the name.
+  const cut = await name.evaluate((button) => {
+    const style = getComputedStyle(button);
+    if (!button.matches(':focus-visible') || style.outlineStyle === 'none') return 'no ring';
+    const reach = parseFloat(style.outlineOffset) + parseFloat(style.outlineWidth);
+    const own = button.getBoundingClientRect();
+    for (let node = button.parentElement; node !== document.body; node = node.parentElement) {
+      if (getComputedStyle(node).overflow === 'visible') continue;
+      const box = node.getBoundingClientRect();
+      if (
+        own.left - reach < box.left - 0.5 ||
+        own.top - reach < box.top - 0.5 ||
+        own.right + reach > box.right + 0.5 ||
+        own.bottom + reach > box.bottom + 0.5
+      )
+        return `clipped by ${node.className}`;
+    }
+    return null;
+  });
+  expect(cut).toBeNull();
+});
+
+test("the first tool's keyboard focus ring shows whole in the tools pane", async ({ page }) => {
+  await openPdf(page, await numberedPdf(1));
+  await page.getByRole('button', { name: 'Tools', exact: true }).first().click();
+  const pane = page.getByRole('complementary', { name: 'Tools' });
+  await pane.getByRole('button', { name: 'Close tools panel', exact: true }).focus();
+  const first = pane.getByRole('button', { name: 'Export a PDF', exact: true });
+  for (let i = 0; i < 5 && !(await first.evaluate((b) => b === document.activeElement)); i++)
+    await page.keyboard.press('Tab');
+  await expect(first).toBeFocused();
+  // The list scrolls, so it clipped the top of the ring drawn outside its first row.
+  const cut = await first.evaluate((button) => {
+    const style = getComputedStyle(button);
+    if (!button.matches(':focus-visible') || style.outlineStyle === 'none') return 'no ring';
+    const reach = parseFloat(style.outlineOffset) + parseFloat(style.outlineWidth);
+    const own = button.getBoundingClientRect();
+    const list = button.closest('.tools-panel-body').getBoundingClientRect();
+    return own.top - reach < list.top - 0.5 || own.left - reach < list.left - 0.5;
+  });
+  expect(cut).toBe(false);
 });

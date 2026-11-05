@@ -36,6 +36,23 @@ const FORMATS = {
 };
 const BULLET_CHARS = ['•', 'o', '▪'];
 
+// Word tags Chinese, Japanese, and Korean characters with the East Asian language, and the
+// characters of complex scripts (right-to-left and Indic, Thai, and their kin) with the "bidi"
+// one; the plain language covers the rest.
+const EAST_ASIAN = new Set(['ja', 'zh', 'ko']);
+const RIGHT_TO_LEFT = 'ar he iw fa ur yi ps sd ug dv ckb syr';
+const COMPLEX = new Set(
+  `${RIGHT_TO_LEFT} th lo km my hi mr ne sa bn as pa gu or ta te kn ml si bo`.split(' '),
+);
+/** The document's default languages, from the PDF's own (US English when it names none). */
+function languageXml(lang) {
+  lang ||= 'en-US';
+  const primary = lang.split('-')[0].toLowerCase();
+  const eastAsia = EAST_ASIAN.has(primary) ? lang : 'en-US';
+  const bidi = COMPLEX.has(primary) ? lang : 'ar-SA';
+  return `<w:lang w:val="${xml(lang)}" w:eastAsia="${xml(eastAsia)}" w:bidi="${xml(bidi)}"/>`;
+}
+
 class DocxWriter {
   constructor(model, options) {
     this.model = model;
@@ -540,7 +557,7 @@ class DocxWriter {
     return (
       XML_HEADER +
       `<w:styles xmlns:w="${W}">` +
-      `<w:docDefaults><w:rPrDefault><w:rPr>${rFonts}<w:sz w:val="${sz}"/><w:szCs w:val="${sz}"/><w:lang w:val="en-US" w:eastAsia="en-US" w:bidi="ar-SA"/></w:rPr></w:rPrDefault>` +
+      `<w:docDefaults><w:rPrDefault><w:rPr>${rFonts}<w:sz w:val="${sz}"/><w:szCs w:val="${sz}"/>${languageXml(this.options.lang)}</w:rPr></w:rPrDefault>` +
       `<w:pPrDefault><w:pPr><w:spacing w:after="0" w:line="240" w:lineRule="auto"/></w:pPr></w:pPrDefault></w:docDefaults>` +
       `<w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/><w:qFormat/><w:rPr>${rFonts}<w:sz w:val="${sz}"/><w:szCs w:val="${sz}"/></w:rPr></w:style>` +
       headings +

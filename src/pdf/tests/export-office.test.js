@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { PDFDocument, PDFName, StandardFonts, rgb, degrees } from 'pdf-lib';
+import { PDFDocument, PDFName, PDFString, StandardFonts, rgb, degrees } from 'pdf-lib';
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { createCanvas, loadImage } from '@napi-rs/canvas';
 import { DOMParser } from '@xmldom/xmldom';
@@ -1071,6 +1071,124 @@ it('keeps text that looks like an Excel character escape as it reads', async () 
     const strings = elements(parseXml(text(files['xl/sharedStrings.xml']), 'sst'), 't');
     // Excel turns "_x0020_" into a space unless its underscore is escaped as "_x005F_".
     expect(strings.map((t) => t.textContent)).toEqual(['Column field_x005F_x0020_name']);
+  } finally {
+    await loading.destroy();
+  }
+});
+
+it('leaves out what layers that are off would draw, as the page shows it', async () => {
+  // A layer off by default (answers, internal notes, an old draft) shows nowhere on the page,
+  // but its words and drawings were exported with the rest.
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const page = doc.addPage([400, 400]);
+  const hidden = doc.context.register(doc.context.obj({ Type: 'OCG', Name: 'Answers' }));
+  const shown = doc.context.register(doc.context.obj({ Type: 'OCG', Name: 'Questions' }));
+  doc.catalog.set(
+    PDFName.of('OCProperties'),
+    doc.context.obj({ OCGs: [hidden, shown], D: { OFF: [hidden], Order: [hidden, shown] } }),
+  );
+  page.node.Resources().set(PDFName.of('Properties'), doc.context.obj({ A: hidden, Q: shown }));
+  page.node.Resources().set(PDFName.of('Font'), doc.context.obj({ F: font.ref }));
+  page.node.set(
+    PDFName.of('Contents'),
+    doc.context.register(
+      doc.context.stream(
+        [
+          'BT /F 12 Tf 40 300 Td (Visible question) Tj ET',
+          '/OC /A BDC BT /F 12 Tf 40 250 Td (Secret answer) Tj ET EMC',
+          '/OC /Q BDC BT /F 12 Tf 40 200 Td (Layered question) Tj ET EMC',
+        ].join('\n'),
+      ),
+    ),
+  );
+  const drawing = doc.addPage([400, 400]);
+  drawing.node.Resources().set(PDFName.of('Properties'), doc.context.obj({ A: hidden }));
+  drawing.node.set(
+    PDFName.of('Contents'),
+    doc.context.register(doc.context.stream('/OC /A BDC 0.9 0.2 0.2 rg 40 100 300 100 re f EMC')),
+  );
+  const bytes = await doc.save();
+  const loading = pdfjs.getDocument({ data: bytes.slice(), verbosity: 0 });
+  const pdf = await loading.promise;
+  try {
+    const text = new TextDecoder().decode((await exportDocument(pdf, bytes, 'txt')).bytes);
+    expect(text).toContain('Visible question');
+    expect(text).toContain('Layered question');
+    expect(text).not.toContain('Secret answer');
+    // A page whose only drawing is on that layer shows nothing, so no picture of it is made.
+    const rendered = [];
+    const model = await analyzeDocument(pdf, bytes, {
+      renderPage: async (index) => {
+        rendered.push(index);
+        return new Uint8Array([0x89, 0x50, 0x4e, 0x47]);
+      },
+    });
+    expect(rendered).toEqual([]);
+    expect(model.pages[1].images).toEqual([]);
+    // Layers the reader turned on are exported as they are shown.
+    const config = await pdf.getOptionalContentConfig({ intent: 'display' });
+    const groups = [...config].map(([id]) => id);
+    for (const id of groups) config.setVisibility(id, true);
+    const all = new TextDecoder().decode(
+      (await exportDocument(pdf, bytes, 'txt', { layers: config })).bytes,
+    );
+    expect(all).toContain('Secret answer');
+  } finally {
+    await loading.destroy();
+  }
+});
+
+it('marks Word documents in Hebrew, Japanese, and the like with their script’s language', async () => {
+  // Word tags Hebrew letters with the complex-script language and Japanese characters with the
+  // East Asian one: a Hebrew PDF's text was marked as Arabic, a Japanese one's as English.
+  for (const [lang, expected] of [
+    ['he-IL', 'w:val="he-IL" w:eastAsia="en-US" w:bidi="he-IL"'],
+    ['ja-JP', 'w:val="ja-JP" w:eastAsia="ja-JP" w:bidi="ar-SA"'],
+    ['fr', 'w:val="fr" w:eastAsia="en-US" w:bidi="ar-SA"'],
+  ]) {
+    const doc = await PDFDocument.create();
+    const font = await doc.embedFont(StandardFonts.Helvetica);
+    doc.addPage([300, 300]).drawText('Text', { x: 20, y: 200, size: 12, font });
+    doc.catalog.set(PDFName.of('Lang'), PDFString.of(lang));
+    const bytes = await doc.save();
+    const loading = pdfjs.getDocument({ data: bytes.slice(), verbosity: 0 });
+    const pdf = await loading.promise;
+    try {
+      const files = await unzip((await exportDocument(pdf, bytes, 'docx')).bytes);
+      expect(new TextDecoder().decode(files['word/styles.xml'])).toContain(`<w:lang ${expected}/>`);
+    } finally {
+      await loading.destroy();
+    }
+  }
+});
+
+it('marks exported web pages, Word documents, and slides with the PDF’s own language', async () => {
+  // A French PDF exported as a web page said lang="en", so screen readers read it as English.
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  doc.addPage([300, 300]).drawText('Bonjour tout le monde', { x: 20, y: 200, size: 12, font });
+  doc.catalog.set(PDFName.of('Lang'), PDFString.of('fr-CA'));
+  const bytes = await doc.save();
+  const loading = pdfjs.getDocument({ data: bytes.slice(), verbosity: 0 });
+  const pdf = await loading.promise;
+  try {
+    const html = new TextDecoder().decode((await exportDocument(pdf, bytes, 'html')).bytes);
+    expect(html).toContain('<html lang="fr-CA">');
+    const files = await unzip((await exportDocument(pdf, bytes, 'docx')).bytes);
+    const styles = new TextDecoder().decode(files['word/styles.xml']);
+    expect(styles).toContain('<w:lang w:val="fr-CA"');
+    // PowerPoint marked every run US English, so it spell-checked French slides as English.
+    const pptx = await unzip((await exportDocument(pdf, bytes, 'pptx')).bytes);
+    const parts = ['ppt/slides/slide1.xml', 'ppt/slideMasters/slideMaster1.xml'].map((name) =>
+      new TextDecoder().decode(pptx[name]),
+    );
+    parts.push(new TextDecoder().decode(pptx['ppt/presentation.xml']));
+    expect(parts[0]).toMatch(/<a:rPr lang="fr-CA"[^>]*>.*Bonjour/);
+    for (const part of parts) {
+      expect(part).toContain('lang="fr-CA"');
+      expect(part).not.toContain('en-US');
+    }
   } finally {
     await loading.destroy();
   }

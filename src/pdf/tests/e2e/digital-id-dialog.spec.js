@@ -117,6 +117,47 @@ test('each digital ID choice sits beside its radio button', async ({ page }) => 
   }
 });
 
+test('the digital ID file picker has a full-size button like the dialog’s others', async ({
+  page,
+}) => {
+  const chooser = await openChooser(page);
+  const picker = chooser.getByLabel('Digital ID file', { exact: true });
+  const cancel = chooser.getByRole('button', { name: 'Cancel', exact: true });
+  // It was the browser's small grey "Choose File" button, about 21 px tall.
+  const [height, other] = await Promise.all([
+    picker.evaluate((node) => node.getBoundingClientRect().height),
+    cancel.evaluate((node) => node.getBoundingClientRect().height),
+  ]);
+  expect(height).toBeGreaterThanOrEqual(other - 1);
+  const chosen = page.waitForEvent('filechooser');
+  await picker.click();
+  expect((await chosen).isMultiple()).toBe(false);
+});
+
+test('a new digital ID refuses an email address that is not one', async ({ page }) => {
+  const chooser = await openChooser(page);
+  await chooser.getByLabel('Create a new digital ID').check();
+  await chooser.getByLabel('Name', { exact: true }).fill('Ada Lovelace');
+  const email = chooser.getByLabel(/^Email/);
+  await email.fill('ada at example');
+  await chooser.getByLabel('Password for the ID file').fill('secret-123');
+  const files = [];
+  page.on('download', (download) => files.push(download.suggestedFilename()));
+  await chooser.getByRole('button', { name: 'Continue', exact: true }).click();
+  // It went into the certificate as the signer's address, and the ID file was downloaded.
+  await expect(chooser.locator('.dialog-error')).toHaveText(
+    'Enter a valid email address, or leave it empty.',
+  );
+  await expect(email).toBeFocused();
+  expect(files).toEqual([]);
+  // An email address is not needed, so the label says it can be left empty.
+  await expect(chooser.getByLabel('Email (optional)', { exact: true })).toBeVisible();
+  await email.fill('');
+  await chooser.getByRole('button', { name: 'Continue', exact: true }).click();
+  await expect(page.getByRole('dialog', { name: 'Certify document' })).toBeVisible();
+  expect(files).toEqual(['Ada Lovelace digital ID.p12']);
+});
+
 test('a digital ID that cannot be used hands the focus to the field to fix', async ({ page }) => {
   const { createSelfSignedId, exportPkcs12 } = await import('../../src/core/digital-signature.js');
   const identity = await createSelfSignedId({ name: 'Ada Lovelace', keyType: 'P-256' });

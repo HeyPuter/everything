@@ -38,7 +38,8 @@
   border-radius: 999px;
   background: var(--surface);
   font-size: 12px;
-  white-space: nowrap;
+  /* A narrow panel (phones) wraps a long label inside its chip rather than past the edge. */
+  max-width: 100%;
 }
 .a11y-chip.is-failed svg {
   color: var(--a11y-fail);
@@ -64,6 +65,8 @@
 }
 .a11y-category > summary {
   display: flex;
+  /* Counts that do not fit beside the name go below it, not into a column of single words. */
+  flex-wrap: wrap;
   align-items: center;
   gap: 6px;
   padding: 8px 2px;
@@ -94,6 +97,9 @@
   margin-left: auto;
   font-size: 12px;
   text-align: right;
+}
+.a11y-count {
+  white-space: nowrap;
 }
 .a11y-category-counts.has-failures {
   color: var(--a11y-fail);

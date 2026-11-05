@@ -27,6 +27,9 @@ export function createOrganizeView({
   let selected = new Set();
   let anchor = null; // the tile a Shift range starts from
   let size = 1;
+  // Until a size is picked with the slider, a phone shows the smallest tiles: two columns of
+  // pages rather than one.
+  let sizePicked = false;
   let visible = false;
   let tiles = [];
   let observer = null;
@@ -40,6 +43,7 @@ export function createOrganizeView({
     value: size,
     'aria-label': 'Page tile size',
     oninput: () => {
+      sizePicked = true;
       size = Number(sizeInput.value);
       grid.style.setProperty('--tile', `${SIZES[size]}px`);
       rebuild();
@@ -56,10 +60,23 @@ export function createOrganizeView({
   const indices = () => [...selected].sort((a, b) => a - b);
   const count = () => getPdf()?.numPages || 0;
   const target = () => (selected.size ? indices() : [currentIndex()]);
-  const after = () => (selected.size ? indices().at(-1) : count() - 1);
+  // New pages go after the last chosen page, or after the current page when none is chosen,
+  // as the tools pane's Insert commands put them.
+  const after = () => target().at(-1);
   const run = (fn) => async () => {
     if (isBusy()) return;
+    const pressed = root.contains(document.activeElement) ? document.activeElement : null;
     await fn();
+    // The buttons are disabled while the PDF is redrawn, which drops the focus of the one
+    // pressed from the keyboard; it takes the focus back for the next press, unless the focus
+    // has moved on meanwhile.
+    if (
+      visible &&
+      pressed?.isConnected &&
+      !pressed.disabled &&
+      (!document.activeElement || document.activeElement === document.body)
+    )
+      pressed.focus({ preventScroll: true });
   };
   async function duplicateChosen() {
     const list = target();
@@ -74,9 +91,24 @@ export function createOrganizeView({
     updateState();
   }
   async function removeChosen() {
-    if ((await actions.remove(target())) === false) return;
-    // The deleted pages' places now hold other pages, which were not chosen.
-    selected.clear();
+    await removePages(target());
+  }
+  /**
+   * Delete pages. The deleted pages' places now hold other pages, which were not chosen; but
+   * when the keyboard is in the grid, the tile it lands on is chosen, as arrow keys choose the
+   * tile they reach. With nothing chosen, Delete would act on the current page behind the
+   * grid instead of the page with the focus.
+   */
+  async function removePages(list) {
+    const revision = getRevision();
+    if ((await actions.remove(list)) === false || getRevision() === revision) return;
+    const focused = visible
+      ? Number(document.activeElement?.closest?.('.organize-tile')?.dataset.index)
+      : NaN;
+    if (Number.isInteger(focused) && grid.contains(document.activeElement)) {
+      selected = new Set([focused]);
+      anchor = focused;
+    } else selected.clear();
     updateState();
   }
   /**
@@ -173,12 +205,11 @@ export function createOrganizeView({
       ],
     });
   }
-  const toolbar = el(
+  // One row of their own on a phone, scrolling sideways when it runs short, with a fade on each
+  // side that has more of them.
+  const commandRow = el(
     'div',
-    { class: 'organize-toolbar', role: 'toolbar', 'aria-label': 'Organize pages' },
-    el('h2', { class: 'organize-title' }, 'Organize pages'),
-    status,
-    el('span', { class: 'organize-sep', 'aria-hidden': 'true' }),
+    { class: 'organize-commands' },
     commands.insert,
     commands.left,
     commands.right,
@@ -187,6 +218,21 @@ export function createOrganizeView({
     commands.duplicate,
     commands.extract,
     commands.remove,
+  );
+  const markOverflow = () => {
+    const { scrollLeft, scrollWidth, clientWidth } = commandRow;
+    commandRow.classList.toggle('more-start', scrollLeft > 1);
+    commandRow.classList.toggle('more-end', scrollLeft + clientWidth < scrollWidth - 1);
+  };
+  commandRow.addEventListener('scroll', markOverflow, { passive: true });
+  new ResizeObserver(markOverflow).observe(commandRow);
+  const toolbar = el(
+    'div',
+    { class: 'organize-toolbar', role: 'toolbar', 'aria-label': 'Organize pages' },
+    el('h2', { class: 'organize-title' }, 'Organize pages'),
+    status,
+    el('span', { class: 'organize-sep', 'aria-hidden': 'true' }),
+    commandRow,
     el('span', { class: 'organize-sep', 'aria-hidden': 'true' }),
     el(
       'label',
@@ -199,7 +245,22 @@ export function createOrganizeView({
   );
   const root = el(
     'section',
-    { class: 'organize-view', 'aria-label': 'Organize pages', hidden: true },
+    {
+      class: 'organize-view',
+      'aria-label': 'Organize pages',
+      hidden: true,
+      // The editor's shortcuts to rotate or delete a page act on the current page, which the
+      // grid hides; here they act on the chosen pages, as the toolbar's buttons do.
+      onkeydown: (e) => {
+        const key = e.key.toLowerCase();
+        if (!(e.ctrlKey || e.metaKey) || !e.shiftKey || e.altKey || !['r', 'd'].includes(key))
+          return;
+        if (/input|textarea|select/i.test(e.target.tagName)) return;
+        e.preventDefault();
+        e.stopPropagation();
+        (key === 'r' ? commands.right : commands.remove).click();
+      },
+    },
     toolbar,
     grid,
   );
@@ -399,9 +460,7 @@ export function createOrganizeView({
           iconButton(
             `Delete page ${i + 1}`,
             'Trash2',
-            run(async () => {
-              if ((await actions.remove([i])) !== false) selected.clear();
-            }),
+            run(() => removePages([i])),
             { 'data-permission': 'assemble', tabindex: -1, class: 'icon-btn organize-tile-delete' },
           ),
         ),
@@ -411,6 +470,12 @@ export function createOrganizeView({
     return node;
   }
 
+  // The grid is one tab stop, on the tile last focused however it got there (a click too), so
+  // Tab leaves the grid and Shift+Tab comes back to the same tile.
+  grid.addEventListener('focusin', (e) => {
+    const tile = e.target.closest?.('.organize-tile');
+    if (tile && tile.tabIndex !== 0) tiles.forEach((t) => (t.tabIndex = t === tile ? 0 : -1));
+  });
   grid.addEventListener('dragover', (e) => {
     if (!dragging) return;
     e.preventDefault();
@@ -537,6 +602,11 @@ export function createOrganizeView({
     show() {
       visible = true;
       root.hidden = false;
+      if (!sizePicked) {
+        size = window.matchMedia?.('(max-width: 480px)').matches ? 0 : 1;
+        sizeInput.value = size;
+        grid.style.setProperty('--tile', `${SIZES[size]}px`);
+      }
       if (!selected.size) {
         selected = new Set([currentIndex()]);
         anchor = currentIndex();

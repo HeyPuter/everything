@@ -550,6 +550,8 @@ async function redactRendered(doc, stream, resources, ctm, areas, rgb, codec) {
     );
     return out ? { stream: out.stream } : { unchanged: true };
   }
+  const bilevel = bilevelRendering(context, stream, data, width, height, spans, rgb);
+  if (bilevel) return bilevel;
   const rgbData = new Uint8Array(width * height * 3),
     alpha = new Uint8Array(width * height);
   let opaque = true;
@@ -587,6 +589,44 @@ async function redactRendered(doc, stream, resources, ctm, areas, rgb, codec) {
     next.dict.set(PDFName.of('SMask'), context.register(mask));
   }
   return { stream: next };
+}
+
+/**
+ * A black-and-white scan (fax-coded or JBIG2, as office scanners write them) renders as opaque
+ * pure black and white. Stored again at 24 bits a pixel it grew some thirty times over; it is
+ * kept at one bit a pixel when the fill is black or white as well. Null for any other picture.
+ */
+function bilevelRendering(context, stream, data, width, height, spans, rgb) {
+  const fill = rgb.map((c) => Math.round(c * 255));
+  if (!fill.every((c) => c === fill[0]) || (fill[0] !== 0 && fill[0] !== 255)) return null;
+  const rowBytes = Math.ceil(width / 8);
+  const bits = new Uint8Array(rowBytes * height);
+  for (let y = 0, i = 0; y < height; y++)
+    for (let x = 0; x < width; x++, i += 4) {
+      const value = data[i];
+      if (
+        (value !== 0 && value !== 255) ||
+        data[i + 1] !== value ||
+        data[i + 2] !== value ||
+        data[i + 3] !== 255
+      )
+        return null;
+      if (value) bits[y * rowBytes + (x >> 3)] |= 0x80 >> (x & 7);
+    }
+  const base = context.obj({
+    Type: 'XObject',
+    Subtype: 'Image',
+    Width: width,
+    Height: height,
+    ColorSpace: 'DeviceGray',
+    BitsPerComponent: 1,
+  });
+  for (const key of ['Interpolate', 'Intent'])
+    if (stream.dict.has(PDFName.of(key)))
+      base.set(PDFName.of(key), stream.dict.get(PDFName.of(key)));
+  const image = { data: bits, width, height, bpc: 1, space: { family: 'gray', n: 1 } };
+  const out = storeRedacted(context, stream, base, image, spans, [fill[0] ? 1 : 0]);
+  return out ? { stream: out.stream } : { unchanged: true };
 }
 
 /**
@@ -643,7 +683,74 @@ export async function redactImageXObject(doc, stream, resources, ctm, areas, rgb
     if (out) overrides[key] = context.register(out.stream);
   }
   const out = storeRedacted(context, stream, stream.dict, image, spans, raw, overrides);
-  return out ? { stream: out.stream, pixels: out.pixels } : { unchanged: true };
+  if (!out) return { unchanged: true };
+  const jpeg = image.dct && (await asJpeg(context, stream, out.stream, image, codec));
+  return { stream: jpeg || out.stream, pixels: out.pixels };
+}
+/**
+ * Whether a DeviceGray image may be stored as DeviceRGB with three equal components, which
+ * every reader shows the same: not with a colour key mask (its ranges are per component), nor
+ * in a file whose output intent is not RGB (PDF/A and PDF/X allow DeviceRGB only with one).
+ */
+function grayAsRgb(context, dict) {
+  if (get(dict, 'ColorSpace') !== PDFName.of('DeviceGray')) return false;
+  if (get(dict, 'Mask') instanceof PDFArray) return false;
+  const decode = get(dict, 'Decode');
+  const range = decode instanceof PDFArray ? numbersOf(decode) : null;
+  if (decode && !(range?.length === 2 && range.every(Number.isFinite))) return false;
+  const intents = get(context.lookup(context.trailerInfo.Root), 'OutputIntents');
+  if (intents instanceof PDFArray)
+    for (let i = 0; i < intents.size(); i++) {
+      const profile = get(intents.lookup(i), 'DestOutputProfile');
+      if (!(profile instanceof PDFStream) || get(profile.dict, 'N')?.asNumber?.() !== 3)
+        return false;
+    }
+  return true;
+}
+/**
+ * A redacted photo or scan stored losslessly grows several times over (a 2 MB page scan became
+ * 10 MB). One that was a JPEG already is stored as a JPEG again when `codec.encodeJpeg` can
+ * write it, at high quality; the area was painted before encoding, so nothing of it remains.
+ * The encoder writes three components, so a DeviceGray scan becomes DeviceRGB with three equal
+ * ones (its two colour channels are flat and cost next to nothing). Resolves to null otherwise.
+ */
+async function asJpeg(context, source, lossless, image, codec) {
+  if (!codec?.encodeJpeg || image.bpc !== 8) return null;
+  const gray = image.space.n === 1 && grayAsRgb(context, lossless.dict);
+  if (image.space.n !== 3 && !gray) return null;
+  const { width, height } = image;
+  const rgba = new Uint8ClampedArray(width * height * 4);
+  if (gray)
+    for (let p = 0, q = 0; p < rgba.length; p += 4, q++) {
+      rgba[p] = rgba[p + 1] = rgba[p + 2] = image.data[q];
+      rgba[p + 3] = 255;
+    }
+  else
+    for (let p = 0, q = 0; p < rgba.length; p += 4, q += 3) {
+      rgba[p] = image.data[q];
+      rgba[p + 1] = image.data[q + 1];
+      rgba[p + 2] = image.data[q + 2];
+      rgba[p + 3] = 255;
+    }
+  let bytes;
+  try {
+    bytes = await codec.encodeJpeg({ data: rgba, width, height }, 0.92);
+  } catch {
+    return null;
+  }
+  if (!bytes?.length || bytes.length >= lossless.getContents().length) return null;
+  const next = context.stream(bytes, {});
+  for (const [key, value] of lossless.dict.entries())
+    if (![PDFName.of('Length'), PDFName.of('Filter'), PDFName.of('DecodeParms')].includes(key))
+      next.dict.set(key, value);
+  next.dict.set(PDFName.of('Filter'), PDFName.of('DCTDecode'));
+  if (gray) {
+    next.dict.set(PDFName.of('ColorSpace'), PDFName.of('DeviceRGB'));
+    const decode = numbersOf(get(lossless.dict, 'Decode'));
+    if (decode) next.dict.set(PDFName.of('Decode'), context.obj([...decode, ...decode, ...decode]));
+  }
+  if (source instanceof PDFStream) retainCryptFilter(next.dict, [source.dict]);
+  return next;
 }
 
 /**

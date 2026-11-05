@@ -318,7 +318,7 @@ function shortcuts() {
         ['Fit width', 'Ctrl / ⌘ 2'],
         ['Previous / next page', 'Alt ← / →'],
         ['First / last page', 'Home / End'],
-        ['Go to page', 'Ctrl / ⌘ Shift N'],
+        ['Go to page', 'Ctrl / ⌘ Alt G'],
         ['Rotate the page clockwise', 'Ctrl / ⌘ Shift R'],
         ['Delete the page', 'Ctrl / ⌘ Shift D'],
         ['Document properties', 'Ctrl / ⌘ D'],
@@ -755,7 +755,8 @@ function showHome({ accountRefresh = false } = {}) {
     placeholder: 'Search PDFs',
     'aria-label': 'Search PDFs',
     oninput: (e) => {
-      filter = e.target.value.toLowerCase();
+      // Spaces around the words (a pasted name, a stray space) do not hide every file.
+      filter = e.target.value.trim().toLowerCase();
       renderFiles();
     },
   });
@@ -936,7 +937,8 @@ function showHome({ accountRefresh = false } = {}) {
               { signal },
             );
             await settleAccount(signal);
-            if (name && !signal.aborted) {
+            // An unchanged name is no rename: Puter would refuse it as a name already taken.
+            if (name && safeName(name) !== file.name && !signal.aborted) {
               await P.renameFile(file.path, name);
               if (!signal.aborted) refreshAfterAction();
             }
@@ -1116,7 +1118,10 @@ window.addEventListener('beforeunload', (e) => {
 });
 window.addEventListener('keydown', (e) => {
   if (document.querySelector('dialog[open]')) return;
-  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'o') {
+  // Also by the key's place, for layouts whose letters are not Latin (Ctrl+O arrives as "щ").
+  const o =
+    e.key.toLowerCase() === 'o' || (e.code === 'KeyO' && !e.altKey && !/[\x00-\x7f]/.test(e.key));
+  if ((e.ctrlKey || e.metaKey) && o) {
     e.preventDefault();
     // On the Puter desktop the files are in the cloud, so Open browses it, as other desktop
     // apps do; the device picker stays in the File menu.
@@ -1170,6 +1175,14 @@ window.addEventListener('hashchange', () => {
     else if (generation === openGeneration)
       history.replaceState(null, '', location.pathname + location.search);
   })();
+});
+// The skip link moves the focus, not the address: following #main left the library's own
+// #library behind, so reloading opened a blank PDF instead, and Back first returned to #main.
+document.querySelector('.skip-link')?.addEventListener('click', (e) => {
+  const target = document.getElementById('main');
+  if (!target) return;
+  e.preventDefault();
+  target.focus();
 });
 syncThemeColor();
 window.matchMedia?.('(prefers-color-scheme: dark)').addEventListener?.('change', syncThemeColor);

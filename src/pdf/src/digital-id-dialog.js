@@ -77,7 +77,11 @@ export function chooseDigitalId(identities = [], { signal } = {}) {
         el('span', {}, 'Create a new digital ID'),
       ),
     );
-    const file = el('input', { type: 'file', accept: '.pfx,.p12,application/x-pkcs12' });
+    const file = el('input', {
+      type: 'file',
+      class: 'file-input',
+      accept: '.pfx,.p12,application/x-pkcs12',
+    });
     const filePassword = el('input', {
       type: 'password',
       class: 'input',
@@ -109,7 +113,7 @@ export function chooseDigitalId(identities = [], { signal } = {}) {
         'div',
         { class: 'stack' },
         field('id-name', 'Name', name),
-        field('id-email', 'Email', email),
+        field('id-email', 'Email (optional)', email),
         field('id-organization', 'Organization (optional)', organization),
         field('id-key', 'Key type', keyType),
         field(
@@ -163,6 +167,10 @@ export function chooseDigitalId(identities = [], { signal } = {}) {
           result = { identity, summary: describeIdentity(identity) };
         } else {
           if (!name.value.trim()) return fail('Enter the name to sign with.', name);
+          // The address goes into the certificate, where readers show it as the signer's.
+          email.value = email.value.trim();
+          if (!email.checkValidity())
+            return fail('Enter a valid email address, or leave it empty.', email);
           if (newPassword.value.length < 6)
             return fail('Use a password of at least 6 characters for the ID file.', newPassword);
           const identity = await createSelfSignedId({
