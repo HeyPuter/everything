@@ -501,6 +501,10 @@ class Toolkit {
     // "edge" listed faces, and an unknown of_face listed every edge (up to 400) as a match.
     const kind = /^edges?$/i.test(str(a.kind)) ? 'edges' : /^faces?$/i.test(str(a.kind)) ? 'faces' : null;
     if (!kind) throw new ToolError('kind: "faces" or "edges"');
+    // A filter for the other kind was ignored, and every face or edge reported as matching.
+    if (kind === 'edges' && a.normal != null) throw new ToolError('normal: faces only; for edges use direction (straight edges along it, circular edges around it)');
+    if (kind === 'faces' && a.direction != null) throw new ToolError('direction: edges only; for faces use normal');
+    if (kind === 'faces' && a.of_face != null) throw new ToolError('of_face: edges only (the edges bounding that face)');
     if (!this.host.faces.length) return 'The part has no body yet.';
     const feature = a.feature != null ? this.refs.feature(a.feature).id : undefined;
     if (a.of_face != null) this.refs.faceInfo(a.of_face, 'of_face');

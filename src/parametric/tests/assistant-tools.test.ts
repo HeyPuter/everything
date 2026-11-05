@@ -424,4 +424,12 @@ describe('assistant tools', () => {
     await h.call('edit_feature', { feature: pat, params: { ...pargs, count: 4 } });
     expect(h.faces.filter((f) => f.feature === pat)).toHaveLength(3);
   });
+
+  it('refuses a find_geometry filter that does not apply to the kind listed', async () => {
+    const { h } = await plate();
+    // These were ignored: "12 of 12 edges match" for edges with a normal.
+    expect((await h.call('find_geometry', { kind: 'edges', normal: [0, 1, 0] }, false)).content).toMatch(/^Error: normal: faces only; for edges use direction/);
+    expect((await h.call('find_geometry', { kind: 'faces', direction: [0, 1, 0] }, false)).content).toMatch(/^Error: direction: edges only; for faces use normal/);
+    expect((await h.call('find_geometry', { kind: 'faces', of_face: topFace(h) }, false)).content).toMatch(/^Error: of_face: edges only/);
+  });
 });
