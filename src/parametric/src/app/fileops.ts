@@ -146,9 +146,22 @@ export class FileOps {
         return;
       }
     }
-    rename();
-    app.location = null;
-    await this.save();
+    if (app.sketchEditor) app.exitSketch(true);
+    try {
+      const loc = await newLocation(clean, `part-${Date.now().toString(36)}`);
+      if (documentVersion !== this.documentVersion) return;
+      const revision = this.revision;
+      const saved = await saveText(loc, clean, serializeDocument({ ...app.store.doc, name: clean }));
+      if (documentVersion !== this.documentVersion) return;
+      const unchanged = revision === this.revision;
+      rename();
+      app.location = saved;
+      this.markSaved(unchanged ? this.revision : revision);
+      toast({ kind: 'success', message: `Saved to ${locationLabel(saved)}`, timeout: 2500 });
+      if (saved.type === 'local' && !cloudAvailable()) maybeNudgeSignIn();
+    } catch (e) {
+      toast({ kind: 'error', title: 'Could not save', message: storageError(e), actions: [{ label: 'Download a copy', run: () => void this.exportAs('part') }], timeout: 15000 });
+    }
   }
 
   /** Opens a part from a location (cloud or local). */

@@ -867,3 +867,43 @@ for (const next of ['close', 'save', 'retry backup', 'discard'] as const) test(`
   expect(errors).toEqual([]);
   expect(reopenErrors).toEqual([]);
 });
+
+test('a failed Save As keeps the original document name and file location', async ({ page }) => {
+  await mockPuter(page);
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await page.evaluate(() => {
+    const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+    a.store.change('Work', (d) => { d.variables.push({ id: 'v1', name: 'Keep', expr: '17' }); });
+    a.commands.run('save');
+  });
+  await expect(page).toHaveTitle('Part1 - Parametric');
+  const original = await page.evaluate(() => {
+    type W = { __parametric: import('../../src/app/app').App; puter: { fs: { write: (...args: unknown[]) => Promise<unknown> }; ui: { showSaveFilePicker?: unknown } }; restoreWrite: () => void };
+    const w = window as unknown as W;
+    delete w.puter.ui.showSaveFilePicker;
+    const write = w.puter.fs.write;
+    w.restoreWrite = () => { w.puter.fs.write = write; };
+    w.puter.fs.write = async () => { throw new Error('Storage unavailable'); };
+    return { doc: w.__parametric.store.doc, location: w.__parametric.location };
+  });
+  const saveAs = async () => {
+    await page.evaluate(() => (window as unknown as { __parametric: AppHandle }).__parametric.commands.run('saveAs'));
+    await page.getByRole('dialog', { name: 'Save As' }).getByRole('textbox').fill('Copy');
+    await page.getByRole('button', { name: 'OK', exact: true }).click();
+  };
+  await saveAs();
+  await expect(page.getByRole('alert').filter({ hasText: 'Storage unavailable' })).toBeVisible();
+  const current = await page.evaluate(() => {
+    const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+    return { doc: a.store.doc, location: a.location };
+  });
+  expect(current).toEqual(original);
+  await page.evaluate(() => (window as unknown as { restoreWrite: () => void }).restoreWrite());
+  await saveAs();
+  await expect(page).toHaveTitle('Copy - Parametric');
+  expect(await page.evaluate(() => [...(window as unknown as Mock).__files.keys()].sort())).toEqual([
+    '/tester/AppData/parametric/Parts/Copy.parametric', '/tester/AppData/parametric/Parts/Part1.parametric',
+  ]);
+  expect(errors).toEqual([]);
+});
