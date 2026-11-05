@@ -229,6 +229,36 @@ describe('text', () => {
     expectGone(await recoverable(out), 'SECRET');
   });
 
+  it('takes what a whole-page mark’s page draws beyond its boxes too', async () => {
+    // Text and drawings placed outside the media box show in no reader, but the file holds them.
+    const content = [
+      'BT /F 12 Tf 40 200 Td (Shown SECRET) Tj ET',
+      'BT /F 12 Tf 40 -50 Td (Hidden OFFPAGE) Tj ET',
+      'BT /F 12 Tf 900 200 Td (Beyond RIGHTSIDE) Tj ET',
+      '500 500 20 20 re f',
+    ].join('\n');
+    const bytes = await makePdf([
+      { content, size: [300, 300] },
+      { content, size: [300, 300] },
+    ]);
+    const { bytes: out, report } = await redact(bytes, [
+      [0, [[0, 0, 300, 300]]],
+      // An ordinary mark keeps to its area.
+      [1, [[30, 190, 200, 215]]],
+    ]);
+    expect(report.paths).toBe(1);
+    expect(await pageText(out, 0)).toBe('');
+    expect(await pageText(out, 1)).not.toContain('SECRET');
+    const second = pageSource((await PDFDocument.load(out)).getPage(1));
+    for (const word of ['OFFPAGE', 'RIGHTSIDE'])
+      expect(second.includes(word) || second.includes(hexOf(word).toUpperCase())).toBe(true);
+    const first = pageSource((await PDFDocument.load(out)).getPage(0));
+    for (const word of ['SECRET', 'OFFPAGE', 'RIGHTSIDE']) {
+      expect(first).not.toContain(word);
+      expect(first.toLowerCase()).not.toContain(hexOf(word).toLowerCase());
+    }
+  });
+
   it('removes invisible OCR text and text in rotated, scaled coordinates', async () => {
     const content = [
       // A scan's hidden text layer (render mode 3).

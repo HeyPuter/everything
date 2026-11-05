@@ -570,6 +570,19 @@ function redactionPolicy(doc, areas, { codec } = {}) {
   };
 }
 
+/** Far beyond any page: an area that covers everything a page can draw. */
+const EVERYWHERE = [-1e9, -1e9, 1e9, 1e9];
+/** The union of a page's media and crop boxes. */
+function pageBounds(page) {
+  const xs = [],
+    ys = [];
+  for (const { x, y, width, height } of [page.getMediaBox(), page.getCropBox()]) {
+    xs.push(x, x + width);
+    ys.push(y, y + height);
+  }
+  return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
+}
+
 const fontRefs = new WeakMap();
 function overlayFont(doc) {
   let ref = fontRefs.get(doc.context);
@@ -619,8 +632,14 @@ export async function applyRedactions(doc, { pages, codec } = {}) {
     if (!marks.length) continue;
     const page = doc.getPage(index);
     report.pages.push(index);
+    // A mark over the whole page (Redact pages) also takes what the page draws beyond its
+    // boxes: no reader shows that, but the file still holds it for anyone to read out.
+    const box = pageBounds(page);
     const areas = marks.flatMap((mark) =>
-      mark.rects.map((rect) => ({ rect, rgb: mark.fillRgb || [0, 0, 0] })),
+      mark.rects.map((rect) => ({
+        rect: rectInside(box, rect, 0.5) ? EVERYWHERE : rect,
+        rgb: mark.fillRgb || [0, 0, 0],
+      })),
     );
     const rects = areas.map((a) => a.rect);
 
