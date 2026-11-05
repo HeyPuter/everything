@@ -467,3 +467,26 @@ describe('selection mode', () => {
     expect(t.ed.selection.size).toBe(1);
   });
 });
+
+describe('touch hit areas', () => {
+  it('picks objects and grips a fingertip away, but not with a mouse', async () => {
+    await t.type('LINE', '0,0', '20,0', '');
+    const s = t.ed.camera.toScreen(10, 0);
+    const tap = (type) => {
+      t.ed.lastPointerType = type;
+      t.ed.clearSelection();
+      t.ed._updateCursor(s.x, s.y + 10);
+      t.ed._selectPress(s.x, s.y + 10, false, null);
+      t.ed.window = null;
+      return t.ed.selection.size;
+    };
+    expect(tap('mouse')).toBe(0);
+    expect(tap('touch')).toBe(1);
+    // The nearest grip wins: 10px below the midpoint grip.
+    t.ed._updateCursor(s.x, s.y + 10);
+    expect(t.ed.grips[t.ed.hoverGrip]).toMatchObject({ x: 10, y: 0 });
+    t.ed.lastPointerType = 'mouse';
+    t.ed._updateCursor(s.x, s.y + 10);
+    expect(t.ed.hoverGrip).toBe(-1);
+  });
+});

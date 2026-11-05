@@ -27,6 +27,7 @@ export class CancelError extends Error {
 
 const TAU = Math.PI * 2;
 const DRAG_PX = 5;
+const TOUCH_HIT_PX = 14;
 const ACQUIRE_MS = 450;
 
 export const DEFAULT_SETTINGS = {
@@ -782,8 +783,13 @@ export class Editor {
     return out;
   }
 
+  /** Hit radius in screen pixels: a fingertip needs more room than a mouse pointer. */
+  _hitPx(px) {
+    return this.lastPointerType === 'touch' ? Math.max(px, TOUCH_HIT_PX) : px;
+  }
+
   _pick(x, y, filter) {
-    const r = this.settings.pickbox / this.camera.scale;
+    const r = this._hitPx(this.settings.pickbox) / this.camera.scale;
     const ids = this.doc.index.search(x - r, y - r, x + r, y + r, true).filter((id) => this._editable(id));
     return pickEntity(this.drawing, ids, x, y, r, filter);
   }
@@ -1160,12 +1166,14 @@ export class Editor {
     // Grips under the cursor.
     this.hoverGrip = -1;
     if (!this.request && this.grips?.length) {
-      const g = this.settings.gripSize + 2;
+      const g = this._hitPx(this.settings.gripSize + 2);
+      let best = Infinity;
       for (let i = 0; i < this.grips.length; i++) {
         const s = this.camera.toScreen(this.grips[i].x, this.grips[i].y);
-        if (Math.abs(s.x - sx) <= g && Math.abs(s.y - sy) <= g) {
+        const d = Math.max(Math.abs(s.x - sx), Math.abs(s.y - sy));
+        if (d <= g && d < best) {
+          best = d;
           this.hoverGrip = i;
-          break;
         }
       }
     }
