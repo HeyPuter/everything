@@ -544,8 +544,10 @@ export class Viewport {
       const wanted = this.showPlanes || isShown(item) || app.basePlaneVisible(k);
       if (wanted && (!app.inSketch || this.showPlanes || sel.has(item))) visible.push({ key: k, item, frame: onPlane(BASE_FRAMES[k]), half: radius });
     }
-    for (const f of app.store.doc.features.slice(0, app.store.builtCount)) {
-      if (f.type !== 'plane') continue;
+    // Like the model, rolled back to the sketch or feature being edited (a plane being edited shows its result).
+    const limit = app.buildLimit();
+    for (const [i, f] of app.store.doc.features.slice(0, app.store.builtCount).entries()) {
+      if (f.type !== 'plane' || (i >= limit && f.id !== app.panel?.editingId)) continue;
       const fr = app.frames[f.id];
       const item: SelItem = { kind: 'plane', ref: { kind: 'feature', id: f.id } };
       if (!fr || f.suppressed) continue;
@@ -619,7 +621,8 @@ export class Viewport {
     const ptPos: number[] = [];
     const consumed = new Set<Id>();
     for (const f of app.store.doc.features) consumedSketches(f).forEach((s) => consumed.add(s));
-    const built = app.store.doc.features.slice(0, app.store.builtCount);
+    // Sketches after the one being edited are rolled back with the model.
+    const built = app.store.doc.features.slice(0, app.buildLimit());
     const sel = app.selection;
     this.sketchPx = this.camera.pixelSize;
     this.drawnSketchHover = this.sketchHoverKey();

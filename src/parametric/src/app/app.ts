@@ -725,7 +725,7 @@ export class App {
   }
 
   /** Number of features the model shows (rollback, sketch or edit position). */
-  private buildLimit(): number {
+  buildLimit(): number {
     let n = this.store.builtCount;
     if (this.sketchEditor) n = Math.min(n, this.store.indexOf(this.sketchEditor.sketchId));
     if (this.panel?.editingId) n = Math.min(n, this.store.indexOf(this.panel.editingId));

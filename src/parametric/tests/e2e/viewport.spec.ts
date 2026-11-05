@@ -273,6 +273,33 @@ test.describe('viewport', () => {
     expect(hit === null || hit[2] <= 15).toBe(true);
   });
 
+  test('editing a sketch hides the sketches after it with the rest of the rolled-back model', async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+    await waitForFeature(page, 'Fillet1');
+    type R = { renderer: { points: Map<string, unknown>; lines: Map<string, unknown> }; store: { change(l: string, fn: (d: { features: object[] }) => void): void }; editSketch(id: string): void; exitSketch(keep: boolean): void; editFeature(id: string): void; closePanel(ok: boolean): Promise<unknown> };
+    const shown = () => page.evaluate(() => {
+      const r = (window as unknown as { __parametric: R }).__parametric.renderer;
+      return [r.points.has('sketchPts'), r.lines.has('planes')];
+    });
+    // Show the hole's sketch (its two points, on the plate's top face) and add a plane after it.
+    await page.evaluate(() => {
+      (window as unknown as { __parametric: R }).__parametric.store.change('Show', (d) => {
+        (d.features.find((f) => (f as { id: string }).id === 's2') as { hidden?: boolean }).hidden = false;
+        d.features.push({ id: 'pl', name: 'Plane1', type: 'plane', ref: { kind: 'base', plane: 'top' }, offset: 50, flip: false });
+      });
+    });
+    await expect.poll(shown).toEqual([true, true]);
+    await page.evaluate(() => (window as unknown as { __parametric: R }).__parametric.editSketch('s1'));
+    await expect.poll(shown).toEqual([false, false]);
+    await page.evaluate(() => (window as unknown as { __parametric: R }).__parametric.exitSketch(true));
+    await expect.poll(shown).toEqual([true, true]);
+    // A plane being edited still shows where it goes.
+    await page.evaluate(() => (window as unknown as { __parametric: R }).__parametric.editFeature('pl'));
+    await expect(page.getByRole('heading', { name: 'Plane1' })).toBeVisible();
+    await expect.poll(shown).toEqual([true, true]);
+  });
+
   test('the section panel shows the plane it was started from', async ({ page }) => {
     await openApp(page);
     await page.getByRole('button', { name: /Mounting Bracket/ }).click();
