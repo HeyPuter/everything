@@ -545,6 +545,11 @@ export class App extends Emitter {
     this.project = project;
     this.location = location;
     this.saveState = project.dirty ? 'dirty' : 'saved';
+    // Autosave and version timing belong to one project; start afresh.
+    clearTimeout(this._autosaveTimer);
+    this._dirtySince = 0;
+    this._lastVersionAt = 0;
+    this._saveErrorShown = false;
     const offs = [
       project.on('docchange', () => this._onProjectChanged()),
       project.on('meta', () => this._onProjectChanged()),

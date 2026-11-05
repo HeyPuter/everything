@@ -6,6 +6,7 @@ import { App } from '../src/app/app.js';
 import { comboOf } from '../src/app/commands.js';
 import { setPuterForTests } from '../src/app/puter.js';
 import * as storage from '../src/app/storage.js';
+import { listVersions } from '../src/app/history.js';
 import { openProjectDialog } from '../src/app/dialogs.js';
 import { shareDialog } from '../src/app/share.js';
 import { openDialog } from '../src/ui/dialog.js';
@@ -632,5 +633,28 @@ describe('dock resize handles', () => {
     expect(handle.classList.contains('dragging')).toBe(false);
     handle.dispatchEvent(pe('pointermove', { clientX: 600 }));
     expect(document.documentElement.style.getPropertyValue('--dock-left-w')).toBe('');
+  });
+});
+
+describe('switching projects', () => {
+  it('keeps the first autosave version of the next project, and does not rush its autosave', async () => {
+    localStorage.clear();
+    const { app } = await bootLocal();
+    const a = new Project(newProjectData('First'));
+    app.setProject(a, await storage.newLocation('First', a.id));
+    a.rename('First 1');
+    await app.save({ auto: true });
+    await tick(20);
+    expect(await listVersions(app.location, a.id)).toHaveLength(1);
+    app._dirtySince = 1; // edits pending for a long time on the first project
+
+    const b = new Project(newProjectData('Second'));
+    app.setProject(b, await storage.newLocation('Second', b.id));
+    expect(app._dirtySince).toBe(0);
+    b.rename('Second 1');
+    await app.save({ auto: true });
+    await tick(20);
+    // Autosaves keep at most one version per ten minutes, but per project.
+    expect(await listVersions(app.location, b.id)).toHaveLength(1);
   });
 });
