@@ -573,3 +573,27 @@ describe('shortcut labels', () => {
     expect(modKey({ mac: false })).toBe('Ctrl');
   });
 });
+
+describe('panel drawer focus', () => {
+  it('moves focus into an opened drawer and back to its opener when dismissed', async () => {
+    localStorage.clear();
+    const { app } = await bootLocal();
+    app.compactQuery = { matches: true, addEventListener() {} };
+    app.applyDocks();
+    const opener = app.root.querySelector('[aria-label="Design panels"]');
+    opener.focus();
+    opener.click();
+    expect(app.rightDock.el.contains(document.activeElement)).toBe(true);
+    expect(document.activeElement.getAttribute('role')).toBe('tab');
+    key(document.activeElement, 'Escape');
+    expect(app.workspace.classList.contains('show-right')).toBe(false);
+    expect(document.activeElement).toBe(opener);
+
+    const projects = app.root.querySelector('[aria-label="Project panels"]');
+    projects.focus();
+    projects.click();
+    expect(app.leftDock.el.contains(document.activeElement)).toBe(true);
+    app.scrim.click();
+    expect(document.activeElement).toBe(projects);
+  });
+});

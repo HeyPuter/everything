@@ -166,7 +166,7 @@ export class App extends Emitter {
       const drawer = this._drawerLeft || this._drawerRight;
       if (e.key !== 'Escape' || e.defaultPrevented || !this.isCompact || !drawer) return;
       e.preventDefault();
-      this.closeDrawers();
+      this.closeDrawers({ restoreFocus: true });
     });
     window.addEventListener('resize', () => this._clampDocks());
   }
@@ -227,7 +227,7 @@ export class App extends Emitter {
     this.editorHost = h('div.editor-host');
     this.center = h('main.center#main', { tabindex: -1 }, this.docTabs, this.editorHost, this.bottomDock);
     this.sideStrip = h('div.side-strip', { role: 'toolbar', 'aria-label': 'Panels', 'aria-orientation': 'vertical' });
-    this.scrim = h('div.scrim', { hidden: true, onClick: () => this.closeDrawers() });
+    this.scrim = h('div.scrim', { hidden: true, onClick: () => this.closeDrawers({ restoreFocus: true }) });
     this.workspace = h('div.workspace', this.leftDock.el, this.center, this.rightDock.el, this.sideStrip, this.scrim);
 
     this.status = h('footer.statusbar', { role: 'contentinfo', 'aria-label': 'Status' });
@@ -354,8 +354,10 @@ export class App extends Emitter {
     if (id === 'messages') { this.setBottomDock(true); return; }
     const left = LEFT_PANELS.includes(id);
     if (left) { this.leftTab = id; this.leftOpen = true; uiState.set('leftOpen', true); } else { this.rightTab = id; this.rightOpen = true; uiState.set('rightOpen', true); }
-    if (this.isCompact) { this._drawerLeft = left; this._drawerRight = !left; }
+    const wasOpen = left ? this._drawerLeft : this._drawerRight;
+    if (this.isCompact) { this._noteDrawerOpener(); this._drawerLeft = left; this._drawerRight = !left; }
     this.applyDocks();
+    if (this.isCompact && !focus && !wasOpen) this._focusDrawer(left ? 'left' : 'right');
     if (focus) {
       const panel = this.panels[id];
       const target = focusSearch ? panel.el.querySelector('input[type=search]') : panel.el.querySelector('input, button, [tabindex="0"]');
@@ -376,11 +378,37 @@ export class App extends Emitter {
     if (open) this.panels.messages.render();
   }
 
-  closeDrawers() {
+  /**
+   * Closes the drawers. Dismissing them (Escape, the scrim) returns focus to
+   * the control that opened them; otherwise (a document or part was chosen in
+   * them) focus goes to the canvas.
+   */
+  closeDrawers({ restoreFocus = false } = {}) {
+    const wasOpen = this._drawerLeft || this._drawerRight;
     this._drawerLeft = false;
     this._drawerRight = false;
     this.applyDocks();
-    this.activeEditor?.canvas.focus();
+    const opener = this._drawerOpener;
+    this._drawerOpener = null;
+    if (restoreFocus && wasOpen && opener?.isConnected && !opener.closest('[hidden]')) opener.focus();
+    if (document.activeElement !== opener || !restoreFocus) this.activeEditor?.canvas.focus();
+  }
+
+  /** Remembers what had focus before a drawer opened (kept while switching drawers). */
+  _noteDrawerOpener() {
+    const a = document.activeElement;
+    if (this._drawerLeft || this._drawerRight) return;
+    this._drawerOpener = a && a !== document.body ? a : null;
+  }
+
+  /**
+   * Moves focus into an opened drawer, onto its selected panel tab: from
+   * there Tab reaches the panel and Escape still closes the drawer (a field
+   * would take Escape for itself).
+   */
+  _focusDrawer(side) {
+    const dock = side === 'left' ? this.leftDock : this.rightDock;
+    dock.tabs.querySelector('[aria-selected="true"]')?.focus({ preventScroll: true });
   }
 
   resetLayout() {
@@ -428,8 +456,12 @@ export class App extends Emitter {
   }
 
   _toggleDrawer(side) {
+    const opening = side === 'left' ? !this._drawerLeft : !this._drawerRight;
+    if (opening) this._noteDrawerOpener();
     if (side === 'left') { this._drawerLeft = !this._drawerLeft; this._drawerRight = false; } else { this._drawerRight = !this._drawerRight; this._drawerLeft = false; }
     this.applyDocks();
+    if (opening) this._focusDrawer(side);
+    else this._drawerOpener = null;
   }
 
   // ---------- Account ----------
