@@ -63,6 +63,24 @@ describe('deletion', () => {
 });
 
 describe('dimensions', () => {
+  const splineSketch = () => sk([
+    { id: 'a', t: 'point', x: 20, y: 30 }, { id: 'b', t: 'point', x: 40, y: 30 }, { id: 'c', t: 'point', x: 60, y: 30 },
+    { id: 'sp', t: 'spline', pts: ['a', 'b', 'c'] }, { id: 'sp2', t: 'spline', pts: ['a', 'c'] },
+    { id: 'l', t: 'line', a: 'a', b: 'c' }, { id: 'circle', t: 'circle', c: 'a', r: 5 },
+    { id: 'd', t: 'point', x: 20, y: 50 }, { id: 'arc', t: 'arc', c: 'a', a: 'b', b: 'd' },
+  ]);
+
+  it.each(['a', ORIGIN_ID, 'l', 'circle', 'arc', 'sp2'])('rejects unsupported spline dimensions paired with %s in either order', (other) => {
+    const s = splineSketch();
+    for (const ids of [['sp', other], [other, 'sp']]) expect(smartDimension(s, ids, [80, 50])).toBeNull();
+  });
+
+  it('still dimensions the points of a spline', () => {
+    const s = splineSketch();
+    expect(smartDimension(s, ['a', 'b'], [30, 50])).toMatchObject({ type: 'hdistance', refs: ['a', 'b'], value: 20 });
+    expect(smartDimension(s, ['sp'], [80, 50])).toBeNull();
+  });
+
   it('chooses horizontal, vertical or aligned by label placement', () => {
     const s = sk([{ id: 'a', t: 'point', x: 0, y: 0 }, { id: 'b', t: 'point', x: 10, y: 5 }, { id: 'l', t: 'line', a: 'a', b: 'b' }]);
     expect(smartDimension(s, ['l'], [5, 20])?.type).toBe('hdistance');

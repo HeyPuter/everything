@@ -246,6 +246,8 @@ export function measureDimension(sk: SketchFeature, d: Pick<SkDimension, 'type' 
 export function smartDimension(sk: SketchFeature, ids: Id[], at: Vec2): DimSpec | null {
   const ix = new SketchIndex(sk.entities);
   const k = ids.map((id) => kindOf(sk, id));
+  // Spline points can be dimensioned, but the curve itself has no dimension reference.
+  if (k.includes('spline')) return null;
   const center = (id: Id): Vec2 => {
     const e = id === ORIGIN_ID ? undefined : ix.get(id);
     return e && (e.t === 'circle' || e.t === 'arc') ? ix.pt(e.c) : ix.pt(id);

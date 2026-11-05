@@ -1092,3 +1092,49 @@ test('discard restores sketch edits even after the undo history fills', async ({
   await expect.poll(async () => (await state())[0]?.length).toBe(125);
   expect(errors).toEqual([]);
 });
+
+for (const splineFirst of [false, true]) test(`Smart Dimension rejects spline curves and accepts their points (spline first ${splineFirst})`, async ({ page }) => {
+  const errors = await openApp(page);
+  await startSketch(page);
+  await page.getByRole('button', { name: 'Close task pane', exact: true }).click();
+  await page.evaluate(() => {
+    const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+    a.sketchEditor!.edit('Add spline and line', (sk) => sk.entities.push(
+      { id: 's0', t: 'point', x: 20, y: 30 }, { id: 's1', t: 'point', x: 40, y: 30 }, { id: 's2', t: 'point', x: 60, y: 30 },
+      { id: 'sp', t: 'spline', pts: ['s0', 's1', 's2'] },
+      { id: 'a', t: 'point', x: 20, y: 10 }, { id: 'b', t: 'point', x: 60, y: 10 }, { id: 'l', t: 'line', a: 'a', b: 'b' },
+    ));
+    a.sketchEditor!.edit('Add marker', (sk) => sk.entities.push({ id: 'marker', t: 'point', x: 100, y: 100 }));
+    a.commands.run('undo');
+    a.commands.run('tool:smartDimension');
+    a.viewport.zoomToFit(false);
+  });
+  const click = async (p: [number, number]) => {
+    const at = await page.evaluate((p) => {
+      const ed = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.sketchEditor!;
+      const [x, y] = ed.toScreen(p), box = ed.app.viewport.canvas.getBoundingClientRect();
+      return { x: x + box.x, y: y + box.y };
+    }, p);
+    await page.mouse.click(at.x, at.y);
+  };
+  await click([30, splineFirst ? 30 : 10]);
+  await click([30, splineFirst ? 10 : 30]);
+  await click([30, 20]);
+  const state = () => page.evaluate(() => {
+    const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+    return { constraints: a.sketchEditor!.sketch.constraints, canRedo: a.store.canRedo };
+  });
+  expect(await state()).toEqual({ constraints: [], canRedo: true });
+  await expect(page.getByText('These entities cannot be dimensioned together. Select one or two lines, points, circles or arcs.', { exact: true })).toBeVisible();
+  // Retry with the spline's points without restarting the tool.
+  await click([20, 30]);
+  await click([40, 30]);
+  await click([30, 20]);
+  await page.getByRole('dialog', { name: 'Modify D1', exact: true }).getByRole('textbox').press('Enter');
+  expect((await state()).constraints).toEqual([expect.objectContaining({ type: 'hdistance', refs: ['s0', 's1'], value: 20 })]);
+  await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.commands.run('undo'));
+  expect((await state()).constraints).toEqual([]);
+  await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.commands.run('redo'));
+  expect((await state()).constraints).toEqual([expect.objectContaining({ type: 'hdistance', refs: ['s0', 's1'], value: 20 })]);
+  expect(errors).toEqual([]);
+});
