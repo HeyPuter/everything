@@ -52,3 +52,21 @@ for (const change of ['edit', 'new document'] as const) test(`mass properties fi
   }
   expect(errors).toEqual([]);
 });
+
+for (const density of [-1000, 0]) test(`loaded density ${density} does not produce nonpositive mass`, async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await page.evaluate(async ({ density, url }) => {
+    const { parseDocument } = await import(url);
+    const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+    a.loadDocument(parseDocument(JSON.stringify({ ...a.store.doc, material: { name: 'Damaged material', density } })), null);
+    await a.whenBuilt();
+    a.commands.run('massProperties');
+  }, { density, url: '/src/model/document.ts' });
+  const dialog = page.getByRole('dialog', { name: 'Mass Properties', exact: true });
+  const mass = dialog.getByRole('row').filter({ has: page.getByRole('rowheader', { name: 'Mass', exact: true }) }).getByRole('cell');
+  await expect(mass).toBeVisible();
+  expect(Number.parseFloat((await mass.innerText()).replace('−', '-'))).toBeGreaterThan(0);
+  await expect(dialog).toContainText('Not specified (using 1000 kg/m³)');
+  expect(errors).toEqual([]);
+});

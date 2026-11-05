@@ -380,3 +380,12 @@ it('repairs repeated variable identifiers without changing equations or values',
   expect(doc.variables.map(({ name, expr }) => ({ name, expr }))).toEqual(variables.map(({ name, expr }) => ({ name, expr })));
   expect(new DocStore(doc).resolve().variables.get('Height')).toBe(10);
 });
+
+
+it('discards nonpositive imported material densities while preserving positive fractions', () => {
+  for (const density of [-1000, 0, 0.5, 2700]) {
+    const material = { name: 'Custom', density };
+    const doc = parseDocument(JSON.stringify({ ...newDocument(), material }));
+    expect(doc.material).toEqual(density > 0 ? material : null);
+  }
+});
