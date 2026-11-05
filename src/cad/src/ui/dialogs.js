@@ -702,7 +702,7 @@ export async function settingsDialog(app) {
 
 // Styles ----------------------------------------------------------------------------------------
 
-async function styleManager(app, { title, table, headerKey, make, fields, label }) {
+async function styleManager(app, { title, table, headerKey, make, fields, label, uses }) {
   const d = app.doc.drawing;
   const names = [...d[table].keys()];
   let current = d.header[headerKey];
@@ -771,6 +771,8 @@ async function styleManager(app, { title, table, headerKey, make, fields, label 
       type: 'button',
       onClick: () => {
         if (selected === 'Standard' || selected === current) return toast('The current and Standard styles cannot be deleted.', { kind: 'error' });
+        const n = uses(selected);
+        if (n) return toast(`"${selected}" is used by ${n} object${n === 1 ? '' : 's'} or style${n === 1 ? '' : 's'} and cannot be deleted.`, { kind: 'error' });
         work.delete(selected);
         selected = current;
         renderList();
@@ -797,6 +799,8 @@ export function textStylesDialog(app) {
     headerKey: 'textStyle',
     label: 'Text styles',
     make: defaultTextStyle,
+    // Text and multiline text, also inside blocks, and dimension styles that draw their text in it.
+    uses: (name) => countStyleUses(app.doc.drawing, (e) => (e.type === 'text' || e.type === 'mtext') && e.style === name) + [...app.doc.drawing.dimStyles.values()].filter((s) => s.textStyle === name).length,
     fields: [
       { key: 'font', label: 'Font', options: [['sans', 'Drafting (proportional)'], ['mono', 'Drafting (fixed width)']] },
       { key: 'height', label: 'Height', min: 0, hint: '0 asks for the height each time text is placed.' },
@@ -813,6 +817,7 @@ export function dimStylesDialog(app) {
     headerKey: 'dimStyle',
     label: 'Dimension styles',
     make: defaultDimStyle,
+    uses: (name) => countStyleUses(app.doc.drawing, (e) => (e.type === 'dimension' || e.type === 'leader') && e.style === name),
     fields: [
       { key: 'textHeight', label: 'Text height', min: 0.0001 },
       { key: 'arrowType', label: 'Arrowheads', options: [['closed', 'Closed filled'], ['open', 'Open'], ['tick', 'Architectural tick'], ['dot', 'Dot'], ['none', 'None']] },
@@ -827,6 +832,13 @@ export function dimStylesDialog(app) {
       { key: 'trailingZeros', label: 'Keep trailing zeros', bool: true },
     ],
   });
+}
+
+function countStyleUses(d, test) {
+  let n = 0;
+  for (const e of d.entities.values()) if (test(e)) n++;
+  for (const b of d.blocks.values()) for (const e of b.entities) if (test(e)) n++;
+  return n;
 }
 
 // Linetypes ------------------------------------------------------------------------------------
