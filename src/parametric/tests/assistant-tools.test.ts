@@ -398,4 +398,30 @@ describe('assistant tools', () => {
     expect(one.content).toMatch(/f2 "Plate" \(extrude\) → ok\nArguments: \{"sketch":"s1"/);
     expect(one.content).toContain('Faces of f2');
   });
+
+  it('takes back the arguments get_model gives also when what they name is gone from the final body', async () => {
+    const { h } = await plate();
+    const list = await h.call('find_geometry', { kind: 'edges', direction: [0, 1, 0] });
+    const names = [...list.content.matchAll(/^- (\S+) \| line/gm)].map((m) => m[1]);
+    await h.call('add_fillet', { edges: names.slice(0, 3), radius: 5 });
+    // The filleted edges are gone after the fillet: "no edge named" refused the arguments as given.
+    const args = JSON.parse(/Arguments: (.*)/.exec((await h.call('get_model', { features: ['f3'] })).content)![1]);
+    await h.call('edit_feature', { feature: 'f3', params: { ...args, radius: 3 } });
+    expect(await h.volume()).toBeCloseTo(40000 - 3 * (9 - (Math.PI * 9) / 4) * 10, 1);
+    // A new name still resolves against the body, and one that is neither stored nor there is refused.
+    await h.call('edit_feature', { feature: 'f3', params: { edges: [...args.edges, names[3]] } });
+    expect(await h.volume()).toBeCloseTo(40000 - 4 * (9 - (Math.PI * 9) / 4) * 10, 1);
+    const stale = await h.call('edit_feature', { feature: 'f3', params: { edges: [...args.edges, 'f2:side:base_l9|f2:cap1'] } }, false);
+    expect(stale.content).toMatch(/edges\[3\]: no edge named "f2:side:base_l9\|f2:cap1"/);
+    // A pattern whose direction edge a later chamfer took away.
+    await h.call('add_hole', { on: topFace(h), points: [[-20, 10, 0]], diameter: 4 });
+    const hole = h.store.doc.features.at(-1)!.id;
+    const edge = h.edges.find((x) => x.dir && Math.abs(x.dir[0]) > 0.99 && x.a[1] > 9)!.name;
+    await h.call('add_linear_pattern', { features: [hole], direction: edge, spacing: 10, count: 3 });
+    const pat = h.store.doc.features.at(-1)!.id;
+    await h.call('add_chamfer', { edges: [edge], distance: 1 });
+    const pargs = JSON.parse(/Arguments: (.*)/.exec((await h.call('get_model', { features: [pat] })).content)![1]);
+    await h.call('edit_feature', { feature: pat, params: { ...pargs, count: 4 } });
+    expect(h.faces.filter((f) => f.feature === pat)).toHaveLength(3);
+  });
 });
