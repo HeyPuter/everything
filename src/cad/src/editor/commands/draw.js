@@ -200,8 +200,10 @@ export const RECTANG = {
   label: 'Rectangle',
   icon: 'rectangle',
   async run(ed) {
+    // The fillet radius stays for later rectangles until it is set back to zero.
+    let fillet = ed.rectFillet ?? 0;
+    if (fillet > 0) ed.ui.log(`Current fillet radius: ${formatLinear(fillet, ed.header)}`, 'muted');
     let a = await ed.getPoint('First corner', { options: opts('Fillet') });
-    let fillet = 0;
     for (;;) {
       if (!a) return;
       if (a.option === 'fillet') {

@@ -134,6 +134,17 @@ describe('rectangles', () => {
     const [p] = t.all('polyline');
     expect(p.pts).toEqual([0, 0, 0, 20, 0, 0, 20, 10, 0, 0, 10, 0]);
   });
+
+  it('keeps the fillet radius for the next rectangles until it is set to zero', async () => {
+    await t.type('RECTANG', 'F', '2', '0,0', '20,10');
+    await t.type('RECTANG', '30,0', '50,10');
+    const [, second] = t.all('polyline');
+    expect(second.pts).toHaveLength(24);
+    expect(t.logs.some(([, m]) => /fillet radius.*2/i.test(m))).toBe(true);
+    await t.type('RECTANG', 'F', '0', '60,0', '80,10');
+    await t.type('RECTANG', '90,0', '110,10');
+    expect(t.all('polyline').at(-1).pts).toHaveLength(12);
+  });
 });
 
 describe('three-point curves', () => {
