@@ -8,7 +8,7 @@
 // side 'bottom' and the original rotation.
 
 import { parseSexpr, find, findAll, val, hasFlag, points, property, atomText } from './sexpr.js';
-import { nm, norm360, slug, arcFrom3, arcPoints, flipName, fontSize, strokeWidth, LAYER_MAP } from './common.js';
+import { nm, norm360, slug, arcFrom3, arcPoints, flipName, fontSize, strokeWidth, textAlign, LAYER_MAP } from './common.js';
 import { uid } from '../../core/emitter.js';
 import { arcToPoints, circleToPoly, polyArea, pointInPoly, bboxOfFlat, bboxEmpty, bboxAdd, rotate } from '../../core/geom.js';
 import { defaultBoard } from '../../model/project.js';
@@ -208,7 +208,7 @@ export function importBoard(file, warnings) {
             const fat = find(item, 'at');
             if (!fat) break;
             const [x, y] = toDef(fat[1], fat[2]);
-            graphics.push({ t: 'text', x, y, text: atomText(item, 2), size: nm(fontSize(item, 1)), rot: localRot(Number(fat[3]) || 0), align: { h: 'center', v: 'middle' }, layer });
+            graphics.push({ t: 'text', x, y, text: atomText(item, 2), size: nm(fontSize(item, 1)), rot: localRot(Number(fat[3]) || 0), align: textAlign(item), layer });
             break;
           }
           case 'fp_curve': warnings.add('Curves in footprints were skipped.'); break;
@@ -322,7 +322,7 @@ export function importBoard(file, warnings) {
         const h = nm(fontSize(item, 1));
         const thick = find(find(find(item, 'effects'), 'font'), 'thickness');
         const mirror = (find(find(item, 'effects'), 'justify') || []).includes('mirror');
-        objects.push({ id: uid(), t: 'text', layer, x, y, text: atomText(item, 1), h, w: thick ? nm(thick[1]) : Math.round(h * 0.15), rot: norm360(Number(at[3]) || 0), mirror, align: { h: 'center', v: 'middle' } });
+        objects.push({ id: uid(), t: 'text', layer, x, y, text: atomText(item, 1), h, w: thick ? nm(thick[1]) : Math.round(h * 0.15), rot: norm360(Number(at[3]) || 0), mirror, align: textAlign(item) });
         break;
       }
       case 'dimension': warnings.add('Dimensions were skipped.'); break;

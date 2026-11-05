@@ -12,7 +12,7 @@
 // graphics and pins; the board footprint is attached to the lowest unit.
 
 import { parseSexpr, find, findAll, val, hasFlag, points, property } from './sexpr.js';
-import { nm, norm360, slug, arcFrom3, fontSize, strokeWidth } from './common.js';
+import { nm, norm360, slug, arcFrom3, fontSize, strokeWidth, textAlign } from './common.js';
 import { uid } from '../../core/emitter.js';
 import { sheetExtents, defaultSheet } from '../../model/project.js';
 import { textWidth } from '../../render/font.js';
@@ -68,7 +68,7 @@ function libGraphic(item, warnings) {
       if (!at) return null;
       let ang = Number(at[3]) || 0;
       if (Math.abs(ang) > 360) ang /= 10;
-      return { t: 'text', x: nm(at[1]), y: nm(at[2]), text: String(item[1] ?? ''), size: nm(fontSize(item)), rot: rot90(ang), align: { h: 'center', v: 'middle' } };
+      return { t: 'text', x: nm(at[1]), y: nm(at[2]), text: String(item[1] ?? ''), size: nm(fontSize(item)), rot: rot90(ang), align: textAlign(item) };
     }
     case 'bezier': {
       warnings.add('Bezier curves in symbols were imported as straight segments.');

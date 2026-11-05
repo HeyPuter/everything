@@ -316,3 +316,39 @@ describe('silkscreen check', () => {
     expect(found.length).toBeGreaterThan(0);
   });
 });
+
+describe('KiCad text alignment', () => {
+  it('keeps the justification of board, footprint and symbol text', async () => {
+    const pcb = `(kicad_pcb (version 20240108) (generator "pcbnew")
+      (layers (0 "F.Cu" signal) (31 "B.Cu" signal) (37 "F.SilkS" user "F.Silkscreen"))
+      (gr_text "LEFT" (at 10 10 0) (layer "F.SilkS") (effects (font (size 1 1) (thickness 0.15)) (justify left bottom)))
+      (gr_text "MID" (at 10 20 0) (layer "F.SilkS") (effects (font (size 1 1) (thickness 0.15))))
+      (footprint "X:Y" (layer "F.Cu") (at 30 30)
+        (property "Reference" "U1" (at 0 -2 0) (layer "F.SilkS") (effects (font (size 1 1))))
+        (fp_text user "PIN1" (at 1 1 0) (layer "F.SilkS") (effects (font (size 1 1)) (justify right top)))
+        (pad "1" smd rect (at 0 0) (size 1 1) (layers "F.Cu" "F.Mask"))))`;
+    const sch = `(kicad_sch (version 20231120) (generator "eeschema") (paper "A4")
+      (lib_symbols (symbol "L:S" (property "Reference" "U" (at 0 0 0)) (property "Value" "S" (at 0 0 0))
+        (symbol "S_0_1" (text "IN" (at 1 1 0) (effects (font (size 1.27 1.27)) (justify left))))
+        (symbol "S_1_1" (pin passive line (at 0 0 0) (length 2.54) (name "A") (number "1")))))
+      (symbol (lib_id "L:S") (at 50 50 0) (unit 1) (uuid "s1")
+        (property "Reference" "U1" (at 50 45 0)) (property "Value" "S" (at 50 55 0))))`;
+    const { project } = await importKicad([
+      { name: 'a.kicad_pcb', text: pcb },
+      { name: 'a.kicad_sch', text: sch },
+    ]);
+    const board = project.documents.find((d) => d.kind === 'pcb');
+    const texts = Object.fromEntries(
+      board.objects.filter((o) => o.t === 'text').map((o) => [o.text, o.align]),
+    );
+    expect(texts).toEqual({ LEFT: { h: 'left', v: 'bottom' }, MID: { h: 'center', v: 'middle' } });
+    const fpText = Object.values(project.library)
+      .flatMap((d) => d.footprint?.graphics || [])
+      .find((g) => g.t === 'text');
+    expect(fpText.align).toEqual({ h: 'right', v: 'top' });
+    const symText = Object.values(project.library)
+      .flatMap((d) => d.symbol.graphics)
+      .find((g) => g.t === 'text');
+    expect(symText.align).toEqual({ h: 'left', v: 'middle' });
+  });
+});

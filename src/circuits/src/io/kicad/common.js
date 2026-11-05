@@ -85,6 +85,14 @@ export function fontSize(list, fallback = 1.27) {
   return size ? Number(size[1]) || fallback : fallback;
 }
 
+/** Text alignment from (effects (justify ...)); KiCad centres both ways by default. */
+export function textAlign(list) {
+  const j = find(find(list, 'effects'), 'justify') || [];
+  const h = j.includes('left') ? 'left' : j.includes('right') ? 'right' : 'center';
+  const v = j.includes('top') ? 'top' : j.includes('bottom') ? 'bottom' : 'middle';
+  return { h, v };
+}
+
 /** Stroke width in mm from (stroke (width w)) or (width w). */
 export function strokeWidth(list) {
   const s = find(list, 'stroke');
