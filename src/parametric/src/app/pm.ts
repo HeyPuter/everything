@@ -194,6 +194,13 @@ export function parseParam(text: string, kind: ParamKind, ctx: UnitContext, allo
   }
 }
 
+const numberFieldSettlers = new WeakMap<HTMLInputElement, (ctx: UnitContext) => void>();
+
+/** Settles delayed edits in their original context and retires controls being replaced. */
+export function settleNumberFields(root: HTMLElement, ctx: UnitContext) {
+  for (const input of root.querySelectorAll('input')) numberFieldSettlers.get(input)?.(ctx);
+}
+
 export function numberField(o: NumberFieldOptions): HTMLElement {
   const id = nextDomId('num');
   // Phone keypads: the decimal pad (iOS) has no minus, equals or letters, so it
@@ -215,9 +222,10 @@ export function numberField(o: NumberFieldOptions): HTMLElement {
   const mark = () => input.classList.toggle('expr', typeof current === 'string');
   mark();
   let composing = false;
-  const commit = (live = false) => {
-    if (composing) return;
-    const r = parseParam(input.value, o.kind, o.ctx, o.allowExpr !== false);
+  let retired = false;
+  const commit = (live = false, ctx = o.ctx) => {
+    if (composing || retired) return;
+    const r = parseParam(input.value, o.kind, ctx, o.allowExpr !== false);
     if (!r.ok) {
       input.classList.add('invalid');
       input.setAttribute('aria-invalid', 'true');
@@ -245,14 +253,21 @@ export function numberField(o: NumberFieldOptions): HTMLElement {
     o.onChange(r.value);
   };
   let timer = 0;
+  const cancelPending = () => { clearTimeout(timer); timer = 0; };
+  numberFieldSettlers.set(input, (ctx) => {
+    const pending = !!timer;
+    cancelPending();
+    if (pending) commit(false, ctx);
+    retired = true;
+  });
   const scheduleCommit = () => {
-    clearTimeout(timer);
-    if (!composing) timer = window.setTimeout(() => commit(), 350);
+    cancelPending();
+    if (!composing && !retired) timer = window.setTimeout(() => { timer = 0; commit(); }, 350);
   };
-  input.addEventListener('compositionstart', () => { composing = true; clearTimeout(timer); });
+  input.addEventListener('compositionstart', () => { composing = true; cancelPending(); });
   input.addEventListener('compositionend', () => { composing = false; scheduleCommit(); });
   input.addEventListener('input', scheduleCommit);
-  input.addEventListener('change', () => { clearTimeout(timer); commit(); });
+  input.addEventListener('change', () => { cancelPending(); commit(); });
   // Esc takes back what was typed since the field got focus; with nothing to
   // take back it goes on to the panel or tool (which it cancels).
   let atFocus: Param = current;
@@ -272,12 +287,12 @@ export function numberField(o: NumberFieldOptions): HTMLElement {
     if (e.isComposing || e.keyCode === 229) return;
     if (e.key === 'ArrowUp') { e.preventDefault(); step(1); }
     else if (e.key === 'ArrowDown') { e.preventDefault(); step(-1); }
-    else if (e.key === 'Enter') { clearTimeout(timer); commit(); }
+    else if (e.key === 'Enter') { cancelPending(); commit(); }
     else if (e.key === 'Escape') {
       const text = paramText(atFocus, o.kind, o.ctx);
       if (input.value === text && current === atFocus) return;
       e.preventDefault();
-      clearTimeout(timer);
+      cancelPending();
       input.value = text;
       input.classList.remove('invalid');
       input.removeAttribute('aria-invalid');

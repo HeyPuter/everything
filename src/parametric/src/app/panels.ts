@@ -8,6 +8,7 @@ import {
 } from '../model/features';
 import { BASE_PLANE_NAMES } from '../model/planes';
 import { changeFeatureUnits } from '../model/document';
+import { evaluateVariables } from '../model/expr';
 import type {
   AxisRef, ChamferFeature, CircularPatternFeature, DraftFeature, EdgeRef, ExtrudeFeature, FaceRef, Feature, FilletFeature,
   HoleFeature, Id, LinearPatternFeature, LoftFeature, MirrorFeature, PatternDir, PlaneFeature, PlaneRef, RevolveFeature,
@@ -16,7 +17,7 @@ import type {
 import { h } from '../ui/dom';
 import type { App } from './app';
 import {
-  PropertyPanel, SelectionBox, type SelBoxItem, checkbox, flipButton, numberField, section, selectField,
+  PropertyPanel, SelectionBox, type SelBoxItem, checkbox, flipButton, numberField, section, selectField, settleNumberFields,
 } from './pm';
 import { type SelItem, edgeRef, faceRef } from './selection';
 
@@ -155,6 +156,8 @@ abstract class FeaturePanel<T extends Feature> extends PropertyPanel {
     const doc = this.app.store.doc;
     let unlinked: string[] | null = null;
     if (doc.units !== this.units) {
+      const variables = evaluateVariables(this.variables).values;
+      settleNumberFields(this.el, { units: this.units, decimals: doc.decimals, variables: () => variables });
       unlinked = changeFeatureUnits(this.f, this.units, doc.units, this.variables, doc.variables);
       if (this.initial !== null) {
         const initial = JSON.parse(this.initial) as T;

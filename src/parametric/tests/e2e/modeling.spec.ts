@@ -474,6 +474,46 @@ for (const edited of [false, true]) test(`unit changes preserve a feature panel'
   expect(errors).toEqual([]);
 });
 
+for (const [input, delay] of [['40', 0], ['=Width + 10', 0], ['Width + 10', 0], ['=Width + 10', 500]] as const) test(`a unit change preserves pending ${input} after ${delay} ms`, async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await page.evaluate(() => {
+    const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+    a.store.change('Link depth', (doc) => {
+      doc.variables = [{ id: 'v1', name: 'Width', expr: '30' }];
+      const f = doc.features.find((f) => f.id === 'f1');
+      if (f?.type === 'extrude') f.depth = '=Width';
+    });
+    a.editFeature('f1');
+  });
+  const depth = page.getByRole('textbox', { name: 'Depth', exact: true });
+  await depth.fill(input);
+  if (delay) await page.waitForTimeout(delay);
+  await page.evaluate(async (url) => {
+    const { changeUnits } = await import(url);
+    const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+    a.store.change('Change units', (doc) => changeUnits(doc, 'IPS'));
+  }, '/src/model/document.ts');
+  await page.waitForTimeout(500);
+  const pending = await page.evaluate(() => {
+    const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+    const f = a.panel!.preview();
+    return f?.type === 'extrude' ? a.store.evalParam(f.depth, 'length') : null;
+  });
+  expect(pending).toBeCloseTo(40, 8);
+  // Accepting the refreshed field must not restore the older value it displayed.
+  await depth.press('Enter');
+  await page.getByRole('button', { name: 'OK', exact: true }).first().click();
+  const stored = await page.evaluate(async () => {
+    const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+    await a.whenBuilt();
+    const f = a.store.feature('f1');
+    return f?.type === 'extrude' ? a.store.evalParam(f.depth, 'length') : null;
+  });
+  expect(stored).toBeCloseTo(40, 8);
+  expect(errors).toEqual([]);
+});
+
 for (const units of ['MMGS', 'MKS', 'IPS'] as const) test(`accepting an unchanged Depth field preserves its precision in ${units}`, async ({ page }) => {
   const errors = await openApp(page);
   await page.getByRole('button', { name: /Mounting Bracket/ }).click();
