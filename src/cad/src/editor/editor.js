@@ -954,6 +954,11 @@ export class Editor {
         const t = this._track(base, fx, fy);
         fx = t.x;
         fy = t.y;
+      } else if (base && this.angleLock !== null) {
+        // A typed <angle lock wins: the snap only sets the distance along it.
+        const t = this._track(base, fx, fy);
+        fx = t.x;
+        fy = t.y;
       }
     } else {
       this._idleHover(w.x, w.y, sx, sy);

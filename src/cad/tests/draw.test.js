@@ -219,3 +219,18 @@ describe('revision clouds', () => {
     expect(p.pts.length / 3).toBe(60);
   });
 });
+
+describe('angle lock', () => {
+  it('keeps a typed <angle when the cursor snaps to an object', async () => {
+    await t.type('LINE', '50,50', '@10,0', '');
+    await t.type('LINE', '0,0', '<45');
+    const s = t.ed.camera.toScreen(60, 50.5);
+    t.ed._updateCursor(s.x, s.y);
+    expect(t.ed.snap?.mode).toBe('end');
+    t.ed._press({ shiftKey: false }, null);
+    await flush();
+    const l = t.all('line').at(-1);
+    expect(l.x2).toBeCloseTo(55);
+    expect(l.y2).toBeCloseTo(55);
+  });
+});
