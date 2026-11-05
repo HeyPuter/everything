@@ -41,6 +41,31 @@ export function primScale(p) {
   }
 }
 
+/** Extent of a primitive (0 for infinite lines). */
+export function primSize(p) {
+  switch (p.t) {
+    case 'seg':
+      return Math.max(Math.abs(p.x2 - p.x1), Math.abs(p.y2 - p.y1));
+    case 'arc':
+      return p.r;
+    case 'pl': {
+      const b = plBox(p);
+      return Math.max(b[2] - b[0], b[3] - b[1]);
+    }
+    default:
+      return 0;
+  }
+}
+
+/**
+ * Radius within which hits count as duplicates: 1e3 x the tolerance, but
+ * relative to the primitives' size so distinct hits on small curves far from
+ * the origin stay apart.
+ */
+export function hitMergeTol(tol, size) {
+  return Math.max(tol, Math.min(tol * 1e3, EPS * 1e3 * Math.max(1, size)));
+}
+
 /** Point and derivative of the exact curve behind a pl primitive. */
 export function curveAt(src, u) {
   if (src.type === 'ellipse') {
@@ -395,7 +420,8 @@ export function intersectPrims(a, b, opts) {
   else if (ta === 'pl' && tb === 'pl') plPl(a, b, tol, out);
   else if (ta === 'pl') plOther(a, b, extB, tol, out, true);
   else if (tb === 'pl') plOther(b, a, extA, tol, out, false);
-  return out.length > 1 ? dedupeHits(out, tol * 1e3) : out;
+  if (out.length < 2) return out;
+  return dedupeHits(out, hitMergeTol(tol, Math.max(primSize(a), primSize(b))));
 }
 
 /** Intersection points { x, y } between two entities. */
@@ -403,12 +429,14 @@ export function intersectEntities(e1, e2, opts) {
   const pa = toPrims(e1),
     pb = toPrims(e2);
   const out = [];
-  let scale = 1;
+  let scale = 1,
+    size = 0;
   for (const p of pa) for (const q of pb) for (const h of intersectPrims(p, q, opts)) {
     out.push({ x: h.x, y: h.y });
     scale = Math.max(scale, Math.abs(h.x), Math.abs(h.y));
+    size = Math.max(size, primSize(p), primSize(q));
   }
-  return dedupeHits(out, EPS * 1e3 * scale);
+  return dedupeHits(out, hitMergeTol(EPS * scale, size));
 }
 
 /**
