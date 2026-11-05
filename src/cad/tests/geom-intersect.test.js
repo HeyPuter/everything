@@ -251,6 +251,11 @@ describe('snaps', () => {
     expect(fa.length).toBe(1);
     const fe = perpendicularFrom(ellipse, 3, 20);
     expect(fe.length).toBeGreaterThanOrEqual(2);
+    // Both feet on a small circle survive far from the origin.
+    const o = 5e6;
+    expect(perpendicularFrom({ type: 'circle', cx: o, cy: o, r: 0.4 }, o + 2, o + 0.1)).toHaveLength(2);
+    const pl = { type: 'polyline', pts: [o, o, 0, o + 1, o, 0, o + 1, o + 1, 0], closed: false };
+    expect(perpendicularFrom(pl, o + 0.5, o + 0.5)).toHaveLength(2);
   });
   it('tangent points from a base point', () => {
     const t = sortXY(tangentsFrom({ type: 'circle', cx: 0, cy: 0, r: 5 }, 10, 0));
