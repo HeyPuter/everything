@@ -206,6 +206,7 @@ export class FeatureTree {
       this.focus(f.id);
     };
     input.addEventListener('keydown', (e) => {
+      if (e.isComposing || e.keyCode === 229) return;
       e.stopPropagation();
       if (e.key === 'Enter') finish(true);
       if (e.key === 'Escape') finish(false);

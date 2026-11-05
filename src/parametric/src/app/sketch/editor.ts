@@ -592,8 +592,10 @@ export class SketchEditor implements ViewportTool {
       this.modifyRevert = null;
       this.closeModify();
     };
-    input.addEventListener('input', () => apply(true));
+    input.addEventListener('input', (e) => { if (!e.isComposing) apply(true); });
+    input.addEventListener('compositionend', () => apply(true));
     input.addEventListener('keydown', (e) => {
+      if (e.isComposing || e.keyCode === 229) return;
       e.stopPropagation();
       if (e.key === 'Enter') { e.preventDefault(); ok(); }
       if (e.key === 'Escape') { e.preventDefault(); cancel(); }

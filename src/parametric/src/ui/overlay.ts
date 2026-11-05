@@ -56,6 +56,7 @@ export function showDialog(o: DialogOptions): Promise<string | null> {
     }
     backdrop.addEventListener('pointerdown', (e) => { if (e.target === backdrop) finish(null); });
     dialog.addEventListener('keydown', (e) => {
+      if (e.isComposing || e.keyCode === 229) return;
       if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); finish(null); }
       if (e.key === 'Tab') {
         const f = [...dialog.querySelectorAll<HTMLElement>('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')].filter((x) => !x.hasAttribute('disabled') && x.offsetParent !== null);

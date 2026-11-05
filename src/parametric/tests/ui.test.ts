@@ -220,3 +220,41 @@ describe('selection', () => {
     expect(calls).toEqual([true, false, true]);
   });
 });
+
+
+describe('IME composition', () => {
+  it.each([{ isComposing: true }, { keyCode: 229 }])('does not submit or cancel a rename while choosing an IME candidate (%j)', async (init) => {
+    const pending = promptDialog('Rename', 'Name', '部品');
+    const input = document.querySelector('[role="dialog"] input') as HTMLInputElement;
+    key(input, 'Enter', init);
+    await Promise.resolve();
+    expect(document.querySelector('[role="dialog"]')).not.toBeNull();
+    key(input, 'Escape', init);
+    expect(document.querySelector('[role="dialog"]')).not.toBeNull();
+    key(input, 'Enter');
+    expect(await pending).toBe('部品');
+  });
+
+  it('does not change a numeric parameter with IME navigation or intermediate input', () => {
+    vi.useFakeTimers();
+    try {
+      const onChange = vi.fn();
+      const field = numberField({ label: 'Depth', value: 10, kind: 'length', ctx: ctx(), onChange });
+      document.body.append(field);
+      const input = field.querySelector('input')!;
+      input.focus();
+      input.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }));
+      input.value = '20';
+      input.dispatchEvent(new InputEvent('input', { bubbles: true, isComposing: true }));
+      vi.advanceTimersByTime(500);
+      key(input, 'ArrowUp', { isComposing: true });
+      key(input, 'Enter', { isComposing: true });
+      key(input, 'Escape', { isComposing: true });
+      expect(onChange).not.toHaveBeenCalled();
+      expect(input.value).toBe('20');
+      input.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true }));
+      vi.advanceTimersByTime(500);
+      expect(onChange).toHaveBeenCalledExactlyOnceWith(20);
+    } finally { vi.useRealTimers(); }
+  });
+});

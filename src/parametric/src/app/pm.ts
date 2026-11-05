@@ -211,7 +211,9 @@ export function numberField(o: NumberFieldOptions): HTMLElement {
   let current: Param = o.value;
   const mark = () => input.classList.toggle('expr', typeof current === 'string');
   mark();
+  let composing = false;
   const commit = (live = false) => {
+    if (composing) return;
     const r = parseParam(input.value, o.kind, o.ctx, o.allowExpr !== false);
     if (!r.ok) {
       input.classList.add('invalid');
@@ -240,10 +242,13 @@ export function numberField(o: NumberFieldOptions): HTMLElement {
     o.onChange(r.value);
   };
   let timer = 0;
-  input.addEventListener('input', () => {
+  const scheduleCommit = () => {
     clearTimeout(timer);
-    timer = window.setTimeout(() => commit(), 350);
-  });
+    if (!composing) timer = window.setTimeout(() => commit(), 350);
+  };
+  input.addEventListener('compositionstart', () => { composing = true; clearTimeout(timer); });
+  input.addEventListener('compositionend', () => { composing = false; scheduleCommit(); });
+  input.addEventListener('input', scheduleCommit);
   input.addEventListener('change', () => { clearTimeout(timer); commit(); });
   // Esc takes back what was typed since the field got focus; with nothing to
   // take back it goes on to the panel or tool (which it cancels).
@@ -261,6 +266,7 @@ export function numberField(o: NumberFieldOptions): HTMLElement {
     commit();
   };
   input.addEventListener('keydown', (e) => {
+    if (e.isComposing || e.keyCode === 229) return;
     if (e.key === 'ArrowUp') { e.preventDefault(); step(1); }
     else if (e.key === 'ArrowDown') { e.preventDefault(); step(-1); }
     else if (e.key === 'Enter') { clearTimeout(timer); commit(); }

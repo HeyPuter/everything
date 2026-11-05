@@ -561,6 +561,7 @@ export class App {
     s.search.addEventListener('input', show);
     s.search.addEventListener('blur', () => setTimeout(hide, 120));
     s.search.addEventListener('keydown', (e) => {
+      if (e.isComposing || e.keyCode === 229) return;
       const opts = [...results.querySelectorAll<HTMLElement>('[role="option"]')];
       if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
         e.preventDefault();
@@ -1399,7 +1400,7 @@ export class App {
   }
 
   private onKey(e: KeyboardEvent) {
-    if (dialogOpen()) return;
+    if (e.isComposing || e.keyCode === 229 || dialogOpen()) return;
     const target = e.target as HTMLElement;
     const inText = isTextInput(target);
     // F6 / Shift+F6 move between the window's regions, from text fields too.
