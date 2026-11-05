@@ -218,7 +218,7 @@ export class WireTool {
     if (this.pts[n - 2] === x && this.pts[n - 1] === y) { this.finish(); return; }
     this.pts = path;
     // Ending on an existing connection finishes the wire automatically.
-    if (this.snapPins && this.editor.isConnectionPoint(x, y)) this.finish();
+    if (this.snapPins && this.editor.isConnectionPoint(x, y, this.kind)) this.finish();
   }
   dblclick() { this.finish(); }
   rightClick() {

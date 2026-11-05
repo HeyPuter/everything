@@ -229,17 +229,17 @@ export class SchEditor extends CanvasView {
     return best;
   }
 
-  isConnectionPoint(x, y) {
+  /** True where a wire (or bus, by kind) being drawn would connect to something. */
+  isConnectionPoint(x, y, kind = 'wire') {
     const r = 1;
     const box = { minX: x - r, minY: y - r, maxX: x + r, maxY: y + r };
     for (const p of this._connectionPoints(box)) if (p.x === x && p.y === y && p.o.t !== 'wire') return true;
     // A point on an existing wire (end or middle) is also a connection.
-    let wires = 0;
     for (const o of this.doc.store.query(box)) {
-      if (o.t !== 'wire') continue;
-      for (let i = 2; i < o.pts.length; i += 2) if (distPointSeg(x, y, o.pts[i - 2], o.pts[i - 1], o.pts[i], o.pts[i + 1]) < 1) { wires++; break; }
+      if (o.t !== kind) continue;
+      for (let i = 2; i < o.pts.length; i += 2) if (distPointSeg(x, y, o.pts[i - 2], o.pts[i - 1], o.pts[i], o.pts[i + 1]) < 1) return true;
     }
-    return wires > 1;
+    return false;
   }
 
   // ---- Moving ----

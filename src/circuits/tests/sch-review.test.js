@@ -200,3 +200,53 @@ describe('wheel panning', () => {
     expect(v.cy).toBeCloseTo(before.cy - 50 / v.scale, 6);
   });
 });
+
+describe('wire tool', () => {
+  const G = mil(100);
+  const at = (x, y) => ({ x, y, rawX: x, rawY: y, sx: 0, sy: 0 });
+  const wires = (ed) => [...ed.doc.items()].filter((o) => o.t === 'wire');
+
+  it('finishes when it ends on an existing wire, at its end or along it', async () => {
+    app = await boot();
+    const ed = app.activeEditor;
+    const X = 10 * G,
+      Y = 75 * G;
+    ed.doc.store.transact('Wire', (s) =>
+      s.add({ id: 'w-free', t: 'wire', pts: [X, Y, X + 6 * G, Y] }),
+    );
+    const before = new Set(wires(ed).map((w) => w.id));
+    ed.startTool('wire');
+    const tool = ed.tool;
+    // Onto the dangling end.
+    tool.click(at(X + 6 * G, Y - 4 * G));
+    tool.click(at(X + 6 * G, Y));
+    expect(tool.pts).toBeNull();
+    // Onto the middle of the wire.
+    tool.click(at(X + 2 * G, Y - 4 * G));
+    tool.click(at(X + 2 * G, Y));
+    expect(tool.pts).toBeNull();
+    const placed = wires(ed).filter((w) => !before.has(w.id));
+    expect(placed.map((w) => w.pts)).toEqual([
+      [X + 6 * G, Y - 4 * G, X + 6 * G, Y],
+      [X + 2 * G, Y - 4 * G, X + 2 * G, Y],
+    ]);
+    // Empty space keeps drawing.
+    tool.click(at(X, Y - 10 * G));
+    tool.click(at(X + 3 * G, Y - 10 * G));
+    expect(tool.pts).toEqual([X, Y - 10 * G, X + 3 * G, Y - 10 * G]);
+  });
+
+  it('does not end a bus on a wire', async () => {
+    app = await boot();
+    const ed = app.activeEditor;
+    const X = 10 * G,
+      Y = 75 * G;
+    ed.doc.store.transact('Wire', (s) =>
+      s.add({ id: 'w-free', t: 'wire', pts: [X, Y, X + 6 * G, Y] }),
+    );
+    ed.startTool('bus');
+    ed.tool.click(at(X + 2 * G, Y - 4 * G));
+    ed.tool.click(at(X + 2 * G, Y));
+    expect(ed.tool.pts).not.toBeNull();
+  });
+});
