@@ -55,3 +55,76 @@ for (const legacy of [false, true]) test(`IME ${legacy ? 'keyCode 229' : 'compos
   ]);
   expect(errors).toEqual([]);
 });
+
+test('Share waiting for Save does not open for a replacement document', async ({ page }) => {
+  const errors = await sharingApp(page);
+  await page.evaluate(() => {
+    type W = { __parametric: import('../../src/app/app').App; puter: { fs: { write: (...args: unknown[]) => Promise<unknown> } }; saveStarted: boolean; releaseSave: () => void; shareDone: boolean };
+    const w = window as unknown as W;
+    const write = w.puter.fs.write;
+    const gate = new Promise<void>((resolve) => { w.releaseSave = resolve; });
+    w.puter.fs.write = async (...args) => { w.saveStarted = true; await gate; return write(...args); };
+    w.__parametric.store.change('Original edits', (d) => { d.variables.push({ id: 'v1', name: 'Original', expr: '17' }); });
+    void Promise.resolve(w.__parametric.commands.get('share')!.run()).then(() => { w.shareDone = true; });
+  });
+  await page.waitForFunction(() => (window as unknown as { saveStarted: boolean }).saveStarted);
+  await page.evaluate(() => {
+    const w = window as unknown as { __parametric: import('../../src/app/app').App; releaseSave: () => void };
+    const a = w.__parametric;
+    a.loadDocument({ ...a.store.doc, name: 'Replacement', variables: [] }, { type: 'cloud', path: '/tester/Replacement.parametric' });
+    w.releaseSave();
+  });
+  await expect.poll(() => page.evaluate(() => (window as unknown as { shareDone: boolean }).shareDone)).toBe(true);
+  await expect(page.getByRole('dialog', { name: /^Share / })).toHaveCount(0);
+  expect(await page.evaluate(() => (window as unknown as { shareCalls: ShareCall[] }).shareCalls)).toEqual([]);
+  await expect(page).toHaveTitle('Replacement - Parametric');
+  expect(errors).toEqual([]);
+});
+
+for (const change of ['new document', 'Save As', 'rename'] as const) test(`Share closes when ${change} changes its target`, async ({ page }) => {
+  const errors = await sharingApp(page);
+  await page.evaluate(() => {
+    const w = window as unknown as { __parametric: import('../../src/app/app').App; puter: { fs: { rename: (path: string, name: string) => Promise<unknown> } } };
+    w.puter.fs.rename = async (path, name) => ({ path: path.replace(/[^/]+$/, name) });
+    w.__parametric.commands.run('share');
+  });
+  const dialog = page.getByRole('dialog', { name: 'Share Original', exact: true });
+  await expect(dialog).toBeVisible();
+  await page.evaluate(() => {
+    const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+    a.store.change('Edit', (d) => { d.variables.push({ id: 'v1', name: 'Width', expr: '17' }); });
+    a.store.undo();
+  });
+  await expect(dialog).toBeVisible();
+  if (change === 'new document') {
+    await page.evaluate(() => {
+      const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+      a.loadDocument({ ...a.store.doc, name: 'Replacement' }, { type: 'cloud', path: '/tester/Replacement.parametric' });
+    });
+  } else {
+    await page.evaluate((change) => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.commands.run(change === 'Save As' ? 'saveAs' : 'rename'), change);
+    const prompt = page.getByRole('dialog', { name: change === 'Save As' ? 'Save As' : 'Rename part', exact: true });
+    await prompt.getByRole('textbox').fill('Replacement');
+    await prompt.getByRole('button', { name: 'OK', exact: true }).click();
+  }
+  await expect(dialog).toHaveCount(0);
+  await expect(page).toHaveTitle(/Replacement - Parametric/);
+  expect(await page.evaluate(() => (window as unknown as { shareCalls: ShareCall[] }).shareCalls)).toEqual([]);
+  expect(errors).toEqual([]);
+});
+
+test('a document replacement at Share acceptance prevents the old request', async ({ page }) => {
+  const errors = await sharingApp(page);
+  await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.commands.run('share'));
+  const dialog = page.getByRole('dialog', { name: 'Share Original', exact: true });
+  await dialog.getByRole('textbox', { name: 'Person to share with' }).fill('friend');
+  const share = dialog.getByRole('button', { name: 'Share', exact: true });
+  await share.evaluate((button) => button.addEventListener('click', () => {
+    const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+    a.newDocument('Replacement');
+  }, { capture: true, once: true }));
+  await share.click();
+  expect(await page.evaluate(() => (window as unknown as { shareCalls: ShareCall[] }).shareCalls)).toEqual([]);
+  await expect(dialog).toHaveCount(0);
+  expect(errors).toEqual([]);
+});

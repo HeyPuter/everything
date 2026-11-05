@@ -42,6 +42,9 @@ const recipient = (v: string) => (v.includes('@') ? { email: v } : { username: v
 const holderName = (s: ShareRecord) => (typeof s.holder === 'string' ? s.holder : s.holder?.username || s.holder?.email || s.recipientEmail || '');
 
 export async function shareDialog(app: App, files: FileOps) {
+  const signal = app.documentSignal;
+  const name = app.store.doc.name;
+  const originalLocation = app.location;
   const fs = fsx();
   if (!fs?.share) {
     toast({ kind: 'warning', message: 'Sharing needs Puter, which could not be loaded. Check your connection and reload.' });
@@ -51,33 +54,40 @@ export async function shareDialog(app: App, files: FileOps) {
     toast({
       title: 'Share',
       message: 'Sign in to Puter to save this part to your cloud and share it with others.',
-      actions: [{ label: 'Sign in', primary: true, run: () => void signIn().then(() => shareDialog(app, files)).catch((e) => toast({ kind: 'error', message: (e as Error).message })) }],
+      actions: [{ label: 'Sign in', primary: true, run: () => void signIn().then(() => { if (!signal.aborted) return shareDialog(app, files); }).catch((e) => toast({ kind: 'error', message: (e as Error).message })) }],
       timeout: 9000,
     });
     return;
   }
   if (app.location?.type !== 'cloud' || app.store.dirty) {
     const ok = await files.save();
+    if (signal.aborted || app.store.doc.name !== name) return;
+    if (originalLocation?.type === 'cloud' && (app.location?.type !== 'cloud' || app.location.path !== originalLocation.path)) return;
     if (!ok || app.location?.type !== 'cloud') {
       toast({ title: 'Share', message: 'Save the part to your Puter cloud first, then share it.' });
       return;
     }
   }
   const path = (app.location as { path: string }).path;
+  let open = true;
+  const isCurrent = () => open && !signal.aborted && app.store.doc.name === name && app.location?.type === 'cloud' && app.location.path === path;
   const who = h('input', { class: 'input', placeholder: 'Puter username or email', 'aria-label': 'Person to share with', autocomplete: 'off', spellcheck: 'false' }) as HTMLInputElement;
   const mode = h('select', { class: 'input', 'aria-label': 'Access', style: { width: 'auto' } }, MODES.map(([v, l]) => h('option', { value: v }, l))) as HTMLSelectElement;
   const status = h('div', { class: 'field-label', role: 'status', style: { minHeight: '18px' } });
   const list = h('div');
 
   const render = async () => {
+    if (!isCurrent()) return;
     clear(list);
     let shares: ShareRecord[] = [];
     try {
       shares = (await fs.getShares(path)) ?? [];
     } catch (e) {
+      if (!isCurrent()) return;
       list.append(h('p', { role: 'alert' }, `Could not load who has access: ${storageError(e)}`));
       return;
     }
+    if (!isCurrent()) return;
     const direct = shares.filter((s) => !s.inheritedFrom);
     if (!direct.length) { list.append(h('p', {}, 'Not shared with anyone yet.')); return; }
     const rows = direct.map((s) => {
@@ -88,11 +98,13 @@ export async function shareDialog(app: App, files: FileOps) {
         return o;
       })) as HTMLSelectElement;
       sel.addEventListener('change', async () => {
+        if (!isCurrent()) return;
         try { await fs.share(path, recipient(name), sel.value); status.textContent = `Updated access for ${name}.`; } catch (e) { status.textContent = storageError(e); }
       });
       // An icon button keeps the table within the dialog at phone widths.
       const remove = h('button', { class: 'icon-btn', type: 'button', 'aria-label': `Remove ${name}`, title: 'Remove access' }, icon('trash', 16));
       remove.addEventListener('click', async () => {
+        if (!isCurrent()) return;
         try { await fs.unshare(path, recipient(name)); status.textContent = `${name} no longer has access.`; void render(); } catch (e) { status.textContent = storageError(e); }
       });
       return h('tr', {}, h('td', {}, name, s.pending ? h('span', { class: 'field-label' }, ' (invited)') : null), h('td', {}, sel), h('td', { style: { textAlign: 'right' } }, remove));
@@ -101,11 +113,13 @@ export async function shareDialog(app: App, files: FileOps) {
   };
 
   const add = async () => {
+    if (!isCurrent()) return;
     const v = who.value.trim();
     if (!v) { who.focus(); return; }
     status.textContent = 'Sharing...';
     try {
       const res = await fs.share(path, recipient(v), mode.value);
+      if (!isCurrent()) return;
       status.textContent = res?.[0]?.isNew === false ? `Updated access for ${v}.` : `Shared with ${v}. They can open it from Open, Shared with me.`;
       who.value = '';
       void render();
@@ -118,8 +132,10 @@ export async function shareDialog(app: App, files: FileOps) {
   const addBtn = h('button', { class: 'btn primary', type: 'button' }, icon('share', 14), 'Share');
   addBtn.addEventListener('click', () => void add());
   void render();
+  let stopWatching = () => {};
   await showDialog({
-    title: `Share ${app.store.doc.name}`,
+    title: `Share ${name}`, signal,
+    onReady: (close) => { stopWatching = app.store.on(() => { if (!isCurrent()) close(null); }); },
     wide: true,
     body: [
       h('p', {}, 'People you share with open the part in their own Parametric. With edit access, their saves update this file, so agree on who is editing: two people saving at the same time overwrite each other.'),
@@ -129,7 +145,7 @@ export async function shareDialog(app: App, files: FileOps) {
       list,
     ],
     buttons: [{ label: 'Done', value: 'ok', primary: true }],
-  });
+  }).finally(() => { open = false; stopWatching(); });
 }
 
 /** Parts other people shared with the current user (all pages); throws when none could be read. */
