@@ -36,12 +36,29 @@ export async function equationsDialog(app: App) {
     return src;
   });
   const originalNames = new Map(doc.variables.map((v) => [v.id, v.name]));
+  // The rows are built once (and again when one is added or deleted); an edit
+  // only updates the cells it affects, so the field being left keeps its place
+  // in the tab order (rebuilding them sent keyboard focus out of the dialog).
+  const cells = new Map<Variable, { expr: HTMLInputElement; result: HTMLElement; del: HTMLElement }>();
+  const refresh = () => {
+    const { values, errors } = evaluateVariables(rows);
+    for (const v of rows) {
+      const c = cells.get(v)!;
+      if (c.expr.value !== v.expr) c.expr.value = v.expr;
+      c.expr.setAttribute('aria-label', `Value or expression of ${v.name || 'variable'}`);
+      c.del.setAttribute('aria-label', `Delete ${v.name}`);
+      const val = values.get(v.name);
+      const e = errors.get(v.name);
+      c.result.textContent = e ? e : val !== undefined ? formatNumber(val, 4) : '';
+      c.result.style.color = e ? 'var(--danger)' : '';
+    }
+  };
   const draw = () => {
     tbody.textContent = '';
-    const { values, errors } = evaluateVariables(rows);
+    cells.clear();
     rows.forEach((v, i) => {
       const name = h('input', { class: 'input', value: v.name, 'aria-label': `Name of variable ${i + 1}`, spellcheck: 'false' }) as HTMLInputElement;
-      const expr = h('input', { class: 'input', value: v.expr, 'aria-label': `Value or expression of ${v.name || 'variable'}`, spellcheck: 'false' }) as HTMLInputElement;
+      const expr = h('input', { class: 'input', value: v.expr, spellcheck: 'false' }) as HTMLInputElement;
       name.addEventListener('change', () => {
         // Other equations follow a renamed variable (dimensions and features do on OK).
         // Not from or onto a name another variable has too: its equations would be merged into this one's for good.
@@ -50,21 +67,26 @@ export async function equationsDialog(app: App) {
         v.name = name.value.trim();
         const shared = rows.some((r) => r !== v && (r.name === was || r.name === v.name));
         if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(v.name) && !shared) for (const r of rows) if (r !== v) r.expr = renameReferences(r.expr, renamed);
-        draw();
+        refresh();
       });
-      expr.addEventListener('change', () => { v.expr = expr.value.trim(); draw(); });
-      const val = values.get(v.name);
-      const e = errors.get(v.name);
-      const del = h('button', { class: 'icon-btn', type: 'button', 'aria-label': `Delete ${v.name}` }, icon('trash', 16));
-      del.addEventListener('click', () => { rows.splice(i, 1); draw(); });
+      expr.addEventListener('change', () => { v.expr = expr.value.trim(); refresh(); });
+      const result = h('td', { class: 'num' });
+      const del = h('button', { class: 'icon-btn', type: 'button' }, icon('trash', 16));
+      del.addEventListener('click', () => {
+        rows.splice(i, 1);
+        draw();
+        // Focus stays in the table: on the row that moved up, else the one above, else Add variable.
+        const next = tbody.querySelectorAll<HTMLButtonElement>('button')[Math.min(i, rows.length - 1)];
+        (next ?? add).focus();
+      });
+      cells.set(v, { expr, result, del });
       tbody.append(h('tr', {},
-        h('td', {}, name), h('td', {}, expr),
-        h('td', { class: 'num', style: { color: e ? 'var(--danger)' : '' } }, e ? e : val !== undefined ? formatNumber(val, 4) : ''),
+        h('td', {}, name), h('td', {}, expr), result,
         h('td', { class: 'num' }, String(dimUses.get(originalNames.get(v.id) ?? v.name) ?? 0)),
         h('td', {}, del)));
     });
+    refresh();
   };
-  draw();
   const add = h('button', { class: 'btn small', type: 'button' }, icon('plus', 14), 'Add variable');
   add.addEventListener('click', () => {
     let n = rows.length + 1;
@@ -73,6 +95,7 @@ export async function equationsDialog(app: App) {
     draw();
     (tbody.querySelector('tr:last-child input') as HTMLInputElement | null)?.focus();
   });
+  draw();
   const v = await showDialog({
     title: 'Equations and Global Variables',
     wide: true,

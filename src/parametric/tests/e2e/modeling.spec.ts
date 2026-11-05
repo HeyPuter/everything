@@ -242,6 +242,28 @@ test('renaming a variable onto another one\'s name leaves the equations that use
   await expect(dlg.getByRole('textbox', { name: 'Value or expression of C' })).toHaveValue('A + B');
 });
 
+test('the equations table keeps keyboard focus as values are edited and rows deleted', async ({ page }) => {
+  await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await page.evaluate(() => {
+    const a = (window as unknown as { __parametric: { store: { change(l: string, f: (d: { variables: unknown[] }) => void): void }; commands: { run(id: string): boolean } } }).__parametric;
+    a.store.change('Vars', (d) => { d.variables = [{ id: 'v1', name: 'A', expr: '10' }, { id: 'v2', name: 'B', expr: 'A*2' }]; });
+    a.commands.run('equations');
+  });
+  const dlg = page.getByRole('dialog', { name: 'Equations and Global Variables' });
+  // The dialog focuses its first field a frame after it opens.
+  await expect(dlg.getByRole('textbox', { name: 'Name of variable 1' })).toBeFocused();
+  await dlg.getByRole('textbox', { name: 'Value or expression of A' }).fill('12');
+  await page.keyboard.press('Tab');
+  // Tab goes on to the next control, which focus used to leave the dialog for.
+  await expect(dlg.getByRole('button', { name: 'Delete A' })).toBeFocused();
+  await expect(dlg.getByRole('row').nth(2)).toContainText('24.0000');
+  await page.keyboard.press('Enter');
+  await expect(dlg.getByRole('button', { name: 'Delete B' })).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(dlg.getByRole('button', { name: 'Add variable' })).toBeFocused();
+});
+
 test('switching the part to inches keeps the size of values linked to equations', async ({ page }) => {
   const errors = await openApp(page);
   await page.getByRole('button', { name: /Mounting Bracket/ }).click();
