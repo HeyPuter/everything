@@ -45,3 +45,21 @@ test('a PDF whose wide page comes later opens fitted to the widest page', async 
   expect(first.x).toBeGreaterThanOrEqual(view.x);
   expect(first.x + first.width).toBeLessThanOrEqual(view.x + view.width);
 });
+
+test('a page far wider than the view still fits its width and the whole page', async ({ page }) => {
+  // A roll plot or banner: 120 by 36 inches.
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  doc.addPage([8640, 2592]).drawText('Banner', { x: 200, y: 1200, size: 400, font });
+  await open(page, doc);
+  const zoom = page.getByLabel('Zoom', { exact: true });
+  await expect(zoom).toHaveValue('fit');
+  await expect.poll(() => overflow(page)).toBeLessThanOrEqual(0);
+  await zoom.selectOption('page');
+  await expect(page.locator('.editor')).toHaveAttribute('aria-busy', 'false');
+  await expect.poll(() => overflow(page)).toBeLessThanOrEqual(0);
+  const view = await page.locator('.workspace').boundingBox();
+  const sheet = await page.locator('.page-slot[data-page="0"]').boundingBox();
+  expect(sheet.width).toBeLessThanOrEqual(view.width);
+  expect(sheet.height).toBeLessThanOrEqual(view.height);
+});

@@ -606,12 +606,15 @@ export function createEditor({
     // Side by side, the 12px gap between the pages is not zoomed, and each page is sized in
     // whole pixels: an even width keeps two rounded halves from overflowing it.
     const room = stack.twoUp ? 2 * Math.floor((width - gutter - 12) / 2) : width - gutter;
-    if (mode === 'fit') return Math.min(1.5, Math.max(0.15, room / natural.width));
+    // A fitted page fits however large it is (a poster, a roll plot): a 15% floor left pages
+    // over about 4,000 points wide spilling out of a view that still said Fit width.
+    const least = 0.02;
+    if (mode === 'fit') return Math.min(1.5, Math.max(least, room / natural.width));
     if (mode === 'page') {
       // The sheet shares the workspace height with its padding and the caption beneath it.
       const vertical = width < 600 ? 70 : 92;
       return Math.max(
-        0.15,
+        least,
         Math.min(3, room / natural.width, (height - vertical) / natural.height),
       );
     }
