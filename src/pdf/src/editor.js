@@ -10282,11 +10282,13 @@ export function createEditor({
     const fontSize = 9 / viewport.userUnit;
     const labelWidth = label.length * fontSize * 0.6 + 8 / viewport.userUnit,
       labelHeight = fontSize * 1.6;
-    // The label sits centered just above the middle, as the page reads, turned or not.
+    // The label sits centered just above the middle, as the page reads, turned or not; below
+    // it by the top edge of the page, and moved in from the sides, so it stays on the page.
     const [cx, cy] = viewport.convertToViewportPoint(center.x, center.y);
     const unit = screenUnit();
-    const labelRect = readerRect(
-      { x: cx - (labelWidth / 2) * unit, y: cy - (2 + labelHeight) * unit },
+    const above = cy - (2 + labelHeight) * unit;
+    const labelRect = readerRectOnPage(
+      { x: cx - (labelWidth / 2) * unit, y: above >= 0 ? above : cy + 2 * unit },
       labelWidth,
       labelHeight,
     );
