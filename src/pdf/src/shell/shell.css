@@ -415,6 +415,11 @@
 .tool-command .tool-icon {
   flex: none;
 }
+/* Inside the row: the list scrolls, and so clipped the top of the first row's ring. */
+.tool-row:focus-visible,
+.tool-command:focus-visible {
+  outline-offset: -2px;
+}
 .tool-row-label,
 .tool-command-text {
   flex: 1;

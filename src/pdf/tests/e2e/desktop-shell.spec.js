@@ -2195,3 +2195,24 @@ test("the file name's keyboard focus ring shows in its tab", async ({ page }) =>
   });
   expect(cut).toBeNull();
 });
+
+test("the first tool's keyboard focus ring shows whole in the tools pane", async ({ page }) => {
+  await openPdf(page, await numberedPdf(1));
+  await page.getByRole('button', { name: 'Tools', exact: true }).first().click();
+  const pane = page.getByRole('complementary', { name: 'Tools' });
+  await pane.getByRole('button', { name: 'Close tools panel', exact: true }).focus();
+  const first = pane.getByRole('button', { name: 'Export a PDF', exact: true });
+  for (let i = 0; i < 5 && !(await first.evaluate((b) => b === document.activeElement)); i++)
+    await page.keyboard.press('Tab');
+  await expect(first).toBeFocused();
+  // The list scrolls, so it clipped the top of the ring drawn outside its first row.
+  const cut = await first.evaluate((button) => {
+    const style = getComputedStyle(button);
+    if (!button.matches(':focus-visible') || style.outlineStyle === 'none') return 'no ring';
+    const reach = parseFloat(style.outlineOffset) + parseFloat(style.outlineWidth);
+    const own = button.getBoundingClientRect();
+    const list = button.closest('.tools-panel-body').getBoundingClientRect();
+    return own.top - reach < list.top - 0.5 || own.left - reach < list.left - 0.5;
+  });
+  expect(cut).toBe(false);
+});
