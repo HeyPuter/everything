@@ -20,6 +20,7 @@ import {
   lengthOf,
   endpoints,
   distanceTo,
+  selfIntersections,
   closestPoint,
   arcFromBulge,
   ellipsePoint,
@@ -131,6 +132,34 @@ describe('offset', () => {
       expect(distanceTo(p, ring[i], ring[i + 1])).toBeGreaterThan(3 - 1e-9);
     }
     close(areaOf(o), 6.9085, 1e-4);
+  });
+  it('offsets heavily collapsing closed polylines into valid loops', () => {
+    // Fuzz-derived shapes whose offsets crossed themselves or came closer than
+    // the distance when collapsed segments were joined to far neighbours.
+    const inward = [
+      7.48, 0, -0.36, 2.31, 1.94, 0, 1.58, 8.95, 0.21, -2.61, 4.53, 0, -8.79, 3.2, 0, -2.9, -1.05,
+      0, -2.22, -3.84, 0, 1.04, -5.9, -0.26, 6.35, -5.33, 0,
+    ];
+    const outward = [
+      5.91, 0, -0.06, 2.97, 1.91, 0.38, 3.7, 8.11, 0, -1.35, 9.37, 0, -4.95, 5.71, 0, -8.33, 2.45,
+      -0.31, -9.42, -2.77, 0, -5.68, -6.56, 0.37, -0.87, -6.02, 0, 3.12, -6.84, 0.38, 3.83, -2.46,
+      -0.35,
+    ];
+    for (const [pts, sx] of [
+      [inward, 0],
+      [outward, 50],
+    ]) {
+      const p = { type: 'polyline', pts, closed: true, width: 0 };
+      const o = offsetEntity(p, 3, sx, 0);
+      expect(o).not.toBe(null);
+      for (const e of Array.isArray(o) ? o : [o]) {
+        expect(selfIntersections(e)).toEqual([]);
+        const [{ pts: ring }] = tessellate(e, 1e-4);
+        for (let i = 0; i < ring.length; i += 2) {
+          expect(distanceTo(p, ring[i], ring[i + 1])).toBeGreaterThan(3 - 1e-6);
+        }
+      }
+    }
   });
   it('offsets open polylines with tangent arcs keeping a constant distance', () => {
     const b = Math.tan(Math.PI / 8);
