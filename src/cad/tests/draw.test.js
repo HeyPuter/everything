@@ -513,3 +513,14 @@ describe('grip painting', () => {
     expect(painted.grips.filter((p) => p.state === 'hover')).toHaveLength(1);
   });
 });
+
+describe('undo in the middle of a command', () => {
+  it('takes back the polyline being drawn once the command has unwound', async () => {
+    await t.type('CIRCLE', '0,0', '5');
+    await t.type('PLINE', '10,0', '20,0', '20,10');
+    // What app.undo() does: stop the command, then undo.
+    await t.ed._stopActive();
+    t.drawing.undo();
+    expect(t.all().map((e) => e.type)).toEqual(['circle']);
+  });
+});

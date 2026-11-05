@@ -1247,10 +1247,13 @@ export class App {
     return this.editor.run(name, args);
   }
 
-  undo() {
+  async undo() {
     const d = this.doc?.drawing;
     if (!d) return;
-    if (this.editor.busy) this.editor.cancelAll();
+    // Let a running command unwind first: it may keep what it drew (LINE,
+    // PLINE), and that is what this undo should take back.
+    if (this.editor.busy) await this.editor._stopActive();
+    if (this.doc?.drawing !== d) return;
     const label = d.undo();
     this.cmdline.log(label ? `Undo ${label}` : 'Nothing to undo', 'muted');
   }
