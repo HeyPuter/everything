@@ -154,7 +154,10 @@ export class Renderer {
       highlight: [0.27, 0.56, 1, 1],
       hover: [0.27, 0.56, 1, 0.75],
     };
+    /** Problems found while drawing (e.g. 'hatch-dense'); each is passed to onWarning once per drawing. */
     this.warnings = new Set();
+    this.reported = new Set();
+    this.onWarning = null;
     this.patternRows = new Map();
     this.infiniteBlocks = new WeakMap();
     this.patternData = new Float32Array(PATTERN_W * PATTERN_ROWS);
@@ -230,6 +233,8 @@ export class Renderer {
 
   setDrawing(drawing) {
     this.drawing = drawing;
+    this.warnings.clear();
+    this.reported = new Set();
     this.hover = null;
     this.hidden = new Set();
     this.selection = new Set();
@@ -639,6 +644,11 @@ export class Renderer {
     gl.bindVertexArray(null);
 
     this.stats = { segments: segs, triangles: tris, chunks: this.chunks.length, frameMs: performance.now() - t0 };
+    for (const w of this.warnings) {
+      if (this.reported.has(w)) continue;
+      this.reported.add(w);
+      this.onWarning?.(w);
+    }
     if (pending) this.invalidate();
     this.onFrame?.();
   }

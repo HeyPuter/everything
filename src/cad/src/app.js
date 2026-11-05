@@ -92,6 +92,13 @@ export class App {
     this.camera = new Camera();
     try {
       this.renderer = new Renderer(shell.glCanvas, this.camera);
+      this.renderer.onWarning = (w) => {
+        if (w !== 'hatch-dense') return;
+        this.cmdline?.log(
+          'A hatch pattern is too dense to draw line by line, so it is shown as a tint. Increase its pattern scale to see the lines.',
+          'muted',
+        );
+      };
     } catch (err) {
       this.fatal('This app needs WebGL2, which this browser or device does not provide. Try a current version of Chrome, Edge, Firefox or Safari.', err);
       return;

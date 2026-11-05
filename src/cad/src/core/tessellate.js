@@ -318,17 +318,22 @@ function emitHatch(ent, sink, ctx, style) {
     for (const poly of solidPolygons(rings)) sink.fill(poly, solid);
     return;
   }
+  const tint = () => {
+    for (const poly of solidPolygons(rings)) sink.fill(poly, { ...solid, alpha: (solid.alpha ?? 1) * 0.35 });
+  };
   // On screen, a pattern finer than about a pixel reads as a tint: draw it as one.
   if (!ctx.plot) {
     let spacing = Infinity;
     for (const f of pat.families) spacing = Math.min(spacing, Math.abs(f.dy) * (ent.scale || 1));
-    if (spacing < ctx.tol * 6) {
-      for (const poly of solidPolygons(rings)) sink.fill(poly, { ...solid, alpha: (solid.alpha ?? 1) * 0.35 });
-      return;
-    }
+    if (spacing < ctx.tol * 6) return tint();
   }
   const res = patternSegments(rings, pat, ent.scale || 1, ent.angle || 0, { maxSegments: ctx.hatchLimit });
-  if (res.truncated && ctx.warnings) ctx.warnings.add('hatch-dense');
+  // Too many lines to generate: a partial pattern would leave part of the area
+  // (or all of it) empty, so cover the whole area with the tint instead.
+  if (res.truncated) {
+    ctx.warnings?.add('hatch-dense');
+    return tint();
+  }
   const segs = res.segs;
   if (sink.segs) sink.segs(segs, solid);
   else for (let i = 0; i < segs.length; i += 4) sink.line([segs[i], segs[i + 1], segs[i + 2], segs[i + 3]], false, solid);

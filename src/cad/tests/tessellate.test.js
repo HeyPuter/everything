@@ -135,6 +135,23 @@ describe('emitEntity', () => {
     expect(lines.every((i) => i.kind === 'line')).toBe(true);
   });
 
+  it('tints the whole area of a hatch too dense to generate, and warns', () => {
+    const d = drawing();
+    const big = [[0, 0, 0, 3000, 0, 0, 3000, 3000, 0, 0, 3000, 0]];
+    for (const pattern of ['CROSS', 'DASH']) {
+      for (const plot of [false, true]) {
+        const warnings = new Set();
+        const ent = { ...P, type: 'hatch', loops: big, pattern, scale: 1, angle: 0 };
+        const items = emit(d, ent, { hatchLimit: 1000, warnings, plot });
+        expect(items).toHaveLength(1);
+        expect(items[0].kind).toBe('fill');
+        expect(items[0].rings[0]).toHaveLength(8);
+        expect(items[0].style.alpha).toBeCloseTo(0.35);
+        expect([...warnings]).toEqual(['hatch-dense']);
+      }
+    }
+  });
+
   it('clips construction lines to the view', () => {
     const d = drawing();
     const [it] = emit(d, { ...P, type: 'xline', x: 0, y: 0, dx: 1, dy: 0 }, { view: [-10, -10, 10, 10] });
