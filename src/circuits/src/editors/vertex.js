@@ -20,6 +20,29 @@ export function handlesOf(o) {
   return [];
 }
 
+/**
+ * Removes corners where an open polyline doubles back along itself
+ * (A -> B -> C on one line with C heading back towards A): the overlap is a
+ * dead stub, and A -> C covers the rest with the same two ends. A wire
+ * folded entirely onto itself collapses to a point, which callers reject.
+ */
+function dropFoldBacks(pts) {
+  const out = [...pts];
+  for (let i = 2; i + 3 < out.length; ) {
+    const ax = out[i - 2], ay = out[i - 1], bx = out[i], by = out[i + 1], cx = out[i + 2], cy = out[i + 3];
+    const cross = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
+    const dot = (bx - ax) * (cx - bx) + (by - ay) * (cy - by);
+    if (cross === 0 && dot < 0) {
+      out.splice(i, 2);
+      const merged = simplifyPolyline(out);
+      out.length = 0;
+      out.push(...merged);
+      i = 2;
+    } else i += 2;
+  }
+  return out;
+}
+
 /** Returns the object with one vertex moved. */
 export function moveVertex(o, index, x, y) {
   if (POLY_TYPES.has(o.t)) {
@@ -28,7 +51,7 @@ export function moveVertex(o, index, x, y) {
     pts[index * 2 + 1] = y;
     const closed = o.t === 'pour' || o.t === 'region';
     // Open polylines merge collinear corners; closed outlines keep their corners.
-    return { ...o, pts: closed ? pts : simplifyPolyline(pts) };
+    return { ...o, pts: closed ? pts : dropFoldBacks(simplifyPolyline(pts)) };
   }
   if (o.t === 'track' || o.t === 'dim') return index === 0 ? { ...o, x1: x, y1: y } : { ...o, x2: x, y2: y };
   if (o.t === 'grect') {

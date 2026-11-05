@@ -16,6 +16,7 @@ import { drawSchObject } from '../src/render/sch-scene.js';
 import { schBounds, graphicBox, textBox, fieldText, SCH_TEXT } from '../src/model/sch.js';
 import { placeSymbol, fieldPosition } from '../src/model/place.js';
 import { createExampleProject } from '../src/app/demo.js';
+import { moveVertex } from '../src/editors/vertex.js';
 import { bboxIntersects, bboxUnion, bboxEmpty } from '../src/core/geom.js';
 import { schObjectPrims, sheetFrame as exportFrame, sheetSize } from '../src/io/schgraphics.js';
 import { textStrokes } from '../src/render/font.js';
@@ -752,5 +753,39 @@ describe('exported title block', () => {
     }
     const rev = prims.find((p) => p.role === 'frameText' && p.text === 'C');
     expect(rev.size).toBe(2.2e6);
+  });
+});
+
+describe('wire corner editing', () => {
+  const G = mil(100);
+  const wire = (...p) => ({ id: 'w', t: 'wire', pts: p.flat().map((v) => v * G) });
+
+  it('drops the part of a wire that doubles back on itself', () => {
+    // Pulling the end back over the wire keeps the wire up to the new end.
+    expect(moveVertex(wire([0, 0], [10, 0], [10, 5]), 2, 4 * G, 0).pts).toEqual([0, 0, 4 * G, 0]);
+    // Pulling a middle corner past the end leaves a straight wire between the ends.
+    expect(moveVertex(wire([0, 0], [5, 5], [10, 0]), 1, 15 * G, 0).pts).toEqual([0, 0, 10 * G, 0]);
+    // Ordinary corners are untouched.
+    expect(moveVertex(wire([0, 0], [10, 0], [10, 5]), 2, 12 * G, 5 * G).pts).toEqual(
+      [0, 0, 10, 0, 12, 5].map((v) => v * G),
+    );
+  });
+
+  it('refuses to fold a wire onto its own start', async () => {
+    app = await boot();
+    const ed = app.activeEditor;
+    ed.doc.store.transact('w', (s) => s.add(wire([10, 66], [20, 66], [20, 70])));
+    const before = ed.doc.store.get('w').pts;
+    ed.endVertexDrag({ id: 'w', index: 2, x: 10 * G, y: 66 * G }, true);
+    expect(ed.doc.store.get('w').pts).toEqual(before);
+    // The same drag onto the far corner's line keeps a proper wire.
+    ed.endVertexDrag({ id: 'w', index: 1, x: 20 * G, y: 70 * G }, true);
+    const pts = ed.doc.store.get('w').pts;
+    for (let i = 2; i + 3 < pts.length; i += 2) {
+      const [ax, ay, bx, by, cx, cy] = pts.slice(i - 2, i + 4);
+      const cross = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
+      const dot = (bx - ax) * (cx - bx) + (by - ay) * (cy - by);
+      expect(cross === 0 && dot < 0).toBe(false);
+    }
   });
 });
