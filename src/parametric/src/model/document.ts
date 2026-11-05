@@ -232,6 +232,7 @@ export class DocStore {
   private undoStack: { snap: string; label: string }[] = [];
   private redoStack: { snap: string; label: string }[] = [];
   private listeners = new Set<Listener>();
+  private historyFilters = new Set<(doc: Omit<PartDocument, 'blobs'>) => void>();
   private batchDepth = 0;
   private batchSnap: string | null = null;
   private batchLabel = '';
@@ -254,6 +255,7 @@ export class DocStore {
   /** Replaces the whole document (open/new); clears history. */
   load(doc: PartDocument) {
     this.doc = doc;
+    this.historyFilters.clear();
     this.undoStack = [];
     this.redoStack = [];
     this.dropped = 0;
@@ -266,10 +268,21 @@ export class DocStore {
     this.emit('load');
   }
 
+  /** Excludes a transient preview from history without changing the visible document.
+   * The filter receives an isolated copy without import blobs; unsubscribe before applying the preview.
+   */
+  filterHistory(fn: (doc: Omit<PartDocument, 'blobs'>) => void): () => void {
+    this.historyFilters.add(fn);
+    return () => { this.historyFilters.delete(fn); };
+  }
+
   private snapshot(): string {
     const { blobs: _blobs, ...rest } = this.doc;
     void _blobs;
-    return JSON.stringify(rest);
+    if (!this.historyFilters.size) return JSON.stringify(rest);
+    const snapshot = structuredClone(rest);
+    for (const filter of this.historyFilters) filter(snapshot);
+    return JSON.stringify(snapshot);
   }
 
   private restore(snap: string) {

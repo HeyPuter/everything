@@ -294,10 +294,23 @@ test.describe('sketching', () => {
       return ed.dimValue(ed.sketch.constraints.find((c) => c.id === 'diameter') as import('../../src/model/types').SkDimension);
     });
     expect(value).toBeCloseTo(25.4, 9);
+    if (editor === 'Modify live') for (const command of ['undo', 'redo']) {
+      const state = await page.evaluate((command) => {
+        const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+        a.commands.run(command);
+        const ed = a.sketchEditor!;
+        const dim = ed.sketch.constraints.find((c) => c.id === 'diameter') as import('../../src/model/types').SkDimension;
+        const circle = ed.sketch.entities.find((e) => e.id === 'circle');
+        return { value: ed.dimValue(dim), expression: dim.value, radius: circle?.t === 'circle' ? circle.r : null };
+      }, command);
+      expect(state.value).toBeCloseTo(25.4, 9);
+      expect(state.radius).toBeCloseTo(12.7, 9);
+      expect(state.expression).toBe(command === 'undo' ? '=Width' : action === 'rename' ? '=Span' : '=25.4');
+    }
     expect(errors).toEqual([]);
   });
 
-  for (const action of ['invalid cancel', 'invalid correction', 'live cancel', 'live accept', 'linked cancel'] as const) test(`an open Modify box preserves unit meaning on ${action}`, async ({ page }) => {
+  for (const action of ['invalid cancel', 'invalid correction', 'live cancel', 'live accept', 'linked cancel', 'live undo'] as const) test(`an open Modify box preserves unit meaning on ${action}`, async ({ page }) => {
     const errors = await openApp(page);
     await startSketch(page);
     await page.evaluate((action) => {
@@ -326,7 +339,8 @@ test.describe('sketching', () => {
       }, '/src/model/document.ts');
       await expect(input).toHaveValue(action === 'linked cancel' ? '=Width*2' : '=2');
     }
-    if (action.endsWith('cancel')) await input.press('Escape');
+    if (action === 'live undo') await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.commands.run('undo'));
+    else if (action.endsWith('cancel')) await input.press('Escape');
     else {
       if (action === 'invalid correction') await input.fill('2');
       await input.press('Enter');
@@ -337,12 +351,34 @@ test.describe('sketching', () => {
       const d = ed.sketch.constraints.find((c) => c.id === 'diameter') as import('../../src/model/types').SkDimension;
       return { value: ed.dimValue(d), expression: d.value, units: ed.app.store.doc.units };
     });
-    expect((await dimension()).value).toBeCloseTo(action.endsWith('cancel') ? 25.4 : 50.8, 9);
+    expect((await dimension()).value).toBeCloseTo(action.endsWith('cancel') || action === 'live undo' ? 25.4 : 50.8, 9);
+    if (action === 'live undo') {
+      expect((await dimension()).units).toBe('MMGS');
+      await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.commands.run('redo'));
+      expect((await dimension()).units).toBe('IPS');
+      expect((await dimension()).value).toBeCloseTo(25.4, 9);
+    }
     if (action === 'linked cancel') expect((await dimension()).expression).toBe('=Width');
     if (action === 'live accept') {
       await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.commands.run('undo'));
       expect((await dimension()).value).toBeCloseTo(25.4, 9);
       expect((await dimension()).units).toBe('IPS');
+      await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.commands.run('undo'));
+      expect((await dimension()).units).toBe('MMGS');
+      expect((await dimension()).value).toBeCloseTo(25.4, 9);
+      await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.commands.run('redo'));
+      expect((await dimension()).units).toBe('IPS');
+      expect((await dimension()).value).toBeCloseTo(25.4, 9);
+      await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.commands.run('redo'));
+      expect((await dimension()).value).toBeCloseTo(50.8, 9);
+    }
+    if (action.endsWith('cancel')) {
+      await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.commands.run('undo'));
+      expect((await dimension()).units).toBe('MMGS');
+      expect((await dimension()).value).toBeCloseTo(25.4, 9);
+      await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.commands.run('redo'));
+      expect((await dimension()).units).toBe('IPS');
+      expect((await dimension()).value).toBeCloseTo(25.4, 9);
     }
     expect(errors).toEqual([]);
   });

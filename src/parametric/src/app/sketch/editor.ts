@@ -81,6 +81,7 @@ export class SketchEditor implements ViewportTool {
   /** Undoes the open modify box's live preview when it closes without applying. */
   private modifyRevert: (() => void) | null = null;
   private modifyCleanup: (() => void) | null = null;
+  private modifyHistoryCleanup: (() => void) | null = null;
   private modifySyncExpressions: ((references: Map<string, string | number>) => void) | null = null;
   showRelations = true;
   showDimensions = true;
@@ -573,13 +574,25 @@ export class SketchEditor implements ViewportTool {
     // from the geometry as it was, and cancel or apply restore it first, so the
     // undo step holds the true state from before the change.
     const geometry = new Map(sk.entities.map((e) => [e.id, e.t === 'point' ? [e.x, e.y] : e.t === 'circle' ? [e.r] : null]));
-    const restoreGeometry = () => {
-      for (const e of this.sketch.entities) {
+    const restoreGeometry = (target = this.sketch) => {
+      for (const e of target.entities) {
         const g = geometry.get(e.id);
         if (!g) continue;
         if (e.t === 'point') { e.x = g[0]; e.y = g[1]; } else if (e.t === 'circle') e.r = g[0];
       }
     };
+    this.modifyHistoryCleanup = this.app.store.filterHistory((doc) => {
+      const target = doc.features.find((f) => f.id === this.sketchId);
+      if (target?.type !== 'sketch') return;
+      const dim = target.constraints.find((c) => c.id === dimId);
+      if (!dim || !isDimension(dim)) return;
+      // Another transaction may already have changed units or references before
+      // the editor receives its notification. Convert the baseline for that snapshot.
+      const baseline = { ...target, entities: [], constraints: [{ ...dim, value: original }] };
+      changeFeatureUnits(baseline, units, doc.units, variables, doc.variables);
+      dim.value = baseline.constraints[0].value;
+      restoreGeometry(target);
+    });
     const evalText = (t: string): { ok: true; v: Param } | { ok: false; e: string } => {
       const s = t.trim();
       try {
@@ -608,6 +621,8 @@ export class SketchEditor implements ViewportTool {
         restoreGeometry();
         this.resolve();
       } else {
+        this.modifyHistoryCleanup?.();
+        this.modifyHistoryCleanup = null;
         const dd = this.sketch.constraints.find((c) => c.id === dimId) as SkDimension;
         dd.value = original;
         restoreGeometry();
@@ -679,6 +694,8 @@ export class SketchEditor implements ViewportTool {
 
   /** Closes the modify box; a value that was not applied is reverted. */
   closeModify() {
+    this.modifyHistoryCleanup?.();
+    this.modifyHistoryCleanup = null;
     this.modifySyncExpressions = null;
     this.modifyCleanup?.();
     this.modifyCleanup = null;

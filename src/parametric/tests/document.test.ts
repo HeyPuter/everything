@@ -25,6 +25,63 @@ describe('document store', () => {
     expect(st.undoDepth).toBe(2);
   });
 
+  it('excludes a transient preview from history without changing the visible document', () => {
+    const st = new DocStore(newDocument('Original'));
+    st.doc.blobs.large = 'kept outside history';
+    const stop = st.filterHistory((doc) => {
+      expect('blobs' in doc).toBe(false);
+      doc.decimals = 2;
+    });
+    st.doc.decimals = 5;
+    st.change('Rename', (doc) => { doc.name = 'Renamed'; });
+    expect(st.doc.decimals).toBe(5);
+    expect(st.doc.name).toBe('Renamed');
+    st.undo();
+    expect(st.doc).toMatchObject({ name: 'Original', decimals: 2 });
+    st.redo();
+    expect(st.doc).toMatchObject({ name: 'Renamed', decimals: 2 });
+    expect(st.doc.blobs.large).toBe('kept outside history');
+    stop();
+    st.change('Accept preview', (doc) => { doc.decimals = 5; });
+    st.undo();
+    expect(st.doc.decimals).toBe(2);
+    st.redo();
+    expect(st.doc.decimals).toBe(5);
+  });
+
+  it('excludes previews from batch history and restore points', () => {
+    const st = new DocStore(newDocument('Original'));
+    const stop = st.filterHistory((doc) => { doc.decimals = 2; });
+    st.doc.decimals = 5;
+    const restore = st.restorePoint('Session');
+    st.beginBatch('Rename');
+    st.change('First rename', (doc) => { doc.name = 'First'; });
+    st.change('Second rename', (doc) => { doc.name = 'Second'; });
+    st.endBatch();
+    expect(st.doc.decimals).toBe(5);
+    st.undo();
+    expect(st.doc).toMatchObject({ name: 'Original', decimals: 2 });
+    st.redo();
+    expect(st.doc).toMatchObject({ name: 'Second', decimals: 2 });
+    restore();
+    expect(st.doc).toMatchObject({ name: 'Original', decimals: 2 });
+    st.redo();
+    expect(st.doc).toMatchObject({ name: 'Second', decimals: 2 });
+    stop();
+  });
+
+  it('clears preview history filters when a different document is loaded', () => {
+    const st = new DocStore(newDocument('Old'));
+    const stop = st.filterHistory((doc) => { doc.name = 'Old'; });
+    st.load(newDocument('New'));
+    st.change('Rename', (doc) => { doc.name = 'New renamed'; });
+    st.undo();
+    expect(st.doc.name).toBe('New');
+    st.redo();
+    expect(st.doc.name).toBe('New renamed');
+    stop();
+  });
+
   it('keeps large blobs out of undo snapshots', () => {
     const st = new DocStore(newDocument());
     st.doc.blobs.b1 = 'x'.repeat(1000);
