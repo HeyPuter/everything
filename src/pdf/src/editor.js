@@ -6132,7 +6132,14 @@ export function createEditor({
     target.addEventListener('pointerdown', (e) => {
       if (e.button !== 0 || busy || !pageReady) return;
       saveNoteNudge();
-      noteDrag = { id, pointer: e.pointerId, x: e.clientX, y: e.clientY, moved: false };
+      noteDrag = {
+        id,
+        pointer: e.pointerId,
+        x: e.clientX,
+        y: e.clientY,
+        moved: false,
+        stop: () => window.removeEventListener('keydown', escapeDrag, true),
+      };
       target.setPointerCapture(e.pointerId);
       window.addEventListener('keydown', escapeDrag, true);
     });
@@ -6224,6 +6231,10 @@ export function createEditor({
   }
   /** Clickable icons for the page's notes, shown in Select and with the Note tool. */
   function renderNoteTargets() {
+    // A drag cannot go on across a redraw (a zoom, say): its target and pointer capture are
+    // gone. Left behind, it took the next Escape and the next click on the note.
+    noteDrag?.stop();
+    noteDrag = null;
     noteTargets.replaceChildren();
     noteTargets.hidden = !['select', 'note'].includes(tool);
     if (!viewport) return;
