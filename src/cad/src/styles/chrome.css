@@ -1394,4 +1394,9 @@ body.clean-screen .app-root {
     min-width: 36px;
     min-height: 36px;
   }
+  .btn.sm,
+  .dock .input.sm,
+  .dialog .input.sm {
+    min-height: 36px;
+  }
 }
