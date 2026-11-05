@@ -48,7 +48,7 @@ export class Camera {
   target: Vec3 = [0, 0, 0];
   distance = 200;
   rot: Quat = VIEWS.trimetric;
-  ortho = true;
+  private isOrtho = true;
   fov = (30 * Math.PI) / 180;
   width = 1;
   height = 1;
@@ -58,6 +58,14 @@ export class Camera {
   sceneBounds: { center: Vec3; radius: number } | null = null;
   private anim: { from: CameraState; to: CameraState; t0: number; dur: number } | null = null;
   onChange: () => void = () => {};
+
+  get ortho(): boolean { return this.isOrtho; }
+
+  /** Switching the projection during a view animation also changes where it lands. */
+  set ortho(v: boolean) {
+    this.isOrtho = v;
+    if (this.anim) { this.anim.from = { ...this.anim.from, ortho: v }; this.anim.to = { ...this.anim.to, ortho: v }; }
+  }
 
   get right(): Vec3 { return qRotate(this.rot, [1, 0, 0]); }
   get up(): Vec3 { return qRotate(this.rot, [0, 1, 0]); }
@@ -224,7 +232,7 @@ export class Camera {
     this.rot = qSlerp(a.from.rot, a.to.rot, t);
     this.target = [0, 1, 2].map((i) => a.from.target[i] + (a.to.target[i] - a.from.target[i]) * t) as Vec3;
     this.distance = a.from.distance * Math.pow(a.to.distance / a.from.distance, t);
-    this.ortho = a.to.ortho;
+    this.isOrtho = a.to.ortho;
     if (t >= 1) this.anim = null;
     return !!this.anim;
   }

@@ -93,6 +93,23 @@ describe('camera', () => {
     expect(c.viewName()).toBeNull();
   });
 
+  it('keeps a projection switched during a view animation', () => {
+    const c = new Camera();
+    c.width = 800; c.height = 600;
+    c.setState({ target: [0, 0, 0], distance: 100, rot: VIEWS.isometric, ortho: true });
+    vi.stubGlobal('matchMedia', () => ({ matches: false }));
+    c.animateTo({ target: [0, 0, 0], distance: 80, rot: VIEWS.front, ortho: true }, 200);
+    vi.unstubAllGlobals();
+    const t0 = performance.now();
+    c.tick(t0 + 60);
+    c.ortho = false;
+    c.tick(t0 + 120);
+    expect(c.ortho).toBe(false);
+    expect(c.tick(t0 + 1000)).toBe(false);
+    expect(c.ortho).toBe(false);
+    expect(c.viewName()).toBe('front');
+  });
+
   it('keeps everything drawn inside the clip range, not just the model', () => {
     // A 2 m sketch on the Top Plane with no body yet: the model radius is the default.
     const corners: [number, number, number][] = [[0, 0, 0], [2000, 0, 0], [2000, 0, -1500], [0, 0, -1500]];
