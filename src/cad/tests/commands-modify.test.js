@@ -126,3 +126,21 @@ describe('FILLET and CHAMFER', () => {
     expect(t.all()).toHaveLength(2);
   });
 });
+
+describe('JOIN', () => {
+  it('does not bridge visible gaps far from the origin', async () => {
+    add({ type: 'line', x1: 4e6, y1: 5e5, x2: 4e6 + 10, y2: 5e5 });
+    add({ type: 'line', x1: 4e6 + 10.5, y1: 5e5, x2: 4e6 + 20, y2: 5e5 });
+    t.ed.setSelection([1, 2]);
+    await t.type('JOIN');
+    expect(t.all('line')).toHaveLength(2);
+  });
+
+  it('joins touching lines far from the origin', async () => {
+    add({ type: 'line', x1: 4e6, y1: 5e5, x2: 4e6 + 10, y2: 5e5 });
+    add({ type: 'line', x1: 4e6 + 10, y1: 5e5, x2: 4e6 + 10, y2: 5e5 + 10 });
+    t.ed.setSelection([1, 2]);
+    await t.type('JOIN');
+    expect(t.all('polyline')).toHaveLength(1);
+  });
+});

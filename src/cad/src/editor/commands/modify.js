@@ -752,9 +752,26 @@ export const JOIN = {
       return;
     }
     const ents = ids.map((id) => ed.drawing.get(id));
+    // Endpoints must meet within a tolerance relative to the size of the
+    // selection (not its distance from the origin, which made gaps of
+    // whole units join at survey coordinates), above float noise.
+    let x0 = Infinity,
+      y0 = Infinity,
+      x1 = -Infinity,
+      y1 = -Infinity;
+    for (const id of ids) {
+      const b = ed.doc.index.bounds(id);
+      if (!b) continue;
+      x0 = Math.min(x0, b[0]);
+      y0 = Math.min(y0, b[1]);
+      x1 = Math.max(x1, b[2]);
+      y1 = Math.max(y1, b[3]);
+    }
+    const size = Number.isFinite(x0) ? Math.hypot(x1 - x0, y1 - y0) : 1;
+    const far = Number.isFinite(x0) ? Math.max(Math.abs(x0), Math.abs(y0), Math.abs(x1), Math.abs(y1)) : 1;
     let res;
     try {
-      res = joinEntities(ents, 1e-6 * Math.max(1, ...ents.map((e) => Math.abs(e.x1 ?? e.cx ?? 1))));
+      res = joinEntities(ents, Math.max(1e-6 * Math.max(size, 1e-3), 1e-11 * far, 1e-12));
     } catch (err) {
       console.warn(err);
       res = null;
