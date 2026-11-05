@@ -151,7 +151,12 @@ export class LayerManager {
       const lw = h('select.input.sm', { 'aria-label': `Lineweight for layer ${name}` }, [LW_DEFAULT, ...LINEWEIGHTS].map((w) => h('option', { value: w, selected: w === l.lineweight }, lwLabel(w))));
       lw.addEventListener('change', () => this.app.setLayerProp(name, { lineweight: Number(lw.value) }));
       const tr = h('input.input.sm', { type: 'number', min: 0, max: 90, step: 5, value: l.transparency || 0, 'aria-label': `Transparency for layer ${name}` });
-      tr.addEventListener('change', () => this.app.setLayerProp(name, { transparency: Math.max(0, Math.min(90, Number(tr.value) || 0)) }));
+      tr.addEventListener('change', () => {
+        const v = Math.max(0, Math.min(90, Number(tr.value) || 0));
+        // Show the value actually stored (the field keeps focus, so no re-render updates it).
+        tr.value = v;
+        this.app.setLayerProp(name, { transparency: v });
+      });
       const desc = h('input.input.sm', { type: 'text', value: l.description || '', 'aria-label': `Description for layer ${name}` });
       desc.addEventListener('change', () => this.app.setLayerProp(name, { description: desc.value }));
       for (const el of [tr, desc]) el.addEventListener('keydown', (e) => e.stopPropagation());
