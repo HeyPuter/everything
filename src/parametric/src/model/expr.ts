@@ -112,6 +112,8 @@ export function evaluate(src: string, opts: EvalOptions = {}): number {
         const f = table?.[u.v];
         // Explicit units convert to the display unit; the result is scaled once at the end.
         if (f !== undefined) { pos++; return (t.v * f) / bare; }
+        // Variables and counts are plain numbers: say so rather than "Unexpected text".
+        if (!table && (Object.hasOwn(LENGTH_SUFFIX, u.v) || Object.hasOwn(ANGLE_SUFFIX, u.v))) throw new ExprError(`A unit ("${u.v}") cannot be used here; give a plain number`);
       }
       return t.v;
     }

@@ -62,6 +62,12 @@ describe('expression evaluator', () => {
     expect(renameReferences('2.5e3 * W', m)).toBe('2.5e3 * Width');
   });
 
+  it('says a unit cannot be used where a plain number goes', () => {
+    expect(() => evaluate('50mm')).toThrow('A unit ("mm") cannot be used here; give a plain number');
+    expect(evaluateVariables([{ name: 'W', expr: '2 in' }]).errors.get('W')).toMatch(/unit \("in"\)/);
+    expect(evaluate('50mm', { kind: 'length' })).toBe(50);
+  });
+
   it('reserves the names a variable would be shadowed by or confused with', () => {
     // A variable "pi" evaluated to its own value but =pi*2 used the constant.
     expect(evaluateVariables([{ name: 'pi', expr: '3' }, { name: 'b', expr: 'pi*2' }]).values.get('b')).toBeCloseTo(2 * Math.PI);
