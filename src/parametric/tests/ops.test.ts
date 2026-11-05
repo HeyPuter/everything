@@ -754,6 +754,31 @@ describe('editing tools', () => {
     expect(ix.pt(lines[0].b)).toEqual([5, 2]);
   });
 
+  it.each(['trim', 'extend'])('%s leaves an equal-sided polygon as it was', (op) => {
+    const s = sk([{ id: 'c', t: 'point', x: 0, y: 0 }, { id: 'circ', t: 'circle', c: 'c', r: 20, construction: true }]);
+    for (let i = 0; i < 6; i++) s.entities.push({ id: `v${i}`, t: 'point', x: 20 * Math.cos((i * Math.PI) / 3), y: 20 * Math.sin((i * Math.PI) / 3) });
+    for (let i = 0; i < 6; i++) s.entities.push({ id: `l${i}`, t: 'line', a: `v${i}`, b: `v${(i + 1) % 6}` });
+    for (let i = 0; i < 6; i++) s.constraints.push({ id: `k${i}`, type: 'coincident', refs: [`v${i}`, 'circ'] });
+    s.constraints.push({ id: 'eq', type: 'equal', refs: ['l0', 'l1', 'l2', 'l3', 'l4', 'l5'] });
+    // A line across side l0 to trim it back to, or a short line inside to extend to l0.
+    s.entities.push({ id: 'q0', t: 'point', x: 15, y: op === 'trim' ? -5 : 2 }, { id: 'q1', t: 'point', x: 15, y: op === 'trim' ? 30 : 6 }, { id: 'm', t: 'line', a: 'q0', b: 'q1' });
+    if (op === 'extend') {
+      // ...whose length is tied to another short line, which must not follow the extension.
+      s.entities.push({ id: 'n0', t: 'point', x: 40, y: 0 }, { id: 'n1', t: 'point', x: 40, y: 4 }, { id: 'n', t: 'line', a: 'n0', b: 'n1' });
+      s.constraints.push({ id: 'eqm', type: 'equal', refs: ['m', 'n'] });
+    }
+    solveSketch(s.entities, s.constraints, { value });
+    const corners = () => ['v1', 'v2', 'v3', 'v4', 'v5', ...(op === 'extend' ? ['n0', 'n1'] : [])].map((id) => new SketchIndex(s.entities).pt(id).map((v) => Math.round(v * 1e6) / 1e6));
+    const before = corners();
+    expect(op === 'trim' ? trimAt(s, 'l0', [18, 3.5], idFactory(s)) : extendAt(s, 'm', [15, 5.5], idFactory(s))).toBe(true);
+    const res = solveSketch(s.entities, s.constraints, { value });
+    expect(res.badConstraints.size).toBe(0);
+    expect(corners()).toEqual(before);
+    // The changed line left the equal relation; the others still share it.
+    expect(s.constraints.find((c) => c.id === 'eq')!.refs).toEqual(op === 'trim' ? ['l1', 'l2', 'l3', 'l4', 'l5'] : ['l0', 'l1', 'l2', 'l3', 'l4', 'l5']);
+    expect(s.constraints.some((c) => c.id === 'eqm')).toBe(false);
+  });
+
   it('fillets a corner that a construction diagonal also ends at, keeping the diagonal on the virtual sharp', () => {
     const s = sk([...rect(0, 0, 40, 30, 'r'), { id: 'c', t: 'point', x: 20, y: 15 },
       { id: 'd1', t: 'line', a: 'rp0', b: 'rp2', construction: true }, { id: 'd2', t: 'line', a: 'rp1', b: 'rp3', construction: true }]);

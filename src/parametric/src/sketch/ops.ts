@@ -356,9 +356,23 @@ function cutEnd(sk: SketchFeature, cut: { p: Vec2; by?: Id }, newId: (p: string)
   return id;
 }
 
-/** Drops dimensions of a line's own length, which no longer apply once it is trimmed or extended. */
+/**
+ * Drops what measures a line's length or ends, which no longer applies once
+ * it is trimmed or extended: its own length dimensions, and its place in
+ * equal-length, midpoint and symmetric relations (an equal polygon side would
+ * otherwise pull every other side to its new length).
+ */
 function dropLengthDimensions(sk: SketchFeature, lineId: Id) {
-  sk.constraints = sk.constraints.filter((k) => !(isDimension(k) && k.refs.length === 1 && k.refs[0] === lineId && (k.type === 'distance' || k.type === 'hdistance' || k.type === 'vdistance')));
+  sk.constraints = sk.constraints.flatMap((k): SkConstraint[] => {
+    if (isDimension(k)) return k.refs.length === 1 && k.refs[0] === lineId && (k.type === 'distance' || k.type === 'hdistance' || k.type === 'vdistance') ? [] : [k];
+    if (k.type === 'equal' && k.refs.includes(lineId)) {
+      const refs = k.refs.filter((r) => r !== lineId);
+      return refs.length >= 2 ? [{ ...k, refs }] : [];
+    }
+    if (k.type === 'midpoint' && k.refs.includes(lineId)) return [];
+    if (k.type === 'symmetric' && k.refs.slice(0, -1).includes(lineId)) return [];
+    return [k];
+  });
 }
 
 /**
