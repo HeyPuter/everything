@@ -56,6 +56,23 @@ export function padBox(p, grow = 0) {
   return { minX: p.x - hx - grow, minY: p.y - hy - grow, maxX: p.x + hx + grow, maxY: p.y + hy + grow };
 }
 
+/**
+ * First pair of differently numbered pads whose copper overlaps or touches,
+ * as [numA, numB], or null. Such a footprint shorts its pins together.
+ */
+export function overlappingPads(pads) {
+  const boxes = pads.map((p) => padBox(p));
+  for (let i = 0; i < pads.length; i++) {
+    for (let j = i + 1; j < pads.length; j++) {
+      if (pads[i].num === pads[j].num) continue;
+      const A = boxes[i], B = boxes[j];
+      const touch = A.minX <= B.maxX && B.minX <= A.maxX && A.minY <= B.maxY && B.minY <= A.maxY;
+      if (touch) return [pads[i].num, pads[j].num];
+    }
+  }
+  return null;
+}
+
 /** Liang-Barsky: parameter interval of segment inside a box, or null. */
 function segBoxInterval(x1, y1, x2, y2, b) {
   const dx = x2 - x1, dy = y2 - y1;

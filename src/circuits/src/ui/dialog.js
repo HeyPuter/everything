@@ -152,14 +152,15 @@ export function buildForm(fields) {
     }
     return out;
   };
-  const validate = () => {
+  // focus: false checks without moving focus, for live previews while typing.
+  const validate = ({ focus = true } = {}) => {
     for (const [, { f, input }] of inputs) {
       input.removeAttribute('aria-invalid');
       const raw = f.type === 'bool' ? input.checked : input.value;
       let v = raw;
       if (f.parse) v = f.parse(raw);
       const bad = (f.parse && (v === null || Number.isNaN(v))) || (f.type === 'number' && (raw === '' || Number.isNaN(Number(raw)) || (f.min != null && Number(raw) < f.min) || (f.max != null && Number(raw) > f.max))) || (f.required && !String(raw).trim());
-      if (bad) { input.setAttribute('aria-invalid', 'true'); input.focus(); return `${f.label}: ${f.error || 'enter a valid value'}`; }
+      if (bad) { input.setAttribute('aria-invalid', 'true'); if (focus) input.focus(); return `${f.label}: ${f.error || 'enter a valid value'}`; }
     }
     return null;
   };

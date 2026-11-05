@@ -6,6 +6,7 @@ import { h, clear, nextId } from '../ui/dom.js';
 import { openDialog, buildForm, confirmDialog } from '../ui/dialog.js';
 import * as S from '../model/library/symbols.js';
 import { FOOTPRINT_WIZARDS, SYMBOL_WIZARD, parsePinTable } from '../model/library/wizards.js';
+import { overlappingPads } from '../model/library/footprints.js';
 import { BUILTIN_COMPONENTS, CATEGORIES } from '../model/library/builtin.js';
 import { drawSymbolPreview, drawFootprintPreview } from '../ui/preview.js';
 import { resolvedTheme } from './theme.js';
@@ -89,6 +90,7 @@ export async function newComponentDialog(app, { start = 'symbol', edit = null } 
   const symCanvas = h('canvas', { style: { width: '100%', height: '180px' }, 'aria-hidden': 'true' });
   const fpCanvas = h('canvas', { style: { width: '100%', height: '180px' }, 'aria-hidden': 'true' });
   const status = h('div.small', { 'aria-live': 'polite' });
+  const err = h('div.small.sev-error', { role: 'alert' });
 
   const renderSymExtra = () => {
     clear(symExtra);
@@ -122,14 +124,25 @@ export async function newComponentDialog(app, { start = 'symbol', edit = null } 
     if (k === 'connector2') return S.connector2(Math.max(1, Math.min(40, Number(conCount.value) || 1)));
     return SYMBOLS.find(([id]) => id === k)?.[2]?.() || null;
   };
+  // Why the chosen wizard could not make a usable footprint, or ''.
+  let fpError = '';
   const buildFootprint = () => {
+    fpError = '';
     const k = fpSel.value;
     if (k === 'keep') return base.footprint;
     if (k === 'none') return null;
     if (k === 'copy') return structuredClone(BUILTIN_COMPONENTS.find((d) => d.id === copySel.value)?.footprint || null);
     const w = FOOTPRINT_WIZARDS.find((x) => x.id === k.slice(4));
-    if (!fpForm || fpForm.validate()) return null;
-    try { return w.generate(fpForm.values()); } catch (err) { status.textContent = err.message; return null; }
+    if (!fpForm) return null;
+    const invalid = fpForm.validate({ focus: false });
+    if (invalid) { fpError = `Footprint: ${invalid}`; return null; }
+    let fp;
+    try { fp = w.generate(fpForm.values()); } catch (e) { fpError = `Footprint: ${e.message}`; return null; }
+    const clash = overlappingPads(fp.pads);
+    if (clash) {
+      fpError = `Pads ${clash[0]} and ${clash[1]} overlap. Increase the pitch or spacing, or make the pads smaller.`;
+    }
+    return fp;
   };
 
   let current = { symbol: null, footprint: null };
@@ -143,6 +156,8 @@ export async function newComponentDialog(app, { start = 'symbol', edit = null } 
     drawFootprintPreview(fpCanvas, def, theme);
     // Pins and pads should match one to one.
     clear(status);
+    err.textContent = '';
+    if (fpError) status.append(h('div.sev-error', fpError));
     if (symbol && footprint) {
       const pads = new Set(footprint.pads.map((p) => p.num));
       const pins = new Set(symbol.pins.map((p) => p.num));
@@ -169,7 +184,6 @@ export async function newComponentDialog(app, { start = 'symbol', edit = null } 
     status);
 
   let created = null;
-  const err = h('div.small.sev-error', { role: 'alert' });
   body.append(err);
   const dlg = openDialog({
     title: edit ? `Edit ${edit.name}` : 'New component', size: 'xwide',
@@ -181,6 +195,7 @@ export async function newComponentDialog(app, { start = 'symbol', edit = null } 
         if (msg) { err.textContent = msg; return false; }
         update();
         if (!current.symbol || !current.symbol.pins) { err.textContent = 'The symbol is empty. Add at least one pin.'; return false; }
+        if (fpError) { fpForm?.validate(); err.textContent = fpError; return false; }
         const g = general.values();
         const id = edit?.id || `user-${safeName(g.name).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}-${uid().slice(-5)}`;
         created = {
