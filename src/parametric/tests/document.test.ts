@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DocStore, changeUnits, mapExpressions, newDocument, parseDocument, serializeDocument } from '../src/model/document';
+import { DocStore, changeFeatureUnits, changeUnits, mapExpressions, newDocument, parseDocument, serializeDocument } from '../src/model/document';
 import { defaultName, dependencies, newExtrude } from '../src/model/features';
 import type { ExtrudeFeature, Feature, SkDimension, SketchFeature } from '../src/model/types';
 import { rect, sketch } from './helpers';
@@ -190,6 +190,35 @@ describe('document store', () => {
     expect(e.depth).toBe('=Depth');
     changeUnits(doc, 'MMGS');
     expect(doc.variables[0].expr).toBe('100');
+  });
+
+  it('converts a pending feature against the converted document variables', () => {
+    const doc = newDocument();
+    doc.variables = [{ id: 'v1', name: 'Width', expr: '100' }];
+    const saved = newExtrude('f1', 'Extrude1', 's1', false, 10);
+    saved.depth = '=Width';
+    doc.features = [saved];
+    const pending = structuredClone(saved);
+    pending.depth = '=Width/2 + 10';
+    const before = structuredClone(doc.variables);
+    changeUnits(doc, 'IPS');
+    expect(changeFeatureUnits(pending, 'MMGS', 'IPS', before, doc.variables)).toEqual([]);
+    expect(typeof pending.depth).toBe('string');
+    expect(pending.depth).toContain('Width');
+    expect(new DocStore(doc).evalParam(pending.depth, 'length')).toBeCloseTo(60, 8);
+    expect(saved.depth).toBe('=Width');
+  });
+
+  it('preserves a pending value without changing the converted part variables', () => {
+    const doc = newDocument();
+    doc.variables = [{ id: 'v1', name: 'Count', expr: '4' }];
+    const pending = newExtrude('f1', 'Extrude1', 's1', false, 10);
+    pending.depth = '=Count*2';
+    const before = structuredClone(doc.variables);
+    changeUnits(doc, 'IPS');
+    expect(changeFeatureUnits(pending, 'MMGS', 'IPS', before, doc.variables)).toEqual(['Extrude1 Depth']);
+    expect(pending.depth).toBe(8);
+    expect(doc.variables).toEqual(before);
   });
 
   it('keeps a value that cannot be converted as the number it was', () => {

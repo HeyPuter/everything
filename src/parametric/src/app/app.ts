@@ -669,6 +669,11 @@ export class App {
   private fitOnNextBuild = false;
 
   private onStoreChange(reason: string) {
+    const unlinked = this.panel?.syncUnits();
+    if (unlinked != null) {
+      this.showLeft('pm');
+      if (unlinked.length) toast({ kind: 'warning', title: 'Some pending equations were replaced by their values', message: unlinked.join(', '), timeout: 9000 });
+    }
     if (reason === 'load') {
       const previous = this.documentLifetime;
       this.documentLifetime = new AbortController();

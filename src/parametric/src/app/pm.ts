@@ -83,6 +83,9 @@ export abstract class PropertyPanel {
   /** Called when the panel is removed. */
   dispose(): void {}
 
+  /** Refreshes pending values after unit changes; null means controls need no refresh. */
+  syncUnits(): string[] | null { return null; }
+
   mount(): HTMLElement {
     this.boxes = [];
     this.msgEl = h('div', { class: 'pm-msg', role: 'status', hidden: true });

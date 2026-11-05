@@ -420,6 +420,60 @@ test('Redo while a feature panel is open is not undone by the panel', async ({ p
   expect(errors).toEqual([]);
 });
 
+for (const kind of ['numeric', 'expression'] as const) test(`changing units preserves an open feature's pending ${kind} edit`, async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.editFeature('f1'));
+  const depth = page.getByRole('textbox', { name: 'Depth', exact: true });
+  await depth.fill(kind === 'expression' ? '=40' : '40');
+  await depth.press('Tab');
+  await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.commands.run('properties'));
+  const properties = page.getByRole('dialog', { name: 'Part Properties', exact: true });
+  await properties.getByRole('combobox', { name: 'Unit system' }).selectOption('IPS');
+  await properties.getByRole('button', { name: 'OK', exact: true }).click();
+  if (kind === 'numeric') {
+    await depth.fill('2');
+    await depth.press('Enter');
+  }
+  await page.getByRole('button', { name: 'OK', exact: true }).first().click();
+  const value = await page.evaluate(async () => {
+    const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+    await a.whenBuilt();
+    const f = a.store.feature('f1');
+    return f?.type === 'extrude' ? a.store.evalParam(f.depth, 'length') : null;
+  });
+  expect(value).toBeCloseTo(kind === 'numeric' ? 50.8 : 40, 8);
+  await expect(page.locator('.ti.error')).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
+for (const edited of [false, true]) test(`unit changes preserve a feature panel's edited state and cancellation (${edited})`, async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.editFeature('f1'));
+  if (edited) {
+    await page.getByRole('textbox', { name: 'Depth', exact: true }).fill('40');
+    await page.getByRole('textbox', { name: 'Depth', exact: true }).press('Tab');
+  }
+  for (const units of ['IPS', 'MMGS']) {
+    await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.commands.run('properties'));
+    const properties = page.getByRole('dialog', { name: 'Part Properties', exact: true });
+    await properties.getByRole('combobox', { name: 'Unit system' }).selectOption(units);
+    await properties.getByRole('button', { name: 'OK', exact: true }).click();
+    expect(await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.panel?.edited)).toBe(edited);
+  }
+  await expect(page.getByRole('textbox', { name: 'Depth', exact: true })).toHaveValue(edited ? '40' : '30');
+  await page.getByRole('button', { name: 'Cancel', exact: true }).first().click();
+  const value = await page.evaluate(async () => {
+    const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+    await a.whenBuilt();
+    const f = a.store.feature('f1');
+    return f?.type === 'extrude' ? f.depth : null;
+  });
+  expect(value).toBe(30);
+  expect(errors).toEqual([]);
+});
+
 for (const units of ['MMGS', 'MKS', 'IPS'] as const) test(`accepting an unchanged Depth field preserves its precision in ${units}`, async ({ page }) => {
   const errors = await openApp(page);
   await page.getByRole('button', { name: /Mounting Bracket/ }).click();

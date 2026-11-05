@@ -4,7 +4,7 @@
 
 import { convertExpressionUnits, evaluate, evaluateVariables } from './expr';
 import { PARAM_FIELDS, type ParamKind, getPath, setPath } from './features';
-import type { Feature, Id, Param, PartDocument, SkDimension, SketchFeature, UnitSystem } from './types';
+import type { Feature, Id, Param, PartDocument, SkDimension, SketchFeature, UnitSystem, Variable } from './types';
 import { isDimension } from './types';
 import { UNIT_SYSTEMS } from './units';
 import { uniqueId } from './ids';
@@ -134,6 +134,18 @@ export function mapExpressions(doc: PartDocument, fn: (src: string, kind: ParamK
  * the values that were unlinked that way.
  */
 export function changeUnits(doc: PartDocument, units: UnitSystem): string[] {
+  return convertUnits(doc, units);
+}
+
+/** Converts an uncommitted feature against the variables of the converted part. */
+export function changeFeatureUnits(feature: Feature, from: UnitSystem, to: UnitSystem, before: Variable[], after: Variable[]): string[] {
+  const doc = newDocument('', from);
+  doc.features = [feature];
+  doc.variables = structuredClone(before);
+  return convertUnits(doc, to, after);
+}
+
+function convertUnits(doc: PartDocument, units: UnitSystem, variablesAfter?: Variable[]): string[] {
   if (doc.units === units || !Object.hasOwn(UNIT_SYSTEMS, units)) return [];
   const k = UNIT_SYSTEMS[doc.units].scale / UNIT_SYSTEMS[units].scale;
   const values = (d: PartDocument) => {
@@ -160,6 +172,7 @@ export function changeUnits(doc: PartDocument, units: UnitSystem): string[] {
   let i = 0;
   mapExpressions(doc, (src) => converted[i++] ?? src);
   doc.units = units;
+  if (variablesAfter) doc.variables = variablesAfter;
   // Whatever did not keep its value becomes the plain number it was.
   const after = values(doc);
   const unlinked: string[] = [];
