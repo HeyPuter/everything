@@ -882,6 +882,11 @@ export const LENGTHEN = {
       if (!pick || pick.option) return;
       const e = pick.ent;
       const len = lengthOf(e);
+      if (!(len > 1e-12)) {
+        // A zero-length line has no direction to grow along.
+        ed.ui.log('That object has no length to change.', 'error');
+        continue;
+      }
       const target = mode === 'delta' ? len + v : mode === 'total' ? v : (len * v) / 100;
       if (!(target > 1e-12)) {
         ed.ui.log('The new length must be greater than zero.', 'error');
