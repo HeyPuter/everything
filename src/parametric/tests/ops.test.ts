@@ -89,6 +89,38 @@ describe('editing tools', () => {
     expect(lengths[1]).toBeCloseTo(3, 9);
   });
 
+  it('keeps both pieces of a line split by trimming on one line', () => {
+    const s = sk([
+      { id: 'a', t: 'point', x: 0, y: 0 }, { id: 'b', t: 'point', x: 10, y: 0 }, { id: 'h', t: 'line', a: 'a', b: 'b' },
+      { id: 'c', t: 'point', x: 3, y: -2 }, { id: 'd', t: 'point', x: 3, y: 2 }, { id: 'v1', t: 'line', a: 'c', b: 'd' },
+      { id: 'e', t: 'point', x: 7, y: -2 }, { id: 'f', t: 'point', x: 7, y: 2 }, { id: 'v2', t: 'line', a: 'e', b: 'f' },
+    ]);
+    s.constraints.push({ id: 'hz', type: 'horizontal', refs: ['h'] }, { id: 'o', type: 'coincident', refs: ['a', 'O'] });
+    const before = solveSketch(s.entities, s.constraints, { value }).dof;
+    expect(trimAt(s, 'h', [5, 0], idFactory(s))).toBe(true);
+    // The far piece stays on the line of the original (it does not swing free).
+    const res = solveSketch(s.entities, s.constraints, { value, drag: { kind: 'points', ids: ['b'], targets: [[12, 4]] } });
+    expect(res.converged).toBe(true);
+    expect(new SketchIndex(s.entities).pt('b')[1]).toBeCloseTo(0, 6);
+    expect(solveSketch(s.entities, s.constraints, { value }).dof).toBe(before);
+  });
+
+  it('keeps both pieces of a split arc on one circle', () => {
+    const s = sk([
+      { id: 'o', t: 'point', x: 0, y: 0 }, { id: 'pa', t: 'point', x: 5, y: 0 }, { id: 'pb', t: 'point', x: -5, y: 0 },
+      { id: 'arc', t: 'arc', c: 'o', a: 'pa', b: 'pb' },
+      { id: 'c', t: 'point', x: -1, y: -8 }, { id: 'd', t: 'point', x: -1, y: 8 }, { id: 'v1', t: 'line', a: 'c', b: 'd' },
+      { id: 'e', t: 'point', x: 1, y: -8 }, { id: 'f', t: 'point', x: 1, y: 8 }, { id: 'v2', t: 'line', a: 'e', b: 'f' },
+    ]);
+    expect(trimAt(s, 'arc', [0, 5], idFactory(s))).toBe(true);
+    const res = solveSketch(s.entities, s.constraints, { value, drag: { kind: 'points', ids: ['pb'], targets: [[-8, 0]] } });
+    expect(res.converged).toBe(true);
+    const ix = new SketchIndex(s.entities);
+    const arcs = s.entities.filter((e) => e.t === 'arc') as Parameters<typeof arcRadius>[1][];
+    expect(arcs).toHaveLength(2);
+    expect(arcRadius(ix, arcs[0])).toBeCloseTo(arcRadius(ix, arcs[1]), 6);
+  });
+
   it('keeps a trimmed line trimmed and its new end on the cutting line', () => {
     const s = sk([
       { id: 'a', t: 'point', x: 0, y: 0 }, { id: 'b', t: 'point', x: 10, y: 0 }, { id: 'h', t: 'line', a: 'a', b: 'b' },

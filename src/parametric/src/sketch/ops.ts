@@ -374,6 +374,10 @@ export function trimAt(sk: SketchFeature, curveId: Id, at: Vec2, newId: (p: stri
       const copy = { ...e, id: newId(e.t === 'line' ? 'l' : 'a'), a: p2, b: endId } as SkLine | SkArc;
       e.b = p1;
       sk.entities.push(copy);
+      // The two pieces stay one curve: the far piece would otherwise lose the
+      // original's relations (horizontal, tangent...) and swing free. Arcs
+      // already share their centre point, so equal radii keep them coradial.
+      sk.constraints.push({ id: newId('r'), type: e.t === 'line' ? 'collinear' : 'equal', refs: [e.id, copy.id] });
       moveConstraintsOnPoint(sk, endId, copy.id, e.id);
       return true;
     }
