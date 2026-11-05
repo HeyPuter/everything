@@ -84,7 +84,8 @@ export class FeatureCodec {
         f.cut = cut;
         if (has('sketch')) f.sketch = refs.sketch(a.sketch).id;
         if (has('end')) f.end = choice(a.end, END, 'end');
-        if (has('depth')) f.depth = len('depth');
+        // A depth given without an end means that depth, also for a cut (new cuts default to through_all).
+        if (has('depth')) { f.depth = len('depth'); if (!has('end') && f.end === 'throughAll') f.end = 'blind'; }
         else if (!base && f.end !== 'throughAll') throw new ToolError('depth is required unless end is through_all');
         if (has('reverse')) f.flip = bool(a.reverse, 'reverse');
         if (has('direction2')) {
@@ -155,7 +156,7 @@ export class FeatureCodec {
           }
         }
         if (has('end')) f.end = choice(a.end, END2, 'end');
-        else if (!base && has('depth')) f.end = 'blind';
+        else if (has('depth') && f.end === 'throughAll') f.end = 'blind';
         if (has('depth')) f.depth = len('depth');
         if (has('cb_diameter')) f.cbDiameter = len('cb_diameter');
         if (has('cb_depth')) f.cbDepth = len('cb_depth');

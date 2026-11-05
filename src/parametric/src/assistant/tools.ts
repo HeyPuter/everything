@@ -207,7 +207,7 @@ const TOOLS: ToolDef[] = [
   featureTool('extrude', 'Extrude a sketch\'s closed profiles into a boss (adds material) or a cut. Bosses go along the sketch normal, cuts against it (into the face a sketch sits on); reverse flips that.', {
     sketch: S('Profile sketch id'),
     cut: B('Remove material instead of adding it'),
-    end: S('End condition (default blind; cuts default to through_all)', { enum: ['blind', 'through_all', 'mid_plane'] }),
+    end: S('End condition (default blind; a cut given no depth goes through_all)', { enum: ['blind', 'through_all', 'mid_plane'] }),
     depth: PARAM('Depth (blind), or total depth (mid_plane, half each side)'),
     reverse: B('Extrude the other way'),
     direction2: { anyOf: [{ type: 'null' }, obj({ end: S('End condition', { enum: ['blind', 'through_all'] }), depth: PARAM('Depth') })], description: 'Also extrude the opposite way' },

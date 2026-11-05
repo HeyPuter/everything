@@ -19,6 +19,8 @@ async function plate() {
   return { h, r };
 }
 
+const topFace = (h: TestHost) => h.faces.find((f) => f.name.endsWith(':cap1'))!.name;
+
 describe('assistant tools', () => {
   it.each([0, 1e9])('constructs an arc through the requested points at coordinate offset %s', async (offset) => {
     const h = new TestHost();
@@ -249,5 +251,22 @@ describe('assistant tools', () => {
     const x = await h.call('add_extrude', { sketch: 's1', depth: 0.01 });
     expect(x.content).toContain('Volume 0.000002469 m³');
     expect((await h.call('mass_properties', {})).content).toMatch(/surface area 0\.00\d+ m²/);
+  });
+
+  it('cuts and drills to a depth that is given, also when changing a through-all one', async () => {
+    const { h } = await plate();
+    await h.call('create_sketch', { plane: topFace(h), shapes: [{ type: 'circle', center: [10, 10, 5], radius: 5 }] });
+    await h.call('add_extrude', { sketch: h.store.doc.features.at(-1)!.id, cut: true, depth: 3 });
+    expect(await h.volume()).toBeCloseTo(40000 - Math.PI * 25 * 3, 1);
+    const cut = h.store.doc.features.at(-1)!.id;
+    await h.call('edit_feature', { feature: cut, params: { end: 'through_all' } });
+    expect(await h.volume()).toBeCloseTo(40000 - Math.PI * 25 * 10, 1);
+    await h.call('edit_feature', { feature: cut, params: { depth: 4 } });
+    expect(await h.volume()).toBeCloseTo(40000 - Math.PI * 25 * 4, 1);
+    await h.call('add_hole', { on: topFace(h), points: [[-20, 10, 0]], diameter: 6 });
+    const hole = h.store.doc.features.at(-1)!.id;
+    expect(await h.volume()).toBeCloseTo(40000 - Math.PI * 25 * 4 - Math.PI * 9 * 10, 1);
+    await h.call('edit_feature', { feature: hole, params: { depth: 3 } });
+    expect(await h.volume()).toBeCloseTo(40000 - Math.PI * 25 * 4 - Math.PI * 9 * 3, 1);
   });
 });
