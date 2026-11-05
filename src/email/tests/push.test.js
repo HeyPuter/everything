@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { turnOnPush, turnOffPush, ensureSubscription, stopListening, listenForPushes } from '../src/ui/push.js';
+import { turnOnPush, turnOffPush, ensureSubscription, stopListening, listenForPushes, dismissNewMail } from '../src/ui/push.js';
 import { NOTIFY_HANDLER, NEW_MAIL_SUBJECT, clickedMessage, needsHomeScreen } from '../src/lib/notify.js';
 
 /**
@@ -268,5 +268,27 @@ describe('notification helpers', () => {
     expect(needsHomeScreen(iphone, media(true))).toBe(false);
     expect(needsHomeScreen({ ...iphone, standalone: true }, media(false))).toBe(false);
     expect(needsHomeScreen({ userAgent: 'Mozilla/5.0 (Linux; Android 14)' }, media(false))).toBe(false);
+  });
+});
+
+describe('dismissNewMail()', () => {
+  it('dismisses the new-mail notification shown here, and nothing else', async () => {
+    const dismiss = vi.fn(async () => true);
+    globalThis.puter = { notifications: { dismiss } };
+    const shown = [
+      { tag: 'app-uid:inbox', data: { puter: { uid: 'n1' } } },
+      { tag: 'app-uid:snooze-1', data: { puter: { uid: 'n2' } } },
+      { tag: 'app-uid:inbox', data: {} },
+    ];
+    Object.defineProperty(navigator, 'serviceWorker', {
+      configurable: true, value: { getRegistration: async () => ({ getNotifications: async () => shown }) },
+    });
+    try {
+      await dismissNewMail();
+      expect(dismiss.mock.calls).toEqual([['n1']]);
+    } finally {
+      delete navigator.serviceWorker;
+      delete globalThis.puter;
+    }
   });
 });

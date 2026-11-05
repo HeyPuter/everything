@@ -98,6 +98,8 @@ const onNotificationClick = (click) => {
   }
   if (openClicked) openClicked(click);
   else heldClick = click;
+  // Closes the same notification on the user's other devices.
+  if (click?.uid) puter.notifications.dismiss(click.uid).catch(() => {});
 };
 
 const signOut = async () => {
