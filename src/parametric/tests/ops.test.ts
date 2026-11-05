@@ -604,6 +604,25 @@ describe('editing tools', () => {
     expect(arcs.map((a) => arcRadius(ix, a as never)).sort()).toEqual([expect.closeTo(4, 9), expect.closeTo(5, 9)]);
   });
 
+  for (const distance of [1, 1e6]) for (const reverse of [false, true]) it(`joins line/arc offsets at distance ${distance}, reverse traversal ${reverse}`, () => {
+    const s = sk([
+      { id: 'c', t: 'point', x: 0, y: 0 }, { id: 'a', t: 'point', x: 1, y: 0 }, { id: 'b', t: 'point', x: 0, y: 1 },
+      { id: 'line', t: 'line', a: 'c', b: 'a' }, { id: 'arc', t: 'arc', c: 'c', a: 'a', b: 'b' },
+    ]);
+    const original = structuredClone(s.entities);
+    const created = offsetCurves(s, reverse ? ['arc', 'line'] : ['line', 'arc'], reverse ? distance : -distance, idFactory(s));
+    expect(created).toHaveLength(2);
+    const ix = new SketchIndex(s.entities);
+    const line = created.map((id) => ix.get(id)).find((e) => e?.t === 'line')!;
+    const arc = created.map((id) => ix.get(id)).find((e) => e?.t === 'arc')!;
+    expect([line.a, line.b]).toContain(arc.a);
+    expect(ix.pt(arc.a)[0]).toBeCloseTo(Math.sqrt(1 + 2 * distance), 6);
+    expect(ix.pt(arc.a)[1]).toBeCloseTo(-distance, 6);
+    expect(arcRadius(ix, arc)).toBeCloseTo(1 + distance, 6);
+    expect(s.entities.filter((e) => original.some((o) => o.id === e.id))).toEqual(original);
+    expect(solveSketch(s.entities, s.constraints, { value }).converged).toBe(true);
+  });
+
   it('offsets a closed rectangle outward', () => {
     const s = sk(rect(0, 0, 10, 10, 'r'));
     const created = offsetCurves(s, ['rl0', 'rl1', 'rl2', 'rl3'], 2, idFactory(s));

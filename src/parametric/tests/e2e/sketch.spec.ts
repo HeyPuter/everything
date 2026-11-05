@@ -39,6 +39,39 @@ async function startSketch(page: Page) {
 }
 
 test.describe('sketching', () => {
+  test('Offset joins a short line to its arc beyond the former extension range through Undo/Redo', async ({ page }) => {
+    const errors = await openApp(page);
+    await startSketch(page);
+    await page.evaluate(() => {
+      const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+      a.sketchEditor!.edit('Add connected line and arc', (sk) => sk.entities.push(
+        { id: 'c', t: 'point', x: 0, y: 0 }, { id: 'a', t: 'point', x: 1, y: 0 }, { id: 'b', t: 'point', x: 0, y: 1 },
+        { id: 'line', t: 'line', a: 'c', b: 'a' }, { id: 'arc', t: 'arc', c: 'c', a: 'a', b: 'b' },
+      ));
+      a.selection.set([{ kind: 'sk', id: 'line' }, { kind: 'sk', id: 'arc' }]);
+      a.commands.run('offset');
+    });
+    await page.getByRole('textbox', { name: 'Offset distance', exact: true }).fill('1000000');
+    await page.getByRole('checkbox', { name: 'Reverse (inward)', exact: true }).check();
+    await page.getByRole('button', { name: 'OK', exact: true }).first().click();
+    const geometry = () => page.evaluate(() => {
+      const ed = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.sketchEditor!;
+      const line = ed.sketch.entities.find((e) => e.t === 'line' && e.id !== 'line');
+      const arc = ed.sketch.entities.find((e) => e.t === 'arc' && e.id !== 'arc');
+      return {
+        count: ed.sketch.entities.filter((e) => e.t !== 'point').length,
+        joined: line?.t === 'line' && arc?.t === 'arc' && [line.a, line.b].includes(arc.a),
+        converged: ed.solve?.converged,
+      };
+    });
+    expect(await geometry()).toEqual({ count: 4, joined: true, converged: true });
+    await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.commands.run('undo'));
+    expect((await geometry()).count).toBe(2);
+    await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.commands.run('redo'));
+    expect(await geometry()).toEqual({ count: 4, joined: true, converged: true });
+    expect(errors).toEqual([]);
+  });
+
   for (const offset of [0, 20]) test(`the rectangle tool creates a filletable corner at ${offset},${offset}`, async ({ page }) => {
     const errors = await openApp(page);
     await startSketch(page);

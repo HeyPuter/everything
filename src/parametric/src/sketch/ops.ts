@@ -652,8 +652,10 @@ export function offsetCurves(sk: SketchFeature, ids: Id[], distance: number, new
       if (x.kind === 'line' && y.kind === 'line') p = lineIntersection(x.a, x.b, y.a, y.b);
       else {
         const prims = (o: Off) => (o.kind === 'line' ? { kind: 'seg' as const, a: o.a, b: o.b } : { kind: 'circ' as const, c: o.c, r: o.r });
-        const far = (o: Off) => (o.kind === 'line' ? { ...prims(o), a: [o.a[0] - (o.b[0] - o.a[0]) * 1e3, o.a[1] - (o.b[1] - o.a[1]) * 1e3] as Vec2, b: [o.b[0] + (o.b[0] - o.a[0]) * 1e3, o.b[1] + (o.b[1] - o.a[1]) * 1e3] as Vec2 } : prims(o));
-        const pts = intersectPrims(far(x), far(y));
+        // Joins use supporting lines, with no arbitrary extension-distance cap.
+        const px = prims(x), py = prims(y);
+        const pts = x.kind === 'line' ? intersectPrims(px, py, true)
+          : y.kind === 'line' ? intersectPrims(py, px, true) : intersectPrims(px, py);
         const mid: Vec2 = [(x.b[0] + y.a[0]) / 2, (x.b[1] + y.a[1]) / 2];
         p = pts.sort((u, v) => dist2(u, mid) - dist2(v, mid))[0] ?? null;
       }
