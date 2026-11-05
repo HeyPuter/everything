@@ -945,7 +945,7 @@ export class App {
   }
 
   private onSelectionChange(hoverOnly = false) {
-    this.viewport.refreshStates();
+    this.viewport.refreshStates(hoverOnly);
     // Pre-highlighting only changes the graphics: rebuilding the tree and the
     // PropertyManager on every hover would also throw away a rename or a
     // field being typed in.

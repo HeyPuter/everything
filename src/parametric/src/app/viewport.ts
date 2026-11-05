@@ -473,8 +473,12 @@ export class Viewport {
 
   // ---------- overlays ----------
 
-  /** Re-uploads selection/hover states and reference overlays. */
-  refreshStates() {
+  /**
+   * Re-uploads selection/hover states and reference overlays. `hoverOnly`:
+   * only the hovered item changed, so visible sketches are re-tessellated
+   * only when the hover moved onto or off a sketch.
+   */
+  refreshStates(hoverOnly = false) {
     const app = this.app;
     const faces = new Uint8Array(app.faces.length);
     const edges = new Uint8Array(app.edges.length);
@@ -491,7 +495,7 @@ export class Viewport {
     for (const it of app.extraHighlights()) mark(it, STATE_SELECTED);
     this.renderer.setStates(faces, edges);
     this.drawVertices();
-    this.drawReferenceGeometry();
+    this.drawReferenceGeometry(hoverOnly);
   }
 
   /** Hovered and selected vertices as dots: they have no faces or edges to light up. */
@@ -523,7 +527,7 @@ export class Viewport {
   }
 
   /** Planes, origin and visible (non-active) sketches. */
-  drawReferenceGeometry() {
+  drawReferenceGeometry(hoverOnly = false) {
     const app = this.app;
     const r = this.renderer;
     const b = app.bbox;
@@ -563,8 +567,16 @@ export class Viewport {
     r.setLines('planes', linePos.length ? { positions: new Float32Array(linePos), colors: new Uint8Array(lineCol), width: 1.2, depth: 'test', order: 0 } : null);
 
     this.drawOrigin();
-    this.drawSketches();
+    if (!hoverOnly || this.sketchHoverKey() !== this.drawnSketchHover) this.drawSketches();
   }
+
+  /** The hovered feature, the only hover that changes how sketches are drawn. */
+  private sketchHoverKey(): Id | null {
+    const h = this.app.selection.hover;
+    return h?.kind === 'feature' ? h.id : null;
+  }
+
+  private drawnSketchHover: Id | null = null;
 
   /**
    * Keeps pixel-sized reference geometry in step with the view: the origin
@@ -610,6 +622,7 @@ export class Viewport {
     const built = app.store.doc.features.slice(0, app.store.builtCount);
     const sel = app.selection;
     this.sketchPx = this.camera.pixelSize;
+    this.drawnSketchHover = this.sketchHoverKey();
     if (this.showSketches) {
       for (const f of built) {
         if (f.type !== 'sketch' || f.suppressed || app.featureStatus(f.id)?.suppressed) continue;
