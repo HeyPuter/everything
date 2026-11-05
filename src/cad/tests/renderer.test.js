@@ -104,4 +104,16 @@ describe('Renderer chunks', () => {
     expect(t.r.chunkOf.size).toBe(5000);
     expect([...t.r.chunks.at(-1).ids]).toEqual(ids);
   });
+
+  it('redraws at once when a resize clears the canvas', () => {
+    let frames = 0;
+    const orig = t.r.frame.bind(t.r);
+    t.r.frame = () => (frames++, orig());
+    t.r.resize(800, 600, 2);
+    expect(t.r.canvas.width).toBe(1600);
+    expect(frames).toBe(1);
+    // Same size: nothing was cleared, so the frame can wait.
+    t.r.resize(800, 600, 2);
+    expect(frames).toBe(1);
+  });
 });

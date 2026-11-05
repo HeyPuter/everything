@@ -439,13 +439,16 @@ export class Renderer {
     this.dpr = dpr;
     const w = Math.max(1, Math.round(cssW * dpr)),
       h = Math.max(1, Math.round(cssH * dpr));
-    if (this.canvas.width !== w || this.canvas.height !== h) {
+    const changed = this.canvas.width !== w || this.canvas.height !== h;
+    if (changed) {
       this.canvas.width = w;
       this.canvas.height = h;
     }
     this.camera.setSize(cssW, cssH);
     this.infDirty = true;
-    this.invalidate();
+    // Resizing clears the canvas; draw now so the next paint is not blank.
+    if (changed && this.drawing && !this._lost) this.frame();
+    else this.invalidate();
   }
 
   invalidate() {
