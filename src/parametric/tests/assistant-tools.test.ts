@@ -497,4 +497,13 @@ describe('assistant tools', () => {
     // It read "D1 distance [r_l0] 40 mm = =W*2".
     expect(r.content).toContain('D1 distance [r_l0] 40 mm (=W*2)');
   });
+
+  it('suggests edges as well as faces for a name measure does not know', async () => {
+    const { h } = await plate();
+    const edge = h.edges.find((e) => e.name.startsWith('f2:cap1|'))!.name;
+    // It said "no face named", suggesting only faces, for a misspelt edge name.
+    const r = await h.call('measure', { a: `${edge}x`, b: topFace(h) }, false);
+    expect(r.content).toMatch(/^Error: a: no face or edge named ".*x" in the current model\. Similar names: .*\|.*Use find_geometry/);
+    expect(r.content).toContain(edge);
+  });
 });

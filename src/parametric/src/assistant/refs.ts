@@ -100,6 +100,13 @@ export class Refs {
     throw new ToolError(`${what}: no edge named "${s}" in the current model. Similar names: ${similar(s, edges.map((x) => x.name)).join(', ')}. Use find_geometry to list edges.`);
   }
 
+  /** The error for a name that is neither a face nor an edge (measure takes either). */
+  noFaceOrEdge(s: string, what: string): ToolError {
+    const names = [...this.host.faces.map((x) => x.name), ...this.host.edges.map((x) => x.name)];
+    if (!names.length) return new ToolError(`${what}: the part has no faces or edges yet`);
+    return new ToolError(`${what}: no face or edge named "${s}" in the current model. Similar names: ${similar(s, names).join(', ')}. Use find_geometry to list faces and edges.`);
+  }
+
   // A name a feature already stores keeps its reference: what it names may be gone
   // from the final body (a fillet's own edges), and the model gives back what get_model said.
   faceRefs(v: unknown, what: string, stored: FaceRef[] = []): FaceRef[] {

@@ -539,8 +539,8 @@ class Toolkit {
     if (fi >= 0) return { t: { kind: 'face', index: fi }, label: `face ${s}`, normal: this.host.faces[fi].normal };
     const ei = this.host.edges.findIndex((e) => e.name === s);
     if (ei >= 0) return { t: { kind: 'edge', index: ei }, label: `edge ${s}`, dir: this.host.edges[ei].dir };
-    this.refs.faceInfo(s, what);
-    throw new ToolError(`${what}: not found`);
+    // A misspelt edge name was answered with "no face named" and face names only.
+    throw this.refs.noFaceOrEdge(s, what);
   }
 
   async measure(a: Obj): Promise<string> {
