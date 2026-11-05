@@ -98,7 +98,9 @@ export class ComponentsPanel {
       this.list.append(li);
     }
     if (defs.length > MAX_ROWS) this.list.append(h('li.panel-empty.small', { role: 'presentation' }, `${defs.length - MAX_ROWS} more. Refine the search to see them.`));
-    if (!this.selected || !defs.includes(this.selected)) this.select(defs[0], false);
+    // Keep the selection by id: placing a built-in copies it into the project.
+    const keep = this.selected && defs.find((d) => d.id === this.selected.id);
+    if (!keep || keep !== this.selected) this.select(keep || defs[0], !!keep);
   }
 
   select(def, scroll = true) {

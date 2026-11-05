@@ -15,6 +15,7 @@ import { Project, newProjectData } from '../src/model/project.js';
 
 // jsdom has no 2D canvas; previews draw nothing.
 HTMLCanvasElement.prototype.getContext = () => null;
+Element.prototype.scrollIntoView ??= () => {};
 
 const tick = () => new Promise((r) => setTimeout(r, 0));
 const button = (text) =>
@@ -158,6 +159,24 @@ describe('components panel', () => {
     panel.search.dispatchEvent(new Event('input'));
     expect(panel.selected.name).toBe('Header 1x2');
     expect(panel.list.getAttribute('aria-activedescendant')).toBe('cmp-hdr-1x02');
+  });
+
+  it('keeps the selected part selected after placing copies it into the project', () => {
+    const app = {
+      project: new Project(newProjectData('Panel test')),
+      userLibrary: { all: () => [] },
+      commands: { run: vi.fn() },
+      on: () => {},
+    };
+    app.project.ensureComponent(findComponent('ic-555-soic8'));
+    const panel = new ComponentsPanel(app);
+    panel.refresh();
+    panel.select(findComponent('cap-0805'));
+    app.project.ensureComponent(findComponent('cap-0805'));
+    panel.refresh();
+    expect(panel.selected.id).toBe('cap-0805');
+    expect(panel.selected).toBe(app.project.library['cap-0805']);
+    expect(panel.list.getAttribute('aria-activedescendant')).toBe('cmp-cap-0805');
   });
 });
 
