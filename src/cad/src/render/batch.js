@@ -9,7 +9,12 @@
  *
  * Segment instance (SEG_STRIDE bytes):
  *   f32 x1h y1h x2h y2h | f32 x1l y1l x2l y2l | f32 dist0 | f32 patScale
- *   | u8 r g b a | u8 lwIndex patternRow flags 0
+ *   | u8 r g b a | u8 lwIndex+flags<<5 patternRow join0 join1
+ * join0 and join1 describe the start and end of a polyline segment: 0 is a
+ * free end (square cap), otherwise the joint's bisector, given by the angle
+ * (code - 1) * JOIN_STEP of its normal in world space. Both segments at a
+ * joint cut themselves along that same line, so the joint is covered exactly
+ * once: transparent and highlighted curves get no darker dots at vertices.
  * Fill vertex (TRI_STRIDE bytes):
  *   f32 xh yh xl yl | u8 r g b a
  */
@@ -25,6 +30,46 @@ export const F_HIGHLIGHT = 1;
 export const F_SOLID = 2;
 
 const fround = Math.fround;
+
+/** Angle quantum of joint codes. */
+export const JOIN_STEP = (2 * Math.PI) / 255;
+
+/**
+ * Joint code for a turn from direction (ax, ay) to (bx, by): the direction
+ * of the bisector's normal. 0 (square caps) for degenerate or sharp turns.
+ */
+export function joinCode(ax, ay, bx, by) {
+  const la = Math.sqrt(ax * ax + ay * ay),
+    lb = Math.sqrt(bx * bx + by * by);
+  if (!la || !lb) return 0;
+  return joinUnits(ax / la, ay / la, bx / lb, by / lb);
+}
+
+/** joinCode for unit directions; (0, 0) stands for a zero-length segment. */
+function joinUnits(ux, uy, vx, vy) {
+  if ((!ux && !uy) || (!vx && !vy)) return 0;
+  const nx = ux + vx,
+    ny = uy + vy;
+  // Turns sharper than 120 degrees would need very long cut segments.
+  if (nx * nx + ny * ny < 1) return 0;
+  const a = atan2Fast(ny, nx);
+  return 1 + (Math.round((a < 0 ? a + 2 * Math.PI : a) / JOIN_STEP) % 255);
+}
+
+/**
+ * Math.atan2 to within 1e-5 rad, far finer than JOIN_STEP and several times
+ * faster; joint codes are computed for every curve segment of a build.
+ */
+function atan2Fast(y, x) {
+  const ax = Math.abs(x),
+    ay = Math.abs(y);
+  const t = ax > ay ? ay / ax : ax / ay,
+    s = t * t;
+  let r = ((-0.0464964749 * s + 0.15931422) * s - 0.327622764) * s * t + t;
+  if (ay > ax) r = Math.PI / 2 - r;
+  if (x < 0) r = Math.PI - r;
+  return y < 0 ? -r : r;
+}
 
 export class Batch {
   /**
@@ -108,12 +153,48 @@ export class Batch {
     const flags = this.flags;
     let dist = 0;
     let o = this.segCount * SEG_FLOATS;
+    // Length and unit direction of the current segment, each computed once.
+    let len = 0,
+      ux = 0,
+      uy = 0;
+    if (n > 1) {
+      const dx = pts[2] - pts[0],
+        dy = pts[3] - pts[1];
+      len = Math.sqrt(dx * dx + dy * dy);
+      if (len) {
+        ux = dx / len;
+        uy = dy / len;
+      }
+    }
+    // Joint into the first segment: from the closing segment when closed.
+    let prevJoin = 0;
+    if (closed && segs > 1) {
+      const lx = pts[0] - pts[(n - 1) * 2],
+        ly = pts[1] - pts[(n - 1) * 2 + 1];
+      const ll = Math.sqrt(lx * lx + ly * ly);
+      if (ll) prevJoin = joinUnits(lx / ll, ly / ll, ux, uy);
+    }
     for (let i = 0; i < segs; i++) {
       const j = n === 1 ? 0 : (i + 1) % n;
       const x1 = pts[i * 2],
         y1 = pts[i * 2 + 1],
         x2 = pts[j * 2],
         y2 = pts[j * 2 + 1];
+      let endJoin = 0,
+        nlen = 0,
+        nux = 0,
+        nuy = 0;
+      if (i + 1 < segs || (closed && segs > 1)) {
+        const k = (j + 1) % n;
+        const ex = pts[k * 2] - x2,
+          ey = pts[k * 2 + 1] - y2;
+        nlen = Math.sqrt(ex * ex + ey * ey);
+        if (nlen) {
+          nux = ex / nlen;
+          nuy = ey / nlen;
+        }
+        endJoin = joinUnits(ux, uy, nux, nuy);
+      }
       const x1h = fround(x1),
         y1h = fround(y1),
         x2h = fround(x2),
@@ -133,11 +214,15 @@ export class Batch {
       U[b + 1] = rgb[1];
       U[b + 2] = rgb[2];
       U[b + 3] = a;
-      U[b + 4] = lw;
+      U[b + 4] = lw | (flags << 5);
       U[b + 5] = row;
-      U[b + 6] = flags;
-      U[b + 7] = 0;
-      dist += Math.hypot(x2 - x1, y2 - y1);
+      U[b + 6] = prevJoin;
+      U[b + 7] = endJoin;
+      prevJoin = endJoin;
+      dist += len;
+      len = nlen;
+      ux = nux;
+      uy = nuy;
       this._bound(x1, y1);
       this._bound(x2, y2);
       o += SEG_FLOATS;
@@ -181,9 +266,9 @@ export class Batch {
       U[b + 1] = rgb[1];
       U[b + 2] = rgb[2];
       U[b + 3] = a;
-      U[b + 4] = lw;
+      U[b + 4] = lw | (flags << 5);
       U[b + 5] = 0;
-      U[b + 6] = flags;
+      U[b + 6] = 0;
       U[b + 7] = 0;
       this._bound(x1, y1);
       this._bound(x2, y2);
