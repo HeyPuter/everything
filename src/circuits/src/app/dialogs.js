@@ -8,7 +8,7 @@ import { isCopper } from '../model/layers.js';
 import { arcToPoints, bboxOfFlat, polyArea } from '../core/geom.js';
 import { planSync, applySync } from '../model/sync.js';
 import { planAnnotation } from '../model/annotate.js';
-import { listProjects, locationLabel, deleteProject } from './storage.js';
+import { listProjects, locationLabel, deleteProject, sameLocation } from './storage.js';
 import { cloudAvailable } from './puter.js';
 import { sharedWithMe } from './share.js';
 
@@ -434,8 +434,18 @@ export async function openProjectDialog(app) {
       const del = h('button.icon-btn.sm', { type: 'button', 'aria-label': `Delete ${it.name}`, 'data-tip': 'Delete' }, icon('trash', 14));
       del.addEventListener('click', async (e) => {
         e.stopPropagation();
-        if (await confirmDialog({ title: 'Delete project', message: `Delete ${it.name} permanently? This cannot be undone.`, confirm: 'Delete', danger: true })) {
-          try { await deleteProject(it.location); render(); } catch (err) { app.toast(`Could not delete: ${err.message}`, { kind: 'error' }); }
+        // The open project is closed too, or its next autosave would bring the file back.
+        const isOpen = !!app.project && sameLocation(it.location, app.location);
+        const open = isOpen ? ' It is open now and will be closed.' : '';
+        const message = `Delete ${it.name} permanently?${open} This cannot be undone.`;
+        const ok = await confirmDialog({ title: 'Delete project', message, confirm: 'Delete', danger: true });
+        if (ok) {
+          try {
+            if (isOpen) { await app._saving; await app.closeProject(true); }
+            await deleteProject(it.location);
+            if (isOpen && !app.project) app.showStart(); // drop it from the recent list
+            render();
+          } catch (err) { app.toast(`Could not delete: ${err.message}`, { kind: 'error' }); }
         }
       });
       const open = h('button', { type: 'button' }, icon(it.location.type === 'cloud' ? 'cloud' : 'drive', 16),
