@@ -754,6 +754,50 @@ describe('editing tools', () => {
     expect(ix.pt(lines[0].b)).toEqual([5, 2]);
   });
 
+  it('fillets a corner that a construction diagonal also ends at, keeping the diagonal on the virtual sharp', () => {
+    const s = sk([...rect(0, 0, 40, 30, 'r'), { id: 'c', t: 'point', x: 20, y: 15 },
+      { id: 'd1', t: 'line', a: 'rp0', b: 'rp2', construction: true }, { id: 'd2', t: 'line', a: 'rp1', b: 'rp3', construction: true }]);
+    s.constraints.push({ id: 'm', type: 'midpoint', refs: ['c', 'd1'] });
+    expect(filletCorner(s, 'rp1', 4, idFactory(s))).toBeNull();
+    expect(s.entities.find((e) => e.id === 'd2')).toMatchObject({ a: 'rp1', b: 'rp3' });
+    expect(s.entities.filter((e) => e.t === 'arc')).toHaveLength(1);
+    expect(solveSketch(s.entities, s.constraints, { value }).badConstraints.size).toBe(0);
+  });
+
+  it.each(['polygon', 'square'])('filleting corners of a %s keeps the shape its equal relation holds', (shape) => {
+    const s = sk([]);
+    const n = shape === 'polygon' ? 6 : 4;
+    if (shape === 'polygon') {
+      s.entities.push({ id: 'c', t: 'point', x: 0, y: 0 }, { id: 'circ', t: 'circle', c: 'c', r: 20, construction: true });
+      for (let i = 0; i < n; i++) s.entities.push({ id: `v${i}`, t: 'point', x: 20 * Math.cos((i * 2 * Math.PI) / n), y: 20 * Math.sin((i * 2 * Math.PI) / n) });
+      for (let i = 0; i < n; i++) s.constraints.push({ id: `k${i}`, type: 'coincident', refs: [`v${i}`, 'circ'] });
+    } else {
+      [[0, 0], [30, 0], [30, 30], [0, 30]].forEach(([x, y], i) => s.entities.push({ id: `v${i}`, t: 'point', x, y }));
+      s.constraints.push({ id: 'h0', type: 'horizontal', refs: ['l0'] }, { id: 'h2', type: 'horizontal', refs: ['l2'] },
+        { id: 'v1', type: 'vertical', refs: ['l1'] }, { id: 'v3', type: 'vertical', refs: ['l3'] });
+    }
+    for (let i = 0; i < n; i++) s.entities.push({ id: `l${i}`, t: 'line', a: `v${i}`, b: `v${(i + 1) % n}` });
+    s.constraints.push({ id: 'eq', type: 'equal', refs: shape === 'polygon' ? ['l0', 'l1', 'l2', 'l3', 'l4', 'l5'] : ['l0', 'l1'] });
+    // A point held at the middle of a side stays there too.
+    s.entities.push({ id: 'm', t: 'point', x: 0, y: 0 });
+    s.constraints.push({ id: 'mid', type: 'midpoint', refs: ['m', 'l1'] });
+    expect(solveSketch(s.entities, s.constraints, { value }).badConstraints.size).toBe(0);
+    const at = (id: string) => new SketchIndex(s.entities).pt(id);
+    const corners = () => Array.from({ length: n }, (_, i) => at(`v${i}`).map((v) => Math.round(v * 1e6) / 1e6));
+    const before = corners(), mid = at('m');
+    for (const corner of shape === 'polygon' ? ['v0', 'v3'] : ['v0', 'v1', 'v2', 'v3']) {
+      expect(filletCorner(s, corner, 3, idFactory(s))).toBeNull();
+      const res = solveSketch(s.entities, s.constraints, { value });
+      expect(res.badConstraints.size).toBe(0);
+      expect(res.converged).toBe(true);
+    }
+    // (A sharp no relation needs any more is removed.)
+    corners().forEach((p, i) => { if (!Number.isNaN(p[0])) expect(p).toEqual(before[i]); });
+    expect(corners().filter((p) => !Number.isNaN(p[0])).length).toBeGreaterThanOrEqual(n - 1);
+    expect(at('m')[0]).toBeCloseTo(mid[0], 6);
+    expect(at('m')[1]).toBeCloseTo(mid[1], 6);
+  });
+
   it.each(['filleted rectangle', 'slot'])('offsets a %s without over-defining it, keeping the corners tangent', (shape) => {
     const s = sk(rect(0, 0, 40, 30, 'r'));
     s.constraints.push(...['rl0', 'rl2'].map((id) => ({ id: `h${id}`, type: 'horizontal' as const, refs: [id] })), ...['rl1', 'rl3'].map((id) => ({ id: `v${id}`, type: 'vertical' as const, refs: [id] })));

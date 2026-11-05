@@ -508,7 +508,10 @@ export function extendAt(sk: SketchFeature, lineId: Id, at: Vec2, newId?: (p: st
 /** Rounds the corner at a point shared by two lines. */
 export function filletCorner(sk: SketchFeature, pointId: Id, radius: number, newId: (p: string) => Id): string | null {
   const ix = new SketchIndex(sk.entities);
-  const lines = sk.entities.filter((e): e is SkLine => e.t === 'line' && (e.a === pointId || e.b === pointId));
+  let lines = sk.entities.filter((e): e is SkLine => e.t === 'line' && (e.a === pointId || e.b === pointId));
+  // Construction lines ending at the corner (a center rectangle's diagonals,
+  // the full length an earlier fillet keeps) stay on the virtual sharp.
+  if (lines.length > 2 && lines.filter((l) => !l.construction).length === 2) lines = lines.filter((l) => !l.construction);
   if (lines.length !== 2) return 'Select a corner where exactly two lines meet';
   const corner = ix.pt(pointId);
   const far = lines.map((l) => ix.pt(l.a === pointId ? l.b : l.a));
@@ -529,11 +532,22 @@ export function filletCorner(sk: SketchFeature, pointId: Id, radius: number, new
   lines[1][lines[1].a === pointId ? 'a' : 'b'] = p2;
   // The lines no longer reach the corner, so their length dimensions would
   // pull them back over the fillet. They measure to the virtual sharp instead.
+  // Relations that use a line's ends (equal lengths, a midpoint, a symmetric
+  // pair) would likewise shrink the rest of the sketch to match - one fillet
+  // on a polygon distorted it - so they move to a construction line that
+  // keeps the full length up to the virtual sharp.
+  const usesEnds = (k: SkConstraint, id: Id) => !isDimension(k)
+    && (k.type === 'equal' || k.type === 'midpoint' ? k.refs.includes(id) : k.type === 'symmetric' && k.refs.slice(0, -1).includes(id));
   lines.forEach((l, i) => {
     const farId = l.a === (i === 0 ? p1 : p2) ? l.b : l.a;
     for (const k of sk.constraints) {
       if (isDimension(k) && k.refs.length === 1 && k.refs[0] === l.id && (k.type === 'distance' || k.type === 'hdistance' || k.type === 'vdistance')) k.refs = [farId, pointId];
     }
+    if (!sk.constraints.some((k) => usesEnds(k, l.id))) return;
+    const full = newId('l');
+    const fromFar = l.a === farId;
+    sk.entities.push({ id: full, t: 'line', a: fromFar ? farId : pointId, b: fromFar ? pointId : farId, construction: true });
+    for (const k of sk.constraints) if (usesEnds(k, l.id)) k.refs = k.refs.map((r, j) => (r === l.id && !(k.type === 'symmetric' && j === k.refs.length - 1) ? full : r));
   });
   // Counter-clockwise from the start tangent point to the end one.
   const ccw = cross2(sub2(t1, c), sub2(t2, c)) > 0;
