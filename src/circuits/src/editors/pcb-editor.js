@@ -662,7 +662,6 @@ export class PcbEditor extends CanvasView {
       update(ndx, ndy) { dx = ndx; dy = ndy; ed._lastClick = { x: anchor.x, y: anchor.y }; ed.requestRender(true); },
       rotate() { ops.push('rot'); ed.requestRender(true); },
       flip() { ops.push('flip'); ed.requestRender(true); },
-      mirror() {},
       draw(b) {
         const objs = transformed();
         const sink = (l) => (l === 'holes' || ed.isLayerVisible(l) ? b : null);

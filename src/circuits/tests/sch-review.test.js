@@ -437,3 +437,37 @@ describe('zoom limits', () => {
     expect(after[1]).toBeCloseTo(before[1], 0);
   });
 });
+
+describe('move hint', () => {
+  const grab = (ed, o) => {
+    const ev = { x: o.x, y: o.y, rawX: o.x, rawY: o.y, sx: 0, sy: 0 };
+    ed.select.dragStart(ev);
+    expect(ed.select.move).toBeTruthy();
+    return ed.select.hint();
+  };
+
+  it('offers mirroring in the schematic', async () => {
+    app = await boot();
+    const ed = app.activeEditor;
+    const hint = grab(
+      ed,
+      [...ed.doc.items()].find((o) => o.t === 'part'),
+    );
+    expect(hint).toMatch(/X \/ Y mirror/);
+    expect(hint).not.toMatch(/L flips/);
+    ed.select.cancelDrag();
+  });
+
+  it('offers flipping, not mirroring, on the board', async () => {
+    app = await boot();
+    app.openDoc(app.project.boards[0].id);
+    const ed = app.activeEditor;
+    const comp = [...ed.doc.items()].find((o) => o.t === 'comp');
+    const hint = grab(ed, comp);
+    expect(hint).not.toMatch(/mirror/);
+    expect(hint).toMatch(/L flips/);
+    // X is still consumed (no menu accelerator) and changes nothing.
+    expect(ed.select.key({}, 'X')).toBe(true);
+    ed.select.cancelDrag();
+  });
+});
