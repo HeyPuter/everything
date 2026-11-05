@@ -281,3 +281,15 @@ describe('shared grips', () => {
     expect([t.all('line')[1].x1, t.all('line')[1].y1]).toEqual([10, 0]);
   });
 });
+
+describe('grip base point', () => {
+  it('stretches by the displacement from a new base point', async () => {
+    await t.type('LINE', '0,0', '10,0', '');
+    t.ed.setSelection([...t.drawing.entities.keys()]);
+    t.ed._startGripEdit(2, null);
+    await flush();
+    await t.type('B', '5,5', '6,7');
+    const [l] = t.all('line');
+    expect([l.x1, l.y1, l.x2, l.y2]).toEqual([0, 0, 11, 2]);
+  });
+});

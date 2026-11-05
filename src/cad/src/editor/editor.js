@@ -1388,8 +1388,12 @@ async function gripEdit(ed, grip, fromPointer) {
       const matrixFor = (p) => gripMatrix(m, base, p);
       if (m === 'stretch') {
         const hot = coincidentGrips(ed, ids, grip);
-        const stretched = (p) =>
-          hot.map(({ id, ent, idx }) => [id, idx.reduce((e, i) => applyGrip(e, i, p.x, p.y), ent)]);
+        // The grip moves by base -> point (base is the grip unless Base point moved it).
+        const stretched = (p) => {
+          const x = grip.x + p.x - base.x,
+            y = grip.y + p.y - base.y;
+          return hot.map((h) => [h.id, h.idx.reduce((e, i) => applyGrip(e, i, x, y), h.ent)]);
+        };
         ed.renderer.setHidden(new Set(hot.map((h) => h.id)));
         ed.renderer.setDragMatrix(null);
         const r = await ed.getPoint(`${label} (Space for next mode)`, {
