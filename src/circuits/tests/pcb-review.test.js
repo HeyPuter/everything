@@ -229,3 +229,25 @@ describe('pours and board cutouts', () => {
     expect(list.filter((v) => v.rule === 'edge')).toEqual([]);
   });
 });
+
+describe('3D view and tools', () => {
+  it('opening the 3D view leaves the 2D drawing tool', async () => {
+    ctx = await bootBoard();
+    const { app, ed } = ctx;
+    ed.startTool('cutout');
+    const orig = HTMLCanvasElement.prototype.getContext;
+    HTMLCanvasElement.prototype.getContext = function () {
+      return fakeGl().gl;
+    };
+    try {
+      await app.set3d(true);
+    } finally {
+      HTMLCanvasElement.prototype.getContext = orig;
+    }
+    expect(app.view3dOpen).toBe(true);
+    expect(ed.tool).toBe(ed.select);
+    expect(ed.hint.hidden).toBe(true);
+    await app.set3d(false);
+    expect(app.view3dOpen).toBe(false);
+  });
+});

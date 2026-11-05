@@ -1253,6 +1253,8 @@ export class App extends Emitter {
     }
     this.view3d = { el, viewer, buildBoardScene, textStrokes, editor: ed };
     this.view3dOpen = true;
+    // A 2D tool (routing, a half-drawn outline) cannot be used from the 3D view.
+    if (ed.tool !== ed.select) ed.setTool(ed.select);
     ed.activeBar.hidden = true;
     ed.hud.hidden = true;
     this._update3d();
