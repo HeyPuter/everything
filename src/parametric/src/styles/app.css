@@ -91,7 +91,7 @@ input, textarea, [contenteditable] { user-select: text; -webkit-user-select: tex
 }
 /* The empty field has nothing to clear: without the clear button's reserved space the placeholder fits the narrow (150px) box. */
 .cmd-search input:placeholder-shown::-webkit-search-cancel-button { display: none; }
-.cmd-search .icon { position: absolute; left: 8px; top: 7px; color: var(--text-3); pointer-events: none; }
+.cmd-search > .icon { position: absolute; left: 8px; top: 7px; color: var(--text-3); pointer-events: none; }
 .cmd-results {
   position: absolute; right: 0; top: 32px; width: 300px; max-height: 360px; overflow: auto; z-index: 60;
   background: var(--panel); border: 1px solid var(--border-strong); border-radius: var(--radius); padding: 4px;

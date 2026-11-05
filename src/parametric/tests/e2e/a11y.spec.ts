@@ -203,6 +203,12 @@ test.describe('accessibility', () => {
     await expect(search).toHaveAttribute('aria-expanded', 'true');
     const mac = await page.evaluate(() => /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent));
     await expect(page.getByRole('option', { name: /^Save/ }).first()).toContainText(mac ? '⌘S' : 'Ctrl+S');
+    // Each result's icon sits in its own row, before its label (not stacked over the first row).
+    expect(await page.evaluate(() => [...document.querySelectorAll('.cmd-results [role="option"]')].every((o) => {
+      const i = o.querySelector('.icon')!.getBoundingClientRect();
+      const r = o.getBoundingClientRect();
+      return i.top >= r.top && i.bottom <= r.bottom && i.right <= o.querySelector('span')!.getBoundingClientRect().left;
+    }))).toBe(true);
     await page.locator('canvas.gl').click({ position: { x: 40, y: 40 } });
     await expect(page.getByRole('listbox')).toBeHidden();
     await expect(search).toHaveAttribute('aria-expanded', 'false');
