@@ -415,6 +415,19 @@ describe('feature regeneration', () => {
     expect(volume(b)).toBeCloseTo(50 * 10 * 5 - 2 * Math.PI * 4 * 5 + 10 * 10 * 5, 1);
   });
 
+  it('says why a pattern seed has nothing to copy', async () => {
+    const b = new ModelBuilder();
+    const base: Feature[] = [sketch('S1', rect(-20, -20, 20, 20)), extrude('E1', 'S1', 10), sketch('S2', circle(10, 0, 2))];
+    const pattern = (seed: string): Feature => ({ id: 'P', name: 'P', type: 'linearPattern', seeds: [seed], dir1: { ref: { kind: 'base', axis: 'y' }, spacing: 5, count: 2, flip: false }, dir2: null });
+    const error = async (feats: Feature[]) => (await b.build(req(feats))).status.find((s) => s.id === 'P')!.error;
+    // A seed whose own build failed (a zero depth here).
+    expect(await error([...base, extrude('E2', 'S2', 0, { cut: true, flip: true }), pattern('E2')])).toMatch(/failed to build/);
+    expect(await error([...base, pattern('E2'), extrude('E2', 'S2', 5, { cut: true, flip: true })])).toMatch(/comes after/);
+    expect(await error([...base, pattern('gone')])).toMatch(/no longer exists/);
+    expect(await error([...base, pattern('S2')])).toMatch(/cannot be patterned/);
+    expect(await error([...base, extrude('E2', 'S2', 5, { cut: true, flip: true }), pattern('E2')])).toBeUndefined();
+  });
+
   it('reports a useful error for an open profile and keeps building later features', async () => {
     const b = new ModelBuilder();
     const open = [{ id: 'a', t: 'point', x: 0, y: 0 }, { id: 'b', t: 'point', x: 10, y: 0 }, { id: 'l', t: 'line', a: 'a', b: 'b' }] as any[];

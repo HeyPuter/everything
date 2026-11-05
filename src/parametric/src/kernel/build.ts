@@ -143,8 +143,12 @@ export class ModelBuilder {
     this.importCache.clear();
   }
 
+  /** Position and type of every feature of the request being built. */
+  private order = new Map<Id, { index: number; type: Feature['type'] }>();
+
   async build(req: BuildRequest): Promise<BuildResult> {
     const t0 = performance.now();
+    this.order = new Map(req.features.map((f, index) => [f.id, { index, type: f.type }]));
     let state = emptyState();
     let chain = 'root';
     const status: FeatureStatus[] = [];
@@ -860,12 +864,18 @@ export class ModelBuilder {
     this.applyTool(f.id, st, tool, named, true);
   }
 
-  private seedTools(seeds: Id[], st: State): Tool[] {
+  private seedTools(featId: Id, seeds: Id[], st: State): Tool[] {
     if (!seeds.length) throw new FeatureError('Select features to pattern');
     return seeds.map((id) => {
       const t = st.tools.get(id);
-      if (!t) throw new FeatureError('A seed feature cannot be patterned (only extrudes, revolves, holes, lofts, sweeps and patterns)');
-      return t;
+      if (t) return t;
+      // Say why: the seed is gone, later in the tree, failed, or of a kind
+      // that adds no tool body.
+      const at = this.order.get(id);
+      if (at === undefined) throw new FeatureError('A seed feature no longer exists');
+      if (at.index > (this.order.get(featId)?.index ?? Infinity)) throw new FeatureError('A seed feature comes after this feature in the tree');
+      if (SEED_TYPES.has(at.type)) throw new FeatureError('A seed feature failed to build');
+      throw new FeatureError('A seed feature cannot be patterned (only extrudes, revolves, holes, lofts, sweeps and patterns)');
     });
   }
 
@@ -909,7 +919,7 @@ export class ModelBuilder {
   }
 
   private applyLinearPattern(f: LinearPatternFeature, st: State) {
-    const seeds = this.seedTools(f.seeds, st);
+    const seeds = this.seedTools(f.id, f.seeds, st);
     const n1 = Math.round(num(f.dir1.count));
     if (n1 < 1 || n1 > 1000) throw new FeatureError('Instance count must be between 1 and 1000');
     const v1 = scale(this.dirVector(f.dir1, st), num(f.dir1.spacing));
@@ -936,7 +946,7 @@ export class ModelBuilder {
   }
 
   private applyCircularPattern(f: CircularPatternFeature, st: State) {
-    const seeds = this.seedTools(f.seeds, st);
+    const seeds = this.seedTools(f.id, f.seeds, st);
     const ax = this.resolveAxis(f.axis, st);
     const n = Math.round(num(f.count));
     if (n < 2 || n > 1000) throw new FeatureError('Instance count must be between 2 and 1000');
@@ -966,7 +976,7 @@ export class ModelBuilder {
       this.applyTool(f.id, st, m, tf, false);
       return;
     }
-    this.applyInstances(f.id, st, this.seedTools(f.seeds, st), [(s) => mirrored(s, fr.o, fr.n)]);
+    this.applyInstances(f.id, st, this.seedTools(f.id, f.seeds, st), [(s) => mirrored(s, fr.o, fr.n)]);
   }
 
   /** The first closed region of a profile sketch, as an outer wire and hole wires. */
@@ -1460,6 +1470,9 @@ function shellError(st: State, t: number): FeatureError {
     ? 'The shell could not be created. Make it thinner than the radius of the fillets and rounded faces.'
     : 'The shell could not be created. Try a smaller thickness.');
 }
+
+/** Features whose tool body patterns and mirrors can copy. */
+const SEED_TYPES = new Set<Feature['type']>(['extrude', 'revolve', 'hole', 'loft', 'sweep', 'import', 'linearPattern', 'circularPattern', 'mirror']);
 
 const SWEEP_FAILED = 'The sweep could not be created. The profile should start at the path and be roughly perpendicular to it.';
 
