@@ -1764,8 +1764,10 @@ async function sendPushes(ws, uuids, n, readDocs = null) {
         try {
           await me.puter.notifications.notify({
             title: n.title.slice(0, 120), text: (n.body || quiet).slice(0, 240),
-            channel: 'chat', target: `/${route}`, data: { r: route, g: tag }, group: pushGroup(tag),
+            channel: 'chat', target: `/${route}`, data: { r: route, g: tag, ...(n.call ? { c: 1 } : {}) }, group: pushGroup(tag),
             ...(pn.preview === false ? { sensitive: true } : {}),
+            // A ring arrives at once, and not after the call is over.
+            ...(n.call ? { priority: 'high', ttl: 60 } : {}),
             ...(handle ? { to: { handle } } : {}),
           });
         } catch (err) {

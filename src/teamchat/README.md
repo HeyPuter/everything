@@ -625,6 +625,13 @@ browser. Signing out first stops this page's `onPush()` handler, then
 `disable()`s this browser's subscription (on a website; inside the desktop
 `disable()` would revoke every device), then signs out.
 
+A tapped notification, and those this browser shows for a conversation once
+it is read to the end, are `dismiss()`ed, which closes them on the member's
+other devices too. A call (a huddle started in a direct message) is sent
+with `priority: 'high'` and a 60-second `ttl`, and stays on screen until
+acted on (`requireInteraction`). A push the service worker shows with no
+window open puts a dot on the installed app's icon.
+
 The worker runs as its owner and as Teamchat. Each other member holds a
 watch share of the workspace's signal region with `notify: true`, allowing
 `me.puter.notifications.notify({ ..., to: { handle } })` to reach them.
