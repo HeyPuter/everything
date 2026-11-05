@@ -17,7 +17,7 @@ import { schBounds, graphicBox, textBox, fieldText, SCH_TEXT } from '../src/mode
 import { placeSymbol, fieldPosition } from '../src/model/place.js';
 import { createExampleProject } from '../src/app/demo.js';
 import { bboxIntersects, bboxUnion, bboxEmpty } from '../src/core/geom.js';
-import { schObjectPrims } from '../src/io/schgraphics.js';
+import { schObjectPrims, sheetFrame as exportFrame, sheetSize } from '../src/io/schgraphics.js';
 import { textStrokes } from '../src/render/font.js';
 
 async function boot() {
@@ -719,5 +719,38 @@ describe('hiding a field in the properties panel', () => {
     const after = fieldPosition(ed.doc.store.get(c3.id), 'designator', def);
     expect(after.hidden).toBe(false);
     expect([after.x, after.y]).toEqual([before.x, before.y]);
+  });
+});
+
+describe('exported title block', () => {
+  it('keeps long values inside their cells and on the paper', () => {
+    const sheet = {
+      size: 'A4',
+      title: 'Dual channel 48 V synchronous buck converter with telemetry, rev C',
+      author: 'Maximilian Featherstonehaugh-Smythe',
+      company: 'Acme Precision Electronics International GmbH',
+      revision: 'C',
+    };
+    const prims = exportFrame(sheet, {
+      fileName: 'power-stage-left-channel-final-v2.sch',
+      date: '2026-11-05',
+    });
+    const { w } = sheetSize(sheet);
+    const block = prims.find((p) => p.t === 'rect' && p.x2 - p.x1 < w / 2);
+    const splits = prims.filter(
+      (p) => p.t === 'line' && p.x1 === p.x2 && p.x1 > block.x1 && p.x1 < block.x2,
+    );
+    for (const p of prims.filter((q) => q.role === 'frameText')) {
+      // The cell ends at the next split line on this row, or at the block edge.
+      const end = Math.min(
+        block.x2,
+        ...splits
+          .filter((l) => l.x1 > p.x && p.y > Math.min(l.y1, l.y2) && p.y < Math.max(l.y1, l.y2))
+          .map((l) => l.x1),
+      );
+      expect(p.x + textWidth(p.text, p.size), p.text).toBeLessThanOrEqual(end);
+    }
+    const rev = prims.find((p) => p.role === 'frameText' && p.text === 'C');
+    expect(rev.size).toBe(2.2e6);
   });
 });
