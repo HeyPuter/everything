@@ -404,6 +404,12 @@ test.describe('viewport', () => {
       app.panel!.onPick({ kind: 'vertex', p: [60, 0, 0] }, false);
     });
     await expect(page.locator('.pm-section table')).toContainText(/Distance\s*31\.05 mm/);
+    const leader = () => page.evaluate(() => (window as unknown as { __parametric: { renderer: { lines: Map<string, unknown> } } }).__parametric.renderer.lines.has('measure'));
+    expect(await leader()).toBe(true);
+    // A plane as the next pick replaces the older vertex; its leader goes with it.
+    await page.evaluate(() => (window as unknown as Win).__parametric.panel!.onPick({ kind: 'plane', ref: { kind: 'base', plane: 'front' } }, false));
+    await expect(page.locator('.pm-section table')).toContainText(/Normal distance\s*0\.00 mm/);
+    expect(await leader()).toBe(false);
   });
 
   test('a measurement finishing late does not overwrite a newer one or outlive the panel', async ({ page }) => {

@@ -429,6 +429,8 @@ export class MeasurePanel extends PropertyPanel {
       const target = (it: SelItem): MeasureTarget | null => (it.kind === 'face' ? { kind: 'face', index: it.index } : it.kind === 'edge' ? { kind: 'edge', index: it.index } : it.kind === 'vertex' ? { kind: 'vertex', p: it.p } : null);
       const ta = target(a), tb = target(b);
       if (a.kind === 'plane' || b.kind === 'plane') {
+        // No leader: the previous pair's would otherwise stay drawn.
+        this.showLeader(null, null);
         const pl = a.kind === 'plane' ? a : b;
         const other = a.kind === 'plane' ? b : a;
         const fr = pl.kind === 'plane' ? app.frameOfPlane(pl.ref) : null;
@@ -455,6 +457,7 @@ export class MeasurePanel extends PropertyPanel {
           this.showLeader(r.p1, r.p2);
         } catch (e) {
           if (seq !== this.seq) return;
+          this.showLeader(null, null);
           lines.push(['Distance', (e as Error).message]);
         }
       }
