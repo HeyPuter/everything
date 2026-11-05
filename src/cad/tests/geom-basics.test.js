@@ -29,7 +29,6 @@ import {
   subPolyline,
   reversePolyPts,
 } from '../src/core/geom/index.js';
-import { fitToSpline } from '../src/io/dxf/geom.js';
 
 const close = (a, b, eps = 1e-9) => expect(Math.abs(a - b)).toBeLessThanOrEqual(eps);
 
@@ -197,19 +196,8 @@ describe('spline', () => {
     close(m.y, 5, 1e-9);
     expect(splineFromFitPoints([1, 1, 1, 1])).toBe(null);
   });
-  it('builds the same curve as AutoCAD (and the DXF importer) from fit points', () => {
+  it('builds fit-point splines with zero end curvature', () => {
     const open = [0, 0, 5, 3, 10, 0, 12, 6];
-    const sq = [0, 0, 10, 0, 10, 10, 0, 10];
-    for (const [fit, closed, st, et] of [
-      [open, false],
-      [sq, true],
-      [open, false, [1, 0], [0, 1]],
-    ]) {
-      const a = splineFromFitPoints(fit, closed, st, et);
-      const b = fitToSpline(fit, closed, st, et);
-      a.ctrl.forEach((v, i) => close(v, b.ctrl[i], 1e-12));
-      a.knots.forEach((v, i) => close(v, b.knots[i], 1e-15));
-    }
     // Without end tangents the ends have zero curvature: the first three
     // control points are collinear with spacing given by the first knots.
     const s = splineFromFitPoints(open);

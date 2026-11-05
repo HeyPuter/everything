@@ -25,7 +25,8 @@ import { defaultHeader, defaultLayer, LW_DEFAULT } from '../../core/schema.js';
 import { hexToRgb, nearestIndex } from '../../core/colors.js';
 import { STANDARD_LINETYPES } from '../../core/linetypes.js';
 import { defaultTextStyle, defaultDimStyle } from '../../core/styles.js';
-import { uniformKnots, fitToSpline, normAngle } from './geom.js';
+import { uniformKnots, normAngle } from './geom.js';
+import { splineFromFitPoints } from '../../core/geom/spline.js';
 
 const RAD = 180 / Math.PI;
 const DEG = Math.PI / 180;
@@ -946,7 +947,7 @@ class DxfWriter {
     const nf0 = fit.length;
     if (e.closed && nf0 >= 6 && (fit[0] !== fit[nf0 - 2] || fit[1] !== fit[nf0 - 1])) fit.push(fit[0], fit[1]);
     if (ctrl.length < (deg + 1) * 2) {
-      const f = fit.length >= 4 ? fitToSpline(fit, !!e.closed) : null;
+      const f = fit.length >= 4 ? splineFromFitPoints(fit, !!e.closed) : null;
       if (!f) throw new Error('not enough control points');
       deg = f.degree;
       ctrl = f.ctrl;

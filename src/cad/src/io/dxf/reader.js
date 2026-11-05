@@ -15,12 +15,12 @@ import {
   normAngle,
   uniformKnots,
   clampSpline,
-  fitToSpline,
   rationalToCubic,
   tessellateSpline,
   ellipsePoints,
   conjugateToEllipse,
 } from './geom.js';
+import { splineFromFitPoints } from '../../core/geom/spline.js';
 
 const DEG = Math.PI / 180;
 const ATTACH = ['tl', 'tc', 'tr', 'ml', 'mc', 'mr', 'bl', 'bc', 'br'];
@@ -1582,7 +1582,7 @@ class DxfParser {
         outCtrl = ctrl;
       }
     } else if (fit.length >= 4) {
-      const f = fitToSpline(fit, closed, st, et);
+      const f = splineFromFitPoints(fit, closed, st, et);
       degree = f.degree;
       outKnots = f.knots;
       outCtrl = f.ctrl;
@@ -2132,7 +2132,7 @@ class DxfParser {
       const w = weights.length === n ? weights : null;
       pts = tessellateSpline(deg, knots, ctrl, w, Math.min(256, Math.max(16, n * 8)));
     } else if (fit.length >= 4) {
-      const f = fitToSpline(fit);
+      const f = splineFromFitPoints(fit);
       pts = tessellateSpline(3, f.knots, f.ctrl, null, Math.min(256, Math.max(16, fit.length * 4)));
     }
     if (!pts) return;
