@@ -403,3 +403,22 @@ test('a feature panel with changes not applied asks before another part replaces
   });
   expect(saved).toBe(true);
 });
+
+test('a part file too large to read is refused with a message, before it is read', async ({ page }, info) => {
+  const errors = await openApp(page);
+  // A sparse file: its size without its bytes on disk.
+  const fs = await import('node:fs');
+  const path = info.outputPath('huge.parametric');
+  fs.mkdirSync(info.outputDir, { recursive: true });
+  fs.writeFileSync(path, '');
+  fs.truncateSync(path, 250_000_000);
+  try {
+    const chooser = page.waitForEvent('filechooser');
+    await page.getByRole('button', { name: /Open from device/ }).click();
+    await (await chooser).setFiles(path);
+    await expect(page.locator('.toast.error')).toContainText('too large to open as a part (200 MB limit)');
+  } finally {
+    fs.rmSync(path);
+  }
+  expect(errors).toEqual([]);
+});

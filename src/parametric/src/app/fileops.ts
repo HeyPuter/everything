@@ -484,12 +484,20 @@ export class FileOps {
 
 const STEP_LIMIT = 60_000_000;
 const SOLIDWORKS_LIMIT = 200_000_000;
+/**
+ * A part file: room for several imported STEP models (their text is most of
+ * a large part, and cheap to read). Past this, reading the file can take the
+ * tab's memory (a file of many small objects needs about 20 times its size),
+ * and past about 500 MB the browser cannot hold it as text at all.
+ */
+const PART_LIMIT = 200_000_000;
 
 /** Checked before a file is read into memory: true after reporting that it is too large. */
 function tooLarge(size: number, fileName: string): boolean {
   const step = isStepFile(fileName);
-  if (size <= (step ? STEP_LIMIT : isSolidWorksFile(fileName) ? SOLIDWORKS_LIMIT : Infinity)) return false;
-  toast({ kind: 'error', message: step ? 'This STEP file is too large to import (60 MB limit).' : 'This SolidWorks file is too large to open (200 MB limit).' });
+  const solidWorks = isSolidWorksFile(fileName);
+  if (size <= (step ? STEP_LIMIT : solidWorks ? SOLIDWORKS_LIMIT : PART_LIMIT)) return false;
+  toast({ kind: 'error', message: step ? 'This STEP file is too large to import (60 MB limit).' : solidWorks ? 'This SolidWorks file is too large to open (200 MB limit).' : 'This file is too large to open as a part (200 MB limit).' });
   return true;
 }
 
