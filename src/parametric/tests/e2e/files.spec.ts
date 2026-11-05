@@ -236,6 +236,27 @@ test('the start screen gives way to work started behind it, which an example the
   await expect(page).toHaveTitle('* Part1 - Parametric');
 });
 
+test('a view-only shared file that is not a part is refused before asking to discard', async ({ page }) => {
+  await mockPuter(page);
+  await page.addInitScript(() => {
+    const w = window as unknown as Mock & { puter: { fs: { listShared(): Promise<unknown> } } };
+    w.__files.set('/alice/Parts/Notes.parametric', { text: 'not a part' });
+    w.puter.fs.listShared = async () => ({ items: [{ name: 'Notes.parametric', path: '/alice/Parts/Notes.parametric', owner: 'alice', mode: 'read' }] });
+  });
+  await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await app(page);
+  await page.evaluate(() => {
+    const a = (window as unknown as { __parametric: AppHandle }).__parametric;
+    a.store.change('A', (d) => { d.variables.push({ name: 'A', expr: '1' }); });
+    a.commands.run('open');
+  });
+  await page.getByRole('dialog', { name: 'Open' }).getByRole('button', { name: /^Notes/ }).click();
+  await expect(page.getByRole('region', { name: 'Notifications' }).getByText('This file is not a valid part file.')).toBeVisible();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect(page).toHaveTitle('* Part1 - Parametric');
+});
+
 test('parts are deleted from the Open dialog with a button, and stay listed when that fails', async ({ page }) => {
   await mockPuter(page);
   await page.addInitScript(() => {

@@ -252,13 +252,16 @@ export class FileOps {
 
   /** View-only shares open detached: saving makes a copy in the user's own Parts. */
   private async openReadOnlyCopy(e: FileEntry) {
-    if (!(await this.confirmDiscard('open another part'))) return;
+    let text: string;
     try {
-      if (!this.openText(await loadText(e.location), null, e.name)) return;
-      toast({ message: `"${e.name}" is shared with you as view only. Saving keeps your own copy.`, timeout: 6000 });
+      text = await loadText(e.location);
     } catch (err) {
       toast({ kind: 'error', title: 'Could not open the part', message: storageError(err) });
+      return;
     }
+    // Read and checked first: a file that cannot be opened leaves the current part alone.
+    if (!(await this.openPartText(text, null, e.name))) return;
+    toast({ message: `"${e.name}" is shared with you as view only. Saving keeps your own copy.`, timeout: 6000 });
   }
 
   async openFromDevice() {
