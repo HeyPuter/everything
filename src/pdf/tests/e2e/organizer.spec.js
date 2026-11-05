@@ -508,3 +508,32 @@ test('the Organize pages toolbar keeps the focus on the button pressed', async (
   await expect(page.locator('.organize-status')).toHaveText('3 pages');
   await expect(remove).toBeFocused();
 });
+
+test('rotate and delete shortcuts in Organize pages act on the chosen pages', async ({ page }) => {
+  await mockPuter(page);
+  await page.goto('/#library');
+  await openPdf(page, await tallPdf());
+  await page.getByRole('button', { name: 'Tools', exact: true }).click();
+  await page
+    .getByRole('complementary', { name: 'Tools' })
+    .getByRole('button', { name: 'Organize pages', exact: true })
+    .click();
+  const grid = page.getByRole('listbox', { name: 'Pages' });
+  await grid.getByRole('option', { name: 'Page 2', exact: true }).click();
+  await grid.getByRole('option', { name: 'Page 3', exact: true }).click({ modifiers: ['Shift'] });
+  // Not the current page behind the grid, page 1.
+  await page.keyboard.press('ControlOrMeta+Shift+R');
+  await settled(page);
+  // From the toolbar too, whose buttons act on the same pages.
+  await page
+    .getByRole('toolbar', { name: 'Organize pages' })
+    .getByRole('button', { name: 'Rotate counterclockwise', exact: true })
+    .focus();
+  await page.keyboard.press('ControlOrMeta+Shift+R');
+  await settled(page);
+  expect((await exportedHeights(page)).map(([, angle]) => angle)).toEqual([0, 180, 180]);
+  await grid.getByRole('option', { name: 'Page 3', exact: true }).focus();
+  await page.keyboard.press('ControlOrMeta+Shift+D');
+  await expect(page.getByRole('dialog')).toContainText('Remove pages 2-3?');
+  await page.getByRole('dialog').getByRole('button', { name: 'Cancel', exact: true }).click();
+});

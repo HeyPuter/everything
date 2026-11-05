@@ -225,7 +225,22 @@ export function createOrganizeView({
   );
   const root = el(
     'section',
-    { class: 'organize-view', 'aria-label': 'Organize pages', hidden: true },
+    {
+      class: 'organize-view',
+      'aria-label': 'Organize pages',
+      hidden: true,
+      // The editor's shortcuts to rotate or delete a page act on the current page, which the
+      // grid hides; here they act on the chosen pages, as the toolbar's buttons do.
+      onkeydown: (e) => {
+        const key = e.key.toLowerCase();
+        if (!(e.ctrlKey || e.metaKey) || !e.shiftKey || e.altKey || !['r', 'd'].includes(key))
+          return;
+        if (/input|textarea|select/i.test(e.target.tagName)) return;
+        e.preventDefault();
+        e.stopPropagation();
+        (key === 'r' ? commands.right : commands.remove).click();
+      },
+    },
     toolbar,
     grid,
   );
