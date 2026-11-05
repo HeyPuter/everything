@@ -148,8 +148,13 @@ export async function uniqueCloudPath(name: string): Promise<string> {
 
 // ---- Public API ----
 
-export async function newLocation(name: string, id: string): Promise<Location> {
+export async function newLocation(name: string): Promise<Location> {
   if (cloudAvailable()) return { type: 'cloud', path: await uniqueCloudPath(name) };
+  const existing = new Set(readIndex().map((p) => p.id));
+  let id: string;
+  do {
+    id = `part-${crypto.getRandomValues(new Uint32Array(4)).join('-')}`;
+  } while (existing.has(id));
   return { type: 'local', id };
 }
 
