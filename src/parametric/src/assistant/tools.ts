@@ -619,11 +619,13 @@ class Toolkit {
 
   /** Solves an edited sketch; refuses edits that conflict or newly over-define it. */
   private checkSolve(ed: SketchEdit, previouslyBad: Set<Id>) {
+    // Sizes are measured before solving: a failed solve leaves the geometry half-way (a 40 mm line read 35 mm).
+    const unsolved = structuredClone(ed.sk);
     const solve = ed.solve();
     const newBad = [...solve.badConstraints].filter((id) => !previouslyBad.has(id));
     if (!solve.converged || newBad.length) {
       const bad = ed.sk.constraints.filter((c) => newBad.includes(c.id) || (!solve.converged && solve.conflicting.has(c.id)));
-      throw new ToolError(`the sketch cannot be solved: ${solve.converged ? 'it would be over-defined' : 'the constraints conflict'}. ${bad.length ? `Problem constraints: ${bad.map((c) => constraintLine(ed.sk, c, this.u, this.store)).join('; ')}. ` : ''}Nothing was changed. Remove redundant relations/dimensions (e.g. a rectangle already has horizontal/vertical relations; equal sides need one dimension) or fix the values.`);
+      throw new ToolError(`the sketch cannot be solved: ${solve.converged ? 'it would be over-defined' : 'the constraints conflict'}. ${bad.length ? `Problem constraints: ${bad.map((c) => constraintLine(unsolved, c, this.u, this.store)).join('; ')}. ` : ''}Nothing was changed. Remove redundant relations/dimensions (e.g. a rectangle already has horizontal/vertical relations; equal sides need one dimension) or fix the values.`);
     }
     return solve;
   }

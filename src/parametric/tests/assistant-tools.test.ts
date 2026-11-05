@@ -469,4 +469,14 @@ describe('assistant tools', () => {
     const listed = new Set([...all.matchAll(/\b(p_p\d+)\(-?[\d.]+, -?[\d.]+\)/g)].map((m) => m[1]));
     expect(listed.size).toBe(400);
   });
+
+  it('gives the sketch\'s own sizes when an edit cannot be solved', async () => {
+    const h = new TestHost();
+    await h.call('create_sketch', { plane: 'front', shapes: [{ type: 'rectangle', id: 'r', corner1: [0, 0], corner2: [40, 20] }], dimensions: [{ refs: ['r_l0'], value: 40 }] });
+    // The sizes came from the failed solve's half-way state: "[r_l0] 35 mm", "[r_l0] 0 mm".
+    const r = await h.call('edit_sketch', { sketch: 's1', dimensions: [{ refs: ['r_p0', 'r_p1'], type: 'hdistance', value: 30 }] }, false);
+    expect(r.content).toMatch(/Problem constraints: d6 D1 distance \[r_l0\] 40 mm; d1 D2 hdistance \[r_p0, r_p1\] 40 mm\./);
+    const neg = await h.call('edit_sketch', { sketch: 's1', set_dimensions: [{ dimension: 'D1', value: -40 }] }, false);
+    expect(neg.content).toMatch(/d6 D1 distance \[r_l0\] 40 mm/);
+  });
 });
