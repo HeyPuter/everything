@@ -2166,3 +2166,32 @@ test('every command in a tool set lines its label up with the others', async ({ 
     expect(new Set(starts.map((x) => Math.round(x))).size, name).toBe(1);
   }
 });
+
+test("the file name's keyboard focus ring shows in its tab", async ({ page }) => {
+  await openPdf(page, await numberedPdf(1));
+  const name = page.getByRole('button', { name: 'Rename test.pdf', exact: true });
+  await page.getByRole('button', { name: 'Back to your PDFs', exact: true }).focus();
+  for (let i = 0; i < 20 && !(await name.evaluate((b) => b === document.activeElement)); i++)
+    await page.keyboard.press('Tab');
+  await expect(name).toBeFocused();
+  // The tab clips a long name, and that clipping hid the whole ring around the name.
+  const cut = await name.evaluate((button) => {
+    const style = getComputedStyle(button);
+    if (!button.matches(':focus-visible') || style.outlineStyle === 'none') return 'no ring';
+    const reach = parseFloat(style.outlineOffset) + parseFloat(style.outlineWidth);
+    const own = button.getBoundingClientRect();
+    for (let node = button.parentElement; node !== document.body; node = node.parentElement) {
+      if (getComputedStyle(node).overflow === 'visible') continue;
+      const box = node.getBoundingClientRect();
+      if (
+        own.left - reach < box.left - 0.5 ||
+        own.top - reach < box.top - 0.5 ||
+        own.right + reach > box.right + 0.5 ||
+        own.bottom + reach > box.bottom + 0.5
+      )
+        return `clipped by ${node.className}`;
+    }
+    return null;
+  });
+  expect(cut).toBeNull();
+});

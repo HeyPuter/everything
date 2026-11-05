@@ -1947,6 +1947,17 @@
 .document-tab .document-name {
   max-width: min(220px, 100%);
 }
+/* The clipping above hid the name's keyboard focus ring entirely; the clip reaches 3px past the
+   name (the padding, taken back by the margin, leaves the layout as it was), and the ring is
+   drawn within that. */
+.document-tab .document-info,
+.document-tab .document-title {
+  padding: 3px;
+  margin: -3px;
+}
+.document-tab .document-name:focus-visible {
+  outline-offset: 1px;
+}
 .document-tab .status-row {
   flex: none;
 }
