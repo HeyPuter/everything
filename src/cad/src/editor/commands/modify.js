@@ -44,6 +44,16 @@ function showSelection(ed, ids) {
   ed.renderer.setSelection(new Set(ids));
 }
 
+/** Select ids while fn runs (to highlight a pick) and deselect them however it ends. */
+async function whileSelected(ed, ids, fn) {
+  ed.setSelection(ids);
+  try {
+    return await fn();
+  } finally {
+    ed.clearSelection();
+  }
+}
+
 export const ERASE = {
   name: 'ERASE',
   aliases: ['E', 'DELETE'],
@@ -266,21 +276,21 @@ export const OFFSET = {
     for (;;) {
       const pick = await ed.getEntity('Select object to offset (Enter to finish)', { filter });
       if (!pick || pick.option) return;
-      ed.setSelection([pick.id]);
       const ent = pick.ent;
-      const side = await ed.getPoint(through ? 'Through point' : 'Point on side to offset', {
-        preview: (p) => {
-          const dd = through ? distanceTo(ent, p) : d;
-          if (!(dd > 0)) return [];
-          try {
-            const r = offsetEntity(ent, dd, p.x, p.y);
-            return r ? (Array.isArray(r) ? r : [r]) : [];
-          } catch {
-            return [];
-          }
-        },
-      });
-      ed.clearSelection();
+      const side = await whileSelected(ed, [pick.id], () =>
+        ed.getPoint(through ? 'Through point' : 'Point on side to offset', {
+          preview: (p) => {
+            const dd = through ? distanceTo(ent, p) : d;
+            if (!(dd > 0)) return [];
+            try {
+              const r = offsetEntity(ent, dd, p.x, p.y);
+              return r ? (Array.isArray(r) ? r : [r]) : [];
+            } catch {
+              return [];
+            }
+          },
+        }),
+      );
       if (!side || side.option) return;
       const dd = through ? distanceTo(ent, side) : d;
       let r = null;
@@ -457,9 +467,9 @@ async function filletOrChamfer(ed, isChamfer) {
       if (!multiple) return;
       continue;
     }
-    ed.setSelection([first.id]);
-    const second = await ed.getEntity('Select second object (Shift for a sharp corner)', { filter: (e) => filter(e) });
-    ed.clearSelection();
+    const second = await whileSelected(ed, [first.id], () =>
+      ed.getEntity('Select second object (Shift for a sharp corner)', { filter: (e) => filter(e) }),
+    );
     if (!second || second.option) return;
     const sharp = !!ed.shiftDown;
     let res = null;
@@ -600,19 +610,22 @@ export const STRETCH = {
     const rect = [Math.min(a.x, b.x), Math.min(a.y, b.y), Math.max(a.x, b.x), Math.max(a.y, b.y)];
     const ids = ed.windowSelect(rect[0], rect[1], rect[2], rect[3], true);
     if (!ids.length) return;
-    ed.setSelection(ids);
-    const base = await ed.getPoint('Base point');
-    if (!base || base.option) return;
     const inside = (x, y) => x >= rect[0] && x <= rect[2] && y >= rect[1] && y <= rect[3];
     const stretchAll = (dx, dy) => ids.map((id) => [id, stretchEntity(ed.drawing.get(id), inside, dx, dy)]);
-    ed.renderer.setHidden(new Set(ids));
-    const to = await ed.getPoint('Second point', { base, preview: (p) => stretchAll(p.x - base.x, p.y - base.y).map((x) => x[1]) });
-    ed.renderer.setHidden(new Set());
-    if (!to || to.option) return;
-    ed.commit('Stretch', () => {
-      for (const [id, e] of stretchAll(to.x - base.x, to.y - base.y)) ed.drawing.replace(id, e);
+    await whileSelected(ed, ids, async () => {
+      const base = await ed.getPoint('Base point');
+      if (!base || base.option) return;
+      ed.renderer.setHidden(new Set(ids));
+      const to = await ed.getPoint('Second point', {
+        base,
+        preview: (p) => stretchAll(p.x - base.x, p.y - base.y).map((x) => x[1]),
+      });
+      ed.renderer.setHidden(new Set());
+      if (!to || to.option) return;
+      ed.commit('Stretch', () => {
+        for (const [id, e] of stretchAll(to.x - base.x, to.y - base.y)) ed.drawing.replace(id, e);
+      });
     });
-    ed.clearSelection();
   },
 };
 
@@ -702,17 +715,17 @@ export const BREAK = {
     const filter = (e) => ['line', 'xline', 'ray', 'circle', 'arc', 'ellipse', 'polyline'].includes(e.type);
     const pick = await ed.getEntity('Select object (the pick point is the first break point)', { filter });
     if (!pick || pick.option) return;
-    ed.setSelection([pick.id]);
-    let p1 = { x: pick.x, y: pick.y };
-    let p2 = await ed.getPoint('Second break point', { options: opts('First point') });
-    if (!p2) return;
-    if (p2.option) {
-      p1 = await ed.getPoint('First break point');
-      if (!p1 || p1.option) return;
-      p2 = await ed.getPoint('Second break point', { base: p1 });
-      if (!p2 || p2.option) return;
-    }
-    ed.clearSelection();
+    const pts = await whileSelected(ed, [pick.id], async () => {
+      const p2 = await ed.getPoint('Second break point', { options: opts('First point') });
+      if (!p2) return null;
+      if (!p2.option) return [{ x: pick.x, y: pick.y }, p2];
+      const a = await ed.getPoint('First break point');
+      if (!a || a.option) return null;
+      const b = await ed.getPoint('Second break point', { base: a });
+      return b && !b.option ? [a, b] : null;
+    });
+    if (!pts) return;
+    const [p1, p2] = pts;
     let out = null;
     try {
       const c1 = closestPoint(pick.ent, p1.x, p1.y),
@@ -739,9 +752,7 @@ export const BREAKATPOINT = {
     const filter = (e) => ['line', 'arc', 'ellipse', 'polyline', 'spline'].includes(e.type);
     const pick = await ed.getEntity('Select object to break', { filter });
     if (!pick || pick.option) return;
-    ed.setSelection([pick.id]);
-    const p = await ed.getPoint('Break point');
-    ed.clearSelection();
+    const p = await whileSelected(ed, [pick.id], () => ed.getPoint('Break point'));
     if (!p || p.option) return;
     let out = null;
     try {
@@ -973,18 +984,27 @@ export const MATCHPROP = {
     const src = await ed.getEntity('Select source object');
     if (!src || src.option) return;
     const s = src.ent;
-    ed.setSelection([src.id]);
-    for (;;) {
-      const dst = await ed.getEntity('Select destination object (Enter to finish)');
-      if (!dst || dst.option) break;
-      const patch = { layer: s.layer, color: s.color, linetype: s.linetype, lineweight: s.lineweight, ltscale: s.ltscale ?? 1 };
-      const d = dst.ent;
-      if ((d.type === 'text' || d.type === 'mtext') && (s.type === 'text' || s.type === 'mtext')) Object.assign(patch, { h: s.h, style: s.style });
-      if (d.type === 'dimension' && s.type === 'dimension') patch.style = s.style;
-      if (d.type === 'hatch' && s.type === 'hatch') Object.assign(patch, { pattern: s.pattern, scale: s.scale, angle: s.angle });
-      ed.commit('Match properties', () => ed.drawing.update(dst.id, patch));
-    }
-    ed.clearSelection();
+    await whileSelected(ed, [src.id], async () => {
+      for (;;) {
+        const dst = await ed.getEntity('Select destination object (Enter to finish)');
+        if (!dst || dst.option) break;
+        const patch = {
+          layer: s.layer,
+          color: s.color,
+          linetype: s.linetype,
+          lineweight: s.lineweight,
+          ltscale: s.ltscale ?? 1,
+        };
+        const d = dst.ent;
+        const isText = (e) => e.type === 'text' || e.type === 'mtext';
+        if (isText(d) && isText(s)) Object.assign(patch, { h: s.h, style: s.style });
+        if (d.type === 'dimension' && s.type === 'dimension') patch.style = s.style;
+        if (d.type === 'hatch' && s.type === 'hatch') {
+          Object.assign(patch, { pattern: s.pattern, scale: s.scale, angle: s.angle });
+        }
+        ed.commit('Match properties', () => ed.drawing.update(dst.id, patch));
+      }
+    });
   },
 };
 

@@ -261,3 +261,25 @@ describe('SELECTSIMILAR', () => {
     expect([...t.ed.selection].sort()).toEqual([1, 3, 4]);
   });
 });
+
+describe('cancelling', () => {
+  it('leaves no picked object selected after Esc', async () => {
+    add({ type: 'line', x1: 0, y1: 0, x2: 20, y2: 0 });
+    add({ type: 'line', x1: 0, y1: 0, x2: 0, y2: 20 });
+    for (const cmd of [['FILLET'], ['OFFSET', '2'], ['BREAK'], ['BREAKATPOINT'], ['MATCHPROP']]) {
+      await t.type(...cmd);
+      await t.pick(10, 0);
+      expect(t.ed.selection.size).toBe(1);
+      t.ed.cancel();
+      await flush();
+      expect(t.ed.busy).toBe(false);
+      expect(t.ed.selection.size).toBe(0);
+    }
+    await t.type('STRETCH', '-1,-1', '1,1');
+    expect(t.ed.selection.size).toBe(2);
+    t.ed.cancel();
+    await flush();
+    expect(t.ed.selection.size).toBe(0);
+    expect(t.drawing.undoStack).toHaveLength(2);
+  });
+});
