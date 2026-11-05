@@ -269,12 +269,12 @@ export function isDark(rgb) {
 }
 
 /**
- * Output color for a display-list style. Monochrome prints everything
- * black. Index 7 prints black on white (or no) paper and white on a dark
- * background.
+ * Output color for a display-list style. Monochrome prints everything in
+ * the ink color: black on white (or no) paper, white on a dark background.
+ * Index 7 prints in the ink color too.
  */
 export function plotColor(style, settings = {}, bgRgb = parseBackground(settings.background)) {
-  if (settings.monochrome) return [0, 0, 0];
-  if (style?.aci7) return bgRgb && isDark(bgRgb) ? [255, 255, 255] : [0, 0, 0];
+  const ink = bgRgb && isDark(bgRgb) ? [255, 255, 255] : [0, 0, 0];
+  if (settings.monochrome || style?.aci7) return ink;
   return style?.rgb ?? [0, 0, 0];
 }

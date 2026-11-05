@@ -110,6 +110,8 @@ describe('helpers', () => {
     expect(plotColor(red, { monochrome: true })).toEqual([0, 0, 0]);
     expect(plotColor(fg, {})).toEqual([0, 0, 0]);
     expect(plotColor(fg, { background: '#202020' })).toEqual([255, 255, 255]);
+    // Black and white on a dark background prints white, not invisible black.
+    expect(plotColor(red, { monochrome: true, background: '#1f242c' })).toEqual([255, 255, 255]);
   });
 
   it('fits to a pixel size and formats scales', () => {
