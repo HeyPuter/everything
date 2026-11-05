@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { gripsOf, applyGrip } from '../src/editor/grips.js';
 import { stretchEntity } from '../src/editor/commands/modify.js';
+import { splineFromFitPoints } from '../src/core/geom/index.js';
 
 const P = { layer: '0', color: 256, linetype: 'ByLayer', lineweight: -1, ltscale: 1 };
 
@@ -12,6 +13,15 @@ describe('grips', () => {
       [5, 0],
       [10, 0],
     ]);
+  });
+
+  it('keeps a fit-point spline when a grip would make all fit points coincide', () => {
+    const fit = [0, 0, 10, 0];
+    const s = { ...P, type: 'spline', ...splineFromFitPoints(fit), fit, closed: false };
+    expect(applyGrip(s, 1, 0, 0)).toBe(s);
+    const moved = applyGrip(s, 1, 10, 5);
+    expect(moved.fit).toEqual([0, 0, 10, 5]);
+    expect(moved.ctrl.slice(-2)).toEqual([10, 5]);
   });
 
   it('stretches line ends and moves with the midpoint', () => {

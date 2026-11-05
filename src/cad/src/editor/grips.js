@@ -207,7 +207,9 @@ export function applyGrip(ent, i, x, y) {
         const fit = ent.fit.slice();
         fit[g.v * 2] = x;
         fit[g.v * 2 + 1] = y;
-        return { ...ent, ...splineFromFitPoints(fit, ent.closed), fit };
+        // No curve when every fit point would coincide: leave it as it was.
+        const s = splineFromFitPoints(fit, ent.closed);
+        return s ? { ...ent, ...s, fit } : ent;
       }
       const ctrl = ent.ctrl.slice();
       ctrl[g.v * 2] = x;
