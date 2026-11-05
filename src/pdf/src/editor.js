@@ -2988,6 +2988,8 @@ export function createEditor({
     return true;
   }
   let revealedThumbnail = -1;
+  // A page moved from its thumbnail's menu: the keyboard goes with it ({ from, to }).
+  let movedThumbnail = null;
   /** Keep the current page's thumbnail inside the panel's scroll viewport. */
   function revealThumbnail() {
     if (editorRoot.classList.contains('hide-pages')) return;
@@ -3004,6 +3006,7 @@ export function createEditor({
           menu: focused.classList.contains('thumb-menu'),
         }
       : null;
+    if (restore && movedThumbnail?.from === restore.index) restore.index = movedThumbnail.to;
     const canvases = [...thumbnails.querySelectorAll('.thumb-paper canvas')];
     thumbnails.replaceChildren();
     const stop = Number.isInteger(restore?.index)
@@ -8651,6 +8654,7 @@ export function createEditor({
     return mutate(
       (doc) => {
         movePage(doc, from, to);
+        movedThumbnail = { from, to };
         pageIndex =
           from === current
             ? to
@@ -8662,7 +8666,7 @@ export function createEditor({
       },
       null,
       'assemble',
-    );
+    ).finally(() => (movedThumbnail = null));
   }
   /**
    * Sign with a certificate: choose a digital ID, then append a signature to the PDF as it is

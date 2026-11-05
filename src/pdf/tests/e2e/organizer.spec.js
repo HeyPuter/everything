@@ -554,3 +554,23 @@ test('Organize pages found with the find box on a narrow screen shows its grid',
   await grid.getByRole('option', { name: 'Page 2', exact: true }).click();
   await expect(page.locator('.organize-status')).toHaveText('1 of 3 pages selected');
 });
+
+test("a page moved from its thumbnail's menu keeps the keyboard focus with it", async ({
+  page,
+}) => {
+  await mockPuter(page);
+  await page.goto('/#library');
+  await openPdf(page, await tallPdf());
+  await showPanel(page);
+  await page.getByRole('button', { name: 'Page 2 actions', exact: true }).focus();
+  await page.keyboard.press('Enter');
+  await page.getByRole('menu').getByRole('menuitem', { name: 'Move page later' }).click();
+  await settled(page);
+  // The focus is on the menu of the page that moved, now third, so pressing on moves it again.
+  await expect(page.getByRole('button', { name: 'Page 3 actions', exact: true })).toBeFocused();
+  await page.keyboard.press('Enter');
+  await page.getByRole('menu').getByRole('menuitem', { name: 'Move page earlier' }).click();
+  await settled(page);
+  await expect(page.getByRole('button', { name: 'Page 2 actions', exact: true })).toBeFocused();
+  expect((await exportedHeights(page)).map(([h]) => h)).toEqual([300, 350, 400]);
+});
