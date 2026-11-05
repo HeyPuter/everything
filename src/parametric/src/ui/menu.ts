@@ -106,19 +106,21 @@ export function openMenu(items: MenuItem[], x: number, y: number, opts: MenuOpti
   }
   el.addEventListener('keydown', (e) => {
     const i = buttons.indexOf(document.activeElement as HTMLElement);
+    // Disabled items stay visible but keyboard focus skips them everywhere.
+    const enabled = (b: HTMLElement) => b.getAttribute('aria-disabled') !== 'true';
     const move = (d: number) => {
       if (!buttons.length) return;
       let j = i;
       for (let k = 0; k < buttons.length; k++) {
         j = (j + d + buttons.length) % buttons.length;
-        if (buttons[j].getAttribute('aria-disabled') !== 'true') break;
+        if (enabled(buttons[j])) break;
       }
       buttons[j].focus();
     };
     if (e.key === 'ArrowDown') { e.preventDefault(); move(1); }
     else if (e.key === 'ArrowUp') { e.preventDefault(); move(-1); }
-    else if (e.key === 'Home') { e.preventDefault(); buttons[0]?.focus(); }
-    else if (e.key === 'End') { e.preventDefault(); buttons[buttons.length - 1]?.focus(); }
+    else if (e.key === 'Home') { e.preventDefault(); buttons.find(enabled)?.focus(); }
+    else if (e.key === 'End') { e.preventDefault(); buttons.findLast(enabled)?.focus(); }
     else if (e.key === 'Escape') {
       e.preventDefault();
       e.stopPropagation();
@@ -138,7 +140,7 @@ export function openMenu(items: MenuItem[], x: number, y: number, opts: MenuOpti
       const start = i + 1;
       for (let n = 0; n < buttons.length; n++) {
         const b = buttons[(start + n) % buttons.length];
-        if ((b.textContent || '').trim().toLowerCase().startsWith(k)) { b.focus(); break; }
+        if (enabled(b) && (b.textContent || '').trim().toLowerCase().startsWith(k)) { b.focus(); break; }
       }
     }
   });

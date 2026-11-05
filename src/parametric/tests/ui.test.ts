@@ -34,6 +34,27 @@ describe('menus', () => {
     expect(document.querySelector('.menu')).toBeNull();
   });
 
+  it('Home, End and type-ahead skip disabled items, as the arrow keys do', () => {
+    const menu = openMenu([
+      { label: 'Undo', disabled: true },
+      { label: 'Cut' },
+      { label: 'Copy' },
+      { label: 'Cancel', disabled: true },
+      { label: 'Paste', disabled: true },
+    ], 0, 0);
+    const label = () => (document.activeElement as HTMLElement).textContent;
+    key(menu, 'End');
+    expect(label()).toBe('Copy');
+    key(menu, 'Home');
+    expect(label()).toBe('Cut');
+    key(menu, 'p');
+    expect(label()).toBe('Cut');
+    key(menu, 'c');
+    expect(label()).toBe('Copy');
+    key(menu, 'c');
+    expect(label()).toBe('Cut');
+  });
+
   it('closes on Escape and supports type-ahead', () => {
     const menu = openMenu([{ label: 'Alpha' }, { label: 'Beta' }, { label: 'Gamma' }], 0, 0);
     key(menu, 'g');
