@@ -629,7 +629,13 @@ export function createEditor({
       direction > 0
         ? ZOOM_LEVELS.filter((level) => level > requested * 1.01)
         : ZOOM_LEVELS.filter((level) => level < requested / 1.01).reverse();
-    return String(levels[0] ?? (direction > 0 ? ZOOM_LEVELS.at(-1) : ZOOM_LEVELS[0]));
+    // Past the last step the zoom stays: zooming out of a page fitted below 25% used to jump
+    // up to 25%, the opposite way.
+    if (levels[0] !== undefined) return String(levels[0]);
+    const end = direction > 0 ? ZOOM_LEVELS.at(-1) : ZOOM_LEVELS[0];
+    return (direction > 0 ? requested < end : requested > end)
+      ? String(end)
+      : (pendingZoom?.mode ?? scaleMode);
   }
   /** Show the current scale mode in the menu, adding an entry for an unlisted zoom. */
   function syncZoomSelect() {
