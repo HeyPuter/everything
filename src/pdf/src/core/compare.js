@@ -1125,13 +1125,23 @@ export async function buildCompareReport(
   { oldName = 'Old', newName = 'New', date = new Date() } = {},
 ) {
   const doc = await PDFDocument.create();
-  const regular = await doc.embedFont(StandardFonts.Helvetica);
-  const bold = await doc.embedFont(StandardFonts.HelveticaBold);
+  // The app's own text face writes the letters of most European languages, Greek and Cyrillic
+  // among them, where the standard fonts speak WinAnsi only (Western European); without it
+  // (offline, say) the standard fonts still write the report.
+  let regular, bold;
+  try {
+    const { embedFont } = await import('./document.js');
+    [regular, bold] = await Promise.all([embedFont(doc, 'regular'), embedFont(doc, 'bold')]);
+  } catch {
+    regular = await doc.embedFont(StandardFonts.Helvetica);
+    bold = await doc.embedFont(StandardFonts.HelveticaBold);
+  }
   doc.setTitle('Compare report');
   doc.setSubject(`${oldName} compared with ${newName}`);
   doc.setCreator('PDF editor');
-  // The standard fonts speak WinAnsi only; anything else prints as a question mark.
-  const known = new Set(regular.getCharacterSet());
+  // Anything both faces cannot write prints as a question mark.
+  const boldSet = new Set(bold.getCharacterSet());
+  const known = new Set(regular.getCharacterSet().filter((code) => boldSet.has(code)));
   const safe = (text) =>
     [...String(text).replace(/\s+/g, ' ')]
       .map((ch) => (known.has(ch.codePointAt(0)) ? ch : ch === '→' ? '->' : '?'))
