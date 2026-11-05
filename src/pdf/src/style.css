@@ -264,6 +264,9 @@ select {
 .input::placeholder {
   color: var(--muted);
 }
+.input[aria-invalid='true'] {
+  border-color: var(--danger);
+}
 textarea {
   resize: vertical;
 }

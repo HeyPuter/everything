@@ -6576,7 +6576,19 @@ export function createEditor({
             .map((o) => o.value);
         else values[key] = control.value;
       });
-      await mutateDialog(d, (doc) => fillFields(doc, values), 'Form saved.', 'fill');
+      try {
+        await mutateDialog(d, (doc) => fillFields(doc, values), 'Form saved.', 'fill');
+      } catch (error) {
+        // A value refused for its field: the message shows, then the field takes the focus.
+        const refused = d.open && controls.get(error?.field)?.control;
+        if (!refused) throw error;
+        toast(error.message, { error: true });
+        refused.setAttribute('aria-invalid', 'true');
+        refused.addEventListener('input', () => refused.removeAttribute('aria-invalid'), {
+          once: true,
+        });
+        refused.focus();
+      }
     });
     form.onsubmit = (e) => {
       e.preventDefault();
