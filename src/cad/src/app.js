@@ -572,7 +572,31 @@ export class App {
   async save(arg) {
     const doc = arg instanceof Doc ? arg : this.doc;
     if (!doc) return false;
+    // Saving again while the file is written: wait, then write only newer edits.
+    if (doc._saving && (await this.afterSaving(doc)) && doc.file && !doc.drawing.modified) {
+      return true;
+    }
     if (!doc.file || (!doc.file.path && !doc.file.handle)) return this.saveAs(doc);
+    return this.writing(doc, () => this.writeFile(doc));
+  }
+
+  /** Wait until no save of the drawing is being written; resolves with the last result. */
+  async afterSaving(doc) {
+    let ok = false;
+    while (doc._saving) ok = await doc._saving;
+    return ok;
+  }
+
+  /** Run one file write of a drawing at a time (see afterSaving). */
+  writing(doc, fn) {
+    const p = fn().finally(() => {
+      if (doc._saving === p) doc._saving = null;
+    });
+    doc._saving = p;
+    return p;
+  }
+
+  async writeFile(doc) {
     const kind = doc.file.kind || 'native';
     // Edits made while the file is written stay unsaved.
     const rev = doc.drawing.revision;
@@ -625,8 +649,14 @@ export class App {
         return false;
       }
     }
+    await this.afterSaving(doc);
     const target = await dialogs.saveAsDialog(this, doc);
     if (!target) return false;
+    await this.afterSaving(doc);
+    return this.writing(doc, () => this.writeFileAs(doc, target));
+  }
+
+  async writeFileAs(doc, target) {
     const rev = doc.drawing.revision;
     try {
       const blob = await this.encode(doc, target.kind);
@@ -661,6 +691,7 @@ export class App {
       return false;
     }
   }
+
   async exportDxf() {
     return this.exportAs('dxf');
   }
