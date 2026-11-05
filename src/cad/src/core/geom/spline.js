@@ -155,13 +155,15 @@ function dedupeFlat(pts) {
 }
 
 /**
- * Cubic spline through fit points (flat [x, y, ...]) by global interpolation
- * with chord-length parameters, interior knots at the fit parameters and
- * end tangents estimated from the neighbouring points. Closed curves repeat
- * the first point at the end with a shared tangent. Returns
- * { degree: 3, ctrl, knots } or null when fewer than 2 distinct points.
+ * Cubic spline through fit points (flat [x, y, ...]) the way AutoCAD builds
+ * it: global C2 interpolation with chord-length parameters, interior knots at
+ * the fit points and, unless end tangents are given, zero curvature at the
+ * ends. startTan / endTan are optional end directions [dx, dy] per unit of
+ * chord length. Closed curves repeat the first point at the end and share the
+ * tangent across the seam. Returns { degree: 3, ctrl, knots } (knots in
+ * [0, 1]) or null when fewer than 2 distinct points.
  */
-export function splineFromFitPoints(fit, closed = false) {
+export function splineFromFitPoints(fit, closed = false, startTan = null, endTan = null) {
   const Q = dedupeFlat(fit);
   if (closed && Q.length >= 6) {
     const n0 = Q.length;
@@ -169,96 +171,83 @@ export function splineFromFitPoints(fit, closed = false) {
   }
   const n = (Q.length >> 1) - 1;
   if (n < 1) return null;
-  // Chord-length parameters normalized to [0, 1].
+  // Chord-length parameters.
   const u = new Float64Array(n + 1);
-  for (let i = 1; i <= n; i++) u[i] = u[i - 1] + Math.hypot(Q[2 * i] - Q[2 * i - 2], Q[2 * i + 1] - Q[2 * i - 1]);
+  for (let i = 1; i <= n; i++) {
+    u[i] = u[i - 1] + Math.hypot(Q[2 * i] - Q[2 * i - 2], Q[2 * i + 1] - Q[2 * i - 1]);
+  }
   const total = u[n];
-  for (let i = 1; i <= n; i++) u[i] /= total;
-  u[n] = 1;
   const knots = [0, 0, 0, 0];
-  for (let i = 1; i < n; i++) knots.push(u[i]);
+  for (let i = 1; i < n; i++) knots.push(u[i] / total);
   knots.push(1, 1, 1, 1);
-  // End tangents (derivative with respect to the normalized parameter).
-  let t0x, t0y, tnx, tny;
-  if (n === 1) {
-    t0x = tnx = Q[2] - Q[0];
-    t0y = tny = Q[3] - Q[1];
-  } else if (closed && n >= 3) {
-    const h0 = 1 - u[n - 1],
-      h1 = u[1];
-    const den = h0 * h1 * (h0 + h1);
-    t0x = tnx = (h1 * h1 * (Q[0] - Q[2 * n - 2]) + h0 * h0 * (Q[2] - Q[0])) / den;
-    t0y = tny = (h1 * h1 * (Q[1] - Q[2 * n - 1]) + h0 * h0 * (Q[3] - Q[1])) / den;
+  // End derivatives with respect to the normalized parameter.
+  const tan = (t) => (t && (t[0] || t[1]) ? [t[0] * total, t[1] * total] : null);
+  let d0 = tan(startTan);
+  let d1 = tan(endTan);
+  if (closed && n >= 3 && !d0 && !d1) {
+    const h = u[1] + u[n] - u[n - 1];
+    d0 = d1 = [((Q[2] - Q[2 * n - 2]) / h) * total, ((Q[3] - Q[2 * n - 1]) / h) * total];
+  }
+  // Tridiagonal system for control points 1..n+1 (0 and n+2 are the ends):
+  // a fixed end derivative, or zero second derivative, then one row per
+  // interior fit point.
+  const m = n + 1;
+  const sub = new Float64Array(m),
+    dia = new Float64Array(m),
+    sup = new Float64Array(m),
+    rx = new Float64Array(m),
+    ry = new Float64Array(m);
+  const a = knots[4],
+    b = knots[5];
+  if (d0) {
+    dia[0] = 1;
+    rx[0] = Q[0] + (a / 3) * d0[0];
+    ry[0] = Q[1] + (a / 3) * d0[1];
   } else {
-    const end = (i0, i1, i2, atStart) => {
-      const f01x = (Q[2 * i1] - Q[2 * i0]) / (u[i1] - u[i0]),
-        f01y = (Q[2 * i1 + 1] - Q[2 * i0 + 1]) / (u[i1] - u[i0]);
-      const f12x = (Q[2 * i2] - Q[2 * i1]) / (u[i2] - u[i1]),
-        f12y = (Q[2 * i2 + 1] - Q[2 * i1 + 1]) / (u[i2] - u[i1]);
-      const fx = (f12x - f01x) / (u[i2] - u[i0]),
-        fy = (f12y - f01y) / (u[i2] - u[i0]);
-      if (atStart) return [f01x - fx * (u[i1] - u[i0]), f01y - fy * (u[i1] - u[i0])];
-      return [f12x + fx * (u[i2] - u[i1]), f12y + fy * (u[i2] - u[i1])];
-    };
-    [t0x, t0y] = end(0, 1, 2, true);
-    [tnx, tny] = end(n - 2, n - 1, n, false);
+    dia[0] = 1 / a + 1 / b;
+    sup[0] = -1 / b;
+    rx[0] = Q[0] / a;
+    ry[0] = Q[1] / a;
   }
-  const nc = n + 3;
-  const D = new Float64Array(2 * nc);
-  D[0] = Q[0];
-  D[1] = Q[1];
-  D[2 * nc - 2] = Q[2 * n];
-  D[2 * nc - 1] = Q[2 * n + 1];
-  const k4 = knots[4],
-    kn = knots[n + 2];
-  D[2] = Q[0] + (k4 / 3) * t0x;
-  D[3] = Q[1] + (k4 / 3) * t0y;
-  D[2 * nc - 4] = Q[2 * n] - ((1 - kn) / 3) * tnx;
-  D[2 * nc - 3] = Q[2 * n + 1] - ((1 - kn) / 3) * tny;
-  const m = n - 1; // unknowns D[2..n]
-  if (m > 0) {
-    const sub = new Float64Array(m),
-      dia = new Float64Array(m),
-      sup = new Float64Array(m),
-      rx = new Float64Array(m),
-      ry = new Float64Array(m);
-    const N = new Float64Array(4);
-    for (let k = 1; k <= m; k++) {
-      basisFuns(3 + k, u[k], 3, knots, N);
-      const j = k - 1;
-      sub[j] = N[0];
-      dia[j] = N[1];
-      sup[j] = N[2];
-      rx[j] = Q[2 * k];
-      ry[j] = Q[2 * k + 1];
-      if (k === 1) {
-        rx[j] -= N[0] * D[2];
-        ry[j] -= N[0] * D[3];
-      }
-      if (k === m) {
-        rx[j] -= N[2] * D[2 * (k + 2)];
-        ry[j] -= N[2] * D[2 * (k + 2) + 1];
-      }
-    }
-    // Thomas algorithm.
-    for (let j = 1; j < m; j++) {
-      const w = sub[j] / dia[j - 1];
-      dia[j] -= w * sup[j - 1];
-      rx[j] -= w * rx[j - 1];
-      ry[j] -= w * ry[j - 1];
-    }
-    rx[m - 1] /= dia[m - 1];
-    ry[m - 1] /= dia[m - 1];
-    for (let j = m - 2; j >= 0; j--) {
-      rx[j] = (rx[j] - sup[j] * rx[j + 1]) / dia[j];
-      ry[j] = (ry[j] - sup[j] * ry[j + 1]) / dia[j];
-    }
-    for (let j = 0; j < m; j++) {
-      D[2 * (j + 2)] = rx[j];
-      D[2 * (j + 2) + 1] = ry[j];
-    }
+  const N = new Float64Array(4);
+  for (let k = 1; k < n; k++) {
+    basisFuns(k + 3, knots[k + 3], 3, knots, N);
+    sub[k] = N[0];
+    dia[k] = N[1];
+    sup[k] = N[2];
+    rx[k] = Q[2 * k];
+    ry[k] = Q[2 * k + 1];
   }
-  return { degree: 3, ctrl: Array.from(D), knots };
+  const L = knots.length;
+  const c = 1 - knots[L - 5],
+    d = 1 - knots[L - 6];
+  if (d1) {
+    dia[n] = 1;
+    rx[n] = Q[2 * n] - (c / 3) * d1[0];
+    ry[n] = Q[2 * n + 1] - (c / 3) * d1[1];
+  } else {
+    dia[n] = 1 / c + 1 / d;
+    sub[n] = -1 / d;
+    rx[n] = Q[2 * n] / c;
+    ry[n] = Q[2 * n + 1] / c;
+  }
+  // Thomas algorithm.
+  for (let j = 1; j < m; j++) {
+    const w = sub[j] / dia[j - 1];
+    dia[j] -= w * sup[j - 1];
+    rx[j] -= w * rx[j - 1];
+    ry[j] -= w * ry[j - 1];
+  }
+  rx[m - 1] /= dia[m - 1];
+  ry[m - 1] /= dia[m - 1];
+  for (let j = m - 2; j >= 0; j--) {
+    rx[j] = (rx[j] - sup[j] * rx[j + 1]) / dia[j];
+    ry[j] = (ry[j] - sup[j] * ry[j + 1]) / dia[j];
+  }
+  const ctrl = [Q[0], Q[1]];
+  for (let j = 0; j < m; j++) ctrl.push(rx[j], ry[j]);
+  ctrl.push(Q[2 * n], Q[2 * n + 1]);
+  return { degree: 3, ctrl, knots };
 }
 
 /** Spline from control points with clamped uniform knots: { degree, ctrl, knots }. */
