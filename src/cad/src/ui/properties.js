@@ -504,6 +504,8 @@ export class PropertiesPalette {
   select(options, value, onChange, labelFn) {
     const sel = h('select.input.sm');
     if (value === undefined) sel.append(h('option', { value: '', disabled: true, selected: true }, 'Varies'));
+    // A value the list lacks (an imported hatch pattern, a missing style) is still shown.
+    else if (!options.some((o) => String(o) === String(value))) options = [value, ...options];
     for (const o of options) {
       sel.append(h('option', { value: String(o), selected: value !== undefined && String(o) === String(value) }, labelFn ? labelFn(o) : String(o)));
     }
