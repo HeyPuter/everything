@@ -96,6 +96,12 @@ describe('expression evaluator', () => {
     expect(evaluate('50mm', { kind: 'length' })).toBe(50);
   });
 
+  it('takes an angle with its unit inside a length, in the part units', () => {
+    expect(evaluate('10*sin(30°)', { kind: 'length' })).toBeCloseTo(5, 12);
+    expect(evaluate('2*cos(60 deg) + 1in', { kind: 'length', bareScale: 25.4 })).toBeCloseTo(2 * 25.4, 9);
+    expect(evaluate('sin(1.5707963267948966 rad)', { kind: 'length', bareScale: 10 })).toBeCloseTo(10, 12);
+  });
+
   it('reserves the names a variable would be shadowed by or confused with', () => {
     // A variable "pi" evaluated to its own value but =pi*2 used the constant.
     expect(evaluateVariables([{ name: 'pi', expr: '3' }, { name: 'b', expr: 'pi*2' }]).values.get('b')).toBeCloseTo(2 * Math.PI);

@@ -132,6 +132,8 @@ export function evaluate(src: string, opts: EvalOptions = {}): number {
         const f = table && Object.hasOwn(table, u.v) ? table[u.v] : undefined;
         // Explicit units convert to the display unit; the result is scaled once at the end.
         if (f !== undefined) { pos++; return (t.v * f) / bare; }
+        // Angles are plain numbers of degrees, so =10*sin(30°) works in a length as well.
+        if (kind === 'length' && Object.hasOwn(ANGLE_SUFFIX, u.v)) { pos++; return t.v * ANGLE_SUFFIX[u.v]; }
         // Variables and counts are plain numbers: say so rather than "Unexpected text".
         if (!table && (Object.hasOwn(LENGTH_SUFFIX, u.v) || Object.hasOwn(ANGLE_SUFFIX, u.v))) throw new ExprError(`A unit ("${u.v}") cannot be used here; give a plain number`);
       }
