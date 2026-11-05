@@ -57,3 +57,25 @@ describe('interactive routing', () => {
     expect(ed.activeLayer).toBe('top');
   });
 });
+
+describe('3D view', () => {
+  it('opens one viewer when 3 is pressed twice while it loads', async () => {
+    ctx = await bootBoard();
+    const { app } = ctx;
+    // jsdom has no WebGL2, so each viewer that gets created reports it once.
+    await Promise.all([app.set3d(true), app.set3d(true)]);
+    const notices = [...document.querySelectorAll('.toast')].filter((t) =>
+      /needs WebGL2/.test(t.textContent),
+    );
+    expect(notices).toHaveLength(1);
+  });
+
+  it('does not open after it was closed while loading', async () => {
+    ctx = await bootBoard();
+    const { app } = ctx;
+    await Promise.all([app.set3d(true), app.set3d(false)]);
+    expect([...document.querySelectorAll('.toast')].some((t) => /WebGL2/.test(t.textContent))).toBe(
+      false,
+    );
+  });
+});

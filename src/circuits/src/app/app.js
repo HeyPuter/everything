@@ -1221,6 +1221,8 @@ export class App extends Emitter {
 
   async set3d(on) {
     const ed = this.activeEditor;
+    // Invalidates an open still loading its modules (a quick double press of 3).
+    const token = (this._3dToken = (this._3dToken || 0) + 1);
     if (!on || ed?.kind !== 'pcb') {
       if (this.view3dOpen) {
         this.view3d?.viewer.dispose();
@@ -1236,6 +1238,7 @@ export class App extends Emitter {
     }
     if (this.view3dOpen) return;
     const [{ createViewer3D }, { buildBoardScene }] = await Promise.all([import('../render/viewer3d.js'), import('../render/mesh3d.js')]);
+    if (token !== this._3dToken || this.view3dOpen || this.activeEditor !== ed) return;
     const canvas = h('canvas', { tabindex: 0, 'aria-label': `3D view of ${ed.doc.name}. Drag to orbit, right drag to pan, scroll to zoom. Press 2 to return to 2D.` });
     const back = h('button.btn.sm', { type: 'button', onClick: () => this.set3d(false) }, icon('view-2d', 14), '2D view');
     const views = h('div.activebar.view3d-bar', { role: 'toolbar', 'aria-label': '3D view' }, back, h('span.ab-sep'),
