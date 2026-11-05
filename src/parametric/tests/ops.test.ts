@@ -260,6 +260,40 @@ describe('editing tools', () => {
     expect(Math.max(...xs)).toBeCloseTo(12, 9);
   });
 
+  for (const origin of [0, 1e9, 1e10]) for (const clockwise of [false, true]) it(`keeps offset direction at origin ${origin}, clockwise ${clockwise}`, () => {
+    for (const distance of [-1, 1]) {
+      const s = sk(rect(origin, origin, origin + 10, origin + 6, 'r'));
+      if (clockwise) for (const e of s.entities) if (e.t === 'line') [e.a, e.b] = [e.b, e.a];
+      const created = offsetCurves(s, ['rl0', 'rl1', 'rl2', 'rl3'], distance, idFactory(s));
+      expect(created).toHaveLength(4);
+      const ix = new SketchIndex(s.entities);
+      const points = created.flatMap((id) => { const l = ix.get(id) as SkLine; return [ix.pt(l.a), ix.pt(l.b)]; });
+      expect(Math.min(...points.map((p) => p[0])) - origin).toBe(-distance);
+      expect(Math.max(...points.map((p) => p[0])) - origin).toBe(10 + distance);
+      expect(Math.min(...points.map((p) => p[1])) - origin).toBe(-distance);
+      expect(Math.max(...points.map((p) => p[1])) - origin).toBe(6 + distance);
+    }
+  });
+
+  it.each([0, 1e9])('keeps mixed arc/line offset direction at origin %s', (origin) => {
+    for (const distance of [-1, 1]) {
+      const s = sk([
+        { id: 'c', t: 'point', x: origin, y: origin },
+        { id: 'a', t: 'point', x: origin + 5, y: origin }, { id: 'b', t: 'point', x: origin - 5, y: origin },
+        { id: 'arc', t: 'arc', c: 'c', a: 'a', b: 'b' }, { id: 'line', t: 'line', a: 'b', b: 'a' },
+      ]);
+      const created = offsetCurves(s, ['arc', 'line'], distance, idFactory(s));
+      expect(created).toHaveLength(2);
+      const ix = new SketchIndex(s.entities);
+      const arc = ix.get(created[0]);
+      expect(arc?.t).toBe('arc');
+      if (arc?.t !== 'arc') throw new Error('Missing offset arc');
+      expect(arcRadius(ix, arc)).toBeCloseTo(5 + distance, 5);
+      expect(ix.pt(arc.a)[1] - origin).toBeCloseTo(-distance, 5);
+      expect(ix.pt(arc.b)[1] - origin).toBeCloseTo(-distance, 5);
+    }
+  });
+
   it('offsets a loop whose lines point in mixed directions, joining every corner', () => {
     const s = sk([
       { id: 'a', t: 'point', x: 0, y: 0 }, { id: 'b', t: 'point', x: 10, y: 0 }, { id: 'c', t: 'point', x: 10, y: 6 }, { id: 'd', t: 'point', x: 0, y: 6 },

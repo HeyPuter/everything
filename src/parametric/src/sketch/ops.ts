@@ -591,10 +591,15 @@ export function offsetCurves(sk: SketchFeature, ids: Id[], distance: number, new
     let s = distance;
     if (chain.closed) {
       let area = 0;
+      // Measure area near the profile, avoiding cancellation of large world-coordinate products.
+      const origin = ix.pt(chain.items[0].c.a);
       for (const it of chain.items) {
         const poly = tessellate(ix, it.c, 0.05);
         if (!it.fwd) poly.reverse();
-        for (let i = 0; i + 1 < poly.length; i++) area += cross2(poly[i], poly[i + 1]);
+        for (let i = 0; i + 1 < poly.length; i++) {
+          const p = poly[i], q = poly[i + 1];
+          area += (p[0] - origin[0]) * (q[1] - origin[1]) - (q[0] - origin[0]) * (p[1] - origin[1]);
+        }
       }
       // Counter-clockwise loops have their inside on the left: outward is right.
       s = area > 0 ? -distance : distance;
