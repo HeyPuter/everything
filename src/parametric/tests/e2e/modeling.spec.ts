@@ -355,3 +355,22 @@ test('OK keeps a feature panel open while a value cannot be read', async ({ page
   await expect(page.getByRole('treeitem', { name: 'Extrude1' })).toBeVisible();
   expect(await page.evaluate(() => (window as unknown as { __parametric: { store: { doc: { features: { name: string; depth?: number }[] } } } }).__parametric.store.doc.features.find((f) => f.name === 'Extrude1')?.depth)).toBe(25);
 });
+
+test('dragging the rollback bar rolls back past several features in one undo step', async ({ page }) => {
+  await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  type P = { __parametric: { store: { doc: { rollback: number | null }; undoDepth: number } } };
+  const state = () => page.evaluate(() => { const s = (window as unknown as P).__parametric.store; return { rollback: s.doc.rollback, undo: s.undoDepth }; });
+  const before = await state();
+  const bar = (await page.locator('.tree .rollback-bar').boundingBox())!;
+  const target = (await page.getByRole('treeitem', { name: 'Extrude1' }).boundingBox())!;
+  const x = bar.x + 40, y0 = bar.y + bar.height / 2;
+  await page.mouse.move(x, y0);
+  await page.mouse.down();
+  for (let i = 1; i <= 10; i++) await page.mouse.move(x, y0 + (target.y + 2 - y0) * i / 10);
+  await page.mouse.up();
+  // The bar now sits above Extrude1, the second feature.
+  await expect.poll(async () => (await state()).rollback).toBe(1);
+  expect((await state()).undo).toBe(before.undo + 1);
+});
