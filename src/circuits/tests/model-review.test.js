@@ -2,7 +2,11 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { planSync, applySync } from '../src/model/sync.js';
 import { Project, newProjectData } from '../src/model/project.js';
 import { findComponent, cloneDef } from '../src/model/library/builtin.js';
-import { analyseBoard } from '../src/model/connectivity.js';
+import fs from 'node:fs';
+import path from 'node:path';
+import { analyseBoard, itemDistance } from '../src/model/connectivity.js';
+import { createKernel } from '../src/kernel/ops.js';
+import { defaultRules } from '../src/model/schema.js';
 import { buildNetlist } from '../src/model/netlist.js';
 import { runErc } from '../src/model/erc.js';
 import { portShape } from '../src/model/sch.js';
@@ -173,5 +177,106 @@ describe('annotation: custom designators', () => {
     const objects = [part('a', 'U1A', 'u'), part('b', 'U1A', 'u')];
     const plan = planAnnotation([{ id: 's', objects }], lib);
     expect(plan.map((p) => [p.id, p.to])).toEqual([['b', 'U1']]);
+  });
+});
+
+describe('board connectivity: pour holes', () => {
+  const sq = (x0, y0, x1, y1) => [x0, y0, x1, y0, x1, y1, x0, y1];
+  const lib = {
+    r: {
+      id: 'r',
+      symbol: { pins: [], graphics: [] },
+      footprint: {
+        name: 't',
+        graphics: [],
+        pads: [
+          { num: '1', x: -mm(1.5), y: 0, shape: 'rect', w: mm(1), h: mm(1), side: 'top' },
+          { num: '2', x: mm(1.5), y: 0, shape: 'rect', w: mm(1), h: mm(1), side: 'top' },
+        ],
+      },
+    },
+  };
+  const doc = (objects) => ({
+    id: 'b',
+    kind: 'pcb',
+    name: 'B',
+    board: {
+      outline: sq(0, 0, mm(30), mm(20)),
+      origin: { x: 0, y: 0 },
+      copper: 2,
+      thickness: mm(1.6),
+    },
+    rules: defaultRules(),
+    nets: { GND: {}, VCC: {} },
+    objects,
+  });
+
+  it('connects rectangular pads to a same-net pour through thermal spokes', async () => {
+    const kernel = await createKernel(
+      fs.readFileSync(path.resolve(import.meta.dirname, '../src/kernel/kernel.wasm')),
+    );
+    for (const rot of [0, 45]) {
+      const d = doc([
+        {
+          id: 'c1',
+          t: 'comp',
+          comp: 'r',
+          x: mm(10),
+          y: mm(10),
+          rot,
+          side: 'top',
+          designator: 'R1',
+          uid: 'u1',
+          padNets: { 1: 'GND', 2: 'VCC' },
+        },
+        {
+          id: 'c2',
+          t: 'comp',
+          comp: 'r',
+          x: mm(20),
+          y: mm(10),
+          rot: 0,
+          side: 'top',
+          designator: 'R2',
+          uid: 'u2',
+          padNets: { 1: 'GND', 2: 'VCC' },
+        },
+        {
+          id: 'p1',
+          t: 'pour',
+          layer: 'top',
+          pts: sq(mm(1), mm(1), mm(29), mm(19)),
+          net: 'GND',
+          clearance: mm(0.3),
+        },
+      ]);
+      const pourFills = await kernel.pours(d, lib);
+      const a = analyseBoard(d, d.objects, lib, { pourFills });
+      expect(a.ratsnest.map((r) => r.net)).toEqual(['VCC']);
+      expect(a.shorts).toEqual([]);
+    }
+  });
+
+  it('measures to the edges of a hole for copper inside it', () => {
+    // A pour with a 2 mm square hole; a pad sits in the hole 0.25 mm from its edges.
+    const pour = {
+      kind: 'poly',
+      pts: sq(0, 0, mm(10), mm(10)),
+      holes: [sq(mm(4), mm(4), mm(6), mm(6))],
+    };
+    const pad = { kind: 'poly', pts: sq(mm(4.25), mm(4.25), mm(5.75), mm(5.75)) };
+    expect(itemDistance(pad, pour)).toBeCloseTo(mm(0.25), -1);
+    const via = { kind: 'disc', x: mm(5), y: mm(5), r: mm(0.5) };
+    expect(itemDistance(via, pour)).toBeCloseTo(mm(0.5), -1);
+    const track = { kind: 'seg', x1: mm(4.5), y1: mm(4.5), x2: mm(5.5), y2: mm(4.5), r: mm(0.1) };
+    expect(itemDistance(track, pour)).toBeCloseTo(mm(0.4), -1);
+    // A track crossing the copper between two holes touches it.
+    const two = {
+      kind: 'poly',
+      pts: sq(0, 0, mm(10), mm(10)),
+      holes: [sq(mm(2), mm(4), mm(4), mm(6)), sq(mm(6), mm(4), mm(8), mm(6))],
+    };
+    const across = { kind: 'seg', x1: mm(3), y1: mm(5), x2: mm(7), y2: mm(5), r: mm(0.1) };
+    expect(itemDistance(across, two)).toBeLessThanOrEqual(0);
   });
 });
