@@ -15,9 +15,11 @@ const parseDes = (d) => {
  */
 export function planAnnotation(sheets, lib, { order = 'across', reset = false } = {}) {
   const used = new Map();
+  const kept = new Set();
   const pending = [];
+  // The designator's own leading letters ('R?' -> R, 'U1A' -> U), else the library's.
   const prefixOf = (o) => {
-    const p = parseDes(o.designator)?.prefix || (o.designator || '').replace(/[^A-Za-z_]/g, '');
+    const p = parseDes(o.designator)?.prefix || /^[A-Za-z_]+/.exec(o.designator || '')?.[0];
     return p || lib[o.comp]?.prefix || 'U';
   };
   sheets.forEach((s, si) => {
@@ -28,6 +30,10 @@ export function planAnnotation(sheets, lib, { order = 'across', reset = false } 
         let set = used.get(d.prefix);
         if (!set) used.set(d.prefix, (set = new Set()));
         if (!set.has(d.n)) { set.add(d.n); continue; }
+      } else if (!reset && o.designator && !/\?$/.test(o.designator) && !kept.has(o.designator)) {
+        // A unique custom designator (U1A, J_PWR) is annotated already.
+        kept.add(o.designator);
+        continue;
       }
       pending.push({ sheetIndex: si, sheetId: s.id, o, prefix: prefixOf(o) });
     }

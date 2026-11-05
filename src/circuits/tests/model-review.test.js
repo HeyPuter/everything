@@ -6,6 +6,7 @@ import { analyseBoard } from '../src/model/connectivity.js';
 import { buildNetlist } from '../src/model/netlist.js';
 import { runErc } from '../src/model/erc.js';
 import { portShape } from '../src/model/sch.js';
+import { planAnnotation } from '../src/model/annotate.js';
 import { mil, mm } from '../src/core/units.js';
 
 describe('schematic to board sync: renamed nets', () => {
@@ -155,5 +156,22 @@ describe('netlist: sheet ports', () => {
     expect(erc.filter((e) => e.rule === 'unconnected-pin').map((e) => e.message)).toEqual([
       'Unconnected pin R1-1 (1)',
     ]);
+  });
+});
+
+describe('annotation: custom designators', () => {
+  const lib = { r: { prefix: 'R' }, u: { prefix: 'U' }, j: { prefix: 'J' } };
+  const part = (id, designator, comp) => ({ id, t: 'part', comp, designator, x: 0, y: 0, rot: 0 });
+
+  it('keeps unique designators that are not prefix + number', () => {
+    const objects = [part('a', 'U1A', 'u'), part('b', 'J_PWR', 'j'), part('c', 'U?', 'u')];
+    const plan = planAnnotation([{ id: 's', objects }], lib);
+    expect(plan.map((p) => [p.id, p.to])).toEqual([['c', 'U1']]);
+  });
+
+  it('renumbers a repeated custom designator using its leading letters', () => {
+    const objects = [part('a', 'U1A', 'u'), part('b', 'U1A', 'u')];
+    const plan = planAnnotation([{ id: 's', objects }], lib);
+    expect(plan.map((p) => [p.id, p.to])).toEqual([['b', 'U1']]);
   });
 });
