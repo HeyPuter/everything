@@ -946,6 +946,7 @@ button.rb-panel-title:hover {
 
 .cmd-line {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 4px;
   min-height: 36px;
@@ -961,7 +962,8 @@ button.rb-panel-title:hover {
 }
 
 .cmd-main {
-  flex: 1;
+  /* On a narrow line the Cancel and Enter buttons wrap below the prompt. */
+  flex: 1 1 200px;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -979,7 +981,6 @@ button.rb-panel-title:hover {
 
 .cmd-prompt {
   font-weight: 500;
-  white-space: nowrap;
 }
 
 .cmd-opt {
@@ -1022,6 +1023,7 @@ button.rb-panel-title:hover {
 .cmd-actions {
   display: none;
   gap: 4px;
+  margin-left: auto;
 }
 
 .cmdline.busy .cmd-actions {
@@ -1235,6 +1237,25 @@ body.clean-screen .app-root {
   }
   .cmdline {
     width: calc(100% - 80px);
+  }
+}
+
+/* An overlaid palette leaves the command line and navigation bar uncovered. */
+@media (min-width: 600px) and (max-width: 1023px) {
+  .workspace.dock-open .cmdline {
+    left: 8px;
+    right: calc(var(--dock-w, 0px) + 8px);
+    width: auto;
+    transform: none;
+  }
+  .workspace.dock-open .viewnav {
+    right: calc(var(--dock-w, 0px) + 8px);
+  }
+}
+
+@media (max-width: 599px) {
+  .workspace.dock-open .cmdline {
+    bottom: calc(var(--dock-h, 0px) + 8px);
   }
 }
 

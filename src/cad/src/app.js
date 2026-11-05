@@ -1070,6 +1070,11 @@ export class App {
       window.addEventListener('pointermove', onMove);
       window.addEventListener('pointerup', onUp);
     });
+    // Narrow layouts overlay the palette; its size keeps the command line and navigation bar clear of it.
+    new ResizeObserver(() => {
+      s.workspace.style.setProperty('--dock-w', `${s.dock.offsetWidth}px`);
+      s.workspace.style.setProperty('--dock-h', `${s.dock.offsetHeight}px`);
+    }).observe(s.dock);
     s.dockResize.addEventListener('keydown', (e) => {
       if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
       e.preventDefault();
