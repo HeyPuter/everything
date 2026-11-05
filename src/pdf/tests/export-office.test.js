@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { PDFDocument, PDFName, StandardFonts, rgb, degrees } from 'pdf-lib';
+import { PDFDocument, PDFName, PDFString, StandardFonts, rgb, degrees } from 'pdf-lib';
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { createCanvas, loadImage } from '@napi-rs/canvas';
 import { DOMParser } from '@xmldom/xmldom';
@@ -1134,6 +1134,26 @@ it('leaves out what layers that are off would draw, as the page shows it', async
       (await exportDocument(pdf, bytes, 'txt', { layers: config })).bytes,
     );
     expect(all).toContain('Secret answer');
+  } finally {
+    await loading.destroy();
+  }
+});
+
+it('marks exported web pages and Word documents with the PDF’s own language', async () => {
+  // A French PDF exported as a web page said lang="en", so screen readers read it as English.
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  doc.addPage([300, 300]).drawText('Bonjour tout le monde', { x: 20, y: 200, size: 12, font });
+  doc.catalog.set(PDFName.of('Lang'), PDFString.of('fr-CA'));
+  const bytes = await doc.save();
+  const loading = pdfjs.getDocument({ data: bytes.slice(), verbosity: 0 });
+  const pdf = await loading.promise;
+  try {
+    const html = new TextDecoder().decode((await exportDocument(pdf, bytes, 'html')).bytes);
+    expect(html).toContain('<html lang="fr-CA">');
+    const files = await unzip((await exportDocument(pdf, bytes, 'docx')).bytes);
+    const styles = new TextDecoder().decode(files['word/styles.xml']);
+    expect(styles).toContain('<w:lang w:val="fr-CA"');
   } finally {
     await loading.destroy();
   }

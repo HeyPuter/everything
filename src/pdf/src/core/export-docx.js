@@ -540,7 +540,7 @@ class DocxWriter {
     return (
       XML_HEADER +
       `<w:styles xmlns:w="${W}">` +
-      `<w:docDefaults><w:rPrDefault><w:rPr>${rFonts}<w:sz w:val="${sz}"/><w:szCs w:val="${sz}"/><w:lang w:val="en-US" w:eastAsia="en-US" w:bidi="ar-SA"/></w:rPr></w:rPrDefault>` +
+      `<w:docDefaults><w:rPrDefault><w:rPr>${rFonts}<w:sz w:val="${sz}"/><w:szCs w:val="${sz}"/><w:lang w:val="${xml(this.options.lang || 'en-US')}" w:eastAsia="en-US" w:bidi="ar-SA"/></w:rPr></w:rPrDefault>` +
       `<w:pPrDefault><w:pPr><w:spacing w:after="0" w:line="240" w:lineRule="auto"/></w:pPr></w:pPrDefault></w:docDefaults>` +
       `<w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/><w:qFormat/><w:rPr>${rFonts}<w:sz w:val="${sz}"/><w:szCs w:val="${sz}"/></w:rPr></w:style>` +
       headings +

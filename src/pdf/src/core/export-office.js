@@ -146,6 +146,16 @@ async function documentTitle(pdf) {
     return '';
   }
 }
+/** The PDF's own language (its /Lang), when it is a usable language tag. */
+async function documentLanguage(pdf) {
+  try {
+    const { info } = await pdf.getMetadata();
+    const lang = typeof info?.Language === 'string' ? info.Language.trim() : '';
+    return /^[A-Za-z]{2,3}(-[A-Za-z0-9]{1,8})*$/.test(lang) ? lang : '';
+  } catch {
+    return '';
+  }
+}
 
 /** Export the PDF to `format`; see the module comment for options. */
 export async function exportDocument(pdf, bytes, format, options = {}) {
@@ -159,7 +169,9 @@ export async function exportDocument(pdf, bytes, format, options = {}) {
   const title = options.title ?? (await documentTitle(pdf));
   let done = pageCount;
   let output;
-  const common = { title, author: options.author, signal };
+  // Screen readers pronounce the exported text in the PDF's own language.
+  const lang = (await documentLanguage(pdf)) || undefined;
+  const common = { title, author: options.author, signal, lang };
   if (format === 'docx') output = await writeDocx(model, common);
   else if (format === 'xlsx')
     output = await writeXlsx(model, {
@@ -183,7 +195,7 @@ export async function exportDocument(pdf, bytes, format, options = {}) {
     }
     output = await writePptx(model, { ...common, backgrounds: rendered });
   } else if (format === 'txt') output = new TextEncoder().encode(writeText(model));
-  else if (format === 'html') output = new TextEncoder().encode(writeHtml(model, { title }));
+  else if (format === 'html') output = new TextEncoder().encode(writeHtml(model, { title, lang }));
   else output = new TextEncoder().encode(writeRtf(model));
   signal?.throwIfAborted();
   onProgress?.(total, total);
