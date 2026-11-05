@@ -427,6 +427,18 @@ const rectsOverlap = (a, b, epsilon = 0.01) =>
   Math.min(a[2], b[2]) - Math.max(a[0], b[0]) > epsilon &&
   Math.min(a[3], b[3]) - Math.max(a[1], b[1]) > epsilon;
 
+/** The characters of overlay text that its font, Helvetica, cannot draw (each once). */
+export function overlayTextUnsupported(text) {
+  const embedder = StandardFontEmbedder.for(StandardFonts.Helvetica);
+  return [
+    ...new Set(
+      [...String(text ?? '').replace(/[\r\n\t]+/g, ' ')].filter(
+        (c) => !embedder.encoding.canEncodeUnicodeCodePoint(c.codePointAt(0)),
+      ),
+    ),
+  ];
+}
+
 /** Overlay text drawn into one area, fitted (or at the mark's size), upright on the screen. */
 function overlayOps(text, area, mark, fontName, rotation) {
   const embedder = StandardFontEmbedder.for(StandardFonts.Helvetica);
@@ -627,6 +639,8 @@ export async function applyRedactions(doc, { pages, codec } = {}) {
   const removedAnnotations = new Set(),
     structKeys = new Set();
   let formRemoved = false;
+  // Overlay text the font cannot draw is left out; say so rather than drop it unseen.
+  const overlayGaps = new Set();
   for (const index of [...new Set(indices)].sort((a, b) => a - b)) {
     const marks = pageMarks(doc, index);
     if (!marks.length) continue;
@@ -718,6 +732,7 @@ export async function applyRedactions(doc, { pages, codec } = {}) {
             `q ${mark.fillRgb.map(num).join(' ')} rg ${num(x1)} ${num(y1)} ${num(x2 - x1)} ${num(y2 - y1)} re f Q`,
           );
         if (mark.overlayText) {
+          if (overlayTextUnsupported(mark.overlayText).length) overlayGaps.add(index + 1);
           if (!fontName) {
             let n = 1;
             while (fontDict.has(name(`RedactionFont${n}`))) n++;
@@ -765,6 +780,10 @@ export async function applyRedactions(doc, { pages, codec } = {}) {
   if (filtered.images.removed)
     report.warnings.push(
       `${filtered.images.removed} image(s) could not be decoded and were removed entirely.`,
+    );
+  if (overlayGaps.size)
+    report.warnings.push(
+      `Overlay text on ${overlayGaps.size === 1 ? 'page' : 'pages'} ${[...overlayGaps].join(', ')} has characters the overlay font cannot show; they were left out.`,
     );
   return report;
 }

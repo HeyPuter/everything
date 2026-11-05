@@ -282,3 +282,41 @@ test('text found by both the typed words and a pattern is listed and marked once
   await settled(page);
   await expect(pane.getByText('1 mark to apply')).toBeVisible();
 });
+
+test('redaction properties refuse overlay text the applied marks cannot show', async ({ page }) => {
+  await page.route('https://js.puter.com/**', (route) =>
+    route.fulfill({ contentType: 'application/javascript', body: PUTER_MOCK }),
+  );
+  await page.goto('/#library');
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  doc.addPage([300, 300]).drawText('Account 12345678', { x: 40, y: 200, size: 14, font });
+  const chooser = page.waitForEvent('filechooser');
+  await page.getByRole('button', { name: /Open a PDF/ }).click();
+  await (
+    await chooser
+  ).setFiles({
+    name: 'account.pdf',
+    mimeType: 'application/pdf',
+    buffer: Buffer.from(await doc.save()),
+  });
+  await expect(page.locator('.page-caption')).toHaveText('Page 1 of 1');
+  await page.getByRole('button', { name: 'Tools', exact: true }).click();
+  const pane = page.getByRole('complementary', { name: 'Tools' });
+  await pane.getByRole('button', { name: 'Redact a PDF', exact: true }).click();
+  await pane.getByRole('button', { name: 'Redaction properties…' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Redaction properties' });
+  const overlay = dialog.getByLabel('Overlay text', { exact: true });
+  // The marks' overlay font draws Latin text only: these were saved, then left out unseen.
+  await overlay.fill('機密');
+  await dialog.getByRole('button', { name: 'Save' }).click();
+  await expect(dialog.getByRole('alert')).toHaveText(
+    'Overlay text cannot show 機 密. Use Latin letters, digits, and punctuation.',
+  );
+  await expect(dialog).toBeVisible();
+  await expect(overlay).toBeFocused();
+  await overlay.fill('Redacted');
+  await dialog.getByRole('button', { name: 'Save' }).click();
+  await expect(dialog).toBeHidden();
+  await expect(page.locator('#toast')).toHaveText('New redaction marks use these settings.');
+});

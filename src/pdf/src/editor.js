@@ -8901,13 +8901,21 @@ export function createEditor({
       id: 'redact-repeat',
       checked: redactionStyle.repeat,
     });
-    const save = () => {
+    const save = safe(async () => {
+      // Applied marks draw overlay text in Helvetica; other characters would be left out.
+      const missing = (await loadRedaction()).overlayTextUnsupported(overlay.value);
+      if (missing.length) {
+        overlay.focus();
+        throw new Error(
+          `Overlay text cannot show ${missing.slice(0, 5).join(' ')}. Use Latin letters, digits, and punctuation.`,
+        );
+      }
       redactionStyle.fill = fill.value;
       redactionStyle.overlayText = overlay.value;
       redactionStyle.repeat = repeat.checked;
       d.close();
       toast('New redaction marks use these settings.');
-    };
+    });
     const form = el(
       'form',
       { class: 'stack' },

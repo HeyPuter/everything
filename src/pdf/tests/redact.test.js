@@ -27,6 +27,7 @@ import {
   findRedactionMatches,
   findTextRects,
   listRedactionMarks,
+  overlayTextUnsupported,
   removeRedactionMark,
   selectionRedactionRects,
 } from '../src/core/redact.js';
@@ -822,6 +823,21 @@ describe('vector graphics, annotations, and fields', () => {
     const overlay = items.find((i) => i.str === 'Exempt (b)(6)');
     expect(overlay.transform[4]).toBeGreaterThanOrEqual(x);
     expect(overlay.transform[4] + overlay.width).toBeLessThanOrEqual(x + advance('SECRET') + 0.01);
+  });
+
+  it('says when overlay text has characters its font cannot show', async () => {
+    expect(overlayTextUnsupported('Exempt (b)(6) – Rédigé')).toEqual([]);
+    expect(overlayTextUnsupported('機密 ✓ 機密')).toEqual(['機', '密', '✓']);
+    const bytes = await makePdf([{ content: 'BT /F 12 Tf 72 300 Td (SECRET) Tj ET' }]);
+    // The characters were dropped from the applied mark without a word.
+    const { report } = await redact(bytes, [
+      [0, [[70, 290, 130, 315]], { overlayText: '機密 Confidential' }],
+    ]);
+    expect(report.warnings).toContain(
+      'Overlay text on page 1 has characters the overlay font cannot show; they were left out.',
+    );
+    const plain = await redact(bytes, [[0, [[70, 290, 130, 315]], { overlayText: 'Redacted' }]]);
+    expect(plain.report.warnings).toEqual([]);
   });
 
   it('sets overlay text upright on rotated pages and clears Alt text of redacted figures', async () => {
