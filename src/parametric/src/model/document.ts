@@ -8,6 +8,7 @@ import type { Feature, Id, Param, PartDocument, SkDimension, SketchFeature, Unit
 import { isDimension } from './types';
 import { UNIT_SYSTEMS } from './units';
 import { uniqueId } from './ids';
+import { validFeature } from './validate-feature';
 import { validSketch } from './validate-sketch';
 import { validDrawing } from './validate-drawing';
 import { solveSketch } from '../sketch/solver';
@@ -62,6 +63,7 @@ export function parseDocument(text: string): PartDocument {
   if (!d.features.every((f) => f.type !== 'sketch' || validSketch(f))) {
     throw new Error('The part file is damaged (invalid sketch).');
   }
+  if (!d.features.every(validFeature)) throw new Error('The part file is damaged (invalid feature references).');
   const units = typeof d.units === 'string' && Object.hasOwn(UNIT_SYSTEMS, d.units) ? d.units : 'MMGS';
   const base = newDocument(typeof d.name === 'string' ? d.name : undefined, units);
   // Global variables that are not variables are dropped rather than breaking every rebuild.

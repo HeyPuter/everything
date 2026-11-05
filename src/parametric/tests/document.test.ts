@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { DocStore, changeFeatureUnits, changeUnits, mapExpressions, newDocument, parseDocument, serializeDocument } from '../src/model/document';
 import { defaultName, dependencies, newExtrude } from '../src/model/features';
 import type { ExtrudeFeature, Feature, SkDimension, SketchFeature } from '../src/model/types';
+import { EXAMPLES } from '../src/app/examples';
 import { rect, sketch } from './helpers';
 
 describe('document store', () => {
@@ -157,6 +158,27 @@ describe('document store', () => {
     expect(parseDocument(JSON.stringify({ ...raw, nextId: 3 })).nextId).toBe(8);
     expect(parseDocument(JSON.stringify({ ...raw, nextId: 40 })).nextId).toBe(40);
     expect(() => parseDocument(JSON.stringify({ ...raw, features: [null] }))).toThrow(/damaged/);
+  });
+
+  it('refuses features whose reference lists or references are damaged', () => {
+    const load = (f: object) => () => parseDocument(JSON.stringify({ format: 'parametric-part', version: 1, features: [{ id: 'f9', name: 'X', ...f }] }));
+    for (const f of [
+      { type: 'loft', cut: false },
+      { type: 'fillet', radius: 1, edges: [null], faces: [] },
+      { type: 'fillet', radius: 1, faces: [] },
+      { type: 'shell', thickness: 1, faces: [{ sig: {} }] },
+      { type: 'mirror', seeds: 'f1', plane: null },
+      { type: 'plane', ref: { kind: 'face', face: null }, offset: 1 },
+      { type: 'linearPattern', seeds: ['f1'] },
+      { type: 'circularPattern', seeds: ['f1'], axis: { kind: 'edge' } },
+      { type: 'extrude', depth: 1 },
+    ]) expect(load(f), f.type).toThrow(/damaged \(invalid feature references\)/);
+    expect(load({ type: 'plane', ref: null, offset: 1 })).not.toThrow();
+    expect(load({ type: 'sweep', profile: null, path: null, cut: false })).not.toThrow();
+    // A feature saved before its sketch was picked loads, and its rebuild says what is missing.
+    expect(load({ type: 'extrude', sketch: '', depth: 1 })).not.toThrow();
+    expect(load({ type: 'revolve', sketch: '', axis: null })).not.toThrow();
+    for (const ex of EXAMPLES) expect(() => parseDocument(serializeDocument(ex.make()))).not.toThrow();
   });
 
   it('refuses features of unknown type, including prototype member names', () => {
