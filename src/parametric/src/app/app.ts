@@ -1201,6 +1201,7 @@ export class App {
   // ---------- sketch mode ----------
 
   private restoreSketch: (() => void) | null = null;
+  private sketchLifetime: AbortController | null = null;
 
   /** Starts a new sketch on a plane or planar face. */
   startSketchOn(ref: PlaneRef) {
@@ -1226,6 +1227,7 @@ export class App {
     if (this.sketchEditor) this.exitSketch(true);
     const frame = this.frameOfSketch(sk) ?? BASE_FRAMES.front;
     this.sketchEditor = new SketchEditor(this, id, frame);
+    this.sketchLifetime = new AbortController();
     this.restoreSketch = restore ?? this.store.restorePoint('Sketch changes');
     this.viewport.tool = this.sketchEditor;
     this.selection.clear();
@@ -1262,6 +1264,8 @@ export class App {
     ed.setTool(null);
     ed.dispose();
     this.sketchEditor = null;
+    this.sketchLifetime?.abort();
+    this.sketchLifetime = null;
     this.restoreSketch = null;
     this.viewport.tool = null;
     this.shell.confirm.hidden = true;
@@ -1286,9 +1290,10 @@ export class App {
   /** Exit sketch discarding changes made since entering it. */
   async discardSketch() {
     const ed = this.sketchEditor;
-    if (!ed) return;
-    const ok = await confirmDialog('Discard changes?', 'Leave the sketch and undo the changes made since you started editing it?', 'Discard changes', true);
-    if (!ok) return;
+    const signal = this.sketchLifetime?.signal;
+    if (!ed || !signal) return;
+    const ok = await confirmDialog('Discard changes?', 'Leave the sketch and undo the changes made since you started editing it?', 'Discard changes', true, signal);
+    if (!ok || signal.aborted || this.sketchEditor !== ed) return;
     const restore = this.restoreSketch;
     this.exitSketch(false);
     restore?.();
