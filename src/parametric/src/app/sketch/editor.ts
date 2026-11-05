@@ -530,7 +530,7 @@ export class SketchEditor implements ViewportTool {
     const units = this.app.store.doc.units;
     const scale = d.type === 'angle' ? 1 : UNIT_SYSTEMS[units].scale;
     const initial = typeof d.value === 'string' ? d.value : String(Number((Number(d.value) / scale).toFixed(8)));
-    const input = h('input', { class: 'input', value: initial, 'aria-label': `Value of ${d.name}`, spellcheck: 'false', autocomplete: 'off' }) as HTMLInputElement;
+    const input = h('input', { class: 'input', value: initial, 'aria-label': `Value of ${d.name}`, spellcheck: 'false', autocomplete: 'off', autocapitalize: 'off', autocorrect: 'off' }) as HTMLInputElement;
     const err = h('div', { class: 'err', role: 'alert' });
     const original = d.value;
     // Live previews move geometry without an undo step. Every preview starts

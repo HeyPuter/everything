@@ -71,6 +71,9 @@ test.describe('sketching', () => {
     const points = () => page.evaluate(() => JSON.stringify((window as unknown as { __parametric: { sketchEditor: { sketch: { entities: unknown[] } } } }).__parametric.sketchEditor.sketch.entities));
     const before = await points();
     const box = page.getByRole('dialog', { name: /Modify/ }).getByRole('textbox');
+    // Variable names are case-sensitive: phone keyboards must not capitalise or correct them.
+    await expect(box).toHaveAttribute('autocapitalize', 'off');
+    await expect(box).toHaveAttribute('autocorrect', 'off');
     // An absurd value overflows the solver; Esc then restores the line exactly.
     await box.fill('1e300');
     await box.fill('5');
