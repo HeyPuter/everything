@@ -372,6 +372,31 @@ test('a save that fails offers to download a copy of the part', async ({ page })
   await expect(page).toHaveTitle('* Part1 - Parametric');
 });
 
+test('after signing out, saving a cloud part asks to sign in instead of writing to the cloud', async ({ page }) => {
+  await mockPuter(page);
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await app(page);
+  await page.evaluate(() => {
+    const a = (window as unknown as { __parametric: AppHandle }).__parametric;
+    a.store.change('A', (d) => { d.variables.push({ name: 'Width', expr: '10' }); });
+    a.commands.run('save');
+  });
+  await expect(page).toHaveTitle('Part1 - Parametric');
+  await page.evaluate(() => {
+    const w = window as unknown as Mock & { __parametric: AppHandle; puter: { auth: { isSignedIn(): boolean } } };
+    w.puter.auth.isSignedIn = () => false;
+    w.__files.clear();
+    w.__parametric.store.change('B', (d) => { d.variables.push({ name: 'Height', expr: '20' }); });
+    w.__parametric.commands.run('save');
+  });
+  const toasts = page.getByRole('region', { name: 'Notifications' });
+  await expect(toasts.getByText(/Sign in to Puter to save this part to your cloud/)).toBeVisible();
+  expect(await page.evaluate(() => (window as unknown as Mock).__files.size)).toBe(0);
+  await expect(page).toHaveTitle('* Part1 - Parametric');
+  expect(errors).toEqual([]);
+});
+
 test('closing the Puter desktop window asks about unsaved changes first', async ({ page }) => {
   await mockPuter(page);
   await page.addInitScript(() => {

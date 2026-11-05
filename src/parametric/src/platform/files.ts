@@ -118,6 +118,8 @@ async function localDelete(id: string) {
 async function cloudWrite(path: string, text: string) {
   const fs = puter()?.fs;
   if (!fs) throw new Error('Puter storage is not available.');
+  // Signed out (in another tab, say): writing would open Puter's sign-in instead.
+  if (!cloudAvailable()) throw new Error('Sign in to Puter to save this part to your cloud, or use Save As to keep it in this browser.');
   return fs.write(path, new Blob([text], { type: 'application/json' }), { overwrite: true, createMissingParents: true });
 }
 
@@ -207,6 +209,7 @@ export async function deletePart(location: Location) {
 }
 
 export async function renameCloud(location: Location & { type: 'cloud' }, newName: string): Promise<Location> {
+  if (!cloudAvailable()) throw new Error('Sign in to Puter to rename parts saved in your cloud.');
   const item = await puter()!.fs.rename(location.path, `${safeName(newName)}${EXT}`);
   return { type: 'cloud', path: item?.path || location.path.replace(/[^/]+$/, `${safeName(newName)}${EXT}`) };
 }
