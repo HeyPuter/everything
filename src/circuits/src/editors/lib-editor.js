@@ -27,7 +27,7 @@ import { mil, mm, SCH_GRID, snap, formatLength, parseLength } from '../core/unit
 import { bboxContains, bboxIntersects, bboxValid, bboxUnion, bboxEmpty, simplifyPolyline } from '../core/geom.js';
 import { LAYERS } from '../model/layers.js';
 import { PIN_TYPES, PIN_TYPE_LABELS } from '../model/schema.js';
-import { CATEGORIES } from '../model/library/builtin.js';
+import { CATEGORIES, findComponent } from '../model/library/builtin.js';
 import { overlappingPads } from '../model/library/footprints.js';
 import { PIN_TEXT, SCH_TEXT, LINE_W } from '../model/sch.js';
 
@@ -700,14 +700,18 @@ export class LibEditor extends CanvasView {
     return validateComponent(this.doc.toDef());
   }
 
-  /** Writes the component to the project library and My library. */
+  /**
+   * Writes the component to the project library and My library. A project's
+   * edited copy of a built-in component keeps the built-in id, so it stays in
+   * the project: in My library it would replace the built-in everywhere.
+   */
   async save() {
     const def = this.doc.toDef();
     if (def.footprint && !def.footprint.courtyard && def.footprint.pads.length) def.footprint.courtyard = courtyardFor([...this.doc.fpStore.all()]);
     const issues = validateComponent(def);
     const errors = issues.filter((m) => m.severity === 'error');
     if (this.project) this.project.putComponent(def);
-    await this.app.userLibrary?.put(def);
+    if (!findComponent(def.id)) await this.app.userLibrary?.put(def);
     this.doc.markSaved();
     this.app.renderTabs?.();
     this.app.updateTitle?.();
