@@ -5,6 +5,7 @@ import { opts } from '../input.js';
 import { closestPoint, intersectPrims, toPrims } from '../../core/geom/index.js';
 import { findBoundary, toHatchLoops } from '../../core/hatch/boundary.js';
 import { loopsToRings, pointInRing } from '../../core/hatch/fill.js';
+import { getPattern, patternNames } from '../../core/hatch/patterns.js';
 import { tessellate } from '../../core/geom/index.js';
 import { angleOf, loopFromEntity } from './util.js';
 
@@ -552,7 +553,12 @@ export const HATCH = {
 
 async function hatchSettingsPrompt(ed, st) {
   const name = await ed.getString('Pattern name', { default: st.pattern });
-  if (name) st.pattern = name.toUpperCase();
+  const pat = name ? getPattern(name) : null;
+  if (pat) st.pattern = pat.name;
+  else if (name) {
+    const list = patternNames().join(', ');
+    ed.ui.log(`There is no hatch pattern named "${name}". Patterns: ${list}.`, 'error');
+  }
   const s = await ed.getNumber('Pattern scale', { default: st.scale });
   if (Number.isFinite(s) && s > 0) st.scale = s;
   const a = await ed.getAngle('Pattern angle', { default: st.angle });

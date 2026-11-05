@@ -331,6 +331,14 @@ describe('editing commands', () => {
       expect(filled(h, 10, 10)).toBe(true);
     });
 
+    it('keeps the pattern when the typed name is unknown', async () => {
+      await plate();
+      await t.type('T', 'cross', '2', '0', 'T', 'nosuch', '', '');
+      expect(t.ed.hatchSettings.pattern).toBe('CROSS');
+      expect(t.ed.hatchSettings.scale).toBe(2);
+      expect(t.logs.some(([k, m]) => k === 'error' && m.includes('nosuch'))).toBe(true);
+    });
+
     it('undoes a whole pick, islands included', async () => {
       await plate();
       await t.pick(10, 10);
