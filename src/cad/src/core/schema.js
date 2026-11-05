@@ -174,6 +174,18 @@ export function defaultLayer(name = '0') {
   };
 }
 
+/**
+ * The key of a layer, block or style table entry named `name` in any letter
+ * case, or null. Names ignore case in DWG and DXF, so 'Bolt' and 'BOLT' are
+ * one name there.
+ */
+export function tableKey(map, name) {
+  if (map.has(name)) return name;
+  const k = String(name).toLowerCase();
+  for (const n of map.keys()) if (n.toLowerCase() === k) return n;
+  return null;
+}
+
 /** Fields every new entity gets unless the caller sets them. */
 export function baseProps(header) {
   return {

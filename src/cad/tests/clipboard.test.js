@@ -113,4 +113,44 @@ describe('clipboard', () => {
     await type('PASTECLIP', '0,0');
     expect(b.drawing.layers.get('Holes').color).toBe(3);
   });
+
+  it('pastes onto definitions that differ only in letter case', async () => {
+    const { ed, type } = setup();
+    const a = doc();
+    const d = a.drawing;
+    d.transaction('Setup', () => {
+      d.setTable('layers', 'holes', { ...defaultLayer('holes'), color: 1 });
+      const hole = { ...P, id: 1, layer: 'holes', type: 'circle', cx: 0, cy: 0, r: 3 };
+      d.setBlock('bolt', { name: 'bolt', bx: 0, by: 0, entities: [hole], description: '' });
+      d.add({
+        ...P,
+        layer: 'holes',
+        type: 'insert',
+        name: 'bolt',
+        x: 0,
+        y: 0,
+        sx: 1,
+        sy: 1,
+        rot: 0,
+      });
+    });
+    ed.attach(a);
+    ed.setSelection([...d.entities.keys()]);
+    await type('COPYCLIP');
+    const b = doc();
+    const t = b.drawing;
+    t.transaction('Setup', () => {
+      t.setTable('layers', 'Holes', { ...defaultLayer('Holes'), color: 3 });
+      const nut = { ...P, id: 1, layer: '0', type: 'line', x1: 0, y1: 0, x2: 1, y2: 0 };
+      t.setBlock('Bolt', { name: 'Bolt', bx: 0, by: 0, entities: [nut], description: '' });
+    });
+    ed.attach(b);
+    await type('PASTECLIP', '0,0');
+    // DWG and DXF would merge the names anyway: no second layer or block.
+    expect([...t.layers.keys()].sort()).toEqual(['0', 'Holes']);
+    expect([...t.blocks.keys()]).toEqual(['Bolt']);
+    const [ins] = t.entities.values();
+    expect(ins.layer).toBe('Holes');
+    expect(ins.name).toBe('Bolt');
+  });
 });

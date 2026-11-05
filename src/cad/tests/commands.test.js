@@ -324,6 +324,20 @@ describe('editing commands', () => {
     expect(t.all('insert')).toHaveLength(2);
   });
 
+  it('treats block names that differ only in letter case as one name', async () => {
+    await square();
+    t.ed.setSelection([t.all()[0].id]);
+    await t.type('BLOCK', 'Box', '0,0');
+    await t.type('CIRCLE', '50,0', '3');
+    t.ed.setSelection([t.all('circle')[0].id]);
+    // DWG and DXF would merge BOX into Box, so it redefines Box instead.
+    await t.type('BLOCK', 'BOX', 'Y', '50,0');
+    expect([...t.drawing.blocks.keys()]).toEqual(['Box']);
+    expect(t.drawing.blocks.get('Box').entities[0].type).toBe('circle');
+    await t.type('INSERT', 'box', '80,80');
+    expect(t.all('insert').map((e) => e.name)).toEqual(['Box', 'Box', 'Box']);
+  });
+
   it('places linear dimensions horizontally or vertically from the cursor', async () => {
     await t.type('DIMLINEAR', '0,0', '30,10', '15,-10');
     await t.type('DIMLINEAR', '0,0', '30,10', '40,5');

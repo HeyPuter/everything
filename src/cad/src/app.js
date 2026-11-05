@@ -18,6 +18,7 @@ import { TextEditor } from './ui/textedit.js';
 import { hatchTab } from './ui/hatchtab.js';
 import * as dialogs from './ui/dialogs.js';
 import { Drawing } from './core/drawing.js';
+import { tableKey } from './core/schema.js';
 import { sampleDrawing } from './core/sample.js';
 import { SpatialIndex } from './core/spatial.js';
 import { STANDARD_LINETYPES } from './core/linetypes.js';
@@ -1460,7 +1461,9 @@ export class App {
   renameLayer(from, to) {
     const d = this.doc.drawing;
     if (!/^[^<>/\\":;?*|=`]{1,255}$/.test(to)) return 'Layer names cannot contain < > / \\ " : ; ? * | = or `.';
-    if (d.layers.has(to)) return `A layer named "${to}" already exists.`;
+    // Names ignore letter case in DWG and DXF; changing only the case is a rename.
+    const same = tableKey(d.layers, to);
+    if (same && same !== from) return `A layer named "${same}" already exists.`;
     const l = d.layers.get(from);
     d.transaction('Rename layer', () => {
       d.setTable('layers', to, { ...l, name: to });

@@ -5,6 +5,7 @@ import { opts } from '../input.js';
 import { transformEntity, lengthOf, areaOf } from '../../core/geom/index.js';
 import { formatLinear, formatAngle } from '../../core/units.js';
 import { M, dist, angleOf, norm, fresh } from './util.js';
+import { tableKey } from '../../core/schema.js';
 
 // View ----------------------------------------------------------------------
 
@@ -210,7 +211,10 @@ export const BLOCK = {
         ed.ui.log('Block names cannot contain < > / \\ " : ; ? * | = or `.', 'error');
         continue;
       }
-      if (ed.drawing.blocks.has(name)) {
+      // An existing block in another letter case is the same name.
+      const same = tableKey(ed.drawing.blocks, name);
+      if (same) {
+        name = same;
         const r = await ed.getKeyword(`A block named "${name}" exists. Redefine it?`, opts('Yes', 'No'), 'no');
         if (r !== 'yes') continue;
       }
@@ -258,10 +262,12 @@ export const INSERT = {
       else name = await ed.getString(`Block name (${names.slice(0, 10).join(', ')})`, { spaces: true });
       if (!name) return;
     }
-    if (!ed.drawing.blocks.has(name)) {
+    const key = tableKey(ed.drawing.blocks, name);
+    if (!key) {
       ed.ui.log(`There is no block named "${name}".`, 'error');
       return;
     }
+    name = key;
     let sx = 1,
       rot = 0;
     for (;;) {
@@ -505,6 +511,40 @@ export const COPYBASE = {
   },
 };
 
+/**
+ * Map clipboard objects and definitions onto names the drawing already has
+ * in another letter case ('holes' onto 'Holes'), which DWG and DXF treat as
+ * the same name.
+ */
+function sameNames(d, data) {
+  const map = {};
+  let any = false;
+  for (const t of ['linetypes', 'textStyles', 'dimStyles', 'layers', 'blocks']) {
+    map[t] = new Map();
+    for (const v of data[t] || []) {
+      const key = tableKey(d[t], v.name);
+      if (key && key !== v.name) {
+        map[t].set(v.name, key);
+        any = true;
+      }
+    }
+  }
+  if (!any) return (e) => e;
+  const ren = (t, n) => map[t].get(n) ?? n;
+  const textual = (e) => e.type === 'text' || e.type === 'mtext';
+  return (e) => {
+    const out = { ...e };
+    if (e.linetype !== undefined) out.linetype = ren('linetypes', e.linetype);
+    if (e.textStyle !== undefined) out.textStyle = ren('textStyles', e.textStyle);
+    // A layer or style record.
+    if (!e.type) return out;
+    out.layer = ren('layers', e.layer);
+    if (e.type === 'insert') out.name = ren('blocks', e.name);
+    if (e.style !== undefined) out.style = ren(textual(e) ? 'textStyles' : 'dimStyles', e.style);
+    return out;
+  };
+}
+
 export const PASTECLIP = {
   name: 'PASTECLIP',
   label: 'Paste',
@@ -528,14 +568,18 @@ export const PASTECLIP = {
     const p = await ed.getPoint('Insertion point', { preview: (c) => at(c) });
     if (!p || p.option) return;
     const d = ed.drawing;
+    const fix = sameNames(d, data);
     ed.commit('Paste', () => {
       // Definitions the drawing already has keep their own settings.
       for (const t of ['linetypes', 'textStyles', 'dimStyles', 'layers']) {
-        for (const v of data[t] || []) if (!d[t].has(v.name)) d.setTable(t, v.name, v);
+        for (const v of data[t] || []) if (!tableKey(d[t], v.name)) d.setTable(t, v.name, fix(v));
       }
-      for (const b of data.blocks || []) if (!d.blocks.has(b.name)) d.setBlock(b.name, b);
+      for (const b of data.blocks || []) {
+        if (tableKey(d.blocks, b.name)) continue;
+        d.setBlock(b.name, { ...b, entities: b.entities.map(fix) });
+      }
       const ids = [];
-      for (const e of at(p)) ids.push(d.add(fresh(e)).id);
+      for (const e of at(p)) ids.push(d.add(fresh(fix(e))).id);
       return ids;
     });
   },
