@@ -960,13 +960,18 @@ export class Editor {
       if ((st.osnap || this.snapOverride) && !r.opts.noSnap) {
         const ap = st.aperture / cam.scale;
         const ids = this.doc.index.search(w.x - ap, w.y - ap, w.x + ap, w.y + ap, true);
-        const s = findSnap(this.drawing, ids, w.x, w.y, ap, modes, base);
+        // Extension has no point of its own: hovering an end acquires it and
+        // the cursor then tracks along the extension (see _track).
+        const extOnly = this.snapOverride === 'ext';
+        const s = extOnly ? null : findSnap(this.drawing, ids, w.x, w.y, ap, modes, base);
         if (s) {
           fx = s.x;
           fy = s.y;
           snapped = true;
           this.snap = s;
           this._acquire(s);
+        } else if (extOnly) {
+          this._acquire(findSnap(this.drawing, ids, w.x, w.y, ap, new Set(['end']), base));
         } else this._acquire(null);
       }
       if (!snapped) {
@@ -1037,14 +1042,16 @@ export class Editor {
       }
     }
     // Object snap tracking: align with acquired points horizontally or vertically.
-    if (st.otrack && this.acquired.length) {
+    const extOnly = this.snapOverride === 'ext';
+    if ((st.otrack || extOnly) && this.acquired.length) {
       const lines = [];
+      const ext = extOnly || st.osnapModes.includes('ext');
       for (const p of this.acquired) {
-        lines.push({ p, ux: 1, uy: 0 }, { p, ux: 0, uy: 1 });
+        if (!extOnly) lines.push({ p, ux: 1, uy: 0 }, { p, ux: 0, uy: 1 });
         // Extension: continue straight objects that end at the acquired point.
-        if (st.osnapModes.includes('ext')) for (const dir of p.dirs || []) lines.push({ p, ux: dir.x, uy: dir.y, ext: true });
+        if (ext) for (const dir of p.dirs || []) lines.push({ p, ux: dir.x, uy: dir.y, ext: true });
       }
-      if (base && st.polar) {
+      if (base && st.polar && !extOnly) {
         const inc = ((st.polarInc || 90) * Math.PI) / 180;
         if (Math.abs(inc - Math.PI / 2) > 1e-9) {
           for (const p of this.acquired) for (let a = inc; a < Math.PI - 1e-9; a += inc) if (Math.abs(a - Math.PI / 2) > 1e-9) lines.push({ p, ux: Math.cos(a), uy: Math.sin(a) });
@@ -1133,7 +1140,7 @@ export class Editor {
 
   /** Hovering an object snap point for a moment acquires it for tracking. */
   _acquire(s) {
-    if (!this.settings.otrack) return;
+    if (!this.settings.otrack && this.snapOverride !== 'ext') return;
     clearTimeout(this._acqTimer);
     if (!s) return;
     const key = `${s.x.toFixed(9)},${s.y.toFixed(9)}`;

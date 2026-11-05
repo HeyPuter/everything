@@ -417,3 +417,25 @@ describe('invalid sizes are reported', () => {
     expect(t.ed.request?.prompt).toMatch(/^Arc length/);
   });
 });
+
+describe('extension snap override', () => {
+  it('tracks along the extension of a line after a typed EXT', async () => {
+    t.ed.settings.otrack = false;
+    await t.type('LINE', '0,0', '10,3', '');
+    await t.type('LINE', 'EXT');
+    const move = (x, y) => {
+      const s = t.ed.camera.toScreen(x, y);
+      t.ed._updateCursor(s.x, s.y);
+    };
+    move(10, 3);
+    await new Promise((r) => setTimeout(r, 500));
+    expect(t.ed.acquired).toHaveLength(1);
+    move(20.1, 6.3);
+    // Projected onto the line through (0,0) and (10,3).
+    expect(t.ed.cursor.fy / t.ed.cursor.fx).toBeCloseTo(0.3, 6);
+    t.ed._press({ shiftKey: false }, null);
+    await flush();
+    expect(t.ed.snapOverride).toBe(null);
+    expect(t.ed.request?.prompt).toBe('Next point');
+  });
+});
