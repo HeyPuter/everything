@@ -109,3 +109,53 @@ describe('canvas input', () => {
     expect(Math.abs(moved.y - part.y + 100 * px)).toBeLessThanOrEqual(ed.grid);
   });
 });
+
+describe('device pixel ratio', () => {
+  it('re-sizes the drawing buffer when the pixel ratio changes without a resize', async () => {
+    const queries = [];
+    const realMatch = window.matchMedia;
+    const realDpr = window.devicePixelRatio;
+    window.matchMedia = (media) => {
+      const q = {
+        media,
+        matches: false,
+        listeners: new Set(),
+        addEventListener(type, fn) {
+          if (type === 'change') this.listeners.add(fn);
+        },
+        removeEventListener(type, fn) {
+          if (type === 'change') this.listeners.delete(fn);
+        },
+      };
+      queries.push(q);
+      return q;
+    };
+    try {
+      app = await boot();
+      const ed = app.activeEditor;
+      const r = cameraOnly();
+      r.canvas = ed.canvas;
+      r.resize = Renderer2D.prototype.resize;
+      r.width = r.height = 1;
+      ed.renderer = r;
+      ed.wrap.getBoundingClientRect = () => ({ left: 0, top: 0, width: 800, height: 600 });
+      ed._resize();
+      expect(ed.canvas.width).toBe(800);
+      const live = queries.filter((q) => /resolution/.test(q.media) && q.listeners.size);
+      expect(live.length).toBeGreaterThan(0);
+      Object.defineProperty(window, 'devicePixelRatio', { value: 2, configurable: true });
+      for (const q of live) for (const fn of [...q.listeners]) fn();
+      expect(ed.canvas.width).toBe(1600);
+      expect(ed.renderer.dpr).toBe(2);
+      // The editor now watches the new ratio, and stops when disposed.
+      const active = () => queries.filter((q) => /resolution/.test(q.media) && q.listeners.size);
+      expect(active().some((q) => q.media.includes('2dppx'))).toBe(true);
+      ed.renderer = null;
+      ed.dispose();
+      expect(active().filter((q) => [...q.listeners].includes(ed._onDpr))).toEqual([]);
+    } finally {
+      window.matchMedia = realMatch;
+      Object.defineProperty(window, 'devicePixelRatio', { value: realDpr, configurable: true });
+    }
+  });
+});

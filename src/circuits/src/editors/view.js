@@ -44,10 +44,21 @@ export class CanvasView extends Emitter {
     }
     this._ro = new ResizeObserver(() => this._resize());
     this._ro.observe(this.wrap);
+    // Moving the window to a screen with another pixel ratio does not resize
+    // the canvas element, so watch the ratio itself or the drawing buffer
+    // stays at the old density (blurry, or needlessly large).
+    this._onDpr = () => { this._watchDpr(); this._resize(); };
+    this._watchDpr();
     this._bindInput();
   }
 
   get grid() { return 0; }
+
+  _watchDpr() {
+    this._dprQuery?.removeEventListener?.('change', this._onDpr);
+    this._dprQuery = window.matchMedia?.(`(resolution: ${window.devicePixelRatio || 1}dppx)`) || null;
+    this._dprQuery?.addEventListener?.('change', this._onDpr);
+  }
 
   _resize() {
     if (!this.renderer) return;
@@ -335,6 +346,7 @@ export class CanvasView extends Emitter {
     this.disposed = true;
     cancelAnimationFrame(this._frame);
     this._ro.disconnect();
+    this._dprQuery?.removeEventListener?.('change', this._onDpr);
     this.tool?.deactivate?.();
     this.renderer?.dispose();
     this.el.remove();
