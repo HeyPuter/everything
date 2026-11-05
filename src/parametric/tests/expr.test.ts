@@ -62,6 +62,12 @@ describe('expression evaluator', () => {
     expect(renameReferences('2.5e3 * W', m)).toBe('2.5e3 * Width');
   });
 
+  it('reports a division by zero, even inside a larger expression', () => {
+    expect(() => evaluate('W / (N - 1)', { lookup: (n) => (n === 'W' ? 10 : 1) })).toThrow('Division by zero');
+    expect(() => evaluate('1 / (1 / 0)')).toThrow('Division by zero');
+    expect(evaluate('0 / 5')).toBe(0);
+  });
+
   it('says a unit cannot be used where a plain number goes', () => {
     expect(() => evaluate('50mm')).toThrow('A unit ("mm") cannot be used here; give a plain number');
     expect(evaluateVariables([{ name: 'W', expr: '2 in' }]).errors.get('W')).toMatch(/unit \("in"\)/);

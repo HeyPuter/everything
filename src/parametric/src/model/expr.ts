@@ -164,6 +164,8 @@ export function evaluate(src: string, opts: EvalOptions = {}): number {
       if (p.k === 'op' && (p.v === '*' || p.v === '/')) {
         pos++;
         const r = unary();
+        // Caught here, not by the finite check at the end: 1/(1/0) would come out as 0.
+        if (p.v === '/' && r === 0) throw new ExprError('Division by zero');
         v = p.v === '*' ? v * r : v / r;
       } else return v;
     }
