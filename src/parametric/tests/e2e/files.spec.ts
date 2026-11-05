@@ -221,6 +221,18 @@ test('a pending recovery copy is written as soon as the tab is hidden', async ({
   await expect.poll(() => page.evaluate(async (url) => (await import(url)).readRecovery(), '/src/platform/files.ts'), { timeout: 1500 }).toContain('"name":"Hidden"');
 });
 
+test('the start screen gives way to work started behind it, which an example then does not replace silently', async ({ page }) => {
+  await mockPuter(page);
+  await openApp(page);
+  await app(page);
+  const start = page.getByRole('dialog', { name: 'Parametric' });
+  await expect(start).toBeVisible();
+  // As the assistant or the ribbon would, with the start screen still showing.
+  await page.evaluate(() => (window as unknown as { __parametric: AppHandle }).__parametric.store.change('A', (d) => { d.variables.push({ name: 'Work', expr: '1' }); }));
+  await expect(start).toHaveCount(0);
+  await expect(page).toHaveTitle('* Part1 - Parametric');
+});
+
 test('parts are deleted from the Open dialog with a button, and stay listed when that fails', async ({ page }) => {
   await mockPuter(page);
   await page.addInitScript(() => {
