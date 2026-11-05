@@ -309,3 +309,39 @@ describe('pour fill races', () => {
     expect(ed.pourFills.size).toBe(0);
   });
 });
+
+describe('stopping the autorouter', () => {
+  it('fills and checks again when the stop also cancelled a pending repour', async () => {
+    ctx = await bootBoard();
+    const { app, ed } = ctx;
+    const pour = [...ed.doc.items()].find((o) => o.t === 'pour');
+    const abort = () => Object.assign(new Error('Cancelled'), { name: 'AbortError' });
+    let failNext = false;
+    let pourCalls = 0;
+    let drcCalls = 0;
+    app.kernel.pours = async () => {
+      pourCalls++;
+      if (failNext) throw abort();
+      return new Map([[pour.id, [[pour.pts]]]]);
+    };
+    app.kernel.drc = async () => {
+      drcCalls++;
+      if (failNext) throw abort();
+      return [];
+    };
+    app.settings.set('autoRepour', true);
+    app.settings.set('onlineDrc', true);
+    await new Promise((r) => setTimeout(r, 2000));
+    ed.pourFills = new Map();
+    pourCalls = drcCalls = 0;
+    failNext = true;
+    const pending = [ed.repour(), ed.runDrc({ online: true })];
+    failNext = false;
+    await Promise.all(pending);
+    expect(ed.pourFills.size).toBe(0);
+    await new Promise((r) => setTimeout(r, 2000));
+    expect(pourCalls).toBe(2);
+    expect(ed.pourFills.get(pour.id)).toBeTruthy();
+    expect(drcCalls).toBeGreaterThanOrEqual(2);
+  });
+});

@@ -292,6 +292,8 @@ export class PcbEditor extends CanvasView {
       this.emit('pours', fills);
     } catch (err) {
       if (err?.name !== 'AbortError') console.error('Pour failed', err);
+      // Stopping the autorouter stops the shared worker and this fill with it.
+      else if (!this.disposed && this._pourRev === rev) this._schedulePours();
     }
     this._scheduleDrc();
   }
@@ -325,6 +327,7 @@ export class PcbEditor extends CanvasView {
       return list;
     } catch (err) {
       if (err?.name !== 'AbortError') console.error('DRC failed', err);
+      else if (online && !this.disposed) this._scheduleDrc();
       return null;
     }
   }
