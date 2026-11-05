@@ -12,9 +12,8 @@ export interface DimGfx {
   label: Vec2;
 }
 
-/** `px` is the size of one screen pixel in sketch units. */
-export function dimGraphics(sk: SketchFeature, d: Pick<SkDimension, 'type' | 'refs' | 'at' | 'sector'>, px: number): DimGfx | null {
-  const ix = new SketchIndex(sk.entities);
+/** `px` is the size of one screen pixel in sketch units. Pass `ix` when drawing many dimensions. */
+export function dimGraphics(sk: SketchFeature, d: Pick<SkDimension, 'type' | 'refs' | 'at' | 'sector'>, px: number, ix = new SketchIndex(sk.entities)): DimGfx | null {
   const ent = (id: string) => (id === ORIGIN_ID ? undefined : ix.get(id));
   const center = (id: string): Vec2 => {
     const e = ent(id);

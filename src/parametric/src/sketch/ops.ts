@@ -178,8 +178,7 @@ export interface DimSpec {
 }
 
 /** Current value of a dimension as the geometry stands (mm or degrees). */
-export function measureDimension(sk: SketchFeature, d: Pick<SkDimension, 'type' | 'refs' | 'sector'>): number {
-  const ix = new SketchIndex(sk.entities);
+export function measureDimension(sk: SketchFeature, d: Pick<SkDimension, 'type' | 'refs' | 'sector'>, ix = new SketchIndex(sk.entities)): number {
   const ent = (id: Id) => (id === ORIGIN_ID ? undefined : ix.get(id));
   const centerOrPt = (id: Id): Vec2 => {
     const e = ent(id);

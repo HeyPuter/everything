@@ -639,12 +639,11 @@ export class SketchEditor implements ViewportTool {
     });
   }
 
-  private colorFor(e: SkEntity, selected: boolean, hovered: boolean): number[] {
+  private colorFor(e: SkEntity, selected: boolean, hovered: boolean, conflicted: Set<Id>): number[] {
     const css = this.app.colors;
     if (selected) return css.sketchSelected;
     if (hovered) return css.hover;
-    const bad = this.solve && [...this.solve.conflicting].some((cid) => this.sketch.constraints.find((c) => c.id === cid)?.refs.includes(e.id));
-    if (bad) return css.sketchOver;
+    if (conflicted.has(e.id)) return css.sketchOver;
     if (e.construction) return css.sketchConstruction;
     const free = !this.solve || this.solve.freeEntities.has(e.id);
     return free ? css.sketchUnder : css.sketchFull;
@@ -659,6 +658,9 @@ export class SketchEditor implements ViewportTool {
     const selected = new Set(this.selectedIds(['sk']));
     const hoverId = this.hovered?.id;
     const tol = Math.max(this.px * 0.4, 1e-5);
+    // Entities referenced by a constraint that cannot be satisfied (drawn red).
+    const conflicted = new Set<Id>();
+    if (this.solve?.conflicting.size) for (const c of sk.constraints) if (this.solve.conflicting.has(c.id)) c.refs.forEach((r) => conflicted.add(r));
     const pos: number[] = [], col: number[] = [];
     const dpos: number[] = [], dcol: number[] = [];
     const push = (arr: number[], carr: number[], a: Vec3, b: Vec3, c: number[], alpha = 255) => {
@@ -667,7 +669,7 @@ export class SketchEditor implements ViewportTool {
     };
     for (const e of sk.entities) {
       if (e.t === 'point') continue;
-      const c = this.colorFor(e, selected.has(e.id), hoverId === e.id);
+      const c = this.colorFor(e, selected.has(e.id), hoverId === e.id, conflicted);
       const poly = tessellate(ix, e, tol);
       const target = e.construction ? dpos : pos;
       const ctarget = e.construction ? dcol : col;
@@ -685,7 +687,7 @@ export class SketchEditor implements ViewportTool {
     for (const e of sk.entities) {
       if (e.t !== 'point') continue;
       const isSel = selected.has(e.id), isHov = hoverId === e.id;
-      const c = this.colorFor(e, isSel, isHov);
+      const c = this.colorFor(e, isSel, isHov, conflicted);
       ppos.push(...toWorld(fr, [e.x, e.y]));
       pcol.push(c[0] * 255, c[1] * 255, c[2] * 255, 255);
       const standalone = !used.has(e.id);
@@ -727,8 +729,11 @@ export class SketchEditor implements ViewportTool {
     const decimals = this.app.store.doc.decimals;
     const bad = this.solve?.badConstraints ?? new Set<Id>();
     if (this.showDimensions) {
+      // One index for all dimensions: building it per dimension made each
+      // redraw quadratic in the size of the sketch.
+      const ix = new SketchIndex(sk.entities);
       for (const d of dims) {
-        const g = dimGraphics(sk, d, this.px);
+        const g = dimGraphics(sk, d, this.px, ix);
         if (!g) continue;
         keep.add(d.id);
         const c = sel.has(d.id) ? this.app.colors.sketchSelected : d.driven ? this.app.colors.dimensionDriven : bad.has(d.id) ? this.app.colors.sketchOver : this.app.colors.dimension;
@@ -742,12 +747,18 @@ export class SketchEditor implements ViewportTool {
           this.labels.set(d.id, el);
           this.app.viewport.overlay.append(el);
         }
-        const v = measureDimension(sk, d);
+        const v = measureDimension(sk, d, ix);
         const text = d.type === 'angle' ? `${formatNumber(v, Math.max(0, decimals - 1))}°` : `${d.type === 'diameter' ? '⌀' : d.type === 'radius' ? 'R' : ''}${formatNumber(v / UNIT_SYSTEMS[units].scale, decimals)}`;
-        el.textContent = d.driven ? `(${text})` : text;
-        el.className = `dim-label${d.driven ? ' driven' : ''}${bad.has(d.id) ? ' bad' : ''}${typeof d.value === 'string' ? ' expr' : ''}${sel.has(d.id) ? ' selected' : ''}`;
-        el.title = `${d.name}${typeof d.value === 'string' ? ` = ${d.value.replace(/^=/, '')}` : ''}`;
-        el.setAttribute('aria-label', `Dimension ${d.name}: ${text}`);
+        // Only touch what changed: rewriting every label's text on each frame
+        // (tool previews redraw per pointer move) re-lays out the whole overlay.
+        const shown = d.driven ? `(${text})` : text;
+        if (el.textContent !== shown) el.textContent = shown;
+        const aria = `Dimension ${d.name}: ${text}`;
+        if (el.getAttribute('aria-label') !== aria) el.setAttribute('aria-label', aria);
+        const cls = `dim-label${d.driven ? ' driven' : ''}${bad.has(d.id) ? ' bad' : ''}${typeof d.value === 'string' ? ' expr' : ''}${sel.has(d.id) ? ' selected' : ''}`;
+        if (el.className !== cls) el.className = cls;
+        const title = `${d.name}${typeof d.value === 'string' ? ` = ${d.value.replace(/^=/, '')}` : ''}`;
+        if (el.title !== title) el.title = title;
         const [x, y] = this.toScreen(g.label);
         el.style.left = `${x}px`;
         el.style.top = `${y}px`;
