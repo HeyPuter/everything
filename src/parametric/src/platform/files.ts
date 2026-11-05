@@ -164,11 +164,36 @@ export async function saveText(location: Location, name: string, text: string): 
     const item = await cloudWrite(location.path, text);
     const loc: Location = { type: 'cloud', path: item?.path || location.path };
     rememberRecent({ location: loc, name });
+    announceSaved(loc);
     return loc;
   }
   await localWrite(location.id, name, text);
   rememberRecent({ location, name });
+  announceSaved(location);
   return location;
+}
+
+// ---- Saves made in other tabs of this browser ----
+// A tab that still has an older version of the same part open must not
+// silently replace the newer file when it saves.
+
+const savesChannel = typeof BroadcastChannel === 'function' ? new BroadcastChannel('parametric-saves') : null;
+
+export function announceSaved(location: Location) {
+  try {
+    savesChannel?.postMessage({ type: 'saved', location });
+  } catch {
+    /* other tabs are not told */
+  }
+}
+
+/** Calls `fn` when another tab of this browser saves a part. */
+export function onSavedElsewhere(fn: (location: Location) => void) {
+  savesChannel?.addEventListener('message', (e: MessageEvent) => {
+    const loc = record(e.data) && e.data.type === 'saved' && record(e.data.location) ? e.data.location : null;
+    if (loc?.type === 'cloud' && nonempty(loc.path)) fn({ type: 'cloud', path: loc.path });
+    else if (loc?.type === 'local' && nonempty(loc.id)) fn({ type: 'local', id: loc.id });
+  });
 }
 
 export async function loadText(location: Location): Promise<string> {
@@ -269,7 +294,9 @@ export async function pickCloudSave(text: string, name: string): Promise<Locatio
   const pick = p.ui.showSaveFilePicker(new Blob([text], { type: 'application/json' }), `${safeName(name)}${EXT}`);
   const item = await (pick?.undefinedOnCancel ?? pick);
   if (!item) return null;
-  return { type: 'cloud', path: item.path };
+  const location: Location = { type: 'cloud', path: item.path };
+  announceSaved(location);
+  return location;
 }
 
 /** Reads a file from the user's device. */

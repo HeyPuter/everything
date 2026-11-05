@@ -7,6 +7,7 @@ import type { ImportFeature, PartDocument } from '../model/types';
 import {
   type Location, EXT, IMPORT_EXTS, clearRecovery, download, isSolidWorksFile, isStepFile, listParts, loadText, locationLabel, newLocation,
   pickCloudFile, pickCloudSave, pickDeviceFile, orphanRecoveries, removeRecovery, saveText, safeName, writeRecovery, type FileEntry, deletePart, renameCloud, forgetRecent, rememberRecent,
+  onSavedElsewhere, sameLocation,
 } from '../platform/files';
 import { cloudAvailable, env, isMissing, puter, signIn, storageError } from '../platform/puter';
 import { h } from '../ui/dom';
@@ -28,12 +29,15 @@ export class FileOps {
   /** Changes only when another document opens, not on edits or undo. */
   private documentVersion = 0;
   private openRequest: AbortController | null = null;
+  /** The open part's file, when another tab saved it after this tab opened or saved it. */
+  private savedElsewhere: Location | null = null;
 
   constructor(private app: App) {
     app.onDocumentChanged = (reason) => {
       if (reason === 'load') {
         this.documentVersion++;
         this.openRequest?.abort();
+        this.savedElsewhere = null;
       }
       if (reason !== 'saved') this.revision++;
       this.scheduleRecovery();
@@ -41,6 +45,17 @@ export class FileOps {
     // A hidden tab can be closed without notice (phones discard background tabs).
     document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') this.flushRecovery(); });
     window.addEventListener('pagehide', () => this.flushRecovery());
+    onSavedElsewhere((loc) => {
+      if (!sameLocation(loc, app.location) || sameLocation(loc, this.savedElsewhere)) return;
+      this.savedElsewhere = loc;
+      const name = app.store.doc.name;
+      toast({
+        kind: 'warning',
+        message: `"${name}" was saved in another tab. ${app.store.dirty ? 'Saving here replaces that version.' : 'Reopen it to see those changes.'}`,
+        actions: [{ label: 'Reopen', run: () => void this.openLocation(loc, name) }],
+        timeout: 12000,
+      });
+    });
     window.addEventListener('beforeunload', (e) => {
       if (this.app.store.dirty || this.app.panel?.edited) {
         e.preventDefault();
@@ -120,6 +135,10 @@ export class FileOps {
       let loc = app.location;
       if (!loc) loc = await newLocation(app.store.doc.name);
       if (documentVersion !== this.documentVersion) return false;
+      if (sameLocation(loc, this.savedElsewhere)) {
+        const replace = await confirmDialog('Replace the saved part?', `"${app.store.doc.name}" was saved in another tab after you opened it here. Saving replaces that version with this one.`, 'Replace', true, app.documentSignal);
+        if (!replace || documentVersion !== this.documentVersion) return false;
+      }
       // Undo replaces the document object while destination lookup is pending.
       const doc = app.store.doc;
       const text = serializeDocument(doc);
@@ -128,6 +147,7 @@ export class FileOps {
       // The write may finish after New/Open. It belongs to the old part.
       if (documentVersion !== this.documentVersion) return true;
       app.location = saved;
+      if (sameLocation(loc, this.savedElsewhere)) this.savedElsewhere = null;
       this.markSaved(revision);
       toast({ kind: 'success', message: `Saved to ${locationLabel(app.location)}`, timeout: 2500 });
       if (app.location.type === 'local' && !cloudAvailable()) {
