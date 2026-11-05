@@ -37,6 +37,23 @@ test('tablet title bar keeps every control on screen', async ({ page }) => {
   await expect(page.getByRole('menuitem', { name: 'File' })).toBeVisible();
 });
 
+test('on a tablet the task pane leaves the graphics area\'s OK and Cancel uncovered', async ({ page }) => {
+  await page.setViewportSize({ width: 768, height: 1024 });
+  await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  await page.getByRole('treeitem', { name: 'Fillet1' }).focus();
+  await page.keyboard.press('Enter');
+  for (const pane of ['Parts', 'Assistant']) {
+    await page.getByRole('tab', { name: pane }).click();
+    for (const b of ['.confirm-corner .ok', '.confirm-corner .cancel']) {
+      const r = (await page.locator(b).boundingBox())!;
+      const hit = await page.evaluate(([x, y]) => !!document.elementFromPoint(x, y)?.closest('.confirm-corner'), [r.x + r.width / 2, r.y + r.height / 2]);
+      expect(hit, `${b} under ${pane}`).toBe(true);
+    }
+  }
+});
+
 test('starting a sketch slides the sheet away from the sketch', async ({ page }) => {
   await openApp(page);
   await page.getByRole('button', { name: /Mounting Bracket/ }).tap();

@@ -485,6 +485,11 @@ a.icon-btn { text-decoration: none; }
   .menubar, .titlebar > .tb-sep { display: none; }
   .titlebar > .mobile-only { display: inline-grid !important; }
 }
+@media (min-width: 761px) and (max-width: 980px) {
+  /* The task pane overlays the graphics area: OK/Cancel move out from under it. */
+  .workspace:has(> .taskpane > .tp-panel:not([hidden])) .confirm-corner { right: calc(280px + 10px); }
+  .workspace:has(> .taskpane > .tp-panel.wide:not([hidden])) .confirm-corner { right: calc(min(380px, 100vw - var(--taskpane-w) - 12px) + 10px); }
+}
 @media (max-width: 760px) {
   :root { --titlebar-h: 46px; --status-h: 28px; }
   .menubar, .quick .hide-mobile, .tb-right .hide-mobile, .cmd-search, .tb-brand .alpha-tag, .tb-sep.hide-mobile { display: none !important; }
