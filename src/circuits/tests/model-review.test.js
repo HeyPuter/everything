@@ -3,6 +3,9 @@ import { planSync, applySync } from '../src/model/sync.js';
 import { Project, newProjectData } from '../src/model/project.js';
 import { findComponent, cloneDef } from '../src/model/library/builtin.js';
 import { analyseBoard } from '../src/model/connectivity.js';
+import { buildNetlist } from '../src/model/netlist.js';
+import { runErc } from '../src/model/erc.js';
+import { portShape } from '../src/model/sch.js';
 import { mil, mm } from '../src/core/units.js';
 
 describe('schematic to board sync: renamed nets', () => {
@@ -128,5 +131,29 @@ describe('schematic to board sync: renamed nets', () => {
     sheet.store.transact('rewire', (s) => s.update('w1', { pts: [mil(200), 0, mil(500), 0] }));
     const plan = planSync(project, board);
     expect(plan.some((c) => c.kind === 'rename')).toBe(false);
+  });
+});
+
+describe('netlist: sheet ports', () => {
+  const res = cloneDef(findComponent('res-0603'));
+  const lib = { [res.id]: res };
+  const portW = (name) => portShape({ name, io: 'unspec' }).w;
+
+  it('connects a wire at either end of a port, as the editor snaps to both', () => {
+    const w = portW('DATA');
+    // R1 pin 2 is at (200 mil, 0); the wire ends at the port's far end.
+    const objects = [
+      { id: 'p1', t: 'part', comp: res.id, designator: 'R1', x: 0, y: 0, rot: 0, uid: 'u1' },
+      { id: 'w1', t: 'wire', pts: [mil(200), 0, mil(1000), 0] },
+      { id: 'po', t: 'port', name: 'DATA', io: 'unspec', x: mil(1000) + w, y: 0, rot: 180 },
+    ];
+    const sheets = [{ id: 's', name: 'S', objects }];
+    const nl = buildNetlist(sheets, lib);
+    expect(nl.byPin.get('p1:2')).toBe('DATA');
+    const erc = runErc(sheets, lib, nl);
+    expect(erc.filter((e) => e.rule === 'dangling-wire')).toEqual([]);
+    expect(erc.filter((e) => e.rule === 'unconnected-pin').map((e) => e.message)).toEqual([
+      'Unconnected pin R1-1 (1)',
+    ]);
   });
 });

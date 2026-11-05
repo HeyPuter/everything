@@ -104,11 +104,15 @@ function analyseSheet(sheet, lib, dsu, prefix) {
         else { bump(key(p.x, p.y)); tPoints.push([p.x, p.y]); }
       }
     } else if (o.t === 'label' || o.t === 'power' || o.t === 'port') {
-      for (const [x, y] of connectionPoints(o, lib).slice(0, 1)) {
-        const k = prefix + key(x, y);
-        dsu.find(k);
-        named.push({ kind: o.t, name: o.t === 'label' ? o.text : o.t === 'power' ? o.net : o.name, key: k, obj: o, ground: o.t === 'power' && GROUND_STYLES.has(o.style) });
-        tPoints.push([x, y]);
+      // A port connects at either end (the editor snaps wires to both).
+      const [[x, y], ...more] = connectionPoints(o, lib);
+      const k = prefix + key(x, y);
+      dsu.find(k);
+      named.push({ kind: o.t, name: o.t === 'label' ? o.text : o.t === 'power' ? o.net : o.name, key: k, obj: o, ground: o.t === 'power' && GROUND_STYLES.has(o.style) });
+      tPoints.push([x, y]);
+      for (const [ex, ey] of more) {
+        dsu.union(k, prefix + key(ex, ey));
+        tPoints.push([ex, ey]);
       }
     } else if (o.t === 'junction') {
       junctionsManual.push([o.x, o.y]);
