@@ -476,6 +476,7 @@ export class ModelBuilder {
     }
     if (lost) this.warning = 'A selected region is no longer in the sketch and was left out. Edit the feature and select the regions again.';
     else if (prof.openEnds.length && !picks?.length) this.warning = 'Open contours in the sketch were ignored';
+    else if (prof.crossing && !picks?.length) this.warning = 'Contours that cross each other were combined. Trim them where they cross, or select the regions to use.';
     return { regions: prof.regions, frame, sketch };
   }
 

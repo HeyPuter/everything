@@ -69,6 +69,31 @@ describe('sketch profiles', () => {
     expect(inRegion([0, 0], p.regions[0])).toBe(true);
   });
 
+  it.each([
+    ['two circles', circle(0, 0, 10, 'A'), [[12, 0], [-12, 0], [0, 12], [0, -12], [-8, 0], [8, 0]], 5],
+    ['a circle over a rectangle', rect(-20, -10, 20, 10, 'r'), [[20, 0], [-20, 0], [0, 10], [0, -10]], 5],
+  ] as const)('treats contours that cross (%s) the same wherever they cross', (_, base, centres, r) => {
+    for (const [x, y] of centres) {
+      const p = buildProfiles([...base, ...circle(x, y, r, 'B')] as SkEntity[]);
+      expect(p.crossing).toBe(true);
+      // Never a hole crossing its outer boundary; each contour is a region of its own.
+      expect(p.regions).toHaveLength(2);
+      expect(p.regions.every((g) => g.holes.length === 0)).toBe(true);
+    }
+  });
+
+  it('keeps holes that only touch their outline, and does not call that crossing', () => {
+    for (const ents of [[...circle(0, 0, 1000, 'A'), ...circle(999, 0, 1, 'B')], [...rect(-20, -10, 20, 10, 'r'), ...circle(0, 5, 5, 'B')]]) {
+      const p = buildProfiles(ents as SkEntity[]);
+      expect(p.crossing).toBe(false);
+      expect(p.regions).toHaveLength(1);
+      expect(p.regions[0].holes).toHaveLength(1);
+    }
+    // Faces sharing an edge (a rectangle split by a line) do not cross either.
+    const split = buildProfiles([...rect(0, 0, 10, 10, 's'), { id: 'm0', t: 'point', x: 5, y: 0 }, { id: 'm1', t: 'point', x: 5, y: 10 }, { id: 'm', t: 'line', a: 'm0', b: 'm1' }] as SkEntity[]);
+    expect(split.crossing).toBe(false);
+  });
+
   it('handles a closed polygon with many sides', () => {
     const pts: [number, number][] = Array.from({ length: 12 }, (_, i) => [Math.cos((i / 12) * 2 * Math.PI) * 10, Math.sin((i / 12) * 2 * Math.PI) * 10]);
     const p = buildProfiles(polygon(pts));

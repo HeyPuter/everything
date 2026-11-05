@@ -48,6 +48,17 @@ describe('feature regeneration', () => {
     expect(volume(b)).toBeCloseTo(expected, 1);
   });
 
+  it('combines untrimmed crossing contours the same wherever they cross, with a warning', async () => {
+    // A circle over a rectangle's top edge came out as a hole crossing the
+    // outline (no volume at all); over its right edge it was added.
+    for (const [x, y] of [[0, 10], [20, 0], [-20, 0]]) {
+      const b = new ModelBuilder();
+      const res = await b.build(req([sketch('S1', [...rect(-20, -10, 20, 10), ...circle(x, y, 5)]), extrude('E1', 'S1', 1)]));
+      expect(res.status[1]).toMatchObject({ ok: true, warning: expect.stringMatching(/cross each other/) });
+      expect(volume(b)).toBeCloseTo(800 + Math.PI * 12.5, 3);
+    }
+  });
+
   it('extrudes the same spline region and hole in either drawing direction', async () => {
     const volumes: number[] = [];
     for (const clockwise of [false, true]) {
