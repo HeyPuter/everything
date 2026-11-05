@@ -135,6 +135,8 @@ export class Renderer {
     this.drawing = null;
     this.chunks = [];
     this.chunkOf = new Map();
+    /** Chunk an erased object was drawn in, so undo can put it back without a full rebuild. */
+    this.homeOf = new Map();
     this.infinite = new Set();
     this.selection = new Set();
     this.hover = null;
@@ -243,6 +245,7 @@ export class Renderer {
     for (const c of this.chunks) c.gpu?.dispose();
     this.chunks = [];
     this.chunkOf = new Map();
+    this.homeOf = new Map();
     this.infinite = new Set();
     this._resetPatterns();
     if (this.drawing) for (const id of this.drawing.entities.keys()) this._place(id);
@@ -293,6 +296,7 @@ export class Renderer {
       c.ids.delete(id);
       c.dirty = true;
       this.chunkOf.delete(id);
+      this.homeOf.set(id, c);
     }
     if (this.infinite.delete(id)) this.infDirty = true;
   }
@@ -301,7 +305,7 @@ export class Renderer {
   applyChange(change) {
     // Draw order changes, and block redefinitions (which may add or remove
     // construction lines inside references), re-partition everything.
-    if (change.order || change.resort || change.blocks.size) {
+    if (change.order || change.blocks.size || (change.resort && !this._restoreHomes(change))) {
       this.rebuildAll();
       return;
     }
@@ -338,6 +342,32 @@ export class Renderer {
       });
     }
     this.invalidate();
+  }
+
+  /**
+   * Objects coming back (undo of an erase) go back into the chunk they were
+   * drawn in, re-sorted into draw order, so only that chunk is rebuilt.
+   * False when a home chunk is gone and everything must be re-partitioned.
+   */
+  _restoreHomes(change) {
+    const back = [];
+    let live = null;
+    for (const id of change.ids) {
+      const ent = this.drawing.entities.get(id);
+      if (!ent || this.chunkOf.has(id) || this.infinite.has(id) || this._isInfinite(ent)) continue;
+      const home = this.homeOf.get(id);
+      live ??= new Set(this.chunks);
+      if (!home || !live.has(home)) return false;
+      back.push([id, home]);
+    }
+    for (const [id, home] of back) {
+      home.ids.add(id);
+      home.dirty = true;
+      home.unsorted = true;
+      this.chunkOf.set(id, home);
+      this.homeOf.delete(id);
+    }
+    return true;
   }
 
   _dirtyAll() {
@@ -444,6 +474,11 @@ export class Renderer {
     const hidden = this.hidden;
     const layers = new Set();
     let hasInsert = false;
+    if (c.unsorted) {
+      const key = this.drawing.orderKey;
+      c.ids = new Set([...c.ids].sort((a, b) => key.get(a) - key.get(b)));
+      c.unsorted = false;
+    }
     for (const id of c.ids) {
       const e = ents.get(id);
       if (!e) continue;
