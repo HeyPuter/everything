@@ -82,6 +82,7 @@ export class SketchEditor implements ViewportTool {
   private modifyRevert: (() => void) | null = null;
   private modifyCleanup: (() => void) | null = null;
   private modifyHistoryCleanup: (() => void) | null = null;
+  private modifyValid: (() => boolean) | null = null;
   private modifySyncExpressions: ((references: Map<string, string | number>) => void) | null = null;
   showRelations = true;
   showDimensions = true;
@@ -104,6 +105,12 @@ export class SketchEditor implements ViewportTool {
     // using (a line chain's last point, picked entities): drop that state so
     // the next click cannot reference points that no longer exist.
     this.unsubscribe = app.store.on((reason) => {
+      // A model change can remove, replace, or make the edited dimension driven.
+      // Retire its box before any late input can write back into the new state.
+      if (this.modifyValid && !this.modifyValid()) {
+        this.modifyRevert = null;
+        this.closeModify();
+      }
       // Geometry edits cannot rename variables; avoid copying their table on each drag.
       if (reason === 'sketch' && units === app.store.doc.units) return;
       const references = variableReferenceChanges(variables, app.store.doc.variables);
@@ -563,6 +570,7 @@ export class SketchEditor implements ViewportTool {
       toast({ message: 'This is a driven (reference) dimension. Make it driving from its context menu to edit its value.' });
       return;
     }
+    const ownsDimension = () => !!this.sketch?.constraints.includes(d) && !d.driven;
     let units = this.app.store.doc.units;
     let variables = structuredClone(this.app.store.doc.variables);
     let scale = d.type === 'angle' ? 1 : UNIT_SYSTEMS[units].scale;
@@ -582,6 +590,7 @@ export class SketchEditor implements ViewportTool {
       }
     };
     this.modifyHistoryCleanup = this.app.store.filterHistory((doc) => {
+      if (!ownsDimension()) return;
       const target = doc.features.find((f) => f.id === this.sketchId);
       if (target?.type !== 'sketch') return;
       const dim = target.constraints.find((c) => c.id === dimId);
@@ -610,6 +619,7 @@ export class SketchEditor implements ViewportTool {
       }
     };
     const apply = (live: boolean) => {
+      if (this.modify !== box || !ownsDimension()) return false;
       const r = evalText(input.value);
       if (!r.ok) { err.textContent = r.e; input.classList.add('invalid'); return false; }
       err.textContent = '';
@@ -631,6 +641,7 @@ export class SketchEditor implements ViewportTool {
       return true;
     };
     const revert = () => {
+      if (!ownsDimension()) return;
       const dd = this.sketch?.constraints.find((c) => c.id === dimId) as SkDimension | undefined;
       if (!dd) return;
       dd.value = original;
@@ -659,6 +670,7 @@ export class SketchEditor implements ViewportTool {
       input, err);
     this.app.viewport.root.append(box);
     this.modify = box;
+    this.modifyValid = ownsDimension;
     this.modifyRevert = revert;
     this.modifySyncExpressions = (references) => {
       const doc = this.app.store.doc;
@@ -694,6 +706,7 @@ export class SketchEditor implements ViewportTool {
 
   /** Closes the modify box; a value that was not applied is reverted. */
   closeModify() {
+    this.modifyValid = null;
     this.modifyHistoryCleanup?.();
     this.modifyHistoryCleanup = null;
     this.modifySyncExpressions = null;

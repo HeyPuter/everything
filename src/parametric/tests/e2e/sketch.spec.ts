@@ -39,6 +39,46 @@ async function startSketch(page: Page) {
 }
 
 test.describe('sketching', () => {
+  for (const action of ['delete', 'driven', 'replaced'] as const) test(`an open Modify box retires when its dimension becomes ${action}`, async ({ page }) => {
+    const errors = await openApp(page);
+    await startSketch(page);
+    await page.evaluate(() => {
+      const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+      a.sketchEditor!.edit('Add dimensioned circle', (sk) => {
+        sk.entities.push({ id: 'pc', t: 'point', x: 0, y: 0 }, { id: 'circle', t: 'circle', c: 'pc', r: 15 });
+        sk.constraints.push({ id: 'diameter', type: 'diameter', refs: ['circle'], value: 30, at: [20, 20], name: 'D1' });
+      });
+      a.selection.set([{ kind: 'skdim', id: 'diameter' }]);
+      a.sketchEditor!.openModify('diameter');
+    });
+    const modify = page.getByRole('dialog', { name: 'Modify D1', exact: true });
+    await modify.getByRole('textbox').fill('40');
+    const oldInput = await modify.getByRole('textbox').elementHandle();
+    const afterChange = await page.evaluate((action) => {
+      const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+      if (action === 'delete') a.commands.run('delete');
+      else if (action === 'driven') a.sketchEditor!.edit('Make dimension driven', (sk) => { (sk.constraints[0] as import('../../src/model/types').SkDimension).driven = true; });
+      else a.sketchEditor!.edit('Replace dimension', (sk) => { sk.constraints[0] = { ...(sk.constraints[0] as import('../../src/model/types').SkDimension), value: 60 }; });
+      return JSON.stringify(a.sketchEditor!.sketch);
+    }, action);
+    // A queued input/composition callback from the former editor must be inert.
+    await oldInput!.evaluate((input) => {
+      (input as HTMLInputElement).value = '50';
+      input.dispatchEvent(new InputEvent('input', { bubbles: true }));
+      input.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true }));
+    });
+    expect(errors).toEqual([]);
+    await expect(modify).toHaveCount(0);
+    expect(await page.evaluate(() => JSON.stringify((window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.sketchEditor!.sketch))).toBe(afterChange);
+    await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.commands.run('undo'));
+    expect(await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.sketchEditor!.sketch.constraints)).toEqual([
+      expect.objectContaining({ id: 'diameter', value: 30 }),
+    ]);
+    await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.commands.run('redo'));
+    expect(await page.evaluate(() => JSON.stringify((window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.sketchEditor!.sketch))).toBe(afterChange);
+    expect(errors).toEqual([]);
+  });
+
   test('deleting a dimension cancels its pending field without errors and supports Undo', async ({ page }) => {
     const errors = await openApp(page);
     await startSketch(page);
