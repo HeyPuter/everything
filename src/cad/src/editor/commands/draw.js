@@ -611,7 +611,9 @@ export const SPLINE = {
       const f = extra ? fit.concat([extra.x, extra.y]) : fit.slice();
       if (f.length < 4) return null;
       try {
-        return ed.make('spline', { ...splineFromFitPoints(f, closed), fit: f, closed });
+        // No curve (null) when every fit point is the same.
+        const s = splineFromFitPoints(f, closed);
+        return s ? ed.make('spline', { ...s, fit: f, closed }) : null;
       } catch {
         return null;
       }

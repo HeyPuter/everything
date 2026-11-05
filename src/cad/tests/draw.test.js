@@ -439,3 +439,16 @@ describe('extension snap override', () => {
     expect(t.ed.request?.prompt).toBe('Next point');
   });
 });
+
+describe('splines', () => {
+  it('draws no spline (and previews none) when every fit point is the same', async () => {
+    await t.type('SPLINE', '3,3');
+    expect(t.ed.request.opts.preview({ x: 3, y: 3 })).toEqual([]);
+    await t.type('3,3', '');
+    expect(t.all()).toHaveLength(0);
+    await t.type('SPLINE', '0,0', '5,5', '10,0', '');
+    const [s] = t.all('spline');
+    expect(s.ctrl.length).toBeGreaterThanOrEqual(6);
+    expect(s.knots.length).toBeGreaterThan(0);
+  });
+});
