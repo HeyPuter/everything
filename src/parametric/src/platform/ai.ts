@@ -92,6 +92,31 @@ const stoppedAtLimit = (part: Record<string, unknown>, max?: number) =>
 let callSeq = 0;
 const newCallId = () => `call_${Date.now().toString(36)}_${(++callSeq).toString(36)}`;
 
+const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+const LONE_SURROGATES = new RegExp(LONE_SURROGATE.source, 'g');
+
+/**
+ * The value with half characters replaced by U+FFFD. Text cut to a length
+ * (old tool results, long files, names) can end in half of an emoji, and the
+ * API refuses a request holding one as invalid JSON; the cut message stays
+ * in the conversation, so every later request would fail the same way.
+ * Unchanged parts are returned as they are.
+ */
+export function wellFormed<T>(value: T): T {
+  if (typeof value === 'string') return (LONE_SURROGATE.test(value) ? value.replace(LONE_SURROGATES, '\uFFFD') : value) as T;
+  if (Array.isArray(value)) {
+    let out: unknown[] | null = null;
+    value.forEach((v, i) => { const w = wellFormed(v); if (w !== v) (out ??= [...value])[i] = w; });
+    return (out ?? value) as T;
+  }
+  if (value && typeof value === 'object') {
+    let out: Record<string, unknown> | null = null;
+    for (const [k, v] of Object.entries(value)) { const w = wellFormed(v); if (w !== v) (out ??= { ...(value as Record<string, unknown>) })[k] = w; }
+    return (out ?? value) as T;
+  }
+  return value;
+}
+
 /** The instructions and tools are the same for everyone: cached for an hour. */
 const CACHE_LONG = { type: 'ephemeral', ttl: '1h' } as const;
 const CACHE = { type: 'ephemeral' } as const;
@@ -156,7 +181,7 @@ export async function* puterChat(messages: ChatMessage[], opts: ChatOptions = {}
   if (opts.signal) options.signal = opts.signal;
   let res: unknown;
   try {
-    res = await p.ai.chat(withCacheBreakpoints(messages), options);
+    res = await p.ai.chat(wellFormed(withCacheBreakpoints(messages)), options);
   } catch (e) {
     throw aiError(e);
   }

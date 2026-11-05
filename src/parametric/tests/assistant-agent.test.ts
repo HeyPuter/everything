@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createAgent, requestMessages } from '../src/assistant/agent';
-import { type ChatMessage, type StreamPart, aiError, isTransientError, puterChat, withCacheBreakpoints } from '../src/platform/ai';
+import { type ChatMessage, type StreamPart, aiError, isTransientError, puterChat, wellFormed, withCacheBreakpoints } from '../src/platform/ai';
 import type { ToolResult } from '../src/assistant/tools';
 import { readAttachment } from '../src/assistant/attachments';
 import { type Attachment, attachmentKind, attachmentProblem, attachmentsTooLarge, estimatePdfPages, imageBlock, pdfBlock, textBlock } from '../src/assistant/attach';
@@ -369,6 +369,36 @@ describe('assistant agent', () => {
     expect(res.error).toBeUndefined();
     expect(requests).toHaveLength(1);
     expect(agent.busy).toBe(false);
+  });
+
+  it('never sends half of a character, which the API refuses as invalid JSON', async () => {
+    // An earlier turn's tool result is cut to 1,500 characters; here the cut falls inside an emoji.
+    const result = `${'x'.repeat(1499)}🔩 M5 bolt`;
+    const t: ChatMessage[] = [
+      { role: 'user', content: 'first' },
+      { role: 'assistant', content: null, tool_calls: [{ id: 'a', type: 'function', function: { name: 'get_model', arguments: '{}' } }] },
+      { role: 'tool', tool_call_id: 'a', content: result },
+      { role: 'assistant', content: 'done' },
+      { role: 'user', content: 'second 🔩' },
+    ];
+    const req = requestMessages(t, 'S');
+    const lone = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+    expect(lone.test(JSON.stringify(req.map((m) => m.content)))).toBe(false); // JSON.stringify escapes it as \ud83d
+    expect(req.some((m) => typeof m.content === 'string' && lone.test(m.content))).toBe(true);
+    let sent: unknown = null;
+    (globalThis as unknown as { puter?: unknown }).puter = { ai: { chat: async (m: unknown) => { sent = m; return { message: { content: 'ok' } }; } } };
+    try {
+      for await (const _ of puterChat(req)) { /* drain */ }
+    } finally {
+      delete (globalThis as unknown as { puter?: unknown }).puter;
+    }
+    const body = JSON.stringify(sent);
+    expect(body).not.toMatch(/\\ud[89a-f][0-9a-f]{2}/i);
+    expect(body).toContain('x\uFFFD\\n[…cut');
+    expect(body).toContain('second 🔩');
+    // Whole characters and untouched messages stay as they are.
+    const ok = [{ role: 'user', content: [{ type: 'text', text: '🔩' }] }];
+    expect(wellFormed(ok)).toBe(ok);
   });
 
   it('keeps going past many rounds until the model answers', async () => {
