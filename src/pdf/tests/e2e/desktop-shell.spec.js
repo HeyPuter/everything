@@ -205,6 +205,32 @@ test('in a short window the quick tools scroll within the page area', async ({ p
   await expect(page.getByRole('menubar', { name: 'PDF menus' })).toBeInViewport();
 });
 
+test('a phone turned sideways keeps the tools and page controls on one row', async ({ page }) => {
+  await page.setViewportSize({ width: 750, height: 342 });
+  await openPdf(page, await numberedPdf(2));
+  const [tools, controls, view] = await Promise.all([
+    page.getByRole('toolbar', { name: 'PDF tools' }).boundingBox(),
+    page.locator('.page-controls').boundingBox(),
+    page.locator('.workspace').boundingBox(),
+  ]);
+  // Side by side above the page, rather than a row each.
+  expect(Math.abs(controls.y - tools.y)).toBeLessThanOrEqual(1);
+  expect(controls.x).toBeGreaterThanOrEqual(tools.x + tools.width - 1);
+  expect(view.y).toBeGreaterThanOrEqual(tools.y + tools.height - 1);
+  expect(view.y).toBeLessThanOrEqual(
+    Math.max(tools.y + tools.height, controls.y + controls.height) + 1,
+  );
+  // Every tool and control is on screen and usable.
+  await expect(page.getByRole('button', { name: 'Fill forms', exact: true })).toBeInViewport({
+    ratio: 1,
+  });
+  await expect(page.getByRole('button', { name: 'Zoom in', exact: true })).toBeInViewport({
+    ratio: 1,
+  });
+  await page.getByRole('button', { name: 'Next page', exact: true }).click();
+  await expect(page.locator('.page-caption')).toHaveText('Page 2 of 2');
+});
+
 test('pages scroll continuously and the page in view becomes the current page', async ({
   page,
 }) => {

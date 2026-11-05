@@ -850,6 +850,31 @@
     margin-right: 2px;
   }
 }
+/* A phone turned sideways has little height: the quick tools and the page controls share one
+   row above the page instead of taking a row each, which left the page under a third of the
+   screen. The tools scroll sideways if the row runs short. */
+@media (max-width: 760px) and (min-width: 600px) and (max-height: 500px) {
+  .editor .document-view {
+    display: grid;
+    grid-template-columns: minmax(0, max-content) 1fr;
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+  .editor .document-view > * {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+  .editor .document-view > .quick-tools {
+    grid-column: 1;
+    grid-row: 1;
+    max-height: none;
+  }
+  .editor .document-view > .page-controls {
+    grid-column: 2;
+    grid-row: 1;
+    min-width: max-content;
+    height: auto;
+  }
+}
 @media (forced-colors: active) {
   .editor .quick-tools .tool-btn[aria-pressed='true'],
   .top-tab[aria-pressed='true'],
