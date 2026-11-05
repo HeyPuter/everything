@@ -1561,11 +1561,15 @@
 .editor .thumbnail[aria-current='page'] .thumb-paper {
   overflow: visible;
 }
+/* As specific as a dialog's own field labels, which are blocks of bold caption text. */
+.dialog-body label.result-row,
 .result-row {
   display: flex;
   align-items: center;
   gap: 10px;
+  margin: 0;
   padding: 4px 2px;
+  font-weight: 500;
   cursor: pointer;
 }
 /* The same boxes as every other dialog's: full size, in the app's color. */

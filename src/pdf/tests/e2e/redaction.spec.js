@@ -84,6 +84,21 @@ test('Find text and redact lists its matches with the dialogs’ own check boxes
       return [style.accentColor, node.getBoundingClientRect().width];
     });
   expect(await look(match)).toEqual(await look(pattern));
+  // Dialog labels are blocks of small bold text, which put the box above its words and
+  // against them; it sits beside them, centred, as the pattern boxes do.
+  const row = await match.evaluate((node) => {
+    const label = node.closest('label');
+    const box = node.getBoundingClientRect(),
+      text = label.querySelector('span').getBoundingClientRect();
+    return {
+      gap: text.left - box.right,
+      offset: Math.abs(box.top + box.height / 2 - (text.top + text.height / 2)),
+      weight: getComputedStyle(label).fontWeight,
+    };
+  });
+  expect(row.gap).toBeGreaterThanOrEqual(8);
+  expect(row.offset).toBeLessThanOrEqual(1.5);
+  expect(row.weight).toBe('500');
 });
 
 test('the redaction tool’s hint names its own command, not Highlight', async ({ page }) => {

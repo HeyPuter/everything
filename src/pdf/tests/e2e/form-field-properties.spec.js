@@ -622,3 +622,20 @@ test('a field resized as small as it goes at a high zoom stays the smallest size
   expect(rect.width).toBeCloseTo(4, 1);
   expect(rect.height).toBeCloseTo(4, 1);
 });
+
+test('the fields found by Detect form fields sit beside their check boxes', async ({ page }) => {
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const sheet = doc.addPage([600, 800]);
+  sheet.drawText('Name: ____________________', { x: 40, y: 700, size: 12, font });
+  await openPdf(page, doc);
+  await prepareForm(page);
+  await page.getByRole('button', { name: 'Detect form fields…' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Fields found' });
+  const box = await dialog.getByRole('checkbox').first().boundingBox();
+  const text = await dialog.locator('.result-row span').first().boundingBox();
+  // The name starts after the box, with room between them, and they share a middle line.
+  expect(text.x).toBeGreaterThanOrEqual(box.x + box.width + 6);
+  expect(Math.abs(text.y + text.height / 2 - (box.y + box.height / 2))).toBeLessThan(2);
+  await expect(dialog.locator('.result-row span').first()).toHaveCSS('font-weight', '500');
+});
