@@ -517,6 +517,9 @@ export class AssistantPanel {
           this.setStatus('Thinking…');
         } else if (e.type === 'retry') {
           if (this.status.textContent !== 'Stopping…') this.setStatus(`The AI service did not answer. Trying again (${e.attempt} of ${MAX_RETRIES})…`);
+        } else if (e.type === 'filesRefused') {
+          const names = e.names.join(', ');
+          toast({ kind: 'warning', message: `The AI service could not read ${names}, so the assistant answers without ${e.names.length === 1 ? 'it' : 'them'}.`, timeout: 8000 });
         }
       });
     } catch (e) {

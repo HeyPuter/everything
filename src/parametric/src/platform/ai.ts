@@ -19,6 +19,8 @@ export type ChatMessage =
     attachments?: AttachmentMeta[];
     /** Kept in the transcript only: this message holds screenshots taken by a tool. */
     screenshot?: boolean;
+    /** Kept in the transcript only: the AI service refused this message's files, which are no longer sent. */
+    filesRefused?: boolean;
   }
   | { role: 'assistant'; content: string | null; tool_calls?: ChatToolCall[] }
   | { role: 'tool'; tool_call_id: string; content: string };

@@ -11,7 +11,7 @@
 // results and only with the round that took them.
 
 import { type ChatFn, type ChatMessage, type ChatPart, type ChatToolCall, isTransientError } from '../platform/ai';
-import { ATTACHMENT_TURNS, type Attachment, type AttachmentMeta, attachmentMeta, attachmentsFit, attachmentsGone, attachmentsIntro } from './attach';
+import { ATTACHMENT_TURNS, type Attachment, type AttachmentMeta, attachmentMeta, attachmentsFit, attachmentsGone, attachmentsIntro, attachmentsRefused } from './attach';
 import type { ToolResult, ToolSpec } from './tools';
 
 export const MAX_OUTPUT_TOKENS = 16000;
@@ -49,7 +49,9 @@ export type AgentEvent =
   | { type: 'step'; step: Step }
   | { type: 'round' }
   /** A request failed in a way that may pass: it is sent again after a wait. */
-  | { type: 'retry'; attempt: number; error: Error };
+  | { type: 'retry'; attempt: number; error: Error }
+  /** The AI service refused these files; the reply goes on without them. */
+  | { type: 'filesRefused'; names: string[] };
 
 export interface ExchangeResult {
   stopped: boolean;
@@ -106,9 +108,10 @@ export function userContent(text: string, snapshot: string, attachments: Attachm
  * sent as it is, unless it alone outgrows the budget (a long build has no limit on rounds):
  * then its earlier tool results are cut, oldest first, and the newest round's
  * results, which the model is about to answer, stay whole.
- * noShots leaves out the current screenshot too (a route that refuses images).
+ * noShots leaves out the current screenshot too (a route that refuses images);
+ * noFilesAt names the files of the message at that index instead of sending them.
  */
-export function requestMessages(transcript: ChatMessage[], system: string, { budget = HISTORY_BUDGET, noShots = false } = {}): ChatMessage[] {
+export function requestMessages(transcript: ChatMessage[], system: string, { budget = HISTORY_BUDGET, noShots = false, noFilesAt = -1 } = {}): ChatMessage[] {
   let lastUser = -1;
   for (let i = transcript.length - 1; i >= 0; i--) if (isTurn(transcript[i])) { lastUser = i; break; }
   // Screenshots go only with the round that took them: the newest image message of the current turn.
@@ -120,7 +123,7 @@ export function requestMessages(transcript: ChatMessage[], system: string, { bud
   const turns = transcript.map((m, i) => (isTurn(m) ? i : -1)).filter((i) => i >= 0).slice(-ATTACHMENT_TURNS).reverse();
   for (const i of turns) {
     const m = transcript[i] as UserMessage;
-    if (!m.attachments?.length || !Array.isArray(m.content)) { recent.add(i); continue; }
+    if (!m.attachments?.length || !Array.isArray(m.content) || m.filesRefused || i === noFilesAt) { recent.add(i); continue; }
     carried.push(...m.attachments);
     if (i !== lastUser && !attachmentsFit(carried)) break;
     recent.add(i);
@@ -136,12 +139,15 @@ export function requestMessages(transcript: ChatMessage[], system: string, { bud
       }
       const text = userText(m.content);
       if (m.attachments?.length) {
-        if (Array.isArray(m.content) && (i >= lastUser || recent.has(i))) {
+        const refused = m.filesRefused || i === noFilesAt;
+        if (Array.isArray(m.content) && !refused && (i >= lastUser || recent.has(i))) {
           if (i >= lastUser) return { role: 'user', content: m.content };
           return { role: 'user', content: [{ type: 'text', text: text || NO_TEXT }, ...m.content.slice(1)] };
         }
-        const gone = attachmentsGone(m.attachments);
-        return { role: 'user', content: text && text !== NO_TEXT ? `${text}\n\n${gone}` : gone };
+        const gone = refused ? attachmentsRefused(m.attachments) : attachmentsGone(m.attachments);
+        // The current message keeps its snapshot.
+        const words = i >= lastUser && Array.isArray(m.content) ? String((m.content[0] as { text?: string }).text ?? '') : text;
+        return { role: 'user', content: words && words !== NO_TEXT ? `${words}\n\n${gone}` : gone };
       }
       return { role: 'user', content: i >= lastUser ? m.content : text };
     }
@@ -178,6 +184,25 @@ export function requestMessages(transcript: ChatMessage[], system: string, { bud
   return [{ role: 'system', content: system }, ...out.slice(start)];
 }
 
+/** Whether a failure is about the account (credits, sign-in), not about what was sent. */
+function aboutAccount(e: unknown): boolean {
+  const err = e as { code?: unknown; message?: unknown } | null;
+  if (['upstream_credits_exhausted', 'upstream_auth_failed', 'permission_denied', 'insufficient_funds', 'auth_canceled', 'auth_required', 'puter_unavailable'].includes(String(err?.code ?? ''))) return true;
+  return /insufficient|credit|funds|balance|sign in|log in|unauthori[sz]ed/i.test(String(err?.message ?? ''));
+}
+
+/** The newest message whose files are still sent, or -1. */
+function newestFiles(messages: ChatMessage[]): number {
+  let turns = 0;
+  for (let i = messages.length - 1; i >= 0 && turns < ATTACHMENT_TURNS; i--) {
+    const m = messages[i];
+    if (!isTurn(m)) continue;
+    turns++;
+    if (m.attachments?.length && !m.filesRefused && Array.isArray(m.content) && m.content.length > 1) return i;
+  }
+  return -1;
+}
+
 /** Drops the image data of screenshots already taken (requests show them as NO_IMAGE). */
 function releaseShots(messages: ChatMessage[]) {
   for (const m of messages) if (isUser(m) && m.screenshot && m.content !== NO_IMAGE) m.content = NO_IMAGE;
@@ -196,6 +221,8 @@ export function createAgent(o: AgentOptions) {
     running = run;
     const steps: Step[] = [];
     let imagesRefused = false;
+    /** The message whose files were left out of a request that then went through (-1: none tried). */
+    let noFilesAt = -1;
     try {
       // No limit on rounds: the model works until it answers, or the user presses Stop.
       for (let round = 0; ; round++) {
@@ -205,7 +232,7 @@ export function createAgent(o: AgentOptions) {
         /** The reply's last part was a tool call: a cut there fell inside that call's arguments. */
         let endedInCall = false;
         const calls: { id: string; name: string; input: Record<string, unknown> }[] = [];
-        let req = requestMessages(messages, o.system, { noShots: imagesRefused });
+        let req = requestMessages(messages, o.system, { noShots: imagesRefused, noFilesAt });
         let retries = 0;
         for (;;) {
           try {
@@ -238,8 +265,21 @@ export function createAgent(o: AgentOptions) {
             }
             // A request with a screenshot that fails before anything arrived: try once more without images.
             const hasShot = messages.some((m, i) => m.role === 'user' && m.screenshot && i > messages.findLastIndex((x) => x.role === 'user' && !x.screenshot));
-            if (hasShot && !imagesRefused) { imagesRefused = true; req = requestMessages(messages, o.system, { noShots: true }); continue; }
+            if (hasShot && !imagesRefused) { imagesRefused = true; req = requestMessages(messages, o.system, { noShots: true, noFilesAt }); continue; }
+            // A file the service cannot read (a PDF it cannot open, say) fails every request it goes
+            // with, the next messages' too: once more without the newest files, unless the account is why.
+            const files = noFilesAt < 0 && !isTransientError(e) && !aboutAccount(e) ? newestFiles(messages) : -1;
+            if (files >= 0) { noFilesAt = files; req = requestMessages(messages, o.system, { noShots: imagesRefused, noFilesAt }); continue; }
             throw e;
+          }
+        }
+        // That went through: those files are not sent again, and the user is told.
+        if (noFilesAt >= 0 && !run.stopped) {
+          const m = messages[noFilesAt] as UserMessage;
+          if (!m.filesRefused) {
+            m.filesRefused = true;
+            if (Array.isArray(m.content)) m.content = [m.content[0]];
+            emit({ type: 'filesRefused', names: (m.attachments ?? []).map((a) => a.name) });
           }
         }
         if (run.stopped) {

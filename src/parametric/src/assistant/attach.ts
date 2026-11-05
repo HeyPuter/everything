@@ -195,3 +195,10 @@ export function attachmentsGone(list: { name: string }[]): string {
   const one = list.length === 1;
   return `[Attached to this message: ${names}. ${one ? 'It is' : 'They are'} no longer shown; if you need ${one ? 'it' : 'them'} again, ask the user to attach ${one ? 'it' : 'them'} again.]`;
 }
+
+/** A message's files that the AI service refused: named, and why the model never saw them. */
+export function attachmentsRefused(list: { name: string }[]): string {
+  const names = list.map((a) => quoteName(a.name)).join(', ');
+  const one = list.length === 1;
+  return `[Attached to this message: ${names}. The AI service could not read ${one ? 'it' : 'them'}, so ${one ? 'it was' : 'they were'} not shown to you. Ask the user for what you need from ${one ? 'it' : 'them'}, for example as an image or typed in.]`;
+}

@@ -259,6 +259,46 @@ describe('assistant agent', () => {
     expect(sent(requests[3])).toContain('PDFDATA');
   });
 
+  it('goes on without a file the service refuses, instead of failing that message and the next ones', async () => {
+    const refused = Object.assign(new Error('messages.1.content.2.pdf: The PDF specified was not valid.'), { code: 'upstream_bad_request' });
+    const sentDocs: boolean[] = [];
+    const events: string[] = [];
+    const requests: ChatMessage[][] = [];
+    const a2 = createAgent({
+      chat: (m) => {
+        requests.push(structuredClone(m));
+        const doc = JSON.stringify(m).includes('"type":"document"');
+        sentDocs.push(doc);
+        return (async function* () { if (doc) throw refused; yield { type: 'text', text: 'ok' } as StreamPart; })();
+      },
+      tools: () => [], runTool: async () => ({ ok: true, content: '' }), system: 'S', snapshot: () => 'snap', model: () => 'm', retryDelay: () => 0,
+    });
+    const pdf: Attachment = { name: 'secured.pdf', kind: 'pdf', size: 10, pages: 1, blocks: [pdfBlock('PDF')] };
+    const r1 = await a2.send('read this', (e) => { if (e.type === 'filesRefused') events.push(e.names.join()); }, { attachments: [pdf] });
+    const r2 = await a2.send('never mind, make a 10 mm cube', () => {});
+    expect([r1.error, r2.error]).toEqual([undefined, undefined]);
+    expect(events).toEqual(['secured.pdf']);
+    // Tried once with the file; never again.
+    expect(sentDocs).toEqual([true, false, false]);
+    const told = JSON.stringify(requests[1]);
+    expect(told).toContain('could not read it');
+    expect(told).toContain('snap'); // the message keeps its snapshot
+    expect(JSON.stringify(requests[2])).toContain('secured.pdf');
+
+    // Not for a failure about the account, or one a wait may fix: the file is kept.
+    for (const err of [Object.assign(new Error('Insufficient funds'), { code: 'insufficient_funds' }), Object.assign(new Error('AI provider unavailable'), { code: 'upstream_provider_unavailable' })]) {
+      const sent: ChatMessage[][] = [];
+      const a3 = createAgent({
+        chat: (m) => { sent.push(m); return (async function* () { throw err; })(); },
+        tools: () => [], runTool: async () => ({ ok: true, content: '' }), system: 'S', snapshot: () => '', model: () => 'm', retryDelay: () => 0,
+      });
+      const r = await a3.send('read this', () => {}, { attachments: [pdf] });
+      expect(r.error).toBe(err);
+      expect(sent.every((m) => JSON.stringify(m).includes('"type":"document"'))).toBe(true);
+      expect(a3.messages[0]).not.toHaveProperty('filesRefused');
+    }
+  });
+
   it('keeps a message whose text files are too much to carry, naming its files instead of dropping it', async () => {
     const big = (n: number): Attachment => ({ name: `table${n}.csv`, kind: 'text', size: 100000, chars: 100000, blocks: [textBlock(`table${n}.csv`, 'x'.repeat(100000))] });
     const { agent, requests } = scripted([[{ type: 'text', text: 'a' }], [{ type: 'text', text: 'b' }]]);
