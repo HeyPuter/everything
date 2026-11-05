@@ -3,6 +3,42 @@ import { openApp } from './helpers';
 
 type Handle = { __parametric: import('../../src/app/app').App };
 
+for (const action of ['rename', 'delete'] as const) for (const edited of [true, false]) test(`an open feature's expression follows a variable ${action} (edited: ${edited})`, async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await page.evaluate(() => {
+    const a = (window as unknown as Handle).__parametric;
+    a.store.change('Link depth', (doc) => {
+      doc.variables = [{ id: 'v1', name: 'Width', expr: '30' }];
+      const f = doc.features.find((f) => f.id === 'f1');
+      if (f?.type === 'extrude') f.depth = '=Width';
+    });
+    a.editFeature('f1');
+  });
+  const depth = page.getByRole('textbox', { name: 'Depth', exact: true });
+  if (edited) {
+    await depth.fill('="Width" + 10');
+    await depth.press('Tab');
+  }
+  await page.evaluate(() => (window as unknown as Handle).__parametric.commands.run('equations'));
+  const equations = page.getByRole('dialog', { name: 'Equations and Global Variables', exact: true });
+  if (action === 'rename') await equations.getByRole('textbox', { name: 'Name of variable 1' }).fill('Span');
+  else await equations.getByRole('button', { name: 'Delete Width', exact: true }).click();
+  await equations.getByRole('button', { name: 'OK', exact: true }).click();
+  await expect(depth).toHaveValue(edited ? action === 'rename' ? '="Span" + 10' : '=30 + 10' : action === 'rename' ? '=Span' : '=30');
+  expect(await page.evaluate(() => (window as unknown as Handle).__parametric.panel?.edited)).toBe(edited);
+  await page.getByRole('button', { name: edited ? 'OK' : 'Cancel', exact: true }).first().click();
+  const value = await page.evaluate(async () => {
+    const a = (window as unknown as Handle).__parametric;
+    await a.whenBuilt();
+    const f = a.store.feature('f1');
+    return f?.type === 'extrude' ? a.store.evalParam(f.depth, 'length') : null;
+  });
+  expect(value).toBe(edited ? 40 : 30);
+  await expect(page.locator('.ti.error')).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
 for (const quote of ['"', "'"]) test(`deleting a variable substitutes its value in ${quote}quoted references`, async ({ page }) => {
   const errors = await openApp(page);
   await page.getByRole('button', { name: /Mounting Bracket/ }).click();

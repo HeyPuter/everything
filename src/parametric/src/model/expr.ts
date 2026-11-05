@@ -6,6 +6,26 @@
 // function table.
 
 import { ANGLE_SUFFIX, LENGTH_SUFFIX } from './units';
+import type { Variable } from './types';
+
+/** Reference updates for renamed/deleted variables; a replacement with the same name stays linked. */
+export function variableReferenceChanges(before: Variable[], after: Variable[]): Map<string, string | number> {
+  const byId = new Map(after.map((v) => [v.id, v]));
+  const names = new Set(after.map((v) => v.name));
+  const changed = new Map<string, string | number>();
+  let values: Map<string, number> | undefined;
+  for (const v of before) {
+    const next = byId.get(v.id);
+    if (next) {
+      if (next.name !== v.name) changed.set(v.name, next.name);
+    } else if (!names.has(v.name)) {
+      values ??= evaluateVariables(before).values;
+      const value = values.get(v.name);
+      if (value !== undefined) changed.set(v.name, value);
+    }
+  }
+  return changed;
+}
 
 export class ExprError extends Error {}
 

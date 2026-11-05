@@ -209,6 +209,26 @@ describe('document store', () => {
     expect(saved.depth).toBe('=Width');
   });
 
+  it.each(['rename', 'delete'])('reconciles a pending expression when units and a variable %s change together', (action) => {
+    const doc = newDocument();
+    doc.variables = [{ id: 'v1', name: 'Width', expr: '100' }];
+    const before = structuredClone(doc.variables);
+    const saved = newExtrude('f1', 'Extrude1', 's1', false, 100);
+    const pending = structuredClone(saved);
+    pending.depth = '=Width/2 + 10';
+    if (action === 'rename') {
+      doc.variables[0].name = 'Span';
+      saved.depth = '=Span';
+    } else doc.variables = [];
+    doc.features = [saved];
+    changeUnits(doc, 'IPS');
+    expect(changeFeatureUnits(pending, 'MMGS', 'IPS', before, doc.variables)).toEqual([]);
+    expect(typeof pending.depth).toBe('string');
+    expect(pending.depth).not.toContain('Width');
+    if (action === 'rename') expect(pending.depth).toContain('Span');
+    expect(new DocStore(doc).evalParam(pending.depth, 'length')).toBeCloseTo(60, 8);
+  });
+
   it('preserves a pending value without changing the converted part variables', () => {
     const doc = newDocument();
     doc.variables = [{ id: 'v1', name: 'Count', expr: '4' }];

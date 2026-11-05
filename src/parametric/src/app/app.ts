@@ -669,7 +669,7 @@ export class App {
   private fitOnNextBuild = false;
 
   private onStoreChange(reason: string) {
-    const unlinked = this.panel?.syncUnits();
+    const unlinked = this.panel?.syncExpressions();
     if (unlinked != null) {
       this.showLeft('pm');
       if (unlinked.length) toast({ kind: 'warning', title: 'Some pending equations were replaced by their values', message: unlinked.join(', '), timeout: 9000 });

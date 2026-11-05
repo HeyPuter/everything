@@ -2,7 +2,7 @@
 // parameters (expressions and global variables) into plain numbers for the
 // geometry worker.
 
-import { convertExpressionUnits, evaluate, evaluateVariables } from './expr';
+import { convertExpressionUnits, evaluate, evaluateVariables, renameReferences, variableReferenceChanges } from './expr';
 import { PARAM_FIELDS, type ParamKind, getPath, setPath } from './features';
 import type { Feature, Id, Param, PartDocument, SkDimension, SketchFeature, UnitSystem, Variable } from './types';
 import { isDimension } from './types';
@@ -137,16 +137,25 @@ export function changeUnits(doc: PartDocument, units: UnitSystem): string[] {
   return convertUnits(doc, units);
 }
 
-/** Converts an uncommitted feature against the variables of the converted part. */
-export function changeFeatureUnits(feature: Feature, from: UnitSystem, to: UnitSystem, before: Variable[], after: Variable[]): string[] {
+/** Reconciles an uncommitted feature's units and references with the current part. */
+export function changeFeatureUnits(feature: Feature, from: UnitSystem, to: UnitSystem, before: Variable[], after: Variable[], references = variableReferenceChanges(before, after)): string[] {
   const doc = newDocument('', from);
   doc.features = [feature];
   doc.variables = structuredClone(before);
-  return convertUnits(doc, to, after);
+  // Deleted values still use the old display units; insert them before scaling.
+  const removed = new Map([...references].filter(([, value]) => typeof value === 'number'));
+  const renamed = new Map([...references].filter(([, value]) => typeof value === 'string'));
+  mapFeatureReferences(doc, removed);
+  return convertUnits(doc, to, after, renamed);
 }
 
-function convertUnits(doc: PartDocument, units: UnitSystem, variablesAfter?: Variable[]): string[] {
-  if (doc.units === units || !Object.hasOwn(UNIT_SYSTEMS, units)) return [];
+function mapFeatureReferences(doc: PartDocument, references?: Map<string, string | number>) {
+  if (references?.size) mapExpressions({ ...doc, variables: [] }, (src) => renameReferences(src, references));
+}
+
+function convertUnits(doc: PartDocument, units: UnitSystem, variablesAfter?: Variable[], renamed?: Map<string, string | number>): string[] {
+  if (!Object.hasOwn(UNIT_SYSTEMS, units)) return [];
+  if (doc.units === units) { mapFeatureReferences(doc, renamed); return []; }
   const k = UNIT_SYSTEMS[doc.units].scale / UNIT_SYSTEMS[units].scale;
   const values = (d: PartDocument) => {
     const st = new DocStore(d);
@@ -171,6 +180,7 @@ function convertUnits(doc: PartDocument, units: UnitSystem, variablesAfter?: Var
   const converted = convertExpressionUnits(items, k);
   let i = 0;
   mapExpressions(doc, (src) => converted[i++] ?? src);
+  mapFeatureReferences(doc, renamed);
   doc.units = units;
   if (variablesAfter) doc.variables = variablesAfter;
   // Whatever did not keep its value becomes the plain number it was.

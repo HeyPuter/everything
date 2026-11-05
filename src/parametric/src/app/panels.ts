@@ -8,7 +8,7 @@ import {
 } from '../model/features';
 import { BASE_PLANE_NAMES } from '../model/planes';
 import { changeFeatureUnits } from '../model/document';
-import { evaluateVariables } from '../model/expr';
+import { evaluateVariables, variableReferenceChanges } from '../model/expr';
 import type {
   AxisRef, ChamferFeature, CircularPatternFeature, DraftFeature, EdgeRef, ExtrudeFeature, FaceRef, Feature, FilletFeature,
   HoleFeature, Id, LinearPatternFeature, LoftFeature, MirrorFeature, PatternDir, PlaneFeature, PlaneRef, RevolveFeature,
@@ -152,16 +152,17 @@ abstract class FeaturePanel<T extends Feature> extends PropertyPanel {
     return this.initial !== null && JSON.stringify(this.f) !== this.initial;
   }
 
-  syncUnits(): string[] | null {
+  syncExpressions(): string[] | null {
     const doc = this.app.store.doc;
+    const references = variableReferenceChanges(this.variables, doc.variables);
     let unlinked: string[] | null = null;
-    if (doc.units !== this.units) {
+    if (doc.units !== this.units || references.size) {
       const variables = evaluateVariables(this.variables).values;
       settleNumberFields(this.el, { units: this.units, decimals: doc.decimals, variables: () => variables });
-      unlinked = changeFeatureUnits(this.f, this.units, doc.units, this.variables, doc.variables);
+      unlinked = changeFeatureUnits(this.f, this.units, doc.units, this.variables, doc.variables, references);
       if (this.initial !== null) {
         const initial = JSON.parse(this.initial) as T;
-        changeFeatureUnits(initial, this.units, doc.units, this.variables, doc.variables);
+        changeFeatureUnits(initial, this.units, doc.units, this.variables, doc.variables, references);
         this.initial = JSON.stringify(initial);
       }
       this.units = doc.units;

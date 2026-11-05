@@ -83,8 +83,8 @@ export abstract class PropertyPanel {
   /** Called when the panel is removed. */
   dispose(): void {}
 
-  /** Refreshes pending values after unit changes; null means controls need no refresh. */
-  syncUnits(): string[] | null { return null; }
+  /** Refreshes pending expressions after document changes; null means controls need no refresh. */
+  syncExpressions(): string[] | null { return null; }
 
   mount(): HTMLElement {
     this.boxes = [];
