@@ -9041,7 +9041,8 @@ export function createEditor({
           el(
             'span',
             {},
-            'Also remove hidden information (metadata, scripts, attachments, hidden text and layers)',
+            // Everything it takes, links and recognized text above all, which readers miss.
+            'Also remove hidden information (metadata, scripts, attachments, links to websites and files, hidden text including recognized OCR text, and hidden layers)',
           ),
           sanitize,
         ),

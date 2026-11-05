@@ -384,3 +384,58 @@ test('a picture under part of a mark is reported as erased there, not removed', 
     'Redactions applied: removed 1 character; erased the marked part of 1 image.',
   );
 });
+
+test('Apply redactions says its hidden-information option also takes links', async ({ page }) => {
+  await page.route('https://js.puter.com/**', (route) =>
+    route.fulfill({ contentType: 'application/javascript', body: PUTER_MOCK }),
+  );
+  await page.goto('/#library');
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const sheet = doc.addPage([300, 300]);
+  sheet.drawText('Account 12345678', { x: 40, y: 200, size: 14, font });
+  sheet.drawText('Our site', { x: 40, y: 100, size: 14, font });
+  const link = doc.context.register(
+    doc.context.obj({
+      Type: 'Annot',
+      Subtype: 'Link',
+      Rect: [40, 95, 100, 115],
+      Border: [0, 0, 0],
+      A: { S: 'URI', URI: doc.context.obj('https://example.org/') },
+    }),
+  );
+  sheet.node.set(PDFName.of('Annots'), doc.context.obj([link]));
+  const chooser = page.waitForEvent('filechooser');
+  await page.getByRole('button', { name: /Open a PDF/ }).click();
+  await (
+    await chooser
+  ).setFiles({
+    name: 'site.pdf',
+    mimeType: 'application/pdf',
+    buffer: Buffer.from(await doc.save()),
+  });
+  await expect(page.locator('.page-caption')).toHaveText('Page 1 of 1');
+  await page.getByRole('button', { name: 'Tools', exact: true }).click();
+  const pane = page.getByRole('complementary', { name: 'Tools' });
+  await pane.getByRole('button', { name: 'Redact a PDF', exact: true }).click();
+  await pane.getByRole('button', { name: 'Find text and redact…' }).click();
+  const finder = page.getByRole('dialog', { name: 'Find text and redact' });
+  await finder.getByLabel('Find text').fill('12345678');
+  await finder.getByRole('button', { name: 'Search' }).click();
+  await finder.getByRole('button', { name: 'Mark selected' }).click();
+  await settled(page);
+  await pane.getByRole('button', { name: 'Apply redactions…' }).click();
+  const confirm = page.getByRole('dialog', { name: 'Apply redactions' });
+  // The option named metadata, scripts, attachments, and hidden text, but it also removes
+  // every web link, far from any mark, and the text recognized on scans.
+  const option = confirm.getByRole('checkbox', { name: /Also remove hidden information/ });
+  await expect(option).toBeChecked();
+  await expect(option).toHaveAccessibleName(/links to websites and files/);
+  await expect(option).toHaveAccessibleName(/recognized OCR text/);
+  await confirm.getByRole('button', { name: 'Apply', exact: true }).click();
+  await settled(page);
+  const download = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Download', exact: true }).click();
+  const saved = await PDFDocument.load(await readFile(await (await download).path()));
+  expect(saved.getPage(0).node.lookup(PDFName.of('Annots'))?.size() ?? 0).toBe(0);
+});
