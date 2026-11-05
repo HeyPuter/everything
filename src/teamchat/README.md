@@ -607,11 +607,20 @@ blocks, answering with the existing message instead of a second one. That
 makes the outbox's retries, and the composer's own retry, safe.
 
 Pushes go through [Puter's notifications](https://docs.puter.com/Notifications/).
-Turning them on calls `puter.notifications.enable()` from the click, then
-registers the member's quiet hours, pause, and preview choice with each
-workspace worker (`POST /api/ws/:ws/pn`). No background-events consent or
-persistent subscription is needed for pushes. The switch reads
-`notifications.status()` for this browser.
+Both notification switches (banners in the tab, pushes while it's closed)
+are on unless the member turned them off (`prefs.notify`, `prefs.push`
+stored as `false`). After sign-in, `autoEnablePush()` in `src/lib/store.js`
+turns pushes on without asking where this browser already allows
+notifications; where it hasn't decided, it asks once per device, from the
+first click or key press (`tc:notify-asked` in localStorage), and after that
+only the switches ask. Turning pushes on calls `puter.notifications.enable()`
+first, then registers the member's quiet hours, pause, and preview choice
+with each workspace worker (`POST /api/ws/:ws/pn`); workers hear of it only
+once pushes were on somewhere. No background-events consent or persistent
+subscription is needed. The switch reads `notifications.status()` for this
+browser. Signing out first stops this page's `onPush()` handler, then
+`disable()`s this browser's subscription (on a website; inside the desktop
+`disable()` would revoke every device), then signs out.
 
 The worker runs as its owner and as Teamchat. Each other member holds a
 watch share of the workspace's signal region with `notify: true`, allowing

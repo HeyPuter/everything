@@ -18,7 +18,7 @@ import { createDirectoryView } from './directory.js';
 import { renderThreadPanel } from './panel.js';
 import { installShortcuts, renderShortcutsPanel } from './shortcuts.js';
 import { openDetailsDialog } from './details.js';
-import { acceptConnectDialog, offerPushFromClick } from './dialogs.js';
+import { acceptConnectDialog } from './dialogs.js';
 import { openOnboarding, homeEmpty, shouldOnboard } from './onboarding.js';
 import { store, TRANSFER_FREEZE_MS, isPlatformPage } from '../lib/store.js';
 import { ApiError } from '../lib/api.js';
@@ -1087,16 +1087,6 @@ export function mountShell(appRoot) {
           : res.channel ? `You are already in #${res.channel.name} on ${res.workspace.name}` : `You are already in ${res.workspace.name}`)
         : res.guest ? `Welcome to ${res.workspace.name}. You are a guest: you see the channel you were invited to.` : `Welcome to ${res.workspace.name}`, { duration: res.guest ? 6000 : undefined });
       navigate({ ws: res.workspace.id, conv: res.channel?.id }, { replace: true });
-      // A followed link is no click to put a prompt up from, so pushes are
-      // offered from a button instead of from the join itself.
-      const prefs = store.profile?.prefs || {};
-      if (!res.already && !prefs.push && !prefs.pushDeclined) {
-        toast('Get notified of mentions and direct messages while Teamchat is closed?', {
-          icon: 'bell', duration: Infinity, dismissible: true,
-          action: { label: 'Turn on', onClick: () => offerPushFromClick() },
-          onDismiss: () => store.updatePrefs({ pushDeclined: true }).catch(() => {}),
-        });
-      }
     } catch (e) {
       const msg = e.code === 'invite_not_found' ? 'That invite link is not valid or has expired. Ask for a new one.'
         : e.code === 'no_backend' || e.code === 'network' ? 'The workspace server behind this invite is not reachable right now.'
@@ -1323,7 +1313,7 @@ export function mountShell(appRoot) {
    */
   function maybeNotify({ event, conv, kind, title, body, seq, messageConv, route: target, onlyRead = false }) {
     const prefs = store.profile?.prefs || {};
-    const banner = !!prefs.notify;
+    const banner = prefs.notify !== false;
     const sound = prefs.sound !== false;
     if ((!banner && !sound) || store.notificationsPaused()) return;
     if (!shouldNotify({ event, setting: store.notifySetting(conv), kind })) return;

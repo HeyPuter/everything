@@ -3850,7 +3850,7 @@ export function settingsDialog({ section = null } = {}) {
   if (notificationsSupported()) {
     content.append(switchRow({
       label: 'Desktop notifications', sub: 'Mentions, direct messages, followed threads, and channels set to "All messages", while the tab is in the background',
-      checked: !!profile.prefs?.notify && notificationsGranted(),
+      checked: profile.prefs?.notify !== false && notificationsGranted(),
       onChange: async (v) => {
         if (v) {
           const ok = await requestNotificationPermission();
@@ -3871,7 +3871,7 @@ export function settingsDialog({ section = null } = {}) {
       const web = puter.env === 'web';
       const pushRow = switchRow({
         label: 'Notifications when the app is closed', sub: web && isIos() && !isStandalone() ? 'On iPhone and iPad, add Teamchat to your Home Screen first' : 'Mentions and direct messages reach your devices through Puter, following the settings above',
-        checked: !!profile.prefs?.push && store.pushStatus === 'on',
+        checked: profile.prefs?.push !== false && store.pushStatus === 'on',
         onChange: async (v) => {
           try {
             const res = await store.setPush(v);
@@ -3887,7 +3887,7 @@ export function settingsDialog({ section = null } = {}) {
       });
       content.append(pushRow);
       store.refreshPushStatus().then((status) => {
-        if (!pushRow.hasAttribute('aria-busy')) pushRow.setAttribute('aria-checked', String(!!store.profile?.prefs?.push && status === 'on'));
+        if (!pushRow.hasAttribute('aria-busy')) pushRow.setAttribute('aria-checked', String(store.profile?.prefs?.push !== false && status === 'on'));
       }).catch(() => {});
     }
     content.append(switchRow({
