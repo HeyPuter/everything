@@ -499,7 +499,7 @@ export const ELLIPSE = {
   async run(ed, args) {
     let arc = args?.mode === 'arc';
     let center = args?.mode === 'center';
-    let c, mx, my;
+    let c, mx, my, axis0;
     if (!center) {
       const a = await ed.getPoint(arc ? 'Axis end point of elliptical arc' : 'Axis end point', { options: arc ? opts('Center') : opts('Arc', 'Center') });
       if (!a) return;
@@ -514,6 +514,7 @@ export const ELLIPSE = {
         c = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
         mx = b.x - c.x;
         my = b.y - c.y;
+        axis0 = angleOf(c, a);
       }
     }
     if (center) {
@@ -523,6 +524,7 @@ export const ELLIPSE = {
       if (!e || e.option) return;
       mx = e.x - c.x;
       my = e.y - c.y;
+      axis0 = angleOf(c, e);
     }
     const major = Math.hypot(mx, my);
     if (major < 1e-12) return;
@@ -556,12 +558,15 @@ export const ELLIPSE = {
       const y = -(p.x - c.x) * uy + (p.y - c.y) * ux;
       return norm(Math.atan2(y / full.ratio, x));
     };
-    const s = await ed.getPoint('Start angle', { base: c });
-    if (!s || s.option) return;
-    const t0 = paramOf(s);
-    const e = await ed.getPoint('End angle', { base: c, preview: (p) => [{ ...full, start: t0, end: paramOf(p) }] });
-    if (!e || e.option) return;
-    ed.commit('Elliptical arc', () => ed.drawing.add({ ...full, start: t0, end: paramOf(e) }));
+    // Typed angles count from the first axis end point; picked points by their direction.
+    const param = (r) => paramOf(typeof r === 'number' ? polar(c, axis0 + r, 1) : r);
+    const s = await ed._ask('angle', 'Start angle', { base: c });
+    if (s === null || s.option) return;
+    const t0 = param(s);
+    const preview = (p) => [{ ...full, start: t0, end: paramOf(p) }];
+    const e = await ed._ask('angle', 'End angle', { base: c, preview });
+    if (e === null || e.option) return;
+    ed.commit('Elliptical arc', () => ed.drawing.add({ ...full, start: t0, end: param(e) }));
   },
 };
 

@@ -165,3 +165,42 @@ describe('donuts', () => {
     expect(p.pts[3] - p.pts[0]).toBeCloseTo(15);
   });
 });
+
+describe('elliptical arcs', () => {
+  it('takes typed start and end angles from the first axis end point', async () => {
+    t.ed.cursor.fx = 100;
+    t.ed.cursor.fy = 0;
+    await t.type('ELLIPSE', 'A', '10,0', '-10,0', '5', '90', '180');
+    const [e] = t.all('ellipse');
+    // Angle 0 is at (10, 0), the first axis end point.
+    const at = (u) => {
+      const L = Math.hypot(e.mx, e.my);
+      const vx = (-e.my / L) * L * e.ratio,
+        vy = (e.mx / L) * L * e.ratio;
+      return [
+        e.cx + e.mx * Math.cos(u) + vx * Math.sin(u),
+        e.cy + e.my * Math.cos(u) + vy * Math.sin(u),
+      ];
+    };
+    const [sx, sy] = at(e.start);
+    const [ex, ey] = at(e.end);
+    expect(sx).toBeCloseTo(0);
+    expect(sy).toBeCloseTo(5);
+    expect(ex).toBeCloseTo(-10);
+    expect(ey).toBeCloseTo(0);
+  });
+
+  it('accepts a typed angle of 0', async () => {
+    await t.type('ELLIPSE', 'A', 'C', '0,0', '10,0', '5', '0', '90');
+    const [e] = t.all('ellipse');
+    expect(e.start).toBeCloseTo(0);
+    expect(e.end).toBeCloseTo(Math.PI / 2);
+  });
+
+  it('still takes picked start and end points by direction', async () => {
+    await t.type('ELLIPSE', 'A', 'C', '0,0', '10,0', '5', '0,20', '-30,0');
+    const [e] = t.all('ellipse');
+    expect(e.start).toBeCloseTo(Math.PI / 2);
+    expect(e.end).toBeCloseTo(Math.PI);
+  });
+});
