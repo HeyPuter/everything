@@ -440,26 +440,40 @@ export function intersectEntities(e1, e2, opts) {
 }
 
 /**
- * Self-intersections of a polyline: crossings between non-adjacent segments.
- * Returns [{ x, y, i, j }] with the two segment indices.
+ * Self-intersections of a polyline: crossings between segments other than
+ * neighbours meeting at their shared vertex. Returns [{ x, y, i, j }] with the two segment indices.
  */
 export function selfIntersections(poly) {
   const prims = toPrims(poly);
   const n = prims.length;
   const out = [];
-  if (n < 3) return out;
+  if (n < 2) return out;
+  const pts = poly.pts;
   const boxes = prims.map(primBox);
-  const segCount = poly.closed ? Math.floor(poly.pts.length / 3) : Math.floor(poly.pts.length / 3) - 1;
+  const nv = Math.floor(pts.length / 3);
+  let scale = 0;
+  for (let k = 0; k < nv * 3; k += 3) {
+    scale = Math.max(scale, Math.abs(pts[k]), Math.abs(pts[k + 1]));
+  }
+  const tol2 = (EPS * 100 * Math.max(1, scale)) ** 2;
+  // Neighbours meet at their shared vertex; only other hits count.
+  const atVertex = (h, v) => dist2(h.x, h.y, pts[v * 3], pts[v * 3 + 1]) <= tol2;
   for (let i = 0; i < n; i++) {
     const A = prims[i];
     const bi = boxes[i];
     for (let j = i + 1; j < n; j++) {
       const B = prims[j];
-      const adjacent = B.seg - A.seg === 1 || (poly.closed && A.seg === 0 && B.seg === segCount - 1);
-      if (adjacent) continue;
       const bj = boxes[j];
       if (bi[0] > bj[2] || bi[2] < bj[0] || bi[1] > bj[3] || bi[3] < bj[1]) continue;
-      for (const h of intersectPrims(A, B)) out.push({ x: h.x, y: h.y, i: A.seg, j: B.seg });
+      // Consecutive primitives (zero-length segments are skipped) and the
+      // last and first of a closed polyline.
+      const next = j === i + 1;
+      const wrap = poly.closed && i === 0 && j === n - 1;
+      for (const h of intersectPrims(A, B)) {
+        if (next && atVertex(h, B.seg)) continue;
+        if (wrap && atVertex(h, A.seg)) continue;
+        out.push({ x: h.x, y: h.y, i: A.seg, j: B.seg });
+      }
     }
   }
   return out;
