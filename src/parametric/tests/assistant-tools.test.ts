@@ -473,10 +473,20 @@ describe('assistant tools', () => {
   it('gives the sketch\'s own sizes when an edit cannot be solved', async () => {
     const h = new TestHost();
     await h.call('create_sketch', { plane: 'front', shapes: [{ type: 'rectangle', id: 'r', corner1: [0, 0], corner2: [40, 20] }], dimensions: [{ refs: ['r_l0'], value: 40 }] });
-    // The sizes came from the failed solve's half-way state: "[r_l0] 35 mm", "[r_l0] 0 mm".
+    // The sizes came from the failed solve's half-way state: "[r_l0] 35 mm".
     const r = await h.call('edit_sketch', { sketch: 's1', dimensions: [{ refs: ['r_p0', 'r_p1'], type: 'hdistance', value: 30 }] }, false);
     expect(r.content).toMatch(/Problem constraints: d6 D1 distance \[r_l0\] 40 mm; d1 D2 hdistance \[r_p0, r_p1\] 40 mm\./);
-    const neg = await h.call('edit_sketch', { sketch: 's1', set_dimensions: [{ dimension: 'D1', value: -40 }] }, false);
-    expect(neg.content).toMatch(/d6 D1 distance \[r_l0\] 40 mm/);
+  });
+
+  it('refuses a length, radius or diameter of zero or less', async () => {
+    const h = new TestHost();
+    await h.call('set_variables', { set: [{ name: 'Gap', value: 0 }] });
+    await h.call('create_sketch', { plane: 'front', shapes: [{ type: 'rectangle', id: 'r', corner1: [0, 0], corner2: [40, 20] }, { type: 'circle', id: 'c', center: [20, 10], radius: 5 }], dimensions: [{ refs: ['r_l0'], value: 40 }] });
+    // A zero length was solved: "Updated sketch s1" with a profile of "area 1.84495e-9 mm², x 0 to 0".
+    const zero = await h.call('edit_sketch', { sketch: 's1', set_dimensions: [{ dimension: 'D1', value: 0 }] }, false);
+    expect(zero.content).toMatch(/^Error: set_dimensions\[0\]\.value: a distance must be greater than zero/);
+    expect((await h.call('edit_sketch', { sketch: 's1', dimensions: [{ refs: ['c'], value: '=Gap' }] }, false)).content).toMatch(/dimensions\[0\]\.value: a diameter must be greater than zero \(=Gap is 0 mm\)/);
+    expect((await h.call('edit_sketch', { sketch: 's1', dimensions: [{ refs: ['r_l1'], value: -20 }] }, false)).content).toMatch(/greater than zero/);
+    expect(h.store.feature<SketchFeature>('s1')!.constraints.filter((c) => c.type === 'distance')).toHaveLength(1);
   });
 });

@@ -336,7 +336,13 @@ export class SketchEdit {
   }
 
   private dimValue(v: unknown, type: DimensionType, what: string): number | string {
-    return this.units.parseParam(v, type === 'angle' ? 'angle' : 'length', what);
+    const p = this.units.parseParam(v, type === 'angle' ? 'angle' : 'length', what);
+    if (type === 'angle') return p;
+    // A zero size was solved, collapsing the profile, and reported done; a negative one read as conflicting constraints.
+    let mm = NaN;
+    try { mm = this.store.evalParam(p, 'length'); } catch { /* reported by the rebuild */ }
+    if (mm <= 0) throw new ToolError(`${what}: a ${type === 'radius' || type === 'diameter' ? type : 'distance'} must be greater than zero${typeof p === 'string' ? ` (${p} is ${this.units.len(mm, true)})` : ''}. For no distance, use a relation (coincident, horizontal, vertical or collinear).`);
+    return p;
   }
 
   addDimension(d: unknown, i: number) {
