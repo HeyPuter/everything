@@ -63,6 +63,12 @@ function onOutside(e) {
  * @returns {{el:HTMLElement, close:Function}}
  */
 export function openMenu(items, { x, y, anchor, depth = 0, label = 'Menu', onClose, focusFirst = true, chord = false } = {}) {
+  // Where focus goes back to when the menu closes from the keyboard or runs an
+  // item: the element focused before the menu opened (the canvas for a chord),
+  // kept while moving between menubar menus.
+  const before = document.activeElement;
+  const inherit = openStack[0]?.el.contains(before);
+  const returnFocus = depth > 0 ? null : inherit ? openStack[0].returnFocus : before;
   closeMenus(depth);
   const list = (typeof items === 'function' ? items() : items).map((it) => (it.separator || it.heading ? it : resolveItem(it))).filter(Boolean);
   // Drop leading, trailing and doubled separators left by hidden items.
@@ -107,7 +113,7 @@ export function openMenu(items, { x, y, anchor, depth = 0, label = 'Menu', onClo
   el.style.left = `${left}px`;
   el.style.top = `${top}px`;
 
-  const state = { el, anchor, entries, onClose, focused: -1 };
+  const state = { el, anchor, entries, onClose, focused: -1, returnFocus };
   openStack.push(state);
   if (openStack.length === 1) document.addEventListener('pointerdown', onOutside, true);
 
@@ -122,7 +128,9 @@ export function openMenu(items, { x, y, anchor, depth = 0, label = 'Menu', onClo
   function activate(entry) {
     if (entry.it.disabled) return;
     if (entry.it.items) { openSub(entry); const sub = openStack[depth + 1]; sub?.entries[0] && sub.entries[0].btn.focus(); return; }
+    const back = openStack[0]?.returnFocus;
     closeMenus();
+    restoreFocus(back);
     entry.it.run?.();
   }
   el.addEventListener('keydown', (e) => {
@@ -151,8 +159,13 @@ export function openMenu(items, { x, y, anchor, depth = 0, label = 'Menu', onClo
       e.preventDefault();
       closeMenus(depth);
       if (depth > 0) openStack[depth - 1]?.entries[openStack[depth - 1].focused]?.btn.focus();
-      else anchor?.focus?.();
-    } else if (e.key === 'Tab') { e.preventDefault(); closeMenus(); }
+      else if (!restoreFocus(returnFocus)) anchor?.focus?.();
+    } else if (e.key === 'Tab') {
+      e.preventDefault();
+      const back = openStack[0]?.returnFocus;
+      closeMenus();
+      restoreFocus(back);
+    }
     else if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
       const k = e.key.toLowerCase();
       const byAccel = entries.filter((x) => x.accel === k && !x.it.disabled);
@@ -166,6 +179,13 @@ export function openMenu(items, { x, y, anchor, depth = 0, label = 'Menu', onClo
     if (first) focusEntry(first); else el.focus();
   }
   return { el, close: () => closeMenus(depth), state };
+}
+
+/** Focuses el if it is still in the page; returns whether it did. */
+function restoreFocus(el) {
+  if (!el || el === document.body || !el.isConnected || !el.focus) return false;
+  el.focus({ preventScroll: true });
+  return document.activeElement === el;
 }
 
 export const isMenuOpen = () => openStack.length > 0;
