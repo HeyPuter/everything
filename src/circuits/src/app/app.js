@@ -728,9 +728,19 @@ export class App extends Emitter {
     }
     const name = await promptDialog({ title: 'Save a copy', label: 'Project name', value: `${p.name} copy`, confirm: 'Save', validate: (v) => (!v ? 'Enter a name' : null) });
     if (!name) return;
+    // Find the new location first: if that fails, the project must stay as
+    // it was, or its next save would write the copy over the original.
+    const id = `${p.id}-${Date.now().toString(36)}`;
+    let location;
+    try {
+      location = await storage.newLocation(name, id);
+    } catch (err) {
+      toast(`Could not save a copy: ${err.message}`, { kind: 'error' });
+      return;
+    }
     p.rename(name);
-    p.id = `${p.id}-${Date.now().toString(36)}`;
-    this.location = await storage.newLocation(name, p.id);
+    p.id = id;
+    this.location = location;
     await this.save();
     this.panels.projects.refresh();
   }

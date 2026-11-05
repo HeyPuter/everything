@@ -314,3 +314,37 @@ describe('opening a file from the device', () => {
     expect(app.project).toBe(project);
   });
 });
+
+describe('save a copy', () => {
+  it('leaves the project untouched when the copy has nowhere to go', async () => {
+    localStorage.clear();
+    const { app } = await bootLocal();
+    const project = new Project(newProjectData('Omega'));
+    const original = { type: 'cloud', path: 'Projects/Omega.circuits' };
+    app.setProject(project, original);
+    const id = project.id;
+    // Signed in, but the cloud folder cannot be listed right now.
+    setPuterForTests({
+      env: 'web',
+      auth: { isSignedIn: () => true },
+      fs: {
+        readdir: async () => {
+          throw new Error('Network error');
+        },
+      },
+    });
+    try {
+      const done = app.saveAs();
+      await tick(30);
+      document.querySelector('.dialog input').value = 'Omega copy';
+      document.querySelector('.dialog .btn.primary').click();
+      await done;
+    } finally {
+      setPuterForTests(null);
+    }
+    expect(project.name).toBe('Omega');
+    expect(project.id).toBe(id);
+    expect(app.location).toEqual(original);
+    expect(document.querySelector('.toast.error').textContent).toContain('Network error');
+  });
+});
