@@ -74,6 +74,20 @@ export function listenForPushes() {
   return listening;
 }
 
+/**
+ * The inbox is on screen: the new-mail notification this browser shows is
+ * dismissed, which closes it on the user's other devices too, and the next
+ * new mail alerts afresh rather than replacing it.
+ */
+export async function dismissNewMail() {
+  if (!globalThis.puter?.notifications || !navigator.serviceWorker) return;
+  const registration = await navigator.serviceWorker.getRegistration().catch(() => null);
+  for (const shown of (await registration?.getNotifications().catch(() => null)) ?? []) {
+    const uid = shown.data?.puter?.uid;
+    if (uid && /(^|:)inbox$/.test(shown.tag)) puter.notifications.dismiss(uid).catch(() => {});
+  }
+}
+
 export async function stopListening() {
   const listener = listening;
   listening = null;

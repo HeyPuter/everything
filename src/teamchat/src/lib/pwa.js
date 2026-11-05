@@ -112,7 +112,29 @@ const PUTER_PUSH_KEY = 'tc:puter-push';
  * banner for the same news wears, so one replaces the other. Re-created in
  * the worker from its source, so it uses nothing from around it.
  */
-const showPush = (n) => ({ ...(n.data && n.data.g ? { tag: n.data.g } : {}), url: n.target || '/' });
+const showPush = async (n) => {
+  const d = n.data || {};
+  // In the service worker with no window open, nothing else marks the icon:
+  // a dot says there is news, and the first page to open sets the number.
+  if (typeof window === 'undefined' && !(await self.clients.matchAll({ type: 'window' })).length) {
+    await self.navigator.setAppBadge?.().catch(() => {});
+  }
+  // A call stays up until it's answered or dismissed.
+  return { ...(d.g ? { tag: d.g } : {}), ...(d.c ? { requireInteraction: true } : {}), url: n.target || '/' };
+};
+
+/**
+ * Dismiss the Puter notifications this browser shows under any of `tags`,
+ * which closes them on the user's other devices too.
+ */
+export async function dismissShown(tags) {
+  if (!swSupported() || typeof puter === 'undefined') return;
+  const reg = registration || (await navigator.serviceWorker.getRegistration(swPath()).catch(() => null));
+  for (const shown of (await reg?.getNotifications().catch(() => null)) || []) {
+    const uid = shown.data?.puter?.uid;
+    if (uid && tags.has(shown.tag)) puter.notifications.dismiss(uid).catch(() => {});
+  }
+}
 
 let pushListener = null;
 

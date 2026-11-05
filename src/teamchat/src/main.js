@@ -112,9 +112,11 @@ let clicksHeard = false;
 function listenForNotificationClicks() {
   if (clicksHeard || typeof puter.notifications?.on !== 'function') return;
   clicksHeard = true;
-  puter.notifications.on('click', ({ target, data } = {}) => {
+  puter.notifications.on('click', ({ uid, target, data } = {}) => {
     const route = typeof data?.r === 'string' ? data.r : String(target || '').replace(/^\//, '');
     if (route.startsWith('#/')) navigate(route);
+    // Closes the same notification on the user's other devices.
+    if (uid) puter.notifications.dismiss(uid).catch(() => {});
   });
 }
 

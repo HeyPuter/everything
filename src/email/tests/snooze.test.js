@@ -185,6 +185,34 @@ describe('snooze storage and schedules', () => {
     expect(second.record.from.box).toBe('inbox');
   });
 
+  it('moves the earlier schedule to the new time and token when it can', async () => {
+    events.updateSchedule = vi.fn(async (scheduleId) => ({ scheduleId }));
+    const first = await snooze.snooze(message, NOW + 3600000, { background: true });
+    const second = await snooze.snooze(snoozedMessage(first), NOW + 7200000, { background: true });
+    expect(events.removeSchedule).not.toHaveBeenCalled();
+    expect(events.onSchedule).toHaveBeenCalledTimes(1);
+    expect(events.updateSchedule).toHaveBeenCalledWith('schedule-1', { at: NOW + 7200000,
+      context: { id: flagId(message.name), token: second.record.token, mailPath: mailbox.mailPath } });
+    expect(stored()).toMatchObject({ until: NOW + 7200000, scheduleId: 'schedule-1', token: second.record.token });
+  });
+
+  it('makes a new schedule when the earlier one already ended', async () => {
+    events.updateSchedule = vi.fn(async () => { throw { code: 'events_schedule_not_found' }; });
+    const first = await snooze.snooze(message, NOW + 3600000, { background: true });
+    events.onSchedule.mockResolvedValueOnce({ scheduleId: 'schedule-2' });
+    const second = await snooze.snooze(snoozedMessage(first), NOW + 7200000, { background: true });
+    expect(second.background).toBe(true);
+    expect(stored().scheduleId).toBe('schedule-2');
+  });
+
+  it('drops the earlier schedule when moving it fails otherwise, and wakes from the app', async () => {
+    events.updateSchedule = vi.fn(async () => { throw { code: 'too_many_requests' }; });
+    const first = await snooze.snooze(message, NOW + 3600000, { background: true });
+    const second = await snooze.snooze(snoozedMessage(first), NOW + 7200000, { background: true });
+    expect(events.removeSchedule).toHaveBeenCalledWith('schedule-1');
+    expect(second).toMatchObject({ background: false, reason: 'too_many_requests' });
+  });
+
   it.each(['archive', 'trash'])('cancels and clears before filing into %s', async (box) => {
     const first = await snooze.snooze(message, NOW + 3600000, { background: true });
     const next = snoozedMessage(first);

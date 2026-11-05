@@ -112,14 +112,23 @@ export function createSnooze({ fs, mailPath, scope, storage, kv = null, events =
       return granted;
     } catch { return false; }
   };
-  const schedule = async (id, record, background) => {
+  // `prior`: the schedule of an earlier snooze, moved to the new time rather than replaced.
+  const schedule = async (id, record, background, prior = null) => {
     let reason = 'unavailable';
     if (background && kv && events?.onSchedule) {
       try {
-        const { scheduleId } = await events.onSchedule({
-          at: record.until, handlerName: SNOOZE_HANDLER,
-          context: { id, token: record.token, mailPath },
-        });
+        const context = { id, token: record.token, mailPath };
+        let scheduleId = null;
+        if (prior) {
+          try { ({ scheduleId } = await events.updateSchedule(prior, { at: record.until, context })); }
+          catch (error) {
+            if (error?.code !== 'events_schedule_not_found') {
+              await removeSchedule({ scheduleId: prior }).catch(() => {});
+              throw error;
+            }
+          }
+        }
+        scheduleId ??= (await events.onSchedule({ at: record.until, handlerName: SNOOZE_HANDLER, context })).scheduleId;
         const current = await read(id);
         if (current?.token !== record.token) {
           await removeSchedule({ scheduleId });
@@ -140,7 +149,9 @@ export function createSnooze({ fs, mailPath, scope, storage, kv = null, events =
     if (!Number.isFinite(until) || until <= Date.now()) throw new Error('Choose a future time.');
     const id = flagId(message.name);
     const old = await read(id);
-    await removeSchedule(old);
+    // Kept to be moved; until then its run finds the token changed and does nothing.
+    const prior = background && events?.updateSchedule ? old?.scheduleId : null;
+    if (!prior) await removeSchedule(old);
     const path = `${boxPath(mailPath, 'snoozed')}/${message.day}/${message.name}`;
     const record = {
       until, from: old?.from ?? { box: message.box, path: message.path, day: message.day },
@@ -157,7 +168,7 @@ export function createSnooze({ fs, mailPath, scope, storage, kv = null, events =
       }
     }
     await promote(id, null).catch(() => {});
-    return { path, record, previous: old, ...await schedule(id, record, background) };
+    return { path, record, previous: old, ...await schedule(id, record, background, prior) };
   };
 
   /** Invalidate the old handler before another action moves a snoozed file. */

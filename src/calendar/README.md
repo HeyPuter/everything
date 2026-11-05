@@ -468,7 +468,13 @@ push handler and, on the web, this browser's subscription.
 - **RSVP answers.** The host's RSVP worker notifies when a guest changes their
   answer, after saving it, without delaying the guest's response.
 
-Clicks carry ids and open the event or its invitation. `src/js/push.js` registers
+Clicks carry ids and open the event or its invitation, and `dismiss()` the
+notification on the user's other devices. An invitation push offers **Yes** and
+**No** (`data.ask` from the mail handler); a press opens the event and answers it
+as the Going? chips do, including the offer to email the reply. Reminders stay
+on screen until acted on. A reminder whose title, place or end changes keeps
+its stored notification, updated with `puter.events.updateSchedule()`; a new
+time or lead is a new reminder. `src/js/push.js` registers
 `onPush()` on each load; `public/sw.js` imports Puter's push worker. Reminders
 need no background handler or `events:background` permission. Stored schedules
 and delivery are subject to Puter's [quotas and rate

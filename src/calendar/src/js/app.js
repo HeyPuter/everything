@@ -101,17 +101,17 @@ export function createApp(root, { store, user, rsvp = null, contacts = null, inv
   // open it. A task has a single `due` instant where an event has `start`.
   const search = createSearch({ store, onPick: (item) => openAtItem(item) });
 
-  function openAtItem(item) {
+  function openAtItem(item, opts) {
     const when = item.isTask ? item.due : item.start;
     state.cursor = startOfDay(new Date(when));
     state.miniCursor = startOfMonth(new Date(when));
     render();
-    modal.openView(item);
+    modal.openView(item, opts);
   }
 
   /** A series opens on its current or next occurrence, as search does. */
-  function openEventRecord(ev) {
-    openAtItem(ev.recurrence ? occurrenceNear(ev, Date.now()) || ev : ev);
+  function openEventRecord(ev, opts) {
+    openAtItem(ev.recurrence ? occurrenceNear(ev, Date.now()) || ev : ev, opts);
   }
 
   /**
@@ -1251,23 +1251,24 @@ export function createApp(root, { store, user, rsvp = null, contacts = null, inv
       render();
     },
     /** A clicked push notification (see push.js): open the event it names,
-     *  else the invitations list it came from. */
+     *  answering it when Yes / No was pressed, else the invitations list it
+     *  came from. */
     async openNotification(click) {
-      const { eventId, uid } = notificationTarget(click);
+      const { eventId, uid, respond } = notificationTarget(click);
       const lookup = () => (eventId ? store.getEvent(eventId) : uid && mail ? mail.intake.findByUid(uid) : null);
       let ev = lookup();
       if (!ev && eventId) {
         await store.load();
         ev = lookup();
       }
-      if (ev) return openEventRecord(ev);
+      if (ev) return openEventRecord(ev, { respond });
       if (!uid || !mail) return;
       // A notification can beat the intake to a just-recorded invitation.
       Promise.resolve(mail.intake.pump())
         .catch(() => {})
         .then(() => {
           const found = lookup();
-          if (found) openEventRecord(found);
+          if (found) openEventRecord(found, { respond });
           else actions.showMailInvites();
         });
     },

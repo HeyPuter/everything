@@ -101,6 +101,21 @@ export function createStoredReminders({
     await kv.del(claimKey(row.key, row.hash)).catch(() => {});
   }
 
+  /**
+   * A reminder whose words changed (title, place, end, clock format) keeps
+   * its stored notification with the new text. A new time is a new key.
+   */
+  async function retext(row, item) {
+    try {
+      await getPuter().events.updateSchedule(row.scheduleId, { title: item.title, text: item.text });
+    } catch (err) {
+      if (CANCELLED.has(err && err.code)) return false;
+      throw err;
+    }
+    await kv.set(row.storageKey, { key: row.key, scheduleId: row.scheduleId, sendAt: row.sendAt, hash: item.hash });
+    return true;
+  }
+
   async function reconcile() {
     if (!usable() || stopped) return;
     clearTimeout(retry);
@@ -129,7 +144,8 @@ export function createStoredReminders({
       if (enabled && row.sendAt <= t && live && content(live, store.getSettings().hour12).hash === row.hash) {
         continue;
       }
-      if (item && item.hash === row.hash && !kept.has(row.key)) {
+      if (item && !kept.has(row.key) && (item.hash === row.hash
+        || (row.sendAt > now() + MIN_AHEAD && await retext(row, item)))) {
         kept.add(row.key);
         waiting++;
       } else {
