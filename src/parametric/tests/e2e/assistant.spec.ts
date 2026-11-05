@@ -389,3 +389,22 @@ test('a message with more changes than the undo history holds is still undone in
   await page.getByRole('button', { name: 'Undo changes' }).click();
   expect(await page.evaluate(() => (window as unknown as P).__parametric.store.doc.variables.map((v) => v.name))).toEqual(['Mine']);
 });
+
+test('changing the part\'s units finishes an open sketch first, so discarding it cannot undo the change', async ({ page }) => {
+  await page.addInitScript(() => {
+    (window as unknown as { __assistantChat: unknown }).__assistantChat = async function* (messages: { role: string }[]) {
+      if (messages.some((m) => m.role === 'assistant')) { yield { type: 'text', text: 'Now in inches.' }; return; }
+      yield { type: 'tool', id: 'c1', name: 'set_part', input: { units: 'IPS' } };
+    };
+  });
+  await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  type P = { __parametric: { startSketchOn(r: unknown): void; sketchEditor: unknown; store: { doc: { units: string } } } };
+  await page.evaluate(() => (window as unknown as P).__parametric.startSketchOn({ kind: 'base', plane: 'top' }));
+  expect(await page.evaluate(() => !!(window as unknown as P).__parametric.sketchEditor)).toBe(true);
+  const box = page.getByRole('textbox', { name: 'Message the assistant' });
+  await box.fill('Switch to inches');
+  await box.press('Enter');
+  await expect(page.getByText('Now in inches.')).toBeVisible();
+  expect(await page.evaluate(() => [(window as unknown as P).__parametric.store.doc.units, !!(window as unknown as P).__parametric.sketchEditor])).toEqual(['IPS', false]);
+});

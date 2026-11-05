@@ -837,6 +837,8 @@ class Toolkit {
       patch.color = c.toLowerCase();
     }
     if (!Object.keys(patch).length) return 'Nothing to change.';
+    // Like every change: an open sketch is finished first, so discarding it later cannot undo this too.
+    this.host.prepareForEdit();
     const { units, ...rest } = patch;
     let unlinked: string[] = [];
     this.store.change('Part properties', (doc) => {
@@ -910,6 +912,7 @@ class Toolkit {
     if (a.notes != null) patch.notes = typeof a.notes === 'string' ? a.notes : str(a.notes);
     if (Object.keys(patch).length) {
       if (!this.doc.drawing) throw new ToolError('there is no drawing yet; set show: true first');
+      this.host.prepareForEdit();
       this.store.change('Edit drawing', (doc) => { if (doc.drawing) Object.assign(doc.drawing, patch); });
       this.changed = true;
       done.push(`set ${Object.keys(patch).join(', ')}`);
