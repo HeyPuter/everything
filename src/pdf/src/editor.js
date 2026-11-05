@@ -6055,6 +6055,30 @@ export function createEditor({
       showNoteNudge(target, [0, 0]);
     });
     target.addEventListener('keydown', (e) => {
+      // Delete and Backspace delete the note, as they delete other comments.
+      if ((e.key === 'Delete' || e.key === 'Backspace') && !e.repeat) {
+        e.preventDefault();
+        if (noteNudge?.id === id) {
+          noteNudge = null;
+          clearTimeout(noteNudgeTimer);
+        }
+        safe(async () => {
+          if (busy || !pageReady) return;
+          if (noteEdit?.entry?.id === id) return finishNoteEdit(true);
+          const ordinal = notes.findIndex((note) => note.id === id);
+          await finishDrafts();
+          const current = notes.find((note) => note.id === id) || notes[ordinal];
+          if (!current || destroyed) return;
+          await mutate(
+            (doc) => editNote(doc, pageIndex, current.id, { remove: true }),
+            null,
+            'annotate',
+          );
+          if (!destroyed && document.activeElement === document.body)
+            overlay.focus({ preventScroll: true });
+        })();
+        return;
+      }
       if (!e.key.startsWith('Arrow') || e.altKey || e.ctrlKey || e.metaKey) return;
       e.preventDefault();
       if (noteNudge && noteNudge.id !== id) saveNoteNudge();
