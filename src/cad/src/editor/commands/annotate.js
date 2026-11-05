@@ -61,7 +61,20 @@ export const TEXT = {
     const [halign, valign] = just.split('|');
     let pos = p;
     for (;;) {
-      const base = ed.make('text', { x: pos.x, y: pos.y, h, rot, value: '', style: ed.header.textStyle, halign, valign, widthFactor: 1, oblique: 0 });
+      // New text takes the style's width factor and obliquing, like AutoCAD.
+      const wf = style?.widthFactor > 0 ? style.widthFactor : 1;
+      const base = ed.make('text', {
+        x: pos.x,
+        y: pos.y,
+        h,
+        rot,
+        value: '',
+        style: ed.header.textStyle,
+        halign,
+        valign,
+        widthFactor: wf,
+        oblique: style?.oblique || 0,
+      });
       const value = await ed.editText({ anchor: pos, height: h, rot, multiline: false, onChange: (v) => ed.renderer.setPreview(v ? [{ ...base, value: v }] : []) });
       ed.renderer.setPreview([]);
       if (!value) return;

@@ -158,6 +158,20 @@ describe('drawing commands', () => {
     expect(txt.value).toBe('Note');
     expect(txt.h).toBe(5);
   });
+
+  it('gives new text the width factor and obliquing of its style', async () => {
+    t.drawing.transaction('Style', () => {
+      const st = { name: 'Narrow', font: 'sans', height: 0, widthFactor: 0.7, oblique: 0.2 };
+      t.drawing.setTable('textStyles', 'Narrow', st);
+      t.drawing.setHeader({ textStyle: 'Narrow' });
+    });
+    await t.type('TEXT', '0,0', '5', '0');
+    await flush();
+    const [txt] = t.all('text');
+    expect(txt.style).toBe('Narrow');
+    expect(txt.widthFactor).toBe(0.7);
+    expect(txt.oblique).toBe(0.2);
+  });
 });
 
 describe('editing commands', () => {
