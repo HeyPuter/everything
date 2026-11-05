@@ -893,6 +893,9 @@ export class ModelBuilder {
       if (sr <= r) throw new FeatureError('The countersink diameter must be larger than the hole');
       if (half <= 0 || half >= Math.PI / 2) throw new FeatureError('The countersink angle must be between 0 and 180 degrees');
       const sd = (sr - r) / Math.tan(half);
+      // Like a counterbore: a blind hole ending inside its countersink was
+      // silently made deeper than asked.
+      if (f.end !== 'throughAll' && depth <= sd) throw new FeatureError('The hole depth must be greater than the countersink depth');
       prof.push([0, 0], [sr, 0], [r, sd], [r, Math.max(depth, sd + 1e-3)], [0, Math.max(depth, sd + 1e-3)]);
     } else prof.push([0, 0], [r, 0], [r, depth], [0, depth]);
     // Small tip so the top face sits slightly above the surface for a clean cut.

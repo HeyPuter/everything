@@ -383,7 +383,7 @@ describe('feature regeneration', () => {
     }
   });
 
-  it('cuts counterbored holes and rejects a hole shallower than its counterbore', async () => {
+  it('cuts counterbored and countersunk holes and rejects a hole shallower than its counterbore or countersink', async () => {
     const b = new ModelBuilder();
     const base: Feature[] = [sketch('S1', rect(-20, -20, 20, 20)), extrude('E1', 'S1', 3)];
     const r0 = await b.build(req(base));
@@ -404,6 +404,16 @@ describe('feature regeneration', () => {
     r = await b.build(req([...base, pos, hole('throughAll', 0, 5)]));
     expect(r.status[3].ok).toBe(true);
     expect(4800 - volume(b)).toBeCloseTo(Math.PI * 16 * 3, 3);
+    // A blind countersunk hole ending inside its 2 mm deep countersink.
+    const sink = (depth: number): Feature => ({ ...hole('blind', depth, 1), kind: 'countersink' } as Feature);
+    r = await b.build(req([...base, pos, sink(2.5)]));
+    expect(r.status[3].ok).toBe(true);
+    expect(4800 - volume(b)).toBeCloseTo((Math.PI * 2 / 3) * (16 + 8 + 4) + Math.PI * 4 * 0.5, 3);
+    for (const depth of [2, 1]) {
+      r = await b.build(req([...base, pos, sink(depth)]));
+      expect(r.status[3].ok).toBe(false);
+      expect(r.status[3].error).toMatch(/greater than the countersink depth/);
+    }
   });
 
   it('reports an error instead of a degenerate fillet or shell', async () => {
