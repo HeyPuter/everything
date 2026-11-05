@@ -1010,3 +1010,17 @@ it('tells a page-sized clip from a small one when the page box lists its corners
   joined.getPage(0).node.set(PDFName.of('MediaBox'), joined.context.obj([400, 400, 0, 0]));
   expect((await read(await joined.save())).groups.map((g) => g.text)).toEqual(['Hello world']);
 });
+
+it('ends a paragraph where its last line stops short of a word that would have fit', async () => {
+  // Two paragraphs with no space between them: the first ends well before the column edge,
+  // where the next paragraph's first word would have fit had the break been a soft wrap.
+  const r = await read(
+    await fixture(
+      'BT /F 12 Tf 15 TL 40 330 Td (The first paragraph fills this line with words) Tj T* (and its last line ends here, early.) Tj T* (The next paragraph starts on this line too and) Tj T* (wraps onto a second line below it.) Tj ET',
+    ),
+  );
+  expect(groupTextParagraphs(r.groups).map((b) => b.text)).toEqual([
+    'The first paragraph fills this line with words and its last line ends here, early.',
+    'The next paragraph starts on this line too and wraps onto a second line below it.',
+  ]);
+});

@@ -157,7 +157,11 @@ export function groupTextParagraphs(lines) {
         -y <= 1.8 &&
         (!block.paragraph || Math.abs(-y - block.paragraph.leading) < 0.15) &&
         width(line) <= width(previous) * 1.4 + h * 2 &&
-        previous.text.trim().split(/\s+/).length >= 3
+        previous.text.trim().split(/\s+/).length >= 3 &&
+        // A line wraps early only when the next word would not fit after it. Where that word
+        // would have fit within the widest line, the break is a hard one: a paragraph ends.
+        width(previous) + h * 0.28 + wordWidth(line) >=
+          Math.max(width(line), ...(block.paragraph?.lines ?? [block]).map(width)) - h * 0.1
       )
         leading = -y;
     }
