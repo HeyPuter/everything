@@ -128,3 +128,36 @@ test('a document replacement at Share acceptance prevents the old request', asyn
   await expect(dialog).toHaveCount(0);
   expect(errors).toEqual([]);
 });
+
+for (const scenario of ['next recipient', 'failed request'] as const) test(`a pending share preserves ${scenario} behavior`, async ({ page }) => {
+  const errors = await sharingApp(page);
+  await page.evaluate((scenario) => {
+    type W = { __parametric: import('../../src/app/app').App; puter: { fs: { share: (...args: unknown[]) => Promise<unknown> } }; releaseShare: () => void; shareStarted: boolean };
+    const w = window as unknown as W;
+    const share = w.puter.fs.share;
+    const gate = new Promise<void>((resolve) => { w.releaseShare = resolve; });
+    let first = true;
+    w.puter.fs.share = async (...args) => {
+      const result = await share(...args);
+      if (first) { first = false; w.shareStarted = true; await gate; if (scenario === 'failed request') throw new Error('Permission denied'); }
+      return result;
+    };
+    w.__parametric.commands.run('share');
+  }, scenario);
+  const dialog = page.getByRole('dialog', { name: 'Share Original', exact: true });
+  const who = dialog.getByRole('textbox', { name: 'Person to share with' });
+  const share = dialog.getByRole('button', { name: 'Share', exact: true });
+  await who.fill('first');
+  await share.click();
+  await page.waitForFunction(() => (window as unknown as { shareStarted: boolean }).shareStarted);
+  await who.fill('next');
+  await page.evaluate(() => (window as unknown as { releaseShare: () => void }).releaseShare());
+  await expect(dialog).toContainText(scenario === 'failed request' ? 'Could not share: Permission denied' : 'Shared with first');
+  await expect(who).toHaveValue('next');
+  await expect(share).toBeEnabled();
+  await share.click();
+  await expect(dialog).toContainText('Shared with next');
+  expect(await page.evaluate(() => (window as unknown as { shareCalls: ShareCall[] }).shareCalls.map((c) => c.recipient.username))).toEqual(['first', 'next']);
+  await expect(who).toHaveValue('');
+  expect(errors).toEqual([]);
+});

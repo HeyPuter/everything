@@ -112,16 +112,19 @@ export async function shareDialog(app: App, files: FileOps) {
     list.append(h('table', { class: 'table' }, h('thead', {}, h('tr', {}, h('th', {}, 'Person'), h('th', {}, 'Access'), h('th', {}, h('span', { class: 'sr-only' }, 'Actions')))), h('tbody', {}, rows)));
   };
 
+  let recipientRevision = 0;
+  who.addEventListener('input', () => { recipientRevision++; });
   const add = async () => {
     if (!isCurrent()) return;
     const v = who.value.trim();
     if (!v) { who.focus(); return; }
+    const revision = recipientRevision;
     status.textContent = 'Sharing...';
     try {
       const res = await fs.share(path, recipient(v), mode.value);
       if (!isCurrent()) return;
       status.textContent = res?.[0]?.isNew === false ? `Updated access for ${v}.` : `Shared with ${v}. They can open it from Open, Shared with me.`;
-      who.value = '';
+      if (revision === recipientRevision) who.value = '';
       void render();
     } catch (e) {
       const code = (e as { code?: string })?.code;
