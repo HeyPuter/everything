@@ -2,7 +2,7 @@
  * Web Push from the worker: the encryption and VAPID pieces are checked by
  * decrypting what a fake push service receives, the way a browser would.
  */
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { boot, as, USERS, workspaceWith } from './helpers/harness.js';
 import { KEYS } from '../src/shared/blocks.js';
 import { encryptPayload, vapidAuth, vapidKeys, fromB64url, b64url, pushAllowed } from '../worker/push.js';
@@ -207,6 +207,21 @@ describe('push routes and delivery', () => {
     expect(received).toHaveLength(1);
     expect((await as(bob).post(`/api/ws/${wsId}/channels/${ch.id}/leave`, {})).ok).toBe(true);
     await post(alice, wsId, ch.id, 'after leaving');
+    expect(received).toHaveLength(1);
+  });
+
+  it('carries an "all messages" setting made before the index existed into it when the member opens the workspace', async () => {
+    const { wsId } = await workspaceWith(alice, [bob]);
+    const dev = await subscriber();
+    await as(bob).post(`/api/ws/${wsId}/push`, { subscription: dev.subscription });
+    const ch = (await as(alice).post(`/api/ws/${wsId}/channels`, { name: 'older' })).data.channel;
+    await as(bob).post(`/api/ws/${wsId}/channels/${ch.id}/join`, {});
+    await rt.kv.update(KEYS.member(wsId, bob.uuid), { [`notify.${ch.id}.level`]: 'all' });
+    await post(alice, wsId, ch.id, 'not yet');
+    expect(received).toHaveLength(0);
+    await as(bob).get(`/api/ws/${wsId}`);
+    await vi.waitFor(async () => expect((await rt.kv.get(KEYS.member(wsId, bob.uuid))).naSync).toBe(1));
+    await post(alice, wsId, ch.id, 'now');
     expect(received).toHaveLength(1);
   });
 

@@ -2424,7 +2424,7 @@ router.post('/api/join', route(async ({ request, user }) => {
   return { workspace: { id: ws.id, name: ws.name }, guest, channel: guest ? { id: invite.ch, name: scoped.name } : undefined };
 }));
 
-router.get('/api/ws/:ws', route(async ({ params, request, user }) => {
+router.get('/api/ws/:ws', route(async ({ params, request, user, defer }) => {
   // The moment this answer is drawn from, taken before anything is read.
   // The client makes its first poll's `since` of it and judges live signals
   // against it (see the store's _evCovered): reported as the moment the
@@ -2443,6 +2443,7 @@ router.get('/api/ws/:ws', route(async ({ params, request, user }) => {
     also: ({ uuid }) => [KEYS.user(uuid), KEYS.activity(params.ws), ...(ringOn ? [KEYS.evCounter(params.ws)] : [])],
   });
   const [knownProfile, knownAct, knownCounters = null] = extra;
+  if (!doc.naSync) defer(() => recordHearAll(ws, id.uuid, doc));
   const q = query(request);
   // A member carried across by an import, or whose join was cut short, has
   // a card in the workspace but no entry in their own list on this worker,
@@ -7783,6 +7784,13 @@ router.put('/api/ws/:ws/conv/:conv/notify', route(async ({ params, request, user
   await pokeMember(params.ws, id.uuid).catch(() => {});
   return { ok: true, notify: cur };
 }));
+
+/** "All messages" chosen before tc:ws:{id}:na existed, carried into it once per member. */
+async function recordHearAll(ws, uuid, doc) {
+  const heard = Object.entries(doc.notify || {}).filter(([c, v]) => v?.level === 'all' && own(ws.channels, c)).map(([c]) => [`${c}.${uuid}`, 1]);
+  if (heard.length) await kv().update(KEYS.notifyAll(ws.id), Object.fromEntries(heard));
+  await kv().update(KEYS.member(ws.id, uuid), { naSync: 1 });
+}
 
 /* ---- pins -------------------------------------------------------------- */
 

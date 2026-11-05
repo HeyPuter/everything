@@ -636,7 +636,8 @@ the other members of a direct message, a thread's followers who can read
 it, and members who hear the channel at "All messages". The last come from
 `tc:ws:{id}:na`, kept by the notification-setting route, so a post never
 reads every member's document; someone who has left the channel is
-skipped.
+skipped. A setting made before the index existed is carried into it the
+first time its member opens the workspace (`naSync` on the member document).
 Mute, level, quiet hours, and pause suppress sends. Puter checks whether an
 open page is visible and focused before pushing; recent presence suppresses
 only legacy Web Push. Reminders use the same path for their own member.
