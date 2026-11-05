@@ -468,3 +468,31 @@ test('damaged sketch contents are rejected before replacing an unsaved part', as
   }
   expect(errors).toEqual([]);
 });
+
+test('damaged file-list rows do not block startup, opening valid parts, or saving', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.evaluate(async () => {
+    const root = await navigator.storage.getDirectory();
+    const dir = await root.getDirectoryHandle('parametric-parts', { create: true });
+    const file = await dir.getFileHandle('kept.parametric', { create: true });
+    const writer = await file.createWritable();
+    await writer.write(JSON.stringify({ format: 'parametric-part', version: 1, name: 'Kept part', features: [] }));
+    await writer.close();
+    localStorage.setItem('parametric:local-parts', JSON.stringify([null, {}, { id: 'kept', name: 'Kept part', modified: 1, size: 100 }]));
+    localStorage.setItem('parametric:recent', JSON.stringify([null, { name: 'Broken', location: { type: 'cloud' } }, { name: 'Kept part', location: { type: 'local', id: 'kept' }, opened: 1 }]));
+  });
+  await page.reload();
+  const start = page.getByRole('dialog', { name: 'Parametric', exact: true });
+  await expect(start).toBeVisible();
+  await start.getByRole('button', { name: /Kept part/ }).click();
+  await expect(page).toHaveTitle('Kept part - Parametric');
+  await page.evaluate(() => (window as unknown as { __parametric: AppHandle }).__parametric.commands.run('saveAs'));
+  await page.getByRole('dialog', { name: 'Save As' }).getByRole('textbox').fill('Saved copy');
+  await page.getByRole('button', { name: 'OK', exact: true }).click();
+  await expect(page).toHaveTitle('Saved copy - Parametric');
+  await page.evaluate(() => (window as unknown as { __parametric: AppHandle }).__parametric.commands.run('open'));
+  const open = page.getByRole('dialog', { name: 'Open', exact: true });
+  await expect(open.getByRole('button', { name: /^Kept part/ })).toBeVisible();
+  await expect(open.getByRole('button', { name: /^Saved copy/ })).toBeVisible();
+  expect(errors).toEqual([]);
+});

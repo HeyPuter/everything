@@ -89,3 +89,33 @@ describe('local deletion', () => {
     expect(recentParts()).toEqual([]);
   });
 });
+
+describe('damaged browser file lists', () => {
+  it('keeps valid local entries when other index rows are malformed', async () => {
+    localStorage.setItem('parametric:local-parts', JSON.stringify([
+      null, 5, {}, { id: 'bad', name: 5 }, { id: '', name: 'Empty id' },
+      { id: 'p1', name: 'Bracket', modified: 10, size: 20 },
+      { id: 'p2', name: 'Plate', modified: 'invalid', size: null },
+    ]));
+    expect(await listParts()).toEqual([
+      { name: 'Bracket', location: { type: 'local', id: 'p1' }, modified: 10, size: 20 },
+      { name: 'Plate', location: { type: 'local', id: 'p2' }, modified: 0, size: 0 },
+    ]);
+  });
+
+  it('drops malformed recent locations and still remembers new parts', () => {
+    localStorage.setItem('parametric:recent', JSON.stringify([
+      null, {}, { name: 'Broken', location: { type: 'cloud' } },
+      { name: 'Broken', location: { type: 'local', id: 5 } },
+      { name: 'Broken', location: { type: 'other', id: 'x' } },
+      { name: 'Kept', location: { type: 'cloud', path: 'Parts/kept.parametric' }, opened: 1 },
+      { name: 'Also kept', location: { type: 'local', id: 'p1' }, opened: null },
+    ]));
+    expect(recentParts()).toEqual([
+      { name: 'Kept', location: { type: 'cloud', path: 'Parts/kept.parametric' }, opened: 1 },
+      { name: 'Also kept', location: { type: 'local', id: 'p1' }, opened: 0 },
+    ]);
+    expect(() => rememberRecent({ location: { type: 'local', id: 'new' }, name: 'New' })).not.toThrow();
+    expect(recentParts().map((p) => p.name)).toEqual(['New', 'Kept', 'Also kept']);
+  });
+});

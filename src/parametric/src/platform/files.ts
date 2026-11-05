@@ -41,10 +41,21 @@ async function opfsDir(): Promise<FileSystemDirectoryHandle | null> {
   }
 }
 
+const record = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
+const nonempty = (v: unknown): v is string => typeof v === 'string' && v.length > 0;
+const finiteNumber = (v: unknown) => typeof v === 'number' && Number.isFinite(v) ? v : 0;
+
 function readIndex(): { id: string; name: string; modified: number; size: number }[] {
   try {
-    const v = JSON.parse(localStorage.getItem(LOCAL_INDEX) || '[]');
-    return Array.isArray(v) ? v : [];
+    const v: unknown = JSON.parse(localStorage.getItem(LOCAL_INDEX) || '[]');
+    const rows: { id: string; name: string; modified: number; size: number }[] = [];
+    for (const p of Array.isArray(v) ? v : []) {
+      // One damaged metadata row must not hide all the user's other files or
+      // make the index update throw after a successful file write.
+      if (!record(p) || !nonempty(p.id) || typeof p.name !== 'string') continue;
+      rows.push({ id: p.id, name: p.name, modified: finiteNumber(p.modified), size: Math.max(0, finiteNumber(p.size)) });
+    }
+    return rows;
   } catch {
     return [];
   }
@@ -198,8 +209,16 @@ export const sameLocation = (a?: Location | null, b?: Location | null) =>
 
 export function recentParts(): { location: Location; name: string; opened: number }[] {
   try {
-    const v = JSON.parse(localStorage.getItem(RECENT_KEY) || '[]');
-    return Array.isArray(v) ? v : [];
+    const v: unknown = JSON.parse(localStorage.getItem(RECENT_KEY) || '[]');
+    const rows: { location: Location; name: string; opened: number }[] = [];
+    for (const p of Array.isArray(v) ? v : []) {
+      if (!record(p) || typeof p.name !== 'string' || !record(p.location)) continue;
+      const loc = p.location;
+      const location: Location | null = loc.type === 'cloud' && nonempty(loc.path) ? { type: 'cloud', path: loc.path }
+        : loc.type === 'local' && nonempty(loc.id) ? { type: 'local', id: loc.id } : null;
+      if (location) rows.push({ location, name: p.name, opened: finiteNumber(p.opened) });
+    }
+    return rows;
   } catch {
     return [];
   }
