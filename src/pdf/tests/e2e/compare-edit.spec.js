@@ -343,3 +343,40 @@ test('on a narrow screen the list of changes steps aside once a change is chosen
   await expect(list).toBeHidden();
   await expect(page.locator('.compare-position')).toHaveText('7 of 12');
 });
+
+test("on a phone the comparison's toolbar takes two rows, not three", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 760 });
+  await page.route('https://js.puter.com/**', (route) => route.fulfill({ body: '' }));
+  await page.goto('/#library');
+  const opened = page.waitForEvent('filechooser');
+  await page.keyboard.press('ControlOrMeta+o');
+  await (
+    await opened
+  ).setFiles({ name: 'old.pdf', mimeType: 'application/pdf', buffer: await pdfBytes('Alpha') });
+  await expect(page.locator('.editor')).toHaveAttribute('aria-busy', 'false');
+  await page.getByRole('button', { name: 'Tools', exact: true }).click();
+  const pane = page.getByRole('complementary', { name: 'Tools' });
+  await pane.getByRole('button', { name: 'View more' }).click();
+  await pane.getByRole('button', { name: 'Compare files', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Compare files' });
+  const chosen = page.waitForEvent('filechooser');
+  await dialog.getByRole('button', { name: 'Choose file…' }).click();
+  await (
+    await chosen
+  ).setFiles({ name: 'new.pdf', mimeType: 'application/pdf', buffer: await pdfBytes('Beta') });
+  await dialog.getByRole('button', { name: 'Compare', exact: true }).click();
+  const close = page.getByRole('button', { name: 'Close compare' });
+  await expect(close).toBeVisible();
+  // Close sits beside Export report and the filters, rather than alone on a third row.
+  const middle = async (locator) => {
+    const box = await locator.boundingBox();
+    return Math.round(box.y + box.height / 2);
+  };
+  const exportRow = await middle(page.getByRole('button', { name: 'Export report' }));
+  expect(await middle(close)).toBe(exportRow);
+  expect(
+    Math.abs((await middle(page.getByRole('group', { name: 'Show changes' }))) - exportRow),
+  ).toBeLessThan(3);
+  // The filters keep their group name for assistive technology.
+  await expect(page.getByRole('group', { name: 'Show changes' })).toBeVisible();
+});
