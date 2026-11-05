@@ -832,6 +832,42 @@ test.describe('sketching', () => {
     expect(errors).toEqual([]);
   });
 
+  for (const via of ['menu', 'panel'] as const) test(`making a driven dimension driving (${via}) keeps the geometry it shows`, async ({ page }) => {
+    const errors = await openApp(page);
+    await startSketch(page);
+    const id = await page.evaluate(() => {
+      const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+      const ed = a.sketchEditor!;
+      a.commands.run('tool:rectangle');
+      const click = (p: [number, number]) => ed.tool!.click!({ p, raw: p, kind: 'none' }, {} as import('../../src/app/viewport').VPEvent);
+      click([0, 0]);
+      click([40, 30]);
+      ed.setTool(null);
+      const bottom = ed.sketch.entities.find((e) => e.t === 'line')!;
+      const dim = ed.addDimension({ type: 'distance', refs: [bottom.id], value: 40 }, [20, -10], false)!;
+      ed.setDriven(dim, true);
+      ed.edit('Stretch', (sk) => { for (const e of sk.entities) if (e.t === 'point' && e.x > 39) e.x = 60; });
+      return dim;
+    });
+    const label = page.locator('.dim-label', { hasText: '(60.00)' });
+    await expect(label).toBeVisible();
+    if (via === 'menu') {
+      await label.click({ button: 'right' });
+      await page.getByRole('menuitem', { name: 'Make Driving' }).click();
+    } else {
+      await label.click();
+      await page.getByRole('checkbox', { name: 'Driven (reference only)' }).uncheck();
+    }
+    const state = await page.evaluate((id) => {
+      const ed = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.sketchEditor!;
+      const d = ed.sketch.constraints.find((c) => c.id === id) as import('../../src/model/types').SkDimension;
+      const xs = ed.sketch.entities.filter((e) => e.t === 'point').map((e) => (e as { x: number }).x);
+      return { driven: !!d.driven, value: d.value, width: Math.max(...xs) - Math.min(...xs) };
+    }, id);
+    expect(state).toEqual({ driven: false, value: 60, width: 60 });
+    expect(errors).toEqual([]);
+  });
+
   test('a new dimension stays driving when the sketch was already over defined elsewhere', async ({ page }) => {
     const errors = await openApp(page);
     const { x, y } = await startSketch(page);

@@ -430,7 +430,7 @@ export function contextItems(app: App, target: 'viewport' | 'feature' | 'referen
       const d = con as SkDimension;
       return [
         { label: 'Modify Value...', icon: 'edit', disabled: !!d.driven, run: () => ed.openModify(id) },
-        { label: d.driven ? 'Make Driving' : 'Make Driven (reference)', icon: 'smartDimension', run: () => ed.edit('Toggle driven', (sk) => { const x = sk.constraints.find((k) => k.id === id) as SkDimension; x.driven = !x.driven || undefined; }) },
+        { label: d.driven ? 'Make Driving' : 'Make Driven (reference)', icon: 'smartDimension', run: () => ed.setDriven(id, !d.driven) },
         sep, { label: 'Delete Dimension', icon: 'trash', run: () => ed.edit('Delete dimension', (sk) => { sk.constraints = sk.constraints.filter((k) => k.id !== id); }) },
       ];
     }

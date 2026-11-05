@@ -581,6 +581,24 @@ export class SketchEditor implements ViewportTool {
     return newDimId;
   }
 
+  /**
+   * Makes a dimension driven (reference) or driving. A driven dimension shows
+   * the geometry as it is, so turning it driving keeps that shown value (as a
+   * new dimension does) instead of pulling the geometry back to the value it
+   * had when it stopped driving. A value linked by an expression keeps its link.
+   */
+  setDriven(dimId: Id, driven: boolean) {
+    this.edit(driven ? 'Make dimension driven' : 'Make dimension driving', (sk) => {
+      const d = sk.constraints.find((c) => c.id === dimId);
+      if (!d || !isDimension(d)) return;
+      if (!driven && d.driven && typeof d.value === 'number') {
+        const v = round(measureDimension(sk, d));
+        if (d.type === 'angle' ? v >= 0 && v <= 180 : v > 0) d.value = v;
+      }
+      d.driven = driven || undefined;
+    });
+  }
+
   /** Floating box to edit a dimension value (accepts expressions and units). */
   openModify(dimId: Id) {
     this.closeModify();

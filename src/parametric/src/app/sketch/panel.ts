@@ -99,7 +99,7 @@ export class SketchPanel extends PropertyPanel {
             ed.edit('Change dimension', (s2) => { (s2.constraints.find((c) => c.id === d.id) as SkDimension).value = v; }, { keepNumberField: true });
           },
         })),
-        checkbox('Driven (reference only)', !!d.driven, (v) => ed.edit(v ? 'Make dimension driven' : 'Make dimension driving', (s2) => { (s2.constraints.find((c) => c.id === d.id) as SkDimension).driven = v || undefined; })),
+        checkbox('Driven (reference only)', !!d.driven, (v) => ed.setDriven(d.id, v)),
       ]));
     } else if (!ed.tool) {
       const counts = new Map<string, number>();
