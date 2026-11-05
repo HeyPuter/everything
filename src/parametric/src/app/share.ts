@@ -112,13 +112,16 @@ export async function shareDialog(app: App, files: FileOps) {
     list.append(h('table', { class: 'table' }, h('thead', {}, h('tr', {}, h('th', {}, 'Person'), h('th', {}, 'Access'), h('th', {}, h('span', { class: 'sr-only' }, 'Actions')))), h('tbody', {}, rows)));
   };
 
+  let adding = false;
   let recipientRevision = 0;
   who.addEventListener('input', () => { recipientRevision++; });
   const add = async () => {
-    if (!isCurrent()) return;
+    if (adding || !isCurrent()) return;
     const v = who.value.trim();
     if (!v) { who.focus(); return; }
     const revision = recipientRevision;
+    adding = true;
+    addBtn.disabled = true;
     status.textContent = 'Sharing...';
     try {
       const res = await fs.share(path, recipient(v), mode.value);
@@ -129,6 +132,9 @@ export async function shareDialog(app: App, files: FileOps) {
     } catch (e) {
       const code = (e as { code?: string })?.code;
       status.textContent = code === 'user_does_not_exist' ? `There is no Puter user called ${v}.` : code === 'cannot_share_with_self' ? 'You already own this part.' : `Could not share: ${storageError(e)}`;
+    } finally {
+      adding = false;
+      addBtn.disabled = false;
     }
   };
   who.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.isComposing && e.keyCode !== 229) { e.preventDefault(); e.stopPropagation(); void add(); } });

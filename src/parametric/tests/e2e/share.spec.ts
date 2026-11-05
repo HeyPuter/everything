@@ -129,7 +129,7 @@ test('a document replacement at Share acceptance prevents the old request', asyn
   expect(errors).toEqual([]);
 });
 
-for (const scenario of ['next recipient', 'failed request'] as const) test(`a pending share preserves ${scenario} behavior`, async ({ page }) => {
+for (const scenario of ['next recipient', 'repeated Enter', 'failed request'] as const) test(`a pending share preserves ${scenario} behavior`, async ({ page }) => {
   const errors = await sharingApp(page);
   await page.evaluate((scenario) => {
     type W = { __parametric: import('../../src/app/app').App; puter: { fs: { share: (...args: unknown[]) => Promise<unknown> } }; releaseShare: () => void; shareStarted: boolean };
@@ -150,11 +150,16 @@ for (const scenario of ['next recipient', 'failed request'] as const) test(`a pe
   await who.fill('first');
   await share.click();
   await page.waitForFunction(() => (window as unknown as { shareStarted: boolean }).shareStarted);
-  await who.fill('next');
+  if (scenario === 'repeated Enter') {
+    await who.press('Enter');
+    await who.press('Enter');
+    expect(await page.evaluate(() => (window as unknown as { shareCalls: ShareCall[] }).shareCalls.length)).toBe(1);
+  } else await who.fill('next');
   await page.evaluate(() => (window as unknown as { releaseShare: () => void }).releaseShare());
   await expect(dialog).toContainText(scenario === 'failed request' ? 'Could not share: Permission denied' : 'Shared with first');
-  await expect(who).toHaveValue('next');
+  await expect(who).toHaveValue(scenario === 'repeated Enter' ? '' : 'next');
   await expect(share).toBeEnabled();
+  if (scenario === 'repeated Enter') await who.fill('next');
   await share.click();
   await expect(dialog).toContainText('Shared with next');
   expect(await page.evaluate(() => (window as unknown as { shareCalls: ShareCall[] }).shareCalls.map((c) => c.recipient.username))).toEqual(['first', 'next']);
