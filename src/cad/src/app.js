@@ -336,6 +336,13 @@ export class App {
   commandChanged(def) {
     this.shell.canvasWrap.classList.toggle('in-command', !!def);
     this.shell.phonebar.classList.toggle('in-command', !!def);
+    // A finished command's steps were just grouped (or dropped as no change):
+    // only the edited mark and the undo button can be stale.
+    if (!def && this.doc) {
+      this.updateTitle();
+      renderDocTabs(this, this.shell.doctabs);
+      this.updateUndo();
+    }
   }
 
   async closeDrawing(arg) {

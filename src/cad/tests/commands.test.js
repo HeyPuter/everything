@@ -84,6 +84,38 @@ describe('drawing commands', () => {
     expect(t.all()).toHaveLength(0);
   });
 
+  it('leaves no undo step when every segment was taken back with U', async () => {
+    t.drawing.markSaved();
+    await t.type('LINE', '0,0', '10,0', 'U', '');
+    expect(t.all('line')).toHaveLength(0);
+    expect(t.drawing.canUndo).toBe(false);
+    expect(t.drawing.modified).toBe(false);
+    // With an earlier edit unsaved, the drawing stays edited.
+    await t.type('CIRCLE', '0,0', '5');
+    await t.type('LINE', '0,0', '10,0', 'U', '');
+    expect(t.drawing.undoLabel).toBe('Circle');
+    expect(t.drawing.modified).toBe(true);
+  });
+
+  it('records no step when Match properties changes nothing', async () => {
+    await t.type('LINE', '0,0', '10,0', '');
+    await t.type('LINE', '0,5', '10,5', '');
+    t.drawing.transaction('Color', () => t.drawing.update(t.all('line')[0].id, { color: 1 }));
+    const steps = t.drawing.undoStack.length;
+    await t.type('MATCHPROP');
+    await t.pick(5, 0);
+    await t.pick(5, 5);
+    await t.pick(5, 5);
+    await t.type('');
+    expect(t.all('line')[1].color).toBe(1);
+    expect(t.drawing.undoStack.length).toBe(steps + 1);
+    await t.type('MATCHPROP');
+    await t.pick(5, 0);
+    await t.pick(5, 5);
+    await t.type('');
+    expect(t.drawing.undoStack.length).toBe(steps + 1);
+  });
+
   it('accepts aliases and polar input', async () => {
     await t.type('L', '5,5', '@10<90', '');
     const [l] = t.all('line');

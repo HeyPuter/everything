@@ -168,7 +168,9 @@ export class Drawing {
     const tx = this._tx;
     this._tx = null;
     if (tx.records.length) {
-      this.undoStack.push({ label, records: tx.records, tag: this.stepTag });
+      // rev0/rev1: revision before and after the step (see groupSince).
+      const rev0 = this.revision;
+      this.undoStack.push({ label, records: tx.records, tag: this.stepTag, rev0, rev1: rev0 + 1 });
       if (this.undoStack.length > UNDO_LIMIT) {
         this.undoStack.shift();
         this.shifted++;
@@ -265,10 +267,11 @@ export class Drawing {
     return after;
   }
 
-  /** Shallow-merge `patch` into an entity. */
+  /** Shallow-merge `patch` into an entity (no change is recorded when it changes nothing). */
   update(id, patch) {
     const before = this.entities.get(id);
     if (!before) return null;
+    if (Object.keys(patch).every((k) => before[k] === patch[k])) return before;
     return this.replace(id, { ...before, ...patch, id });
   }
 
@@ -380,11 +383,23 @@ export class Drawing {
         run = null;
         out.push(s);
       } else if (!run) {
-        run = { label: label || s.label, records: s.records.slice(), tag };
+        const { rev0, rev1 } = s;
+        run = { label: label || s.label, records: s.records.slice(), tag, rev0, rev1 };
         out.push(run);
-      } else for (const r of s.records) run.records.push(r);
+      } else {
+        for (const r of s.records) run.records.push(r);
+        // Revisions stay contiguous only while nothing else happened in between.
+        run.rev1 = run.rev1 === s.rev0 ? s.rev1 : NaN;
+      }
     }
-    this.undoStack = out;
+    // A command that took back everything it did (LINE then U) leaves no
+    // step, and a drawing it found saved is saved again.
+    this.undoStack = out.filter((s, i) => {
+      if (i < index || tag == null || s.tag !== tag || !isNoop(s.records)) return true;
+      const saved = s.rev0 === this.savedRevision && s.rev1 === this.revision;
+      if (saved) this.savedRevision = this.revision;
+      return false;
+    });
   }
 
   /** Label of the step undo() would revert. */
@@ -413,6 +428,20 @@ export class Drawing {
     const l = this.layers.get(name);
     return !l || (l.on && !l.frozen && !l.locked);
   }
+}
+
+/** True when a step's records add up to no change (each touched item ends as it began). */
+function isNoop(records) {
+  const first = new Map();
+  const last = new Map();
+  for (const r of records) {
+    if (r.kind === 'order') return false;
+    const key = r.kind === 'ent' ? r.id : `${r.kind}:${r.table ?? ''}:${r.key ?? ''}`;
+    if (!first.has(key)) first.set(key, r.before);
+    last.set(key, r.after);
+  }
+  for (const [key, before] of first) if (last.get(key) !== before) return false;
+  return true;
 }
 
 function newChange() {
