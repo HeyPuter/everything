@@ -4,6 +4,7 @@
 import { opts } from '../input.js';
 import { closestPoint, intersectPrims, toPrims } from '../../core/geom/index.js';
 import { findBoundary, toHatchLoops } from '../../core/hatch/boundary.js';
+import { loopsToRings, pointInRing } from '../../core/hatch/fill.js';
 import { tessellate } from '../../core/geom/index.js';
 import { angleOf, loopFromEntity } from './util.js';
 
@@ -444,6 +445,30 @@ function curvesNear(ed, rect) {
   return out;
 }
 
+/** True when (x, y) lies in the area of the picked loops (even-odd). */
+function insideLoops(loops, x, y) {
+  let n = 0;
+  for (const r of loopsToRings(loops)) if (pointInRing(x, y, r) === 1) n++;
+  return n % 2 === 1;
+}
+
+/** True when two straight-edged loops have the same vertices, in any order and direction. */
+function sameLoop(a, b, tol) {
+  if (a.length !== b.length) return false;
+  const pts = (l) => {
+    const out = [];
+    for (let i = 0; i < l.length; i += 3) {
+      if (l[i + 2]) return null;
+      out.push([l[i], l[i + 1]]);
+    }
+    return out.sort((p, q) => p[0] - q[0] || p[1] - q[1]);
+  };
+  const pa = pts(a),
+    pb = pts(b);
+  if (!pa || !pb) return false;
+  return pa.every((p, i) => Math.abs(p[0] - pb[i][0]) <= tol && Math.abs(p[1] - pb[i][1]) <= tol);
+}
+
 export const HATCH = {
   name: 'HATCH',
   aliases: ['H', 'BH', 'BHATCH'],
@@ -452,7 +477,9 @@ export const HATCH = {
   async run(ed) {
     const st = (ed.hatchSettings ??= { pattern: 'SOLID', scale: 1, angle: 0 });
     ed.ui.showHatchPanel?.(st, () => ed.renderer.setPreview(pendingPreview()));
-    const loops = [];
+    let loops = [];
+    // Loops before each pick, so Undo takes back a whole pick with its islands.
+    const history = [];
     const pendingPreview = () => (loops.length ? [ed.make('hatch', { loops, pattern: st.pattern, scale: st.scale, angle: st.angle })] : []);
     let mode = 'pick';
     try {
@@ -469,13 +496,17 @@ export const HATCH = {
             continue;
           }
           if (p.option === 'undo') {
-            loops.pop();
+            if (history.length) loops = history.pop();
             ed.renderer.setPreview(pendingPreview());
             continue;
           }
           if (p.option === 'settings') {
             await hatchSettingsPrompt(ed, st);
             ed.renderer.setPreview(pendingPreview());
+            continue;
+          }
+          if (insideLoops(loops, p.x, p.y)) {
+            ed.ui.log('That area is already in the hatch.', 'muted');
             continue;
           }
           const v = ed.camera.bounds();
@@ -485,7 +516,16 @@ export const HATCH = {
             ed.ui.log('No closed boundary was found around that point. Zoom out so the whole boundary is visible, or select objects instead.', 'error');
             continue;
           }
-          for (const l of toHatchLoops(res)) loops.push(l);
+          history.push(loops);
+          loops = loops.slice();
+          // A boundary shared whole with an earlier pick (an island picked
+          // inside, or the area around one) merges the two areas.
+          const tol = 1e-9 * Math.max(1, Math.abs(p.x), Math.abs(p.y), v[2] - v[0], v[3] - v[1]);
+          for (const l of toHatchLoops(res)) {
+            const k = loops.findIndex((m) => sameLoop(m, l, tol));
+            if (k >= 0) loops.splice(k, 1);
+            else loops.push(l);
+          }
           ed.renderer.setPreview(pendingPreview());
         } else {
           const ids = await ed.getSelection('Select closed objects', { fresh: true });

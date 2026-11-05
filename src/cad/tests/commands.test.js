@@ -11,6 +11,7 @@ import { Drawing } from '../src/core/drawing.js';
 import { SpatialIndex } from '../src/core/spatial.js';
 import { buildRegistry } from '../src/editor/commands/index.js';
 import { areaOf } from '../src/core/geom/index.js';
+import { loopsToRings, pointInRing } from '../src/core/hatch/fill.js';
 
 globalThis.requestAnimationFrame ??= (cb) => setTimeout(cb, 0);
 globalThis.cancelAnimationFrame ??= (id) => clearTimeout(id);
@@ -296,6 +297,50 @@ describe('editing commands', () => {
     const [h, v] = t.all('dimension');
     expect(h.rot).toBe(0);
     expect(v.rot).toBeCloseTo(Math.PI / 2);
+  });
+
+  describe('hatch picks', () => {
+    // Even-odd area of the hatch at (x, y).
+    const filled = (h, x, y) =>
+      loopsToRings(h.loops).filter((r) => pointInRing(x, y, r) === 1).length % 2 === 1;
+    const plate = async () => {
+      await t.type('RECTANG', '0,0', '20,20');
+      await t.type('CIRCLE', '10,10', '3');
+      await t.type('HATCH');
+    };
+
+    it('ignores a second pick in an area already picked', async () => {
+      await plate();
+      await t.pick(2, 2);
+      await t.pick(3, 3);
+      await t.type('');
+      const [h] = t.all('hatch');
+      expect(h.loops).toHaveLength(2);
+      expect(filled(h, 2, 2)).toBe(true);
+      expect(filled(h, 10, 10)).toBe(false);
+    });
+
+    it('merges an island picked after the area around it', async () => {
+      await plate();
+      await t.pick(2, 2);
+      await t.pick(10, 10);
+      await t.type('');
+      const [h] = t.all('hatch');
+      expect(h.loops).toHaveLength(1);
+      expect(filled(h, 2, 2)).toBe(true);
+      expect(filled(h, 10, 10)).toBe(true);
+    });
+
+    it('undoes a whole pick, islands included', async () => {
+      await plate();
+      await t.pick(10, 10);
+      await t.pick(2, 2);
+      await t.type('U', '');
+      const [h] = t.all('hatch');
+      expect(h.loops).toHaveLength(1);
+      expect(filled(h, 10, 10)).toBe(true);
+      expect(filled(h, 2, 2)).toBe(false);
+    });
   });
 });
 
