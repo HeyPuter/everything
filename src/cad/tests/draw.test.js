@@ -151,3 +151,17 @@ describe('three-point curves', () => {
     expect(t.all('arc')).toHaveLength(1);
   });
 });
+
+describe('donuts', () => {
+  it('asks again for a negative inside or a too small outside diameter', async () => {
+    await t.type('DONUT', '-5');
+    expect(t.ed.request?.prompt).toMatch(/^Inside diameter/);
+    await t.type('10', '5');
+    expect(t.ed.request?.prompt).toMatch(/^Outside diameter/);
+    expect(t.logs.at(-1)[0]).toBe('error');
+    await t.type('20', '0,0', '');
+    const [p] = t.all('polyline');
+    expect(p.width).toBeCloseTo(5);
+    expect(p.pts[3] - p.pts[0]).toBeCloseTo(15);
+  });
+});

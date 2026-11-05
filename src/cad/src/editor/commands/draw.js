@@ -625,10 +625,20 @@ export const DONUT = {
   label: 'Donut',
   icon: 'donut',
   async run(ed) {
-    const inner = await ed.getDistance('Inside diameter', { default: ed.donutIn ?? 5 });
-    if (typeof inner !== 'number') return;
-    const outer = await ed.getDistance('Outside diameter', { default: ed.donutOut ?? 10 });
-    if (typeof outer !== 'number' || outer <= inner) return;
+    let inner, outer;
+    for (;;) {
+      inner = await ed.getDistance('Inside diameter', { default: ed.donutIn ?? 5 });
+      if (typeof inner !== 'number') return;
+      if (inner >= 0) break;
+      ed.ui.log('The inside diameter cannot be negative.', 'error');
+    }
+    for (;;) {
+      const def = Math.max(ed.donutOut ?? 10, inner * 2);
+      outer = await ed.getDistance('Outside diameter', { default: def });
+      if (typeof outer !== 'number') return;
+      if (outer > inner) break;
+      ed.ui.log('The outside diameter must be larger than the inside diameter.', 'error');
+    }
     ed.donutIn = inner;
     ed.donutOut = outer;
     const r = (inner + outer) / 4;
