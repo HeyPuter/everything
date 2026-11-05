@@ -687,8 +687,9 @@ export class App {
         doc.file = { source: 'device', handle: r.handle, kind: target.kind, name: r.name, path: null };
         downloaded = !!r.downloaded;
       }
-      doc.name = target.name;
-      this.saved(doc, rev, fileName, downloaded);
+      // The system save picker lets the user rename the file.
+      doc.name = baseName(doc.file.name);
+      this.saved(doc, rev, doc.file.name, downloaded);
       return true;
     } catch (err) {
       this.fileError('save', err);
