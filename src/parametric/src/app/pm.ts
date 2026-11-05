@@ -417,7 +417,11 @@ export class SelectionBox {
   toggle(it: SelItem, additive: boolean): boolean {
     const conv = this.convert(it);
     if (!conv) return false;
-    const idx = this.items.findIndex((x) => x.label === conv.label);
+    // A face or edge is the same pick under any label: one listed when the
+    // panel opened reads "Edge (line)", picking it again gives "Edge <7> (line)".
+    const named = (x: SelBoxItem) => (x.item?.kind === 'face' || x.item?.kind === 'edge' ? `${x.item.kind}:${x.item.name}` : null);
+    const key = named(conv);
+    const idx = this.items.findIndex((x) => (key ? named(x) === key : x.label === conv.label));
     if (idx >= 0) this.items.splice(idx, 1);
     else if (this.opts.single) this.items = [conv];
     else this.items.push(conv);
@@ -437,9 +441,14 @@ export class SelectionBox {
       const rm = h('button', { class: 'icon-btn rm', type: 'button', 'aria-label': `Remove ${it.label}` }, icon('close', 14));
       rm.addEventListener('click', (e) => {
         e.stopPropagation();
+        const hadFocus = document.activeElement === rm;
         this.items.splice(i, 1);
         this.draw();
         this.onChange(this.items);
+        // Keyboard focus moves to the next item's Remove button (or the box)
+        // instead of falling to the page with the removed button.
+        const rms = this.list.querySelectorAll<HTMLElement>('.rm');
+        if (hadFocus) (rms[Math.min(i, rms.length - 1)] ?? this.list).focus({ preventScroll: true });
       });
       this.list.append(h('div', { class: 'item' }, h('span', {}, it.label), rm));
     });

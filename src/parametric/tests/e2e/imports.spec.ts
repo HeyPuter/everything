@@ -70,3 +70,27 @@ test('opening another part with reused import identifiers loads its own geometry
   await expect(page.locator('.ti.error')).toHaveCount(0);
   expect(errors).toEqual([]);
 });
+
+test('opening a STEP file makes a new part from it instead of adding it to the open part', async ({ page }) => {
+  type A = import('../../src/app/app').App;
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await expect(page.getByRole('treeitem', { name: 'Fillet1' })).toBeVisible();
+  const step = await page.evaluate(async () => {
+    const app = (window as unknown as { __parametric: A }).__parametric;
+    await app.whenBuilt();
+    const text = new TextDecoder().decode(await app.kernel.exportFile('step', 1));
+    app.store.change('Edit', (d) => { d.variables.push({ id: 'v1', name: 'Width', expr: '5' }); });
+    return text;
+  });
+  const chooser = page.waitForEvent('filechooser');
+  await page.evaluate(() => (window as unknown as { __parametric: A }).__parametric.commands.run('openDevice'));
+  await (await chooser).setFiles({ name: 'plate.STEP', mimeType: 'model/step', buffer: (globalThis as unknown as { Buffer: { from(s: string): never } }).Buffer.from(step) });
+  // The bracket has unsaved changes: asked first, as for any other part.
+  await page.getByRole('dialog', { name: 'Save changes?' }).getByRole('button', { name: "Don't save" }).click();
+  await expect(page).toHaveTitle('* plate - Parametric');
+  await expect(page.getByRole('treeitem', { name: 'Imported1' })).toBeVisible();
+  await expect(page.getByRole('treeitem', { name: 'Fillet1' })).toHaveCount(0);
+  expect(await page.evaluate(() => (window as unknown as { __parametric: A }).__parametric.location)).toBeNull();
+  expect(errors).toEqual([]);
+});

@@ -412,6 +412,38 @@ test.describe('viewport', () => {
     await expect.poll(async () => (await size())[0]).toBe(Math.round(css * 2));
   });
 
+  test('a resize redraws the view before it is painted', async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+    await waitForFeature(page, 'Fillet1');
+    // Observers run in creation order, so this one runs after the app's and
+    // reads the canvas before the page is painted: a resized canvas that was
+    // not redrawn is still cleared to black.
+    await page.evaluate(() => {
+      const app = (window as unknown as Win).__parametric;
+      const gl = app.renderer.gl;
+      const w = window as unknown as { __reads: number[][] };
+      w.__reads = [];
+      const c = app.renderer.canvas;
+      let size = `${c.width}x${c.height}`;
+      new ResizeObserver(() => {
+        if (`${c.width}x${c.height}` === size) return;
+        size = `${c.width}x${c.height}`;
+        const px = new Uint8Array(4);
+        gl.readPixels(2, 2, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
+        w.__reads.push([...px].slice(0, 3));
+      }).observe(app.shell.viewport);
+    });
+    const size = page.viewportSize()!;
+    for (const [i, dh] of [-120, -40].entries()) {
+      await page.setViewportSize({ width: size.width, height: size.height + dh });
+      await expect.poll(() => page.evaluate(() => (window as unknown as { __reads: number[][] }).__reads.length)).toBe(i + 1);
+    }
+    const bg = await page.evaluate(() => (window as unknown as Win).__parametric.renderer.theme.background.map((v) => Math.round(v * 255)));
+    const reads = await page.evaluate(() => (window as unknown as { __reads: number[][] }).__reads);
+    for (const px of reads) px.forEach((v, i) => expect(Math.abs(v - bg[i])).toBeLessThan(3));
+  });
+
   test('does not pick vertices cut away by the section view', async ({ page }) => {
     await openApp(page);
     await page.getByRole('button', { name: /Mounting Bracket/ }).click();
@@ -736,6 +768,113 @@ test.describe('viewport', () => {
     expect(await contrast()).toBeGreaterThan(4.5);
   });
 
+  test('shown sketches and the selected origin follow the theme', async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+    await waitForFeature(page, 'Fillet1');
+    const colours = () => page.evaluate(() => {
+      const app = (window as unknown as Win).__parametric;
+      const r = app.renderer as unknown as { lines: Map<string, { colors: Uint8Array }>; points: Map<string, { colors: Uint8Array }> };
+      const token = getComputedStyle(document.documentElement).getPropertyValue('--sketch-inactive').trim();
+      const hex = (c: ArrayLike<number>) => '#' + [0, 1, 2].map((i) => c[i].toString(16).padStart(2, '0')).join('');
+      const sel = app.renderer.theme.selection.map((v) => Math.round(v * 255));
+      return { sketch: hex(r.lines.get('sketches')!.colors), token, origin: hex(r.points.get('origin')!.colors), selection: hex(sel) };
+    });
+    await page.evaluate(() => {
+      const app = (window as unknown as Win).__parametric;
+      const sk = app.store.doc.features.find((f) => f.type === 'sketch')!;
+      app.store.change('Show sketch', (d) => { d.features.find((f) => f.id === sk.id)!.hidden = false; });
+      app.viewport.showOrigin = true;
+      app.selection.set([{ kind: 'origin' }]);
+    });
+    for (const theme of ['Dark', 'Light']) {
+      await page.getByRole('button', { name: /Account/ }).click();
+      await page.getByRole('menuitemradio', { name: theme }).click();
+      await expect(page.locator('html')).toHaveAttribute('data-theme-resolved', theme.toLowerCase());
+      const c = await colours();
+      expect(c.sketch).toBe(c.token);
+      expect(c.origin).toBe(c.selection);
+    }
+  });
+
+  test('a pointer leaving the view before its hover is picked leaves nothing hovered', async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+    await waitForFeature(page, 'Fillet1');
+    await expect.poll(() => page.evaluate(() => !!(window as unknown as Win).__parametric.bbox)).toBe(true);
+    const hovered = () => page.evaluate(() => (window as unknown as Win).__parametric.selection.hover?.kind ?? null);
+    // A fast move off the canvas: the move and the leave arrive in one frame.
+    const move = (leave: boolean) => page.evaluate((leave) => {
+      const app = (window as unknown as Win).__parametric;
+      const c = app.viewport.canvas;
+      const r = c.getBoundingClientRect();
+      const [x, y] = app.viewport.project([30, 3, 25]);
+      c.dispatchEvent(new PointerEvent('pointermove', { pointerId: 1, pointerType: 'mouse', clientX: r.left + x, clientY: r.top + y, bubbles: true }));
+      if (leave) c.dispatchEvent(new PointerEvent('pointerleave', { pointerId: 1, pointerType: 'mouse', clientX: r.left - 50, clientY: r.top + y }));
+    }, leave);
+    await move(false);
+    await expect.poll(hovered).toBe('face');
+    await page.evaluate(() => (window as unknown as Win).__parametric.viewport.canvas.dispatchEvent(new PointerEvent('pointerleave', { pointerId: 1, pointerType: 'mouse' })));
+    await expect.poll(hovered).toBe(null);
+    await move(true);
+    await page.waitForTimeout(400);
+    expect(await hovered()).toBe(null);
+  });
+
+  test('the section view does not cut the outlines of reference planes', async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+    await waitForFeature(page, 'Fillet1');
+    await expect.poll(() => page.evaluate(() => !!(window as unknown as Win).__parametric.bbox)).toBe(true);
+    const d = await page.evaluate(() => {
+      const app = (window as unknown as Win).__parametric;
+      const r = app.renderer;
+      app.viewport.showPlanes = true;
+      app.viewport.drawReferenceGeometry();
+      r.section = { normal: [1, 0, 0], offset: 30 };
+      // Midpoints of outline segments wholly on the cut-away side, on screen.
+      const pos = (r as unknown as { lines: Map<string, { positions: Float32Array }> }).lines.get('planes')!.positions;
+      const mids: [number, number][] = [];
+      for (let i = 0; i < pos.length; i += 6) {
+        if (pos[i] < 40 || pos[i + 3] < 40) continue;
+        const [x, y] = app.viewport.project([(pos[i] + pos[i + 3]) / 2, (pos[i + 1] + pos[i + 4]) / 2, (pos[i + 2] + pos[i + 5]) / 2]);
+        if (x > 5 && y > 5 && x < r.camera.width - 5 && y < r.camera.height - 5) mids.push([x, y]);
+      }
+      r.capture(16);
+      const gl = r.gl, k = r.dpr;
+      const edge = [0.44, 0.6, 0.88].map((v) => v * 255);
+      return mids.map(([x, y]) => {
+        const data = new Uint8Array(5 * 5 * 4);
+        gl.readPixels(Math.round(x * k) - 2, r.canvas.height - Math.round(y * k) - 3, 5, 5, gl.RGBA, gl.UNSIGNED_BYTE, data);
+        let best = Infinity;
+        for (let i = 0; i < data.length; i += 4) best = Math.min(best, Math.hypot(data[i] - edge[0], data[i + 1] - edge[1], data[i + 2] - edge[2]));
+        return best;
+      });
+    });
+    expect(d.length).toBeGreaterThan(0);
+    for (const v of d) expect(v).toBeLessThan(40);
+  });
+
+  test('the triad letters are readable in both themes', async ({ page }) => {
+    await openApp(page);
+    await expect(page.locator('.triad text')).toHaveCount(3);
+    const contrasts = () => page.evaluate(() => {
+      const rgb = (s: string) => (s.match(/\d+(\.\d+)?/g) ?? []).slice(0, 3).map((v) => Number(v) / 255);
+      const lum = (c: number[]) => { const l = c.map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4)); return 0.2126 * l[0] + 0.7152 * l[1] + 0.0722 * l[2]; };
+      const bg = lum(rgb(getComputedStyle(document.querySelector('.viewport')!).backgroundColor));
+      return [...document.querySelectorAll('.triad text')].map((t) => {
+        const [a, b] = [lum(rgb(getComputedStyle(t).fill)), bg].sort((x, y) => y - x);
+        return (a + 0.05) / (b + 0.05);
+      });
+    });
+    for (const theme of ['Light', 'Dark']) {
+      await page.getByRole('button', { name: /Account/ }).click();
+      await page.getByRole('menuitemradio', { name: theme }).click();
+      await expect(page.locator('html')).toHaveAttribute('data-theme-resolved', theme.toLowerCase());
+      for (const c of await contrasts()) expect(c).toBeGreaterThanOrEqual(4.5);
+    }
+  });
+
   test('line display styles show a selected face', async ({ page }) => {
     await openApp(page);
     await page.getByRole('button', { name: /Mounting Bracket/ }).click();
@@ -777,6 +916,43 @@ test.describe('viewport', () => {
       plain.forEach((v, i) => expect(Math.abs(v - bg[i])).toBeLessThan(4));
       expect(Math.abs(selected[2] - plain[2]) + Math.abs(selected[0] - plain[0])).toBeGreaterThan(20);
     }
+  });
+
+  test('edges picked for a fillet stay highlighted over its preview', async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+    await waitForFeature(page, 'Fillet1');
+    await expect.poll(() => page.evaluate(() => !!(window as unknown as Win).__parametric.bbox)).toBe(true);
+    await page.evaluate(() => (window as unknown as Win).__parametric.commands.run('fillet'));
+    // A long straight edge in view, picked from the screen.
+    const p = await page.evaluate(() => {
+      const app = (window as unknown as Win).__parametric;
+      for (const e of app.edges) {
+        if (e.type !== 'line' || e.length < 20) continue;
+        const [x, y] = app.viewport.project(e.mid);
+        if (app.renderer.pick(x, y, { edge: true })?.kind === 'edge') return [x, y];
+      }
+      return null;
+    });
+    expect(p).not.toBeNull();
+    const box = (await page.locator('canvas.gl').boundingBox())!;
+    await page.mouse.click(box.x + p![0], box.y + p![1]);
+    await page.mouse.move(box.x + 4, box.y + box.height / 2);
+    await expect.poll(() => page.evaluate(() => (window as unknown as Win).__parametric.renderer.hasPreviewBody), { timeout: 30_000 }).toBe(true);
+    // The pixel nearest the selection colour around where the edge was picked,
+    // read straight after a draw (a JPEG capture blurs a thin line).
+    const d = await page.evaluate(([x, y]) => {
+      const r = (window as unknown as Win).__parametric.renderer;
+      r.capture(16);
+      const gl = r.gl, k = r.dpr;
+      const data = new Uint8Array(7 * 7 * 4);
+      gl.readPixels(Math.round(x * k) - 3, r.canvas.height - Math.round(y * k) - 4, 7, 7, gl.RGBA, gl.UNSIGNED_BYTE, data);
+      const sel = r.theme.selection.map((v) => v * 255);
+      let best = Infinity;
+      for (let i = 0; i < data.length; i += 4) best = Math.min(best, Math.hypot(data[i] - sel[0], data[i + 1] - sel[1], data[i + 2] - sel[2]));
+      return best;
+    }, p!);
+    expect(d).toBeLessThan(40);
   });
 
   test('zoom to fit fills the view with a sub-millimetre part', async ({ page }) => {
@@ -860,6 +1036,35 @@ test.describe('viewport', () => {
     await expect.poll(() => page.evaluate(() => (window as unknown as { __dbl: number }).__dbl)).toBe(1);
   });
 
+  for (const tool of ['line', 'rectangle']) test(`a pinch started while sketching with the ${tool} tool draws nothing`, async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /New part/ }).click();
+    await page.getByRole('treeitem', { name: 'Front Plane' }).click();
+    await page.getByRole('tab', { name: 'Sketch' }).click();
+    await page.locator('[data-cmd="sketch"]').first().click();
+    await expect(page.locator('.view-label')).toHaveText('Front');
+    const count = await page.evaluate((tool) => {
+      const app = (window as unknown as Win).__parametric;
+      app.commands.run(`tool:${tool}`);
+      const c = document.querySelector('canvas.gl') as HTMLCanvasElement;
+      // Synthetic pointers cannot be captured; the gesture logic is what is under test.
+      c.setPointerCapture = () => {};
+      c.releasePointerCapture = () => {};
+      const r = c.getBoundingClientRect();
+      const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+      const P = (type: string, id: number, x: number, y: number) => c.dispatchEvent(new PointerEvent(type, { pointerId: id, pointerType: 'touch', clientX: x, clientY: y, bubbles: true, buttons: type === 'pointerup' ? 0 : 1 }));
+      // Two fingers land a moment apart and spread: a pinch zoom.
+      P('pointerdown', 21, cx - 40, cy - 40);
+      P('pointerdown', 22, cx + 40, cy + 40);
+      P('pointermove', 21, cx - 80, cy - 80);
+      P('pointermove', 22, cx + 80, cy + 80);
+      P('pointerup', 21, cx - 80, cy - 80);
+      P('pointerup', 22, cx + 80, cy + 80);
+      return app.sketchEditor!.sketch.entities.filter((e) => e.t !== 'point').length;
+    }, tool);
+    expect(count).toBe(0);
+  });
+
   test.describe('touch', () => {
     test.use({ viewport: { width: 412, height: 839 }, deviceScaleFactor: 2.625, isMobile: true, hasTouch: true });
     test('a double tap runs the double-click action once', async ({ page }) => {
@@ -921,4 +1126,21 @@ test('the design tree flyout stays clear of the view toolbar in a narrow graphic
   expect(a.x + a.width <= b.x || a.x >= b.x + b.width || a.y + a.height <= b.y || a.y >= b.y + b.height).toBe(true);
   await flyout.click();
   await expect(flyout).toHaveAttribute('aria-expanded', 'true');
+});
+
+test('the View Orientation menu checks the standard view the model is seen from', async ({ page }) => {
+  await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await page.locator('canvas.gl').focus();
+  await page.keyboard.press('Space');
+  const menu = page.getByRole('menu', { name: 'View orientation' });
+  await expect(menu.getByRole('menuitemradio', { name: 'Trimetric' })).toHaveAttribute('aria-checked', 'true');
+  await expect(menu.getByRole('menuitemradio', { checked: true })).toHaveCount(1);
+  await expect(menu.getByRole('menuitem', { name: 'Normal To' })).toBeVisible();
+  await menu.getByRole('menuitemradio', { name: 'Front' }).click();
+  await expect(page.locator('.view-label')).toHaveText('Front');
+  await page.locator('canvas.gl').focus();
+  await page.keyboard.press('Space');
+  await expect(menu.getByRole('menuitemradio', { name: 'Front' })).toHaveAttribute('aria-checked', 'true');
+  await expect(menu.getByRole('menuitemradio', { checked: true })).toHaveCount(1);
 });

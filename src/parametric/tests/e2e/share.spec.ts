@@ -429,3 +429,19 @@ for (const person of ['existing', 'new', 'failed'] as const) test(`refreshing du
   }
   expect(errors).toEqual([]);
 });
+
+test('sharing a part kept in this browser offers to save a copy to the cloud, then shares it', async ({ page }) => {
+  const errors = await sharingApp(page);
+  await page.evaluate(() => {
+    const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+    a.loadDocument({ ...a.store.doc, name: 'Local' }, { type: 'local', id: 'part-share-test' });
+    a.commands.run('share');
+  });
+  const notice = page.getByRole('region', { name: 'Notifications' }).getByRole('status').filter({ hasText: 'saved in this browser' });
+  await notice.getByRole('button', { name: 'Save As...' }).click();
+  await page.getByRole('dialog', { name: 'Save As' }).getByRole('textbox').fill('Shared copy');
+  await page.getByRole('button', { name: 'OK', exact: true }).click();
+  await expect(page.getByRole('dialog', { name: 'Share Shared copy', exact: true })).toBeVisible();
+  expect(await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.location)).toEqual({ type: 'cloud', path: 'Parts/Shared copy.parametric' });
+  expect(errors).toEqual([]);
+});

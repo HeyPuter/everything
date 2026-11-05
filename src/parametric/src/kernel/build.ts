@@ -28,8 +28,8 @@ import type {
   ProjectionRequest, ProjectionResult,
 } from './protocol';
 import {
-  type EdgeDesc, type Sh, type SurfDesc, ShapeIndex, bbox, compound, cut, describeEdge, describeFace, fuse, getOc, gdir,
-  hashOf, isEmpty, meshEdgesOf, meshShape, mirrored, planarFaceFrame, pnt, rotated, sameSurface, subShapes, translated,
+  type EdgeDesc, type Sh, type SurfDesc, ShapeIndex, bbox, compound, cut, describeEdge, describeFace, faceMidPoint, fuse, getOc, gdir,
+  hashOf, isEmpty, meshEdgesOf, meshShape, mirrored, planarFaceFrame, plane, pnt, rotated, sameSurface, sharesSurface, subShapes, translated,
   vertexPoint, volumeOf, wrap, xyz,
 } from './occ';
 
@@ -59,6 +59,8 @@ interface Tool {
   shape: Sh;
   cut: boolean;
   faces: NamedFace[];
+  /** Patterns and mirrors of bosses and cuts together: the copies of each seed, so a copy of them cuts what was cut. */
+  parts?: Tool[];
 }
 
 interface State {
@@ -229,7 +231,10 @@ export class ModelBuilder {
     if (req.preview) {
       const p = cloneState(state);
       try {
+        this.warning = null;
         const kind = await this.apply(req.preview, p, req);
+        // Shown while the feature is edited, when it can still be fixed.
+        if (this.warning) result.previewWarning = this.warning;
         if (kind === 'tool') {
           const tool = p.tools.get(req.preview.id);
           if (tool) result.preview = this.meshBody(tool.shape, req.quality);
@@ -401,17 +406,21 @@ export class ModelBuilder {
     const prev = st.faces;
     let k = 0;
     const score = (d: SurfDesc, c: NamedFace) => dist(d.center, c.desc.center) / Math.sqrt(Math.max(c.desc.area, 1e-12));
+    // Faces without an exact descriptor are compared by centre, which moves
+    // when a later feature trims them: then their surface tells.
+    const same = (shape: Sh, d: SurfDesc, c: NamedFace) =>
+      sameSurface(d, c.desc, tol) || (!EXACT_SURFACES.has(d.type) && d.type === c.desc.type && sharesSurface(shape, c.shape));
     return subShapes(body, 'face').map((shape) => {
       const desc = describeFace(shape);
       let best: NamedFace | null = null, bestS = Infinity;
       for (const c of prev) {
-        if (!sameSurface(desc, c.desc, tol)) continue;
+        if (!same(shape, desc, c)) continue;
         const s = score(desc, c);
         if (s < bestS) { bestS = s; best = c; }
       }
       if (!best) {
         for (const c of tool) {
-          if (!sameSurface(desc, c.desc, tol)) continue;
+          if (!same(shape, desc, c)) continue;
           const s = score(desc, c);
           if (s < bestS) { bestS = s; best = c; }
         }
@@ -467,6 +476,7 @@ export class ModelBuilder {
     }
     if (lost) this.warning = 'A selected region is no longer in the sketch and was left out. Edit the feature and select the regions again.';
     else if (prof.openEnds.length && !picks?.length) this.warning = 'Open contours in the sketch were ignored';
+    else if (prof.crossing && !picks?.length) this.warning = 'Contours that cross each other were combined. Trim them where they cross, or select the regions to use.';
     return { regions: prof.regions, frame, sketch };
   }
 
@@ -506,14 +516,9 @@ export class ModelBuilder {
     for (const r of regions) {
       for (const loop of [r.outer, ...r.holes]) {
         for (const s of loop.segs) {
-          let d: number;
-          if (s.k === 'line') d = segDist(p, s.a, s.b);
-          else if (s.k === 'arc' || s.k === 'circle') d = Math.abs(Math.hypot(p[0] - s.c[0], p[1] - s.c[1]) - s.r);
-          else {
-            const poly = segPolyline(s);
-            d = Infinity;
-            for (let i = 0; i + 1 < poly.length; i++) d = Math.min(d, segDist(p, poly[i], poly[i + 1]));
-          }
+          // Arcs by their own sweep: two arcs of one circle are both at no
+          // distance from a point on either if only the circle counts.
+          const d = seg2Dist(p, s);
           if (d < best) { best = d; src = s.src ?? 'x'; }
         }
       }
@@ -594,12 +599,12 @@ export class ModelBuilder {
         tool = fuse(tool, this.draftLateral(extrudeAll(0, -start, back), frame, back, 0, angle));
       }
     } else tool = extrudeAll(start, d1, dir);
-    const classify = (d: SurfDesc) => {
+    const classify = (d: SurfDesc, _k: number, shape: Sh) => {
       if (d.type === 'plane' && Math.abs(dot(d.d, frame.n)) > 1 - 1e-6) {
         const s = dot(sub(d.center, frame.o), dir);
         return Math.abs(s - start) < Math.abs(s - (start + d1)) ? 'cap0' : 'cap1';
       }
-      return 'side:' + this.nearestSrc(regions, toLocal(frame, d.center));
+      return 'side:' + this.nearestSrc(regions, toLocal(frame, faceMidPoint(shape)));
     };
     this.applyTool(f.id, st, tool, this.nameTool(f.id, tool, classify), f.cut);
   }
@@ -608,7 +613,7 @@ export class ModelBuilder {
     const oc = getOc();
     const origin = add(fr.o, scale(dir, start));
     const builder = new oc.BRepOffsetAPI_DraftAngle(tool.wrapped);
-    const pln = new oc.gp_Pln(pnt(origin), gdir(dir));
+    const pln = plane(origin, dir);
     const gd = gdir(dir);
     try {
       for (const face of subShapes(tool, 'face')) {
@@ -684,8 +689,17 @@ export class ModelBuilder {
         return inPlane(rotatePoint(desc.center, axis.p, d, back)) ? 'cap0' : 'cap1';
       }
       // A full surface of revolution has its centroid on the axis, so locate
-      // the face by its vertices in the sketch plane on the profile's side:
-      // the ends of the profile curve that generated it.
+      // the face by the profile curve that generated it: its edge in the
+      // sketch plane on the profile's side (the middle of that edge, as the
+      // middle of its ends can lie on another curve, like the chord of an arc).
+      const onSide = (q: Vec2) => side * ((q[0] - a2[0]) * perp[0] + (q[1] - a2[1]) * perp[1]) >= -1e-6 * (1 + Math.hypot(q[0], q[1]));
+      for (const e of subShapes(shape, 'edge')) {
+        const ed = describeEdge(e);
+        const ends = [ed.a, ed.b, ed.mid].map((p) => rotatePoint(p, axis.p, d, back));
+        if (!ends.every(inPlane)) continue;
+        const mid = toLocal(frame, ends[2]);
+        if (onSide(mid)) return 'side:' + this.nearestSrc(regions, mid);
+      }
       const pts = subShapes(shape, 'vertex')
         .map((v) => rotatePoint(vertexPoint(v), axis.p, d, back))
         .filter(inPlane)
@@ -704,14 +718,14 @@ export class ModelBuilder {
     this.applyTool(f.id, st, tool, this.nameTool(f.id, tool, classify), f.cut);
   }
 
-  /** Edges selected directly plus every edge of the selected faces. */
-  private collectEdges(st: State, edges: EdgeRef[], faces: FaceRef[]): number[] {
+  /** Edges selected directly plus every edge of the selected faces (`from`: edge to the selected face it came from). */
+  private collectEdges(st: State, edges: EdgeRef[], faces: FaceRef[], from?: Map<number, number>): number[] {
     const all = this.edgesOf(st);
     const set = new Set<number>();
     for (const e of edges) set.add(this.resolveEdge(e, st));
     for (const fr of faces) {
       const fi = this.resolveFace(fr, st);
-      all.forEach((e, i) => { if (e.faces.includes(fi)) set.add(i); });
+      all.forEach((e, i) => { if (e.faces.includes(fi)) { set.add(i); from?.set(i, fi); } });
     }
     if (!set.size) throw new FeatureError('Select edges or faces');
     return [...set];
@@ -751,7 +765,8 @@ export class ModelBuilder {
     if (d2 <= 0) throw new FeatureError('Distance 2 must be greater than zero');
     const angle = f.mode === 'distanceAngle' ? num(f.angle) : 45;
     if (!(angle > 0 && angle < 90)) throw new FeatureError('The chamfer angle must be between 0 and 90 degrees');
-    const ids = this.collectEdges(st, f.edges, f.faces);
+    const from = new Map<number, number>();
+    const ids = this.collectEdges(st, f.edges, f.faces, from);
     const all = this.edgesOf(st);
     const oc = getOc();
     const builder = new oc.BRepFilletAPI_MakeChamfer(st.body.wrapped);
@@ -761,7 +776,12 @@ export class ModelBuilder {
         const e = all[i];
         if (f.mode === 'distance') builder.Add(d1, e.shape.wrapped);
         else {
-          const fi = e.faces[f.flip ? 1 : 0] ?? e.faces[0];
+          // Distance 1 is measured on this face. Round a selected face it is
+          // the neighbour of every edge (Flip: the face itself); it used to
+          // depend on the order of the faces, so the chamfer changed sides
+          // from one edge to the next.
+          const sel = from.get(i);
+          const fi = sel === undefined ? (e.faces[f.flip ? 1 : 0] ?? e.faces[0]) : f.flip ? sel : (e.faces.find((x) => x !== sel) ?? sel);
           const face = st.faces[fi].shape.wrapped;
           if (f.mode === 'twoDistance') builder.Add(d1, d2, e.shape.wrapped, face);
           else builder.AddDA(d1, (angle * Math.PI) / 180, e.shape.wrapped, face);
@@ -891,6 +911,9 @@ export class ModelBuilder {
       if (sr <= r) throw new FeatureError('The countersink diameter must be larger than the hole');
       if (half <= 0 || half >= Math.PI / 2) throw new FeatureError('The countersink angle must be between 0 and 180 degrees');
       const sd = (sr - r) / Math.tan(half);
+      // Like a counterbore: a blind hole ending inside its countersink was
+      // silently made deeper than asked.
+      if (f.end !== 'throughAll' && depth <= sd) throw new FeatureError('The hole depth must be greater than the countersink depth');
       prof.push([0, 0], [sr, 0], [r, sd], [r, Math.max(depth, sd + 1e-3)], [0, Math.max(depth, sd + 1e-3)]);
     } else prof.push([0, 0], [r, 0], [r, depth], [0, depth]);
     // Small tip so the top face sits slightly above the surface for a clean cut.
@@ -907,15 +930,15 @@ export class ModelBuilder {
       tools.push(tool);
       named.push(...this.nameTool(f.id, tool, (_d, k) => `${p.id}:${k}`));
     }
-    const tool = tools.length === 1 ? tools[0] : (R.makeCompound(tools as any) as unknown as Sh);
+    const tool = tools.length === 1 ? tools[0] : compound(tools);
     this.applyTool(f.id, st, tool, named, true);
   }
 
   private seedTools(featId: Id, seeds: Id[], st: State): Tool[] {
     if (!seeds.length) throw new FeatureError('Select features to pattern');
-    return seeds.map((id) => {
+    return seeds.flatMap((id) => {
       const t = st.tools.get(id);
-      if (t) return t;
+      if (t) return t.parts ?? [t];
       // Say why: the seed is gone, later in the tree, failed, or of a kind
       // that adds no tool body.
       const at = this.order.get(id);
@@ -929,8 +952,7 @@ export class ModelBuilder {
   /** Applies transformed copies of seed tools (in seed order). */
   private applyInstances(featId: Id, st: State, seeds: Tool[], transforms: ((s: Sh) => Sh)[]) {
     if (!transforms.length) throw new FeatureError('The pattern has no instances');
-    const allTool: Sh[] = [];
-    const allNamed: NamedFace[] = [];
+    const parts: Tool[] = [];
     let body = st.body;
     for (const seed of seeds) {
       const inst: Sh[] = [];
@@ -944,22 +966,23 @@ export class ModelBuilder {
           named.push({ shape, desc: describeFace(shape), name: `${base}@${featId}.${i + 1}`, feature: featId });
         });
       });
-      const tool = inst.length === 1 ? inst[0] : (R.makeCompound(inst as any) as unknown as Sh);
+      const tool = inst.length === 1 ? inst[0] : compound(inst);
       if (seed.cut) {
         if (!body) throw new FeatureError('There is no material to cut');
         const v0 = volumeOf(body);
         body = cut(body, tool);
         if (v0 > 0 && !isEmpty(body) && volumeOf(body) >= v0 * (1 - 1e-9)) this.warning = 'The copies of a cut do not remove any material. Check the direction and spacing.';
       } else body = body ? fuse(body, tool) : tool;
-      allTool.push(tool);
-      allNamed.push(...named);
+      parts.push({ shape: tool, cut: seed.cut, faces: named });
     }
     if (!body || isEmpty(body)) throw new FeatureError('The pattern removed all material');
+    const allNamed = parts.flatMap((p) => p.faces);
     st.faces = this.nameFaces(featId, body, st, allNamed);
     st.body = body;
     st.edges = null;
-    const tool = allTool.length === 1 ? allTool[0] : (R.makeCompound(allTool as any) as unknown as Sh);
-    st.tools.set(featId, { shape: tool, cut: seeds.every((s) => s.cut), faces: allNamed });
+    const tool = parts.length === 1 ? parts[0].shape : compound(parts.map((p) => p.shape));
+    const mixed = parts.some((p) => p.cut) && parts.some((p) => !p.cut);
+    st.tools.set(featId, { shape: tool, cut: parts.every((p) => p.cut), faces: allNamed, ...(mixed ? { parts } : {}) });
   }
 
   private dirVector(d: PatternDir, st: State): Vec3 {
@@ -1114,13 +1137,14 @@ export class ModelBuilder {
     const fr = this.resolvePlane(f.neutral, st);
     const oc = getOc();
     const dir = scale(fr.n, f.flip ? -1 : 1);
+    const selected = f.faces.map((r) => st.faces[this.resolveFace(r, st)]);
     const builder = new oc.BRepOffsetAPI_DraftAngle(st.body.wrapped);
-    const pln = new oc.gp_Pln(pnt(fr.o), gdir(dir));
+    const pln = plane(fr.o, dir);
     const gd = gdir(dir);
     let body: Sh;
     try {
-      for (const r of f.faces) {
-        builder.Add(st.faces[this.resolveFace(r, st)].shape.wrapped, gd, (num(f.angle) * Math.PI) / 180, pln, true);
+      for (const sel of selected) {
+        builder.Add(sel.shape.wrapped, gd, (num(f.angle) * Math.PI) / 180, pln, true);
         if (!builder.AddDone()) throw new FeatureError('Draft cannot be applied to one of the faces');
       }
       builder.Build();
@@ -1134,7 +1158,11 @@ export class ModelBuilder {
       gd.delete();
     }
     if (degenerate(body, st.body)) throw new FeatureError('The draft could not be created');
-    st.faces = this.nameFaces(f.id, body, st, [], (_d, k) => `${f.id}:d${k}`);
+    // A drafted face is named after the face it was made from, not by its
+    // place in the body: drafting one more face must not rename the others
+    // (which would move a later fillet on one of their edges to another edge).
+    const mids = selected.map((s) => ({ m: s.desc.center, name: s.name }));
+    st.faces = this.nameFaces(f.id, body, st, [], (d) => `${f.id}:d:${nearestName(mids, d.center)}`);
     st.body = body;
     st.edges = null;
   }
@@ -1301,9 +1329,10 @@ export class ModelBuilder {
       const center = xyz(c);
       c.delete();
       const moment = (d: Vec3) => {
-        const ax = new oc.gp_Ax1(pnt(center), gdir(d));
+        const gp = pnt(center), gd = gdir(d);
+        const ax = new oc.gp_Ax1(gp, gd);
         const v = props.MomentOfInertia(ax);
-        ax.delete();
+        ax.delete(); gp.delete(); gd.delete();
         return v;
       };
       const ixx = moment([1, 0, 0]), iyy = moment([0, 1, 0]), izz = moment([0, 0, 1]);
@@ -1538,6 +1567,9 @@ function shellError(st: State, t: number): FeatureError {
     ? 'The shell could not be created. Make it thinner than the radius of the fillets and rounded faces.'
     : 'The shell could not be created. Try a smaller thickness.');
 }
+
+/** Surface types that sameSurface compares exactly. */
+const EXACT_SURFACES = new Set(['plane', 'cylinder', 'sphere']);
 
 /** Features whose tool body patterns and mirrors can copy. */
 const SEED_TYPES = new Set<Feature['type']>(['extrude', 'revolve', 'hole', 'loft', 'sweep', 'import', 'linearPattern', 'circularPattern', 'mirror']);

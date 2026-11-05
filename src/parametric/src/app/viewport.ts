@@ -7,6 +7,7 @@ import { add, cross, dot, normalize, rayPlaneT, scale, sub, toWorld, qAxisAngle 
 import type { BasePlane, Id, SketchFeature } from '../model/types';
 import { BASE_FRAMES } from '../model/planes';
 import { consumedSketches } from '../model/features';
+import { cssColor } from '../platform/theme';
 import { Camera, VIEWS, VIEW_LABELS, type ViewName } from '../render/camera';
 import { STATE_HOVER, STATE_SELECTED, type PickHit } from '../render/renderer';
 import { SketchIndex, tessellate } from '../sketch/geom';
@@ -34,6 +35,11 @@ export interface ViewportTool {
   pointerUp?(e: VPEvent): void;
   click?(e: VPEvent): boolean;
   dblClick?(e: VPEvent): boolean;
+  /**
+   * A touch press the tool claimed was held still: return true to give it up
+   * (the tool drops the press) so the press opens the context menu instead.
+   */
+  longPress?(e: VPEvent): boolean;
   hover?(e: VPEvent): void;
   leave?(): void;
 }
@@ -172,7 +178,20 @@ export class Viewport {
       this.canvas.setPointerCapture(e.pointerId);
       if (this.touches.size === 2) {
         // Second finger: switch to pan/zoom, cancel any one-finger action.
-        if (this.gesture.kind === 'tool') this.tool?.pointerUp?.({ ...this.ev(e) });
+        // The tool's press ends where the first finger is: at the second
+        // finger it read as a drag to there (a line or rectangle drawn
+        // between the fingers of a pinch).
+        const g = this.gesture;
+        if (g.kind === 'tool') {
+          const ev = this.ev(e);
+          const first = this.touches.get(g.id);
+          if (first) {
+            const r = this.canvas.getBoundingClientRect();
+            ev.x = first.x - r.left; ev.y = first.y - r.top;
+            ev.ray = this.camera.ray(ev.x, ev.y);
+          }
+          this.tool?.pointerUp?.(ev);
+        }
         clearTimeout(this.longPress);
         this.gesture = { kind: 'touch' };
         this.touchState = this.touchMetrics();
@@ -192,7 +211,16 @@ export class Viewport {
     }
     if (e.button !== 0) return;
     if (this.tool?.pointerDown?.(ev)) {
-      this.gesture = { kind: 'tool', id: e.pointerId, x: ev.x, y: ev.y, moved: false };
+      const g = this.gesture = { kind: 'tool', id: e.pointerId, x: ev.x, y: ev.y, moved: false };
+      if (e.pointerType === 'touch' && this.tool.longPress) {
+        clearTimeout(this.longPress);
+        this.longPress = window.setTimeout(() => {
+          if (this.gesture === g && !g.moved && this.tool?.longPress?.(ev)) {
+            this.gesture = { kind: 'none' };
+            this.app.onViewportContextMenu(ev, e.clientX, e.clientY);
+          }
+        }, 550);
+      }
       return;
     }
     this.gesture = { kind: 'pending', x: ev.x, y: ev.y, button: 0, id: e.pointerId, e: ev };
@@ -395,7 +423,8 @@ export class Viewport {
       this.hoverRaf = 0;
       const q = this.hoverQueued;
       this.hoverQueued = null;
-      if (!q || this.gesture.kind !== 'none') return;
+      // The pointer may have left the view since (a fast move off the canvas).
+      if (!q || this.gesture.kind !== 'none' || !this.mouse) return;
       const ev = { x: q.x, y: q.y, ray: this.camera.ray(q.x, q.y) } as VPEvent;
       if (this.tool?.hover) { this.tool.hover(ev); return; }
       const f = this.app.pickFilter();
@@ -406,7 +435,7 @@ export class Viewport {
       this.hoverBusy = true;
       void this.renderer.pickAsync(q.x, q.y, want).then((hit) => {
         this.hoverBusy = false;
-        if (hit !== undefined && this.gesture.kind === 'none' && !this.hoverQueued) this.app.selection.setHover(this.itemFromHit(q.x, q.y, f, hit));
+        if (hit !== undefined && this.gesture.kind === 'none' && !this.hoverQueued && this.mouse) this.app.selection.setHover(this.itemFromHit(q.x, q.y, f, hit));
         if (this.hoverQueued) { const n = this.hoverQueued; this.hoverQueued = null; this.queueHover(n.x, n.y); }
       });
     });
@@ -566,7 +595,7 @@ export class Viewport {
       for (let i = 0; i < 4; i++) { linePos.push(...c[i], ...c[(i + 1) % 4]); lineCol.push(col[0] * 255, col[1] * 255, col[2] * 255, 255); }
     }
     r.setTris('planes', triPos.length ? { positions: new Float32Array(triPos), colors: new Uint8Array(triCol), depth: 'test', order: 0 } : null);
-    r.setLines('planes', linePos.length ? { positions: new Float32Array(linePos), colors: new Uint8Array(lineCol), width: 1.2, depth: 'test', order: 0 } : null);
+    r.setLines('planes', linePos.length ? { positions: new Float32Array(linePos), colors: new Uint8Array(lineCol), width: 1.2, depth: 'test', order: 0, clip: false } : null);
 
     this.drawOrigin();
     if (!hoverOnly || this.sketchHoverKey() !== this.drawnSketchHover) this.drawSketches();
@@ -606,7 +635,8 @@ export class Viewport {
       const cols = new Uint8Array([211, 58, 44, 255, 44, 155, 69, 255, 47, 99, 214, 255]);
       r.setLines('origin', { positions: pos, colors: cols, width: 1.6, depth: 'always', order: 5 });
       const sel = app.selection.has({ kind: 'origin' }) || app.selection.hover?.kind === 'origin';
-      r.setPoints('origin', { positions: new Float32Array([0, 0, 0]), colors: new Uint8Array(sel ? [47, 124, 246, 255] : [200, 50, 40, 255]), sizeStyle: new Float32Array([8, 2]), depth: 'always', order: 5 });
+      const s = r.theme.selection.map((v) => Math.round(v * 255));
+      r.setPoints('origin', { positions: new Float32Array([0, 0, 0]), colors: new Uint8Array(sel ? [...s, 255] : [200, 50, 40, 255]), sizeStyle: new Float32Array([8, 2]), depth: 'always', order: 5 });
     } else {
       r.setLines('origin', null);
       r.setPoints('origin', null);
@@ -626,6 +656,10 @@ export class Viewport {
     const sel = app.selection;
     this.sketchPx = this.camera.pixelSize;
     this.drawnSketchHover = this.sketchHoverKey();
+    // Theme colours: the light theme's grey is barely visible on the dark viewport.
+    const rgba = (c: number[]) => [...c.map((v) => Math.round(v * 255)), 255];
+    const inactive = rgba(cssColor('--sketch-inactive'));
+    const highlight = rgba(this.renderer.theme.selection);
     if (this.showSketches) {
       for (const f of built) {
         if (f.type !== 'sketch' || f.suppressed || app.featureStatus(f.id)?.suppressed) continue;
@@ -635,7 +669,7 @@ export class Viewport {
         if (!shown && !highlighted) continue;
         const fr = app.frameOfSketch(f);
         if (!fr) continue;
-        const c = highlighted ? [47, 124, 246, 255] : [92, 107, 128, 255];
+        const c = highlighted ? highlight : inactive;
         this.sketchPolylines(f, fr, (a, b, construction) => {
           pos.push(...a, ...b);
           col.push(c[0], c[1], c[2], construction ? 120 : 255);
@@ -644,7 +678,7 @@ export class Viewport {
     }
     this.renderer.setLines('sketches', pos.length ? { positions: new Float32Array(pos), colors: new Uint8Array(col), width: 1.4, depth: 'test', bias: 3e-4, order: 1 } : null);
     this.renderer.setPoints('sketchPts', ptPos.length ? {
-      positions: new Float32Array(ptPos), colors: new Uint8Array((ptPos.length / 3) * 4).map((_, i) => [92, 107, 128, 255][i % 4]),
+      positions: new Float32Array(ptPos), colors: new Uint8Array((ptPos.length / 3) * 4).map((_, i) => inactive[i % 4]),
       sizeStyle: new Float32Array((ptPos.length / 3) * 2).map((_, i) => (i % 2 ? 1 : 5)), depth: 'test', order: 1,
     } : null);
   }

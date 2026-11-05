@@ -118,6 +118,14 @@ export function evaluate(src: string, opts: EvalOptions = {}): number {
   const kind = opts.kind ?? 'none';
   const bare = opts.bareScale ?? 1;
 
+  // Feet and inches written together (5' 6" or 5ft 6in) are one length: the inches, in mm.
+  const feetInches = (unit: number): number => {
+    const n = peek(), u = toks[pos + 1];
+    if (unit !== LENGTH_SUFFIX.ft || n.k !== 'num' || u?.k !== 'name' || (u.v !== '"' && u.v !== 'in')) return 0;
+    pos += 2;
+    return n.v * LENGTH_SUFFIX.in;
+  };
+
   const expectOp = (v: string) => {
     const t = next();
     if (t.k !== 'op' || t.v !== v) throw new ExprError(`Expected "${v}"`);
@@ -131,7 +139,9 @@ export function evaluate(src: string, opts: EvalOptions = {}): number {
         const table = kind === 'angle' ? ANGLE_SUFFIX : kind === 'length' ? LENGTH_SUFFIX : null;
         const f = table && Object.hasOwn(table, u.v) ? table[u.v] : undefined;
         // Explicit units convert to the display unit; the result is scaled once at the end.
-        if (f !== undefined) { pos++; return (t.v * f) / bare; }
+        if (f !== undefined) { pos++; return (t.v * f + (table === LENGTH_SUFFIX ? feetInches(f) : 0)) / bare; }
+        // Angles are plain numbers of degrees, so =10*sin(30°) works in a length as well.
+        if (kind === 'length' && Object.hasOwn(ANGLE_SUFFIX, u.v)) { pos++; return t.v * ANGLE_SUFFIX[u.v]; }
         // Variables and counts are plain numbers: say so rather than "Unexpected text".
         if (!table && (Object.hasOwn(LENGTH_SUFFIX, u.v) || Object.hasOwn(ANGLE_SUFFIX, u.v))) throw new ExprError(`A unit ("${u.v}") cannot be used here; give a plain number`);
       }
@@ -292,7 +302,17 @@ function parseTree(src: string): Node | null {
     const t = toks[pos++];
     if (t.k === 'num') {
       const u = toks[pos];
-      if (u.k === 'name' && (Object.hasOwn(LENGTH_SUFFIX, u.v) || Object.hasOwn(ANGLE_SUFFIX, u.v))) { pos++; return { t: 'num', v: t.v, unit: Object.hasOwn(LENGTH_SUFFIX, u.v) ? 'length' : 'angle', at: t.at!, len: t.len! }; }
+      if (u.k === 'name' && (Object.hasOwn(LENGTH_SUFFIX, u.v) || Object.hasOwn(ANGLE_SUFFIX, u.v))) {
+        pos++;
+        const n: Node = { t: 'num', v: t.v, unit: Object.hasOwn(LENGTH_SUFFIX, u.v) ? 'length' : 'angle', at: t.at!, len: t.len! };
+        // 5' 6": feet and inches, as evaluate reads them.
+        const i = toks[pos], iu = toks[pos + 1];
+        if ((u.v === 'ft' || u.v === "'") && i.k === 'num' && iu?.k === 'name' && (iu.v === '"' || iu.v === 'in')) {
+          pos += 2;
+          return { t: 'bin', op: '+', a: n, b: { t: 'num', v: i.v, unit: 'length', at: i.at!, len: i.len! } };
+        }
+        return n;
+      }
       return { t: 'num', v: t.v, unit: null, at: t.at!, len: t.len! };
     }
     if (t.k === 'name') {
@@ -350,7 +370,8 @@ function dimOf(n: Node, vars: Map<string, number>): Dim {
       if (n.op === '+' || n.op === '-') return sumDim(a, b);
       if (n.op === '^') return a === 'free' || a === 0 ? a : NaN;
       if (a === null || b === null) return null;
-      if (a === 'free' && b === 'free') return 'free';
+      // A plain number times or over a pure number (10*sin(30), 10*pi) can still be a length.
+      if ((a === 'free' || a === 0) && (b === 'free' || b === 0) && (a === 'free' || b === 'free')) return 'free';
       const da = a === 'free' ? 0 : a, db = b === 'free' ? 0 : b;
       return n.op === '*' ? da + db : da - db;
     }

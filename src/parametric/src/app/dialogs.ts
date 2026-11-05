@@ -12,7 +12,7 @@ import { UNIT_SYSTEMS, formatNumber } from '../model/units';
 import { BASE_FRAMES } from '../model/planes';
 import { MATERIALS } from '../model/materials';
 import { uniqueId } from '../model/ids';
-import { mirrorAxisDirection, mirrorEntities, offsetCurves } from '../sketch/ops';
+import { mirrorAxisDirection, mirrorEntities, offsetCurves, pickMirrorAxis } from '../sketch/ops';
 import { SketchIndex } from '../sketch/geom';
 import { convertEdges } from '../sketch/convert';
 import { setThemeChoice, getThemeChoice, type ThemeChoice } from '../platform/theme';
@@ -46,6 +46,8 @@ export async function equationsDialog(app: App) {
   // only updates the cells it affects, so the field being left keeps its place
   // in the tab order (rebuilding them sent keyboard focus out of the dialog).
   const cells = new Map<Variable, { expr: HTMLInputElement; result: HTMLElement; del: HTMLElement }>();
+  // The name the other equations use for each row, while its typed name is not usable yet.
+  const linked = new Map<Variable, string>();
   const refresh = () => {
     const { values, errors } = evaluateVariables(rows);
     for (const v of rows) {
@@ -66,16 +68,21 @@ export async function equationsDialog(app: App) {
     tbody.textContent = '';
     cells.clear();
     rows.forEach((v, i) => {
+      if (!linked.has(v)) linked.set(v, v.name);
       const name = h('input', { class: 'input', value: v.name, 'aria-label': `Name of variable ${i + 1}`, spellcheck: 'false' }) as HTMLInputElement;
       const expr = h('input', { class: 'input', value: v.expr, spellcheck: 'false' }) as HTMLInputElement;
       name.addEventListener('change', () => {
         // Other equations follow a renamed variable (dimensions and features do on OK).
         // Not from or onto a name another variable has too: its equations would be merged into this one's for good.
-        const was = v.name;
-        const renamed = new Map([[was, name.value.trim()]]);
+        // They follow from the name they still use, so a slip (an invalid or taken name) fixed later keeps them.
+        const was = linked.get(v)!;
         v.name = name.value.trim();
-        const shared = rows.some((r) => r !== v && (r.name === was || r.name === v.name));
-        if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(v.name) && !shared) for (const r of rows) if (r !== v) r.expr = renameReferences(r.expr, renamed);
+        const renamed = new Map([[was, v.name]]);
+        const shared = rows.some((r) => r !== v && (r.name === was || r.name === v.name || linked.get(r) === v.name));
+        if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(v.name) && !shared) {
+          for (const r of rows) if (r !== v) r.expr = renameReferences(r.expr, renamed);
+          linked.set(v, v.name);
+        }
         refresh();
       });
       expr.addEventListener('change', () => { v.expr = expr.value.trim(); refresh(); });
@@ -111,7 +118,7 @@ export async function equationsDialog(app: App) {
     wide: true,
     body: [
       h('p', {}, `Define named values, then type "=" and a name (for example =Width/2) in any dimension or feature value to link it. Values use the part's units (${UNIT_SYSTEMS[doc.units].length}, degrees).`),
-      h('table', { class: 'table' }, h('thead', {}, h('tr', {}, h('th', {}, 'Name'), h('th', {}, 'Value / Equation'), h('th', {}, 'Evaluates to'), h('th', {}, 'Used by'), h('th', {}, ''))), tbody),
+      h('table', { class: 'table' }, h('thead', {}, h('tr', {}, h('th', {}, 'Name'), h('th', {}, 'Value / Equation'), h('th', {}, 'Evaluates to'), h('th', {}, 'Used by'), h('th', {}, h('span', { class: 'sr-only' }, 'Delete')))), tbody),
       add, err,
     ],
     buttons: [{ label: 'Cancel', value: 'cancel' }, { label: 'OK', value: 'ok', primary: true }],
@@ -376,7 +383,7 @@ export async function shortcutsDialog(app: App) {
   add('Pan', `${isMac ? '⌘' : 'Ctrl'} + Arrow keys`);
   add('Cancel or clear selection', 'Esc');
   grid.append(h('h3', {}, 'Keyboard navigation'));
-  add('Next or previous area (menu bar, CommandManager, design tree, graphics area, task pane, status bar)', 'F6, Shift + F6');
+  add('Next or previous area (menu bar, CommandManager, design tree, graphics area, task pane, status bar, notifications)', 'F6, Shift + F6');
   add('Rename the feature in the design tree', 'F2');
   add('Context menu of the feature in the design tree', 'Shift + F10');
   await showDialog({ title: 'Keyboard Shortcuts', wide: true, body: grid, buttons: [{ label: 'Close', value: 'ok', primary: true }] });
@@ -692,9 +699,10 @@ export function mirrorSketchEntities(app: App) {
   if (!ed) return;
   const ids = ed.selectedIds();
   const sk = ed.sketch;
-  const lines = ids.filter((id) => sk.entities.find((e) => e.id === id)?.t === 'line');
   // The mirror line is the selected centerline, or the last selected line.
-  const axis = lines.find((id) => sk.entities.find((e) => e.id === id)?.construction) ?? lines[lines.length - 1];
+  const pick = pickMirrorAxis(sk, ids);
+  if (pick && 'error' in pick) { toast({ kind: 'warning', message: pick.error }); return; }
+  const axis = pick?.axis;
   if (!axis || ids.length < 2) { toast({ kind: 'warning', message: 'Select the entities to mirror and a line (ideally a centerline) to mirror about.' }); return; }
   if (!mirrorAxisDirection(new SketchIndex(sk.entities), axis)) { toast({ kind: 'warning', message: 'Choose a mirror axis with distinct endpoints.' }); return; }
   ed.edit('Mirror entities', (s2, newId) => { mirrorEntities(s2, ids.filter((x) => x !== axis), axis, newId); });

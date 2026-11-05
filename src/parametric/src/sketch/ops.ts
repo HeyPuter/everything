@@ -89,8 +89,6 @@ export function availableRelations(sk: SketchFeature, ids: Id[]): RelationType[]
   const n = ids.length;
   const lines = count('line'), pts = count('point'), circs = count('circle') + count('arc');
   const out: RelationType[] = [];
-  const ent = sk.entities.find((e) => e.id === ids[n - 1]);
-  const lastIsCenterline = ent?.t === 'line';
   if (n === 1) {
     if (lines === 1) out.push('horizontal', 'vertical');
     if (ids[0] !== ORIGIN_ID) out.push('fix');
@@ -99,7 +97,7 @@ export function availableRelations(sk: SketchFeature, ids: Id[]): RelationType[]
   if (lines === n) {
     out.push('horizontal', 'vertical', 'parallel', 'equal');
     if (n === 2) out.push('perpendicular', 'collinear');
-    if (n === 3 && lastIsCenterline) out.push('symmetric');
+    if (n === 3) out.push('symmetric');
   } else if (pts === n) {
     out.push('horizontal', 'vertical');
     if (n === 2) out.push('coincident');
@@ -114,8 +112,8 @@ export function availableRelations(sk: SketchFeature, ids: Id[]): RelationType[]
     const sp = sk.entities.find((e) => e.t === 'spline' && ids.includes(e.id));
     if (sp?.t === 'spline' && !ids.some((id) => sp.pts.includes(id))) out.push('coincident');
   }
-  else if (n === 3 && pts === 2 && lines === 1 && kinds[2] === 'line') out.push('symmetric');
-  else if (n === 3 && circs === 2 && lines === 1 && kinds[2] === 'line') out.push('symmetric');
+  else if (n === 3 && pts === 2 && lines === 1) out.push('symmetric');
+  else if (n === 3 && circs === 2 && lines === 1) out.push('symmetric');
   if (!ids.includes(ORIGIN_ID)) out.push('fix');
   return out;
 }
@@ -150,6 +148,13 @@ export function makeRelations(sk: SketchFeature, type: RelationType, ids: Id[], 
     return ids.slice(1).map((id) => ({ id: newId('r'), type, refs: [ids[0], id] }));
   }
   if (type === 'fix') return ids.filter((id) => id !== ORIGIN_ID).map((id) => ({ id: newId('r'), type, refs: [id] }));
+  if (type === 'symmetric' && ids.length === 3) {
+    // The symmetry line goes last, wherever it was picked: a centerline if
+    // one was selected, else the only line, else the last line.
+    const lines = ids.filter((_, i) => kinds[i] === 'line');
+    const axis = [...lines].reverse().find((id) => (ix.get(id) as SkLine).construction) ?? lines[lines.length - 1];
+    if (axis) return [{ id: newId('r'), type, refs: [...ids.filter((id) => id !== axis), axis] }];
+  }
   if (type === 'tangent') {
     const circs = ids.filter((id) => ['circle', 'arc'].includes(kindOf(sk, id)!));
     let internal = false;
@@ -310,6 +315,24 @@ export function smartDimension(sk: SketchFeature, ids: Id[], at: Vec2): DimSpec 
   return byPlacement(center(a), center(b), [a, b]);
 }
 
+/**
+ * Why a dimension measuring zero cannot be added (dimensions must be greater
+ * than zero, and a zero distance is a relation, not a size), or null.
+ */
+export function zeroDimensionReason(sk: SketchFeature, spec: DimSpec): string | null {
+  if (spec.type === 'angle' || spec.value > 1e-9) return null;
+  const k = spec.refs.map((id) => kindOf(sk, id));
+  const lines = k.filter((x) => x === 'line').length;
+  if (lines === 2) return 'These lines are in line with each other, so there is no distance to dimension. Use a Collinear relation to keep them that way.';
+  if (lines === 1) {
+    const l = sk.entities.find((e) => e.id === spec.refs[k.indexOf('line')]) as SkLine;
+    if (spec.refs.length === 2 && (spec.refs.includes(l.a) || spec.refs.includes(l.b))) return 'That point is an end of the line, so its distance to the line is always zero. Pick another point or line to dimension to.';
+    return 'That point lies on the line, so there is no distance to dimension. Use a Coincident relation to keep it on the line.';
+  }
+  if (k.some((x) => x === 'circle' || x === 'arc')) return 'These centres are at the same place, so there is no distance to dimension. Use a Concentric or Coincident relation to keep them together.';
+  return 'These points are at the same place, so there is no distance to dimension. Use a Coincident relation to keep them together.';
+}
+
 export function lineIntersection(a: Vec2, b: Vec2, c: Vec2, d: Vec2): Vec2 | null {
   const r = sub2(b, a), s = sub2(d, c);
   const den = cross2(r, s);
@@ -351,9 +374,23 @@ function cutEnd(sk: SketchFeature, cut: { p: Vec2; by?: Id }, newId: (p: string)
   return id;
 }
 
-/** Drops dimensions of a line's own length, which no longer apply once it is trimmed or extended. */
+/**
+ * Drops what measures a line's length or ends, which no longer applies once
+ * it is trimmed or extended: its own length dimensions, and its place in
+ * equal-length, midpoint and symmetric relations (an equal polygon side would
+ * otherwise pull every other side to its new length).
+ */
 function dropLengthDimensions(sk: SketchFeature, lineId: Id) {
-  sk.constraints = sk.constraints.filter((k) => !(isDimension(k) && k.refs.length === 1 && k.refs[0] === lineId && (k.type === 'distance' || k.type === 'hdistance' || k.type === 'vdistance')));
+  sk.constraints = sk.constraints.flatMap((k): SkConstraint[] => {
+    if (isDimension(k)) return k.refs.length === 1 && k.refs[0] === lineId && (k.type === 'distance' || k.type === 'hdistance' || k.type === 'vdistance') ? [] : [k];
+    if (k.type === 'equal' && k.refs.includes(lineId)) {
+      const refs = k.refs.filter((r) => r !== lineId);
+      return refs.length >= 2 ? [{ ...k, refs }] : [];
+    }
+    if (k.type === 'midpoint' && k.refs.includes(lineId)) return [];
+    if (k.type === 'symmetric' && k.refs.slice(0, -1).includes(lineId)) return [];
+    return [k];
+  });
 }
 
 /**
@@ -443,9 +480,24 @@ function dropOrphan(sk: SketchFeature, pid: Id) {
 }
 
 /** After a split, relations on the far end point follow the new piece. */
-function moveConstraintsOnPoint(_sk: SketchFeature, _pointId: Id, _newCurve: Id, _oldCurve: Id) {
+function moveConstraintsOnPoint(sk: SketchFeature, pointId: Id, newCurve: Id, oldCurve: Id) {
   // End point ids are shared, so point relations need no change. Curve-level
-  // relations (horizontal, parallel...) stay on the original piece.
+  // relations (horizontal, parallel...) stay on the original piece, except a
+  // tangency with a curve that meets the far end point: it belongs to the new
+  // piece there. Left on the original piece, it made that piece's extension
+  // tangent at a point the new piece also passes through, which pins the
+  // same point twice (over defined) and lets the new piece leave tangency.
+  const ix = new SketchIndex(sk.entities);
+  const old = ix.get(oldCurve);
+  if (old?.t !== 'line' && old?.t !== 'arc') return;
+  const meets = (id: Id, p: Id) => { const o = ix.get(id); return (o?.t === 'line' || o?.t === 'arc') && (o.a === p || o.b === p); };
+  for (const k of sk.constraints) {
+    if (k.type !== 'tangent' || !k.refs.includes(oldCurve)) continue;
+    const others = k.refs.filter((r) => r !== oldCurve);
+    if (others.some((r) => meets(r, pointId)) && !others.some((r) => meets(r, old.a))) {
+      k.refs = k.refs.map((r) => (r === oldCurve ? newCurve : r));
+    }
+  }
 }
 
 /**
@@ -488,7 +540,10 @@ export function extendAt(sk: SketchFeature, lineId: Id, at: Vec2, newId?: (p: st
 /** Rounds the corner at a point shared by two lines. */
 export function filletCorner(sk: SketchFeature, pointId: Id, radius: number, newId: (p: string) => Id): string | null {
   const ix = new SketchIndex(sk.entities);
-  const lines = sk.entities.filter((e): e is SkLine => e.t === 'line' && (e.a === pointId || e.b === pointId));
+  let lines = sk.entities.filter((e): e is SkLine => e.t === 'line' && (e.a === pointId || e.b === pointId));
+  // Construction lines ending at the corner (a center rectangle's diagonals,
+  // the full length an earlier fillet keeps) stay on the virtual sharp.
+  if (lines.length > 2 && lines.filter((l) => !l.construction).length === 2) lines = lines.filter((l) => !l.construction);
   if (lines.length !== 2) return 'Select a corner where exactly two lines meet';
   const corner = ix.pt(pointId);
   const far = lines.map((l) => ix.pt(l.a === pointId ? l.b : l.a));
@@ -509,11 +564,22 @@ export function filletCorner(sk: SketchFeature, pointId: Id, radius: number, new
   lines[1][lines[1].a === pointId ? 'a' : 'b'] = p2;
   // The lines no longer reach the corner, so their length dimensions would
   // pull them back over the fillet. They measure to the virtual sharp instead.
+  // Relations that use a line's ends (equal lengths, a midpoint, a symmetric
+  // pair) would likewise shrink the rest of the sketch to match - one fillet
+  // on a polygon distorted it - so they move to a construction line that
+  // keeps the full length up to the virtual sharp.
+  const usesEnds = (k: SkConstraint, id: Id) => !isDimension(k)
+    && (k.type === 'equal' || k.type === 'midpoint' ? k.refs.includes(id) : k.type === 'symmetric' && k.refs.slice(0, -1).includes(id));
   lines.forEach((l, i) => {
     const farId = l.a === (i === 0 ? p1 : p2) ? l.b : l.a;
     for (const k of sk.constraints) {
       if (isDimension(k) && k.refs.length === 1 && k.refs[0] === l.id && (k.type === 'distance' || k.type === 'hdistance' || k.type === 'vdistance')) k.refs = [farId, pointId];
     }
+    if (!sk.constraints.some((k) => usesEnds(k, l.id))) return;
+    const full = newId('l');
+    const fromFar = l.a === farId;
+    sk.entities.push({ id: full, t: 'line', a: fromFar ? farId : pointId, b: fromFar ? pointId : farId, construction: true });
+    for (const k of sk.constraints) if (usesEnds(k, l.id)) k.refs = k.refs.map((r, j) => (r === l.id && !(k.type === 'symmetric' && j === k.refs.length - 1) ? full : r));
   });
   // Counter-clockwise from the start tangent point to the end one.
   const ccw = cross2(sub2(t1, c), sub2(t2, c)) > 0;
@@ -598,13 +664,18 @@ export function offsetCurves(sk: SketchFeature, ids: Id[], distance: number, new
     sk.entities.push({ id, t: 'point', x: p[0], y: p[1] });
     return id;
   };
-  const curves = ids.map((id) => ix.get(id)).filter((e): e is SkCurve => !!e && e.t !== 'point');
+  const picked = ids.map((id) => ix.get(id)).filter((e): e is SkCurve => !!e && e.t !== 'point');
+  // A box around a shape also picks its construction lines (a center
+  // rectangle's diagonals, a fillet's virtual sharp): offset the outline, not
+  // those, which would join the chains and come out as solid lines.
+  const solid = picked.filter((c) => !c.construction);
+  const curves = solid.length ? solid : picked;
   for (const c of curves) {
     if (c.t !== 'circle') continue;
     const r = c.r + distance;
     if (r <= 0) continue;
     const id = newId('c');
-    sk.entities.push({ id, t: 'circle', c: pt(ix.pt(c.c)), r });
+    sk.entities.push({ id, t: 'circle', c: pt(ix.pt(c.c)), r, construction: c.construction || undefined });
     sk.constraints.push({ id: newId('r'), type: 'concentric', refs: [c.id, id] });
     created.push(id);
   }
@@ -692,21 +763,47 @@ export function offsetCurves(sk: SketchFeature, ids: Id[], distance: number, new
       if (!id) { id = pt(p); ptIds.set(k, id); }
       return id;
     };
+    const made: Id[] = [];
+    const concentric: SkConstraint[] = [], tangent: SkConstraint[] = [], parallel: SkConstraint[] = [];
     for (const o of offs) {
       if (o.kind === 'line') {
         const id = newId('l');
-        sk.entities.push({ id, t: 'line', a: pointFor(o.a), b: pointFor(o.b) });
-        sk.constraints.push({ id: newId('r'), type: 'parallel', refs: [o.src.id, id] });
-        created.push(id);
+        sk.entities.push({ id, t: 'line', a: pointFor(o.a), b: pointFor(o.b), construction: o.src.construction || undefined });
+        parallel.push({ id: newId('r'), type: 'parallel', refs: [o.src.id, id] });
+        made.push(id);
       } else {
         const id = newId('a');
         const a = pointFor(o.a), b = pointFor(o.b);
         // Keep the arc counter-clockwise from its start to its end.
-        sk.entities.push(o.fwd ? { id, t: 'arc', c: pt(o.c), a, b } : { id, t: 'arc', c: pt(o.c), a: b, b: a });
-        sk.constraints.push({ id: newId('r'), type: 'concentric', refs: [o.src.id, id] });
-        created.push(id);
+        const construction = o.src.construction || undefined;
+        sk.entities.push(o.fwd ? { id, t: 'arc', c: pt(o.c), a, b, construction } : { id, t: 'arc', c: pt(o.c), a: b, b: a, construction });
+        concentric.push({ id: newId('r'), type: 'concentric', refs: [o.src.id, id] });
+        made.push(id);
       }
     }
+    // Pieces that met tangentially still do: an offset fillet stays a fillet.
+    const travel = (it: ChainItem, atEnd: boolean): Vec2 => {
+      const c = it.c;
+      const v = ix.pt(atEnd === it.fwd ? c.b : c.a);
+      if (c.t === 'line') { const d = norm2(sub2(ix.pt(c.b), ix.pt(c.a))); return it.fwd ? d : [-d[0], -d[1]]; }
+      const r = norm2(sub2(v, ix.pt(c.c)));
+      return it.fwd ? [-r[1], r[0]] : [r[1], -r[0]];
+    };
+    const n = chain.items.length;
+    for (let i = 0; i < (chain.closed ? n : n - 1); i++) {
+      const j = (i + 1) % n;
+      if (chain.items[i].c.t === 'line' && chain.items[j].c.t === 'line') continue;
+      const t1 = travel(chain.items[i], true), t2 = travel(chain.items[j], false);
+      if (Math.abs(cross2(t1, t2)) < 1e-6 && dot2(t1, t2) > 0) tangent.push({ id: newId('r'), type: 'tangent', refs: [made[i], made[j]] });
+    }
+    // Around a closed loop the last of these relations can follow from the
+    // others (parallel sides tangent to concentric arcs): keep only those
+    // that add something, so the offset never over-defines the sketch.
+    const added = [...concentric, ...tangent, ...parallel];
+    // Analyze the current geometry only; no solve or coordinate write-back.
+    const analysis = new SketchSystem(sk.entities, [...sk.constraints, ...added], { value: (d) => measureDimension(sk, d), maxIterations: 0 }).run();
+    sk.constraints.push(...added.filter((c) => !analysis.badConstraints.has(c.id)));
+    created.push(...made);
   }
   return created;
 }
@@ -719,6 +816,29 @@ export function mirrorAxisDirection(ix: SketchIndex, axisId: Id): Vec2 | null {
   if (axis?.t !== 'line') return null;
   const u = norm2(sub2(ix.pt(axis.b), ix.pt(axis.a)));
   return u.every(Number.isFinite) && (u[0] !== 0 || u[1] !== 0) ? u : null;
+}
+
+/**
+ * The line a selection is mirrored about: its centerline, or else its last
+ * line. With several centerlines, construction lines that end on other selected
+ * curves (a center rectangle's diagonals, the full length a fillet keeps) are
+ * part of the shape, not the axis; if that still leaves no single centerline
+ * the choice is ambiguous and an error message is returned instead.
+ */
+export function pickMirrorAxis(sk: SketchFeature, ids: Id[]): { axis: Id } | { error: string } | null {
+  const ix = new SketchIndex(sk.entities);
+  const lines = ids.map((id) => ix.get(id)).filter((e): e is SkLine => e?.t === 'line');
+  const centerlines = lines.filter((l) => l.construction);
+  if (!centerlines.length) return lines.length ? { axis: lines[lines.length - 1].id } : null;
+  if (centerlines.length === 1) return { axis: centerlines[0].id };
+  const curvePoints = (e: SkEntity): Id[] => e.t === 'line' || e.t === 'arc' ? [e.a, e.b, ...(e.t === 'arc' ? [e.c] : [])]
+    : e.t === 'circle' ? [e.c] : e.t === 'spline' ? e.pts : [];
+  const free = centerlines.filter((l) => !ids.some((id) => {
+    const e = id === l.id ? undefined : ix.get(id);
+    return !!e && curvePoints(e).some((p) => p === l.a || p === l.b);
+  }));
+  if (free.length === 1) return { axis: free[0].id };
+  return { error: 'Several centerlines are selected. Deselect all but the one to mirror about.' };
 }
 
 /** Mirrors entities about a line, adding symmetric relations for points. */
@@ -764,7 +884,8 @@ export function mirrorEntities(sk: SketchFeature, ids: Id[], axisId: Id, newId: 
     else if (e.t === 'circle') sk.entities.push({ id: nid, t: 'circle', c: mapPoint(e.c), r: e.r, construction: e.construction });
     else if (e.t === 'arc') sk.entities.push({ id: nid, t: 'arc', c: mapPoint(e.c), a: mapPoint(e.b), b: mapPoint(e.a), construction: e.construction });
     else if (e.t === 'spline') sk.entities.push({ id: nid, t: 'spline', pts: e.pts.map(mapPoint), construction: e.construction });
-    if (e.t === 'circle' || e.t === 'arc') sk.constraints.push({ id: newId('r'), type: 'equal', refs: [e.id, nid] });
+    // A mirrored arc's radius already follows from its symmetric points.
+    if (e.t === 'circle') sk.constraints.push({ id: newId('r'), type: 'equal', refs: [e.id, nid] });
     created.push(nid);
   }
   if (onAxis.length) {

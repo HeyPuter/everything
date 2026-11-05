@@ -5,8 +5,10 @@ import { FileOps } from './app/fileops';
 import { StartScreen, bindAccountMenu, refreshAccount } from './app/start';
 import { TaskPane, recentItems } from './app/taskpane';
 import { AssistantPanel } from './assistant/panel';
+import { normalizeSettings } from './app/settings';
 import { KV_SETTINGS_KEY, kvGet, kvSet, loadPuter, puter } from './platform/puter';
 import { applyTheme } from './platform/theme';
+import { installLongPressContextMenu } from './ui/longpress';
 import { toast } from './ui/overlay';
 
 const SETTINGS_KEY = 'parametric:settings';
@@ -42,7 +44,16 @@ async function boot() {
     root.removeAttribute('aria-busy');
     return;
   }
+  installLongPressContextMenu();
   app.applySettings(localSettings());
+  // Preferences changed in another tab: apply them, so a change made here
+  // does not write this tab's older copy over them.
+  window.addEventListener('storage', (e) => {
+    if (e.key !== SETTINGS_KEY) return;
+    const next = normalizeSettings(localSettings(), app.settings);
+    const patch = Object.fromEntries(Object.entries(next).filter(([k, v]) => app.settings[k as keyof typeof next] !== v));
+    if (Object.keys(patch).length) app.changeSettings(patch);
+  });
   app.loadRemoteSettings = () => app.loadSettings(() => kvGet<unknown>(KV_SETTINGS_KEY));
   // Development builds expose the app for debugging and browser tests.
   if (import.meta.env.DEV) (window as unknown as { __parametric: App }).__parametric = app;

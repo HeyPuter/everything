@@ -91,13 +91,14 @@ input, textarea, [contenteditable] { user-select: text; -webkit-user-select: tex
 }
 /* The empty field has nothing to clear: without the clear button's reserved space the placeholder fits the narrow (150px) box. */
 .cmd-search input:placeholder-shown::-webkit-search-cancel-button { display: none; }
-.cmd-search .icon { position: absolute; left: 8px; top: 7px; color: var(--text-3); pointer-events: none; }
+.cmd-search > .icon { position: absolute; left: 8px; top: 7px; color: var(--text-3); pointer-events: none; }
 .cmd-results {
   position: absolute; right: 0; top: 32px; width: 300px; max-height: 360px; overflow: auto; z-index: 60;
   background: var(--panel); border: 1px solid var(--border-strong); border-radius: var(--radius); padding: 4px;
 }
 .cmd-results [role='option'] { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: var(--radius-sm); cursor: pointer; }
 .cmd-results [role='option'][aria-selected='true'], .cmd-results [role='option']:hover { background: var(--accent-weak); }
+.cmd-results [role='option'][aria-disabled='true'] { opacity: 0.42; cursor: default; }
 .cmd-results .kbd { margin-left: auto; }
 /* --text-3 is too faint on the highlight colour; shortcuts there use --text-2. */
 .cmd-results [role='option'][aria-selected='true'] .kbd, .cmd-results [role='option']:hover .kbd { color: var(--text-2); }
@@ -220,7 +221,7 @@ a.icon-btn { text-decoration: none; }
 .pm-actions { display: flex; gap: 4px; padding: 6px 10px; border-bottom: 1px solid var(--border); }
 .pm-actions .ok { color: var(--success); }
 .pm-actions .cancel { color: var(--danger); }
-.pm-msg { margin: 8px 10px 0; padding: 8px 10px; border-radius: var(--radius); background: var(--panel-2); border: 1px solid var(--border); font-size: var(--fs-sm); color: var(--text-2); }
+.pm-msg { overflow-wrap: break-word; margin: 8px 10px 0; padding: 8px 10px; border-radius: var(--radius); background: var(--panel-2); border: 1px solid var(--border); font-size: var(--fs-sm); color: var(--text-2); }
 .pm-msg.error { background: var(--danger-weak); border-color: color-mix(in srgb, var(--danger) 35%, transparent); color: var(--danger); }
 .pm-msg.warn { background: var(--warning-weak); color: var(--warning); border-color: color-mix(in srgb, var(--warning) 35%, transparent); }
 .pm-msg.info { background: var(--accent-weak); border-color: var(--accent-border); color: var(--text); }
@@ -417,7 +418,7 @@ a.icon-btn { text-decoration: none; }
 .dialog.wide { width: min(760px, 100%); }
 .dialog-head { display: flex; align-items: center; gap: 8px; padding: 12px 12px 10px 16px; border-bottom: 1px solid var(--border); }
 .dialog-head h2 { margin: 0; font-size: var(--fs-lg); font-weight: 600; flex: 1; }
-.dialog-body { padding: 14px 16px; overflow: auto; display: flex; flex-direction: column; gap: 12px; user-select: text; -webkit-user-select: text; }
+.dialog-body { padding: 14px 16px; overflow: auto; display: flex; flex-direction: column; gap: 12px; user-select: text; -webkit-user-select: text; overflow-wrap: break-word; }
 .dialog-body p { margin: 0; color: var(--text-2); }
 .dialog-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 10px 16px 14px; border-top: 1px solid var(--border); flex-wrap: wrap; }
 .dialog-foot .left { margin-right: auto; }
@@ -440,7 +441,7 @@ a.icon-btn { text-decoration: none; }
 .toast.error { border-left-color: var(--danger); }
 .toast.warning { border-left-color: var(--warning); }
 .toast.success { border-left-color: var(--success); }
-.toast .body { flex: 1; min-width: 0; }
+.toast .body { flex: 1; min-width: 0; overflow-wrap: break-word; }
 .toast .t { font-weight: 600; margin-bottom: 2px; }
 .toast .m { color: var(--text-2); font-size: var(--fs-sm); }
 .toast .actions { display: flex; gap: 6px; margin-top: 8px; }
@@ -483,6 +484,11 @@ a.icon-btn { text-decoration: none; }
      it collapses into the menu button, as on phones. */
   .menubar, .titlebar > .tb-sep { display: none; }
   .titlebar > .mobile-only { display: inline-grid !important; }
+}
+@media (min-width: 761px) and (max-width: 980px) {
+  /* The task pane overlays the graphics area: OK/Cancel move out from under it. */
+  .workspace:has(> .taskpane > .tp-panel:not([hidden])) .confirm-corner { right: calc(280px + 10px); }
+  .workspace:has(> .taskpane > .tp-panel.wide:not([hidden])) .confirm-corner { right: calc(min(380px, 100vw - var(--taskpane-w) - 12px) + 10px); }
 }
 @media (max-width: 760px) {
   :root { --titlebar-h: 46px; --status-h: 28px; }

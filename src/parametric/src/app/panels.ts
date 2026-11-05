@@ -109,15 +109,26 @@ function axisLabel(app: App, ref: AxisRef | null): string {
   }
 }
 
-/** Index of a face/edge reference in the current model, for highlighting. */
-function faceItem(app: App, r: FaceRef): SelItem | null {
-  const i = app.faces.findIndex((f) => f.name === r.name);
-  return i >= 0 ? { kind: 'face', index: i, name: r.name } : null;
+/**
+ * A face/edge reference as a pick, for highlighting and for telling a second
+ * pick of it apart. A panel editing a feature opens on the finished part,
+ * where the referenced face or edge may not exist (a fillet removed its edge):
+ * the index (-1 then) is found again by name on each rebuild.
+ */
+function faceItem(app: App, r: FaceRef): SelItem {
+  return { kind: 'face', index: app.faces.findIndex((f) => f.name === r.name), name: r.name };
 }
 
-function edgeItem(app: App, r: EdgeRef): SelItem | null {
-  const i = app.edges.findIndex((e) => e.name === r.name);
-  return i >= 0 ? { kind: 'edge', index: i, name: r.name } : null;
+function edgeItem(app: App, r: EdgeRef): SelItem {
+  return { kind: 'edge', index: app.edges.findIndex((e) => e.name === r.name), name: r.name };
+}
+
+function planeItem(app: App, r: PlaneRef): SelItem {
+  return r.kind === 'face' ? faceItem(app, r.face) : { kind: 'plane', ref: r };
+}
+
+function axisItem(app: App, r: AxisRef): SelItem | null {
+  return r.kind === 'edge' ? edgeItem(app, r.edge) : r.kind === 'face' ? faceItem(app, r.face) : null;
 }
 
 // ---------- base ----------
@@ -263,7 +274,7 @@ export class RevolvePanel extends FeaturePanel<RevolveFeature> {
     const ctx = this.ctx();
     const sketch = this.sketchBox('Profile sketch', () => f.sketch, (id) => { f.sketch = id ?? ''; });
     const axis = new SelectionBox(this, 'Axis of revolution', { edge: true, face: true }, toAxis(this.app), (items) => { f.axis = (items[0]?.data as AxisRef) ?? null; this.changed(); }, { single: true, placeholder: 'Uses the sketch centerline (or pick an edge)', icon: 'axis' });
-    if (f.axis) axis.setItems([{ item: null, data: f.axis, label: axisLabel(this.app, f.axis) }]);
+    if (f.axis) axis.setItems([{ item: axisItem(this.app, f.axis), data: f.axis, label: axisLabel(this.app, f.axis) }]);
     const angle = numberField({ label: 'Angle', icon: 'revolve', value: f.angle, kind: 'angle', ctx, min: 1e-6, onChange: (v) => { f.angle = v; this.changed(); } });
     return [
       section('Profile', [sketch.el]),
@@ -367,7 +378,7 @@ export class DraftPanel extends FeaturePanel<DraftFeature> {
   render(): HTMLElement[] {
     const f = this.f;
     const neutral = new SelectionBox(this, 'Neutral plane', { plane: true, planarOnly: true }, toPlane(this.app), (items) => { f.neutral = (items[0]?.data as PlaneRef) ?? null; this.changed(); }, { single: true, icon: 'plane' });
-    if (f.neutral) neutral.setItems([{ item: null, data: f.neutral, label: planeLabel(this.app, f.neutral) }]);
+    if (f.neutral) neutral.setItems([{ item: planeItem(this.app, f.neutral), data: f.neutral, label: planeLabel(this.app, f.neutral) }]);
     const faces = new SelectionBox(this, 'Faces to draft', { face: true }, toFace(this.app), (items) => { f.faces = items.map((i) => i.data as FaceRef); this.changed(); }, { icon: 'draft' });
     faces.setItems(f.faces.map((r) => ({ item: faceItem(this.app, r), data: r, label: 'Face' })));
     return [section('Draft', [
@@ -503,7 +514,7 @@ function seedBox(panel: PropertyPanel, app: App, ids: Id[], onChange: (ids: Id[]
 function directionSection(panel: FeaturePanel<Feature>, app: App, title: string, d: PatternDir, onChange: () => void, extra?: { checkbox: { checked: boolean; onChange: (v: boolean) => void } }): HTMLElement {
   const ctx = app.unitContext();
   const dir = new SelectionBox(panel, 'Direction', { edge: true, face: true, plane: true }, toAxis(app), (items) => { d.ref = (items[0]?.data as AxisRef) ?? null; onChange(); }, { single: true, placeholder: 'Select an edge, face or plane', icon: 'axis' });
-  if (d.ref) dir.setItems([{ item: null, data: d.ref, label: axisLabel(app, d.ref) }]);
+  if (d.ref) dir.setItems([{ item: axisItem(app, d.ref), data: d.ref, label: axisLabel(app, d.ref) }]);
   return section(title, [
     h('div', { class: 'row' }, flipButton('Reverse direction', d.flip, (v) => { d.flip = v; onChange(); }), h('div', { class: 'grow' }, dir.el)),
     numberField({ label: 'Spacing', icon: 'ruler', value: d.spacing, kind: 'length', ctx, onChange: (v) => { d.spacing = v; onChange(); } }),
@@ -538,7 +549,7 @@ export class CircularPatternPanel extends FeaturePanel<CircularPatternFeature> {
     const f = this.f;
     const ctx = this.ctx();
     const axis = new SelectionBox(this, 'Pattern axis', { edge: true, face: true, plane: true }, toAxis(this.app), (items) => { f.axis = (items[0]?.data as AxisRef) ?? null; this.changed(); }, { single: true, placeholder: 'Select a circular edge, cylindrical face or axis', icon: 'axis' });
-    if (f.axis) axis.setItems([{ item: null, data: f.axis, label: axisLabel(this.app, f.axis) }]);
+    if (f.axis) axis.setItems([{ item: axisItem(this.app, f.axis), data: f.axis, label: axisLabel(this.app, f.axis) }]);
     const seeds = seedBox(this, this.app, f.seeds, (ids) => { f.seeds = ids; this.changed(); });
     return [
       section('Parameters', [
@@ -565,7 +576,7 @@ export class MirrorPanel extends FeaturePanel<MirrorFeature> {
   render(): HTMLElement[] {
     const f = this.f;
     const plane = new SelectionBox(this, 'Mirror plane', { plane: true, planarOnly: true }, toPlane(this.app), (items) => { f.plane = (items[0]?.data as PlaneRef) ?? null; this.changed(); }, { single: true, icon: 'plane' });
-    if (f.plane) plane.setItems([{ item: null, data: f.plane, label: planeLabel(this.app, f.plane) }]);
+    if (f.plane) plane.setItems([{ item: planeItem(this.app, f.plane), data: f.plane, label: planeLabel(this.app, f.plane) }]);
     const seeds = seedBox(this, this.app, f.seeds, (ids) => { f.seeds = ids; this.changed(); }, 'Features to mirror');
     return [section('Mirror Face/Plane', [plane.el]), section('Features to Mirror', [seeds.el, h('p', { class: 'field-label' }, 'Leave empty to mirror the whole body.')])];
   }
@@ -585,7 +596,7 @@ export class PlanePanel extends FeaturePanel<PlaneFeature> {
   render(): HTMLElement[] {
     const f = this.f;
     const ref = new SelectionBox(this, 'First reference', { plane: true, planarOnly: true }, toPlane(this.app), (items) => { f.ref = (items[0]?.data as PlaneRef) ?? null; this.changed(); }, { single: true, icon: 'plane' });
-    if (f.ref) ref.setItems([{ item: null, data: f.ref, label: planeLabel(this.app, f.ref) }]);
+    if (f.ref) ref.setItems([{ item: planeItem(this.app, f.ref), data: f.ref, label: planeLabel(this.app, f.ref) }]);
     return [section('First Reference', [
       ref.el,
       numberField({ label: 'Offset distance', icon: 'ruler', value: f.offset, kind: 'length', ctx: this.ctx(), onChange: (v) => { f.offset = v; this.changed(); } }),

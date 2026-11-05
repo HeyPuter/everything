@@ -38,6 +38,8 @@ export interface ProfileResult {
   /** Every bounded region, material or not (for contour picking). */
   all: Region[];
   openEnds: Vec2[];
+  /** Some closed contours cross each other (they are not trimmed where they meet). */
+  crossing: boolean;
 }
 
 interface HalfEdge {
@@ -184,18 +186,26 @@ export function buildProfiles(entities: SkEntity[], picks?: Vec2[]): ProfileResu
     (loop.area > 0 ? ccw : cw).push(loop);
   }
 
+  // Contours drawn across each other without being trimmed (two overlapping
+  // circles, a circle over a rectangle's edge) are not split where they cross.
+  // Such a contour is never a hole of, nor nested in, one it crosses: each
+  // stays a region of its own (they combine when used), whichever of its
+  // points happens to be tested, and no hole ever crosses its outer boundary.
+  const crosses = (a: Loop, b: Loop) => loopsCross(a, b, tol);
+
   // Assign component outer boundaries (cw) as holes of the smallest ccw loop
   // that contains them, excluding the loop that is the same boundary.
   const regionHoles: Loop[][] = ccw.map(() => []);
   for (const h of cw) {
     let best = -1, bestArea = Infinity;
-    const probe = h.poly[0];
     const hArea = Math.abs(h.area);
     for (let k = 0; k < ccw.length; k++) {
       const o = ccw[k];
       if (o.area <= hArea * (1 + 1e-9)) continue;
       if (sameBoundary(o, h)) continue;
-      if (pointInPoly(probe, o.poly) && o.area < bestArea) { best = k; bestArea = o.area; }
+      // Test a point of h off o's boundary: a hole touching its outline at
+      // h's first point would otherwise be found outside it.
+      if (o.area < bestArea && pointInPoly(pointOff(h, o, tol), o.poly) && !crosses(o, h)) { best = k; bestArea = o.area; }
     }
     if (best >= 0) regionHoles[best].push(h);
   }
@@ -215,11 +225,22 @@ export function buildProfiles(entities: SkEntity[], picks?: Vec2[]): ProfileResu
   } else {
     regions = all.filter((r) => {
       let depth = 0;
-      for (const g of all) if (g !== r && g.outer.area > r.outer.area && pointInPoly(r.sample, g.outer.poly)) depth++;
+      for (const g of all) if (g !== r && g.outer.area > r.outer.area && pointInPoly(r.sample, g.outer.poly) && !crosses(g.outer, r.outer)) depth++;
       return depth % 2 === 0;
     });
   }
-  return { regions, all, openEnds };
+  let crossing = false;
+  // Boxes first: most pairs of a big sketch (a plate's many holes) are far apart.
+  const boxes = ccw.map((l) => loopInfo(l).box);
+  for (let i = 0; i < ccw.length && !crossing; i++) {
+    const p = boxes[i];
+    for (let j = i + 1; j < ccw.length && !crossing; j++) {
+      const q = boxes[j];
+      if (p[0] - q[2] > tol || q[0] - p[2] > tol || p[1] - q[3] > tol || q[1] - p[3] > tol) continue;
+      crossing = crosses(ccw[i], ccw[j]);
+    }
+  }
+  return { regions, all, openEnds, crossing };
 }
 
 export function inRegion(p: Vec2, r: Region): boolean {
@@ -360,6 +381,115 @@ function reverseLoop(l: Loop): Loop {
     }
   });
   return { segs, poly: [...l.poly].reverse(), area: -l.area };
+}
+
+/** How far a loop's polygon can be from its true curves. */
+function chordError(l: Loop): number {
+  let e = 0;
+  for (const s of l.segs) {
+    if (s.k === 'circle') e = Math.max(e, s.r * (1 - Math.cos(Math.PI / 96)));
+    // Arcs are cut in steps of at most a 96th of a turn, like circles.
+    else if (s.k === 'arc') e = Math.max(e, s.r * (1 - Math.cos(Math.PI / 96)));
+    else if (s.k === 'bez') {
+      const poly = segPolyline(s);
+      for (let i = 0; i + 1 < poly.length; i++) {
+        const t = (i + 0.5) / (poly.length - 1), u = 1 - t;
+        const a = u * u * u, b = 3 * u * u * t, c = 3 * u * t * t, d = t * t * t;
+        const q: Vec2 = [a * s.p[0][0] + b * s.p[1][0] + c * s.p[2][0] + d * s.p[3][0], a * s.p[0][1] + b * s.p[1][1] + c * s.p[2][1] + d * s.p[3][1]];
+        e = Math.max(e, dist2(q, [(poly[i][0] + poly[i + 1][0]) / 2, (poly[i][1] + poly[i + 1][1]) / 2]));
+      }
+    }
+  }
+  return e;
+}
+
+type Box = [number, number, number, number];
+const boxCache = new WeakMap<Loop, { box: Box; err: number }>();
+function loopInfo(l: Loop) {
+  let v = boxCache.get(l);
+  if (!v) {
+    const box: Box = [Infinity, Infinity, -Infinity, -Infinity];
+    for (const p of l.poly) { box[0] = Math.min(box[0], p[0]); box[1] = Math.min(box[1], p[1]); box[2] = Math.max(box[2], p[0]); box[3] = Math.max(box[3], p[1]); }
+    boxCache.set(l, (v = { box, err: chordError(l) }));
+  }
+  return v;
+}
+
+function polyDist(p: Vec2, poly: Vec2[]): number {
+  let d = Infinity;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const a = poly[j], b = poly[i];
+    const dx = b[0] - a[0], dy = b[1] - a[1];
+    const l2 = dx * dx + dy * dy;
+    const t = l2 > 0 ? Math.max(0, Math.min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / l2)) : 0;
+    d = Math.min(d, Math.hypot(p[0] - a[0] - t * dx, p[1] - a[1] - t * dy));
+  }
+  return d;
+}
+
+/** Whether an edge of a closed polygon passes within eps of a box (Liang-Barsky clip against the grown box). */
+function nearBox(poly: Vec2[], box: Box, eps: number): boolean {
+  const bx0 = box[0] - eps, by0 = box[1] - eps, bx1 = box[2] + eps, by1 = box[3] + eps;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const [ax, ay] = poly[j], dx = poly[i][0] - ax, dy = poly[i][1] - ay;
+    let t0 = 0, t1 = 1;
+    const clip = (p: number, q: number) => {
+      if (p === 0) return q >= 0;
+      const r = q / p;
+      if (p < 0) { if (r > t1) return false; if (r > t0) t0 = r; } else { if (r < t0) return false; if (r < t1) t1 = r; }
+      return true;
+    };
+    if (clip(-dx, ax - bx0) && clip(dx, bx1 - ax) && clip(-dy, ay - by0) && clip(dy, by1 - ay)) return true;
+  }
+  return false;
+}
+
+const crossEps = (a: Loop, b: Loop, tol: number) => loopInfo(a).err + loopInfo(b).err + tol * 10;
+
+/** A point of loop a clearly off b's boundary (a's first point if none is). */
+function pointOff(a: Loop, b: Loop, tol: number): Vec2 {
+  const eps = crossEps(a, b, tol), box = loopInfo(b).box;
+  for (const p of a.poly) {
+    if (p[0] < box[0] - eps || p[0] > box[2] + eps || p[1] < box[1] - eps || p[1] > box[3] + eps) return p;
+    if (polyDist(p, b.poly) > eps) return p;
+  }
+  return a.poly[0];
+}
+
+/**
+ * Whether two closed contours cross: one has points clearly inside and
+ * clearly outside the other. Points within the polygons' chord error of the
+ * other boundary are left out, so contours that only touch (a hole tangent
+ * to its outline, two faces sharing an edge) do not count.
+ */
+export function loopsCross(a: Loop, b: Loop, tol = 1e-9): boolean {
+  const A = loopInfo(a), B = loopInfo(b);
+  const eps = crossEps(a, b, tol);
+  const x0 = Math.max(A.box[0], B.box[0]) - eps, y0 = Math.max(A.box[1], B.box[1]) - eps;
+  const x1 = Math.min(A.box[2], B.box[2]) + eps, y1 = Math.min(A.box[3], B.box[3]) + eps;
+  if (x0 > x1 || y0 > y1) return false;
+  // Each boundary lies in its own box: when one does not come near the other's
+  // box (a plate's edges around a hole well inside it), the boundaries cannot
+  // touch, let alone cross.
+  if (!nearBox(a.poly, B.box, eps) || !nearBox(b.poly, A.box, eps)) return false;
+  // Polygon edges are sampled finely enough to land inside the overlap of the two boxes.
+  const step = Math.max(Math.min(x1 - x0, y1 - y0) / 4, eps);
+  const straddles = (pts: Vec2[], other: Loop, box: Box) => {
+    let inside = false, outside = false;
+    const test = (p: Vec2) => {
+      if (p[0] < box[0] - eps || p[0] > box[2] + eps || p[1] < box[1] - eps || p[1] > box[3] + eps) { outside = true; return; }
+      if (polyDist(p, other.poly) <= eps) return;
+      if (pointInPoly(p, other.poly)) inside = true;
+      else outside = true;
+    };
+    for (let i = 0; i < pts.length && !(inside && outside); i++) {
+      const p = pts[i], q = pts[(i + 1) % pts.length];
+      const n = Math.max(1, Math.min(64, Math.ceil(dist2(p, q) / step)));
+      for (let k = 0; k < n && !(inside && outside); k++) test([p[0] + ((q[0] - p[0]) * k) / n, p[1] + ((q[1] - p[1]) * k) / n]);
+    }
+    return inside && outside;
+  };
+  return straddles(b.poly, a, A.box) || straddles(a.poly, b, B.box);
 }
 
 function sameBoundary(a: Loop, b: Loop): boolean {

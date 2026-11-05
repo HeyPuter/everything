@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { DocStore, changeFeatureUnits, changeUnits, mapExpressions, newDocument, parseDocument, serializeDocument } from '../src/model/document';
 import { defaultName, dependencies, newExtrude } from '../src/model/features';
 import type { ExtrudeFeature, Feature, SkDimension, SketchFeature } from '../src/model/types';
+import { EXAMPLES } from '../src/app/examples';
 import { rect, sketch } from './helpers';
 
 describe('document store', () => {
@@ -159,6 +160,44 @@ describe('document store', () => {
     expect(() => parseDocument(JSON.stringify({ ...raw, features: [null] }))).toThrow(/damaged/);
   });
 
+  it('refuses features whose reference lists or references are damaged', () => {
+    const load = (f: object) => () => parseDocument(JSON.stringify({ format: 'parametric-part', version: 1, features: [{ id: 'f9', name: 'X', ...f }] }));
+    for (const f of [
+      { type: 'loft', cut: false },
+      { type: 'fillet', radius: 1, edges: [null], faces: [] },
+      { type: 'fillet', radius: 1, faces: [] },
+      { type: 'shell', thickness: 1, faces: [{ sig: {} }] },
+      { type: 'mirror', seeds: 'f1', plane: null },
+      { type: 'plane', ref: { kind: 'face', face: null }, offset: 1 },
+      { type: 'linearPattern', seeds: ['f1'] },
+      { type: 'circularPattern', seeds: ['f1'], axis: { kind: 'edge' } },
+      { type: 'extrude', depth: 1 },
+    ]) expect(load(f), f.type).toThrow(/damaged \(invalid feature references\)/);
+    expect(load({ type: 'plane', ref: null, offset: 1 })).not.toThrow();
+    expect(load({ type: 'sweep', profile: null, path: null, cut: false })).not.toThrow();
+    // A feature saved before its sketch was picked loads, and its rebuild says what is missing.
+    expect(load({ type: 'extrude', sketch: '', depth: 1 })).not.toThrow();
+    expect(load({ type: 'revolve', sketch: '', axis: null })).not.toThrow();
+    for (const ex of EXAMPLES) expect(() => parseDocument(serializeDocument(ex.make()))).not.toThrow();
+  });
+
+  it('repairs creation and modification times a date cannot hold', () => {
+    const raw = { format: 'parametric-part', version: 1, features: [] };
+    for (const t of ['2026', null, 1e300]) {
+      const doc = parseDocument(JSON.stringify({ ...raw, created: t, modified: t }));
+      expect(Number.isNaN(new Date(doc.modified).getTime())).toBe(false);
+      expect(Number.isNaN(new Date(doc.created).getTime())).toBe(false);
+    }
+    expect(parseDocument(JSON.stringify({ ...raw, modified: 1700000000000 })).modified).toBe(1700000000000);
+  });
+
+  it('refuses features of unknown type, including prototype member names', () => {
+    for (const type of ['banana', 'constructor', '__proto__', 'toString']) {
+      const text = JSON.stringify({ format: 'parametric-part', version: 1, features: [{ id: 'f1', type, name: 'X' }] });
+      expect(() => parseDocument(text)).toThrow(/damaged \(invalid feature\)/);
+    }
+  });
+
   it('refuses a damaged sketch and repairs damaged values that would break the app later', () => {
     const raw = { format: 'parametric-part', version: 1, features: [sketch('s1', [])] };
     expect(() => parseDocument(JSON.stringify({ ...raw, features: [{ id: 'f1', type: 'sketch', name: 'S' }] }))).toThrow(/damaged \(invalid sketch\)/);
@@ -306,6 +345,25 @@ describe('document store', () => {
     doc.features = [e];
     expect(changeUnits(doc, 'IPS')).toEqual(['Extrude1 Depth']);
     expect(e.depth).toBeCloseTo(25, 9);
+  });
+
+  it('gives a sketch whose dimension is replaced by its value the shape that value makes', () => {
+    const doc = newDocument();
+    const sk = sketch('s1', rect(0, 0, 60, 40));
+    const [l0, , , l3] = sk.entities.filter((en) => en.t === 'line');
+    sk.constraints.push(
+      { id: 'c0', type: 'coincident', refs: [sk.entities[0].id, 'O'] }, { id: 'c1', type: 'horizontal', refs: [l0.id] }, { id: 'c2', type: 'vertical', refs: [l3.id] },
+      { id: 'd1', type: 'distance', refs: [l0.id], value: '=W*W/60', at: [30, -10], name: 'D1' } as SkDimension,
+      { id: 'd2', type: 'distance', refs: [l3.id], value: 40, at: [-10, 20], name: 'D2' } as SkDimension,
+    );
+    // The variable changed after the sketch was last edited: its stored points are still 60 wide.
+    doc.variables = [{ id: 'v1', name: 'W', expr: '90' }];
+    doc.features = [sk];
+    const width = (s: SketchFeature) => { const xs = s.entities.flatMap((en) => (en.t === 'point' ? [en.x] : [])); return Math.max(...xs) - Math.min(...xs); };
+    expect(width(new DocStore(doc).resolve().features[0] as SketchFeature)).toBeCloseTo(135, 6);
+    expect(changeUnits(doc, 'IPS')).toEqual(['D1@s1']);
+    expect((sk.constraints.find((c) => c.id === 'd1') as SkDimension).value).toBeCloseTo(135, 9);
+    expect(width(new DocStore(doc).resolve().features[0] as SketchFeature)).toBeCloseTo(135, 6);
   });
 });
 

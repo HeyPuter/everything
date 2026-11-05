@@ -42,6 +42,12 @@ export interface SkTool {
   cancel(): boolean;
   /** Drops the current operation without committing anything (defaults to cancel). */
   abort?(): void;
+  /**
+   * The press that `down` received ended without its own release (a second
+   * finger landed to pinch-zoom, the browser cancelled the pointer): forget
+   * what that press started instead of committing it as a drag.
+   */
+  cancelPress?(): void;
   /** Tool options for the PropertyManager. */
   options?(): HTMLElement[];
   /** Whether the cursor should snap at all. */
@@ -288,9 +294,14 @@ export class SketchEditor implements ViewportTool {
       const ix = new SketchIndex(sk.entities);
       const ent = ix.get(hit.id)!;
       if (!this.app.selection.has({ kind: 'sk', id: hit.id }) && !e.shift && !e.ctrl) this.app.selection.set([{ kind: 'sk', id: hit.id }]);
-      if (ent.t === 'circle' && hit.kind === 'curve') {
-        // A circle whose radius is fixed keeps it; the drag does nothing.
-        this.drag = { kind: this.solve && !this.solve.freeEntities.has(ent.id) ? 'points' : 'radius', ids: [], circle: ent.id, moved: false };
+      const free = this.solve?.freeEntities;
+      if (ent.t === 'circle' && hit.kind === 'curve' && (!free || free.has(ent.id)) && !this.radiusLocked(ent.id, ent.r)) {
+        this.drag = { kind: 'radius', ids: [], circle: ent.id, moved: false };
+      } else if (ent.t === 'circle' && hit.kind === 'curve') {
+        // A circle whose radius is fixed (a diameter dimension, an equal
+        // relation) keeps it, and the drag moves it by its centre if it can.
+        const ids = !free || free.has(ent.c) ? [ent.c] : [];
+        this.drag = { kind: 'points', ids, start: ids.map((id) => ix.pt(id)), grab: raw, circle: ent.id, moved: false };
       } else {
         // Drag every selected point (and curves' points) together.
         const ids = new Set<Id>();
@@ -304,7 +315,6 @@ export class SketchEditor implements ViewportTool {
         // back from the cursor, which can land on a mirrored solution (a fully
         // defined rectangle flipped across its anchor), and on large sketches
         // every frame paid for a failing solve.
-        const free = this.solve?.freeEntities;
         const list = [...ids].filter((id) => !free || free.has(id));
         if (ids.size && !list.length) this.app.setStatus('This geometry is fully defined, so it cannot be dragged.');
         this.drag = { kind: 'points', ids: list, start: list.map((id) => ix.pt(id)), grab: raw, moved: false };
@@ -360,6 +370,15 @@ export class SketchEditor implements ViewportTool {
     this.queueRender();
   }
 
+  /** Whether the relations and dimensions keep a circle's radius from changing. */
+  private radiusLocked(id: Id, r: number): boolean {
+    const sk = this.sketch;
+    const entities = structuredClone(sk.entities);
+    solveSketch(entities, sk.constraints, { value: this.dimValue, drag: { kind: 'radius', id, r: r * 1.25 + this.px * 10 }, analyze: false });
+    const after = entities.find((e) => e.id === id);
+    return after?.t === 'circle' && Math.abs(after.r - r) < 1e-6 * Math.max(1, r);
+  }
+
   /**
    * Takes a drag frame's solve, which skips the rank analysis for speed. A
    * drag never changes the relations, so the definition state (colours, DOF,
@@ -371,7 +390,13 @@ export class SketchEditor implements ViewportTool {
   }
 
   pointerUp(e: VPEvent) {
+    // The viewport also ends a gesture this way when it is interrupted: a
+    // second finger landing (the event is that finger's press), a cancelled
+    // pointer or lost capture. That position is not where this press was
+    // released, so nothing may be drawn or box-selected to it.
+    const interrupted = ['pointerdown', 'pointercancel', 'lostpointercapture'].includes(e.native.type);
     if (this.tool) {
+      if (interrupted) { this.tool.cancelPress?.(); return; }
       const raw = this.toSketch(e);
       if (raw) this.tool.up?.(this.tool.picks ? { p: raw, raw, kind: 'none' } : this.snap(raw, e), e);
       return;
@@ -382,6 +407,7 @@ export class SketchEditor implements ViewportTool {
     if (d.kind === 'box') {
       this.boxEl?.remove();
       this.boxEl = null;
+      if (interrupted) return;
       if (d.moved) this.boxSelect(d.boxStart!, { x: e.x, y: e.y }, e.shift || e.ctrl);
       else if (!e.shift && !e.ctrl) this.app.selection.clear();
       return;
@@ -391,6 +417,15 @@ export class SketchEditor implements ViewportTool {
       this.resolve();
       this.app.refreshSketchPanel();
     }
+  }
+
+  /** A touch long press in select mode opens the context menu instead. */
+  longPress(e: VPEvent): boolean {
+    if (this.tool) return false;
+    // `e` is the press itself, which pointerUp treats as an interrupted
+    // gesture: it ends the drag or box selection without applying either.
+    this.pointerUp(e);
+    return true;
   }
 
   click(e: VPEvent): boolean {
@@ -486,9 +521,19 @@ export class SketchEditor implements ViewportTool {
   private boxSelect(a: { x: number; y: number }, b: { x: number; y: number }, additive: boolean) {
     const crossing = b.x < a.x;
     const x0 = Math.min(a.x, b.x), x1 = Math.max(a.x, b.x), y0 = Math.min(a.y, b.y), y1 = Math.max(a.y, b.y);
-    const inside = (p: Vec2) => {
-      const s = this.toScreen(p);
-      return s[0] >= x0 && s[0] <= x1 && s[1] >= y0 && s[1] <= y1;
+    const inScreen = (s: [number, number]) => s[0] >= x0 && s[0] <= x1 && s[1] >= y0 && s[1] <= y1;
+    const inside = (p: Vec2) => inScreen(this.toScreen(p));
+    // Crossing selection takes curves the box cuts through, not only those with
+    // a tessellation point inside it: a line has points only at its ends.
+    const crosses = (a: [number, number], b: [number, number]) => {
+      let t0 = 0, t1 = 1;
+      const dx = b[0] - a[0], dy = b[1] - a[1];
+      for (const [p, q] of [[-dx, a[0] - x0], [dx, x1 - a[0]], [-dy, a[1] - y0], [dy, y1 - a[1]]]) {
+        if (p === 0) { if (q < 0) return false; continue; }
+        const r = q / p;
+        if (p < 0) { if (r > t1) return false; if (r > t0) t0 = r; } else { if (r < t0) return false; if (r < t1) t1 = r; }
+      }
+      return true;
     };
     const sk = this.sketch;
     const ix = new SketchIndex(sk.entities);
@@ -499,9 +544,9 @@ export class SketchEditor implements ViewportTool {
         if (!used.has(e.id) && inside([e.x, e.y])) picked.push(e.id);
         continue;
       }
-      const poly = tessellate(ix, e, this.px * 2);
-      const hits = poly.map(inside);
-      if (crossing ? hits.some(Boolean) : hits.every(Boolean)) picked.push(e.id);
+      const poly = tessellate(ix, e, this.px * 2).map((p) => this.toScreen(p));
+      const hit = crossing ? poly.some((p, i) => inScreen(p) || (i > 0 && crosses(poly[i - 1], p))) : poly.every(inScreen);
+      if (hit) picked.push(e.id);
     }
     const items = picked.map((id) => ({ kind: 'sk' as const, id }));
     if (additive) items.forEach((it) => this.app.selection.add(it));
@@ -566,6 +611,24 @@ export class SketchEditor implements ViewportTool {
     }
     if (openModify) this.openModify(newDimId);
     return newDimId;
+  }
+
+  /**
+   * Makes a dimension driven (reference) or driving. A driven dimension shows
+   * the geometry as it is, so turning it driving keeps that shown value (as a
+   * new dimension does) instead of pulling the geometry back to the value it
+   * had when it stopped driving. A value linked by an expression keeps its link.
+   */
+  setDriven(dimId: Id, driven: boolean) {
+    this.edit(driven ? 'Make dimension driven' : 'Make dimension driving', (sk) => {
+      const d = sk.constraints.find((c) => c.id === dimId);
+      if (!d || !isDimension(d)) return;
+      if (!driven && d.driven && typeof d.value === 'number') {
+        const v = round(measureDimension(sk, d));
+        if (d.type === 'angle' ? v >= 0 && v <= 180 : v > 0) d.value = v;
+      }
+      d.driven = driven || undefined;
+    });
   }
 
   /** Floating box to edit a dimension value (accepts expressions and units). */

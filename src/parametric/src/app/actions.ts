@@ -125,7 +125,7 @@ export function registerCommands(app: App, files: FileOps) {
 
   c.register(
     // ---- file ----
-    { id: 'new', label: 'New', icon: 'new', shortcut: 'Ctrl+N', description: 'Start a new part.', run: () => files.newPart() },
+    { id: 'new', label: 'New', icon: 'new', shortcut: 'Control+N', description: 'Start a new part.', run: () => files.newPart() },
     { id: 'open', label: 'Open...', icon: 'open', shortcut: 'Ctrl+O', description: 'Open a saved part.', run: () => files.open() },
     { id: 'openDevice', label: 'Open from Device...', icon: 'upload', description: 'Open a part file, or a STEP or SolidWorks file, from this device.', run: () => files.openFromDevice() },
     { id: 'save', label: 'Save', icon: 'save', shortcut: 'Ctrl+S', description: 'Save the part.', run: () => { void files.save(); } },
@@ -144,13 +144,13 @@ export function registerCommands(app: App, files: FileOps) {
     { id: 'properties', label: 'Part Properties...', icon: 'part', keywords: 'units decimals', description: 'Name, units and precision.', run: () => propertiesDialog(app) },
     // ---- edit ----
     {
-      id: 'undo', label: 'Undo', icon: 'undo', shortcut: 'Ctrl+Z', enabled: () => app.store.canUndo,
+      id: 'undo', label: 'Undo', icon: 'undo', shortcut: 'Ctrl+Z', enabled: () => app.canUndo,
       run: () => { if (app.panel) void app.closePanel(false); app.store.undo(); },
     },
     { id: 'redo', label: 'Redo', icon: 'redo', shortcut: 'Ctrl+Y', enabled: () => app.store.canRedo, run: () => redo() },
     { id: 'redo2', label: 'Redo', hidden: true, shortcut: 'Ctrl+Shift+Z', enabled: () => app.store.canRedo, run: () => redo() },
     { id: 'rebuild', label: 'Rebuild', icon: 'rebuild', shortcut: 'Ctrl+B', description: 'Rebuild the model.', run: () => app.requestRebuild(true) },
-    { id: 'forceRebuild', label: 'Force Rebuild', icon: 'rebuild', shortcut: 'Ctrl+Q', description: 'Rebuild every feature from scratch.', run: () => { app.forceRebuild(); } },
+    { id: 'forceRebuild', label: 'Force Rebuild', icon: 'rebuild', shortcut: 'Control+Q', description: 'Rebuild every feature from scratch.', run: () => { app.forceRebuild(); } },
     { id: 'repeat', label: 'Repeat Last Command', shortcut: 'Enter', hidden: true, enabled: () => !!c.lastRun && !app.panel, run: () => { if (c.lastRun) c.run(c.lastRun); } },
     {
       id: 'delete', label: 'Delete', icon: 'trash', shortcut: 'Delete',
@@ -373,7 +373,7 @@ export function buildMenus(app: App): { label: string; items: () => MenuItem[] }
     },
     {
       label: 'Edit', items: () => [
-        { ...m('undo'), label: app.store.canUndo ? `Undo ${app.store.undoLabel}` : 'Undo' },
+        { ...m('undo'), label: app.canUndo ? `Undo ${app.store.undoLabel}` : 'Undo' },
         { ...m('redo'), label: app.store.canRedo ? `Redo ${app.store.redoLabel}` : 'Redo' }, sep,
         m('rebuild'), m('forceRebuild'), sep, m('editFeature'), m('delete'), m('suppress'), m('unsuppress'), m('rollToEnd'), sep, m('appearance'), m('material'),
       ],
@@ -430,7 +430,7 @@ export function contextItems(app: App, target: 'viewport' | 'feature' | 'referen
       const d = con as SkDimension;
       return [
         { label: 'Modify Value...', icon: 'edit', disabled: !!d.driven, run: () => ed.openModify(id) },
-        { label: d.driven ? 'Make Driving' : 'Make Driven (reference)', icon: 'smartDimension', run: () => ed.edit('Toggle driven', (sk) => { const x = sk.constraints.find((k) => k.id === id) as SkDimension; x.driven = !x.driven || undefined; }) },
+        { label: d.driven ? 'Make Driving' : 'Make Driven (reference)', icon: 'smartDimension', run: () => ed.setDriven(id, !d.driven) },
         sep, { label: 'Delete Dimension', icon: 'trash', run: () => ed.edit('Delete dimension', (sk) => { sk.constraints = sk.constraints.filter((k) => k.id !== id); }) },
       ];
     }
@@ -446,17 +446,18 @@ export function contextItems(app: App, target: 'viewport' | 'feature' | 'referen
   if (target === 'feature' && id) {
     const f = app.store.feature(id)!;
     const idx = app.store.indexOf(id);
+    const ids = app.tree.targets(id);
     return [
       f.type === 'sketch' ? { label: 'Edit Sketch', icon: 'sketch', run: () => app.editSketch(id) } : { label: 'Edit Feature', icon: 'edit', run: () => app.editFeature(id) },
       { label: 'Rename', icon: 'text', shortcut: 'F2', run: () => app.tree.startRename(id) },
       sep,
       ...(f.type === 'sketch' || f.type === 'plane' ? [{ label: f.hidden ? 'Show' : 'Hide', icon: f.hidden ? 'eye' : 'eyeOff', run: () => app.toggleHidden([id]) } as MenuItem] : []),
-      { label: f.suppressed ? 'Unsuppress' : 'Suppress', icon: f.suppressed ? 'eye' : 'eyeOff', run: () => app.toggleSuppress([id]) },
+      { label: f.suppressed ? 'Unsuppress' : 'Suppress', icon: f.suppressed ? 'eye' : 'eyeOff', run: () => app.toggleSuppress(ids, !f.suppressed) },
       { label: 'Roll Back to Here', icon: 'upToLine', run: () => app.setRollback(idx) },
       { label: 'Roll to End', icon: 'downToLine', disabled: app.store.doc.rollback == null, run: () => app.setRollback(null) },
       ...(f.type === 'sketch' || f.type === 'plane' ? [{ label: 'Normal To', icon: 'normalTo', run: () => { const fr = f.type === 'sketch' ? app.frameOfSketch(f) : app.frameOfPlane({ kind: 'feature', id }); if (fr) app.viewport.normalTo(fr); } } as MenuItem] : []),
       sep,
-      { label: 'Delete', icon: 'trash', shortcut: 'Delete', run: () => void app.deleteFeatures([id]) },
+      { label: 'Delete', icon: 'trash', shortcut: 'Delete', run: () => void app.deleteFeatures(ids) },
     ];
   }
   const sel = app.selection.items[0];

@@ -195,6 +195,24 @@ test.describe('accessibility', () => {
     await expect(page.getByRole('menu')).toHaveCount(0);
   });
 
+  test('Force Rebuild is the Control key + Q, which a Mac browser leaves to the page', async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /New part/ }).click();
+    const mac = await page.evaluate(() => /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent));
+    const search = page.getByRole('combobox', { name: 'Search commands' });
+    await search.fill('force rebuild');
+    await expect(page.getByRole('option', { name: /^Force Rebuild/ })).toContainText(mac ? '⌃Q' : 'Ctrl+Q');
+    await search.press('Escape');
+    await page.evaluate(() => {
+      const a = (window as unknown as { __parametric: { forceRebuild(): void; forced?: number } }).__parametric;
+      a.forced = 0;
+      a.forceRebuild = () => { a.forced!++; };
+    });
+    await page.locator('canvas.gl').focus();
+    await page.keyboard.press('Control+q');
+    expect(await page.evaluate(() => (window as unknown as { __parametric: { forced: number } }).__parametric.forced)).toBe(1);
+  });
+
   test('command search reports its list state and platform shortcuts', async ({ page }) => {
     await openApp(page);
     await page.getByRole('button', { name: /New part/ }).click();
@@ -203,6 +221,20 @@ test.describe('accessibility', () => {
     await expect(search).toHaveAttribute('aria-expanded', 'true');
     const mac = await page.evaluate(() => /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent));
     await expect(page.getByRole('option', { name: /^Save/ }).first()).toContainText(mac ? '⌘S' : 'Ctrl+S');
+    // Each result's icon sits in its own row, before its label (not stacked over the first row).
+    expect(await page.evaluate(() => [...document.querySelectorAll('.cmd-results [role="option"]')].every((o) => {
+      const i = o.querySelector('.icon')!.getBoundingClientRect();
+      const r = o.getBoundingClientRect();
+      return i.top >= r.top && i.bottom <= r.bottom && i.right <= o.querySelector('span')!.getBoundingClientRect().left;
+    }))).toBe(true);
+    // A command that cannot run now is marked and says so instead of silently clearing the search.
+    await search.fill('fillet');
+    const fillet = page.getByRole('option', { name: 'Fillet', exact: true });
+    await expect(fillet).toHaveAttribute('aria-disabled', 'true');
+    await expect(fillet).toHaveCSS('opacity', '0.42');
+    await search.press('Enter');
+    await expect(page.locator('.statusbar .msg')).toHaveText('Fillet is not available right now.');
+    await expect(search).toHaveValue('fillet');
     await page.locator('canvas.gl').click({ position: { x: 40, y: 40 } });
     await expect(page.getByRole('listbox')).toBeHidden();
     await expect(search).toHaveAttribute('aria-expanded', 'false');
@@ -236,6 +268,21 @@ test('Shift+F10 opens the context menu of the focused tree row', async ({ page }
   await page.keyboard.press('Escape');
   await expect(page.getByRole('menu')).toHaveCount(0);
   await expect(page.getByRole('treeitem', { name: 'Hole1' })).toBeFocused();
+});
+
+test('F6 reaches a notification\'s buttons, and the notification stays while focused', async ({ page }) => {
+  await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await page.locator('canvas.gl').focus();
+  await page.evaluate(async () => {
+    const { toast } = await import(/* @vite-ignore */ '/src/ui/overlay.ts' as string) as typeof import('../../src/ui/overlay');
+    toast({ kind: 'error', title: 'Could not save', message: 'Offline', actions: [{ label: 'Download a copy', run: () => {} }], timeout: 1500 });
+  });
+  // Graphics area, task pane, status bar, then the notification.
+  for (let i = 0; i < 3; i++) await page.keyboard.press('F6');
+  await expect(page.locator('.toast :focus')).toHaveCount(1);
+  await page.waitForTimeout(2000);
+  await expect(page.getByRole('button', { name: 'Download a copy' })).toBeVisible();
 });
 
 test('F6 and Shift+F6 move between the window regions', async ({ page }) => {
@@ -302,6 +349,8 @@ test('editing and deleting equations keeps keyboard focus in the table', async (
   await page.getByRole('button', { name: /New part/ }).click();
   await page.evaluate(() => (window as unknown as { __parametric: { commands: { run(id: string): void } } }).__parametric.commands.run('equations'));
   const dialog = page.getByRole('dialog', { name: 'Equations and Global Variables' });
+  // Every column, including that of the Delete buttons, has a header name.
+  await expect(dialog.getByRole('columnheader', { name: 'Delete', exact: true })).toHaveCount(1);
   await dialog.getByRole('button', { name: 'Add variable' }).click();
   await dialog.getByRole('button', { name: 'Add variable' }).click();
   const name = dialog.getByRole('textbox', { name: 'Name of variable 1' });
@@ -383,4 +432,33 @@ test('IME candidate keys keep rename dialogs and feature names editable', async 
   await featureName.press('Enter');
   await expect(page.getByRole('treeitem', { name: '丸み', exact: true })).toBeVisible();
   expect(errors).toEqual([]);
+});
+
+test('removing a picked item from a selection box keeps keyboard focus in the box', async ({ page }) => {
+  await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  await page.getByRole('treeitem', { name: 'Fillet1' }).focus();
+  await page.keyboard.press('Enter');
+  const box = page.getByRole('group', { name: 'Items to fillet' });
+  const remove = box.getByRole('button', { name: /^Remove / });
+  await expect(remove).toHaveCount(1);
+  await remove.focus();
+  await page.keyboard.press('Enter');
+  await expect(remove).toHaveCount(0);
+  await expect(box).toBeFocused();
+});
+
+test('the mouse wheel scrolls a CommandManager clipped by a narrow window', async ({ page }) => {
+  await page.setViewportSize({ width: 900, height: 768 });
+  await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  const tools = page.locator('.cm-tools');
+  expect(await tools.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true);
+  await tools.hover();
+  await page.mouse.wheel(0, 2000);
+  await expect.poll(() => tools.evaluate((el) => el.scrollLeft)).toBeGreaterThan(0);
+  // The last tool is now fully in view.
+  const last = page.locator('.cm-tools .cm-group').last();
+  expect((await last.boundingBox())!.x + (await last.boundingBox())!.width).toBeLessThanOrEqual(900);
 });

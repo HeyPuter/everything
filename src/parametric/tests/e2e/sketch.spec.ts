@@ -191,6 +191,109 @@ test.describe('sketching', () => {
     expect(errors).toEqual([]);
   });
 
+  test('dragging the edge of a circle changes its radius, or moves it when the radius is dimensioned', async ({ page }) => {
+    const errors = await openApp(page);
+    await startSketch(page);
+    const circle = () => page.evaluate(() => {
+      const ed = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.sketchEditor!;
+      const c = ed.sketch.entities.find((e) => e.t === 'circle') as { c: string; r: number };
+      const p = ed.sketch.entities.find((e) => e.id === c.c) as { x: number; y: number };
+      return { x: Math.round(p.x * 100) / 100, y: Math.round(p.y * 100) / 100, r: Math.round(c.r * 100) / 100 };
+    });
+    const drag = async () => {
+      const [from, to] = await page.evaluate(() => {
+        const ed = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.sketchEditor!;
+        const c = ed.sketch.entities.find((e) => e.t === 'circle') as { c: string; r: number };
+        const p = ed.sketch.entities.find((e) => e.id === c.c) as { x: number; y: number };
+        return [ed.toScreen([p.x + c.r, p.y]), ed.toScreen([p.x + c.r + 10, p.y])];
+      });
+      const box = (await page.locator('canvas.gl').boundingBox())!;
+      await page.mouse.move(box.x + from[0], box.y + from[1]);
+      await page.mouse.down();
+      await page.mouse.move(box.x + to[0], box.y + to[1], { steps: 6 });
+      await page.mouse.up();
+    };
+    await page.evaluate(() => {
+      const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+      a.sketchEditor!.edit('Add circle', (sk) => sk.entities.push({ id: 'pc', t: 'point', x: 20, y: 10 }, { id: 'c', t: 'circle', c: 'pc', r: 8 }));
+    });
+    await drag();
+    expect(await circle()).toEqual({ x: 20, y: 10, r: 18 });
+    await page.evaluate(() => {
+      const ed = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.sketchEditor!;
+      ed.addDimension({ type: 'diameter', refs: ['c'], value: 36 }, [40, 30], false);
+    });
+    await drag();
+    expect(await circle()).toEqual({ x: 30, y: 10, r: 18 });
+    expect(errors).toEqual([]);
+  });
+
+  test('a circle drawn through the origin or another centre stays on it', async ({ page }) => {
+    const errors = await openApp(page);
+    await startSketch(page);
+    const result = await page.evaluate(() => {
+      const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+      const ed = a.sketchEditor!;
+      type S = import('../../src/app/sketch/inference').Snap;
+      const click = (s: Omit<S, 'raw'>) => ed.tool!.click!({ ...s, raw: s.p }, {} as import('../../src/app/viewport').VPEvent);
+      a.commands.run('tool:circle');
+      click({ p: [20, 10], kind: 'none' });
+      click({ p: [0, 0], kind: 'origin', pointId: 'O' });
+      const first = ed.sketch.entities.find((e) => e.t === 'circle')!;
+      const centre = (first as { c: string }).c;
+      click({ p: [40, 10], kind: 'none' });
+      click({ p: [20, 10], kind: 'center', pointId: centre });
+      a.commands.run('tool:perimeterCircle');
+      click({ p: [0, 0], kind: 'origin', pointId: 'O' });
+      click({ p: [20, 10], kind: 'center', pointId: centre });
+      click({ p: [5, 30], kind: 'none' });
+      const circles = ed.sketch.entities.filter((e) => e.t === 'circle').map((e) => e.id);
+      return { circles, rels: ed.sketch.constraints.map((c) => `${c.type}(${c.refs.join(',')})`), centre, status: ed.solve!.status };
+    });
+    const [c1, c2, c3] = result.circles;
+    expect(result.rels).toEqual([`coincident(O,${c1})`, `coincident(${result.centre},${c2})`, `coincident(O,${c3})`, `coincident(${result.centre},${c3})`]);
+    expect(result.status).toBe('under');
+    expect(errors).toEqual([]);
+  });
+
+  test('a crossing box selects a line it cuts through between its end points', async ({ page }) => {
+    const errors = await openApp(page);
+    const { x, y } = await startSketch(page);
+    await page.locator('[data-cmd="tool:line"]').first().click();
+    await page.mouse.click(x - 200, y + 40);
+    await page.mouse.click(x + 200, y + 40);
+    await page.keyboard.press('Escape');
+    await page.keyboard.press('Escape');
+    const box = async (from: [number, number], to: [number, number]) => {
+      await page.mouse.move(x + from[0], y + from[1]);
+      await page.mouse.down();
+      await page.mouse.move(x + to[0], y + to[1], { steps: 4 });
+      await page.mouse.up();
+      return page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.selection.items.length);
+    };
+    // Window (left to right) needs the whole line; crossing (right to left) takes what it touches.
+    expect(await box([-30, 10], [30, 70])).toBe(0);
+    expect(await box([30, 10], [-30, 30])).toBe(0);
+    expect(await box([30, 10], [-30, 70])).toBe(1);
+    expect(errors).toEqual([]);
+  });
+
+  test('a center rectangle is under defined with four degrees of freedom, not over defined', async ({ page }) => {
+    const errors = await openApp(page);
+    await startSketch(page);
+    const result = await page.evaluate(() => {
+      const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+      const ed = a.sketchEditor!;
+      a.commands.run('tool:centerRectangle');
+      const click = (p: [number, number]) => ed.tool!.click!({ p, raw: p, kind: 'none' }, {} as import('../../src/app/viewport').VPEvent);
+      click([10, 5]);
+      click([40, 25]);
+      return { status: ed.solve!.status, dof: ed.solve!.dof, bad: [...ed.solve!.badConstraints] };
+    });
+    expect(result).toEqual({ status: 'under', dof: 4, bad: [] });
+    expect(errors).toEqual([]);
+  });
+
   test('point picking preserves the origin fallback and stable coincident-point order', async ({ page }) => {
     const errors = await openApp(page);
     await startSketch(page);
@@ -816,6 +919,42 @@ test.describe('sketching', () => {
     expect(errors).toEqual([]);
   });
 
+  for (const via of ['menu', 'panel'] as const) test(`making a driven dimension driving (${via}) keeps the geometry it shows`, async ({ page }) => {
+    const errors = await openApp(page);
+    await startSketch(page);
+    const id = await page.evaluate(() => {
+      const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+      const ed = a.sketchEditor!;
+      a.commands.run('tool:rectangle');
+      const click = (p: [number, number]) => ed.tool!.click!({ p, raw: p, kind: 'none' }, {} as import('../../src/app/viewport').VPEvent);
+      click([0, 0]);
+      click([40, 30]);
+      ed.setTool(null);
+      const bottom = ed.sketch.entities.find((e) => e.t === 'line')!;
+      const dim = ed.addDimension({ type: 'distance', refs: [bottom.id], value: 40 }, [20, -10], false)!;
+      ed.setDriven(dim, true);
+      ed.edit('Stretch', (sk) => { for (const e of sk.entities) if (e.t === 'point' && e.x > 39) e.x = 60; });
+      return dim;
+    });
+    const label = page.locator('.dim-label', { hasText: '(60.00)' });
+    await expect(label).toBeVisible();
+    if (via === 'menu') {
+      await label.click({ button: 'right' });
+      await page.getByRole('menuitem', { name: 'Make Driving' }).click();
+    } else {
+      await label.click();
+      await page.getByRole('checkbox', { name: 'Driven (reference only)' }).uncheck();
+    }
+    const state = await page.evaluate((id) => {
+      const ed = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.sketchEditor!;
+      const d = ed.sketch.constraints.find((c) => c.id === id) as import('../../src/model/types').SkDimension;
+      const xs = ed.sketch.entities.filter((e) => e.t === 'point').map((e) => (e as { x: number }).x);
+      return { driven: !!d.driven, value: d.value, width: Math.max(...xs) - Math.min(...xs) };
+    }, id);
+    expect(state).toEqual({ driven: false, value: 60, width: 60 });
+    expect(errors).toEqual([]);
+  });
+
   test('a new dimension stays driving when the sketch was already over defined elsewhere', async ({ page }) => {
     const errors = await openApp(page);
     const { x, y } = await startSketch(page);
@@ -1029,6 +1168,73 @@ test.describe('sketching', () => {
     await page.mouse.up();
     expect(errors).toEqual([]);
   });
+  test('pinch-zooming with a drawing tool draws nothing and keeps a line chain', async ({ page }) => {
+    const errors = await openApp(page);
+    const { x, y } = await startSketch(page);
+    const cdp = await page.context().newCDPSession(page);
+    const touch = (type: 'touchStart' | 'touchMove' | 'touchEnd', points: [number, number][]) =>
+      cdp.send('Input.dispatchTouchEvent', { type, touchPoints: points.map(([px, py], id) => ({ x: px, y: py, id })) });
+    const pinch = async () => {
+      await touch('touchStart', [[x - 40, y]]);
+      await touch('touchStart', [[x - 40, y], [x + 40, y + 10]]);
+      await touch('touchMove', [[x - 70, y], [x + 70, y + 10]]);
+      await touch('touchEnd', [[x + 70, y + 10]]);
+      await touch('touchEnd', []);
+    };
+    const curves = () => page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric
+      .sketchEditor!.sketch.entities.filter((e) => e.t !== 'point').length);
+    for (const tool of ['line', 'rectangle', 'circle']) {
+      await page.evaluate((t) => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.commands.run(`tool:${t}`), tool);
+      await pinch();
+      expect(await curves()).toBe(0);
+    }
+    // A pinch in the middle of a line chain keeps the chain going.
+    await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.commands.run('tool:line'));
+    const tap = async (px: number, py: number) => { await touch('touchStart', [[px, py]]); await touch('touchEnd', []); await page.waitForTimeout(400); };
+    await tap(x + 100, y - 60);
+    await tap(x + 160, y - 60);
+    await pinch();
+    await tap(x + 160, y - 140);
+    expect(await curves()).toBe(2);
+    expect(errors).toEqual([]);
+  });
+
+  test('a touch long press opens the context menu in sketch mode without moving or box-selecting', async ({ page }) => {
+    const errors = await openApp(page);
+    const { x, y } = await startSketch(page);
+    await page.locator('[data-cmd="tool:rectangle"]').click();
+    await page.mouse.click(x - 100, y + 60);
+    await page.mouse.click(x + 100, y - 60);
+    await page.keyboard.press('Escape');
+    const cdp = await page.context().newCDPSession(page);
+    const touch = (type: 'touchStart' | 'touchEnd', points: [number, number][]) =>
+      cdp.send('Input.dispatchTouchEvent', { type, touchPoints: points.map(([px, py], id) => ({ x: px, y: py, id })) });
+    const state = () => page.evaluate(() => {
+      const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+      return { pts: JSON.stringify(a.sketchEditor!.sketch.entities), sel: a.selection.items.length, undo: a.store.undoDepth, batch: (a.store as unknown as { batchDepth: number }).batchDepth };
+    });
+    const before = await state();
+    const menu = page.getByRole('menu', { name: 'Context menu' });
+    // On the rectangle's right side, then on empty canvas.
+    for (const [px, py] of [[x + 100, y], [x + 200, y + 120]]) {
+      await touch('touchStart', [[px, py]]);
+      await expect(menu).toBeVisible();
+      await touch('touchEnd', []);
+      await page.keyboard.press('Escape');
+      await expect(menu).toHaveCount(0);
+    }
+    const after = await state();
+    expect(after.pts).toBe(before.pts);
+    expect(after.undo).toBe(before.undo);
+    // No drag is left open to swallow the next undo step.
+    expect(after.batch).toBe(0);
+    // A short tap still selects.
+    await touch('touchStart', [[x + 100, y]]);
+    await touch('touchEnd', []);
+    await expect.poll(async () => (await state()).sel).toBe(1);
+    expect(errors).toEqual([]);
+  });
+
   test('dragging a fully defined rectangle leaves it where it is', async ({ page }) => {
     const errors = await openApp(page);
     const { x, y } = await startSketch(page);

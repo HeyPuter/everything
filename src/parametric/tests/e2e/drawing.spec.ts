@@ -151,8 +151,27 @@ test('a view can be selected, moved and deleted from the keyboard', async ({ pag
   await expect(page.locator('.relations-list').getByRole('button', { name: 'Front', exact: true })).toHaveAttribute('aria-pressed', 'true');
   await page.keyboard.press('Shift+ArrowRight');
   await expect.poll(async () => (await front())!.x).toBeCloseTo(x0 + 10, 6);
+  // Holding an arrow key (its auto-repeats) is one undo step, not one per repeat.
+  const depth = () => page.evaluate(() => (window as unknown as { __parametric: { store: { undoDepth: number } } }).__parametric.store.undoDepth);
+  const d0 = await depth();
+  await page.keyboard.down('ArrowRight');
+  await page.locator('.drawing-ws').evaluate((el) => {
+    for (let i = 0; i < 5; i++) el.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', repeat: true, bubbles: true, cancelable: true }));
+  });
+  await page.keyboard.up('ArrowRight');
+  await expect.poll(async () => (await front())!.x).toBeCloseTo(x0 + 16, 6);
+  expect(await depth()).toBe(d0 + 1);
   await page.keyboard.press('Delete');
   await expect.poll(front).toBeUndefined();
+  // Deleting from the Views list keeps keyboard focus there: on the row that moved up, then Add view.
+  await page.getByRole('button', { name: 'Delete Top view' }).focus();
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('button', { name: 'Delete Right view' })).toBeFocused();
+  await page.getByRole('button', { name: 'Delete Isometric view' }).focus();
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('button', { name: 'Delete Right view' })).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('button', { name: 'Add view' })).toBeFocused();
 });
 
 test.describe('in a time zone behind UTC', () => {
@@ -224,6 +243,24 @@ test('leaving the drawing cancels an export still waiting for projection', async
   await expect.poll(() => page.evaluate(() => (window as unknown as { exportDone: boolean }).exportDone)).toBe(true);
   expect(downloads).toBe(0);
   expect(errors).toEqual([]);
+});
+
+test('a drawing opened before the part had a solid gets the standard views once it has one', async ({ page }) => {
+  await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await page.getByRole('tab', { name: 'Drawing' }).click();
+  await expect(page.locator('.drawing-empty')).toBeVisible();
+  await page.getByRole('tab', { name: 'Model' }).click();
+  // The solid is built while the drawing is not open.
+  await page.evaluate(async (url) => {
+    const { bracketExample } = (await import(/* @vite-ignore */ url)) as typeof import('../../src/app/examples');
+    const ex = bracketExample();
+    const app = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+    app.store.change('Paste', (d) => { d.features = ex.features; d.nextId = ex.nextId; });
+  }, '/src/app/examples.ts');
+  await page.waitForFunction(() => (window as unknown as { __parametric: { bbox: unknown } }).__parametric.bbox);
+  await page.getByRole('tab', { name: 'Drawing' }).click();
+  await expect(page.locator('.paper g[data-view]')).toHaveCount(4);
 });
 
 test('removing the solid clears its old drawing projections', async ({ page }) => {

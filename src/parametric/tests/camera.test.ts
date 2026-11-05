@@ -3,7 +3,7 @@ import { Camera, VIEWS } from '../src/render/camera';
 import { qRotate } from '../src/math/vec';
 import { CommandRegistry, eventShortcut } from '../src/app/commands';
 import { registerCommands } from '../src/app/actions';
-import { isMac } from '../src/ui/dom';
+import { formatShortcut, isMac } from '../src/ui/dom';
 
 const close = (a: number[], b: number[]) => a.forEach((v, i) => expect(v).toBeCloseTo(b[i], 9));
 
@@ -170,6 +170,24 @@ describe('command registry', () => {
     expect(ran).toBe('save');
     expect(reg.search('zoom').map((c) => c.id)).toEqual(['zoomIn']);
     expect(reg.search('view').map((c) => c.id)).toEqual(['view1']);
+  });
+
+  it('binds Control shortcuts to the Control key, which macOS browsers leave to the page', () => {
+    const reg = new CommandRegistry();
+    reg.register(
+      { id: 'forceRebuild', label: 'Force Rebuild', shortcut: 'Control+Q', run: () => {} },
+      { id: 'line', label: 'Line', shortcut: 'L', run: () => {} },
+    );
+    const ev = (init: KeyboardEventInit) => ({ key: '', code: '', ctrlKey: false, metaKey: false, altKey: false, shiftKey: false, ...init }) as KeyboardEvent;
+    expect(reg.match(ev({ key: 'q', ctrlKey: true }))?.id).toBe('forceRebuild');
+    expect(formatShortcut('Control+Q')).toBe(isMac ? '⌃Q' : 'Ctrl+Q');
+    expect(formatShortcut('Ctrl+Shift+S')).toBe(isMac ? '⌘⇧S' : 'Ctrl+Shift+S');
+    if (isMac) {
+      // Cmd+Q quits the browser, and Control+L is not the L key.
+      expect(reg.match(ev({ key: 'q', metaKey: true }))).toBeUndefined();
+      expect(reg.match(ev({ key: 'l', ctrlKey: true }))).toBeUndefined();
+    }
+    expect(reg.match(ev({ key: 'l' }))?.id).toBe('line');
   });
 
   it('gives every shortcut of the app to one command only', () => {

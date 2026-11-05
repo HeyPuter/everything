@@ -48,6 +48,9 @@ export class DrawingWorkspace {
       h('div', { class: 'drawing-empty', hidden: true }, 'There is no solid to draw yet. Build the part in the Model tab first.'));
     app.shell.viewport.append(this.el);
     this.bind();
+    // A drawing made before the part had a solid is laid out when the solid exists, even
+    // if the drawing was left meanwhile; not once another document replaced that part.
+    app.store.on((reason) => { if (reason === 'load') this.layoutPending = false; });
   }
 
   get doc(): DrawingDoc | null {
@@ -65,7 +68,6 @@ export class DrawingWorkspace {
   }
 
   close() {
-    this.layoutPending = false;
     this.refreshAgain = false;
     this.panelKey = '';
     this.active = false;
@@ -122,7 +124,20 @@ export class DrawingWorkspace {
     const key = d ? JSON.stringify([this.selected, this.app.store.doc.name, d.sheet, d.landscape, d.scale, d.title, d.drawnBy, d.notes, d.views.map((v) => [v.id, v.kind, v.hidden, v.dims])]) : '';
     if (key === this.panelKey) return;
     this.panelKey = key;
-    if (!this.panelChanging) this.app.refreshPanel();
+    if (this.panelChanging) return;
+    // Keyboard focus in the panel stays on the same control in the rebuilt one; from a
+    // deleted view's row it moves to the row that took its place, else the one above, else Add view.
+    const body = this.app.shell.lpBody;
+    const was = document.activeElement instanceof HTMLElement && body.contains(document.activeElement) ? document.activeElement : null;
+    const name = (el: Element) => el.getAttribute('aria-label') ?? el.textContent;
+    const row = was ? [...body.querySelectorAll('.relations-list > *')].findIndex((r) => r.contains(was)) : -1;
+    this.app.refreshPanel();
+    if (!was || was.isConnected) return;
+    const rows = body.querySelectorAll('.relations-list > *');
+    const controls = [...body.querySelectorAll<HTMLElement>('button, input, select')];
+    const same = controls.find((el) => name(el) === name(was));
+    const near = row >= 0 ? rows[Math.min(row, rows.length - 1)]?.querySelector<HTMLElement>('button[aria-label^="Delete"]') ?? controls.find((el) => name(el) === 'Add view') : null;
+    (same ?? near ?? body.querySelector<HTMLElement>('.pm-head .title'))?.focus();
   }
 
   // ---------- projections and rendering ----------
@@ -325,13 +340,21 @@ export class DrawingWorkspace {
       this.zoom = nz;
       this.applyTransform();
     }, { passive: false });
+    // A held arrow key is one undo step: its auto-repeats join the step of the first press
+    // (one step each filled the bounded history within seconds and dropped older steps).
+    let nudge: { id: string; mark: number; last: number } | null = null;
     this.el.addEventListener('keydown', (e) => {
       const step = e.shiftKey ? 10 : 1;
       const move = (dx: number, dy: number) => {
         const id = this.selected;
         if (!id) return;
         e.preventDefault();
+        const store = this.app.store;
+        const join = e.repeat && nudge?.id === id && nudge.last === store.undoMark ? nudge : null;
+        const mark = join ? join.mark : store.undoMark;
         this.update((d) => { const v = d.views.find((q) => q.id === id); if (v) { v.x += dx; v.y += dy; } }, 'Move view');
+        if (join) store.squash(mark, 'Move view');
+        nudge = { id, mark, last: store.undoMark };
       };
       if (e.key === 'ArrowLeft') move(-step, 0);
       else if (e.key === 'ArrowRight') move(step, 0);

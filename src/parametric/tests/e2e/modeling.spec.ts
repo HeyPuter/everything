@@ -50,6 +50,87 @@ test.describe('part modeling', () => {
     expect(errors).toEqual([]);
   });
 
+  test('double-clicking OK closes the panel without double-clicking what was under it', async ({ page }) => {
+    const errors = await openApp(page);
+    await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+    await waitForFeature(page, 'Fillet1');
+    await page.getByRole('treeitem', { name: 'Extrude1', exact: true }).dblclick();
+    await expect(page.getByRole('heading', { name: 'Extrude' })).toBeVisible();
+    // The part's name in the design tree comes back where the panel's OK was.
+    await page.getByRole('button', { name: 'OK', exact: true }).first().dblclick();
+    await expect(page.getByRole('heading', { name: 'Extrude' })).toHaveCount(0);
+    await page.waitForTimeout(300);
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    // A double click that starts and ends on the part's name still opens its properties.
+    await page.getByRole('treeitem', { name: 'Mounting Bracket' }).dblclick();
+    await expect(page.getByRole('dialog', { name: 'Part Properties' })).toBeVisible();
+    expect(errors).toEqual([]);
+  });
+
+  test('a part opened while the previous part is rebuilding shows its own body', async ({ page }) => {
+    const errors = await openApp(page);
+    await page.getByRole('button', { name: /New part/ }).click();
+    type App = import('../../src/app/app').App;
+    type W = { __parametric: App; release: () => void };
+    await page.evaluate(async (examples) => {
+      const a = (window as unknown as W).__parametric;
+      const pts = [[0, 0], [400, 0], [400, 400], [0, 400]];
+      a.store.change('Plate', (d) => {
+        d.features.push({ id: 's1', name: 'Sketch1', type: 'sketch', plane: { kind: 'base', plane: 'front' }, constraints: [], entities: [
+          ...pts.map(([x, y], i) => ({ id: `p${i}`, t: 'point' as const, x, y })),
+          ...pts.map((_, i) => ({ id: `l${i}`, t: 'line' as const, a: `p${i}`, b: `p${(i + 1) % 4}` })),
+        ] });
+        d.features.push({ id: 'f1', name: 'Extrude1', type: 'extrude', sketch: 's1', cut: false, end: 'blind', depth: 5, flip: false, dir2: null, draft: 0, draftOutward: false, thin: null });
+      });
+      await a.whenBuilt();
+      // The plate's next rebuild finishes only after the bracket has been opened.
+      const build = a.kernel.build.bind(a.kernel);
+      const held = new Promise<void>((r) => { (window as unknown as W).release = r; });
+      a.kernel.build = async (req) => { a.kernel.build = build; const res = await build(req); await held; return res; };
+      a.store.change('Thicker', (d) => { (d.features[1] as { depth: number }).depth = 6; });
+      await new Promise((r) => setTimeout(r, 50));
+      const { bracketExample } = await import(examples) as typeof import('../../src/app/examples');
+      a.loadDocument(bracketExample(), null);
+      setTimeout(() => (window as unknown as W).release(), 300);
+      await a.whenBuilt();
+    }, '/src/app/examples.ts');
+    const shown = await page.evaluate(() => { const a = (window as unknown as W).__parametric; return { target: a.renderer.camera.state().target.map(Math.round), max: a.bbox?.max.map(Math.round) }; });
+    expect(shown).toEqual({ target: [30, 20, 15], max: [60, 40, 30] });
+    await expect(page.locator('.ti.error')).toHaveCount(0);
+    expect(errors).toEqual([]);
+  });
+
+  test('undo in a sketch takes back only that sketch\'s changes, not the features after it', async ({ page }) => {
+    const errors = await openApp(page);
+    await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+    await waitForFeature(page, 'Fillet1');
+    type W = { __parametric: import('../../src/app/app').App };
+    const state = () => page.evaluate(() => {
+      const a = (window as unknown as W).__parametric;
+      return { features: a.store.doc.features.map((f) => f.name), depth: (a.store.doc.features[1] as { depth: number }).depth, sketch: !!a.sketchEditor, canUndo: a.commands.isEnabled('undo') };
+    });
+    await page.evaluate(() => {
+      const a = (window as unknown as W).__parametric;
+      a.store.change('Thicker', (d) => { (d.features[1] as { depth: number }).depth = 32; });
+      a.editSketch('s1');
+      a.sketchEditor!.edit('Add point', (sk) => { sk.entities.push({ id: 'extra', t: 'point', x: 90, y: 90 }); });
+      for (let i = 0; i < 3; i++) a.commands.run('undo');
+    });
+    // The point is gone; the depth change made before the sketch was opened, out of sight while it is edited, stays.
+    expect(await state()).toEqual({ features: ['Sketch1', 'Extrude1', 'Sketch2', 'Hole1', 'Fillet1'], depth: 32, sketch: true, canUndo: false });
+    await expect(page.locator('.titlebar [data-cmd="undo"]')).toBeDisabled();
+    await page.locator('.confirm-corner').getByRole('button', { name: 'Exit sketch' }).click();
+    await expect.poll(async () => (await state()).canUndo).toBe(true);
+    // A new sketch can still be undone away from inside it.
+    await page.getByRole('treeitem', { name: 'Front Plane' }).click();
+    await page.getByRole('tab', { name: 'Sketch' }).click();
+    await page.locator('[data-cmd="sketch"]').first().click();
+    await expect.poll(async () => (await state()).features.length).toBe(6);
+    await page.evaluate(() => (window as unknown as W).__parametric.commands.run('undo'));
+    expect(await state()).toEqual({ features: ['Sketch1', 'Extrude1', 'Sketch2', 'Hole1', 'Fillet1'], depth: 32, sketch: false, canUndo: true });
+    expect(errors).toEqual([]);
+  });
+
   test('suppressing a feature suppresses the features built on it', async ({ page }) => {
     const errors = await openApp(page);
     await page.getByRole('button', { name: /Mounting Bracket/ }).click();
@@ -240,6 +321,15 @@ test('renaming a variable onto another one\'s name leaves the equations that use
   await name.fill('A');
   await name.press('Tab');
   await expect(dlg.getByRole('textbox', { name: 'Value or expression of C' })).toHaveValue('A + B');
+  // A slip to an invalid or taken name, then a new name: C follows A to it.
+  await name.fill('A x');
+  await name.press('Tab');
+  await name.fill('B');
+  await name.press('Tab');
+  await name.fill('Width');
+  await name.press('Tab');
+  await expect(dlg.getByRole('textbox', { name: 'Value or expression of C' })).toHaveValue('Width + B');
+  await expect(dlg.locator('[aria-invalid="true"]')).toHaveCount(0);
 });
 
 test('the equations table keeps keyboard focus as values are edited and rows deleted', async ({ page }) => {
@@ -354,6 +444,19 @@ test('OK keeps a feature panel open while a value cannot be read', async ({ page
   await page.locator('.confirm-corner').getByRole('button', { name: 'OK' }).click();
   await expect(page.getByRole('treeitem', { name: 'Extrude1' })).toBeVisible();
   expect(await page.evaluate(() => (window as unknown as { __parametric: { store: { doc: { features: { name: string; depth?: number }[] } } } }).__parametric.store.doc.features.find((f) => f.name === 'Extrude1')?.depth)).toBe(25);
+});
+
+test('a feature panel warns while the edited cut removes no material', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  await page.getByRole('treeitem', { name: 'Hole1' }).dblclick();
+  const reverse = page.getByRole('button', { name: 'Reverse direction' });
+  await reverse.click();
+  await expect(page.locator('.pm-msg.warn')).toContainText('does not remove any material');
+  await reverse.click();
+  await expect(page.locator('.pm-msg')).toBeHidden();
+  expect(errors).toEqual([]);
 });
 
 test('Escape in a feature panel field takes back the typed value, then cancels the panel', async ({ page }) => {

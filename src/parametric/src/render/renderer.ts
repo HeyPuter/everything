@@ -323,6 +323,8 @@ export interface LineBatch {
   /** Overlay ids per segment for picking (optional). */
   ids?: Float32Array;
   order?: number;
+  /** False: not cut by the section view (reference geometry, like plane fills). */
+  clip?: boolean;
 }
 
 export interface PointBatch {
@@ -735,13 +737,20 @@ export class Renderer {
     this.dpr = Math.min(dpr, 2);
     const w = Math.max(1, Math.round(cssW * this.dpr));
     const h = Math.max(1, Math.round(cssH * this.dpr));
-    if (this.canvas.width !== w || this.canvas.height !== h) {
+    const changed = this.canvas.width !== w || this.canvas.height !== h;
+    if (changed) {
       this.canvas.width = w;
       this.canvas.height = h;
     }
     this.camera.width = cssW;
     this.camera.height = cssH;
-    this.requestRender();
+    if (!changed) { this.requestRender(); return; }
+    // Resizing clears the canvas, and the page shows it cleared (black) until
+    // the next draw: draw now, before this frame is painted, or the view
+    // flashes black on every frame of a splitter drag or window resize.
+    if (this.raf) { cancelAnimationFrame(this.raf); this.raf = 0; }
+    this.dirty = true;
+    this.frame(performance.now());
   }
 
   requestRender() {
@@ -859,9 +868,10 @@ export class Renderer {
         // Shaded mode still shows hovered/selected edges.
         this.drawSegs(body.edges, vp, viewport, clip, { width: 1.25, color: [0, 0, 0, 0], useState: true, bias: 2e-5, onlyStates: true });
       }
+      if (!showBody && this.model) this.drawModelStates(this.model, vp, view, viewport, clip, style === 'wireframe');
     }
 
-    for (const b of ordered(this.lines, 'test')) this.drawLineBatch(b, vp, viewport, clip);
+    for (const b of ordered(this.lines, 'test')) this.drawLineBatch(b, vp, viewport, b.clip === false ? null : clip);
     for (const b of ordered(this.points, 'test')) this.drawPointBatch(b, vp, viewport);
 
     // Translucent geometry: tool preview and plane fills, without depth writes.
@@ -881,6 +891,30 @@ export class Renderer {
     for (const b of ordered(this.points, 'always')) this.drawPointBatch(b, vp, viewport);
     gl.disable(gl.BLEND);
     gl.enable(gl.DEPTH_TEST);
+  }
+
+  /**
+   * A feature's result previewed in place of the model (fillet, shell...) has
+   * other faces and edges than the model, which is what the selection and
+   * hover refer to and what is picked: draw the model's selected and hovered
+   * faces and edges over the preview, or picks there show nothing.
+   */
+  private drawModelStates(m: GpuMesh, vp: Float32Array, view: Float32Array, viewport: number[], clip: number[] | null, wire: boolean) {
+    const gl = this.gl;
+    const faces = this.faceStateData.some((s) => s & 3);
+    const edges = !!m.edges && this.edgeStateData.some((s) => s & 3);
+    if (!faces && !edges) return;
+    if (wire) gl.disable(gl.DEPTH_TEST);
+    if (faces) {
+      gl.enable(gl.BLEND);
+      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+      gl.depthMask(false);
+      this.drawMesh(m, vp, view, clip, { flat: 2, alpha: 1, useState: true, color: this.theme.model });
+      gl.depthMask(true);
+      gl.disable(gl.BLEND);
+    }
+    if (edges) this.drawSegs(m.edges!, vp, viewport, clip, { width: 1.25, color: [0, 0, 0, 0], useState: true, bias: 2e-5, onlyStates: true });
+    if (wire) gl.enable(gl.DEPTH_TEST);
   }
 
   private cut: { mesh: MeshData; key: string; gpu: GpuSegs | null } | null = null;

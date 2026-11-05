@@ -67,7 +67,9 @@ function invalidateQueuedKVWrites() {
 export async function loadPuter(timeoutMs = 5000): Promise<PuterSDK | null> {
   if (sdk) return sdk;
   const start = Date.now();
-  while (typeof window !== 'undefined' && !window.puter && Date.now() - start < timeoutMs) {
+  // index.html marks a script that could not be loaded (offline, blocked): nothing will arrive.
+  const failed = () => !!(window as { __puterFailed?: boolean }).__puterFailed;
+  while (typeof window !== 'undefined' && !window.puter && !failed() && Date.now() - start < timeoutMs) {
     await new Promise((r) => setTimeout(r, 40));
   }
   sdk = typeof window !== 'undefined' && window.puter ? window.puter : null;

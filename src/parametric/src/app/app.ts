@@ -21,7 +21,7 @@ import { selectTabs, syncTabStops, tabKeys } from '../ui/tabs';
 import { type FocusRegion, cycleRegion, firstTabStop, trackRegionFocus } from '../ui/regions';
 import { CommandRegistry } from './commands';
 import { type PickFilter, PropertyPanel, retireNumberFields, type UnitContext } from './pm';
-import { Selection, faceRef, type SelItem } from './selection';
+import { Selection, faceRef, remapItem, type SelItem } from './selection';
 import { type Shell, buildShell, renderRibbon, syncCommandButtons, type RibbonTab } from './shell';
 import { SketchEditor } from './sketch/editor';
 import { sketchDefinitionStatus } from './sketch/panel';
@@ -142,6 +142,14 @@ export class App {
     window.addEventListener('pointerdown', () => { this.pointerInput = true; }, true);
     window.addEventListener('keydown', () => { this.pointerInput = false; }, true);
     window.addEventListener('focusin', () => { this.focusByPointer = this.pointerInput; }, true);
+    // A double click on OK closes the panel with its first click; the second
+    // lands on what was under the panel (the part's name opens Part
+    // Properties, a face edits its feature) and must not double-click that.
+    // Tree rows are redrawn on click, so they are compared by their key.
+    const clickTarget = (t: EventTarget | null) => (t instanceof Element ? t.closest('[data-key]')?.getAttribute('data-key') ?? t : null);
+    let firstClick: unknown = null;
+    window.addEventListener('mousedown', (e) => { if (e.detail <= 1) firstClick = clickTarget(e.target); }, true);
+    window.addEventListener('dblclick', (e) => { if (clickTarget(e.target) !== firstClick) e.stopPropagation(); }, true);
     this.renderer.camera.setState(this.renderer.camera.fitState([0, 0, 0], 60));
     this.showLoading(true);
     this.bindKernelRecovery();
@@ -340,9 +348,12 @@ export class App {
   }
 
   viewMenuItems(): MenuItem[] {
+    // The standard view the model is seen from is checked, as the display style is.
+    const current = this.renderer.camera.viewName();
     const v = (cmd: string): MenuItem => {
       const c = this.commands.get(cmd)!;
-      return { label: c.label, icon: c.icon, shortcut: c.shortcut, run: () => this.commands.run(cmd) };
+      const name = cmd === 'normalTo' ? null : cmd.slice(4).toLowerCase();
+      return { label: c.label, icon: c.icon, shortcut: c.shortcut, ...(name ? { checked: name === current, radio: true } : {}), run: () => this.commands.run(cmd) };
     };
     return [v('viewFront'), v('viewBack'), v('viewLeft'), v('viewRight'), v('viewTop'), v('viewBottom'), { separator: true }, v('viewIsometric'), v('viewTrimetric'), v('viewDimetric'), { separator: true }, v('normalTo')];
   }
@@ -559,6 +570,8 @@ export class App {
       s.search.removeAttribute('aria-activedescendant');
     };
     const run = (id: string) => {
+      // A disabled result keeps the list open and the status bar says why nothing ran.
+      if (!this.commands.isEnabled(id)) { this.setStatus(`${this.commands.get(id)?.label} is not available right now.`, true); return; }
       s.search.value = '';
       hide();
       s.search.blur();
@@ -775,10 +788,15 @@ export class App {
     if (key === this.lastBuildKey) return;
     this.lastBuildKey = key;
     const t0 = performance.now();
+    const documentSignal = this.documentSignal;
     let res: BuildResult;
     try {
       res = await this.kernel.build({ features: resolved.features, upTo, blobs: this.store.doc.blobs, quality: this.settings.quality, preview });
+      // A build of the part that was open before New or Open finishes first:
+      // its body, errors and framing must not be shown for the new part.
+      if (documentSignal.aborted) return;
     } catch (e) {
+      if (documentSignal.aborted) return;
       if (e instanceof KernelRestartError) {
         // Retry once on the restarted worker; the same model stopping it
         // again is reported instead of restarting in a loop.
@@ -887,6 +905,7 @@ export class App {
     this.selection.revalidate(res.faces, res.edges);
     this.panel?.onBuild(res);
     if (this.panel && res.previewError) this.panel.setMessage('error', res.previewError);
+    else if (this.panel && res.previewWarning) this.panel.setMessage('warn', res.previewWarning);
     else if (this.panel && !res.previewError) this.panel.setMessage(null);
     this.shell.statusRebuild.textContent = `${Math.round(res.ms)} ms`;
     this.shell.statusRebuild.title = `Rebuild took ${Math.round(res.ms)} ms (${Math.round(ms)} ms including transfer)`;
@@ -962,7 +981,12 @@ export class App {
   /** Items highlighted because a panel references them. */
   extraHighlights(): SelItem[] {
     const out: SelItem[] = [];
-    if (this.panel) for (const b of this.panel.boxes) for (const it of b.items) if (it.item) out.push(it.item);
+    // Faces and edges are found again by name: the panel listed them before
+    // the rebuild it previews (e.g. an edited feature's references) arrived.
+    if (this.panel) for (const b of this.panel.boxes) for (const it of b.items) {
+      const r = it.item?.kind === 'face' || it.item?.kind === 'edge' ? remapItem(it.item, this.faces, this.edges) : it.item;
+      if (r) out.push(r);
+    }
     return out;
   }
 
@@ -1219,6 +1243,7 @@ export class App {
   /** Starts a new sketch on a plane or planar face. */
   startSketchOn(ref: PlaneRef) {
     const restore = this.store.restorePoint('Sketch changes');
+    const undoFloor = this.store.undoMark;
     const id = this.store.nextId('s');
     const at = this.store.builtCount;
     const frame = this.frameOfPlane(ref);
@@ -1229,11 +1254,19 @@ export class App {
       doc.features.splice(at, 0, sk);
       if (doc.rollback != null) doc.rollback = at + 1;
     });
-    this.editSketch(id, restore);
+    this.editSketch(id, restore, undoFloor);
+  }
+
+  /** Where undo stops while a sketch is edited: the steps from before it are out of sight. */
+  private sketchUndoFloor = 0;
+
+  /** Undo takes back only the open sketch's own changes (and its creation), not the features after it. */
+  get canUndo(): boolean {
+    return this.store.canUndo && !(this.sketchEditor && this.store.undoMark <= this.sketchUndoFloor);
   }
 
   /** Opens sketch editing (rolls the model back to just before the sketch). */
-  editSketch(id: Id, restore?: () => void) {
+  editSketch(id: Id, restore?: () => void, undoFloor = this.store.undoMark) {
     const sk = this.store.feature<SketchFeature>(id);
     if (!sk) return;
     if (this.panel) void this.closePanel(false);
@@ -1242,6 +1275,7 @@ export class App {
     this.sketchEditor = new SketchEditor(this, id, frame);
     this.sketchLifetime = new AbortController();
     this.restoreSketch = restore ?? this.store.restorePoint('Sketch changes');
+    this.sketchUndoFloor = undoFloor;
     this.viewport.tool = this.sketchEditor;
     this.selection.clear();
     this.selection.setHover(null);
@@ -1435,6 +1469,8 @@ export class App {
       { el: s.viewport, target: () => (this.inDrawing ? this.drawing.el : this.viewport.canvas) },
       { el: s.taskpane },
       { el: part('.statusbar') },
+      // Notifications with buttons (Download a copy, Restart engine) are reachable too.
+      ...[...document.querySelectorAll<HTMLElement>('body > .toasts')].map((el) => ({ el })),
     ];
   }
 

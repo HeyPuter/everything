@@ -3,7 +3,7 @@ import type { SkDimension, SkEntity, SkLine, SketchFeature } from '../src/model/
 import { ORIGIN_ID, SketchIndex, arcAngles, arcRadius, distanceToCurve } from '../src/sketch/geom';
 import {
   availableRelations, deleteItems, extendAt, filletCorner, idFactory, makeRelations, measureDimension, mirrorEntities,
-  offsetCurves, relationsOf, smartDimension, trimAt,
+  offsetCurves, pickMirrorAxis, relationsOf, smartDimension, trimAt, zeroDimensionReason,
 } from '../src/sketch/ops';
 import { solveSketch } from '../src/sketch/solver';
 import { buildProfiles } from '../src/sketch/profiles';
@@ -20,6 +20,19 @@ describe('relations', () => {
     expect(availableRelations(s, ['rl0', 'circ'])).toContain('tangent');
     expect(availableRelations(s, ['rp0', 'rl1'])).toEqual(['coincident', 'midpoint', 'fix']);
     expect(availableRelations(s, ['O'])).toEqual([]);
+  });
+
+  it.each([['axis', 'l1', 'l2'], ['l1', 'axis', 'l2'], ['l1', 'l2', 'axis'], ['axis', 'p', 'q'], ['p', 'axis', 'q']])('makes %s, %s, %s symmetric about the centerline whatever the selection order', (...ids) => {
+    const s = sk([
+      { id: 'a', t: 'point', x: 0, y: -20 }, { id: 'b', t: 'point', x: 0, y: 20 }, { id: 'axis', t: 'line', a: 'a', b: 'b', construction: true },
+      { id: 'p0', t: 'point', x: -10, y: 0 }, { id: 'p1', t: 'point', x: -5, y: 5 }, { id: 'l1', t: 'line', a: 'p0', b: 'p1' },
+      { id: 'q0', t: 'point', x: 10, y: 0 }, { id: 'q1', t: 'point', x: 5, y: 5 }, { id: 'l2', t: 'line', a: 'q0', b: 'q1' },
+      { id: 'p', t: 'point', x: -3, y: 9 }, { id: 'q', t: 'point', x: 3, y: 9 },
+    ]);
+    expect(availableRelations(s, ids)).toContain('symmetric');
+    const [rel] = makeRelations(s, 'symmetric', ids, idFactory(s));
+    expect(rel.refs[2]).toBe('axis');
+    expect([...rel.refs].sort()).toEqual([...ids].sort());
   });
 
   it('offers a point on a spline, which the solver keeps there', () => {
@@ -70,6 +83,23 @@ describe('dimensions', () => {
     { id: 'd', t: 'point', x: 20, y: 50 }, { id: 'arc', t: 'arc', c: 'a', a: 'b', b: 'd' },
   ]);
 
+  it('explains a zero distance instead of adding it as an over-defining dimension', () => {
+    const s = sk([
+      ...rect(0, 0, 10, 5, 'r'), { id: 'on', t: 'point', x: 4, y: 0 }, { id: 'off', t: 'point', x: 4, y: 2 },
+      { id: 'q0', t: 'point', x: 12, y: 0 }, { id: 'q1', t: 'point', x: 15, y: 0 }, { id: 'col', t: 'line', a: 'q0', b: 'q1' },
+      { id: 'twin', t: 'point', x: 4, y: 2 }, { id: 'cc', t: 'point', x: 4, y: 2 }, { id: 'circ', t: 'circle', c: 'cc', r: 1 },
+    ]);
+    const reason = (ids: string[]) => zeroDimensionReason(s, smartDimension(s, ids, [5, -5])!);
+    expect(reason(['rl0', 'rp0'])).toMatch(/end of the line/);
+    expect(reason(['rl0', 'on'])).toMatch(/Coincident/);
+    expect(reason(['rl0', 'col'])).toMatch(/Collinear/);
+    expect(reason(['off', 'twin'])).toMatch(/same place/);
+    expect(reason(['off', 'circ'])).toMatch(/Concentric/);
+    expect(reason(['rl0', 'off'])).toBeNull();
+    expect(reason(['rl0'])).toBeNull();
+    expect(reason(['rl0', 'rl1'])).toBeNull();
+  });
+
   it.each(['a', ORIGIN_ID, 'l', 'circle', 'arc', 'sp2'])('rejects unsupported spline dimensions paired with %s in either order', (other) => {
     const s = splineSketch();
     for (const ids of [['sp', other], [other, 'sp']]) expect(smartDimension(s, ids, [80, 50])).toBeNull();
@@ -106,6 +136,36 @@ describe('dimensions', () => {
 });
 
 describe('editing tools', () => {
+  it.each(['line', 'arc'])('splitting a slot %s by trimming moves the far tangency to the new piece', (piece) => {
+    const s = sk([
+      { id: 'ca', t: 'point', x: 10, y: 5 }, { id: 'cb', t: 'point', x: 30, y: 5 },
+      { id: 'p1', t: 'point', x: 10, y: 8 }, { id: 'p2', t: 'point', x: 10, y: 2 }, { id: 'q1', t: 'point', x: 30, y: 8 }, { id: 'q2', t: 'point', x: 30, y: 2 },
+      { id: 'l1', t: 'line', a: 'p1', b: 'q1' }, { id: 'l2', t: 'line', a: 'q2', b: 'p2' },
+      { id: 'arcB', t: 'arc', c: 'cb', a: 'q2', b: 'q1' }, { id: 'arcA', t: 'arc', c: 'ca', a: 'p1', b: 'p2' },
+    ]);
+    s.constraints.push(
+      { id: 't1', type: 'tangent', refs: ['l1', 'arcA'] }, { id: 't2', type: 'tangent', refs: ['l1', 'arcB'] },
+      { id: 't3', type: 'tangent', refs: ['l2', 'arcA'] }, { id: 't4', type: 'tangent', refs: ['l2', 'arcB'] },
+      { id: 'eq', type: 'equal', refs: ['arcA', 'arcB'] },
+    );
+    // Two cutters across the piece, then a click between them.
+    const cut = (id: string, a: [number, number], b: [number, number]) => s.entities.push(
+      { id: `${id}a`, t: 'point', x: a[0], y: a[1] }, { id: `${id}b`, t: 'point', x: b[0], y: b[1] }, { id, t: 'line', a: `${id}a`, b: `${id}b` });
+    if (piece === 'line') { cut('k1', [15, 0], [15, 12]); cut('k2', [25, 0], [25, 12]); } else { cut('k1', [0, 6], [8, 6]); cut('k2', [0, 4], [8, 4]); }
+    const before = solveSketch(structuredClone(s.entities), s.constraints, { value });
+    expect(before.badConstraints.size).toBe(0);
+    const id = piece === 'line' ? 'l1' : 'arcA';
+    expect(trimAt(s, id, piece === 'line' ? [20, 8] : [7, 5], idFactory(s))).toBe(true);
+    const copy = s.entities.find((e) => (e.t === 'line' || e.t === 'arc') && e.id !== id && !['l1', 'l2', 'arcA', 'arcB', 'k1', 'k2'].includes(e.id))!;
+    // The far end's tangent curve now refers to the piece that reaches it.
+    const far = piece === 'line' ? 't2' : 't3';
+    expect(s.constraints.find((c) => c.id === far)!.refs).toContain(copy.id);
+    expect(s.constraints.find((c) => c.id === 't1')!.refs).toContain(id);
+    const after = solveSketch(s.entities, s.constraints, { value });
+    expect(after.badConstraints.size).toBe(0);
+    expect(after.status).toBe('under');
+  });
+
   it('trims a line between two crossing lines', () => {
     const s = sk([
       { id: 'a', t: 'point', x: 0, y: 0 }, { id: 'b', t: 'point', x: 10, y: 0 }, { id: 'h', t: 'line', a: 'a', b: 'b' },
@@ -622,6 +682,37 @@ describe('editing tools', () => {
     expect(arcs.map((a) => arcRadius(ix, a as never)).sort()).toEqual([expect.closeTo(4, 9), expect.closeTo(5, 9)]);
   });
 
+  it.each([false, true])('never folds a fillet back over its lines when a dimension shrinks (radius dimensioned: %s)', (radiusDim) => {
+    const s = sk(rect(0, 0, 20, 10, 'r'));
+    s.constraints.push(
+      { id: 'h0', type: 'horizontal', refs: ['rl0'] }, { id: 'h2', type: 'horizontal', refs: ['rl2'] },
+      { id: 'v1', type: 'vertical', refs: ['rl1'] }, { id: 'v3', type: 'vertical', refs: ['rl3'] },
+      { id: 'o', type: 'coincident', refs: ['rp0', 'O'] },
+      { id: 'd1', type: 'distance', refs: ['rl0'], value: 20, at: [10, -5], name: 'D1' },
+      { id: 'd2', type: 'distance', refs: ['rl1'], value: 10, at: [25, 5], name: 'D2' },
+    );
+    for (const p of ['rp0', 'rp1', 'rp2', 'rp3']) expect(filletCorner(s, p, 3, idFactory(s))).toBeNull();
+    if (radiusDim) for (const a of s.entities.filter((e) => e.t === 'arc')) s.constraints.push({ id: `R${a.id}`, type: 'radius', refs: [a.id], value: 3, at: [0, 0], name: `R${a.id}` });
+    const width = s.constraints.find((c) => c.id === 'd1') as SkDimension;
+    const bottom = () => { const ix = new SketchIndex(s.entities), l = ix.get('rl0') as SkLine; return [ix.pt(l.a)[0], ix.pt(l.b)[0]]; };
+    // Room for the fillets: the bottom line shrinks and keeps its direction.
+    width.value = 8;
+    let res = solveSketch(s.entities, s.constraints, { value });
+    expect(res.converged).toBe(true);
+    expect(res.conflicting.size).toBe(0);
+    const [x0, x1] = bottom();
+    expect(x1 - x0).toBeGreaterThan(0);
+    expect(x1).toBeLessThanOrEqual(8 + 1e-6);
+    expect(measureDimension(s, width)).toBeCloseTo(8, 6);
+    // No room: the conflict is reported and the shape is kept, not inverted.
+    width.value = radiusDim ? 4 : 1;
+    res = solveSketch(s.entities, s.constraints, { value });
+    expect(res.converged).toBe(false);
+    expect(res.status).toBe('over');
+    expect(res.conflicting.has('d1')).toBe(true);
+    expect(bottom()).toEqual([expect.closeTo(x0, 6), expect.closeTo(x1, 6)]);
+  });
+
   for (const distance of [1, 1e6]) for (const reverse of [false, true]) it(`joins line/arc offsets at distance ${distance}, reverse traversal ${reverse}`, () => {
     const s = sk([
       { id: 'c', t: 'point', x: 0, y: 0 }, { id: 'a', t: 'point', x: 1, y: 0 }, { id: 'b', t: 'point', x: 0, y: 1 },
@@ -709,6 +800,113 @@ describe('editing tools', () => {
     const ix = new SketchIndex(s.entities), lines = made.map((id) => ix.get(id) as SkLine);
     expect(lines[0].b).toBe(lines[1].a);
     expect(ix.pt(lines[0].b)).toEqual([5, 2]);
+  });
+
+  it.each(['trim', 'extend'])('%s leaves an equal-sided polygon as it was', (op) => {
+    const s = sk([{ id: 'c', t: 'point', x: 0, y: 0 }, { id: 'circ', t: 'circle', c: 'c', r: 20, construction: true }]);
+    for (let i = 0; i < 6; i++) s.entities.push({ id: `v${i}`, t: 'point', x: 20 * Math.cos((i * Math.PI) / 3), y: 20 * Math.sin((i * Math.PI) / 3) });
+    for (let i = 0; i < 6; i++) s.entities.push({ id: `l${i}`, t: 'line', a: `v${i}`, b: `v${(i + 1) % 6}` });
+    for (let i = 0; i < 6; i++) s.constraints.push({ id: `k${i}`, type: 'coincident', refs: [`v${i}`, 'circ'] });
+    s.constraints.push({ id: 'eq', type: 'equal', refs: ['l0', 'l1', 'l2', 'l3', 'l4', 'l5'] });
+    // A line across side l0 to trim it back to, or a short line inside to extend to l0.
+    s.entities.push({ id: 'q0', t: 'point', x: 15, y: op === 'trim' ? -5 : 2 }, { id: 'q1', t: 'point', x: 15, y: op === 'trim' ? 30 : 6 }, { id: 'm', t: 'line', a: 'q0', b: 'q1' });
+    if (op === 'extend') {
+      // ...whose length is tied to another short line, which must not follow the extension.
+      s.entities.push({ id: 'n0', t: 'point', x: 40, y: 0 }, { id: 'n1', t: 'point', x: 40, y: 4 }, { id: 'n', t: 'line', a: 'n0', b: 'n1' });
+      s.constraints.push({ id: 'eqm', type: 'equal', refs: ['m', 'n'] });
+    }
+    solveSketch(s.entities, s.constraints, { value });
+    const corners = () => ['v1', 'v2', 'v3', 'v4', 'v5', ...(op === 'extend' ? ['n0', 'n1'] : [])].map((id) => new SketchIndex(s.entities).pt(id).map((v) => Math.round(v * 1e6) / 1e6));
+    const before = corners();
+    expect(op === 'trim' ? trimAt(s, 'l0', [18, 3.5], idFactory(s)) : extendAt(s, 'm', [15, 5.5], idFactory(s))).toBe(true);
+    const res = solveSketch(s.entities, s.constraints, { value });
+    expect(res.badConstraints.size).toBe(0);
+    expect(corners()).toEqual(before);
+    // The changed line left the equal relation; the others still share it.
+    expect(s.constraints.find((c) => c.id === 'eq')!.refs).toEqual(op === 'trim' ? ['l1', 'l2', 'l3', 'l4', 'l5'] : ['l0', 'l1', 'l2', 'l3', 'l4', 'l5']);
+    expect(s.constraints.some((c) => c.id === 'eqm')).toBe(false);
+  });
+
+  it('fillets a corner that a construction diagonal also ends at, keeping the diagonal on the virtual sharp', () => {
+    const s = sk([...rect(0, 0, 40, 30, 'r'), { id: 'c', t: 'point', x: 20, y: 15 },
+      { id: 'd1', t: 'line', a: 'rp0', b: 'rp2', construction: true }, { id: 'd2', t: 'line', a: 'rp1', b: 'rp3', construction: true }]);
+    s.constraints.push({ id: 'm', type: 'midpoint', refs: ['c', 'd1'] });
+    expect(filletCorner(s, 'rp1', 4, idFactory(s))).toBeNull();
+    expect(s.entities.find((e) => e.id === 'd2')).toMatchObject({ a: 'rp1', b: 'rp3' });
+    expect(s.entities.filter((e) => e.t === 'arc')).toHaveLength(1);
+    expect(solveSketch(s.entities, s.constraints, { value }).badConstraints.size).toBe(0);
+  });
+
+  it.each(['polygon', 'square'])('filleting corners of a %s keeps the shape its equal relation holds', (shape) => {
+    const s = sk([]);
+    const n = shape === 'polygon' ? 6 : 4;
+    if (shape === 'polygon') {
+      s.entities.push({ id: 'c', t: 'point', x: 0, y: 0 }, { id: 'circ', t: 'circle', c: 'c', r: 20, construction: true });
+      for (let i = 0; i < n; i++) s.entities.push({ id: `v${i}`, t: 'point', x: 20 * Math.cos((i * 2 * Math.PI) / n), y: 20 * Math.sin((i * 2 * Math.PI) / n) });
+      for (let i = 0; i < n; i++) s.constraints.push({ id: `k${i}`, type: 'coincident', refs: [`v${i}`, 'circ'] });
+    } else {
+      [[0, 0], [30, 0], [30, 30], [0, 30]].forEach(([x, y], i) => s.entities.push({ id: `v${i}`, t: 'point', x, y }));
+      s.constraints.push({ id: 'h0', type: 'horizontal', refs: ['l0'] }, { id: 'h2', type: 'horizontal', refs: ['l2'] },
+        { id: 'v1', type: 'vertical', refs: ['l1'] }, { id: 'v3', type: 'vertical', refs: ['l3'] });
+    }
+    for (let i = 0; i < n; i++) s.entities.push({ id: `l${i}`, t: 'line', a: `v${i}`, b: `v${(i + 1) % n}` });
+    s.constraints.push({ id: 'eq', type: 'equal', refs: shape === 'polygon' ? ['l0', 'l1', 'l2', 'l3', 'l4', 'l5'] : ['l0', 'l1'] });
+    // A point held at the middle of a side stays there too.
+    s.entities.push({ id: 'm', t: 'point', x: 0, y: 0 });
+    s.constraints.push({ id: 'mid', type: 'midpoint', refs: ['m', 'l1'] });
+    expect(solveSketch(s.entities, s.constraints, { value }).badConstraints.size).toBe(0);
+    const at = (id: string) => new SketchIndex(s.entities).pt(id);
+    const corners = () => Array.from({ length: n }, (_, i) => at(`v${i}`).map((v) => Math.round(v * 1e6) / 1e6));
+    const before = corners(), mid = at('m');
+    for (const corner of shape === 'polygon' ? ['v0', 'v3'] : ['v0', 'v1', 'v2', 'v3']) {
+      expect(filletCorner(s, corner, 3, idFactory(s))).toBeNull();
+      const res = solveSketch(s.entities, s.constraints, { value });
+      expect(res.badConstraints.size).toBe(0);
+      expect(res.converged).toBe(true);
+    }
+    // (A sharp no relation needs any more is removed.)
+    corners().forEach((p, i) => { if (!Number.isNaN(p[0])) expect(p).toEqual(before[i]); });
+    expect(corners().filter((p) => !Number.isNaN(p[0])).length).toBeGreaterThanOrEqual(n - 1);
+    expect(at('m')[0]).toBeCloseTo(mid[0], 6);
+    expect(at('m')[1]).toBeCloseTo(mid[1], 6);
+  });
+
+  it('offsets the outline of a box-selected center rectangle, not its construction diagonals', () => {
+    const s = sk([...rect(0, 0, 40, 30, 'r'), { id: 'c', t: 'point', x: 20, y: 15 },
+      { id: 'd1', t: 'line', a: 'rp0', b: 'rp2', construction: true }, { id: 'd2', t: 'line', a: 'rp1', b: 'rp3', construction: true }]);
+    s.constraints.push({ id: 'm', type: 'midpoint', refs: ['c', 'd1'] });
+    const all = s.entities.filter((e) => e.t !== 'point').map((e) => e.id);
+    const made = offsetCurves(s, all, 2, idFactory(s));
+    expect(made).toHaveLength(4);
+    expect(made.every((id) => !(s.entities.find((e) => e.id === id) as SkLine).construction)).toBe(true);
+    // Construction geometry offset on its own stays construction.
+    const [diagonal] = offsetCurves(s, ['d1'], 2, idFactory(s));
+    expect(s.entities.find((e) => e.id === diagonal)).toMatchObject({ t: 'line', construction: true });
+  });
+
+  it.each(['filleted rectangle', 'slot'])('offsets a %s without over-defining it, keeping the corners tangent', (shape) => {
+    const s = sk(rect(0, 0, 40, 30, 'r'));
+    s.constraints.push(...['rl0', 'rl2'].map((id) => ({ id: `h${id}`, type: 'horizontal' as const, refs: [id] })), ...['rl1', 'rl3'].map((id) => ({ id: `v${id}`, type: 'vertical' as const, refs: [id] })));
+    if (shape === 'filleted rectangle') {
+      for (const corner of ['rp0', 'rp1', 'rp2', 'rp3']) expect(filletCorner(s, corner, 5, idFactory(s))).toBeNull();
+    } else {
+      // Round both short sides fully: a slot of width 30.
+      expect(filletCorner(s, 'rp1', 14.999, idFactory(s))).toBeNull();
+      expect(filletCorner(s, 'rp2', 14.999, idFactory(s))).toBeNull();
+      expect(filletCorner(s, 'rp3', 14.999, idFactory(s))).toBeNull();
+      expect(filletCorner(s, 'rp0', 14.999, idFactory(s))).toBeNull();
+    }
+    const before = solveSketch(s.entities, s.constraints, { value });
+    expect(before.badConstraints.size).toBe(0);
+    const ids = s.entities.filter((e) => e.t !== 'point').map((e) => e.id);
+    const made = offsetCurves(s, ids, 3, idFactory(s));
+    expect(made).toHaveLength(8);
+    const after = solveSketch(s.entities, s.constraints, { value });
+    expect(after.badConstraints.size).toBe(0);
+    expect(after.status).toBe('under');
+    // Only the offset distance is new freedom.
+    expect(after.dof).toBe(before.dof + 1);
+    expect(s.constraints.filter((c) => c.type === 'tangent' && c.refs.every((r) => made.includes(r)))).toHaveLength(8);
   });
 
   it('offsets a closed rectangle outward', () => {
@@ -799,6 +997,31 @@ describe('editing tools', () => {
     }
     const res = solveSketch(s.entities, s.constraints, { value });
     expect(res.converged).toBe(true);
+  });
+
+  it('mirrors a box selection about its centerline, not a center rectangle diagonal or a fillet construction line', () => {
+    // Center rectangle (with construction diagonals) left of a centerline drawn later.
+    const s = sk([
+      ...rect(-30, -5, -10, 5, 'r'),
+      { id: 'd1', t: 'line', a: 'rp0', b: 'rp2', construction: true }, { id: 'd2', t: 'line', a: 'rp1', b: 'rp3', construction: true },
+      { id: 'a', t: 'point', x: 0, y: -20 }, { id: 'b', t: 'point', x: 0, y: 20 }, { id: 'axis', t: 'line', a: 'a', b: 'b', construction: true },
+    ]);
+    const box = s.entities.filter((e) => e.t === 'line').map((e) => e.id);
+    expect(pickMirrorAxis(s, box)).toEqual({ axis: 'axis' });
+    // Unambiguous selections keep their axis: the only centerline, else the last line.
+    expect(pickMirrorAxis(s, ['rl0', 'd1', 'rl1'])).toEqual({ axis: 'd1' });
+    expect(pickMirrorAxis(s, ['rl0', 'rl1', 'rl2'])).toEqual({ axis: 'rl2' });
+    expect(pickMirrorAxis(s, ['rp0'])).toBeNull();
+    // A fillet that keeps the full side length as a construction line.
+    s.constraints.push({ id: 'eq', type: 'equal', refs: ['rl0', 'rl2'] });
+    filletCorner(s, 'rp1', 2, idFactory(s));
+    const box2 = s.entities.filter((e) => e.t === 'line' || e.t === 'arc').map((e) => e.id);
+    expect(s.entities.filter((e) => e.t === 'line' && e.construction).length).toBeGreaterThan(3);
+    expect(pickMirrorAxis(s, box2)).toEqual({ axis: 'axis' });
+    // Only connected centerlines (a center rectangle alone), or two free ones: ask.
+    expect(pickMirrorAxis(s, ['rl0', 'rl1', 'rl2', 'rl3', 'd1', 'd2'])).toHaveProperty('error');
+    s.entities.push({ id: 'h0', t: 'point', x: 5, y: 0 }, { id: 'h1', t: 'point', x: 9, y: 0 }, { id: 'h', t: 'line', a: 'h0', b: 'h1', construction: true });
+    expect(pickMirrorAxis(s, [...box2, 'h'])).toHaveProperty('error');
   });
 
   it.each([0, Math.PI / 4])('keeps a shared endpoint on its moving mirror axis at angle %s', (angle) => {
@@ -897,6 +1120,67 @@ describe('editing tools', () => {
       const line = ix.get(made[0]) as SkLine;
       expect(ix.pt(line.a)).toEqual([-3, 1]);
       expect(ix.pt(line.b)).toEqual([-6, 4]);
+    }
+  });
+
+  it.each(['arc', 'arc ending on the axis', 'filleted corner', 'slot'])('mirrors a %s without over-defining the copy, and the copy follows the source', (shape) => {
+    const s = sk([{ id: 'a', t: 'point', x: 0, y: -10 }, { id: 'b', t: 'point', x: 0, y: 30 }, { id: 'axis', t: 'line', a: 'a', b: 'b', construction: true }]);
+    s.constraints.push({ id: 'fixAxis', type: 'fix', refs: ['axis'] });
+    let ids: string[];
+    if (shape === 'arc') {
+      s.entities.push({ id: 'c', t: 'point', x: 20, y: 10 }, { id: 'p', t: 'point', x: 30, y: 10 }, { id: 'q', t: 'point', x: 20, y: 20 },
+        { id: 'arc', t: 'arc', c: 'c', a: 'p', b: 'q' });
+      ids = ['arc'];
+    } else if (shape === 'arc ending on the axis') {
+      s.entities.push({ id: 'c', t: 'point', x: 10, y: 10 }, { id: 'p', t: 'point', x: 10, y: 0 }, { id: 'q', t: 'point', x: 0, y: 10 },
+        { id: 'arc', t: 'arc', c: 'c', a: 'p', b: 'q' });
+      ids = ['arc'];
+    } else if (shape === 'filleted corner') {
+      s.entities.push({ id: 'k', t: 'point', x: 30, y: 0 }, { id: 'h0', t: 'point', x: 5, y: 0 }, { id: 'v0', t: 'point', x: 30, y: 20 },
+        { id: 'h', t: 'line', a: 'h0', b: 'k' }, { id: 'v', t: 'line', a: 'k', b: 'v0' });
+      s.constraints.push({ id: 'hh', type: 'horizontal', refs: ['h'] }, { id: 'vv', type: 'vertical', refs: ['v'] });
+      expect(filletCorner(s, 'k', 4, idFactory(s))).toBeNull();
+      ids = ['h', 'v', s.entities.find((e) => e.t === 'arc')!.id];
+    } else {
+      // A slot drawn by the tool: two tangent arcs, two lines and a construction axis sharing the arc centres.
+      s.entities.push(
+        { id: 'ca', t: 'point', x: 10, y: 5 }, { id: 'cb', t: 'point', x: 30, y: 5 },
+        { id: 'p1', t: 'point', x: 10, y: 8 }, { id: 'p2', t: 'point', x: 10, y: 2 }, { id: 'q1', t: 'point', x: 30, y: 8 }, { id: 'q2', t: 'point', x: 30, y: 2 },
+        { id: 'l1', t: 'line', a: 'p1', b: 'q1' }, { id: 'l2', t: 'line', a: 'q2', b: 'p2' },
+        { id: 'arcB', t: 'arc', c: 'cb', a: 'q2', b: 'q1' }, { id: 'arcA', t: 'arc', c: 'ca', a: 'p1', b: 'p2' },
+        { id: 'slotAxis', t: 'line', a: 'ca', b: 'cb', construction: true },
+      );
+      s.constraints.push(
+        { id: 't1', type: 'tangent', refs: ['l1', 'arcA'] }, { id: 't2', type: 'tangent', refs: ['l1', 'arcB'] },
+        { id: 't3', type: 'tangent', refs: ['l2', 'arcA'] }, { id: 't4', type: 'tangent', refs: ['l2', 'arcB'] },
+        { id: 'eq', type: 'equal', refs: ['arcA', 'arcB'] }, { id: 'hz', type: 'horizontal', refs: ['slotAxis'] },
+      );
+      ids = ['l1', 'l2', 'arcA', 'arcB', 'slotAxis'];
+    }
+    const before = solveSketch(s.entities, s.constraints, { value });
+    expect(before.status).toBe('under');
+    const made = mirrorEntities(s, ids, 'axis', idFactory(s));
+    const after = solveSketch(s.entities, s.constraints, { value });
+    // Mirrored geometry adds no freedom and no redundant relation.
+    expect(after.badConstraints.size).toBe(0);
+    expect(after.status).toBe('under');
+    // (An end point shared with the copy is also held on the axis.)
+    expect(after.dof).toBe(before.dof - (shape === 'arc ending on the axis' ? 1 : 0));
+    // Moving the source moves the copy with it, still mirrored.
+    const src = s.entities.find((e) => e.t === 'arc' && !made.includes(e.id)) as Extract<SkEntity, { t: 'arc' }>;
+    const start = new SketchIndex(s.entities).pt(src.a);
+    const moved = solveSketch(s.entities, s.constraints, { value, drag: { kind: 'points', ids: [src.a], targets: [[start[0] + 2, start[1] + 1]] } });
+    expect(moved.converged).toBe(true);
+    const ix = new SketchIndex(s.entities);
+    for (const id of made) {
+      const copy = ix.get(id)!;
+      const orig = ix.get(ids[made.indexOf(id)])!;
+      if (copy.t !== 'arc' || orig.t !== 'arc') continue;
+      const c = ix.pt(orig.c), mc = ix.pt(copy.c);
+      expect(mc[0]).toBeCloseTo(-c[0], 6);
+      expect(mc[1]).toBeCloseTo(c[1], 6);
+      expect(arcRadius(ix, copy)).toBeCloseTo(arcRadius(ix, orig), 6);
+      expect(ix.pt(copy.a)[0]).toBeCloseTo(-ix.pt(orig.b)[0], 6);
     }
   });
 

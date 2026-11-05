@@ -7,6 +7,7 @@ import type { ImportFeature, PartDocument } from '../model/types';
 import {
   type Location, EXT, IMPORT_EXTS, clearRecovery, download, isSolidWorksFile, isStepFile, listParts, loadText, locationLabel, newLocation,
   pickCloudFile, pickCloudSave, pickDeviceFile, orphanRecoveries, removeRecovery, saveText, safeName, writeRecovery, type FileEntry, deletePart, renameCloud, forgetRecent, rememberRecent,
+  onRenamedElsewhere, onSavedElsewhere, sameLocation,
 } from '../platform/files';
 import { cloudAvailable, env, isMissing, puter, signIn, storageError } from '../platform/puter';
 import { h } from '../ui/dom';
@@ -28,12 +29,15 @@ export class FileOps {
   /** Changes only when another document opens, not on edits or undo. */
   private documentVersion = 0;
   private openRequest: AbortController | null = null;
+  /** The open part's file, when another tab saved it after this tab opened or saved it. */
+  private savedElsewhere: Location | null = null;
 
   constructor(private app: App) {
     app.onDocumentChanged = (reason) => {
       if (reason === 'load') {
         this.documentVersion++;
         this.openRequest?.abort();
+        this.savedElsewhere = null;
       }
       if (reason !== 'saved') this.revision++;
       this.scheduleRecovery();
@@ -41,6 +45,25 @@ export class FileOps {
     // A hidden tab can be closed without notice (phones discard background tabs).
     document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') this.flushRecovery(); });
     window.addEventListener('pagehide', () => this.flushRecovery());
+    onSavedElsewhere((loc) => {
+      if (!sameLocation(loc, app.location) || sameLocation(loc, this.savedElsewhere)) return;
+      this.savedElsewhere = loc;
+      const name = app.store.doc.name;
+      toast({
+        kind: 'warning',
+        message: `"${name}" was saved in another tab. ${app.store.dirty ? 'Saving here replaces that version.' : 'Reopen it to see those changes.'}`,
+        actions: [{ label: 'Reopen', run: () => void this.openLocation(loc, name) }],
+        timeout: 12000,
+      });
+    });
+    // Another tab renamed the open part's file: save to the new file, under the new name.
+    onRenamedElsewhere((from, to, name) => {
+      if (sameLocation(from, this.savedElsewhere)) this.savedElsewhere = to;
+      if (!sameLocation(from, app.location)) return;
+      app.location = to;
+      if (app.store.doc.name !== name) app.store.change('Rename part', (doc) => { doc.name = name; });
+      toast({ message: `This part was renamed to "${name}" in another tab.`, timeout: 6000 });
+    });
     window.addEventListener('beforeunload', (e) => {
       if (this.app.store.dirty || this.app.panel?.edited) {
         e.preventDefault();
@@ -120,6 +143,10 @@ export class FileOps {
       let loc = app.location;
       if (!loc) loc = await newLocation(app.store.doc.name);
       if (documentVersion !== this.documentVersion) return false;
+      if (sameLocation(loc, this.savedElsewhere)) {
+        const replace = await confirmDialog('Replace the saved part?', `"${app.store.doc.name}" was saved in another tab after you opened it here. Saving replaces that version with this one.`, 'Replace', true, app.documentSignal);
+        if (!replace || documentVersion !== this.documentVersion) return false;
+      }
       // Undo replaces the document object while destination lookup is pending.
       const doc = app.store.doc;
       const text = serializeDocument(doc);
@@ -128,6 +155,7 @@ export class FileOps {
       // The write may finish after New/Open. It belongs to the old part.
       if (documentVersion !== this.documentVersion) return true;
       app.location = saved;
+      if (sameLocation(loc, this.savedElsewhere)) this.savedElsewhere = null;
       this.markSaved(revision);
       toast({ kind: 'success', message: `Saved to ${locationLabel(app.location)}`, timeout: 2500 });
       if (app.location.type === 'local' && !cloudAvailable()) {
@@ -243,7 +271,12 @@ export class FileOps {
     const signal = this.beginOpen();
     // Parts in this browser stay listed when the cloud cannot be reached.
     let cloudError = '';
+    // A slow connection can hold the dialog back for a while: say why nothing opens yet.
+    let loaded: (() => void) | null = null;
+    const slow = setTimeout(() => { loaded = toast({ message: 'Loading your parts...', timeout: 0 }); }, 400);
     const entries = await listParts((e) => { cloudError = storageError(e); });
+    clearTimeout(slow);
+    (loaded as (() => void) | null)?.();
     if (signal.aborted) return;
     // A list role needs list items, so the empty message is shown without it.
     const list = h('div', { class: 'file-list', role: 'list' });
@@ -349,7 +382,7 @@ export class FileOps {
     }
     const text = await blob.text();
     if (signal.aborted) return false;
-    if (isStepFile(fileName)) { await this.importStepText(text, fileName, signal); return false; }
+    if (isStepFile(fileName)) { await this.openStep(text, fileName, signal); return false; }
     return this.openPartText(text, loc, fileName.replace(/\.[^.]+$/, ''), signal);
   }
 
@@ -369,13 +402,19 @@ export class FileOps {
 
   /** Opens a SolidWorks part as a new part whose first feature is its solid. */
   async openSolidWorks(data: Uint8Array, fileName: string, signal = this.beginOpen()) {
-    const app = this.app;
-    // Converted and checked first: a file that cannot be opened leaves the current part alone.
     const step = await this.convertSolidWorks(data, fileName);
-    if (!step || signal.aborted) return;
+    if (step && !signal.aborted) await this.openStep(step, fileName, signal);
+  }
+
+  /** Opens a STEP model (or a converted SolidWorks part) as a new part whose first feature is its solid. */
+  private async openStep(step: string, fileName: string, signal: AbortSignal) {
+    const app = this.app;
+    const solidWorks = isSolidWorksFile(fileName);
+    // Checked first: a file that cannot be opened leaves the current part alone.
+    if (!step.trim()) { toast({ kind: 'error', title: 'Could not open the file', message: `${fileName} is empty.` }); return; }
     const err = await app.kernel.checkImport(step).catch((e) => (e as Error).message);
     if (signal.aborted) return;
-    if (err) { toast({ kind: 'error', title: 'Could not open the SolidWorks part', message: err }); return; }
+    if (err) { toast({ kind: 'error', title: solidWorks ? 'Could not open the SolidWorks part' : 'Could not open the STEP file', message: err }); return; }
     if (!(await this.confirmDiscard('open another part', signal)) || signal.aborted) return;
     const doc = newDocument(safeName(fileName.replace(/\.[^.]+$/, '')) || 'Part1', app.settings.defaultUnits);
     const blobId = newBlobId(doc);
@@ -383,7 +422,7 @@ export class FileOps {
     doc.features.push({ id: allocateId(doc), name: defaultName(doc, 'import'), type: 'import', format: 'step', blob: blobId, fileName });
     app.loadDocument(doc, null);
     app.store.dirty = true;
-    toast({ kind: 'success', message: `Opened ${fileName}. SolidWorks feature history is not included: the part is one solid body to build on.`, timeout: 7000 });
+    toast({ kind: 'success', message: solidWorks ? `Opened ${fileName}. SolidWorks feature history is not included: the part is one solid body to build on.` : `Opened ${fileName} as a new part.`, timeout: solidWorks ? 7000 : undefined });
   }
 
   /** Converts a SolidWorks part to STEP in the geometry worker; null after reporting a failure. */
@@ -430,6 +469,14 @@ export class FileOps {
         download(serializeDocument(app.store.doc), `${name}${EXT}`, 'application/json');
         return;
       }
+      // Editing a sketch or a feature shows the model rolled back to before
+      // it, and the kernel exports what it shows. Finish the sketch as Save
+      // does; an open feature may still have values it would refuse.
+      if (app.panel?.editingId) {
+        toast({ kind: 'warning', message: `Close ${app.panel.title} before exporting: the part is rolled back to the feature being edited.` });
+        return;
+      }
+      if (app.sketchEditor) app.exitSketch(true);
       // The kernel exports the body it built last: a change made just before
       // must be built first, or the file has the old geometry.
       await app.whenBuilt();

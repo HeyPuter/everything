@@ -3,11 +3,12 @@
 // geometry worker.
 
 import { convertExpressionUnits, evaluate, evaluateVariables, renameReferences, variableReferenceChanges } from './expr';
-import { PARAM_FIELDS, type ParamKind, getPath, setPath } from './features';
+import { FEATURE_LABELS, PARAM_FIELDS, type ParamKind, getPath, setPath } from './features';
 import type { Feature, Id, Param, PartDocument, SkDimension, SketchFeature, UnitSystem, Variable } from './types';
 import { isDimension } from './types';
 import { UNIT_SYSTEMS } from './units';
 import { uniqueId } from './ids';
+import { validFeature } from './validate-feature';
 import { validSketch } from './validate-sketch';
 import { validDrawing } from './validate-drawing';
 import { solveSketch } from '../sketch/solver';
@@ -47,7 +48,9 @@ export function parseDocument(text: string): PartDocument {
   if (typeof d.version === 'number' && d.version > 1) throw new Error('This part was created with a newer version of Parametric.');
   if (d.version !== 1) throw new Error('The part file is damaged (unknown version).');
   if (!Array.isArray(d.features)) throw new Error('The part file is damaged (no feature list).');
-  if (!d.features.every((f) => f && typeof f === 'object' && typeof f.id === 'string' && typeof f.type === 'string')) {
+  // Only known types: an unknown one (or "constructor", which looks up a prototype
+  // member in every per-type table) has no geometry and broke evaluation.
+  if (!d.features.every((f) => f && typeof f === 'object' && typeof f.id === 'string' && typeof f.type === 'string' && Object.hasOwn(FEATURE_LABELS, f.type))) {
     throw new Error('The part file is damaged (invalid feature).');
   }
   const featureIds = new Set<string>();
@@ -60,6 +63,7 @@ export function parseDocument(text: string): PartDocument {
   if (!d.features.every((f) => f.type !== 'sketch' || validSketch(f))) {
     throw new Error('The part file is damaged (invalid sketch).');
   }
+  if (!d.features.every(validFeature)) throw new Error('The part file is damaged (invalid feature references).');
   const units = typeof d.units === 'string' && Object.hasOwn(UNIT_SYSTEMS, d.units) ? d.units : 'MMGS';
   const base = newDocument(typeof d.name === 'string' ? d.name : undefined, units);
   // Global variables that are not variables are dropped rather than breaking every rebuild.
@@ -72,6 +76,8 @@ export function parseDocument(text: string): PartDocument {
   if (!Number.isInteger(doc.decimals) || doc.decimals < 0 || doc.decimals > 8) doc.decimals = base.decimals;
   if (doc.rollback != null && !Number.isInteger(doc.rollback)) doc.rollback = null;
   if (typeof doc.color !== 'string' || !/^#[0-9a-f]{6}$/i.test(doc.color)) doc.color = base.color;
+  // Times a Date can hold (the drawing's title block shows the modified day).
+  for (const k of ['created', 'modified'] as const) if (!Number.isFinite(doc[k]) || Math.abs(doc[k]) > 8.64e15) doc[k] = base[k];
   if (doc.material != null && !(isObj(doc.material) && typeof doc.material.name === 'string' && Number.isFinite(doc.material.density) && doc.material.density > 0)) doc.material = null;
   if (doc.drawing != null && !validDrawing(doc.drawing)) throw new Error('The part file is damaged (invalid drawing).');
   for (const f of doc.features) if (typeof f.name !== 'string' || !f.name) f.name = f.id;
@@ -192,9 +198,23 @@ function convertUnits(doc: PartDocument, units: UnitSystem, variablesAfter?: Var
       const was = before.get(`${f.id}|${fd.path}`);
       if (was !== undefined && !same(was, after.get(`${f.id}|${fd.path}`))) { setPath(f, fd.path, was); unlinked.push(`${f.name} ${fd.label}`); }
     }
-    if (f.type === 'sketch') for (const c of f.constraints) {
+    if (f.type !== 'sketch') continue;
+    let sketchUnlinked = false;
+    for (const c of f.constraints) {
       const was = before.get(`${f.id}|${c.id}`);
-      if (isDimension(c) && was !== undefined && !same(was, after.get(`${f.id}|${c.id}`))) { c.value = was; unlinked.push(`${c.name}@${f.name}`); }
+      if (isDimension(c) && was !== undefined && !same(was, after.get(`${f.id}|${c.id}`))) { c.value = was; unlinked.push(`${c.name}@${f.name}`); sketchUnlinked = true; }
+    }
+    // Stored geometry is only solved for the values its expressions had when it
+    // was last edited; a sketch whose dimensions are all numbers again is not
+    // re-solved when the part rebuilds, so give it the shape those values make.
+    if (sketchUnlinked) {
+      const st = new DocStore(doc);
+      const vars = evaluateVariables(doc.variables).values;
+      try {
+        solveSketch(f.entities, f.constraints, { value: (d) => st.dimensionValue(d, vars), analyze: false });
+      } catch {
+        /* the rebuild reports the sketch's error */
+      }
     }
   }
   return unlinked;

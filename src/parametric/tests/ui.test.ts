@@ -34,6 +34,27 @@ describe('menus', () => {
     expect(document.querySelector('.menu')).toBeNull();
   });
 
+  it('Home, End and type-ahead skip disabled items, as the arrow keys do', () => {
+    const menu = openMenu([
+      { label: 'Undo', disabled: true },
+      { label: 'Cut' },
+      { label: 'Copy' },
+      { label: 'Cancel', disabled: true },
+      { label: 'Paste', disabled: true },
+    ], 0, 0);
+    const label = () => (document.activeElement as HTMLElement).textContent;
+    key(menu, 'End');
+    expect(label()).toBe('Copy');
+    key(menu, 'Home');
+    expect(label()).toBe('Cut');
+    key(menu, 'p');
+    expect(label()).toBe('Cut');
+    key(menu, 'c');
+    expect(label()).toBe('Copy');
+    key(menu, 'c');
+    expect(label()).toBe('Cut');
+  });
+
   it('closes on Escape and supports type-ahead', () => {
     const menu = openMenu([{ label: 'Alpha' }, { label: 'Beta' }, { label: 'Gamma' }], 0, 0);
     key(menu, 'g');
@@ -131,6 +152,25 @@ describe('dialogs and toasts', () => {
     (t.querySelector('.actions button') as HTMLButtonElement).click();
     expect(act).toHaveBeenCalled();
     expect(document.querySelector('.toast')).toBeNull();
+  });
+
+  it('keeps a timed toast while keyboard focus is in it', () => {
+    vi.useFakeTimers();
+    try {
+      toast({ kind: 'error', message: 'Could not save', actions: [{ label: 'Download a copy', run: () => {} }], timeout: 1000 });
+      const button = document.querySelector<HTMLButtonElement>('.toast .actions button')!;
+      button.focus();
+      vi.advanceTimersByTime(5000);
+      expect(document.querySelector('.toast')).not.toBeNull();
+      // Focus leaving the toast restarts a short timeout.
+      button.blur();
+      vi.advanceTimersByTime(2400);
+      expect(document.querySelector('.toast')).not.toBeNull();
+      vi.advanceTimersByTime(200);
+      expect(document.querySelector('.toast')).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

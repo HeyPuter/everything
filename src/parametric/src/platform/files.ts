@@ -118,6 +118,8 @@ async function localDelete(id: string) {
 async function cloudWrite(path: string, text: string) {
   const fs = puter()?.fs;
   if (!fs) throw new Error('Puter storage is not available.');
+  // Signed out (in another tab, say): writing would open Puter's sign-in instead.
+  if (!cloudAvailable()) throw new Error('Sign in to Puter to save this part to your cloud, or use Save As to keep it in this browser.');
   return fs.write(path, new Blob([text], { type: 'application/json' }), { overwrite: true, createMissingParents: true });
 }
 
@@ -164,11 +166,65 @@ export async function saveText(location: Location, name: string, text: string): 
     const item = await cloudWrite(location.path, text);
     const loc: Location = { type: 'cloud', path: item?.path || location.path };
     rememberRecent({ location: loc, name });
+    announceSaved(loc);
     return loc;
   }
   await localWrite(location.id, name, text);
   rememberRecent({ location, name });
+  announceSaved(location);
   return location;
+}
+
+// ---- Saves made in other tabs of this browser ----
+// A tab that still has an older version of the same part open must not
+// silently replace the newer file when it saves.
+
+const savesChannel = typeof BroadcastChannel === 'function' ? new BroadcastChannel('parametric-saves') : null;
+
+// ---- The list of parts changed (a save, rename or delete here or in another tab) ----
+
+const partsListeners = new Set<() => void>();
+
+/** Calls `fn` after a part is saved, renamed or deleted (in this tab or another). Returns an unsubscribe. */
+export function onPartsChanged(fn: () => void): () => void {
+  partsListeners.add(fn);
+  return () => partsListeners.delete(fn);
+}
+
+function partsChanged() {
+  for (const fn of partsListeners) fn();
+}
+savesChannel?.addEventListener('message', () => partsChanged());
+
+export function announceSaved(location: Location) {
+  partsChanged();
+  try {
+    savesChannel?.postMessage({ type: 'saved', location });
+  } catch {
+    /* other tabs are not told */
+  }
+}
+
+const messageLocation = (loc: unknown): Location | null =>
+  !record(loc) ? null
+    : loc.type === 'cloud' && nonempty(loc.path) ? { type: 'cloud', path: loc.path }
+      : loc.type === 'local' && nonempty(loc.id) ? { type: 'local', id: loc.id } : null;
+
+/** Calls `fn` when another tab of this browser saves a part. */
+export function onSavedElsewhere(fn: (location: Location) => void) {
+  savesChannel?.addEventListener('message', (e: MessageEvent) => {
+    const loc = record(e.data) && e.data.type === 'saved' ? messageLocation(e.data.location) : null;
+    if (loc) fn(loc);
+  });
+}
+
+/** Calls `fn` when another tab of this browser renames a cloud part's file. */
+export function onRenamedElsewhere(fn: (from: Location, to: Location, name: string) => void) {
+  savesChannel?.addEventListener('message', (e: MessageEvent) => {
+    if (!record(e.data) || e.data.type !== 'renamed' || !nonempty(e.data.name)) return;
+    const from = messageLocation(e.data.from), to = messageLocation(e.data.to);
+    if (from && to) fn(from, to, e.data.name);
+  });
 }
 
 export async function loadText(location: Location): Promise<string> {
@@ -179,11 +235,21 @@ export async function deletePart(location: Location) {
   if (location.type === 'cloud') await puter()!.fs.delete(location.path);
   else await localDelete(location.id);
   forgetRecent(location);
+  partsChanged();
 }
 
 export async function renameCloud(location: Location & { type: 'cloud' }, newName: string): Promise<Location> {
+  if (!cloudAvailable()) throw new Error('Sign in to Puter to rename parts saved in your cloud.');
   const item = await puter()!.fs.rename(location.path, `${safeName(newName)}${EXT}`);
-  return { type: 'cloud', path: item?.path || location.path.replace(/[^/]+$/, `${safeName(newName)}${EXT}`) };
+  const renamed: Location = { type: 'cloud', path: item?.path || location.path.replace(/[^/]+$/, `${safeName(newName)}${EXT}`) };
+  partsChanged();
+  // Another tab with the part open would otherwise save it under its old name again.
+  try {
+    savesChannel?.postMessage({ type: 'renamed', from: location, to: renamed, name: safeName(newName) });
+  } catch {
+    /* other tabs are not told */
+  }
+  return renamed;
 }
 
 /**
@@ -269,7 +335,9 @@ export async function pickCloudSave(text: string, name: string): Promise<Locatio
   const pick = p.ui.showSaveFilePicker(new Blob([text], { type: 'application/json' }), `${safeName(name)}${EXT}`);
   const item = await (pick?.undefinedOnCancel ?? pick);
   if (!item) return null;
-  return { type: 'cloud', path: item.path };
+  const location: Location = { type: 'cloud', path: item.path };
+  announceSaved(location);
+  return location;
 }
 
 /** Reads a file from the user's device. */

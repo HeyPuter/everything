@@ -141,3 +141,18 @@ test('Enter operates a dialog select without applying the dialog', async ({ page
   await expect(page).toHaveTitle('* Pending edits - Parametric');
   expect(errors).toEqual([]);
 });
+
+test('a long unbroken feature name wraps inside a confirmation on a phone', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await page.evaluate(() => {
+    const a = (window as unknown as Handle).__parametric;
+    const fillet = a.store.doc.features.find((f) => f.type === 'fillet')!;
+    a.store.change('Rename', (d) => { d.features.find((f) => f.id === fillet.id)!.name = 'Fillet'.repeat(14); });
+    void a.deleteFeatures([fillet.id]);
+  });
+  const body = page.getByRole('dialog', { name: 'Delete', exact: true }).locator('.dialog-body');
+  await expect(body).toContainText('FilletFillet');
+  expect(await body.evaluate((el) => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(0);
+});
