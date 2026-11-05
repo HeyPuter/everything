@@ -8220,6 +8220,7 @@ export function createEditor({
       {
         label: 'Go to page…',
         icon: 'Hash',
+        shortcut: 'Mod+Alt+G',
         disabled: !pdf || pdf.numPages < 2 || busy,
         onSelect: safe(goToPage),
       },
@@ -12987,6 +12988,13 @@ export function createEditor({
     !/[\x00-\x7f]/.test(e.key)
       ? e.code.slice(3).toLowerCase()
       : e.key.toLowerCase();
+  /**
+   * Whether Alt with Ctrl or ⌘ goes with G. Option changes the letter a Mac reports (⌥G is "©"),
+   * so the key's place names it then; AltGr, which Windows reports as Ctrl and Alt, types instead.
+   */
+  const goToPageKey = (e) =>
+    !e.getModifierState?.('AltGraph') &&
+    (e.key.toLowerCase() === 'g' || (e.code === 'KeyG' && !/^[a-z]$/i.test(e.key)));
   function onKey(e) {
     // Native dialogs own the keyboard while open, including Escape.
     if (e.isComposing || document.querySelector('dialog[open]')) return;
@@ -13097,7 +13105,12 @@ export function createEditor({
       // Fit page, actual size, and fit width, as desktop PDF editors bind them.
       e.preventDefault();
       safe(() => setZoom({ 0: 'page', 1: '1', 2: 'fit' }[e.key]))();
-    } else if (modifier && e.shiftKey && !e.altKey && key === 'n') {
+    } else if (
+      (modifier && e.shiftKey && !e.altKey && key === 'n') ||
+      (modifier && e.altKey && !e.shiftKey && goToPageKey(e))
+    ) {
+      // Ctrl/⌘ Shift N is Acrobat's binding, but Chrome, Edge, and Safari keep it for a new
+      // private window and the page never hears it; Ctrl/⌘ Alt G (Preview's) always arrives.
       e.preventDefault();
       if (pdf && pdf.numPages > 1 && !busy) safe(goToPage)();
     } else if (modifier && !e.shiftKey && !e.altKey && key === 'd') {

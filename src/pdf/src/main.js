@@ -318,7 +318,7 @@ function shortcuts() {
         ['Fit width', 'Ctrl / ⌘ 2'],
         ['Previous / next page', 'Alt ← / →'],
         ['First / last page', 'Home / End'],
-        ['Go to page', 'Ctrl / ⌘ Shift N'],
+        ['Go to page', 'Ctrl / ⌘ Alt G'],
         ['Rotate the page clockwise', 'Ctrl / ⌘ Shift R'],
         ['Delete the page', 'Ctrl / ⌘ Shift D'],
         ['Document properties', 'Ctrl / ⌘ D'],
