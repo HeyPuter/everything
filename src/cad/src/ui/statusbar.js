@@ -21,6 +21,14 @@ export const TOGGLES = [
   { key: 'selPreview', label: 'Selection preview', icon: 'sel-cycle' },
 ];
 
+const TAU = 2 * Math.PI;
+
+/** A direction as 0 up to (not including) a full turn, as displayed: just below 0 reads 0, not 360. */
+export function formatDirection(a, hd) {
+  const text = formatAngle(((a % TAU) + TAU) % TAU, hd);
+  return text === formatAngle(TAU, hd) ? formatAngle(0, hd) : text;
+}
+
 export class StatusBar {
   constructor(app) {
     this.app = app;
@@ -94,7 +102,7 @@ export class StatusBar {
     if (this.coordMode === 'rel' && base) {
       const d = Math.hypot(x - base.x, y - base.y);
       const a = Math.atan2(y - base.y, x - base.x);
-      this.coords.textContent = `${formatLinear(d, hd)} < ${formatAngle(((a % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI), hd)}`;
+      this.coords.textContent = `${formatLinear(d, hd)} < ${formatDirection(a, hd)}`;
     } else this.coords.textContent = `${formatLinear(x, hd)}, ${formatLinear(y, hd)}`;
   }
 
