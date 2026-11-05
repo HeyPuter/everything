@@ -237,11 +237,12 @@ function dropCollinear(pts, tol) {
 /**
  * Remove the invalid parts of a closed raw offset: split it at its
  * self-intersections, drop the pieces that come closer than d to the source
- * primitives and stitch the rest into closed loops. Returns a list of
+ * primitives or leave the side accepted by onSide (optional), and stitch the
+ * rest into closed loops. Returns a list of
  * stride-3 point lists (empty when nothing is valid) or null when the pieces
  * cannot be stitched (the caller then keeps the raw offset).
  */
-function clipClosedOffset(pts, srcPrims, d) {
+function clipClosedOffset(pts, srcPrims, d, onSide) {
   const m = segmentCount(pts, true);
   const prims = toPrims({ type: 'polyline', pts, closed: true });
   let scale = 0,
@@ -267,7 +268,7 @@ function clipClosedOffset(pts, srcPrims, d) {
     for (const f of [0.25, 0.5, 0.75]) {
       const q = polyPointAt(pts, true, u0 + (u1 - u0) * f);
       const c = closestOnPrims(srcPrims, q.x, q.y);
-      if (c && c.d2 < minD * minD) return false;
+      if ((c && c.d2 < minD * minD) || (onSide && !onSide(q.x, q.y))) return false;
     }
     return true;
   };
@@ -374,17 +375,25 @@ export function offsetEntity(ent, dist, sideX, sideY, opts) {
     case 'polyline': {
       const closed = !!ent.closed;
       let side;
+      let onSide = null;
       const area = closed ? signedAreaPolyline(ent.pts, true) : 0;
       if (closed && Math.abs(area) > 0) {
-        const ring = bulgePolyPoints(ent.pts, true, Math.sqrt(Math.abs(area)) * 1e-4);
+        const size = Math.sqrt(Math.abs(area));
+        const ring = bulgePolyPoints(ent.pts, true, size * 1e-4);
         const inside = pointInPolygon(sideX, sideY, ring);
         side = (inside ? 1 : -1) * (area > 0 ? 1 : -1);
+        // Valid offset points lie on the picked side, at least d from the edges.
+        let fine = null;
+        onSide = (x, y) => {
+          fine ??= bulgePolyPoints(ent.pts, true, Math.min(size * 1e-4, d * 0.05));
+          return pointInPolygon(x, y, fine) === inside;
+        };
       } else side = pickSide(toPrims(ent), sideX, sideY);
       if (!side) return null;
       const r = offsetPolylinePts(ent.pts, closed, d * side);
       if (!r) return null;
       if (!closed) return polylineFrom(ent, r.pts, false);
-      const loops = clipClosedOffset(r.pts, toPrims(ent), d);
+      const loops = clipClosedOffset(r.pts, toPrims(ent), d, onSide);
       if (!loops) return polylineFrom(ent, r.pts, true);
       if (!loops.length) return null;
       const out = loops.map((pts) => polylineFrom(ent, pts, true));

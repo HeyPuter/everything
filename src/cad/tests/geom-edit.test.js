@@ -114,6 +114,23 @@ describe('offset', () => {
     expect(o.pts).toHaveLength(12);
     close(areaOf(o), 18 * 18);
   });
+  it('drops offset loops that end up outside the shape', () => {
+    // Collapsing inward offset whose raw corners overshoot far outside.
+    const pts = [
+      7.119, 0, 0, 6.424, 2.661, -0.265, 5.419, 5.419, 0, 2.141, 5.17, 0, 0, 9.795, -0.154, -1.494,
+      3.608, 0, -6.145, 6.145, 0, -7.271, 3.012, -0.004, -5.106, 0, 0, -2.866, -1.187, 0, -3.483,
+      -3.483, 0, -2.88, -6.954, 0, 0, -7.483, 0, 1.22, -2.946, -0.263, 5.373, -5.373, 0, 8.483,
+      -3.514, 0,
+    ];
+    const p = { type: 'polyline', pts, closed: true, width: 0 };
+    const o = offsetEntity(p, 3, 0, 0);
+    expect(Array.isArray(o)).toBe(false);
+    const [{ pts: ring }] = tessellate(o, 1e-4);
+    for (let i = 0; i < ring.length; i += 2) {
+      expect(distanceTo(p, ring[i], ring[i + 1])).toBeGreaterThan(3 - 1e-9);
+    }
+    close(areaOf(o), 6.9085, 1e-4);
+  });
   it('offsets open polylines with tangent arcs keeping a constant distance', () => {
     const b = Math.tan(Math.PI / 8);
     const p = { type: 'polyline', pts: [0, 0, 0, 10, 0, b, 15, 5, 0, 15, 20, 0], closed: false, width: 0 };
