@@ -325,15 +325,17 @@ export class App {
   async closeDrawing(arg) {
     const doc = arg instanceof Doc ? arg : this.doc;
     if (!doc || doc._closing) return;
-    doc._closing = true;
-    try {
-      if (doc.drawing.modified) {
-        const r = await unsavedDialog(doc.name);
-        if (r === null) return;
-        if (r === 'save' && !(await this.save(doc))) return;
+    if (doc.drawing.modified) {
+      // Guard only the prompt: Puter's save picker never settles when cancelled.
+      doc._closing = true;
+      let r;
+      try {
+        r = await unsavedDialog(doc.name);
+      } finally {
+        doc._closing = false;
       }
-    } finally {
-      doc._closing = false;
+      if (r === null) return;
+      if (r === 'save' && !(await this.save(doc))) return;
     }
     const i = this.docs.indexOf(doc);
     // Already closed while the prompt or save was pending.
