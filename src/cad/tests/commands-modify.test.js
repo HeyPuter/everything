@@ -372,3 +372,16 @@ describe('EXTEND', () => {
     expect(t.drawing.get(1).x2).toBeCloseTo(50);
   });
 });
+
+describe('ARRAYPOLAR', () => {
+  it('asks again instead of stacking copies for a zero angle to fill', async () => {
+    add({ type: 'circle', cx: 10, cy: 0, r: 1 });
+    t.ed.setSelection([1]);
+    await t.type('ARRAYPOLAR', '0,0', '4', '0');
+    expect(t.all('circle')).toHaveLength(1);
+    expect(t.ed.busy).toBe(true);
+    await t.type('-180', 'Y');
+    const ys = t.all('circle').map((c) => Math.round(c.cy * 1000) / 1000 + 0);
+    expect(ys).toEqual([0, -8.66, -8.66, 0]);
+  });
+});

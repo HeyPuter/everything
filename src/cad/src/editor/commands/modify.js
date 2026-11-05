@@ -565,8 +565,14 @@ export const ARRAYPOLAR = {
     const n0 = await ed.getNumber('Number of items', { default: ed.polarItems ?? 6, min: 2, max: 10000 });
     if (!Number.isFinite(n0)) return;
     const n = Math.max(2, Math.round(n0));
-    const fill = await ed.getAngle('Angle to fill (+ counter-clockwise, - clockwise)', { default: TAU });
-    if (typeof fill !== 'number') return;
+    let fill;
+    for (;;) {
+      fill = await ed.getAngle('Angle to fill (+ counter-clockwise, - clockwise)', { default: TAU });
+      if (typeof fill !== 'number') return;
+      // A zero angle would stack every copy on the original.
+      if (Math.abs(fill) > 1e-9) break;
+      ed.ui.log('The angle to fill cannot be zero.', 'error');
+    }
     const rot = await ed.getKeyword('Rotate items as copied?', opts('Yes', 'No'), 'yes');
     if (rot === null) return;
     ed.polarItems = n;
