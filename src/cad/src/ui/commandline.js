@@ -67,7 +67,10 @@ export class CommandLine {
       this._suggest();
       this.app.editor?.drawOverlay();
     });
-    inp.addEventListener('blur', () => setTimeout(() => this._hideSuggest(), 120));
+    // Later, so a click on a suggestion still lands; not when typing has refocused the line.
+    inp.addEventListener('blur', () =>
+      setTimeout(() => document.activeElement !== inp && this._hideSuggest(), 120),
+    );
   }
 
   _key(e) {
