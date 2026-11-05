@@ -139,7 +139,7 @@ export async function equationsDialog(app: App) {
     for (const [id, was] of originalNames) {
       const value = before.get(was);
       if (rows.some((r) => r.id === id || r.name === was) || value === undefined) continue;
-      const text = String(Number(value.toPrecision(12)));
+      const text = String(value);
       renamed.set(was, value < 0 ? `(${text})` : text);
     }
     app.store.change('Edit equations', (d) => {

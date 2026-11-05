@@ -3,6 +3,37 @@ import { openApp } from './helpers';
 
 type Handle = { __parametric: import('../../src/app/app').App };
 
+for (const sign of [1, -1]) test(`deleting a variable preserves the exact linked value with sign ${sign}`, async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  const before = await page.evaluate(async (sign) => {
+    const a = (window as unknown as Handle).__parametric;
+    a.store.change('Link precise value', (d) => {
+      d.variables = [{ id: 'precise', name: 'Width', expr: String(sign * 1000000000001) }];
+      const f = d.features.find((f) => f.type === 'extrude')!;
+      if (f.type === 'extrude') f.depth = `=${sign < 0 ? '-' : ''}Width - 1000000000000`;
+    });
+    await a.whenBuilt();
+    const f = a.store.doc.features.find((f) => f.type === 'extrude')!;
+    const depth = f.type === 'extrude' ? a.store.evalParam(f.depth, 'length') : null;
+    a.commands.run('equations');
+    return depth;
+  }, sign);
+  expect(before).toBe(1);
+  const dialog = page.getByRole('dialog', { name: 'Equations and Global Variables', exact: true });
+  await dialog.getByRole('button', { name: 'Delete Width', exact: true }).click();
+  await dialog.getByRole('button', { name: 'OK', exact: true }).click();
+  const after = await page.evaluate(async () => {
+    const a = (window as unknown as Handle).__parametric;
+    await a.whenBuilt();
+    const f = a.store.doc.features.find((f) => f.type === 'extrude')!;
+    return f.type === 'extrude' ? a.store.evalParam(f.depth, 'length') : null;
+  });
+  expect(after).toBe(before);
+  await expect(page.locator('.ti.error')).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
 test('replacing a deleted variable under a repeated clock preserves the old linked value', async ({ page }) => {
   const errors = await openApp(page);
   await page.getByRole('button', { name: /Mounting Bracket/ }).click();
