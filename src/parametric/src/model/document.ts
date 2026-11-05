@@ -138,7 +138,7 @@ export function changeUnits(doc: PartDocument, units: UnitSystem): string[] {
   const k = UNIT_SYSTEMS[doc.units].scale / UNIT_SYSTEMS[units].scale;
   const values = (d: PartDocument) => {
     const st = new DocStore(d);
-    const vars = st.resolve().variables;
+    const vars = evaluateVariables(d.variables).values;
     const out = new Map<string, number>();
     for (const f of d.features) {
       for (const fd of PARAM_FIELDS[f.type] ?? []) {
