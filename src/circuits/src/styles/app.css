@@ -409,6 +409,10 @@ table.grid td input[type='checkbox'] { accent-color: var(--accent); }
   .toasts { left: 8px; right: 8px; align-items: stretch; bottom: 64px; }
   .toast { max-width: none; }
 }
+/* While a modal dialog is open, notices move to the top and let clicks through,
+   so they never cover or catch clicks meant for the dialog's fields and buttons. */
+body:has(> .dialog-backdrop) .toasts { top: 12px; bottom: auto; }
+body:has(> .dialog-backdrop) .toast { pointer-events: none; }
 
 /* Selected-tab underline (a positioned bar rather than a shadow). */
 .dock-tabs button, .layer-tab, .lib-modes > button[role='tab'], .tabs-row button { position: relative; }
