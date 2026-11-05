@@ -700,6 +700,18 @@ export class App {
 
   /** Files opened from the Puter desktop (double click on a .cad, .dwg or .dxf). */
   async handleLaunchItems() {
+    // Files opened with the installed app (manifest file_handlers).
+    window.launchQueue?.setConsumer(async (params) => {
+      for (const handle of params?.files || []) {
+        try {
+          const f = await handle.getFile();
+          const file = { source: 'device', handle, path: null };
+          await this.openBuffer(await f.arrayBuffer(), f.name, file);
+        } catch (err) {
+          this.fileError('open', err);
+        }
+      }
+    });
     if (!(await platform.whenPuter())) return;
     try {
       if (platform.puterEnv() !== 'app') return;
