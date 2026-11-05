@@ -1192,11 +1192,11 @@ export class App {
 
   // ---------- sketch mode ----------
 
-  private sketchUndoMark = 0;
+  private restoreSketch: (() => void) | null = null;
 
   /** Starts a new sketch on a plane or planar face. */
   startSketchOn(ref: PlaneRef) {
-    const mark = this.store.undoDepth;
+    const restore = this.store.restorePoint('Sketch changes');
     const id = this.store.nextId('s');
     const at = this.store.builtCount;
     const frame = this.frameOfPlane(ref);
@@ -1207,18 +1207,18 @@ export class App {
       doc.features.splice(at, 0, sk);
       if (doc.rollback != null) doc.rollback = at + 1;
     });
-    this.editSketch(id, mark);
+    this.editSketch(id, restore);
   }
 
   /** Opens sketch editing (rolls the model back to just before the sketch). */
-  editSketch(id: Id, undoMark?: number) {
+  editSketch(id: Id, restore?: () => void) {
     const sk = this.store.feature<SketchFeature>(id);
     if (!sk) return;
     if (this.panel) void this.closePanel(false);
     if (this.sketchEditor) this.exitSketch(true);
     const frame = this.frameOfSketch(sk) ?? BASE_FRAMES.front;
     this.sketchEditor = new SketchEditor(this, id, frame);
-    this.sketchUndoMark = undoMark ?? this.store.undoDepth;
+    this.restoreSketch = restore ?? this.store.restorePoint('Sketch changes');
     this.viewport.tool = this.sketchEditor;
     this.selection.clear();
     this.selection.setHover(null);
@@ -1254,6 +1254,7 @@ export class App {
     ed.setTool(null);
     ed.dispose();
     this.sketchEditor = null;
+    this.restoreSketch = null;
     this.viewport.tool = null;
     this.shell.confirm.hidden = true;
     this.renderConfirmCorner();
@@ -1280,9 +1281,9 @@ export class App {
     if (!ed) return;
     const ok = await confirmDialog('Discard changes?', 'Leave the sketch and undo the changes made since you started editing it?', 'Discard changes', true);
     if (!ok) return;
+    const restore = this.restoreSketch;
     this.exitSketch(false);
-    // Undo back to the state recorded when editing started.
-    while (this.store.canUndo && this.store.undoDepth > this.sketchUndoMark) this.store.undo();
+    restore?.();
   }
 
   exitModes() {

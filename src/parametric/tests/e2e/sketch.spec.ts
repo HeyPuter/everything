@@ -287,3 +287,27 @@ test.describe('sketching', () => {
     expect(errors).toEqual([]);
   });
 });
+
+test('discard restores sketch edits even after the undo history fills', async ({ page }) => {
+  const errors = await openApp(page);
+  await startSketch(page);
+  const state = () => page.evaluate(() => {
+    const app = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+    return app.store.doc.features.map((f) => f.type === 'sketch' ? f.entities : []);
+  });
+  await page.evaluate(() => {
+    const app = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+    // More edits than the bounded history can retain in one sketch session.
+    for (let i = 0; i < 125; i++) app.sketchEditor!.edit('Add point', (sk) => {
+      sk.entities.push({ id: `p${i}`, t: 'point', x: i, y: 10 });
+    });
+  });
+  expect((await state())[0]).toHaveLength(125);
+  await page.getByRole('button', { name: 'Discard sketch changes', exact: true }).click();
+  await page.getByRole('button', { name: 'Discard changes', exact: true }).click();
+  await expect.poll(state).toEqual([]);
+  // Discard can itself be taken back, even when individual edits aged out.
+  await page.keyboard.press('ControlOrMeta+Shift+z');
+  await expect.poll(async () => (await state())[0]?.length).toBe(125);
+  expect(errors).toEqual([]);
+});

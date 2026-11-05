@@ -202,3 +202,34 @@ describe('document store', () => {
     expect(e.depth).toBeCloseTo(25, 9);
   });
 });
+
+describe('restorable editing sessions', () => {
+  it('restores the document and prior history after more edits than the undo limit', () => {
+    const st = new DocStore();
+    st.change('Rename', (d) => { d.name = 'Before'; });
+    const restore = st.restorePoint('Sketch changes');
+    for (let i = 0; i < 125; i++) st.change('Edit', (d) => { d.name = `Edit ${i}`; });
+    restore();
+    expect(st.doc.name).toBe('Before');
+    expect(st.undoLabel).toBe('Rename');
+    expect(st.redoLabel).toBe('Sketch changes');
+    st.redo();
+    expect(st.doc.name).toBe('Edit 124');
+    st.undo();
+    expect(st.doc.name).toBe('Before');
+    st.undo();
+    expect(st.doc.name).toBe('Part1');
+  });
+
+  it('restores an editing session even after undo crosses its starting point', () => {
+    const st = new DocStore();
+    st.change('Rename', (d) => { d.name = 'Before'; });
+    const restore = st.restorePoint('Sketch changes');
+    st.undo();
+    restore();
+    expect(st.doc.name).toBe('Before');
+    expect(st.undoLabel).toBe('Rename');
+    st.undo();
+    expect(st.doc.name).toBe('Part1');
+  });
+});

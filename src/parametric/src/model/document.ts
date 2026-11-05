@@ -217,6 +217,29 @@ export class DocStore {
     this.doc = { ...(JSON.parse(snap) as PartDocument), blobs };
   }
 
+  /**
+   * Captures an editing session's starting state independently of the bounded
+   * undo history. Calling the result restores that state and its history;
+   * the discarded session can be redone as one step. Snapshot strings are
+   * shared with history and large import blobs are never copied.
+   */
+  restorePoint(label: string): () => void {
+    const snap = this.snapshot();
+    const undo = [...this.undoStack], redo = [...this.redoStack];
+    const dropped = this.dropped;
+    return () => {
+      const current = this.snapshot();
+      this.batchDepth = 0;
+      this.batchSnap = null;
+      this.restore(snap);
+      this.undoStack = [...undo];
+      this.redoStack = current === snap ? [...redo] : [{ snap: current, label }];
+      this.dropped = dropped;
+      if (current !== snap) this.dirty = true;
+      this.emit('undo');
+    };
+  }
+
   /** Applies a change as one undoable step. */
   change(label: string, fn: (doc: PartDocument) => void, reason = 'change') {
     if (this.batchDepth > 0) {
