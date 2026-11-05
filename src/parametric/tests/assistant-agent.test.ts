@@ -546,6 +546,35 @@ describe('assistant agent', () => {
     expect(seen.map((o) => o.provider)).toEqual(['claude', undefined]);
   });
 
+  it('says which step the model has begun writing before its call is complete', async () => {
+    let options: Record<string, unknown> = {};
+    async function* stream() {
+      yield { type: 'text', text: 'Sketching.' };
+      yield { type: 'tool_use_start', id: 't1', name: 'create_sketch' };
+      yield { type: 'tool_input_delta', id: 't1', partialJson: '{"plane":' };
+      yield { type: 'tool_input_delta', id: 't1', partialJson: '"top"}' };
+      yield { type: 'tool_use', id: 't1', name: 'create_sketch', input: { plane: 'top' } };
+    }
+    (globalThis as unknown as { puter?: unknown }).puter = { ai: { chat: async (_m: unknown, o: Record<string, unknown>) => { options = o; return stream(); } } };
+    const events: string[] = [];
+    try {
+      const agent = createAgent({
+        chat: puterChat, tools: () => [{ type: 'function', function: { name: 'create_sketch', description: '', parameters: {} } }],
+        runTool: async () => ({ ok: true, content: 'done' }), system: 'S', snapshot: () => '', model: () => 'm',
+      });
+      let n = 0;
+      await agent.send('sketch', (e) => {
+        events.push(e.type === 'writing' ? `writing ${e.name}` : e.type === 'step' ? `${e.step.name} ${e.step.status}` : e.type);
+        if (e.type === 'step' && e.step.status === 'done' && n++ === 0) (globalThis as unknown as { puter: { ai: { chat: unknown } } }).puter.ai.chat = async () => ({ message: { content: 'ok' } });
+      });
+    } finally {
+      delete (globalThis as unknown as { puter?: unknown }).puter;
+    }
+    expect(options.streamToolInput).toBe(true);
+    // The pieces of the arguments are not text; the call runs once, whole.
+    expect(events.slice(0, 4)).toEqual(['text', 'writing create_sketch', 'create_sketch running', 'create_sketch done']);
+  });
+
   it('lets the model call several tools in one reply, and runs no further changes after one fails', async () => {
     let options: Record<string, unknown> = {};
     (globalThis as unknown as { puter?: unknown }).puter = { ai: { chat: async (_m: unknown, o: Record<string, unknown>) => { options = o; return { message: { content: 'ok' } }; } } };

@@ -255,6 +255,29 @@ test('trying again after a reply broke off mid-sentence leaves only the new repl
   await expect(page.locator('.as-bot')).toHaveCount(1);
 });
 
+test('the status says which step the model is writing before the step is complete', async ({ page }) => {
+  await page.addInitScript(() => {
+    const w = window as unknown as { __release: () => void; __assistantChat: unknown };
+    let n = 0;
+    w.__assistantChat = async function* () {
+      if (n++ > 0) { yield { type: 'text', text: 'Sketched.' }; return; }
+      yield { type: 'toolStart', name: 'create_sketch' };
+      await new Promise<void>((r) => { w.__release = r; });
+      yield { type: 'tool', id: 'c1', name: 'create_sketch', input: { plane: 'top', shapes: [{ type: 'circle', center: [0, 0], radius: 5 }] } };
+    };
+  });
+  await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  const box = page.getByRole('textbox', { name: 'Message the assistant' });
+  await box.fill('a circle');
+  await box.press('Enter');
+  await expect(page.locator('.as-status')).toHaveText('Create a sketch…');
+  await page.waitForFunction(() => typeof (window as unknown as { __release?: () => void }).__release === 'function');
+  await page.evaluate(() => (window as unknown as { __release: () => void }).__release());
+  await expect(page.getByText('Sketched.')).toBeVisible();
+  await expect(page.locator('.as-step.done')).toHaveText(/Sketch on top/);
+});
+
 test('a reply the service was too busy for is sent again by itself', async ({ page }) => {
   await page.addInitScript(() => {
     const w = window as unknown as { __calls: number; __assistantChat: unknown };

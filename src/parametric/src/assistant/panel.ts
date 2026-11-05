@@ -39,22 +39,22 @@ export function stepLabel(name: string, a: Record<string, unknown>): string {
   if (featureNames[name]) return `Add ${featureNames[name].toLowerCase()}${a.name ? ` "${s(a.name)}"` : ''}`;
   switch (name) {
     case 'get_model': return 'Read the part';
-    case 'get_sketch': return `Read sketch ${s(a.sketch)}`;
+    case 'get_sketch': return a.sketch ? `Read sketch ${s(a.sketch)}` : 'Read a sketch';
     case 'find_geometry': return `Find ${a.kind === 'edges' ? 'edges' : 'faces'}`;
     case 'measure': return 'Measure';
     case 'mass_properties': return 'Mass properties';
     case 'calculate': return 'Calculate';
     case 'capture_view': return `Look at the model${a.orientation ? ` (${s(a.orientation)})` : ''}`;
-    case 'create_sketch': return `Sketch on ${s(a.plane)}`;
-    case 'edit_sketch': return `Edit sketch ${s(a.sketch)}`;
-    case 'edit_feature': return `Edit ${s(a.feature)}`;
-    case 'delete_features': return `Delete ${Array.isArray(a.features) ? a.features.join(', ') : s(a.features)}`;
+    case 'create_sketch': return a.plane ? `Sketch on ${s(a.plane)}` : 'Create a sketch';
+    case 'edit_sketch': return a.sketch ? `Edit sketch ${s(a.sketch)}` : 'Edit a sketch';
+    case 'edit_feature': return a.feature ? `Edit ${s(a.feature)}` : 'Edit a feature';
+    case 'delete_features': return a.features ? `Delete ${Array.isArray(a.features) ? a.features.join(', ') : s(a.features)}` : 'Delete features';
     case 'set_rollback': return 'Move the rollback bar';
     case 'set_variables': return 'Set variables';
     case 'set_part': return 'Part properties';
     case 'set_view': return 'Change the view';
     case 'drawing': return 'Drawing';
-    case 'run_command': return `Run ${s(a.command).replace(/_/g, ' ')}`;
+    case 'run_command': return a.command ? `Run ${s(a.command).replace(/_/g, ' ')}` : 'Run a command';
     default: return name;
   }
 }
@@ -517,6 +517,8 @@ export class AssistantPanel {
           }
           this.renderStep(turn, turn.steps, e.step);
           if (this.status.textContent !== 'Stopping…') this.setStatus(e.step.status === 'running' ? `${stepLabel(e.step.name, e.step.args)}…` : 'Thinking…');
+        } else if (e.type === 'writing') {
+          if (this.status.textContent !== 'Stopping…') this.setStatus(`${stepLabel(e.name, {})}…`);
         } else if (e.type === 'round') {
           turn.draft = null;
           this.setStatus('Thinking…');

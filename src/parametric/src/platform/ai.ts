@@ -28,6 +28,8 @@ export type ChatMessage =
 export type StreamPart =
   | { type: 'text'; text: string }
   | { type: 'tool'; id: string; name: string; input: Record<string, unknown> }
+  /** The model has begun writing a call to this tool (its arguments are still coming). */
+  | { type: 'toolStart'; name: string }
   /** The reply stopped at the output token limit. */
   | { type: 'cut' };
 
@@ -197,6 +199,9 @@ export async function* puterChat(messages: ChatMessage[], opts: ChatOptions = {}
     // Puter lets the model call one tool per reply unless asked: independent
     // reads (the part, its edges, a sketch) would each cost a round trip.
     options.parallelToolCalls = true;
+    // Say when a call begins, not only when it is complete: a sketch of many
+    // shapes can take the model a minute to write.
+    options.streamToolInput = true;
   }
   if (opts.maxTokens) options.max_tokens = opts.maxTokens;
   // The SDK aborts its request on the signal. The stream is also ended
@@ -218,6 +223,7 @@ export async function* puterChat(messages: ChatMessage[], opts: ChatOptions = {}
         if (!part) continue;
         if (part.type === 'error' || (part.success === false && part.error)) throw aiError(part.error ?? part);
         if (part.type === 'tool_use') yield { type: 'tool', id: String(part.id ?? newCallId()), name: String(part.name ?? ''), input: toolInput(part.input) };
+        else if (part.type === 'tool_use_start') yield { type: 'toolStart', name: String(part.name ?? '') };
         else if (part.type === 'usage') {
           // Puter ends a reply the account's credits ran out during as if it reached the length limit.
           if ((part.metadata as { usage_limited?: boolean } | undefined)?.usage_limited) {

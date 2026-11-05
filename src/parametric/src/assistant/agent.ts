@@ -47,6 +47,8 @@ export interface Step {
 export type AgentEvent =
   | { type: 'text'; text: string }
   | { type: 'step'; step: Step }
+  /** The model has begun writing a call to this tool. */
+  | { type: 'writing'; name: string }
   | { type: 'round' }
   /** A request failed in a way that may pass: it is sent again after a wait. */
   | { type: 'retry'; attempt: number; error: Error }
@@ -246,6 +248,7 @@ export function createAgent(o: AgentOptions) {
               const part = next.value;
               if (part.type === 'text') { text += part.text; endedInCall = false; emit({ type: 'text', text: part.text }); }
               else if (part.type === 'tool') { calls.push({ id: part.id || newId(), name: part.name, input: part.input }); endedInCall = true; }
+              else if (part.type === 'toolStart') emit({ type: 'writing', name: part.name });
               else if (part.type === 'cut') wasCut = true;
             }
             break;
