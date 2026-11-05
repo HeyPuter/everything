@@ -293,6 +293,7 @@ a.icon-btn { text-decoration: none; }
 .triad { position: absolute; left: 6px; bottom: 6px; width: 74px; height: 74px; z-index: 3; cursor: pointer; }
 .triad text { font: 600 11px var(--font); }
 .flyout-tree { position: absolute; left: 8px; top: 8px; z-index: 3; max-width: 260px; }
+.flyout-tree.below-hud { top: 48px; }
 .flyout-tree > button { display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 8px; border: 1px solid var(--border); border-radius: var(--radius); background: color-mix(in srgb, var(--panel) 90%, transparent); font-size: var(--fs-sm); }
 .flyout-tree .ft-body { margin-top: 4px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); max-height: 50vh; overflow: auto; min-width: 220px; }
 .flyout-tree .ft-body .tree { padding: 2px 0 6px; }

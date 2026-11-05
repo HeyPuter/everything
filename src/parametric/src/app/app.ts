@@ -370,6 +370,19 @@ export class App {
     });
     this.flyoutEl = h('div', { class: 'flyout-tree', hidden: true }, toggle, body);
     this.shell.viewport.append(this.flyoutEl);
+    // In a narrow graphics area the centred view toolbar would cover it.
+    const ro = new ResizeObserver(() => this.placeFlyout());
+    ro.observe(this.shell.viewport);
+    ro.observe(this.shell.hud);
+  }
+
+  private placeFlyout() {
+    const el = this.flyoutEl;
+    if (el.hidden) return;
+    el.classList.remove('below-hud');
+    const a = el.firstElementChild!.getBoundingClientRect();
+    const b = this.shell.hud.getBoundingClientRect();
+    if (a.right > b.left && a.left < b.right && a.bottom > b.top && a.top < b.bottom) el.classList.add('below-hud');
   }
 
   private updateFlyout() {
@@ -377,6 +390,7 @@ export class App {
     this.flyoutEl.hidden = !show;
     const label = this.flyoutEl.querySelector('button > span');
     if (label) label.textContent = this.store.doc.name;
+    this.placeFlyout();
     if (show && this.flyoutOpen) this.flyout.render();
   }
 

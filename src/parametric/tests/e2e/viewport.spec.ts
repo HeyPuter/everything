@@ -433,3 +433,20 @@ test.describe('viewport', () => {
     });
   });
 });
+
+test('the design tree flyout stays clear of the view toolbar in a narrow graphics area', async ({ page }) => {
+  await page.setViewportSize({ width: 1024, height: 768 });
+  await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  const run = (id: string) => page.evaluate((id) => (window as unknown as { __parametric: { commands: { run(id: string): void }; taskPaneOpen(): string | null } }).__parametric.commands.run(id), id);
+  if (!await page.evaluate(() => (window as unknown as { __parametric: { taskPaneOpen(): string | null } }).__parametric.taskPaneOpen())) await run('assistant');
+  await page.getByRole('treeitem', { name: 'Extrude1' }).dblclick();
+  const flyout = page.locator('.flyout-tree > button');
+  await expect(flyout).toBeVisible();
+  const a = (await flyout.boundingBox())!;
+  const b = (await page.locator('.hud').boundingBox())!;
+  expect(a.x + a.width <= b.x || a.x >= b.x + b.width || a.y + a.height <= b.y || a.y >= b.y + b.height).toBe(true);
+  await flyout.click();
+  await expect(flyout).toHaveAttribute('aria-expanded', 'true');
+});
