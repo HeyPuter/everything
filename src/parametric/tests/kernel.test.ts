@@ -322,6 +322,21 @@ describe('feature regeneration', () => {
     expect(r.edges.map((e) => e.name)).toContain('E1:cap1|E1:side:arc');
   });
 
+  it('names the faces of two arcs of one circle after each arc', async () => {
+    const b = new ModelBuilder();
+    // A round bar with two flats.
+    const ents: SketchFeature['entities'] = [
+      { id: 'o', t: 'point', x: 0, y: 0 },
+      { id: 'p1', t: 'point', x: 8, y: 6 }, { id: 'p2', t: 'point', x: -8, y: 6 }, { id: 'p3', t: 'point', x: -8, y: -6 }, { id: 'p4', t: 'point', x: 8, y: -6 },
+      { id: 'top', t: 'arc', c: 'o', a: 'p1', b: 'p2' }, { id: 'left', t: 'line', a: 'p2', b: 'p3' },
+      { id: 'bot', t: 'arc', c: 'o', a: 'p3', b: 'p4' }, { id: 'right', t: 'line', a: 'p4', b: 'p1' },
+    ];
+    const r = await b.build(req([sketch('S1', ents), extrude('E1', 'S1', 10)]));
+    const arcs = r.faces.filter((f) => f.type === 'cylinder');
+    expect(arcs.find((f) => f.center[1] > 0)!.name).toBe('E1:side:top');
+    expect(arcs.find((f) => f.center[1] < 0)!.name).toBe('E1:side:bot');
+  });
+
   it('names a revolved arc face after the arc, not after the chord closing it', async () => {
     const b = new ModelBuilder();
     // Half a disc beside the axis: the arc's ends average onto the chord line.

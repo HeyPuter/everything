@@ -515,14 +515,9 @@ export class ModelBuilder {
     for (const r of regions) {
       for (const loop of [r.outer, ...r.holes]) {
         for (const s of loop.segs) {
-          let d: number;
-          if (s.k === 'line') d = segDist(p, s.a, s.b);
-          else if (s.k === 'arc' || s.k === 'circle') d = Math.abs(Math.hypot(p[0] - s.c[0], p[1] - s.c[1]) - s.r);
-          else {
-            const poly = segPolyline(s);
-            d = Infinity;
-            for (let i = 0; i + 1 < poly.length; i++) d = Math.min(d, segDist(p, poly[i], poly[i + 1]));
-          }
+          // Arcs by their own sweep: two arcs of one circle are both at no
+          // distance from a point on either if only the circle counts.
+          const d = seg2Dist(p, s);
           if (d < best) { best = d; src = s.src ?? 'x'; }
         }
       }
