@@ -797,6 +797,40 @@ test.describe('viewport', () => {
     }
   });
 
+  test('the section view does not cut the outlines of reference planes', async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+    await waitForFeature(page, 'Fillet1');
+    await expect.poll(() => page.evaluate(() => !!(window as unknown as Win).__parametric.bbox)).toBe(true);
+    const d = await page.evaluate(() => {
+      const app = (window as unknown as Win).__parametric;
+      const r = app.renderer;
+      app.viewport.showPlanes = true;
+      app.viewport.drawReferenceGeometry();
+      r.section = { normal: [1, 0, 0], offset: 30 };
+      // Midpoints of outline segments wholly on the cut-away side, on screen.
+      const pos = (r as unknown as { lines: Map<string, { positions: Float32Array }> }).lines.get('planes')!.positions;
+      const mids: [number, number][] = [];
+      for (let i = 0; i < pos.length; i += 6) {
+        if (pos[i] < 40 || pos[i + 3] < 40) continue;
+        const [x, y] = app.viewport.project([(pos[i] + pos[i + 3]) / 2, (pos[i + 1] + pos[i + 4]) / 2, (pos[i + 2] + pos[i + 5]) / 2]);
+        if (x > 5 && y > 5 && x < r.camera.width - 5 && y < r.camera.height - 5) mids.push([x, y]);
+      }
+      r.capture(16);
+      const gl = r.gl, k = r.dpr;
+      const edge = [0.44, 0.6, 0.88].map((v) => v * 255);
+      return mids.map(([x, y]) => {
+        const data = new Uint8Array(5 * 5 * 4);
+        gl.readPixels(Math.round(x * k) - 2, r.canvas.height - Math.round(y * k) - 3, 5, 5, gl.RGBA, gl.UNSIGNED_BYTE, data);
+        let best = Infinity;
+        for (let i = 0; i < data.length; i += 4) best = Math.min(best, Math.hypot(data[i] - edge[0], data[i + 1] - edge[1], data[i + 2] - edge[2]));
+        return best;
+      });
+    });
+    expect(d.length).toBeGreaterThan(0);
+    for (const v of d) expect(v).toBeLessThan(40);
+  });
+
   test('the triad letters are readable in both themes', async ({ page }) => {
     await openApp(page);
     await expect(page.locator('.triad text')).toHaveCount(3);

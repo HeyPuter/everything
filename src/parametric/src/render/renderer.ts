@@ -323,6 +323,8 @@ export interface LineBatch {
   /** Overlay ids per segment for picking (optional). */
   ids?: Float32Array;
   order?: number;
+  /** False: not cut by the section view (reference geometry, like plane fills). */
+  clip?: boolean;
 }
 
 export interface PointBatch {
@@ -869,7 +871,7 @@ export class Renderer {
       if (!showBody && this.model) this.drawModelStates(this.model, vp, view, viewport, clip, style === 'wireframe');
     }
 
-    for (const b of ordered(this.lines, 'test')) this.drawLineBatch(b, vp, viewport, clip);
+    for (const b of ordered(this.lines, 'test')) this.drawLineBatch(b, vp, viewport, b.clip === false ? null : clip);
     for (const b of ordered(this.points, 'test')) this.drawPointBatch(b, vp, viewport);
 
     // Translucent geometry: tool preview and plane fills, without depth writes.

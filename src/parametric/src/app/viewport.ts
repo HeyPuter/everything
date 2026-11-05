@@ -580,7 +580,7 @@ export class Viewport {
       for (let i = 0; i < 4; i++) { linePos.push(...c[i], ...c[(i + 1) % 4]); lineCol.push(col[0] * 255, col[1] * 255, col[2] * 255, 255); }
     }
     r.setTris('planes', triPos.length ? { positions: new Float32Array(triPos), colors: new Uint8Array(triCol), depth: 'test', order: 0 } : null);
-    r.setLines('planes', linePos.length ? { positions: new Float32Array(linePos), colors: new Uint8Array(lineCol), width: 1.2, depth: 'test', order: 0 } : null);
+    r.setLines('planes', linePos.length ? { positions: new Float32Array(linePos), colors: new Uint8Array(lineCol), width: 1.2, depth: 'test', order: 0, clip: false } : null);
 
     this.drawOrigin();
     if (!hoverOnly || this.sketchHoverKey() !== this.drawnSketchHover) this.drawSketches();
