@@ -49,7 +49,8 @@ lives in their own Puter storage.
 - **Search** — a command-palette overlay (header button, `/`, or ⌘/Ctrl‑K) finds
   events by title, location, or description and jumps straight to them.
 - **Reminders** — attach one or more "notify me N before" reminders to a timed
-  event; a scheduler fires a browser notification ahead of each occurrence.
+  event. With pushes enabled, Puter stores upcoming reminders and delivers them
+  with every tab closed; the open page provides a local fallback.
 - **Public holidays** — pick a country (or let the browser's time zone pick one)
   and the month, week and agenda views gain a quiet, read-only holiday layer.
   Computed from rules rather than fetched, so every year works offline and
@@ -125,6 +126,7 @@ Puter is the only backend. It is loaded from the CDN in `index.html`:
 | Reading the user's mailbox | `puter.email.list` / `puter.email.get` (parsed messages, no MIME code of our own) |
 | Answering an invitation by email | `puter.email.send` from the user's own `@puter.email` address |
 | Noticing mail while the app is closed | `puter.events.onPersistent` + `puter.events.handlers` (a handler published against the app) |
+| Push notifications | `puter.notifications` (sent by the mail handler and the RSVP worker; `onPush` + `public/sw.js` in the page) |
 
 There is no API key to manage — Puter uses a "user pays" model, so each signed-in
 user's events are stored in and billed to their own account.
@@ -200,7 +202,8 @@ yields no working link. Opening one lands on `public/rsvp.html` — hosted with 
 app, not by the worker — which renders the invitation from the worker's JSON API;
 `/rsvp/<token>/accept` (and `decline`, `maybe`) answer in one click straight from
 an email. Answers are pulled back and merged into the host's calendar by
-`src/js/rsvp-links.js`.
+`src/js/rsvp-links.js`, and each new or changed answer notifies the host — see
+[Push notifications](#push-notifications).
 
 **Sending.** `src/js/invites.js` hands those links to the email worker through
 [`puter.workers.exec()`](https://docs.puter.com/Workers/exec/), which forwards the
@@ -424,6 +427,51 @@ contract version (`calendar-mail-v2`), so a client never binds to a handler whos
 record shape it does not understand — change the shape, change the version, and
 older clients simply report that the handler is not deployed. Users see that as a
 line in the Mailbox invitations dialog; nothing else about the app is affected.
+
+A change that keeps the record shape, such as adding notifications, keeps the
+name: run the script again and every existing subscription runs the new source
+from its next delivery, with nobody reconnecting. The script sends the hash it
+just read as `ifHash`, so updating needs no `--replace`; that flag is only for
+overwriting a version someone else published in between
+(`events_handler_conflict`).
+
+## Push notifications
+
+[`puter.notifications`](https://docs.puter.com/Notifications/) delivers reminders,
+invitations and RSVP answers on the `calendar` channel. Turn on **Push
+notifications** in the account menu, or when connecting the mailbox. On the web
+this enables the current browser; inside the Puter desktop, Puter opens its own
+permission dialog. iPhone and iPad require adding Calendar to the Home Screen.
+Turning the web switch off affects this browser; the desktop switch revokes the
+app's push permission across devices and turns stored reminders off.
+
+- **Reminders.** Enabling pushes also enables stored reminders for the account.
+  While Calendar is open and online, `src/js/stored-reminders.js` reconciles the
+  next seven days of reminder fire times on load, after edits, and every 15
+  minutes. It keeps the earliest 50 waiting, creating at most 15 per pass and
+  skipping new reminders less than 30 seconds away. Puter sends them with
+  [`notify({ sendAt })`](https://docs.puter.com/Notifications/notify/#send-it-later)
+  even with every tab closed, usually within 15 seconds of the requested time.
+  Edits and deletes cancel outdated schedules. Open Calendar periodically to
+  extend the horizon. Signing out leaves them for the account's other devices. The local page
+  scheduler covers reminders that aren't stored or browsers with pushes off,
+  and remains the fallback where stored notifications are unavailable.
+- **Invitations.** The mail handler notifies about authenticated, unblocked
+  senders' new invitations, updates, cancellations and replies to your events.
+  In-page scans only record mail. Groups replace earlier notifications for the
+  same invitation or reply; notification failures don't undo recorded mail.
+- **RSVP answers.** The host's RSVP worker notifies when a guest changes their
+  answer, after saving it, without delaying the guest's response.
+
+Clicks carry ids and open the event or its invitation. `src/js/push.js` registers
+`onPush()` on each load; `public/sw.js` imports Puter's push worker. Reminders
+need no background handler or `events:background` permission. Stored schedules
+and delivery are subject to Puter's [quotas and rate
+limits](https://docs.puter.com/rate-limits-and-quotas/#schedules), including 100
+waiting per app on the free plan. Notifications allow 30/min and 1,000/day per
+user per app; pushes allow 12/min and 1,000/day, or 6/min and 200/day for new or
+unlisted apps. Device races use a deterministic group and are reconciled on the
+next sync.
 
 ## Booking links
 
@@ -810,6 +858,8 @@ src/
     mail-intake.js         # detected invitations: trust policy, tray, iTIP handling
     mail-reply.js          # answering an emailed invitation by email (iTIP REPLY)
     mail-dialog.js         # connect, policy, blocked senders
+    push.js                # push notifications: onPush, clicks, the settings switch
+    stored-reminders.js    # account-wide deferred reminder reconciliation
     windows-zones.js       # Windows/Mozilla TZID names -> IANA
     booking.js             # booking links: configs, busy-time push, booking pull
     booking-dialog.js      # the booking-link editor (hours, rules, share URL)
@@ -865,7 +915,8 @@ that sends invitations (`npm run deploy:email-worker` — see
 [Deploying the email worker](#deploying-the-email-worker)) and the events handler
 that reads arriving mail (`npm run publish:mail-handler` — see
 [Deploying the mail handler](#deploying-the-mail-handler)). The RSVP worker needs
-nothing from you; the app deploys it into each user's own account.
+nothing from you; the app deploys it into each user's own account, and
+redeploys it when `RSVP_WORKER_VERSION` in `src/js/rsvp-links.js` changes.
 
 ## Populate a demo
 

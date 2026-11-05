@@ -648,8 +648,48 @@ async function recordAnswer(ctx, found, body) {
     body && typeof body.comment === 'string' ? body.comment.trim().slice(0, MAX_COMMENT) : '';
   const answer = { status, comment, respondedAt: Date.now() };
   await kvOf(ctx).set(respKey(found.eventId, found.email), answer);
+  const previous = found.answer;
   found.answer = answer;
+  if (status !== previous.status || (comment && comment !== previous.comment)) {
+    const sending = notifyHost(ctx, found, answer);
+    if (sending) await sending;
+  }
   return answer;
+}
+
+const ANSWER_VERBS = { accepted: 'accepted', declined: 'declined', tentative: 'said maybe to' };
+
+/**
+ * Tells the host — this worker's owner — that a guest answered, through the
+ * calendar's `calendar` notification channel. Only works while the worker runs
+ * as the app (`forbidden` otherwise), and is rate limited per host; either way
+ * the guest's answer is already saved. Returns a promise only when the runtime
+ * has no waitUntil to finish it after the response.
+ */
+function notifyHost(ctx, found, answer) {
+  const owner = (ctx && ctx.me) || (typeof me !== 'undefined' ? me : null);
+  const notifications = owner && owner.puter && owner.puter.notifications;
+  if (!notifications || typeof notifications.notify !== 'function') return null;
+  const sending = (async () => {
+    const s = found.record.snapshot || {};
+    const guest = (found.record.guests || {})[found.email] || {};
+    const title = `${guest.name || found.email} ${ANSWER_VERBS[answer.status]} ${s.title || 'your event'}`;
+    const text = answer.comment ? `“${answer.comment}”` : fmtWhen(s);
+    await notifications.notify({
+      title: Array.from(title).slice(0, 120).join(''),
+      ...(text ? { text: Array.from(text).slice(0, 240).join('') } : {}),
+      target: `/?event=${encodeURIComponent(found.eventId)}`,
+      data: { eventId: found.eventId },
+      // One per guest per event, so a changed answer replaces the last one.
+      group: `rsvp:${await sha256Hex(found.eventId + '\n' + found.email)}`,
+      channel: 'calendar',
+    });
+  })().catch(() => {});
+  if (ctx && typeof ctx.waitUntil === 'function') {
+    ctx.waitUntil(sending);
+    return null;
+  }
+  return sending;
 }
 
 /* ---- Guest-facing JSON API ------------------------------------------------ */

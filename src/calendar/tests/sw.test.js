@@ -97,9 +97,10 @@ function loadSw({ fetchImpl }) {
   };
   const caches = makeCacheStore();
   globalThis.__swFetch = fetchImpl;
-  const run = new Function('self', 'caches', 'fetch', 'Response', SW_SRC);
-  run(self, caches, fetchImpl, ResponseStub);
-  return { listeners, caches, self };
+  const importScripts = vi.fn();
+  const run = new Function('self', 'caches', 'fetch', 'Response', 'importScripts', SW_SRC);
+  run(self, caches, fetchImpl, ResponseStub, importScripts);
+  return { listeners, caches, self, importScripts };
 }
 
 /** Drive an event handler and await its waitUntil/respondWith work. */
@@ -139,6 +140,15 @@ function networkOf(routes) {
     return resp('', { ok: false, status: 404 });
   });
 }
+
+describe('service worker push', () => {
+  it("imports Puter's push script and adds no push listener of its own", () => {
+    const { listeners, importScripts } = loadSw({ fetchImpl: networkOf({}) });
+    expect(importScripts).toHaveBeenCalledWith('https://js.puter.com/push-sw.js');
+    expect(listeners.push).toBeUndefined();
+    expect(listeners.notificationclick).toBeUndefined();
+  });
+});
 
 describe('service worker install', () => {
   let routes;

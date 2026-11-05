@@ -8,13 +8,14 @@
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { DEFAULT_SETTINGS } from '../src/js/store.js';
+import { signOut } from '../src/js/auth.js';
 
 // signOut never settles, so the reload in handleSignOut's `finally` is never
 // reached and jsdom's location is left alone. Everything under test happens
 // before the await.
 vi.mock(import('../src/js/auth.js'), async (importOriginal) => ({
   ...(await importOriginal()),
-  signOut: () => new Promise(() => {}),
+  signOut: vi.fn(() => new Promise(() => {})),
 }));
 
 const { createApp } = await import('../src/js/app.js');
@@ -60,6 +61,7 @@ describe('app — signing out', () => {
   let root;
 
   beforeEach(() => {
+    signOut.mockClear();
     window.matchMedia = () => ({
       matches: false,
       addEventListener() {},
@@ -98,5 +100,20 @@ describe('app — signing out', () => {
     expect(contacts.invalidate).toHaveBeenCalledTimes(1);
     expect(contacts.dispose).toHaveBeenCalledTimes(1);
     expect(localStorage.getItem('cal:profile-pic')).toBe(null);
+  });
+
+  it('leaves the account\'s stored reminders in place for its other devices', async () => {
+    const storedReminders = { handles: async () => false, stop: vi.fn(), sync: vi.fn() };
+    const store = makeStore();
+    await store.saveSettings({ storedReminders: true });
+    const settings = store.getSettings();
+    const saveSettings = vi.spyOn(store, 'saveSettings');
+    app = createApp(root, { store, user: { username: 'x' }, storedReminders });
+    root.querySelector('button.avatar').click();
+    [...document.querySelectorAll('.popover .menu-item')].find((b) => b.textContent.includes('Sign out')).click();
+    expect(signOut).toHaveBeenCalledTimes(1);
+    expect(storedReminders.stop).toHaveBeenCalledTimes(1);
+    expect(store.getSettings()).toEqual(settings);
+    expect(saveSettings).not.toHaveBeenCalled();
   });
 });

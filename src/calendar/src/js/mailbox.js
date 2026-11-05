@@ -14,6 +14,7 @@
  */
 import handlerSource from '../workers/mail-handler.js?raw';
 import { isBlocked } from './offline.js';
+import { PUSH_OPTIONS, pushOffHere } from './push.js';
 
 // The handler name carries the record-shape contract version: an old client
 // never binds to a newer, incompatible handler and vice versa. Lives here,
@@ -153,11 +154,12 @@ export function createMailbox({
 
   /* ---- connect / subscribe --------------------------------------------- */
 
-  async function requestMailAndBackgroundPerms() {
+  async function requestMailAndBackgroundPerms({ push = false } = {}) {
     const p = getPuter();
     return p.perms.request([
       { resource: 'permission', permission: `fs:/${username()}/.mail:read`, create: true },
       { resource: 'permission', permission: 'events:background' },
+      ...(push ? [{ resource: 'permission', permission: 'notifications:push' }] : []),
     ]);
   }
 
@@ -216,11 +218,34 @@ export function createMailbox({
     state = 'connecting';
     notify();
 
+    // Pushes are asked for in the same click, unless the user turned them off
+    // here. enable() goes first: the browser's prompt needs the gesture, and
+    // the perms batch falls back to an in-page dialog without one.
+    const notifications = getPuter().notifications;
+    const askPush = Boolean(notifications) && !pushOffHere();
+    let pushError = null;
+    const pushing = askPush
+      ? notifications.enable(PUSH_OPTIONS).catch((err) => {
+          pushError = err;
+          return false;
+        })
+      : null;
+
     try {
+      const pushOn = await pushing;
+      if (pushOn && typeof store.saveSettings === 'function') {
+        await store.saveSettings({ storedReminders: true }).catch((err) => console.warn('[calendar] reminder setting', err));
+      }
       // A denial RESOLVES falsy — it does not throw. The array is in the order
-      // the batch was asked for: mailbox read, then background consent.
-      const granted = await requestMailAndBackgroundPerms();
-      const [mailRead, background] = Array.isArray(granted) ? granted : [granted, granted];
+      // the batch was asked for: mailbox read, background, then revoked pushes.
+      const granted = await requestMailAndBackgroundPerms({ push: pushError?.code === 'push_revoked' });
+      const [mailRead, background, push] = Array.isArray(granted) ? granted : [granted, granted, granted];
+      // Re-allowed in that prompt after being turned off in Puter's settings.
+      if (push && pushError && pushError.code === 'push_revoked') {
+        notifications.enable(PUSH_OPTIONS).then((on) => {
+          if (on && typeof store.saveSettings === 'function') return store.saveSettings({ storedReminders: true });
+        }).catch((err) => console.warn('[calendar] reminder setting', err));
+      }
       if (!mailRead) {
         lastError = 'Calendar needs access to your Puter mailbox to detect invitations.';
         state = 'off';
@@ -407,7 +432,8 @@ export function createMailbox({
     const fullSweep = Boolean(gap);
     const watermark = fullSweep ? '' : (cfg && cfg.watermark) || '';
 
-    const ctx = Object.freeze({ v: 1, self: selfEmail(), user: username() });
+    // inPage: the handler records but leaves notifying to the events worker.
+    const ctx = Object.freeze({ v: 1, self: selfEmail(), user: username(), inPage: true });
     const oldest = now() - MAX_SCAN_AGE_MS;
     let processed = 0;
     let greatest = watermark;

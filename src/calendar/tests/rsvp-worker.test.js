@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
@@ -539,6 +539,70 @@ describe('rsvp worker: expiry', () => {
       json: { status: 'accepted' },
     });
     expect(res.status).toBe(200);
+  });
+});
+
+describe('rsvp worker: notifying the host', () => {
+  let kv;
+  let notify;
+  let worker;
+  let token;
+  beforeEach(async () => {
+    kv = makeKv();
+    notify = vi.fn(async () => 'n-1');
+    const source = RAW.replace('__RSVP_ADMIN_SECRET_HASH__', await sha256Hex(SECRET))
+      .replace('__RSVP_WORKER_VERSION__', 'test')
+      .replace('__RSVP_PAGE_URL__', PAGE);
+    worker = instantiateWorker(source, { kv, me: { puter: { kv, notifications: { notify } } } });
+    const { links } = await sync(worker, { guests: [{ email: 'a@example.com', name: 'Ada' }] });
+    token = links['a@example.com'];
+  });
+
+  it('tells the host who answered what, grouped per guest and event', async () => {
+    const res = await worker.call('POST', `/api/rsvp/${token}`, { json: { status: 'accepted' } });
+    expect(res.status).toBe(200);
+    expect(notify).toHaveBeenCalledTimes(1);
+    const [n] = notify.mock.calls[0];
+    expect(n).toMatchObject({
+      title: 'Ada accepted Team offsite',
+      target: '/?event=evt-1',
+      data: { eventId: 'evt-1' },
+      channel: 'calendar',
+    });
+    expect(n.group).toMatch(/^rsvp:[0-9a-f]{64}$/);
+    expect(n.group.length).toBeLessThanOrEqual(128);
+  });
+
+  it('a comment becomes the text; the same answer again stays quiet', async () => {
+    await worker.call('POST', `/api/rsvp/${token}`, { json: { status: 'tentative', comment: 'Might be late' } });
+    expect(notify.mock.calls[0][0]).toMatchObject({ title: 'Ada said maybe to Team offsite', text: '“Might be late”' });
+    await worker.call('POST', `/api/rsvp/${token}`, { json: { status: 'tentative', comment: 'Might be late' } });
+    expect(notify).toHaveBeenCalledTimes(1);
+  });
+
+  it('a one-click answer notifies too', async () => {
+    const res = await worker.call('GET', `/rsvp/${token}/decline`, { headers: { 'user-agent': 'Mozilla/5.0' } });
+    expect(res.status).toBe(303);
+    expect(notify.mock.calls[0][0].title).toBe('Ada declined Team offsite');
+  });
+
+  it('a failing notify never fails the answer', async () => {
+    notify.mockRejectedValue(Object.assign(new Error('forbidden'), { code: 'forbidden' }));
+    const res = await worker.call('POST', `/api/rsvp/${token}`, { json: { status: 'accepted' } });
+    expect(res.status).toBe(200);
+    expect((await res.json()).response.status).toBe('accepted');
+  });
+
+  it('hands the send to waitUntil instead of holding the response for it', async () => {
+    let release;
+    notify.mockImplementation(() => new Promise((resolve) => (release = resolve)));
+    const waitUntil = vi.fn();
+    const res = await worker.call('POST', `/api/rsvp/${token}`, { json: { status: 'accepted' }, waitUntil });
+    expect(res.status).toBe(200);
+    expect(waitUntil).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => expect(release).toBeTypeOf('function'));
+    release('n-1');
+    await waitUntil.mock.calls[0][0];
   });
 });
 

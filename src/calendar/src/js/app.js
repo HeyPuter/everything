@@ -22,6 +22,8 @@ import { openBookingEditor } from './booking-dialog.js';
 import { openCategoryRename } from './category-dialog.js';
 import { openMailDialog } from './mail-dialog.js';
 import { renderSidebar } from './sidebar.js';
+import { occurrenceNear } from './recurrence.js';
+import { notificationTarget, pushAvailable, needsHomeScreen, pushStatus, turnPushOn, turnPushOff } from './push.js';
 import { openContextMenu, closeContextMenu, isContextMenuOpen, onContextMenuClose } from './context-menu.js';
 import { onDragEnd } from './drag.js';
 import { HOLIDAY_COUNTRIES, detectCountry, countryName } from './holidays.js';
@@ -56,7 +58,7 @@ const VIEWS = [
   { key: 'agenda', label: 'List' },
 ];
 
-export function createApp(root, { store, user, rsvp = null, contacts = null, invites = null, booking = null, meetings = null, mail = null }) {
+export function createApp(root, { store, user, rsvp = null, contacts = null, invites = null, booking = null, meetings = null, mail = null, storedReminders = null }) {
   const settings = store.getSettings();
 
   const state = {
@@ -97,16 +99,20 @@ export function createApp(root, { store, user, rsvp = null, contacts = null, inv
 
   // Jump to an event or task from search: move the calendar to its day, then
   // open it. A task has a single `due` instant where an event has `start`.
-  const search = createSearch({
-    store,
-    onPick: (item) => {
-      const when = item.isTask ? item.due : item.start;
-      state.cursor = startOfDay(new Date(when));
-      state.miniCursor = startOfMonth(new Date(when));
-      render();
-      modal.openView(item);
-    },
-  });
+  const search = createSearch({ store, onPick: (item) => openAtItem(item) });
+
+  function openAtItem(item) {
+    const when = item.isTask ? item.due : item.start;
+    state.cursor = startOfDay(new Date(when));
+    state.miniCursor = startOfMonth(new Date(when));
+    render();
+    modal.openView(item);
+  }
+
+  /** A series opens on its current or next occurrence, as search does. */
+  function openEventRecord(ev) {
+    openAtItem(ev.recurrence ? occurrenceNear(ev, Date.now()) || ev : ev);
+  }
 
   /**
    * Rejection handler for a store write nothing awaits — a drag, a resize, a
@@ -324,8 +330,10 @@ export function createApp(root, { store, user, rsvp = null, contacts = null, inv
           reportWriteFailure('Could not open the invitations list.'),
         );
       }
-      state.sidebarOpen = true;
       render();
+      // Through openSidebar, so the drawer gets its class and scrim; setting
+      // the flag alone left it shut and made the menu button need two taps.
+      if (window.matchMedia('(max-width: 720px)').matches) openSidebar();
     },
   };
 
@@ -835,6 +843,7 @@ export function createApp(root, { store, user, rsvp = null, contacts = null, inv
       settingToggle('Clock changes (daylight saving)', s.clockChanges !== false, (on) => {
         store.saveSettings({ clockChanges: on });
       }, { name: 'clockChanges' }),
+      buildPushSetting(),
       el('div', { class: 'ctx-menu__sep' }),
       mail && mail.mailbox.available()
         ? el('button', {
@@ -961,6 +970,54 @@ export function createApp(root, { store, user, rsvp = null, contacts = null, inv
     return select;
   }
 
+  /**
+   * Push notifications for reminders, invitations and RSVP answers. On an
+   * iPhone or iPad outside a Home Screen app there is nothing to switch on, so
+   * say how to get there instead.
+   */
+  function buildPushSetting() {
+    const p = typeof puter !== 'undefined' ? puter : null;
+    if (!pushAvailable(p)) {
+      if (!p || p.env !== 'web' || !needsHomeScreen()) return null;
+      return el('p', {
+        class: 'popover__meta',
+        style: { padding: '4px 12px 8px', margin: '0' },
+        text: 'For notifications on iPhone or iPad, tap Share, then Add to Home Screen, and open Calendar from there.',
+      });
+    }
+    const row = settingToggle('Push notifications', false, (on) => {
+      // Synchronously, so enable() still has this click for the browser's prompt.
+      const change = on ? turnPushOn(p, store) : turnPushOff(p, store);
+      input.disabled = true;
+      Promise.resolve(change)
+        .then(async (done) => {
+          if (done) return;
+          if (await pushStatus(p) === 'blocked') {
+            toast('Notifications are blocked for this site. Allow them in your browser’s site settings.');
+          } else toast('Notifications were not turned on.');
+        })
+        .catch(async () => {
+          if (await pushStatus(p) === 'blocked') toast('Notifications are blocked for this site. Allow them in your browser’s site settings.');
+          else toast('Could not change notifications. Please try again.', { variant: 'danger' });
+        })
+        .finally(refresh);
+    }, { name: 'push' });
+    const input = row.querySelector('input');
+    function refresh() {
+      input.disabled = true;
+      Promise.resolve(pushStatus(p))
+        .then((status) => {
+          input.checked = status === 'on';
+        })
+        .catch(() => {})
+        .finally(() => {
+          input.disabled = false;
+        });
+    }
+    refresh();
+    return row;
+  }
+
   function settingToggle(label, checked, onToggle, { name = '' } = {}) {
     const input = el('input', {
       type: 'checkbox',
@@ -982,6 +1039,8 @@ export function createApp(root, { store, user, rsvp = null, contacts = null, inv
 
   async function handleSignOut() {
     closeUserMenu();
+    reminders.stop();
+    if (storedReminders) storedReminders.stop();
     // Drop this account's cached calendar so it can't be read offline on a
     // shared machine after sign-out — and its cached address book and profile
     // picture with it.
@@ -1131,7 +1190,7 @@ export function createApp(root, { store, user, rsvp = null, contacts = null, inv
   };
   const unsubDragEnd = onDragEnd(flushPending);
   const unsubMenuClose = onContextMenuClose(flushPending);
-  const reminders = createReminderScheduler({ store });
+  const reminders = createReminderScheduler({ store, isStored: storedReminders ? (key) => storedReminders.handles(key) : undefined });
   reminders.start();
   document.addEventListener('keydown', onKeydown);
 
@@ -1190,6 +1249,27 @@ export function createApp(root, { store, user, rsvp = null, contacts = null, inv
       state.view = normalizeView(view);
       render();
     },
+    /** A clicked push notification (see push.js): open the event it names,
+     *  else the invitations list it came from. */
+    async openNotification(click) {
+      const { eventId, uid } = notificationTarget(click);
+      const lookup = () => (eventId ? store.getEvent(eventId) : uid && mail ? mail.intake.findByUid(uid) : null);
+      let ev = lookup();
+      if (!ev && eventId) {
+        await store.load();
+        ev = lookup();
+      }
+      if (ev) return openEventRecord(ev);
+      if (!uid || !mail) return;
+      // A notification can beat the intake to a just-recorded invitation.
+      Promise.resolve(mail.intake.pump())
+        .catch(() => {})
+        .then(() => {
+          const found = lookup();
+          if (found) openEventRecord(found);
+          else actions.showMailInvites();
+        });
+    },
     /** New invitations landed in the tray while the app was open. Called by
      *  main.js, which wires it to the intake once both exist. */
     notifyMailDetected(count) {
@@ -1208,6 +1288,7 @@ export function createApp(root, { store, user, rsvp = null, contacts = null, inv
       unsubDragEnd();
       unsubMenuClose();
       reminders.stop();
+      if (storedReminders) storedReminders.stop();
       clearInterval(tick);
       if (resizeRaf) cancelAnimationFrame(resizeRaf);
       document.removeEventListener('keydown', onKeydown);

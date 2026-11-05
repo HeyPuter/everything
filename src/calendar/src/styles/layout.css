@@ -1238,6 +1238,20 @@
   .modal__foot .btn {
     min-height: 44px;
   }
+  /* The account menu's rows and switches. */
+  .popover .menu-item {
+    min-height: 44px;
+  }
+  /* Header arrows, search and menu stay 36px wide; reach 44px tall without
+     moving anything (sideways would overlap the neighbouring arrow). */
+  .header .icon-btn {
+    position: relative;
+  }
+  .header .icon-btn::before {
+    content: '';
+    position: absolute;
+    inset: -4px 0;
+  }
   .swatch {
     width: 34px;
     height: 34px;

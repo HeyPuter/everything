@@ -49,14 +49,14 @@ function makePuter(overrides = {}) {
   };
 }
 
-function makeMailbox({ kv = makeKv(), puter = makePuter(), user = { username: 'nariman', email: 'nariman@example.com' }, now = () => 1000 } = {}) {
+function makeMailbox({ kv = makeKv(), puter = makePuter(), store = {}, user = { username: 'nariman', email: 'nariman@example.com' }, now = () => 1000 } = {}) {
   // The in-page rescan hands `user: puter` to the handler (mirroring the
   // real `user: puter` in the design's pseudocode) — wire it to the SAME kv
   // the test inspects, so the fixture handler's writes land where expected.
   puter.kv = kv;
   const mailbox = createMailbox({
     kv,
-    store: {},
+    store,
     user,
     getPuter: () => puter,
     blocked: () => false,
@@ -131,6 +131,79 @@ describe('mailbox: connect() happy path', () => {
     const status = await mailbox.connect();
     expect(puter.events.onPersistent).not.toHaveBeenCalled();
     expect(status.subId).toBe('existing-sub');
+  });
+});
+
+describe('mailbox: connect() asks for pushes in the same click', () => {
+  function withNotifications(overrides = {}) {
+    const order = [];
+    const puter = makePuter({
+      perms: {
+        request: vi.fn(async (batch) => {
+          order.push('perms');
+          return batch.map(() => true);
+        }),
+      },
+    });
+    puter.notifications = {
+      enable: vi.fn(async () => {
+        order.push('enable');
+        return true;
+      }),
+      ...overrides,
+    };
+    return { puter, order };
+  }
+
+  it('calls enable() before the mail permissions, without another push prompt', async () => {
+    localStorage.removeItem('cal:push-off');
+    const { puter, order } = withNotifications();
+    const store = { saveSettings: vi.fn(async () => {}) };
+    const { mailbox } = makeMailbox({ puter, store });
+    const status = await mailbox.connect();
+
+    expect(puter.notifications.enable).toHaveBeenCalledWith({ serviceWorker: './sw.js' });
+    expect(order).toEqual(['enable', 'perms']);
+    expect(puter.perms.request.mock.calls[0][0]).toEqual([
+      { resource: 'permission', permission: 'fs:/nariman/.mail:read', create: true },
+      { resource: 'permission', permission: 'events:background' },
+    ]);
+    expect(status.mode).toBe('background');
+    expect(store.saveSettings).toHaveBeenCalledWith({ storedReminders: true });
+  });
+
+  it('a failed enable() never stops the mailbox from connecting', async () => {
+    localStorage.removeItem('cal:push-off');
+    const err = Object.assign(new Error('conflict'), { code: 'push_worker_conflict' });
+    const { puter } = withNotifications({ enable: vi.fn(async () => { throw err; }) });
+    const { mailbox } = makeMailbox({ puter });
+    const status = await mailbox.connect();
+    expect(status.mode).toBe('background');
+    expect(puter.notifications.enable).toHaveBeenCalledTimes(1);
+  });
+
+  it('push_revoked is retried once the batch re-allows pushes', async () => {
+    localStorage.removeItem('cal:push-off');
+    const err = Object.assign(new Error('revoked'), { code: 'push_revoked' });
+    const enable = vi.fn().mockRejectedValueOnce(err).mockResolvedValue(true);
+    const { puter } = withNotifications({ enable });
+    const { mailbox } = makeMailbox({ puter });
+    await mailbox.connect();
+    expect(enable).toHaveBeenCalledTimes(2);
+    expect(puter.perms.request.mock.calls[0][0]).toContainEqual({ resource: 'permission', permission: 'notifications:push' });
+  });
+
+  it('leaves pushes alone after the user turned them off on this device', async () => {
+    localStorage.setItem('cal:push-off', '1');
+    try {
+      const { puter } = withNotifications();
+      const { mailbox } = makeMailbox({ puter });
+      await mailbox.connect();
+      expect(puter.notifications.enable).not.toHaveBeenCalled();
+      expect(puter.perms.request.mock.calls[0][0]).toHaveLength(2);
+    } finally {
+      localStorage.removeItem('cal:push-off');
+    }
   });
 });
 
@@ -361,6 +434,14 @@ describe('mailbox: rescan / watermark (puter.email.list)', () => {
     const { mailbox, kv } = makeMailbox({ puter });
     await mailbox.rescan({ force: true });
     expect(kv.map.get('test:seen:uid-0001').path).toBe('/nariman/.mail/objects/2026-01-01/0001--c3ViamVjdA');
+  });
+
+  it('marks the in-page run, so the handler leaves notifying to the events worker', async () => {
+    const list = makeEmailList(items(['0001']));
+    const puter = makePuter({ email: { list } });
+    const { mailbox, kv } = makeMailbox({ puter });
+    await mailbox.rescan({ force: true });
+    expect(kv.map.get('test:seen:uid-0001').ctx).toMatchObject({ inPage: true });
   });
 
   it('stops at the first item at or before the watermark, leaving older ones untouched', async () => {

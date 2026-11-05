@@ -1058,6 +1058,7 @@ export function createMailIntake({
     unblock,
     undoAdd,
     getBlocked,
+    findByUid,
     onChange(fn) {
       if (typeof fn !== 'function') return () => {};
       listeners.add(fn);
