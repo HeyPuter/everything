@@ -308,6 +308,33 @@ describe('feature regeneration', () => {
     expect(volume(b)).toBeCloseTo(30 * 20 * 25 - 4 * (4 - Math.PI) * 25, 2);
   });
 
+  it('keeps the names of fillet and loft faces that a later cut trims', async () => {
+    const b = new ModelBuilder();
+    const base: Feature[] = [sketch('S1', circle(0, 0, 20, 'cc')), extrude('E1', 'S1', 10)];
+    const r0 = await b.build(req(base));
+    const top = r0.edges.find((e) => e.name.includes('E1:cap1'))!;
+    const fillet: FilletFeature = { id: 'F1', name: 'F1', type: 'fillet', edges: [{ name: top.name, sig: { type: top.type, m: top.mid, len: top.length } }], faces: [], radius: 3 };
+    const round = (await b.build(req([...base, fillet]))).faces.find((f) => f.type === 'torus')!.name;
+    expect(round).toMatch(/^F1:/);
+    const slot = [sketch('S3', rect(15, -2, 30, 2)), extrude('E3', 'S3', 50, { cut: true, flip: true })];
+    const r1 = await b.build(req([...base, fillet, ...slot]));
+    expect(r1.status.every((s) => s.ok)).toBe(true);
+    expect(r1.faces.filter((f) => f.type === 'torus').map((f) => f.name)).toEqual([round]);
+    // A hole through two side faces of a loft leaves their names alone.
+    const loft: Feature[] = [
+      sketch('A', rect(-10, -10, 10, 10)),
+      { id: 'P1', name: 'P1', type: 'plane', ref: { kind: 'base', plane: 'front' }, offset: 20, flip: false },
+      sketch('B', circle(0, 0, 5), { kind: 'feature', id: 'P1' }),
+      { id: 'L', name: 'L', type: 'loft', profiles: ['A', 'B'], cut: false, ruled: false },
+    ];
+    const names = (r: { faces: { name: string; type: string }[] }) => r.faces.filter((f) => f.type === 'bspline').map((f) => f.name).sort();
+    const before = names(await b.build(req(loft)));
+    const hole = [sketch('S9', circle(0, -8, 2), { kind: 'base', plane: 'top' }), extrude('E9', 'S9', 50, { cut: true, end: 'throughAll', dir2: { end: 'throughAll', depth: 0 } })];
+    const r2 = await b.build(req([...loft, ...hole]));
+    expect(r2.status.every((s) => s.ok)).toBe(true);
+    expect(names(r2)).toEqual(before);
+  });
+
   it('keeps the names of drafted faces when more faces are drafted', async () => {
     const b = new ModelBuilder();
     const base: Feature[] = [sketch('S1', rect(-10, -10, 10, 10, 'r')), extrude('E1', 'S1', 10)];

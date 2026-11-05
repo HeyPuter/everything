@@ -222,6 +222,36 @@ export function sameSurface(a: SurfDesc, b: SurfDesc, tol: number): boolean {
   }
 }
 
+const surfaces = new WeakMap<Sh, any>();
+
+/** The face's own surface (null when the face is moved by a location). */
+function surfaceHandle(face: Sh): any {
+  let s = surfaces.get(face);
+  if (s === undefined) {
+    const loc = new oc.TopLoc_Location();
+    try {
+      s = oc.BRep_Tool.Surface(face.wrapped, loc);
+      if (!loc.IsIdentity()) { s.delete(); s = null; }
+    } catch {
+      s = null;
+    } finally {
+      loc.delete();
+    }
+    surfaces.set(face, s);
+  }
+  return s;
+}
+
+/**
+ * True when two faces lie on one surface object: a face trimmed by a boolean
+ * keeps its surface. Spline, torus and cone faces have no exact descriptor,
+ * so this is how a trimmed one is told apart from a new face.
+ */
+export function sharesSurface(a: Sh, b: Sh): boolean {
+  const sa = surfaceHandle(a), sb = surfaceHandle(b);
+  return !!sa && !!sb && sa.isAliasOf(sb);
+}
+
 /** Sketch frame for a planar face: origin is the projected world origin. */
 export function planarFaceFrame(desc: SurfDesc): Frame {
   const n = desc.d;

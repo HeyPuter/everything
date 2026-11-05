@@ -29,7 +29,7 @@ import type {
 } from './protocol';
 import {
   type EdgeDesc, type Sh, type SurfDesc, ShapeIndex, bbox, compound, cut, describeEdge, describeFace, fuse, getOc, gdir,
-  hashOf, isEmpty, meshEdgesOf, meshShape, mirrored, planarFaceFrame, plane, pnt, rotated, sameSurface, subShapes, translated,
+  hashOf, isEmpty, meshEdgesOf, meshShape, mirrored, planarFaceFrame, plane, pnt, rotated, sameSurface, sharesSurface, subShapes, translated,
   vertexPoint, volumeOf, wrap, xyz,
 } from './occ';
 
@@ -406,17 +406,21 @@ export class ModelBuilder {
     const prev = st.faces;
     let k = 0;
     const score = (d: SurfDesc, c: NamedFace) => dist(d.center, c.desc.center) / Math.sqrt(Math.max(c.desc.area, 1e-12));
+    // Faces without an exact descriptor are compared by centre, which moves
+    // when a later feature trims them: then their surface tells.
+    const same = (shape: Sh, d: SurfDesc, c: NamedFace) =>
+      sameSurface(d, c.desc, tol) || (!EXACT_SURFACES.has(d.type) && d.type === c.desc.type && sharesSurface(shape, c.shape));
     return subShapes(body, 'face').map((shape) => {
       const desc = describeFace(shape);
       let best: NamedFace | null = null, bestS = Infinity;
       for (const c of prev) {
-        if (!sameSurface(desc, c.desc, tol)) continue;
+        if (!same(shape, desc, c)) continue;
         const s = score(desc, c);
         if (s < bestS) { bestS = s; best = c; }
       }
       if (!best) {
         for (const c of tool) {
-          if (!sameSurface(desc, c.desc, tol)) continue;
+          if (!same(shape, desc, c)) continue;
           const s = score(desc, c);
           if (s < bestS) { bestS = s; best = c; }
         }
@@ -1552,6 +1556,9 @@ function shellError(st: State, t: number): FeatureError {
     ? 'The shell could not be created. Make it thinner than the radius of the fillets and rounded faces.'
     : 'The shell could not be created. Try a smaller thickness.');
 }
+
+/** Surface types that sameSurface compares exactly. */
+const EXACT_SURFACES = new Set(['plane', 'cylinder', 'sphere']);
 
 /** Features whose tool body patterns and mirrors can copy. */
 const SEED_TYPES = new Set<Feature['type']>(['extrude', 'revolve', 'hole', 'loft', 'sweep', 'import', 'linearPattern', 'circularPattern', 'mirror']);
