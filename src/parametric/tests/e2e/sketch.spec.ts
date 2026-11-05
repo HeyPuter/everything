@@ -1217,3 +1217,67 @@ for (const tool of ['line', 'spline'] as const) test(`Delete with no selection p
   expect(curves[0].t).toBe(tool);
   expect(errors).toEqual([]);
 });
+
+for (const history of ['undo', 'redo'] as const) for (const tool of ['idle', 'line', 'spline'] as const) test(`${history} removes the active sketch safely with ${tool} pending`, async ({ page }) => {
+  const errors = await openApp(page);
+  const { x, y } = await startSketch(page);
+  if (history === 'redo') {
+    await page.evaluate(() => {
+      const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+      const id = a.sketchEditor!.sketchId;
+      a.exitSketch(true);
+      void a.deleteFeatures([id]);
+    });
+    await page.getByRole('dialog', { name: 'Delete', exact: true }).getByRole('button', { name: 'Delete', exact: true }).click();
+    await page.keyboard.press('ControlOrMeta+z');
+    await page.evaluate(() => {
+      const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+      a.editSketch(a.store.doc.features[0].id);
+    });
+  }
+  if (tool !== 'idle') {
+    await page.locator(`[data-cmd="tool:${tool}"]`).click();
+    await page.mouse.click(x - 100, y + 50);
+    if (tool === 'spline') await page.mouse.click(x, y + 50);
+  }
+  await page.keyboard.press(history === 'undo' ? 'ControlOrMeta+z' : 'ControlOrMeta+Shift+z');
+  const state = () => page.evaluate(() => {
+    const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+    return { inSketch: a.inSketch, features: a.store.doc.features, canRedo: a.store.canRedo, viewportTool: !!a.viewport.tool };
+  });
+  const undone = await state();
+  expect(errors).toEqual([]);
+  expect(undone).toEqual({ inSketch: false, features: [], canRedo: history === 'undo', viewportTool: false });
+  await page.keyboard.press(history === 'undo' ? 'ControlOrMeta+Shift+z' : 'ControlOrMeta+z');
+  expect(await state()).toMatchObject({ inSketch: false, features: [expect.objectContaining({ type: 'sketch', entities: [], constraints: [] })], viewportTool: false });
+  // The restored sketch can be reopened and edited normally.
+  await page.evaluate(() => {
+    const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+    a.editSketch(a.store.doc.features[0].id);
+  });
+  await page.locator('[data-cmd="tool:line"]').click();
+  await page.mouse.click(x - 100, y + 50);
+  await page.mouse.click(x, y + 50);
+  expect(await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.sketchEditor!.sketch.entities.filter((e) => e.t === 'line').length)).toBe(1);
+  expect(errors).toEqual([]);
+});
+
+test('normal Exit Sketch still finishes an unfinished spline as an undoable edit', async ({ page }) => {
+  const errors = await openApp(page);
+  const { x, y } = await startSketch(page);
+  await page.locator('[data-cmd="tool:spline"]').click();
+  await page.mouse.click(x - 100, y + 50);
+  await page.mouse.click(x, y + 50);
+  await page.locator('[data-cmd="sketch"]').first().click();
+  const state = () => page.evaluate(() => {
+    const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+    const sk = a.store.doc.features.find((f) => f.type === 'sketch')!;
+    return { inSketch: a.inSketch, splines: sk.entities.filter((e) => e.t === 'spline').length };
+  });
+  expect(await state()).toEqual({ inSketch: false, splines: 1 });
+  await page.keyboard.press('ControlOrMeta+z');
+  expect(await state()).toEqual({ inSketch: false, splines: 0 });
+  await page.keyboard.press('ControlOrMeta+Shift+z');
+  expect(await state()).toEqual({ inSketch: false, splines: 1 });
+  expect(errors).toEqual([]);
+});

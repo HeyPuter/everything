@@ -1282,7 +1282,10 @@ export class App {
   exitSketch(keep: boolean) {
     const ed = this.sketchEditor;
     if (!ed) return;
-    ed.setTool(null);
+    // History may already have removed the sketch. Do not finish a pending
+    // tool or rebuild its controls against geometry that no longer exists.
+    if (this.store.feature(ed.sketchId)) ed.setTool(null);
+    else ed.tool = null;
     ed.dispose();
     this.sketchEditor = null;
     this.sketchLifetime?.abort();
