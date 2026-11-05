@@ -373,6 +373,20 @@ test.describe('viewport', () => {
     expect(r.leader).toBe(false);
   });
 
+  test('picks a vertex from either side of it', async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+    await waitForFeature(page, 'Fillet1');
+    await expect.poll(() => page.evaluate(() => !!(window as unknown as Win).__parametric.bbox)).toBe(true);
+    const picked = await page.evaluate(() => {
+      const app = (window as unknown as Win).__parametric;
+      const [x, y] = app.viewport.project([60, 8, 30]);
+      // Point sprites are centred on the point, not drawn to its right only.
+      return [-3, 3].map((dx) => app.renderer.pick(x + dx, y, { vertex: true })?.kind ?? null);
+    });
+    expect(picked).toEqual(['vertex', 'vertex']);
+  });
+
   test('line display styles keep visible edges readable in both themes', async ({ page }) => {
     await openApp(page);
     const contrast = () => page.evaluate(() => {

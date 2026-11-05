@@ -387,7 +387,10 @@ export class Renderer {
   private previewMesh: MeshData | null = null;
   private previewKind: 'tool' | 'body' = 'tool';
   previewCut = false;
+  /** Segment corners: x along the segment (0 start, 1 end), y across it. */
   private quad!: WebGLBuffer;
+  /** Point sprite corners, centred on the point. */
+  private ptQuad!: WebGLBuffer;
   private faceState!: WebGLTexture;
   private faceColor!: WebGLTexture;
   private edgeState!: WebGLTexture;
@@ -445,6 +448,9 @@ export class Renderer {
     this.quad = gl.createBuffer()!;
     gl.bindBuffer(gl.ARRAY_BUFFER, this.quad);
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0, -1, 1, -1, 0, 1, 1, 1]), gl.STATIC_DRAW);
+    this.ptQuad = gl.createBuffer()!;
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.ptQuad);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
     this.faceState = this.dataTexture();
     this.faceColor = this.dataTexture();
     this.edgeState = this.dataTexture();
@@ -579,7 +585,7 @@ export class Renderer {
     if (m.vertices.length) {
       const vvao = gl.createVertexArray()!;
       gl.bindVertexArray(vvao);
-      gl.bindBuffer(gl.ARRAY_BUFFER, this.quad);
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.ptQuad);
       gl.enableVertexAttribArray(0);
       gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
       const vb = gl.createBuffer()!;
@@ -678,7 +684,7 @@ export class Renderer {
     if (!batch || !batch.positions.length) { this.points.delete(key); this.requestRender(); return; }
     const vao = gl.createVertexArray()!;
     gl.bindVertexArray(vao);
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.quad);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.ptQuad);
     gl.enableVertexAttribArray(0);
     gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
     const bufs: WebGLBuffer[] = [];
