@@ -31,6 +31,14 @@ describe('feature regeneration', () => {
     expect(names).toContain('E1:cap1');
   });
 
+  it('extrudes a small profile far from the sketch origin without losing it', async () => {
+    const b = new ModelBuilder();
+    const origin = 100_000_000;
+    const res = await b.build(req([sketch('S1', rect(origin, origin, origin + 0.5, origin + 0.5)), extrude('E1', 'S1', 2)]));
+    expect(res.status.every((s) => s.ok)).toBe(true);
+    expect(volume(b)).toBeCloseTo(0.5, 5);
+  });
+
   it('extrudes nested profiles with holes (even-odd)', async () => {
     const b = new ModelBuilder();
     const ents = [...rect(-20, -20, 20, 20), ...circle(0, 0, 10), ...circle(0, 0, 5)];

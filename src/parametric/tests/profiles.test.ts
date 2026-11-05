@@ -107,3 +107,21 @@ describe('closed spline profiles', () => {
     expect(inRegion([0, 0], p.regions[0])).toBe(false);
   });
 });
+
+it.each([0.5, 1, 1.1, 1.5, 2, 5])('preserves a %s mm closed profile translated far from the sketch origin', (side) => {
+  const p = buildProfiles(rect(100_000_000, 100_000_000, 100_000_000 + side, 100_000_000 + side));
+  expect(p.regions).toHaveLength(1);
+  expect(p.regions[0].outer.area).toBeCloseTo(side * side, 6);
+});
+
+it('keeps nested material and holes when the entire profile is translated', () => {
+  for (const origin of [0, -100_000_000, 100_000_000]) {
+    const p = buildProfiles([
+      ...rect(origin, origin, origin + 5, origin + 5),
+      ...rect(origin + 2, origin + 2, origin + 2.5, origin + 2.5),
+    ]);
+    expect(p.regions).toHaveLength(1);
+    expect(p.regions[0].holes).toHaveLength(1);
+    expect(area(p.regions[0])).toBeCloseTo(24.75, 8);
+  }
+});

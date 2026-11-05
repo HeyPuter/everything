@@ -190,13 +190,20 @@ export function inRegion(p: Vec2, r: Region): boolean {
 }
 
 function boundsOf(ix: SketchIndex, curves: SkCurve[]): number {
-  let m = 1;
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  const add = (p: Vec2) => {
+    minX = Math.min(minX, p[0]); minY = Math.min(minY, p[1]);
+    maxX = Math.max(maxX, p[0]); maxY = Math.max(maxY, p[1]);
+  };
   for (const c of curves) {
-    const pts = c.t === 'circle' ? [ix.pt(c.c)] : c.t === 'line' ? [ix.pt(c.a), ix.pt(c.b)] : c.t === 'arc' ? [ix.pt(c.c)] : c.pts.map((p) => ix.pt(p));
-    for (const p of pts) m = Math.max(m, Math.abs(p[0]), Math.abs(p[1]));
-    if (c.t === 'circle') m = Math.max(m, c.r);
+    if (c.t === 'circle' || c.t === 'arc') {
+      const center = ix.pt(c.c), r = c.t === 'circle' ? c.r : arcAngles(ix, c).r;
+      add([center[0] - r, center[1] - r]);
+      add([center[0] + r, center[1] + r]);
+    } else for (const p of c.t === 'line' ? [c.a, c.b] : c.pts) add(ix.pt(p));
   }
-  return m;
+  // Tolerance follows the geometry's size, not its distance from the origin.
+  return Math.max(1, maxX - minX, maxY - minY);
 }
 
 function endPoints(ix: SketchIndex, c: SkCurve): [Vec2, Vec2] {
@@ -327,9 +334,12 @@ function sameBoundary(a: Loop, b: Loop): boolean {
 
 export function polyArea(poly: Vec2[]): number {
   let s = 0;
+  const origin = poly[0];
   for (let i = 0, n = poly.length; i < n; i++) {
     const a = poly[i], b = poly[(i + 1) % n];
-    s += a[0] * b[1] - b[0] * a[1];
+    // Subtract a nearby origin before multiplying to avoid cancellation of
+    // large, nearly equal products for small profiles at large coordinates.
+    s += (a[0] - origin[0]) * (b[1] - origin[1]) - (b[0] - origin[0]) * (a[1] - origin[1]);
   }
   return s / 2;
 }
