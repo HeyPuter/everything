@@ -735,13 +735,16 @@ async function styleManager(app, { title, table, headerKey, make, fields, label,
     for (const f of fields) {
       let ctl;
       if (f.options) {
-        ctl = select(f.options, st[f.key]);
+        ctl = select(typeof f.options === 'function' ? f.options(d) : f.options, st[f.key]);
         ctl.addEventListener('change', () => (st[f.key] = f.number ? Number(ctl.value) : ctl.value));
       } else if (f.bool) {
         const c = check(f.label, !!st[f.key]);
         c.querySelector('input').addEventListener('change', (e) => (st[f.key] = e.target.checked));
         form.append(c);
         continue;
+      } else if (f.text) {
+        ctl = h('input.input', { type: 'text', value: st[f.key] ?? '', spellcheck: 'false' });
+        ctl.addEventListener('change', () => (st[f.key] = ctl.value));
       } else {
         const shown = () => (f.deg ? +((st[f.key] * 180) / Math.PI).toFixed(6) : st[f.key]);
         const inp = (ctl = num(shown(), { min: f.min ?? null }));
@@ -828,6 +831,7 @@ export function dimStylesDialog(app) {
     make: defaultDimStyle,
     uses: (name) => countStyleUses(app.doc.drawing, (e) => (e.type === 'dimension' || e.type === 'leader') && e.style === name),
     fields: [
+      { key: 'textStyle', label: 'Text style', options: (d) => [...d.textStyles.keys()] },
       { key: 'textHeight', label: 'Text height', min: 0.0001 },
       { key: 'arrowType', label: 'Arrowheads', options: [['closed', 'Closed filled'], ['open', 'Open'], ['tick', 'Architectural tick'], ['dot', 'Dot'], ['none', 'None']] },
       { key: 'arrowSize', label: 'Arrow size', min: 0 },
@@ -838,6 +842,8 @@ export function dimStylesDialog(app) {
       { key: 'extExtend', label: 'Extend beyond dimension line', min: 0 },
       { key: 'textGap', label: 'Text gap', min: 0 },
       { key: 'scale', label: 'Overall scale', min: 0.0001 },
+      { key: 'prefix', label: 'Prefix', text: true },
+      { key: 'suffix', label: 'Suffix', text: true },
       { key: 'trailingZeros', label: 'Keep trailing zeros', bool: true },
     ],
   });
