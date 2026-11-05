@@ -971,7 +971,12 @@ export const LENGTHEN = {
     if (!mode) return;
     ed.lenMode = mode;
     const label = { delta: 'Length to add (negative to shorten)', total: 'Total length', percent: 'Percent of current length' }[mode];
-    const v = await ed.getDistance(label, { default: ed.lenValue?.[mode] ?? (mode === 'percent' ? 100 : 1) });
+    const def = ed.lenValue?.[mode] ?? (mode === 'percent' ? 100 : 1);
+    // A percentage is a plain number, not a length in drawing units.
+    const v =
+      mode === 'percent'
+        ? await ed.getNumber(label, { default: def, min: 0 })
+        : await ed.getDistance(label, { default: def });
     if (typeof v !== 'number') return;
     ed.lenValue = { ...(ed.lenValue || {}), [mode]: v };
     for (;;) {

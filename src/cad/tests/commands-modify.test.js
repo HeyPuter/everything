@@ -385,3 +385,20 @@ describe('ARRAYPOLAR', () => {
     expect(ys).toEqual([0, -8.66, -8.66, 0]);
   });
 });
+
+describe('LENGTHEN percent', () => {
+  it('asks for a plain percentage, not a length in architectural units', async () => {
+    t.drawing.transaction('Units', () =>
+      t.drawing.setHeader({ units: 'in', linearFormat: 'architectural' }),
+    );
+    add({ type: 'line', x1: 0, y1: 0, x2: 10, y2: 0 });
+    const prompts = [];
+    t.ed.ui.prompt = (p) => p && prompts.push(p);
+    await t.type('LENGTHEN', 'P');
+    expect(prompts.at(-1)).toBe('Percent of current length <100>');
+    await t.type('150');
+    await t.pick(9, 0);
+    await t.type('');
+    expect(t.drawing.get(1).x2).toBeCloseTo(15);
+  });
+});
