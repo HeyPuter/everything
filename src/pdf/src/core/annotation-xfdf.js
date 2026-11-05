@@ -352,6 +352,17 @@ function flagBits(value) {
     .reduce((bits, flag) => bits | (FLAGS[flag.toLowerCase()] || 0), 0);
 }
 const hexText = (value) => PDFHexString.fromText(String(value));
+/**
+ * A PDF string of plain words from the file. pdf-lib writes a literal string as it is given,
+ * so a backslash or an unpaired parenthesis would run the string on into the rest of the file
+ * and leave the saved PDF unreadable; those are escaped, and other text is written in hex.
+ */
+const literal = (value) => {
+  const s = String(value);
+  return /^[\x20-\x7E]*$/.test(s)
+    ? PDFString.of(s.replace(/[\\()]/g, '\\$&'))
+    : PDFHexString.fromText(s);
+};
 const dateString = (value) => (value && parsePdfDate(value) ? PDFString.of(value) : null);
 
 /** A new annotation dictionary from an XFDF element, or null when it cannot be read. */
@@ -398,8 +409,8 @@ function dictFromElement(doc, page, element, subtype) {
   if (fringe.length === 4 && fringe.every((v) => Number.isFinite(v) && v >= 0))
     set('RD', doc.context.obj(fringe));
   if (attr('state') !== null) {
-    set('State', PDFString.of(attr('state')));
-    set('StateModel', PDFString.of(attr('statemodel') || 'Review'));
+    set('State', literal(attr('state')));
+    set('StateModel', literal(attr('statemodel') || 'Review'));
   }
   if (attr('icon')) set('Name', name(attr('icon')));
   const width = Number(attr('width'));
@@ -470,9 +481,9 @@ function dictFromElement(doc, page, element, subtype) {
     }
     case 'FreeText': {
       const da = textOf(child(element, 'defaultappearance'));
-      set('DA', PDFString.of(da || '/Helv 12 Tf 0 g'));
+      set('DA', literal(da || '/Helv 12 Tf 0 g'));
       const ds = textOf(child(element, 'defaultstyle'));
-      if (ds) set('DS', PDFString.of(ds));
+      if (ds) set('DS', literal(ds));
       // XFDF names the alignment; files once written by this editor number it.
       const justification = String(attr('justification') ?? '').toLowerCase();
       const q = JUSTIFICATION.includes(justification)

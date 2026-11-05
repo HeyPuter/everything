@@ -1348,6 +1348,27 @@ describe('comment exchange', () => {
     );
     expect(exportCommentSummary(await blank())).toBe('Comment summary: no comments\n');
   });
+
+  // A review state or text style with a backslash or an unpaired parenthesis was written into
+  // the PDF as it was, running the string on into the rest of the file: the saved PDF could
+  // no longer be opened.
+  it('imports states and styles with backslashes and parentheses into a readable PDF', async () => {
+    const doc = await blank();
+    const xfdf = `<?xml version="1.0"?><xfdf xmlns="http://ns.adobe.com/xfdf/"><annots>
+<square page="0" rect="100,100,200,150" name="box" color="#FF0000"><contents>Box</contents></square>
+<text page="0" rect="100,130,120,150" name="state" title="Ada" inreplyto="box" state="Done (final)\\" statemodel="Review"/>
+<text page="0" rect="100,130,120,150" name="mark" title="Grace" inreplyto="box" state="Erledigt ✓" statemodel="Review"/>
+<freetext page="0" rect="300,300,400,340" name="words"><contents>Words</contents><defaultstyle>font: Helvetica 12pt; color:#000000; (x:\\</defaultstyle></freetext>
+</annots></xfdf>`;
+    expect((await importXfdf(doc, xfdf)).imported).toBe(4);
+    const bytes = await doc.save();
+    const saved = await PDFDocument.load(bytes);
+    const [box, words] = listAnnotations(saved, 0);
+    expect(box.states.map(({ state }) => state)).toEqual(['Done (final)\\', 'Erledigt ✓']);
+    expect(words.contents).toBe('Words');
+    const subtypes = (await annotationsIn(bytes)).map((a) => a.subtype);
+    expect(subtypes).toEqual(['Square', 'Text', 'Text', 'FreeText']);
+  });
 });
 
 describe('flattening', () => {
