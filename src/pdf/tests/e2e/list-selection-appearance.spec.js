@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { PDFDocument, PDFName, PDFBool } from 'pdf-lib';
+import { PDFDocument, PDFName, PDFBool, PDFString } from 'pdf-lib';
 import { readFile } from 'node:fs/promises';
 import { duplicateListPdf } from '../fixtures/duplicate-list.js';
 import { rendered } from '../helpers/list-render.js';
@@ -95,4 +95,31 @@ test('a click on a list box row chooses the option drawn there', async ({ page }
     'Dates',
     'Elderberries',
   ]);
+});
+
+test('a list box shows the rows a click chooses from', async ({ page }) => {
+  await page.route('https://js.puter.com/**', (route) => route.fulfill({ body: '' }));
+  await page.goto('/#library');
+  const doc = await PDFDocument.create();
+  const list = doc.getForm().createOptionList('Size');
+  list.addOptions(Array.from({ length: 10 }, (_, i) => `Option ${i + 1}`));
+  list.addToPage(doc.addPage([400, 300]), { x: 50, y: 50, width: 150, height: 200 });
+  // The PDF draws its rows further apart than the page's list spaces them.
+  list.acroField.dict.set(PDFName.of('DA'), PDFString.of('/Helv 12 Tf 0 g'));
+  const opening = page.waitForEvent('filechooser');
+  await page.keyboard.press('ControlOrMeta+o');
+  await (
+    await opening
+  ).setFiles({
+    name: 'sizes.pdf',
+    mimeType: 'application/pdf',
+    buffer: Buffer.from(await doc.save()),
+  });
+  await expect(page.locator('.editor')).toHaveAttribute('aria-busy', 'false');
+  const control = page.getByRole('listbox', { name: 'Size (on page)', exact: true });
+  // The list itself shows, not the PDF's drawing under it, before it is first clicked.
+  await expect(control).toHaveCSS('opacity', '1');
+  const option = await control.locator('option', { hasText: 'Option 8' }).boundingBox();
+  await page.mouse.click(option.x + 20, option.y + option.height / 2);
+  await expect(control).toHaveValue('Option 8');
 });

@@ -2701,6 +2701,13 @@ kbd {
 .form-widget select.form-control {
   cursor: pointer;
 }
+/* A list box always shows its own rows, so a click lands on the option it shows: the PDF's
+   drawing of the list spaces and scrolls its rows its own way. */
+.form-widget select.form-control[size]:not(:disabled) {
+  opacity: 1;
+  color: var(--field-ink);
+  background: var(--field-background);
+}
 .form-checkbox .form-control,
 .form-radio .form-control {
   appearance: none;
