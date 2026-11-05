@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { defaultHeader } from '../src/core/schema.js';
-import { formatAngle, formatLinear, formatNumber, parseAngle, parseLength } from '../src/core/units.js';
+import {
+  formatAngle,
+  formatDirection,
+  formatLinear,
+  formatNumber,
+  parseAngle,
+  parseLength,
+} from '../src/core/units.js';
 
 const DEG = Math.PI / 180;
 const inch = { ...defaultHeader(), units: 'in' };
@@ -66,6 +73,16 @@ describe('formatAngle', () => {
     expect(formatAngle((12 + 30 / 60 + 15 / 3600) * DEG, { angularFormat: 'dms', angularPrecision: 4 })).toBe('12d30\'15"');
     expect(formatAngle(30 * DEG, { angularFormat: 'rad', angularPrecision: 4 })).toBe('0.5236r');
     expect(formatAngle(12.5 * DEG, { angularFormat: 'grad', angularPrecision: 2 })).toBe('13.89g');
+  });
+
+  it('keeps a full turn for measured angles but shows directions just below 0 as 0', () => {
+    const a = 2 * Math.PI - 1e-5;
+    expect(formatAngle(a, { angularFormat: 'deg' }, { symbol: true })).toBe('360°');
+    expect(formatDirection(a, { angularFormat: 'deg' }, { symbol: true })).toBe('0°');
+    expect(formatDirection(-1e-5, { angularFormat: 'grad' })).toBe('0g');
+    expect(formatDirection(a, { angularFormat: 'dms', angularPrecision: 2 })).toBe("0d0'");
+    expect(formatDirection(a, { angularFormat: 'deg', angularPrecision: 4 })).toBe('359.9994');
+    expect(formatDirection(-Math.PI / 2, { angularFormat: 'deg' })).toBe('270');
   });
 
   it('shows dms at the requested precision', () => {

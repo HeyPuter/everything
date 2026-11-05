@@ -153,6 +153,16 @@ export function formatAngle(radians, header, opts = {}) {
   }
 }
 
+/**
+ * A direction in [0, full turn) as displayed: one just below 0 reads 0, not
+ * 360. Use formatAngle for measured angles, where a full turn is 360.
+ */
+export function formatDirection(radians, header, opts) {
+  const tau = 2 * Math.PI;
+  const text = formatAngle(((radians % tau) + tau) % tau, header, opts);
+  return text === formatAngle(tau, header, opts) ? formatAngle(0, header, opts) : text;
+}
+
 const NUM_RE = /^(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?$/;
 const FRAC_RE = /^(\d+)\s*\/\s*(\d+)$/;
 const MIXED_RE = /^(\d+)(?:\s*-\s*|\s+)(\d+)\s*\/\s*(\d+)$/;

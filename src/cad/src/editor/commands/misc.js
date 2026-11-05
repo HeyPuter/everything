@@ -3,8 +3,8 @@
  */
 import { opts } from '../input.js';
 import { transformEntity, lengthOf, areaOf } from '../../core/geom/index.js';
-import { formatLinear, formatAngle } from '../../core/units.js';
-import { M, dist, angleOf, norm, fresh } from './util.js';
+import { formatLinear, formatDirection } from '../../core/units.js';
+import { M, dist, angleOf, fresh } from './util.js';
 import { tableKey } from '../../core/schema.js';
 
 // View ----------------------------------------------------------------------
@@ -89,7 +89,7 @@ export const DIST = {
     const b = await ed.getPoint('Second point', { base: a });
     if (!b || b.option) return;
     const h = ed.header;
-    const msg = `Distance = ${formatLinear(dist(a, b), h)},  Angle = ${formatAngle(norm(angleOf(a, b)), h, { symbol: true })},  Delta X = ${formatLinear(b.x - a.x, h)},  Delta Y = ${formatLinear(b.y - a.y, h)}`;
+    const msg = `Distance = ${formatLinear(dist(a, b), h)},  Angle = ${formatDirection(angleOf(a, b), h, { symbol: true })},  Delta X = ${formatLinear(b.x - a.x, h)},  Delta Y = ${formatLinear(b.y - a.y, h)}`;
     ed.ui.log(msg, 'result');
     ed.ui.toast?.(`Distance ${formatLinear(dist(a, b), h)}`);
   },

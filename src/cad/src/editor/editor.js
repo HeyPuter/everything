@@ -16,7 +16,7 @@ import { pickEntity, entityCrossesRect } from './pick.js';
 import { gripsOf, applyGrip } from './grips.js';
 import { parsePointInput, matchOption, parseNumber } from './input.js';
 import { baseProps } from '../core/schema.js';
-import { formatLinear, formatAngle, parseAngle } from '../core/units.js';
+import { formatLinear, formatAngle, formatDirection, parseAngle } from '../core/units.js';
 import { transformEntity } from '../core/geom/index.js';
 
 export class CancelError extends Error {
@@ -25,7 +25,6 @@ export class CancelError extends Error {
   }
 }
 
-const TAU = Math.PI * 2;
 const DRAG_PX = 5;
 const TOUCH_HIT_PX = 14;
 const ACQUIRE_MS = 450;
@@ -1116,7 +1115,7 @@ export class Editor {
     }
     if (best) {
       this._trackLine(best.line[0], best.line[1], best.line[2]);
-      this.trackLabel = `Polar: ${formatLinear(best.dist, this.header)} < ${formatAngle(norm(best.angle), this.header)}`;
+      this.trackLabel = `Polar: ${formatLinear(best.dist, this.header)} < ${formatDirection(best.angle, this.header)}`;
       return { x: best.x, y: best.y };
     }
     this.trackLabel = null;
@@ -1350,7 +1349,7 @@ export class Editor {
           // A scale factor reads as a plain number, not a length.
           const text = r.opts.factor ? String(+d.toPrecision(4)) : formatLinear(d, this.header);
           state.readouts.push({ sx: (b.x + fs.x) / 2, sy: (b.y + fs.y) / 2 - 14, text });
-          state.readouts.push({ sx: fs.x + 18, sy: fs.y - 18, text: formatAngle(norm(a), this.header), align: 'left' });
+          state.readouts.push({ sx: fs.x + 18, sy: fs.y - 18, text: formatDirection(a, this.header), align: 'left' });
         }
       }
     }
@@ -1416,10 +1415,6 @@ const SNAP_LABELS = {
   tan: 'Tangent',
   nea: 'Nearest',
 };
-
-function norm(a) {
-  return ((a % TAU) + TAU) % TAU;
-}
 
 function mid(pts) {
   return { sx: (pts[0].sx + pts[1].sx) / 2, sy: (pts[0].sy + pts[1].sy) / 2 };

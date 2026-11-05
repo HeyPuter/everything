@@ -7,7 +7,13 @@ import { h, clear, nextId } from './dom.js';
 import { icon } from './icons.js';
 import { colorLabel, colorCss } from '../core/colors.js';
 import { LINEWEIGHTS, LW_BYLAYER, LW_BYBLOCK, LW_DEFAULT } from '../core/schema.js';
-import { formatLinear, formatAngle, parseLength, parseAngle } from '../core/units.js';
+import {
+  formatLinear,
+  formatAngle,
+  formatDirection,
+  parseLength,
+  parseAngle,
+} from '../core/units.js';
 import { lengthOf, areaOf } from '../core/geom/index.js';
 import { dimensionText } from '../core/dims.js';
 import { patternNames } from '../core/hatch/patterns.js';
@@ -473,7 +479,7 @@ export class PropertiesPalette {
 
   angleInput(v, onCommit) {
     const hd = this.app.doc.drawing.header;
-    return this._input(v, (x) => (x === undefined || !Number.isFinite(x) ? '' : formatAngle(norm(x), hd)), (s) => parseAngle(s, hd), onCommit, { inputmode: 'decimal' });
+    return this._input(v, (x) => (x === undefined || !Number.isFinite(x) ? '' : formatDirection(x, hd)), (s) => parseAngle(s, hd), onCommit, { inputmode: 'decimal' });
   }
 
   numberInput(v, onCommit) {

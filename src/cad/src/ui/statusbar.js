@@ -7,7 +7,7 @@ import { h } from './dom.js';
 import { icon } from './icons.js';
 import { showMenu } from './menu.js';
 import { SNAP_MODES } from '../editor/snap.js';
-import { formatLinear, formatAngle } from '../core/units.js';
+import { formatLinear, formatDirection } from '../core/units.js';
 
 export const TOGGLES = [
   { key: 'grid', label: 'Grid', icon: 'grid', keys: 'F7' },
@@ -21,13 +21,7 @@ export const TOGGLES = [
   { key: 'selPreview', label: 'Selection preview', icon: 'sel-cycle' },
 ];
 
-const TAU = 2 * Math.PI;
-
-/** A direction as 0 up to (not including) a full turn, as displayed: just below 0 reads 0, not 360. */
-export function formatDirection(a, hd) {
-  const text = formatAngle(((a % TAU) + TAU) % TAU, hd);
-  return text === formatAngle(TAU, hd) ? formatAngle(0, hd) : text;
-}
+export { formatDirection };
 
 export class StatusBar {
   constructor(app) {
