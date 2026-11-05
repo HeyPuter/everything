@@ -215,8 +215,27 @@ describe('parseDxf: polylines and splines', () => {
     expect(s.fit).toEqual([0, 0, 5, 5, 10, 0]);
     expect(s.knots.length).toBe(s.ctrl.length / 2 + 4);
     const p = [0, 0];
-    evalSpline(3, s.knots, s.ctrl, null, s.knots[3 + 3], p);
+    evalSpline(3, s.knots, s.ctrl, null, s.knots[4], p);
     expect(close(p[0], 5) && close(p[1], 5)).toBe(true);
+  });
+
+  it('interpolates fit points like AutoCAD, with and without end tangents', () => {
+    const fit = [11, 80, 21, 0, 11, 83, 21, 5, 11, 87, 21, 2, 11, 90, 21, 8, 11, 95, 21, 3];
+    const { drawing } = parseDxf(
+      dxf([
+        0, 'SPLINE', 70, 8, 71, 3, 72, 0, 73, 0, 74, 5, ...fit,
+        0, 'SPLINE', 70, 8, 71, 3, 72, 0, 73, 0, 74, 5, 12, 0, 22, 1, 13, 1, 23, 1, ...fit,
+      ]),
+    );
+    // control points of the same splines saved by the ODA File Converter
+    const oda = [
+      [80, 0, 80.789512, 2.710814, 82.256025, 7.746132, 88.158965, -1.601571, 89.342591, 12.058199, 93.081378, 6.071947, 95, 3],
+      [80, 0, 80, 1.943651, 82.575279, 8.179854, 88.014684, -2.161254, 89.573882, 14.506293, 92.642977, 0.642977, 95, 3],
+    ];
+    drawing.entities.forEach((s, i) => {
+      expect(s.ctrl.length).toBe(oda[i].length);
+      s.ctrl.forEach((v, j) => expect(Math.abs(v - oda[i][j])).toBeLessThan(1e-5));
+    });
   });
 });
 

@@ -155,71 +155,117 @@ export function tessellateSpline(p, U, P, W, segs) {
   return out;
 }
 
+/** Cubic B-spline basis functions at `u` in knot span `span` (into N[0..3]). */
+function cubicBasis(span, u, U, N) {
+  const left = [0, 0, 0, 0];
+  const right = [0, 0, 0, 0];
+  N[0] = 1;
+  for (let j = 1; j <= 3; j++) {
+    left[j] = u - U[span + 1 - j];
+    right[j] = U[span + j] - u;
+    let saved = 0;
+    for (let r = 0; r < j; r++) {
+      const t = N[r] / (right[r + 1] + left[j - r]);
+      N[r] = saved + right[r + 1] * t;
+      saved = left[j - r] * t;
+    }
+    N[j] = saved;
+  }
+}
+
 /**
- * Build a clamped cubic B-spline that passes through the fit points (flat
- * [x, y, ...]), as a chain of cubic Bezier pieces with chord-length tangents.
- * `startTan` / `endTan` are optional [dx, dy] directions.
- * Returns { degree: 3, ctrl, knots } or null for fewer than two points.
+ * Build the clamped cubic B-spline through fit points (flat [x, y, ...]) the
+ * way AutoCAD does: global C2 interpolation with chord-length parameters and
+ * interior knots at the fit points. `startTan` / `endTan` are optional end
+ * derivatives [dx, dy] per unit of chord length (DXF groups 12 and 13);
+ * without them the ends get zero curvature. Closed curves without tangents
+ * share the tangent across the seam. Returns { degree: 3, ctrl, knots } with
+ * knots in [0, 1], or null for fewer than two distinct points.
  */
 export function fitToSpline(fit, closed = false, startTan = null, endTan = null) {
-  const pts = fit.slice();
-  let n = pts.length >> 1;
-  if (n < 2) return null;
-  if (closed && (pts[0] !== pts[n * 2 - 2] || pts[1] !== pts[n * 2 - 1])) {
-    pts.push(pts[0], pts[1]);
-    n++;
+  const Q = [];
+  for (let i = 0; i + 1 < fit.length; i += 2) {
+    const k = Q.length;
+    if (k && Q[k - 2] === fit[i] && Q[k - 1] === fit[i + 1]) continue;
+    Q.push(fit[i], fit[i + 1]);
   }
-  const t = [0];
-  for (let i = 1; i < n; i++) {
-    const d = Math.hypot(pts[i * 2] - pts[i * 2 - 2], pts[i * 2 + 1] - pts[i * 2 - 1]);
-    t.push(t[i - 1] + Math.max(d, 1e-12));
+  if (closed && Q.length >= 6 && (Q[0] !== Q[Q.length - 2] || Q[1] !== Q[Q.length - 1])) {
+    Q.push(Q[0], Q[1]);
   }
-  const tx = new Array(n).fill(0);
-  const ty = new Array(n).fill(0);
-  for (let i = 1; i < n - 1; i++) {
-    const dt = t[i + 1] - t[i - 1];
-    tx[i] = (pts[i * 2 + 2] - pts[i * 2 - 2]) / dt;
-    ty[i] = (pts[i * 2 + 3] - pts[i * 2 - 1]) / dt;
+  const n = (Q.length >> 1) - 1; // segments
+  if (n < 1) return null;
+  const u = [0];
+  for (let i = 1; i <= n; i++) {
+    u.push(u[i - 1] + Math.hypot(Q[2 * i] - Q[2 * i - 2], Q[2 * i + 1] - Q[2 * i - 1]));
   }
-  const h0 = t[1] - t[0];
-  const hn = t[n - 1] - t[n - 2];
-  if (closed && n > 2) {
-    const dt = h0 + hn;
-    tx[0] = tx[n - 1] = (pts[2] - pts[n * 2 - 4]) / dt;
-    ty[0] = ty[n - 1] = (pts[3] - pts[n * 2 - 3]) / dt;
-  } else {
-    const setEnd = (i, j, h, tan, sign) => {
-      if (tan && (tan[0] || tan[1])) {
-        const l = Math.hypot(tan[0], tan[1]);
-        tx[i] = tan[0] / l;
-        ty[i] = tan[1] / l;
-        return;
-      }
-      const cx = (sign * (pts[j * 2] - pts[i * 2])) / h;
-      const cy = (sign * (pts[j * 2 + 1] - pts[i * 2 + 1])) / h;
-      if (n > 2) {
-        tx[i] = 2 * cx - tx[j];
-        ty[i] = 2 * cy - ty[j];
-      } else {
-        tx[i] = cx;
-        ty[i] = cy;
-      }
-    };
-    setEnd(0, 1, h0, startTan, 1);
-    setEnd(n - 1, n - 2, hn, endTan, -1);
-  }
-  const ctrl = [pts[0], pts[1]];
-  const total = t[n - 1];
+  const total = u[n];
   const knots = [0, 0, 0, 0];
-  for (let i = 0; i < n - 1; i++) {
-    const h = (t[i + 1] - t[i]) / 3;
-    ctrl.push(pts[i * 2] + tx[i] * h, pts[i * 2 + 1] + ty[i] * h);
-    ctrl.push(pts[i * 2 + 2] - tx[i + 1] * h, pts[i * 2 + 3] - ty[i + 1] * h);
-    ctrl.push(pts[i * 2 + 2], pts[i * 2 + 3]);
-    const k = i === n - 2 ? 1 : t[i + 1] / total;
-    if (i === n - 2) knots.push(1, 1, 1, 1);
-    else knots.push(k, k, k);
+  for (let i = 1; i < n; i++) knots.push(u[i] / total);
+  knots.push(1, 1, 1, 1);
+  // derivatives with respect to the normalized parameter
+  const tan = (t) => (t && (t[0] || t[1]) ? [t[0] * total, t[1] * total] : null);
+  let d0 = tan(startTan);
+  let d1 = tan(endTan);
+  if (closed && n >= 3 && !d0 && !d1) {
+    const h = u[1] + u[n] - u[n - 1];
+    d0 = d1 = [((Q[2] - Q[2 * n - 2]) / h) * total, ((Q[3] - Q[2 * n - 1]) / h) * total];
   }
+  // tridiagonal system for control points 1..n+1 (0 and n+2 are the end points)
+  const m = n + 1;
+  const sub = new Float64Array(m);
+  const dia = new Float64Array(m);
+  const sup = new Float64Array(m);
+  const rx = new Float64Array(m);
+  const ry = new Float64Array(m);
+  const a = knots[4];
+  const b = knots[5];
+  if (d0) {
+    dia[0] = 1;
+    rx[0] = Q[0] + (a / 3) * d0[0];
+    ry[0] = Q[1] + (a / 3) * d0[1];
+  } else {
+    dia[0] = 1 / a + 1 / b;
+    sup[0] = -1 / b;
+    rx[0] = Q[0] / a;
+    ry[0] = Q[1] / a;
+  }
+  const N = [0, 0, 0, 0];
+  for (let k = 1; k < n; k++) {
+    cubicBasis(k + 3, knots[k + 3], knots, N);
+    sub[k] = N[0];
+    dia[k] = N[1];
+    sup[k] = N[2];
+    rx[k] = Q[2 * k];
+    ry[k] = Q[2 * k + 1];
+  }
+  const L = knots.length;
+  const c = 1 - knots[L - 5];
+  const d = 1 - knots[L - 6];
+  if (d1) {
+    dia[n] = 1;
+    rx[n] = Q[2 * n] - (c / 3) * d1[0];
+    ry[n] = Q[2 * n + 1] - (c / 3) * d1[1];
+  } else {
+    dia[n] = 1 / c + 1 / d;
+    sub[n] = -1 / d;
+    rx[n] = Q[2 * n] / c;
+    ry[n] = Q[2 * n + 1] / c;
+  }
+  for (let j = 1; j < m; j++) {
+    const w = sub[j] / dia[j - 1];
+    dia[j] -= w * sup[j - 1];
+    rx[j] -= w * rx[j - 1];
+    ry[j] -= w * ry[j - 1];
+  }
+  rx[m - 1] /= dia[m - 1];
+  ry[m - 1] /= dia[m - 1];
+  for (let j = m - 2; j >= 0; j--) {
+    rx[j] = (rx[j] - sup[j] * rx[j + 1]) / dia[j];
+    ry[j] = (ry[j] - sup[j] * ry[j + 1]) / dia[j];
+  }
+  const ctrl = [Q[0], Q[1]];
+  for (let j = 0; j < m; j++) ctrl.push(rx[j], ry[j]);
+  ctrl.push(Q[2 * n], Q[2 * n + 1]);
   return { degree: 3, ctrl, knots };
 }
 
