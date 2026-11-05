@@ -142,6 +142,14 @@ export class App {
     window.addEventListener('pointerdown', () => { this.pointerInput = true; }, true);
     window.addEventListener('keydown', () => { this.pointerInput = false; }, true);
     window.addEventListener('focusin', () => { this.focusByPointer = this.pointerInput; }, true);
+    // A double click on OK closes the panel with its first click; the second
+    // lands on what was under the panel (the part's name opens Part
+    // Properties, a face edits its feature) and must not double-click that.
+    // Tree rows are redrawn on click, so they are compared by their key.
+    const clickTarget = (t: EventTarget | null) => (t instanceof Element ? t.closest('[data-key]')?.getAttribute('data-key') ?? t : null);
+    let firstClick: unknown = null;
+    window.addEventListener('mousedown', (e) => { if (e.detail <= 1) firstClick = clickTarget(e.target); }, true);
+    window.addEventListener('dblclick', (e) => { if (clickTarget(e.target) !== firstClick) e.stopPropagation(); }, true);
     this.renderer.camera.setState(this.renderer.camera.fitState([0, 0, 0], 60));
     this.showLoading(true);
     this.bindKernelRecovery();

@@ -50,6 +50,23 @@ test.describe('part modeling', () => {
     expect(errors).toEqual([]);
   });
 
+  test('double-clicking OK closes the panel without double-clicking what was under it', async ({ page }) => {
+    const errors = await openApp(page);
+    await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+    await waitForFeature(page, 'Fillet1');
+    await page.getByRole('treeitem', { name: 'Extrude1', exact: true }).dblclick();
+    await expect(page.getByRole('heading', { name: 'Extrude' })).toBeVisible();
+    // The part's name in the design tree comes back where the panel's OK was.
+    await page.getByRole('button', { name: 'OK', exact: true }).first().dblclick();
+    await expect(page.getByRole('heading', { name: 'Extrude' })).toHaveCount(0);
+    await page.waitForTimeout(300);
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    // A double click that starts and ends on the part's name still opens its properties.
+    await page.getByRole('treeitem', { name: 'Mounting Bracket' }).dblclick();
+    await expect(page.getByRole('dialog', { name: 'Part Properties' })).toBeVisible();
+    expect(errors).toEqual([]);
+  });
+
   test('suppressing a feature suppresses the features built on it', async ({ page }) => {
     const errors = await openApp(page);
     await page.getByRole('button', { name: /Mounting Bracket/ }).click();
