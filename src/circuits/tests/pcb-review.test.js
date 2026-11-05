@@ -20,6 +20,9 @@ async function bootBoard() {
   await app.init();
   app.settings.set('autoRepour', false);
   app.settings.set('onlineDrc', false);
+  // jsdom cannot load the kernel; tests that need fills stub these again.
+  app.kernel.pours = async () => new Map();
+  app.kernel.drc = async () => [];
   await app.openExample();
   app.openDoc(app.project.boards[0].id);
   const ed = app.activeEditor;
@@ -343,5 +346,58 @@ describe('stopping the autorouter', () => {
     expect(pourCalls).toBe(2);
     expect(ed.pourFills.get(pour.id)).toBeTruthy();
     expect(drcCalls).toBeGreaterThanOrEqual(2);
+  });
+});
+
+describe('keys while the 3D view is open', () => {
+  async function open3d(app) {
+    const orig = HTMLCanvasElement.prototype.getContext;
+    HTMLCanvasElement.prototype.getContext = function () {
+      return fakeGl().gl;
+    };
+    try {
+      await app.set3d(true);
+    } finally {
+      HTMLCanvasElement.prototype.getContext = orig;
+    }
+  }
+  // Calls this app's key handler directly: apps from earlier tests still
+  // listen on the document and would take the event first.
+  const press = (app, target, key, opts = {}) => {
+    const e = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...opts });
+    Object.defineProperty(e, 'target', { value: target });
+    app.keys.handle(e);
+  };
+
+  it('do not delete, rotate or flip the hidden selection', async () => {
+    ctx = await bootBoard();
+    const { app, ed } = ctx;
+    const u1 = [...ed.doc.items()].find((o) => o.designator === 'U1');
+    ed.setSelection([u1.id]);
+    await open3d(app);
+    const canvas3d = document.querySelector('.view3d-wrap canvas');
+    for (const key of ['Delete', 'Backspace', ' ', 'l', 'r']) press(app, canvas3d, key);
+    press(app, document.body, 'Delete');
+    press(app, canvas3d, 'x', { ctrlKey: true });
+    press(app, canvas3d, 'd', { ctrlKey: true });
+    expect(ed.doc.store.get(u1.id)).toBe(u1);
+    expect(ed.tool).toBe(ed.select);
+  });
+
+  it('keeps undo and the 2D toggle working', async () => {
+    ctx = await bootBoard();
+    const { app, ed } = ctx;
+    const u1 = [...ed.doc.items()].find((o) => o.designator === 'U1');
+    ed.setSelection([u1.id]);
+    ed.rotateSelection(90);
+    await open3d(app);
+    const canvas3d = document.querySelector('.view3d-wrap canvas');
+    press(app, canvas3d, 'z', { ctrlKey: true });
+    expect(ed.doc.store.get(u1.id).rot).toBe(u1.rot);
+    press(app, canvas3d, '2');
+    expect(app.view3dOpen).toBe(false);
+    // Back in 2D, editing keys work again.
+    press(app, ed.canvas, 'Delete');
+    expect(ed.doc.store.get(u1.id)).toBeUndefined();
   });
 });
