@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { SkConstraint, SkDimension, SkEntity } from '../src/model/types';
-import { solveSketch } from '../src/sketch/solver';
+import { solveSketch, splineSignedDist } from '../src/sketch/solver';
+import { SketchIndex, distanceToCurve } from '../src/sketch/geom';
 
 const pt = (id: string, x: number, y: number): SkEntity => ({ id, t: 'point', x, y });
 const line = (id: string, a: string, b: string): SkEntity => ({ id, t: 'line', a, b });
@@ -165,6 +166,39 @@ describe('sketch solver', () => {
     const res = solveSketch(ents, [dim('d', 'hdistance', ['l'], 1e300)], { value });
     expect(res.status).toBe('over');
     expect([P(ents, 'a').x, P(ents, 'a').y, P(ents, 'b').x, P(ents, 'b').y]).toEqual([-15, -9, 15, -3]);
+  });
+
+  it('keeps a point coincident with a spline on the spline', () => {
+    const ents: SkEntity[] = [
+      pt('s0', 0, 0), pt('s1', 10, 6), pt('s2', 20, -2), pt('s3', 30, 4),
+      { id: 'sp', t: 'spline', pts: ['s0', 's1', 's2', 's3'] },
+      pt('q', 14, 3),
+    ];
+    const cons: SkConstraint[] = [
+      { id: 'f', type: 'fix', refs: ['s0', 's1', 's2', 's3'] },
+      { id: 'c', type: 'coincident', refs: ['q', 'sp'] },
+    ];
+    const onSpline = () => distanceToCurve(new SketchIndex(ents), ents[4] as never, [P(ents, 'q').x, P(ents, 'q').y]).d;
+    let res = solveSketch(ents, cons, { value });
+    expect(res.converged).toBe(true);
+    expect(res.dof).toBe(1);
+    expect(res.badConstraints.size).toBe(0);
+    expect(onSpline()).toBeLessThan(1e-3);
+    // Moving a spline point drags the coincident point along with the curve.
+    cons.shift();
+    const s1 = P(ents, 's1');
+    res = solveSketch(ents, cons, { value, drag: { kind: 'points', ids: ['s1'], targets: [[s1.x, s1.y + 8]] } });
+    expect(res.converged).toBe(true);
+    expect(P(ents, 's1').y).toBeCloseTo(14, 6);
+    expect(onSpline()).toBeLessThan(1e-3);
+    expect(Math.abs(splineSignedDist([P(ents, 'q').x, P(ents, 'q').y], ['s0', 's1', 's2', 's3'].map((id) => [P(ents, id).x, P(ents, id).y])))).toBeLessThan(1e-9);
+  });
+
+  it('measures a signed distance to a spline that is smooth past its ends', () => {
+    const pts: [number, number][] = [[0, 0], [10, 0]];
+    expect(splineSignedDist([5, 2], pts)).toBeCloseTo(2, 9);
+    expect(splineSignedDist([5, -3], pts)).toBeCloseTo(-3, 9);
+    expect(splineSignedDist([15, 1], pts)).toBeCloseTo(1, 9);
   });
 
   it('solves a large chained sketch quickly', () => {
