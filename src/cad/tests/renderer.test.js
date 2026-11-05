@@ -17,6 +17,7 @@ function fakeGL() {
     {},
     {
       get(_, name) {
+        if (typeof name !== 'string') return undefined;
         if (name === '__log') return log;
         if (typeof name === 'string' && /^[A-Z0-9_]+$/.test(name)) {
           if (!consts.has(name)) consts.set(name, consts.size + 1);
@@ -115,5 +116,24 @@ describe('Renderer chunks', () => {
     // Same size: nothing was cleared, so the frame can wait.
     t.r.resize(800, 600, 2);
     expect(frames).toBe(1);
+  });
+
+  it('keeps selected construction lines on screen without rebuilding the whole selection', () => {
+    let xid;
+    t.d.transaction('add', () => {
+      xid = t.d.add({ type: 'xline', layer: '0', color: 256, x: 0, y: 0, dx: 1, dy: 0 }).id;
+    });
+    for (const n of [4000, 6000]) {
+      t.r.setSelection(new Set([...t.d.entities.keys()].slice(0, n).concat(xid)));
+      t.r.frame();
+      const built = [];
+      const orig = t.r._buildIds.bind(t.r);
+      t.r._buildIds = (gpu, ids, flags, ctx) => (built.push(gpu), orig(gpu, ids, flags, ctx));
+      t.r.camera.panBy(500, 0);
+      t.r.frame();
+      t.r._buildIds = orig;
+      expect(built).toContain(t.r.selInfGpu);
+      expect(built).not.toContain(t.r.selGpu);
+    }
   });
 });

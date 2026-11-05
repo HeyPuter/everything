@@ -192,6 +192,7 @@ export class Renderer {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
     this.patternDirty = true;
     this.selGpu = new GpuBatch(gl);
+    this.selInfGpu = new GpuBatch(gl);
     this.hoverGpu = new GpuBatch(gl);
     this.previewGpu = new GpuBatch(gl);
     this.infGpu = new GpuBatch(gl);
@@ -563,11 +564,23 @@ export class Renderer {
       this._buildIds(this.infGpu, ids, 0, ctx);
       this.infDirty = false;
     }
-    const selInfinite = this.selection.size && this.selection.size < 5000 && [...this.selection].some((id) => this.infinite.has(id));
-    if (this.selDirty || selInfinite || (this.selection.size && this.selection.size < 5000 && lodStale(cam.scale, this.selScale))) {
-      this._buildIds(this.selGpu, this.selection, F_HIGHLIGHT, ctx);
+    // Selected construction lines follow the view on their own, so panning
+    // does not rebuild the rest of a large selection every frame.
+    const selInf = [];
+    if (this.selection.size) {
+      for (const id of this.infinite) if (this.selection.has(id)) selInf.push(id);
+    }
+    const selStale = this.selection.size < 5000 && lodStale(cam.scale, this.selScale);
+    if (this.selDirty || (this.selection.size && selStale)) {
+      const ids = selInf.length
+        ? [...this.selection].filter((id) => !this.infinite.has(id))
+        : this.selection;
+      this._buildIds(this.selGpu, ids, F_HIGHLIGHT, ctx);
       this.selDirty = false;
       this.selScale = cam.scale;
+    }
+    if (selInf.length || this.selInfGpu.segCount || this.selInfGpu.vertCount) {
+      this._buildIds(this.selInfGpu, selInf, F_HIGHLIGHT, ctx);
     }
     if (this.hoverDirty || (this.hover != null && (this.infinite.has(this.hover) || lodStale(cam.scale, this.hoverScale)))) {
       this._buildIds(this.hoverGpu, this.hover != null ? [this.hover] : [], F_HIGHLIGHT, ctx);
@@ -632,6 +645,7 @@ export class Renderer {
     }
     if (this.selection.size) {
       this._drawGpu(this.selGpu, common, true, hl, 1);
+      this._drawGpu(this.selInfGpu, common, true, hl, 1);
       if (this.dragMatrix) {
         const m = this.dragMatrix;
         // Express the world-space affine map relative to the camera.
@@ -640,7 +654,9 @@ export class Renderer {
           py = cam.cy;
         const tx = m[0] * px + m[2] * py + m[4] - px,
           ty = m[1] * px + m[3] * py + m[5] - py;
-        this._drawGpu(this.selGpu, common, true, hl, 1, xm, new Float32Array([tx, ty]));
+        const xt = new Float32Array([tx, ty]);
+        this._drawGpu(this.selGpu, common, true, hl, 1, xm, xt);
+        this._drawGpu(this.selInfGpu, common, true, hl, 1, xm, xt);
       }
     }
     this._drawGpu(this.previewGpu, common, false);
