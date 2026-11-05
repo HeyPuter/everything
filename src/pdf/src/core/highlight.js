@@ -233,6 +233,8 @@ export function editHighlight(doc, index, id, { hex, remove = false } = {}) {
   const opacity = entry.opacity >= 0 && entry.opacity <= 1 ? entry.opacity : undefined;
   const dict = annotationForEdit(doc.getPage(index), doc.context.lookup(annots.get(position)));
   appearance(doc, dict, entry.quads, hex, entry.kind, opacity);
+  // When it was last changed, as every other edit to a comment records.
+  dict.set(name('M'), PDFString.of(pdfDate()));
   return annotationsOf(doc.getPage(index)).get(position).toString();
 }
 
