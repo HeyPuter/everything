@@ -10254,6 +10254,12 @@ export function createEditor({
     return new Promise((resolve) => {
       const area = el('textarea', { class: 'input', rows: 4, maxlength: 20000 });
       const done = safe(async () => {
+        // An empty box would be a frame with nothing to read, left on the page.
+        if (!area.value.trim()) {
+          toast(`Write something in the ${title.toLowerCase()}.`, { error: true });
+          area.focus();
+          return;
+        }
         try {
           await mutateDialog(d, (doc) => add(doc, area.value), null, 'annotate');
         } finally {
