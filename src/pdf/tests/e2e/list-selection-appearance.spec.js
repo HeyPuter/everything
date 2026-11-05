@@ -65,3 +65,34 @@ for (const action of ['page', 'dialog', 'flatten'])
         if (action === 'flatten') await expect(page.locator('.form-control')).toHaveCount(0);
         else await expect(control).toHaveValues(['south']);
       });
+
+test('a click on a list box row chooses the option drawn there', async ({ page }) => {
+  await page.route('https://js.puter.com/**', (route) => route.fulfill({ body: '' }));
+  await page.goto('/#library');
+  const doc = await PDFDocument.create();
+  const list = doc.getForm().createOptionList('Fruit');
+  list.addOptions(['Apples', 'Bananas', 'Cherries', 'Dates', 'Elderberries']);
+  list.addToPage(doc.addPage([400, 300]), { x: 50, y: 150, width: 150, height: 80 });
+  const opening = page.waitForEvent('filechooser');
+  await page.keyboard.press('ControlOrMeta+o');
+  await (
+    await opening
+  ).setFiles({
+    name: 'fruit.pdf',
+    mimeType: 'application/pdf',
+    buffer: Buffer.from(await doc.save()),
+  });
+  await expect(page.locator('.editor')).toHaveAttribute('aria-busy', 'false');
+  const control = page.getByRole('listbox', { name: 'Fruit (on page)', exact: true });
+  // The five rows fill the box: the fourth is Dates.
+  const box = await control.boundingBox();
+  await page.mouse.click(box.x + 30, box.y + (box.height / 5) * 3.5);
+  await expect(control).toHaveValue('Dates');
+  await expect(control.locator('option')).toHaveText([
+    'Apples',
+    'Bananas',
+    'Cherries',
+    'Dates',
+    'Elderberries',
+  ]);
+});

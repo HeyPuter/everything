@@ -168,7 +168,10 @@ export function createFormLayer({ onChange, onCommit, onTabOut }) {
           multiple: widget.multiple,
           size: !widget.combo ? Math.max(2, Math.min(6, widget.options.length)) : null,
         },
-        !widget.multiple &&
+        // A list box shows its own rows, where the PDF draws them; an extra first row would
+        // put each option one row below its drawing, under the next option's.
+        widget.combo &&
+          !widget.multiple &&
           el('option', { value: '', 'data-placeholder': true }, 'Choose an option'),
         ...widget.options.map((option) =>
           el('option', { value: option.value }, option.label || '(Empty option)'),
