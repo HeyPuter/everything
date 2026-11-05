@@ -4040,6 +4040,16 @@ export function createEditor({
     const unit = screenUnit();
     return normalizeRect(pdfPoint(p), pdfPoint({ x: p.x + width * unit, y: p.y + height * unit }));
   };
+  /** readerRect, moved back as far as it takes to fit on the page: a click by the edge. */
+  const readerRectOnPage = (p, width, height) => {
+    const unit = screenUnit();
+    const fit = (at, size, room) => Math.max(0, Math.min(at, room - size * unit));
+    return readerRect(
+      { x: fit(p.x, width, viewport.width), y: fit(p.y, height, viewport.height) },
+      width,
+      height,
+    );
+  };
   overlay.addEventListener('pointerdown', (e) => {
     if (busy || !pageReady || gesture || !e.isPrimary || tool === 'select' || e.button !== 0)
       return;
@@ -6212,7 +6222,7 @@ export function createEditor({
     textarea.addEventListener('input', updateStatus);
     // A new icon hangs right and down from the click as the page is shown, turned or not.
     const size = NOTE_SIZE / viewport.userUnit;
-    const corner = entry ? null : readerRect(point, size, size);
+    const corner = entry ? null : readerRectOnPage(point, size, size);
     noteEdit = {
       entry,
       point: entry ? { x: entry.x, y: entry.y } : { x: corner.x, y: corner.y + corner.height },
@@ -10355,7 +10365,7 @@ export function createEditor({
     if (g.type === 'textbox') {
       const rect = boxed
         ? normalizeRect(pdfPoint(g.start), pdfPoint(end))
-        : readerRect(g.start, 180 * pt, 50 * pt);
+        : readerRectOnPage(g.start, 180 * pt, 50 * pt);
       return commentTextDialog('Text box', (doc, text) =>
         addTextBox(doc, g.page, { rect, text, fontSize, borderColor: hex, borderWidth, author }),
       );
@@ -10366,14 +10376,24 @@ export function createEditor({
       // The box grows from the dragged-to corner away from its point, which it must not cover:
       // leftwards when dragged to the left, upwards when dragged straight up.
       const unit = screenUnit() * pt;
-      const rect = readerRect(
-        {
-          x: corner.x < g.start.x ? corner.x - 180 * unit : corner.x,
-          y: corner.x === g.start.x && corner.y < g.start.y ? corner.y - 50 * unit : corner.y,
-        },
-        180 * pt,
-        50 * pt,
-      );
+      const [w, h] = [180 * unit, 50 * unit];
+      const x = corner.x < g.start.x ? corner.x - w : corner.x;
+      const y = corner.x === g.start.x && corner.y < g.start.y ? corner.y - h : corner.y;
+      // Moved onto the page, as long as it does not cover the point; a click by the right
+      // edge may put the box on the point's left instead.
+      const onPage = [x, ...(moved ? [] : [g.start.x - 60 - w])]
+        .map((left) => ({
+          x: Math.max(0, Math.min(left, viewport.width - w)),
+          y: Math.max(0, Math.min(y, viewport.height - h)),
+        }))
+        .find(
+          (box) =>
+            g.start.x < box.x ||
+            g.start.x > box.x + w ||
+            g.start.y < box.y ||
+            g.start.y > box.y + h,
+        );
+      const rect = readerRect(onPage ?? { x, y }, 180 * pt, 50 * pt);
       return commentTextDialog('Callout', (doc, text) =>
         addCallout(doc, g.page, {
           rect,
