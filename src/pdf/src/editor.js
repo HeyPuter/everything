@@ -10775,6 +10775,11 @@ export function createEditor({
     if (destroyed) return;
     const doc = await PDFDocument.load(session.bytes, { updateMetadata: false });
     const base = safeName(name).replace(/\.pdf$/i, '');
+    // A file with nothing in it would only leave the reader wondering what went wrong.
+    if (!doc.getPages().some((page) => listAnnotations(doc, page).length)) {
+      toast('This PDF has no comments to export.');
+      return;
+    }
     if (kind === 'summary') {
       download(
         new Blob([exportCommentSummary(doc)], { type: 'text/plain' }),
