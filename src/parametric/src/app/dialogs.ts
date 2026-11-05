@@ -124,6 +124,15 @@ export async function equationsDialog(app: App) {
       const was = originalNames.get(r.id);
       if (was !== undefined && was !== r.name) renamed.set(was, r.name);
     }
+    // A deleted variable's dimensions and feature values keep its value instead
+    // of failing on an unknown name (unless a variable of that name remains).
+    const before = evaluateVariables(doc.variables).values;
+    for (const [id, was] of originalNames) {
+      const value = before.get(was);
+      if (rows.some((r) => r.id === id || r.name === was) || value === undefined) continue;
+      const text = String(Number(value.toPrecision(12)));
+      renamed.set(was, value < 0 ? `(${text})` : text);
+    }
     app.store.change('Edit equations', (d) => {
       d.variables = [];
       if (renamed.size) mapExpressions(d, (src) => renameReferences(src, renamed));

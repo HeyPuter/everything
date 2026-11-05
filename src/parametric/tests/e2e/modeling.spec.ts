@@ -264,6 +264,30 @@ test('the equations table keeps keyboard focus as values are edited and rows del
   await expect(dlg.getByRole('button', { name: 'Add variable' })).toBeFocused();
 });
 
+test('deleting a global variable keeps the values that used it', async ({ page }) => {
+  await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  type Doc = { variables: { id: string; name: string; expr: string }[]; features: { id: string; depth?: unknown }[] };
+  type Handle = { store: { doc: Doc; change(l: string, fn: (d: Doc) => void): void }; commands: { run(id: string): boolean }; whenBuilt(): Promise<void> };
+  await page.evaluate(() => {
+    const a = (window as unknown as { __parametric: Handle }).__parametric;
+    a.store.change('Link', (d) => {
+      d.variables = [{ id: 'v1', name: 'W', expr: '-15' }, { id: 'v2', name: 'Keep', expr: '1' }];
+      d.features.find((f) => f.id === 'f1')!.depth = '=2-W';
+    });
+    a.commands.run('equations');
+  });
+  const dlg = page.getByRole('dialog', { name: 'Equations and Global Variables' });
+  await dlg.getByRole('button', { name: 'Delete W' }).click();
+  await dlg.getByRole('button', { name: 'OK' }).click();
+  await expect(dlg).toBeHidden();
+  const depth = await page.evaluate(() => (window as unknown as { __parametric: Handle }).__parametric.store.doc.features.find((f) => f.id === 'f1')!.depth);
+  expect(depth).toBe('=2-(-15)');
+  await page.evaluate(() => (window as unknown as { __parametric: Handle }).__parametric.whenBuilt());
+  await expect(page.locator('.ti.error')).toHaveCount(0);
+});
+
 test('switching the part to inches keeps the size of values linked to equations', async ({ page }) => {
   const errors = await openApp(page);
   await page.getByRole('button', { name: /Mounting Bracket/ }).click();
