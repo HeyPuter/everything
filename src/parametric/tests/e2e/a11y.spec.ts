@@ -384,3 +384,18 @@ test('IME candidate keys keep rename dialogs and feature names editable', async 
   await expect(page.getByRole('treeitem', { name: '丸み', exact: true })).toBeVisible();
   expect(errors).toEqual([]);
 });
+
+test('removing a picked item from a selection box keeps keyboard focus in the box', async ({ page }) => {
+  await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  await page.getByRole('treeitem', { name: 'Fillet1' }).focus();
+  await page.keyboard.press('Enter');
+  const box = page.getByRole('group', { name: 'Items to fillet' });
+  const remove = box.getByRole('button', { name: /^Remove / });
+  await expect(remove).toHaveCount(1);
+  await remove.focus();
+  await page.keyboard.press('Enter');
+  await expect(remove).toHaveCount(0);
+  await expect(box).toBeFocused();
+});

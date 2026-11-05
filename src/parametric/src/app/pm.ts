@@ -437,9 +437,14 @@ export class SelectionBox {
       const rm = h('button', { class: 'icon-btn rm', type: 'button', 'aria-label': `Remove ${it.label}` }, icon('close', 14));
       rm.addEventListener('click', (e) => {
         e.stopPropagation();
+        const hadFocus = document.activeElement === rm;
         this.items.splice(i, 1);
         this.draw();
         this.onChange(this.items);
+        // Keyboard focus moves to the next item's Remove button (or the box)
+        // instead of falling to the page with the removed button.
+        const rms = this.list.querySelectorAll<HTMLElement>('.rm');
+        if (hadFocus) (rms[Math.min(i, rms.length - 1)] ?? this.list).focus({ preventScroll: true });
       });
       this.list.append(h('div', { class: 'item' }, h('span', {}, it.label), rm));
     });
