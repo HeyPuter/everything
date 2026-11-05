@@ -5,6 +5,7 @@ import { App } from '../src/app/app.js';
 import { setPuterForTests } from '../src/app/puter.js';
 import { closeMenus } from '../src/ui/menu.js';
 import { placedOf } from '../src/render/pcb-scene.js';
+import { Batch } from '../src/render/batch.js';
 
 async function bootBoard() {
   document.body.innerHTML = '<div id="app"></div><div id="live-region"></div>';
@@ -148,5 +149,25 @@ describe('routing and undo', () => {
     // The next click starts a new trace instead of continuing from a removed end.
     ed.tool.click(ev(p.x, p.y));
     expect(ed.tool.trace.pts).toEqual([p.x, p.y]);
+  });
+});
+
+describe('pour previews', () => {
+  it('moving a pour previews its outline, not the fill left at the old place', async () => {
+    ctx = await bootBoard();
+    const { ed } = ctx;
+    const pour = [...ed.doc.items()].find((o) => o.t === 'pour');
+    ed.pourFills = new Map([[pour.id, [[pour.pts]]]]);
+    const mv = ed.beginMove([pour.id], { x: pour.pts[0], y: pour.pts[1] });
+    mv.update(5_000_000, 0);
+    const b = new Batch();
+    mv.draw(b);
+    expect(b.bufs.tri.count).toBe(0);
+    expect(b.bufs.seg.count).toBeGreaterThan(0);
+    mv.cancel();
+    // The board layer itself still draws the committed fill.
+    ed._dirtyLayers.add('*');
+    ed._rebuildLayers();
+    expect(ed.layerBatches.get(pour.layer).bufs.tri.count).toBeGreaterThan(0);
   });
 });

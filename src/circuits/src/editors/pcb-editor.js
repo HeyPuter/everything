@@ -94,6 +94,14 @@ export class PcbEditor extends CanvasView {
     };
   }
 
+  /**
+   * Context for previews of objects being moved, pasted or reshaped: pour
+   * fills belong to the committed outline, so previews draw outlines only.
+   */
+  previewContext() {
+    return { ...this.sceneContext(), pourFills: null };
+  }
+
   netClassOf(net) {
     if (!net) return null;
     const rules = this.doc.rules;
@@ -645,8 +653,9 @@ export class PcbEditor extends CanvasView {
       draw(b) {
         const objs = transformed();
         const sink = (l) => (l === 'holes' || ed.isLayerVisible(l) ? b : null);
-        for (const o of objs) emitPcbObject(o, sink, ed.sceneContext());
-        for (const t of stretched()) emitPcbObject(t, sink, ed.sceneContext());
+        const ctx = ed.previewContext();
+        for (const o of objs) emitPcbObject(o, sink, ctx);
+        for (const t of stretched()) emitPcbObject(t, sink, ctx);
         if (nets.size) ed._drawLiveRats(b, objs, movingComps, nets);
       },
       commit() {
@@ -764,7 +773,8 @@ export class PcbEditor extends CanvasView {
         const c = ed.cursor;
         if (!c.inside) return;
         const sink = (l) => (l === 'holes' || ed.isLayerVisible(l) ? b : null);
-        for (const o of this.objs(c.x, c.y)) emitPcbObject(o, sink, ed.sceneContext());
+        const ctx = ed.previewContext();
+        for (const o of this.objs(c.x, c.y)) emitPcbObject(o, sink, ctx);
       },
     };
     this.setTool(tool);
@@ -976,7 +986,7 @@ function nearestEnd(seg, x, y, reach) {
 
 installVertexEditing(PcbEditor, (ed, b, o) => {
   const sink = (l) => (l === 'holes' || ed.isLayerVisible(l) ? b : null);
-  emitPcbObject(o, sink, ed.sceneContext());
+  emitPcbObject(o, sink, ed.previewContext());
   if (o.pts) b.polyline(o.pts, 0, pack(ed.palette.selection), o.t === 'pour' || o.t === 'region');
 });
 

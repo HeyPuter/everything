@@ -30,7 +30,7 @@ function crosshair(b, ed, x, y, color) {
 /** Draws objects as previews into the overlay. */
 function preview(b, ed, objs, alpha = 0.75) {
   const sink = (l) => (l === 'holes' || ed.isLayerVisible(l) || isCopper(l) ? b : null);
-  const ctx = { ...ed.sceneContext(), colors: ed.layerColorsWithAlpha?.(alpha) };
+  const ctx = { ...ed.previewContext(), colors: ed.layerColorsWithAlpha?.(alpha) };
   for (const o of objs) emitPcbObject(o, sink, ctx);
 }
 
