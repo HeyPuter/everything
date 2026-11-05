@@ -936,7 +936,8 @@ function showHome({ accountRefresh = false } = {}) {
               { signal },
             );
             await settleAccount(signal);
-            if (name && !signal.aborted) {
+            // An unchanged name is no rename: Puter would refuse it as a name already taken.
+            if (name && safeName(name) !== file.name && !signal.aborted) {
               await P.renameFile(file.path, name);
               if (!signal.aborted) refreshAfterAction();
             }

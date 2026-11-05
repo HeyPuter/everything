@@ -104,3 +104,23 @@ test('the skip link moves the focus without leaving the library address', async 
   await page.reload();
   await expect(page.getByRole('heading', { name: 'Your PDFs' })).toBeVisible();
 });
+
+test('renaming a PDF to its own name changes nothing and reports no error', async ({ page }) => {
+  await page.route('https://js.puter.com/**', (route) =>
+    route.fulfill({
+      contentType: 'application/javascript',
+      body: `window.renames = 0; window.puter = { env: 'web', auth: { isSignedIn: () => true, getUser: async () => ({username: 'test-user'}) }, fs: { readdir: async () => [{ name: 'report.pdf', path: 'PDF Editor/report.pdf' }], rename: async (path, name) => { window.renames++; throw { code: 'item_with_same_name_exists', message: 'An item with name ' + name + ' already exists.' }; } } };`,
+    }),
+  );
+  await page.goto('/#library');
+  await page.getByRole('button', { name: 'Options for report.pdf', exact: true }).click();
+  await page.getByRole('button', { name: 'Rename', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Rename PDF', exact: true });
+  await expect(dialog.getByLabel('File name')).toHaveValue('report');
+  await dialog.getByRole('button', { name: 'Continue', exact: true }).click();
+  await expect(dialog).toBeHidden();
+  await page.waitForTimeout(300);
+  expect(await page.evaluate(() => window.renames)).toBe(0);
+  await expect(page.locator('#toast')).toBeHidden();
+  await expect(page.getByRole('button', { name: 'report.pdf', exact: true })).toBeVisible();
+});
