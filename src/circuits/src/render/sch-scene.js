@@ -4,6 +4,7 @@
 import { pack } from './color.js';
 import { mm, mil } from '../core/units.js';
 import { rotate } from '../core/geom.js';
+import { textWidth } from './font.js';
 import { placeSymbol, fieldPosition } from '../model/place.js';
 import { sheetExtents } from '../model/project.js';
 import { SCH_TEXT, PIN_TEXT, LINE_W, WIRE_W, BUS_W, JUNCTION_R, powerShape, portPolygon, fieldText } from '../model/sch.js';
@@ -60,19 +61,22 @@ export function drawSheet(b, sheet, pal, info = {}) {
   split(y1, y1 + rowH, [0.4, 0.6]);
   const lab = pack(pal.titleText), val = pack(pal.titleValue);
   const ls = mm(1.6), vs = mm(2.6);
-  const cell = (x, yTop, label, value, size = vs) => {
+  const cell = (x, yTop, cellW, label, value, size = vs) => {
     b.text(label, x + mm(1.2), yTop - mm(1.2), ls, lab, { align: { h: 'left', v: 'top' } });
-    if (value) b.text(value, x + mm(1.2), yTop - rowH + mm(1.4), size, val);
+    if (!value) return;
+    // Long values shrink to stay inside their cell (and on the paper).
+    const room = cellW - mm(2.4), tw = textWidth(value, size);
+    b.text(value, x + mm(1.2), yTop - rowH + mm(1.4), tw > room ? (size * room) / tw : size, val);
   };
   const yT = y2;
-  cell(x1, yT, 'Title', sheet.title || info.projectName || '', mm(3.4));
-  cell(x1, y1 + rowH * 3, 'Size', sheet.size || 'A4');
-  cell(x1 + w * 0.25, y1 + rowH * 3, 'Number', String(sheet.number ?? ''));
-  cell(x1 + w * 0.7, y1 + rowH * 3, 'Revision', sheet.revision || '');
-  cell(x1, y1 + rowH * 2, 'Date', info.date || '');
-  cell(x1 + w * 0.4, y1 + rowH * 2, 'File', info.fileName || '');
-  cell(x1, y1 + rowH, 'Sheet', info.sheetOf || '');
-  cell(x1 + w * 0.4, y1 + rowH, 'Drawn by', [sheet.author, sheet.company].filter(Boolean).join(', '));
+  cell(x1, yT, w, 'Title', sheet.title || info.projectName || '', mm(3.4));
+  cell(x1, y1 + rowH * 3, w * 0.25, 'Size', sheet.size || 'A4');
+  cell(x1 + w * 0.25, y1 + rowH * 3, w * 0.45, 'Number', String(sheet.number ?? ''));
+  cell(x1 + w * 0.7, y1 + rowH * 3, w * 0.3, 'Revision', sheet.revision || '');
+  cell(x1, y1 + rowH * 2, w * 0.4, 'Date', info.date || '');
+  cell(x1 + w * 0.4, y1 + rowH * 2, w * 0.6, 'File', info.fileName || '');
+  cell(x1, y1 + rowH, w * 0.4, 'Sheet', info.sheetOf || '');
+  cell(x1 + w * 0.4, y1 + rowH, w * 0.6, 'Drawn by', [sheet.author, sheet.company].filter(Boolean).join(', '));
 }
 
 function graphicColor(g, pal, stroke) {

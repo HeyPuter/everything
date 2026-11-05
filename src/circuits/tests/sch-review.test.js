@@ -8,6 +8,9 @@ import { setPuterForTests } from '../src/app/puter.js';
 import { Renderer2D } from '../src/render/renderer2d.js';
 import { mil } from '../src/core/units.js';
 import { layoutText, textWidth } from '../src/render/font.js';
+import { Batch } from '../src/render/batch.js';
+import { drawSheet, sheetFrame } from '../src/render/sch-scene.js';
+import { SCH_PALETTES } from '../src/render/palette.js';
 
 async function boot() {
   document.body.innerHTML = '<div id="app"></div><div id="live-region"></div>';
@@ -353,5 +356,42 @@ describe('presses in tools without a drag gesture', () => {
     ed.canvas.dispatchEvent(pointer('pointermove', sx + 50, sy));
     ed.canvas.dispatchEvent(pointer('pointerup', sx + 50, sy));
     expect(ed.doc.store.get(part.id).x).not.toBe(part.x);
+  });
+});
+
+describe('title block', () => {
+  it('keeps long values inside their cells', () => {
+    const texts = [];
+    const b = new Batch();
+    b.text = (str, x, y, size) => texts.push({ str, x, y, size });
+    const sheet = {
+      size: 'A4',
+      title: 'Dual channel 48 V synchronous buck converter with telemetry, rev C',
+      author: 'Maximilian Featherstonehaugh-Smythe',
+      company: 'Acme Precision Electronics International GmbH',
+      revision: 'C',
+    };
+    drawSheet(b, sheet, SCH_PALETTES.light, {
+      fileName: 'power-stage-left-channel-final-v2.sch',
+      date: '2026-11-05',
+      sheetOf: '1 of 1',
+    });
+    const { tb } = sheetFrame(sheet);
+    const w = tb.x2 - tb.x1;
+    const cellEnd = (x) => {
+      const f = (x - tb.x1) / w;
+      // Cell boundaries of the four rows (fractions of the block width).
+      for (const edge of [0.25, 0.4, 0.7])
+        if (f < edge - 1e-6 && f > edge - 0.2) return tb.x1 + w * edge;
+      return tb.x2;
+    };
+    for (const name of [sheet.title, 'Maximilian', 'power-stage']) {
+      const t = texts.find((e) => e.str.startsWith(name));
+      expect(t).toBeTruthy();
+      expect(t.x + textWidth(t.str, t.size)).toBeLessThanOrEqual(cellEnd(t.x));
+    }
+    // Short values keep their normal size.
+    const rev = texts.find((e) => e.str === 'C' && e.x > tb.x1 && e.x < tb.x2);
+    expect(rev.size).toBeCloseTo(2.6e6, -3);
   });
 });
