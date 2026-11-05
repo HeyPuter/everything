@@ -7,6 +7,7 @@ import { add, cross, dot, normalize, rayPlaneT, scale, sub, toWorld, qAxisAngle 
 import type { BasePlane, Id, SketchFeature } from '../model/types';
 import { BASE_FRAMES } from '../model/planes';
 import { consumedSketches } from '../model/features';
+import { cssColor } from '../platform/theme';
 import { Camera, VIEWS, VIEW_LABELS, type ViewName } from '../render/camera';
 import { STATE_HOVER, STATE_SELECTED, type PickHit } from '../render/renderer';
 import { SketchIndex, tessellate } from '../sketch/geom';
@@ -606,7 +607,8 @@ export class Viewport {
       const cols = new Uint8Array([211, 58, 44, 255, 44, 155, 69, 255, 47, 99, 214, 255]);
       r.setLines('origin', { positions: pos, colors: cols, width: 1.6, depth: 'always', order: 5 });
       const sel = app.selection.has({ kind: 'origin' }) || app.selection.hover?.kind === 'origin';
-      r.setPoints('origin', { positions: new Float32Array([0, 0, 0]), colors: new Uint8Array(sel ? [47, 124, 246, 255] : [200, 50, 40, 255]), sizeStyle: new Float32Array([8, 2]), depth: 'always', order: 5 });
+      const s = r.theme.selection.map((v) => Math.round(v * 255));
+      r.setPoints('origin', { positions: new Float32Array([0, 0, 0]), colors: new Uint8Array(sel ? [...s, 255] : [200, 50, 40, 255]), sizeStyle: new Float32Array([8, 2]), depth: 'always', order: 5 });
     } else {
       r.setLines('origin', null);
       r.setPoints('origin', null);
@@ -626,6 +628,10 @@ export class Viewport {
     const sel = app.selection;
     this.sketchPx = this.camera.pixelSize;
     this.drawnSketchHover = this.sketchHoverKey();
+    // Theme colours: the light theme's grey is barely visible on the dark viewport.
+    const rgba = (c: number[]) => [...c.map((v) => Math.round(v * 255)), 255];
+    const inactive = rgba(cssColor('--sketch-inactive'));
+    const highlight = rgba(this.renderer.theme.selection);
     if (this.showSketches) {
       for (const f of built) {
         if (f.type !== 'sketch' || f.suppressed || app.featureStatus(f.id)?.suppressed) continue;
@@ -635,7 +641,7 @@ export class Viewport {
         if (!shown && !highlighted) continue;
         const fr = app.frameOfSketch(f);
         if (!fr) continue;
-        const c = highlighted ? [47, 124, 246, 255] : [92, 107, 128, 255];
+        const c = highlighted ? highlight : inactive;
         this.sketchPolylines(f, fr, (a, b, construction) => {
           pos.push(...a, ...b);
           col.push(c[0], c[1], c[2], construction ? 120 : 255);
@@ -644,7 +650,7 @@ export class Viewport {
     }
     this.renderer.setLines('sketches', pos.length ? { positions: new Float32Array(pos), colors: new Uint8Array(col), width: 1.4, depth: 'test', bias: 3e-4, order: 1 } : null);
     this.renderer.setPoints('sketchPts', ptPos.length ? {
-      positions: new Float32Array(ptPos), colors: new Uint8Array((ptPos.length / 3) * 4).map((_, i) => [92, 107, 128, 255][i % 4]),
+      positions: new Float32Array(ptPos), colors: new Uint8Array((ptPos.length / 3) * 4).map((_, i) => inactive[i % 4]),
       sizeStyle: new Float32Array((ptPos.length / 3) * 2).map((_, i) => (i % 2 ? 1 : 5)), depth: 'test', order: 1,
     } : null);
   }

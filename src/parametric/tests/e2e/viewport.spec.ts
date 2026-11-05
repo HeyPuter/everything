@@ -736,6 +736,35 @@ test.describe('viewport', () => {
     expect(await contrast()).toBeGreaterThan(4.5);
   });
 
+  test('shown sketches and the selected origin follow the theme', async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+    await waitForFeature(page, 'Fillet1');
+    const colours = () => page.evaluate(() => {
+      const app = (window as unknown as Win).__parametric;
+      const r = app.renderer as unknown as { lines: Map<string, { colors: Uint8Array }>; points: Map<string, { colors: Uint8Array }> };
+      const token = getComputedStyle(document.documentElement).getPropertyValue('--sketch-inactive').trim();
+      const hex = (c: ArrayLike<number>) => '#' + [0, 1, 2].map((i) => c[i].toString(16).padStart(2, '0')).join('');
+      const sel = app.renderer.theme.selection.map((v) => Math.round(v * 255));
+      return { sketch: hex(r.lines.get('sketches')!.colors), token, origin: hex(r.points.get('origin')!.colors), selection: hex(sel) };
+    });
+    await page.evaluate(() => {
+      const app = (window as unknown as Win).__parametric;
+      const sk = app.store.doc.features.find((f) => f.type === 'sketch')!;
+      app.store.change('Show sketch', (d) => { d.features.find((f) => f.id === sk.id)!.hidden = false; });
+      app.viewport.showOrigin = true;
+      app.selection.set([{ kind: 'origin' }]);
+    });
+    for (const theme of ['Dark', 'Light']) {
+      await page.getByRole('button', { name: /Account/ }).click();
+      await page.getByRole('menuitemradio', { name: theme }).click();
+      await expect(page.locator('html')).toHaveAttribute('data-theme-resolved', theme.toLowerCase());
+      const c = await colours();
+      expect(c.sketch).toBe(c.token);
+      expect(c.origin).toBe(c.selection);
+    }
+  });
+
   test('line display styles show a selected face', async ({ page }) => {
     await openApp(page);
     await page.getByRole('button', { name: /Mounting Bracket/ }).click();
