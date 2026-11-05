@@ -42,6 +42,7 @@ export class FileOps {
 
   /** Asks to save or discard unsaved changes. Returns false to abort. */
   async confirmDiscard(action: string): Promise<boolean> {
+    const documentVersion = this.documentVersion;
     // A feature panel with changes not yet applied counts as unsaved work too.
     const panel = this.app.panel?.edited ? this.app.panel : null;
     if (!this.app.store.dirty && !panel) return true;
@@ -50,20 +51,27 @@ export class FileOps {
       body: h('p', {}, `"${this.app.store.doc.name}" has unsaved changes${panel ? ` (including ${panel.title}, which is still open)` : ''}. Save them before you ${action}?`),
       buttons: [{ label: 'Cancel', value: 'cancel', left: true }, { label: "Don't save", value: 'discard' }, { label: 'Save', value: 'save', primary: true }],
     });
+    if (documentVersion !== this.documentVersion) return false;
     if (v === 'save') {
       // Apply the open panel first; a value it refuses keeps everything open.
       if (panel) {
         await this.app.closePanel(true);
-        if (this.app.panel) return false;
+        if (this.app.panel || documentVersion !== this.documentVersion) return false;
       }
-      return this.save();
+      if (!(await this.save()) || documentVersion !== this.documentVersion) return false;
+      // A successful write can still leave newer edits unsaved.
+      if (this.app.store.dirty || this.app.panel?.edited) {
+        toast({ kind: 'warning', message: 'More changes were made while saving. They are still open and unsaved.' });
+        return false;
+      }
+      return true;
     }
     if (v !== 'discard') return false;
     // Discarded on purpose: do not offer it for recovery next time.
     clearTimeout(this.recoveryTimer);
     this.recoveryTimer = 0;
     await clearRecovery();
-    return true;
+    return documentVersion === this.documentVersion;
   }
 
   async newPart() {

@@ -620,3 +620,51 @@ test('a part launched from the desktop asks before replacing unsaved work', asyn
   expect(saved.variables[0].name).toBe('Keep');
   expect(errors).toEqual([]);
 });
+
+for (const change of ['edits', 'a new part'] as const) test(`saving before New keeps ${change} made while that save was pending`, async ({ page }) => {
+  await mockPuter(page);
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await app(page);
+  await page.evaluate(() => {
+    type W = { __parametric: import('../../src/app/app').App; puter: { fs: { write: (...args: unknown[]) => Promise<unknown> } }; saveStarted: boolean; releaseSave: () => void; pendingNew: Promise<void> };
+    const w = window as unknown as W;
+    const write = w.puter.fs.write.bind(w.puter.fs);
+    const gate = new Promise<void>((resolve) => { w.releaseSave = resolve; });
+    w.puter.fs.write = async (...args) => { w.saveStarted = true; await gate; return write(...args); };
+    w.__parametric.store.change('Original', (d) => { d.variables.push({ id: 'v1', name: 'Original', expr: '10' }); });
+    w.pendingNew = Promise.resolve(w.__parametric.commands.get('new')!.run());
+  });
+  const ask = page.getByRole('dialog', { name: 'Save changes?' });
+  await ask.getByRole('button', { name: 'Save', exact: true }).click();
+  await page.waitForFunction(() => (window as unknown as { saveStarted: boolean }).saveStarted);
+  if (change === 'a new part') {
+    await page.evaluate(() => (window as unknown as { __parametric: AppHandle }).__parametric.commands.run('new'));
+    await ask.getByRole('button', { name: "Don't save" }).click();
+    await expect(page).toHaveTitle('Part2 - Parametric');
+    await page.evaluate(async () => {
+      const w = window as unknown as { releaseSave: () => void; pendingNew: Promise<void> };
+      w.releaseSave();
+      await w.pendingNew;
+    });
+    await expect(page).toHaveTitle('Part2 - Parametric');
+    expect(errors).toEqual([]);
+    return;
+  }
+  await page.evaluate(async () => {
+    type W = { __parametric: import('../../src/app/app').App; releaseSave: () => void; pendingNew: Promise<void> };
+    const w = window as unknown as W;
+    w.__parametric.store.change('More work', (d) => { d.variables.push({ id: 'v2', name: 'Keep', expr: '20' }); });
+    w.releaseSave();
+    await w.pendingNew;
+  });
+  await expect(page).toHaveTitle('* Part1 - Parametric');
+  expect(await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.store.doc.variables.map((v) => v.name))).toEqual(['Original', 'Keep']);
+  const savedNames = () => page.evaluate(() => JSON.parse([...(window as unknown as Mock).__files.values()][0].text).variables.map((v: { name: string }) => v.name));
+  expect(await savedNames()).toEqual(['Original']);
+  await page.evaluate(() => (window as unknown as { __parametric: AppHandle }).__parametric.commands.run('new'));
+  await ask.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(page).toHaveTitle('Part2 - Parametric');
+  expect(await savedNames()).toEqual(['Original', 'Keep']);
+  expect(errors).toEqual([]);
+});
