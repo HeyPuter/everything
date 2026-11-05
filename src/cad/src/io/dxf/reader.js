@@ -10,6 +10,7 @@ import { defaultHeader, defaultLayer, COLOR_BYLAYER, LW_BYLAYER, LW_DEFAULT, TWO
 import { rgbToHex } from '../../core/colors.js';
 import { STANDARD_LINETYPES } from '../../core/linetypes.js';
 import { defaultTextStyle, defaultDimStyle } from '../../core/styles.js';
+import { getPattern } from '../../core/hatch/patterns.js';
 import {
   normAngle,
   uniformKnots,
@@ -1970,16 +1971,25 @@ class DxfParser {
     let angle = 0;
     let scale = 1;
     let inPattern = false;
-    let line0 = null;
+    let seeds = false;
+    const defs = [];
+    let def = null;
     for (; i < end; i++) {
       const c = codes[i];
-      if (c === 53 && line0 === null) line0 = num(vals[i]) * DEG;
-      if (c === 53 || c === 98) inPattern = true;
-      else if (c === 450 && int(vals[i]) !== 0) solid = true;
-      else if (inPattern) continue;
-      else if (c === 52) angle = num(vals[i]) * DEG;
-      else if (c === 41) scale = num(vals[i]) || 1;
+      const v = vals[i];
+      if (c === 98) seeds = true;
+      if (c === 53 && !seeds) {
+        inPattern = true;
+        def = { a: num(v), bx: 0, by: 0, ox: 0, oy: 0, dashes: [] };
+        defs.push(def);
+      } else if (c === 450 && int(v) !== 0) solid = true;
+      else if (def && !seeds && c >= 43 && c <= 46) def[['bx', 'by', 'ox', 'oy'][c - 43]] = num(v);
+      else if (def && !seeds && c === 49) def.dashes.push(num(v));
+      else if (inPattern || seeds) continue;
+      else if (c === 52) angle = num(v) * DEG;
+      else if (c === 41) scale = num(v) || 1;
     }
+    const line0 = defs.length ? defs[0].a * DEG : null;
     if (!loops.length) {
       this.warn('HATCH without usable boundary skipped.');
       return;
@@ -1990,9 +2000,14 @@ class DxfParser {
     e.loops = loops;
     e.pattern = solid ? 'SOLID' : name.toUpperCase() || 'SOLID';
     e.scale = scale;
-    // A mirrored OCS mirrors the pattern, which a rotation cannot do: turn it so
-    // that its first line family runs the right way (ANSI31 lines at 135 degrees).
-    if (o) e.angle = normAngle(line0 === null ? ocsAngle(o, angle) : ocsAngle(o, line0) - line0 + angle);
+    // Patterns the app does not know are drawn from the file's own definition.
+    const own = e.pattern !== 'SOLID' && !getPattern(e.pattern);
+    const families = own ? patternFamilies(defs, angle, scale, o?.mirror) : null;
+    if (families) e.families = families;
+    // A mirrored OCS mirrors the pattern, which a rotation cannot do for a library
+    // pattern: turn it so that its first line family runs the right way.
+    const turn = o && line0 !== null && !families;
+    if (o) e.angle = normAngle(turn ? ocsAngle(o, line0) - line0 + angle : ocsAngle(o, angle));
     else e.angle = angle;
     this.add(cont, e);
   }
@@ -2450,6 +2465,39 @@ function arrowFromName(raw) {
   let k = raw.trim().toLowerCase();
   if (k.startsWith('_')) k = k.slice(1);
   return ARROWS[k] ?? 'closed';
+}
+
+/**
+ * Pattern line definitions of a HATCH (groups 53, 43-46, 49: already rotated by
+ * the hatch angle and scaled) as pattern families at scale 1 and angle 0, the
+ * format of core/hatch/patterns.js. `mirror` reflects them for a mirrored OCS.
+ */
+function patternFamilies(defs, angle, scale, mirror) {
+  const c = Math.cos(angle);
+  const s = Math.sin(angle);
+  const r = (v) => Math.round(v * 1e9) / 1e9 + 0;
+  const out = [];
+  for (const d of defs) {
+    const a = d.a * DEG;
+    let dx = (d.ox * Math.cos(a) + d.oy * Math.sin(a)) / scale;
+    let dy = (d.oy * Math.cos(a) - d.ox * Math.sin(a)) / scale;
+    if (!(Math.abs(dy) > 1e-9)) continue;
+    let deg = d.a - angle / DEG;
+    let x = (d.bx * c + d.by * s) / scale;
+    let y = (d.by * c - d.bx * s) / scale;
+    if (mirror) {
+      deg = -deg;
+      y = -y;
+      dy = -dy;
+    }
+    if (dy < 0) {
+      dx = -dx;
+      dy = -dy;
+    }
+    deg = r(((deg % 360) + 360) % 360) % 360;
+    out.push({ angle: deg, x: r(x), y: r(y), dx: r(dx), dy: r(dy), dashes: d.dashes.map((v) => r(v / scale)) });
+  }
+  return out.length ? out : null;
 }
 
 /** Hatch circular arc edge appended as a start vertex with a bulge. */

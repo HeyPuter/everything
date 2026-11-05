@@ -312,7 +312,8 @@ function emitHatch(ent, sink, ctx, style) {
     for (const poly of solidPolygons(rings)) sink.fill(poly, solid);
     return;
   }
-  const pat = getPattern(ent.pattern);
+  // imported patterns the library lacks carry their own families
+  const pat = getPattern(ent.pattern) ?? (ent.families?.length ? { families: ent.families } : null);
   if (!pat) {
     for (const poly of solidPolygons(rings)) sink.fill(poly, solid);
     return;

@@ -65,6 +65,8 @@
  *   hatch     loops: number[][]        each loop is flat [x, y, bulge, ...], implicitly closed
  *             pattern: string          'SOLID' or a pattern name from hatch-patterns.js
  *             scale, angle             pattern scale and rotation
+ *             families?                imported pattern the library lacks: its lines
+ *                                      at scale 1 and angle 0 (format of patterns.js)
  *   insert    name, x, y, sx, sy, rot  block reference
  *
  * Containers:

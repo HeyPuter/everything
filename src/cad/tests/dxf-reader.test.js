@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { parseDxf, stripMtext, decodeText } from '../src/io/dxf/reader.js';
 import { evalSpline, tessellateSpline } from '../src/io/dxf/geom.js';
+import { Drawing } from '../src/core/drawing.js';
+import { makeContext, emitEntity } from '../src/core/tessellate.js';
+import { exportPayload } from '../src/io/dxf-client.js';
 
 /** Build DXF text from flat [code, value, ...] arrays per section. */
 function dxf(entities = [], { header = [], tables = [], blocks = [] } = {}) {
@@ -334,20 +337,50 @@ describe('parseDxf: hatches, solids, blocks', () => {
     expect(h.loops).toEqual([[0, 0, 0, 10, 0, 1, 10, 10, 0]]);
   });
 
-  it('turns patterns of mirrored hatches so their lines keep their direction', () => {
-    // ANSI31 (lines at 45 degrees) drawn in an OCS with extrusion (0, 0, -1): x is flipped,
-    // so the lines run at 135 degrees in plan, then the same hatch rotated by 15 degrees
-    const hatch = (a52, a53) => [
-      0, 'HATCH', 10, 0, 20, 0, 30, 0, 210, 0, 220, 0, 230, -1, 2, 'ANSI31', 70, 0, 71, 0, 91, 1,
+  it('draws patterns the library lacks from the definition in the file', () => {
+    // ANSI31 (lines at 45 degrees, 3.175 apart) at hatch angle 15 and scale 2
+    const a = (15 * Math.PI) / 180;
+    const off = [-Math.sin(a + Math.PI / 4) * 6.35, Math.cos(a + Math.PI / 4) * 6.35];
+    const { drawing } = parseDxf(
+      dxf([
+        0, 'HATCH', 10, 0, 20, 0, 30, 0, 2, 'ANSI31', 70, 0, 71, 0, 91, 1,
+        92, 3, 72, 0, 73, 1, 93, 3, 10, 0, 20, 0, 10, 100, 20, 0, 10, 100, 20, 100, 97, 0,
+        75, 0, 76, 1, 52, 15, 41, 2, 77, 0, 78, 1, 53, 60, 43, 0, 44, 0, 45, off[0], 46, off[1], 79, 0, 98, 0,
+      ]),
+    );
+    const h = drawing.entities[0];
+    expect(h).toMatchObject({ pattern: 'ANSI31', scale: 2, families: [{ angle: 45, x: 0, y: 0, dx: 0, dy: 3.175, dashes: [] }] });
+    expect(close(h.angle, a)).toBe(true);
+    // the renderer draws its lines, not a solid fill
+    const sink = { lines: [], fills: 0, line(p) { this.lines.push(p); }, fill() { this.fills++; } };
+    const d = new Drawing(drawing);
+    emitEntity(d.entities.get(h.id), sink, makeContext(d, {}));
+    expect(sink.fills).toBe(0);
+    expect(sink.lines.length).toBeGreaterThan(2);
+    const [x1, y1, x2, y2] = sink.lines[0];
+    expect(close(Math.abs(Math.atan2(y2 - y1, x2 - x1)) % Math.PI, Math.PI / 3, 1e-9)).toBe(true);
+    // and DXF / DWG export write the same definition
+    const { opts } = exportPayload(d, null);
+    expect(opts.hatchPatterns.ANSI31).toEqual(h.families);
+  });
+
+  it('mirrors the patterns of hatches in a mirrored OCS', () => {
+    // extrusion (0, 0, -1) flips x: ANSI31 lines run at 135 degrees in plan
+    const hatch = (name) => [
+      0, 'HATCH', 10, 0, 20, 0, 30, 0, 210, 0, 220, 0, 230, -1, 2, name, 70, 0, 71, 0, 91, 1,
       92, 3, 72, 0, 73, 1, 93, 3, 10, 0, 20, 0, 10, 10, 20, 0, 10, 10, 20, 10, 97, 0,
-      75, 0, 76, 1, 52, a52, 41, 1, 77, 0, 78, 1, 53, a53, 43, 0, 44, 0, 45, -2.245, 46, 2.245, 79, 0, 98, 0,
+      75, 0, 76, 1, 52, 0, 41, 1, 77, 0, 78, 1, 53, 45, 43, 0, 44, 0, 45, -2.245, 46, 2.245, 79, 0, 98, 0,
     ];
-    const { drawing } = parseDxf(dxf([...hatch(0, 45), ...hatch(15, 60)]));
-    const [a, b] = drawing.entities;
-    expect(a.loops).toEqual([[0, 0, 0, -10, 0, 0, -10, 10, 0]]);
-    // the pattern's own 45 degree lines plus the hatch angle
-    expect(close(45 + (a.angle * 180) / Math.PI, 135)).toBe(true);
-    expect(close(45 + (b.angle * 180) / Math.PI, 120)).toBe(true);
+    const { drawing } = parseDxf(dxf([...hatch('ANSI31'), ...hatch('LINES')]));
+    const d = new Drawing(drawing);
+    for (const e of d.entities.values()) {
+      expect(e.loops).toEqual([[0, 0, 0, -10, 0, 0, -10, 10, 0]]);
+      const sink = { lines: [], line(p) { this.lines.push(p); }, fill() {} };
+      emitEntity(e, sink, makeContext(d, {}));
+      const [x1, y1, x2, y2] = sink.lines[0];
+      const deg = (((Math.atan2(y2 - y1, x2 - x1) * 180) / Math.PI) % 180 + 180) % 180;
+      expect(close(deg, 135, 1e-6)).toBe(true);
+    }
   });
 
   it('reads HATCH edge boundaries: lines, arcs (both directions), ellipses and solid fill', () => {

@@ -81,12 +81,16 @@ export function exportPayload(drawing, extents) {
   for (const e of data.entities) if (e.type === 'dimension') dimBlocks[e.id] = dimParts(drawing, e);
   for (const b of data.blocks) for (const e of b.entities) if (e.type === 'dimension') dimBlocks[`${b.name}/${e.id}`] = dimParts(drawing, e);
   const hatchPatterns = {};
-  const used = new Set();
-  for (const e of data.entities) if (e.type === 'hatch' && e.pattern && e.pattern !== 'SOLID') used.add(e.pattern);
-  for (const b of data.blocks) for (const e of b.entities) if (e.type === 'hatch' && e.pattern && e.pattern !== 'SOLID') used.add(e.pattern);
-  for (const name of used) {
+  const used = new Map();
+  const use = (e) => {
+    if (e.type === 'hatch' && e.pattern && e.pattern !== 'SOLID' && !used.get(e.pattern)) used.set(e.pattern, e.families);
+  };
+  for (const e of data.entities) use(e);
+  for (const b of data.blocks) for (const e of b.entities) use(e);
+  for (const [name, families] of used) {
     const p = getPattern(name);
     if (p) hatchPatterns[name] = p.families;
+    else if (families?.length) hatchPatterns[name] = families;
   }
   return { drawing: data, opts: { dimBlocks, hatchPatterns, extents } };
 }
