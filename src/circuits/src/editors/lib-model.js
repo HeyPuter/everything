@@ -187,8 +187,16 @@ export function mirrorLib(o, cx, cy, axis = 'x') {
   const g = transformGraphic(transformGraphic(o, makeTransform(-cx, -cy, 0)), makeTransform(cx, cy, 0, true));
   // Mirrored text stays readable, along the mirrored baseline: its angle is
   // negated (text at 30 degrees mirrored across a vertical line runs at -30).
-  if (g.t === 'text') { g.mirror = !!o.mirror; g.rot = norm(-(o.rot || 0)); }
+  // Its run from the anchor reverses, so left and right alignment swap.
+  if (g.t === 'text') { g.mirror = !!o.mirror; g.rot = norm(-(o.rot || 0)); mirrorAlign(g, o.align); }
   return roundGraphic({ ...g, id: o.id });
+}
+
+/** Swaps left (the default) and right horizontal text alignment. */
+function mirrorAlign(g, align = {}) {
+  const { h, ...rest } = align || {};
+  const out = h === 'center' ? { ...rest, h } : !h || h === 'left' ? { ...rest, h: 'right' } : rest;
+  if (Object.keys(out).length) g.align = out; else delete g.align;
 }
 
 function roundGraphic(g) {

@@ -3,6 +3,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { mil, mm } from '../src/core/units.js';
 import { LibDoc, LibEditor } from '../src/editors/lib-editor.js';
 import { padDialog } from '../src/editors/lib-tools.js';
+import { textBox } from '../src/model/sch.js';
 import { mirrorLib, validateComponent } from '../src/editors/lib-model.js';
 import { ComponentsPanel } from '../src/ui/panels/components.js';
 import { App } from '../src/app/app.js';
@@ -453,6 +454,22 @@ describe('component editor mirroring', () => {
     // Mirroring twice restores the text.
     expect(mirrorLib(m, 0, 0, 'x')).toMatchObject({ x: mm(1), y: mm(2), rot: 30 });
     expect(mirrorLib(text(0), 0, 0, 'x').rot).toBe(0);
+  });
+
+  it('swaps left and right alignment so mirrored text runs away from the axis', () => {
+    const left = mirrorLib(text(0), 0, 0, 'x');
+    expect(left.align).toEqual({ h: 'right' });
+    const back = mirrorLib(left, 0, 0, 'x');
+    expect(back.align).toBeUndefined();
+    const right = { ...text(0), align: { h: 'right', v: 'top' } };
+    expect(mirrorLib(right, 0, 0, 'x').align).toEqual({ v: 'top' });
+    const centre = { ...text(0), align: { h: 'center', v: 'middle' } };
+    expect(mirrorLib(centre, 0, 0, 'x').align).toEqual({ h: 'center', v: 'middle' });
+    // The text's extent mirrors with it: it lay right of x = 1 mm, now left of -1 mm.
+    const b0 = textBox('ABC', mm(1), mm(2), mm(1), 0, undefined);
+    const b1 = textBox('ABC', left.x, left.y, mm(1), left.rot, left.align);
+    expect(b1.minX).toBeCloseTo(-b0.maxX, -2);
+    expect(b1.maxX).toBeCloseTo(-b0.minX, -2);
   });
 });
 
