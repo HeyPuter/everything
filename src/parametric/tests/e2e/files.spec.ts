@@ -42,7 +42,12 @@ async function mockPuter(page: Page) {
             files.set(path, { text: await data.text() });
             return item(path);
           })();
-          return Object.assign(answer.then((v) => v ?? Promise.reject(new Error('cancelled'))), { undefinedOnCancel: answer });
+          const cancelled = new Error('cancelled');
+          const pick = answer.then((v) => v ?? Promise.reject(cancelled));
+          return Object.assign(pick, { undefinedOnCancel: pick.catch((error) => {
+            if (error === cancelled) return undefined;
+            throw error;
+          }) });
         },
       },
     };
@@ -107,6 +112,95 @@ test('cancelling the Save As location saves nothing', async ({ page }) => {
   // And is the recent part to open again.
   const recent = await page.evaluate(() => JSON.parse(localStorage.getItem('parametric:recent') || '[]'));
   expect(recent[0]).toMatchObject({ name: 'Bracket', location: { type: 'cloud', path: '/tester/Documents/Bracket.parametric' } });
+});
+
+for (const existing of [false, true]) test(`cloud Save As finishes the ${existing ? 'existing' : 'new'} sketch so discarding cannot restore its old part name`, async ({ page }) => {
+  await mockPuter(page);
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await page.getByRole('treeitem', { name: 'Front Plane' }).click();
+  await page.getByRole('tab', { name: 'Sketch' }).click();
+  await page.locator('[data-cmd="sketch"]').first().click();
+  await page.evaluate((existing) => {
+    const w = window as unknown as { __parametric: import('../../src/app/app').App; __savePick: (name: string) => Promise<string> };
+    w.__savePick = async (name) => `/tester/Documents/${name}`;
+    w.__parametric.sketchEditor!.edit('Add circle', (sk) => {
+      sk.entities.push({ id: 'pc', t: 'point', x: 0, y: 0 }, { id: 'circle', t: 'circle', c: 'pc', r: 10 });
+    });
+    if (existing) {
+      const id = w.__parametric.sketchEditor!.sketchId;
+      w.__parametric.exitSketch(true);
+      w.__parametric.editSketch(id);
+      w.__parametric.sketchEditor!.edit('Resize circle', (sk) => {
+        const c = sk.entities.find((e) => e.id === 'circle')!;
+        if (c.t === 'circle') c.r = 20;
+      });
+    }
+    w.__parametric.commands.run('saveAs');
+  }, existing);
+  const dialog = page.getByRole('dialog', { name: 'Save As' });
+  await dialog.getByRole('textbox').fill('Saved sketch');
+  await dialog.getByRole('button', { name: 'OK', exact: true }).click();
+  await expect(page).toHaveTitle('Saved sketch - Parametric');
+  // A stale session used to remain available, restoring the pre-save part.
+  const discard = page.getByRole('button', { name: 'Discard sketch changes', exact: true });
+  if (await discard.isVisible()) {
+    await discard.click();
+    await page.getByRole('dialog', { name: 'Discard changes?', exact: true }).getByRole('button', { name: 'Discard changes', exact: true }).click();
+  }
+  const state = await page.evaluate(() => {
+    const w = window as unknown as Mock & { __parametric: import('../../src/app/app').App };
+    const app = w.__parametric;
+    return { name: app.store.doc.name, features: app.store.doc.features, inSketch: app.inSketch, dirty: app.store.dirty, saved: JSON.parse(w.__files.get('/tester/Documents/Saved sketch.parametric')!.text) };
+  });
+  expect(state.name).toBe('Saved sketch');
+  expect(state.inSketch).toBe(false);
+  expect(state.features).toEqual(state.saved.features);
+  expect(state.features).toHaveLength(1);
+  expect(state.dirty).toBe(false);
+  expect(errors).toEqual([]);
+});
+
+test('cancelling cloud Save As preserves sketch geometry and allows saving it on retry', async ({ page }) => {
+  await mockPuter(page);
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await page.getByRole('treeitem', { name: 'Front Plane' }).click();
+  await page.getByRole('tab', { name: 'Sketch' }).click();
+  await page.locator('[data-cmd="sketch"]').first().click();
+  await page.evaluate(() => {
+    const w = window as unknown as { __parametric: import('../../src/app/app').App; __savePick: () => Promise<undefined> };
+    w.__savePick = async () => undefined;
+    w.__parametric.sketchEditor!.edit('Add circle', (sk) => {
+      sk.entities.push({ id: 'pc', t: 'point', x: 0, y: 0 }, { id: 'circle', t: 'circle', c: 'pc', r: 10 });
+    });
+    w.__parametric.commands.run('saveAs');
+  });
+  const dialog = page.getByRole('dialog', { name: 'Save As' });
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+  expect(await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.inSketch)).toBe(true);
+  await page.evaluate(() => (window as unknown as { __parametric: AppHandle }).__parametric.commands.run('saveAs'));
+  await dialog.getByRole('textbox').fill('Saved sketch');
+  await dialog.getByRole('button', { name: 'OK', exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  const cancelled = await page.evaluate(() => {
+    const w = window as unknown as Mock & { __parametric: import('../../src/app/app').App };
+    const a = w.__parametric;
+    return { name: a.store.doc.name, features: a.store.doc.features, dirty: a.store.dirty, location: a.location, files: w.__files.size };
+  });
+  expect(cancelled).toMatchObject({ name: 'Part1', dirty: true, location: null, files: 0 });
+  expect(cancelled.features).toHaveLength(1);
+  await page.evaluate(() => {
+    const w = window as unknown as { __parametric: AppHandle; __savePick: (name: string) => Promise<string> };
+    w.__savePick = async (name) => `/tester/Documents/${name}`;
+    w.__parametric.commands.run('saveAs');
+  });
+  await dialog.getByRole('textbox').fill('Saved sketch');
+  await dialog.getByRole('button', { name: 'OK', exact: true }).click();
+  await expect(page).toHaveTitle('Saved sketch - Parametric');
+  const saved = await page.evaluate(() => JSON.parse((window as unknown as Mock).__files.get('/tester/Documents/Saved sketch.parametric')!.text));
+  expect(saved.features).toEqual(cancelled.features);
+  expect(errors).toEqual([]);
 });
 
 test('a file that is not a part is refused before asking to discard, and changes nothing', async ({ page }) => {

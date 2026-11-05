@@ -158,6 +158,9 @@ export class FileOps {
     if (name == null || documentVersion !== this.documentVersion) return;
     return this.fileOperation(async () => {
       if (documentVersion !== this.documentVersion) return;
+      // Finish the sketch before either save path captures the document, so
+      // its discard snapshot cannot later restore the pre-save name/content.
+      if (app.sketchEditor) app.exitSketch(true);
       const clean = safeName(name);
       const rename = () => app.store.change('Rename part', (doc) => { doc.name = clean; });
       if (cloudAvailable() && puter()?.ui?.showSaveFilePicker) {
@@ -175,7 +178,6 @@ export class FileOps {
           return;
         }
       }
-      if (app.sketchEditor) app.exitSketch(true);
       try {
         const loc = await newLocation(clean);
         if (documentVersion !== this.documentVersion) return;
