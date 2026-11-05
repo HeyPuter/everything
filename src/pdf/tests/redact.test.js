@@ -615,6 +615,71 @@ describe('images', () => {
     expect(Buffer.from(out).includes(jpeg.subarray(200, 260))).toBe(false);
   });
 
+  it('keeps a redacted colour JPEG a JPEG when an encoder is at hand', async () => {
+    // A photo-like picture: stored losslessly after redaction, a JPEG grows several times over.
+    const canvas = createCanvas(320, 160);
+    const ctx = canvas.getContext('2d');
+    for (let y = 0; y < 160; y += 4)
+      for (let x = 0; x < 320; x += 4) {
+        ctx.fillStyle = `rgb(${(x * 7 + y * 3) % 256}, ${(x * y) % 256}, ${(y * 11) % 256})`;
+        ctx.fillRect(x, y, 4, 4);
+      }
+    const jpeg = canvas.toBuffer('image/jpeg', 80);
+    const picture = (doc, data, space) =>
+      doc.context.register(
+        doc.context.stream(data, {
+          Type: 'XObject',
+          Subtype: 'Image',
+          Width: 320,
+          Height: 160,
+          ColorSpace: space,
+          BitsPerComponent: 8,
+          Filter: 'DCTDecode',
+        }),
+      );
+    const bytes = await makePdf([
+      {
+        content: 'q 320 0 0 160 0 0 cm /Photo Do Q',
+        resources: (doc) => ({ XObject: { Photo: picture(doc, jpeg, 'DeviceRGB') } }),
+      },
+    ]);
+    const encoded = [];
+    const codec = {
+      async encodeJpeg({ data, width, height }, quality) {
+        const out = createCanvas(width, height);
+        const context = out.getContext('2d');
+        const pixels = context.createImageData(width, height);
+        pixels.data.set(data);
+        context.putImageData(pixels, 0, 0);
+        encoded.push(quality);
+        return new Uint8Array(out.toBuffer('image/jpeg', Math.round(quality * 100)));
+      },
+    };
+    const lossless = await redact(bytes, [[0, [[0, 0, 100, 160]]]]);
+    const { bytes: out, report } = await redact(bytes, [[0, [[0, 0, 100, 160]]]], { codec });
+    expect(report.images.redacted).toBe(1);
+    expect(encoded).toEqual([0.92]);
+    expect(out.length).toBeLessThan(lossless.bytes.length / 2);
+    const doc = await PDFDocument.load(out);
+    const [image] = Object.values(pageImages(doc));
+    expect(image.dict.lookup(n('Filter'))).toBe(n('DCTDecode'));
+    expect(image.dict.lookup(n('ColorSpace'))).toBe(n('DeviceRGB'));
+    // The area was painted before encoding: it decodes as the fill, give or take a little.
+    const decoder = new JpegImage();
+    decoder.parse(image.contents);
+    const pixels = decoder.getData({ width: 320, height: 160 });
+    for (const [x, y] of [
+      [2, 2],
+      [50, 80],
+      [90, 150],
+    ])
+      for (const value of pixels.subarray((y * 320 + x) * 3, (y * 320 + x) * 3 + 3))
+        expect(value).toBeLessThan(8);
+    // The original's scan data is not left behind (its header tables can match the new one's).
+    const middle = jpeg.length >> 1;
+    expect(Buffer.from(out).includes(jpeg.subarray(middle, middle + 60))).toBe(false);
+  });
+
   it('redacts inline images and stencil masks', async () => {
     const data = Buffer.from(Uint8Array.from({ length: 4 * 4 * 3 }, (_, i) => 60 + i));
     const content = Buffer.concat([

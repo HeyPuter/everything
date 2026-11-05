@@ -643,7 +643,40 @@ export async function redactImageXObject(doc, stream, resources, ctm, areas, rgb
     if (out) overrides[key] = context.register(out.stream);
   }
   const out = storeRedacted(context, stream, stream.dict, image, spans, raw, overrides);
-  return out ? { stream: out.stream, pixels: out.pixels } : { unchanged: true };
+  if (!out) return { unchanged: true };
+  const jpeg = image.dct && (await asJpeg(context, stream, out.stream, image, codec));
+  return { stream: jpeg || out.stream, pixels: out.pixels };
+}
+/**
+ * A redacted photo or scan stored losslessly grows several times over (a 2 MB page scan became
+ * 10 MB). One that was a JPEG already is stored as a JPEG again when `codec.encodeJpeg` can
+ * write it, at high quality; the area was painted before encoding, so nothing of it remains.
+ * Colour JPEGs only: the encoder writes three components. Resolves to null otherwise.
+ */
+async function asJpeg(context, source, lossless, image, codec) {
+  if (!codec?.encodeJpeg || image.space.n !== 3 || image.bpc !== 8) return null;
+  const { width, height } = image;
+  const rgba = new Uint8ClampedArray(width * height * 4);
+  for (let p = 0, q = 0; p < rgba.length; p += 4, q += 3) {
+    rgba[p] = image.data[q];
+    rgba[p + 1] = image.data[q + 1];
+    rgba[p + 2] = image.data[q + 2];
+    rgba[p + 3] = 255;
+  }
+  let bytes;
+  try {
+    bytes = await codec.encodeJpeg({ data: rgba, width, height }, 0.92);
+  } catch {
+    return null;
+  }
+  if (!bytes?.length || bytes.length >= lossless.getContents().length) return null;
+  const next = context.stream(bytes, {});
+  for (const [key, value] of lossless.dict.entries())
+    if (![PDFName.of('Length'), PDFName.of('Filter'), PDFName.of('DecodeParms')].includes(key))
+      next.dict.set(key, value);
+  next.dict.set(PDFName.of('Filter'), PDFName.of('DCTDecode'));
+  if (source instanceof PDFStream) retainCryptFilter(next.dict, [source.dict]);
+  return next;
 }
 
 /**
