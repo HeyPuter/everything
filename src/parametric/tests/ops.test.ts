@@ -398,16 +398,91 @@ describe('editing tools', () => {
     expect(solveSketch(s.entities, s.constraints, { value }).status).toBe('under');
   });
 
-  it('extends a line to the next curve', () => {
+  it.each([9, 1e6 + 9, 1e9])('extends a line to the next curve at x=%s', (x) => {
     const s = sk([
       { id: 'a', t: 'point', x: 0, y: 0 }, { id: 'b', t: 'point', x: 4, y: 0 }, { id: 'h', t: 'line', a: 'a', b: 'b' },
-      { id: 'c', t: 'point', x: 9, y: -5 }, { id: 'd', t: 'point', x: 9, y: 5 }, { id: 'v', t: 'line', a: 'c', b: 'd' },
+      { id: 'c', t: 'point', x, y: -5 }, { id: 'd', t: 'point', x, y: 5 }, { id: 'v', t: 'line', a: 'c', b: 'd' },
     ]);
     s.constraints.push({ id: 'len', type: 'hdistance', refs: ['h'], value: 4, at: [2, -3], name: 'D1' });
     expect(extendAt(s, 'h', [3.9, 0])).toBe(true);
-    expect(new SketchIndex(s.entities).pt('b')[0]).toBeCloseTo(9, 9);
+    expect(new SketchIndex(s.entities).pt('b')[0]).toBeCloseTo(x, 9);
     // The old length would pull the end back.
     expect(s.constraints).toHaveLength(0);
+  });
+
+  it.each([-0.0005, 0.0005])('only extends forward past an intersection %s from the endpoint', (offset) => {
+    const s = sk([
+      { id: 'a', t: 'point', x: 0, y: 0 }, { id: 'b', t: 'point', x: 4, y: 0 }, { id: 'h', t: 'line', a: 'a', b: 'b' },
+      ...[4 + offset, 9].flatMap((x, i): SkEntity[] => [
+        { id: `c${i}`, t: 'point', x, y: -5 }, { id: `d${i}`, t: 'point', x, y: 5 },
+        { id: `v${i}`, t: 'line', a: `c${i}`, b: `d${i}` },
+      ]),
+    ]);
+    expect(extendAt(s, 'h', [3.9, 0], idFactory(s))).toBe(true);
+    expect(new SketchIndex(s.entities).pt('b')[0]).toBeCloseTo(offset > 0 ? 4 + offset : 9, 9);
+    expect(s.constraints).toEqual([expect.objectContaining({ type: 'coincident', refs: ['b', offset > 0 ? 'v0' : 'v1'] })]);
+  });
+
+  it('leaves a line and its length dimension unchanged if every target is behind its end', () => {
+    const s = sk([
+      { id: 'a', t: 'point', x: 0, y: 0 }, { id: 'b', t: 'point', x: 4, y: 0 }, { id: 'h', t: 'line', a: 'a', b: 'b' },
+      { id: 'c', t: 'point', x: 3.9995, y: -5 }, { id: 'd', t: 'point', x: 3.9995, y: 5 }, { id: 'v', t: 'line', a: 'c', b: 'd' },
+    ]);
+    s.constraints.push({ id: 'len', type: 'hdistance', refs: ['h'], value: 4, at: [2, -3], name: 'D1' });
+    const before = structuredClone(s);
+    expect(extendAt(s, 'h', [3.9, 0], idFactory(s))).toBe(false);
+    expect(s).toEqual(before);
+  });
+
+  it.each([-1, 1])('extends to the nearer side of a distant circle in direction %s', (direction) => {
+    for (const reverse of [false, true]) {
+      const s = sk([
+        { id: 'a', t: 'point', x: 0, y: 0 }, { id: 'b', t: 'point', x: direction * 4, y: 0 },
+        { id: 'h', t: 'line', a: reverse ? 'b' : 'a', b: reverse ? 'a' : 'b' },
+        { id: 'o', t: 'point', x: direction * 1e9, y: 0 }, { id: 'circ', t: 'circle', c: 'o', r: 5 },
+      ]);
+      expect(extendAt(s, 'h', [direction * 3.9, 0], idFactory(s))).toBe(true);
+      expect(new SketchIndex(s.entities).pt('b')[0]).toBeCloseTo(direction * (1e9 - 5), 6);
+      expect(new SketchIndex(s.entities).pt('a')).toEqual([0, 0]);
+      expect(s.constraints).toEqual([expect.objectContaining({ type: 'coincident', refs: ['b', 'circ'] })]);
+    }
+  });
+
+  it('keeps target segments and arcs bounded when extending the selected line', () => {
+    const s = sk([
+      { id: 'a', t: 'point', x: 0, y: 0 }, { id: 'b', t: 'point', x: 4, y: 0 }, { id: 'h', t: 'line', a: 'a', b: 'b' },
+      { id: 'c', t: 'point', x: 6, y: 1 }, { id: 'd', t: 'point', x: 6, y: 2 }, { id: 'miss', t: 'line', a: 'c', b: 'd' },
+      { id: 'behind', t: 'circle', c: 'a', r: 3.9995 },
+      { id: 'o', t: 'point', x: 10, y: 0 }, { id: 'aa', t: 'point', x: 10, y: -5 }, { id: 'ab', t: 'point', x: 10, y: 5 },
+      { id: 'arc', t: 'arc', c: 'o', a: 'aa', b: 'ab' },
+    ]);
+    expect(extendAt(s, 'h', [3.9, 0], idFactory(s))).toBe(true);
+    expect(new SketchIndex(s.entities).pt('b')).toEqual([15, 0]);
+    expect(s.constraints).toEqual([expect.objectContaining({ type: 'coincident', refs: ['b', 'arc'] })]);
+    expect(solveSketch(s.entities, s.constraints, { value }).converged).toBe(true);
+  });
+
+  it.each([[1, 1], [0, 1]])('extends a translated line far in direction %s,%s', (dx, dy) => {
+    const origin = 1e9, x = origin + dx * 1e9, y = origin + dy * 1e9;
+    const s = sk([
+      { id: 'a', t: 'point', x: origin, y: origin }, { id: 'b', t: 'point', x: origin + 4 * dx, y: origin + 4 * dy },
+      { id: 'h', t: 'line', a: 'a', b: 'b' },
+      { id: 'c', t: 'point', x: x - dy * 10, y: y + dx * 10 }, { id: 'd', t: 'point', x: x + dy * 10, y: y - dx * 10 },
+      { id: 'v', t: 'line', a: 'c', b: 'd' },
+    ]);
+    expect(extendAt(s, 'h', [origin + 3.9 * dx, origin + 3.9 * dy], idFactory(s))).toBe(true);
+    expect(new SketchIndex(s.entities).pt('b')).toEqual([x, y]);
+    expect(new SketchIndex(s.entities).pt('a')).toEqual([origin, origin]);
+  });
+
+  it('does not extend a collapsed line', () => {
+    const s = sk([
+      { id: 'a', t: 'point', x: 4, y: 0 }, { id: 'b', t: 'point', x: 4, y: 0 }, { id: 'h', t: 'line', a: 'a', b: 'b' },
+      { id: 'c', t: 'point', x: 9, y: -5 }, { id: 'd', t: 'point', x: 9, y: 5 }, { id: 'v', t: 'line', a: 'c', b: 'd' },
+    ]);
+    const before = structuredClone(s);
+    expect(extendAt(s, 'h', [4, 0], idFactory(s))).toBe(false);
+    expect(s).toEqual(before);
   });
 
   it('keeps an extended line end on the curve it reached', () => {

@@ -458,13 +458,15 @@ export function extendAt(sk: SketchFeature, lineId: Id, at: Vec2, newId?: (p: st
   const fromB = dist2(at, b) < dist2(at, a);
   const start = fromB ? a : b, end = fromB ? b : a;
   const dir = norm2(sub2(end, start));
-  const far: Vec2 = [end[0] + dir[0] * 1e6, end[1] + dir[1] * 1e6];
   let best: Vec2 | null = null, bestD = Infinity, by: SkEntity | null = null;
   for (const o of sk.entities) {
     if (o.t === 'point' || o.id === lineId) continue;
     for (const q of primsOf(ix, o as SkCurve)) {
-      for (const p of intersectPrims({ kind: 'seg', a: end, b: far }, q)) {
-        const d = dist2(p, end);
+      // Extend the supporting line, then keep only forward intersections.
+      // A finite proxy both limits reach and admits backward hits within its
+      // segment tolerance, which could make Extend shorten the selected line.
+      for (const p of intersectPrims({ kind: 'seg', a: start, b: end }, q, true)) {
+        const d = dot2(sub2(p, end), dir);
         if (d > 1e-7 && d < bestD) { bestD = d; best = p; by = o; }
       }
     }
