@@ -537,3 +537,20 @@ test('rotate and delete shortcuts in Organize pages act on the chosen pages', as
   await expect(page.getByRole('dialog')).toContainText('Remove pages 2-3?');
   await page.getByRole('dialog').getByRole('button', { name: 'Cancel', exact: true }).click();
 });
+
+test('Organize pages found with the find box on a narrow screen shows its grid', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 760 });
+  await mockPuter(page);
+  await page.goto('/#library');
+  await openPdf(page, await tallPdf());
+  await page.getByRole('button', { name: 'Find text or tools', exact: true }).click();
+  await page.getByRole('combobox', { name: 'Find in PDF' }).fill('Organize');
+  await page.getByRole('option', { name: 'Open tool: Organize pages', exact: true }).click();
+  // As from the tools pane, the pane steps aside: it would cover the whole grid.
+  await expect(page.getByRole('complementary', { name: 'Tools' })).toBeHidden();
+  const grid = page.getByRole('listbox', { name: 'Pages' });
+  await grid.getByRole('option', { name: 'Page 2', exact: true }).click();
+  await expect(page.locator('.organize-status')).toHaveText('1 of 3 pages selected');
+});

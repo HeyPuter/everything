@@ -1963,7 +1963,11 @@ export function createEditor({
               closeSearch();
               if (entry.run && !entry.sections) return toolsPanel.open(entry.id);
               toolsPanel.open(entry.id);
-              if (editorRoot.classList.contains('hide-tools')) await toggleToolsPanel(true);
+              // A tool with a view of its own (Organize pages) shows it; where the pane would
+              // cover that view, the pane stays aside, as when the tool is chosen in the pane.
+              const covers = window.matchMedia('(max-width: 1000px)').matches;
+              if (editorRoot.classList.contains('hide-tools') && !(entry.takesView && covers))
+                await toggleToolsPanel(true);
             }),
           },
           toolIcon(entry.icon || entry.id, 18),
