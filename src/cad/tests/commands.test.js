@@ -331,6 +331,27 @@ describe('editing commands', () => {
       expect(filled(h, 10, 10)).toBe(true);
     });
 
+    it('finds boundaries in block references and construction lines', async () => {
+      await t.type('RECTANG', '0,0', '20,20');
+      t.ed.setSelection([t.all()[0].id]);
+      await t.type('BLOCK', 'Box', '0,0');
+      const ins = t.all('insert')[0];
+      const turn = { x: 100, rot: Math.PI / 2, sx: 2, sy: 2 };
+      t.drawing.transaction('Turn', () => t.drawing.update(ins.id, turn));
+      await t.type('HATCH');
+      await t.pick(90, 10);
+      await t.type('');
+      expect(areaOf(t.all('hatch')[0])).toBeCloseTo(1600);
+      await t.type('XLINE', '0,-50', '10,-50', '');
+      await t.type('LINE', '0,-60', '0,-40', '');
+      await t.type('LINE', '30,-60', '30,-40', '');
+      await t.type('RAY', '0,-45', '10,-45', '');
+      await t.type('HATCH');
+      await t.pick(10, -47);
+      await t.type('');
+      expect(areaOf(t.all('hatch')[1])).toBeCloseTo(150);
+    });
+
     it('keeps the pattern when the typed name is unknown', async () => {
       await plate();
       await t.type('T', 'cross', '2', '0', 'T', 'nosuch', '', '');

@@ -6,7 +6,8 @@ import { closestPoint, intersectPrims, toPrims } from '../../core/geom/index.js'
 import { findBoundary, toHatchLoops } from '../../core/hatch/boundary.js';
 import { loopsToRings, pointInRing } from '../../core/hatch/fill.js';
 import { getPattern, patternNames } from '../../core/hatch/patterns.js';
-import { tessellate } from '../../core/geom/index.js';
+import { tessellate, transformEntity } from '../../core/geom/index.js';
+import { insertMatrix } from '../../core/tessellate.js';
 import { angleOf, loopFromEntity } from './util.js';
 
 const JUSTIFY = [
@@ -426,22 +427,65 @@ export const LEADER = {
 
 // Hatching ------------------------------------------------------------------
 
-/** Curves (polylines in world space) of visible geometry around a point, for boundary detection. */
+/**
+ * Curves (polylines in world space) of visible geometry in rect, for boundary
+ * detection. Block references contribute their objects; construction lines
+ * and rays are cut to a segment that spans the rectangle.
+ */
 function curvesNear(ed, rect) {
   const out = [];
+  const d = ed.drawing;
   const tol = 0.5 / ed.camera.scale;
-  for (const id of ed.doc.index.search(rect[0], rect[1], rect[2], rect[3], false)) {
-    const e = ed.drawing.get(id);
-    if (!e || !ed.drawing.layerVisible(e.layer)) continue;
-    if (e.type === 'hatch' || e.type === 'text' || e.type === 'mtext' || e.type === 'dimension' || e.type === 'point') continue;
-    if (e.type === 'line') out.push({ pts: [e.x1, e.y1, e.x2, e.y2], closed: false });
-    else {
-      try {
-        for (const p of tessellate(e, tol)) out.push(p);
-      } catch {
-        /* skip */
+  const cx = (rect[0] + rect[2]) / 2,
+    cy = (rect[1] + rect[3]) / 2;
+  const reach = Math.hypot(rect[2] - rect[0], rect[3] - rect[1]);
+  const blocks = new Set();
+  const add = (e, depth) => {
+    switch (e.type) {
+      case 'hatch':
+      case 'text':
+      case 'mtext':
+      case 'dimension':
+      case 'point':
+        return;
+      case 'line':
+        out.push({ pts: [e.x1, e.y1, e.x2, e.y2], closed: false });
+        return;
+      case 'xline':
+      case 'ray': {
+        const l = Math.hypot(e.dx, e.dy);
+        if (!(l > 0)) return;
+        const ux = e.dx / l,
+          uy = e.dy / l;
+        const far = Math.hypot(e.x - cx, e.y - cy) + reach;
+        const t0 = e.type === 'ray' ? 0 : -far;
+        const pts = [e.x + ux * t0, e.y + uy * t0, e.x + ux * far, e.y + uy * far];
+        out.push({ pts, closed: false });
+        return;
       }
+      case 'insert': {
+        const b = d.blocks.get(e.name);
+        if (!b || depth >= 8 || blocks.has(e.name)) return;
+        const m = insertMatrix(e, b);
+        blocks.add(e.name);
+        for (const sub of b.entities) {
+          if (sub.layer !== '0' && !d.layerVisible(sub.layer)) continue;
+          add(transformEntity(sub, m), depth + 1);
+        }
+        blocks.delete(e.name);
+        return;
+      }
+      default:
+        try {
+          for (const p of tessellate(e, tol)) out.push(p);
+        } catch {
+          /* skip */
+        }
     }
+  };
+  for (const id of ed.doc.index.search(rect[0], rect[1], rect[2], rect[3])) {
+    const e = d.get(id);
+    if (e && d.layerVisible(e.layer)) add(e, 0);
   }
   return out;
 }
