@@ -316,14 +316,16 @@ function queued<T>(fn: () => Promise<T>): Promise<T> {
   return run;
 }
 
-export function writeRecovery(text: string) {
+/** True only once the recovery copy has been written and closed successfully. */
+export function writeRecovery(text: string): Promise<boolean> {
   return queued(async () => {
     const dir = await opfsDir();
-    if (!dir) return;
+    if (!dir) return false;
     try {
       await writeFile(dir, ownRecovery, text);
+      return true;
     } catch {
-      /* best effort */
+      return false;
     }
   });
 }

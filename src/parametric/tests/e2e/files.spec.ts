@@ -797,3 +797,73 @@ for (const work of ['drawing notes', 'deleted features', 'part properties'] as c
   expect(errors).toEqual([]);
   expect(recoveryErrors).toEqual([]);
 });
+
+for (const next of ['close', 'save', 'retry backup', 'discard'] as const) test(`a failed recovery handoff preserves its backup through ${next}`, async ({ context }) => {
+  const a = await context.newPage();
+  await mockPuter(a);
+  await openApp(a);
+  await a.getByRole('button', { name: /New part/ }).click();
+  await a.evaluate(() => {
+    const app = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+    app.store.change('Unsaved work', (d) => { d.name = 'Keep backup'; d.variables.push({ id: 'v1', name: 'Keep', expr: '17' }); });
+    Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
+    document.dispatchEvent(new Event('visibilitychange'));
+  });
+  await expect.poll(() => a.evaluate(async (url) => (await import(url)).readRecovery(), '/src/platform/files.ts')).toContain('Keep backup');
+  // Start the next tab while the source is still open; its automatic recovery
+  // check leaves the live source alone. Run the same check after it closes,
+  // keeping its promise so the assertion waits for the entire handoff.
+  const b = await context.newPage();
+  await mockPuter(b);
+  const errors = await openApp(b);
+  await b.getByRole('button', { name: /New part/ }).click();
+  await a.close();
+  await b.evaluate(async (url) => {
+    const { FileOps } = await import(url);
+    const w = window as unknown as { __parametric: import('../../src/app/app').App; pendingRecovery: Promise<boolean>; restoreWrites: () => void; recoveryOps: import('../../src/app/fileops').FileOps };
+    const writable = FileSystemFileHandle.prototype.createWritable;
+    w.restoreWrites = () => { FileSystemFileHandle.prototype.createWritable = writable; };
+    FileSystemFileHandle.prototype.createWritable = async () => { throw new DOMException('No space left', 'QuotaExceededError'); };
+    w.recoveryOps = new FileOps(w.__parametric);
+    w.pendingRecovery = w.recoveryOps.checkRecovery();
+  }, '/src/app/fileops.ts');
+  const recover = b.getByRole('dialog', { name: 'Recover unsaved work?' });
+  await recover.getByRole('button', { name: 'Restore', exact: true }).click();
+  expect(await b.evaluate(() => (window as unknown as { pendingRecovery: Promise<boolean> }).pendingRecovery)).toBe(true);
+  await expect(b).toHaveTitle('* Keep backup - Parametric');
+  const retained = await b.evaluate(async (url) => (await import(url)).orphanRecoveries(), '/src/platform/files.ts');
+  expect(retained).toHaveLength(1);
+  expect(retained[0].text).toContain('Keep backup');
+  if (next !== 'close') {
+    await b.evaluate(() => (window as unknown as { restoreWrites: () => void }).restoreWrites());
+    if (next === 'save') {
+      await b.evaluate(() => (window as unknown as { recoveryOps: import('../../src/app/fileops').FileOps }).recoveryOps.save());
+      await expect(b).toHaveTitle('Keep backup - Parametric');
+    } else if (next === 'discard') {
+      await b.evaluate(() => { void (window as unknown as { recoveryOps: import('../../src/app/fileops').FileOps }).recoveryOps.newPart(); });
+      await b.getByRole('dialog', { name: 'Save changes?' }).getByRole('button', { name: "Don't save" }).click();
+      await expect(b).toHaveTitle('Part2 - Parametric');
+    } else {
+      await b.evaluate(() => {
+        const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+        a.store.change('More work', (d) => { d.variables.push({ id: 'v2', name: 'Newer', expr: '42' }); });
+        Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
+        document.dispatchEvent(new Event('visibilitychange'));
+      });
+      await expect.poll(() => b.evaluate(async (url) => (await import(url)).readRecovery(), '/src/platform/files.ts')).toContain('Newer');
+    }
+    await expect.poll(() => b.evaluate(async (url) => (await import(url)).orphanRecoveries(), '/src/platform/files.ts')).toHaveLength(0);
+    expect(errors).toEqual([]);
+    return;
+  }
+  await b.close();
+  const c = await context.newPage();
+  await mockPuter(c);
+  const reopenErrors = await openApp(c);
+  const retry = c.getByRole('dialog', { name: 'Recover unsaved work?' });
+  await expect(retry).toContainText('Keep backup');
+  await retry.getByRole('button', { name: 'Restore', exact: true }).click();
+  expect(await c.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.store.doc.variables[0].name)).toBe('Keep');
+  expect(errors).toEqual([]);
+  expect(reopenErrors).toEqual([]);
+});

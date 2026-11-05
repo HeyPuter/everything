@@ -18,6 +18,8 @@ import { sharedWithMe } from './share';
 export class FileOps {
   private saving = false;
   private recoveryTimer = 0;
+  /** A recovered copy retained until this tab writes a durable replacement. */
+  private recoverySource: string | null = null;
   /** Counts document changes, so a save only clears the edits it wrote. */
   private revision = 0;
   /** Changes only when another document opens, not on edits or undo. */
@@ -70,14 +72,14 @@ export class FileOps {
     // Discarded on purpose: do not offer it for recovery next time.
     clearTimeout(this.recoveryTimer);
     this.recoveryTimer = 0;
-    await clearRecovery();
+    await this.clearRecoveryCopies();
     return documentVersion === this.documentVersion;
   }
 
   async newPart() {
     if (!(await this.confirmDiscard('start a new part'))) return;
     this.app.newDocument(nextUntitled());
-    await clearRecovery();
+    await this.clearRecoveryCopies();
   }
 
   /** Save to the current location, or ask where for a new document. */
@@ -119,7 +121,7 @@ export class FileOps {
     const clean = revision === this.revision;
     if (clean) this.app.store.dirty = false;
     this.app.store.emit('saved');
-    if (clean) void clearRecovery();
+    if (clean) void this.clearRecoveryCopies();
   }
 
   async saveAs() {
@@ -401,6 +403,23 @@ export class FileOps {
 
   // ---------- recovery ----------
 
+  private async writeRecoveryCopy(text: string) {
+    const source = this.recoverySource;
+    if (!(await writeRecovery(text))) return;
+    if (source) {
+      await removeRecovery(source);
+      if (this.recoverySource === source) this.recoverySource = null;
+    }
+  }
+
+  /** Saved or explicitly discarded work no longer needs either backup. */
+  private async clearRecoveryCopies() {
+    const source = this.recoverySource;
+    this.recoverySource = null;
+    await clearRecovery();
+    if (source) await removeRecovery(source);
+  }
+
   private scheduleRecovery() {
     clearTimeout(this.recoveryTimer);
     this.recoveryTimer = 0;
@@ -412,7 +431,7 @@ export class FileOps {
     this.recoveryTimer = 0;
     if (!this.app.store.dirty) return;
     const payload = JSON.stringify({ location: this.app.location, savedAt: Date.now(), doc: withUsedBlobs(this.app.store.doc) });
-    void writeRecovery(payload);
+    void this.writeRecoveryCopy(payload);
   }
 
   /** Writes a pending recovery copy now: the tab is being hidden and may not come back (phones). */
@@ -456,9 +475,8 @@ export class FileOps {
         this.app.loadDocument(doc, data.location);
         this.app.store.dirty = true;
         this.app.store.emit('restored');
-        // This tab now owns the work: its own copy replaces the one left behind.
-        await writeRecovery(text);
-        await removeRecovery(file);
+        this.recoverySource = file;
+        await this.writeRecoveryCopy(text);
         return true;
       }
       if (v !== 'discard') return false;
