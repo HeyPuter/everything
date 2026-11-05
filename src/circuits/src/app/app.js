@@ -1,7 +1,7 @@
 // Application shell: layout, documents and tabs, panels, project files,
 // account, and the glue between editors, the kernel and the exporters.
 
-import { h, clear, announce } from '../ui/dom.js';
+import { h, clear, announce, shortcutLabel, isMac } from '../ui/dom.js';
 import { icon } from '../ui/icons.js';
 import { createMenubar, setMenuCommands, openMenu } from '../ui/menu.js';
 import { toast, installTooltips } from '../ui/toast.js';
@@ -187,7 +187,7 @@ export class App extends Emitter {
       this.docTitle,
       this.saveBadge,
       h('button.icon-btn.compact-only.phone-hide', { type: 'button', 'aria-label': 'Design panels', 'data-tip': 'Properties and components', onClick: () => this._toggleDrawer('right') }, icon('panel-right', 17)),
-      h('button.search-box', { type: 'button', 'aria-label': 'Search commands', onClick: () => this.commandPalette() }, icon('search', 14), h('span', 'Search commands'), h('kbd', 'Ctrl K')),
+      h('button.search-box', { type: 'button', 'aria-keyshortcuts': isMac ? 'Meta+K' : 'Control+K', onClick: () => this.commandPalette() }, icon('search', 14), h('span', 'Search commands'), h('kbd', { 'aria-hidden': 'true' }, shortcutLabel('Mod+K'))),
       h('span.alpha-tag', { title: 'Early preview: features may change' }, 'Alpha'),
       this.themeBtn,
       h('a.icon-btn', { href: REPO_URL, target: '_blank', rel: 'noopener noreferrer', 'aria-label': 'Source code on GitHub (opens in a new tab)', 'data-tip': 'Source code on GitHub' }, icon('github', 17)),

@@ -44,7 +44,7 @@ button { cursor: pointer; }
 .titlebar .doc-title { flex: 1; min-width: 0; text-align: center; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0 8px; }
 .titlebar .doc-title strong { color: var(--text); font-weight: 600; }
 .titlebar .right { display: flex; align-items: center; gap: 2px; }
-.alpha-tag { font-size: var(--fs-xs); font-weight: 600; letter-spacing: 0.02em; padding: 1px 6px; border-radius: 10px; border: 1px solid var(--accent); color: var(--accent); margin: 0 6px; white-space: nowrap; }
+.alpha-tag { font-size: var(--fs-xs); font-weight: 600; letter-spacing: 0.02em; padding: 1px 6px; border-radius: 10px; border: 1px solid var(--accent); color: var(--accent-text); margin: 0 6px; white-space: nowrap; }
 
 .search-box { display: flex; align-items: center; gap: 6px; height: 24px; width: 220px; padding: 0 8px; border: 1px solid var(--border-strong); border-radius: var(--radius); background: var(--bg-input); color: var(--text-3); margin: 0 6px; }
 .search-box:hover { border-color: var(--text-3); }
