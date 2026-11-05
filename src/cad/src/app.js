@@ -548,8 +548,12 @@ export class App {
 
   fileError(what, err) {
     console.error(err);
-    const msg = err?.message || String(err);
-    toast(`Could not ${what} the file. ${msg}`, { kind: 'error', timeout: 7000 });
+    // Puter rejects with { error: { message } } or { code, message } objects.
+    const msg = err?.message || err?.error?.message || (typeof err === 'string' ? err : '');
+    toast(`Could not ${what} the file.${msg ? ` ${msg}` : ' Please try again.'}`, {
+      kind: 'error',
+      timeout: 7000,
+    });
   }
 
   async encode(doc, kind) {
