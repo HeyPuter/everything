@@ -158,6 +158,14 @@ export class App extends Emitter {
     });
     document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') this._flushSave(); });
     this.compactQuery.addEventListener?.('change', () => this.applyDocks());
+    // Escape closes an open panel drawer (tablet and phone layouts). Dialogs,
+    // menus and fields that use Escape themselves stop or mark the event.
+    document.addEventListener('keydown', (e) => {
+      const drawer = this._drawerLeft || this._drawerRight;
+      if (e.key !== 'Escape' || e.defaultPrevented || !this.isCompact || !drawer) return;
+      e.preventDefault();
+      this.closeDrawers();
+    });
     window.addEventListener('resize', () => this._clampDocks());
   }
 

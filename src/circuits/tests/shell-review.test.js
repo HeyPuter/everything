@@ -366,3 +366,18 @@ describe('removing a document', () => {
     expect(text).toContain('cannot be undone');
   });
 });
+
+describe('panel drawers', () => {
+  it('Escape closes an open drawer on tablets and phones', async () => {
+    localStorage.clear();
+    const { app } = await bootLocal();
+    app.compactQuery = { matches: true, addEventListener() {} };
+    app._toggleDrawer('right');
+    expect(app.workspace.classList.contains('show-right')).toBe(true);
+    const btn = app.rightDock.el.querySelector('button');
+    btn.focus();
+    key(btn, 'Escape');
+    expect(app.workspace.classList.contains('show-right')).toBe(false);
+    expect(app.scrim.hidden).toBe(true);
+  });
+});
