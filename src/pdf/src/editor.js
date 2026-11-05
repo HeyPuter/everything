@@ -4381,7 +4381,10 @@ export function createEditor({
         else {
           // A click places a field of the usual size there, as a drag sizes one: a box
           // centered on the point, other fields starting at it, and all on the page.
-          const [width, height] = ['checkbox', 'radio'].includes(fieldType) ? [14, 14] : [160, 22];
+          // The usual size is in points; a page with large units (UserUnit) needs fewer of them.
+          const [width, height] = (
+            ['checkbox', 'radio'].includes(fieldType) ? [14, 14] : [160, 22]
+          ).map((points) => points / viewport.userUnit);
           const unit = screenUnit();
           const centered = width === height;
           const at = (value, size, room) =>

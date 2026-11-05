@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { PDFDocument, PDFName, PDFString, StandardFonts, degrees } from 'pdf-lib';
+import { PDFDocument, PDFName, PDFNumber, PDFString, StandardFonts, degrees } from 'pdf-lib';
 import { readFile } from 'node:fs/promises';
 
 const PUTER_MOCK = `window.puter = { env: 'web', auth: { isSignedIn: () => true, getUser: async () => ({username:'test-user'}), signIn: async () => {}, signOut: async () => {} }, fs: { readdir: async () => [], write: async () => ({}) }, ui: { onLaunchedWithItems: () => {}, onItemsOpened: () => {} } };`;
@@ -702,6 +702,31 @@ test('a click with a field tool places a field there, kept on the page', async (
   near(rect('Name'), { x: 100, y: 400 - 50 - 22, width: 160, height: 22 });
   near(rect('Middle'), { x: 300 - 7, y: 200 - 7, width: 14, height: 14 });
   near(rect('Corner'), { x: 600 - 14, y: 0, width: 14, height: 14 });
+});
+
+// A page in units of four points, as large drawings set a UserUnit: a field placed with a click
+// has its usual size in points, not four times that, and starts where the page was clicked.
+test('a click with a field tool places a field of the usual size on a page with large units', async ({
+  page,
+}) => {
+  const doc = await PDFDocument.create();
+  doc.addPage([150, 200]).node.set(PDFName.of('UserUnit'), PDFNumber.of(4));
+  await openPdf(page, doc);
+  await prepareForm(page);
+  const pane = page.getByRole('complementary', { name: 'Tools' });
+  const paper = await page.locator('.drawing-overlay').boundingBox();
+  const unit = paper.width / 150;
+  await pane.getByRole('button', { name: 'Text field', exact: true }).click();
+  await page.mouse.click(paper.x + 20 * unit, paper.y + 30 * unit);
+  const dialog = page.getByRole('dialog', { name: 'Text field properties' });
+  await dialog.getByLabel('Name', { exact: true }).fill('Name');
+  await dialog.getByRole('button', { name: 'Done', exact: true }).click();
+  await settled(page);
+  const form = (await PDFDocument.load(await downloaded(page))).getForm();
+  const rect = form.getField('Name').acroField.getWidgets()[0].getRectangle();
+  // 160 by 22 points is 40 by 5.5 units of four points.
+  for (const [key, value] of Object.entries({ x: 20, y: 200 - 30 - 5.5, width: 40, height: 5.5 }))
+    expect(rect[key]).toBeCloseTo(value, 0);
 });
 
 test('a tab order already in place records no edit and says so', async ({ page }) => {
