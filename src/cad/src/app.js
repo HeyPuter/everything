@@ -554,7 +554,9 @@ export class App {
       toast('Choose a .cad, .dwg or .dxf file.', { kind: 'error' });
       return null;
     }
-    const existing = file.path && this.docs.find((d) => d.file?.path === file.path);
+    const existing = file.path
+      ? this.docs.find((d) => d.file?.path === file.path)
+      : await this.docWithHandle(file.handle);
     if (existing) {
       this.activate(existing);
       return existing;
@@ -590,6 +592,19 @@ export class App {
       this.fileError('open', err);
       return null;
     }
+  }
+
+  /** The open drawing saved to this device file, so a file is never open in two tabs. */
+  async docWithHandle(handle) {
+    if (!handle?.isSameEntry) return null;
+    for (const d of this.docs) {
+      try {
+        if (d.file?.handle && (await handle.isSameEntry(d.file.handle))) return d;
+      } catch {
+        /* a handle from an earlier visit may no longer resolve */
+      }
+    }
+    return null;
   }
 
   fileError(what, err) {
