@@ -300,7 +300,14 @@ export function mirrorSch(o, px, py, axis = 'x') {
       const [x, y] = mx(o.x, o.y);
       // Mirroring about y flips the part; about x is a flip plus a half turn.
       const rot = axis === 'x' ? (360 - (o.rot || 0)) % 360 : (540 - (o.rot || 0)) % 360;
-      const fields = o.fields ? Object.fromEntries(Object.entries(o.fields).map(([k, f]) => [k, axis === 'x' ? { ...f, dx: -f.dx } : { ...f, dy: -f.dy }])) : o.fields;
+      // A stored alignment mirrors with its anchor so the text stays on its side.
+      const flip = (al, key, a, b) => (al?.[key] === a ? b : al?.[key] === b ? a : al?.[key]);
+      const mirrorAlign = (al) => (al ? (axis === 'x' ? { ...al, h: flip(al, 'h', 'left', 'right') } : { ...al, v: flip(al, 'v', 'top', 'bottom') }) : al);
+      const fields = o.fields ? Object.fromEntries(Object.entries(o.fields).map(([k, f]) => {
+        const m = axis === 'x' ? { ...f, dx: -f.dx } : { ...f, dy: -f.dy };
+        if (f.align) m.align = mirrorAlign(f.align);
+        return [k, m];
+      })) : o.fields;
       return { ...o, x, y, mirror: !o.mirror, rot, fields };
     }
     case 'port': case 'label': case 'power': {

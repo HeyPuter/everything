@@ -9,6 +9,7 @@ import { Renderer2D } from '../src/render/renderer2d.js';
 import { mil } from '../src/core/units.js';
 import { layoutText, textWidth } from '../src/render/font.js';
 import { Batch } from '../src/render/batch.js';
+import { pack } from '../src/render/color.js';
 import { drawSheet, sheetFrame } from '../src/render/sch-scene.js';
 import { SCH_PALETTES } from '../src/render/palette.js';
 import { Settings } from '../src/app/settings.js';
@@ -17,6 +18,8 @@ import { schBounds, graphicBox, textBox, fieldText, SCH_TEXT } from '../src/mode
 import { placeSymbol, fieldPosition } from '../src/model/place.js';
 import { createExampleProject } from '../src/app/demo.js';
 import { moveVertex } from '../src/editors/vertex.js';
+import { parseProject } from '../src/model/project.js';
+import { mirrorSch } from '../src/model/sch.js';
 import { bboxIntersects, bboxUnion, bboxEmpty } from '../src/core/geom.js';
 import { schObjectPrims, sheetFrame as exportFrame, sheetSize } from '../src/io/schgraphics.js';
 import { textStrokes } from '../src/render/font.js';
@@ -720,6 +723,9 @@ describe('hiding a field in the properties panel', () => {
     const after = fieldPosition(ed.doc.store.get(c3.id), 'designator', def);
     expect(after.hidden).toBe(false);
     expect([after.x, after.y]).toEqual([before.x, before.y]);
+    // Same alignment too: the stored field draws the same strokes.
+    expect(after.align).toEqual(before.align);
+    expect(ed.doc.store.get(c3.id).fields.designator.align).toEqual(before.align);
   });
 });
 
@@ -787,5 +793,86 @@ describe('wire corner editing', () => {
       const dot = (bx - ax) * (cx - bx) + (by - ay) * (cy - by);
       expect(cross === 0 && dot < 0).toBe(false);
     }
+  });
+});
+
+describe('stored field positions', () => {
+  const segs = (b) => Array.from(b.bufs.seg.f.subarray(0, b.bufs.seg.count * b.bufs.seg.stride));
+
+  /** Strokes as the base renderer drew a part: stored fields left/bottom at their anchor. */
+  const baseStrokes = (o, lib) => {
+    const hidden = {
+      designator: { dx: 0, dy: 0, hidden: true },
+      value: { dx: 0, dy: 0, hidden: true },
+    };
+    const b = new Batch();
+    drawSchObject(b, { ...o, fields: hidden }, lib, SCH_PALETTES.light);
+    const pal = SCH_PALETTES.light;
+    for (const name of ['designator', 'value']) {
+      const f = o.fields[name];
+      b.text(
+        fieldText(o, name),
+        o.x + f.dx,
+        o.y + f.dy,
+        SCH_TEXT,
+        pack(name === 'designator' ? pal.designator : pal.value),
+      );
+    }
+    return segs(b);
+  };
+
+  it('renders saved custom offsets on turned parts exactly as before, after a save and load', () => {
+    const project = createExampleProject();
+    const doc = project.sheets[0];
+    const lib = project.library;
+    const r1 = [...doc.items()].find((o) => o.designator === 'R1');
+    // Custom offsets as an older version saved them (no alignment), left of
+    // and below the body, on a half turn and a three-quarter turn.
+    for (const rot of [180, 270]) {
+      doc.store.transact('t', (s) =>
+        s.update(r1.id, {
+          ...s.get(r1.id),
+          rot,
+          fields: {
+            designator: { dx: -mil(250), dy: -mil(150) },
+            value: { dx: -mil(250), dy: mil(150) },
+          },
+        }),
+      );
+      const loaded = parseProject(JSON.stringify(project.toJSON()));
+      const o = [...loaded.sheets[0].items()].find((x) => x.id === r1.id);
+      const b = new Batch();
+      drawSchObject(b, o, loaded.library, SCH_PALETTES.light);
+      expect(segs(b)).toEqual(baseStrokes(o, loaded.library));
+      expect(fieldPosition(o, 'designator', loaded.library[o.comp]).align).toBeUndefined();
+    }
+  });
+
+  it('keeps a stored alignment while the offset crosses the part centre, and through save and load', () => {
+    const project = createExampleProject();
+    const doc = project.sheets[0];
+    const c3 = [...doc.items()].find((o) => o.designator === 'C3');
+    const def = project.library[c3.comp];
+    const align = { h: 'right', v: 'bottom' };
+    for (const dx of [-mil(300), -mil(10), 0, mil(10), mil(300)]) {
+      const o = { ...c3, fields: { designator: { dx, dy: -mil(100), align } } };
+      expect(fieldPosition(o, 'designator', def).align).toEqual(align);
+      const o2 = { ...c3, fields: { designator: { dx, dy: -mil(100) } } };
+      expect(fieldPosition(o2, 'designator', def).align).toBeUndefined();
+    }
+    doc.store.transact('t', (s) =>
+      s.update(c3.id, {
+        ...s.get(c3.id),
+        fields: { designator: { dx: -mil(100), dy: -mil(100), align } },
+      }),
+    );
+    const loaded = parseProject(JSON.stringify(project.toJSON()));
+    const o = [...loaded.sheets[0].items()].find((x) => x.id === c3.id);
+    expect(o.fields.designator.align).toEqual(align);
+    // Bounds follow the stored alignment: the text ends at the anchor.
+    const bb = schBounds(o, loaded.library);
+    expect(bb.minX).toBeLessThan(o.x - mil(100) - textWidth('C3', SCH_TEXT) + mil(5));
+    // Mirroring keeps the text on its side of the anchor.
+    expect(mirrorSch(o, o.x, o.y, 'x').fields.designator.align).toEqual({ h: 'left', v: 'bottom' });
   });
 });

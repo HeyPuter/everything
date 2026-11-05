@@ -127,7 +127,9 @@ export function placeFootprint(def, comp, copperCount = 2) {
  */
 export function fieldPosition(part, name, def) {
   const f = part.fields?.[name];
-  if (f) return { x: part.x + f.dx, y: part.y + f.dy, hidden: !!f.hidden, align: fieldAlign(part, f.dx) };
+  // A stored position keeps the alignment it was stored with: the default
+  // left/bottom unless the field records its own (see fieldAlign).
+  if (f) return { x: part.x + f.dx, y: part.y + f.dy, hidden: !!f.hidden, align: f.align };
   const sym = def?.symbol;
   const local = name === 'designator' ? sym?.designatorPos : sym?.valuePos;
   if (!local) return { x: part.x, y: part.y, hidden: false };
@@ -138,8 +140,10 @@ export function fieldPosition(part, name, def) {
 }
 
 /**
- * Field text stays horizontal and reads from its anchor up and to the right,
- * which suits a symbol's own orientation. Turned a quarter turn, an anchor on
+ * Alignment of a default-placed field. Code that turns a default field into
+ * a stored one must store this alignment with it (field.align) so the text
+ * does not move. Field text stays horizontal and reads from its anchor up
+ * and to the right, which suits a symbol's own orientation. Turned a quarter turn, an anchor on
  * the left would run the text back across the body, so the text ends there;
  * turned a half turn, the anchor is below the body, so the text hangs from
  * it. Otherwise the default left/bottom alignment (undefined) applies.

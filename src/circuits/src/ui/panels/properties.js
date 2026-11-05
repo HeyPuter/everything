@@ -314,9 +314,10 @@ function schSpec(app, ed, objs) {
 
 function fieldOrDefault(o, name, lib) {
   if (o.fields?.[name]) return o.fields[name];
-  // Where the field is drawn now (the default anchor turns with the part).
+  // Where and how the field is drawn now (the default anchor turns with the
+  // part), so storing it moves nothing.
   const f = fieldPosition(o, name, lib[o.comp]);
-  return { dx: f.x - o.x, dy: f.y - o.y };
+  return { dx: f.x - o.x, dy: f.y - o.y, ...(f.align ? { align: f.align } : {}) };
 }
 
 function paramsSection(app, ed, part, def) {
