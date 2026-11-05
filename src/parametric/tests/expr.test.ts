@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { evaluate, evaluateVariables, ExprError, referencedNames, renameReferences, reservedName } from '../src/model/expr';
+import { convertExpressionUnits, evaluate, evaluateVariables, ExprError, referencedNames, renameReferences, reservedName } from '../src/model/expr';
 
 describe('expression evaluator', () => {
   it('handles precedence, unary minus and powers', () => {
@@ -100,6 +100,14 @@ describe('expression evaluator', () => {
     expect(evaluate('10*sin(30°)', { kind: 'length' })).toBeCloseTo(5, 12);
     expect(evaluate('2*cos(60 deg) + 1in', { kind: 'length', bareScale: 25.4 })).toBeCloseTo(2 * 25.4, 9);
     expect(evaluate('sin(1.5707963267948966 rad)', { kind: 'length', bareScale: 10 })).toBeCloseTo(10, 12);
+  });
+
+  it('converts a plain length times a trigonometric function or pi to new units', () => {
+    const k = 1 / 25.4;
+    expect(convertExpressionUnits([{ src: '=10*sin(30°)', dim: 1 }, { src: '=10*pi', dim: 1 }, { src: '=sin(30)*10', dim: 1 }, { src: '=20/cos(60)', dim: 1 }], k))
+      .toEqual(['=0.393700787402*sin(30°)', '=0.393700787402*pi', '=sin(30)*0.393700787402', '=0.787401574803/cos(60)']);
+    // A variable that is only such a product takes the dimension of its use.
+    expect(convertExpressionUnits([{ src: '=R', dim: 1 }, { src: '10*pi', dim: 'variable', name: 'R' }], k)).toEqual(['=R', '0.393700787402*pi']);
   });
 
   it('reserves the names a variable would be shadowed by or confused with', () => {

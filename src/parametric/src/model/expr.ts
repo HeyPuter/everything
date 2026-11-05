@@ -352,7 +352,8 @@ function dimOf(n: Node, vars: Map<string, number>): Dim {
       if (n.op === '+' || n.op === '-') return sumDim(a, b);
       if (n.op === '^') return a === 'free' || a === 0 ? a : NaN;
       if (a === null || b === null) return null;
-      if (a === 'free' && b === 'free') return 'free';
+      // A plain number times or over a pure number (10*sin(30), 10*pi) can still be a length.
+      if ((a === 'free' || a === 0) && (b === 'free' || b === 0) && (a === 'free' || b === 'free')) return 'free';
       const da = a === 'free' ? 0 : a, db = b === 'free' ? 0 : b;
       return n.op === '*' ? da + db : da - db;
     }
