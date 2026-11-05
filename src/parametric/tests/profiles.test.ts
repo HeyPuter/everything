@@ -125,3 +125,37 @@ it('keeps nested material and holes when the entire profile is translated', () =
     expect(area(p.regions[0])).toBeCloseTo(24.75, 8);
   }
 });
+
+describe('large sketch profile graphs', () => {
+  it('prunes a long centre-out chain attached to a closed profile', () => {
+    const count = 6000;
+    const entities: SkEntity[] = [...rect(-2, -2, -1, -1, 'box')];
+    for (let i = 0; i <= count; i++) entities.push({ id: `p${i}`, t: 'point', x: i, y: 0 });
+    const order = Array.from({ length: count }, (_, i) => i).sort((a, b) => Math.abs(a - count / 2) - Math.abs(b - count / 2));
+    for (const i of order) entities.push({ id: `l${i}`, t: 'line', a: `p${i}`, b: `p${i + 1}` });
+    entities.push({ id: 'attachment', t: 'line', a: 'boxp2', b: 'p0' });
+    const p = buildProfiles(entities);
+    expect(p.regions).toHaveLength(1);
+    expect(p.regions[0].outer.area).toBe(1);
+    expect(p.openEnds).toHaveLength(count + 1);
+    expect(new Set(p.openEnds.map((p) => p.join(','))).size).toBe(count + 1);
+  });
+
+  it.each([0.5e-6, 5e-6])('welds only endpoints within tolerance across spatial cells (%s)', (gap) => {
+    const entities: SkEntity[] = [];
+    // Enough unrelated vertices to exercise the spatial index. The whole
+    // sketch remains under 100 mm wide, so its merge tolerance is 1e-6 mm.
+    for (let i = 0; i < 40; i++) entities.push(
+      { id: `a${i}`, t: 'point', x: -50 + i, y: -10 },
+      { id: `b${i}`, t: 'point', x: -50 + i, y: -9 },
+      { id: `l${i}`, t: 'line', a: `a${i}`, b: `b${i}` },
+    );
+    entities.push(...rect(-0.1e-6, 0, 2, 2, 'box'));
+    entities.push({ id: 'close', t: 'point', x: -0.1e-6 + gap, y: 0 });
+    const closing = entities.find((e) => e.id === 'boxl3');
+    if (closing?.t !== 'line') throw new Error('Missing closing edge');
+    closing.b = 'close';
+    const p = buildProfiles(entities);
+    expect(p.regions).toHaveLength(gap < 1e-6 ? 1 : 0);
+  });
+});

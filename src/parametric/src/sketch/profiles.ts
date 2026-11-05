@@ -72,11 +72,38 @@ export function buildProfiles(entities: SkEntity[], picks?: Vec2[]): ProfileResu
     } else openCurves.push(c);
   }
 
-  // Merge end points by position.
+  // Merge end points by position. Small sketches use a short linear scan;
+  // larger ones only inspect the nearby cells of a spatial index.
   const verts: Vec2[] = [];
+  const mergeTol = tol * 10;
+  let cells: Map<string, number[]> | undefined;
+  const cellKey = (x: number, y: number) => `${x},${y}`;
+  const indexVertex = (i: number) => {
+    const p = verts[i], key = cellKey(Math.floor(p[0] / mergeTol), Math.floor(p[1] / mergeTol));
+    const bucket = cells!.get(key);
+    if (bucket) bucket.push(i);
+    else cells!.set(key, [i]);
+  };
   const vertexOf = (p: Vec2) => {
-    for (let i = 0; i < verts.length; i++) if (dist2(verts[i], p) <= tol * 10) return i;
+    const x = verts.length < 64 ? NaN : Math.floor(p[0] / mergeTol);
+    const y = verts.length < 64 ? NaN : Math.floor(p[1] / mergeTol);
+    // Extremely large coordinates cannot reliably address neighbouring cells.
+    if (verts.length < 64 || !Number.isSafeInteger(x - 1) || !Number.isSafeInteger(x + 1) || !Number.isSafeInteger(y - 1) || !Number.isSafeInteger(y + 1)) {
+      for (let i = 0; i < verts.length; i++) if (dist2(verts[i], p) <= mergeTol) return i;
+    } else {
+      if (!cells) { cells = new Map(); verts.forEach((_, i) => indexVertex(i)); }
+      let first = Infinity;
+      for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) {
+        for (const i of cells.get(cellKey(x + dx, y + dy)) ?? []) {
+          // Keep the same first-match rule when a point is close to two
+          // distinct vertices; cell traversal order must not change topology.
+          if (i < first && dist2(verts[i], p) <= mergeTol) first = i;
+        }
+      }
+      if (first !== Infinity) return first;
+    }
     verts.push(p);
+    if (cells) indexVertex(verts.length - 1);
     return verts.length - 1;
   };
   const ends = openCurves.map((c) => {
@@ -84,28 +111,38 @@ export function buildProfiles(entities: SkEntity[], picks?: Vec2[]): ProfileResu
     return [vertexOf(a), vertexOf(b)] as [number, number];
   });
 
-  // Prune dangling edges iteratively.
+  // Peel dangling edges from their end vertices. Each edge is visited a
+  // bounded number of times, even when a long chain is ordered centre-out.
   const alive = openCurves.map((_, i) => ends[i][0] !== ends[i][1] || openCurves[i].t === 'spline');
   const degree = new Int32Array(verts.length);
   openCurves.forEach((_, i) => { if (alive[i]) { degree[ends[i][0]]++; degree[ends[i][1]]++; } });
-  let changed = true;
-  while (changed) {
-    changed = false;
-    for (let i = 0; i < openCurves.length; i++) {
-      if (!alive[i]) continue;
-      const [a, b] = ends[i];
-      if (degree[a] < 2 || degree[b] < 2) {
+  const pending: number[] = [];
+  for (let i = 0; i < degree.length; i++) if (degree[i] === 1) pending.push(i);
+  // Closed profiles need no adjacency lists or pruning work.
+  if (pending.length) {
+    const incident: number[][] = verts.map(() => []);
+    openCurves.forEach((_, i) => {
+      if (alive[i]) { incident[ends[i][0]].push(i); incident[ends[i][1]].push(i); }
+    });
+    for (let at = 0; at < pending.length; at++) {
+      for (const i of incident[pending[at]]) {
+        if (!alive[i]) continue;
+        const [a, b] = ends[i];
         alive[i] = false;
-        degree[a]--;
-        degree[b]--;
-        changed = true;
+        if (--degree[a] === 1) pending.push(a);
+        if (--degree[b] === 1) pending.push(b);
       }
     }
   }
   const openEnds: Vec2[] = [];
+  const reported = new Uint8Array(verts.length);
   openCurves.forEach((_, i) => {
     if (alive[i]) return;
-    for (const v of ends[i]) if (degree[v] <= 0 && !openEnds.some((p) => dist2(p, verts[v]) < tol)) openEnds.push(verts[v]);
+    // Different vertex ids are already farther apart than the merge tolerance.
+    for (const v of ends[i]) if (degree[v] <= 0 && !reported[v]) {
+      reported[v] = 1;
+      openEnds.push(verts[v]);
+    }
   });
 
   // Half-edges.
