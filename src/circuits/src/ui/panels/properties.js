@@ -116,21 +116,43 @@ export class PropertiesPanel {
           if (f.type === 'number' || f.type === 'angle') { const n = Number(raw); return raw.trim() === '' || !Number.isFinite(n) ? null : n; }
           return raw;
         };
+        // The value shown when editing started (or last applied), for Escape.
+        let initial = input.value;
         const apply = (live) => {
           const v = parse(input.value);
           const bad = v === null || (f.validate && f.validate(v));
           input.setAttribute('aria-invalid', bad ? 'true' : 'false');
           if (bad) return;
           if (f.type !== 'text' && live) return; // numbers apply on Enter or blur
+          if (f.type !== 'text' && input.value === initial) return;
           commit(v);
+          if (!live) initial = input.value;
         };
-        input.addEventListener('input', () => { if (f.type === 'text' && !f.commitOnBlur) apply(true); else apply(true); });
+        // Puts back the value from before editing; text fields apply as you
+        // type, so they also apply it again (one undo step per field).
+        const revert = () => {
+          if (input.value === initial) return;
+          input.value = initial;
+          input.setAttribute('aria-invalid', 'false');
+          if (f.type === 'text' && !mixed) commit(initial);
+        };
+        input.addEventListener('focus', () => { initial = input.value; });
+        input.addEventListener('input', () => apply(true));
         input.addEventListener('change', () => apply(false));
         input.addEventListener('keydown', (e) => {
           if (e.key === 'Enter') { e.preventDefault(); apply(false); input.select(); }
-          if (e.key === 'Escape') { e.preventDefault(); input.blur(); this.app.activeEditor?.canvas.focus(); }
+          if (e.key === 'Escape') {
+            e.preventDefault();
+            revert();
+            input.blur();
+            this.app.activeEditor?.canvas.focus();
+          }
         });
-        input.addEventListener('blur', () => { if (this._pending) setTimeout(() => this.refresh(), 0); });
+        input.addEventListener('blur', () => {
+          // An invalid entry is not applied, so show the real value again.
+          if (input.getAttribute('aria-invalid') === 'true') revert();
+          if (this._pending) setTimeout(() => this.refresh(), 0);
+        });
         if (f.type === 'length') {
           return [h('label', { for: id }, f.label), h('div.inline', input, h('span.muted.small', { id: `${id}-u`, style: { flex: 'none' } }, units))];
         }

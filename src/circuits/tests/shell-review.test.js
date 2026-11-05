@@ -1,6 +1,7 @@
 // Shell review regressions: menus, dialogs, panels, storage and saving.
 import { describe, it, expect, afterEach } from 'vitest';
 import { openMenu, closeMenus, createMenubar } from '../src/ui/menu.js';
+import { PropertiesPanel } from '../src/ui/panels/properties.js';
 
 afterEach(() => {
   closeMenus();
@@ -56,5 +57,65 @@ describe('menu focus', () => {
     key(btn, 'Enter');
     key(document.activeElement, 'Escape');
     expect(document.activeElement).toBe(btn);
+  });
+});
+
+describe('properties panel fields', () => {
+  const fakeApp = () => ({
+    settings: { get: () => 'mm' },
+    activeEditor: null,
+    toast: () => {},
+  });
+  const mount = (spec) => {
+    const panel = new PropertiesPanel(fakeApp());
+    const changes = [];
+    const [, input] = panel._field({ ...spec, onChange: (v) => changes.push(v) });
+    const el = input.querySelector?.('input') || input;
+    document.body.append(panel.el, input);
+    return { el, changes };
+  };
+
+  it('Escape puts back a number without applying it', () => {
+    const { el, changes } = mount({ label: 'Rotation', type: 'angle', value: 90 });
+    el.focus();
+    el.value = '45';
+    el.dispatchEvent(new Event('input'));
+    key(el, 'Escape');
+    el.dispatchEvent(new Event('change'));
+    expect(el.value).toBe('90');
+    expect(changes).toEqual([]);
+  });
+
+  it('Enter applies a changed number once, and an unchanged one not at all', () => {
+    const { el, changes } = mount({ label: 'Rotation', type: 'angle', value: 90 });
+    el.focus();
+    key(el, 'Enter');
+    expect(changes).toEqual([]);
+    el.value = '180';
+    key(el, 'Enter');
+    el.dispatchEvent(new Event('change'));
+    expect(changes).toEqual([180]);
+  });
+
+  it('an invalid entry shows the real value again on blur', () => {
+    const { el, changes } = mount({ label: 'X', type: 'length', value: 10_000_000 });
+    el.focus();
+    el.value = 'abc';
+    el.dispatchEvent(new Event('change'));
+    expect(el.getAttribute('aria-invalid')).toBe('true');
+    el.blur();
+    expect(el.value).toBe('10');
+    expect(el.getAttribute('aria-invalid')).toBe('false');
+    expect(changes).toEqual([]);
+  });
+
+  it('Escape in a live text field restores and applies the original text', () => {
+    const { el, changes } = mount({ label: 'Designator', type: 'text', value: 'R1' });
+    el.focus();
+    el.value = '';
+    el.dispatchEvent(new Event('input'));
+    key(el, 'Escape');
+    expect(el.value).toBe('R1');
+    expect(changes).toEqual(['', 'R1']);
   });
 });
