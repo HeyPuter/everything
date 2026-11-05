@@ -320,7 +320,7 @@ function cutPoints(sk: SketchFeature, e: SkCurve): { p: Vec2; by?: Id }[] {
   for (const o of sk.entities) {
     if (o.t === 'point' || o.id === e.id) continue;
     // `by`: the cutting curve, which the new end point is kept on.
-    const by = o.t === 'spline' ? undefined : o.id;
+    const by = o.id;
     for (const p of mine) for (const q of primsOf(ix, o as SkCurve)) for (const x of intersectPrims(p, q)) pts.push({ p: x, by });
   }
   // Points lying on the curve (e.g. end points of other curves) also cut.
@@ -450,8 +450,7 @@ export function extendAt(sk: SketchFeature, lineId: Id, at: Vec2, newId?: (p: st
   pt.x = best[0];
   pt.y = best[1];
   dropLengthDimensions(sk, lineId);
-  // Splines take no point-on-curve relation in the solver.
-  if (newId && by && by.t !== 'spline') sk.constraints.push({ id: newId('r'), type: 'coincident', refs: [pid, by.id] });
+  if (newId && by) sk.constraints.push({ id: newId('r'), type: 'coincident', refs: [pid, by.id] });
   return true;
 }
 

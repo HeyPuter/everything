@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { SkDimension, SkEntity, SkLine, SketchFeature } from '../src/model/types';
-import { SketchIndex, arcRadius } from '../src/sketch/geom';
+import { SketchIndex, arcRadius, distanceToCurve } from '../src/sketch/geom';
 import {
   availableRelations, deleteItems, extendAt, filletCorner, idFactory, makeRelations, measureDimension, mirrorEntities,
   offsetCurves, relationsOf, smartDimension, trimAt,
@@ -174,6 +174,33 @@ describe('editing tools', () => {
     const res = solveSketch(s.entities, s.constraints, { value, drag: { kind: 'points', ids: ['c', 'd'], targets: [[12, -5], [12, 5]] } });
     expect(res.converged).toBe(true);
     expect(new SketchIndex(s.entities).pt('b')[0]).toBeCloseTo(12, 6);
+  });
+
+  it('keeps a line extended or trimmed at a spline on the spline', () => {
+    const spline = (): SkEntity[] => [
+      { id: 's0', t: 'point', x: 9, y: -6 }, { id: 's1', t: 'point', x: 10, y: 0 }, { id: 's2', t: 'point', x: 9, y: 6 },
+      { id: 'sp', t: 'spline', pts: ['s0', 's1', 's2'] },
+    ];
+    const onSpline = (s: SketchFeature, p: string) => {
+      const ix = new SketchIndex(s.entities);
+      return distanceToCurve(ix, ix.get('sp') as never, ix.pt(p)).d;
+    };
+    const ext = sk([{ id: 'a', t: 'point', x: 0, y: 0 }, { id: 'b', t: 'point', x: 4, y: 0 }, { id: 'h', t: 'line', a: 'a', b: 'b' }, ...spline()]);
+    ext.constraints.push({ id: 'hz', type: 'horizontal', refs: ['h'] }, { id: 'o', type: 'coincident', refs: ['a', 'O'] });
+    expect(extendAt(ext, 'h', [3.9, 0], idFactory(ext))).toBe(true);
+    expect(ext.constraints.some((c) => c.type === 'coincident' && c.refs.join() === 'b,sp')).toBe(true);
+    // Bending the spline carries the extended end with it.
+    let res = solveSketch(ext.entities, ext.constraints, { value, drag: { kind: 'points', ids: ['s1'], targets: [[14, 0]] } });
+    expect(res.converged).toBe(true);
+    expect(new SketchIndex(ext.entities).pt('b')[0]).toBeGreaterThan(12);
+    expect(onSpline(ext, 'b')).toBeLessThan(1e-3);
+
+    const tr = sk([{ id: 'a', t: 'point', x: 0, y: 0 }, { id: 'b', t: 'point', x: 20, y: 0 }, { id: 'h', t: 'line', a: 'a', b: 'b' }, ...spline()]);
+    expect(trimAt(tr, 'h', [15, 0], idFactory(tr))).toBe(true);
+    const end = tr.constraints.find((c) => c.type === 'coincident' && c.refs[1] === 'sp')!.refs[0];
+    res = solveSketch(tr.entities, tr.constraints, { value, drag: { kind: 'points', ids: ['s1'], targets: [[13, 0]] } });
+    expect(res.converged).toBe(true);
+    expect(onSpline(tr, end)).toBeLessThan(1e-3);
   });
 
   it('fillets a rectangle corner tangentially', () => {
