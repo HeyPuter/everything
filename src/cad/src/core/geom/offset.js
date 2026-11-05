@@ -94,50 +94,83 @@ export function offsetPolylinePts(pts, closed, s) {
       raw.push({ arc: false, ux, uy, x1: x1 + ox, y1: y1 + oy, x2: x2 + ox, y2: y2 + oy, vx: x2, vy: y2 });
     }
   }
-  let segs = raw;
-  for (let pass = 0; pass <= raw.length; pass++) {
-    const m = segs.length;
-    if (m === 0) return null;
-    const res = segs.map((g) => ({ g, x1: g.x1, y1: g.y1, x2: g.x2, y2: g.y2, join: 0 }));
-    const nj = closed ? m : m - 1;
-    for (let k = 0; k < nj; k++) {
-      const A = res[k],
-        B = res[(k + 1) % m];
-      joinSegs(A, B, s, tol);
-    }
-    // Validity: segments must keep their direction after trimming.
-    const bad = new Set();
-    for (const r of res) {
-      if (closed && m === 1) break;
-      if (r.g.arc) {
-        const ds = wrapPi(Math.atan2(r.y1 - r.g.cy, r.x1 - r.g.cx) - r.g.a0);
-        const de = wrapPi(Math.atan2(r.y2 - r.g.cy, r.x2 - r.g.cx) - r.g.a1);
-        r.sweep = r.g.sweep - ds + de;
-        if (r.sweep * r.g.sweep <= 0 || Math.abs(r.sweep) >= TWO_PI) bad.add(r.g);
-      } else {
-        const along = (r.x2 - r.x1) * r.g.ux + (r.y2 - r.y1) * r.g.uy;
-        if (!(along > tol)) bad.add(r.g);
-      }
-    }
-    if (bad.size && bad.size < m) {
-      segs = segs.filter((g) => !bad.has(g));
-      continue;
-    }
-    if (bad.size) return null;
-    // Emit vertices.
-    const out = [];
-    for (let k = 0; k < m; k++) {
-      const r = res[k];
-      out.push(r.x1, r.y1, r.g.arc ? Math.tan(r.sweep / 4) : 0);
-      if (r.join) out.push(r.x2, r.y2, r.join);
-    }
-    if (!closed) {
-      const r = res[m - 1];
-      out.push(r.x2, r.y2, 0);
-    }
-    return { pts: out, closed };
+  const m0 = raw.length;
+  if (m0 === 0) return null;
+  // Segments that collapse (reverse once trimmed to their neighbours) are
+  // removed and their neighbours re-joined, round after round. Only segments
+  // next to a removal change, so each round revisits just those.
+  const res = raw.map((g) => ({ g, x1: g.x1, y1: g.y1, x2: g.x2, y2: g.y2, join: 0, sweep: 0 }));
+  for (let k = 0; k < m0; k++) {
+    res[k].prev = closed || k > 0 ? res[(k + m0 - 1) % m0] : null;
+    res[k].next = closed || k < m0 - 1 ? res[(k + 1) % m0] : null;
+    res[k].dead = false;
   }
-  return null;
+  for (const r of res) if (r.next) joinSegs(r, r.next, s, tol);
+  const rejoin = (A, B) => {
+    A.x2 = A.g.x2;
+    A.y2 = A.g.y2;
+    A.join = 0;
+    B.x1 = B.g.x1;
+    B.y1 = B.g.y1;
+    joinSegs(A, B, s, tol);
+  };
+  // Validity: segments must keep their direction after trimming.
+  const isBad = (r) => {
+    if (r.g.arc) {
+      const ds = wrapPi(Math.atan2(r.y1 - r.g.cy, r.x1 - r.g.cx) - r.g.a0);
+      const de = wrapPi(Math.atan2(r.y2 - r.g.cy, r.x2 - r.g.cx) - r.g.a1);
+      r.sweep = r.g.sweep - ds + de;
+      return r.sweep * r.g.sweep <= 0 || Math.abs(r.sweep) >= TWO_PI;
+    }
+    const along = (r.x2 - r.x1) * r.g.ux + (r.y2 - r.y1) * r.g.uy;
+    return !(along > tol);
+  };
+  let live = m0;
+  let check = res;
+  while (!(closed && live === 1)) {
+    const bad = check.filter(isBad);
+    if (!bad.length) break;
+    if (bad.length === live) return null;
+    for (const r of bad) r.dead = true;
+    live -= bad.length;
+    const near = new Set();
+    for (const r of bad) {
+      const p = r.prev,
+        q = r.next;
+      if (p) p.next = q;
+      if (q) q.prev = p;
+      if (p && !p.dead) near.add(p);
+      if (q && !q.dead) near.add(q);
+    }
+    const next = new Set();
+    for (const c of near) {
+      if (c.prev) rejoin(c.prev, c);
+      else {
+        c.x1 = c.g.x1;
+        c.y1 = c.g.y1;
+      }
+      if (c.next) rejoin(c, c.next);
+      else {
+        c.x2 = c.g.x2;
+        c.y2 = c.g.y2;
+        c.join = 0;
+      }
+      next.add(c);
+      if (c.prev) next.add(c.prev);
+      if (c.next) next.add(c.next);
+    }
+    check = [...next];
+  }
+  // Emit vertices, starting from the first surviving segment.
+  let r = res.find((g) => !g.dead);
+  if (closed && live === 1) isBad(r);
+  const out = [];
+  for (let k = 0; k < live; k++, r = r.next) {
+    out.push(r.x1, r.y1, r.g.arc ? Math.tan(r.sweep / 4) : 0);
+    if (r.join) out.push(r.x2, r.y2, r.join);
+    if (!r.next) out.push(r.x2, r.y2, 0);
+  }
+  return { pts: out, closed };
 }
 
 /** Primitive of a raw offset segment, used to intersect neighbours. */

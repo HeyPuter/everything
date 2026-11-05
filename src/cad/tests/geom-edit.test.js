@@ -4,6 +4,7 @@ import {
   normAngle,
   toPrims,
   offsetEntity,
+  offsetPolylinePts,
   trimEntity,
   extendEntity,
   breakEntity,
@@ -162,6 +163,26 @@ describe('offset', () => {
     expect(o.pts.filter((v, i) => i % 3 === 2 && v !== 0).length).toBe(0);
     close(o.pts[3], 9);
     close(o.pts[4], 2);
+  });
+  it('gives a finite bulge when one arc survives collapse removal', () => {
+    const pts = [5.145, 0, 0.346, -2.7526, 4.7677, -0.7423, -2.2468, -3.8916, 0];
+    const r = offsetPolylinePts(pts, true, -5);
+    expect(r.pts.length).toBe(6);
+    expect(r.pts.every(Number.isFinite)).toBe(true);
+  });
+  it('removes many collapsing segments of a dense wavy outline', () => {
+    const pts = [];
+    const n = 4000;
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * TWO_PI;
+      const r = 100 + 5 * Math.sin(a * 40);
+      pts.push(r * Math.cos(a), r * Math.sin(a), 0);
+    }
+    const o = offsetEntity({ type: 'polyline', pts, closed: true }, 3, 0, 0);
+    expect(o.closed).toBe(true);
+    for (let i = 0; i < o.pts.length; i += 3) {
+      expect(Math.hypot(o.pts[i], o.pts[i + 1])).toBeLessThan(105 - 3 + 1e-6);
+    }
   });
   it('offsets ellipses and splines as polylines within tolerance', () => {
     const e = { type: 'ellipse', cx: 0, cy: 0, mx: 10, my: 0, ratio: 0.5, start: 0, end: TWO_PI };
