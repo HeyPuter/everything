@@ -1970,8 +1970,10 @@ class DxfParser {
     let angle = 0;
     let scale = 1;
     let inPattern = false;
+    let line0 = null;
     for (; i < end; i++) {
       const c = codes[i];
+      if (c === 53 && line0 === null) line0 = num(vals[i]) * DEG;
       if (c === 53 || c === 98) inPattern = true;
       else if (c === 450 && int(vals[i]) !== 0) solid = true;
       else if (inPattern) continue;
@@ -1988,7 +1990,10 @@ class DxfParser {
     e.loops = loops;
     e.pattern = solid ? 'SOLID' : name.toUpperCase() || 'SOLID';
     e.scale = scale;
-    e.angle = o ? normAngle(ocsAngle(o, angle)) : angle;
+    // A mirrored OCS mirrors the pattern, which a rotation cannot do: turn it so
+    // that its first line family runs the right way (ANSI31 lines at 135 degrees).
+    if (o) e.angle = normAngle(line0 === null ? ocsAngle(o, angle) : ocsAngle(o, line0) - line0 + angle);
+    else e.angle = angle;
     this.add(cont, e);
   }
 

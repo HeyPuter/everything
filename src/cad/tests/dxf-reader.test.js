@@ -334,6 +334,22 @@ describe('parseDxf: hatches, solids, blocks', () => {
     expect(h.loops).toEqual([[0, 0, 0, 10, 0, 1, 10, 10, 0]]);
   });
 
+  it('turns patterns of mirrored hatches so their lines keep their direction', () => {
+    // ANSI31 (lines at 45 degrees) drawn in an OCS with extrusion (0, 0, -1): x is flipped,
+    // so the lines run at 135 degrees in plan, then the same hatch rotated by 15 degrees
+    const hatch = (a52, a53) => [
+      0, 'HATCH', 10, 0, 20, 0, 30, 0, 210, 0, 220, 0, 230, -1, 2, 'ANSI31', 70, 0, 71, 0, 91, 1,
+      92, 3, 72, 0, 73, 1, 93, 3, 10, 0, 20, 0, 10, 10, 20, 0, 10, 10, 20, 10, 97, 0,
+      75, 0, 76, 1, 52, a52, 41, 1, 77, 0, 78, 1, 53, a53, 43, 0, 44, 0, 45, -2.245, 46, 2.245, 79, 0, 98, 0,
+    ];
+    const { drawing } = parseDxf(dxf([...hatch(0, 45), ...hatch(15, 60)]));
+    const [a, b] = drawing.entities;
+    expect(a.loops).toEqual([[0, 0, 0, -10, 0, 0, -10, 10, 0]]);
+    // the pattern's own 45 degree lines plus the hatch angle
+    expect(close(45 + (a.angle * 180) / Math.PI, 135)).toBe(true);
+    expect(close(45 + (b.angle * 180) / Math.PI, 120)).toBe(true);
+  });
+
   it('reads HATCH edge boundaries: lines, arcs (both directions), ellipses and solid fill', () => {
     const { drawing } = parseDxf(
       dxf([
