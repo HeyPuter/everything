@@ -665,8 +665,9 @@ async function calendarMailHandler({ event, ctx, user, fetch, ack }) {
     // would only count toward suspending the subscription.
     try {
       await notifyUser(record, filtered);
-    } catch {
-      /* rate limit (429), no permission, a bad field — the record stands */
+    } catch (err) {
+      // Rate limit (429), no permission, a bad field: the record stands.
+      console.warn('[calendar] mail notification not sent', (err && (err.code || err.error?.code)) || err);
     }
 
     if (n % 20 === 0) await trimRecords();

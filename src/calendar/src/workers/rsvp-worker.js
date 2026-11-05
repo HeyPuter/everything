@@ -684,7 +684,7 @@ function notifyHost(ctx, found, answer) {
       group: `rsvp:${await sha256Hex(found.eventId + '\n' + found.email)}`,
       channel: 'calendar',
     });
-  })().catch(() => {});
+  })().catch((err) => console.warn('[calendar] RSVP notification not sent', (err && (err.code || err.error?.code)) || err));
   if (ctx && typeof ctx.waitUntil === 'function') {
     ctx.waitUntil(sending);
     return null;

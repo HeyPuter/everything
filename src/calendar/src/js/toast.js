@@ -18,10 +18,13 @@ function ensureContainer() {
 /**
  * @param {string} message
  * @param {{ variant?: 'default'|'danger'|'success', duration?: number,
- *           action?: { label: string, onClick: () => void } }} [opts]
+ *           action?: { label: string, onClick: () => void },
+ *           onClose?: () => void }} [opts]
+ * `duration: Infinity` keeps it up until acted on; `onClose` adds a close
+ * button and runs when it's pressed.
  */
 export function toast(message, opts = {}) {
-  const { variant = 'default', action } = opts;
+  const { variant = 'default', action, onClose } = opts;
   // Four seconds reads a confirmation. It does not notice a button, move to
   // it and press it — and for a keyboard user the toaster is last in tab
   // order — so a toast that offers something to do (Undo, after every
@@ -65,6 +68,23 @@ export function toast(message, opts = {}) {
     );
   }
 
+  if (onClose) {
+    node.append(
+      el('button', {
+        class: 'toast__close',
+        type: 'button',
+        'aria-label': 'Dismiss',
+        html: icon('close', { size: 'sm' }),
+        on: {
+          click: () => {
+            dismiss();
+            onClose();
+          },
+        },
+      }),
+    );
+  }
+
   // Hovering or focusing the toast holds it; leaving resumes the clock with
   // what was left (at least a moment, so it never vanishes under the pointer
   // the instant it leaves).
@@ -72,6 +92,7 @@ export function toast(message, opts = {}) {
   let armedAt = 0;
   const arm = () => {
     clearTimeout(timer);
+    if (!Number.isFinite(remaining)) return;
     armedAt = Date.now();
     timer = setTimeout(dismiss, remaining);
   };
