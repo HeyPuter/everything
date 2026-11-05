@@ -466,9 +466,20 @@ export class App {
     this.commands.changed();
   }
 
+  /**
+   * Phones: the assistant covers the workspace, so a ribbon command, the design
+   * tree or the Model/Drawing tabs, which show something there, uncover it.
+   * Only taps do: what the assistant itself opens leaves it open.
+   */
+  private uncoverWorkspace = (e: Event) => {
+    if ((e.target as Element).closest('button') && this.taskPaneOpen() === 'assistant' && window.matchMedia('(max-width: 760px)').matches) this.toggleTaskPane('assistant');
+  };
+
   private bindShell() {
     const s = this.shell;
     s.treeToggle.addEventListener('click', () => this.toggleLeftPane());
+    s.treeToggle.addEventListener('click', this.uncoverWorkspace);
+    s.cmTools.addEventListener('click', this.uncoverWorkspace);
     // Splitter resize.
     s.splitter.addEventListener('pointerdown', (e) => {
       e.preventDefault();
@@ -777,6 +788,7 @@ export class App {
       return b;
     };
     this.sheetTabs = h('div', { class: 'sheet-tabs', role: 'tablist', 'aria-label': 'Model or drawing' }, mk('Model', false), mk('Drawing', true));
+    this.sheetTabs.addEventListener('click', this.uncoverWorkspace);
     // Opening the drawing projects the views, so the arrow keys only move focus.
     tabKeys(this.sheetTabs, { activate: false });
     this.shell.statusMsg.before(this.sheetTabs);

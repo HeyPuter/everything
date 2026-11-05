@@ -108,3 +108,22 @@ test('touch targets are at least 24 px', async ({ page }) => {
     .map((el) => `${el.tagName} ${el.className} ${el.getAttribute('aria-label') ?? el.textContent}`));
   expect(small).toEqual([]);
 });
+
+test('a ribbon command or the design tree tapped while the assistant covers the workspace uncovers it', async ({ page }) => {
+  await page.route(/js\.puter\.com/, (r) => r.fulfill({ body: '', contentType: 'text/javascript' }));
+  await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).tap();
+  await waitForFeature(page, 'Fillet1');
+  const assistant = page.locator('.tp-panel .as-input');
+  await page.locator('.titlebar [data-cmd="assistant"]').tap();
+  await expect(assistant).toBeVisible();
+  await page.getByRole('button', { name: 'Show design tree' }).tap();
+  await expect(assistant).toBeHidden();
+  await expect(page.locator('.leftpane')).toHaveClass(/\bopen\b/);
+  await page.getByRole('button', { name: 'Close panel' }).tap();
+  await page.locator('.titlebar [data-cmd="assistant"]').tap();
+  await expect(assistant).toBeVisible();
+  await page.locator('.cm-tools [data-cmd="fillet"]').tap();
+  await expect(assistant).toBeHidden();
+  await expect(page.getByRole('heading', { name: 'Fillet', exact: true })).toBeVisible();
+});
