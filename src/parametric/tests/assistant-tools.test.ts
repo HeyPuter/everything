@@ -367,4 +367,14 @@ describe('assistant tools', () => {
     expect((await h.call('measure', { a: upright, b: top })).content).toMatch(/Angle between the edge and the face's plane: 90°/);
     expect((await h.call('measure', { a: inTop, b: upright })).content).toMatch(/Angle between their directions: 90°/);
   });
+
+  it('lists what find_geometry was asked for, and refuses a face that does not exist', async () => {
+    const { h } = await plate();
+    expect((await h.call('find_geometry', { kind: 'edge' })).content).toMatch(/^12 of 12 edges match/);
+    expect((await h.call('find_geometry', { kind: 'vertices' }, false)).content).toMatch(/kind: "faces" or "edges"/);
+    const r = await h.call('find_geometry', { kind: 'edges', of_face: 'nope' }, false);
+    expect(r.ok).toBe(false);
+    expect(r.content).not.toMatch(/edges match/);
+    expect((await h.call('find_geometry', { kind: 'edges', of_face: topFace(h) })).content).toMatch(/^4 of 12 edges match/);
+  });
 });

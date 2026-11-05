@@ -496,9 +496,12 @@ class Toolkit {
   }
 
   findGeometry(a: Obj): string {
-    const kind = a.kind === 'edges' ? 'edges' : 'faces';
+    // "edge" listed faces, and an unknown of_face listed every edge (up to 400) as a match.
+    const kind = /^edges?$/i.test(str(a.kind)) ? 'edges' : /^faces?$/i.test(str(a.kind)) ? 'faces' : null;
+    if (!kind) throw new ToolError('kind: "faces" or "edges"');
     if (!this.host.faces.length) return 'The part has no body yet.';
     const feature = a.feature != null ? this.refs.feature(a.feature).id : undefined;
+    if (a.of_face != null) this.refs.faceInfo(a.of_face, 'of_face');
     const limit = Math.max(1, Math.min(400, Math.round(Number(a.limit) || 60)));
     const scaled = (v: unknown, what: string) => vec3(v, what).map((x) => x * this.u.scale) as Vec3;
     return this.ins.findGeometry({
