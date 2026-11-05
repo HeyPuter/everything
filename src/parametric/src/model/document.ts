@@ -41,7 +41,8 @@ export function parseDocument(text: string): PartDocument {
   }
   const d = raw as Partial<PartDocument>;
   if (!d || d.format !== FORMAT) throw new Error('This file is not a part created with Parametric.');
-  if (d.version !== 1) throw new Error('This part was created with a newer version of Parametric.');
+  if (typeof d.version === 'number' && d.version > 1) throw new Error('This part was created with a newer version of Parametric.');
+  if (d.version !== 1) throw new Error('The part file is damaged (unknown version).');
   if (!Array.isArray(d.features)) throw new Error('The part file is damaged (no feature list).');
   if (!d.features.every((f) => f && typeof f === 'object' && typeof f.id === 'string' && typeof f.type === 'string')) {
     throw new Error('The part file is damaged (invalid feature).');

@@ -84,6 +84,8 @@ describe('document store', () => {
     expect(() => parseDocument('{}')).toThrow(/not a part/);
     expect(() => parseDocument('nope')).toThrow(/not a valid/);
     expect(() => parseDocument(JSON.stringify({ ...doc, version: 9 }))).toThrow(/newer version/);
+    expect(() => parseDocument(JSON.stringify({ ...doc, version: undefined }))).toThrow(/damaged \(unknown version\)/);
+    expect(() => parseDocument(JSON.stringify({ ...doc, version: '1' }))).toThrow(/damaged/);
   });
 
   it('repairs damaged settings and a missing id counter when loading', () => {
