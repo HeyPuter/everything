@@ -220,7 +220,13 @@ export class PcbEditor extends CanvasView {
     for (const id of e.removed.keys()) this.selection.delete(id);
     // Undo and redo take back what an active tool placed (a route in progress).
     if (e.source === 'undo' || e.source === 'redo') this.tool?.historyChanged?.(e);
-    if (boardChanged) { this._dirtyBoard = true; this._dirtyLayers.add('*'); this._renderLayerTabs(); }
+    if (boardChanged) {
+      this._dirtyBoard = true;
+      this._dirtyLayers.add('*');
+      // Fewer copper layers (an undo, a layer stack edit): leave a removed layer.
+      if (!boardLayers(count).includes(this.activeLayer)) this.setActiveLayer('top');
+      this._renderLayerTabs();
+    }
     for (const l of touched) this._dirtyLayers.add(l);
     // Connectivity is recomputed once edits pause (tools that need it call analysis() directly).
     clearTimeout(this._ratsTimer);

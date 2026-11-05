@@ -171,3 +171,18 @@ describe('pour previews', () => {
     expect(ed.layerBatches.get(pour.layer).bufs.tri.count).toBeGreaterThan(0);
   });
 });
+
+describe('layer stack changes', () => {
+  it('leaves an inner layer that undo removed', async () => {
+    ctx = await bootBoard();
+    const { app, ed } = ctx;
+    await app.setCopperLayers(4);
+    ed.setActiveLayer('in1');
+    expect(ed.activeLayer).toBe('in1');
+    app.undo();
+    expect(ed.copperCount).toBe(2);
+    expect(ed.activeLayer).toBe('top');
+    ed.startTool('route');
+    expect(ed.tool.hint()).toMatch(/Click a pad/);
+  });
+});
