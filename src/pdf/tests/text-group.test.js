@@ -988,3 +988,25 @@ it('keeps a Word bullet apart from the paragraph above it', async () => {
     'Draw a square.',
   ]);
 });
+
+it('tells a page-sized clip from a small one when the page box lists its corners reversed', async () => {
+  const { font } = await wordFixture(''),
+    x = 40 + font.widthOfTextAtSize('Hello', 12);
+  const doc = await PDFDocument.load(
+    (
+      await wordFixture(
+        '/Span <</MCID 90>> BDC q 40 290 30 20 re W n BT /F 12 Tf 1 0 0 1 40 300 Tm 0 g (Hello) Tj ET Q EMC ' +
+          wordChunk(x, 300, ' world'),
+      )
+    ).bytes,
+  );
+  doc.getPage(0).node.set(PDFName.of('MediaBox'), doc.context.obj([400, 400, 0, 0]));
+  const r = await read(await doc.save());
+  expect(r.groups.map((g) => g.text)).toEqual(['Hello', ' world']);
+  // Word's own page-sized clips still join, whichever way the box is written.
+  const joined = await PDFDocument.load(
+    (await wordFixture(wordChunk(40, 300, 'Hello') + wordChunk(x, 300, ' world'))).bytes,
+  );
+  joined.getPage(0).node.set(PDFName.of('MediaBox'), joined.context.obj([400, 400, 0, 0]));
+  expect((await read(await joined.save())).groups.map((g) => g.text)).toEqual(['Hello world']);
+});

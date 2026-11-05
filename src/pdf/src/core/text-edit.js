@@ -9,7 +9,7 @@ import {
   StandardFonts,
   decodePDFRawStream,
 } from 'pdf-lib';
-import { assertSupportedText, embedFont, textVariant } from './document.js';
+import { assertSupportedText, embedFont, textVariant, visibleBox } from './document.js';
 import { readParagraphData } from './paragraph-data.js';
 import { retainCryptFilter, withoutCryptFilter } from './stream-filters.js';
 
@@ -844,7 +844,9 @@ export async function inspectText(doc, index, pdfPage, OPS, layers) {
   };
   try {
     const page = doc.getPage(index);
-    box = page.getCropBox();
+    // The visible box, in order: a box may name its corners in any order (pdf-lib's own
+    // getCropBox would then give a negative size, and every clip would look page-sized).
+    box = visibleBox(page);
     walk(pageSource(page), page.node.Resources(), freshState());
     if (cursor !== decoded.length) throw unsupported();
     return runs;
