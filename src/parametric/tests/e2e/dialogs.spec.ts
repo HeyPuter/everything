@@ -121,3 +121,23 @@ test('a custom material sharing a preset name keeps its own density when reopene
   expect(errors).toEqual([]);
 });
 
+test('Enter operates a dialog select without applying the dialog', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await page.evaluate(() => (window as unknown as Handle).__parametric.commands.run('properties'));
+  const dialog = page.getByRole('dialog', { name: 'Part Properties', exact: true });
+  await dialog.getByLabel('Part name', { exact: true }).fill('Pending edits');
+  const units = dialog.getByLabel('Unit system', { exact: true });
+  await units.focus();
+  await page.keyboard.press('Enter');
+  await expect(dialog).toBeVisible();
+  expect(await page.evaluate(() => (window as unknown as Handle).__parametric.store.doc.name)).toBe('Part1');
+  await units.selectOption('CGS');
+  await units.press('Enter');
+  await expect(dialog).toBeVisible();
+  await expect(units).toHaveValue('CGS');
+  await dialog.getByRole('button', { name: 'OK', exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(page).toHaveTitle('* Pending edits - Parametric');
+  expect(errors).toEqual([]);
+});

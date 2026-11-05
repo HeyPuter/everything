@@ -73,7 +73,7 @@ export function showDialog(o: DialogOptions): Promise<string | null> {
         if (e.shiftKey && i <= 0) { e.preventDefault(); f[f.length - 1].focus(); }
         else if (!e.shiftKey && (i < 0 || i === f.length - 1)) { e.preventDefault(); f[0].focus(); }
       }
-      if (e.key === 'Enter' && !(e.target instanceof HTMLTextAreaElement) && !(e.target instanceof HTMLButtonElement)) {
+      if (e.key === 'Enter' && !(e.target instanceof HTMLSelectElement) && !(e.target instanceof HTMLTextAreaElement) && !(e.target instanceof HTMLButtonElement)) {
         const primary = foot.querySelector<HTMLButtonElement>('.btn.primary');
         if (primary && !primary.disabled) { e.preventDefault(); primary.click(); }
       }
