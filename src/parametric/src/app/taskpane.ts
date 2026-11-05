@@ -40,11 +40,14 @@ export class TaskPane {
   }
 
   close() {
+    // Focus inside the pane would be lost with it: it goes to the pane's tab.
+    const tab = this.app.shell.tpPanel.contains(document.activeElement) ? this.app.shell.tpStrip.querySelector<HTMLElement>(`[data-pane="${this.current}"]`) : null;
     this.current = null;
     this.app.shell.tpPanel.hidden = true;
     this.app.shell.tpPanel.classList.remove('wide');
     this.sync();
     this.app.viewport.resize();
+    tab?.focus();
   }
 
   open(id: PaneId, focus = true) {
@@ -118,7 +121,9 @@ export class TaskPane {
       b.addEventListener('click', () => {
         app.store.change('Appearance', (doc) => { doc.color = c; });
         app.applyModelColor();
-        this.open('appearance');
+        // Updated in place, so keyboard focus stays on the swatch.
+        for (const x of grid.children) x.setAttribute('aria-pressed', String(x === b));
+        custom.value = c;
       });
       grid.append(b);
     }
