@@ -277,7 +277,7 @@ function applyRoundTrip(db, decoder) {
     if (o.xdic && TABLE_TYPES.has(o.type)) {
       const dict = objs.get(o.xdic);
       const i = dict && dict.type === 'DICTIONARY' ? (dict.names || []).indexOf('ACAD_XREC_ROUNDTRIP') : -1;
-      const xr = i >= 0 ? objs.get(dict.items[i]) : null;
+      const xr = i >= 0 && dict.items ? objs.get(dict.items[i]) : null;
       if (xr && xr.type === 'XRECORD' && xr.data) {
         const g = xrecordGroups(xr.data, db.ver, decoder);
         for (let k = 0; k < g.length; k++) {

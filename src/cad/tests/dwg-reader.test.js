@@ -182,6 +182,14 @@ describe('DWG reader: other files', () => {
     }
   });
 
+  it('reads drawings with a damaged dictionary that has names but no entries', () => {
+    const b = fx('sample-r2000.dwg').slice();
+    b[16867] = 0;
+    const res = parseDwg(b);
+    expect(res.drawing.layers.length).toBeGreaterThan(1);
+    expect(res.drawing.entities.length).toBeGreaterThan(0);
+  });
+
   it('reads the R2004+ section layout', () => {
     const c = readContainer(fx('sample-r2018.dwg'));
     expect(c.version).toBe('AC1032');
