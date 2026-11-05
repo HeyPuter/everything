@@ -1349,3 +1349,59 @@ test('Undo during a dimension-label drag ignores late pointer events', async ({ 
   expect(await at()).toEqual(moved);
   expect(errors).toEqual([]);
 });
+
+for (const ending of ['pointercancel', 'lostpointercapture'] as const) for (const moved of [false, true]) test(`dimension-label ${ending} ends its gesture without selecting or leaking history (moved ${moved})`, async ({ page }) => {
+  const errors = await openApp(page);
+  await startSketch(page);
+  await page.getByRole('button', { name: 'Close task pane', exact: true }).click();
+  await page.evaluate(() => {
+    const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+    a.sketchEditor!.edit('Add dimensioned circle', (sk) => {
+      sk.entities.push({ id: 'p', t: 'point', x: 0, y: 0 }, { id: 'c', t: 'circle', c: 'p', r: 10 });
+      sk.constraints.push({ id: 'd', type: 'diameter', refs: ['c'], value: 20, at: [20, 20], name: 'D1' });
+    });
+  });
+  const state = () => page.evaluate(() => {
+    const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+    return { at: (a.sketchEditor!.sketch.constraints[0] as import('../../src/model/types').SkDimension).at, depth: a.store.undoDepth, name: a.store.doc.name, selected: a.selection.items };
+  });
+  const before = await state();
+  const label = page.locator('.dim-label');
+  await label.evaluate((el) => el.addEventListener('gotpointercapture', () => el.setAttribute('data-captured', 'true'), { once: true }));
+  const box = (await label.boundingBox())!;
+  const x = box.x + box.width / 2, y = box.y + box.height / 2;
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  await page.mouse.move(x, y); // Establish capture without starting a drag.
+  await expect(label).toHaveAttribute('data-captured', 'true');
+  if (moved) await page.mouse.move(x + 30, y + 20, { steps: 3 });
+  const interrupted = await state();
+  if (moved) expect(interrupted.at).not.toEqual(before.at);
+  await label.evaluate((el, ending) => {
+    if (ending === 'lostpointercapture') el.releasePointerCapture(1);
+    else el.dispatchEvent(new PointerEvent('pointercancel', { pointerId: 1, pointerType: 'mouse', bubbles: true }));
+  }, ending);
+  if (moved) await page.mouse.move(x + 60, y + 40);
+  await page.mouse.up();
+  expect(await state()).toMatchObject({ at: interrupted.at, depth: before.depth + Number(moved), selected: [] });
+  await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.store.change('Rename after interruption', (doc) => { doc.name = 'After drag'; }));
+  expect((await state()).depth).toBe(before.depth + Number(moved) + 1);
+  await page.keyboard.press('ControlOrMeta+z');
+  expect(await state()).toMatchObject({ name: before.name, at: interrupted.at });
+  if (moved) {
+    await page.keyboard.press('ControlOrMeta+z');
+    expect((await state()).at).toEqual(before.at);
+    await page.keyboard.press('ControlOrMeta+Shift+z');
+    expect((await state()).at).toEqual(interrupted.at);
+  }
+  // A new normal drag still gets its own undo step.
+  const retry = (await label.boundingBox())!;
+  await page.mouse.move(retry.x + retry.width / 2, retry.y + retry.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(retry.x + retry.width / 2 + 20, retry.y + retry.height / 2 + 10, { steps: 3 });
+  await page.mouse.up();
+  expect((await state()).at).not.toEqual(interrupted.at);
+  await page.keyboard.press('ControlOrMeta+z');
+  expect((await state()).at).toEqual(interrupted.at);
+  expect(errors).toEqual([]);
+});

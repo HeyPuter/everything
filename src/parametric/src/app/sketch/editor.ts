@@ -897,13 +897,17 @@ export class SketchEditor implements ViewportTool {
       }, 'sketch');
       this.queueRender();
     });
-    el.addEventListener('pointerup', (e) => {
+    const end = (e: PointerEvent, cancelled = false) => {
       if (!start) return;
       start = null;
       if (moved) { this.app.store.endBatch(); return; }
+      if (cancelled) return;
       if (e.shiftKey || e.ctrlKey || e.metaKey) this.app.selection.toggle({ kind: 'skdim', id });
       else this.app.selection.set([{ kind: 'skdim', id }]);
-    });
+    };
+    el.addEventListener('pointerup', (e) => end(e));
+    el.addEventListener('pointercancel', (e) => end(e, true));
+    el.addEventListener('lostpointercapture', (e) => end(e, true));
     el.addEventListener('dblclick', (e) => { e.stopPropagation(); this.openModify(id); });
     el.addEventListener('contextmenu', (e) => {
       e.preventDefault();
