@@ -130,7 +130,7 @@ const TOOLS: ToolDef[] = [
   {
     name: 'get_sketch',
     description: 'Everything in one sketch: its plane and how sketch coordinates map to world space, every entity with ids and coordinates, relations and dimensions, definition status (degrees of freedom, conflicts) and the closed profiles it forms.',
-    parameters: obj({ sketch: S('Sketch id or name') }, ['sketch']),
+    parameters: obj({ sketch: S('Sketch id or name'), from: N('Long sketches: start the entity and relation lists at this index (the answer says where the rest starts)') }, ['sketch']),
     run: async (a, k) => k.getSketch(a),
   },
   {
@@ -490,12 +490,20 @@ class Toolkit {
       solve = solveSketch(copy.entities, copy.constraints, { value: (d) => this.store.dimensionValue(d, vars) });
     } catch { /* report without status */ }
     const ix = new SketchIndex(copy.entities);
-    const ents = copy.entities.map((e) => `- ${entityLine(copy, e, this.u, ix)}`);
-    const cons = copy.constraints.map((c) => `- ${constraintLine(copy, c, this.u, this.store)}`);
+    // A curve's line gives its points' ids and coordinates: listing them again doubled a long sketch.
+    const onCurves = new Set(copy.entities.flatMap((e) => (e.t === 'line' ? [e.a, e.b] : e.t === 'arc' ? [e.c, e.a, e.b] : e.t === 'circle' ? [e.c] : e.t === 'spline' ? e.pts : [])));
+    const shown = copy.entities.filter((e) => e.t !== 'point' || e.construction || !onCurves.has(e.id));
+    // At most 120 of each per answer, like create_sketch; from pages through the rest.
+    const from = Math.max(0, Math.round(Number(a.from) || 0));
+    const page = <T>(items: T[], line: (x: T) => string) => {
+      const out = items.slice(from, from + 120).map((x) => `- ${line(x)}`);
+      if (items.length > from + 120) out.push(`- … ${items.length - from - 120} more (get_sketch with from: ${from + 120})`);
+      return out.length ? out : [items.length ? `- none from ${from} on` : '- none'];
+    };
     return [
       this.ins.sketchFrameText(sk),
-      `Entities (${ents.length}); "O" is the sketch origin:`, ...(ents.length ? ents : ['- none']),
-      `Relations and dimensions (${cons.length}):`, ...(cons.length ? cons : ['- none']),
+      `Entities (${copy.entities.length}; points on curves are given with the curves); "O" is the sketch origin:`, ...page(shown, (e) => entityLine(copy, e, this.u, ix)),
+      `Relations and dimensions (${copy.constraints.length}):`, ...page(copy.constraints, (c) => constraintLine(copy, c, this.u, this.store)),
       sketchReport(copy, solve, this.u, this.store),
     ].join('\n');
   }

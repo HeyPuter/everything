@@ -454,4 +454,19 @@ describe('assistant tools', () => {
     await h.call('edit_feature', { feature: 'f2', name: 'Base plate' });
     expect(h.store.feature('f2')!.name).toBe('Base plate');
   });
+
+  it('describes a long sketch in parts, every point still given with its id and coordinates', async () => {
+    const h = new TestHost();
+    const pts = Array.from({ length: 400 }, (_, i) => [Math.round(Math.cos((i / 400) * 2 * Math.PI) * 1000) / 10, Math.round(Math.sin((i / 400) * 2 * Math.PI) * 1000) / 10]);
+    await h.call('create_sketch', { plane: 'front', shapes: [{ type: 'polyline', id: 'p', points: pts, closed: true }, { type: 'point', id: 'pin', at: [0, 0] }] });
+    // All 801 entities came back at once (52,000 characters), every polyline point twice.
+    const first = await h.call('get_sketch', { sketch: 's1' });
+    expect(first.content.length).toBeLessThan(15000);
+    expect(first.content).toMatch(/- … 281 more \(get_sketch with from: 120\)/);
+    let all = '';
+    for (let from = 0; from < 401; from += 120) all += (await h.call('get_sketch', { sketch: 's1', from })).content;
+    expect(all).toMatch(/^- pin point \(0, 0\)$/m);
+    const listed = new Set([...all.matchAll(/\b(p_p\d+)\(-?[\d.]+, -?[\d.]+\)/g)].map((m) => m[1]));
+    expect(listed.size).toBe(400);
+  });
 });
