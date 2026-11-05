@@ -1118,7 +1118,10 @@ window.addEventListener('beforeunload', (e) => {
 });
 window.addEventListener('keydown', (e) => {
   if (document.querySelector('dialog[open]')) return;
-  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'o') {
+  // Also by the key's place, for layouts whose letters are not Latin (Ctrl+O arrives as "щ").
+  const o =
+    e.key.toLowerCase() === 'o' || (e.code === 'KeyO' && !e.altKey && !/[\x00-\x7f]/.test(e.key));
+  if ((e.ctrlKey || e.metaKey) && o) {
     e.preventDefault();
     // On the Puter desktop the files are in the cloud, so Open browses it, as other desktop
     // apps do; the device picker stays in the File menu.

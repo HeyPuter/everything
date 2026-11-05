@@ -90,6 +90,39 @@ test('the find box offers tools whose words start with what was typed', async ({
   await expect(page.getByRole('option', { name: /Open tool: .*standards/i })).toBeVisible();
 });
 
+test('shortcuts work on a keyboard layout without Latin letters', async ({ page }) => {
+  await openPdf(page, await numberedPdf(2));
+  const cdp = await page.context().newCDPSession(page);
+  // What a Russian layout sends for Ctrl and the keys marked F and Z: its own letters.
+  const press = async (key, code, keyCode, modifiers = 2) => {
+    for (const type of ['rawKeyDown', 'keyUp'])
+      await cdp.send('Input.dispatchKeyEvent', {
+        type,
+        key,
+        code,
+        modifiers,
+        windowsVirtualKeyCode: keyCode,
+      });
+  };
+  await page.locator('.workspace').focus();
+  await press('а', 'KeyF', 70);
+  await expect(page.getByRole('combobox', { name: 'Find in PDF' })).toBeFocused();
+  await page.keyboard.press('Escape');
+  await page.locator('.menubar').getByRole('menuitem', { name: 'Page', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Rotate clockwise', exact: true }).click();
+  const undo = page.getByRole('button', { name: 'Undo', exact: true });
+  await expect(undo).toBeEnabled();
+  await page.locator('.workspace').focus();
+  await press('я', 'KeyZ', 90);
+  await expect(undo).toBeDisabled();
+  // Ctrl+Shift+Z redoes.
+  await press('Я', 'KeyZ', 90, 2 | 8);
+  await expect(undo).toBeEnabled();
+  const chooser = page.waitForEvent('filechooser');
+  await press('щ', 'KeyO', 79);
+  await chooser;
+});
+
 test('the arrow keys reach the tools the find box offers, as in a combobox', async ({ page }) => {
   await openPdf(page, await numberedPdf(1));
   await page.getByRole('button', { name: 'Find text or tools', exact: true }).click();

@@ -12766,6 +12766,19 @@ export function createEditor({
       delete node.dataset.searchHits;
     }
   }
+  /**
+   * The letter of a Ctrl or Command shortcut. On a Cyrillic, Greek, Hebrew, or Arabic layout the
+   * key reports its own letter (Ctrl+Z arrives as "я"), so no shortcut worked; the key's place on
+   * the keyboard names it instead, as the browser's own shortcuts do. AltGr typing is left alone.
+   */
+  const shortcutKey = (e) =>
+    (e.ctrlKey || e.metaKey) &&
+    !e.altKey &&
+    /^Key[A-Z]$/.test(e.code) &&
+    e.key.length === 1 &&
+    !/[\x00-\x7f]/.test(e.key)
+      ? e.code.slice(3).toLowerCase()
+      : e.key.toLowerCase();
   function onKey(e) {
     // Native dialogs own the keyboard while open, including Escape.
     if (e.isComposing || document.querySelector('dialog[open]')) return;
@@ -12773,7 +12786,7 @@ export function createEditor({
       e.preventDefault();
       return;
     }
-    const formatKey = { b: 'bold', i: 'italic', u: 'underline' }[e.key.toLowerCase()];
+    const formatKey = { b: 'bold', i: 'italic', u: 'underline' }[shortcutKey(e)];
     if (
       textEdit &&
       !busy &&
@@ -12838,7 +12851,7 @@ export function createEditor({
       return;
     }
     const modifier = e.ctrlKey || e.metaKey;
-    const key = e.key.toLowerCase();
+    const key = shortcutKey(e);
     // A widget that answers a key itself cancels it: the comparison's list of changes takes
     // Home and End, its view F3. The page behind must not turn, or its Find bar open, as well.
     const claimed = e.defaultPrevented;
