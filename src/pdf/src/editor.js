@@ -3475,6 +3475,9 @@ export function createEditor({
     const controls = [
       ...dialog.querySelectorAll('input, select, textarea, .dialog-actions .primary'),
     ].map((control) => ({ control, disabled: control.disabled }));
+    // Disabling the focused control drops the focus; a dialog left open (the edit failed, a
+    // header too wide, say) gives it back so the keyboard is still where it was.
+    const focused = dialog.contains(document.activeElement) ? document.activeElement : null;
     controls.forEach(({ control }) => {
       control.disabled = true;
     });
@@ -3501,6 +3504,13 @@ export function createEditor({
       controls.forEach(({ control, disabled }) => {
         control.disabled = disabled;
       });
+      if (
+        dialog.open &&
+        focused?.isConnected &&
+        !focused.disabled &&
+        !dialog.contains(document.activeElement)
+      )
+        focused.focus();
     }
     return committed;
   }
