@@ -169,6 +169,7 @@ export class App {
       toast: (msg) => toast(msg),
       selectionChanged: () => this.selectionChanged(),
       viewChanged: () => this.viewChanged(),
+      viewInsets: () => this.viewInsets(),
       commandChanged: (def) => this.commandChanged(def),
       editEntity: (id) => this.editEntity(id),
       chooseBlock: () => this.blocks.choose(),
@@ -1035,6 +1036,18 @@ export class App {
 
   layoutChanged() {
     /* the ResizeObserver handles size changes */
+  }
+
+  /** Canvas edges covered by the floating command line and navigation bar, in px. */
+  viewInsets() {
+    const wrap = this.shell.canvasWrap.getBoundingClientRect();
+    const ins = { top: 0, right: 0, bottom: 0, left: 0 };
+    if (!wrap.width) return ins;
+    const line = this.cmdline.line.getBoundingClientRect();
+    if (line.height) ins.bottom = Math.max(0, wrap.bottom - line.top);
+    const nav = this.shell.nav.getBoundingClientRect();
+    if (nav.width) ins.right = Math.max(0, wrap.right - nav.left);
+    return ins;
   }
 
   focusCanvas() {

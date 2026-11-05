@@ -1188,9 +1188,21 @@ export class Editor {
       this.camera.fit(-10, -10, 290, 200);
     } else {
       const pad = Math.max(b[2] - b[0], b[3] - b[1]) * 0.02;
-      this.camera.fit(b[0] - pad, b[1] - pad, b[2] + pad, b[3] + pad, 24);
+      this.fitView(b[0] - pad, b[1] - pad, b[2] + pad, b[3] + pad, 24);
     }
     this.viewChanged();
+  }
+
+  /** Fit a box into the view, clear of the floating command line and navigation bar (ui.viewInsets). */
+  fitView(x0, y0, x1, y1, margin) {
+    const c = this.camera;
+    c.fit(x0, y0, x1, y1, margin);
+    const ins = this.ui.viewInsets?.();
+    if (!ins) return;
+    const s = Math.min((c.width - ins.left - ins.right - 2 * margin) / Math.max(x1 - x0, 1e-9), (c.height - ins.top - ins.bottom - 2 * margin) / Math.max(y1 - y0, 1e-9));
+    if (s > 0 && s < c.scale) c.zoomAt(c.width / 2, c.height / 2, s / c.scale);
+    c.cx = (x0 + x1) / 2 - (ins.left - ins.right) / (2 * c.scale);
+    c.cy = (y0 + y1) / 2 + (ins.top - ins.bottom) / (2 * c.scale);
   }
 
   zoomBy(factor) {
