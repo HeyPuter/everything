@@ -924,6 +924,42 @@ describe('find text & redact', () => {
       expectGone(corpus, secret);
   });
 
+  it('finds numbers set with non-breaking hyphens, en dashes, and minus signs', async () => {
+    // Word processors keep a number on one line with non-breaking hyphens (U+2011), and en
+    // dashes and minus signs stand in for hyphens; none of these numbers were found.
+    const doc = await PDFDocument.create();
+    doc.registerFontkit(fontkit);
+    const font = await doc.embedFont(
+      await readFile(new URL('../public/fonts/NotoSans-Regular.ttf', import.meta.url)),
+    );
+    const page = doc.addPage([500, 300]);
+    page.drawText('Call 555\u2011123\u20114567 or (555) 123\u20134567', {
+      x: 20,
+      y: 250,
+      size: 12,
+      font,
+    });
+    page.drawText('SSN 078\u221205\u22121120 card 4111\u20111111\u20111111\u20111111', {
+      x: 20,
+      y: 200,
+      size: 12,
+      font,
+    });
+    page.drawText('Born 2024\u201103\u201105 and 05\u201303\u20132024', {
+      x: 20,
+      y: 150,
+      size: 12,
+      font,
+    });
+    const reopened = await PDFDocument.load(await doc.save());
+    const found = async (pattern) =>
+      (await findTextRects(reopened, 0, REDACTION_PATTERNS[pattern])).map((m) => m.text);
+    expect(await found('phone')).toEqual(['555\u2011123\u20114567', '(555) 123\u20134567']);
+    expect(await found('ssn')).toEqual(['078\u221205\u22121120']);
+    expect(await found('creditCard')).toEqual(['4111\u20111111\u20111111\u20111111']);
+    expect(await found('date')).toEqual(['2024\u201103\u201105', '05\u201303\u20132024']);
+  });
+
   it('places exact rects on the matched glyphs from the page content itself', async () => {
     const bytes = await makePdf([
       {

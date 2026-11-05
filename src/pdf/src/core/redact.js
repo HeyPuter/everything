@@ -787,15 +787,24 @@ function luhn(digits) {
 const MONTH =
   '(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)';
 
+// Hyphens as typed and as word processors set them: non-breaking hyphens keep a number on one
+// line, and en dashes and minus signs stand in for hyphens. Each is "-" in these patterns.
+const DASH = '\\u2010-\\u2015\\u2212-';
+
 /** Patterns for "Find text & redact". Each has a global regex and an optional validator. */
 export const REDACTION_PATTERNS = {
   phone: {
     label: 'Phone numbers',
-    regex: /(?<![\w+])(?:\+\d{1,3}[\s.-]?)?(?:\(\d{2,4}\)|\d{2,4})(?:[\s.-]?\d{2,4}){1,3}(?![\w])/g,
+    regex: new RegExp(
+      `(?<![\\w+])(?:\\+\\d{1,3}[\\s.${DASH}]?)?(?:\\(\\d{2,4}\\)|\\d{2,4})(?:[\\s.${DASH}]?\\d{2,4}){1,3}(?![\\w])`,
+      'g',
+    ),
     validate: (text) => {
       const digits = text.replace(/\D/g, '');
       // Ten digits for North American numbers; up to fifteen (E.164) with a country code.
-      return digits.length >= 10 && digits.length <= 15 && /[\s.()-]|^\+/.test(text);
+      return (
+        digits.length >= 10 && digits.length <= 15 && new RegExp(`[\\s.()${DASH}]|^\\+`).test(text)
+      );
     },
   },
   email: {
@@ -804,7 +813,7 @@ export const REDACTION_PATTERNS = {
   },
   creditCard: {
     label: 'Credit card numbers',
-    regex: /(?<![\d-])(?:\d[ -]?){12,18}\d(?![\d-])/g,
+    regex: new RegExp(`(?<![\\d${DASH}])(?:\\d[ ${DASH}]?){12,18}\\d(?![\\d${DASH}])`, 'g'),
     validate: (text) => {
       const digits = text.replace(/\D/g, '');
       return digits.length >= 13 && digits.length <= 19 && luhn(digits);
@@ -812,14 +821,17 @@ export const REDACTION_PATTERNS = {
   },
   ssn: {
     label: 'US Social Security numbers',
-    regex: /(?<![\d-])(?!000|666|9\d\d)\d{3}[- ](?!00)\d{2}[- ](?!0000)\d{4}(?![\d-])/g,
+    regex: new RegExp(
+      `(?<![\\d${DASH}])(?!000|666|9\\d\\d)\\d{3}[ ${DASH}](?!00)\\d{2}[ ${DASH}](?!0000)\\d{4}(?![\\d${DASH}])`,
+      'g',
+    ),
   },
   date: {
     label: 'Dates',
     regex: new RegExp(
       [
-        '\\b\\d{4}-\\d{1,2}-\\d{1,2}\\b',
-        '\\b\\d{1,2}[/.-]\\d{1,2}[/.-](?:\\d{4}|\\d{2})\\b',
+        `\\b\\d{4}[${DASH}]\\d{1,2}[${DASH}]\\d{1,2}\\b`,
+        `\\b\\d{1,2}[/.${DASH}]\\d{1,2}[/.${DASH}](?:\\d{4}|\\d{2})\\b`,
         `\\b${MONTH}\\.?\\s+\\d{1,2}(?:st|nd|rd|th)?,?\\s+\\d{4}\\b`,
         `\\b\\d{1,2}(?:st|nd|rd|th)?\\s+${MONTH}\\.?,?\\s+\\d{4}\\b`,
       ].join('|'),
@@ -827,9 +839,9 @@ export const REDACTION_PATTERNS = {
     ),
     validate: (text) => {
       const parts = text.match(/\d+/g)?.map(Number) || [];
-      if (/^\d{4}-/.test(text))
+      if (/^\d{4}\D/.test(text))
         return parts[1] >= 1 && parts[1] <= 12 && parts[2] >= 1 && parts[2] <= 31;
-      if (/^\d{1,2}[/.-]\d/.test(text))
+      if (/^\d{1,2}\D\d/.test(text))
         return (
           parts[0] >= 1 &&
           parts[1] >= 1 &&
