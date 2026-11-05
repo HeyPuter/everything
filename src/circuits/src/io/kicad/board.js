@@ -24,9 +24,20 @@ function reverse(pts) {
   return out;
 }
 
+/**
+ * Arc through three points in nm, or null when the points are (nearly) on
+ * one line: the middle point within 1 um of the chord. Such arcs are drawn
+ * as straight lines; as arcs their centre can lie kilometres away.
+ */
+function boardArc(p1, p2, p3) {
+  const dx = p3[0] - p1[0], dy = p3[1] - p1[1], len = Math.hypot(dx, dy);
+  if (len > 0 && Math.abs(dx * (p2[1] - p1[1]) - dy * (p2[0] - p1[0])) / len < 1000) return null;
+  return arcFrom3(p1, p2, p3);
+}
+
 /** Splits an arc given by three points (already in y-up nm) into a point list from p1 to p3. */
 function arcPolyline(p1, p2, p3) {
-  const a = arcFrom3(p1, p2, p3);
+  const a = boardArc(p1, p2, p3);
   if (!a) return [p1, p3];
   const pts = arcToPoints(a.cx, a.cy, a.r, a.a0, a.sweep, 2000);
   const list = [];
@@ -194,8 +205,10 @@ export function importBoard(file, warnings) {
           case 'fp_arc': {
             const ap = arcPoints(item);
             if (ap) {
-              const a = arcFrom3(...ap.map(([x, y]) => toDef(x, y)));
+              const [p1, p2, p3] = ap.map(([x, y]) => toDef(x, y));
+              const a = boardArc(p1, p2, p3);
               if (a) graphics.push({ t: 'arc', cx: Math.round(a.cx), cy: Math.round(a.cy), r: Math.round(a.r), a0: a.a0, sweep: a.sweep, w, layer });
+              else graphics.push({ t: 'line', x1: p1[0], y1: p1[1], x2: p3[0], y2: p3[1], w, layer });
             } else warnings.add('Footprint arcs in an unknown format were skipped.');
             break;
           }
@@ -271,9 +284,11 @@ export function importBoard(file, warnings) {
         const layer = mapLayer(val(item, 'layer'));
         const s = find(item, 'start'), m = find(item, 'mid'), e = find(item, 'end');
         if (!layer || !s || !m || !e) break;
-        const a = arcFrom3(P(s[1], s[2]), P(m[1], m[2]), P(e[1], e[2]));
-        if (!a) break;
-        objects.push({ id: uid(), t: 'arc', layer, cx: Math.round(a.cx), cy: Math.round(a.cy), r: Math.round(a.r), a0: a.a0, sweep: a.sweep, w: nm(val(item, 'width', 1, 0.25)), ...(netOf(item) ? { net: netOf(item) } : {}) });
+        const [p1, p2, p3] = [P(s[1], s[2]), P(m[1], m[2]), P(e[1], e[2])];
+        const a = boardArc(p1, p2, p3);
+        const w = nm(val(item, 'width', 1, 0.25)), net = netOf(item) ? { net: netOf(item) } : {};
+        if (a) objects.push({ id: uid(), t: 'arc', layer, cx: Math.round(a.cx), cy: Math.round(a.cy), r: Math.round(a.r), a0: a.a0, sweep: a.sweep, w, ...net });
+        else objects.push({ id: uid(), t: 'track', layer, x1: p1[0], y1: p1[1], x2: p3[0], y2: p3[1], w, ...net });
         break;
       }
       case 'via': {
@@ -412,8 +427,9 @@ function graphicObjects(item, layer, P) {
     case 'gr_arc': {
       const ap = arcPoints(item);
       if (!ap) return [];
-      const a = arcFrom3(...ap.map(([x, y]) => P(x, y)));
-      return a ? [{ id: uid(), t: 'arc', layer, cx: Math.round(a.cx), cy: Math.round(a.cy), r: Math.round(a.r), a0: a.a0, sweep: a.sweep, w }] : [];
+      const [p1, p2, p3] = ap.map(([x, y]) => P(x, y));
+      const a = boardArc(p1, p2, p3);
+      return a ? [{ id: uid(), t: 'arc', layer, cx: Math.round(a.cx), cy: Math.round(a.cy), r: Math.round(a.r), a0: a.a0, sweep: a.sweep, w }] : [track(p1, p3)];
     }
     case 'gr_circle': {
       const c = find(item, 'center'), e = find(item, 'end');

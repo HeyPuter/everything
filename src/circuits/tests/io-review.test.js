@@ -352,3 +352,30 @@ describe('KiCad text alignment', () => {
     expect(symText.align).toEqual({ h: 'left', v: 'middle' });
   });
 });
+
+describe('KiCad straight arcs', () => {
+  it('imports arcs whose three points lie on a line as straight tracks', async () => {
+    const text = `(kicad_pcb (version 20221018) (generator pcbnew)
+      (layers (0 "F.Cu" signal) (31 "B.Cu" signal) (37 "F.SilkS" user))
+      (net 0 "") (net 1 "A")
+      (arc (start 5 5) (mid 10 5) (end 15 5) (width 0.25) (layer "F.Cu") (net 1))
+      (arc (start 5 10) (mid 10 10.000002) (end 15 10) (width 0.25) (layer "F.Cu") (net 1))
+      (gr_arc (start 5 20) (mid 10 20) (end 15 20) (stroke (width 0.15)) (layer "F.SilkS"))
+      (footprint "X:Y" (layer "F.Cu") (at 30 30)
+        (fp_arc (start -1 0) (mid 0 0) (end 1 0) (stroke (width 0.1)) (layer "F.SilkS"))
+        (pad "1" smd rect (at 0 2) (size 1 1) (layers "F.Cu"))))`;
+    const { project } = await importKicad([{ name: 'a.kicad_pcb', text }]);
+    const objs = project.documents[0].objects;
+    const tracks = objs.filter((o) => o.t === 'track');
+    expect(tracks.map((t) => [t.layer, t.x1, t.y1, t.x2, t.y2, t.net])).toEqual([
+      ['top', mm(5), -mm(5), mm(15), -mm(5), 'A'],
+      ['top', mm(5), -mm(10), mm(15), -mm(10), 'A'],
+      ['topOverlay', mm(5), -mm(20), mm(15), -mm(20), undefined],
+    ]);
+    expect(objs.some((o) => o.t === 'arc')).toBe(false);
+    const g = Object.values(project.library)[0].footprint.graphics;
+    expect(g).toEqual([
+      expect.objectContaining({ t: 'line', x1: -mm(1), x2: mm(1), layer: 'topOverlay' }),
+    ]);
+  });
+});
