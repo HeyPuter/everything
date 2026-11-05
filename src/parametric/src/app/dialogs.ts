@@ -5,7 +5,7 @@
 import type { Vec3 } from '../math/vec';
 import type { MassProperties } from '../kernel/protocol';
 import { dist, dot, normalize, sub } from '../math/vec';
-import { evaluateVariables, referencedNames, renameReferences, reservedName } from '../model/expr';
+import { evaluateVariables, referencedNames, renameReferences, reservedName, variableReferenceChanges } from '../model/expr';
 import { changeUnits, mapExpressions } from '../model/document';
 import type { MaterialRef, SkDimension, UnitSystem, Variable } from '../model/types';
 import { UNIT_SYSTEMS, formatNumber } from '../model/units';
@@ -547,8 +547,8 @@ export class MeasurePanel extends PropertyPanel {
   }
 }
 
-/** Tools store physical numeric lengths, so unit changes only replace their field context. */
-abstract class UnitAwareToolPanel extends PropertyPanel {
+/** Tools store physical numeric lengths, so context changes only replace their fields. */
+abstract class NumericToolPanel extends PropertyPanel {
   private units: UnitSystem;
   private variables: Variable[];
 
@@ -561,10 +561,10 @@ abstract class UnitAwareToolPanel extends PropertyPanel {
   syncExpressions(): string[] | null {
     const units = this.app.store.doc.units, variables = this.variables;
     this.variables = structuredClone(this.app.store.doc.variables);
-    if (units === this.units) return null;
+    if (units === this.units && !variableReferenceChanges(variables, this.variables).size) return null;
     const previous = this.units;
     this.units = units;
-    // Settle pending input in its old units before the app remounts the panel.
+    // Settle pending input with its old units and names before the app remounts the panel.
     // Pass the evaluated number so callbacks cannot reinterpret an expression in the new units.
     const values = evaluateVariables(variables).values;
     settleNumberFields(this.el, { units: previous, decimals: this.app.store.doc.decimals, variables: () => values }, (_value, num) => num);
@@ -574,7 +574,7 @@ abstract class UnitAwareToolPanel extends PropertyPanel {
 
 // ---------- section view ----------
 
-export class SectionPanel extends UnitAwareToolPanel {
+export class SectionPanel extends NumericToolPanel {
   title = 'Section View';
   icon = 'sectionView';
   private normal: Vec3 = [0, 0, 1];
@@ -652,7 +652,7 @@ export class SectionPanel extends UnitAwareToolPanel {
 
 // ---------- sketch tools with panels ----------
 
-export class OffsetPanel extends UnitAwareToolPanel {
+export class OffsetPanel extends NumericToolPanel {
   title = 'Offset Entities';
   icon = 'offset';
   private distance: number;
