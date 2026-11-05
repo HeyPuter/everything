@@ -374,13 +374,18 @@ async function trimOrExtend(ed, extendFirst) {
     const ent = pick.ent;
     const doExtend = extendFirst !== !!ed.shiftDown;
     if (doExtend) {
-      const v = ed.camera.bounds();
-      const prims = cuttingPrims(ed, v, new Set([pick.id]), edges);
-      let r = null;
-      try {
-        r = extendEntity(ent, prims, pick.x, pick.y);
-      } catch {
-        r = null;
+      const extendTo = (rect) => {
+        try {
+          return extendEntity(ent, cuttingPrims(ed, rect, new Set([pick.id]), edges), pick.x, pick.y);
+        } catch {
+          return null;
+        }
+      };
+      let r = extendTo(ed.camera.bounds());
+      // Nothing in view: the boundary may lie off-screen, so try every object.
+      if (!r && !edges) {
+        const all = ed.doc.index.extents();
+        if (all) r = extendTo(all);
       }
       if (!r) ed.ui.log('No boundary in that direction.', 'error');
       else {

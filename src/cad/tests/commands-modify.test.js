@@ -351,3 +351,24 @@ describe('EXPLODE hatches', () => {
     expect(t.all()).toEqual([expect.objectContaining({ type: 'polyline', closed: true })]);
   });
 });
+
+describe('EXTEND', () => {
+  it('reaches a boundary outside the view, like TRIM finds off-screen edges', async () => {
+    add({ type: 'line', x1: 0, y1: 0, x2: 10, y2: 0 });
+    add({ type: 'line', x1: 1000, y1: -5, x2: 1000, y2: 5 });
+    await t.type('EXTEND');
+    await t.pick(8, 0);
+    await t.type('');
+    expect(t.drawing.get(1).x2).toBeCloseTo(1000);
+  });
+
+  it('prefers the nearest boundary when one is in view', async () => {
+    add({ type: 'line', x1: 0, y1: 0, x2: 10, y2: 0 });
+    add({ type: 'line', x1: 50, y1: -5, x2: 50, y2: 5 });
+    add({ type: 'line', x1: 1000, y1: -5, x2: 1000, y2: 5 });
+    await t.type('EXTEND');
+    await t.pick(8, 0);
+    await t.type('');
+    expect(t.drawing.get(1).x2).toBeCloseTo(50);
+  });
+});
