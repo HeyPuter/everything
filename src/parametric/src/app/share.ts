@@ -114,7 +114,7 @@ export async function shareDialog(app: App, files: FileOps) {
       status.textContent = code === 'user_does_not_exist' ? `There is no Puter user called ${v}.` : code === 'cannot_share_with_self' ? 'You already own this part.' : `Could not share: ${storageError(e)}`;
     }
   };
-  who.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); void add(); } });
+  who.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.isComposing && e.keyCode !== 229) { e.preventDefault(); e.stopPropagation(); void add(); } });
   const addBtn = h('button', { class: 'btn primary', type: 'button' }, icon('share', 14), 'Share');
   addBtn.addEventListener('click', () => void add());
   void render();
