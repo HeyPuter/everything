@@ -204,3 +204,18 @@ describe('elliptical arcs', () => {
     expect(e.end).toBeCloseTo(Math.PI);
   });
 });
+
+describe('revision clouds', () => {
+  it('keeps the number of arcs bounded for a tiny arc length', async () => {
+    await t.type('REVCLOUD', '0.001', '0,0', '1000,1000');
+    const [p] = t.all('polyline');
+    expect(p.pts.length / 3).toBeLessThanOrEqual(2004);
+    expect(t.logs.some(([k, s]) => k === 'muted' && /Arc length increased/.test(s))).toBe(true);
+  });
+
+  it('uses the given arc length when it is reasonable', async () => {
+    await t.type('REVCLOUD', '5', '0,0', '100,50');
+    const [p] = t.all('polyline');
+    expect(p.pts.length / 3).toBe(60);
+  });
+});

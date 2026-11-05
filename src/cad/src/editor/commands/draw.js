@@ -657,6 +657,8 @@ export const DONUT = {
   },
 };
 
+const MAX_CLOUD_ARCS = 2000;
+
 export const REVCLOUD = {
   name: 'REVCLOUD',
   label: 'Revision cloud',
@@ -667,17 +669,24 @@ export const REVCLOUD = {
     ed.cloudArc = arcLen;
     const a = await ed.getPoint('First corner');
     if (!a || a.option) return;
+    // Longer arcs when the cloud would need too many (a slip such as 0.01
+    // for 10 freezes the preview and bloats the drawing).
+    const stepFor = (b) => {
+      const perimeter = 2 * (Math.abs(b.x - a.x) + Math.abs(b.y - a.y));
+      return Math.max(arcLen, perimeter / MAX_CLOUD_ARCS);
+    };
     const mk = (b) => {
       const corners = [a, { x: b.x, y: a.y }, b, { x: a.x, y: b.y }];
       // Clockwise in screen space keeps the scallops outward.
       const area = (b.x - a.x) * (b.y - a.y);
       const order = area > 0 ? corners : corners.slice().reverse();
+      const step = stepFor(b);
       const pts = [];
       for (let i = 0; i < 4; i++) {
         const p = order[i],
           q = order[(i + 1) % 4];
         const len = dist(p, q);
-        const n = Math.max(1, Math.round(len / arcLen));
+        const n = Math.max(1, Math.round(len / step));
         // Counter-clockwise travel with positive bulges puts the scallops outside.
         for (let k = 0; k < n; k++) pts.push(p.x + ((q.x - p.x) * k) / n, p.y + ((q.y - p.y) * k) / n, 0.7);
       }
@@ -685,6 +694,10 @@ export const REVCLOUD = {
     };
     const b = await ed.getPoint('Opposite corner', { base: a, rubber: false, preview: (p) => (Math.abs(p.x - a.x) > 1e-9 && Math.abs(p.y - a.y) > 1e-9 ? [mk(p)] : []) });
     if (!b || b.option) return;
+    const step = stepFor(b);
+    if (step > arcLen) {
+      ed.ui.log(`Arc length increased to ${formatLinear(step, ed.header)} for this size.`, 'muted');
+    }
     ed.commit('Revision cloud', () => ed.drawing.add(mk(b)));
   },
 };
