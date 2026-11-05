@@ -191,6 +191,9 @@ export class ModelBuilder {
     }
     for (let i = upTo; i < req.features.length; i++) status.push({ id: req.features[i].id, ok: true });
     this.current = state;
+    // Imported shapes of parts no longer open (their file data is gone from
+    // the request) would otherwise be kept for the life of the worker.
+    for (const blob of [...this.importCache.keys()]) if (!(blob in req.blobs)) this.importCache.delete(blob);
 
     const meshKey = chain + ':' + req.quality;
     if (meshKey !== this.meshKey || !this.meshCache) {

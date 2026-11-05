@@ -499,6 +499,11 @@ describe('feature regeneration', () => {
       const res = await imp.build(req([{ id: 'I1', name: 'I1', type: 'import', format: 'step', blob: 'b1', fileName: 'a.step' }], { blobs: { b1: step } }));
       expect(res.status[0].ok).toBe(true);
       expect(volume(imp)).toBeCloseTo(1000, 3);
+      // Opening another part lets go of the imported shape.
+      const cache = (imp as unknown as { importCache: Map<string, unknown> }).importCache;
+      expect(cache.size).toBe(1);
+      await imp.build(req([sketch('S1', rect(0, 0, 10, 10)), extrude('E1', 'S1', 10)]));
+      expect(cache.size).toBe(0);
     } finally {
       oc.STEPControl_Reader = Reader;
     }
