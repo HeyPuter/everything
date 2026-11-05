@@ -22,7 +22,7 @@ import { ADD_TOOLS } from './features';
 import type { AssistantHost } from './host';
 import { Inspector } from './inspect';
 import { SketchEdit, constraintLine, entityLine, sketchReport } from './sketch';
-import { ToolError, Units, num } from './units';
+import { ToolError, Units, num, qty } from './units';
 
 type Obj = Record<string, unknown>;
 
@@ -542,7 +542,7 @@ class Toolkit {
       const kg = mp.volume * 1e-9 * m.density;
       lines.push(`Mass ${num(kg / us.massScale, 4)} ${us.mass} (${m.name}, ${m.density} kg/m³).`);
     } else lines.push('Mass: set a material (set_part) to get the mass.');
-    lines.push(`Principal moments per unit density: ${mp.principal.moments.map((x) => num(x / u.scale ** 5, 2)).join(', ')} ${u.unit}⁵ about axes ${mp.principal.axes.map((x) => u.dir(normalize(x))).join(', ')}.`);
+    lines.push(`Principal moments per unit density: ${mp.principal.moments.map((x) => qty(x / u.scale ** 5, 2)).join(', ')} ${u.unit}⁵ about axes ${mp.principal.axes.map((x) => u.dir(normalize(x))).join(', ')}.`);
     lines.push(this.ins.bodyText());
     return lines.join('\n');
   }

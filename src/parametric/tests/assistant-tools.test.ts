@@ -207,4 +207,16 @@ describe('assistant tools', () => {
     const holes = await h.call('add_hole', { on: top, points: [['=R/2', 0]], diameter: 2 });
     expect(holes.content).toMatch(/points\[0\]\[0\]: "=R\/2" was used as its value now, 3\.5 mm/);
   });
+
+  it('reports metre coordinates to the same precision as millimetre ones', async () => {
+    const h = new TestHost();
+    await h.call('set_part', { units: 'MKS' });
+    // 12.345 mm: shown as 0.01235 m, a line drawn to the reported point missed the corner by 5 µm.
+    const r = await h.call('create_sketch', { plane: 'front', shapes: [{ type: 'rectangle', id: 'r', corner1: [0, 0], corner2: [0.012345, 0.02] }] });
+    expect(r.content).toContain('r_p1(0.012345, 0)');
+    // A 12.345 x 20 x 10 mm block: its volume in m³ was reported as 0.
+    const x = await h.call('add_extrude', { sketch: 's1', depth: 0.01 });
+    expect(x.content).toContain('Volume 0.000002469 m³');
+    expect((await h.call('mass_properties', {})).content).toMatch(/surface area 0\.00\d+ m²/);
+  });
 });
