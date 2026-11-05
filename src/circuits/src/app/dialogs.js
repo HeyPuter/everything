@@ -183,7 +183,7 @@ export async function syncDialog(app, board) {
     return false;
   }
   const checks = new Map();
-  const kindLabel = { add: 'Add component', remove: 'Remove component', update: 'Update component', nets: 'Assign pad nets', netlist: 'Net list' };
+  const kindLabel = { add: 'Add component', remove: 'Remove component', update: 'Update component', nets: 'Assign pad nets', rename: 'Rename net', netlist: 'Net list' };
   const rows = changes.map((c) => {
     const cb = h('input', { type: 'checkbox', checked: true, 'aria-label': `${c.label}: ${c.detail}` });
     checks.set(c, cb);
