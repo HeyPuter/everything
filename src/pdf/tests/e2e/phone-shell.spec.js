@@ -99,6 +99,40 @@ test('the tools pane and the side panel take turns instead of covering each othe
   await expect(panel).toBeHidden();
 });
 
+test('two fingers zoom the page, not the whole application', async ({ page }) => {
+  await openPdf(page, await pages(3));
+  const zoom = page.getByLabel('Zoom', { exact: true });
+  await expect(zoom).toHaveValue('fit');
+  const sheet = page.locator('.page-slot[data-page="0"]');
+  const before = (await sheet.boundingBox()).width;
+  const view = await page.locator('.workspace').boundingBox();
+  // Between the fingers is blank page, which the browser would otherwise have zoomed.
+  const x = view.x + view.width * 0.6,
+    y = view.y + view.height * 0.5;
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send('Input.synthesizePinchGesture', {
+    x,
+    y,
+    scaleFactor: 1.5,
+    gestureSourceType: 'touch',
+  });
+  await expect(zoom).not.toHaveValue('fit');
+  await expect(page.locator('.editor')).toHaveAttribute('aria-busy', 'false');
+  expect(await page.evaluate(() => window.visualViewport.scale)).toBe(1);
+  const zoomed = (await sheet.boundingBox()).width;
+  expect(zoomed).toBeGreaterThan(before * 1.2);
+  // The tools stay where they were, in reach.
+  await expect(page.getByRole('toolbar', { name: 'PDF tools' })).toBeInViewport();
+  await cdp.send('Input.synthesizePinchGesture', {
+    x,
+    y,
+    scaleFactor: 0.6,
+    gestureSourceType: 'touch',
+  });
+  await expect.poll(async () => (await sheet.boundingBox()).width).toBeLessThan(zoomed * 0.8);
+  expect(await page.evaluate(() => window.visualViewport.scale)).toBe(1);
+});
+
 test('selecting text keeps the page and its controls where they were', async ({ page }) => {
   await openPdf(page, await pages(1));
   const target = page.getByRole('button', { name: 'Edit text: Page 1 words', exact: true });

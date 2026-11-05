@@ -13001,6 +13001,67 @@ export function createEditor({
     },
     { passive: false },
   );
+  // On a touch screen two fingers zoom the page around the point between them, as in a PDF
+  // reader. The browser's own pinch magnified the whole application instead, pushing the tools
+  // off screen and stretching the rendered page into a blur. The page is scaled while the
+  // fingers move and drawn afresh at the new zoom once they lift.
+  let pinch = null;
+  const touchSpan = ([a, b]) => Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+  // Where a finger rests on something that takes touches itself (a drawing tool's surface, an
+  // object being moved), the browser never zoomed either, so neither does the page.
+  const takesTouch = (node) => {
+    for (let at = node; at && at !== workspace; at = at.parentElement)
+      if (getComputedStyle(at).touchAction === 'none') return true;
+    return false;
+  };
+  function endPinch(commit) {
+    if (!pinch) return;
+    const { scale, x, y } = pinch;
+    pinch = null;
+    pageStackElement.style.transform = pageStackElement.style.transformOrigin = '';
+    if (!commit || destroyed || Math.abs(scale - 1) < 0.02) return;
+    const next = Math.max(0.02, Math.round(zoom * scale * 100) / 100);
+    safe(() => setZoom(String(next), { x, y }))();
+  }
+  workspace.addEventListener(
+    'touchstart',
+    (e) => {
+      if (e.touches.length !== 2) return endPinch(false);
+      const touches = [...e.touches];
+      if (
+        !pdf ||
+        busy ||
+        touches.some((t) => !workspace.contains(t.target) || takesTouch(t.target))
+      )
+        return;
+      panning = null;
+      editorRoot.classList.remove('panning');
+      const x = (touches[0].clientX + touches[1].clientX) / 2,
+        y = (touches[0].clientY + touches[1].clientY) / 2;
+      pinch = { span: touchSpan(touches) || 1, x, y, scale: 1 };
+      const box = pageStackElement.getBoundingClientRect();
+      pageStackElement.style.transformOrigin = `${x - box.left}px ${y - box.top}px`;
+    },
+    { passive: true },
+  );
+  workspace.addEventListener(
+    'touchmove',
+    (e) => {
+      if (!pinch || e.touches.length !== 2) return;
+      if (e.cancelable) e.preventDefault();
+      // Within the zoom's range; a page fitted below its smallest step does not shrink further.
+      const least = Math.min(zoom, ZOOM_LEVELS[0]),
+        most = Math.max(zoom, ZOOM_LEVELS.at(-1));
+      const wanted = (zoom * touchSpan([...e.touches])) / pinch.span;
+      pinch.scale = Math.min(most, Math.max(least, wanted)) / zoom;
+      pageStackElement.style.transform = `scale(${pinch.scale})`;
+    },
+    { passive: false },
+  );
+  workspace.addEventListener('touchend', (e) => {
+    if (e.touches.length < 2) endPinch(true);
+  });
+  workspace.addEventListener('touchcancel', () => endPinch(false));
   let resizeTimer;
   const resizeObserver = new ResizeObserver(() => {
     // Where the page starts below the tool rows: on narrow screens the navigation panel
