@@ -43,3 +43,46 @@ for (const format of ['step', 'stl'] as const) for (const stage of ['rebuild', '
   expect((await downloaded).suggestedFilename()).toBe(`Replacement.${format}`);
   expect(errors).toEqual([]);
 });
+
+for (const format of ['step', 'stl'] as const) test(`${format} export while editing a sketch has the whole part, not the rolled-back one`, async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  const exported = () => page.evaluate(async (format) => {
+    const app = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+    const click = HTMLAnchorElement.prototype.click;
+    let url = '';
+    HTMLAnchorElement.prototype.click = function () { url = this.href; };
+    try {
+      await app.commands.get(format === 'step' ? 'exportStep' : 'exportStl')!.run();
+    } finally {
+      HTMLAnchorElement.prototype.click = click;
+    }
+    return url ? (await (await fetch(url)).arrayBuffer()).byteLength : 0;
+  }, format);
+  const whole = await exported();
+  expect(whole).toBeGreaterThan(0);
+  // Sketch2 places the holes: editing it rolls the model back to before them.
+  await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.editSketch('s2'));
+  await expect(page.locator('.loading-kernel')).toHaveCount(0);
+  expect(await exported()).toBe(whole);
+  expect(errors).toEqual([]);
+});
+
+test('export while editing a feature says to finish it instead of exporting the rolled-back part', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  await page.evaluate(() => {
+    const app = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+    app.selection.set([{ kind: 'feature', id: 'f2' }]);
+    app.commands.run('editFeature');
+  });
+  await expect(page.locator('.pm')).toBeVisible();
+  const downloads: string[] = [];
+  page.on('download', (d) => downloads.push(d.suggestedFilename()));
+  await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.commands.get('exportStl')!.run());
+  await expect(page.getByRole('region', { name: 'Notifications' })).toContainText('before exporting');
+  expect(downloads).toEqual([]);
+  expect(errors).toEqual([]);
+});

@@ -450,6 +450,14 @@ export class FileOps {
         download(serializeDocument(app.store.doc), `${name}${EXT}`, 'application/json');
         return;
       }
+      // Editing a sketch or a feature shows the model rolled back to before
+      // it, and the kernel exports what it shows. Finish the sketch as Save
+      // does; an open feature may still have values it would refuse.
+      if (app.panel?.editingId) {
+        toast({ kind: 'warning', message: `Close ${app.panel.title} before exporting: the part is rolled back to the feature being edited.` });
+        return;
+      }
+      if (app.sketchEditor) app.exitSketch(true);
       // The kernel exports the body it built last: a change made just before
       // must be built first, or the file has the old geometry.
       await app.whenBuilt();
