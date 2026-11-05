@@ -98,7 +98,7 @@ describe('splitting a PDF', () => {
     expect(parts.map((p) => p.name)).toEqual([
       'Report pages 1-2.pdf',
       'Report pages 3-4.pdf',
-      'Report pages 5.pdf',
+      'Report page 5.pdf',
     ]);
     const widths = await Promise.all(
       parts.map(async (p) =>

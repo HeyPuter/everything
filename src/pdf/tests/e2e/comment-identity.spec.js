@@ -79,6 +79,9 @@ for (const shared of [false, true])
           }
           await page.evaluate(() => window.releaseCommentIdentity());
           await expect(page.locator('.page-caption')).toHaveText(`Page ${destination + 1} of 2`);
+          // The edited note's panel stays, inert, until its edit is saved; the note chosen in
+          // the list opens after that.
+          await expect(page.locator('.note-editor[inert]')).toHaveCount(0);
           await expect(input).toHaveValue(samePage ? 'Updated' : 'Original');
           await expect(moved ? settings : input).toBeFocused();
           if (moved) expect(await page.evaluate(() => !!window.commentIdentityBlurred)).toBe(false);

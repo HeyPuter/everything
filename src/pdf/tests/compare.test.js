@@ -1,4 +1,5 @@
 import { afterAll, expect, it, vi } from 'vitest';
+import { readFile } from 'node:fs/promises';
 import { PDFDocument, StandardFonts, degrees } from 'pdf-lib';
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 import {
@@ -370,4 +371,52 @@ it('draws only the pages that their words cannot tell apart', async () => {
   });
   expect(drawn).toEqual([1]);
   expect(pages.map((page) => page.renderHash)).toEqual([null, 'hash 1']);
+});
+
+it('writes the report in the letters of the compared files, beyond Western European ones', async () => {
+  // The app's own text faces, as the browser fetches them.
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) => {
+    const file = String(url).split('/').pop();
+    return new Response(await readFile(new URL(`../public/fonts/${file}`, import.meta.url)));
+  });
+  try {
+    const doc = await PDFDocument.create();
+    doc.addPage([612, 792]);
+    const bytes = await doc.save();
+    const result = await compareDocuments(await open(bytes), await open(bytes));
+    // Polish, Czech, Turkish, Greek and Russian names, as in a file name or changed text.
+    const report = await buildCompareReport(result, {
+      oldName: 'Umowa Łódź – wersja.pdf',
+      newName: 'Smlouva řeka Şişli Ελλάδα Москва.pdf',
+      date: new Date(2026, 0, 2),
+    });
+    const page = await (await open(report)).getPage(1);
+    const text = (await page.getTextContent()).items.map((item) => item.str).join('\n');
+    expect(text).toContain('Old file: Umowa Łódź – wersja.pdf (1 page)');
+    expect(text).toContain('New file: Smlouva řeka Şişli Ελλάδα Москва.pdf (1 page)');
+  } finally {
+    vi.restoreAllMocks();
+  }
+});
+
+it('still writes the report when its text face cannot be loaded', async () => {
+  vi.spyOn(globalThis, 'fetch').mockRejectedValue(new TypeError('offline'));
+  try {
+    const doc = await PDFDocument.create();
+    doc.addPage([612, 792]);
+    const bytes = await doc.save();
+    const result = await compareDocuments(await open(bytes), await open(bytes));
+    // Fresh modules, so no face is left over from an earlier report.
+    vi.resetModules();
+    const fresh = await import('../src/core/compare.js');
+    const report = await fresh.buildCompareReport(result, {
+      oldName: 'Łódź.pdf',
+      newName: 'b.pdf',
+    });
+    const page = await (await open(report)).getPage(1);
+    const text = (await page.getTextContent()).items.map((item) => item.str).join('\n');
+    expect(text).toContain('Old file: ?ód?.pdf (1 page)');
+  } finally {
+    vi.restoreAllMocks();
+  }
 });

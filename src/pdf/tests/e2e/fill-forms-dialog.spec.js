@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { PDFDocument, PDFHexString } from 'pdf-lib';
+import { PDFDocument, PDFHexString, PDFName, PDFString } from 'pdf-lib';
 
 const PUTER_MOCK = `window.puter = { env: 'web', auth: { isSignedIn: () => true, getUser: async () => ({username:'test-user'}), signIn: async () => {}, signOut: async () => {} }, fs: { readdir: async () => [], write: async () => ({}) }, ui: { onLaunchedWithItems: () => {}, onItemsOpened: () => {} } };`;
 
@@ -68,4 +68,40 @@ test('Fill forms with nothing to fill in says so instead of opening', async ({ p
   await page.getByRole('button', { name: 'Fill forms', exact: true }).click();
   await expect(page.getByText('This PDF has no fields to fill in.')).toBeVisible();
   await expect(page.getByRole('dialog', { name: 'Fill forms' })).toHaveCount(0);
+});
+
+test('Fill forms points at the field whose value it refused', async ({ page }) => {
+  const doc = await PDFDocument.create();
+  const sheet = doc.addPage([400, 500]);
+  const form = doc.getForm();
+  form.createTextField('Name').addToPage(sheet, { x: 40, y: 400, width: 200, height: 24 });
+  const amount = form.createTextField('Amount');
+  amount.addToPage(sheet, { x: 40, y: 340, width: 200, height: 24 });
+  amount.acroField.dict.set(
+    PDFName.of('AA'),
+    doc.context.obj({
+      F: { S: 'JavaScript', JS: PDFString.of('AFNumber_Format(2, 0, 0, 0, "$", true);') },
+    }),
+  );
+  await openPdf(page, doc);
+  await page.getByRole('button', { name: 'Fill forms', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Fill forms' });
+  await dialog.getByLabel('Name').fill('Ada');
+  await dialog.getByLabel('Amount').fill('twelve');
+  await dialog.getByRole('button', { name: 'Save form' }).click();
+  await expect(dialog.getByRole('alert')).toHaveText('Enter a number in Amount, such as 1234.5.');
+  await expect(dialog.getByLabel('Amount')).toBeFocused();
+  await expect(dialog.getByLabel('Amount')).toHaveAttribute('aria-invalid', 'true');
+  await expect(dialog.getByLabel('Name')).not.toHaveAttribute('aria-invalid');
+  // Its box is drawn in the error color.
+  const border = (label) =>
+    dialog.getByLabel(label).evaluate((node) => getComputedStyle(node).borderTopColor);
+  expect(await border('Amount')).toBe(
+    await dialog.getByRole('alert').evaluate((node) => getComputedStyle(node).color),
+  );
+  expect(await border('Name')).not.toBe(await border('Amount'));
+  await dialog.getByLabel('Amount').fill('12');
+  await expect(dialog.getByLabel('Amount')).not.toHaveAttribute('aria-invalid');
+  await dialog.getByRole('button', { name: 'Save form' }).click();
+  await expect(dialog).toBeHidden();
 });

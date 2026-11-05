@@ -264,6 +264,9 @@ select {
 .input::placeholder {
   color: var(--muted);
 }
+.input[aria-invalid='true'] {
+  border-color: var(--danger);
+}
 textarea {
   resize: vertical;
 }
@@ -1981,12 +1984,15 @@ dialog.leave-save-dialog {
 }
 .choice-with-input {
   display: flex;
+  /* On a small phone a long choice ("New part before pages") leaves its box too narrow to read;
+     the box goes to the next line instead. */
+  flex-wrap: wrap;
   align-items: center;
-  gap: 12px;
+  gap: 8px 12px;
 }
 .choice-with-input .input {
   width: auto;
-  flex: 1;
+  flex: 1 0 7em;
   min-width: 0;
 }
 .choice-with-input .input.count-input {
@@ -2163,7 +2169,8 @@ dialog.signature-dialog {
 }
 .signature-thumb {
   display: block;
-  width: 100%;
+  /* Clear of the delete button in the card's top right corner, so it covers no ink. */
+  width: calc(100% - 28px);
   height: 56px;
 }
 .signature-saved-row .icon-btn {
@@ -2442,6 +2449,10 @@ kbd {
   .search-count {
     font-size: 10px;
   }
+  /* Until there is a count to show, its room goes to the find box, whose prompt was cut short. */
+  .search-count:empty {
+    display: none;
+  }
   .find-bar .icon-btn {
     min-width: 28px;
     width: 28px;
@@ -2683,6 +2694,11 @@ kbd {
 .form-widget.has-draft {
   outline-color: var(--brand);
 }
+/* The field an error above the page is about. */
+.form-widget:has(.form-control[aria-invalid='true']),
+.form-widget:has(.form-control[aria-invalid='true']):focus-within {
+  outline: 2px solid var(--danger);
+}
 .form-widget .form-control:disabled {
   cursor: default;
 }
@@ -2691,6 +2707,13 @@ kbd {
 }
 .form-widget select.form-control {
   cursor: pointer;
+}
+/* A list box always shows its own rows, so a click lands on the option it shows: the PDF's
+   drawing of the list spaces and scrolls its rows its own way. */
+.form-widget select.form-control[size]:not(:disabled) {
+  opacity: 1;
+  color: var(--field-ink);
+  background: var(--field-background);
 }
 .form-checkbox .form-control,
 .form-radio .form-control {

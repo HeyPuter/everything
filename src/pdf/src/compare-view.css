@@ -385,8 +385,11 @@
     width: min(300px, 85vw);
     box-shadow: var(--float-shadow);
   }
+  /* The filter group is named for assistive technology; its visible "Show:" goes, so the
+     toolbar fits on two rows of a phone rather than three. */
   .compare-files,
   .compare-summary,
+  .compare-filter-label,
   .compare-btn span,
   .compare-close span {
     display: none;

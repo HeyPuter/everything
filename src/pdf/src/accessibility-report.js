@@ -169,7 +169,13 @@ export function createAccessibilityReport({ onFix, onGoTo } = {}) {
           {
             class: `a11y-category-counts muted${counts.failed ? ' has-failures' : ''}`,
           },
-          parts.join(' · ') || 'Not applicable',
+          // Each count stays whole when the counts wrap in a narrow panel.
+          ...(parts.length
+            ? parts.flatMap((part, i) => [
+                i ? ' · ' : '',
+                el('span', { class: 'a11y-count' }, part),
+              ])
+            : ['Not applicable']),
         ),
       ),
       el('ul', { class: 'a11y-rules' }, category.rules.map(ruleRow)),

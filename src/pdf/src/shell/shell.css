@@ -415,6 +415,11 @@
 .tool-command .tool-icon {
   flex: none;
 }
+/* Inside the row: the list scrolls, and so clipped the top of the first row's ring. */
+.tool-row:focus-visible,
+.tool-command:focus-visible {
+  outline-offset: -2px;
+}
 .tool-row-label,
 .tool-command-text {
   flex: 1;
@@ -443,6 +448,11 @@
 .tool-command > svg:not(.tool-icon, .ico) {
   margin: 0 1px;
   color: var(--muted);
+}
+/* An 18px line icon takes the room of a 20px tool icon, so every label in a list starts at the
+   same place. */
+.tool-command > svg.ico:not(.tool-icon) {
+  margin: 0 1px;
 }
 .tools-more {
   margin: 6px 10px;
@@ -850,6 +860,31 @@
     margin-right: 2px;
   }
 }
+/* A phone turned sideways has little height: the quick tools and the page controls share one
+   row above the page instead of taking a row each, which left the page under a third of the
+   screen. The tools scroll sideways if the row runs short. */
+@media (max-width: 760px) and (min-width: 600px) and (max-height: 500px) {
+  .editor .document-view {
+    display: grid;
+    grid-template-columns: minmax(0, max-content) 1fr;
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+  .editor .document-view > * {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+  .editor .document-view > .quick-tools {
+    grid-column: 1;
+    grid-row: 1;
+    max-height: none;
+  }
+  .editor .document-view > .page-controls {
+    grid-column: 2;
+    grid-row: 1;
+    min-width: max-content;
+    height: auto;
+  }
+}
 @media (forced-colors: active) {
   .editor .quick-tools .tool-btn[aria-pressed='true'],
   .top-tab[aria-pressed='true'],
@@ -1075,6 +1110,95 @@
 }
 .organize-size input {
   width: 110px;
+}
+.organize-commands {
+  display: contents;
+}
+/* A phone: the status, tile size and Close share the first row, and the commands take the
+   second, icons only (their names stay for assistive technology and as tooltips), scrolling
+   sideways where the screen is too narrow for all of them. The toolbar wrapped onto three or
+   four rows here, taking the room the pages need. */
+@media (max-width: 760px) {
+  .organize-toolbar {
+    gap: 0 4px;
+    min-height: 0;
+    padding: 2px max(8px, var(--safe-right)) 2px max(8px, var(--safe-left));
+  }
+  .organize-title {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  /* A long count ("120 of 120 pages selected") takes two lines rather than losing its end. */
+  .organize-status {
+    flex: 1 1 0;
+    min-width: 0;
+    line-height: 1.25;
+    overflow-wrap: anywhere;
+  }
+  .organize-sep,
+  .organize-size svg,
+  .organize-btn span,
+  .organize-close span {
+    display: none;
+  }
+  .organize-size {
+    min-height: 40px;
+  }
+  .organize-size input {
+    width: 84px;
+  }
+  .organize-close {
+    margin-left: 0;
+  }
+  .organize-toolbar .icon-btn,
+  .organize-btn,
+  .organize-close {
+    width: 40px;
+    min-width: 40px;
+    min-height: 40px;
+    padding: 0;
+    justify-content: center;
+    border-color: transparent;
+    background: transparent;
+  }
+  .organize-commands {
+    order: 1;
+    flex: 1 0 100%;
+    display: flex;
+    gap: 2px;
+    overflow-x: auto;
+    scrollbar-width: none;
+    scroll-padding-inline: 24px;
+  }
+  /* Inside the button: the row scrolls, and so clips anything outside it. */
+  .organize-commands > :focus-visible {
+    outline-offset: -3px;
+  }
+  .organize-commands.more-start {
+    mask-image: linear-gradient(to right, transparent, #000 24px);
+  }
+  .organize-commands.more-end {
+    mask-image: linear-gradient(to left, transparent, #000 24px);
+  }
+  .organize-commands.more-start.more-end {
+    mask-image: linear-gradient(
+      to right,
+      transparent,
+      #000 24px,
+      #000 calc(100% - 24px),
+      transparent
+    );
+  }
+}
+/* Spaced so that on the smallest phones a button is cut by the fade, showing there are more. */
+@media (max-width: 360px) {
+  .organize-commands {
+    gap: 6px;
+  }
 }
 .organize-grid {
   flex: 1;
@@ -1479,6 +1603,37 @@
   grid-template-columns: 1fr 1fr;
   gap: 2px 16px;
 }
+/* A visible file picker (the digital ID file) with the app's own button, full size to tap,
+   in place of the browser's small grey one. */
+.file-input {
+  max-width: 100%;
+  font-size: 13px;
+  color: var(--muted);
+}
+.file-input::file-selector-button {
+  min-height: 38px;
+  margin-right: 10px;
+  padding: 8px 14px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+}
+@media (hover: hover) {
+  .file-input::file-selector-button:hover {
+    background: var(--surface-2);
+    border-color: var(--strong);
+  }
+}
+/* Download pages as images: on a phone each choice gets the dialog's width, so it reads whole. */
+@media (max-width: 520px) {
+  .field-grid.image-export-fields {
+    grid-template-columns: 1fr;
+  }
+}
 .redact-results {
   list-style: none;
   margin: 0;
@@ -1536,11 +1691,15 @@
 .editor .thumbnail[aria-current='page'] .thumb-paper {
   overflow: visible;
 }
+/* As specific as a dialog's own field labels, which are blocks of bold caption text. */
+.dialog-body label.result-row,
 .result-row {
   display: flex;
   align-items: center;
   gap: 10px;
+  margin: 0;
   padding: 4px 2px;
+  font-weight: 500;
   cursor: pointer;
 }
 /* The same boxes as every other dialog's: full size, in the app's color. */
@@ -1792,6 +1951,17 @@
 }
 .document-tab .document-name {
   max-width: min(220px, 100%);
+}
+/* The clipping above hid the name's keyboard focus ring entirely; the clip reaches 3px past the
+   name (the padding, taken back by the margin, leaves the layout as it was), and the ring is
+   drawn within that. */
+.document-tab .document-info,
+.document-tab .document-title {
+  padding: 3px;
+  margin: -3px;
+}
+.document-tab .document-name:focus-visible {
+  outline-offset: 1px;
 }
 .document-tab .status-row {
   flex: none;

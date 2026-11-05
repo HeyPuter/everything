@@ -709,6 +709,20 @@ export function wrapText(font, size, value, width) {
   }
   return lines;
 }
+/**
+ * How tall a text box `width` wide (as read) must be to show all of `value` in `style`, as
+ * drawFreeText lays it out: its lines and the padding inside the frame.
+ */
+export async function freeTextHeight(doc, value, width, style, unit = 1) {
+  value = value.replace(/\t/g, '    ');
+  const { font } = await textFont(doc, value);
+  const { fontSize, borderColor, width: border } = style;
+  const pad = (borderColor && border > 0 ? border : 0) + 2 / unit;
+  const inner = width - 2 * pad;
+  const lines = inner > 0 ? wrapText(font, fontSize, value, inner) : [];
+  if (!lines.length) return 0;
+  return 2 * pad + font.heightAtSize(fontSize) + (lines.length - 1) * fontSize * 1.2;
+}
 /** The matrix that turns a box's upright frame onto a page the reader turns by `rotation`. */
 function uprightFrame([x0, y0, x1, y1], rotation) {
   const w = x1 - x0,

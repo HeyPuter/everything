@@ -1,7 +1,10 @@
 /**
  * PresentationML (PPTX) from an export document model (see export-layout.js).
  *
- *   writePptx(model, { backgrounds, title, author, signal }) -> Promise<Uint8Array>
+ *   writePptx(model, { backgrounds, title, author, lang, signal }) -> Promise<Uint8Array>
+ *
+ * `lang` is the language tag the text is marked with, so PowerPoint spell-checks and reads it
+ * aloud in the PDF's language (US English when the PDF names none).
  *
  * One slide per page. The slide size is the first page's size; other pages are scaled to fit
  * and centred. Every paragraph becomes a text box at its PDF position with its font, size and
@@ -29,9 +32,9 @@ const GROUP =
 
 const clampSlide = (v) => Math.max(914400, Math.min(51206400, Math.round(v)));
 
-function runXml(run, scale) {
+function runXml(run, scale, lang) {
   const size = Math.max(100, Math.min(400000, Math.round(run.size * scale * 100)));
-  const attrs = [`lang="en-US"`, `sz="${size}"`];
+  const attrs = [`lang="${lang}"`, `sz="${size}"`];
   if (run.bold) attrs.push('b="1"');
   if (run.italic) attrs.push('i="1"');
   if (run.underline) attrs.push('u="sng"');
@@ -47,7 +50,7 @@ function runXml(run, scale) {
 
 function paragraphXml(
   runs,
-  { align, scale, leading, bullet, indent = 0, hanging = 0, size, tabs = [], breaks = false },
+  { align, scale, leading, bullet, indent = 0, hanging = 0, size, tabs = [], breaks = false, lang },
 ) {
   const algn = { center: 'ctr', right: 'r', justify: breaks ? 'l' : 'just' }[align] || 'l';
   let pPr = `<a:pPr algn="${algn}"${bullet ? ` marL="${Math.round(indent * E * scale)}" indent="${-Math.round(hanging * E * scale)}"` : ''}>`;
@@ -87,16 +90,16 @@ function paragraphXml(
       void previous;
       body = body.replace(/ (<\/a:t><\/a:r>)$/, '$1');
       if (run.hyphen) body = body.replace(/(<\/a:t><\/a:r>)$/, '-$1');
-      body += `<a:br><a:rPr lang="en-US" sz="${Math.max(100, Math.round(run.size * scale * 100))}" dirty="0"/></a:br>`;
+      body += `<a:br><a:rPr lang="${lang}" sz="${Math.max(100, Math.round(run.size * scale * 100))}" dirty="0"/></a:br>`;
     }
-    body += runXml(run.tab ? { ...run, text: '\t' } : run, scale);
+    body += runXml(run.tab ? { ...run, text: '\t' } : run, scale, lang);
   });
-  const end = `<a:endParaRPr lang="en-US" sz="${Math.max(100, Math.round((size || 11) * scale * 100))}" dirty="0"/>`;
+  const end = `<a:endParaRPr lang="${lang}" sz="${Math.max(100, Math.round((size || 11) * scale * 100))}" dirty="0"/>`;
   return `<a:p>${pPr}${body}${end}</a:p>`;
 }
 
 class SlideWriter {
-  constructor(page, slideSize, ids) {
+  constructor(page, slideSize, ids, lang) {
     const s = Math.min(slideSize.width / page.width, slideSize.height / page.height);
     this.scale = s;
     this.dx = (slideSize.width - page.width * s) / 2;
@@ -111,6 +114,7 @@ class SlideWriter {
       },
     ];
     this.ids = ids;
+    this.lang = lang;
   }
   box(x, y, w, h) {
     const s = this.scale;
@@ -136,7 +140,7 @@ class SlideWriter {
     this.shapes.push(
       `<p:sp><p:nvSpPr><p:cNvPr id="${id}" name="Rectangle ${id}"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>` +
         `<p:spPr>${this.box(fill.x, fill.y, fill.w, fill.h)}<a:prstGeom prst="rect"><a:avLst/></a:prstGeom>${fillXml}${line}</p:spPr>` +
-        `<p:txBody><a:bodyPr rtlCol="0" anchor="ctr"/><a:lstStyle/><a:p><a:endParaRPr lang="en-US" dirty="0"/></a:p></p:txBody></p:sp>`,
+        `<p:txBody><a:bodyPr rtlCol="0" anchor="ctr"/><a:lstStyle/><a:p><a:endParaRPr lang="${this.lang}" dirty="0"/></a:p></p:txBody></p:sp>`,
     );
   }
   text(block) {
@@ -161,6 +165,7 @@ class SlideWriter {
       size: block.size,
       tabs: (block.tabs || []).map((t) => ({ ...t, pos: column + t.pos - x })),
       breaks: true,
+      lang: this.lang,
     });
     this.shapes.push(
       `<p:sp><p:nvSpPr><p:cNvPr id="${id}" name="TextBox ${id}"/><p:cNvSpPr txBox="1"/><p:nvPr/></p:nvSpPr>` +
@@ -202,10 +207,11 @@ class SlideWriter {
                     align: p.align,
                     scale: s,
                     size: p.runs[0]?.size,
+                    lang: this.lang,
                   }),
                 )
                 .join('')
-            : '<a:p><a:endParaRPr lang="en-US" dirty="0"/></a:p>';
+            : `<a:p><a:endParaRPr lang="${this.lang}" dirty="0"/></a:p>`;
         const fill = cell?.fill
           ? `<a:solidFill><a:srgbClr val="${cell.fill}"/></a:solidFill>`
           : '<a:noFill/>';
@@ -255,10 +261,11 @@ export async function writePptx(model, options = {}) {
     }
     return rel.id;
   };
+  const lang = xml(options.lang || 'en-US');
   const slides = [];
   for (const page of model.pages) {
     options.signal?.throwIfAborted();
-    const slide = new SlideWriter(page, slideSize, null);
+    const slide = new SlideWriter(page, slideSize, null, lang);
     let backgroundRid = null;
     const rendered = options.backgrounds?.get?.(page.index);
     if (rendered) {
@@ -330,7 +337,7 @@ export async function writePptx(model, options = {}) {
       ? `<p:sldIdLst>${slides.map((_, k) => `<p:sldId id="${256 + k}" r:id="rId${k + 2}"/>`).join('')}</p:sldIdLst>`
       : '') +
     `<p:sldSz cx="${cx}" cy="${cy}"/><p:notesSz cx="6858000" cy="9144000"/>` +
-    `<p:defaultTextStyle>${levelStyles()}</p:defaultTextStyle></p:presentation>`;
+    `<p:defaultTextStyle>${levelStyles(lang)}</p:defaultTextStyle></p:presentation>`;
   const T = 'application/vnd.openxmlformats-officedocument.presentationml.';
   parts.push({
     name: 'ppt/presentation.xml',
@@ -354,7 +361,7 @@ export async function writePptx(model, options = {}) {
   });
   parts.push({
     name: 'ppt/slideMasters/slideMaster1.xml',
-    data: masterXml(),
+    data: masterXml(lang),
     type: T + 'slideMaster+xml',
   });
   parts.push({
@@ -439,20 +446,20 @@ export async function writePptx(model, options = {}) {
   );
 }
 
-function levelStyles() {
-  let out = '<a:defPPr><a:defRPr lang="en-US"/></a:defPPr>';
+function levelStyles(lang, defaults = true) {
+  let out = defaults ? `<a:defPPr><a:defRPr lang="${lang}"/></a:defPPr>` : '';
   for (let k = 1; k <= 9; k++)
     out += `<a:lvl${k}pPr marL="${(k - 1) * 457200}" algn="l" defTabSz="914400" rtl="0" eaLnBrk="1" latinLnBrk="0" hangingPunct="1"><a:defRPr sz="1800" kern="1200"><a:solidFill><a:schemeClr val="tx1"/></a:solidFill><a:latin typeface="+mn-lt"/><a:ea typeface="+mn-ea"/><a:cs typeface="+mn-cs"/></a:defRPr></a:lvl${k}pPr>`;
   return out;
 }
 
-function masterXml() {
+function masterXml(lang) {
   return (
     XML_HEADER +
     `<p:sldMaster ${NS}><p:cSld><p:bg><p:bgRef idx="1001"><a:schemeClr val="bg1"/></p:bgRef></p:bg><p:spTree>${GROUP}</p:spTree></p:cSld>` +
     `<p:clrMap bg1="lt1" tx1="dk1" bg2="lt2" tx2="dk2" accent1="accent1" accent2="accent2" accent3="accent3" accent4="accent4" accent5="accent5" accent6="accent6" hlink="hlink" folHlink="folHlink"/>` +
     `<p:sldLayoutIdLst><p:sldLayoutId id="2147483649" r:id="rId1"/></p:sldLayoutIdLst>` +
-    `<p:txStyles><p:titleStyle>${levelStyles().replace('<a:defPPr><a:defRPr lang="en-US"/></a:defPPr>', '')}</p:titleStyle><p:bodyStyle>${levelStyles().replace('<a:defPPr><a:defRPr lang="en-US"/></a:defPPr>', '')}</p:bodyStyle><p:otherStyle>${levelStyles()}</p:otherStyle></p:txStyles>` +
+    `<p:txStyles><p:titleStyle>${levelStyles(lang, false)}</p:titleStyle><p:bodyStyle>${levelStyles(lang, false)}</p:bodyStyle><p:otherStyle>${levelStyles(lang)}</p:otherStyle></p:txStyles>` +
     `</p:sldMaster>`
   );
 }

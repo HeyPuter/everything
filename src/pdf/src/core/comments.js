@@ -24,6 +24,23 @@ export const COMMENT_KINDS = {
   Caret: { label: 'Insertion mark', icon: 'Type', reveal: null },
   FileAttachment: { label: 'Attachment', icon: 'Files', reveal: null },
 };
+/**
+ * Comments named after what was drawn, by their intent (IT): an arrow is a line that ends in
+ * an arrowhead, a cloud a polygon with a cloudy border, a callout a text box with a pointer.
+ */
+const INTENT_LABELS = {
+  LineArrow: 'Arrow',
+  LineDimension: 'Distance',
+  PolyLineDimension: 'Perimeter',
+  PolygonCloud: 'Cloud',
+  PolygonDimension: 'Area',
+  FreeTextCallout: 'Callout',
+  FreeTextTypeWriter: 'Typewriter text',
+};
+/** What a comment of `subtype` with the intent `intent` is called. */
+export const commentLabel = (subtype, intent) =>
+  (String(intent ?? '').startsWith(subtype) && INTENT_LABELS[intent]) ||
+  (COMMENT_KINDS[subtype]?.label ?? subtype);
 export const MAX_COMMENTS = 2000;
 
 const toHex = (color) =>
@@ -63,7 +80,7 @@ export async function collectComments(pdf, { isCurrent = () => true } = {}) {
         page: index,
         id: a.id,
         subtype: a.subtype,
-        kind: kind.label,
+        kind: commentLabel(a.subtype, a.it),
         icon: kind.icon,
         reveal: kind.reveal,
         text: String(a.contentsObj?.str ?? a.contents ?? '').trim(),

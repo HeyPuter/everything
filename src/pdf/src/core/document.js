@@ -45,7 +45,7 @@ import {
 } from 'pdf-lib';
 import { textStyleBits } from './paragraph-data.js';
 import { textDecorationQuads } from './text-decoration.js';
-import { inheritPdfVersion, savePdf } from './version.js';
+import { inheritPdfVersion, loadPdfDocument, savePdf } from './version.js';
 import { sweepUnreferenced } from './compress.js';
 import { removePageStructure } from './struct-tree.js';
 import { shiftPageLabels } from './page-labels.js';
@@ -60,7 +60,7 @@ import {
 } from './image-orientation.js';
 import { reorientNotes } from './notes.js';
 import { flattenFields, redrawnFieldTexts, requireFlattenedPages } from './flatten.js';
-import { numberFormat, simpleCalculation, typedNumber } from './form-format.js';
+import { decimalMark, numberFormat, simpleCalculation, typedNumber } from './form-format.js';
 import {
   choiceAppearanceProvider,
   prepareFieldAppearance,
@@ -147,7 +147,7 @@ export async function validatePdf(bytes) {
   let doc, pages;
   try {
     // Validation must not change the metadata used to interpret or copy this source.
-    doc = await PDFDocument.load(bytes, { updateMetadata: false });
+    doc = await loadPdfDocument(bytes, { updateMetadata: false });
     // A file can parse yet lack a usable page tree; reading it must fail the same friendly way.
     pages = boundedPageCount(doc, MAX_PAGES);
     if (pages > 0 && pages <= MAX_PAGES) {
@@ -203,6 +203,45 @@ export async function preparePdfForEditing(bytes) {
   return savePdf(doc, { updateFieldAppearances: false });
 }
 
+const GEOMETRY_KEYS = ['MediaBox', 'CropBox', 'Rotate'].map((key) => PDFName.of(key));
+const USER_UNIT = PDFName.of('UserUnit');
+/**
+ * What sizes the pages are: each page's boxes, turn and unit, inherited ones included, as read
+ * down the page tree. Null when the tree cannot be read that way.
+ */
+function pageGeometry(doc) {
+  const { context } = doc;
+  const text = (value) => {
+    const object = context.lookup(value);
+    return object instanceof PDFArray
+      ? `[${object
+          .asArray()
+          .map((item) => String(context.lookup(item)))
+          .join(' ')}]`
+      : String(object);
+  };
+  const root = doc.catalog.lookup(PDFName.of('Pages'));
+  if (!(root instanceof PDFDict)) return null;
+  const parts = [];
+  const seen = new Set();
+  const pending = [[root, GEOMETRY_KEYS.map(() => undefined)]];
+  while (pending.length) {
+    const [node, inherited] = pending.pop();
+    if (seen.has(node) || seen.size > MAX_PAGES * 4) return null;
+    seen.add(node);
+    const values = GEOMETRY_KEYS.map((key, i) => node.get(key) ?? inherited[i]);
+    const kids = node.lookup(PDFName.of('Kids'));
+    if (kids instanceof PDFArray) {
+      // Last first, so the pages come off the list in their order.
+      for (let i = kids.size() - 1; i >= 0; i--) {
+        const kid = kids.lookup(i);
+        if (kid instanceof PDFDict) pending.push([kid, values]);
+      }
+    } else parts.push([...values, node.get(USER_UNIT)].map(text).join(' '));
+  }
+  return parts.join('\n');
+}
+
 /** Transactions retain original bytes, commit only on success, and bound undo memory. */
 export class PdfSession {
   constructor(bytes) {
@@ -212,6 +251,10 @@ export class PdfSession {
     this.revision = 0;
     this.savedRevision = 0;
     this.nextRevision = 1;
+    // Revisions that share a geometry number have pages of the same sizes, so a view can keep
+    // laying them out as it did instead of waiting to read every page's size again.
+    this.geometry = 0;
+    this.nextGeometry = 1;
   }
   get dirty() {
     return this.revision !== this.savedRevision;
@@ -221,11 +264,10 @@ export class PdfSession {
   }
   async change(operation, { signal, canCommit, streamProtection, saveOptions } = {}) {
     // Reconciliation must see the original Info timestamps, not pdf-lib's load time.
-    const doc = await waitFor(
-      () => PDFDocument.load(this.bytes, { updateMetadata: false }),
-      signal,
-    );
+    const doc = await waitFor(() => loadPdfDocument(this.bytes, { updateMetadata: false }), signal);
     signal?.throwIfAborted();
+    // Read before the repairs, which can move or resize pages as much as the operation can.
+    const geometry = pageGeometry(doc);
     repairDocument(doc);
     rememberStreamProtection(doc.context, streamProtection);
     // Operations can explicitly report that no document content changed.
@@ -260,13 +302,13 @@ export class PdfSession {
     const bytes = await waitFor(() => savePdf(doc, saveOptions), signal);
     signal?.throwIfAborted();
     if (canCommit && !canCommit()) return false;
-    this.adopt(bytes);
+    this.adopt(bytes, { sameGeometry: geometry !== null && geometry === pageGeometry(doc) });
   }
   /** Make `next` the current bytes and keep the previous ones in history. */
-  adopt(next) {
+  adopt(next, { sameGeometry = false } = {}) {
     if (next.length > MAX_FILE_SIZE)
       throw new Error('This edit would exceed the 100 MB PDF limit.');
-    this.past.push({ bytes: this.bytes, revision: this.revision });
+    this.past.push({ bytes: this.bytes, revision: this.revision, geometry: this.geometry });
     while (
       this.past.length > 25 ||
       (this.past.length > 1 &&
@@ -275,19 +317,20 @@ export class PdfSession {
       this.past.shift();
     this.bytes = next;
     this.revision = this.nextRevision++;
+    if (!sameGeometry) this.geometry = this.nextGeometry++;
     this.future = [];
   }
   undo() {
     const prev = this.past.pop();
     if (!prev) return false;
-    this.future.push({ bytes: this.bytes, revision: this.revision });
+    this.future.push({ bytes: this.bytes, revision: this.revision, geometry: this.geometry });
     Object.assign(this, prev);
     return true;
   }
   redo() {
     const next = this.future.pop();
     if (!next) return false;
-    this.past.push({ bytes: this.bytes, revision: this.revision });
+    this.past.push({ bytes: this.bytes, revision: this.revision, geometry: this.geometry });
     Object.assign(this, next);
     return true;
   }
@@ -1601,8 +1644,15 @@ export async function fillFields(doc, values) {
     if (field instanceof PDFTextField) {
       if (fieldValue(field) === value) continue;
       // A number or percent field takes a number, as its keystroke check in Acrobat allows.
-      if (String(value).trim() && numberFormat(field) && typedNumber(value) === null)
-        throw new Error(`Enter a number in ${fieldTooltip(field) || name}, such as 1234.5.`);
+      const format = numberFormat(field);
+      if (String(value).trim() && format && typedNumber(value, format) === null)
+        throw Object.assign(
+          new Error(
+            `Enter a number in ${fieldTooltip(field) || name}, such as 1234${decimalMark(format)}5.`,
+          ),
+          // The field it is about, for the page to point at it.
+          { field: name },
+        );
       prepareFieldAppearance(field, form);
       field.setText(value);
       // An explicit empty value overrides inherited/default values; deleting /V does not.

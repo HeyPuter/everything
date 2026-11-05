@@ -39,3 +39,37 @@ for (const [label, format] of [
     expect(text).toContain('After');
     expect(text).not.toContain('Before');
   });
+
+// A PDF without comments exported an empty comments file, with nothing said about it.
+test('exporting the comments of a PDF without any says so instead', async ({ page }) => {
+  await page.route('https://js.puter.com/**', (route) => route.abort());
+  const doc = await PDFDocument.create();
+  doc.addPage([400, 500]);
+  await page.goto('/#library');
+  const chooser = page.waitForEvent('filechooser');
+  await page.getByRole('button', { name: /^Open a PDF/ }).click();
+  await (
+    await chooser
+  ).setFiles({
+    name: 'no-comments.pdf',
+    mimeType: 'application/pdf',
+    buffer: Buffer.from(await doc.save()),
+  });
+  await expect(page.locator('.page-caption')).toHaveText('Page 1 of 1');
+  await settled(page);
+  let downloads = 0;
+  page.on('download', () => downloads++);
+  for (const label of ['Export comments (XFDF)', 'Comment summary']) {
+    // On a phone the tools pane closes once a tool has run.
+    const tools = page.getByRole('complementary', { name: 'Tools' });
+    if (!(await tools.getByRole('button', { name: label }).isVisible()))
+      await page.getByRole('button', { name: 'Comment', exact: true }).click();
+    await page
+      .getByRole('complementary', { name: 'Tools' })
+      .getByRole('button', { name: label })
+      .click();
+    await expect(page.locator('#toast')).toContainText('This PDF has no comments to export.');
+  }
+  await settled(page);
+  expect(downloads).toBe(0);
+});

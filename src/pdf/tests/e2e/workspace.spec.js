@@ -1790,6 +1790,39 @@ test('Go to page jumps to the entered page', async ({ page }) => {
   await expect(page.getByRole('dialog')).toHaveCount(0);
 });
 
+// Ctrl/⌘ Shift N never reaches a page in Chrome, Edge, or Safari (a new private window takes
+// it), so Go to page needs a key the browser hands over: Ctrl/⌘ Alt G, as in Preview.
+test('Ctrl or Command with Alt and G opens Go to page', async ({ page }) => {
+  await mockPuter(page);
+  await page.goto('/#library');
+  await openPdf(page, await multiPagePdf(4));
+  await page.locator('.workspace').focus();
+  await page.keyboard.press('ControlOrMeta+Alt+KeyG');
+  const input = page.getByLabel('Page number (1 to 4)');
+  await expect(input).toBeVisible();
+  await input.fill('4');
+  await input.press('Enter');
+  await expect(page.locator('.page-caption')).toHaveText('Page 4 of 4');
+  // Option changes the letter a Mac reports (⌥G types "©"); the key's place still names it.
+  await page.evaluate(() =>
+    window.dispatchEvent(
+      new KeyboardEvent('keydown', { key: '©', code: 'KeyG', metaKey: true, altKey: true }),
+    ),
+  );
+  await expect(input).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  // Where the browser does pass Ctrl/⌘ Shift N on (Firefox), it still works.
+  await page.keyboard.press('ControlOrMeta+Shift+KeyN');
+  await expect(input).toBeVisible();
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await page.getByRole('button', { name: 'Keyboard shortcuts', exact: true }).click();
+  await expect(page.getByRole('dialog', { name: 'Keyboard shortcuts' })).toContainText(
+    'Go to pageCtrl / ⌘ Alt G',
+  );
+});
+
 test('extracted pages keep hidden PDF layers hidden after download and reopening', async ({
   page,
 }) => {

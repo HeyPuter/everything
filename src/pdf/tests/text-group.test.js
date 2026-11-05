@@ -938,3 +938,140 @@ it('keeps a Word list label apart from its tabbed text and edits operators writt
   // The text after the tab keeps its tab stop.
   expect(next.groups[1].transform[4]).toBeCloseTo(78, 5);
 });
+
+it('keeps text drawn inside a clip apart from text after the clip is restored', async () => {
+  const { font } = await wordFixture(''),
+    x = 40 + font.widthOfTextAtSize('Hello', 12);
+  // A table cell clips "Hello"; " world" follows outside it. One rewrite at "Hello" would draw
+  // " world" inside the cell's clip, where it is cut off.
+  const clipped = (open = '', close = '') =>
+    `${open} q 40 290 30 20 re W n BT /F 12 Tf 1 0 0 1 40 300 Tm 0 g (Hello) Tj ET Q ${close} `;
+  for (const [label, source] of [
+    ['plain', `${clipped()}BT /F 12 Tf 1 0 0 1 ${x} 300 Tm 0 g ( world) Tj ET`],
+    ['Word', clipped('/Span <</MCID 90>> BDC', 'EMC') + wordChunk(x, 300, ' world')],
+  ]) {
+    const r = await read((await wordFixture(source)).bytes);
+    expect(
+      r.groups.map((g) => g.text),
+      label,
+    ).toEqual(['Hello', ' world']);
+  }
+  // Text that stays inside the same clip still forms one line.
+  const inside = await read(
+    (
+      await wordFixture(
+        `q 40 290 300 20 re W n BT /F 12 Tf 1 0 0 1 40 300 Tm 0 g (Hello) Tj ET BT /F 12 Tf 1 0 0 1 ${x} 300 Tm ( world) Tj ET Q`,
+      )
+    ).bytes,
+  );
+  expect(inside.groups.map((g) => g.text)).toEqual(['Hello world']);
+});
+
+it('keeps a Word bullet apart from the paragraph above it', async () => {
+  const { font } = await wordFixture(''),
+    width = (text) => font.widthOfTextAtSize(text, 12);
+  // The bullet is flush with the paragraph; Word writes its tab as a space and a jump, so the
+  // bullet stands alone on its line, separate from the item's text.
+  let source = wordChunk(60, 320, 'Here is the intro paragraph that leads into the list.');
+  for (const [y, text] of [
+    [300, 'Characterize a parallelogram.'],
+    [284, 'Draw a square.'],
+  ])
+    source +=
+      wordChunk(60, y, '\\225') + wordChunk(60 + width('•'), y, ' ') + wordChunk(80, y, text);
+  const r = await read((await wordFixture(source)).bytes);
+  expect(groupTextParagraphs(r.groups).map((b) => b.text)).toEqual([
+    'Here is the intro paragraph that leads into the list.',
+    '• ',
+    'Characterize a parallelogram.',
+    '• ',
+    'Draw a square.',
+  ]);
+});
+
+it('tells a page-sized clip from a small one when the page box lists its corners reversed', async () => {
+  const { font } = await wordFixture(''),
+    x = 40 + font.widthOfTextAtSize('Hello', 12);
+  const doc = await PDFDocument.load(
+    (
+      await wordFixture(
+        '/Span <</MCID 90>> BDC q 40 290 30 20 re W n BT /F 12 Tf 1 0 0 1 40 300 Tm 0 g (Hello) Tj ET Q EMC ' +
+          wordChunk(x, 300, ' world'),
+      )
+    ).bytes,
+  );
+  doc.getPage(0).node.set(PDFName.of('MediaBox'), doc.context.obj([400, 400, 0, 0]));
+  const r = await read(await doc.save());
+  expect(r.groups.map((g) => g.text)).toEqual(['Hello', ' world']);
+  // Word's own page-sized clips still join, whichever way the box is written.
+  const joined = await PDFDocument.load(
+    (await wordFixture(wordChunk(40, 300, 'Hello') + wordChunk(x, 300, ' world'))).bytes,
+  );
+  joined.getPage(0).node.set(PDFName.of('MediaBox'), joined.context.obj([400, 400, 0, 0]));
+  expect((await read(await joined.save())).groups.map((g) => g.text)).toEqual(['Hello world']);
+});
+
+it('ends a paragraph where its last line stops short of a word that would have fit', async () => {
+  // Two paragraphs with no space between them: the first ends well before the column edge,
+  // where the next paragraph's first word would have fit had the break been a soft wrap.
+  const r = await read(
+    await fixture(
+      'BT /F 12 Tf 15 TL 40 330 Td (The first paragraph fills this line with words) Tj T* (and its last line ends here, early.) Tj T* (The next paragraph starts on this line too and) Tj T* (wraps onto a second line below it.) Tj ET',
+    ),
+  );
+  expect(groupTextParagraphs(r.groups).map((b) => b.text)).toEqual([
+    'The first paragraph fills this line with words and its last line ends here, early.',
+    'The next paragraph starts on this line too and wraps onto a second line below it.',
+  ]);
+});
+
+it('keeps the paragraphs of a tagged PDF apart, and the lines of one paragraph together', async () => {
+  const doc = await PDFDocument.load(
+    await fixture(
+      [
+        ['First paragraph has a long line', 0],
+        ['that wraps onto another line.', 1],
+        ['Second paragraph is set below', 2],
+        ['with the very same line spacing.', 3],
+      ]
+        .map(
+          ([text, mcid], i) =>
+            `/P <</MCID ${mcid}>> BDC BT /F 12 Tf 1 0 0 1 40 ${300 - i * 15} Tm (${text}) Tj ET EMC`,
+        )
+        .join(' '),
+    ),
+  );
+  const { context } = doc;
+  const page = doc.getPage(0);
+  const root = context.register(context.obj({ Type: 'StructTreeRoot' }));
+  const first = context.register(context.obj({ Type: 'StructElem', S: 'P', P: root })),
+    second = context.register(context.obj({ Type: 'StructElem', S: 'P', P: root }));
+  // A styled span inside the first paragraph holds its second line.
+  const span = context.register(context.obj({ Type: 'StructElem', S: 'Span', P: first }));
+  context
+    .lookup(root)
+    .set(PDFName.of('ParentTree'), context.obj({ Nums: [0, [first, span, second, second]] }));
+  doc.catalog.set(PDFName.of('StructTreeRoot'), root);
+  page.node.set(PDFName.of('StructParents'), context.obj(0));
+  const r = await read(await doc.save());
+  expect(groupTextParagraphs(r.groups).map((b) => b.text)).toEqual([
+    'First paragraph has a long line that wraps onto another line.',
+    'Second paragraph is set below with the very same line spacing.',
+  ]);
+});
+
+it('keeps a paragraph whole across a line that ends in a hyphenated word', async () => {
+  // Ragged right: the second line ends mid-word because the whole word did not fit, though
+  // the fragment that starts the next line would fit within the widest line.
+  for (const hyphen of ['-', '\\255']) {
+    const r = await read(
+      await fixture(
+        `BT /F 12 Tf 15 TL 40 330 Td (This first line of the paragraph is quite wide indeed) Tj T* (and here is a short exam${hyphen}) Tj T* (ple of the text that follows on.) Tj ET`,
+      ),
+    );
+    expect(
+      groupTextParagraphs(r.groups).map((b) => b.text.slice(0, 20)),
+      hyphen,
+    ).toEqual(['This first line of t']);
+  }
+});

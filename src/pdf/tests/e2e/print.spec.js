@@ -404,3 +404,28 @@ test('pages saved as pictures let go of their decoded pictures afterwards', asyn
   expect(held.map(([number]) => number).sort()).toEqual([2, 3, 4]);
   expect(held.filter(([, count]) => count)).toEqual([]);
 });
+
+test('the Print button keeps the keyboard focus once the pages are printed', async ({ page }) => {
+  await mockPuter(page);
+  // A print dialog that closes a moment after it opens, as the browser's does.
+  await page.addInitScript(() => {
+    window.printed = [];
+    window.print = () => {
+      window.printed.push(true);
+      setTimeout(() => window.dispatchEvent(new Event('afterprint')), 50);
+    };
+  });
+  await page.goto('/#library');
+  await openPdf(page, await mixedPdf());
+  // The toolbar's Print button; phones reach Print through the menu instead.
+  const printButton = page.locator('.print-btn');
+  test.skip(!(await printButton.isVisible()), 'no Print button in the toolbar');
+  await printButton.focus();
+  await page.keyboard.press('Enter');
+  const dialog = page.getByRole('dialog', { name: 'Print' });
+  await dialog.getByRole('button', { name: 'Print', exact: true }).press('Enter');
+  await expect.poll(() => page.evaluate(() => window.printed.length)).toBe(1);
+  await expect(page.locator('.editor')).toHaveAttribute('aria-busy', 'false');
+  // Disabled while the pages were prepared, the button had dropped the focus on the page.
+  await expect(printButton).toBeFocused();
+});

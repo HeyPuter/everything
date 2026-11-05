@@ -181,7 +181,7 @@ function htmlImage(picture, w, h, block) {
   return `<img src="data:${picture.mime};base64,${base64(picture.bytes)}" width="${Math.round(w)}" height="${Math.round(h)}" alt=""${style}>`;
 }
 
-export function writeHtml(model, { title = '' } = {}) {
+export function writeHtml(model, { title = '', lang = 'en' } = {}) {
   const { body } = model;
   let html = '';
   for (const page of model.pages) {
@@ -247,7 +247,7 @@ export function writeHtml(model, { title = '' } = {}) {
     `section.page{margin-bottom:2em}section.page+section.page{border-top:1px solid #ccc;padding-top:1em}` +
     `header,footer{color:#666;font-size:0.85em}table{border-collapse:collapse;margin:0.6em 0}td,th{padding:2px 6px;vertical-align:top;border:1px solid #ddd}` +
     `th{text-align:left}figure{margin:0.6em 0}img{max-width:100%;height:auto}.tab{display:inline-block;min-width:2em}p{margin:0.35em 0}`;
-  return `<!DOCTYPE html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n<meta name="viewport" content="width=device-width, initial-scale=1">\n<title>${xml(title || 'Document')}</title>\n<style>${css}</style>\n</head>\n<body>\n${html}</body>\n</html>\n`;
+  return `<!DOCTYPE html>\n<html lang="${xml(lang || 'en')}">\n<head>\n<meta charset="utf-8">\n<meta name="viewport" content="width=device-width, initial-scale=1">\n<title>${xml(title || 'Document')}</title>\n<style>${css}</style>\n</head>\n<body>\n${html}</body>\n</html>\n`;
 }
 
 /* ---------------------------------------------------------------- RTF */

@@ -38,3 +38,15 @@ it('speaks a word hyphenated at the end of a line whole', () => {
     ]),
   ).toBe('an example of a well-\nKnown word');
 });
+
+it('breaks a long run without spaces between whole characters', () => {
+  // Emoji and letters outside the basic plane take two code units; a mark joins its letter.
+  for (const unit of ['😀', 'กิ', 'e\u0301']) {
+    const chunks = speechChunks('a' + unit.repeat(150), { max: 101 });
+    expect(chunks.join(''), unit).toBe('a' + unit.repeat(150));
+    for (const chunk of chunks) {
+      expect(chunk.length).toBeLessThanOrEqual(101);
+      expect(chunk.replace(/^a/, '').replaceAll(unit, ''), unit).toBe('');
+    }
+  }
+});

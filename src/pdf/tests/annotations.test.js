@@ -167,6 +167,112 @@ const subtypesOf = (doc, index = 0) =>
 const near = (a, b, tolerance = 0.01) => a.every((value, i) => Math.abs(value - b[i]) <= tolerance);
 
 describe('text boxes', () => {
+  // A text box placed with a click is 50 points tall, whatever was typed into it: the lines
+  // that did not fit were cut off at its bottom edge, out of sight.
+  it('grows a fitted text box down the page, as it reads, to show all of its words', async () => {
+    const words = 'One\nTwo\nThree\nFour\nFive\nSix and a much longer line that wraps in the box';
+    for (const rotation of [0, 90, 180, 270]) {
+      const doc = await blank(1, [400, 400]);
+      doc.getPage(0).setRotation(degrees(rotation));
+      const turned = rotation % 180 !== 0;
+      // 180 wide and 50 tall as the page is read.
+      const rect = turned
+        ? { x: 100, y: 100, width: 50, height: 180 }
+        : { x: 100, y: 250, width: 180, height: 50 };
+      const id = await addTextBox(doc, 0, { rect, text: words, fit: true });
+      const { box } = listAnnotations(doc, 0).find((entry) => entry.id === id);
+      const [readerWidth, readerHeight] = turned
+        ? [box.height, box.width]
+        : [box.width, box.height];
+      expect(readerWidth, `${rotation}`).toBeCloseTo(180, 6);
+      // Seven lines of 12 point text, with room around them.
+      expect(readerHeight, `${rotation}`).toBeGreaterThan(7 * 12 * 1.2);
+      // The top edge, as the page is read, stays where it was put.
+      const top = {
+        0: [box.y + box.height, 300],
+        90: [box.x, 100],
+        180: [box.y, 250],
+        270: [box.x + box.width, 150],
+      }[rotation];
+      expect(top[0], `${rotation}`).toBeCloseTo(top[1], 6);
+      // Every line is drawn inside the box.
+      const view = await render(await doc.save());
+      const ink = view.inkBox();
+      expect(ink.y1 - ink.y0).toBeGreaterThan(7 * 12 * 1.2);
+    }
+    // Words that fit leave the box as it was.
+    const doc = await blank(1, [400, 400]);
+    const id = await addTextBox(doc, 0, {
+      rect: { x: 100, y: 250, width: 180, height: 50 },
+      text: 'Short',
+      fit: true,
+    });
+    expect(listAnnotations(doc, 0).find((entry) => entry.id === id).box).toEqual({
+      x: 100,
+      y: 250,
+      width: 180,
+      height: 50,
+    });
+  });
+
+  it('moves a fitted box up from the bottom of the page and keeps a callout off its point', async () => {
+    const words = 'One\nTwo\nThree\nFour\nFive\nSix';
+    const doc = await blank(1, [400, 400]);
+    const low = await addTextBox(doc, 0, {
+      rect: { x: 100, y: 0, width: 180, height: 50 },
+      text: words,
+      fit: true,
+    });
+    const { box } = listAnnotations(doc, 0).find((entry) => entry.id === low);
+    expect(box.y).toBeCloseTo(0, 6);
+    expect(box.height).toBeGreaterThan(6 * 12 * 1.2);
+    // A box above its point grows up the page instead of over the point. A callout clicked by
+    // the foot of the page is placed so, and its last lines were left hidden.
+    const above = await addCallout(doc, 0, {
+      rect: { x: 100, y: 250, width: 180, height: 50 },
+      anchor: { x: 150, y: 220 },
+      text: words,
+      fit: true,
+    });
+    const raised = listAnnotations(doc, 0).find((entry) => entry.id === above).box;
+    expect(raised.y).toBeCloseTo(250, 6);
+    expect(raised.height).toBeGreaterThan(6 * 12 * 1.2);
+    // On a page turned a quarter, up the page as it is read is towards smaller x.
+    const turned = await blank(1, [400, 400]);
+    turned.getPage(0).setRotation(degrees(90));
+    const side = await addCallout(turned, 0, {
+      rect: { x: 250, y: 100, width: 50, height: 180 },
+      anchor: { x: 320, y: 150 },
+      text: words,
+      fit: true,
+    });
+    const sideBox = listAnnotations(turned, 0).find((entry) => entry.id === side).box;
+    expect(sideBox.x + sideBox.width).toBeCloseTo(300, 6);
+    expect(sideBox.width).toBeGreaterThan(6 * 12 * 1.2);
+    // With no room either way, a box that would grow over its point keeps its size; the
+    // callout is still made.
+    const callout = await addCallout(doc, 0, {
+      rect: { x: 100, y: 330, width: 180, height: 50 },
+      anchor: { x: 150, y: 320 },
+      text: words,
+      fit: true,
+    });
+    expect(listAnnotations(doc, 0).find((entry) => entry.id === callout).box.height).toBeCloseTo(
+      50,
+      6,
+    );
+    // One with room grows.
+    const roomy = await addCallout(doc, 0, {
+      rect: { x: 100, y: 250, width: 180, height: 50 },
+      anchor: { x: 50, y: 380 },
+      text: words,
+      fit: true,
+    });
+    const grown = listAnnotations(doc, 0).find((entry) => entry.id === roomy);
+    expect(grown.box.height).toBeGreaterThan(6 * 12 * 1.2);
+    expect(grown.points[0]).toEqual({ x: 50, y: 380 });
+  });
+
   it('reads the same on a page whose units are larger than points', async () => {
     // Letter paper in units of ten points, as large drawings are made, beside plain Letter.
     const views = [];
@@ -510,6 +616,40 @@ describe('shapes and pencil', () => {
 });
 
 describe('editing', () => {
+  // Words added to a text box, or made larger, ran past its bottom edge and out of sight.
+  it('grows a text box or callout whose new words no longer fit', async () => {
+    const doc = await blank(1, [400, 400]);
+    const box = await addTextBox(doc, 0, {
+      rect: { x: 40, y: 250, width: 180, height: 50 },
+      text: 'Short',
+    });
+    const callout = await addCallout(doc, 0, {
+      rect: { x: 40, y: 100, width: 180, height: 50 },
+      anchor: { x: 300, y: 125 },
+      text: 'Short',
+    });
+    const read = (id) => listAnnotations(doc, 0).find((entry) => entry.id === id);
+    await editAnnotation(doc, 0, box, { text: 'One\nTwo\nThree\nFour\nFive' });
+    expect(read(box).box.height).toBeGreaterThan(5 * 12 * 1.2);
+    expect(read(box).box.y + read(box).box.height).toBeCloseTo(300, 6);
+    await editAnnotation(doc, 0, callout, { fontSize: 60 });
+    const grown = read(callout);
+    // A line of 60 point text, with room around it.
+    expect(grown.box.height).toBeGreaterThan(55);
+    // Its leader line still runs from its point to the middle of the box's near side.
+    expect(grown.points[0]).toEqual({ x: 300, y: 125 });
+    expect(grown.points.at(-1).x).toBeCloseTo(220, 6);
+    expect(grown.points.at(-1).y).toBeCloseTo(grown.box.y + grown.box.height / 2, 6);
+    // A box given a size keeps it, and words that fit leave it as it is.
+    await editAnnotation(doc, 0, box, {
+      text: 'One\nTwo\nThree\nFour\nFive\nSix',
+      box: { x: 40, y: 250, width: 180, height: 50 },
+    });
+    expect(read(box).box.height).toBeCloseTo(50, 6);
+    await editAnnotation(doc, 0, box, { text: 'Short again' });
+    expect(read(box).box.height).toBeCloseTo(50, 6);
+  });
+
   it('moves and resizes a line, a drawing and a polygon, carrying their geometry', async () => {
     const doc = await blank();
     const line = addShapeAnnotation(doc, 0, {
@@ -1341,12 +1481,36 @@ describe('comment exchange', () => {
       /^Comment summary: 13 comments\n\nPage 1\n1\. Note \| Ada \| \d{4}-\d\d-\d\d \d\d:\d\d UTC\n {3}A note\n/,
     );
     expect(summary).toContain('Text box | Ada |');
+    // Named for what was drawn: a callout, an arrow and a cloud, not a text box, line, polygon.
+    expect(summary).toMatch(/\n5\. Callout \| [^\n]+\n {3}Callout\n/);
+    expect(summary).toMatch(/\n8\. Arrow \|/);
     expect(summary).toContain('   Text box\n   second line');
     expect(summary).toContain('\n\nPage 2\n');
     expect(summary).toMatch(
-      /Polygon \| Unknown author \| [^\n]+ \| Status: Accepted\n {3}Cloud\n {3}Reply \| Grace \| [^\n]+\n {5}Agreed\n {5}Reply \| Ada \| [^\n]+\n {7}Good/,
+      /Cloud \| Unknown author \| [^\n]+ \| Status: Accepted\n {3}Cloud\n {3}Reply \| Grace \| [^\n]+\n {5}Agreed\n {5}Reply \| Ada \| [^\n]+\n {7}Good/,
     );
     expect(exportCommentSummary(await blank())).toBe('Comment summary: no comments\n');
+  });
+
+  // A review state or text style with a backslash or an unpaired parenthesis was written into
+  // the PDF as it was, running the string on into the rest of the file: the saved PDF could
+  // no longer be opened.
+  it('imports states and styles with backslashes and parentheses into a readable PDF', async () => {
+    const doc = await blank();
+    const xfdf = `<?xml version="1.0"?><xfdf xmlns="http://ns.adobe.com/xfdf/"><annots>
+<square page="0" rect="100,100,200,150" name="box" color="#FF0000"><contents>Box</contents></square>
+<text page="0" rect="100,130,120,150" name="state" title="Ada" inreplyto="box" state="Done (final)\\" statemodel="Review"/>
+<text page="0" rect="100,130,120,150" name="mark" title="Grace" inreplyto="box" state="Erledigt ✓" statemodel="Review"/>
+<freetext page="0" rect="300,300,400,340" name="words"><contents>Words</contents><defaultstyle>font: Helvetica 12pt; color:#000000; (x:\\</defaultstyle></freetext>
+</annots></xfdf>`;
+    expect((await importXfdf(doc, xfdf)).imported).toBe(4);
+    const bytes = await doc.save();
+    const saved = await PDFDocument.load(bytes);
+    const [box, words] = listAnnotations(saved, 0);
+    expect(box.states.map(({ state }) => state)).toEqual(['Done (final)\\', 'Erledigt ✓']);
+    expect(words.contents).toBe('Words');
+    const subtypes = (await annotationsIn(bytes)).map((a) => a.subtype);
+    expect(subtypes).toEqual(['Square', 'Text', 'Text', 'FreeText']);
   });
 });
 
