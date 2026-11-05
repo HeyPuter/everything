@@ -71,6 +71,8 @@ export class CommandLine {
   }
 
   _key(e) {
+    // Enter and Space belong to the input method while it composes (Space picks a candidate).
+    if (e.isComposing || e.keyCode === 229) return;
     const ed = this.app.editor;
     if (e.key === 'Enter') {
       e.preventDefault();
