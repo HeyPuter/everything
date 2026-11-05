@@ -7,8 +7,9 @@ import { arcFromBulge, BULGE_EPS } from './bulge.js';
 import { derive, polylineFrom } from './entity.js';
 import { toPrims, ellipsePrim, splinePrim } from './prims.js';
 import { closestOnPrims } from './nearest.js';
-import { intersectPrims, curveAt } from './intersect.js';
+import { intersectPrims, curveAt, primScale, primSize } from './intersect.js';
 import { signedAreaPolyline, pointInPolygon } from './measure.js';
+import { segmentCount, subPolyline, polyPointAt } from './poly.js';
 import { bulgePolyPoints } from './tessellate.js';
 import { isFullEllipse } from './ellipse.js';
 
@@ -186,6 +187,153 @@ function joinSegs(A, B, s, tol) {
   A.join = Math.tan(sw / 4);
 }
 
+/** Polyline parameter (segment index + fraction) of a hit on a bulge-list primitive. */
+function hitParam(p, t) {
+  if (p.t === 'seg') return p.seg + t;
+  const f = (t - p.a0) / (p.a1 - p.a0);
+  return p.seg + (p.rev ? 1 - f : f);
+}
+
+/** Pairs of primitives with overlapping boxes (sweep along x). */
+function overlappingPairs(prims, fn) {
+  const boxes = prims.map((p) =>
+    p.t === 'seg'
+      ? [Math.min(p.x1, p.x2), Math.min(p.y1, p.y2), Math.max(p.x1, p.x2), Math.max(p.y1, p.y2)]
+      : [p.cx - p.r, p.cy - p.r, p.cx + p.r, p.cy + p.r],
+  );
+  const order = prims.map((_, i) => i).sort((a, b) => boxes[a][0] - boxes[b][0]);
+  for (let k = 0; k < order.length; k++) {
+    const a = boxes[order[k]];
+    for (let l = k + 1; l < order.length; l++) {
+      const b = boxes[order[l]];
+      if (b[0] > a[2]) break;
+      if (b[1] <= a[3] && b[3] >= a[1]) fn(prims[order[k]], prims[order[l]]);
+    }
+  }
+}
+
+/** Drop vertices of a closed stride-3 list between two collinear straight segments. */
+function dropCollinear(pts, tol) {
+  const out = [];
+  const n = pts.length / 3;
+  for (let i = 0; i < n; i++) {
+    const p = ((i + n - 1) % n) * 3,
+      c = i * 3,
+      q = ((i + 1) % n) * 3;
+    if (n - i + out.length / 3 > 3 && !pts[p + 2] && !pts[c + 2]) {
+      const ax = pts[c] - pts[p],
+        ay = pts[c + 1] - pts[p + 1],
+        bx = pts[q] - pts[c],
+        by = pts[q + 1] - pts[c + 1];
+      const la = Math.hypot(ax, ay),
+        lb = Math.hypot(bx, by);
+      if (Math.abs(ax * by - ay * bx) <= tol * (la + lb) && ax * bx + ay * by > 0) continue;
+    }
+    out.push(pts[c], pts[c + 1], pts[c + 2]);
+  }
+  return out;
+}
+
+/**
+ * Remove the invalid parts of a closed raw offset: split it at its
+ * self-intersections, drop the pieces that come closer than d to the source
+ * primitives and stitch the rest into closed loops. Returns a list of
+ * stride-3 point lists (empty when nothing is valid) or null when the pieces
+ * cannot be stitched (the caller then keeps the raw offset).
+ */
+function clipClosedOffset(pts, srcPrims, d) {
+  const m = segmentCount(pts, true);
+  const prims = toPrims({ type: 'polyline', pts, closed: true });
+  let scale = 0,
+    size = 0;
+  for (const p of prims) {
+    scale = Math.max(scale, primScale(p));
+    size = Math.max(size, primSize(p));
+  }
+  const tol = tolFor(scale, d);
+  const cuts = [];
+  overlappingPairs(prims, (a, b) => {
+    for (const h of intersectPrims(a, b)) {
+      const ua = hitParam(a, h.ta),
+        ub = hitParam(b, h.tb);
+      // A shared vertex of consecutive segments has the same parameter on both.
+      const du = Math.abs(ua - ub);
+      if (Math.min(du, m - du) <= 1e-9 * m) continue;
+      cuts.push(ua, ub);
+    }
+  });
+  const minD = d - Math.max(d * 1e-6, tol);
+  const valid = (u0, u1) => {
+    for (const f of [0.25, 0.5, 0.75]) {
+      const q = polyPointAt(pts, true, u0 + (u1 - u0) * f);
+      const c = closestOnPrims(srcPrims, q.x, q.y);
+      if (c && c.d2 < minD * minD) return false;
+    }
+    return true;
+  };
+  if (!cuts.length) return valid(0, m) ? [pts] : [];
+  const us = cuts.map((u) => ((u % m) + m) % m).sort((a, b) => a - b);
+  const cut = [];
+  for (const u of us) if (!cut.length || u - cut[cut.length - 1] > 1e-9 * m) cut.push(u);
+  if (cut.length > 1 && cut[0] + m - cut[cut.length - 1] <= 1e-9 * m) cut.pop();
+  const pieces = [];
+  for (let k = 0; k < cut.length; k++) {
+    const u0 = cut[k],
+      u1 = k + 1 < cut.length ? cut[k + 1] : cut[0] + m;
+    if (!valid(u0, u1)) continue;
+    const p = subPolyline(pts, true, u0, u1);
+    if (p.length >= 6) pieces.push(p);
+  }
+  // Stitch pieces end to start. Overlapping pieces (collinear offsets) are
+  // kept once when they run the same way and cancel when they run opposite.
+  const joinTol = Math.max(tol * 10, 1e-9 * size);
+  const near = (ax, ay, bx, by) => Math.hypot(ax - bx, ay - by) <= joinTol;
+  const used = new Array(pieces.length).fill(false);
+  const mids = pieces.map((p) => polyPointAt(p, false, segmentCount(p, false) / 2));
+  const ends = pieces.map((p) => [p[0], p[1], p[p.length - 3], p[p.length - 2]]);
+  for (let i = 0; i < pieces.length; i++) {
+    const [ax, ay, bx, by] = ends[i];
+    for (let j = i + 1; j < pieces.length && !used[i]; j++) {
+      if (used[j] || !near(mids[i].x, mids[i].y, mids[j].x, mids[j].y)) continue;
+      const [cx, cy, dx, dy] = ends[j];
+      if (near(ax, ay, cx, cy) && near(bx, by, dx, dy)) used[j] = true;
+      else if (near(ax, ay, dx, dy) && near(bx, by, cx, cy)) used[i] = used[j] = true;
+    }
+  }
+  const loops = [];
+  for (let i = 0; i < pieces.length; i++) {
+    if (used[i]) continue;
+    used[i] = true;
+    const chain = [pieces[i]];
+    const sx = pieces[i][0],
+      sy = pieces[i][1];
+    for (;;) {
+      const last = chain[chain.length - 1];
+      const ex = last[last.length - 3],
+        ey = last[last.length - 2];
+      if (near(ex, ey, sx, sy)) break;
+      let best = -1,
+        bd = joinTol;
+      for (let j = 0; j < pieces.length; j++) {
+        if (used[j]) continue;
+        const dj = Math.hypot(pieces[j][0] - ex, pieces[j][1] - ey);
+        if (dj <= bd) {
+          bd = dj;
+          best = j;
+        }
+      }
+      if (best < 0) return null;
+      used[best] = true;
+      chain.push(pieces[best]);
+    }
+    const loop = [];
+    for (const p of chain) for (let j = 0; j < p.length - 3; j++) loop.push(p[j]);
+    const area = Math.abs(signedAreaPolyline(loop, true));
+    if (area > joinTol * size) loops.push(dropCollinear(loop, tol));
+  }
+  return loops;
+}
+
 /**
  * Offset an entity by dist toward the side of (sideX, sideY). Supports line,
  * xline, ray, circle, arc, polyline (open / closed, with bulges), ellipse and
@@ -234,7 +382,13 @@ export function offsetEntity(ent, dist, sideX, sideY, opts) {
       } else side = pickSide(toPrims(ent), sideX, sideY);
       if (!side) return null;
       const r = offsetPolylinePts(ent.pts, closed, d * side);
-      return r ? polylineFrom(ent, r.pts, r.closed) : null;
+      if (!r) return null;
+      if (!closed) return polylineFrom(ent, r.pts, false);
+      const loops = clipClosedOffset(r.pts, toPrims(ent), d);
+      if (!loops) return polylineFrom(ent, r.pts, true);
+      if (!loops.length) return null;
+      const out = loops.map((pts) => polylineFrom(ent, pts, true));
+      return out.length === 1 ? out[0] : out;
     }
     case 'ellipse':
     case 'spline':

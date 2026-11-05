@@ -75,6 +75,45 @@ describe('offset', () => {
     const inn = offsetEntity(st, 2, 5, 5);
     close(areaOf(inn), 10 * 6 + Math.PI * 9, 1e-9);
   });
+  it('splits inward offsets of closed polylines where a neck collapses', () => {
+    // Two 10 x 10 squares joined by a 2-high neck.
+    const pts = [0, 0, 0, 10, 0, 0, 10, 4, 0, 20, 4, 0, 20, 0, 0, 30, 0, 0];
+    pts.push(30, 10, 0, 20, 10, 0, 20, 6, 0, 10, 6, 0, 10, 10, 0, 0, 10, 0);
+    const db = { type: 'polyline', layer: 'L1', pts, closed: true, width: 0 };
+    close(areaOf(offsetEntity(db, 0.5, 5, 5)), 173);
+    for (const [d, side] of [
+      [1, 8],
+      [1.5, 7],
+      [3, 4],
+    ]) {
+      const r = offsetEntity(db, d, 5, 5);
+      expect(r).toHaveLength(2);
+      for (const e of r) {
+        expect(e.closed).toBe(true);
+        expect(e.layer).toBe('L1');
+        expect(e.pts).toHaveLength(12);
+        close(areaOf(e), side * side);
+      }
+    }
+    expect(offsetEntity(db, 6, 5, 5)).toBe(null);
+    // An L whose arms are thinner than twice the distance leaves nothing.
+    const l = {
+      type: 'polyline',
+      pts: [0, 0, 0, 10, 0, 0, 10, 2, 0, 2, 2, 0, 2, 10, 0, 0, 10, 0],
+      closed: true,
+    };
+    expect(offsetEntity(l, 1.5, 1, 1)).toBe(null);
+    close(areaOf(offsetEntity(l, 0.5, 1, 1)), 17);
+    // Outward offsets close a narrow gap.
+    const c = {
+      type: 'polyline',
+      pts: [0, 0, 0, 10, 0, 0, 10, 1, 0, 1, 1, 0, 1, 9, 0, 10, 9, 0, 10, 10, 0, 0, 10, 0],
+      closed: true,
+    };
+    const o = offsetEntity(c, 4, -5, 5);
+    expect(o.pts).toHaveLength(12);
+    close(areaOf(o), 18 * 18);
+  });
   it('offsets open polylines with tangent arcs keeping a constant distance', () => {
     const b = Math.tan(Math.PI / 8);
     const p = { type: 'polyline', pts: [0, 0, 0, 10, 0, b, 15, 5, 0, 15, 20, 0], closed: false, width: 0 };
