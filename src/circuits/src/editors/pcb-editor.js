@@ -274,13 +274,14 @@ export class PcbEditor extends CanvasView {
   /** Recomputes every pour's fill in the kernel worker. */
   async repour() {
     const pours = [...this.doc.items()].filter((o) => o.t === 'pour');
+    const rev = this.doc.store.revision;
+    // Newer than any fill still being computed, which is then dropped.
+    this._pourRev = rev;
     if (!pours.length) {
       if (this.pourFills.size) { this.pourFills = new Map(); this._dirtyLayers.add('*'); this.requestRender(); }
       this._scheduleDrc();
       return;
     }
-    const rev = this.doc.store.revision;
-    this._pourRev = rev;
     try {
       const fills = await this.app.kernel.pours(this.doc.snapshot(), this.lib);
       if (this.disposed || this._pourRev !== rev) return;

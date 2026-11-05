@@ -289,3 +289,23 @@ describe('ratsnest while dragging', () => {
     expect(ed.ratsBatch.bufs.seg.count).toBe(before);
   });
 });
+
+describe('pour fill races', () => {
+  it('a fill finishing after its pour was deleted does not come back', async () => {
+    ctx = await bootBoard();
+    const { app, ed } = ctx;
+    const pour = [...ed.doc.items()].find((o) => o.t === 'pour');
+    let resolve;
+    app.kernel.pours = () =>
+      new Promise((r) => {
+        resolve = r;
+      });
+    const pending = ed.repour();
+    ed.doc.store.transact('Delete', (s) => s.remove(pour.id));
+    await ed.repour();
+    expect(ed.pourFills.size).toBe(0);
+    resolve(new Map([[pour.id, [[pour.pts]]]]));
+    await pending;
+    expect(ed.pourFills.size).toBe(0);
+  });
+});
