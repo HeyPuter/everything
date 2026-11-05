@@ -271,12 +271,18 @@ function drawText(g, text, x, y, size, rot, align, mirror, w) {
   for (const s of textStrokes(text, x, y, size, rot, align, mirror)) g.polyline(s.map(Math.round), sw);
 }
 
-/** Pour fill polygons, drawn largest first: outer ring dark, holes clear. */
+/**
+ * Pour fill polygons ({ net, rings }) of every pour on a layer, drawn largest
+ * first: outer ring dark, holes clear. Sorting across all pours matters: a
+ * clear hole erases everything drawn before it, so a pour sitting inside
+ * another pour's hole must be drawn after that hole.
+ */
 function drawPolygonSet(g, polygons) {
-  const list = (polygons || []).filter((p) => p && p[0] && p[0].length >= 6);
-  list.sort((a, b) => Math.abs(polyArea(b[0])) - Math.abs(polyArea(a[0])));
-  for (const rings of list) {
+  const list = polygons.filter((p) => p.rings && p.rings[0] && p.rings[0].length >= 6);
+  list.sort((a, b) => Math.abs(polyArea(b.rings[0])) - Math.abs(polyArea(a.rings[0])));
+  for (const { net, rings } of list) {
     g.polarityDark(true);
+    g.setNet(net);
     g.region([rings[0]]);
     const holes = rings.slice(1).filter((r) => r.length >= 6);
     if (holes.length) {
@@ -329,12 +335,14 @@ function writeCopper(ctx, layer, opts) {
   const pos = layer === 'top' ? 'Top' : layer === 'bottom' ? 'Bot' : 'Inr';
   const g = new GerberWriter({ fileFunction: `Copper,L${n},${pos}`, origin: ctx.origin, date: opts.date });
   // Pours first so clear-polarity holes never erase other copper.
+  const pourPolygons = [];
   for (const o of objects) {
-    if (o.t === 'pour' && o.layer === layer) {
-      g.setNet(o.net);
-      drawPolygonSet(g, fillOf(opts.pourFills, o.id));
+    if (o.t !== 'pour' || o.layer !== layer) continue;
+    for (const rings of fillOf(opts.pourFills, o.id) || []) {
+      pourPolygons.push({ net: o.net, rings });
     }
   }
+  drawPolygonSet(g, pourPolygons);
   for (const o of objects) {
     if (o.layer !== layer) continue;
     if (o.t === 'fill') { g.setNet(o.net); g.region([[o.x1, o.y1, o.x2, o.y1, o.x2, o.y2, o.x1, o.y2]]); }
