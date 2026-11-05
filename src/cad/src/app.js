@@ -1521,10 +1521,26 @@ export class App {
   // Keyboard ------------------------------------------------------------------------------
 
   bindKeys() {
+    window.addEventListener('keydown', (e) => this.onFieldKey(e), true);
     window.addEventListener('keydown', (e) => this.onKey(e));
     window.addEventListener('keyup', (e) => {
       if (e.key === 'Shift') this.editor.shiftDown = false;
     });
+  }
+
+  /** Save, open and plot from text fields and dialogs, which otherwise get the browser's own dialogs. */
+  onFieldKey(e) {
+    const mod = MOD === 'Cmd' ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey;
+    const k = e.key.toLowerCase();
+    if (!mod || e.altKey || !['s', 'o', 'p'].includes(k)) return;
+    const t = e.target;
+    if (t === this.cmdline.input || !(t instanceof HTMLElement)) return;
+    if (!t.matches('input, textarea, select, [contenteditable]') && !t.closest('dialog, .menu, .text-editor')) return;
+    e.preventDefault();
+    if (document.querySelector('dialog[open]') || t.closest('.menu, .text-editor')) return;
+    // Leaving the field commits what was typed in it first.
+    t.blur();
+    this.run(k === 'o' ? 'OPEN' : k === 'p' ? 'PLOT' : e.shiftKey ? 'SAVEAS' : 'SAVE');
   }
 
   onKey(e) {
