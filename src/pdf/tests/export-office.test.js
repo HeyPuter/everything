@@ -1139,6 +1139,30 @@ it('leaves out what layers that are off would draw, as the page shows it', async
   }
 });
 
+it('marks Word documents in Hebrew, Japanese, and the like with their script’s language', async () => {
+  // Word tags Hebrew letters with the complex-script language and Japanese characters with the
+  // East Asian one: a Hebrew PDF's text was marked as Arabic, a Japanese one's as English.
+  for (const [lang, expected] of [
+    ['he-IL', 'w:val="he-IL" w:eastAsia="en-US" w:bidi="he-IL"'],
+    ['ja-JP', 'w:val="ja-JP" w:eastAsia="ja-JP" w:bidi="ar-SA"'],
+    ['fr', 'w:val="fr" w:eastAsia="en-US" w:bidi="ar-SA"'],
+  ]) {
+    const doc = await PDFDocument.create();
+    const font = await doc.embedFont(StandardFonts.Helvetica);
+    doc.addPage([300, 300]).drawText('Text', { x: 20, y: 200, size: 12, font });
+    doc.catalog.set(PDFName.of('Lang'), PDFString.of(lang));
+    const bytes = await doc.save();
+    const loading = pdfjs.getDocument({ data: bytes.slice(), verbosity: 0 });
+    const pdf = await loading.promise;
+    try {
+      const files = await unzip((await exportDocument(pdf, bytes, 'docx')).bytes);
+      expect(new TextDecoder().decode(files['word/styles.xml'])).toContain(`<w:lang ${expected}/>`);
+    } finally {
+      await loading.destroy();
+    }
+  }
+});
+
 it('marks exported web pages, Word documents, and slides with the PDF’s own language', async () => {
   // A French PDF exported as a web page said lang="en", so screen readers read it as English.
   const doc = await PDFDocument.create();
