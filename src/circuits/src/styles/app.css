@@ -187,6 +187,8 @@ button { cursor: pointer; }
 .list-row[aria-selected='true'] { background: var(--bg-selected); border-left-color: var(--accent); }
 .list-row .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .list-row .sub { color: var(--text-3); font-size: var(--fs-xs); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Rows scrolled into view stop below the sticky group heading, not under it. */
+.list-group-head ~ .list-row { scroll-margin-top: 28px; }
 .list-group-head { position: sticky; top: 0; background: var(--bg-panel); padding: 6px 10px 3px; font-size: var(--fs-xs); font-weight: 600; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.04em; z-index: 1; }
 .comp-preview { flex: none; height: 150px; margin: 6px 8px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--canvas-bg); display: grid; grid-template-columns: 1fr 1fr; overflow: hidden; }
 .comp-preview canvas { width: 100%; height: 100%; display: block; }
