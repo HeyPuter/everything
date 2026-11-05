@@ -152,7 +152,7 @@ export class AssistantPanel {
     });
 
     this.newChat = h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'New chat', title: 'New chat' }, icon('newChat', 16)) as HTMLButtonElement;
-    this.newChat.addEventListener('click', () => this.reset());
+    this.newChat.addEventListener('click', (e) => this.reset(e));
     this.headActions = [this.newChat];
 
     this.log = h('div', { class: 'as-log', role: 'log', 'aria-live': 'polite', 'aria-label': 'Conversation' });
@@ -204,7 +204,16 @@ export class AssistantPanel {
   }
 
   focus() {
-    requestAnimationFrame(() => this.input.focus());
+    requestAnimationFrame(() => this.focusInput());
+  }
+
+  /**
+   * Focuses the message box, except on a touch screen: there that raises the
+   * on-screen keyboard over the conversation and its suggestions, so it waits
+   * for a tap in the box.
+   */
+  private focusInput() {
+    if (!matchMedia?.('(pointer: coarse)').matches) this.input.focus();
   }
 
   /**
@@ -236,7 +245,7 @@ export class AssistantPanel {
     this.input.style.height = `${Math.min(200, this.input.scrollHeight)}px`;
   }
 
-  private reset() {
+  private reset(e?: MouseEvent) {
     for (const it of [...this.pending]) this.removePending(it);
     for (const img of this.log.querySelectorAll<HTMLImageElement>('img.as-user-thumb')) URL.revokeObjectURL(img.src);
     this.agent.reset();
@@ -245,7 +254,9 @@ export class AssistantPanel {
     this.setBusy(this.agent.busy);
     if (this.agent.busy) this.status.textContent = 'Stopping…';
     this.renderEmpty();
-    this.input.focus();
+    // A key press on New chat goes on typing; a tap leaves the keyboard down.
+    if (e?.detail === 0) this.input.focus();
+    else this.focusInput();
   }
 
   private renderEmpty() {
