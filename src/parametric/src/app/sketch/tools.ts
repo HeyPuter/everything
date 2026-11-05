@@ -655,7 +655,9 @@ export function trimTool(ed: SketchEditor): SkTool {
     click(s) {
       const hit = ed.pickAt(s.p, 8);
       if (!hit || hit.kind !== 'curve') return true;
-      ed.edit('Trim', (sk, newId) => { trimAt(sk, hit.id, s.p, newId); });
+      let changed = false;
+      ed.edit('Trim', (sk, newId) => { changed = trimAt(sk, hit.id, s.p, newId); });
+      ed.app.setStatus(changed ? this.hint : 'Nothing trimmed. Click between intersections on a line, arc, or circle.');
       return true;
     },
     cancel: () => false,

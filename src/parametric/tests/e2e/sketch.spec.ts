@@ -39,6 +39,44 @@ async function startSketch(page: Page) {
 }
 
 test.describe('sketching', () => {
+  test('Trim at an intersection preserves the sketch and Redo, then accepts a click beside it', async ({ page }) => {
+    const errors = await openApp(page);
+    await startSketch(page);
+    const state = await page.evaluate(() => {
+      const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+      const ed = a.sketchEditor!;
+      ed.edit('Add crossing lines', (sk) => sk.entities.push(
+        { id: 'a', t: 'point', x: 0, y: 10 }, { id: 'b', t: 'point', x: 100, y: 10 },
+        { id: 'h', t: 'line', a: 'a', b: 'b' },
+        { id: 'c', t: 'point', x: 50, y: -30 }, { id: 'd', t: 'point', x: 50, y: 50 },
+        { id: 'v', t: 'line', a: 'c', b: 'd' },
+      ));
+      ed.edit('Add point', (sk) => sk.entities.push({ id: 'extra', t: 'point', x: 200, y: 200 }));
+      a.commands.run('undo');
+      a.commands.run('tool:trim');
+      const before = JSON.stringify(ed.sketch);
+      ed.tool!.click!({ p: [50, 10], raw: [50, 10], kind: 'none' }, {} as import('../../src/app/viewport').VPEvent);
+      return { before, after: JSON.stringify(ed.sketch), canRedo: a.store.canRedo };
+    });
+    expect(state.after).toBe(state.before);
+    expect(state.canRedo).toBe(true);
+    await expect(page.locator('.statusbar')).toContainText('Click between intersections');
+    const ends = await page.evaluate(() => {
+      const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+      const ed = a.sketchEditor!;
+      ed.tool!.click!({ p: [40, 10], raw: [40, 10], kind: 'none' }, {} as import('../../src/app/viewport').VPEvent);
+      const line = ed.sketch.entities.find((e) => e.id === 'h');
+      if (line?.t !== 'line') throw new Error('Expected trimmed line');
+      return [line.a, line.b].map((id) => {
+        const point = ed.sketch.entities.find((e) => e.id === id);
+        return point?.t === 'point' ? [point.x, point.y] : null;
+      });
+    });
+    expect(ends).toEqual([[50, 10], [100, 10]]);
+    await expect(page.locator('.statusbar')).not.toContainText('Nothing trimmed');
+    expect(errors).toEqual([]);
+  });
+
   test('trimming a circle at a repeated tangent cut removes it and supports Undo/Redo', async ({ page }) => {
     const errors = await openApp(page);
     await startSketch(page);

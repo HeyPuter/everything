@@ -374,6 +374,9 @@ export function trimAt(sk: SketchFeature, curveId: Id, at: Vec2, newId: (p: stri
     const inner = cuts.filter((c) => c.t > 0 && c.t < 1
       && (c.t > 1e-6 || dist2(c.p, start) > 1e-7)
       && (c.t < 1 - 1e-6 || dist2(c.p, end) > 1e-7));
+    // A cut itself does not identify either adjacent portion. Ignoring it
+    // would let one click remove both sides (or the entire curve).
+    if (inner.some((c) => c.t === tc)) return false;
     const before = inner.filter((c) => c.t < tc).sort((a, b) => b.t - a.t)[0];
     const after = inner.filter((c) => c.t > tc).sort((a, b) => a.t - b.t)[0];
     if (!before && !after) { deleteItems(sk, [curveId]); return true; }
@@ -415,6 +418,7 @@ export function trimAt(sk: SketchFeature, curveId: Id, at: Vec2, newId: (p: stri
     }
     if (sorted.length > 1 && 2 * Math.PI - sorted[sorted.length - 1].t + sorted[0].t <= tolerance) sorted.pop();
     if (sorted.length < 2) { deleteItems(sk, [curveId]); return true; }
+    if (cuts.some((c) => c.t === tc)) return false;
     let lo = sorted[sorted.length - 1], hi = sorted[0];
     for (let i = 0; i + 1 < sorted.length; i++) if (tc >= sorted[i].t && tc <= sorted[i + 1].t) { lo = sorted[i]; hi = sorted[i + 1]; }
     const c = ix.pt(e.c);

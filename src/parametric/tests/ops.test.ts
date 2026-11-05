@@ -185,6 +185,51 @@ describe('editing tools', () => {
     expect(s).toEqual(before);
   });
 
+  it.each(['line', 'arc', 'circle'] as const)('leaves a %s unchanged when Trim clicks exactly on an interior cut', (type) => {
+    const entities: SkEntity[] = [
+      { id: 'o', t: 'point', x: 0, y: 0 },
+      { id: 'a', t: 'point', x: 5, y: 0 }, { id: 'b', t: 'point', x: -5, y: 0 },
+      { id: 'c', t: 'point', x: 0, y: -10 }, { id: 'd', t: 'point', x: 0, y: 10 },
+      { id: 'cut', t: 'line', a: 'c', b: 'd' },
+    ];
+    if (type === 'line') entities.push({ id: 'target', t: 'line', a: 'a', b: 'b' });
+    else if (type === 'arc') entities.push({ id: 'target', t: 'arc', c: 'o', a: 'a', b: 'b' });
+    else entities.push({ id: 'target', t: 'circle', c: 'o', r: 5 });
+    const s = sk(entities), before = structuredClone(s);
+    expect(trimAt(s, 'target', [0, type === 'line' ? 0 : 5], idFactory(s))).toBe(false);
+    expect(s).toEqual(before);
+  });
+
+  it('does not trim across an exact clicked cut between two other cuts', () => {
+    const s = sk([
+      { id: 'a', t: 'point', x: 0, y: 0 }, { id: 'b', t: 'point', x: 10, y: 0 },
+      { id: 'h', t: 'line', a: 'a', b: 'b' },
+      ...[3, 5, 7].flatMap((x, i): SkEntity[] => [
+        { id: `a${i}`, t: 'point', x, y: -2 }, { id: `b${i}`, t: 'point', x, y: 2 },
+        { id: `l${i}`, t: 'line', a: `a${i}`, b: `b${i}` },
+      ]),
+    ]);
+    const before = structuredClone(s);
+    expect(trimAt(s, 'h', [5, 0], idFactory(s))).toBe(false);
+    expect(s).toEqual(before);
+  });
+
+  it.each([-1e-6, 1e-6])('still trims the clicked side just %s units from an intersection', (offset) => {
+    const s = sk([
+      { id: 'a', t: 'point', x: -5, y: 0 }, { id: 'b', t: 'point', x: 5, y: 0 },
+      { id: 'h', t: 'line', a: 'a', b: 'b' },
+      { id: 'c', t: 'point', x: 0, y: -10 }, { id: 'd', t: 'point', x: 0, y: 10 },
+      { id: 'cut', t: 'line', a: 'c', b: 'd' },
+    ]);
+    expect(trimAt(s, 'h', [offset, 0], idFactory(s))).toBe(true);
+    const line = s.entities.find((e) => e.id === 'h');
+    expect(line?.t).toBe('line');
+    if (line?.t !== 'line') throw new Error('Expected retained line');
+    const ix = new SketchIndex(s.entities);
+    expect(ix.pt(line.a)[0]).toBe(offset < 0 ? 0 : -5);
+    expect(ix.pt(line.b)[0]).toBe(offset < 0 ? 5 : 0);
+  });
+
   it('keeps both pieces of a line split by trimming on one line', () => {
     const s = sk([
       { id: 'a', t: 'point', x: 0, y: 0 }, { id: 'b', t: 'point', x: 10, y: 0 }, { id: 'h', t: 'line', a: 'a', b: 'b' },
