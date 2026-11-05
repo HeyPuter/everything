@@ -1504,6 +1504,12 @@
   grid-template-columns: 1fr 1fr;
   gap: 2px 16px;
 }
+/* Download pages as images: on a phone each choice gets the dialog's width, so it reads whole. */
+@media (max-width: 520px) {
+  .field-grid.image-export-fields {
+    grid-template-columns: 1fr;
+  }
+}
 .redact-results {
   list-style: none;
   margin: 0;

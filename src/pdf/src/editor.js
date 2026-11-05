@@ -10083,7 +10083,7 @@ export function createEditor({
       'images-dpi',
       [
         ['72', '72 dpi (screen)'],
-        ['144', '144 dpi (sharp on screens)'],
+        ['144', '144 dpi (sharp)'],
         ['300', '300 dpi (print)'],
       ],
       '144',
@@ -10099,7 +10099,7 @@ export function createEditor({
       ),
       el(
         'div',
-        { class: 'field-grid' },
+        { class: 'field-grid image-export-fields' },
         labeled('images-format', 'Format', format),
         labeled('images-dpi', 'Resolution', dpi),
       ),
