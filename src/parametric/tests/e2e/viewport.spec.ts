@@ -797,6 +797,30 @@ test.describe('viewport', () => {
     }
   });
 
+  test('a pointer leaving the view before its hover is picked leaves nothing hovered', async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+    await waitForFeature(page, 'Fillet1');
+    await expect.poll(() => page.evaluate(() => !!(window as unknown as Win).__parametric.bbox)).toBe(true);
+    const hovered = () => page.evaluate(() => (window as unknown as Win).__parametric.selection.hover?.kind ?? null);
+    // A fast move off the canvas: the move and the leave arrive in one frame.
+    const move = (leave: boolean) => page.evaluate((leave) => {
+      const app = (window as unknown as Win).__parametric;
+      const c = app.viewport.canvas;
+      const r = c.getBoundingClientRect();
+      const [x, y] = app.viewport.project([30, 3, 25]);
+      c.dispatchEvent(new PointerEvent('pointermove', { pointerId: 1, pointerType: 'mouse', clientX: r.left + x, clientY: r.top + y, bubbles: true }));
+      if (leave) c.dispatchEvent(new PointerEvent('pointerleave', { pointerId: 1, pointerType: 'mouse', clientX: r.left - 50, clientY: r.top + y }));
+    }, leave);
+    await move(false);
+    await expect.poll(hovered).toBe('face');
+    await page.evaluate(() => (window as unknown as Win).__parametric.viewport.canvas.dispatchEvent(new PointerEvent('pointerleave', { pointerId: 1, pointerType: 'mouse' })));
+    await expect.poll(hovered).toBe(null);
+    await move(true);
+    await page.waitForTimeout(400);
+    expect(await hovered()).toBe(null);
+  });
+
   test('the section view does not cut the outlines of reference planes', async ({ page }) => {
     await openApp(page);
     await page.getByRole('button', { name: /Mounting Bracket/ }).click();

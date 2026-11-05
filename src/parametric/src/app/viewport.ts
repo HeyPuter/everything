@@ -409,7 +409,8 @@ export class Viewport {
       this.hoverRaf = 0;
       const q = this.hoverQueued;
       this.hoverQueued = null;
-      if (!q || this.gesture.kind !== 'none') return;
+      // The pointer may have left the view since (a fast move off the canvas).
+      if (!q || this.gesture.kind !== 'none' || !this.mouse) return;
       const ev = { x: q.x, y: q.y, ray: this.camera.ray(q.x, q.y) } as VPEvent;
       if (this.tool?.hover) { this.tool.hover(ev); return; }
       const f = this.app.pickFilter();
@@ -420,7 +421,7 @@ export class Viewport {
       this.hoverBusy = true;
       void this.renderer.pickAsync(q.x, q.y, want).then((hit) => {
         this.hoverBusy = false;
-        if (hit !== undefined && this.gesture.kind === 'none' && !this.hoverQueued) this.app.selection.setHover(this.itemFromHit(q.x, q.y, f, hit));
+        if (hit !== undefined && this.gesture.kind === 'none' && !this.hoverQueued && this.mouse) this.app.selection.setHover(this.itemFromHit(q.x, q.y, f, hit));
         if (this.hoverQueued) { const n = this.hoverQueued; this.hoverQueued = null; this.queueHover(n.x, n.y); }
       });
     });
