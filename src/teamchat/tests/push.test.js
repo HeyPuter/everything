@@ -98,6 +98,18 @@ describe('push crypto', () => {
 describe('push routes and delivery', () => {
   const post = (u, wsId, conv, text) => as(u).post(`/api/ws/${wsId}/conv/${conv}/messages`, { text });
 
+  it('suppresses legacy Web Push while a member has recent visible presence', async () => {
+    const { wsId, general } = await workspaceWith(alice, [bob]);
+    const dev = await subscriber();
+    await as(bob).post(`/api/ws/${wsId}/push`, { subscription: dev.subscription });
+    await as(bob).get(`/api/ws/${wsId}/sync?since=0&hb=1`);
+    await post(alice, wsId, general.id, '@bob present');
+    expect(received).toHaveLength(0);
+    await rt.kv.remove(KEYS.activity(wsId), `p.${bob.uuid}`);
+    await post(alice, wsId, general.id, '@bob away');
+    expect(received).toHaveLength(1);
+  });
+
   it('subscribes a device and pushes mentions and direct messages, encrypted, with the deep link', async () => {
     const { wsId, general } = await workspaceWith(alice, [bob, carol]);
     const key = await as(bob).get(`/api/ws/${wsId}/push/key`);

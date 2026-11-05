@@ -5,6 +5,18 @@ const ASSETS = __SW_ASSETS__;
 const SHELL = `teamchat-shell-${VERSION}`;
 const EXT = 'teamchat-ext';
 
+// Puter's push handling: shows Puter pushes and routes their taps. Only
+// listens, and only to pushes Puter sent; a blocked load must not cost the
+// offline shell, so it is allowed to fail.
+try {
+  importScripts('https://js.puter.com/push-sw.js');
+} catch {
+  /* pushes through Puter are unavailable on this device */
+}
+const fromPuter = (data) => !!(data && (data.puter || data.data?.puter));
+/** How long a navigation waits on the network for the SDK before the cached copy is used. */
+const SDK_WAIT_MS = 3000;
+
 self.addEventListener('install', (event) => {
   event.waitUntil((async () => {
     const cache = await caches.open(SHELL);
@@ -26,7 +38,7 @@ self.addEventListener('message', (event) => {
 /**
  * Navigations: the network first, so a new deployment shows up, and the
  * cached shell when offline. Hashed assets: cache first (their names change
- * with their content). The Puter SDK: stale-while-revalidate, so the app can
+ * with their content). The Puter SDK: network first, the cached copy so the app can
  * boot offline. API traffic goes through puter.workers.exec and is not
  * touched here.
  */
@@ -70,12 +82,14 @@ self.addEventListener('fetch', (event) => {
   if (url.hostname === 'js.puter.com') {
     event.respondWith((async () => {
       const cache = await caches.open(EXT);
-      const hit = await cache.match(req);
-      // The SDK is a plain cross-origin script tag, so its response is
-      // opaque: status 0, ok false. It is still the script, and the only
-      // copy the app can boot from offline.
+      // The network first: a page running an SDK older than Puter's pushes
+      // holds every push back while it is open, so the cached copy is only
+      // for booting offline, or past a few seconds' wait. The SDK is a plain
+      // cross-origin script tag, so its response is opaque (status 0, ok
+      // false); it is still the script.
       const net = fetch(req).then((res) => { if (res.ok || res.type === 'opaque') cache.put(req, res.clone()).catch(() => {}); return res; }).catch(() => null);
-      return hit || (await net) || Response.error();
+      const res = await Promise.race([net, new Promise((r) => setTimeout(() => r(null), SDK_WAIT_MS))]);
+      return res || (await cache.match(req)) || (await net) || Response.error();
     })());
   }
 });
@@ -139,6 +153,7 @@ function pageTag(data) {
   return `${ref}:${tag}`;
 }
 
+/** Pushes signed by a workspace's own worker, from devices subscribed before pushes went through Puter. */
 self.addEventListener('push', (event) => {
   let data = {};
   try {
@@ -146,6 +161,7 @@ self.addEventListener('push', (event) => {
   } catch {
     data = { title: 'Teamchat', body: event.data?.text() || '' };
   }
+  if (fromPuter(data)) return;
   event.waitUntil((async () => {
     const all = await self.clients.matchAll({ type: 'window', includeUncontrolled: true }).catch(() => []);
     if (await viewing(all, data.ws).catch(() => false)) return;
@@ -168,6 +184,7 @@ self.addEventListener('push', (event) => {
 });
 
 self.addEventListener('notificationclick', (event) => {
+  if (event.notification.data?.puter) return;
   event.notification.close();
   const route = event.notification.data?.route || '#/';
   event.waitUntil((async () => {

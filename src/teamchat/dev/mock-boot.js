@@ -21,6 +21,7 @@ import {
 } from './worker-runtime.js';
 import { createMockPeer, installFakeDevices } from './mock-peer.js';
 import { resetServerConfigCache } from '../worker/lib.js';
+import { DUE_HANDLER } from '../src/shared/events.js';
 
 const STORE_KEY = 'teamchat:mock:kv';
 const VER_KEY = 'teamchat:mock:kv:v';
@@ -113,7 +114,7 @@ const runtime = await createWorkerRuntime({
   },
   // Every mock worker is "deployed" from the same teamchat app, real workers
   // included, so one shared app uid for all of them is accurate. `puter.events`
-  // itself is not faked below (no mock socket, no share-handle mint answers),
+  // has no local-subscription fake (no mock socket),
   // so the owner's mode:'own' bootstrap block is real but nothing ever
   // subscribes to it: the mock exercises the events fallback path rather
   // than the healthy one.
@@ -131,8 +132,47 @@ const drivePath = (p) => (String(p).startsWith('/') ? String(p) : `/${currentUse
 
 if (params.get('fakemic')) installFakeDevices();
 
+const schedules = new Map();
+const pushStateKey = `teamchat:mock:push:${currentUser.uuid}`;
+
+async function fireSchedule(scheduleId) {
+  const s = schedules.get(scheduleId);
+  if (!s) return;
+  clearTimeout(s.timer);
+  if (s.at > Date.now()) {
+    s.timer = setTimeout(() => fireSchedule(scheduleId).catch(console.error), Math.min(s.at - Date.now(), 2 ** 31 - 1));
+    return;
+  }
+  schedules.delete(scheduleId);
+  await window.puter.workers.exec(`${s.context.u}/api/ws/${encodeURIComponent(s.context.w)}/due`, { method: 'POST' });
+}
+
 window.puter = {
   env: params.get('env') === 'app' ? 'app' : 'web',
+  appID: 'app-teamchat-mock',
+  perms: { async check() { return true; }, async request(requests) { return Array.isArray(requests) ? requests.map(() => true) : true; } },
+  notifications: {
+    async enable() { localStorage.setItem(pushStateKey, 'on'); return true; },
+    async disable() { localStorage.removeItem(pushStateKey); return true; },
+    async status() { return localStorage.getItem(pushStateKey) || 'off'; },
+    async onPush() { return { async off() {} }; },
+    on() {},
+  },
+  events: {
+    async onSchedule({ at, handlerName, context }) {
+      if (handlerName !== DUE_HANDLER) throw { code: 'events_handler_not_found' };
+      const scheduleId = crypto.randomUUID();
+      const timer = setTimeout(() => fireSchedule(scheduleId).catch(console.error), Math.min(Math.max(0, at - Date.now()), 2 ** 31 - 1));
+      schedules.set(scheduleId, { scheduleId, at, context, timer });
+      return { scheduleId };
+    },
+    async removeSchedule(scheduleId) {
+      const s = schedules.get(scheduleId);
+      if (!s) throw { code: 'events_schedule_not_found' };
+      clearTimeout(s.timer);
+      schedules.delete(scheduleId);
+    },
+  },
   /* Peer connections between mock tabs: real WebRTC, signalled over a BroadcastChannel. */
   peer: createMockPeer({ user: currentUser }),
   auth: {
@@ -272,18 +312,9 @@ window.fetch = async (input, init) => {
       status: 200, headers: { 'Content-Type': 'application/javascript' },
     });
   }
-  // A member's handle mint (worker/events.js), answered at once as the
-  // platform having the feature off: the most common real deployment today,
-  // and it keeps a member's bootstrap from waiting out a real timeout
-  // against a host nothing here actually serves.
-  if (/\/events\/kv-handles$/.test(url)) {
-    return new Response(JSON.stringify({ code: 'events_kv_handles_disabled', message: 'mock: not faked' }), {
-      status: 403, headers: { 'Content-Type': 'application/json' },
-    });
-  }
   return realFetch(input, init);
 };
 
-window.__mock = { runtime, users: USERS, currentUser, workers, emails: () => readJson(EMAILS_KEY, []) };
+window.__mock = { runtime, users: USERS, currentUser, workers, schedules, fireSchedule, notifications: runtime.notifications.sent, emails: () => readJson(EMAILS_KEY, []) };
 
 await import('../src/main.js');

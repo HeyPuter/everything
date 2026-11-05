@@ -21,7 +21,7 @@
  *   'huddle-error'       detail: { kind, message }  a device or the join could not be had
  */
 import { api, ApiError } from './api.js';
-import { threadConvId, parentOfThread, blockIndexOf, firstSeqOfBlock, BLOCK_SIZE, mergeBlock, applyOverlayPatch } from '../shared/blocks.js';
+import { KEYS, threadConvId, parentOfThread, blockIndexOf, firstSeqOfBlock, BLOCK_SIZE, mergeBlock, applyOverlayPatch } from '../shared/blocks.js';
 import { colorSlot, uid } from '../shared/ids.js';
 import { presenceState, PRESENCE_WINDOW_MS } from './time.js';
 import { clearAvatarCache } from './avatars.js';
@@ -33,14 +33,14 @@ import { idb } from './idb.js';
 import { createOutbox, layeredStorage, makeClientId } from './outbox.js';
 import { clearDrafts, forgetDrafts } from './drafts.js';
 import { clearRecent, forgetWorkspaceRecent } from './recent.js';
-import { subscribePush, unsubscribePush, dropPushSubscription, pushSupported, pushOffsetMoved } from './pwa.js';
+import { pushPrefs, pushOffsetMoved, _notePushOffset, listenForPushes, puterPushStatus, enablePuterPush, disablePuterPush, retireLegacyPush } from './pwa.js';
 import { loadUserDoc, saveUserDoc } from './user.js';
 import { makeRef, parseRef, canonicalRef, serverKeyOf, trustServer } from './refs.js';
 import { deployOwnWorker, findOwnWorker, updateOwnWorker, usesSharedWorker } from './deploy.js';
 import { SHARED_WORKER_URL } from '../config.js';
 import { Huddle } from './huddle.js';
 import { HUDDLE_HEARTBEAT_MS } from '../shared/huddle.js';
-import { appUidFromToken } from '../shared/events.js';
+import { appUidFromToken, EV_GRANT, DUE_HANDLER } from '../shared/events.js';
 import { parseTag, ringKeysFrom, openEntry } from '../shared/ring.js';
 
 /** A huddle first seen more than this long after it began is not announced as a call: it was not just placed. */
@@ -440,6 +440,7 @@ class Store extends EventTarget {
     this._polling = false;
     this._readTimers = new Map(); // `${wsId}:${conv}` -> the debounce of a read about to be sent (see markRead)
     this._readPending = new Map(); // the same keys -> what the debounce will do, for the page going away to do it now (see _flushReads)
+    this.pushStatus = 'off';
     this._localSeen = new Map(); // conv -> highest seq the user has actually seen on screen
     this._wsFetch = 0; // refreshWorkspace() calls made, and the newest one applied: answers apply in order asked
     this._wsApplied = 0;
@@ -612,6 +613,8 @@ class Store extends EventTarget {
     this._composeWorkspaces();
     this.emit('profile');
     this.refreshWorkspaces().catch(() => {});
+    listenForPushes();
+    this.refreshPushStatus().catch(() => {});
     return { profile: this.profile, workspaces: this.workspaces };
   }
 
@@ -627,16 +630,10 @@ class Store extends EventTarget {
    */
   async signOut() {
     await this.leaveHuddle().catch(() => {});
-    if (pushSupported()) {
-      // Every worker is told at once, and none is waited on for long: told
-      // one after another, each given the request's whole timeout, a worker
-      // that did not answer (being redeployed, or gone) held the sign-out
-      // for twenty seconds, and the next silent one for twenty more. A
-      // worker not told keeps a dead endpoint, which its own next push
-      // drops (see sendPush 'gone').
-      await withinMs(Promise.allSettled(this.workspaces.map((w) => unsubscribePush(w.ref))), SIGNOUT_PUSH_MS);
-      await dropPushSubscription().catch(() => {});
-    }
+    // Signing out of Puter ends this browser's Puter pushes on its own; a
+    // subscription made the old way is let go of here, every worker told at
+    // once and none waited on for long.
+    await retireLegacyPush(this.workspaces.map((w) => w.ref), SIGNOUT_PUSH_MS).catch(() => {});
     await puter.auth.signOut();
   }
 
@@ -1139,6 +1136,8 @@ class Store extends EventTarget {
   async forgetWorkspace(ref) {
     ref = canonicalRef(ref) || ref; // by whatever spelling it was named (see openWorkspace)
     this._forgotten.set(ref, Date.now());
+    // Stop notifications if membership still stands on an unreachable worker.
+    api.pushUnregister(ref).catch(() => {});
     // A huddle the member is in there ends now. The call outlives a switch
     // of workspace by design (see joinHuddle), but not the workspace itself:
     // left to the next heartbeat's refusal, it went on for up to fifteen
@@ -1352,19 +1351,9 @@ class Store extends EventTarget {
     this.outbox.flush().catch(() => {});
     this._resendReads();
     // While the settings toggle is mid-flight the preference still reads as
-    // the old state (setPush writes it only after the workers are told), so
-    // this reconciliation would work against the very change being made —
-    // retiring the subscription the toggle just created, or re-subscribing
-    // a worker it just told to forget. The toggle finishes its own work.
-    if (pushSupported() && !this._pushToggling) {
-      if (this.profile?.prefs?.push) subscribePush(wsId, this.profile.prefs).catch(() => {});
-      // Push turned off on another device reaches this one here, its own
-      // subscription retired the way setPush(false) would have: without
-      // this, a device that was subscribed kept being pushed forever while
-      // its own settings switch said off. With no subscription both calls
-      // return at the browser, costing nothing.
-      else unsubscribePush(wsId).then(() => dropPushSubscription()).catch(() => {});
-    }
+    // the old state, so this reconciliation would work against the very
+    // change being made. The toggle finishes its own work.
+    if (!this._pushToggling) this._reconcilePush(wsId, data.me?.pn).catch(() => {});
     this.loadSaved().catch(() => {});
     this.loadScheduled().catch(() => {});
   }
@@ -3001,57 +2990,96 @@ class Store extends EventTarget {
 
   /* ---- push --------------------------------------------------------------- */
 
-  /** Turn pushes on (subscribe this device on every workspace's worker) or off. */
-  async setPush(on) {
-    // Marks the toggle in flight so a bootstrap finishing meanwhile leaves
-    // the reconciling to it (see _afterBootstrap) instead of undoing it.
+  /** Enable from the click before any other await, then tell the workspace workers. */
+  async setPush(on, { extra = [] } = {}) {
     this._pushToggling = true;
     try {
-      if (on) {
-        const refs = this._pushOrder().map((w) => w.ref);
-        let ok = 0;
-        let lastErr = null;
-        for (const ref of refs) {
-          try {
-            await subscribePush(ref, this.profile?.prefs || {}, { interactive: true });
-            ok++;
-          } catch (e) {
-            lastErr = e;
-          }
-        }
-        if (!ok && lastErr) throw lastErr;
-        await this.updatePrefs({ push: true });
-      } else {
-        for (const w of this.workspaces) await unsubscribePush(w.ref).catch(() => {});
-        // The browser-side subscription goes too: workers this loop missed (a
-        // server not answering) are left pushing at a dead endpoint, which
-        // they drop on their own, rather than at a live one nobody wants.
-        await dropPushSubscription().catch(() => {});
+      if (!on) {
+        await withinMs(Promise.allSettled(this._pushRefs().map((ref) => api.pushUnregister(ref))), HOST_WORD_MS);
+        await disablePuterPush();
+        _notePushOffset(null);
         await this.updatePrefs({ push: false });
+        await this.refreshPushStatus();
+        return { on: false };
       }
+      const asked = enablePuterPush(() => retireLegacyPush(this.workspaces.map((w) => w.ref)));
+      const device = await asked;
+      const granted = extra.length ? await puter.perms.request(extra) : [];
+      if (!device) {
+        await this.updatePrefs({ pushDeclined: true });
+        await this.refreshPushStatus();
+        return { on: false, device: false, granted };
+      }
+      await this.updatePrefs({ push: true, pushDeclined: false });
+      listenForPushes();
+      await Promise.allSettled(this._pushRefs().map((ref) => this._registerPush(ref)));
+      await this.refreshPushStatus();
+      return { on: true, device, granted };
     } finally {
       this._pushToggling = false;
     }
   }
 
-  /** Keep every worker's copy of this device's quiet hours, pause, and preview choice current. */
-  async syncPushPrefs() {
-    if (!this.profile?.prefs?.push || !pushSupported()) return;
-    for (const w of this._pushOrder()) await subscribePush(w.ref, this.profile.prefs).catch(() => {});
+  async refreshPushStatus() {
+    this.pushStatus = await puterPushStatus();
+    this.emit('push');
+    return this.pushStatus;
   }
 
   /**
-   * The workspaces to subscribe, those on the open workspace's server last:
-   * a browser holds one push subscription per origin, made under the key of
-   * whichever worker asked last (pwa.js unsubscribes and subscribes anew for
-   * a different key), so the worker done last is the one whose pushes reach
-   * this device. Done in any other order, turning pushes on from a workspace
-   * left that very workspace with a dead subscription until it was reopened.
+   * Offered from the click that creates or joins a workspace: pushes on for
+   * the account, unless they are on already or were turned down. An owner
+   * creating one is also asked for the sharing grant members' live updates
+   * and pushes depend on, from that click, or on its own when pushes are
+   * not being offered. Returns a promise of `{ on, device, grant }`, or null
+   * when there is nothing to ask.
    */
-  _pushOrder() {
-    const here = this.wsId ? parseRef(this.wsId)?.server : null;
-    const near = (w) => (here && parseRef(w.ref)?.server === here ? 1 : 0);
-    return this.workspaces.filter((w) => !w.unreachable && !w.movedTo).sort((a, b) => near(a) - near(b));
+  offerPush({ owner = false } = {}) {
+    if (typeof puter === 'undefined' || !puter.perms) return null;
+    const prefs = this.profile?.prefs || {};
+    const grant = owner && this.appUid() && prefs.evConsent !== 'declined' ? [{ resource: 'kvShare', ...EV_GRANT }] : [];
+    const push = !prefs.push && !prefs.pushDeclined && !!puter.notifications;
+    if (!push && !grant.length) return null;
+    const asked = push
+      ? this.setPush(true, { extra: grant }).then((res) => ({ ...res, grant: !!res.granted[0] }))
+      : puter.perms.request(grant).then((answers) => ({ on: false, grant: !!answers?.[0] }));
+    return asked.then(async (res) => {
+      if (grant.length && !res.grant) await this.updatePrefs({ evConsent: 'declined' }).catch(() => {});
+      // The worker remembers a refusal to share; a grant made here lifts it.
+      const url = this.user?.worker?.url;
+      if (grant.length && res.grant && url) api.updateServer(url, { events: true }).catch(() => {});
+      return res;
+    });
+  }
+
+  /** The workspaces pushes are set up on. */
+  _pushRefs() {
+    return this.workspaces.filter((w) => !w.unreachable && !w.movedTo).map((w) => w.ref);
+  }
+
+  _pushBody() {
+    const prefs = this.profile?.prefs || {};
+    return { prefs: pushPrefs(prefs), preview: prefs.notifyPreview !== false };
+  }
+
+  /** Register the account's notification settings on one workspace worker. */
+  async _registerPush(ref) {
+    const body = this._pushBody();
+    await api.pushRegister(ref, body);
+    _notePushOffset(body.prefs.tzOffset);
+  }
+
+  async _reconcilePush(ref, pn) {
+    if (this.profile?.prefs?.push) await this._registerPush(ref);
+    else if (pn) await api.pushUnregister(ref);
+  }
+
+  /** Keep every worker's copy of this member's quiet hours, pause, and preview choice current. */
+  async syncPushPrefs() {
+    if (!this.profile?.prefs?.push) return;
+    const body = this._pushBody();
+    _notePushOffset(body.prefs.tzOffset);
+    await Promise.allSettled(this._pushRefs().map((ref) => api.pushRegister(ref, body)));
   }
 
   /* ---- scheduled & reminders ---------------------------------------------- */
@@ -3094,7 +3122,9 @@ class Store extends EventTarget {
   async schedule(convId, { text, attachments = [], dueAt }) {
     const host = this.hostOf(convId);
     const wsId = this.wsId;
-    const res = await api.schedule(host.ref, { conv: host.conv, text, attachments: attachments.map((a) => ({ id: a.id })), dueAt: this._toWorkerTime(dueAt) });
+    const workerDueAt = this._toWorkerTime(dueAt);
+    const consent = this._dueConsent();
+    const res = await api.schedule(host.ref, { conv: host.conv, text, attachments: attachments.map((a) => ({ id: a.id })), dueAt: workerDueAt });
     // Counted here only while the workspace asked is the one open: answered
     // after a switch, the entry stands on the worker and is counted when
     // that workspace's list is next read (see loadScheduled), not on the
@@ -3105,20 +3135,22 @@ class Store extends EventTarget {
       this._laterCache.clear();
       this.emit('activity');
     }
-    return this._dueHere(res.scheduled);
+    return this._dueHere(await this._wakeDue(host.ref, res.scheduled, res.scheduled?.dueAt ?? workerDueAt, consent));
   }
 
   async remind(convId, seq, dueAt, note = '') {
     const host = this.hostOf(convId);
     const wsId = this.wsId;
-    const res = await api.remind(host.ref, { conv: host.conv, seq, dueAt: this._toWorkerTime(dueAt), note });
+    const workerDueAt = this._toWorkerTime(dueAt);
+    const consent = this._dueConsent();
+    const res = await api.remind(host.ref, { conv: host.conv, seq, dueAt: workerDueAt, note });
     if (this.wsId === wsId) { // (see schedule)
       this._reminderCount = (this._reminderCount || 0) + 1;
       this._laterWrites = (this._laterWrites || 0) + 1;
       this._laterCache.clear();
       this.emit('activity');
     }
-    return this._dueHere(res.reminder);
+    return this._dueHere(await this._wakeDue(host.ref, res.reminder, res.reminder?.dueAt ?? workerDueAt, consent));
   }
 
   async loadScheduled({ reuse = false } = {}) {
@@ -3156,23 +3188,65 @@ class Store extends EventTarget {
    * it, within the half minute, put the count back to what it had been
    * (the message just deleted counted on the Later badge again).
    */
-  updateScheduled(entry, patch) {
-    const p = patch && typeof patch.dueAt === 'number' ? { ...patch, dueAt: this._toWorkerTime(patch.dueAt) } : patch;
+  async updateScheduled(entry, patch) {
+    const ref = entry.host || this.wsId;
+    const moved = typeof patch?.dueAt === 'number';
+    const p = moved ? { ...patch, dueAt: this._toWorkerTime(patch.dueAt) } : patch;
+    const consent = moved ? this._dueConsent() : null;
     this._laterCache.clear();
-    return api.updateScheduled(entry.host || this.wsId, entry.id, p).then((res) => {
-      this._laterWrites = (this._laterWrites || 0) + 1; // (see loadScheduled)
-      this._laterCache.clear();
-      return res;
-    });
+    const res = await api.updateScheduled(ref, entry.id, p);
+    if (moved || patch?.sendNow) {
+      await this._cancelDue(res.previousScheduleId || entry.scheduleId);
+      if (moved && !patch.sendNow) await this._wakeDue(ref, { ...entry, scheduleId: null }, p.dueAt, consent);
+    }
+    this._laterWrites = (this._laterWrites || 0) + 1;
+    this._laterCache.clear();
+    return res;
   }
 
-  deleteScheduled(entry) {
+  async deleteScheduled(entry) {
     this._laterCache.clear();
-    return api.deleteScheduled(entry.host || this.wsId, entry.id).then((res) => {
-      this._laterWrites = (this._laterWrites || 0) + 1; // (see loadScheduled)
-      this._laterCache.clear();
-      return res;
-    });
+    const res = await api.deleteScheduled(entry.host || this.wsId, entry.id);
+    await this._cancelDue(res.previousScheduleId || entry.scheduleId);
+    this._laterWrites = (this._laterWrites || 0) + 1;
+    this._laterCache.clear();
+    return res;
+  }
+
+  /** Optional wake-up, asked for once; a decline or no scheduler leaves polling in charge. */
+  async _dueConsent() {
+    try {
+      if (typeof puter.events?.onSchedule !== 'function') return false;
+      if (await puter.perms.check('backgroundEvents')) return true;
+      if (this.profile?.prefs?.dueDeclined) return false;
+      const granted = !!(await puter.perms.request('backgroundEvents'));
+      if (!granted) await this.updatePrefs({ dueDeclined: true }).catch(() => {});
+      return granted;
+    } catch {
+      return false;
+    }
+  }
+
+  async _wakeDue(ref, entry, dueAt, consent) {
+    let scheduleId;
+    try {
+      if (!entry || !(await consent)) return entry;
+      const r = parseRef(ref);
+      const schedule = await puter.events.onSchedule({ at: dueAt, handlerName: DUE_HANDLER, context: { u: r.url, w: r.id } });
+      scheduleId = schedule.scheduleId;
+      await api.updateScheduled(ref, entry.id, { scheduleId, scheduleFor: dueAt });
+      entry = { ...entry, scheduleId };
+    } catch {
+      await this._cancelDue(scheduleId);
+    }
+    this._laterCache.clear();
+    return entry;
+  }
+
+  async _cancelDue(scheduleId) {
+    try {
+      if (scheduleId) await puter.events.removeSchedule(scheduleId);
+    } catch { /* a removed schedule or failed cancellation leaves a harmless wake-up */ }
   }
 
   scheduledCount() {

@@ -84,6 +84,7 @@ export function createMemoryKv({ strictAdd = false, strictPaths = false, strictS
   // within one request — e.g. that the last thing a route touched was a
   // signal's shard write — not only on which keys ended up touched.
   const calls = { list: 0, ops: 0, log: [] };
+  const shares = [];
   const ttl = new Map(); // key -> seconds, recorded for tests
   // key -> epoch ms; keys really do expire here, so rate limits and invite
   // budgets in the browser harness let go the way the real store's do. Kept
@@ -263,6 +264,29 @@ export function createMemoryKv({ strictAdd = false, strictPaths = false, strictS
       persist();
       return true;
     },
+    // Shares as puter.kv.share / unshare answer them with the owner's
+    // consent in place: one share per prefix and holder, kept (and its
+    // handle with it) when made again, and stopping one twice answers twice.
+    _shares: shares,
+    async share({ prefix, recipient, access = 'read', label, notify } = {}) {
+      const holder = recipient?.uid || recipient?.username || recipient;
+      const p = String(prefix).endsWith(':') ? String(prefix) : `${prefix}:`;
+      let s = shares.find((x) => x.prefix === p && x.holder === holder && !x.revokedAt);
+      if (!s) {
+        s = { handle: `kvh-${shares.length + 1}`, prefix: p, holder, label: null, notify: false, createdAt: Math.floor(Date.now() / 1000), revokedAt: null };
+        shares.push(s);
+      }
+      s.access = access;
+      if (label !== undefined) s.label = label;
+      if (notify !== undefined) s.notify = notify;
+      return { handle: s.handle, prefix: s.prefix, access: s.access, appUid: null, holder: s.holder, label: s.label, notify: s.notify, createdAt: s.createdAt };
+    },
+    async unshare(handle) {
+      const s = shares.find((x) => x.handle === handle);
+      if (!s) throw refuse('Not found', 'subject_does_not_exist');
+      s.revokedAt ||= Math.floor(Date.now() / 1000);
+      return { handle, revokedAt: s.revokedAt };
+    },
   };
   return kv;
 }
@@ -290,6 +314,8 @@ export function namespacedKv(kv, prefix) {
     remove: wrap('remove'),
     expire: wrap('expire'),
     expireAt: wrap('expireAt'),
+    share: (options) => kv.share({ ...options, prefix: p() + options.prefix }),
+    unshare: (handle) => kv.unshare(handle),
     async list(pattern, returnValues) {
       const out = await kv.list(typeof pattern === 'string' ? p() + pattern : p() + '*', returnValues);
       return out.map((x) => (typeof x === 'string' ? x.slice(p().length) : { ...x, key: x.key.slice(p().length) }));
@@ -441,12 +467,14 @@ export function fakeAuthToken(appUid = 'app-4b1d9c20-7e3a-4f56-9a08-2c6d5e1f8b34
  */
 export async function createWorkerRuntime({ kv, fs, loadWorker, owner = null, authToken = null, apiOrigin = 'https://api.puter.test' }) {
   const router = createRouter();
+  const notifications = { sent: [], async notify(n) { this.sent.push(n); return `notif-${this.sent.length}`; } };
   const stores = { kv, fs, owner, authToken, apiOrigin, onAnswered: null };
   globalThis.router = router;
   // Getters, so a test can swap in a fresh store without re-importing the
   // worker module (modules only evaluate once).
   globalThis.me = {
     puter: {
+      notifications,
       get kv() { return stores.kv; },
       get fs() { return stores.fs; },
       get authToken() { return stores.authToken; },
@@ -509,6 +537,7 @@ export async function createWorkerRuntime({ kv, fs, loadWorker, owner = null, au
   }
 
   function setStores(next) {
+    notifications.sent.length = 0;
     if ('onAnswered' in next) stores.onAnswered = next.onAnswered;
     if (next.kv) stores.kv = next.kv;
     if (next.fs) stores.fs = next.fs;
@@ -517,5 +546,5 @@ export async function createWorkerRuntime({ kv, fs, loadWorker, owner = null, au
     if ('apiOrigin' in next) stores.apiOrigin = next.apiOrigin;
   }
 
-  return { router, dispatch, setStores, get kv() { return stores.kv; }, get fs() { return stores.fs; } };
+  return { router, dispatch, setStores, notifications, get kv() { return stores.kv; }, get fs() { return stores.fs; } };
 }
