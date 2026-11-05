@@ -232,7 +232,9 @@ export class App extends Emitter {
 
     this.status = h('footer.statusbar', { role: 'contentinfo', 'aria-label': 'Status' });
     this.mobileBar = h('div.mobile-bar', { role: 'toolbar', 'aria-label': 'Quick actions' });
-    root.append(titlebar, this.menubar.el, this.workspace, this.status, this.mobileBar);
+    // A region landmark around the phone toolbar, like the status bar it replaces.
+    const mobileRegion = h('section.mobile-region', { 'aria-label': 'Quick actions' }, this.mobileBar);
+    root.append(titlebar, this.menubar.el, this.workspace, this.status, mobileRegion);
     // The mobile bar replaces the status bar row on phones.
     root.style.gridTemplateRows = '';
     this.refreshMenus();

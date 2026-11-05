@@ -658,3 +658,17 @@ describe('switching projects', () => {
     expect(await listVersions(app.location, b.id)).toHaveLength(1);
   });
 });
+
+describe('landmarks', () => {
+  it('puts the menubar and the phone toolbar inside landmarks', async () => {
+    localStorage.clear();
+    const { app } = await bootLocal();
+    const bar = app.root.querySelector('[role="menubar"]');
+    expect(bar.closest('nav[aria-label]')).not.toBeNull();
+    expect(bar.closest('nav').hasAttribute('role')).toBe(false);
+    const tools = app.root.querySelector('[aria-label="Quick actions"][role="toolbar"]');
+    const region = tools.parentElement;
+    expect(region.tagName).toBe('SECTION');
+    expect(region.getAttribute('aria-label')).toBeTruthy();
+  });
+});

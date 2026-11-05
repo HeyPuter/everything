@@ -195,7 +195,10 @@ export const isMenuOpen = () => openStack.length > 0;
  * Returns { el, setMenus(menus), openByAccel(letter) }.
  */
 export function createMenubar() {
-  const el = h('nav.menubar', { role: 'menubar', 'aria-label': 'Main menu' });
+  // The menubar sits in a navigation landmark (a role on the nav itself would
+  // replace the landmark).
+  const bar = h('div.menubar', { role: 'menubar', 'aria-label': 'Main menu' });
+  const el = h('nav.menubar-nav', { 'aria-label': 'Main menu' }, bar);
   let menus = [];
   let buttons = [];
   let current = -1;
@@ -212,7 +215,7 @@ export function createMenubar() {
 
   function setMenus(next) {
     menus = next;
-    el.replaceChildren();
+    bar.replaceChildren();
     buttons = menus.map((m, i) => {
       const { nodes } = parseLabel(m.label);
       const b = h('button', { type: 'button', role: 'menuitem', 'aria-haspopup': 'menu', 'aria-expanded': 'false', tabindex: i === 0 ? 0 : -1 }, nodes);
@@ -223,7 +226,7 @@ export function createMenubar() {
         else if (e.key === 'ArrowRight') { e.preventDefault(); buttons[(i + 1) % buttons.length].focus(); }
         else if (e.key === 'ArrowLeft') { e.preventDefault(); buttons[(i - 1 + buttons.length) % buttons.length].focus(); }
       });
-      el.append(b);
+      bar.append(b);
       return b;
     });
   }

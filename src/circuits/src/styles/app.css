@@ -80,7 +80,8 @@ button { cursor: pointer; }
 .btn.ghost:hover { background: var(--bg-hover); }
 
 /* ---------- Menus ---------- */
-.menubar { display: flex; align-items: stretch; padding: 0 4px; background: var(--bg-chrome); border-bottom: 1px solid var(--border); user-select: none; min-width: 0; overflow: hidden; }
+.menubar-nav { display: flex; min-width: 0; }
+.menubar { flex: 1; display: flex; align-items: stretch; padding: 0 4px; background: var(--bg-chrome); border-bottom: 1px solid var(--border); user-select: none; min-width: 0; overflow: hidden; }
 .menubar > button {
   border: 0; background: transparent; padding: 0 9px; font-size: var(--fs-md); color: var(--text); border-radius: var(--radius-sm); margin: 2px 0;
 }
@@ -359,7 +360,7 @@ table.grid td input[type='checkbox'] { accent-color: var(--accent); }
 /* ---------- Mobile and tablet ---------- */
 .mobile-only { display: none !important; }
 .compact-only { display: none !important; }
-.mobile-bar { display: none; }
+.mobile-bar, .mobile-region { display: none; }
 
 @media (max-width: 1100px) {
   :root { --dock-left-w: 240px; --dock-right-w: 280px; }
@@ -385,15 +386,16 @@ table.grid td input[type='checkbox'] { accent-color: var(--accent); }
   :root { --titlebar-h: 44px; --status-h: 0px; --dock-left-w: min(88vw, 320px); --dock-right-w: min(92vw, 360px); }
   /* The menubar and status bar are hidden on phones, so they take no rows. */
   #app { grid-template-rows: var(--titlebar-h) minmax(0, 1fr) auto; }
-  .menubar { display: none; }
+  .menubar-nav { display: none; }
   .mobile-only { display: inline-flex !important; }
   .phone-hide { display: none !important; }
   .compact-only.phone-hide { display: none !important; }
   .titlebar .doc-title { text-align: left; padding: 0 4px; }
   .icon-btn { width: 36px; height: 36px; }
   .statusbar { display: none; }
+  .mobile-region { display: flex; min-width: 0; }
   .mobile-bar {
-    display: flex; align-items: center; gap: 2px; padding: 4px 6px calc(4px + env(safe-area-inset-bottom)); background: var(--bg-chrome); border-top: 1px solid var(--border); overflow-x: auto; scrollbar-width: none;
+    flex: 1; min-width: 0; display: flex; align-items: center; gap: 2px; padding: 4px 6px calc(4px + env(safe-area-inset-bottom)); background: var(--bg-chrome); border-top: 1px solid var(--border); overflow-x: auto; scrollbar-width: none;
   }
   .mobile-bar .icon-btn { width: 40px; height: 40px; }
   .mobile-bar .grow { flex: 1; }
