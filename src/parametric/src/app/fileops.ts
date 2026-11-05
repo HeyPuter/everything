@@ -362,6 +362,7 @@ export class FileOps {
 
   async exportAs(format: 'step' | 'stl' | 'part') {
     const app = this.app;
+    const documentVersion = this.documentVersion;
     const name = safeName(app.store.doc.name);
     try {
       if (format === 'part') {
@@ -371,13 +372,15 @@ export class FileOps {
       // The kernel exports the body it built last: a change made just before
       // must be built first, or the file has the old geometry.
       await app.whenBuilt();
+      if (documentVersion !== this.documentVersion) return;
       if (!app.bbox) { toast({ kind: 'warning', message: 'There is no geometry to export yet.' }); return; }
       const data = await app.kernel.exportFile(format, Math.max(1, app.settings.quality));
+      if (documentVersion !== this.documentVersion) return;
       const blob = new Blob([data as BlobPart], { type: format === 'step' ? 'model/step' : 'model/stl' });
 
       download(blob, `${name}.${format === 'step' ? 'step' : 'stl'}`);
     } catch (e) {
-      toast({ kind: 'error', title: 'Export failed', message: (e as Error).message });
+      if (documentVersion === this.documentVersion) toast({ kind: 'error', title: 'Export failed', message: (e as Error).message });
     }
   }
 
