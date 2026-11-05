@@ -266,6 +266,12 @@ describe('feature regeneration', () => {
       expect(r.status[2].ok).toBe(false);
       expect(volume(b)).toBeCloseTo(4000, 3);
     }
+    // With a hole through it the offset comes back as a closed shell, not a solid.
+    const holed = [...base, sketch('S2', circle(0, 0, 3)), extrude('E2', 'S2', 10, { cut: true, flip: true })];
+    r = await b.build(req([...holed, { ...shell(1, false), id: 'SH2' }]));
+    expect(r.status[4]).toEqual({ id: 'SH2', ok: true });
+    const wall = 20 * 20 * 10 - Math.PI * 9 * 10 - (18 * 18 * 8 - Math.PI * 16 * 8);
+    expect(volume(b)).toBeCloseTo(wall, 1);
   });
 
   it('cuts counterbored holes and rejects a hole shallower than its counterbore', async () => {

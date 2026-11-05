@@ -758,7 +758,13 @@ export class ModelBuilder {
       const progress = new oc.Message_ProgressRange();
       try {
         builder.PerformByJoin(st.body.wrapped, f.outward ? t : -t, 1e-3, oc.BRepOffset_Mode.BRepOffset_Skin, false, false, oc.GeomAbs_JoinType.GeomAbs_Arc, false, progress);
-        const offset = wrap(builder.Shape());
+        let offset = wrap(builder.Shape());
+        // The offset of a body with holes can come back as a closed shell.
+        const shells = subShapes(offset, 'solid').length ? [] : subShapes(offset, 'shell');
+        if (shells.length === 1) {
+          const fix = new oc.ShapeFix_Solid();
+          try { offset = wrap(fix.SolidFromShell(shells[0].wrapped)); } finally { fix.delete(); }
+        }
         body = f.outward ? cut(offset, st.body) : cut(st.body, offset);
       } catch {
         throw new FeatureError('The shell could not be created. Try a smaller thickness.');
