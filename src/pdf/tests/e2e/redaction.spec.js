@@ -1,6 +1,15 @@
 import { test, expect } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
-import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
+import {
+  PDFDocument,
+  PDFName,
+  StandardFonts,
+  concatTransformationMatrix,
+  drawObject,
+  popGraphicsState,
+  pushGraphicsState,
+  rgb,
+} from 'pdf-lib';
 import fontkit from '@pdf-lib/fontkit';
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 
@@ -319,4 +328,59 @@ test('redaction properties refuse overlay text the applied marks cannot show', a
   await dialog.getByRole('button', { name: 'Save' }).click();
   await expect(dialog).toBeHidden();
   await expect(page.locator('#toast')).toHaveText('New redaction marks use these settings.');
+});
+
+test('a picture under part of a mark is reported as erased there, not removed', async ({
+  page,
+}) => {
+  await page.route('https://js.puter.com/**', (route) =>
+    route.fulfill({ contentType: 'application/javascript', body: PUTER_MOCK }),
+  );
+  await page.goto('/#library');
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const sheet = doc.addPage([300, 300]);
+  sheet.drawText('X', { x: 40, y: 200, size: 16, font });
+  const pixels = new Uint8Array(8 * 8 * 3).fill(200);
+  const picture = doc.context.register(
+    doc.context.flateStream(pixels, {
+      Type: 'XObject',
+      Subtype: 'Image',
+      Width: 8,
+      Height: 8,
+      ColorSpace: 'DeviceRGB',
+      BitsPerComponent: 8,
+    }),
+  );
+  sheet.node.setXObject(PDFName.of('Pic'), picture);
+  sheet.pushOperators(...[pushGraphicsState(), concatTransformationMatrix(80, 0, 0, 80, 100, 50)]);
+  sheet.pushOperators(drawObject('Pic'), popGraphicsState());
+  const chooser = page.waitForEvent('filechooser');
+  await page.getByRole('button', { name: /Open a PDF/ }).click();
+  await (
+    await chooser
+  ).setFiles({
+    name: 'picture.pdf',
+    mimeType: 'application/pdf',
+    buffer: Buffer.from(await doc.save()),
+  });
+  await expect(page.locator('.page-caption')).toHaveText('Page 1 of 1');
+  await page.getByRole('button', { name: 'Tools', exact: true }).click();
+  const pane = page.getByRole('complementary', { name: 'Tools' });
+  await pane.getByRole('button', { name: 'Redact a PDF', exact: true }).click();
+  await pane.getByRole('button', { name: 'Redact pages…' }).click();
+  await page
+    .getByRole('dialog', { name: 'Redact pages' })
+    .getByRole('button', { name: 'Mark pages' })
+    .click();
+  await settled(page);
+  await pane.getByRole('button', { name: 'Apply redactions…' }).click();
+  const confirm = page.getByRole('dialog', { name: 'Apply redactions' });
+  await confirm.getByLabel(/Also remove hidden information/).uncheck();
+  await confirm.getByRole('button', { name: 'Apply', exact: true }).click();
+  await settled(page);
+  // It said "removed 1 character, 1 image" for a picture whose pixels were painted over.
+  await expect(page.locator('#toast')).toContainText(
+    'Redactions applied: removed 1 character; erased the marked part of 1 image.',
+  );
 });

@@ -8998,11 +8998,17 @@ export function createEditor({
       const count = (n, word) => n && `${n} ${word}${n === 1 ? '' : 's'}`;
       const removed = [
         count(report.text, 'character'),
-        count(report.images.redacted + report.images.removed, 'image'),
+        count(report.images.removed, 'image'),
         count(report.paths, 'drawing'),
         count(report.annotations, 'annotation'),
       ].filter(Boolean);
-      const summary = `Redactions applied${removed.length ? `: removed ${removed.join(', ')}` : ''}. Save or download to keep the redacted file.`;
+      // A picture under part of a mark keeps the rest: it was not removed.
+      const done = [
+        removed.length && `removed ${removed.join(', ')}`,
+        report.images.redacted &&
+          `erased the marked part of ${count(report.images.redacted, 'image')}`,
+      ].filter(Boolean);
+      const summary = `Redactions applied${done.length ? `: ${done.join('; ')}` : ''}. Save or download to keep the redacted file.`;
       const warnings = [...new Set([...report.warnings, ...(sanitized?.warnings || [])])];
       if (!warnings.length) return toast(summary);
       // What could not be handled as usual must not pass by in a brief message: someone could
