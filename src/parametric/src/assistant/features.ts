@@ -150,10 +150,9 @@ export class FeatureCodec {
         if (has('kind')) f.kind = choice(a.kind, HOLE_KIND, 'kind');
         if (has('diameter')) {
           f.diameter = len('diameter');
-          if (!base && typeof f.diameter === 'number') {
-            const d = f.diameter;
-            Object.assign(f, { depth: d * 2, cbDiameter: d * 1.8, cbDepth: d * 0.6, csDiameter: d * 2 });
-          }
+          // Sizes not given follow the diameter, also one given as an expression ("=D").
+          const d = base ? NaN : u.evalLength(f.diameter);
+          if (d > 0) Object.assign(f, { depth: d * 2, cbDiameter: d * 1.8, cbDepth: d * 0.6, csDiameter: d * 2 });
         }
         if (has('end')) f.end = choice(a.end, END2, 'end');
         else if (has('depth') && f.end === 'throughAll') f.end = 'blind';

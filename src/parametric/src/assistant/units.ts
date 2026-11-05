@@ -76,6 +76,11 @@ export class Units {
     return kind === 'length' ? Number(num(p / this.scale, 6 + Math.max(0, Math.round(Math.log10(this.scale))))) : Number(num(p, 6));
   }
 
+  /** A stored length parameter's value now in mm (NaN when it does not evaluate). */
+  evalLength(p: Param): number {
+    try { return this.store.evalParam(p, 'length'); } catch { return NaN; }
+  }
+
   /** Evaluated value of a stored parameter, as display text with unit. */
   paramText(p: Param, kind: Kind): string {
     let v: number;

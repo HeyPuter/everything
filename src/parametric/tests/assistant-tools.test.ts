@@ -343,4 +343,18 @@ describe('assistant tools', () => {
     await h.call('set_part', { units: 'MMGS' });
     expect((await h.call('get_model', { features: ['f2'] })).content).toContain('"depth":1.2345');
   });
+
+  it('sizes a counterbore from a diameter given as a variable', async () => {
+    const h = new TestHost();
+    await h.call('set_part', { units: 'IPS' });
+    await h.call('set_variables', { set: [{ name: 'D', value: 0.5 }] });
+    await h.call('create_sketch', { plane: 'top', shapes: [{ type: 'rectangle', center: [0, 0], width: 3, height: 2 }] });
+    await h.call('add_extrude', { sketch: 's1', depth: 1 });
+    // The defaults came from a 5 mm hole, so the counterbore was smaller than the 12.7 mm hole.
+    const r = await h.call('add_hole', { on: topFace(h), points: [[0, 1, 0]], diameter: '=D', kind: 'counterbore' });
+    expect(r.ok).toBe(true);
+    const hole = h.store.doc.features.at(-1) as { diameter: unknown; cbDiameter: number };
+    expect(hole.diameter).toBe('=D');
+    expect(hole.cbDiameter).toBeCloseTo(12.7 * 1.8, 6);
+  });
 });
