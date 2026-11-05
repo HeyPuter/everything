@@ -125,13 +125,22 @@ function ringBox(pts) {
   return b;
 }
 
-function insideHoles(x, y, holes) {
-  if (!holes) return false;
-  for (const h of holes) {
-    const b = ringBox(h);
-    if (x < b.minX || x > b.maxX || y < b.minY || y > b.maxY) continue;
-    if (pointInPoly(x, y, h)) return true;
+// Holes of a pour fill, indexed by box once (a large pour has thousands).
+const holeIndexCache = new WeakMap();
+function holesNear(holes, box) {
+  if (!holes?.length) return [];
+  if (holes.length <= 16) return holes.filter((h) => h.length >= 6 && boxGap(ringBox(h), box) === 0);
+  let tree = holeIndexCache.get(holes);
+  if (!tree) {
+    tree = new RBush(16);
+    tree.load(holes.filter((h) => h.length >= 6).map((h) => ({ ...ringBox(h), h })));
+    holeIndexCache.set(holes, tree);
   }
+  return tree.search(box).map((e) => e.h);
+}
+
+function insideHoles(x, y, holes) {
+  for (const h of holesNear(holes, { minX: x, minY: y, maxX: x, maxY: y })) if (pointInPoly(x, y, h)) return true;
   return false;
 }
 
@@ -145,19 +154,17 @@ const boxGap = (a, b) => Math.hypot(Math.max(a.minX - b.maxX, b.minX - a.maxX, 0
  */
 function ringsEdgesDist(it, near, fn) {
   let d = Infinity;
-  const holes = it.holes || [];
   // Holes around the item first: they usually decide (thermal gaps, clearances).
-  for (const h of holes) {
-    if (h.length < 6 || boxGap(ringBox(h), near) > 0) continue;
+  const touching = holesNear(it.holes, near);
+  for (const h of touching) {
     d = Math.min(d, polyEdgesDist(h, fn));
     if (d <= 0) return 0;
   }
   d = Math.min(d, polyEdgesDist(it.pts, fn));
-  if (d <= 0) return 0;
-  for (const h of holes) {
-    if (h.length < 6) continue;
-    const g = boxGap(ringBox(h), near);
-    if (g === 0 || g >= d) continue;
+  if (d <= 0 || !it.holes?.length) return d;
+  const reach = { minX: near.minX - d, minY: near.minY - d, maxX: near.maxX + d, maxY: near.maxY + d };
+  for (const h of holesNear(it.holes, reach)) {
+    if (touching.includes(h) || boxGap(ringBox(h), near) >= d) continue;
     d = Math.min(d, polyEdgesDist(h, fn));
     if (d <= 0) return 0;
   }
