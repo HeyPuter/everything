@@ -684,6 +684,22 @@ for (const [width, height] of [
         .toBe(true);
     }
     await expect(page.getByRole('slider', { name: 'Page tile size' })).toBeVisible();
+    // The keyboard's focus ring shows whole: the scrolling row clipped the ring drawn outside.
+    await toolbar.getByRole('button', { name: 'Insert', exact: true }).focus();
+    await page.keyboard.press('Tab');
+    const ring = await toolbar
+      .getByRole('button', { name: 'Rotate counterclockwise', exact: true })
+      .evaluate((button) => {
+        const style = getComputedStyle(button);
+        const reach = parseFloat(style.outlineOffset) + parseFloat(style.outlineWidth);
+        const own = button.getBoundingClientRect();
+        const row = button.parentElement.getBoundingClientRect();
+        return {
+          visible: button.matches(':focus-visible') && style.outlineStyle !== 'none',
+          inside: own.top - reach >= row.top - 0.5 && own.bottom + reach <= row.bottom + 0.5,
+        };
+      });
+    expect(ring).toEqual({ visible: true, inside: true });
     // Delete, at the far end of the row, still works from there.
     await toolbar.getByRole('button', { name: 'Delete pages', exact: true }).click();
     await expect(page.getByRole('dialog')).toContainText('Remove page 2?');

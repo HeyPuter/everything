@@ -1169,6 +1169,10 @@
     scrollbar-width: none;
     scroll-padding-inline: 24px;
   }
+  /* Inside the button: the row scrolls, and so clips anything outside it. */
+  .organize-commands > :focus-visible {
+    outline-offset: -3px;
+  }
   .organize-commands.more-start {
     mask-image: linear-gradient(to right, transparent, #000 24px);
   }
