@@ -301,7 +301,10 @@ export async function shortcutsDialog(app: App) {
   add('Pan and zoom on touch', 'Two fingers');
   add('Context menu', 'Right click or long press');
   grid.append(h('h3', {}, 'Commands'));
-  for (const c of app.commands.all().filter((x) => x.shortcut).sort((a, b) => a.label.localeCompare(b.label))) add(c.label, formatShortcut(c.shortcut));
+  // Commands with a second shortcut (Redo, Keyboard Shortcuts) are one row.
+  const keys = new Map<string, string[]>();
+  for (const c of app.commands.all().filter((x) => x.shortcut)) keys.set(c.label, [...(keys.get(c.label) ?? []), formatShortcut(c.shortcut)]);
+  for (const [label, k] of [...keys].sort((a, b) => a[0].localeCompare(b[0]))) add(label, k.join(', '));
   grid.append(h('h3', {}, 'View'));
   add('Rotate 15 degrees', 'Arrow keys');
   add('Rotate 90 degrees', 'Shift + Arrow keys');
@@ -310,6 +313,8 @@ export async function shortcutsDialog(app: App) {
   add('Cancel or clear selection', 'Esc');
   grid.append(h('h3', {}, 'Keyboard navigation'));
   add('Next or previous area (menu bar, CommandManager, design tree, graphics area, task pane, status bar)', 'F6, Shift + F6');
+  add('Rename the feature in the design tree', 'F2');
+  add('Context menu of the feature in the design tree', 'Shift + F10');
   await showDialog({ title: 'Keyboard Shortcuts', wide: true, body: grid, buttons: [{ label: 'Close', value: 'ok', primary: true }] });
 }
 

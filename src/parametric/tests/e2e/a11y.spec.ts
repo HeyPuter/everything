@@ -284,3 +284,15 @@ test('Shift+Tab after clicking a dialog\'s text stays in the dialog', async ({ p
   await page.keyboard.press('Tab');
   expect(await page.evaluate(() => !!document.activeElement?.closest('[role="dialog"]'))).toBe(true);
 });
+
+test('the shortcuts list names each command once with all its keys', async ({ page }) => {
+  await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await page.locator('canvas.gl').focus();
+  await page.keyboard.press('F1');
+  const dialog = page.getByRole('dialog', { name: 'Keyboard Shortcuts' });
+  await expect(dialog.locator('.shortcut-grid').getByText('Redo', { exact: true })).toHaveCount(1);
+  await expect(dialog.locator('.shortcut-grid').getByText('Keyboard Shortcuts', { exact: true })).toHaveCount(1);
+  await expect(dialog).toContainText('F2');
+  await expect(dialog).toContainText('Shift + F10');
+});
