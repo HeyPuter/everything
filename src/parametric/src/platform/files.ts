@@ -181,7 +181,23 @@ export async function saveText(location: Location, name: string, text: string): 
 
 const savesChannel = typeof BroadcastChannel === 'function' ? new BroadcastChannel('parametric-saves') : null;
 
+// ---- The list of parts changed (a save, rename or delete here or in another tab) ----
+
+const partsListeners = new Set<() => void>();
+
+/** Calls `fn` after a part is saved, renamed or deleted (in this tab or another). Returns an unsubscribe. */
+export function onPartsChanged(fn: () => void): () => void {
+  partsListeners.add(fn);
+  return () => partsListeners.delete(fn);
+}
+
+function partsChanged() {
+  for (const fn of partsListeners) fn();
+}
+savesChannel?.addEventListener('message', () => partsChanged());
+
 export function announceSaved(location: Location) {
+  partsChanged();
   try {
     savesChannel?.postMessage({ type: 'saved', location });
   } catch {
@@ -206,11 +222,13 @@ export async function deletePart(location: Location) {
   if (location.type === 'cloud') await puter()!.fs.delete(location.path);
   else await localDelete(location.id);
   forgetRecent(location);
+  partsChanged();
 }
 
 export async function renameCloud(location: Location & { type: 'cloud' }, newName: string): Promise<Location> {
   if (!cloudAvailable()) throw new Error('Sign in to Puter to rename parts saved in your cloud.');
   const item = await puter()!.fs.rename(location.path, `${safeName(newName)}${EXT}`);
+  partsChanged();
   return { type: 'cloud', path: item?.path || location.path.replace(/[^/]+$/, `${safeName(newName)}${EXT}`) };
 }
 

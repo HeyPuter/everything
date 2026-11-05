@@ -1385,3 +1385,29 @@ for (const first of ['older', 'newer'] as const) test(`overlapping opens keep th
   expect(await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.location)).toEqual({ type: 'cloud', path: '/tester/newer.parametric' });
   expect(errors).toEqual([]);
 });
+
+test('the Parts task pane lists a part as soon as it is saved, saved as or renamed', async ({ page }) => {
+  await mockPuter(page);
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await app(page);
+  await page.getByRole('tab', { name: 'Parts' }).click();
+  const pane = page.getByRole('complementary', { name: 'Task pane' });
+  await expect(pane.getByText('No saved parts yet.')).toBeVisible();
+  const run = (id: string) => page.evaluate((id) => (window as unknown as { __parametric: AppHandle }).__parametric.commands.run(id), id);
+  const names = pane.locator('.file-item .n');
+  await run('save');
+  await expect(names).toHaveText(['Part1']);
+  await page.evaluate(() => { (window as unknown as { __savePick: (n: string) => Promise<string> }).__savePick = async (n) => `/tester/AppData/parametric/Parts/${n}`; });
+  await run('saveAs');
+  await page.getByRole('dialog', { name: 'Save As' }).getByRole('textbox').fill('Bracket');
+  await page.getByRole('dialog', { name: 'Save As' }).getByRole('button', { name: 'OK' }).click();
+  // Parts saved within a second of each other may list in either order.
+  const listed = () => names.allTextContents().then((t) => t.sort());
+  await expect.poll(listed).toEqual(['Bracket', 'Part1']);
+  await run('rename');
+  await page.getByRole('dialog', { name: 'Rename part' }).getByRole('textbox').fill('Holder');
+  await page.getByRole('dialog', { name: 'Rename part' }).getByRole('button', { name: 'OK' }).click();
+  await expect.poll(listed).toEqual(['Holder', 'Part1']);
+  expect(errors).toEqual([]);
+});

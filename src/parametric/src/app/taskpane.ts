@@ -1,7 +1,7 @@
 // Task pane (right side): the assistant, parts browser, appearance and
 // getting-started help.
 
-import { listParts, locationLabel, recentParts } from '../platform/files';
+import { listParts, locationLabel, onPartsChanged, recentParts } from '../platform/files';
 import { cloudAvailable, storageError } from '../platform/puter';
 import { h } from '../ui/dom';
 import { icon } from '../ui/icons';
@@ -32,6 +32,24 @@ export class TaskPane {
     app.openTaskPane = (id) => this.open(id as PaneId);
     app.toggleTaskPane = (id) => this.toggle(id as PaneId);
     app.taskPaneOpen = () => this.current;
+    onPartsChanged(() => this.refreshFiles());
+  }
+
+  /** Lists the parts again after a save, rename or delete while Parts is open. */
+  private refreshFiles() {
+    if (this.current !== 'files') return;
+    const old = this.app.shell.tpPanel.querySelector<HTMLElement>('.tp-body');
+    if (!old) return;
+    // Keyboard focus in the list stays on the same row (or the pane's first control).
+    const buttons = () => [...this.app.shell.tpPanel.querySelectorAll<HTMLElement>('.tp-body button')];
+    const focused = buttons().indexOf(document.activeElement as HTMLElement);
+    const body = h('div', { class: 'tp-body' });
+    old.replaceWith(body);
+    void this.renderFiles(body).then(() => {
+      if (focused < 0 || !body.isConnected) return;
+      const now = buttons();
+      now[Math.min(focused, now.length - 1)]?.focus({ preventScroll: true });
+    });
   }
 
   toggle(id: PaneId) {
