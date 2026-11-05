@@ -194,11 +194,12 @@ export function parseParam(text: string, kind: ParamKind, ctx: UnitContext, allo
   }
 }
 
-const numberFieldSettlers = new WeakMap<HTMLInputElement, (ctx: UnitContext) => void>();
+type PendingValueMap = (value: Param) => Param;
+const numberFieldSettlers = new WeakMap<HTMLInputElement, (ctx: UnitContext, map?: PendingValueMap) => void>();
 
 /** Settles delayed edits in their original context and retires controls being replaced. */
-export function settleNumberFields(root: HTMLElement, ctx: UnitContext) {
-  for (const input of root.querySelectorAll('input')) numberFieldSettlers.get(input)?.(ctx);
+export function settleNumberFields(root: HTMLElement, ctx: UnitContext, map?: PendingValueMap) {
+  for (const input of root.querySelectorAll('input')) numberFieldSettlers.get(input)?.(ctx, map);
 }
 
 export function numberField(o: NumberFieldOptions): HTMLElement {
@@ -223,7 +224,7 @@ export function numberField(o: NumberFieldOptions): HTMLElement {
   mark();
   let composing = false;
   let retired = false;
-  const commit = (live = false, ctx = o.ctx) => {
+  const commit = (live = false, ctx = o.ctx, map?: PendingValueMap) => {
     if (composing || retired) return;
     const r = parseParam(input.value, o.kind, ctx, o.allowExpr !== false);
     if (!r.ok) {
@@ -248,16 +249,16 @@ export function numberField(o: NumberFieldOptions): HTMLElement {
     input.removeAttribute('aria-invalid');
     input.title = '';
     if (live) { o.onLive?.(r.num); return; }
-    current = r.value;
+    current = map ? map(r.value) : r.value;
     mark();
-    o.onChange(r.value);
+    o.onChange(current);
   };
   let timer = 0;
   const cancelPending = () => { clearTimeout(timer); timer = 0; };
-  numberFieldSettlers.set(input, (ctx) => {
+  numberFieldSettlers.set(input, (ctx, map) => {
     const pending = !!timer;
     cancelPending();
-    if (pending) commit(false, ctx);
+    if (pending) commit(false, ctx, map);
     retired = true;
   });
   const scheduleCommit = () => {

@@ -200,6 +200,51 @@ test.describe('sketching', () => {
     expect(errors).toEqual([]);
   });
 
+  for (const [input, change, delay] of [
+    ['40', 'units', 0], ['=Width + 10', 'units', 0], ['Width + 10', 'units', 0], ['=Width + 10', 'units', 500],
+    ['=Width + 10', 'rename', 0], ['=Width + 10', 'delete', 0],
+  ] as const) test(`a sketch ${change} change preserves dimension input ${input} after ${delay} ms`, async ({ page }) => {
+    const errors = await openApp(page);
+    await startSketch(page);
+    await page.evaluate(async (url) => {
+      await import(url);
+      const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+      a.store.change('Add variable', (doc) => { doc.variables = [{ id: 'v1', name: 'Width', expr: '30' }]; });
+      a.sketchEditor!.edit('Add circle', (sk) => {
+        sk.entities.push({ id: 'pc', t: 'point', x: 0, y: 0 }, { id: 'circle', t: 'circle', c: 'pc', r: 15 });
+        sk.constraints.push({ id: 'diameter', type: 'diameter', refs: ['circle'], value: '=Width', at: [20, 20], name: 'D1' });
+      });
+      a.selection.set([{ kind: 'skdim', id: 'diameter' }]);
+    }, '/src/model/document.ts');
+    const field = page.getByRole('textbox', { name: 'Value', exact: true });
+    await field.fill(input);
+    if (delay) await page.waitForTimeout(delay);
+    await page.evaluate(async ({ url, change }) => {
+      const { changeUnits, mapExpressions } = await import(url);
+      const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+      a.store.change('Change context', (doc) => {
+        if (change === 'units') changeUnits(doc, 'IPS');
+        else {
+          mapExpressions(doc, (src: string) => src.replace(/Width/g, change === 'rename' ? 'Span' : '30'));
+          if (change === 'rename') doc.variables[0].name = 'Span';
+          else doc.variables = [];
+        }
+      });
+    }, { url: '/src/model/document.ts', change });
+    await page.waitForTimeout(500);
+    const dimension = () => page.evaluate(() => {
+      const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+      const d = a.sketchEditor!.sketch.constraints.find((c) => c.id === 'diameter') as import('../../src/model/types').SkDimension;
+      return a.sketchEditor!.dimValue(d);
+    });
+    expect(await dimension()).toBeCloseTo(40, 8);
+    if (change === 'rename') await expect(field).toHaveValue('=Span + 10');
+    if (change === 'delete') await expect(field).toHaveValue('=30 + 10');
+    await field.press('Enter');
+    expect(await dimension()).toBeCloseTo(40, 8);
+    expect(errors).toEqual([]);
+  });
+
   for (const action of ['Tab', 'Increase Value', 'Driven (reference only)'] as const) test(`leaving an edited dimension for ${action} completes the intended interaction`, async ({ page }) => {
     const errors = await openApp(page);
     const { x, y } = await startSketch(page);

@@ -8,7 +8,7 @@ import { dist2, toLocal, toWorld } from '../../math/vec';
 import type { Id, Param, SkConstraint, SkCurve, SkDimension, SkEntity, SketchFeature } from '../../model/types';
 import { isDimension } from '../../model/types';
 import { UNIT_SYSTEMS, formatEditable, formatNumber } from '../../model/units';
-import { evaluate, variableReferenceChanges } from '../../model/expr';
+import { evaluate, evaluateVariables, variableReferenceChanges } from '../../model/expr';
 import { changeFeatureUnits } from '../../model/document';
 import { ORIGIN_ID, SketchIndex, distanceToCurve, pointIdsOf, sketchBounds, tessellate } from '../../sketch/geom';
 import { type SolveResult, solveSketch } from '../../sketch/solver';
@@ -17,6 +17,7 @@ import { h } from '../../ui/dom';
 import { icon, relationGlyph } from '../../ui/icons';
 import { toast } from '../../ui/overlay';
 import type { App } from '../app';
+import { settleNumberFields } from '../pm';
 import type { VPEvent, ViewportTool } from '../viewport';
 import { dimGraphics } from './dimgfx';
 import { type Snap, SNAP_GLYPH, snapPoint } from './inference';
@@ -106,13 +107,31 @@ export class SketchEditor implements ViewportTool {
       if (reason === 'sketch' && units === app.store.doc.units) return;
       const references = variableReferenceChanges(variables, app.store.doc.variables);
       const unitsChanged = units !== app.store.doc.units;
+      const previousUnits = units, previousVariables = variables;
       units = app.store.doc.units;
       variables = structuredClone(app.store.doc.variables);
       if (reason === 'undo' || reason === 'redo') {
         if (this.tool) { if (this.tool.abort) this.tool.abort(); else this.tool.cancel(); }
         this.modifyRevert = null;
         this.closeModify();
-      } else this.modifySyncExpressions?.(references);
+      } else {
+        if (unitsChanged || references.size) {
+          const field = app.shell.lpBody.querySelector<HTMLElement>('.sketch-dimension-field');
+          const dims = this.selectedIds(['skdim']);
+          const d = dims.length === 1 ? this.sketch.constraints.find((c) => c.id === dims[0]) : undefined;
+          if (field && d && isDimension(d)) {
+            const values = evaluateVariables(previousVariables).values;
+            // The document already changed context, but the pending text did
+            // not. Parse it in the old context, then convert before storing it.
+            settleNumberFields(field, { units: previousUnits, decimals: app.store.doc.decimals, variables: () => values }, (value) => {
+              const pending = { ...this.sketch, entities: [], constraints: [{ ...d, value }] };
+              changeFeatureUnits(pending, previousUnits, units, previousVariables, variables, references);
+              return pending.constraints[0].value;
+            });
+          }
+        }
+        this.modifySyncExpressions?.(references);
+      }
       if (unitsChanged || references.size) {
         app.refreshSketchPanel();
         this.render();

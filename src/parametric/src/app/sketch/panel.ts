@@ -82,14 +82,14 @@ export class SketchPanel extends PropertyPanel {
     } else if (dims.length === 1) {
       const d = dims[0];
       out.push(section(`Dimension ${d.name}`, [
-        d.driven ? h('div', { class: 'field-label' }, 'Driven (reference) dimension') : numberField({
+        d.driven ? h('div', { class: 'field-label' }, 'Driven (reference) dimension') : h('div', { class: 'sketch-dimension-field' }, numberField({
           label: 'Value', value: d.value, kind: d.type === 'angle' ? 'angle' : 'length', ctx: app.unitContext(),
           // Like the Modify box: lengths must be positive (a negative one over-defines the sketch).
           min: d.type === 'angle' ? 0 : 1e-6,
           // The angle between two lines is 0 to 180 degrees (the label side picks the sector).
           max: d.type === 'angle' ? 180 : undefined,
           onChange: (v) => ed.edit('Change dimension', (s2) => { (s2.constraints.find((c) => c.id === d.id) as SkDimension).value = v; }, { keepNumberField: true }),
-        }),
+        })),
         checkbox('Driven (reference only)', !!d.driven, (v) => ed.edit(v ? 'Make dimension driven' : 'Make dimension driving', (s2) => { (s2.constraints.find((c) => c.id === d.id) as SkDimension).driven = v || undefined; })),
       ]));
     } else if (!ed.tool) {
