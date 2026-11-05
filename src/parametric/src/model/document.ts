@@ -198,9 +198,23 @@ function convertUnits(doc: PartDocument, units: UnitSystem, variablesAfter?: Var
       const was = before.get(`${f.id}|${fd.path}`);
       if (was !== undefined && !same(was, after.get(`${f.id}|${fd.path}`))) { setPath(f, fd.path, was); unlinked.push(`${f.name} ${fd.label}`); }
     }
-    if (f.type === 'sketch') for (const c of f.constraints) {
+    if (f.type !== 'sketch') continue;
+    let sketchUnlinked = false;
+    for (const c of f.constraints) {
       const was = before.get(`${f.id}|${c.id}`);
-      if (isDimension(c) && was !== undefined && !same(was, after.get(`${f.id}|${c.id}`))) { c.value = was; unlinked.push(`${c.name}@${f.name}`); }
+      if (isDimension(c) && was !== undefined && !same(was, after.get(`${f.id}|${c.id}`))) { c.value = was; unlinked.push(`${c.name}@${f.name}`); sketchUnlinked = true; }
+    }
+    // Stored geometry is only solved for the values its expressions had when it
+    // was last edited; a sketch whose dimensions are all numbers again is not
+    // re-solved when the part rebuilds, so give it the shape those values make.
+    if (sketchUnlinked) {
+      const st = new DocStore(doc);
+      const vars = evaluateVariables(doc.variables).values;
+      try {
+        solveSketch(f.entities, f.constraints, { value: (d) => st.dimensionValue(d, vars), analyze: false });
+      } catch {
+        /* the rebuild reports the sketch's error */
+      }
     }
   }
   return unlinked;

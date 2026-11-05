@@ -346,6 +346,25 @@ describe('document store', () => {
     expect(changeUnits(doc, 'IPS')).toEqual(['Extrude1 Depth']);
     expect(e.depth).toBeCloseTo(25, 9);
   });
+
+  it('gives a sketch whose dimension is replaced by its value the shape that value makes', () => {
+    const doc = newDocument();
+    const sk = sketch('s1', rect(0, 0, 60, 40));
+    const [l0, , , l3] = sk.entities.filter((en) => en.t === 'line');
+    sk.constraints.push(
+      { id: 'c0', type: 'coincident', refs: [sk.entities[0].id, 'O'] }, { id: 'c1', type: 'horizontal', refs: [l0.id] }, { id: 'c2', type: 'vertical', refs: [l3.id] },
+      { id: 'd1', type: 'distance', refs: [l0.id], value: '=W*W/60', at: [30, -10], name: 'D1' } as SkDimension,
+      { id: 'd2', type: 'distance', refs: [l3.id], value: 40, at: [-10, 20], name: 'D2' } as SkDimension,
+    );
+    // The variable changed after the sketch was last edited: its stored points are still 60 wide.
+    doc.variables = [{ id: 'v1', name: 'W', expr: '90' }];
+    doc.features = [sk];
+    const width = (s: SketchFeature) => { const xs = s.entities.flatMap((en) => (en.t === 'point' ? [en.x] : [])); return Math.max(...xs) - Math.min(...xs); };
+    expect(width(new DocStore(doc).resolve().features[0] as SketchFeature)).toBeCloseTo(135, 6);
+    expect(changeUnits(doc, 'IPS')).toEqual(['D1@s1']);
+    expect((sk.constraints.find((c) => c.id === 'd1') as SkDimension).value).toBeCloseTo(135, 9);
+    expect(width(new DocStore(doc).resolve().features[0] as SketchFeature)).toBeCloseTo(135, 6);
+  });
 });
 
 describe('restorable editing sessions', () => {
