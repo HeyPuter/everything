@@ -56,3 +56,26 @@ for (const tool of ['offset', 'sectionView'] as const) for (const action of ['re
     expect(errors).toEqual([]);
   });
 }
+
+for (const close of ['cancel', 'new part', 'restore prior section'] as const) test(`closing Section View via ${close} retires its pending offset`, async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await page.evaluate(() => (window as unknown as Win).__parametric.commands.run('sectionView'));
+  if (close === 'restore prior section') {
+    const input = page.getByRole('textbox', { name: 'Offset', exact: true });
+    await input.fill('3');
+    await input.press('Tab');
+    await page.evaluate(() => (window as unknown as Win).__parametric.commands.run('sectionView'));
+  }
+  await page.getByRole('textbox', { name: 'Offset', exact: true }).fill('7');
+  await page.evaluate(async (close) => {
+    const a = (window as unknown as Win).__parametric;
+    if (close !== 'new part') await a.closePanel(false);
+    else a.newDocument('Replacement');
+  }, close);
+  const expected = close === 'restore prior section' ? { normal: [0, 0, 1], offset: 3 } : null;
+  expect(await page.evaluate(() => (window as unknown as Win).__parametric.renderer.section)).toEqual(expected);
+  await page.waitForTimeout(400); // The cancelled field's debounce must remain inert.
+  expect(await page.evaluate(() => (window as unknown as Win).__parametric.renderer.section)).toEqual(expected);
+  expect(errors).toEqual([]);
+});

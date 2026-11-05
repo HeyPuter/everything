@@ -20,7 +20,7 @@ import { h, formatShortcut, isMac, nextDomId } from '../ui/dom';
 import { icon } from '../ui/icons';
 import { showDialog, toast } from '../ui/overlay';
 import type { App } from './app';
-import { PropertyPanel, SelectionBox, type SelBoxItem, checkbox, numberField, section, selectField, segmented, settleNumberFields } from './pm';
+import { PropertyPanel, SelectionBox, type SelBoxItem, checkbox, numberField, section, selectField, segmented, settleNumberFields, retireNumberFields } from './pm';
 import { type SelItem, remapItem } from './selection';
 import type { MeasureTarget } from '../kernel/protocol';
 import { REPO_URL } from './shell';
@@ -645,6 +645,8 @@ export class SectionPanel extends NumericToolPanel {
   ok() { return true; }
 
   cancel() {
+    // Detaching a focused field can fire change before it leaves the document.
+    retireNumberFields(this.el);
     this.app.renderer.section = this.originalSection;
     this.app.renderer.requestRender();
   }
