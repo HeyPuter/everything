@@ -22,6 +22,19 @@ describe('relations', () => {
     expect(availableRelations(s, ['O'])).toEqual([]);
   });
 
+  it.each([['axis', 'l1', 'l2'], ['l1', 'axis', 'l2'], ['l1', 'l2', 'axis'], ['axis', 'p', 'q'], ['p', 'axis', 'q']])('makes %s, %s, %s symmetric about the centerline whatever the selection order', (...ids) => {
+    const s = sk([
+      { id: 'a', t: 'point', x: 0, y: -20 }, { id: 'b', t: 'point', x: 0, y: 20 }, { id: 'axis', t: 'line', a: 'a', b: 'b', construction: true },
+      { id: 'p0', t: 'point', x: -10, y: 0 }, { id: 'p1', t: 'point', x: -5, y: 5 }, { id: 'l1', t: 'line', a: 'p0', b: 'p1' },
+      { id: 'q0', t: 'point', x: 10, y: 0 }, { id: 'q1', t: 'point', x: 5, y: 5 }, { id: 'l2', t: 'line', a: 'q0', b: 'q1' },
+      { id: 'p', t: 'point', x: -3, y: 9 }, { id: 'q', t: 'point', x: 3, y: 9 },
+    ]);
+    expect(availableRelations(s, ids)).toContain('symmetric');
+    const [rel] = makeRelations(s, 'symmetric', ids, idFactory(s));
+    expect(rel.refs[2]).toBe('axis');
+    expect([...rel.refs].sort()).toEqual([...ids].sort());
+  });
+
   it('offers a point on a spline, which the solver keeps there', () => {
     const s = sk([
       { id: 's0', t: 'point', x: 0, y: 0 }, { id: 's1', t: 'point', x: 10, y: 6 }, { id: 's2', t: 'point', x: 20, y: 0 },

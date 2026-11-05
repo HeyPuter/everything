@@ -89,8 +89,6 @@ export function availableRelations(sk: SketchFeature, ids: Id[]): RelationType[]
   const n = ids.length;
   const lines = count('line'), pts = count('point'), circs = count('circle') + count('arc');
   const out: RelationType[] = [];
-  const ent = sk.entities.find((e) => e.id === ids[n - 1]);
-  const lastIsCenterline = ent?.t === 'line';
   if (n === 1) {
     if (lines === 1) out.push('horizontal', 'vertical');
     if (ids[0] !== ORIGIN_ID) out.push('fix');
@@ -99,7 +97,7 @@ export function availableRelations(sk: SketchFeature, ids: Id[]): RelationType[]
   if (lines === n) {
     out.push('horizontal', 'vertical', 'parallel', 'equal');
     if (n === 2) out.push('perpendicular', 'collinear');
-    if (n === 3 && lastIsCenterline) out.push('symmetric');
+    if (n === 3) out.push('symmetric');
   } else if (pts === n) {
     out.push('horizontal', 'vertical');
     if (n === 2) out.push('coincident');
@@ -114,8 +112,8 @@ export function availableRelations(sk: SketchFeature, ids: Id[]): RelationType[]
     const sp = sk.entities.find((e) => e.t === 'spline' && ids.includes(e.id));
     if (sp?.t === 'spline' && !ids.some((id) => sp.pts.includes(id))) out.push('coincident');
   }
-  else if (n === 3 && pts === 2 && lines === 1 && kinds[2] === 'line') out.push('symmetric');
-  else if (n === 3 && circs === 2 && lines === 1 && kinds[2] === 'line') out.push('symmetric');
+  else if (n === 3 && pts === 2 && lines === 1) out.push('symmetric');
+  else if (n === 3 && circs === 2 && lines === 1) out.push('symmetric');
   if (!ids.includes(ORIGIN_ID)) out.push('fix');
   return out;
 }
@@ -150,6 +148,13 @@ export function makeRelations(sk: SketchFeature, type: RelationType, ids: Id[], 
     return ids.slice(1).map((id) => ({ id: newId('r'), type, refs: [ids[0], id] }));
   }
   if (type === 'fix') return ids.filter((id) => id !== ORIGIN_ID).map((id) => ({ id: newId('r'), type, refs: [id] }));
+  if (type === 'symmetric' && ids.length === 3) {
+    // The symmetry line goes last, wherever it was picked: a centerline if
+    // one was selected, else the only line, else the last line.
+    const lines = ids.filter((_, i) => kinds[i] === 'line');
+    const axis = [...lines].reverse().find((id) => (ix.get(id) as SkLine).construction) ?? lines[lines.length - 1];
+    if (axis) return [{ id: newId('r'), type, refs: [...ids.filter((id) => id !== axis), axis] }];
+  }
   if (type === 'tangent') {
     const circs = ids.filter((id) => ['circle', 'arc'].includes(kindOf(sk, id)!));
     let internal = false;
