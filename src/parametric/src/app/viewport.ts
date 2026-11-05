@@ -589,7 +589,7 @@ export class Viewport {
     this.sketchPx = this.camera.pixelSize;
     if (this.showSketches) {
       for (const f of built) {
-        if (f.type !== 'sketch' || f.suppressed) continue;
+        if (f.type !== 'sketch' || f.suppressed || app.featureStatus(f.id)?.suppressed) continue;
         if (app.sketchEditor?.sketchId === f.id) continue;
         const shown = f.hidden === false || (f.hidden === undefined && !consumed.has(f.id));
         const highlighted = sel.has({ kind: 'feature', id: f.id }) || (sel.hover?.kind === 'feature' && sel.hover.id === f.id) || app.extraHighlights().some((x) => x.kind === 'feature' && x.id === f.id);

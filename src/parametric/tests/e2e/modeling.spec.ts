@@ -50,6 +50,22 @@ test.describe('part modeling', () => {
     expect(errors).toEqual([]);
   });
 
+  test('suppressing a feature suppresses the features built on it', async ({ page }) => {
+    const errors = await openApp(page);
+    await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+    await waitForFeature(page, 'Fillet1');
+    await page.getByRole('treeitem', { name: 'Extrude1' }).click({ button: 'right' });
+    await page.getByRole('menuitem', { name: 'Suppress' }).click();
+    // The hole sits on a face of the extrude and the fillet rounds one of its edges.
+    for (const name of ['Extrude1', 'Hole1', 'Fillet1']) await expect(page.getByRole('treeitem', { name })).toHaveClass(/suppressed/);
+    await expect(page.locator('.ti.error')).toHaveCount(0);
+    await page.getByRole('treeitem', { name: 'Extrude1' }).click({ button: 'right' });
+    await page.getByRole('menuitem', { name: 'Unsuppress' }).click();
+    await expect(page.locator('.ti.suppressed')).toHaveCount(0);
+    await expect(page.locator('.ti.error')).toHaveCount(0);
+    expect(errors).toEqual([]);
+  });
+
   test('evaluates mass properties of the flange', async ({ page }) => {
     await openApp(page);
     await page.getByRole('button', { name: /Pipe Flange/ }).click();

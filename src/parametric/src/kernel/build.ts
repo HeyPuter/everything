@@ -19,6 +19,7 @@ import type {
   FilletFeature, HoleFeature, Id, ImportFeature, LinearPatternFeature, LoftFeature, MirrorFeature, PatternDir, PlaneFeature,
   PlaneRef, RevolveFeature, ShellFeature, SketchFeature, SweepFeature,
 } from '../model/types';
+import { dependencies } from '../model/features';
 import { BASE_FRAMES } from '../model/planes';
 import { type Region, type Seg2, buildProfiles, segPolyline, sketchPoints } from '../sketch/profiles';
 import { SketchIndex, splineBeziers } from '../sketch/geom';
@@ -148,8 +149,13 @@ export class ModelBuilder {
     let chain = 'root';
     const status: FeatureStatus[] = [];
     const upTo = Math.max(0, Math.min(req.upTo, req.features.length));
+    // Suppressed features, and features built on them (their children are
+    // suppressed with them rather than failing for want of their parent).
+    const off = new Set<Id>();
     for (let i = 0; i < upTo; i++) {
       const f = req.features[i];
+      const suppressed = !!f.suppressed || dependencies(f).some((d) => off.has(d));
+      if (suppressed) off.add(f.id);
       const key = hashString(chain + '\u0000' + stepText(f));
       const cached = this.steps[i];
       if (cached && cached.key === key) {
@@ -160,8 +166,8 @@ export class ModelBuilder {
       }
       this.steps.length = i;
       const next = cloneState(state);
-      let st: FeatureStatus = { id: f.id, ok: true };
-      if (!f.suppressed) {
+      let st: FeatureStatus = suppressed ? { id: f.id, ok: true, suppressed: true } : { id: f.id, ok: true };
+      if (!suppressed) {
         try {
           this.warning = null;
           await this.apply(f, next, req);

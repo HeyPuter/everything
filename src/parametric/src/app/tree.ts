@@ -98,7 +98,7 @@ export class FeatureTree {
       const status = f ? app.featureStatus(f.id) : null;
       const selected = r.item ? sel.has(r.item) : false;
       const el = h('div', {
-        class: `ti${f?.suppressed ? ' suppressed' : ''}${f && index >= built ? ' rolled' : ''}${status && !status.ok ? ' error' : ''}${editingId === f?.id ? ' editing' : ''}`,
+        class: `ti${f?.suppressed || status?.suppressed ? ' suppressed' : ''}${f && index >= built ? ' rolled' : ''}${status && !status.ok ? ' error' : ''}${editingId === f?.id ? ' editing' : ''}`,
         role: 'treeitem',
         tabindex: r.key === tabKey ? '0' : '-1',
         'aria-selected': r.item ? String(selected) : null,

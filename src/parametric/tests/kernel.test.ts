@@ -347,6 +347,41 @@ describe('feature regeneration', () => {
     for (const p of [circ(360, true), circ(90, false), lin(-10)]) expect((await b.build(req([...base, p]))).status[4].ok).toBe(true);
   });
 
+  it('suppresses the features built on a suppressed feature instead of failing them', async () => {
+    const b = new ModelBuilder();
+    const base: Feature[] = [sketch('S1', rect(0, 0, 50, 10)), extrude('E1', 'S1', 5)];
+    const r0 = await b.build(req(base));
+    const top = r0.faces.find((f) => f.name === 'E1:cap1')!;
+    const feats: Feature[] = [
+      ...base,
+      sketch('S2', circle(5, 5, 2), { kind: 'face', face: { name: top.name, sig: { type: 'plane', c: top.center, n: top.normal, area: top.area } } }),
+      extrude('E2', 'S2', 5, { cut: true, end: 'throughAll' }),
+      { id: 'P1', name: 'P1', type: 'linearPattern', seeds: ['E2'], dir1: { ref: { kind: 'base', axis: 'x' }, spacing: 10, count: 2, flip: false }, dir2: null },
+      sketch('S3', rect(0, 20, 10, 30)),
+      extrude('E3', 'S3', 5),
+    ];
+    const all = await b.build(req(feats));
+    expect(all.status.every((s) => s.ok && !s.suppressed)).toBe(true);
+    // Suppressing the face sketch takes the cut and its pattern with it.
+    const offS2 = structuredClone(feats);
+    offS2[2].suppressed = true;
+    let r = await b.build(req(offS2));
+    expect(r.status.map((s) => !!s.suppressed)).toEqual([false, false, true, true, true, false, false]);
+    expect(r.status.every((s) => s.ok)).toBe(true);
+    expect(volume(b)).toBeCloseTo(50 * 10 * 5 + 10 * 10 * 5, 3);
+    // Suppressing the base suppresses everything built on its faces.
+    const offE1 = structuredClone(feats);
+    offE1[1].suppressed = true;
+    r = await b.build(req(offE1));
+    expect(r.status.map((s) => !!s.suppressed)).toEqual([false, true, true, true, true, false, false]);
+    expect(r.status.every((s) => s.ok)).toBe(true);
+    expect(volume(b)).toBeCloseTo(10 * 10 * 5, 3);
+    // Unsuppressing brings the children back.
+    r = await b.build(req(feats));
+    expect(r.status.every((s) => s.ok && !s.suppressed)).toBe(true);
+    expect(volume(b)).toBeCloseTo(50 * 10 * 5 - 2 * Math.PI * 4 * 5 + 10 * 10 * 5, 1);
+  });
+
   it('reports a useful error for an open profile and keeps building later features', async () => {
     const b = new ModelBuilder();
     const open = [{ id: 'a', t: 'point', x: 0, y: 0 }, { id: 'b', t: 'point', x: 10, y: 0 }, { id: 'l', t: 'line', a: 'a', b: 'b' }] as any[];

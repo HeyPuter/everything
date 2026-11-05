@@ -68,6 +68,8 @@ export interface FeatureStatus {
   ok: boolean;
   error?: string;
   warning?: string;
+  /** Not built: suppressed, or built on a suppressed feature. */
+  suppressed?: boolean;
 }
 
 export interface BuildResult {
