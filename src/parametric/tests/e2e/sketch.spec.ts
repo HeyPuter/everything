@@ -39,6 +39,47 @@ async function startSketch(page: Page) {
 }
 
 test.describe('sketching', () => {
+  test('a collapsed mirror axis gives feedback without adding geometry or undo history', async ({ page }) => {
+    const errors = await openApp(page);
+    await startSketch(page);
+    const before = await page.evaluate(() => {
+      const app = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+      app.sketchEditor!.edit('Collapse mirror axis', (sk) => {
+        sk.entities.push(
+          { id: 'a', t: 'point', x: 0, y: -10 }, { id: 'b', t: 'point', x: 0, y: 10 }, { id: 'axis', t: 'line', a: 'a', b: 'b', construction: true },
+          { id: 'p', t: 'point', x: 3, y: 1 }, { id: 'q', t: 'point', x: 6, y: 4 }, { id: 'line', t: 'line', a: 'p', b: 'q' },
+        );
+        sk.constraints.push({ id: 'collapse', type: 'coincident', refs: ['a', 'b'] });
+      });
+      app.selection.set([{ kind: 'sk', id: 'line' }, { kind: 'sk', id: 'axis' }]);
+      return { sketch: JSON.stringify(app.sketchEditor!.sketch), undo: app.store.undoLabel };
+    });
+    await page.locator('[data-cmd="mirrorEntities"]').first().click();
+    await expect(page.getByText('Choose a mirror axis with distinct endpoints.', { exact: true })).toBeVisible();
+    const after = await page.evaluate(() => {
+      const app = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+      return { sketch: JSON.stringify(app.sketchEditor!.sketch), undo: app.store.undoLabel };
+    });
+    expect(after).toEqual(before);
+    await page.evaluate(() => {
+      const app = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+      app.sketchEditor!.edit('Restore mirror axis', (sk) => {
+        sk.constraints = sk.constraints.filter((c) => c.id !== 'collapse');
+        const a = sk.entities.find((e) => e.id === 'a')!;
+        const b = sk.entities.find((e) => e.id === 'b')!;
+        if (a.t === 'point' && b.t === 'point') { a.x = b.x = 0; a.y = -10; b.y = 10; }
+      });
+    });
+    await page.locator('[data-cmd="mirrorEntities"]').first().click();
+    const mirrored = await page.evaluate(() => {
+      const app = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+      return { points: app.sketchEditor!.sketch.entities.filter((e) => e.t === 'point').map((e) => [e.x, e.y]), undo: app.store.undoLabel };
+    });
+    expect(mirrored.points).toEqual(expect.arrayContaining([[-3, 1], [-6, 4]]));
+    expect(mirrored.undo).toBe('Mirror entities');
+    expect(errors).toEqual([]);
+  });
+
   for (const editor of ['panel', 'Modify', 'Modify live'] as const) for (const action of ['rename', 'delete'] as const) test(`the sketch ${editor} follows a variable ${action}`, async ({ page }) => {
     const errors = await openApp(page);
     await startSketch(page);

@@ -196,6 +196,25 @@ describe('assistant tools', () => {
     expect(fil.content).toMatch(/fillets\[0\]\.point: give the corner point id/);
   });
 
+  it('refuses a collapsed mirror axis and allows retry after restoring its endpoints', async () => {
+    const h = new TestHost();
+    await h.call('create_sketch', { plane: 'front', auto_relations: false, shapes: [
+      { type: 'centerline', id: 'axis', from: [0, -10], to: [0, 10] },
+      { type: 'line', id: 'source', from: [3, 1], to: [6, 4] },
+    ] });
+    await h.call('edit_sketch', { sketch: 's1', move_points: [{ point: 'axis_a', to: [0, 0] }, { point: 'axis_b', to: [0, 0] }] });
+    const before = structuredClone(h.store.feature<SketchFeature>('s1'));
+    const undo = h.store.undoLabel;
+    const r = await h.call('edit_sketch', { sketch: 's1', mirrors: [{ entities: ['source'], axis: 'axis' }] }, false);
+    expect(r.ok).toBe(false);
+    expect(r.content).toContain('choose a line with distinct endpoints');
+    expect(h.store.feature('s1')).toEqual(before);
+    expect(h.store.undoLabel).toBe(undo);
+    await h.call('edit_sketch', { sketch: 's1', move_points: [{ point: 'axis_a', to: [0, -10] }, { point: 'axis_b', to: [0, 10] }], mirrors: [{ entities: ['source'], axis: 'axis' }] });
+    const points = h.store.feature<SketchFeature>('s1')!.entities.filter((e) => e.t === 'point').map((e) => [e.x, e.y]);
+    expect(points).toEqual(expect.arrayContaining([[-3, 1], [-6, 4]]));
+  });
+
   it('says when a variable in a shape size or coordinate was used as a value, not linked', async () => {
     const h = new TestHost();
     await h.call('set_variables', { set: [{ name: 'R', value: 7 }] });

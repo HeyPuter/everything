@@ -13,7 +13,7 @@ import { convertEdges } from '../sketch/convert';
 import { ORIGIN_ID, SketchIndex, arcAngles, arcRadius } from '../sketch/geom';
 import {
   RELATION_LABELS, availableRelations, cleanupConstraints, deleteItems, filletCorner, idFactory, kindOf, makeRelations, measureDimension,
-  mirrorEntities, nextDimName, offsetCurves, usedPoints,
+  mirrorAxisDirection, mirrorEntities, nextDimName, offsetCurves, usedPoints,
 } from '../sketch/ops';
 import { buildProfiles, sketchPoints } from '../sketch/profiles';
 import { type SolveResult, solveSketch } from '../sketch/solver';
@@ -490,6 +490,7 @@ export class SketchEdit {
     const ids = this.refIds(v.entities, `mirrors[${i}].entities`);
     const [axis] = this.refIds(v.axis, `mirrors[${i}].axis`);
     if (kindOf(this.sk, axis) !== 'line') throw new ToolError(`mirrors[${i}].axis: must be a line`);
+    if (!mirrorAxisDirection(this.index(), axis)) throw new ToolError(`mirrors[${i}].axis: choose a line with distinct endpoints`);
     const made = mirrorEntities(this.sk, ids, axis, this.gen);
     if (!made.length) throw new ToolError(`mirrors[${i}]: nothing was mirrored`);
     this.created.push(...made);

@@ -682,13 +682,22 @@ export function offsetCurves(sk: SketchFeature, ids: Id[], distance: number, new
 
 // ---------- mirror ----------
 
+/** A mirror needs a resolvable line direction; collapsed axes have none. */
+export function mirrorAxisDirection(ix: SketchIndex, axisId: Id): Vec2 | null {
+  const axis = ix.get(axisId);
+  if (axis?.t !== 'line') return null;
+  const u = norm2(sub2(ix.pt(axis.b), ix.pt(axis.a)));
+  return u.every(Number.isFinite) && (u[0] !== 0 || u[1] !== 0) ? u : null;
+}
+
 /** Mirrors entities about a line, adding symmetric relations for points. */
 export function mirrorEntities(sk: SketchFeature, ids: Id[], axisId: Id, newId: (p: string) => Id): Id[] {
   const ix = new SketchIndex(sk.entities);
   const axis = ix.get(axisId);
   if (!axis || axis.t !== 'line') return [];
-  const a = ix.pt(axis.a), b = ix.pt(axis.b);
-  const u = norm2(sub2(b, a));
+  const u = mirrorAxisDirection(ix, axisId);
+  if (!u) return [];
+  const a = ix.pt(axis.a);
   const reflect = (p: Vec2): Vec2 => {
     const v = sub2(p, a);
     const t = dot2(v, u);

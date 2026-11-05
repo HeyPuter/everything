@@ -408,6 +408,37 @@ describe('editing tools', () => {
     expect(solveSketch(s.entities, s.constraints, { value }).converged).toBe(true);
   });
 
+  it('rejects a mirror axis collapsed by coincidence without changing the sketch', () => {
+    const s = sk([
+      { id: 'a', t: 'point', x: 0, y: -10 }, { id: 'b', t: 'point', x: 0, y: 10 }, { id: 'axis', t: 'line', a: 'a', b: 'b', construction: true },
+      { id: 'p', t: 'point', x: 3, y: 1 }, { id: 'q', t: 'point', x: 6, y: 4 }, { id: 'line', t: 'line', a: 'p', b: 'q' },
+    ]);
+    s.constraints.push({ id: 'collapse', type: 'coincident', refs: ['a', 'b'] });
+    expect(solveSketch(s.entities, s.constraints, { value }).converged).toBe(true);
+    const before = structuredClone(s);
+    expect(mirrorEntities(s, ['line'], 'axis', idFactory(s))).toEqual([]);
+    expect(s).toEqual(before);
+  });
+
+  it.each([0, 1e-10, 1e-9, 1e-6])('handles a mirror axis of length %s without silently duplicating its source', (length) => {
+    const s = sk([
+      { id: 'a', t: 'point', x: 0, y: 0 }, { id: 'b', t: 'point', x: 0, y: length }, { id: 'axis', t: 'line', a: 'a', b: 'b' },
+      { id: 'p', t: 'point', x: 3, y: 1 }, { id: 'q', t: 'point', x: 6, y: 4 }, { id: 'line', t: 'line', a: 'p', b: 'q' },
+    ]);
+    const before = structuredClone(s);
+    const made = mirrorEntities(s, ['line'], 'axis', idFactory(s));
+    if (length < 1e-9) {
+      expect(made).toEqual([]);
+      expect(s).toEqual(before);
+    } else {
+      expect(made).toHaveLength(1);
+      const ix = new SketchIndex(s.entities);
+      const line = ix.get(made[0]) as SkLine;
+      expect(ix.pt(line.a)).toEqual([-3, 1]);
+      expect(ix.pt(line.b)).toEqual([-6, 4]);
+    }
+  });
+
   it('keeps shared circle centers and repeated spline points on the mirror axis', () => {
     const s = sk([
       { id: 'a', t: 'point', x: 0, y: -10 }, { id: 'b', t: 'point', x: 0, y: 10 }, { id: 'axis', t: 'line', a: 'a', b: 'b', construction: true },
