@@ -693,3 +693,31 @@ describe('part field placement', () => {
     });
   });
 });
+
+describe('hiding a field in the properties panel', () => {
+  it('keeps the field where it was on a turned part when it is shown again', async () => {
+    app = await boot();
+    const ed = app.activeEditor;
+    const c3 = [...ed.doc.items()].find((o) => o.designator === 'C3');
+    const def = app.project.library[c3.comp];
+    const before = fieldPosition(c3, 'designator', def);
+    ed.setSelection([c3.id]);
+    app.panels.properties.refresh();
+    const toggle = () => {
+      const label = [...document.querySelectorAll('label')].find((l) =>
+        /Hide designator/.test(l.textContent),
+      );
+      const box = label?.querySelector('input') || document.getElementById(label?.htmlFor);
+      expect(box).toBeTruthy();
+      box.click();
+      box.dispatchEvent(new Event('change', { bubbles: true }));
+      app.panels.properties.refresh();
+    };
+    toggle();
+    expect(fieldPosition(ed.doc.store.get(c3.id), 'designator', def).hidden).toBe(true);
+    toggle();
+    const after = fieldPosition(ed.doc.store.get(c3.id), 'designator', def);
+    expect(after.hidden).toBe(false);
+    expect([after.x, after.y]).toEqual([before.x, before.y]);
+  });
+});

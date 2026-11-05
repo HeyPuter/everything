@@ -10,7 +10,7 @@ import { LAYERS, boardLayers, isCopper } from '../../model/layers.js';
 import { POWER_STYLES, PIN_TYPE_LABELS } from '../../model/schema.js';
 import { SHEET_SIZES } from '../../model/project.js';
 import { bboxOfFlat, polyArea } from '../../core/geom.js';
-import { placeSymbol } from '../../model/place.js';
+import { placeSymbol, fieldPosition } from '../../model/place.js';
 import { placedOf } from '../../render/pcb-scene.js';
 
 const MIXED = Symbol('mixed');
@@ -314,9 +314,9 @@ function schSpec(app, ed, objs) {
 
 function fieldOrDefault(o, name, lib) {
   if (o.fields?.[name]) return o.fields[name];
-  const def = lib[o.comp];
-  const local = name === 'designator' ? def?.symbol?.designatorPos : def?.symbol?.valuePos;
-  return { dx: local?.x ?? 0, dy: local?.y ?? 0 };
+  // Where the field is drawn now (the default anchor turns with the part).
+  const f = fieldPosition(o, name, lib[o.comp]);
+  return { dx: f.x - o.x, dy: f.y - o.y };
 }
 
 function paramsSection(app, ed, part, def) {
