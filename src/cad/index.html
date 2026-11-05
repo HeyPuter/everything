@@ -20,7 +20,7 @@
         if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t;
       } catch (e) {}
     </script>
-    <script id="puter-sdk" src="https://js.puter.com/v2/" async></script>
+    <script id="puter-sdk" src="https://js.puter.com/v2/" async onerror="window.__puterFailed = true"></script>
     <script type="module" src="/src/main.js"></script>
   </head>
   <body>
