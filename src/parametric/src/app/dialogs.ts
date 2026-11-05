@@ -46,6 +46,8 @@ export async function equationsDialog(app: App) {
   // only updates the cells it affects, so the field being left keeps its place
   // in the tab order (rebuilding them sent keyboard focus out of the dialog).
   const cells = new Map<Variable, { expr: HTMLInputElement; result: HTMLElement; del: HTMLElement }>();
+  // The name the other equations use for each row, while its typed name is not usable yet.
+  const linked = new Map<Variable, string>();
   const refresh = () => {
     const { values, errors } = evaluateVariables(rows);
     for (const v of rows) {
@@ -66,16 +68,21 @@ export async function equationsDialog(app: App) {
     tbody.textContent = '';
     cells.clear();
     rows.forEach((v, i) => {
+      if (!linked.has(v)) linked.set(v, v.name);
       const name = h('input', { class: 'input', value: v.name, 'aria-label': `Name of variable ${i + 1}`, spellcheck: 'false' }) as HTMLInputElement;
       const expr = h('input', { class: 'input', value: v.expr, spellcheck: 'false' }) as HTMLInputElement;
       name.addEventListener('change', () => {
         // Other equations follow a renamed variable (dimensions and features do on OK).
         // Not from or onto a name another variable has too: its equations would be merged into this one's for good.
-        const was = v.name;
-        const renamed = new Map([[was, name.value.trim()]]);
+        // They follow from the name they still use, so a slip (an invalid or taken name) fixed later keeps them.
+        const was = linked.get(v)!;
         v.name = name.value.trim();
-        const shared = rows.some((r) => r !== v && (r.name === was || r.name === v.name));
-        if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(v.name) && !shared) for (const r of rows) if (r !== v) r.expr = renameReferences(r.expr, renamed);
+        const renamed = new Map([[was, v.name]]);
+        const shared = rows.some((r) => r !== v && (r.name === was || r.name === v.name || linked.get(r) === v.name));
+        if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(v.name) && !shared) {
+          for (const r of rows) if (r !== v) r.expr = renameReferences(r.expr, renamed);
+          linked.set(v, v.name);
+        }
         refresh();
       });
       expr.addEventListener('change', () => { v.expr = expr.value.trim(); refresh(); });

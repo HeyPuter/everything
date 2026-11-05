@@ -240,6 +240,15 @@ test('renaming a variable onto another one\'s name leaves the equations that use
   await name.fill('A');
   await name.press('Tab');
   await expect(dlg.getByRole('textbox', { name: 'Value or expression of C' })).toHaveValue('A + B');
+  // A slip to an invalid or taken name, then a new name: C follows A to it.
+  await name.fill('A x');
+  await name.press('Tab');
+  await name.fill('B');
+  await name.press('Tab');
+  await name.fill('Width');
+  await name.press('Tab');
+  await expect(dlg.getByRole('textbox', { name: 'Value or expression of C' })).toHaveValue('Width + B');
+  await expect(dlg.locator('[aria-invalid="true"]')).toHaveCount(0);
 });
 
 test('the equations table keeps keyboard focus as values are edited and rows deleted', async ({ page }) => {
