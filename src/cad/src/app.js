@@ -634,7 +634,7 @@ export class App {
       let downloaded = false;
       if (doc.file.source === 'cloud') {
         if (!(await this.ensureSignedIn('save to your Puter drive'))) return false;
-        await storage.cloudWrite(doc.file.path, blob);
+        await this.cloudWrite(doc.file.path, blob, true, doc.file.name || doc.name);
       } else {
         const r = await storage.deviceSave(blob, doc.file.name || `${doc.name}${kindExt(kind)}`, doc.file.handle);
         if (!r) return false;
@@ -644,6 +644,7 @@ export class App {
       this.saved(doc, rev, doc.file.name || doc.name, downloaded);
       return true;
     } catch (err) {
+      if (err?.name === 'AbortError') return false;
       this.fileError('save', err);
       return false;
     }
@@ -697,12 +698,12 @@ export class App {
         const same = !!doc.file?.path && (doc.file.path === path || doc.file.path.endsWith(`/${path}`));
         let item;
         try {
-          item = await storage.cloudWrite(path, blob, same);
+          item = await this.cloudWrite(path, blob, same, fileName);
         } catch (err) {
           if (!storage.isExistsError(err)) throw err;
           const ok = await confirmDialog('Replace file?', `"${fileName}" already exists in your drive. Replace it?`, { confirm: 'Replace', danger: true });
           if (!ok) return false;
-          item = await storage.cloudWrite(path, blob, true);
+          item = await this.cloudWrite(path, blob, true, fileName);
         }
         doc.file = { source: 'cloud', path: item?.path || path, kind: target.kind, name: fileName };
         storage.addRecent({ name: fileName, path: doc.file.path, source: 'cloud' });
@@ -724,8 +725,26 @@ export class App {
       this.saved(doc, rev, doc.file.name, downloaded);
       return true;
     } catch (err) {
+      if (err?.name === 'AbortError') return false;
       this.fileError('save', err);
       return false;
+    }
+  }
+
+  /**
+   * Write to the Puter drive. When the session has expired, offer to sign in
+   * again and retry once; declining rejects with an AbortError.
+   */
+  async cloudWrite(path, blob, overwrite, name) {
+    try {
+      return await storage.cloudWrite(path, blob, overwrite);
+    } catch (err) {
+      if (!storage.isAuthError(err)) throw err;
+      this.signedIn = false;
+      this.renderAccount();
+      const ok = await confirmDialog('Sign in again', `Your Puter session has expired. Sign in again to save "${name}" to your Puter drive.`, { confirm: 'Sign in' });
+      if (!ok || !(await this.signIn())) throw new DOMException('Sign-in declined', 'AbortError');
+      return storage.cloudWrite(path, blob, overwrite);
     }
   }
 
