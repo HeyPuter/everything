@@ -23,6 +23,9 @@ export function num(v: number, digits = 4): string {
 }
 
 export class Units {
+  /** Told when an expression over variables is taken as its value now (coordinates and shape sizes do not stay linked). */
+  onUnlinked: ((what: string, expr: string, mm: number) => void) | null = null;
+
   constructor(private store: DocStore) {}
 
   get scale(): number {
@@ -113,7 +116,9 @@ export class Units {
     if (typeof v === 'string' && v.trim()) {
       const p = this.parseParam(v, 'length', what);
       if (typeof p === 'number') return p;
-      return this.store.evalParam(p, 'length');
+      const mm = this.store.evalParam(p, 'length');
+      this.onUnlinked?.(what, p, mm);
+      return mm;
     }
     if (typeof v !== 'number' || !Number.isFinite(v)) throw new ToolError(`${what}: expected a number`);
     return v * this.scale;

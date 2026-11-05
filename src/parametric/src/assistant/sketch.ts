@@ -42,6 +42,7 @@ export class SketchEdit {
   autoRelations = true;
 
   constructor(sketch: SketchFeature, readonly frame: Frame, private units: Units, private store: DocStore) {
+    units.onUnlinked = (what, expr, mm) => this.notes.push(`${what}: "${expr}" was used as its value now, ${units.len(mm, true)}; sketch coordinates and shape sizes do not follow variables. To keep it linked, add a dimension with value "${expr}".`);
     this.sk = structuredClone(sketch);
     this.used = new Set([...this.sk.entities.map((e) => e.id), ...this.sk.constraints.map((c) => c.id), ORIGIN_ID]);
     const raw = idFactory(this.sk);

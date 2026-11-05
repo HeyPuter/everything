@@ -195,4 +195,16 @@ describe('assistant tools', () => {
     const fil = await h.call('edit_sketch', { sketch: 's1', fillets: [{ radius: 2 }] }, false);
     expect(fil.content).toMatch(/fillets\[0\]\.point: give the corner point id/);
   });
+
+  it('says when a variable in a shape size or coordinate was used as a value, not linked', async () => {
+    const h = new TestHost();
+    await h.call('set_variables', { set: [{ name: 'R', value: 7 }] });
+    const r = await h.call('create_sketch', { plane: 'front', shapes: [{ type: 'circle', id: 'c', center: [0, 0], radius: '=R' }] });
+    expect(r.content).toMatch(/shapes\[0\] \(circle\)\.radius: "=R" was used as its value now, 7 mm.*add a dimension with value "=R"/);
+    const hole = await h.call('add_extrude', { sketch: 's1', depth: 5 });
+    expect(hole.ok).toBe(true);
+    const top = h.faces.find((f) => f.name.endsWith(':cap1'))!.name;
+    const holes = await h.call('add_hole', { on: top, points: [['=R/2', 0]], diameter: 2 });
+    expect(holes.content).toMatch(/points\[0\]\[0\]: "=R\/2" was used as its value now, 3\.5 mm/);
+  });
 });

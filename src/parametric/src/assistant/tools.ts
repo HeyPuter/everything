@@ -668,6 +668,7 @@ class Toolkit {
     await this.host.settle();
     const args = { ...a };
     const pre: SketchFeature[] = [];
+    const notes: string[] = [];
     if (type === 'hole' && args.sketch == null) {
       if (args.on == null || args.points == null) throw new ToolError('give "sketch" (with stand-alone points) or "on" and "points"');
       const plane = this.refs.plane(args.on, 'on');
@@ -681,6 +682,7 @@ class Toolkit {
       list(args.points).forEach((p, i) => ed.addShape({ type: 'point', at: p }, i));
       if (!ed.sk.entities.length) throw new ToolError('points: give at least one hole centre');
       pre.push(ed.sk);
+      notes.push(...ed.notes.map((n) => n.replace(/^shapes\[(\d+)\] \(point\)\.at/, 'points[$1]')));
       args.sketch = sid;
     }
     delete args.on;
@@ -697,6 +699,7 @@ class Toolkit {
       if (doc.rollback != null) doc.rollback = at + pre.length + 1;
     }, { subject: id });
     const lines = [`Added ${id} "${name}" (${type})${pre.length ? ` with position sketch ${pre[0].id} (${pre[0].entities.length} point(s))` : ''}.`, build];
+    if (notes.length) lines.splice(1, 0, `Notes:\n${notes.map((n) => `- ${n}`).join('\n')}`);
     const faces = this.ins.facesOf(id);
     if (faces) lines.push(faces);
     return lines.join('\n');
