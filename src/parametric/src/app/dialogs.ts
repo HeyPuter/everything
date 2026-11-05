@@ -322,8 +322,10 @@ export async function massPropertiesDialog(app: App) {
   ].join('\n');
   const copy = h('button', { class: 'btn small', type: 'button' }, icon('copy', 14), 'Copy');
   copy.addEventListener('click', () => navigator.clipboard?.writeText(text).then(() => toast({ message: 'Copied to the clipboard', timeout: 1800 })));
+  let stopWatching = () => {};
   await showDialog({
     title: 'Mass Properties',
+    onReady: (close) => { stopWatching = app.store.on((reason) => { if (reason !== 'saved') close(null); }); },
     wide: true,
     body: [
       h('table', { class: 'table' }, h('tbody', {}, rows.map(([k, v]) => h('tr', {}, h('th', {}, k), h('td', { class: 'num' }, v))))),
@@ -334,7 +336,7 @@ export async function massPropertiesDialog(app: App) {
       copy,
     ],
     buttons: [{ label: 'Close', value: 'ok', primary: true }],
-  });
+  }).finally(() => stopWatching());
 }
 
 // ---------- shortcuts ----------

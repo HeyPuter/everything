@@ -70,3 +70,33 @@ for (const density of [-1000, 0]) test(`loaded density ${density} does not produ
   await expect(dialog).toContainText('Not specified (using 1000 kg/m³)');
   expect(errors).toEqual([]);
 });
+
+for (const change of ['edit', 'new document'] as const) test(`a displayed mass report closes after ${change} invalidates its results`, async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await page.evaluate(async () => {
+    const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+    await a.whenBuilt();
+    a.commands.run('massProperties');
+  });
+  const dialog = page.getByRole('dialog', { name: 'Mass Properties', exact: true });
+  await expect(dialog).toBeVisible();
+  await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.store.emit('saved'));
+  await expect(dialog).toBeVisible();
+  await page.evaluate((change) => {
+    const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+    if (change === 'new document') a.newDocument('Replacement');
+    else a.store.change('Change depth', (d) => { const f = d.features.find((f) => f.type === 'extrude')!; if (f.type === 'extrude') f.depth = 60; });
+  }, change);
+  await expect(dialog).toHaveCount(0);
+  if (change === 'edit') {
+    await page.evaluate(async () => {
+      const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+      await a.whenBuilt();
+      a.commands.run('massProperties');
+    });
+    await expect(dialog).toContainText('43513.08');
+    await dialog.getByRole('button', { name: 'Close', exact: true }).last().click();
+  }
+  expect(errors).toEqual([]);
+});
