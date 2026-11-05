@@ -20,14 +20,14 @@ import { organizationsOf } from './shared.js';
 import { normalize } from '../shared/search.js';
 import { SHARED_WORKER_URL } from '../config.js';
 import { LIMITS, INVITE_TTLS, POST_POLICIES, THREAD_POLICIES, BROADCAST_POLICIES, cleanChannelName, extractMentionNames, broadcastKind } from '../shared/limits.js';
-import { evGrantPermission } from '../shared/events.js';
+import { EV_GRANT } from '../shared/events.js';
 import { notificationsSupported, requestNotificationPermission, notificationsGranted, playNotificationSound } from '../lib/notify.js';
 import { relativeLong, untilText } from '../lib/time.js';
 import { initials } from '../lib/format.js';
 import { previewWords } from './applink.js';
 import { aroundText, toLocalInput, DELIVERY_NOTE } from '../lib/schedule.js';
 import { exportWorkspace, writeArchiveToDrive, importArchive, transferWorkspace, progressText, leftBehindText } from '../lib/archive.js';
-import { canInstall, promptInstall, isIos, isStandalone, pushSupported } from '../lib/pwa.js';
+import { canInstall, promptInstall, isIos, isStandalone } from '../lib/pwa.js';
 import { emailAvailable, parseEmails, sendInviteEmails } from '../lib/email.js';
 import { copyToClipboard } from './clipboard.js';
 
@@ -1533,6 +1533,16 @@ function inviteTeammatesWhenReady(wsId) {
   }, 400);
 }
 
+/**
+ * Offer pushes from a create or join click (see store.offerPush): an answer
+ * worth a word gets one, and a refusal is left at that.
+ */
+export function offerPushFromClick(opts) {
+  store.offerPush(opts)?.then((res) => {
+    if (res?.on) toast(res.device ? 'You will be notified of mentions and direct messages while Teamchat is closed' : 'Your other devices will be notified of mentions and direct messages', { icon: 'bell', duration: 6000 });
+  }).catch(() => {});
+}
+
 export function createWorkspaceDialog({ onCreated } = {}) {
   const nameInput = el('input.input', { placeholder: 'e.g. Northwind Studio', maxlength: LIMITS.workspaceName, autocomplete: 'organization' });
   const nameField = field('Workspace name', nameInput, 'The company, team, or project this space is for.');
@@ -1543,6 +1553,9 @@ export function createWorkspaceDialog({ onCreated } = {}) {
       e.preventDefault();
       const name = nameInput.value.trim();
       if (!name) return nameField.showError('Give your workspace a name');
+      // Pushes are offered from this click, the browser's prompt first; the
+      // workspace is made meanwhile.
+      offerPushFromClick({ owner: true });
       const done = busy(submit, 'Creating');
       try {
         const { workspace } = await store.createWorkspace(name, (text) => {
@@ -1591,6 +1604,7 @@ export function joinWorkspaceDialog({ code: initial = '' } = {}) {
       if (!parsed || !parsed.code) return f.showError('That does not look like an invite');
       const server = parsed.server || (SHARED_WORKER_URL ? serverKeyOf(SHARED_WORKER_URL) : null);
       if (!server) return f.showError('Paste the whole invite link, or the code with its server (XXXX-XXXX-XXXX@server)');
+      offerPushFromClick();
       const done = busy(submit, 'Joining');
       try {
         const res = await store.join(server, parsed.code);
@@ -1945,7 +1959,7 @@ export function workspaceSettingsDialog() {
     liveTurnOn.onclick = async () => {
       const done = busy(liveTurnOn, 'Turning on');
       try {
-        const granted = await puter.perms.request('permission', { permission: evGrantPermission(store.uuid, grantAppUid) });
+        const granted = await puter.perms.request('kvShare', EV_GRANT);
         // Declined in Puter's own dialog: they just said no, nothing to
         // record and nothing worth a toast over.
         if (!granted) { done(); return; }
@@ -3853,27 +3867,31 @@ export function settingsDialog({ section = null } = {}) {
         }
       },
     }));
-    if (pushSupported() && import.meta.env?.PROD) {
-      content.append(switchRow({
-        label: 'Notifications when the app is closed', sub: isIos() && !isStandalone() ? 'On iPhone and iPad, add Teamchat to your Home Screen first' : 'Mentions and direct messages reach this device through your browser, following the settings above',
-        // Shown on only while the browser still lets the app notify, as the
-        // desktop switch above is: the preference stands after a permission
-        // revoked in the browser's settings, and the switch read "on" for a
-        // device that nothing could reach any more.
-        checked: !!profile.prefs?.push && notificationsGranted(),
+    if (typeof puter !== 'undefined' && puter.notifications) {
+      const web = puter.env === 'web';
+      const pushRow = switchRow({
+        label: 'Notifications when the app is closed', sub: web && isIos() && !isStandalone() ? 'On iPhone and iPad, add Teamchat to your Home Screen first' : 'Mentions and direct messages reach your devices through Puter, following the settings above',
+        checked: !!profile.prefs?.push && store.pushStatus === 'on',
         onChange: async (v) => {
           try {
-            await store.setPush(v);
-            toast(v ? 'This device will be notified while the app is closed' : 'Push notifications turned off', { icon: v ? 'bell' : 'bellOff' });
+            const res = await store.setPush(v);
+            toast(!v ? 'Push notifications turned off'
+              : res.on ? 'You will be notified while the app is closed'
+                : 'Push notifications were not enabled in this browser', { icon: res.on ? 'bell' : 'bellOff', duration: 6000 });
+            if (v && !res.on) return false;
           } catch (err) {
             toast(err.message || 'Could not set up push', { icon: 'alert', duration: 6000 });
             return false;
           }
         },
-      }));
+      });
+      content.append(pushRow);
+      store.refreshPushStatus().then((status) => {
+        if (!pushRow.hasAttribute('aria-busy')) pushRow.setAttribute('aria-checked', String(!!store.profile?.prefs?.push && status === 'on'));
+      }).catch(() => {});
     }
     content.append(switchRow({
-      label: 'Show the message in notifications', sub: 'Off: notifications say who wrote, not what',
+      label: 'Show the message in notifications', sub: 'Off: hide message previews in notifications',
       checked: profile.prefs?.notifyPreview !== false,
       onChange: async (v) => {
         try {

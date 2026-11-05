@@ -1,7 +1,7 @@
 import {
   createElement,
   ALargeSmall, Archive, ArchiveRestore, ArrowLeft, Baseline, Bell, Bold, Check, CheckCheck,
-  ChevronDown, ChevronLeft, ChevronRight, ChevronsDownUp, ChevronsUpDown, CircleAlert, Copy, CircleUserRound, CloudUpload, Download,
+  ChevronDown, ChevronLeft, ChevronRight, ChevronsDownUp, ChevronsUpDown, CircleAlert, Clock, Copy, CircleUserRound, CloudUpload, Download,
   EllipsisVertical, Eye, FileCode, FileDown, Folder, Image, Inbox, Info,
   Italic, Keyboard, List, ListOrdered, LogOut, Mail, Forward, MailOpen, Menu, Link, Maximize2, AlignLeft, Highlighter,
   Monitor, Moon, Minus, Paperclip, Pencil, Printer, RefreshCw, RemoveFormatting, Reply,
@@ -16,6 +16,7 @@ const ICONS = {
   align: AlignLeft,
   highlight: Highlighter,
   archive: Archive,
+  clock: Clock,
   bell: Bell,
   bold: Bold,
   bulletList: List,

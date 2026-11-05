@@ -143,7 +143,7 @@ export function instantiateWorker(source, { kv = makeKv(), me = { puter: { kv } 
   async function call(
     method,
     pathAndQuery,
-    { headers = {}, body, json, user = null, bindAs = 'user' } = {},
+    { headers = {}, body, json, user = null, bindAs = 'user', waitUntil = null } = {},
   ) {
     const init = { method, headers: { ...headers } };
     if (json !== undefined) {
@@ -161,6 +161,8 @@ export function instantiateWorker(source, { kv = makeKv(), me = { puter: { kv } 
     const request = new RequestShim(url.href, init);
     const ctx = { request, params: match.params, me };
     if (user) ctx[bindAs] = user;
+    // The runtime hands routes the FetchEvent, which has waitUntil.
+    if (waitUntil) ctx.waitUntil = waitUntil;
     const result = await match.handler(ctx);
     return result instanceof ResponseShim
       ? result

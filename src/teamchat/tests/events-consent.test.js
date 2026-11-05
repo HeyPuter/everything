@@ -1,10 +1,9 @@
 /**
  * The owner-facing consent surface for events signalling, both halves of
- * it: the toast (src/ui/shell.js, maybeOfferEventsConsent), offered once per
- * workspace but only once GET /api/server gives a definite answer, and the
- * "Live updates" row Workspace settings shows beside it (src/ui/dialogs.js,
- * workspaceSettingsDialog and liveUpdatesState), which carries the same
- * switch for an owner who waved the toast away. Driven the way
+ * it: the automatic ask (src/ui/shell.js, maybeAskEventsConsent), made once
+ * per workspace with someone in it to share with, and the "Live updates" row
+ * Workspace settings shows (src/ui/dialogs.js, workspaceSettingsDialog and
+ * liveUpdatesState), which carries the same switch for an owner who said no. Driven the way
  * tests/ui-shell-pass16.test.js drives the shell: a fake DOM
  * (tests/helpers/dom.js), conversation.js and huddle.js mocked out, later
  * 'workspace' emits fired directly on the store rather than through a real
@@ -43,21 +42,23 @@ let dom = null;
  * A fresh DOM and fresh modules, the store opened as the workspace's own
  * owner. `server` answers every GET/PUT /api/server; swap it mid-test with
  * the returned `setServer` to change what a later look finds. `permsCheck`
- * is what `puter.perms.check` answers (default: not held, so a test that
- * never mentions it sees exactly the pre-healing behaviour); pass `null` to
- * drop `perms.check` off the fake entirely, as an SDK that predates it would.
+ * is what `puter.perms.check` answers (default: not held); `permsRequest`
+ * what `puter.perms.request` does (default: granted). `members` are the
+ * workspace's other members.
  */
 async function boot({
   server = () => json({ owner: true, events: { appUid: 'app-teamchat-test', why: 'unknown' } }),
   permsCheck = async () => false,
+  permsRequest = async () => true,
+  members = ['u-bob'],
+  prefs = {},
 } = {}) {
   dom?.uninstall();
   dom = installDom({ hash: `#/ws/${encodeURIComponent(REF)}/c/c1` });
   vi.resetModules();
   const calls = [];
   let answer = server;
-  const perms = { request: vi.fn(async () => true) };
-  if (permsCheck !== null) perms.check = vi.fn(permsCheck);
+  const perms = { request: vi.fn(permsRequest), check: vi.fn(permsCheck) };
   globalThis.puter = {
     appID: 'app-teamchat-test',
     perms,
@@ -73,11 +74,14 @@ async function boot({
   const { store } = await import('../src/lib/store.js');
   const open = () => {
     store.wsId = REF;
-    store.profile = { uuid: 'u-me', username: 'me', name: 'Me', prefs: {} };
+    store.profile = { uuid: 'u-me', username: 'me', name: 'Me', prefs: { ...prefs } };
     store.ws = {
       id: 'abc123def0', name: 'Globex', owner: 'u-me',
       channels: { c1: { id: 'c1', name: 'general', def: true } },
-      members: { 'u-me': { role: 'owner', name: 'Me', username: 'me' } },
+      members: {
+        'u-me': { role: 'owner', name: 'Me', username: 'me' },
+        ...Object.fromEntries(members.map((u) => [u, { role: 'member', name: u, username: u }])),
+      },
     };
     store.me = {
       role: 'owner', channels: ['c1'], dms: {}, reads: {}, mentions: {}, notify: {}, threads: {},
@@ -104,9 +108,8 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-/** The shell mounted and settled, at the workspace's own owner. */
-async function shell(opts = {}) {
-  const ctx = await boot(opts);
+/** The shell mounted on `ctx` and settled. */
+async function mount(ctx) {
   const { mountShell } = await import('../src/ui/shell.js');
   const app = document.createElement('div');
   app.id = 'app';
@@ -116,37 +119,78 @@ async function shell(opts = {}) {
   return { ...ctx, app };
 }
 
+/** The shell mounted and settled, at the workspace's own owner. */
+async function shell(opts = {}) {
+  return mount(await boot(opts));
+}
+
 const toasts = () => document.querySelectorAll('.toast').length;
 const past = () => { vi.setSystemTime(Date.now() + 61_000); }; // past EV_CONSENT_RECHECK_MS
+const GRANT = ['kvShare', { prefix: 'tc:ws', access: 'watch' }];
+const needsGrant = (why = 'events_kv_handle_not_delegated') => () => json({ owner: true, events: { appUid: 'app-teamchat-test', why, delegated: false } });
 
-describe('the events consent toast', () => {
-  it('does not toast on an inconclusive "unknown" look, and does once a later look is definite', async () => {
-    let call = 0;
-    const ctx = await shell({
-      server: () => {
-        call++;
-        return call === 1
-          ? json({ owner: true, events: { appUid: 'app-teamchat-test', why: 'unknown' } })
-          : json({ owner: true, events: { appUid: 'app-teamchat-test', why: 'events_kv_handle_not_delegated', delegated: false } });
-      },
-    });
-    expect(ctx.serverCalls()).toBe(1);
+describe('asking the owner for the sharing grant', () => {
+  it('asks Puter straight away, tells the worker, and refreshes', async () => {
+    const ctx = await shell({ server: needsGrant() });
+    expect(globalThis.puter.perms.check).toHaveBeenCalledWith(...GRANT);
+    expect(globalThis.puter.perms.request).toHaveBeenCalledWith(...GRANT);
+    expect(ctx.calls()).toContain('PUT /api/server');
     expect(toasts()).toBe(0);
-    past();
-    ctx.store.emit('workspace');
-    await ctx.dom.tick(5);
-    expect(ctx.serverCalls()).toBe(2);
-    expect(toasts()).toBe(1);
+  });
+
+  it('asks on a worker that has not tried sharing yet, since perms.check settles it', async () => {
+    const ctx = await shell({ server: needsGrant('unknown') });
+    expect(globalThis.puter.perms.request).toHaveBeenCalledWith(...GRANT);
+    expect(ctx.calls()).toContain('PUT /api/server');
+  });
+
+  it('a grant already held lifts a cached refusal without asking', async () => {
+    const ctx = await shell({ server: needsGrant(), permsCheck: async () => true });
+    expect(globalThis.puter.perms.request).not.toHaveBeenCalled();
+    expect(ctx.calls()).toContain('PUT /api/server');
+  });
+
+  it('a grant already held with nothing refused costs no PUT', async () => {
+    const ctx = await shell({ server: needsGrant('unknown'), permsCheck: async () => true });
+    expect(globalThis.puter.perms.request).not.toHaveBeenCalled();
+    expect(ctx.calls()).not.toContain('PUT /api/server');
+  });
+
+  it('a refusal is remembered', async () => {
+    const ctx = await boot({ server: needsGrant(), permsRequest: async () => false });
+    const updatePrefs = vi.spyOn(ctx.store, 'updatePrefs').mockResolvedValue({});
+    await mount(ctx);
+    expect(globalThis.puter.perms.request).toHaveBeenCalledTimes(1);
+    expect(updatePrefs).toHaveBeenCalledWith({ evConsent: 'declined' });
+    expect(ctx.calls()).not.toContain('PUT /api/server');
+  });
+
+  it('an owner who said no before is not asked again', async () => {
+    const ctx = await shell({ server: needsGrant(), prefs: { evConsent: 'declined' } });
+    expect(globalThis.puter.perms.check).toHaveBeenCalled();
+    expect(globalThis.puter.perms.request).not.toHaveBeenCalled();
+    expect(ctx.calls()).not.toContain('PUT /api/server');
+  });
+
+  it('a grant made elsewhere clears an old refusal', async () => {
+    const ctx = await boot({ server: needsGrant(), permsCheck: async () => true, prefs: { evConsent: 'declined' } });
+    const updatePrefs = vi.spyOn(ctx.store, 'updatePrefs').mockResolvedValue({});
+    await mount(ctx);
+    expect(updatePrefs).toHaveBeenCalledWith({ evConsent: null });
+  });
+
+  it('waits for someone to share with: a workspace of one is not asked about', async () => {
+    const ctx = await shell({ server: needsGrant(), members: [] });
+    expect(ctx.serverCalls()).toBe(0);
+    expect(globalThis.puter.perms.request).not.toHaveBeenCalled();
   });
 
   it('throttles: several emits inside the recheck window cost exactly one GET', async () => {
-    const ctx = await shell();
-    expect(ctx.serverCalls()).toBe(1);
-    ctx.store.emit('workspace');
+    const ctx = await shell({ server: () => { throw new Error('offline'); } });
     ctx.store.emit('workspace');
     ctx.store.emit('workspace');
     await ctx.dom.tick(5);
-    expect(ctx.serverCalls()).toBe(1); // the 'unknown' look was inconclusive, but the window has not passed
+    expect(ctx.serverCalls()).toBe(1);
   });
 
   it('a throw leaves a later emit free to try again', async () => {
@@ -155,51 +199,34 @@ describe('the events consent toast', () => {
       server: () => {
         call++;
         if (call === 1) throw new Error('offline');
-        return json({ owner: true, events: { appUid: 'app-teamchat-test', why: 'events_kv_handle_not_delegated', delegated: false } });
+        return needsGrant()();
       },
     });
-    expect(ctx.serverCalls()).toBe(1);
-    expect(toasts()).toBe(0);
+    expect(globalThis.puter.perms.request).not.toHaveBeenCalled();
     past();
     ctx.store.emit('workspace');
     await ctx.dom.tick(5);
-    expect(ctx.serverCalls()).toBe(2);
-    expect(toasts()).toBe(1);
+    expect(ctx.calls().filter((c) => c === 'GET /api/server')).toHaveLength(2);
+    expect(globalThis.puter.perms.request).toHaveBeenCalledTimes(1);
   });
 
-  it('a definite answer latches for good: one GET, no toast, and no second GET however many emits follow', async () => {
+  it('a definite answer latches for good: one GET however many emits follow', async () => {
     const ctx = await shell({ server: () => json({ owner: true, events: { appUid: 'app-teamchat-test', why: null, delegated: true } }) });
-    expect(ctx.serverCalls()).toBe(1);
-    expect(toasts()).toBe(0);
     past();
     ctx.store.emit('workspace');
     ctx.store.emit('workspace');
     await ctx.dom.tick(5);
-    expect(ctx.serverCalls()).toBe(1); // latched: not even asked again once the window has passed
-    expect(toasts()).toBe(0);
+    expect(ctx.serverCalls()).toBe(1);
+    expect(globalThis.puter.perms.check).not.toHaveBeenCalled();
   });
 
-  // A member who is not the worker's own owner is told nothing about the
-  // events question at all (GET /api/server keeps that to the owner), which
-  // is as definite an answer as there is: asking again every minute for the
-  // rest of the session would be one request a minute for nothing, on every
-  // tab in the workspace but the owner's.
-  it('someone who is not the worker\'s owner is asked once and never again', async () => {
+  it('someone who is not the worker\'s owner is asked nothing, once', async () => {
     const ctx = await shell({ server: () => json({ owner: false }) });
-    expect(ctx.serverCalls()).toBe(1);
     past();
     ctx.store.emit('workspace');
     await ctx.dom.tick(5);
     expect(ctx.serverCalls()).toBe(1);
-    expect(toasts()).toBe(0);
-  });
-
-  it('offers the toast and asks for the right permission on the happy path', async () => {
-    const ctx = await shell({ server: () => json({ owner: true, events: { appUid: 'app-teamchat-test', why: 'events_kv_handle_not_delegated', delegated: false } }) });
-    expect(toasts()).toBe(1);
-    document.querySelector('.toast .toast-action').click();
-    await ctx.dom.tick(5);
-    expect(globalThis.puter.perms.request).toHaveBeenCalledWith('permission', { permission: 'manage:kv-share:u-me:app-teamchat-test:tc:ws' });
+    expect(globalThis.puter.perms.request).not.toHaveBeenCalled();
   });
 });
 
@@ -285,7 +312,7 @@ describe('the "Live updates" row in Workspace settings', () => {
   });
 });
 
-describe('Turn on: the same switch the toast offers, reachable any time from Workspace settings', () => {
+describe('Turn on: the same switch, reachable any time from Workspace settings', () => {
   async function openWithRow(server) {
     const ctx = await boot({ server });
     await ctx.store.openWorkspace();
@@ -305,7 +332,7 @@ describe('Turn on: the same switch the toast offers, reachable any time from Wor
     ctx.button.focus();
     ctx.button.click();
     await ctx.dom.tick(5);
-    expect(globalThis.puter.perms.request).toHaveBeenCalledWith('permission', { permission: 'manage:kv-share:u-me:app-teamchat-test:tc:ws' });
+    expect(globalThis.puter.perms.request).toHaveBeenCalledWith(...GRANT);
     expect(ctx.calls()).toContain('PUT /api/server');
     expect(updatePrefs).toHaveBeenCalledWith({ evConsent: null });
     expect(ctx.row.textContent).toContain('On: your permission is in.');

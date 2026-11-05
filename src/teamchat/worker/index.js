@@ -58,10 +58,10 @@ import { unfurl, readImage, allowedUrl, readCapped } from './unfurl.js';
 import { vapidKeys, sendPush, pushAllowed } from './push.js';
 import { signal } from './signal.js';
 import {
-  eventsBlock, serverEventsStatus, clearEventsVerdict, releaseHandle, remintHandle, REVOKE_BATCH_MAX, workerAppUid,
+  eventsBlock, serverEventsStatus, clearEventsVerdict, releaseHandle, remintHandle, REVOKE_BATCH_MAX, workerAppUid, ensureHandle,
 } from './events.js';
 import { ringBlock, ringCount, bumpRingEpoch } from './ring.js';
-import { EV_SHARDS, EV_RING_SHARDS, RING_SLOTS } from '../src/shared/events.js';
+import { EV_SHARDS, EV_RING_SHARDS, RING_SLOTS, pushGroup } from '../src/shared/events.js';
 import { signAttestation, verifyAttestation, ATTEST_TTL_MS, EXTERNAL_TTL_MS, CONN_ID_RE, SECRET_RE, REF_RE } from './connect.js';
 import { liveHuddle, liveHuddles, stalePaths, HUDDLE_MAX, INVITE_RE, SESSION_RE, durationText } from '../src/shared/huddle.js';
 
@@ -1703,69 +1703,88 @@ async function touchThreads(wsId, uuids, threadId, parent, ts) {
 const PUSH_FANOUT = 50;
 /** Devices one member may subscribe per workspace. */
 const PUSH_DEVICES = 5;
+/** A heartbeat this recent means a tab of theirs is in view here (one every 30 seconds). */
+const PUSH_PRESENT_MS = 75_000;
 
-/**
- * Deliver a push to every subscribed device of `uuids` whose settings want
- * it: the member document (one read each) carries their subscriptions and
- * per-conversation levels, and each subscription carries the device's quiet
- * hours and pause. Dead subscriptions are dropped. Never throws.
- */
+/** Notify opted-in members; legacy devices still receive Web Push. Never fails a post. */
 async function sendPushes(ws, uuids, n, readDocs = null) {
   // Through the request's memo where the caller has one (see memberDocsMemo): a
   // post has read these documents already to count the people it now pushes.
   const docs = readDocs ? await readDocs(uuids) : await getMany(uuids.map((u) => KEYS.member(ws.id, u)));
+  // The workspace as the app refers to it, its id at this server (the
+  // deep link below names it so, and the app opens it by that name).
+  const server = (workerHost || 'server').replace(/\.puter\.work$/, '');
+  const ref = `${ws.id}@${server}`;
+  const route = n.threadRoot ? `#/ws/${ref}/c/${n.threadRoot.conv}/t/${n.threadRoot.seq}/m/${n.seq}` : `#/ws/${ref}/c/${n.conv}/m/${n.seq}`;
+  const notifying = !!workerAppUid();
+  const owner = (await serverConfig()).owner;
+  const act = docs.some((d) => Object.keys(d?.push || {}).length) ? (await kv().get(KEYS.activity(ws.id)).catch(() => null)) || {} : {};
+  const present = (u) => (act.p?.[u] || 0) >= now() - PUSH_PRESENT_MS && act.ps?.[u] !== 'off';
   const jobs = [];
-  uuids.forEach((u, i) => {
+  for (const [i, u] of uuids.slice(0, PUSH_FANOUT).entries()) {
     const doc = docs[i];
     const subs = doc?.push || {};
-    if (!Object.keys(subs).length) return;
+    const pn = notifying && doc?.pn ? doc.pn : null;
+    if (!Object.keys(subs).length && !pn) continue;
     const setting = doc?.notify?.[n.mentionConv] || {};
-    if (setting.mute) return;
+    if (setting.mute) continue;
     const level = setting.level || (n.kind === 'dm' ? 'all' : 'mentions');
-    if (level === 'nothing') return;
+    if (level === 'nothing') continue;
     // What this post is to this person: a mention of them, or a message in
     // their direct message. A group message that names someone else is a
     // plain message to the rest, which "mentions only" does not want.
-    const event = n.mentioned.has(u) ? 'mention' : 'message';
-    if (event === 'message' && level !== 'all') return;
-    // The workspace as the app refers to it, its id at this server (the
-    // deep link below names it so, and the app opens it by that name).
-    const server = (workerHost || 'server').replace(/\.puter\.work$/, '');
-    const ref = `${ws.id}@${server}`;
+    const event = n.reminder ? 'reminder' : n.mentioned.has(u) ? 'mention' : 'message';
+    if (event === 'message' && level !== 'all') continue;
+    // Legacy Web Push has no sensitive flag.
+    const quiet = n.quiet || (event === 'mention' ? 'Mentioned you' : 'New message');
+    const bodyFor = (preview) => (preview === false || !n.body ? quiet : n.body);
+    // Tagged the way the client's own banner for the same news is tagged,
+    // so a device told twice — by this push and by the page's poll —
+    // shows one banner replacing the other rather than two. A mention is
+    // tagged by the conversation it counts against (the parent, for one
+    // inside a thread; shell.js tags mentions so) — except a top-level
+    // mention in a conversation heard at "all messages" (every direct
+    // message, a channel set so), which the page announces as the message
+    // it already hears, so the push wears that name; a call keeps the
+    // mention tag the page's huddle banner carries. A plain reply in a
+    // direct message's thread is tagged by the thread under the client's
+    // 'reply' name, which is how the page announces it to its followers.
+    // Named with the workspace as the page names its own (`ref`), since a
+    // direct message keeps its id across workspaces.
+    const tag = n.reminder ? `${ref}:reminder-${n.reminder}` : `${ref}:${event === 'mention'
+      ? (level === 'all' && !n.threadRoot && !n.call ? `message-${n.conv}` : `mention-${n.mentionConv}`)
+      : n.threadRoot ? `reply-${n.conv}` : `message-${n.conv}`}`;
+    if (pn && pushAllowed(pn.prefs)) {
+      jobs.push((async () => {
+        const handle = u === owner ? null : await ensureHandle(ws.id, u, doc, ws.name).catch(() => null);
+        if (u !== owner && !handle) return;
+        try {
+          await me.puter.notifications.notify({
+            title: n.title.slice(0, 120), text: (n.body || quiet).slice(0, 240),
+            channel: 'chat', target: `/${route}`, data: { r: route, g: tag }, group: pushGroup(tag),
+            ...(pn.preview === false ? { sensitive: true } : {}),
+            ...(handle ? { to: { handle } } : {}),
+          });
+        } catch (err) {
+          if (err?.code === 'subject_does_not_exist') {
+            await kv().remove(KEYS.member(ws.id, u), 'ev').catch(() => {});
+          } else if (err?.code === 'kv_share_notify_not_enabled') {
+            await kv().remove(KEYS.member(ws.id, u), 'ev.notify').catch(() => {});
+            await ensureHandle(ws.id, u, { ev: { h: handle } }, ws.name).catch(() => {});
+          }
+        }
+      })());
+    }
     for (const [sid, sub] of Object.entries(subs)) {
-      if (!sub?.endpoint || !pushAllowed(sub.prefs)) continue;
-      const route = n.threadRoot ? `#/ws/${ref}/c/${n.threadRoot.conv}/t/${n.threadRoot.seq}/m/${n.seq}` : `#/ws/${ref}/c/${n.conv}/m/${n.seq}`;
-      // With previews off the body says what happened, not what was said: a
-      // mention, a message, or (a huddle) the event itself, which is no secret.
-      const quiet = n.quiet || (event === 'mention' ? 'Mentioned you' : 'New message');
-      // Tagged the way the client's own banner for the same news is tagged,
-      // so a device told twice — by this push and by the page's poll —
-      // shows one banner replacing the other rather than two. A mention is
-      // tagged by the conversation it counts against (the parent, for one
-      // inside a thread; shell.js tags mentions so) — except a top-level
-      // mention in a conversation heard at "all messages" (every direct
-      // message, a channel set so), which the page announces as the message
-      // it already hears, so the push wears that name; a call keeps the
-      // mention tag the page's huddle banner carries. A plain reply in a
-      // direct message's thread is tagged by the thread under the client's
-      // 'reply' name, which is how the page announces it to its followers.
-      // Named with the workspace as the page names its own (`ref`, the
-      // workspace as the app refers to it): a direct message keeps its id
-      // across workspaces, so the page came to name its banners with the
-      // workspace, and a push named without it no longer replaced the
-      // banner a hidden tab of the same workspace drew for the same message,
-      // so a phone with the app open in the background showed the news twice.
-      const tag = `${ref}:${event === 'mention'
-        ? (level === 'all' && !n.threadRoot && !n.call ? `message-${n.conv}` : `mention-${n.mentionConv}`)
-        : n.threadRoot ? `reply-${n.conv}` : `message-${n.conv}`}`;
+      if (!sub?.endpoint || present(u) || !pushAllowed(sub.prefs)) continue;
       // A message of files alone has no text to preview: it says what
       // happened, as the in-app banner does for such a message, rather than
       // arriving under the sender's name with nothing beneath it.
-      const payload = { title: n.title, body: sub.preview === false || !n.body ? quiet : n.body, tag, route, ws: ws.id };
+      const payload = { title: n.title, body: bodyFor(sub.preview), tag, route, ws: ws.id };
       jobs.push(sendPush(sub, payload).then((r) => (r === 'gone' ? kv().remove(KEYS.member(ws.id, u), `push.${sid}`).catch(() => {}) : null)));
     }
-  });
-  for (let i = 0; i < jobs.length; i += 10) await Promise.all(jobs.slice(i, i + 10));
+  }
+  await Promise.allSettled(jobs);
 }
 
 /* ------------------------------------------------------------------------ */
@@ -3061,14 +3080,8 @@ router.delete('/api/ws/:ws/members/:uuid', route(async ({ params, user }) => {
 /* ---- scheduled messages and reminders ----------------------------------- */
 
 /**
- * A Puter worker only runs while handling a request, so anything due is
- * delivered by whichever member's sync poll comes first after its time.
- * The queue is one document per workspace, a map by id (so entries can be
- * claimed one at a time), and the earliest due time is kept in the
- * activity document the poll already reads: a poll with nothing due costs
- * nothing extra. Claiming is an atomic increment of the entry's claim
- * counter; only the poll that took it from 0 to 1 delivers, so two polls
- * racing cannot both send.
+ * Polls and scheduled wake-ups share the due queue and its atomic claims.
+ * The earliest due time is kept on the activity document a poll already reads.
  */
 const SCHED_HORIZON_MS = 400 * 86400_000;
 /**
@@ -3410,8 +3423,8 @@ async function markFailed(key, doc, e, refusal) {
 }
 
 /**
- * Deliver whatever is due. Runs at the tail of a sync poll when act.nd has
- * passed; never throws (a failure here must not break the poll).
+ * Deliver whatever is due, from a sync poll or /due. Storage failures reach
+ * /due so its handler can retry; the poll catches them in its deferred work.
  */
 async function flushDue(ws) {
   // A transferred workspace is read-only here: nothing may be posted into
@@ -3575,6 +3588,11 @@ async function deliver(ws, e) {
     const ring = (await kv().get(KEYS.inbox(ws.id, e.u)).catch(() => null))?.items;
     if (!(Array.isArray(ring) && ring.some((x) => x && x.k === 'reminder' && x.rid === e.id))) {
       await pushInbox(ws.id, [e.u], { k: 'reminder', c: e.conv, s: e.seq, by: e.u, ts, note: e.note || '', rid: e.id });
+      await sendPushes(ws, [e.u], {
+        reminder: e.id, mentioned: new Set(), conv: e.conv, mentionConv: parentOfThread(e.conv)?.conv || e.conv,
+        seq: e.seq, kind: 'reminder', title: 'Reminder', body: e.note || found.overlay.t || found.raw.t || 'You asked to be reminded',
+        threadRoot: parentOfThread(e.conv),
+      }).catch(() => {});
     }
     await pokeMember(ws.id, e.u).catch(() => {});
     return;
@@ -3606,6 +3624,20 @@ async function deliver(ws, e) {
     return { code: err.code, message: err.message };
   }
 }
+
+/** A schedule or any member may wake the queue without a presence heartbeat. */
+router.post('/api/ws/:ws/due', route(async ({ params, user }) => {
+  const requestedAt = now();
+  const { ws } = await requireMembership(params.ws, user, { doc: false });
+  ws.channels = ws.channels || {};
+  await flushDue(ws);
+  // A moved or frozen workspace delivers nothing here, so retrying cannot help.
+  if (ws.movedTo || frozen(ws)) return { ok: true };
+  const queue = await kv().get(KEYS.sched(ws.id));
+  // Backoff still needs a wake-up; future and refused entries do not.
+  if (Object.values(queue?.m || {}).some((e) => e && !e.failed && e.dueAt <= requestedAt)) fail(503, 'retry', 'Scheduled delivery is still pending');
+  return { ok: true };
+}));
 
 function validDue(v) {
   const t = Math.floor(Number(v));
@@ -3787,7 +3819,7 @@ router.put('/api/ws/:ws/scheduled/:id', route(async ({ params, request, user }) 
     }
     await kv().remove(key, `m.${e.id}`).catch(() => {});
     await recomputeNextDue(params.ws);
-    return { ok: true, sent: true };
+    return { ok: true, sent: true, ...(cur.scheduleId ? { previousScheduleId: cur.scheduleId } : {}) };
   }
   const patch = {};
   if (body.text !== undefined) {
@@ -3812,7 +3844,15 @@ router.put('/api/ws/:ws/scheduled/:id', route(async ({ params, request, user }) 
       patch[`m.${e.id}.text`] = text;
     }
   }
-  if (body.dueAt !== undefined) patch[`m.${e.id}.dueAt`] = validDue(body.dueAt);
+  if (body.dueAt !== undefined) {
+    patch[`m.${e.id}.dueAt`] = validDue(body.dueAt);
+    patch[`m.${e.id}.scheduleId`] = null;
+  }
+  if (body.scheduleId !== undefined) {
+    if (body.scheduleFor !== undefined && body.scheduleFor !== e.dueAt) fail(409, 'rescheduled', 'The scheduled time changed');
+    if (body.scheduleId !== null && (typeof body.scheduleId !== 'string' || !/^[a-zA-Z0-9_-]{1,256}$/.test(body.scheduleId))) fail(400, 'invalid', 'Bad schedule id');
+    patch[`m.${e.id}.scheduleId`] = body.scheduleId;
+  }
   if (!Object.keys(patch).length) fail(400, 'invalid', 'Nothing to change');
   const res = await kv().update(key, patch);
   // A path write makes an entry where there was none: a delivery (or a
@@ -3851,13 +3891,13 @@ router.put('/api/ws/:ws/scheduled/:id', route(async ({ params, request, user }) 
   // they have edited or moved it: the mark goes, after the change is written
   // so a poll never sends the old words, and it is due at its time (an edit
   // alone leaves the time it failed at, so the next poll tries it at once).
-  if (e.failed) await kv().remove(key, `m.${e.id}.failed`, `m.${e.id}.tries`, `m.${e.id}.retryAt`).catch(() => {});
+  if (e.failed && (body.text !== undefined || body.dueAt !== undefined)) await kv().remove(key, `m.${e.id}.failed`, `m.${e.id}.tries`, `m.${e.id}.retryAt`).catch(() => {});
   // A time changed, or a mark cleared, makes the entry due anew: noted for a
   // recompute under way elsewhere (see bumpQueue), whose write would
   // otherwise land over the one below.
   await bumpQueue(params.ws);
   await recomputeNextDue(params.ws);
-  return { ok: true };
+  return { ok: true, ...(e.scheduleId ? { previousScheduleId: e.scheduleId } : {}) };
 }));
 
 router.delete('/api/ws/:ws/scheduled/:id', route(async ({ params, user }) => {
@@ -3884,10 +3924,20 @@ router.delete('/api/ws/:ws/scheduled/:id', route(async ({ params, user }) => {
   await kv().remove(key, `m.${e.id}`);
   await releaseScheduledFiles(params.ws, claim.entry, Object.values(queue.m).filter((x) => x && x.id !== e.id)).catch(() => {});
   await recomputeNextDue(params.ws);
-  return { ok: true };
+  return { ok: true, ...(claim.entry.scheduleId ? { previousScheduleId: claim.entry.scheduleId } : {}) };
 }));
 
 /* ---- push subscriptions --------------------------------------------------- */
+
+/** A device's quiet hours, pause, and offset from UTC, as pushAllowed reads them. */
+function pushPrefsFrom(p) {
+  if (!p || typeof p !== 'object') return null;
+  return {
+    pauseUntil: Number(p.pauseUntil) || null,
+    tzOffset: Number(p.tzOffset) || 0,
+    dnd: p.dnd && typeof p.dnd === 'object' ? { enabled: !!p.dnd.enabled, from: Number(p.dnd.from), to: Number(p.dnd.to) } : null,
+  };
+}
 
 /** This worker's VAPID public key, which the browser needs to subscribe. */
 router.get('/api/ws/:ws/push/key', route(async ({ params, user }) => {
@@ -3915,11 +3965,7 @@ router.post('/api/ws/:ws/push', route(async ({ params, request, user }) => {
   const sid = (await sha256(sub.endpoint)).slice(0, 16);
   const existing = doc.push || {};
   if (!existing[sid] && Object.keys(existing).length >= PUSH_DEVICES) fail(400, 'limit', `Up to ${PUSH_DEVICES} devices per workspace`);
-  const prefs = body.prefs && typeof body.prefs === 'object' ? {
-    pauseUntil: Number(body.prefs.pauseUntil) || null,
-    tzOffset: Number(body.prefs.tzOffset) || 0,
-    dnd: body.prefs.dnd && typeof body.prefs.dnd === 'object' ? { enabled: !!body.prefs.dnd.enabled, from: Number(body.prefs.dnd.from), to: Number(body.prefs.dnd.to) } : null,
-  } : null;
+  const prefs = pushPrefsFrom(body.prefs);
   const written = await kv().update(KEYS.member(params.ws, id.uuid), {
     [`push.${sid}`]: { endpoint: sub.endpoint, keys: { p256dh: String(sub.keys.p256dh), auth: String(sub.keys.auth) }, prefs, preview: body.preview !== false, ts: now() },
   });
@@ -3943,6 +3989,22 @@ router.delete('/api/ws/:ws/push', route(async ({ params, request, user }) => {
   if (typeof body.endpoint !== 'string') fail(400, 'invalid', 'Which device?');
   const sid = (await sha256(body.endpoint)).slice(0, 16);
   await kv().remove(KEYS.member(params.ws, id.uuid), `push.${sid}`).catch(() => {});
+  return { ok: true };
+}));
+
+/** Puter notification opt-in and quiet hours, shared across the member's devices. */
+router.post('/api/ws/:ws/pn', route(async ({ params, request, user }) => {
+  const { id, ws, doc } = await requireMembership(params.ws, user);
+  const body = await readJson(request);
+  const pn = { prefs: pushPrefsFrom(body.prefs), preview: body.preview !== false, ts: now() };
+  await kv().update(KEYS.member(params.ws, id.uuid), { pn });
+  if ((await serverConfig()).owner !== id.uuid) await ensureHandle(ws.id, id.uuid, doc, ws.name).catch(() => {});
+  return { ok: true };
+}));
+
+router.delete('/api/ws/:ws/pn', route(async ({ params, user }) => {
+  const { id } = await requireMembership(params.ws, user, { doc: false });
+  await kv().remove(KEYS.member(params.ws, id.uuid), 'pn').catch(() => {});
   return { ok: true };
 }));
 

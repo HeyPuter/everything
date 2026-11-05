@@ -10,8 +10,8 @@
  * the publish-time free-variable scan refuses any global outside a fixed
  * allowlist (fetch/crypto/atob/TextDecoder/… — no `puter`, no `me`).
  *
- * It only ever extracts and records; it never writes `cal:evt:` — every
- * calendar mutation happens in-app (mail-intake.js), where contacts,
+ * It only ever extracts, records and notifies; it never writes `cal:evt:` —
+ * every calendar mutation happens in-app (mail-intake.js), where contacts,
  * settings, the recurrence engine and the offline gate exist.
  *
  * Message reading is `user.email.get({ id })` (puter.email API) — no
@@ -33,6 +33,8 @@ async function calendarMailHandler({ event, ctx, user, fetch, ack }) {
   const RECORD_TTL = 30 * 86400;
   const SEEN_TTL = 45 * 86400;
   const MAX_RECORD_CHARS = 20000;
+  const SEQ_TTL = 180 * 86400;
+  const OWN_UID_SUFFIX = '@calendar.puter.com';
 
   // A mail object is named `<uuidv7 id>--<base64url subject>`.
   const ID_RE = /^([0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[0-9a-f]{4}-[0-9a-f]{12})--/i;
@@ -341,10 +343,14 @@ async function calendarMailHandler({ event, ctx, user, fetch, ack }) {
     const summary = sanitizeICalValue(findValue(first, 'SUMMARY') || '').slice(0, 120);
     const organizer = mailtoAddress(findValue(first, 'ORGANIZER') || '');
     const attendees = [];
+    const partstats = {};
     for (const p of first) {
       if (p.name !== 'ATTENDEE') continue;
       const email = mailtoAddress(p.value);
-      if (email && !attendees.includes(email) && attendees.length < 20) attendees.push(email);
+      if (!email || attendees.includes(email) || attendees.length >= 20) continue;
+      attendees.push(email);
+      const param = parseICalParams(p.paramsRaw || '').find((x) => x.name === 'PARTSTAT');
+      partstats[email] = param ? param.value.toUpperCase() : '';
     }
 
     const cleanedEvents = veventsRaw.map((props) => props.map(cleanICalProperty).filter(Boolean));
@@ -357,6 +363,9 @@ async function calendarMailHandler({ event, ctx, user, fetch, ack }) {
       summary,
       organizer,
       attendees,
+      partstats,
+      sequence: parseInt(findValue(first, 'SEQUENCE'), 10) || 0,
+      stamp: String(findValue(first, 'DTSTAMP') || '').trim(),
       count: assembled.count,
       truncated: assembled.truncated,
       text: assembled.text,
@@ -382,6 +391,96 @@ async function calendarMailHandler({ event, ctx, user, fetch, ack }) {
     const shrunk = { ...noSnippet, ical: firstVeventOnly(noSnippet.ical), events: 1, truncated: true };
     if (JSON.stringify(shrunk).length <= MAX_RECORD_CHARS) return shrunk;
     return null;
+  }
+
+  /* ---- notifications -------------------------------------------------------- */
+
+  function clip(s, max) {
+    return Array.from(String(s || '')).slice(0, max).join('');
+  }
+
+  function coerceObject(value) {
+    if (typeof value !== 'string') return value && typeof value === 'object' ? value : null;
+    try {
+      return JSON.parse(value);
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Tells the user about a record just written: a new or updated invitation,
+   * a cancellation, or a reply to one of their own events. Authenticated
+   * senders only, never the user's own mail. The in-page scan (ctx.inPage)
+   * keeps the per-UID sequence current but sends nothing.
+   */
+  async function notifyUser(record, filtered) {
+    const auth = record.auth || {};
+    const from = record.from.email;
+    const uid = filtered.uid;
+    if (!(auth.internal || auth.dkimAligned) || !from || !uid) return;
+    const selfEmail = String((ctx && ctx.self) || '').toLowerCase();
+    const username = String((ctx && ctx.user) || '').toLowerCase();
+    const own = [selfEmail, username && username + '@puter.email', username && username + '@puterstaging.email'].filter(Boolean);
+    if (own.includes(from)) return;
+
+    const method = filtered.method || (filtered.organizer && filtered.attendees.length ? 'REQUEST' : '');
+    let updated = false;
+    if (method === 'REQUEST') {
+      // Keyed by sender too: only the sender of an invitation can update it.
+      const seqKey = 'cal:mail:seq:' + hash64(uid + '\n' + from);
+      const prev = coerceObject(await user.kv.get(seqKey));
+      const seq = filtered.sequence;
+      const stamp = filtered.stamp;
+      if (prev) {
+        if (seq < prev.seq || (seq === prev.seq && stamp <= String(prev.stamp || ''))) return; // stale or a copy
+        updated = true;
+      } else {
+        updated = seq > 0;
+      }
+      await user.kv.set(seqKey, { seq, stamp });
+      await user.kv.expire(seqKey, SEQ_TTL);
+    }
+
+    if (ctx && ctx.inPage) return;
+    const notifications = user.notifications;
+    if (!notifications || typeof notifications.notify !== 'function') return;
+
+    const who = record.from.name || from;
+    const what = sanitizeText(String(filtered.summary).replace(/\\[nN]/g, ' ').replace(/\\([,;\\])/g, '$1'), 80) || 'an event';
+    let title = '';
+    let group = 'inv:' + hash64(uid);
+    if (method === 'REQUEST') {
+      title = updated ? `${who} updated ${what}` : `${who} invited you to ${what}`;
+    } else if (method === 'CANCEL') {
+      title = `${who} cancelled ${what}`;
+    } else if (method === 'REPLY') {
+      const verb = { ACCEPTED: 'accepted', DECLINED: 'declined', TENTATIVE: 'tentatively accepted' }[filtered.partstats[from]];
+      const hosted = uid.endsWith(OWN_UID_SUFFIX) || own.includes(filtered.organizer);
+      if (!verb || !hosted) return;
+      title = `${who} ${verb} ${what}`;
+      group = 'reply:' + hash64(uid + '\n' + from);
+    } else {
+      return;
+    }
+
+    const senders = coerceObject(await user.kv.get('cal:mail:senders'));
+    if (senders && Array.isArray(senders.blocked) && senders.blocked.includes(from)) return;
+
+    const target = '/?uid=' + encodeURIComponent(uid);
+    const data = { uid };
+    const bytes = Array.from(JSON.stringify(data)).reduce((n, c) => {
+      const cp = c.codePointAt(0);
+      return n + (cp < 0x80 ? 1 : cp < 0x800 ? 2 : cp < 0x10000 ? 3 : 4);
+    }, 0);
+    await notifications.notify({
+      title: clip(title, 120),
+      ...(record.from.name ? { text: clip(from, 240) } : {}),
+      target: target.length <= 512 ? target : '/',
+      ...(bytes <= 1024 ? { data } : {}),
+      group,
+      channel: 'calendar',
+    });
   }
 
   /* ---- main flow ----------------------------------------------------------- */
@@ -560,6 +659,14 @@ async function calendarMailHandler({ event, ctx, user, fetch, ack }) {
 
     await markSeen();
     await user.kv.set('cal:mail:tick', Date.now());
+
+    // Never retried: the message is already marked seen, and a throw here
+    // would only count toward suspending the subscription.
+    try {
+      await notifyUser(record, filtered);
+    } catch {
+      /* rate limit (429), no permission, a bad field — the record stands */
+    }
 
     if (n % 20 === 0) await trimRecords();
   } catch (err) {

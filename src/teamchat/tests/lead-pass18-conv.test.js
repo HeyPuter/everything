@@ -18,8 +18,7 @@ vi.mock('../src/ui/modal.js', () => ({
 }));
 vi.mock('../src/lib/router.js', async (importOriginal) => ({ ...(await importOriginal()), navigate: vi.fn() }));
 vi.mock('../src/lib/archive.js', async (importOriginal) => ({ ...(await importOriginal()), transferWorkspace: vi.fn() }));
-// A browser that can push: the row for it is drawn (in the built app alone, see dialogs.js).
-vi.mock('../src/lib/pwa.js', async (importOriginal) => ({ ...(await importOriginal()), pushSupported: () => true, isIos: () => false, isStandalone: () => false, canInstall: () => false }));
+vi.mock('../src/lib/pwa.js', async (importOriginal) => ({ ...(await importOriginal()), isIos: () => false, isStandalone: () => false, canInstall: () => false }));
 
 const REF = 'abc123def0@teamchat-test';
 const json = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
@@ -31,7 +30,8 @@ async function boot(prefs = {}) {
   dom?.uninstall();
   dom = installDom({ width: 1280 });
   vi.resetModules();
-  globalThis.puter = { workers: { exec: async () => json({ code: 'not_found', message: 'nope' }, 404) } };
+  // A website with Puter's notifications: the push row is drawn.
+  globalThis.puter = { env: 'web', notifications: {}, workers: { exec: async () => json({ code: 'not_found', message: 'nope' }, 404) } };
   ({ store } = await import('../src/lib/store.js'));
   store.wsId = REF;
   store.profile = { uuid: 'u-me', username: 'me', name: 'Me', prefs };
@@ -59,10 +59,11 @@ afterEach(async () => {
 describe('the "Notifications when the app is closed" switch', () => {
   const switchFor = (label) => [...document.querySelectorAll('[role="switch"]')].find((s) => s.textContent.includes(label));
 
-  async function open(prefs, permission) {
+  async function open(prefs, permission, status = permission === 'granted' ? 'on' : 'blocked') {
     vi.stubEnv('PROD', true);
     globalThis.Notification = { permission, requestPermission: async () => permission };
     const d = await boot(prefs);
+    puter.notifications.status = vi.fn(async () => status);
     const { settingsDialog } = await import('../src/ui/dialogs.js');
     settingsDialog();
     await d.tick(2);
@@ -80,6 +81,11 @@ describe('the "Notifications when the app is closed" switch', () => {
     const row = await open({ push: true, notify: true }, 'denied');
     expect(row.getAttribute('aria-checked')).toBe('false');
     expect(switchFor('Desktop notifications').getAttribute('aria-checked')).toBe('false');
+  });
+
+  it('reads off when Puter disabled the app, even with browser permission', async () => {
+    const row = await open({ push: true }, 'granted', 'off');
+    expect(row.getAttribute('aria-checked')).toBe('false');
   });
 
   it('reads off when the preference is off, whatever the browser allows', async () => {

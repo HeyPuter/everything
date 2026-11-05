@@ -13,7 +13,8 @@
     "test:watch": "vitest",
     "test:browser": "playwright test",
     "benchmark": "node benchmarks/run.mjs",
-    "benchmark:range": "node benchmarks/range.mjs"
+    "benchmark:range": "node benchmarks/range.mjs",
+    "publish:notify-handler": "node scripts/publish-notify-handler.mjs"
   },
   "repository": {
     "type": "git",

@@ -119,7 +119,7 @@ export function looksTruncated(entries) {
  * merge by key. Small calendars keep their single-request boot; only data sets
  * big enough to be at risk pay for the fan-out.
  */
-async function listAllEntries(kv, prefix, depth = 0) {
+export async function listAllEntries(kv, prefix, depth = 0) {
   const flat = (await kv.list(`${prefix}*`, true)) || [];
   if (depth >= 3 || !looksTruncated(flat)) return flat;
   const shards = await Promise.all(
@@ -153,6 +153,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   // Mark the days the clocks go forward or back (see dst.js). Derived from
   // the browser's own zone, so it is self-silencing where clocks never move.
   clockChanges: true,
+  storedReminders: false,
   // The name guests see on booking pages and in booking emails, or '' to show
   // the account's username (the default; see displayName in booking.js).
   bookingName: '',

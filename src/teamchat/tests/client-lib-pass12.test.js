@@ -7,14 +7,13 @@ import { describe, it, expect, afterEach, vi } from 'vitest';
 
 // The push plumbing (lib/pwa.js) needs a service worker registration this
 // runtime has none of: what a test wants of it is stubbed here, the rest is
-// the real module. `pwa.on` makes push look supported for one test.
-const pwa = vi.hoisted(() => ({ on: false, unsub: null }));
+// the real module.
+const pwa = vi.hoisted(() => ({ retire: null }));
 vi.mock('../src/lib/pwa.js', async (importOriginal) => {
   const real = await importOriginal();
   return {
     ...real,
-    pushSupported: () => pwa.on || real.pushSupported(),
-    unsubscribePush: (ref) => (pwa.unsub ? pwa.unsub(ref) : real.unsubscribePush(ref)),
+    retireLegacyPush: (...args) => (pwa.retire ? pwa.retire(...args) : real.retireLegacyPush(...args)),
   };
 });
 
@@ -278,32 +277,33 @@ describe('a message sent into a shared channel whose host says the standing ther
   });
 });
 
-describe('signing out while one workspace server does not answer', () => {
+describe('signing out with a push subscription made before pushes went through Puter', () => {
   afterEach(() => {
-    pwa.on = false;
-    pwa.unsub = null;
+    pwa.retire = null;
     store.workspaces = [];
     delete globalThis.puter;
   });
 
-  it('tells every server at once and does not wait on the silent one for long', async () => {
-    pwa.on = true;
-    const told = [];
-    // The first server never answers; the others do at once.
-    pwa.unsub = (ref) => {
-      told.push(ref);
-      return ref.startsWith('dead') ? new Promise(() => {}) : Promise.resolve();
-    };
+  it('has every server told at once, within a bound, then signs out', async () => {
+    const seen = [];
+    pwa.retire = async (refs, waitMs) => { seen.push({ refs, waitMs }); };
     let signedOut = false;
     globalThis.puter = { auth: { signOut: async () => { signedOut = true; } } };
     store.workspaces = [{ ref: 'dead000000@teamchat-x' }, { ref: 'live000000@teamchat-x' }, { ref: 'live111111@teamchat-x' }];
-    const t0 = Date.now();
     await store.signOut();
     expect(signedOut).toBe(true);
-    // All three were asked, the two that answer before the silent one was given up on.
-    expect(told).toEqual(['dead000000@teamchat-x', 'live000000@teamchat-x', 'live111111@teamchat-x']);
-    expect(Date.now() - t0).toBeLessThan(8000);
-  }, 10_000);
+    expect(seen).toEqual([{ refs: ['dead000000@teamchat-x', 'live000000@teamchat-x', 'live111111@teamchat-x'], waitMs: expect.any(Number) }]);
+    expect(seen[0].waitMs).toBeLessThan(8000);
+  });
+
+  it('signs out even when letting go of it fails', async () => {
+    pwa.retire = async () => { throw new Error('gone'); };
+    let signedOut = false;
+    globalThis.puter = { auth: { signOut: async () => { signedOut = true; } } };
+    store.workspaces = [{ ref: 'live000000@teamchat-x' }];
+    await store.signOut();
+    expect(signedOut).toBe(true);
+  });
 });
 
 describe('renewing the member\'s standing on a host, on a device whose clock is off', () => {

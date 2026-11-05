@@ -25,12 +25,10 @@ const {
   alice, bob, carol, dave,
 } = USERS;
 const SERVER = 'teamchat-api.test';
-const realFetch = globalThis.fetch;
 
 let rt;
 
 afterEach(() => {
-  globalThis.fetch = realFetch;
   if (rt) expect(rt.kv._calls.list).toBe(0);
   rt = null;
 });
@@ -48,70 +46,64 @@ const isShardKey = (key, wsId) => key.startsWith(`tc:ws:${wsId}:ev:s`);
 const handleFor = (uuid, wsId) => `kvh-${uuid}-${wsId}`;
 
 /**
- * A fetch stub that answers mints and revokes on the shape worker/events.js
- * sends them in, and records every call as { method, url, headers, kvOps },
- * `kvOps` being how many mutating KV ops the request had made so far — the
- * one clock the HTTP calls and the KV writes share, so a test can tell which
- * happened first. `mintFail`/`revokeFail` let a test make one grantee's mint,
- * or one handle's revoke, answer with a failure instead of the default
- * success; each takes the id in question and returns null (succeed) or
- * { status, body }.
+ * Answer the worker's me.puter.kv.share / unshare and record every call as
+ * { op, handle, kvOps }, `kvOps` being how many mutating KV ops the request
+ * had made so far — the one clock the share calls and the KV writes share,
+ * so a test can tell which happened first. `mintFail`/`revokeFail` let a
+ * test make one grantee's share, or one handle's unshare, fail: each takes
+ * the id in question and returns null (succeed), `{ code }` (refused), or
+ * `{ network: true }`.
  */
-function installFetchStub({ mintFail = () => null, revokeFail = () => null } = {}) {
+function installShareStub({ mintFail = () => null, revokeFail = () => null } = {}) {
   const calls = [];
-  globalThis.fetch = async (url, init = {}) => {
-    const method = init.method || 'GET';
-    const call = { method, url: String(url), headers: init.headers || {}, kvOps: rt.kv._calls.log.length };
-    calls.push(call);
-    if (method === 'POST' && call.url.endsWith('/events/kv-handles')) {
-      const body = JSON.parse(init.body || '{}');
-      const bad = mintFail(body.granteeUid);
-      if (bad) return new Response(JSON.stringify(bad.body || {}), { status: bad.status });
-      // `prefix` is tc:ws:{id}:ev: — the region of the workspace being minted for.
-      const wsId = String(body.prefix || '').split(':')[2] || '';
-      return new Response(JSON.stringify({ handle: handleFor(body.granteeUid, wsId) }), { status: 200 });
-    }
-    if (method === 'DELETE' && call.url.includes('/events/kv-handles/')) {
-      const handle = decodeURIComponent(call.url.split('/events/kv-handles/')[1]);
-      const bad = revokeFail(handle);
-      if (bad?.network) throw new Error('offline');
-      if (bad) return new Response(JSON.stringify(bad.body || {}), { status: bad.status });
-      return new Response(JSON.stringify({ handle, revokedAt: Date.now() }), { status: 200 });
-    }
-    throw new Error(`events-revoke.test.js: unexpected fetch ${method} ${call.url}`);
+  const fail = (bad) => {
+    if (bad.network) throw new TypeError('fetch failed');
+    throw Object.assign(new Error(bad.code), { code: bad.code });
+  };
+  rt.kv.share = async ({ prefix, recipient }) => {
+    calls.push({ op: 'share', holder: recipient.uid, prefix, kvOps: rt.kv._calls.log.length });
+    const bad = mintFail(recipient.uid);
+    if (bad) fail(bad);
+    // `prefix` is tc:ws:{id}:ev: — the region of the workspace being shared.
+    return { handle: handleFor(recipient.uid, String(prefix).split(':')[2] || '') };
+  };
+  rt.kv.unshare = async (handle) => {
+    calls.push({ op: 'unshare', handle, kvOps: rt.kv._calls.log.length });
+    const bad = revokeFail(handle);
+    if (bad) fail(bad);
+    return { handle, revokedAt: Math.floor(Date.now() / 1000) };
   };
   return calls;
 }
 
 describe('removing a member revokes their cached handle', () => {
-  it('an admin removing a member issues exactly one DELETE, for that member\'s own handle, on the worker\'s own token', async () => {
+  it('an admin removing a member stops exactly one share, that member\'s own', async () => {
     const token = fakeAuthToken();
     rt = await boot({ authToken: token });
-    const calls = installFetchStub();
+    const calls = installShareStub();
     const { wsId } = await workspaceWith(alice, [bob]);
     const before = calls.length;
     const res = await as(alice).del(`/api/ws/${wsId}/members/${bob.uuid}`);
     expect(res.ok).toBe(true);
-    const deletes = calls.slice(before).filter((c) => c.method === 'DELETE');
+    const deletes = calls.slice(before).filter((c) => c.op === 'unshare');
     expect(deletes.length).toBe(1);
-    expect(deletes[0].url.endsWith(`/events/kv-handles/${handleFor(bob.uuid, wsId)}`)).toBe(true);
-    expect(deletes[0].headers.Authorization).toBe(`Bearer ${token}`);
+    expect(deletes[0].handle).toBe(handleFor(bob.uuid, wsId));
   });
 
-  it('the DELETE lands before the request\'s last mutating KV op, which is a shard write', async () => {
+  it('the unshare lands before the request\'s last mutating KV op, which is a shard write', async () => {
     rt = await boot({ authToken: fakeAuthToken() });
-    const calls = installFetchStub();
+    const calls = installShareStub();
     const { wsId } = await workspaceWith(alice, [bob]);
     const beforeCalls = calls.length;
     const beforeKv = rt.kv._calls.log.length;
     const res = await as(alice).del(`/api/ws/${wsId}/members/${bob.uuid}`);
     expect(res.ok).toBe(true);
-    const del = calls.slice(beforeCalls).find((c) => c.method === 'DELETE');
+    const del = calls.slice(beforeCalls).find((c) => c.op === 'unshare');
     expect(del).toBeTruthy();
     const made = rt.kv._calls.log.slice(beforeKv);
     expect(made.length).toBeGreaterThan(0);
     expect(isShardKey(made[made.length - 1].key, wsId)).toBe(true);
-    // del.kvOps is the log length as it stood the instant the DELETE went
+    // del.kvOps is the log length as it stood the instant the unshare went
     // out; strictly less than the final length means at least the shard
     // write above still landed after it.
     expect(del.kvOps).toBeLessThan(beforeKv + made.length);
@@ -120,32 +112,32 @@ describe('removing a member revokes their cached handle', () => {
   it('leaving on one\'s own also revokes the handle', async () => {
     const token = fakeAuthToken();
     rt = await boot({ authToken: token });
-    const calls = installFetchStub();
+    const calls = installShareStub();
     const { wsId } = await workspaceWith(alice, [bob]);
     const before = calls.length;
     const res = await as(bob).del(`/api/ws/${wsId}/members/${bob.uuid}`);
     expect(res.ok).toBe(true);
-    const deletes = calls.slice(before).filter((c) => c.method === 'DELETE');
+    const deletes = calls.slice(before).filter((c) => c.op === 'unshare');
     expect(deletes.length).toBe(1);
-    expect(deletes[0].url.endsWith(`/events/kv-handles/${handleFor(bob.uuid, wsId)}`)).toBe(true);
+    expect(deletes[0].handle).toBe(handleFor(bob.uuid, wsId));
   });
 
-  it('a member with no cached handle (their mint was refused) is removed with no DELETE at all', async () => {
+  it('a member with no cached handle (their mint was refused) is removed with no unshare at all', async () => {
     rt = await boot({ authToken: fakeAuthToken() });
-    const calls = installFetchStub({
-      mintFail: (granteeUid) => (granteeUid === bob.uuid ? { status: 429, body: { code: 'too_many_requests' } } : null),
+    const calls = installShareStub({
+      mintFail: (uid) => (uid === bob.uuid ? { code: 'too_many_requests' } : null),
     });
     const { wsId } = await workspaceWith(alice, [bob]);
     const before = calls.length;
     const res = await as(alice).del(`/api/ws/${wsId}/members/${bob.uuid}`);
     expect(res.ok).toBe(true);
-    expect(calls.slice(before).some((c) => c.method === 'DELETE')).toBe(false);
+    expect(calls.slice(before).some((c) => c.op === 'unshare')).toBe(false);
   });
 
   it('an owner-only refusal (an older platform build) still lets the removal succeed, and changes nothing else', async () => {
     rt = await boot({ authToken: fakeAuthToken() });
-    const calls = installFetchStub({
-      revokeFail: () => ({ status: 403, body: { code: 'events_kv_handle_owner_only' } }),
+    const calls = installShareStub({
+      revokeFail: () => ({ code: 'events_kv_handle_owner_only' }),
     });
     const { wsId } = await workspaceWith(alice, [bob, carol]);
     const res = await as(alice).del(`/api/ws/${wsId}/members/${bob.uuid}`);
@@ -153,18 +145,18 @@ describe('removing a member revokes their cached handle', () => {
     const after = await as(alice).get(`/api/ws/${wsId}`);
     expect(after.data.workspace.members[bob.uuid]).toBeUndefined();
     expect(after.data.workspace.members[carol.uuid]).toBeTruthy();
-    expect(calls.some((c) => c.method === 'DELETE')).toBe(true);
+    expect(calls.some((c) => c.op === 'unshare')).toBe(true);
   });
 
   it('a network failure revoking the handle still lets the removal succeed, and changes nothing else', async () => {
     rt = await boot({ authToken: fakeAuthToken() });
-    const calls = installFetchStub({ revokeFail: () => ({ network: true }) });
+    const calls = installShareStub({ revokeFail: () => ({ network: true }) });
     const { wsId } = await workspaceWith(alice, [bob, carol]);
     const before = calls.length;
     const res = await as(alice).del(`/api/ws/${wsId}/members/${bob.uuid}`);
     expect(res.ok).toBe(true);
     // The revoke was attempted and threw; the removal went through regardless.
-    expect(calls.slice(before).filter((c) => c.method === 'DELETE').length).toBe(1);
+    expect(calls.slice(before).filter((c) => c.op === 'unshare').length).toBe(1);
     const after = await as(alice).get(`/api/ws/${wsId}`);
     expect(after.data.workspace.members[bob.uuid]).toBeUndefined();
     expect(after.data.workspace.members[carol.uuid]).toBeTruthy();
@@ -174,14 +166,14 @@ describe('removing a member revokes their cached handle', () => {
 describe('deleting a workspace revokes a bounded batch of handles', () => {
   it(`revokes at most REVOKE_BATCH_MAX (${REVOKE_BATCH_MAX}) handles, however many members are holding one`, async () => {
     rt = await boot({ authToken: fakeAuthToken() });
-    const calls = installFetchStub();
+    const calls = installShareStub();
     const { wsId, code } = await workspaceWith(alice, []);
     const many = Array.from({ length: REVOKE_BATCH_MAX + 2 }, (_, i) => ({ uuid: `u-test-${String(i).padStart(2, '0')}`, username: `test${i}` }));
     for (const u of many) expect((await as(u).post('/api/join', { code })).ok).toBe(true);
     const before = calls.length;
     const res = await as(alice).del(`/api/ws/${wsId}`);
     expect(res.ok).toBe(true);
-    const deletes = calls.slice(before).filter((c) => c.method === 'DELETE');
+    const deletes = calls.slice(before).filter((c) => c.op === 'unshare');
     expect(deletes.length).toBe(REVOKE_BATCH_MAX);
   });
 });
@@ -191,7 +183,7 @@ describe('an external member\'s seat ending on the host revokes their handle', (
    * Acme (alice, carol) hosts #design; Globex (alice owns it too, bob is its
    * admin, dave a member) is the partner. Bob accepts the share link,
    * records it on Globex, and joins the channel on Acme — copied from
-   * tests/connect.test.js's shared(), with the fetch stub already in place
+   * tests/connect.test.js's shared(), with the share stub already in place
    * so every join along the way mints a real (stubbed) handle.
    */
   async function shared() {
@@ -218,7 +210,7 @@ describe('an external member\'s seat ending on the host revokes their handle', (
 
   it('ending the connection from the host revokes the external member\'s handle', async () => {
     rt = await boot({ authToken: fakeAuthToken() });
-    const calls = installFetchStub();
+    const calls = installShareStub();
     const { acme, design, conn } = await shared();
     // Bob's own bootstrap on Acme is what mints and caches his handle there.
     const bobBoot = await as(bob).get(`/api/ws/${acme.wsId}`);
@@ -226,15 +218,15 @@ describe('an external member\'s seat ending on the host revokes their handle', (
     const before = calls.length;
     const res = await as(alice).del(`/api/ws/${acme.wsId}/channels/${design}/connections/${conn}`);
     expect(res.ok).toBe(true);
-    const deletes = calls.slice(before).filter((c) => c.method === 'DELETE');
+    const deletes = calls.slice(before).filter((c) => c.op === 'unshare');
     expect(deletes.length).toBe(1);
     // Acme's handle, not the one bob holds on Globex, which he keeps.
-    expect(deletes[0].url.endsWith(`/events/kv-handles/${handleFor(bob.uuid, acme.wsId)}`)).toBe(true);
+    expect(deletes[0].handle).toBe(handleFor(bob.uuid, acme.wsId));
   });
 
   it('the partner\'s word that one of its people is out ends the seat here and gives the handle back', async () => {
     rt = await boot({ authToken: fakeAuthToken() });
-    const calls = installFetchStub();
+    const calls = installShareStub();
     const { acme, globex, conn } = await shared();
     expect((await as(bob).get(`/api/ws/${acme.wsId}`)).data.events).toMatchObject({ handle: handleFor(bob.uuid, acme.wsId) });
     // Globex takes bob out, which hands its admin the word for Acme (see
@@ -242,18 +234,18 @@ describe('an external member\'s seat ending on the host revokes their handle', (
     // Globex, and carrying the word to Acme gives back the one he held here.
     const removed = await as(alice).del(`/api/ws/${globex.wsId}/members/${bob.uuid}`);
     expect(removed.data.revocations).toHaveLength(1);
-    expect(calls.filter((c) => c.method === 'DELETE').map((c) => c.url.split('/events/kv-handles/')[1]))
+    expect(calls.filter((c) => c.op === 'unshare').map((c) => c.handle))
       .toEqual([handleFor(bob.uuid, globex.wsId)]);
     const before = calls.length;
     expect((await as(alice).post('/api/connect/revoke', { conn, token: removed.data.revocations[0].token })).data).toEqual({ ok: true });
-    const deletes = calls.slice(before).filter((c) => c.method === 'DELETE');
+    const deletes = calls.slice(before).filter((c) => c.op === 'unshare');
     expect(deletes.length).toBe(1);
-    expect(deletes[0].url.endsWith(`/events/kv-handles/${handleFor(bob.uuid, acme.wsId)}`)).toBe(true);
+    expect(deletes[0].handle).toBe(handleFor(bob.uuid, acme.wsId));
   });
 
   it('a standing that ran out long ago is swept, and the handle goes with the card', async () => {
     rt = await boot({ authToken: fakeAuthToken() });
-    const calls = installFetchStub();
+    const calls = installShareStub();
     const { acme } = await shared();
     expect((await as(bob).get(`/api/ws/${acme.wsId}`)).data.events).toMatchObject({ handle: handleFor(bob.uuid, acme.wsId) });
     // Past the sweep's grace (see EXTERNAL_LAPSE_GRACE_MS), so the next
@@ -261,14 +253,14 @@ describe('an external member\'s seat ending on the host revokes their handle', (
     await rt.kv.update(KEYS.ws(acme.wsId), { [`members.${bob.uuid}.exp`]: Date.now() - 31 * 86400_000 });
     const before = calls.length;
     expect((await as(carol).get(`/api/ws/${acme.wsId}`)).ok).toBe(true);
-    const deletes = calls.slice(before).filter((c) => c.method === 'DELETE');
+    const deletes = calls.slice(before).filter((c) => c.op === 'unshare');
     expect(deletes.length).toBe(1);
-    expect(deletes[0].url.endsWith(`/events/kv-handles/${handleFor(bob.uuid, acme.wsId)}`)).toBe(true);
+    expect(deletes[0].handle).toBe(handleFor(bob.uuid, acme.wsId));
   });
 
   it('an external member leaving their last shared channel gives their handle back too', async () => {
     rt = await boot({ authToken: fakeAuthToken() });
-    const calls = installFetchStub();
+    const calls = installShareStub();
     const { acme, design } = await shared();
     expect((await as(bob).get(`/api/ws/${acme.wsId}`)).data.events).toMatchObject({ handle: handleFor(bob.uuid, acme.wsId) });
     const before = calls.length;
@@ -276,16 +268,16 @@ describe('an external member\'s seat ending on the host revokes their handle', (
     // out of the host workspace altogether (see the leave route).
     const res = await as(bob).post(`/api/ws/${acme.wsId}/channels/${design}/leave`);
     expect(res.ok).toBe(true);
-    const deletes = calls.slice(before).filter((c) => c.method === 'DELETE');
+    const deletes = calls.slice(before).filter((c) => c.op === 'unshare');
     expect(deletes.length).toBe(1);
-    expect(deletes[0].url.endsWith(`/events/kv-handles/${handleFor(bob.uuid, acme.wsId)}`)).toBe(true);
+    expect(deletes[0].handle).toBe(handleFor(bob.uuid, acme.wsId));
   });
 });
 
 describe('a removal that is not the end of a membership revokes nothing', () => {
   it('leaving one channel of a workspace one stays in keeps the handle', async () => {
     rt = await boot({ authToken: fakeAuthToken() });
-    const calls = installFetchStub();
+    const calls = installShareStub();
     const { wsId } = await workspaceWith(alice, [bob]);
     const ops = (await as(alice).post(`/api/ws/${wsId}/channels`, { name: 'ops' })).data.channel.id;
     expect((await as(bob).post(`/api/ws/${wsId}/channels/${ops}/join`)).ok).toBe(true);
@@ -293,15 +285,15 @@ describe('a removal that is not the end of a membership revokes nothing', () => 
     // The signal region is per workspace and a shard key names no channel,
     // so someone still in the workspace still has something to watch.
     expect((await as(bob).post(`/api/ws/${wsId}/channels/${ops}/leave`)).ok).toBe(true);
-    expect(calls.slice(before).some((c) => c.method === 'DELETE')).toBe(false);
+    expect(calls.slice(before).some((c) => c.op === 'unshare')).toBe(false);
     expect((await as(bob).get(`/api/ws/${wsId}`)).data.events).toMatchObject({ handle: handleFor(bob.uuid, wsId) });
   });
 });
 
 describe('a user-scoped worker', () => {
-  it('never issues a DELETE on a removal (nor a mint on the join before it)', async () => {
+  it('never unshares on a removal (nor a mint on the join before it)', async () => {
     rt = await boot(); // authToken: null
-    const calls = installFetchStub();
+    const calls = installShareStub();
     const { wsId } = await workspaceWith(alice, [bob]);
     const res = await as(alice).del(`/api/ws/${wsId}/members/${bob.uuid}`);
     expect(res.ok).toBe(true);

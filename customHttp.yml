@@ -199,6 +199,12 @@ applications:
           - key: 'Cache-Control'
             value: 'no-cache, max-age=0, s-maxage=0, must-revalidate'
 
+      # Revalidate the push service worker.
+      - pattern: '/puter-sw.js'
+        headers:
+          - key: 'Cache-Control'
+            value: 'no-cache, max-age=0, s-maxage=0, must-revalidate'
+
       # Vite includes content hashes in generated asset filenames.
       # Keep unversioned public files outside this directory.
       - pattern: '/assets/*'

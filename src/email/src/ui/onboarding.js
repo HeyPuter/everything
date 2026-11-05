@@ -20,9 +20,11 @@ function markDone() {
 
 /**
  * One-step welcome shown the first time the real inbox opens. Everything it
- * says stays true afterwards, so closing it loses nothing.
+ * says stays true afterwards, so closing it loses nothing. `onNotify` turns
+ * on new-mail notifications, from the click a browser needs to ask for them;
+ * it is the same switch as Settings, so declining here costs nothing either.
  */
-export function openOnboarding() {
+export function openOnboarding({ onNotify = null, notificationsOn = false } = {}) {
   const body = el('div');
   const modal = openModal({ title: 'Welcome', content: body, onClose: markDone });
 
@@ -33,6 +35,29 @@ export function openOnboarding() {
       el('span.onboard-text', {}, text),
     ),
   );
+
+  const notifyRow = () => {
+    const status = el('span.onboard-text', { role: 'status' },
+      notificationsOn ? 'Notifications are on for this device.' : '');
+    const button = el('button.btn.btn-tonal.btn-small.onboard-action', {
+      type: 'button',
+      onclick: async () => {
+        button.disabled = true;
+        const on = await onNotify().catch(() => false);
+        if (!on) {
+          button.disabled = false;
+          return;
+        }
+        button.remove();
+        status.textContent = 'Notifications are on for this device.';
+      },
+    }, 'Turn on notifications');
+    const item = row('bell', 'New mail notifications',
+      'Hear about new mail on this device, even when Puter Mail is closed. You can change this in Settings.');
+    item.lastChild.append(status);
+    if (!notificationsOn) item.lastChild.append(button);
+    return item;
+  };
 
   body.append(
     el('p.onboard-lead', {}, 'Your mail lives in your own Puter account. This app reads and sends it for you.'),
@@ -46,6 +71,7 @@ export function openOnboarding() {
       'Compose sends from your @puter.email address, with light formatting, and attachments from this device or your Puter files. Every message carries a plain-text version, so it reads properly wherever it lands. Your first send asks for write access to your mailbox, which is also where the Sent copy goes.'),
     row('pencil', 'Drafts are kept',
       'Close a half-written message and it is saved as a draft on this device. Reopen Compose to carry on where you left off.'),
+    onNotify && notifyRow(),
     el('button.btn.btn-primary.btn-block', {
       type: 'button', onclick: () => modal.close(),
     }, 'Open my inbox'),
