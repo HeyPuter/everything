@@ -147,7 +147,9 @@ export class App extends Emitter {
 
   _wireGlobal() {
     this.settings.on('change', ({ key }) => {
-      if (key === 'theme') applyTheme(this.settings.get('theme'));
+      // The button shows the choice (light, dark or system), which can change
+      // without the resolved theme changing, so redraw it here as well.
+      if (key === 'theme') { applyTheme(this.settings.get('theme')); this.renderThemeButton(); }
       if (key === 'units' || key === 'pcbGrid' || key === 'schGrid') { this.updateStatus(); for (const e of this.editors.values()) { e.requestRender(true); e._updateHud?.(); } this.panels.properties.refresh(); }
       if (key === 'onlineDrc') for (const e of this.editors.values()) e._scheduleDrc?.();
     });
@@ -401,7 +403,6 @@ export class App extends Emitter {
 
   _themeMenu() {
     openMenu([{ command: 'theme.system' }, { command: 'theme.light' }, { command: 'theme.dark' }], { anchor: this.themeBtn, label: 'Theme' });
-    setTimeout(() => this.renderThemeButton(), 0);
   }
 
   _mobileMenu(e) {

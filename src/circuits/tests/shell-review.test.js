@@ -408,3 +408,15 @@ describe('editor lifetime', () => {
     expect(active).toBe(0);
   });
 });
+
+describe('theme button', () => {
+  it('shows the chosen theme even when the colours stay the same', async () => {
+    localStorage.clear();
+    const { app } = await bootLocal();
+    expect(app.themeBtn.getAttribute('aria-label')).toBe('Theme: match system');
+    app.commands.run('theme.light'); // the system is light in tests, so nothing repaints
+    expect(app.themeBtn.getAttribute('aria-label')).toBe('Theme: light');
+    app.commands.run('theme.system');
+    expect(app.themeBtn.getAttribute('aria-label')).toBe('Theme: match system');
+  });
+});
