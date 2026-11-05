@@ -6,6 +6,8 @@ import { formatLinear } from '../../core/units.js';
 import { splineFromFitPoints } from '../../core/geom/index.js';
 import { TAU, norm, dist, angleOf, polar, circle3, arc3, tangentBulge, endTangent, polygonPoints, circleTTR } from './util.js';
 
+const COLLINEAR = 'The three points are in line (or repeated). Pick a point off that line.';
+
 const line = (ed, a, b) => ed.make('line', { x1: a.x, y1: a.y, x2: b.x, y2: b.y });
 
 export const LINE = {
@@ -320,11 +322,16 @@ export const CIRCLE = {
         const k = circle3(a, b, p);
         return k ? [ed.make('circle', k)] : [];
       };
-      const p = await ed.getPoint('Third point on circle', { base: b, preview: mk });
-      if (!p || p.option) return;
-      const k = circle3(a, b, p);
-      if (k) ed.commit('Circle', () => ed.drawing.add(ed.make('circle', k)));
-      return;
+      for (;;) {
+        const p = await ed.getPoint('Third point on circle', { base: b, preview: mk });
+        if (!p || p.option) return;
+        const k = circle3(a, b, p);
+        if (k) {
+          ed.commit('Circle', () => ed.drawing.add(ed.make('circle', k)));
+          return;
+        }
+        ed.ui.log(COLLINEAR, 'error');
+      }
     }
     if (mode === '2p') {
       const a = await ed.getPoint('First end point of diameter');
@@ -407,10 +414,16 @@ export const ARC = {
       const a = arc3(s, m, p);
       return a ? [ed.make('arc', a)] : [];
     };
-    const e = await ed.getPoint('End point', { base: m, preview: mk });
-    if (!e || e.option) return;
-    const a = arc3(s, m, e);
-    if (a) ed.commit('Arc', () => ed.drawing.add(ed.make('arc', a)));
+    for (;;) {
+      const e = await ed.getPoint('End point', { base: m, preview: mk });
+      if (!e || e.option) return;
+      const a = arc3(s, m, e);
+      if (a) {
+        ed.commit('Arc', () => ed.drawing.add(ed.make('arc', a)));
+        return;
+      }
+      ed.ui.log(COLLINEAR, 'error');
+    }
   },
 };
 

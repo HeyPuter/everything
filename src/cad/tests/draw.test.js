@@ -135,3 +135,19 @@ describe('rectangles', () => {
     expect(p.pts).toEqual([0, 0, 0, 20, 0, 0, 20, 10, 0, 0, 10, 0]);
   });
 });
+
+describe('three-point curves', () => {
+  it('asks again when the third point is in line with the first two', async () => {
+    await t.type('CIRCLE', '3P', '0,0', '5,0', '10,0');
+    expect(t.ed.request?.prompt).toBe('Third point on circle');
+    expect(t.logs.at(-1)[0]).toBe('error');
+    await t.type('2.5,2.5');
+    expect(t.all('circle')[0].r).toBeCloseTo(2.5);
+    await t.type('ARC', '0,0', '5,0', '0,0');
+    expect(t.ed.request?.prompt).toBe('End point');
+    await t.type('10,0');
+    expect(t.ed.request?.prompt).toBe('End point');
+    await t.type('5,5');
+    expect(t.all('arc')).toHaveLength(1);
+  });
+});
