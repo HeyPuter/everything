@@ -75,6 +75,8 @@ export class App {
   sketchEditor: SketchEditor | null = null;
   location: Location | null = null;
   settings: Settings = { ...DEFAULT_SETTINGS };
+  private settingChanges = new Map<keyof Settings, number>();
+  private settingsLoad = 0;
   faces: FaceInfo[] = [];
   edges: EdgeInfo[] = [];
   frames: Record<Id, Frame> = {};
@@ -452,6 +454,26 @@ export class App {
 
   /** Loads settings saved in the user's Puter account (set by main). */
   loadRemoteSettings: () => Promise<void> | void = () => {};
+
+  /** Local choices take precedence over account reads already in flight. */
+  changeSettings(patch: Partial<Settings>) {
+    for (const key of Object.keys(patch) as (keyof Settings)[]) {
+      this.settingChanges.set(key, (this.settingChanges.get(key) ?? 0) + 1);
+    }
+    this.applySettings(patch);
+  }
+
+  async loadSettings(read: () => Promise<unknown>) {
+    const load = ++this.settingsLoad;
+    const changes = new Map(this.settingChanges);
+    const remote = await read();
+    if (load !== this.settingsLoad || !remote || typeof remote !== 'object' || Array.isArray(remote)) return;
+    const patch: Partial<Settings> = normalizeSettings(remote, this.settings);
+    for (const key of Object.keys(patch) as (keyof Settings)[]) {
+      if (changes.get(key) !== this.settingChanges.get(key)) delete patch[key];
+    }
+    this.applySettings(patch);
+  }
 
   applySettings(s: unknown) {
     this.settings = normalizeSettings(s, this.settings);

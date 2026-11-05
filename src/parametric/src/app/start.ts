@@ -30,7 +30,7 @@ export class StartScreen {
       if (u.id === units) o.selected = true;
       unitSel.append(o);
     }
-    unitSel.addEventListener('change', () => { units = unitSel.value as UnitSystem; app.settings.defaultUnits = units; app.saveSettings(); });
+    unitSel.addEventListener('change', () => { units = unitSel.value as UnitSystem; app.changeSettings({ defaultUnits: units }); app.saveSettings(); });
     const action = (ic: string, t: string, d: string, run: () => void) => {
       const b = h('button', { class: 'start-action', type: 'button' }, h('span', { style: { color: 'var(--accent)' } }, icon(ic, 24)), h('span', { class: 't' }, t), h('span', { class: 'd' }, d));
       b.addEventListener('click', run);

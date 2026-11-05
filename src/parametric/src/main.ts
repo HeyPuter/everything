@@ -43,10 +43,7 @@ async function boot() {
     return;
   }
   app.applySettings(localSettings());
-  app.loadRemoteSettings = async () => {
-    const remote = await kvGet<unknown>(KV_SETTINGS_KEY);
-    if (remote && typeof remote === 'object') app.applySettings(remote);
-  };
+  app.loadRemoteSettings = () => app.loadSettings(() => kvGet<unknown>(KV_SETTINGS_KEY));
   // Development builds expose the app for debugging and browser tests.
   if (import.meta.env.DEV) (window as unknown as { __parametric: App }).__parametric = app;
   const taskPane = new TaskPane(app, files, new AssistantPanel(app));
