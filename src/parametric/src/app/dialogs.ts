@@ -38,6 +38,8 @@ export async function equationsDialog(app: App) {
     return src;
   });
   const originalNames = new Map(doc.variables.map((v) => [v.id, v.name]));
+  // Retain deleted IDs too: a new row must never look like a renamed old row.
+  const variableIds = new Set(originalNames.keys());
   // The rows are built once (and again when one is added or deleted); an edit
   // only updates the cells it affects, so the field being left keeps its place
   // in the tab order (rebuilding them sent keyboard focus out of the dialog).
@@ -97,7 +99,10 @@ export async function equationsDialog(app: App) {
   add.addEventListener('click', () => {
     let n = rows.length + 1;
     while (rows.some((r) => r.name === `Var${n}`)) n++;
-    rows.push({ id: `v${Date.now().toString(36)}${n}`, name: `Var${n}`, expr: '10' });
+    let id: string;
+    do { id = `v${crypto.getRandomValues(new Uint32Array(4)).join('-')}`; } while (variableIds.has(id));
+    variableIds.add(id);
+    rows.push({ id, name: `Var${n}`, expr: '10' });
     draw();
     (tbody.querySelector('tr:last-child input') as HTMLInputElement | null)?.focus();
   });
