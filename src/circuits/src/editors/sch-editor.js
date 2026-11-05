@@ -585,7 +585,8 @@ class PasteTool {
         const n = { ...o, id: uid() };
         if (n.t === 'part') {
           n.uid = uid('u');
-          const prefix = (o.designator || '').replace(/\d+$/, '').replace(/\?$/, '') || ed.lib[o.comp]?.prefix || 'U';
+          // The leading letters: R12 -> R, R? -> R, and U1A (unit A) -> U, not U1A.
+          const prefix = /^[A-Za-z_]+/.exec(o.designator || '')?.[0] || ed.lib[o.comp]?.prefix || 'U';
           n.designator = nextDesignator(sheets, prefix);
           sheets.push({ id: 'pending', objects: [n] });
         }

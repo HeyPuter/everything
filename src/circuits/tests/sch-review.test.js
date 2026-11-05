@@ -471,3 +471,33 @@ describe('move hint', () => {
     ed.select.cancelDrag();
   });
 });
+
+describe('paste designators', () => {
+  it('renumbers by the leading letters of the copied designator', async () => {
+    app = await boot();
+    const ed = app.activeEditor;
+    const r3 = [...ed.doc.items()].find((o) => o.designator === 'R3');
+    const pasted = [];
+    for (const designator of ['U1A', 'R3', 'R?', 'TP12']) {
+      ed.setSelection([r3.id]);
+      const clip = ed.copySelection();
+      clip.objects[0].designator = designator;
+      ed.pasteClip(clip);
+      ed.tool.click({
+        x: mil(1000),
+        y: mil(1000 + 300 * pasted.length),
+        rawX: 0,
+        rawY: 0,
+        sx: 0,
+        sy: 0,
+      });
+      pasted.push(ed.selectedObjects()[0].designator);
+    }
+    const [u, r, rq, tp] = pasted;
+    expect(u).toMatch(/^U\d+$/);
+    expect(r).toMatch(/^R\d+$/);
+    expect(rq).toMatch(/^R\d+$/);
+    expect(rq).not.toBe(r);
+    expect(tp).toBe('TP1');
+  });
+});
