@@ -82,3 +82,15 @@ test('an earlier account-settings response cannot replace a later load', async (
     .toMatchObject({ defaultUnits: 'IPS', quality: 2, invertZoom: false });
   expect(errors).toEqual([]);
 });
+
+test('the start screen reflects account units that arrive after it opens', async ({ page }) => {
+  await delayedAccountSettings(page);
+  const errors = await openApp(page);
+  const units = page.getByLabel('Units for the new part', { exact: true });
+  await expect(units).toHaveValue('MMGS');
+  await page.evaluate(() => (window as unknown as SettingsWindow).releaseSettings());
+  await expect(units).toHaveValue('CGS');
+  await page.getByRole('button', { name: /New part/ }).click();
+  await expect(page.locator('.statusbar')).toContainText('CGS');
+  expect(errors).toEqual([]);
+});
