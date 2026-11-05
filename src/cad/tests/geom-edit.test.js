@@ -161,6 +161,16 @@ describe('offset', () => {
       }
     }
   });
+  it('links concave corners of open offsets that just miss instead of looping round', () => {
+    const pts = [
+      0, 0, 0, 0.69, 1.13, 0, 0.55, 3.25, 0, -4.54, 5.39, 0, -6.56, 4.34, 0, -7.74, 3.15, -0.27,
+      -7.17, 1.87, 0.46, -8.82, 0.18, 0, -9.25, -1.03, 0,
+    ];
+    const o = offsetEntity({ type: 'polyline', pts, closed: false, width: 0 }, 2, 0.356, 0.557);
+    expect(selfIntersections(o)).toEqual([]);
+    // No join sweeps more than half a turn.
+    for (let i = 2; i < o.pts.length; i += 3) expect(Math.abs(o.pts[i])).toBeLessThan(1);
+  });
   it('offsets open polylines with tangent arcs keeping a constant distance', () => {
     const b = Math.tan(Math.PI / 8);
     const p = { type: 'polyline', pts: [0, 0, 0, 10, 0, b, 15, 5, 0, 15, 20, 0], closed: false, width: 0 };

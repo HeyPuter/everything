@@ -99,7 +99,7 @@ export function offsetPolylinePts(pts, closed, s) {
   // Segments that collapse (reverse once trimmed to their neighbours) are
   // removed and their neighbours re-joined, round after round. Only segments
   // next to a removal change, so each round revisits just those.
-  const res = raw.map((g) => ({ g, x1: g.x1, y1: g.y1, x2: g.x2, y2: g.y2, join: 0, sweep: 0 }));
+  const res = raw.map((g) => ({ g, x1: g.x1, y1: g.y1, x2: g.x2, y2: g.y2, join: null, sweep: 0 }));
   for (let k = 0; k < m0; k++) {
     res[k].prev = closed || k > 0 ? res[(k + m0 - 1) % m0] : null;
     res[k].next = closed || k < m0 - 1 ? res[(k + 1) % m0] : null;
@@ -109,7 +109,7 @@ export function offsetPolylinePts(pts, closed, s) {
   const rejoin = (A, B) => {
     A.x2 = A.g.x2;
     A.y2 = A.g.y2;
-    A.join = 0;
+    A.join = null;
     B.x1 = B.g.x1;
     B.y1 = B.g.y1;
     joinSegs(A, B, s, tol);
@@ -153,7 +153,7 @@ export function offsetPolylinePts(pts, closed, s) {
       else {
         c.x2 = c.g.x2;
         c.y2 = c.g.y2;
-        c.join = 0;
+        c.join = null;
       }
       next.add(c);
       if (c.prev) next.add(c.prev);
@@ -167,7 +167,7 @@ export function offsetPolylinePts(pts, closed, s) {
   const out = [];
   for (let k = 0; k < live; k++, r = r.next) {
     out.push(r.x1, r.y1, r.g.arc ? Math.tan(r.sweep / 4) : 0);
-    if (r.join) out.push(r.x2, r.y2, r.join);
+    if (r.join !== null) out.push(r.x2, r.y2, r.join);
     if (!r.next) out.push(r.x2, r.y2, 0);
   }
   return { pts: out, closed };
@@ -436,6 +436,12 @@ function joinSegs(A, B, s, tol) {
   let sw = normAngle(a1 - a0);
   if (s > 0) sw -= TWO_PI;
   if (sw === 0 || Math.abs(sw) >= TWO_PI) return;
+  if (Math.abs(sw) > Math.PI + 1e-9) {
+    // The join would go the long way round: the corner is concave and the
+    // offsets just miss each other, so link them straight.
+    A.join = 0;
+    return;
+  }
   A.join = Math.tan(sw / 4);
 }
 
