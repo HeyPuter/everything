@@ -374,7 +374,7 @@ export class FileOps {
     }
     const text = await blob.text();
     if (signal.aborted) return false;
-    if (isStepFile(fileName)) { await this.importStepText(text, fileName, signal); return false; }
+    if (isStepFile(fileName)) { await this.openStep(text, fileName, signal); return false; }
     return this.openPartText(text, loc, fileName.replace(/\.[^.]+$/, ''), signal);
   }
 
@@ -394,13 +394,19 @@ export class FileOps {
 
   /** Opens a SolidWorks part as a new part whose first feature is its solid. */
   async openSolidWorks(data: Uint8Array, fileName: string, signal = this.beginOpen()) {
-    const app = this.app;
-    // Converted and checked first: a file that cannot be opened leaves the current part alone.
     const step = await this.convertSolidWorks(data, fileName);
-    if (!step || signal.aborted) return;
+    if (step && !signal.aborted) await this.openStep(step, fileName, signal);
+  }
+
+  /** Opens a STEP model (or a converted SolidWorks part) as a new part whose first feature is its solid. */
+  private async openStep(step: string, fileName: string, signal: AbortSignal) {
+    const app = this.app;
+    const solidWorks = isSolidWorksFile(fileName);
+    // Checked first: a file that cannot be opened leaves the current part alone.
+    if (!step.trim()) { toast({ kind: 'error', title: 'Could not open the file', message: `${fileName} is empty.` }); return; }
     const err = await app.kernel.checkImport(step).catch((e) => (e as Error).message);
     if (signal.aborted) return;
-    if (err) { toast({ kind: 'error', title: 'Could not open the SolidWorks part', message: err }); return; }
+    if (err) { toast({ kind: 'error', title: solidWorks ? 'Could not open the SolidWorks part' : 'Could not open the STEP file', message: err }); return; }
     if (!(await this.confirmDiscard('open another part', signal)) || signal.aborted) return;
     const doc = newDocument(safeName(fileName.replace(/\.[^.]+$/, '')) || 'Part1', app.settings.defaultUnits);
     const blobId = newBlobId(doc);
@@ -408,7 +414,7 @@ export class FileOps {
     doc.features.push({ id: allocateId(doc), name: defaultName(doc, 'import'), type: 'import', format: 'step', blob: blobId, fileName });
     app.loadDocument(doc, null);
     app.store.dirty = true;
-    toast({ kind: 'success', message: `Opened ${fileName}. SolidWorks feature history is not included: the part is one solid body to build on.`, timeout: 7000 });
+    toast({ kind: 'success', message: solidWorks ? `Opened ${fileName}. SolidWorks feature history is not included: the part is one solid body to build on.` : `Opened ${fileName} as a new part.`, timeout: solidWorks ? 7000 : undefined });
   }
 
   /** Converts a SolidWorks part to STEP in the geometry worker; null after reporting a failure. */
