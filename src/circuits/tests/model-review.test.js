@@ -324,6 +324,36 @@ describe('parseProject: damaged files', () => {
     expect(p.sheets[0].sheet.t).toBe('sheet');
   });
 
+  it('gives parts without a uid, or sharing one, their own so the board can link them', () => {
+    const data = newProjectData('P');
+    const res = cloneDef(findComponent('res-0603'));
+    data.library[res.id] = res;
+    const part = (id, designator, x, uid) => ({
+      id,
+      t: 'part',
+      comp: res.id,
+      designator,
+      x,
+      y: 0,
+      rot: 0,
+      uid,
+    });
+    data.documents[0].objects.push(
+      part('a', 'R1', 0),
+      part('b', 'R2', mil(1000)),
+      part('c', 'R3', mil(2000), 'u1'),
+      part('d', 'R4', mil(3000), 'u1'),
+    );
+    const p = parseProject(JSON.parse(JSON.stringify(data)));
+    const uids = [...p.sheets[0].items()].map((o) => o.uid);
+    expect(new Set(uids).size).toBe(4);
+    expect(uids[2]).toBe('u1');
+    const board = p.boards[0];
+    applySync(board, planSync(p, board));
+    expect([...board.items()].map((o) => o.designator).sort()).toEqual(['R1', 'R2', 'R3', 'R4']);
+    expect(planSync(p, board)).toEqual([]);
+  });
+
   it('gives documents with the same id distinct ids', () => {
     const data = newProjectData('P');
     data.documents[1].id = data.documents[0].id;

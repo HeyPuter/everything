@@ -284,6 +284,7 @@ export function parseProject(json) {
   if (!Array.isArray(data.documents)) throw new Error('The project has no documents.');
   data.documents = data.documents.filter((d) => d && typeof d === 'object');
   const docIds = new Set();
+  const partUids = new Set();
   for (const d of data.documents) {
     if (!['sch', 'pcb'].includes(d.kind)) throw new Error(`Unknown document type "${d.kind}".`);
     if (!d.id || docIds.has(d.id)) d.id = uid('d');
@@ -295,6 +296,11 @@ export function parseProject(json) {
     d.objects = d.objects.filter((o) => usable(o) && hasPoints(o)).map((o) => {
       if (!o.id || seen.has(o.id)) o = { ...o, id: uid() };
       seen.add(o.id);
+      // Parts link to board components by uid: each needs its own.
+      if (o.t === 'part' && d.kind === 'sch') {
+        if (!o.uid || partUids.has(o.uid)) o = { ...o, uid: uid('u') };
+        partUids.add(o.uid);
+      }
       return o;
     });
   }
