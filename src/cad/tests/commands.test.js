@@ -623,6 +623,23 @@ describe('transparent commands', () => {
     expect(t.drawing.undoStack).toHaveLength(1);
   });
 
+  it("keeps a typed snap override and angle lock across 'ZOOM and 'PAN", async () => {
+    await t.type('LINE', '0,0', 'END', '<90');
+    await t.type("'Z", 'W', '0,0', '10,10');
+    expect(t.ed.active.def.name).toBe('LINE');
+    expect(t.ed.snapOverride).toBe('end');
+    expect(t.ed.angleLock).toBeCloseTo(Math.PI / 2);
+    t.ed.run('PAN');
+    await flush();
+    expect(t.ed.snapOverride).toBe(null);
+    t.ed.cancel();
+    await flush();
+    expect(t.ed.snapOverride).toBe('end');
+    expect(t.ed.angleLock).toBeCloseTo(Math.PI / 2);
+    await t.type('5');
+    expect(t.all('line')[0]).toMatchObject({ x2: expect.closeTo(0), y2: expect.closeTo(5) });
+  });
+
   it('ends the outer command when another command starts during a pan', async () => {
     await t.type('LINE', '0,0', '10,0', '10,10');
     t.ed.run('PAN');

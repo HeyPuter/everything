@@ -239,9 +239,12 @@ export class Editor {
    * outer prompt is parked and restored afterwards instead of cancelled.
    */
   async _transparent(def, args) {
-    const slot = { request: this.request };
+    // A typed snap override or <angle lock waits for the outer prompt's point.
+    const slot = { request: this.request, snapOverride: this.snapOverride, angleLock: this.angleLock };
     this._parked.push(slot);
     this.request = null;
+    this.snapOverride = null;
+    this.angleLock = null;
     try {
       await def.run(this, args);
     } catch (err) {
@@ -260,7 +263,11 @@ export class Editor {
         }
         const outer = slot.request;
         this.request = outer;
-        if (outer) this.ui.prompt(outer.prompt, outer.options, outer.opts.defaultLabel);
+        if (outer) {
+          this.snapOverride = slot.snapOverride;
+          this.angleLock = slot.angleLock;
+          this.ui.prompt(outer.prompt, outer.options, outer.opts.defaultLabel);
+        }
       }
       this._updateCursor(this.cursor.sx, this.cursor.sy);
     }
