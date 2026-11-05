@@ -557,3 +557,34 @@ for (const command of ['save', 'saveAs'] as const) test(`a delayed ${command} ca
   await expect(page).toHaveTitle('Part2 - Parametric');
   expect(errors).toEqual([]);
 });
+
+test('undo during save destination lookup does not mark a different snapshot saved', async ({ page }) => {
+  await mockPuter(page);
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await app(page);
+  const result = await page.evaluate(async () => {
+    type W = Mock & { __parametric: import('../../src/app/app').App; puter: { fs: { readdir: (...args: unknown[]) => Promise<unknown> } } };
+    const w = window as unknown as W, app = w.__parametric;
+    const readdir = w.puter.fs.readdir.bind(w.puter.fs);
+    let release!: () => void, entered!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    const started = new Promise<void>((r) => { entered = r; });
+    w.puter.fs.readdir = async (...args) => { entered(); await gate; return readdir(...args); };
+    app.store.change('Original', (d) => { d.variables.push({ id: 'v1', name: 'Original', expr: '10' }); });
+    const saving = new Promise<void>((resolve) => {
+      const off = app.store.on((reason) => { if (reason === 'saved') { off(); resolve(); } });
+    });
+    app.commands.run('save');
+    await started;
+    app.store.change('Temporary', (d) => { d.variables.push({ id: 'v2', name: 'Temporary', expr: '20' }); });
+    app.store.undo();
+    release();
+    await saving;
+    const saved = JSON.parse([...w.__files.values()][0].text);
+    return { saved: saved.variables.map((v: { name: string }) => v.name), current: app.store.doc.variables.map((v) => v.name), dirty: app.store.dirty };
+  });
+  expect(result.saved).toEqual(result.current);
+  expect(result.dirty).toBe(false);
+  expect(errors).toEqual([]);
+});

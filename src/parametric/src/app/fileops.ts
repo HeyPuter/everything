@@ -77,13 +77,14 @@ export class FileOps {
     if (this.saving) return false;
     const app = this.app;
     if (app.sketchEditor) app.exitSketch(true);
-    const doc = app.store.doc;
     const documentVersion = this.documentVersion;
     this.saving = true;
     try {
       let loc = app.location;
-      if (!loc) loc = await newLocation(doc.name, `part-${Date.now().toString(36)}`);
+      if (!loc) loc = await newLocation(app.store.doc.name, `part-${Date.now().toString(36)}`);
       if (documentVersion !== this.documentVersion) return false;
+      // Undo replaces the document object while destination lookup is pending.
+      const doc = app.store.doc;
       const text = serializeDocument(doc);
       const revision = this.revision;
       const saved = await saveText(loc, doc.name, text);
