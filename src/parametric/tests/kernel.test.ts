@@ -480,6 +480,29 @@ describe('feature regeneration', () => {
     expect(volume(b)).toBeCloseTo(4000, 3);
   });
 
+  it('chamfers every edge of a selected face with its two distances on the same sides', async () => {
+    const b = new ModelBuilder();
+    // A notch makes the top face's neighbours come before and after it in the body.
+    const base: Feature[] = [
+      sketch('S1', rect(-20, -20, 20, 20)), extrude('E1', 'S1', 10),
+      sketch('S2', rect(-25, -5, -10, 5)), extrude('E2', 'S2', 50, { cut: true, flip: true }),
+    ];
+    const r0 = await b.build(req(base));
+    const top = r0.faces.find((f) => f.name === 'E1:cap1')!;
+    const chamfer = (flip: boolean): Feature => ({
+      id: 'C', name: 'C', type: 'chamfer', edges: [], faces: [{ name: top.name, sig: { type: top.type, c: top.center, n: top.normal, area: top.area } }],
+      mode: 'twoDistance', distance: 1, distance2: 3, angle: 45, flip,
+    });
+    // Distance 1 down the walls, distance 2 across the top; Flip swaps them.
+    for (const [flip, nz] of [[false, 3 / Math.sqrt(10)], [true, 1 / Math.sqrt(10)]] as const) {
+      const r = await b.build(req([...base, chamfer(flip)]));
+      expect(r.status[4].ok).toBe(true);
+      const slopes = r.faces.filter((f) => f.feature === 'C').map((f) => f.normal![2]);
+      expect(slopes).toHaveLength(8);
+      for (const z of slopes) expect(z).toBeCloseTo(nz, 6);
+    }
+  });
+
   it('reports chamfer distances and angles out of range by name', async () => {
     const b = new ModelBuilder();
     const base: Feature[] = [sketch('S1', rect(-10, -10, 10, 10)), extrude('E1', 'S1', 10)];

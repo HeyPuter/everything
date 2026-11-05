@@ -713,14 +713,14 @@ export class ModelBuilder {
     this.applyTool(f.id, st, tool, this.nameTool(f.id, tool, classify), f.cut);
   }
 
-  /** Edges selected directly plus every edge of the selected faces. */
-  private collectEdges(st: State, edges: EdgeRef[], faces: FaceRef[]): number[] {
+  /** Edges selected directly plus every edge of the selected faces (`from`: edge to the selected face it came from). */
+  private collectEdges(st: State, edges: EdgeRef[], faces: FaceRef[], from?: Map<number, number>): number[] {
     const all = this.edgesOf(st);
     const set = new Set<number>();
     for (const e of edges) set.add(this.resolveEdge(e, st));
     for (const fr of faces) {
       const fi = this.resolveFace(fr, st);
-      all.forEach((e, i) => { if (e.faces.includes(fi)) set.add(i); });
+      all.forEach((e, i) => { if (e.faces.includes(fi)) { set.add(i); from?.set(i, fi); } });
     }
     if (!set.size) throw new FeatureError('Select edges or faces');
     return [...set];
@@ -760,7 +760,8 @@ export class ModelBuilder {
     if (d2 <= 0) throw new FeatureError('Distance 2 must be greater than zero');
     const angle = f.mode === 'distanceAngle' ? num(f.angle) : 45;
     if (!(angle > 0 && angle < 90)) throw new FeatureError('The chamfer angle must be between 0 and 90 degrees');
-    const ids = this.collectEdges(st, f.edges, f.faces);
+    const from = new Map<number, number>();
+    const ids = this.collectEdges(st, f.edges, f.faces, from);
     const all = this.edgesOf(st);
     const oc = getOc();
     const builder = new oc.BRepFilletAPI_MakeChamfer(st.body.wrapped);
@@ -770,7 +771,12 @@ export class ModelBuilder {
         const e = all[i];
         if (f.mode === 'distance') builder.Add(d1, e.shape.wrapped);
         else {
-          const fi = e.faces[f.flip ? 1 : 0] ?? e.faces[0];
+          // Distance 1 is measured on this face. Round a selected face it is
+          // the neighbour of every edge (Flip: the face itself); it used to
+          // depend on the order of the faces, so the chamfer changed sides
+          // from one edge to the next.
+          const sel = from.get(i);
+          const fi = sel === undefined ? (e.faces[f.flip ? 1 : 0] ?? e.faces[0]) : f.flip ? sel : (e.faces.find((x) => x !== sel) ?? sel);
           const face = st.faces[fi].shape.wrapped;
           if (f.mode === 'twoDistance') builder.Add(d1, d2, e.shape.wrapped, face);
           else builder.AddDA(d1, (angle * Math.PI) / 180, e.shape.wrapped, face);
