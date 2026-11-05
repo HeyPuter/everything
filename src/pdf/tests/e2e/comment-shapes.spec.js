@@ -152,15 +152,15 @@ test('a line, a drawing, and a callout take clicks only where they are drawn', a
   await expect(page.getByRole('textbox', { name: 'Edit text' })).toBeFocused();
   await page.keyboard.press('Escape');
   await settled(page);
-  // The line itself still selects and drags.
+  // The line itself still selects and drags (as far as the page's edge lets it).
   await page.mouse.move(...at(200, 200));
   await page.mouse.down();
-  await page.mouse.move(...at(220, 200), { steps: 4 });
+  await page.mouse.move(...at(210, 200), { steps: 4 });
   await page.mouse.up();
   await settled(page);
   const pending = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Download', exact: true }).click();
   const saved = await PDFDocument.load(await readFile(await (await pending).path()));
   const [line] = listAnnotations(saved, 0);
-  expect(line.points[0].x).toBeCloseTo(40, 0);
+  expect(line.points[0].x).toBeCloseTo(30, 0);
 });

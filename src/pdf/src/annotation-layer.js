@@ -28,6 +28,9 @@ const movable = (entry) =>
   !entry.locked && !entry.readOnly && annotationAccepts(entry.subtype, 'rect');
 
 const SVG = 'http://www.w3.org/2000/svg';
+/** Where a box of `size` may start within low..high, or at least no further out than `origin`. */
+const span = (start, size, origin, low, high) =>
+  Math.min(Math.max(start, Math.min(low, origin)), Math.max(high - size, origin));
 /** How long arrow keys rest before their nudges are saved as one move, in milliseconds. */
 const NUDGE_REST = 180;
 
@@ -65,6 +68,18 @@ export function createAnnotationLayer({ onSelect, onMove, onDelete }) {
     const [ax, ay] = viewport.convertToViewportPoint(0, 0);
     const [bx, by] = viewport.convertToViewportPoint(ox, oy);
     return [bx - ax, by - ay];
+  }
+  /**
+   * A screen offset for moving `entry`, cut short where it would take the comment off the
+   * page: one dropped there could not be seen or reached again. One already partly off the
+   * page may stay where it was.
+   */
+  function keepOnPage(entry, dx, dy) {
+    const box = screenBox(entry.rect);
+    return [
+      span(box.left + dx, box.width, box.left, 0, viewport.width) - box.left,
+      span(box.top + dy, box.height, box.top, 0, viewport.height) - box.top,
+    ];
   }
   const nodeOf = (id) => [...root.children].find((node) => node.dataset.id === id);
   function showNudge(extra = [0, 0]) {
@@ -242,9 +257,8 @@ export function createAnnotationLayer({ onSelect, onMove, onDelete }) {
           },
           onpointermove: (e) => {
             if (!drag || drag.id !== e.pointerId) return;
-            const dx = e.clientX - drag.x,
-              dy = e.clientY - drag.y;
-            if (!drag.moved && Math.hypot(dx, dy) < 3) return;
+            const [dx, dy] = keepOnPage(drag.entry, e.clientX - drag.x, e.clientY - drag.y);
+            if (!drag.moved && Math.hypot(e.clientX - drag.x, e.clientY - drag.y) < 3) return;
             drag.moved = true;
             drag.dx = dx;
             drag.dy = dy;
@@ -289,11 +303,16 @@ export function createAnnotationLayer({ onSelect, onMove, onDelete }) {
               const step = e.shiftKey ? 10 : 1;
               const dx = { ArrowLeft: -step, ArrowRight: step }[e.key] || 0,
                 dy = { ArrowUp: -step, ArrowDown: step }[e.key] || 0;
-              const [ox, oy] = pdfOffset(dx, dy);
               if (nudge && nudge.id !== entry.id) saveNudge();
               nudge ??= { id: entry.id, entry, ox: 0, oy: 0 };
-              nudge.ox += ox;
-              nudge.oy += oy;
+              // Offsets from where the comment is drawn: a saved move still being applied
+              // has not reached it yet.
+              const [mx, my] = moving?.id === entry.id ? [moving.ox, moving.oy] : [0, 0];
+              const [sx, sy] = screenOffset(nudge.ox + mx, nudge.oy + my);
+              const [cx, cy] = keepOnPage(entry, sx + dx, sy + dy);
+              const [ox, oy] = pdfOffset(cx, cy);
+              nudge.ox = ox - mx;
+              nudge.oy = oy - my;
               showNudge(moving?.id === entry.id ? [moving.ox, moving.oy] : [0, 0]);
               heldArrows.add(e.key);
               clearTimeout(nudgeTimer);
