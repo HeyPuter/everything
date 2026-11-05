@@ -693,8 +693,17 @@ export class ModelBuilder {
         return inPlane(rotatePoint(desc.center, axis.p, d, back)) ? 'cap0' : 'cap1';
       }
       // A full surface of revolution has its centroid on the axis, so locate
-      // the face by its vertices in the sketch plane on the profile's side:
-      // the ends of the profile curve that generated it.
+      // the face by the profile curve that generated it: its edge in the
+      // sketch plane on the profile's side (the middle of that edge, as the
+      // middle of its ends can lie on another curve, like the chord of an arc).
+      const onSide = (q: Vec2) => side * ((q[0] - a2[0]) * perp[0] + (q[1] - a2[1]) * perp[1]) >= -1e-6 * (1 + Math.hypot(q[0], q[1]));
+      for (const e of subShapes(shape, 'edge')) {
+        const ed = describeEdge(e);
+        const ends = [ed.a, ed.b, ed.mid].map((p) => rotatePoint(p, axis.p, d, back));
+        if (!ends.every(inPlane)) continue;
+        const mid = toLocal(frame, ends[2]);
+        if (onSide(mid)) return 'side:' + this.nearestSrc(regions, mid);
+      }
       const pts = subShapes(shape, 'vertex')
         .map((v) => rotatePoint(vertexPoint(v), axis.p, d, back))
         .filter(inPlane)

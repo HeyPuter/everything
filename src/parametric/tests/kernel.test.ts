@@ -322,6 +322,21 @@ describe('feature regeneration', () => {
     expect(r.edges.map((e) => e.name)).toContain('E1:cap1|E1:side:arc');
   });
 
+  it('names a revolved arc face after the arc, not after the chord closing it', async () => {
+    const b = new ModelBuilder();
+    // Half a disc beside the axis: the arc's ends average onto the chord line.
+    const ents: SketchFeature['entities'] = [
+      { id: 'o', t: 'point', x: 30, y: 0 }, { id: 'pa', t: 'point', x: 30, y: -10 }, { id: 'pb', t: 'point', x: 30, y: 10 },
+      { id: 'arc', t: 'arc', c: 'o', a: 'pa', b: 'pb' }, { id: 'ln', t: 'line', a: 'pb', b: 'pa' },
+      { id: 'a1', t: 'point', x: 0, y: -20 }, { id: 'a2', t: 'point', x: 0, y: 20 }, { id: 'ax', t: 'line', a: 'a1', b: 'a2', construction: true },
+    ];
+    for (const extra of [{}, { angle: 90 }, { angle: 90, end: 'midPlane' as const }]) {
+      const r = await b.build(req([sketch('S1', ents), revolve('R1', 'S1', 360, extra)]));
+      expect(r.faces.find((f) => f.type === 'torus')!.name).toBe('R1:side:arc');
+      expect(r.faces.find((f) => f.type === 'cylinder')!.name).toBe('R1:side:ln');
+    }
+  });
+
   it('keeps the names of fillet and loft faces that a later cut trims', async () => {
     const b = new ModelBuilder();
     const base: Feature[] = [sketch('S1', circle(0, 0, 20, 'cc')), extrude('E1', 'S1', 10)];
