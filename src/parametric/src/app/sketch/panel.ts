@@ -88,7 +88,12 @@ export class SketchPanel extends PropertyPanel {
           min: d.type === 'angle' ? 0 : 1e-6,
           // The angle between two lines is 0 to 180 degrees (the label side picks the sector).
           max: d.type === 'angle' ? 180 : undefined,
-          onChange: (v) => ed.edit('Change dimension', (s2) => { (s2.constraints.find((c) => c.id === d.id) as SkDimension).value = v; }, { keepNumberField: true }),
+          onChange: (v) => {
+            // Removing a focused field can emit change before detaching it.
+            // The field must still own this dimension, not a deleted or replaced one.
+            if (!ed.sketch?.constraints.includes(d)) return;
+            ed.edit('Change dimension', (s2) => { (s2.constraints.find((c) => c.id === d.id) as SkDimension).value = v; }, { keepNumberField: true });
+          },
         })),
         checkbox('Driven (reference only)', !!d.driven, (v) => ed.edit(v ? 'Make dimension driven' : 'Make dimension driving', (s2) => { (s2.constraints.find((c) => c.id === d.id) as SkDimension).driven = v || undefined; })),
       ]));

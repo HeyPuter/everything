@@ -39,6 +39,41 @@ async function startSketch(page: Page) {
 }
 
 test.describe('sketching', () => {
+  test('deleting a dimension cancels its pending field without errors and supports Undo', async ({ page }) => {
+    const errors = await openApp(page);
+    await startSketch(page);
+    await page.evaluate(() => {
+      const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+      a.sketchEditor!.edit('Add dimensioned circle', (sk) => {
+        sk.entities.push({ id: 'pc', t: 'point', x: 0, y: 0 }, { id: 'circle', t: 'circle', c: 'pc', r: 15 });
+        sk.constraints.push({ id: 'diameter', type: 'diameter', refs: ['circle'], value: 30, at: [20, 20], name: 'D1' });
+      });
+      a.selection.set([{ kind: 'skdim', id: 'diameter' }]);
+    });
+    await page.getByRole('textbox', { name: 'Value', exact: true }).fill('40');
+    await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.commands.run('delete'));
+    await page.waitForTimeout(550);
+    expect(await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.sketchEditor!.sketch.constraints)).toEqual([]);
+    expect(errors).toEqual([]);
+    await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.commands.run('undo'));
+    expect(await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.sketchEditor!.sketch.constraints)).toEqual([
+      expect.objectContaining({ id: 'diameter', value: 30 }),
+    ]);
+    await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.commands.run('redo'));
+    expect(await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.sketchEditor!.sketch.constraints)).toEqual([]);
+    await page.evaluate(() => {
+      const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+      a.commands.run('undo');
+      a.selection.set([{ kind: 'skdim', id: 'diameter' }]);
+    });
+    await page.getByRole('textbox', { name: 'Value', exact: true }).fill('42');
+    await page.getByRole('textbox', { name: 'Value', exact: true }).press('Enter');
+    expect(await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.sketchEditor!.sketch.constraints)).toEqual([
+      expect.objectContaining({ id: 'diameter', value: 42 }),
+    ]);
+    expect(errors).toEqual([]);
+  });
+
   test('Trim at an intersection preserves the sketch and Redo, then accepts a click beside it', async ({ page }) => {
     const errors = await openApp(page);
     await startSketch(page);
