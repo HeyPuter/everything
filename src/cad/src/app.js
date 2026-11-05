@@ -1457,6 +1457,8 @@ export class App {
         noRepeat: true,
         run: async (ed) => {
           const key = e.type === 'leader' ? 'text' : 'value';
+          // The highlight of a selected text would show the old value under the edit.
+          ed.clearSelection();
           ed.renderer.setHidden(new Set([id]));
           const pos = e.type === 'leader' ? { x: e.pts.at(-2), y: e.pts.at(-1) } : { x: e.x, y: e.y };
           const v = await ed.editText({ anchor: pos, height: e.h, rot: e.rot || 0, multiline: e.type === 'mtext', width: e.width, initial: e[key], onChange: (val) => ed.renderer.setPreview([{ ...e, [key]: val }]) });
