@@ -47,6 +47,27 @@ export function arcFrom3(p1, p2, p3) {
   return { cx: ux, cy: uy, r, a0: norm360(t3), sweep: 360 - s13 };
 }
 
+/**
+ * Start, mid and end points of an arc item in file coordinates, or null.
+ * KiCad 6+ writes (start) (mid) (end). KiCad 5 wrote (start) as the centre,
+ * (end) as the arc's first point and (angle) in degrees, clockwise on screen
+ * (y down), which is a standard rotation in file coordinates.
+ */
+export function arcPoints(item) {
+  const s = find(item, 'start'), m = find(item, 'mid'), e = find(item, 'end');
+  if (!s || !e) return null;
+  const xy = (l) => [Number(l[1]) || 0, Number(l[2]) || 0];
+  if (m) return [xy(s), xy(m), xy(e)];
+  const angle = Number(find(item, 'angle')?.[1]);
+  if (!angle) return null;
+  const [cx, cy] = xy(s), [px, py] = xy(e);
+  const at = (deg) => {
+    const r = (deg * Math.PI) / 180, c = Math.cos(r), sn = Math.sin(r);
+    return [cx + (px - cx) * c - (py - cy) * sn, cy + (px - cx) * sn + (py - cy) * c];
+  };
+  return [[px, py], at(angle / 2), at(angle)];
+}
+
 /** Collects warnings without duplicates. */
 export class Warnings {
   constructor() { this.list = []; this.seen = new Set(); }

@@ -4,6 +4,8 @@ import { exportGerbers } from '../src/io/gerber.js';
 import { mm } from '../src/core/units.js';
 import { defaultRules } from '../src/model/schema.js';
 import { compFieldPlacement } from '../src/model/pcb.js';
+import { importKicad } from '../src/io/kicad/index.js';
+import { polyArea, bboxOfFlat } from '../src/core/geom.js';
 
 const square = (x0, y0, x1, y1) => [x0, y0, x1, y0, x1, y1, x0, y1];
 
@@ -176,5 +178,50 @@ describe('Gerber silkscreen fields', () => {
     const box = drawnBox(legend(pourBoard([text]), 'topOverlay'));
     expect(box.maxX).toBeLessThanOrEqual(mm(20) + mm(0.1));
     expect(box.maxY).toBeLessThanOrEqual(mm(15) + mm(0.1));
+  });
+});
+
+// A KiCad 5 board: 20 x 10 mm with 2 mm rounded corners drawn as legacy arcs
+// (start = centre, end = first point, angle clockwise on screen).
+const KICAD5_PCB = `(kicad_pcb (version 20171130) (host pcbnew 5.1.9)
+  (general (thickness 1.6))
+  (layers (0 F.Cu signal) (31 B.Cu signal) (44 Edge.Cuts user))
+  (net 0 "") (net 1 GND)
+  (gr_line (start 102 100) (end 118 100) (layer Edge.Cuts) (width 0.05))
+  (gr_line (start 120 102) (end 120 108) (layer Edge.Cuts) (width 0.05))
+  (gr_line (start 118 110) (end 102 110) (layer Edge.Cuts) (width 0.05))
+  (gr_line (start 100 108) (end 100 102) (layer Edge.Cuts) (width 0.05))
+  (gr_arc (start 102 102) (end 100 102) (angle 90) (layer Edge.Cuts) (width 0.05))
+  (gr_arc (start 118 102) (end 118 100) (angle 90) (layer Edge.Cuts) (width 0.05))
+  (gr_arc (start 118 108) (end 120 108) (angle 90) (layer Edge.Cuts) (width 0.05))
+  (gr_arc (start 102 108) (end 102 110) (angle 90) (layer Edge.Cuts) (width 0.05))
+  (gr_arc (start 110 105) (end 112 105) (angle -180) (layer F.SilkS) (width 0.15))
+  (module R_0805 (layer F.Cu) (tedit 5B36C52B) (tstamp 5E3F1A2B) (at 105 105)
+    (fp_text reference R1 (at 0 -1.65) (layer F.SilkS) (effects (font (size 1 1) (thickness 0.15))))
+    (fp_text value 0402 (at 0 1.65) (layer F.Fab) (effects (font (size 1 1) (thickness 0.15))))
+    (fp_arc (start 0 0) (end 1 0) (angle 90) (layer F.SilkS) (width 0.12))
+    (pad 01 smd rect (at -0.95 0) (size 1 1.3) (layers F.Cu F.Paste F.Mask) (net 1 GND))
+    (pad 2 smd rect (at 0.95 0) (size 1 1.3) (layers F.Cu F.Paste F.Mask))
+  )
+)`;
+
+describe('KiCad 5 boards', () => {
+  it('imports legacy arcs on the outline, the board and in footprints', async () => {
+    const { project, warnings } = await importKicad([{ name: 'old.kicad_pcb', text: KICAD5_PCB }]);
+    expect(warnings).toEqual([]);
+    const pcb = project.documents[0];
+    const area = Math.abs(polyArea(pcb.board.outline)) / 1e12;
+    expect(area).toBeCloseTo(200 - (4 - Math.PI) * 4, 0);
+    const b = bboxOfFlat(pcb.board.outline);
+    expect([b.minX, b.maxX, b.minY, b.maxY]).toEqual([mm(100), mm(120), -mm(110), -mm(100)]);
+    // Silkscreen half circle: counter-clockwise on screen from the right, the upper half.
+    const arc = pcb.objects.find((o) => o.t === 'arc');
+    expect(arc).toMatchObject({ layer: 'topOverlay', cx: mm(110), cy: -mm(105), r: mm(2) });
+    expect(arc.a0).toBeCloseTo(0);
+    expect(arc.sweep).toBeCloseTo(180);
+    // Footprint quarter arc: clockwise on screen from +x, so down the page (y up: from 270 to 360).
+    const fpArc = Object.values(project.library)[0].footprint.graphics.find((g) => g.t === 'arc');
+    expect(fpArc.a0).toBeCloseTo(270, 3);
+    expect(fpArc.sweep).toBeCloseTo(90, 3);
   });
 });

@@ -8,7 +8,7 @@
 // side 'bottom' and the original rotation.
 
 import { parseSexpr, find, findAll, val, hasFlag, points, property } from './sexpr.js';
-import { nm, norm360, slug, arcFrom3, flipName, fontSize, strokeWidth, LAYER_MAP } from './common.js';
+import { nm, norm360, slug, arcFrom3, arcPoints, flipName, fontSize, strokeWidth, LAYER_MAP } from './common.js';
 import { uid } from '../../core/emitter.js';
 import { arcToPoints, circleToPoly, polyArea, pointInPoly, bboxOfFlat, bboxEmpty, bboxAdd, rotate } from '../../core/geom.js';
 import { defaultBoard } from '../../model/project.js';
@@ -192,11 +192,11 @@ export function importBoard(file, warnings) {
             break;
           }
           case 'fp_arc': {
-            const s = find(item, 'start'), m = find(item, 'mid'), e = find(item, 'end');
-            if (s && m && e) {
-              const a = arcFrom3(toDef(s[1], s[2]), toDef(m[1], m[2]), toDef(e[1], e[2]));
+            const ap = arcPoints(item);
+            if (ap) {
+              const a = arcFrom3(...ap.map(([x, y]) => toDef(x, y)));
               if (a) graphics.push({ t: 'arc', cx: Math.round(a.cx), cy: Math.round(a.cy), r: Math.round(a.r), a0: a.a0, sweep: a.sweep, w, layer });
-            } else warnings.add('Footprint arcs in an old format were skipped.');
+            } else warnings.add('Footprint arcs in an unknown format were skipped.');
             break;
           }
           case 'fp_poly': {
@@ -376,8 +376,8 @@ function collectEdge(item, P, pieces, closed) {
       break;
     }
     case 'gr_arc': {
-      const s = find(item, 'start'), m = find(item, 'mid'), e = find(item, 'end');
-      if (s && m && e) pieces.push(arcPolyline(P(s[1], s[2]), P(m[1], m[2]), P(e[1], e[2])));
+      const ap = arcPoints(item);
+      if (ap) pieces.push(arcPolyline(...ap.map(([x, y]) => P(x, y))));
       break;
     }
     case 'gr_rect': {
@@ -410,9 +410,9 @@ function graphicObjects(item, layer, P) {
       return s && e ? [track(P(s[1], s[2]), P(e[1], e[2]))] : [];
     }
     case 'gr_arc': {
-      const s = find(item, 'start'), m = find(item, 'mid'), e = find(item, 'end');
-      if (!s || !m || !e) return [];
-      const a = arcFrom3(P(s[1], s[2]), P(m[1], m[2]), P(e[1], e[2]));
+      const ap = arcPoints(item);
+      if (!ap) return [];
+      const a = arcFrom3(...ap.map(([x, y]) => P(x, y)));
       return a ? [{ id: uid(), t: 'arc', layer, cx: Math.round(a.cx), cy: Math.round(a.cy), r: Math.round(a.r), a0: a.a0, sweep: a.sweep, w }] : [];
     }
     case 'gr_circle': {
