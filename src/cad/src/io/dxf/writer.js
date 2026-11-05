@@ -285,6 +285,12 @@ class DxfWriter {
     for (const b of this.blocks) b.br = this.h();
     for (const ab of this.arrowBlocks.values()) if (ab.arrow) ab.br = this.h();
     for (const db of this.dimBlocks) db.br = this.h();
+    // draw order set with DRAWORDER: a SORTENTS table in model space's extension dictionary
+    this.sortEntries = [];
+    if ((d.entities || []).some((e) => e && e.orderGroup != null)) {
+      this.hSortDict = this.h();
+      this.hSortents = this.h();
+    }
   }
 
   defLayer(L) {
@@ -381,6 +387,15 @@ class DxfWriter {
     this.prepare();
     this.g(0, 'SECTION');
     this.g(2, 'CLASSES');
+    if (this.hSortents) {
+      this.g(0, 'CLASS');
+      this.g(1, 'SORTENTSTABLE');
+      this.g(2, 'AcDbSortentsTable');
+      this.g(3, 'ObjectDBX Classes');
+      this.i(90, 0);
+      this.i(280, 0);
+      this.i(281, 0);
+    }
     this.g(0, 'ENDSEC');
     this.tables();
     this.blocksSection();
@@ -623,6 +638,11 @@ class DxfWriter {
     for (const [name, hd] of recs) {
       this.g(0, 'BLOCK_RECORD');
       this.g(5, hd);
+      if (hd === this.brModel && this.hSortents) {
+        this.g(102, '{ACAD_XDICTIONARY');
+        this.g(360, this.hSortDict);
+        this.g(102, '}');
+      }
       this.g(330, th);
       this.g(100, 'AcDbSymbolTableRecord');
       this.g(100, 'AcDbBlockTableRecord');
@@ -749,7 +769,20 @@ class DxfWriter {
   entitiesSection() {
     this.g(0, 'SECTION');
     this.g(2, 'ENTITIES');
-    for (const e of this.d.entities || []) this.entity(e, this.brModel, null);
+    // Draw-order bands become runs of objects sharing a sort handle: the
+    // handle of the run's first object, so the order stays the file order.
+    let group = null;
+    let key = '';
+    for (const e of this.d.entities || []) {
+      this.first = '';
+      this.entity(e, this.brModel, null);
+      if (!this.hSortents || !this.first) continue;
+      const g = e.orderGroup ?? null;
+      if (g !== null && g !== group) key = this.first;
+      if (g !== null) this.sortEntries.push(this.first, key);
+      group = g;
+    }
+    this.first = null;
     this.g(0, 'ENDSEC');
   }
 
@@ -791,6 +824,32 @@ class DxfWriter {
     this.g(330, this.hPsDict);
     this.g(102, '}');
     this.g(330, this.hPsDict);
+    if (this.hSortents) {
+      this.g(0, 'DICTIONARY');
+      this.g(5, this.hSortDict);
+      this.g(102, '{ACAD_REACTORS');
+      this.g(330, this.brModel);
+      this.g(102, '}');
+      this.g(330, this.brModel);
+      this.g(100, 'AcDbDictionary');
+      this.i(280, 1);
+      this.i(281, 1);
+      this.g(3, 'ACAD_SORTENTS');
+      this.g(360, this.hSortents);
+      this.g(0, 'SORTENTSTABLE');
+      this.g(5, this.hSortents);
+      this.g(102, '{ACAD_REACTORS');
+      this.g(330, this.hSortDict);
+      this.g(102, '}');
+      this.g(330, this.hSortDict);
+      this.g(100, 'AcDbSortentsTable');
+      this.g(330, this.brModel);
+      const se = this.sortEntries;
+      for (let i = 0; i < se.length; i += 2) {
+        this.g(331, se[i]);
+        this.g(5, se[i + 1]);
+      }
+    }
     this.g(0, 'ENDSEC');
   }
 
@@ -805,11 +864,13 @@ class DxfWriter {
       this.entityBody(e, owner, blockName);
     } catch (err) {
       this.buf = this.buf.slice(0, mark);
+      if (this.first) this.first = '';
       this.warn(`Could not write ${e.type} entity: ${err.message}`);
     }
   }
 
   common(type, e, owner, handle = this.h()) {
+    if (this.first === '') this.first = handle;
     this.g(0, type);
     this.g(5, handle);
     this.g(330, owner);

@@ -109,6 +109,26 @@ describe('DWG writer', () => {
     }
   });
 
+  it('keeps draw-order bands through DXF and DWG in a SORTENTS table', () => {
+    const d = everything();
+    const line = (y, g) => ent('line', { x1: 0, y1: y, x2: 10, y2: y, ...(g == null ? {} : { orderGroup: g }) });
+    d.entities = [line(1), line(3), line(2, 50), line(4, 50), line(5, 60), line(6), line(7, 70)];
+    const bands = (e) => e.map((x) => `${x.y1}${x.orderGroup == null ? '' : '*'}`).join(' ');
+    const opts = { dimensionEntities, hatchPatterns };
+    const text = writeDxf(d, opts);
+    expect(text).toContain('AcDbSortentsTable');
+    for (const back of [parseDxf(text), parseDwg(writeDwg(d, opts)), parseDwg(writeDwg(d, { ...opts, version: 2000 }))]) {
+      const e = back.drawing.entities;
+      expect(bands(e)).toBe('1 3 2* 4* 5* 6 7*');
+      // one band per run of the same group
+      expect(e[2].orderGroup).toBe(e[3].orderGroup);
+      expect(new Set([e[3].orderGroup, e[4].orderGroup, e[6].orderGroup]).size).toBe(3);
+    }
+    // without draw order no table is written
+    d.entities = [line(1), line(2)];
+    expect(writeDxf(d, opts)).not.toContain('SORTENTS');
+  });
+
   it('writes every entity type and table feature', () => {
     const d = everything();
     const opts = { dimensionEntities, hatchPatterns };

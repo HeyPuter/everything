@@ -848,6 +848,13 @@ const CLASS_OBJ = {
     io.H('defaultEntry');
   },
   ACDBPLACEHOLDER() {},
+  /** Draw order: sort handles (data stream) of the listed entities. */
+  SORTENTSTABLE(io) {
+    const n = io.BL('numEntries');
+    list(io, 'sortHandles', n, (s) => s.HD('v'));
+    io.H('blockOwner');
+    handleList(io, 'entities', n);
+  },
   LAYOUT(io) {
     const v = io.ver;
     // plot settings

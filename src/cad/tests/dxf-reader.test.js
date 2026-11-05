@@ -6,7 +6,7 @@ import { makeContext, emitEntity } from '../src/core/tessellate.js';
 import { exportPayload } from '../src/io/dxf-client.js';
 
 /** Build DXF text from flat [code, value, ...] arrays per section. */
-function dxf(entities = [], { header = [], tables = [], blocks = [] } = {}) {
+function dxf(entities = [], { header = [], tables = [], blocks = [], objects = [] } = {}) {
   const out = [];
   const push = (arr) => {
     for (let i = 0; i < arr.length; i += 2) out.push(String(arr[i]).padStart(3), String(arr[i + 1]));
@@ -20,6 +20,7 @@ function dxf(entities = [], { header = [], tables = [], blocks = [] } = {}) {
   if (tables.length) section('TABLES', tables);
   if (blocks.length) section('BLOCKS', blocks);
   section('ENTITIES', entities);
+  if (objects.length) section('OBJECTS', objects);
   push([0, 'EOF']);
   return out.join('\r\n') + '\r\n';
 }
@@ -747,5 +748,25 @@ describe('parseDxf: encodings and robustness', () => {
     expect(stats.entities).toBe(100000);
     expect(drawing.layers.length).toBe(11);
     expect(ms).toBeLessThan(3000);
+  });
+});
+
+describe('parseDxf: draw order', () => {
+  const lines = [];
+  for (let i = 1; i <= 5; i++) lines.push(0, 'LINE', 5, (0x20 + i).toString(16), 8, 0, 10, 0, 20, i, 11, 10, 21, i);
+  const sortents = (...pairs) => [0, 'SORTENTSTABLE', 5, 'A0', 330, 'A1', 100, 'AcDbSortentsTable', 330, '1F', ...pairs];
+  const order = (d) => d.entities.map((e) => `${e.y1}${e.orderGroup == null ? '' : '*'}`).join(' ');
+
+  it('keeps file order and no bands without a SORTENTS table', () => {
+    expect(order(parseDxf(dxf(lines)).drawing)).toBe('1 2 3 4 5');
+  });
+
+  it('sorts by the SORTENTS table, objects it lists drawing strictly in order', () => {
+    // as AutoCAD saves it: a swap of handles, and objects moved past the handle seed
+    const swap = parseDxf(dxf(lines, { objects: sortents(331, 22, 5, 23, 331, 23, 5, 22) })).drawing;
+    expect(order(swap)).toBe('1 3* 2* 4 5');
+    const front = parseDxf(dxf(lines, { objects: sortents(331, 21, 5, '2F', 331, 22, 5, 30) })).drawing;
+    expect(order(front)).toBe('3 4 5 1* 2*');
+    expect(front.entities[3].orderGroup).not.toBe(front.entities[4].orderGroup);
   });
 });

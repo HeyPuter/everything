@@ -523,6 +523,11 @@ class DxfParser {
     this.dimRefs = [];
     this.mtextByHandle = new Map();
     this.leaderLinks = [];
+    // draw order: handle of the record each model space object came from, and
+    // the SORTENTS table's sort handle per entity handle
+    this.curHandle = '';
+    this.handleOf = new Map();
+    this.sortHandles = new Map();
     this.lastLayerRaw = null;
     this.lastLayer = '0';
     this.headerRaw = {};
@@ -632,6 +637,7 @@ class DxfParser {
       if (this.section === 'ENTITIES') this.entity(R, this.model);
       else if (this.section === 'BLOCKS') this.blockRecord(R);
       else if (this.section === 'TABLES') this.tableRecord(R);
+      else if (this.section === 'OBJECTS' && R.type === 'SORTENTSTABLE') this.sortents(R);
     } catch (err) {
       this.warn(`Could not read ${R.type}: ${err.message}`);
     }
@@ -1065,6 +1071,7 @@ class DxfParser {
   }
 
   add(cont, e) {
+    if (cont === this.model && this.curHandle) this.handleOf.set(e, this.curHandle);
     e.id = cont.nextId++;
     cont.list.push(e);
     this.stats.entities++;
@@ -1082,6 +1089,7 @@ class DxfParser {
       if (t === 'SEQEND') return;
     }
     if (t === 'SEQEND' || t === 'VERTEX') return;
+    this.curHandle = cont === this.model ? gStr(R, 5).trim().toUpperCase() : '';
     const ok = this.common(R, cont);
     if (t === 'POLYLINE') {
       this.polylineStart(R, cont, ok);
@@ -1432,6 +1440,7 @@ class DxfParser {
       w: gNum(R, 40),
       pts: [],
       ent: ok ? this.base('polyline') : null,
+      handle: this.curHandle,
     };
     if (ok && flags & (16 | 64)) {
       st.skip = true;
@@ -1478,11 +1487,14 @@ class DxfParser {
       return;
     }
     const is3d = (st.flags & 8) !== 0;
+    const cur = this.curHandle;
+    this.curHandle = st.handle;
     try {
       this.addPolyline(st.cont, st.ent, st.pts, (st.flags & 1) !== 0, st.w, is3d ? null : st.ocs, st.elev);
     } catch (err) {
       this.warn(`Could not read POLYLINE: ${err.message}`);
     }
+    this.curHandle = cur;
   }
 
   spline(R, cont) {
@@ -2451,6 +2463,66 @@ class DxfParser {
     if (raw.cltype) h.cltype = this.ltName(raw.cltype, 'ByLayer');
     if (h.ccolor < 0 || h.ccolor > 256) h.ccolor = COLOR_BYLAYER;
     h.nextId = this.model.nextId;
+    if (this.sortHandles.size) this.drawOrder(d.entities);
+  }
+
+  /** Entity handle -> sort handle pairs (331, 5) of a SORTENTS table. */
+  sortents(R) {
+    let i = 0;
+    while (i < R.end && !(R.codes[i] === 100 && R.vals[i].trim() === 'AcDbSortentsTable')) i++;
+    let ent = '';
+    for (; i < R.end; i++) {
+      const c = R.codes[i];
+      if (c === 331) ent = R.vals[i].trim().toUpperCase();
+      else if (c === 5 && ent) {
+        this.sortHandles.set(ent, R.vals[i].trim().toUpperCase());
+        ent = '';
+      }
+    }
+  }
+
+  /**
+   * Model space draw order from the SORTENTS table: objects are sorted by
+   * their sort handle (their own handle when the table has none for them).
+   * Objects the table lists form draw-order bands (see drawBands), one per run
+   * that shares a sort handle, so they draw strictly in order like AutoCAD
+   * draws them. Without a table nothing changes.
+   */
+  drawOrder(list) {
+    const key = (h) => {
+      try {
+        return BigInt('0x' + h);
+      } catch {
+        return null;
+      }
+    };
+    const rows = list.map((e, i) => {
+      const own = this.handleOf.get(e);
+      const sort = own ? this.sortHandles.get(own) : undefined;
+      return { e, i, sort, k: (sort && key(sort)) ?? (own && key(own)) ?? null };
+    });
+    // a table for another block (paper space) leaves model space as it is
+    if (!rows.some((r) => r.sort !== undefined)) return;
+    // objects without a usable handle keep their place after the one before them
+    let prev = -1n;
+    for (const r of rows) {
+      if (r.k === null) r.k = prev;
+      else prev = r.k;
+    }
+    rows.sort((a, b) => (a.k < b.k ? -1 : a.k > b.k ? 1 : a.i - b.i));
+    let group = null;
+    let last = null;
+    for (let j = 0; j < rows.length; j++) {
+      const r = rows[j];
+      list[j] = r.e;
+      if (r.sort === undefined) {
+        last = null;
+        continue;
+      }
+      if (r.sort !== last) group = r.e.id;
+      last = r.sort;
+      r.e.orderGroup = group;
+    }
   }
 }
 
