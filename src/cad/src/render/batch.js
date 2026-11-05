@@ -71,6 +71,9 @@ function atan2Fast(y, x) {
   return y < 0 ? -r : r;
 }
 
+/** Grown buffers are kept this long after a build last needed them (ms). */
+const KEEP_GROWN_MS = 10000;
+
 export class Batch {
   /**
    * @param {(pattern: number[]) => number} patternRow maps a linetype's
@@ -78,6 +81,8 @@ export class Batch {
    */
   constructor(patternRow, segCapacity = 1024, triCapacity = 256) {
     this.patternRow = patternRow;
+    this.segCapacity = segCapacity;
+    this.triCapacity = triCapacity;
     this.segBuf = new ArrayBuffer(segCapacity * SEG_STRIDE);
     this.segF = new Float32Array(this.segBuf);
     this.segU = new Uint8Array(this.segBuf);
@@ -99,6 +104,35 @@ export class Batch {
     this.vertCount = 0;
     this.minX = this.minY = Infinity;
     this.maxX = this.maxY = -Infinity;
+  }
+
+  /**
+   * Empty the batch and give back buffers that a large build (such as
+   * highlighting a select-all) grew far beyond the starting size, once no
+   * build has needed them for a while: regrowing them for every repeat of
+   * that build would cost more than it saves.
+   */
+  shrink(now = Date.now()) {
+    const segBig = this.segBuf.byteLength > 4 * this.segCapacity * SEG_STRIDE,
+      triBig = this.triBuf.byteLength > 4 * this.triCapacity * 3 * TRI_STRIDE;
+    if (
+      (segBig && this.segCount * SEG_STRIDE * 4 > this.segBuf.byteLength) ||
+      (triBig && this.vertCount * TRI_STRIDE * 4 > this.triBuf.byteLength)
+    ) {
+      this._grownUsedAt = now;
+    }
+    this.reset();
+    if (now - (this._grownUsedAt ?? -Infinity) < KEEP_GROWN_MS) return;
+    if (segBig) {
+      this.segBuf = new ArrayBuffer(this.segCapacity * SEG_STRIDE);
+      this.segF = new Float32Array(this.segBuf);
+      this.segU = new Uint8Array(this.segBuf);
+    }
+    if (triBig) {
+      this.triBuf = new ArrayBuffer(this.triCapacity * 3 * TRI_STRIDE);
+      this.triF = new Float32Array(this.triBuf);
+      this.triU = new Uint8Array(this.triBuf);
+    }
   }
 
   _growSeg(n) {

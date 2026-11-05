@@ -494,6 +494,7 @@ export class Renderer {
     c.bounds = b.bounds;
     c.dirty = false;
     c.builtScale = this.camera.scale;
+    b.shrink();
   }
 
   _buildIds(gpu, ids, flags, ctx) {
@@ -507,6 +508,7 @@ export class Renderer {
     }
     b.flags = 0;
     gpu.upload(b);
+    b.shrink();
   }
 
   _buildEntities(gpu, list, ctx) {
@@ -515,6 +517,7 @@ export class Renderer {
     b.flags = 0;
     for (const e of list) emitSafe(e, b, ctx);
     gpu.upload(b);
+    b.shrink();
   }
 
   // Frame -------------------------------------------------------------------

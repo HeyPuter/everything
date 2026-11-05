@@ -4,6 +4,7 @@ import {
   SEG_FLOATS,
   SEG_STRIDE,
   TRI_FLOATS,
+  TRI_STRIDE,
   F_HIGHLIGHT,
   JOIN_STEP,
 } from '../src/render/batch.js';
@@ -113,5 +114,37 @@ describe('Batch', () => {
     b.line([0, 0, 0, 0, 5, 0], false, style);
     b.segs(new Float64Array([0, 0, 1, 0, 1, 0, 2, 0]), style);
     expect(joins().flat()).toEqual([0, 0, 0, 0, 0, 0, 0, 0]);
+  });
+
+  it('gives back buffers grown far past their starting size', () => {
+    const b = new Batch(() => 0, 4, 4);
+    const small = b.segBuf;
+    b.line([0, 0, 1, 0, 2, 0], false, style);
+    b.shrink();
+    expect(b.segBuf).toBe(small);
+    expect(b.segCount).toBe(0);
+    const pts = [];
+    for (let i = 0; i < 100; i++) pts.push(i, 0);
+    b.line(pts, false, style);
+    b.fill([[0, 0, 10, 0, 10, 10, 0, 10], [2, 2, 2, 8, 8, 8, 8, 2]], style);
+    for (let i = 0; i < 20; i++) b.fill([[0, 0, 10, 0, 10, 10, 0, 10]], style);
+    expect(b.triBuf.byteLength).toBeGreaterThan(16 * 3 * TRI_STRIDE);
+    expect(b.segBuf.byteLength).toBeGreaterThan(16 * SEG_STRIDE);
+    // Kept while builds keep needing them (a repeated select-all).
+    const grown = b.segBuf;
+    b.shrink(1000);
+    expect(b.segBuf).toBe(grown);
+    expect(b.segCount + b.vertCount).toBe(0);
+    b.line([0, 0, 1, 0], false, style);
+    b.shrink(5000);
+    expect(b.segBuf).toBe(grown);
+    // Given back by the first build after they went unused for a while.
+    b.line([0, 0, 1, 0], false, style);
+    b.shrink(20000);
+    expect(b.segBuf.byteLength).toBe(4 * SEG_STRIDE);
+    expect(b.triBuf.byteLength).toBe(4 * 3 * TRI_STRIDE);
+    expect(b.segCount + b.vertCount).toBe(0);
+    b.line([0, 0, 1, 0], false, style);
+    expect(b.segCount).toBe(1);
   });
 });
