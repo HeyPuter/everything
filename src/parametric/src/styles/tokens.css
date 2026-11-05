@@ -62,9 +62,10 @@
   --sketch-inactive: #5c6b80;
   --dimension: #1b1f24;
   --dimension-driven: #7d8794;
-  --axis-x: #d33a2c;
-  --axis-y: #2c9b45;
-  --axis-z: #2f63d6;
+  /* Triad axis colours: 4.5:1 on --viewport in both themes. */
+  --axis-x: #c0301f;
+  --axis-y: #1b7433;
+  --axis-z: #2a5bd0;
 
   /* Icons */
   --icon-accent: #9ec0f4;
@@ -136,6 +137,9 @@
   --sketch-inactive: #9aa8bb;
   --dimension: #e9ecf0;
   --dimension-driven: #98a2ae;
+  --axis-x: #ff6b5e;
+  --axis-y: #4cc76a;
+  --axis-z: #6f9bff;
 
   --icon-accent: #3f6fb8;
   --icon-accent-2: #2c4c7d;

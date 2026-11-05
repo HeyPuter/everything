@@ -797,6 +797,26 @@ test.describe('viewport', () => {
     }
   });
 
+  test('the triad letters are readable in both themes', async ({ page }) => {
+    await openApp(page);
+    await expect(page.locator('.triad text')).toHaveCount(3);
+    const contrasts = () => page.evaluate(() => {
+      const rgb = (s: string) => (s.match(/\d+(\.\d+)?/g) ?? []).slice(0, 3).map((v) => Number(v) / 255);
+      const lum = (c: number[]) => { const l = c.map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4)); return 0.2126 * l[0] + 0.7152 * l[1] + 0.0722 * l[2]; };
+      const bg = lum(rgb(getComputedStyle(document.querySelector('.viewport')!).backgroundColor));
+      return [...document.querySelectorAll('.triad text')].map((t) => {
+        const [a, b] = [lum(rgb(getComputedStyle(t).fill)), bg].sort((x, y) => y - x);
+        return (a + 0.05) / (b + 0.05);
+      });
+    });
+    for (const theme of ['Light', 'Dark']) {
+      await page.getByRole('button', { name: /Account/ }).click();
+      await page.getByRole('menuitemradio', { name: theme }).click();
+      await expect(page.locator('html')).toHaveAttribute('data-theme-resolved', theme.toLowerCase());
+      for (const c of await contrasts()) expect(c).toBeGreaterThanOrEqual(4.5);
+    }
+  });
+
   test('line display styles show a selected face', async ({ page }) => {
     await openApp(page);
     await page.getByRole('button', { name: /Mounting Bracket/ }).click();
