@@ -6003,11 +6003,29 @@ export function createEditor({
       Math.min(Math.max(dx, -box.left), viewport.width - box.left - box.width),
       Math.min(Math.max(dy, -box.top), viewport.height - box.top - box.height),
     ];
+    // Escape during a drag puts the note back; releasing the pointer then neither moves nor
+    // opens it.
+    const escapeDrag = (e) => {
+      if (e.key !== 'Escape' || e.isComposing || noteDrag?.id !== id) return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (target.hasPointerCapture(noteDrag.pointer))
+        target.releasePointerCapture(noteDrag.pointer);
+      noteDrag = null;
+      window.removeEventListener('keydown', escapeDrag, true);
+      showNoteNudge(target, [0, 0]);
+      noteDragged = true;
+      window.addEventListener('pointerup', () => setTimeout(() => (noteDragged = false), 0), {
+        capture: true,
+        once: true,
+      });
+    };
     target.addEventListener('pointerdown', (e) => {
       if (e.button !== 0 || busy || !pageReady) return;
       saveNoteNudge();
       noteDrag = { id, pointer: e.pointerId, x: e.clientX, y: e.clientY, moved: false };
       target.setPointerCapture(e.pointerId);
+      window.addEventListener('keydown', escapeDrag, true);
     });
     target.addEventListener('pointermove', (e) => {
       if (noteDrag?.id !== id || noteDrag.pointer !== e.pointerId) return;
@@ -6021,6 +6039,7 @@ export function createEditor({
       if (noteDrag?.id !== id || noteDrag.pointer !== e.pointerId) return;
       const done = noteDrag;
       noteDrag = null;
+      window.removeEventListener('keydown', escapeDrag, true);
       if (!done.moved) return;
       // The click that ends a drag does not open the note.
       noteDragged = true;
@@ -6032,6 +6051,7 @@ export function createEditor({
     target.addEventListener('pointercancel', () => {
       if (noteDrag?.id !== id) return;
       noteDrag = null;
+      window.removeEventListener('keydown', escapeDrag, true);
       showNoteNudge(target, [0, 0]);
     });
     target.addEventListener('keydown', (e) => {
