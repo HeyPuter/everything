@@ -9,7 +9,8 @@ import { createKernel } from '../src/kernel/ops.js';
 import { defaultRules } from '../src/model/schema.js';
 import { buildNetlist } from '../src/model/netlist.js';
 import { runErc } from '../src/model/erc.js';
-import { portShape } from '../src/model/sch.js';
+import { portShape, powerShape, mirrorSch } from '../src/model/sch.js';
+import { rotate } from '../src/core/geom.js';
 import { planAnnotation } from '../src/model/annotate.js';
 import { placeFootprint } from '../src/model/place.js';
 import { compFieldPlacement, flipComp } from '../src/model/pcb.js';
@@ -419,4 +420,38 @@ describe('flipping a part with a placed designator', () => {
       }
     }
   });
+});
+
+describe('mirroring power ports', () => {
+  // World-space line ends of a power port's drawing, rounded, as a sorted list.
+  const drawn = (o) =>
+    powerShape(o.style)
+      .lines.flatMap(([x1, y1, x2, y2]) => [
+        [x1, y1],
+        [x2, y2],
+      ])
+      .map(([x, y]) => {
+        const [rx, ry] = rotate(x, y, o.rot);
+        return `${Math.round(o.x + rx)},${Math.round(o.y + ry)}`;
+      })
+      .sort();
+  const mirrorPts = (pts, axis, px, py) =>
+    pts
+      .map((k) => {
+        const [x, y] = k.split(',').map(Number);
+        return axis === 'x' ? `${2 * px - x},${y}` : `${x},${2 * py - y}`;
+      })
+      .sort();
+
+  for (const style of ['bar', 'gnd', 'arrow']) {
+    for (const rot of [0, 90, 180, 270]) {
+      it(`mirrors a ${style} port at ${rot} degrees like its drawing`, () => {
+        const o = { id: 'p', t: 'power', net: 'X', style, x: mil(300), y: mil(200), rot };
+        for (const axis of ['x', 'y']) {
+          const m = mirrorSch(o, mil(100), mil(100), axis);
+          expect(drawn(m)).toEqual(mirrorPts(drawn(o), axis, mil(100), mil(100)));
+        }
+      });
+    }
+  }
 });

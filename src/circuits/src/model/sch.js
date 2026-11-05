@@ -306,7 +306,10 @@ export function mirrorSch(o, px, py, axis = 'x') {
     case 'port': case 'label': case 'power': {
       const [x, y] = mx(o.x, o.y);
       const r = o.rot || 0;
-      const rot = axis === 'x' ? (r === 0 ? 180 : r === 180 ? 0 : r) : (r === 90 ? 270 : r === 270 ? 90 : r);
+      // Ports and labels point along their rotation; a power port's symbol
+      // stands a quarter turn from it (rot 0 is above the connection point).
+      const across = o.t === 'power' ? axis === 'y' : axis === 'x';
+      const rot = across ? (r === 0 ? 180 : r === 180 ? 0 : r) : (r === 90 ? 270 : r === 270 ? 90 : r);
       return { ...o, x, y, rot };
     }
     default: { const [x, y] = mx(o.x, o.y); return { ...o, x, y }; }
