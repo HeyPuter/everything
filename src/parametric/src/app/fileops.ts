@@ -435,8 +435,9 @@ export class FileOps {
       } catch {
         data = null;
       }
-      // A blank part is not worth asking about.
-      if (!data?.doc?.features?.length && !data?.doc?.variables?.length) { await removeRecovery(file); continue; }
+      // Recovery copies contain unsaved work. An empty model can still hold
+      // drawing notes, part properties, or an intentional deletion of geometry.
+      if (!data?.doc) { await removeRecovery(file); continue; }
       const when = new Date(data.savedAt).toLocaleString();
       const v = await showDialog({
         title: 'Recover unsaved work?',

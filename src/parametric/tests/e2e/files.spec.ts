@@ -753,3 +753,47 @@ test('a delayed cloud rename does not attach its file to a new part', async ({ p
   expect(recent.map((r: { name: string }) => r.name).sort()).toEqual(['Part2', 'Renamed']);
   expect(errors).toEqual([]);
 });
+
+for (const work of ['drawing notes', 'deleted features', 'part properties'] as const) test(`recovery preserves ${work} even without features or variables`, async ({ context }) => {
+  const a = await context.newPage();
+  await mockPuter(a);
+  const errors = await openApp(a);
+  if (work === 'deleted features') {
+    await a.getByRole('button', { name: /Mounting Bracket/ }).click();
+    await a.evaluate(() => {
+      const app = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+      app.store.change('Remove all features', (d) => { d.features = []; });
+    });
+  } else {
+    await a.getByRole('button', { name: /New part/ }).click();
+    if (work === 'drawing notes') {
+      await a.getByRole('tab', { name: 'Drawing' }).click();
+      await a.getByRole('textbox', { name: 'Notes', exact: true }).fill('Keep these manufacturing notes');
+      await a.getByRole('textbox', { name: 'Notes', exact: true }).press('Tab');
+    } else await a.evaluate(() => {
+      const app = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+      app.store.change('Part properties', (d) => { d.name = 'Custom part'; d.color = '#123456'; });
+    });
+  }
+  const expected = await a.evaluate(() => {
+    const app = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+    Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
+    document.dispatchEvent(new Event('visibilitychange'));
+    return { doc: app.store.doc, location: app.location };
+  });
+  await expect.poll(() => a.evaluate(async (url) => (await import(url)).readRecovery(), '/src/platform/files.ts')).toContain(expected.doc.name);
+  await a.close();
+  const b = await context.newPage();
+  await mockPuter(b);
+  const recoveryErrors = await openApp(b);
+  const dialog = b.getByRole('dialog', { name: 'Recover unsaved work?' });
+  await expect(dialog).toContainText(expected.doc.name);
+  await dialog.getByRole('button', { name: 'Restore', exact: true }).click();
+  const restored = await b.evaluate(() => {
+    const app = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+    return { doc: app.store.doc, location: app.location, dirty: app.store.dirty };
+  });
+  expect(restored).toEqual({ ...expected, dirty: true });
+  expect(errors).toEqual([]);
+  expect(recoveryErrors).toEqual([]);
+});
