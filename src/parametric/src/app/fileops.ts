@@ -8,7 +8,7 @@ import {
   type Location, EXT, IMPORT_EXTS, clearRecovery, download, isSolidWorksFile, isStepFile, listParts, loadText, locationLabel, newLocation,
   pickCloudFile, pickCloudSave, pickDeviceFile, orphanRecoveries, removeRecovery, saveText, safeName, writeRecovery, type FileEntry, deletePart, renameCloud, forgetRecent, rememberRecent,
 } from '../platform/files';
-import { cloudAvailable, isMissing, puter, signIn, storageError } from '../platform/puter';
+import { cloudAvailable, env, isMissing, puter, signIn, storageError } from '../platform/puter';
 import { h } from '../ui/dom';
 import { icon } from '../ui/icons';
 import { confirmDialog, promptDialog, showDialog, toast } from '../ui/overlay';
@@ -449,7 +449,7 @@ export class FileOps {
    */
   handleWindowClose() {
     const p = puter();
-    if (!p?.ui?.onWindowClose || typeof p.exit !== 'function') return;
+    if (env() !== 'app' || !p?.ui?.onWindowClose || typeof p.exit !== 'function') return;
     let asking = false;
     p.ui.onWindowClose(async () => {
       if (asking) return;
