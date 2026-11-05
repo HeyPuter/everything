@@ -109,7 +109,7 @@ export function evaluate(src: string, opts: EvalOptions = {}): number {
       const u = peek();
       if (u.k === 'name') {
         const table = kind === 'angle' ? ANGLE_SUFFIX : kind === 'length' ? LENGTH_SUFFIX : null;
-        const f = table?.[u.v];
+        const f = table && Object.hasOwn(table, u.v) ? table[u.v] : undefined;
         // Explicit units convert to the display unit; the result is scaled once at the end.
         if (f !== undefined) { pos++; return (t.v * f) / bare; }
         // Variables and counts are plain numbers: say so rather than "Unexpected text".
@@ -120,7 +120,7 @@ export function evaluate(src: string, opts: EvalOptions = {}): number {
     if (t.k === 'name') {
       const p = peek();
       if (p.k === 'op' && p.v === '(') {
-        const fn = FUNCS[t.v.toLowerCase()];
+        const fn = Object.hasOwn(FUNCS, t.v.toLowerCase()) ? FUNCS[t.v.toLowerCase()] : undefined;
         if (!fn) throw new ExprError(`Unknown function "${t.v}"`);
         pos++;
         const args: number[] = [];
@@ -131,7 +131,7 @@ export function evaluate(src: string, opts: EvalOptions = {}): number {
         expectOp(')');
         return fn(...args);
       }
-      if (t.v in CONSTS) return CONSTS[t.v];
+      if (Object.hasOwn(CONSTS, t.v)) return CONSTS[t.v];
       const v = opts.lookup?.(t.v);
       if (v === undefined) throw new ExprError(`Unknown name "${t.v}"`);
       return v;
@@ -199,7 +199,7 @@ export function referencedNames(src: string): string[] {
     return tokenize(src)
       .filter((t): t is { k: 'name'; v: string } => t.k === 'name')
       .map((t) => t.v)
-      .filter((n) => !(n in CONSTS) && !(n.toLowerCase() in FUNCS) && !(n in LENGTH_SUFFIX) && !(n in ANGLE_SUFFIX));
+      .filter((n) => !Object.hasOwn(CONSTS, n) && !Object.hasOwn(FUNCS, n.toLowerCase()) && !Object.hasOwn(LENGTH_SUFFIX, n) && !Object.hasOwn(ANGLE_SUFFIX, n));
   } catch {
     return [];
   }
@@ -265,7 +265,7 @@ function parseTree(src: string): Node | null {
     const t = toks[pos++];
     if (t.k === 'num') {
       const u = toks[pos];
-      if (u.k === 'name' && (u.v in LENGTH_SUFFIX || u.v in ANGLE_SUFFIX)) { pos++; return { t: 'num', v: t.v, unit: u.v in LENGTH_SUFFIX ? 'length' : 'angle', at: t.at!, len: t.len! }; }
+      if (u.k === 'name' && (Object.hasOwn(LENGTH_SUFFIX, u.v) || Object.hasOwn(ANGLE_SUFFIX, u.v))) { pos++; return { t: 'num', v: t.v, unit: Object.hasOwn(LENGTH_SUFFIX, u.v) ? 'length' : 'angle', at: t.at!, len: t.len! }; }
       return { t: 'num', v: t.v, unit: null, at: t.at!, len: t.len! };
     }
     if (t.k === 'name') {
@@ -277,7 +277,7 @@ function parseTree(src: string): Node | null {
         pos++;
         return { t: 'call', fn: t.v.toLowerCase(), args };
       }
-      return t.v in CONSTS ? { t: 'const' } : { t: 'var', name: t.v };
+      return Object.hasOwn(CONSTS, t.v) ? { t: 'const' } : { t: 'var', name: t.v };
     }
     if (t.k === 'op' && t.v === '(') { const v = expr(); if (!peekOp(')')) fail(); pos++; return v; }
     return fail();

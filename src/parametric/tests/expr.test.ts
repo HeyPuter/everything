@@ -62,6 +62,15 @@ describe('expression evaluator', () => {
     expect(renameReferences('2.5e3 * W', m)).toBe('2.5e3 * Width');
   });
 
+  it('takes names like toString or constructor as variables, not as built-ins', () => {
+    const lookup = (n: string) => ({ toString: 4, constructor: 5 } as Record<string, number>)[n];
+    expect(evaluate('toString * 2', { lookup })).toBe(8);
+    expect(evaluate('constructor + 1', { lookup })).toBe(6);
+    expect(() => evaluate('valueOf(1)')).toThrow('Unknown function "valueOf"');
+    expect(() => evaluate('1 constructor', { kind: 'length', lookup })).toThrow(ExprError);
+    expect(referencedNames('toString + 1')).toEqual(['toString']);
+  });
+
   it('reports a division by zero, even inside a larger expression', () => {
     expect(() => evaluate('W / (N - 1)', { lookup: (n) => (n === 'W' ? 10 : 1) })).toThrow('Division by zero');
     expect(() => evaluate('1 / (1 / 0)')).toThrow('Division by zero');
