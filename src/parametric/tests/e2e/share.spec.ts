@@ -242,3 +242,43 @@ for (const stale of ['rows', 'empty', 'error'] as const) test(`an older access-l
   }
   expect(errors).toEqual([]);
 });
+
+for (const failure of [false, true]) test(`access removal submits once and ${failure ? 'allows retry after failure' : 'refreshes after success'}`, async ({ page }) => {
+  const errors = await sharingApp(page);
+  await page.evaluate((failure) => {
+    type W = { __parametric: import('../../src/app/app').App; puter: { fs: { getShares: () => Promise<unknown>; unshare: () => Promise<unknown> } }; releaseRemove: () => void; removeCalls: number };
+    const w = window as unknown as W;
+    let present = true;
+    w.removeCalls = 0;
+    const gate = new Promise<void>((resolve) => { w.releaseRemove = resolve; });
+    w.puter.fs.getShares = async () => present ? [{ holder: 'friend', mode: 'read' }] : [];
+    w.puter.fs.unshare = async () => {
+      const call = ++w.removeCalls;
+      await gate;
+      if (failure && call === 1) throw new Error('Permission denied');
+      present = false;
+      return { revoked: 1 };
+    };
+    w.__parametric.commands.run('share');
+  }, failure);
+  const dialog = page.getByRole('dialog', { name: 'Share Original', exact: true });
+  const remove = dialog.getByRole('button', { name: 'Remove friend', exact: true });
+  const access = dialog.getByRole('combobox', { name: 'Access for friend', exact: true });
+  await remove.dblclick();
+  expect(await page.evaluate(() => (window as unknown as { removeCalls: number }).removeCalls)).toBe(1);
+  await expect(remove).toBeDisabled();
+  await expect(access).toBeDisabled();
+  await page.evaluate(() => (window as unknown as { releaseRemove: () => void }).releaseRemove());
+  if (failure) {
+    await expect(dialog).toContainText('Permission denied');
+    await expect(remove).toBeEnabled();
+    await expect(access).toBeEnabled();
+    await expect(access).toHaveValue('read');
+    await remove.click();
+  }
+  await expect(dialog).toContainText('friend no longer has access');
+  await expect(remove).toHaveCount(0);
+  await expect(dialog).toContainText('Not shared with anyone yet.');
+  expect(await page.evaluate(() => (window as unknown as { removeCalls: number }).removeCalls)).toBe(failure ? 2 : 1);
+  expect(errors).toEqual([]);
+});

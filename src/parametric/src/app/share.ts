@@ -122,7 +122,19 @@ export async function shareDialog(app: App, files: FileOps) {
       const remove = h('button', { class: 'icon-btn', type: 'button', 'aria-label': `Remove ${name}`, title: 'Remove access' }, icon('trash', 16));
       remove.addEventListener('click', async () => {
         if (updating || !isCurrent()) return;
-        try { await fs.unshare(path, recipient(name)); status.textContent = `${name} no longer has access.`; void render(); } catch (e) { status.textContent = storageError(e); }
+        updating = true;
+        sel.disabled = remove.disabled = true;
+        status.textContent = `Removing access for ${name}...`;
+        try {
+          await fs.unshare(path, recipient(name));
+          status.textContent = `${name} no longer has access.`;
+          await render();
+        } catch (e) {
+          status.textContent = `Could not remove access for ${name}: ${storageError(e)}`;
+        } finally {
+          updating = false;
+          sel.disabled = remove.disabled = false;
+        }
       });
       return h('tr', {}, h('td', {}, name, s.pending ? h('span', { class: 'field-label' }, ' (invited)') : null), h('td', {}, sel), h('td', { style: { textAlign: 'right' } }, remove));
     });
