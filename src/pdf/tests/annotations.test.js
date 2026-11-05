@@ -592,6 +592,40 @@ describe('shapes and pencil', () => {
 });
 
 describe('editing', () => {
+  // Words added to a text box, or made larger, ran past its bottom edge and out of sight.
+  it('grows a text box or callout whose new words no longer fit', async () => {
+    const doc = await blank(1, [400, 400]);
+    const box = await addTextBox(doc, 0, {
+      rect: { x: 40, y: 250, width: 180, height: 50 },
+      text: 'Short',
+    });
+    const callout = await addCallout(doc, 0, {
+      rect: { x: 40, y: 100, width: 180, height: 50 },
+      anchor: { x: 300, y: 125 },
+      text: 'Short',
+    });
+    const read = (id) => listAnnotations(doc, 0).find((entry) => entry.id === id);
+    await editAnnotation(doc, 0, box, { text: 'One\nTwo\nThree\nFour\nFive' });
+    expect(read(box).box.height).toBeGreaterThan(5 * 12 * 1.2);
+    expect(read(box).box.y + read(box).box.height).toBeCloseTo(300, 6);
+    await editAnnotation(doc, 0, callout, { fontSize: 60 });
+    const grown = read(callout);
+    // A line of 60 point text, with room around it.
+    expect(grown.box.height).toBeGreaterThan(55);
+    // Its leader line still runs from its point to the middle of the box's near side.
+    expect(grown.points[0]).toEqual({ x: 300, y: 125 });
+    expect(grown.points.at(-1).x).toBeCloseTo(220, 6);
+    expect(grown.points.at(-1).y).toBeCloseTo(grown.box.y + grown.box.height / 2, 6);
+    // A box given a size keeps it, and words that fit leave it as it is.
+    await editAnnotation(doc, 0, box, {
+      text: 'One\nTwo\nThree\nFour\nFive\nSix',
+      box: { x: 40, y: 250, width: 180, height: 50 },
+    });
+    expect(read(box).box.height).toBeCloseTo(50, 6);
+    await editAnnotation(doc, 0, box, { text: 'Short again' });
+    expect(read(box).box.height).toBeCloseTo(50, 6);
+  });
+
   it('moves and resizes a line, a drawing and a polygon, carrying their geometry', async () => {
     const doc = await blank();
     const line = addShapeAnnotation(doc, 0, {

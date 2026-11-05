@@ -211,6 +211,8 @@ function setOpacity(dict, opacity) {
  * take it past the bottom. A callout's box is left as it was rather than cover its `anchor`.
  */
 async function fittedBox(doc, page, box, value, style, rotation, anchor = null) {
+  // As drawn: another turn than a quarter's reads upright.
+  if (![90, 180, 270].includes(rotation)) rotation = 0;
   const turned = rotation % 180 !== 0;
   const [x0, y0, x1, y1] = box;
   const needed = await freeTextHeight(
@@ -946,6 +948,26 @@ export async function editAnnotation(doc, page, id, changes = {}) {
     }
   }
   setOpacity(dict, changes.opacity);
+  // New words, or larger ones, that no longer fit grow the box, unless it was given its size.
+  if (
+    style &&
+    box &&
+    (textChanged || changes.fontSize !== undefined) &&
+    !changes.rect &&
+    !changes.box
+  ) {
+    const callout = pointsOf(numbers(dict.lookup(name('CL'))));
+    const anchor = callout.length >= 2 ? callout[0] : null;
+    const fitted = await fittedBox(doc, page, box, text(dict, 'Contents'), style, rotation, anchor);
+    if (fitted !== box) {
+      box = fitted;
+      if (anchor)
+        dict.set(
+          name('CL'),
+          doc.context.obj(flatPoints(calloutLine(box, anchor, rotation, pageUserUnit(page)))),
+        );
+    }
+  }
   // Stamps, carets and attachments keep their own art, which readers fit to the new Rect.
   if (!['Stamp', 'Caret', 'FileAttachment'].includes(subtype))
     await refreshAppearance(doc, page, dict, {
