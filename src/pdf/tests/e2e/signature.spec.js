@@ -1326,3 +1326,42 @@ test('unticking Remember forgets the device’s signatures even when the dialog 
   await expect(remember).not.toBeChecked();
   await expect(dialog.getByRole('button', { name: /Use saved signature 1/ })).toBeVisible();
 });
+
+test('a saved signature’s delete button covers none of its ink', async ({ page }) => {
+  await mockPuter(page);
+  await page.goto('/#library');
+  await page.evaluate(() =>
+    localStorage.setItem(
+      'pdf-editor:signatures',
+      JSON.stringify({
+        items: [
+          { type: 'type', text: 'Ada Lovelace' },
+          {
+            type: 'draw',
+            strokes: [
+              [
+                [0, 0],
+                [50, 30],
+                [100, 0],
+              ],
+            ],
+          },
+        ],
+      }),
+    ),
+  );
+  await openPdf(page, await squarePdf());
+  await page.getByRole('button', { name: 'Sign', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Add signature' });
+  for (const index of [1, 2]) {
+    const remove = await dialog
+      .getByRole('button', { name: `Delete saved signature ${index}`, exact: true })
+      .boundingBox();
+    const thumb = await dialog
+      .locator('.signature-thumb')
+      .nth(index - 1)
+      .boundingBox();
+    // The drawing ends before the button starts.
+    expect(thumb.x + thumb.width).toBeLessThanOrEqual(remove.x + 0.5);
+  }
+});

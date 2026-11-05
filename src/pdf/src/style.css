@@ -2166,7 +2166,8 @@ dialog.signature-dialog {
 }
 .signature-thumb {
   display: block;
-  width: 100%;
+  /* Clear of the delete button in the card's top right corner, so it covers no ink. */
+  width: calc(100% - 28px);
   height: 56px;
 }
 .signature-saved-row .icon-btn {
