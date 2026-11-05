@@ -9085,6 +9085,8 @@ export function createEditor({
       }),
     }));
     const apply = safe(async () => {
+      if (!boxes.some((entry) => entry.box.checked))
+        throw new Error('Choose at least one kind of information to remove.');
       const options = Object.fromEntries(boxes.map((entry) => [entry.key, entry.box.checked]));
       let report = null;
       const committed = await mutateDialog(

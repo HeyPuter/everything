@@ -78,3 +78,16 @@ test('Remove hidden information lists the content it could not examine', async (
   await settled(page);
   await expect(page.getByRole('button', { name: 'Undo', exact: true })).toBeEnabled();
 });
+
+test('Remove hidden information with nothing chosen asks for a choice', async ({ page }) => {
+  await openPdf(page, await plainPdf());
+  const dialog = await sanitizeDialog(page);
+  for (const box of await dialog.getByRole('checkbox').all()) await box.uncheck();
+  await dialog.getByRole('button', { name: 'Remove', exact: true }).click();
+  // It closed and said no hidden information "of the chosen kinds" was found, of none.
+  await expect(dialog.getByRole('alert')).toHaveText(
+    'Choose at least one kind of information to remove.',
+  );
+  await expect(dialog).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Undo', exact: true })).toBeDisabled();
+});
