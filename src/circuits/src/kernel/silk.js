@@ -60,9 +60,11 @@ function silkSegments(doc, library, copper) {
     if (o.t === 'comp') {
       const def = library[o.comp];
       for (const g of placeFootprint(def, o, copper).graphics) graphic(g, o.id, `${o.designator} outline`, silkW);
-      const f = compFieldPlacement(o, 'designator', def);
-      if (!f.hidden && o.designator) {
-        for (const pl of textStrokes(o.designator, f.x, f.y, f.h, f.rot, { h: 'center', v: 'middle' }, f.mirror)) pushPolyline(pl, f.h * 0.15, o.id, f.layer === 'bottomOverlay' ? 'bottom' : 'top', `${o.designator} designator`);
+      for (const name of ['designator', 'value']) {
+        const text = name === 'designator' ? o.designator : o.value;
+        const f = compFieldPlacement(o, name, def);
+        if (f.hidden || !text) continue;
+        for (const pl of textStrokes(text, f.x, f.y, f.h, f.rot, { h: 'center', v: 'middle' }, f.mirror)) pushPolyline(pl, f.h * 0.15, o.id, f.layer === 'bottomOverlay' ? 'bottom' : 'top', `${o.designator} ${name}`);
       }
     } else if (o.t === 'track' || o.t === 'arc') {
       graphic(o.t === 'track' ? { ...o, t: 'line' } : o, o.id, 'silkscreen line', silkW);

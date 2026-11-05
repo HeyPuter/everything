@@ -301,3 +301,18 @@ describe('Gerber solder mask', () => {
     expect(flashes([via('v')], { untentVias: true })).toEqual([1, 1]);
   });
 });
+
+describe('silkscreen check', () => {
+  it('checks a value field shown on the board against pads', async () => {
+    const { silkChecks } = await import('../src/kernel/silk.js');
+    const { createExampleProject } = await import('../src/app/demo.js');
+    const p = createExampleProject();
+    const doc = p.boards[0].snapshot();
+    const r1 = doc.objects.find((o) => o.t === 'comp' && o.designator === 'R1');
+    // Value text placed right on top of the part's own pads.
+    r1.fields = { ...r1.fields, value: { dx: 0, dy: 0, h: mm(1), hidden: false } };
+    r1.value = 'WWWWWW';
+    const found = silkChecks(doc, p.library).filter((v) => v.message.includes('R1 value'));
+    expect(found.length).toBeGreaterThan(0);
+  });
+});
