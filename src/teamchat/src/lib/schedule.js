@@ -44,13 +44,12 @@ export function sendPresets(now = Date.now()) {
 
 /** Presets for a reminder. */
 export function remindPresets(now = Date.now()) {
-  const d = new Date(now);
   return [
     { key: '30m', label: 'In 30 minutes', at: now + 30 * 60_000 },
     { key: '3h', label: 'In 3 hours', at: now + 3 * HOUR },
     { key: 'tomorrow', label: 'Tomorrow at 9', at: at(now, 9, 0, 1) },
     { key: 'week', label: 'Next week', at: at(now, 9, 0, 7) },
-  ].filter((p) => p.at > now + 60_000 || d.getHours() >= 0);
+  ].filter((p) => p.at > now + 60_000);
 }
 
 /** "around 9:00 AM tomorrow" style phrase for a due time. */
