@@ -28,6 +28,9 @@ const arcPts = (c: Vec2, r: number, a0: number, sweep: number, n = 48): Vec2[] =
   return out;
 };
 
+/** The existing point (end point, centre or the origin) a snap landed on. */
+const snappedPoint = (s: Snap): Id | null => ((s.kind === 'point' || s.kind === 'center' || s.kind === 'origin') && s.pointId) || null;
+
 /** Adds horizontal/vertical relations implied by a direction snap. */
 function directionRelation(sk: SketchFeature, lineId: Id, s: Snap, newId: (p: string) => Id) {
   if (s.kind === 'h') sk.constraints.push({ id: newId('r'), type: 'horizontal', refs: [lineId] });
@@ -217,7 +220,8 @@ export function circleTool(ed: SketchEditor): SkTool {
       const c = ed.commitPoint(sk, center!, newId);
       const id = newId('c');
       sk.entities.push({ id, t: 'circle', c, r });
-      if (s.kind === 'point' && s.pointId) sk.constraints.push({ id: newId('r'), type: 'coincident', refs: [s.pointId, id] });
+      const on = snappedPoint(s);
+      if (on) sk.constraints.push({ id: newId('r'), type: 'coincident', refs: [on, id] });
     });
     center = null;
     ed.setPreview([]);
@@ -272,7 +276,7 @@ export function perimeterCircleTool(ed: SketchEditor): SkTool {
         sk.entities.push({ id: cid, t: 'point', x: c.c[0], y: c.c[1] });
         const id = newId('c');
         sk.entities.push({ id, t: 'circle', c: cid, r: c.r });
-        for (const p of sel) if ((p.kind === 'point' || p.kind === 'origin') && p.pointId) sk.constraints.push({ id: newId('r'), type: 'coincident', refs: [p.pointId, id] });
+        for (const p of sel) { const on = snappedPoint(p); if (on) sk.constraints.push({ id: newId('r'), type: 'coincident', refs: [on, id] }); }
       });
       return true;
     },

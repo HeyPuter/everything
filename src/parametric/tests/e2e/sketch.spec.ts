@@ -191,6 +191,34 @@ test.describe('sketching', () => {
     expect(errors).toEqual([]);
   });
 
+  test('a circle drawn through the origin or another centre stays on it', async ({ page }) => {
+    const errors = await openApp(page);
+    await startSketch(page);
+    const result = await page.evaluate(() => {
+      const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+      const ed = a.sketchEditor!;
+      type S = import('../../src/app/sketch/inference').Snap;
+      const click = (s: Omit<S, 'raw'>) => ed.tool!.click!({ ...s, raw: s.p }, {} as import('../../src/app/viewport').VPEvent);
+      a.commands.run('tool:circle');
+      click({ p: [20, 10], kind: 'none' });
+      click({ p: [0, 0], kind: 'origin', pointId: 'O' });
+      const first = ed.sketch.entities.find((e) => e.t === 'circle')!;
+      const centre = (first as { c: string }).c;
+      click({ p: [40, 10], kind: 'none' });
+      click({ p: [20, 10], kind: 'center', pointId: centre });
+      a.commands.run('tool:perimeterCircle');
+      click({ p: [0, 0], kind: 'origin', pointId: 'O' });
+      click({ p: [20, 10], kind: 'center', pointId: centre });
+      click({ p: [5, 30], kind: 'none' });
+      const circles = ed.sketch.entities.filter((e) => e.t === 'circle').map((e) => e.id);
+      return { circles, rels: ed.sketch.constraints.map((c) => `${c.type}(${c.refs.join(',')})`), centre, status: ed.solve!.status };
+    });
+    const [c1, c2, c3] = result.circles;
+    expect(result.rels).toEqual([`coincident(O,${c1})`, `coincident(${result.centre},${c2})`, `coincident(O,${c3})`, `coincident(${result.centre},${c3})`]);
+    expect(result.status).toBe('under');
+    expect(errors).toEqual([]);
+  });
+
   test('a crossing box selects a line it cuts through between its end points', async ({ page }) => {
     const errors = await openApp(page);
     const { x, y } = await startSketch(page);
