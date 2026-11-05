@@ -496,3 +496,45 @@ describe('share dialog', () => {
     }
   });
 });
+
+describe('navigator', () => {
+  it('rows answer Space like buttons and keep focus when a net is highlighted', async () => {
+    const { NavigatorPanel } = await import('../src/ui/panels/navigator.js');
+    const ed = {
+      kind: 'sch',
+      highlight: null,
+      selection: new Set(),
+      doc: { items: () => [] },
+      highlightNet(net) {
+        this.highlight = { net };
+      },
+      clearHighlight() {
+        this.highlight = null;
+      },
+    };
+    const app = {
+      activeEditor: ed,
+      project: {
+        library: {},
+        netlist: () => ({
+          nets: [
+            { name: 'GND', nodes: [1, 2] },
+            { name: 'VCC', nodes: [1] },
+          ],
+        }),
+      },
+    };
+    const nav = new NavigatorPanel(app);
+    document.body.append(nav.el);
+    nav.mode = 'nets';
+    nav.render();
+    const vcc = () => [...nav.list.children].find((r) => r.dataset.net === 'VCC');
+    vcc().focus();
+    const ev = new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true });
+    vcc().dispatchEvent(ev);
+    expect(ev.defaultPrevented).toBe(true);
+    expect(ed.highlight).toEqual({ net: 'VCC' });
+    expect(document.activeElement).toBe(vcc());
+    expect(vcc().getAttribute('aria-pressed')).toBe('true');
+  });
+});

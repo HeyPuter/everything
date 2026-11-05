@@ -5,6 +5,13 @@
 import { h, clear } from '../dom.js';
 import { icon } from '../icons.js';
 
+/** Rows are buttons: Enter and Space activate them. */
+function activate(e, go) {
+  if (e.key !== 'Enter' && e.key !== ' ') return;
+  e.preventDefault();
+  go();
+}
+
 export class NavigatorPanel {
   constructor(app) {
     this.app = app;
@@ -45,7 +52,7 @@ export class NavigatorPanel {
           icon('component', 14), h('span', { style: { minWidth: '44px', fontWeight: 600 } }, o.designator), h('span.grow', o.value || ''), h('span.sub', def?.footprint?.name || ''));
         const go = () => ed.focusObject(o.id);
         row.addEventListener('click', go);
-        row.addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); });
+        row.addEventListener('keydown', (e) => activate(e, go));
         this.list.append(row);
       }
       return;
@@ -64,9 +71,16 @@ export class NavigatorPanel {
       const row = h('li.list-row', { tabindex: 0, role: 'button', 'aria-pressed': String(active) },
         icon('network', 14), h('span.grow', n.name),
         n.unrouted !== undefined ? h('span.sub', { class: n.unrouted ? 'sev-warning' : '' }, n.unrouted ? `${n.unrouted} unrouted` : 'routed') : h('span.sub', `${n.pins} pins`));
-      const go = () => { if (active) ed.clearHighlight(); else ed.highlightNet(n.name); this.render(); };
+      const go = () => {
+        const refocus = row.contains(document.activeElement);
+        if (active) ed.clearHighlight(); else ed.highlightNet(n.name);
+        this.render();
+        // The list was rebuilt; keep keyboard focus on this net.
+        if (refocus) [...this.list.children].find((r) => r.dataset.net === n.name)?.focus();
+      };
+      row.dataset.net = n.name;
       row.addEventListener('click', go);
-      row.addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); });
+      row.addEventListener('keydown', (e) => activate(e, go));
       this.list.append(row);
     }
   }
