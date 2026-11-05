@@ -7,6 +7,7 @@ import { PARAM_FIELDS, type ParamKind, getPath, setPath } from './features';
 import type { Feature, Id, Param, PartDocument, SkDimension, SketchFeature, UnitSystem } from './types';
 import { isDimension } from './types';
 import { UNIT_SYSTEMS } from './units';
+import { uniqueId } from './ids';
 import { validSketch } from './validate-sketch';
 import { validDrawing } from './validate-drawing';
 import { solveSketch } from '../sketch/solver';
@@ -74,11 +75,23 @@ export function parseDocument(text: string): PartDocument {
   let maxId = 0;
   for (const f of [...doc.features, ...doc.variables]) {
     const m = /^[a-z]+(\d+)$/i.exec(String(f?.id ?? ''));
-    if (m) maxId = Math.max(maxId, Number(m[1]));
+    const suffix = m ? Number(m[1]) : NaN;
+    // Unsafe suffixes cannot be emitted by the numeric allocator.
+    if (Number.isSafeInteger(suffix) && suffix < Number.MAX_SAFE_INTEGER) maxId = Math.max(maxId, suffix);
   }
-  doc.nextId = Math.max(Number.isInteger(doc.nextId) ? doc.nextId : 1, maxId + 1);
-  for (const v of doc.variables) if (!v.id) v.id = `v${doc.nextId++}`;
+  doc.nextId = Math.max(Number.isSafeInteger(doc.nextId) && doc.nextId > 0 ? doc.nextId : 1, maxId + 1);
+  for (const v of doc.variables) if (!v.id) v.id = allocateId(doc, 'v');
   return doc;
+}
+
+/** Ordinary documents keep compact IDs; exhausted counters use independent IDs. */
+export function allocateId(doc: PartDocument, prefix = 'f'): Id {
+  if (Number.isSafeInteger(doc.nextId) && doc.nextId > 0 && doc.nextId < Number.MAX_SAFE_INTEGER) {
+    return `${prefix}${doc.nextId++}`;
+  }
+  // Never increment past the last exactly representable integer.
+  doc.nextId = Number.MAX_SAFE_INTEGER;
+  return uniqueId(prefix, new Set([...doc.features, ...doc.variables].map((item) => item.id)));
 }
 
 /**
@@ -353,7 +366,7 @@ export class DocStore {
   }
 
   nextId(prefix = 'f'): Id {
-    return `${prefix}${this.doc.nextId++}`;
+    return allocateId(this.doc, prefix);
   }
 
   feature<T extends Feature = Feature>(id: Id): T | undefined {

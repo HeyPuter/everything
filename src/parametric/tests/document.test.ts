@@ -331,3 +331,44 @@ describe('drawing file validation', () => {
     expect(parseDocument(JSON.stringify({ ...newDocument(), drawing: { ...drawing, views: [] } })).drawing?.views).toEqual([]);
   });
 });
+
+
+describe('identifier counter limits', () => {
+  it.each([Number.MAX_SAFE_INTEGER, 1e100])('loads counter %s without producing duplicate identifiers', (nextId) => {
+    const raw = { ...newDocument(), nextId, features: [sketch('s1', [])] };
+    const store = new DocStore(parseDocument(JSON.stringify(raw)));
+    const ids = Array.from({ length: 4 }, () => store.nextId('f'));
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(Number.isSafeInteger(store.doc.nextId)).toBe(true);
+  });
+
+  it('loads arbitrarily large existing identifier suffixes without poisoning allocation', () => {
+    const raw = { ...newDocument(), features: [sketch('f9007199254740992', []), sketch('s' + '9'.repeat(400), [])] };
+    const store = new DocStore(parseDocument(JSON.stringify(raw)));
+    const ids = Array.from({ length: 4 }, () => store.nextId('f'));
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(ids.some((id) => store.doc.features.some((f) => f.id === id))).toBe(false);
+    expect(Number.isSafeInteger(store.doc.nextId)).toBe(true);
+  });
+
+  it('keeps allocating distinct IDs when a running counter reaches its limit', () => {
+    const doc = newDocument();
+    doc.nextId = Number.MAX_SAFE_INTEGER;
+    doc.features.push(sketch('f1', []));
+    const store = new DocStore(doc);
+    const ids = Array.from({ length: 4 }, () => store.nextId('f'));
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(ids).not.toContain('f1');
+    expect(Number.isSafeInteger(store.doc.nextId)).toBe(true);
+  });
+});
+
+
+it('repairs missing variable identifiers when the numeric counter is exhausted', () => {
+  const doc = parseDocument(JSON.stringify({ ...newDocument(), nextId: Number.MAX_SAFE_INTEGER,
+    variables: [{ name: 'Width', expr: '20' }, { name: 'Height', expr: '10' }, { name: 'Depth', expr: '5' }],
+  }));
+  expect(new Set(doc.variables.map((v) => v.id)).size).toBe(3);
+  expect(doc.variables.every((v) => !!v.id)).toBe(true);
+  expect(Number.isSafeInteger(doc.nextId)).toBe(true);
+});

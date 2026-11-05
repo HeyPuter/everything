@@ -2,7 +2,7 @@
 // plus crash recovery of unsaved work in browser storage.
 
 import { defaultName } from '../model/features';
-import { newDocument, parseDocument, serializeDocument, withUsedBlobs } from '../model/document';
+import { allocateId, newDocument, parseDocument, serializeDocument, withUsedBlobs } from '../model/document';
 import type { ImportFeature, PartDocument } from '../model/types';
 import {
   type Location, EXT, IMPORT_EXTS, clearRecovery, download, isSolidWorksFile, isStepFile, listParts, loadText, locationLabel, newLocation,
@@ -357,7 +357,7 @@ export class FileOps {
     const doc = newDocument(safeName(fileName.replace(/\.[^.]+$/, '')) || 'Part1', app.settings.defaultUnits);
     const blobId = newBlobId(doc);
     doc.blobs[blobId] = step;
-    doc.features.push({ id: `f${doc.nextId++}`, name: defaultName(doc, 'import'), type: 'import', format: 'step', blob: blobId, fileName });
+    doc.features.push({ id: allocateId(doc), name: defaultName(doc, 'import'), type: 'import', format: 'step', blob: blobId, fileName });
     app.loadDocument(doc, null);
     app.store.dirty = true;
     toast({ kind: 'success', message: `Opened ${fileName}. SolidWorks feature history is not included: the part is one solid body to build on.`, timeout: 7000 });
