@@ -1138,3 +1138,82 @@ for (const splineFirst of [false, true]) test(`Smart Dimension rejects spline cu
   expect((await state()).constraints).toEqual([expect.objectContaining({ type: 'hdistance', refs: ['s0', 's1'], value: 20 })]);
   expect(errors).toEqual([]);
 });
+
+for (const tool of ['smartDimension', 'line', 'spline'] as const) test(`Delete resets pending ${tool} references and allows a fresh operation`, async ({ page }) => {
+  const errors = await openApp(page);
+  await startSketch(page);
+  await page.getByRole('button', { name: 'Close task pane', exact: true }).click();
+  await page.evaluate(() => {
+    const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+    a.sketchEditor!.edit('Add two lines', (sk) => sk.entities.push(
+      { id: 'a', t: 'point', x: 20, y: 10 }, { id: 'b', t: 'point', x: 60, y: 10 }, { id: 'l1', t: 'line', a: 'a', b: 'b' },
+      { id: 'c', t: 'point', x: 20, y: 30 }, { id: 'd', t: 'point', x: 60, y: 30 }, { id: 'l2', t: 'line', a: 'c', b: 'd' },
+    ));
+    a.viewport.zoomToFit(false);
+  });
+  const click = async (p: [number, number]) => {
+    const at = await page.evaluate((p) => {
+      const ed = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.sketchEditor!;
+      const [x, y] = ed.toScreen(p), box = ed.app.viewport.canvas.getBoundingClientRect();
+      return { x: x + box.x, y: y + box.y };
+    }, p);
+    await page.mouse.click(at.x, at.y);
+  };
+  const state = () => page.evaluate(() => {
+    const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+    const sk = a.sketchEditor!.sketch;
+    const ids = new Set(sk.entities.filter((e) => e.t === 'point').map((e) => e.id));
+    const valid = sk.entities.every((e) => e.t === 'point' || (e.t === 'line' ? [e.a, e.b] : e.t === 'spline' ? e.pts : e.t === 'circle' ? [e.c] : [e.c, e.a, e.b]).every((id) => ids.has(id)));
+    return { lines: sk.entities.filter((e) => e.t === 'line').map((e) => e.id), splines: sk.entities.filter((e) => e.t === 'spline').length, constraints: sk.constraints, valid, tool: a.sketchEditor!.tool?.id };
+  });
+  await click([30, 10]);
+  await page.evaluate((tool) => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.commands.run(`tool:${tool}`), tool);
+  await click(tool === 'smartDimension' ? [30, 10] : [60, 10]);
+  if (tool === 'spline') await click([40, 20]);
+  await page.keyboard.press('Delete');
+  expect(await state()).toMatchObject({ lines: ['l2'], splines: 0, valid: true, tool });
+  if (tool === 'smartDimension') {
+    await click([30, 30]);
+    await click([30, 20]);
+    const modify = page.getByRole('dialog', { name: 'Modify D1', exact: true });
+    await expect(modify).toBeVisible();
+    await modify.getByRole('textbox').press('Enter');
+    expect((await state()).constraints).toEqual([expect.objectContaining({ type: 'hdistance', refs: ['l2'], value: 40 })]);
+  } else if (tool === 'line') {
+    await click([40, 20]);
+    expect(await state()).toMatchObject({ lines: ['l2'], valid: true });
+    await click([20, 20]);
+    expect((await state()).lines).toHaveLength(2);
+  } else {
+    await click([20, 20]);
+    await click([40, 20]);
+    await click([60, 20]);
+    await page.keyboard.press('Enter');
+    expect((await state()).splines).toBe(1);
+  }
+  expect((await state()).valid).toBe(true);
+  await page.keyboard.press('ControlOrMeta+z');
+  expect(await state()).toMatchObject({ lines: ['l2'], splines: 0, constraints: [], valid: true });
+  await page.keyboard.press('ControlOrMeta+z');
+  expect((await state()).lines).toEqual(['l1', 'l2']);
+  await page.keyboard.press('ControlOrMeta+Shift+z');
+  expect(await state()).toMatchObject({ lines: ['l2'], splines: 0, constraints: [], valid: true });
+  expect(errors).toEqual([]);
+});
+
+for (const tool of ['line', 'spline'] as const) test(`Delete with no selection preserves an unfinished ${tool}`, async ({ page }) => {
+  const errors = await openApp(page);
+  const { x, y } = await startSketch(page);
+  await page.locator(`[data-cmd="tool:${tool}"]`).click();
+  await page.mouse.click(x - 100, y + 50);
+  await page.keyboard.press('Delete');
+  await page.mouse.click(x, y + 50);
+  if (tool === 'spline') {
+    await page.mouse.click(x + 100, y + 100);
+    await page.keyboard.press('Enter');
+  }
+  const curves = await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.sketchEditor!.sketch.entities.filter((e) => e.t !== 'point'));
+  expect(curves).toHaveLength(1);
+  expect(curves[0].t).toBe(tool);
+  expect(errors).toEqual([]);
+});

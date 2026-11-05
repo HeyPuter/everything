@@ -513,6 +513,9 @@ export class SketchEditor implements ViewportTool {
   deleteSelection(): boolean {
     const ids = this.selectedIds(['sk', 'skdim', 'skrel']).filter((id) => id !== ORIGIN_ID);
     if (!ids.length) return false;
+    // Pending picks/snaps may reference the geometry being removed. Abort
+    // without finishing it (a spline's ordinary cancel commits its points).
+    if (this.tool) { if (this.tool.abort) this.tool.abort(); else this.tool.cancel(); }
     this.edit('Delete', (sk) => deleteItems(sk, ids));
     this.app.selection.clear();
     return true;
