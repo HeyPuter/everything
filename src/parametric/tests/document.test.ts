@@ -159,6 +159,13 @@ describe('document store', () => {
     expect(() => parseDocument(JSON.stringify({ ...raw, features: [null] }))).toThrow(/damaged/);
   });
 
+  it('refuses features of unknown type, including prototype member names', () => {
+    for (const type of ['banana', 'constructor', '__proto__', 'toString']) {
+      const text = JSON.stringify({ format: 'parametric-part', version: 1, features: [{ id: 'f1', type, name: 'X' }] });
+      expect(() => parseDocument(text)).toThrow(/damaged \(invalid feature\)/);
+    }
+  });
+
   it('refuses a damaged sketch and repairs damaged values that would break the app later', () => {
     const raw = { format: 'parametric-part', version: 1, features: [sketch('s1', [])] };
     expect(() => parseDocument(JSON.stringify({ ...raw, features: [{ id: 'f1', type: 'sketch', name: 'S' }] }))).toThrow(/damaged \(invalid sketch\)/);

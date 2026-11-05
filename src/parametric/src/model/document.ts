@@ -3,7 +3,7 @@
 // geometry worker.
 
 import { convertExpressionUnits, evaluate, evaluateVariables, renameReferences, variableReferenceChanges } from './expr';
-import { PARAM_FIELDS, type ParamKind, getPath, setPath } from './features';
+import { FEATURE_LABELS, PARAM_FIELDS, type ParamKind, getPath, setPath } from './features';
 import type { Feature, Id, Param, PartDocument, SkDimension, SketchFeature, UnitSystem, Variable } from './types';
 import { isDimension } from './types';
 import { UNIT_SYSTEMS } from './units';
@@ -47,7 +47,9 @@ export function parseDocument(text: string): PartDocument {
   if (typeof d.version === 'number' && d.version > 1) throw new Error('This part was created with a newer version of Parametric.');
   if (d.version !== 1) throw new Error('The part file is damaged (unknown version).');
   if (!Array.isArray(d.features)) throw new Error('The part file is damaged (no feature list).');
-  if (!d.features.every((f) => f && typeof f === 'object' && typeof f.id === 'string' && typeof f.type === 'string')) {
+  // Only known types: an unknown one (or "constructor", which looks up a prototype
+  // member in every per-type table) has no geometry and broke evaluation.
+  if (!d.features.every((f) => f && typeof f === 'object' && typeof f.id === 'string' && typeof f.type === 'string' && Object.hasOwn(FEATURE_LABELS, f.type))) {
     throw new Error('The part file is damaged (invalid feature).');
   }
   const featureIds = new Set<string>();
