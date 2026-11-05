@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createAgent, requestMessages } from '../src/assistant/agent';
-import type { ChatMessage, StreamPart } from '../src/platform/ai';
+import { type ChatMessage, type StreamPart, puterChat } from '../src/platform/ai';
 import type { ToolResult } from '../src/assistant/tools';
 import { readAttachment } from '../src/assistant/attachments';
 import { type Attachment, attachmentKind, attachmentProblem, attachmentsTooLarge, estimatePdfPages, imageBlock, pdfBlock, textBlock } from '../src/assistant/attach';
@@ -100,6 +100,49 @@ describe('assistant agent', () => {
     expect(JSON.stringify(agent.messages).match(/A{400000}/g)).toHaveLength(1);
     await agent.send('thanks', () => {});
     expect(JSON.stringify(agent.messages)).not.toMatch(/A{1000}/);
+  });
+
+  it('Stop aborts the request that is streaming, even while no part is arriving', async () => {
+    let signal: AbortSignal | undefined;
+    const agent = createAgent({
+      chat: (_m, o) => {
+        signal = o.signal;
+        return (async function* () {
+          yield { type: 'text', text: 'Working' } as StreamPart;
+          await new Promise(() => {}); // the model is writing a long tool call
+        })();
+      },
+      tools: () => [], runTool: async () => ({ ok: true, content: '' }), system: 'S', snapshot: () => '', model: () => 'm',
+    });
+    const p = agent.send('go', () => {});
+    await new Promise((r) => setTimeout(r, 0));
+    expect(signal?.aborted).toBe(false);
+    agent.stop();
+    expect((await p).stopped).toBe(true);
+    expect(signal?.aborted).toBe(true);
+  });
+
+  it('passes the abort signal to Puter and ends its stream when aborted', async () => {
+    let options: Record<string, unknown> = {};
+    let returned = false;
+    const stream = {
+      [Symbol.asyncIterator]() { return this; },
+      next: () => new Promise(() => {}),
+      return: async () => { returned = true; return { done: true, value: undefined }; },
+    };
+    (globalThis as unknown as { puter?: unknown }).puter = { ai: { chat: async (_m: unknown, o: Record<string, unknown>) => { options = o; return stream; } } };
+    try {
+      const ctl = new AbortController();
+      const it = puterChat([{ role: 'user', content: 'hi' }], { signal: ctl.signal })[Symbol.asyncIterator]();
+      const next = it.next();
+      next.catch(() => {});
+      await new Promise((r) => setTimeout(r, 0));
+      expect(options.signal).toBe(ctl.signal);
+      ctl.abort();
+      expect(returned).toBe(true);
+    } finally {
+      delete (globalThis as unknown as { puter?: unknown }).puter;
+    }
   });
 
   it('stops between steps and answers the remaining calls', async () => {

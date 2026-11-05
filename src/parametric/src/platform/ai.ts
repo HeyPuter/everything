@@ -33,6 +33,8 @@ export interface ChatOptions {
   model?: string;
   tools?: unknown[];
   maxTokens?: number;
+  /** Aborting it ends the request and its stream (Stop). */
+  signal?: AbortSignal;
 }
 
 export type ChatFn = (messages: ChatMessage[], opts: ChatOptions) => AsyncIterable<StreamPart>;
@@ -75,6 +77,10 @@ export async function* puterChat(messages: ChatMessage[], opts: ChatOptions = {}
   if (opts.model) options.model = opts.model;
   if (opts.tools?.length) options.tools = opts.tools;
   if (opts.maxTokens) options.max_tokens = opts.maxTokens;
+  // The SDK aborts its request on the signal. The stream is also ended
+  // directly: a generator's return() waits for the part it is waiting on, and
+  // a long tool call can stream nothing for a minute.
+  if (opts.signal) options.signal = opts.signal;
   let res: unknown;
   try {
     res = await p.ai.chat(messages, options);
@@ -82,6 +88,9 @@ export async function* puterChat(messages: ChatMessage[], opts: ChatOptions = {}
     throw aiError(e);
   }
   if (res && typeof (res as AsyncIterable<unknown>)[Symbol.asyncIterator] === 'function') {
+    const end = () => { Promise.resolve((res as AsyncIterator<unknown>).return?.()).catch(() => {}); };
+    if (opts.signal?.aborted) end();
+    else opts.signal?.addEventListener('abort', end, { once: true });
     try {
       for await (const part of res as AsyncIterable<Record<string, unknown>>) {
         if (!part) continue;
@@ -92,6 +101,8 @@ export async function* puterChat(messages: ChatMessage[], opts: ChatOptions = {}
       }
     } catch (e) {
       throw aiError(e);
+    } finally {
+      opts.signal?.removeEventListener('abort', end);
     }
     return;
   }
