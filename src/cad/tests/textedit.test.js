@@ -4,14 +4,15 @@ import { TextEditor } from '../src/ui/textedit.js';
 
 globalThis.requestAnimationFrame ??= (cb) => setTimeout(cb, 0);
 
-function openEditor(opts = {}) {
+function openEditor(opts = {}, at = { x: 10, y: 10 }) {
   const canvasWrap = document.createElement('div');
+  canvasWrap.getBoundingClientRect = () => ({ left: 0, top: 0, width: 390, height: 700 });
   const overlay = document.createElement('canvas');
   canvasWrap.append(overlay);
   document.body.append(canvasWrap);
   const app = {
     shell: { canvasWrap, overlay },
-    camera: { toScreen: () => ({ x: 10, y: 10 }) },
+    camera: { toScreen: () => at },
     focusCanvas: () => {},
   };
   const done = [];
@@ -21,7 +22,8 @@ function openEditor(opts = {}) {
     field.dispatchEvent(
       new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true, ...extra }),
     );
-  return { field, key, done };
+  const el = canvasWrap.querySelector('.text-editor');
+  return { el, field, key, done };
 }
 
 describe('in-place text editor', () => {
@@ -44,5 +46,20 @@ describe('in-place text editor', () => {
     expect(a.done).toEqual([]);
     a.key('Enter');
     expect(a.done).toEqual(['にほん']);
+  });
+
+  it('stays on screen when the insertion point is off screen', () => {
+    for (const at of [
+      { x: -200, y: -80 },
+      { x: 900, y: 1200 },
+    ]) {
+      const { el } = openEditor({}, at);
+      const x = parseFloat(el.style.left),
+        y = parseFloat(el.style.top);
+      expect(x).toBeGreaterThanOrEqual(8);
+      expect(x).toBeLessThanOrEqual(390 - 8);
+      expect(y).toBeGreaterThanOrEqual(8);
+      expect(y).toBeLessThanOrEqual(700 - 8);
+    }
   });
 });

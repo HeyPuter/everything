@@ -34,8 +34,11 @@ export class TextEditor {
         ht = el.offsetHeight;
       let x = s.x + 12,
         y = s.y + 12;
-      if (x + w > wrap.width - 8) x = Math.max(8, s.x - w - 12);
-      if (y + ht > wrap.height - 8) y = Math.max(8, s.y - ht - 12);
+      if (x + w > wrap.width - 8) x = s.x - w - 12;
+      if (y + ht > wrap.height - 8) y = s.y - ht - 12;
+      // Keep it on screen when the insertion point is near or past an edge.
+      x = Math.max(8, Math.min(x, wrap.width - w - 8));
+      y = Math.max(8, Math.min(y, wrap.height - ht - 8));
       el.style.left = `${x}px`;
       el.style.top = `${y}px`;
     };
