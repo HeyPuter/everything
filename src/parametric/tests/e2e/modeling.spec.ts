@@ -224,6 +224,24 @@ test('a global variable cannot take a name the expressions already use', async (
   await expect(dlg).toBeHidden();
 });
 
+test('renaming a variable onto another one\'s name leaves the equations that use either alone', async ({ page }) => {
+  await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await page.evaluate(() => {
+    const a = (window as unknown as { __parametric: { store: { change(l: string, f: (d: { variables: unknown[] }) => void): void }; commands: { run(id: string): boolean } } }).__parametric;
+    a.store.change('Vars', (d) => { d.variables = [{ id: 'v1', name: 'A', expr: '10' }, { id: 'v2', name: 'B', expr: '20' }, { id: 'v3', name: 'C', expr: 'A + B' }]; });
+    a.commands.run('equations');
+  });
+  const dlg = page.getByRole('dialog', { name: 'Equations and Global Variables' });
+  const name = dlg.getByRole('textbox', { name: 'Name of variable 1' });
+  // A slip: A typed as B, then put back. C must still add the two.
+  await name.fill('B');
+  await name.press('Tab');
+  await name.fill('A');
+  await name.press('Tab');
+  await expect(dlg.getByRole('textbox', { name: 'Value or expression of C' })).toHaveValue('A + B');
+});
+
 test('switching the part to inches keeps the size of values linked to equations', async ({ page }) => {
   const errors = await openApp(page);
   await page.getByRole('button', { name: /Mounting Bracket/ }).click();

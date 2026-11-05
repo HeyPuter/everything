@@ -44,9 +44,12 @@ export async function equationsDialog(app: App) {
       const expr = h('input', { class: 'input', value: v.expr, 'aria-label': `Value or expression of ${v.name || 'variable'}`, spellcheck: 'false' }) as HTMLInputElement;
       name.addEventListener('change', () => {
         // Other equations follow a renamed variable (dimensions and features do on OK).
-        const renamed = new Map([[v.name, name.value.trim()]]);
+        // Not from or onto a name another variable has too: its equations would be merged into this one's for good.
+        const was = v.name;
+        const renamed = new Map([[was, name.value.trim()]]);
         v.name = name.value.trim();
-        if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(v.name)) for (const r of rows) if (r !== v) r.expr = renameReferences(r.expr, renamed);
+        const shared = rows.some((r) => r !== v && (r.name === was || r.name === v.name));
+        if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(v.name) && !shared) for (const r of rows) if (r !== v) r.expr = renameReferences(r.expr, renamed);
         draw();
       });
       expr.addEventListener('change', () => { v.expr = expr.value.trim(); draw(); });
