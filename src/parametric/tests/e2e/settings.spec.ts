@@ -182,6 +182,8 @@ test('preferences and the theme changed in another tab apply here and are not ov
     (await import(url)).setThemeChoice('dark');
   }, '/src/platform/theme.ts');
   await expect(b.page.locator('html')).toHaveAttribute('data-theme-resolved', 'dark');
+  // The phone browser's toolbar follows the chosen theme, not the system one.
+  expect(await b.page.locator('meta[name="theme-color"]').evaluateAll((m) => m.map((e) => (e as HTMLMetaElement).content))).toEqual(['#1f2226', '#1f2226']);
   await expect.poll(() => b.page.evaluate(() => (window as unknown as W).__parametric.settings.showPlanes)).toBe(true);
   // A change made here keeps the other tab's change.
   await b.page.evaluate(() => (window as unknown as W).__parametric.commands.run('showOrigin'));
