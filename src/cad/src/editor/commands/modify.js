@@ -25,6 +25,8 @@ import {
 import { insertMatrix, mulMatrix } from '../../core/tessellate.js';
 import { buildDimension, buildLeader } from '../../core/dims.js';
 import { mtextLines } from '../../core/text/layout.js';
+import { getPattern } from '../../core/hatch/patterns.js';
+import { loopsToRings, patternSegments } from '../../core/hatch/fill.js';
 import { COLOR_BYBLOCK, LW_BYBLOCK } from '../../core/schema.js';
 import { M, TAU, dist, angleOf, norm, fresh } from './util.js';
 
@@ -876,7 +878,30 @@ export function explodeOne(ed, e) {
         oblique: e.oblique ?? st?.oblique ?? 0,
       }));
     }
-    case 'hatch':
+    case 'hatch': {
+      const pat = e.pattern && e.pattern !== 'SOLID' ? getPattern(e.pattern) : null;
+      if (pat) {
+        // A pattern hatch breaks into its pattern lines, drawn as before (unbroken).
+        const rings = loopsToRings(e.loops || []);
+        const res = patternSegments(rings, pat, e.scale || 1, e.angle || 0);
+        if (res.truncated) return null;
+        const props = {
+          layer: e.layer,
+          color: e.color,
+          linetype: 'Continuous',
+          lineweight: e.lineweight,
+          ltscale: 1,
+        };
+        const out = [];
+        const s = res.segs;
+        for (let i = 0; i < s.length; i += 4) {
+          out.push({ ...props, type: 'line', x1: s[i], y1: s[i + 1], x2: s[i + 2], y2: s[i + 3] });
+        }
+        const d = res.dots;
+        for (let i = 0; i < d.length; i += 2) out.push({ ...props, type: 'point', x: d[i], y: d[i + 1] });
+        return out.length ? out : null;
+      }
+      // A solid fill breaks into its boundary.
       return (e.loops || []).map((l) => ({
         type: 'polyline',
         layer: e.layer,
@@ -888,6 +913,7 @@ export function explodeOne(ed, e) {
         closed: true,
         width: 0,
       }));
+    }
   }
   return null;
 }

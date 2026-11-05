@@ -314,3 +314,40 @@ describe('undo grouping', () => {
     expect(t.all('circle')).toHaveLength(1);
   });
 });
+
+describe('EXPLODE hatches', () => {
+  it('breaks a pattern hatch into its pattern lines', async () => {
+    const loop = [0, 0, 0, 20, 0, 0, 20, 20, 0, 0, 20, 0];
+    add({ type: 'hatch', pattern: 'LINES', scale: 1, angle: 0, loops: [loop], color: 3 });
+    t.ed.setSelection([1]);
+    await t.type('EXPLODE');
+    const lines = t.all('line');
+    expect(t.all('hatch')).toHaveLength(0);
+    expect(t.all('polyline')).toHaveLength(0);
+    expect(lines.length).toBeGreaterThan(5);
+    for (const l of lines) {
+      expect(l).toMatchObject({ color: 3, linetype: 'Continuous', layer: '0' });
+      // 45 degree lines inside the square.
+      expect(Math.abs(Math.abs(l.x2 - l.x1) - Math.abs(l.y2 - l.y1))).toBeLessThan(1e-9);
+      for (const v of [l.x1, l.y1, l.x2, l.y2]) {
+        expect(v).toBeGreaterThanOrEqual(-1e-9);
+        expect(v).toBeLessThanOrEqual(20 + 1e-9);
+      }
+    }
+    t.drawing.undo();
+    expect(t.all()).toEqual([expect.objectContaining({ type: 'hatch', id: 1 })]);
+  });
+
+  it('breaks a solid fill into its boundary', async () => {
+    add({
+      type: 'hatch',
+      pattern: 'SOLID',
+      scale: 1,
+      angle: 0,
+      loops: [[0, 0, 0, 5, 0, 0, 5, 5, 0]],
+    });
+    t.ed.setSelection([1]);
+    await t.type('EXPLODE');
+    expect(t.all()).toEqual([expect.objectContaining({ type: 'polyline', closed: true })]);
+  });
+});
