@@ -588,7 +588,7 @@ export class SectionPanel extends PropertyPanel {
 
   render(): HTMLElement[] {
     const app = this.app;
-    const offset = numberField({ label: 'Offset', icon: 'ruler', value: this.offset, kind: 'length', ctx: app.unitContext(), onChange: (v) => { this.offset = Number(v); this.apply(); }, onLive: (v) => { this.offset = v; this.apply(); } });
+    const offset = numberField({ label: 'Offset', icon: 'ruler', value: this.offset, kind: 'length', ctx: app.unitContext(), onChange: (v) => { this.offset = app.store.evalParam(v, 'length'); this.apply(); }, onLive: (v) => { this.offset = v; this.apply(); } });
     const custom = this.custom;
     const plane = segmented('Section plane', this.base, [
       { value: 'front' as const, label: 'Front' }, { value: 'top' as const, label: 'Top' }, { value: 'right' as const, label: 'Right' },
@@ -641,7 +641,7 @@ export class OffsetPanel extends PropertyPanel {
   render(): HTMLElement[] {
     const ids = this.app.sketchEditor?.selectedIds() ?? [];
     return [section('Parameters', [
-      numberField({ label: 'Offset distance', icon: 'ruler', value: this.distance, kind: 'length', ctx: this.app.unitContext(), min: 1e-6, onChange: (v) => { this.distance = Number(v); } }),
+      numberField({ label: 'Offset distance', icon: 'ruler', value: this.distance, kind: 'length', ctx: this.app.unitContext(), min: 1e-6, onChange: (v) => { this.distance = this.app.store.evalParam(v, 'length'); } }),
       checkbox('Reverse (inward)', this.reverse, (v) => { this.reverse = v; }),
       h('div', { class: 'field-label' }, `${ids.length} entities selected`),
     ])];

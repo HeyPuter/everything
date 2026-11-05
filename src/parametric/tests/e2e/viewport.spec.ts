@@ -4,6 +4,30 @@ import { canvasCenter, openApp, waitForFeature } from './helpers';
 type Win = { __parametric: import('../../src/app/app').App };
 
 test.describe('viewport', () => {
+  for (const units of ['MMGS', 'IPS'] as const) for (const expression of ['=2+3', '=Gap/2', '2+3']) test(`Section View evaluates ${expression} in ${units} before applying its plane`, async ({ page }) => {
+    const errors = await openApp(page);
+    await page.getByRole('button', { name: /New part/ }).click();
+    await page.evaluate((units) => {
+      const a = (window as unknown as Win).__parametric;
+      a.store.change('Set units and variable', (doc) => { doc.units = units; doc.variables = [{ id: 'gap', name: 'Gap', expr: '10' }]; });
+      a.commands.run('sectionView');
+    }, units);
+    const input = page.getByRole('textbox', { name: 'Offset', exact: true });
+    await expect(input).toHaveAttribute('inputmode', 'text');
+    await input.fill(expression);
+    await input.press('Tab');
+    const offset = () => page.evaluate(() => (window as unknown as Win).__parametric.renderer.section?.offset);
+    const expected = 5 * (units === 'IPS' ? 25.4 : 1);
+    expect(await offset()).toBe(expected);
+    await page.getByRole('checkbox', { name: 'Flip side', exact: true }).check();
+    expect(await offset()).toBe(-expected);
+    await page.getByRole('button', { name: 'OK', exact: true }).first().click();
+    expect(await offset()).toBe(-expected);
+    await page.evaluate(() => (window as unknown as Win).__parametric.commands.run('sectionView'));
+    expect(await page.evaluate(() => (window as unknown as Win).__parametric.renderer.section)).toBeNull();
+    expect(errors).toEqual([]);
+  });
+
   test('sketch dimension labels follow the camera when zooming', async ({ page }) => {
     const errors = await openApp(page);
     await page.getByRole('button', { name: /New part/ }).click();

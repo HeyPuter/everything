@@ -39,6 +39,31 @@ async function startSketch(page: Page) {
 }
 
 test.describe('sketching', () => {
+  for (const units of ['MMGS', 'IPS'] as const) for (const expression of ['=2+3', '=Gap/2', '2+3']) test(`Offset evaluates ${expression} in ${units} before creating geometry`, async ({ page }) => {
+    const errors = await openApp(page);
+    await startSketch(page);
+    await page.evaluate((units) => {
+      const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+      a.store.change('Set units and variable', (doc) => { doc.units = units; doc.variables = [{ id: 'gap', name: 'Gap', expr: '10' }]; });
+      a.sketchEditor!.edit('Add circle', (sk) => sk.entities.push({ id: 'c', t: 'point', x: 0, y: 0 }, { id: 'circle', t: 'circle', c: 'c', r: 100 }));
+      a.selection.set([{ kind: 'sk', id: 'circle' }]);
+      a.commands.run('offset');
+    }, units);
+    const input = page.getByRole('textbox', { name: 'Offset distance', exact: true });
+    await expect(input).toHaveAttribute('inputmode', 'text');
+    await input.fill(expression);
+    await input.press('Tab');
+    await page.getByRole('button', { name: 'OK', exact: true }).first().click();
+    const radii = () => page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.sketchEditor!.sketch.entities.filter((e) => e.t === 'circle').map((e) => e.r));
+    const expected = [100, 100 + 5 * (units === 'IPS' ? 25.4 : 1)];
+    expect(await radii()).toEqual(expected);
+    await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.commands.run('undo'));
+    expect(await radii()).toEqual([100]);
+    await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.commands.run('redo'));
+    expect(await radii()).toEqual(expected);
+    expect(errors).toEqual([]);
+  });
+
   for (const shape of ['semicircle', 'lens'] as const) test(`an impossible inward ${shape} offset leaves the sketch and Redo unchanged`, async ({ page }) => {
     const errors = await openApp(page);
     await startSketch(page);
