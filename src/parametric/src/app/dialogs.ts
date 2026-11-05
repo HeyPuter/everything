@@ -321,7 +321,21 @@ export async function massPropertiesDialog(app: App) {
     `Principal moments: ${principal.map((x) => fmt(x, 3)).join(', ')}`,
   ].join('\n');
   const copy = h('button', { class: 'btn small', type: 'button' }, icon('copy', 14), 'Copy');
-  copy.addEventListener('click', () => navigator.clipboard?.writeText(text).then(() => toast({ message: 'Copied to the clipboard', timeout: 1800 })));
+  const copyError = h('div', { class: 'field-label', role: 'alert', hidden: true, style: { color: 'var(--danger)' } },
+    'Could not copy to the clipboard. Try again, or select and copy the report text manually.');
+  copy.addEventListener('click', async () => {
+    copy.disabled = true;
+    copyError.hidden = true;
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error('Clipboard unavailable');
+      await navigator.clipboard.writeText(text);
+      toast({ message: 'Copied to the clipboard', timeout: 1800 });
+    } catch {
+      copyError.hidden = false;
+    } finally {
+      copy.disabled = false;
+    }
+  });
   let stopWatching = () => {};
   await showDialog({
     title: 'Mass Properties',
@@ -333,7 +347,7 @@ export async function massPropertiesDialog(app: App) {
       h('table', { class: 'table' }, h('tbody', {},
         [0, 1, 2].map((r) => h('tr', {}, [0, 1, 2].map((c) => h('td', { class: 'num' }, `I${'xyz'[r]}${'xyz'[c]} = ${t(r * 3 + c)}`)))))),
       h('div', { class: 'field-label' }, `Principal moments: ${principal.map((x) => fmt(x, 3)).join(', ')}`),
-      copy,
+      copy, copyError,
     ],
     buttons: [{ label: 'Close', value: 'ok', primary: true }],
   }).finally(() => stopWatching());

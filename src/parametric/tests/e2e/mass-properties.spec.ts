@@ -100,3 +100,42 @@ for (const change of ['edit', 'new document'] as const) test(`a displayed mass r
   }
   expect(errors).toEqual([]);
 });
+
+for (const failure of ['denied', 'unavailable'] as const) test(`mass report Copy explains ${failure} clipboard access and supports retry`, async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await page.evaluate(async (failure) => {
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: failure === 'unavailable' ? undefined : {
+      writeText: async () => { throw new DOMException('Clipboard write denied', 'NotAllowedError'); },
+    } });
+    const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+    await a.whenBuilt();
+    a.commands.run('massProperties');
+  }, failure);
+  const dialog = page.getByRole('dialog', { name: 'Mass Properties', exact: true });
+  const copy = dialog.getByRole('button', { name: 'Copy', exact: true });
+  await copy.click();
+  await expect(dialog.getByRole('alert')).toContainText('Could not copy');
+  await expect(dialog.getByRole('alert')).toContainText('select and copy');
+  await expect(page.locator('.toast', { hasText: 'Copied to the clipboard' })).toHaveCount(0);
+  await expect(copy).toBeEnabled();
+  expect(errors).toEqual([]);
+  await page.evaluate(() => {
+    const w = window as unknown as { copiedReport: string; releaseCopy: () => void };
+    const gate = new Promise<void>((resolve) => { w.releaseCopy = resolve; });
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: {
+      writeText: async (text: string) => { await gate; w.copiedReport = text; },
+    } });
+  });
+  await copy.click();
+  await expect(copy).toBeDisabled();
+  await expect(dialog.getByRole('alert')).toBeHidden();
+  await expect(page.locator('.toast', { hasText: 'Copied to the clipboard' })).toHaveCount(0);
+  await page.evaluate(() => (window as unknown as { releaseCopy: () => void }).releaseCopy());
+  await expect(page.locator('.toast', { hasText: 'Copied to the clipboard' })).toBeVisible();
+  await expect(copy).toBeEnabled();
+  const text = await page.evaluate(() => (window as unknown as { copiedReport: string }).copiedReport);
+  expect(text).toContain('Mass properties of Mounting Bracket');
+  for (const label of ['Material:', 'Mass:', 'Volume:', 'Surface area:', 'Center of mass:', 'Ixx', 'Iyy', 'Izz', 'Principal moments:']) expect(text).toContain(label);
+  expect(errors).toEqual([]);
+});
