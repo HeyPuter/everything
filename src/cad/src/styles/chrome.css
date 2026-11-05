@@ -276,6 +276,7 @@
 }
 
 .rb-body {
+  position: relative;
   height: var(--ribbon-h);
 }
 
@@ -298,7 +299,51 @@
   height: 100%;
   overflow-x: auto;
   overflow-y: hidden;
-  scrollbar-width: thin;
+  /* The scroll arrows stand in for the scrollbar, and focused buttons clear them. */
+  scrollbar-width: none;
+  scroll-padding-inline: 28px;
+}
+
+.rb-scroller::-webkit-scrollbar {
+  display: none;
+}
+
+.rb-scroll {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 1;
+  width: 22px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  background: var(--bg-chrome);
+  color: var(--fg-muted);
+}
+
+.rb-scroll.prev {
+  left: 0;
+  border-right: 1px solid var(--border);
+}
+
+.rb-scroll.next {
+  right: 0;
+  border-left: 1px solid var(--border);
+}
+
+.rb-scroll:hover {
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+
+/* Small button labels give way first when the panels do not fit. */
+.ribbon.compact .rb-sm-label {
+  display: none;
+}
+
+.ribbon.compact .rb-sm {
+  padding: 0 4px;
 }
 
 .rb-panel {
@@ -1168,12 +1213,6 @@ body.clean-screen .app-root {
   .search-btn kbd {
     display: none;
   }
-  .rb-sm-label {
-    display: none;
-  }
-  .rb-sm {
-    padding: 0 4px;
-  }
   .combo {
     width: 150px;
   }
@@ -1321,6 +1360,9 @@ body.clean-screen .app-root {
   }
   .rb-lg-arrow {
     height: 24px;
+  }
+  .rb-scroll {
+    width: 32px;
   }
   .icon-btn.sm {
     width: 32px;
