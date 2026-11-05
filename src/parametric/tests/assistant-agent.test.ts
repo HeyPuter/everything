@@ -3,7 +3,7 @@ import { createAgent, requestMessages } from '../src/assistant/agent';
 import type { ChatMessage, StreamPart } from '../src/platform/ai';
 import type { ToolResult } from '../src/assistant/tools';
 import { readAttachment } from '../src/assistant/attachments';
-import { type Attachment, attachmentKind, attachmentProblem, estimatePdfPages, imageBlock, pdfBlock, textBlock } from '../src/assistant/attach';
+import { type Attachment, attachmentKind, attachmentProblem, attachmentsTooLarge, estimatePdfPages, imageBlock, pdfBlock, textBlock } from '../src/assistant/attach';
 
 type Reply = StreamPart[] | Error;
 
@@ -164,6 +164,24 @@ describe('assistant agent', () => {
     // Three turns later only the names remain, and the data is let go.
     expect(requests[3][1].content).toBe('model this\n\n[Attached to this message: sketch.jpg, drawing.pdf. They are no longer shown; if you need them again, ask the user to attach them again.]');
     expect(JSON.stringify(agent.messages)).not.toContain('IMG');
+  });
+
+  it('keeps a message whose text files are too much to carry, naming its files instead of dropping it', async () => {
+    const big = (n: number): Attachment => ({ name: `table${n}.csv`, kind: 'text', size: 100000, chars: 100000, blocks: [textBlock(`table${n}.csv`, 'x'.repeat(100000))] });
+    const { agent, requests } = scripted([[{ type: 'text', text: 'a' }], [{ type: 'text', text: 'b' }]]);
+    await agent.send('use these tables', () => {}, { attachments: [big(1), big(2), big(3)] });
+    await agent.send('now make it 5 mm thick', () => {});
+    const sent = requests[1].map((m) => (typeof m.content === 'string' ? m.content : JSON.stringify(m.content))).join('\n');
+    // The earlier request and its reply are still there; only the files are left out.
+    expect(sent).toContain('use these tables');
+    expect(sent).toContain('table1.csv, table2.csv, table3.csv. They are no longer shown');
+    expect(sent.length).toBeLessThan(100000);
+  });
+
+  it('refuses one message with more attached text than a request takes', () => {
+    const big = (n: number): Attachment => ({ name: `t${n}.txt`, kind: 'text', size: 100000, chars: 100000, blocks: [textBlock(`t${n}.txt`, 'x'.repeat(100000))] });
+    expect(attachmentsTooLarge([big(1), big(2)])).toBeNull();
+    expect(attachmentsTooLarge([big(1), big(2), big(3)])).toMatch(/300,000 characters.*at most 200,000/);
   });
 
   it('decides which files can be attached and fences text files', () => {
