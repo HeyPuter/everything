@@ -20,7 +20,7 @@ import { h, formatShortcut, isMac, nextDomId } from '../ui/dom';
 import { icon } from '../ui/icons';
 import { showDialog, toast } from '../ui/overlay';
 import type { App } from './app';
-import { PropertyPanel, SelectionBox, type SelBoxItem, checkbox, numberField, section, selectField, segmented } from './pm';
+import { PropertyPanel, SelectionBox, type SelBoxItem, checkbox, numberField, section, selectField, segmented, settleNumberFields } from './pm';
 import { type SelItem, remapItem } from './selection';
 import type { MeasureTarget } from '../kernel/protocol';
 import { REPO_URL } from './shell';
@@ -547,9 +547,34 @@ export class MeasurePanel extends PropertyPanel {
   }
 }
 
+/** Tools store physical numeric lengths, so unit changes only replace their field context. */
+abstract class UnitAwareToolPanel extends PropertyPanel {
+  private units: UnitSystem;
+  private variables: Variable[];
+
+  constructor(protected app: App) {
+    super();
+    this.units = app.store.doc.units;
+    this.variables = structuredClone(app.store.doc.variables);
+  }
+
+  syncExpressions(): string[] | null {
+    const units = this.app.store.doc.units, variables = this.variables;
+    this.variables = structuredClone(this.app.store.doc.variables);
+    if (units === this.units) return null;
+    const previous = this.units;
+    this.units = units;
+    // Settle pending input in its old units before the app remounts the panel.
+    // Pass the evaluated number so callbacks cannot reinterpret an expression in the new units.
+    const values = evaluateVariables(variables).values;
+    settleNumberFields(this.el, { units: previous, decimals: this.app.store.doc.decimals, variables: () => values }, (_value, num) => num);
+    return [];
+  }
+}
+
 // ---------- section view ----------
 
-export class SectionPanel extends PropertyPanel {
+export class SectionPanel extends UnitAwareToolPanel {
   title = 'Section View';
   icon = 'sectionView';
   private normal: Vec3 = [0, 0, 1];
@@ -560,8 +585,8 @@ export class SectionPanel extends PropertyPanel {
   private custom: { normal: Vec3; offset: number; label: string } | null = null;
   private originalSection: App['renderer']['section'];
 
-  constructor(private app: App) {
-    super();
+  constructor(app: App) {
+    super(app);
     this.originalSection = app.renderer.section;
     if (app.renderer.section) this.custom = { ...app.renderer.section, label: 'Current' };
     else {
@@ -627,14 +652,14 @@ export class SectionPanel extends PropertyPanel {
 
 // ---------- sketch tools with panels ----------
 
-export class OffsetPanel extends PropertyPanel {
+export class OffsetPanel extends UnitAwareToolPanel {
   title = 'Offset Entities';
   icon = 'offset';
   private distance: number;
   private reverse = false;
 
-  constructor(private app: App) {
-    super();
+  constructor(app: App) {
+    super(app);
     this.distance = app.typicalSize() / 5;
     this.helpText = 'Select a chain of sketch curves before starting, then set the distance.';
   }

@@ -194,7 +194,7 @@ export function parseParam(text: string, kind: ParamKind, ctx: UnitContext, allo
   }
 }
 
-type PendingValueMap = (value: Param) => Param;
+type PendingValueMap = (value: Param, num: number) => Param;
 const numberFieldSettlers = new WeakMap<HTMLInputElement, (ctx?: UnitContext, map?: PendingValueMap) => void>();
 
 /** Settles delayed edits in their original context and retires controls being replaced. */
@@ -256,7 +256,7 @@ export function numberField(o: NumberFieldOptions): HTMLElement {
     input.removeAttribute('aria-invalid');
     input.title = '';
     if (live) { o.onLive?.(r.num); return; }
-    current = map ? map(r.value) : r.value;
+    current = map ? map(r.value, r.num) : r.value;
     mark();
     o.onChange(current);
   };

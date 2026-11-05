@@ -39,6 +39,44 @@ async function startSketch(page: Page) {
 }
 
 test.describe('sketching', () => {
+  for (const units of ['IPS', 'MKS'] as const) for (const pending of [false, true]) test(`Offset updates its length field when units change to ${units} (pending ${pending})`, async ({ page }) => {
+    const errors = await openApp(page);
+    await startSketch(page);
+    await page.evaluate(() => {
+      const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+      a.store.change('Add variable', (doc) => { doc.variables = [{ id: 'gap', name: 'Gap', expr: '25.4' }]; });
+      a.sketchEditor!.edit('Add circle', (sk) => sk.entities.push({ id: 'c', t: 'point', x: 0, y: 0 }, { id: 'circle', t: 'circle', c: 'c', r: 100 }));
+      a.selection.set([{ kind: 'sk', id: 'circle' }]);
+      a.commands.run('offset');
+    });
+    const input = page.getByRole('textbox', { name: 'Offset distance', exact: true });
+    await input.fill(pending ? '=Gap' : '25.4');
+    if (pending) {
+      // Change context before the field's debounce or blur commits its expression.
+      await page.evaluate((units) => {
+        const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+        a.store.change('Change units', (doc) => { doc.units = units; });
+      }, units);
+    } else {
+      await input.press('Tab');
+      await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.commands.run('properties'));
+      const properties = page.getByRole('dialog', { name: 'Part Properties', exact: true });
+      await properties.getByRole('combobox', { name: 'Unit system' }).selectOption(units);
+      await properties.getByRole('button', { name: 'OK', exact: true }).click();
+    }
+    const scale = units === 'IPS' ? 25.4 : 1000;
+    expect(Number(await input.inputValue())).toBeCloseTo(25.4 / scale, 10);
+    await input.fill('2');
+    await input.press('Tab');
+    await page.getByRole('button', { name: 'OK', exact: true }).first().click();
+    const radius = await page.evaluate(() => {
+      const e = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.sketchEditor!.sketch.entities.find((e) => e.t === 'circle' && e.id !== 'circle');
+      return e?.t === 'circle' ? e.r : null;
+    });
+    expect(radius).toBeCloseTo(100 + 2 * scale, 8);
+    expect(errors).toEqual([]);
+  });
+
   for (const units of ['MMGS', 'IPS'] as const) for (const expression of ['=2+3', '=Gap/2', '2+3']) test(`Offset evaluates ${expression} in ${units} before creating geometry`, async ({ page }) => {
     const errors = await openApp(page);
     await startSketch(page);

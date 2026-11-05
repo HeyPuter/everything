@@ -4,6 +4,38 @@ import { canvasCenter, openApp, waitForFeature } from './helpers';
 type Win = { __parametric: import('../../src/app/app').App };
 
 test.describe('viewport', () => {
+  for (const units of ['IPS', 'MKS'] as const) for (const pending of [false, true]) test(`Section View updates its length field when units change to ${units} (pending ${pending})`, async ({ page }) => {
+    const errors = await openApp(page);
+    await page.getByRole('button', { name: /New part/ }).click();
+    await page.evaluate(() => {
+      const a = (window as unknown as Win).__parametric;
+      a.store.change('Add variable', (doc) => { doc.variables = [{ id: 'gap', name: 'Gap', expr: '25.4' }]; });
+      a.commands.run('sectionView');
+    });
+    const input = page.getByRole('textbox', { name: 'Offset', exact: true });
+    await input.fill(pending ? '=Gap' : '25.4');
+    if (pending) {
+      // Change context before the field's debounce or blur commits its expression.
+      await page.evaluate((units) => {
+        const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+        a.store.change('Change units', (doc) => { doc.units = units; });
+      }, units);
+    } else {
+      await input.press('Tab');
+      await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.commands.run('properties'));
+      const properties = page.getByRole('dialog', { name: 'Part Properties', exact: true });
+      await properties.getByRole('combobox', { name: 'Unit system' }).selectOption(units);
+      await properties.getByRole('button', { name: 'OK', exact: true }).click();
+    }
+    const scale = units === 'IPS' ? 25.4 : 1000;
+    expect(Number(await input.inputValue())).toBeCloseTo(25.4 / scale, 10);
+    await input.fill('2');
+    await input.press('Tab');
+    await page.getByRole('button', { name: 'OK', exact: true }).first().click();
+    expect(await page.evaluate(() => (window as unknown as Win).__parametric.renderer.section?.offset)).toBeCloseTo(2 * scale, 8);
+    expect(errors).toEqual([]);
+  });
+
   for (const flipped of [false, true]) test(`reopening Section View keeps its active plane (flipped ${flipped})`, async ({ page }) => {
     const errors = await openApp(page);
     await page.getByRole('button', { name: /Mounting Bracket/ }).click();
