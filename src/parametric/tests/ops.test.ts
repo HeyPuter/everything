@@ -528,6 +528,7 @@ describe('editing tools', () => {
   it('fillets a rectangle corner tangentially', () => {
     const s = sk(rect(0, 0, 20, 10, 'r'));
     expect(filletCorner(s, 'rp1', 3, idFactory(s))).toBeNull();
+    expect(s.entities.some((e) => e.id === 'rp1')).toBe(false);
     const arc = s.entities.find((e) => e.t === 'arc');
     expect(arc).toBeDefined();
     const ix = new SketchIndex(s.entities);
@@ -535,6 +536,32 @@ describe('editing tools', () => {
     const res = solveSketch(s.entities, s.constraints, { value });
     expect(res.converged).toBe(true);
     expect(filletCorner(s, 'rp0', 50, idFactory(s))).toMatch(/too large/);
+  });
+
+  it.each(['circle', 'spline', 'arc'] as const)('keeps a fillet virtual corner shared with a %s at the line intersection', (other) => {
+    const s = sk([
+      { id: 'corner', t: 'point', x: 0, y: 0 }, { id: 'a', t: 'point', x: 10, y: 0 }, { id: 'b', t: 'point', x: 0, y: 10 },
+      { id: 'h', t: 'line', a: 'corner', b: 'a' }, { id: 'v', t: 'line', a: 'b', b: 'corner' },
+      ...(other === 'circle' ? [{ id: 'circle', t: 'circle', c: 'corner', r: 2 } as SkEntity] : other === 'spline' ? [
+        { id: 'c', t: 'point', x: -5, y: -5 }, { id: 'spline', t: 'spline', pts: ['corner', 'c'] },
+      ] as SkEntity[] : [
+        { id: 'o', t: 'point', x: -5, y: 0 }, { id: 'c', t: 'point', x: -5, y: 5 },
+        { id: 'arc', t: 'arc', c: 'o', a: 'corner', b: 'c' },
+      ] as SkEntity[]),
+    ]);
+    s.constraints.push({ id: 'hz', type: 'horizontal', refs: ['h'] }, { id: 'vt', type: 'vertical', refs: ['v'] });
+    expect(filletCorner(s, 'corner', 1, idFactory(s))).toBeNull();
+    const result = solveSketch(s.entities, s.constraints, { value, drag: { kind: 'points', ids: ['corner'], targets: [[3, 4]] } });
+    expect(result.converged).toBe(true);
+    const ix = new SketchIndex(s.entities), h = ix.get('h') as SkLine, v = ix.get('v') as SkLine;
+    expect(ix.pt('corner')[0]).toBeCloseTo(3, 6);
+    expect(ix.pt('corner')[1]).toBeCloseTo(4, 6);
+    expect(ix.pt(h.a)[1]).toBeCloseTo(ix.pt('corner')[1], 6);
+    expect(ix.pt(v.a)[0]).toBeCloseTo(ix.pt('corner')[0], 6);
+    const shared = ix.get(other);
+    expect(shared?.t === 'circle' ? shared.c : shared?.t === 'spline' ? shared.pts[0] : shared?.t === 'arc' ? shared.a : null).toBe('corner');
+    expect(ix.get('corner')?.construction).toBeFalsy();
+    expect(s.constraints.filter((c) => c.type === 'coincident').map((c) => c.refs)).toEqual([['corner', 'h'], ['corner', 'v']]);
   });
 
   it('keeps a dimensioned rectangle in shape when a corner is filleted', () => {

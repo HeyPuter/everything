@@ -519,14 +519,13 @@ export function filletCorner(sk: SketchFeature, pointId: Id, radius: number, new
   sk.entities.push({ id: arcId, t: 'arc', c: pc, a: ccw ? p1 : p2, b: ccw ? p2 : p1 });
   // The old corner point keeps its relations (e.g. dimensions) as a virtual sharp.
   const cornerUsed = usedPoints(sk.entities).has(pointId);
-  if (!cornerUsed) {
-    const keep = sk.constraints.some((k) => k.refs.includes(pointId));
-    if (!keep) sk.entities = sk.entities.filter((e) => e.id !== pointId);
-    else {
-      sk.entities.find((e) => e.id === pointId)!.construction = true;
-      // Keep the virtual sharp on both lines.
-      sk.constraints.push({ id: newId('r'), type: 'coincident', refs: [pointId, lines[0].id] }, { id: newId('r'), type: 'coincident', refs: [pointId, lines[1].id] });
-    }
+  const keepCorner = cornerUsed || sk.constraints.some((k) => k.refs.includes(pointId));
+  if (!keepCorner) sk.entities = sk.entities.filter((e) => e.id !== pointId);
+  else {
+    if (!cornerUsed) sk.entities.find((e) => e.id === pointId)!.construction = true;
+    // Keep the virtual sharp on both lines, including when another curve
+    // still uses it as a center or endpoint instead of an explicit relation.
+    sk.constraints.push({ id: newId('r'), type: 'coincident', refs: [pointId, lines[0].id] }, { id: newId('r'), type: 'coincident', refs: [pointId, lines[1].id] });
   }
   sk.constraints.push(
     { id: newId('r'), type: 'tangent', refs: [lines[0].id, arcId] },
