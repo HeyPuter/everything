@@ -12,6 +12,7 @@ import { createDraftStore } from './lib/drafts.js';
 import { createSettings } from './lib/settings.js';
 import { createSampleDataPopulator } from './lib/demo.js';
 import { clickedMessage } from './lib/notify.js';
+import { releasePushHere } from './ui/push.js';
 
 let demoSession = null;
 window.email = { populateSampleData: createSampleDataPopulator(() =>
@@ -101,6 +102,7 @@ const onNotificationClick = (click) => {
 
 const signOut = async () => {
   if (!closeComposers()) return;
+  await releasePushHere();
   try {
     await puter.auth.signOut();
   } catch {}

@@ -114,6 +114,22 @@ export async function turnOnPush(context) {
   return 'on';
 }
 
+/**
+ * Before signing out: this browser's push handler and subscription go first.
+ * Inside the desktop disable() would revoke every device, so there only the
+ * handler goes. The account's new-mail subscription stays for other devices.
+ */
+export async function releasePushHere(timeoutMs = 4000) {
+  await stopListening().catch(() => {});
+  if (puter.env !== 'web' || !puter.notifications?.disable) return;
+  let timer;
+  await Promise.race([
+    puter.notifications.disable().catch(() => {}),
+    new Promise((resolve) => { timer = setTimeout(resolve, timeoutMs); }),
+  ]);
+  clearTimeout(timer);
+}
+
 /** Website switches affect this browser; desktop disable revokes app pushes. */
 export async function turnOffPush() {
   await Promise.allSettled([
