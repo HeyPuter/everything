@@ -150,6 +150,12 @@ const describe = (ref) => (ref.net ? `${ref.label} (${ref.net})` : ref.label);
 
 export function decodeDrc(out, ctx) {
   const list = [];
+  // The kernel checks the board edge per shape record, so one object can be
+  // reported many times: an arc is split into short segments, an item that
+  // crosses the outline is both "too close" and "outside", and an item across
+  // a cutout touches it on both sides. Keep one edge violation per object
+  // (per pad for components) and layer: "outside" first, else the closest.
+  const edgeAt = new Map();
   let i = 0;
   const n = out[i++];
   for (let k = 0; k < n; k++) {
@@ -168,11 +174,25 @@ export function decodeDrc(out, ctx) {
       case 6: message = `${describe(ra)} is outside the board`; break;
       default: message = 'Rule violation';
     }
-    list.push({
+    const v = {
       rule, severity: code === 5 ? 'warning' : 'error', message,
       x: Math.round(x), y: Math.round(y), layer: firstLayer(mask), ids,
       actual: Math.round(actual), required: Math.round(required),
-    });
+    };
+    if (rule === 'edge' && ra) {
+      const key = `${ra.id}|${ra.label}|${v.layer}`;
+      const prev = edgeAt.get(key);
+      if (prev) {
+        const outside = code === 6, prevOutside = prev.code === 6;
+        if (outside && !prevOutside || outside === prevOutside && v.actual < prev.v.actual) {
+          list[prev.index] = v;
+          edgeAt.set(key, { code, v, index: prev.index });
+        }
+        continue;
+      }
+      edgeAt.set(key, { code, v, index: list.length });
+    }
+    list.push(v);
   }
   return list;
 }

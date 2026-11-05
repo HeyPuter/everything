@@ -403,3 +403,119 @@ describe('Gerber arcs', () => {
     expect(gtl).not.toContain('G03');
   });
 });
+
+describe('board edge check', () => {
+  it('reports each object once, keeping distinct objects and pads', async () => {
+    const fs = await import('node:fs');
+    const path = await import('node:path');
+    const { createKernel } = await import('../src/kernel/ops.js');
+    const k = await createKernel(
+      fs.readFileSync(path.resolve(import.meta.dirname, '../src/kernel/kernel.wasm')),
+    );
+    const lib = {
+      r: {
+        id: 'r',
+        symbol: { pins: [], graphics: [] },
+        footprint: {
+          name: 'f',
+          graphics: [],
+          pads: [
+            { num: '1', x: mm(0.5), y: 0, shape: 'rect', w: mm(1), h: mm(1), side: 'top' },
+            { num: '2', x: mm(0.5), y: mm(2), shape: 'rect', w: mm(1), h: mm(1), side: 'top' },
+          ],
+        },
+      },
+    };
+    const doc = {
+      board: {
+        outline: square(0, 0, mm(30), mm(20)),
+        cutouts: [square(mm(9.5), mm(9), mm(10.5), mm(11))],
+        copper: 2,
+      },
+      rules: { clearance: mm(0.2), edgeClearance: mm(0.5) },
+      objects: [
+        {
+          id: 'near',
+          t: 'track',
+          layer: 'top',
+          x1: mm(0.2),
+          y1: mm(5),
+          x2: mm(5),
+          y2: mm(5),
+          w: mm(0.25),
+          net: 'A',
+        },
+        {
+          id: 'near2',
+          t: 'track',
+          layer: 'top',
+          x1: mm(0.2),
+          y1: mm(7),
+          x2: mm(5),
+          y2: mm(7),
+          w: mm(0.25),
+          net: 'A',
+        },
+        {
+          id: 'cross',
+          t: 'track',
+          layer: 'top',
+          x1: mm(15),
+          y1: mm(18),
+          x2: mm(15),
+          y2: mm(22),
+          w: mm(0.25),
+          net: 'A',
+        },
+        {
+          id: 'cut',
+          t: 'track',
+          layer: 'top',
+          x1: mm(9),
+          y1: mm(10),
+          x2: mm(11),
+          y2: mm(10),
+          w: mm(0.25),
+          net: 'B',
+        },
+        {
+          id: 'arc',
+          t: 'arc',
+          layer: 'top',
+          cx: mm(22),
+          cy: mm(0.3),
+          r: mm(2),
+          a0: 200,
+          sweep: 140,
+          w: mm(0.25),
+          net: 'A',
+        },
+        {
+          id: 'c',
+          t: 'comp',
+          comp: 'r',
+          x: mm(29.5),
+          y: mm(14),
+          rot: 0,
+          side: 'top',
+          designator: 'R1',
+          padNets: {},
+        },
+      ],
+    };
+    const edges = (await k.drc(doc, lib)).filter((v) => v.rule === 'edge');
+    const keys = edges.map((v) => `${v.ids[0]} ${v.message.split(' is ')[0]}`).sort();
+    expect(keys).toEqual([
+      'arc Arc (A)',
+      'c Pad R1-1',
+      'c Pad R1-2',
+      'cross Track (A)',
+      'cut Track (B)',
+      'near Track (A)',
+      'near2 Track (A)',
+    ]);
+    // Crossing the outline: reported as outside, not also as too close.
+    expect(edges.find((v) => v.ids[0] === 'cross').message).toContain('outside the board');
+    expect(edges.find((v) => v.ids[0] === 'near').actual).toBe(mm(0.075));
+  });
+});
