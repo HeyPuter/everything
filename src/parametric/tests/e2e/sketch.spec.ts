@@ -39,6 +39,52 @@ async function startSketch(page: Page) {
 }
 
 test.describe('sketching', () => {
+  for (const offset of [0, 20]) test(`the rectangle tool creates a filletable corner at ${offset},${offset}`, async ({ page }) => {
+    const errors = await openApp(page);
+    await startSketch(page);
+    const result = await page.evaluate((offset) => {
+      const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+      const ed = a.sketchEditor!;
+      a.commands.run('tool:rectangle');
+      const first: [number, number] = [offset, offset], second: [number, number] = [offset + 40, offset + 30];
+      ed.tool!.click!({ p: first, raw: first, kind: offset === 0 ? 'origin' : 'none' }, {} as import('../../src/app/viewport').VPEvent);
+      ed.tool!.click!({ p: second, raw: second, kind: 'none' }, {} as import('../../src/app/viewport').VPEvent);
+      const corner = ed.sketch.entities.find((e) => e.t === 'point' && e.x === offset && e.y === offset)!;
+      const picked = ed.pickAt(first);
+      a.commands.run('tool:sketchFillet');
+      ed.tool!.click!({ p: first, raw: first, kind: 'none' }, {} as import('../../src/app/viewport').VPEvent);
+      return { corner: corner.id, picked, arcs: ed.sketch.entities.filter((e) => e.t === 'arc').length, converged: ed.solve?.converged };
+    }, offset);
+    expect(result.arcs).toBe(1);
+    expect(result.picked).toEqual({ kind: 'point', id: result.corner });
+    expect(result.converged).toBe(true);
+    await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.commands.run('undo'));
+    expect(await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.sketchEditor!.sketch.entities.filter((e) => e.t === 'arc'))).toEqual([]);
+    await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.commands.run('redo'));
+    expect(await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.sketchEditor!.sketch.entities.filter((e) => e.t === 'arc'))).toHaveLength(1);
+    expect(errors).toEqual([]);
+  });
+
+  test('point picking preserves the origin fallback and stable coincident-point order', async ({ page }) => {
+    const errors = await openApp(page);
+    await startSketch(page);
+    const result = await page.evaluate(() => {
+      const ed = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.sketchEditor!;
+      const bare = ed.pickAt([0, 0]);
+      ed.edit('Add nearby point', (sk) => sk.entities.push({ id: 'nearby', t: 'point', x: ed.px, y: 0 }));
+      const closerOrigin = ed.pickAt([0, 0]), closerPoint = ed.pickAt([ed.px, 0]);
+      ed.edit('Add coincident points', (sk) => sk.entities.push(
+        { id: 'first', t: 'point', x: 0, y: 0 }, { id: 'second', t: 'point', x: 0, y: 0 },
+      ));
+      return { bare, closerOrigin, closerPoint, coincident: ed.pickAt([0, 0]) };
+    });
+    expect(result.bare).toEqual({ kind: 'point', id: 'O' });
+    expect(result.closerOrigin).toEqual(result.bare);
+    expect(result.closerPoint).toEqual({ kind: 'point', id: 'nearby' });
+    expect(result.coincident).toEqual({ kind: 'point', id: 'first' });
+    expect(errors).toEqual([]);
+  });
+
   test('filleting construction lines keeps the arc out of solid profiles through Undo/Redo', async ({ page }) => {
     const errors = await openApp(page);
     await startSketch(page);

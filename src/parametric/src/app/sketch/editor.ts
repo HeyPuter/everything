@@ -254,7 +254,8 @@ export class SketchEditor implements ViewportTool {
     for (const e of sk.entities) {
       if (e.t !== 'point') continue;
       const d = dist2(p, [e.x, e.y]);
-      if (d < bd) { bd = d; best = { kind: 'point', id: e.id }; }
+      // A real vertex at the origin must remain selectable for corner operations.
+      if (d < bd || (d === bd && best?.id === ORIGIN_ID)) { bd = d; best = { kind: 'point', id: e.id }; }
     }
     if (best) return best;
     const ix = new SketchIndex(sk.entities);
