@@ -319,15 +319,15 @@ export class SchEditor extends CanvasView {
         for (const o of transformed()) drawSchObject(b, o, ed.lib, ed.palette, col);
         for (const w of draggedWires()) b.polyline(w.pts, WIRE_W, pack(ed.palette.wire));
       },
-      commit() {
+      commit({ label = ids.length === 1 ? 'Move' : `Move ${ids.length} objects`, mergeKey } = {}) {
         ed._endMove();
         if (!dx && !dy && !ops.length) return;
         const objs = transformed();
         const wires = draggedWires();
-        store.transact(ids.length === 1 ? 'Move' : `Move ${ids.length} objects`, (s) => {
+        store.transact(label, (s) => {
           for (const o of objs) s.update(o.id, o);
           for (const w of wires) s.update(w.id, w);
-        });
+        }, { mergeKey });
       },
       cancel() { ops = []; dx = dy = 0; ed._endMove(); },
     };
@@ -341,8 +341,13 @@ export class SchEditor extends CanvasView {
   }
 
   nudge(dx, dy) {
-    const ids = [...this.selection];
-    this.doc.store.transact('Nudge', (s) => { for (const id of ids) { const o = s.get(id); if (o && !o.locked) s.update(id, translateSch(o, dx, dy)); } }, { mergeKey: `nudge:${ids.join(',')}` });
+    const ids = [...this.selection].filter((id) => { const o = this.doc.store.get(id); return o && !o.locked; });
+    if (!ids.length) return;
+    // Like a drag, so wires attached to the moved pins follow instead of
+    // being left disconnected.
+    const move = this.beginMove(ids, { x: 0, y: 0 });
+    move.update(dx, dy);
+    move.commit({ label: 'Nudge', mergeKey: `nudge:${ids.join(',')}` });
   }
 
   _selectionCenter() {

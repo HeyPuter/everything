@@ -298,3 +298,28 @@ describe('stroke font fallbacks', () => {
     expect(layoutText('~\u00e9~', 1).strokes.length).toBe(layoutText('~e~', 1).strokes.length);
   });
 });
+
+describe('nudging', () => {
+  it('keeps wires attached to the nudged part, as a drag does, in one merged undo step', async () => {
+    app = await boot();
+    const ed = app.activeEditor;
+    const nets = (u) => {
+      const nl = app.project.netlist();
+      return [1, 2].map((n) => nl.byPin.get(`${u.id}:${n}`));
+    };
+    const r3 = [...ed.doc.items()].find((o) => o.designator === 'R3');
+    const before = nets(r3);
+    expect(before.every((n) => n && !/^Net/.test(n))).toBe(true);
+    const label = ed.doc.store.undoLabel;
+    ed.setSelection([r3.id]);
+    ed.select.key({}, 'ArrowUp');
+    ed.select.key({}, 'ArrowUp');
+    const moved = ed.doc.store.get(r3.id);
+    expect(moved.y - r3.y).toBe(2 * ed.grid);
+    expect(nets(moved)).toEqual(before);
+    expect(ed.doc.store.undoLabel).toBe('Nudge');
+    ed.doc.store.undo();
+    expect(ed.doc.store.get(r3.id).y).toBe(r3.y);
+    expect(ed.doc.store.undoLabel).toBe(label);
+  });
+});
