@@ -473,6 +473,8 @@ export async function plotDialog(app, state) {
     /* ignore */
   }
   if (r === 'pick' || action === 'pick') {
+    // A command still running would drop the window prompt as it unwinds.
+    if (app.editor.busy) await app.editor._stopActive();
     const a = await app.editor.getPoint('First corner of plot window', { noSnap: false }).catch(() => null);
     if (a && !a.option) {
       const b = await app.editor
