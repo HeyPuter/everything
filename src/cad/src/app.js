@@ -1553,6 +1553,9 @@ export class App {
         1: () => this.toggleProperties(),
         9: () => this.setSetting('showCmdLine', !this.settings.showCmdLine),
         0: () => this.toggleCleanScreen(),
+        '=': () => this.editor.zoomBy(1.6),
+        '+': () => this.editor.zoomBy(1.6),
+        '-': () => this.editor.zoomBy(1 / 1.6),
       };
       if (inCmd && (k === 'c' || k === 'x' || k === 'v' || k === 'a') && this.cmdline.value()) return;
       const fn = map[k];
