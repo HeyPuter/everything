@@ -34,6 +34,8 @@ export class Drawing {
     this.listeners = new Set();
     this._tx = null;
     this._depth = 0;
+    /** Tag stored on steps committed now (the running command), see groupSince(). */
+    this.stepTag = null;
     /** Incremented on every committed change; used for "modified" tracking. */
     this.revision = 0;
     /** Count of steps dropped off the bottom of the undo stack (keeps saved indices valid). */
@@ -150,7 +152,7 @@ export class Drawing {
     const tx = this._tx;
     this._tx = null;
     if (tx.records.length) {
-      this.undoStack.push({ label, records: tx.records });
+      this.undoStack.push({ label, records: tx.records, tag: this.stepTag });
       if (this.undoStack.length > UNDO_LIMIT) {
         this.undoStack.shift();
         this.shifted++;
@@ -330,6 +332,27 @@ export class Drawing {
     }
     const steps = this.undoStack.splice(index, n);
     this.undoStack.push({ label: label || steps.at(-1).label, records: steps.flatMap((s) => s.records) });
+  }
+
+  /**
+   * Merge each run of consecutive steps after `index` tagged `tag` into one
+   * step, so a command undoes as a unit while changes made outside it in the
+   * meantime (a palette edit, a redo) stay separate steps.
+   */
+  groupSince(index, tag, label) {
+    const out = this.undoStack.slice(0, index);
+    let run = null;
+    for (let i = index; i < this.undoStack.length; i++) {
+      const s = this.undoStack[i];
+      if (tag == null || s.tag !== tag) {
+        run = null;
+        out.push(s);
+      } else if (!run) {
+        run = { label: label || s.label, records: s.records.slice(), tag };
+        out.push(run);
+      } else for (const r of s.records) run.records.push(r);
+    }
+    this.undoStack = out;
   }
 
   /** Label of the step undo() would revert. */

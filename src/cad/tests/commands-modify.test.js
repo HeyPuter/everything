@@ -283,3 +283,34 @@ describe('cancelling', () => {
     expect(t.drawing.undoStack).toHaveLength(2);
   });
 });
+
+describe('undo grouping', () => {
+  it('keeps a change made outside a running command out of its undo step', async () => {
+    await t.type('LINE', '0,0', '10,0', '10,10');
+    // The layer palette edits the drawing while LINE is still running.
+    const layer = t.drawing.layers.get('0');
+    t.drawing.transaction('Layer color', () =>
+      t.drawing.setTable('layers', '0', { ...layer, color: 1 }),
+    );
+    await t.type('0,10', '');
+    expect(t.all('line')).toHaveLength(3);
+    t.drawing.undo();
+    expect(t.all('line')).toHaveLength(2);
+    expect(t.drawing.layers.get('0').color).toBe(1);
+    t.drawing.undo();
+    expect(t.drawing.layers.get('0').color).toBe(layer.color);
+    t.drawing.undo();
+    expect(t.all('line')).toHaveLength(0);
+  });
+
+  it('does not absorb a redo made before the command changed anything', async () => {
+    await t.type('CIRCLE', '0,0', '5');
+    t.drawing.undo();
+    await t.type('LINE', '0,0');
+    t.drawing.redo();
+    await t.type('10,0', '');
+    t.drawing.undo();
+    expect(t.all('line')).toHaveLength(0);
+    expect(t.all('circle')).toHaveLength(1);
+  });
+});

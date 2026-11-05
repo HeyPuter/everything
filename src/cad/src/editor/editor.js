@@ -116,9 +116,17 @@ export class Editor {
     return { type, ...baseProps(this.header), ...fields };
   }
 
-  /** Run fn as one undoable step. */
+  /** Run fn as one undoable step (tagged with the running command for grouping). */
   commit(label, fn) {
-    return this.drawing.transaction(label, fn);
+    const d = this.drawing;
+    if (d._tx) return d.transaction(label, fn);
+    const prev = d.stepTag;
+    d.stepTag = this.active?.token ?? null;
+    try {
+      return d.transaction(label, fn);
+    } finally {
+      d.stepTag = prev;
+    }
   }
 
   // Commands ------------------------------------------------------------
@@ -176,7 +184,8 @@ export class Editor {
       } else this.ui.log('Cancelled', 'muted');
     } finally {
       if (this.active === active) {
-        drawing.mergeSince(Math.max(0, mark - (drawing.shifted - shifted)), def.label || def.name);
+        const from = Math.max(0, mark - (drawing.shifted - shifted));
+        drawing.groupSince(from, token, def.label || def.name);
         this.active = null;
         this._resetCommandState();
         this.ui.prompt(null);
