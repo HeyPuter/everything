@@ -314,6 +314,7 @@ export class DrawingWorkspace {
     };
     this.el.addEventListener('pointerup', end);
     this.el.addEventListener('pointercancel', end);
+    this.el.addEventListener('lostpointercapture', end);
     this.el.addEventListener('wheel', (e) => {
       e.preventDefault();
       const r = this.el.getBoundingClientRect();

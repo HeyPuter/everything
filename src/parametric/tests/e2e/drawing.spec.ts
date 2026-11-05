@@ -278,3 +278,94 @@ test('Undo during a drawing-view drag ignores late pointer events', async ({ pag
   expect(await position()).toEqual(moved);
   expect(errors).toEqual([]);
 });
+
+for (const kind of ['view', 'pan'] as const) for (const ending of ['lostpointercapture', 'pointercancel'] as const) test(`drawing ${kind} gesture ends on ${ending}`, async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  await page.getByRole('tab', { name: 'Drawing' }).click();
+  await expect(page.locator('.paper g[data-view]')).toHaveCount(4);
+  const start = await page.evaluate(() => {
+    const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+    const ws = a.drawing as unknown as { frames: { id: string; x0: number; x1: number; y0: number; y1: number }[]; el: HTMLElement; pan: { x: number; y: number }; zoom: number };
+    const f = ws.frames[0], box = ws.el.getBoundingClientRect();
+    return { id: f.id, x: box.x + ws.pan.x + (f.x0 + f.x1) / 2 * ws.zoom, y: box.y + ws.pan.y + (f.y0 + f.y1) / 2 * ws.zoom };
+  });
+  const state = () => page.evaluate((id) => {
+    const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+    const v = a.store.doc.drawing!.views.find((v) => v.id === id)!;
+    return { view: [v.x, v.y], pan: (a.drawing as unknown as { pan: { x: number; y: number } }).pan, depth: a.store.undoDepth, name: a.store.doc.name };
+  }, start.id);
+  const before = await state();
+  const button = kind === 'view' ? 'left' : 'middle';
+  await page.mouse.move(start.x, start.y);
+  await page.mouse.down({ button });
+  await page.mouse.move(start.x + 30, start.y + 20, { steps: 3 });
+  const moved = await state();
+  expect(moved[kind]).not.toEqual(before[kind]);
+  await page.evaluate((ending) => {
+    const el = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.drawing.el;
+    if (ending === 'lostpointercapture') el.releasePointerCapture(1);
+    else el.dispatchEvent(new PointerEvent('pointercancel', { pointerId: 1, pointerType: 'mouse', bubbles: true }));
+  }, ending);
+  await page.mouse.move(start.x + 60, start.y + 40, { steps: 2 });
+  await page.mouse.up({ button });
+  expect(await state()).toMatchObject({ view: moved.view, pan: moved.pan, depth: before.depth + Number(kind === 'view') });
+  await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.store.change('Later rename', (d) => { d.name = 'After gesture'; }));
+  expect((await state()).depth).toBe(before.depth + Number(kind === 'view') + 1);
+  await page.keyboard.press('ControlOrMeta+z');
+  expect(await state()).toMatchObject({ view: moved.view, name: before.name });
+  if (kind === 'view') {
+    await page.keyboard.press('ControlOrMeta+z');
+    expect((await state()).view).toEqual(before.view);
+    await page.keyboard.press('ControlOrMeta+Shift+z');
+    expect((await state()).view).toEqual(moved.view);
+  }
+  expect(errors).toEqual([]);
+});
+
+test('drawing pinch stops when a touch loses capture and a fresh pinch still works', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  await page.getByRole('tab', { name: 'Drawing' }).click();
+  await expect(page.locator('.paper g[data-view]')).toHaveCount(4);
+  const center = await page.evaluate(() => {
+    const el = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.drawing.el;
+    el.addEventListener('gotpointercapture', (e) => { el.dataset.touchCapture = String(e.pointerId); });
+    el.addEventListener('lostpointercapture', (e) => { el.dataset.touchLost = String(e.pointerId); });
+    const r = el.getBoundingClientRect();
+    return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+  });
+  const state = () => page.evaluate(() => {
+    const ws = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.drawing as unknown as { pan: { x: number; y: number }; zoom: number };
+    return { pan: ws.pan, zoom: ws.zoom };
+  });
+  const cdp = await page.context().newCDPSession(page);
+  const touch = async (type: 'touchStart' | 'touchMove' | 'touchEnd', radius: number | null) => {
+    await cdp.send('Input.dispatchTouchEvent', { type, touchPoints: radius === null ? [] : [{ id: 0, x: center.x - radius, y: center.y }, { id: 1, x: center.x + radius, y: center.y }] });
+    await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
+  };
+  const before = await state();
+  await touch('touchStart', 40);
+  await touch('touchMove', 60);
+  const moved = await state();
+  expect(moved.zoom).toBeGreaterThan(before.zoom);
+  await page.evaluate(() => {
+    const el = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.drawing.el;
+    const id = Number(el.dataset.touchCapture);
+    if (!el.hasPointerCapture(id)) throw new Error('Expected an established touch capture');
+    el.releasePointerCapture(id);
+  });
+  await touch('touchMove', 100); // Delivers the queued capture loss for that pointer.
+  expect(await page.evaluate(() => !!(window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.drawing.el.dataset.touchLost)).toBe(true);
+  const interrupted = await state();
+  await touch('touchMove', 140);
+  expect(await state()).toEqual(interrupted);
+  await touch('touchEnd', null);
+  await touch('touchStart', 40);
+  await touch('touchMove', 80);
+  await touch('touchEnd', null);
+  expect((await state()).zoom).toBeCloseTo(interrupted.zoom * 2, 6);
+  expect(errors).toEqual([]);
+});
