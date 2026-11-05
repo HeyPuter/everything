@@ -28,6 +28,7 @@ import {
   findTextRects,
   listRedactionMarks,
   removeRedactionMark,
+  selectionRedactionRects,
 } from '../src/core/redact.js';
 
 const n = PDFName.of;
@@ -941,6 +942,39 @@ describe('find text & redact', () => {
     const { bytes: out } = await redact(bytes, [[0, matches[0].rects]]);
     expect((await pageText(out)).replace(/\s+/g, ' ')).toBe('SSN on file');
   });
+});
+
+it('marks a text selection on its glyphs, not on the line box that reaches the next line', async () => {
+  // Word sets single-spaced 12 pt text 13.8 pt apart; Noto Sans (like Arial) reaches further
+  // above and below its baseline than that leaves between two lines.
+  const doc = await PDFDocument.create();
+  doc.registerFontkit(fontkit);
+  const font = await doc.embedFont(
+    await readFile(new URL('../public/fonts/NotoSans-Regular.ttf', import.meta.url)),
+  );
+  const sheet = doc.addPage([400, 300]);
+  ['Alpha SECRET Bravo', 'Charlie Delta Echo'].forEach((line, i) =>
+    sheet.drawText(line, { x: 40, y: 200 - i * 13.8, size: 12, font }),
+  );
+  const bytes = await doc.save();
+  // The quad a browser measures for the selected word: its CSS line box, from 0.3 em below the
+  // baseline to 1.1 em above it, and a little wider than the word.
+  const x0 = 40 + font.widthOfTextAtSize('Alpha ', 12) - 1,
+    x1 = 40 + font.widthOfTextAtSize('Alpha SECRET', 12) + 1;
+  const quad = [x0, 213.2, x1, 213.2, x0, 196.4, x1, 196.4];
+  const rects = await selectionRedactionRects(await PDFDocument.load(bytes), 0, [quad]);
+  expect(rects).toHaveLength(1);
+  expect(rects[0][1]).toBeGreaterThan(196.4);
+  const { bytes: out, report } = await redact(bytes, [[0, rects]]);
+  expect(report.text).toBe('SECRET'.length);
+  const text = await pageText(out);
+  expect(text).not.toContain('SECRET');
+  expect(text).toContain('Charlie Delta Echo');
+  // A quad over no glyph (the layer and the page disagree) is marked as it stands.
+  const empty = [300, 100, 340, 100, 300, 90, 340, 90];
+  expect(await selectionRedactionRects(await PDFDocument.load(bytes), 0, [empty])).toEqual([
+    [300, 90, 340, 100],
+  ]);
 });
 
 it('finds hyphenated patterns in text drawn with a standard font', async () => {

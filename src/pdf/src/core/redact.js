@@ -897,40 +897,12 @@ export function findRedactionMatches(items, query, { measure, wholeWord = false 
  * reach kerned or tightly leaded neighbours. Returns `[{ text, rects }]`.
  */
 export async function findTextRects(doc, pageIndex, query, { wholeWord = false, report } = {}) {
-  const page = doc.getPage(pageIndex);
-  const glyphs = [];
-  await filterContent(doc, {
-    source: pageSource(page),
-    resources: page.node.Resources(),
-    report: contentReport(),
-    policy: {
-      glyph(quad, { code, metrics, box }) {
-        const text = metrics.unicode(code);
-        if (!text && report) report.unsearchable = true;
-        glyphs.push({ quad, text, box });
-        return false;
-      },
-    },
-  });
+  const glyphs = await pageGlyphs(doc, pageIndex, report);
   // Lay the glyphs out as text, with a space wherever the pen jumps (words, lines, columns).
   let text = '',
     original = '';
   const owner = [],
     originalOwner = [];
-  const sameLine = (a, b) => {
-    const [x0, y0] = a.quad[0],
-      [x1, y1] = a.quad[1],
-      [, , , [x3, y3]] = a.quad;
-    const length = Math.hypot(x1 - x0, y1 - y0) || 1,
-      height = Math.hypot(x3 - x0, y3 - y0) || 1;
-    const dx = (x1 - x0) / length,
-      dy = (y1 - y0) / length;
-    const ox = b.quad[0][0] - x1,
-      oy = b.quad[0][1] - y1;
-    const along = ox * dx + oy * dy,
-      across = -ox * dy + oy * dx;
-    return { line: Math.abs(across) < height * 0.5, gap: along > height * 0.2 || along < -height };
-  };
   const push = (char, index) => {
     original += char;
     originalOwner.push(index);
@@ -989,18 +961,128 @@ export async function findTextRects(doc, pageIndex, query, { wholeWord = false, 
       .replace(/\s+/g, ' ')
       .trim();
     if (typeof query !== 'string' && query.validate && !query.validate(matchedText)) continue;
-    // Runs of glyphs that sit on one line.
-    const runs = [];
-    for (const index of indices) {
-      const run = runs.at(-1);
-      if (run && index === run.at(-1) + 1 && sameLine(glyphs[index - 1], glyphs[index]).line)
-        run.push(index);
-      else runs.push([index]);
-    }
-    const rects = runs.map((run) => runRect(run.map((i) => glyphs[i]))).filter(Boolean);
+    const rects = runRects(glyphs, indices);
     if (rects.length) matches.push({ text: matchedText, rects });
   }
   return matches;
+}
+/** Every glyph a page draws, in content order, with its quad, box, and text. */
+async function pageGlyphs(doc, pageIndex, report) {
+  const page = doc.getPage(pageIndex);
+  const glyphs = [];
+  await filterContent(doc, {
+    source: pageSource(page),
+    resources: page.node.Resources(),
+    report: contentReport(),
+    policy: {
+      glyph(quad, { code, metrics, box }) {
+        const text = metrics.unicode(code);
+        if (!text && report) report.unsearchable = true;
+        glyphs.push({ quad, text, box });
+        return false;
+      },
+    },
+  });
+  return glyphs;
+}
+/** Whether a glyph follows another on its line, and whether the pen jumps between them. */
+function sameLine(a, b) {
+  const [x0, y0] = a.quad[0],
+    [x1, y1] = a.quad[1],
+    [, , , [x3, y3]] = a.quad;
+  const length = Math.hypot(x1 - x0, y1 - y0) || 1,
+    height = Math.hypot(x3 - x0, y3 - y0) || 1;
+  const dx = (x1 - x0) / length,
+    dy = (y1 - y0) / length;
+  const ox = b.quad[0][0] - x1,
+    oy = b.quad[0][1] - y1;
+  const along = ox * dx + oy * dy,
+    across = -ox * dy + oy * dx;
+  return { line: Math.abs(across) < height * 0.5, gap: along > height * 0.2 || along < -height };
+}
+/**
+ * One rect per run of the chosen glyphs (sorted indices) that sit together on one line. With
+ * `trim`, spaces at either end of a run are left out.
+ */
+function runRects(glyphs, indices, { trim = false } = {}) {
+  const runs = [];
+  for (const index of indices) {
+    const run = runs.at(-1);
+    if (run && index === run.at(-1) + 1 && sameLine(glyphs[index - 1], glyphs[index]).line)
+      run.push(index);
+    else runs.push([index]);
+  }
+  const blank = (i) => /^\s+$/.test(glyphs[i].text || '');
+  return runs
+    .map((run) => {
+      if (!trim) return run;
+      let start = 0,
+        end = run.length;
+      while (start < end && blank(run[start])) start++;
+      while (end > start && blank(run[end - 1])) end--;
+      return run.slice(start, end);
+    })
+    .filter((run) => run.length)
+    .map((run) => runRect(run.map((i) => glyphs[i])))
+    .filter(Boolean);
+}
+/**
+ * Redaction rects for a text selection: `quads` are its QuadPoints-style quads (8 numbers each:
+ * top left, top right, bottom left, bottom right, in PDF user space) as the page's text layer
+ * measures them. That layer's line boxes run past the glyphs, into the lines above and below
+ * when lines are set tightly, and applying them would take the neighbours' letters too. So the
+ * marks are placed on the page's own glyphs, drawn the way Find text and redact draws them: a
+ * glyph is chosen when the middle of its line lies in a quad's height and its box meets the
+ * quad along the line. A quad over no glyph is kept as it is, so nothing selected is left
+ * unmarked.
+ */
+export async function selectionRedactionRects(doc, pageIndex, quads) {
+  const areas = quads.filter((q) => q?.length === 8 && q.every(Number.isFinite));
+  const frames = areas.map((q) => {
+    const [ox, oy] = [q[0], q[1]];
+    const along = [q[2] - ox, q[3] - oy],
+      across = [q[4] - ox, q[5] - oy];
+    const length = Math.hypot(...along),
+      height = Math.hypot(...across);
+    if (!(length > 1e-6 && height > 1e-6)) return null;
+    const u = along.map((c) => c / length),
+      v = across.map((c) => c / height);
+    const project = ([x, y], axis) => (x - ox) * axis[0] + (y - oy) * axis[1];
+    return { u, v, length, height, project };
+  });
+  const bounds = (q) => {
+    const xs = [q[0], q[2], q[4], q[6]],
+      ys = [q[1], q[3], q[5], q[7]];
+    return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
+  };
+  let glyphs = [];
+  try {
+    glyphs = await pageGlyphs(doc, pageIndex);
+  } catch {
+    // A page whose content cannot be read keeps the selection's own boxes.
+  }
+  const covered = new Set();
+  const chosen = [];
+  glyphs.forEach((glyph, index) => {
+    const middle = boxPoint(glyph, 0.5, 0.5);
+    const hit = frames.findIndex((frame) => {
+      if (!frame) return false;
+      const depth = frame.project(middle, frame.v);
+      if (depth < 0 || depth > frame.height) return false;
+      const reach = glyph.quad.map((point) => frame.project(point, frame.u));
+      return Math.min(Math.max(...reach), frame.length) - Math.max(Math.min(...reach), 0) > 0.01;
+    });
+    if (hit < 0) return;
+    covered.add(hit);
+    chosen.push(index);
+  });
+  // The layer spaces its letters to fill each line, not exactly as the PDF does, so a space
+  // beside the selection can reach into it; it carries nothing to remove.
+  const rects = runRects(glyphs, chosen, { trim: true });
+  areas.forEach((q, i) => {
+    if (!covered.has(i)) rects.push(bounds(q));
+  });
+  return rects;
 }
 /** A point inside a glyph's box, at fractions (u across, v up) of the box. */
 function boxPoint(glyph, u, v) {

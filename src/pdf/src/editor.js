@@ -1803,13 +1803,6 @@ export function createEditor({
   // highlighting. These settings are what new marks look like once applied.
   const redactionStyle = { fill: '#000000', overlayText: '', repeat: false };
   const redacting = () => tool === 'highlight' && markupKind.value === 'redact';
-  /** Rectangles [x1, y1, x2, y2] around the quads of a text selection. */
-  const quadRects = (quads) =>
-    quads.map((q) => {
-      const xs = [q[0], q[2], q[4], q[6]],
-        ys = [q[1], q[3], q[5], q[7]];
-      return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
-    });
   let redactionMarks = [];
   const markNumber = (mark) => {
     const onPage = redactionMarks.filter((other) => other.page === mark.page);
@@ -3725,20 +3718,19 @@ export function createEditor({
     if (!highlightSelection || busy || !pageReady) return;
     const selection = highlightSelection;
     await mutate(
-      async (doc) =>
-        markupKind.value === 'redact'
-          ? (await loadRedaction()).addRedactionMarks(
-              doc,
-              pageIndex,
-              quadRects(selection.quads),
-              redactionStyle,
-            )
-          : addHighlight(doc, pageIndex, {
-              ...selection,
-              hex: color,
-              kind: markupKind.value,
-              author: getUser()?.username || '',
-            }),
+      async (doc) => {
+        if (markupKind.value !== 'redact')
+          return addHighlight(doc, pageIndex, {
+            ...selection,
+            hex: color,
+            kind: markupKind.value,
+            author: getUser()?.username || '',
+          });
+        // On the selected glyphs: the selection's line boxes can reach into the next line.
+        const { addRedactionMarks, selectionRedactionRects } = await loadRedaction();
+        const rects = await selectionRedactionRects(doc, pageIndex, selection.quads);
+        return addRedactionMarks(doc, pageIndex, rects, redactionStyle);
+      },
       null,
       markupKind.value === 'redact' ? 'edit' : 'annotate',
     );

@@ -1,5 +1,8 @@
 import { test, expect } from '@playwright/test';
+import { readFile } from 'node:fs/promises';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
+import fontkit from '@pdf-lib/fontkit';
+import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 
 const PUTER_MOCK = `window.puter = { env: 'web', auth: { isSignedIn: () => true, getUser: async () => ({username:'test-user'}), signIn: async () => {}, signOut: async () => {} }, fs: { readdir: async () => [], write: async () => ({}) }, ui: { onLaunchedWithItems: () => {}, onItemsOpened: () => {} } };`;
 test.skip(({ isMobile }) => isMobile, 'desktop workspace');
@@ -174,4 +177,71 @@ test('marks waiting to be applied have names that tell them apart', async ({ pag
     'Remove mark 2 on page 1',
     'Remove mark on page 2',
   ]);
+});
+
+test('marking a selected word leaves the letters of the lines around it', async ({ page }) => {
+  await page.route('https://js.puter.com/**', (route) =>
+    route.fulfill({ contentType: 'application/javascript', body: PUTER_MOCK }),
+  );
+  await page.goto('/#library');
+  // Word sets single-spaced 12 pt text 13.8 pt apart, while fonts such as Arial and Noto Sans
+  // reach further above and below their lines than that leaves room for.
+  const doc = await PDFDocument.create();
+  doc.registerFontkit(fontkit);
+  const font = await doc.embedFont(
+    await readFile(new URL('../../public/fonts/NotoSans-Regular.ttf', import.meta.url)),
+    { subset: true },
+  );
+  const sheet = doc.addPage([400, 300]);
+  ['Alpha SECRET Bravo', 'Charlie Delta Echo', 'Foxtrot Golf Hotel'].forEach((line, i) =>
+    sheet.drawText(line, { x: 40, y: 200 - i * 13.8, size: 12, font }),
+  );
+  const chooser = page.waitForEvent('filechooser');
+  await page.getByRole('button', { name: /Open a PDF/ }).click();
+  await (
+    await chooser
+  ).setFiles({
+    name: 'lines.pdf',
+    mimeType: 'application/pdf',
+    buffer: Buffer.from(await doc.save()),
+  });
+  await expect(page.locator('.page-caption')).toHaveText('Page 1 of 1');
+  await page.getByRole('button', { name: 'Tools', exact: true }).click();
+  const pane = page.getByRole('complementary', { name: 'Tools' });
+  await pane.getByRole('button', { name: 'Redact a PDF', exact: true }).click();
+  await pane.getByRole('button', { name: /Redact text and images/ }).click();
+  const word = page.locator('.textLayer span', { hasText: 'SECRET' }).first();
+  await expect(word).toBeVisible();
+  await word.evaluate((span) => {
+    const walker = document.createTreeWalker(span, NodeFilter.SHOW_TEXT);
+    const node = walker.nextNode();
+    const at = node.textContent.indexOf('SECRET');
+    const range = document.createRange();
+    range.setStart(node, at);
+    range.setEnd(node, at + 'SECRET'.length);
+    getSelection().removeAllRanges();
+    getSelection().addRange(range);
+  });
+  await page.getByRole('button', { name: 'Mark selection for redaction' }).click();
+  await settled(page);
+  await expect(pane.getByText('1 mark to apply')).toBeVisible();
+  await pane.getByRole('button', { name: 'Apply redactions…' }).click();
+  const confirm = page.getByRole('dialog', { name: 'Apply redactions' });
+  await confirm.getByLabel(/Also remove hidden information/).uncheck();
+  await confirm.getByRole('button', { name: 'Apply', exact: true }).click();
+  await settled(page);
+  // The marked word's line box reached into the next line, whose middle letters went with it.
+  await expect(page.locator('#toast')).toContainText('removed 6 characters');
+  const download = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Download', exact: true }).click();
+  const bytes = await readFile(await (await download).path());
+  const task = pdfjs.getDocument({ data: new Uint8Array(bytes), useSystemFonts: false });
+  const pdf = await task.promise;
+  const text = (await (await pdf.getPage(1)).getTextContent()).items
+    .map((item) => item.str)
+    .join('|');
+  await task.destroy();
+  expect(text).not.toContain('SECRET');
+  for (const line of ['Charlie Delta Echo', 'Foxtrot Golf Hotel']) expect(text).toContain(line);
+  expect(text).toMatch(/Alpha.*Bravo/);
 });
