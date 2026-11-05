@@ -63,8 +63,14 @@ export const localAvailable = async () => !!(await opfsDir());
 async function writeFile(dir: FileSystemDirectoryHandle, name: string, text: string) {
   const fh = await dir.getFileHandle(name, { create: true });
   const w = await fh.createWritable();
-  await w.write(text);
-  await w.close();
+  try {
+    await w.write(text);
+    await w.close();
+  } catch (e) {
+    // The file keeps its old contents; drop the half-written copy and its storage.
+    await w.abort().catch(() => {});
+    throw e;
+  }
 }
 
 async function localWrite(id: string, name: string, text: string) {

@@ -146,9 +146,12 @@ export function isMissing(err: unknown): boolean {
 
 /** Human readable error text for storage failures. */
 export function storageError(err: unknown): string {
-  const e = err as { code?: string; message?: string; status?: number };
+  const e = err as { code?: string; message?: string; status?: number; name?: string };
   if (e?.code === 'storage_limit_reached' || e?.status === 413) return 'Your Puter storage is full. Free up space or upgrade your plan, then save again.';
   if (e?.status === 429 || e?.code === 'too_many_requests') return 'Too many requests right now. Wait a moment and try again.';
+  // fetch() failures: Chrome, Firefox and Safari wording.
+  if (err instanceof TypeError && /failed to fetch|networkerror|load failed/i.test(e.message ?? '')) return 'Puter could not be reached. Check your connection and try again.';
+  if (e?.name === 'QuotaExceededError') return 'This browser has run out of storage space for parts. Delete parts you no longer need, download this one, or sign in to save it to your Puter cloud.';
   return e?.message || 'Something went wrong while talking to Puter.';
 }
 

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { listParts } from '../src/platform/files';
-import { setPuterForTests } from '../src/platform/puter';
+import { setPuterForTests, storageError } from '../src/platform/puter';
 
 // Browser storage stand-in: the local part index lives in localStorage.
 function fakeLocalStorage() {
@@ -44,5 +44,14 @@ describe('listParts', () => {
     const errors: unknown[] = [];
     expect(await listParts((e) => errors.push(e))).toEqual([]);
     expect(errors).toEqual([]);
+  });
+});
+
+describe('storageError', () => {
+  it('explains network failures and a full browser storage in plain words', () => {
+    for (const m of ['Failed to fetch', 'NetworkError when attempting to fetch resource.', 'Load failed']) expect(storageError(new TypeError(m))).toMatch(/could not be reached/);
+    expect(storageError(new DOMException('The operation failed because it would cause the application to exceed its storage quota.', 'QuotaExceededError'))).toMatch(/run out of storage space/);
+    expect(storageError({ code: 'storage_limit_reached' })).toMatch(/Puter storage is full/);
+    expect(storageError(new Error('Permission denied'))).toBe('Permission denied');
   });
 });
