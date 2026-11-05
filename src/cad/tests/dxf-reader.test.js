@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { parseDxf, stripMtext, decodeText } from '../src/io/dxf/reader.js';
-import { evalSpline } from '../src/io/dxf/geom.js';
+import { evalSpline, tessellateSpline } from '../src/io/dxf/geom.js';
 
 /** Build DXF text from flat [code, value, ...] arrays per section. */
 function dxf(entities = [], { header = [], tables = [], blocks = [] } = {}) {
@@ -217,6 +217,30 @@ describe('parseDxf: polylines and splines', () => {
     const p = [0, 0];
     evalSpline(3, s.knots, s.ctrl, null, s.knots[4], p);
     expect(close(p[0], 5) && close(p[1], 5)).toBe(true);
+  });
+
+  it('keeps the shape of rational splines, with sharp corners at repeated knots', () => {
+    // a full circle of radius 10 around (3, 4) as a rational quadratic NURBS
+    const w = Math.SQRT1_2;
+    const circle = [0, 'SPLINE', 70, 13, 71, 2, 72, 12, 73, 9];
+    for (const k of [0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 4]) circle.push(40, k);
+    for (const k of [1, w, 1, w, 1, w, 1, w, 1]) circle.push(41, k);
+    for (const [x, y] of [[13, 4], [13, 14], [3, 14], [-7, 14], [-7, 4], [-7, -6], [3, -6], [13, -6], [13, 4]]) circle.push(10, x, 20, y);
+    // two weighted arcs meeting at a corner (10, 0)
+    const corner = [0, 'SPLINE', 70, 12, 71, 2, 72, 8, 73, 5, 40, 0, 40, 0, 40, 0, 40, 1, 40, 1, 40, 2, 40, 2, 40, 2];
+    for (const k of [1, 2, 1, 2, 1]) corner.push(41, k);
+    for (const [x, y] of [[0, 0], [5, 5], [10, 0], [15, 5], [20, 0]]) corner.push(10, x, 20, y);
+    const { drawing, warnings } = parseDxf(dxf([...circle, ...corner]));
+    expect(warnings).toEqual([]);
+    const [c, k] = drawing.entities;
+    expect(c).toMatchObject({ degree: 3, closed: true, fit: [] });
+    const pts = tessellateSpline(3, c.knots, c.ctrl, null, 2000);
+    for (let i = 0; i < pts.length; i += 2) expect(Math.abs(Math.hypot(pts[i] - 3, pts[i + 1] - 4) - 10)).toBeLessThan(1e-3);
+    const p = [0, 0];
+    evalSpline(3, k.knots, k.ctrl, null, 0.25, p);
+    expect(close(p[0], 5, 1e-4) && close(p[1], 10 / 3, 1e-4)).toBe(true);
+    evalSpline(3, k.knots, k.ctrl, null, 0.5, p);
+    expect(close(p[0], 10) && close(p[1], 0)).toBe(true);
   });
 
   it('interpolates fit points like AutoCAD, with and without end tangents', () => {

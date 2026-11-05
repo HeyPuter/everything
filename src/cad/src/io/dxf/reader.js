@@ -15,6 +15,7 @@ import {
   uniformKnots,
   clampSpline,
   fitToSpline,
+  rationalToCubic,
   tessellateSpline,
   ellipsePoints,
   conjugateToEllipse,
@@ -1539,18 +1540,28 @@ class DxfParser {
     }
     const closed = (flags & 1) !== 0;
     if (degree < 1) degree = 1;
+    const n = ctrl.length >> 1;
+    let rational = false;
     for (const w of weights) {
       if (Math.abs(w - weights[0]) > 1e-9) {
-        this.warn('Rational spline weights are not supported and were ignored.');
+        rational = weights.length === n && weights.every((v) => v > 0);
+        if (!rational) this.warn('Rational spline weights are not supported and were ignored.');
         break;
       }
     }
-    const n = ctrl.length >> 1;
     let outKnots = null;
     let outCtrl = null;
+    let outFit = fit;
     if (n >= degree + 1) {
       const c = clampSpline(degree, knots, ctrl);
-      if (c) {
+      const r = c && rational ? rationalToCubic(degree, knots, ctrl, weights) : null;
+      if (rational && !r) this.warn('Rational spline weights are not supported and were ignored.');
+      if (r) {
+        degree = 3;
+        outKnots = r.knots;
+        outCtrl = r.ctrl;
+        outFit = [];
+      } else if (c) {
         outKnots = c.knots;
         outCtrl = c.ctrl;
       } else {
@@ -1571,7 +1582,7 @@ class DxfParser {
     e.degree = degree;
     e.ctrl = outCtrl;
     e.knots = outKnots;
-    e.fit = fit;
+    e.fit = outFit;
     e.closed = closed;
     this.add(cont, e);
   }

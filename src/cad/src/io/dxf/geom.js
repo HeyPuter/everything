@@ -269,6 +269,45 @@ export function fitToSpline(fit, closed = false, startTan = null, endTan = null)
   return { degree: 3, ctrl, knots };
 }
 
+/**
+ * Non-rational cubic equivalent of a rational B-spline (the drawing model has
+ * no weights): a chain of cubic Hermite pieces, `per` per knot span, through
+ * points of the curve with its tangents there, so corners at repeated knots
+ * stay sharp. Returns { degree: 3, ctrl, knots } with knots in [0, 1].
+ */
+export function rationalToCubic(p, U, P, W, per = 8) {
+  const n = P.length >> 1;
+  const u0 = U[p];
+  const u1 = U[n];
+  if (!(u1 > u0)) return null;
+  const at = (u) => evalSpline(p, U, P, W, u, [0, 0]);
+  const ctrl = [];
+  const knots = [0, 0, 0, 0];
+  for (let i = p; i < n; i++) {
+    const a = U[i];
+    const b = U[i + 1];
+    if (!(b > a)) continue;
+    const h = (b - a) * 1e-7;
+    const step = (b - a) / per;
+    for (let k = 0; k < per; k++) {
+      const s = a + step * k;
+      const t = k === per - 1 ? b : s + step;
+      const A = at(s);
+      const B = at(t);
+      const A1 = at(s + h);
+      const B0 = at(t - h);
+      const f = step / 3 / h;
+      if (!ctrl.length) ctrl.push(A[0], A[1]);
+      ctrl.push(A[0] + (A1[0] - A[0]) * f, A[1] + (A1[1] - A[1]) * f);
+      ctrl.push(B[0] - (B[0] - B0[0]) * f, B[1] - (B[1] - B0[1]) * f, B[0], B[1]);
+      const kn = (t - u0) / (u1 - u0);
+      if (t < u1) knots.push(kn, kn, kn);
+    }
+  }
+  knots.push(1, 1, 1, 1);
+  return { degree: 3, ctrl, knots };
+}
+
 /** Flat points along an ellipse arc from parameter t0 to t1 (inclusive). */
 export function ellipsePoints(cx, cy, mx, my, ratio, t0, t1, segs) {
   const out = [];
