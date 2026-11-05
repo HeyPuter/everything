@@ -46,7 +46,11 @@ export class SketchPanel extends PropertyPanel {
     const out: HTMLElement[] = [];
     const st = ed.solve;
     if (st) out.push(sketchDefinitionStatus(st));
-    if (ed.tool?.options) out.push(section(`${ed.tool.label} Options`, ed.tool.options()));
+    if (ed.tool?.options) {
+      const options = section(`${ed.tool.label} Options`, ed.tool.options());
+      options.classList.add('sketch-tool-options');
+      out.push(options);
+    }
     if (ed.tool) out.push(h('div', { class: 'pm-msg' }, ed.tool.hint));
 
     const ids = ed.selectedIds(['sk']);

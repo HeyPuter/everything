@@ -124,14 +124,18 @@ export class SketchEditor implements ViewportTool {
         this.closeModify();
       } else {
         if (unitsChanged || references.size) {
+          const values = evaluateVariables(previousVariables).values;
+          const context = { units: previousUnits, decimals: app.store.doc.decimals, variables: () => values };
+          const options = app.shell.lpBody.querySelector<HTMLElement>('.sketch-tool-options');
+          // Options store numeric lengths/counts: commit with the old context before remounting.
+          if (options) settleNumberFields(options, context);
           const field = app.shell.lpBody.querySelector<HTMLElement>('.sketch-dimension-field');
           const dims = this.selectedIds(['skdim']);
           const d = dims.length === 1 ? this.sketch.constraints.find((c) => c.id === dims[0]) : undefined;
           if (field && d && isDimension(d)) {
-            const values = evaluateVariables(previousVariables).values;
             // The document already changed context, but the pending text did
             // not. Parse it in the old context, then convert before storing it.
-            settleNumberFields(field, { units: previousUnits, decimals: app.store.doc.decimals, variables: () => values }, (value) => {
+            settleNumberFields(field, context, (value) => {
               const pending = { ...this.sketch, entities: [], constraints: [{ ...d, value }] };
               changeFeatureUnits(pending, previousUnits, units, previousVariables, variables, references);
               return pending.constraints[0].value;

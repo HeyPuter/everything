@@ -79,3 +79,45 @@ for (const close of ['cancel', 'new part', 'restore prior section'] as const) te
   expect(await page.evaluate(() => (window as unknown as Win).__parametric.renderer.section)).toEqual(expected);
   expect(errors).toEqual([]);
 });
+
+for (const tool of ['polygon', 'sketchFillet'] as const) for (const change of ['units', 'rename', 'delete'] as const) for (const pending of [false, true]) {
+  test(`${tool} keeps its option through ${change} (pending ${pending})`, async ({ page }) => {
+    const errors = await openApp(page);
+    await page.getByRole('button', { name: /New part/ }).click();
+    await page.getByRole('treeitem', { name: 'Front Plane' }).click();
+    await page.getByRole('tab', { name: 'Sketch' }).click();
+    await page.locator('[data-cmd="sketch"]').first().click();
+    await expect(page.locator('.view-label')).toHaveText('Front');
+    await page.evaluate((tool) => {
+      const a = (window as unknown as Win).__parametric;
+      a.store.change('Add variable', (doc) => { doc.variables = [{ id: 'gap', name: 'Gap', expr: '8' }]; });
+      if (tool === 'sketchFillet') a.sketchEditor!.edit('Add corner', (sk) => sk.entities.push(
+        { id: 'corner', t: 'point', x: 20, y: 20 }, { id: 'a', t: 'point', x: 60, y: 20 }, { id: 'b', t: 'point', x: 20, y: 60 },
+        { id: 'h', t: 'line', a: 'corner', b: 'a' }, { id: 'v', t: 'line', a: 'corner', b: 'b' },
+      ));
+      a.commands.run(`tool:${tool}`);
+    }, tool);
+    const input = page.getByRole('textbox', { name: tool === 'polygon' ? 'Number of sides' : 'Fillet radius', exact: true });
+    await input.fill('=Gap');
+    if (!pending) await input.press('Tab');
+    await page.evaluate((change) => (window as unknown as Win).__parametric.store.change('Change context', (doc) => {
+      if (change === 'units') doc.units = 'IPS';
+      else if (change === 'rename') doc.variables[0].name = 'Span';
+      else doc.variables = [];
+    }), change);
+    expect(Number(await input.inputValue())).toBeCloseTo(tool === 'sketchFillet' && change === 'units' ? 8 / 25.4 : 8, 10);
+    const result = await page.evaluate((tool) => {
+      const ed = (window as unknown as Win).__parametric.sketchEditor!;
+      ed.tool!.click!({ p: [20, 20], raw: [20, 20], kind: 'none' }, {} as import('../../src/app/viewport').VPEvent);
+      if (tool === 'polygon') ed.tool!.click!({ p: [40, 20], raw: [40, 20], kind: 'none' }, {} as import('../../src/app/viewport').VPEvent);
+      if (tool === 'polygon') return ed.sketch.entities.filter((e) => e.t === 'line').length;
+      const arc = ed.sketch.entities.find((e) => e.t === 'arc');
+      if (!arc || arc.t !== 'arc') return null;
+      const points = ed.sketch.entities.filter((e) => e.t === 'point');
+      const center = points.find((e) => e.id === arc.c)!, start = points.find((e) => e.id === arc.a)!;
+      return Math.hypot(start.x - center.x, start.y - center.y);
+    }, tool);
+    expect(result).toBeCloseTo(8, 8);
+    expect(errors).toEqual([]);
+  });
+}
