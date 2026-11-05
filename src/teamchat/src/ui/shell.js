@@ -38,6 +38,7 @@ import { avatar, groupAvatar } from './avatar.js';
 import { channelIcon } from './icons.js';
 import { mountHuddleDock, joinHuddleFlow } from './huddle.js';
 import { EV_GRANT } from '../shared/events.js';
+import { mountPushNotice } from './pushnotice.js';
 
 const LAST_WS_KEY = 'teamchat:lastws';
 
@@ -1220,6 +1221,7 @@ export function mountShell(appRoot) {
   let evConsentAskedFor = null; // the workspace whose answer was definite
   let evConsentTried = null; // { ws, at } of the last look
   store.on('workspace', () => { maybeAskEventsConsent().catch(() => {}); });
+  mountPushNotice();
 
   async function maybeAskEventsConsent() {
     const wsId = store.wsId;

@@ -28,6 +28,7 @@ import { previewWords } from './applink.js';
 import { aroundText, toLocalInput, DELIVERY_NOTE } from '../lib/schedule.js';
 import { exportWorkspace, writeArchiveToDrive, importArchive, transferWorkspace, progressText, leftBehindText } from '../lib/archive.js';
 import { canInstall, promptInstall, isIos, isStandalone } from '../lib/pwa.js';
+import { pushProblem } from './pushnotice.js';
 import { emailAvailable, parseEmails, sendInviteEmails } from '../lib/email.js';
 import { copyToClipboard } from './clipboard.js';
 
@@ -3851,7 +3852,7 @@ export function settingsDialog({ section = null } = {}) {
     if (typeof puter !== 'undefined' && puter.notifications) {
       const web = puter.env === 'web';
       const pushRow = switchRow({
-        label: 'Notifications when the app is closed', sub: web && isIos() && !isStandalone() ? 'On iPhone and iPad, add Teamchat to your Home Screen first' : 'Mentions and direct messages reach your devices through Puter, following the settings above',
+        label: 'Notifications when the app is closed', sub: web && isIos() && !isStandalone() ? 'On iPhone and iPad, add Teamchat to your Home Screen first' : pushProblem()?.text || 'Mentions and direct messages reach your devices through Puter, following the settings above',
         checked: profile.prefs?.push !== false && store.pushStatus === 'on',
         onChange: async (v) => {
           try {

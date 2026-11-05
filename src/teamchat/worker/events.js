@@ -207,6 +207,28 @@ export async function ensureHandle(wsId, uuid, doc, name) {
   return null;
 }
 
+/** Refusals that pass on their own, never shown to a member. */
+const TRANSIENT = new Set(['too_many_requests', 'timeout', 'network', 'rate_limited']);
+
+/**
+ * The bootstrap's `push` block: whether this worker's notifications can
+ * reach the caller (`reach`, null when they can), and for the worker's own
+ * owner, a refusal that keeps every other member from them (`team`). Read
+ * after eventsBlock, which has just tried a mint for a member without one.
+ */
+export async function pushStatus(wsId, uuid, doc) {
+  if (!workerAppUid()) return { reach: 'no_app_uid', team: null };
+  const cfg = await serverConfig();
+  const worker = cfg.ev && !cfg.ev.ok && cfg.ev.why ? cfg.ev.why : null;
+  const refused = (d) => (d?.pnErr && !TRANSIENT.has(d.pnErr.code) && d.pnErr.at > Date.now() - 24 * 3600_000 ? d.pnErr.code : null);
+  if (cfg.owner === uuid) return { reach: refused(doc), team: worker };
+  const fresh = doc?.ev?.h && doc.ev.notify ? doc : await kv().get(KEYS.member(wsId, uuid)).catch(() => null);
+  const err = refused(fresh);
+  if (fresh?.ev?.h && fresh.ev.notify) return { reach: err, team: null };
+  const why = worker || fresh?.ev?.why || null;
+  return { reach: why && !TRANSIENT.has(why) ? why : err, team: null };
+}
+
 /**
  * The bootstrap's `events` block (design doc, section 3.5): `own` mode for
  * the worker's own owner, who needs no handle, no consent, and no

@@ -662,7 +662,20 @@ Recipient blocks can refuse either sharing or notifying.
 
 Recipient errors never fail a post. Rate limits and blocked recipients are
 dropped; a share without notify is upgraded for the next send; a dead handle
-is cleared for lazy re-sharing. Sends go out concurrently, so one refusal
+is cleared for lazy re-sharing. Each refusal is logged by the worker, and a
+lasting one is kept on the member document (`pnErr`) until a send goes
+through. The bootstrap's `push` block says whether the worker can reach the
+caller (`reach`: null, or the share's or notify's refusal code) and, for its
+owner, a refusal that holds every member back (`team`).
+
+When notifications would not reach someone, the app says so in a standing
+notice (`src/ui/pushnotice.js`) and in the settings switch: the browser
+blocks them, they are off on this device, iPhone outside the Home Screen
+app, or the worker's `reach`/`team` code. "Turn on" and the owner's "Allow"
+(the `kvShare` grant) fix it from the notice. Each reason, dismissed, stays
+quiet on that device for a week. A browser where Puter already reports
+pushes on, but whose account never turned them on, tells the workers on
+load, and the check runs again when the tab comes back. Sends go out concurrently, so one refusal
 never holds up the rest; a worker not running as the app sends none.
 Notifications are capped at 30/minute and 1,000/day per user per app. Pushes
 are capped at 12/minute and 1,000/day, or 6/minute and 200/day for apps under
