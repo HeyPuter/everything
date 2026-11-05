@@ -434,7 +434,11 @@ describe('feature regeneration', () => {
       expect(res.status[4].error).toMatch(/on top of each other/);
     }
     expect((await b.build(req([...base, lin(0)]))).status[4].error).toMatch(/spacing must not be zero/);
-    for (const p of [circ(360, true), circ(90, false), lin(-10)]) expect((await b.build(req([...base, p]))).status[4].ok).toBe(true);
+    for (const p of [circ(360, true), circ(90, false), lin(-10)]) expect((await b.build(req([...base, p]))).status[4]).toEqual({ id: 'P', ok: true });
+    // Copies of a cut that all land off the part do nothing: say so.
+    const off = await b.build(req([...base, lin(100)]));
+    expect(off.status[4].ok).toBe(true);
+    expect(off.status[4].warning).toMatch(/do not remove any material/);
   });
 
   it('suppresses the features built on a suppressed feature instead of failing them', async () => {

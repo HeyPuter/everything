@@ -938,7 +938,9 @@ export class ModelBuilder {
       const tool = inst.length === 1 ? inst[0] : (R.makeCompound(inst as any) as unknown as Sh);
       if (seed.cut) {
         if (!body) throw new FeatureError('There is no material to cut');
+        const v0 = volumeOf(body);
         body = cut(body, tool);
+        if (v0 > 0 && !isEmpty(body) && volumeOf(body) >= v0 * (1 - 1e-9)) this.warning = 'The copies of a cut do not remove any material. Check the direction and spacing.';
       } else body = body ? fuse(body, tool) : tool;
       allTool.push(tool);
       allNamed.push(...named);
