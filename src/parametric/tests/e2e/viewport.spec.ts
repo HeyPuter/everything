@@ -461,6 +461,30 @@ test.describe('viewport', () => {
     expect(fill).toBeGreaterThan(0.5);
   });
 
+  test('zoom to fit frames a sketch when there is no solid yet', async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /New part/ }).click();
+    await page.evaluate(() => {
+      const app = (window as unknown as Win).__parametric;
+      const doc = structuredClone(app.store.doc);
+      const pts = [[300, 200], [800, 200], [800, 500], [300, 500]];
+      const entities: import('../../src/model/types').SkEntity[] = pts.map(([x, y], i) => ({ id: `p${i}`, t: 'point', x, y }));
+      pts.forEach((_, i) => entities.push({ id: `l${i}`, t: 'line', a: `p${i}`, b: `p${(i + 1) % 4}` }));
+      doc.features.push({ id: 's1', name: 'Sketch1', type: 'sketch', plane: { kind: 'base', plane: 'front' }, entities, constraints: [] });
+      app.loadDocument(doc, null);
+    });
+    await expect(page.getByRole('treeitem', { name: 'Sketch1' })).toBeVisible();
+    await expect.poll(() => page.evaluate(() => {
+      const app = (window as unknown as Win).__parametric;
+      app.viewport.zoomToFit(false);
+      const cam = app.renderer.camera;
+      return [[300, 200, 0], [800, 500, 0]].every((p) => {
+        const [x, y] = app.viewport.project(p as [number, number, number]);
+        return x >= 0 && x <= cam.width && y >= 0 && y <= cam.height;
+      });
+    })).toBe(true);
+  });
+
   const countDoubleClicks = async (page: import('@playwright/test').Page) => {
     await page.getByRole('button', { name: /Mounting Bracket/ }).click();
     await waitForFeature(page, 'Fillet1');
