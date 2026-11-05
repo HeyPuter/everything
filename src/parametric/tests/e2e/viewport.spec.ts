@@ -439,6 +439,33 @@ test.describe('viewport', () => {
     expect(item).toBeNull();
   });
 
+  test('line display styles outline where the section view cuts the part', async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+    await waitForFeature(page, 'Fillet1');
+    await expect.poll(() => page.evaluate(() => !!(window as unknown as Win).__parametric.bbox)).toBe(true);
+    const r = await page.evaluate(async () => {
+      const app = (window as unknown as Win).__parametric;
+      const ren = app.renderer;
+      ren.displayStyle = 'hiddenRemoved';
+      ren.section = { normal: [1, 0, 0], offset: 30 };
+      // On the plate's front face (z = 30), where the cut at x = 30 crosses it: no model edge there.
+      const [x, y] = app.viewport.project([30, 4, 30]);
+      const img = new Image();
+      img.src = ren.capture(4096)!;
+      await img.decode();
+      const c = document.createElement('canvas');
+      c.width = img.width; c.height = img.height;
+      const ctx = c.getContext('2d')!;
+      ctx.drawImage(img, 0, 0);
+      const k = img.width / ren.camera.width;
+      const px = [...ctx.getImageData(Math.round(x * k), Math.round(y * k), 1, 1).data].slice(0, 3);
+      const d = (a: number[]) => Math.hypot(...a.map((v, i) => v * 255 - px[i]));
+      return { toWire: d(ren.theme.wire), toBackground: d(ren.theme.background) };
+    });
+    expect(r.toWire).toBeLessThan(r.toBackground);
+  });
+
   test('line display styles keep visible edges readable in both themes', async ({ page }) => {
     await openApp(page);
     const contrast = () => page.evaluate(() => {

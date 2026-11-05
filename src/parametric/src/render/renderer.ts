@@ -461,6 +461,7 @@ export class Renderer {
     this.pickFbo = this.pickTex = this.pickDepthTex = this.pickRb = null;
     this.pickSize = [0, 0];
     this.pbo = null;
+    this.cut = null;
     this.lost = false;
     this.model = this.modelMesh ? this.meshToGpu(this.modelMesh) : null;
     this.preview = this.previewMesh ? this.meshToGpu(this.previewMesh) : null;
@@ -846,13 +847,14 @@ export class Renderer {
           gl.depthMask(true);
           gl.depthFunc(gl.LEQUAL);
         }
-        if (body.edges) {
-          const wire = style === 'wireframe';
-          if (wire) gl.disable(gl.DEPTH_TEST);
-          const ec = flat || wire ? this.theme.wire : this.theme.edge;
-          this.drawSegs(body.edges, vp, viewport, clip, { width: 1.25, color: [...ec, 1], useState: showBody, bias: 2e-5 });
-          if (wire) gl.enable(gl.DEPTH_TEST);
-        }
+        const wire = style === 'wireframe';
+        const ec = flat || wire ? this.theme.wire : this.theme.edge;
+        if (wire) gl.disable(gl.DEPTH_TEST);
+        if (body.edges) this.drawSegs(body.edges, vp, viewport, clip, { width: 1.25, color: [...ec, 1], useState: showBody, bias: 2e-5 });
+        // Where the section plane cuts the body, like an edge (line styles show no cap colour).
+        const cut = this.sectionOutline(showBody ? this.modelMesh : this.previewMesh);
+        if (cut) this.drawSegs(cut, vp, viewport, null, { width: 1.25, color: [...ec, 1], useState: false, bias: 2e-5 });
+        if (wire) gl.enable(gl.DEPTH_TEST);
       } else if (body.edges && this.edgeStateData.some((s) => s & 3)) {
         // Shaded mode still shows hovered/selected edges.
         this.drawSegs(body.edges, vp, viewport, clip, { width: 1.25, color: [0, 0, 0, 0], useState: true, bias: 2e-5, onlyStates: true });
@@ -879,6 +881,36 @@ export class Renderer {
     for (const b of ordered(this.points, 'always')) this.drawPointBatch(b, vp, viewport);
     gl.disable(gl.BLEND);
     gl.enable(gl.DEPTH_TEST);
+  }
+
+  private cut: { mesh: MeshData; key: string; gpu: GpuSegs | null } | null = null;
+
+  /** Segments where the section plane cuts a mesh, cached until the plane or mesh changes. */
+  private sectionOutline(m: MeshData | null): GpuSegs | null {
+    const sec = this.section;
+    const key = sec ? `${sec.normal.join()},${sec.offset}` : '';
+    if (this.cut && this.cut.mesh === m && this.cut.key === key) return this.cut.gpu;
+    if (this.cut?.gpu) { this.gl.deleteVertexArray(this.cut.gpu.vao); this.cut.gpu.bufs.forEach((b) => this.gl.deleteBuffer(b)); }
+    this.cut = null;
+    if (!m || !sec) return null;
+    const P = m.positions, I = m.indices, [nx, ny, nz] = sec.normal;
+    const d = new Float32Array(P.length / 3);
+    for (let i = 0; i < d.length; i++) d[i] = P[i * 3] * nx + P[i * 3 + 1] * ny + P[i * 3 + 2] * nz - sec.offset;
+    const out: number[] = [];
+    for (let t = 0; t + 2 < I.length; t += 3) {
+      let found = 0;
+      for (let e = 0; e < 3; e++) {
+        const u = I[t + e], v = I[t + ((e + 1) % 3)];
+        if (d[u] > 0 === d[v] > 0) continue;
+        const k = d[u] / (d[u] - d[v]);
+        for (let j = 0; j < 3; j++) out.push(P[u * 3 + j] + k * (P[v * 3 + j] - P[u * 3 + j]));
+        found++;
+      }
+      if (found === 1) out.length -= 3;
+    }
+    const gpu = out.length ? this.segVao(new Float32Array(out)) : null;
+    this.cut = { mesh: m, key, gpu };
+    return gpu;
   }
 
   /** `flat`: 0 shaded, 1 background fill (line styles), 2 only selected/hovered faces, translucent (wireframe). */
