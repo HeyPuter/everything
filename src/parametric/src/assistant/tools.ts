@@ -530,7 +530,9 @@ class Toolkit {
     const va = A.normal ?? A.dir, vb = Bt.normal ?? Bt.dir;
     if (va && vb) {
       const ang = (Math.atan2(len(cross(va, vb)), dot(va, vb)) * 180) / Math.PI;
-      lines.push(`Angle between their ${A.normal ? 'normals' : 'directions'}: ${num(ang, 3)}°.`);
+      if (!!A.normal === !!Bt.normal) lines.push(`Angle between their ${A.normal ? 'normals' : 'directions'}: ${num(ang, 3)}°.`);
+      // A face's normal against an edge's direction: what is meant is the edge's angle to the face.
+      else lines.push(`Angle between the edge and the face's plane: ${num(Math.abs(90 - ang), 3)}°.`);
     }
     return lines.join('\n');
   }

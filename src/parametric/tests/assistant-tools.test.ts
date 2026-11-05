@@ -357,4 +357,14 @@ describe('assistant tools', () => {
     expect(hole.diameter).toBe('=D');
     expect(hole.cbDiameter).toBeCloseTo(12.7 * 1.8, 6);
   });
+
+  it('measures the angle between an edge and a face as the edge\'s angle to the face', async () => {
+    const { h } = await plate();
+    const top = topFace(h);
+    const inTop = h.edges.find((x) => x.dir && Math.abs(x.dir[0]) > 0.99 && x.a[1] > 9)!.name;
+    const upright = h.edges.find((x) => x.dir && Math.abs(x.dir[1]) > 0.99)!.name;
+    expect((await h.call('measure', { a: top, b: inTop })).content).toMatch(/Angle between the edge and the face's plane: 0°/);
+    expect((await h.call('measure', { a: upright, b: top })).content).toMatch(/Angle between the edge and the face's plane: 90°/);
+    expect((await h.call('measure', { a: inTop, b: upright })).content).toMatch(/Angle between their directions: 90°/);
+  });
 });
