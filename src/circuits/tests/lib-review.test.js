@@ -2,6 +2,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { mm } from '../src/core/units.js';
 import { findWizard } from '../src/model/library/wizards.js';
+import { searchComponents } from '../src/model/library/builtin.js';
 import { overlappingPads } from '../src/model/library/footprints.js';
 import { newComponentDialog } from '../src/app/lib-dialogs.js';
 import { Project, newProjectData } from '../src/model/project.js';
@@ -84,5 +85,15 @@ describe('new component dialog', () => {
     const created = await result;
     expect(created.footprint?.name).toBe('SOIC-8');
     expect(app.project.library[created.id].footprint.pads).toHaveLength(8);
+  });
+});
+
+describe('component search', () => {
+  it('orders equally ranked results naturally by number', () => {
+    const headers = searchComponents('header 1x').map((d) => d.name);
+    expect(headers.slice(0, 3)).toEqual(['Header 1x2', 'Header 1x3', 'Header 1x4']);
+    expect(headers.indexOf('Header 1x10')).toBeGreaterThan(headers.indexOf('Header 1x9'));
+    const radial = searchComponents('electrolytic radial').map((d) => d.name);
+    expect(radial[radial.length - 1]).toBe('Electrolytic 10x16 radial');
   });
 });

@@ -478,6 +478,9 @@ export function cloneDef(def) {
   return typeof structuredClone === 'function' ? structuredClone(def) : JSON.parse(JSON.stringify(def));
 }
 
+// Natural order, so "Header 1x2" comes before "Header 1x10".
+const byName = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+
 const FIELD_WEIGHTS = [['name', 5], ['id', 4], ['footprint', 4], ['value', 3], ['keywords', 3], ['category', 2], ['description', 1]];
 let searchIndex = null;
 
@@ -533,6 +536,6 @@ export function searchComponents(query = '', category = null, defs = null) {
     const i = CATEGORIES.indexOf(d.category);
     return i < 0 ? CATEGORIES.length : i;
   };
-  out.sort((a, b) => b.score - a.score || order(a.def) - order(b.def) || a.def.name.localeCompare(b.def.name));
+  out.sort((a, b) => b.score - a.score || order(a.def) - order(b.def) || byName.compare(a.def.name, b.def.name));
   return out.map((r) => r.def);
 }
