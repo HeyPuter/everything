@@ -151,11 +151,13 @@ export function rectangleTool(ed: SketchEditor, centered = false): SkTool {
         { id: newId('r'), type: 'vertical', refs: [lines[3]] },
       );
       if (centered) {
-        // Construction diagonals meeting at the centre point.
+        // Construction diagonals meeting at the centre point. The diagonals
+        // of a horizontal/vertical rectangle bisect each other, so a midpoint
+        // relation on the second one would be redundant (over-defined).
         const c = ed.commitPoint(sk, first!, newId);
         const d1 = newId('l'), d2 = newId('l');
         sk.entities.push({ id: d1, t: 'line', a: ids[0], b: ids[2], construction: true }, { id: d2, t: 'line', a: ids[1], b: ids[3], construction: true });
-        sk.constraints.push({ id: newId('r'), type: 'midpoint', refs: [c, d1] }, { id: newId('r'), type: 'midpoint', refs: [c, d2] });
+        sk.constraints.push({ id: newId('r'), type: 'midpoint', refs: [c, d1] });
       }
     });
     first = null;

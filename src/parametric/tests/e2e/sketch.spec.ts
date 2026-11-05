@@ -191,6 +191,22 @@ test.describe('sketching', () => {
     expect(errors).toEqual([]);
   });
 
+  test('a center rectangle is under defined with four degrees of freedom, not over defined', async ({ page }) => {
+    const errors = await openApp(page);
+    await startSketch(page);
+    const result = await page.evaluate(() => {
+      const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+      const ed = a.sketchEditor!;
+      a.commands.run('tool:centerRectangle');
+      const click = (p: [number, number]) => ed.tool!.click!({ p, raw: p, kind: 'none' }, {} as import('../../src/app/viewport').VPEvent);
+      click([10, 5]);
+      click([40, 25]);
+      return { status: ed.solve!.status, dof: ed.solve!.dof, bad: [...ed.solve!.badConstraints] };
+    });
+    expect(result).toEqual({ status: 'under', dof: 4, bad: [] });
+    expect(errors).toEqual([]);
+  });
+
   test('point picking preserves the origin fallback and stable coincident-point order', async ({ page }) => {
     const errors = await openApp(page);
     await startSketch(page);
