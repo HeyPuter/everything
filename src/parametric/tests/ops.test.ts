@@ -823,6 +823,19 @@ describe('editing tools', () => {
     expect(at('m')[1]).toBeCloseTo(mid[1], 6);
   });
 
+  it('offsets the outline of a box-selected center rectangle, not its construction diagonals', () => {
+    const s = sk([...rect(0, 0, 40, 30, 'r'), { id: 'c', t: 'point', x: 20, y: 15 },
+      { id: 'd1', t: 'line', a: 'rp0', b: 'rp2', construction: true }, { id: 'd2', t: 'line', a: 'rp1', b: 'rp3', construction: true }]);
+    s.constraints.push({ id: 'm', type: 'midpoint', refs: ['c', 'd1'] });
+    const all = s.entities.filter((e) => e.t !== 'point').map((e) => e.id);
+    const made = offsetCurves(s, all, 2, idFactory(s));
+    expect(made).toHaveLength(4);
+    expect(made.every((id) => !(s.entities.find((e) => e.id === id) as SkLine).construction)).toBe(true);
+    // Construction geometry offset on its own stays construction.
+    const [diagonal] = offsetCurves(s, ['d1'], 2, idFactory(s));
+    expect(s.entities.find((e) => e.id === diagonal)).toMatchObject({ t: 'line', construction: true });
+  });
+
   it.each(['filleted rectangle', 'slot'])('offsets a %s without over-defining it, keeping the corners tangent', (shape) => {
     const s = sk(rect(0, 0, 40, 30, 'r'));
     s.constraints.push(...['rl0', 'rl2'].map((id) => ({ id: `h${id}`, type: 'horizontal' as const, refs: [id] })), ...['rl1', 'rl3'].map((id) => ({ id: `v${id}`, type: 'vertical' as const, refs: [id] })));

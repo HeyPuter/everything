@@ -646,13 +646,18 @@ export function offsetCurves(sk: SketchFeature, ids: Id[], distance: number, new
     sk.entities.push({ id, t: 'point', x: p[0], y: p[1] });
     return id;
   };
-  const curves = ids.map((id) => ix.get(id)).filter((e): e is SkCurve => !!e && e.t !== 'point');
+  const picked = ids.map((id) => ix.get(id)).filter((e): e is SkCurve => !!e && e.t !== 'point');
+  // A box around a shape also picks its construction lines (a center
+  // rectangle's diagonals, a fillet's virtual sharp): offset the outline, not
+  // those, which would join the chains and come out as solid lines.
+  const solid = picked.filter((c) => !c.construction);
+  const curves = solid.length ? solid : picked;
   for (const c of curves) {
     if (c.t !== 'circle') continue;
     const r = c.r + distance;
     if (r <= 0) continue;
     const id = newId('c');
-    sk.entities.push({ id, t: 'circle', c: pt(ix.pt(c.c)), r });
+    sk.entities.push({ id, t: 'circle', c: pt(ix.pt(c.c)), r, construction: c.construction || undefined });
     sk.constraints.push({ id: newId('r'), type: 'concentric', refs: [c.id, id] });
     created.push(id);
   }
@@ -745,14 +750,15 @@ export function offsetCurves(sk: SketchFeature, ids: Id[], distance: number, new
     for (const o of offs) {
       if (o.kind === 'line') {
         const id = newId('l');
-        sk.entities.push({ id, t: 'line', a: pointFor(o.a), b: pointFor(o.b) });
+        sk.entities.push({ id, t: 'line', a: pointFor(o.a), b: pointFor(o.b), construction: o.src.construction || undefined });
         parallel.push({ id: newId('r'), type: 'parallel', refs: [o.src.id, id] });
         made.push(id);
       } else {
         const id = newId('a');
         const a = pointFor(o.a), b = pointFor(o.b);
         // Keep the arc counter-clockwise from its start to its end.
-        sk.entities.push(o.fwd ? { id, t: 'arc', c: pt(o.c), a, b } : { id, t: 'arc', c: pt(o.c), a: b, b: a });
+        const construction = o.src.construction || undefined;
+        sk.entities.push(o.fwd ? { id, t: 'arc', c: pt(o.c), a, b, construction } : { id, t: 'arc', c: pt(o.c), a: b, b: a, construction });
         concentric.push({ id: newId('r'), type: 'concentric', refs: [o.src.id, id] });
         made.push(id);
       }
