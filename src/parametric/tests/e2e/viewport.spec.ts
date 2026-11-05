@@ -921,6 +921,35 @@ test.describe('viewport', () => {
     await expect.poll(() => page.evaluate(() => (window as unknown as { __dbl: number }).__dbl)).toBe(1);
   });
 
+  for (const tool of ['line', 'rectangle']) test(`a pinch started while sketching with the ${tool} tool draws nothing`, async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /New part/ }).click();
+    await page.getByRole('treeitem', { name: 'Front Plane' }).click();
+    await page.getByRole('tab', { name: 'Sketch' }).click();
+    await page.locator('[data-cmd="sketch"]').first().click();
+    await expect(page.locator('.view-label')).toHaveText('Front');
+    const count = await page.evaluate((tool) => {
+      const app = (window as unknown as Win).__parametric;
+      app.commands.run(`tool:${tool}`);
+      const c = document.querySelector('canvas.gl') as HTMLCanvasElement;
+      // Synthetic pointers cannot be captured; the gesture logic is what is under test.
+      c.setPointerCapture = () => {};
+      c.releasePointerCapture = () => {};
+      const r = c.getBoundingClientRect();
+      const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+      const P = (type: string, id: number, x: number, y: number) => c.dispatchEvent(new PointerEvent(type, { pointerId: id, pointerType: 'touch', clientX: x, clientY: y, bubbles: true, buttons: type === 'pointerup' ? 0 : 1 }));
+      // Two fingers land a moment apart and spread: a pinch zoom.
+      P('pointerdown', 21, cx - 40, cy - 40);
+      P('pointerdown', 22, cx + 40, cy + 40);
+      P('pointermove', 21, cx - 80, cy - 80);
+      P('pointermove', 22, cx + 80, cy + 80);
+      P('pointerup', 21, cx - 80, cy - 80);
+      P('pointerup', 22, cx + 80, cy + 80);
+      return app.sketchEditor!.sketch.entities.filter((e) => e.t !== 'point').length;
+    }, tool);
+    expect(count).toBe(0);
+  });
+
   test.describe('touch', () => {
     test.use({ viewport: { width: 412, height: 839 }, deviceScaleFactor: 2.625, isMobile: true, hasTouch: true });
     test('a double tap runs the double-click action once', async ({ page }) => {

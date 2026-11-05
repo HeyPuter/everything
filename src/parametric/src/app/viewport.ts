@@ -173,7 +173,20 @@ export class Viewport {
       this.canvas.setPointerCapture(e.pointerId);
       if (this.touches.size === 2) {
         // Second finger: switch to pan/zoom, cancel any one-finger action.
-        if (this.gesture.kind === 'tool') this.tool?.pointerUp?.({ ...this.ev(e) });
+        // The tool's press ends where the first finger is: at the second
+        // finger it read as a drag to there (a line or rectangle drawn
+        // between the fingers of a pinch).
+        const g = this.gesture;
+        if (g.kind === 'tool') {
+          const ev = this.ev(e);
+          const first = this.touches.get(g.id);
+          if (first) {
+            const r = this.canvas.getBoundingClientRect();
+            ev.x = first.x - r.left; ev.y = first.y - r.top;
+            ev.ray = this.camera.ray(ev.x, ev.y);
+          }
+          this.tool?.pointerUp?.(ev);
+        }
         clearTimeout(this.longPress);
         this.gesture = { kind: 'touch' };
         this.touchState = this.touchMetrics();
