@@ -55,6 +55,22 @@ export class Refs {
     return f;
   }
 
+  /**
+   * A display name to give a feature (self, when renaming one). A name another
+   * feature or a base plane answers to is refused: references by name would
+   * find that one instead.
+   */
+  newName(v: unknown, self?: Feature, what = 'name'): string {
+    const s = str(v), low = s.toLowerCase();
+    if (self && (low === self.name.toLowerCase() || low === self.id.toLowerCase())) return s;
+    if (BASE_ALIASES[low]) throw new ToolError(`${what}: "${s}" names the base plane ${BASE_ALIASES[low]}, so plane arguments would mean that plane. Choose another name.`);
+    const id = this.features.find((x) => x.id.toLowerCase() === low);
+    if (id) throw new ToolError(`${what}: "${s}" is the id of ${id.id} (${id.name}). Choose another name.`);
+    const named = this.features.find((x) => x !== self && x.name.toLowerCase() === low);
+    if (named) throw new ToolError(`${what}: "${s}" is already the name of ${named.id}. Choose another name.`);
+    return s;
+  }
+
   sketch(v: unknown, what = 'sketch'): SketchFeature {
     const f = this.feature(v, what);
     if (f.type !== 'sketch') throw new ToolError(`${what}: ${f.id} (${f.name}) is a ${f.type}, not a sketch`);

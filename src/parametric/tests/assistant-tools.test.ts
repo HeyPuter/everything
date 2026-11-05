@@ -440,4 +440,18 @@ describe('assistant tools', () => {
     expect((await h.call('find_geometry', { kind: 'edges', type: 'Line' })).content).toMatch(/^12 of 12 edges match/);
     expect((await h.call('find_geometry', { kind: 'faces', type: 'cylinder' })).content).toMatch(/^0 of 6 faces match\. Face types in the body: plane\./);
   });
+
+  it('refuses a feature name that another feature or a base plane answers to', async () => {
+    const { h } = await plate();
+    // Renamed "s1", the extrude could no longer be named: "s1" always found the sketch.
+    expect((await h.call('edit_feature', { feature: 'f2', name: 's1' }, false)).content).toMatch(/^Error: name: "s1" is the id of s1/);
+    expect((await h.call('add_plane', { reference: 'front', offset: 20, name: 'top' }, false)).content).toMatch(/^Error: name: "top" names the base plane top/);
+    expect((await h.call('create_sketch', { plane: 'front', name: 'plate', shapes: [{ type: 'point', at: [0, 0] }] }, false)).content).toMatch(/^Error: name: "plate" is already the name of f2/);
+    expect((await h.call('edit_sketch', { sketch: 's1', name: 'Plate' }, false)).content).toMatch(/already the name of f2/);
+    expect(h.store.doc.features.map((f) => f.name)).toEqual(['Sketch1', 'Plate']);
+    // A feature keeps its own name, in any case.
+    await h.call('edit_feature', { feature: 'f2', name: 'PLATE' });
+    await h.call('edit_feature', { feature: 'f2', name: 'Base plate' });
+    expect(h.store.feature('f2')!.name).toBe('Base plate');
+  });
 });

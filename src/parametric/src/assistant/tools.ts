@@ -641,7 +641,7 @@ class Toolkit {
     const frame = this.refs.planeFrame(plane);
     if (!frame) throw new ToolError('plane: that plane is not available in the current model (is it rolled back or failing?)');
     const id = this.store.nextId('s');
-    const name = a.name ? str(a.name) : defaultName(this.doc, 'sketch');
+    const name = a.name ? this.refs.newName(a.name) : defaultName(this.doc, 'sketch');
     const sk = newSketch(id, name, plane);
     sk.frame = frame;
     const ed = new SketchEdit(sk, frame, this.u, this.store);
@@ -669,7 +669,7 @@ class Toolkit {
       prevBad = solveSketch(copy.entities, copy.constraints, { value: (d) => this.store.dimensionValue(d, vars) }).badConstraints;
     } catch { /* treat as clean */ }
     const ed = new SketchEdit(sk, frame, this.u, this.store);
-    if (a.name != null) ed.sk.name = str(a.name) || sk.name;
+    if (a.name != null) ed.sk.name = str(a.name) ? this.refs.newName(a.name, sk) : sk.name;
     this.applySketchOps(ed, a);
     const solve = this.checkSolve(ed, prevBad);
     // A move the sketch's relations or dimensions undo would otherwise read as done.
@@ -722,7 +722,7 @@ class Toolkit {
     delete args.points;
     const id = this.store.nextId('f');
     const cut = args.cut === true;
-    const name = args.name ? str(args.name) : defaultName(this.doc, type, cut);
+    const name = args.name ? this.refs.newName(args.name) : defaultName(this.doc, type, cut);
     delete args.name;
     // A position sketch made here is not in the document yet: resolve the hole against it.
     const feature = pre.length ? this.withTemp(pre, () => this.ins.codec.build(type, args, null, id, name)) : this.ins.codec.build(type, args, null, id, name);
@@ -767,7 +767,7 @@ class Toolkit {
       if (f.type === 'hole' && (params.on != null || params.points != null)) throw new ToolError(`the centres of ${f.id} are the stand-alone points of its sketch ${f.sketch}: move or add them with edit_sketch (move_points, or shapes of type "point"). Nothing was changed.`);
       next = this.ins.codec.build(f.type, params, f, f.id, f.name);
     }
-    if (a.name != null && str(a.name)) next.name = str(a.name);
+    if (a.name != null && str(a.name)) next.name = this.refs.newName(a.name, f);
     if (typeof a.suppressed === 'boolean') next.suppressed = a.suppressed || undefined;
     if (typeof a.hidden === 'boolean') next.hidden = a.hidden;
     const build = await this.apply(`Edit ${f.name}`, (doc) => {
