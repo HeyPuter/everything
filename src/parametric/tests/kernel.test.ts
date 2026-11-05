@@ -3,7 +3,8 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import init from 'replicad-opencascadejs';
 import { ModelBuilder, checkStep, errorText, isFatal } from '../src/kernel/build';
-import { getOc, setOc } from '../src/kernel/occ';
+import * as R from 'replicad';
+import { type Sh, getOc, mirrored, rotated, setOc } from '../src/kernel/occ';
 import type { Feature, FilletFeature, ShellFeature, SkDimension, SketchFeature } from '../src/model/types';
 import { flangeExample } from '../src/app/examples';
 import { solveSketch } from '../src/sketch/solver';
@@ -600,6 +601,35 @@ describe('feature regeneration', () => {
     expect(step).toContain('ISO-10303-21');
     const stl = b.exportStl(1);
     expect(new DataView(stl.buffer).getUint32(80, true)).toBe(12);
+  });
+
+  it('frees the points and directions it hands to OpenCascade', async () => {
+    const b = new ModelBuilder();
+    const base: Feature[] = [sketch('S1', rect(-10, -10, 10, 10, 'r')), extrude('E1', 'S1', 10)];
+    const r0 = await b.build(req(base));
+    const f = r0.faces.find((x) => x.name === 'E1:side:rl1')!;
+    const draft: Feature = {
+      id: 'D1', name: 'D1', type: 'draft', neutral: { kind: 'base', plane: 'front' }, angle: 5, flip: false,
+      faces: [{ name: f.name, sig: { type: f.type, c: f.center, n: f.normal, area: f.area } }],
+    };
+    const box = R.makeBox([0, 0, 0], [1, 1, 1]) as unknown as Sh;
+    // The bindings never free value objects on their own: count the ones left.
+    const oc = getOc();
+    const made: { isDeleted(): boolean }[] = [];
+    const types = { gp_Pnt: oc.gp_Pnt, gp_Dir: oc.gp_Dir };
+    for (const [k, T] of Object.entries(types)) {
+      oc[k] = new Proxy(T, { construct: (t, args) => { const o = new t(...args); made.push(o); return o; } });
+    }
+    try {
+      expect((await b.build(req([...base, draft]))).status[2].ok).toBe(true);
+      b.massProperties();
+      rotated(box, [0, 0, 0], [0, 0, 1], 1);
+      mirrored(box, [0, 0, 0], [1, 0, 0]);
+    } finally {
+      Object.assign(oc, types);
+    }
+    expect(made.length).toBeGreaterThan(0);
+    expect(made.filter((o) => !o.isDeleted())).toHaveLength(0);
   });
 
   it('measures the minimum distance between faces, edges and points', async () => {

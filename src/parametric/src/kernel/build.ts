@@ -29,7 +29,7 @@ import type {
 } from './protocol';
 import {
   type EdgeDesc, type Sh, type SurfDesc, ShapeIndex, bbox, compound, cut, describeEdge, describeFace, fuse, getOc, gdir,
-  hashOf, isEmpty, meshEdgesOf, meshShape, mirrored, planarFaceFrame, pnt, rotated, sameSurface, subShapes, translated,
+  hashOf, isEmpty, meshEdgesOf, meshShape, mirrored, planarFaceFrame, plane, pnt, rotated, sameSurface, subShapes, translated,
   vertexPoint, volumeOf, wrap, xyz,
 } from './occ';
 
@@ -608,7 +608,7 @@ export class ModelBuilder {
     const oc = getOc();
     const origin = add(fr.o, scale(dir, start));
     const builder = new oc.BRepOffsetAPI_DraftAngle(tool.wrapped);
-    const pln = new oc.gp_Pln(pnt(origin), gdir(dir));
+    const pln = plane(origin, dir);
     const gd = gdir(dir);
     try {
       for (const face of subShapes(tool, 'face')) {
@@ -1116,7 +1116,7 @@ export class ModelBuilder {
     const dir = scale(fr.n, f.flip ? -1 : 1);
     const selected = f.faces.map((r) => st.faces[this.resolveFace(r, st)]);
     const builder = new oc.BRepOffsetAPI_DraftAngle(st.body.wrapped);
-    const pln = new oc.gp_Pln(pnt(fr.o), gdir(dir));
+    const pln = plane(fr.o, dir);
     const gd = gdir(dir);
     let body: Sh;
     try {
@@ -1306,9 +1306,10 @@ export class ModelBuilder {
       const center = xyz(c);
       c.delete();
       const moment = (d: Vec3) => {
-        const ax = new oc.gp_Ax1(pnt(center), gdir(d));
+        const gp = pnt(center), gd = gdir(d);
+        const ax = new oc.gp_Ax1(gp, gd);
         const v = props.MomentOfInertia(ax);
-        ax.delete();
+        ax.delete(); gp.delete(); gd.delete();
         return v;
       };
       const ixx = moment([1, 0, 0]), iyy = moment([0, 1, 0]), izz = moment([0, 0, 1]);

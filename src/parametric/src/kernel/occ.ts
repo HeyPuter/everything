@@ -302,18 +302,29 @@ export function translated(shape: Sh, v: Vec3): Sh {
   try { return transformShape(shape, tr); } finally { gv.delete(); tr.delete(); }
 }
 
+// Value types (gp_Pnt, gp_Dir...) are not freed by the bindings: every
+// temporary passed to a constructor is deleted explicitly.
+
 export function rotated(shape: Sh, p: Vec3, d: Vec3, angleRad: number): Sh {
   const tr = new oc.gp_Trsf();
-  const ax = new oc.gp_Ax1(pnt(p), gdir(d));
+  const gp = pnt(p), gd = gdir(d);
+  const ax = new oc.gp_Ax1(gp, gd);
   tr.SetRotation(ax, angleRad);
-  try { return transformShape(shape, tr); } finally { ax.delete(); tr.delete(); }
+  try { return transformShape(shape, tr); } finally { ax.delete(); gp.delete(); gd.delete(); tr.delete(); }
 }
 
 export function mirrored(shape: Sh, p: Vec3, n: Vec3): Sh {
   const tr = new oc.gp_Trsf();
-  const ax = new oc.gp_Ax2(pnt(p), gdir(n));
+  const gp = pnt(p), gd = gdir(n);
+  const ax = new oc.gp_Ax2(gp, gd);
   tr.SetMirror(ax);
-  try { return transformShape(shape, tr); } finally { ax.delete(); tr.delete(); }
+  try { return transformShape(shape, tr); } finally { ax.delete(); gp.delete(); gd.delete(); tr.delete(); }
+}
+
+/** A plane through p with normal n (delete it after use). */
+export function plane(p: Vec3, n: Vec3): any {
+  const gp = pnt(p), gd = gdir(n);
+  try { return new oc.gp_Pln(gp, gd); } finally { gp.delete(); gd.delete(); }
 }
 
 // ---- Booleans ----
