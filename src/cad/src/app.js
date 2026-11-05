@@ -414,7 +414,15 @@ export class App {
       const ok = await storage.recovery.put({
         id: doc.id,
         name: doc.name,
-        file: doc.file ? { source: doc.file.source, path: doc.file.path, kind: doc.file.kind, handle: doc.file.handle } : null,
+        file: doc.file
+          ? {
+              source: doc.file.source,
+              path: doc.file.path,
+              kind: doc.file.kind,
+              name: doc.file.name,
+              handle: doc.file.handle,
+            }
+          : null,
         data: blob,
         view: doc.view,
         modified,
