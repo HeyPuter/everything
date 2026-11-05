@@ -89,7 +89,11 @@ export function openMenu(items: MenuItem[], x: number, y: number, opts: MenuOpti
       closeMenus();
       it.run?.();
     });
-    b.addEventListener('pointerenter', () => {
+    b.addEventListener('pointerenter', (e) => {
+      // A tap fires pointerenter before its click: opening the submenu then
+      // would put it under the finger (over its parent on a phone), and the
+      // click would run the submenu's first item. Touch opens on the click.
+      if (e.pointerType === 'touch') return;
       b.focus({ preventScroll: true });
       if (it.submenu) openSub();
       else while (stack.length > level + 1) stack.pop()!.close();

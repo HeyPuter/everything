@@ -149,3 +149,20 @@ test('opening the assistant or starting a new chat on a phone leaves the keyboar
   await expect(page.locator('.as-empty')).toBeVisible();
   await expect(box).not.toBeFocused();
 });
+
+test('tapping a submenu item in the phone menu opens it without running the submenu\'s first command', async ({ page }) => {
+  // On a 390 px phone the File submenu has no room beside the menu and opens over it.
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).tap();
+  await waitForFeature(page, 'Fillet1');
+  await page.getByRole('button', { name: 'Menu', exact: true }).tap();
+  // A real tap (no actionability retry): the submenu used to open under the
+  // finger on pointerenter, and the tap's click ran File > New.
+  const file = (await page.getByRole('menuitem', { name: 'File' }).boundingBox())!;
+  await page.touchscreen.tap(file.x + file.width / 2, file.y + file.height / 2);
+  // The tap's click arrives after the touch events: give it time to land.
+  await page.waitForTimeout(500);
+  await expect(page.getByRole('menu', { name: 'File' })).toBeVisible();
+  expect(await page.evaluate(() => (window as unknown as { __parametric: { store: { doc: { name: string } } } }).__parametric.store.doc.name)).toBe('Mounting Bracket');
+});
