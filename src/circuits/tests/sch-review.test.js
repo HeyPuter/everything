@@ -323,3 +323,35 @@ describe('nudging', () => {
     expect(ed.doc.store.undoLabel).toBe(label);
   });
 });
+
+describe('presses in tools without a drag gesture', () => {
+  it('still click when the pointer moves a few pixels during the press', async () => {
+    app = await boot();
+    const ed = withCamera(app.activeEditor);
+    ed.startTool('wire');
+    const press = (x, y, jx) => {
+      ed.canvas.dispatchEvent(pointer('pointerdown', x, y));
+      ed.canvas.dispatchEvent(pointer('pointermove', x + jx, y));
+      ed.canvas.dispatchEvent(pointer('pointerup', x + jx, y));
+    };
+    press(100, 100, 6);
+    expect(ed.tool.pts?.length).toBe(2);
+    press(300, 100, 6);
+    expect(ed.tool.pts?.length).toBeGreaterThanOrEqual(4);
+    // The point lands where the pointer was released (the preview's end).
+    const end = ed.worldAt(306, 100);
+    const n = ed.tool.pts.length;
+    expect(Math.abs(ed.tool.pts[n - 2] - end.x)).toBeLessThanOrEqual(ed.grid / 2);
+  });
+
+  it('keeps dragging for the select tool', async () => {
+    app = await boot();
+    const ed = withCamera(app.activeEditor);
+    const part = [...ed.doc.items()].find((o) => o.t === 'part');
+    const [sx, sy] = ed.renderer.worldToScreen(part.x, part.y);
+    ed.canvas.dispatchEvent(pointer('pointerdown', sx, sy));
+    ed.canvas.dispatchEvent(pointer('pointermove', sx + 50, sy));
+    ed.canvas.dispatchEvent(pointer('pointerup', sx + 50, sy));
+    expect(ed.doc.store.get(part.id).x).not.toBe(part.x);
+  });
+});

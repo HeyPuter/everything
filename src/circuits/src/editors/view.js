@@ -216,12 +216,18 @@ export class CanvasView extends Emitter {
       const ev = this._event(e);
       this.cursor = { x: ev.x, y: ev.y, sx: ev.sx, sy: ev.sy, inside: true, target: ev.target };
       if (press) {
-        if (!press.dragging && Math.hypot(e.clientX - press.x, e.clientY - press.y) >= DRAG_THRESHOLD) {
+        const moved = Math.hypot(e.clientX - press.x, e.clientY - press.y) >= DRAG_THRESHOLD;
+        if (moved) { clearLong(); press.moved = true; }
+        // Tools without a drag gesture (wires, placing) keep the press a
+        // click, at the release point the preview followed, so a hand that
+        // moves a few pixels does not lose it.
+        const draggable = typeof this.tool?.dragStart === 'function';
+        if (draggable && !press.dragging && moved) {
           press.dragging = true;
-          clearLong();
-          this.tool?.dragStart?.(press.ev, ev);
+          this.tool.dragStart(press.ev, ev);
         }
         if (press.dragging) this.tool?.drag?.(ev, press.ev);
+        else if (!draggable && typeof this.tool?.move === 'function') this.tool.move(ev);
       } else this.tool?.move?.(ev);
       this.emit('cursor', this.cursor);
       this.requestRender(true);
@@ -249,7 +255,7 @@ export class CanvasView extends Emitter {
       if (e.type === 'pointercancel') { if (p.dragging) this.tool?.cancelDrag?.(); return; }
       const ev = this._event(e);
       if (p.dragging) this.tool?.dragEnd?.(ev, p.ev);
-      else this.tool?.click?.(p.ev, e.detail);
+      else this.tool?.click?.(p.moved ? ev : p.ev, e.detail);
       this.tool?.up?.(ev);
       this.requestRender(true);
     };
