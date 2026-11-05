@@ -128,7 +128,7 @@ export async function equationsDialog(app: App) {
     },
   });
   if (v === 'ok' && !signal.aborted) {
-    const renamed = new Map<string, string>();
+    const renamed = new Map<string, string | number>();
     for (const r of rows) {
       const was = originalNames.get(r.id);
       if (was !== undefined && was !== r.name) renamed.set(was, r.name);
@@ -139,8 +139,7 @@ export async function equationsDialog(app: App) {
     for (const [id, was] of originalNames) {
       const value = before.get(was);
       if (rows.some((r) => r.id === id || r.name === was) || value === undefined) continue;
-      const text = String(value);
-      renamed.set(was, value < 0 ? `(${text})` : text);
+      renamed.set(was, value);
     }
     app.store.change('Edit equations', (d) => {
       d.variables = [];

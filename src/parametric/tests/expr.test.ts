@@ -62,6 +62,12 @@ describe('expression evaluator', () => {
     expect(renameReferences('2.5e3 * W', m)).toBe('2.5e3 * Width');
   });
 
+  it('inlines numeric references while preserving renamed quotes and unit marks', () => {
+    const replacements = new Map<string, string | number>([['W', -5], ['Tiny', 1e-8], ['Depth', 'Height']]);
+    expect(renameReferences(`"W"^2 + 'W' + W + "Tiny" + "Depth" + 1" + 2'`, replacements))
+      .toBe(`(-5)^2 + (-5) + (-5) + 1e-8 + "Height" + 1" + 2'`);
+  });
+
   it('takes names like toString or constructor as variables, not as built-ins', () => {
     const lookup = (n: string) => ({ toString: 4, constructor: 5 } as Record<string, number>)[n];
     expect(evaluate('toString * 2', { lookup })).toBe(8);

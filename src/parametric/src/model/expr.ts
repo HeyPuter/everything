@@ -211,9 +211,13 @@ export function referencedNames(src: string): string[] {
 /**
  * Rewrites the variable names an expression refers to (old name to new name),
  * leaving everything else as typed. Unit suffixes and function names are not
- * references and stay as they are.
+ * references and stay as they are. Numeric replacements inline a deleted
+ * variable's value, without name quotes and with negative values grouped.
  */
-export function renameReferences(src: string, renamed: Map<string, string>): string {
+export function renameReferences(src: string, renamed: Map<string, string | number>): string {
+  const replacement = (value: string | number, quote = '') => typeof value === 'number'
+    ? value < 0 ? `(${value})` : String(value)
+    : `${quote}${value}${quote}`;
   let out = '';
   let i = 0;
   let afterNumber = false;
@@ -226,7 +230,7 @@ export function renameReferences(src: string, renamed: Map<string, string>): str
       const end = src.indexOf(ch, i + 1);
       if (end > i) {
         const to = renamed.get(src.slice(i + 1, end));
-        out += to !== undefined ? `${ch}${to}${ch}` : src.slice(i, end + 1);
+        out += to !== undefined ? replacement(to, ch) : src.slice(i, end + 1);
         i = end + 1;
         continue;
       }
@@ -235,7 +239,7 @@ export function renameReferences(src: string, renamed: Map<string, string>): str
     if (name) {
       const call = /^\s*\(/.test(src.slice(i + name[0].length));
       const to = afterNumber || call ? undefined : renamed.get(name[0]);
-      out += to ?? name[0];
+      out += to !== undefined ? replacement(to) : name[0];
       i += name[0].length;
       afterNumber = false;
       continue;

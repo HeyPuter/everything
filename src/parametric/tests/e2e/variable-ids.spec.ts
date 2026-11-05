@@ -3,6 +3,34 @@ import { openApp } from './helpers';
 
 type Handle = { __parametric: import('../../src/app/app').App };
 
+for (const quote of ['"', "'"]) test(`deleting a variable substitutes its value in ${quote}quoted references`, async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await page.evaluate(async (quote) => {
+    const a = (window as unknown as Handle).__parametric;
+    a.store.change('Link quoted variable', (d) => {
+      d.variables = [{ id: 'width', name: 'Width', expr: '-5' }];
+      const f = d.features.find((f) => f.type === 'extrude')!;
+      if (f.type === 'extrude') f.depth = `=${quote}Width${quote}^2 + 1in`;
+    });
+    await a.whenBuilt();
+    a.commands.run('equations');
+  }, quote);
+  await expect(page.locator('.ti.error')).toHaveCount(0);
+  const dialog = page.getByRole('dialog', { name: 'Equations and Global Variables', exact: true });
+  await dialog.getByRole('button', { name: 'Delete Width', exact: true }).click();
+  await dialog.getByRole('button', { name: 'OK', exact: true }).click();
+  const depth = await page.evaluate(async () => {
+    const a = (window as unknown as Handle).__parametric;
+    await a.whenBuilt();
+    const f = a.store.doc.features.find((f) => f.type === 'extrude')!;
+    return f.type === 'extrude' ? a.store.evalParam(f.depth, 'length') : null;
+  });
+  expect(depth).toBe(50.4);
+  await expect(page.locator('.ti.error')).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
 for (const sign of [1, -1]) test(`deleting a variable preserves the exact linked value with sign ${sign}`, async ({ page }) => {
   const errors = await openApp(page);
   await page.getByRole('button', { name: /Mounting Bracket/ }).click();
