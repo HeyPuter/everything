@@ -13,7 +13,10 @@ import { drawSheet, sheetFrame } from '../src/render/sch-scene.js';
 import { SCH_PALETTES } from '../src/render/palette.js';
 import { Settings } from '../src/app/settings.js';
 import { drawSchObject } from '../src/render/sch-scene.js';
-import { schBounds } from '../src/model/sch.js';
+import { schBounds, graphicBox, textBox, fieldText, SCH_TEXT } from '../src/model/sch.js';
+import { placeSymbol, fieldPosition } from '../src/model/place.js';
+import { createExampleProject } from '../src/app/demo.js';
+import { bboxIntersects, bboxUnion, bboxEmpty } from '../src/core/geom.js';
 import { schObjectPrims } from '../src/io/schgraphics.js';
 import { textStrokes } from '../src/render/font.js';
 
@@ -625,5 +628,68 @@ describe('rotated free text', () => {
       );
       expect(exported).toEqual(canvas);
     }
+  });
+});
+
+describe('part field placement', () => {
+  const project = createExampleProject();
+  const lib = project.library;
+  const parts = [...project.sheets[0].items()].filter((o) => o.t === 'part');
+  const bodyOf = (o) =>
+    placeSymbol(lib[o.comp], o).graphics.reduce(
+      (b, g) => bboxUnion(b, graphicBox(g) || bboxEmpty()),
+      bboxEmpty(),
+    );
+  const fieldBox = (o, name) => {
+    const f = fieldPosition(o, name, lib[o.comp]);
+    // The ink of the glyphs (textBox adds room for descenders).
+    const pts = textStrokes(fieldText(o, name), f.x, f.y, SCH_TEXT, 0, f.align).flat();
+    const xs = pts.filter((_, i) => i % 2 === 0),
+      ys = pts.filter((_, i) => i % 2 === 1);
+    return {
+      minX: Math.min(...xs),
+      minY: Math.min(...ys),
+      maxX: Math.max(...xs),
+      maxY: Math.max(...ys),
+    };
+  };
+
+  it('keeps fields beside the body on quarter turns and mirrors the upright layout on a half turn', () => {
+    for (const base of parts.filter((o) => /^[RC]\d/.test(o.designator))) {
+      const at = (rot) => ({ ...base, rot, fields: undefined });
+      for (const rot of [90, 270]) {
+        const o = at(rot);
+        for (const name of ['designator', 'value']) {
+          expect(
+            bboxIntersects(fieldBox(o, name), bodyOf(o)),
+            `${o.designator} ${name} at ${rot}`,
+          ).toBe(false);
+        }
+      }
+      // A half turn is the point reflection of the upright layout (the ink
+      // stays on the same side of the body, at the same distance).
+      const up = at(0),
+        down = at(180);
+      for (const name of ['designator', 'value']) {
+        const a = fieldBox(up, name),
+          b = fieldBox(down, name);
+        expect(Math.abs(b.maxY - down.y + (a.minY - up.y))).toBeLessThan(mil(5));
+      }
+    }
+  });
+
+  it('leaves fields of unrotated parts, and right-hand fields, where they were', () => {
+    for (const o of parts) {
+      const r = o.rot || 0;
+      for (const name of ['designator', 'value']) {
+        const f = fieldPosition(o, name, lib[o.comp]);
+        if (r === 0 || (r !== 180 && f.x >= o.x)) expect(f.align).toBeUndefined();
+      }
+    }
+    const c3 = parts.find((o) => o.designator === 'C3');
+    expect(fieldPosition(c3, 'designator', lib[c3.comp]).align).toEqual({
+      h: 'right',
+      v: 'bottom',
+    });
   });
 });

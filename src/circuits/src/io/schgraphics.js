@@ -171,10 +171,10 @@ export function partPrims(part, def) {
     }
   }
   const des = fieldPosition(part, 'designator', def);
-  if (!des.hidden && part.designator) out.push({ t: 'text', x: des.x, y: des.y, text: part.designator, size: FIELD_SIZE, rot: 0, align: { h: 'left', v: 'bottom' }, role: 'designator' });
+  if (!des.hidden && part.designator) out.push({ t: 'text', x: des.x, y: des.y, text: part.designator, size: FIELD_SIZE, rot: 0, align: des.align || { h: 'left', v: 'bottom' }, role: 'designator' });
   const value = part.value ?? def.value;
   const val = fieldPosition(part, 'value', def);
-  if (!val.hidden && value) out.push({ t: 'text', x: val.x, y: val.y, text: value, size: FIELD_SIZE, rot: 0, align: { h: 'left', v: 'bottom' }, role: 'value' });
+  if (!val.hidden && value) out.push({ t: 'text', x: val.x, y: val.y, text: value, size: FIELD_SIZE, rot: 0, align: val.align || { h: 'left', v: 'bottom' }, role: 'value' });
   return out;
 }
 

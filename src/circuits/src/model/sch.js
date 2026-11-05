@@ -184,7 +184,7 @@ export function schBounds(o, lib) {
         const f = fieldPosition(o, name, def);
         if (f.hidden) continue;
         const txt = fieldText(o, name);
-        if (txt) b = bboxUnion(b, textBox(txt, f.x, f.y, SCH_TEXT));
+        if (txt) b = bboxUnion(b, textBox(txt, f.x, f.y, SCH_TEXT, 0, f.align));
       }
       return b;
     }

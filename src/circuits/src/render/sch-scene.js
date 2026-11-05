@@ -172,7 +172,7 @@ export function drawPart(b, o, lib, pal, override) {
     const f = fieldPosition(o, name, def);
     const txt = fieldText(o, name);
     if (f.hidden || !txt) continue;
-    b.text(txt, f.x, f.y, SCH_TEXT, override ?? pack(name === 'designator' ? pal.designator : pal.value));
+    b.text(txt, f.x, f.y, SCH_TEXT, override ?? pack(name === 'designator' ? pal.designator : pal.value), { align: f.align });
   }
   if (o.dnp) {
     const c = pack(pal.ercError, 0.8);

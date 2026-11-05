@@ -127,14 +127,28 @@ export function placeFootprint(def, comp, copperCount = 2) {
  */
 export function fieldPosition(part, name, def) {
   const f = part.fields?.[name];
-  if (f) return { x: part.x + f.dx, y: part.y + f.dy, hidden: !!f.hidden };
+  if (f) return { x: part.x + f.dx, y: part.y + f.dy, hidden: !!f.hidden, align: fieldAlign(part, f.dx) };
   const sym = def?.symbol;
   const local = name === 'designator' ? sym?.designatorPos : sym?.valuePos;
   if (!local) return { x: part.x, y: part.y, hidden: false };
   const t = makeTransform(0, 0, part.rot || 0, !!part.mirror);
   // Rotate the default anchor with the part but keep it near the body.
   const [dx, dy] = apply(t, local.x, local.y);
-  return { x: part.x + Math.round(dx), y: part.y + Math.round(dy), hidden: false };
+  return { x: part.x + Math.round(dx), y: part.y + Math.round(dy), hidden: false, align: fieldAlign(part, dx) };
+}
+
+/**
+ * Field text stays horizontal and reads from its anchor up and to the right,
+ * which suits a symbol's own orientation. Turned a quarter turn, an anchor on
+ * the left would run the text back across the body, so the text ends there;
+ * turned a half turn, the anchor is below the body, so the text hangs from
+ * it. Otherwise the default left/bottom alignment (undefined) applies.
+ */
+function fieldAlign(part, dx) {
+  const r = norm360(part.rot || 0);
+  if ((r === 90 || r === 270) && dx < 0) return { h: 'right', v: 'bottom' };
+  if (r === 180) return { h: 'left', v: 'top' };
+  return undefined;
 }
 
 /** Maps a symbol pin number to the footprint pad number. */
