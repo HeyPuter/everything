@@ -13,6 +13,12 @@ import { toast } from '../ui/overlay';
 import type { App } from './app';
 import { PropertyPanel, checkbox, section, selectField } from './pm';
 
+/** YYYY-MM-DD in the user's time zone (toISOString gives the UTC day, a day off in the evening or morning). */
+function localDate(ms: number): string {
+  const d = new Date(ms);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 export class DrawingWorkspace {
   readonly el: HTMLElement;
   private host: HTMLElement;
@@ -162,7 +168,7 @@ export class DrawingWorkspace {
       partName: doc.name,
       material: doc.material?.name ?? 'Not specified',
       units: u.length,
-      date: new Date(doc.modified || Date.now()).toISOString().slice(0, 10),
+      date: localDate(doc.modified || Date.now()),
       formatLength: (mm: number) => formatNumber(mm / u.scale, doc.decimals),
     };
   }

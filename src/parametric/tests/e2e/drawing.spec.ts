@@ -154,3 +154,22 @@ test('a view can be selected, moved and deleted from the keyboard', async ({ pag
   await page.keyboard.press('Delete');
   await expect.poll(front).toBeUndefined();
 });
+
+test.describe('in a time zone behind UTC', () => {
+  test.use({ timezoneId: 'Pacific/Pago_Pago' });
+  test('the title block shows the local date', async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+    await waitForFeature(page, 'Fillet1');
+    await page.getByRole('tab', { name: 'Drawing' }).click();
+    await expect(page.locator('.paper g[data-view]')).toHaveCount(4, { timeout: 30_000 });
+    // 05:00 UTC on 1 March is still 28 February in UTC-11.
+    await page.evaluate(() => {
+      type A = { store: { doc: { modified: number } }; drawing: { render(): void } };
+      const app = (window as unknown as { __parametric: A }).__parametric;
+      app.store.doc.modified = Date.UTC(2026, 2, 1, 5);
+      app.drawing.render();
+    });
+    await expect(page.locator('.paper text', { hasText: /^2026-/ })).toHaveText('2026-02-28');
+  });
+});
