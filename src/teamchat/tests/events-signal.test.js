@@ -16,7 +16,7 @@
  * their own reasons), care about the token's shape directly.
  */
 import {
-  describe, it, expect, beforeEach, afterEach,
+  describe, it, expect, afterEach,
 } from 'vitest';
 import {
   boot, as, USERS, workspaceWith, fakeAuthToken,
@@ -25,13 +25,15 @@ import { KEYS } from '../src/shared/blocks.js';
 import { EV_SHARDS, evShard, appUidFromToken } from '../src/shared/events.js';
 import { LIMITS } from '../src/shared/limits.js';
 
+// The caller's own background-push keys ride along with every events block (see worker/events.js pushBlock).
+
 const { alice, bob, carol } = USERS;
-const realFetch = globalThis.fetch;
+/** A share refused the way puter.kv.share rejects: `{ message, code }`. */
+const refusal = (code, message = code) => Object.assign(new Error(message), { code });
 
 let rt;
 
 afterEach(() => {
-  globalThis.fetch = realFetch;
   if (rt) expect(rt.kv._calls.list).toBe(0);
   rt = null;
 });
@@ -106,13 +108,9 @@ describe('reading the app uid out of a token', () => {
 
 describe('audience: who a write signals', () => {
   // These tests boot with an app-bound token (see the file docstring), so
-  // every /api/join a workspaceWith() call makes now also attempts a real
-  // handle mint for the joiner (see worker/events.js): stubbed to answer at
-  // once, harmlessly, so a member joining costs no real network call.
-  // Minting itself is exercised on its own terms in "handles" below.
-  beforeEach(() => {
-    globalThis.fetch = async () => new Response(JSON.stringify({ handle: 'kvh-audience-test' }), { status: 200 });
-  });
+  // every /api/join a workspaceWith() call makes also shares the region with
+  // the joiner, which the memory store answers at once. Minting itself is
+  // exercised on its own terms in "handles" below.
 
   it('a message in a public channel signals every shard', async () => {
     rt = await boot({ authToken: fakeAuthToken() });
@@ -266,10 +264,6 @@ describe('signal ordering: every request that writes c.*/w/u.* ends with a signa
   // before it: these assert on the ordered op log (dev/worker-runtime.js),
   // not only on which keys ended up touched, so a signal race — the write
   // this route made landing after the wakeup it caused — would show up.
-  beforeEach(() => {
-    globalThis.fetch = async () => new Response(JSON.stringify({ handle: 'kvh-order-test' }), { status: 200 });
-  });
-
   /** True when `key` is one of this workspace's signal shard keys. */
   const isShardKey = (key, wsId) => key.startsWith(`tc:ws:${wsId}:ev:s`);
   /**
@@ -359,12 +353,12 @@ describe('handles: minting, caching, backoff, and the bootstrap block', () => {
       mode: 'own', appUid: 'app-teamchat-test', key: KEYS.evShard(wsId, evShard(alice.uuid)), shards: EV_SHARDS, shard: evShard(alice.uuid),
     });
 
-    globalThis.fetch = async () => new Response(JSON.stringify({ handle: 'kvh-bob' }), { status: 200 });
+    rt.kv.share = async () => ({ handle: 'kvh-bob' });
     await as(bob).post('/api/join', { code });
     const memberBoot = await as(bob).get(`/api/ws/${wsId}`);
     expect(memberBoot.data.events).toEqual({ mode: 'handle', handle: 'kvh-bob', shards: EV_SHARDS, shard: evShard(bob.uuid) });
 
-    globalThis.fetch = async () => new Response(JSON.stringify({ code: 'events_kv_handle_not_delegated' }), { status: 403 });
+    rt.kv.share = async () => { throw refusal('events_kv_handle_not_delegated'); };
     await as(carol).post('/api/join', { code });
     const carolBoot = await as(carol).get(`/api/ws/${wsId}`);
     expect(carolBoot.data.events).toBeUndefined();
@@ -381,7 +375,7 @@ describe('handles: minting, caching, backoff, and the bootstrap block', () => {
     const created = await as(bob).post('/api/workspaces', { name: "Bob's" });
     expect(created.ok).toBe(true);
     const wsId = created.data.workspace.id;
-    globalThis.fetch = async () => new Response(JSON.stringify({ handle: 'kvh-bob-shared' }), { status: 200 });
+    rt.kv.share = async () => ({ handle: 'kvh-bob-shared' });
     const bobBoot = await as(bob).get(`/api/ws/${wsId}`);
     expect(bobBoot.data.events?.mode).not.toBe('own');
     expect(bobBoot.data.events).toEqual({ mode: 'handle', handle: 'kvh-bob-shared', shards: EV_SHARDS, shard: evShard(bob.uuid) });
@@ -391,7 +385,7 @@ describe('handles: minting, caching, backoff, and the bootstrap block', () => {
     rt = await boot({ authToken: fakeAuthToken('app-teamchat-test') });
     const { wsId, code } = await workspaceWith(alice, []);
     let calls = 0;
-    globalThis.fetch = async () => { calls++; return new Response(JSON.stringify({ handle: 'kvh-mismatch' }), { status: 200 }); };
+    rt.kv.share = async () => { calls++; return { handle: 'kvh-mismatch' }; };
     const bobMismatched = { ...bob, authToken: fakeAuthToken('app-someone-elses') };
     expect((await as(bobMismatched).post('/api/join', { code })).ok).toBe(true);
     expect(calls).toBe(0); // the /api/join call site minted nothing
@@ -415,7 +409,7 @@ describe('handles: minting, caching, backoff, and the bootstrap block', () => {
     rt = await boot({ authToken: fakeAuthToken('app-teamchat-test') });
     const { wsId, code } = await workspaceWith(alice, []);
     let calls = 0;
-    globalThis.fetch = async () => { calls++; return new Response(JSON.stringify({ handle: 'kvh-matched' }), { status: 200 }); };
+    rt.kv.share = async () => { calls++; return { handle: 'kvh-matched' }; };
     const bobMatched = { ...bob, authToken: fakeAuthToken('app-teamchat-test') };
     expect((await as(bobMatched).post('/api/join', { code })).ok).toBe(true);
     expect(calls).toBe(1);
@@ -429,7 +423,7 @@ describe('handles: minting, caching, backoff, and the bootstrap block', () => {
     // left to mint exactly as a caller carrying no token at all does.
     rt = await boot({ authToken: fakeAuthToken('app-teamchat-test') });
     const { wsId, code } = await workspaceWith(alice, []);
-    globalThis.fetch = async () => new Response(JSON.stringify({ handle: 'kvh-unreadable' }), { status: 200 });
+    rt.kv.share = async () => ({ handle: 'kvh-unreadable' });
     for (const caller of [{ ...bob, authToken: 'not-a-jwt' }, { ...carol, authToken: fakeAuthToken('user-not-an-app') }]) {
       expect((await as(caller).post('/api/join', { code })).ok).toBe(true);
       expect((await as(caller).get(`/api/ws/${wsId}`)).data.events).toMatchObject({ mode: 'handle', handle: 'kvh-unreadable' });
@@ -440,7 +434,7 @@ describe('handles: minting, caching, backoff, and the bootstrap block', () => {
     rt = await boot({ authToken: null });
     const { wsId, code } = await workspaceWith(alice, []);
     let calls = 0;
-    globalThis.fetch = async () => { calls++; return new Response(JSON.stringify({ handle: 'kvh-nope' }), { status: 200 }); };
+    rt.kv.share = async () => { calls++; return { handle: 'kvh-nope' }; };
     await as(bob).post('/api/join', { code });
     expect((await as(alice).get(`/api/ws/${wsId}`)).data.events).toBeUndefined();
     expect((await as(bob).get(`/api/ws/${wsId}`)).data.events).toBeUndefined();
@@ -466,7 +460,7 @@ describe('handles: minting, caching, backoff, and the bootstrap block', () => {
     rt = await boot({ authToken: fakeAuthToken() });
     const { wsId, code } = await workspaceWith(alice, []);
     let calls = 0;
-    globalThis.fetch = async () => { calls++; return new Response(JSON.stringify({ handle: 'kvh-join' }), { status: 200 }); };
+    rt.kv.share = async () => { calls++; return { handle: 'kvh-join' }; };
     expect((await as(bob).post('/api/join', { code })).ok).toBe(true);
     expect(calls).toBe(1); // minted eagerly for the joiner
     const first = await as(bob).get(`/api/ws/${wsId}`);
@@ -480,7 +474,7 @@ describe('handles: minting, caching, backoff, and the bootstrap block', () => {
   it('events_kv_handle_not_delegated backs the whole worker off, not just the member who hit it', async () => {
     rt = await boot({ authToken: fakeAuthToken('app-teamchat-test') });
     let calls = 0;
-    globalThis.fetch = async () => { calls++; return new Response(JSON.stringify({ code: 'events_kv_handle_not_delegated', message: 'no consent' }), { status: 403 }); };
+    rt.kv.share = async () => { calls++; throw refusal('events_kv_handle_not_delegated', 'no consent'); };
     // Bob's own join attempts the mint and hits the refusal; the verdict it
     // sets is worker-wide, so Carol's join right after never tries at all.
     const { wsId } = await workspaceWith(alice, [bob, carol]);
@@ -492,7 +486,7 @@ describe('handles: minting, caching, backoff, and the bootstrap block', () => {
     expect(server.data.events).toEqual({ appUid: 'app-teamchat-test', delegated: false, why: 'events_kv_handle_not_delegated' });
 
     // The owner's consent clears the cached refusal, so the next mint re-probes.
-    globalThis.fetch = async () => { calls++; return new Response(JSON.stringify({ handle: 'kvh-consented' }), { status: 200 }); };
+    rt.kv.share = async () => { calls++; return { handle: 'kvh-consented' }; };
     expect((await as(alice).put('/api/server', { events: true })).ok).toBe(true);
     const retried = await as(bob).get(`/api/ws/${wsId}`);
     expect(retried.data.events).toMatchObject({ handle: 'kvh-consented' });
@@ -503,7 +497,7 @@ describe('handles: minting, caching, backoff, and the bootstrap block', () => {
   it('events_kv_handle_owner_only backs the whole worker off too: it is this worker\'s own token, nothing a member can change', async () => {
     rt = await boot({ authToken: fakeAuthToken('app-teamchat-test') });
     let calls = 0;
-    globalThis.fetch = async () => { calls++; return new Response(JSON.stringify({ code: 'events_kv_handle_owner_only', message: 'not this worker\'s handle to hold' }), { status: 403 }); };
+    rt.kv.share = async () => { calls++; throw refusal('events_kv_handle_owner_only', 'not this worker\'s handle to hold'); };
     // Bob's own join hits the refusal; Carol's join right after never tries at all.
     const { wsId } = await workspaceWith(alice, [bob, carol]);
     expect(calls).toBe(1);
@@ -517,14 +511,14 @@ describe('handles: minting, caching, backoff, and the bootstrap block', () => {
     rt = await boot({ authToken: fakeAuthToken() });
     const { wsId, code } = await workspaceWith(alice, []);
     let calls = 0;
-    globalThis.fetch = async () => { calls++; return new Response(JSON.stringify({ code: 'events_kv_handle_requires_account' }), { status: 403 }); };
+    rt.kv.share = async () => { calls++; throw refusal('events_kv_handle_requires_account'); };
     await as(bob).post('/api/join', { code }); // bob's temp account cannot be granted a handle
     expect(calls).toBe(1);
     expect((await as(bob).get(`/api/ws/${wsId}`)).data.events).toBeUndefined();
     expect(calls).toBe(1); // bob's own backoff still stands
 
     // A different member is not the worker's business to refuse over it.
-    globalThis.fetch = async () => { calls++; return new Response(JSON.stringify({ handle: 'kvh-carol' }), { status: 200 }); };
+    rt.kv.share = async () => { calls++; return { handle: 'kvh-carol' }; };
     await as(carol).post('/api/join', { code });
     expect(calls).toBe(2);
     expect((await as(carol).get(`/api/ws/${wsId}`)).data.events).toMatchObject({ handle: 'kvh-carol' });
@@ -534,7 +528,7 @@ describe('handles: minting, caching, backoff, and the bootstrap block', () => {
   it('an owner account with no confirmed email backs the whole worker off', async () => {
     rt = await boot({ authToken: fakeAuthToken('app-teamchat-test') });
     let calls = 0;
-    globalThis.fetch = async () => { calls++; return new Response(JSON.stringify({ code: 'account_is_not_verified' }), { status: 403 }); };
+    rt.kv.share = async () => { calls++; throw refusal('account_is_not_verified'); };
     const { wsId } = await workspaceWith(alice, [bob, carol]);
     expect(calls).toBe(1);
     expect((await as(carol).get(`/api/ws/${wsId}`)).data.events).toBeUndefined();
@@ -546,7 +540,7 @@ describe('handles: minting, caching, backoff, and the bootstrap block', () => {
     rt = await boot({ authToken: fakeAuthToken() });
     const { wsId, code } = await workspaceWith(alice, []);
     let calls = 0;
-    globalThis.fetch = async () => { calls++; return new Response(JSON.stringify({ code: 'recipient_not_accepting_shares' }), { status: 400 }); };
+    rt.kv.share = async () => { calls++; throw refusal('recipient_not_accepting_shares'); };
     const before = Date.now();
     await as(bob).post('/api/join', { code });
     expect(calls).toBe(1);
@@ -554,7 +548,7 @@ describe('handles: minting, caching, backoff, and the bootstrap block', () => {
     expect(calls).toBe(1);
     const doc = await rt.kv.get(KEYS.member(wsId, bob.uuid));
     expect(doc.ev.until - before).toBeGreaterThanOrEqual(6 * 3600_000 - 1000);
-    globalThis.fetch = async () => { calls++; return new Response(JSON.stringify({ handle: 'kvh-carol' }), { status: 200 }); };
+    rt.kv.share = async () => { calls++; return { handle: 'kvh-carol' }; };
     await as(carol).post('/api/join', { code });
     expect(calls).toBe(2);
   });
@@ -563,14 +557,14 @@ describe('handles: minting, caching, backoff, and the bootstrap block', () => {
     rt = await boot({ authToken: fakeAuthToken() });
     const { wsId, code } = await workspaceWith(alice, []);
     let calls = 0;
-    globalThis.fetch = async () => { calls++; return new Response(JSON.stringify({ code: 'too_many_requests' }), { status: 429 }); };
+    rt.kv.share = async () => { calls++; throw refusal('too_many_requests'); };
     await as(bob).post('/api/join', { code }); // bob's own join mints and hits the 429
     expect(calls).toBe(1);
     expect((await as(bob).get(`/api/ws/${wsId}`)).data.events).toBeUndefined();
     expect(calls).toBe(1); // bob's own backoff still stands
 
     // Carol is a different member: no worker-wide backoff was set by a 429, so her join still tries.
-    globalThis.fetch = async () => { calls++; return new Response(JSON.stringify({ handle: 'kvh-carol' }), { status: 200 }); };
+    rt.kv.share = async () => { calls++; return { handle: 'kvh-carol' }; };
     await as(carol).post('/api/join', { code });
     expect(calls).toBe(2);
     const carolBoot = await as(carol).get(`/api/ws/${wsId}`);
@@ -583,7 +577,7 @@ describe('handles: minting, caching, backoff, and the bootstrap block', () => {
     // revoke are both mocked to resolve at once, so the gap between "before"
     // and the moment ensureHandle stamps `until` is a few milliseconds.
     rt = await boot({ authToken: fakeAuthToken('app-teamchat-test') });
-    globalThis.fetch = async () => new Response(JSON.stringify({ code: 'events_kv_handle_not_delegated' }), { status: 403 });
+    rt.kv.share = async () => { throw refusal('events_kv_handle_not_delegated'); };
     const before = Date.now();
     await workspaceWith(alice, [bob]);
     const consent = await rt.kv.get('tc:config');
@@ -591,7 +585,7 @@ describe('handles: minting, caching, backoff, and the bootstrap block', () => {
     expect(consent.ev.until).toBeLessThanOrEqual(before + 31 * 60_000);
 
     rt = await boot({ authToken: fakeAuthToken('app-teamchat-test') });
-    globalThis.fetch = async () => new Response(JSON.stringify({ code: 'events_disabled' }), { status: 403 });
+    rt.kv.share = async () => { throw refusal('events_disabled'); };
     const before2 = Date.now();
     await workspaceWith(alice, [bob]);
     const platform = await rt.kv.get('tc:config');
@@ -599,31 +593,27 @@ describe('handles: minting, caching, backoff, and the bootstrap block', () => {
   });
 
   describe('remintHandle: re-minting a dead handle (POST /api/ws/:ws/events/handle)', () => {
-    // Every fetch stub here answers by HTTP method: DELETE for revokeHandle,
-    // anything else (POST) for mintHandle, since a re-mint always tries the
-    // revoke first (see worker/events.js's remintHandle).
-    const okDelete = () => new Response('{}', { status: 200 });
-    const mintOf = (handle) => () => new Response(JSON.stringify({ handle }), { status: 200 });
+    // A re-mint always stops the old share first (see worker/events.js's
+    // remintHandle); the memory store's own unshare answers it unless a test
+    // records or refuses it.
+    const shareOf = (handle) => async () => ({ handle });
 
     it('revokes the dead handle, clears the member document, and mints a fresh one', async () => {
       rt = await boot({ authToken: fakeAuthToken('app-teamchat-test') });
       const { wsId, code } = await workspaceWith(alice, []);
-      globalThis.fetch = mintOf('kvh-old');
+      rt.kv.share = shareOf('kvh-old');
       await as(bob).post('/api/join', { code });
 
-      const calls = [];
-      globalThis.fetch = async (url, init) => {
-        calls.push({ url: String(url), method: init.method });
-        return init.method === 'DELETE' ? okDelete() : mintOf('kvh-new')();
-      };
+      const unshared = [];
+      rt.kv.unshare = async (handle) => { unshared.push(handle); return { handle, revokedAt: 1 }; };
+      rt.kv.share = shareOf('kvh-new');
       const res = await as(bob).post(`/api/ws/${wsId}/events/handle`);
       expect(res.data).toEqual({ events: { mode: 'handle', handle: 'kvh-new', shards: EV_SHARDS, shard: evShard(bob.uuid) } });
-      const del = calls.find((c) => c.method === 'DELETE');
-      expect(del?.url).toContain(encodeURIComponent('kvh-old'));
+      expect(unshared).toEqual(['kvh-old']);
 
       // The member document now carries the fresh handle, reused without a
-      // further mint (bob's own bootstrap never calls fetch again).
-      globalThis.fetch = async () => { throw new Error('should not mint again: the fresh handle is cached'); };
+      // further share (bob's own bootstrap never shares again).
+      rt.kv.share = async () => { throw new Error('should not mint again: the fresh handle is cached'); };
       const boot2 = await as(bob).get(`/api/ws/${wsId}`);
       expect(boot2.data.events).toMatchObject({ handle: 'kvh-new' });
     });
@@ -631,12 +621,11 @@ describe('handles: minting, caching, backoff, and the bootstrap block', () => {
     it('a dead handle whose revoke 404s is still replaced', async () => {
       rt = await boot({ authToken: fakeAuthToken('app-teamchat-test') });
       const { wsId, code } = await workspaceWith(alice, []);
-      globalThis.fetch = mintOf('kvh-gone');
+      rt.kv.share = shareOf('kvh-gone');
       await as(bob).post('/api/join', { code });
 
-      globalThis.fetch = async (url, init) => (init.method === 'DELETE'
-        ? new Response(JSON.stringify({ code: 'subject_does_not_exist' }), { status: 404 })
-        : mintOf('kvh-fresh')());
+      rt.kv.unshare = async () => { throw refusal('subject_does_not_exist'); };
+      rt.kv.share = shareOf('kvh-fresh');
       const res = await as(bob).post(`/api/ws/${wsId}/events/handle`);
       expect(res.data.events).toMatchObject({ handle: 'kvh-fresh' });
     });
@@ -644,16 +633,16 @@ describe('handles: minting, caching, backoff, and the bootstrap block', () => {
     it('serves only the caller: it takes no member id at all', async () => {
       rt = await boot({ authToken: fakeAuthToken('app-teamchat-test') });
       const { wsId, code } = await workspaceWith(alice, []);
-      globalThis.fetch = mintOf('kvh-bob');
+      rt.kv.share = shareOf('kvh-bob');
       await as(bob).post('/api/join', { code });
-      globalThis.fetch = mintOf('kvh-carol-1');
+      rt.kv.share = shareOf('kvh-carol-1');
       await as(carol).post('/api/join', { code });
 
-      globalThis.fetch = async (url, init) => (init.method === 'DELETE' ? okDelete() : mintOf('kvh-carol-2')());
+      rt.kv.share = shareOf('kvh-carol-2');
       const res = await as(carol).post(`/api/ws/${wsId}/events/handle`);
       expect(res.data.events).toMatchObject({ handle: 'kvh-carol-2' });
 
-      globalThis.fetch = async () => { throw new Error('bob\'s cached handle should not be touched'); };
+      rt.kv.share = async () => { throw new Error('bob\'s cached handle should not be touched'); };
       const bobBoot = await as(bob).get(`/api/ws/${wsId}`);
       expect(bobBoot.data.events).toMatchObject({ handle: 'kvh-bob' });
     });
@@ -662,7 +651,8 @@ describe('handles: minting, caching, backoff, and the bootstrap block', () => {
       rt = await boot({ authToken: fakeAuthToken('app-teamchat-test') });
       const { wsId } = await workspaceWith(alice, []);
       let calls = 0;
-      globalThis.fetch = async () => { calls++; return mintOf('kvh-x')(); };
+      rt.kv.share = async () => { calls++; return { handle: 'kvh-x' }; };
+      rt.kv.unshare = async () => { calls++; return {}; };
       const res = await as(carol).post(`/api/ws/${wsId}/events/handle`);
       expect(res.status).toBe(403);
       expect(calls).toBe(0);
@@ -672,7 +662,8 @@ describe('handles: minting, caching, backoff, and the bootstrap block', () => {
       rt = await boot({ authToken: fakeAuthToken('app-teamchat-test') });
       const { wsId } = await workspaceWith(alice, []);
       let calls = 0;
-      globalThis.fetch = async () => { calls++; return mintOf('kvh-x')(); };
+      rt.kv.share = async () => { calls++; return { handle: 'kvh-x' }; };
+      rt.kv.unshare = async () => { calls++; return {}; };
       const res = await as(alice).post(`/api/ws/${wsId}/events/handle`);
       expect(res.data.events).toMatchObject({ mode: 'own', appUid: 'app-teamchat-test' });
       expect(calls).toBe(0);
@@ -681,7 +672,7 @@ describe('handles: minting, caching, backoff, and the bootstrap block', () => {
     it('a standing worker-wide verdict means no block and no mint', async () => {
       rt = await boot({ authToken: fakeAuthToken('app-teamchat-test') });
       let calls = 0;
-      globalThis.fetch = async () => { calls++; return new Response(JSON.stringify({ code: 'events_kv_handle_not_delegated' }), { status: 403 }); };
+      rt.kv.share = async () => { calls++; throw refusal('events_kv_handle_not_delegated'); };
       // bob's own join attempts the mint and hits the refusal, which caches the worker-wide verdict this test is after.
       const { wsId } = await workspaceWith(alice, [bob]);
       expect(calls).toBe(1);
@@ -694,7 +685,7 @@ describe('handles: minting, caching, backoff, and the bootstrap block', () => {
       rt = await boot({ authToken: fakeAuthToken('app-teamchat-test') });
       const { wsId, code } = await workspaceWith(alice, []);
       let n = 0;
-      globalThis.fetch = async (url, init) => (init.method === 'DELETE' ? okDelete() : mintOf(`kvh-${++n}`)());
+      rt.kv.share = async () => ({ handle: `kvh-${++n}` });
       await as(bob).post('/api/join', { code }); // mints kvh-1 at join
 
       for (let i = 0; i < LIMITS.evRemintsPerMember; i++) {
@@ -713,11 +704,12 @@ describe('handles: minting, caching, backoff, and the bootstrap block', () => {
     it('a caller whose token names a different app gets nothing minted', async () => {
       rt = await boot({ authToken: fakeAuthToken('app-teamchat-test') });
       const { wsId, code } = await workspaceWith(alice, []);
-      globalThis.fetch = mintOf('kvh-bob');
+      rt.kv.share = shareOf('kvh-bob');
       await as(bob).post('/api/join', { code });
 
       let calls = 0;
-      globalThis.fetch = async () => { calls++; return mintOf('kvh-new')(); };
+      rt.kv.share = async () => { calls++; return { handle: 'kvh-new' }; };
+      rt.kv.unshare = async () => { calls++; return {}; };
       const bobMismatched = { ...bob, authToken: fakeAuthToken('app-someone-elses') };
       const res = await as(bobMismatched).post(`/api/ws/${wsId}/events/handle`);
       expect(res.data.events).toBeUndefined();
@@ -752,7 +744,7 @@ describe('signal gating: no signal for a write nobody could ever be watching', (
   it('a cached events_disabled verdict, inside its window, suppresses every signal — even the owner\'s own', async () => {
     rt = await boot({ authToken: fakeAuthToken('app-teamchat-test') });
     const { wsId, code, general } = await workspaceWith(alice, []);
-    globalThis.fetch = async () => new Response(JSON.stringify({ code: 'events_disabled', message: 'off in this region' }), { status: 403 });
+    rt.kv.share = async () => { throw refusal('events_disabled', 'off in this region'); };
     // Bob's own join attempts a mint and hits the refusal, which records the
     // worker-wide verdict this test is after (see ensureHandle).
     await as(bob).post('/api/join', { code });
@@ -764,7 +756,7 @@ describe('signal gating: no signal for a write nobody could ever be watching', (
   it('events_kv_handles_disabled does not suppress signals: it only ever blocks members, never the owner\'s own subscription', async () => {
     rt = await boot({ authToken: fakeAuthToken('app-teamchat-test') });
     const { wsId, code, general } = await workspaceWith(alice, []);
-    globalThis.fetch = async () => new Response(JSON.stringify({ code: 'events_kv_handles_disabled', message: 'no handles here' }), { status: 403 });
+    rt.kv.share = async () => { throw refusal('events_kv_handles_disabled', 'no handles here'); };
     await as(bob).post('/api/join', { code });
     await resetShards(wsId);
     expect((await as(alice).post(`/api/ws/${wsId}/conv/${general.id}/messages`, { text: 'hi' })).ok).toBe(true);
@@ -774,7 +766,7 @@ describe('signal gating: no signal for a write nobody could ever be watching', (
   it('events_kv_handle_not_delegated does not suppress signals either, for the same reason', async () => {
     rt = await boot({ authToken: fakeAuthToken('app-teamchat-test') });
     const { wsId, code, general } = await workspaceWith(alice, []);
-    globalThis.fetch = async () => new Response(JSON.stringify({ code: 'events_kv_handle_not_delegated', message: 'no consent' }), { status: 403 });
+    rt.kv.share = async () => { throw refusal('events_kv_handle_not_delegated', 'no consent'); };
     await as(bob).post('/api/join', { code });
     await resetShards(wsId);
     expect((await as(alice).post(`/api/ws/${wsId}/conv/${general.id}/messages`, { text: 'hi' })).ok).toBe(true);

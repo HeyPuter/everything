@@ -595,8 +595,8 @@ describe('boxPath', () => {
     expect(boxPath('/alice/.mail', 'trash')).toBe('/alice/.mail/trash');
   });
 
-  it('covers exactly the four folders the app knows about', () => {
-    expect(Object.keys(BOX_DIRS)).toEqual(['inbox', 'sent', 'archive', 'trash']);
+  it('covers the folders the app knows about', () => {
+    expect(Object.keys(BOX_DIRS)).toEqual(['inbox', 'sent', 'archive', 'snoozed', 'trash']);
   });
 });
 

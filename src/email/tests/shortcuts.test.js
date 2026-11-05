@@ -166,8 +166,8 @@ describe('shortcuts that work anywhere in the app', () => {
     mount();
     await settle();
     press('g');
-    // `z` is nothing; it must end the chord rather than leave it armed.
-    press('z');
+    // An unknown key must end the chord rather than leave it armed.
+    press('q');
     press('j');
     expect(document.activeElement).toBe(rows()[0]);
     expect(currentFolder()).toContain('Inbox');

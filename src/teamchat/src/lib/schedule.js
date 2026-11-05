@@ -1,8 +1,6 @@
 /**
  * Times for "send later" and "remind me": presets in the user's local zone,
- * and the wording that never promises a second. Delivery happens at the
- * first sync poll after the time by anyone with the workspace open, so the
- * app says "around 9:00" and explains what that depends on.
+ * and approximate delivery wording: background wake-ups and polls may arrive late.
  */
 
 const HOUR = 3600_000;
@@ -74,4 +72,4 @@ export function toLocalInput(ts) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-export const DELIVERY_NOTE = 'Delivered by the first sync after that time from anyone with the workspace open, usually within seconds. If nobody has Teamchat open, it waits.';
+export const DELIVERY_NOTE = 'Background delivery usually starts within a minute. Without background access, it waits for someone to open the workspace.';

@@ -97,6 +97,32 @@ describe('createReminderScheduler', () => {
     sched.stop();
   });
 
+  it('suppresses only reminders covered by Puter, and falls back if the lookup fails', async () => {
+    const stored = await store.saveEvent({ title: 'Stored', start: base + MIN, end: base + 5 * MIN, reminders: [0] });
+    await store.saveEvent({ title: 'Local', start: base + MIN, end: base + 5 * MIN, reminders: [0] });
+    const isStored = vi.fn(async (key) => {
+      if (key.startsWith(stored.id + '#')) return true;
+      throw new Error('offline');
+    });
+    const sched = createReminderScheduler({ store, isStored });
+    sched.start();
+    await vi.advanceTimersByTimeAsync(MIN + 1000);
+    expect(notes.map((n) => n.title)).toEqual(['Local']);
+    sched.stop();
+  });
+
+  it('does not display a pending fallback after the scheduler is stopped', async () => {
+    await store.saveEvent({ title: 'Stopped', start: base + MIN, end: base + 5 * MIN, reminders: [0] });
+    let release;
+    const sched = createReminderScheduler({ store, isStored: () => new Promise((resolve) => { release = resolve; }) });
+    sched.start();
+    vi.advanceTimersByTime(MIN + 1000);
+    sched.stop();
+    release(false);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(notes).toHaveLength(0);
+  });
+
   it('does not replay a reminder whose fire time is already past', async () => {
     // Event started 5 minutes ago; its reminders are all in the past.
     await store.saveEvent({ title: 'Past', start: base - 5 * MIN, end: base + 55 * MIN, reminders: [10, 0] });

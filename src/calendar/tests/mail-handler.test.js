@@ -573,3 +573,161 @@ describe('authentication cannot be forged by appending headers', () => {
     expect(rec.sender).toBe('bulk@sender.example');
   });
 });
+
+describe('mail-handler: notifications', () => {
+  const DKIM = [
+    { key: 'received', value: 'from mx.puter.com' },
+    { key: 'authentication-results', value: 'mx.puter.com; dkim=pass header.d=example.com; spf=pass' },
+  ];
+
+  function notifyingUser({ kv = makeKv(), msg, notify = vi.fn(async () => 'n-1') } = {}) {
+    const user = makeUser({ kv, msg });
+    user.notifications = { notify };
+    return { user, kv, notify };
+  }
+
+  function deliver(user, ctx = { v: 1, self: 'host@example.com', user: 'host' }) {
+    return loadHandler()({ event: addEvent(makeId()), ctx, user, fetch: undefined, ack() {} });
+  }
+
+  function invite({ uid = 'sync-1@google.com', method = 'REQUEST', sequence = 0, stamp = '20260810T010000Z', from = 'ana@example.com', name = 'Ana', headers = DKIM, extra = [] } = {}) {
+    const ical = crlf([
+      'BEGIN:VCALENDAR', 'VERSION:2.0', `METHOD:${method}`, 'BEGIN:VEVENT',
+      `UID:${uid}`, `SEQUENCE:${sequence}`, `DTSTAMP:${stamp}`, 'DTSTART:20260901T170000Z',
+      'ORGANIZER:mailto:ana@example.com', 'ATTENDEE;PARTSTAT=NEEDS-ACTION:mailto:host@example.com',
+      ...extra, 'SUMMARY:Team sync', 'END:VEVENT', 'END:VCALENDAR',
+    ]);
+    return makeMsg({ from: { address: from, name }, headers, attachments: [icalAttachment(ical)] });
+  }
+
+  it('a new invitation from an authenticated sender notifies once, grouped by UID', async () => {
+    const { user, kv, notify } = notifyingUser({ msg: invite() });
+    await deliver(user);
+    expect(invRecords(kv)).toHaveLength(1);
+    expect(notify).toHaveBeenCalledTimes(1);
+    const [n] = notify.mock.calls[0];
+    expect(n).toMatchObject({
+      title: 'Ana invited you to Team sync',
+      text: 'ana@example.com',
+      data: { uid: 'sync-1@google.com' },
+      target: '/?uid=sync-1%40google.com',
+      channel: 'calendar',
+    });
+    expect(n.group).toMatch(/^inv:[0-9a-f]{16}$/);
+  });
+
+  it('bounds text, title, target and data for long invitation fields', async () => {
+    const { user, notify } = notifyingUser({ msg: invite({ uid: '界'.repeat(255), from: 'a'.repeat(250) + '@example.com', name: '😀'.repeat(200) }) });
+    await deliver(user);
+    const [n] = notify.mock.calls[0];
+    expect(Array.from(n.title).length).toBeLessThanOrEqual(120);
+    expect(Array.from(n.text).length).toBeLessThanOrEqual(240);
+    expect(n.target.length).toBeLessThanOrEqual(512);
+    expect(new TextEncoder().encode(JSON.stringify(n.data)).length).toBeLessThanOrEqual(1024);
+    expect(n.group).toMatch(/^[A-Za-z0-9._:@-]{1,128}$/);
+  });
+
+  it('a higher SEQUENCE for the same UID is an update, under the same group', async () => {
+    const kv = makeKv();
+    const first = notifyingUser({ kv, msg: invite() });
+    await deliver(first.user);
+    const second = notifyingUser({ kv, msg: invite({ sequence: 1, stamp: '20260811T000000Z' }) });
+    await deliver(second.user);
+    const [n] = second.notify.mock.calls[0];
+    expect(n.title).toBe('Ana updated Team sync');
+    expect(n.group).toBe(first.notify.mock.calls[0][0].group);
+  });
+
+  it('a copy of an invitation already seen, or an older one, stays silent', async () => {
+    const kv = makeKv();
+    await deliver(notifyingUser({ kv, msg: invite({ sequence: 2 }) }).user);
+    const copy = notifyingUser({ kv, msg: invite({ sequence: 2 }) });
+    await deliver(copy.user);
+    const older = notifyingUser({ kv, msg: invite({ sequence: 1, stamp: '20260812T000000Z' }) });
+    await deliver(older.user);
+    expect(copy.notify).not.toHaveBeenCalled();
+    expect(older.notify).not.toHaveBeenCalled();
+    expect(invRecords(kv)).toHaveLength(3); // still recorded for the app to decide on
+  });
+
+  it('a Puter-internal sender counts as authenticated', async () => {
+    const { user, notify } = notifyingUser({ msg: invite({ from: 'ana@puter.email', headers: [] }) });
+    await deliver(user);
+    expect(notify).toHaveBeenCalledTimes(1);
+  });
+
+  it('an unauthenticated invitation is recorded but never notified', async () => {
+    const { user, kv, notify } = notifyingUser({ msg: invite({ headers: [] }) });
+    await deliver(user);
+    expect(invRecords(kv)).toHaveLength(1);
+    expect(notify).not.toHaveBeenCalled();
+  });
+
+  it('the in-page scan records and tracks the sequence, but notifies nothing', async () => {
+    const kv = makeKv();
+    const page = notifyingUser({ kv, msg: invite() });
+    await deliver(page.user, { v: 1, self: 'host@example.com', user: 'host', inPage: true });
+    expect(page.notify).not.toHaveBeenCalled();
+    const worker = notifyingUser({ kv, msg: invite({ sequence: 1 }) });
+    await deliver(worker.user);
+    expect(worker.notify.mock.calls[0][0].title).toBe('Ana updated Team sync');
+  });
+
+  it('a cancellation notifies', async () => {
+    const { user, notify } = notifyingUser({ msg: invite({ method: 'CANCEL', sequence: 1 }) });
+    await deliver(user);
+    expect(notify.mock.calls[0][0].title).toBe('Ana cancelled Team sync');
+  });
+
+  it("a reply to the user's own event names the guest and their answer", async () => {
+    const msg = invite({
+      method: 'REPLY',
+      uid: 'evt-42@calendar.puter.com',
+      from: 'bob@example.com',
+      name: 'Bob',
+      headers: [
+        { key: 'received', value: 'from mx.puter.com' },
+        { key: 'authentication-results', value: 'mx.puter.com; dkim=pass header.d=example.com' },
+      ],
+      extra: ['ATTENDEE;PARTSTAT=ACCEPTED;CN=Bob:mailto:bob@example.com'],
+    });
+    const { user, notify } = notifyingUser({ msg });
+    await deliver(user);
+    const [n] = notify.mock.calls[0];
+    expect(n.title).toBe('Bob accepted Team sync');
+    expect(n.group).toMatch(/^reply:/);
+    expect(n.data).toEqual({ uid: 'evt-42@calendar.puter.com' });
+  });
+
+  it("a reply about someone else's event stays silent", async () => {
+    const msg = invite({
+      method: 'REPLY',
+      from: 'bob@example.com',
+      name: 'Bob',
+      extra: ['ATTENDEE;PARTSTAT=ACCEPTED:mailto:bob@example.com'],
+    });
+    const { user, notify } = notifyingUser({ msg });
+    await deliver(user);
+    expect(notify).not.toHaveBeenCalled();
+  });
+
+  it("the user's own mail and blocked senders stay silent", async () => {
+    const own = notifyingUser({ msg: invite({ from: 'host@puter.email', headers: [] }) });
+    await deliver(own.user);
+    expect(own.notify).not.toHaveBeenCalled();
+
+    const kv = makeKv({ 'cal:mail:senders': { blocked: ['ana@example.com'], allowed: [] } });
+    const blocked = notifyingUser({ kv, msg: invite() });
+    await deliver(blocked.user);
+    expect(blocked.notify).not.toHaveBeenCalled();
+    expect(invRecords(kv)).toHaveLength(1);
+  });
+
+  it('a rejected notify (429) leaves the record, marks the message seen, and does not retry', async () => {
+    const err = Object.assign(new Error('Too many requests'), { code: 'too_many_requests', status: 429 });
+    const { user, kv } = notifyingUser({ msg: invite(), notify: vi.fn(async () => { throw err; }) });
+    await expect(deliver(user)).resolves.toBeUndefined();
+    expect(invRecords(kv)).toHaveLength(1);
+    expect([...kv.map.keys()].some((k) => k.startsWith('cal:mail:seen:'))).toBe(true);
+  });
+});

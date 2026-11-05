@@ -55,6 +55,18 @@ export function evRingShard(uuid) {
   return fnv1a32(String(uuid)) % EV_RING_SHARDS;
 }
 
+/** The published handler that wakes a workspace's due queue. */
+export const DUE_HANDLER = 'teamchat-due-v1';
+
+/**
+ * The Puter `group` for a banner tag: a newer notification in the same group
+ * replaces the one showing. A digest keeps long workspace and conversation tags within the group limit.
+ */
+export function pushGroup(tag) {
+  const s = String(tag);
+  return `tc.${fnv1a32(s).toString(36)}${fnv1a32(`${s}|`).toString(36)}`;
+}
+
 /**
  * The absolute key of shard `n`: exactly five `:`-segments (`tc`, `ws`, the
  * workspace id, `ev`, `s{n}`). A Puter Events subscription anchors on an
@@ -117,13 +129,10 @@ export function appUidFromToken(token) {
 }
 
 /**
- * The permission a member's `manage:kv-share` grant to this worker's app is
- * named by, on this workspace's own region. Three call sites have to agree on
- * it exactly — the consent toast's and Workspace settings' own `perms.request`,
- * and the non-prompting `perms.check` that heals a stale worker-wide refusal
- * (see shell.js's healEventsVerdict) — so it is written once here rather than
- * three times: a check spelt even slightly differently from the request would
- * answer "not granted" for a grant that is really there, which is the exact
- * failure the healing exists to undo.
+ * The owner's one consent for Teamchat to share workspaces' signal regions
+ * with their members, watch only, as perms.request('kvShare', …) and
+ * perms.check take it. Covers every workspace the owner will ever have. The
+ * permission string it stands for, `manage:kv-share:<owner>:<app>:tc:ws`, is
+ * what owners were asked for before the resource existed.
  */
-export const evGrantPermission = (ownerUuid, appUid) => `manage:kv-share:${ownerUuid}:${appUid}:tc:ws`;
+export const EV_GRANT = Object.freeze({ prefix: 'tc:ws', access: 'watch' });

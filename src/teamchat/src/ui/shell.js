@@ -18,7 +18,7 @@ import { createDirectoryView } from './directory.js';
 import { renderThreadPanel } from './panel.js';
 import { installShortcuts, renderShortcutsPanel } from './shortcuts.js';
 import { openDetailsDialog } from './details.js';
-import { acceptConnectDialog } from './dialogs.js';
+import { acceptConnectDialog, offerPushFromClick } from './dialogs.js';
 import { openOnboarding, homeEmpty, shouldOnboard } from './onboarding.js';
 import { store, TRANSFER_FREEZE_MS, isPlatformPage } from '../lib/store.js';
 import { ApiError } from '../lib/api.js';
@@ -37,7 +37,7 @@ import { openMenu, closeMenu } from './menu.js';
 import { avatar, groupAvatar } from './avatar.js';
 import { channelIcon } from './icons.js';
 import { mountHuddleDock, joinHuddleFlow } from './huddle.js';
-import { evGrantPermission } from '../shared/events.js';
+import { EV_GRANT } from '../shared/events.js';
 
 const LAST_WS_KEY = 'teamchat:lastws';
 
@@ -1087,6 +1087,16 @@ export function mountShell(appRoot) {
           : res.channel ? `You are already in #${res.channel.name} on ${res.workspace.name}` : `You are already in ${res.workspace.name}`)
         : res.guest ? `Welcome to ${res.workspace.name}. You are a guest: you see the channel you were invited to.` : `Welcome to ${res.workspace.name}`, { duration: res.guest ? 6000 : undefined });
       navigate({ ws: res.workspace.id, conv: res.channel?.id }, { replace: true });
+      // A followed link is no click to put a prompt up from, so pushes are
+      // offered from a button instead of from the join itself.
+      const prefs = store.profile?.prefs || {};
+      if (!res.already && !prefs.push && !prefs.pushDeclined) {
+        toast('Get notified of mentions and direct messages while Teamchat is closed?', {
+          icon: 'bell', duration: Infinity, dismissible: true,
+          action: { label: 'Turn on', onClick: () => offerPushFromClick() },
+          onDismiss: () => store.updatePrefs({ pushDeclined: true }).catch(() => {}),
+        });
+      }
     } catch (e) {
       const msg = e.code === 'invite_not_found' ? 'That invite link is not valid or has expired. Ask for a new one.'
         : e.code === 'no_backend' || e.code === 'network' ? 'The workspace server behind this invite is not reachable right now.'
@@ -1208,135 +1218,60 @@ export function mountShell(appRoot) {
     }
   });
 
-  // Offered once per workspace opened, to the worker account's own owner
-  // alone (see the design doc's events signalling section) — the identity
-  // GET /api/server reports as `owner: true`, not whoever created this
-  // particular workspace: on a shared worker those can differ, and asking a
-  // workspace creator who is not the worker's own account would offer a
-  // grant over a namespace that is not theirs to share. A chance to let
-  // Teamchat wake members' tabs on a change instead of leaving every one of
-  // them to poll blind. Every condition below leaves the app exactly as it
-  // works today.
-  //
-  // Only a definite answer settles it: the latch used to be taken before the
-  // answer arrived, so an owner whose worker had simply not been probed yet
-  // (GET /api/server's own `why: 'unknown'`, the normal state of a workspace
-  // whose members have not bootstrapped since this shipped) or whose GET
-  // failed was never asked again for the rest of the session. `evConsentTried`
-  // remembers such an inconclusive look, so it is retried on a later
-  // `'workspace'` emit (which fires on workspace open and on structural
-  // changes only, never on every poll) rather than every one of them.
+  // The owner's one sharing grant (EV_GRANT), which members' live updates and
+  // pushes both depend on, asked for on its own the first time an owner opens
+  // a workspace with someone in it to share with: Puter's dialog straight
+  // away (on a website, after Puter's own Continue prompt), no toast first.
+  // Only the worker account's own owner is asked (GET /api/server's `owner`):
+  // on a shared worker a workspace's creator may be someone else, with no
+  // namespace there to share. A refusal is remembered (prefs.evConsent);
+  // Workspace settings keeps the switch. An inconclusive look (a GET that
+  // failed) is retried on a later 'workspace' emit, at most once a minute.
   let evConsentAskedFor = null; // the workspace whose answer was definite
-  let evConsentTried = null; // { ws, at } of the last inconclusive look
-  // Bounded per workspace rather than one latch like evConsentAskedFor above
-  // (which holds a single workspace, so switching away and back re-runs the
-  // whole function): the silent PUT below must cost at most one per
-  // workspace for the session, however many tabs or switches drive it.
-  const evHealed = new Set();
-  store.on('workspace', () => { maybeOfferEventsConsent().catch(() => {}); });
-  async function maybeOfferEventsConsent() {
+  let evConsentTried = null; // { ws, at } of the last look
+  store.on('workspace', () => { maybeAskEventsConsent().catch(() => {}); });
+
+  async function maybeAskEventsConsent() {
     const wsId = store.wsId;
-    if (!wsId || evConsentAskedFor === wsId) return;
-    if (typeof puter?.perms?.request !== 'function') return;
+    const ws = store.ws;
+    if (!wsId || evConsentAskedFor === wsId || !ws || ws.sample) return;
+    if (typeof puter?.perms?.check !== 'function') return;
+    // Nobody to share with yet: someone joining emits 'workspace' again.
+    if (!Object.entries(ws.members || {}).some(([u, m]) => u !== store.uuid && !m?.gone && !m?.sample)) return;
     if (evConsentTried?.ws === wsId && Date.now() - evConsentTried.at < EV_CONSENT_RECHECK_MS) return;
     evConsentTried = { ws: wsId, at: Date.now() };
     const url = parseRef(wsId)?.url;
     if (!url) return;
     let info;
+    let held;
     try {
       info = await api.server(url);
+      const events = info?.owner ? info.events : null;
+      // Not this worker's owner, already proven, or a refusal no consent lifts.
+      if (!events || events.delegated || store.appUid() !== events.appUid
+        || (events.why !== 'unknown' && events.why !== 'events_kv_handle_not_delegated')) {
+        evConsentAskedFor = wsId;
+        return;
+      }
+      held = await puter.perms.check('kvShare', EV_GRANT);
     } catch {
-      return; // inconclusive: retried once the throttle above lets it
+      return;
     }
-    if (store.wsId !== wsId) return; // switched away while asking
-    // 'unknown' (nothing probed yet) is not a refusal, and settles nothing:
-    // it is the one answer worth coming back for. Every other answer is
-    // definite and latches, the ones with nothing to offer included — a
-    // caller who is not this worker's own owner (who is told nothing of
-    // somebody else's namespace, so no `events` reaches them at all), a
-    // worker with no app identity, consent already given, or a refusal
-    // consent would not lift.
-    if (info?.owner && info.events?.why === 'unknown') return;
+    if (store.wsId !== wsId) return;
     evConsentAskedFor = wsId;
-    const events = info?.owner ? info.events : null;
-    if (!events || events.delegated || events.why !== 'events_kv_handle_not_delegated' || store.appUid() !== events.appUid) return;
-    if (await healEventsVerdict(wsId, url, events.appUid)) return;
-    // The pref says do not ask again; it never said to ignore a grant the
-    // owner went on to make somewhere else, and the healing above asks
-    // nobody anything, so it runs ahead of this rather than being shut out
-    // by it. The cost is one GET /api/server per workspace opened by an
-    // owner who declined, already throttled by evConsentTried above.
-    if (store.profile?.prefs?.evConsent === 'declined') return;
-    toast('Let Teamchat notify members’ tabs the moment something changes here, instead of leaving every one of them to poll for it', {
-      icon: 'sparkle', duration: Infinity, dismissible: true,
-      action: {
-        label: 'Turn on',
-        onClick: async () => {
-          try {
-            const granted = await puter.perms.request('permission', { permission: evGrantPermission(store.uuid, events.appUid) });
-            // Declined in Puter's own dialog: nothing to record, the
-            // evConsent: 'declined' pref belongs to the toast's own dismiss button.
-            if (!granted) return;
-            await api.updateServer(url, { events: true });
-            store.refreshWorkspace().catch(() => {});
-          } catch {
-            /* left as it was; nothing here is required for the app to work */
-          }
-        },
-      },
-      onDismiss: () => store.updatePrefs({ evConsent: 'declined' }).catch(() => {}),
-    });
-  }
-
-  /**
-   * The refusal the toast above offers to lift can be stale — half an hour
-   * of it now, six before this change: `events_kv_handle_not_delegated` is
-   * cached worker-wide (see worker/events.js), and nothing but this same PUT
-   * clears it early. A grant made anywhere but Teamchat's own two buttons —
-   * from inside the Puter GUI, from another device, from a session closed
-   * since — left the whole workspace refusing every member until the window
-   * ran out, with nothing able to notice; that cost three manual clears in
-   * one afternoon getting a single real workspace subscribed.
-   *
-   * `perms.check` answers whether the grant is really held, without
-   * prompting anyone, so an owner's own tab can tell a stale refusal from a
-   * real one and clear it with the same PUT the toast's Turn on button
-   * makes — nothing shown, nothing pressed. Returns true when the grant is
-   * held (healed just now, or already tried this session), so the toast has
-   * nothing left to offer; false when it is not held, or when nothing here
-   * could say (no `perms.check` on this SDK, a check that threw), in which
-   * case the toast is offered exactly as it was before this existed. The two
-   * can never both fire for one look.
-   *
-   * Tried at most once per workspace per session, whatever it finds: a grant
-   * that is held while mints keep failing for some other reason would
-   * otherwise cost a PUT on every `'workspace'` emit for the rest of the
-   * session. `'unknown'` never reaches here — the caller already returns on
-   * it, deliberately, since it means no verdict is cached at all: there is
-   * nothing to clear, and the next member's own mint re-probes regardless.
-   *
-   * Nothing is refreshed after the PUT: the owner's own tab subscribes in
-   * `own` mode, which never depended on this verdict — it only ever blocked
-   * members' mints, and each of those re-probes at its own next bootstrap.
-   */
-  async function healEventsVerdict(wsId, url, appUid) {
-    if (evHealed.has(wsId)) return true;
-    if (typeof puter?.perms?.check !== 'function') return false;
-    let held = false;
-    try {
-      held = !!(await puter.perms.check('permission', { permission: evGrantPermission(store.uuid, appUid) }));
-    } catch {
-      return false;
+    if (!held) {
+      if (store.profile?.prefs?.evConsent === 'declined') return;
+      if (!(await puter.perms.request('kvShare', EV_GRANT).catch(() => false))) {
+        store.updatePrefs({ evConsent: 'declined' }).catch(() => {});
+        return;
+      }
+    } else if (info.events.why === 'unknown') {
+      return; // granted, and no refusal cached on the worker to lift
     }
-    if (!held) return false;
-    evHealed.add(wsId);
+    // The worker caches a refusal for half an hour; this lifts it now.
     await api.updateServer(url, { events: true }).catch(() => {});
-    // An owner who once waved the toast away carries prefs.evConsent:
-    // 'declined' with nothing anywhere able to clear it (see dialogs.js's
-    // own Turn on handler) — a grant that is really held is exactly what
-    // that pref was standing in the way of.
     if (store.profile?.prefs?.evConsent === 'declined') store.updatePrefs({ evConsent: null }).catch(() => {});
-    return true;
+    store.refreshWorkspace().catch(() => {});
   }
 
   /**

@@ -1153,7 +1153,7 @@ function openActionMenu(msg, ctx, row, mine, e) {
       { header: 'Remind me' },
       ...remindPresets().map((p) => ({ label: p.label, sub: aroundText(p.at), onSelect: () => remind(ctx, msg, p.at, gone) })),
       'sep',
-      { label: 'Custom time\u2026', icon: 'clock', onSelect: async () => { const t = await pickTimeDialog({ title: 'Remind me', confirmLabel: 'Remind me', verb: 'Reminds you', note: 'The reminder arrives in Activity and in your own space at the first sync after that time.' }); if (t) remind(ctx, msg, t, gone); } },
+      { label: 'Custom time\u2026', icon: 'clock', onSelect: async () => { const t = await pickTimeDialog({ title: 'Remind me', confirmLabel: 'Remind me', verb: 'Reminds you', note: 'The reminder arrives in Activity and your own space, with a push if enabled. Without background access, it waits for someone to open the workspace.' }); if (t) remind(ctx, msg, t, gone); } },
     ], { align: 'end', label: 'Remind me', onClose })),
   });
   if (!ctx.inThread && store.channel(ctx.convId) && store.postAccess(ctx.convId, { thread: true }).ok) {

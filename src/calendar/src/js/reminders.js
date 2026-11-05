@@ -87,12 +87,26 @@ export async function ensureNotificationPermission() {
 
 /* ---- Scheduler -------------------------------------------------------- */
 
-export function createReminderScheduler({ store, now = () => Date.now() }) {
+/** Expand with store.getEventsInRange first, so overrides share this logic. */
+export function reminderEntries(events, now) {
+  const entries = new Map();
+  for (const ev of events) {
+    if (ev.allDay || ev.declined || ev.end <= now || !Array.isArray(ev.reminders)) continue;
+    for (const min of ev.reminders) {
+      const key = `${ev.id}#${ev.start}#${min}`;
+      entries.set(key, { fireAt: ev.start - min * 60_000, id: ev.id, min, event: ev });
+    }
+  }
+  return entries;
+}
+
+export function createReminderScheduler({ store, now = () => Date.now(), isStored = () => false }) {
   const timers = new Map(); // key -> timeout id
   const fired = new Set(); // keys already fired this session
   let scanTimer = null;
   let unsub = null;
   let lastSyncAt = null; // previous tick's clock — null until the first sync
+  let generation = 0;
 
   /**
    * Scan events near `t` and return:
@@ -109,29 +123,20 @@ export function createReminderScheduler({ store, now = () => Date.now() }) {
     const events = store.getEventsInRange(t - HORIZON_MS, t + HORIZON_MS + MAX_REMINDER_MIN * 60_000, {
       includeHidden: true,
     });
-    for (const ev of events) {
-      // A declined event — one an out-of-office block dimmed, or an invitation
-      // the user answered "No" to — is not one they are going to. Its
-      // reminders would only nag about a meeting they have said they will
-      // miss (and it is rendered struck through and dimmed for the same
-      // reason). Recurring occurrences carry the series' flag.
-      if (ev.allDay || ev.declined || !Array.isArray(ev.reminders) || !ev.reminders.length) continue;
-      for (const min of ev.reminders) {
-        const key = `${ev.id}#${ev.start}#${min}`;
-        live.add(key);
-        const fireAt = ev.start - min * 60_000;
-        const upcoming = fireAt > t && fireAt <= t + HORIZON_MS;
-        // A fire time that passed between two ticks with no timer armed —
-        // system sleep while it was still beyond the arming horizon — would
-        // otherwise never fire at all, while an ARMED timer in the same sleep
-        // replays late and is kept (fire() only suppresses ended events).
-        // Treat both alike: what came due since the previous tick fires now,
-        // unless the event is already over. `prevT` is null on the first sync
-        // of a session, so a reload still never replays past reminders.
-        const missed = prevT != null && fireAt > prevT && fireAt <= t && ev.end > t;
-        if (upcoming || missed) {
-          schedule.set(key, { fireAt, id: ev.id, min });
-        }
+    for (const [key, item] of reminderEntries(events, t)) {
+      live.add(key);
+      const { fireAt } = item;
+      const upcoming = fireAt > t && fireAt <= t + HORIZON_MS;
+      // A fire time that passed between two ticks with no timer armed —
+      // system sleep while it was still beyond the arming horizon — would
+      // otherwise never fire at all, while an ARMED timer in the same sleep
+      // replays late and is kept (fire() only suppresses ended events).
+      // Treat both alike: what came due since the previous tick fires now,
+      // unless the event is already over. `prevT` is null on the first sync
+      // of a session, so a reload still never replays past reminders.
+      const missed = prevT != null && fireAt > prevT && fireAt <= t;
+      if (upcoming || missed) {
+        schedule.set(key, item);
       }
     }
     return { schedule, live };
@@ -170,19 +175,26 @@ export function createReminderScheduler({ store, now = () => Date.now() }) {
       const id = setTimeout(() => {
         timers.delete(key);
         fired.add(key);
-        fire(item);
+        // A remote lookup is needed only when stored reminders are wired in.
+        const stored = isStored(key);
+        const current = generation;
+        if (stored && typeof stored.then === 'function') {
+          stored.catch(() => false).then((covered) => {
+            if (!covered && current === generation) fire(item);
+          });
+        } else if (!stored) fire(item);
       }, Math.max(0, item.fireAt - t));
       timers.set(key, id);
     }
   }
 
-  function fire({ id, min }) {
+  function fire({ id, min, event: scheduled }) {
     if (!notificationsSupported() || Notification.permission !== 'granted') return;
     // Re-resolve the event at fire time so an in-place edit that left the start
     // (and thus this timer) untouched — a renamed title, moved location, changed
     // end — still shows current content, and a deleted event fires nothing.
     const event = store.getEvent(id);
-    if (!event) return;
+    if (!event || event.allDay || event.declined || !event.reminders.includes(min) || event.start !== scheduled.start) return;
     // System sleep suspends timeout clocks, so on wake every armed timer
     // replays at once, hours late. A reminder for an event that has already
     // ENDED is pure noise — the module contract ("a reload never replays past
@@ -215,6 +227,7 @@ export function createReminderScheduler({ store, now = () => Date.now() }) {
   }
 
   function stop() {
+    generation++;
     if (unsub) unsub();
     unsub = null;
     if (scanTimer) clearInterval(scanTimer);
@@ -228,7 +241,7 @@ export function createReminderScheduler({ store, now = () => Date.now() }) {
   return { start, stop, sync };
 }
 
-function leadText(min) {
+export function leadText(min) {
   if (min <= 0) return 'Starting now';
   if (min >= MAX_REMINDER_MIN) return 'Starts in 1 day';
   // Match describeReminder's granularity: whole hours read as hours, anything

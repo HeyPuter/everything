@@ -2,7 +2,7 @@
 
 **Live app:** [email.puter.com](https://email.puter.com/)
 
-For the composer review, shipped improvements, remaining Gmail gaps, and verification steps, see [Composer audit](docs/composer-audit.md).
+For the composer review, shipped improvements, remaining gaps, and verification steps, see [Composer audit](docs/composer-audit.md).
 
 For measured loading/search improvements, benchmark reproduction, and remaining limits, see [Performance report](docs/performance.md).
 
@@ -94,6 +94,7 @@ Five folders, all of them plain directories beside each other under `.mail`, and
 /<username>/.mail/objects/    delivered mail, written by emailrx   -> Inbox
 /<username>/.mail/sent/       your copy of what you send           -> Sent
 /<username>/.mail/archive/    out of the inbox, still yours        -> Archive
+/<username>/.mail/snoozed/    waiting until a chosen time          -> Snoozed
 /<username>/.mail/trash/      deleted, still recoverable           -> Trash
 ```
 
@@ -107,11 +108,11 @@ Archiving and deleting are `puter.fs.move()` calls between those folders. The da
 
 ### Conversations
 
-A row is a conversation, not a message, and opening one stacks its messages under a single subject — the Gmail shape. It can be turned off under **Settings → Reading**, and turning it off makes every conversation one message long, which is the list this app had before threading: the same code path, grouping nothing.
+A row is a conversation, not a message, and opening one stacks its messages under a single subject. It can be turned off under **Settings → Reading**, and turning it off makes every conversation one message long, which is the list this app had before threading: the same code path, grouping nothing.
 
 **What belongs together.** `src/lib/thread.js` decides that with three rules, in order of how much each can be trusted:
 
-1. A message that references another message in the folder joins it — unless the subject changed. Renaming a thread is how people split one, and Gmail treats it that way too.
+1. A message that references another message in the folder joins it — unless the subject changed. Renaming a thread splits it.
 2. Two messages that reference the *same* id join each other, even when the message they both answer was never delivered here. That is what threads a conversation whose beginning went to someone else, or is in another folder.
 3. Where neither of those linked anything, one subject with a reply among its messages is a conversation. This catches the clients that drop `References` — and, just as importantly, does *not* catch two unrelated "Invoice" notices, because neither of those is a reply to anything. Rule 3 only ever looks at messages the headers left orphaned, so a proper reply to one of those two invoices joins its own target and drags nothing else in.
 
@@ -127,9 +128,9 @@ Only two references are cached per message: the first, which is the conversation
 
 **Flags belong to the conversation, files to the message.** A conversation is unread if any message in it is, and starred if any message is — so opening one marks all of it read, and one click on the row's star clears whichever message was carrying it. Starring from the row marks the newest message, which is the one the row is about; each message in the reader has its own star for when that is not what is wanted. Nothing about the flag store changed: it is still keyed on filenames, and a conversation is a question asked of it rather than a thing stored in it.
 
-**Archiving or deleting from the reader can carry on to the next conversation.** It goes back to the list by default, as Gmail does; **Settings → Reading** switches it to opening the next conversation (or the previous one, at the end of the list), which is how a full inbox is worked through with one hand. Which conversation is next is decided before the move, while the row is still there to count from, and checked again after it.
+**Archiving or deleting from the reader can carry on to the next conversation.** It goes back to the list by default; **Settings → Reading** switches it to opening the next conversation (or the previous one, at the end of the list), which is how a full inbox is worked through with one hand. Which conversation is next is decided before the move, while the row is still there to count from, and checked again after it.
 
-**A folder can be read through without going back to the list.** The reader's toolbar carries the conversation's place in the list -- `3 of 42` -- and an arrow either way; `j` and `k` are the same two moves from the keyboard, as they are in Gmail's reader. The arrows follow whatever rows are on screen, so in a search they walk the results and in Starred the starred ones, and they stop at the ends rather than wrapping.
+**A folder can be read through without going back to the list.** The reader's toolbar carries the conversation's place in the list -- `3 of 42` -- and an arrow either way; `j` and `k` are the same two moves from the keyboard, when reading. The arrows follow whatever rows are on screen, so in a search they walk the results and in Starred the starred ones, and they stop at the ends rather than wrapping.
 
 **The reader opens what you came for.** The newest message is expanded, along with up to five recent unread messages whose complete bytes are already cached; the rest are single lines — who wrote, the preview, the date — and a collapsed message's file is not read until it is opened, so a conversation of twenty downloads what is actually read rather than twenty messages. Reply, Reply all and Forward answer the newest message, which is the one an answer belongs under -- usually. The thing to answer is sometimes the question three messages up rather than the "thanks" under it, so every open message in a conversation carries a menu of its own, beside its date, with the same three for *that* message: the reply threads on its id and quotes its text. The menu also holds **Copy sender's address** -- the bare address onto the clipboard, which beats selecting exactly the part between the angle brackets -- **Show details** -- From, Reply-To, To, Cc, the full date, Subject, Message-ID and the attachments, as a table, for when the sender's name is not enough and View source is too much -- and **Download original (.eml)** -- the message as it arrived, the same bytes View source shows, under the subject's name -- which is how a message leaves this app for another one; a message on its own has that and nothing else there, since the block below already answers it. Each expanded message keeps everything the single message view ever had: the plain text default, its own attachments, and its own sandboxed HTML view. The sender's name is the control that opens and closes a message for the keyboard and a screen reader — a real button, so the menu beside the date and an Unsubscribe link beside the name are controls of their own rather than the children of one, which a screen reader would take for the button's label and never reach — while the whole header line does the same under the pointer.
 
@@ -171,15 +172,45 @@ The mailbox is watched, not polled. At launch the app subscribes to `fs:/<userna
 
 The same subscription hears what your other devices do. A message archived, deleted or restored from another tab or another phone leaves its folder here the way it would have if the action had been taken here — its row goes, or its conversation shrinks — and the folder it went to is re-listed when it is next opened, or at once if it is on screen. A message put back into the inbox is listed, not announced: it is not new. The app tells its own writes from another device's by remembering the paths it has just written, because an event's `self` flag names the account rather than the tab, and the account's other tabs are exactly what the watch is for. A `gap` marker — the server saying it dropped something — re-lists every folder rather than trusting what is on screen. `src/lib/watch.js` is the reading of events as changes to folders; it touches neither the DOM nor the network.
 
-A check that finds nothing says nothing: no toast, no re-render. When mail does arrive it shows up in three places — the rows themselves, the unread count in the document title, and, if it arrived while a message was open or the list was scrolled down, a "2 new messages" pill in the list toolbar rather than a jump. Desktop notifications are off until you turn them on in Settings, because `Notification.requestPermission()` has to be user initiated; they only fire while the window is not focused — which now includes a tab that is hidden, since events arrive whether or not the tab is visible. Clicking one is the reader asking to see it: one message opens, a handful go to the top of the inbox, and a search that was on screen is cleared first, since what arrived is in the folder and not necessarily in the results.
+A check that finds nothing says nothing: no toast, no re-render. When mail does arrive it shows up in three places — the rows themselves, the unread count in the document title, and, if it arrived while a message was open or the list was scrolled down, a "2 new messages" pill in the list toolbar rather than a jump. Notifications are covered next.
+
+### New-mail notifications
+
+Off until turned on from **Settings → Notify me on this device** or the welcome dialog. Both read `puter.notifications.status()` for this browser.
+
+1. `puter.notifications.enable()` runs first from the click. On a website it asks the browser, registers `public/puter-sw.js` (which imports Puter's `push-sw.js`), and grants pushes from the app. Inside the Puter desktop it calls `enablePush()`, which opens Puter's permission dialog itself.
+2. `puter.perms.request('backgroundEvents')` allows the handler to run with Mail closed. Only `push_revoked` needs another app push grant; that recovery batches `backgroundEvents` and `pushNotifications`, then calls `enable()` again.
+3. A queued persistent subscription to `fs:~/.mail/objects/*/*:add` runs the published `mail-notify-v1` handler. Moves and sent copies don't match. The app lists subscriptions before subscribing and again after creating one to reconcile concurrent tabs. It replaces revoked permissions; suspended handlers and credit shortages keep their resumable subscription.
+
+The handler runs once per delivered message. It reads one key-value entry, the subject from the filename, and the sender from the first 16 KB of the file -- never the whole message -- then calls `user.notifications.notify()` with the message id as `data` and `/?message=<id>` as `target`. Every `notify()` counts against Puter's cap of 30 a minute and 1,000 a day per user per app, pushed or not, so a message within 20 seconds of the last notification is counted rather than announced, and the next notification says `3 new messages`; they share one `group`, so the newest replaces the one showing. A redelivery is announced once, mail from the user's own address not at all, and only a failure that may pass (a 5xx or a network error) is retried -- the cap and a refusal are not, since five failed runs in a row suspend the subscription.
+
+**Show sender and subject** (on by default) is passed to the handler as subscription `context`. Off, notifications are `sensitive`: a push shows only a generic line, and neither sender nor subject reaches a push provider. Changing it calls `puter.events.update(subId, { context })`, preserving the subscription and queued deliveries.
+
+Push delivery is capped at 12/minute and 1,000/day per user per app; new or unlisted apps get 6/minute and 200/day. Sensitive pushes carry no channel, so the service worker uses Puter's generic display.
+
+Every page load with notifications on calls `onPush('mail', …)`, which says what a push shows and keeps this browser's registration current, and makes sure the subscription still stands. A page that is visible and focused holds the push back; one in the background shows the notification itself, so the app's own in-tab notification is not shown as well. A click -- including the tap that opened the app -- goes through `puter.notifications.on('click')` to the same path as before: the message opens, waiting for the inbox to be listed if it has to, or the inbox opens at the top for a push that named no message. Turning notifications off calls `disable()` and stops listening in this browser. On a website the account subscription stays for other devices; inside the Puter desktop, `disable()` revokes the app's push permission across devices, so the subscription ends too.
+
+Where a server has no push service, or the handler is not published, the app falls back to a notification the tab shows itself while it is open but not focused.
+
+On iPhone and iPad a site can only receive pushes once it is added to the Home Screen and opened from there; the app detects that case and says how, rather than asking. `public/manifest.json` makes the Home Screen app standalone.
+
+Clicking one of the tab's own notifications is the reader asking to see it: one message opens, a handful go to the top of the inbox, and a search that was on screen is cleared first, since what arrived is in the folder and not necessarily in the results.
 
 Where the subscription cannot be had — a Puter without the Events API, a server with it turned off, or a lapse the SDK could not reconnect from — the app falls back to what it did before: a visible tab looks every 60 seconds, a hidden one not at all, and every tick tries for the subscription again. Either way, a tab coming back into view or coming back online makes one check of its own, since a connection that slept with the laptop may have missed a delivery.
+
+### Snooze
+
+Snooze acts on the same conversation or selection as Archive. Use the clock action or `b` to choose Later today, Tomorrow 08:00, This weekend (Saturday 08:00), Next week (Monday 08:00), or a local date and time. Past presets are hidden. **Snoozed** shows the wake time and offers Unsnooze, change time, Archive and Delete; moves and time changes have Undo. `g z` opens Snoozed.
+
+Messages move into `.mail/snoozed/<day>/`. Account KV entries `snooze:<id>` hold the time, original location, schedule id and a version token. `mail-snooze-v1` runs through `puter.events.onSchedule({ at, handlerName, context })`, moves the file into today's UTC inbox day, clears the record and notifies through the `mail` channel. `woken:<id>` records order returned mail by wake time while preserving its message id and flags. FS moves emit `:move`, not `:add`, so only the snooze handler announces a background wake.
+
+The snooze click requests `backgroundEvents` only when missing. A refusal, missing handler, unavailable scheduler or schedule quota leaves a client wake instead, and the toast says it will return when Mail is open. Mail checks due snoozes on every load, every 30 seconds, and when returning online or visible, even with background schedules enabled. Version tokens and the successful file move prevent repeated wakes from announcing twice. Unsnooze, changing time, Archive and Delete remove the old schedule before proceeding. One-time schedules share the stored-notification allowance: 100 per app per user on free plans, 1,000 on paid plans.
 
 ### The keyboard
 
 Five shortcuts worked before there was a sheet to print them on, and they only worked while focus was inside the message list — so Compose had no key at all, and Archive had one that stopped working the moment a message was opened. The same shortcuts are now asked of the whole app.
 
-`c` writes a message, `/` searches, `j` and `k` walk the list -- and, with a message open, read on to the older or the newer conversation -- and `g` followed by a folder's key goes there — `i` inbox, `s` starred, `t` sent, `d` drafts, `a` archive, `#` trash. A chord is namespaced by its first key, so those letters stay free to mean what they mean alone: `s` stars a message and `g s` opens Starred. A second key that names no folder ends the chord rather than falling through to whatever it does on its own.
+`c` writes a message, `/` searches, `j` and `k` walk the list -- and, with a message open, read on to the older or the newer conversation -- and `g` followed by a folder's key goes there — `i` inbox, `s` starred, `t` sent, `d` drafts, `a` archive, `z` snoozed, `#` trash. A chord is namespaced by its first key, so those letters stay free to mean what they mean alone: `s` stars a message and `g s` opens Starred. A second key that names no folder ends the chord rather than falling through to whatever it does on its own.
 
 With a message open, `r`, `a` and `f` press Reply, Reply all and Forward — the same functions the buttons call, so `a` does nothing on a message with nobody else on it, for the same reason the button is absent there. `s`, `u`, `e` and `#` apply to the open conversation the way they already applied to a focused row.
 
@@ -226,7 +257,7 @@ Plain text is the default for every message and stays fully functional. When a m
 ## Features
 
 - Calendar invitation cards above the message body, from inline `text/calendar` parts or `.ics` attachments: event title, date and time with the sender's timezone, location, organizer, guests, meeting links, and the original invite download. All-day ranges, durations, recurring-event indicators, and cancellations are supported; RSVP sending and calendar synchronization are not implemented.
-- Gmail-style interface: header search pill, collapsible folder sidebar with a Compose pill, rounded content card, single-line rows with bold unread and tinted read states, and a list-to-message reading flow
+- Mail interface: header search pill, collapsible folder sidebar with a Compose pill, rounded content card, single-line rows with bold unread and tinted read states, and a list-to-message reading flow
 - Conversation view: one row per thread with its participants and message count, a reader that stacks the conversation oldest to newest with the newest and anything unread expanded, quoted replies folded away, and archive, delete, star and read/unread applying to the whole conversation with one Undo — grouped by `References` and `In-Reply-To` with a subject guard, from the same header read the rows already cost, and switchable off in Settings
 - Compose and send from your `@puter.email` address, to any number of recipients on Puter or off — To and Cc hold one removable chip per address, split a pasted list, and mark anything that isn't an address as you enter it — with Reply, Reply all, and Forward — replies threaded with `In-Reply-To` and `References`, forwards carrying the original attachments
 - Recipient completion from the addresses the app has already seen, ranked by who you have written to rather than who has written to you, out of the same header index that answers search — and offered rather than applied, so Enter still means the address you typed
@@ -242,9 +273,10 @@ Plain text is the default for every message and stays fully functional. When a m
 - Every sent message filed in your own account, listed newest first by the same code that reads the inbox
 - Archive and delete from a row, from the message toolbar, from the keyboard, or by dragging rows onto a folder, each with an Undo toast; Trash restores to where a message came from, deletes for good after a confirmation, or is emptied in one confirmed action
 - Mark as read and mark as unread from a row, the message toolbar, the selection toolbar, or the keyboard, and mark everything on screen as read in one press — the whole folder, not just the loaded page — with Undo
+- Snooze conversations until a local time, with background wake, a Snoozed folder, and Undo
 - Multi-select with bulk archive, delete, and read/unread — and, once a page's rows are all ticked, the offer to select everything in the folder, so a bulk action covers the three hundred behind the sixty on screen
 - Keyboard shortcuts across the whole app — `c` compose, `/` search, `j`/`k` through the list and from one open conversation to the next, `g` then a letter for a folder, `r`/`a`/`f` on an open message, and `x` `s` `u` `e` `#` on a row or a conversation — with `?` for the sheet that lists them
-- Mail that appears as it lands, and folders that follow what your other devices do, over a filesystem subscription rather than polling — with an unread badge in the tab title, a non-intrusive new-mail pill, and opt-in desktop notifications
+- Mail that appears as it lands, and folders that follow what your other devices do, over a filesystem subscription rather than polling — with an unread badge in the tab title, a non-intrusive new-mail pill, and opt-in push notifications that arrive with the app closed
 - Drafts that survive closing the dialog, a reload, or a lost tab: autosaved while you type as both text and markup, listed newest first in their own folder, reopened where you left off with the formatting intact, and cleared by sending or by an undoable Discard
 - Search across the whole folder — sender, subject, preview, and field prefixes (`from:`, `to:`, `subject:`, `before:`, `after:`, `has:attachment`, `is:unread`, `is:starred`) — with honest progress while the index builds
 - Attachment preview for images, download to the device or into your Puter files, view source, print, download a message as `.eml`, per-sender avatars
@@ -261,6 +293,18 @@ npm test          # run the vitest suite
 npm run build     # production build into dist/
 npm run preview   # preview the production build
 ```
+
+### Publishing the notification handler
+
+New-mail notifications and background snooze need both handlers published under the app by its owner. Run again whenever either file in `src/workers/` changes:
+
+```sh
+PUTER_TOKEN=<token of the account that owns the app> \
+PUTER_APP_UID=<the app's uid> \
+npm run publish:notify-handler
+```
+
+`PUTER_API_ORIGIN` selects another server (default `https://api.puter.com`); `--replace` overwrites a version published concurrently. The script publishes `mail-notify-v1` and `mail-snooze-v1`, skipping each independently when its SHA-256 source hash matches. The first handler also starts the app's events worker. Until publication, new-mail notifications fall back to the tab and snoozes return when Mail is open. Handler names are versioned in `src/lib/notify.js` and `src/lib/snooze.js`; change the version when changing their context contract.
 
 No frameworks: the UI is plain DOM, styled with hand-written CSS, with [Lucide](https://lucide.dev) for icons and [Puter.js](https://docs.puter.com) as the only backend.
 
@@ -282,13 +326,18 @@ src/
                 search.js     query parsing, matching, the header index
                 contacts.js   the index read as an address book, and ranked
                 drafts.js     the draft store
+                notify.js     the contract with the new-mail handler
+                snooze.js     snooze times, account records, schedules and client wake
                 settings.js   per-account preferences: signature, undo send, auto-advance, density
                 readstate.js  read, starred, restore-origin, image consent
                 format.js     display formatting
                 sample.js     the test mailbox, over an in-memory fs
   ui/         DOM: shell, compose dialog, formatting editor, gate screens,
               onboarding, menus, modal, toast, theme, the shortcut sheet,
-              the signature dialog
+              the signature dialog, turning push notifications on and off
+  workers/    notify-handler.js and snooze-handler.js, published events handlers
+scripts/      publish-notify-handler.mjs, the owner's publish step
+public/       puter-sw.js (push service worker), manifest and icons
   styles/     design tokens, base components, app screens
 tests/        vitest suites for every lib module, and for the shell, the
               compose dialog and folder search over the test mailbox

@@ -70,7 +70,7 @@ const fit = (popup) => {
   popup.style.maxHeight = `${Math.max(MIN_HEIGHT, Math.floor(below))}px`;
 };
 
-export function attachMenu(button, buildItems, { align = 'end' } = {}) {
+export function attachMenu(button, buildItems, { align = 'end', beforeOpen = null } = {}) {
   button.setAttribute('aria-haspopup', 'menu');
   button.setAttribute('aria-expanded', 'false');
 
@@ -184,6 +184,15 @@ export function attachMenu(button, buildItems, { align = 'end' } = {}) {
     items()[0]?.focus();
   };
 
-  button.addEventListener('click', () => (popup ? close() : open()));
+  let opening = false;
+  button.addEventListener('click', async () => {
+    if (popup) { close(); return; }
+    if (opening) return;
+    if (beforeOpen) {
+      opening = true;
+      try { await beforeOpen(); } finally { opening = false; }
+    }
+    if (button.isConnected) open();
+  });
   return { close };
 }

@@ -23,7 +23,7 @@ export const SENT_DIR = 'sent';
 
 /**
  * Where each folder lives under `.mail`. `objects/` is written by emailrx;
- * the other three are this app's, and nothing on the backend touches them, so
+ * the other folders are this app's, and nothing on the backend touches them, so
  * moving a file out of `objects/` is safe -- nothing recreates or reconciles
  * it.
  */
@@ -31,6 +31,7 @@ export const BOX_DIRS = {
   inbox: 'objects',
   sent: SENT_DIR,
   archive: 'archive',
+  snoozed: 'snoozed',
   trash: 'trash',
 };
 
@@ -64,7 +65,14 @@ function directoryPage(result, previousCursor) {
   return { items: result.items, cursor: result.cursor || null };
 }
 
-export function createMailbox({ fs, objectsPath, box = 'inbox', pageSize = PAGE_SIZE }) {
+// A wake keeps its message id, but sorts by the time it returned to the inbox.
+export const messageOrder = (message) => {
+  if (!message.wakeAt || message.box !== 'inbox') return `${message.day}/${message.name}`;
+  const hex = Math.floor(message.wakeAt).toString(16).padStart(12, '0');
+  return `${dayFolder(new Date(message.wakeAt))}/${hex.slice(0, 8)}-${hex.slice(8)}-${message.name}`;
+};
+
+export function createMailbox({ fs, objectsPath, box = 'inbox', pageSize = PAGE_SIZE, promotions = () => [] }) {
   let pendingDayCursor = null;
   let paginated = null; // detected from the root listing; older SDKs return arrays
   let dayCursors = new Map();
@@ -122,7 +130,7 @@ export function createMailbox({ fs, objectsPath, box = 'inbox', pageSize = PAGE_
   let answered = false;
   const keyOf = (message) => `${message.day}/${message.name}`;
   const noteNewest = () => {
-    if (messages.length && (!newest || keyOf(messages[0]) > newest)) newest = keyOf(messages[0]);
+    for (const message of messages) if (!newest || keyOf(message) > newest) newest = keyOf(message);
   };
 
   const entryFor = (item, day) => {
@@ -136,6 +144,7 @@ export function createMailbox({ fs, objectsPath, box = 'inbox', pageSize = PAGE_
       size: item.size,
       modified: item.modified,
       subject: subjectFromFilename(item.name),
+      ...(box === 'inbox' ? { wakeAt: promotions().find((entry) => entry.path === item.path)?.at } : {}),
     };
     known.set(item.name, entry);
     return entry;
@@ -219,7 +228,7 @@ export function createMailbox({ fs, objectsPath, box = 'inbox', pageSize = PAGE_
       }
     }
     listError = error;
-    messages.sort((a, b) => keyOf(b).localeCompare(keyOf(a)));
+    messages.sort((a, b) => messageOrder(b).localeCompare(messageOrder(a)));
     noteNewest();
     return added;
   };
@@ -239,7 +248,7 @@ export function createMailbox({ fs, objectsPath, box = 'inbox', pageSize = PAGE_
         messages.push(entry);
         added.push(entry);
       }
-      messages.sort((a, b) => `${b.day}/${b.name}`.localeCompare(`${a.day}/${a.name}`));
+      messages.sort((a, b) => messageOrder(b).localeCompare(messageOrder(a)));
       listError = null;
       noteNewest();
       return added;
@@ -318,7 +327,7 @@ export function createMailbox({ fs, objectsPath, box = 'inbox', pageSize = PAGE_
     pendingDays.unshift(...retryDays);
     listError = error;
     // Retried days and restored mail may sort above an already loaded page.
-    messages.sort((a, b) => `${b.day}/${b.name}`.localeCompare(`${a.day}/${a.name}`));
+    messages.sort((a, b) => messageOrder(b).localeCompare(messageOrder(a)));
     noteNewest();
     return added;
   };
@@ -408,7 +417,7 @@ export function createMailbox({ fs, objectsPath, box = 'inbox', pageSize = PAGE_
         const { item, day } = sorted[i];
         if (!removed.has(item.name)) entries.push(entryFor(item, day));
       }
-      catalog = entries;
+      catalog = entries.sort((a, b) => messageOrder(b).localeCompare(messageOrder(a)));
       catalogNext = 0;
       return catalog;
     }
@@ -452,7 +461,7 @@ export function createMailbox({ fs, objectsPath, box = 'inbox', pageSize = PAGE_
     days.forEach((day, index) => {
       for (const item of perDay[index]) if (!removed.has(item.name)) all.push(entryFor(item, day));
     });
-    catalog = all;
+    catalog = all.sort((a, b) => messageOrder(b).localeCompare(messageOrder(a)));
     catalogNext = 0;
     return catalog;
   };
@@ -499,7 +508,22 @@ export function createMailbox({ fs, objectsPath, box = 'inbox', pageSize = PAGE_
     recursiveListing = paginated && !page.cursor;
     recursiveDirectories = pendingDays.length;
     recursivePage = { cursor: null, items: null, nextCursor: null, more: pendingDays.length > 0 };
-    const added = await startPage();
+    // Seed returned mail even when its old UUID falls behind the first FS page.
+    const returned = box === 'inbox' ? promotions().filter((entry) => entry.path.startsWith(`${objectsPath}/`))
+      .sort((a, b) => b.at - a.at).slice(0, pageSize) : [];
+    const seeds = await Promise.all(returned.map(async ({ path }) => {
+      try {
+        const item = await fs.stat(path);
+        if (item.is_dir || gen !== generation) return null;
+        const day = path.slice(objectsPath.length + 1).split('/')[0];
+        const entry = entryFor({ ...item, path, name: path.slice(path.lastIndexOf('/') + 1) }, day);
+        loaded.add(entry.name);
+        messages.push(entry);
+        return entry;
+      } catch { return null; }
+    }));
+    if (gen !== generation) return [];
+    const added = [...seeds.filter(Boolean), ...await startPage()];
     // A page whose every day failed to read has not answered either.
     if (gen === generation && (messages.length || !listError)) answered = true;
     return added;
@@ -636,6 +660,7 @@ export function createMailbox({ fs, objectsPath, box = 'inbox', pageSize = PAGE_
     // already be in the paged list -- but a search that listed the whole
     // folder after the mail arrived has it in the catalog already.
     messages.unshift(...added);
+    messages.sort((a, b) => messageOrder(b).localeCompare(messageOrder(a)));
     for (const entry of added) loaded.add(entry.name);
     noteNewest();
     if (catalog) {
@@ -688,7 +713,7 @@ export function createMailbox({ fs, objectsPath, box = 'inbox', pageSize = PAGE_
     if (loaded.has(message.name)) return indexOfFile(messages, message);
     const listedAgain = known.get(message.name);
     known.set(message.name, message);
-    const key = (m) => `${m.day}/${m.name}`;
+    const key = messageOrder;
     const place = (list) => {
       const at = list.findIndex((m) => key(m) < key(message));
       const index = at === -1 ? list.length : at;
