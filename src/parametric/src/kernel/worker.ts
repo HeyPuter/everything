@@ -5,7 +5,7 @@
 import init from 'replicad-opencascadejs';
 import wasmUrl from 'replicad-opencascadejs/wasm?url';
 import { solidWorksToStep } from '../formats/sldprt';
-import { ModelBuilder, checkStep, errorText } from './build';
+import { ModelBuilder, checkStep, errorText, isFatal } from './build';
 import { setOc } from './occ';
 import type { BuildResult, MeshData, WorkerRequest, WorkerResponse } from './protocol';
 
@@ -13,11 +13,14 @@ declare const self: DedicatedWorkerGlobalScope;
 
 let ready: Promise<void> | null = null;
 const builder = new ModelBuilder();
+/** Set when the WebAssembly module aborts: its memory can no longer be trusted. */
+let aborted = false;
+const KERNEL_FAILED = 'The geometry kernel failed';
 
 function load(): Promise<void> {
   if (!ready) {
     ready = (async () => {
-      const oc = await init({ locateFile: () => wasmUrl } as never);
+      const oc = await init({ locateFile: () => wasmUrl, onAbort: () => { aborted = true; } } as never);
       setOc(oc);
     })();
   }
@@ -31,7 +34,9 @@ function meshTransfers(m: MeshData | null, out: Transferable[]) {
 
 self.onmessage = async (ev: MessageEvent<WorkerRequest>) => {
   const msg = ev.data;
-  const reply = (r: WorkerResponse, transfer: Transferable[] = []) => self.postMessage(r, transfer);
+  // A result computed after the module aborted cannot be trusted either.
+  const reply = (r: WorkerResponse, transfer: Transferable[] = []) =>
+    aborted ? self.postMessage({ id: r.id, ok: false, error: KERNEL_FAILED, fatal: true }) : self.postMessage(r, transfer);
   try {
     await load();
     switch (msg.type) {
@@ -78,8 +83,17 @@ self.onmessage = async (ev: MessageEvent<WorkerRequest>) => {
       case 'convertSolidWorks':
         reply({ id: msg.id, ok: true, result: await solidWorksToStep(msg.data, msg.name) });
         return;
+      case 'debugFail':
+        if (!import.meta.env.DEV) throw new Error('Not available');
+        if (msg.mode === 'hang') for (;;) { /* never answers */ }
+        if (msg.mode === 'crash') { setTimeout(() => { throw new Error('Simulated crash'); }); return; }
+        aborted = true;
+        throw new WebAssembly.RuntimeError('Aborted(simulated)');
     }
   } catch (e) {
+    // After an abort or a WebAssembly trap the module is unusable (and other
+    // code may have swallowed the error): ask for a new worker.
+    if (isFatal(e)) aborted = true;
     reply({ id: msg.id, ok: false, error: errorText(e) });
   }
 };

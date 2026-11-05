@@ -177,6 +177,7 @@ export class ModelBuilder {
           await this.apply(f, next, req);
           if (this.warning) st = { id: f.id, ok: true, warning: this.warning };
         } catch (e) {
+          if (isFatal(e)) throw e;
           st = { id: f.id, ok: false, error: errorText(e) };
           // Keep frames of failed sketches/planes out; keep previous geometry.
           next.body = state.body;
@@ -235,6 +236,7 @@ export class ModelBuilder {
           if (fr) result.frames[req.preview.id] = fr;
         }
       } catch (e) {
+        if (isFatal(e)) throw e;
         result.previewError = errorText(e);
       }
     }
@@ -1463,6 +1465,11 @@ async function readStep(text: string): Promise<Sh> {
     progress.delete();
     try { oc.FS.unlink(name); } catch { /* already removed */ }
   }
+}
+
+/** A WebAssembly trap or abort: the OpenCascade module can no longer be used. */
+export function isFatal(e: unknown): boolean {
+  return typeof WebAssembly !== 'undefined' && e instanceof WebAssembly.RuntimeError;
 }
 
 export function errorText(e: unknown): string {

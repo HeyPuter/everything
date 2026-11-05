@@ -136,8 +136,11 @@ export type WorkerRequest =
   | { id: number; type: 'measure'; a: MeasureTarget; b: MeasureTarget }
   | { id: number; type: 'export'; format: 'step' | 'stl' | 'brep'; quality: number }
   | { id: number; type: 'checkImport'; format: 'step'; text: string }
-  | { id: number; type: 'convertSolidWorks'; data: Uint8Array; name: string };
+  | { id: number; type: 'convertSolidWorks'; data: Uint8Array; name: string }
+  /** Development builds only: fail on purpose to test recovery. */
+  | { id: number; type: 'debugFail'; mode: 'hang' | 'abort' | 'crash' };
 
 export type WorkerResponse =
   | { id: number; ok: true; result: unknown }
-  | { id: number; ok: false; error: string };
+  /** fatal: the OpenCascade module aborted and the worker must be replaced. */
+  | { id: number; ok: false; error: string; fatal?: boolean };

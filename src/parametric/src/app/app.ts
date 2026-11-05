@@ -2,7 +2,7 @@
 // selection, PropertyManager panels, sketch mode and the rebuild loop.
 
 import type { BuildResult, EdgeInfo, FaceInfo, FeatureStatus } from '../kernel/protocol';
-import { KernelClient } from '../kernel/client';
+import { KernelClient, KernelRestartError } from '../kernel/client';
 import type { Frame, Vec3 } from '../math/vec';
 import { DocStore, newDocument } from '../model/document';
 import { evaluateVariables } from '../model/expr';
@@ -160,6 +160,7 @@ export class App {
     window.addEventListener('focusin', () => { this.focusByPointer = this.pointerInput; }, true);
     this.renderer.camera.setState(this.renderer.camera.fitState([0, 0, 0], 60));
     this.showLoading(true);
+    this.bindKernelRecovery();
     this.kernel.ready.then(() => {
       this.kernelReady = true;
       this.showLoading(false);
@@ -169,6 +170,30 @@ export class App {
       toast({ kind: 'error', title: 'Geometry engine failed to start', message: `${(e as Error).message}. Reload the page to try again.`, timeout: 0 });
     });
     this.refreshAll();
+  }
+
+  private crashedBuildKey: string | null = null;
+  private closeStallToast: (() => void) | null = null;
+
+  /** Offers a restart when the geometry worker stops answering, and rebuilds on a restarted one. */
+  private bindKernelRecovery() {
+    this.kernel.onStall = (stalled) => {
+      const close = this.closeStallToast;
+      this.closeStallToast = null;
+      close?.();
+      if (!stalled) return;
+      this.closeStallToast = toast({
+        kind: 'warning', title: 'The geometry engine is taking a long time',
+        message: 'Large imports can take a few minutes. If it has stopped responding, restart it; your part is kept.',
+        actions: [{ label: 'Restart engine', primary: true, run: () => this.kernel.restart() }, { label: 'Keep waiting', run: () => {} }],
+      });
+    };
+    this.kernel.onRestart = (reason, building) => {
+      toast({ kind: 'warning', title: 'Geometry engine restarted', message: `It was restarted because ${reason}. Rebuilding the part.` });
+      // A rebuild cut short is retried by rebuild(); after anything else
+      // (measure, export...) the new worker still needs the model.
+      if (!building) this.requestRebuild(true);
+    };
   }
 
   // ---------- theme ----------
@@ -732,9 +757,19 @@ export class App {
     try {
       res = await this.kernel.build({ features: resolved.features, upTo, blobs: this.store.doc.blobs, quality: this.settings.quality, preview });
     } catch (e) {
+      if (e instanceof KernelRestartError) {
+        // Retry once on the restarted worker; the same model stopping it
+        // again is reported instead of restarting in a loop.
+        if (this.crashedBuildKey !== key) {
+          this.crashedBuildKey = key;
+          this.requestRebuild(true);
+        } else toast({ kind: 'error', title: 'Rebuild failed', message: 'The geometry engine stopped again while rebuilding this part. Undo the last change or edit the part to try again.', timeout: 0 });
+        return;
+      }
       toast({ kind: 'error', title: 'Rebuild failed', message: (e as Error).message });
       return;
     }
+    this.crashedBuildKey = null;
     // Coalesced requests all resolve with the same newest result: show it once.
     if (res === this.lastBuildResult) return;
     this.lastBuildResult = res;

@@ -2,7 +2,7 @@
 // is the only way to know the modeling features actually produce solids.
 import { beforeAll, describe, expect, it } from 'vitest';
 import init from 'replicad-opencascadejs';
-import { ModelBuilder, checkStep, errorText } from '../src/kernel/build';
+import { ModelBuilder, checkStep, errorText, isFatal } from '../src/kernel/build';
 import { getOc, setOc } from '../src/kernel/occ';
 import type { Feature, FilletFeature, ShellFeature, SkDimension, SketchFeature } from '../src/model/types';
 import { flangeExample } from '../src/app/examples';
@@ -609,5 +609,18 @@ describe('feature regeneration', () => {
     const feats: Feature[] = [sketch('S1', rect(0, 0, 10, 10)), extrude('E1', 'S1', 10), sketch('S2', rect(0, 0, 5, 5)), extrude('E2', 'S2', 20)];
     await b.build({ ...req(feats), upTo: 2 });
     expect(volume(b)).toBeCloseTo(1000, 4);
+  });
+});
+
+describe('kernel failures', () => {
+  it('does not record an aborted kernel as a feature error', async () => {
+    const b = new ModelBuilder();
+    // A WebAssembly trap or abort leaves the module unusable: the build must
+    // fail as a whole (so the worker is replaced), not carry on.
+    (b as unknown as { apply: () => never }).apply = () => { throw new WebAssembly.RuntimeError('Aborted(OOM)'); };
+    await expect(b.build(req([sketch('S1', rect(0, 0, 30, 20))]))).rejects.toThrow('Aborted(OOM)');
+    expect(isFatal(new WebAssembly.RuntimeError('unreachable'))).toBe(true);
+    expect(isFatal(new Error('Fillet failed'))).toBe(false);
+    expect(isFatal(42)).toBe(false);
   });
 });
