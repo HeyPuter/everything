@@ -711,3 +711,28 @@ test('the Organize pages toolbar keeps its labels and one row of commands on a d
   };
   expect(await middle('Delete pages')).toBeCloseTo(await middle('Insert'), 0);
 });
+
+test('a long count in the Organize pages toolbar reads whole on a small phone', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 320, height: 700 });
+  await mockPuter(page);
+  await page.goto('/#library');
+  const doc = await PDFDocument.create();
+  for (let i = 0; i < 120; i++) doc.addPage([400, 300]);
+  await openPdf(page, doc);
+  await page.getByRole('button', { name: 'Tools', exact: true }).click();
+  await page
+    .getByRole('complementary', { name: 'Tools' })
+    .getByRole('button', { name: 'Organize pages', exact: true })
+    .click();
+  const grid = page.getByRole('listbox', { name: 'Pages' });
+  await grid.getByRole('option', { name: 'Page 1', exact: true }).click();
+  await page.keyboard.press('ControlOrMeta+a');
+  const status = page.locator('.organize-status');
+  await expect(status).toHaveText('120 of 120 pages selected');
+  // It was cut to "120 of 120 pages sel…"; it takes a second line instead, in the same row.
+  expect(await status.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
+  const toolbar = page.getByRole('toolbar', { name: 'Organize pages' });
+  expect((await toolbar.boundingBox()).height).toBeLessThan(100);
+});

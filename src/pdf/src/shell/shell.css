@@ -1127,12 +1127,12 @@
     clip-path: inset(50%);
     white-space: nowrap;
   }
+  /* A long count ("120 of 120 pages selected") takes two lines rather than losing its end. */
   .organize-status {
     flex: 1 1 0;
     min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    line-height: 1.25;
+    overflow-wrap: anywhere;
   }
   .organize-sep,
   .organize-size svg,
