@@ -938,3 +938,31 @@ it('keeps a Word list label apart from its tabbed text and edits operators writt
   // The text after the tab keeps its tab stop.
   expect(next.groups[1].transform[4]).toBeCloseTo(78, 5);
 });
+
+it('keeps text drawn inside a clip apart from text after the clip is restored', async () => {
+  const { font } = await wordFixture(''),
+    x = 40 + font.widthOfTextAtSize('Hello', 12);
+  // A table cell clips "Hello"; " world" follows outside it. One rewrite at "Hello" would draw
+  // " world" inside the cell's clip, where it is cut off.
+  const clipped = (open = '', close = '') =>
+    `${open} q 40 290 30 20 re W n BT /F 12 Tf 1 0 0 1 40 300 Tm 0 g (Hello) Tj ET Q ${close} `;
+  for (const [label, source] of [
+    ['plain', `${clipped()}BT /F 12 Tf 1 0 0 1 ${x} 300 Tm 0 g ( world) Tj ET`],
+    ['Word', clipped('/Span <</MCID 90>> BDC', 'EMC') + wordChunk(x, 300, ' world')],
+  ]) {
+    const r = await read((await wordFixture(source)).bytes);
+    expect(
+      r.groups.map((g) => g.text),
+      label,
+    ).toEqual(['Hello', ' world']);
+  }
+  // Text that stays inside the same clip still forms one line.
+  const inside = await read(
+    (
+      await wordFixture(
+        `q 40 290 300 20 re W n BT /F 12 Tf 1 0 0 1 40 300 Tm 0 g (Hello) Tj ET BT /F 12 Tf 1 0 0 1 ${x} 300 Tm ( world) Tj ET Q`,
+      )
+    ).bytes,
+  );
+  expect(inside.groups.map((g) => g.text)).toEqual(['Hello world']);
+});

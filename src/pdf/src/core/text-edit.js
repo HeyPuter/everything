@@ -378,6 +378,7 @@ const freshState = () => ({
   actualText: false,
   fillCommand: '0 g',
   paintTag: 0,
+  clipTag: 0,
 });
 
 // Word wraps each text chunk in its own structure tag and a page-sized clip, and resets paint
@@ -594,7 +595,8 @@ export async function inspectText(doc, index, pdfPage, OPS, layers) {
             if (path.length) throw unsupported();
             break;
           }
-          if (s.paintTag !== stack.at(-1).paintTag) barrier++;
+          // Restoring a clip or paint state changes how the text that follows is drawn.
+          if (s.paintTag !== stack.at(-1).paintTag || s.clipTag !== stack.at(-1).clipTag) barrier++;
           s = stack.pop();
           break;
         case 'g':
@@ -602,6 +604,10 @@ export async function inspectText(doc, index, pdfPage, OPS, layers) {
         case 'k':
           s.fillCommand = source.slice(command.start, command.end);
           s.customColor = false;
+          break;
+        case 'W':
+        case 'W*':
+          if (!neutral) s.clipTag = barrier;
           break;
         case 'cs':
         case 'sc':
