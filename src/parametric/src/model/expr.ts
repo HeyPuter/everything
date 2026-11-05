@@ -129,6 +129,9 @@ export function evaluate(src: string, opts: EvalOptions = {}): number {
           while (peek().k === 'op' && (peek() as { v: string }).v === ',') { pos++; args.push(expr()); }
         }
         expectOp(')');
+        // round(2.567, 2) would quietly drop the 2 (and give 3); sin() is not a number.
+        const variadic = fn === Math.min || fn === Math.max;
+        if (variadic ? !args.length : args.length !== 1) throw new ExprError(`${t.v}() takes ${variadic ? 'one or more values' : 'one value'}`);
         return fn(...args);
       }
       if (Object.hasOwn(CONSTS, t.v)) return CONSTS[t.v];

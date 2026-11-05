@@ -71,6 +71,13 @@ describe('expression evaluator', () => {
     expect(referencedNames('toString + 1')).toEqual(['toString']);
   });
 
+  it('checks how many values a function takes', () => {
+    expect(() => evaluate('round(2.567, 2)')).toThrow('round() takes one value');
+    expect(() => evaluate('sin()')).toThrow('sin() takes one value');
+    expect(() => evaluate('max()')).toThrow('max() takes one or more values');
+    expect(evaluate('max(1, 5, 3) + min(2)')).toBe(7);
+  });
+
   it('reports a division by zero, even inside a larger expression', () => {
     expect(() => evaluate('W / (N - 1)', { lookup: (n) => (n === 'W' ? 10 : 1) })).toThrow('Division by zero');
     expect(() => evaluate('1 / (1 / 0)')).toThrow('Division by zero');
