@@ -127,6 +127,27 @@ describe('camera', () => {
   });
 });
 
+describe('camera zoom limits', () => {
+  it('zooms a part framed beyond the zoom-out limit smoothly instead of jumping', () => {
+    const c = new Camera();
+    c.width = 800; c.height = 600;
+    // A 10 km part frames at a distance past the 1e7 wheel limit.
+    c.setState(c.fitState([0, 0, 0], 5e6, VIEWS.isometric));
+    const d0 = c.distance;
+    expect(d0).toBeGreaterThan(1e7);
+    c.zoomAt(0.9, 400, 300);
+    expect(c.distance).toBeCloseTo(d0 * 0.9, 0);
+    // Zooming out stops where it is rather than snapping back to the limit.
+    const d1 = c.distance;
+    c.zoomAt(1.2, 400, 300);
+    expect(c.distance).toBe(d1);
+    // Ordinary limits are unchanged.
+    c.setState({ ...c.state(), distance: 9e6 });
+    c.zoomAt(2, 400, 300);
+    expect(c.distance).toBe(1e7);
+  });
+});
+
 describe('command registry', () => {
   it('matches shortcuts and searches labels', () => {
     const reg = new CommandRegistry();

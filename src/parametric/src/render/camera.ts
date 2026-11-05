@@ -44,6 +44,14 @@ export interface CameraState {
   ortho: boolean;
 }
 
+/**
+ * Wheel zoom limits. A view framed beyond them (zoom to fit on a part of
+ * several km) is not snapped back: it can still zoom in, just not further out.
+ */
+function clampDistance(d: number, from: number): number {
+  return Math.min(Math.max(1e7, from), Math.max(Math.min(1e-3, from), d));
+}
+
 export class Camera {
   target: Vec3 = [0, 0, 0];
   distance = 200;
@@ -169,8 +177,7 @@ export class Camera {
 
   /** factor < 1 zooms in. Keeps the world point under (x, y) fixed. */
   zoomAt(factor: number, x: number, y: number) {
-    const minD = 1e-3, maxD = 1e7;
-    const nd = Math.min(maxD, Math.max(minD, this.distance * factor));
+    const nd = clampDistance(this.distance * factor, this.distance);
     const f = nd / this.distance;
     // Offset of the cursor from the view centre, in world units on the target plane.
     const s = this.pixelSize;
@@ -191,7 +198,7 @@ export class Camera {
   private shiftAnimation(shift: Vec3, factor: number) {
     const a = this.anim;
     if (!a) return;
-    const move = (s: CameraState): CameraState => ({ ...s, target: add(s.target, shift), distance: Math.min(1e7, Math.max(1e-3, s.distance * factor)) });
+    const move = (s: CameraState): CameraState => ({ ...s, target: add(s.target, shift), distance: clampDistance(s.distance * factor, s.distance) });
     a.from = move(a.from);
     a.to = move(a.to);
   }
