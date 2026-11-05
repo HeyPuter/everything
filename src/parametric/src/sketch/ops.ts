@@ -443,9 +443,24 @@ function dropOrphan(sk: SketchFeature, pid: Id) {
 }
 
 /** After a split, relations on the far end point follow the new piece. */
-function moveConstraintsOnPoint(_sk: SketchFeature, _pointId: Id, _newCurve: Id, _oldCurve: Id) {
+function moveConstraintsOnPoint(sk: SketchFeature, pointId: Id, newCurve: Id, oldCurve: Id) {
   // End point ids are shared, so point relations need no change. Curve-level
-  // relations (horizontal, parallel...) stay on the original piece.
+  // relations (horizontal, parallel...) stay on the original piece, except a
+  // tangency with a curve that meets the far end point: it belongs to the new
+  // piece there. Left on the original piece, it made that piece's extension
+  // tangent at a point the new piece also passes through, which pins the
+  // same point twice (over defined) and lets the new piece leave tangency.
+  const ix = new SketchIndex(sk.entities);
+  const old = ix.get(oldCurve);
+  if (old?.t !== 'line' && old?.t !== 'arc') return;
+  const meets = (id: Id, p: Id) => { const o = ix.get(id); return (o?.t === 'line' || o?.t === 'arc') && (o.a === p || o.b === p); };
+  for (const k of sk.constraints) {
+    if (k.type !== 'tangent' || !k.refs.includes(oldCurve)) continue;
+    const others = k.refs.filter((r) => r !== oldCurve);
+    if (others.some((r) => meets(r, pointId)) && !others.some((r) => meets(r, old.a))) {
+      k.refs = k.refs.map((r) => (r === oldCurve ? newCurve : r));
+    }
+  }
 }
 
 /**

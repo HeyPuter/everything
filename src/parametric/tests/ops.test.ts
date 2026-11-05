@@ -106,6 +106,36 @@ describe('dimensions', () => {
 });
 
 describe('editing tools', () => {
+  it.each(['line', 'arc'])('splitting a slot %s by trimming moves the far tangency to the new piece', (piece) => {
+    const s = sk([
+      { id: 'ca', t: 'point', x: 10, y: 5 }, { id: 'cb', t: 'point', x: 30, y: 5 },
+      { id: 'p1', t: 'point', x: 10, y: 8 }, { id: 'p2', t: 'point', x: 10, y: 2 }, { id: 'q1', t: 'point', x: 30, y: 8 }, { id: 'q2', t: 'point', x: 30, y: 2 },
+      { id: 'l1', t: 'line', a: 'p1', b: 'q1' }, { id: 'l2', t: 'line', a: 'q2', b: 'p2' },
+      { id: 'arcB', t: 'arc', c: 'cb', a: 'q2', b: 'q1' }, { id: 'arcA', t: 'arc', c: 'ca', a: 'p1', b: 'p2' },
+    ]);
+    s.constraints.push(
+      { id: 't1', type: 'tangent', refs: ['l1', 'arcA'] }, { id: 't2', type: 'tangent', refs: ['l1', 'arcB'] },
+      { id: 't3', type: 'tangent', refs: ['l2', 'arcA'] }, { id: 't4', type: 'tangent', refs: ['l2', 'arcB'] },
+      { id: 'eq', type: 'equal', refs: ['arcA', 'arcB'] },
+    );
+    // Two cutters across the piece, then a click between them.
+    const cut = (id: string, a: [number, number], b: [number, number]) => s.entities.push(
+      { id: `${id}a`, t: 'point', x: a[0], y: a[1] }, { id: `${id}b`, t: 'point', x: b[0], y: b[1] }, { id, t: 'line', a: `${id}a`, b: `${id}b` });
+    if (piece === 'line') { cut('k1', [15, 0], [15, 12]); cut('k2', [25, 0], [25, 12]); } else { cut('k1', [0, 6], [8, 6]); cut('k2', [0, 4], [8, 4]); }
+    const before = solveSketch(structuredClone(s.entities), s.constraints, { value });
+    expect(before.badConstraints.size).toBe(0);
+    const id = piece === 'line' ? 'l1' : 'arcA';
+    expect(trimAt(s, id, piece === 'line' ? [20, 8] : [7, 5], idFactory(s))).toBe(true);
+    const copy = s.entities.find((e) => (e.t === 'line' || e.t === 'arc') && e.id !== id && !['l1', 'l2', 'arcA', 'arcB', 'k1', 'k2'].includes(e.id))!;
+    // The far end's tangent curve now refers to the piece that reaches it.
+    const far = piece === 'line' ? 't2' : 't3';
+    expect(s.constraints.find((c) => c.id === far)!.refs).toContain(copy.id);
+    expect(s.constraints.find((c) => c.id === 't1')!.refs).toContain(id);
+    const after = solveSketch(s.entities, s.constraints, { value });
+    expect(after.badConstraints.size).toBe(0);
+    expect(after.status).toBe('under');
+  });
+
   it('trims a line between two crossing lines', () => {
     const s = sk([
       { id: 'a', t: 'point', x: 0, y: 0 }, { id: 'b', t: 'point', x: 10, y: 0 }, { id: 'h', t: 'line', a: 'a', b: 'b' },
