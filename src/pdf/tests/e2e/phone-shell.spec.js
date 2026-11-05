@@ -258,3 +258,45 @@ test('a stamp placed on a phone is brought into view above the selection dock', 
     expect(box.y + box.height).toBeLessThanOrEqual(view.y + view.height);
   }
 });
+
+// A finger put down beside an open note let go of it at once, as a click away does: scrolling
+// the page closed the note being typed, and a pinch only closed it, without zooming.
+test('scrolling or pinching keeps an open note, and a tap beside it closes it', async ({
+  page,
+}) => {
+  const doc = await PDFDocument.create();
+  doc.addPage([400, 1200]);
+  addNote(doc, 0, { x: 300, y: 1150, text: 'Keep me' });
+  await openPdf(page, doc);
+  await page.getByRole('button', { name: 'Edit note: Keep me' }).tap();
+  const text = page.getByRole('textbox', { name: 'Note text', exact: true });
+  await expect(text).toBeFocused();
+  await page.keyboard.type(' open');
+  const workspace = page.locator('.workspace');
+  const view = await workspace.boundingBox();
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send('Input.synthesizeScrollGesture', {
+    x: Math.round(view.x + view.width * 0.4),
+    y: Math.round(view.y + view.height * 0.7),
+    yDistance: -100,
+    gestureSourceType: 'touch',
+  });
+  await expect.poll(() => workspace.evaluate((node) => node.scrollTop)).toBeGreaterThan(40);
+  await expect(text).toHaveValue('Keep me open');
+  await expect(text).toBeFocused();
+  const zoom = page.getByLabel('Zoom', { exact: true });
+  await cdp.send('Input.synthesizePinchGesture', {
+    x: view.x + view.width * 0.4,
+    y: view.y + view.height * 0.5,
+    scaleFactor: 0.7,
+    gestureSourceType: 'touch',
+  });
+  await expect(zoom).not.toHaveValue('fit');
+  await expect(page.locator('.editor')).toHaveAttribute('aria-busy', 'false');
+  await expect(text).toHaveValue('Keep me open');
+  // A tap on the page beside it closes the note and keeps what was typed.
+  const sheet = await page.locator('.paper').boundingBox();
+  await page.touchscreen.tap(sheet.x + 10, sheet.y + 10);
+  await expect(text).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Edit note: Keep me open' })).toBeVisible();
+});

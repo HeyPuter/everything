@@ -5127,27 +5127,50 @@ export function createEditor({
     pageImages.refresh();
     if (gesture) updateDrawingGesture(gesture.event);
   });
+  /** Whether a press lets go of the text, note, markup or object selected or edited beside it. */
+  const pressesAway = (e) =>
+    e.button === 0 &&
+    e.isPrimary &&
+    (!busy || finishingText || !!pageImages.selected) &&
+    !e.target.closest(
+      '.text-target, .text-edit-handles, .page-text-input, .image-target, .path-target, .image-controls button, .note-target, .highlight-target, .form-widget, .link-target, .drawing-overlay.active',
+    ) &&
+    !!(
+      textEdit ||
+      finishingText ||
+      noteEdit ||
+      pageImages.selected ||
+      pageImages.active ||
+      selectedHighlight ||
+      textPointer
+    );
+  // A finger put down beside the selection may be starting to scroll or pinch the page rather
+  // than tapping away from it: what is selected or being typed stays until the finger lifts from
+  // a tap. Letting go at once closed a note or a text edit (and its keyboard) whenever the page
+  // was scrolled, and a pinch then found the editor busy saving and did not zoom.
+  let touchAway = null;
+  workspace.addEventListener('pointerup', (e) => {
+    const tap = touchAway;
+    if (tap?.id !== e.pointerId) return;
+    touchAway = null;
+    if (Math.hypot(e.clientX - tap.x, e.clientY - tap.y) < 10) letGo(e);
+  });
+  workspace.addEventListener('pointercancel', (e) => {
+    if (touchAway?.id === e.pointerId) touchAway = null;
+  });
   workspace.addEventListener('pointerdown', (e) => {
+    if (e.pointerType !== 'touch') return letGo(e);
+    // A second finger makes it a pinch.
+    if (!e.isPrimary) return void (touchAway = null);
+    touchAway = { id: e.pointerId, x: e.clientX, y: e.clientY };
+    // The field being typed in keeps the focus, and the keyboard, meanwhile.
+    if (pressesAway(e)) e.preventDefault();
+  });
+  function letGo(e) {
     // A press anywhere else lets go of a selected comment.
     if (annotationLayer.selected && !e.target.closest('.annotation-target'))
       annotationLayer.clear();
-    if (e.button !== 0 || !e.isPrimary || (busy && !finishingText && !pageImages.selected)) return;
-    if (
-      e.target.closest(
-        '.text-target, .text-edit-handles, .page-text-input, .image-target, .path-target, .image-controls button, .note-target, .highlight-target, .form-widget, .link-target, .drawing-overlay.active',
-      )
-    )
-      return;
-    if (
-      !textEdit &&
-      !finishingText &&
-      !noteEdit &&
-      !pageImages.selected &&
-      !pageImages.active &&
-      !selectedHighlight &&
-      !textPointer
-    )
-      return;
+    if (!pressesAway(e)) return;
     e.preventDefault();
     safe(async () => {
       const priorFocus = document.activeElement;
@@ -5159,7 +5182,7 @@ export function createEditor({
       )
         workspace.focus({ preventScroll: true });
     })();
-  });
+  }
   // Each run's target, so the keyboard can return to the text it was editing.
   let textTargetOf = new WeakMap();
   /**
