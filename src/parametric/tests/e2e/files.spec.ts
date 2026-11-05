@@ -422,3 +422,31 @@ test('a part file too large to read is refused with a message, before it is read
   }
   expect(errors).toEqual([]);
 });
+
+test('a browser storage deletion failure leaves the part listed and can be retried', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  const run = (id: string) => page.evaluate((id) => (window as unknown as { __parametric: AppHandle }).__parametric.commands.run(id), id);
+  await run('saveAs');
+  await page.getByRole('dialog', { name: 'Save As' }).getByRole('textbox').fill('Local bracket');
+  await page.getByRole('button', { name: 'OK', exact: true }).click();
+  await expect(page).toHaveTitle('Local bracket - Parametric');
+  await page.evaluate(() => {
+    const original = FileSystemDirectoryHandle.prototype.removeEntry;
+    (window as unknown as { restoreDeletion: () => void }).restoreDeletion = () => { FileSystemDirectoryHandle.prototype.removeEntry = original; };
+    FileSystemDirectoryHandle.prototype.removeEntry = async () => { throw new DOMException('The file is in use', 'NoModificationAllowedError'); };
+  });
+  await run('open');
+  const open = page.getByRole('dialog', { name: 'Open', exact: true });
+  const remove = open.getByRole('button', { name: 'Delete Local bracket', exact: true });
+  await remove.click();
+  await page.getByRole('dialog', { name: 'Delete part', exact: true }).getByRole('button', { name: 'Delete', exact: true }).click();
+  await expect(page.getByRole('alert')).toContainText('The file is in use');
+  await expect(remove).toBeVisible();
+  await page.evaluate(() => (window as unknown as { restoreDeletion: () => void }).restoreDeletion());
+  await remove.click();
+  await page.getByRole('dialog', { name: 'Delete part', exact: true }).getByRole('button', { name: 'Delete', exact: true }).click();
+  await expect(remove).toHaveCount(0);
+  await expect(open).toContainText('No parts saved');
+  expect(errors).toEqual([]);
+});

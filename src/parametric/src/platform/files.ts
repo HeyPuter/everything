@@ -91,10 +91,13 @@ async function localRead(id: string): Promise<string> {
 
 async function localDelete(id: string) {
   const dir = await opfsDir();
+  if (!dir) throw new Error('Browser storage is not available.');
   try {
-    await dir?.removeEntry(`${id}${EXT}`);
-  } catch {
-    /* already gone */
+    await dir.removeEntry(`${id}${EXT}`);
+  } catch (e) {
+    // Only a missing file counts as already deleted. Other failures must keep
+    // the part discoverable so the user can retry or download it.
+    if (!isMissing(e)) throw e;
   }
   writeIndex(readIndex().filter((p) => p.id !== id));
 }
