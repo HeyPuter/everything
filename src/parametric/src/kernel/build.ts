@@ -141,6 +141,7 @@ export class ModelBuilder {
     this.meshKey = '';
     this.meshCache = null;
     this.importCache.clear();
+    this.importVersions.clear();
   }
 
   /** Position and type of every feature of the request being built. */
@@ -160,7 +161,8 @@ export class ModelBuilder {
       const f = req.features[i];
       const suppressed = !!f.suppressed || dependencies(f).some((d) => off.has(d));
       if (suppressed) off.add(f.id);
-      const key = hashString(chain + '\u0000' + stepText(f));
+      const imported = f.type === 'import' ? ':' + this.importVersion(f.blob, req.blobs[f.blob]) : '';
+      const key = hashString(chain + '\u0000' + stepText(f) + imported);
       const cached = this.steps[i];
       if (cached && cached.key === key) {
         state = cached.state;
@@ -195,6 +197,11 @@ export class ModelBuilder {
     // Imported shapes of parts no longer open (their file data is gone from
     // the request) would otherwise be kept for the life of the worker.
     for (const blob of [...this.importCache.keys()]) if (!(blob in req.blobs)) this.importCache.delete(blob);
+    if (this.importVersions.size) {
+      const referenced = new Set(req.features.flatMap((f) => f.type === 'import' ? [f.blob] : []));
+      if (req.preview?.type === 'import') referenced.add(req.preview.blob);
+      for (const blob of this.importVersions.keys()) if (!(blob in req.blobs) && !referenced.has(blob)) this.importVersions.delete(blob);
+    }
 
     const meshKey = chain + ':' + req.quality;
     if (meshKey !== this.meshKey || !this.meshCache) {
@@ -1133,8 +1140,22 @@ export class ModelBuilder {
   }
 
   private importCache = new Map<Id, Sh>();
+  private importVersions = new Map<Id, { text: string | undefined; version: number }>();
+  private importSerial = 0;
+
+  /** A file key is local to its document; another part may reuse it for other data. */
+  private importVersion(blob: Id, text: string | undefined): number {
+    const previous = this.importVersions.get(blob);
+    if (previous && previous.text === text) return previous.version;
+    const version = ++this.importSerial;
+    this.importVersions.set(blob, { text, version });
+    this.importCache.delete(blob);
+    return version;
+  }
 
   private async applyImport(f: ImportFeature, st: State, req: BuildRequest) {
+    // Preview imports do not pass through the main step-cache key.
+    this.importVersion(f.blob, req.blobs[f.blob]);
     let shape = this.importCache.get(f.blob);
     if (!shape) {
       const text = req.blobs[f.blob];

@@ -43,3 +43,30 @@ test('imports keep separate file data when their timestamps are identical', asyn
   await expect(page.locator('.ti.error')).toHaveCount(0);
   expect(errors).toEqual([]);
 });
+
+test('opening another part with reused import identifiers loads its own geometry', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  const { readFileSync } = await import('node:fs');
+  const names = ['cube-hole-sw2022.sldprt', 'cube-shell-sw2011.sldprt'];
+  const files = names.map((name) => ({ name, data: Array.from(readFileSync(new URL(`../fixtures/sldprt/${name}`, import.meta.url))) }));
+  const volumes = await page.evaluate(async ({ files, url }) => {
+    const { newDocument } = await import(url);
+    const app = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+    const volumes: number[] = [];
+    for (const file of files) {
+      const { step } = await app.kernel.convertSolidWorks(new Uint8Array(file.data), file.name);
+      const doc = newDocument(file.name) as import('../../src/model/types').PartDocument;
+      doc.blobs.b1 = step;
+      doc.features = [{ id: 'f1', name: 'Imported1', type: 'import', format: 'step', blob: 'b1', fileName: 'body.step' }];
+      app.loadDocument(doc, null);
+      await app.whenBuilt();
+      volumes.push((await app.kernel.massProperties())!.volume);
+    }
+    return volumes;
+  }, { files, url: '/src/model/document.ts' });
+  expect(volumes[0]).toBeCloseTo(1000 - Math.PI * 2.5 * 2.5 * 10, 2);
+  expect(volumes[1]).toBeCloseTo(424, 2);
+  await expect(page.locator('.ti.error')).toHaveCount(0);
+  expect(errors).toEqual([]);
+});

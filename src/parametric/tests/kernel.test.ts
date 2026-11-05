@@ -617,6 +617,28 @@ describe('feature regeneration', () => {
     expect(reads).toBe(1);
   });
 
+  it('invalidates imported geometry when file data changes under the same key', async () => {
+    const source = new ModelBuilder();
+    await source.build(req([sketch('S1', rect(0, 0, 10, 10)), extrude('E1', 'S1', 10)]));
+    const first = new TextDecoder().decode(source.exportStep());
+    await source.build(req([sketch('S1', rect(0, 0, 10, 10)), extrude('E1', 'S1', 20)]));
+    const second = new TextDecoder().decode(source.exportStep());
+    const imported = new ModelBuilder();
+    const features: Feature[] = [{ id: 'I1', name: 'Import1', type: 'import', format: 'step', blob: 'b1', fileName: 'body.step' }];
+    await imported.build(req(features, { blobs: { b1: first } }));
+    expect(volume(imported)).toBeCloseTo(1000, 5);
+    const changed = await imported.build(req(features, { blobs: { b1: second } }));
+    expect(volume(imported)).toBeCloseTo(2000, 5);
+    const unchanged = await imported.build(req(features, { blobs: { b1: second } }));
+    expect(unchanged.mesh).toBe(changed.mesh);
+    const missing = await imported.build(req(features));
+    expect(missing.status[0]).toMatchObject({ ok: false, error: 'The imported file data is missing' });
+    expect(missing.mesh).toBeNull();
+    const restored = await imported.build(req(features, { blobs: { b1: first } }));
+    expect(restored.status[0].ok).toBe(true);
+    expect(volume(imported)).toBeCloseTo(1000, 5);
+  });
+
   it('projects drawing views with visible and hidden lines', async () => {
     const b = new ModelBuilder();
     // 40 x 20 plate, 10 thick, with a hole through it.
