@@ -39,6 +39,37 @@ async function startSketch(page: Page) {
 }
 
 test.describe('sketching', () => {
+  for (const units of ['IPS', 'MKS'] as const) test(`a selected sketch dimension follows a change to ${units}`, async ({ page }) => {
+    const errors = await openApp(page);
+    await startSketch(page);
+    await page.evaluate(() => {
+      const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+      a.sketchEditor!.edit('Add dimensioned circle', (sk) => {
+        sk.entities.push({ id: 'pc', t: 'point', x: 0, y: 0 }, { id: 'circle', t: 'circle', c: 'pc', r: 12.7 });
+        sk.constraints.push({ id: 'diameter', type: 'diameter', refs: ['circle'], value: 25.4, at: [20, 20], name: 'D1' });
+      });
+      a.selection.set([{ kind: 'skdim', id: 'diameter' }]);
+      a.commands.run('properties');
+    });
+    const properties = page.getByRole('dialog', { name: 'Part Properties', exact: true });
+    await properties.getByRole('combobox', { name: 'Unit system' }).selectOption(units);
+    await properties.getByRole('button', { name: 'OK', exact: true }).click();
+    const field = page.getByRole('textbox', { name: 'Value', exact: true });
+    await expect(field).toHaveValue(units === 'IPS' ? '1' : '0.0254');
+    await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.commands.run('undo'));
+    await expect(field).toHaveValue('25.4');
+    await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.commands.run('redo'));
+    await expect(field).toHaveValue(units === 'IPS' ? '1' : '0.0254');
+    await field.fill('2');
+    await field.press('Enter');
+    const value = await page.evaluate(() => {
+      const ed = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.sketchEditor!;
+      return ed.dimValue(ed.sketch.constraints.find((c) => c.id === 'diameter') as import('../../src/model/types').SkDimension);
+    });
+    expect(value).toBe(units === 'IPS' ? 50.8 : 2000);
+    expect(errors).toEqual([]);
+  });
+
   for (const action of ['Tab', 'Increase Value', 'Driven (reference only)'] as const) test(`leaving an edited dimension for ${action} completes the intended interaction`, async ({ page }) => {
     const errors = await openApp(page);
     const { x, y } = await startSketch(page);

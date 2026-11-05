@@ -94,10 +94,16 @@ export class SketchEditor implements ViewportTool {
     this.tipEl = h('div', { class: 'cursor-tip', hidden: true, 'aria-hidden': 'true' });
     this.app.viewport.root.append(this.tipEl);
     this.resolve(false);
+    let units = app.store.doc.units;
     // Undo and redo replace the geometry a tool may be in the middle of
     // using (a line chain's last point, picked entities): drop that state so
     // the next click cannot reference points that no longer exist.
     this.unsubscribe = app.store.on((reason) => {
+      if (units !== app.store.doc.units) {
+        units = app.store.doc.units;
+        app.refreshSketchPanel();
+        this.render();
+      }
       if (reason !== 'undo' && reason !== 'redo') return;
       if (this.tool) { if (this.tool.abort) this.tool.abort(); else this.tool.cancel(); }
       this.modifyRevert = null;
