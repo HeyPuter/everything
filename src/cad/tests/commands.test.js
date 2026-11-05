@@ -316,6 +316,19 @@ describe('editing commands', () => {
     expect(await angle('3,-10')).toBeCloseTo(135);
   });
 
+  it('asks again when the first line is picked as the second', async () => {
+    await t.type('LINE', '0,0', '20,0', '');
+    await t.type('LINE', '-10,-10', '10,10', '');
+    await t.type('DIMANGULAR');
+    await t.pick(15, 0);
+    await t.pick(10, 0);
+    expect(t.logs.some(([, m]) => m.includes('parallel'))).toBe(false);
+    expect(t.logs.at(-1)).toEqual(['error', 'That line is already picked. Select a different line.']);
+    await t.pick(5, 5);
+    await t.type('10,3');
+    expect((measureDimension(t.all('dimension')[0]) * 180) / Math.PI).toBeCloseTo(45);
+  });
+
   it('dimensions the radius of a polyline arc segment', async () => {
     await t.type('PLINE', '0,0', '10,0', 'A', '10,10', '');
     await t.type('DIMRADIUS');

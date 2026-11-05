@@ -272,8 +272,13 @@ export const DIMANGULAR = {
         if (!q || q.option) return;
         p2 = q;
       } else {
-        const second = await ed.getEntity('Select second line', { filter: (x) => x.type === 'line' });
-        if (!second || second.option) return;
+        let second;
+        for (;;) {
+          second = await ed.getEntity('Select second line', { filter: (x) => x.type === 'line' });
+          if (!second || second.option) return;
+          if (second.id !== pick.id) break;
+          ed.ui.log('That line is already picked. Select a different line.', 'error');
+        }
         const f = second.ent;
         const ip = intersectPrims(toPrims(e)[0], toPrims(f)[0], { extA: true, extB: true });
         if (!ip || !ip.length) {
