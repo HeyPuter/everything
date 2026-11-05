@@ -11,6 +11,7 @@ import { layoutText, textWidth } from '../src/render/font.js';
 import { Batch } from '../src/render/batch.js';
 import { drawSheet, sheetFrame } from '../src/render/sch-scene.js';
 import { SCH_PALETTES } from '../src/render/palette.js';
+import { Settings } from '../src/app/settings.js';
 
 async function boot() {
   document.body.innerHTML = '<div id="app"></div><div id="live-region"></div>';
@@ -499,5 +500,56 @@ describe('paste designators', () => {
     expect(rq).toMatch(/^R\d+$/);
     expect(rq).not.toBe(r);
     expect(tp).toBe('TP1');
+  });
+});
+
+describe('crosshair cursor preferences', () => {
+  const longLines = (ed) => {
+    const seg = ed.overlay.bufs.seg;
+    const out = [];
+    for (let i = 0; i < seg.count; i++) {
+      const o = i * seg.stride;
+      const [x1, y1, x2, y2] = [seg.f[o], seg.f[o + 1], seg.f[o + 2], seg.f[o + 3]].map(
+        (v) => v * 1000,
+      );
+      if (Math.hypot(x2 - x1, y2 - y1) > 500 * ed.nmPerPx) out.push([x1, y1, x2, y2]);
+    }
+    return out;
+  };
+
+  for (const [kind, key] of [
+    ['sch', 'schCrosshair'],
+    ['pcb', 'pcbCrosshair'],
+  ]) {
+    it(`draws a full-view crosshair through the cursor on the ${kind} canvas when ${key} is on`, async () => {
+      app = await boot();
+      if (kind === 'pcb') app.openDoc(app.project.boards[0].id);
+      const ed = withCamera(app.activeEditor);
+      ed.canvas.dispatchEvent(pointer('pointermove', 400, 300));
+      ed.buildOverlay();
+      expect(longLines(ed)).toEqual([]);
+      app.settings.set(key, true);
+      ed.buildOverlay();
+      const lines = longLines(ed);
+      expect(lines.length).toBe(2);
+      const { x, y } = ed.cursor;
+      const [h, v] = lines;
+      expect(h[1]).toBeCloseTo(y, -2);
+      expect(h[3]).toBeCloseTo(y, -2);
+      expect(v[0]).toBeCloseTo(x, -2);
+      expect(v[2]).toBeCloseTo(x, -2);
+      // Hidden once the pointer leaves the canvas.
+      ed.canvas.dispatchEvent(new MouseEvent('pointerleave'));
+      ed.buildOverlay();
+      expect(longLines(ed)).toEqual([]);
+      app.settings.set(key, false);
+    });
+  }
+
+  it('keeps the board crosshair preference across reloads', () => {
+    localStorage.clear();
+    new Settings().set('pcbCrosshair', true);
+    expect(new Settings().get('pcbCrosshair')).toBe(true);
+    localStorage.clear();
   });
 });

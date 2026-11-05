@@ -49,6 +49,9 @@ export class CanvasView extends Emitter {
     // stays at the old density (blurry, or needlessly large).
     this._onDpr = () => { this._watchDpr(); this._resize(); };
     this._watchDpr();
+    this._offSettings = app.settings?.on?.('change', ({ key }) => {
+      if (key === 'schCrosshair' || key === 'pcbCrosshair') this.requestRender(true);
+    });
     this._bindInput();
   }
 
@@ -94,6 +97,19 @@ export class CanvasView extends Emitter {
   }
 
   drawCursor() {}
+
+  /**
+   * Full-view crosshair through the (snapped) cursor, for the crosshair
+   * cursor preferences. Two lines in the overlay, which is rebuilt on pointer
+   * moves anyway, so it costs nothing extra and nothing at all when off.
+   */
+  drawFullCrosshair(b, color) {
+    if (!this.renderer || !this.cursor.inside) return;
+    const v = this.renderer.visibleBox(2);
+    const { x, y } = this.cursor;
+    b.line(v.minX, y, v.maxX, y, 0, color);
+    b.line(x, v.minY, x, v.maxY, 0, color);
+  }
 
   draw() {}
 
@@ -355,6 +371,7 @@ export class CanvasView extends Emitter {
     this.disposed = true;
     cancelAnimationFrame(this._frame);
     this._ro.disconnect();
+    this._offSettings?.();
     this._dprQuery?.removeEventListener?.('change', this._onDpr);
     this.tool?.deactivate?.();
     this.renderer?.dispose();

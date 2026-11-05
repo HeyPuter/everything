@@ -4,7 +4,7 @@
 
 import { CanvasView } from './view.js';
 import { SelectTool } from './select-tool.js';
-import { RouteTool, PlacePcbTool, PolygonTool, LineTool, crosshair } from './pcb-tools.js';
+import { RouteTool, PlacePcbTool, PolygonTool, LineTool } from './pcb-tools.js';
 import { Batch } from '../render/batch.js';
 import { pack, toVec4 } from '../render/color.js';
 import { PCB_PALETTES, layerColor } from '../render/palette.js';
@@ -469,7 +469,7 @@ export class PcbEditor extends CanvasView {
   }
 
   drawCursor(b) {
-    if (this.tool === this.select && this.cursor.inside && this.app.settings.get('pcbCrosshair')) crosshair(b, this, this.cursor.x, this.cursor.y);
+    if (this.app.settings.get('pcbCrosshair')) this.drawFullCrosshair(b, pack(this.palette.crosshair, 0.45));
   }
 
   _updateHud() {

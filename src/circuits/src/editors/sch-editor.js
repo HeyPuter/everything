@@ -4,7 +4,7 @@
 
 import { CanvasView } from './view.js';
 import { SelectTool } from './select-tool.js';
-import { PlacePartTool, WireTool, LabelTool, PowerTool, PortTool, MarkerTool, TextTool, ShapeTool, crosshair } from './sch-tools.js';
+import { PlacePartTool, WireTool, LabelTool, PowerTool, PortTool, MarkerTool, TextTool, ShapeTool } from './sch-tools.js';
 import { Batch } from '../render/batch.js';
 import { pack, toVec4 } from '../render/color.js';
 import { SCH_PALETTES } from '../render/palette.js';
@@ -135,7 +135,7 @@ export class SchEditor extends CanvasView {
   }
 
   drawCursor(b) {
-    if (this.tool === this.select && this.cursor.inside && this.app.settings.get('schCrosshair')) crosshair(b, this, this.cursor.x, this.cursor.y);
+    if (this.app.settings.get('schCrosshair')) this.drawFullCrosshair(b, pack(this.palette.crosshair, 0.55));
   }
 
   // ---- Selection ----
