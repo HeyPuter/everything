@@ -7,6 +7,7 @@ import { comboOf } from '../src/app/commands.js';
 import { setPuterForTests } from '../src/app/puter.js';
 import * as storage from '../src/app/storage.js';
 import { openProjectDialog } from '../src/app/dialogs.js';
+import { openDialog } from '../src/ui/dialog.js';
 import { Project, newProjectData } from '../src/model/project.js';
 
 /** In-memory Origin Private File System, enough for storage.js and history.js. */
@@ -418,5 +419,41 @@ describe('theme button', () => {
     expect(app.themeBtn.getAttribute('aria-label')).toBe('Theme: light');
     app.commands.run('theme.system');
     expect(app.themeBtn.getAttribute('aria-label')).toBe('Theme: match system');
+  });
+});
+
+describe('dialogs', () => {
+  it('lets the keyboard scroll a long body that has nothing focusable', async () => {
+    const proto = HTMLElement.prototype;
+    const sh = Object.getOwnPropertyDescriptor(proto, 'scrollHeight');
+    const ch = Object.getOwnPropertyDescriptor(proto, 'clientHeight');
+    Object.defineProperty(proto, 'scrollHeight', {
+      configurable: true,
+      get() {
+        return 900;
+      },
+    });
+    Object.defineProperty(proto, 'clientHeight', {
+      configurable: true,
+      get() {
+        return 300;
+      },
+    });
+    try {
+      const table = document.createElement('table');
+      const plain = openDialog({ title: 'Shortcuts', body: table });
+      const form = openDialog({ title: 'Form', body: document.createElement('input') });
+      await tick(20);
+      expect(plain.body.tabIndex).toBe(0);
+      expect(plain.body.getAttribute('aria-labelledby')).toBe(plain.el.querySelector('h2').id);
+      expect(form.body.hasAttribute('tabindex')).toBe(false);
+      form.close();
+      plain.close();
+    } finally {
+      if (sh) Object.defineProperty(proto, 'scrollHeight', sh);
+      else delete proto.scrollHeight;
+      if (ch) Object.defineProperty(proto, 'clientHeight', ch);
+      else delete proto.clientHeight;
+    }
   });
 });

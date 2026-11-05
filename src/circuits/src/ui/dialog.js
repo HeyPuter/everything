@@ -69,6 +69,14 @@ export function openDialog({ title, body, actions = [{ label: 'Close', primary: 
   const api = { el: dialog, body: bodyEl, close, result, actions };
   stack.push(api);
   requestAnimationFrame(() => {
+    // A long body with nothing to focus (a table of shortcuts, say) must
+    // still be scrollable from the keyboard.
+    const focusable = bodyEl.querySelector('button, [href], input, select, textarea, [tabindex]');
+    if (!focusable && bodyEl.scrollHeight > bodyEl.clientHeight) {
+      bodyEl.tabIndex = 0;
+      bodyEl.setAttribute('role', 'region');
+      bodyEl.setAttribute('aria-labelledby', titleId);
+    }
     const target = initialFocus?.() || dialog.querySelector('[autofocus], input, select, textarea') || actions.find((a) => a.primary)?.el || dialog.querySelector('button');
     target?.focus();
     if (target?.select && target.type === 'text') target.select();
