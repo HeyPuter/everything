@@ -496,3 +496,23 @@ test('damaged file-list rows do not block startup, opening valid parts, or savin
   await expect(open.getByRole('button', { name: /^Saved copy/ })).toBeVisible();
   expect(errors).toEqual([]);
 });
+
+test('damaged drawing contents are rejected before replacing an unsaved part', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await app(page);
+  await page.evaluate(() => (window as unknown as { __parametric: AppHandle }).__parametric.store.change('Variable', (d) => { d.variables.push({ name: 'Keep', expr: '17' }); }));
+  for (const broken of [{ views: [null] }, { sheet: 'A0', views: [] }]) {
+    const chooser = page.waitForEvent('filechooser');
+    await page.evaluate(() => (window as unknown as { __parametric: AppHandle }).__parametric.commands.run('openDevice'));
+    const text = JSON.stringify({ format: 'parametric-part', version: 1, name: 'Damaged', features: [], drawing: { sheet: 'A4', landscape: true, scale: 1, title: '', drawnBy: '', notes: '', ...broken } });
+    await (await chooser).setFiles({ name: 'damaged.parametric', mimeType: 'application/json', buffer: bytes(text) });
+    const alert = page.getByRole('alert').filter({ hasText: 'invalid drawing' });
+    await expect(alert).toBeVisible();
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await expect(page).toHaveTitle('* Part1 - Parametric');
+    expect(await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.store.doc.variables[0].name)).toBe('Keep');
+    await alert.getByRole('button', { name: 'Dismiss notification' }).click();
+  }
+  expect(errors).toEqual([]);
+});

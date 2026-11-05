@@ -8,6 +8,7 @@ import type { Feature, Id, Param, PartDocument, SkDimension, SketchFeature, Unit
 import { isDimension } from './types';
 import { UNIT_SYSTEMS } from './units';
 import { validSketch } from './validate-sketch';
+import { validDrawing } from './validate-drawing';
 import { solveSketch } from '../sketch/solver';
 
 export const FORMAT = 'parametric-part';
@@ -66,7 +67,7 @@ export function parseDocument(text: string): PartDocument {
   if (doc.rollback != null && !Number.isInteger(doc.rollback)) doc.rollback = null;
   if (typeof doc.color !== 'string' || !/^#[0-9a-f]{6}$/i.test(doc.color)) doc.color = base.color;
   if (doc.material != null && !(isObj(doc.material) && typeof doc.material.name === 'string' && Number.isFinite(doc.material.density))) doc.material = null;
-  if (doc.drawing != null && !(isObj(doc.drawing) && Array.isArray(doc.drawing.views))) doc.drawing = null;
+  if (doc.drawing != null && !validDrawing(doc.drawing)) throw new Error('The part file is damaged (invalid drawing).');
   for (const f of doc.features) if (typeof f.name !== 'string' || !f.name) f.name = f.id;
   // New feature ids must not collide with existing ones, even when the file's
   // counter is missing or stale.

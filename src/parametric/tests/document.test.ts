@@ -110,7 +110,7 @@ describe('document store', () => {
       ...raw,
       variables: [null, { name: 5 }, { id: 'v2', name: 'W', expr: 10 }, { name: 'H', expr: '2*W' }],
       features: [...raw.features, { id: 'f3', type: 'plane' }],
-      blobs: 5, material: 'steel', color: 7, drawing: { views: 3 },
+      blobs: 5, material: 'steel', color: 7, drawing: null,
     }));
     expect(doc.variables.map((v) => [v.id, v.name, v.expr])).toEqual([['v2', 'W', '10'], ['v4', 'H', '2*W']]);
     expect(new DocStore(doc).resolve().variables.get('H')).toBe(20);
@@ -304,5 +304,30 @@ describe('loading during a change batch', () => {
     expect(st.undoLabel).toBe('Rename');
     st.undo();
     expect(st.doc.name).toBe('New part');
+  });
+});
+
+describe('drawing file validation', () => {
+  const view = { id: 'v1', kind: 'front', x: 70, y: 80, hidden: true, dims: true };
+  const drawing = { sheet: 'A4', landscape: true, scale: 1, views: [view], title: '', drawnBy: '', notes: '' };
+
+  it.each([
+    { views: [null] }, { views: {} }, { sheet: 'A0' }, { sheet: 'constructor' },
+    { landscape: 'yes' }, { scale: 0 }, { scale: -1 }, { scale: '1' }, { scale: 1e400 },
+    { views: [{ ...view, kind: 'constructor' }] }, { views: [{ ...view, x: null }] },
+    { views: [{ ...view, y: '20' }] }, { views: [{ ...view, hidden: 'yes' }] },
+    { views: [{ ...view, dims: null }] }, { views: [{ ...view, id: '' }] },
+    { views: [view, view] }, { title: {} }, { drawnBy: 5 }, { notes: [] },
+  ])('rejects damaged drawing data %j before opening', (broken) => {
+    expect(() => parseDocument(JSON.stringify({ ...newDocument(), drawing: { ...drawing, ...broken } }))).toThrow(/damaged.*drawing/);
+  });
+
+  it('preserves all supported sheets and view directions, including custom scales and off-sheet positions', () => {
+    for (const sheet of ['A4', 'A3', 'A2', 'A1', 'Letter', 'Tabloid']) {
+      const views = ['front', 'back', 'left', 'right', 'top', 'bottom', 'isometric'].map((kind, i) => ({ ...view, id: `v${i}`, kind, x: -20, y: 900, hidden: false, dims: false }));
+      const raw = { ...newDocument(), drawing: { ...drawing, sheet, landscape: false, scale: 0.037, views, title: 'Bracket', drawnBy: 'Designer', notes: 'First issue' } };
+      expect(parseDocument(JSON.stringify(raw))).toEqual(raw);
+    }
+    expect(parseDocument(JSON.stringify({ ...newDocument(), drawing: { ...drawing, views: [] } })).drawing?.views).toEqual([]);
   });
 });
