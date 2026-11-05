@@ -25,6 +25,34 @@ const apply = (m, [x, y]) => [m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + 
 
 /* ---------- Text ---------- */
 
+/**
+ * Where each character of a PDF.js text item starts, and where the last one ends, along its
+ * width: in proportion to the standard face of its kind, or evenly for a fixed-width face or
+ * text the standard faces cannot write. PDF.js gives the width of the whole item only.
+ */
+function characterOffsets(str, width, family) {
+  const chars = [...str];
+  let widths = null;
+  if (family !== 'monospace')
+    try {
+      const face = StandardFontEmbedder.for(
+        family === 'serif' ? StandardFonts.TimesRoman : StandardFonts.Helvetica,
+      );
+      widths = chars.map((char) => face.widthOfTextAtSize(char, 1000));
+    } catch {
+      widths = null;
+    }
+  const total = widths?.reduce((sum, w) => sum + w, 0);
+  if (!(total > 0)) widths = chars.map(() => 1);
+  const offsets = [0];
+  const scale = width / (total > 0 ? total : chars.length);
+  // Offsets are by UTF-16 position, as the item's text is sliced.
+  for (const [i, char] of chars.entries())
+    for (let unit = 0; unit < char.length; unit++)
+      offsets.push(offsets.at(-1) + (unit === char.length - 1 ? widths[i] * scale : 0));
+  return offsets;
+}
+
 /** PDF.js text items (user space of the unrotated page), turned by `turn`, as horizontal runs. */
 function fromTextContent(textContent, turn = identity) {
   const items = [];
@@ -34,7 +62,15 @@ function fromTextContent(textContent, turn = identity) {
     // Rotated and vertical text is not a form label; skip it rather than guess its extent.
     if (Math.abs(b) > 1e-3 * Math.abs(a) || a <= 0 || !Number.isFinite(item.width)) continue;
     const size = Math.hypot(c, d) || item.height || 10;
-    items.push({ str: item.str, x, y, width: item.width, size });
+    const family = textContent.styles?.[item.fontName]?.fontFamily;
+    items.push({
+      str: item.str,
+      x,
+      y,
+      width: item.width,
+      size,
+      offsets: characterOffsets(item.str, item.width, family),
+    });
   }
   return items;
 }
@@ -107,6 +143,8 @@ function extractText(doc, page, turn = identity) {
       const start = matrix(gs.ctm, tm);
       let text = '',
         advance = 0;
+      // Where each character starts, for blanks that share an item with their label.
+      const offsets = [];
       for (const part of parts) {
         if (typeof part === 'number') {
           advance -= (part / 1000) * gs.size * gs.tz;
@@ -117,7 +155,10 @@ function extractText(doc, page, turn = identity) {
           const code = metrics.twoByte
             ? (part.charCodeAt(i) << 8) | part.charCodeAt(i + 1)
             : part.charCodeAt(i);
-          if (!metrics.twoByte) text += String.fromCharCode(code);
+          if (!metrics.twoByte) {
+            text += String.fromCharCode(code);
+            offsets.push(advance);
+          }
           const space = !metrics.twoByte && code === 32 ? gs.tw : 0;
           advance += ((metrics.width(code) / 1000) * gs.size + gs.tc + space) * gs.tz;
         }
@@ -132,6 +173,7 @@ function extractText(doc, page, turn = identity) {
           y,
           width: advance * scaleX,
           size: gs.size * scaleY,
+          offsets: [...offsets, advance].map((offset) => offset * scaleX),
         });
       tm = matrix(tm, [1, 0, 0, 1, advance, 0]);
     };
@@ -196,6 +238,8 @@ function textLayout(items) {
     pieces = [];
   for (const item of items) {
     const perChar = item.width / Math.max(1, item.str.length);
+    // Where character `i` starts: from the item's own advances, or evenly spread.
+    const at = (i) => item.offsets?.[i] ?? i * perChar;
     const pattern = /_{3,}/g;
     let last = 0,
       match;
@@ -204,18 +248,19 @@ function textLayout(items) {
       if (str.trim())
         pieces.push({
           str,
-          x: item.x + from * perChar,
+          x: item.x + at(from),
           y: item.y,
-          width: (to - from) * perChar,
+          width: at(to) - at(from),
           size: item.size,
         });
     };
     while ((match = pattern.exec(item.str))) {
       piece(last, match.index);
+      const end = match.index + match[0].length;
       blanks.push({
-        x: item.x + match.index * perChar,
+        x: item.x + at(match.index),
         y: item.y,
-        width: match[0].length * perChar,
+        width: at(end) - at(match.index),
         size: item.size,
       });
       last = match.index + match[0].length;

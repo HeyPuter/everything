@@ -1140,3 +1140,28 @@ it('lists fields made by other tools', async () => {
   expect(doc.getForm().acroForm.dict.lookup(name('DR')) instanceof PDFDict).toBe(true);
   expect(page.node.lookup(name('Annots')) instanceof PDFArray).toBe(true);
 });
+
+it('puts a detected blank over its underscores, whatever the widths of its label', async () => {
+  const doc = await PDFDocument.create();
+  const page = doc.addPage([612, 792]);
+  const lines = [
+    // Narrow letters before the blank, then wide ones; a serif face; a fixed-width one.
+    ['Zip: ', StandardFonts.Helvetica, 700],
+    ['WWW MMM: ', StandardFonts.Helvetica, 650],
+    ['Initials: ', StandardFonts.TimesRoman, 600],
+    ['Zip: ', StandardFonts.Courier, 550],
+  ];
+  const starts = [];
+  for (const [label, face, y] of lines) {
+    const font = await doc.embedFont(face);
+    page.drawText(`${label}______________`, { x: 50, y, size: 12, font });
+    starts.push(50 + font.widthOfTextAtSize(label, 12));
+  }
+  const bytes = await doc.save();
+  const textContent = await withPdfjs(bytes, (p) => p.getTextContent());
+  for (const options of [{}, { textContent }]) {
+    const found = detectFormFields(await PDFDocument.load(bytes), 0, options);
+    expect(found).toHaveLength(4);
+    found.forEach(({ rect }, i) => expect(Math.abs(rect.x - starts[i])).toBeLessThan(1.5));
+  }
+});
