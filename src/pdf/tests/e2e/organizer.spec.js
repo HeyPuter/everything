@@ -481,3 +481,30 @@ test('a tile clicked in Organize pages is where the keyboard comes back to', asy
   await expect(third).toBeFocused();
   await expect(grid.locator('[tabindex="0"]')).toHaveCount(1);
 });
+
+test('the Organize pages toolbar keeps the focus on the button pressed', async ({ page }) => {
+  await mockPuter(page);
+  await page.goto('/#library');
+  await openPdf(page, await tallPdf());
+  await page.getByRole('button', { name: 'Tools', exact: true }).click();
+  await page
+    .getByRole('complementary', { name: 'Tools' })
+    .getByRole('button', { name: 'Organize pages', exact: true })
+    .click();
+  const toolbar = page.getByRole('toolbar', { name: 'Organize pages' });
+  for (const name of ['Rotate clockwise', 'Duplicate pages', 'Move pages later']) {
+    const control = toolbar.getByRole('button', { name, exact: true });
+    await control.focus();
+    await page.keyboard.press('Enter');
+    await settled(page);
+    // Disabled while the PDF was redrawn, the button had dropped the focus on the page.
+    await expect(control).toBeFocused();
+  }
+  const remove = toolbar.getByRole('button', { name: 'Delete pages', exact: true });
+  await remove.focus();
+  await page.keyboard.press('Enter');
+  await page.getByRole('dialog').getByRole('button', { name: 'Delete page', exact: true }).click();
+  await settled(page);
+  await expect(page.locator('.organize-status')).toHaveText('3 pages');
+  await expect(remove).toBeFocused();
+});

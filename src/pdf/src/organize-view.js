@@ -59,7 +59,18 @@ export function createOrganizeView({
   const after = () => (selected.size ? indices().at(-1) : count() - 1);
   const run = (fn) => async () => {
     if (isBusy()) return;
+    const pressed = root.contains(document.activeElement) ? document.activeElement : null;
     await fn();
+    // The buttons are disabled while the PDF is redrawn, which drops the focus of the one
+    // pressed from the keyboard; it takes the focus back for the next press, unless the focus
+    // has moved on meanwhile.
+    if (
+      visible &&
+      pressed?.isConnected &&
+      !pressed.disabled &&
+      (!document.activeElement || document.activeElement === document.body)
+    )
+      pressed.focus({ preventScroll: true });
   };
   async function duplicateChosen() {
     const list = target();
