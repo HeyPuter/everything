@@ -444,6 +444,23 @@ describe('feature regeneration', () => {
     expect(await error([...base, extrude('E2', 'S2', 5, { cut: true, flip: true }), pattern('E2')])).toBeUndefined();
   });
 
+  it('reports selected regions that a sketch edit moved away', async () => {
+    const b = new ModelBuilder();
+    const two = (bx: number) => sketch('S1', [...circle(0, 0, 5, 'ca'), ...circle(bx, 0, 5, 'cb')]);
+    const both = extrude('E1', 'S1', 10, { contours: [[0, 0], [20, 0]] });
+    const onlyB = extrude('E1', 'S1', 10, { contours: [[20, 0]] });
+    expect((await b.build(req([two(20), both]))).status[1]).toEqual({ id: 'E1', ok: true });
+    expect(volume(b)).toBeCloseTo(2 * Math.PI * 250, 0);
+    // The second circle moved: the first region is still built, with a warning.
+    let r = await b.build(req([two(50), both]));
+    expect(r.status[1].ok).toBe(true);
+    expect(r.status[1].warning).toMatch(/no longer in the sketch/);
+    expect(volume(b)).toBeCloseTo(Math.PI * 250, 0);
+    r = await b.build(req([two(50), onlyB]));
+    expect(r.status[1].ok).toBe(false);
+    expect(r.status[1].error).toMatch(/no longer in the sketch/);
+  });
+
   it('reports a useful error for an open profile and keeps building later features', async () => {
     const b = new ModelBuilder();
     const open = [{ id: 'a', t: 'point', x: 0, y: 0 }, { id: 'b', t: 'point', x: 10, y: 0 }, { id: 'l', t: 'line', a: 'a', b: 'b' }] as any[];

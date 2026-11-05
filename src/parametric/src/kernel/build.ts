@@ -21,7 +21,7 @@ import type {
 } from '../model/types';
 import { dependencies } from '../model/features';
 import { BASE_FRAMES } from '../model/planes';
-import { type Region, type Seg2, buildProfiles, segPolyline, sketchPoints } from '../sketch/profiles';
+import { type Region, type Seg2, buildProfiles, inRegion, segPolyline, sketchPoints } from '../sketch/profiles';
 import { SketchIndex, splineBeziers } from '../sketch/geom';
 import type {
   BuildRequest, BuildResult, EdgeInfo, FaceInfo, FeatureStatus, MassProperties, MeasureResult, MeasureTarget, MeshData,
@@ -449,10 +449,15 @@ export class ModelBuilder {
     const frame = st.frames.get(sketchId);
     if (!sketch || !frame) throw new FeatureError('The profile sketch is missing or failed to build');
     const prof = buildProfiles(sketch.entities, picks);
+    // Selected regions are kept as points inside them; a sketch edit can
+    // move a region off its point.
+    const lost = picks?.length ? picks.filter((p) => !prof.all.some((r) => inRegion(p, r))).length : 0;
+    if (lost && lost === picks!.length && prof.all.length) throw new FeatureError('The selected regions are no longer in the sketch. Edit the feature and select them again.');
     if (!prof.regions.length) {
       throw new FeatureError(prof.openEnds.length ? 'The sketch has open contours. Close the profile to use it.' : 'The sketch has no closed profile');
     }
-    if (prof.openEnds.length && !picks?.length) this.warning = 'Open contours in the sketch were ignored';
+    if (lost) this.warning = 'A selected region is no longer in the sketch and was left out. Edit the feature and select the regions again.';
+    else if (prof.openEnds.length && !picks?.length) this.warning = 'Open contours in the sketch were ignored';
     return { regions: prof.regions, frame, sketch };
   }
 
