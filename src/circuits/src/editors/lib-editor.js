@@ -773,7 +773,8 @@ export class LibEditor extends CanvasView {
     const body = fm.body || null;
     const setBody = (patch) => setFp({ body: { w: mm(2), h: mm(2), height: mm(1), color: '#222222', shape: 'box', ...(fm.body || {}), ...patch } }, '3D body');
     const params = Object.entries(meta.params || {}).map(([k, v]) => `${k}=${v}`).join('\n');
-    const issues = validateComponent(this.doc.toDef());
+    const def = this.doc.toDef();
+    const issues = validateComponent(def);
     return {
       title: 'Component',
       sections: [
@@ -795,7 +796,7 @@ export class LibEditor extends CanvasView {
         {
           title: 'Footprint',
           fields: [
-            { label: 'Has a footprint', type: 'bool', value: fm.enabled !== false, onChange: (v) => setFp({ enabled: v }, 'Footprint') },
+            { label: 'Has a footprint', type: 'bool', value: !!def.footprint, onChange: (v) => setFp({ enabled: v }, 'Footprint') },
             { label: 'Footprint name', type: 'text', value: fm.name || '', onChange: (v) => setFp({ name: v }, 'Footprint name') },
             { label: 'Description', type: 'text', value: fm.description || '', onChange: (v) => setFp({ description: v }, 'Footprint description') },
             { label: 'Courtyard', type: 'readonly', value: fm.courtyard ? `${formatLength(fm.courtyard.x2 - fm.courtyard.x1, 'mm')} x ${formatLength(fm.courtyard.y2 - fm.courtyard.y1, 'mm')}` : 'None' },

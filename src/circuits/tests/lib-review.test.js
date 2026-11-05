@@ -1,8 +1,9 @@
 // Component library review: wizard and component dialog edge cases.
 import { describe, it, expect, vi } from 'vitest';
-import { mm } from '../src/core/units.js';
+import { mil, mm } from '../src/core/units.js';
+import { LibDoc } from '../src/editors/lib-editor.js';
 import { findWizard } from '../src/model/library/wizards.js';
-import { searchComponents } from '../src/model/library/builtin.js';
+import { findComponent, searchComponents } from '../src/model/library/builtin.js';
 import { overlappingPads } from '../src/model/library/footprints.js';
 import { newComponentDialog } from '../src/app/lib-dialogs.js';
 import { Project, newProjectData } from '../src/model/project.js';
@@ -95,5 +96,40 @@ describe('component search', () => {
     expect(headers.indexOf('Header 1x10')).toBeGreaterThan(headers.indexOf('Header 1x9'));
     const radial = searchComponents('electrolytic radial').map((d) => d.name);
     expect(radial[radial.length - 1]).toBe('Electrolytic 10x16 radial');
+  });
+});
+
+describe('component editor footprint switch', () => {
+  it('drops the footprint when it is switched off and adds one when pads are drawn', () => {
+    const doc = new LibDoc({ def: structuredClone(findComponent('res-0603')) });
+    expect(doc.toDef().footprint.pads).toHaveLength(2);
+    doc.fpStore.transact('Footprint', (s) => s.update('fpmeta', { enabled: false }));
+    expect(doc.toDef().footprint).toBe(null);
+    doc.fpStore.undo();
+    expect(doc.toDef().footprint.pads).toHaveLength(2);
+
+    const logo = {
+      id: 'logo',
+      name: 'Logo',
+      prefix: 'LOGO',
+      symbol: { pins: [], graphics: [{ t: 'circle', cx: 0, cy: 0, r: mil(100), w: 0 }] },
+      footprint: null,
+    };
+    const doc2 = new LibDoc({ def: logo });
+    expect(doc2.toDef().footprint).toBe(null);
+    doc2.fpStore.transact('Place pad', (s) =>
+      s.add({
+        t: 'pad',
+        num: '1',
+        x: 0,
+        y: 0,
+        shape: 'round',
+        w: mm(1),
+        h: mm(1),
+        side: 'top',
+        rot: 0,
+      }),
+    );
+    expect(doc2.toDef().footprint.pads).toHaveLength(1);
   });
 });

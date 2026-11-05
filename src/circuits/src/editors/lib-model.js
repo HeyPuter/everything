@@ -45,7 +45,7 @@ export function defToObjects(def) {
   if (sym.designatorPos) symbolObjs.push({ t: 'anchor', which: 'designator', x: sym.designatorPos.x, y: sym.designatorPos.y });
   if (sym.valuePos) symbolObjs.push({ t: 'anchor', which: 'value', x: sym.valuePos.x, y: sym.valuePos.y });
   const fp = def.footprint;
-  const fpmeta = { id: 'fpmeta', t: 'fpmeta', enabled: !!fp, name: fp?.name || '', description: fp?.description, courtyard: fp?.courtyard ? { ...fp.courtyard } : undefined, body: fp?.body ? { ...fp.body } : undefined, dupPads: fp?.dupPads };
+  const fpmeta = { id: 'fpmeta', t: 'fpmeta', enabled: fp ? true : undefined, name: fp?.name || '', description: fp?.description, courtyard: fp?.courtyard ? { ...fp.courtyard } : undefined, body: fp?.body ? { ...fp.body } : undefined, dupPads: fp?.dupPads };
   const footprintObjs = [fpmeta];
   for (const p of fp?.pads || []) footprintObjs.push({ t: 'pad', ...structuredClone(p) });
   for (const g of fp?.graphics || []) footprintObjs.push(structuredClone(g));
@@ -69,7 +69,9 @@ export function objectsToDef(symbolObjs, footprintObjs) {
   let footprint = null;
   const pads = footprintObjs.filter((o) => o.t === 'pad').map(strip);
   const graphics = footprintObjs.filter((o) => GRAPHIC_TYPES.has(o.t)).map(stripId);
-  if (fpmeta.enabled !== false || pads.length || graphics.length) {
+  // The "Has a footprint" switch decides; while it is unset (a symbol-only
+  // component), drawing pads or graphics adds a footprint.
+  if (fpmeta.enabled ?? (pads.length > 0 || graphics.length > 0)) {
     footprint = { name: fpmeta.name || meta.name || 'Footprint', pads, graphics };
     if (fpmeta.description) footprint.description = fpmeta.description;
     if (fpmeta.courtyard) footprint.courtyard = { ...fpmeta.courtyard };
