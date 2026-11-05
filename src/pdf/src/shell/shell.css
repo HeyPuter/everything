@@ -1504,6 +1504,31 @@
   grid-template-columns: 1fr 1fr;
   gap: 2px 16px;
 }
+/* A visible file picker (the digital ID file) with the app's own button, full size to tap,
+   in place of the browser's small grey one. */
+.file-input {
+  max-width: 100%;
+  font-size: 13px;
+  color: var(--muted);
+}
+.file-input::file-selector-button {
+  min-height: 38px;
+  margin-right: 10px;
+  padding: 8px 14px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+}
+@media (hover: hover) {
+  .file-input::file-selector-button:hover {
+    background: var(--surface-2);
+    border-color: var(--strong);
+  }
+}
 /* Download pages as images: on a phone each choice gets the dialog's width, so it reads whole. */
 @media (max-width: 520px) {
   .field-grid.image-export-fields {

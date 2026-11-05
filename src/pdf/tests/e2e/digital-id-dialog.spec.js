@@ -117,6 +117,23 @@ test('each digital ID choice sits beside its radio button', async ({ page }) => 
   }
 });
 
+test('the digital ID file picker has a full-size button like the dialog’s others', async ({
+  page,
+}) => {
+  const chooser = await openChooser(page);
+  const picker = chooser.getByLabel('Digital ID file', { exact: true });
+  const cancel = chooser.getByRole('button', { name: 'Cancel', exact: true });
+  // It was the browser's small grey "Choose File" button, about 21 px tall.
+  const [height, other] = await Promise.all([
+    picker.evaluate((node) => node.getBoundingClientRect().height),
+    cancel.evaluate((node) => node.getBoundingClientRect().height),
+  ]);
+  expect(height).toBeGreaterThanOrEqual(other - 1);
+  const chosen = page.waitForEvent('filechooser');
+  await picker.click();
+  expect((await chosen).isMultiple()).toBe(false);
+});
+
 test('a digital ID that cannot be used hands the focus to the field to fix', async ({ page }) => {
   const { createSelfSignedId, exportPkcs12 } = await import('../../src/core/digital-signature.js');
   const identity = await createSelfSignedId({ name: 'Ada Lovelace', keyType: 'P-256' });

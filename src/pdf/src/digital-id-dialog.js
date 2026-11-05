@@ -77,7 +77,11 @@ export function chooseDigitalId(identities = [], { signal } = {}) {
         el('span', {}, 'Create a new digital ID'),
       ),
     );
-    const file = el('input', { type: 'file', accept: '.pfx,.p12,application/x-pkcs12' });
+    const file = el('input', {
+      type: 'file',
+      class: 'file-input',
+      accept: '.pfx,.p12,application/x-pkcs12',
+    });
     const filePassword = el('input', {
       type: 'password',
       class: 'input',
