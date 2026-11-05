@@ -11,6 +11,7 @@ import type { MaterialRef, SkDimension, UnitSystem, Variable } from '../model/ty
 import { UNIT_SYSTEMS, formatNumber } from '../model/units';
 import { BASE_FRAMES } from '../model/planes';
 import { MATERIALS } from '../model/materials';
+import { uniqueId } from '../model/ids';
 import { mirrorEntities, offsetCurves } from '../sketch/ops';
 import { convertEdges } from '../sketch/convert';
 import { setThemeChoice, getThemeChoice, type ThemeChoice } from '../platform/theme';
@@ -99,10 +100,7 @@ export async function equationsDialog(app: App) {
   add.addEventListener('click', () => {
     let n = rows.length + 1;
     while (rows.some((r) => r.name === `Var${n}`)) n++;
-    let id: string;
-    do { id = `v${crypto.getRandomValues(new Uint32Array(4)).join('-')}`; } while (variableIds.has(id));
-    variableIds.add(id);
-    rows.push({ id, name: `Var${n}`, expr: '10' });
+    rows.push({ id: uniqueId('v', variableIds), name: `Var${n}`, expr: '10' });
     draw();
     (tbody.querySelector('tr:last-child input') as HTMLInputElement | null)?.focus();
   });

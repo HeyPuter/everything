@@ -11,6 +11,7 @@ import { changeUnits } from '../model/document';
 import { evaluate, evaluateVariables, reservedName } from '../model/expr';
 import { consumedSketches, defaultName, dependencies, newSketch } from '../model/features';
 import { MATERIALS } from '../model/materials';
+import { uniqueId } from '../model/ids';
 import type { DrawingViewKind, Feature, FeatureType, Id, PartDocument, SketchFeature, UnitSystem } from '../model/types';
 import { UNIT_SYSTEMS } from '../model/units';
 import type { ViewName } from '../render/camera';
@@ -783,6 +784,7 @@ class Toolkit {
 
   async setVariables(a: Obj): Promise<string> {
     const vars = structuredClone(this.doc.variables);
+    const usedIds = new Set(vars.map((v) => v.id));
     for (const n of list(a.delete).map(str)) {
       const i = vars.findIndex((v) => v.name === n);
       if (i < 0) throw new ToolError(`delete: no variable "${n}"`);
@@ -797,7 +799,7 @@ class Toolkit {
       if (!expr) throw new ToolError(`set[${i}].value: give a number or an expression`);
       const cur = vars.find((v) => v.name === name);
       if (cur) cur.expr = expr;
-      else vars.push({ id: `v${Date.now().toString(36)}${i}`, name, expr });
+      else vars.push({ id: uniqueId('v', usedIds), name, expr });
     });
     const { values, errors } = evaluateVariables(vars);
     if (errors.size) throw new ToolError(`variables would have errors: ${[...errors].map(([n, m]) => `${n}: ${m}`).join('; ')}. Nothing was changed.`);
