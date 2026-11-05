@@ -269,4 +269,19 @@ describe('assistant tools', () => {
     await h.call('edit_feature', { feature: hole, params: { depth: 3 } });
     expect(await h.volume()).toBeCloseTo(40000 - Math.PI * 25 * 4 - Math.PI * 9 * 3, 1);
   });
+
+  it('refuses hole centres it would drop, instead of drilling elsewhere and reporting it done', async () => {
+    const { h } = await plate();
+    await h.call('create_sketch', { plane: 'top', shapes: [{ type: 'point', at: [0, 0] }] });
+    const sk = h.store.doc.features.at(-1)!.id;
+    const r = await h.call('add_hole', { sketch: sk, points: [[10, 10], [20, 10]], diameter: 4 }, false);
+    expect(r.ok).toBe(false);
+    expect(r.content).toMatch(/not both.*edit_sketch/);
+    await h.call('add_hole', { on: topFace(h), points: [[-30, 10, -15]], diameter: 6 });
+    const hole = h.store.doc.features.at(-1)!.id;
+    const e = await h.call('edit_feature', { feature: hole, params: { on: topFace(h), points: [[30, 10, 15]] } }, false);
+    expect(e.ok).toBe(false);
+    expect(e.content).toMatch(/stand-alone points of its sketch s\d+: move or add them with edit_sketch/);
+    expect(await h.volume()).toBeCloseTo(40000 - Math.PI * 9 * 10, 1);
+  });
 });

@@ -670,6 +670,10 @@ class Toolkit {
     const args = { ...a };
     const pre: SketchFeature[] = [];
     const notes: string[] = [];
+    // Points beside an existing sketch would be dropped, and the holes drilled at that sketch's points only.
+    if (type === 'hole' && args.sketch != null && (args.on != null || args.points != null)) {
+      throw new ToolError('give either "sketch" (its stand-alone points are the hole centres) or "on" with "points", not both. To add centres to an existing sketch, use edit_sketch with shapes of type "point".');
+    }
     if (type === 'hole' && args.sketch == null) {
       if (args.on == null || args.points == null) throw new ToolError('give "sketch" (with stand-alone points) or "on" and "points"');
       const plane = this.refs.plane(args.on, 'on');
@@ -731,6 +735,8 @@ class Toolkit {
       const add = TOOLS.find((t) => t.name === ADD_TOOLS[f.type]);
       const unknown = add && unknownArgs(add, params, 'params.', ['name']);
       if (unknown) throw new ToolError(`${unknown.replace(add.name, `${f.id} (${f.type})`)} (A new name goes in "name", next to params.)`);
+      // add_hole takes these to make the position sketch; an existing hole's centres are its sketch's points.
+      if (f.type === 'hole' && (params.on != null || params.points != null)) throw new ToolError(`the centres of ${f.id} are the stand-alone points of its sketch ${f.sketch}: move or add them with edit_sketch (move_points, or shapes of type "point"). Nothing was changed.`);
       next = this.ins.codec.build(f.type, params, f, f.id, f.name);
     }
     if (a.name != null && str(a.name)) next.name = str(a.name);
