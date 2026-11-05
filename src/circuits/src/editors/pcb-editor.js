@@ -258,6 +258,7 @@ export class PcbEditor extends CanvasView {
     const col = pack(this.palette.ratsnest, 0.85);
     for (const l of a.ratsnest) {
       if (this.highlight && l.net !== this.highlight.net) continue;
+      if (this._ratsSkip?.has(l.net)) continue;
       b.line(l.x1, l.y1, l.x2, l.y2, 0, col);
     }
     b.touch();
@@ -650,6 +651,8 @@ export class PcbEditor extends CanvasView {
     const movingComps = new Set(base.filter((o) => o.t === 'comp').map((o) => o.id));
     const nets = new Set();
     for (const o of base) if (o.t === 'comp') for (const n of Object.values(o.padNets || {})) if (n) nets.add(n);
+    // The live ratsnest replaces these nets' lines, which still end at the old place.
+    if (nets.size) { this._ratsSkip = nets; this._rebuildRats(); }
     return {
       ids, anchor,
       update(ndx, ndy) { dx = ndx; dy = ndy; ed._lastClick = { x: anchor.x, y: anchor.y }; ed.requestRender(true); },
@@ -709,6 +712,7 @@ export class PcbEditor extends CanvasView {
   }
 
   _endMove() {
+    if (this._ratsSkip) { this._ratsSkip = null; this._rebuildRats(); }
     this.hidden.clear();
     this._dirtyLayers.add('*');
     this._scheduleLabels();

@@ -269,3 +269,23 @@ describe('route width', () => {
     expect(ed.tool.trace.width).toBe(500_000);
   });
 });
+
+describe('ratsnest while dragging', () => {
+  it('hides the dragged part nets from the static ratsnest until the move ends', async () => {
+    ctx = await bootBoard();
+    const { ed } = ctx;
+    ed._rebuildRats();
+    const before = ed.ratsBatch.bufs.seg.count;
+    const u1 = [...ed.doc.items()].find((o) => o.designator === 'U1');
+    const nets = new Set(Object.values(u1.padNets).filter(Boolean));
+    const others = ed.analysis().ratsnest.filter((l) => !nets.has(l.net)).length;
+    const mv = ed.beginMove([u1.id], { x: u1.x, y: u1.y });
+    expect(ed.ratsBatch.bufs.seg.count).toBe(others);
+    mv.update(5_000_000, 0);
+    const live = new Batch();
+    mv.draw(live);
+    expect(live.bufs.seg.count).toBeGreaterThan(0);
+    mv.cancel();
+    expect(ed.ratsBatch.bufs.seg.count).toBe(before);
+  });
+});
