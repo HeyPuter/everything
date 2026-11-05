@@ -439,3 +439,47 @@ test('Apply redactions says its hidden-information option also takes links', asy
   const saved = await PDFDocument.load(await readFile(await (await download).path()));
   expect(saved.getPage(0).node.lookup(PDFName.of('Annots'))?.size() ?? 0).toBe(0);
 });
+
+test('Redact pages covers a page whose media box lists its corners the other way round', async ({
+  page,
+}) => {
+  await page.route('https://js.puter.com/**', (route) =>
+    route.fulfill({ contentType: 'application/javascript', body: PUTER_MOCK }),
+  );
+  await page.goto('/#library');
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const sheet = doc.addPage([612, 792]);
+  sheet.drawText('Shown INSIDE', { x: 100, y: 300, size: 14, font });
+  // Hidden by the crop box but still in the page's content.
+  sheet.drawText('Cropped OUTSIDE', { x: 10, y: 20, size: 14, font });
+  sheet.drawText('Cropped ABOVE', { x: 520, y: 760, size: 14, font });
+  sheet.node.set(PDFName.of('MediaBox'), doc.context.obj([612, 792, 0, 0]));
+  sheet.node.set(PDFName.of('CropBox'), doc.context.obj([50, 50, 500, 700]));
+  const chooser = page.waitForEvent('filechooser');
+  await page.getByRole('button', { name: /Open a PDF/ }).click();
+  await (
+    await chooser
+  ).setFiles({
+    name: 'reversed.pdf',
+    mimeType: 'application/pdf',
+    buffer: Buffer.from(await doc.save()),
+  });
+  await expect(page.locator('.page-caption')).toHaveText('Page 1 of 1');
+  await page.getByRole('button', { name: 'Tools', exact: true }).click();
+  const pane = page.getByRole('complementary', { name: 'Tools' });
+  await pane.getByRole('button', { name: 'Redact a PDF', exact: true }).click();
+  await pane.getByRole('button', { name: 'Redact pages…' }).click();
+  await page
+    .getByRole('dialog', { name: 'Redact pages' })
+    .getByRole('button', { name: 'Mark pages' })
+    .click();
+  await settled(page);
+  await pane.getByRole('button', { name: 'Apply redactions…' }).click();
+  const confirm = page.getByRole('dialog', { name: 'Apply redactions' });
+  await confirm.getByLabel(/Also remove hidden information/).uncheck();
+  await confirm.getByRole('button', { name: 'Apply', exact: true }).click();
+  await settled(page);
+  // The mark took only the crop box: [612 792 0 0] read as starting at 612 and running back.
+  await expect(page.locator('#toast')).toContainText('removed 40 characters');
+});

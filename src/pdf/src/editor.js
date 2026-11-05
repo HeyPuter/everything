@@ -8953,13 +8953,11 @@ export function createEditor({
           for (const index of indices) {
             const page = doc.getPage(index);
             // The whole page, including what its crop box hides but the file still holds.
+            // A box may list its corners either way round ([612 792 0 0]).
             const boxes = [page.getMediaBox(), page.getCropBox()];
-            const area = [
-              Math.min(...boxes.map((box) => box.x)),
-              Math.min(...boxes.map((box) => box.y)),
-              Math.max(...boxes.map((box) => box.x + box.width)),
-              Math.max(...boxes.map((box) => box.y + box.height)),
-            ];
+            const xs = boxes.flatMap((box) => [box.x, box.x + box.width]),
+              ys = boxes.flatMap((box) => [box.y, box.y + box.height]);
+            const area = [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
             addRedactionMarks(doc, index, [area], redactionStyle);
           }
         },
