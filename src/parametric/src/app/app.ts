@@ -678,6 +678,8 @@ export class App {
       const previous = this.documentLifetime;
       this.documentLifetime = new AbortController();
       previous.abort();
+      // A section belongs to the replaced part, not to the next document's geometry.
+      this.renderer.section = null;
       this.applyModelColor();
       this.refreshAll();
     }

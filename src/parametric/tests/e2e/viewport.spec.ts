@@ -4,6 +4,66 @@ import { canvasCenter, openApp, waitForFeature } from './helpers';
 type Win = { __parametric: import('../../src/app/app').App };
 
 test.describe('viewport', () => {
+  test('history navigation in the same part keeps its accepted section plane', async ({ page }) => {
+    const errors = await openApp(page);
+    await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+    await waitForFeature(page, 'Fillet1');
+    await page.getByRole('button', { name: 'Section View', exact: true }).click();
+    const input = page.getByRole('textbox', { name: 'Offset', exact: true });
+    await input.fill('15');
+    await input.press('Tab');
+    await page.getByRole('button', { name: 'OK', exact: true }).first().click();
+    const expected = { normal: [0, 0, 1], offset: 15 };
+    await page.evaluate(() => (window as unknown as Win).__parametric.store.change('Add variable', (doc) => doc.variables.push({ id: 'v1', name: 'Gap', expr: '10' })));
+    for (const command of ['undo', 'redo']) {
+      await page.evaluate((command) => (window as unknown as Win).__parametric.commands.run(command), command);
+      expect(await page.evaluate(() => (window as unknown as Win).__parametric.renderer.section)).toEqual(expected);
+    }
+    expect(errors).toEqual([]);
+  });
+
+  for (const replacement of ['new', 'open'] as const) for (const editing of [false, true]) test(`${replacement} clears the previous part's section plane (panel open ${editing})`, async ({ page }) => {
+    const errors = await openApp(page);
+    await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+    await waitForFeature(page, 'Fillet1');
+    const payload = await page.evaluate(() => JSON.stringify({ ...(window as unknown as Win).__parametric.store.doc, name: 'Replacement' }));
+    const pickCorner = () => page.evaluate(() => {
+      const a = (window as unknown as Win).__parametric;
+      const [x, y] = a.viewport.project([60, 8, 30]);
+      const hit = a.renderer.pick(x, y, { vertex: true });
+      return hit ? [...a.vertexAt(hit.index)!] : null;
+    });
+    await expect.poll(pickCorner).toEqual([60, 8, 30]);
+    await page.getByRole('button', { name: 'Section View', exact: true }).click();
+    const input = page.getByRole('textbox', { name: 'Offset', exact: true });
+    await input.fill('-1');
+    await input.press('Tab');
+    if (editing) await page.getByRole('button', { name: 'Section View', exact: true }).click();
+    else await page.getByRole('button', { name: 'OK', exact: true }).first().click();
+    expect(await pickCorner()).toBeNull();
+    if (replacement === 'new') {
+      await page.evaluate(() => (window as unknown as Win).__parametric.commands.run('new'));
+      await expect(page).toHaveTitle(/Part\d+ - Parametric/);
+      // Build geometry in the new part to detect a stale plane hiding its body.
+      await page.evaluate((payload) => {
+        const a = (window as unknown as Win).__parametric;
+        const doc = JSON.parse(payload);
+        a.store.change('Add new geometry', (d) => { d.features = doc.features; d.nextId = doc.nextId; });
+      }, payload);
+    } else {
+      const chooser = page.waitForEvent('filechooser');
+      await page.evaluate(() => (window as unknown as Win).__parametric.commands.run('openDevice'));
+      const buffer = (globalThis as unknown as { Buffer: { from(s: string): never } }).Buffer.from(payload);
+      await (await chooser).setFiles({ name: 'Replacement.parametric', mimeType: 'application/json', buffer });
+      await expect(page).toHaveTitle(/Replacement - Parametric$/);
+    }
+    await waitForFeature(page, 'Fillet1');
+    expect(await page.evaluate(() => (window as unknown as Win).__parametric.renderer.section)).toBeNull();
+    await expect.poll(pickCorner).toEqual([60, 8, 30]);
+    await expect(page.getByRole('button', { name: 'Section View', exact: true })).toHaveAttribute('aria-pressed', 'false');
+    expect(errors).toEqual([]);
+  });
+
   for (const units of ['IPS', 'MKS'] as const) for (const pending of [false, true]) test(`Section View updates its length field when units change to ${units} (pending ${pending})`, async ({ page }) => {
     const errors = await openApp(page);
     await page.getByRole('button', { name: /New part/ }).click();
