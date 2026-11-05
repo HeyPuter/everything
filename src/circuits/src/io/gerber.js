@@ -6,7 +6,8 @@
 import { placeFootprint } from '../model/place.js';
 import { copperLayers, spanLayers, LAYERS } from '../model/layers.js';
 import { defaultRules } from '../model/schema.js';
-import { rotate, norm360, polyArea, bboxEmpty, bboxAdd, bboxValid } from '../core/geom.js';
+import { compFieldPlacement } from '../model/pcb.js';
+import { rotate, norm360, polyArea } from '../core/geom.js';
 import { textStrokes, strokeWidthFor } from '../render/font.js';
 import { defOf, fillOf, baseName, mmStr } from './common.js';
 
@@ -167,6 +168,7 @@ function escapeAttr(s) {
 }
 
 const fmt = (nm) => mmStr(nm);
+const CENTER = { h: 'center', v: 'middle' };
 
 /**
  * Flashes a pad shape grown by expansion (negative shrinks). Rotated shapes
@@ -257,18 +259,33 @@ function drawGraphic(g, prim, defaultWidth) {
     case 'arc':
       g.arc(prim.cx, prim.cy, prim.r, prim.a0, prim.sweep, w);
       break;
-    case 'text':
-      drawText(g, prim.text, prim.x, prim.y, prim.size, prim.rot || 0, prim.align, !!prim.mirror, prim.w);
+    case 'text': {
+      const { text, x, y, size, rot, align, mirror } = prim;
+      drawText(g, text, x, y, size, rot || 0, align, !!mirror, prim.w, true);
       break;
+    }
     default:
       break;
   }
 }
 
-function drawText(g, text, x, y, size, rot, align, mirror, w) {
+function drawText(g, text, x, y, size, rot, align, mirror, w, upright = false) {
   if (!text || !(size > 0)) return;
   const sw = w > 0 ? w : strokeWidthFor(size);
-  for (const s of textStrokes(text, x, y, size, rot, align, mirror)) g.polyline(s.map(Math.round), sw);
+  let r = norm360(rot || 0);
+  let al = align;
+  // Same rule as the canvas: upright text is turned so it never reads upside down.
+  if (upright && r > 90 && r <= 270) {
+    r = norm360(r + 180);
+    al = flipAlign(align);
+  }
+  for (const s of textStrokes(text, x, y, size, r, al, mirror)) g.polyline(s.map(Math.round), sw);
+}
+
+function flipAlign(align = {}) {
+  const h = align.h === 'left' || !align.h ? 'right' : align.h === 'right' ? 'left' : 'center';
+  const v = align.v === 'bottom' || !align.v ? 'top' : align.v === 'top' ? 'bottom' : 'middle';
+  return { h, v };
 }
 
 /**
@@ -309,19 +326,21 @@ export function resolveBoard(boardDoc, library) {
   return { board, copper, rules, objects, comps, origin: board.origin || { x: 0, y: 0 } };
 }
 
-/** Default designator placement: centered above the footprint. */
-export function designatorPlacement(comp, placed, rules) {
-  const f = comp.fields?.designator;
-  const h = f?.h || 1_000_000;
-  if (f && f.hidden) return null;
-  if (f && (f.dx !== undefined || f.dy !== undefined)) {
-    return { x: comp.x + (f.dx || 0), y: comp.y + (f.dy || 0), rot: f.rot || 0, h, w: rules?.silkWidth || strokeWidthFor(h) };
+/**
+ * Visible designator and value texts of a component, placed exactly as the
+ * board canvas draws them (and as the silkscreen check sees them).
+ */
+export function fieldTexts(comp, def) {
+  const out = [];
+  for (const name of ['designator', 'value']) {
+    const text = name === 'designator' ? comp.designator : comp.value;
+    if (!text) continue;
+    const f = compFieldPlacement(comp, name, def);
+    if (f.hidden) continue;
+    const { x, y, h, rot, mirror, layer } = f;
+    out.push({ text, x, y, h, rot, mirror, layer, w: h * 0.15 });
   }
-  const b = bboxEmpty();
-  if (placed.courtyard) for (let i = 0; i < placed.courtyard.length; i += 2) bboxAdd(b, placed.courtyard[i], placed.courtyard[i + 1]);
-  else for (const p of placed.pads) bboxAdd(b, p.x, p.y, Math.max(p.w, p.h) / 2);
-  if (!bboxValid(b)) return { x: comp.x, y: comp.y, rot: 0, h, w: rules?.silkWidth || strokeWidthFor(h) };
-  return { x: Math.round((b.minX + b.maxX) / 2), y: Math.round(b.maxY + h * 0.4 + h / 2), rot: f?.rot || 0, h, w: rules?.silkWidth || strokeWidthFor(h) };
+  return out;
 }
 
 function padFunction(pad) {
@@ -352,7 +371,7 @@ function writeCopper(ctx, layer, opts) {
     if (o.layer !== layer) continue;
     if (o.t === 'track') { g.setNet(o.net); g.line(o.x1, o.y1, o.x2, o.y2, o.w, 'Conductor'); }
     else if (o.t === 'arc') { g.setNet(o.net); g.arc(o.cx, o.cy, o.r, o.a0, o.sweep, o.w, 'Conductor'); }
-    else if (o.t === 'text') { g.setNet(null); drawText(g, o.text, o.x, o.y, o.h, o.rot || 0, undefined, !!o.mirror, o.w); }
+    else if (o.t === 'text') { g.setNet(null); drawText(g, o.text, o.x, o.y, o.h, o.rot || 0, o.align, !!o.mirror, o.w); }
   }
   for (const { placed } of comps) {
     g.setNet(null);
@@ -390,16 +409,15 @@ function writeOverlay(ctx, layer, opts) {
     if (o.layer !== layer) continue;
     if (o.t === 'track') g.line(o.x1, o.y1, o.x2, o.y2, o.w || rules.silkWidth);
     else if (o.t === 'arc') g.arc(o.cx, o.cy, o.r, o.a0, o.sweep, o.w || rules.silkWidth);
-    else if (o.t === 'text') drawText(g, o.text, o.x, o.y, o.h, o.rot || 0, undefined, !!o.mirror, o.w);
+    else if (o.t === 'text') drawText(g, o.text, o.x, o.y, o.h, o.rot || 0, o.align, !!o.mirror, o.w);
     else if (o.t === 'region') g.region([o.pts]);
     else if (o.t === 'fill') g.region([[o.x1, o.y1, o.x2, o.y1, o.x2, o.y2, o.x1, o.y2]]);
   }
-  const wantSide = layer === 'topOverlay' ? 'top' : 'bottom';
-  for (const { comp, placed } of comps) {
+  for (const { comp, def, placed } of comps) {
     for (const prim of placed.graphics) if (prim.layer === layer) drawGraphic(g, prim, rules.silkWidth);
-    if ((comp.side || 'top') !== wantSide || !comp.designator) continue;
-    const d = designatorPlacement(comp, placed, rules);
-    if (d) drawText(g, comp.designator, d.x, d.y, d.h, d.rot, { h: 'center', v: 'middle' }, wantSide === 'bottom', d.w);
+    for (const f of fieldTexts(comp, def)) {
+      if (f.layer === layer) drawText(g, f.text, f.x, f.y, f.h, f.rot, CENTER, f.mirror, f.w, true);
+    }
   }
   return g;
 }
@@ -467,7 +485,7 @@ function writeMechanical(ctx, layer, opts) {
     if (o.layer !== layer) continue;
     if (o.t === 'track') g.line(o.x1, o.y1, o.x2, o.y2, o.w || rules.silkWidth);
     else if (o.t === 'arc') g.arc(o.cx, o.cy, o.r, o.a0, o.sweep, o.w || rules.silkWidth);
-    else if (o.t === 'text') drawText(g, o.text, o.x, o.y, o.h, o.rot || 0, undefined, !!o.mirror, o.w);
+    else if (o.t === 'text') drawText(g, o.text, o.x, o.y, o.h, o.rot || 0, o.align, !!o.mirror, o.w);
     else if (o.t === 'region') g.region([o.pts]);
   }
   for (const { placed } of comps) for (const prim of placed.graphics) if (prim.layer === layer) drawGraphic(g, prim, rules.silkWidth);

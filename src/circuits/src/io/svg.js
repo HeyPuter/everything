@@ -5,7 +5,7 @@ import { textStrokes, strokeWidthFor } from '../render/font.js';
 import { copperLayers, spanLayers, LAYERS } from '../model/layers.js';
 import { bboxEmpty, bboxAdd, bboxValid, norm360 } from '../core/geom.js';
 import { sheetSize, sheetFrame, schObjectPrims, JUNCTION_R } from './schgraphics.js';
-import { resolveBoard, designatorPlacement } from './gerber.js';
+import { resolveBoard, fieldTexts } from './gerber.js';
 import { fillOf } from './common.js';
 
 const n4 = (v) => {
@@ -234,7 +234,7 @@ export function boardToSvg(boardDoc, library, opts = {}) {
         prim({ t: 'line', x1: o.x1, y1: o.y1, x2: o.x2, y2: o.y2, w: rules.silkWidth });
       }
     }
-    for (const { comp, placed } of comps) {
+    for (const { comp, def, placed } of comps) {
       for (const g of placed.graphics) if (g.layer === layer) prim({ ...g, w: g.w || rules.silkWidth });
       for (const pad of placed.pads) {
         const on = isCu ? pad.layers.copper.includes(layer) : pad.layers.mask.includes(layer) || pad.layers.paste.includes(layer);
@@ -243,10 +243,11 @@ export function boardToSvg(boardDoc, library, opts = {}) {
         const s = padSvg(m, pad, color, exp);
         if (s) els.push(s);
       }
-      const silk = (comp.side || 'top') === 'bottom' ? 'bottomOverlay' : 'topOverlay';
-      if (layer === silk && comp.designator) {
-        const d = designatorPlacement(comp, placed, rules);
-        if (d) prim({ t: 'text', x: d.x, y: d.y, text: comp.designator, size: d.h, rot: d.rot, align: { h: 'center', v: 'middle' }, mirror: silk === 'bottomOverlay', w: d.w });
+      for (const f of fieldTexts(comp, def)) {
+        // Centered, so turning upside-down text upright is a half turn.
+        const rot = norm360(f.rot) > 90 && norm360(f.rot) <= 270 ? norm360(f.rot + 180) : f.rot;
+        if (f.layer !== layer) continue;
+        prim({ t: 'text', x: f.x, y: f.y, text: f.text, size: f.h, rot, align: { h: 'center', v: 'middle' }, mirror: f.mirror, w: f.w });
       }
     }
     if (isCu) {

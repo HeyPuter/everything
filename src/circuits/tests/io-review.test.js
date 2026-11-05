@@ -3,6 +3,7 @@ import { describe, it, expect } from 'vitest';
 import { exportGerbers } from '../src/io/gerber.js';
 import { mm } from '../src/core/units.js';
 import { defaultRules } from '../src/model/schema.js';
+import { compFieldPlacement } from '../src/model/pcb.js';
 
 const square = (x0, y0, x1, y1) => [x0, y0, x1, y0, x1, y1, x0, y1];
 
@@ -83,5 +84,97 @@ describe('Gerber pours', () => {
       expect(gbl).toContain('%TO.N,VCC*%');
       expect(gbl).toContain('%TO.N,GND*%');
     }
+  });
+});
+
+/** Bounding box of every drawn coordinate in a Gerber file, in nm. */
+function drawnBox(text) {
+  const b = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
+  for (const m of text.matchAll(/X(-?\d+)Y(-?\d+)D0[123]\*/g)) {
+    const x = Number(m[1]),
+      y = Number(m[2]);
+    b.minX = Math.min(b.minX, x);
+    b.maxX = Math.max(b.maxX, x);
+    b.minY = Math.min(b.minY, y);
+    b.maxY = Math.max(b.maxY, y);
+  }
+  return b;
+}
+
+describe('Gerber silkscreen fields', () => {
+  const chip = {
+    id: 'chip',
+    name: 'Chip',
+    prefix: 'R',
+    symbol: { pins: [], graphics: [] },
+    footprint: {
+      name: '0805',
+      graphics: [],
+      pads: [
+        { num: '1', x: -mm(1), y: 0, shape: 'rect', w: mm(1), h: mm(1.3), side: 'top' },
+        { num: '2', x: mm(1), y: 0, shape: 'rect', w: mm(1), h: mm(1.3), side: 'top' },
+      ],
+    },
+  };
+  const boardWith = (comp) =>
+    pourBoard([{ id: 'c', t: 'comp', comp: 'chip', designator: 'R1', value: '10k', ...comp }]);
+  const legend = (b, layer) =>
+    exportGerbers(b, { chip }, {}).find((f) => f.layer === layer).content;
+
+  it('places the designator where the board canvas shows it', () => {
+    for (const [side, rot] of [
+      ['top', 90],
+      ['top', 180],
+      ['bottom', 270],
+      ['top', 0],
+    ]) {
+      const comp = { x: mm(20), y: mm(15), rot, side };
+      const b = boardWith(comp);
+      const f = compFieldPlacement(b.objects[0], 'designator', chip);
+      const box = drawnBox(legend(b, side === 'top' ? 'topOverlay' : 'bottomOverlay'));
+      expect(Math.abs((box.minX + box.maxX) / 2 - f.x)).toBeLessThan(mm(0.15));
+      expect(Math.abs((box.minY + box.maxY) / 2 - f.y)).toBeLessThan(mm(0.15));
+      // Text along the part's rotation: a quarter turn makes the text run vertically.
+      const vertical = box.maxY - box.minY > box.maxX - box.minX;
+      expect(vertical).toBe(rot % 180 === 90);
+    }
+  });
+
+  it('draws a value field that is shown on the board', () => {
+    const shown = legend(
+      boardWith({
+        x: mm(20),
+        y: mm(15),
+        rot: 0,
+        side: 'top',
+        fields: { value: { hidden: false } },
+      }),
+      'topOverlay',
+    );
+    const hidden = legend(boardWith({ x: mm(20), y: mm(15), rot: 0, side: 'top' }), 'topOverlay');
+    const f = compFieldPlacement(
+      { x: mm(20), y: mm(15), rot: 0, side: 'top', fields: { value: { hidden: false } } },
+      'value',
+      chip,
+    );
+    expect(drawnBox(shown).minY).toBeLessThan(f.y);
+    expect(drawnBox(hidden).minY).toBeGreaterThan(mm(15));
+  });
+
+  it('honours the alignment of board text', () => {
+    const text = {
+      id: 't',
+      t: 'text',
+      layer: 'topOverlay',
+      x: mm(20),
+      y: mm(15),
+      text: 'ABC',
+      h: mm(1),
+      w: mm(0.15),
+      align: { h: 'right', v: 'top' },
+    };
+    const box = drawnBox(legend(pourBoard([text]), 'topOverlay'));
+    expect(box.maxX).toBeLessThanOrEqual(mm(20) + mm(0.1));
+    expect(box.maxY).toBeLessThanOrEqual(mm(15) + mm(0.1));
   });
 });
