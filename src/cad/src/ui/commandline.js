@@ -206,8 +206,10 @@ export class CommandLine {
   _suggest() {
     const t = this.input.value.trim().toUpperCase();
     if (!t || this.app.editor.request || /[\d@#<,.-]/.test(t[0])) return this._hideSuggest();
-    const seen = new Set();
-    const out = [];
+    // A typed name or alias (C for CIRCLE) comes first, before longer names that start with it.
+    const hit = this.app.commands.get(t);
+    const seen = new Set(hit ? [hit] : []);
+    const out = hit ? [{ c: hit, exact: true, alias: t !== hit.name ? t : null }] : [];
     for (const [key, c] of this.app.commands) {
       if (seen.has(c)) continue;
       if (key.startsWith(t) || c.label.toUpperCase().startsWith(t)) {
