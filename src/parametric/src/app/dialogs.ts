@@ -360,7 +360,11 @@ export class MeasurePanel extends PropertyPanel {
     switch (it.kind) {
       case 'face': return { item: it, data: it, label: `Face <${it.index + 1}> (${app.faces[it.index]?.type})` };
       case 'edge': return { item: it, data: it, label: `Edge <${it.index + 1}> (${app.edges[it.index]?.type})` };
-      case 'vertex': return { item: it, data: it, label: 'Vertex' };
+      case 'vertex': {
+        // Picking toggles by label: each vertex needs its own, or a second vertex would remove the first.
+        const u = UNIT_SYSTEMS[app.store.doc.units];
+        return { item: it, data: it, label: `Vertex (${it.p.map((c) => formatNumber(c / u.scale, app.store.doc.decimals)).join(', ')})` };
+      }
       case 'plane': return { item: it, data: it, label: it.ref.kind === 'base' ? `${it.ref.plane[0].toUpperCase()}${it.ref.plane.slice(1)} Plane` : app.store.feature(it.ref.id)?.name ?? 'Plane' };
       default: return null;
     }

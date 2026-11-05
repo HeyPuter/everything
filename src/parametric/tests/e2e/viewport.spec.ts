@@ -387,8 +387,23 @@ test.describe('viewport', () => {
     await expect.poll(zMax).toBe(40);
     // The corner at z = 30 is gone: neither listed nor measured.
     await expect(page.getByRole('heading', { name: 'Measure' })).toBeVisible();
-    await expect(page.locator('.pm-section').filter({ hasText: 'Entities' }).getByText('Vertex', { exact: true })).toHaveCount(0);
+    await expect(page.locator('.pm-section').filter({ hasText: 'Entities' }).getByText(/^Vertex/)).toHaveCount(0);
     await expect(table).toHaveCount(0);
+  });
+
+  test('measures between two picked vertices', async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+    await waitForFeature(page, 'Fillet1');
+    await expect.poll(() => page.evaluate(() => (window as unknown as Win).__parametric.bbox?.max[2])).toBe(30);
+    await page.evaluate(() => {
+      const app = (window as unknown as Win).__parametric;
+      app.selection.set([{ kind: 'vertex', p: [60, 8, 30] }]);
+      app.commands.run('measure');
+      // A second vertex picked in the graphics area joins the first.
+      app.panel!.onPick({ kind: 'vertex', p: [60, 0, 0] }, false);
+    });
+    await expect(page.locator('.pm-section table')).toContainText(/Distance\s*31\.05 mm/);
   });
 
   test('a measurement finishing late does not overwrite a newer one or outlive the panel', async ({ page }) => {
