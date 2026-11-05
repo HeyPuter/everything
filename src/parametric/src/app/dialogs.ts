@@ -163,22 +163,38 @@ export async function materialDialog(app: App) {
   }
   select.append(h('option', { value: '__custom' }, 'Custom...'));
   const customName = h('input', { class: 'input', value: cur && !MATERIALS.some((m) => m.name === cur.name) ? cur.name : 'Custom material', 'aria-label': 'Custom material name' }) as HTMLInputElement;
-  const customDensity = h('input', { class: 'input', type: 'number', min: '1', step: 'any', value: String(cur?.density ?? 1000), 'aria-label': 'Density in kg per cubic metre' }) as HTMLInputElement;
+  const customDensity = h('input', { class: 'input', type: 'number', min: '0', step: 'any', value: String(cur?.density ?? 1000), 'aria-label': 'Density in kg per cubic metre' }) as HTMLInputElement;
   const custom = h('div', { class: 'grid-form' }, h('label', {}, 'Name'), customName, h('label', {}, 'Density (kg/m³)'), customDensity);
   if (cur && !MATERIALS.some((m) => m.name === cur.name)) select.value = '__custom';
-  const sync = () => { custom.hidden = select.value !== '__custom'; };
+  const error = h('div', { id: nextDomId('density-error'), class: 'field-label', role: 'alert', style: { color: 'var(--danger)' } });
+  customDensity.setAttribute('aria-describedby', error.id);
+  const validate = () => {
+    const density = Number(customDensity.value);
+    const valid = select.value !== '__custom' || (Number.isFinite(density) && density > 0);
+    error.textContent = valid ? '' : 'Enter a finite, positive density.';
+    if (valid) customDensity.removeAttribute('aria-invalid');
+    else customDensity.setAttribute('aria-invalid', 'true');
+    return valid;
+  };
+  customDensity.addEventListener('input', () => { if (error.textContent) validate(); });
+  const sync = () => {
+    custom.hidden = select.value !== '__custom';
+    if (custom.hidden) validate();
+  };
   select.addEventListener('change', sync);
   sync();
   const v = await showDialog({
     title: 'Material', signal,
-    body: [h('p', {}, 'The material sets the density used for mass properties.'), select, custom],
+    body: [h('p', {}, 'The material sets the density used for mass properties.'), select, custom, error],
     buttons: [{ label: 'Cancel', value: 'cancel' }, { label: 'Apply', value: 'ok', primary: true }],
+    onAction: (action) => {
+      if (action === 'ok' && !validate()) { customDensity.focus(); return false; }
+    },
   });
   if (v !== 'ok' || signal.aborted) return;
   let m: MaterialRef | null = null;
   if (select.value === '__custom') {
     const d = Number(customDensity.value);
-    if (!(d > 0)) { toast({ kind: 'warning', message: 'Enter a positive density.' }); return; }
     m = { name: customName.value.trim() || 'Custom material', density: d };
   } else if (select.value) m = MATERIALS.find((x) => x.name === select.value) ?? null;
   app.store.change('Edit material', (doc) => { doc.material = m; });

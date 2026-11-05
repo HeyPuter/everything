@@ -54,3 +54,49 @@ test('material edits still apply after Undo within the same document', async ({ 
   })).toEqual({ name: 'Part1', material: { name: 'Test material', density: 2222 } });
   expect(errors).toEqual([]);
 });
+
+test('invalid custom density keeps the material dialog and its entries available for correction', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await page.evaluate(() => (window as unknown as Handle).__parametric.commands.run('material'));
+  const dialog = page.getByRole('dialog', { name: 'Material', exact: true });
+  await dialog.getByLabel('Material', { exact: true }).selectOption({ label: 'Custom...' });
+  await dialog.getByLabel('Custom material name').fill('Insulation');
+  const density = dialog.getByLabel('Density in kg per cubic metre');
+  for (const value of ['0', '-1', '']) {
+    await density.fill(value);
+    await dialog.getByRole('button', { name: 'Apply' }).click();
+    await expect(dialog).toBeVisible();
+    await expect(density).toBeFocused();
+    await expect(density).toHaveAttribute('aria-invalid', 'true');
+    await expect(dialog.getByRole('alert')).toContainText('positive');
+    await expect(dialog.getByLabel('Custom material name')).toHaveValue('Insulation');
+    expect(await page.evaluate(() => (window as unknown as Handle).__parametric.store.doc.material)).toBeNull();
+  }
+  await density.fill('0.5');
+  await dialog.getByRole('button', { name: 'Apply' }).click();
+  await expect(dialog).toHaveCount(0);
+  expect(await page.evaluate(() => (window as unknown as Handle).__parametric.store.doc.material))
+    .toEqual({ name: 'Insulation', density: 0.5 });
+  expect(errors).toEqual([]);
+});
+
+
+test('a density error does not prevent selecting a preset material', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await page.evaluate(() => (window as unknown as Handle).__parametric.commands.run('material'));
+  const dialog = page.getByRole('dialog', { name: 'Material', exact: true });
+  const choice = dialog.getByLabel('Material', { exact: true });
+  await choice.selectOption({ label: 'Custom...' });
+  await dialog.getByLabel('Density in kg per cubic metre').fill('0');
+  await dialog.getByRole('button', { name: 'Apply' }).click();
+  await expect(dialog.getByRole('alert')).toContainText('positive');
+  await choice.selectOption('Aluminum 6061');
+  await expect(dialog.getByRole('alert')).toBeEmpty();
+  await dialog.getByRole('button', { name: 'Apply' }).click();
+  await expect(dialog).toHaveCount(0);
+  expect(await page.evaluate(() => (window as unknown as Handle).__parametric.store.doc.material))
+    .toEqual({ name: 'Aluminum 6061', density: 2700 });
+  expect(errors).toEqual([]);
+});
