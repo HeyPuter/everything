@@ -1425,6 +1425,10 @@ async function gripEdit(ed, grip, fromPointer) {
         if (typeof r === 'number') r = { x: base.x + Math.cos(r), y: base.y + Math.sin(r) };
       } else if (m === 'scale') {
         r = await ed.getDistance(prompt, ask);
+        if (typeof r === 'number' && !(r > 0)) {
+          ed.ui.log('The scale factor must be greater than zero.', 'error');
+          continue;
+        }
         if (typeof r === 'number') r = { x: base.x + r, y: base.y };
       } else r = await ed.getPoint(prompt, ask);
       if (r === null) {

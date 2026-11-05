@@ -243,3 +243,22 @@ describe('number prompts', () => {
     expect(t.logs.at(-1)).toEqual(['error', 'Enter a number from 3 to 1024.']);
   });
 });
+
+describe('grip editing', () => {
+  it('asks again for a zero or negative grip scale factor', async () => {
+    await t.type('LINE', '0,0', '10,0', '');
+    t.ed.setSelection([...t.drawing.entities.keys()]);
+    t.ed._startGripEdit(0, null);
+    await flush();
+    // Space cycles stretch -> move -> rotate -> scale.
+    await t.type('', '', '');
+    expect(t.ed.request?.prompt).toMatch(/^Scale factor/);
+    await t.type('0');
+    expect(t.ed.request?.prompt).toMatch(/^Scale factor/);
+    await t.type('-2');
+    expect(t.ed.request?.prompt).toMatch(/^Scale factor/);
+    await t.type('2');
+    const [l] = t.all('line');
+    expect([l.x1, l.y1, l.x2, l.y2]).toEqual([0, 0, 20, 0]);
+  });
+});
