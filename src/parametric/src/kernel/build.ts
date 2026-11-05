@@ -767,7 +767,7 @@ export class ModelBuilder {
         }
         body = f.outward ? cut(offset, st.body) : cut(st.body, offset);
       } catch {
-        throw new FeatureError('The shell could not be created. Try a smaller thickness.');
+        throw shellError(st, t);
       } finally {
         builder.delete();
         progress.delete();
@@ -781,7 +781,7 @@ export class ModelBuilder {
         builder.Build();
         body = wrap(builder.Shape());
       } catch {
-        throw new FeatureError('The shell could not be created. Try a smaller thickness.');
+        throw shellError(st, t);
       } finally {
         builder.delete();
         list.delete();
@@ -791,7 +791,7 @@ export class ModelBuilder {
     // unchanged solid instead of an error. An inward shell always removes
     // material (an outward one is only the new walls, so any size goes).
     const v0 = volumeOf(st.body);
-    if (degenerate(body, st.body) || (!f.outward && v0 > 0 && volumeOf(body) >= v0 * (1 - 1e-6))) throw new FeatureError('The shell could not be created. Try a smaller thickness.');
+    if (degenerate(body, st.body) || (!f.outward && v0 > 0 && volumeOf(body) >= v0 * (1 - 1e-6))) throw shellError(st, t);
     const prev = st.faces;
     st.faces = this.nameFaces(f.id, body, st, [], (d) => {
       // Offset faces are parallel to an original face: name after it.
@@ -1444,6 +1444,17 @@ function chainPieces<T extends { a?: Vec2; b?: Vec2 }>(pieces: T[]): T[] {
     else { chain.unshift(p); head = p.a!; }
   }
   return chain;
+}
+
+/**
+ * Why a shell failed. A wall as thick as a fillet's radius (or any round
+ * face's) collapses that face when it is offset, which OpenCascade cannot do.
+ */
+function shellError(st: State, t: number): FeatureError {
+  const round = st.faces.some((f) => (f.desc.type === 'cylinder' || f.desc.type === 'sphere') && f.desc.r <= t * (1 + 1e-9));
+  return new FeatureError(round
+    ? 'The shell could not be created. Make it thinner than the radius of the fillets and rounded faces.'
+    : 'The shell could not be created. Try a smaller thickness.');
 }
 
 const SWEEP_FAILED = 'The sweep could not be created. The profile should start at the path and be roughly perpendicular to it.';

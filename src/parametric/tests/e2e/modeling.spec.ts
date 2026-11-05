@@ -66,6 +66,45 @@ test.describe('part modeling', () => {
     expect(errors).toEqual([]);
   });
 
+  test('a new shell defaults to a thickness its part\'s fillets allow', async ({ page }) => {
+    const errors = await openApp(page);
+    await page.getByRole('button', { name: /New part/ }).click();
+    type Doc = { features: { id: string; type: string; thickness?: unknown }[] };
+    type Handle = { store: { doc: Doc; change(l: string, fn: (d: Doc) => void): void }; whenBuilt(): Promise<void> };
+    // A 20 x 20 x 10 block with its top edges rounded 1 mm: the default
+    // shell of a part this small used to be 1 mm too, which cannot be offset.
+    await page.evaluate(async () => {
+      const a = (window as unknown as { __parametric: Handle }).__parametric;
+      const pts = [[0, 0], [20, 0], [20, 20], [0, 20]];
+      a.store.change('Block', (d) => {
+        d.features.push(...([
+          { id: 's1', name: 'Sketch1', type: 'sketch', plane: { kind: 'base', plane: 'front' }, constraints: [], entities: [
+            ...pts.map(([x, y], i) => ({ id: `p${i}`, t: 'point', x, y })),
+            ...pts.map((_, i) => ({ id: `l${i}`, t: 'line', a: `p${i}`, b: `p${(i + 1) % 4}` })),
+          ] },
+          { id: 'f1', name: 'Extrude1', type: 'extrude', sketch: 's1', cut: false, end: 'blind', depth: 10, flip: false, dir2: null, draft: 0, draftOutward: false, thin: null },
+          { id: 'f2', name: 'Fillet1', type: 'fillet', edges: [], radius: 1, faces: [{ name: 'f1:cap1', sig: { type: 'plane', c: [10, 10, 10], n: [0, 0, 1], area: 400 } }] },
+        ] as unknown as Doc['features']));
+      });
+      await a.whenBuilt();
+    });
+    await waitForFeature(page, 'Fillet1');
+    await expect(page.locator('.ti.error')).toHaveCount(0);
+    await page.getByRole('tab', { name: 'Features' }).click();
+    await page.locator('[data-cmd="shell"]').first().click();
+    await expect(page.getByRole('heading', { name: 'Shell' })).toBeVisible();
+    await page.getByRole('button', { name: 'OK', exact: true }).first().click();
+    await waitForFeature(page, 'Shell1');
+    const thickness = await page.evaluate(async () => {
+      const a = (window as unknown as { __parametric: Handle }).__parametric;
+      await a.whenBuilt();
+      return a.store.doc.features.find((f) => f.type === 'shell')!.thickness;
+    });
+    expect(thickness).toBeLessThan(1);
+    await expect(page.locator('.ti.error')).toHaveCount(0);
+    expect(errors).toEqual([]);
+  });
+
   test('evaluates mass properties of the flange', async ({ page }) => {
     await openApp(page);
     await page.getByRole('button', { name: /Pipe Flange/ }).click();

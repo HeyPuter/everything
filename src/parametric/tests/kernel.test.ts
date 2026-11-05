@@ -315,6 +315,13 @@ describe('feature regeneration', () => {
     }
     expect((await b.build(req([...base, shell(2)]))).status[2].ok).toBe(true);
     expect((await b.build(req([...base, shell(2, true)]))).status[2].ok).toBe(true);
+    // A wall as thick as a fillet's radius cannot be offset: say so.
+    const vertical = r0.edges.filter((e) => e.name.split('|').every((n) => n.startsWith('E1:side:'))).map((e) => ({ name: e.name, sig: { type: e.type, m: e.mid, len: e.length } }));
+    const round: FilletFeature = { id: 'F1', name: 'F1', type: 'fillet', edges: vertical, faces: [], radius: 1 };
+    const rounded = await b.build(req([...base, round, shell(1)]));
+    expect(rounded.status[3].ok).toBe(false);
+    expect(rounded.status[3].error).toMatch(/thinner than the radius of the fillets/);
+    expect((await b.build(req([...base, round, shell(0.5)]))).status[3].ok).toBe(true);
     // A radius that consumes the whole box comes back as a zero-volume solid.
     const edges = r0.edges.map((e) => ({ name: e.name, sig: { type: e.type, m: e.mid, len: e.length } }));
     const fillet: FilletFeature = { id: 'F1', name: 'F1', type: 'fillet', edges, faces: [], radius: 9 };

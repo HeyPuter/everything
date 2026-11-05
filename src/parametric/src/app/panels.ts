@@ -663,7 +663,7 @@ export function startFeature(app: App, type: Feature['type'], opts: { cut?: bool
     case 'revolve': f = newRevolve(id, name, selSketch ?? '', !!opts.cut); break;
     case 'fillet': { const x = newFillet(id, name, Math.max(size / 10, app.store.unitScale)); x.edges = edges; x.faces = faces; f = x; break; }
     case 'chamfer': { const x = newChamfer(id, name, Math.max(size / 10, app.store.unitScale)); x.edges = edges; x.faces = faces; f = x; break; }
-    case 'shell': { const x = newShell(id, name, Math.max(size / 20, app.store.unitScale)); x.faces = faces; f = x; break; }
+    case 'shell': { const x = newShell(id, name, shellThickness(app, Math.max(size / 20, app.store.unitScale))); x.faces = faces; f = x; break; }
     case 'hole': f = newHole(id, name, '', Math.max(size / 5, app.store.unitScale * 2)); break;
     case 'linearPattern': {
       const x = newLinearPattern(id, name, seeds, size);
@@ -684,6 +684,22 @@ export function startFeature(app: App, type: Feature['type'], opts: { cut?: bool
   const flat = ['front', 'back', 'left', 'right', 'top', 'bottom'];
   if (['extrude', 'revolve', 'loft', 'sweep'].includes(type) && flat.includes(app.renderer.camera.viewName() ?? '')) app.viewport.setView('trimetric');
   return panelFor(app, f, false);
+}
+
+/**
+ * A default shell thickness below the radius of every fillet built so far:
+ * a wall as thick as a fillet's radius cannot be offset (the default fillet
+ * and shell sizes are equal on small parts).
+ */
+function shellThickness(app: App, size: number): number {
+  let t = size;
+  for (const f of app.store.doc.features.slice(0, app.store.builtCount)) {
+    if (f.type !== 'fillet' || f.suppressed) continue;
+    let r: number;
+    try { r = app.store.evalParam(f.radius, 'length'); } catch { continue; }
+    if (r > 0 && r <= t) t = r / 2;
+  }
+  return t;
 }
 
 /** Whether a new cut should be flipped so that it goes into the material. */
