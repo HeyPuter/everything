@@ -28,6 +28,55 @@ type SettingsWindow = {
   settingsRequested: boolean;
 };
 
+for (const fails of [false, true]) test(`later preference changes remain saved when an earlier account write ${fails ? 'fails' : 'is slow'}`, async ({ page }) => {
+  await page.route(/js\.puter\.com/, (r) => r.fulfill({ body: '', contentType: 'text/javascript' }));
+  await page.addInitScript((fails) => {
+    const w = window as unknown as {
+      puter: unknown; releaseWrite: () => void; writes: string[]; writeStarted: boolean; accountPreferences: unknown;
+    };
+    const gate = new Promise<void>((resolve) => { w.releaseWrite = resolve; });
+    w.writes = [];
+    w.writeStarted = false;
+    let calls = 0;
+    w.puter = {
+      env: 'web',
+      auth: { isSignedIn: () => true, getUser: async () => ({ username: 'tester', uuid: 'u1' }) },
+      fs: { readdir: async () => [], mkdir: async () => ({}) },
+      kv: {
+        get: async () => w.accountPreferences,
+        set: async (_key: string, value: { defaultUnits: string }) => {
+          const snapshot = structuredClone(value);
+          // Delay applying the first write, not just returning its response.
+          if (++calls === 1) {
+            w.writeStarted = true;
+            await gate;
+            if (fails) { w.writes.push('failed'); throw new Error('Offline'); }
+          }
+          w.accountPreferences = snapshot;
+          w.writes.push(snapshot.defaultUnits);
+          return true;
+        },
+      },
+    };
+  }, fails);
+  const errors = await openApp(page);
+  const units = page.getByLabel('Units for the new part', { exact: true });
+  await units.selectOption('IPS');
+  await page.waitForFunction(() => (window as unknown as { writeStarted: boolean }).writeStarted);
+  await units.selectOption('MKS');
+  await page.evaluate(() => (window as unknown as { releaseWrite: () => void }).releaseWrite());
+  await page.waitForFunction(() => (window as unknown as { writes: string[] }).writes.length === 2);
+  const saved = await page.evaluate(() => ({
+    account: (window as unknown as { accountPreferences: unknown }).accountPreferences,
+    browser: JSON.parse(localStorage.getItem('parametric:settings')!),
+  }));
+  expect(saved.browser.defaultUnits).toBe('MKS');
+  expect(saved.account).toEqual(saved.browser);
+  await page.evaluate(async () => (window as unknown as SettingsWindow).__parametric.loadRemoteSettings());
+  await expect(units).toHaveValue('MKS');
+  expect(errors).toEqual([]);
+});
+
 async function delayedAccountSettings(page: import('@playwright/test').Page) {
   await page.route(/js\.puter\.com/, (r) => r.fulfill({ body: '', contentType: 'text/javascript' }));
   await page.addInitScript(() => {
