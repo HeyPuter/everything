@@ -89,3 +89,38 @@ test('Escape during a drag puts the comment back and keeps it selected', async (
   const [kept] = await saved(page);
   expect(kept.rect).toEqual({ x: 100, y: 100, width: 80, height: 60 });
 });
+
+// A zoom in the middle of a drag redrew the comments, and the drag left behind went on with
+// whichever comment the pointer passed next: it slid away under the pointer.
+test('a drag cut short by a zoom leaves the comments where they are', async ({ page }) => {
+  const doc = await PDFDocument.create();
+  doc.addPage([400, 400]);
+  addShapeAnnotation(doc, 0, { kind: 'square', rect: { x: 100, y: 100, width: 80, height: 60 } });
+  addShapeAnnotation(doc, 0, { kind: 'circle', rect: { x: 250, y: 250, width: 80, height: 60 } });
+  await open(page, doc);
+  const square = page.getByRole('button', { name: 'Rectangle', exact: true });
+  let box = await square.boundingBox();
+  await page.mouse.move(box.x + 10, box.y + 10);
+  await page.mouse.down();
+  await page.mouse.move(box.x + 40, box.y + 30, { steps: 4 });
+  const before = box.width;
+  await page.keyboard.press('Control+Equal');
+  await settled(page);
+  // The comment is drawn afresh at the new zoom, so it has no box for a moment.
+  await expect
+    .poll(async () => (await square.boundingBox())?.width ?? 0)
+    .toBeGreaterThan(before + 1);
+  await page.mouse.up();
+  await settled(page);
+  const oval = page.getByRole('button', { name: 'Ellipse', exact: true });
+  box = await oval.boundingBox();
+  await page.mouse.move(box.x + 10, box.y + 10, { steps: 3 });
+  await page.mouse.move(box.x + 30, box.y + 20, { steps: 3 });
+  await expect(oval).toHaveAttribute('style', expect.not.stringContaining('translate'));
+  await expect(page.getByRole('button', { name: 'Undo', exact: true }).first()).toBeDisabled();
+  const kept = await saved(page);
+  expect(kept.map(({ rect }) => rect)).toEqual([
+    { x: 100, y: 100, width: 80, height: 60 },
+    { x: 250, y: 250, width: 80, height: 60 },
+  ]);
+});

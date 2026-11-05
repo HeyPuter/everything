@@ -224,6 +224,9 @@ export function createAnnotationLayer({ onSelect, onMove, onDelete }) {
   }
 
   function render(next, nextViewport) {
+    // A drag cannot go on across a redraw (a zoom, say): its target is replaced, and with it
+    // the pointer capture. Left behind, it would move whichever comment the pointer passed.
+    drag = null;
     entries = next;
     viewport = nextViewport;
     const kept = selected && entries.find((entry) => entry.id === selected);
@@ -256,7 +259,7 @@ export function createAnnotationLayer({ onSelect, onMove, onDelete }) {
             node.setPointerCapture(e.pointerId);
           },
           onpointermove: (e) => {
-            if (!drag || drag.id !== e.pointerId) return;
+            if (!drag || drag.id !== e.pointerId || drag.node !== node) return;
             const [dx, dy] = keepOnPage(drag.entry, e.clientX - drag.x, e.clientY - drag.y);
             if (!drag.moved && Math.hypot(e.clientX - drag.x, e.clientY - drag.y) < 3) return;
             drag.moved = true;
@@ -265,7 +268,7 @@ export function createAnnotationLayer({ onSelect, onMove, onDelete }) {
             node.style.transform = `translate(${dx}px, ${dy}px)`;
           },
           onpointerup: (e) => {
-            if (!drag || drag.id !== e.pointerId) return;
+            if (!drag || drag.id !== e.pointerId || drag.node !== node) return;
             const done = drag;
             drag = null;
             if (!done.moved) return;
