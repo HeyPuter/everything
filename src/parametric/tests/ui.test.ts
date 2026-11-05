@@ -301,3 +301,13 @@ it('rejects a confirmation cancelled immediately after its button was clicked', 
   expect(await pending).toBe(false);
   expect(dialogOpen()).toBe(false);
 });
+
+describe('editable parameter precision', () => {
+  for (const units of ['MMGS', 'CGS', 'MKS', 'IPS'] as const) it(`preserves significant digits and small lengths in ${units}`, () => {
+    for (const value of [30.123456789, 0.0004, 1e-8, -0.0004]) {
+      const parsed = parseParam(paramText(value, 'length', ctx(units)), 'length', ctx(units));
+      expect(parsed.ok).toBe(true);
+      if (parsed.ok) expect(Math.abs(parsed.num - value)).toBeLessThanOrEqual(Math.abs(value) * 1e-14);
+    }
+  });
+});

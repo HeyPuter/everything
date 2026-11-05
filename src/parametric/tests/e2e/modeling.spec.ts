@@ -419,3 +419,26 @@ test('Redo while a feature panel is open is not undone by the panel', async ({ p
   expect(await depth()).toBe(40);
   expect(errors).toEqual([]);
 });
+
+for (const units of ['MMGS', 'MKS', 'IPS'] as const) test(`accepting an unchanged Depth field preserves its precision in ${units}`, async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await page.evaluate(async (units) => {
+    const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+    a.store.change('Precise depth', (d) => { d.units = units; const f = d.features.find((f) => f.id === 'f1')!; if (f.type === 'extrude') f.depth = 30.123456789; });
+    await a.whenBuilt();
+    a.editFeature('f1');
+  }, units);
+  const depth = page.getByRole('textbox', { name: 'Depth', exact: true });
+  await depth.press('Enter');
+  await page.getByRole('button', { name: 'OK', exact: true }).first().click();
+  const value = await page.evaluate(async () => {
+    const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+    await a.whenBuilt();
+    const f = a.store.feature('f1');
+    return f?.type === 'extrude' ? f.depth : null;
+  });
+  expect(value).toBeCloseTo(30.123456789, 12);
+  await expect(page.locator('.ti.error')).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
