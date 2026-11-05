@@ -222,7 +222,14 @@ export function rotatePcb(o, px, py, deg) {
 
 /** Flips a component to the other side of the board (mirrors about its origin). */
 export function flipComp(o) {
-  const fields = o.fields ? Object.fromEntries(Object.entries(o.fields).map(([k, f]) => [k, f.dx === undefined ? f : { ...f, dx: -f.dx }])) : o.fields;
+  // A placed field mirrors too: its position across the part origin, its angle like the part's.
+  const flipField = (f) => {
+    if (f.dx === undefined) return f;
+    const out = { ...f, dx: -f.dx };
+    if (f.rot !== undefined) out.rot = norm360(-f.rot);
+    return out;
+  };
+  const fields = o.fields ? Object.fromEntries(Object.entries(o.fields).map(([k, f]) => [k, flipField(f)])) : o.fields;
   return { ...o, side: o.side === 'bottom' ? 'top' : 'bottom', rot: norm360(-(o.rot || 0)), fields };
 }
 

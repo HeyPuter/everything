@@ -394,3 +394,29 @@ describe('board component fields', () => {
     }
   });
 });
+
+describe('flipping a part with a placed designator', () => {
+  it('mirrors the designator text, not only its position', () => {
+    const strokes = (f, text) =>
+      textStrokes(text, f.x, f.y, f.h, f.rot, { h: 'center', v: 'middle' }, f.mirror).flat();
+    for (const frot of [0, 90, 30]) {
+      const top = {
+        t: 'comp',
+        x: 0,
+        y: 0,
+        rot: 90,
+        side: 'top',
+        designator: 'R1',
+        fields: { designator: { dx: mm(1), dy: mm(2), rot: frot } },
+      };
+      const bottom = flipComp(top);
+      expect(flipComp(bottom)).toEqual(top);
+      const a = strokes(compFieldPlacement(top, 'designator', null), 'R1');
+      const b = strokes(compFieldPlacement(bottom, 'designator', null), 'R1');
+      for (let i = 0; i < a.length; i += 2) {
+        expect(b[i]).toBeCloseTo(-a[i], -1);
+        expect(b[i + 1]).toBeCloseTo(a[i + 1], -1);
+      }
+    }
+  });
+});
