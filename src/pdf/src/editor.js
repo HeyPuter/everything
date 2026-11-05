@@ -3763,6 +3763,29 @@ export function createEditor({
   document.addEventListener('pointermove', followTextDrag, true);
   document.addEventListener('pointerup', endTextDrag, true);
   document.addEventListener('pointercancel', endTextDrag, true);
+  /** Delete a markup, from its Delete button or the Delete key; `control` takes focus back. */
+  async function deleteHighlight(entry, control) {
+    try {
+      await finishDrafts();
+      await mutate(
+        (doc) => editHighlight(doc, pageIndex, entry.id, { remove: true }),
+        null,
+        'annotate',
+      );
+    } catch (error) {
+      if (!destroyed && control.isConnected && document.activeElement === document.body)
+        control.focus({ preventScroll: true });
+      throw error;
+    }
+    if (!destroyed && document.activeElement === document.body) overlay.focus();
+  }
+  /** The Delete and Backspace keys delete a markup, as they delete other comments. */
+  const deleteHighlightKey = (entry) => (e) => {
+    if (!['Delete', 'Backspace'].includes(e.key) || e.repeat || !access().annotate) return;
+    e.preventDefault();
+    const control = e.currentTarget;
+    safe(() => deleteHighlight(entry, control))();
+  };
   function renderHighlightTargets() {
     highlightTargets.hidden = tool !== 'select';
     highlightTargets.replaceChildren();
@@ -3788,6 +3811,7 @@ export function createEditor({
           'aria-pressed': selectedHighlight?.id === entry.id,
           'data-highlight-id': entry.id,
           disabled: !access().annotate,
+          onkeydown: deleteHighlightKey(entry),
           onclick: safe(() =>
             selectionProperties(async () => {
               if (busy || !pageReady) return;
@@ -3826,6 +3850,7 @@ export function createEditor({
       value: entry.hex,
       'aria-label': `${Label} color`,
       'data-markup-mutation': '',
+      onkeydown: deleteHighlightKey(entry),
       onchange: safe((e) =>
         selectionProperties(async () => {
           if (busy || !pageReady) return;
@@ -3870,22 +3895,7 @@ export function createEditor({
       button(
         `Delete ${label}`,
         'Trash2',
-        safe(async (e) => {
-          const remove = e.currentTarget;
-          try {
-            await finishDrafts();
-            await mutate(
-              (doc) => editHighlight(doc, pageIndex, entry.id, { remove: true }),
-              null,
-              'annotate',
-            );
-          } catch (error) {
-            if (!destroyed && remove.isConnected && document.activeElement === document.body)
-              remove.focus({ preventScroll: true });
-            throw error;
-          }
-          if (!destroyed && document.activeElement === document.body) overlay.focus();
-        }),
+        safe((e) => deleteHighlight(entry, e.currentTarget)),
         'text-btn',
         { 'data-markup-mutation': '' },
       ),
