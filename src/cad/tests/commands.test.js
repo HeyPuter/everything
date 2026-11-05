@@ -12,6 +12,7 @@ import { SpatialIndex } from '../src/core/spatial.js';
 import { buildRegistry } from '../src/editor/commands/index.js';
 import { areaOf } from '../src/core/geom/index.js';
 import { loopsToRings, pointInRing } from '../src/core/hatch/fill.js';
+import { measureDimension } from '../src/core/dims.js';
 
 globalThis.requestAnimationFrame ??= (cb) => setTimeout(cb, 0);
 globalThis.cancelAnimationFrame ??= (id) => clearTimeout(id);
@@ -297,6 +298,22 @@ describe('editing commands', () => {
     const [h, v] = t.all('dimension');
     expect(h.rot).toBe(0);
     expect(v.rot).toBeCloseTo(Math.PI / 2);
+  });
+
+  it('dimensions the angle between two lines in the quadrant of the location', async () => {
+    await t.type('LINE', '0,0', '20,0', '');
+    await t.type('LINE', '-10,-10', '10,10', '');
+    const angle = async (at) => {
+      await t.type('DIMANGULAR');
+      await t.pick(15, 0);
+      await t.pick(5, 5);
+      await t.type(at);
+      return (measureDimension(t.all('dimension').at(-1)) * 180) / Math.PI;
+    };
+    expect(await angle('10,3')).toBeCloseTo(45);
+    expect(await angle('0,10')).toBeCloseTo(135);
+    expect(await angle('-10,-3')).toBeCloseTo(45);
+    expect(await angle('3,-10')).toBeCloseTo(135);
   });
 
   it('dimensions the radius of a polyline arc segment', async () => {

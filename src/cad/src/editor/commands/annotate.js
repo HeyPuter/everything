@@ -249,7 +249,7 @@ export const DIMANGULAR = {
   icon: 'dim-angular',
   async run(ed) {
     const pick = await ed.getEntity('Select arc, circle or line (Enter to specify the vertex)', { filter: (e) => ['line', 'arc', 'circle'].includes(e.type) });
-    let v, p1, p2;
+    let v, p1, p2, locate;
     if (pick === null) {
       v = await ed.getPoint('Angle vertex');
       if (!v || v.option) return;
@@ -281,17 +281,41 @@ export const DIMANGULAR = {
           return;
         }
         v = ip[0];
-        // Rays from the vertex toward the picked side of each line.
-        const side = (ln, px, py) => {
-          const far = Math.hypot(ln.x1 - v.x, ln.y1 - v.y) > Math.hypot(ln.x2 - v.x, ln.y2 - v.y) ? { x: ln.x1, y: ln.y1 } : { x: ln.x2, y: ln.y2 };
-          const proj = (px - v.x) * (far.x - v.x) + (py - v.y) * (far.y - v.y);
-          return proj >= 0 ? far : { x: 2 * v.x - far.x, y: 2 * v.y - far.y };
+        // Each line gives a ray on both sides of the vertex: its endpoint
+        // there, or else its far endpoint mirrored through the vertex.
+        const rays = (ln) => {
+          const a = { x: ln.x1, y: ln.y1 },
+            b = { x: ln.x2, y: ln.y2 };
+          const da = Math.hypot(a.x - v.x, a.y - v.y),
+            db = Math.hypot(b.x - v.x, b.y - v.y);
+          const [far, near, dn] = da >= db ? [a, b, db] : [b, a, da];
+          const opposite = (near.x - v.x) * (far.x - v.x) + (near.y - v.y) * (far.y - v.y) < 0;
+          const mirrored = { x: 2 * v.x - far.x, y: 2 * v.y - far.y };
+          const back = opposite && dn > 1e-9 * da ? near : mirrored;
+          return [far, back];
         };
-        p1 = side(e, pick.x, pick.y);
-        p2 = side(f, second.x, second.y);
+        const r1 = rays(e),
+          r2 = rays(f);
+        // Like AutoCAD, the location picks which of the four angles (all
+        // under 180 degrees) between the lines is dimensioned.
+        locate = (p) => {
+          const ux = r1[0].x - v.x,
+            uy = r1[0].y - v.y,
+            wx = r2[0].x - v.x,
+            wy = r2[0].y - v.y;
+          const px = p.x - v.x,
+            py = p.y - v.y;
+          const det = ux * wy - uy * wx;
+          p1 = (px * wy - py * wx) / det >= 0 ? r1[0] : r1[1];
+          p2 = (ux * py - uy * px) / det >= 0 ? r2[0] : r2[1];
+        };
       }
     }
-    const make = (p, text) => dimBase(ed, { dimType: 'angular', x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y, x3: v.x, y3: v.y, lx: p.x, ly: p.y, text });
+    const make = (p, text) => {
+      locate?.(p);
+      const pts = { x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y, x3: v.x, y3: v.y, lx: p.x, ly: p.y };
+      return dimBase(ed, { dimType: 'angular', ...pts, text });
+    };
     const d = await placeDim(ed, make);
     if (d) ed.commit('Angular dimension', () => (ed.lastDim = ed.drawing.add(d)));
   },
