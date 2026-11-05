@@ -132,7 +132,7 @@ export function zipParts(files, date = new Date()) {
   return [...local, ...central, new Uint8Array(end.buffer)];
 }
 
-/** The parts of a split as named PDFs: "<base> pages 1-2.pdf", and so on. */
+/** The parts of a split as named PDFs: "<base> pages 1-2.pdf", "<base> page 3.pdf", and so on. */
 export async function splitPdf(
   bytes,
   ranges,
@@ -159,7 +159,8 @@ export async function splitPdf(
         'These parts would add up to more than 1 GB, because each one repeats the fonts and pictures its pages share. Split into fewer parts.',
       );
     files.push({
-      name: `${base} pages ${formatPageRange(indices).replace(/, /g, ',')}.pdf`,
+      // A part of one page says "page 5", as Extract pages names a single page.
+      name: `${base} ${indices.length === 1 ? 'page' : 'pages'} ${formatPageRange(indices).replace(/, /g, ',')}.pdf`,
       bytes,
     });
   }

@@ -96,7 +96,7 @@ test('Split PDF downloads the parts as one ZIP, by group size or at chosen pages
   expect(entries.map((e) => e.name)).toEqual([
     'report pages 1-2.pdf',
     'report pages 3-4.pdf',
-    'report pages 5.pdf',
+    'report page 5.pdf',
   ]);
   const widths = await Promise.all(
     entries.map(async (e) =>
