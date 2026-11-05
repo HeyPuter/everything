@@ -1293,3 +1293,36 @@ test('Enter places a typed signature', async ({ page }) => {
   await expect(page.getByRole('group', { name: 'Edit signature' })).toBeVisible();
   expect(inspectPaths(await exported(page), 0)).toHaveLength(1);
 });
+
+test('unticking Remember forgets the device’s signatures even when the dialog is cancelled', async ({
+  page,
+}) => {
+  await mockPuter(page);
+  await page.goto('/#library');
+  await page.evaluate(() =>
+    localStorage.setItem(
+      'pdf-editor:signatures',
+      JSON.stringify({ items: [{ type: 'type', text: 'Ada Lovelace' }] }),
+    ),
+  );
+  await openPdf(page, await squarePdf());
+  const dialog = page.getByRole('dialog', { name: 'Add signature' });
+  const remember = dialog.getByLabel('Remember drawn and typed signatures');
+  // Unticked and ticked again, nothing changes.
+  await page.getByRole('button', { name: 'Sign', exact: true }).click();
+  await remember.uncheck();
+  await remember.check();
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+  expect(JSON.parse(await stored(page))).toEqual({
+    items: [{ type: 'type', text: 'Ada Lovelace' }],
+  });
+  await page.getByRole('button', { name: 'Sign', exact: true }).click();
+  await remember.uncheck();
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+  await expect(dialog).toHaveCount(0);
+  expect(await stored(page)).toBeNull();
+  // This session still offers it; the device no longer does.
+  await page.getByRole('button', { name: 'Sign', exact: true }).click();
+  await expect(remember).not.toBeChecked();
+  await expect(dialog.getByRole('button', { name: /Use saved signature 1/ })).toBeVisible();
+});
