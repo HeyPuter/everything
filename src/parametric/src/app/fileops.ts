@@ -317,7 +317,7 @@ export class FileOps {
     if (err) { toast({ kind: 'error', title: 'Could not open the SolidWorks part', message: err }); return; }
     if (!(await this.confirmDiscard('open another part'))) return;
     const doc = newDocument(safeName(fileName.replace(/\.[^.]+$/, '')) || 'Part1', app.settings.defaultUnits);
-    const blobId = `b${Date.now().toString(36)}`;
+    const blobId = newBlobId(doc);
     doc.blobs[blobId] = step;
     doc.features.push({ id: `f${doc.nextId++}`, name: defaultName(doc, 'import'), type: 'import', format: 'step', blob: blobId, fileName });
     app.loadDocument(doc, null);
@@ -351,7 +351,7 @@ export class FileOps {
     const err = await app.kernel.checkImport(text).catch((e) => (e as Error).message);
     if (documentVersion !== this.documentVersion) return;
     if (err) { toast({ kind: 'error', title: 'Import failed', message: err }); return; }
-    const blobId = `b${Date.now().toString(36)}`;
+    const blobId = newBlobId(app.store.doc);
     const id = app.store.nextId('f');
     app.store.doc.blobs[blobId] = text;
     const f: ImportFeature = { id, name: defaultName(app.store.doc, 'import'), type: 'import', format: 'step', blob: blobId, fileName };
@@ -523,6 +523,15 @@ export class FileOps {
       }
     });
   }
+}
+
+/** File data is immutable: a new import must never reuse an existing key. */
+function newBlobId(doc: PartDocument): string {
+  let id: string;
+  do {
+    id = `b${crypto.getRandomValues(new Uint32Array(4)).join('-')}`;
+  } while (Object.hasOwn(doc.blobs, id));
+  return id;
 }
 
 const STEP_LIMIT = 60_000_000;
