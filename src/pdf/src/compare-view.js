@@ -211,7 +211,7 @@ export function createCompareView({ oldPdf, newPdf, oldName, newName, result, on
           'aria-label': itemLabel(item),
           onclick: () => {
             select(item.index);
-            reveal(item);
+            choose(item);
           },
         },
         el(
@@ -487,6 +487,18 @@ export function createCompareView({ oldPdf, newPdf, oldName, newName, result, on
     const at = visible.findIndex((i) => i.index === item.index);
     live.textContent = `${at + 1} of ${visible.length}: ${itemLabel(item)}`;
   }
+  /**
+   * Show a change chosen in the list. On a narrow screen the list lies over the documents, so
+   * it steps aside, as the page panel does once a page is chosen, and the keyboard goes to
+   * the documents it uncovers.
+   */
+  function choose(item) {
+    if (!side.hidden && window.matchMedia?.('(max-width: 760px)').matches) {
+      showList(false);
+      scroller.focus({ preventScroll: true });
+    }
+    reveal(item);
+  }
   function onListKey(e) {
     const visible = visibleItems();
     if (!visible.length) return;
@@ -507,7 +519,7 @@ export function createCompareView({ oldPdf, newPdf, oldName, newName, result, on
       options[target.index].scrollIntoView({ block: 'nearest' });
     } else if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault();
-      if (items[selected]) reveal(items[selected]);
+      if (items[selected]) choose(items[selected]);
     }
   }
   function setFilter(key) {
