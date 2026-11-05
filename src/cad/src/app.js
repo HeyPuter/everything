@@ -1615,7 +1615,8 @@ export class App {
       else this.editor.cancel();
       return;
     }
-    if (e.key === 'Delete' && !this.editor.busy && this.doc?.selection.size) {
+    // Not from the palettes: Delete on a layer or block there must not erase objects out of sight.
+    if (e.key === 'Delete' && !this.editor.busy && this.doc?.selection.size && !t.closest?.('.dock')) {
       e.preventDefault();
       this.run('ERASE');
       return;
