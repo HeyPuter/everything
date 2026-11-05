@@ -263,7 +263,12 @@ export class FileOps {
     const signal = this.beginOpen();
     // Parts in this browser stay listed when the cloud cannot be reached.
     let cloudError = '';
+    // A slow connection can hold the dialog back for a while: say why nothing opens yet.
+    let loaded: (() => void) | null = null;
+    const slow = setTimeout(() => { loaded = toast({ message: 'Loading your parts...', timeout: 0 }); }, 400);
     const entries = await listParts((e) => { cloudError = storageError(e); });
+    clearTimeout(slow);
+    (loaded as (() => void) | null)?.();
     if (signal.aborted) return;
     // A list role needs list items, so the empty message is shown without it.
     const list = h('div', { class: 'file-list', role: 'list' });

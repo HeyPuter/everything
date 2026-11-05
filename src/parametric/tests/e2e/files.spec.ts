@@ -397,6 +397,26 @@ test('after signing out, saving a cloud part asks to sign in instead of writing 
   expect(errors).toEqual([]);
 });
 
+test('Open says it is loading while a slow cloud listing is pending', async ({ page }) => {
+  await mockPuter(page);
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await app(page);
+  await page.evaluate(() => {
+    const w = window as unknown as { puter: { fs: { readdir(path: string): Promise<unknown[]> } }; releaseList: () => void; __parametric: AppHandle };
+    const gate = new Promise<void>((resolve) => { w.releaseList = resolve; });
+    const readdir = w.puter.fs.readdir;
+    w.puter.fs.readdir = async (path) => { await gate; return readdir(path); };
+    w.__parametric.commands.run('open');
+  });
+  const loading = page.getByRole('region', { name: 'Notifications' }).getByText('Loading your parts...');
+  await expect(loading).toBeVisible();
+  await page.evaluate(() => (window as unknown as { releaseList: () => void }).releaseList());
+  await expect(page.getByRole('dialog', { name: 'Open' })).toBeVisible();
+  await expect(loading).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
 test('closing the Puter desktop window asks about unsaved changes first', async ({ page }) => {
   await mockPuter(page);
   await page.addInitScript(() => {
