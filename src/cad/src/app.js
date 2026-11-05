@@ -340,11 +340,12 @@ export class App {
     this.shell.canvasWrap.classList.toggle('in-command', !!def);
     this.shell.phonebar.classList.toggle('in-command', !!def);
     // A finished command's steps were just grouped (or dropped as no change):
-    // only the edited mark and the undo button can be stale.
+    // only the edited mark, the undo button and the recovery copy can be stale.
     if (!def && this.doc) {
       this.updateTitle();
       renderDocTabs(this, this.shell.doctabs);
       this.updateUndo();
+      if (this.doc._recModified && !this.doc.drawing.modified) this.scheduleAutosave(this.doc);
     }
   }
 
@@ -459,6 +460,9 @@ export class App {
       });
       if (!ok) throw new Error('Recovery storage is not available');
       this.recoveryFailed = false;
+      doc._recModified = modified;
+      // Saved again without a change while encoding (a command that changed nothing).
+      if (modified && !doc.drawing.modified && !this._autosaveTimers.has(doc.id)) this.scheduleAutosave(doc);
     } catch (err) {
       console.warn('Autosave failed', err);
       if (!this.recoveryFailed) toast('Drawings cannot be kept in this browser for recovery (storage is unavailable or full). Save your work to a file.', { kind: 'error', timeout: 9000 });
