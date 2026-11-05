@@ -282,3 +282,27 @@ it('round-trips all curve and dimension types, including origin references and e
   const doc = { ...newDocument(), features: [sk], nextId: 2 };
   expect(parseDocument(serializeDocument(doc))).toEqual(doc);
 });
+
+describe('loading during a change batch', () => {
+  it.each(['endBatch', 'cancelBatch'] as const)('does not bring an old part back when a delayed %s arrives', (finish) => {
+    const st = new DocStore(newDocument('Old part'));
+    st.beginBatch('Drag');
+    st.change('Drag', (d) => { d.color = '#ff0000'; });
+    st.load(newDocument('New part'));
+    st[finish]();
+    expect(st.doc.name).toBe('New part');
+    expect(st.canUndo).toBe(false);
+    expect(st.canRedo).toBe(false);
+    expect(st.dirty).toBe(false);
+  });
+
+  it('makes edits in the newly loaded part independently undoable', () => {
+    const st = new DocStore(newDocument('Old part'));
+    st.beginBatch('Drag');
+    st.load(newDocument('New part'));
+    st.change('Rename', (d) => { d.name = 'Changed new part'; });
+    expect(st.undoLabel).toBe('Rename');
+    st.undo();
+    expect(st.doc.name).toBe('New part');
+  });
+});

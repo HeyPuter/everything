@@ -203,6 +203,11 @@ export class DocStore {
     this.undoStack = [];
     this.redoStack = [];
     this.dropped = 0;
+    // A delayed pointer-up/cancel from the old document must not restore its
+    // batch or turn subsequent changes in the new document into that batch.
+    this.batchDepth = 0;
+    this.batchSnap = null;
+    this.batchLabel = '';
     this.dirty = false;
     this.emit('load');
   }
