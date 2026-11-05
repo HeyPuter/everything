@@ -1,5 +1,5 @@
 import './styles/app.css';
-import { App, DEFAULT_SETTINGS, type Settings } from './app/app';
+import { App } from './app/app';
 import { makeHooks, registerCommands } from './app/actions';
 import { FileOps } from './app/fileops';
 import { StartScreen, bindAccountMenu, refreshAccount } from './app/start';
@@ -11,7 +11,7 @@ import { toast } from './ui/overlay';
 
 const SETTINGS_KEY = 'parametric:settings';
 
-function localSettings(): Partial<Settings> {
+function localSettings(): unknown {
   try {
     return JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}');
   } catch {
@@ -42,10 +42,10 @@ async function boot() {
     root.removeAttribute('aria-busy');
     return;
   }
-  app.applySettings({ ...DEFAULT_SETTINGS, ...localSettings() });
+  app.applySettings(localSettings());
   app.loadRemoteSettings = async () => {
-    const remote = await kvGet<Partial<Settings>>(KV_SETTINGS_KEY);
-    if (remote && typeof remote === 'object') app.applySettings({ ...app.settings, ...remote });
+    const remote = await kvGet<unknown>(KV_SETTINGS_KEY);
+    if (remote && typeof remote === 'object') app.applySettings(remote);
   };
   // Development builds expose the app for debugging and browser tests.
   if (import.meta.env.DEV) (window as unknown as { __parametric: App }).__parametric = app;

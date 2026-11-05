@@ -28,6 +28,8 @@ import { FeatureTree } from './tree';
 import { DrawingPanel, DrawingWorkspace } from './drawing';
 import { Viewport, type VPEvent } from './viewport';
 import { type Location } from '../platform/files';
+import { DEFAULT_SETTINGS, normalizeSettings, type Settings } from './settings';
+export { DEFAULT_SETTINGS, type Settings } from './settings';
 
 export interface Colors {
   sketchUnder: number[];
@@ -39,30 +41,6 @@ export interface Colors {
   dimension: number[];
   dimensionDriven: number[];
 }
-
-export interface Settings {
-  showPlanes: boolean;
-  showOrigin: boolean;
-  showSketches: boolean;
-  showRelations: boolean;
-  showDimensions: boolean;
-  invertZoom: boolean;
-  quality: number;
-  autoNormalTo: boolean;
-  defaultUnits: 'MMGS' | 'CGS' | 'MKS' | 'IPS';
-}
-
-export const DEFAULT_SETTINGS: Settings = {
-  showPlanes: false,
-  showOrigin: false,
-  showSketches: true,
-  showRelations: true,
-  showDimensions: true,
-  invertZoom: false,
-  quality: 1,
-  autoNormalTo: true,
-  defaultUnits: 'MMGS',
-};
 
 /** Controls whose own keyboard activation must win over global shortcuts. */
 const ACTIVATES_ON_ENTER = 'button, a[href], summary, [role="button"], [role="link"], [role="tab"], [role="option"], [role="menuitem"], [role="treeitem"]';
@@ -475,8 +453,8 @@ export class App {
   /** Loads settings saved in the user's Puter account (set by main). */
   loadRemoteSettings: () => Promise<void> | void = () => {};
 
-  applySettings(s: Settings) {
-    this.settings = { ...DEFAULT_SETTINGS, ...s };
+  applySettings(s: unknown) {
+    this.settings = normalizeSettings(s, this.settings);
     const v = this.viewport;
     v.showPlanes = this.settings.showPlanes;
     v.showOrigin = this.settings.showOrigin;
