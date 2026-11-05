@@ -36,6 +36,18 @@ describe('decodeSpecial', () => {
     expect(decodeSpecial('a\\u+2300b')).toBe('a\u2300b');
   });
 
+  it('draws %%u, %%o and %%k as lines instead of showing the codes', () => {
+    expect(decodeSpecial('%%uAB%%u %%oC %%kD 50%%%u')).toBe('AB C D 50%u');
+    const plain = layoutText({ type: 'text', x: 0, y: 0, h: 2, value: 'AB x CD' });
+    const t = layoutText({ type: 'text', x: 0, y: 0, h: 2, value: '%%uAB%%u x %%oCD' });
+    expect(t.strokes.length).toBe(plain.strokes.length + 2);
+    const [under, over] = t.strokes.slice(-2);
+    const ab = measureText('AB', 2);
+    expect([...under]).toEqual([0, expect.closeTo(-0.3), expect.closeTo(ab), expect.closeTo(-0.3)]);
+    expect(over[1]).toBeGreaterThan(2);
+    expect(over[2]).toBeCloseTo(measureText('AB x CD', 2));
+  });
+
   it('leaves plain text alone', () => {
     expect(decodeSpecial('50% off')).toBe('50% off');
     expect(decodeSpecial('')).toBe('');
