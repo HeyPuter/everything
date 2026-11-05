@@ -372,3 +372,11 @@ it('repairs missing variable identifiers when the numeric counter is exhausted',
   expect(doc.variables.every((v) => !!v.id)).toBe(true);
   expect(Number.isSafeInteger(doc.nextId)).toBe(true);
 });
+
+it('repairs repeated variable identifiers without changing equations or values', () => {
+  const variables = [{ id: 'v1', name: 'Width', expr: '20' }, { id: 'v1', name: 'Height', expr: 'Width/2' }, { id: 'v2', name: 'Depth', expr: '5' }];
+  const doc = parseDocument(JSON.stringify({ ...newDocument(), variables }));
+  expect(new Set(doc.variables.map((v) => v.id)).size).toBe(3);
+  expect(doc.variables.map(({ name, expr }) => ({ name, expr }))).toEqual(variables.map(({ name, expr }) => ({ name, expr })));
+  expect(new DocStore(doc).resolve().variables.get('Height')).toBe(10);
+});

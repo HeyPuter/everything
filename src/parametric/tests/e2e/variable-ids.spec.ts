@@ -71,3 +71,30 @@ test('variables from separate assistant calls remain independently renameable wh
   await expect(page.locator('.ti.error')).toHaveCount(0);
   expect(errors).toEqual([]);
 });
+
+test('loading repeated variable identifiers preserves independent equation editing', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await page.evaluate(async (url) => {
+    const { parseDocument } = await import(url);
+    const a = (window as unknown as Handle).__parametric;
+    const doc = structuredClone(a.store.doc);
+    doc.variables = [{ id: 'same', name: 'Width', expr: '30' }, { id: 'same', name: 'Depth', expr: '5' }];
+    const f = doc.features.find((f) => f.type === 'extrude')!;
+    if (f.type === 'extrude') f.depth = '=Width';
+    a.loadDocument(parseDocument(JSON.stringify(doc)), null);
+    a.commands.run('equations');
+  }, '/src/model/document.ts');
+  const dialog = page.getByRole('dialog', { name: 'Equations and Global Variables', exact: true });
+  await dialog.getByRole('textbox', { name: 'Name of variable 1' }).fill('Span');
+  await dialog.getByRole('button', { name: 'OK', exact: true }).click();
+  const depth = await page.evaluate(async () => {
+    const a = (window as unknown as Handle).__parametric;
+    await a.whenBuilt();
+    const f = a.store.doc.features.find((f) => f.type === 'extrude')!;
+    return f.type === 'extrude' ? f.depth : null;
+  });
+  expect(depth).toBe('=Span');
+  await expect(page.locator('.ti.error')).toHaveCount(0);
+  expect(errors).toEqual([]);
+});

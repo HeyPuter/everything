@@ -50,6 +50,11 @@ export function parseDocument(text: string): PartDocument {
   if (!d.features.every((f) => f && typeof f === 'object' && typeof f.id === 'string' && typeof f.type === 'string')) {
     throw new Error('The part file is damaged (invalid feature).');
   }
+  const featureIds = new Set<string>();
+  for (const f of d.features) {
+    if (!f.id || featureIds.has(f.id)) throw new Error('The part file is damaged (invalid feature identifiers).');
+    featureIds.add(f.id);
+  }
   const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
   // Check nested geometry before loading can replace the current document.
   if (!d.features.every((f) => f.type !== 'sketch' || validSketch(f))) {
@@ -80,18 +85,30 @@ export function parseDocument(text: string): PartDocument {
     if (Number.isSafeInteger(suffix) && suffix < Number.MAX_SAFE_INTEGER) maxId = Math.max(maxId, suffix);
   }
   doc.nextId = Math.max(Number.isSafeInteger(doc.nextId) && doc.nextId > 0 ? doc.nextId : 1, maxId + 1);
-  for (const v of doc.variables) if (!v.id) v.id = allocateId(doc, 'v');
+  const variableIds = new Set<string>();
+  let occupiedIds: Set<Id> | undefined;
+  for (const v of doc.variables) {
+    // Variable references use names, so repairing an ID preserves equations.
+    if (!v.id || variableIds.has(v.id)) {
+      // At the counter limit, reserve IDs once for the whole repair pass.
+      if (doc.nextId === Number.MAX_SAFE_INTEGER) occupiedIds ??= new Set([...featureIds, ...doc.variables.map((item) => item.id)]);
+      v.id = allocateId(doc, 'v', occupiedIds);
+    }
+    variableIds.add(v.id);
+  }
   return doc;
 }
 
 /** Ordinary documents keep compact IDs; exhausted counters use independent IDs. */
-export function allocateId(doc: PartDocument, prefix = 'f'): Id {
+export function allocateId(doc: PartDocument, prefix = 'f', occupiedIds?: Set<Id>): Id {
   if (Number.isSafeInteger(doc.nextId) && doc.nextId > 0 && doc.nextId < Number.MAX_SAFE_INTEGER) {
-    return `${prefix}${doc.nextId++}`;
+    const id = `${prefix}${doc.nextId++}`;
+    occupiedIds?.add(id);
+    return id;
   }
   // Never increment past the last exactly representable integer.
   doc.nextId = Number.MAX_SAFE_INTEGER;
-  return uniqueId(prefix, new Set([...doc.features, ...doc.variables].map((item) => item.id)));
+  return uniqueId(prefix, occupiedIds ?? new Set([...doc.features, ...doc.variables].map((item) => item.id)));
 }
 
 /**
