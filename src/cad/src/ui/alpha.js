@@ -32,5 +32,7 @@ export function showAlphaNotice() {
       h('div.alpha-actions', h('button.btn.sm.primary', { type: 'button', onClick: dismiss }, 'Got it')),
     ),
   );
-  document.body.append(node);
+  // Pinned to the canvas so it stays in its corner when the ribbon is minimised or hidden.
+  const host = document.querySelector('.canvas-wrap');
+  (host || document.body).append(node);
 }
