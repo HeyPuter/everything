@@ -10,7 +10,7 @@ import { cloudAvailable, env, puter } from '../platform/puter';
 import { h, nextDomId } from '../ui/dom';
 import { icon } from '../ui/icons';
 import { toast } from '../ui/overlay';
-import { type Agent, type ExchangeResult, type Step, createAgent } from './agent';
+import { type Agent, type ExchangeResult, MAX_RETRIES, type Step, createAgent } from './agent';
 import type { AssistantHost } from './host';
 import { renderMarkdown } from './markdown';
 import { ATTACH_ACCEPT, type Attachment, MAX_ATTACHMENTS, MAX_TEXT_CHARS, attachmentKind, attachmentProblem, attachmentsTooLarge, formatSize } from './attach';
@@ -106,6 +106,9 @@ interface Turn {
 
 export class AssistantPanel {
   readonly el: HTMLElement;
+  /** Buttons for the pane's header, beside its title. */
+  readonly headActions: HTMLElement[];
+  private newChat: HTMLButtonElement;
   private log: HTMLElement;
   private input: HTMLTextAreaElement;
   private sendBtn: HTMLButtonElement;
@@ -148,8 +151,9 @@ export class AssistantPanel {
       model: () => ASSISTANT_MODEL,
     });
 
-    const newChat = h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'New chat', title: 'New chat' }, icon('newChat', 16));
-    newChat.addEventListener('click', () => this.reset());
+    this.newChat = h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'New chat', title: 'New chat' }, icon('newChat', 16)) as HTMLButtonElement;
+    this.newChat.addEventListener('click', (e) => this.reset(e));
+    this.headActions = [this.newChat];
 
     this.log = h('div', { class: 'as-log', role: 'log', 'aria-live': 'polite', 'aria-label': 'Conversation' });
     // Follow new content only while the user is at the bottom; scrolling up to read stops it.
@@ -186,7 +190,6 @@ export class AssistantPanel {
     const composer = h('div', { class: 'as-composer' }, this.tray, h('div', { class: 'as-row' }, attachBtn, this.input, this.sendBtn), this.fileInput);
 
     this.el = h('div', { class: 'assistant' },
-      h('div', { class: 'as-bar' }, newChat),
       this.log,
       h('div', { class: 'as-bottom' }, this.status, composer, this.limit,
         h('div', { class: 'as-note' }, 'Sends your messages and a description of the part to Puter AI. Check designs before relying on them.')));
@@ -201,7 +204,16 @@ export class AssistantPanel {
   }
 
   focus() {
-    requestAnimationFrame(() => this.input.focus());
+    requestAnimationFrame(() => this.focusInput());
+  }
+
+  /**
+   * Focuses the message box, except on a touch screen: there that raises the
+   * on-screen keyboard over the conversation and its suggestions, so it waits
+   * for a tap in the box.
+   */
+  private focusInput() {
+    if (!matchMedia?.('(pointer: coarse)').matches) this.input.focus();
   }
 
   /**
@@ -233,7 +245,7 @@ export class AssistantPanel {
     this.input.style.height = `${Math.min(200, this.input.scrollHeight)}px`;
   }
 
-  private reset() {
+  private reset(e?: MouseEvent) {
     for (const it of [...this.pending]) this.removePending(it);
     for (const img of this.log.querySelectorAll<HTMLImageElement>('img.as-user-thumb')) URL.revokeObjectURL(img.src);
     this.agent.reset();
@@ -242,7 +254,9 @@ export class AssistantPanel {
     this.setBusy(this.agent.busy);
     if (this.agent.busy) this.status.textContent = 'Stopping…';
     this.renderEmpty();
-    this.input.focus();
+    // A key press on New chat goes on typing; a tap leaves the keyboard down.
+    if (e?.detail === 0) this.input.focus();
+    else this.focusInput();
   }
 
   private renderEmpty() {
@@ -260,9 +274,16 @@ export class AssistantPanel {
       h('div', { class: 'as-empty-title' }, hasFeatures ? 'Change or ask about this part' : 'Describe a part to design'),
       h('p', {}, 'The assistant sketches, adds features, edits dimensions, measures and checks its work in the model. Everything it changes in one message is a single undo step.'),
       chips));
+    this.syncNewChat();
+  }
+
+  /** New chat has something to clear: a message, a notice, files waiting, or a reply still running. */
+  private syncNewChat() {
+    this.newChat.disabled = !this.agent.busy && !this.pending.length && !this.log.querySelector('.as-msg');
   }
 
   private setBusy(on: boolean) {
+    this.syncNewChat();
     this.sendBtn.replaceChildren(icon(on ? 'stop' : 'send', 16));
     this.sendBtn.setAttribute('aria-label', on ? 'Stop' : 'Send');
     this.sendBtn.classList.toggle('stop', on);
@@ -303,6 +324,7 @@ export class AssistantPanel {
   private notice(text: string, action?: HTMLElement) {
     this.log.querySelector('.as-empty')?.remove();
     this.log.append(h('div', { class: 'as-msg as-notice' }, h('p', {}, text), action ?? null));
+    this.syncNewChat();
     this.scroll(true);
   }
 
@@ -422,6 +444,7 @@ export class AssistantPanel {
 
   private syncTray() {
     this.tray.hidden = !this.pending.length;
+    this.syncNewChat();
   }
 
   /** Files dropped anywhere on the panel are attached. */
@@ -491,6 +514,8 @@ export class AssistantPanel {
           if (this.status.textContent !== 'Stopping…') this.setStatus(e.step.status === 'running' ? `${stepLabel(e.step.name, e.step.args)}…` : 'Thinking…');
         } else if (e.type === 'round') {
           this.setStatus('Thinking…');
+        } else if (e.type === 'retry') {
+          if (this.status.textContent !== 'Stopping…') this.setStatus(`The AI service did not answer. Trying again (${e.attempt} of ${MAX_RETRIES})…`);
         }
       });
     } catch (e) {

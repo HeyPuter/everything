@@ -57,7 +57,7 @@ export class TaskPane {
     const title = id === 'assistant' ? 'Assistant' : id === 'files' ? 'Parts' : id === 'appearance' ? 'Appearance' : 'Getting Started';
     const close = h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Close task pane' }, icon('close', 16));
     close.addEventListener('click', () => this.close());
-    const head = h('div', { class: 'tp-head' }, h('span', { class: 'grow', role: 'heading', 'aria-level': '2' }, title), close);
+    const head = h('div', { class: 'tp-head' }, h('span', { class: 'grow', role: 'heading', 'aria-level': '2' }, title), ...(id === 'assistant' ? this.assistant.headActions : []), close);
     p.classList.toggle('wide', id === 'assistant');
     if (id === 'assistant') {
       p.replaceChildren(head, this.assistant.el);

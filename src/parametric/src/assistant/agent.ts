@@ -10,7 +10,7 @@
 // refused as malformed. Screenshots go in a user message after the tool
 // results and only with the round that took them.
 
-import type { ChatFn, ChatMessage, ChatPart, ChatToolCall } from '../platform/ai';
+import { type ChatFn, type ChatMessage, type ChatPart, type ChatToolCall, isTransientError } from '../platform/ai';
 import { ATTACHMENT_TURNS, type Attachment, type AttachmentMeta, attachmentMeta, attachmentWeight, attachmentsFit, attachmentsGone, attachmentsIntro } from './attach';
 import type { ToolResult, ToolSpec } from './tools';
 
@@ -25,6 +25,10 @@ const OLD_RESULT_CHARS = 1500;
 const MAX_RESULT_CHARS = 80000;
 /** Roughly how much transcript is sent at most (characters). */
 const HISTORY_BUDGET = 300000;
+/** A request that fails before anything arrived because the service was busy or the connection dropped is sent again this many times. */
+export const MAX_RETRIES = 3;
+/** Wait before retry n (1, 2, 4 s, give or take 15%). */
+const backoff = (n: number) => 1000 * 2 ** (n - 1) * (0.85 + Math.random() * 0.3);
 const STATE_OPEN = '<part_state>';
 const STATE_CLOSE = '</part_state>';
 const NO_IMAGE = '[A screenshot was shown here earlier.]';
@@ -43,7 +47,9 @@ export interface Step {
 export type AgentEvent =
   | { type: 'text'; text: string }
   | { type: 'step'; step: Step }
-  | { type: 'round' };
+  | { type: 'round' }
+  /** A request failed in a way that may pass: it is sent again after a wait. */
+  | { type: 'retry'; attempt: number; error: Error };
 
 export interface ExchangeResult {
   stopped: boolean;
@@ -59,6 +65,8 @@ export interface AgentOptions {
   system: string;
   snapshot: () => string;
   model: () => string;
+  /** Milliseconds to wait before retry n (tests). */
+  retryDelay?: (n: number) => number;
 }
 
 const STOP = Symbol('stop');
@@ -185,9 +193,11 @@ export function createAgent(o: AgentOptions) {
         if (round) emit({ type: 'round' });
         let text = '';
         let wasCut = false;
+        /** The reply's last part was a tool call: a cut there fell inside that call's arguments. */
+        let endedInCall = false;
         const calls: { id: string; name: string; input: Record<string, unknown> }[] = [];
         let req = requestMessages(messages, o.system, { noShots: imagesRefused });
-        let attempt = 0;
+        let retries = 0;
         for (;;) {
           try {
             // Stop aborts the request: return() alone waits for the part the stream is waiting on.
@@ -198,15 +208,28 @@ export function createAgent(o: AgentOptions) {
               if (next === STOP) { abort.abort(); Promise.resolve(iter.return?.()).catch(() => {}); break; }
               if (next.done) break;
               const part = next.value;
-              if (part.type === 'text') { text += part.text; emit({ type: 'text', text: part.text }); }
-              else if (part.type === 'tool') calls.push({ id: part.id || newId(), name: part.name, input: part.input });
+              if (part.type === 'text') { text += part.text; endedInCall = false; emit({ type: 'text', text: part.text }); }
+              else if (part.type === 'tool') { calls.push({ id: part.id || newId(), name: part.name, input: part.input }); endedInCall = true; }
               else if (part.type === 'cut') wasCut = true;
             }
             break;
           } catch (e) {
+            if (run.stopped) break;
+            // What arrived before the failure is already on screen: such a reply is not sent again here.
+            if (text || calls.length) throw e;
+            // The service was busy or the connection dropped: the same request, after a wait Stop cuts short.
+            if (retries < MAX_RETRIES && isTransientError(e)) {
+              retries++;
+              emit({ type: 'retry', attempt: retries, error: e as Error });
+              let timer: ReturnType<typeof setTimeout> | undefined;
+              const waited = await Promise.race([new Promise<void>((r) => { timer = setTimeout(r, (o.retryDelay ?? backoff)(retries)); }), stopSignal]);
+              clearTimeout(timer);
+              if (waited === STOP) break;
+              continue;
+            }
             // A request with a screenshot that fails before anything arrived: try once more without images.
             const hasShot = messages.some((m, i) => m.role === 'user' && m.screenshot && i > messages.findLastIndex((x) => x.role === 'user' && !x.screenshot));
-            if (hasShot && !imagesRefused && !text && !calls.length && attempt === 0) { attempt++; imagesRefused = true; req = requestMessages(messages, o.system, { noShots: true }); continue; }
+            if (hasShot && !imagesRefused) { imagesRefused = true; req = requestMessages(messages, o.system, { noShots: true }); continue; }
             throw e;
           }
         }
@@ -217,8 +240,10 @@ export function createAgent(o: AgentOptions) {
         const empty = !text.trim() && !calls.length;
         if (empty) text = 'I have nothing to add.';
         if (wasCut && !calls.length) text = `${text.trimEnd()}\n\n[My reply was cut off: it reached the length limit.]`;
+        // Puter hands over a call whose JSON the limit cut off as {} (not as unreadable text),
+        // so the call is judged by where the reply stopped: running it would act on no arguments.
         const last = calls.at(-1);
-        const lastCut = wasCut && !!last && last.input.__unreadable != null;
+        const lastCut = wasCut && !!last && (endedInCall || last.input.__unreadable != null);
         messages.push({
           role: 'assistant', content: text.trim() ? text : null,
           ...(calls.length ? { tool_calls: calls.map((c): ChatToolCall => ({ id: c.id, type: 'function', function: { name: c.name, arguments: JSON.stringify(c.input) } })) } : {}),

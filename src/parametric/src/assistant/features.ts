@@ -84,7 +84,8 @@ export class FeatureCodec {
         f.cut = cut;
         if (has('sketch')) f.sketch = refs.sketch(a.sketch).id;
         if (has('end')) f.end = choice(a.end, END, 'end');
-        if (has('depth')) f.depth = len('depth');
+        // A depth given without an end means that depth, also for a cut (new cuts default to through_all).
+        if (has('depth')) { f.depth = len('depth'); if (!has('end') && f.end === 'throughAll') f.end = 'blind'; }
         else if (!base && f.end !== 'throughAll') throw new ToolError('depth is required unless end is through_all');
         if (has('reverse')) f.flip = bool(a.reverse, 'reverse');
         if (has('direction2')) {
@@ -149,13 +150,12 @@ export class FeatureCodec {
         if (has('kind')) f.kind = choice(a.kind, HOLE_KIND, 'kind');
         if (has('diameter')) {
           f.diameter = len('diameter');
-          if (!base && typeof f.diameter === 'number') {
-            const d = f.diameter;
-            Object.assign(f, { depth: d * 2, cbDiameter: d * 1.8, cbDepth: d * 0.6, csDiameter: d * 2 });
-          }
+          // Sizes not given follow the diameter, also one given as an expression ("=D").
+          const d = base ? NaN : u.evalLength(f.diameter);
+          if (d > 0) Object.assign(f, { depth: d * 2, cbDiameter: d * 1.8, cbDepth: d * 0.6, csDiameter: d * 2 });
         }
         if (has('end')) f.end = choice(a.end, END2, 'end');
-        else if (!base && has('depth')) f.end = 'blind';
+        else if (has('depth') && f.end === 'throughAll') f.end = 'blind';
         if (has('depth')) f.depth = len('depth');
         if (has('cb_diameter')) f.cbDiameter = len('cb_diameter');
         if (has('cb_depth')) f.cbDepth = len('cb_depth');
@@ -262,7 +262,7 @@ export class FeatureCodec {
         direction2: f.dir2 ? { end: END_OUT[f.dir2.end], depth: f.dir2.end === 'throughAll' ? undefined : L(f.dir2.depth) } : null,
         draft: A(f.draft), draft_outward: f.draftOutward, ...thin(f.thin), regions: regions(f.contours),
       };
-      case 'revolve': return { sketch: f.sketch, cut: f.cut, axis: axisSpec(f.axis) ?? 'first centerline of the sketch', angle: A(f.angle), end: END_OUT[f.end], reverse: f.flip, ...thin(f.thin), regions: regions(f.contours) };
+      case 'revolve': return { sketch: f.sketch, cut: f.cut, axis: axisSpec(f.axis), angle: A(f.angle), end: END_OUT[f.end], reverse: f.flip, ...thin(f.thin), regions: regions(f.contours) };
       case 'fillet': return { edges: f.edges.map((e) => e.name), faces: f.faces.map((x) => x.name), radius: L(f.radius) };
       case 'chamfer': return { edges: f.edges.map((e) => e.name), faces: f.faces.map((x) => x.name), mode: CHAMFER_OUT[f.mode], distance: L(f.distance), distance2: L(f.distance2), angle: A(f.angle), flip: f.flip };
       case 'shell': return { faces_to_remove: f.faces.map((x) => x.name), thickness: L(f.thickness), outward: f.outward };

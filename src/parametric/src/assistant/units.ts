@@ -72,7 +72,13 @@ export class Units {
   /** A stored parameter as the model sees it: a number in display units (or degrees), or the expression. */
   param(p: Param, kind: Kind): number | string {
     if (typeof p === 'string') return p;
-    return kind === 'length' ? Number(num(p / this.scale, 6)) : Number(num(p, 6));
+    // A millionth of a millimetre in every unit, as len gives lengths: a value copied back keeps its size.
+    return kind === 'length' ? Number(num(p / this.scale, 6 + Math.max(0, Math.round(Math.log10(this.scale))))) : Number(num(p, 6));
+  }
+
+  /** A stored length parameter's value now in mm (NaN when it does not evaluate). */
+  evalLength(p: Param): number {
+    try { return this.store.evalParam(p, 'length'); } catch { return NaN; }
   }
 
   /** Evaluated value of a stored parameter, as display text with unit. */

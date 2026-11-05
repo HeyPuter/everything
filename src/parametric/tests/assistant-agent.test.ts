@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createAgent, requestMessages } from '../src/assistant/agent';
-import { type ChatMessage, type StreamPart, puterChat } from '../src/platform/ai';
+import { type ChatMessage, type StreamPart, aiError, isTransientError, puterChat, wellFormed, withCacheBreakpoints } from '../src/platform/ai';
 import type { ToolResult } from '../src/assistant/tools';
 import { readAttachment } from '../src/assistant/attachments';
 import { type Attachment, attachmentKind, attachmentProblem, attachmentsTooLarge, estimatePdfPages, imageBlock, pdfBlock, textBlock } from '../src/assistant/attach';
@@ -8,7 +8,7 @@ import { type Attachment, attachmentKind, attachmentProblem, attachmentsTooLarge
 type Reply = StreamPart[] | Error;
 
 /** An agent whose model plays back replies in order; records each request. */
-function scripted(replies: Reply[], run: (name: string, args: Record<string, unknown>) => ToolResult | Promise<ToolResult> = () => ({ ok: true, content: 'done' })) {
+function scripted(replies: Reply[], run: (name: string, args: Record<string, unknown>) => ToolResult | Promise<ToolResult> = () => ({ ok: true, content: 'done' }), retryDelay = (_n: number) => 0) {
   const requests: ChatMessage[][] = [];
   const agent = createAgent({
     chat: (messages) => {
@@ -24,6 +24,7 @@ function scripted(replies: Reply[], run: (name: string, args: Record<string, unk
     system: 'SYSTEM',
     snapshot: () => 'snapshot',
     model: () => 'm',
+    retryDelay,
   });
   return { agent, requests };
 }
@@ -246,6 +247,179 @@ describe('assistant agent', () => {
     await expect(readAttachment(page)).rejects.toThrow(/drawing\.pdf is not a PDF file/);
     const pdf = new File(['%PDF-1.4\n1 0 obj << /Type /Page >> endobj\n%%EOF'], 'ok.pdf', { type: 'application/pdf' });
     expect((await readAttachment(pdf)).pages).toBe(1);
+  });
+
+  it('does not run a tool call cut off at the output limit, which Puter delivers with empty arguments', async () => {
+    // Puter parses a cut-off call's JSON to {} and reports the stop in its usage line.
+    const stream = (parts: Record<string, unknown>[]) => ({ async *[Symbol.asyncIterator]() { yield* parts; } });
+    const replies = [
+      [{ type: 'text', text: 'Sketching.' }, { type: 'tool_use', id: 'a', name: 'get_model', input: {} }, { type: 'tool_use', id: 'b', name: 'set_rollback', input: {} }, { type: 'usage', usage: { output_tokens: 900 }, stopReason: 'max_tokens', finish_reason: 'length' }],
+      [{ type: 'text', text: 'ok' }],
+    ];
+    (globalThis as unknown as { puter?: unknown }).puter = { ai: { chat: async () => stream(replies.shift()!) } };
+    const ran: string[] = [];
+    try {
+      const agent = createAgent({
+        chat: puterChat, tools: () => [], system: 'S', snapshot: () => '', model: () => 'm',
+        runTool: async (n) => { ran.push(n); return { ok: true, content: 'done' }; },
+      });
+      const res = await agent.send('go', () => {});
+      expect(ran).toEqual(['get_model']);
+      expect(res.steps.map((s) => s.status)).toEqual(['done', 'error']);
+      const results = agent.messages.filter((m) => m.role === 'tool');
+      expect(results.at(-1)!.content).toMatch(/reached the output limit/);
+    } finally {
+      delete (globalThis as unknown as { puter?: unknown }).puter;
+    }
+  });
+
+  it('says the account ran out of credits when Puter stops a reply for that, and runs none of its calls', async () => {
+    const stream = (parts: Record<string, unknown>[]) => ({ async *[Symbol.asyncIterator]() { yield* parts; } });
+    (globalThis as unknown as { puter?: unknown }).puter = { ai: { chat: async () => stream([
+      { type: 'text', text: 'Adding the holes.' }, { type: 'tool_use', id: 'a', name: 'add_hole', input: {} },
+      { type: 'usage', usage: { output_tokens: 40 }, stopReason: 'max_tokens', metadata: { usage_limited: true } },
+    ]) } };
+    const ran: string[] = [];
+    try {
+      const agent = createAgent({
+        chat: puterChat, tools: () => [], system: 'S', snapshot: () => '', model: () => 'm', retryDelay: () => 0,
+        runTool: async (n) => { ran.push(n); return { ok: true, content: 'done' }; },
+      });
+      const res = await agent.send('go', () => {});
+      expect(ran).toEqual([]);
+      expect(res.error?.message).toMatch(/ran out of AI credits/);
+      expect(isTransientError(res.error)).toBe(false);
+    } finally {
+      delete (globalThis as unknown as { puter?: unknown }).puter;
+    }
+  });
+
+  it('runs a reply\'s calls when the output limit cut off text written after them', async () => {
+    const { agent } = scripted([[{ type: 'tool', id: 'a', name: 'get_model', input: {} }, { type: 'text', text: 'And then' }, { type: 'cut' }], [{ type: 'text', text: 'ok' }]]);
+    const res = await agent.send('go', () => {});
+    expect(res.steps.map((s) => s.status)).toEqual(['done']);
+  });
+
+  it('asks Puter to cache the instructions, the turn\'s start and the newest message, without changing the transcript', async () => {
+    const t: ChatMessage[] = [
+      { role: 'system', content: 'S' },
+      { role: 'user', content: 'first' },
+      { role: 'assistant', content: 'one' },
+      { role: 'user', content: 'second' },
+      { role: 'assistant', content: null, tool_calls: [{ id: 'a', type: 'function', function: { name: 'get_model', arguments: '{}' } }] },
+      { role: 'tool', tool_call_id: 'a', content: 'model' },
+    ];
+    const before = structuredClone(t);
+    let sent: unknown[] = [];
+    (globalThis as unknown as { puter?: unknown }).puter = { ai: { chat: async (m: unknown[]) => { sent = m; return { message: { content: 'ok' } }; } } };
+    try {
+      for await (const _ of puterChat(t)) { /* drain */ }
+    } finally {
+      delete (globalThis as unknown as { puter?: unknown }).puter;
+    }
+    expect(t).toEqual(before);
+    const marks = JSON.stringify(sent).match(/cache_control/g);
+    expect(marks).toHaveLength(3);
+    expect(sent[0]).toEqual({ role: 'system', content: [{ type: 'text', text: 'S', cache_control: { type: 'ephemeral', ttl: '1h' } }] });
+    expect(sent[1]).toBe(t[1]);
+    expect(sent[3]).toEqual({ role: 'user', content: [{ type: 'text', text: 'second', cache_control: { type: 'ephemeral' } }] });
+    // Claude's own shape: Puter rebuilds an OpenAI tool message without the breakpoint.
+    expect(sent[5]).toEqual({ role: 'user', content: [{ type: 'tool_result', tool_use_id: 'a', content: 'model', cache_control: { type: 'ephemeral' } }] });
+    // A screenshot message is marked on its image; the turn's start is found past tool rounds.
+    const shot: ChatMessage = { role: 'user', content: [{ type: 'text', text: 'shot' }, { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: 'AAAA' } }] };
+    const out = withCacheBreakpoints([...t, shot]) as { content: { cache_control?: unknown }[] }[];
+    expect(out[6].content[1].cache_control).toEqual({ type: 'ephemeral' });
+    expect(out[6].content[0].cache_control).toBeUndefined();
+    expect(JSON.stringify(out[3])).toContain('cache_control');
+    expect(out[5]).toBe(t[5]);
+    // The first message of a chat is both the turn's start and the newest.
+    expect(JSON.stringify(withCacheBreakpoints([{ role: 'system', content: 'S' }, { role: 'user', content: 'hi' }])).match(/cache_control/g)).toHaveLength(2);
+    const empty: ChatMessage = { role: 'tool', tool_call_id: 'a', content: '' };
+    expect(withCacheBreakpoints([...t.slice(0, 5), empty]).at(-1)).toBe(empty);
+  });
+
+  it('sends a request again when the service was busy or the connection dropped, and gives up after a few tries', async () => {
+    const busy = aiError({ success: false, error: { code: 'upstream_provider_unavailable', message: 'AI provider unavailable' } });
+    const { agent, requests } = scripted([busy, new Error('529 Overloaded'), [{ type: 'text', text: 'built' }]]);
+    const retries: number[] = [];
+    const res = await agent.send('go', (e) => { if (e.type === 'retry') retries.push(e.attempt); });
+    expect(res.error).toBeUndefined();
+    expect(retries).toEqual([1, 2]);
+    expect(requests).toHaveLength(3);
+    expect(requests[2]).toEqual(requests[0]);
+    expect(agent.messages.at(-1)).toEqual({ role: 'assistant', content: 'built' });
+
+    const down = new Error('Network request failed.');
+    const { agent: a2, requests: r2 } = scripted([down, down, down, down, [{ type: 'text', text: 'never' }]]);
+    const res2 = await a2.send('go', () => {});
+    expect(res2.error).toBe(down);
+    expect(r2).toHaveLength(4);
+  });
+
+  it('does not send again what cannot pass: no funds, a refused request, or a reply already on screen', async () => {
+    for (const e of [aiError({ error: { code: 'insufficient_funds', message: 'Insufficient funds' } }), new Error('prompt is too long: 215290 tokens > 200000 maximum')]) {
+      const { agent, requests } = scripted([e, [{ type: 'text', text: 'x' }]]);
+      expect((await agent.send('go', () => {})).error).toBe(e);
+      expect(requests).toHaveLength(1);
+    }
+    const failing = createAgent({
+      chat: () => (async function* () { yield { type: 'text', text: 'Half' } as StreamPart; throw new Error('Network request failed.'); })(),
+      tools: () => [], runTool: async () => ({ ok: true, content: '' }), system: 'S', snapshot: () => '', model: () => 'm', retryDelay: () => 0,
+    });
+    const events: string[] = [];
+    expect((await failing.send('go', (e) => events.push(e.type))).error?.message).toBe('Network request failed.');
+    expect(events).not.toContain('retry');
+    expect(isTransientError(new Error('500000 tokens'))).toBe(false);
+    expect(isTransientError(Object.assign(new Error('aborted'), { name: 'AbortError' }))).toBe(false);
+    expect(isTransientError(aiError({ code: 'network_error' }))).toBe(true);
+    // Puter missing (its message says to check the connection) and a model that is not offered are not retried.
+    const noPuter = createAgent({ chat: puterChat, tools: () => [], runTool: async () => ({ ok: true, content: '' }), system: 'S', snapshot: () => '', model: () => 'm', retryDelay: () => 0 });
+    const kinds: string[] = [];
+    expect((await noPuter.send('go', (e) => kinds.push(e.type))).error?.message).toMatch(/needs Puter/);
+    expect(kinds).not.toContain('retry');
+    expect(isTransientError(new Error('Model foo is unavailable'))).toBe(false);
+  });
+
+  it('Stop ends the wait before a retry at once', async () => {
+    const { agent, requests } = scripted([new Error('503 Service Unavailable'), [{ type: 'text', text: 'late' }]], undefined, () => 60_000);
+    const p = agent.send('go', () => {});
+    await new Promise((r) => setTimeout(r, 10));
+    agent.stop();
+    const res = await p;
+    expect(res.stopped).toBe(true);
+    expect(res.error).toBeUndefined();
+    expect(requests).toHaveLength(1);
+    expect(agent.busy).toBe(false);
+  });
+
+  it('never sends half of a character, which the API refuses as invalid JSON', async () => {
+    // An earlier turn's tool result is cut to 1,500 characters; here the cut falls inside an emoji.
+    const result = `${'x'.repeat(1499)}🔩 M5 bolt`;
+    const t: ChatMessage[] = [
+      { role: 'user', content: 'first' },
+      { role: 'assistant', content: null, tool_calls: [{ id: 'a', type: 'function', function: { name: 'get_model', arguments: '{}' } }] },
+      { role: 'tool', tool_call_id: 'a', content: result },
+      { role: 'assistant', content: 'done' },
+      { role: 'user', content: 'second 🔩' },
+    ];
+    const req = requestMessages(t, 'S');
+    const lone = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+    expect(lone.test(JSON.stringify(req.map((m) => m.content)))).toBe(false); // JSON.stringify escapes it as \ud83d
+    expect(req.some((m) => typeof m.content === 'string' && lone.test(m.content))).toBe(true);
+    let sent: unknown = null;
+    (globalThis as unknown as { puter?: unknown }).puter = { ai: { chat: async (m: unknown) => { sent = m; return { message: { content: 'ok' } }; } } };
+    try {
+      for await (const _ of puterChat(req)) { /* drain */ }
+    } finally {
+      delete (globalThis as unknown as { puter?: unknown }).puter;
+    }
+    const body = JSON.stringify(sent);
+    expect(body).not.toMatch(/\\ud[89a-f][0-9a-f]{2}/i);
+    expect(body).toContain('x\uFFFD\\n[…cut');
+    expect(body).toContain('second 🔩');
+    // Whole characters and untouched messages stay as they are.
+    const ok = [{ role: 'user', content: [{ type: 'text', text: '🔩' }] }];
+    expect(wellFormed(ok)).toBe(ok);
   });
 
   it('keeps going past many rounds until the model answers', async () => {

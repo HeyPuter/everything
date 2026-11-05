@@ -1,5 +1,6 @@
 // Light Markdown for assistant replies, built as DOM nodes (never HTML text):
-// paragraphs, bullet and numbered lists, fenced code, `code`, **bold** and *italic*.
+// paragraphs, bullet and numbered lists, tables, fenced code, `code`, **bold**
+// and *italic*.
 
 function inline(text: string): Node[] {
   const out: Node[] = [];
@@ -18,6 +19,45 @@ function inline(text: string): Node[] {
   }
   if (last < text.length) out.push(document.createTextNode(text.slice(last)));
   return out;
+}
+
+/** A table row's cells: split at pipes, except escaped ones (\|), without the outer pipes. */
+function cells(line: string): string[] {
+  const parts = line.trim().replace(/^\|/, '').replace(/(?<!\\)\|$/, '').split(/(?<!\\)\|/);
+  return parts.map((c) => c.trim().replace(/\\\|/g, '|'));
+}
+/** The row of dashes under a table's header, tested trimmed: no trailing \s* to backtrack over a long run of spaces. */
+const TABLE_RULE = /^\|?\s*:?-+:?\s*(?:\|\s*:?-+:?\s*)*\|?$/;
+
+/** A GitHub table: a header row, the row of dashes under it (with the columns' alignment), then rows. */
+function table(lines: string[], at: number): { el: HTMLElement; end: number } | null {
+  const head = lines[at], rule = lines[at + 1];
+  if (!head?.includes('|') || rule == null || !rule.includes('-') || !TABLE_RULE.test(rule.trim())) return null;
+  const titles = cells(head);
+  const align = cells(rule).map((c) => (c.startsWith(':') && c.endsWith(':') ? 'center' : c.endsWith(':') ? 'right' : ''));
+  if (titles.length !== align.length) return null;
+  const row = (texts: string[], tag: 'th' | 'td') => {
+    const tr = document.createElement('tr');
+    titles.forEach((_, i) => {
+      const cell = document.createElement(tag);
+      if (align[i]) cell.style.textAlign = align[i];
+      cell.append(...inline(texts[i] ?? ''));
+      tr.append(cell);
+    });
+    return tr;
+  };
+  const t = document.createElement('table');
+  const thead = document.createElement('thead');
+  thead.append(row(titles, 'th'));
+  const body = document.createElement('tbody');
+  let end = at + 2;
+  for (; end < lines.length && lines[end].includes('|') && lines[end].trim(); end++) body.append(row(cells(lines[end]), 'td'));
+  t.append(thead, body);
+  // Wide tables scroll inside the reply rather than widening the panel.
+  const wrap = document.createElement('div');
+  wrap.className = 'as-table';
+  wrap.append(t);
+  return { el: wrap, end: end - 1 };
 }
 
 export function renderMarkdown(src: string): DocumentFragment {
@@ -43,6 +83,14 @@ export function renderMarkdown(src: string): DocumentFragment {
       const pre = document.createElement('pre');
       pre.textContent = code.join('\n');
       frag.append(pre);
+      continue;
+    }
+    const tbl = table(lines, i);
+    if (tbl) {
+      flush();
+      listEl = null;
+      frag.append(tbl.el);
+      i = tbl.end;
       continue;
     }
     const bullet = /^\s*[-*•]\s+(.*)$/.exec(line);

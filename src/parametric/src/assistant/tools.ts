@@ -123,8 +123,8 @@ const TOOLS: ToolDef[] = [
   // ---------- reading ----------
   {
     name: 'get_model',
-    description: 'The part as it is now: units, material, global variables, every feature in build order with its arguments and rebuild status, the body\'s size, and the selection. Pass feature ids to get their full arguments (exactly what edit_feature takes) and faces.',
-    parameters: obj({ features: NAMES('Feature ids or names to describe in full') }),
+    description: 'The part as it is now: units, material, global variables, every feature in build order with its arguments and rebuild status, the body\'s size, and the selection. Pass feature ids to get just those features in full: their arguments (exactly what edit_feature takes) and faces.',
+    parameters: obj({ features: NAMES('Feature ids or names to describe in full (then the rest of the part is left out)') }),
     run: async (a, k) => k.getModel(a),
   },
   {
@@ -207,7 +207,7 @@ const TOOLS: ToolDef[] = [
   featureTool('extrude', 'Extrude a sketch\'s closed profiles into a boss (adds material) or a cut. Bosses go along the sketch normal, cuts against it (into the face a sketch sits on); reverse flips that.', {
     sketch: S('Profile sketch id'),
     cut: B('Remove material instead of adding it'),
-    end: S('End condition (default blind; cuts default to through_all)', { enum: ['blind', 'through_all', 'mid_plane'] }),
+    end: S('End condition (default blind; a cut given no depth goes through_all)', { enum: ['blind', 'through_all', 'mid_plane'] }),
     depth: PARAM('Depth (blind), or total depth (mid_plane, half each side)'),
     reverse: B('Extrude the other way'),
     direction2: { anyOf: [{ type: 'null' }, obj({ end: S('End condition', { enum: ['blind', 'through_all'] }), depth: PARAM('Depth') })], description: 'Also extrude the opposite way' },
@@ -427,6 +427,7 @@ class Toolkit {
     this.host.prepareForEdit();
     await this.host.settle();
     const before = this.ins.errors();
+    const warnedBefore = this.ins.warnings();
     const mark = this.store.undoMark;
     this.store.change(label, mutate);
     if (this.store.undoMark === mark) return 'Nothing changed.';
@@ -443,6 +444,9 @@ class Toolkit {
     const lines: string[] = [];
     const warn = opts.subject ? this.host.featureStatus(opts.subject)?.warning : null;
     if (warn) lines.push(`Warning: ${warn}`);
+    // A change can leave a later feature doing nothing (a cut whose profile left the part) without failing it.
+    const warned = [...this.ins.warnings()].filter(([id, w]) => id !== opts.subject && warnedBefore.get(id) !== w);
+    if (warned.length) lines.push(`New warnings on other features: ${warned.map(([id, w]) => `${id}: ${w}`).join('; ')}`);
     if (fresh.length) lines.push(`Features now failing: ${fresh.map(([id, m]) => `${id}: ${m}`).join('; ')}`);
     const still = [...after].filter(([id]) => !fresh.some(([x]) => x === id));
     if (still.length) lines.push(`Features that were already failing: ${still.map(([id, m]) => `${id}: ${m}`).join('; ')}`);
@@ -457,9 +461,11 @@ class Toolkit {
   // ---------- reading ----------
 
   getModel(a: Obj): string {
-    const parts = [this.ins.partHeader(), this.ins.variablesText(), this.ins.featuresText(200), this.ins.bodyText()];
-    if (this.host.ui) parts.push(this.ins.selectionText(this.host.ui.selection()));
-    for (const f of this.refs.features_(a.features, 'features')) {
+    const wanted = this.refs.features_(a.features, 'features');
+    // Asked about some features, the model has the list already: repeating up to 200 lines would only cost tokens.
+    const parts = wanted.length ? [this.ins.partHeader(), this.ins.bodyText()] : [this.ins.partHeader(), this.ins.variablesText(), this.ins.featuresText(200), this.ins.bodyText()];
+    if (this.host.ui && !wanted.length) parts.push(this.ins.selectionText(this.host.ui.selection()));
+    for (const f of wanted) {
       const i = this.store.indexOf(f.id);
       parts.push(`\n${f.id} "${f.name}" (${f.type}) → ${this.ins.status(f, i)}${f.suppressed ? ' [suppressed]' : ''}${f.hidden ? ' [hidden]' : ''}`);
       if (f.type === 'sketch') parts.push(`${this.ins.sketchFrameText(f)} Use get_sketch for its contents.`);
@@ -492,9 +498,12 @@ class Toolkit {
   }
 
   findGeometry(a: Obj): string {
-    const kind = a.kind === 'edges' ? 'edges' : 'faces';
+    // "edge" listed faces, and an unknown of_face listed every edge (up to 400) as a match.
+    const kind = /^edges?$/i.test(str(a.kind)) ? 'edges' : /^faces?$/i.test(str(a.kind)) ? 'faces' : null;
+    if (!kind) throw new ToolError('kind: "faces" or "edges"');
     if (!this.host.faces.length) return 'The part has no body yet.';
     const feature = a.feature != null ? this.refs.feature(a.feature).id : undefined;
+    if (a.of_face != null) this.refs.faceInfo(a.of_face, 'of_face');
     const limit = Math.max(1, Math.min(400, Math.round(Number(a.limit) || 60)));
     const scaled = (v: unknown, what: string) => vec3(v, what).map((x) => x * this.u.scale) as Vec3;
     return this.ins.findGeometry({
@@ -526,7 +535,9 @@ class Toolkit {
     const va = A.normal ?? A.dir, vb = Bt.normal ?? Bt.dir;
     if (va && vb) {
       const ang = (Math.atan2(len(cross(va, vb)), dot(va, vb)) * 180) / Math.PI;
-      lines.push(`Angle between their ${A.normal ? 'normals' : 'directions'}: ${num(ang, 3)}°.`);
+      if (!!A.normal === !!Bt.normal) lines.push(`Angle between their ${A.normal ? 'normals' : 'directions'}: ${num(ang, 3)}°.`);
+      // A face's normal against an edge's direction: what is meant is the edge's angle to the face.
+      else lines.push(`Angle between the edge and the face's plane: ${num(Math.abs(90 - ang), 3)}°.`);
     }
     return lines.join('\n');
   }
@@ -541,7 +552,7 @@ class Toolkit {
     const m = this.doc.material;
     if (m) {
       const kg = mp.volume * 1e-9 * m.density;
-      lines.push(`Mass ${num(kg / us.massScale, 4)} ${us.mass} (${m.name}, ${m.density} kg/m³).`);
+      lines.push(`Mass ${qty(kg / us.massScale, 4)} ${us.mass} (${m.name}, ${m.density} kg/m³).`);
     } else lines.push('Mass: set a material (set_part) to get the mass.');
     lines.push(`Principal moments per unit density: ${mp.principal.moments.map((x) => qty(x / u.scale ** 5, 2)).join(', ')} ${u.unit}⁵ about axes ${mp.principal.axes.map((x) => u.dir(normalize(x))).join(', ')}.`);
     lines.push(this.ins.bodyText());
@@ -654,6 +665,11 @@ class Toolkit {
     if (a.name != null) ed.sk.name = str(a.name) || sk.name;
     this.applySketchOps(ed, a);
     const solve = this.checkSolve(ed, prevBad);
+    // A move the sketch's relations or dimensions undo would otherwise read as done.
+    for (const m of ed.moved) {
+      const p = ed.sk.entities.find((e) => e.id === m.id);
+      if (p?.t === 'point' && Math.hypot(p.x - m.to[0], p.y - m.to[1]) > 1e-4) ed.notes.push(`move_points: ${m.id} was moved to ${this.u.pt(m.to)}, but its relations or dimensions put it back at ${this.u.pt([p.x, p.y])}. Delete or change those to move it.`);
+    }
     const next = ed.sk;
     const build = await this.apply(`Edit ${sk.name}`, (doc) => {
       const i = doc.features.findIndex((f) => f.id === sk.id);
@@ -670,6 +686,10 @@ class Toolkit {
     const args = { ...a };
     const pre: SketchFeature[] = [];
     const notes: string[] = [];
+    // Points beside an existing sketch would be dropped, and the holes drilled at that sketch's points only.
+    if (type === 'hole' && args.sketch != null && (args.on != null || args.points != null)) {
+      throw new ToolError('give either "sketch" (its stand-alone points are the hole centres) or "on" with "points", not both. To add centres to an existing sketch, use edit_sketch with shapes of type "point".');
+    }
     if (type === 'hole' && args.sketch == null) {
       if (args.on == null || args.points == null) throw new ToolError('give "sketch" (with stand-alone points) or "on" and "points"');
       const plane = this.refs.plane(args.on, 'on');
@@ -680,7 +700,12 @@ class Toolkit {
       sk.frame = frame;
       const ed = new SketchEdit(sk, frame, this.u, this.store);
       ed.autoRelations = false;
-      list(args.points).forEach((p, i) => ed.addShape({ type: 'point', at: p }, i));
+      // Errors name the argument given (points[i]), not the shapes the points are made into.
+      list(args.points).forEach((p, i) => {
+        try { ed.addShape({ type: 'point', at: p }, i); } catch (e) {
+          throw e instanceof ToolError ? new ToolError(e.message.replace(/^shapes\[(\d+)\] \(point\)\.at/, 'points[$1]')) : e;
+        }
+      });
       if (!ed.sk.entities.length) throw new ToolError('points: give at least one hole centre');
       pre.push(ed.sk);
       notes.push(...ed.notes.map((n) => n.replace(/^shapes\[(\d+)\] \(point\)\.at/, 'points[$1]')));
@@ -731,6 +756,8 @@ class Toolkit {
       const add = TOOLS.find((t) => t.name === ADD_TOOLS[f.type]);
       const unknown = add && unknownArgs(add, params, 'params.', ['name']);
       if (unknown) throw new ToolError(`${unknown.replace(add.name, `${f.id} (${f.type})`)} (A new name goes in "name", next to params.)`);
+      // add_hole takes these to make the position sketch; an existing hole's centres are its sketch's points.
+      if (f.type === 'hole' && (params.on != null || params.points != null)) throw new ToolError(`the centres of ${f.id} are the stand-alone points of its sketch ${f.sketch}: move or add them with edit_sketch (move_points, or shapes of type "point"). Nothing was changed.`);
       next = this.ins.codec.build(f.type, params, f, f.id, f.name);
     }
     if (a.name != null && str(a.name)) next.name = str(a.name);

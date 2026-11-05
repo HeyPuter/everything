@@ -127,3 +127,25 @@ test('a ribbon command or the design tree tapped while the assistant covers the 
   await expect(assistant).toBeHidden();
   await expect(page.getByRole('heading', { name: 'Fillet', exact: true })).toBeVisible();
 });
+
+test('opening the assistant or starting a new chat on a phone leaves the keyboard down', async ({ page }) => {
+  await page.route(/js\.puter\.com/, (r) => r.fulfill({ body: '', contentType: 'text/javascript' }));
+  await page.addInitScript(() => {
+    (window as unknown as { __assistantChat: unknown }).__assistantChat = async function* () { yield { type: 'text', text: 'Hi there.' }; };
+  });
+  await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).tap();
+  const box = page.getByRole('textbox', { name: 'Message the assistant' });
+  await page.locator('.titlebar [data-cmd="assistant"]').tap();
+  await expect(box).toBeVisible();
+  await expect(page.locator('.as-idea').first()).toBeVisible();
+  await expect(box).not.toBeFocused();
+  await box.tap();
+  await box.fill('hello');
+  await page.getByRole('button', { name: 'Send' }).tap();
+  await expect(page.getByText('Hi there.')).toBeVisible();
+  await box.blur();
+  await page.getByRole('button', { name: 'New chat' }).tap();
+  await expect(page.locator('.as-empty')).toBeVisible();
+  await expect(box).not.toBeFocused();
+});

@@ -19,6 +19,8 @@ async function plate() {
   return { h, r };
 }
 
+const topFace = (h: TestHost) => h.faces.find((f) => f.name.endsWith(':cap1'))!.name;
+
 describe('assistant tools', () => {
   it.each([0, 1e9])('constructs an arc through the requested points at coordinate offset %s', async (offset) => {
     const h = new TestHost();
@@ -249,5 +251,151 @@ describe('assistant tools', () => {
     const x = await h.call('add_extrude', { sketch: 's1', depth: 0.01 });
     expect(x.content).toContain('Volume 0.000002469 m³');
     expect((await h.call('mass_properties', {})).content).toMatch(/surface area 0\.00\d+ m²/);
+  });
+
+  it('cuts and drills to a depth that is given, also when changing a through-all one', async () => {
+    const { h } = await plate();
+    await h.call('create_sketch', { plane: topFace(h), shapes: [{ type: 'circle', center: [10, 10, 5], radius: 5 }] });
+    await h.call('add_extrude', { sketch: h.store.doc.features.at(-1)!.id, cut: true, depth: 3 });
+    expect(await h.volume()).toBeCloseTo(40000 - Math.PI * 25 * 3, 1);
+    const cut = h.store.doc.features.at(-1)!.id;
+    await h.call('edit_feature', { feature: cut, params: { end: 'through_all' } });
+    expect(await h.volume()).toBeCloseTo(40000 - Math.PI * 25 * 10, 1);
+    await h.call('edit_feature', { feature: cut, params: { depth: 4 } });
+    expect(await h.volume()).toBeCloseTo(40000 - Math.PI * 25 * 4, 1);
+    await h.call('add_hole', { on: topFace(h), points: [[-20, 10, 0]], diameter: 6 });
+    const hole = h.store.doc.features.at(-1)!.id;
+    expect(await h.volume()).toBeCloseTo(40000 - Math.PI * 25 * 4 - Math.PI * 9 * 10, 1);
+    await h.call('edit_feature', { feature: hole, params: { depth: 3 } });
+    expect(await h.volume()).toBeCloseTo(40000 - Math.PI * 25 * 4 - Math.PI * 9 * 3, 1);
+  });
+
+  it('refuses hole centres it would drop, instead of drilling elsewhere and reporting it done', async () => {
+    const { h } = await plate();
+    await h.call('create_sketch', { plane: 'top', shapes: [{ type: 'point', at: [0, 0] }] });
+    const sk = h.store.doc.features.at(-1)!.id;
+    const r = await h.call('add_hole', { sketch: sk, points: [[10, 10], [20, 10]], diameter: 4 }, false);
+    expect(r.ok).toBe(false);
+    expect(r.content).toMatch(/not both.*edit_sketch/);
+    await h.call('add_hole', { on: topFace(h), points: [[-30, 10, -15]], diameter: 6 });
+    const hole = h.store.doc.features.at(-1)!.id;
+    const e = await h.call('edit_feature', { feature: hole, params: { on: topFace(h), points: [[30, 10, 15]] } }, false);
+    expect(e.ok).toBe(false);
+    expect(e.content).toMatch(/stand-alone points of its sketch s\d+: move or add them with edit_sketch/);
+    expect(await h.volume()).toBeCloseTo(40000 - Math.PI * 9 * 10, 1);
+  });
+
+  it('gives a revolve\'s arguments in a form edit_feature takes back', async () => {
+    const h = new TestHost();
+    await h.call('create_sketch', { plane: 'front', shapes: [{ type: 'centerline', from: [0, 0], to: [0, 30] }, { type: 'rectangle', corner1: [10, 0], corner2: [20, 25] }] });
+    await h.call('add_revolve', { sketch: 's1', angle: 360 });
+    const m = await h.call('get_model', { features: ['f2'] });
+    const args = JSON.parse(/Arguments: (.*)/.exec(m.content)![1]);
+    expect(args.axis).toBeNull();
+    await h.call('edit_feature', { feature: 'f2', params: { ...args, angle: 180 } });
+    expect(await h.volume()).toBeCloseTo((Math.PI * (400 - 100) * 25) / 2, 0);
+  });
+
+  it('says when relations put a moved point back', async () => {
+    const { h } = await plate();
+    // A centre at the face's origin gets a coincident-with-origin relation.
+    await h.call('create_sketch', { plane: topFace(h), shapes: [{ type: 'circle', id: 'c', center: [0, 10, 0], radius: 5 }, { type: 'point', id: 'free', at: [5, 10, 5] }] });
+    const sk = h.store.doc.features.at(-1)!.id;
+    const r = await h.call('edit_sketch', { sketch: sk, move_points: [{ point: 'c_c', to: [20, 10, 0] }, { point: 'free', to: [10, 10, 10] }] });
+    const c = h.store.feature<SketchFeature>(sk)!.entities.find((e) => e.id === 'c_c') as { x: number; y: number };
+    expect(c.x).toBeCloseTo(0, 9);
+    expect(c.y).toBeCloseTo(0, 9);
+    expect(r.content).toMatch(/move_points: c_c was moved to .*but its relations or dimensions put it back/);
+    expect(r.content).not.toMatch(/free was moved/);
+  });
+
+  it('reports a warning the change leaves on another feature', async () => {
+    const { h } = await plate();
+    await h.call('create_sketch', { plane: topFace(h), shapes: [{ type: 'circle', id: 'c', center: [10, 10, 5], radius: 5 }] });
+    const sk = h.store.doc.features.at(-1)!.id;
+    await h.call('add_extrude', { sketch: sk, cut: true });
+    const cut = h.store.doc.features.at(-1)!.id;
+    const r = await h.call('edit_sketch', { sketch: sk, move_points: [{ point: 'c_c', to: [200, 10, 0] }] });
+    expect(r.content).toMatch(new RegExp(`New warnings on other features: ${cut}: .*does not remove any material`));
+    // Unchanged warnings are not repeated.
+    const again = await h.call('edit_sketch', { sketch: sk, name: 'Moved' });
+    expect(again.content).not.toMatch(/New warnings/);
+  });
+
+  it('keeps the precision of a small part\'s mass in kilograms and pounds', async () => {
+    const h = new TestHost();
+    await h.call('set_part', { units: 'MKS', material: 'Aluminum 6061' });
+    await h.call('create_sketch', { plane: 'front', shapes: [{ type: 'rectangle', corner1: [0, 0], corner2: [0.01, 0.01] }] });
+    await h.call('add_extrude', { sketch: 's1', depth: 0.0012345 });
+    // 1.2345e-7 m³ × 2700 kg/m³ = 0.000333315 kg (it read 0.0003 kg).
+    expect((await h.call('mass_properties', {})).content).toMatch(/Mass 0\.000333315 kg/);
+    await h.call('set_part', { units: 'MMGS' });
+    expect((await h.call('mass_properties', {})).content).toMatch(/Mass 0\.333315 g/);
+  });
+
+  it('gives feature arguments in metres to the precision results use', async () => {
+    const h = new TestHost();
+    await h.call('set_part', { units: 'MKS' });
+    await h.call('create_sketch', { plane: 'front', shapes: [{ type: 'rectangle', corner1: [0, 0], corner2: [0.01, 0.01] }] });
+    await h.call('add_extrude', { sketch: 's1', depth: 0.0012345 });
+    // It read 0.001234: a model copying the arguments back moved the geometry.
+    expect((await h.call('get_model', { features: ['f2'] })).content).toContain('"depth":0.0012345');
+    await h.call('set_part', { units: 'MMGS' });
+    expect((await h.call('get_model', { features: ['f2'] })).content).toContain('"depth":1.2345');
+  });
+
+  it('sizes a counterbore from a diameter given as a variable', async () => {
+    const h = new TestHost();
+    await h.call('set_part', { units: 'IPS' });
+    await h.call('set_variables', { set: [{ name: 'D', value: 0.5 }] });
+    await h.call('create_sketch', { plane: 'top', shapes: [{ type: 'rectangle', center: [0, 0], width: 3, height: 2 }] });
+    await h.call('add_extrude', { sketch: 's1', depth: 1 });
+    // The defaults came from a 5 mm hole, so the counterbore was smaller than the 12.7 mm hole.
+    const r = await h.call('add_hole', { on: topFace(h), points: [[0, 1, 0]], diameter: '=D', kind: 'counterbore' });
+    expect(r.ok).toBe(true);
+    const hole = h.store.doc.features.at(-1) as { diameter: unknown; cbDiameter: number };
+    expect(hole.diameter).toBe('=D');
+    expect(hole.cbDiameter).toBeCloseTo(12.7 * 1.8, 6);
+  });
+
+  it('measures the angle between an edge and a face as the edge\'s angle to the face', async () => {
+    const { h } = await plate();
+    const top = topFace(h);
+    const inTop = h.edges.find((x) => x.dir && Math.abs(x.dir[0]) > 0.99 && x.a[1] > 9)!.name;
+    const upright = h.edges.find((x) => x.dir && Math.abs(x.dir[1]) > 0.99)!.name;
+    expect((await h.call('measure', { a: top, b: inTop })).content).toMatch(/Angle between the edge and the face's plane: 0°/);
+    expect((await h.call('measure', { a: upright, b: top })).content).toMatch(/Angle between the edge and the face's plane: 90°/);
+    expect((await h.call('measure', { a: inTop, b: upright })).content).toMatch(/Angle between their directions: 90°/);
+  });
+
+  it('lists what find_geometry was asked for, and refuses a face that does not exist', async () => {
+    const { h } = await plate();
+    expect((await h.call('find_geometry', { kind: 'edge' })).content).toMatch(/^12 of 12 edges match/);
+    expect((await h.call('find_geometry', { kind: 'vertices' }, false)).content).toMatch(/kind: "faces" or "edges"/);
+    const r = await h.call('find_geometry', { kind: 'edges', of_face: 'nope' }, false);
+    expect(r.ok).toBe(false);
+    expect(r.content).not.toMatch(/edges match/);
+    expect((await h.call('find_geometry', { kind: 'edges', of_face: topFace(h) })).content).toMatch(/^4 of 12 edges match/);
+  });
+
+  it('names add_hole\'s own argument when a hole centre is malformed', async () => {
+    const { h } = await plate();
+    const r = await h.call('add_hole', { on: topFace(h), points: [0, 10, 0], diameter: 6 }, false);
+    expect(r.content).toMatch(/^Error: points\[0\]: expected/);
+  });
+
+  it('describes only the features asked about, without the whole part again', async () => {
+    const { h } = await plate();
+    await h.call('add_hole', { on: topFace(h), points: [[0, 10, 0]], diameter: 3, name: 'Pin' });
+    const all = await h.call('get_model', {});
+    expect(all.content).toContain('Features in build order:');
+    expect(all.content).toContain('"Pin" hole');
+    const one = await h.call('get_model', { features: ['Plate'] });
+    expect(one.content).not.toContain('Features in build order:');
+    expect(one.content).not.toContain('Pin');
+    expect(one.content).toMatch(/^Part "Part1"/);
+    expect(one.content).toMatch(/Body: \d+ faces/);
+    expect(one.content).toMatch(/f2 "Plate" \(extrude\) → ok\nArguments: \{"sketch":"s1"/);
+    expect(one.content).toContain('Faces of f2');
   });
 });

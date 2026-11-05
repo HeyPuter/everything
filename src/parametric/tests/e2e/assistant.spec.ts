@@ -208,7 +208,7 @@ test('a failed reply can be tried again until a later message moves the conversa
     let n = 0;
     w.__assistantChat = async function* (messages: { role: string }[]) {
       w.__roles.push(messages.map((m) => m.role));
-      if (n++ === 0) throw new Error('Too many requests');
+      if (n++ === 0) throw new Error('The request was refused');
       yield { type: 'text', text: `Answer ${n}` };
     };
   });
@@ -217,7 +217,7 @@ test('a failed reply can be tried again until a later message moves the conversa
   const box = page.getByRole('textbox', { name: 'Message the assistant' });
   await box.fill('first');
   await box.press('Enter');
-  await expect(page.getByRole('alert')).toContainText('Too many requests');
+  await expect(page.getByRole('alert')).toContainText('The request was refused');
   await expect(page.getByRole('button', { name: 'Try again' })).toBeVisible();
   await box.fill('second');
   await box.press('Enter');
@@ -226,6 +226,28 @@ test('a failed reply can be tried again until a later message moves the conversa
   await expect(page.getByRole('button', { name: 'Try again' })).toHaveCount(0);
   const roles = await page.evaluate(() => (window as unknown as { __roles: string[][] }).__roles);
   expect(roles.map((r) => r.at(-1))).toEqual(['user', 'user']);
+});
+
+test('a reply the service was too busy for is sent again by itself', async ({ page }) => {
+  await page.addInitScript(() => {
+    const w = window as unknown as { __calls: number; __assistantChat: unknown };
+    w.__calls = 0;
+    w.__assistantChat = async function* () {
+      if (w.__calls++ === 0) throw new Error('529 Overloaded');
+      yield { type: 'text', text: 'Answered after a retry.' };
+    };
+  });
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  const box = page.getByRole('textbox', { name: 'Message the assistant' });
+  await box.fill('hello');
+  await box.press('Enter');
+  await expect(page.locator('.as-status')).toHaveText('The AI service did not answer. Trying again (1 of 3)…');
+  await expect(page.getByText('Answered after a retry.')).toBeVisible();
+  await expect(page.getByRole('alert')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Try again' })).toHaveCount(0);
+  expect(await page.evaluate(() => (window as unknown as { __calls: number }).__calls)).toBe(2);
+  expect(errors).toEqual([]);
 });
 
 test('sending signed out signs in first, once, and sends what the box holds then', async ({ page }) => {
@@ -248,7 +270,7 @@ test('sending signed out signs in first, once, and sends what the box holds then
         },
         fs: { write: none, read: none, readdir: async () => [], delete: none, rename: none, stat: none, mkdir: async () => ({}) },
         kv: { get: async () => null, set: async () => true, del: async () => true },
-        ai: { chat: async (messages) => { w.__sent.push(messages.at(-1).content); return { async *[Symbol.asyncIterator]() { yield { type: 'text', text: 'Signed-in answer.' }; } }; } },
+        ai: { chat: async (messages) => { const c = messages.at(-1).content; w.__sent.push(typeof c === 'string' ? c : c.map((b) => b.text).join('')); return { async *[Symbol.asyncIterator]() { yield { type: 'text', text: 'Signed-in answer.' }; } }; } },
       };
     })();`,
   }));
@@ -351,7 +373,7 @@ test('trying a failed reply again keeps the Undo changes of what it already did'
     (window as unknown as { __assistantChat: unknown }).__assistantChat = async function* () {
       n++;
       if (n === 1) yield { type: 'tool', id: 'c1', name: 'create_sketch', input: { plane: 'top', shapes: [{ type: 'circle', center: [0, 0], radius: 5 }] } };
-      else if (n === 2) throw new Error('Network error');
+      else if (n === 2) throw new Error('Something went wrong');
       else yield { type: 'text', text: 'Recovered.' };
     };
   });

@@ -1,7 +1,6 @@
 /* ---------- Assistant sidebar ---------- */
 .tp-panel.wide { width: 380px; overflow: hidden; }
 .assistant { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-.as-bar { display: flex; align-items: center; justify-content: flex-end; gap: 6px; padding: 6px 8px 6px 12px; border-bottom: 1px solid var(--border); }
 .as-log { flex: 1; min-height: 0; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 12px; user-select: text; -webkit-user-select: text; overscroll-behavior: contain; }
 
 .as-empty { display: flex; flex-direction: column; gap: 8px; color: var(--text-2); margin: auto 0; }
@@ -26,6 +25,10 @@
 .as-text ul, .as-text ol { margin: 2px 0 6px; padding-left: 20px; }
 .as-text li { margin: 2px 0; }
 .as-text code { font: 12px var(--font-mono); background: var(--panel-2); border: 1px solid var(--border); border-radius: 3px; padding: 0 3px; }
+.as-table { margin: 4px 0 6px; overflow-x: auto; }
+.as-table table { border-collapse: collapse; font-size: var(--fs-sm); font-variant-numeric: tabular-nums; }
+.as-table th, .as-table td { padding: 3px 8px; border: 1px solid var(--border); text-align: left; vertical-align: top; }
+.as-table th { background: var(--panel-2); font-weight: 600; white-space: nowrap; }
 .as-text pre { margin: 4px 0; padding: 8px; font: 12px var(--font-mono); background: var(--panel-2); border: 1px solid var(--border); border-radius: var(--radius); overflow-x: auto; white-space: pre; }
 
 .as-steps { list-style: none; margin: 0; padding: 4px 0; display: flex; flex-direction: column; gap: 1px; border-left: 2px solid var(--border); }
