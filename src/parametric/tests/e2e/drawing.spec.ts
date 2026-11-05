@@ -225,3 +225,24 @@ test('leaving the drawing cancels an export still waiting for projection', async
   expect(downloads).toBe(0);
   expect(errors).toEqual([]);
 });
+
+test('removing the solid clears its old drawing projections', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await page.getByRole('tab', { name: 'Drawing' }).click();
+  await expect(page.locator('.paper g[data-view]')).toHaveCount(4);
+  await page.evaluate(async () => {
+    const app = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+    app.store.change('Remove solid', (doc) => { doc.features = []; });
+    await app.whenBuilt();
+  });
+  await expect(page.locator('.drawing-empty')).toBeVisible();
+  await expect(page.locator('.paper g[data-view]')).toHaveCount(0);
+  const downloaded = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'SVG', exact: true }).click();
+  const file = await downloaded;
+  const { readFileSync } = await import('node:fs');
+  const text = new TextDecoder().decode(readFileSync((await file.path())!));
+  expect(text).not.toContain('data-view=');
+  expect(errors).toEqual([]);
+});

@@ -178,7 +178,7 @@ export class DrawingWorkspace {
     const projections = new Map<string, ProjectionResult>();
     for (const v of d.views) {
       const c = this.cache.get(v.id);
-      if (c) projections.set(v.id, c.result);
+      if (this.app.bbox && c?.version === this.app.buildVersion && c.kind === v.kind) projections.set(v.id, c.result);
     }
     return buildSheet(d, projections, this.info());
   }
