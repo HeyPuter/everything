@@ -900,6 +900,10 @@ export async function linetypesDialog(app) {
 
 export async function quickSelectDialog(app) {
   const d = app.doc.drawing;
+  if (!d.entities.size) {
+    app.cmdline.log('The drawing has no objects to select.', 'muted');
+    return;
+  }
   const types = [...new Set([...d.entities.values()].map((e) => e.type))].sort();
   const typeSel = select([['*', 'All object types'], ...types.map((t) => [t, t[0].toUpperCase() + t.slice(1)])], '*');
   const prop = select([['layer', 'Layer'], ['color', 'Color'], ['linetype', 'Linetype'], ['lineweight', 'Lineweight']], 'layer');
