@@ -403,7 +403,9 @@ export class MeasurePanel extends PropertyPanel {
       const va = na ?? da, vb = nb ?? db;
       if (va && vb) {
         const c = Math.min(1, Math.abs(dot(normalize(va), normalize(vb))));
-        const ang = (Math.acos(c) * 180) / Math.PI;
+        // Between an edge and a face or plane, the angle is to the surface, not to its normal.
+        const mixed = !na !== !nb;
+        const ang = ((mixed ? Math.asin(c) : Math.acos(c)) * 180) / Math.PI;
         lines.push(['Angle', `${formatNumber(ang, 2)}°`]);
       }
       const target = (it: SelItem): MeasureTarget | null => (it.kind === 'face' ? { kind: 'face', index: it.index } : it.kind === 'edge' ? { kind: 'edge', index: it.index } : it.kind === 'vertex' ? { kind: 'vertex', p: it.p } : null);

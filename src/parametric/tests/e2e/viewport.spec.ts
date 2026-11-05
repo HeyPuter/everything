@@ -296,6 +296,29 @@ test.describe('viewport', () => {
     expect(r.item).toBe('face');
   });
 
+  test('measures the angle between an edge and a face to the face', async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+    await waitForFeature(page, 'Fillet1');
+    await expect.poll(() => page.evaluate(() => (window as unknown as Win).__parametric.faces.length)).toBeGreaterThan(0);
+    const angle = async (edgeAxis: number) => {
+      await page.evaluate(async (k) => {
+        const app = (window as unknown as Win).__parametric;
+        if (app.panel) await app.closePanel(false);
+        // The plate's front face (z = 30) and an edge along x lying in it, or one along z.
+        const fi = app.faces.findIndex((f) => f.normal?.[2] === 1 && Math.abs(f.center[2] - 30) < 1e-6);
+        const ei = app.edges.findIndex((e) => e.dir && Math.abs(Math.abs(e.dir[k]) - 1) < 1e-9 && (k === 2 || Math.abs(e.a[2] - 30) < 1e-6));
+        app.selection.set([{ kind: 'face', index: fi, name: app.faces[fi].name }, { kind: 'edge', index: ei, name: app.edges[ei].name }]);
+        app.commands.run('measure');
+      }, edgeAxis);
+      const row = page.locator('.pm-section tr', { hasText: 'Angle' });
+      await expect(row).toBeVisible();
+      return row.locator('td').innerText();
+    };
+    expect(await angle(0)).toBe('0.00°');
+    expect(await angle(2)).toBe('90.00°');
+  });
+
   test('line display styles keep visible edges readable in both themes', async ({ page }) => {
     await openApp(page);
     const contrast = () => page.evaluate(() => {
