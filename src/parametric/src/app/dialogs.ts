@@ -26,6 +26,7 @@ import { REPO_URL } from './shell';
 // ---------- equations ----------
 
 export async function equationsDialog(app: App) {
+  const signal = app.documentSignal;
   const doc = app.store.doc;
   const rows: Variable[] = structuredClone(doc.variables);
   const tbody = h('tbody');
@@ -102,7 +103,7 @@ export async function equationsDialog(app: App) {
   });
   draw();
   const v = await showDialog({
-    title: 'Equations and Global Variables',
+    title: 'Equations and Global Variables', signal,
     wide: true,
     body: [
       h('p', {}, `Define named values, then type "=" and a name (for example =Width/2) in any dimension or feature value to link it. Values use the part's units (${UNIT_SYSTEMS[doc.units].length}, degrees).`),
@@ -123,7 +124,7 @@ export async function equationsDialog(app: App) {
       if (errors.size) { err.textContent = `Fix the errors first: ${[...errors].map(([k, m]) => `${k}: ${m}`).join('; ')}`; return false; }
     },
   });
-  if (v === 'ok') {
+  if (v === 'ok' && !signal.aborted) {
     const renamed = new Map<string, string>();
     for (const r of rows) {
       const was = originalNames.get(r.id);
@@ -151,6 +152,7 @@ export async function equationsDialog(app: App) {
 
 
 export async function materialDialog(app: App) {
+  const signal = app.documentSignal;
   const cur = app.store.doc.material;
   const select = h('select', { class: 'input', 'aria-label': 'Material' }) as HTMLSelectElement;
   select.append(h('option', { value: '' }, 'Not specified'));
@@ -168,11 +170,11 @@ export async function materialDialog(app: App) {
   select.addEventListener('change', sync);
   sync();
   const v = await showDialog({
-    title: 'Material',
+    title: 'Material', signal,
     body: [h('p', {}, 'The material sets the density used for mass properties.'), select, custom],
     buttons: [{ label: 'Cancel', value: 'cancel' }, { label: 'Apply', value: 'ok', primary: true }],
   });
-  if (v !== 'ok') return;
+  if (v !== 'ok' || signal.aborted) return;
   let m: MaterialRef | null = null;
   if (select.value === '__custom') {
     const d = Number(customDensity.value);
@@ -185,6 +187,7 @@ export async function materialDialog(app: App) {
 // ---------- part properties ----------
 
 export async function propertiesDialog(app: App) {
+  const signal = app.documentSignal;
   const doc = app.store.doc;
   const name = h('input', { class: 'input', value: doc.name, 'aria-label': 'Part name' }) as HTMLInputElement;
   const units = h('select', { class: 'input', 'aria-label': 'Unit system' }) as HTMLSelectElement;
@@ -195,12 +198,12 @@ export async function propertiesDialog(app: App) {
   }
   const decimals = h('input', { class: 'input', type: 'number', min: '0', max: '6', value: String(doc.decimals), 'aria-label': 'Decimal places' }) as HTMLInputElement;
   const v = await showDialog({
-    title: 'Part Properties',
+    title: 'Part Properties', signal,
     body: [h('div', { class: 'grid-form' }, h('label', {}, 'Name'), name, h('label', {}, 'Units'), units, h('label', {}, 'Decimal places'), decimals),
       h('p', { class: 'field-label' }, 'Changing units only changes how values are shown. The geometry keeps its size.')],
     buttons: [{ label: 'Cancel', value: 'cancel' }, { label: 'OK', value: 'ok', primary: true }],
   });
-  if (v !== 'ok') return;
+  if (v !== 'ok' || signal.aborted) return;
   let unlinked: string[] = [];
   app.store.change('Part properties', (d) => {
     d.name = name.value.trim() || d.name;

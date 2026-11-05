@@ -10,6 +10,8 @@ export interface DialogOptions {
   body: HTMLElement | (HTMLElement | string)[];
   buttons?: { label: string; primary?: boolean; danger?: boolean; value?: string; left?: boolean; disabled?: boolean }[];
   wide?: boolean;
+  /** Closes a dialog whose underlying task or document is no longer current. */
+  signal?: AbortSignal;
   /** Return false to keep the dialog open (e.g. validation failed). */
   onAction?: (value: string) => boolean | void | Promise<boolean | void>;
   initialFocus?: string;
@@ -21,6 +23,7 @@ const openDialogs: HTMLElement[] = [];
 export const dialogOpen = () => openDialogs.length > 0;
 
 export function showDialog(o: DialogOptions): Promise<string | null> {
+  if (o.signal?.aborted) return Promise.resolve(null);
   return new Promise((resolve) => {
     const prevFocus = document.activeElement as HTMLElement | null;
     const prevParents: HTMLElement[] = [];
@@ -37,11 +40,14 @@ export function showDialog(o: DialogOptions): Promise<string | null> {
     const finish = (v: string | null) => {
       if (done) return;
       done = true;
+      o.signal?.removeEventListener('abort', cancel);
       backdrop.remove();
       openDialogs.splice(openDialogs.indexOf(backdrop), 1);
       restoreFocus(prevFocus, prevParents);
       resolve(v);
     };
+    const cancel = () => finish(null);
+    o.signal?.addEventListener('abort', cancel, { once: true });
     for (const b of o.buttons ?? [{ label: 'Close', primary: true, value: 'ok' }]) {
       const btn = h('button', { class: `btn${b.primary ? ' primary' : ''}${b.danger ? ' danger' : ''}${b.left ? ' left' : ''}`, 'data-value': b.value ?? b.label, disabled: b.disabled }, b.label);
       btn.addEventListener('click', async () => {
@@ -75,6 +81,7 @@ export function showDialog(o: DialogOptions): Promise<string | null> {
     document.body.append(backdrop);
     openDialogs.push(backdrop);
     o.onReady?.(finish);
+    if (done) return;
     // Destructive confirmations have no primary button: focus starts on the
     // first (safe) button, so Escape and Tab work inside the dialog.
     const focusEl = (o.initialFocus && dialog.querySelector<HTMLElement>(o.initialFocus)) || dialog.querySelector<HTMLElement>('input, select, textarea') || foot.querySelector<HTMLElement>('.btn.primary') || foot.querySelector<HTMLElement>('.btn:not([disabled])') || dialog;

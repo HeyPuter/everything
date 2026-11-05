@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { closeMenus, openMenu } from '../src/ui/menu';
-import { attachTooltip, confirmDialog, promptDialog, toast } from '../src/ui/overlay';
+import { attachTooltip, confirmDialog, dialogOpen, promptDialog, showDialog, toast } from '../src/ui/overlay';
 import { numberField, parseParam, paramText, type UnitContext } from '../src/app/pm';
 import { Selection } from '../src/app/selection';
 
@@ -256,5 +256,38 @@ describe('IME composition', () => {
       vi.advanceTimersByTime(500);
       expect(onChange).toHaveBeenCalledExactlyOnceWith(20);
     } finally { vi.useRealTimers(); }
+  });
+});
+
+
+describe('dialog cancellation', () => {
+  it('does not open an already cancelled dialog', async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const onReady = vi.fn();
+    expect(await showDialog({ title: 'Stale', body: [], signal: controller.signal, onReady })).toBeNull();
+    expect(onReady).not.toHaveBeenCalled();
+    expect(dialogOpen()).toBe(false);
+  });
+
+  it('cancels pending validation and restores focus without affecting another dialog', async () => {
+    const opener = document.createElement('button');
+    document.body.append(opener);
+    opener.focus();
+    const controller = new AbortController();
+    let validate!: () => void;
+    const gate = new Promise<void>((resolve) => { validate = resolve; });
+    const pending = showDialog({ title: 'Old part', body: [], signal: controller.signal, onAction: () => gate });
+    (document.querySelector('.dialog-foot button') as HTMLButtonElement).click();
+    controller.abort();
+    expect(await pending).toBeNull();
+    expect(document.activeElement).toBe(opener);
+    const next = showDialog({ title: 'New part', body: [] });
+    validate();
+    await Promise.resolve();
+    expect(dialogOpen()).toBe(true);
+    key(document.querySelector('[role="dialog"]')!, 'Escape');
+    expect(await next).toBeNull();
+    expect(dialogOpen()).toBe(false);
   });
 });

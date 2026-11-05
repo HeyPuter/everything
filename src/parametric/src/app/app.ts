@@ -74,6 +74,9 @@ export class App {
   panel: PropertyPanel | null = null;
   sketchEditor: SketchEditor | null = null;
   location: Location | null = null;
+  private documentLifetime = new AbortController();
+  /** Invalidated on document replacement, but preserved through edits and Undo. */
+  get documentSignal(): AbortSignal { return this.documentLifetime.signal; }
   settings: Settings = { ...DEFAULT_SETTINGS };
   private settingChanges = new Map<keyof Settings, number>();
   private settingsLoad = 0;
@@ -666,6 +669,9 @@ export class App {
 
   private onStoreChange(reason: string) {
     if (reason === 'load') {
+      const previous = this.documentLifetime;
+      this.documentLifetime = new AbortController();
+      previous.abort();
       this.applyModelColor();
       this.refreshAll();
     }
