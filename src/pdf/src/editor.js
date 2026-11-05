@@ -9926,6 +9926,9 @@ export function createEditor({
   async function runPrint(indices) {
     requireAccess('print');
     if (busy || destroyed) return;
+    // The Print button is disabled while the pages are prepared, which drops its focus; it
+    // takes the focus back afterwards, as Undo does, unless the focus has moved on.
+    const opener = document.activeElement;
     busy = true;
     updateStatus();
     const controller = new AbortController();
@@ -9958,6 +9961,13 @@ export function createEditor({
       if (d.open) d.close();
       busy = false;
       updateStatus();
+      if (
+        opener?.isConnected &&
+        opener !== document.body &&
+        !opener.disabled &&
+        (!document.activeElement || document.activeElement === document.body)
+      )
+        opener.focus({ preventScroll: true });
     }
   }
   /** Save one page as a PNG picture at 144 dpi, with its annotations. */
