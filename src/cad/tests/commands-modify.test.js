@@ -472,3 +472,35 @@ describe('SCALE', () => {
     expect(t.drawing.get(1).x2).toBeCloseTo(2.5);
   });
 });
+
+describe('scale factor readouts', () => {
+  const readout = () => {
+    let state;
+    t.ed.overlay.draw = (s) => (state = s);
+    t.ed.settings.dyn = true;
+    t.ed.cursor = { ...t.ed.cursor, sx: 540, sy: 400, fx: 10, fy: 0, inside: true };
+    t.ed._paintOverlay();
+    return state.readouts.map((r) => r.text);
+  };
+  beforeEach(() => {
+    t.drawing.transaction('Units', () =>
+      t.drawing.setHeader({ units: 'in', linearFormat: 'architectural' }),
+    );
+    add({ type: 'line', x1: 0, y1: 0, x2: 10, y2: 0 });
+  });
+
+  it('SCALE shows the dragged factor as a number, not a length', async () => {
+    t.ed.setSelection([1]);
+    await t.type('SCALE', '0,0');
+    expect(readout()[0]).toBe('10');
+  });
+
+  it('grip scale shows the dragged factor as a number', async () => {
+    t.ed.setSelection([1]);
+    t.ed.refreshGrips();
+    t.ed._startGripEdit(0);
+    await t.type('', '', '');
+    expect(t.ed.request.prompt).toMatch(/^Scale factor/);
+    expect(readout()[0]).toBe('10');
+  });
+});

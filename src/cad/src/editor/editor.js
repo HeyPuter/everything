@@ -1329,7 +1329,9 @@ export class Editor {
         const d = Math.hypot(c.fx - r.opts.base.x, c.fy - r.opts.base.y);
         const a = Math.atan2(c.fy - r.opts.base.y, c.fx - r.opts.base.x);
         if (d * cam.scale > 20) {
-          state.readouts.push({ sx: (b.x + fs.x) / 2, sy: (b.y + fs.y) / 2 - 14, text: formatLinear(d, this.header) });
+          // A scale factor reads as a plain number, not a length.
+          const text = r.opts.factor ? String(+d.toPrecision(4)) : formatLinear(d, this.header);
+          state.readouts.push({ sx: (b.x + fs.x) / 2, sy: (b.y + fs.y) / 2 - 14, text });
           state.readouts.push({ sx: fs.x + 18, sy: fs.y - 18, text: formatAngle(norm(a), this.header), align: 'left' });
         }
       }
@@ -1483,7 +1485,7 @@ async function gripEdit(ed, grip, fromPointer) {
         r = await ed.getAngle(prompt, ask);
         if (typeof r === 'number') r = { x: base.x + Math.cos(r), y: base.y + Math.sin(r) };
       } else if (m === 'scale') {
-        r = await ed.getDistance(prompt, ask);
+        r = await ed.getDistance(prompt, { ...ask, factor: true });
         if (typeof r === 'number' && !(r > 0)) {
           ed.ui.log('The scale factor must be greater than zero.', 'error');
           continue;
