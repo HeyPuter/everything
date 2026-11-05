@@ -474,17 +474,26 @@ export class SectionPanel extends PropertyPanel {
   private offset = 0;
   private flip = false;
   private base: 'front' | 'top' | 'right' | 'custom' = 'front';
+  /** The plane the panel started from (the active section or a selected plane or face). */
+  private custom: { normal: Vec3; offset: number; label: string } | null = null;
   private originalSection: App['renderer']['section'];
 
   constructor(private app: App) {
     super();
     this.originalSection = app.renderer.section;
-    if (app.renderer.section) { this.normal = app.renderer.section.normal; this.offset = app.renderer.section.offset; this.base = 'custom'; }
+    if (app.renderer.section) this.custom = { ...app.renderer.section, label: 'Current' };
     else {
       const ref = app.selectedPlaneRef();
       const fr = ref ? app.frameOfPlane(ref) : null;
-      if (fr) { this.normal = fr.n; this.offset = dot(fr.o, fr.n); this.base = 'custom'; }
+      if (fr) this.custom = { normal: fr.n, offset: dot(fr.o, fr.n), label: 'Selected' };
       else if (app.bbox) this.offset = (app.bbox.min[2] + app.bbox.max[2]) / 2;
+    }
+    if (this.custom) {
+      this.normal = this.custom.normal;
+      this.offset = this.custom.offset;
+      // A plane parallel to a base plane is that base plane at an offset.
+      const k = (['front', 'top', 'right'] as const).find((b) => BASE_FRAMES[b].n.every((v, i) => Math.abs(v - this.custom!.normal[i]) < 1e-9));
+      if (k) { this.base = k; this.custom = null; } else this.base = 'custom';
     }
     this.apply();
   }
@@ -498,10 +507,18 @@ export class SectionPanel extends PropertyPanel {
   render(): HTMLElement[] {
     const app = this.app;
     const offset = numberField({ label: 'Offset', icon: 'ruler', value: this.offset, kind: 'length', ctx: app.unitContext(), onChange: (v) => { this.offset = Number(v); this.apply(); }, onLive: (v) => { this.offset = v; this.apply(); } });
-    const plane = segmented('Section plane', this.base === 'custom' ? 'front' : this.base, [
+    const custom = this.custom;
+    const plane = segmented('Section plane', this.base, [
       { value: 'front' as const, label: 'Front' }, { value: 'top' as const, label: 'Top' }, { value: 'right' as const, label: 'Right' },
+      ...(custom ? [{ value: 'custom' as const, label: custom.label }] : []),
     ], (v) => {
       this.base = v;
+      if (v === 'custom') {
+        if (custom) { this.normal = custom.normal; this.offset = custom.offset; }
+        this.apply();
+        app.refreshPanel();
+        return;
+      }
       this.normal = BASE_FRAMES[v].n;
       const b = app.bbox;
       const axis = v === 'front' ? 2 : v === 'top' ? 1 : 0;

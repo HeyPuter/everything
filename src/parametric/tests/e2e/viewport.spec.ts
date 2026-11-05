@@ -273,6 +273,27 @@ test.describe('viewport', () => {
     expect(hit === null || hit[2] <= 15).toBe(true);
   });
 
+  test('the section panel shows the plane it was started from', async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+    await waitForFeature(page, 'Fillet1');
+    const planes = page.getByRole('group', { name: 'Section plane' });
+    const normal = () => page.evaluate(() => (window as unknown as Win).__parametric.renderer.section?.normal.map((v) => Math.round(v * 1000) / 1000));
+    await page.getByRole('treeitem', { name: 'Top Plane' }).click();
+    await page.getByRole('button', { name: 'Section View' }).click();
+    await expect(planes.getByRole('button', { name: 'Top' })).toHaveAttribute('aria-pressed', 'true');
+    await expect(planes.getByRole('button', { name: 'Front' })).toHaveAttribute('aria-pressed', 'false');
+    expect(await normal()).toEqual([0, 1, 0]);
+    // Running it again while open keeps the active (here oblique) section as its own choice.
+    await page.evaluate(() => { (window as unknown as Win).__parametric.renderer.section = { normal: [Math.SQRT1_2, Math.SQRT1_2, 0], offset: 5 }; });
+    await page.getByRole('button', { name: 'Section View' }).click();
+    await expect(planes.getByRole('button', { name: 'Current' })).toHaveAttribute('aria-pressed', 'true');
+    await planes.getByRole('button', { name: 'Front' }).click();
+    expect(await normal()).toEqual([0, 0, 1]);
+    await planes.getByRole('button', { name: 'Current' }).click();
+    expect(await normal()).toEqual([0.707, 0.707, 0]);
+  });
+
   test('zoomed in past a face, picking still finds where it was clicked', async ({ page }) => {
     await openApp(page);
     await page.getByRole('button', { name: /Mounting Bracket/ }).click();
