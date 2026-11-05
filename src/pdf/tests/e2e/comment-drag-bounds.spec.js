@@ -67,3 +67,25 @@ test('arrow keys stop a comment at the edge of a turned page', async ({ page }) 
   expect(moved.rect.y + moved.rect.height).toBeCloseTo(300, 0);
   expect(moved.rect.x).toBeCloseTo(100, 3);
 });
+
+// Escape mid-drag let the drag go on: releasing the pointer still moved the comment.
+test('Escape during a drag puts the comment back and keeps it selected', async ({ page }) => {
+  const doc = await PDFDocument.create();
+  doc.addPage([400, 400]);
+  addShapeAnnotation(doc, 0, { kind: 'square', rect: { x: 100, y: 100, width: 80, height: 60 } });
+  await open(page, doc);
+  const target = page.getByRole('button', { name: 'Rectangle', exact: true });
+  const box = await target.boundingBox();
+  await page.mouse.move(box.x + 10, box.y + 10);
+  await page.mouse.down();
+  await page.mouse.move(box.x + 60, box.y + 40, { steps: 5 });
+  await page.keyboard.press('Escape');
+  await expect(target).toHaveAttribute('style', expect.not.stringContaining('translate'));
+  await page.mouse.move(box.x + 90, box.y + 60, { steps: 3 });
+  await page.mouse.up();
+  await settled(page);
+  await expect(target).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByRole('button', { name: 'Undo', exact: true }).first()).toBeDisabled();
+  const [kept] = await saved(page);
+  expect(kept.rect).toEqual({ x: 100, y: 100, width: 80, height: 60 });
+});

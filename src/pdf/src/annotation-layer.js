@@ -289,6 +289,13 @@ export function createAnnotationLayer({ onSelect, onMove, onDelete }) {
               if (!entry.locked && !entry.readOnly) onDelete(entry);
             } else if (e.key === 'Escape') {
               e.preventDefault();
+              // Escape during a drag puts the comment back where it was and keeps it selected.
+              if (drag) {
+                drag.node.style.transform = '';
+                if (drag.node.hasPointerCapture(drag.id)) drag.node.releasePointerCapture(drag.id);
+                drag = null;
+                return;
+              }
               saveNudge();
               select(null);
             } else if (
