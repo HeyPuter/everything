@@ -1243,6 +1243,7 @@ export class App {
   /** Starts a new sketch on a plane or planar face. */
   startSketchOn(ref: PlaneRef) {
     const restore = this.store.restorePoint('Sketch changes');
+    const undoFloor = this.store.undoMark;
     const id = this.store.nextId('s');
     const at = this.store.builtCount;
     const frame = this.frameOfPlane(ref);
@@ -1253,11 +1254,19 @@ export class App {
       doc.features.splice(at, 0, sk);
       if (doc.rollback != null) doc.rollback = at + 1;
     });
-    this.editSketch(id, restore);
+    this.editSketch(id, restore, undoFloor);
+  }
+
+  /** Where undo stops while a sketch is edited: the steps from before it are out of sight. */
+  private sketchUndoFloor = 0;
+
+  /** Undo takes back only the open sketch's own changes (and its creation), not the features after it. */
+  get canUndo(): boolean {
+    return this.store.canUndo && !(this.sketchEditor && this.store.undoMark <= this.sketchUndoFloor);
   }
 
   /** Opens sketch editing (rolls the model back to just before the sketch). */
-  editSketch(id: Id, restore?: () => void) {
+  editSketch(id: Id, restore?: () => void, undoFloor = this.store.undoMark) {
     const sk = this.store.feature<SketchFeature>(id);
     if (!sk) return;
     if (this.panel) void this.closePanel(false);
@@ -1266,6 +1275,7 @@ export class App {
     this.sketchEditor = new SketchEditor(this, id, frame);
     this.sketchLifetime = new AbortController();
     this.restoreSketch = restore ?? this.store.restorePoint('Sketch changes');
+    this.sketchUndoFloor = undoFloor;
     this.viewport.tool = this.sketchEditor;
     this.selection.clear();
     this.selection.setHover(null);

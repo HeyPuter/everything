@@ -100,6 +100,37 @@ test.describe('part modeling', () => {
     expect(errors).toEqual([]);
   });
 
+  test('undo in a sketch takes back only that sketch\'s changes, not the features after it', async ({ page }) => {
+    const errors = await openApp(page);
+    await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+    await waitForFeature(page, 'Fillet1');
+    type W = { __parametric: import('../../src/app/app').App };
+    const state = () => page.evaluate(() => {
+      const a = (window as unknown as W).__parametric;
+      return { features: a.store.doc.features.map((f) => f.name), depth: (a.store.doc.features[1] as { depth: number }).depth, sketch: !!a.sketchEditor, canUndo: a.commands.isEnabled('undo') };
+    });
+    await page.evaluate(() => {
+      const a = (window as unknown as W).__parametric;
+      a.store.change('Thicker', (d) => { (d.features[1] as { depth: number }).depth = 32; });
+      a.editSketch('s1');
+      a.sketchEditor!.edit('Add point', (sk) => { sk.entities.push({ id: 'extra', t: 'point', x: 90, y: 90 }); });
+      for (let i = 0; i < 3; i++) a.commands.run('undo');
+    });
+    // The point is gone; the depth change made before the sketch was opened, out of sight while it is edited, stays.
+    expect(await state()).toEqual({ features: ['Sketch1', 'Extrude1', 'Sketch2', 'Hole1', 'Fillet1'], depth: 32, sketch: true, canUndo: false });
+    await expect(page.locator('.titlebar [data-cmd="undo"]')).toBeDisabled();
+    await page.locator('.confirm-corner').getByRole('button', { name: 'Exit sketch' }).click();
+    await expect.poll(async () => (await state()).canUndo).toBe(true);
+    // A new sketch can still be undone away from inside it.
+    await page.getByRole('treeitem', { name: 'Front Plane' }).click();
+    await page.getByRole('tab', { name: 'Sketch' }).click();
+    await page.locator('[data-cmd="sketch"]').first().click();
+    await expect.poll(async () => (await state()).features.length).toBe(6);
+    await page.evaluate(() => (window as unknown as W).__parametric.commands.run('undo'));
+    expect(await state()).toEqual({ features: ['Sketch1', 'Extrude1', 'Sketch2', 'Hole1', 'Fillet1'], depth: 32, sketch: false, canUndo: true });
+    expect(errors).toEqual([]);
+  });
+
   test('suppressing a feature suppresses the features built on it', async ({ page }) => {
     const errors = await openApp(page);
     await page.getByRole('button', { name: /Mounting Bracket/ }).click();

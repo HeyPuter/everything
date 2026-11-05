@@ -144,7 +144,7 @@ export function registerCommands(app: App, files: FileOps) {
     { id: 'properties', label: 'Part Properties...', icon: 'part', keywords: 'units decimals', description: 'Name, units and precision.', run: () => propertiesDialog(app) },
     // ---- edit ----
     {
-      id: 'undo', label: 'Undo', icon: 'undo', shortcut: 'Ctrl+Z', enabled: () => app.store.canUndo,
+      id: 'undo', label: 'Undo', icon: 'undo', shortcut: 'Ctrl+Z', enabled: () => app.canUndo,
       run: () => { if (app.panel) void app.closePanel(false); app.store.undo(); },
     },
     { id: 'redo', label: 'Redo', icon: 'redo', shortcut: 'Ctrl+Y', enabled: () => app.store.canRedo, run: () => redo() },
@@ -373,7 +373,7 @@ export function buildMenus(app: App): { label: string; items: () => MenuItem[] }
     },
     {
       label: 'Edit', items: () => [
-        { ...m('undo'), label: app.store.canUndo ? `Undo ${app.store.undoLabel}` : 'Undo' },
+        { ...m('undo'), label: app.canUndo ? `Undo ${app.store.undoLabel}` : 'Undo' },
         { ...m('redo'), label: app.store.canRedo ? `Redo ${app.store.redoLabel}` : 'Redo' }, sep,
         m('rebuild'), m('forceRebuild'), sep, m('editFeature'), m('delete'), m('suppress'), m('unsuppress'), m('rollToEnd'), sep, m('appearance'), m('material'),
       ],
