@@ -213,6 +213,14 @@ describe('offset', () => {
       expect(Math.hypot(o.pts[i], o.pts[i + 1])).toBeLessThan(105 - 3 + 1e-6);
     }
   });
+  it('measures distances to a spline on its concave side on the curve, not its chords', () => {
+    const fit = [0, 0, 5, 3, 10, 0];
+    const s = { type: 'spline', ...splineFromFitPoints(fit), fit: [], closed: false };
+    const o = offsetEntity(s, 0.5, 5, 0);
+    for (let i = 0; i < o.pts.length; i += 3) {
+      close(distanceTo(s, o.pts[i], o.pts[i + 1]), 0.5, 1e-9);
+    }
+  });
   it('offsets ellipses and splines as polylines within tolerance', () => {
     const e = { type: 'ellipse', cx: 0, cy: 0, mx: 10, my: 0, ratio: 0.5, start: 0, end: TWO_PI };
     const o = offsetEntity(e, 1, 0, 20);
