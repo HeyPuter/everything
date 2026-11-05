@@ -233,3 +233,52 @@ describe('restorable editing sessions', () => {
     expect(st.doc.name).toBe('Part1');
   });
 });
+
+describe('damaged sketch files', () => {
+  const valid = () => sketch('s1', rect(0, 0, 10, 10, 'r'));
+  it.each([
+    { entities: [null] },
+    { entities: [{ id: 'p1', t: 'point', x: '10', y: 0 }] },
+    { entities: [{ id: 'l1', t: 'line', a: 'missing', b: 'O' }] },
+    { entities: [{ id: 'sp1', t: 'spline', pts: [] }] },
+    { constraints: [null] },
+    { constraints: [{ id: 'c1', type: 'horizontal', refs: null }] },
+    { constraints: [{ id: 'c1', type: 'horizontal', refs: ['missing'] }] },
+    { constraints: [{ id: 'd1', type: 'distance', refs: ['rl0'], value: 10 }] },
+    { constraints: [{ id: 'd1', type: 'radius', refs: ['rp0'], value: 10, at: [0, 0], name: 'D1' }] },
+    { plane: { kind: 'base', plane: 'missing' } },
+    { plane: { kind: 'face', face: null } },
+    { frame: { o: [0, 0, 0] } },
+  ])('rejects invalid sketch data before it can replace the open document: %j', (bad) => {
+    const doc = { ...newDocument(), features: [{ ...valid(), ...bad }] };
+    expect(() => parseDocument(JSON.stringify(doc))).toThrow(/damaged.*sketch/);
+  });
+
+  it('rejects duplicate sketch entity and constraint ids', () => {
+    const sk = valid();
+    sk.entities.push({ id: 'rp0', t: 'point', x: 20, y: 20 });
+    expect(() => parseDocument(JSON.stringify({ ...newDocument(), features: [sk] }))).toThrow(/damaged.*sketch/);
+    sk.entities.pop();
+    sk.constraints = [{ id: 'c1', type: 'horizontal', refs: ['rl0'] }, { id: 'c1', type: 'vertical', refs: ['rl1'] }];
+    expect(() => parseDocument(JSON.stringify({ ...newDocument(), features: [sk] }))).toThrow(/damaged.*sketch/);
+  });
+});
+
+
+it('round-trips all curve and dimension types, including origin references and expression errors', () => {
+  const sk = sketch('s1', [
+    ...rect(0, 0, 10, 10, 'r'),
+    { id: 'circle', t: 'circle', c: 'O', r: 4 },
+    { id: 'arc', t: 'arc', c: 'O', a: 'rp1', b: 'rp3' },
+    { id: 'spline', t: 'spline', pts: ['rp0', 'rp1', 'rp2'], construction: true },
+  ]);
+  sk.constraints = [
+    { id: 'rel', type: 'coincident', refs: ['O', 'rp0'] },
+    ...(['distance', 'hdistance', 'vdistance', 'angle', 'radius', 'diameter'] as const).map((type, i) => ({
+      id: `d${i}`, type, refs: [type === 'radius' || type === 'diameter' ? 'circle' : 'rl0'],
+      value: '=Missing', at: [0, 0] as [number, number], name: `D${i}`, driven: i === 1,
+    })),
+  ];
+  const doc = { ...newDocument(), features: [sk], nextId: 2 };
+  expect(parseDocument(serializeDocument(doc))).toEqual(doc);
+});

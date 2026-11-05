@@ -450,3 +450,21 @@ test('a browser storage deletion failure leaves the part listed and can be retri
   await expect(open).toContainText('No parts saved');
   expect(errors).toEqual([]);
 });
+
+test('damaged sketch contents are rejected before replacing an unsaved part', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await app(page);
+  await page.evaluate(() => (window as unknown as { __parametric: AppHandle }).__parametric.store.change('Variable', (d) => { d.variables.push({ name: 'Keep', expr: '17' }); }));
+  for (const broken of [{ entities: [null], constraints: [] }, { entities: [], constraints: [null] }]) {
+    const chooser = page.waitForEvent('filechooser');
+    await page.evaluate(() => (window as unknown as { __parametric: AppHandle }).__parametric.commands.run('openDevice'));
+    const text = JSON.stringify({ format: 'parametric-part', version: 1, name: 'Damaged', features: [{ id: 's1', name: 'Sketch1', type: 'sketch', plane: { kind: 'base', plane: 'front' }, ...broken }] });
+    await (await chooser).setFiles({ name: 'damaged.parametric', mimeType: 'application/json', buffer: bytes(text) });
+    await expect(page.getByRole('alert').filter({ hasText: 'invalid sketch' }).first()).toBeVisible();
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await expect(page).toHaveTitle('* Part1 - Parametric');
+    expect(await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.store.doc.variables[0].name)).toBe('Keep');
+  }
+  expect(errors).toEqual([]);
+});

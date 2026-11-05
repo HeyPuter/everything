@@ -7,6 +7,7 @@ import { PARAM_FIELDS, type ParamKind, getPath, setPath } from './features';
 import type { Feature, Id, Param, PartDocument, SkDimension, SketchFeature, UnitSystem } from './types';
 import { isDimension } from './types';
 import { UNIT_SYSTEMS } from './units';
+import { validSketch } from './validate-sketch';
 import { solveSketch } from '../sketch/solver';
 
 export const FORMAT = 'parametric-part';
@@ -48,8 +49,8 @@ export function parseDocument(text: string): PartDocument {
     throw new Error('The part file is damaged (invalid feature).');
   }
   const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
-  // A sketch without its plane or geometry lists breaks drawing and solving.
-  if (!d.features.every((f) => f.type !== 'sketch' || (isObj(f.plane) && typeof f.plane.kind === 'string' && Array.isArray(f.entities) && Array.isArray(f.constraints)))) {
+  // Check nested geometry before loading can replace the current document.
+  if (!d.features.every((f) => f.type !== 'sketch' || validSketch(f))) {
     throw new Error('The part file is damaged (invalid sketch).');
   }
   const units = typeof d.units === 'string' && Object.hasOwn(UNIT_SYSTEMS, d.units) ? d.units : 'MMGS';
