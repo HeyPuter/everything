@@ -68,3 +68,24 @@ test('starting a sketch slides the sheet away from the sketch', async ({ page })
   await expect(page.locator('.leftpane')).not.toHaveClass(/\bopen\b/);
   await expect(page.locator('.confirm-corner').getByRole('button', { name: 'Exit sketch' })).toBeVisible();
 });
+
+test('a feature panel sheet shrinks to show the preview above it', async ({ page }) => {
+  await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await page.getByRole('button', { name: 'Show design tree' }).click();
+  await waitForFeature(page, 'Fillet1');
+  await page.getByRole('treeitem', { name: 'Extrude1' }).dblclick();
+  await expect(page.getByRole('heading', { name: 'Extrude1' })).toBeVisible();
+  const sheet = page.locator('.leftpane');
+  const full = (await sheet.boundingBox())!.height;
+  const peek = page.getByRole('button', { name: 'Expand panel' });
+  await expect(peek).toHaveAttribute('aria-expanded', 'true');
+  await peek.click();
+  await expect(peek).toHaveAttribute('aria-expanded', 'false');
+  await expect.poll(async () => (await sheet.boundingBox())!.height).toBeLessThan(full / 2);
+  // Title and OK/Cancel stay on screen.
+  await expect(page.getByRole('heading', { name: 'Extrude1' })).toBeInViewport();
+  await expect(page.locator('.pm-actions').getByRole('button', { name: 'OK' })).toBeInViewport();
+  await peek.click();
+  await expect.poll(async () => (await sheet.boundingBox())!.height).toBe(full);
+});

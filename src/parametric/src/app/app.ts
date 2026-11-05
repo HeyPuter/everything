@@ -217,9 +217,21 @@ export class App {
     }
     tabKeys(list);
     this.shell.lpTabs.append(list, h('span', { class: 'grow' }));
+    // Phones: the sheet can shrink to its tabs, title and OK/Cancel so the
+    // preview of a feature being edited is visible above it.
+    const peek = h('button', { class: 'icon-btn mobile-only lp-peek', type: 'button', 'aria-label': 'Expand panel', 'aria-expanded': 'true', 'aria-controls': 'left-panel' }, icon('chevronDown', 16));
+    peek.addEventListener('click', () => this.setLeftPanePeek(!this.shell.leftpane.classList.contains('peek')));
     const close = h('button', { class: 'icon-btn mobile-only', type: 'button', 'aria-label': 'Close panel' }, icon('close', 16));
     close.addEventListener('click', () => this.toggleLeftPane(false));
-    this.shell.lpTabs.append(close);
+    this.shell.lpTabs.append(peek, close);
+  }
+
+  private setLeftPanePeek(peek: boolean) {
+    this.shell.leftpane.classList.toggle('peek', peek);
+    const b = this.shell.lpTabs.querySelector<HTMLElement>('.lp-peek');
+    if (!b) return;
+    b.setAttribute('aria-expanded', String(!peek));
+    b.replaceChildren(icon(peek ? 'chevronUp' : 'chevronDown', 16));
   }
 
   showLeft(tab: 'tree' | 'pm') {
@@ -240,6 +252,7 @@ export class App {
     const lp = this.shell.leftpane;
     const v = open ?? !lp.classList.contains('open');
     lp.classList.toggle('open', v);
+    if (!v) this.setLeftPanePeek(false);
     this.shell.treeToggle.setAttribute('aria-expanded', String(v));
   }
 

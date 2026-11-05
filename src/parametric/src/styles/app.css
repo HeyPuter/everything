@@ -495,9 +495,10 @@ a.icon-btn { text-decoration: none; }
   .tool.row .lbl { white-space: normal; font-size: 10px; }
   .leftpane {
     position: absolute; z-index: 20; left: 0; right: 0; bottom: 0; top: auto; width: 100% !important; max-width: none; height: min(52dvh, 460px);
-    border-right: 0; border-top: 1px solid var(--border-strong); border-radius: 12px 12px 0 0; transform: translateY(105%); transition: transform 0.18s ease;
+    border-right: 0; border-top: 1px solid var(--border-strong); border-radius: 12px 12px 0 0; transform: translateY(105%); transition: transform 0.18s ease, height 0.18s ease;
   }
   .leftpane.open { transform: none; }
+  .leftpane.peek { height: 132px; }
   .leftpane .lp-tabs::before { content: ''; position: absolute; left: 50%; top: 4px; width: 36px; height: 4px; border-radius: 4px; background: var(--border-strong); transform: translateX(-50%); }
   .leftpane .lp-tabs { position: relative; padding-top: 12px; }
   .splitter { display: none; }
