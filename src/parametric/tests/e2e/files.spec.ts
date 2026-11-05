@@ -1096,3 +1096,33 @@ test('a clean part chosen before the SDK arrives skips startup recovery and the 
   await expect(page).toHaveTitle('Chosen part - Parametric');
   expect(errors).toEqual([]);
 });
+
+for (const command of ['rename', 'saveAs', 'new'] as const) test(`the ${command} file dialog closes when another document replaces its part`, async ({ page }) => {
+  await mockPuter(page);
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await page.evaluate((command) => {
+    const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+    a.store.change('Original work', (d) => { d.variables.push({ id: 'v1', name: 'Original', expr: '17' }); });
+    a.commands.run(command);
+  }, command);
+  const title = command === 'rename' ? 'Rename part' : command === 'saveAs' ? 'Save As' : 'Save changes?';
+  const dialog = page.getByRole('dialog', { name: title, exact: true });
+  await expect(dialog).toBeVisible();
+  // Undo changes the document object, but it is still the same part.
+  await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.store.undo());
+  await expect(dialog).toBeVisible();
+  await page.evaluate(() => {
+    const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+    a.newDocument('Replacement');
+    a.store.change('Replacement work', (d) => { d.variables.push({ id: 'v2', name: 'Keep', expr: '42' }); });
+  });
+  await expect(dialog).toHaveCount(0);
+  await expect(page).toHaveTitle('* Replacement - Parametric');
+  expect(await page.evaluate(() => {
+    const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+    return { name: a.store.doc.name, variables: a.store.doc.variables.map((v) => v.name), location: a.location, dirty: a.store.dirty };
+  })).toEqual({ name: 'Replacement', variables: ['Keep'], location: null, dirty: true });
+  expect(await page.evaluate(() => [...(window as unknown as Mock).__files.keys()])).toEqual([]);
+  expect(errors).toEqual([]);
+});

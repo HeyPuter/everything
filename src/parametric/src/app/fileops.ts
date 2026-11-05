@@ -70,7 +70,7 @@ export class FileOps {
     const panel = this.app.panel?.edited ? this.app.panel : null;
     if (!this.app.store.dirty && !panel) return true;
     const v = await showDialog({
-      title: 'Save changes?',
+      title: 'Save changes?', signal: this.app.documentSignal,
       body: h('p', {}, `"${this.app.store.doc.name}" has unsaved changes${panel ? ` (including ${panel.title}, which is still open)` : ''}. Save them before you ${action}?`),
       buttons: [{ label: 'Cancel', value: 'cancel', left: true }, { label: "Don't save", value: 'discard' }, { label: 'Save', value: 'save', primary: true }],
     });
@@ -149,7 +149,7 @@ export class FileOps {
   async saveAs() {
     const app = this.app;
     const documentVersion = this.documentVersion;
-    const name = await promptDialog('Save As', 'Part name', app.store.doc.name, (v) => (v.trim() ? null : 'Enter a name'));
+    const name = await promptDialog('Save As', 'Part name', app.store.doc.name, (v) => (v.trim() ? null : 'Enter a name'), app.documentSignal);
     if (name == null || documentVersion !== this.documentVersion) return;
     return this.fileOperation(async () => {
       if (documentVersion !== this.documentVersion) return;
@@ -425,7 +425,7 @@ export class FileOps {
   async rename() {
     const app = this.app;
     const documentVersion = this.documentVersion;
-    const name = await promptDialog('Rename part', 'Part name', app.store.doc.name, (v) => (v.trim() ? null : 'Enter a name'));
+    const name = await promptDialog('Rename part', 'Part name', app.store.doc.name, (v) => (v.trim() ? null : 'Enter a name'), app.documentSignal);
     if (name == null || documentVersion !== this.documentVersion) return;
     return this.fileOperation(async () => {
       if (documentVersion !== this.documentVersion) return;

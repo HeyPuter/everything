@@ -123,12 +123,12 @@ export async function confirmDialog(title: string, message: string, ok = 'OK', d
   return v === 'ok' && !signal?.aborted;
 }
 
-export async function promptDialog(title: string, label: string, value: string, validate?: (v: string) => string | null): Promise<string | null> {
+export async function promptDialog(title: string, label: string, value: string, validate?: (v: string) => string | null, signal?: AbortSignal): Promise<string | null> {
   const id = nextDomId('prompt');
   const input = h('input', { class: 'input', id, value, autocomplete: 'off', spellcheck: 'false' }) as HTMLInputElement;
   const err = h('div', { class: 'field-label', role: 'alert', style: { color: 'var(--danger)' } });
   const pending = showDialog({
-    title,
+    title, signal,
     body: [h('label', { class: 'field-label', for: id }, label), input, err],
     buttons: [{ label: 'Cancel', value: 'cancel' }, { label: 'OK', value: 'ok', primary: true }],
     onAction: (a) => {
@@ -139,7 +139,7 @@ export async function promptDialog(title: string, label: string, value: string, 
   });
   requestAnimationFrame(() => requestAnimationFrame(() => input.select()));
   const v = await pending;
-  return v === 'ok' ? input.value : null;
+  return v === 'ok' && !signal?.aborted ? input.value : null;
 }
 
 // ---------- Toasts ----------
