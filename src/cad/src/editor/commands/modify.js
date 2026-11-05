@@ -1043,7 +1043,9 @@ export const MATCHPROP = {
         if (isText(d) && isText(s)) Object.assign(patch, { h: s.h, style: s.style });
         if (d.type === 'dimension' && s.type === 'dimension') patch.style = s.style;
         if (d.type === 'hatch' && s.type === 'hatch') {
-          Object.assign(patch, { pattern: s.pattern, scale: s.scale, angle: s.angle });
+          // the imported definition and mirroring are part of the pattern's look
+          const { pattern, scale, angle, families, mirror } = s;
+          Object.assign(patch, { pattern, scale, angle, families, mirror });
         }
         ed.commit('Match properties', () => ed.drawing.update(dst.id, patch));
       }

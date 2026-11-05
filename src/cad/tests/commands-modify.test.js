@@ -262,6 +262,34 @@ describe('SELECTSIMILAR', () => {
   });
 });
 
+describe('MATCHPROP', () => {
+  it('gives hatches the whole pattern of the source: imported lines and mirroring', async () => {
+    const fam = { angle: 45, x: 0, y: 0, dx: 0, dy: 3.175, dashes: [] };
+    const sq = (x) => [[x, 0, 0, x + 10, 0, 0, x + 10, 10, 0, x, 10, 0]];
+    add({
+      type: 'hatch',
+      pattern: 'ANSI31',
+      scale: 2,
+      angle: 0.5,
+      loops: sq(0),
+      families: [fam],
+      mirror: true,
+    });
+    add({ type: 'hatch', pattern: 'LINES', scale: 1, angle: 0, loops: sq(20) });
+    await t.type('MATCHPROP');
+    await t.pick(5, 5);
+    await t.pick(25, 5);
+    await t.type('');
+    expect(t.drawing.get(2)).toMatchObject({
+      pattern: 'ANSI31',
+      scale: 2,
+      angle: 0.5,
+      families: [fam],
+      mirror: true,
+    });
+  });
+});
+
 describe('cancelling', () => {
   it('leaves no picked object selected after Esc', async () => {
     add({ type: 'line', x1: 0, y1: 0, x2: 20, y2: 0 });
