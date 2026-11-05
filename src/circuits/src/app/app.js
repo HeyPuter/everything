@@ -1384,7 +1384,7 @@ export class App extends Emitter {
     const frame = h('iframe', { title: 'Print preview', style: { position: 'fixed', right: '0', bottom: '0', width: '0', height: '0', border: '0' } });
     document.body.append(frame);
     const landscape = ed.kind === 'sch' ? ed.doc.sheet.orientation !== 'portrait' : true;
-    const docHtml = `<!doctype html><html><head><meta charset="utf-8"><title>${ed.doc.name}</title><style>@page{size:${landscape ? 'landscape' : 'portrait'};margin:8mm}html,body{margin:0;background:#fff}svg{width:100%;height:auto;max-height:100vh;display:block}</style></head><body>${svg}</body></html>`;
+    const docHtml = `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(ed.doc.name)}</title><style>@page{size:${landscape ? 'landscape' : 'portrait'};margin:8mm}html,body{margin:0;background:#fff}svg{width:100%;height:auto;max-height:100vh;display:block}</style></head><body>${svg}</body></html>`;
     frame.srcdoc = docHtml;
     frame.addEventListener('load', () => {
       try { frame.contentWindow.focus(); frame.contentWindow.print(); } catch { toast('Printing is blocked in this browser.', { kind: 'error' }); }
@@ -1392,3 +1392,6 @@ export class App extends Emitter {
     }, { once: true });
   }
 }
+
+const HTML_ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' };
+const escapeHtml = (s) => String(s).replace(/[&<>"]/g, (c) => HTML_ESCAPES[c]);
