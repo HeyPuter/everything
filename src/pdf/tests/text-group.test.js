@@ -966,3 +966,25 @@ it('keeps text drawn inside a clip apart from text after the clip is restored', 
   );
   expect(inside.groups.map((g) => g.text)).toEqual(['Hello world']);
 });
+
+it('keeps a Word bullet apart from the paragraph above it', async () => {
+  const { font } = await wordFixture(''),
+    width = (text) => font.widthOfTextAtSize(text, 12);
+  // The bullet is flush with the paragraph; Word writes its tab as a space and a jump, so the
+  // bullet stands alone on its line, separate from the item's text.
+  let source = wordChunk(60, 320, 'Here is the intro paragraph that leads into the list.');
+  for (const [y, text] of [
+    [300, 'Characterize a parallelogram.'],
+    [284, 'Draw a square.'],
+  ])
+    source +=
+      wordChunk(60, y, '\\225') + wordChunk(60 + width('•'), y, ' ') + wordChunk(80, y, text);
+  const r = await read((await wordFixture(source)).bytes);
+  expect(groupTextParagraphs(r.groups).map((b) => b.text)).toEqual([
+    'Here is the intro paragraph that leads into the list.',
+    '• ',
+    'Characterize a parallelogram.',
+    '• ',
+    'Draw a square.',
+  ]);
+});
