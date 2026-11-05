@@ -405,8 +405,16 @@ export function trimAt(sk: SketchFeature, curveId: Id, at: Vec2, newId: (p: stri
   }
   // Circle: needs two cuts and becomes an arc covering the rest.
   if (e.t === 'circle') {
-    if (cuts.length < 2) { deleteItems(sk, [curveId]); return true; }
-    const sorted = [...cuts].sort((a, b) => a.t - b.t);
+    // Several cutting curves can report the same point. Count locations,
+    // including across the angle seam, rather than producing a full-circle
+    // arc from two coincident ends. Bound merging in both angle and length.
+    const tolerance = Math.min(1e-9, 1e-7 / e.r);
+    const sorted: typeof cuts = [];
+    for (const cut of cuts.sort((a, b) => a.t - b.t)) {
+      if (!sorted.length || cut.t - sorted[sorted.length - 1].t > tolerance) sorted.push(cut);
+    }
+    if (sorted.length > 1 && 2 * Math.PI - sorted[sorted.length - 1].t + sorted[0].t <= tolerance) sorted.pop();
+    if (sorted.length < 2) { deleteItems(sk, [curveId]); return true; }
     let lo = sorted[sorted.length - 1], hi = sorted[0];
     for (let i = 0; i + 1 < sorted.length; i++) if (tc >= sorted[i].t && tc <= sorted[i + 1].t) { lo = sorted[i]; hi = sorted[i + 1]; }
     const c = ix.pt(e.c);

@@ -235,6 +235,88 @@ describe('editing tools', () => {
     expect(new SketchIndex(s.entities).pt(h.b)[0]).toBeCloseTo(5, 6);
   });
 
+  it.each(['one tangent', 'split tangent', 'two tangent curves'])('counts a repeated circle intersection once with %s', (cutters) => {
+    const entities: SkEntity[] = [
+      { id: 'o', t: 'point', x: 0, y: 0 }, { id: 'circ', t: 'circle', c: 'o', r: 5 },
+      { id: 'a', t: 'point', x: 5, y: -10 }, { id: 'b', t: 'point', x: 5, y: 0 },
+      { id: 'd', t: 'point', x: 5, y: 10 }, { id: 'l', t: 'line', a: 'a', b: 'b' },
+    ];
+    if (cutters === 'split tangent') entities.push({ id: 'l2', t: 'line', a: 'b', b: 'd' });
+    if (cutters === 'two tangent curves') entities.push(
+      { id: 'o2', t: 'point', x: 10, y: 0 }, { id: 'circ2', t: 'circle', c: 'o2', r: 5 },
+    );
+    const s = sk(entities);
+    expect(trimAt(s, 'circ', [-5, 0], idFactory(s))).toBe(true);
+    // With only one distinct cut there is no separate arc to retain.
+    expect(s.entities.find((e) => e.id === 'circ')).toBeUndefined();
+    expect(s.entities.some((e) => e.t === 'arc')).toBe(false);
+    expect(s.entities.find((e) => e.id === 'l')?.t).toBe('line');
+  });
+
+  it('merges roundoff-sized duplicate circle cuts across the angle seam', () => {
+    const s = sk([
+      { id: 'o', t: 'point', x: 0, y: 0 }, { id: 'circ', t: 'circle', c: 'o', r: 5 },
+      ...[-4e-15, 4e-15].flatMap((y, i): SkEntity[] => [
+        { id: `a${i}`, t: 'point', x: 4, y }, { id: `b${i}`, t: 'point', x: 6, y },
+        { id: `l${i}`, t: 'line', a: `a${i}`, b: `b${i}` },
+      ]),
+    ]);
+    expect(trimAt(s, 'circ', [-5, 0], idFactory(s))).toBe(true);
+    expect(s.entities.find((e) => e.id === 'circ')).toBeUndefined();
+  });
+
+  it('retains the correct arc when both distinct circle cuts are reported twice', () => {
+    const s = sk([
+      { id: 'o', t: 'point', x: 0, y: 0 }, { id: 'circ', t: 'circle', c: 'o', r: 5 },
+      { id: 'a', t: 'point', x: -10, y: 0 }, { id: 'b', t: 'point', x: 10, y: 0 },
+      { id: 'l1', t: 'line', a: 'a', b: 'b' }, { id: 'l2', t: 'line', a: 'b', b: 'a' },
+    ]);
+    expect(trimAt(s, 'circ', [0, 5], idFactory(s))).toBe(true);
+    const arc = s.entities.find((e) => e.id === 'circ');
+    expect(arc?.t).toBe('arc');
+    if (arc?.t !== 'arc') throw new Error('Expected trimmed arc');
+    const ix = new SketchIndex(s.entities);
+    expect(ix.pt(arc.a)[0]).toBeCloseTo(-5, 9);
+    expect(ix.pt(arc.b)[0]).toBeCloseTo(5, 9);
+    expect(s.constraints.filter((c) => c.type === 'coincident')).toHaveLength(2);
+    expect(solveSketch(s.entities, s.constraints, { value }).status).toBe('under');
+  });
+
+  it('retains distinct cuts on a tiny circle', () => {
+    const radius = 1e-8;
+    const s = sk([
+      { id: 'o', t: 'point', x: 0, y: 0 }, { id: 'circ', t: 'circle', c: 'o', r: radius },
+      { id: 'a', t: 'point', x: -2 * radius, y: 0 }, { id: 'b', t: 'point', x: 2 * radius, y: 0 },
+      { id: 'l', t: 'line', a: 'a', b: 'b' },
+    ]);
+    expect(trimAt(s, 'circ', [0, radius], idFactory(s))).toBe(true);
+    const arc = s.entities.find((e) => e.id === 'circ');
+    expect(arc?.t).toBe('arc');
+    if (arc?.t !== 'arc') throw new Error('Expected trimmed arc');
+    const ix = new SketchIndex(s.entities);
+    expect(ix.pt(arc.a)[0]).toBeCloseTo(-radius, 15);
+    expect(ix.pt(arc.b)[0]).toBeCloseTo(radius, 15);
+  });
+
+  it('retains close but physically distinct cuts on a large circle', () => {
+    const radius = 1e9;
+    const s = sk([
+      { id: 'o', t: 'point', x: 0, y: 0 }, { id: 'circ', t: 'circle', c: 'o', r: radius },
+      ...[-0.1, 0.1].flatMap((y, i): SkEntity[] => [
+        { id: `a${i}`, t: 'point', x: radius - 1, y }, { id: `b${i}`, t: 'point', x: radius + 1, y },
+        { id: `l${i}`, t: 'line', a: `a${i}`, b: `b${i}` },
+      ]),
+    ]);
+    expect(trimAt(s, 'circ', [radius, 0], idFactory(s))).toBe(true);
+    const arc = s.entities.find((e) => e.id === 'circ');
+    expect(arc?.t).toBe('arc');
+    if (arc?.t !== 'arc') throw new Error('Expected trimmed arc');
+    const ix = new SketchIndex(s.entities);
+    expect(ix.pt(arc.a)[1]).toBeCloseTo(0.1, 6);
+    expect(ix.pt(arc.b)[1]).toBeCloseTo(-0.1, 6);
+    expect(s.constraints.filter((c) => c.type === 'coincident')).toHaveLength(2);
+  });
+
   it.each([10, 1e9])('trims a circle into an arc whose ends stay on a cutting line of half-length %s', (length) => {
     const s = sk([
       { id: 'o', t: 'point', x: 0, y: 0 }, { id: 'circ', t: 'circle', c: 'o', r: 5 },

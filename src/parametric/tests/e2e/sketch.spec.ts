@@ -39,6 +39,33 @@ async function startSketch(page: Page) {
 }
 
 test.describe('sketching', () => {
+  test('trimming a circle at a repeated tangent cut removes it and supports Undo/Redo', async ({ page }) => {
+    const errors = await openApp(page);
+    await startSketch(page);
+    await page.evaluate(() => {
+      const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+      a.sketchEditor!.edit('Add circle with split tangent', (sk) => {
+        sk.entities.push(
+          { id: 'o', t: 'point', x: 0, y: 0 }, { id: 'circle', t: 'circle', c: 'o', r: 30 },
+          { id: 'a', t: 'point', x: 30, y: -40 }, { id: 'b', t: 'point', x: 30, y: 0 }, { id: 'c', t: 'point', x: 30, y: 40 },
+          { id: 'l1', t: 'line', a: 'a', b: 'b' }, { id: 'l2', t: 'line', a: 'b', b: 'c' },
+        );
+      });
+      a.commands.run('tool:trim');
+      a.sketchEditor!.tool!.click!({ p: [-30, 0], raw: [-30, 0], kind: 'none' }, {} as import('../../src/app/viewport').VPEvent);
+    });
+    const curves = () => page.evaluate(() => {
+      const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+      return a.sketchEditor!.sketch.entities.filter((e) => e.t !== 'point').map((e) => ({ id: e.id, t: e.t }));
+    });
+    expect(await curves()).toEqual([{ id: 'l1', t: 'line' }, { id: 'l2', t: 'line' }]);
+    await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.commands.run('undo'));
+    expect(await curves()).toEqual([{ id: 'circle', t: 'circle' }, { id: 'l1', t: 'line' }, { id: 'l2', t: 'line' }]);
+    await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.commands.run('redo'));
+    expect(await curves()).toEqual([{ id: 'l1', t: 'line' }, { id: 'l2', t: 'line' }]);
+    expect(errors).toEqual([]);
+  });
+
   for (const tool of ['perimeterCircle', 'arc3'] as const) for (const offset of [0, 1e9]) test(`${tool} preserves three picked points at coordinate offset ${offset}`, async ({ page }) => {
     const errors = await openApp(page);
     await startSketch(page);
