@@ -1,6 +1,7 @@
 import {
   PDFArray,
   PDFContext,
+  PDFDict,
   PDFName,
   PDFNumber,
   PDFRawStream,
@@ -452,6 +453,74 @@ function structureOnly(args) {
   return true;
 }
 
+// Structure elements that sit inside a paragraph rather than being one: a link or a styled span
+// belongs to the paragraph around it.
+const INLINE_STRUCTURE = new Set(
+  'Span Link Quote Note Reference BibEntry Code Annot Ruby RB RT RP Warichu WT WP Em Strong Sub'.split(
+    ' ',
+  ),
+);
+/**
+ * For a tagged page, the block structure element (paragraph, heading, table cell, ...) that each
+ * marked-content id on it belongs to, or null when the page has no usable structure. Tagged
+ * Word, LibreOffice and Google Docs exports mark every paragraph this way.
+ */
+function structureBlocks(doc, page) {
+  const root = doc.catalog.lookup(PDFName.of('StructTreeRoot'));
+  const key = page.node.lookup(PDFName.of('StructParents'))?.asNumber?.();
+  if (!(root instanceof PDFDict) || !Number.isInteger(key)) return null;
+  // The page's entry in the parent tree: an array of elements indexed by marked-content id.
+  let parents = null;
+  const pending = [root.lookup(PDFName.of('ParentTree'))],
+    seen = new Set();
+  while (pending.length && !parents && seen.size < 10000) {
+    const node = pending.pop();
+    if (!(node instanceof PDFDict) || seen.has(node)) continue;
+    seen.add(node);
+    const limits = node.lookup(PDFName.of('Limits'));
+    if (limits instanceof PDFArray && limits.size() === 2) {
+      const [low, high] = [0, 1].map((i) => limits.lookup(i)?.asNumber?.());
+      if (key < low || key > high) continue;
+    }
+    const nums = node.lookup(PDFName.of('Nums'));
+    if (nums instanceof PDFArray)
+      for (let i = 0; i + 1 < nums.size(); i += 2)
+        if (nums.lookup(i)?.asNumber?.() === key) parents = nums.lookup(i + 1);
+    const kids = node.lookup(PDFName.of('Kids'));
+    if (kids instanceof PDFArray)
+      for (const kid of kids.asArray()) pending.push(doc.context.lookup(kid));
+  }
+  if (!(parents instanceof PDFArray)) return null;
+  const roles = root.lookup(PDFName.of('RoleMap'));
+  const role = (element) => {
+    let type = element.lookup(PDFName.of('S'));
+    for (let i = 0; i < 10 && type instanceof PDFName; i++) {
+      const mapped = roles instanceof PDFDict ? roles.lookup(type) : null;
+      if (!(mapped instanceof PDFName) || mapped === type) break;
+      type = mapped;
+    }
+    return type instanceof PDFName ? type.decodeText() : '';
+  };
+  const blocks = new Map();
+  return (mcid) => {
+    if (!Number.isInteger(mcid) || mcid < 0 || mcid >= parents.size()) return null;
+    if (blocks.has(mcid)) return blocks.get(mcid);
+    let element = parents.lookup(mcid);
+    for (
+      let i = 0;
+      i < 32 && element instanceof PDFDict && INLINE_STRUCTURE.has(role(element));
+      i++
+    ) {
+      const parent = element.lookup(PDFName.of('P'));
+      if (!(parent instanceof PDFDict) || !parent.has(PDFName.of('S'))) break;
+      element = parent;
+    }
+    const block = element instanceof PDFDict ? element : null;
+    blocks.set(mcid, block);
+    return block;
+  };
+}
+
 /** The color a text color control edits; stroke-only text does not paint its fill. */
 export function textColor(run) {
   return run.state.mode === 1 ? (run.strokeColor ?? run.fillColor) : run.fillColor;
@@ -537,7 +606,9 @@ export async function inspectText(doc, index, pdfPage, OPS, layers) {
       // paragraph edit wrote around the runs, so the next edit can replace it whole.
       wrapper = null,
       // The last command of a page-sized clip, which clips nothing.
-      clipEnd = -1;
+      clipEnd = -1,
+      // The marked-content id the content is tagged with, on the page itself.
+      mcid = null;
     const stack = [],
       marked = [];
     const commands = parseContent(source, { inlineImages: true });
@@ -656,7 +727,7 @@ export async function inspectText(doc, index, pdfPage, OPS, layers) {
           break;
         case 'BMC':
         case 'BDC': {
-          marked.push({ actualText: s.actualText, paragraphData, wrapper, neutral });
+          marked.push({ actualText: s.actualText, paragraphData, wrapper, neutral, mcid });
           if (args[0]?.value === 'PuterParagraph') {
             paragraphData = readParagraphData(args);
             const opened = commands[at - 1];
@@ -676,6 +747,12 @@ export async function inspectText(doc, index, pdfPage, OPS, layers) {
           const property = args[1];
           const dict =
             property?.type === 'name' ? get(get(resources, 'Properties'), property.value) : null;
+          if (!path.length) {
+            const entries = property?.type === 'dict' ? property.value : [];
+            const key = entries.findIndex((t, i) => i % 2 === 0 && t.value === 'MCID');
+            const id = key >= 0 ? entries[key + 1]?.value : get(dict, 'MCID')?.asNumber?.();
+            if (Number.isInteger(id)) mcid = id;
+          }
           s.actualText ||= Boolean(
             dict?.has(PDFName.of('ActualText')) ||
             (property?.type === 'dict' &&
@@ -685,6 +762,7 @@ export async function inspectText(doc, index, pdfPage, OPS, layers) {
         }
         case 'EMC': {
           const previous = marked.pop();
+          if (previous) mcid = previous.mcid;
           s.actualText = previous?.actualText ?? false;
           paragraphData = previous?.paragraphData ?? null;
           if (wrapper && wrapper !== previous?.wrapper) {
@@ -802,6 +880,7 @@ export async function inspectText(doc, index, pdfPage, OPS, layers) {
             ...command,
             source: source.slice(command.start, command.end),
             barrier,
+            mcid,
             paragraphData,
             underline: paragraphData?.underline || false,
             strikethrough: paragraphData?.strikethrough || false,
@@ -849,6 +928,13 @@ export async function inspectText(doc, index, pdfPage, OPS, layers) {
     box = visibleBox(page);
     walk(pageSource(page), page.node.Resources(), freshState());
     if (cursor !== decoded.length) throw unsupported();
+    let blocks = null;
+    try {
+      blocks = structureBlocks(doc, page);
+    } catch {
+      // Damaged structure only means paragraphs are found from the layout alone.
+    }
+    for (const run of runs) run.block = (run.mcid != null && blocks?.(run.mcid)) || null;
     return runs;
   } catch {
     // A mismatch means source-to-glyph identity is unproven; never edit a different text run.

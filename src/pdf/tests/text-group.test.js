@@ -1024,3 +1024,38 @@ it('ends a paragraph where its last line stops short of a word that would have f
     'The next paragraph starts on this line too and wraps onto a second line below it.',
   ]);
 });
+
+it('keeps the paragraphs of a tagged PDF apart, and the lines of one paragraph together', async () => {
+  const doc = await PDFDocument.load(
+    await fixture(
+      [
+        ['First paragraph has a long line', 0],
+        ['that wraps onto another line.', 1],
+        ['Second paragraph is set below', 2],
+        ['with the very same line spacing.', 3],
+      ]
+        .map(
+          ([text, mcid], i) =>
+            `/P <</MCID ${mcid}>> BDC BT /F 12 Tf 1 0 0 1 40 ${300 - i * 15} Tm (${text}) Tj ET EMC`,
+        )
+        .join(' '),
+    ),
+  );
+  const { context } = doc;
+  const page = doc.getPage(0);
+  const root = context.register(context.obj({ Type: 'StructTreeRoot' }));
+  const first = context.register(context.obj({ Type: 'StructElem', S: 'P', P: root })),
+    second = context.register(context.obj({ Type: 'StructElem', S: 'P', P: root }));
+  // A styled span inside the first paragraph holds its second line.
+  const span = context.register(context.obj({ Type: 'StructElem', S: 'Span', P: first }));
+  context
+    .lookup(root)
+    .set(PDFName.of('ParentTree'), context.obj({ Nums: [0, [first, span, second, second]] }));
+  doc.catalog.set(PDFName.of('StructTreeRoot'), root);
+  page.node.set(PDFName.of('StructParents'), context.obj(0));
+  const r = await read(await doc.save());
+  expect(groupTextParagraphs(r.groups).map((b) => b.text)).toEqual([
+    'First paragraph has a long line that wraps onto another line.',
+    'Second paragraph is set below with the very same line spacing.',
+  ]);
+});

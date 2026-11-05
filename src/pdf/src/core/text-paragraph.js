@@ -134,6 +134,12 @@ export function groupTextParagraphs(lines) {
       parts(previous).at(-1).barrier === parts(line)[0].barrier &&
       pathKey(parts(previous)[0]) === pathKey(parts(line)[0]) &&
       !LIST_ITEM.test(line.text) &&
+      // A tagged PDF says which paragraph each line is in: lines of two paragraphs stay apart.
+      !(
+        parts(previous).at(-1).block &&
+        parts(line)[0].block &&
+        parts(previous).at(-1).block !== parts(line)[0].block
+      ) &&
       // Each line of right-to-left text is drawn in its own visual order, so the lines are
       // reordered for editing one by one and stay separate.
       !hasRightToLeft(previous.text) &&
