@@ -28,6 +28,7 @@ import { bboxContains, bboxIntersects, bboxValid, bboxUnion, bboxEmpty, simplify
 import { LAYERS } from '../model/layers.js';
 import { PIN_TYPES, PIN_TYPE_LABELS } from '../model/schema.js';
 import { CATEGORIES } from '../model/library/builtin.js';
+import { overlappingPads } from '../model/library/footprints.js';
 import { PIN_TEXT, SCH_TEXT, LINE_W } from '../model/sch.js';
 
 const PIN_NUM_TEXT = mil(50);
@@ -581,13 +582,17 @@ export class LibEditor extends CanvasView {
   async padArrayDialog() {
     if (this.mode !== 'footprint') this.setMode('footprint');
     const t = this.padTemplate;
-    const len = (key, label, v) => ({ key, label: `${label} (mm)`, type: 'text', value: formatLength(v, 'mm', { suffix: false }), parse: (s) => parseLength(s, 'mm') });
+    const len = (key, label, v) => ({
+      key, label: `${label} (mm)`, type: 'text', value: formatLength(v, 'mm', { suffix: false }),
+      parse: (s) => { const n = parseLength(s, 'mm'); return n > 0 ? n : null; }, error: 'enter a length greater than zero',
+    });
+    const count = (v) => (Number.isInteger(Number(v)) ? Number(v) : NaN);
     const form = buildForm([
-      { key: 'rows', label: 'Rows', type: 'number', value: 4, min: 1, max: 100 },
-      { key: 'cols', label: 'Columns', type: 'number', value: 2, min: 1, max: 100 },
+      { key: 'rows', label: 'Rows', type: 'number', value: 4, min: 1, max: 100, parse: count, error: 'enter a whole number from 1 to 100' },
+      { key: 'cols', label: 'Columns', type: 'number', value: 2, min: 1, max: 100, parse: count, error: 'enter a whole number from 1 to 100' },
       len('pitchX', 'Column spacing', mm(7.62)),
       len('pitchY', 'Row spacing', mm(2.54)),
-      { key: 'start', label: 'First number', type: 'number', value: Number(this.nextPadNumber()), min: 0 },
+      { key: 'start', label: 'First number', type: 'number', value: Number(this.nextPadNumber()), min: 0, parse: count, error: 'enter a whole number' },
       { key: 'order', label: 'Numbering', type: 'select', value: 'around', options: [['around', 'Around (down the left, up the right)'], ['rows', 'Row by row'], ['columns', 'Column by column']] },
       { key: 'side', label: 'Pads', type: 'select', value: t.side === 'thru' ? 'thru' : 'top', options: [['thru', 'Through hole'], ['top', 'Surface mount']] },
       len('w', 'Pad width', t.side === 'thru' ? t.w : mm(1.6)),
@@ -605,10 +610,13 @@ export class LibEditor extends CanvasView {
           if (msg) { err.textContent = msg; return false; }
           const v = form.values();
           const thru = v.side === 'thru';
+          if (thru && v.drill >= Math.min(v.w, v.h)) { err.textContent = 'The hole must be smaller than the pad.'; return false; }
           const pads = padArray({
             rows: v.rows, cols: v.cols, pitchX: v.pitchX, pitchY: v.pitchY, start: v.start, order: v.order,
             template: { shape: thru ? 'round' : 'roundrect', w: v.w, h: v.h, side: v.side, drill: thru ? v.drill : 0, plated: true, rot: 0, radius: 0.25, firstSquare: thru },
           });
+          const clash = overlappingPads(pads);
+          if (clash) { err.textContent = `Pads ${clash[0]} and ${clash[1]} would overlap. Increase the spacing or make the pads smaller.`; return false; }
           const ids = [];
           this.doc.store.transact('Add pad array', (s) => { for (const p of pads) { const n = s.add({ ...p, id: uid() }); ids.push(n.id); } });
           this.setSelection(ids);

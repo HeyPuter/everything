@@ -1,7 +1,8 @@
 // Component library review: wizard and component dialog edge cases.
 import { describe, it, expect, vi } from 'vitest';
 import { mil, mm } from '../src/core/units.js';
-import { LibDoc } from '../src/editors/lib-editor.js';
+import { LibDoc, LibEditor } from '../src/editors/lib-editor.js';
+import { padDialog } from '../src/editors/lib-tools.js';
 import { ComponentsPanel } from '../src/ui/panels/components.js';
 import { App } from '../src/app/app.js';
 import { setPuterForTests } from '../src/app/puter.js';
@@ -197,5 +198,68 @@ describe('leaving a project with a component open in the editor', () => {
     expect(app.project).toBe(null);
     app.kernel.dispose();
     document.body.innerHTML = '';
+  });
+});
+
+describe('component editor dialogs', () => {
+  function editor() {
+    const project = new Project(newProjectData('Lib test'));
+    const def = structuredClone(findComponent('res-0603'));
+    project.putComponent(def);
+    const app = {
+      settings: { get: () => undefined, on: () => () => {} },
+      commands: { run: vi.fn() },
+      userLibrary: { put: vi.fn(async () => {}) },
+      toast: vi.fn(),
+      renderTabs: vi.fn(),
+      updateTitle: vi.fn(),
+      updateStatus: vi.fn(),
+      refreshMenus: vi.fn(),
+      updateActiveBar: vi.fn(),
+    };
+    const doc = new LibDoc({ def });
+    return { doc, ed: new LibEditor(app, project, doc) };
+  }
+  const pads = (doc) => [...doc.fpStore.all()].filter((o) => o.t === 'pad');
+  const alert = () => document.querySelector('.dialog [role=alert]')?.textContent || '';
+
+  it('refuses pad arrays with overlapping pads, zero sizes or fractional counts', async () => {
+    const { ed, doc } = editor();
+    const done = ed.padArrayDialog();
+    await tick();
+    const apply = async () => {
+      button('Add pads').click();
+      await tick();
+    };
+    setValue(inputFor('Row spacing (mm)'), '1');
+    await apply();
+    expect(alert()).toContain('overlap');
+    setValue(inputFor('Row spacing (mm)'), '0');
+    await apply();
+    expect(alert()).toContain('Row spacing');
+    setValue(inputFor('Row spacing (mm)'), '2.54');
+    setValue(inputFor('Rows'), '2.5');
+    await apply();
+    expect(alert()).toContain('Rows');
+    expect(pads(doc)).toHaveLength(2);
+    setValue(inputFor('Rows'), '3');
+    await apply();
+    await done;
+    expect(pads(doc)).toHaveLength(8);
+  });
+
+  it('refuses a zero or negative pad size for the next pad', async () => {
+    const result = padDialog({ num: '1', shape: 'rect', w: mm(1), h: mm(1), side: 'top', rot: 0 });
+    await tick();
+    setValue(inputFor('Width (mm)'), '-1');
+    setValue(inputFor('Rotation (degrees)'), '-90');
+    button('Apply').click();
+    await tick();
+    expect(document.querySelector('.dialog')).toBeTruthy();
+    setValue(inputFor('Width (mm)'), '1.5');
+    button('Apply').click();
+    const v = await result;
+    expect(v.w).toBe(mm(1.5));
+    expect(v.rot).toBe(270);
   });
 });
