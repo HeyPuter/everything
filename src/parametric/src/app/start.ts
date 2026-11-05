@@ -2,7 +2,7 @@
 
 import { UNIT_SYSTEMS } from '../model/units';
 import type { UnitSystem } from '../model/types';
-import { locationLabel, recentParts } from '../platform/files';
+import { locationLabel, recentParts, sameLocation } from '../platform/files';
 import { canSignOut, cloudAvailable, env, getProfilePicture, getUser, isSignedIn, puter, signIn, signOut } from '../platform/puter';
 import { getThemeChoice, setThemeChoice } from '../platform/theme';
 import { h } from '../ui/dom';
@@ -59,7 +59,16 @@ export class StartScreen {
       recents.length ? h('div', { class: 'start-section' }, h('h2', {}, 'Recent'), h('div', { class: 'file-list' }, recents.map((r) => {
         const b = h('button', { class: 'file-item', type: 'button' }, icon(r.location.type === 'cloud' ? 'cloud' : 'device', 16),
           h('span', { class: 'txt' }, h('span', { class: 'n' }, r.name), h('span', { class: 'meta' }, locationLabel(r.location))));
-        b.addEventListener('click', () => { this.hide(); void this.files.openLocation(r.location, r.name); });
+        // The start screen goes once the part opens; one that cannot be opened leaves it here.
+        b.addEventListener('click', async () => {
+          await this.files.openLocation(r.location, r.name);
+          if (!b.isConnected || recentParts().some((x) => sameLocation(x.location, r.location))) return;
+          // Gone: it has left the recent parts.
+          const section = b.closest('.start-section');
+          b.remove();
+          if (section && !section.querySelector('.file-item')) section.remove();
+          card.querySelector<HTMLElement>('.start-action')?.focus();
+        });
         return b;
       }))) : null,
       h('div', { class: 'start-section' }, h('h2', {}, 'Examples'), examples),

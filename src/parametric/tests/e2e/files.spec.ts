@@ -242,6 +242,9 @@ test('a recent part that no longer exists says so and leaves the recent list', a
   const toasts = page.getByRole('region', { name: 'Notifications' });
   await page.getByRole('button', { name: /^Gone/ }).click();
   await expect(toasts.getByText('"Gone" no longer exists. It may have been moved or deleted.')).toBeVisible();
+  // The start screen stays, without the missing part.
+  await expect(page.getByRole('button', { name: /^Gone/ })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /^Vanished/ })).toBeVisible();
   await page.reload();
   await page.getByRole('button', { name: /^Vanished/ }).click();
   await expect(toasts.getByText('"Vanished" no longer exists. It may have been moved or deleted.')).toBeVisible();
