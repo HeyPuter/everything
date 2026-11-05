@@ -28,7 +28,7 @@ import type {
   ProjectionRequest, ProjectionResult,
 } from './protocol';
 import {
-  type EdgeDesc, type Sh, type SurfDesc, ShapeIndex, bbox, cut, describeEdge, describeFace, fuse, getOc, gdir,
+  type EdgeDesc, type Sh, type SurfDesc, ShapeIndex, bbox, compound, cut, describeEdge, describeFace, fuse, getOc, gdir,
   hashOf, isEmpty, meshEdgesOf, meshShape, mirrored, planarFaceFrame, pnt, rotated, sameSurface, subShapes, translated,
   vertexPoint, volumeOf, wrap, xyz,
 } from './occ';
@@ -758,51 +758,19 @@ export class ModelBuilder {
     if (!st.body) throw new FeatureError('There is no body to shell');
     const t = num(f.thickness);
     if (t <= 0) throw new FeatureError('Thickness must be greater than zero');
-    const oc = getOc();
-    const removed = f.faces.map((r) => this.resolveFace(r, st));
+    const removed = f.faces.map((r) => st.faces[this.resolveFace(r, st)].shape);
+    const solids = subShapes(st.body, 'solid');
     let body: Sh;
-    if (!removed.length) {
-      // No faces to open: a closed hollow part. The thick-solid builder
-      // would return only the offset solid (the cavity), so offset the
-      // whole body and take the material between the two surfaces.
-      const builder = new oc.BRepOffsetAPI_MakeOffsetShape();
-      const progress = new oc.Message_ProgressRange();
-      try {
-        builder.PerformByJoin(st.body.wrapped, f.outward ? t : -t, 1e-3, oc.BRepOffset_Mode.BRepOffset_Skin, false, false, oc.GeomAbs_JoinType.GeomAbs_Arc, false, progress);
-        let offset = wrap(builder.Shape());
-        // The offset of a body with holes can come back as a closed shell.
-        const shells = subShapes(offset, 'solid').length ? [] : subShapes(offset, 'shell');
-        if (shells.length === 1) {
-          const fix = new oc.ShapeFix_Solid();
-          try { offset = wrap(fix.SolidFromShell(shells[0].wrapped)); } finally { fix.delete(); }
-        }
-        body = f.outward ? cut(offset, st.body) : cut(st.body, offset);
-      } catch {
-        throw shellError(st, t);
-      } finally {
-        builder.delete();
-        progress.delete();
-      }
-    } else {
-      const list = new oc.NCollection_List_TopoDS_Shape();
-      for (const i of removed) list.Append(st.faces[i].shape.wrapped);
-      const builder = new oc.BRepOffsetAPI_MakeThickSolid();
-      try {
-        builder.MakeThickSolidByJoin(st.body.wrapped, list, f.outward ? t : -t, 1e-3, oc.BRepOffset_Mode.BRepOffset_Skin, false, false, oc.GeomAbs_JoinType.GeomAbs_Arc, false);
-        builder.Build();
-        body = wrap(builder.Shape());
-      } catch {
-        throw shellError(st, t);
-      } finally {
-        builder.delete();
-        list.delete();
-      }
+    if (solids.length <= 1) body = this.shellSolid(st.body, removed, t, f.outward, st);
+    else {
+      // Separate bodies are shelled one by one: those with a face to open,
+      // or every one when the shell opens no face.
+      body = compound(solids.map((solid) => {
+        const own = subShapes(solid, 'face');
+        const mine = removed.filter((r) => own.some((o) => o.wrapped.IsSame(r.wrapped)));
+        return removed.length && !mine.length ? solid : this.shellSolid(solid, mine, t, f.outward, st);
+      }));
     }
-    // A thickness too large for the part can come back as a degenerate or
-    // unchanged solid instead of an error. An inward shell always removes
-    // material (an outward one is only the new walls, so any size goes).
-    const v0 = volumeOf(st.body);
-    if (degenerate(body, st.body) || (!f.outward && v0 > 0 && volumeOf(body) >= v0 * (1 - 1e-6))) throw shellError(st, t);
     const prev = st.faces;
     st.faces = this.nameFaces(f.id, body, st, [], (d) => {
       // Offset faces are parallel to an original face: name after it.
@@ -818,6 +786,55 @@ export class ModelBuilder {
     });
     st.body = body;
     st.edges = null;
+  }
+
+  /** Shells one solid, opening the given faces of it (none: a closed hollow solid). */
+  private shellSolid(solid: Sh, removed: Sh[], t: number, outward: boolean, st: State): Sh {
+    const oc = getOc();
+    let body: Sh;
+    if (!removed.length) {
+      // No faces to open: a closed hollow part. The thick-solid builder
+      // would return only the offset solid (the cavity), so offset the
+      // whole body and take the material between the two surfaces.
+      const builder = new oc.BRepOffsetAPI_MakeOffsetShape();
+      const progress = new oc.Message_ProgressRange();
+      try {
+        builder.PerformByJoin(solid.wrapped, outward ? t : -t, 1e-3, oc.BRepOffset_Mode.BRepOffset_Skin, false, false, oc.GeomAbs_JoinType.GeomAbs_Arc, false, progress);
+        let offset = wrap(builder.Shape());
+        // The offset of a body with holes can come back as a closed shell.
+        const shells = subShapes(offset, 'solid').length ? [] : subShapes(offset, 'shell');
+        if (shells.length === 1) {
+          const fix = new oc.ShapeFix_Solid();
+          try { offset = wrap(fix.SolidFromShell(shells[0].wrapped)); } finally { fix.delete(); }
+        }
+        body = outward ? cut(offset, solid) : cut(solid, offset);
+      } catch {
+        throw shellError(st, t);
+      } finally {
+        builder.delete();
+        progress.delete();
+      }
+    } else {
+      const list = new oc.NCollection_List_TopoDS_Shape();
+      for (const r of removed) list.Append(r.wrapped);
+      const builder = new oc.BRepOffsetAPI_MakeThickSolid();
+      try {
+        builder.MakeThickSolidByJoin(solid.wrapped, list, outward ? t : -t, 1e-3, oc.BRepOffset_Mode.BRepOffset_Skin, false, false, oc.GeomAbs_JoinType.GeomAbs_Arc, false);
+        builder.Build();
+        body = wrap(builder.Shape());
+      } catch {
+        throw shellError(st, t);
+      } finally {
+        builder.delete();
+        list.delete();
+      }
+    }
+    // A thickness too large for the part can come back as a degenerate or
+    // unchanged solid instead of an error. An inward shell always removes
+    // material (an outward one is only the new walls, so any size goes).
+    const v0 = volumeOf(solid);
+    if (degenerate(body, solid) || (!outward && v0 > 0 && volumeOf(body) >= v0 * (1 - 1e-6))) throw shellError(st, t);
+    return body;
   }
 
   private applyHole(f: HoleFeature, st: State) {

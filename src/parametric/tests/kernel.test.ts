@@ -274,6 +274,22 @@ describe('feature regeneration', () => {
     expect(volume(b)).toBeCloseTo(wall, 1);
   });
 
+  it('shells each body of a part with separate bodies', async () => {
+    const b = new ModelBuilder();
+    const base: Feature[] = [sketch('S1', [...rect(0, 0, 10, 10), ...rect(20, 0, 30, 10)]), extrude('E1', 'S1', 10)];
+    const r0 = await b.build(req(base));
+    const tops = r0.faces.filter((f) => f.name === 'E1:cap1').sort((p, q) => p.center[0] - q.center[0]);
+    const ref = (f: (typeof tops)[number]) => ({ name: f.name, sig: { type: f.type, c: f.center, n: f.normal, area: f.area } });
+    const shell = (faces: ReturnType<typeof ref>[]): ShellFeature => ({ id: 'SH', name: 'Shell', type: 'shell', thickness: 1, outward: false, faces });
+    const open = 1000 - 8 * 8 * 9;
+    // Open the top of both, of one (the other stays solid), or of none.
+    for (const [faces, v] of [[tops.map(ref), 2 * open], [[ref(tops[1])], 1000 + open], [[], 2 * (1000 - 8 * 8 * 8)]] as const) {
+      const r = await b.build(req([...base, shell([...faces])]));
+      expect(r.status[2]).toEqual({ id: 'SH', ok: true });
+      expect(volume(b)).toBeCloseTo(v, 1);
+    }
+  });
+
   it('cuts counterbored holes and rejects a hole shallower than its counterbore', async () => {
     const b = new ModelBuilder();
     const base: Feature[] = [sketch('S1', rect(-20, -20, 20, 20)), extrude('E1', 'S1', 3)];
