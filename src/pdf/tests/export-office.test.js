@@ -1139,7 +1139,7 @@ it('leaves out what layers that are off would draw, as the page shows it', async
   }
 });
 
-it('marks exported web pages and Word documents with the PDF’s own language', async () => {
+it('marks exported web pages, Word documents, and slides with the PDF’s own language', async () => {
   // A French PDF exported as a web page said lang="en", so screen readers read it as English.
   const doc = await PDFDocument.create();
   const font = await doc.embedFont(StandardFonts.Helvetica);
@@ -1154,6 +1154,17 @@ it('marks exported web pages and Word documents with the PDF’s own language', 
     const files = await unzip((await exportDocument(pdf, bytes, 'docx')).bytes);
     const styles = new TextDecoder().decode(files['word/styles.xml']);
     expect(styles).toContain('<w:lang w:val="fr-CA"');
+    // PowerPoint marked every run US English, so it spell-checked French slides as English.
+    const pptx = await unzip((await exportDocument(pdf, bytes, 'pptx')).bytes);
+    const parts = ['ppt/slides/slide1.xml', 'ppt/slideMasters/slideMaster1.xml'].map((name) =>
+      new TextDecoder().decode(pptx[name]),
+    );
+    parts.push(new TextDecoder().decode(pptx['ppt/presentation.xml']));
+    expect(parts[0]).toMatch(/<a:rPr lang="fr-CA"[^>]*>.*Bonjour/);
+    for (const part of parts) {
+      expect(part).toContain('lang="fr-CA"');
+      expect(part).not.toContain('en-US');
+    }
   } finally {
     await loading.destroy();
   }
