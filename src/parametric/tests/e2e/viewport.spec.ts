@@ -412,6 +412,38 @@ test.describe('viewport', () => {
     await expect.poll(async () => (await size())[0]).toBe(Math.round(css * 2));
   });
 
+  test('a resize redraws the view before it is painted', async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+    await waitForFeature(page, 'Fillet1');
+    // Observers run in creation order, so this one runs after the app's and
+    // reads the canvas before the page is painted: a resized canvas that was
+    // not redrawn is still cleared to black.
+    await page.evaluate(() => {
+      const app = (window as unknown as Win).__parametric;
+      const gl = app.renderer.gl;
+      const w = window as unknown as { __reads: number[][] };
+      w.__reads = [];
+      const c = app.renderer.canvas;
+      let size = `${c.width}x${c.height}`;
+      new ResizeObserver(() => {
+        if (`${c.width}x${c.height}` === size) return;
+        size = `${c.width}x${c.height}`;
+        const px = new Uint8Array(4);
+        gl.readPixels(2, 2, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
+        w.__reads.push([...px].slice(0, 3));
+      }).observe(app.shell.viewport);
+    });
+    const size = page.viewportSize()!;
+    for (const [i, dh] of [-120, -40].entries()) {
+      await page.setViewportSize({ width: size.width, height: size.height + dh });
+      await expect.poll(() => page.evaluate(() => (window as unknown as { __reads: number[][] }).__reads.length)).toBe(i + 1);
+    }
+    const bg = await page.evaluate(() => (window as unknown as Win).__parametric.renderer.theme.background.map((v) => Math.round(v * 255)));
+    const reads = await page.evaluate(() => (window as unknown as { __reads: number[][] }).__reads);
+    for (const px of reads) px.forEach((v, i) => expect(Math.abs(v - bg[i])).toBeLessThan(3));
+  });
+
   test('does not pick vertices cut away by the section view', async ({ page }) => {
     await openApp(page);
     await page.getByRole('button', { name: /Mounting Bracket/ }).click();

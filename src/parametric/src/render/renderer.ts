@@ -735,13 +735,20 @@ export class Renderer {
     this.dpr = Math.min(dpr, 2);
     const w = Math.max(1, Math.round(cssW * this.dpr));
     const h = Math.max(1, Math.round(cssH * this.dpr));
-    if (this.canvas.width !== w || this.canvas.height !== h) {
+    const changed = this.canvas.width !== w || this.canvas.height !== h;
+    if (changed) {
       this.canvas.width = w;
       this.canvas.height = h;
     }
     this.camera.width = cssW;
     this.camera.height = cssH;
-    this.requestRender();
+    if (!changed) { this.requestRender(); return; }
+    // Resizing clears the canvas, and the page shows it cleared (black) until
+    // the next draw: draw now, before this frame is painted, or the view
+    // flashes black on every frame of a splitter drag or window resize.
+    if (this.raf) { cancelAnimationFrame(this.raf); this.raf = 0; }
+    this.dirty = true;
+    this.frame(performance.now());
   }
 
   requestRender() {
