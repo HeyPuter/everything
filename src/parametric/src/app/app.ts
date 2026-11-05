@@ -1354,6 +1354,8 @@ export class App {
     if ((e.key === 'Enter' || e.key === ' ') && !e.ctrlKey && !e.metaKey && !e.altKey && target !== this.viewport.canvas
       && (!this.focusByPointer || target.closest('.taskpane'))
       && target.closest(e.key === ' ' ? `${ACTIVATES_ON_ENTER}, ${ACTIVATES_ON_SPACE}` : ACTIVATES_ON_ENTER)) return;
+    // Enter finishes what a sketch tool is drawing (a spline, a line chain).
+    if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey && !e.altKey && this.sketchEditor?.tool?.enter?.()) { e.preventDefault(); return; }
     if (e.key === 'Enter' && this.panel && !(target instanceof HTMLButtonElement)) {
       e.preventDefault();
       void this.closePanel(true);

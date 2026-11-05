@@ -93,6 +93,12 @@ export function lineTool(ed: SketchEditor, construction = false): SkTool {
       ed.setPreview([]);
       return true;
     },
+    enter() {
+      if (!start) return false;
+      start = null;
+      ed.setPreview([]);
+      return true;
+    },
     cancel() {
       const was = !!start;
       start = null;
@@ -576,6 +582,11 @@ export function splineTool(ed: SketchEditor): SkTool {
       return true;
     },
     dbl() { finish(); return true; },
+    enter() {
+      if (!pts.length) return false;
+      finish();
+      return true;
+    },
     cancel() {
       const was = pts.length > 0;
       if (pts.length >= 2) finish();

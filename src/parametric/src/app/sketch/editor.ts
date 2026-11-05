@@ -34,6 +34,8 @@ export interface SkTool {
   from?(): Vec2 | null;
   /** Ids excluded from snapping (e.g. the point being placed). */
   exclude?(): Set<Id>;
+  /** Enter: finish the current operation. Return true if there was one. */
+  enter?(): boolean;
   /** Esc: abort the current operation. Return true if something was aborted. */
   cancel(): boolean;
   /** Drops the current operation without committing anything (defaults to cancel). */

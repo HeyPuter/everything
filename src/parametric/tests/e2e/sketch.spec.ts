@@ -137,6 +137,28 @@ test.describe('sketching', () => {
     expect(errors).toEqual([]);
   });
 
+  test('Enter finishes a spline and keeps the tool, even after another command', async ({ page }) => {
+    const errors = await openApp(page);
+    const { x, y } = await startSketch(page);
+    const kinds = () => page.evaluate(() => (window as unknown as { __parametric: { sketchEditor: { sketch: { entities: { t: string }[] } } } }).__parametric.sketchEditor.sketch.entities.filter((e) => e.t !== 'point').map((e) => e.t).join());
+    const tool = () => page.evaluate(() => (window as unknown as { __parametric: { sketchEditor: { tool: { id: string } | null } } }).__parametric.sketchEditor.tool?.id);
+    await page.locator('[data-cmd="tool:spline"]').click();
+    await page.mouse.click(x - 100, y);
+    await page.mouse.click(x, y - 50);
+    await page.mouse.click(x + 100, y);
+    await page.keyboard.press('Enter');
+    await expect.poll(kinds).toBe('spline');
+    expect(await tool()).toBe('spline');
+    // Another command in between (zoom to fit) must not take over Enter.
+    await page.mouse.click(x - 100, y + 80);
+    await page.mouse.click(x, y + 120);
+    await page.keyboard.press('f');
+    await page.keyboard.press('Enter');
+    await expect.poll(kinds).toBe('spline,spline');
+    expect(await tool()).toBe('spline');
+    expect(errors).toEqual([]);
+  });
+
   test('undo in the middle of a line chain starts a fresh chain', async ({ page }) => {
     const errors = await openApp(page);
     const { x, y } = await startSketch(page);
