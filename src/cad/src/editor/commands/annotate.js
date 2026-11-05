@@ -550,7 +550,9 @@ export const HATCH = {
   icon: 'hatch',
   async run(ed) {
     const st = (ed.hatchSettings ??= { pattern: 'SOLID', scale: 1, angle: 0 });
-    ed.ui.showHatchPanel?.(st, () => ed.renderer.setPreview(pendingPreview()));
+    const preview = () => ed.renderer.setPreview(pendingPreview());
+    const showPanel = () => ed.ui.showHatchPanel?.(st, preview);
+    showPanel();
     let loops = [];
     // Loops before each pick, so Undo takes back a whole pick with its islands.
     const history = [];
@@ -576,6 +578,7 @@ export const HATCH = {
           }
           if (p.option === 'settings') {
             await hatchSettingsPrompt(ed, st);
+            showPanel();
             ed.renderer.setPreview(pendingPreview());
             continue;
           }

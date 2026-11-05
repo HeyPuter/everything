@@ -389,6 +389,17 @@ describe('editing commands', () => {
       expect(t.logs.some(([k, m]) => k === 'error' && m.includes('nosuch'))).toBe(true);
     });
 
+    it('shows Settings typed at the command line in the Hatch Creation tab', async () => {
+      const shown = [];
+      t.ed.ui.showHatchPanel = (st) => shown.push(st && { ...st });
+      await plate();
+      await t.type('T', 'cross', '2', '30');
+      expect(shown.at(-1)).toMatchObject({ pattern: 'CROSS', scale: 2 });
+      expect(shown.at(-1).angle).toBeCloseTo(Math.PI / 6, 12);
+      await t.type('');
+      expect(shown.at(-1)).toBe(null);
+    });
+
     it('undoes a whole pick, islands included', async () => {
       await plate();
       await t.pick(10, 10);
