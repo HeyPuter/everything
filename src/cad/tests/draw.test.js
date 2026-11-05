@@ -108,3 +108,18 @@ describe('arcs', () => {
     expect(t.all()).toHaveLength(1);
   });
 });
+
+describe('centre arcs', () => {
+  it('asks again instead of drawing a zero-radius arc', async () => {
+    await t.type('ARC', 'C', '0,0', '0,0');
+    expect(t.ed.request?.prompt).toBe('Start point');
+    await t.type('5,0', '0,5');
+    expect(t.all()).toHaveLength(1);
+    expect(t.all('arc')[0].r).toBeCloseTo(5);
+    await t.type('ARC', '5,5', 'C', '5,5');
+    expect(t.ed.request?.prompt).toBe('Center point');
+    await t.type('0,5', '5,10');
+    expect(t.all('arc')).toHaveLength(2);
+    expect(t.all('arc')[1].r).toBeCloseTo(5);
+  });
+});

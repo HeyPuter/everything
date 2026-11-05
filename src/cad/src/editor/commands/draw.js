@@ -407,15 +407,23 @@ export const ARC = {
 async function arcCenterFirst(ed) {
   const c = await ed.getPoint('Center point');
   if (!c || c.option) return;
-  const s = await ed.getPoint('Start point', { base: c });
-  if (!s || s.option) return;
-  return finishCenterArc(ed, c, s);
+  const s = await pointAwayFrom(ed, 'Start point', c);
+  if (s) return finishCenterArc(ed, c, s);
 }
 
 async function arcStartCenter(ed, s) {
-  const c = await ed.getPoint('Center point', { base: s });
-  if (!c || c.option) return;
-  return finishCenterArc(ed, c, s);
+  const c = await pointAwayFrom(ed, 'Center point', s);
+  if (c) return finishCenterArc(ed, c, s);
+}
+
+/** Ask for a point that is not on `base` (a zero radius); null when cancelled. */
+async function pointAwayFrom(ed, prompt, base) {
+  for (;;) {
+    const p = await ed.getPoint(prompt, { base });
+    if (!p || p.option) return null;
+    if (dist(base, p) > 1e-12) return p;
+    ed.ui.log('The radius must be greater than zero.', 'error');
+  }
 }
 
 async function finishCenterArc(ed, c, s) {
