@@ -269,10 +269,19 @@ export function intersectPrims(p: Prim, q: Prim, extendFirst = false): Vec2[] {
     const d = dist2(p.c!, q.c!);
     const r0 = p.r!, r1 = q.r!;
     if (d < 1e-12 || d > r0 + r1 + 1e-9 || d < Math.abs(r0 - r1) - 1e-9) return [];
-    const a = (r0 * r0 - r1 * r1 + d * d) / (2 * d);
-    const h = Math.sqrt(Math.max(0, r0 * r0 - a * a));
+    // Anchor the chord on the smaller circle: subtracting its offset from a
+    // much larger radius can erase the chord entirely. Factor the difference
+    // of the two largest squared lengths before adding the smallest square.
+    const swapped = r0 > r1;
+    const small = swapped ? q : p;
+    const r = Math.min(r0, r1), R = Math.max(r0, r1);
+    const a = (d > r
+      ? (d - R) * (d + R) + r * r
+      : (r - R) * (r + R) + d * d) / (2 * d);
+    const h = Math.sqrt(Math.max(0, (r - a) * (r + a)));
     const ex: Vec2 = [(q.c![0] - p.c![0]) / d, (q.c![1] - p.c![1]) / d];
-    const m: Vec2 = [p.c![0] + ex[0] * a, p.c![1] + ex[1] * a];
+    const offset = swapped ? -a : a;
+    const m: Vec2 = [small.c![0] + ex[0] * offset, small.c![1] + ex[1] * offset];
     const pts: Vec2[] = h < 1e-12 ? [m] : [[m[0] - ex[1] * h, m[1] + ex[0] * h], [m[0] + ex[1] * h, m[1] - ex[0] * h]];
     return pts.filter((x) => (extendFirst || onArc(p, x)) && onArc(q, x));
   }

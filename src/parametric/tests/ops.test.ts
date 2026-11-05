@@ -170,6 +170,24 @@ describe('editing tools', () => {
     for (const point of ends) expect(point[1]).toBeCloseTo(3, 6);
   });
 
+  it.each(['small', 'large'])('trims the %s circle at both intersections when radii differ greatly', (target) => {
+    const s = sk([
+      { id: 'o', t: 'point', x: 0, y: 0 }, { id: 'small', t: 'circle', c: 'o', r: 5 },
+      { id: 'p', t: 'point', x: 1e9, y: 0 }, { id: 'large', t: 'circle', c: 'p', r: 1e9 },
+    ]);
+    expect(trimAt(s, target, [target === 'small' ? 5 : 0, 0], idFactory(s))).toBe(true);
+    const arc = s.entities.find((e) => e.id === target);
+    expect(arc?.t).toBe('arc');
+    if (arc?.t !== 'arc') throw new Error('Expected trimmed arc');
+    const ix = new SketchIndex(s.entities);
+    const ends = [ix.pt(arc.a), ix.pt(arc.b)].sort((a, b) => a[1] - b[1]);
+    for (const point of ends) expect(point[0]).toBeCloseTo(0, 6);
+    expect(ends[0][1]).toBeCloseTo(-5, 6);
+    expect(ends[1][1]).toBeCloseTo(5, 6);
+    expect(s.constraints.filter((c) => c.type === 'coincident' && c.refs[1] === (target === 'small' ? 'large' : 'small'))).toHaveLength(2);
+    expect(solveSketch(s.entities, s.constraints, { value }).status).toBe('under');
+  });
+
   it('extends a line to the next curve', () => {
     const s = sk([
       { id: 'a', t: 'point', x: 0, y: 0 }, { id: 'b', t: 'point', x: 4, y: 0 }, { id: 'h', t: 'line', a: 'a', b: 'b' },

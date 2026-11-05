@@ -75,3 +75,66 @@ it('clips segments and arcs while extending only the first primitive', () => {
   expect(intersectPrims(arc, long, true)).toEqual([[-4, 3], [4, 3]]);
   expect(intersectPrims({ kind: 'seg', a: [0, 0], b: [0, 0] }, circle, true)).toEqual([]);
 });
+
+it.each([10, 1e6, 1e9])('finds the same small-circle cuts against radius %s in either order', (radius) => {
+  const small: Prim = { kind: 'circ', c: [0, 0], r: 5 };
+  const large: Prim = { kind: 'circ', c: [radius, 0], r: radius };
+  const x = 25 / (2 * radius), y = Math.sqrt(25 - x * x);
+  for (const [p, q] of [[small, large], [large, small]]) {
+    const points = intersectPrims(p, q).sort((a, b) => a[1] - b[1]);
+    expect(points).toHaveLength(2);
+    for (const point of points) expect(point[0]).toBeCloseTo(x, 7);
+    expect(points[0][1]).toBeCloseTo(-y, 7);
+    expect(points[1][1]).toBeCloseTo(y, 7);
+  }
+});
+
+it.each([10, 1e9])('distinguishes crossing, tangent, nested and separated circles against radius %s', (radius) => {
+  for (const gap of [-6, -5, -4.999, -3, 3, 4.999, 5, 6]) {
+    const d = radius + gap;
+    const small: Prim = { kind: 'circ', c: [0, 0], r: 5 };
+    const large: Prim = { kind: 'circ', c: [0, d], r: radius };
+    const count = Math.abs(gap) > 5 ? 0 : Math.abs(gap) === 5 ? 1 : 2;
+    for (const [p, q] of [[small, large], [large, small]]) {
+      const points = intersectPrims(p, q);
+      expect(points).toHaveLength(count);
+      for (const point of points) {
+        expect(Math.hypot(...point)).toBeCloseTo(5, 6);
+        expect(Math.hypot(point[0], point[1] - d)).toBeCloseTo(radius, 6);
+      }
+    }
+  }
+});
+
+it.each([0, 1e9])('retains intersections between nearby large circles at origin %s', (origin) => {
+  for (const extraRadius of [0, 1]) {
+    const radius = 1e9, d = 3;
+    const p: Prim = { kind: 'circ', c: [origin, origin], r: radius };
+    const q: Prim = { kind: 'circ', c: [origin + d, origin], r: radius + extraRadius };
+    // Analytic x from expanding (x - 3)^2 + y^2 = (radius + extraRadius)^2.
+    const x = (9 - 2 * radius * extraRadius - extraRadius * extraRadius) / 6;
+    const y = Math.sqrt((radius - x) * (radius + x));
+    for (const [first, second] of [[p, q], [q, p]]) {
+      const points = intersectPrims(first, second).sort((a, b) => a[1] - b[1]);
+      expect(points).toHaveLength(2);
+      for (const point of points) expect(point[0]).toBeCloseTo(origin + x, 6);
+      expect(points[0][1]).toBeCloseTo(origin - y, 6);
+      expect(points[1][1]).toBeCloseTo(origin + y, 6);
+    }
+  }
+});
+
+it('respects arc limits and extends only the first circle when the smaller circle anchors the intersections', () => {
+  const small: Prim = { kind: 'circ', c: [0, 0], r: 5 };
+  const large: Prim = { kind: 'circ', c: [1e9, 0], r: 1e9 };
+  const smallArc: Prim = { ...small, start: 0, sweep: Math.PI / 2 };
+  const largeArc: Prim = { ...large, start: Math.PI / 2, sweep: Math.PI / 2 };
+  for (const [first, second] of [[smallArc, large], [largeArc, small]]) {
+    expect(intersectPrims(first, second)).toHaveLength(1);
+    expect(intersectPrims(first, second)[0][1]).toBeGreaterThan(0);
+    expect(intersectPrims(first, second, true)).toHaveLength(2);
+    expect(intersectPrims(second, first, true)).toHaveLength(1);
+  }
+  expect(intersectPrims(small, small)).toEqual([]);
+  expect(intersectPrims(small, { ...small, r: 10 })).toEqual([]);
+});
