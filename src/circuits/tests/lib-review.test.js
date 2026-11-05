@@ -3,6 +3,9 @@ import { describe, it, expect, vi } from 'vitest';
 import { mil, mm } from '../src/core/units.js';
 import { LibDoc } from '../src/editors/lib-editor.js';
 import { ComponentsPanel } from '../src/ui/panels/components.js';
+import { App } from '../src/app/app.js';
+import { setPuterForTests } from '../src/app/puter.js';
+import { createExampleProject } from '../src/app/demo.js';
 import { findWizard } from '../src/model/library/wizards.js';
 import { findComponent, searchComponents } from '../src/model/library/builtin.js';
 import { overlappingPads } from '../src/model/library/footprints.js';
@@ -154,5 +157,45 @@ describe('components panel', () => {
     panel.search.dispatchEvent(new Event('input'));
     expect(panel.selected.name).toBe('Header 1x2');
     expect(panel.list.getAttribute('aria-activedescendant')).toBe('cmp-hdr-1x02');
+  });
+});
+
+describe('leaving a project with a component open in the editor', () => {
+  it('asks about unsaved component changes before closing the project', async () => {
+    document.body.innerHTML = '<div id="app"></div><div id="live-region"></div>';
+    setPuterForTests(null);
+    delete window.puter;
+    const app = new App(document.getElementById('app'), { puterTimeout: 10 });
+    await app.init();
+    app.setProject(createExampleProject(), null);
+    const doc = app.openComponentEditor('ic-555-soic8');
+    doc.symStore.transact('Value', (s) => s.update('libmeta', { value: 'TLC555' }));
+    expect(app.project.dirty).toBe(false);
+
+    let closed = app.closeProject();
+    await tick();
+    const title = () => document.querySelector('.dialog-head h2')?.textContent;
+    expect(title()).toBe('Unsaved component');
+    [...document.querySelectorAll('.dialog-foot button')]
+      .find((b) => b.textContent === 'Cancel')
+      .click();
+    await closed;
+    expect(app.project).toBeTruthy();
+
+    closed = app.closeProject();
+    await tick();
+    [...document.querySelectorAll('.dialog-foot button')]
+      .find((b) => b.textContent === 'Save')
+      .click();
+    await tick();
+    // Saving the component changed the project, which asks next.
+    expect(title()).toBe('Unsaved changes');
+    [...document.querySelectorAll('.dialog-foot button')]
+      .find((b) => b.textContent === 'Discard changes')
+      .click();
+    await closed;
+    expect(app.project).toBe(null);
+    app.kernel.dispose();
+    document.body.innerHTML = '';
   });
 });

@@ -149,7 +149,8 @@ export class App extends Emitter {
     });
     window.addEventListener('themechange', () => { this.renderThemeButton(); this.panels.components._preview(); });
     window.addEventListener('beforeunload', (e) => {
-      if (this.project?.dirty) { this._flushSave(); e.preventDefault(); e.returnValue = ''; }
+      const libDirty = [...this._libDocs.values()].some((d) => d.dirty);
+      if (this.project?.dirty || libDirty) { this._flushSave(); e.preventDefault(); e.returnValue = ''; }
     });
     document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') this._flushSave(); });
     this.compactQuery.addEventListener?.('change', () => this.applyDocks());
@@ -740,6 +741,8 @@ export class App extends Emitter {
 
   /** Asks before replacing a project with unsaved changes. */
   async _confirmLeave() {
+    // Components open in the editor first: saving one changes the project.
+    for (const id of [...this._libDocs.keys()]) if (!(await this._confirmCloseLib(id))) return false;
     const p = this.project;
     if (!p || !p.dirty) return true;
     if (this.location) { await this.save({ quiet: true }); if (!p.dirty) return true; }
