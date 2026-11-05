@@ -170,6 +170,7 @@ export class RouteTool {
       const via = { id: uid(), t: 'via', x, y, d: cls?.viaDiameter || ed.doc.rules.viaDiameter, drill: cls?.viaDrill || ed.doc.rules.viaDrill, from: layers[0], to: layers[layers.length - 1], net: t.net || undefined };
       ed.doc.store.transact('Route', (s) => s.add(via), { mergeKey: `route:${t.id || (t.id = uid())}` });
       t.placed.push(via.id);
+      (t.viaFrom ||= new Map()).set(via.id, t.layer);
       t.layer = next;
     }
     ed.setActiveLayer(next);
@@ -210,7 +211,11 @@ export class RouteTool {
         const o = ed.doc.store.get(last);
         ed.doc.store.transact('Route', (s) => s.remove(last), { mergeKey: `route:${t.id}` });
         if (o?.t === 'track') t.pts = [o.x1, o.y1];
-        else if (o?.t === 'via') { t.layer = ed.activeLayer; }
+        else if (o?.t === 'via') {
+          // Removing the via returns the trace to the layer it came from.
+          t.layer = t.viaFrom?.get(last) || t.layer;
+          ed.setActiveLayer(t.layer);
+        }
       } else this.finish();
       ed.updateHint();
       return true;
