@@ -552,3 +552,24 @@ describe('missing browser projects', () => {
     expect(storage.recentProjects()).toEqual([]);
   });
 });
+
+describe('shortcut labels', () => {
+  it('uses Ctrl words elsewhere and macOS symbols in the system order on a Mac', async () => {
+    const { shortcutLabel, modKey } = await import('../src/ui/dom.js');
+    expect(shortcutLabel('Mod+Shift+Z', { mac: false })).toBe('Ctrl+Shift+Z');
+    expect(shortcutLabel('Mod+Shift+Z', { mac: true })).toBe('⇧⌘Z');
+    expect(shortcutLabel('Alt+W', { mac: true })).toBe('⌥W');
+    expect(shortcutLabel('Mod+Y Mod+Shift+Z', { mac: true })).toBe('⌘Y, ⇧⌘Z');
+    expect(shortcutLabel('Mod+=', { mac: true })).toBe('⌘=');
+    expect(shortcutLabel('+', { mac: false })).toBe('+');
+    expect(shortcutLabel('Num+', { mac: false })).toBe('Num+');
+    expect(shortcutLabel('Shift+Space', { mac: false })).toBe('Shift+Space');
+    expect(shortcutLabel('Mod+-', { mac: false })).toBe('Ctrl+-');
+    expect(modKey({ mac: true })).toBe('⌘');
+    // As a map() callback the index must not switch platforms.
+    expect(['Mod+C', 'Mod+V'].map(shortcutLabel)).toEqual(
+      ['Mod+C', 'Mod+V'].map((x) => shortcutLabel(x)),
+    );
+    expect(modKey({ mac: false })).toBe('Ctrl');
+  });
+});

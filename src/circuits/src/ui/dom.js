@@ -63,17 +63,27 @@ export function announce(text) {
 
 export const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
 
-/** Human-readable shortcut label: 'Ctrl+Shift+Z' (Cmd on macOS). */
-export function shortcutLabel(s) {
+const MAC_MODS = { Ctrl: '⌃', Alt: '⌥', Shift: '⇧', Mod: '⌘', Meta: '⌘' };
+const MAC_ORDER = ['Ctrl', 'Alt', 'Shift', 'Mod', 'Meta'];
+
+/**
+ * Human-readable shortcut label: 'Ctrl+Shift+Z', or on macOS the system's
+ * symbols in the system's order ('⇧⌘Z'). Several shortcuts are separated by
+ * spaces ('Mod+Y Mod+Shift+Z') and shown as a list. Safe to pass to map().
+ */
+export function shortcutLabel(s, { mac = isMac } = {}) {
   if (!s) return '';
-  return s.split(' ').map((chord) => chord.split('+').map((k) => {
-    if (k === 'Mod') return isMac ? 'Cmd' : 'Ctrl';
-    if (k === 'Alt' && isMac) return 'Option';
-    if (k === 'Space') return 'Space';
-    if (k.length === 1) return k.toUpperCase();
-    return k;
-  }).join('+')).join(', ');
+  return s.split(' ').map((chord) => {
+    const m = /^((?:(?:Mod|Shift|Alt|Ctrl|Meta)\+)*)(.+)$/.exec(chord);
+    const mods = m[1].split('+').filter(Boolean);
+    const key = m[2].length === 1 ? m[2].toUpperCase() : m[2];
+    if (mac) return MAC_ORDER.filter((k) => mods.includes(k)).map((k) => MAC_MODS[k]).join('') + key;
+    return [...mods.map((k) => (k === 'Mod' ? 'Ctrl' : k)), key].join('+');
+  }).join(', ');
 }
+
+/** The primary modifier's name for help text: '⌘' on macOS, 'Ctrl' elsewhere. */
+export const modKey = ({ mac = isMac } = {}) => (mac ? '⌘' : 'Ctrl');
 
 /** Trap Tab focus within a container; returns a release function. */
 export function trapFocus(container) {
