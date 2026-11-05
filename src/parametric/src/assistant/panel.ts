@@ -10,7 +10,7 @@ import { cloudAvailable, env, puter } from '../platform/puter';
 import { h, nextDomId } from '../ui/dom';
 import { icon } from '../ui/icons';
 import { toast } from '../ui/overlay';
-import { type Agent, type ExchangeResult, type Step, createAgent } from './agent';
+import { type Agent, type ExchangeResult, MAX_RETRIES, type Step, createAgent } from './agent';
 import type { AssistantHost } from './host';
 import { renderMarkdown } from './markdown';
 import { ATTACH_ACCEPT, type Attachment, MAX_ATTACHMENTS, MAX_TEXT_CHARS, attachmentKind, attachmentProblem, attachmentsTooLarge, formatSize } from './attach';
@@ -491,6 +491,8 @@ export class AssistantPanel {
           if (this.status.textContent !== 'Stopping…') this.setStatus(e.step.status === 'running' ? `${stepLabel(e.step.name, e.step.args)}…` : 'Thinking…');
         } else if (e.type === 'round') {
           this.setStatus('Thinking…');
+        } else if (e.type === 'retry') {
+          if (this.status.textContent !== 'Stopping…') this.setStatus(`The AI service did not answer. Trying again (${e.attempt} of ${MAX_RETRIES})…`);
         }
       });
     } catch (e) {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createAgent, requestMessages } from '../src/assistant/agent';
-import { type ChatMessage, type StreamPart, puterChat, withCacheBreakpoints } from '../src/platform/ai';
+import { type ChatMessage, type StreamPart, aiError, isTransientError, puterChat, withCacheBreakpoints } from '../src/platform/ai';
 import type { ToolResult } from '../src/assistant/tools';
 import { readAttachment } from '../src/assistant/attachments';
 import { type Attachment, attachmentKind, attachmentProblem, attachmentsTooLarge, estimatePdfPages, imageBlock, pdfBlock, textBlock } from '../src/assistant/attach';
@@ -8,7 +8,7 @@ import { type Attachment, attachmentKind, attachmentProblem, attachmentsTooLarge
 type Reply = StreamPart[] | Error;
 
 /** An agent whose model plays back replies in order; records each request. */
-function scripted(replies: Reply[], run: (name: string, args: Record<string, unknown>) => ToolResult | Promise<ToolResult> = () => ({ ok: true, content: 'done' })) {
+function scripted(replies: Reply[], run: (name: string, args: Record<string, unknown>) => ToolResult | Promise<ToolResult> = () => ({ ok: true, content: 'done' }), retryDelay = (_n: number) => 0) {
   const requests: ChatMessage[][] = [];
   const agent = createAgent({
     chat: (messages) => {
@@ -24,6 +24,7 @@ function scripted(replies: Reply[], run: (name: string, args: Record<string, unk
     system: 'SYSTEM',
     snapshot: () => 'snapshot',
     model: () => 'm',
+    retryDelay,
   });
   return { agent, requests };
 }
@@ -314,6 +315,60 @@ describe('assistant agent', () => {
     expect(JSON.stringify(withCacheBreakpoints([{ role: 'system', content: 'S' }, { role: 'user', content: 'hi' }])).match(/cache_control/g)).toHaveLength(2);
     const empty: ChatMessage = { role: 'tool', tool_call_id: 'a', content: '' };
     expect(withCacheBreakpoints([...t.slice(0, 5), empty]).at(-1)).toBe(empty);
+  });
+
+  it('sends a request again when the service was busy or the connection dropped, and gives up after a few tries', async () => {
+    const busy = aiError({ success: false, error: { code: 'upstream_provider_unavailable', message: 'AI provider unavailable' } });
+    const { agent, requests } = scripted([busy, new Error('529 Overloaded'), [{ type: 'text', text: 'built' }]]);
+    const retries: number[] = [];
+    const res = await agent.send('go', (e) => { if (e.type === 'retry') retries.push(e.attempt); });
+    expect(res.error).toBeUndefined();
+    expect(retries).toEqual([1, 2]);
+    expect(requests).toHaveLength(3);
+    expect(requests[2]).toEqual(requests[0]);
+    expect(agent.messages.at(-1)).toEqual({ role: 'assistant', content: 'built' });
+
+    const down = new Error('Network request failed.');
+    const { agent: a2, requests: r2 } = scripted([down, down, down, down, [{ type: 'text', text: 'never' }]]);
+    const res2 = await a2.send('go', () => {});
+    expect(res2.error).toBe(down);
+    expect(r2).toHaveLength(4);
+  });
+
+  it('does not send again what cannot pass: no funds, a refused request, or a reply already on screen', async () => {
+    for (const e of [aiError({ error: { code: 'insufficient_funds', message: 'Insufficient funds' } }), new Error('prompt is too long: 215290 tokens > 200000 maximum')]) {
+      const { agent, requests } = scripted([e, [{ type: 'text', text: 'x' }]]);
+      expect((await agent.send('go', () => {})).error).toBe(e);
+      expect(requests).toHaveLength(1);
+    }
+    const failing = createAgent({
+      chat: () => (async function* () { yield { type: 'text', text: 'Half' } as StreamPart; throw new Error('Network request failed.'); })(),
+      tools: () => [], runTool: async () => ({ ok: true, content: '' }), system: 'S', snapshot: () => '', model: () => 'm', retryDelay: () => 0,
+    });
+    const events: string[] = [];
+    expect((await failing.send('go', (e) => events.push(e.type))).error?.message).toBe('Network request failed.');
+    expect(events).not.toContain('retry');
+    expect(isTransientError(new Error('500000 tokens'))).toBe(false);
+    expect(isTransientError(Object.assign(new Error('aborted'), { name: 'AbortError' }))).toBe(false);
+    expect(isTransientError(aiError({ code: 'network_error' }))).toBe(true);
+    // Puter missing (its message says to check the connection) and a model that is not offered are not retried.
+    const noPuter = createAgent({ chat: puterChat, tools: () => [], runTool: async () => ({ ok: true, content: '' }), system: 'S', snapshot: () => '', model: () => 'm', retryDelay: () => 0 });
+    const kinds: string[] = [];
+    expect((await noPuter.send('go', (e) => kinds.push(e.type))).error?.message).toMatch(/needs Puter/);
+    expect(kinds).not.toContain('retry');
+    expect(isTransientError(new Error('Model foo is unavailable'))).toBe(false);
+  });
+
+  it('Stop ends the wait before a retry at once', async () => {
+    const { agent, requests } = scripted([new Error('503 Service Unavailable'), [{ type: 'text', text: 'late' }]], undefined, () => 60_000);
+    const p = agent.send('go', () => {});
+    await new Promise((r) => setTimeout(r, 10));
+    agent.stop();
+    const res = await p;
+    expect(res.stopped).toBe(true);
+    expect(res.error).toBeUndefined();
+    expect(requests).toHaveLength(1);
+    expect(agent.busy).toBe(false);
   });
 
   it('keeps going past many rounds until the model answers', async () => {
