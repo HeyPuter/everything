@@ -186,4 +186,13 @@ describe('assistant tools', () => {
     await h.call('edit_feature', { feature: 'f2', params: { depth: 20 }, note: null });
     expect(await h.volume()).toBeCloseTo(80000, 3);
   });
+
+  it('refuses a sketch relation or fillet that names nothing, instead of reporting it done', async () => {
+    const h = new TestHost();
+    await h.call('create_sketch', { plane: 'front', shapes: [{ type: 'rectangle', id: 'r', corner1: [0, 0], corner2: [40, 20] }] });
+    const rel = await h.call('edit_sketch', { sketch: 's1', relations: [{ type: 'horizontal', refs: [] }] }, false);
+    expect(rel.content).toMatch(/relations\[0\]\.refs: give the entity ids/);
+    const fil = await h.call('edit_sketch', { sketch: 's1', fillets: [{ radius: 2 }] }, false);
+    expect(fil.content).toMatch(/fillets\[0\]\.point: give the corner point id/);
+  });
 });
