@@ -128,6 +128,7 @@ async function notifyNewMail({ event, ctx, user }) {
   } catch (error) {
     const status = Number(error?.status ?? error?.statusCode);
     const code = error?.code;
+    console.warn('[mail-notify] notify failed', code || status || error?.message);
     if (code === 'too_many_requests' || code === 'rate_limited' || status === 429) {
       // Over the cap. Retrying only spends more of it, and counts toward the
       // five failures that suspend the subscription.
