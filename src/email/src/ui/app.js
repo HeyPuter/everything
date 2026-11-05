@@ -72,7 +72,10 @@ const FOLDER_WINDOW_SIZE = 300;
 const THREAD_PAGE_SIZE = 60;
 const NAV_LS_KEY = 'puter-mail:nav';
 const THREAD_LS_KEY = 'puter-mail:conversations';
-const NOTIFY_LS_KEY = 'puter-mail:notify';
+// New-mail notifications are on unless turned off here; this marks the off.
+const NOTIFY_OFF_LS_KEY = 'puter-mail:notify-off';
+// Set once this device has been asked; after that only the menu asks.
+const NOTIFY_ASKED_LS_KEY = 'puter-mail:notify-asked';
 // Seconds a send can be taken back for, and the one it is until changed.
 const UNDO_SEND_CHOICES = [0, 5, 10, 20, 30];
 const UNDO_SEND_DEFAULT = 5;
@@ -4917,20 +4920,23 @@ export function renderApp(root, ctx) {
   };
 
   const previewsOn = () => settings.get('notifyPreviews', true);
-  const tabNotifyOn = () => {
+  const notifyOff = () => {
     try {
-      return storage.getItem(NOTIFY_LS_KEY) === '1'
-        && window.Notification?.permission === 'granted';
+      return storage.getItem(NOTIFY_OFF_LS_KEY) === '1';
     } catch {
       return false;
     }
   };
-  const notifyWanted = () => pushOn() || tabNotifyOn();
-  const rememberTabNotify = (on) => {
+  const rememberNotifyOff = (off) => {
     try {
-      storage.setItem(NOTIFY_LS_KEY, on ? '1' : '0');
+      if (off) storage.setItem(NOTIFY_OFF_LS_KEY, '1');
+      else storage.removeItem(NOTIFY_OFF_LS_KEY);
     } catch {}
   };
+  const tabNotifyOn = () => !notifyOff() && window.Notification?.permission === 'granted';
+  // With pushes the switch is this browser's push status; the tab's own
+  // banner stays the fallback while one is open.
+  const notifyWanted = () => (ctx.canPush ? pushOn() : tabNotifyOn());
   // What the handler runs with: whether to name sender and subject, and the
   // user's own addresses, whose mail to themselves is not announced.
   const pushContext = () => ({ previews: previewsOn(), self: [...ownAddresses] });
@@ -4967,10 +4973,16 @@ export function renderApp(root, ctx) {
       toast(why, { iconName: 'alert' });
       return false;
     }
-    rememberTabNotify(true);
     toast(`${why} You will be notified while Puter Mail is open.`, { iconName: 'bell' });
     return true;
   };
+
+  // One run at a time: the first-gesture ask and the welcome dialog's button
+  // can start together. turnOnPush() reaches enable() synchronously.
+  let pushing = null;
+  const startPush = () => (pushing ??= turnOnPush(pushContext()).finally(() => {
+    pushing = null;
+  }));
 
   // From a click: nothing may be awaited before turnOnPush() reaches the
   // browser's prompt.
@@ -4982,7 +4994,7 @@ export function renderApp(root, ctx) {
     const working = toast('Turning on notifications…', { iconName: 'bell', duration: 60_000 });
     let result;
     try {
-      result = await turnOnPush(pushContext());
+      result = await startPush();
     } catch (error) {
       working();
       await refreshPushStatus();
@@ -4992,7 +5004,6 @@ export function renderApp(root, ctx) {
     if (result === 'on') {
       await refreshPushStatus();
       subscriptionReady = true;
-      rememberTabNotify(false);
       toast(pushOn() ? 'You will be notified when mail arrives.' : 'Notification setup saved. This browser is being confirmed.',
         { iconName: 'bell' });
       return pushOn();
@@ -5016,19 +5027,17 @@ export function renderApp(root, ctx) {
     // Only a user gesture may ask, which is why this lives in a menu.
     if (permission === 'default') permission = await Notification.requestPermission();
     if (permission !== 'granted') {
-      rememberTabNotify(false);
       toast('Notifications are blocked for this site.', { iconName: 'alert' });
       return false;
     }
-    rememberTabNotify(true);
     toast('You will be notified when mail arrives.', { iconName: 'bell' });
     return true;
   };
 
   /** Resolves whether notifications ended up on. */
   const setNotify = async (on) => {
+    rememberNotifyOff(!on);
     if (on) return ctx.canPush ? enablePush() : enableTabNotify();
-    rememberTabNotify(false);
     if (ctx.canPush) {
       subscriptionReady = false;
       await turnOffPush();
@@ -5623,8 +5632,53 @@ export function renderApp(root, ctx) {
   const initialSnoozes = checkSnoozes();
   Promise.resolve(setFolder('inbox')).then(() => { if (frame.isConnected) startWatching(); });
   pullFlags(true);
+  // Notifications are on unless turned off. Where this browser already allows
+  // them, pushes are turned on without asking; where it hasn't decided, it is
+  // asked once, from the first click or key press.
+  const autoNotify = async () => {
+    if (ctx.sample || notifyOff() || !frame.isConnected) return;
+    const web = globalThis.puter?.env !== 'app';
+    if (web && !window.Notification) return;
+    if (ctx.canPush) {
+      if (pushNeedsHomeScreen()) return;
+      const allowed = web ? Notification.permission === 'granted'
+        : await Promise.resolve(globalThis.puter?.notifications?.hasPermission?.()).catch(() => false);
+      if (allowed) {
+        await quietPush();
+        return;
+      }
+    } else if (Notification.permission === 'granted') return;
+    if (web && Notification.permission === 'denied') return;
+    try {
+      if (storage.getItem(NOTIFY_ASKED_LS_KEY)) return;
+    } catch {
+      return;
+    }
+    const ask = () => {
+      document.removeEventListener('pointerdown', ask, true);
+      document.removeEventListener('keydown', ask, true);
+      try {
+        storage.setItem(NOTIFY_ASKED_LS_KEY, '1');
+      } catch {}
+      // Synchronously from the gesture, so the browser shows its prompt.
+      if (ctx.canPush) quietPush();
+      else Notification.requestPermission().catch(() => {});
+    };
+    document.addEventListener('pointerdown', ask, true);
+    document.addEventListener('keydown', ask, true);
+  };
+  // Not from a control of its own: Puter's "Notifications are on" push is the
+  // confirmation, and failures are only logged.
+  const quietPush = () => startPush().then(async (result) => {
+    if (result !== 'on') return;
+    await refreshPushStatus();
+    subscriptionReady = true;
+  }).catch((error) => console.warn('[puter-mail] notifications not turned on', error));
+
+  if (!ctx.canPush && !ctx.sample) autoNotify();
   if (ctx.canPush && !ctx.sample) refreshPushStatus().then((on) => {
-    if (!on || !frame.isConnected) return;
+    if (!on) return autoNotify();
+    if (!frame.isConnected) return;
     listenForPushes();
     ensureSubscription(pushContext()).then(() => {
       subscriptionReady = true;

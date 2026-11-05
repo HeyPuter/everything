@@ -33,7 +33,8 @@ import { idb } from './idb.js';
 import { createOutbox, layeredStorage, makeClientId } from './outbox.js';
 import { clearDrafts, forgetDrafts } from './drafts.js';
 import { clearRecent, forgetWorkspaceRecent } from './recent.js';
-import { pushPrefs, pushOffsetMoved, _notePushOffset, listenForPushes, puterPushStatus, enablePuterPush, disablePuterPush, retireLegacyPush } from './pwa.js';
+import { pushPrefs, pushOffsetMoved, _notePushOffset, listenForPushes, stopListeningForPushes, puterPushStatus, enablePuterPush, disablePuterPush, retireLegacyPush, isIos, isStandalone } from './pwa.js';
+import { notificationsSupported, notificationsGranted } from './notify.js';
 import { loadUserDoc, saveUserDoc } from './user.js';
 import { makeRef, parseRef, canonicalRef, serverKeyOf, trustServer } from './refs.js';
 import { deployOwnWorker, findOwnWorker, updateOwnWorker, usesSharedWorker } from './deploy.js';
@@ -55,6 +56,8 @@ const HUDDLE_RING_MS = 5 * 60_000;
 export const TRANSFER_FREEZE_MS = 30 * 60_000;
 /** How long signing out waits for the workers to be told the device's push subscription is over, all at once. */
 const SIGNOUT_PUSH_MS = 4000;
+/** Set once this device has been asked for notifications; after that only the switches ask. */
+const NOTIFY_ASKED_KEY = 'tc:notify-asked';
 /** How long a best-effort word to another worker (leaving a shared channel on its host, ending the connection, the copies of the member's card) is waited for before the app goes on without it; the request itself goes on. */
 const HOST_WORD_MS = 4000;
 
@@ -614,7 +617,7 @@ class Store extends EventTarget {
     this.emit('profile');
     this.refreshWorkspaces().catch(() => {});
     listenForPushes();
-    this.refreshPushStatus().catch(() => {});
+    this.autoEnablePush().catch((err) => console.warn('Teamchat push', err));
     return { profile: this.profile, workspaces: this.workspaces };
   }
 
@@ -630,9 +633,11 @@ class Store extends EventTarget {
    */
   async signOut() {
     await this.leaveHuddle().catch(() => {});
-    // Signing out of Puter ends this browser's Puter pushes on its own; a
-    // subscription made the old way is let go of here, every worker told at
-    // once and none waited on for long.
+    // This browser's push handler and subscription go before the session
+    // does. Inside the desktop disable() would revoke every device, so there
+    // only the handler goes. Other devices keep their pushes either way.
+    await stopListeningForPushes().catch(() => {});
+    if (puter.env === 'web') await withinMs(disablePuterPush(), SIGNOUT_PUSH_MS).catch(() => {});
     await retireLegacyPush(this.workspaces.map((w) => w.ref), SIGNOUT_PUSH_MS).catch(() => {});
     await puter.auth.signOut();
   }
@@ -3020,6 +3025,41 @@ class Store extends EventTarget {
     }
   }
 
+  /**
+   * Notifications are on unless the user turned them off. Where this browser
+   * already allows them, pushes are turned on here without asking; where it
+   * hasn't decided, it is asked once, from the first click or key press.
+   */
+  async autoEnablePush() {
+    if (typeof puter === 'undefined' || !puter.notifications) return;
+    if (this.profile?.prefs?.push === false) return;
+    if ((await this.refreshPushStatus()) === 'on') return;
+    const web = puter.env === 'web';
+    if (web && (!notificationsSupported() || (isIos() && !isStandalone()))) return;
+    const allowed = web ? notificationsGranted() : await puter.notifications.hasPermission().catch(() => false);
+    if (allowed) {
+      await this.setPush(true);
+      return;
+    }
+    if (web && Notification.permission === 'denied') return;
+    try {
+      if (localStorage.getItem(NOTIFY_ASKED_KEY)) return;
+    } catch {
+      return;
+    }
+    const ask = () => {
+      document.removeEventListener('pointerdown', ask, true);
+      document.removeEventListener('keydown', ask, true);
+      try {
+        localStorage.setItem(NOTIFY_ASKED_KEY, '1');
+      } catch { /* asked again next load */ }
+      // Synchronously from the gesture, so the browser shows its prompt.
+      this.setPush(true).catch((err) => console.warn('Teamchat push', err));
+    };
+    document.addEventListener('pointerdown', ask, true);
+    document.addEventListener('keydown', ask, true);
+  }
+
   async refreshPushStatus() {
     this.pushStatus = await puterPushStatus();
     this.emit('push');
@@ -3038,7 +3078,7 @@ class Store extends EventTarget {
     if (typeof puter === 'undefined' || !puter.perms) return null;
     const prefs = this.profile?.prefs || {};
     const grant = owner && this.appUid() && prefs.evConsent !== 'declined' ? [{ resource: 'kvShare', ...EV_GRANT }] : [];
-    const push = !prefs.push && !prefs.pushDeclined && !!puter.notifications;
+    const push = prefs.push !== false && this.pushStatus !== 'on' && !!puter.notifications;
     if (!push && !grant.length) return null;
     const asked = push
       ? this.setPush(true, { extra: grant }).then((res) => ({ ...res, grant: !!res.granted[0] }))
@@ -3070,13 +3110,15 @@ class Store extends EventTarget {
   }
 
   async _reconcilePush(ref, pn) {
-    if (this.profile?.prefs?.push) await this._registerPush(ref);
-    else if (pn) await api.pushUnregister(ref);
+    // Workers hear of it once pushes were turned on somewhere, not from the default alone.
+    const push = this.profile?.prefs?.push;
+    if (push === true) await this._registerPush(ref);
+    else if (push === false && pn) await api.pushUnregister(ref);
   }
 
   /** Keep every worker's copy of this member's quiet hours, pause, and preview choice current. */
   async syncPushPrefs() {
-    if (!this.profile?.prefs?.push) return;
+    if (this.profile?.prefs?.push !== true) return;
     const body = this._pushBody();
     _notePushOffset(body.prefs.tzOffset);
     await Promise.allSettled(this._pushRefs().map((ref) => api.pushRegister(ref, body)));

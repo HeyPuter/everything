@@ -438,12 +438,17 @@ overwriting a version someone else published in between
 ## Push notifications
 
 [`puter.notifications`](https://docs.puter.com/Notifications/) delivers reminders,
-invitations and RSVP answers on the `calendar` channel. Turn on **Push
-notifications** in the account menu, or when connecting the mailbox. On the web
-this enables the current browser; inside the Puter desktop, Puter opens its own
-permission dialog. iPhone and iPad require adding Calendar to the Home Screen.
-Turning the web switch off affects this browser; the desktop switch revokes the
-app's push permission across devices and turns stored reminders off.
+invitations and RSVP answers on the `calendar` channel. **Push notifications**
+(account menu) are on unless turned off on this device. After sign-in,
+`autoEnablePush()` in `src/js/push.js` turns them on without asking where the
+browser already allows notifications; where it hasn't decided, it asks once
+per device (`cal:notify-asked`), from the first click or key press, and after
+that only the switch asks. On the web this enables the current browser; inside
+the Puter desktop, Puter opens its own permission dialog. iPhone and iPad
+require adding Calendar to the Home Screen. Turning the web switch off affects
+this browser; the desktop switch revokes the app's push permission across
+devices and turns stored reminders off. Signing out first removes this page's
+push handler and, on the web, this browser's subscription.
 
 - **Reminders.** Enabling pushes also enables stored reminders for the account.
   While Calendar is open and online, `src/js/stored-reminders.js` reconciles the

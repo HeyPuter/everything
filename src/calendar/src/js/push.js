@@ -15,10 +15,14 @@ export const PUSH_OPTIONS = Object.freeze({ serviceWorker: SERVICE_WORKER });
 // Set when the user turns pushes off here, so connecting the mailbox later
 // doesn't quietly turn them back on.
 const OFF_KEY = 'cal:push-off';
+// Set once this device has been asked; after that only the switch asks.
+const ASKED_KEY = 'cal:notify-asked';
+const SIGNOUT_PUSH_MS = 4000;
 
 let started = false;
 let route = null;
 let pendingClick = null;
+let pushListener = null;
 
 function sdk() {
   return typeof puter !== 'undefined' ? puter : null;
@@ -74,13 +78,68 @@ export function startPush(p = sdk()) {
     else pendingClick = click;
   });
   // Saved as source and re-run in sw.js, so it can't use anything around it.
-  Promise.resolve(
+  pushListener = Promise.resolve(
     p.notifications.onPush(
       PUSH_CHANNEL,
       (n) => ({ title: n.title, body: n.text || '', url: n.target || '/' }),
       PUSH_OPTIONS,
     ),
-  ).catch((err) => console.warn('[calendar] push handler not registered', err));
+  ).catch((err) => {
+    console.warn('[calendar] push handler not registered', err);
+    return null;
+  });
+}
+
+/**
+ * Pushes are on unless turned off on this device. Where the browser already
+ * allows notifications they're turned on without asking; where it hasn't
+ * decided, it's asked once, from the first click or key press.
+ */
+export async function autoEnablePush(p = sdk(), store = null) {
+  if (!pushAvailable(p) || pushOffHere()) return;
+  if ((await pushStatus(p)) === 'on') return;
+  const web = p.env === 'web';
+  if (web && needsHomeScreen()) return;
+  const allowed = web ? Notification.permission === 'granted' : await p.notifications.hasPermission().catch(() => false);
+  if (allowed) {
+    await turnPushOn(p, store);
+    return;
+  }
+  if (web && Notification.permission === 'denied') return;
+  try {
+    if (localStorage.getItem(ASKED_KEY)) return;
+  } catch {
+    return;
+  }
+  const ask = () => {
+    document.removeEventListener('pointerdown', ask, true);
+    document.removeEventListener('keydown', ask, true);
+    try {
+      localStorage.setItem(ASKED_KEY, '1');
+    } catch {
+      /* asked again next load */
+    }
+    // Synchronously from the gesture, so the browser shows its prompt.
+    turnPushOn(p, store).catch((err) => console.warn('[calendar] push not turned on', err));
+  };
+  document.addEventListener('pointerdown', ask, true);
+  document.addEventListener('keydown', ask, true);
+}
+
+/**
+ * Before signing out: this page's push handler goes, and on a website this
+ * browser's subscription. Inside the desktop disable() would revoke every
+ * device, so there only the handler goes.
+ */
+export async function releasePush(p = sdk()) {
+  const listener = await pushListener;
+  pushListener = null;
+  await listener?.off?.()?.catch?.(() => {});
+  if (!p?.notifications || p.env !== 'web') return;
+  await Promise.race([
+    p.notifications.disable(PUSH_OPTIONS).catch(() => {}),
+    new Promise((resolve) => setTimeout(resolve, SIGNOUT_PUSH_MS)),
+  ]);
 }
 
 /** The app is ready for clicks; a held one is delivered now. */

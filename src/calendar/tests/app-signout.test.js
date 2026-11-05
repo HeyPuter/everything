@@ -111,7 +111,7 @@ describe('app — signing out', () => {
     app = createApp(root, { store, user: { username: 'x' }, storedReminders });
     root.querySelector('button.avatar').click();
     [...document.querySelectorAll('.popover .menu-item')].find((b) => b.textContent.includes('Sign out')).click();
-    expect(signOut).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => expect(signOut).toHaveBeenCalledTimes(1));
     expect(storedReminders.stop).toHaveBeenCalledTimes(1);
     expect(store.getSettings()).toEqual(settings);
     expect(saveSettings).not.toHaveBeenCalled();

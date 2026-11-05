@@ -18,7 +18,7 @@ import { createDirectoryView } from './directory.js';
 import { renderThreadPanel } from './panel.js';
 import { installShortcuts, renderShortcutsPanel } from './shortcuts.js';
 import { openDetailsDialog } from './details.js';
-import { acceptConnectDialog, offerPushFromClick } from './dialogs.js';
+import { acceptConnectDialog } from './dialogs.js';
 import { openOnboarding, homeEmpty, shouldOnboard } from './onboarding.js';
 import { store, TRANSFER_FREEZE_MS, isPlatformPage } from '../lib/store.js';
 import { ApiError } from '../lib/api.js';
@@ -26,7 +26,7 @@ import { parseHash, navigate, buildHash, PANE_VIEWS } from '../lib/router.js';
 import { normalizeInviteCode } from '../shared/ids.js';
 import { serverKeyOf, parseRef } from '../lib/refs.js';
 import { SHARED_WORKER_URL } from '../config.js';
-import { showNotification, shouldNotify, playNotificationSound } from '../lib/notify.js';
+import { shouldNotify, playNotificationSound } from '../lib/notify.js';
 import { previewWords } from './applink.js';
 import { api } from '../lib/api.js';
 import { parentOfThread } from '../shared/blocks.js';
@@ -1087,16 +1087,6 @@ export function mountShell(appRoot) {
           : res.channel ? `You are already in #${res.channel.name} on ${res.workspace.name}` : `You are already in ${res.workspace.name}`)
         : res.guest ? `Welcome to ${res.workspace.name}. You are a guest: you see the channel you were invited to.` : `Welcome to ${res.workspace.name}`, { duration: res.guest ? 6000 : undefined });
       navigate({ ws: res.workspace.id, conv: res.channel?.id }, { replace: true });
-      // A followed link is no click to put a prompt up from, so pushes are
-      // offered from a button instead of from the join itself.
-      const prefs = store.profile?.prefs || {};
-      if (!res.already && !prefs.push && !prefs.pushDeclined) {
-        toast('Get notified of mentions and direct messages while Teamchat is closed?', {
-          icon: 'bell', duration: Infinity, dismissible: true,
-          action: { label: 'Turn on', onClick: () => offerPushFromClick() },
-          onDismiss: () => store.updatePrefs({ pushDeclined: true }).catch(() => {}),
-        });
-      }
     } catch (e) {
       const msg = e.code === 'invite_not_found' ? 'That invite link is not valid or has expired. Ask for a new one.'
         : e.code === 'no_backend' || e.code === 'network' ? 'The workspace server behind this invite is not reachable right now.'
@@ -1313,19 +1303,17 @@ export function mountShell(appRoot) {
   advertiseViewing();
 
   /**
-   * One gate for every browser notification and its sound: the global
-   * switches, pauses and quiet hours, then the conversation's own setting.
-   * The body carries a preview of the message unless the user turned
-   * previews off. The banner only ever shows over a hidden tab; the sound
-   * also plays with the tab in view when the news is from a conversation
-   * other than the open one — never for what is already on screen, here or
-   * in another tab of this browser (see advertiseViewing).
+   * The in-app chime: the global switches, pauses and quiet hours, then the
+   * conversation's own setting. Banners are Puter's, sent by the workspace
+   * worker (see sendPushes). The chime also plays with the tab in view when
+   * the news is from a conversation other than the open one — never for
+   * what is already on screen, here or in another tab of this browser (see
+   * advertiseViewing).
    */
   function maybeNotify({ event, conv, kind, title, body, seq, messageConv, route: target, onlyRead = false }) {
     const prefs = store.profile?.prefs || {};
-    const banner = !!prefs.notify;
     const sound = prefs.sound !== false;
-    if ((!banner && !sound) || store.notificationsPaused()) return;
+    if (!sound || store.notificationsPaused()) return;
     if (!shouldNotify({ event, setting: store.notifySetting(conv), kind })) return;
     const shown = target || { ws: store.wsId, conv };
     const viewing = () => {
@@ -1346,21 +1334,6 @@ export function mountShell(appRoot) {
     const fire = (text) => {
       // Named by the message, so two tabs of this browser ring once for it between them (see notify.js chimedAlready).
       if (sound && (document.hidden || !viewing()) && !viewedElsewhere()) playNotificationSound(seq ? { key: `${shown.ws}:${messageConv || conv}:${seq}` } : {});
-      if (banner) {
-        showNotification({
-          // Named with the workspace: a direct message keeps its id across
-          // workspaces, so two workspaces' news of "the same" conversation
-          // within a few seconds shared a tag, and the browser drew the
-          // second banner over the first while the burst check dropped it.
-          title, body: text, tag: `${shown.ws}:${event}-${conv}`,
-          // Where the news is, as it stood when it came, not as the store
-          // stands once the message has been read for its words: the reader
-          // may have switched workspaces meanwhile, and the conversation's
-          // id under the other workspace's reference is nothing at all.
-          route: buildHash(shown),
-          onClick: () => navigate(shown),
-        });
-      }
     };
     if (!seq) {
       fire(body);

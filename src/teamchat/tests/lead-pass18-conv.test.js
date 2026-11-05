@@ -77,10 +77,10 @@ describe('the "Notifications when the app is closed" switch', () => {
     expect(row.getAttribute('aria-checked')).toBe('true');
   });
 
-  it('reads off once the browser has stopped allowing them, though the preference stands (as the desktop switch does)', async () => {
-    const row = await open({ push: true, notify: true }, 'denied');
+  it('reads off once the browser has stopped allowing them, though the preference stands, and is the only notification switch', async () => {
+    const row = await open({ push: true }, 'denied');
     expect(row.getAttribute('aria-checked')).toBe('false');
-    expect(switchFor('Desktop notifications').getAttribute('aria-checked')).toBe('false');
+    expect(switchFor('Desktop notifications')).toBeFalsy();
   });
 
   it('reads off when Puter disabled the app, even with browser permission', async () => {

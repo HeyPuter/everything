@@ -23,7 +23,7 @@ import { openCategoryRename } from './category-dialog.js';
 import { openMailDialog } from './mail-dialog.js';
 import { renderSidebar } from './sidebar.js';
 import { occurrenceNear } from './recurrence.js';
-import { notificationTarget, pushAvailable, needsHomeScreen, pushStatus, turnPushOn, turnPushOff } from './push.js';
+import { notificationTarget, pushAvailable, needsHomeScreen, pushStatus, turnPushOn, turnPushOff, releasePush } from './push.js';
 import { openContextMenu, closeContextMenu, isContextMenuOpen, onContextMenuClose } from './context-menu.js';
 import { onDragEnd } from './drag.js';
 import { HOLIDAY_COUNTRIES, detectCountry, countryName } from './holidays.js';
@@ -1056,6 +1056,7 @@ export function createApp(root, { store, user, rsvp = null, contacts = null, inv
       contacts.dispose();
     }
     try {
+      await releasePush().catch(() => {});
       await signOut();
     } finally {
       window.location.reload();
