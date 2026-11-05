@@ -169,6 +169,58 @@ test('unsaved work the user chose not to save is not offered for recovery later'
   await expect.poll(recovery).toBeNull();
 });
 
+test('each tab keeps its own recovery copy, and only copies from closed tabs are offered', async ({ context }) => {
+  type Doc = { name: string; variables: { name: string; expr: string }[] };
+  const edit = (p: Page, name: string) => p.evaluate((n) => (window as unknown as { __parametric: { store: { change(l: string, fn: (d: Doc) => void): void } } }).__parametric.store.change('E', (d) => { d.name = n; d.variables.push({ name: 'X', expr: '1' }); }), name);
+  const recovery = (p: Page) => p.evaluate(async (url) => (await import(url)).readRecovery(), '/src/platform/files.ts');
+  const recover = (p: Page) => p.getByRole('dialog', { name: 'Recover unsaved work?' });
+  const start = async () => {
+    const p = await context.newPage();
+    await mockPuter(p);
+    await openApp(p);
+    return p;
+  };
+  const a = await start();
+  await a.getByRole('button', { name: /New part/ }).click();
+  await edit(a, 'Alpha');
+  await expect.poll(() => recovery(a), { timeout: 10_000 }).toContain('"name":"Alpha"');
+  // Another tab opened meanwhile: Alpha is still open, so it is not offered.
+  const b = await start();
+  await expect(b.getByRole('button', { name: /New part/ })).toBeVisible();
+  await expect(recover(b)).toHaveCount(0);
+  await b.getByRole('button', { name: /New part/ }).click();
+  await edit(b, 'Beta');
+  await expect.poll(() => recovery(b), { timeout: 10_000 }).toContain('"name":"Beta"');
+  expect(await recovery(a)).toContain('"name":"Alpha"');
+  // Alpha's tab goes away: its work is offered; closing the question keeps it.
+  await a.close();
+  const c = await start();
+  await expect(recover(c)).toContainText('"Alpha"');
+  await c.keyboard.press('Escape');
+  await c.reload();
+  await expect(recover(c)).toContainText('"Alpha"');
+  await recover(c).getByRole('button', { name: 'Discard' }).click();
+  await expect(c.getByRole('button', { name: /New part/ })).toBeVisible();
+  await c.reload();
+  await expect(c.getByRole('button', { name: /New part/ })).toBeVisible();
+  await expect(recover(c)).toHaveCount(0);
+  expect(await recovery(b)).toContain('"name":"Beta"');
+});
+
+test('a pending recovery copy is written as soon as the tab is hidden', async ({ page }) => {
+  await mockPuter(page);
+  await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await app(page);
+  await page.evaluate(() => (window as unknown as { __parametric: AppHandle }).__parametric.store.change('A', (d) => { d.variables.push({ name: 'Hidden', expr: '1' }); }));
+  await page.evaluate(() => {
+    Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
+    document.dispatchEvent(new Event('visibilitychange'));
+  });
+  // Well before the usual few seconds after the last change.
+  await expect.poll(() => page.evaluate(async (url) => (await import(url)).readRecovery(), '/src/platform/files.ts'), { timeout: 1500 }).toContain('"name":"Hidden"');
+});
+
 test('parts are deleted from the Open dialog with a button, and stay listed when that fails', async ({ page }) => {
   await mockPuter(page);
   await page.addInitScript(() => {

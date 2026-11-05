@@ -6,7 +6,7 @@ import { newDocument, parseDocument, serializeDocument, withUsedBlobs } from '..
 import type { ImportFeature, PartDocument } from '../model/types';
 import {
   type Location, EXT, IMPORT_EXTS, clearRecovery, download, isSolidWorksFile, isStepFile, listParts, loadText, locationLabel, newLocation,
-  pickCloudFile, pickCloudSave, pickDeviceFile, readRecovery, saveText, safeName, writeRecovery, type FileEntry, deletePart, renameCloud, forgetRecent, rememberRecent,
+  pickCloudFile, pickCloudSave, pickDeviceFile, orphanRecoveries, removeRecovery, saveText, safeName, writeRecovery, type FileEntry, deletePart, renameCloud, forgetRecent, rememberRecent,
 } from '../platform/files';
 import { cloudAvailable, isMissing, puter, signIn, storageError } from '../platform/puter';
 import { h } from '../ui/dom';
@@ -26,6 +26,9 @@ export class FileOps {
       if (reason !== 'saved') this.revision++;
       this.scheduleRecovery();
     };
+    // A hidden tab can be closed without notice (phones discard background tabs).
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') this.flushRecovery(); });
+    window.addEventListener('pagehide', () => this.flushRecovery());
     window.addEventListener('beforeunload', (e) => {
       if (this.app.store.dirty || this.app.panel?.edited) {
         e.preventDefault();
@@ -55,6 +58,7 @@ export class FileOps {
     if (v !== 'discard') return false;
     // Discarded on purpose: do not offer it for recovery next time.
     clearTimeout(this.recoveryTimer);
+    this.recoveryTimer = 0;
     await clearRecovery();
     return true;
   }
@@ -365,43 +369,66 @@ export class FileOps {
 
   private scheduleRecovery() {
     clearTimeout(this.recoveryTimer);
+    this.recoveryTimer = 0;
     if (!this.app.store.dirty) return;
-    this.recoveryTimer = window.setTimeout(() => {
-      const payload = JSON.stringify({ location: this.app.location, savedAt: Date.now(), doc: withUsedBlobs(this.app.store.doc) });
-      void writeRecovery(payload);
-    }, 4000);
+    this.recoveryTimer = window.setTimeout(() => this.writeRecoveryNow(), 4000);
   }
 
-  /** Offers to restore unsaved work from a previous session. */
-  async checkRecovery(): Promise<boolean> {
-    const text = await readRecovery();
-    if (!text) return false;
-    let data: { location: Location | null; savedAt: number; doc: PartDocument } | null = null;
-    try {
-      data = JSON.parse(text);
-    } catch {
-      await clearRecovery();
-      return false;
+  private writeRecoveryNow() {
+    this.recoveryTimer = 0;
+    if (!this.app.store.dirty) return;
+    const payload = JSON.stringify({ location: this.app.location, savedAt: Date.now(), doc: withUsedBlobs(this.app.store.doc) });
+    void writeRecovery(payload);
+  }
+
+  /** Writes a pending recovery copy now: the tab is being hidden and may not come back (phones). */
+  private flushRecovery() {
+    if (this.recoveryTimer) {
+      clearTimeout(this.recoveryTimer);
+      this.writeRecoveryNow();
     }
-    if (!data?.doc?.features?.length) { await clearRecovery(); return false; }
-    const when = new Date(data.savedAt).toLocaleString();
-    const v = await showDialog({
-      title: 'Recover unsaved work?',
-      body: h('p', {}, `Parametric found unsaved changes to "${data.doc.name}" from ${when}. Do you want to restore them?`),
-      buttons: [{ label: 'Discard', value: 'discard' }, { label: 'Restore', value: 'restore', primary: true }],
-    });
-    if (v === 'restore') {
+  }
+
+  /**
+   * Offers to restore unsaved work left by tabs that are no longer open.
+   * Closing the question keeps the copy for next time; only Discard deletes it.
+   */
+  async checkRecovery(): Promise<boolean> {
+    for (const { file, text } of await orphanRecoveries()) {
+      let data: { location: Location | null; savedAt: number; doc: PartDocument } | null = null;
       try {
-        const doc = parseDocument(JSON.stringify(data.doc));
+        data = JSON.parse(text);
+      } catch {
+        data = null;
+      }
+      // A blank part is not worth asking about.
+      if (!data?.doc?.features?.length && !data?.doc?.variables?.length) { await removeRecovery(file); continue; }
+      const when = new Date(data.savedAt).toLocaleString();
+      const v = await showDialog({
+        title: 'Recover unsaved work?',
+        body: h('p', {}, `Parametric found unsaved changes to "${data.doc.name}" from ${when}. Do you want to restore them?`),
+        buttons: [{ label: 'Discard', value: 'discard' }, { label: 'Restore', value: 'restore', primary: true }],
+      });
+      if (v === 'restore') {
+        let doc: PartDocument;
+        try {
+          doc = parseDocument(JSON.stringify(data.doc));
+        } catch (e) {
+          toast({ kind: 'error', message: (e as Error).message });
+          await removeRecovery(file);
+          continue;
+        }
         this.app.loadDocument(doc, data.location);
         this.app.store.dirty = true;
         this.app.store.emit('restored');
+        // This tab now owns the work: its own copy replaces the one left behind.
+        await writeRecovery(text);
+        await removeRecovery(file);
         return true;
-      } catch (e) {
-        toast({ kind: 'error', message: (e as Error).message });
       }
+      if (v !== 'discard') return false;
+      await removeRecovery(file);
     }
-    await clearRecovery();
     return false;
   }
 
