@@ -273,6 +273,27 @@ describe('assistant agent', () => {
     }
   });
 
+  it('says the account ran out of credits when Puter stops a reply for that, and runs none of its calls', async () => {
+    const stream = (parts: Record<string, unknown>[]) => ({ async *[Symbol.asyncIterator]() { yield* parts; } });
+    (globalThis as unknown as { puter?: unknown }).puter = { ai: { chat: async () => stream([
+      { type: 'text', text: 'Adding the holes.' }, { type: 'tool_use', id: 'a', name: 'add_hole', input: {} },
+      { type: 'usage', usage: { output_tokens: 40 }, stopReason: 'max_tokens', metadata: { usage_limited: true } },
+    ]) } };
+    const ran: string[] = [];
+    try {
+      const agent = createAgent({
+        chat: puterChat, tools: () => [], system: 'S', snapshot: () => '', model: () => 'm', retryDelay: () => 0,
+        runTool: async (n) => { ran.push(n); return { ok: true, content: 'done' }; },
+      });
+      const res = await agent.send('go', () => {});
+      expect(ran).toEqual([]);
+      expect(res.error?.message).toMatch(/ran out of AI credits/);
+      expect(isTransientError(res.error)).toBe(false);
+    } finally {
+      delete (globalThis as unknown as { puter?: unknown }).puter;
+    }
+  });
+
   it('runs a reply\'s calls when the output limit cut off text written after them', async () => {
     const { agent } = scripted([[{ type: 'tool', id: 'a', name: 'get_model', input: {} }, { type: 'text', text: 'And then' }, { type: 'cut' }], [{ type: 'text', text: 'ok' }]]);
     const res = await agent.send('go', () => {});
