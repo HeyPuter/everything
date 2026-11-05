@@ -143,6 +143,14 @@ export function buildShell(cmds: CommandRegistry, menus: { label: string; items:
       (() => { const b = commandButton(cmds, 'share'); b.classList.add('hide-mobile'); return b; })(), github, account));
 
   const cmTools = h('div', { class: 'cm-tools', role: 'toolbar', 'aria-label': 'Commands' });
+  // A narrow window clips the tools on the right and the strip has no
+  // scrollbar: a plain mouse wheel scrolls it sideways (trackpads and touch
+  // already can).
+  cmTools.addEventListener('wheel', (e) => {
+    if (e.ctrlKey || e.deltaX || !e.deltaY || cmTools.scrollWidth <= cmTools.clientWidth) return;
+    e.preventDefault();
+    cmTools.scrollLeft += e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;
+  }, { passive: false });
   const cmTabs = h('div', { class: 'cm-tabs', role: 'tablist', 'aria-label': 'Command groups' });
   const cm = h('section', { class: 'cm', 'aria-label': 'CommandManager' }, cmTools, cmTabs);
 

@@ -428,3 +428,17 @@ test('removing a picked item from a selection box keeps keyboard focus in the bo
   await expect(remove).toHaveCount(0);
   await expect(box).toBeFocused();
 });
+
+test('the mouse wheel scrolls a CommandManager clipped by a narrow window', async ({ page }) => {
+  await page.setViewportSize({ width: 900, height: 768 });
+  await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  const tools = page.locator('.cm-tools');
+  expect(await tools.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true);
+  await tools.hover();
+  await page.mouse.wheel(0, 2000);
+  await expect.poll(() => tools.evaluate((el) => el.scrollLeft)).toBeGreaterThan(0);
+  // The last tool is now fully in view.
+  const last = page.locator('.cm-tools .cm-group').last();
+  expect((await last.boundingBox())!.x + (await last.boundingBox())!.width).toBeLessThanOrEqual(900);
+});
