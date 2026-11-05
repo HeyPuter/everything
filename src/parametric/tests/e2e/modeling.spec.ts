@@ -114,6 +114,12 @@ test.describe('part modeling', () => {
       d.features.find((f) => f.id === 'f1')!.depth = '=Nope*2';
     }));
     await expect(page.locator('.statusbar [role="status"]')).toContainText('Rebuild error in Extrude1: Depth: Unknown name "Nope"');
+    await expect(page.getByRole('treeitem', { name: 'Extrude1' })).toHaveClass(/error/);
+    // Suppressed, the feature and its value are not used: no error.
+    await page.getByRole('treeitem', { name: 'Extrude1' }).click({ button: 'right' });
+    await page.getByRole('menuitem', { name: 'Suppress' }).click();
+    await expect(page.getByRole('treeitem', { name: 'Extrude1' })).toHaveClass(/suppressed/);
+    await expect(page.locator('.ti.error')).toHaveCount(0);
     expect(errors).toEqual([]);
   });
 

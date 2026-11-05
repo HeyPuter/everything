@@ -763,7 +763,10 @@ export class App {
   private applyBuild(res: BuildResult, ms: number) {
     this.buildVersion++;
     this.statuses = new Map(res.status.map((s) => [s.id, s]));
-    for (const [id, err] of this.resolveErrors) this.statuses.set(id, { id, ok: false, error: err });
+    for (const [id, err] of this.resolveErrors) {
+      // A suppressed feature is not built, so its values are not used either.
+      if (!this.store.feature(id)?.suppressed && !this.statuses.get(id)?.suppressed) this.statuses.set(id, { id, ok: false, error: err });
+    }
     this.faces = res.faces;
     this.edges = res.edges;
     this.frames = res.frames;
