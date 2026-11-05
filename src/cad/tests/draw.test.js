@@ -332,3 +332,23 @@ describe('transparent commands', () => {
     expect(t.ed.request?.prompt).toBe('Next point');
   });
 });
+
+describe('per-drawing last point', () => {
+  it('does not continue a line or resolve @ from another drawing', async () => {
+    const first = t.ed.doc;
+    await t.type('LINE', '0,0', '10,0', '');
+    const drawing = new Drawing();
+    const index = new SpatialIndex(drawing);
+    drawing.on((c) => index.applyChange(c));
+    t.ed.attach({ drawing, index, selection: new Set(), viewStack: [] });
+    await t.type('LINE', '');
+    expect(t.ed.busy).toBe(false);
+    expect(drawing.entities.size).toBe(0);
+    await t.type('LINE', '@5,5', '@1,0', '');
+    expect([...drawing.entities.values()][0]).toMatchObject({ x1: 5, y1: 5, x2: 6, y2: 5 });
+    // Back in the first drawing, Enter continues from its own last line.
+    t.ed.attach(first);
+    await t.type('LINE', '', '@0,10', '');
+    expect(t.all('line').at(-1)).toMatchObject({ x1: 10, y1: 0, x2: 10, y2: 10 });
+  });
+});

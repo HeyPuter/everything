@@ -92,11 +92,21 @@ export class Editor {
 
   attach(doc) {
     if (this.active) this.cancelAll();
+    this._stashLastPoints();
+    // The last point (for @ input and continuing a line) belongs to its drawing.
+    this.lastPoint = doc.lastPoint ?? null;
+    this.lastLineEnd = doc.lastLineEnd ?? null;
     this.doc = doc;
     this.acquired = [];
     this.renderer.setSelection(doc.selection);
     this.refreshGrips();
     this.drawOverlay();
+  }
+
+  _stashLastPoints() {
+    if (!this.doc) return;
+    this.doc.lastPoint = this.lastPoint;
+    this.doc.lastLineEnd = this.lastLineEnd;
   }
 
   get drawing() {
@@ -270,6 +280,8 @@ export class Editor {
     this._resetCommandState();
     this.ui.prompt(null);
     if (wasActive) this.ui.commandChanged?.(null);
+    this._stashLastPoints();
+    this.lastPoint = this.lastLineEnd = null;
     this.doc = null;
     this.grips = [];
     this.acquired = [];
