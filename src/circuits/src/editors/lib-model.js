@@ -282,7 +282,8 @@ export function validateComponent(def) {
     const clash = overlappingPads(pads);
     if (clash) out.push({ severity: 'error', message: `Pads ${clash[0]} and ${clash[1]} overlap, shorting them together.` });
     for (const p of pads) if (p.side === 'thru' && !(p.drill > 0)) { out.push({ severity: 'error', message: `Pad ${p.num || '?'} is through-hole without a drill.` }); break; }
-    for (const p of pads) if (p.side === 'thru' && p.drill >= Math.min(p.w, p.shape === 'round' ? p.w : p.h)) { out.push({ severity: 'error', message: `Pad ${p.num || '?'} has a hole as large as the pad.` }); break; }
+    // A non-plated hole has no copper ring, so its pad is the hole itself.
+    for (const p of pads) if (p.side === 'thru' && p.plated !== false && p.drill >= Math.min(p.w, p.shape === 'round' ? p.w : p.h)) { out.push({ severity: 'error', message: `Pad ${p.num || '?'} has a hole as large as the pad.` }); break; }
   }
   return out;
 }

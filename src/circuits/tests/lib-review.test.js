@@ -426,3 +426,15 @@ describe('component checks', () => {
     expect(errors([pad('1', 0), pad('2', mm(0.5), thru)])).toHaveLength(1);
   });
 });
+
+describe('component checks for mechanical parts', () => {
+  it('accepts a non-plated hole the size of its pad', () => {
+    const msgs = validateComponent(findComponent('mh-m3-npth')).map((m) => m.message);
+    expect(msgs.some((m) => /hole as large as the pad/.test(m))).toBe(false);
+    const plated = structuredClone(findComponent('mh-m3'));
+    plated.footprint.pads[0].drill = plated.footprint.pads[0].w;
+    expect(validateComponent(plated).map((m) => m.message)).toContain(
+      'Pad 1 has a hole as large as the pad.',
+    );
+  });
+});
