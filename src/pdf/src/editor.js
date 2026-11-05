@@ -1936,6 +1936,12 @@ export function createEditor({
     suggestedTools().findIndex((option) => option.classList.contains('active'));
   function suggestTools() {
     const query = searchInput.value.trim().toLowerCase();
+    // Words are matched from their start, as typed: "rot" finds the tool that rotates pages,
+    // not Protect a PDF, which merely contains the letters.
+    const words = new RegExp(
+      `(?:^|[^\\p{L}\\p{N}])${query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`,
+      'u',
+    );
     const matches =
       query.length < 2
         ? []
@@ -1943,9 +1949,9 @@ export function createEditor({
             .filter(
               (entry) =>
                 !entry.hidden &&
-                `${entry.label} ${entry.keywords || ''} ${entry.description || ''}`
-                  .toLowerCase()
-                  .includes(query),
+                words.test(
+                  `${entry.label} ${entry.keywords || ''} ${entry.description || ''}`.toLowerCase(),
+                ),
             )
             .slice(0, 5);
     toolList.replaceChildren(

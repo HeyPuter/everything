@@ -76,6 +76,20 @@ test('the find box also offers matching tools', async ({ page }) => {
   await expect(page.getByRole('dialog', { name: 'Reduce file size' })).toBeVisible();
 });
 
+test('the find box offers tools whose words start with what was typed', async ({ page }) => {
+  await openPdf(page, await numberedPdf(1));
+  await page.getByRole('button', { name: 'Find text or tools', exact: true }).click();
+  const find = page.getByRole('combobox', { name: 'Find in PDF' });
+  await find.fill('rot');
+  // Organize pages rotates them; Protect a PDF only contains the letters.
+  await expect(page.getByRole('option', { name: 'Open tool: Organize pages' })).toBeVisible();
+  await expect(page.getByRole('option', { name: 'Open tool: Protect a PDF' })).toHaveCount(0);
+  await find.fill('prot');
+  await expect(page.getByRole('option', { name: 'Open tool: Protect a PDF' })).toBeVisible();
+  await find.fill('pdf/a');
+  await expect(page.getByRole('option', { name: /Open tool: .*standards/i })).toBeVisible();
+});
+
 test('the arrow keys reach the tools the find box offers, as in a combobox', async ({ page }) => {
   await openPdf(page, await numberedPdf(1));
   await page.getByRole('button', { name: 'Find text or tools', exact: true }).click();
