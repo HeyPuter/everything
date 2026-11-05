@@ -402,3 +402,21 @@ describe('LENGTHEN percent', () => {
     expect(t.drawing.get(1).x2).toBeCloseTo(15);
   });
 });
+
+describe('SCALE', () => {
+  it('shows the default scale factor as a number in architectural units', async () => {
+    t.drawing.transaction('Units', () =>
+      t.drawing.setHeader({ units: 'in', linearFormat: 'architectural' }),
+    );
+    add({ type: 'line', x1: 0, y1: 0, x2: 10, y2: 0 });
+    const prompts = [];
+    t.ed.ui.prompt = (p) => p && prompts.push(p);
+    t.ed.setSelection([1]);
+    await t.type('SCALE', '0,0', '0.5');
+    t.ed.setSelection([1]);
+    await t.type('SCALE', '0,0');
+    expect(prompts.at(-1)).toBe('Scale factor <0.5>');
+    await t.type('');
+    expect(t.drawing.get(1).x2).toBeCloseTo(2.5);
+  });
+});

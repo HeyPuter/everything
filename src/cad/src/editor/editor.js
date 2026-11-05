@@ -337,10 +337,15 @@ export class Editor {
     return this._ask('point', prompt, opts);
   }
 
-  /** Ask for a distance: typed value, or a pick from base (or two picks). */
+  /**
+   * Ask for a distance: typed value, or a pick from base (or two picks).
+   * opts.factor shows the default as a plain number (a scale factor, not a length).
+   */
   async getDistance(prompt, opts = {}) {
     const def = opts.default;
-    const label = def !== undefined ? `${prompt} <${formatLinear(def, this.header)}>` : prompt;
+    const plain = opts.factor && Number.isFinite(def);
+    const shown = plain ? String(+def.toPrecision(10)) : formatLinear(def, this.header);
+    const label = def !== undefined ? `${prompt} <${shown}>` : prompt;
     const r = await this._ask('distance', label, opts);
     if (r === null) return def ?? null;
     if (typeof r === 'number' || r?.option) return r;

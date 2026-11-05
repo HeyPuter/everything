@@ -200,6 +200,7 @@ export const SCALE = {
       const k = await ed.getDistance('Scale factor', {
         base,
         default: ed.lastScale ?? 1,
+        factor: true,
         options: opts('Copy', 'Reference'),
         onMove: (p) => ed.renderer.setDragMatrix(M.scale(Math.max(1e-9, dist(base, p)), base.x, base.y)),
       });
