@@ -333,6 +333,23 @@ describe('writeDxf: options and edge cases', () => {
     expect(+val(h, 46)).toBeCloseTo(Math.cos(a) * 3.175 * 2, 6);
   });
 
+  it('writes mirrored hatches in a mirrored OCS that reads back mirrored', () => {
+    const fam = { angle: 45, x: 0, y: 0.3, dx: 1, dy: 3.175, dashes: [3, -1] };
+    const loop = [1, 1, 0.3, 21, 1, 0, 21, 21, 0, 1, 21, 0];
+    const hatches = [
+      ent('hatch', { loops: [loop], pattern: 'STEEL', scale: 1.5, angle: 0.4, mirror: true }),
+      ent('hatch', { loops: [loop], pattern: 'ANSI31', scale: 2, angle: 0.2, mirror: true, families: [fam] }),
+    ];
+    const text = writeDxf({ entities: hatches, layers: [], blocks: [] }, { hatchPatterns: { ANSI31: [fam] } });
+    expect(records(text).filter((r) => r.type === 'HATCH').map((r) => +val(r, 230))).toEqual([-1, -1]);
+    const back = parseDxf(text).drawing.entities;
+    for (let i = 0; i < 2; i++) {
+      expect(back[i]).toMatchObject({ mirror: true, scale: hatches[i].scale, loops: [loop] });
+      expect(back[i].angle).toBeCloseTo(hatches[i].angle, 9);
+    }
+    expect(back[1].families).toEqual([fam]);
+  });
+
   it('writes an empty drawing that reads back with the standard tables', () => {
     const text = writeDxf({ entities: [], layers: [], blocks: [] });
     const { drawing, warnings } = parseDxf(text);

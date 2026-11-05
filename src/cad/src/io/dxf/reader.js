@@ -1995,7 +1995,6 @@ class DxfParser {
       else if (c === 52) angle = num(v) * DEG;
       else if (c === 41) scale = num(v) || 1;
     }
-    const line0 = defs.length ? defs[0].a * DEG : null;
     if (!loops.length) {
       this.warn('HATCH without usable boundary skipped.');
       return;
@@ -2008,13 +2007,12 @@ class DxfParser {
     e.scale = scale;
     // Patterns the app does not know are drawn from the file's own definition.
     const own = e.pattern !== 'SOLID' && !getPattern(e.pattern);
-    const families = own ? patternFamilies(defs, angle, scale, o?.mirror) : null;
+    const families = own ? patternFamilies(defs, angle, scale) : null;
     if (families) e.families = families;
-    // A mirrored OCS mirrors the pattern, which a rotation cannot do for a library
-    // pattern: turn it so that its first line family runs the right way.
-    const turn = o && line0 !== null && !families;
-    if (o) e.angle = normAngle(turn ? ocsAngle(o, line0) - line0 + angle : ocsAngle(o, angle));
-    else e.angle = angle;
+    e.angle = o ? normAngle(ocsAngle(o, angle)) : angle;
+    // A mirrored OCS mirrors the pattern: drawn reflected, then turned by the
+    // angle mapped like a direction, it is the mirror image.
+    if (o?.mirror && e.pattern !== 'SOLID') e.mirror = true;
     this.add(cont, e);
   }
 
@@ -2476,9 +2474,9 @@ function arrowFromName(raw) {
 /**
  * Pattern line definitions of a HATCH (groups 53, 43-46, 49: already rotated by
  * the hatch angle and scaled) as pattern families at scale 1 and angle 0, the
- * format of core/hatch/patterns.js. `mirror` reflects them for a mirrored OCS.
+ * format of core/hatch/patterns.js.
  */
-function patternFamilies(defs, angle, scale, mirror) {
+function patternFamilies(defs, angle, scale) {
   const c = Math.cos(angle);
   const s = Math.sin(angle);
   const r = (v) => Math.round(v * 1e9) / 1e9 + 0;
@@ -2489,13 +2487,8 @@ function patternFamilies(defs, angle, scale, mirror) {
     let dy = (d.oy * Math.cos(a) - d.ox * Math.sin(a)) / scale;
     if (!(Math.abs(dy) > 1e-9)) continue;
     let deg = d.a - angle / DEG;
-    let x = (d.bx * c + d.by * s) / scale;
-    let y = (d.by * c - d.bx * s) / scale;
-    if (mirror) {
-      deg = -deg;
-      y = -y;
-      dy = -dy;
-    }
+    const x = (d.bx * c + d.by * s) / scale;
+    const y = (d.by * c - d.bx * s) / scale;
     if (dy < 0) {
       dx = -dx;
       dy = -dy;

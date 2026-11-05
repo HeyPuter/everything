@@ -1072,12 +1072,16 @@ class DxfWriter {
     if (!loops.length) throw new Error('no boundary loops');
     const pattern = String(e.pattern || 'SOLID');
     const solid = pattern.toUpperCase() === 'SOLID';
+    // A mirrored pattern is written as AutoCAD writes mirrored hatches: in the
+    // OCS of extrusion (0, 0, -1), whose X axis is world -X.
+    const flip = !solid && !!e.mirror;
+    const fx = flip ? -1 : 1;
     this.common('HATCH', e, owner);
     this.g(100, 'AcDbHatch');
     this.pt(10, 0, 0);
     this.n(210, 0);
     this.n(220, 0);
-    this.n(230, 1);
+    this.n(230, fx);
     this.s(2, solid ? 'SOLID' : pattern);
     this.i(70, solid ? 1 : 0);
     this.i(71, 0);
@@ -1091,16 +1095,16 @@ class DxfWriter {
       this.i(73, 1);
       this.i(93, nv);
       for (let j = 0; j < nv; j++) {
-        this.n(10, l[j * 3]);
+        this.n(10, fx * l[j * 3]);
         this.n(20, l[j * 3 + 1]);
-        if (bulges) this.n(42, +l[j * 3 + 2] || 0);
+        if (bulges) this.n(42, fx * (+l[j * 3 + 2] || 0));
       }
       this.i(97, 0);
     });
     this.i(75, 0);
     this.i(76, 1);
     if (!solid) {
-      const angle = +e.angle || 0;
+      const angle = flip ? normAngle(Math.PI - (+e.angle || 0)) : +e.angle || 0;
       const scale = +e.scale || 1;
       this.n(52, angle * RAD);
       this.n(41, scale);
