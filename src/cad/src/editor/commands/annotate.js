@@ -10,6 +10,7 @@ import { tessellate, transformEntity } from '../../core/geom/index.js';
 import { insertMatrix } from '../../core/tessellate.js';
 import { drawBands } from '../../core/display.js';
 import { angleOf, loopFromEntity } from './util.js';
+import { tableKey } from '../../core/schema.js';
 
 const JUSTIFY = [
   { key: 'L', label: 'Left', value: 'left|baseline' },
@@ -46,8 +47,10 @@ export const TEXT = {
       if (p.option === 'style') {
         const names = [...ed.drawing.textStyles.keys()];
         const s = await ed.getString(`Text style name (${names.join(', ')})`, { default: ed.header.textStyle });
-        if (ed.drawing.textStyles.has(s)) ed.commit('Text style', () => ed.drawing.setHeader({ textStyle: s }));
-        else ed.ui.log(`There is no text style named "${s}".`, 'error');
+        // Style names ignore letter case, as in DXF and DWG.
+        const key = s ? tableKey(ed.drawing.textStyles, s) : null;
+        if (key) ed.commit('Text style', () => ed.drawing.setHeader({ textStyle: key }));
+        else if (s) ed.ui.log(`There is no text style named "${s}".`, 'error');
         continue;
       }
       break;

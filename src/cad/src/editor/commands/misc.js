@@ -354,7 +354,10 @@ export const LAYULK = {
     const locked = [...ed.drawing.layers.values()].filter((l) => l.locked).map((l) => l.name);
     if (!locked.length) return ed.ui.log('No layers are locked.', 'muted');
     const name = await ed.getString(`Layer to unlock (${locked.join(', ')})`, { default: locked[0], spaces: true });
-    if (ed.drawing.layers.has(name)) setLayer(ed, name, { locked: false }, 'Layer unlock');
+    if (!name) return;
+    const key = tableKey(ed.drawing.layers, name);
+    if (key) setLayer(ed, key, { locked: false }, 'Layer unlock');
+    else ed.ui.log(`There is no layer named "${name}".`, 'error');
   },
 };
 export const LAYON = {

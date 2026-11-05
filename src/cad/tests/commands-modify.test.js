@@ -504,3 +504,26 @@ describe('scale factor readouts', () => {
     expect(readout()[0]).toBe('10');
   });
 });
+
+describe('typed table names ignore letter case', () => {
+  it('TEXT Style accepts a style name in another case', async () => {
+    const name = [...t.drawing.textStyles.keys()][0];
+    await t.type('TEXT', 'S', name.toLowerCase());
+    expect(t.drawing.header.textStyle).toBe(name);
+    expect(t.logs.filter(([k]) => k === 'error')).toEqual([]);
+    t.ed.cancel();
+  });
+
+  it('LAYULK unlocks a layer named in another case and reports unknown names', async () => {
+    const l = t.drawing.layers.get('0');
+    t.drawing.transaction('Add', () => {
+      t.drawing.setTable('layers', 'Walls', { ...l, name: 'Walls', locked: true });
+      t.drawing.setTable('layers', 'Doors', { ...l, name: 'Doors', locked: true });
+    });
+    await t.type('LAYULK', 'walls');
+    expect(t.drawing.layers.get('Walls').locked).toBe(false);
+    await t.type('LAYULK', 'Windows');
+    expect(t.drawing.layers.get('Doors').locked).toBe(true);
+    expect(t.logs.at(-1)).toEqual(['error', 'There is no layer named "Windows".']);
+  });
+});
