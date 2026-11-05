@@ -825,7 +825,10 @@ export class App extends Emitter {
     ed.on('highlight', () => { if (this.isPanelVisible('navigator')) this.panels.navigator.refresh(); });
     ed.on('drc', () => { if (this.activeEditor === ed) this.updateStatus(); });
     ed.on('pours', () => { if (this.view3dOpen && this.activeEditor === ed) this._update3d(); });
-    ed.doc.store.on('change', () => { if (this.view3dOpen && this.activeEditor === ed) { clearTimeout(this._3dTimer); this._3dTimer = setTimeout(() => this._update3d(), 300); } });
+    const offStore = ed.doc.store.on('change', () => { if (this.view3dOpen && this.activeEditor === ed) { clearTimeout(this._3dTimer); this._3dTimer = setTimeout(() => this._update3d(), 300); } });
+    // The document outlives the editor (tabs close and reopen), so let go of it.
+    const dispose = ed.dispose.bind(ed);
+    ed.dispose = () => { offStore(); dispose(); };
     this._buildActiveBar(ed);
     return ed;
   }

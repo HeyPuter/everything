@@ -381,3 +381,30 @@ describe('panel drawers', () => {
     expect(app.scrim.hidden).toBe(true);
   });
 });
+
+describe('editor lifetime', () => {
+  it('closing and reopening a document does not pile up listeners on its store', async () => {
+    localStorage.clear();
+    const { app } = await bootLocal();
+    const project = new Project(newProjectData('Tau'));
+    const board = project.boards[0];
+    let active = 0;
+    const on = board.store.on.bind(board.store);
+    board.store.on = (type, fn) => {
+      const off = on(type, fn);
+      active++;
+      let done = false;
+      return () => {
+        if (!done) active--;
+        done = true;
+        return off();
+      };
+    };
+    app.setProject(project, null);
+    for (let i = 0; i < 5; i++) {
+      app.openDoc(board.id);
+      await app.closeTab(board.id);
+    }
+    expect(active).toBe(0);
+  });
+});
