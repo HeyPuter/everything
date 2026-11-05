@@ -520,4 +520,14 @@ describe('assistant tools', () => {
     await fresh.call('create_sketch', { plane: 'front', shapes: [{ type: 'circle', center: [0, 0], radius: 5 }] });
     expect((await fresh.call('add_extrude', { sketch: 's1', depth: 10, direction2: { end: 'blind' } }, false)).content).toMatch(/direction2\.depth is required/);
   });
+
+  it('refuses a revolve angle over 360 degrees', async () => {
+    const h = new TestHost();
+    await h.call('create_sketch', { plane: 'front', shapes: [{ type: 'centerline', from: [0, 0], to: [0, 10] }, { type: 'rectangle', corner1: [10, 0], corner2: [15, 5] }] });
+    // 720 was stored and reported back while the kernel built 360.
+    expect((await h.call('add_revolve', { sketch: 's1', angle: 720 }, false)).content).toMatch(/^Error: angle: at most 360/);
+    await h.call('add_revolve', { sketch: 's1', angle: 360 });
+    const rev = h.store.doc.features.at(-1)!.id;
+    expect((await h.call('edit_feature', { feature: rev, params: { angle: '=400' } }, false)).content).toMatch(/angle: at most 360/);
+  });
 });

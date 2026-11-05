@@ -110,7 +110,8 @@ export class FeatureCodec {
         f.cut = cut;
         if (has('sketch')) f.sketch = refs.sketch(a.sketch).id;
         if (has('axis')) f.axis = a.axis == null ? null : refs.axis(a.axis, 'axis', f.axis);
-        if (has('angle')) f.angle = ang('angle');
+        // The kernel builds at most a full turn: 720 was kept and reported back while 360 was built.
+        if (has('angle')) { f.angle = ang('angle'); if (u.evalAngle(f.angle) > 360) throw new ToolError('angle: at most 360 (a full revolve)'); }
         if (has('end')) f.end = choice(a.end, { blind: 'blind', one_direction: 'blind', mid_plane: 'midPlane', midplane: 'midPlane', symmetric: 'midPlane' }, 'end');
         if (has('reverse')) f.flip = bool(a.reverse, 'reverse');
         if (has('thin')) f.thin = thin(a.thin);
