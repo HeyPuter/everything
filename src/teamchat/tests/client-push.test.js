@@ -125,9 +125,31 @@ describe('push controls', () => {
     expect(notifications.onPush).toHaveBeenCalledTimes(1);
     const [channel, show] = notifications.onPush.mock.calls[0];
     expect(channel).toBe('chat');
-    expect(show({ target: '/#/ws/room', data: { g: 'tag' } })).toEqual({ tag: 'tag', url: '/#/ws/room' });
+    expect(await show({ target: '/#/ws/room', data: { g: 'tag' } })).toEqual({ tag: 'tag', url: '/#/ws/room' });
+    expect(await show({ target: '/#/ws/room', data: { g: 'tag', c: 1 } })).toEqual({ tag: 'tag', requireInteraction: true, url: '/#/ws/room' });
     vi.resetModules();
     await (await import('../src/lib/pwa.js')).listenForPushes();
     expect(notifications.onPush).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('dismissing shown notifications', () => {
+  it('dismisses only the ones under the given tags', async () => {
+    const { pwa, notifications } = await setup();
+    notifications.dismiss = vi.fn(async () => true);
+    const shown = [
+      { tag: `${REF}:message-c1`, data: { puter: { uid: 'n1' } } },
+      { tag: `${REF}:message-c2`, data: { puter: { uid: 'n2' } } },
+      { tag: `${REF}:message-c1`, data: { route: '#/' } },
+    ];
+    Object.defineProperty(navigator, 'serviceWorker', {
+      configurable: true, value: { getRegistration: async () => ({ getNotifications: async () => shown }) },
+    });
+    try {
+      await pwa.dismissShown(new Set([`${REF}:message-c1`]));
+      expect(notifications.dismiss.mock.calls).toEqual([['n1']]);
+    } finally {
+      delete navigator.serviceWorker;
+    }
   });
 });

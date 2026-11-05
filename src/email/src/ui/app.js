@@ -13,7 +13,7 @@ import { openSignatureDialog } from './signature.js';
 import { discardComposer } from './compose.js';
 import {
   turnOnPush, turnOffPush, ensureSubscription, listenForPushes, stopListening,
-  pushNeedsHomeScreen, openHomeScreenHint, pushErrorCode, notificationStatus,
+  pushNeedsHomeScreen, openHomeScreenHint, pushErrorCode, notificationStatus, dismissNewMail,
 } from './push.js';
 import {
   createMailbox, enrichMessage, moveMessage, boxPath, BOX_DIRS, dayFolder, messageOrder,
@@ -924,6 +924,7 @@ export function renderApp(root, ctx) {
     // search over it is started.
     resultOffset = 0;
     clearNewMail();
+    if (id === 'inbox' && !ctx.sample && !document.hidden) dismissNewMail().catch(() => {});
     clearSelection();
     renderActionBar();
     for (const n of navs) n.item.setAttribute('aria-current', String(n.id === id));
@@ -5559,6 +5560,7 @@ export function renderApp(root, ctx) {
       pullFlags();
       checkSnoozes();
       refreshPushStatus();
+      if (folder === 'inbox' && !ctx.sample) dismissNewMail().catch(() => {});
     }, listening);
     window.addEventListener('online', () => {
       if (!frame.isConnected) return;

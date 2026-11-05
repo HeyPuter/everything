@@ -13,6 +13,7 @@ function makeNotifications(overrides = {}) {
     disable: vi.fn(async () => true),
     requestPermission: vi.fn(async () => true),
     status: vi.fn(async () => 'on'),
+    dismiss: vi.fn(async () => true),
     ...overrides,
   };
 }
@@ -38,6 +39,11 @@ describe('push: startPush()', () => {
     expect(rebuilt({ title: 'Review', text: 'Starts in 10 minutes\n9:00 – 10:00 · Room 2', target: '/?event=e1' })).toEqual({
       title: 'Review', body: 'Starts in 10 minutes\n9:00 – 10:00 · Room 2', url: '/?event=e1',
     });
+    expect(rebuilt({ title: 'Review', group: 'reminder:abc', target: '/?event=e1' })).toMatchObject({ requireInteraction: true });
+    expect(rebuilt({ title: 'Ana invited you', target: '/?uid=x', group: 'inv:1', data: { uid: 'x', ask: 1 } })).toEqual({
+      title: 'Ana invited you', body: '', url: '/?uid=x',
+      actions: [{ action: 'accepted', title: 'Yes' }, { action: 'declined', title: 'No' }],
+    });
   });
 
   it('holds the launching click until the app routes clicks', async () => {
@@ -54,17 +60,21 @@ describe('push: startPush()', () => {
 
     onClick({ uid: 'n2', target: null, data: null });
     expect(route).toHaveBeenCalledTimes(2);
+    // Each click closes its notification on the user's other devices.
+    expect(notifications.dismiss.mock.calls).toEqual([['n1'], ['n2']]);
   });
 });
 
 describe('push: notificationTarget()', () => {
   it('reads ids from data first, then from the target query', async () => {
     const { notificationTarget } = await freshPush();
-    expect(notificationTarget({ data: { eventId: 'e1' }, target: '/?event=e2' })).toEqual({ eventId: 'e1', uid: '' });
-    expect(notificationTarget({ data: null, target: '/?event=e2' })).toEqual({ eventId: 'e2', uid: '' });
-    expect(notificationTarget({ data: null, target: '/?uid=a%40b.com' })).toEqual({ eventId: '', uid: 'a@b.com' });
+    expect(notificationTarget({ data: { eventId: 'e1' }, target: '/?event=e2' })).toEqual({ eventId: 'e1', uid: '', respond: null });
+    expect(notificationTarget({ data: null, target: '/?event=e2' })).toEqual({ eventId: 'e2', uid: '', respond: null });
+    expect(notificationTarget({ data: null, target: '/?uid=a%40b.com' })).toEqual({ eventId: '', uid: 'a@b.com', respond: null });
     // A sensitive push carries neither.
-    expect(notificationTarget({ uid: 'n', target: null, data: null })).toEqual({ eventId: '', uid: '' });
+    expect(notificationTarget({ uid: 'n', target: null, data: null })).toEqual({ eventId: '', uid: '', respond: null });
+    expect(notificationTarget({ data: { uid: 'x' }, action: 'declined' }).respond).toBe('declined');
+    expect(notificationTarget({ data: { uid: 'x' }, action: 'other' }).respond).toBeNull();
   });
 });
 

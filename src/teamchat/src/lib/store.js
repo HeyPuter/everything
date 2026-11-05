@@ -33,7 +33,7 @@ import { idb } from './idb.js';
 import { createOutbox, layeredStorage, makeClientId } from './outbox.js';
 import { clearDrafts, forgetDrafts } from './drafts.js';
 import { clearRecent, forgetWorkspaceRecent } from './recent.js';
-import { pushPrefs, pushOffsetMoved, _notePushOffset, listenForPushes, stopListeningForPushes, puterPushStatus, enablePuterPush, disablePuterPush, retireLegacyPush, isIos, isStandalone } from './pwa.js';
+import { pushPrefs, pushOffsetMoved, _notePushOffset, listenForPushes, stopListeningForPushes, puterPushStatus, enablePuterPush, disablePuterPush, retireLegacyPush, dismissShown, isIos, isStandalone } from './pwa.js';
 import { notificationsSupported, notificationsGranted } from './notify.js';
 import { loadUserDoc, saveUserDoc } from './user.js';
 import { makeRef, parseRef, canonicalRef, serverKeyOf, trustServer } from './refs.js';
@@ -5226,6 +5226,12 @@ class Store extends EventTarget {
       const seenParent = Math.max(this._localSeen.get(t.conv) || 0, this.me.reads[t.conv] || 0);
       const mentionedHere = this.conv(convId).messages.some((m) => m.seq <= seq && (m.mentions?.includes(this.uuid) || (!!m.broadcast && m.user !== this.uuid)));
       if (mentionedHere && seenParent >= this.latestSeq(t.conv)) this.markRead(t.conv, seenParent);
+    }
+    // Read to the end: its notifications close here and on the user's other devices.
+    if (seq >= latest) {
+      const { ref, conv } = this.hostOf(convId);
+      const tags = [`message-${conv}`, `reply-${conv}`, ...(this.mentionCount(convId) ? [] : [`mention-${conv}`])];
+      dismissShown(new Set(tags.map((tag) => `${ref}:${tag}`))).catch(() => {});
     }
     this.emit('activity');
     if (seq <= prevRead && !hadMentions) return;

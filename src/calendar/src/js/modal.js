@@ -2969,7 +2969,8 @@ export function createEventModal({
     }
   }
 
-  function openView(item) {
+  /** `respond`: answer the invitation as soon as it's open, as the Going? chips do. */
+  function openView(item, { respond = null } = {}) {
     if (!item) return;
     close();
     current = item;
@@ -2987,6 +2988,9 @@ export function createEventModal({
     window.addEventListener('resize', onViewportResize);
     anchorTop();
     requestAnimationFrame(() => card.focus());
+
+    const myGuest = respond && !item.isTask ? findSelfGuest(item) : null;
+    if (myGuest && item.organizer && item.organizer.email !== myGuest.email) respondToInvite(respond);
 
     // An event with guests and an organizer may be an invitation TO me, but we
     // can't tell without my email. Ask (one-time Puter prompt) and, once known,

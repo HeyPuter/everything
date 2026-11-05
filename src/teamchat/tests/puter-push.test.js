@@ -34,6 +34,17 @@ describe('direct Puter notifications', () => {
     expect(rt.kv._calls.log.some(({ key }) => /:ev:p/.test(key))).toBe(false);
   });
 
+  it('rings a call in a direct message at high priority, briefly kept, and flags it for the push handler', async () => {
+    const { wsId, dm } = await setup();
+    await register(wsId);
+    expect((await as(alice).post(`/api/ws/${wsId}/conv/${dm}/huddle`, { invite: 'NJ-AAA111' })).ok).toBe(true);
+    await vi.waitFor(() => expect(sent()).toHaveLength(1));
+    expect(sent()[0]).toMatchObject({ text: 'started a huddle', priority: 'high', ttl: 60, data: { c: 1 } });
+    await post(wsId, dm, 'hello');
+    expect(sent()[1].priority).toBeUndefined();
+    expect(sent()[1].data.c).toBeUndefined();
+  });
+
   it('marks previews off as sensitive, keeping the app notification content', async () => {
     const { wsId, dm } = await setup();
     await register(wsId, bob, { preview: false });
