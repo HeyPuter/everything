@@ -279,8 +279,10 @@ export class App extends Emitter {
 
   _resizer(handle, side) {
     handle.addEventListener('pointerdown', (e) => {
+      // One drag at a time, with the primary button or a touch.
+      if (e.button !== 0 || handle.classList.contains('dragging')) return;
       e.preventDefault();
-      handle.setPointerCapture(e.pointerId);
+      handle.setPointerCapture?.(e.pointerId);
       handle.classList.add('dragging');
       const start = { x: e.clientX, y: e.clientY };
       const prop = side === 'left' ? '--dock-left-w' : side === 'right' ? '--dock-right-w' : '--dock-bottom-h';
@@ -292,14 +294,17 @@ export class App extends Emitter {
         const v = Math.max(side === 'bottom' ? 90 : 180, Math.min(max, startSize + d));
         document.documentElement.style.setProperty(prop, `${v}px`);
       };
+      // A drag ends on release, and also when the browser takes the pointer
+      // away (pointercancel on touch, lost capture), or it would stay stuck.
+      const ends = ['pointerup', 'pointercancel', 'lostpointercapture'];
       const up = () => {
         handle.classList.remove('dragging');
         handle.removeEventListener('pointermove', move);
-        handle.removeEventListener('pointerup', up);
+        for (const t of ends) handle.removeEventListener(t, up);
         uiState.set(prop, getComputedStyle(document.documentElement).getPropertyValue(prop).trim());
       };
       handle.addEventListener('pointermove', move);
-      handle.addEventListener('pointerup', up);
+      for (const t of ends) handle.addEventListener(t, up);
     });
     const saved = uiState.get(side === 'left' ? '--dock-left-w' : side === 'right' ? '--dock-right-w' : '--dock-bottom-h', null);
     if (saved) document.documentElement.style.setProperty(side === 'left' ? '--dock-left-w' : side === 'right' ? '--dock-right-w' : '--dock-bottom-h', saved);

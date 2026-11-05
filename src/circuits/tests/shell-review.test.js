@@ -597,3 +597,40 @@ describe('panel drawer focus', () => {
     expect(document.activeElement).toBe(projects);
   });
 });
+
+describe('dock resize handles', () => {
+  // jsdom has no pointer capture.
+  HTMLElement.prototype.setPointerCapture ??= () => {};
+  const pe = (type, o = {}) => {
+    const e = new MouseEvent(type, { bubbles: true, cancelable: true, button: 0, ...o });
+    e.pointerId = 1;
+    return e;
+  };
+  it('stop dragging when the browser cancels the pointer', async () => {
+    localStorage.clear();
+    const { app } = await bootLocal();
+    const handle = app.leftDock.el.querySelector('.resizer');
+    const root = document.documentElement;
+    root.style.removeProperty('--dock-left-w');
+    handle.dispatchEvent(pe('pointerdown', { clientX: 300 }));
+    expect(handle.classList.contains('dragging')).toBe(true);
+    handle.dispatchEvent(pe('pointercancel'));
+    expect(handle.classList.contains('dragging')).toBe(false);
+    handle.dispatchEvent(pe('pointermove', { clientX: 400 }));
+    expect(root.style.getPropertyValue('--dock-left-w')).toBe('');
+  });
+
+  it('ignores a second pointer and the secondary button', async () => {
+    localStorage.clear();
+    const { app } = await bootLocal();
+    const handle = app.leftDock.el.querySelector('.resizer');
+    handle.dispatchEvent(pe('pointerdown', { button: 2 }));
+    expect(handle.classList.contains('dragging')).toBe(false);
+    handle.dispatchEvent(pe('pointerdown'));
+    handle.dispatchEvent(pe('pointerdown'));
+    handle.dispatchEvent(pe('pointerup'));
+    expect(handle.classList.contains('dragging')).toBe(false);
+    handle.dispatchEvent(pe('pointermove', { clientX: 600 }));
+    expect(document.documentElement.style.getPropertyValue('--dock-left-w')).toBe('');
+  });
+});
