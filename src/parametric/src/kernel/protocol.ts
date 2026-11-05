@@ -74,6 +74,8 @@ export interface FeatureStatus {
 
 export interface BuildResult {
   mesh: MeshData | null;
+  /** The body's mesh is the one sent with the previous result (mesh is then null). */
+  meshUnchanged?: boolean;
   faces: FaceInfo[];
   edges: EdgeInfo[];
   status: FeatureStatus[];

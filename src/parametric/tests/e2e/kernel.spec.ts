@@ -70,3 +70,34 @@ test('an imported body is rebuilt after the geometry engine restarts', async ({ 
   await expect(page.locator('.ti.error')).toHaveCount(0);
   expect(errors).toEqual([]);
 });
+
+test('a rebuild that leaves the body unchanged does not resend or re-upload its mesh', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  type A = W['__parametric'] & {
+    renderer: { setModel(...a: unknown[]): void; modelMesh: unknown };
+    store: { change(label: string, fn: (d: { features: { name: string; type: string; radius?: number }[] }) => void): void };
+  };
+  const uploads = () => page.evaluate(async () => {
+    const app = (window as unknown as { __parametric: A }).__parametric;
+    await app.whenBuilt();
+    return (window as unknown as { __uploads: number }).__uploads;
+  });
+  await page.evaluate(async () => {
+    const app = (window as unknown as { __parametric: A }).__parametric;
+    await app.whenBuilt();
+    const w = window as unknown as { __uploads: number };
+    w.__uploads = 0;
+    const set = app.renderer.setModel.bind(app.renderer);
+    app.renderer.setModel = (...a: unknown[]) => { w.__uploads++; set(...a); };
+    app.store.change('Rename', (d) => { d.features.find((f) => f.type === 'fillet')!.name = 'Round'; });
+  });
+  await expect(page.getByRole('treeitem', { name: 'Round' })).toBeVisible();
+  expect(await uploads()).toBe(0);
+  expect(await page.evaluate(() => !!(window as unknown as { __parametric: A }).__parametric.renderer.modelMesh)).toBe(true);
+  // A change to the body still updates it.
+  await page.evaluate(() => (window as unknown as { __parametric: A }).__parametric.store.change('Radius', (d) => { d.features.find((f) => f.type === 'fillet')!.radius = 2; }));
+  expect(await uploads()).toBe(1);
+  expect(errors).toEqual([]);
+});

@@ -845,8 +845,10 @@ export class App {
     this.edges = res.edges;
     this.frames = res.frames;
     this.bbox = res.bbox;
-    this.vertices = res.mesh?.vertices ?? new Float32Array(0);
-    this.renderer.setModel(res.mesh, res.faces.length, res.edges.length);
+    if (!res.meshUnchanged) {
+      this.vertices = res.mesh?.vertices ?? new Float32Array(0);
+      this.renderer.setModel(res.mesh, res.faces.length, res.edges.length);
+    }
     if (this.fitOnNextBuild) {
       this.fitOnNextBuild = false;
       if (res.bbox) this.viewport.zoomToFit(false);

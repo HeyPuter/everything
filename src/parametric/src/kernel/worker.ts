@@ -15,6 +15,8 @@ let ready: Promise<void> | null = null;
 const builder = new ModelBuilder();
 /** Imported file data of the open part, by blob id. */
 const blobs: Record<string, string> = {};
+/** The builder's cached mesh last sent to the main thread. */
+let sentMesh: MeshData | null = null;
 /** Set when the WebAssembly module aborts: its memory can no longer be trusted. */
 let aborted = false;
 const KERNEL_FAILED = 'The geometry kernel failed';
@@ -61,7 +63,12 @@ self.onmessage = async (ev: MessageEvent<WorkerRequest>) => {
             positions: m.positions.slice(), normals: m.normals.slice(), indices: m.indices.slice(), vertexFace: m.vertexFace.slice(),
             edgePositions: m.edgePositions.slice(), edgeIds: m.edgeIds.slice(), vertices: m.vertices.slice(),
           };
-        const out: BuildResult = { ...res, mesh: copy(res.mesh) };
+        // The main thread keeps the last mesh it was sent: an unchanged one
+        // (a cached rebuild, a rename, a preview over the same body) is not
+        // copied, sent or uploaded to the GPU again.
+        const same = !!res.mesh && res.mesh === sentMesh;
+        sentMesh = res.mesh;
+        const out: BuildResult = same ? { ...res, mesh: null, meshUnchanged: true } : { ...res, mesh: copy(res.mesh) };
         const transfer: Transferable[] = [];
         meshTransfers(out.mesh, transfer);
         meshTransfers(out.preview, transfer);
