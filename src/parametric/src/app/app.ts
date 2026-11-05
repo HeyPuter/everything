@@ -788,10 +788,15 @@ export class App {
     if (key === this.lastBuildKey) return;
     this.lastBuildKey = key;
     const t0 = performance.now();
+    const documentSignal = this.documentSignal;
     let res: BuildResult;
     try {
       res = await this.kernel.build({ features: resolved.features, upTo, blobs: this.store.doc.blobs, quality: this.settings.quality, preview });
+      // A build of the part that was open before New or Open finishes first:
+      // its body, errors and framing must not be shown for the new part.
+      if (documentSignal.aborted) return;
     } catch (e) {
+      if (documentSignal.aborted) return;
       if (e instanceof KernelRestartError) {
         // Retry once on the restarted worker; the same model stopping it
         // again is reported instead of restarting in a loop.

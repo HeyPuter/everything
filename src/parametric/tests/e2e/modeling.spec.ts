@@ -67,6 +67,39 @@ test.describe('part modeling', () => {
     expect(errors).toEqual([]);
   });
 
+  test('a part opened while the previous part is rebuilding shows its own body', async ({ page }) => {
+    const errors = await openApp(page);
+    await page.getByRole('button', { name: /New part/ }).click();
+    type App = import('../../src/app/app').App;
+    type W = { __parametric: App; release: () => void };
+    await page.evaluate(async (examples) => {
+      const a = (window as unknown as W).__parametric;
+      const pts = [[0, 0], [400, 0], [400, 400], [0, 400]];
+      a.store.change('Plate', (d) => {
+        d.features.push({ id: 's1', name: 'Sketch1', type: 'sketch', plane: { kind: 'base', plane: 'front' }, constraints: [], entities: [
+          ...pts.map(([x, y], i) => ({ id: `p${i}`, t: 'point' as const, x, y })),
+          ...pts.map((_, i) => ({ id: `l${i}`, t: 'line' as const, a: `p${i}`, b: `p${(i + 1) % 4}` })),
+        ] });
+        d.features.push({ id: 'f1', name: 'Extrude1', type: 'extrude', sketch: 's1', cut: false, end: 'blind', depth: 5, flip: false, dir2: null, draft: 0, draftOutward: false, thin: null });
+      });
+      await a.whenBuilt();
+      // The plate's next rebuild finishes only after the bracket has been opened.
+      const build = a.kernel.build.bind(a.kernel);
+      const held = new Promise<void>((r) => { (window as unknown as W).release = r; });
+      a.kernel.build = async (req) => { a.kernel.build = build; const res = await build(req); await held; return res; };
+      a.store.change('Thicker', (d) => { (d.features[1] as { depth: number }).depth = 6; });
+      await new Promise((r) => setTimeout(r, 50));
+      const { bracketExample } = await import(examples) as typeof import('../../src/app/examples');
+      a.loadDocument(bracketExample(), null);
+      setTimeout(() => (window as unknown as W).release(), 300);
+      await a.whenBuilt();
+    }, '/src/app/examples.ts');
+    const shown = await page.evaluate(() => { const a = (window as unknown as W).__parametric; return { target: a.renderer.camera.state().target.map(Math.round), max: a.bbox?.max.map(Math.round) }; });
+    expect(shown).toEqual({ target: [30, 20, 15], max: [60, 40, 30] });
+    await expect(page.locator('.ti.error')).toHaveCount(0);
+    expect(errors).toEqual([]);
+  });
+
   test('suppressing a feature suppresses the features built on it', async ({ page }) => {
     const errors = await openApp(page);
     await page.getByRole('button', { name: /Mounting Bracket/ }).click();
