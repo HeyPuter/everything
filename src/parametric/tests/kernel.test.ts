@@ -528,6 +528,29 @@ describe('feature regeneration', () => {
     expect(volume(b)).toBeCloseTo(50 * 10 * 5 - 2 * Math.PI * 4 * 5 + 10 * 10 * 5, 1);
   });
 
+  it('mirrors and patterns a pattern of a boss and a cut as a boss and a cut', async () => {
+    const b = new ModelBuilder();
+    const base: Feature[] = [
+      sketch('S1', rect(-50, -50, 50, 50)), extrude('E1', 'S1', 10),
+      sketch('S2', circle(-40, -40, 3)), extrude('E2', 'S2', 5, { flip: true }),
+      sketch('S3', circle(-40, 40, 3)), extrude('E3', 'S3', 10, { cut: true, flip: true }),
+      { id: 'P1', name: 'P1', type: 'linearPattern', seeds: ['E2', 'E3'], dir1: { ref: { kind: 'base', axis: 'x' }, spacing: 20, count: 2, flip: false }, dir2: null },
+    ];
+    await b.build(req(base));
+    const v1 = volume(b);
+    const boss = Math.PI * 9 * 5, hole = Math.PI * 9 * 10;
+    // The mirrored copy of the cut instance cuts too (it used to be added as material).
+    const mirror: Feature = { id: 'M1', name: 'M1', type: 'mirror', seeds: ['P1'], plane: { kind: 'base', plane: 'right' } };
+    let r = await b.build(req([...base, mirror]));
+    expect(r.status[7].ok).toBe(true);
+    expect(volume(b) - v1).toBeCloseTo(boss - hole, 3);
+    // Two copies of both, all on the plate.
+    const pattern: Feature = { id: 'P2', name: 'P2', type: 'circularPattern', seeds: ['P1'], axis: { kind: 'base', axis: 'z' }, angle: 360, count: 2, equal: true, flip: false };
+    r = await b.build(req([...base, pattern]));
+    expect(r.status[7].ok).toBe(true);
+    expect(volume(b) - v1).toBeCloseTo(boss - hole, 3);
+  });
+
   it('says why a pattern seed has nothing to copy', async () => {
     const b = new ModelBuilder();
     const base: Feature[] = [sketch('S1', rect(-20, -20, 20, 20)), extrude('E1', 'S1', 10), sketch('S2', circle(10, 0, 2))];

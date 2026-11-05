@@ -59,6 +59,8 @@ interface Tool {
   shape: Sh;
   cut: boolean;
   faces: NamedFace[];
+  /** Patterns and mirrors of bosses and cuts together: the copies of each seed, so a copy of them cuts what was cut. */
+  parts?: Tool[];
 }
 
 interface State {
@@ -907,15 +909,15 @@ export class ModelBuilder {
       tools.push(tool);
       named.push(...this.nameTool(f.id, tool, (_d, k) => `${p.id}:${k}`));
     }
-    const tool = tools.length === 1 ? tools[0] : (R.makeCompound(tools as any) as unknown as Sh);
+    const tool = tools.length === 1 ? tools[0] : compound(tools);
     this.applyTool(f.id, st, tool, named, true);
   }
 
   private seedTools(featId: Id, seeds: Id[], st: State): Tool[] {
     if (!seeds.length) throw new FeatureError('Select features to pattern');
-    return seeds.map((id) => {
+    return seeds.flatMap((id) => {
       const t = st.tools.get(id);
-      if (t) return t;
+      if (t) return t.parts ?? [t];
       // Say why: the seed is gone, later in the tree, failed, or of a kind
       // that adds no tool body.
       const at = this.order.get(id);
@@ -929,8 +931,7 @@ export class ModelBuilder {
   /** Applies transformed copies of seed tools (in seed order). */
   private applyInstances(featId: Id, st: State, seeds: Tool[], transforms: ((s: Sh) => Sh)[]) {
     if (!transforms.length) throw new FeatureError('The pattern has no instances');
-    const allTool: Sh[] = [];
-    const allNamed: NamedFace[] = [];
+    const parts: Tool[] = [];
     let body = st.body;
     for (const seed of seeds) {
       const inst: Sh[] = [];
@@ -944,22 +945,23 @@ export class ModelBuilder {
           named.push({ shape, desc: describeFace(shape), name: `${base}@${featId}.${i + 1}`, feature: featId });
         });
       });
-      const tool = inst.length === 1 ? inst[0] : (R.makeCompound(inst as any) as unknown as Sh);
+      const tool = inst.length === 1 ? inst[0] : compound(inst);
       if (seed.cut) {
         if (!body) throw new FeatureError('There is no material to cut');
         const v0 = volumeOf(body);
         body = cut(body, tool);
         if (v0 > 0 && !isEmpty(body) && volumeOf(body) >= v0 * (1 - 1e-9)) this.warning = 'The copies of a cut do not remove any material. Check the direction and spacing.';
       } else body = body ? fuse(body, tool) : tool;
-      allTool.push(tool);
-      allNamed.push(...named);
+      parts.push({ shape: tool, cut: seed.cut, faces: named });
     }
     if (!body || isEmpty(body)) throw new FeatureError('The pattern removed all material');
+    const allNamed = parts.flatMap((p) => p.faces);
     st.faces = this.nameFaces(featId, body, st, allNamed);
     st.body = body;
     st.edges = null;
-    const tool = allTool.length === 1 ? allTool[0] : (R.makeCompound(allTool as any) as unknown as Sh);
-    st.tools.set(featId, { shape: tool, cut: seeds.every((s) => s.cut), faces: allNamed });
+    const tool = parts.length === 1 ? parts[0].shape : compound(parts.map((p) => p.shape));
+    const mixed = parts.some((p) => p.cut) && parts.some((p) => !p.cut);
+    st.tools.set(featId, { shape: tool, cut: parts.every((p) => p.cut), faces: allNamed, ...(mixed ? { parts } : {}) });
   }
 
   private dirVector(d: PatternDir, st: State): Vec3 {

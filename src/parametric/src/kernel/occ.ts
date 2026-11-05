@@ -351,8 +351,17 @@ export function common(a: Sh, b: Sh): Sh {
   return runBoolean(new oc.BRepAlgoAPI_Common(a.wrapped, b.wrapped));
 }
 
+/** A compound of the shapes (which stay usable: replicad's makeCompound deletes them). */
 export function compound(shapes: Sh[]): Sh {
-  return R.makeCompound(shapes as any) as unknown as Sh;
+  const builder = new oc.TopoDS_Builder();
+  const c = new oc.TopoDS_Compound();
+  try {
+    builder.MakeCompound(c);
+    for (const s of shapes) builder.Add(c, s.wrapped);
+    return wrap(c);
+  } finally {
+    builder.delete();
+  }
 }
 
 export function isValid(shape: Sh): boolean {
