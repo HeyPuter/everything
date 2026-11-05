@@ -74,9 +74,24 @@ export function createOrganizeView({
     updateState();
   }
   async function removeChosen() {
-    if ((await actions.remove(target())) === false) return;
-    // The deleted pages' places now hold other pages, which were not chosen.
-    selected.clear();
+    await removePages(target());
+  }
+  /**
+   * Delete pages. The deleted pages' places now hold other pages, which were not chosen; but
+   * when the keyboard is in the grid, the tile it lands on is chosen, as arrow keys choose the
+   * tile they reach. With nothing chosen, Delete would act on the current page behind the
+   * grid instead of the page with the focus.
+   */
+  async function removePages(list) {
+    const revision = getRevision();
+    if ((await actions.remove(list)) === false || getRevision() === revision) return;
+    const focused = visible
+      ? Number(document.activeElement?.closest?.('.organize-tile')?.dataset.index)
+      : NaN;
+    if (Number.isInteger(focused) && grid.contains(document.activeElement)) {
+      selected = new Set([focused]);
+      anchor = focused;
+    } else selected.clear();
     updateState();
   }
   /**
@@ -399,9 +414,7 @@ export function createOrganizeView({
           iconButton(
             `Delete page ${i + 1}`,
             'Trash2',
-            run(async () => {
-              if ((await actions.remove([i])) !== false) selected.clear();
-            }),
+            run(() => removePages([i])),
             { 'data-permission': 'assemble', tabindex: -1, class: 'icon-btn organize-tile-delete' },
           ),
         ),

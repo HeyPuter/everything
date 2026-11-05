@@ -429,3 +429,34 @@ test('Organize pages moves the chosen pages without dragging, by key or button',
     'true',
   );
 });
+
+test('after deleting by key in Organize pages, the page with the focus is the one chosen', async ({
+  page,
+}) => {
+  await mockPuter(page);
+  await page.goto('/#library');
+  const doc = await PDFDocument.create();
+  [300, 350, 400, 450].forEach((height) => doc.addPage([400, height]));
+  await openPdf(page, doc);
+  await page.getByRole('button', { name: 'Tools', exact: true }).click();
+  await page
+    .getByRole('complementary', { name: 'Tools' })
+    .getByRole('button', { name: 'Organize pages', exact: true })
+    .click();
+  const grid = page.getByRole('listbox', { name: 'Pages' });
+  await grid.getByRole('option', { name: 'Page 2', exact: true }).click();
+  await page.keyboard.press('Delete');
+  await page.getByRole('dialog').getByRole('button', { name: 'Delete page', exact: true }).click();
+  await settled(page);
+  // The keyboard stays on the page now in second place, and that page is the one chosen.
+  const second = grid.getByRole('option', { name: 'Page 2', exact: true });
+  await expect(second).toBeFocused();
+  await expect(second).toHaveAttribute('aria-selected', 'true');
+  await expect(page.locator('.organize-status')).toHaveText('1 of 3 pages selected');
+  // So Delete again offers that page, not the current page behind the grid.
+  await page.keyboard.press('Delete');
+  await expect(page.getByRole('dialog')).toContainText('Remove page 2?');
+  await page.getByRole('dialog').getByRole('button', { name: 'Delete page', exact: true }).click();
+  await settled(page);
+  expect((await exportedHeights(page)).map(([h]) => h)).toEqual([300, 450]);
+});
