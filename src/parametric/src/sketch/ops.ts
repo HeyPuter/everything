@@ -692,21 +692,46 @@ export function offsetCurves(sk: SketchFeature, ids: Id[], distance: number, new
       if (!id) { id = pt(p); ptIds.set(k, id); }
       return id;
     };
+    const made: Id[] = [];
+    const concentric: SkConstraint[] = [], tangent: SkConstraint[] = [], parallel: SkConstraint[] = [];
     for (const o of offs) {
       if (o.kind === 'line') {
         const id = newId('l');
         sk.entities.push({ id, t: 'line', a: pointFor(o.a), b: pointFor(o.b) });
-        sk.constraints.push({ id: newId('r'), type: 'parallel', refs: [o.src.id, id] });
-        created.push(id);
+        parallel.push({ id: newId('r'), type: 'parallel', refs: [o.src.id, id] });
+        made.push(id);
       } else {
         const id = newId('a');
         const a = pointFor(o.a), b = pointFor(o.b);
         // Keep the arc counter-clockwise from its start to its end.
         sk.entities.push(o.fwd ? { id, t: 'arc', c: pt(o.c), a, b } : { id, t: 'arc', c: pt(o.c), a: b, b: a });
-        sk.constraints.push({ id: newId('r'), type: 'concentric', refs: [o.src.id, id] });
-        created.push(id);
+        concentric.push({ id: newId('r'), type: 'concentric', refs: [o.src.id, id] });
+        made.push(id);
       }
     }
+    // Pieces that met tangentially still do: an offset fillet stays a fillet.
+    const travel = (it: ChainItem, atEnd: boolean): Vec2 => {
+      const c = it.c;
+      const v = ix.pt(atEnd === it.fwd ? c.b : c.a);
+      if (c.t === 'line') { const d = norm2(sub2(ix.pt(c.b), ix.pt(c.a))); return it.fwd ? d : [-d[0], -d[1]]; }
+      const r = norm2(sub2(v, ix.pt(c.c)));
+      return it.fwd ? [-r[1], r[0]] : [r[1], -r[0]];
+    };
+    const n = chain.items.length;
+    for (let i = 0; i < (chain.closed ? n : n - 1); i++) {
+      const j = (i + 1) % n;
+      if (chain.items[i].c.t === 'line' && chain.items[j].c.t === 'line') continue;
+      const t1 = travel(chain.items[i], true), t2 = travel(chain.items[j], false);
+      if (Math.abs(cross2(t1, t2)) < 1e-6 && dot2(t1, t2) > 0) tangent.push({ id: newId('r'), type: 'tangent', refs: [made[i], made[j]] });
+    }
+    // Around a closed loop the last of these relations can follow from the
+    // others (parallel sides tangent to concentric arcs): keep only those
+    // that add something, so the offset never over-defines the sketch.
+    const added = [...concentric, ...tangent, ...parallel];
+    // Analyze the current geometry only; no solve or coordinate write-back.
+    const analysis = new SketchSystem(sk.entities, [...sk.constraints, ...added], { value: (d) => measureDimension(sk, d), maxIterations: 0 }).run();
+    sk.constraints.push(...added.filter((c) => !analysis.badConstraints.has(c.id)));
+    created.push(...made);
   }
   return created;
 }

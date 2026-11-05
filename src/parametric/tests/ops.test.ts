@@ -711,6 +711,31 @@ describe('editing tools', () => {
     expect(ix.pt(lines[0].b)).toEqual([5, 2]);
   });
 
+  it.each(['filleted rectangle', 'slot'])('offsets a %s without over-defining it, keeping the corners tangent', (shape) => {
+    const s = sk(rect(0, 0, 40, 30, 'r'));
+    s.constraints.push(...['rl0', 'rl2'].map((id) => ({ id: `h${id}`, type: 'horizontal' as const, refs: [id] })), ...['rl1', 'rl3'].map((id) => ({ id: `v${id}`, type: 'vertical' as const, refs: [id] })));
+    if (shape === 'filleted rectangle') {
+      for (const corner of ['rp0', 'rp1', 'rp2', 'rp3']) expect(filletCorner(s, corner, 5, idFactory(s))).toBeNull();
+    } else {
+      // Round both short sides fully: a slot of width 30.
+      expect(filletCorner(s, 'rp1', 14.999, idFactory(s))).toBeNull();
+      expect(filletCorner(s, 'rp2', 14.999, idFactory(s))).toBeNull();
+      expect(filletCorner(s, 'rp3', 14.999, idFactory(s))).toBeNull();
+      expect(filletCorner(s, 'rp0', 14.999, idFactory(s))).toBeNull();
+    }
+    const before = solveSketch(s.entities, s.constraints, { value });
+    expect(before.badConstraints.size).toBe(0);
+    const ids = s.entities.filter((e) => e.t !== 'point').map((e) => e.id);
+    const made = offsetCurves(s, ids, 3, idFactory(s));
+    expect(made).toHaveLength(8);
+    const after = solveSketch(s.entities, s.constraints, { value });
+    expect(after.badConstraints.size).toBe(0);
+    expect(after.status).toBe('under');
+    // Only the offset distance is new freedom.
+    expect(after.dof).toBe(before.dof + 1);
+    expect(s.constraints.filter((c) => c.type === 'tangent' && c.refs.every((r) => made.includes(r)))).toHaveLength(8);
+  });
+
   it('offsets a closed rectangle outward', () => {
     const s = sk(rect(0, 0, 10, 10, 'r'));
     const created = offsetCurves(s, ['rl0', 'rl1', 'rl2', 'rl3'], 2, idFactory(s));
