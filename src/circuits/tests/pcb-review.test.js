@@ -251,3 +251,21 @@ describe('3D view and tools', () => {
     expect(app.view3dOpen).toBe(false);
   });
 });
+
+describe('route width', () => {
+  it('a width set with Tab before routing applies to the next trace', async () => {
+    ctx = await bootBoard();
+    const { ed } = ctx;
+    ed.startTool('route');
+    key(ed, 'Tab');
+    await new Promise((r) => setTimeout(r, 0));
+    const input = document.querySelector('dialog input, .dialog input, [role="dialog"] input');
+    input.value = '0.5';
+    const ok = [...document.querySelectorAll('button')].find((b) => b.textContent === 'OK');
+    ok.click();
+    await new Promise((r) => setTimeout(r, 0));
+    const p = padOf(ed, 'U1', '1');
+    ed.tool.click(ev(p.x, p.y));
+    expect(ed.tool.trace.width).toBe(500_000);
+  });
+});

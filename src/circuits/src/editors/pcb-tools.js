@@ -42,6 +42,7 @@ export class RouteTool {
     this.trace = null; // { net, layer, width, pts:[x,y,...], segments:[...committed objects], vias:[] }
     this.corner = editor.app.settings.get('cornerStyle') || '45start';
     this.snapExclude = null;
+    this.width = 0; // width chosen with Tab before routing (0: net class or rules)
   }
 
   get mode() { return this.editor.app.settings.get('routingMode'); }
@@ -70,7 +71,7 @@ export class RouteTool {
       if (hit.layers?.length === 1 && isCopper(hit.layers[0]) && hit.layers[0] !== ed.activeLayer) ed.setActiveLayer(hit.layers[0]);
     }
     const cls = ed.netClassOf(net);
-    this.trace = { net, layer: ed.activeLayer, width: cls?.width || ed.doc.rules.trackWidth, pts: [x, y], start: hit, placed: [] };
+    this.trace = { net, layer: ed.activeLayer, width: this.width || cls?.width || ed.doc.rules.trackWidth, pts: [x, y], start: hit, placed: [] };
     ed.setRouteNet?.(net);
     ed.updateHint();
   }
@@ -184,7 +185,8 @@ export class RouteTool {
     const t = this.trace;
     const ed = this.editor;
     const v = await promptDialog({ title: 'Track width', label: `Width (${ed.units})`, value: formatLength(t ? t.width : ed.doc.rules.trackWidth, ed.units, { suffix: false }), validate: (s) => { const n = parseLength(s, ed.units); return n && n > 0 ? null : 'Enter a positive width'; } });
-    if (v && t) t.width = parseLength(v, ed.units);
+    // Before a trace starts, the width applies to the traces drawn next.
+    if (v) { if (t) t.width = parseLength(v, ed.units); else this.width = parseLength(v, ed.units); }
     ed.updateHint();
     ed.canvas.focus();
   }
