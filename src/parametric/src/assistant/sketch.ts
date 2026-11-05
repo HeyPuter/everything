@@ -556,7 +556,8 @@ export function constraintLine(sk: SketchFeature, c: SkConstraint, u: Units, sto
   if (isDimension(c)) {
     let now = '';
     try { now = c.type === 'angle' ? `${num(measureDimension(sk, c), 3)}°` : u.len(measureDimension(sk, c), true); } catch { now = '?'; }
-    const set = typeof c.value === 'string' ? ` = ${c.value}` : '';
+    // Linked values are stored with their "=": " = " before it read "40 mm = =W*2".
+    const set = typeof c.value === 'string' ? ` (${c.value})` : '';
     return `${c.id} ${c.name} ${c.type} [${c.refs.join(', ')}] ${now}${set}${c.driven ? ' (driven, reference only)' : ''}`;
   }
   void store;

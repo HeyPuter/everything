@@ -489,4 +489,12 @@ describe('assistant tools', () => {
     expect((await h.call('edit_sketch', { sketch: 's1', dimensions: [{ refs: ['r_l1'], value: -20 }] }, false)).content).toMatch(/greater than zero/);
     expect(h.store.feature<SketchFeature>('s1')!.constraints.filter((c) => c.type === 'distance')).toHaveLength(1);
   });
+
+  it('shows a dimension linked to a variable with its expression once', async () => {
+    const h = new TestHost();
+    await h.call('set_variables', { set: [{ name: 'W', value: 20 }] });
+    const r = await h.call('create_sketch', { plane: 'front', shapes: [{ type: 'rectangle', id: 'r', corner1: [0, 0], corner2: [40, 20] }], dimensions: [{ refs: ['r_l0'], value: '=W*2' }] });
+    // It read "D1 distance [r_l0] 40 mm = =W*2".
+    expect(r.content).toContain('D1 distance [r_l0] 40 mm (=W*2)');
+  });
 });
