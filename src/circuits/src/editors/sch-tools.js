@@ -246,8 +246,11 @@ export class WireTool {
       this.editor.updateHint();
       return true;
     }
-    if (combo === 'Backspace' && this.pts) {
-      // Drop the last click together with the corner it added.
+    if (combo === 'Backspace') {
+      // Drop the last click together with the corner it added. Swallowed
+      // even with nothing left, so one press too many does not fall through
+      // to Delete and remove the selection.
+      if (!this.pts) return true;
       if (this.clicks.length) this.pts = this.pts.slice(0, this.clicks.pop()); else this.pts = null;
       this.editor.updateHint();
       return true;

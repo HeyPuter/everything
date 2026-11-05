@@ -395,3 +395,28 @@ describe('title block', () => {
     expect(rev.size).toBeCloseTo(2.6e6, -3);
   });
 });
+
+describe('wire tool backspace past the start', () => {
+  it('does not fall through to deleting the selection', async () => {
+    app = await boot();
+    const ed = app.activeEditor;
+    const part = [...ed.doc.items()].find((o) => o.t === 'part');
+    ed.setSelection([part.id]);
+    ed.startTool('wire');
+    ed.tool.click({ x: mil(1000), y: mil(7500), rawX: 0, rawY: 0, sx: 0, sy: 0 });
+    const press = () =>
+      ed.canvas.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Backspace', bubbles: true, cancelable: true }),
+      );
+    ed.canvas.focus();
+    press();
+    expect(ed.tool.pts).toBeNull();
+    press();
+    press();
+    expect(ed.doc.store.get(part.id)).toBeTruthy();
+    // Back in the select tool, Backspace deletes as usual.
+    ed.endTool();
+    press();
+    expect(ed.doc.store.get(part.id)).toBeUndefined();
+  });
+});
