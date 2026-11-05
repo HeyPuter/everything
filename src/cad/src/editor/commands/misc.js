@@ -440,8 +440,18 @@ async function copyToClipboard(ed, ids, base) {
     }
   };
   collect(ents);
-  const layers = [...new Set(ents.map((e) => e.layer))].map((n) => d.layers.get(n)).filter(Boolean);
-  const data = { base, entities: ents, blocks: Object.values(blocks), layers };
+  // And the layers, linetypes and styles they use (inside those blocks too).
+  const all = ents.concat(...Object.values(blocks).map((b) => b.entities));
+  const pick = (table, list, key) =>
+    [...new Set(list.map(key))].map((n) => d[table].get(n)).filter(Boolean);
+  const layers = pick('layers', all, (e) => e.layer);
+  const linetypes = pick('linetypes', [...all, ...layers], (e) => e.linetype);
+  const dimmed = all.filter((e) => e.type === 'dimension' || e.type === 'leader');
+  const dimStyles = pick('dimStyles', dimmed, (e) => e.style);
+  const texts = all.filter((e) => e.type === 'text' || e.type === 'mtext');
+  const textStyles = pick('textStyles', [...texts, ...dimStyles], (e) => e.style ?? e.textStyle);
+  const tables = { layers, linetypes, textStyles, dimStyles };
+  const data = { base, entities: ents, blocks: Object.values(blocks), ...tables };
   ed.app.clipboard = data;
   try {
     await navigator.clipboard?.writeText(CLIP_PREFIX + JSON.stringify(data));
@@ -519,7 +529,10 @@ export const PASTECLIP = {
     if (!p || p.option) return;
     const d = ed.drawing;
     ed.commit('Paste', () => {
-      for (const l of data.layers || []) if (!d.layers.has(l.name)) d.setTable('layers', l.name, l);
+      // Definitions the drawing already has keep their own settings.
+      for (const t of ['linetypes', 'textStyles', 'dimStyles', 'layers']) {
+        for (const v of data[t] || []) if (!d[t].has(v.name)) d.setTable(t, v.name, v);
+      }
       for (const b of data.blocks || []) if (!d.blocks.has(b.name)) d.setBlock(b.name, b);
       const ids = [];
       for (const e of at(p)) ids.push(d.add(fresh(e)).id);
