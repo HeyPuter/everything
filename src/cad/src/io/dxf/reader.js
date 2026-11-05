@@ -94,6 +94,9 @@ function decodeInput(input) {
   if (isBinaryDxf(bytes)) {
     throw new Error('Binary DXF files are not supported. Save the drawing as ASCII DXF and try again.');
   }
+  // UTF-16 text (some converters write it with a byte order mark)
+  if (bytes[0] === 0xff && bytes[1] === 0xfe) return new TextDecoder('utf-16le').decode(bytes);
+  if (bytes[0] === 0xfe && bytes[1] === 0xff) return new TextDecoder('utf-16be').decode(bytes);
   const head = new TextDecoder('windows-1252').decode(bytes.subarray(0, Math.min(bytes.length, 65536)));
   const ver = sniffHeader(head, '$ACADVER');
   if (ver && ver.toUpperCase() >= 'AC1021') return new TextDecoder('utf-8').decode(bytes);
@@ -335,7 +338,7 @@ class Tokenizer {
       let i = this.pos;
       let end = e;
       if (end > i && s.charCodeAt(end - 1) === 13) end--;
-      while (i < end && s.charCodeAt(i) === 32) i++;
+      while (i < end && (s.charCodeAt(i) === 32 || s.charCodeAt(i) === 9)) i++;
       while (end > i && (s.charCodeAt(end - 1) === 32 || s.charCodeAt(end - 1) === 9)) end--;
       let neg = false;
       if (i < end && s.charCodeAt(i) === 45) {
@@ -2602,6 +2605,8 @@ export function parseRecords(records, opts = {}) {
 }
 
 export function parseDxf(input, opts = {}) {
-  const text = decodeInput(input);
+  let text = decodeInput(input);
+  // classic Mac line endings (CR only)
+  if (text.indexOf('\n') < 0 && text.indexOf('\r') >= 0) text = text.replace(/\r/g, '\n');
   return new DxfParser(opts).run(text);
 }

@@ -666,6 +666,25 @@ describe('parseDxf: encodings and robustness', () => {
     expect(() => parseDxf(bytes)).toThrow(/Binary DXF/);
   });
 
+  it('reads CR-only line endings, tab-indented group codes and UTF-16 text', () => {
+    const text = dxf([0, 'TEXT', 10, 0, 20, 0, 40, 1, 1, 'caf\u00e9'], {
+      header: [9, '$ACADVER', 1, 'AC1015'],
+    });
+    const value = (input) => parseDxf(input).drawing.entities[0].value;
+    expect(value(text.replace(/\r\n/g, '\r'))).toBe('caf\u00e9');
+    expect(value(text.replace(/^ +(\d+)\r$/gm, '\t$1\r'))).toBe('caf\u00e9');
+    const s = '\ufeff' + text;
+    const le = new Uint8Array(s.length * 2);
+    const be = new Uint8Array(s.length * 2);
+    for (let i = 0; i < s.length; i++) {
+      const c = s.charCodeAt(i);
+      le[2 * i] = be[2 * i + 1] = c & 255;
+      le[2 * i + 1] = be[2 * i] = c >> 8;
+    }
+    expect(value(le)).toBe('caf\u00e9');
+    expect(value(be)).toBe('caf\u00e9');
+  });
+
   it('throws on garbage input', () => {
     expect(() => parseDxf('hello world\nthis is not a drawing\n')).toThrow(/Not a DXF/);
     expect(() => parseDxf('')).toThrow(/Not a DXF/);
