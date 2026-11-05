@@ -485,3 +485,31 @@ describe('mirroring power ports', () => {
     }
   }
 });
+
+describe('netlist: automatic names of unannotated parts', () => {
+  it('numbers repeated automatic names in order, skipping names in use', () => {
+    const res = cloneDef(findComponent('res-0603'));
+    const lib = { [res.id]: res };
+    const objects = [];
+    for (let i = 0; i < 4; i++) {
+      objects.push({
+        id: `p${i}`,
+        t: 'part',
+        comp: res.id,
+        designator: 'R?',
+        x: mil(1000 * i),
+        y: 0,
+        rot: 0,
+        uid: `u${i}`,
+      });
+    }
+    // A user's label already takes one of the generated names.
+    objects.push({ id: 'w', t: 'wire', pts: [mil(3200), 0, mil(3400), 0] });
+    objects.push({ id: 'l', t: 'label', text: 'NetR?_1_3', x: mil(3400), y: 0, rot: 0 });
+    const nl = buildNetlist([{ id: 's', name: 'S', objects }], lib);
+    const pin1 = [0, 1, 2, 3].map((i) => nl.byPin.get(`p${i}:1`)).sort();
+    expect(pin1).toEqual(['NetR?_1', 'NetR?_1_2', 'NetR?_1_4', 'NetR?_1_5']);
+    expect(nl.byPin.get('p3:2')).toBe('NetR?_1_3');
+    expect(new Set(nl.nets.map((n) => n.name)).size).toBe(nl.nets.length);
+  });
+});
