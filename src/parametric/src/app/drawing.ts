@@ -38,7 +38,7 @@ export class DrawingWorkspace {
     this.paper = h('div', { class: 'paper', role: 'img', 'aria-label': 'Drawing sheet' });
     this.selBox = h('div', { class: 'view-sel', hidden: true });
     this.host = h('div', { class: 'sheet-host' }, this.paper, this.selBox);
-    this.el = h('div', { class: 'drawing-ws', hidden: true, tabindex: '0', 'aria-label': 'Drawing. Drag views to move them, use the wheel to zoom.' }, this.host,
+    this.el = h('div', { class: 'drawing-ws', hidden: true, tabindex: '0', 'aria-label': 'Drawing. Drag views to move them, use the wheel to zoom. Arrow keys move the selected view and Delete removes it.' }, this.host,
       h('div', { class: 'drawing-empty', hidden: true }, 'There is no solid to draw yet. Build the part in the Model tab first.'));
     app.shell.viewport.append(this.el);
     this.bind();
@@ -334,6 +334,14 @@ export class DrawingWorkspace {
     new ResizeObserver(() => { if (this.active) this.applyTransform(); }).observe(this.el);
   }
 
+  /** Selects a view from the keyboard (the Views list) and focuses the sheet so arrow keys move it. */
+  select(id: string) {
+    this.selected = id;
+    this.drawSelection();
+    this.syncPanel();
+    this.el.focus({ preventScroll: true });
+  }
+
   deleteSelected(): boolean {
     const id = this.selected;
     if (!id) return false;
@@ -449,8 +457,13 @@ export class DrawingPanel extends PropertyPanel {
     const dims = h('input', { type: 'checkbox', 'aria-label': `Dimensions in ${VIEW_LABELS[v.kind]} view` }) as HTMLInputElement;
     dims.checked = v.dims;
     dims.addEventListener('change', () => ws.updateFromPanel((d) => { const x = d.views.find((q) => q.id === v.id); if (x) x.dims = dims.checked; }, 'Dimensions'));
+    const name = h('button', {
+      class: 'grow', type: 'button', 'aria-pressed': String(ws.selected === v.id), title: 'Select the view; arrow keys then move it',
+      style: { background: 'none', border: '0', padding: '0', textAlign: 'left' },
+    }, VIEW_LABELS[v.kind]);
+    name.addEventListener('click', () => ws.select(v.id));
     const row = h('div', { class: `rel-btn${ws.selected === v.id ? ' on' : ''}`, style: { cursor: 'default' } },
-      h('span', { class: 'grow' }, VIEW_LABELS[v.kind]),
+      name,
       h('label', { class: 'check', title: 'Hidden lines' }, hidden, h('span', { class: 'field-label' }, 'Hidden')),
       h('label', { class: 'check', title: 'Overall dimensions' }, dims, h('span', { class: 'field-label' }, 'Dims')),
       del);

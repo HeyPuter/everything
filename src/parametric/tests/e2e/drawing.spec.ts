@@ -132,3 +132,25 @@ test('the whole sheet shows when a drawing opens and when its size changes', asy
   await page.getByLabel('Landscape').check();
   await expect.poll(inside).toBe(true);
 });
+
+test('a view can be selected, moved and deleted from the keyboard', async ({ page }) => {
+  await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  await page.getByRole('tab', { name: 'Drawing' }).click();
+  await expect(page.locator('.paper g[data-view]')).toHaveCount(4, { timeout: 30_000 });
+  type A = { store: { doc: { drawing: { views: { id: string; kind: string; x: number }[] } } } };
+  const front = () => page.evaluate(() => (window as unknown as { __parametric: A }).__parametric.store.doc.drawing.views.find((v) => v.kind === 'front'));
+  const x0 = (await front())!.x;
+  // Reached with the keyboard (Enter after a click is the Repeat Last Command shortcut).
+  await page.keyboard.press('Shift');
+  await page.locator('.relations-list').getByRole('button', { name: 'Front', exact: true }).focus();
+  await page.keyboard.press('Enter');
+  await expect(page.locator('.drawing-ws')).toBeFocused();
+  await expect(page.locator('.view-sel')).toBeVisible();
+  await expect(page.locator('.relations-list').getByRole('button', { name: 'Front', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await page.keyboard.press('Shift+ArrowRight');
+  await expect.poll(async () => (await front())!.x).toBeCloseTo(x0 + 10, 6);
+  await page.keyboard.press('Delete');
+  await expect.poll(front).toBeUndefined();
+});
