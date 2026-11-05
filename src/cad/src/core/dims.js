@@ -361,33 +361,36 @@ function buildAngular(ent, st, sz, value, out) {
     }
     return;
   }
-  // Too tight: arrows outside on tangent tails, text past the end of the arc.
+  // Too tight: arrows outside on tangent tails, text past the end of the arc
+  // nearer the location (the counter-clockwise end on a tie), so that a
+  // mirrored dimension draws the mirror image.
   out.lines.push({ pts: arcPts(vx, vy, r, start, end), closed: false });
   const tail = 2 * asz;
-  const sx = vx + r * Math.cos(start),
-    sy = vy + r * Math.sin(start),
-    ex = vx + r * Math.cos(end),
-    ey = vy + r * Math.sin(end);
-  const stx = -Math.sin(start),
-    sty = Math.cos(start),
-    etx = -Math.sin(end),
-    ety = Math.cos(end);
-  let endTail = tail;
+  const lu = (ent.lx ?? vx) - vx,
+    lv = (ent.ly ?? vy) - vy;
+  const off = norm2pi(Math.atan2(lv, lu) - start);
+  const k = Math.hypot(lu, lv) > EPS && off < sweep / 2 - 1e-9 ? 0 : 1;
+  // Each end: its point and the tangent pointing away from the arc.
+  const ends = [start, end].map((a, i) => {
+    const sg = i ? 1 : -1;
+    const x = vx + r * Math.cos(a),
+      y = vy + r * Math.sin(a);
+    return { a, x, y, tx: -Math.sin(a) * sg, ty: Math.cos(a) * sg, tail };
+  });
   if (value) {
+    const e = ends[k];
     const d = tail + gap;
-    const t2 = textOnLine(value, ex, ey, etx, ety, sz, st, Math.cos(end), Math.sin(end));
-    t2.rec.x += etx * (d + t2.along);
-    t2.rec.y += ety * (d + t2.along);
+    const t2 = textOnLine(value, e.x, e.y, e.tx, e.ty, sz, st, Math.cos(e.a), Math.sin(e.a));
+    t2.rec.x += e.tx * (d + t2.along);
+    t2.rec.y += e.ty * (d + t2.along);
     if (!centered) {
       lift(t2, gap);
-      endTail = d + 2 * t2.along;
+      e.tail = d + 2 * t2.along;
     }
     out.text = t2.rec;
   }
-  seg(out, sx, sy, sx - stx * tail, sy - sty * tail);
-  seg(out, ex, ey, ex + etx * endTail, ey + ety * endTail);
-  arrow(out, st.arrowType, sx, sy, stx, sty, asz);
-  arrow(out, st.arrowType, ex, ey, -etx, -ety, asz);
+  for (const e of ends) seg(out, e.x, e.y, e.x + e.tx * e.tail, e.y + e.ty * e.tail);
+  for (const e of ends) arrow(out, st.arrowType, e.x, e.y, -e.tx, -e.ty, asz);
 }
 
 function buildRadial(ent, st, sz, value, diameter, out) {
