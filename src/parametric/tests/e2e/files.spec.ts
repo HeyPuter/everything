@@ -516,3 +516,44 @@ test('damaged drawing contents are rejected before replacing an unsaved part', a
   }
   expect(errors).toEqual([]);
 });
+
+for (const command of ['save', 'saveAs'] as const) test(`a delayed ${command} cannot attach the previous file to a new part`, async ({ page }) => {
+  await mockPuter(page);
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await app(page);
+  await page.evaluate((command) => {
+    type W = { __parametric: import('../../src/app/app').App; puter: { fs: { write: (...args: unknown[]) => Promise<unknown> } }; __savePick: () => Promise<string>; releaseSave: () => void; pendingSave: Promise<void>; saveStarted: boolean };
+    const w = window as unknown as W;
+    const gate = new Promise<void>((resolve) => { w.releaseSave = resolve; });
+    w.saveStarted = false;
+    if (command === 'save') {
+      const write = w.puter.fs.write.bind(w.puter.fs);
+      w.puter.fs.write = async (...args) => { w.saveStarted = true; await gate; return write(...args); };
+    } else w.__savePick = async () => { w.saveStarted = true; await gate; return '/tester/Documents/Original.parametric'; };
+    w.__parametric.store.change('Old work', (d) => { d.variables.push({ id: 'v1', name: 'Original', expr: '10' }); });
+    w.pendingSave = Promise.resolve(w.__parametric.commands.get(command)!.run());
+  }, command);
+  if (command === 'saveAs') {
+    await page.getByRole('dialog', { name: 'Save As' }).getByRole('textbox').fill('Original');
+    await page.getByRole('button', { name: 'OK', exact: true }).click();
+  }
+  await page.waitForFunction(() => (window as unknown as { saveStarted: boolean }).saveStarted);
+  await page.evaluate(() => (window as unknown as { __parametric: AppHandle }).__parametric.commands.run('new'));
+  await page.getByRole('dialog', { name: 'Save changes?' }).getByRole('button', { name: "Don't save" }).click();
+  await expect(page).toHaveTitle('Part2 - Parametric');
+  await page.evaluate(async () => {
+    type W = { __parametric: import('../../src/app/app').App; releaseSave: () => void; pendingSave: Promise<void> };
+    const w = window as unknown as W;
+    w.__parametric.store.change('New work', (d) => { d.variables.push({ id: 'v1', name: 'Keep', expr: '20' }); });
+    w.releaseSave();
+    await w.pendingSave;
+  });
+  await page.waitForFunction(() => (window as unknown as Mock).__files.size === 1);
+  await expect(page).toHaveTitle('* Part2 - Parametric');
+  expect(await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.location)).toBeNull();
+  await page.evaluate(async () => { await (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.commands.get('save')!.run(); });
+  await expect.poll(() => page.evaluate(() => [...(window as unknown as Mock).__files.values()].map((f) => JSON.parse(f.text).variables[0].name).sort())).toEqual(['Keep', 'Original']);
+  await expect(page).toHaveTitle('Part2 - Parametric');
+  expect(errors).toEqual([]);
+});

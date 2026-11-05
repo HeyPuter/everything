@@ -20,9 +20,12 @@ export class FileOps {
   private recoveryTimer = 0;
   /** Counts document changes, so a save only clears the edits it wrote. */
   private revision = 0;
+  /** Changes only when another document opens, not on edits or undo. */
+  private documentVersion = 0;
 
   constructor(private app: App) {
     app.onDocumentChanged = (reason) => {
+      if (reason === 'load') this.documentVersion++;
       if (reason !== 'saved') this.revision++;
       this.scheduleRecovery();
     };
@@ -75,13 +78,18 @@ export class FileOps {
     const app = this.app;
     if (app.sketchEditor) app.exitSketch(true);
     const doc = app.store.doc;
+    const documentVersion = this.documentVersion;
     this.saving = true;
     try {
       let loc = app.location;
       if (!loc) loc = await newLocation(doc.name, `part-${Date.now().toString(36)}`);
+      if (documentVersion !== this.documentVersion) return false;
       const text = serializeDocument(doc);
       const revision = this.revision;
-      app.location = await saveText(loc, doc.name, text);
+      const saved = await saveText(loc, doc.name, text);
+      // The write may finish after New/Open. It belongs to the old part.
+      if (documentVersion !== this.documentVersion) return true;
+      app.location = saved;
       this.markSaved(revision);
       toast({ kind: 'success', message: `Saved to ${locationLabel(app.location)}`, timeout: 2500 });
       if (app.location.type === 'local' && !cloudAvailable()) {
@@ -107,20 +115,21 @@ export class FileOps {
 
   async saveAs() {
     const app = this.app;
+    const documentVersion = this.documentVersion;
     const name = await promptDialog('Save As', 'Part name', app.store.doc.name, (v) => (v.trim() ? null : 'Enter a name'));
-    if (name == null) return;
+    if (name == null || documentVersion !== this.documentVersion) return;
     const clean = safeName(name);
     const rename = () => app.store.change('Rename part', (doc) => { doc.name = clean; });
     if (cloudAvailable() && puter()?.ui?.showSaveFilePicker) {
       const revision = this.revision;
       // null when the user cancels the picker; undefined when it failed (save to Parts instead).
       const loc = await pickCloudSave(serializeDocument({ ...app.store.doc, name: clean }), clean).catch(() => undefined);
-      if (loc === null) return;
+      if (loc) rememberRecent({ location: loc, name: clean });
+      if (loc === null || documentVersion !== this.documentVersion) return;
       if (loc) {
         const unchanged = revision === this.revision;
         rename();
         app.location = loc;
-        rememberRecent({ location: loc, name: clean });
         this.markSaved(unchanged ? this.revision : revision);
         toast({ kind: 'success', message: `Saved to ${locationLabel(loc)}` });
         return;
