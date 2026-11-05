@@ -157,7 +157,13 @@ export class FeatureTree {
       bar.classList.add('dragging');
       this.draggingBar = true;
       // One undo step for the whole drag.
-      this.app.store.beginBatch('Rollback');
+      this.app.store.beginBatch('Rollback', () => {
+        this.draggingBar = false;
+        this.list.querySelector('.rollback-bar')?.classList.remove('dragging');
+        window.removeEventListener('pointermove', move);
+        window.removeEventListener('pointerup', up);
+        window.removeEventListener('pointercancel', up);
+      });
       // Every roll re-renders the tree and replaces this bar, so the drag
       // follows the pointer on the window rather than on the bar.
       const move = (ev: PointerEvent) => {
@@ -173,12 +179,7 @@ export class FeatureTree {
       };
       const up = (ev: PointerEvent) => {
         if (ev.pointerId !== e.pointerId) return;
-        this.draggingBar = false;
         this.app.store.endBatch();
-        this.list.querySelector('.rollback-bar')?.classList.remove('dragging');
-        window.removeEventListener('pointermove', move);
-        window.removeEventListener('pointerup', up);
-        window.removeEventListener('pointercancel', up);
       };
       window.addEventListener('pointermove', move);
       window.addEventListener('pointerup', up);
@@ -206,6 +207,7 @@ export class FeatureTree {
       this.focus(f.id);
     };
     input.addEventListener('keydown', (e) => {
+      if (e.isComposing || e.keyCode === 229) return;
       e.stopPropagation();
       if (e.key === 'Enter') finish(true);
       if (e.key === 'Escape') finish(false);

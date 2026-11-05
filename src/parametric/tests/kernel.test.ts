@@ -31,12 +31,41 @@ describe('feature regeneration', () => {
     expect(names).toContain('E1:cap1');
   });
 
+  it('extrudes a small profile far from the sketch origin without losing it', async () => {
+    const b = new ModelBuilder();
+    const origin = 100_000_000;
+    const res = await b.build(req([sketch('S1', rect(origin, origin, origin + 0.5, origin + 0.5)), extrude('E1', 'S1', 2)]));
+    expect(res.status.every((s) => s.ok)).toBe(true);
+    expect(volume(b)).toBeCloseTo(0.5, 5);
+  });
+
   it('extrudes nested profiles with holes (even-odd)', async () => {
     const b = new ModelBuilder();
     const ents = [...rect(-20, -20, 20, 20), ...circle(0, 0, 10), ...circle(0, 0, 5)];
     await b.build(req([sketch('S1', ents), extrude('E1', 'S1', 2)]));
     const expected = (40 * 40 - Math.PI * 100 + Math.PI * 25) * 2;
     expect(volume(b)).toBeCloseTo(expected, 1);
+  });
+
+  it('extrudes the same spline region and hole in either drawing direction', async () => {
+    const volumes: number[] = [];
+    for (const clockwise of [false, true]) {
+      const pts = ['a', 'b', 'c', 'd', 'a'];
+      const b = new ModelBuilder();
+      const res = await b.build(req([sketch('S1', [
+        { id: 'a', t: 'point', x: -5, y: -5 },
+        { id: 'b', t: 'point', x: 5, y: -5 },
+        { id: 'c', t: 'point', x: 5, y: 5 },
+        { id: 'd', t: 'point', x: -5, y: 5 },
+        { id: 's', t: 'spline', pts: clockwise ? pts.reverse() : pts },
+        ...circle(0, 0, 2),
+      ]), extrude('E1', 'S1', 2)]));
+      expect(res.status.every((s) => s.ok)).toBe(true);
+      volumes.push(volume(b));
+      expect(volume(b)).toBeGreaterThan(200);
+      b.reset();
+    }
+    expect(volumes[0]).toBeCloseTo(volumes[1], 4);
   });
 
   it('cuts through all and supports mid-plane and two-direction extrusion', async () => {
@@ -586,6 +615,28 @@ describe('feature regeneration', () => {
       oc.STEPControl_Reader = Reader;
     }
     expect(reads).toBe(1);
+  });
+
+  it('invalidates imported geometry when file data changes under the same key', async () => {
+    const source = new ModelBuilder();
+    await source.build(req([sketch('S1', rect(0, 0, 10, 10)), extrude('E1', 'S1', 10)]));
+    const first = new TextDecoder().decode(source.exportStep());
+    await source.build(req([sketch('S1', rect(0, 0, 10, 10)), extrude('E1', 'S1', 20)]));
+    const second = new TextDecoder().decode(source.exportStep());
+    const imported = new ModelBuilder();
+    const features: Feature[] = [{ id: 'I1', name: 'Import1', type: 'import', format: 'step', blob: 'b1', fileName: 'body.step' }];
+    await imported.build(req(features, { blobs: { b1: first } }));
+    expect(volume(imported)).toBeCloseTo(1000, 5);
+    const changed = await imported.build(req(features, { blobs: { b1: second } }));
+    expect(volume(imported)).toBeCloseTo(2000, 5);
+    const unchanged = await imported.build(req(features, { blobs: { b1: second } }));
+    expect(unchanged.mesh).toBe(changed.mesh);
+    const missing = await imported.build(req(features));
+    expect(missing.status[0]).toMatchObject({ ok: false, error: 'The imported file data is missing' });
+    expect(missing.mesh).toBeNull();
+    const restored = await imported.build(req(features, { blobs: { b1: first } }));
+    expect(restored.status[0].ok).toBe(true);
+    expect(volume(imported)).toBeCloseTo(1000, 5);
   });
 
   it('projects drawing views with visible and hidden lines', async () => {

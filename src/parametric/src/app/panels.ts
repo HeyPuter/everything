@@ -7,15 +7,17 @@ import {
   newMirror, newPlane, newRevolve, newShell, newSketch, newSweep, FEATURE_LABELS, featureIcon,
 } from '../model/features';
 import { BASE_PLANE_NAMES } from '../model/planes';
+import { changeFeatureUnits } from '../model/document';
+import { evaluateVariables, variableReferenceChanges } from '../model/expr';
 import type {
   AxisRef, ChamferFeature, CircularPatternFeature, DraftFeature, EdgeRef, ExtrudeFeature, FaceRef, Feature, FilletFeature,
   HoleFeature, Id, LinearPatternFeature, LoftFeature, MirrorFeature, PatternDir, PlaneFeature, PlaneRef, RevolveFeature,
-  ShellFeature, SketchFeature, SweepFeature,
+  ShellFeature, SketchFeature, SweepFeature, UnitSystem, Variable,
 } from '../model/types';
 import { h } from '../ui/dom';
 import type { App } from './app';
 import {
-  PropertyPanel, SelectionBox, type SelBoxItem, checkbox, flipButton, numberField, section, selectField,
+  PropertyPanel, SelectionBox, type SelBoxItem, checkbox, flipButton, numberField, section, selectField, settleNumberFields,
 } from './pm';
 import { type SelItem, edgeRef, faceRef } from './selection';
 
@@ -122,9 +124,13 @@ function edgeItem(app: App, r: EdgeRef): SelItem | null {
 
 abstract class FeaturePanel<T extends Feature> extends PropertyPanel {
   f: T;
+  private units: UnitSystem;
+  private variables: Variable[];
   constructor(protected app: App, f: T, editing: boolean) {
     super();
     this.f = structuredClone(f);
+    this.units = app.store.doc.units;
+    this.variables = structuredClone(app.store.doc.variables);
     this.editingId = editing ? f.id : null;
     this.icon = featureIcon(f);
   }
@@ -144,6 +150,25 @@ abstract class FeaturePanel<T extends Feature> extends PropertyPanel {
 
   get edited(): boolean {
     return this.initial !== null && JSON.stringify(this.f) !== this.initial;
+  }
+
+  syncExpressions(): string[] | null {
+    const doc = this.app.store.doc;
+    const references = variableReferenceChanges(this.variables, doc.variables);
+    let unlinked: string[] | null = null;
+    if (doc.units !== this.units || references.size) {
+      const variables = evaluateVariables(this.variables).values;
+      settleNumberFields(this.el, { units: this.units, decimals: doc.decimals, variables: () => variables });
+      unlinked = changeFeatureUnits(this.f, this.units, doc.units, this.variables, doc.variables, references);
+      if (this.initial !== null) {
+        const initial = JSON.parse(this.initial) as T;
+        changeFeatureUnits(initial, this.units, doc.units, this.variables, doc.variables, references);
+        this.initial = JSON.stringify(initial);
+      }
+      this.units = doc.units;
+    }
+    this.variables = structuredClone(doc.variables);
+    return unlinked;
   }
 
   preview(): Feature | null {

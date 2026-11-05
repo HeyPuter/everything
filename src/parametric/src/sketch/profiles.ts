@@ -67,15 +67,43 @@ export function buildProfiles(entities: SkEntity[], picks?: Vec2[]): ProfileResu
     if (c.t === 'circle') {
       if (c.r > tol) closedLoops.push(makeLoop([{ k: 'circle', c: ix.pt(c.c), r: c.r, ccw: true, src: c.id }]));
     } else if (c.t === 'spline' && c.pts.length > 2 && dist2(ix.pt(c.pts[0]), ix.pt(c.pts[c.pts.length - 1])) < tol) {
-      closedLoops.push(makeLoop(curveSegs(ix, c, true)));
+      const loop = makeLoop(curveSegs(ix, c, true));
+      if (Math.abs(loop.area) > tol * tol) closedLoops.push(loop.area > 0 ? loop : reverseLoop(loop));
     } else openCurves.push(c);
   }
 
-  // Merge end points by position.
+  // Merge end points by position. Small sketches use a short linear scan;
+  // larger ones only inspect the nearby cells of a spatial index.
   const verts: Vec2[] = [];
+  const mergeTol = tol * 10;
+  let cells: Map<string, number[]> | undefined;
+  const cellKey = (x: number, y: number) => `${x},${y}`;
+  const indexVertex = (i: number) => {
+    const p = verts[i], key = cellKey(Math.floor(p[0] / mergeTol), Math.floor(p[1] / mergeTol));
+    const bucket = cells!.get(key);
+    if (bucket) bucket.push(i);
+    else cells!.set(key, [i]);
+  };
   const vertexOf = (p: Vec2) => {
-    for (let i = 0; i < verts.length; i++) if (dist2(verts[i], p) <= tol * 10) return i;
+    const x = verts.length < 64 ? NaN : Math.floor(p[0] / mergeTol);
+    const y = verts.length < 64 ? NaN : Math.floor(p[1] / mergeTol);
+    // Extremely large coordinates cannot reliably address neighbouring cells.
+    if (verts.length < 64 || !Number.isSafeInteger(x - 1) || !Number.isSafeInteger(x + 1) || !Number.isSafeInteger(y - 1) || !Number.isSafeInteger(y + 1)) {
+      for (let i = 0; i < verts.length; i++) if (dist2(verts[i], p) <= mergeTol) return i;
+    } else {
+      if (!cells) { cells = new Map(); verts.forEach((_, i) => indexVertex(i)); }
+      let first = Infinity;
+      for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) {
+        for (const i of cells.get(cellKey(x + dx, y + dy)) ?? []) {
+          // Keep the same first-match rule when a point is close to two
+          // distinct vertices; cell traversal order must not change topology.
+          if (i < first && dist2(verts[i], p) <= mergeTol) first = i;
+        }
+      }
+      if (first !== Infinity) return first;
+    }
     verts.push(p);
+    if (cells) indexVertex(verts.length - 1);
     return verts.length - 1;
   };
   const ends = openCurves.map((c) => {
@@ -83,28 +111,38 @@ export function buildProfiles(entities: SkEntity[], picks?: Vec2[]): ProfileResu
     return [vertexOf(a), vertexOf(b)] as [number, number];
   });
 
-  // Prune dangling edges iteratively.
+  // Peel dangling edges from their end vertices. Each edge is visited a
+  // bounded number of times, even when a long chain is ordered centre-out.
   const alive = openCurves.map((_, i) => ends[i][0] !== ends[i][1] || openCurves[i].t === 'spline');
   const degree = new Int32Array(verts.length);
   openCurves.forEach((_, i) => { if (alive[i]) { degree[ends[i][0]]++; degree[ends[i][1]]++; } });
-  let changed = true;
-  while (changed) {
-    changed = false;
-    for (let i = 0; i < openCurves.length; i++) {
-      if (!alive[i]) continue;
-      const [a, b] = ends[i];
-      if (degree[a] < 2 || degree[b] < 2) {
+  const pending: number[] = [];
+  for (let i = 0; i < degree.length; i++) if (degree[i] === 1) pending.push(i);
+  // Closed profiles need no adjacency lists or pruning work.
+  if (pending.length) {
+    const incident: number[][] = verts.map(() => []);
+    openCurves.forEach((_, i) => {
+      if (alive[i]) { incident[ends[i][0]].push(i); incident[ends[i][1]].push(i); }
+    });
+    for (let at = 0; at < pending.length; at++) {
+      for (const i of incident[pending[at]]) {
+        if (!alive[i]) continue;
+        const [a, b] = ends[i];
         alive[i] = false;
-        degree[a]--;
-        degree[b]--;
-        changed = true;
+        if (--degree[a] === 1) pending.push(a);
+        if (--degree[b] === 1) pending.push(b);
       }
     }
   }
   const openEnds: Vec2[] = [];
+  const reported = new Uint8Array(verts.length);
   openCurves.forEach((_, i) => {
     if (alive[i]) return;
-    for (const v of ends[i]) if (degree[v] <= 0 && !openEnds.some((p) => dist2(p, verts[v]) < tol)) openEnds.push(verts[v]);
+    // Different vertex ids are already farther apart than the merge tolerance.
+    for (const v of ends[i]) if (degree[v] <= 0 && !reported[v]) {
+      reported[v] = 1;
+      openEnds.push(verts[v]);
+    }
   });
 
   // Half-edges.
@@ -189,13 +227,20 @@ export function inRegion(p: Vec2, r: Region): boolean {
 }
 
 function boundsOf(ix: SketchIndex, curves: SkCurve[]): number {
-  let m = 1;
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  const add = (p: Vec2) => {
+    minX = Math.min(minX, p[0]); minY = Math.min(minY, p[1]);
+    maxX = Math.max(maxX, p[0]); maxY = Math.max(maxY, p[1]);
+  };
   for (const c of curves) {
-    const pts = c.t === 'circle' ? [ix.pt(c.c)] : c.t === 'line' ? [ix.pt(c.a), ix.pt(c.b)] : c.t === 'arc' ? [ix.pt(c.c)] : c.pts.map((p) => ix.pt(p));
-    for (const p of pts) m = Math.max(m, Math.abs(p[0]), Math.abs(p[1]));
-    if (c.t === 'circle') m = Math.max(m, c.r);
+    if (c.t === 'circle' || c.t === 'arc') {
+      const center = ix.pt(c.c), r = c.t === 'circle' ? c.r : arcAngles(ix, c).r;
+      add([center[0] - r, center[1] - r]);
+      add([center[0] + r, center[1] + r]);
+    } else for (const p of c.t === 'line' ? [c.a, c.b] : c.pts) add(ix.pt(p));
   }
-  return m;
+  // Tolerance follows the geometry's size, not its distance from the origin.
+  return Math.max(1, maxX - minX, maxY - minY);
 }
 
 function endPoints(ix: SketchIndex, c: SkCurve): [Vec2, Vec2] {
@@ -326,9 +371,12 @@ function sameBoundary(a: Loop, b: Loop): boolean {
 
 export function polyArea(poly: Vec2[]): number {
   let s = 0;
+  const origin = poly[0];
   for (let i = 0, n = poly.length; i < n; i++) {
     const a = poly[i], b = poly[(i + 1) % n];
-    s += a[0] * b[1] - b[0] * a[1];
+    // Subtract a nearby origin before multiplying to avoid cancellation of
+    // large, nearly equal products for small profiles at large coordinates.
+    s += (a[0] - origin[0]) * (b[1] - origin[1]) - (b[0] - origin[0]) * (a[1] - origin[1]);
   }
   return s / 2;
 }

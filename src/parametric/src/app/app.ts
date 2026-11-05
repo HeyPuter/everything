@@ -20,14 +20,17 @@ import { icon } from '../ui/icons';
 import { selectTabs, syncTabStops, tabKeys } from '../ui/tabs';
 import { type FocusRegion, cycleRegion, firstTabStop, trackRegionFocus } from '../ui/regions';
 import { CommandRegistry } from './commands';
-import { type PickFilter, PropertyPanel, type UnitContext } from './pm';
+import { type PickFilter, PropertyPanel, retireNumberFields, type UnitContext } from './pm';
 import { Selection, faceRef, type SelItem } from './selection';
 import { type Shell, buildShell, renderRibbon, syncCommandButtons, type RibbonTab } from './shell';
 import { SketchEditor } from './sketch/editor';
+import { sketchDefinitionStatus } from './sketch/panel';
 import { FeatureTree } from './tree';
 import { DrawingPanel, DrawingWorkspace } from './drawing';
 import { Viewport, type VPEvent } from './viewport';
 import { type Location } from '../platform/files';
+import { DEFAULT_SETTINGS, normalizeSettings, type Settings } from './settings';
+export { DEFAULT_SETTINGS, type Settings } from './settings';
 
 export interface Colors {
   sketchUnder: number[];
@@ -39,30 +42,6 @@ export interface Colors {
   dimension: number[];
   dimensionDriven: number[];
 }
-
-export interface Settings {
-  showPlanes: boolean;
-  showOrigin: boolean;
-  showSketches: boolean;
-  showRelations: boolean;
-  showDimensions: boolean;
-  invertZoom: boolean;
-  quality: number;
-  autoNormalTo: boolean;
-  defaultUnits: 'MMGS' | 'CGS' | 'MKS' | 'IPS';
-}
-
-export const DEFAULT_SETTINGS: Settings = {
-  showPlanes: false,
-  showOrigin: false,
-  showSketches: true,
-  showRelations: true,
-  showDimensions: true,
-  invertZoom: false,
-  quality: 1,
-  autoNormalTo: true,
-  defaultUnits: 'MMGS',
-};
 
 /** Controls whose own keyboard activation must win over global shortcuts. */
 const ACTIVATES_ON_ENTER = 'button, a[href], summary, [role="button"], [role="link"], [role="tab"], [role="option"], [role="menuitem"], [role="treeitem"]';
@@ -96,7 +75,12 @@ export class App {
   panel: PropertyPanel | null = null;
   sketchEditor: SketchEditor | null = null;
   location: Location | null = null;
+  private documentLifetime = new AbortController();
+  /** Invalidated on document replacement, but preserved through edits and Undo. */
+  get documentSignal(): AbortSignal { return this.documentLifetime.signal; }
   settings: Settings = { ...DEFAULT_SETTINGS };
+  private settingChanges = new Map<keyof Settings, number>();
+  private settingsLoad = 0;
   faces: FaceInfo[] = [];
   edges: EdgeInfo[] = [];
   frames: Record<Id, Frame> = {};
@@ -475,8 +459,30 @@ export class App {
   /** Loads settings saved in the user's Puter account (set by main). */
   loadRemoteSettings: () => Promise<void> | void = () => {};
 
-  applySettings(s: Settings) {
-    this.settings = { ...DEFAULT_SETTINGS, ...s };
+  /** Local choices take precedence over account reads already in flight. */
+  changeSettings(patch: Partial<Settings>) {
+    for (const key of Object.keys(patch) as (keyof Settings)[]) {
+      this.settingChanges.set(key, (this.settingChanges.get(key) ?? 0) + 1);
+    }
+    this.applySettings(patch);
+  }
+
+  async loadSettings(read: () => Promise<unknown>) {
+    const load = ++this.settingsLoad;
+    const changes = new Map(this.settingChanges);
+    const remote = await read();
+    if (load !== this.settingsLoad || !remote || typeof remote !== 'object' || Array.isArray(remote)) return;
+    const patch: Partial<Settings> = normalizeSettings(remote, this.settings);
+    for (const key of Object.keys(patch) as (keyof Settings)[]) {
+      if (changes.get(key) !== this.settingChanges.get(key)) delete patch[key];
+    }
+    this.applySettings(patch);
+  }
+
+  applySettings(s: unknown) {
+    const quality = this.settings.quality;
+    this.settings = normalizeSettings(s, this.settings);
+    if (quality !== this.settings.quality) this.requestRebuild();
     const v = this.viewport;
     v.showPlanes = this.settings.showPlanes;
     v.showOrigin = this.settings.showOrigin;
@@ -561,6 +567,7 @@ export class App {
     s.search.addEventListener('input', show);
     s.search.addEventListener('blur', () => setTimeout(hide, 120));
     s.search.addEventListener('keydown', (e) => {
+      if (e.isComposing || e.keyCode === 229) return;
       const opts = [...results.querySelectorAll<HTMLElement>('[role="option"]')];
       if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
         e.preventDefault();
@@ -662,11 +669,26 @@ export class App {
   private fitOnNextBuild = false;
 
   private onStoreChange(reason: string) {
+    const unlinked = this.panel?.syncExpressions();
+    if (unlinked != null) {
+      this.showLeft('pm');
+      if (unlinked.length) toast({ kind: 'warning', title: 'Some pending equations were replaced by their values', message: unlinked.join(', '), timeout: 9000 });
+    }
     if (reason === 'load') {
+      const previous = this.documentLifetime;
+      this.documentLifetime = new AbortController();
+      previous.abort();
+      // A section belongs to the replaced part, not to the next document's geometry.
+      this.renderer.section = null;
       this.applyModelColor();
       this.refreshAll();
     }
     if (reason === 'undo' || reason === 'redo') {
+      // Rebuilding a focused field can emit change before it is detached.
+      // Its pending value belongs to the state that history just replaced.
+      for (const field of this.shell.lpBody.querySelectorAll<HTMLElement>('.sketch-dimension-field, .sketch-tool-options')) {
+        retireNumberFields(field);
+      }
       // Sketch edits undo inside the sketch; anything else leaves the editor in sync.
       if (this.sketchEditor && !this.store.feature(this.sketchEditor.sketchId)) this.exitModes();
       this.sketchEditor?.resolve();
@@ -1191,11 +1213,12 @@ export class App {
 
   // ---------- sketch mode ----------
 
-  private sketchUndoMark = 0;
+  private restoreSketch: (() => void) | null = null;
+  private sketchLifetime: AbortController | null = null;
 
   /** Starts a new sketch on a plane or planar face. */
   startSketchOn(ref: PlaneRef) {
-    const mark = this.store.undoDepth;
+    const restore = this.store.restorePoint('Sketch changes');
     const id = this.store.nextId('s');
     const at = this.store.builtCount;
     const frame = this.frameOfPlane(ref);
@@ -1206,18 +1229,19 @@ export class App {
       doc.features.splice(at, 0, sk);
       if (doc.rollback != null) doc.rollback = at + 1;
     });
-    this.editSketch(id, mark);
+    this.editSketch(id, restore);
   }
 
   /** Opens sketch editing (rolls the model back to just before the sketch). */
-  editSketch(id: Id, undoMark?: number) {
+  editSketch(id: Id, restore?: () => void) {
     const sk = this.store.feature<SketchFeature>(id);
     if (!sk) return;
     if (this.panel) void this.closePanel(false);
     if (this.sketchEditor) this.exitSketch(true);
     const frame = this.frameOfSketch(sk) ?? BASE_FRAMES.front;
     this.sketchEditor = new SketchEditor(this, id, frame);
-    this.sketchUndoMark = undoMark ?? this.store.undoDepth;
+    this.sketchLifetime = new AbortController();
+    this.restoreSketch = restore ?? this.store.restorePoint('Sketch changes');
     this.viewport.tool = this.sketchEditor;
     this.selection.clear();
     this.selection.setHover(null);
@@ -1239,9 +1263,17 @@ export class App {
     announce(`Editing ${sk.name}`);
   }
 
-  refreshSketchPanel() {
+  refreshSketchPanel(keepNumberField = false) {
     if (!this.sketchEditor || this.panel) return;
     if (this.leftTab !== 'pm' || !this.shell.lpBody.querySelector('.pm')) this.showLeft('pm');
+    // A dimension value edit changes geometry and definition status, while
+    // its controls stay the same. Keep them mounted through input/change so
+    // typing, Tab navigation and clicks on neighboring controls can finish.
+    const status = this.shell.lpBody.querySelector('.sketch-definition');
+    if (keepNumberField && status && this.sketchEditor.solve) {
+      status.replaceWith(sketchDefinitionStatus(this.sketchEditor.solve));
+      return;
+    }
     const p = this.hooks.sketchPanel();
     this.shell.lpBody.replaceChildren(this.panelElement(p));
   }
@@ -1250,9 +1282,15 @@ export class App {
   exitSketch(keep: boolean) {
     const ed = this.sketchEditor;
     if (!ed) return;
-    ed.setTool(null);
+    // History may already have removed the sketch. Do not finish a pending
+    // tool or rebuild its controls against geometry that no longer exists.
+    if (this.store.feature(ed.sketchId)) ed.setTool(null);
+    else ed.tool = null;
     ed.dispose();
     this.sketchEditor = null;
+    this.sketchLifetime?.abort();
+    this.sketchLifetime = null;
+    this.restoreSketch = null;
     this.viewport.tool = null;
     this.shell.confirm.hidden = true;
     this.renderConfirmCorner();
@@ -1276,12 +1314,13 @@ export class App {
   /** Exit sketch discarding changes made since entering it. */
   async discardSketch() {
     const ed = this.sketchEditor;
-    if (!ed) return;
-    const ok = await confirmDialog('Discard changes?', 'Leave the sketch and undo the changes made since you started editing it?', 'Discard changes', true);
-    if (!ok) return;
+    const signal = this.sketchLifetime?.signal;
+    if (!ed || !signal) return;
+    const ok = await confirmDialog('Discard changes?', 'Leave the sketch and undo the changes made since you started editing it?', 'Discard changes', true, signal);
+    if (!ok || signal.aborted || this.sketchEditor !== ed) return;
+    const restore = this.restoreSketch;
     this.exitSketch(false);
-    // Undo back to the state recorded when editing started.
-    while (this.store.canUndo && this.store.undoDepth > this.sketchUndoMark) this.store.undo();
+    restore?.();
   }
 
   exitModes() {
@@ -1324,6 +1363,7 @@ export class App {
   }
 
   async deleteFeatures(ids: Id[]) {
+    const signal = this.documentSignal;
     const doc = this.store.doc;
     const del = new Set(ids);
     // Absorbed sketches go with their feature; dependents are listed.
@@ -1340,7 +1380,7 @@ export class App {
     const msg = dependents.length
       ? `Delete ${names.join(', ')}? These features depend on it and will fail to rebuild: ${dependents.map((f) => f.name).join(', ')}.`
       : `Delete ${names.join(', ')}?`;
-    if (!(await confirmDialog('Delete', msg, 'Delete', true))) return;
+    if (!(await confirmDialog('Delete', msg, 'Delete', true, signal)) || signal.aborted) return;
     if (this.sketchEditor && del.has(this.sketchEditor.sketchId)) this.exitSketch(false);
     this.store.change('Delete', (d) => {
       const before = d.features.length;
@@ -1399,7 +1439,7 @@ export class App {
   }
 
   private onKey(e: KeyboardEvent) {
-    if (dialogOpen()) return;
+    if (e.isComposing || e.keyCode === 229 || dialogOpen()) return;
     const target = e.target as HTMLElement;
     const inText = isTextInput(target);
     // F6 / Shift+F6 move between the window's regions, from text fields too.

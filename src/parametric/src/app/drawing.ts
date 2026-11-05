@@ -178,7 +178,7 @@ export class DrawingWorkspace {
     const projections = new Map<string, ProjectionResult>();
     for (const v of d.views) {
       const c = this.cache.get(v.id);
-      if (c) projections.set(v.id, c.result);
+      if (this.app.bbox && c?.version === this.app.buildVersion && c.kind === v.kind) projections.set(v.id, c.result);
     }
     return buildSheet(d, projections, this.info());
   }
@@ -295,7 +295,7 @@ export class DrawingWorkspace {
       if (!drag) return;
       const dx = e.clientX - drag.sx, dy = e.clientY - drag.sy;
       if (!drag.moved && Math.hypot(dx, dy) < 3) return;
-      if (!drag.moved && drag.kind === 'view') this.app.store.beginBatch('Move view');
+      if (!drag.moved && drag.kind === 'view') this.app.store.beginBatch('Move view', () => { drag = null; });
       drag.moved = true;
       if (drag.kind === 'pan') {
         this.pan = { x: drag.ox + dx, y: drag.oy + dy };
@@ -314,6 +314,7 @@ export class DrawingWorkspace {
     };
     this.el.addEventListener('pointerup', end);
     this.el.addEventListener('pointercancel', end);
+    this.el.addEventListener('lostpointercapture', end);
     this.el.addEventListener('wheel', (e) => {
       e.preventDefault();
       const r = this.el.getBoundingClientRect();
@@ -377,21 +378,35 @@ export class DrawingWorkspace {
 
   // ---------- export ----------
 
-  /** Waits for views still being projected, so an export right after opening has them. */
-  private async projected() {
-    while (this.pending || this.refreshAgain) await new Promise((r) => setTimeout(r, 50));
+  /** Waits for both queued model edits and their projections before exporting. */
+  private async projected(): Promise<boolean> {
+    const drawing = this.doc;
+    const stillOpen = () => this.active && this.doc === drawing;
+    if (!drawing || !stillOpen()) return false;
+    for (;;) {
+      await this.app.whenBuilt();
+      if (!stillOpen()) return false;
+      const version = this.app.buildVersion;
+      await this.refresh();
+      while (this.pending || this.refreshAgain) {
+        await new Promise((r) => setTimeout(r, 50));
+        if (!stillOpen()) return false;
+      }
+      // Another edit may have arrived while the projection was running.
+      await this.app.whenBuilt();
+      if (!stillOpen()) return false;
+      if (version === this.app.buildVersion) return true;
+    }
   }
 
   async exportPdf() {
-    if (!this.doc) return;
-    await this.projected();
+    if (!(await this.projected())) return;
     const s = this.sheet();
     download(toPdf(s.items, s.w, s.h, this.app.store.doc.name) as BlobPart, `${safeName(this.app.store.doc.name)}.pdf`, 'application/pdf');
   }
 
   async exportSvg() {
-    if (!this.doc) return;
-    await this.projected();
+    if (!(await this.projected())) return;
     const s = this.sheet();
     download(toSvg(s.items, s.w, s.h), `${safeName(this.app.store.doc.name)}.svg`, 'image/svg+xml');
   }

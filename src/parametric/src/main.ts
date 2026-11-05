@@ -1,5 +1,5 @@
 import './styles/app.css';
-import { App, DEFAULT_SETTINGS, type Settings } from './app/app';
+import { App } from './app/app';
 import { makeHooks, registerCommands } from './app/actions';
 import { FileOps } from './app/fileops';
 import { StartScreen, bindAccountMenu, refreshAccount } from './app/start';
@@ -11,7 +11,7 @@ import { toast } from './ui/overlay';
 
 const SETTINGS_KEY = 'parametric:settings';
 
-function localSettings(): Partial<Settings> {
+function localSettings(): unknown {
   try {
     return JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}');
   } catch {
@@ -42,11 +42,8 @@ async function boot() {
     root.removeAttribute('aria-busy');
     return;
   }
-  app.applySettings({ ...DEFAULT_SETTINGS, ...localSettings() });
-  app.loadRemoteSettings = async () => {
-    const remote = await kvGet<Partial<Settings>>(KV_SETTINGS_KEY);
-    if (remote && typeof remote === 'object') app.applySettings({ ...app.settings, ...remote });
-  };
+  app.applySettings(localSettings());
+  app.loadRemoteSettings = () => app.loadSettings(() => kvGet<unknown>(KV_SETTINGS_KEY));
   // Development builds expose the app for debugging and browser tests.
   if (import.meta.env.DEV) (window as unknown as { __parametric: App }).__parametric = app;
   const taskPane = new TaskPane(app, files, new AssistantPanel(app));
@@ -58,6 +55,7 @@ async function boot() {
   bindAccountMenu(app);
   root.removeAttribute('aria-busy');
   app.newDocument('Part1');
+  const startupDocument = app.documentSignal;
 
   await loadPuter();
   void refreshAccount(app);
@@ -65,8 +63,8 @@ async function boot() {
   files.handleLaunchItems();
   files.handleWindowClose();
   const launched = !!puter()?.ui?.wasLaunchedWithItems?.();
-  const restored = launched ? false : await files.checkRecovery();
-  if (!restored && !launched) start.show();
+  const restored = launched || startupDocument.aborted ? false : await files.checkRecovery();
+  if (!restored && !launched && !startupDocument.aborted && !app.store.dirty && !app.panel?.edited) start.show();
 }
 
 window.addEventListener('unhandledrejection', (e) => {

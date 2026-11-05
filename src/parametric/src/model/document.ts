@@ -2,11 +2,14 @@
 // parameters (expressions and global variables) into plain numbers for the
 // geometry worker.
 
-import { convertExpressionUnits, evaluate, evaluateVariables } from './expr';
+import { convertExpressionUnits, evaluate, evaluateVariables, renameReferences, variableReferenceChanges } from './expr';
 import { PARAM_FIELDS, type ParamKind, getPath, setPath } from './features';
-import type { Feature, Id, Param, PartDocument, SkDimension, SketchFeature, UnitSystem } from './types';
+import type { Feature, Id, Param, PartDocument, SkDimension, SketchFeature, UnitSystem, Variable } from './types';
 import { isDimension } from './types';
 import { UNIT_SYSTEMS } from './units';
+import { uniqueId } from './ids';
+import { validSketch } from './validate-sketch';
+import { validDrawing } from './validate-drawing';
 import { solveSketch } from '../sketch/solver';
 
 export const FORMAT = 'parametric-part';
@@ -47,9 +50,14 @@ export function parseDocument(text: string): PartDocument {
   if (!d.features.every((f) => f && typeof f === 'object' && typeof f.id === 'string' && typeof f.type === 'string')) {
     throw new Error('The part file is damaged (invalid feature).');
   }
+  const featureIds = new Set<string>();
+  for (const f of d.features) {
+    if (!f.id || featureIds.has(f.id)) throw new Error('The part file is damaged (invalid feature identifiers).');
+    featureIds.add(f.id);
+  }
   const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
-  // A sketch without its plane or geometry lists breaks drawing and solving.
-  if (!d.features.every((f) => f.type !== 'sketch' || (isObj(f.plane) && typeof f.plane.kind === 'string' && Array.isArray(f.entities) && Array.isArray(f.constraints)))) {
+  // Check nested geometry before loading can replace the current document.
+  if (!d.features.every((f) => f.type !== 'sketch' || validSketch(f))) {
     throw new Error('The part file is damaged (invalid sketch).');
   }
   const units = typeof d.units === 'string' && Object.hasOwn(UNIT_SYSTEMS, d.units) ? d.units : 'MMGS';
@@ -64,19 +72,43 @@ export function parseDocument(text: string): PartDocument {
   if (!Number.isInteger(doc.decimals) || doc.decimals < 0 || doc.decimals > 8) doc.decimals = base.decimals;
   if (doc.rollback != null && !Number.isInteger(doc.rollback)) doc.rollback = null;
   if (typeof doc.color !== 'string' || !/^#[0-9a-f]{6}$/i.test(doc.color)) doc.color = base.color;
-  if (doc.material != null && !(isObj(doc.material) && typeof doc.material.name === 'string' && Number.isFinite(doc.material.density))) doc.material = null;
-  if (doc.drawing != null && !(isObj(doc.drawing) && Array.isArray(doc.drawing.views))) doc.drawing = null;
+  if (doc.material != null && !(isObj(doc.material) && typeof doc.material.name === 'string' && Number.isFinite(doc.material.density) && doc.material.density > 0)) doc.material = null;
+  if (doc.drawing != null && !validDrawing(doc.drawing)) throw new Error('The part file is damaged (invalid drawing).');
   for (const f of doc.features) if (typeof f.name !== 'string' || !f.name) f.name = f.id;
   // New feature ids must not collide with existing ones, even when the file's
   // counter is missing or stale.
   let maxId = 0;
   for (const f of [...doc.features, ...doc.variables]) {
     const m = /^[a-z]+(\d+)$/i.exec(String(f?.id ?? ''));
-    if (m) maxId = Math.max(maxId, Number(m[1]));
+    const suffix = m ? Number(m[1]) : NaN;
+    // Unsafe suffixes cannot be emitted by the numeric allocator.
+    if (Number.isSafeInteger(suffix) && suffix < Number.MAX_SAFE_INTEGER) maxId = Math.max(maxId, suffix);
   }
-  doc.nextId = Math.max(Number.isInteger(doc.nextId) ? doc.nextId : 1, maxId + 1);
-  for (const v of doc.variables) if (!v.id) v.id = `v${doc.nextId++}`;
+  doc.nextId = Math.max(Number.isSafeInteger(doc.nextId) && doc.nextId > 0 ? doc.nextId : 1, maxId + 1);
+  const variableIds = new Set<string>();
+  let occupiedIds: Set<Id> | undefined;
+  for (const v of doc.variables) {
+    // Variable references use names, so repairing an ID preserves equations.
+    if (!v.id || variableIds.has(v.id)) {
+      // At the counter limit, reserve IDs once for the whole repair pass.
+      if (doc.nextId === Number.MAX_SAFE_INTEGER) occupiedIds ??= new Set([...featureIds, ...doc.variables.map((item) => item.id)]);
+      v.id = allocateId(doc, 'v', occupiedIds);
+    }
+    variableIds.add(v.id);
+  }
   return doc;
+}
+
+/** Ordinary documents keep compact IDs; exhausted counters use independent IDs. */
+export function allocateId(doc: PartDocument, prefix = 'f', occupiedIds?: Set<Id>): Id {
+  if (Number.isSafeInteger(doc.nextId) && doc.nextId > 0 && doc.nextId < Number.MAX_SAFE_INTEGER) {
+    const id = `${prefix}${doc.nextId++}`;
+    occupiedIds?.add(id);
+    return id;
+  }
+  // Never increment past the last exactly representable integer.
+  doc.nextId = Number.MAX_SAFE_INTEGER;
+  return uniqueId(prefix, occupiedIds ?? new Set([...doc.features, ...doc.variables].map((item) => item.id)));
 }
 
 /**
@@ -102,11 +134,32 @@ export function mapExpressions(doc: PartDocument, fn: (src: string, kind: ParamK
  * the values that were unlinked that way.
  */
 export function changeUnits(doc: PartDocument, units: UnitSystem): string[] {
-  if (doc.units === units || !Object.hasOwn(UNIT_SYSTEMS, units)) return [];
+  return convertUnits(doc, units);
+}
+
+/** Reconciles an uncommitted feature's units and references with the current part. */
+export function changeFeatureUnits(feature: Feature, from: UnitSystem, to: UnitSystem, before: Variable[], after: Variable[], references = variableReferenceChanges(before, after)): string[] {
+  const doc = newDocument('', from);
+  doc.features = [feature];
+  doc.variables = structuredClone(before);
+  // Deleted values still use the old display units; insert them before scaling.
+  const removed = new Map([...references].filter(([, value]) => typeof value === 'number'));
+  const renamed = new Map([...references].filter(([, value]) => typeof value === 'string'));
+  mapFeatureReferences(doc, removed);
+  return convertUnits(doc, to, after, renamed);
+}
+
+function mapFeatureReferences(doc: PartDocument, references?: Map<string, string | number>) {
+  if (references?.size) mapExpressions({ ...doc, variables: [] }, (src) => renameReferences(src, references));
+}
+
+function convertUnits(doc: PartDocument, units: UnitSystem, variablesAfter?: Variable[], renamed?: Map<string, string | number>): string[] {
+  if (!Object.hasOwn(UNIT_SYSTEMS, units)) return [];
+  if (doc.units === units) { mapFeatureReferences(doc, renamed); return []; }
   const k = UNIT_SYSTEMS[doc.units].scale / UNIT_SYSTEMS[units].scale;
   const values = (d: PartDocument) => {
     const st = new DocStore(d);
-    const vars = st.resolve().variables;
+    const vars = evaluateVariables(d.variables).values;
     const out = new Map<string, number>();
     for (const f of d.features) {
       for (const fd of PARAM_FIELDS[f.type] ?? []) {
@@ -127,7 +180,9 @@ export function changeUnits(doc: PartDocument, units: UnitSystem): string[] {
   const converted = convertExpressionUnits(items, k);
   let i = 0;
   mapExpressions(doc, (src) => converted[i++] ?? src);
+  mapFeatureReferences(doc, renamed);
   doc.units = units;
+  if (variablesAfter) doc.variables = variablesAfter;
   // Whatever did not keep its value becomes the plain number it was.
   const after = values(doc);
   const unlinked: string[] = [];
@@ -177,9 +232,12 @@ export class DocStore {
   private undoStack: { snap: string; label: string }[] = [];
   private redoStack: { snap: string; label: string }[] = [];
   private listeners = new Set<Listener>();
+  private historyFilters = new Set<(doc: Omit<PartDocument, 'blobs'>) => void>();
   private batchDepth = 0;
   private batchSnap: string | null = null;
   private batchLabel = '';
+  private batchChanged = false;
+  private batchEnds: (() => void)[] = [];
   /** Old steps dropped from the bottom of the undo stack. */
   private dropped = 0;
 
@@ -199,17 +257,33 @@ export class DocStore {
   /** Replaces the whole document (open/new); clears history. */
   load(doc: PartDocument) {
     this.doc = doc;
+    this.historyFilters.clear();
     this.undoStack = [];
     this.redoStack = [];
     this.dropped = 0;
+    // A delayed pointer-up/cancel from the old document must not restore its
+    // batch or turn subsequent changes in the new document into that batch.
+    this.releaseBatch();
+    this.batchLabel = '';
     this.dirty = false;
     this.emit('load');
+  }
+
+  /** Excludes a transient preview from history without changing the visible document.
+   * The filter receives an isolated copy without import blobs; unsubscribe before applying the preview.
+   */
+  filterHistory(fn: (doc: Omit<PartDocument, 'blobs'>) => void): () => void {
+    this.historyFilters.add(fn);
+    return () => { this.historyFilters.delete(fn); };
   }
 
   private snapshot(): string {
     const { blobs: _blobs, ...rest } = this.doc;
     void _blobs;
-    return JSON.stringify(rest);
+    if (!this.historyFilters.size) return JSON.stringify(rest);
+    const snapshot = structuredClone(rest);
+    for (const filter of this.historyFilters) filter(snapshot);
+    return JSON.stringify(snapshot);
   }
 
   private restore(snap: string) {
@@ -217,10 +291,33 @@ export class DocStore {
     this.doc = { ...(JSON.parse(snap) as PartDocument), blobs };
   }
 
+  /**
+   * Captures an editing session's starting state independently of the bounded
+   * undo history. Calling the result restores that state and its history;
+   * the discarded session can be redone as one step. Snapshot strings are
+   * shared with history and large import blobs are never copied.
+   */
+  restorePoint(label: string): () => void {
+    const snap = this.snapshot();
+    const undo = [...this.undoStack], redo = [...this.redoStack];
+    const dropped = this.dropped;
+    return () => {
+      const current = this.snapshot();
+      this.releaseBatch();
+      this.restore(snap);
+      this.undoStack = [...undo];
+      this.redoStack = current === snap ? [...redo] : [{ snap: current, label }];
+      this.dropped = dropped;
+      if (current !== snap) this.dirty = true;
+      this.emit('undo');
+    };
+  }
+
   /** Applies a change as one undoable step. */
   change(label: string, fn: (doc: PartDocument) => void, reason = 'change') {
     if (this.batchDepth > 0) {
       fn(this.doc);
+      this.batchChanged = true;
       this.doc.modified = Date.now();
       this.dirty = true;
       this.emit(reason);
@@ -238,42 +335,51 @@ export class DocStore {
     this.emit(reason);
   }
 
-  /** Groups several changes (e.g. a drag) into one undo step. */
-  beginBatch(label: string) {
+  /** Groups changes into one undo step; onEnd retires the gesture even if history ends it early. */
+  beginBatch(label: string, onEnd?: () => void) {
     if (this.batchDepth++ === 0) {
       this.batchSnap = this.snapshot();
       this.batchLabel = label;
+      this.batchChanged = false;
     }
+    if (onEnd) this.batchEnds.push(onEnd);
+  }
+
+  private releaseBatch() {
+    this.batchDepth = 0;
+    this.batchSnap = null;
+    this.batchChanged = false;
+    const ends = this.batchEnds;
+    this.batchEnds = [];
+    for (const end of ends) end();
   }
 
   endBatch() {
-    if (this.batchDepth === 0) return;
-    if (--this.batchDepth === 0 && this.batchSnap) {
-      if (this.snapshot() !== this.batchSnap) {
-        this.undoStack.push({ snap: this.batchSnap, label: this.batchLabel });
-        if (this.undoStack.length > MAX_UNDO) { this.undoStack.shift(); this.dropped++; }
-        this.redoStack = [];
-      }
-      this.batchSnap = null;
+    if (this.batchDepth === 0 || --this.batchDepth > 0) return;
+    if (this.batchSnap && this.snapshot() !== this.batchSnap) {
+      this.undoStack.push({ snap: this.batchSnap, label: this.batchLabel });
+      if (this.undoStack.length > MAX_UNDO) { this.undoStack.shift(); this.dropped++; }
+      this.redoStack = [];
     }
+    this.releaseBatch();
   }
 
   /** Drops a batch, restoring the state from before it started. */
   cancelBatch() {
     if (this.batchDepth === 0) return;
-    this.batchDepth = 0;
     if (this.batchSnap) this.restore(this.batchSnap);
-    this.batchSnap = null;
+    this.releaseBatch();
     this.emit('change');
   }
 
-  get canUndo() { return this.undoStack.length > 0; }
+  get canUndo() { return this.batchChanged || this.undoStack.length > 0; }
   get undoDepth() { return this.undoStack.length; }
-  get canRedo() { return this.redoStack.length > 0; }
-  get undoLabel() { return this.undoStack[this.undoStack.length - 1]?.label ?? ''; }
+  get canRedo() { return !this.batchChanged && this.redoStack.length > 0; }
+  get undoLabel() { return this.batchChanged ? this.batchLabel : this.undoStack[this.undoStack.length - 1]?.label ?? ''; }
   get redoLabel() { return this.redoStack[this.redoStack.length - 1]?.label ?? ''; }
 
   undo() {
+    while (this.batchDepth > 0) this.endBatch();
     const s = this.undoStack.pop();
     if (!s) return;
     this.redoStack.push({ snap: this.snapshot(), label: s.label });
@@ -283,6 +389,7 @@ export class DocStore {
   }
 
   redo() {
+    while (this.batchDepth > 0) this.endBatch();
     const s = this.redoStack.pop();
     if (!s) return;
     this.undoStack.push({ snap: this.snapshot(), label: s.label });
@@ -323,7 +430,7 @@ export class DocStore {
   }
 
   nextId(prefix = 'f'): Id {
-    return `${prefix}${this.doc.nextId++}`;
+    return allocateId(this.doc, prefix);
   }
 
   feature<T extends Feature = Feature>(id: Id): T | undefined {

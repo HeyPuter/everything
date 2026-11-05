@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DocStore, changeUnits, mapExpressions, newDocument, parseDocument, serializeDocument } from '../src/model/document';
+import { DocStore, changeFeatureUnits, changeUnits, mapExpressions, newDocument, parseDocument, serializeDocument } from '../src/model/document';
 import { defaultName, dependencies, newExtrude } from '../src/model/features';
 import type { ExtrudeFeature, Feature, SkDimension, SketchFeature } from '../src/model/types';
 import { rect, sketch } from './helpers';
@@ -23,6 +23,63 @@ describe('document store', () => {
     // No-op changes do not create undo steps.
     st.change('Nothing', () => {});
     expect(st.undoDepth).toBe(2);
+  });
+
+  it('excludes a transient preview from history without changing the visible document', () => {
+    const st = new DocStore(newDocument('Original'));
+    st.doc.blobs.large = 'kept outside history';
+    const stop = st.filterHistory((doc) => {
+      expect('blobs' in doc).toBe(false);
+      doc.decimals = 2;
+    });
+    st.doc.decimals = 5;
+    st.change('Rename', (doc) => { doc.name = 'Renamed'; });
+    expect(st.doc.decimals).toBe(5);
+    expect(st.doc.name).toBe('Renamed');
+    st.undo();
+    expect(st.doc).toMatchObject({ name: 'Original', decimals: 2 });
+    st.redo();
+    expect(st.doc).toMatchObject({ name: 'Renamed', decimals: 2 });
+    expect(st.doc.blobs.large).toBe('kept outside history');
+    stop();
+    st.change('Accept preview', (doc) => { doc.decimals = 5; });
+    st.undo();
+    expect(st.doc.decimals).toBe(2);
+    st.redo();
+    expect(st.doc.decimals).toBe(5);
+  });
+
+  it('excludes previews from batch history and restore points', () => {
+    const st = new DocStore(newDocument('Original'));
+    const stop = st.filterHistory((doc) => { doc.decimals = 2; });
+    st.doc.decimals = 5;
+    const restore = st.restorePoint('Session');
+    st.beginBatch('Rename');
+    st.change('First rename', (doc) => { doc.name = 'First'; });
+    st.change('Second rename', (doc) => { doc.name = 'Second'; });
+    st.endBatch();
+    expect(st.doc.decimals).toBe(5);
+    st.undo();
+    expect(st.doc).toMatchObject({ name: 'Original', decimals: 2 });
+    st.redo();
+    expect(st.doc).toMatchObject({ name: 'Second', decimals: 2 });
+    restore();
+    expect(st.doc).toMatchObject({ name: 'Original', decimals: 2 });
+    st.redo();
+    expect(st.doc).toMatchObject({ name: 'Second', decimals: 2 });
+    stop();
+  });
+
+  it('clears preview history filters when a different document is loaded', () => {
+    const st = new DocStore(newDocument('Old'));
+    const stop = st.filterHistory((doc) => { doc.name = 'Old'; });
+    st.load(newDocument('New'));
+    st.change('Rename', (doc) => { doc.name = 'New renamed'; });
+    st.undo();
+    expect(st.doc.name).toBe('New');
+    st.redo();
+    expect(st.doc.name).toBe('New renamed');
+    stop();
   });
 
   it('keeps large blobs out of undo snapshots', () => {
@@ -110,7 +167,7 @@ describe('document store', () => {
       ...raw,
       variables: [null, { name: 5 }, { id: 'v2', name: 'W', expr: 10 }, { name: 'H', expr: '2*W' }],
       features: [...raw.features, { id: 'f3', type: 'plane' }],
-      blobs: 5, material: 'steel', color: 7, drawing: { views: 3 },
+      blobs: 5, material: 'steel', color: 7, drawing: null,
     }));
     expect(doc.variables.map((v) => [v.id, v.name, v.expr])).toEqual([['v2', 'W', '10'], ['v4', 'H', '2*W']]);
     expect(new DocStore(doc).resolve().variables.get('H')).toBe(20);
@@ -192,6 +249,55 @@ describe('document store', () => {
     expect(doc.variables[0].expr).toBe('100');
   });
 
+  it('converts a pending feature against the converted document variables', () => {
+    const doc = newDocument();
+    doc.variables = [{ id: 'v1', name: 'Width', expr: '100' }];
+    const saved = newExtrude('f1', 'Extrude1', 's1', false, 10);
+    saved.depth = '=Width';
+    doc.features = [saved];
+    const pending = structuredClone(saved);
+    pending.depth = '=Width/2 + 10';
+    const before = structuredClone(doc.variables);
+    changeUnits(doc, 'IPS');
+    expect(changeFeatureUnits(pending, 'MMGS', 'IPS', before, doc.variables)).toEqual([]);
+    expect(typeof pending.depth).toBe('string');
+    expect(pending.depth).toContain('Width');
+    expect(new DocStore(doc).evalParam(pending.depth, 'length')).toBeCloseTo(60, 8);
+    expect(saved.depth).toBe('=Width');
+  });
+
+  it.each(['rename', 'delete'])('reconciles a pending expression when units and a variable %s change together', (action) => {
+    const doc = newDocument();
+    doc.variables = [{ id: 'v1', name: 'Width', expr: '100' }];
+    const before = structuredClone(doc.variables);
+    const saved = newExtrude('f1', 'Extrude1', 's1', false, 100);
+    const pending = structuredClone(saved);
+    pending.depth = '=Width/2 + 10';
+    if (action === 'rename') {
+      doc.variables[0].name = 'Span';
+      saved.depth = '=Span';
+    } else doc.variables = [];
+    doc.features = [saved];
+    changeUnits(doc, 'IPS');
+    expect(changeFeatureUnits(pending, 'MMGS', 'IPS', before, doc.variables)).toEqual([]);
+    expect(typeof pending.depth).toBe('string');
+    expect(pending.depth).not.toContain('Width');
+    if (action === 'rename') expect(pending.depth).toContain('Span');
+    expect(new DocStore(doc).evalParam(pending.depth, 'length')).toBeCloseTo(60, 8);
+  });
+
+  it('preserves a pending value without changing the converted part variables', () => {
+    const doc = newDocument();
+    doc.variables = [{ id: 'v1', name: 'Count', expr: '4' }];
+    const pending = newExtrude('f1', 'Extrude1', 's1', false, 10);
+    pending.depth = '=Count*2';
+    const before = structuredClone(doc.variables);
+    changeUnits(doc, 'IPS');
+    expect(changeFeatureUnits(pending, 'MMGS', 'IPS', before, doc.variables)).toEqual(['Extrude1 Depth']);
+    expect(pending.depth).toBe(8);
+    expect(doc.variables).toEqual(before);
+  });
+
   it('keeps a value that cannot be converted as the number it was', () => {
     const doc = newDocument();
     const e = newExtrude('f1', 'Extrude1', 's1', false, 10);
@@ -201,4 +307,281 @@ describe('document store', () => {
     expect(changeUnits(doc, 'IPS')).toEqual(['Extrude1 Depth']);
     expect(e.depth).toBeCloseTo(25, 9);
   });
+});
+
+describe('restorable editing sessions', () => {
+  it('restores the document and prior history after more edits than the undo limit', () => {
+    const st = new DocStore();
+    st.change('Rename', (d) => { d.name = 'Before'; });
+    const restore = st.restorePoint('Sketch changes');
+    for (let i = 0; i < 125; i++) st.change('Edit', (d) => { d.name = `Edit ${i}`; });
+    restore();
+    expect(st.doc.name).toBe('Before');
+    expect(st.undoLabel).toBe('Rename');
+    expect(st.redoLabel).toBe('Sketch changes');
+    st.redo();
+    expect(st.doc.name).toBe('Edit 124');
+    st.undo();
+    expect(st.doc.name).toBe('Before');
+    st.undo();
+    expect(st.doc.name).toBe('Part1');
+  });
+
+  it('restores an editing session even after undo crosses its starting point', () => {
+    const st = new DocStore();
+    st.change('Rename', (d) => { d.name = 'Before'; });
+    const restore = st.restorePoint('Sketch changes');
+    st.undo();
+    restore();
+    expect(st.doc.name).toBe('Before');
+    expect(st.undoLabel).toBe('Rename');
+    st.undo();
+    expect(st.doc.name).toBe('Part1');
+  });
+});
+
+describe('damaged sketch files', () => {
+  const valid = () => sketch('s1', rect(0, 0, 10, 10, 'r'));
+  it.each([
+    { entities: [null] },
+    { entities: [{ id: 'p1', t: 'point', x: '10', y: 0 }] },
+    { entities: [{ id: 'l1', t: 'line', a: 'missing', b: 'O' }] },
+    { entities: [{ id: 'sp1', t: 'spline', pts: [] }] },
+    { constraints: [null] },
+    { constraints: [{ id: 'c1', type: 'horizontal', refs: null }] },
+    { constraints: [{ id: 'c1', type: 'horizontal', refs: ['missing'] }] },
+    { constraints: [{ id: 'd1', type: 'distance', refs: ['rl0'], value: 10 }] },
+    { constraints: [{ id: 'd1', type: 'radius', refs: ['rp0'], value: 10, at: [0, 0], name: 'D1' }] },
+    { plane: { kind: 'base', plane: 'missing' } },
+    { plane: { kind: 'face', face: null } },
+    { frame: { o: [0, 0, 0] } },
+  ])('rejects invalid sketch data before it can replace the open document: %j', (bad) => {
+    const doc = { ...newDocument(), features: [{ ...valid(), ...bad }] };
+    expect(() => parseDocument(JSON.stringify(doc))).toThrow(/damaged.*sketch/);
+  });
+
+  it('rejects duplicate sketch entity and constraint ids', () => {
+    const sk = valid();
+    sk.entities.push({ id: 'rp0', t: 'point', x: 20, y: 20 });
+    expect(() => parseDocument(JSON.stringify({ ...newDocument(), features: [sk] }))).toThrow(/damaged.*sketch/);
+    sk.entities.pop();
+    sk.constraints = [{ id: 'c1', type: 'horizontal', refs: ['rl0'] }, { id: 'c1', type: 'vertical', refs: ['rl1'] }];
+    expect(() => parseDocument(JSON.stringify({ ...newDocument(), features: [sk] }))).toThrow(/damaged.*sketch/);
+  });
+});
+
+
+it('round-trips all curve and dimension types, including origin references and expression errors', () => {
+  const sk = sketch('s1', [
+    ...rect(0, 0, 10, 10, 'r'),
+    { id: 'circle', t: 'circle', c: 'O', r: 4 },
+    { id: 'arc', t: 'arc', c: 'O', a: 'rp1', b: 'rp3' },
+    { id: 'spline', t: 'spline', pts: ['rp0', 'rp1', 'rp2'], construction: true },
+  ]);
+  sk.constraints = [
+    { id: 'rel', type: 'coincident', refs: ['O', 'rp0'] },
+    ...(['distance', 'hdistance', 'vdistance', 'angle', 'radius', 'diameter'] as const).map((type, i) => ({
+      id: `d${i}`, type, refs: [type === 'radius' || type === 'diameter' ? 'circle' : 'rl0'],
+      value: '=Missing', at: [0, 0] as [number, number], name: `D${i}`, driven: i === 1,
+    })),
+  ];
+  const doc = { ...newDocument(), features: [sk], nextId: 2 };
+  expect(parseDocument(serializeDocument(doc))).toEqual(doc);
+});
+
+describe('loading during a change batch', () => {
+  it.each(['endBatch', 'cancelBatch'] as const)('does not bring an old part back when a delayed %s arrives', (finish) => {
+    const st = new DocStore(newDocument('Old part'));
+    st.beginBatch('Drag');
+    st.change('Drag', (d) => { d.color = '#ff0000'; });
+    st.load(newDocument('New part'));
+    st[finish]();
+    expect(st.doc.name).toBe('New part');
+    expect(st.canUndo).toBe(false);
+    expect(st.canRedo).toBe(false);
+    expect(st.dirty).toBe(false);
+  });
+
+  it('makes edits in the newly loaded part independently undoable', () => {
+    const st = new DocStore(newDocument('Old part'));
+    st.beginBatch('Drag');
+    st.load(newDocument('New part'));
+    st.change('Rename', (d) => { d.name = 'Changed new part'; });
+    expect(st.undoLabel).toBe('Rename');
+    st.undo();
+    expect(st.doc.name).toBe('New part');
+  });
+});
+
+describe('drawing file validation', () => {
+  const view = { id: 'v1', kind: 'front', x: 70, y: 80, hidden: true, dims: true };
+  const drawing = { sheet: 'A4', landscape: true, scale: 1, views: [view], title: '', drawnBy: '', notes: '' };
+
+  it.each([
+    { views: [null] }, { views: {} }, { sheet: 'A0' }, { sheet: 'constructor' },
+    { landscape: 'yes' }, { scale: 0 }, { scale: -1 }, { scale: '1' }, { scale: 1e400 },
+    { views: [{ ...view, kind: 'constructor' }] }, { views: [{ ...view, x: null }] },
+    { views: [{ ...view, y: '20' }] }, { views: [{ ...view, hidden: 'yes' }] },
+    { views: [{ ...view, dims: null }] }, { views: [{ ...view, id: '' }] },
+    { views: [view, view] }, { title: {} }, { drawnBy: 5 }, { notes: [] },
+  ])('rejects damaged drawing data %j before opening', (broken) => {
+    expect(() => parseDocument(JSON.stringify({ ...newDocument(), drawing: { ...drawing, ...broken } }))).toThrow(/damaged.*drawing/);
+  });
+
+  it('preserves all supported sheets and view directions, including custom scales and off-sheet positions', () => {
+    for (const sheet of ['A4', 'A3', 'A2', 'A1', 'Letter', 'Tabloid']) {
+      const views = ['front', 'back', 'left', 'right', 'top', 'bottom', 'isometric'].map((kind, i) => ({ ...view, id: `v${i}`, kind, x: -20, y: 900, hidden: false, dims: false }));
+      const raw = { ...newDocument(), drawing: { ...drawing, sheet, landscape: false, scale: 0.037, views, title: 'Bracket', drawnBy: 'Designer', notes: 'First issue' } };
+      expect(parseDocument(JSON.stringify(raw))).toEqual(raw);
+    }
+    expect(parseDocument(JSON.stringify({ ...newDocument(), drawing: { ...drawing, views: [] } })).drawing?.views).toEqual([]);
+  });
+});
+
+
+describe('identifier counter limits', () => {
+  it.each([Number.MAX_SAFE_INTEGER, 1e100])('loads counter %s without producing duplicate identifiers', (nextId) => {
+    const raw = { ...newDocument(), nextId, features: [sketch('s1', [])] };
+    const store = new DocStore(parseDocument(JSON.stringify(raw)));
+    const ids = Array.from({ length: 4 }, () => store.nextId('f'));
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(Number.isSafeInteger(store.doc.nextId)).toBe(true);
+  });
+
+  it('loads arbitrarily large existing identifier suffixes without poisoning allocation', () => {
+    const raw = { ...newDocument(), features: [sketch('f9007199254740992', []), sketch('s' + '9'.repeat(400), [])] };
+    const store = new DocStore(parseDocument(JSON.stringify(raw)));
+    const ids = Array.from({ length: 4 }, () => store.nextId('f'));
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(ids.some((id) => store.doc.features.some((f) => f.id === id))).toBe(false);
+    expect(Number.isSafeInteger(store.doc.nextId)).toBe(true);
+  });
+
+  it('keeps allocating distinct IDs when a running counter reaches its limit', () => {
+    const doc = newDocument();
+    doc.nextId = Number.MAX_SAFE_INTEGER;
+    doc.features.push(sketch('f1', []));
+    const store = new DocStore(doc);
+    const ids = Array.from({ length: 4 }, () => store.nextId('f'));
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(ids).not.toContain('f1');
+    expect(Number.isSafeInteger(store.doc.nextId)).toBe(true);
+  });
+});
+
+
+it('repairs missing variable identifiers when the numeric counter is exhausted', () => {
+  const doc = parseDocument(JSON.stringify({ ...newDocument(), nextId: Number.MAX_SAFE_INTEGER,
+    variables: [{ name: 'Width', expr: '20' }, { name: 'Height', expr: '10' }, { name: 'Depth', expr: '5' }],
+  }));
+  expect(new Set(doc.variables.map((v) => v.id)).size).toBe(3);
+  expect(doc.variables.every((v) => !!v.id)).toBe(true);
+  expect(Number.isSafeInteger(doc.nextId)).toBe(true);
+});
+
+it('repairs repeated variable identifiers without changing equations or values', () => {
+  const variables = [{ id: 'v1', name: 'Width', expr: '20' }, { id: 'v1', name: 'Height', expr: 'Width/2' }, { id: 'v2', name: 'Depth', expr: '5' }];
+  const doc = parseDocument(JSON.stringify({ ...newDocument(), variables }));
+  expect(new Set(doc.variables.map((v) => v.id)).size).toBe(3);
+  expect(doc.variables.map(({ name, expr }) => ({ name, expr }))).toEqual(variables.map(({ name, expr }) => ({ name, expr })));
+  expect(new DocStore(doc).resolve().variables.get('Height')).toBe(10);
+});
+
+
+it('discards nonpositive imported material densities while preserving positive fractions', () => {
+  for (const density of [-1000, 0, 0.5, 2700]) {
+    const material = { name: 'Custom', density };
+    const doc = parseDocument(JSON.stringify({ ...newDocument(), material }));
+    expect(doc.material).toEqual(density > 0 ? material : null);
+  }
+});
+
+describe('history during a change batch', () => {
+  it('undoes an active batch before older changes and preserves it for Redo', () => {
+    const st = new DocStore(newDocument('Original'));
+    st.change('Rename', (d) => { d.name = 'Renamed'; });
+    st.beginBatch('Drag');
+    st.change('Move', (d) => { d.decimals = 5; });
+    st.undo();
+    expect(st.doc).toMatchObject({ name: 'Renamed', decimals: 2 });
+    st.endBatch(); // A late pointer-up must not replace the restored history.
+    st.redo();
+    expect(st.doc).toMatchObject({ name: 'Renamed', decimals: 5 });
+    st.change('Later edit', (d) => { d.decimals = 6; });
+    st.undo();
+    expect(st.doc.decimals).toBe(5);
+  });
+
+  it('allows undo of the first edit while its batch is still active', () => {
+    const st = new DocStore(newDocument());
+    st.beginBatch('Drag');
+    st.change('Move', (d) => { d.decimals = 5; });
+    expect(st.canUndo).toBe(true);
+    st.undo();
+    expect(st.doc.decimals).toBe(2);
+    st.redo();
+    expect(st.doc.decimals).toBe(5);
+  });
+});
+
+it('retires nested batch gestures once before Undo replaces the document', () => {
+  const st = new DocStore(newDocument());
+  const ended: number[] = [];
+  st.beginBatch('Outer', () => ended.push(st.doc.decimals));
+  st.beginBatch('Inner', () => ended.push(st.doc.decimals));
+  st.change('Move', (d) => { d.decimals = 5; });
+  expect(st.undoLabel).toBe('Outer');
+  st.undo();
+  expect(ended).toEqual([5, 5]);
+  expect(st.doc.decimals).toBe(2);
+  st.endBatch();
+  st.endBatch();
+  expect(ended).toEqual([5, 5]);
+  st.redo();
+  expect(st.doc.decimals).toBe(5);
+});
+
+it('Redo closes an unchanged batch without losing the redo step', () => {
+  const st = new DocStore(newDocument());
+  st.change('Edit', (d) => { d.decimals = 5; });
+  st.undo();
+  let ended = 0;
+  st.beginBatch('Unmoved drag', () => { ended++; });
+  expect(st.canRedo).toBe(true);
+  st.redo();
+  expect(ended).toBe(1);
+  expect(st.doc.decimals).toBe(5);
+  st.endBatch();
+  st.undo();
+  expect(st.doc.decimals).toBe(2);
+});
+
+it('a changed batch invalidates Redo and remains separately undoable', () => {
+  const st = new DocStore(newDocument());
+  st.change('Edit', (d) => { d.decimals = 5; });
+  st.undo();
+  st.beginBatch('Drag');
+  st.change('Move', (d) => { d.decimals = 6; });
+  expect(st.canRedo).toBe(false);
+  st.redo();
+  expect(st.doc.decimals).toBe(6);
+  st.undo();
+  expect(st.doc.decimals).toBe(2);
+});
+
+it.each(['cancel', 'load', 'restore'] as const)('%s retires a batch gesture without leaking it into later edits', (end) => {
+  const st = new DocStore(newDocument());
+  const restore = st.restorePoint('Session');
+  let ended = 0;
+  st.beginBatch('Drag', () => { ended++; });
+  st.change('Move', (d) => { d.decimals = 5; });
+  if (end === 'cancel') st.cancelBatch();
+  else if (end === 'load') st.load(newDocument());
+  else restore();
+  expect(ended).toBe(1);
+  st.endBatch();
+  st.change('Next', (d) => { d.decimals = 6; });
+  st.undo();
+  expect(st.doc.decimals).toBe(2);
+  expect(ended).toBe(1);
 });

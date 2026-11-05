@@ -10,6 +10,8 @@ export interface DialogOptions {
   body: HTMLElement | (HTMLElement | string)[];
   buttons?: { label: string; primary?: boolean; danger?: boolean; value?: string; left?: boolean; disabled?: boolean }[];
   wide?: boolean;
+  /** Closes a dialog whose underlying task or document is no longer current. */
+  signal?: AbortSignal;
   /** Return false to keep the dialog open (e.g. validation failed). */
   onAction?: (value: string) => boolean | void | Promise<boolean | void>;
   initialFocus?: string;
@@ -21,6 +23,7 @@ const openDialogs: HTMLElement[] = [];
 export const dialogOpen = () => openDialogs.length > 0;
 
 export function showDialog(o: DialogOptions): Promise<string | null> {
+  if (o.signal?.aborted) return Promise.resolve(null);
   return new Promise((resolve) => {
     const prevFocus = document.activeElement as HTMLElement | null;
     const prevParents: HTMLElement[] = [];
@@ -37,11 +40,14 @@ export function showDialog(o: DialogOptions): Promise<string | null> {
     const finish = (v: string | null) => {
       if (done) return;
       done = true;
+      o.signal?.removeEventListener('abort', cancel);
       backdrop.remove();
       openDialogs.splice(openDialogs.indexOf(backdrop), 1);
       restoreFocus(prevFocus, prevParents);
       resolve(v);
     };
+    const cancel = () => finish(null);
+    o.signal?.addEventListener('abort', cancel, { once: true });
     for (const b of o.buttons ?? [{ label: 'Close', primary: true, value: 'ok' }]) {
       const btn = h('button', { class: `btn${b.primary ? ' primary' : ''}${b.danger ? ' danger' : ''}${b.left ? ' left' : ''}`, 'data-value': b.value ?? b.label, disabled: b.disabled }, b.label);
       btn.addEventListener('click', async () => {
@@ -56,6 +62,7 @@ export function showDialog(o: DialogOptions): Promise<string | null> {
     }
     backdrop.addEventListener('pointerdown', (e) => { if (e.target === backdrop) finish(null); });
     dialog.addEventListener('keydown', (e) => {
+      if (e.isComposing || e.keyCode === 229) return;
       if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); finish(null); }
       if (e.key === 'Tab') {
         const f = [...dialog.querySelectorAll<HTMLElement>('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')].filter((x) => !x.hasAttribute('disabled') && x.offsetParent !== null);
@@ -66,7 +73,7 @@ export function showDialog(o: DialogOptions): Promise<string | null> {
         if (e.shiftKey && i <= 0) { e.preventDefault(); f[f.length - 1].focus(); }
         else if (!e.shiftKey && (i < 0 || i === f.length - 1)) { e.preventDefault(); f[0].focus(); }
       }
-      if (e.key === 'Enter' && !(e.target instanceof HTMLTextAreaElement) && !(e.target instanceof HTMLButtonElement)) {
+      if (e.key === 'Enter' && !(e.target instanceof HTMLSelectElement) && !(e.target instanceof HTMLTextAreaElement) && !(e.target instanceof HTMLButtonElement)) {
         const primary = foot.querySelector<HTMLButtonElement>('.btn.primary');
         if (primary && !primary.disabled) { e.preventDefault(); primary.click(); }
       }
@@ -74,6 +81,7 @@ export function showDialog(o: DialogOptions): Promise<string | null> {
     document.body.append(backdrop);
     openDialogs.push(backdrop);
     o.onReady?.(finish);
+    if (done) return;
     // Destructive confirmations have no primary button: focus starts on the
     // first (safe) button, so Escape and Tab work inside the dialog.
     const focusEl = (o.initialFocus && dialog.querySelector<HTMLElement>(o.initialFocus)) || dialog.querySelector<HTMLElement>('input, select, textarea') || foot.querySelector<HTMLElement>('.btn.primary') || foot.querySelector<HTMLElement>('.btn:not([disabled])') || dialog;
@@ -106,21 +114,21 @@ function restoreFocus(prev: HTMLElement | null, parents: HTMLElement[]) {
   target?.focus();
 }
 
-export async function confirmDialog(title: string, message: string, ok = 'OK', danger = false): Promise<boolean> {
+export async function confirmDialog(title: string, message: string, ok = 'OK', danger = false, signal?: AbortSignal): Promise<boolean> {
   const v = await showDialog({
-    title,
+    title, signal,
     body: h('p', {}, message),
     buttons: [{ label: 'Cancel', value: 'cancel' }, { label: ok, value: 'ok', primary: !danger, danger }],
   });
-  return v === 'ok';
+  return v === 'ok' && !signal?.aborted;
 }
 
-export async function promptDialog(title: string, label: string, value: string, validate?: (v: string) => string | null): Promise<string | null> {
+export async function promptDialog(title: string, label: string, value: string, validate?: (v: string) => string | null, signal?: AbortSignal): Promise<string | null> {
   const id = nextDomId('prompt');
   const input = h('input', { class: 'input', id, value, autocomplete: 'off', spellcheck: 'false' }) as HTMLInputElement;
   const err = h('div', { class: 'field-label', role: 'alert', style: { color: 'var(--danger)' } });
   const pending = showDialog({
-    title,
+    title, signal,
     body: [h('label', { class: 'field-label', for: id }, label), input, err],
     buttons: [{ label: 'Cancel', value: 'cancel' }, { label: 'OK', value: 'ok', primary: true }],
     onAction: (a) => {
@@ -131,7 +139,7 @@ export async function promptDialog(title: string, label: string, value: string, 
   });
   requestAnimationFrame(() => requestAnimationFrame(() => input.select()));
   const v = await pending;
-  return v === 'ok' ? input.value : null;
+  return v === 'ok' && !signal?.aborted ? input.value : null;
 }
 
 // ---------- Toasts ----------

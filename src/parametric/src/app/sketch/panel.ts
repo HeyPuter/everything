@@ -9,9 +9,18 @@ import { RELATION_LABELS, availableRelations, makeRelations, relationsOf } from 
 import { h } from '../../ui/dom';
 import { icon, relationGlyph } from '../../ui/icons';
 import type { App } from '../app';
+import type { SolveResult } from '../../sketch/solver';
 import { PropertyPanel, checkbox, numberField, section } from '../pm';
 
 const ENTITY_LABELS: Record<string, string> = { point: 'Point', line: 'Line', circle: 'Circle', arc: 'Arc', spline: 'Spline' };
+
+export function sketchDefinitionStatus(st: SolveResult): HTMLElement {
+  const cls = st.status === 'over' ? 'error' : st.status === 'full' ? 'info' : '';
+  const text = st.status === 'over'
+    ? `Over defined: ${st.badConstraints.size} relation(s) or dimension(s) conflict or are redundant. Delete or make them driven (shown in red).`
+    : st.status === 'full' ? 'Fully defined.' : `Under defined: ${st.dof} degree(s) of freedom remain. Add dimensions or relations (blue geometry can still move).`;
+  return h('div', { class: `pm-msg sketch-definition ${cls}`, role: 'status' }, text);
+}
 
 export class SketchPanel extends PropertyPanel {
   title: string;
@@ -36,14 +45,12 @@ export class SketchPanel extends PropertyPanel {
     const sk = ed.sketch;
     const out: HTMLElement[] = [];
     const st = ed.solve;
-    if (st) {
-      const cls = st.status === 'over' ? 'error' : st.status === 'full' ? 'info' : '';
-      const text = st.status === 'over'
-        ? `Over defined: ${st.badConstraints.size} relation(s) or dimension(s) conflict or are redundant. Delete or make them driven (shown in red).`
-        : st.status === 'full' ? 'Fully defined.' : `Under defined: ${st.dof} degree(s) of freedom remain. Add dimensions or relations (blue geometry can still move).`;
-      out.push(h('div', { class: `pm-msg ${cls}`, role: 'status' }, text));
+    if (st) out.push(sketchDefinitionStatus(st));
+    if (ed.tool?.options) {
+      const options = section(`${ed.tool.label} Options`, ed.tool.options());
+      options.classList.add('sketch-tool-options');
+      out.push(options);
     }
-    if (ed.tool?.options) out.push(section(`${ed.tool.label} Options`, ed.tool.options()));
     if (ed.tool) out.push(h('div', { class: 'pm-msg' }, ed.tool.hint));
 
     const ids = ed.selectedIds(['sk']);
@@ -79,14 +86,19 @@ export class SketchPanel extends PropertyPanel {
     } else if (dims.length === 1) {
       const d = dims[0];
       out.push(section(`Dimension ${d.name}`, [
-        d.driven ? h('div', { class: 'field-label' }, 'Driven (reference) dimension') : numberField({
+        d.driven ? h('div', { class: 'field-label' }, 'Driven (reference) dimension') : h('div', { class: 'sketch-dimension-field' }, numberField({
           label: 'Value', value: d.value, kind: d.type === 'angle' ? 'angle' : 'length', ctx: app.unitContext(),
           // Like the Modify box: lengths must be positive (a negative one over-defines the sketch).
           min: d.type === 'angle' ? 0 : 1e-6,
           // The angle between two lines is 0 to 180 degrees (the label side picks the sector).
           max: d.type === 'angle' ? 180 : undefined,
-          onChange: (v) => ed.edit('Change dimension', (s2) => { (s2.constraints.find((c) => c.id === d.id) as SkDimension).value = v; }),
-        }),
+          onChange: (v) => {
+            // Removing a focused field can emit change before detaching it.
+            // The field must still own this dimension, not a deleted or replaced one.
+            if (!ed.sketch?.constraints.includes(d)) return;
+            ed.edit('Change dimension', (s2) => { (s2.constraints.find((c) => c.id === d.id) as SkDimension).value = v; }, { keepNumberField: true });
+          },
+        })),
         checkbox('Driven (reference only)', !!d.driven, (v) => ed.edit(v ? 'Make dimension driven' : 'Make dimension driving', (s2) => { (s2.constraints.find((c) => c.id === d.id) as SkDimension).driven = v || undefined; })),
       ]));
     } else if (!ed.tool) {

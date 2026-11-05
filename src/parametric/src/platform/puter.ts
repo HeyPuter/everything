@@ -56,6 +56,12 @@ declare global {
 }
 
 let sdk: PuterSDK | null = null;
+let accountGeneration = 0;
+const kvWrites = new Map<string, Promise<boolean>>();
+
+function invalidateQueuedKVWrites() {
+  accountGeneration++;
+}
 
 /** Waits briefly for the SDK script (loaded with defer) and returns it or null. */
 export async function loadPuter(timeoutMs = 5000): Promise<PuterSDK | null> {
@@ -70,6 +76,8 @@ export async function loadPuter(timeoutMs = 5000): Promise<PuterSDK | null> {
 
 export const puter = () => sdk;
 export function setPuterForTests(p: PuterSDK | null) {
+  invalidateQueuedKVWrites();
+  kvWrites.clear();
   sdk = p;
 }
 
@@ -120,6 +128,7 @@ export async function getProfilePicture(): Promise<string | null> {
 
 export async function signIn(): Promise<boolean> {
   if (!sdk) throw new Error('Puter is not available right now. Check your connection and try again.');
+  invalidateQueuedKVWrites();
   pictureCache = null;
   try {
     await sdk.auth.signIn();
@@ -134,6 +143,7 @@ export async function signIn(): Promise<boolean> {
 
 export async function signOut(): Promise<void> {
   if (!sdk) return;
+  invalidateQueuedKVWrites();
   pictureCache = null;
   await sdk.auth.signOut();
 }
@@ -176,10 +186,28 @@ export async function kvGet<T>(key: string): Promise<T | undefined> {
 
 export async function kvSet(key: string, value: unknown): Promise<boolean> {
   if (!sdk?.kv || !cloudAvailable()) return false;
+  const target = sdk, generation = accountGeneration;
+  let snapshot: unknown;
   try {
-    await sdk.kv.set(key, value);
-    return true;
+    snapshot = structuredClone(value);
   } catch {
     return false;
   }
+  const write = async () => {
+    // A queued preference belongs to the session that requested it.
+    if (target !== sdk || generation !== accountGeneration || !cloudAvailable()) return false;
+    try {
+      await target.kv.set(key, snapshot);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  // Different keys are independent; writes to one key must reach storage in
+  // request order, even when an earlier call is slow or fails.
+  const previous = kvWrites.get(key);
+  const result = previous ? previous.then(write) : write();
+  kvWrites.set(key, result);
+  void result.then(() => { if (kvWrites.get(key) === result) kvWrites.delete(key); });
+  return result;
 }

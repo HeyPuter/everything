@@ -1,7 +1,7 @@
 Parametric - third-party notices
 ================================
 
-Parametric is open-source software released under the MIT License.
+Parametric is open-source software released under the GNU Affero General Public License v3.0.
 It includes the following third-party components. Their full license
 texts are in this folder.
 

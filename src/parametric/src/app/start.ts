@@ -23,14 +23,14 @@ export class StartScreen {
   show() {
     this.hide();
     const app = this.app;
-    let units: UnitSystem = app.settings.defaultUnits;
+    const units = app.settings.defaultUnits;
     const unitSel = h('select', { class: 'input', 'aria-label': 'Units for the new part', style: { width: 'auto' } }) as HTMLSelectElement;
     for (const u of Object.values(UNIT_SYSTEMS)) {
       const o = h('option', { value: u.id }, u.label) as HTMLOptionElement;
       if (u.id === units) o.selected = true;
       unitSel.append(o);
     }
-    unitSel.addEventListener('change', () => { units = unitSel.value as UnitSystem; app.settings.defaultUnits = units; app.saveSettings(); });
+    unitSel.addEventListener('change', () => { app.changeSettings({ defaultUnits: unitSel.value as UnitSystem }); app.saveSettings(); });
     const action = (ic: string, t: string, d: string, run: () => void) => {
       const b = h('button', { class: 'start-action', type: 'button' }, h('span', { style: { color: 'var(--accent)' } }, icon(ic, 24)), h('span', { class: 't' }, t), h('span', { class: 'd' }, d));
       b.addEventListener('click', run);
@@ -50,7 +50,6 @@ export class StartScreen {
         action('new', 'New part', 'Start from a blank part', async () => {
           if (!(await this.files.confirmDiscard('start a new part'))) return;
           this.hide();
-          app.settings.defaultUnits = units;
           app.newDocument('Part1');
         }),
         action('open', 'Open', cloudAvailable() ? 'Open a part from your Puter cloud or this browser' : 'Open a part saved in this browser', () => { this.hide(); void this.files.open(); }),
@@ -71,7 +70,9 @@ export class StartScreen {
     );
     this.el = h('div', { class: 'start' }, card);
     // Work started elsewhere (the assistant, the ribbon) needs the graphics area.
-    this.unsubscribe = app.store.on((reason) => { if (reason !== 'load') this.hide(); });
+    const offStore = app.store.on((reason) => { if (reason !== 'load') this.hide(); });
+    const offSettings = app.commands.onChange(() => { unitSel.value = app.settings.defaultUnits; });
+    this.unsubscribe = () => { offStore(); offSettings(); };
     app.shell.viewport.append(this.el);
     requestAnimationFrame(() => card.querySelector<HTMLElement>('.start-action')?.focus());
     this.el.addEventListener('keydown', (e) => { if (e.key === 'Escape') { this.hide(); } });

@@ -7,8 +7,9 @@ import type { Frame, Vec2, Vec3 } from '../../math/vec';
 import { dist2, toLocal, toWorld } from '../../math/vec';
 import type { Id, Param, SkConstraint, SkCurve, SkDimension, SkEntity, SketchFeature } from '../../model/types';
 import { isDimension } from '../../model/types';
-import { UNIT_SYSTEMS, formatNumber } from '../../model/units';
-import { evaluate } from '../../model/expr';
+import { UNIT_SYSTEMS, formatEditable, formatNumber } from '../../model/units';
+import { evaluate, evaluateVariables, variableReferenceChanges } from '../../model/expr';
+import { changeFeatureUnits } from '../../model/document';
 import { ORIGIN_ID, SketchIndex, distanceToCurve, pointIdsOf, sketchBounds, tessellate } from '../../sketch/geom';
 import { type SolveResult, solveSketch } from '../../sketch/solver';
 import { RELATION_LABELS, availableRelations, cleanupConstraints, deleteItems, idFactory, makeRelations, measureDimension, nextDimName, usedPoints } from '../../sketch/ops';
@@ -16,6 +17,7 @@ import { h } from '../../ui/dom';
 import { icon, relationGlyph } from '../../ui/icons';
 import { toast } from '../../ui/overlay';
 import type { App } from '../app';
+import { settleNumberFields } from '../pm';
 import type { VPEvent, ViewportTool } from '../viewport';
 import { dimGraphics } from './dimgfx';
 import { type Snap, SNAP_GLYPH, snapPoint } from './inference';
@@ -78,6 +80,10 @@ export class SketchEditor implements ViewportTool {
   private modify: HTMLElement | null = null;
   /** Undoes the open modify box's live preview when it closes without applying. */
   private modifyRevert: (() => void) | null = null;
+  private modifyCleanup: (() => void) | null = null;
+  private modifyHistoryCleanup: (() => void) | null = null;
+  private modifyValid: (() => boolean) | null = null;
+  private modifySyncExpressions: ((references: Map<string, string | number>) => void) | null = null;
   showRelations = true;
   showDimensions = true;
   /** Cursor position in sketch coordinates. */
@@ -93,14 +99,55 @@ export class SketchEditor implements ViewportTool {
     this.tipEl = h('div', { class: 'cursor-tip', hidden: true, 'aria-hidden': 'true' });
     this.app.viewport.root.append(this.tipEl);
     this.resolve(false);
+    let units = app.store.doc.units;
+    let variables = structuredClone(app.store.doc.variables);
     // Undo and redo replace the geometry a tool may be in the middle of
     // using (a line chain's last point, picked entities): drop that state so
     // the next click cannot reference points that no longer exist.
     this.unsubscribe = app.store.on((reason) => {
-      if (reason !== 'undo' && reason !== 'redo') return;
-      if (this.tool) { if (this.tool.abort) this.tool.abort(); else this.tool.cancel(); }
-      this.modifyRevert = null;
-      this.closeModify();
+      // A model change can remove, replace, or make the edited dimension driven.
+      // Retire its box before any late input can write back into the new state.
+      if (this.modifyValid && !this.modifyValid()) {
+        this.modifyRevert = null;
+        this.closeModify();
+      }
+      // Geometry edits cannot rename variables; avoid copying their table on each drag.
+      if (reason === 'sketch' && units === app.store.doc.units) return;
+      const references = variableReferenceChanges(variables, app.store.doc.variables);
+      const unitsChanged = units !== app.store.doc.units;
+      const previousUnits = units, previousVariables = variables;
+      units = app.store.doc.units;
+      variables = structuredClone(app.store.doc.variables);
+      if (reason === 'undo' || reason === 'redo') {
+        if (this.tool) { if (this.tool.abort) this.tool.abort(); else this.tool.cancel(); }
+        this.modifyRevert = null;
+        this.closeModify();
+      } else {
+        if (unitsChanged || references.size) {
+          const values = evaluateVariables(previousVariables).values;
+          const context = { units: previousUnits, decimals: app.store.doc.decimals, variables: () => values };
+          const options = app.shell.lpBody.querySelector<HTMLElement>('.sketch-tool-options');
+          // Options store numeric lengths/counts: commit with the old context before remounting.
+          if (options) settleNumberFields(options, context);
+          const field = app.shell.lpBody.querySelector<HTMLElement>('.sketch-dimension-field');
+          const dims = this.selectedIds(['skdim']);
+          const d = dims.length === 1 ? this.sketch.constraints.find((c) => c.id === dims[0]) : undefined;
+          if (field && d && isDimension(d)) {
+            // The document already changed context, but the pending text did
+            // not. Parse it in the old context, then convert before storing it.
+            settleNumberFields(field, context, (value) => {
+              const pending = { ...this.sketch, entities: [], constraints: [{ ...d, value }] };
+              changeFeatureUnits(pending, previousUnits, units, previousVariables, variables, references);
+              return pending.constraints[0].value;
+            });
+          }
+        }
+        this.modifySyncExpressions?.(references);
+      }
+      if (unitsChanged || references.size) {
+        app.refreshSketchPanel();
+        this.render();
+      }
     });
   }
 
@@ -130,7 +177,7 @@ export class SketchEditor implements ViewportTool {
   }
 
   /** Applies a sketch change as one undo step and re-solves. */
-  edit(label: string, fn: (sk: SketchFeature, newId: (p: string) => Id) => void, opts: { select?: Id[]; solve?: boolean } = {}) {
+  edit(label: string, fn: (sk: SketchFeature, newId: (p: string) => Id) => void, opts: { select?: Id[]; solve?: boolean; keepNumberField?: boolean } = {}) {
     this.app.store.change(label, (doc) => {
       const sk = doc.features.find((f) => f.id === this.sketchId) as SketchFeature;
       fn(sk, idFactory(sk));
@@ -139,7 +186,7 @@ export class SketchEditor implements ViewportTool {
     }, 'sketch');
     if (opts.select) this.app.selection.set(opts.select.map((id) => this.selItem(id)));
     this.render();
-    this.app.refreshSketchPanel();
+    this.app.refreshSketchPanel(opts.keepNumberField);
   }
 
   private selItem(id: Id) {
@@ -211,7 +258,8 @@ export class SketchEditor implements ViewportTool {
     for (const e of sk.entities) {
       if (e.t !== 'point') continue;
       const d = dist2(p, [e.x, e.y]);
-      if (d < bd) { bd = d; best = { kind: 'point', id: e.id }; }
+      // A real vertex at the origin must remain selectable for corner operations.
+      if (d < bd || (d === bd && best?.id === ORIGIN_ID)) { bd = d; best = { kind: 'point', id: e.id }; }
     }
     if (best) return best;
     const ix = new SketchIndex(sk.entities);
@@ -261,7 +309,7 @@ export class SketchEditor implements ViewportTool {
         if (ids.size && !list.length) this.app.setStatus('This geometry is fully defined, so it cannot be dragged.');
         this.drag = { kind: 'points', ids: list, start: list.map((id) => ix.pt(id)), grab: raw, moved: false };
       }
-      this.app.store.beginBatch('Drag sketch geometry');
+      this.app.store.beginBatch('Drag sketch geometry', () => { this.drag = null; });
       return true;
     }
     this.drag = { kind: 'box', boxStart: { x: e.x, y: e.y }, moved: false };
@@ -465,6 +513,9 @@ export class SketchEditor implements ViewportTool {
   deleteSelection(): boolean {
     const ids = this.selectedIds(['sk', 'skdim', 'skrel']).filter((id) => id !== ORIGIN_ID);
     if (!ids.length) return false;
+    // Pending picks/snaps may reference the geometry being removed. Abort
+    // without finishing it (a spline's ordinary cancel commits its points).
+    if (this.tool) { if (this.tool.abort) this.tool.abort(); else this.tool.cancel(); }
     this.edit('Delete', (sk) => deleteItems(sk, ids));
     this.app.selection.clear();
     return true;
@@ -527,23 +578,38 @@ export class SketchEditor implements ViewportTool {
       toast({ message: 'This is a driven (reference) dimension. Make it driving from its context menu to edit its value.' });
       return;
     }
-    const units = this.app.store.doc.units;
-    const scale = d.type === 'angle' ? 1 : UNIT_SYSTEMS[units].scale;
-    const initial = typeof d.value === 'string' ? d.value : String(Number((Number(d.value) / scale).toFixed(8)));
+    const ownsDimension = () => !!this.sketch?.constraints.includes(d) && !d.driven;
+    let units = this.app.store.doc.units;
+    let variables = structuredClone(this.app.store.doc.variables);
+    let scale = d.type === 'angle' ? 1 : UNIT_SYSTEMS[units].scale;
+    const initial = typeof d.value === 'string' ? d.value : formatEditable(d.value / scale);
     const input = h('input', { class: 'input', value: initial, 'aria-label': `Value of ${d.name}`, spellcheck: 'false', autocomplete: 'off', autocapitalize: 'off', autocorrect: 'off' }) as HTMLInputElement;
     const err = h('div', { class: 'err', role: 'alert' });
-    const original = d.value;
+    let original = d.value;
     // Live previews move geometry without an undo step. Every preview starts
     // from the geometry as it was, and cancel or apply restore it first, so the
     // undo step holds the true state from before the change.
     const geometry = new Map(sk.entities.map((e) => [e.id, e.t === 'point' ? [e.x, e.y] : e.t === 'circle' ? [e.r] : null]));
-    const restoreGeometry = () => {
-      for (const e of this.sketch.entities) {
+    const restoreGeometry = (target = this.sketch) => {
+      for (const e of target.entities) {
         const g = geometry.get(e.id);
         if (!g) continue;
         if (e.t === 'point') { e.x = g[0]; e.y = g[1]; } else if (e.t === 'circle') e.r = g[0];
       }
     };
+    this.modifyHistoryCleanup = this.app.store.filterHistory((doc) => {
+      if (!ownsDimension()) return;
+      const target = doc.features.find((f) => f.id === this.sketchId);
+      if (target?.type !== 'sketch') return;
+      const dim = target.constraints.find((c) => c.id === dimId);
+      if (!dim || !isDimension(dim)) return;
+      // Another transaction may already have changed units or references before
+      // the editor receives its notification. Convert the baseline for that snapshot.
+      const baseline = { ...target, entities: [], constraints: [{ ...dim, value: original }] };
+      changeFeatureUnits(baseline, units, doc.units, variables, doc.variables);
+      dim.value = baseline.constraints[0].value;
+      restoreGeometry(target);
+    });
     const evalText = (t: string): { ok: true; v: Param } | { ok: false; e: string } => {
       const s = t.trim();
       try {
@@ -561,6 +627,7 @@ export class SketchEditor implements ViewportTool {
       }
     };
     const apply = (live: boolean) => {
+      if (this.modify !== box || !ownsDimension()) return false;
       const r = evalText(input.value);
       if (!r.ok) { err.textContent = r.e; input.classList.add('invalid'); return false; }
       err.textContent = '';
@@ -572,6 +639,8 @@ export class SketchEditor implements ViewportTool {
         restoreGeometry();
         this.resolve();
       } else {
+        this.modifyHistoryCleanup?.();
+        this.modifyHistoryCleanup = null;
         const dd = this.sketch.constraints.find((c) => c.id === dimId) as SkDimension;
         dd.value = original;
         restoreGeometry();
@@ -580,6 +649,7 @@ export class SketchEditor implements ViewportTool {
       return true;
     };
     const revert = () => {
+      if (!ownsDimension()) return;
       const dd = this.sketch?.constraints.find((c) => c.id === dimId) as SkDimension | undefined;
       if (!dd) return;
       dd.value = original;
@@ -592,8 +662,10 @@ export class SketchEditor implements ViewportTool {
       this.modifyRevert = null;
       this.closeModify();
     };
-    input.addEventListener('input', () => apply(true));
+    input.addEventListener('input', (e) => { if (!e.isComposing) apply(true); });
+    input.addEventListener('compositionend', () => apply(true));
     input.addEventListener('keydown', (e) => {
+      if (e.isComposing || e.keyCode === 229) return;
       e.stopPropagation();
       if (e.key === 'Enter') { e.preventDefault(); ok(); }
       if (e.key === 'Escape') { e.preventDefault(); cancel(); }
@@ -606,20 +678,48 @@ export class SketchEditor implements ViewportTool {
       input, err);
     this.app.viewport.root.append(box);
     this.modify = box;
+    this.modifyValid = ownsDimension;
     this.modifyRevert = revert;
+    this.modifySyncExpressions = (references) => {
+      const doc = this.app.store.doc;
+      if (doc.units !== units || references.size) {
+        // The live expression was updated with the document; Cancel's separate
+        // baseline must follow the same units and variable-reference changes.
+        const baseline = { ...this.sketch, entities: [], constraints: [{ ...d, value: original }] };
+        changeFeatureUnits(baseline, units, doc.units, variables, doc.variables, references);
+        original = baseline.constraints[0].value;
+        units = doc.units;
+        scale = d.type === 'angle' ? 1 : UNIT_SYSTEMS[units].scale;
+        const current = this.sketch.constraints.find((c) => c.id === dimId) as SkDimension | undefined;
+        if (current && !input.classList.contains('invalid')) {
+          input.value = typeof current.value === 'string' ? current.value : formatEditable(current.value / scale);
+        }
+      }
+      variables = structuredClone(doc.variables);
+    };
     const [sx, sy] = this.toScreen(d.at);
     const rootW = this.app.viewport.root.clientWidth;
     box.style.left = `${Math.max(4, Math.min(rootW - 200, sx + 14))}px`;
     box.style.top = `${Math.max(4, sy - 70)}px`;
     requestAnimationFrame(() => { input.focus(); input.select(); });
     const outside = (ev: PointerEvent) => {
-      if (!box.contains(ev.target as Node)) { document.removeEventListener('pointerdown', outside, true); if (this.modify === box) ok(); }
+      if (!box.contains(ev.target as Node) && this.modify === box) ok();
     };
-    setTimeout(() => document.addEventListener('pointerdown', outside, true), 0);
+    const timer = window.setTimeout(() => document.addEventListener('pointerdown', outside, true), 0);
+    this.modifyCleanup = () => {
+      clearTimeout(timer);
+      document.removeEventListener('pointerdown', outside, true);
+    };
   }
 
   /** Closes the modify box; a value that was not applied is reverted. */
   closeModify() {
+    this.modifyValid = null;
+    this.modifyHistoryCleanup?.();
+    this.modifyHistoryCleanup = null;
+    this.modifySyncExpressions = null;
+    this.modifyCleanup?.();
+    this.modifyCleanup = null;
     const revert = this.modifyRevert;
     this.modifyRevert = null;
     revert?.();
@@ -785,7 +885,7 @@ export class SketchEditor implements ViewportTool {
     el.addEventListener('pointermove', (e) => {
       if (!start) return;
       if (!moved && Math.hypot(e.clientX - start.x, e.clientY - start.y) < 3) return;
-      if (!moved) this.app.store.beginBatch('Move dimension');
+      if (!moved) this.app.store.beginBatch('Move dimension', () => { start = null; });
       moved = true;
       const rect = this.app.viewport.canvas.getBoundingClientRect();
       const p = this.toSketch({ x: e.clientX - rect.left, y: e.clientY - rect.top });
@@ -797,13 +897,17 @@ export class SketchEditor implements ViewportTool {
       }, 'sketch');
       this.queueRender();
     });
-    el.addEventListener('pointerup', (e) => {
+    const end = (e: PointerEvent, cancelled = false) => {
       if (!start) return;
       start = null;
       if (moved) { this.app.store.endBatch(); return; }
+      if (cancelled) return;
       if (e.shiftKey || e.ctrlKey || e.metaKey) this.app.selection.toggle({ kind: 'skdim', id });
       else this.app.selection.set([{ kind: 'skdim', id }]);
-    });
+    };
+    el.addEventListener('pointerup', (e) => end(e));
+    el.addEventListener('pointercancel', (e) => end(e, true));
+    el.addEventListener('lostpointercapture', (e) => end(e, true));
     el.addEventListener('dblclick', (e) => { e.stopPropagation(); this.openModify(id); });
     el.addEventListener('contextmenu', (e) => {
       e.preventDefault();

@@ -359,3 +359,28 @@ test('a submenu with no room on the right opens beside its parent menu, not over
   const sub = (await page.locator('.menu').nth(1).boundingBox())!;
   expect(sub.x + sub.width).toBeLessThanOrEqual(parent.x + 4);
 });
+
+test('IME candidate keys keep rename dialogs and feature names editable', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  await page.evaluate(() => (window as unknown as { __parametric: { commands: { run(id: string): void } } }).__parametric.commands.run('rename'));
+  const dialog = page.getByRole('dialog', { name: 'Rename Part' });
+  const name = dialog.getByRole('textbox');
+  await name.fill('部品');
+  await name.dispatchEvent('keydown', { key: 'Enter', isComposing: true });
+  await expect(dialog).toBeVisible();
+  await name.dispatchEvent('keydown', { key: 'Escape', isComposing: true });
+  await expect(name).toHaveValue('部品');
+  await name.press('Enter');
+  await expect(page).toHaveTitle(/部品 - Parametric$/);
+  await page.getByRole('treeitem', { name: 'Fillet1', exact: true }).focus();
+  await page.keyboard.press('F2');
+  const featureName = page.getByRole('textbox', { name: 'Feature name' });
+  await featureName.fill('丸み');
+  await featureName.dispatchEvent('keydown', { key: 'Enter', keyCode: 229 });
+  await expect(featureName).toBeFocused();
+  await featureName.press('Enter');
+  await expect(page.getByRole('treeitem', { name: '丸み', exact: true })).toBeVisible();
+  expect(errors).toEqual([]);
+});

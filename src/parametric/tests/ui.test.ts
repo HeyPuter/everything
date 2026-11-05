@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { closeMenus, openMenu } from '../src/ui/menu';
-import { attachTooltip, confirmDialog, promptDialog, toast } from '../src/ui/overlay';
-import { numberField, parseParam, paramText, type UnitContext } from '../src/app/pm';
+import { attachTooltip, confirmDialog, dialogOpen, promptDialog, showDialog, toast } from '../src/ui/overlay';
+import { numberField, parseParam, paramText, retireNumberFields, type UnitContext } from '../src/app/pm';
 import { Selection } from '../src/app/selection';
 
 const ctx = (units: UnitContext['units'] = 'MMGS'): UnitContext => ({ units, decimals: 2, variables: () => new Map([['Len', 4]]) });
@@ -164,6 +164,24 @@ describe('PropertyManager number fields', () => {
     expect(input.classList.contains('expr')).toBe(true);
   });
 
+  it.each(['retired', 'removed'])('ignores delayed edits and change events from a %s numeric field', (state) => {
+    vi.useFakeTimers();
+    try {
+      const onChange = vi.fn();
+      const el = numberField({ label: 'Depth', value: 10, kind: 'length', ctx: ctx(), onChange });
+      document.body.append(el);
+      const input = el.querySelector('input')!;
+      input.value = '40';
+      input.dispatchEvent(new InputEvent('input', { bubbles: true }));
+      if (state === 'retired') retireNumberFields(el);
+      else el.remove();
+      vi.advanceTimersByTime(500);
+      expect(onChange).not.toHaveBeenCalled();
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+      expect(onChange).not.toHaveBeenCalled();
+    } finally { vi.useRealTimers(); }
+  });
+
   it('offers the full keyboard where minus signs, units or expressions can be typed', () => {
     const mode = (o: Partial<Parameters<typeof numberField>[0]>) => numberField({ label: 'X', value: 1, kind: 'length', ctx: ctx(), onChange: () => {}, ...o }).querySelector('input')!.getAttribute('inputmode');
     expect(mode({})).toBe('text');
@@ -218,5 +236,96 @@ describe('selection', () => {
     sel.set([{ kind: 'feature', id: 'f1' }]);
     sel.setHover(null);
     expect(calls).toEqual([true, false, true]);
+  });
+});
+
+
+describe('IME composition', () => {
+  it.each([{ isComposing: true }, { keyCode: 229 }])('does not submit or cancel a rename while choosing an IME candidate (%j)', async (init) => {
+    const pending = promptDialog('Rename', 'Name', '部品');
+    const input = document.querySelector('[role="dialog"] input') as HTMLInputElement;
+    key(input, 'Enter', init);
+    await Promise.resolve();
+    expect(document.querySelector('[role="dialog"]')).not.toBeNull();
+    key(input, 'Escape', init);
+    expect(document.querySelector('[role="dialog"]')).not.toBeNull();
+    key(input, 'Enter');
+    expect(await pending).toBe('部品');
+  });
+
+  it('does not change a numeric parameter with IME navigation or intermediate input', () => {
+    vi.useFakeTimers();
+    try {
+      const onChange = vi.fn();
+      const field = numberField({ label: 'Depth', value: 10, kind: 'length', ctx: ctx(), onChange });
+      document.body.append(field);
+      const input = field.querySelector('input')!;
+      input.focus();
+      input.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }));
+      input.value = '20';
+      input.dispatchEvent(new InputEvent('input', { bubbles: true, isComposing: true }));
+      vi.advanceTimersByTime(500);
+      key(input, 'ArrowUp', { isComposing: true });
+      key(input, 'Enter', { isComposing: true });
+      key(input, 'Escape', { isComposing: true });
+      expect(onChange).not.toHaveBeenCalled();
+      expect(input.value).toBe('20');
+      input.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true }));
+      vi.advanceTimersByTime(500);
+      expect(onChange).toHaveBeenCalledExactlyOnceWith(20);
+    } finally { vi.useRealTimers(); }
+  });
+});
+
+
+describe('dialog cancellation', () => {
+  it('does not open an already cancelled dialog', async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const onReady = vi.fn();
+    expect(await showDialog({ title: 'Stale', body: [], signal: controller.signal, onReady })).toBeNull();
+    expect(onReady).not.toHaveBeenCalled();
+    expect(dialogOpen()).toBe(false);
+  });
+
+  it('cancels pending validation and restores focus without affecting another dialog', async () => {
+    const opener = document.createElement('button');
+    document.body.append(opener);
+    opener.focus();
+    const controller = new AbortController();
+    let validate!: () => void;
+    const gate = new Promise<void>((resolve) => { validate = resolve; });
+    const pending = showDialog({ title: 'Old part', body: [], signal: controller.signal, onAction: () => gate });
+    (document.querySelector('.dialog-foot button') as HTMLButtonElement).click();
+    controller.abort();
+    expect(await pending).toBeNull();
+    expect(document.activeElement).toBe(opener);
+    const next = showDialog({ title: 'New part', body: [] });
+    validate();
+    await Promise.resolve();
+    expect(dialogOpen()).toBe(true);
+    key(document.querySelector('[role="dialog"]')!, 'Escape');
+    expect(await next).toBeNull();
+    expect(dialogOpen()).toBe(false);
+  });
+});
+
+
+it('rejects a confirmation cancelled immediately after its button was clicked', async () => {
+  const controller = new AbortController();
+  const pending = confirmDialog('Delete', 'Delete the old part?', 'Delete', true, controller.signal);
+  (document.querySelector('.dialog-foot .danger') as HTMLButtonElement).click();
+  controller.abort();
+  expect(await pending).toBe(false);
+  expect(dialogOpen()).toBe(false);
+});
+
+describe('editable parameter precision', () => {
+  for (const units of ['MMGS', 'CGS', 'MKS', 'IPS'] as const) it(`preserves significant digits and small lengths in ${units}`, () => {
+    for (const value of [30.123456789, 0.0004, 1e-8, -0.0004]) {
+      const parsed = parseParam(paramText(value, 'length', ctx(units)), 'length', ctx(units));
+      expect(parsed.ok).toBe(true);
+      if (parsed.ok) expect(Math.abs(parsed.num - value)).toBeLessThanOrEqual(Math.abs(value) * 1e-14);
+    }
   });
 });

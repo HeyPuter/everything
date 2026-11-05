@@ -20,6 +20,18 @@ async function plate() {
 }
 
 describe('assistant tools', () => {
+  it.each([0, 1e9])('constructs an arc through the requested points at coordinate offset %s', async (offset) => {
+    const h = new TestHost();
+    await h.call('create_sketch', { plane: 'front', auto_relations: false, shapes: [
+      { type: 'arc', id: 'arc', start: [offset + 5, offset], through: [offset, offset + 5], end: [offset - 5, offset] },
+    ] });
+    const sk = h.store.feature<SketchFeature>('s1')!;
+    const center = sk.entities.find((e) => e.id === 'arc_c');
+    expect(center).toMatchObject({ t: 'point', x: offset, y: offset });
+    const points = sk.entities.flatMap((e) => e.t === 'point' && e.id !== 'arc_c' ? [[e.x, e.y]] : []);
+    expect(points).toEqual(expect.arrayContaining([[offset + 5, offset], [offset - 5, offset]]));
+  });
+
   it('sketches a rectangle and extrudes it, reporting faces and volume', async () => {
     const { h, r } = await plate();
     expect(await h.volume()).toBeCloseTo(80 * 50 * 10, 3);
@@ -194,6 +206,25 @@ describe('assistant tools', () => {
     expect(rel.content).toMatch(/relations\[0\]\.refs: give the entity ids/);
     const fil = await h.call('edit_sketch', { sketch: 's1', fillets: [{ radius: 2 }] }, false);
     expect(fil.content).toMatch(/fillets\[0\]\.point: give the corner point id/);
+  });
+
+  it('refuses a collapsed mirror axis and allows retry after restoring its endpoints', async () => {
+    const h = new TestHost();
+    await h.call('create_sketch', { plane: 'front', auto_relations: false, shapes: [
+      { type: 'centerline', id: 'axis', from: [0, -10], to: [0, 10] },
+      { type: 'line', id: 'source', from: [3, 1], to: [6, 4] },
+    ] });
+    await h.call('edit_sketch', { sketch: 's1', move_points: [{ point: 'axis_a', to: [0, 0] }, { point: 'axis_b', to: [0, 0] }] });
+    const before = structuredClone(h.store.feature<SketchFeature>('s1'));
+    const undo = h.store.undoLabel;
+    const r = await h.call('edit_sketch', { sketch: 's1', mirrors: [{ entities: ['source'], axis: 'axis' }] }, false);
+    expect(r.ok).toBe(false);
+    expect(r.content).toContain('choose a line with distinct endpoints');
+    expect(h.store.feature('s1')).toEqual(before);
+    expect(h.store.undoLabel).toBe(undo);
+    await h.call('edit_sketch', { sketch: 's1', move_points: [{ point: 'axis_a', to: [0, -10] }, { point: 'axis_b', to: [0, 10] }], mirrors: [{ entities: ['source'], axis: 'axis' }] });
+    const points = h.store.feature<SketchFeature>('s1')!.entities.filter((e) => e.t === 'point').map((e) => [e.x, e.y]);
+    expect(points).toEqual(expect.arrayContaining([[-3, 1], [-6, 4]]));
   });
 
   it('says when a variable in a shape size or coordinate was used as a value, not linked', async () => {

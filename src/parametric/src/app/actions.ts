@@ -98,7 +98,7 @@ export function registerCommands(app: App, files: FileOps) {
   const toggle = (id: string, label: string, get: () => boolean, set: (v: boolean) => void, desc?: string): Command => ({
     id, label, description: desc, keywords: 'show hide visibility',
     checked: get,
-    run: () => { set(!get()); app.viewport.refreshStates(); app.sketchEditor?.render(); app.saveSettings(); c.changed(); },
+    run: () => { set(!get()); app.saveSettings(); },
   });
 
   const tool = (id: string): Command => {
@@ -272,11 +272,11 @@ export function registerCommands(app: App, files: FileOps) {
       id: 'perspective', label: 'Perspective', icon: 'perspective', checked: () => !app.renderer.camera.ortho,
       run: () => { const cam = app.renderer.camera; cam.ortho = !cam.ortho; cam.onChange(); c.changed(); },
     },
-    toggle('showPlanes', 'Planes', () => app.viewport.showPlanes, (v) => { app.viewport.showPlanes = v; app.settings.showPlanes = v; }),
-    toggle('showOrigin', 'Origins', () => app.viewport.showOrigin, (v) => { app.viewport.showOrigin = v; app.settings.showOrigin = v; }),
-    toggle('showSketches', 'Sketches', () => app.viewport.showSketches, (v) => { app.viewport.showSketches = v; app.settings.showSketches = v; }),
-    toggle('showRelations', 'Sketch Relations', () => app.settings.showRelations, (v) => { app.settings.showRelations = v; if (app.sketchEditor) app.sketchEditor.showRelations = v; }),
-    toggle('showDimensions', 'Sketch Dimensions', () => app.settings.showDimensions, (v) => { app.settings.showDimensions = v; if (app.sketchEditor) app.sketchEditor.showDimensions = v; }),
+    toggle('showPlanes', 'Planes', () => app.viewport.showPlanes, (v) => app.changeSettings({ showPlanes: v })),
+    toggle('showOrigin', 'Origins', () => app.viewport.showOrigin, (v) => app.changeSettings({ showOrigin: v })),
+    toggle('showSketches', 'Sketches', () => app.viewport.showSketches, (v) => app.changeSettings({ showSketches: v })),
+    toggle('showRelations', 'Sketch Relations', () => app.settings.showRelations, (v) => app.changeSettings({ showRelations: v })),
+    toggle('showDimensions', 'Sketch Dimensions', () => app.settings.showDimensions, (v) => app.changeSettings({ showDimensions: v })),
     { id: 'theme:system', label: 'System Theme', icon: 'system', checked: () => getThemeChoice() === 'system', run: () => { setThemeChoice('system'); c.changed(); } },
     { id: 'theme:light', label: 'Light Theme', icon: 'light', checked: () => getThemeChoice() === 'light', run: () => { setThemeChoice('light'); c.changed(); } },
     { id: 'theme:dark', label: 'Dark Theme', icon: 'dark', checked: () => getThemeChoice() === 'dark', run: () => { setThemeChoice('dark'); c.changed(); } },
