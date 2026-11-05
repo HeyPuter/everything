@@ -143,7 +143,9 @@ export function openMenu(items: MenuItem[], x: number, y: number, opts: MenuOpti
   const r = el.getBoundingClientRect();
   const vw = window.innerWidth, vh = window.innerHeight;
   let left = x, top = y;
-  if (left + r.width > vw - 8) left = Math.max(8, level > 0 ? x - r.width - 200 : vw - r.width - 8);
+  // A submenu that does not fit on the right opens to the left of its parent menu.
+  const parentLeft = level > 0 ? opts.anchor?.closest('.menu')?.getBoundingClientRect().left : undefined;
+  if (left + r.width > vw - 8) left = Math.max(8, parentLeft !== undefined ? parentLeft - r.width + 2 : vw - r.width - 8);
   if (top + r.height > vh - 8) top = Math.max(8, vh - r.height - 8);
   el.style.left = `${left}px`;
   el.style.top = `${top}px`;

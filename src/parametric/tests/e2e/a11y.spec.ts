@@ -342,3 +342,20 @@ test('Esc pressed straight after a dialog opens closes it', async ({ page }) => 
   await expect(page.getByRole('dialog')).toHaveCount(0);
   await expect(page.getByRole('treeitem', { name: 'Hole1' })).toBeFocused();
 });
+
+test('a submenu with no room on the right opens beside its parent menu, not over it', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await page.evaluate(async () => {
+    // The dev server serves the app's modules; this is the instance the app uses.
+    const url = '/src/ui/menu.ts';
+    const m = await import(/* @vite-ignore */ url) as typeof import('../../src/ui/menu');
+    m.openMenu([{ label: 'Edit Extrude1 with a rather long descriptive name' }, { label: 'View Orientation', submenu: () => [{ label: 'Front' }] }], 1270, 300);
+  });
+  await page.getByRole('menuitem', { name: 'View Orientation' }).hover();
+  await expect(page.locator('.menu')).toHaveCount(2);
+  const parent = (await page.locator('.menu').nth(0).boundingBox())!;
+  const sub = (await page.locator('.menu').nth(1).boundingBox())!;
+  expect(sub.x + sub.width).toBeLessThanOrEqual(parent.x + 4);
+});
