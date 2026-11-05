@@ -29,6 +29,35 @@ function scripted(replies: Reply[], run: (name: string, args: Record<string, unk
   return { agent, requests };
 }
 
+/**
+ * Claude's prompt cache, roughly: an entry is written at each breakpoint, and a
+ * breakpoint reads the longest earlier entry found at it or up to 20 blocks
+ * before it. Returns the tokens (characters / 4) read from and written to it.
+ */
+function promptCache() {
+  const entries = new Set<string>();
+  return (req: unknown[]) => {
+    const blocks: { key: string; size: number; mark: boolean }[] = [];
+    for (const m of req as { role: string; content: unknown; tool_calls?: unknown[]; tool_call_id?: string }[]) {
+      const parts = m.role === 'tool' ? [{ type: 'tool_result', id: m.tool_call_id, content: m.content }]
+        : [...(typeof m.content === 'string' ? [{ type: 'text', text: m.content }] : (m.content as object[] | null) ?? []), ...(m.tool_calls ?? [])];
+      for (const p of parts as Record<string, unknown>[]) {
+        const { cache_control, ...rest } = p;
+        const key = `${m.role}:${JSON.stringify(rest)}`;
+        blocks.push({ key, size: key.length / 4, mark: !!cache_control });
+      }
+    }
+    const keys: string[] = [];
+    blocks.forEach((b, i) => keys.push(`${keys[i - 1] ?? ''}\u0000${b.key}`));
+    const marks = blocks.flatMap((b, i) => (b.mark ? [i] : []));
+    let hit = -1;
+    for (const b of marks) for (let p = b; p >= Math.max(0, b - 20); p--) if (entries.has(keys[p])) { hit = Math.max(hit, p); break; }
+    const sum = (from: number, to: number) => blocks.slice(from, to).reduce((n, b) => n + b.size, 0);
+    for (const b of marks) entries.add(keys[b]);
+    return { read: sum(0, hit + 1), written: sum(hit + 1, (marks.at(-1) ?? -1) + 1), marks: marks.length };
+  };
+}
+
 describe('assistant agent', () => {
   it('runs tool calls and answers every call before asking again', async () => {
     const { agent, requests } = scripted([
@@ -300,7 +329,7 @@ describe('assistant agent', () => {
     expect(res.steps.map((s) => s.status)).toEqual(['done']);
   });
 
-  it('asks Puter to cache the instructions, the turn\'s start and the newest message, without changing the transcript', async () => {
+  it('asks Puter to cache the instructions, the last finished turn, the turn\'s start and the newest message, without changing the transcript', async () => {
     const t: ChatMessage[] = [
       { role: 'system', content: 'S' },
       { role: 'user', content: 'first' },
@@ -319,9 +348,11 @@ describe('assistant agent', () => {
     }
     expect(t).toEqual(before);
     const marks = JSON.stringify(sent).match(/cache_control/g);
-    expect(marks).toHaveLength(3);
+    expect(marks).toHaveLength(4);
     expect(sent[0]).toEqual({ role: 'system', content: [{ type: 'text', text: 'S', cache_control: { type: 'ephemeral', ttl: '1h' } }] });
     expect(sent[1]).toBe(t[1]);
+    // The reply that finished the last turn: the next turn reads up to it from the cache.
+    expect(sent[2]).toEqual({ role: 'assistant', content: [{ type: 'text', text: 'one', cache_control: { type: 'ephemeral' } }] });
     expect(sent[3]).toEqual({ role: 'user', content: [{ type: 'text', text: 'second', cache_control: { type: 'ephemeral' } }] });
     // Claude's own shape: Puter rebuilds an OpenAI tool message without the breakpoint.
     expect(sent[5]).toEqual({ role: 'user', content: [{ type: 'tool_result', tool_use_id: 'a', content: 'model', cache_control: { type: 'ephemeral' } }] });
@@ -430,6 +461,39 @@ describe('assistant agent', () => {
     const res = await agent.send('build it', (e) => { if (e.type === 'text') text += e.text; });
     expect(res.steps).toHaveLength(60);
     expect(text).toBe('finished');
+  });
+
+  it('reads earlier turns from the prompt cache, writing only what is new', async () => {
+    const cache = promptCache();
+    const firsts: { read: number; written: number }[] = [];
+    let first = true;
+    let replies: StreamPart[][] = [];
+    const agent = createAgent({
+      chat: (messages) => {
+        const r = cache(withCacheBreakpoints(messages));
+        expect(r.marks).toBeLessThanOrEqual(4); // Claude refuses a request with more
+        if (first) firsts.push(r);
+        first = false;
+        const reply = replies.shift()!;
+        return (async function* () { yield* reply; })();
+      },
+      tools: () => [],
+      runTool: async (_n, a) => ({ ok: true, content: `result ${String(a.n)} `.repeat(400) }),
+      system: 'S'.repeat(20000),
+      snapshot: () => 'part '.repeat(500),
+      model: () => 'm',
+    });
+    for (let turn = 0; turn < 8; turn++) {
+      replies = [0, 1, 2, 3].map((r) => [{ type: 'text', text: `step ${r}` }, { type: 'tool', id: `c${turn}_${r}`, name: 'get_model', input: { n: turn * 10 + r } }] as StreamPart[]);
+      replies.push([{ type: 'text', text: `done ${turn}` }]);
+      first = true;
+      await agent.send(`turn ${turn}`, () => {});
+    }
+    // Each turn writes about the same: the turn before it, shortened, and its own message.
+    const writes = firsts.slice(2).map((f) => f.written);
+    expect(Math.max(...writes)).toBeLessThan(Math.min(...writes) * 1.2);
+    // And reads ever more of the conversation.
+    expect(firsts.at(-1)!.read).toBeGreaterThan(firsts[2].read * 2);
   });
 
   it('cuts a long turn\'s earlier tool results to fit, keeping the newest round whole', () => {

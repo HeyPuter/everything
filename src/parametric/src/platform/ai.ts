@@ -133,13 +133,18 @@ function marked(content: string | ChatPart[] | null, cache: Block): Block[] | nu
 
 /**
  * The request with prompt-cache breakpoints (Puter passes them to Claude, and
- * caches nothing unless asked): the instructions, which the tools come
- * before; the message that started the current turn; and the newest message.
- * Each round of a reply then reads everything before it from the cache
- * instead of paying for it again, the turn's start anchoring rounds that add
- * more blocks than the cache looks back over. A tool result goes in Claude's
- * own shape, which keeps the breakpoint: Puter rebuilds an OpenAI tool
- * message without it. The messages given are not changed.
+ * caches nothing unless asked; Claude takes at most four):
+ * - the instructions, which the tools come before;
+ * - the end of the last finished turn, and on a turn's first request the end
+ *   of the one before. Earlier turns are sent shortened (no snapshot, results
+ *   cut), so they read the same in every later request; a new turn reads them
+ *   from the cache written by the turn before, instead of paying to write the
+ *   whole conversation again;
+ * - the message that started the current turn, anchoring rounds that add more
+ *   blocks than the cache looks back over;
+ * - the newest message, which the next round reads up to.
+ * A tool result goes in Claude's own shape, which keeps the breakpoint: Puter
+ * rebuilds an OpenAI tool message without it. The messages given are not changed.
  */
 export function withCacheBreakpoints(messages: ChatMessage[]): unknown[] {
   const out: unknown[] = [...messages];
@@ -152,18 +157,25 @@ export function withCacheBreakpoints(messages: ChatMessage[]): unknown[] {
       out[i] = { role: 'user', content: [{ type: 'tool_result', tool_use_id: m.tool_call_id, content: m.content, cache_control: cache }] };
       return;
     }
-    if (m.role === 'assistant') return;
+    // A breakpoint on a reply's text would sit before its tool calls, not at its end.
+    if (m.role === 'assistant' && m.tool_calls?.length) return;
     const content = marked(m.content, cache);
     if (content) out[i] = { ...m, content };
   };
   if (messages[0]?.role === 'system') markAt(0, CACHE_LONG);
-  let turn = -1;
-  for (let i = messages.length - 1; i > 0 && turn < 0; i--) {
+  // Where each turn starts: a message the user wrote, after the instructions or a finished reply.
+  const starts: number[] = [];
+  for (let i = 1; i < messages.length; i++) {
     const prev = messages[i - 1];
-    if (messages[i].role === 'user' && (prev.role === 'system' || (prev.role === 'assistant' && !prev.tool_calls?.length))) turn = i;
+    if (messages[i].role === 'user' && (prev.role === 'system' || (prev.role === 'assistant' && !prev.tool_calls?.length))) starts.push(i);
   }
-  if (turn > 0) markAt(turn, CACHE);
-  if (messages.length > 1) markAt(messages.length - 1, CACHE);
+  const turn = starts.at(-1) ?? -1;
+  const last = messages.length - 1;
+  // A finished turn ends with the reply before the next turn's start.
+  if (turn === last && starts.length > 2) markAt(starts.at(-2)! - 1, CACHE);
+  if (starts.length > 1) markAt(turn - 1, CACHE);
+  if (turn > 0 && turn < last) markAt(turn, CACHE);
+  if (last > 0) markAt(last, CACHE);
   return out;
 }
 
