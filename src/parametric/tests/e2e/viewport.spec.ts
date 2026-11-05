@@ -1127,3 +1127,20 @@ test('the design tree flyout stays clear of the view toolbar in a narrow graphic
   await flyout.click();
   await expect(flyout).toHaveAttribute('aria-expanded', 'true');
 });
+
+test('the View Orientation menu checks the standard view the model is seen from', async ({ page }) => {
+  await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await page.locator('canvas.gl').focus();
+  await page.keyboard.press('Space');
+  const menu = page.getByRole('menu', { name: 'View orientation' });
+  await expect(menu.getByRole('menuitemradio', { name: 'Trimetric' })).toHaveAttribute('aria-checked', 'true');
+  await expect(menu.getByRole('menuitemradio', { checked: true })).toHaveCount(1);
+  await expect(menu.getByRole('menuitem', { name: 'Normal To' })).toBeVisible();
+  await menu.getByRole('menuitemradio', { name: 'Front' }).click();
+  await expect(page.locator('.view-label')).toHaveText('Front');
+  await page.locator('canvas.gl').focus();
+  await page.keyboard.press('Space');
+  await expect(menu.getByRole('menuitemradio', { name: 'Front' })).toHaveAttribute('aria-checked', 'true');
+  await expect(menu.getByRole('menuitemradio', { checked: true })).toHaveCount(1);
+});

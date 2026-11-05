@@ -340,9 +340,12 @@ export class App {
   }
 
   viewMenuItems(): MenuItem[] {
+    // The standard view the model is seen from is checked, as the display style is.
+    const current = this.renderer.camera.viewName();
     const v = (cmd: string): MenuItem => {
       const c = this.commands.get(cmd)!;
-      return { label: c.label, icon: c.icon, shortcut: c.shortcut, run: () => this.commands.run(cmd) };
+      const name = cmd === 'normalTo' ? null : cmd.slice(4).toLowerCase();
+      return { label: c.label, icon: c.icon, shortcut: c.shortcut, ...(name ? { checked: name === current, radio: true } : {}), run: () => this.commands.run(cmd) };
     };
     return [v('viewFront'), v('viewBack'), v('viewLeft'), v('viewRight'), v('viewTop'), v('viewBottom'), { separator: true }, v('viewIsometric'), v('viewTrimetric'), v('viewDimetric'), { separator: true }, v('normalTo')];
   }
