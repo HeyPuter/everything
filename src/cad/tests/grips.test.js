@@ -82,3 +82,30 @@ describe('stretchEntity', () => {
     expect(stretchEntity(c2, inside, 1, 1)).toBe(c2);
   });
 });
+
+describe('elliptical arc grips', () => {
+  const arc = { ...P, type: 'ellipse', cx: 0, cy: 0, mx: 10, my: 0, ratio: 0.5, start: 0, end: Math.PI / 2 };
+
+  it('has start and end grips on the arc ends, and a full ellipse has none', () => {
+    const g = gripsOf(arc);
+    expect(g).toHaveLength(7);
+    expect(g[5].x).toBeCloseTo(10);
+    expect(g[5].y).toBeCloseTo(0);
+    expect(g[6].x).toBeCloseTo(0);
+    expect(g[6].y).toBeCloseTo(5);
+    expect(gripsOf({ ...arc, start: 0, end: Math.PI * 2 })).toHaveLength(5);
+  });
+
+  it('moves an end along the ellipse', () => {
+    const e = applyGrip(arc, 6, -10, 0);
+    expect(e.start).toBe(0);
+    expect(e.end).toBeCloseTo(Math.PI);
+    const s = applyGrip(arc, 5, 0, -5);
+    expect(s.start).toBeCloseTo((3 * Math.PI) / 2);
+    expect(s.end).toBe(Math.PI / 2);
+  });
+
+  it('does not close the arc when an end is dropped on the other end', () => {
+    expect(applyGrip(arc, 5, 0, 5)).toBe(arc);
+  });
+});
