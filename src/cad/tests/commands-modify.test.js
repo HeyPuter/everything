@@ -144,3 +144,55 @@ describe('JOIN', () => {
     expect(t.all('polyline')).toHaveLength(1);
   });
 });
+
+describe('STRETCH', () => {
+  it('moves the vertex of an angular dimension with its rays', async () => {
+    add({
+      type: 'dimension',
+      dimType: 'angular',
+      x1: 10,
+      y1: 0,
+      x2: 0,
+      y2: 10,
+      x3: 0,
+      y3: 0,
+      x4: 0,
+      y4: 0,
+      lx: 5,
+      ly: 5,
+      style: 'Standard',
+      text: '',
+    });
+    await t.type('STRETCH', '-1,-1', '11,11', '0,0', '100,0');
+    expect(t.drawing.get(1)).toMatchObject({ x1: 110, x2: 100, x3: 100, y3: 0, lx: 105, ly: 5 });
+  });
+
+  it('moves only the angular vertex when only it is inside', async () => {
+    add({
+      type: 'dimension',
+      dimType: 'angular',
+      x1: 10,
+      y1: 0,
+      x2: 0,
+      y2: 10,
+      x3: 0,
+      y3: 0,
+      x4: 0,
+      y4: 0,
+      lx: 5,
+      ly: 5,
+      style: 'Standard',
+      text: '',
+    });
+    await t.type('STRETCH', '-1,-1', '6,6', '0,0', '-2,-2');
+    expect(t.drawing.get(1)).toMatchObject({ x1: 10, y1: 0, x2: 0, y2: 10, x3: -2, y3: -2, lx: 5 });
+  });
+
+  it('stretches hatch boundary vertices inside the window only', async () => {
+    const loop = [0, 0, 0, 10, 0, 0, 10, 10, 0, 0, 10, 0];
+    add({ type: 'hatch', pattern: 'SOLID', scale: 1, angle: 0, loops: [loop] });
+    // The window holds only the first vertex.
+    await t.type('STRETCH', '-1,-1', '1,1', '0,0', '-5,0');
+    expect(t.drawing.get(1).loops[0]).toEqual([-5, 0, 0, 10, 0, 0, 10, 10, 0, 0, 10, 0]);
+  });
+});

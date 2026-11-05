@@ -615,6 +615,12 @@ export const STRETCH = {
   },
 };
 
+const DIM_POINTS = [
+  ['x1', 'y1'],
+  ['x2', 'y2'],
+  ['x3', 'y3'],
+];
+
 /** Move the parts of an entity whose defining points lie inside the window. */
 export function stretchEntity(e, inside, dx, dy) {
   const mv = (x, y) => (inside(x, y) ? [x + dx, y + dy] : [x, y]);
@@ -636,10 +642,22 @@ export function stretchEntity(e, inside, dx, dy) {
       return e;
     }
     case 'dimension': {
-      const [x1, y1] = mv(e.x1, e.y1),
-        [x2, y2] = mv(e.x2, e.y2);
-      const moved = inside(e.x1, e.y1) && inside(e.x2, e.y2);
-      return { ...e, x1, y1, x2, y2, ...(moved ? { lx: e.lx + dx, ly: e.ly + dy } : {}) };
+      // Definition points (the angular vertex too) move one by one; with all
+      // of them inside, the whole dimension moves with its line.
+      const keys = DIM_POINTS.filter(([kx]) => e[kx] !== undefined);
+      if (keys.every(([kx, ky]) => inside(e[kx], e[ky]))) return transformEntity(e, M.translate(dx, dy));
+      const out = { ...e };
+      for (const [kx, ky] of keys) [out[kx], out[ky]] = mv(e[kx], e[ky]);
+      return out;
+    }
+    case 'hatch': {
+      // Boundary vertices stretch like a polyline's.
+      const loops = (e.loops || []).map((l) => {
+        const p = l.slice();
+        for (let i = 0; i < p.length; i += 3) [p[i], p[i + 1]] = mv(p[i], p[i + 1]);
+        return p;
+      });
+      return { ...e, loops };
     }
     case 'leader': {
       const p = e.pts.slice();
@@ -670,7 +688,6 @@ export function stretchEntity(e, inside, dx, dy) {
 function refPoint(e) {
   if (e.cx !== undefined) return { x: e.cx, y: e.cy };
   if (e.x !== undefined) return { x: e.x, y: e.y };
-  if (e.type === 'hatch' && e.loops?.[0]) return { x: e.loops[0][0], y: e.loops[0][1] };
   return null;
 }
 
