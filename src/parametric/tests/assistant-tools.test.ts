@@ -377,4 +377,10 @@ describe('assistant tools', () => {
     expect(r.content).not.toMatch(/edges match/);
     expect((await h.call('find_geometry', { kind: 'edges', of_face: topFace(h) })).content).toMatch(/^4 of 12 edges match/);
   });
+
+  it('names add_hole\'s own argument when a hole centre is malformed', async () => {
+    const { h } = await plate();
+    const r = await h.call('add_hole', { on: topFace(h), points: [0, 10, 0], diameter: 6 }, false);
+    expect(r.content).toMatch(/^Error: points\[0\]: expected/);
+  });
 });

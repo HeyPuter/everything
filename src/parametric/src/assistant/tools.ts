@@ -698,7 +698,12 @@ class Toolkit {
       sk.frame = frame;
       const ed = new SketchEdit(sk, frame, this.u, this.store);
       ed.autoRelations = false;
-      list(args.points).forEach((p, i) => ed.addShape({ type: 'point', at: p }, i));
+      // Errors name the argument given (points[i]), not the shapes the points are made into.
+      list(args.points).forEach((p, i) => {
+        try { ed.addShape({ type: 'point', at: p }, i); } catch (e) {
+          throw e instanceof ToolError ? new ToolError(e.message.replace(/^shapes\[(\d+)\] \(point\)\.at/, 'points[$1]')) : e;
+        }
+      });
       if (!ed.sk.entities.length) throw new ToolError('points: give at least one hole centre');
       pre.push(ed.sk);
       notes.push(...ed.notes.map((n) => n.replace(/^shapes\[(\d+)\] \(point\)\.at/, 'points[$1]')));
