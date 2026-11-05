@@ -969,17 +969,14 @@ class DxfParser {
     return fallback;
   }
 
+  // No name or an unknown one means the file's own STANDARD entry, in whatever case it has.
   styleName(raw) {
-    const key = raw.trim().toLowerCase();
-    if (!key) return 'Standard';
-    const st = this.styleMap.get(key);
+    const st = this.styleMap.get(raw.trim().toLowerCase()) ?? this.styleMap.get('standard');
     return st ? st.name : 'Standard';
   }
 
   dimStyleName(raw) {
-    const key = raw.trim().toLowerCase();
-    if (!key) return 'Standard';
-    const ds = this.dimMap.get(key);
+    const ds = this.dimMap.get(raw.trim().toLowerCase()) ?? this.dimMap.get('standard');
     return ds ? ds.name : 'Standard';
   }
 

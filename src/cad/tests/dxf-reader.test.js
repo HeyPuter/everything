@@ -457,6 +457,20 @@ describe('parseDxf: tables and header', () => {
     expect(drawing.blocks.map((b) => b.name)).toEqual(['*T1']);
   });
 
+  it('gives text without a style the file\'s STANDARD style, whatever its case', () => {
+    const { drawing } = parseDxf(
+      dxf([0, 'TEXT', 10, 0, 20, 0, 40, 2, 1, 'A', 0, 'TEXT', 10, 0, 20, 0, 40, 2, 1, 'B', 7, 'gone', 0, 'DIMENSION', 70, 0, 13, 0, 14, 5], {
+        tables: [
+          0, 'TABLE', 2, 'STYLE', 70, 1, 0, 'STYLE', 2, 'STANDARD', 70, 0, 40, 0, 41, 0.8, 3, 'txt', 0, 'ENDTAB',
+          0, 'TABLE', 2, 'DIMSTYLE', 70, 1, 0, 'DIMSTYLE', 2, 'STANDARD', 70, 0, 0, 'ENDTAB',
+        ],
+      }),
+    );
+    expect(drawing.entities.map((e) => e.style)).toEqual(['STANDARD', 'STANDARD', 'STANDARD']);
+    expect(drawing.textStyles.map((s) => s.name)).toEqual(['STANDARD']);
+    expect(drawing.header).toMatchObject({ textStyle: 'STANDARD', dimStyle: 'STANDARD' });
+  });
+
   it('reads header variables', () => {
     const { drawing } = parseDxf(dxf([], { tables, header }));
     expect(drawing.header).toMatchObject({
