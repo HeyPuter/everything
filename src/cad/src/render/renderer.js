@@ -101,6 +101,7 @@ class GpuBatch {
     const gl = this.gl;
     this.segCount = batch.segCount;
     this.vertCount = batch.vertCount;
+    this.translucent = batch.translucent;
     gl.bindBuffer(gl.ARRAY_BUFFER, this.segBuf);
     gl.bufferData(gl.ARRAY_BUFFER, batch.segU.subarray(0, batch.segCount * SEG_STRIDE), gl.STATIC_DRAW);
     gl.bindBuffer(gl.ARRAY_BUFFER, this.triBuf);
@@ -661,10 +662,21 @@ export class Renderer {
       gl.depthMask(true);
     }
     this._useTri(common, IDENTITY2, ZERO2, ZERO2, null, 1);
+    const fills = this.triProg.u.u_fills;
     for (const c of this.chunks) {
       if (!c.gpu || !c.gpu.vertCount || !c.bounds || !overlaps(c.bounds, view)) continue;
       gl.bindVertexArray(c.gpu.triVao);
-      gl.drawArrays(gl.TRIANGLES, 0, c.gpu.vertCount);
+      if (banded && c.gpu.translucent) {
+        // Translucent fills tint what lies beneath and must not hide it: only
+        // opaque fills record their band.
+        gl.uniform1i(fills, 1);
+        gl.drawArrays(gl.TRIANGLES, 0, c.gpu.vertCount);
+        gl.depthMask(false);
+        gl.uniform1i(fills, 2);
+        gl.drawArrays(gl.TRIANGLES, 0, c.gpu.vertCount);
+        gl.depthMask(true);
+        gl.uniform1i(fills, 0);
+      } else gl.drawArrays(gl.TRIANGLES, 0, c.gpu.vertCount);
       tris += c.gpu.vertCount / 3;
     }
     if (banded) gl.depthMask(false);

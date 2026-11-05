@@ -187,6 +187,7 @@ uniform float u_ppu;
 uniform mat2 u_xm;
 uniform vec2 u_xt;
 uniform vec2 u_xp;
+uniform int u_fills;   // 0 all, 1 opaque only, 2 translucent only (draw-order bands)
 out vec4 v_color;
 ${BAND_DEPTH}
 void main() {
@@ -194,6 +195,8 @@ void main() {
   p = u_xm * (p - u_xp) + u_xp + u_xt;
   v_color = a_color;
   gl_Position = vec4(p * u_ppu / u_half, bandDepth(a_band), 1.0);
+  // Skipped fills collapse outside the clip volume.
+  if (u_fills != 0 && (a_color.a < 1.0) != (u_fills == 2)) gl_Position = vec4(0.0, 0.0, 2.0, 1.0);
 }
 `;
 

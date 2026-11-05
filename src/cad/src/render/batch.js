@@ -96,6 +96,8 @@ export class Batch {
     /** Draw-order band stored with everything emitted next. */
     this.band = 0;
     this.alphaScale = 1;
+    /** True once a fill with some transparency was emitted since reset(). */
+    this.translucent = false;
     this.minX = Infinity;
     this.minY = Infinity;
     this.maxX = -Infinity;
@@ -105,6 +107,7 @@ export class Batch {
   reset() {
     this.segCount = 0;
     this.vertCount = 0;
+    this.translucent = false;
     this.minX = this.minY = Infinity;
     this.maxX = this.maxY = -Infinity;
   }
@@ -338,6 +341,7 @@ export class Batch {
       U = this.triU;
     const rgb = style.rgb;
     const a = Math.round(255 * (style.alpha ?? 1) * this.alphaScale);
+    if (a < 255) this.translucent = true;
     const band = this.band;
     let o = this.vertCount * TRI_FLOATS;
     for (let i = 0; i < idx.length; i++) {

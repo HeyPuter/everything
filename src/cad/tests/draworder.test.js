@@ -42,4 +42,14 @@ describe('draw-order bands', () => {
     for (let i = 0; i < b.segCount; i++) expect(b.segF[i * SEG_FLOATS + 12]).toBe(3);
     for (let i = 0; i < b.vertCount; i++) expect(b.triF[i * TRI_FLOATS + 5]).toBe(3);
   });
+
+  it('notes translucent fills, which must not hide what lies beneath', () => {
+    const b = new Batch(() => 0);
+    b.fill([[0, 0, 1, 0, 1, 1]], { rgb: [0, 0, 0] });
+    expect(b.translucent).toBe(false);
+    b.fill([[0, 0, 1, 0, 1, 1]], { rgb: [0, 0, 0], alpha: 0.4 });
+    expect(b.translucent).toBe(true);
+    b.reset();
+    expect(b.translucent).toBe(false);
+  });
 });
