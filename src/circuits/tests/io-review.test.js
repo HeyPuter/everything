@@ -1,5 +1,5 @@
 // Regression tests from the manufacturing-output and import review.
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { exportGerbers } from '../src/io/gerber.js';
 import { mm } from '../src/core/units.js';
 import { defaultRules } from '../src/model/schema.js';
@@ -237,5 +237,42 @@ describe('KiCad unquoted names', () => {
     expect(def.footprint.pads.map((p) => p.num)).toEqual(['01', '2']);
     // Numbers stay numbers for geometry.
     expect([...parseSexpr('(at 1.50 -0.0)')]).toEqual(['at', 1.5, -0]);
+  });
+});
+
+describe('kernel worker', () => {
+  it('loads the kernel once when requests arrive while it is loading, and retries after a failure', async () => {
+    const fs = await import('node:fs');
+    const path = await import('node:path');
+    const bytes = fs.readFileSync(path.resolve(import.meta.dirname, '../src/kernel/kernel.wasm'));
+    const posted = [];
+    let fetches = 0;
+    let fail = true;
+    const prevSelf = globalThis.self,
+      prevFetch = globalThis.fetch;
+    globalThis.self = {
+      postMessage: (m) => posted.push(m),
+      location: new URL('http://localhost/'),
+    };
+    globalThis.fetch = async () => {
+      fetches++;
+      if (fail) return new Response('missing', { status: 404 });
+      return new Response(bytes, { headers: { 'Content-Type': 'application/wasm' } });
+    };
+    try {
+      vi.resetModules();
+      await import('../src/kernel/worker.js');
+      const send = (id) => self.onmessage({ data: { id, op: 'ping', input: new Float64Array(0) } });
+      await send(1);
+      expect(posted[0]).toMatchObject({ id: 1, error: expect.stringContaining('404') });
+      fail = false;
+      fetches = 0;
+      await Promise.all([send(2), send(3), send(4)]);
+      expect(fetches).toBe(1);
+      expect(posted.slice(1).map((m) => m.result)).toEqual([true, true, true]);
+    } finally {
+      globalThis.self = prevSelf;
+      globalThis.fetch = prevFetch;
+    }
   });
 });

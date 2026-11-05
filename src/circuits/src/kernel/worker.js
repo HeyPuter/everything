@@ -5,10 +5,20 @@
 
 import { instantiate, runRoute } from './ops.js';
 
-let kernel = null;
+let loading = null;
 
-async function load() {
-  if (kernel) return kernel;
+/** Loads the kernel once; requests that arrive while it loads share the same load. */
+function load() {
+  if (!loading) {
+    loading = compileAndInstantiate().catch((err) => {
+      loading = null; // let the next request try again
+      throw err;
+    });
+  }
+  return loading;
+}
+
+async function compileAndInstantiate() {
   const url = new URL('./kernel.wasm', import.meta.url);
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Could not load the geometry kernel (${res.status})`);
@@ -19,8 +29,7 @@ async function load() {
     // Servers that send the wrong content type: compile from bytes instead.
     module = await WebAssembly.compile(await res.arrayBuffer());
   }
-  kernel = await instantiate(module);
-  return kernel;
+  return instantiate(module);
 }
 
 self.onmessage = async (event) => {
