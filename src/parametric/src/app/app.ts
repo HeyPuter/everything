@@ -1334,6 +1334,7 @@ export class App {
   }
 
   async deleteFeatures(ids: Id[]) {
+    const signal = this.documentSignal;
     const doc = this.store.doc;
     const del = new Set(ids);
     // Absorbed sketches go with their feature; dependents are listed.
@@ -1350,7 +1351,7 @@ export class App {
     const msg = dependents.length
       ? `Delete ${names.join(', ')}? These features depend on it and will fail to rebuild: ${dependents.map((f) => f.name).join(', ')}.`
       : `Delete ${names.join(', ')}?`;
-    if (!(await confirmDialog('Delete', msg, 'Delete', true))) return;
+    if (!(await confirmDialog('Delete', msg, 'Delete', true, signal)) || signal.aborted) return;
     if (this.sketchEditor && del.has(this.sketchEditor.sketchId)) this.exitSketch(false);
     this.store.change('Delete', (d) => {
       const before = d.features.length;

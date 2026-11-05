@@ -114,13 +114,13 @@ function restoreFocus(prev: HTMLElement | null, parents: HTMLElement[]) {
   target?.focus();
 }
 
-export async function confirmDialog(title: string, message: string, ok = 'OK', danger = false): Promise<boolean> {
+export async function confirmDialog(title: string, message: string, ok = 'OK', danger = false, signal?: AbortSignal): Promise<boolean> {
   const v = await showDialog({
-    title,
+    title, signal,
     body: h('p', {}, message),
     buttons: [{ label: 'Cancel', value: 'cancel' }, { label: ok, value: 'ok', primary: !danger, danger }],
   });
-  return v === 'ok';
+  return v === 'ok' && !signal?.aborted;
 }
 
 export async function promptDialog(title: string, label: string, value: string, validate?: (v: string) => string | null): Promise<string | null> {

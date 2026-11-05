@@ -291,3 +291,13 @@ describe('dialog cancellation', () => {
     expect(dialogOpen()).toBe(false);
   });
 });
+
+
+it('rejects a confirmation cancelled immediately after its button was clicked', async () => {
+  const controller = new AbortController();
+  const pending = confirmDialog('Delete', 'Delete the old part?', 'Delete', true, controller.signal);
+  (document.querySelector('.dialog-foot .danger') as HTMLButtonElement).click();
+  controller.abort();
+  expect(await pending).toBe(false);
+  expect(dialogOpen()).toBe(false);
+});
