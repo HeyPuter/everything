@@ -426,6 +426,7 @@ export class PcbEditor extends CanvasView {
       const ctx = this.sceneContext();
       const sink = (l) => (this.isLayerVisible(l) ? b : null);
       for (const o of this.doc.items()) {
+        if (this.hidden.has(o.id)) continue; // being moved: drawn by the move preview
         if (o.t === 'comp') {
           for (const p of placedOf(o, this.lib, this.copperCount).pads) {
             if (p.net !== net) continue;
@@ -434,7 +435,7 @@ export class PcbEditor extends CanvasView {
           }
         } else if (o.net === net) emitPcbObject(o, sink, ctx);
       }
-      for (const l of this.analysis().ratsnest) if (l.net === net) b.line(l.x1, l.y1, l.x2, l.y2, 0, pack(this.palette.highlight));
+      if (!this._ratsSkip?.has(net)) for (const l of this.analysis().ratsnest) if (l.net === net) b.line(l.x1, l.y1, l.x2, l.y2, 0, pack(this.palette.highlight));
     }
     b.touch();
   }
@@ -657,6 +658,7 @@ export class PcbEditor extends CanvasView {
     for (const o of base) if (o.t === 'comp') for (const n of Object.values(o.padNets || {})) if (n) nets.add(n);
     // The live ratsnest replaces these nets' lines, which still end at the old place.
     if (nets.size) { this._ratsSkip = nets; this._rebuildRats(); }
+    if (this.highlight) this._rebuildHighlight();
     return {
       ids, anchor,
       update(ndx, ndy) { dx = ndx; dy = ndy; ed._lastClick = { x: anchor.x, y: anchor.y }; ed.requestRender(true); },
@@ -717,6 +719,7 @@ export class PcbEditor extends CanvasView {
   _endMove() {
     if (this._ratsSkip) { this._ratsSkip = null; this._rebuildRats(); }
     this.hidden.clear();
+    if (this.highlight) this._rebuildHighlight();
     this._dirtyLayers.add('*');
     this._scheduleLabels();
     this.requestRender(true);

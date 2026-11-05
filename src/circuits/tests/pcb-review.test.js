@@ -449,3 +449,23 @@ describe('filled footprint circles', () => {
     expect(Math.max(...xs)).toBeCloseTo(0.6, 3);
   });
 });
+
+describe('net highlight while dragging', () => {
+  it('drops the dragged part pads and its stale ratsnest from the highlight', async () => {
+    ctx = await bootBoard();
+    const { ed } = ctx;
+    const u1 = [...ed.doc.items()].find((o) => o.designator === 'U1');
+    const net = u1.padNets['3']; // OUT: U1 pin 3 to R3
+    ed.highlightNet(net);
+    const hl = ed.hlBatch.bufs;
+    const lines = ed.analysis().ratsnest.filter((l) => l.net === net).length;
+    expect(lines).toBeGreaterThan(0);
+    const before = { seg: hl.seg.count, rect: hl.rect.count };
+    const mv = ed.beginMove([u1.id], { x: u1.x, y: u1.y });
+    expect(hl.seg.count).toBe(before.seg - lines);
+    expect(hl.rect.count).toBe(before.rect - 1);
+    mv.cancel();
+    expect(hl.seg.count).toBe(before.seg);
+    expect(hl.rect.count).toBe(before.rect);
+  });
+});
