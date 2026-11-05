@@ -4,8 +4,8 @@ import { unpackOutline } from './core/outline-transport.js';
 /**
  * The document outline (bookmarks) as a tree in the side panel. Items that point at a page
  * navigate there; groups fold and unfold; Up and Down move through the visible items, Left
- * and Right fold and unfold, Home and End jump to the ends. The item for the page on view is
- * marked so long documents keep their place.
+ * and Right fold and unfold, Home and End jump to the ends, and Shift+F10 opens an item's
+ * menu. The item for the page on view is marked so long documents keep their place.
  */
 /** The zero-based page a PDF.js destination (named or explicit) points to, or null. */
 export async function destinationPage(pdf, dest) {
@@ -290,6 +290,11 @@ export function createOutlinePanel({ onNavigate, onMenu }) {
     } else if (e.key === 'ArrowLeft') {
       if (entry.group && !entry.group.hidden) setExpanded(entry, false);
       else focus(entry.parent);
+    } else if (e.key === 'F10' && e.shiftKey && onMenu) {
+      // The keyboard's way to the bookmark's menu: macOS browsers send no context menu event
+      // for Shift+F10, and Mac keyboards have no menu key.
+      const box = entry.button.getBoundingClientRect();
+      onMenu(entry, { clientX: box.left + 16, clientY: box.bottom });
     } else return;
     e.preventDefault();
   }
