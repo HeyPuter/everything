@@ -23,6 +23,17 @@ const DEFAULTS = defaultDimStyle();
 const TWO_PI = Math.PI * 2;
 const EPS = 1e-12;
 
+/**
+ * The dimension style an entity draws with (named, else 'Standard', else the
+ * defaults), carrying the font of its text style so text is measured with the
+ * font it is drawn in.
+ */
+export function dimStyleOf(drawing, name) {
+  const ds = drawing.dimStyles.get(name) ?? drawing.dimStyles.get('Standard') ?? DEFAULTS;
+  const font = drawing.textStyles?.get(ds.textStyle)?.font;
+  return font && font !== ds.font ? { ...ds, font } : ds;
+}
+
 function styleOf(style) {
   return style ? { ...DEFAULTS, ...style } : DEFAULTS;
 }

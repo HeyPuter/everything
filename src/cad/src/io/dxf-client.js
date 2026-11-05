@@ -3,7 +3,7 @@
  * block the interface. Dimension geometry is computed here (it needs the text and
  * dimension modules) and handed to the writer as anonymous blocks.
  */
-import { buildDimension, buildLeader } from '../core/dims.js';
+import { buildDimension, buildLeader, dimStyleOf } from '../core/dims.js';
 import { getPattern } from '../core/hatch/patterns.js';
 
 let worker = null;
@@ -45,7 +45,7 @@ export function importDxf(buffer) {
 
 /** Plain entities that draw a dimension or leader (for the DXF anonymous block). */
 function dimParts(drawing, e) {
-  const ds = drawing.dimStyles.get(e.style) ?? drawing.dimStyles.get('Standard');
+  const ds = dimStyleOf(drawing, e.style);
   const g = e.type === 'leader' ? buildLeader(e, ds, drawing.header) : buildDimension(e, ds, drawing.header);
   if (!g) return [];
   const base = { layer: '0', color: 0, linetype: 'ByBlock', lineweight: -2, ltscale: 1 };

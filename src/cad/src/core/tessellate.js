@@ -8,10 +8,9 @@ import { COLOR_BYBLOCK, COLOR_BYLAYER, LW_BYBLOCK, LW_BYLAYER, LW_DEFAULT, LINEW
 import { PALETTE, hexToRgb } from './colors.js';
 import { tessellate } from './geom/index.js';
 import { layoutText, layoutMText } from './text/layout.js';
-import { buildDimension, buildLeader } from './dims.js';
+import { buildDimension, buildLeader, dimStyleOf } from './dims.js';
 import { loopsToRings, solidPolygons, patternSegments } from './hatch/fill.js';
 import { getPattern } from './hatch/patterns.js';
-import { defaultDimStyle } from './styles.js';
 
 const EMPTY = [];
 const MAX_DEPTH = 16;
@@ -291,7 +290,7 @@ function emitPoint(ent, sink, ctx, style) {
 
 function emitDimension(ent, sink, ctx, style, eff) {
   const d = ctx.drawing;
-  const ds = d.dimStyles.get(ent.style) ?? d.dimStyles.get('Standard') ?? defaultDimStyle();
+  const ds = dimStyleOf(d, ent.style);
   const g = ent.type === 'leader' ? buildLeader(ent, ds, d.header) : buildDimension(ent, ds, d.header);
   if (!g) return;
   const lineStyle = withColor({ ...style, basePattern: EMPTY, pattern: EMPTY }, ds.lineColor, ctx, eff);

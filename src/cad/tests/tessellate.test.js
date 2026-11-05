@@ -170,6 +170,17 @@ describe('emitEntity', () => {
     expect(dim.filter((i) => i.kind === 'line').length).toBeGreaterThan(3);
   });
 
+  it('places dimension text by the width of its text style font', () => {
+    const d = drawing();
+    d.textStyles.set('Mono', { ...d.textStyles.get('Standard'), name: 'Mono', font: 'mono' });
+    d.dimStyles.set('Standard', { ...d.dimStyles.get('Standard'), textStyle: 'Mono' });
+    // radius text sits beyond the end of the leader at x = 20
+    const items = emit(d, { ...P, type: 'dimension', dimType: 'radius', x1: 0, y1: 0, x2: 10, y2: 0, lx: 20, ly: 0, rot: 0, text: 'iiiiiiii', style: 'Standard', x3: 0, y3: 0, x4: 0, y4: 0 });
+    const leader = items.findIndex((i) => i.kind === 'line' && i.pts[2] === 20);
+    const xs = items.slice(leader + 1).filter((i) => i.kind === 'line').flatMap((i) => i.pts.filter((_, k) => k % 2 === 0));
+    expect(Math.min(...xs)).toBeGreaterThan(20.5);
+  });
+
   it('gives widths to wide polylines as fills', () => {
     const d = drawing();
     const items = emit(d, { ...P, type: 'polyline', pts: [0, 0, 0, 10, 0, 0], closed: false, width: 2 });

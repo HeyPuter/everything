@@ -23,7 +23,7 @@ import {
   splineFromFitPoints,
 } from '../../core/geom/index.js';
 import { insertMatrix, mulMatrix } from '../../core/tessellate.js';
-import { buildDimension, buildLeader } from '../../core/dims.js';
+import { buildDimension, buildLeader, dimStyleOf } from '../../core/dims.js';
 import { mtextLines } from '../../core/text/layout.js';
 import { getPattern } from '../../core/hatch/patterns.js';
 import { loopsToRings, patternSegments } from '../../core/hatch/fill.js';
@@ -855,7 +855,7 @@ export function explodeOne(ed, e) {
     }
     case 'dimension':
     case 'leader': {
-      const ds = d.dimStyles.get(e.style) ?? d.dimStyles.get('Standard');
+      const ds = dimStyleOf(d, e.style);
       const g = e.type === 'leader' ? buildLeader(e, ds, d.header) : buildDimension(e, ds, d.header);
       if (!g) return null;
       const out = [];
