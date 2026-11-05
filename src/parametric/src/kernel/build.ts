@@ -713,6 +713,10 @@ export class ModelBuilder {
     if (!st.body) throw new FeatureError('There is no body to chamfer');
     const d1 = num(f.distance);
     if (d1 <= 0) throw new FeatureError('Distance must be greater than zero');
+    const d2 = f.mode === 'twoDistance' ? num(f.distance2) : d1;
+    if (d2 <= 0) throw new FeatureError('Distance 2 must be greater than zero');
+    const angle = f.mode === 'distanceAngle' ? num(f.angle) : 45;
+    if (!(angle > 0 && angle < 90)) throw new FeatureError('The chamfer angle must be between 0 and 90 degrees');
     const ids = this.collectEdges(st, f.edges, f.faces);
     const all = this.edgesOf(st);
     const oc = getOc();
@@ -725,8 +729,8 @@ export class ModelBuilder {
         else {
           const fi = e.faces[f.flip ? 1 : 0] ?? e.faces[0];
           const face = st.faces[fi].shape.wrapped;
-          if (f.mode === 'twoDistance') builder.Add(d1, num(f.distance2), e.shape.wrapped, face);
-          else builder.AddDA(d1, (num(f.angle) * Math.PI) / 180, e.shape.wrapped, face);
+          if (f.mode === 'twoDistance') builder.Add(d1, d2, e.shape.wrapped, face);
+          else builder.AddDA(d1, (angle * Math.PI) / 180, e.shape.wrapped, face);
         }
       }
       builder.Build();

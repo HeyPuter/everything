@@ -330,6 +330,26 @@ describe('feature regeneration', () => {
     expect(volume(b)).toBeCloseTo(4000, 3);
   });
 
+  it('reports chamfer distances and angles out of range by name', async () => {
+    const b = new ModelBuilder();
+    const base: Feature[] = [sketch('S1', rect(-10, -10, 10, 10)), extrude('E1', 'S1', 10)];
+    const r0 = await b.build(req(base));
+    const e = r0.edges[0];
+    const chamfer = (mode: 'twoDistance' | 'distanceAngle', distance2: number, angle: number): Feature => ({
+      id: 'C', name: 'C', type: 'chamfer', edges: [{ name: e.name, sig: { type: e.type, m: e.mid, len: e.length } }], faces: [], mode, distance: 1, distance2, angle, flip: false,
+    });
+    for (const [c, msg] of [[chamfer('twoDistance', 0, 45), /Distance 2 must be greater than zero/], [chamfer('twoDistance', -1, 45), /Distance 2/],
+      [chamfer('distanceAngle', 1, 90), /between 0 and 90/], [chamfer('distanceAngle', 1, 120), /between 0 and 90/], [chamfer('distanceAngle', 1, 0), /between 0 and 90/]] as const) {
+      const r = await b.build(req([...base, c]));
+      expect(r.status[2].ok).toBe(false);
+      expect(r.status[2].error).toMatch(msg);
+    }
+    // Values that only matter in another mode are not checked.
+    expect((await b.build(req([...base, { ...chamfer('twoDistance', 2, 0) }]))).status[2].ok).toBe(true);
+    expect((await b.build(req([...base, { ...chamfer('distanceAngle', 0, 30) }]))).status[2].ok).toBe(true);
+    expect((await b.build(req([...base, { ...chamfer('distanceAngle', 0, 30), mode: 'distance' } as Feature]))).status[2].ok).toBe(true);
+  });
+
   it('sketches on a face and patterns a cut', async () => {
     const b = new ModelBuilder();
     const base: Feature[] = [sketch('S1', rect(0, 0, 50, 10)), extrude('E1', 'S1', 5)];
