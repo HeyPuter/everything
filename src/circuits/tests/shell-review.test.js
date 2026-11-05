@@ -672,3 +672,23 @@ describe('landmarks', () => {
     expect(region.getAttribute('aria-label')).toBeTruthy();
   });
 });
+
+describe('projects tree on touch', () => {
+  const click = (el, pointerType) => {
+    const e = new MouseEvent('click', { bubbles: true });
+    Object.defineProperty(e, 'pointerType', { value: pointerType });
+    el.dispatchEvent(e);
+  };
+  it('opens a document with one tap, and selects it with one mouse click', async () => {
+    localStorage.clear();
+    const { app } = await bootLocal();
+    const project = new Project(newProjectData('Rho'));
+    app.setProject(project, null);
+    const board = project.boards[0];
+    const row = () => app.panels.projects.tree.querySelector(`[data-doc="${board.id}"]`);
+    click(row(), 'mouse');
+    expect(app.activeDocId).not.toBe(board.id);
+    click(row(), 'touch');
+    expect(app.activeDocId).toBe(board.id);
+  });
+});
