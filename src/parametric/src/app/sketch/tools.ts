@@ -683,7 +683,7 @@ export function extendTool(ed: SketchEditor): SkTool {
       const hit = ed.pickAt(s.p, 8);
       if (!hit || hit.kind !== 'curve') return true;
       let ok = false;
-      ed.edit('Extend', (sk) => { ok = extendAt(sk, hit.id, s.p); });
+      ed.edit('Extend', (sk, newId) => { ok = extendAt(sk, hit.id, s.p, newId); });
       if (!ok) ed.app.setStatus('Nothing to extend to in that direction.');
       return true;
     },

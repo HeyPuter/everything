@@ -163,6 +163,19 @@ describe('editing tools', () => {
     expect(s.constraints).toHaveLength(0);
   });
 
+  it('keeps an extended line end on the curve it reached', () => {
+    const s = sk([
+      { id: 'a', t: 'point', x: 0, y: 0 }, { id: 'b', t: 'point', x: 4, y: 0 }, { id: 'h', t: 'line', a: 'a', b: 'b' },
+      { id: 'c', t: 'point', x: 9, y: -5 }, { id: 'd', t: 'point', x: 9, y: 5 }, { id: 'v', t: 'line', a: 'c', b: 'd' },
+    ]);
+    s.constraints.push({ id: 'hz', type: 'horizontal', refs: ['h'] }, { id: 'o', type: 'coincident', refs: ['a', 'O'] });
+    expect(extendAt(s, 'h', [3.9, 0], idFactory(s))).toBe(true);
+    // Moving the boundary line carries the extended end with it.
+    const res = solveSketch(s.entities, s.constraints, { value, drag: { kind: 'points', ids: ['c', 'd'], targets: [[12, -5], [12, 5]] } });
+    expect(res.converged).toBe(true);
+    expect(new SketchIndex(s.entities).pt('b')[0]).toBeCloseTo(12, 6);
+  });
+
   it('fillets a rectangle corner tangentially', () => {
     const s = sk(rect(0, 0, 20, 10, 'r'));
     expect(filletCorner(s, 'rp1', 3, idFactory(s))).toBeNull();

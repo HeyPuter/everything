@@ -421,8 +421,11 @@ function moveConstraintsOnPoint(_sk: SketchFeature, _pointId: Id, _newCurve: Id,
   // relations (horizontal, parallel...) stay on the original piece.
 }
 
-/** Extends the end of a line nearest `at` to the closest intersection. */
-export function extendAt(sk: SketchFeature, lineId: Id, at: Vec2): boolean {
+/**
+ * Extends the end of a line nearest `at` to the closest intersection. With
+ * `newId`, the new end is kept on the curve it reached (as trim does).
+ */
+export function extendAt(sk: SketchFeature, lineId: Id, at: Vec2, newId?: (p: string) => Id): boolean {
   const ix = new SketchIndex(sk.entities);
   const l = ix.get(lineId);
   if (!l || l.t !== 'line') return false;
@@ -431,13 +434,13 @@ export function extendAt(sk: SketchFeature, lineId: Id, at: Vec2): boolean {
   const start = fromB ? a : b, end = fromB ? b : a;
   const dir = norm2(sub2(end, start));
   const far: Vec2 = [end[0] + dir[0] * 1e6, end[1] + dir[1] * 1e6];
-  let best: Vec2 | null = null, bestD = Infinity;
+  let best: Vec2 | null = null, bestD = Infinity, by: SkEntity | null = null;
   for (const o of sk.entities) {
     if (o.t === 'point' || o.id === lineId) continue;
     for (const q of primsOf(ix, o as SkCurve)) {
       for (const p of intersectPrims({ kind: 'seg', a: end, b: far }, q)) {
         const d = dist2(p, end);
-        if (d > 1e-7 && d < bestD) { bestD = d; best = p; }
+        if (d > 1e-7 && d < bestD) { bestD = d; best = p; by = o; }
       }
     }
   }
@@ -447,6 +450,8 @@ export function extendAt(sk: SketchFeature, lineId: Id, at: Vec2): boolean {
   pt.x = best[0];
   pt.y = best[1];
   dropLengthDimensions(sk, lineId);
+  // Splines take no point-on-curve relation in the solver.
+  if (newId && by && by.t !== 'spline') sk.constraints.push({ id: newId('r'), type: 'coincident', refs: [pid, by.id] });
   return true;
 }
 
