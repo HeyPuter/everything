@@ -506,4 +506,18 @@ describe('assistant tools', () => {
     expect(r.content).toMatch(/^Error: a: no face or edge named ".*x" in the current model\. Similar names: .*\|.*Use find_geometry/);
     expect(r.content).toContain(edge);
   });
+
+  it('changes only the second direction\'s arguments that are given', async () => {
+    const h = new TestHost();
+    await h.call('create_sketch', { plane: 'front', shapes: [{ type: 'circle', center: [0, 0], radius: 5 }] });
+    await h.call('add_extrude', { sketch: 's1', depth: 10, direction2: { end: 'blind', depth: 4 } });
+    // "direction2.depth is required for a blind second direction", though it had one.
+    await h.call('edit_feature', { feature: 'f2', params: { direction2: { end: 'blind' } } });
+    expect(h.bbox!.min[2]).toBeCloseTo(-4);
+    await h.call('edit_feature', { feature: 'f2', params: { direction2: { depth: 6 } } });
+    expect(h.bbox!.min[2]).toBeCloseTo(-6);
+    const fresh = new TestHost();
+    await fresh.call('create_sketch', { plane: 'front', shapes: [{ type: 'circle', center: [0, 0], radius: 5 }] });
+    expect((await fresh.call('add_extrude', { sketch: 's1', depth: 10, direction2: { end: 'blind' } }, false)).content).toMatch(/direction2\.depth is required/);
+  });
 });

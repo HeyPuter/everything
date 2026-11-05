@@ -90,8 +90,12 @@ export class FeatureCodec {
         if (has('reverse')) f.flip = bool(a.reverse, 'reverse');
         if (has('direction2')) {
           const d = a.direction2 as Obj | null;
-          f.dir2 = d ? { end: d.end == null ? 'blind' : choice(d.end, END2, 'direction2.end'), depth: d.depth == null ? 0 : u.parseParam(d.depth, 'length', 'direction2.depth') } : null;
-          if (f.dir2 && f.dir2.end === 'blind' && d?.depth == null) throw new ToolError('direction2.depth is required for a blind second direction');
+          // What is not given stays as it was, like the feature's other arguments; a depth alone means blind, as above.
+          const cur = f.dir2;
+          const kept = cur && (typeof cur.depth === 'string' || cur.depth > 0) ? cur.depth : null;
+          const depth = d?.depth != null ? u.parseParam(d.depth, 'length', 'direction2.depth') : kept;
+          f.dir2 = d ? { end: d.end != null ? choice(d.end, END2, 'direction2.end') : d.depth != null ? 'blind' : cur?.end ?? 'blind', depth: depth ?? 0 } : null;
+          if (f.dir2 && f.dir2.end === 'blind' && depth == null) throw new ToolError('direction2.depth is required for a blind second direction');
         }
         if (has('draft')) f.draft = ang('draft');
         if (has('draft_outward')) f.draftOutward = bool(a.draft_outward, 'draft_outward');
