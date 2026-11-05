@@ -544,3 +544,40 @@ describe('undo in the middle of a command', () => {
     expect(t.all().map((e) => e.type)).toEqual(['circle']);
   });
 });
+
+describe('mouse wheel', () => {
+  const wheel = (o) => {
+    const before = { ...t.ed.camera.state };
+    t.ed._wheel({ preventDefault() {}, clientX: 500, clientY: 400, deltaX: 0, deltaMode: 0, ctrlKey: false, ...o });
+    const after = t.ed.camera.state;
+    if (after.scale !== before.scale) return 'zoom';
+    return after.cx !== before.cx || after.cy !== before.cy ? 'pan' : 'none';
+  };
+
+  it('zooms for wheel notches as browsers report them', () => {
+    expect(wheel({ deltaY: 100 })).toBe('zoom'); // Chrome, Windows
+    expect(wheel({ deltaY: 3, deltaMode: 1 })).toBe('zoom'); // Firefox, lines
+    // Chrome and Firefox on macOS: multiples of 4.000244140625 px.
+    expect(wheel({ deltaY: 4.000244140625 })).toBe('zoom');
+    expect(wheel({ deltaY: -12.000732421875 })).toBe('zoom');
+  });
+
+  it('zooms a macOS wheel step like a line-mode notch, capped per event', () => {
+    const ratio = (o) => {
+      const s0 = t.ed.camera.state.scale;
+      wheel(o);
+      return t.ed.camera.state.scale / s0;
+    };
+    const notch = ratio({ deltaY: 1, deltaMode: 1 });
+    expect(ratio({ deltaY: 4.000244140625 })).toBeCloseTo(notch ** 3, 6);
+    const fast = ratio({ deltaY: 4.000244140625 * 40 });
+    expect(fast).toBeCloseTo(ratio({ deltaY: 4.000244140625 * 4 }), 6);
+    expect(fast).toBeGreaterThan(0.4);
+  });
+
+  it('pans for trackpad scrolls and zooms for pinches', () => {
+    expect(wheel({ deltaY: 2.5 })).toBe('pan');
+    expect(wheel({ deltaX: 3, deltaY: 1 })).toBe('pan');
+    expect(wheel({ deltaY: 2.5, ctrlKey: true })).toBe('zoom');
+  });
+});

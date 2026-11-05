@@ -935,10 +935,15 @@ export class Editor {
       dy *= 400;
       dx *= 400;
     }
-    const trackpadPan = !e.ctrlKey && (Math.abs(dx) > 0.5 || (e.deltaMode === 0 && Math.abs(dy) < 40 && !Number.isInteger(dy)));
+    // Trackpads scroll in small fractional steps (a pinch sets ctrlKey). Mouse wheels give
+    // lines, large steps, or on macOS multiples of 4.000244140625 px.
+    const macWheel = dx === 0 && dy !== 0 && Number.isInteger(Math.abs(dy) / MAC_WHEEL_STEP);
+    const trackpadPan = !e.ctrlKey && !macWheel && (Math.abs(dx) > 0.5 || (e.deltaMode === 0 && Math.abs(dy) < 40 && !Number.isInteger(dy)));
     if (trackpadPan && this.settings.trackpadPan !== false) {
       this.camera.panBy(-dx, -dy);
     } else {
+      // A macOS step is tiny: zoom about as much as a line-mode notch, at most four per event.
+      if (macWheel) dy = Math.sign(dy) * Math.min(Math.abs(dy) / MAC_WHEEL_STEP, 4) * 48;
       const k = e.ctrlKey ? 0.01 : 0.0018;
       this.camera.zoomAt(sx, sy, Math.exp(-dy * k));
     }
@@ -1390,6 +1395,9 @@ export class Editor {
     this.ui.contextMenu(x, y, items);
   }
 }
+
+/** One mouse wheel step in Chrome and Firefox on macOS, in px (see _wheel). */
+const MAC_WHEEL_STEP = 4.000244140625;
 
 /** Typed snap override keywords. */
 const SNAP_KEYWORDS = { END: 'end', MID: 'mid', CEN: 'cen', GCE: 'gcen', NOD: 'node', QUA: 'quad', INT: 'int', EXT: 'ext', INS: 'ins', PER: 'per', TAN: 'tan', NEA: 'nea' };
