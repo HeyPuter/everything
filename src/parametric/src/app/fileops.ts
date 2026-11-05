@@ -16,7 +16,8 @@ import type { App } from './app';
 import { sharedWithMe } from './share';
 
 export class FileOps {
-  private saving = false;
+  /** Adjacent Save requests share a write until that write starts. */
+  private queuedSave: { documentVersion: number; result: Promise<boolean> } | null = null;
   private fileQueue: Promise<void> = Promise.resolve();
   private queuedFileOperations = 0;
   private recoveryTimer = 0;
@@ -46,6 +47,8 @@ export class FileOps {
 
   /** A later file operation must not be overwritten by an earlier completion. */
   private fileOperation<T>(operation: () => Promise<T>): Promise<T> {
+    // Rename and Save As separate Save requests into distinct ordered writes.
+    this.queuedSave = null;
     const waiting = this.queuedFileOperations++ > 0;
     const dismiss = waiting ? toast({ message: 'Waiting for the current file operation…', timeout: 0 }) : null;
     const result = this.fileQueue.then(async () => {
@@ -102,39 +105,37 @@ export class FileOps {
 
   /** Save to the current location, or ask where for a new document. */
   async save(): Promise<boolean> {
-    if (this.saving) return false;
     const app = this.app;
     if (app.sketchEditor) app.exitSketch(true);
     const documentVersion = this.documentVersion;
-    this.saving = true;
-    try {
-      return await this.fileOperation(async () => {
-        if (documentVersion !== this.documentVersion) return false;
-        let loc = app.location;
-        if (!loc) loc = await newLocation(app.store.doc.name);
-        if (documentVersion !== this.documentVersion) return false;
-        // Undo replaces the document object while destination lookup is pending.
-        const doc = app.store.doc;
-        const text = serializeDocument(doc);
-        const revision = this.revision;
-        const saved = await saveText(loc, doc.name, text);
-        // The write may finish after New/Open. It belongs to the old part.
-        if (documentVersion !== this.documentVersion) return true;
-        app.location = saved;
-        this.markSaved(revision);
-        toast({ kind: 'success', message: `Saved to ${locationLabel(app.location)}`, timeout: 2500 });
-        if (app.location.type === 'local' && !cloudAvailable()) {
-          maybeNudgeSignIn();
-        }
-        return true;
-      });
-    } catch (e) {
+    if (this.queuedSave?.documentVersion === documentVersion) return this.queuedSave.result;
+    const result: Promise<boolean> = this.fileOperation(async () => {
+      if (this.queuedSave?.result === result) this.queuedSave = null;
+      if (documentVersion !== this.documentVersion) return false;
+      let loc = app.location;
+      if (!loc) loc = await newLocation(app.store.doc.name);
+      if (documentVersion !== this.documentVersion) return false;
+      // Undo replaces the document object while destination lookup is pending.
+      const doc = app.store.doc;
+      const text = serializeDocument(doc);
+      const revision = this.revision;
+      const saved = await saveText(loc, doc.name, text);
+      // The write may finish after New/Open. It belongs to the old part.
+      if (documentVersion !== this.documentVersion) return true;
+      app.location = saved;
+      this.markSaved(revision);
+      toast({ kind: 'success', message: `Saved to ${locationLabel(app.location)}`, timeout: 2500 });
+      if (app.location.type === 'local' && !cloudAvailable()) {
+        maybeNudgeSignIn();
+      }
+      return true;
+    }).catch((e) => {
       // The work is still only in this tab: offer a copy on the device meanwhile.
       toast({ kind: 'error', title: 'Could not save', message: storageError(e), actions: [{ label: 'Download a copy', run: () => void this.exportAs('part') }], timeout: 15000 });
       return false;
-    } finally {
-      this.saving = false;
-    }
+    });
+    this.queuedSave = { documentVersion, result };
+    return result;
   }
 
   /** After a write: clean, unless the part changed while it was being written. */

@@ -962,3 +962,54 @@ for (const first of ['save', 'saveAs', 'rename', 'samePath'] as const) test(`Sav
   await expect(page.locator('.toast', { hasText: 'Waiting for the current file operation' })).toHaveCount(0);
   expect(errors).toEqual([]);
 });
+
+for (const target of ['same part', 'new part', 'renamed part'] as const) test(`Save requested during a write saves newer work in the ${target}`, async ({ page }) => {
+  await mockPuter(page);
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await page.evaluate(() => {
+    type W = { __parametric: import('../../src/app/app').App; puter: { fs: { write: (...args: unknown[]) => Promise<unknown> } }; started: boolean; releaseWrite: () => void; writes: number };
+    const w = window as unknown as W;
+    const write = w.puter.fs.write.bind(w.puter.fs);
+    const gate = new Promise<void>((r) => { w.releaseWrite = r; });
+    w.writes = 0;
+    w.puter.fs.write = async (...args) => { w.started = true; w.writes++; await gate; return write(...args); };
+    w.__parametric.store.change('Original work', (d) => { d.variables.push({ id: 'v1', name: 'Original', expr: '17' }); });
+    w.__parametric.commands.run('save');
+  });
+  await page.waitForFunction(() => (window as unknown as { started: boolean }).started);
+  if (target === 'new part') {
+    await page.evaluate(() => (window as unknown as { __parametric: AppHandle }).__parametric.commands.run('new'));
+    await page.getByRole('dialog', { name: 'Save changes?' }).getByRole('button', { name: "Don't save" }).click();
+    await expect(page).toHaveTitle('Part2 - Parametric');
+  }
+  await page.evaluate(() => {
+    const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+    a.store.change('Newer work', (d) => { d.variables.push({ id: 'v2', name: 'Newer', expr: '42' }); });
+  });
+  if (target === 'renamed part') {
+    await page.evaluate(() => {
+      const a = (window as unknown as { __parametric: AppHandle }).__parametric;
+      a.commands.run('save');
+      a.commands.run('rename');
+    });
+    await page.getByRole('dialog', { name: 'Rename part' }).getByRole('textbox').fill('Renamed');
+    await page.getByRole('button', { name: 'OK', exact: true }).click();
+  }
+  await page.evaluate(() => {
+    const w = window as unknown as { __parametric: AppHandle; releaseWrite: () => void };
+    for (let i = 0; i < 5; i++) w.__parametric.commands.run('save');
+    w.releaseWrite();
+  });
+  const name = target === 'same part' ? 'Part1' : target === 'new part' ? 'Part2' : 'Renamed';
+  await expect.poll(() => page.evaluate((name) => {
+    const text = (window as unknown as Mock).__files.get(`/tester/AppData/parametric/Parts/${name}.parametric`)?.text;
+    if (!text) return null;
+    const doc = JSON.parse(text);
+    return { name: doc.name, variables: doc.variables.map((v: { name: string }) => v.name) };
+  }, name)).toEqual({ name, variables: target === 'new part' ? ['Newer'] : ['Original', 'Newer'] });
+  await expect(page).toHaveTitle(`${name} - Parametric`);
+  expect(await page.evaluate(() => (window as unknown as { writes: number }).writes)).toBe(target === 'renamed part' ? 3 : 2);
+  await expect(page.locator('.toast', { hasText: 'Waiting for the current file operation' })).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
