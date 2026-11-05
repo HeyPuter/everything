@@ -293,8 +293,10 @@ export const POLYGON = {
         const a0 = angleOf(ctr, a);
         return ed.make('polyline', { pts: polygonPoints(ctr, sides, R, a0, false), closed: true, width: 0 });
       };
-      const b = await ed.getPoint('Second endpoint of edge', { base: a, preview: (p) => (dist(a, p) > 1e-12 ? [mk(p)] : []) });
-      if (!b || b.option) return;
+      const preview = (p) => (dist(a, p) > 1e-12 ? [mk(p)] : []);
+      const why = 'The edge must have a length.';
+      const b = await pointAwayFrom(ed, 'Second endpoint of edge', a, { preview }, why);
+      if (!b) return;
       ed.commit('Polygon', () => ed.drawing.add(mk(b)));
       return;
     }
@@ -305,8 +307,9 @@ export const POLYGON = {
     if (!mode) return;
     ed.polyMode = mode;
     const mk = (p) => ed.make('polyline', { pts: polygonPoints(c, sides, dist(c, p), angleOf(c, p), mode === 'c'), closed: true, width: 0 });
-    const r = await ed.getPoint('Radius of circle', { base: c, preview: (p) => (dist(c, p) > 1e-12 ? [mk(p)] : []) });
-    if (r === null || r.option) return;
+    const preview = (p) => (dist(c, p) > 1e-12 ? [mk(p)] : []);
+    const r = await pointAwayFrom(ed, 'Radius of circle', c, { preview });
+    if (!r) return;
     ed.commit('Polygon', () => ed.drawing.add(mk(r)));
   },
 };
@@ -348,8 +351,10 @@ export const CIRCLE = {
       const a = await ed.getPoint('First end point of diameter');
       if (!a || a.option) return;
       const mk = (p) => ed.make('circle', { cx: (a.x + p.x) / 2, cy: (a.y + p.y) / 2, r: dist(a, p) / 2 });
-      const b = await ed.getPoint('Second end point of diameter', { base: a, preview: (p) => (dist(a, p) > 1e-12 ? [mk(p)] : []) });
-      if (!b || b.option) return;
+      const preview = (p) => (dist(a, p) > 1e-12 ? [mk(p)] : []);
+      const why = 'The diameter must be greater than zero.';
+      const b = await pointAwayFrom(ed, 'Second end point of diameter', a, { preview }, why);
+      if (!b) return;
       ed.commit('Circle', () => ed.drawing.add(mk(b)));
       return;
     }
@@ -450,13 +455,15 @@ async function arcStartCenter(ed, s) {
   if (c) return finishCenterArc(ed, c, s);
 }
 
-/** Ask for a point that is not on `base` (a zero radius); null when cancelled. */
-async function pointAwayFrom(ed, prompt, base) {
+const ZERO_RADIUS = 'The radius must be greater than zero.';
+
+/** Ask for a point that is not on `base` (a zero size); null when cancelled. */
+async function pointAwayFrom(ed, prompt, base, opts = {}, why = ZERO_RADIUS) {
   for (;;) {
-    const p = await ed.getPoint(prompt, { base });
+    const p = await ed.getPoint(prompt, { ...opts, base });
     if (!p || p.option) return null;
     if (dist(base, p) > 1e-12) return p;
-    ed.ui.log('The radius must be greater than zero.', 'error');
+    ed.ui.log(why, 'error');
   }
 }
 
@@ -502,6 +509,8 @@ async function arcStartEndRadius(ed, s) {
   }
 }
 
+const AXIS = 'The axis must have a length.';
+
 export const ELLIPSE = {
   name: 'ELLIPSE',
   aliases: ['EL'],
@@ -520,8 +529,8 @@ export const ELLIPSE = {
       }
       if (a.option === 'center') center = true;
       else {
-        const b = await ed.getPoint('Other end point of axis', { base: a });
-        if (!b || b.option) return;
+        const b = await pointAwayFrom(ed, 'Other end point of axis', a, {}, AXIS);
+        if (!b) return;
         c = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
         mx = b.x - c.x;
         my = b.y - c.y;
@@ -531,8 +540,8 @@ export const ELLIPSE = {
     if (center) {
       c = await ed.getPoint('Center of ellipse');
       if (!c || c.option) return;
-      const e = await ed.getPoint('Axis end point', { base: c });
-      if (!e || e.option) return;
+      const e = await pointAwayFrom(ed, 'Axis end point', c, {}, AXIS);
+      if (!e) return;
       mx = e.x - c.x;
       my = e.y - c.y;
       axis0 = angleOf(c, e);
@@ -553,9 +562,15 @@ export const ELLIPSE = {
     };
     const perp = (p) => Math.abs((-(my / major)) * (p.x - c.x) + (mx / major) * (p.y - c.y));
     // A typed value is the distance itself; a picked point counts by its distance from the major axis.
-    const pickD = await ed._ask('distance', 'Distance to other axis', { base: c, preview: (p) => (perp(p) > 1e-12 ? [mkFull(perp(p))] : []) });
-    const d = typeof pickD === 'number' ? pickD : pickD && !pickD.option ? perp(pickD) : null;
-    if (typeof d !== 'number' || d <= 0) return;
+    let d;
+    for (;;) {
+      const preview = (p) => (perp(p) > 1e-12 ? [mkFull(perp(p))] : []);
+      const pickD = await ed._ask('distance', 'Distance to other axis', { base: c, preview });
+      if (pickD === null || pickD.option) return;
+      d = typeof pickD === 'number' ? pickD : perp(pickD);
+      if (d > 1e-12) break;
+      ed.ui.log(AXIS, 'error');
+    }
     const full = mkFull(d);
     if (!arc) {
       ed.commit('Ellipse', () => ed.drawing.add(full));
@@ -703,8 +718,15 @@ export const REVCLOUD = {
       }
       return ed.make('polyline', { pts, closed: true, width: 0 });
     };
-    const b = await ed.getPoint('Opposite corner', { base: a, rubber: false, preview: (p) => (Math.abs(p.x - a.x) > 1e-9 && Math.abs(p.y - a.y) > 1e-9 ? [mk(p)] : []) });
-    if (!b || b.option) return;
+    const flat = (p) => Math.abs(p.x - a.x) <= 1e-9 || Math.abs(p.y - a.y) <= 1e-9;
+    let b;
+    for (;;) {
+      const preview = (p) => (flat(p) ? [] : [mk(p)]);
+      b = await ed.getPoint('Opposite corner', { base: a, rubber: false, preview });
+      if (!b || b.option) return;
+      if (!flat(b)) break;
+      ed.ui.log('The cloud needs a width and a height.', 'error');
+    }
     const step = stepFor(b);
     if (step > arcLen) {
       ed.ui.log(`Arc length increased to ${formatLinear(step, ed.header)} for this size.`, 'muted');

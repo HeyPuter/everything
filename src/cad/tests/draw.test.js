@@ -375,3 +375,34 @@ describe('grip editing and locked layers', () => {
     expect(t.drawing.get(b)).toMatchObject({ y1: 8, y2: 8 });
   });
 });
+
+describe('zero-size shapes', () => {
+  it('asks again instead of drawing zero-size polygons, circles, clouds and ellipses', async () => {
+    await t.type('POLYGON', '5', 'E', '3,3', '3,3');
+    expect(t.ed.request?.prompt).toBe('Second endpoint of edge');
+    await t.type('8,3');
+    await t.type('POLYGON', '5', '3,3', 'I', '3,3');
+    expect(t.ed.request?.prompt).toBe('Radius of circle');
+    await t.type('8,3');
+    await t.type('CIRCLE', '2P', '3,3', '3,3');
+    expect(t.ed.request?.prompt).toBe('Second end point of diameter');
+    await t.type('5,3');
+    await t.type('REVCLOUD', '5', '0,0', '10,0');
+    expect(t.ed.request?.prompt).toBe('Opposite corner');
+    await t.type('10,10');
+    await t.type('ELLIPSE', '0,0', '0,0');
+    expect(t.ed.request?.prompt).toBe('Other end point of axis');
+    await t.type('10,0', '0');
+    expect(t.ed.request?.prompt).toBe('Distance to other axis');
+    await t.type('2');
+    expect(t.all().map((e) => e.type)).toEqual([
+      'polyline',
+      'polyline',
+      'circle',
+      'polyline',
+      'ellipse',
+    ]);
+    expect(t.all('circle')[0].r).toBeCloseTo(1);
+    expect(t.all('ellipse')[0].ratio).toBeCloseTo(0.4);
+  });
+});
