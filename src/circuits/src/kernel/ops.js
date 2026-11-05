@@ -92,7 +92,11 @@ export function encodePours(doc, library, { ids = null } = {}) {
   }
   const w = new F64Writer(shapes.records.length + 1024);
   writePrefix(w, shapes);
-  w.push(rules.edgeClearance || 0, thermal.gap, thermal.spoke, thermal.count || 4, pours.length);
+  // The kernel offsets the board outline with round joins drawn as chords,
+  // which cut up to 0.12% of the distance into the clearance around cutouts
+  // and inside corners; a small margin keeps the full clearance DRC checks.
+  const edge = rules.edgeClearance || 0;
+  w.push(edge > 0 ? edge * 1.002 + 10 : 0, thermal.gap, thermal.spoke, thermal.count || 4, pours.length);
   pours.forEach((p, i) => {
     const net = p.net ? shapes.netIndex.get(p.net) ?? -1 : -1;
     const clr = Math.max(p.clearance ?? rules.pourClearance ?? 0, p.net ? shapes.rulesFor(p.net).clearance : rules.clearance || 0);

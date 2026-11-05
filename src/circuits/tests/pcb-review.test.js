@@ -6,6 +6,11 @@ import { setPuterForTests } from '../src/app/puter.js';
 import { closeMenus } from '../src/ui/menu.js';
 import { placedOf } from '../src/render/pcb-scene.js';
 import { Batch } from '../src/render/batch.js';
+import fs from 'node:fs';
+import path from 'node:path';
+import { createKernel } from '../src/kernel/ops.js';
+import { defaultRules } from '../src/model/schema.js';
+import { mm } from '../src/core/units.js';
 
 async function bootBoard() {
   document.body.innerHTML = '<div id="app"></div><div id="live-region"></div>';
@@ -184,5 +189,43 @@ describe('layer stack changes', () => {
     expect(ed.activeLayer).toBe('top');
     ed.startTool('route');
     expect(ed.tool.hint()).toMatch(/Click a pad/);
+  });
+});
+
+describe('pours and board cutouts', () => {
+  it('keeps the edge clearance around a cutout so DRC finds nothing', async () => {
+    const wasm = fs.readFileSync(path.resolve(import.meta.dirname, '../src/kernel/kernel.wasm'));
+    const kernel = await createKernel(wasm);
+    const sq = (x0, y0, x1, y1) => [x0, y0, x1, y0, x1, y1, x0, y1];
+    const doc = {
+      id: 'b',
+      kind: 'pcb',
+      name: 'Board',
+      board: {
+        outline: sq(0, 0, mm(40), mm(30)),
+        // Drawn cutouts are stored clockwise.
+        cutouts: [[mm(24), mm(9), mm(28), mm(9), mm(28), mm(3), mm(24), mm(3)]],
+        origin: { x: 0, y: 0 },
+        copper: 2,
+        thickness: mm(1.6),
+      },
+      rules: defaultRules(),
+      nets: { GND: {} },
+      objects: [
+        {
+          id: 'p',
+          t: 'pour',
+          layer: 'bottom',
+          net: 'GND',
+          pts: sq(mm(1), mm(1), mm(39), mm(29)),
+          clearance: mm(0.3),
+          removeIslands: false,
+        },
+      ],
+    };
+    const fills = await kernel.pours(doc, {});
+    expect(fills.get('p')?.length).toBeGreaterThan(0);
+    const list = await kernel.drc(doc, {}, { pourFills: fills });
+    expect(list.filter((v) => v.rule === 'edge')).toEqual([]);
   });
 });
