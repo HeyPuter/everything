@@ -96,6 +96,19 @@ describe('DWG writer', () => {
     expect(diff(back.drawing, parseDxf(writeDxf(p.drawing, p.opts)).drawing)).toEqual([]);
   });
 
+  it('keeps %% codes in text through DXF and DWG, as AutoCAD does', () => {
+    const d = everything();
+    const value = '%%c10 %%d %%p1 50%%% %%176 %%uU%%u';
+    d.entities = [
+      ent('text', { x: 0, y: 0, h: 2, rot: 0, value, style: 'Standard', halign: 'left', valign: 'baseline', widthFactor: 1, oblique: 0 }),
+      ent('mtext', { x: 0, y: 5, h: 2, rot: 0, style: 'Standard', width: 0, attach: 'tl', lineSpacing: 1, value: '%%c20' }),
+    ];
+    const opts = { dimensionEntities, hatchPatterns };
+    for (const back of [parseDxf(writeDxf(d, opts)), parseDwg(writeDwg(d, opts))]) {
+      expect(back.drawing.entities.map((e) => e.value)).toEqual([value, '%%c20']);
+    }
+  });
+
   it('writes every entity type and table feature', () => {
     const d = everything();
     const opts = { dimensionEntities, hatchPatterns };

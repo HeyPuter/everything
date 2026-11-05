@@ -271,10 +271,11 @@ describe('parseDxf: text', () => {
     expect(stripMtext('{\\fArial|b1|i0;Hello}\\PWorld')).toBe('Hello\nWorld');
     expect(stripMtext('\\H2.5x;Big \\C1;red\\~x')).toBe('Big red\u00a0x');
     expect(stripMtext('\\S1^2; and \\S3#4;')).toBe('1/2 and 3/4');
-    expect(stripMtext('a\\\\b \\{c\\} \\U+00E9 \\Lunder\\l %%d')).toBe('a\\b {c} \u00e9 under \u00b0');
-    expect(decodeText('25%%d %%c10 %%p0.1 %%%')).toBe('25\u00b0 \u230010 \u00b10.1 %');
-    // decoration toggles are drawn by the text, so they are kept
+    expect(stripMtext('a\\\\b \\{c\\} \\U+00E9 \\Lunder\\l %%d')).toBe('a\\b {c} \u00e9 under %%d');
+    // %% codes are drawn by the text and stay in the value, as AutoCAD keeps them
+    expect(decodeText('25%%d %%c10 %%p0.1 %%% %%176')).toBe('25%%d %%c10 %%p0.1 %%% %%176');
     expect(decodeText('%%uUNDER%%u %%Oover %%kx')).toBe('%%uUNDER%%u %%Oover %%kx');
+    expect(decodeText('%%65 a^ b')).toBe('A a^b');
   });
 
   it('reads MTEXT chunks, attachment, width, direction and line spacing', () => {

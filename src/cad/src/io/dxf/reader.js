@@ -134,11 +134,13 @@ export function decodeUnicode(s) {
   return out;
 }
 
-const PCT = { c: '⌀', C: '⌀', d: '°', D: '°', p: '±', P: '±' };
+/** Letters of the %% codes that text draws (diameter, degree, plus-minus, percent, toggles). */
+const PCT = /[cdpuok%]/i;
 
 /**
- * Plain value of a TEXT string: %% control codes, caret codes, \U+ escapes.
- * The %%u, %%o and %%k toggles stay in the value.
+ * Value of a TEXT string with caret codes and \U+ escapes decoded. The %%
+ * control codes the text draws (%%c %%d %%p %%% %%nnn %%u %%o %%k) stay in
+ * the value, as AutoCAD keeps them, so editing shows the codes typed.
  */
 export function decodeText(s) {
   if (s.indexOf('%%') < 0 && s.indexOf('^') < 0 && s.indexOf('\\') < 0) return s;
@@ -149,18 +151,7 @@ export function decodeText(s) {
     const c = s[i];
     if (c === '%' && s[i + 1] === '%' && i + 2 < n) {
       const d = s[i + 2];
-      if (PCT[d]) {
-        out += PCT[d];
-        i += 3;
-        continue;
-      }
-      if (d === '%') {
-        out += '%';
-        i += 3;
-        continue;
-      }
-      if (d === 'u' || d === 'U' || d === 'o' || d === 'O' || d === 'k' || d === 'K') {
-        // underline, overline and strike-through toggles: kept, the text draws them
+      if (PCT.test(d)) {
         out += s.slice(i, i + 3);
         i += 3;
         continue;
@@ -168,7 +159,8 @@ export function decodeText(s) {
       if (d >= '0' && d <= '9') {
         let j = i + 2;
         while (j < n && j < i + 5 && s[j] >= '0' && s[j] <= '9') j++;
-        out += String.fromCharCode(+s.slice(i + 2, j));
+        // three digits stay (the text decodes them); shorter forms become the character
+        out += j === i + 5 ? s.slice(i, j) : String.fromCharCode(+s.slice(i + 2, j));
         i = j;
         continue;
       }
@@ -201,7 +193,7 @@ function skipTo(s, i, ch) {
 /**
  * Plain text of an MTEXT string: paragraph breaks become '\n', formatting
  * codes (\f \H \C \W \Q \T \A \p ...) and grouping braces are removed,
- * stacked fractions become 'a/b'.
+ * stacked fractions become 'a/b'. %% codes stay.
  */
 export function stripMtext(s) {
   if (s.indexOf('\\') < 0 && s.indexOf('{') < 0 && s.indexOf('}') < 0 && s.indexOf('%%') < 0 && s.indexOf('^') < 0) {
@@ -295,10 +287,8 @@ export function stripMtext(s) {
     } else if (c === '{' || c === '}') {
       i++;
     } else if (c === '%' && s[i + 1] === '%' && i + 2 < n) {
-      const d = s[i + 2];
-      if (PCT[d]) out += PCT[d];
-      else if (d === '%') out += '%';
-      else out += '%%' + d;
+      // %% codes stay, the text decodes them
+      out += s.slice(i, i + 3);
       i += 3;
     } else if (c === '^' && i + 1 < n) {
       const d = s.charCodeAt(i + 1);

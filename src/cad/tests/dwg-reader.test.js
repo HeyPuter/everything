@@ -64,7 +64,7 @@ describe('DWG reader: versions', () => {
       expect(poly.pts).toEqual([0, 0, 0, 20, 0, 0.5, 20, 10, 0, 0, 10, -0.25]);
       expect(d.entities.filter((e) => e.type === 'insert' && e.name === 'Sq').length).toBe(6);
       expect(d.entities.find((e) => e.type === 'text' && e.value === 'Pump 7')).toBeTruthy();
-      expect(d.entities.find((e) => e.type === 'text' && e.value.startsWith('Ω 25°'))).toBeTruthy();
+      expect(d.entities.find((e) => e.type === 'text' && e.value.startsWith('Ω 25%%d %%p1'))).toBeTruthy();
       expect(d.layers.find((l) => l.name === 'Off').on).toBe(false);
       expect(d.layers.find((l) => l.name === 'Frozen').frozen).toBe(true);
       expect(d.layers.find((l) => l.name === 'Locked').locked).toBe(true);
