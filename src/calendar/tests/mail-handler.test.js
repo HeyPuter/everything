@@ -609,7 +609,7 @@ describe('mail-handler: notifications', () => {
     expect(n).toMatchObject({
       title: 'Ana invited you to Team sync',
       text: 'ana@example.com',
-      data: { uid: 'sync-1@google.com' },
+      data: { uid: 'sync-1@google.com', ask: 1 },
       target: '/?uid=sync-1%40google.com',
       channel: 'calendar',
     });
@@ -677,6 +677,7 @@ describe('mail-handler: notifications', () => {
     const { user, notify } = notifyingUser({ msg: invite({ method: 'CANCEL', sequence: 1 }) });
     await deliver(user);
     expect(notify.mock.calls[0][0].title).toBe('Ana cancelled Team sync');
+    expect(notify.mock.calls[0][0].data).toEqual({ uid: 'sync-1@google.com' });
   });
 
   it("a reply to the user's own event names the guest and their answer", async () => {

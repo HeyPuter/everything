@@ -533,7 +533,7 @@ describe('a mail invitation addressed to the Puter mailbox', () => {
     };
   }
 
-  function openMail({ reply } = {}) {
+  function openMail({ reply, respond } = {}) {
     const event = mailEvent();
     const rsvped = [];
     const store = {
@@ -556,7 +556,7 @@ describe('a mail invitation addressed to the Puter mailbox', () => {
       mail: reply ? { reply } : null,
       requestEmail: async () => ACCOUNT,
     });
-    modal.openView(event);
+    modal.openView(event, { respond });
     return { modal, event, rsvped };
   }
 
@@ -575,6 +575,16 @@ describe('a mail invitation addressed to the Puter mailbox', () => {
     expect(rsvped).toHaveLength(1);
     expect(rsvped[0].email).toBe(MAILBOX);
     expect(rsvped[0].status).toBe('accepted');
+  });
+
+  it('answers on opening when Yes or No was pressed on the notification', async () => {
+    const offerReply = vi.fn();
+    const { rsvped } = openMail({ reply: { offerReply, available: () => true }, respond: 'accepted' });
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(rsvped).toEqual([{ id: 'mail-evt-1', status: 'accepted', email: MAILBOX }]);
+    expect(offerReply).toHaveBeenCalledTimes(1);
   });
 
   it('then offers to email the reply', async () => {

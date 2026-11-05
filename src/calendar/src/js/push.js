@@ -76,12 +76,21 @@ export function startPush(p = sdk()) {
   p.notifications.on('click', (click) => {
     if (route) route(click);
     else pendingClick = click;
+    // Closes the same notification on the user's other devices.
+    if (click && click.uid) p.notifications.dismiss(click.uid).catch(() => {});
   });
   // Saved as source and re-run in sw.js, so it can't use anything around it.
   pushListener = Promise.resolve(
     p.notifications.onPush(
       PUSH_CHANNEL,
-      (n) => ({ title: n.title, body: n.text || '', url: n.target || '/' }),
+      (n) => {
+        const shown = { title: n.title, body: n.text || '', url: n.target || '/' };
+        // A reminder stays up until it's dealt with.
+        if (/^reminder:/.test(n.group || '')) shown.requireInteraction = true;
+        // An invitation answers from the notification; the press opens the event.
+        if (n.data && n.data.ask) shown.actions = [{ action: 'accepted', title: 'Yes' }, { action: 'declined', title: 'No' }];
+        return shown;
+      },
       PUSH_OPTIONS,
     ),
   ).catch((err) => {
@@ -152,7 +161,7 @@ export function routeNotificationClicks(fn) {
   }
 }
 
-/** `{ eventId, uid }` from a click's data, else its target's query. */
+/** `{ eventId, uid, respond }` from a click's data, else its target's query; `respond` is a pressed Yes / No. */
 export function notificationTarget(click) {
   const data = click && click.data && typeof click.data === 'object' ? click.data : {};
   let params = null;
@@ -162,9 +171,11 @@ export function notificationTarget(click) {
     /* no usable target */
   }
   const pick = (v) => (typeof v === 'string' ? v : '');
+  const action = click && click.action;
   return {
     eventId: pick(data.eventId) || pick(params && params.get('event')),
     uid: pick(data.uid) || pick(params && params.get('uid')),
+    respond: action === 'accepted' || action === 'declined' ? action : null,
   };
 }
 

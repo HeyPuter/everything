@@ -19,11 +19,12 @@ async function setup({ enabled = true, env = 'web', signedIn = () => true, locks
     cancel: vi.fn(async () => {}),
     status: vi.fn(async () => 'on'),
   };
-  const p = { env, notifications };
+  const events = { updateSchedule: vi.fn(async (scheduleId) => ({ scheduleId })) };
+  const p = { env, notifications, events };
   const sync = createStoredReminders({ store, kv, getPuter: () => p, signedIn, locks });
   const event = (patch = {}) => store.saveEvent({ title: 'Review', start: BASE + 60 * MIN, end: BASE + 90 * MIN, reminders: [10], ...patch });
   const rows = () => [...kv.map].filter(([key]) => key.startsWith('cal:reminder:')).map(([, value]) => value);
-  return { kv, store, notifications, p, sync, event, rows };
+  return { kv, store, notifications, events, p, sync, event, rows };
 }
 
 beforeEach(() => {
@@ -50,11 +51,40 @@ describe('stored reminders', () => {
     expect(f.notifications.cancel).not.toHaveBeenCalled();
   });
 
-  it('cancels and replaces on content/time edits, and cancels on delete', async () => {
+  it('updates the stored text in place when only the words change', async () => {
     const f = await setup();
     let ev = await f.event();
     await f.sync.sync();
-    for (const patch of [{ title: 'Renamed' }, { location: 'Room 2' }, { end: BASE + 100 * MIN }, { start: BASE + 70 * MIN }, { reminders: [5] }]) {
+    for (const patch of [{ title: 'Renamed' }, { location: 'Room 2' }, { end: BASE + 100 * MIN }]) {
+      ev = await f.store.saveEvent({ ...ev, ...patch });
+      await f.sync.sync();
+    }
+    expect(f.notifications.notify).toHaveBeenCalledTimes(1);
+    expect(f.notifications.cancel).not.toHaveBeenCalled();
+    expect(f.events.updateSchedule).toHaveBeenCalledTimes(3);
+    expect(f.events.updateSchedule).toHaveBeenLastCalledWith('s1', { title: 'Renamed', text: expect.stringContaining('Room 2') });
+    await f.sync.sync();
+    expect(f.events.updateSchedule).toHaveBeenCalledTimes(3);
+    expect(f.rows()).toEqual([expect.objectContaining({ scheduleId: 's1', sendAt: ev.start - 10 * MIN })]);
+  });
+
+  it('replaces a stored reminder that already went out or is sending when its words change', async () => {
+    const f = await setup();
+    let ev = await f.event();
+    await f.sync.sync();
+    f.events.updateSchedule.mockRejectedValue({ code: 'events_schedule_sending' });
+    ev = await f.store.saveEvent({ ...ev, title: 'Renamed' });
+    await f.sync.sync();
+    expect(f.notifications.cancel).toHaveBeenCalledWith('s1');
+    expect(f.notifications.notify).toHaveBeenCalledTimes(2);
+    expect(f.rows()).toEqual([expect.objectContaining({ scheduleId: 's2' })]);
+  });
+
+  it('cancels and replaces on time edits, and cancels on delete', async () => {
+    const f = await setup();
+    let ev = await f.event();
+    await f.sync.sync();
+    for (const patch of [{ start: BASE + 70 * MIN }, { reminders: [5] }]) {
       ev = await f.store.saveEvent({ ...ev, ...patch });
       const count = f.notifications.notify.mock.calls.length;
       await f.sync.sync();
@@ -65,7 +95,7 @@ describe('stored reminders', () => {
     await f.store.deleteEvent(ev.id);
     await f.sync.sync();
     expect(f.rows()).toHaveLength(0);
-    expect(f.notifications.cancel).toHaveBeenLastCalledWith('s6');
+    expect(f.notifications.cancel).toHaveBeenLastCalledWith('s3');
   });
 
   it('shares recurrence, override, all-day, declined and ended filtering with the local scheduler', async () => {

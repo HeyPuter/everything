@@ -468,7 +468,8 @@ async function calendarMailHandler({ event, ctx, user, fetch, ack }) {
     if (senders && Array.isArray(senders.blocked) && senders.blocked.includes(from)) return;
 
     const target = '/?uid=' + encodeURIComponent(uid);
-    const data = { uid };
+    // `ask`: an invitation, which the push offers Yes / No on.
+    const data = method === 'REQUEST' ? { uid, ask: 1 } : { uid };
     const bytes = Array.from(JSON.stringify(data)).reduce((n, c) => {
       const cp = c.codePointAt(0);
       return n + (cp < 0x80 ? 1 : cp < 0x800 ? 2 : cp < 0x10000 ? 3 : 4);
