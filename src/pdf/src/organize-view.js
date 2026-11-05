@@ -424,6 +424,12 @@ export function createOrganizeView({
     return node;
   }
 
+  // The grid is one tab stop, on the tile last focused however it got there (a click too), so
+  // Tab leaves the grid and Shift+Tab comes back to the same tile.
+  grid.addEventListener('focusin', (e) => {
+    const tile = e.target.closest?.('.organize-tile');
+    if (tile && tile.tabIndex !== 0) tiles.forEach((t) => (t.tabIndex = t === tile ? 0 : -1));
+  });
   grid.addEventListener('dragover', (e) => {
     if (!dragging) return;
     e.preventDefault();

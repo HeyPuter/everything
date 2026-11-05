@@ -460,3 +460,24 @@ test('after deleting by key in Organize pages, the page with the focus is the on
   await settled(page);
   expect((await exportedHeights(page)).map(([h]) => h)).toEqual([300, 450]);
 });
+
+test('a tile clicked in Organize pages is where the keyboard comes back to', async ({ page }) => {
+  await mockPuter(page);
+  await page.goto('/#library');
+  await openPdf(page, await tallPdf());
+  await page.getByRole('button', { name: 'Tools', exact: true }).click();
+  await page
+    .getByRole('complementary', { name: 'Tools' })
+    .getByRole('button', { name: 'Organize pages', exact: true })
+    .click();
+  const grid = page.getByRole('listbox', { name: 'Pages' });
+  const third = grid.getByRole('option', { name: 'Page 3', exact: true });
+  await third.click();
+  await expect(third).toBeFocused();
+  // The grid is one tab stop: leaving it and coming back returns to the chosen tile.
+  await page.keyboard.press('Shift+Tab');
+  await expect(third).not.toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(third).toBeFocused();
+  await expect(grid.locator('[tabindex="0"]')).toHaveCount(1);
+});
