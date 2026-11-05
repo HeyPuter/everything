@@ -125,6 +125,21 @@ describe('Drawing', () => {
     expect(changes[0].resort).toBe(true);
   });
 
+  it('merges several restored objects back into place, with later additions kept last', () => {
+    const d = new Drawing();
+    const ids = d.transaction('Add', () => [1, 2, 3, 4, 5, 6].map((i) => d.add(line(0, 0, i, i)).id));
+    d.transaction('Erase', () => [ids[4], ids[0], ids[2]].forEach((id) => d.remove(id)));
+    d.transaction('Erase', () => d.remove(ids[5]));
+    d.undo();
+    d.undo();
+    expect([...d.entities.keys()]).toEqual(ids);
+    d.redo();
+    const extra = d.transaction('Add', () => d.add(line(0, 0, 9, 9)).id);
+    d.transaction('Erase', () => d.remove(ids[3]));
+    d.undo();
+    expect([...d.entities.keys()]).toEqual([ids[1], ids[3], ids[5], extra]);
+  });
+
   it('keeps an erased object in place across a later reorder', () => {
     const d = new Drawing();
     const ids = d.transaction('Add', () => [d.add(line(0, 0, 1, 1)).id, d.add(line(0, 0, 2, 2)).id, d.add(line(0, 0, 3, 3)).id]);

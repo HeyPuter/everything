@@ -107,12 +107,28 @@ export class Drawing {
     return () => this.listeners.delete(fn);
   }
 
-  /** Put re-added objects back in their draw-order place before reporting. */
+  /**
+   * Put re-added objects back in their draw-order place before reporting:
+   * they were appended, the rest is still in order, so merge them in.
+   */
   _finish(change) {
     if (change.resort) {
       const key = this.orderKey;
-      this.entities = new Map([...this.entities].sort((a, b) => key.get(a[0]) - key.get(b[0])));
+      const ents = this.entities;
+      const back = new Set(change.restored.filter((id) => ents.has(id)));
+      const ins = [...back].sort((a, b) => key.get(a) - key.get(b));
+      const out = new Map();
+      let i = 0;
+      for (const [id, e] of ents) {
+        if (back.has(id)) continue;
+        const k = key.get(id);
+        for (; i < ins.length && key.get(ins[i]) < k; i++) out.set(ins[i], ents.get(ins[i]));
+        out.set(id, e);
+      }
+      for (; i < ins.length; i++) out.set(ins[i], ents.get(ins[i]));
+      this.entities = out;
     }
+    delete change.restored;
     return change;
   }
 
@@ -179,7 +195,10 @@ export class Drawing {
             const key = this.orderKey.get(rec.id);
             if (key === undefined) this.orderKey.set(rec.id, ++this.nextOrder);
             // Coming back (undo of an erase): restore its place in the draw order.
-            else if (key < this.nextOrder) change.resort = true;
+            else if (key < this.nextOrder) {
+              change.resort = true;
+              (change.restored ??= []).push(rec.id);
+            }
           }
           this.entities.set(rec.id, value);
         } else this.entities.delete(rec.id);
