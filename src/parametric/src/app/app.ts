@@ -21,7 +21,7 @@ import { selectTabs, syncTabStops, tabKeys } from '../ui/tabs';
 import { type FocusRegion, cycleRegion, firstTabStop, trackRegionFocus } from '../ui/regions';
 import { CommandRegistry } from './commands';
 import { type PickFilter, PropertyPanel, retireNumberFields, type UnitContext } from './pm';
-import { Selection, faceRef, type SelItem } from './selection';
+import { Selection, faceRef, remapItem, type SelItem } from './selection';
 import { type Shell, buildShell, renderRibbon, syncCommandButtons, type RibbonTab } from './shell';
 import { SketchEditor } from './sketch/editor';
 import { sketchDefinitionStatus } from './sketch/panel';
@@ -965,7 +965,12 @@ export class App {
   /** Items highlighted because a panel references them. */
   extraHighlights(): SelItem[] {
     const out: SelItem[] = [];
-    if (this.panel) for (const b of this.panel.boxes) for (const it of b.items) if (it.item) out.push(it.item);
+    // Faces and edges are found again by name: the panel listed them before
+    // the rebuild it previews (e.g. an edited feature's references) arrived.
+    if (this.panel) for (const b of this.panel.boxes) for (const it of b.items) {
+      const r = it.item?.kind === 'face' || it.item?.kind === 'edge' ? remapItem(it.item, this.faces, this.edges) : it.item;
+      if (r) out.push(r);
+    }
     return out;
   }
 

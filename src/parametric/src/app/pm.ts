@@ -417,7 +417,11 @@ export class SelectionBox {
   toggle(it: SelItem, additive: boolean): boolean {
     const conv = this.convert(it);
     if (!conv) return false;
-    const idx = this.items.findIndex((x) => x.label === conv.label);
+    // A face or edge is the same pick under any label: one listed when the
+    // panel opened reads "Edge (line)", picking it again gives "Edge <7> (line)".
+    const named = (x: SelBoxItem) => (x.item?.kind === 'face' || x.item?.kind === 'edge' ? `${x.item.kind}:${x.item.name}` : null);
+    const key = named(conv);
+    const idx = this.items.findIndex((x) => (key ? named(x) === key : x.label === conv.label));
     if (idx >= 0) this.items.splice(idx, 1);
     else if (this.opts.single) this.items = [conv];
     else this.items.push(conv);

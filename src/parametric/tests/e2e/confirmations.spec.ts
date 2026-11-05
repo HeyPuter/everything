@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { openApp } from './helpers';
+import { openApp, waitForFeature } from './helpers';
 
 type Handle = { __parametric: import('../../src/app/app').App };
 
@@ -76,5 +76,38 @@ test('Delete and Suppress in the design tree act on every selected feature', asy
   await dialog.getByRole('button', { name: 'Delete', exact: true }).click();
   await expect(hole).toHaveCount(0);
   await expect(fillet).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
+test('editing a fillet highlights its edges and a second pick of one removes it', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  await page.getByRole('treeitem', { name: 'Fillet1' }).focus();
+  await page.keyboard.press('Enter');
+  const removes = page.getByRole('group', { name: 'Items to fillet' }).getByRole('button', { name: /^Remove / });
+  await expect(removes).toHaveCount(1);
+  // The filleted edge exists only on the rolled-back part the panel previews.
+  await expect.poll(() => page.evaluate(() => {
+    const a = (window as unknown as Handle).__parametric;
+    return a.extraHighlights().filter((x) => x.kind === 'edge' && a.edges[x.index]?.name === x.name).length;
+  })).toBe(1);
+  /** Picks the edge named `name` (or another edge when null) and returns the fillet's edges. */
+  const pick = (name: string | null) => page.evaluate((name) => {
+    const a = (window as unknown as Handle).__parametric;
+    const f = (a.panel as unknown as { f: { edges: { name: string }[] } }).f;
+    const i = a.edges.findIndex((e) => (name ? e.name === name : !f.edges.some((x) => x.name === e.name)));
+    a.panel!.onPick({ kind: 'edge', index: i, name: a.edges[i].name }, true);
+    return f.edges.map((e) => e.name);
+  }, name);
+  const [original] = await pick(null).then((edges) => edges);
+  // Adding another edge kept the one already filleted.
+  expect(await page.evaluate(() => ((window as unknown as Handle).__parametric.panel as unknown as { f: { edges: unknown[] } }).f.edges.length)).toBe(2);
+  await expect(removes).toHaveCount(2);
+  // Picking the existing edge again toggles it off instead of listing it twice.
+  const left = await pick(original);
+  expect(left).toHaveLength(1);
+  expect(left[0]).not.toBe(original);
+  await expect(removes).toHaveCount(1);
   expect(errors).toEqual([]);
 });
