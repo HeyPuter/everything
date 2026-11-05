@@ -151,6 +151,16 @@ test('a view can be selected, moved and deleted from the keyboard', async ({ pag
   await expect(page.locator('.relations-list').getByRole('button', { name: 'Front', exact: true })).toHaveAttribute('aria-pressed', 'true');
   await page.keyboard.press('Shift+ArrowRight');
   await expect.poll(async () => (await front())!.x).toBeCloseTo(x0 + 10, 6);
+  // Holding an arrow key (its auto-repeats) is one undo step, not one per repeat.
+  const depth = () => page.evaluate(() => (window as unknown as { __parametric: { store: { undoDepth: number } } }).__parametric.store.undoDepth);
+  const d0 = await depth();
+  await page.keyboard.down('ArrowRight');
+  await page.locator('.drawing-ws').evaluate((el) => {
+    for (let i = 0; i < 5; i++) el.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', repeat: true, bubbles: true, cancelable: true }));
+  });
+  await page.keyboard.up('ArrowRight');
+  await expect.poll(async () => (await front())!.x).toBeCloseTo(x0 + 16, 6);
+  expect(await depth()).toBe(d0 + 1);
   await page.keyboard.press('Delete');
   await expect.poll(front).toBeUndefined();
 });

@@ -325,13 +325,21 @@ export class DrawingWorkspace {
       this.zoom = nz;
       this.applyTransform();
     }, { passive: false });
+    // A held arrow key is one undo step: its auto-repeats join the step of the first press
+    // (one step each filled the bounded history within seconds and dropped older steps).
+    let nudge: { id: string; mark: number; last: number } | null = null;
     this.el.addEventListener('keydown', (e) => {
       const step = e.shiftKey ? 10 : 1;
       const move = (dx: number, dy: number) => {
         const id = this.selected;
         if (!id) return;
         e.preventDefault();
+        const store = this.app.store;
+        const join = e.repeat && nudge?.id === id && nudge.last === store.undoMark ? nudge : null;
+        const mark = join ? join.mark : store.undoMark;
         this.update((d) => { const v = d.views.find((q) => q.id === id); if (v) { v.x += dx; v.y += dy; } }, 'Move view');
+        if (join) store.squash(mark, 'Move view');
+        nudge = { id, mark, last: store.undoMark };
       };
       if (e.key === 'ArrowLeft') move(-step, 0);
       else if (e.key === 'ArrowRight') move(step, 0);
