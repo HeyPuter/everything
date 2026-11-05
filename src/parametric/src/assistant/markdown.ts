@@ -50,9 +50,19 @@ export function renderMarkdown(src: string): DocumentFragment {
     if (bullet || numbered) {
       flush();
       const tag = bullet ? 'UL' : 'OL';
-      if (!listEl || listEl.tagName !== tag) { listEl = document.createElement(tag.toLowerCase()); frag.append(listEl); }
       const li = document.createElement('li');
       li.append(...inline(bullet ? bullet[1] : numbered![2]));
+      // A list that starts again (after a blank line or a paragraph) keeps its numbering.
+      const list = () => { const l = document.createElement(tag.toLowerCase()); if (numbered && numbered[1] !== '1') l.setAttribute('start', String(Number(numbered[1]))); return l; };
+      // An indented item goes in a list inside the item above it, so the outer numbering carries on.
+      const parent = /^\s{2,}/.test(line) ? listEl?.lastElementChild : null;
+      if (parent) {
+        let sub = parent.lastElementChild;
+        if (!sub || sub.tagName !== tag) { sub = list(); parent.append(sub); }
+        sub.append(li);
+        continue;
+      }
+      if (!listEl || listEl.tagName !== tag) { listEl = list(); frag.append(listEl); }
       listEl.append(li);
       continue;
     }
