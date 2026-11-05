@@ -35,6 +35,29 @@ test.describe('sketching', () => {
     expect(errors).toEqual([]);
   });
 
+  test('a new dimension stays driving when the sketch was already over defined elsewhere', async ({ page }) => {
+    const errors = await openApp(page);
+    const { x, y } = await startSketch(page);
+    await page.locator('[data-cmd="tool:rectangle"]').click();
+    await page.mouse.click(x - 100, y + 60);
+    await page.mouse.click(x + 100, y - 60);
+    await page.keyboard.press('Escape');
+    // A redundant second horizontal relation on the bottom edge over-defines the sketch.
+    await page.evaluate(() => {
+      type Ed = { edit(l: string, f: (sk: { entities: { id: string; t: string }[]; constraints: unknown[] }) => void): void };
+      const ed = (window as unknown as { __parametric: { sketchEditor: Ed } }).__parametric.sketchEditor;
+      ed.edit('Add horizontal relation', (sk) => { sk.constraints.push({ id: 'extra', type: 'horizontal', refs: [sk.entities.filter((e) => e.t === 'line')[0].id] }); });
+    });
+    await expect(page.locator('.statusbar')).toContainText('Over Defined');
+    // Dimensioning the left edge is unrelated to that conflict: it must stay driving.
+    await page.keyboard.press('d');
+    await page.mouse.click(x - 100, y);
+    await page.mouse.click(x - 150, y);
+    await expect(page.getByRole('dialog', { name: /Modify/ })).toBeVisible();
+    await expect(page.locator('.dim-label.driven')).toHaveCount(0);
+    expect(errors).toEqual([]);
+  });
+
   test('previews in the Modify box never leave the geometry moved or broken', async ({ page }) => {
     const errors = await openApp(page);
     const { x, y } = await startSketch(page);

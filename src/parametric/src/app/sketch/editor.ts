@@ -489,6 +489,8 @@ export class SketchEditor implements ViewportTool {
     // not leave it behind as a driving one that over-defines the sketch.
     this.app.store.beginBatch('Add dimension');
     let driven = false;
+    // Problems the sketch already had are not this dimension's fault.
+    const badBefore = new Set(this.solve?.badConstraints ?? []);
     try {
       this.edit('Add dimension', (sk, newId) => {
         const id = newId('d');
@@ -496,7 +498,7 @@ export class SketchEditor implements ViewportTool {
         sk.constraints.push({ id, type: spec.type, refs: spec.refs, value: round(spec.value), at, name: nextDimName(sk), sector: spec.sector });
       });
       const res = this.solve;
-      if (newDimId && res && (res.badConstraints.has(newDimId) || res.status === 'over')) {
+      if (newDimId && res && [...res.badConstraints].some((id) => !badBefore.has(id))) {
         driven = true;
         this.edit('Make dimension driven', (sk) => {
           const d = sk.constraints.find((c) => c.id === newDimId) as SkDimension;
