@@ -321,4 +321,15 @@ describe('assistant tools', () => {
     const again = await h.call('edit_sketch', { sketch: sk, name: 'Moved' });
     expect(again.content).not.toMatch(/New warnings/);
   });
+
+  it('keeps the precision of a small part\'s mass in kilograms and pounds', async () => {
+    const h = new TestHost();
+    await h.call('set_part', { units: 'MKS', material: 'Aluminum 6061' });
+    await h.call('create_sketch', { plane: 'front', shapes: [{ type: 'rectangle', corner1: [0, 0], corner2: [0.01, 0.01] }] });
+    await h.call('add_extrude', { sketch: 's1', depth: 0.0012345 });
+    // 1.2345e-7 m³ × 2700 kg/m³ = 0.000333315 kg (it read 0.0003 kg).
+    expect((await h.call('mass_properties', {})).content).toMatch(/Mass 0\.000333315 kg/);
+    await h.call('set_part', { units: 'MMGS' });
+    expect((await h.call('mass_properties', {})).content).toMatch(/Mass 0\.333315 g/);
+  });
 });

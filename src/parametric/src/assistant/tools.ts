@@ -545,7 +545,7 @@ class Toolkit {
     const m = this.doc.material;
     if (m) {
       const kg = mp.volume * 1e-9 * m.density;
-      lines.push(`Mass ${num(kg / us.massScale, 4)} ${us.mass} (${m.name}, ${m.density} kg/m³).`);
+      lines.push(`Mass ${qty(kg / us.massScale, 4)} ${us.mass} (${m.name}, ${m.density} kg/m³).`);
     } else lines.push('Mass: set a material (set_part) to get the mass.');
     lines.push(`Principal moments per unit density: ${mp.principal.moments.map((x) => qty(x / u.scale ** 5, 2)).join(', ')} ${u.unit}⁵ about axes ${mp.principal.axes.map((x) => u.dir(normalize(x))).join(', ')}.`);
     lines.push(this.ins.bodyText());
