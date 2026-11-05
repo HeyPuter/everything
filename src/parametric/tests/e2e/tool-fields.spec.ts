@@ -121,3 +121,38 @@ for (const tool of ['polygon', 'sketchFillet'] as const) for (const change of ['
     expect(errors).toEqual([]);
   });
 }
+
+for (const boundary of [3, 64, 'invalid'] as const) test(`Polygon side count respects ${boundary} boundary`, async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await page.getByRole('treeitem', { name: 'Front Plane' }).click();
+  await page.getByRole('tab', { name: 'Sketch' }).click();
+  await page.locator('[data-cmd="sketch"]').first().click();
+  await expect(page.locator('.view-label')).toHaveText('Front');
+  await page.evaluate(() => (window as unknown as Win).__parametric.commands.run('tool:polygon'));
+  const input = page.getByRole('textbox', { name: 'Number of sides', exact: true });
+  if (boundary === 'invalid') {
+    await input.fill('65');
+    await input.press('Tab');
+    await expect(input).toHaveAttribute('aria-invalid', 'true');
+    await expect(input).toHaveAttribute('title', 'Must be at most 64');
+    await input.fill('8');
+    await input.press('Tab');
+    expect(await input.getAttribute('aria-invalid')).not.toBe('true');
+  } else {
+    await input.fill(String(boundary));
+    await input.press('Tab');
+    await input.press(boundary === 3 ? 'ArrowDown' : 'ArrowUp');
+    await expect(input).toHaveValue(String(boundary));
+    await page.getByRole('button', { name: `${boundary === 3 ? 'Decrease' : 'Increase'} Number of sides`, exact: true }).click();
+    await expect(input).toHaveValue(String(boundary));
+  }
+  const count = await page.evaluate(() => {
+    const ed = (window as unknown as Win).__parametric.sketchEditor!;
+    ed.tool!.click!({ p: [20, 20], raw: [20, 20], kind: 'none' }, {} as import('../../src/app/viewport').VPEvent);
+    ed.tool!.click!({ p: [40, 20], raw: [40, 20], kind: 'none' }, {} as import('../../src/app/viewport').VPEvent);
+    return ed.sketch.entities.filter((e) => e.t === 'line').length;
+  });
+  expect(count).toBe(boundary === 'invalid' ? 8 : boundary);
+  expect(errors).toEqual([]);
+});

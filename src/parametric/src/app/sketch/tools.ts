@@ -473,7 +473,7 @@ export function polygonTool(ed: SketchEditor): SkTool {
     cancel() { const was = !!center; center = null; ed.setPreview([]); return was; },
     options() {
       return [numberField({
-        label: 'Number of sides', value: sides, kind: 'count', ctx: ed.app.unitContext(), min: 3, allowExpr: false,
+        label: 'Number of sides', value: sides, kind: 'count', ctx: ed.app.unitContext(), min: 3, max: 64, allowExpr: false,
         onChange: (v) => { sides = Math.max(3, Math.min(64, Number(v))); },
       })];
     },
