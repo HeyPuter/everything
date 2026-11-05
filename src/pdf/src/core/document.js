@@ -45,7 +45,7 @@ import {
 } from 'pdf-lib';
 import { textStyleBits } from './paragraph-data.js';
 import { textDecorationQuads } from './text-decoration.js';
-import { inheritPdfVersion, savePdf } from './version.js';
+import { inheritPdfVersion, loadPdfDocument, savePdf } from './version.js';
 import { sweepUnreferenced } from './compress.js';
 import { removePageStructure } from './struct-tree.js';
 import { shiftPageLabels } from './page-labels.js';
@@ -147,7 +147,7 @@ export async function validatePdf(bytes) {
   let doc, pages;
   try {
     // Validation must not change the metadata used to interpret or copy this source.
-    doc = await PDFDocument.load(bytes, { updateMetadata: false });
+    doc = await loadPdfDocument(bytes, { updateMetadata: false });
     // A file can parse yet lack a usable page tree; reading it must fail the same friendly way.
     pages = boundedPageCount(doc, MAX_PAGES);
     if (pages > 0 && pages <= MAX_PAGES) {
@@ -221,10 +221,7 @@ export class PdfSession {
   }
   async change(operation, { signal, canCommit, streamProtection, saveOptions } = {}) {
     // Reconciliation must see the original Info timestamps, not pdf-lib's load time.
-    const doc = await waitFor(
-      () => PDFDocument.load(this.bytes, { updateMetadata: false }),
-      signal,
-    );
+    const doc = await waitFor(() => loadPdfDocument(this.bytes, { updateMetadata: false }), signal);
     signal?.throwIfAborted();
     repairDocument(doc);
     rememberStreamProtection(doc.context, streamProtection);

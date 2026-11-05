@@ -1,7 +1,7 @@
 import * as pdfjs from 'pdfjs-dist';
 import workerUrl from 'virtual:pdf-worker-url';
 import { PDFDocument, PDFName, PDFString } from 'pdf-lib';
-import { savePdf } from './core/version.js';
+import { loadPdfDocument, savePdf } from './core/version.js';
 import { indexPageText, searchQuery } from './core/search.js';
 import { inspectText, matrix, textColor } from './core/text-edit.js';
 import { groupTextRuns, replaceTextGroup } from './core/text-group.js';
@@ -1877,7 +1877,7 @@ export function createEditor({
   /** The marks waiting to be applied, read while the Redact tool is open. */
   async function refreshRedactionMarks() {
     if (toolsPanel.current !== 'redact' || !pdf) return;
-    const doc = await PDFDocument.load(session.bytes, { updateMetadata: false });
+    const doc = await loadPdfDocument(session.bytes, { updateMetadata: false });
     if (destroyed) return;
     redactionMarks = (await loadRedaction()).listRedactionMarks(doc);
     toolsPanel.refresh();
@@ -2883,7 +2883,7 @@ export function createEditor({
       let buttonSelections;
       if (ambiguousButtons.size) {
         const doc =
-          editDocument || (await PDFDocument.load(session.bytes, { updateMetadata: false }));
+          editDocument || (await loadPdfDocument(session.bytes, { updateMetadata: false }));
         if (token !== pageRenderGeneration || destroyed) return;
         editDocument = doc;
         buttonSelections = formButtonSelections(doc, ambiguousButtons);
@@ -2904,7 +2904,7 @@ export function createEditor({
       let radioChoices;
       if (radios.length && (editDocument || sharedRadio)) {
         const doc =
-          editDocument || (await PDFDocument.load(session.bytes, { updateMetadata: false }));
+          editDocument || (await loadPdfDocument(session.bytes, { updateMetadata: false }));
         if (token !== pageRenderGeneration || destroyed) return;
         editDocument = doc;
         radioChoices = radioButtonChoices(doc);
@@ -2919,7 +2919,7 @@ export function createEditor({
         )
       ) {
         const doc =
-          editDocument || (await PDFDocument.load(session.bytes, { updateMetadata: false }));
+          editDocument || (await loadPdfDocument(session.bytes, { updateMetadata: false }));
         if (token !== pageRenderGeneration || destroyed) return;
         editDocument = doc;
         listSelections = sharedChoiceSelections(doc);
@@ -2941,7 +2941,7 @@ export function createEditor({
         visibleAnnotations.some((a) => ['Highlight', 'Underline', 'StrikeOut'].includes(a.subtype))
       ) {
         const doc =
-          editDocument || (await PDFDocument.load(session.bytes, { updateMetadata: false }));
+          editDocument || (await loadPdfDocument(session.bytes, { updateMetadata: false }));
         if (token !== pageRenderGeneration || destroyed) return;
         editDocument = doc;
         highlights = listHighlights(doc, pageIndex).filter(
@@ -2952,7 +2952,7 @@ export function createEditor({
       notes = [];
       if (visibleAnnotations.some((a) => a.subtype === 'Text')) {
         const doc =
-          editDocument || (await PDFDocument.load(session.bytes, { updateMetadata: false }));
+          editDocument || (await loadPdfDocument(session.bytes, { updateMetadata: false }));
         if (token !== pageRenderGeneration || destroyed) return;
         editDocument = doc;
         notes = listNotes(doc, pageIndex).filter((entry) => !hiddenAnnotations.has(entry.id));
@@ -2961,7 +2961,7 @@ export function createEditor({
       let annotationEntries = [];
       if (visibleAnnotations.some((a) => ANNOTATION_KINDS.has(a.subtype))) {
         const doc =
-          editDocument || (await PDFDocument.load(session.bytes, { updateMetadata: false }));
+          editDocument || (await loadPdfDocument(session.bytes, { updateMetadata: false }));
         if (token !== pageRenderGeneration || destroyed) return;
         editDocument = doc;
         try {
@@ -3028,7 +3028,7 @@ export function createEditor({
     let runs = [];
     try {
       const [doc, layers] = await Promise.all([
-        editDocument || PDFDocument.load(session.bytes, { updateMetadata: false }),
+        editDocument || loadPdfDocument(session.bytes, { updateMetadata: false }),
         documentLayers || pdf.getOptionalContentConfig({ intent: 'display' }),
       ]);
       if (token !== pageRenderGeneration || destroyed) return false;
@@ -3048,8 +3048,7 @@ export function createEditor({
     if (imageRunCache.has(pageIndex)) return true;
     let images = [];
     try {
-      const doc =
-        editDocument || (await PDFDocument.load(session.bytes, { updateMetadata: false }));
+      const doc = editDocument || (await loadPdfDocument(session.bytes, { updateMetadata: false }));
       if (token !== pageRenderGeneration || destroyed) return false;
       editDocument = doc;
       images = inspectImages(doc, pageIndex).map((entry, i) => ({
@@ -6585,7 +6584,7 @@ export function createEditor({
    */
   async function workingDocument(version = dialogVersion()) {
     const revision = session.revision;
-    const doc = editDocument || (await PDFDocument.load(session.bytes, { updateMetadata: false }));
+    const doc = editDocument || (await loadPdfDocument(session.bytes, { updateMetadata: false }));
     if (!canOpenDialog(version) || busy || session.revision !== revision) return null;
     editDocument = doc;
     return doc;
@@ -10996,7 +10995,7 @@ export function createEditor({
   };
   async function refreshDesigner() {
     if (!preparing || !pdf || !viewport) return;
-    const doc = editDocument || (await PDFDocument.load(session.bytes, { updateMetadata: false }));
+    const doc = editDocument || (await loadPdfDocument(session.bytes, { updateMetadata: false }));
     if (!preparing || destroyed) return;
     editDocument = doc;
     const { listFormFields } = await loadForms();
@@ -13472,7 +13471,7 @@ export function createEditor({
     if (!destroyed) await applyInitialView().catch(() => {});
   })();
   async function applyInitialView() {
-    const doc = await PDFDocument.load(session.bytes, { updateMetadata: false });
+    const doc = await loadPdfDocument(session.bytes, { updateMetadata: false });
     if (destroyed) return;
     const view = readInitialView(doc);
     pdfaClaim = readPdfaClaim(doc);
