@@ -273,6 +273,8 @@ describe('parseDxf: text', () => {
     expect(stripMtext('\\S1^2; and \\S3#4;')).toBe('1/2 and 3/4');
     expect(stripMtext('a\\\\b \\{c\\} \\U+00E9 \\Lunder\\l %%d')).toBe('a\\b {c} \u00e9 under \u00b0');
     expect(decodeText('25%%d %%c10 %%p0.1 %%%')).toBe('25\u00b0 \u230010 \u00b10.1 %');
+    // decoration toggles are drawn by the text, so they are kept
+    expect(decodeText('%%uUNDER%%u %%Oover %%kx')).toBe('%%uUNDER%%u %%Oover %%kx');
   });
 
   it('reads MTEXT chunks, attachment, width, direction and line spacing', () => {

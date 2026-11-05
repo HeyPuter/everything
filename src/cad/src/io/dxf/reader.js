@@ -136,7 +136,10 @@ export function decodeUnicode(s) {
 
 const PCT = { c: '⌀', C: '⌀', d: '°', D: '°', p: '±', P: '±' };
 
-/** Plain value of a TEXT string: %% control codes, caret codes, \U+ escapes. */
+/**
+ * Plain value of a TEXT string: %% control codes, caret codes, \U+ escapes.
+ * The %%u, %%o and %%k toggles stay in the value.
+ */
 export function decodeText(s) {
   if (s.indexOf('%%') < 0 && s.indexOf('^') < 0 && s.indexOf('\\') < 0) return s;
   let out = '';
@@ -157,6 +160,8 @@ export function decodeText(s) {
         continue;
       }
       if (d === 'u' || d === 'U' || d === 'o' || d === 'O' || d === 'k' || d === 'K') {
+        // underline, overline and strike-through toggles: kept, the text draws them
+        out += s.slice(i, i + 3);
         i += 3;
         continue;
       }
