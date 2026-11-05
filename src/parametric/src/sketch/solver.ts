@@ -803,28 +803,42 @@ function bezD2(b: Vec2[], t: number): Vec2 {
   ];
 }
 
-/** In-place Cholesky solve of a symmetric positive definite system. */
+/**
+ * In-place Cholesky solve of a symmetric positive definite system.
+ *
+ * Entries of a row left of its first non-zero stay zero in the factor (no
+ * fill-in outside the envelope), so skipping them gives exactly the dense
+ * result while costing far less for the near-banded systems of chained
+ * sketch geometry.
+ */
 function cholSolve(A: Float64Array, b: Float64Array, n: number): boolean {
+  const first = new Int32Array(n);
+  for (let i = 0; i < n; i++) {
+    let k = 0;
+    while (k < i && A[i * n + k] === 0) k++;
+    first[i] = k;
+  }
   for (let j = 0; j < n; j++) {
     let s = A[j * n + j];
-    for (let k = 0; k < j; k++) s -= A[j * n + k] * A[j * n + k];
+    for (let k = first[j]; k < j; k++) s -= A[j * n + k] * A[j * n + k];
     if (s <= 1e-300) return false;
     const d = Math.sqrt(s);
     A[j * n + j] = d;
     for (let i = j + 1; i < n; i++) {
+      if (first[i] > j) continue;
       let t = A[i * n + j];
-      for (let k = 0; k < j; k++) t -= A[i * n + k] * A[j * n + k];
+      for (let k = Math.max(first[i], first[j]); k < j; k++) t -= A[i * n + k] * A[j * n + k];
       A[i * n + j] = t / d;
     }
   }
   for (let i = 0; i < n; i++) {
     let t = b[i];
-    for (let k = 0; k < i; k++) t -= A[i * n + k] * b[k];
+    for (let k = first[i]; k < i; k++) t -= A[i * n + k] * b[k];
     b[i] = t / A[i * n + i];
   }
   for (let i = n - 1; i >= 0; i--) {
     let t = b[i];
-    for (let k = i + 1; k < n; k++) t -= A[k * n + i] * b[k];
+    for (let k = i + 1; k < n; k++) if (first[k] <= i) t -= A[k * n + i] * b[k];
     b[i] = t / A[i * n + i];
   }
   return true;

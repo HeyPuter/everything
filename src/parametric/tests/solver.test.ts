@@ -220,4 +220,25 @@ describe('sketch solver', () => {
     expect(P(ents, `p${N}`).x).toBeCloseTo(2 * N, 6);
     expect(ms).toBeLessThan(1500);
   });
+
+  it('solves one long connected chain without a dense factorization', () => {
+    const ents: SkEntity[] = [];
+    const cons: SkConstraint[] = [];
+    const N = 400;
+    for (let i = 0; i <= N; i++) ents.push(pt(`p${i}`, i * 1.1, (i % 2) * 0.3));
+    for (let i = 0; i < N; i++) {
+      ents.push(line(`l${i}`, `p${i}`, `p${i + 1}`));
+      cons.push({ id: `h${i}`, type: i % 2 ? 'horizontal' : 'vertical', refs: [`l${i}`] });
+      cons.push(dim(`d${i}`, 'distance', [`l${i}`], 2));
+    }
+    cons.push({ id: 'o', type: 'coincident', refs: ['p0', 'O'] });
+    const t0 = performance.now();
+    const res = solveSketch(ents, cons, { value });
+    const ms = performance.now() - t0;
+    expect(res.status).toBe('full');
+    expect(P(ents, `p${N}`).x).toBeCloseTo(N, 6);
+    expect(P(ents, `p${N}`).y).toBeCloseTo(N, 6);
+    // ~250 ms with a dense m x m Cholesky, ~10 ms within the band.
+    expect(ms).toBeLessThan(150);
+  });
 });
