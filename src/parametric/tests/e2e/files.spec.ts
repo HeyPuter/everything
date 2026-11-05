@@ -257,6 +257,27 @@ test('a view-only shared file that is not a part is refused before asking to dis
   await expect(page).toHaveTitle('* Part1 - Parametric');
 });
 
+test('a save that fails offers to download a copy of the part', async ({ page }) => {
+  await mockPuter(page);
+  await page.addInitScript(() => {
+    (window as unknown as { puter: { fs: { write(): Promise<never> } } }).puter.fs.write = async () => { throw new TypeError('Failed to fetch'); };
+  });
+  await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await app(page);
+  await page.evaluate(() => {
+    const a = (window as unknown as { __parametric: AppHandle }).__parametric;
+    a.store.change('A', (d) => { d.variables.push({ name: 'Width', expr: '10' }); });
+    a.commands.run('save');
+  });
+  const toasts = page.getByRole('region', { name: 'Notifications' });
+  await expect(toasts.getByText('Puter could not be reached. Check your connection and try again.')).toBeVisible();
+  const download = page.waitForEvent('download');
+  await toasts.getByRole('button', { name: 'Download a copy' }).click();
+  expect((await download).suggestedFilename()).toBe('Part1.parametric');
+  await expect(page).toHaveTitle('* Part1 - Parametric');
+});
+
 test('parts are deleted from the Open dialog with a button, and stay listed when that fails', async ({ page }) => {
   await mockPuter(page);
   await page.addInitScript(() => {

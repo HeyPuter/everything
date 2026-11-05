@@ -89,7 +89,8 @@ export class FileOps {
       }
       return true;
     } catch (e) {
-      toast({ kind: 'error', title: 'Could not save', message: storageError(e) });
+      // The work is still only in this tab: offer a copy on the device meanwhile.
+      toast({ kind: 'error', title: 'Could not save', message: storageError(e), actions: [{ label: 'Download a copy', run: () => void this.exportAs('part') }], timeout: 15000 });
       return false;
     } finally {
       this.saving = false;
