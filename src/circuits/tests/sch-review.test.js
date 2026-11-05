@@ -420,3 +420,20 @@ describe('wire tool backspace past the start', () => {
     expect(ed.doc.store.get(part.id)).toBeUndefined();
   });
 });
+
+describe('zoom limits', () => {
+  it('stops zooming out while a sheet is still visible and zooming in at 10 px per micrometre', () => {
+    const r = cameraOnly();
+    for (let i = 0; i < 200; i++) r.zoomAt(400, 300, 0.5);
+    // An A4 sheet (297 mm) is still tens of pixels wide.
+    expect(297e3 * r.view.scale).toBeGreaterThanOrEqual(25);
+    for (let i = 0; i < 400; i++) r.zoomAt(400, 300, 2);
+    expect(r.view.scale).toBeLessThanOrEqual(10);
+    // The point under the cursor stays put at the limit.
+    const before = r.screenToWorld(123, 45);
+    r.zoomAt(123, 45, 2);
+    const after = r.screenToWorld(123, 45);
+    expect(after[0]).toBeCloseTo(before[0], 0);
+    expect(after[1]).toBeCloseTo(before[1], 0);
+  });
+});
