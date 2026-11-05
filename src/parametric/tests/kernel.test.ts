@@ -303,6 +303,28 @@ describe('feature regeneration', () => {
     expect(volume(b)).toBeCloseTo(30 * 20 * 25 - 4 * (4 - Math.PI) * 25, 2);
   });
 
+  it('keeps the names of drafted faces when more faces are drafted', async () => {
+    const b = new ModelBuilder();
+    const base: Feature[] = [sketch('S1', rect(-10, -10, 10, 10, 'r')), extrude('E1', 'S1', 10)];
+    const r0 = await b.build(req(base));
+    const side = (n: string) => {
+      const f = r0.faces.find((x) => x.name === `E1:side:${n}`)!;
+      return { name: f.name, sig: { type: f.type, c: f.center, n: f.normal, area: f.area } };
+    };
+    const draft = (faces: ReturnType<typeof side>[]): Feature => ({ id: 'D1', name: 'D1', type: 'draft', faces, neutral: { kind: 'base', plane: 'front' }, angle: 5, flip: false });
+    const r1 = await b.build(req([...base, draft([side('rl1')])]));
+    expect(r1.status[2].ok).toBe(true);
+    const edge = r1.edges.find((e) => e.name.includes('D1:') && e.name.includes('E1:cap1'))!;
+    expect(edge.mid[0]).toBeGreaterThan(9);
+    // Drafting a face that comes first in the body must not hand its name
+    // (and so a later fillet on that edge) to another face.
+    const r2 = await b.build(req([...base, draft([side('rl0'), side('rl1')])]));
+    expect(r2.status[2].ok).toBe(true);
+    const same = r2.edges.find((e) => e.name === edge.name)!;
+    expect(same.mid[0]).toBeCloseTo(edge.mid[0], 6);
+    expect(r2.faces.filter((f) => f.name.startsWith('D1:'))).toHaveLength(2);
+  });
+
   it('shells a box removing the top face', async () => {
     const b = new ModelBuilder();
     const base = [sketch('S1', rect(0, 0, 30, 20)), extrude('E1', 'S1', 10)];

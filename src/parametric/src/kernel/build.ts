@@ -1114,13 +1114,14 @@ export class ModelBuilder {
     const fr = this.resolvePlane(f.neutral, st);
     const oc = getOc();
     const dir = scale(fr.n, f.flip ? -1 : 1);
+    const selected = f.faces.map((r) => st.faces[this.resolveFace(r, st)]);
     const builder = new oc.BRepOffsetAPI_DraftAngle(st.body.wrapped);
     const pln = new oc.gp_Pln(pnt(fr.o), gdir(dir));
     const gd = gdir(dir);
     let body: Sh;
     try {
-      for (const r of f.faces) {
-        builder.Add(st.faces[this.resolveFace(r, st)].shape.wrapped, gd, (num(f.angle) * Math.PI) / 180, pln, true);
+      for (const sel of selected) {
+        builder.Add(sel.shape.wrapped, gd, (num(f.angle) * Math.PI) / 180, pln, true);
         if (!builder.AddDone()) throw new FeatureError('Draft cannot be applied to one of the faces');
       }
       builder.Build();
@@ -1134,7 +1135,11 @@ export class ModelBuilder {
       gd.delete();
     }
     if (degenerate(body, st.body)) throw new FeatureError('The draft could not be created');
-    st.faces = this.nameFaces(f.id, body, st, [], (_d, k) => `${f.id}:d${k}`);
+    // A drafted face is named after the face it was made from, not by its
+    // place in the body: drafting one more face must not rename the others
+    // (which would move a later fillet on one of their edges to another edge).
+    const mids = selected.map((s) => ({ m: s.desc.center, name: s.name }));
+    st.faces = this.nameFaces(f.id, body, st, [], (d) => `${f.id}:d:${nearestName(mids, d.center)}`);
     st.body = body;
     st.edges = null;
   }
