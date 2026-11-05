@@ -366,7 +366,14 @@ export function trimAt(sk: SketchFeature, curveId: Id, at: Vec2, newId: (p: stri
   const cuts = cutPoints(sk, e).map((c) => ({ ...c, t: curveParam(ix, e, c.p) }));
   const tc = curveParam(ix, e, at);
   if (e.t === 'line' || e.t === 'arc' || e.t === 'spline') {
-    const inner = cuts.filter((c) => c.t > 1e-6 && c.t < 1 - 1e-6);
+    const start = ix.pt(e.t === 'spline' ? e.pts[0] : e.a);
+    const end = ix.pt(e.t === 'spline' ? e.pts[e.pts.length - 1] : e.b);
+    // An endpoint hit must be close in both parameter and physical distance.
+    // Parameter alone discards real cuts on long curves; distance alone loses
+    // valid cuts on tiny curves. Keep out-of-range intersections excluded.
+    const inner = cuts.filter((c) => c.t > 0 && c.t < 1
+      && (c.t > 1e-6 || dist2(c.p, start) > 1e-7)
+      && (c.t < 1 - 1e-6 || dist2(c.p, end) > 1e-7));
     const before = inner.filter((c) => c.t < tc).sort((a, b) => b.t - a.t)[0];
     const after = inner.filter((c) => c.t > tc).sort((a, b) => a.t - b.t)[0];
     if (!before && !after) { deleteItems(sk, [curveId]); return true; }

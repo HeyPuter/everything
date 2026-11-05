@@ -102,6 +102,89 @@ describe('editing tools', () => {
     expect(lengths[1]).toBeCloseTo(3, 9);
   });
 
+  it.each([10, 1e6, 1e9])('trims one unit from either end of a line of length %s', (length) => {
+    for (const atStart of [false, true]) for (const reverse of [false, true]) {
+      const x = atStart ? 1 : length - 1;
+      const s = sk([
+        { id: 'a', t: 'point', x: 0, y: 0 }, { id: 'b', t: 'point', x: length, y: 0 },
+        { id: 'h', t: 'line', a: reverse ? 'b' : 'a', b: reverse ? 'a' : 'b' },
+        { id: 'c', t: 'point', x, y: -2 }, { id: 'd', t: 'point', x, y: 2 }, { id: 'v', t: 'line', a: 'c', b: 'd' },
+      ]);
+      expect(trimAt(s, 'h', [atStart ? 0.5 : length - 0.5, 0], idFactory(s))).toBe(true);
+      const line = s.entities.find((e) => e.id === 'h');
+      expect(line?.t).toBe('line');
+      if (line?.t !== 'line') throw new Error('Expected retained line');
+      const ix = new SketchIndex(s.entities);
+      const xs = [ix.pt(line.a)[0], ix.pt(line.b)[0]].sort((a, b) => a - b);
+      expect(xs[0]).toBeCloseTo(atStart ? 1 : 0, 6);
+      expect(xs[1]).toBeCloseTo(atStart ? length : length - 1, 6);
+      expect(solveSketch(s.entities, s.constraints, { value }).status).toBe('under');
+    }
+  });
+
+  it.each([10, 1e6, 1e9])('trims near either end of an arc of radius %s', (radius) => {
+    for (const atStart of [false, true]) {
+      const s = sk([
+        { id: 'o', t: 'point', x: 0, y: 0 },
+        { id: 'a', t: 'point', x: radius, y: 0 }, { id: 'b', t: 'point', x: 0, y: radius },
+        { id: 'arc', t: 'arc', c: 'o', a: 'a', b: 'b' },
+        { id: 'c', t: 'point', x: atStart ? radius - 2 : 1, y: atStart ? 1 : radius - 2 },
+        { id: 'd', t: 'point', x: atStart ? radius + 2 : 1, y: atStart ? 1 : radius + 2 },
+        { id: 'l', t: 'line', a: 'c', b: 'd' },
+      ]);
+      const angle = atStart ? 0.5 / radius : Math.PI / 2 - 0.5 / radius;
+      expect(trimAt(s, 'arc', [radius * Math.cos(angle), radius * Math.sin(angle)], idFactory(s))).toBe(true);
+      const arc = s.entities.find((e) => e.id === 'arc');
+      expect(arc?.t).toBe('arc');
+      if (arc?.t !== 'arc') throw new Error('Expected retained arc');
+      const ix = new SketchIndex(s.entities), end = ix.pt(atStart ? arc.a : arc.b);
+      expect(end[atStart ? 1 : 0]).toBeCloseTo(1, 6);
+      expect(end[atStart ? 0 : 1]).toBeCloseTo(Math.sqrt(radius * radius - 1), 6);
+      expect(atStart ? arc.b : arc.a).toBe(atStart ? 'b' : 'a');
+      expect(solveSketch(s.entities, s.constraints, { value }).status).toBe('under');
+    }
+  });
+
+  it('retains a valid near-end cut on a very short line', () => {
+    const s = sk([
+      { id: 'a', t: 'point', x: 0, y: 0 }, { id: 'b', t: 'point', x: 1e-4, y: 0 },
+      { id: 'h', t: 'line', a: 'a', b: 'b' },
+      { id: 'c', t: 'point', x: 1e-8, y: -1 }, { id: 'd', t: 'point', x: 1e-8, y: 1 },
+      { id: 'v', t: 'line', a: 'c', b: 'd' },
+    ]);
+    expect(trimAt(s, 'h', [0, 0], idFactory(s))).toBe(true);
+    const line = s.entities.find((e) => e.id === 'h');
+    expect(line?.t).toBe('line');
+    if (line?.t !== 'line') throw new Error('Expected retained line');
+    expect(new SketchIndex(s.entities).pt(line.a)[0]).toBeCloseTo(1e-8, 12);
+  });
+
+  it.each([10, 1e9])('ignores endpoint and out-of-segment cuts on a line of length %s', (length) => {
+    const s = sk([
+      { id: 'a', t: 'point', x: 0, y: 0 }, { id: 'b', t: 'point', x: length, y: 0 },
+      { id: 'h', t: 'line', a: 'a', b: 'b' },
+      ...[-0.1, 0, length, length + 0.1].flatMap((x, i): SkEntity[] => [
+        { id: `a${i}`, t: 'point', x, y: -1 }, { id: `b${i}`, t: 'point', x, y: 1 },
+        { id: `l${i}`, t: 'line', a: `a${i}`, b: `b${i}` },
+      ]),
+    ]);
+    expect(trimAt(s, 'h', [length / 2, 0], idFactory(s))).toBe(true);
+    expect(s.entities.find((e) => e.id === 'h')).toBeUndefined();
+    expect(s.entities.filter((e) => e.t === 'line')).toHaveLength(4);
+  });
+
+  it.each([10, 1e9])('does not delete a spline of length %s when partial trimming is unsupported', (length) => {
+    const s = sk([
+      { id: 'a', t: 'point', x: 0, y: 0 }, { id: 'b', t: 'point', x: length, y: 0 },
+      { id: 'spline', t: 'spline', pts: ['a', 'b'] },
+      { id: 'c', t: 'point', x: 1, y: -1 }, { id: 'd', t: 'point', x: 1, y: 1 },
+      { id: 'v', t: 'line', a: 'c', b: 'd' },
+    ]);
+    const before = structuredClone(s);
+    expect(trimAt(s, 'spline', [0.5, 0], idFactory(s))).toBe(false);
+    expect(s).toEqual(before);
+  });
+
   it('keeps both pieces of a line split by trimming on one line', () => {
     const s = sk([
       { id: 'a', t: 'point', x: 0, y: 0 }, { id: 'b', t: 'point', x: 10, y: 0 }, { id: 'h', t: 'line', a: 'a', b: 'b' },
