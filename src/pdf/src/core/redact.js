@@ -247,6 +247,15 @@ function markName() {
     .join('');
 }
 
+/**
+ * The areas and outline colour of each redaction mark on a page: what the viewer draws for a
+ * mark with no appearance of its own (as other tools may write them, with only /Rect,
+ * /QuadPoints, and colours), which PDF.js would otherwise not show at all.
+ */
+export function pageRedactionOutlines(doc, pageIndex) {
+  return pageMarks(doc, pageIndex).map(({ id, rects, outline }) => ({ id, rects, outline }));
+}
+
 /** Every redaction mark in the document, whichever application wrote it. */
 export function listRedactionMarks(doc) {
   const marks = [];

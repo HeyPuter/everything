@@ -483,3 +483,76 @@ test('Redact pages covers a page whose media box lists its corners the other way
   // The mark took only the crop box: [612 792 0 0] read as starting at 612 and running back.
   await expect(page.locator('#toast')).toContainText('removed 40 characters');
 });
+
+// Other tools may write redaction marks with only /Rect, /QuadPoints, and colours. PDF.js
+// draws nothing for those, so the marks the tools pane listed were nowhere to be seen.
+test('redaction marks without an appearance are outlined on the page', async ({ page }) => {
+  await page.route('https://js.puter.com/**', (route) =>
+    route.fulfill({ contentType: 'application/javascript', body: PUTER_MOCK }),
+  );
+  await page.goto('/#library');
+  const doc = await PDFDocument.create();
+  const sheet = doc.addPage([300, 300]);
+  const bare = doc.context.register(
+    doc.context.obj({
+      Type: 'Annot',
+      Subtype: 'Redact',
+      Rect: [40, 150, 140, 220],
+      // Two areas: a line of words and the start of the next.
+      QuadPoints: [40, 220, 140, 220, 40, 200, 140, 200, 40, 170, 100, 170, 40, 150, 100, 150],
+      C: [0, 0, 1],
+      IC: [0, 0, 0],
+    }),
+  );
+  // A mark with an appearance of its own (here, an empty one) is drawn as that appearance says.
+  const drawn = doc.context.register(
+    doc.context.obj({
+      Type: 'Annot',
+      Subtype: 'Redact',
+      Rect: [180, 40, 260, 80],
+      C: [1, 0, 0],
+      AP: {
+        N: doc.context.register(
+          doc.context.stream('', { Type: 'XObject', Subtype: 'Form', BBox: [180, 40, 260, 80] }),
+        ),
+      },
+    }),
+  );
+  sheet.node.set(PDFName.of('Annots'), doc.context.obj([bare, drawn]));
+  const chooser = page.waitForEvent('filechooser');
+  await page.getByRole('button', { name: /Open a PDF/ }).click();
+  await (
+    await chooser
+  ).setFiles({
+    name: 'marked.pdf',
+    mimeType: 'application/pdf',
+    buffer: Buffer.from(await doc.save()),
+  });
+  await expect(page.locator('.page-caption')).toHaveText('Page 1 of 1');
+  await settled(page);
+  const pixel = (x, y) =>
+    page
+      .locator('.paper > canvas')
+      .first()
+      .evaluate(
+        (canvas, [x, y]) => {
+          const scale = canvas.width / 300;
+          return Array.from(
+            canvas
+              .getContext('2d')
+              .getImageData(Math.floor(x * scale), Math.floor((300 - y) * scale), 1, 1).data,
+          ).slice(0, 3);
+        },
+        [x, y],
+      );
+  const blue = ([r, g, b]) => b > 180 && r < 120 && g < 120;
+  // Each area's edges are outlined in the mark's colour, as the app's own marks are.
+  await expect.poll(async () => blue(await pixel(40.5, 210))).toBe(true);
+  expect(blue(await pixel(139.5, 210))).toBe(true);
+  expect(blue(await pixel(70, 150.5))).toBe(true);
+  // Only outlined, so the words under the mark can still be reviewed; and only the areas, not
+  // the box around both.
+  expect(await pixel(90, 210)).toEqual([255, 255, 255]);
+  expect(await pixel(130, 160)).toEqual([255, 255, 255]);
+  expect(await pixel(180.5, 60)).toEqual([255, 255, 255]);
+});

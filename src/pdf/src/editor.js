@@ -2728,6 +2728,32 @@ export function createEditor({
         hiddenAnnotations.add(editorAnnotationId(annotation.id));
         return false;
       });
+      // PDF.js draws nothing for a redaction mark without an appearance stream, as other tools
+      // may write them; such marks are outlined as the app's own marks are, so they are seen.
+      const bareRedactions = new Set(
+        visibleAnnotations
+          .filter((a) => a.subtype === 'Redact' && !a.hasAppearance && !(a.annotationFlags & 34))
+          .map((a) => a.id),
+      );
+      if (bareRedactions.size) {
+        const doc =
+          editDocument || (await PDFDocument.load(session.bytes, { updateMetadata: false }));
+        const { pageRedactionOutlines } = await loadRedaction();
+        if (token !== pageRenderGeneration || destroyed) return;
+        editDocument = doc;
+        const context = rendered.getContext('2d');
+        context.setTransform(ratio, 0, 0, ratio, 0, 0);
+        context.lineWidth = nextViewport.scale;
+        for (const mark of pageRedactionOutlines(doc, pageIndex)) {
+          if (!bareRedactions.has(mark.id)) continue;
+          context.strokeStyle = mark.outline;
+          for (const [x1, y1, x2, y2] of mark.rects) {
+            const [a, b] = nextViewport.convertToViewportPoint(x1 + 0.5, y1 + 0.5);
+            const [c, d] = nextViewport.convertToViewportPoint(x2 - 0.5, y2 - 0.5);
+            context.strokeRect(Math.min(a, c), Math.min(b, d), Math.abs(c - a), Math.abs(d - b));
+          }
+        }
+      }
       viewport = nextViewport;
       pagePixelRatio = ratio;
       stack.place(paper, pageIndex);
