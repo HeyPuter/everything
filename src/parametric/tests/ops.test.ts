@@ -665,6 +665,37 @@ describe('editing tools', () => {
     expect(arcs.map((a) => arcRadius(ix, a as never)).sort()).toEqual([expect.closeTo(4, 9), expect.closeTo(5, 9)]);
   });
 
+  it.each([false, true])('never folds a fillet back over its lines when a dimension shrinks (radius dimensioned: %s)', (radiusDim) => {
+    const s = sk(rect(0, 0, 20, 10, 'r'));
+    s.constraints.push(
+      { id: 'h0', type: 'horizontal', refs: ['rl0'] }, { id: 'h2', type: 'horizontal', refs: ['rl2'] },
+      { id: 'v1', type: 'vertical', refs: ['rl1'] }, { id: 'v3', type: 'vertical', refs: ['rl3'] },
+      { id: 'o', type: 'coincident', refs: ['rp0', 'O'] },
+      { id: 'd1', type: 'distance', refs: ['rl0'], value: 20, at: [10, -5], name: 'D1' },
+      { id: 'd2', type: 'distance', refs: ['rl1'], value: 10, at: [25, 5], name: 'D2' },
+    );
+    for (const p of ['rp0', 'rp1', 'rp2', 'rp3']) expect(filletCorner(s, p, 3, idFactory(s))).toBeNull();
+    if (radiusDim) for (const a of s.entities.filter((e) => e.t === 'arc')) s.constraints.push({ id: `R${a.id}`, type: 'radius', refs: [a.id], value: 3, at: [0, 0], name: `R${a.id}` });
+    const width = s.constraints.find((c) => c.id === 'd1') as SkDimension;
+    const bottom = () => { const ix = new SketchIndex(s.entities), l = ix.get('rl0') as SkLine; return [ix.pt(l.a)[0], ix.pt(l.b)[0]]; };
+    // Room for the fillets: the bottom line shrinks and keeps its direction.
+    width.value = 8;
+    let res = solveSketch(s.entities, s.constraints, { value });
+    expect(res.converged).toBe(true);
+    expect(res.conflicting.size).toBe(0);
+    const [x0, x1] = bottom();
+    expect(x1 - x0).toBeGreaterThan(0);
+    expect(x1).toBeLessThanOrEqual(8 + 1e-6);
+    expect(measureDimension(s, width)).toBeCloseTo(8, 6);
+    // No room: the conflict is reported and the shape is kept, not inverted.
+    width.value = radiusDim ? 4 : 1;
+    res = solveSketch(s.entities, s.constraints, { value });
+    expect(res.converged).toBe(false);
+    expect(res.status).toBe('over');
+    expect(res.conflicting.has('d1')).toBe(true);
+    expect(bottom()).toEqual([expect.closeTo(x0, 6), expect.closeTo(x1, 6)]);
+  });
+
   for (const distance of [1, 1e6]) for (const reverse of [false, true]) it(`joins line/arc offsets at distance ${distance}, reverse traversal ${reverse}`, () => {
     const s = sk([
       { id: 'c', t: 'point', x: 0, y: 0 }, { id: 'a', t: 'point', x: 1, y: 0 }, { id: 'b', t: 'point', x: 0, y: 1 },

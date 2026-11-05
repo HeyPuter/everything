@@ -670,6 +670,7 @@ export class SketchSystem {
     const drag = this.opts.drag;
     const initial = this.x.slice();
     let converged: boolean;
+    let folded: Id[] = [];
     if (drag) {
       const backup = this.x.slice();
       const fixedBackup = this.fixed.slice();
@@ -701,7 +702,30 @@ export class SketchSystem {
           if (!converged) { this.x.set(backup); converged = this.solveAll(maxIter); }
         }
       }
-    } else converged = this.solveAll(maxIter);
+    } else {
+      converged = this.solveAll(maxIter);
+      // A big change (a dimension well below its old value) can jump to a
+      // solution where a fillet or tangent arc folds back over its line. Walk
+      // there in small steps from the old shape instead; if the shape still
+      // folds, the values cannot be met without inverting it: keep the old
+      // shape and report the conflict rather than inverted geometry.
+      if (this.newCusps(initial).length) {
+        // An arc whose radius nothing sets shrinks through zero and flips:
+        // first try keeping such radii (they are free, so any value solves).
+        let cusps: Id[] = [];
+        for (const attempt of [() => this.solveKeepingRadii(maxIter), () => this.solveByContinuation(maxIter)]) {
+          this.x.set(initial);
+          converged = attempt();
+          cusps = this.newCusps(initial);
+          if (converged && !cusps.length) break;
+        }
+        if (cusps.length) {
+          this.x.set(initial);
+          converged = false;
+          folded = cusps;
+        }
+      }
+    }
     // Overflow (e.g. from an absurd dimension value) must never reach the
     // document as NaN coordinates: keep the geometry as it was instead.
     if (!this.x.every(Number.isFinite)) {
@@ -713,6 +737,7 @@ export class SketchSystem {
     const residual = this.residuals(this.eqs, r);
     const conflicting = new Set<Id>();
     for (let i = 0; i < this.eqs.length; i++) if (Math.abs(r[i]) > 1e-6 && this.eqs[i].cid) conflicting.add(this.eqs[i].cid!);
+    for (const id of folded) conflicting.add(id);
 
     const res: SolveResult = {
       converged,
@@ -726,6 +751,88 @@ export class SketchSystem {
     if (this.opts.analyze !== false) this.analyze(res);
     if (conflicting.size) res.status = 'over';
     return res;
+  }
+
+  /**
+   * Solves from the current values towards the real system through blended
+   * systems f(x) - (1 - t) f(x0) for t from 0 to 1 (each solved from the last),
+   * which follows the solution branch of the starting shape.
+   */
+  private solveByContinuation(maxIter: number): boolean {
+    const eqs = this.eqs;
+    const r0 = new Float64Array(eqs.length);
+    this.residuals(eqs, r0);
+    const steps = 16;
+    try {
+      for (let k = 1; k < steps; k++) {
+        const w = 1 - k / steps;
+        this.eqs = eqs.map((e, i) => (r0[i] ? { ...e, f: (x: Float64Array) => e.f(x) - w * r0[i] } : e));
+        this.solveAll(maxIter);
+      }
+    } finally {
+      this.eqs = eqs;
+    }
+    return this.solveAll(maxIter);
+  }
+
+  /** Solves with the radius of every arc in an end-point tangency held. */
+  private solveKeepingRadii(maxIter: number): boolean {
+    const eqs = this.eqs;
+    const held = new Set<Id>();
+    for (const c of this.constraints) {
+      if (c.type !== 'tangent' || !this.sharedEndPoint(c.refs)) continue;
+      for (const r of c.refs) if (this.kind(r) === 'arc') held.add(r);
+    }
+    this.eqs = [...eqs];
+    try {
+      for (const id of held) {
+        const cc = this.circ(id);
+        if (!cc) continue;
+        const r0 = cc.r(this.x);
+        this.add(cc.v, (x) => cc.r(x) - r0, null);
+      }
+      if (!this.solveAll(maxIter)) return false;
+    } finally {
+      this.eqs = eqs;
+    }
+    return this.solveAll(maxIter);
+  }
+
+  /**
+   * Tangent relations between curves sharing an end point (a fillet, a
+   * tangent arc) that leave the point smoothly in the shape \`before\` but
+   * double back on each other (a cusp) in the current one.
+   */
+  private newCusps(before: Float64Array): Id[] {
+    const out: Id[] = [];
+    const leaving = (x: Float64Array, id: Id, p: Id): Vec2 | null => {
+      const e = this.entity.get(id);
+      const at = this.P(p)!.get(x);
+      if (e?.t === 'line') {
+        const q = this.P(e.a === p ? e.b : e.a)?.get(x);
+        return q ? [q[0] - at[0], q[1] - at[1]] : null;
+      }
+      if (e?.t !== 'arc') return null;
+      const c = this.P(e.c)?.get(x);
+      if (!c) return null;
+      // Arcs run counter-clockwise from a to b.
+      const s = e.a === p ? 1 : -1;
+      return [-(at[1] - c[1]) * s, (at[0] - c[0]) * s];
+    };
+    const cosAt = (x: Float64Array, refs: Id[], p: Id): number | null => {
+      const u = leaving(x, refs[0], p), w = leaving(x, refs[1], p);
+      if (!u || !w) return null;
+      const l = Math.hypot(u[0], u[1]) * Math.hypot(w[0], w[1]);
+      return l > 1e-18 ? (u[0] * w[0] + u[1] * w[1]) / l : null;
+    };
+    for (const c of this.constraints) {
+      if (c.type !== 'tangent' || c.refs.length !== 2) continue;
+      const p = this.sharedEndPoint(c.refs);
+      if (!p || !this.P(p)) continue;
+      const was = cosAt(before, c.refs, p), now = cosAt(this.x, c.refs, p);
+      if (was !== null && now !== null && was < 0 && now > 0.5) out.push(c.id);
+    }
+    return out;
   }
 
   /** Rank analysis: redundant constraints, free variables and entity status. */
