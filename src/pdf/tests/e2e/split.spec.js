@@ -583,3 +583,35 @@ test('Split a PDF says why a one-page PDF cannot be split', async ({ page }) => 
   await expect(page.locator('#toast')).toContainText('only one page');
   await expect(page.getByRole('dialog', { name: 'Split PDF' })).toHaveCount(0);
 });
+
+test('on a small phone the box for the pages where parts begin is wide enough to read', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 320, height: 700 });
+  await mockPuter(page);
+  await page.goto('/#library');
+  const doc = await PDFDocument.create();
+  for (let i = 0; i < 5; i++) doc.addPage([100, 100]);
+  await openPdf(page, doc);
+  await menu(page, 'Split PDF…');
+  const dialog = page.getByRole('dialog', { name: 'Split PDF' });
+  const box = dialog.getByLabel('Pages where new parts begin');
+  // Squeezed beside its long label, the box cut its own example short ("e.g. 3").
+  const room = await box.evaluate((input) => {
+    const style = getComputedStyle(input);
+    const context = document.createElement('canvas').getContext('2d');
+    context.font = `${style.fontSize} ${style.fontFamily}`;
+    const free = input.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+    return free - context.measureText(input.placeholder).width;
+  });
+  expect(room).toBeGreaterThan(0);
+  const dialogBox = await dialog.boundingBox();
+  const inputBox = await box.boundingBox();
+  expect(inputBox.x + inputBox.width).toBeLessThanOrEqual(dialogBox.x + dialogBox.width);
+  // The count stays on its line: "Every 2 pages".
+  const every = await dialog.getByLabel('Pages per part').boundingBox();
+  const label = await dialog.getByRole('radio', { name: 'Every', exact: true }).boundingBox();
+  expect(Math.abs(every.y + every.height / 2 - (label.y + label.height / 2))).toBeLessThan(4);
+  await box.fill('3');
+  await expect(dialog.getByRole('status')).toHaveText('2 PDFs, downloaded together as a ZIP.');
+});

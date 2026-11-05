@@ -1984,12 +1984,15 @@ dialog.leave-save-dialog {
 }
 .choice-with-input {
   display: flex;
+  /* On a small phone a long choice ("New part before pages") leaves its box too narrow to read;
+     the box goes to the next line instead. */
+  flex-wrap: wrap;
   align-items: center;
-  gap: 12px;
+  gap: 8px 12px;
 }
 .choice-with-input .input {
   width: auto;
-  flex: 1;
+  flex: 1 0 7em;
   min-width: 0;
 }
 .choice-with-input .input.count-input {
