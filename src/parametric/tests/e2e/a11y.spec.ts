@@ -296,3 +296,35 @@ test('the shortcuts list names each command once with all its keys', async ({ pa
   await expect(dialog).toContainText('F2');
   await expect(dialog).toContainText('Shift + F10');
 });
+
+test('editing and deleting equations keeps keyboard focus in the table', async ({ page }) => {
+  await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await page.evaluate(() => (window as unknown as { __parametric: { commands: { run(id: string): void } } }).__parametric.commands.run('equations'));
+  const dialog = page.getByRole('dialog', { name: 'Equations and Global Variables' });
+  await dialog.getByRole('button', { name: 'Add variable' }).click();
+  await dialog.getByRole('button', { name: 'Add variable' }).click();
+  const name = dialog.getByRole('textbox', { name: 'Name of variable 1' });
+  await name.fill('Width');
+  await page.keyboard.press('Tab');
+  await expect(dialog.getByRole('textbox', { name: 'Value or expression of Width' })).toBeFocused();
+  await dialog.getByRole('button', { name: 'Delete Width' }).click();
+  await expect(dialog.getByRole('button', { name: 'Delete Var2' })).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(dialog.getByRole('button', { name: 'Add variable' })).toBeFocused();
+});
+
+test('Esc pressed straight after a dialog opens closes it', async ({ page }) => {
+  await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  await page.getByRole('treeitem', { name: 'Hole1' }).focus();
+  // Both keys in one task: no frame passes between them.
+  await page.evaluate(() => {
+    const row = document.activeElement!;
+    row.dispatchEvent(new KeyboardEvent('keydown', { key: 'Delete', bubbles: true, cancelable: true }));
+    document.activeElement!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+  });
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect(page.getByRole('treeitem', { name: 'Hole1' })).toBeFocused();
+});

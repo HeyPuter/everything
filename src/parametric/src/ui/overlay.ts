@@ -77,10 +77,13 @@ export function showDialog(o: DialogOptions): Promise<string | null> {
     // Destructive confirmations have no primary button: focus starts on the
     // first (safe) button, so Escape and Tab work inside the dialog.
     const focusEl = (o.initialFocus && dialog.querySelector<HTMLElement>(o.initialFocus)) || dialog.querySelector<HTMLElement>('input, select, textarea') || foot.querySelector<HTMLElement>('.btn.primary') || foot.querySelector<HTMLElement>('.btn:not([disabled])') || dialog;
+    // Focus moves at once, so keys pressed right after the dialog opens (Esc
+    // straight after Delete) reach it rather than the page behind it.
+    focusEl.focus();
     requestAnimationFrame(() => {
       // A long body that scrolls must be reachable from the keyboard to scroll it.
       if (body.scrollHeight > body.clientHeight + 1) body.tabIndex = 0;
-      focusEl.focus();
+      if (!done && !dialog.contains(document.activeElement)) focusEl.focus();
     });
   });
 }
