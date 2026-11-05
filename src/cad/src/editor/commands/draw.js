@@ -116,6 +116,7 @@ export const PLINE = {
   async run(ed) {
     const first = await ed.getPoint('Start point');
     if (!first || first.option) return;
+    const drawing = ed.drawing;
     const verts = [{ x: first.x, y: first.y, b: 0 }];
     let arcMode = false;
     let width = ed.plineWidth ?? 0;
@@ -134,19 +135,29 @@ export const PLINE = {
       const last = verts.at(-1);
       const options = arcMode ? opts('Line', 'Close', 'Undo', 'Width') : opts('Arc', 'Close', 'Undo', 'Width');
       if (verts.length < 2) options.splice(1, 1);
-      const r = await ed.getPoint(arcMode ? 'Arc end point' : 'Next point', {
-        base: last,
-        options,
-        preview: (p) => {
-          const b = arcMode ? arcBulge(p) : 0;
-          const tmp = verts.map((v) => ({ ...v }));
-          tmp[tmp.length - 1].b = b;
-          const pts = [];
-          for (const v of tmp) pts.push(v.x, v.y, v.b);
-          pts.push(p.x, p.y, 0);
-          return [ed.make('polyline', { pts, closed: false, width })];
-        },
-      });
+      let r;
+      try {
+        r = await ed.getPoint(arcMode ? 'Arc end point' : 'Next point', {
+          base: last,
+          options,
+          preview: (p) => {
+            const b = arcMode ? arcBulge(p) : 0;
+            const tmp = verts.map((v) => ({ ...v }));
+            tmp[tmp.length - 1].b = b;
+            const pts = [];
+            for (const v of tmp) pts.push(v.x, v.y, v.b);
+            pts.push(p.x, p.y, 0);
+            return [ed.make('polyline', { pts, closed: false, width })];
+          },
+        });
+      } catch (err) {
+        // Escape keeps the segments drawn so far, as LINE does (unless the
+        // drawing itself was switched or closed).
+        if (verts.length >= 2 && ed.doc?.drawing === drawing) {
+          ed.commit('Polyline', () => ed.drawing.add(build(null)));
+        }
+        throw err;
+      }
       if (r === null) break;
       if (r.option === 'arc') {
         arcMode = true;
