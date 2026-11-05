@@ -228,6 +228,7 @@ export class Editor {
     this.renderer.setDragMatrix(null);
     this.renderer.setHidden(new Set());
     this.angleLock = null;
+    this.selMode = 'add';
     clearTimeout(this._acqTimer);
     this.acquired = [];
   }

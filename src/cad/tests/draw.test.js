@@ -452,3 +452,18 @@ describe('splines', () => {
     expect(s.knots.length).toBeGreaterThan(0);
   });
 });
+
+describe('selection mode', () => {
+  it('does not stay in Remove mode after a command is cancelled', async () => {
+    await t.type('LINE', '0,0', '10,0', '');
+    await t.type('MOVE', 'R');
+    t.ed.cancel();
+    await flush();
+    expect(t.ed.busy).toBe(false);
+    // An idle pick now adds to the selection again.
+    const s = t.ed.camera.toScreen(5, 0);
+    t.ed._updateCursor(s.x, s.y);
+    t.ed._selectPress(s.x, s.y, false, null);
+    expect(t.ed.selection.size).toBe(1);
+  });
+});
