@@ -3,6 +3,7 @@
 // sketch Offset / Mirror / Convert Entities tools.
 
 import type { Vec3 } from '../math/vec';
+import type { MassProperties } from '../kernel/protocol';
 import { dist, dot, normalize, sub } from '../math/vec';
 import { evaluateVariables, referencedNames, renameReferences, reservedName } from '../model/expr';
 import { changeUnits, mapExpressions } from '../model/document';
@@ -236,12 +237,29 @@ export async function optionsDialog(app: App) {
 // ---------- mass properties ----------
 
 export async function massPropertiesDialog(app: App) {
-  // The kernel answers for the last body it built: let a pending rebuild
-  // (a change made just before) finish first.
-  await app.whenBuilt();
-  if (!app.bbox) { toast({ kind: 'warning', message: 'There is no solid body yet.' }); return; }
-  const mp = await app.kernel.massProperties().catch((e) => { toast({ kind: 'error', message: (e as Error).message }); return null; });
-  if (!mp) return;
+  let replaced = false;
+  const off = app.store.on((reason) => { if (reason === 'load') replaced = true; });
+  let mp: MassProperties | null = null;
+  try {
+    for (;;) {
+      await app.whenBuilt();
+      if (replaced) return;
+      if (!app.bbox) { toast({ kind: 'warning', message: 'There is no solid body yet.' }); return; }
+      const version = app.buildVersion;
+      mp = await app.kernel.massProperties().catch((e) => {
+        if (!replaced) toast({ kind: 'error', message: (e as Error).message });
+        return null;
+      });
+      if (!mp) return;
+      // An edit can arrive while the kernel is calculating. Recalculate for
+      // its rebuilt body; never report the old body against a new document.
+      await app.whenBuilt();
+      if (replaced) return;
+      if (version === app.buildVersion) break;
+    }
+  } finally {
+    off();
+  }
   const doc = app.store.doc;
   const u = UNIT_SYSTEMS[doc.units];
   const density = doc.material?.density ?? 1000;
