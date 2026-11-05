@@ -3,11 +3,16 @@
 
 let sdk = null;
 
-/** Waits briefly for the SDK script (loaded with defer) and returns it or null. */
+/**
+ * Waits briefly for the SDK script (loaded with defer) and returns it or null.
+ * Stops at once when the script failed to load (offline, or blocked), which
+ * index.html records in window.__puterFailed.
+ */
 export async function loadPuter(timeoutMs = 5000) {
   if (sdk) return sdk;
   const start = Date.now();
-  while (typeof window !== 'undefined' && !window.puter && Date.now() - start < timeoutMs) {
+  const waiting = () => !window.puter && !window.__puterFailed && Date.now() - start < timeoutMs;
+  while (typeof window !== 'undefined' && waiting()) {
     await new Promise((r) => setTimeout(r, 50));
   }
   sdk = typeof window !== 'undefined' && window.puter ? window.puter : null;

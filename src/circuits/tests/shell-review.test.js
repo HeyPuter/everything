@@ -229,3 +229,18 @@ describe('key combos', () => {
     expect(comboOf(ev('*', 'Digit8', { shiftKey: true }))).toBe('*');
   });
 });
+
+describe('Puter SDK loading', () => {
+  it('stops waiting as soon as the SDK script fails to load', async () => {
+    const { loadPuter } = await import('../src/app/puter.js');
+    setPuterForTests(null);
+    delete window.puter;
+    window.__puterFailed = true;
+    // Without the check this would wait the full minute and the test time out.
+    try {
+      expect(await loadPuter(60_000)).toBeNull();
+    } finally {
+      delete window.__puterFailed;
+    }
+  });
+});
