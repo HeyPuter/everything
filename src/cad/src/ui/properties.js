@@ -427,24 +427,30 @@ export class PropertiesPalette {
   _input(value, display, parse, onCommit, attrs = {}) {
     const inp = h('input.input.sm', { type: 'text', value: display(value), placeholder: value === undefined ? 'Varies' : '', spellcheck: 'false', ...attrs });
     let orig = inp.value;
+    const reject = () => {
+      inp.value = orig;
+      inp.setAttribute('aria-invalid', 'true');
+      setTimeout(() => inp.removeAttribute('aria-invalid'), 1200);
+      return false;
+    };
+    // Returns false when the value was rejected (unparsable, or out of range: onCommit returns false).
     const commit = () => {
-      if (inp.value === orig) return;
+      if (inp.value === orig) return true;
       const v = parse(inp.value);
-      if (v === null || (typeof v === 'number' && !Number.isFinite(v))) {
-        inp.value = orig;
-        inp.setAttribute('aria-invalid', 'true');
-        setTimeout(() => inp.removeAttribute('aria-invalid'), 1200);
-        return;
-      }
+      if (v === null || (typeof v === 'number' && !Number.isFinite(v))) return reject();
+      const prev = orig;
       orig = inp.value;
-      onCommit(v);
+      if (onCommit(v) !== false) return true;
+      orig = prev;
+      return reject();
     };
     inp.addEventListener('keydown', (e) => {
       e.stopPropagation();
       if (e.key === 'Enter') {
         e.preventDefault();
-        commit();
+        const ok = commit();
         inp.select();
+        if (!ok) return;
         // Show the formatted value and the values that depend on it.
         this._forceRender = true;
         this.refresh();
