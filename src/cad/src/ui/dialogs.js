@@ -14,7 +14,7 @@ import { formatLinear, formatAngle } from '../core/units.js';
 import { RecordingSink } from '../core/display.js';
 import { emitEntity, makeContext } from '../core/tessellate.js';
 import { SNAP_MODES } from '../editor/snap.js';
-import { PAPER_SIZES, computePlot } from '../io/export/plot.js';
+import { PAPER_SIZES, computePlot, standardScale } from '../io/export/plot.js';
 import { exportPdf } from '../io/export/pdf.js';
 import { exportSvg } from '../io/export/svg.js';
 import { exportPng, renderToCanvas } from '../io/export/raster.js';
@@ -433,6 +433,15 @@ export async function plotDialog(app, state) {
     const pr = plot.printable;
     ctx.strokeRect(pr.x * k * dpr, (plot.pageH - pr.y - pr.h) * k * dpr, pr.w * k * dpr, pr.h * k * dpr);
   };
+  // Turning Fit to paper off starts from the largest standard scale that fits.
+  fit.querySelector('input').addEventListener('change', (e) => {
+    if (e.target.checked) return;
+    const area = areaFor(app, st.areaMode, st.window);
+    const fitted = computePlot({ ...settingsFor(area), scale: 'fit' }, area);
+    const std = standardScale(fitted.scale, doc.drawing.header.units);
+    mmIn.value = std.paper;
+    unitsIn.value = std.drawing;
+  });
   form.addEventListener('change', draw);
   form.addEventListener('input', draw);
   let action = null;
