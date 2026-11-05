@@ -639,3 +639,39 @@ test('the fields found by Detect form fields sit beside their check boxes', asyn
   expect(Math.abs(text.y + text.height / 2 - (box.y + box.height / 2))).toBeLessThan(2);
   await expect(dialog.locator('.result-row span').first()).toHaveCSS('font-weight', '500');
 });
+
+test('a click with a field tool places a field there, kept on the page', async ({ page }) => {
+  const doc = await PDFDocument.create();
+  doc.addPage([600, 400]);
+  await openPdf(page, doc);
+  await prepareForm(page);
+  const pane = page.getByRole('complementary', { name: 'Tools' });
+  const paper = await page.locator('.drawing-overlay').boundingBox();
+  const unit = paper.width / 600;
+  // A text field starts where the page was clicked.
+  await pane.getByRole('button', { name: 'Text field', exact: true }).click();
+  await page.mouse.click(paper.x + 100 * unit, paper.y + 50 * unit);
+  let dialog = page.getByRole('dialog', { name: 'Text field properties' });
+  await dialog.getByLabel('Name', { exact: true }).fill('Name');
+  await dialog.getByRole('button', { name: 'Done', exact: true }).click();
+  await settled(page);
+  // A check box is centered on the click; one clicked at the page's corner stays on it.
+  await pane.getByRole('button', { name: 'Check box', exact: true }).click();
+  await page.mouse.click(paper.x + 300 * unit, paper.y + 200 * unit);
+  dialog = page.getByRole('dialog', { name: 'Check box properties' });
+  await dialog.getByLabel('Name', { exact: true }).fill('Middle');
+  await dialog.getByRole('button', { name: 'Done', exact: true }).click();
+  await settled(page);
+  await page.mouse.click(paper.x + paper.width - 2, paper.y + paper.height - 2);
+  dialog = page.getByRole('dialog', { name: 'Check box properties' });
+  await dialog.getByLabel('Name', { exact: true }).fill('Corner');
+  await dialog.getByRole('button', { name: 'Done', exact: true }).click();
+  await settled(page);
+  const form = (await PDFDocument.load(await downloaded(page))).getForm();
+  const rect = (fieldName) => form.getField(fieldName).acroField.getWidgets()[0].getRectangle();
+  const near = (actual, expected) =>
+    Object.entries(expected).forEach(([key, value]) => expect(actual[key]).toBeCloseTo(value, 0));
+  near(rect('Name'), { x: 100, y: 400 - 50 - 22, width: 160, height: 22 });
+  near(rect('Middle'), { x: 300 - 7, y: 200 - 7, width: 14, height: 14 });
+  near(rect('Corner'), { x: 600 - 14, y: 0, width: 14, height: 14 });
+});

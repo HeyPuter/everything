@@ -3620,7 +3620,7 @@ export function createEditor({
       pencil: 'Draw on the page; each stroke becomes a comment you can move or delete.',
       measure: measureHint(),
       field:
-        'Drag a box where the field goes. Drag fields to move them; double-click one for its properties.',
+        'Drag a box where the field goes, or click to place one. Drag fields to move them; double-click one for its properties.',
     }[tool];
     hint.textContent = forPointer(hint.textContent);
     syncStyleButtons();
@@ -4256,8 +4256,22 @@ export function createEditor({
       } else if (g.type === 'field') {
         clearOverlay();
         const end = screenPoint(e);
-        if (Math.hypot(end.x - g.start.x, end.y - g.start.y) < 8) return;
-        await createField(normalizeRect(pdfPoint(g.start), pdfPoint(end)), g.page);
+        if (Math.hypot(end.x - g.start.x, end.y - g.start.y) >= 8)
+          await createField(normalizeRect(pdfPoint(g.start), pdfPoint(end)), g.page);
+        else {
+          // A click places a field of the usual size there, as a drag sizes one: a box
+          // centered on the point, other fields starting at it, and all on the page.
+          const [width, height] = ['checkbox', 'radio'].includes(fieldType) ? [14, 14] : [160, 22];
+          const unit = screenUnit();
+          const centered = width === height;
+          const at = (value, size, room) =>
+            Math.max(0, Math.min(value - (centered ? size / 2 : 0), room - size));
+          const start = {
+            x: at(g.start.x, width * unit, viewport.width),
+            y: at(g.start.y, height * unit, viewport.height),
+          };
+          await createField(readerRect(start, width, height), g.page);
+        }
       } else if (g.type === 'certsign') {
         clearOverlay();
         const end = screenPoint(e);
@@ -7472,7 +7486,7 @@ export function createEditor({
         permission: 'edit',
         keywords: 'form fields fillable acroform text field checkbox radio dropdown',
         description:
-          'Add fillable fields: choose a field type, then drag a box on the page. Double-click a field for its properties.',
+          'Add fillable fields: choose a field type, then drag a box on the page or click to place one. Double-click a field for its properties.',
         enter: () => setPreparing(true),
         leave: () => {
           setPreparing(false);
