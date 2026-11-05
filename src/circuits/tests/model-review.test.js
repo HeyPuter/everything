@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { planSync, applySync } from '../src/model/sync.js';
-import { Project, newProjectData } from '../src/model/project.js';
+import { Project, newProjectData, parseProject } from '../src/model/project.js';
 import { findComponent, cloneDef } from '../src/model/library/builtin.js';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -278,5 +278,53 @@ describe('board connectivity: pour holes', () => {
     };
     const across = { kind: 'seg', x1: mm(3), y1: mm(5), x2: mm(7), y2: mm(5), r: mm(0.1) };
     expect(itemDistance(across, two)).toBeLessThanOrEqual(0);
+  });
+});
+
+describe('parseProject: damaged files', () => {
+  it('opens a project with a damaged entry instead of failing as a whole', () => {
+    const data = newProjectData('P');
+    data.documents.push(null);
+    data.documents[0].objects.push(
+      { id: 'w1', t: 'wire' },
+      { id: 'w2', t: 'wire', pts: [0, 0, 'x', 10] },
+      { id: 'w3', t: 'wire', pts: [0, 0, mil(100), 0] },
+    );
+    data.documents[1].objects.push({ id: 'p1', t: 'pour', layer: 'top', pts: [0, 0, 1, 1] });
+    const p = parseProject(JSON.parse(JSON.stringify(data)));
+    expect(p.docs).toHaveLength(2);
+    expect([...p.sheets[0].items()].map((o) => o.id)).toEqual(['w3']);
+    expect([...p.boards[0].items()]).toEqual([]);
+  });
+
+  it('keeps objects whose id clashes with a document settings entry', () => {
+    const data = newProjectData('P');
+    data.documents[1].objects.push({
+      id: 'board',
+      t: 'track',
+      layer: 'top',
+      x1: 0,
+      y1: 0,
+      x2: mm(5),
+      y2: 0,
+      w: mm(0.25),
+    });
+    data.documents[0].objects.push({ id: 'sheet', t: 'junction', x: 0, y: 0 });
+    const p = parseProject(JSON.parse(JSON.stringify(data)));
+    const board = p.boards[0];
+    expect(board.board.t).toBe('board');
+    expect([...board.items()].map((o) => o.t)).toEqual(['track']);
+    const hits = board.store.query({ minX: -mm(1), minY: -mm(1), maxX: mm(6), maxY: mm(1) });
+    expect(hits.map((o) => o.t)).toEqual(['track']);
+    expect([...p.sheets[0].items()].map((o) => o.t)).toEqual(['junction']);
+    expect(p.sheets[0].sheet.t).toBe('sheet');
+  });
+
+  it('gives documents with the same id distinct ids', () => {
+    const data = newProjectData('P');
+    data.documents[1].id = data.documents[0].id;
+    const p = parseProject(JSON.parse(JSON.stringify(data)));
+    expect(new Set(p.docs.map((d) => d.id)).size).toBe(2);
+    expect(p.getDoc(p.boards[0].id)).toBe(p.boards[0]);
   });
 });
