@@ -20,7 +20,7 @@ import {
   toPrims,
   closestPoint,
   lengthOf,
-  splineFromFitPoints,
+  refitSpline,
 } from '../../core/geom/index.js';
 import { insertMatrix, mulMatrix } from '../../core/tessellate.js';
 import { buildDimension, buildLeader, dimStyleOf } from '../../core/dims.js';
@@ -699,7 +699,7 @@ export function stretchEntity(e, inside, dx, dy) {
       for (let i = 0; i < fit.length; i += 2) [fit[i], fit[i + 1]] = mv(fit[i], fit[i + 1]);
       // A spline defined by fit points is rebuilt through them so curve and data agree.
       if (fit.length >= 4) {
-        const s = splineFromFitPoints(fit, e.closed);
+        const s = refitSpline(e, fit);
         if (s) return { ...e, ...s, fit };
       }
       return { ...e, ctrl, fit };

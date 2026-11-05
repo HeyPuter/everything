@@ -3,7 +3,7 @@
  * applyGrip() returns the entity after dragging grip `i` to (x, y).
  */
 import {
-  splineFromFitPoints,
+  refitSpline,
   splineFromControlPoints,
   isFullEllipse,
   ellipsePoint,
@@ -208,7 +208,7 @@ export function applyGrip(ent, i, x, y) {
         fit[g.v * 2] = x;
         fit[g.v * 2 + 1] = y;
         // No curve when every fit point would coincide: leave it as it was.
-        const s = splineFromFitPoints(fit, ent.closed);
+        const s = refitSpline(ent, fit);
         return s ? { ...ent, ...s, fit } : ent;
       }
       const ctrl = ent.ctrl.slice();

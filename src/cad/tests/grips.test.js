@@ -24,6 +24,28 @@ describe('grips', () => {
     expect(moved.ctrl.slice(-2)).toEqual([10, 5]);
   });
 
+  it('keeps the end tangents of a fit-point spline when a fit point moves', () => {
+    const fit = [80, 0, 83, 5, 87, 2, 90, 8, 95, 3];
+    const free = { ...P, type: 'spline', ...splineFromFitPoints(fit), fit, closed: false };
+    // built with DXF end tangents (groups 12/13): up at the start, diagonal at the end
+    const tan = { ...free, ...splineFromFitPoints(fit, false, [0, 1], [1, 1]) };
+    // a grip dropped where it was leaves both curves as they were
+    const same = applyGrip(tan, 2, 87, 2);
+    same.ctrl.forEach((v, i) => expect(v).toBeCloseTo(tan.ctrl[i], 9));
+    applyGrip(free, 2, 87, 2).ctrl.forEach((v, i) => expect(v).toBeCloseTo(free.ctrl[i], 9));
+    // moving a fit point keeps the tangent directions; a curve without them stays free
+    const moved = applyGrip(tan, 2, 87, 4);
+    const c = moved.ctrl;
+    expect(c[2]).toBeCloseTo(80, 9);
+    expect(c[3]).toBeGreaterThan(0);
+    const n = c.length;
+    expect(c[n - 2] - c[n - 4]).toBeCloseTo(c[n - 1] - c[n - 3], 9);
+    const ref = splineFromFitPoints(moved.fit);
+    applyGrip(free, 2, 87, 4).ctrl.forEach((v, i) => expect(v).toBeCloseTo(ref.ctrl[i], 9));
+    const st = stretchEntity(tan, (x, y) => x > 86 && x < 88 && y > 1 && y < 3, 0, 2);
+    expect(st.ctrl[2]).toBeCloseTo(80, 9);
+  });
+
   it('stretches line ends and moves with the midpoint', () => {
     const l = { ...P, type: 'line', x1: 0, y1: 0, x2: 10, y2: 0 };
     expect(applyGrip(l, 2, 20, 5)).toMatchObject({ x1: 0, y1: 0, x2: 20, y2: 5 });

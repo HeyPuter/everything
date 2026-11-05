@@ -250,6 +250,57 @@ export function splineFromFitPoints(fit, closed = false, startTan = null, endTan
   return { degree: 3, ctrl, knots };
 }
 
+/**
+ * Rebuild fit-point spline `ent` through new fit points. End tangents the
+ * curve was built with (DXF groups 12 and 13) are kept: when its control
+ * points differ from the curve splineFromFitPoints builds without them, the
+ * end derivatives per unit of chord length are read from the curve.
+ */
+export function refitSpline(ent, fit) {
+  const closed = !!ent.closed;
+  const c = ent.ctrl || [];
+  const k = ent.knots || [];
+  const n = c.length >> 1;
+  let st = null,
+    et = null;
+  const free = splineFromFitPoints(ent.fit || [], closed);
+  if (free && ent.degree === 3 && k.length === n + 4 && k[0] === 0 && k[k.length - 1] === 1) {
+    // tolerance relative to the curve's size: files round control points
+    let x0 = Infinity,
+      x1 = -Infinity,
+      y0 = Infinity,
+      y1 = -Infinity;
+    for (let i = 0; i < c.length; i += 2) {
+      x0 = Math.min(x0, c[i]);
+      x1 = Math.max(x1, c[i]);
+      y0 = Math.min(y0, c[i + 1]);
+      y1 = Math.max(y1, c[i + 1]);
+    }
+    const tol = 1e-6 * Math.max(x1 - x0, y1 - y0);
+    const same =
+      free.ctrl.length === c.length && free.ctrl.every((v, i) => Math.abs(v - c[i]) <= tol);
+    const a = k[4],
+      b = 1 - k[k.length - 5];
+    if (!same && n >= 4 && a > 0 && b > 0) {
+      // derivative 3 (P1 - P0) / a per unit of the fit points' chord length
+      const f = 3 / chordLength(ent.fit, closed);
+      st = [((c[2] - c[0]) / a) * f, ((c[3] - c[1]) / a) * f];
+      et = [((c[2 * n - 2] - c[2 * n - 4]) / b) * f, ((c[2 * n - 1] - c[2 * n - 3]) / b) * f];
+    }
+  }
+  return splineFromFitPoints(fit, closed, st, et);
+}
+
+/** Total chord length of fit points as splineFromFitPoints measures it. */
+function chordLength(fit, closed) {
+  const Q = dedupeFlat(fit);
+  const m = Q.length;
+  if (closed && m >= 6 && (Q[m - 2] !== Q[0] || Q[m - 1] !== Q[1])) Q.push(Q[0], Q[1]);
+  let t = 0;
+  for (let i = 2; i < Q.length; i += 2) t += Math.hypot(Q[i] - Q[i - 2], Q[i + 1] - Q[i - 1]);
+  return t;
+}
+
 /** Spline from control points with clamped uniform knots: { degree, ctrl, knots }. */
 export function splineFromControlPoints(ctrl, degree = 3) {
   const nc = ctrl.length >> 1;
