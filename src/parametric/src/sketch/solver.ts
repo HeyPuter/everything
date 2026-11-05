@@ -373,7 +373,21 @@ export class SketchSystem {
         const pairs: [Id, Id][] = [];
         const ea = this.entity.get(r0), eb = this.entity.get(r1);
         if (this.isPointLike(r0) && this.isPointLike(r1)) pairs.push([r0, r1]);
-        else if (ea?.t === 'line' && eb?.t === 'line') pairs.push([ea.a, eb.a], [ea.b, eb.b]);
+        else if (ea?.t === 'line' && eb?.t === 'line') {
+          // Each end pairs with the end nearer its mirror image: two lines
+          // drawn in the same direction pair crosswise, and pairing them
+          // start-to-start would fold both lines onto the axis.
+          const at = (id: Id) => this.P(id)?.get(this.x) ?? [NaN, NaN] as Vec2;
+          const la = l.a(this.x), lb = l.b(this.x);
+          // The two residuals of a symmetric point pair, as below.
+          const miss = (p: Id, q: Id) => {
+            const a = at(p), b = at(q), d = dir(la, lb);
+            return Math.abs(signedDist([(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], la, lb))
+              + Math.abs((b[0] - a[0]) * d[0] + (b[1] - a[1]) * d[1]) / (len(la, lb) || 1e-12);
+          };
+          if (miss(ea.a, eb.b) + miss(ea.b, eb.a) < miss(ea.a, eb.a) + miss(ea.b, eb.b)) pairs.push([ea.a, eb.b], [ea.b, eb.a]);
+          else pairs.push([ea.a, eb.a], [ea.b, eb.b]);
+        }
         else if ((ea?.t === 'circle' || ea?.t === 'arc') && (eb?.t === 'circle' || eb?.t === 'arc')) {
           pairs.push([ea.c, eb.c]);
           const ca = this.circ(r0)!, cb = this.circ(r1)!;

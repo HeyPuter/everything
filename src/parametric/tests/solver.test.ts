@@ -161,6 +161,29 @@ describe('sketch solver', () => {
     expect(p.y).toBeCloseTo(q.y, 7);
   });
 
+  it.each([false, true])('makes two lines symmetric end to nearer end (drawn the same way %s)', (sameWay) => {
+    const ents: SkEntity[] = [
+      pt('a', 0, -20), pt('b', 0, 20), { id: 'axis', t: 'line', a: 'a', b: 'b', construction: true },
+      pt('p0', -10, 0), pt('p1', -5, 5), line('l1', 'p0', 'p1'),
+      // The mirror image of l1 is (10, 0)-(5, 5), drawn either way round.
+      pt('q0', sameWay ? 5 : 10.5, sameWay ? 5 : 0.3), pt('q1', sameWay ? 10.5 : 5, sameWay ? 0.3 : 5), line('l2', 'q0', 'q1'),
+    ];
+    const cons: SkConstraint[] = [
+      { id: 'v', type: 'vertical', refs: ['axis'] },
+      { id: 'o', type: 'coincident', refs: ['a', 'O'] },
+      { id: 's', type: 'symmetric', refs: ['l1', 'l2', 'axis'] },
+    ];
+    const res = solveSketch(ents, cons, { value });
+    expect(res.converged).toBe(true);
+    expect(res.badConstraints.size).toBe(0);
+    // The lines stay where they were drawn instead of folding onto the axis.
+    const [near, far] = sameWay ? ['q0', 'q1'] : ['q1', 'q0'];
+    expect(P(ents, far).x).toBeCloseTo(-P(ents, 'p0').x, 7);
+    expect(P(ents, near).x).toBeCloseTo(-P(ents, 'p1').x, 7);
+    expect(P(ents, far).x).toBeGreaterThan(9);
+    expect(P(ents, near).x).toBeLessThan(6);
+  });
+
   it('keeps the geometry when a dimension value overflows the solver', () => {
     const ents = [pt('a', -15, -9), pt('b', 15, -3), line('l', 'a', 'b')];
     const res = solveSketch(ents, [dim('d', 'hdistance', ['l'], 1e300)], { value });
