@@ -122,7 +122,20 @@ export class DrawingWorkspace {
     const key = d ? JSON.stringify([this.selected, this.app.store.doc.name, d.sheet, d.landscape, d.scale, d.title, d.drawnBy, d.notes, d.views.map((v) => [v.id, v.kind, v.hidden, v.dims])]) : '';
     if (key === this.panelKey) return;
     this.panelKey = key;
-    if (!this.panelChanging) this.app.refreshPanel();
+    if (this.panelChanging) return;
+    // Keyboard focus in the panel stays on the same control in the rebuilt one; from a
+    // deleted view's row it moves to the row that took its place, else the one above, else Add view.
+    const body = this.app.shell.lpBody;
+    const was = document.activeElement instanceof HTMLElement && body.contains(document.activeElement) ? document.activeElement : null;
+    const name = (el: Element) => el.getAttribute('aria-label') ?? el.textContent;
+    const row = was ? [...body.querySelectorAll('.relations-list > *')].findIndex((r) => r.contains(was)) : -1;
+    this.app.refreshPanel();
+    if (!was || was.isConnected) return;
+    const rows = body.querySelectorAll('.relations-list > *');
+    const controls = [...body.querySelectorAll<HTMLElement>('button, input, select')];
+    const same = controls.find((el) => name(el) === name(was));
+    const near = row >= 0 ? rows[Math.min(row, rows.length - 1)]?.querySelector<HTMLElement>('button[aria-label^="Delete"]') ?? controls.find((el) => name(el) === 'Add view') : null;
+    (same ?? near ?? body.querySelector<HTMLElement>('.pm-head .title'))?.focus();
   }
 
   // ---------- projections and rendering ----------

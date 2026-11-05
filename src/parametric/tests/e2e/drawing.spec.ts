@@ -163,6 +163,15 @@ test('a view can be selected, moved and deleted from the keyboard', async ({ pag
   expect(await depth()).toBe(d0 + 1);
   await page.keyboard.press('Delete');
   await expect.poll(front).toBeUndefined();
+  // Deleting from the Views list keeps keyboard focus there: on the row that moved up, then Add view.
+  await page.getByRole('button', { name: 'Delete Top view' }).focus();
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('button', { name: 'Delete Right view' })).toBeFocused();
+  await page.getByRole('button', { name: 'Delete Isometric view' }).focus();
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('button', { name: 'Delete Right view' })).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('button', { name: 'Add view' })).toBeFocused();
 });
 
 test.describe('in a time zone behind UTC', () => {
