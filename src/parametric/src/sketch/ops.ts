@@ -627,6 +627,19 @@ export function offsetCurves(sk: SketchFeature, ids: Id[], distance: number, new
     };
     for (let i = 0; i + 1 < offs.length; i++) join(offs[i], offs[i + 1]);
     if (chain.closed) join(offs[offs.length - 1], offs[0]);
+    // An offset past the far side of the shape turns pieces around (a line
+    // runs backwards, an arc wraps the other way): that is no offset at all.
+    const turned = offs.some((o, i) => {
+      const it = chain.items[i];
+      const p = ix.pt(it.fwd ? it.c.a : it.c.b), q = ix.pt(it.fwd ? it.c.b : it.c.a);
+      if (o.kind === 'line') return dot2(sub2(o.b, o.a), sub2(q, p)) <= 0;
+      const sweep = (u: Vec2, v: Vec2) => {
+        const s0 = wrap2Pi(angle2(sub2(v, o.c)) - angle2(sub2(u, o.c)));
+        return o.fwd ? s0 : wrap2Pi(-s0);
+      };
+      return Math.abs(sweep(o.a, o.b) - sweep(p, q)) > Math.PI;
+    });
+    if (turned) continue;
     const ptIds = new Map<string, Id>();
     const pointFor = (p: Vec2) => {
       const k = `${p[0].toFixed(9)},${p[1].toFixed(9)}`;

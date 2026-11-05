@@ -224,6 +224,20 @@ describe('editing tools', () => {
     expect(Math.max(...ys)).toBeCloseTo(5, 9);
   });
 
+  it('refuses an inward offset larger than the loop instead of turning it inside out', () => {
+    const s = sk(rect(0, 0, 20, 10, 'r'));
+    const n = s.entities.length;
+    // 6 inward from both long sides crosses over: the result would be inverted.
+    expect(offsetCurves(s, ['rl0', 'rl1', 'rl2', 'rl3'], -6, idFactory(s))).toHaveLength(0);
+    expect(s.entities).toHaveLength(n);
+    expect(offsetCurves(s, ['rl0', 'rl1', 'rl2', 'rl3'], -4, idFactory(s))).toHaveLength(4);
+    // A rounded rectangle offset inward by less than its corner radius still works.
+    const r = sk(rect(0, 0, 20, 10, 'r'));
+    for (const p of ['rp0', 'rp1', 'rp2', 'rp3']) filletCorner(r, p, 4, idFactory(r));
+    const ids = r.entities.filter((e) => e.t === 'line' || e.t === 'arc').map((e) => e.id);
+    expect(offsetCurves(r, ids, -3, idFactory(r))).toHaveLength(8);
+  });
+
   it('offsets a rounded rectangle outward, growing its corner arcs', () => {
     const s = sk(rect(0, 0, 20, 10, 'r'));
     for (const p of ['rp0', 'rp1', 'rp2', 'rp3']) filletCorner(s, p, 2, idFactory(s));
