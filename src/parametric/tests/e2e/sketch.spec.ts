@@ -39,6 +39,32 @@ async function startSketch(page: Page) {
 }
 
 test.describe('sketching', () => {
+  for (const tool of ['perimeterCircle', 'arc3'] as const) for (const offset of [0, 1e9]) test(`${tool} preserves three picked points at coordinate offset ${offset}`, async ({ page }) => {
+    const errors = await openApp(page);
+    await startSketch(page);
+    const result = await page.evaluate(({ tool, offset }) => {
+      const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+      a.commands.run(`tool:${tool}`);
+      const ed = a.sketchEditor!;
+      // Feed exact snapped positions to the real drawing tool and sketch solver.
+      const positions: [number, number][] = [[offset + 5, offset], [offset - 5, offset], [offset, offset + 5]];
+      for (const p of positions) ed.tool!.click!({ p, raw: p, kind: 'none' }, {} as import('../../src/app/viewport').VPEvent);
+      const curve = ed.sketch.entities.find((e) => e.t === 'circle' || e.t === 'arc');
+      const center = curve && ed.sketch.entities.find((e) => e.id === curve.c);
+      return { curve, center: center?.t === 'point' ? [center.x, center.y] : null, points: ed.sketch.entities.filter((e) => e.t === 'point'), converged: ed.solve?.converged };
+    }, { tool, offset });
+    expect(result.center?.[0]).toBeCloseTo(offset, 7);
+    expect(result.center?.[1]).toBeCloseTo(offset, 7);
+    if (tool === 'perimeterCircle') expect(result.curve).toMatchObject({ t: 'circle', r: 5 });
+    else {
+      expect(result.points).toEqual(expect.arrayContaining([
+        expect.objectContaining({ x: offset + 5, y: offset }), expect.objectContaining({ x: offset - 5, y: offset }),
+      ]));
+    }
+    expect(result.converged).toBe(true);
+    expect(errors).toEqual([]);
+  });
+
   for (const action of ['undo', 'redo', 'replace', 'save'] as const) test(`pending sketch input is handled before ${action} removes its field`, async ({ page }) => {
     const errors = await openApp(page);
     await startSketch(page);

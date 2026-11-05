@@ -3,7 +3,7 @@
 
 import type { Id, SkArc, SkLine, SketchFeature } from '../../model/types';
 import { type Vec2, angle2, cross2, dist2, norm2, sub2 } from '../../math/vec';
-import { ORIGIN_ID, SketchIndex, splineBeziers, bezierPoint } from '../../sketch/geom';
+import { ORIGIN_ID, SketchIndex, splineBeziers, bezierPoint, circumcenter } from '../../sketch/geom';
 import { extendAt, filletCorner, smartDimension, trimAt } from '../../sketch/ops';
 import { h } from '../../ui/dom';
 import { toast } from '../../ui/overlay';
@@ -220,12 +220,8 @@ export function circleTool(ed: SketchEditor): SkTool {
 export function perimeterCircleTool(ed: SketchEditor): SkTool {
   const pts: Snap[] = [];
   const circ = (a: Vec2, b: Vec2, c: Vec2): { c: Vec2; r: number } | null => {
-    const d = 2 * (a[0] * (b[1] - c[1]) + b[0] * (c[1] - a[1]) + c[0] * (a[1] - b[1]));
-    if (Math.abs(d) < 1e-12) return null;
-    const a2 = a[0] ** 2 + a[1] ** 2, b2 = b[0] ** 2 + b[1] ** 2, c2 = c[0] ** 2 + c[1] ** 2;
-    const ux = (a2 * (b[1] - c[1]) + b2 * (c[1] - a[1]) + c2 * (a[1] - b[1])) / d;
-    const uy = (a2 * (c[0] - b[0]) + b2 * (a[0] - c[0]) + c2 * (b[0] - a[0])) / d;
-    return { c: [ux, uy], r: dist2([ux, uy], a) };
+    const center = circumcenter(a, b, c);
+    return center ? { c: center, r: dist2(center, a) } : null;
   };
   return {
     id: 'perimeterCircle',
@@ -323,10 +319,8 @@ export function centerArcTool(ed: SketchEditor): SkTool {
 export function threePointArcTool(ed: SketchEditor): SkTool {
   let p1: Snap | null = null, p2: Snap | null = null;
   const solve = (a: Vec2, b: Vec2, m: Vec2) => {
-    const d = 2 * (a[0] * (b[1] - m[1]) + b[0] * (m[1] - a[1]) + m[0] * (a[1] - b[1]));
-    if (Math.abs(d) < 1e-12) return null;
-    const a2 = a[0] ** 2 + a[1] ** 2, b2 = b[0] ** 2 + b[1] ** 2, m2 = m[0] ** 2 + m[1] ** 2;
-    const c: Vec2 = [(a2 * (b[1] - m[1]) + b2 * (m[1] - a[1]) + m2 * (a[1] - b[1])) / d, (a2 * (m[0] - b[0]) + b2 * (a[0] - m[0]) + m2 * (b[0] - a[0])) / d];
+    const c = circumcenter(a, b, m);
+    if (!c) return null;
     const ccw = cross2(sub2(m, a), sub2(b, m)) > 0;
     return { c, r: dist2(c, a), ccw };
   };

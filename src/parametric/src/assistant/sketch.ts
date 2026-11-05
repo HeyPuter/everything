@@ -10,7 +10,7 @@ import type { DocStore } from '../model/document';
 import type { DimensionType, Id, RelationType, SkArc, SkConstraint, SkDimension, SkEntity, SkLine, SketchFeature } from '../model/types';
 import { isDimension } from '../model/types';
 import { convertEdges } from '../sketch/convert';
-import { ORIGIN_ID, SketchIndex, arcAngles, arcRadius } from '../sketch/geom';
+import { ORIGIN_ID, SketchIndex, arcAngles, arcRadius, circumcenter } from '../sketch/geom';
 import {
   RELATION_LABELS, availableRelations, cleanupConstraints, deleteItems, filletCorner, idFactory, kindOf, makeRelations, measureDimension,
   mirrorAxisDirection, mirrorEntities, nextDimName, offsetCurves, usedPoints,
@@ -514,13 +514,6 @@ function num_(v: unknown, what: string): number {
   const n = typeof v === 'string' && v.trim() ? Number(v) : v;
   if (typeof n !== 'number' || !Number.isFinite(n)) throw new ToolError(`${what}: expected a number`);
   return n;
-}
-
-function circumcenter(a: Vec2, b: Vec2, c: Vec2): Vec2 | null {
-  const d = 2 * (a[0] * (b[1] - c[1]) + b[0] * (c[1] - a[1]) + c[0] * (a[1] - b[1]));
-  if (Math.abs(d) < 1e-12) return null;
-  const a2 = a[0] ** 2 + a[1] ** 2, b2 = b[0] ** 2 + b[1] ** 2, c2 = c[0] ** 2 + c[1] ** 2;
-  return [(a2 * (b[1] - c[1]) + b2 * (c[1] - a[1]) + c2 * (a[1] - b[1])) / d, (a2 * (c[0] - b[0]) + b2 * (a[0] - c[0]) + c2 * (b[0] - a[0])) / d];
 }
 
 /** Whether m lies on the counter-clockwise arc around c from a to b. */

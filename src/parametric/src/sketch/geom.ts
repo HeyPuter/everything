@@ -5,6 +5,18 @@ import { type Vec2, angle2, cross2, dist2, dot2, sub2, wrap2Pi } from '../math/v
 
 export const ORIGIN_ID = 'O';
 
+/** Circle centre through three points; null when the points are collinear. */
+export function circumcenter(a: Vec2, b: Vec2, c: Vec2): Vec2 | null {
+  // Work relative to a picked point. Squaring world coordinates loses small
+  // radii when the sketch is far from the origin.
+  const bx = b[0] - a[0], by = b[1] - a[1];
+  const cx = c[0] - a[0], cy = c[1] - a[1];
+  const d = 2 * (bx * cy - by * cx);
+  if (Math.abs(d) < 1e-12) return null;
+  const b2 = bx * bx + by * by, c2 = cx * cx + cy * cy;
+  return [a[0] + (b2 * cy - c2 * by) / d, a[1] + (bx * c2 - cx * b2) / d];
+}
+
 export class SketchIndex {
   readonly byId = new Map<Id, SkEntity>();
   constructor(readonly entities: SkEntity[]) {
