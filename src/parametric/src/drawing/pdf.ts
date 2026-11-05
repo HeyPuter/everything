@@ -7,6 +7,30 @@ const PT = 72 / 25.4;
 // WinAnsiEncoding (the built-in fonts' encoding) is Latin-1 except for 0x80-0x9F.
 const WIN_ANSI_HIGH = '\u20ac\u0081\u201a\u0192\u201e\u2026\u2020\u2021\u02c6\u2030\u0160\u2039\u0152\u008d\u017d\u008f\u0090\u2018\u2019\u201c\u201d\u2022\u2013\u2014\u02dc\u2122\u0161\u203a\u0153\u009d\u017e\u0178';
 
+// Advance widths (1/1000 em) of printable ASCII, from the Helvetica and
+// Helvetica-Bold font metrics (Arial has the same widths).
+const HELVETICA = [
+  278, 278, 355, 556, 556, 889, 667, 191, 333, 333, 389, 584, 278, 333, 278, 278, 556, 556, 556, 556, 556, 556, 556, 556, 556, 556, 278, 278, 584, 584, 584, 556,
+  1015, 667, 667, 722, 722, 667, 611, 778, 722, 278, 500, 667, 556, 833, 722, 778, 667, 778, 722, 667, 611, 722, 667, 944, 667, 667, 611, 278, 278, 278, 469, 556,
+  333, 556, 556, 500, 556, 556, 278, 556, 556, 222, 222, 500, 222, 833, 556, 556, 556, 556, 333, 500, 278, 556, 500, 722, 500, 500, 500, 334, 260, 334, 584,
+];
+const HELVETICA_BOLD = [
+  278, 333, 474, 556, 556, 889, 722, 238, 333, 333, 389, 584, 278, 333, 278, 278, 556, 556, 556, 556, 556, 556, 556, 556, 556, 556, 333, 333, 584, 584, 584, 611,
+  975, 722, 722, 722, 722, 667, 611, 778, 722, 278, 556, 722, 611, 833, 722, 778, 667, 778, 722, 667, 611, 722, 667, 944, 667, 667, 611, 333, 278, 333, 584, 556,
+  333, 556, 611, 556, 611, 556, 333, 611, 611, 278, 278, 556, 278, 889, 611, 611, 611, 611, 389, 556, 333, 611, 556, 778, 556, 556, 500, 389, 280, 389, 584,
+];
+
+/** Width of a line of Helvetica text in the units of `size` (other characters count as a digit). */
+export function textWidth(str: string, size: number, bold = false): number {
+  const table = bold ? HELVETICA_BOLD : HELVETICA;
+  let w = 0;
+  for (const ch of str) {
+    const c = ch.codePointAt(0)!;
+    w += c >= 32 && c < 127 ? table[c - 32] : 556;
+  }
+  return (w / 1000) * size;
+}
+
 /** Text as the body of a PDF literal string in WinAnsiEncoding, ASCII only (octal escapes). */
 export function pdfString(str: string): string {
   let out = '';
@@ -186,8 +210,7 @@ export class PdfPage {
   /** Text with its baseline at (x, y); anchor start, middle or end. */
   text(str: string, x: number, y: number, sizeMm: number, opts: { bold?: boolean; anchor?: 'start' | 'middle' | 'end'; rotate?: number } = {}) {
     const size = sizeMm * PT;
-    // Helvetica advance widths are about 0.55 em on average.
-    const w = str.length * size * 0.55 / PT;
+    const w = textWidth(str, sizeMm, opts.bold);
     const dx = opts.anchor === 'middle' ? -w / 2 : opts.anchor === 'end' ? -w : 0;
     const esc = pdfString(str);
     const font = opts.bold ? '/F2' : '/F1';

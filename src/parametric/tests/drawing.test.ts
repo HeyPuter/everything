@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { PdfPage, arcToCubics, parseSvgPath, pdfString } from '../src/drawing/pdf';
+import { PdfPage, arcToCubics, parseSvgPath, pdfString, textWidth } from '../src/drawing/pdf';
 import { SHEETS, STANDARD_SCALES, buildSheet, projectedSize, scaleLabel, sheetDims, standardLayout, toPdf, toSvg } from '../src/drawing/sheet';
 import type { Vec3 } from '../src/math/vec';
 import type { DrawingDoc, SheetSize } from '../src/model/types';
@@ -107,13 +107,33 @@ describe('sheet layout', () => {
     const texts = items.filter((i) => i.t === 'text') as Extract<(typeof items)[number], { t: 'text' }>[];
     const title = texts.find((t) => t.s.startsWith('TTT'))!;
     const note = texts.find((t) => t.s.startsWith('Break'))!;
-    // Title cell 110 mm, notes cell 60 mm (less 3 mm padding), at about 0.55 em per character.
-    expect(title.s.length * title.size * 0.55).toBeLessThanOrEqual(107);
-    expect(note.s.length * note.size * 0.55).toBeLessThanOrEqual(57);
+    // Title cell 110 mm, notes cell 60 mm (less 3 mm padding), in Helvetica's widths.
+    expect(textWidth(title.s, title.size, true)).toBeLessThanOrEqual(107);
+    expect(textWidth(note.s, note.size)).toBeLessThanOrEqual(57);
     expect(note.size).toBeGreaterThanOrEqual(1.8);
     expect(note.s.endsWith('…')).toBe(true);
     // Short values keep their size.
     expect(texts.find((t) => t.s === 'Short')!.size).toBe(2.8);
+  });
+
+  it('fits capitals, which are wider than average, inside their cells', () => {
+    const title = 'MOUNTING BRACKET ASSEMBLY FOR LEFT WING MK2 REV';
+    const notes = 'BREAK ALL SHARP EDGES. DEBURR. ANODIZE BLACK';
+    const doc: DrawingDoc = { sheet: 'A4', landscape: true, scale: 1, title, drawnBy: '', notes, views: [] };
+    const { items } = buildSheet(doc, new Map(), { partName: 'P', material: 'Steel', units: 'mm', date: '2026-10-12', formatLength: String });
+    const texts = items.filter((i) => i.t === 'text') as Extract<(typeof items)[number], { t: 'text' }>[];
+    const t = texts.find((x) => x.s === title)!;
+    const n = texts.find((x) => x.s === notes)!;
+    expect(textWidth(t.s, t.size, true)).toBeLessThanOrEqual(107);
+    expect(textWidth(n.s, n.size)).toBeLessThanOrEqual(57);
+    // Shrunk, not cut short, while that keeps them legible.
+    expect(n.size).toBeGreaterThanOrEqual(1.8);
+  });
+
+  it('measures Helvetica text', () => {
+    expect(textWidth('FRONT', 1)).toBeCloseTo(3.444, 3);
+    expect(textWidth('60.00', 1)).toBeCloseTo(2.502, 3);
+    expect(textWidth('W', 1, true)).toBeCloseTo(0.944, 3);
   });
 
   // Rectangle outlines the size of each view's box projection, centred on 0.
@@ -129,7 +149,7 @@ describe('sheet layout', () => {
     expect(labels.length).toBe(doc.views.length);
     const hits: string[] = [];
     for (const l of labels) {
-      const half = (l.s.length * l.size * 0.55) / 2;
+      const half = textWidth(l.s, l.size) / 2;
       const x0 = l.anchor === 'start' ? l.x : l.x - half, x1 = x0 + 2 * half, y0 = l.y - l.size * 0.75, y1 = l.y;
       for (const f of sheet.frames) {
         const v = doc.views.find((x) => x.id === f.id)!;
