@@ -125,7 +125,7 @@ export function registerCommands(app: App, files: FileOps) {
 
   c.register(
     // ---- file ----
-    { id: 'new', label: 'New', icon: 'new', shortcut: 'Ctrl+N', description: 'Start a new part.', run: () => files.newPart() },
+    { id: 'new', label: 'New', icon: 'new', shortcut: 'Control+N', description: 'Start a new part.', run: () => files.newPart() },
     { id: 'open', label: 'Open...', icon: 'open', shortcut: 'Ctrl+O', description: 'Open a saved part.', run: () => files.open() },
     { id: 'openDevice', label: 'Open from Device...', icon: 'upload', description: 'Open a part file, or a STEP or SolidWorks file, from this device.', run: () => files.openFromDevice() },
     { id: 'save', label: 'Save', icon: 'save', shortcut: 'Ctrl+S', description: 'Save the part.', run: () => { void files.save(); } },
@@ -150,7 +150,7 @@ export function registerCommands(app: App, files: FileOps) {
     { id: 'redo', label: 'Redo', icon: 'redo', shortcut: 'Ctrl+Y', enabled: () => app.store.canRedo, run: () => redo() },
     { id: 'redo2', label: 'Redo', hidden: true, shortcut: 'Ctrl+Shift+Z', enabled: () => app.store.canRedo, run: () => redo() },
     { id: 'rebuild', label: 'Rebuild', icon: 'rebuild', shortcut: 'Ctrl+B', description: 'Rebuild the model.', run: () => app.requestRebuild(true) },
-    { id: 'forceRebuild', label: 'Force Rebuild', icon: 'rebuild', shortcut: 'Ctrl+Q', description: 'Rebuild every feature from scratch.', run: () => { app.forceRebuild(); } },
+    { id: 'forceRebuild', label: 'Force Rebuild', icon: 'rebuild', shortcut: 'Control+Q', description: 'Rebuild every feature from scratch.', run: () => { app.forceRebuild(); } },
     { id: 'repeat', label: 'Repeat Last Command', shortcut: 'Enter', hidden: true, enabled: () => !!c.lastRun && !app.panel, run: () => { if (c.lastRun) c.run(c.lastRun); } },
     {
       id: 'delete', label: 'Delete', icon: 'trash', shortcut: 'Delete',

@@ -42,10 +42,10 @@ export function announce(text: string) {
 
 export const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
 
-/** Formats a shortcut like "Ctrl+S" for the platform. */
+/** Formats a shortcut like "Ctrl+S" for the platform ("Control+" is the Control key, ⌃ on macOS). */
 export function formatShortcut(s?: string): string {
   if (!s) return '';
-  return isMac ? s.replace(/Ctrl\+/g, '⌘').replace(/Alt\+/g, '⌥').replace(/Shift\+/g, '⇧') : s;
+  return isMac ? s.replace(/Control\+/g, '⌃').replace(/Ctrl\+/g, '⌘').replace(/Alt\+/g, '⌥').replace(/Shift\+/g, '⇧') : s.replace(/Control\+/g, 'Ctrl+');
 }
 
 export function isTextInput(el: EventTarget | null): boolean {

@@ -195,6 +195,24 @@ test.describe('accessibility', () => {
     await expect(page.getByRole('menu')).toHaveCount(0);
   });
 
+  test('Force Rebuild is the Control key + Q, which a Mac browser leaves to the page', async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /New part/ }).click();
+    const mac = await page.evaluate(() => /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent));
+    const search = page.getByRole('combobox', { name: 'Search commands' });
+    await search.fill('force rebuild');
+    await expect(page.getByRole('option', { name: /^Force Rebuild/ })).toContainText(mac ? '⌃Q' : 'Ctrl+Q');
+    await search.press('Escape');
+    await page.evaluate(() => {
+      const a = (window as unknown as { __parametric: { forceRebuild(): void; forced?: number } }).__parametric;
+      a.forced = 0;
+      a.forceRebuild = () => { a.forced!++; };
+    });
+    await page.locator('canvas.gl').focus();
+    await page.keyboard.press('Control+q');
+    expect(await page.evaluate(() => (window as unknown as { __parametric: { forced: number } }).__parametric.forced)).toBe(1);
+  });
+
   test('command search reports its list state and platform shortcuts', async ({ page }) => {
     await openApp(page);
     await page.getByRole('button', { name: /New part/ }).click();

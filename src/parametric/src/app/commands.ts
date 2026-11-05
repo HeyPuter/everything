@@ -5,7 +5,10 @@ export interface Command {
   id: string;
   label: string;
   icon?: string;
-  /** Shortcut in "Ctrl+Shift+K" form (Ctrl means Cmd on macOS). */
+  /**
+   * Shortcut in "Ctrl+Shift+K" form. Ctrl means Cmd on macOS; Control means
+   * the Control key everywhere, for keys the browser keeps with Cmd (Cmd+Q quits).
+   */
   shortcut?: string;
   description?: string;
   /** Extra words for the command search. */
@@ -95,7 +98,10 @@ function normalize(s: string): string {
   const parts = s.split('+');
   const key = parts.pop()!;
   const mods = new Set(parts.map((p) => p.toLowerCase()));
-  return `${mods.has('ctrl') ? 'C' : ''}${mods.has('alt') ? 'A' : ''}${mods.has('shift') ? 'S' : ''}:${key.toLowerCase()}`;
+  // On macOS the Control key is a modifier of its own ("K"); elsewhere it is Ctrl.
+  const ctrl = mods.has('ctrl') || (!isMacPlatform && mods.has('control'));
+  const control = isMacPlatform && mods.has('control');
+  return `${ctrl ? 'C' : ''}${control ? 'K' : ''}${mods.has('alt') ? 'A' : ''}${mods.has('shift') ? 'S' : ''}:${key.toLowerCase()}`;
 }
 
 export function eventShortcut(e: KeyboardEvent): string | null {
@@ -105,5 +111,7 @@ export function eventShortcut(e: KeyboardEvent): string | null {
   if (key === ' ') key = 'Space';
   // Use the physical digit for Ctrl+1..9 on any layout.
   if (/^Digit\d$/.test(e.code)) key = e.code.slice(5);
-  return `${ctrl ? 'C' : ''}${e.altKey ? 'A' : ''}${e.shiftKey ? 'S' : ''}:${key.toLowerCase()}`;
+  // Control on macOS does not fall through to the plain key's command (Control+L is not L).
+  const control = isMacPlatform && e.ctrlKey;
+  return `${ctrl ? 'C' : ''}${control ? 'K' : ''}${e.altKey ? 'A' : ''}${e.shiftKey ? 'S' : ''}:${key.toLowerCase()}`;
 }
