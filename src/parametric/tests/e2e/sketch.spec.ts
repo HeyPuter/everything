@@ -39,6 +39,36 @@ async function startSketch(page: Page) {
 }
 
 test.describe('sketching', () => {
+  for (const shape of ['semicircle', 'lens'] as const) test(`an impossible inward ${shape} offset leaves the sketch and Redo unchanged`, async ({ page }) => {
+    const errors = await openApp(page);
+    await startSketch(page);
+    const original = await page.evaluate((shape) => {
+      const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+      const ed = a.sketchEditor!;
+      ed.edit('Add curved profile', (sk) => sk.entities.push(...(shape === 'semicircle' ? [
+        { id: 'c', t: 'point', x: 0, y: 0 }, { id: 'a', t: 'point', x: 5, y: 0 }, { id: 'b', t: 'point', x: -5, y: 0 },
+        { id: 'arc', t: 'arc', c: 'c', a: 'a', b: 'b' }, { id: 'line', t: 'line', a: 'b', b: 'a' },
+      ] : [
+        { id: 'c', t: 'point', x: 3, y: 0 }, { id: 'd', t: 'point', x: -3, y: 0 },
+        { id: 'a', t: 'point', x: 0, y: 4 }, { id: 'b', t: 'point', x: 0, y: -4 },
+        { id: 'arc', t: 'arc', c: 'c', a: 'a', b: 'b' }, { id: 'arc2', t: 'arc', c: 'd', a: 'b', b: 'a' },
+      ]) as import('../../src/model/types').SkEntity[]));
+      ed.edit('Add marker', (sk) => sk.entities.push({ id: 'marker', t: 'point', x: 30, y: 30 }));
+      a.commands.run('undo');
+      a.selection.set(ed.sketch.entities.filter((e) => e.t !== 'point').map((e) => ({ kind: 'sk', id: e.id })));
+      a.commands.run('offset');
+      return JSON.stringify(ed.sketch);
+    }, shape);
+    await page.getByRole('textbox', { name: 'Offset distance', exact: true }).fill(shape === 'semicircle' ? '3' : '2');
+    await page.getByRole('checkbox', { name: 'Reverse (inward)', exact: true }).check();
+    await page.getByRole('button', { name: 'OK', exact: true }).first().click();
+    expect(await page.evaluate(() => JSON.stringify((window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.sketchEditor!.sketch))).toBe(original);
+    await expect(page.locator('.toast')).toContainText('Nothing could be offset');
+    await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.commands.run('redo'));
+    expect(await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.sketchEditor!.sketch.entities.some((e) => e.id === 'marker'))).toBe(true);
+    expect(errors).toEqual([]);
+  });
+
   test('Offset joins a short line to its arc beyond the former extension range through Undo/Redo', async ({ page }) => {
     const errors = await openApp(page);
     await startSketch(page);

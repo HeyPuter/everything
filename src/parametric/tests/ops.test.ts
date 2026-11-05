@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { SkDimension, SkEntity, SkLine, SketchFeature } from '../src/model/types';
-import { ORIGIN_ID, SketchIndex, arcRadius, distanceToCurve } from '../src/sketch/geom';
+import { ORIGIN_ID, SketchIndex, arcAngles, arcRadius, distanceToCurve } from '../src/sketch/geom';
 import {
   availableRelations, deleteItems, extendAt, filletCorner, idFactory, makeRelations, measureDimension, mirrorEntities,
   offsetCurves, relationsOf, smartDimension, trimAt,
@@ -621,6 +621,76 @@ describe('editing tools', () => {
     expect(arcRadius(ix, arc)).toBeCloseTo(1 + distance, 6);
     expect(s.entities.filter((e) => original.some((o) => o.id === e.id))).toEqual(original);
     expect(solveSketch(s.entities, s.constraints, { value }).converged).toBe(true);
+  });
+
+  for (const shape of ['semicircle', 'lens'] as const) for (const excess of [-0.01, 0, 0.5]) it(`handles ${shape} inward offset at its collapse distance plus ${excess}`, () => {
+    const s = sk(shape === 'semicircle' ? [
+      { id: 'c', t: 'point', x: 0, y: 0 }, { id: 'a', t: 'point', x: 5, y: 0 }, { id: 'b', t: 'point', x: -5, y: 0 },
+      { id: 'arc', t: 'arc', c: 'c', a: 'a', b: 'b' }, { id: 'line', t: 'line', a: 'b', b: 'a' },
+    ] : [
+      { id: 'c', t: 'point', x: 3, y: 0 }, { id: 'd', t: 'point', x: -3, y: 0 },
+      { id: 'a', t: 'point', x: 0, y: 4 }, { id: 'b', t: 'point', x: 0, y: -4 },
+      { id: 'arc', t: 'arc', c: 'c', a: 'a', b: 'b' }, { id: 'arc2', t: 'arc', c: 'd', a: 'b', b: 'a' },
+    ]);
+    const original = structuredClone(s);
+    const ids = s.entities.filter((e) => e.t !== 'point').map((e) => e.id);
+    const distance = (shape === 'semicircle' ? 2.5 : 2) + excess;
+    const made = offsetCurves(s, ids, -distance, idFactory(s));
+    if (excess >= 0) {
+      expect(made).toEqual([]);
+      expect(s).toEqual(original);
+    } else {
+      expect(made).toHaveLength(2);
+      const ix = new SketchIndex(s.entities);
+      const curves = made.map((id) => ix.get(id)).filter((e) => e?.t === 'line' || e?.t === 'arc');
+      expect(new Set(curves.flatMap((e) => [e.a, e.b])).size).toBe(2);
+      expect(buildProfiles(s.entities.filter((e) => e.t === 'point' || made.includes(e.id))).regions).toHaveLength(1);
+      expect(solveSketch(s.entities, s.constraints, { value }).converged).toBe(true);
+    }
+  });
+
+  it('keeps a valid independent chain when another selected chain cannot be offset', () => {
+    const s = sk([
+      { id: 'c', t: 'point', x: 0, y: 0 }, { id: 'a', t: 'point', x: 5, y: 0 }, { id: 'b', t: 'point', x: -5, y: 0 },
+      { id: 'arc', t: 'arc', c: 'c', a: 'a', b: 'b' }, { id: 'line', t: 'line', a: 'b', b: 'a' },
+      { id: 'u', t: 'point', x: 20, y: 0 }, { id: 'v', t: 'point', x: 30, y: 0 },
+      { id: 'independent', t: 'line', a: 'u', b: 'v' },
+    ]);
+    const original = structuredClone(s.entities);
+    const made = offsetCurves(s, ['arc', 'line', 'independent'], -3, idFactory(s));
+    expect(made).toHaveLength(1);
+    const ix = new SketchIndex(s.entities), line = ix.get(made[0]) as SkLine;
+    expect(ix.pt(line.a)).toEqual([20, -3]);
+    expect(ix.pt(line.b)).toEqual([30, -3]);
+    expect(s.entities).toHaveLength(original.length + 3);
+    expect(s.entities.slice(0, original.length)).toEqual(original);
+    expect(s.constraints).toEqual([expect.objectContaining({ type: 'parallel', refs: ['independent', line.id] })]);
+  });
+
+  it('preserves full-circle arcs when offsetting', () => {
+    const s = sk([
+      { id: 'c', t: 'point', x: 0, y: 0 }, { id: 'a', t: 'point', x: 5, y: 0 },
+      { id: 'arc', t: 'arc', c: 'c', a: 'a', b: 'a' },
+    ]);
+    const made = offsetCurves(s, ['arc'], -1, idFactory(s));
+    expect(made).toHaveLength(1);
+    const ix = new SketchIndex(s.entities), arc = ix.get(made[0]);
+    if (arc?.t !== 'arc') throw new Error('Missing offset arc');
+    expect(arc.a).toBe(arc.b);
+    expect(arcRadius(ix, arc)).toBeCloseTo(6, 9);
+    expect(arcAngles(ix, arc).sweep).toBe(2 * Math.PI);
+  });
+
+  it('keeps an offset chain joined across collinear segments', () => {
+    const s = sk([
+      { id: 'a', t: 'point', x: 0, y: 0 }, { id: 'b', t: 'point', x: 5, y: 0 }, { id: 'c', t: 'point', x: 10, y: 0 },
+      { id: 'l1', t: 'line', a: 'a', b: 'b' }, { id: 'l2', t: 'line', a: 'b', b: 'c' },
+    ]);
+    const made = offsetCurves(s, ['l1', 'l2'], 2, idFactory(s));
+    expect(made).toHaveLength(2);
+    const ix = new SketchIndex(s.entities), lines = made.map((id) => ix.get(id) as SkLine);
+    expect(lines[0].b).toBe(lines[1].a);
+    expect(ix.pt(lines[0].b)).toEqual([5, 2]);
   });
 
   it('offsets a closed rectangle outward', () => {

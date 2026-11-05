@@ -646,8 +646,8 @@ export function offsetCurves(sk: SketchFeature, ids: Id[], distance: number, new
     if (failed || !offs.length) continue;
     // Join neighbours: coincident ends stay, lines meet at their intersection,
     // otherwise the nearer intersection with the arc's circle is used.
-    const join = (x: Off, y: Off) => {
-      if (dist2(x.b, y.a) < 1e-9) { y.a = x.b; return; }
+    const join = (x: Off, y: Off): boolean => {
+      if (dist2(x.b, y.a) < 1e-9) { y.a = x.b; return true; }
       let p: Vec2 | null = null;
       if (x.kind === 'line' && y.kind === 'line') p = lineIntersection(x.a, x.b, y.a, y.b);
       else {
@@ -659,10 +659,15 @@ export function offsetCurves(sk: SketchFeature, ids: Id[], distance: number, new
         const mid: Vec2 = [(x.b[0] + y.a[0]) / 2, (x.b[1] + y.a[1]) / 2];
         p = pts.sort((u, v) => dist2(u, mid) - dist2(v, mid))[0] ?? null;
       }
-      if (p) { x.b = p; y.a = p; }
+      if (!p) return false;
+      x.b = p; y.a = p;
+      return true;
     };
-    for (let i = 0; i + 1 < offs.length; i++) join(offs[i], offs[i + 1]);
-    if (chain.closed) join(offs[offs.length - 1], offs[0]);
+    for (let i = 0; i + 1 < offs.length; i++) {
+      if (!join(offs[i], offs[i + 1])) { failed = true; break; }
+    }
+    // Reject the whole chain before writing any geometry if a corner cannot join.
+    if (failed || (chain.closed && !join(offs[offs.length - 1], offs[0]))) continue;
     // An offset past the far side of the shape turns pieces around (a line
     // runs backwards, an arc wraps the other way): that is no offset at all.
     const turned = offs.some((o, i) => {
@@ -673,7 +678,9 @@ export function offsetCurves(sk: SketchFeature, ids: Id[], distance: number, new
         const s0 = wrap2Pi(angle2(sub2(v, o.c)) - angle2(sub2(u, o.c)));
         return o.fwd ? s0 : wrap2Pi(-s0);
       };
-      return Math.abs(sweep(o.a, o.b) - sweep(p, q)) > Math.PI;
+      const before = sweep(p, q), after = sweep(o.a, o.b);
+      // A collapsed partial arc would be interpreted as a full circle.
+      return (after < 1e-9 && before >= 1e-9) || Math.abs(after - before) > Math.PI;
     });
     if (turned) continue;
     const ptIds = new Map<string, Id>();
