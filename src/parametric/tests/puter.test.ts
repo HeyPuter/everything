@@ -1,5 +1,5 @@
 import { afterEach, expect, it } from 'vitest';
-import { kvSet, setPuterForTests, signIn, signOut } from '../src/platform/puter';
+import { kvSet, loadPuter, setPuterForTests, signIn, signOut } from '../src/platform/puter';
 
 // The SDK resolves set() once written; these tests exercise caller ordering.
 // https://github.com/HeyPuter/puter/blob/8b64cc50762c01f0b8f6cbb7164640d4f2f5bc86/src/puter-js/src/modules/kv/set.js
@@ -83,4 +83,18 @@ it('does not retain signed-out writes for a later sign-in', async () => {
   await signIn();
   expect(await kvSet('settings', 'online')).toBe(true);
   expect(calls).toEqual(['online']);
+});
+
+it('stops waiting for the SDK once its script failed to load', async () => {
+  const g = globalThis as { window?: unknown };
+  const previous = g.window;
+  g.window = { __puterFailed: true };
+  try {
+    const started = Date.now();
+    expect(await loadPuter(60_000)).toBeNull();
+    // Not the full wait: the deadline is a minute away.
+    expect(Date.now() - started).toBeLessThan(30_000);
+  } finally {
+    g.window = previous;
+  }
 });
