@@ -191,10 +191,12 @@ export class ExtrudePanel extends FeaturePanel<ExtrudeFeature> {
     const endOpts = [{ value: 'blind' as const, label: 'Blind' }, { value: 'throughAll' as const, label: 'Through All' }, { value: 'midPlane' as const, label: 'Mid Plane' }];
     const depth = numberField({ label: 'Depth', icon: 'ruler', value: f.depth, kind: 'length', ctx, min: 1e-6, onChange: (v) => { f.depth = v; this.changed(); } });
     depth.hidden = f.end === 'throughAll';
+    // A draft linked to an equation ("=Angle") is on too.
+    const hasDraft = String(f.draft).trim().startsWith('=') || Number(f.draft) > 0;
     const draftAngle = numberField({ label: 'Draft angle', icon: 'draft', value: f.draft || 3, kind: 'angle', ctx, min: 0, onChange: (v) => { f.draft = v; this.changed(); } });
-    draftAngle.hidden = !Number(f.draft);
+    draftAngle.hidden = !hasDraft;
     const outward = checkbox('Draft outward', f.draftOutward, (v) => { f.draftOutward = v; this.changed(); });
-    outward.hidden = !Number(f.draft);
+    outward.hidden = !hasDraft;
     const dir1 = section('Direction 1', [
       h('div', { class: 'row' }, flipButton('Reverse direction', f.flip, (v) => { f.flip = v; this.changed(); }), h('div', { class: 'grow' },
         selectField('End condition', f.end, endOpts, (v) => {
@@ -204,7 +206,7 @@ export class ExtrudePanel extends FeaturePanel<ExtrudeFeature> {
           this.changed();
         }))),
       depth,
-      checkbox('Draft', !!Number(f.draft), (v) => {
+      checkbox('Draft', hasDraft, (v) => {
         f.draft = v ? 3 : 0;
         draftAngle.hidden = !v;
         outward.hidden = !v;

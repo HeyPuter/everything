@@ -123,6 +123,23 @@ test.describe('part modeling', () => {
     expect(errors).toEqual([]);
   });
 
+  test('an extrude draft linked to an equation shows as a draft', async ({ page }) => {
+    const errors = await openApp(page);
+    await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+    await waitForFeature(page, 'Fillet1');
+    type Handle = { store: { change(l: string, fn: (d: { variables: unknown[]; features: { id: string; draft?: unknown }[] }) => void): void } };
+    await page.evaluate(() => (window as unknown as { __parametric: Handle }).__parametric.store.change('Draft', (d) => {
+      d.variables = [{ id: 'v1', name: 'Taper', expr: '2' }];
+      d.features.find((f) => f.id === 'f1')!.draft = '=Taper';
+    }));
+    await page.getByRole('treeitem', { name: 'Extrude1', exact: true }).focus();
+    await page.keyboard.press('Enter');
+    await expect(page.getByRole('checkbox', { name: 'Draft', exact: true })).toBeChecked();
+    await expect(page.getByRole('textbox', { name: 'Draft angle' })).toBeVisible();
+    await expect(page.getByRole('textbox', { name: 'Draft angle' })).toHaveValue(/Taper/);
+    expect(errors).toEqual([]);
+  });
+
   test('evaluates mass properties of the flange', async ({ page }) => {
     await openApp(page);
     await page.getByRole('button', { name: /Pipe Flange/ }).click();
