@@ -24,7 +24,7 @@ import { grantedScope, readLaunchContext } from './js/api/protocol.js';
 import { createMethods } from './js/api/methods.js';
 import { startApiServer } from './js/api/server.js';
 import { createSampleDataPopulator } from './js/demo.js';
-import { startPush, routeNotificationClicks, SERVICE_WORKER } from './js/push.js';
+import { startPush, routeNotificationClicks, autoEnablePush, SERVICE_WORKER } from './js/push.js';
 import { createStoredReminders } from './js/stored-reminders.js';
 
 let demoSession = null;
@@ -297,6 +297,7 @@ async function bootInner() {
     });
     const app = createApp(root, { store, user, rsvp, contacts, invites, booking, meetings, mail, storedReminders });
     storedReminders.start();
+    autoEnablePush(puter, store).catch((err) => console.warn('[calendar] push not turned on', err));
     demoSession = { store, app };
     onMailDetected = (n) => app.notifyMailDetected(n);
     routeNotificationClicks((click) => app.openNotification(click));
