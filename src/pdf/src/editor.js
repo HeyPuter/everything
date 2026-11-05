@@ -8423,12 +8423,23 @@ export function createEditor({
         onSelect: pageDialog(async () => {
           const title = await promptText('Add bookmark', 'Bookmark name', `Page ${index + 1}`);
           if (title == null || destroyed) return;
+          let added = false;
           await mutate(
-            (doc) => addBookmark(doc, { title, pageIndex: index }),
+            (doc) => {
+              addBookmark(doc, { title, pageIndex: index });
+              added = true;
+            },
             'Bookmark added. Find it in the Outline tab.',
             'assemble',
           );
-          if (!destroyed && !editorRoot.classList.contains('hide-pages')) showSidebarTab('outline');
+          if (!added || destroyed || editorRoot.classList.contains('hide-pages')) return;
+          // The thumbnail whose menu added the bookmark goes with its panel; the Outline tab,
+          // there now that the PDF has a bookmark, takes the focus instead of the page body.
+          const fromThumbnail = thumbnails.contains(document.activeElement);
+          showSidebarTab('outline');
+          const tab = sidebarTabs.querySelector('[data-tab="outline"]');
+          tab.hidden = false;
+          if (fromThumbnail) tab.focus({ preventScroll: true });
         }),
       },
       { separator: true },

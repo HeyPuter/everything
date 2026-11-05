@@ -817,3 +817,35 @@ test('a bookmark menu opens from the keyboard with Shift+F10', async ({ page }) 
   await expect(page.locator('.editor')).toHaveAttribute('aria-busy', 'false');
   await expect(tree.getByRole('treeitem')).toHaveCount(1);
 });
+
+test("a bookmark added from a thumbnail's menu leaves the focus on the Outline tab", async ({
+  page,
+}) => {
+  await mockPuter(page);
+  await page.goto('/#library');
+  const doc = await PDFDocument.create();
+  for (let i = 0; i < 3; i++) doc.addPage([300, 300]);
+  await openPdf(page, doc);
+  await showPanel(page);
+  await page.getByRole('button', { name: 'Page 2 actions', exact: true }).focus();
+  await page.keyboard.press('Enter');
+  await page
+    .getByRole('menu')
+    .getByRole('menuitem', { name: 'Add bookmark for this page…' })
+    .click();
+  await page
+    .getByRole('dialog', { name: 'Add bookmark' })
+    .getByLabel('Bookmark name')
+    .press('Enter');
+  await expect(page.locator('#toast')).toHaveText('Bookmark added. Find it in the Outline tab.');
+  await expect(page.locator('.editor')).toHaveAttribute('aria-busy', 'false');
+  // The thumbnail went with the Pages panel; the focus did not fall to the page body.
+  const tab = page
+    .getByRole('tablist', { name: 'Side panel' })
+    .getByRole('tab', { name: 'Outline' });
+  await expect(tab).toBeFocused();
+  await expect(tab).toHaveAttribute('aria-selected', 'true');
+  await expect(
+    page.getByRole('tree', { name: 'Document outline' }).getByRole('treeitem', { name: 'Page 2' }),
+  ).toBeVisible();
+});
