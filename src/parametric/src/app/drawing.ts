@@ -48,6 +48,9 @@ export class DrawingWorkspace {
       h('div', { class: 'drawing-empty', hidden: true }, 'There is no solid to draw yet. Build the part in the Model tab first.'));
     app.shell.viewport.append(this.el);
     this.bind();
+    // A drawing made before the part had a solid is laid out when the solid exists, even
+    // if the drawing was left meanwhile; not once another document replaced that part.
+    app.store.on((reason) => { if (reason === 'load') this.layoutPending = false; });
   }
 
   get doc(): DrawingDoc | null {
@@ -65,7 +68,6 @@ export class DrawingWorkspace {
   }
 
   close() {
-    this.layoutPending = false;
     this.refreshAgain = false;
     this.panelKey = '';
     this.active = false;

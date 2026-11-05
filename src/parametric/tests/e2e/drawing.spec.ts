@@ -245,6 +245,24 @@ test('leaving the drawing cancels an export still waiting for projection', async
   expect(errors).toEqual([]);
 });
 
+test('a drawing opened before the part had a solid gets the standard views once it has one', async ({ page }) => {
+  await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await page.getByRole('tab', { name: 'Drawing' }).click();
+  await expect(page.locator('.drawing-empty')).toBeVisible();
+  await page.getByRole('tab', { name: 'Model' }).click();
+  // The solid is built while the drawing is not open.
+  await page.evaluate(async (url) => {
+    const { bracketExample } = (await import(/* @vite-ignore */ url)) as typeof import('../../src/app/examples');
+    const ex = bracketExample();
+    const app = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+    app.store.change('Paste', (d) => { d.features = ex.features; d.nextId = ex.nextId; });
+  }, '/src/app/examples.ts');
+  await page.waitForFunction(() => (window as unknown as { __parametric: { bbox: unknown } }).__parametric.bbox);
+  await page.getByRole('tab', { name: 'Drawing' }).click();
+  await expect(page.locator('.paper g[data-view]')).toHaveCount(4);
+});
+
 test('removing the solid clears its old drawing projections', async ({ page }) => {
   const errors = await openApp(page);
   await page.getByRole('button', { name: /Mounting Bracket/ }).click();
