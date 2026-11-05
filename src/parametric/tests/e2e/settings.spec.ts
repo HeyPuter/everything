@@ -94,3 +94,27 @@ test('the start screen reflects account units that arrive after it opens', async
   await expect(page.locator('.statusbar')).toContainText('CGS');
   expect(errors).toEqual([]);
 });
+
+test('account image quality retessellates the visible body without editing the part', async ({ page }) => {
+  await delayedAccountSettings(page);
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  const indexCount = () => page.evaluate(async () => {
+    const a = (window as unknown as SettingsWindow).__parametric;
+    await a.whenBuilt();
+    return (a.renderer as unknown as { modelMesh: { indices: Uint32Array } | null }).modelMesh?.indices.length ?? 0;
+  });
+  const original = await indexCount();
+  expect(original).toBeGreaterThan(0);
+  await page.evaluate(() => (window as unknown as SettingsWindow).releaseSettings());
+  await expect.poll(() => page.evaluate(() => (window as unknown as SettingsWindow).__parametric.settings.quality)).toBe(0);
+  await expect.poll(indexCount).toBeLessThan(original);
+  expect(await indexCount()).toBeGreaterThan(0);
+  await page.evaluate(() => (window as unknown as SettingsWindow).__parametric.commands.run('options'));
+  const options = page.getByRole('dialog', { name: 'Options' });
+  await options.getByLabel('Image quality').selectOption('2');
+  await expect.poll(indexCount).toBeGreaterThan(original);
+  await options.getByRole('button', { name: 'Done' }).click();
+  expect(await page.evaluate(() => (window as unknown as SettingsWindow).__parametric.store.dirty)).toBe(false);
+  expect(errors).toEqual([]);
+});

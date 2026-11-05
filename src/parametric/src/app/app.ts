@@ -476,7 +476,9 @@ export class App {
   }
 
   applySettings(s: unknown) {
+    const quality = this.settings.quality;
     this.settings = normalizeSettings(s, this.settings);
+    if (quality !== this.settings.quality) this.requestRebuild();
     const v = this.viewport;
     v.showPlanes = this.settings.showPlanes;
     v.showOrigin = this.settings.showOrigin;
