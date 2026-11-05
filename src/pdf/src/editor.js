@@ -11840,6 +11840,11 @@ export function createEditor({
       box: el('input', { type: 'checkbox', id: `batch-step-${type}` }),
       label,
     }));
+    // Setting a step's option means the step is wanted, as typing a split point chooses that
+    // way of splitting; otherwise a changed option was left out of the run without a word.
+    for (const step of steps)
+      for (const event of ['input', 'change'])
+        controls[step.type]?.addEventListener(event, () => (step.box.checked = true));
     const stepRows = steps.map((step) =>
       el(
         'div',
