@@ -1603,8 +1603,12 @@ export async function fillFields(doc, values) {
       // A number or percent field takes a number, as its keystroke check in Acrobat allows.
       const format = numberFormat(field);
       if (String(value).trim() && format && typedNumber(value, format) === null)
-        throw new Error(
-          `Enter a number in ${fieldTooltip(field) || name}, such as 1234${decimalMark(format)}5.`,
+        throw Object.assign(
+          new Error(
+            `Enter a number in ${fieldTooltip(field) || name}, such as 1234${decimalMark(format)}5.`,
+          ),
+          // The field it is about, for the page to point at it.
+          { field: name },
         );
       prepareFieldAppearance(field, form);
       field.setText(value);

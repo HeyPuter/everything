@@ -5134,6 +5134,7 @@ export function createEditor({
       } catch (error) {
         pageForms.restore(snapshot);
         pageForms.showError(error.message, {
+          field: error.field,
           focus:
             document.activeElement === document.body ||
             document.activeElement === priorFocus ||
