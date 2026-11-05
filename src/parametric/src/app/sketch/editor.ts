@@ -294,9 +294,14 @@ export class SketchEditor implements ViewportTool {
       const ix = new SketchIndex(sk.entities);
       const ent = ix.get(hit.id)!;
       if (!this.app.selection.has({ kind: 'sk', id: hit.id }) && !e.shift && !e.ctrl) this.app.selection.set([{ kind: 'sk', id: hit.id }]);
-      if (ent.t === 'circle' && hit.kind === 'curve') {
-        // A circle whose radius is fixed keeps it; the drag does nothing.
-        this.drag = { kind: this.solve && !this.solve.freeEntities.has(ent.id) ? 'points' : 'radius', ids: [], circle: ent.id, moved: false };
+      const free = this.solve?.freeEntities;
+      if (ent.t === 'circle' && hit.kind === 'curve' && (!free || free.has(ent.id)) && !this.radiusLocked(ent.id, ent.r)) {
+        this.drag = { kind: 'radius', ids: [], circle: ent.id, moved: false };
+      } else if (ent.t === 'circle' && hit.kind === 'curve') {
+        // A circle whose radius is fixed (a diameter dimension, an equal
+        // relation) keeps it, and the drag moves it by its centre if it can.
+        const ids = !free || free.has(ent.c) ? [ent.c] : [];
+        this.drag = { kind: 'points', ids, start: ids.map((id) => ix.pt(id)), grab: raw, circle: ent.id, moved: false };
       } else {
         // Drag every selected point (and curves' points) together.
         const ids = new Set<Id>();
@@ -310,7 +315,6 @@ export class SketchEditor implements ViewportTool {
         // back from the cursor, which can land on a mirrored solution (a fully
         // defined rectangle flipped across its anchor), and on large sketches
         // every frame paid for a failing solve.
-        const free = this.solve?.freeEntities;
         const list = [...ids].filter((id) => !free || free.has(id));
         if (ids.size && !list.length) this.app.setStatus('This geometry is fully defined, so it cannot be dragged.');
         this.drag = { kind: 'points', ids: list, start: list.map((id) => ix.pt(id)), grab: raw, moved: false };
@@ -364,6 +368,15 @@ export class SketchEditor implements ViewportTool {
       }, 'sketch');
     }
     this.queueRender();
+  }
+
+  /** Whether the relations and dimensions keep a circle's radius from changing. */
+  private radiusLocked(id: Id, r: number): boolean {
+    const sk = this.sketch;
+    const entities = structuredClone(sk.entities);
+    solveSketch(entities, sk.constraints, { value: this.dimValue, drag: { kind: 'radius', id, r: r * 1.25 + this.px * 10 }, analyze: false });
+    const after = entities.find((e) => e.id === id);
+    return after?.t === 'circle' && Math.abs(after.r - r) < 1e-6 * Math.max(1, r);
   }
 
   /**

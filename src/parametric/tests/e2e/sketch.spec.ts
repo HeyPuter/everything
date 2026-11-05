@@ -191,6 +191,43 @@ test.describe('sketching', () => {
     expect(errors).toEqual([]);
   });
 
+  test('dragging the edge of a circle changes its radius, or moves it when the radius is dimensioned', async ({ page }) => {
+    const errors = await openApp(page);
+    await startSketch(page);
+    const circle = () => page.evaluate(() => {
+      const ed = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.sketchEditor!;
+      const c = ed.sketch.entities.find((e) => e.t === 'circle') as { c: string; r: number };
+      const p = ed.sketch.entities.find((e) => e.id === c.c) as { x: number; y: number };
+      return { x: Math.round(p.x * 100) / 100, y: Math.round(p.y * 100) / 100, r: Math.round(c.r * 100) / 100 };
+    });
+    const drag = async () => {
+      const [from, to] = await page.evaluate(() => {
+        const ed = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.sketchEditor!;
+        const c = ed.sketch.entities.find((e) => e.t === 'circle') as { c: string; r: number };
+        const p = ed.sketch.entities.find((e) => e.id === c.c) as { x: number; y: number };
+        return [ed.toScreen([p.x + c.r, p.y]), ed.toScreen([p.x + c.r + 10, p.y])];
+      });
+      const box = (await page.locator('canvas.gl').boundingBox())!;
+      await page.mouse.move(box.x + from[0], box.y + from[1]);
+      await page.mouse.down();
+      await page.mouse.move(box.x + to[0], box.y + to[1], { steps: 6 });
+      await page.mouse.up();
+    };
+    await page.evaluate(() => {
+      const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+      a.sketchEditor!.edit('Add circle', (sk) => sk.entities.push({ id: 'pc', t: 'point', x: 20, y: 10 }, { id: 'c', t: 'circle', c: 'pc', r: 8 }));
+    });
+    await drag();
+    expect(await circle()).toEqual({ x: 20, y: 10, r: 18 });
+    await page.evaluate(() => {
+      const ed = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.sketchEditor!;
+      ed.addDimension({ type: 'diameter', refs: ['c'], value: 36 }, [40, 30], false);
+    });
+    await drag();
+    expect(await circle()).toEqual({ x: 30, y: 10, r: 18 });
+    expect(errors).toEqual([]);
+  });
+
   test('a circle drawn through the origin or another centre stays on it', async ({ page }) => {
     const errors = await openApp(page);
     await startSketch(page);
