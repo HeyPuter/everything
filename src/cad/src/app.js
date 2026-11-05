@@ -486,6 +486,7 @@ export class App {
     const all = await storage.recovery.all();
     const byId = new Map(all.map((r) => [r.id, r]));
     let active = null;
+    const damaged = [];
     for (const id of session.docs) {
       const r = byId.get(id);
       if (!r) continue;
@@ -499,7 +500,12 @@ export class App {
         if (id === session.active) active = doc;
       } catch (err) {
         console.warn('Could not restore a drawing', err);
+        damaged.push(r.file?.name || r.name || 'Untitled');
       }
+    }
+    if (damaged.length) {
+      const what = damaged.length === 1 ? `"${damaged[0]}"` : `${damaged.length} drawings`;
+      toast(`${what} could not be recovered because the copy kept in this browser is damaged.`, { kind: 'error', timeout: 9000 });
     }
     // Clean up recovery records that no longer belong to a tab.
     for (const r of all) if (!session.docs.includes(r.id)) storage.recovery.delete(r.id);
