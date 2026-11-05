@@ -78,6 +78,7 @@ export class SketchEditor implements ViewportTool {
   private modify: HTMLElement | null = null;
   /** Undoes the open modify box's live preview when it closes without applying. */
   private modifyRevert: (() => void) | null = null;
+  private modifyCleanup: (() => void) | null = null;
   showRelations = true;
   showDimensions = true;
   /** Cursor position in sketch coordinates. */
@@ -615,13 +616,19 @@ export class SketchEditor implements ViewportTool {
     box.style.top = `${Math.max(4, sy - 70)}px`;
     requestAnimationFrame(() => { input.focus(); input.select(); });
     const outside = (ev: PointerEvent) => {
-      if (!box.contains(ev.target as Node)) { document.removeEventListener('pointerdown', outside, true); if (this.modify === box) ok(); }
+      if (!box.contains(ev.target as Node) && this.modify === box) ok();
     };
-    setTimeout(() => document.addEventListener('pointerdown', outside, true), 0);
+    const timer = window.setTimeout(() => document.addEventListener('pointerdown', outside, true), 0);
+    this.modifyCleanup = () => {
+      clearTimeout(timer);
+      document.removeEventListener('pointerdown', outside, true);
+    };
   }
 
   /** Closes the modify box; a value that was not applied is reverted. */
   closeModify() {
+    this.modifyCleanup?.();
+    this.modifyCleanup = null;
     const revert = this.modifyRevert;
     this.modifyRevert = null;
     revert?.();

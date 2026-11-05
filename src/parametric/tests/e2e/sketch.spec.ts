@@ -39,6 +39,30 @@ async function startSketch(page: Page) {
 }
 
 test.describe('sketching', () => {
+  test('correcting an invalid dimension still accepts the value on an outside click', async ({ page }) => {
+    const errors = await openApp(page);
+    const { x, y } = await startSketch(page);
+    await page.locator('[data-cmd="tool:line"]').click();
+    await page.mouse.click(x - 100, y + 60);
+    await page.mouse.click(x + 100, y + 20);
+    await page.keyboard.press('Escape');
+    await page.keyboard.press('d');
+    await page.mouse.click(x, y + 40);
+    await page.mouse.click(x - 20, y + 100);
+    const modify = page.getByRole('dialog', { name: /Modify/ });
+    const input = modify.getByRole('textbox');
+    await input.fill('-5');
+    await page.locator('.statusbar').click();
+    await expect(modify.getByRole('alert')).toContainText('greater than zero');
+    await input.fill('25');
+    await page.locator('.statusbar').click();
+    await expect(modify).toHaveCount(0);
+    await page.locator('.dim-label').dblclick();
+    await expect(input).toHaveValue('25');
+    await input.press('Escape');
+    expect(errors).toEqual([]);
+  });
+
   test('a dimension that would over-define the sketch is driven and undoes in one step', async ({ page }) => {
     const errors = await openApp(page);
     const { x, y } = await startSketch(page);
