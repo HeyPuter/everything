@@ -338,3 +338,94 @@ for (const scenario of ['update', 'late list', 'failed update', 'remove', 'faile
   if (scenario.startsWith('failed')) await expect(dialog).toContainText(scenario === 'failed update' ? 'Update failed' : 'Removal failed');
   expect(errors).toEqual([]);
 });
+
+for (const pending of ['update', 'remove', 'share'] as const) test(`a pending ${pending} blocks other controls for the same recipient`, async ({ page }) => {
+  const errors = await sharingApp(page);
+  await page.evaluate(() => {
+    type W = { __parametric: import('../../src/app/app').App; puter: { fs: { getShares: () => Promise<unknown>; share: (...args: unknown[]) => Promise<unknown>; unshare: () => Promise<unknown> } }; releasePerson: () => void; personStarted: boolean; personCalls: number };
+    const w = window as unknown as W;
+    const gate = new Promise<void>((resolve) => { w.releasePerson = resolve; });
+    let mode = 'write', present = true;
+    w.personCalls = 0;
+    w.puter.fs.getShares = async () => present ? [{ holder: 'friend', mode }] : [];
+    w.puter.fs.share = async (...args) => { w.personCalls++; w.personStarted = true; await gate; present = true; mode = args[2] as string; return [{ isNew: false }]; };
+    w.puter.fs.unshare = async () => { w.personCalls++; w.personStarted = true; await gate; present = false; return { revoked: 1 }; };
+    w.__parametric.commands.run('share');
+  });
+  const dialog = page.getByRole('dialog', { name: 'Share Original', exact: true });
+  const access = dialog.getByRole('combobox', { name: 'Access for friend', exact: true });
+  const remove = dialog.getByRole('button', { name: 'Remove friend', exact: true });
+  const who = dialog.getByRole('textbox', { name: 'Person to share with' });
+  const share = dialog.getByRole('button', { name: 'Share', exact: true });
+  if (pending === 'update') await access.selectOption('read');
+  else if (pending === 'remove') await remove.click();
+  else { await who.fill('friend'); await share.click(); }
+  await page.waitForFunction(() => (window as unknown as { personStarted: boolean }).personStarted);
+  await who.fill('friend');
+  await who.press('Enter');
+  expect(await page.evaluate(() => (window as unknown as { personCalls: number }).personCalls)).toBe(1);
+  await expect(share).toBeDisabled();
+  await expect(access).toBeDisabled();
+  await expect(remove).toBeDisabled();
+  // A row operation does not block a different recipient's Share control.
+  if (pending !== 'share') {
+    await who.fill('other');
+    await expect(share).toBeEnabled();
+    await who.fill('friend');
+    await expect(share).toBeDisabled();
+  }
+  await page.evaluate(() => (window as unknown as { releasePerson: () => void }).releasePerson());
+  await expect(share).toBeEnabled();
+  if (pending === 'remove') await expect(access).toHaveCount(0);
+  else await expect(access).toHaveValue('read');
+  await who.fill('friend');
+  await dialog.getByRole('combobox', { name: 'Access', exact: true }).selectOption('write');
+  await share.click();
+  await expect(dialog).toContainText('Updated access for friend');
+  await expect(access).toHaveValue('write');
+  expect(await page.evaluate(() => (window as unknown as { personCalls: number }).personCalls)).toBe(2);
+  expect(errors).toEqual([]);
+});
+
+for (const person of ['existing', 'new', 'failed'] as const) test(`refreshing during a Share request keeps the ${person} recipient busy`, async ({ page }) => {
+  const errors = await sharingApp(page);
+  await page.evaluate((person) => {
+    type W = { __parametric: import('../../src/app/app').App; puter: { fs: { getShares: () => Promise<unknown>; share: () => Promise<unknown>; unshare: () => Promise<unknown> } }; releaseShare: () => void; shareStarted: boolean };
+    const w = window as unknown as W;
+    const people = new Map([['other', 'read']]);
+    if (person !== 'new') people.set('friend', 'write');
+    const gate = new Promise<void>((resolve) => { w.releaseShare = resolve; });
+    let first = true;
+    w.puter.fs.getShares = async () => [...people].map(([holder, mode]) => ({ holder, mode }));
+    w.puter.fs.share = async () => {
+      const fail = first && person === 'failed'; first = false;
+      if (!fail) people.set('friend', 'read');
+      w.shareStarted = true; await gate;
+      if (fail) throw new Error('Share failed');
+      return [{ isNew: person === 'new' }];
+    };
+    w.puter.fs.unshare = async () => { people.delete('other'); return { revoked: 1 }; };
+    w.__parametric.commands.run('share');
+  }, person);
+  const dialog = page.getByRole('dialog', { name: 'Share Original', exact: true });
+  const who = dialog.getByRole('textbox', { name: 'Person to share with' });
+  const share = dialog.getByRole('button', { name: 'Share', exact: true });
+  await who.fill('friend');
+  await share.click();
+  await page.waitForFunction(() => (window as unknown as { shareStarted: boolean }).shareStarted);
+  await dialog.getByRole('button', { name: 'Remove other', exact: true }).click();
+  await expect(dialog.getByRole('button', { name: 'Remove other', exact: true })).toHaveCount(0);
+  const access = dialog.getByRole('combobox', { name: 'Access for friend', exact: true });
+  await expect(access).toBeDisabled();
+  await expect(dialog.getByRole('button', { name: 'Remove friend', exact: true })).toBeDisabled();
+  await page.evaluate(() => (window as unknown as { releaseShare: () => void }).releaseShare());
+  await expect(access).toBeEnabled();
+  await expect(share).toBeEnabled();
+  await expect(access).toHaveValue(person === 'failed' ? 'write' : 'read');
+  if (person === 'failed') {
+    await expect(dialog).toContainText('Share failed');
+    await share.click();
+    await expect(access).toHaveValue('read');
+  }
+  expect(errors).toEqual([]);
+});

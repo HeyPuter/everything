@@ -76,8 +76,15 @@ export async function shareDialog(app: App, files: FileOps) {
   const status = h('div', { class: 'field-label', role: 'status', style: { minHeight: '18px' } });
   const list = h('div');
 
-  type AccessRow = { element: HTMLElement; pending: boolean; settled: number; removed: boolean };
+  type AccessRow = { element: HTMLElement; select: HTMLSelectElement; remove: HTMLButtonElement; record: ShareRecord; settled: number; removed: boolean };
   const accessRows = new Map<string, AccessRow>();
+  const pendingRecipients = new Set<string>();
+  const setPending = (name: string, pending: boolean) => {
+    if (pending) pendingRecipients.add(name); else pendingRecipients.delete(name);
+    const row = accessRows.get(name);
+    if (row) row.select.disabled = row.remove.disabled = pending;
+    refreshAddButton();
+  };
   let mutationRevision = 0;
   let renderSequence = 0;
   const render = async () => {
@@ -102,18 +109,20 @@ export async function shareDialog(app: App, files: FileOps) {
       const previous = accessRows.get(name);
       // Refreshes started before a row's operation settled cannot replace
       // its pending controls or its newly confirmed result.
-      if (previous && !previous.removed && (previous.pending || previous.settled > revision)) return previous.element;
-      const state: AccessRow = { element: h('tr'), pending: false, settled: 0, removed: false };
+      if (previous && !previous.removed && (pendingRecipients.has(name) || previous.settled > revision)) return previous.element;
       const sel = h('select', { class: 'input', 'aria-label': `Access for ${name}`, style: { width: 'auto' } }, [...MODES, ['manage', 'Can edit and share'] as [string, string]].map(([v, l]) => {
         const o = h('option', { value: v }, l) as HTMLOptionElement;
         if (v === s.mode) o.selected = true;
         return o;
       })) as HTMLSelectElement;
+      // An icon button keeps the table within the dialog at phone widths.
+      const remove = h('button', { class: 'icon-btn', type: 'button', 'aria-label': `Remove ${name}`, title: 'Remove access' }, icon('trash', 16));
+      const state: AccessRow = { element: h('tr'), select: sel, remove, record: s, settled: 0, removed: false };
+      sel.disabled = remove.disabled = pendingRecipients.has(name);
       sel.addEventListener('change', async () => {
-        if (state.pending || !isCurrent()) return;
+        if (pendingRecipients.has(name) || !isCurrent()) return;
         const next = sel.value;
-        state.pending = true;
-        sel.disabled = remove.disabled = true;
+        setPending(name, true);
         status.textContent = `Updating access for ${name}...`;
         try {
           await fs.share(path, recipient(name), next);
@@ -123,17 +132,13 @@ export async function shareDialog(app: App, files: FileOps) {
           sel.value = s.mode;
           status.textContent = `Could not update access for ${name}: ${storageError(e)}`;
         } finally {
-          state.pending = false;
           state.settled = ++mutationRevision;
-          sel.disabled = remove.disabled = false;
+          setPending(name, false);
         }
       });
-      // An icon button keeps the table within the dialog at phone widths.
-      const remove = h('button', { class: 'icon-btn', type: 'button', 'aria-label': `Remove ${name}`, title: 'Remove access' }, icon('trash', 16));
       remove.addEventListener('click', async () => {
-        if (state.pending || !isCurrent()) return;
-        state.pending = true;
-        sel.disabled = remove.disabled = true;
+        if (pendingRecipients.has(name) || !isCurrent()) return;
+        setPending(name, true);
         status.textContent = `Removing access for ${name}...`;
         try {
           await fs.unshare(path, recipient(name));
@@ -143,9 +148,8 @@ export async function shareDialog(app: App, files: FileOps) {
         } catch (e) {
           status.textContent = `Could not remove access for ${name}: ${storageError(e)}`;
         } finally {
-          state.pending = false;
           state.settled = ++mutationRevision;
-          sel.disabled = remove.disabled = false;
+          setPending(name, false);
         }
       });
       state.element.append(h('td', {}, name, s.pending ? h('span', { class: 'field-label' }, ' (invited)') : null), h('td', {}, sel), h('td', { style: { textAlign: 'right' } }, remove));
@@ -154,7 +158,7 @@ export async function shareDialog(app: App, files: FileOps) {
     });
     for (const [name, state] of accessRows) {
       if (seen.has(name)) continue;
-      if (!state.removed && (state.pending || state.settled > revision)) rows.push(state.element);
+      if (!state.removed && (pendingRecipients.has(name) || state.settled > revision)) rows.push(state.element);
       else accessRows.delete(name);
     }
     if (!rows.length) { list.append(h('p', {}, 'Not shared with anyone yet.')); return; }
@@ -163,18 +167,27 @@ export async function shareDialog(app: App, files: FileOps) {
 
   let adding = false;
   let recipientRevision = 0;
-  who.addEventListener('input', () => { recipientRevision++; });
+  const refreshAddButton = () => { addBtn.disabled = adding || pendingRecipients.has(who.value.trim()); };
+  who.addEventListener('input', () => { recipientRevision++; refreshAddButton(); });
   const add = async () => {
     if (adding || !isCurrent()) return;
     const v = who.value.trim();
     if (!v) { who.focus(); return; }
+    if (pendingRecipients.has(v)) return;
     const revision = recipientRevision;
+    const access = mode.value;
     adding = true;
-    addBtn.disabled = true;
+    setPending(v, true);
     status.textContent = 'Sharing...';
     try {
-      const res = await fs.share(path, recipient(v), mode.value);
+      const res = await fs.share(path, recipient(v), access);
       if (!isCurrent()) return;
+      const row = accessRows.get(v);
+      if (row) {
+        row.record.mode = access;
+        row.select.value = access;
+        row.settled = ++mutationRevision;
+      }
       status.textContent = res?.[0]?.isNew === false ? `Updated access for ${v}.` : `Shared with ${v}. They can open it from Open, Shared with me.`;
       if (revision === recipientRevision) who.value = '';
       void render();
@@ -183,7 +196,7 @@ export async function shareDialog(app: App, files: FileOps) {
       status.textContent = code === 'user_does_not_exist' ? `There is no Puter user called ${v}.` : code === 'cannot_share_with_self' ? 'You already own this part.' : `Could not share: ${storageError(e)}`;
     } finally {
       adding = false;
-      addBtn.disabled = false;
+      setPending(v, false);
     }
   };
   who.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.isComposing && e.keyCode !== 229) { e.preventDefault(); e.stopPropagation(); void add(); } });
