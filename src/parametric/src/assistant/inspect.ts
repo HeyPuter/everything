@@ -40,6 +40,16 @@ export class Inspector {
     return out;
   }
 
+  /** Warnings of built features (id → message). */
+  warnings(): Map<Id, string> {
+    const out = new Map<Id, string>();
+    for (const f of this.doc.features.slice(0, this.host.store.builtCount)) {
+      const w = f.suppressed ? null : this.host.featureStatus(f.id)?.warning;
+      if (w) out.set(f.id, w);
+    }
+    return out;
+  }
+
   status(f: Feature, index: number): string {
     if (f.suppressed) return 'suppressed';
     if (index >= this.host.store.builtCount) return 'rolled back (not built)';

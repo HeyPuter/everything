@@ -427,6 +427,7 @@ class Toolkit {
     this.host.prepareForEdit();
     await this.host.settle();
     const before = this.ins.errors();
+    const warnedBefore = this.ins.warnings();
     const mark = this.store.undoMark;
     this.store.change(label, mutate);
     if (this.store.undoMark === mark) return 'Nothing changed.';
@@ -443,6 +444,9 @@ class Toolkit {
     const lines: string[] = [];
     const warn = opts.subject ? this.host.featureStatus(opts.subject)?.warning : null;
     if (warn) lines.push(`Warning: ${warn}`);
+    // A change can leave a later feature doing nothing (a cut whose profile left the part) without failing it.
+    const warned = [...this.ins.warnings()].filter(([id, w]) => id !== opts.subject && warnedBefore.get(id) !== w);
+    if (warned.length) lines.push(`New warnings on other features: ${warned.map(([id, w]) => `${id}: ${w}`).join('; ')}`);
     if (fresh.length) lines.push(`Features now failing: ${fresh.map(([id, m]) => `${id}: ${m}`).join('; ')}`);
     const still = [...after].filter(([id]) => !fresh.some(([x]) => x === id));
     if (still.length) lines.push(`Features that were already failing: ${still.map(([id, m]) => `${id}: ${m}`).join('; ')}`);

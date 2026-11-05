@@ -308,4 +308,17 @@ describe('assistant tools', () => {
     expect(r.content).toMatch(/move_points: c_c was moved to .*but its relations or dimensions put it back/);
     expect(r.content).not.toMatch(/free was moved/);
   });
+
+  it('reports a warning the change leaves on another feature', async () => {
+    const { h } = await plate();
+    await h.call('create_sketch', { plane: topFace(h), shapes: [{ type: 'circle', id: 'c', center: [10, 10, 5], radius: 5 }] });
+    const sk = h.store.doc.features.at(-1)!.id;
+    await h.call('add_extrude', { sketch: sk, cut: true });
+    const cut = h.store.doc.features.at(-1)!.id;
+    const r = await h.call('edit_sketch', { sketch: sk, move_points: [{ point: 'c_c', to: [200, 10, 0] }] });
+    expect(r.content).toMatch(new RegExp(`New warnings on other features: ${cut}: .*does not remove any material`));
+    // Unchanged warnings are not repeated.
+    const again = await h.call('edit_sketch', { sketch: sk, name: 'Moved' });
+    expect(again.content).not.toMatch(/New warnings/);
+  });
 });
