@@ -124,3 +124,19 @@ test('renaming a PDF to its own name changes nothing and reports no error', asyn
   await expect(page.locator('#toast')).toBeHidden();
   await expect(page.getByRole('button', { name: 'report.pdf', exact: true })).toBeVisible();
 });
+
+test('the library search ignores spaces around the words', async ({ page }) => {
+  await page.route('https://js.puter.com/**', (route) =>
+    route.fulfill({
+      contentType: 'application/javascript',
+      body: `window.puter = { env: 'web', auth: { isSignedIn: () => true, getUser: async () => ({username: 'test-user'}) }, fs: { readdir: async () => [{ name: 'Quarterly report.pdf', path: 'PDF Editor/Quarterly report.pdf' }, { name: 'notes.pdf', path: 'PDF Editor/notes.pdf' }] } };`,
+    }),
+  );
+  await page.goto('/#library');
+  const search = page.getByRole('searchbox', { name: 'Search PDFs' });
+  await search.fill(' report ');
+  await expect(
+    page.getByRole('button', { name: 'Quarterly report.pdf', exact: true }),
+  ).toBeVisible();
+  await expect(page.getByRole('button', { name: 'notes.pdf', exact: true })).toHaveCount(0);
+});

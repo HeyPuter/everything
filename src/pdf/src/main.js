@@ -755,7 +755,8 @@ function showHome({ accountRefresh = false } = {}) {
     placeholder: 'Search PDFs',
     'aria-label': 'Search PDFs',
     oninput: (e) => {
-      filter = e.target.value.toLowerCase();
+      // Spaces around the words (a pasted name, a stray space) do not hide every file.
+      filter = e.target.value.trim().toLowerCase();
       renderFiles();
     },
   });
