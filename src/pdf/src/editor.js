@@ -10644,20 +10644,21 @@ export function createEditor({
       disabled: !accepts('fill'),
       onchange: () => apply({ fill: noFill.checked ? null : fill.value }),
     });
+    // Widths and sizes in points, which a page with a UserUnit makes larger than its units.
+    const pagePt = viewport.userUnit;
+    const points = (entry.width ?? 1) * pagePt;
     const width = el(
       'select',
       {
         'aria-label': 'Line width',
         disabled: !accepts('width'),
-        onchange: () => apply({ width: Number(width.value) }),
+        onchange: () => apply({ width: Number(width.value) / pagePt }),
       },
       // A width from another editor is listed too, so the field shows the width it has.
-      ...[0.5, 1, 2, 3, 4, 6, 8, Math.round((entry.width ?? 1) * 100) / 100]
+      ...[0.5, 1, 2, 3, 4, 6, 8, Math.round(points * 100) / 100]
         .filter((n, i, all) => all.findIndex((m) => Math.abs(m - n) < 0.01) === i)
         .sort((a, b) => a - b)
-        .map((n) =>
-          el('option', { value: n, selected: Math.abs((entry.width ?? 1) - n) < 0.01 }, `${n} pt`),
-        ),
+        .map((n) => el('option', { value: n, selected: Math.abs(points - n) < 0.01 }, `${n} pt`)),
     );
     const opacity = el('input', {
       type: 'range',
@@ -10673,17 +10674,16 @@ export function createEditor({
       entry.subtype === 'FreeText' &&
       el('input', {
         type: 'number',
-        // The sizes a text box takes, 1 to 288 points in the page's own units; the field
-        // reports any other value itself.
-        min: 1 / viewport.userUnit,
-        max: 288 / viewport.userUnit,
+        // The sizes a text box takes, 1 to 288 points; the field reports any other value itself.
+        min: 1,
+        max: 288,
         step: 'any',
         required: true,
-        value: entry.fontSize || 12,
+        value: Number(((entry.fontSize || 12 / pagePt) * pagePt).toPrecision(12)),
         'aria-label': 'Font size',
         disabled: !accepts('fontSize'),
         onchange: () => {
-          if (fontSize.reportValidity()) apply({ fontSize: Number(fontSize.value) });
+          if (fontSize.reportValidity()) apply({ fontSize: Number(fontSize.value) / pagePt });
         },
       });
     const when = (date) =>

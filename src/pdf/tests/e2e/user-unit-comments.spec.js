@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { PDFDocument, PDFName, PDFNumber } from 'pdf-lib';
 import { readFile } from 'node:fs/promises';
-import { listAnnotations } from '../../src/core/annotations.js';
+import { addShapeAnnotation, addTextBox, listAnnotations } from '../../src/core/annotations.js';
 import { listNotes } from '../../src/core/notes.js';
 
 const settled = (page) => expect(page.locator('.editor')).toHaveAttribute('aria-busy', 'false');
@@ -76,4 +76,59 @@ test('comments clicked onto a page with large units have their usual size', asyn
   ]);
   const [note] = listNotes(saved, 0);
   expect(note.width * 10).toBeCloseTo(20, 1);
+});
+
+// On such a page the properties panel showed widths and font sizes in the page's units while
+// calling them points: a 2 point line read "0.2 pt", and choosing "4 pt" drew it 40 points wide.
+test('a comment on a page with large units shows and takes its sizes in points', async ({
+  page,
+}) => {
+  await page.route('https://js.puter.com/**', (route) => route.abort());
+  const doc = await PDFDocument.create();
+  doc.addPage([61.2, 79.2]).node.set(PDFName.of('UserUnit'), PDFNumber.of(10));
+  addShapeAnnotation(doc, 0, {
+    kind: 'square',
+    rect: { x: 10, y: 50, width: 20, height: 10 },
+    width: 0.2,
+  });
+  await addTextBox(doc, 0, {
+    rect: { x: 10, y: 20, width: 18, height: 5 },
+    text: 'Sized',
+    fontSize: 1.2,
+    borderWidth: 0.1,
+  });
+  await page.goto('/#library');
+  const chooser = page.waitForEvent('filechooser');
+  await page.getByRole('button', { name: /^Open a PDF/ }).click();
+  await (
+    await chooser
+  ).setFiles({
+    name: 'drawing.pdf',
+    mimeType: 'application/pdf',
+    buffer: Buffer.from(await doc.save()),
+  });
+  await expect(page.locator('.page-caption')).toHaveText('Page 1 of 1');
+  await settled(page);
+  await page.getByRole('button', { name: 'Select', exact: true }).click();
+  const props = page.getByRole('complementary', { name: 'Selection properties' });
+
+  await page.getByRole('button', { name: 'Rectangle', exact: true }).click();
+  const width = props.getByLabel('Line width', { exact: true });
+  await expect(width).toHaveValue('2');
+  await width.selectOption('4');
+  await settled(page);
+
+  await page.getByRole('button', { name: 'Text box: Sized', exact: true }).click();
+  const size = props.getByLabel('Font size', { exact: true });
+  await expect(size).toHaveValue('12');
+  await size.fill('20');
+  await size.press('Enter');
+  await settled(page);
+
+  const pending = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Download', exact: true }).click();
+  const saved = await PDFDocument.load(await readFile(await (await pending).path()));
+  const [square, box] = listAnnotations(saved, 0);
+  expect(square.width).toBeCloseTo(0.4, 6);
+  expect(box.fontSize).toBeCloseTo(2, 6);
 });
