@@ -530,4 +530,12 @@ describe('assistant tools', () => {
     const rev = h.store.doc.features.at(-1)!.id;
     expect((await h.call('edit_feature', { feature: rev, params: { angle: '=400' } }, false)).content).toMatch(/angle: at most 360/);
   });
+
+  it('says plainly when an edit_feature changes nothing', async () => {
+    const { h } = await plate();
+    // It read "Updated f2 "Plate" → ok." with every argument, then "Nothing changed.".
+    const r = await h.call('edit_feature', { feature: 'Plate', params: { depth: 10 } });
+    expect(r.content).toBe('Nothing changed: f2 "Plate" is already as given.');
+    expect(r.changed).toBe(false);
+  });
 });

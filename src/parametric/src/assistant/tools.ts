@@ -407,6 +407,9 @@ const vec3 = (v: unknown, what: string): Vec3 => {
   return v as Vec3;
 };
 
+/** What apply answers for a change that leaves the document as it was. */
+const NOTHING_CHANGED = 'Nothing changed.';
+
 class Toolkit {
   readonly u: Units;
   readonly ins: Inspector;
@@ -433,7 +436,7 @@ class Toolkit {
     const warnedBefore = this.ins.warnings();
     const mark = this.store.undoMark;
     this.store.change(label, mutate);
-    if (this.store.undoMark === mark) return 'Nothing changed.';
+    if (this.store.undoMark === mark) return NOTHING_CHANGED;
     await this.host.settle();
     const after = this.ins.errors();
     const fresh = [...after].filter(([id, msg]) => before.get(id) !== msg);
@@ -784,6 +787,8 @@ class Toolkit {
       const i = doc.features.findIndex((x) => x.id === f.id);
       if (i >= 0) doc.features[i] = next;
     }, { subject: f.id });
+    // It read "Updated … → ok." with every argument, then "Nothing changed.".
+    if (build === NOTHING_CHANGED) return `Nothing changed: ${f.id} "${f.name}" is already as given.`;
     const lines = [`Updated ${f.id} "${next.name}" → ${this.ins.status(next, this.store.indexOf(f.id))}.`];
     if (next.type !== 'sketch') lines.push(`Arguments now: ${JSON.stringify(this.ins.codec.args(next))}`);
     lines.push(build);
