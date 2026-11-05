@@ -331,6 +331,8 @@ test('editing and deleting equations keeps keyboard focus in the table', async (
   await page.getByRole('button', { name: /New part/ }).click();
   await page.evaluate(() => (window as unknown as { __parametric: { commands: { run(id: string): void } } }).__parametric.commands.run('equations'));
   const dialog = page.getByRole('dialog', { name: 'Equations and Global Variables' });
+  // Every column, including that of the Delete buttons, has a header name.
+  await expect(dialog.getByRole('columnheader', { name: 'Delete', exact: true })).toHaveCount(1);
   await dialog.getByRole('button', { name: 'Add variable' }).click();
   await dialog.getByRole('button', { name: 'Add variable' }).click();
   const name = dialog.getByRole('textbox', { name: 'Name of variable 1' });

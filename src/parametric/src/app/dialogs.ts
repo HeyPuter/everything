@@ -111,7 +111,7 @@ export async function equationsDialog(app: App) {
     wide: true,
     body: [
       h('p', {}, `Define named values, then type "=" and a name (for example =Width/2) in any dimension or feature value to link it. Values use the part's units (${UNIT_SYSTEMS[doc.units].length}, degrees).`),
-      h('table', { class: 'table' }, h('thead', {}, h('tr', {}, h('th', {}, 'Name'), h('th', {}, 'Value / Equation'), h('th', {}, 'Evaluates to'), h('th', {}, 'Used by'), h('th', {}, ''))), tbody),
+      h('table', { class: 'table' }, h('thead', {}, h('tr', {}, h('th', {}, 'Name'), h('th', {}, 'Value / Equation'), h('th', {}, 'Evaluates to'), h('th', {}, 'Used by'), h('th', {}, h('span', { class: 'sr-only' }, 'Delete')))), tbody),
       add, err,
     ],
     buttons: [{ label: 'Cancel', value: 'cancel' }, { label: 'OK', value: 'ok', primary: true }],
