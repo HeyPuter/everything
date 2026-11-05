@@ -2,6 +2,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { mil, mm } from '../src/core/units.js';
 import { LibDoc } from '../src/editors/lib-editor.js';
+import { ComponentsPanel } from '../src/ui/panels/components.js';
 import { findWizard } from '../src/model/library/wizards.js';
 import { findComponent, searchComponents } from '../src/model/library/builtin.js';
 import { overlappingPads } from '../src/model/library/footprints.js';
@@ -131,5 +132,27 @@ describe('component editor footprint switch', () => {
       }),
     );
     expect(doc2.toDef().footprint.pads).toHaveLength(1);
+  });
+});
+
+describe('components panel', () => {
+  it('clears the active option when a search finds nothing', () => {
+    const app = {
+      project: new Project(newProjectData('Panel test')),
+      userLibrary: { all: () => [] },
+      commands: { run: vi.fn() },
+      on: () => {},
+    };
+    const panel = new ComponentsPanel(app);
+    panel.refresh();
+    expect(panel.list.getAttribute('aria-activedescendant')).toBe(`cmp-${panel.selected.id}`);
+    panel.search.value = 'no such part';
+    panel.search.dispatchEvent(new Event('input'));
+    expect(panel.selected).toBe(null);
+    expect(panel.list.hasAttribute('aria-activedescendant')).toBe(false);
+    panel.search.value = 'header 1x';
+    panel.search.dispatchEvent(new Event('input'));
+    expect(panel.selected.name).toBe('Header 1x2');
+    expect(panel.list.getAttribute('aria-activedescendant')).toBe('cmp-hdr-1x02');
   });
 });

@@ -79,8 +79,7 @@ export class ComponentsPanel {
     clear(this.list);
     if (!defs.length) {
       this.list.append(h('li.panel-empty', { role: 'presentation' }, 'No components match. Try another search, or create a component with the footprint and symbol wizards.'));
-      this.selected = null;
-      this._preview();
+      this.select(null, false);
       return;
     }
     let lastSrc = null;
@@ -106,6 +105,7 @@ export class ComponentsPanel {
     this.selected = def;
     for (const li of this.list.querySelectorAll('[role="option"]')) li.setAttribute('aria-selected', String(li.id === `cmp-${def?.id}`));
     if (def) this.list.setAttribute('aria-activedescendant', `cmp-${def.id}`);
+    else this.list.removeAttribute('aria-activedescendant');
     if (scroll) this.list.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: 'nearest' });
     this._preview();
   }
