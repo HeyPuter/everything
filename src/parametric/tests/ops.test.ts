@@ -152,16 +152,22 @@ describe('editing tools', () => {
     expect(new SketchIndex(s.entities).pt(h.b)[0]).toBeCloseTo(5, 6);
   });
 
-  it('trims a circle into an arc whose ends stay on the cutting lines', () => {
+  it.each([10, 1e9])('trims a circle into an arc whose ends stay on a cutting line of half-length %s', (length) => {
     const s = sk([
       { id: 'o', t: 'point', x: 0, y: 0 }, { id: 'circ', t: 'circle', c: 'o', r: 5 },
-      { id: 'c', t: 'point', x: -10, y: 3 }, { id: 'd', t: 'point', x: 10, y: 3 }, { id: 'l', t: 'line', a: 'c', b: 'd' },
+      { id: 'c', t: 'point', x: -length, y: 3 }, { id: 'd', t: 'point', x: length, y: 3 }, { id: 'l', t: 'line', a: 'c', b: 'd' },
     ]);
     expect(trimAt(s, 'circ', [0, 5], idFactory(s))).toBe(true);
     const arc = s.entities.find((e) => e.id === 'circ')!;
     expect(arc.t).toBe('arc');
     expect(s.constraints.filter((c) => c.type === 'coincident' && c.refs[1] === 'l')).toHaveLength(2);
     expect(solveSketch(s.entities, s.constraints, { value }).status).toBe('under');
+    if (arc.t !== 'arc') throw new Error('Expected trimmed arc');
+    const ix = new SketchIndex(s.entities);
+    const ends = [ix.pt(arc.a), ix.pt(arc.b)].sort((a, b) => a[0] - b[0]);
+    expect(ends[0][0]).toBeCloseTo(-4, 6);
+    expect(ends[1][0]).toBeCloseTo(4, 6);
+    for (const point of ends) expect(point[1]).toBeCloseTo(3, 6);
   });
 
   it('extends a line to the next curve', () => {

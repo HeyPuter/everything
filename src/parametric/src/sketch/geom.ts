@@ -280,17 +280,24 @@ export function intersectPrims(p: Prim, q: Prim, extendFirst = false): Vec2[] {
   const circ = p.kind === 'seg' ? q : p;
   const d = sub2(seg.b!, seg.a!);
   const f = sub2(seg.a!, circ.c!);
-  const A = dot2(d, d);
-  const B = 2 * dot2(f, d);
-  const C = dot2(f, f) - circ.r! * circ.r!;
-  const disc = B * B - 4 * A * C;
-  if (disc < 0 || A < 1e-24) return [];
-  const sq = Math.sqrt(disc);
-  const ts = sq < 1e-12 ? [-B / (2 * A)] : [(-B - sq) / (2 * A), (-B + sq) / (2 * A)];
+  const length = Math.hypot(d[0], d[1]);
+  if (length < 1e-12) return [];
+  const ux = d[0] / length, uy = d[1] / length;
+  // Intersect around the circle's perpendicular projection onto the line.
+  // The quadratic discriminant subtracts enormous nearly equal products for
+  // long lines, losing both roots (or inventing an intersection on a miss).
+  const perpendicular = ux * f[1] - uy * f[0];
+  const distance = Math.abs(perpendicular), radius = circ.r!;
+  if (distance > radius) return [];
+  const halfChord = Math.sqrt((radius - distance) * (radius + distance));
+  const along = -(f[0] * ux + f[1] * uy);
+  const center: Vec2 = [circ.c![0] - uy * perpendicular, circ.c![1] + ux * perpendicular];
+  const offsets = halfChord < 1e-12 ? [0] : [-halfChord, halfChord];
   const out: Vec2[] = [];
   const segIsFirst = p.kind === 'seg';
-  for (const t of ts) {
-    const pt: Vec2 = [seg.a![0] + d[0] * t, seg.a![1] + d[1] * t];
+  for (const offset of offsets) {
+    const t = (along + offset) / length;
+    const pt: Vec2 = [center[0] + ux * offset, center[1] + uy * offset];
     const segOk = (segIsFirst && extendFirst) || (t >= -1e-9 && t <= 1 + 1e-9);
     const arcOk = (!segIsFirst && extendFirst) || onArc(circ, pt);
     if (segOk && arcOk) out.push(pt);
