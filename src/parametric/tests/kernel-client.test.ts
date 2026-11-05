@@ -127,3 +127,42 @@ describe('kernel client recovery', () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 });
+
+describe('imported file data', () => {
+  const sentBuilds = (w: FakeWorker) => w.sent.filter((m) => m.type === 'build') as Extract<WorkerRequest, { type: 'build' }>[];
+
+  it('is sent to the worker once and only referenced afterwards', async () => {
+    const { client, workers, last } = setup();
+    last().answer('init');
+    await client.ready;
+    const big = 'ISO-10303-21;'.repeat(1000);
+    const blobs: Record<string, string> = { a: big };
+    const build = async (b: Record<string, string>) => {
+      const p = client.build({ ...req(1), blobs: { ...b } });
+      last().answer('build', {});
+      await p;
+      await flush();
+    };
+    await build(blobs);
+    await build(blobs);
+    // A second import: only the new file goes over.
+    await build({ ...blobs, b: 'B' });
+    // The first one deleted (still undoable), then brought back by undo.
+    await build({ b: 'B' });
+    await build({ a: big, b: 'B' });
+    // Same id, other content (another part opened).
+    await build({ a: 'other', b: 'B' });
+    expect(sentBuilds(workers[0]).map((m) => [Object.keys(m.req.blobs), m.blobs])).toEqual([
+      [['a'], ['a']],
+      [[], ['a']],
+      [['b'], ['a', 'b']],
+      [[], ['b']],
+      [['a'], ['a', 'b']],
+      [['a'], ['a', 'b']],
+    ]);
+    // A restarted worker gets everything again.
+    workers[0].crash();
+    await build({ a: 'other', b: 'B' });
+    expect(sentBuilds(workers[1]).map((m) => m.req.blobs)).toEqual([{ a: 'other', b: 'B' }]);
+  });
+});

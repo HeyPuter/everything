@@ -8,6 +8,7 @@
 // KernelRestartError instead of waiting forever.
 
 import type { SolidWorksImport } from '../formats/sldprt';
+import type { Id } from '../model/types';
 import type { BuildRequest, BuildResult, MassProperties, MeasureResult, MeasureTarget, ProjectionRequest, ProjectionResult, WorkerRequest, WorkerResponse } from './protocol';
 
 type Pending = { resolve: (v: unknown) => void; reject: (e: Error) => void };
@@ -38,6 +39,8 @@ export class KernelClient {
   private pending = new Map<number, Call>();
   private building = false;
   private queued: { req: BuildRequest; waiters: Pending[] } | null = null;
+  /** Imported file data the current worker already holds, by blob id. */
+  private sentBlobs = new Map<Id, string>();
   private started = false;
   private stalled = false;
   private watchdog: ReturnType<typeof setInterval> | null = null;
@@ -63,6 +66,7 @@ export class KernelClient {
   private spawn() {
     const w = this.createWorker();
     this.worker = w;
+    this.sentBlobs.clear();
     w.onmessage = (ev: MessageEvent<WorkerResponse>) => {
       const r = ev.data;
       const p = this.pending.get(r.id);
@@ -160,7 +164,13 @@ export class KernelClient {
 
   private run(req: BuildRequest, waiters: Pending[]) {
     this.building = true;
-    this.call<BuildResult>({ type: 'build', req })
+    // Imported files can be tens of MB: send each one to the worker once
+    // rather than copying all of them with every rebuild.
+    const fresh: Record<Id, string> = {};
+    const ids = Object.keys(req.blobs);
+    for (const k of ids) if (this.sentBlobs.get(k) !== req.blobs[k]) fresh[k] = req.blobs[k];
+    this.sentBlobs = new Map(ids.map((k) => [k, req.blobs[k]]));
+    this.call<BuildResult>({ type: 'build', req: { ...req, blobs: fresh }, blobs: ids })
       .then((res) => { for (const w of waiters) w.resolve(res); })
       .catch((e) => { for (const w of waiters) w.reject(e); })
       .finally(() => {

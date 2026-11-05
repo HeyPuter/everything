@@ -13,6 +13,8 @@ declare const self: DedicatedWorkerGlobalScope;
 
 let ready: Promise<void> | null = null;
 const builder = new ModelBuilder();
+/** Imported file data of the open part, by blob id. */
+const blobs: Record<string, string> = {};
 /** Set when the WebAssembly module aborts: its memory can no longer be trusted. */
 let aborted = false;
 const KERNEL_FAILED = 'The geometry kernel failed';
@@ -48,7 +50,11 @@ self.onmessage = async (ev: MessageEvent<WorkerRequest>) => {
         reply({ id: msg.id, ok: true, result: true });
         return;
       case 'build': {
-        const res: BuildResult = await builder.build(msg.req);
+        // File data arrives once; later requests only list the ids in use.
+        const keep = new Set(msg.blobs);
+        for (const k of Object.keys(blobs)) if (!keep.has(k)) delete blobs[k];
+        Object.assign(blobs, msg.req.blobs);
+        const res: BuildResult = await builder.build({ ...msg.req, blobs });
         // Mesh buffers are cached by the builder; send copies so the cache stays valid.
         const copy = (m: MeshData | null): MeshData | null =>
           m && {

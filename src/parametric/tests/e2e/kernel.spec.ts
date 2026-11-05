@@ -46,3 +46,27 @@ test('the geometry engine is restarted and the part rebuilt when the worker dies
   await expect(page.locator('.ti.error')).toHaveCount(0);
   expect(errors).toEqual([]);
 });
+
+test('an imported body is rebuilt after the geometry engine restarts', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  const v0 = await volume(page);
+  // Import the bracket's own STEP into a new part.
+  await page.evaluate(async () => {
+    type A = W['__parametric'] & { kernel: { exportFile(f: 'step'): Promise<Uint8Array> }; newDocument(n: string): void; insertFeature(f: unknown): void; store: { doc: { blobs: Record<string, string> } } };
+    const app = (window as unknown as { __parametric: A }).__parametric;
+    const step = new TextDecoder().decode(await app.kernel.exportFile('step'));
+    app.newDocument('Imported');
+    app.store.doc.blobs.bx = step;
+    app.insertFeature({ id: 'f9', name: 'Import1', type: 'import', format: 'step', blob: 'bx', fileName: 'bracket.step' });
+  });
+  await waitForFeature(page, 'Import1');
+  expect(await volume(page)).toBeCloseTo(v0!, 1);
+  await page.evaluate(() => (window as unknown as W).__parametric.kernel.debugFail('crash').catch(() => undefined));
+  await expect(page.locator('.toast', { hasText: 'Geometry engine restarted' })).toBeVisible();
+  // The new worker was given the file data again.
+  expect(await volume(page)).toBeCloseTo(v0!, 1);
+  await expect(page.locator('.ti.error')).toHaveCount(0);
+  expect(errors).toEqual([]);
+});

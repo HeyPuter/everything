@@ -130,7 +130,11 @@ export interface ProjectionResult {
 export type WorkerRequest =
   | { id: number; type: 'init' }
   | { id: number; type: 'reset' }
-  | { id: number; type: 'build'; req: BuildRequest }
+  /**
+   * req.blobs holds only file data the worker does not have yet; `blobs`
+   * lists every id still in use (the worker drops the rest).
+   */
+  | { id: number; type: 'build'; req: BuildRequest; blobs: Id[] }
   | { id: number; type: 'mass' }
   | { id: number; type: 'project'; views: ProjectionRequest[] }
   | { id: number; type: 'measure'; a: MeasureTarget; b: MeasureTarget }
