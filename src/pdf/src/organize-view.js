@@ -27,6 +27,9 @@ export function createOrganizeView({
   let selected = new Set();
   let anchor = null; // the tile a Shift range starts from
   let size = 1;
+  // Until a size is picked with the slider, a phone shows the smallest tiles: two columns of
+  // pages rather than one.
+  let sizePicked = false;
   let visible = false;
   let tiles = [];
   let observer = null;
@@ -40,6 +43,7 @@ export function createOrganizeView({
     value: size,
     'aria-label': 'Page tile size',
     oninput: () => {
+      sizePicked = true;
       size = Number(sizeInput.value);
       grid.style.setProperty('--tile', `${SIZES[size]}px`);
       rebuild();
@@ -582,6 +586,11 @@ export function createOrganizeView({
     show() {
       visible = true;
       root.hidden = false;
+      if (!sizePicked) {
+        size = window.matchMedia?.('(max-width: 480px)').matches ? 0 : 1;
+        sizeInput.value = size;
+        grid.style.setProperty('--tile', `${SIZES[size]}px`);
+      }
       if (!selected.size) {
         selected = new Set([currentIndex()]);
         anchor = currentIndex();

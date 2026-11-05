@@ -574,3 +574,34 @@ test("a page moved from its thumbnail's menu keeps the keyboard focus with it", 
   await expect(page.getByRole('button', { name: 'Page 2 actions', exact: true })).toBeFocused();
   expect((await exportedHeights(page)).map(([h]) => h)).toEqual([300, 350, 400]);
 });
+
+test('Organize pages shows phones two columns of pages', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 760 });
+  await mockPuter(page);
+  await page.goto('/#library');
+  await openPdf(page, await tallPdf());
+  await page.getByRole('button', { name: 'Tools', exact: true }).click();
+  await page
+    .getByRole('complementary', { name: 'Tools' })
+    .getByRole('button', { name: 'Organize pages', exact: true })
+    .click();
+  const grid = page.getByRole('listbox', { name: 'Pages' });
+  const top = async (name) =>
+    (await grid.getByRole('option', { name, exact: true }).boundingBox()).y;
+  // The first two pages sit side by side, rather than one page to a row.
+  await expect(grid.getByRole('option')).toHaveCount(3);
+  expect(await top('Page 2')).toBe(await top('Page 1'));
+  await expect(page.getByRole('slider', { name: 'Page tile size' })).toHaveValue('0');
+  // A size picked with the slider stays.
+  await page.getByRole('slider', { name: 'Page tile size' }).fill('2');
+  await page
+    .getByRole('toolbar', { name: 'Organize pages' })
+    .getByRole('button', { name: 'Close', exact: true })
+    .click();
+  await page.getByRole('button', { name: 'Tools', exact: true }).click();
+  await page
+    .getByRole('complementary', { name: 'Tools' })
+    .getByRole('button', { name: 'Organize pages', exact: true })
+    .click();
+  await expect(page.getByRole('slider', { name: 'Page tile size' })).toHaveValue('2');
+});
