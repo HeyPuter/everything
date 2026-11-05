@@ -170,4 +170,20 @@ describe('assistant tools', () => {
     await h.call('add_extrude', { sketch: 's1', depth: 10 });
     expect(await h.volume()).toBeCloseTo((800 - (25 - (Math.PI * 25) / 4)) * 10, 1);
   });
+
+  it('refuses arguments a tool does not take instead of skipping them', async () => {
+    const { h } = await plate();
+    // A misspelt depth left the plate as it was and reported "Updated".
+    const typo = await h.call('edit_feature', { feature: 'f2', params: { depht: 20 } }, false);
+    expect(typo.ok).toBe(false);
+    expect(typo.content).toMatch(/f2 \(extrude\) does not take params\.depht\. It takes: sketch, cut, end, depth/);
+    const text = await h.call('edit_feature', { feature: 'f2', params: '{"depth": 20}' }, false);
+    expect(text.content).toMatch(/params: an object/);
+    const add = await h.call('add_extrude', { sketch: 's1', depth: 5, revrse: true }, false);
+    expect(add.content).toMatch(/add_extrude does not take revrse/);
+    expect(h.store.doc.features).toHaveLength(2);
+    // Unset optional arguments are fine.
+    await h.call('edit_feature', { feature: 'f2', params: { depth: 20 }, note: null });
+    expect(await h.volume()).toBeCloseTo(80000, 3);
+  });
 });

@@ -364,11 +364,25 @@ export function toolSpecs(): ToolSpec[] {
   return TOOLS.map((t) => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.parameters } }));
 }
 
+/** Arguments that are no longer offered but still get their own explanation. */
+const RETIRED_ARGS = new Set(['thin']);
+
+/** Says which arguments a tool does not take, or null when it takes them all. */
+function unknownArgs(tool: ToolDef, a: Obj, prefix = '', skip: string[] = []): string | null {
+  const props = Object.keys((tool.parameters as { properties?: Obj }).properties ?? {}).filter((k) => !skip.includes(k));
+  const bad = Object.keys(a).filter((k) => a[k] != null && !props.includes(k) && !RETIRED_ARGS.has(k));
+  if (!bad.length) return null;
+  return `${tool.name} does not take ${bad.map((k) => `${prefix}${k}`).join(', ')}. It takes: ${props.join(', ')}.`;
+}
+
 /** Runs one tool call; never throws. */
 export async function runTool(host: AssistantHost, name: string, args: unknown): Promise<ToolResult> {
   const tool = TOOLS.find((t) => t.name === name);
   if (!tool) return { ok: false, content: `Error: there is no tool called ${name}.` };
   const a = args && typeof args === 'object' && !Array.isArray(args) ? (args as Obj) : {};
+  // A misspelt optional argument would otherwise be skipped, and the call reported as done.
+  const unknown = unknownArgs(tool, a);
+  if (unknown) return { ok: false, content: `Error: ${unknown} Nothing was done.` };
   const k = new Toolkit(host);
   try {
     const r = await tool.run(a, k);
@@ -706,9 +720,13 @@ class Toolkit {
     const f = this.refs.feature(a.feature);
     let next: Feature = structuredClone(f);
     const params = a.params && typeof a.params === 'object' && !Array.isArray(a.params) ? (a.params as Obj) : null;
+    if (a.params != null && !params) throw new ToolError('params: an object of the arguments to change, such as {"depth": 20}');
     if (params && Object.keys(params).length) {
       if (f.type === 'sketch') throw new ToolError('sketch contents change with edit_sketch');
       if (f.type === 'import') throw new ToolError('imported bodies have no parameters to change');
+      const add = TOOLS.find((t) => t.name === ADD_TOOLS[f.type]);
+      const unknown = add && unknownArgs(add, params, 'params.', ['name']);
+      if (unknown) throw new ToolError(`${unknown.replace(add.name, `${f.id} (${f.type})`)} (A new name goes in "name", next to params.)`);
       next = this.ins.codec.build(f.type, params, f, f.id, f.name);
     }
     if (a.name != null && str(a.name)) next.name = str(a.name);
