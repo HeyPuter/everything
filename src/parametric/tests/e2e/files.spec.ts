@@ -588,3 +588,35 @@ test('undo during save destination lookup does not mark a different snapshot sav
   expect(result.dirty).toBe(false);
   expect(errors).toEqual([]);
 });
+
+test('a part launched from the desktop asks before replacing unsaved work', async ({ page }) => {
+  await mockPuter(page);
+  await page.addInitScript(() => {
+    type Launch = (items: { name: string; path: string }[]) => Promise<void>;
+    const w = window as unknown as Mock & { puter: { ui: { onLaunchedWithItems(fn: Launch): void } }; launchPart: Launch };
+    w.puter.ui.onLaunchedWithItems = (fn) => { w.launchPart = fn; };
+    w.__files.set('/tester/Documents/Opened.parametric', { text: JSON.stringify({ format: 'parametric-part', version: 1, name: 'Opened', features: [] }) });
+  });
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await app(page);
+  await page.evaluate(() => (window as unknown as { __parametric: AppHandle }).__parametric.store.change('Unsaved work', (d) => { d.variables.push({ name: 'Keep', expr: '17' }); }));
+  const launch = () => page.evaluate(() => {
+    const w = window as unknown as { launchPart(items: { name: string; path: string }[]): Promise<void>; pendingLaunch: Promise<void> };
+    w.pendingLaunch = w.launchPart([{ name: 'Opened.parametric', path: '/tester/Documents/Opened.parametric' }]);
+  });
+  await launch();
+  const ask = page.getByRole('dialog', { name: 'Save changes?' });
+  await expect(ask).toBeVisible();
+  await ask.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await page.evaluate(() => (window as unknown as { pendingLaunch: Promise<void> }).pendingLaunch);
+  await expect(page).toHaveTitle('* Part1 - Parametric');
+  expect(await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.store.doc.variables[0].name)).toBe('Keep');
+  await launch();
+  await ask.getByRole('button', { name: 'Save', exact: true }).click();
+  await page.evaluate(() => (window as unknown as { pendingLaunch: Promise<void> }).pendingLaunch);
+  await expect(page).toHaveTitle('Opened - Parametric');
+  const saved = await page.evaluate(() => JSON.parse((window as unknown as Mock).__files.get('/tester/AppData/parametric/Parts/Part1.parametric')!.text));
+  expect(saved.variables[0].name).toBe('Keep');
+  expect(errors).toEqual([]);
+});

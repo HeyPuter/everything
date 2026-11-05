@@ -484,7 +484,7 @@ export class FileOps {
         if (tooLarge(blob.size, it.name)) return;
         if (isSolidWorksFile(it.name)) await this.openSolidWorks(new Uint8Array(await blob.arrayBuffer()), it.name);
         else if (isStepFile(it.name)) await this.importStepText(await blob.text(), it.name);
-        else this.openText(await blob.text(), { type: 'cloud', path: it.path }, it.name.replace(/\.[^.]+$/, ''));
+        else await this.openPartText(await blob.text(), { type: 'cloud', path: it.path }, it.name.replace(/\.[^.]+$/, ''));
       } catch (e) {
         toast({ kind: 'error', title: 'Could not open the file', message: storageError(e) });
       }
