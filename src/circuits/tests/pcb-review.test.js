@@ -132,3 +132,21 @@ describe('3D bottom view', () => {
     v.dispose();
   });
 });
+
+describe('routing and undo', () => {
+  it('ends the trace when undo takes back its segments', async () => {
+    ctx = await bootBoard();
+    const { app, ed } = ctx;
+    const p = padOf(ed, 'U1', '1');
+    ed.startTool('route');
+    ed.tool.click(ev(p.x, p.y));
+    ed.tool.click(ev(p.x - 3_000_000, p.y + 2_000_000));
+    expect([...ed.doc.items()].filter((o) => o.t === 'track').length).toBeGreaterThan(0);
+    app.undo();
+    expect([...ed.doc.items()].filter((o) => o.t === 'track')).toHaveLength(0);
+    expect(ed.tool.trace).toBeNull();
+    // The next click starts a new trace instead of continuing from a removed end.
+    ed.tool.click(ev(p.x, p.y));
+    expect(ed.tool.trace.pts).toEqual([p.x, p.y]);
+  });
+});

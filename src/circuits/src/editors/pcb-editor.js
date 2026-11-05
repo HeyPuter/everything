@@ -210,6 +210,8 @@ export class PcbEditor extends CanvasView {
     for (const [, before] of e.removed) mark(before);
     for (const [, { before, after }] of e.updated) { mark(before); mark(after); }
     for (const id of e.removed.keys()) this.selection.delete(id);
+    // Undo and redo take back what an active tool placed (a route in progress).
+    if (e.source === 'undo' || e.source === 'redo') this.tool?.historyChanged?.(e);
     if (boardChanged) { this._dirtyBoard = true; this._dirtyLayers.add('*'); this._renderLayerTabs(); }
     for (const l of touched) this._dirtyLayers.add(l);
     // Connectivity is recomputed once edits pause (tools that need it call analysis() directly).

@@ -158,6 +158,9 @@ export class RouteTool {
   dblclick() { if (this.trace) this.finish(); }
   rightClick() { if (this.trace) this.finish(); else this.editor.endTool(); return true; }
 
+  /** Undo removed the trace's segments: continuing would leave a gap, so end it. */
+  historyChanged() { if (this.trace) this.finish(); }
+
   _switchLayer(dir = 1) {
     const ed = this.editor;
     const layers = copperLayers(ed.doc.board.copper);
