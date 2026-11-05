@@ -5,7 +5,7 @@
 import { h, clear, MOD } from './ui/dom.js';
 import { icon } from './ui/icons.js';
 import { showMenu, closeMenus } from './ui/menu.js';
-import { toast, unsavedDialog, confirmDialog, promptDialog } from './ui/dialog.js';
+import { toast, unsavedDialog, confirmDialog, promptDialog, openDialog } from './ui/dialog.js';
 import { installTooltips } from './ui/tooltip.js';
 import { buildShell, renderDocTabs, PHONE_GROUPS, REPO_URL } from './ui/shell.js';
 import { Ribbon } from './ui/ribbon.js';
@@ -439,6 +439,7 @@ export class App {
               kind: doc.file.kind,
               name: doc.file.name,
               handle: doc.file.handle,
+              dropped: doc.file.dropped,
             }
           : null,
         data: blob,
@@ -547,17 +548,22 @@ export class App {
     const busy = toast(`Opening ${name}...`, { timeout: 0 });
     try {
       let drawing;
+      let dropped;
       if (kind === 'native') drawing = new Drawing(await decodeDrawing(buffer));
       else {
         const res = await importDxf(buffer);
         drawing = new Drawing(res.drawing);
         const skipped = Object.entries(res.stats?.skipped || {});
-        if (skipped.length) this.cmdline.log(`Some objects were not imported: ${skipped.map(([t, n]) => `${n} ${t}`).join(', ')}.`, 'muted');
+        if (skipped.length) {
+          // Saving over the original file would remove these.
+          dropped = skipped.map(([t, n]) => `${n} ${t}`).join(', ');
+          this.cmdline.log(`Some objects were not imported: ${dropped}.`, 'muted');
+        }
         for (const w of (res.warnings || []).slice(0, 5)) this.cmdline.log(w, 'muted');
         if (res.release) this.cmdline.log(`${name} is an AutoCAD ${res.release} drawing (${res.version}).`, 'muted');
       }
       busy.remove();
-      const doc = this.addDoc(drawing, baseName(name), { ...file, kind, name });
+      const doc = this.addDoc(drawing, baseName(name), { ...file, kind, name, dropped });
       // Replace an untouched empty drawing.
       const blank = this.docs.find((d) => d !== doc && !d.file && !d.drawing.entities.size && !d.drawing.modified && !d.drawing.canUndo);
       if (blank) this.closeDrawing(blank);
@@ -606,7 +612,37 @@ export class App {
       return true;
     }
     if (!doc.file || (!doc.file.path && !doc.file.handle)) return this.saveAs(doc);
+    if (doc.file.dropped) {
+      const file = doc.file,
+        dropped = file.dropped;
+      const choice = await (doc._askDropped ??= this.askDropped(doc).finally(() => (doc._askDropped = null)));
+      if (choice === 'copy') return this.saveAs(doc);
+      if (choice !== 'replace') return false;
+      if (doc._saving && (await this.afterSaving(doc)) && !doc.drawing.modified) return true;
+      const ok = await this.writing(doc, () => this.writeFile(doc));
+      // The original still has them when the write failed: ask again next time.
+      if (!ok && doc.file === file) file.dropped = dropped;
+      return ok;
+    }
     return this.writing(doc, () => this.writeFile(doc));
+  }
+
+  /** Ask once before saving over an imported file that had objects this app could not open. */
+  async askDropped(doc) {
+    const name = doc.file.name || doc.name;
+    const choice = await openDialog({
+      title: `Save over ${name}?`,
+      size: 'sm',
+      body: h('p.dialog-text', `The original file has objects this app could not open (${doc.file.dropped}). Saving over it removes them. Save a copy to keep the original as it is.`),
+      actions: [
+        { label: 'Cancel' },
+        { label: 'Replace', danger: true, value: 'replace' },
+        { label: 'Save a copy...', primary: true, value: 'copy' },
+      ],
+    });
+    // Asked once: after replacing, the file no longer has them.
+    if (choice === 'replace' && doc.file) doc.file.dropped = undefined;
+    return choice;
   }
 
   /** Wait until no save of the drawing is being written; resolves with the last result. */
