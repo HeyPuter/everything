@@ -10385,7 +10385,8 @@ export function createEditor({
   async function placeComment(g, end) {
     const author = getUser()?.username || '';
     const hex = g.hex;
-    const width = Math.max(0.5, g.width);
+    // At least half a point, in the page's own units, which may be larger than points.
+    const width = Math.max(0.5 / viewport.userUnit, g.width);
     const moved = Math.hypot(end.x - g.start.x, end.y - g.start.y) >= 4;
     // A drag along a line holds no box: a text box then takes its clicked size, and a box
     // shape is not drawn, as for a click, instead of hiding its words or failing.

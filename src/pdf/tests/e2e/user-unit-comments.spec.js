@@ -45,9 +45,28 @@ test('comments clicked onto a page with large units have their usual size', asyn
   await page.getByRole('button', { name: 'Close note', exact: true }).click();
   await settled(page);
 
+  // A shape and a drawing at the thinnest width, 1 point, not five times as thick.
+  await pane.getByRole('button', { name: 'Shapes', exact: true }).click();
+  await page.getByLabel('Stroke width', { exact: true }).selectOption('1');
+  const drag = async (from, to) => {
+    await page.mouse.move(paper.x + from[0] * inch, paper.y + from[1] * inch);
+    await page.mouse.down();
+    await page.mouse.move(paper.x + to[0] * inch, paper.y + to[1] * inch, { steps: 5 });
+    await page.mouse.up();
+    await settled(page);
+  };
+  await drag([4, 1], [6, 3]);
+  await pane.getByRole('button', { name: 'Pencil', exact: true }).click();
+  await drag([4, 5], [6, 7]);
+
   const pending = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Download', exact: true }).click();
   const saved = await PDFDocument.load(await readFile(await (await pending).path()));
+  for (const subtype of ['Square', 'Ink'])
+    expect(listAnnotations(saved, 0).find((a) => a.subtype === subtype).width * 10).toBeCloseTo(
+      1,
+      2,
+    );
   const box = listAnnotations(saved, 0).find((a) => a.subtype === 'FreeText');
   expect([box.box.width * 10, box.box.height * 10, box.fontSize * 10, box.width * 10]).toEqual([
     expect.closeTo(180, 0),
