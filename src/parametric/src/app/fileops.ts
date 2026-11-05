@@ -206,9 +206,14 @@ export class FileOps {
     if (cloudAvailable()) {
       const shared = h('div', { class: 'file-list', role: 'list', 'aria-busy': 'true' }, h('p', { class: 'field-label' }, 'Loading...'));
       body.append(h('h3', { class: 'file-section' }, 'Shared with me'), shared);
-      void sharedWithMe().then((items) => {
+      void sharedWithMe().catch((e) => e as Error).then((items) => {
         shared.removeAttribute('aria-busy');
         shared.replaceChildren();
+        if (!Array.isArray(items)) {
+          shared.removeAttribute('role');
+          shared.append(h('p', { role: 'alert' }, `Could not load the parts shared with you: ${storageError(items)}`));
+          return;
+        }
         if (!items.length) {
           shared.removeAttribute('role');
           shared.append(h('p', { class: 'field-label' }, 'Nothing has been shared with you yet.'));
