@@ -17,6 +17,8 @@
  *     slideBackgrounds  PPTX: put each rendered page behind the slide's text (needs renderPage)
  *     singleSheet  XLSX: one worksheet for the whole document instead of one per page
  *     title, author     document properties (title defaults to the PDF's own title)
+ *     layers       PDF.js optional content config (or a promise of one): content on layers it
+ *                  hides is left out; defaults to the document's own default visibility
  *   }
  *
  *   analyzeDocument(pdf, bytes, options) -> Promise<DocModel>   the layout model the writers use
@@ -64,7 +66,7 @@ export const EXPORT_FORMATS = {
 export async function analyzeDocument(
   pdf,
   bytes,
-  { pages, onProgress, signal, renderPage, total } = {},
+  { pages, onProgress, signal, renderPage, total, layers } = {},
 ) {
   signal?.throwIfAborted();
   const indices = (
@@ -72,6 +74,9 @@ export async function analyzeDocument(
   ).filter((i) => Number.isInteger(i) && i >= 0 && i < pdf.numPages);
   if (!indices.length) throw new Error('Choose at least one page to export.');
   const source = await createImageSource(pdf, bytes);
+  // Read the layer visibility once for every page.
+  const shown = layers ?? pdf.getOptionalContentConfig?.({ intent: 'display' });
+  shown?.catch?.(() => {});
   const images = {
     resolve: (page, id, orientation) => source.resolve(page, id, orientation),
     inline: async (data, orientation) => {
@@ -95,7 +100,7 @@ export async function analyzeDocument(
     signal?.throwIfAborted();
     const page = await pdf.getPage(index + 1);
     signal?.throwIfAborted();
-    const scan = await readPage(pdf, page, { images, signal });
+    const scan = await readPage(pdf, page, { images, signal, layers: shown });
     scan.index = index;
     // Pages drawn only with vector art keep their look as a picture, when one can be rendered.
     if (

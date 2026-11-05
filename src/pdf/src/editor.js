@@ -12206,6 +12206,8 @@ export function createEditor({
         session.bytes,
       );
       const result = await exportDocument(thisPdf, session.bytes, format, {
+        // Layers turned off in the Layers panel are left out, as they are on screen.
+        layers: documentLayers || undefined,
         pages,
         signal: controller.signal,
         slideBackgrounds,

@@ -1075,3 +1075,66 @@ it('keeps text that looks like an Excel character escape as it reads', async () 
     await loading.destroy();
   }
 });
+
+it('leaves out what layers that are off would draw, as the page shows it', async () => {
+  // A layer off by default (answers, internal notes, an old draft) shows nowhere on the page,
+  // but its words and drawings were exported with the rest.
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const page = doc.addPage([400, 400]);
+  const hidden = doc.context.register(doc.context.obj({ Type: 'OCG', Name: 'Answers' }));
+  const shown = doc.context.register(doc.context.obj({ Type: 'OCG', Name: 'Questions' }));
+  doc.catalog.set(
+    PDFName.of('OCProperties'),
+    doc.context.obj({ OCGs: [hidden, shown], D: { OFF: [hidden], Order: [hidden, shown] } }),
+  );
+  page.node.Resources().set(PDFName.of('Properties'), doc.context.obj({ A: hidden, Q: shown }));
+  page.node.Resources().set(PDFName.of('Font'), doc.context.obj({ F: font.ref }));
+  page.node.set(
+    PDFName.of('Contents'),
+    doc.context.register(
+      doc.context.stream(
+        [
+          'BT /F 12 Tf 40 300 Td (Visible question) Tj ET',
+          '/OC /A BDC BT /F 12 Tf 40 250 Td (Secret answer) Tj ET EMC',
+          '/OC /Q BDC BT /F 12 Tf 40 200 Td (Layered question) Tj ET EMC',
+        ].join('\n'),
+      ),
+    ),
+  );
+  const drawing = doc.addPage([400, 400]);
+  drawing.node.Resources().set(PDFName.of('Properties'), doc.context.obj({ A: hidden }));
+  drawing.node.set(
+    PDFName.of('Contents'),
+    doc.context.register(doc.context.stream('/OC /A BDC 0.9 0.2 0.2 rg 40 100 300 100 re f EMC')),
+  );
+  const bytes = await doc.save();
+  const loading = pdfjs.getDocument({ data: bytes.slice(), verbosity: 0 });
+  const pdf = await loading.promise;
+  try {
+    const text = new TextDecoder().decode((await exportDocument(pdf, bytes, 'txt')).bytes);
+    expect(text).toContain('Visible question');
+    expect(text).toContain('Layered question');
+    expect(text).not.toContain('Secret answer');
+    // A page whose only drawing is on that layer shows nothing, so no picture of it is made.
+    const rendered = [];
+    const model = await analyzeDocument(pdf, bytes, {
+      renderPage: async (index) => {
+        rendered.push(index);
+        return new Uint8Array([0x89, 0x50, 0x4e, 0x47]);
+      },
+    });
+    expect(rendered).toEqual([]);
+    expect(model.pages[1].images).toEqual([]);
+    // Layers the reader turned on are exported as they are shown.
+    const config = await pdf.getOptionalContentConfig({ intent: 'display' });
+    const groups = [...config].map(([id]) => id);
+    for (const id of groups) config.setVisibility(id, true);
+    const all = new TextDecoder().decode(
+      (await exportDocument(pdf, bytes, 'txt', { layers: config })).bytes,
+    );
+    expect(all).toContain('Secret answer');
+  } finally {
+    await loading.destroy();
+  }
+});
