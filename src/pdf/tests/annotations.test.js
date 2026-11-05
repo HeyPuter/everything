@@ -226,10 +226,34 @@ describe('text boxes', () => {
     const { box } = listAnnotations(doc, 0).find((entry) => entry.id === low);
     expect(box.y).toBeCloseTo(0, 6);
     expect(box.height).toBeGreaterThan(6 * 12 * 1.2);
-    // A box that would grow over its point keeps its size; the callout is still made.
-    const callout = await addCallout(doc, 0, {
+    // A box above its point grows up the page instead of over the point. A callout clicked by
+    // the foot of the page is placed so, and its last lines were left hidden.
+    const above = await addCallout(doc, 0, {
       rect: { x: 100, y: 250, width: 180, height: 50 },
       anchor: { x: 150, y: 220 },
+      text: words,
+      fit: true,
+    });
+    const raised = listAnnotations(doc, 0).find((entry) => entry.id === above).box;
+    expect(raised.y).toBeCloseTo(250, 6);
+    expect(raised.height).toBeGreaterThan(6 * 12 * 1.2);
+    // On a page turned a quarter, up the page as it is read is towards smaller x.
+    const turned = await blank(1, [400, 400]);
+    turned.getPage(0).setRotation(degrees(90));
+    const side = await addCallout(turned, 0, {
+      rect: { x: 250, y: 100, width: 50, height: 180 },
+      anchor: { x: 320, y: 150 },
+      text: words,
+      fit: true,
+    });
+    const sideBox = listAnnotations(turned, 0).find((entry) => entry.id === side).box;
+    expect(sideBox.x + sideBox.width).toBeCloseTo(300, 6);
+    expect(sideBox.width).toBeGreaterThan(6 * 12 * 1.2);
+    // With no room either way, a box that would grow over its point keeps its size; the
+    // callout is still made.
+    const callout = await addCallout(doc, 0, {
+      rect: { x: 100, y: 330, width: 180, height: 50 },
+      anchor: { x: 150, y: 320 },
       text: words,
       fit: true,
     });

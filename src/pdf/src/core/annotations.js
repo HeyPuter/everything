@@ -242,7 +242,20 @@ async function fittedBox(doc, page, box, value, style, rotation, anchor = null) 
   grown[axis + 2] += shift;
   const covers = (b) =>
     anchor && anchor.x >= b[0] && anchor.x <= b[2] && anchor.y >= b[1] && anchor.y <= b[3];
-  return covers(grown) ? box : grown;
+  if (!covers(grown)) return grown;
+  // A callout's box placed above its point (as one clicked by the foot of the page is) grows
+  // up the page instead, away from the point, rather than hide its last lines.
+  const raised = [...box];
+  if (down < 0) raised[axis + 2] += extra;
+  else raised[axis] -= extra;
+  let back = 0;
+  if (down < 0 && raised[axis + 2] > high)
+    back = -Math.max(0, Math.min(raised[axis + 2] - high, raised[axis] - low));
+  else if (down > 0 && raised[axis] < low)
+    back = Math.max(0, Math.min(low - raised[axis], high - raised[axis + 2]));
+  raised[axis] += back;
+  raised[axis + 2] += back;
+  return covers(raised) ? box : raised;
 }
 
 /**
