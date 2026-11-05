@@ -191,25 +191,6 @@ export function parseParam(text: string, kind: ParamKind, ctx: UnitContext, allo
   }
 }
 
-const numericControls = new WeakMap<HTMLInputElement, { element: HTMLElement; refocus: () => void }>();
-
-/** Retains an active numeric edit, including its Escape baseline, through a panel refresh. */
-export function refreshKeepingNumberField(container: HTMLElement, refresh: () => void) {
-  const input = document.activeElement;
-  const control = input instanceof HTMLInputElement && container.contains(input) ? numericControls.get(input) : undefined;
-  if (!control || !(input instanceof HTMLInputElement)) { refresh(); return; }
-  const label = input.getAttribute('aria-label')!;
-  const start = input.selectionStart, end = input.selectionEnd, direction = input.selectionDirection;
-  refresh();
-  const next = container.querySelector<HTMLInputElement>(`input[aria-label="${CSS.escape(label)}"]`);
-  const nextControl = next && numericControls.get(next);
-  if (!next || !nextControl) return;
-  input.id = next.id;
-  nextControl.element.replaceWith(control.element);
-  control.refocus();
-  input.setSelectionRange(start, end, direction ?? undefined);
-}
-
 export function numberField(o: NumberFieldOptions): HTMLElement {
   const id = nextDomId('num');
   // Phone keypads: the decimal pad (iOS) has no minus, equals or letters, so it
@@ -272,8 +253,7 @@ export function numberField(o: NumberFieldOptions): HTMLElement {
   // Esc takes back what was typed since the field got focus; with nothing to
   // take back it goes on to the panel or tool (which it cancels).
   let atFocus: Param = current;
-  let restoringFocus = false;
-  input.addEventListener('focus', () => { if (!restoringFocus) { atFocus = current; input.select(); } });
+  input.addEventListener('focus', () => { atFocus = current; input.select(); });
   const step = (dir: number) => {
     const r = parseParam(input.value, o.kind, o.ctx, false);
     const base = r.ok ? r.num : 0;
@@ -306,11 +286,6 @@ export function numberField(o: NumberFieldOptions): HTMLElement {
   const spin = h('div', { class: 'spin' }, input, h('div', { class: 'spin-btns' },
     h('button', { type: 'button', tabindex: '-1', 'aria-label': `Increase ${o.label}`, onclick: () => step(1) }, icon('chevronUp', 12)),
     h('button', { type: 'button', tabindex: '-1', 'aria-label': `Decrease ${o.label}`, onclick: () => step(-1) }, icon('chevronDown', 12))));
-  numericControls.set(input, { element: spin, refocus: () => {
-    restoringFocus = true;
-    input.focus({ preventScroll: true });
-    restoringFocus = false;
-  } });
   const label = h('label', { class: 'sr-only', for: id }, o.label);
   const row = h('div', { class: 'row' }, label);
   if (o.icon) {

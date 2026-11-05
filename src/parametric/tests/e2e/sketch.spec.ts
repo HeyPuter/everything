@@ -39,6 +39,37 @@ async function startSketch(page: Page) {
 }
 
 test.describe('sketching', () => {
+  for (const action of ['Tab', 'Increase Value', 'Driven (reference only)'] as const) test(`leaving an edited dimension for ${action} completes the intended interaction`, async ({ page }) => {
+    const errors = await openApp(page);
+    const { x, y } = await startSketch(page);
+    await page.locator('[data-cmd="tool:line"]').click();
+    await page.mouse.click(x - 100, y + 60);
+    await page.mouse.click(x + 100, y + 20);
+    await page.keyboard.press('Escape');
+    await page.keyboard.press('d');
+    await page.mouse.click(x, y + 40);
+    await page.mouse.click(x - 20, y + 100);
+    await page.getByRole('dialog', { name: /Modify/ }).getByRole('textbox').press('Enter');
+    await page.keyboard.press('Escape');
+    await page.locator('.dim-label').click();
+    const field = page.getByRole('textbox', { name: 'Value', exact: true });
+    const driven = page.getByRole('checkbox', { name: 'Driven (reference only)' });
+    await field.fill('25');
+    if (action === 'Tab') {
+      await field.press('Tab');
+      await expect(driven).toBeFocused();
+      await expect(field).toHaveValue('25');
+    } else if (action === 'Increase Value') {
+      await page.getByRole('button', { name: action, exact: true }).click();
+      await expect(field).toHaveValue('26');
+    } else {
+      await driven.click();
+      await expect(driven).toBeChecked();
+      await expect(field).toHaveCount(0);
+    }
+    expect(errors).toEqual([]);
+  });
+
   test('typing a sketch dimension keeps focus and unfinished decimal text through delayed updates', async ({ page }) => {
     const errors = await openApp(page);
     const { x, y } = await startSketch(page);

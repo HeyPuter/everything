@@ -9,9 +9,18 @@ import { RELATION_LABELS, availableRelations, makeRelations, relationsOf } from 
 import { h } from '../../ui/dom';
 import { icon, relationGlyph } from '../../ui/icons';
 import type { App } from '../app';
+import type { SolveResult } from '../../sketch/solver';
 import { PropertyPanel, checkbox, numberField, section } from '../pm';
 
 const ENTITY_LABELS: Record<string, string> = { point: 'Point', line: 'Line', circle: 'Circle', arc: 'Arc', spline: 'Spline' };
+
+export function sketchDefinitionStatus(st: SolveResult): HTMLElement {
+  const cls = st.status === 'over' ? 'error' : st.status === 'full' ? 'info' : '';
+  const text = st.status === 'over'
+    ? `Over defined: ${st.badConstraints.size} relation(s) or dimension(s) conflict or are redundant. Delete or make them driven (shown in red).`
+    : st.status === 'full' ? 'Fully defined.' : `Under defined: ${st.dof} degree(s) of freedom remain. Add dimensions or relations (blue geometry can still move).`;
+  return h('div', { class: `pm-msg sketch-definition ${cls}`, role: 'status' }, text);
+}
 
 export class SketchPanel extends PropertyPanel {
   title: string;
@@ -36,13 +45,7 @@ export class SketchPanel extends PropertyPanel {
     const sk = ed.sketch;
     const out: HTMLElement[] = [];
     const st = ed.solve;
-    if (st) {
-      const cls = st.status === 'over' ? 'error' : st.status === 'full' ? 'info' : '';
-      const text = st.status === 'over'
-        ? `Over defined: ${st.badConstraints.size} relation(s) or dimension(s) conflict or are redundant. Delete or make them driven (shown in red).`
-        : st.status === 'full' ? 'Fully defined.' : `Under defined: ${st.dof} degree(s) of freedom remain. Add dimensions or relations (blue geometry can still move).`;
-      out.push(h('div', { class: `pm-msg ${cls}`, role: 'status' }, text));
-    }
+    if (st) out.push(sketchDefinitionStatus(st));
     if (ed.tool?.options) out.push(section(`${ed.tool.label} Options`, ed.tool.options()));
     if (ed.tool) out.push(h('div', { class: 'pm-msg' }, ed.tool.hint));
 

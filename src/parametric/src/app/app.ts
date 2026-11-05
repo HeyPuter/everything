@@ -20,10 +20,11 @@ import { icon } from '../ui/icons';
 import { selectTabs, syncTabStops, tabKeys } from '../ui/tabs';
 import { type FocusRegion, cycleRegion, firstTabStop, trackRegionFocus } from '../ui/regions';
 import { CommandRegistry } from './commands';
-import { type PickFilter, PropertyPanel, refreshKeepingNumberField, type UnitContext } from './pm';
+import { type PickFilter, PropertyPanel, type UnitContext } from './pm';
 import { Selection, faceRef, type SelItem } from './selection';
 import { type Shell, buildShell, renderRibbon, syncCommandButtons, type RibbonTab } from './shell';
 import { SketchEditor } from './sketch/editor';
+import { sketchDefinitionStatus } from './sketch/panel';
 import { FeatureTree } from './tree';
 import { DrawingPanel, DrawingWorkspace } from './drawing';
 import { Viewport, type VPEvent } from './viewport';
@@ -1253,10 +1254,16 @@ export class App {
   refreshSketchPanel(keepNumberField = false) {
     if (!this.sketchEditor || this.panel) return;
     if (this.leftTab !== 'pm' || !this.shell.lpBody.querySelector('.pm')) this.showLeft('pm');
+    // A dimension value edit changes geometry and definition status, while
+    // its controls stay the same. Keep them mounted through input/change so
+    // typing, Tab navigation and clicks on neighboring controls can finish.
+    const status = this.shell.lpBody.querySelector('.sketch-definition');
+    if (keepNumberField && status && this.sketchEditor.solve) {
+      status.replaceWith(sketchDefinitionStatus(this.sketchEditor.solve));
+      return;
+    }
     const p = this.hooks.sketchPanel();
-    const refresh = () => this.shell.lpBody.replaceChildren(this.panelElement(p));
-    if (keepNumberField) refreshKeepingNumberField(this.shell.lpBody, refresh);
-    else refresh();
+    this.shell.lpBody.replaceChildren(this.panelElement(p));
   }
 
   /** Leaves sketch mode. */
