@@ -39,6 +39,56 @@ async function startSketch(page: Page) {
 }
 
 test.describe('sketching', () => {
+  for (const action of ['invalid cancel', 'invalid correction', 'live cancel', 'live accept', 'linked cancel'] as const) test(`an open Modify box preserves unit meaning on ${action}`, async ({ page }) => {
+    const errors = await openApp(page);
+    await startSketch(page);
+    await page.evaluate((action) => {
+      const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+      a.store.change('Add variable', (doc) => { doc.variables = [{ id: 'v1', name: 'Width', expr: '25.4' }]; });
+      a.sketchEditor!.edit('Add dimensioned circle', (sk) => {
+        sk.entities.push({ id: 'pc', t: 'point', x: 0, y: 0 }, { id: 'circle', t: 'circle', c: 'pc', r: 12.7 });
+        sk.constraints.push({ id: 'diameter', type: 'diameter', refs: ['circle'], value: action === 'linked cancel' ? '=Width' : '=25.4', at: [20, 20], name: 'D1' });
+      });
+      a.sketchEditor!.openModify('diameter');
+    }, action);
+    const modify = page.getByRole('dialog', { name: 'Modify D1', exact: true });
+    const input = modify.getByRole('textbox');
+    await input.fill(action.startsWith('invalid') ? '-5' : action === 'linked cancel' ? '=Width*2' : '=50.8');
+    if (action.startsWith('invalid')) {
+      await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.commands.run('properties'));
+      const properties = page.getByRole('dialog', { name: 'Part Properties', exact: true });
+      await properties.getByRole('combobox', { name: 'Unit system' }).selectOption('IPS');
+      await properties.getByRole('button', { name: 'OK', exact: true }).click();
+      await expect(input).toHaveValue('-5');
+    } else {
+      await page.evaluate(async (url) => {
+        const { changeUnits } = await import(url);
+        const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+        a.store.change('Change units', (doc) => changeUnits(doc, 'IPS'));
+      }, '/src/model/document.ts');
+      await expect(input).toHaveValue(action === 'linked cancel' ? '=Width*2' : '=2');
+    }
+    if (action.endsWith('cancel')) await input.press('Escape');
+    else {
+      if (action === 'invalid correction') await input.fill('2');
+      await input.press('Enter');
+    }
+    await expect(modify).toHaveCount(0);
+    const dimension = () => page.evaluate(() => {
+      const ed = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.sketchEditor!;
+      const d = ed.sketch.constraints.find((c) => c.id === 'diameter') as import('../../src/model/types').SkDimension;
+      return { value: ed.dimValue(d), expression: d.value, units: ed.app.store.doc.units };
+    });
+    expect((await dimension()).value).toBeCloseTo(action.endsWith('cancel') ? 25.4 : 50.8, 9);
+    if (action === 'linked cancel') expect((await dimension()).expression).toBe('=Width');
+    if (action === 'live accept') {
+      await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.commands.run('undo'));
+      expect((await dimension()).value).toBeCloseTo(25.4, 9);
+      expect((await dimension()).units).toBe('IPS');
+    }
+    expect(errors).toEqual([]);
+  });
+
   for (const units of ['IPS', 'MKS'] as const) test(`a selected sketch dimension follows a change to ${units}`, async ({ page }) => {
     const errors = await openApp(page);
     await startSketch(page);

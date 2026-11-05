@@ -9,6 +9,7 @@ import type { Id, Param, SkConstraint, SkCurve, SkDimension, SkEntity, SketchFea
 import { isDimension } from '../../model/types';
 import { UNIT_SYSTEMS, formatEditable, formatNumber } from '../../model/units';
 import { evaluate } from '../../model/expr';
+import { changeFeatureUnits } from '../../model/document';
 import { ORIGIN_ID, SketchIndex, distanceToCurve, pointIdsOf, sketchBounds, tessellate } from '../../sketch/geom';
 import { type SolveResult, solveSketch } from '../../sketch/solver';
 import { RELATION_LABELS, availableRelations, cleanupConstraints, deleteItems, idFactory, makeRelations, measureDimension, nextDimName, usedPoints } from '../../sketch/ops';
@@ -79,6 +80,7 @@ export class SketchEditor implements ViewportTool {
   /** Undoes the open modify box's live preview when it closes without applying. */
   private modifyRevert: (() => void) | null = null;
   private modifyCleanup: (() => void) | null = null;
+  private modifySyncUnits: (() => void) | null = null;
   showRelations = true;
   showDimensions = true;
   /** Cursor position in sketch coordinates. */
@@ -99,15 +101,16 @@ export class SketchEditor implements ViewportTool {
     // using (a line chain's last point, picked entities): drop that state so
     // the next click cannot reference points that no longer exist.
     this.unsubscribe = app.store.on((reason) => {
+      if (reason === 'undo' || reason === 'redo') {
+        if (this.tool) { if (this.tool.abort) this.tool.abort(); else this.tool.cancel(); }
+        this.modifyRevert = null;
+        this.closeModify();
+      } else this.modifySyncUnits?.();
       if (units !== app.store.doc.units) {
         units = app.store.doc.units;
         app.refreshSketchPanel();
         this.render();
       }
-      if (reason !== 'undo' && reason !== 'redo') return;
-      if (this.tool) { if (this.tool.abort) this.tool.abort(); else this.tool.cancel(); }
-      this.modifyRevert = null;
-      this.closeModify();
     });
   }
 
@@ -534,12 +537,13 @@ export class SketchEditor implements ViewportTool {
       toast({ message: 'This is a driven (reference) dimension. Make it driving from its context menu to edit its value.' });
       return;
     }
-    const units = this.app.store.doc.units;
-    const scale = d.type === 'angle' ? 1 : UNIT_SYSTEMS[units].scale;
+    let units = this.app.store.doc.units;
+    let variables = structuredClone(this.app.store.doc.variables);
+    let scale = d.type === 'angle' ? 1 : UNIT_SYSTEMS[units].scale;
     const initial = typeof d.value === 'string' ? d.value : formatEditable(d.value / scale);
     const input = h('input', { class: 'input', value: initial, 'aria-label': `Value of ${d.name}`, spellcheck: 'false', autocomplete: 'off', autocapitalize: 'off', autocorrect: 'off' }) as HTMLInputElement;
     const err = h('div', { class: 'err', role: 'alert' });
-    const original = d.value;
+    let original = d.value;
     // Live previews move geometry without an undo step. Every preview starts
     // from the geometry as it was, and cancel or apply restore it first, so the
     // undo step holds the true state from before the change.
@@ -616,6 +620,23 @@ export class SketchEditor implements ViewportTool {
     this.app.viewport.root.append(box);
     this.modify = box;
     this.modifyRevert = revert;
+    this.modifySyncUnits = () => {
+      const doc = this.app.store.doc;
+      if (doc.units !== units) {
+        // The live value was converted with the document; Cancel's separate
+        // baseline must be converted against the same resulting variables.
+        const baseline = { ...this.sketch, entities: [], constraints: [{ ...d, value: original }] };
+        changeFeatureUnits(baseline, units, doc.units, variables, doc.variables);
+        original = baseline.constraints[0].value;
+        units = doc.units;
+        scale = d.type === 'angle' ? 1 : UNIT_SYSTEMS[units].scale;
+        const current = this.sketch.constraints.find((c) => c.id === dimId) as SkDimension | undefined;
+        if (current && !input.classList.contains('invalid')) {
+          input.value = typeof current.value === 'string' ? current.value : formatEditable(current.value / scale);
+        }
+      }
+      variables = structuredClone(doc.variables);
+    };
     const [sx, sy] = this.toScreen(d.at);
     const rootW = this.app.viewport.root.clientWidth;
     box.style.left = `${Math.max(4, Math.min(rootW - 200, sx + 14))}px`;
@@ -633,6 +654,7 @@ export class SketchEditor implements ViewportTool {
 
   /** Closes the modify box; a value that was not applied is reverted. */
   closeModify() {
+    this.modifySyncUnits = null;
     this.modifyCleanup?.();
     this.modifyCleanup = null;
     const revert = this.modifyRevert;
