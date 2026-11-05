@@ -152,10 +152,16 @@ export class App {
       }
     });
     // Mobile browsers often skip beforeunload; save recovery copies when hidden.
+    // A settings change still waiting to sync is sent now too.
     document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'hidden') this.flushAutosave();
+      if (document.visibilityState !== 'hidden') return;
+      this.flushAutosave();
+      this.flushSettings();
     });
-    window.addEventListener('pagehide', () => this.flushAutosave());
+    window.addEventListener('pagehide', () => {
+      this.flushAutosave();
+      this.flushSettings();
+    });
     // Phones have the tool bar instead of the ribbon, and usually no F1 key.
     const phone = matchMedia('(max-width: 599px)').matches;
     this.cmdline.log(phone ? 'Ready. Pick a tool below, or type a command.' : 'Ready. Type a command, or pick a tool from the ribbon. Press F1 for help.', 'muted');
@@ -951,18 +957,24 @@ export class App {
     if (!this.signedIn) return;
     clearTimeout(this._kvTimer);
     // One small record, written at most every few seconds.
-    this._kvTimer = setTimeout(() => {
-      if (!this.signedIn) return;
-      // Only what differs from the defaults, so new defaults still reach users.
-      const changed = { theme: this.themePref };
-      for (const k of SYNCED_SETTINGS) {
-        const v = this.settings[k];
-        if (JSON.stringify(v) !== JSON.stringify(SETTING_DEFAULTS[k])) changed[k] = v;
-      }
-      Promise.resolve()
-        .then(() => puter.kv.set('settings', changed))
-        .catch(() => {});
-    }, 4000);
+    this._kvTimer = setTimeout(() => this.flushSettings(), 4000);
+  }
+
+  /** Write a pending settings change now (also when the page is hidden or closed). */
+  flushSettings() {
+    if (!this._kvTimer) return;
+    clearTimeout(this._kvTimer);
+    this._kvTimer = null;
+    if (!this.signedIn) return;
+    // Only what differs from the defaults, so new defaults still reach users.
+    const changed = { theme: this.themePref };
+    for (const k of SYNCED_SETTINGS) {
+      const v = this.settings[k];
+      if (JSON.stringify(v) !== JSON.stringify(SETTING_DEFAULTS[k])) changed[k] = v;
+    }
+    Promise.resolve()
+      .then(() => puter.kv.set('settings', changed))
+      .catch(() => {});
   }
 
   // Theme --------------------------------------------------------------------------------
