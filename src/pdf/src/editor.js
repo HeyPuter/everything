@@ -9923,6 +9923,7 @@ export function createEditor({
     const apply = safe(async () => {
       const indices = choices.indices();
       const slots = Object.fromEntries(HEADER_SLOTS.map((slot) => [slot, inputs[slot].value]));
+      const numbered = Object.values(slots).some((text) => /\{bates\}/i.test(text));
       await mutateDialog(
         d,
         (doc) =>
@@ -9931,7 +9932,7 @@ export function createEditor({
             size: size.value,
             title: details.title || '',
             file: name.replace(/\.pdf$/i, ''),
-            bates: Object.values(slots).some((text) => /\{bates\}/i.test(text))
+            bates: numbered
               ? {
                   prefix: batesFields.prefix.value,
                   suffix: batesFields.suffix.value,
@@ -9941,7 +9942,7 @@ export function createEditor({
                 }
               : null,
           }),
-        `Header and footer added to ${pagesPhrase(indices)}.`,
+        `${bates && numbered ? 'Bates numbers' : 'Header and footer'} added to ${pagesPhrase(indices)}.`,
       );
     });
     form.onsubmit = (e) => {
@@ -9950,7 +9951,9 @@ export function createEditor({
     };
     const d = modal(bates ? 'Bates numbering' : 'Header and footer', form, [
       button('Cancel', null, () => d.close()),
-      button('Add header and footer', 'PanelTopBottomDashed', apply, 'btn primary'),
+      bates
+        ? button('Add Bates numbers', 'Hash', apply, 'btn primary')
+        : button('Add header and footer', 'PanelTopBottomDashed', apply, 'btn primary'),
     ]);
     d.classList.add('header-footer-dialog');
     (bates ? batesFields.prefix : inputs.topLeft).focus();

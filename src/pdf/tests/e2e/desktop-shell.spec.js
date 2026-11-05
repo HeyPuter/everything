@@ -1079,7 +1079,7 @@ test('Bates numbering asks for a start number instead of starting at zero', asyn
   await pane.getByRole('button', { name: 'Bates numbering', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Bates numbering' });
   await dialog.getByLabel('Start number').fill('');
-  await dialog.getByRole('button', { name: 'Add header and footer' }).click();
+  await dialog.getByRole('button', { name: 'Add Bates numbers', exact: true }).click();
   await expect(dialog.locator('.dialog-error')).toHaveText(
     'Start Bates numbers between 0 and 999,999,999.',
   );
@@ -1096,7 +1096,10 @@ test('Bates numbering stamps padded numbers across the chosen pages', async ({ p
   await dialog.getByLabel('Prefix').fill('CASE-');
   await dialog.getByLabel('Start number').fill('7');
   await dialog.getByLabel('Number of digits').fill('4');
-  await dialog.getByRole('button', { name: 'Add header and footer' }).click();
+  // The button names what it adds, as the other page-mark dialogs do.
+  await expect(dialog.getByRole('button', { name: 'Add header and footer' })).toHaveCount(0);
+  await dialog.getByRole('button', { name: 'Add Bates numbers', exact: true }).click();
+  await expect(page.locator('#toast')).toHaveText('Bates numbers added to 3 pages.');
   await settled(page);
   const bytes = await downloaded(page);
   const text = new TextDecoder('latin1').decode(bytes);
