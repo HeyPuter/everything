@@ -27,7 +27,8 @@ import { mil, mm, SCH_GRID, snap, formatLength, parseLength } from '../core/unit
 import { bboxContains, bboxIntersects, bboxValid, bboxUnion, bboxEmpty, simplifyPolyline } from '../core/geom.js';
 import { LAYERS } from '../model/layers.js';
 import { PIN_TYPES, PIN_TYPE_LABELS } from '../model/schema.js';
-import { CATEGORIES } from '../model/library/builtin.js';
+import { CATEGORIES, findComponent } from '../model/library/builtin.js';
+import { overlappingPads } from '../model/library/footprints.js';
 import { PIN_TEXT, SCH_TEXT, LINE_W } from '../model/sch.js';
 
 const PIN_NUM_TEXT = mil(50);
@@ -286,7 +287,8 @@ export class LibEditor extends CanvasView {
         if (o.fill) b.rect((o.x1 + o.x2) / 2, (o.y1 + o.y2) / 2, Math.abs(o.x2 - o.x1), Math.abs(o.y2 - o.y1), 0, 0, c);
         else b.rectOutline(o.x1, o.y1, o.x2, o.y2, w, c);
         break;
-      case 'circle': if (o.fill) b.circle(o.cx, o.cy, o.r, c); else b.ring(o.cx, o.cy, o.r, w, c); break;
+      // A filled circle's outline adds half its width all round, as on the board and in Gerber.
+      case 'circle': if (o.fill) b.circle(o.cx, o.cy, o.r + (o.w || 0) / 2, c); else b.ring(o.cx, o.cy, o.r, w, c); break;
       case 'arc': b.arc(o.cx, o.cy, o.r, o.a0, o.sweep, w, c); break;
       case 'text': b.text(o.text, o.x, o.y, o.size || mm(1), c, { rot: o.rot || 0, align: o.align, mirror: !!o.mirror, upright: true }); break;
       default:
@@ -581,13 +583,17 @@ export class LibEditor extends CanvasView {
   async padArrayDialog() {
     if (this.mode !== 'footprint') this.setMode('footprint');
     const t = this.padTemplate;
-    const len = (key, label, v) => ({ key, label: `${label} (mm)`, type: 'text', value: formatLength(v, 'mm', { suffix: false }), parse: (s) => parseLength(s, 'mm') });
+    const len = (key, label, v) => ({
+      key, label: `${label} (mm)`, type: 'text', value: formatLength(v, 'mm', { suffix: false }),
+      parse: (s) => { const n = parseLength(s, 'mm'); return n > 0 ? n : null; }, error: 'enter a length greater than zero',
+    });
+    const count = (v) => (Number.isInteger(Number(v)) ? Number(v) : NaN);
     const form = buildForm([
-      { key: 'rows', label: 'Rows', type: 'number', value: 4, min: 1, max: 100 },
-      { key: 'cols', label: 'Columns', type: 'number', value: 2, min: 1, max: 100 },
+      { key: 'rows', label: 'Rows', type: 'number', value: 4, min: 1, max: 100, parse: count, error: 'enter a whole number from 1 to 100' },
+      { key: 'cols', label: 'Columns', type: 'number', value: 2, min: 1, max: 100, parse: count, error: 'enter a whole number from 1 to 100' },
       len('pitchX', 'Column spacing', mm(7.62)),
       len('pitchY', 'Row spacing', mm(2.54)),
-      { key: 'start', label: 'First number', type: 'number', value: Number(this.nextPadNumber()), min: 0 },
+      { key: 'start', label: 'First number', type: 'number', value: Number(this.nextPadNumber()), min: 0, parse: count, error: 'enter a whole number' },
       { key: 'order', label: 'Numbering', type: 'select', value: 'around', options: [['around', 'Around (down the left, up the right)'], ['rows', 'Row by row'], ['columns', 'Column by column']] },
       { key: 'side', label: 'Pads', type: 'select', value: t.side === 'thru' ? 'thru' : 'top', options: [['thru', 'Through hole'], ['top', 'Surface mount']] },
       len('w', 'Pad width', t.side === 'thru' ? t.w : mm(1.6)),
@@ -605,10 +611,13 @@ export class LibEditor extends CanvasView {
           if (msg) { err.textContent = msg; return false; }
           const v = form.values();
           const thru = v.side === 'thru';
+          if (thru && v.drill >= Math.min(v.w, v.h)) { err.textContent = 'The hole must be smaller than the pad.'; return false; }
           const pads = padArray({
             rows: v.rows, cols: v.cols, pitchX: v.pitchX, pitchY: v.pitchY, start: v.start, order: v.order,
             template: { shape: thru ? 'round' : 'roundrect', w: v.w, h: v.h, side: v.side, drill: thru ? v.drill : 0, plated: true, rot: 0, radius: 0.25, firstSquare: thru },
           });
+          const clash = overlappingPads(pads);
+          if (clash) { err.textContent = `Pads ${clash[0]} and ${clash[1]} would overlap. Increase the spacing or make the pads smaller.`; return false; }
           const ids = [];
           this.doc.store.transact('Add pad array', (s) => { for (const p of pads) { const n = s.add({ ...p, id: uid() }); ids.push(n.id); } });
           this.setSelection(ids);
@@ -692,14 +701,18 @@ export class LibEditor extends CanvasView {
     return validateComponent(this.doc.toDef());
   }
 
-  /** Writes the component to the project library and My library. */
+  /**
+   * Writes the component to the project library and My library. A project's
+   * edited copy of a built-in component keeps the built-in id, so it stays in
+   * the project: in My library it would replace the built-in everywhere.
+   */
   async save() {
     const def = this.doc.toDef();
     if (def.footprint && !def.footprint.courtyard && def.footprint.pads.length) def.footprint.courtyard = courtyardFor([...this.doc.fpStore.all()]);
     const issues = validateComponent(def);
     const errors = issues.filter((m) => m.severity === 'error');
     if (this.project) this.project.putComponent(def);
-    await this.app.userLibrary?.put(def);
+    if (!findComponent(def.id)) await this.app.userLibrary?.put(def);
     this.doc.markSaved();
     this.app.renderTabs?.();
     this.app.updateTitle?.();
@@ -773,7 +786,8 @@ export class LibEditor extends CanvasView {
     const body = fm.body || null;
     const setBody = (patch) => setFp({ body: { w: mm(2), h: mm(2), height: mm(1), color: '#222222', shape: 'box', ...(fm.body || {}), ...patch } }, '3D body');
     const params = Object.entries(meta.params || {}).map(([k, v]) => `${k}=${v}`).join('\n');
-    const issues = validateComponent(this.doc.toDef());
+    const def = this.doc.toDef();
+    const issues = validateComponent(def);
     return {
       title: 'Component',
       sections: [
@@ -795,7 +809,7 @@ export class LibEditor extends CanvasView {
         {
           title: 'Footprint',
           fields: [
-            { label: 'Has a footprint', type: 'bool', value: fm.enabled !== false, onChange: (v) => setFp({ enabled: v }, 'Footprint') },
+            { label: 'Has a footprint', type: 'bool', value: !!def.footprint, onChange: (v) => setFp({ enabled: v }, 'Footprint') },
             { label: 'Footprint name', type: 'text', value: fm.name || '', onChange: (v) => setFp({ name: v }, 'Footprint name') },
             { label: 'Description', type: 'text', value: fm.description || '', onChange: (v) => setFp({ description: v }, 'Footprint description') },
             { label: 'Courtyard', type: 'readonly', value: fm.courtyard ? `${formatLength(fm.courtyard.x2 - fm.courtyard.x1, 'mm')} x ${formatLength(fm.courtyard.y2 - fm.courtyard.y1, 'mm')}` : 'None' },

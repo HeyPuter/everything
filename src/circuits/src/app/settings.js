@@ -21,6 +21,7 @@ export const DEFAULTS = {
   cornerStyle: '45start',     // 45start | 45end | 90start | 90end | any
   schCorner: '90start',
   schCrosshair: false,
+  pcbCrosshair: false,
   onlineDrc: true,
   autoRepour: true,
   padLabels: true,

@@ -308,7 +308,10 @@ export class Renderer2D {
   /** Nanometres per CSS pixel at the current zoom. */
   get nmPerPx() { return 1000 / this.view.scale; }
 
-  zoomAt(sx, sy, factor, minScale = 1e-6, maxScale = 50) {
+  // Limits: zoomed out, a two metre design still spans 200 px (further out
+  // everything collapses into a dot and the view is easy to lose); zoomed
+  // in, 10 px per micrometre (float32 coordinates start to wobble beyond).
+  zoomAt(sx, sy, factor, minScale = 1e-4, maxScale = 10) {
     const [wx, wy] = this.screenToWorld(sx, sy);
     const v = this.view;
     v.scale = Math.min(maxScale, Math.max(minScale, v.scale * factor));

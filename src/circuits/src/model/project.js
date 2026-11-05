@@ -266,19 +266,41 @@ export function newProjectData(name = 'Untitled') {
   };
 }
 
+const MIN_POINTS = { wire: 2, bus: 2, gline: 2, pour: 3, region: 3 };
+
+/** Objects drawn through a point list need enough points to have a shape. */
+function hasPoints(o) {
+  const min = MIN_POINTS[o.t];
+  if (!min) return true;
+  const pts = o.pts;
+  return Array.isArray(pts) && pts.length >= min * 2 && pts.length % 2 === 0 && pts.every(Number.isFinite);
+}
+
 /** Validates and upgrades parsed JSON. Throws with a readable message. */
 export function parseProject(json) {
   const data = typeof json === 'string' ? JSON.parse(json) : json;
   if (!data || data.format !== FORMAT) throw new Error('This file is not a Circuits project.');
   if (typeof data.version !== 'number' || data.version > FORMAT_VERSION) throw new Error('This project was saved by a newer version of Circuits.');
   if (!Array.isArray(data.documents)) throw new Error('The project has no documents.');
+  data.documents = data.documents.filter((d) => d && typeof d === 'object');
+  const docIds = new Set();
+  const partUids = new Set();
   for (const d of data.documents) {
     if (!['sch', 'pcb'].includes(d.kind)) throw new Error(`Unknown document type "${d.kind}".`);
+    if (!d.id || docIds.has(d.id)) d.id = uid('d');
+    docIds.add(d.id);
     if (!Array.isArray(d.objects)) d.objects = [];
-    const seen = new Set();
-    d.objects = d.objects.filter((o) => o && typeof o === 'object' && typeof o.t === 'string' && !META_TYPES.has(o.t)).map((o) => {
+    // Ids of the document settings entries ('sheet', 'board', ...) are reserved.
+    const seen = new Set(META_TYPES);
+    const usable = (o) => o && typeof o === 'object' && typeof o.t === 'string' && !META_TYPES.has(o.t);
+    d.objects = d.objects.filter((o) => usable(o) && hasPoints(o)).map((o) => {
       if (!o.id || seen.has(o.id)) o = { ...o, id: uid() };
       seen.add(o.id);
+      // Parts link to board components by uid: each needs its own.
+      if (o.t === 'part' && d.kind === 'sch') {
+        if (!o.uid || partUids.has(o.uid)) o = { ...o, uid: uid('u') };
+        partUids.add(o.uid);
+      }
       return o;
     });
   }

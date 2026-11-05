@@ -194,6 +194,7 @@ export class WireTool {
     this.name = kind;
     this.cursor = 'crosshair';
     this.pts = null;
+    this.clicks = []; // pts length before each click, so Backspace undoes a whole click
     this.corner = editor.app.settings.get('schCorner') || '90start';
     this.snapPins = kind !== 'gline';
   }
@@ -212,13 +213,14 @@ export class WireTool {
   }
   click(ev) {
     const { x, y } = ev;
-    if (!this.pts) { this.pts = [x, y]; this.editor.updateHint(); return; }
+    if (!this.pts) { this.pts = [x, y]; this.clicks = []; this.editor.updateHint(); return; }
     const path = this._path(x, y);
     const n = this.pts.length;
     if (this.pts[n - 2] === x && this.pts[n - 1] === y) { this.finish(); return; }
+    this.clicks.push(n);
     this.pts = path;
     // Ending on an existing connection finishes the wire automatically.
-    if (this.snapPins && this.editor.isConnectionPoint(x, y)) this.finish();
+    if (this.snapPins && this.editor.isConnectionPoint(x, y, this.kind)) this.finish();
   }
   dblclick() { this.finish(); }
   rightClick() {
@@ -244,8 +246,12 @@ export class WireTool {
       this.editor.updateHint();
       return true;
     }
-    if (combo === 'Backspace' && this.pts) {
-      if (this.pts.length > 2) this.pts = this.pts.slice(0, -2); else this.pts = null;
+    if (combo === 'Backspace') {
+      // Drop the last click together with the corner it added. Swallowed
+      // even with nothing left, so one press too many does not fall through
+      // to Delete and remove the selection.
+      if (!this.pts) return true;
+      if (this.clicks.length) this.pts = this.pts.slice(0, this.clicks.pop()); else this.pts = null;
       this.editor.updateHint();
       return true;
     }

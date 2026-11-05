@@ -44,10 +44,24 @@ export class CanvasView extends Emitter {
     }
     this._ro = new ResizeObserver(() => this._resize());
     this._ro.observe(this.wrap);
+    // Moving the window to a screen with another pixel ratio does not resize
+    // the canvas element, so watch the ratio itself or the drawing buffer
+    // stays at the old density (blurry, or needlessly large).
+    this._onDpr = () => { this._watchDpr(); this._resize(); };
+    this._watchDpr();
+    this._offSettings = app.settings?.on?.('change', ({ key }) => {
+      if (key === 'schCrosshair' || key === 'pcbCrosshair') this.requestRender(true);
+    });
     this._bindInput();
   }
 
   get grid() { return 0; }
+
+  _watchDpr() {
+    this._dprQuery?.removeEventListener?.('change', this._onDpr);
+    this._dprQuery = window.matchMedia?.(`(resolution: ${window.devicePixelRatio || 1}dppx)`) || null;
+    this._dprQuery?.addEventListener?.('change', this._onDpr);
+  }
 
   _resize() {
     if (!this.renderer) return;
@@ -83,6 +97,19 @@ export class CanvasView extends Emitter {
   }
 
   drawCursor() {}
+
+  /**
+   * Full-view crosshair through the (snapped) cursor, for the crosshair
+   * cursor preferences. Two lines in the overlay, which is rebuilt on pointer
+   * moves anyway, so it costs nothing extra and nothing at all when off.
+   */
+  drawFullCrosshair(b, color) {
+    if (!this.renderer || !this.cursor.inside) return;
+    const v = this.renderer.visibleBox(2);
+    const { x, y } = this.cursor;
+    b.line(v.minX, y, v.maxX, y, 0, color);
+    b.line(x, v.minY, x, v.maxY, 0, color);
+  }
 
   draw() {}
 
@@ -205,12 +232,18 @@ export class CanvasView extends Emitter {
       const ev = this._event(e);
       this.cursor = { x: ev.x, y: ev.y, sx: ev.sx, sy: ev.sy, inside: true, target: ev.target };
       if (press) {
-        if (!press.dragging && Math.hypot(e.clientX - press.x, e.clientY - press.y) >= DRAG_THRESHOLD) {
+        const moved = Math.hypot(e.clientX - press.x, e.clientY - press.y) >= DRAG_THRESHOLD;
+        if (moved) { clearLong(); press.moved = true; }
+        // Tools without a drag gesture (wires, placing) keep the press a
+        // click, at the release point the preview followed, so a hand that
+        // moves a few pixels does not lose it.
+        const draggable = typeof this.tool?.dragStart === 'function';
+        if (draggable && !press.dragging && moved) {
           press.dragging = true;
-          clearLong();
-          this.tool?.dragStart?.(press.ev, ev);
+          this.tool.dragStart(press.ev, ev);
         }
         if (press.dragging) this.tool?.drag?.(ev, press.ev);
+        else if (!draggable && typeof this.tool?.move === 'function') this.tool.move(ev);
       } else this.tool?.move?.(ev);
       this.emit('cursor', this.cursor);
       this.requestRender(true);
@@ -238,7 +271,7 @@ export class CanvasView extends Emitter {
       if (e.type === 'pointercancel') { if (p.dragging) this.tool?.cancelDrag?.(); return; }
       const ev = this._event(e);
       if (p.dragging) this.tool?.dragEnd?.(ev, p.ev);
-      else this.tool?.click?.(p.ev, e.detail);
+      else this.tool?.click?.(p.moved ? ev : p.ev, e.detail);
       this.tool?.up?.(ev);
       this.requestRender(true);
     };
@@ -256,13 +289,20 @@ export class CanvasView extends Emitter {
       const dx = e.deltaX * scale, dy = e.deltaY * scale;
       if (e.ctrlKey || e.metaKey || (zoomMode && !e.shiftKey)) {
         this.renderer.zoomAt(e.clientX - r.left, e.clientY - r.top, Math.exp(-dy * (e.ctrlKey && Math.abs(dy) < 50 ? 0.01 : 0.0018)));
-      } else if (e.shiftKey) this.renderer.panBy(-dy, -dx);
-      else this.renderer.panBy(-dx, -dy);
+      } else if (e.shiftKey) {
+        // Shift scrolls sideways. macOS already turns a Shift+wheel into
+        // deltaX, so use whichever axis carries the scroll.
+        this.renderer.panBy(-(Math.abs(dx) > Math.abs(dy) ? dx : dy), 0);
+      } else this.renderer.panBy(-dx, -dy);
       this.onViewChanged();
-      // Keep the snapped cursor in sync with the new view.
+      // Keep the snapped cursor in sync with the new view, and anything being
+      // dragged under it (the select tool's `move` is its move session, not a
+      // handler, so only call functions).
       const ev = this._event(e);
       this.cursor = { ...this.cursor, x: ev.x, y: ev.y, sx: ev.sx, sy: ev.sy };
-      this.tool?.move?.(ev);
+      if (press) {
+        if (press.dragging) this.tool?.drag?.(ev, press.ev);
+      } else if (typeof this.tool?.move === 'function') this.tool.move(ev);
     }, { passive: false });
 
     // Safari trackpad pinch.
@@ -331,6 +371,8 @@ export class CanvasView extends Emitter {
     this.disposed = true;
     cancelAnimationFrame(this._frame);
     this._ro.disconnect();
+    this._offSettings?.();
+    this._dprQuery?.removeEventListener?.('change', this._onDpr);
     this.tool?.deactivate?.();
     this.renderer?.dispose();
     this.el.remove();

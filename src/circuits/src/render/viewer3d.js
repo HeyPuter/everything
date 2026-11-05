@@ -29,6 +29,7 @@ uniform vec3 uL0;
 uniform vec3 uC0;
 uniform vec3 uL1;
 uniform vec3 uC1;
+uniform float uSide;
 
 vec3 N; vec3 V; vec3 diff; vec3 F0; float shin;
 
@@ -47,7 +48,7 @@ void main() {
   diff = uColor * (1.0 - uMetal);
   F0 = mix(vec3(0.04), uColor, uMetal);
   shin = exp2(mix(10.0, 2.0, uRough));
-  float hemi = 0.5 + 0.5 * N.z;
+  float hemi = 0.5 + 0.5 * N.z * uSide;
   vec3 col = mix(uGround, uSky, hemi) * (diff + F0 * 0.6);
   col += light(uL0, uC0) + light(uL1, uC1);
   outColor = vec4(pow(col, vec3(1.0 / 2.2)), 1.0);
@@ -62,7 +63,9 @@ const FOV = (35 * Math.PI) / 180;
 const DEG = Math.PI / 180;
 const VIEWS = {
   top: { yaw: -90, pitch: 89.5 },
-  bottom: { yaw: -90, pitch: -89.5 },
+  // Seen from below with the board turned over left to right, so bottom
+  // silkscreen reads the right way round (as in KiCad and Altium).
+  bottom: { yaw: 90, pitch: -89.5 },
   front: { yaw: -90, pitch: 8 },
   iso: { yaw: -60, pitch: 35 },
 };
@@ -183,7 +186,7 @@ export function createViewer3D(canvas, opts = {}) {
     gl.deleteShader(fs);
     if (!gl.getProgramParameter(program, gl.LINK_STATUS)) throw new Error(`Program link failed: ${gl.getProgramInfoLog(program)}`);
     const u = {};
-    for (const name of ['uViewProj', 'uColor', 'uMetal', 'uRough', 'uCamPos', 'uSky', 'uGround', 'uL0', 'uC0', 'uL1', 'uC1']) u[name] = gl.getUniformLocation(program, name);
+    for (const name of ['uViewProj', 'uColor', 'uMetal', 'uRough', 'uCamPos', 'uSky', 'uGround', 'uL0', 'uC0', 'uL1', 'uC1', 'uSide']) u[name] = gl.getUniformLocation(program, name);
     gpu.program = program;
     gpu.uniforms = u;
   }
@@ -279,11 +282,15 @@ export function createViewer3D(canvas, opts = {}) {
     gl.uniform3fv(u.uCamPos, eye);
     gl.uniform3fv(u.uSky, toLinear(t.sky));
     gl.uniform3fv(u.uGround, toLinear(t.ground));
-    // Key light follows the camera loosely so the visible side is always lit.
+    // Key light and sky follow the camera loosely so the visible side is
+    // always lit: from below the board they come from below, blending
+    // smoothly while the camera passes the board's edge.
     const yaw = (cam.yaw + 35) * DEG;
-    gl.uniform3fv(u.uL0, normalize([Math.cos(yaw) * 0.6, Math.sin(yaw) * 0.6, 0.8]));
+    const side = Math.max(-1, Math.min(1, cam.pitch / 8));
+    gl.uniform1f(u.uSide, side);
+    gl.uniform3fv(u.uL0, normalize([Math.cos(yaw) * 0.6, Math.sin(yaw) * 0.6, 0.8 * side]));
     gl.uniform3fv(u.uC0, [1.05, 1.0, 0.95]);
-    gl.uniform3fv(u.uL1, normalize([-Math.cos(yaw) * 0.5, -Math.sin(yaw) * 0.5, -0.4 * Math.sign(cam.pitch || 1)]));
+    gl.uniform3fv(u.uL1, normalize([-Math.cos(yaw) * 0.5, -Math.sin(yaw) * 0.5, -0.4 * side]));
     gl.uniform3fv(u.uC1, [0.3, 0.32, 0.36]);
     for (const m of gpu.meshes) {
       gl.uniform3fv(u.uColor, m.color);

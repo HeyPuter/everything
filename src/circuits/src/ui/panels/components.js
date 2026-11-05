@@ -79,8 +79,7 @@ export class ComponentsPanel {
     clear(this.list);
     if (!defs.length) {
       this.list.append(h('li.panel-empty', { role: 'presentation' }, 'No components match. Try another search, or create a component with the footprint and symbol wizards.'));
-      this.selected = null;
-      this._preview();
+      this.select(null, false);
       return;
     }
     let lastSrc = null;
@@ -99,13 +98,16 @@ export class ComponentsPanel {
       this.list.append(li);
     }
     if (defs.length > MAX_ROWS) this.list.append(h('li.panel-empty.small', { role: 'presentation' }, `${defs.length - MAX_ROWS} more. Refine the search to see them.`));
-    if (!this.selected || !defs.includes(this.selected)) this.select(defs[0], false);
+    // Keep the selection by id: placing a built-in copies it into the project.
+    const keep = this.selected && defs.find((d) => d.id === this.selected.id);
+    if (!keep || keep !== this.selected) this.select(keep || defs[0], !!keep);
   }
 
   select(def, scroll = true) {
     this.selected = def;
     for (const li of this.list.querySelectorAll('[role="option"]')) li.setAttribute('aria-selected', String(li.id === `cmp-${def?.id}`));
     if (def) this.list.setAttribute('aria-activedescendant', `cmp-${def.id}`);
+    else this.list.removeAttribute('aria-activedescendant');
     if (scroll) this.list.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: 'nearest' });
     this._preview();
   }

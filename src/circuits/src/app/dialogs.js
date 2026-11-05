@@ -1,6 +1,6 @@
 // Application dialogs.
 
-import { h, nextId, clear, shortcutLabel } from '../ui/dom.js';
+import { h, nextId, clear, shortcutLabel, modKey } from '../ui/dom.js';
 import { icon } from '../ui/icons.js';
 import { openDialog, buildForm, confirmDialog } from '../ui/dialog.js';
 import { formatLength, parseLength, mm } from '../core/units.js';
@@ -8,7 +8,7 @@ import { isCopper } from '../model/layers.js';
 import { arcToPoints, bboxOfFlat, polyArea } from '../core/geom.js';
 import { planSync, applySync } from '../model/sync.js';
 import { planAnnotation } from '../model/annotate.js';
-import { listProjects, locationLabel, deleteProject } from './storage.js';
+import { listProjects, locationLabel, deleteProject, sameLocation } from './storage.js';
 import { cloudAvailable } from './puter.js';
 import { sharedWithMe } from './share.js';
 
@@ -183,7 +183,7 @@ export async function syncDialog(app, board) {
     return false;
   }
   const checks = new Map();
-  const kindLabel = { add: 'Add component', remove: 'Remove component', update: 'Update component', nets: 'Assign pad nets', netlist: 'Net list' };
+  const kindLabel = { add: 'Add component', remove: 'Remove component', update: 'Update component', nets: 'Assign pad nets', rename: 'Rename net', netlist: 'Net list' };
   const rows = changes.map((c) => {
     const cb = h('input', { type: 'checkbox', checked: true, 'aria-label': `${c.label}: ${c.detail}` });
     checks.set(c, cb);
@@ -314,9 +314,9 @@ export function shortcutsDialog(app) {
     groups.get(g).push(c);
   }
   const extra = {
-    General: [['Pan', 'Right or middle drag, or scroll'], ['Zoom', 'Ctrl+scroll, pinch, PageUp, PageDown'], ['Menu chords', 'Press a menu letter, then an item letter (P then W places a wire)'], ['Select box', 'Drag left to right for inside, right to left for touching'], ['Cycle stacked objects', 'Click again at the same spot'], ['Highlight a net', 'Ctrl+click']],
-    Schematic: [['While placing', 'Space rotates, X / Y mirror, Tab edits'], ['While wiring', 'Shift+Space cycles corners, Backspace removes a corner']],
-    Board: [['While routing', '* changes layer with a via, 3 cycles widths, Shift+Space cycles corners, Tab sets the width'], ['While moving', 'Space rotates, L flips to the other side']],
+    General: [['Pan', 'Right or middle drag, or scroll'], ['Zoom', `${modKey()}+scroll, pinch, PageUp, PageDown`], ['Menu chords', 'Press a menu letter, then an item letter (P then W places a wire)'], ['Select box', 'Drag left to right for inside, right to left for touching'], ['Cycle stacked objects', 'Click again at the same spot'], ['Highlight a net', `${modKey()}+click`]],
+    Schematic: [['While placing', 'Space rotates, X / Y mirror, Tab edits'], ['While wiring', `${shortcutLabel('Shift+Space')} cycles corners, Backspace removes a corner`]],
+    Board: [['While routing', `* changes layer with a via, 3 cycles widths, ${shortcutLabel('Shift+Space')} cycles corners, Tab sets the width`], ['While moving', 'Space rotates, L flips to the other side']],
   };
   const body = h('div');
   for (const g of ['General', 'Schematic', 'Board']) {
@@ -382,14 +382,14 @@ export function gettingStartedDialog(app) {
     body: [
       h('p', 'A board takes shape in a few steps. Each step is undoable, and the example project shows the result.'),
       h('ol', { style: { paddingLeft: '18px', margin: 0 } },
-        step(1, 'Draw the schematic', 'Place parts from the Components panel, then connect pins with wires (Shift+W, or P then W). Name nets with net labels and power ports. Space rotates and X or Y mirrors while placing.', 'sch.place.part'),
+        step(1, 'Draw the schematic', `Place parts from the Components panel, then connect pins with wires (${shortcutLabel('Shift+W')}, or P then W). Name nets with net labels and power ports. Space rotates and X or Y mirrors while placing.`, 'sch.place.part'),
         step(2, 'Check it', 'Compile runs the electrical rules check: unconnected pins, duplicate designators, conflicting outputs. Click a message to jump to the problem. Annotate numbers any parts still marked with a question mark.', 'project.compile'),
         step(3, 'Bring the parts to the board', 'Update board from schematic lists every change. New parts land beside the board with their nets assigned, connected by ratsnest lines.', 'project.updateBoard'),
         step(4, 'Shape the board and place parts', 'Set the board size, then drag parts onto it. Space rotates, L flips a part to the bottom side. The ratsnest follows as you move.', 'pcb.boardSize'),
-        step(5, 'Route', 'Interactive routing (Shift+W) follows the corner style; * changes layer with a via, 3 cycles widths. The autorouter can route the rest.', 'pcb.route'),
+        step(5, 'Route', `Interactive routing (${shortcutLabel('Shift+W')}) follows the corner style; * changes layer with a via, 3 cycles widths. The autorouter can route the rest.`, 'pcb.route'),
         step(6, 'Pour copper and check', 'A ground pour connects pads with thermal reliefs. Rules are checked while you edit; run the full design rule check before export.', 'pcb.drc'),
         step(7, 'Export for manufacturing', 'The fabrication package holds Gerber files for every layer, drill files, a bill of materials and a pick and place file.', 'export.fabrication')),
-      h('p.muted', 'Press ? for keyboard shortcuts and Ctrl+K to search every command.'),
+      h('p.muted', `Press ? for keyboard shortcuts and ${shortcutLabel('Mod+K')} to search every command.`),
     ],
     actions: [{ label: 'Open the example', left: true, run: () => { app.openExample(); return true; } }, { label: 'Close', primary: true }],
   });
@@ -434,8 +434,18 @@ export async function openProjectDialog(app) {
       const del = h('button.icon-btn.sm', { type: 'button', 'aria-label': `Delete ${it.name}`, 'data-tip': 'Delete' }, icon('trash', 14));
       del.addEventListener('click', async (e) => {
         e.stopPropagation();
-        if (await confirmDialog({ title: 'Delete project', message: `Delete ${it.name} permanently? This cannot be undone.`, confirm: 'Delete', danger: true })) {
-          try { await deleteProject(it.location); render(); } catch (err) { app.toast(`Could not delete: ${err.message}`, { kind: 'error' }); }
+        // The open project is closed too, or its next autosave would bring the file back.
+        const isOpen = !!app.project && sameLocation(it.location, app.location);
+        const open = isOpen ? ' It is open now and will be closed.' : '';
+        const message = `Delete ${it.name} permanently?${open} This cannot be undone.`;
+        const ok = await confirmDialog({ title: 'Delete project', message, confirm: 'Delete', danger: true });
+        if (ok) {
+          try {
+            if (isOpen) { await app._saving; await app.closeProject(true); }
+            await deleteProject(it.location);
+            if (isOpen && !app.project) app.showStart(); // drop it from the recent list
+            render();
+          } catch (err) { app.toast(`Could not delete: ${err.message}`, { kind: 'error' }); }
         }
       });
       const open = h('button', { type: 'button' }, icon(it.location.type === 'cloud' ? 'cloud' : 'drive', 16),
@@ -463,7 +473,7 @@ export async function preferencesDialog(app) {
   const form = buildForm([
     { key: 'theme', label: 'Theme', type: 'select', value: s.get('theme'), options: [['system', 'Match system'], ['light', 'Light'], ['dark', 'Dark']] },
     { key: 'units', label: 'Units', type: 'select', value: s.get('units'), options: [['mm', 'Millimetres'], ['mil', 'Mils (thousandths of an inch)']] },
-    { key: 'wheel', label: 'Mouse wheel', type: 'select', value: s.get('wheel'), options: [['scroll', 'Scrolls (Ctrl+wheel zooms)'], ['zoom', 'Zooms']] },
+    { key: 'wheel', label: 'Mouse wheel', type: 'select', value: s.get('wheel'), options: [['scroll', `Scrolls (${modKey()}+wheel zooms)`], ['zoom', 'Zooms']] },
     { key: 'routingMode', label: 'Interactive routing', type: 'select', value: s.get('routingMode'), options: [['stop', 'Stop at the first obstacle'], ['ignore', 'Ignore obstacles']] },
     { key: 'autosaveMinutes', label: 'Autosave every (minutes, 0 = off)', type: 'number', value: s.get('autosaveMinutes'), min: 0, max: 60 },
     { key: 'onlineDrc', label: 'Check design rules while editing', type: 'bool', value: s.get('onlineDrc') },

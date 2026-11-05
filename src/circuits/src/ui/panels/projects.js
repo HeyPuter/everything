@@ -7,6 +7,8 @@ import { icon } from '../icons.js';
 import { contextMenu } from '../menu.js';
 import { promptDialog, confirmDialog } from '../dialog.js';
 
+const isTouch = (e) => e.pointerType === 'touch' || e.pointerType === 'pen';
+
 export class ProjectsPanel {
   constructor(app) {
     this.app = app;
@@ -50,7 +52,12 @@ export class ProjectsPanel {
       const kids = h('li', { role: 'treeitem', 'aria-selected': String(d.id === active), tabindex: d.id === active ? 0 : -1, dataset: { doc: d.id }, 'aria-level': 2 },
         h('div.tree-row', { class: { 'active-doc': d.id === active }, style: { paddingLeft: '30px' } },
           icon(d.kind === 'sch' ? 'symbol' : 'board', 15), h('span.label', d.name), d.dirty ? h('span.dirty', { title: 'Unsaved changes', 'aria-label': 'unsaved changes' }) : null));
-      kids.addEventListener('click', () => this._focus(kids));
+      // A click selects and a double click opens, as in a file explorer; a
+      // tap opens at once, since touch has no comfortable double tap.
+      kids.addEventListener('click', (e) => {
+        this._focus(kids);
+        if (isTouch(e)) this.app.openDoc(d.id);
+      });
       kids.addEventListener('dblclick', () => this.app.openDoc(d.id));
       kids.addEventListener('contextmenu', (e) => { this._focus(kids); contextMenu(e, this._docMenu(d)); });
       return kids;
@@ -59,7 +66,10 @@ export class ProjectsPanel {
     const libItem = h('li', { role: 'treeitem', tabindex: -1, dataset: { lib: '1' }, 'aria-level': 2 },
       h('div.tree-row', { style: { paddingLeft: '30px' } }, icon('library', 15), h('span.label', 'Component library'), h('span.meta', String(libCount))));
     libItem.addEventListener('dblclick', () => this.app.commands.run('lib.manage'));
-    libItem.addEventListener('click', () => this._focus(libItem));
+    libItem.addEventListener('click', (e) => {
+      this._focus(libItem);
+      if (isTouch(e)) this.app.commands.run('lib.manage');
+    });
     const root = h('li', { role: 'treeitem', 'aria-expanded': String(this.expanded), tabindex: active ? -1 : 0, 'aria-level': 1, dataset: { root: '1' } },
       h('div.tree-row', { style: { paddingLeft: '6px' } },
         h('span.twisty', icon(this.expanded ? 'chevron-down' : 'chevron-right', 13)), icon('chip', 15),
@@ -83,7 +93,9 @@ export class ProjectsPanel {
       { label: 'Move &down', run: () => p.moveDoc(d.id, 1), disabled: p.docs[p.docs.length - 1] === d },
       { separator: true },
       { label: 'Re&move from project', icon: 'trash', run: async () => {
-        const ok = await confirmDialog({ title: 'Remove document', message: `Remove ${d.name} from the project? Its contents are deleted when you save. You can undo this by closing the project without saving.`, confirm: 'Remove', danger: true });
+        // Autosave keeps the removal within seconds, so it cannot be taken back by not saving.
+        const history = this.app.location ? ' Earlier saves stay in File, Version history.' : '';
+        const ok = await confirmDialog({ title: 'Remove document', message: `Remove ${d.name} and everything on it from the project? This cannot be undone.${history}`, confirm: 'Remove', danger: true });
         if (ok) this.app.removeDoc(d.id);
       } },
     ];

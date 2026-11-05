@@ -162,7 +162,9 @@ GLYPHS['Ω'] = GLYPHS['Ω']; // ohm sign and Greek omega
 export const GLYPH_CHARS = Object.keys(GLYPHS);
 
 const FALLBACK = [12, [[0, 0, 12, 0, 12, 20, 0, 20, 0, 0], [0, 0, 12, 20]]];
-const glyph = (ch) => GLYPHS[ch] || FALLBACK;
+// Accented letters without a glyph draw their base letter (é as e) rather
+// than the missing-glyph box.
+const glyph = (ch) => GLYPHS[ch] || GLYPHS[ch.normalize('NFD')[0]] || FALLBACK;
 
 const ALIGN_DEFAULT = { h: 'left', v: 'bottom' };
 
@@ -173,7 +175,8 @@ const ALIGN_DEFAULT = { h: 'left', v: 'bottom' };
 function parseLines(text) {
   const lines = [[]];
   let over = false;
-  const s = String(text ?? '');
+  // By code point, so a character outside the BMP is one glyph, not two.
+  const s = Array.from(String(text ?? ''));
   for (let i = 0; i < s.length; i++) {
     const ch = s[i];
     if (ch === '~') {
@@ -286,6 +289,24 @@ export const textWidth = (text, size) => unitLayout(text, ALIGN_DEFAULT).width *
 
 /** Height of the text block (cap height for one line). */
 export const textHeight = (text, size) => unitLayout(text, ALIGN_DEFAULT).height * size;
+
+/**
+ * Keeps text readable: a rotation in (90, 270] becomes a half turn less with
+ * the alignment flipped, which covers the same box but reads upright. Used
+ * by the canvas, the exporters and the bounds so they all agree.
+ */
+export function uprightText(rot = 0, align) {
+  const r = ((rot % 360) + 360) % 360;
+  if (r > 90 && r <= 270) return { rot: (r + 180) % 360, align: flipAlign(align) };
+  return { rot: r, align };
+}
+
+/** The alignment that keeps a text's box when it turns a half turn. */
+export function flipAlign(align = {}) {
+  const h = align.h === 'left' || !align.h ? 'right' : align.h === 'right' ? 'left' : 'center';
+  const v = align.v === 'bottom' || !align.v ? 'top' : align.v === 'top' ? 'bottom' : 'middle';
+  return { h, v };
+}
 
 /** Default stroke width for text of the given cap height. */
 export const strokeWidthFor = (size) => size * STROKE_RATIO;

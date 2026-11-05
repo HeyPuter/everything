@@ -6,12 +6,14 @@
 import { placeFootprint } from '../model/place.js';
 import { copperLayers, spanLayers, LAYERS } from '../model/layers.js';
 import { defaultRules } from '../model/schema.js';
-import { rotate, norm360, polyArea, bboxEmpty, bboxAdd, bboxValid } from '../core/geom.js';
+import { compFieldPlacement } from '../model/pcb.js';
+import { rotate, norm360, polyArea, arcToPoints } from '../core/geom.js';
 import { textStrokes, strokeWidthFor } from '../render/font.js';
 import { defOf, fillOf, baseName, mmStr } from './common.js';
 
 const MIN_APERTURE = 10_000; // 0.01 mm, used when a stroke has no width
 const PROFILE_WIDTH = 100_000;
+const MAX_ARC_RADIUS = 1e9; // 1 m: centre offsets (I, J) must fit the 4.6 format (< 10 000 mm)
 export const SOFTWARE = 'Circuits';
 export const SOFTWARE_VERSION = '0.1';
 
@@ -114,6 +116,12 @@ export class GerberWriter {
 
   /** Counter-clockwise arc of radius r from angle a0 sweeping sweep degrees. */
   arc(cx, cy, r, a0, sweep, w, func = null) {
+    if (r > MAX_ARC_RADIUS) {
+      // The centre offset would overflow the 4.6 format: draw short chords.
+      const pts = arcToPoints(cx, cy, r, a0, Math.min(sweep, 360), 1000).map(Math.round);
+      this.polyline(pts, w, false, func);
+      return;
+    }
     const code = this.circle(w, func);
     this.use(code);
     const full = sweep >= 360;
@@ -167,6 +175,7 @@ function escapeAttr(s) {
 }
 
 const fmt = (nm) => mmStr(nm);
+const CENTER = { h: 'center', v: 'middle' };
 
 /**
  * Flashes a pad shape grown by expansion (negative shrinks). Rotated shapes
@@ -257,26 +266,47 @@ function drawGraphic(g, prim, defaultWidth) {
     case 'arc':
       g.arc(prim.cx, prim.cy, prim.r, prim.a0, prim.sweep, w);
       break;
-    case 'text':
-      drawText(g, prim.text, prim.x, prim.y, prim.size, prim.rot || 0, prim.align, !!prim.mirror, prim.w);
+    case 'text': {
+      const { text, x, y, size, rot, align, mirror } = prim;
+      drawText(g, text, x, y, size, rot || 0, align, !!mirror, prim.w, true);
       break;
+    }
     default:
       break;
   }
 }
 
-function drawText(g, text, x, y, size, rot, align, mirror, w) {
+function drawText(g, text, x, y, size, rot, align, mirror, w, upright = false) {
   if (!text || !(size > 0)) return;
   const sw = w > 0 ? w : strokeWidthFor(size);
-  for (const s of textStrokes(text, x, y, size, rot, align, mirror)) g.polyline(s.map(Math.round), sw);
+  let r = norm360(rot || 0);
+  let al = align;
+  // Same rule as the canvas: upright text is turned so it never reads upside down.
+  if (upright && r > 90 && r <= 270) {
+    r = norm360(r + 180);
+    al = flipAlign(align);
+  }
+  for (const s of textStrokes(text, x, y, size, r, al, mirror)) g.polyline(s.map(Math.round), sw);
 }
 
-/** Pour fill polygons, drawn largest first: outer ring dark, holes clear. */
+function flipAlign(align = {}) {
+  const h = align.h === 'left' || !align.h ? 'right' : align.h === 'right' ? 'left' : 'center';
+  const v = align.v === 'bottom' || !align.v ? 'top' : align.v === 'top' ? 'bottom' : 'middle';
+  return { h, v };
+}
+
+/**
+ * Pour fill polygons ({ net, rings }) of every pour on a layer, drawn largest
+ * first: outer ring dark, holes clear. Sorting across all pours matters: a
+ * clear hole erases everything drawn before it, so a pour sitting inside
+ * another pour's hole must be drawn after that hole.
+ */
 function drawPolygonSet(g, polygons) {
-  const list = (polygons || []).filter((p) => p && p[0] && p[0].length >= 6);
-  list.sort((a, b) => Math.abs(polyArea(b[0])) - Math.abs(polyArea(a[0])));
-  for (const rings of list) {
+  const list = polygons.filter((p) => p.rings && p.rings[0] && p.rings[0].length >= 6);
+  list.sort((a, b) => Math.abs(polyArea(b.rings[0])) - Math.abs(polyArea(a.rings[0])));
+  for (const { net, rings } of list) {
     g.polarityDark(true);
+    g.setNet(net);
     g.region([rings[0]]);
     const holes = rings.slice(1).filter((r) => r.length >= 6);
     if (holes.length) {
@@ -303,19 +333,21 @@ export function resolveBoard(boardDoc, library) {
   return { board, copper, rules, objects, comps, origin: board.origin || { x: 0, y: 0 } };
 }
 
-/** Default designator placement: centered above the footprint. */
-export function designatorPlacement(comp, placed, rules) {
-  const f = comp.fields?.designator;
-  const h = f?.h || 1_000_000;
-  if (f && f.hidden) return null;
-  if (f && (f.dx !== undefined || f.dy !== undefined)) {
-    return { x: comp.x + (f.dx || 0), y: comp.y + (f.dy || 0), rot: f.rot || 0, h, w: rules?.silkWidth || strokeWidthFor(h) };
+/**
+ * Visible designator and value texts of a component, placed exactly as the
+ * board canvas draws them (and as the silkscreen check sees them).
+ */
+export function fieldTexts(comp, def) {
+  const out = [];
+  for (const name of ['designator', 'value']) {
+    const text = name === 'designator' ? comp.designator : comp.value;
+    if (!text) continue;
+    const f = compFieldPlacement(comp, name, def);
+    if (f.hidden) continue;
+    const { x, y, h, rot, mirror, layer } = f;
+    out.push({ text, x, y, h, rot, mirror, layer, w: h * 0.15 });
   }
-  const b = bboxEmpty();
-  if (placed.courtyard) for (let i = 0; i < placed.courtyard.length; i += 2) bboxAdd(b, placed.courtyard[i], placed.courtyard[i + 1]);
-  else for (const p of placed.pads) bboxAdd(b, p.x, p.y, Math.max(p.w, p.h) / 2);
-  if (!bboxValid(b)) return { x: comp.x, y: comp.y, rot: 0, h, w: rules?.silkWidth || strokeWidthFor(h) };
-  return { x: Math.round((b.minX + b.maxX) / 2), y: Math.round(b.maxY + h * 0.4 + h / 2), rot: f?.rot || 0, h, w: rules?.silkWidth || strokeWidthFor(h) };
+  return out;
 }
 
 function padFunction(pad) {
@@ -329,12 +361,14 @@ function writeCopper(ctx, layer, opts) {
   const pos = layer === 'top' ? 'Top' : layer === 'bottom' ? 'Bot' : 'Inr';
   const g = new GerberWriter({ fileFunction: `Copper,L${n},${pos}`, origin: ctx.origin, date: opts.date });
   // Pours first so clear-polarity holes never erase other copper.
+  const pourPolygons = [];
   for (const o of objects) {
-    if (o.t === 'pour' && o.layer === layer) {
-      g.setNet(o.net);
-      drawPolygonSet(g, fillOf(opts.pourFills, o.id));
+    if (o.t !== 'pour' || o.layer !== layer) continue;
+    for (const rings of fillOf(opts.pourFills, o.id) || []) {
+      pourPolygons.push({ net: o.net, rings });
     }
   }
+  drawPolygonSet(g, pourPolygons);
   for (const o of objects) {
     if (o.layer !== layer) continue;
     if (o.t === 'fill') { g.setNet(o.net); g.region([[o.x1, o.y1, o.x2, o.y1, o.x2, o.y2, o.x1, o.y2]]); }
@@ -344,7 +378,7 @@ function writeCopper(ctx, layer, opts) {
     if (o.layer !== layer) continue;
     if (o.t === 'track') { g.setNet(o.net); g.line(o.x1, o.y1, o.x2, o.y2, o.w, 'Conductor'); }
     else if (o.t === 'arc') { g.setNet(o.net); g.arc(o.cx, o.cy, o.r, o.a0, o.sweep, o.w, 'Conductor'); }
-    else if (o.t === 'text') { g.setNet(null); drawText(g, o.text, o.x, o.y, o.h, o.rot || 0, undefined, !!o.mirror, o.w); }
+    else if (o.t === 'text') { g.setNet(null); drawText(g, o.text, o.x, o.y, o.h, o.rot || 0, o.align, !!o.mirror, o.w); }
   }
   for (const { placed } of comps) {
     g.setNet(null);
@@ -382,16 +416,15 @@ function writeOverlay(ctx, layer, opts) {
     if (o.layer !== layer) continue;
     if (o.t === 'track') g.line(o.x1, o.y1, o.x2, o.y2, o.w || rules.silkWidth);
     else if (o.t === 'arc') g.arc(o.cx, o.cy, o.r, o.a0, o.sweep, o.w || rules.silkWidth);
-    else if (o.t === 'text') drawText(g, o.text, o.x, o.y, o.h, o.rot || 0, undefined, !!o.mirror, o.w);
+    else if (o.t === 'text') drawText(g, o.text, o.x, o.y, o.h, o.rot || 0, o.align, !!o.mirror, o.w);
     else if (o.t === 'region') g.region([o.pts]);
     else if (o.t === 'fill') g.region([[o.x1, o.y1, o.x2, o.y1, o.x2, o.y2, o.x1, o.y2]]);
   }
-  const wantSide = layer === 'topOverlay' ? 'top' : 'bottom';
-  for (const { comp, placed } of comps) {
+  for (const { comp, def, placed } of comps) {
     for (const prim of placed.graphics) if (prim.layer === layer) drawGraphic(g, prim, rules.silkWidth);
-    if ((comp.side || 'top') !== wantSide || !comp.designator) continue;
-    const d = designatorPlacement(comp, placed, rules);
-    if (d) drawText(g, comp.designator, d.x, d.y, d.h, d.rot, { h: 'center', v: 'middle' }, wantSide === 'bottom', d.w);
+    for (const f of fieldTexts(comp, def)) {
+      if (f.layer === layer) drawText(g, f.text, f.x, f.y, f.h, f.rot, CENTER, f.mirror, f.w, true);
+    }
   }
   return g;
 }
@@ -413,7 +446,7 @@ function writeMask(ctx, layer, opts) {
       const s = o.side || 'top';
       if (s !== 'thru' && s !== copperSide) continue;
       flashPad(g, o, o.maskExpansion ?? rules.maskExpansion);
-    } else if (o.t === 'via' && opts.untentVias) {
+    } else if (o.t === 'via' && (opts.untentVias || o.tented === false)) {
       if (!spanLayers(o.from || 'top', o.to || 'bottom', copper).includes(copperSide)) continue;
       g.flash(g.circle(o.d + 2 * rules.maskExpansion), o.x, o.y);
     } else if (o.layer === layer) {
@@ -459,7 +492,7 @@ function writeMechanical(ctx, layer, opts) {
     if (o.layer !== layer) continue;
     if (o.t === 'track') g.line(o.x1, o.y1, o.x2, o.y2, o.w || rules.silkWidth);
     else if (o.t === 'arc') g.arc(o.cx, o.cy, o.r, o.a0, o.sweep, o.w || rules.silkWidth);
-    else if (o.t === 'text') drawText(g, o.text, o.x, o.y, o.h, o.rot || 0, undefined, !!o.mirror, o.w);
+    else if (o.t === 'text') drawText(g, o.text, o.x, o.y, o.h, o.rot || 0, o.align, !!o.mirror, o.w);
     else if (o.t === 'region') g.region([o.pts]);
   }
   for (const { placed } of comps) for (const prim of placed.graphics) if (prim.layer === layer) drawGraphic(g, prim, rules.silkWidth);

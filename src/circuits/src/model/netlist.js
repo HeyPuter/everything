@@ -104,11 +104,15 @@ function analyseSheet(sheet, lib, dsu, prefix) {
         else { bump(key(p.x, p.y)); tPoints.push([p.x, p.y]); }
       }
     } else if (o.t === 'label' || o.t === 'power' || o.t === 'port') {
-      for (const [x, y] of connectionPoints(o, lib).slice(0, 1)) {
-        const k = prefix + key(x, y);
-        dsu.find(k);
-        named.push({ kind: o.t, name: o.t === 'label' ? o.text : o.t === 'power' ? o.net : o.name, key: k, obj: o, ground: o.t === 'power' && GROUND_STYLES.has(o.style) });
-        tPoints.push([x, y]);
+      // A port connects at either end (the editor snaps wires to both).
+      const [[x, y], ...more] = connectionPoints(o, lib);
+      const k = prefix + key(x, y);
+      dsu.find(k);
+      named.push({ kind: o.t, name: o.t === 'label' ? o.text : o.t === 'power' ? o.net : o.name, key: k, obj: o, ground: o.t === 'power' && GROUND_STYLES.has(o.style) });
+      tPoints.push([x, y]);
+      for (const [ex, ey] of more) {
+        dsu.union(k, prefix + key(ex, ey));
+        tPoints.push([ex, ey]);
       }
     } else if (o.t === 'junction') {
       junctionsManual.push([o.x, o.y]);
@@ -145,8 +149,11 @@ function analyseSheet(sheet, lib, dsu, prefix) {
 
 const NAME_RANK = { power: 0, hidden: 1, label: 2, port: 3 };
 
+// One collator for every comparison: localeCompare with options builds a new one per call.
+const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+
 function naturalCompare(a, b) {
-  return String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: 'base' });
+  return collator.compare(String(a), String(b));
 }
 
 /**
@@ -191,6 +198,7 @@ export function buildNetlist(sheets, lib) {
   const nets = [];
   const usedNames = new Set();
   const rootName = new Map();
+  const nextSuffix = new Map();
   const sorted = [...groups.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1));
   // Named nets first so automatic names never collide with a user's name.
   for (const [root, g] of sorted) {
@@ -204,9 +212,12 @@ export function buildNetlist(sheets, lib) {
     if (rootName.has(root)) continue;
     if (!g.nodes.length) { rootName.set(root, ''); continue; }
     const first = [...g.nodes].sort((a, b) => naturalCompare(a.ref, b.ref) || naturalCompare(a.pin, b.pin))[0];
-    let name = `Net${first.ref}_${first.pin}`;
-    let i = 2;
-    while (usedNames.has(name)) name = `Net${first.ref}_${first.pin}_${i++}`;
+    const base = `Net${first.ref}_${first.pin}`;
+    let name = base;
+    // Unannotated parts (R?) share a base name: continue from the last suffix used.
+    let i = nextSuffix.get(base) || 2;
+    while (usedNames.has(name)) name = `${base}_${i++}`;
+    nextSuffix.set(base, i);
     usedNames.add(name);
     rootName.set(root, name);
   }

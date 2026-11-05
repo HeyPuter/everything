@@ -9,6 +9,7 @@
 
 import { importSchematics } from './schematic.js';
 import { importBoard } from './board.js';
+import { parseSexpr } from './sexpr.js';
 import { Warnings, nm, slug } from './common.js';
 import { uid } from '../../core/emitter.js';
 import { FORMAT, FORMAT_VERSION, defaultRules } from '../../model/schema.js';
@@ -69,9 +70,18 @@ export async function importKicad(files) {
     const k = kindOf(f);
     if (k) groups[k].push(f); else warnings.add(`${f.name} is not a supported file and was skipped.`);
   }
+  if (!groups.sch.length && !groups.pcb.length) throw new Error('No KiCad schematic (.kicad_sch) or board (.kicad_pcb) was selected.');
+  // A damaged or cut-off file fails the whole import rather than giving a
+  // project with parts silently missing.
+  const damaged = (f, err) => new Error(`${f.name} is damaged or incomplete and nothing was imported. ${err.message}`);
+  for (const key of ['sch', 'pcb']) {
+    groups[key] = groups[key].map((f) => {
+      try { return { ...f, root: parseSexpr(f.text) }; } catch (err) { throw damaged(f, err); }
+    });
+  }
   let pro = null;
   if (groups.pro[0]) {
-    try { pro = JSON.parse(groups.pro[0].text); } catch { warnings.add(`${groups.pro[0].name} could not be read.`); }
+    try { pro = JSON.parse(groups.pro[0].text); } catch (err) { throw damaged(groups.pro[0], err); }
   }
 
   const sch = groups.sch.length ? importSchematics(groups.sch, warnings) : { sheets: [], defs: new Map(), partsByRef: new Map() };
@@ -129,7 +139,7 @@ export async function importKicad(files) {
     ...sch.sheets.map((s) => ({ id: s.id, kind: 'sch', name: s.name, sheet: s.sheet, objects: s.objects })),
     ...boards.map((b) => ({ id: uid('d'), kind: 'pcb', name: b.name, board: b.board, rules: { ...rules, ...b.rulesPatch }, nets: b.nets, objects: b.objects })),
   ];
-  if (!documents.length) warnings.add('No schematic or board was found in the selected files.');
+  if (!documents.length) throw new Error(`No schematic or board could be read from the selected files. ${warnings.list.join(' ')}`.trim());
   const project = {
     format: FORMAT, version: FORMAT_VERSION, id: uid('p'), name, created: now, modified: now,
     settings: { units: 'mm' }, library: lib, documents,

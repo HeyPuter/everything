@@ -44,11 +44,12 @@ button { cursor: pointer; }
 .titlebar .doc-title { flex: 1; min-width: 0; text-align: center; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0 8px; }
 .titlebar .doc-title strong { color: var(--text); font-weight: 600; }
 .titlebar .right { display: flex; align-items: center; gap: 2px; }
-.alpha-tag { font-size: var(--fs-xs); font-weight: 600; letter-spacing: 0.02em; padding: 1px 6px; border-radius: 10px; border: 1px solid var(--accent); color: var(--accent); margin: 0 6px; white-space: nowrap; }
+.alpha-tag { font-size: var(--fs-xs); font-weight: 600; letter-spacing: 0.02em; padding: 1px 6px; border-radius: 10px; border: 1px solid var(--accent); color: var(--accent-text); margin: 0 6px; white-space: nowrap; }
 
 .search-box { display: flex; align-items: center; gap: 6px; height: 24px; width: 220px; padding: 0 8px; border: 1px solid var(--border-strong); border-radius: var(--radius); background: var(--bg-input); color: var(--text-3); margin: 0 6px; }
 .search-box:hover { border-color: var(--text-3); }
-.search-box kbd { margin-left: auto; font: var(--fs-xs) var(--font-ui); color: var(--text-3); }
+.search-box > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.search-box kbd { margin-left: auto; white-space: nowrap; font: var(--fs-xs) var(--font-ui); color: var(--text-3); }
 
 .icon-btn {
   display: inline-flex; align-items: center; justify-content: center;
@@ -80,14 +81,15 @@ button { cursor: pointer; }
 .btn.ghost:hover { background: var(--bg-hover); }
 
 /* ---------- Menus ---------- */
-.menubar { display: flex; align-items: stretch; padding: 0 4px; background: var(--bg-chrome); border-bottom: 1px solid var(--border); user-select: none; min-width: 0; overflow: hidden; }
+.menubar-nav { display: flex; min-width: 0; }
+.menubar { flex: 1; display: flex; align-items: stretch; padding: 0 4px; background: var(--bg-chrome); border-bottom: 1px solid var(--border); user-select: none; min-width: 0; overflow: hidden; }
 .menubar > button {
   border: 0; background: transparent; padding: 0 9px; font-size: var(--fs-md); color: var(--text); border-radius: var(--radius-sm); margin: 2px 0;
 }
 .menubar > button:hover, .menubar > button[aria-expanded='true'] { background: var(--bg-hover); }
 .menubar .accel, .menu .accel { text-decoration: underline; text-underline-offset: 2px; }
 .menu {
-  position: fixed; z-index: 500; min-width: 220px; max-width: min(420px, calc(100vw - 16px)); max-height: calc(100vh - 16px); overflow: auto;
+  position: fixed; z-index: 650; min-width: 220px; max-width: min(420px, calc(100vw - 16px)); max-height: calc(100vh - 16px); overflow: auto;
   background: var(--bg-menu); border: 1px solid var(--border-strong); border-radius: var(--radius); padding: 4px;
   font-size: var(--fs-md);
 }
@@ -187,6 +189,8 @@ button { cursor: pointer; }
 .list-row[aria-selected='true'] { background: var(--bg-selected); border-left-color: var(--accent); }
 .list-row .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .list-row .sub { color: var(--text-3); font-size: var(--fs-xs); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Rows scrolled into view stop below the sticky group heading, not under it. */
+.list-group-head ~ .list-row { scroll-margin-top: 28px; }
 .list-group-head { position: sticky; top: 0; background: var(--bg-panel); padding: 6px 10px 3px; font-size: var(--fs-xs); font-weight: 600; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.04em; z-index: 1; }
 .comp-preview { flex: none; height: 150px; margin: 6px 8px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--canvas-bg); display: grid; grid-template-columns: 1fr 1fr; overflow: hidden; }
 .comp-preview canvas { width: 100%; height: 100%; display: block; }
@@ -235,8 +239,10 @@ button { cursor: pointer; }
 .ab-btn[aria-pressed='true'] { background: var(--accent-soft); color: var(--accent); }
 .ab-btn .more { position: absolute; right: 2px; bottom: 2px; width: 0; height: 0; border-left: 4px solid transparent; border-bottom: 4px solid currentColor; opacity: 0.6; }
 
+/* The heads-up display sits below the active bar (8px + 36px bar + 8px), which
+   is centred at the top and would otherwise cover it in most window sizes. */
 .hud {
-  position: absolute; left: 8px; top: 8px; z-index: 15; pointer-events: none;
+  position: absolute; left: 8px; top: 52px; z-index: 15; pointer-events: none;
   padding: 5px 8px; border-radius: var(--radius); background: var(--hud-bg); color: var(--hud-text);
   font: var(--fs-xs)/1.45 var(--font-mono); white-space: pre; min-width: 150px;
 }
@@ -357,7 +363,7 @@ table.grid td input[type='checkbox'] { accent-color: var(--accent); }
 /* ---------- Mobile and tablet ---------- */
 .mobile-only { display: none !important; }
 .compact-only { display: none !important; }
-.mobile-bar { display: none; }
+.mobile-bar, .mobile-region { display: none; }
 
 @media (max-width: 1100px) {
   :root { --dock-left-w: 240px; --dock-right-w: 280px; }
@@ -383,20 +389,21 @@ table.grid td input[type='checkbox'] { accent-color: var(--accent); }
   :root { --titlebar-h: 44px; --status-h: 0px; --dock-left-w: min(88vw, 320px); --dock-right-w: min(92vw, 360px); }
   /* The menubar and status bar are hidden on phones, so they take no rows. */
   #app { grid-template-rows: var(--titlebar-h) minmax(0, 1fr) auto; }
-  .menubar { display: none; }
+  .menubar-nav { display: none; }
   .mobile-only { display: inline-flex !important; }
   .phone-hide { display: none !important; }
   .compact-only.phone-hide { display: none !important; }
   .titlebar .doc-title { text-align: left; padding: 0 4px; }
   .icon-btn { width: 36px; height: 36px; }
   .statusbar { display: none; }
+  .mobile-region { display: flex; min-width: 0; }
   .mobile-bar {
-    display: flex; align-items: center; gap: 2px; padding: 4px 6px calc(4px + env(safe-area-inset-bottom)); background: var(--bg-chrome); border-top: 1px solid var(--border); overflow-x: auto; scrollbar-width: none;
+    flex: 1; min-width: 0; display: flex; align-items: center; gap: 2px; padding: 4px 6px calc(4px + env(safe-area-inset-bottom)); background: var(--bg-chrome); border-top: 1px solid var(--border); overflow-x: auto; scrollbar-width: none;
   }
   .mobile-bar .icon-btn { width: 40px; height: 40px; }
   .mobile-bar .grow { flex: 1; }
   .activebar { top: auto; bottom: 8px; }
-  .hud { font-size: 10px; min-width: 0; }
+  .hud { font-size: 10px; min-width: 0; top: 8px; } /* the active bar is at the bottom here */
   .tool-hint { bottom: 56px; }
   .dialog-backdrop { padding: 0; align-items: end; }
   .dialog { width: 100%; max-height: 92vh; border-radius: var(--radius-lg) var(--radius-lg) 0 0; }
@@ -407,6 +414,10 @@ table.grid td input[type='checkbox'] { accent-color: var(--accent); }
   .toasts { left: 8px; right: 8px; align-items: stretch; bottom: 64px; }
   .toast { max-width: none; }
 }
+/* While a modal dialog is open, notices move to the top and let clicks through,
+   so they never cover or catch clicks meant for the dialog's fields and buttons. */
+body:has(> .dialog-backdrop) .toasts { top: 12px; bottom: auto; }
+body:has(> .dialog-backdrop) .toast { pointer-events: none; }
 
 /* Selected-tab underline (a positioned bar rather than a shadow). */
 .dock-tabs button, .layer-tab, .lib-modes > button[role='tab'], .tabs-row button { position: relative; }

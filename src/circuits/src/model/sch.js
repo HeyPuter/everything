@@ -4,7 +4,7 @@
 import { mil } from '../core/units.js';
 import { bboxEmpty, bboxAdd, bboxOfFlat, bboxUnion, distPointSeg, distPointPoly, rotate, arcBBox, distPointArc, pointInPoly } from '../core/geom.js';
 import { placeSymbol, fieldPosition } from './place.js';
-import { textWidth } from '../render/font.js';
+import { textWidth, uprightText } from '../render/font.js';
 
 export const SCH_TEXT = mil(70);        // default label/designator cap height
 export const PIN_TEXT = mil(60);
@@ -44,7 +44,7 @@ export function graphicBox(g) {
     case 'rect': return { minX: Math.min(g.x1, g.x2) - pad, minY: Math.min(g.y1, g.y2) - pad, maxX: Math.max(g.x1, g.x2) + pad, maxY: Math.max(g.y1, g.y2) + pad };
     case 'circle': return { minX: g.cx - g.r - pad, minY: g.cy - g.r - pad, maxX: g.cx + g.r + pad, maxY: g.cy + g.r + pad };
     case 'arc': return arcBBox(g.cx, g.cy, g.r, g.a0, g.sweep, pad);
-    case 'text': return textBox(g.text, g.x, g.y, g.size, g.rot || 0, g.align);
+    case 'text': { const u = uprightText(g.rot || 0, g.align); return textBox(g.text, g.x, g.y, g.size, u.rot, u.align); }
     default: return null;
   }
 }
@@ -184,7 +184,7 @@ export function schBounds(o, lib) {
         const f = fieldPosition(o, name, def);
         if (f.hidden) continue;
         const txt = fieldText(o, name);
-        if (txt) b = bboxUnion(b, textBox(txt, f.x, f.y, SCH_TEXT));
+        if (txt) b = bboxUnion(b, textBox(txt, f.x, f.y, SCH_TEXT, 0, f.align));
       }
       return b;
     }
@@ -210,7 +210,7 @@ export function schBounds(o, lib) {
       return out;
     }
     case 'port': return bboxOfFlat(portPolygon(o).pts, mil(10));
-    case 'text': return textBox(o.text, o.x, o.y, o.size || SCH_TEXT, o.rot || 0);
+    case 'text': { const u = uprightText(o.rot || 0); return textBox(o.text, o.x, o.y, o.size || SCH_TEXT, u.rot, u.align); }
     case 'grect': return { minX: Math.min(o.x1, o.x2), minY: Math.min(o.y1, o.y2), maxX: Math.max(o.x1, o.x2), maxY: Math.max(o.y1, o.y2) };
     case 'gcircle': return { minX: o.cx - o.r, minY: o.cy - o.r, maxX: o.cx + o.r, maxY: o.cy + o.r };
     default: return bboxEmpty();
@@ -300,13 +300,23 @@ export function mirrorSch(o, px, py, axis = 'x') {
       const [x, y] = mx(o.x, o.y);
       // Mirroring about y flips the part; about x is a flip plus a half turn.
       const rot = axis === 'x' ? (360 - (o.rot || 0)) % 360 : (540 - (o.rot || 0)) % 360;
-      const fields = o.fields ? Object.fromEntries(Object.entries(o.fields).map(([k, f]) => [k, axis === 'x' ? { ...f, dx: -f.dx } : { ...f, dy: -f.dy }])) : o.fields;
+      // A stored alignment mirrors with its anchor so the text stays on its side.
+      const flip = (al, key, a, b) => (al?.[key] === a ? b : al?.[key] === b ? a : al?.[key]);
+      const mirrorAlign = (al) => (al ? (axis === 'x' ? { ...al, h: flip(al, 'h', 'left', 'right') } : { ...al, v: flip(al, 'v', 'top', 'bottom') }) : al);
+      const fields = o.fields ? Object.fromEntries(Object.entries(o.fields).map(([k, f]) => {
+        const m = axis === 'x' ? { ...f, dx: -f.dx } : { ...f, dy: -f.dy };
+        if (f.align) m.align = mirrorAlign(f.align);
+        return [k, m];
+      })) : o.fields;
       return { ...o, x, y, mirror: !o.mirror, rot, fields };
     }
     case 'port': case 'label': case 'power': {
       const [x, y] = mx(o.x, o.y);
       const r = o.rot || 0;
-      const rot = axis === 'x' ? (r === 0 ? 180 : r === 180 ? 0 : r) : (r === 90 ? 270 : r === 270 ? 90 : r);
+      // Ports and labels point along their rotation; a power port's symbol
+      // stands a quarter turn from it (rot 0 is above the connection point).
+      const across = o.t === 'power' ? axis === 'y' : axis === 'x';
+      const rot = across ? (r === 0 ? 180 : r === 180 ? 0 : r) : (r === 90 ? 270 : r === 270 ? 90 : r);
       return { ...o, x, y, rot };
     }
     default: { const [x, y] = mx(o.x, o.y); return { ...o, x, y }; }

@@ -4,7 +4,7 @@
 
 import { CanvasView } from './view.js';
 import { SelectTool } from './select-tool.js';
-import { RouteTool, PlacePcbTool, PolygonTool, LineTool, crosshair } from './pcb-tools.js';
+import { RouteTool, PlacePcbTool, PolygonTool, LineTool } from './pcb-tools.js';
 import { Batch } from '../render/batch.js';
 import { pack, toVec4 } from '../render/color.js';
 import { PCB_PALETTES, layerColor } from '../render/palette.js';
@@ -92,6 +92,14 @@ export class PcbEditor extends CanvasView {
       lib: this.lib, count: this.copperCount, pal: this.palette, colors: this.app.settings.get('layerColors'),
       rules: this.doc.rules, pourFills: this.pourFills, formatLength: (v) => formatLength(v, this.units),
     };
+  }
+
+  /**
+   * Context for previews of objects being moved, pasted or reshaped: pour
+   * fills belong to the committed outline, so previews draw outlines only.
+   */
+  previewContext() {
+    return { ...this.sceneContext(), pourFills: null };
   }
 
   netClassOf(net) {
@@ -210,7 +218,15 @@ export class PcbEditor extends CanvasView {
     for (const [, before] of e.removed) mark(before);
     for (const [, { before, after }] of e.updated) { mark(before); mark(after); }
     for (const id of e.removed.keys()) this.selection.delete(id);
-    if (boardChanged) { this._dirtyBoard = true; this._dirtyLayers.add('*'); this._renderLayerTabs(); }
+    // Undo and redo take back what an active tool placed (a route in progress).
+    if (e.source === 'undo' || e.source === 'redo') this.tool?.historyChanged?.(e);
+    if (boardChanged) {
+      this._dirtyBoard = true;
+      this._dirtyLayers.add('*');
+      // Fewer copper layers (an undo, a layer stack edit): leave a removed layer.
+      if (!boardLayers(count).includes(this.activeLayer)) this.setActiveLayer('top');
+      this._renderLayerTabs();
+    }
     for (const l of touched) this._dirtyLayers.add(l);
     // Connectivity is recomputed once edits pause (tools that need it call analysis() directly).
     clearTimeout(this._ratsTimer);
@@ -242,6 +258,7 @@ export class PcbEditor extends CanvasView {
     const col = pack(this.palette.ratsnest, 0.85);
     for (const l of a.ratsnest) {
       if (this.highlight && l.net !== this.highlight.net) continue;
+      if (this._ratsSkip?.has(l.net)) continue;
       b.line(l.x1, l.y1, l.x2, l.y2, 0, col);
     }
     b.touch();
@@ -257,13 +274,14 @@ export class PcbEditor extends CanvasView {
   /** Recomputes every pour's fill in the kernel worker. */
   async repour() {
     const pours = [...this.doc.items()].filter((o) => o.t === 'pour');
+    const rev = this.doc.store.revision;
+    // Newer than any fill still being computed, which is then dropped.
+    this._pourRev = rev;
     if (!pours.length) {
       if (this.pourFills.size) { this.pourFills = new Map(); this._dirtyLayers.add('*'); this.requestRender(); }
       this._scheduleDrc();
       return;
     }
-    const rev = this.doc.store.revision;
-    this._pourRev = rev;
     try {
       const fills = await this.app.kernel.pours(this.doc.snapshot(), this.lib);
       if (this.disposed || this._pourRev !== rev) return;
@@ -274,6 +292,8 @@ export class PcbEditor extends CanvasView {
       this.emit('pours', fills);
     } catch (err) {
       if (err?.name !== 'AbortError') console.error('Pour failed', err);
+      // Stopping the autorouter stops the shared worker and this fill with it.
+      else if (!this.disposed && this._pourRev === rev) this._schedulePours();
     }
     this._scheduleDrc();
   }
@@ -307,6 +327,7 @@ export class PcbEditor extends CanvasView {
       return list;
     } catch (err) {
       if (err?.name !== 'AbortError') console.error('DRC failed', err);
+      else if (online && !this.disposed) this._scheduleDrc();
       return null;
     }
   }
@@ -405,6 +426,7 @@ export class PcbEditor extends CanvasView {
       const ctx = this.sceneContext();
       const sink = (l) => (this.isLayerVisible(l) ? b : null);
       for (const o of this.doc.items()) {
+        if (this.hidden.has(o.id)) continue; // being moved: drawn by the move preview
         if (o.t === 'comp') {
           for (const p of placedOf(o, this.lib, this.copperCount).pads) {
             if (p.net !== net) continue;
@@ -413,7 +435,7 @@ export class PcbEditor extends CanvasView {
           }
         } else if (o.net === net) emitPcbObject(o, sink, ctx);
       }
-      for (const l of this.analysis().ratsnest) if (l.net === net) b.line(l.x1, l.y1, l.x2, l.y2, 0, pack(this.palette.highlight));
+      if (!this._ratsSkip?.has(net)) for (const l of this.analysis().ratsnest) if (l.net === net) b.line(l.x1, l.y1, l.x2, l.y2, 0, pack(this.palette.highlight));
     }
     b.touch();
   }
@@ -447,7 +469,7 @@ export class PcbEditor extends CanvasView {
   }
 
   drawCursor(b) {
-    if (this.tool === this.select && this.cursor.inside && this.app.settings.get('pcbCrosshair')) crosshair(b, this, this.cursor.x, this.cursor.y);
+    if (this.app.settings.get('pcbCrosshair')) this.drawFullCrosshair(b, pack(this.palette.crosshair, 0.45));
   }
 
   _updateHud() {
@@ -634,17 +656,20 @@ export class PcbEditor extends CanvasView {
     const movingComps = new Set(base.filter((o) => o.t === 'comp').map((o) => o.id));
     const nets = new Set();
     for (const o of base) if (o.t === 'comp') for (const n of Object.values(o.padNets || {})) if (n) nets.add(n);
+    // The live ratsnest replaces these nets' lines, which still end at the old place.
+    if (nets.size) { this._ratsSkip = nets; this._rebuildRats(); }
+    if (this.highlight) this._rebuildHighlight();
     return {
       ids, anchor,
       update(ndx, ndy) { dx = ndx; dy = ndy; ed._lastClick = { x: anchor.x, y: anchor.y }; ed.requestRender(true); },
       rotate() { ops.push('rot'); ed.requestRender(true); },
       flip() { ops.push('flip'); ed.requestRender(true); },
-      mirror() {},
       draw(b) {
         const objs = transformed();
         const sink = (l) => (l === 'holes' || ed.isLayerVisible(l) ? b : null);
-        for (const o of objs) emitPcbObject(o, sink, ed.sceneContext());
-        for (const t of stretched()) emitPcbObject(t, sink, ed.sceneContext());
+        const ctx = ed.previewContext();
+        for (const o of objs) emitPcbObject(o, sink, ctx);
+        for (const t of stretched()) emitPcbObject(t, sink, ctx);
         if (nets.size) ed._drawLiveRats(b, objs, movingComps, nets);
       },
       commit() {
@@ -692,7 +717,9 @@ export class PcbEditor extends CanvasView {
   }
 
   _endMove() {
+    if (this._ratsSkip) { this._ratsSkip = null; this._rebuildRats(); }
     this.hidden.clear();
+    if (this.highlight) this._rebuildHighlight();
     this._dirtyLayers.add('*');
     this._scheduleLabels();
     this.requestRender(true);
@@ -762,7 +789,8 @@ export class PcbEditor extends CanvasView {
         const c = ed.cursor;
         if (!c.inside) return;
         const sink = (l) => (l === 'holes' || ed.isLayerVisible(l) ? b : null);
-        for (const o of this.objs(c.x, c.y)) emitPcbObject(o, sink, ed.sceneContext());
+        const ctx = ed.previewContext();
+        for (const o of this.objs(c.x, c.y)) emitPcbObject(o, sink, ctx);
       },
     };
     this.setTool(tool);
@@ -974,7 +1002,7 @@ function nearestEnd(seg, x, y, reach) {
 
 installVertexEditing(PcbEditor, (ed, b, o) => {
   const sink = (l) => (l === 'holes' || ed.isLayerVisible(l) ? b : null);
-  emitPcbObject(o, sink, ed.sceneContext());
+  emitPcbObject(o, sink, ed.previewContext());
   if (o.pts) b.polyline(o.pts, 0, pack(ed.palette.selection), o.t === 'pour' || o.t === 'region');
 });
 

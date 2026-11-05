@@ -13,6 +13,7 @@ import { bboxEmpty, bboxAdd, bboxUnion, bboxValid, distPointSeg, distPointArc, p
 import { graphicBox, textBox } from '../model/sch.js';
 import { padDistance } from '../model/pcb.js';
 import { transformGraphic } from '../model/place.js';
+import { overlappingPads } from '../model/library/footprints.js';
 
 export const LIB_META_TYPES = new Set(['libmeta', 'fpmeta']);
 export const FP_LAYERS = ['topOverlay', 'mech1', 'courtyard', 'top', 'bottomOverlay'];
@@ -45,7 +46,7 @@ export function defToObjects(def) {
   if (sym.designatorPos) symbolObjs.push({ t: 'anchor', which: 'designator', x: sym.designatorPos.x, y: sym.designatorPos.y });
   if (sym.valuePos) symbolObjs.push({ t: 'anchor', which: 'value', x: sym.valuePos.x, y: sym.valuePos.y });
   const fp = def.footprint;
-  const fpmeta = { id: 'fpmeta', t: 'fpmeta', enabled: !!fp, name: fp?.name || '', description: fp?.description, courtyard: fp?.courtyard ? { ...fp.courtyard } : undefined, body: fp?.body ? { ...fp.body } : undefined, dupPads: fp?.dupPads };
+  const fpmeta = { id: 'fpmeta', t: 'fpmeta', enabled: fp ? true : undefined, name: fp?.name || '', description: fp?.description, courtyard: fp?.courtyard ? { ...fp.courtyard } : undefined, body: fp?.body ? { ...fp.body } : undefined, dupPads: fp?.dupPads };
   const footprintObjs = [fpmeta];
   for (const p of fp?.pads || []) footprintObjs.push({ t: 'pad', ...structuredClone(p) });
   for (const g of fp?.graphics || []) footprintObjs.push(structuredClone(g));
@@ -69,7 +70,9 @@ export function objectsToDef(symbolObjs, footprintObjs) {
   let footprint = null;
   const pads = footprintObjs.filter((o) => o.t === 'pad').map(strip);
   const graphics = footprintObjs.filter((o) => GRAPHIC_TYPES.has(o.t)).map(stripId);
-  if (fpmeta.enabled !== false || pads.length || graphics.length) {
+  // The "Has a footprint" switch decides; while it is unset (a symbol-only
+  // component), drawing pads or graphics adds a footprint.
+  if (fpmeta.enabled ?? (pads.length > 0 || graphics.length > 0)) {
     footprint = { name: fpmeta.name || meta.name || 'Footprint', pads, graphics };
     if (fpmeta.description) footprint.description = fpmeta.description;
     if (fpmeta.courtyard) footprint.courtyard = { ...fpmeta.courtyard };
@@ -182,9 +185,18 @@ export function mirrorLib(o, cx, cy, axis = 'x') {
   if (o.t === 'pad') return { ...o, x: 2 * cx - o.x, rot: norm(-(o.rot || 0)) };
   if (o.t === 'anchor') return { ...o, x: 2 * cx - o.x };
   const g = transformGraphic(transformGraphic(o, makeTransform(-cx, -cy, 0)), makeTransform(cx, cy, 0, true));
-  // Mirrored text stays readable in a symbol.
-  if (g.t === 'text') g.mirror = !!o.mirror;
+  // Mirrored text stays readable, along the mirrored baseline: its angle is
+  // negated (text at 30 degrees mirrored across a vertical line runs at -30).
+  // Its run from the anchor reverses, so left and right alignment swap.
+  if (g.t === 'text') { g.mirror = !!o.mirror; g.rot = norm(-(o.rot || 0)); mirrorAlign(g, o.align); }
   return roundGraphic({ ...g, id: o.id });
+}
+
+/** Swaps left (the default) and right horizontal text alignment. */
+function mirrorAlign(g, align = {}) {
+  const { h, ...rest } = align || {};
+  const out = h === 'center' ? { ...rest, h } : !h || h === 'left' ? { ...rest, h: 'right' } : rest;
+  if (Object.keys(out).length) g.align = out; else delete g.align;
 }
 
 function roundGraphic(g) {
@@ -276,8 +288,11 @@ export function validateComponent(def) {
     if (noPin.length) out.push({ severity: 'info', message: `Pads without a pin: ${noPin.join(', ')}` });
     const dupPads = [...padNums].filter(([, n]) => n > 1).map(([k]) => k);
     if (dupPads.length && !def.footprint.dupPads) out.push({ severity: 'warning', message: `Pads sharing a number: ${dupPads.join(', ')}` });
+    const clash = overlappingPads(pads);
+    if (clash) out.push({ severity: 'error', message: `Pads ${clash[0]} and ${clash[1]} overlap, shorting them together.` });
     for (const p of pads) if (p.side === 'thru' && !(p.drill > 0)) { out.push({ severity: 'error', message: `Pad ${p.num || '?'} is through-hole without a drill.` }); break; }
-    for (const p of pads) if (p.side === 'thru' && p.drill >= Math.min(p.w, p.shape === 'round' ? p.w : p.h)) { out.push({ severity: 'error', message: `Pad ${p.num || '?'} has a hole as large as the pad.` }); break; }
+    // A non-plated hole has no copper ring, so its pad is the hole itself.
+    for (const p of pads) if (p.side === 'thru' && p.plated !== false && p.drill >= Math.min(p.w, p.shape === 'round' ? p.w : p.h)) { out.push({ severity: 'error', message: `Pad ${p.num || '?'} has a hole as large as the pad.` }); break; }
   }
   return out;
 }
