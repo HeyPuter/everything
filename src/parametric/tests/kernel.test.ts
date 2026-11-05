@@ -39,6 +39,27 @@ describe('feature regeneration', () => {
     expect(volume(b)).toBeCloseTo(expected, 1);
   });
 
+  it('extrudes the same spline region and hole in either drawing direction', async () => {
+    const volumes: number[] = [];
+    for (const clockwise of [false, true]) {
+      const pts = ['a', 'b', 'c', 'd', 'a'];
+      const b = new ModelBuilder();
+      const res = await b.build(req([sketch('S1', [
+        { id: 'a', t: 'point', x: -5, y: -5 },
+        { id: 'b', t: 'point', x: 5, y: -5 },
+        { id: 'c', t: 'point', x: 5, y: 5 },
+        { id: 'd', t: 'point', x: -5, y: 5 },
+        { id: 's', t: 'spline', pts: clockwise ? pts.reverse() : pts },
+        ...circle(0, 0, 2),
+      ]), extrude('E1', 'S1', 2)]));
+      expect(res.status.every((s) => s.ok)).toBe(true);
+      volumes.push(volume(b));
+      expect(volume(b)).toBeGreaterThan(200);
+      b.reset();
+    }
+    expect(volumes[0]).toBeCloseTo(volumes[1], 4);
+  });
+
   it('cuts through all and supports mid-plane and two-direction extrusion', async () => {
     const b = new ModelBuilder();
     const feats: Feature[] = [

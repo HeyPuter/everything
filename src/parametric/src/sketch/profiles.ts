@@ -67,7 +67,8 @@ export function buildProfiles(entities: SkEntity[], picks?: Vec2[]): ProfileResu
     if (c.t === 'circle') {
       if (c.r > tol) closedLoops.push(makeLoop([{ k: 'circle', c: ix.pt(c.c), r: c.r, ccw: true, src: c.id }]));
     } else if (c.t === 'spline' && c.pts.length > 2 && dist2(ix.pt(c.pts[0]), ix.pt(c.pts[c.pts.length - 1])) < tol) {
-      closedLoops.push(makeLoop(curveSegs(ix, c, true)));
+      const loop = makeLoop(curveSegs(ix, c, true));
+      if (Math.abs(loop.area) > tol * tol) closedLoops.push(loop.area > 0 ? loop : reverseLoop(loop));
     } else openCurves.push(c);
   }
 

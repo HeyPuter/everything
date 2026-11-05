@@ -76,3 +76,34 @@ describe('sketch profiles', () => {
     expect(p.regions[0].outer.area).toBeCloseTo(300, 6);
   });
 });
+
+
+describe('closed spline profiles', () => {
+  const loop = (clockwise: boolean): SkEntity[] => {
+    const ids = ['a', 'b', 'c', 'd', 'a'];
+    return [
+      { id: 'a', t: 'point', x: -5, y: -5 },
+      { id: 'b', t: 'point', x: 5, y: -5 },
+      { id: 'c', t: 'point', x: 5, y: 5 },
+      { id: 'd', t: 'point', x: -5, y: 5 },
+      { id: 's', t: 'spline', pts: clockwise ? ids.reverse() : ids },
+    ];
+  };
+
+  it.each([false, true])('keeps an inner circle as a hole regardless of spline direction (clockwise=%s)', (clockwise) => {
+    const p = buildProfiles([...loop(clockwise), ...circle(0, 0, 2)]);
+    expect(p.regions).toHaveLength(1);
+    expect(p.regions[0].outer.area).toBeGreaterThan(100);
+    expect(p.regions[0].holes).toHaveLength(1);
+    expect(inRegion([0, 0], p.regions[0])).toBe(false);
+    expect(inRegion([3, 0], p.regions[0])).toBe(true);
+  });
+
+  it.each([false, true])('keeps a spline inside a rectangle as a hole (clockwise=%s)', (clockwise) => {
+    const p = buildProfiles([...rect(-10, -10, 10, 10), ...loop(clockwise)]);
+    expect(p.regions).toHaveLength(1);
+    expect(p.regions[0].holes).toHaveLength(1);
+    expect(p.regions[0].holes[0].area).toBeLessThan(-100);
+    expect(inRegion([0, 0], p.regions[0])).toBe(false);
+  });
+});
