@@ -140,13 +140,13 @@ test('a line, a drawing, and a callout take clicks only where they are drawn', a
       at(x, y),
     );
   // On each drawn line, its comment; beside it, inside its box, what lies beneath.
-  expect(await hit(200, 200)).toBe('Line');
-  expect(await hit(379, 21)).toBe('Line');
+  expect(await hit(200, 200)).toBe('Arrow');
+  expect(await hit(379, 21)).toBe('Arrow');
   expect(await hit(40, 100)).toBe('Drawing');
   expect(await hit(100, 100)).not.toBe('Drawing');
-  expect(await hit(120, 240)).toBe('Text box: Look');
-  expect(await hit(280, 220)).toBe('Text box: Look');
-  expect(await hit(100, 200)).not.toBe('Text box: Look');
+  expect(await hit(120, 240)).toBe('Callout: Look');
+  expect(await hit(280, 220)).toBe('Callout: Look');
+  expect(await hit(100, 200)).not.toBe('Callout: Look');
   expect(await hit(240, 334)).toBe('Edit text: Words beside the arrow');
   await page.mouse.dblclick(...at(240, 334));
   await expect(page.getByRole('textbox', { name: 'Edit text' })).toBeFocused();

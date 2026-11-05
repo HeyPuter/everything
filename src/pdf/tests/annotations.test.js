@@ -1341,10 +1341,13 @@ describe('comment exchange', () => {
       /^Comment summary: 13 comments\n\nPage 1\n1\. Note \| Ada \| \d{4}-\d\d-\d\d \d\d:\d\d UTC\n {3}A note\n/,
     );
     expect(summary).toContain('Text box | Ada |');
+    // Named for what was drawn: a callout, an arrow and a cloud, not a text box, line, polygon.
+    expect(summary).toMatch(/\n5\. Callout \| [^\n]+\n {3}Callout\n/);
+    expect(summary).toMatch(/\n8\. Arrow \|/);
     expect(summary).toContain('   Text box\n   second line');
     expect(summary).toContain('\n\nPage 2\n');
     expect(summary).toMatch(
-      /Polygon \| Unknown author \| [^\n]+ \| Status: Accepted\n {3}Cloud\n {3}Reply \| Grace \| [^\n]+\n {5}Agreed\n {5}Reply \| Ada \| [^\n]+\n {7}Good/,
+      /Cloud \| Unknown author \| [^\n]+ \| Status: Accepted\n {3}Cloud\n {3}Reply \| Grace \| [^\n]+\n {5}Agreed\n {5}Reply \| Ada \| [^\n]+\n {7}Good/,
     );
     expect(exportCommentSummary(await blank())).toBe('Comment summary: no comments\n');
   });

@@ -19,7 +19,7 @@ import {
   removeAnnotationThread,
 } from './structure.js';
 import { editNote, listNotes, parsePdfDate } from './notes.js';
-import { COMMENT_KINDS } from './comments.js';
+import { COMMENT_KINDS, commentLabel } from './comments.js';
 import {
   DRAWABLE,
   FLAGS,
@@ -518,11 +518,12 @@ function describe(doc, { id, dict }, threads) {
   const flags = flagsOf(dict);
   const rect = rectOf(dict);
   const { width, dash } = borderOf(dict);
+  const intent = dict.lookup(name('IT'))?.decodeText?.() ?? null;
   const entry = {
     id,
     subtype,
-    kind: COMMENT_KINDS[subtype]?.label ?? subtype,
-    intent: dict.lookup(name('IT'))?.decodeText?.() ?? null,
+    kind: commentLabel(subtype, intent),
+    intent,
     rect: boxObject(rect),
     contents: text(dict, 'Contents'),
     author: text(dict, 'T'),
