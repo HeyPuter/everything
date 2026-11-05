@@ -1,5 +1,6 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { readFile } from 'node:fs/promises';
+import fontkit from '@pdf-lib/fontkit';
 import {
   PDFArray,
   PDFDict,
@@ -1164,4 +1165,36 @@ it('puts a detected blank over its underscores, whatever the widths of its label
     expect(found).toHaveLength(4);
     found.forEach(({ rect }, i) => expect(Math.abs(rect.x - starts[i])).toBeLessThan(1.5));
   }
+});
+
+it('detects check boxes typed as box characters, named after the words beside them', async () => {
+  const doc = await PDFDocument.create();
+  doc.registerFontkit(fontkit);
+  // A word processor's "□ Yes □ No": the boxes are characters of a font that has them.
+  const font = await doc.embedFont(
+    await readFile(new URL('../public/fonts/NotoSansKR-Regular.ttf', import.meta.url)),
+    { subset: true },
+  );
+  const page = doc.addPage([612, 792]);
+  page.drawText('Do you agree?   □ Yes   □ No', { x: 50, y: 700, size: 12, font });
+  const square = font.widthOfTextAtSize('□', 12);
+  const starts = ['Do you agree?   ', 'Do you agree?   □ Yes   '].map(
+    (before) => 50 + font.widthOfTextAtSize(before, 12),
+  );
+  const bytes = await doc.save();
+  const textContent = await withPdfjs(bytes, (p) => p.getTextContent());
+  const found = detectFormFields(await PDFDocument.load(bytes), 0, { textContent });
+  expect(found.map(({ type, name }) => [type, name])).toEqual([
+    ['checkbox', 'Yes'],
+    ['checkbox', 'No'],
+  ]);
+  // Each box sits on its character, around the middle of the line.
+  found.forEach(({ rect }, i) => {
+    expect(rect.x).toBeGreaterThanOrEqual(starts[i] - 0.5);
+    expect(rect.x + rect.width).toBeLessThanOrEqual(starts[i] + square + 0.5);
+    expect(rect.width).toBeGreaterThanOrEqual(6);
+    expect(rect.height).toBeCloseTo(rect.width, 1);
+    expect(rect.y).toBeLessThan(704);
+    expect(rect.y + rect.height).toBeGreaterThan(704);
+  });
 });

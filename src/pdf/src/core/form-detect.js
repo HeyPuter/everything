@@ -25,24 +25,35 @@ const apply = (m, [x, y]) => [m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + 
 
 /* ---------- Text ---------- */
 
+/** Empty boxes as characters, as word processors type check boxes: ☐ □ ▢ ◻ ◽ ❏ ❐ ❑ ❒ ⬜. */
+const BOX_CHARACTERS = '\u2610\u25A1\u25A2\u25FB\u25FD\u274F\u2750\u2751\u2752\u2B1C';
+
 /**
  * Where each character of a PDF.js text item starts, and where the last one ends, along its
- * width: in proportion to the standard face of its kind, or evenly for a fixed-width face or
- * text the standard faces cannot write. PDF.js gives the width of the whole item only.
+ * width: in proportion to the standard face of its kind, or evenly for a fixed-width face.
+ * PDF.js gives the width of the whole item only. Characters the standard faces lack are
+ * taken as an em wide when they are box characters or wide (CJK) ones, else as average.
  */
 function characterOffsets(str, width, family) {
   const chars = [...str];
-  let widths = null;
-  if (family !== 'monospace')
+  const face =
+    family === 'monospace'
+      ? null
+      : StandardFontEmbedder.for(
+          family === 'serif' ? StandardFonts.TimesRoman : StandardFonts.Helvetica,
+        );
+  let widths = chars.map((char) => {
+    if (!face) return 1;
     try {
-      const face = StandardFontEmbedder.for(
-        family === 'serif' ? StandardFonts.TimesRoman : StandardFonts.Helvetica,
-      );
-      widths = chars.map((char) => face.widthOfTextAtSize(char, 1000));
+      return face.widthOfTextAtSize(char, 1000);
     } catch {
-      widths = null;
+      return BOX_CHARACTERS.includes(char) || char.codePointAt(0) >= 0x2e80 ? 1000 : null;
     }
-  const total = widths?.reduce((sum, w) => sum + w, 0);
+  });
+  const known = widths.filter((w) => w !== null);
+  const average = known.length ? known.reduce((sum, w) => sum + w, 0) / known.length : 1;
+  widths = widths.map((w) => w ?? average);
+  const total = widths.reduce((sum, w) => sum + w, 0);
   if (!(total > 0)) widths = chars.map(() => 1);
   const offsets = [0];
   const scale = width / (total > 0 ? total : chars.length);
@@ -230,17 +241,18 @@ function extractText(doc, page, turn = identity) {
 }
 
 /**
- * Split items into underscore blanks (three or more) and label text, then join label pieces
- * that sit on one line close together into runs.
+ * Split items into underscore blanks (three or more), box characters, and label text, then
+ * join label pieces that sit on one line close together into runs.
  */
 function textLayout(items) {
   const blanks = [],
+    glyphs = [],
     pieces = [];
   for (const item of items) {
     const perChar = item.width / Math.max(1, item.str.length);
     // Where character `i` starts: from the item's own advances, or evenly spread.
     const at = (i) => item.offsets?.[i] ?? i * perChar;
-    const pattern = /_{3,}/g;
+    const pattern = new RegExp(`_{3,}|[${BOX_CHARACTERS}]`, 'g');
     let last = 0,
       match;
     const piece = (from, to) => {
@@ -257,7 +269,7 @@ function textLayout(items) {
     while ((match = pattern.exec(item.str))) {
       piece(last, match.index);
       const end = match.index + match[0].length;
-      blanks.push({
+      (match[0][0] === '_' ? blanks : glyphs).push({
         x: item.x + at(match.index),
         y: item.y,
         width: at(end) - at(match.index),
@@ -298,7 +310,7 @@ function textLayout(items) {
     run.top = run.y + 0.8 * run.size;
     run.right = run.x + run.width;
   }
-  return { blanks, runs: runs.filter((r) => r.str) };
+  return { blanks, glyphs, runs: runs.filter((r) => r.str) };
 }
 
 /** A field name from a label: punctuation and dots (name separators) removed. */
@@ -621,7 +633,7 @@ export function detectFormFields(doc, pageIndex, { textContent } = {}) {
   } catch {
     items = [];
   }
-  const { blanks, runs } = textLayout(items);
+  const { blanks, glyphs, runs } = textLayout(items);
   const { boxes, horizontals, verticals } = pageGeometry(doc, pageIndex, turn);
   const candidates = [];
   const add = (type, rect, label, confidence, source, extra = {}) => {
@@ -692,6 +704,34 @@ export function detectFormFields(doc, pageIndex, { textContent } = {}) {
     );
   }
 
+  /** The words a check box stands for: just right of it, or else just left of it. */
+  const boxLabel = (box) => {
+    const mid = box.y + box.height / 2;
+    const right = runs
+      .filter(
+        (run) =>
+          Math.abs(run.y + 0.3 * run.size - mid) < Math.max(box.height, run.size) * 0.7 &&
+          run.x >= box.x + box.width - 1 &&
+          run.x - (box.x + box.width) <= 30,
+      )
+      .sort((a, b) => a.x - b.x)[0];
+    return right ?? leftLabel(box.x, box.y - 2, box.y + box.height + 2, 30);
+  };
+
+  // Box characters: "☐ Yes ☐ No". The square is about three quarters of an em, centered on
+  // its advance and on the middle of the lowercase letters beside it.
+  for (const glyph of glyphs) {
+    const side = Math.min(glyph.width * 0.85, glyph.size * 0.75);
+    const box = {
+      x: glyph.x + (glyph.width - side) / 2,
+      y: glyph.y + 0.3 * glyph.size - side / 2,
+      width: side,
+      height: side,
+    };
+    const label = boxLabel(box);
+    add('checkbox', box, label?.str, label ? 0.85 : 0.6, 'character');
+  }
+
   // Standalone rules: a horizontal line not part of a box or table grid.
   const grid = (h) =>
     verticals.some((v) => v.x >= h.x0 - 2 && v.x <= h.x1 + 2 && v.y0 <= h.y + 2 && v.y1 >= h.y - 2);
@@ -752,17 +792,7 @@ export function detectFormFields(doc, pageIndex, { textContent } = {}) {
     if (square) {
       // Dark filled squares are bullets, not boxes to tick.
       if (contents.length || (box.filled && !box.stroked && box.fill < 0.6)) continue;
-      const mid = box.y + box.height / 2;
-      const right = runs
-        .filter(
-          (run) =>
-            Math.abs(run.y + 0.3 * run.size - mid) < Math.max(box.height, run.size) * 0.7 &&
-            run.x >= box.x + box.width - 1 &&
-            run.x - (box.x + box.width) <= 30,
-        )
-        .sort((a, b) => a.x - b.x)[0];
-      const left = right ? null : leftLabel(box.x, box.y - 2, box.y + box.height + 2, 30);
-      const label = right ?? left;
+      const label = boxLabel(box);
       add('checkbox', box, label?.str, label ? 0.85 : 0.6, box.cell ? 'cell' : 'box');
       continue;
     }
