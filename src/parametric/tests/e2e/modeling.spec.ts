@@ -258,6 +258,17 @@ test('the equations table keeps keyboard focus as values are edited and rows del
   // Tab goes on to the next control, which focus used to leave the dialog for.
   await expect(dlg.getByRole('button', { name: 'Delete A' })).toBeFocused();
   await expect(dlg.getByRole('row').nth(2)).toContainText('24.0000');
+  // An equation's error is on its field for assistive tech too.
+  const b = dlg.getByRole('textbox', { name: 'Value or expression of B' });
+  await expect(b).not.toHaveAttribute('aria-invalid', 'true');
+  await b.fill('A/0');
+  await b.press('Shift+Tab');
+  await expect(b).toHaveAttribute('aria-invalid', 'true');
+  await expect(b).toHaveAccessibleDescription('Division by zero');
+  await b.fill('A*2');
+  await b.press('Tab');
+  await expect(b).not.toHaveAttribute('aria-invalid', 'true');
+  await dlg.getByRole('button', { name: 'Delete A' }).focus();
   await page.keyboard.press('Enter');
   await expect(dlg.getByRole('button', { name: 'Delete B' })).toBeFocused();
   await page.keyboard.press('Enter');

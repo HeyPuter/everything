@@ -13,7 +13,7 @@ import { MATERIALS } from '../model/materials';
 import { mirrorEntities, offsetCurves } from '../sketch/ops';
 import { convertEdges } from '../sketch/convert';
 import { setThemeChoice, getThemeChoice, type ThemeChoice } from '../platform/theme';
-import { h, formatShortcut, isMac } from '../ui/dom';
+import { h, formatShortcut, isMac, nextDomId } from '../ui/dom';
 import { icon } from '../ui/icons';
 import { showDialog, toast } from '../ui/overlay';
 import type { App } from './app';
@@ -51,6 +51,9 @@ export async function equationsDialog(app: App) {
       const e = errors.get(v.name);
       c.result.textContent = e ? e : val !== undefined ? formatNumber(val, 4) : '';
       c.result.style.color = e ? 'var(--danger)' : '';
+      // The error is told to assistive tech on the field, not by colour alone.
+      if (e) c.expr.setAttribute('aria-invalid', 'true');
+      else c.expr.removeAttribute('aria-invalid');
     }
   };
   const draw = () => {
@@ -70,7 +73,8 @@ export async function equationsDialog(app: App) {
         refresh();
       });
       expr.addEventListener('change', () => { v.expr = expr.value.trim(); refresh(); });
-      const result = h('td', { class: 'num' });
+      const result = h('td', { class: 'num', id: nextDomId('eq-result') });
+      expr.setAttribute('aria-describedby', result.id);
       const del = h('button', { class: 'icon-btn', type: 'button' }, icon('trash', 16));
       del.addEventListener('click', () => {
         rows.splice(i, 1);
