@@ -686,8 +686,9 @@ export class App {
     if (reason === 'undo' || reason === 'redo') {
       // Rebuilding a focused field can emit change before it is detached.
       // Its pending value belongs to the state that history just replaced.
-      const field = this.shell.lpBody.querySelector<HTMLElement>('.sketch-dimension-field');
-      if (field) retireNumberFields(field);
+      for (const field of this.shell.lpBody.querySelectorAll<HTMLElement>('.sketch-dimension-field, .sketch-tool-options')) {
+        retireNumberFields(field);
+      }
       // Sketch edits undo inside the sketch; anything else leaves the editor in sync.
       if (this.sketchEditor && !this.store.feature(this.sketchEditor.sketchId)) this.exitModes();
       this.sketchEditor?.resolve();

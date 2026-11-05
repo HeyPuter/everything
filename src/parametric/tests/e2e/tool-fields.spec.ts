@@ -156,3 +156,54 @@ for (const boundary of [3, 64, 'invalid'] as const) test(`Polygon side count res
   expect(count).toBe(boundary === 'invalid' ? 8 : boundary);
   expect(errors).toEqual([]);
 });
+
+for (const tool of ['polygon', 'sketchFillet'] as const) for (const history of ['undo', 'redo'] as const) for (const pending of [false, true]) {
+  test(`${tool} keeps its displayed option and geometry consistent after ${history} (pending ${pending})`, async ({ page }) => {
+    const errors = await openApp(page);
+    await page.getByRole('button', { name: /New part/ }).click();
+    await page.getByRole('treeitem', { name: 'Front Plane' }).click();
+    await page.getByRole('tab', { name: 'Sketch' }).click();
+    await page.locator('[data-cmd="sketch"]').first().click();
+    await expect(page.locator('.view-label')).toHaveText('Front');
+    await page.evaluate(({ tool, history }) => {
+      const a = (window as unknown as Win).__parametric;
+      a.sketchEditor!.edit('Add corner', (sk) => sk.entities.push(
+        { id: 'corner', t: 'point', x: 20, y: 20 }, { id: 'a', t: 'point', x: 60, y: 20 }, { id: 'b', t: 'point', x: 20, y: 60 },
+        { id: 'h', t: 'line', a: 'corner', b: 'a' }, { id: 'v', t: 'line', a: 'corner', b: 'b' },
+      ));
+      a.sketchEditor!.edit('Add history marker', (sk) => sk.entities.push({ id: 'marker', t: 'point', x: 100, y: 100 }));
+      if (history === 'redo') a.commands.run('undo');
+      a.commands.run(`tool:${tool}`);
+    }, { tool, history });
+    const input = page.getByRole('textbox', { name: tool === 'polygon' ? 'Number of sides' : 'Fillet radius', exact: true });
+    await input.fill('8');
+    await input.press('Tab');
+    await input.fill('9');
+    if (!pending) await input.press('Tab');
+    await page.evaluate((history) => (window as unknown as Win).__parametric.commands.run(history), history);
+    const expected = pending ? 8 : 9;
+    await expect(input).toHaveValue(String(expected));
+    await page.waitForTimeout(400); // Retired input must not update the tool through its debounce.
+    expect(await page.evaluate(() => (window as unknown as Win).__parametric.store.canRedo)).toBe(history === 'undo');
+    const value = await page.evaluate((tool) => {
+      const ed = (window as unknown as Win).__parametric.sketchEditor!;
+      ed.tool!.click!({ p: [20, 20], raw: [20, 20], kind: 'none' }, {} as import('../../src/app/viewport').VPEvent);
+      if (tool === 'polygon') {
+        ed.tool!.click!({ p: [40, 20], raw: [40, 20], kind: 'none' }, {} as import('../../src/app/viewport').VPEvent);
+        return ed.sketch.entities.filter((e) => e.t === 'line' && e.id !== 'h' && e.id !== 'v').length;
+      }
+      const arc = ed.sketch.entities.find((e) => e.t === 'arc');
+      if (!arc || arc.t !== 'arc') return null;
+      const points = ed.sketch.entities.filter((e) => e.t === 'point');
+      const center = points.find((e) => e.id === arc.c)!, start = points.find((e) => e.id === arc.a)!;
+      return Math.hypot(start.x - center.x, start.y - center.y);
+    }, tool);
+    expect(value).toBeCloseTo(expected, 8);
+    // The newly mounted control still owns the tool's option.
+    await input.fill('10');
+    await input.press('Tab');
+    await page.evaluate(() => (window as unknown as Win).__parametric.refreshSketchPanel());
+    await expect(input).toHaveValue('10');
+    expect(errors).toEqual([]);
+  });
+}
