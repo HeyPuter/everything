@@ -907,3 +907,58 @@ test('a failed Save As keeps the original document name and file location', asyn
   ]);
   expect(errors).toEqual([]);
 });
+
+for (const first of ['save', 'saveAs', 'rename', 'samePath'] as const) test(`Save As after a delayed ${first === 'samePath' ? 'Save As to the same file' : first} keeps the newer destination`, async ({ page }) => {
+  await mockPuter(page);
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.store.change('Work', (d) => { d.variables.push({ id: 'v1', name: 'Keep', expr: '17' }); }));
+  if (first === 'rename') {
+    await page.evaluate(() => (window as unknown as { __parametric: AppHandle }).__parametric.commands.run('save'));
+    await expect(page).toHaveTitle('Part1 - Parametric');
+  }
+  await page.evaluate((first) => {
+    type W = { __parametric: import('../../src/app/app').App; puter: { fs: { write: (...args: unknown[]) => Promise<unknown>; rename: (...args: unknown[]) => Promise<unknown> } }; __savePick: (name: string) => Promise<string>; firstStarted: boolean; releaseFirst: () => void; pendingCopy: Promise<void>; copyDone: boolean; saves: number };
+    const w = window as unknown as W;
+    const gate = new Promise<void>((r) => { w.releaseFirst = r; });
+    w.saves = 0;
+    w.__parametric.store.on((reason) => { if (reason === 'saved') w.saves++; });
+    if (first === 'save' || first === 'rename') {
+      const method = first === 'save' ? 'write' : 'rename';
+      const original = w.puter.fs[method].bind(w.puter.fs);
+      w.puter.fs[method] = async (...args) => { w.firstStarted = true; await gate; return original(...args); };
+    }
+    w.__savePick = async (name) => {
+      if ((first === 'saveAs' || first === 'samePath') && name === 'Original.parametric') { w.firstStarted = true; await gate; }
+      return first === 'samePath' ? '/tester/Documents/Shared.parametric' : `/tester/Documents/${name}`;
+    };
+    w.__parametric.commands.run(first === 'samePath' ? 'saveAs' : first);
+  }, first);
+  if (first !== 'save') {
+    await page.getByRole('dialog', { name: first === 'rename' ? 'Rename part' : 'Save As' }).getByRole('textbox').fill('Original');
+    await page.getByRole('button', { name: 'OK', exact: true }).click();
+  }
+  await page.waitForFunction(() => (window as unknown as { firstStarted: boolean }).firstStarted);
+  await page.evaluate(() => {
+    const w = window as unknown as { __parametric: import('../../src/app/app').App; pendingCopy: Promise<void>; copyDone: boolean };
+    w.copyDone = false;
+    w.pendingCopy = Promise.resolve(w.__parametric.commands.get('saveAs')!.run()).then(() => { w.copyDone = true; });
+  });
+  await page.getByRole('dialog', { name: 'Save As' }).getByRole('textbox').fill('Copy');
+  await page.getByRole('button', { name: 'OK', exact: true }).click();
+  // The second operation either completed (the old bug) or explains that it
+  // is waiting for the current operation. Neither path relies on a sleep.
+  await page.waitForFunction(() => (window as unknown as { copyDone: boolean }).copyDone || document.querySelector('.toasts')?.textContent?.includes('Waiting for the current file operation'));
+  await page.evaluate(async () => {
+    const w = window as unknown as { releaseFirst: () => void; pendingCopy: Promise<void> };
+    w.releaseFirst();
+    await w.pendingCopy;
+  });
+  await expect.poll(() => page.evaluate(() => (window as unknown as { saves: number }).saves)).toBe(first === 'rename' ? 1 : 2);
+  await expect(page).toHaveTitle('Copy - Parametric');
+  const path = `/tester/Documents/${first === 'samePath' ? 'Shared' : 'Copy'}.parametric`;
+  expect(await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.location)).toEqual({ type: 'cloud', path });
+  expect(await page.evaluate((path) => JSON.parse((window as unknown as Mock).__files.get(path)!.text).name, path)).toBe('Copy');
+  await expect(page.locator('.toast', { hasText: 'Waiting for the current file operation' })).toHaveCount(0);
+  expect(errors).toEqual([]);
+});

@@ -17,6 +17,8 @@ import { sharedWithMe } from './share';
 
 export class FileOps {
   private saving = false;
+  private fileQueue: Promise<void> = Promise.resolve();
+  private queuedFileOperations = 0;
   private recoveryTimer = 0;
   /** A recovered copy retained until this tab writes a durable replacement. */
   private recoverySource: string | null = null;
@@ -40,6 +42,22 @@ export class FileOps {
         e.returnValue = '';
       }
     });
+  }
+
+  /** A later file operation must not be overwritten by an earlier completion. */
+  private fileOperation<T>(operation: () => Promise<T>): Promise<T> {
+    const waiting = this.queuedFileOperations++ > 0;
+    const dismiss = waiting ? toast({ message: 'Waiting for the current file operation…', timeout: 0 }) : null;
+    const result = this.fileQueue.then(async () => {
+      dismiss?.();
+      try {
+        return await operation();
+      } finally {
+        this.queuedFileOperations--;
+      }
+    });
+    this.fileQueue = result.then(() => undefined, () => undefined);
+    return result;
   }
 
   /** Asks to save or discard unsaved changes. Returns false to abort. */
@@ -90,23 +108,26 @@ export class FileOps {
     const documentVersion = this.documentVersion;
     this.saving = true;
     try {
-      let loc = app.location;
-      if (!loc) loc = await newLocation(app.store.doc.name, `part-${Date.now().toString(36)}`);
-      if (documentVersion !== this.documentVersion) return false;
-      // Undo replaces the document object while destination lookup is pending.
-      const doc = app.store.doc;
-      const text = serializeDocument(doc);
-      const revision = this.revision;
-      const saved = await saveText(loc, doc.name, text);
-      // The write may finish after New/Open. It belongs to the old part.
-      if (documentVersion !== this.documentVersion) return true;
-      app.location = saved;
-      this.markSaved(revision);
-      toast({ kind: 'success', message: `Saved to ${locationLabel(app.location)}`, timeout: 2500 });
-      if (app.location.type === 'local' && !cloudAvailable()) {
-        maybeNudgeSignIn();
-      }
-      return true;
+      return await this.fileOperation(async () => {
+        if (documentVersion !== this.documentVersion) return false;
+        let loc = app.location;
+        if (!loc) loc = await newLocation(app.store.doc.name, `part-${Date.now().toString(36)}`);
+        if (documentVersion !== this.documentVersion) return false;
+        // Undo replaces the document object while destination lookup is pending.
+        const doc = app.store.doc;
+        const text = serializeDocument(doc);
+        const revision = this.revision;
+        const saved = await saveText(loc, doc.name, text);
+        // The write may finish after New/Open. It belongs to the old part.
+        if (documentVersion !== this.documentVersion) return true;
+        app.location = saved;
+        this.markSaved(revision);
+        toast({ kind: 'success', message: `Saved to ${locationLabel(app.location)}`, timeout: 2500 });
+        if (app.location.type === 'local' && !cloudAvailable()) {
+          maybeNudgeSignIn();
+        }
+        return true;
+      });
     } catch (e) {
       // The work is still only in this tab: offer a copy on the device meanwhile.
       toast({ kind: 'error', title: 'Could not save', message: storageError(e), actions: [{ label: 'Download a copy', run: () => void this.exportAs('part') }], timeout: 15000 });
@@ -129,39 +150,42 @@ export class FileOps {
     const documentVersion = this.documentVersion;
     const name = await promptDialog('Save As', 'Part name', app.store.doc.name, (v) => (v.trim() ? null : 'Enter a name'));
     if (name == null || documentVersion !== this.documentVersion) return;
-    const clean = safeName(name);
-    const rename = () => app.store.change('Rename part', (doc) => { doc.name = clean; });
-    if (cloudAvailable() && puter()?.ui?.showSaveFilePicker) {
-      const revision = this.revision;
-      // null when the user cancels the picker; undefined when it failed (save to Parts instead).
-      const loc = await pickCloudSave(serializeDocument({ ...app.store.doc, name: clean }), clean).catch(() => undefined);
-      if (loc) rememberRecent({ location: loc, name: clean });
-      if (loc === null || documentVersion !== this.documentVersion) return;
-      if (loc) {
+    return this.fileOperation(async () => {
+      if (documentVersion !== this.documentVersion) return;
+      const clean = safeName(name);
+      const rename = () => app.store.change('Rename part', (doc) => { doc.name = clean; });
+      if (cloudAvailable() && puter()?.ui?.showSaveFilePicker) {
+        const revision = this.revision;
+        // null when the user cancels the picker; undefined when it failed (save to Parts instead).
+        const loc = await pickCloudSave(serializeDocument({ ...app.store.doc, name: clean }), clean).catch(() => undefined);
+        if (loc) rememberRecent({ location: loc, name: clean });
+        if (loc === null || documentVersion !== this.documentVersion) return;
+        if (loc) {
+          const unchanged = revision === this.revision;
+          rename();
+          app.location = loc;
+          this.markSaved(unchanged ? this.revision : revision);
+          toast({ kind: 'success', message: `Saved to ${locationLabel(loc)}` });
+          return;
+        }
+      }
+      if (app.sketchEditor) app.exitSketch(true);
+      try {
+        const loc = await newLocation(clean, `part-${Date.now().toString(36)}`);
+        if (documentVersion !== this.documentVersion) return;
+        const revision = this.revision;
+        const saved = await saveText(loc, clean, serializeDocument({ ...app.store.doc, name: clean }));
+        if (documentVersion !== this.documentVersion) return;
         const unchanged = revision === this.revision;
         rename();
-        app.location = loc;
+        app.location = saved;
         this.markSaved(unchanged ? this.revision : revision);
-        toast({ kind: 'success', message: `Saved to ${locationLabel(loc)}` });
-        return;
+        toast({ kind: 'success', message: `Saved to ${locationLabel(saved)}`, timeout: 2500 });
+        if (saved.type === 'local' && !cloudAvailable()) maybeNudgeSignIn();
+      } catch (e) {
+        toast({ kind: 'error', title: 'Could not save', message: storageError(e), actions: [{ label: 'Download a copy', run: () => void this.exportAs('part') }], timeout: 15000 });
       }
-    }
-    if (app.sketchEditor) app.exitSketch(true);
-    try {
-      const loc = await newLocation(clean, `part-${Date.now().toString(36)}`);
-      if (documentVersion !== this.documentVersion) return;
-      const revision = this.revision;
-      const saved = await saveText(loc, clean, serializeDocument({ ...app.store.doc, name: clean }));
-      if (documentVersion !== this.documentVersion) return;
-      const unchanged = revision === this.revision;
-      rename();
-      app.location = saved;
-      this.markSaved(unchanged ? this.revision : revision);
-      toast({ kind: 'success', message: `Saved to ${locationLabel(saved)}`, timeout: 2500 });
-      if (saved.type === 'local' && !cloudAvailable()) maybeNudgeSignIn();
-    } catch (e) {
-      toast({ kind: 'error', title: 'Could not save', message: storageError(e), actions: [{ label: 'Download a copy', run: () => void this.exportAs('part') }], timeout: 15000 });
-    }
+    });
   }
 
   /** Opens a part from a location (cloud or local). */
@@ -402,19 +426,22 @@ export class FileOps {
     const documentVersion = this.documentVersion;
     const name = await promptDialog('Rename part', 'Part name', app.store.doc.name, (v) => (v.trim() ? null : 'Enter a name'));
     if (name == null || documentVersion !== this.documentVersion) return;
-    const clean = safeName(name);
-    app.store.change('Rename part', (doc) => { doc.name = clean; });
-    const loc = app.location;
-    if (loc?.type === 'cloud') {
-      try {
-        const renamed = await renameCloud(loc, clean);
-        if (documentVersion === this.documentVersion) app.location = renamed;
-        forgetRecent(loc);
-        rememberRecent({ location: renamed, name: clean });
-      } catch (e) {
-        toast({ kind: 'warning', message: `Renamed in the app, but the file could not be renamed: ${storageError(e)}` });
+    return this.fileOperation(async () => {
+      if (documentVersion !== this.documentVersion) return;
+      const clean = safeName(name);
+      app.store.change('Rename part', (doc) => { doc.name = clean; });
+      const loc = app.location;
+      if (loc?.type === 'cloud') {
+        try {
+          const renamed = await renameCloud(loc, clean);
+          if (documentVersion === this.documentVersion) app.location = renamed;
+          forgetRecent(loc);
+          rememberRecent({ location: renamed, name: clean });
+        } catch (e) {
+          toast({ kind: 'warning', message: `Renamed in the app, but the file could not be renamed: ${storageError(e)}` });
+        }
       }
-    }
+    });
   }
 
   // ---------- recovery ----------
