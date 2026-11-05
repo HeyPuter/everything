@@ -879,6 +879,76 @@ describe('images', () => {
   });
 });
 
+describe('black-and-white scans', () => {
+  // Fax-coded and JBIG2 scans can only be read by rendering them; the rendering was stored at
+  // 24 bits a pixel, so a redacted page of a black-and-white scan grew some thirty times over.
+  const W = 400,
+    H = 300;
+  const scan = () =>
+    makePdf([
+      {
+        content: `q ${W} 0 0 ${H} 0 0 cm /Scan Do Q`,
+        size: [W, H],
+        resources: (doc) => ({
+          XObject: {
+            Scan: doc.context.register(
+              doc.context.stream(new Uint8Array(64).fill(7), {
+                Type: 'XObject',
+                Subtype: 'Image',
+                Width: W,
+                Height: H,
+                ColorSpace: 'DeviceGray',
+                BitsPerComponent: 1,
+                Filter: 'CCITTFaxDecode',
+                DecodeParms: { K: -1, Columns: W, Rows: H },
+              }),
+            ),
+          },
+        }),
+      },
+    ]);
+  // Lines of "text": black dots on white, as the page renders.
+  const ink = (x, y) => y % 20 < 12 && (x * 7 + y * 3) % 5 < 2;
+  const render = (gray) => async (bytes, w, h) => {
+    const data = new Uint8ClampedArray(w * h * 4).fill(255);
+    for (let y = 0; y < h; y++)
+      for (let x = 0; x < w; x++)
+        if (ink(x, y)) data.fill(gray, (y * w + x) * 4, (y * w + x) * 4 + 3);
+    return { data };
+  };
+
+  it('stores a redacted black-and-white scan at one bit a pixel', async () => {
+    const { bytes: out, report } = await redact(await scan(), [[0, [[0, 200, 100, 300]]]], {
+      codec: { render: render(0) },
+    });
+    expect(report.images).toEqual({ redacted: 1, removed: 0 });
+    const [image] = Object.values(pageImages(await PDFDocument.load(out)));
+    expect(image.dict.lookup(n('ColorSpace'))).toBe(n('DeviceGray'));
+    expect(image.dict.lookup(n('BitsPerComponent')).asNumber()).toBe(1);
+    expect(out.length).toBeLessThan(W * H * 0.4);
+    const bits = decodeSamples(image);
+    const row = W / 8;
+    const white = (x, y) => (bits[y * row + (x >> 3)] & (0x80 >> (x & 7))) !== 0;
+    for (let y = 0; y < H; y += 7)
+      for (let x = 0; x < W; x += 3)
+        // The top left quarter is the black fill; elsewhere the scan as it was.
+        expect(white(x, y)).toBe(x < 100 && y < 100 ? false : !ink(x, y));
+  });
+
+  it('keeps the colour of a fill that is neither black nor white, and of gray renderings', async () => {
+    const red = await redact(await scan(), [[0, [[0, 200, 100, 300]], { fill: '#ff0000' }]], {
+      codec: { render: render(0) },
+    });
+    const [colored] = Object.values(pageImages(await PDFDocument.load(red.bytes)));
+    expect(colored.dict.lookup(n('ColorSpace'))).toBe(n('DeviceRGB'));
+    const gray = await redact(await scan(), [[0, [[0, 200, 100, 300]]]], {
+      codec: { render: render(90) },
+    });
+    const [shaded] = Object.values(pageImages(await PDFDocument.load(gray.bytes)));
+    expect(shaded.dict.lookup(n('ColorSpace'))).toBe(n('DeviceRGB'));
+  });
+});
+
 describe('vector graphics, annotations, and fields', () => {
   it('removes paths entirely inside an area and keeps clips and partly covered paths', async () => {
     const content = [

@@ -550,6 +550,8 @@ async function redactRendered(doc, stream, resources, ctm, areas, rgb, codec) {
     );
     return out ? { stream: out.stream } : { unchanged: true };
   }
+  const bilevel = bilevelRendering(context, stream, data, width, height, spans, rgb);
+  if (bilevel) return bilevel;
   const rgbData = new Uint8Array(width * height * 3),
     alpha = new Uint8Array(width * height);
   let opaque = true;
@@ -587,6 +589,44 @@ async function redactRendered(doc, stream, resources, ctm, areas, rgb, codec) {
     next.dict.set(PDFName.of('SMask'), context.register(mask));
   }
   return { stream: next };
+}
+
+/**
+ * A black-and-white scan (fax-coded or JBIG2, as office scanners write them) renders as opaque
+ * pure black and white. Stored again at 24 bits a pixel it grew some thirty times over; it is
+ * kept at one bit a pixel when the fill is black or white as well. Null for any other picture.
+ */
+function bilevelRendering(context, stream, data, width, height, spans, rgb) {
+  const fill = rgb.map((c) => Math.round(c * 255));
+  if (!fill.every((c) => c === fill[0]) || (fill[0] !== 0 && fill[0] !== 255)) return null;
+  const rowBytes = Math.ceil(width / 8);
+  const bits = new Uint8Array(rowBytes * height);
+  for (let y = 0, i = 0; y < height; y++)
+    for (let x = 0; x < width; x++, i += 4) {
+      const value = data[i];
+      if (
+        (value !== 0 && value !== 255) ||
+        data[i + 1] !== value ||
+        data[i + 2] !== value ||
+        data[i + 3] !== 255
+      )
+        return null;
+      if (value) bits[y * rowBytes + (x >> 3)] |= 0x80 >> (x & 7);
+    }
+  const base = context.obj({
+    Type: 'XObject',
+    Subtype: 'Image',
+    Width: width,
+    Height: height,
+    ColorSpace: 'DeviceGray',
+    BitsPerComponent: 1,
+  });
+  for (const key of ['Interpolate', 'Intent'])
+    if (stream.dict.has(PDFName.of(key)))
+      base.set(PDFName.of(key), stream.dict.get(PDFName.of(key)));
+  const image = { data: bits, width, height, bpc: 1, space: { family: 'gray', n: 1 } };
+  const out = storeRedacted(context, stream, base, image, spans, [fill[0] ? 1 : 0]);
+  return out ? { stream: out.stream } : { unchanged: true };
 }
 
 /**
