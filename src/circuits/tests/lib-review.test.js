@@ -3,7 +3,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { mil, mm } from '../src/core/units.js';
 import { LibDoc, LibEditor } from '../src/editors/lib-editor.js';
 import { padDialog } from '../src/editors/lib-tools.js';
-import { validateComponent } from '../src/editors/lib-model.js';
+import { mirrorLib, validateComponent } from '../src/editors/lib-model.js';
 import { ComponentsPanel } from '../src/ui/panels/components.js';
 import { App } from '../src/app/app.js';
 import { setPuterForTests } from '../src/app/puter.js';
@@ -436,5 +436,22 @@ describe('component checks for mechanical parts', () => {
     expect(validateComponent(plated).map((m) => m.message)).toContain(
       'Pad 1 has a hole as large as the pad.',
     );
+  });
+});
+
+describe('component editor mirroring', () => {
+  const text = (rot) => ({ t: 'text', id: 't', text: 'A', x: mm(1), y: mm(2), size: mm(1), rot });
+
+  it('negates the angle of mirrored text so it follows the mirrored baseline', () => {
+    const m = mirrorLib(text(30), 0, 0, 'x');
+    expect(m).toMatchObject({ x: -mm(1), y: mm(2), rot: 330, mirror: false });
+    // Across a horizontal line the baseline turns to -30 degrees too (drawn
+    // upright, 150 reads the same as 330).
+    const v = mirrorLib(text(30), 0, 0, 'y');
+    expect(v).toMatchObject({ x: mm(1), y: -mm(2) });
+    expect([150, 330]).toContain(v.rot);
+    // Mirroring twice restores the text.
+    expect(mirrorLib(m, 0, 0, 'x')).toMatchObject({ x: mm(1), y: mm(2), rot: 30 });
+    expect(mirrorLib(text(0), 0, 0, 'x').rot).toBe(0);
   });
 });

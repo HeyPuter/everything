@@ -185,8 +185,9 @@ export function mirrorLib(o, cx, cy, axis = 'x') {
   if (o.t === 'pad') return { ...o, x: 2 * cx - o.x, rot: norm(-(o.rot || 0)) };
   if (o.t === 'anchor') return { ...o, x: 2 * cx - o.x };
   const g = transformGraphic(transformGraphic(o, makeTransform(-cx, -cy, 0)), makeTransform(cx, cy, 0, true));
-  // Mirrored text stays readable in a symbol.
-  if (g.t === 'text') g.mirror = !!o.mirror;
+  // Mirrored text stays readable, along the mirrored baseline: its angle is
+  // negated (text at 30 degrees mirrored across a vertical line runs at -30).
+  if (g.t === 'text') { g.mirror = !!o.mirror; g.rot = norm(-(o.rot || 0)); }
   return roundGraphic({ ...g, id: o.id });
 }
 
