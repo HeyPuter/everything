@@ -63,12 +63,15 @@ export class TextEditor {
     // Escape works from anywhere in the editor, including its buttons.
     el.addEventListener('keydown', (e) => {
       e.stopPropagation();
+      // Enter and Escape while an IME is composing belong to the IME.
+      if (e.isComposing || e.keyCode === 229) return;
       if (e.key === 'Escape') {
         e.preventDefault();
         finish(null);
       }
     });
     field.addEventListener('keydown', (e) => {
+      if (e.isComposing || e.keyCode === 229) return;
       if (e.key === 'Enter' && (!opts.multiline || e.ctrlKey || e.metaKey)) {
         e.preventDefault();
         finish(field.value);
