@@ -575,3 +575,30 @@ describe('damaged KiCad files', () => {
     ).rejects.toThrow(/No schematic or board/);
   });
 });
+
+describe('KiCad pad offsets', () => {
+  it('moves offset SMD pads to their copper and warns about offset drilled pads', async () => {
+    const { placeFootprint } = await import('../src/model/place.js');
+    const text = `(kicad_pcb (version 20221018) (generator pcbnew)
+      (layers (0 "F.Cu" signal) (31 "B.Cu" signal))
+      (footprint "A:Top" (layer "F.Cu") (at 10 10 90)
+        (property "Reference" "U1" (at 0 -2 90) (layer "F.SilkS"))
+        (pad "1" smd rect (at 0 0 90) (size 1 0.5) (drill (offset 1 0)) (layers "F.Cu" "F.Mask")))
+      (footprint "A:Bot" (layer "B.Cu") (at 20 10)
+        (property "Reference" "U2" (at 0 -2) (layer "B.SilkS"))
+        (pad "1" smd rect (at 0 0) (size 1 0.5) (drill (offset 1 0)) (layers "B.Cu" "B.Mask")))
+      (footprint "A:Tht" (layer "F.Cu") (at 30 10)
+        (property "Reference" "J1" (at 0 -2) (layer "F.SilkS"))
+        (pad "1" thru_hole rect (at 0 0) (size 2 1) (drill 0.8 (offset 0.5 0)) (layers "*.Cu" "*.Mask"))))`;
+    const { project, warnings } = await importKicad([{ name: 'a.kicad_pcb', text }]);
+    const pcb = project.documents[0];
+    const padOf = (ref) => {
+      const c = pcb.objects.find((o) => o.t === 'comp' && o.designator === ref);
+      return placeFootprint(project.library[c.comp], c, 2).pads[0];
+    };
+    expect(padOf('U1')).toMatchObject({ x: mm(10), y: -mm(9) });
+    expect(padOf('U2')).toMatchObject({ x: mm(21), y: -mm(10), side: 'bottom' });
+    expect(padOf('J1')).toMatchObject({ x: mm(30), y: -mm(10), drill: mm(0.8) });
+    expect(warnings.some((w) => /offset from the drill hole/.test(w))).toBe(true);
+  });
+});

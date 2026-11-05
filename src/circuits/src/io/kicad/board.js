@@ -154,15 +154,29 @@ export function importBoard(file, warnings) {
       const net = netOf(pad);
       if (num && net) padNets[num] = net;
       if (def) continue;
-      const [x, y] = toDef(pat[1], pat[2]);
+      const dr = find(pad, 'drill');
+      const offset = find(dr, 'offset');
+      const ox = Number(offset?.[1]) || 0, oy = Number(offset?.[2]) || 0;
+      const thru = type === 'thru_hole' || type === 'np_thru_hole';
+      let px = Number(pat[1]) || 0, py = Number(pat[2]) || 0;
+      if ((ox || oy) && !thru) {
+        // A pad offset moves the copper away from the anchor, along the pad's
+        // own axes (KiCad turns counter-clockwise on screen, y down). Without
+        // a hole the shape can simply sit where the copper is.
+        const r = ((Number(pat[3]) || 0) - theta) * (Math.PI / 180), c = Math.cos(r), sn = Math.sin(r);
+        px += ox * c + oy * sn;
+        py += -ox * sn + oy * c;
+      } else if (ox || oy) {
+        warnings.add('Pads whose copper is offset from the drill hole were imported centred on the hole; check their copper.');
+      }
+      const [x, y] = toDef(px, py);
       const w = nm(size[1]), h = nm(size[2] ?? size[1]);
       const out = { num, x, y, w, h, rot: localRot(Number(pat[3]) || 0) };
       if (shape === 'circle') { out.shape = 'round'; out.h = w; } else if (shape === 'oval') out.shape = 'oval';
       else if (shape === 'roundrect') { out.shape = 'roundrect'; out.radius = Number(val(pad, 'roundrect_rratio', 1, 0.25)); } else if (shape === 'rect') out.shape = 'rect';
       else { out.shape = 'rect'; warnings.add(`Pads with shape ${shape} were imported as rectangles.`); }
-      if (type === 'thru_hole' || type === 'np_thru_hole') {
+      if (thru) {
         out.side = 'thru';
-        const dr = find(pad, 'drill');
         const nums = dr ? dr.slice(1).filter((v) => typeof v === 'number') : [];
         out.drill = nm(nums.length ? Math.min(...nums) : 0.8);
         out.plated = type !== 'np_thru_hole';
