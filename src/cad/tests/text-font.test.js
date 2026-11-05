@@ -32,6 +32,23 @@ describe('font coverage', () => {
     expect(hasGlyph(0x2300)).toBe(true);
   });
 
+  it('draws accented Latin letters and common symbols', () => {
+    const text = 'ÀÉÎÕÜÅÇØßÆŒàéîõüåçøæœĄČĐĘĞŁŃŐŘŚŞŠŢŰŽąčđęğłńőřśşšţűžȘșȚț';
+    const symbols = 'µΩΔΣπ€£¥¢©®™«»·¹÷¡¿–—…•‘’“”−';
+    for (const ch of text + symbols) expect(hasGlyph(ch.codePointAt(0)), ch).toBe(true);
+    const top = (ch) =>
+      Math.max(...glyphStrokes(ch.codePointAt(0)).flatMap((st) => [...st].filter((_, i) => i & 1)));
+    // Marks sit clear above the letter, and i loses its dot under one.
+    expect(top('é')).toBeGreaterThan(top('e') + 0.05);
+    expect(top('É')).toBeGreaterThan(1.05);
+    expect(top('É')).toBeLessThan(1.3);
+    expect(glyphStrokes(0xed).length).toBe(2);
+    // Typographic quotes and dashes reuse the ASCII glyphs.
+    expect(glyphIndex(0x2019)).toBe(glyphIndex(39));
+    expect(glyphIndex(0x201c)).toBe(glyphIndex(34));
+    expect(glyphIndex(0x2212)).toBe(glyphIndex(45));
+  });
+
   it('falls back to the box for unknown characters', () => {
     expect(glyphIndex(0x4e2d)).toBe(FALLBACK_GLYPH);
     expect(glyphIndex(127)).toBe(FALLBACK_GLYPH);

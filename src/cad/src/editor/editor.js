@@ -16,7 +16,7 @@ import { pickEntity, entityCrossesRect } from './pick.js';
 import { gripsOf, applyGrip } from './grips.js';
 import { parsePointInput, matchOption, parseNumber } from './input.js';
 import { baseProps } from '../core/schema.js';
-import { formatLinear, formatAngle, parseAngle } from '../core/units.js';
+import { formatLinear, formatAngle, formatDirection, parseAngle } from '../core/units.js';
 import { transformEntity } from '../core/geom/index.js';
 
 export class CancelError extends Error {
@@ -25,8 +25,8 @@ export class CancelError extends Error {
   }
 }
 
-const TAU = Math.PI * 2;
 const DRAG_PX = 5;
+const TOUCH_HIT_PX = 14;
 const ACQUIRE_MS = 450;
 
 export const DEFAULT_SETTINGS = {
@@ -92,11 +92,21 @@ export class Editor {
 
   attach(doc) {
     if (this.active) this.cancelAll();
+    this._stashLastPoints();
+    // The last point (for @ input and continuing a line) belongs to its drawing.
+    this.lastPoint = doc.lastPoint ?? null;
+    this.lastLineEnd = doc.lastLineEnd ?? null;
     this.doc = doc;
     this.acquired = [];
     this.renderer.setSelection(doc.selection);
     this.refreshGrips();
     this.drawOverlay();
+  }
+
+  _stashLastPoints() {
+    if (!this.doc) return;
+    this.doc.lastPoint = this.lastPoint;
+    this.doc.lastLineEnd = this.lastLineEnd;
   }
 
   get drawing() {
@@ -116,9 +126,17 @@ export class Editor {
     return { type, ...baseProps(this.header), ...fields };
   }
 
-  /** Run fn as one undoable step. */
+  /** Run fn as one undoable step (tagged with the running command for grouping). */
   commit(label, fn) {
-    return this.drawing.transaction(label, fn);
+    const d = this.drawing;
+    if (d._tx) return d.transaction(label, fn);
+    const prev = d.stepTag;
+    d.stepTag = this.active?.token ?? null;
+    try {
+      return d.transaction(label, fn);
+    } finally {
+      d.stepTag = prev;
+    }
   }
 
   // Commands ------------------------------------------------------------
@@ -176,7 +194,8 @@ export class Editor {
       } else this.ui.log('Cancelled', 'muted');
     } finally {
       if (this.active === active) {
-        drawing.mergeSince(Math.max(0, mark - (drawing.shifted - shifted)), def.label || def.name);
+        const from = Math.max(0, mark - (drawing.shifted - shifted));
+        drawing.groupSince(from, token, def.label || def.name);
         this.active = null;
         this._resetCommandState();
         this.ui.prompt(null);
@@ -209,6 +228,7 @@ export class Editor {
     this.renderer.setDragMatrix(null);
     this.renderer.setHidden(new Set());
     this.angleLock = null;
+    this.selMode = 'add';
     clearTimeout(this._acqTimer);
     this.acquired = [];
   }
@@ -218,9 +238,12 @@ export class Editor {
    * outer prompt is parked and restored afterwards instead of cancelled.
    */
   async _transparent(def, args) {
-    const slot = { request: this.request };
+    // A typed snap override or <angle lock waits for the outer prompt's point.
+    const slot = { request: this.request, snapOverride: this.snapOverride, angleLock: this.angleLock };
     this._parked.push(slot);
     this.request = null;
+    this.snapOverride = null;
+    this.angleLock = null;
     try {
       await def.run(this, args);
     } catch (err) {
@@ -239,7 +262,11 @@ export class Editor {
         }
         const outer = slot.request;
         this.request = outer;
-        if (outer) this.ui.prompt(outer.prompt, outer.options, outer.opts.defaultLabel);
+        if (outer) {
+          this.snapOverride = slot.snapOverride;
+          this.angleLock = slot.angleLock;
+          this.ui.prompt(outer.prompt, outer.options, outer.opts.defaultLabel);
+        }
       }
       this._updateCursor(this.cursor.sx, this.cursor.sy);
     }
@@ -261,6 +288,8 @@ export class Editor {
     this._resetCommandState();
     this.ui.prompt(null);
     if (wasActive) this.ui.commandChanged?.(null);
+    this._stashLastPoints();
+    this.lastPoint = this.lastLineEnd = null;
     this.doc = null;
     this.grips = [];
     this.acquired = [];
@@ -328,10 +357,15 @@ export class Editor {
     return this._ask('point', prompt, opts);
   }
 
-  /** Ask for a distance: typed value, or a pick from base (or two picks). */
+  /**
+   * Ask for a distance: typed value, or a pick from base (or two picks).
+   * opts.factor shows the default as a plain number (a scale factor, not a length).
+   */
   async getDistance(prompt, opts = {}) {
     const def = opts.default;
-    const label = def !== undefined ? `${prompt} <${formatLinear(def, this.header)}>` : prompt;
+    const plain = opts.factor && Number.isFinite(def);
+    const shown = plain ? String(+def.toPrecision(10)) : formatLinear(def, this.header);
+    const label = def !== undefined ? `${prompt} <${shown}>` : prompt;
     const r = await this._ask('distance', label, opts);
     if (r === null) return def ?? null;
     if (typeof r === 'number' || r?.option) return r;
@@ -372,7 +406,12 @@ export class Editor {
       if (r === null) return def ?? null;
       if (r?.option) return r;
       if (Number.isFinite(r) && (opts.min === undefined || r >= opts.min) && (opts.max === undefined || r <= opts.max)) return r;
-      this.ui.log(opts.min !== undefined ? `Enter a number of at least ${opts.min}.` : 'Enter a number.', 'error');
+      const { min, max } = opts;
+      let range = '';
+      if (min !== undefined && max !== undefined) range = ` from ${min} to ${max}`;
+      else if (min !== undefined) range = ` of at least ${min}`;
+      else if (max !== undefined) range = ` of at most ${max}`;
+      this.ui.log(`Enter a number${range}.`, 'error');
     }
   }
 
@@ -484,8 +523,21 @@ export class Editor {
     }
     if (!t) {
       // Enter with nothing typed.
-      if (r.kind === 'point' && this.angleLock !== null) return;
+      // With a typed <angle lock, Enter releases the lock first.
+      if (r.kind === 'point' && this.angleLock !== null) {
+        this.angleLock = null;
+        this.ui.log('Angle lock released', 'muted');
+        this._updateCursor(this.cursor.sx, this.cursor.sy, true);
+        return;
+      }
       this._resolve(null);
+      return;
+    }
+    // 'ZOOM, 'PAN, ...: a view command in the middle of this one.
+    if (t[0] === "'" && r.kind !== 'string') {
+      const def = this.find(t);
+      if (def?.transparent) this.run(def);
+      else this.ui.log(`${t.slice(1)} cannot be used inside another command.`, 'error');
       return;
     }
     // Snap overrides typed at a point prompt (END, MID, CEN, ...).
@@ -743,8 +795,13 @@ export class Editor {
     return out;
   }
 
+  /** Hit radius in screen pixels: a fingertip needs more room than a mouse pointer. */
+  _hitPx(px) {
+    return this.lastPointerType === 'touch' ? Math.max(px, TOUCH_HIT_PX) : px;
+  }
+
   _pick(x, y, filter) {
-    const r = this.settings.pickbox / this.camera.scale;
+    const r = this._hitPx(this.settings.pickbox) / this.camera.scale;
     const ids = this.doc.index.search(x - r, y - r, x + r, y + r, true).filter((id) => this._editable(id));
     return pickEntity(this.drawing, ids, x, y, r, filter);
   }
@@ -877,10 +934,15 @@ export class Editor {
       dy *= 400;
       dx *= 400;
     }
-    const trackpadPan = !e.ctrlKey && (Math.abs(dx) > 0.5 || (e.deltaMode === 0 && Math.abs(dy) < 40 && !Number.isInteger(dy)));
+    // Trackpads scroll in small fractional steps (a pinch sets ctrlKey). Mouse wheels give
+    // lines, large steps, or on macOS multiples of 4.000244140625 px.
+    const macWheel = dx === 0 && dy !== 0 && Number.isInteger(Math.abs(dy) / MAC_WHEEL_STEP);
+    const trackpadPan = !e.ctrlKey && !macWheel && (Math.abs(dx) > 0.5 || (e.deltaMode === 0 && Math.abs(dy) < 40 && !Number.isInteger(dy)));
     if (trackpadPan && this.settings.trackpadPan !== false) {
       this.camera.panBy(-dx, -dy);
     } else {
+      // A macOS step is tiny: zoom about as much as a line-mode notch, at most four per event.
+      if (macWheel) dy = Math.sign(dy) * Math.min(Math.abs(dy) / MAC_WHEEL_STEP, 4) * 48;
       const k = e.ctrlKey ? 0.01 : 0.0018;
       this.camera.zoomAt(sx, sy, Math.exp(-dy * k));
     }
@@ -922,13 +984,18 @@ export class Editor {
       if ((st.osnap || this.snapOverride) && !r.opts.noSnap) {
         const ap = st.aperture / cam.scale;
         const ids = this.doc.index.search(w.x - ap, w.y - ap, w.x + ap, w.y + ap, true);
-        const s = findSnap(this.drawing, ids, w.x, w.y, ap, modes, base);
+        // Extension has no point of its own: hovering an end acquires it and
+        // the cursor then tracks along the extension (see _track).
+        const extOnly = this.snapOverride === 'ext';
+        const s = extOnly ? null : findSnap(this.drawing, ids, w.x, w.y, ap, modes, base);
         if (s) {
           fx = s.x;
           fy = s.y;
           snapped = true;
           this.snap = s;
           this._acquire(s);
+        } else if (extOnly) {
+          this._acquire(findSnap(this.drawing, ids, w.x, w.y, ap, new Set(['end']), base));
         } else this._acquire(null);
       }
       if (!snapped) {
@@ -937,6 +1004,11 @@ export class Editor {
           fx = Math.round(fx / g) * g;
           fy = Math.round(fy / g) * g;
         }
+        const t = this._track(base, fx, fy);
+        fx = t.x;
+        fy = t.y;
+      } else if (base && this.angleLock !== null) {
+        // A typed <angle lock wins: the snap only sets the distance along it.
         const t = this._track(base, fx, fy);
         fx = t.x;
         fy = t.y;
@@ -994,14 +1066,16 @@ export class Editor {
       }
     }
     // Object snap tracking: align with acquired points horizontally or vertically.
-    if (st.otrack && this.acquired.length) {
+    const extOnly = this.snapOverride === 'ext';
+    if ((st.otrack || extOnly) && this.acquired.length) {
       const lines = [];
+      const ext = extOnly || st.osnapModes.includes('ext');
       for (const p of this.acquired) {
-        lines.push({ p, ux: 1, uy: 0 }, { p, ux: 0, uy: 1 });
+        if (!extOnly) lines.push({ p, ux: 1, uy: 0 }, { p, ux: 0, uy: 1 });
         // Extension: continue straight objects that end at the acquired point.
-        if (st.osnapModes.includes('ext')) for (const dir of p.dirs || []) lines.push({ p, ux: dir.x, uy: dir.y, ext: true });
+        if (ext) for (const dir of p.dirs || []) lines.push({ p, ux: dir.x, uy: dir.y, ext: true });
       }
-      if (base && st.polar) {
+      if (base && st.polar && !extOnly) {
         const inc = ((st.polarInc || 90) * Math.PI) / 180;
         if (Math.abs(inc - Math.PI / 2) > 1e-9) {
           for (const p of this.acquired) for (let a = inc; a < Math.PI - 1e-9; a += inc) if (Math.abs(a - Math.PI / 2) > 1e-9) lines.push({ p, ux: Math.cos(a), uy: Math.sin(a) });
@@ -1041,7 +1115,7 @@ export class Editor {
     }
     if (best) {
       this._trackLine(best.line[0], best.line[1], best.line[2]);
-      this.trackLabel = `Polar: ${formatLinear(best.dist, this.header)} < ${formatAngle(norm(best.angle), this.header)}`;
+      this.trackLabel = `Polar: ${formatLinear(best.dist, this.header)} < ${formatDirection(best.angle, this.header)}`;
       return { x: best.x, y: best.y };
     }
     this.trackLabel = null;
@@ -1090,7 +1164,7 @@ export class Editor {
 
   /** Hovering an object snap point for a moment acquires it for tracking. */
   _acquire(s) {
-    if (!this.settings.otrack) return;
+    if (!this.settings.otrack && this.snapOverride !== 'ext') return;
     clearTimeout(this._acqTimer);
     if (!s) return;
     const key = `${s.x.toFixed(9)},${s.y.toFixed(9)}`;
@@ -1109,12 +1183,14 @@ export class Editor {
     // Grips under the cursor.
     this.hoverGrip = -1;
     if (!this.request && this.grips?.length) {
-      const g = this.settings.gripSize + 2;
+      const g = this._hitPx(this.settings.gripSize + 2);
+      let best = Infinity;
       for (let i = 0; i < this.grips.length; i++) {
         const s = this.camera.toScreen(this.grips[i].x, this.grips[i].y);
-        if (Math.abs(s.x - sx) <= g && Math.abs(s.y - sy) <= g) {
+        const d = Math.max(Math.abs(s.x - sx), Math.abs(s.y - sy));
+        if (d <= g && d < best) {
+          best = d;
           this.hoverGrip = i;
-          break;
         }
       }
     }
@@ -1174,9 +1250,21 @@ export class Editor {
       this.camera.fit(-10, -10, 290, 200);
     } else {
       const pad = Math.max(b[2] - b[0], b[3] - b[1]) * 0.02;
-      this.camera.fit(b[0] - pad, b[1] - pad, b[2] + pad, b[3] + pad, 24);
+      this.fitView(b[0] - pad, b[1] - pad, b[2] + pad, b[3] + pad, 24);
     }
     this.viewChanged();
+  }
+
+  /** Fit a box into the view, clear of the floating command line and navigation bar (ui.viewInsets). */
+  fitView(x0, y0, x1, y1, margin) {
+    const c = this.camera;
+    c.fit(x0, y0, x1, y1, margin);
+    const ins = this.ui.viewInsets?.();
+    if (!ins) return;
+    const s = Math.min((c.width - ins.left - ins.right - 2 * margin) / Math.max(x1 - x0, 1e-9), (c.height - ins.top - ins.bottom - 2 * margin) / Math.max(y1 - y0, 1e-9));
+    if (s > 0 && s < c.scale) c.zoomAt(c.width / 2, c.height / 2, s / c.scale);
+    c.cx = (x0 + x1) / 2 - (ins.left - ins.right) / (2 * c.scale);
+    c.cy = (y0 + y1) / 2 + (ins.top - ins.bottom) / (2 * c.scale);
   }
 
   zoomBy(factor) {
@@ -1186,7 +1274,14 @@ export class Editor {
 
   // Overlay -------------------------------------------------------------------
 
-  drawOverlay() {
+  /** Repaint the overlay on the next frame, or now (after a resize cleared it). */
+  drawOverlay(now = false) {
+    if (now) {
+      cancelAnimationFrame(this._overlayRaf);
+      this._overlayRaf = 0;
+      this._paintOverlay();
+      return;
+    }
     if (this._overlayRaf) return;
     this._overlayRaf = requestAnimationFrame(() => {
       this._overlayRaf = 0;
@@ -1219,7 +1314,7 @@ export class Editor {
       gripSize: st.gripSize,
       rubber: [],
       readouts: [],
-      ucs: st.showUcs === false ? null : { sx: 28, sy: cam.height - 28 },
+      ucs: st.showUcs === false ? null : { sx: 28, sy: cam.height - 28 - (this.ui.ucsLift?.() ?? 0) },
     };
     if (this.snap) {
       const s = cam.toScreen(this.snap.x, this.snap.y);
@@ -1227,10 +1322,16 @@ export class Editor {
       state.snap = { sx: s.x, sy: s.y, mode: this.snap.mode, label };
     }
     if (!this.active && this.grips) {
+      // Grips closer than 2 px look the same: draw one, so a selected polyline
+      // with 100k vertices does not paint 200k squares on every move.
+      const seen = new Set();
       for (let i = 0; i < this.grips.length; i++) {
         const g = this.grips[i];
         const s = cam.toScreen(g.x, g.y);
         if (s.x < -10 || s.y < -10 || s.x > cam.width + 10 || s.y > cam.height + 10) continue;
+        const key = Math.round(s.x / 2) * 8192 + Math.round(s.y / 2);
+        if (seen.has(key) && i !== this.hoverGrip) continue;
+        seen.add(key);
         state.grips.push({ sx: s.x, sy: s.y, state: i === this.hoverGrip ? 'hover' : 'cold' });
       }
     }
@@ -1245,8 +1346,10 @@ export class Editor {
         const d = Math.hypot(c.fx - r.opts.base.x, c.fy - r.opts.base.y);
         const a = Math.atan2(c.fy - r.opts.base.y, c.fx - r.opts.base.x);
         if (d * cam.scale > 20) {
-          state.readouts.push({ sx: (b.x + fs.x) / 2, sy: (b.y + fs.y) / 2 - 14, text: formatLinear(d, this.header) });
-          state.readouts.push({ sx: fs.x + 18, sy: fs.y - 18, text: formatAngle(norm(a), this.header), align: 'left' });
+          // A scale factor reads as a plain number, not a length.
+          const text = r.opts.factor ? String(+d.toPrecision(4)) : formatLinear(d, this.header);
+          state.readouts.push({ sx: (b.x + fs.x) / 2, sy: (b.y + fs.y) / 2 - 14, text });
+          state.readouts.push({ sx: fs.x + 18, sy: fs.y - 18, text: formatDirection(a, this.header), align: 'left' });
         }
       }
     }
@@ -1292,6 +1395,9 @@ export class Editor {
   }
 }
 
+/** One mouse wheel step in Chrome and Firefox on macOS, in px (see _wheel). */
+const MAC_WHEEL_STEP = 4.000244140625;
+
 /** Typed snap override keywords. */
 const SNAP_KEYWORDS = { END: 'end', MID: 'mid', CEN: 'cen', GCE: 'gcen', NOD: 'node', QUA: 'quad', INT: 'int', EXT: 'ext', INS: 'ins', PER: 'per', TAN: 'tan', NEA: 'nea' };
 
@@ -1309,10 +1415,6 @@ const SNAP_LABELS = {
   tan: 'Tangent',
   nea: 'Nearest',
 };
-
-function norm(a) {
-  return ((a % TAU) + TAU) % TAU;
-}
 
 function mid(pts) {
   return { sx: (pts[0].sx + pts[1].sx) / 2, sy: (pts[0].sy + pts[1].sy) / 2 };
@@ -1338,7 +1440,8 @@ async function gripEdit(ed, grip, fromPointer) {
   let mode = 0;
   let base = { x: grip.x, y: grip.y };
   let copy = false;
-  const ids = [...ed.selection];
+  // Objects on layers locked since they were selected stay put.
+  const ids = [...ed.selection].filter((id) => ed._editable(id));
   ed.hotGrip = grip;
   const options = [
     { key: 'B', label: 'Base point', value: 'base' },
@@ -1351,14 +1454,20 @@ async function gripEdit(ed, grip, fromPointer) {
       const label = { stretch: 'Stretch to point', move: 'Move to point', rotate: 'Rotation angle', scale: 'Scale factor', mirror: 'Second point of mirror line' }[m];
       const matrixFor = (p) => gripMatrix(m, base, p);
       if (m === 'stretch') {
-        const ent = ed.drawing.get(grip.id);
-        ed.renderer.setHidden(new Set([grip.id]));
+        const hot = coincidentGrips(ed, ids, grip);
+        // The grip moves by base -> point (base is the grip unless Base point moved it).
+        const stretched = (p) => {
+          const x = grip.x + p.x - base.x,
+            y = grip.y + p.y - base.y;
+          return hot.map((h) => [h.id, h.idx.reduce((e, i) => applyGrip(e, i, x, y), h.ent)]);
+        };
+        ed.renderer.setHidden(new Set(hot.map((h) => h.id)));
         ed.renderer.setDragMatrix(null);
         const r = await ed.getPoint(`${label} (Space for next mode)`, {
           base,
           options,
           drag: fromPointer,
-          preview: (p) => [applyGrip(ent, grip.i, p.x, p.y)],
+          preview: (p) => stretched(p).map(([, e]) => e),
         });
         fromPointer = false;
         if (r === null) {
@@ -1375,8 +1484,12 @@ async function gripEdit(ed, grip, fromPointer) {
           copy = true;
           continue;
         }
-        const next = applyGrip(ent, grip.i, r.x, r.y);
-        ed.commit('Stretch', () => (copy ? ed.drawing.add({ ...next, id: undefined }) : ed.drawing.replace(grip.id, next)));
+        ed.commit('Stretch', () => {
+          for (const [id, next] of stretched(r)) {
+            if (copy) ed.drawing.add({ ...next, id: undefined });
+            else ed.drawing.replace(id, next);
+          }
+        });
         if (!copy) return;
         continue;
       }
@@ -1388,7 +1501,11 @@ async function gripEdit(ed, grip, fromPointer) {
         r = await ed.getAngle(prompt, ask);
         if (typeof r === 'number') r = { x: base.x + Math.cos(r), y: base.y + Math.sin(r) };
       } else if (m === 'scale') {
-        r = await ed.getDistance(prompt, ask);
+        r = await ed.getDistance(prompt, { ...ask, factor: true });
+        if (typeof r === 'number' && !(r > 0)) {
+          ed.ui.log('The scale factor must be greater than zero.', 'error');
+          continue;
+        }
         if (typeof r === 'number') r = { x: base.x + r, y: base.y };
       } else r = await ed.getPoint(prompt, ask);
       if (r === null) {
@@ -1422,6 +1539,28 @@ async function gripEdit(ed, grip, fromPointer) {
     ed.renderer.setDragMatrix(null);
     ed.renderer.setHidden(new Set());
   }
+}
+
+/**
+ * Grips of the selection that sit on the picked grip, so a shared corner
+ * stretches every object meeting there. Returns [{ id, ent, idx: [grip indices] }].
+ */
+function coincidentGrips(ed, ids, grip) {
+  const tol = 1e-9 * Math.max(1, Math.abs(grip.x), Math.abs(grip.y));
+  const out = [{ id: grip.id, ent: ed.drawing.get(grip.id), idx: [grip.i] }];
+  for (const id of ids) {
+    const ent = ed.drawing.get(id);
+    if (!ent || !ed.drawing.layerEditable(ent.layer)) continue;
+    const idx = [];
+    gripsOf(ent).forEach((g, i) => {
+      if (id === grip.id && i === grip.i) return;
+      if (Math.abs(g.x - grip.x) <= tol && Math.abs(g.y - grip.y) <= tol) idx.push(i);
+    });
+    if (!idx.length) continue;
+    if (id === grip.id) out[0].idx.push(...idx);
+    else out.push({ id, ent, idx });
+  }
+  return out;
 }
 
 function gripMatrix(mode, base, p) {

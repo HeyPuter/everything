@@ -189,7 +189,7 @@ export function buildCombo(app, kind) {
   return { el, refresh };
 }
 
-function showLayerMenu(app, anchor, refresh) {
+function showLayerMenu(app, anchor, refresh, focusKey) {
   const d = app.doc.drawing;
   const hasSel = app.doc.selection.size > 0;
   const rows = [];
@@ -201,6 +201,7 @@ function showLayerMenu(app, anchor, refresh) {
         'button.icon-btn.sm',
         {
           type: 'button',
+          'data-key': `layer-menu:${name}:${prop}`,
           'aria-label': `${label} ${name}`,
           'aria-pressed': String(!!l[prop]),
           'data-tip': label,
@@ -208,7 +209,8 @@ function showLayerMenu(app, anchor, refresh) {
             e.stopPropagation();
             app.setLayerProp(name, { [prop]: !l[prop] });
             closeMenus();
-            showLayerMenu(app, anchor, refresh);
+            // Reopened with focus back on the same toggle.
+            showLayerMenu(app, anchor, refresh, e.currentTarget.dataset.key);
           },
         },
         icon(l[prop] ? onIcon : offIcon, 15),
@@ -240,11 +242,12 @@ function showLayerMenu(app, anchor, refresh) {
     );
   }
   const list = h('div.layer-list', rows);
-  showMenu(anchor, [{ custom: list }, { separator: true }, { label: 'Layer properties...', icon: 'layer-props', action: () => app.run('LAYER') }], {
+  const menu = showMenu(anchor, [{ custom: list }, { separator: true }, { label: 'Layer properties...', icon: 'layer-props', action: () => app.run('LAYER') }], {
     label: 'Layers',
     className: 'layer-menu',
-    focusFirst: true,
+    focusFirst: !focusKey,
     // Reopened after a toggle: focus still returns to the combo.
     rootFocus: anchor,
   });
+  if (focusKey) [...(menu?.el.querySelectorAll('[data-key]') ?? [])].find((b) => b.dataset.key === focusKey)?.focus({ preventScroll: true });
 }

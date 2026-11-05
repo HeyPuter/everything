@@ -6,7 +6,7 @@ import { arcFromBulge, bulgeMidpoint } from './bulge.js';
 import { ellipseAxes, ellipsePoint, ellipseSweep, isFullEllipse } from './ellipse.js';
 import { evalSpline, splineDomain } from './spline.js';
 import { toPrims } from './prims.js';
-import { curveAt } from './intersect.js';
+import { curveAt, primSize, hitMergeTol } from './intersect.js';
 import { centroidPolyline } from './measure.js';
 
 /** Visit every segment of a stride-3 bulged point list. */
@@ -212,7 +212,9 @@ function plFeet(p, bx, by, out) {
  */
 export function perpendicularFrom(ent, bx, by) {
   const out = [];
+  let size = 0;
   for (const p of toPrims(ent)) {
+    size = Math.max(size, primSize(p));
     if (p.t === 'seg') {
       const dx = p.x2 - p.x1,
         dy = p.y2 - p.y1;
@@ -235,7 +237,7 @@ export function perpendicularFrom(ent, bx, by) {
       }
     } else if (p.t === 'pl') plFeet(p, bx, by, out);
   }
-  return dedupePoints(out, tolFor(bx, by) * 1e3);
+  return dedupePoints(out, hitMergeTol(tolFor(bx, by), size));
 }
 
 function circleTangents(out, cx, cy, r, a0, sweep, full, bx, by) {

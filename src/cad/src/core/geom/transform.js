@@ -348,6 +348,12 @@ export function transformEntity(ent, m) {
       out.loops = (ent.loops || []).map((l) => transformBulgeList(m, l, true, similar, mirrored));
       out.angle = normAngle(mapAngle(m, ent.angle || 0));
       if (ent.scale) out.scale = ent.scale * sf;
+      // A reflection mirrors the pattern; with the angle mapped as a direction,
+      // drawing the pattern reflected (then rotated) gives the mirror image.
+      if (mirrored) {
+        if (ent.mirror) delete out.mirror;
+        else out.mirror = true;
+      }
       break;
     case 'insert': {
       const p = apply(m, ent.x, ent.y);

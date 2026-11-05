@@ -343,6 +343,20 @@ class Converter {
     this.endsec();
   }
 
+  /** Draw order tables, as the DXF reader reads them. */
+  objects() {
+    const tables = this.all('SORTENTSTABLE').filter((o) => o.entities?.length && !o.error);
+    if (!tables.length) return;
+    this.sec('OBJECTS');
+    for (const o of tables) {
+      const r = new Rec('SORTENTSTABLE').g(5, hex(o.handle));
+      r.g(100, 'AcDbSortentsTable').g(330, hex(o.blockOwner));
+      o.entities.forEach((h, i) => r.g(331, hex(h)).g(5, hex(o.sortHandles[i] ?? h)));
+      this.emit(r);
+    }
+    this.endsec();
+  }
+
   /** Common entity groups. */
   common(type, o) {
     const r = new Rec(type).g(5, hex(o.handle));
@@ -417,6 +431,7 @@ class Converter {
     this.tables();
     this.blocks();
     this.entities();
+    this.objects();
     this.emit(new Rec('EOF'));
     return this.out;
   }

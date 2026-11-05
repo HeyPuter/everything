@@ -135,6 +135,23 @@ describe('emitEntity', () => {
     expect(lines.every((i) => i.kind === 'line')).toBe(true);
   });
 
+  it('tints the whole area of a hatch too dense to generate, and warns', () => {
+    const d = drawing();
+    const big = [[0, 0, 0, 3000, 0, 0, 3000, 3000, 0, 0, 3000, 0]];
+    for (const pattern of ['CROSS', 'DASH']) {
+      for (const plot of [false, true]) {
+        const warnings = new Set();
+        const ent = { ...P, type: 'hatch', loops: big, pattern, scale: 1, angle: 0 };
+        const items = emit(d, ent, { hatchLimit: 1000, warnings, plot });
+        expect(items).toHaveLength(1);
+        expect(items[0].kind).toBe('fill');
+        expect(items[0].rings[0]).toHaveLength(8);
+        expect(items[0].style.alpha).toBeCloseTo(0.35);
+        expect([...warnings]).toEqual(['hatch-dense']);
+      }
+    }
+  });
+
   it('clips construction lines to the view', () => {
     const d = drawing();
     const [it] = emit(d, { ...P, type: 'xline', x: 0, y: 0, dx: 1, dy: 0 }, { view: [-10, -10, 10, 10] });
@@ -151,6 +168,17 @@ describe('emitEntity', () => {
     const dim = emit(d, { ...P, type: 'dimension', dimType: 'linear', x1: 0, y1: 0, x2: 100, y2: 0, lx: 50, ly: -10, rot: 0, text: '', style: 'Standard', x3: 0, y3: 0, x4: 0, y4: 0 });
     expect(dim.some((i) => i.kind === 'fill')).toBe(true);
     expect(dim.filter((i) => i.kind === 'line').length).toBeGreaterThan(3);
+  });
+
+  it('places dimension text by the width of its text style font', () => {
+    const d = drawing();
+    d.textStyles.set('Mono', { ...d.textStyles.get('Standard'), name: 'Mono', font: 'mono' });
+    d.dimStyles.set('Standard', { ...d.dimStyles.get('Standard'), textStyle: 'Mono' });
+    // radius text sits beyond the end of the leader at x = 20
+    const items = emit(d, { ...P, type: 'dimension', dimType: 'radius', x1: 0, y1: 0, x2: 10, y2: 0, lx: 20, ly: 0, rot: 0, text: 'iiiiiiii', style: 'Standard', x3: 0, y3: 0, x4: 0, y4: 0 });
+    const leader = items.findIndex((i) => i.kind === 'line' && i.pts[2] === 20);
+    const xs = items.slice(leader + 1).filter((i) => i.kind === 'line').flatMap((i) => i.pts.filter((_, k) => k % 2 === 0));
+    expect(Math.min(...xs)).toBeGreaterThan(20.5);
   });
 
   it('gives widths to wide polylines as fills', () => {

@@ -1,9 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import { parseDxf, stripMtext, decodeText } from '../src/io/dxf/reader.js';
-import { evalSpline } from '../src/io/dxf/geom.js';
+import { evalSpline, tessellateSpline } from '../src/io/dxf/geom.js';
+import { Drawing } from '../src/core/drawing.js';
+import { makeContext, emitEntity } from '../src/core/tessellate.js';
+import { exportPayload } from '../src/io/dxf-client.js';
 
 /** Build DXF text from flat [code, value, ...] arrays per section. */
-function dxf(entities = [], { header = [], tables = [], blocks = [] } = {}) {
+function dxf(entities = [], { header = [], tables = [], blocks = [], objects = [] } = {}) {
   const out = [];
   const push = (arr) => {
     for (let i = 0; i < arr.length; i += 2) out.push(String(arr[i]).padStart(3), String(arr[i + 1]));
@@ -17,6 +20,7 @@ function dxf(entities = [], { header = [], tables = [], blocks = [] } = {}) {
   if (tables.length) section('TABLES', tables);
   if (blocks.length) section('BLOCKS', blocks);
   section('ENTITIES', entities);
+  if (objects.length) section('OBJECTS', objects);
   push([0, 'EOF']);
   return out.join('\r\n') + '\r\n';
 }
@@ -215,8 +219,51 @@ describe('parseDxf: polylines and splines', () => {
     expect(s.fit).toEqual([0, 0, 5, 5, 10, 0]);
     expect(s.knots.length).toBe(s.ctrl.length / 2 + 4);
     const p = [0, 0];
-    evalSpline(3, s.knots, s.ctrl, null, s.knots[3 + 3], p);
+    evalSpline(3, s.knots, s.ctrl, null, s.knots[4], p);
     expect(close(p[0], 5) && close(p[1], 5)).toBe(true);
+  });
+
+  it('keeps the shape of rational splines, with sharp corners at repeated knots', () => {
+    // a full circle of radius 10 around (3, 4) as a rational quadratic NURBS
+    const w = Math.SQRT1_2;
+    const circle = [0, 'SPLINE', 70, 13, 71, 2, 72, 12, 73, 9];
+    for (const k of [0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 4]) circle.push(40, k);
+    for (const k of [1, w, 1, w, 1, w, 1, w, 1]) circle.push(41, k);
+    for (const [x, y] of [[13, 4], [13, 14], [3, 14], [-7, 14], [-7, 4], [-7, -6], [3, -6], [13, -6], [13, 4]]) circle.push(10, x, 20, y);
+    // two weighted arcs meeting at a corner (10, 0)
+    const corner = [0, 'SPLINE', 70, 12, 71, 2, 72, 8, 73, 5, 40, 0, 40, 0, 40, 0, 40, 1, 40, 1, 40, 2, 40, 2, 40, 2];
+    for (const k of [1, 2, 1, 2, 1]) corner.push(41, k);
+    for (const [x, y] of [[0, 0], [5, 5], [10, 0], [15, 5], [20, 0]]) corner.push(10, x, 20, y);
+    const { drawing, warnings } = parseDxf(dxf([...circle, ...corner]));
+    expect(warnings).toEqual([]);
+    const [c, k] = drawing.entities;
+    expect(c).toMatchObject({ degree: 3, closed: true, fit: [] });
+    const pts = tessellateSpline(3, c.knots, c.ctrl, null, 2000);
+    for (let i = 0; i < pts.length; i += 2) expect(Math.abs(Math.hypot(pts[i] - 3, pts[i + 1] - 4) - 10)).toBeLessThan(1e-3);
+    const p = [0, 0];
+    evalSpline(3, k.knots, k.ctrl, null, 0.25, p);
+    expect(close(p[0], 5, 1e-4) && close(p[1], 10 / 3, 1e-4)).toBe(true);
+    evalSpline(3, k.knots, k.ctrl, null, 0.5, p);
+    expect(close(p[0], 10) && close(p[1], 0)).toBe(true);
+  });
+
+  it('interpolates fit points like AutoCAD, with and without end tangents', () => {
+    const fit = [11, 80, 21, 0, 11, 83, 21, 5, 11, 87, 21, 2, 11, 90, 21, 8, 11, 95, 21, 3];
+    const { drawing } = parseDxf(
+      dxf([
+        0, 'SPLINE', 70, 8, 71, 3, 72, 0, 73, 0, 74, 5, ...fit,
+        0, 'SPLINE', 70, 8, 71, 3, 72, 0, 73, 0, 74, 5, 12, 0, 22, 1, 13, 1, 23, 1, ...fit,
+      ]),
+    );
+    // control points of the same splines saved by the ODA File Converter
+    const oda = [
+      [80, 0, 80.789512, 2.710814, 82.256025, 7.746132, 88.158965, -1.601571, 89.342591, 12.058199, 93.081378, 6.071947, 95, 3],
+      [80, 0, 80, 1.943651, 82.575279, 8.179854, 88.014684, -2.161254, 89.573882, 14.506293, 92.642977, 0.642977, 95, 3],
+    ];
+    drawing.entities.forEach((s, i) => {
+      expect(s.ctrl.length).toBe(oda[i].length);
+      s.ctrl.forEach((v, j) => expect(Math.abs(v - oda[i][j])).toBeLessThan(1e-5));
+    });
   });
 });
 
@@ -225,8 +272,11 @@ describe('parseDxf: text', () => {
     expect(stripMtext('{\\fArial|b1|i0;Hello}\\PWorld')).toBe('Hello\nWorld');
     expect(stripMtext('\\H2.5x;Big \\C1;red\\~x')).toBe('Big red\u00a0x');
     expect(stripMtext('\\S1^2; and \\S3#4;')).toBe('1/2 and 3/4');
-    expect(stripMtext('a\\\\b \\{c\\} \\U+00E9 \\Lunder\\l %%d')).toBe('a\\b {c} \u00e9 under \u00b0');
-    expect(decodeText('25%%d %%c10 %%p0.1 %%%')).toBe('25\u00b0 \u230010 \u00b10.1 %');
+    expect(stripMtext('a\\\\b \\{c\\} \\U+00E9 \\Lunder\\l %%d')).toBe('a\\b {c} \u00e9 under %%d');
+    // %% codes are drawn by the text and stay in the value, as AutoCAD keeps them
+    expect(decodeText('25%%d %%c10 %%p0.1 %%% %%176')).toBe('25%%d %%c10 %%p0.1 %%% %%176');
+    expect(decodeText('%%uUNDER%%u %%Oover %%kx')).toBe('%%uUNDER%%u %%Oover %%kx');
+    expect(decodeText('%%65 a^ b')).toBe('A a^b');
   });
 
   it('reads MTEXT chunks, attachment, width, direction and line spacing', () => {
@@ -289,6 +339,52 @@ describe('parseDxf: hatches, solids, blocks', () => {
     expect(h).toMatchObject({ type: 'hatch', pattern: 'ANSI31', scale: 2 });
     expect(close(h.angle, Math.PI / 4)).toBe(true);
     expect(h.loops).toEqual([[0, 0, 0, 10, 0, 1, 10, 10, 0]]);
+  });
+
+  it('draws patterns the library lacks from the definition in the file', () => {
+    // ANSI31 (lines at 45 degrees, 3.175 apart) at hatch angle 15 and scale 2
+    const a = (15 * Math.PI) / 180;
+    const off = [-Math.sin(a + Math.PI / 4) * 6.35, Math.cos(a + Math.PI / 4) * 6.35];
+    const { drawing } = parseDxf(
+      dxf([
+        0, 'HATCH', 10, 0, 20, 0, 30, 0, 2, 'ANSI31', 70, 0, 71, 0, 91, 1,
+        92, 3, 72, 0, 73, 1, 93, 3, 10, 0, 20, 0, 10, 100, 20, 0, 10, 100, 20, 100, 97, 0,
+        75, 0, 76, 1, 52, 15, 41, 2, 77, 0, 78, 1, 53, 60, 43, 0, 44, 0, 45, off[0], 46, off[1], 79, 0, 98, 0,
+      ]),
+    );
+    const h = drawing.entities[0];
+    expect(h).toMatchObject({ pattern: 'ANSI31', scale: 2, families: [{ angle: 45, x: 0, y: 0, dx: 0, dy: 3.175, dashes: [] }] });
+    expect(close(h.angle, a)).toBe(true);
+    // the renderer draws its lines, not a solid fill
+    const sink = { lines: [], fills: 0, line(p) { this.lines.push(p); }, fill() { this.fills++; } };
+    const d = new Drawing(drawing);
+    emitEntity(d.entities.get(h.id), sink, makeContext(d, {}));
+    expect(sink.fills).toBe(0);
+    expect(sink.lines.length).toBeGreaterThan(2);
+    const [x1, y1, x2, y2] = sink.lines[0];
+    expect(close(Math.abs(Math.atan2(y2 - y1, x2 - x1)) % Math.PI, Math.PI / 3, 1e-9)).toBe(true);
+    // and DXF / DWG export write the same definition
+    const { opts } = exportPayload(d, null);
+    expect(opts.hatchPatterns.ANSI31).toEqual(h.families);
+  });
+
+  it('mirrors the patterns of hatches in a mirrored OCS', () => {
+    // extrusion (0, 0, -1) flips x: ANSI31 lines run at 135 degrees in plan
+    const hatch = (name) => [
+      0, 'HATCH', 10, 0, 20, 0, 30, 0, 210, 0, 220, 0, 230, -1, 2, name, 70, 0, 71, 0, 91, 1,
+      92, 3, 72, 0, 73, 1, 93, 3, 10, 0, 20, 0, 10, 10, 20, 0, 10, 10, 20, 10, 97, 0,
+      75, 0, 76, 1, 52, 0, 41, 1, 77, 0, 78, 1, 53, 45, 43, 0, 44, 0, 45, -2.245, 46, 2.245, 79, 0, 98, 0,
+    ];
+    const { drawing } = parseDxf(dxf([...hatch('ANSI31'), ...hatch('LINES')]));
+    const d = new Drawing(drawing);
+    for (const e of d.entities.values()) {
+      expect(e.loops).toEqual([[0, 0, 0, -10, 0, 0, -10, 10, 0]]);
+      const sink = { lines: [], line(p) { this.lines.push(p); }, fill() {} };
+      emitEntity(e, sink, makeContext(d, {}));
+      const [x1, y1, x2, y2] = sink.lines[0];
+      const deg = (((Math.atan2(y2 - y1, x2 - x1) * 180) / Math.PI) % 180 + 180) % 180;
+      expect(close(deg, 135, 1e-6)).toBe(true);
+    }
   });
 
   it('reads HATCH edge boundaries: lines, arcs (both directions), ellipses and solid fill', () => {
@@ -457,6 +553,20 @@ describe('parseDxf: tables and header', () => {
     expect(drawing.blocks.map((b) => b.name)).toEqual(['*T1']);
   });
 
+  it('gives text without a style the file\'s STANDARD style, whatever its case', () => {
+    const { drawing } = parseDxf(
+      dxf([0, 'TEXT', 10, 0, 20, 0, 40, 2, 1, 'A', 0, 'TEXT', 10, 0, 20, 0, 40, 2, 1, 'B', 7, 'gone', 0, 'DIMENSION', 70, 0, 13, 0, 14, 5], {
+        tables: [
+          0, 'TABLE', 2, 'STYLE', 70, 1, 0, 'STYLE', 2, 'STANDARD', 70, 0, 40, 0, 41, 0.8, 3, 'txt', 0, 'ENDTAB',
+          0, 'TABLE', 2, 'DIMSTYLE', 70, 1, 0, 'DIMSTYLE', 2, 'STANDARD', 70, 0, 0, 'ENDTAB',
+        ],
+      }),
+    );
+    expect(drawing.entities.map((e) => e.style)).toEqual(['STANDARD', 'STANDARD', 'STANDARD']);
+    expect(drawing.textStyles.map((s) => s.name)).toEqual(['STANDARD']);
+    expect(drawing.header).toMatchObject({ textStyle: 'STANDARD', dimStyle: 'STANDARD' });
+  });
+
   it('reads header variables', () => {
     const { drawing } = parseDxf(dxf([], { tables, header }));
     expect(drawing.header).toMatchObject({
@@ -560,6 +670,25 @@ describe('parseDxf: encodings and robustness', () => {
     expect(() => parseDxf(bytes)).toThrow(/Binary DXF/);
   });
 
+  it('reads CR-only line endings, tab-indented group codes and UTF-16 text', () => {
+    const text = dxf([0, 'TEXT', 10, 0, 20, 0, 40, 1, 1, 'caf\u00e9'], {
+      header: [9, '$ACADVER', 1, 'AC1015'],
+    });
+    const value = (input) => parseDxf(input).drawing.entities[0].value;
+    expect(value(text.replace(/\r\n/g, '\r'))).toBe('caf\u00e9');
+    expect(value(text.replace(/^ +(\d+)\r$/gm, '\t$1\r'))).toBe('caf\u00e9');
+    const s = '\ufeff' + text;
+    const le = new Uint8Array(s.length * 2);
+    const be = new Uint8Array(s.length * 2);
+    for (let i = 0; i < s.length; i++) {
+      const c = s.charCodeAt(i);
+      le[2 * i] = be[2 * i + 1] = c & 255;
+      le[2 * i + 1] = be[2 * i] = c >> 8;
+    }
+    expect(value(le)).toBe('caf\u00e9');
+    expect(value(be)).toBe('caf\u00e9');
+  });
+
   it('throws on garbage input', () => {
     expect(() => parseDxf('hello world\nthis is not a drawing\n')).toThrow(/Not a DXF/);
     expect(() => parseDxf('')).toThrow(/Not a DXF/);
@@ -619,5 +748,25 @@ describe('parseDxf: encodings and robustness', () => {
     expect(stats.entities).toBe(100000);
     expect(drawing.layers.length).toBe(11);
     expect(ms).toBeLessThan(3000);
+  });
+});
+
+describe('parseDxf: draw order', () => {
+  const lines = [];
+  for (let i = 1; i <= 5; i++) lines.push(0, 'LINE', 5, (0x20 + i).toString(16), 8, 0, 10, 0, 20, i, 11, 10, 21, i);
+  const sortents = (...pairs) => [0, 'SORTENTSTABLE', 5, 'A0', 330, 'A1', 100, 'AcDbSortentsTable', 330, '1F', ...pairs];
+  const order = (d) => d.entities.map((e) => `${e.y1}${e.orderGroup == null ? '' : '*'}`).join(' ');
+
+  it('keeps file order and no bands without a SORTENTS table', () => {
+    expect(order(parseDxf(dxf(lines)).drawing)).toBe('1 2 3 4 5');
+  });
+
+  it('sorts by the SORTENTS table, objects it lists drawing strictly in order', () => {
+    // as AutoCAD saves it: a swap of handles, and objects moved past the handle seed
+    const swap = parseDxf(dxf(lines, { objects: sortents(331, 22, 5, 23, 331, 23, 5, 22) })).drawing;
+    expect(order(swap)).toBe('1 3* 2* 4 5');
+    const front = parseDxf(dxf(lines, { objects: sortents(331, 21, 5, '2F', 331, 22, 5, 30) })).drawing;
+    expect(order(front)).toBe('3 4 5 1* 2*');
+    expect(front.entities[3].orderGroup).not.toBe(front.entities[4].orderGroup);
   });
 });

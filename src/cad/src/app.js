@@ -5,7 +5,7 @@
 import { h, clear, MOD } from './ui/dom.js';
 import { icon } from './ui/icons.js';
 import { showMenu, closeMenus } from './ui/menu.js';
-import { toast, unsavedDialog, confirmDialog, promptDialog } from './ui/dialog.js';
+import { toast, unsavedDialog, confirmDialog, promptDialog, openDialog } from './ui/dialog.js';
 import { installTooltips } from './ui/tooltip.js';
 import { buildShell, renderDocTabs, PHONE_GROUPS, REPO_URL } from './ui/shell.js';
 import { Ribbon } from './ui/ribbon.js';
@@ -18,6 +18,7 @@ import { TextEditor } from './ui/textedit.js';
 import { hatchTab } from './ui/hatchtab.js';
 import * as dialogs from './ui/dialogs.js';
 import { Drawing } from './core/drawing.js';
+import { tableKey } from './core/schema.js';
 import { sampleDrawing } from './core/sample.js';
 import { SpatialIndex } from './core/spatial.js';
 import { STANDARD_LINETYPES } from './core/linetypes.js';
@@ -92,6 +93,13 @@ export class App {
     this.camera = new Camera();
     try {
       this.renderer = new Renderer(shell.glCanvas, this.camera);
+      this.renderer.onWarning = (w) => {
+        if (w !== 'hatch-dense') return;
+        this.cmdline?.log(
+          'A hatch pattern is too dense to draw line by line, so it is shown as a tint. Increase its pattern scale to see the lines.',
+          'muted',
+        );
+      };
     } catch (err) {
       this.fatal('This app needs WebGL2, which this browser or device does not provide. Try a current version of Chrome, Edge, Firefox or Safari.', err);
       return;
@@ -145,11 +153,19 @@ export class App {
       }
     });
     // Mobile browsers often skip beforeunload; save recovery copies when hidden.
+    // A settings change still waiting to sync is sent now too.
     document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'hidden') this.flushAutosave();
+      if (document.visibilityState !== 'hidden') return;
+      this.flushAutosave();
+      this.flushSettings();
     });
-    window.addEventListener('pagehide', () => this.flushAutosave());
-    this.cmdline.log('Ready. Type a command, or pick a tool from the ribbon. Press F1 for help.', 'muted');
+    window.addEventListener('pagehide', () => {
+      this.flushAutosave();
+      this.flushSettings();
+    });
+    // Phones have the tool bar instead of the ribbon, and usually no F1 key.
+    const phone = matchMedia('(max-width: 599px)').matches;
+    this.cmdline.log(phone ? 'Ready. Pick a tool below, or type a command.' : 'Ready. Type a command, or pick a tool from the ribbon. Press F1 for help.', 'muted');
     if (!this.ownsSession) toast('The app is also open in another tab. Drawings in this tab are not kept for recovery, so save your work.', { timeout: 9000 });
   }
 
@@ -169,6 +185,8 @@ export class App {
       toast: (msg) => toast(msg),
       selectionChanged: () => this.selectionChanged(),
       viewChanged: () => this.viewChanged(),
+      viewInsets: () => this.viewInsets(),
+      ucsLift: () => this.ucsLift(),
       commandChanged: (def) => this.commandChanged(def),
       editEntity: (id) => this.editEntity(id),
       chooseBlock: () => this.blocks.choose(),
@@ -186,7 +204,8 @@ export class App {
   }
 
   addDoc(drawing, name, file = null, id = null) {
-    for (const lt of STANDARD_LINETYPES) if (!drawing.linetypes.has(lt.name)) drawing.linetypes.set(lt.name, { ...lt });
+    // Not beside an imported DASHED: names ignore case.
+    for (const lt of STANDARD_LINETYPES) if (!tableKey(drawing.linetypes, lt.name)) drawing.linetypes.set(lt.name, { ...lt });
     const doc = new Doc(drawing, name);
     if (id) doc.id = id;
     doc.file = file;
@@ -320,20 +339,30 @@ export class App {
   commandChanged(def) {
     this.shell.canvasWrap.classList.toggle('in-command', !!def);
     this.shell.phonebar.classList.toggle('in-command', !!def);
+    // A finished command's steps were just grouped (or dropped as no change):
+    // only the edited mark, the undo button and the recovery copy can be stale.
+    if (!def && this.doc) {
+      this.updateTitle();
+      renderDocTabs(this, this.shell.doctabs);
+      this.updateUndo();
+      if (this.doc._recModified && !this.doc.drawing.modified) this.scheduleAutosave(this.doc);
+    }
   }
 
   async closeDrawing(arg) {
     const doc = arg instanceof Doc ? arg : this.doc;
     if (!doc || doc._closing) return;
-    doc._closing = true;
-    try {
-      if (doc.drawing.modified) {
-        const r = await unsavedDialog(doc.name);
-        if (r === null) return;
-        if (r === 'save' && !(await this.save(doc))) return;
+    if (doc.drawing.modified) {
+      // Guard only the prompt: Puter's save picker never settles when cancelled.
+      doc._closing = true;
+      let r;
+      try {
+        r = await unsavedDialog(doc.name);
+      } finally {
+        doc._closing = false;
       }
-    } finally {
-      doc._closing = false;
+      if (r === null) return;
+      if (r === 'save' && !(await this.save(doc))) return;
     }
     const i = this.docs.indexOf(doc);
     // Already closed while the prompt or save was pending.
@@ -414,7 +443,16 @@ export class App {
       const ok = await storage.recovery.put({
         id: doc.id,
         name: doc.name,
-        file: doc.file ? { source: doc.file.source, path: doc.file.path, kind: doc.file.kind, handle: doc.file.handle } : null,
+        file: doc.file
+          ? {
+              source: doc.file.source,
+              path: doc.file.path,
+              kind: doc.file.kind,
+              name: doc.file.name,
+              handle: doc.file.handle,
+              dropped: doc.file.dropped,
+            }
+          : null,
         data: blob,
         view: doc.view,
         modified,
@@ -422,6 +460,9 @@ export class App {
       });
       if (!ok) throw new Error('Recovery storage is not available');
       this.recoveryFailed = false;
+      doc._recModified = modified;
+      // Saved again without a change while encoding (a command that changed nothing).
+      if (modified && !doc.drawing.modified && !this._autosaveTimers.has(doc.id)) this.scheduleAutosave(doc);
     } catch (err) {
       console.warn('Autosave failed', err);
       if (!this.recoveryFailed) toast('Drawings cannot be kept in this browser for recovery (storage is unavailable or full). Save your work to a file.', { kind: 'error', timeout: 9000 });
@@ -459,6 +500,7 @@ export class App {
     const all = await storage.recovery.all();
     const byId = new Map(all.map((r) => [r.id, r]));
     let active = null;
+    const damaged = [];
     for (const id of session.docs) {
       const r = byId.get(id);
       if (!r) continue;
@@ -472,7 +514,12 @@ export class App {
         if (id === session.active) active = doc;
       } catch (err) {
         console.warn('Could not restore a drawing', err);
+        damaged.push(r.file?.name || r.name || 'Untitled');
       }
+    }
+    if (damaged.length) {
+      const what = damaged.length === 1 ? `"${damaged[0]}"` : `${damaged.length} drawings`;
+      toast(`${what} could not be recovered because the copy kept in this browser is damaged.`, { kind: 'error', timeout: 9000 });
     }
     // Clean up recovery records that no longer belong to a tab.
     for (const r of all) if (!session.docs.includes(r.id)) storage.recovery.delete(r.id);
@@ -513,7 +560,9 @@ export class App {
       toast('Choose a .cad, .dwg or .dxf file.', { kind: 'error' });
       return null;
     }
-    const existing = file.path && this.docs.find((d) => d.file?.path === file.path);
+    const existing = file.path
+      ? this.docs.find((d) => d.file?.path === file.path)
+      : await this.docWithHandle(file.handle);
     if (existing) {
       this.activate(existing);
       return existing;
@@ -521,17 +570,22 @@ export class App {
     const busy = toast(`Opening ${name}...`, { timeout: 0 });
     try {
       let drawing;
+      let dropped;
       if (kind === 'native') drawing = new Drawing(await decodeDrawing(buffer));
       else {
         const res = await importDxf(buffer);
         drawing = new Drawing(res.drawing);
         const skipped = Object.entries(res.stats?.skipped || {});
-        if (skipped.length) this.cmdline.log(`Some objects were not imported: ${skipped.map(([t, n]) => `${n} ${t}`).join(', ')}.`, 'muted');
+        if (skipped.length) {
+          // Saving over the original file would remove these.
+          dropped = skipped.map(([t, n]) => `${n} ${t}`).join(', ');
+          this.cmdline.log(`Some objects were not imported: ${dropped}.`, 'muted');
+        }
         for (const w of (res.warnings || []).slice(0, 5)) this.cmdline.log(w, 'muted');
         if (res.release) this.cmdline.log(`${name} is an AutoCAD ${res.release} drawing (${res.version}).`, 'muted');
       }
       busy.remove();
-      const doc = this.addDoc(drawing, baseName(name), { ...file, kind, name });
+      const doc = this.addDoc(drawing, baseName(name), { ...file, kind, name, dropped });
       // Replace an untouched empty drawing.
       const blank = this.docs.find((d) => d !== doc && !d.file && !d.drawing.entities.size && !d.drawing.modified && !d.drawing.canUndo);
       if (blank) this.closeDrawing(blank);
@@ -546,10 +600,26 @@ export class App {
     }
   }
 
+  /** The open drawing saved to this device file, so a file is never open in two tabs. */
+  async docWithHandle(handle) {
+    if (!handle?.isSameEntry) return null;
+    for (const d of this.docs) {
+      try {
+        if (d.file?.handle && (await handle.isSameEntry(d.file.handle))) return d;
+      } catch {
+        /* a handle from an earlier visit may no longer resolve */
+      }
+    }
+    return null;
+  }
+
   fileError(what, err) {
     console.error(err);
-    const msg = err?.message || String(err);
-    toast(`Could not ${what} the file. ${msg}`, { kind: 'error', timeout: 7000 });
+    const msg = storage.errorText(err);
+    toast(`Could not ${what} the file.${msg ? ` ${msg}` : ' Please try again.'}`, {
+      kind: 'error',
+      timeout: 7000,
+    });
   }
 
   async encode(doc, kind) {
@@ -572,7 +642,61 @@ export class App {
   async save(arg) {
     const doc = arg instanceof Doc ? arg : this.doc;
     if (!doc) return false;
+    // Saving again while the file is written: wait, then write only newer edits.
+    if (doc._saving && (await this.afterSaving(doc)) && doc.file && !doc.drawing.modified) {
+      return true;
+    }
     if (!doc.file || (!doc.file.path && !doc.file.handle)) return this.saveAs(doc);
+    if (doc.file.dropped) {
+      const file = doc.file,
+        dropped = file.dropped;
+      const choice = await (doc._askDropped ??= this.askDropped(doc).finally(() => (doc._askDropped = null)));
+      if (choice === 'copy') return this.saveAs(doc);
+      if (choice !== 'replace') return false;
+      if (doc._saving && (await this.afterSaving(doc)) && !doc.drawing.modified) return true;
+      const ok = await this.writing(doc, () => this.writeFile(doc));
+      // The original still has them when the write failed: ask again next time.
+      if (!ok && doc.file === file) file.dropped = dropped;
+      return ok;
+    }
+    return this.writing(doc, () => this.writeFile(doc));
+  }
+
+  /** Ask once before saving over an imported file that had objects this app could not open. */
+  async askDropped(doc) {
+    const name = doc.file.name || doc.name;
+    const choice = await openDialog({
+      title: `Save over ${name}?`,
+      size: 'sm',
+      body: h('p.dialog-text', `The original file has objects this app could not open (${doc.file.dropped}). Saving over it removes them. Save a copy to keep the original as it is.`),
+      actions: [
+        { label: 'Cancel' },
+        { label: 'Replace', danger: true, value: 'replace' },
+        { label: 'Save a copy...', primary: true, value: 'copy' },
+      ],
+    });
+    // Asked once: after replacing, the file no longer has them.
+    if (choice === 'replace' && doc.file) doc.file.dropped = undefined;
+    return choice;
+  }
+
+  /** Wait until no save of the drawing is being written; resolves with the last result. */
+  async afterSaving(doc) {
+    let ok = false;
+    while (doc._saving) ok = await doc._saving;
+    return ok;
+  }
+
+  /** Run one file write of a drawing at a time (see afterSaving). */
+  writing(doc, fn) {
+    const p = fn().finally(() => {
+      if (doc._saving === p) doc._saving = null;
+    });
+    doc._saving = p;
+    return p;
+  }
+
+  async writeFile(doc) {
     const kind = doc.file.kind || 'native';
     // Edits made while the file is written stay unsaved.
     const rev = doc.drawing.revision;
@@ -581,7 +705,7 @@ export class App {
       let downloaded = false;
       if (doc.file.source === 'cloud') {
         if (!(await this.ensureSignedIn('save to your Puter drive'))) return false;
-        await storage.cloudWrite(doc.file.path, blob);
+        await this.cloudWrite(doc.file.path, blob, true, doc.file.name || doc.name);
       } else {
         const r = await storage.deviceSave(blob, doc.file.name || `${doc.name}${kindExt(kind)}`, doc.file.handle);
         if (!r) return false;
@@ -591,6 +715,7 @@ export class App {
       this.saved(doc, rev, doc.file.name || doc.name, downloaded);
       return true;
     } catch (err) {
+      if (err?.name === 'AbortError') return false;
       this.fileError('save', err);
       return false;
     }
@@ -625,8 +750,14 @@ export class App {
         return false;
       }
     }
+    await this.afterSaving(doc);
     const target = await dialogs.saveAsDialog(this, doc);
     if (!target) return false;
+    await this.afterSaving(doc);
+    return this.writing(doc, () => this.writeFileAs(doc, target));
+  }
+
+  async writeFileAs(doc, target) {
     const rev = doc.drawing.revision;
     try {
       const blob = await this.encode(doc, target.kind);
@@ -638,29 +769,56 @@ export class App {
         const same = !!doc.file?.path && (doc.file.path === path || doc.file.path.endsWith(`/${path}`));
         let item;
         try {
-          item = await storage.cloudWrite(path, blob, same);
+          item = await this.cloudWrite(path, blob, same, fileName);
         } catch (err) {
           if (!storage.isExistsError(err)) throw err;
           const ok = await confirmDialog('Replace file?', `"${fileName}" already exists in your drive. Replace it?`, { confirm: 'Replace', danger: true });
           if (!ok) return false;
-          item = await storage.cloudWrite(path, blob, true);
+          item = await this.cloudWrite(path, blob, true, fileName);
         }
         doc.file = { source: 'cloud', path: item?.path || path, kind: target.kind, name: fileName };
         storage.addRecent({ name: fileName, path: doc.file.path, source: 'cloud' });
       } else {
         const r = await storage.deviceSave(blob, fileName, null);
         if (!r) return false;
-        doc.file = { source: 'device', handle: r.handle, kind: target.kind, name: r.name, path: null };
+        // Named with another drawing extension in the picker: write that format instead.
+        let kind = target.kind;
+        const picked = fileKind(r.name);
+        if (r.handle && picked && picked !== kind) {
+          kind = picked;
+          await storage.deviceSave(await this.encode(doc, kind), r.name, r.handle);
+        }
+        doc.file = { source: 'device', handle: r.handle, kind, name: r.name, path: null };
         downloaded = !!r.downloaded;
       }
-      doc.name = target.name;
-      this.saved(doc, rev, fileName, downloaded);
+      // The system save picker lets the user rename the file.
+      doc.name = baseName(doc.file.name);
+      this.saved(doc, rev, doc.file.name, downloaded);
       return true;
     } catch (err) {
+      if (err?.name === 'AbortError') return false;
       this.fileError('save', err);
       return false;
     }
   }
+
+  /**
+   * Write to the Puter drive. When the session has expired, offer to sign in
+   * again and retry once; declining rejects with an AbortError.
+   */
+  async cloudWrite(path, blob, overwrite, name) {
+    try {
+      return await storage.cloudWrite(path, blob, overwrite);
+    } catch (err) {
+      if (!storage.isAuthError(err)) throw err;
+      this.signedIn = false;
+      this.renderAccount();
+      const ok = await confirmDialog('Sign in again', `Your Puter session has expired. Sign in again to save "${name}" to your Puter drive.`, { confirm: 'Sign in' });
+      if (!ok || !(await this.signIn())) throw new DOMException('Sign-in declined', 'AbortError');
+      return storage.cloudWrite(path, blob, overwrite);
+    }
+  }
+
   async exportDxf() {
     return this.exportAs('dxf');
   }
@@ -700,6 +858,18 @@ export class App {
 
   /** Files opened from the Puter desktop (double click on a .cad, .dwg or .dxf). */
   async handleLaunchItems() {
+    // Files opened with the installed app (manifest file_handlers).
+    window.launchQueue?.setConsumer(async (params) => {
+      for (const handle of params?.files || []) {
+        try {
+          const f = await handle.getFile();
+          const file = { source: 'device', handle, path: null };
+          await this.openBuffer(await f.arrayBuffer(), f.name, file);
+        } catch (err) {
+          this.fileError('open', err);
+        }
+      }
+    });
     if (!(await platform.whenPuter())) return;
     try {
       if (platform.puterEnv() !== 'app') return;
@@ -877,18 +1047,24 @@ export class App {
     if (!this.signedIn) return;
     clearTimeout(this._kvTimer);
     // One small record, written at most every few seconds.
-    this._kvTimer = setTimeout(() => {
-      if (!this.signedIn) return;
-      // Only what differs from the defaults, so new defaults still reach users.
-      const changed = { theme: this.themePref };
-      for (const k of SYNCED_SETTINGS) {
-        const v = this.settings[k];
-        if (JSON.stringify(v) !== JSON.stringify(SETTING_DEFAULTS[k])) changed[k] = v;
-      }
-      Promise.resolve()
-        .then(() => puter.kv.set('settings', changed))
-        .catch(() => {});
-    }, 4000);
+    this._kvTimer = setTimeout(() => this.flushSettings(), 4000);
+  }
+
+  /** Write a pending settings change now (also when the page is hidden or closed). */
+  flushSettings() {
+    if (!this._kvTimer) return;
+    clearTimeout(this._kvTimer);
+    this._kvTimer = null;
+    if (!this.signedIn) return;
+    // Only what differs from the defaults, so new defaults still reach users.
+    const changed = { theme: this.themePref };
+    for (const k of SYNCED_SETTINGS) {
+      const v = this.settings[k];
+      if (JSON.stringify(v) !== JSON.stringify(SETTING_DEFAULTS[k])) changed[k] = v;
+    }
+    Promise.resolve()
+      .then(() => puter.kv.set('settings', changed))
+      .catch(() => {});
   }
 
   // Theme --------------------------------------------------------------------------------
@@ -959,18 +1135,48 @@ export class App {
         this._afterSize = null;
         for (const fn of pending) fn();
       }
-      this.editor.drawOverlay();
       this.editor.viewChanged();
+      // Resizing cleared the overlay; paint it now so the next paint is not blank.
+      this.editor.drawOverlay(true);
     };
     // Measure now as well: observers do not report while the page is hidden.
     apply();
     new ResizeObserver(apply).observe(wrap);
     window.addEventListener('resize', apply);
     document.addEventListener('visibilitychange', apply);
+    // Moving the window to a screen with another pixel ratio changes no size.
+    const watchRatio = () => {
+      const mq = window.matchMedia?.(`(resolution: ${window.devicePixelRatio || 1}dppx)`);
+      mq?.addEventListener?.('change', () => (apply(), watchRatio()), { once: true });
+    };
+    watchRatio();
   }
 
   layoutChanged() {
     /* the ResizeObserver handles size changes */
+  }
+
+  /** Canvas edges covered by the floating command line and navigation bar, in px. */
+  viewInsets() {
+    const wrap = this.shell.canvasWrap.getBoundingClientRect();
+    const ins = { top: 0, right: 0, bottom: 0, left: 0 };
+    if (!wrap.width) return ins;
+    const line = this.cmdline.line.getBoundingClientRect();
+    if (line.height) ins.bottom = Math.max(0, wrap.bottom - line.top);
+    const nav = this.shell.nav.getBoundingClientRect();
+    if (nav.width) ins.right = Math.max(0, wrap.right - nav.left);
+    return ins;
+  }
+
+  /** How far to raise the UCS icon so the command line does not cover it, in px. */
+  ucsLift() {
+    const wrap = this.shell.canvasWrap.getBoundingClientRect();
+    const line = this.cmdline.line.getBoundingClientRect();
+    // The icon and its X label take about 80 px from the canvas's left edge.
+    if (!line.height || line.left - wrap.left > 80) return 0;
+    // Also clear the recent messages shown above the line (at most 72 px, see
+    // .cmd-history in chrome.css), so the icon doesn't jump as they come and go.
+    return Math.max(0, wrap.bottom - line.top - 14 + 72);
   }
 
   focusCanvas() {
@@ -1006,6 +1212,13 @@ export class App {
       window.addEventListener('pointermove', onMove);
       window.addEventListener('pointerup', onUp);
     });
+    // Narrow layouts overlay the palette; its size keeps the command line and navigation bar clear of it.
+    new ResizeObserver(() => {
+      s.workspace.style.setProperty('--dock-w', `${s.dock.offsetWidth}px`);
+      s.workspace.style.setProperty('--dock-h', `${s.dock.offsetHeight}px`);
+      // The command line moves with an overlaid palette; so does the UCS icon above it.
+      this.editor.drawOverlay();
+    }).observe(s.dock);
     s.dockResize.addEventListener('keydown', (e) => {
       if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
       e.preventDefault();
@@ -1156,10 +1369,13 @@ export class App {
     return this.editor.run(name, args);
   }
 
-  undo() {
+  async undo() {
     const d = this.doc?.drawing;
     if (!d) return;
-    if (this.editor.busy) this.editor.cancelAll();
+    // Let a running command unwind first: it may keep what it drew (LINE,
+    // PLINE), and that is what this undo should take back.
+    if (this.editor.busy) await this.editor._stopActive();
+    if (this.doc?.drawing !== d) return;
     const label = d.undo();
     this.cmdline.log(label ? `Undo ${label}` : 'Nothing to undo', 'muted');
   }
@@ -1250,7 +1466,9 @@ export class App {
   renameLayer(from, to) {
     const d = this.doc.drawing;
     if (!/^[^<>/\\":;?*|=`]{1,255}$/.test(to)) return 'Layer names cannot contain < > / \\ " : ; ? * | = or `.';
-    if (d.layers.has(to)) return `A layer named "${to}" already exists.`;
+    // Names ignore letter case in DWG and DXF; changing only the case is a rename.
+    const same = tableKey(d.layers, to);
+    if (same && same !== from) return `A layer named "${same}" already exists.`;
     const l = d.layers.get(from);
     d.transaction('Rename layer', () => {
       d.setTable('layers', to, { ...l, name: to });
@@ -1276,6 +1494,8 @@ export class App {
         noRepeat: true,
         run: async (ed) => {
           const key = e.type === 'leader' ? 'text' : 'value';
+          // The highlight of a selected text would show the old value under the edit.
+          ed.clearSelection();
           ed.renderer.setHidden(new Set([id]));
           const pos = e.type === 'leader' ? { x: e.pts.at(-2), y: e.pts.at(-1) } : { x: e.x, y: e.y };
           const v = await ed.editText({ anchor: pos, height: e.h, rot: e.rot || 0, multiline: e.type === 'mtext', width: e.width, initial: e[key], onChange: (val) => ed.renderer.setPreview([{ ...e, [key]: val }]) });
@@ -1457,10 +1677,26 @@ export class App {
   // Keyboard ------------------------------------------------------------------------------
 
   bindKeys() {
+    window.addEventListener('keydown', (e) => this.onFieldKey(e), true);
     window.addEventListener('keydown', (e) => this.onKey(e));
     window.addEventListener('keyup', (e) => {
       if (e.key === 'Shift') this.editor.shiftDown = false;
     });
+  }
+
+  /** Save, open and plot from text fields and dialogs, which otherwise get the browser's own dialogs. */
+  onFieldKey(e) {
+    const mod = MOD === 'Cmd' ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey;
+    const k = e.key.toLowerCase();
+    if (!mod || e.altKey || !['s', 'o', 'p'].includes(k)) return;
+    const t = e.target;
+    if (t === this.cmdline.input || !(t instanceof HTMLElement)) return;
+    if (!t.matches('input, textarea, select, [contenteditable]') && !t.closest('dialog, .menu, .text-editor')) return;
+    e.preventDefault();
+    if (document.querySelector('dialog[open]') || t.closest('.menu, .text-editor')) return;
+    // Leaving the field commits what was typed in it first.
+    t.blur();
+    this.run(k === 'o' ? 'OPEN' : k === 'p' ? 'PLOT' : e.shiftKey ? 'SAVEAS' : 'SAVE');
   }
 
   onKey(e) {
@@ -1489,6 +1725,9 @@ export class App {
         1: () => this.toggleProperties(),
         9: () => this.setSetting('showCmdLine', !this.settings.showCmdLine),
         0: () => this.toggleCleanScreen(),
+        '=': () => this.editor.zoomBy(1.6),
+        '+': () => this.editor.zoomBy(1.6),
+        '-': () => this.editor.zoomBy(1 / 1.6),
       };
       if (inCmd && (k === 'c' || k === 'x' || k === 'v' || k === 'a') && this.cmdline.value()) return;
       const fn = map[k];
@@ -1512,7 +1751,8 @@ export class App {
       else this.editor.cancel();
       return;
     }
-    if (e.key === 'Delete' && !this.editor.busy && this.doc?.selection.size) {
+    // Not from the palettes: Delete on a layer or block there must not erase objects out of sight.
+    if (e.key === 'Delete' && !this.editor.busy && this.doc?.selection.size && !t.closest?.('.dock')) {
       e.preventDefault();
       this.run('ERASE');
       return;

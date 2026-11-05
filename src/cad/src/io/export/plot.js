@@ -89,6 +89,35 @@ export function scaleText(s) {
   return s <= 1 ? `1:${sig(1 / s)}` : `${sig(s)}:1`;
 }
 
+/**
+ * The largest standard scale (1, 2 or 5 times a power of ten) at which a plot
+ * of `s` paper mm per drawing unit (for example the fit scale) still fits.
+ * Returns { paper, drawing }: `paper` mm on paper = `drawing` drawing units.
+ */
+export function standardScale(s, units) {
+  const unitMm = UNIT_MM[units] ?? 1;
+  if (!(s > 0) || !Number.isFinite(s)) return { paper: 1, drawing: 1 };
+  const r = unitMm / s; // drawing size : paper size, both in mm
+  let ratio = 1;
+  for (let k = Math.floor(Math.log10(r)) - 1; ; k++) {
+    const m = [1, 2, 5].find((n) => (k < 0 ? n / 10 ** -k : n * 10 ** k) >= r * (1 - 1e-9));
+    if (m) {
+      ratio = k < 0 ? m / 10 ** -k : m * 10 ** k;
+      break;
+    }
+  }
+  let paper = unitMm;
+  let drawing = ratio;
+  // Reduce to small whole numbers where possible: 1 mm = 100 units, 10 mm = 1 unit (m).
+  const g = Math.min(paper, drawing);
+  const whole = (v) => Math.abs(v - Math.round(v)) < 1e-9;
+  if (drawing < 1 || (whole(paper / g) && whole(drawing / g))) {
+    paper /= g;
+    drawing /= g;
+  }
+  return { paper: +paper.toPrecision(6), drawing: +drawing.toPrecision(6) };
+}
+
 /** Page size in millimetres for the settings, orientation applied. */
 export function pageSize(settings = {}) {
   let w, h;
@@ -269,12 +298,12 @@ export function isDark(rgb) {
 }
 
 /**
- * Output color for a display-list style. Monochrome prints everything
- * black. Index 7 prints black on white (or no) paper and white on a dark
- * background.
+ * Output color for a display-list style. Monochrome prints everything in
+ * the ink color: black on white (or no) paper, white on a dark background.
+ * Index 7 prints in the ink color too.
  */
 export function plotColor(style, settings = {}, bgRgb = parseBackground(settings.background)) {
-  if (settings.monochrome) return [0, 0, 0];
-  if (style?.aci7) return bgRgb && isDark(bgRgb) ? [255, 255, 255] : [0, 0, 0];
+  const ink = bgRgb && isDark(bgRgb) ? [255, 255, 255] : [0, 0, 0];
+  if (settings.monochrome || style?.aci7) return ink;
   return style?.rgb ?? [0, 0, 0];
 }

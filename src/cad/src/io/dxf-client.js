@@ -3,7 +3,7 @@
  * block the interface. Dimension geometry is computed here (it needs the text and
  * dimension modules) and handed to the writer as anonymous blocks.
  */
-import { buildDimension, buildLeader } from '../core/dims.js';
+import { buildDimension, buildLeader, dimStyleOf } from '../core/dims.js';
 import { getPattern } from '../core/hatch/patterns.js';
 
 let worker = null;
@@ -45,7 +45,7 @@ export function importDxf(buffer) {
 
 /** Plain entities that draw a dimension or leader (for the DXF anonymous block). */
 function dimParts(drawing, e) {
-  const ds = drawing.dimStyles.get(e.style) ?? drawing.dimStyles.get('Standard');
+  const ds = dimStyleOf(drawing, e.style);
   const g = e.type === 'leader' ? buildLeader(e, ds, drawing.header) : buildDimension(e, ds, drawing.header);
   if (!g) return [];
   const base = { layer: '0', color: 0, linetype: 'ByBlock', lineweight: -2, ltscale: 1 };
@@ -81,12 +81,16 @@ export function exportPayload(drawing, extents) {
   for (const e of data.entities) if (e.type === 'dimension') dimBlocks[e.id] = dimParts(drawing, e);
   for (const b of data.blocks) for (const e of b.entities) if (e.type === 'dimension') dimBlocks[`${b.name}/${e.id}`] = dimParts(drawing, e);
   const hatchPatterns = {};
-  const used = new Set();
-  for (const e of data.entities) if (e.type === 'hatch' && e.pattern && e.pattern !== 'SOLID') used.add(e.pattern);
-  for (const b of data.blocks) for (const e of b.entities) if (e.type === 'hatch' && e.pattern && e.pattern !== 'SOLID') used.add(e.pattern);
-  for (const name of used) {
+  const used = new Map();
+  const use = (e) => {
+    if (e.type === 'hatch' && e.pattern && e.pattern !== 'SOLID' && !used.get(e.pattern)) used.set(e.pattern, e.families);
+  };
+  for (const e of data.entities) use(e);
+  for (const b of data.blocks) for (const e of b.entities) use(e);
+  for (const [name, families] of used) {
     const p = getPattern(name);
     if (p) hatchPatterns[name] = p.families;
+    else if (families?.length) hatchPatterns[name] = families;
   }
   return { drawing: data, opts: { dimBlocks, hatchPatterns, extents } };
 }

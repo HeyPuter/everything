@@ -7,6 +7,7 @@ import { icon } from './icons.js';
 import { drawPreview } from './preview.js';
 import { openDialog, promptDialog, confirmDialog } from './dialog.js';
 import { showMenu } from './menu.js';
+import { tableKey } from '../core/schema.js';
 
 export class BlockLibrary {
   constructor(app) {
@@ -86,7 +87,7 @@ export class BlockLibrary {
   async rename(name) {
     const d = this.app.doc.drawing;
     const v = await promptDialog('Rename block', 'New name', name, {
-      validate: (s) => (!s ? 'Enter a name.' : /[<>/\\":;?*|=`]/.test(s) ? 'That name has characters that are not allowed.' : s !== name && d.blocks.has(s) ? 'A block with that name exists.' : null),
+      validate: (s) => (!s ? 'Enter a name.' : /[<>/\\":;?*|=`]/.test(s) ? 'That name has characters that are not allowed.' : (tableKey(d.blocks, s) ?? name) !== name ? 'A block with that name exists.' : null),
     });
     if (!v || v === name) return;
     d.transaction('Rename block', () => {

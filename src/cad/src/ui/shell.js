@@ -63,6 +63,16 @@ export function buildShell(app) {
   );
 
   const doctabs = h('div.doctabs', { role: 'tablist', 'aria-label': 'Open drawings' });
+  // A vertical wheel scrolls the tabs sideways when they overflow (they have no scrollbar).
+  doctabs.addEventListener(
+    'wheel',
+    (e) => {
+      if (doctabs.scrollWidth <= doctabs.clientWidth || Math.abs(e.deltaX) > Math.abs(e.deltaY)) return;
+      doctabs.scrollLeft += e.deltaY;
+      e.preventDefault();
+    },
+    { passive: false },
+  );
   const newTab = h('button.icon-btn.doctab-new', { type: 'button', 'aria-label': 'New drawing', 'data-tip': 'New drawing', onClick: () => app.run('NEW') }, icon('plus', 16));
   const docbar = h('div.docbar', doctabs, newTab);
 
@@ -160,6 +170,11 @@ export function renderDocTabs(app, el) {
     );
     el.append(tab);
   });
+  // Keep the active tab in view, as when a new drawing is added past the right edge.
+  const a = el.querySelector('.doctab.active')?.getBoundingClientRect();
+  const b = el.getBoundingClientRect();
+  if (a && a.left < b.left) el.scrollLeft -= b.left - a.left;
+  else if (a && a.right > b.right) el.scrollLeft += a.right - b.right;
 }
 
 /** Tool groups for the phone toolbar. */

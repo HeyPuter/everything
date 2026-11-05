@@ -25,7 +25,8 @@ import { defaultHeader, defaultLayer, LW_DEFAULT } from '../../core/schema.js';
 import { hexToRgb, nearestIndex } from '../../core/colors.js';
 import { STANDARD_LINETYPES } from '../../core/linetypes.js';
 import { defaultTextStyle, defaultDimStyle } from '../../core/styles.js';
-import { uniformKnots, fitToSpline, normAngle } from './geom.js';
+import { uniformKnots, normAngle } from './geom.js';
+import { splineFromFitPoints } from '../../core/geom/spline.js';
 
 const RAD = 180 / Math.PI;
 const DEG = Math.PI / 180;
@@ -284,6 +285,12 @@ class DxfWriter {
     for (const b of this.blocks) b.br = this.h();
     for (const ab of this.arrowBlocks.values()) if (ab.arrow) ab.br = this.h();
     for (const db of this.dimBlocks) db.br = this.h();
+    // draw order set with DRAWORDER: a SORTENTS table in model space's extension dictionary
+    this.sortEntries = [];
+    if ((d.entities || []).some((e) => e && e.orderGroup != null)) {
+      this.hSortDict = this.h();
+      this.hSortents = this.h();
+    }
   }
 
   defLayer(L) {
@@ -380,6 +387,15 @@ class DxfWriter {
     this.prepare();
     this.g(0, 'SECTION');
     this.g(2, 'CLASSES');
+    if (this.hSortents) {
+      this.g(0, 'CLASS');
+      this.g(1, 'SORTENTSTABLE');
+      this.g(2, 'AcDbSortentsTable');
+      this.g(3, 'ObjectDBX Classes');
+      this.i(90, 0);
+      this.i(280, 0);
+      this.i(281, 0);
+    }
     this.g(0, 'ENDSEC');
     this.tables();
     this.blocksSection();
@@ -622,6 +638,11 @@ class DxfWriter {
     for (const [name, hd] of recs) {
       this.g(0, 'BLOCK_RECORD');
       this.g(5, hd);
+      if (hd === this.brModel && this.hSortents) {
+        this.g(102, '{ACAD_XDICTIONARY');
+        this.g(360, this.hSortDict);
+        this.g(102, '}');
+      }
       this.g(330, th);
       this.g(100, 'AcDbSymbolTableRecord');
       this.g(100, 'AcDbBlockTableRecord');
@@ -748,7 +769,20 @@ class DxfWriter {
   entitiesSection() {
     this.g(0, 'SECTION');
     this.g(2, 'ENTITIES');
-    for (const e of this.d.entities || []) this.entity(e, this.brModel, null);
+    // Draw-order bands become runs of objects sharing a sort handle: the
+    // handle of the run's first object, so the order stays the file order.
+    let group = null;
+    let key = '';
+    for (const e of this.d.entities || []) {
+      this.first = '';
+      this.entity(e, this.brModel, null);
+      if (!this.hSortents || !this.first) continue;
+      const g = e.orderGroup ?? null;
+      if (g !== null && g !== group) key = this.first;
+      if (g !== null) this.sortEntries.push(this.first, key);
+      group = g;
+    }
+    this.first = null;
     this.g(0, 'ENDSEC');
   }
 
@@ -790,6 +824,32 @@ class DxfWriter {
     this.g(330, this.hPsDict);
     this.g(102, '}');
     this.g(330, this.hPsDict);
+    if (this.hSortents) {
+      this.g(0, 'DICTIONARY');
+      this.g(5, this.hSortDict);
+      this.g(102, '{ACAD_REACTORS');
+      this.g(330, this.brModel);
+      this.g(102, '}');
+      this.g(330, this.brModel);
+      this.g(100, 'AcDbDictionary');
+      this.i(280, 1);
+      this.i(281, 1);
+      this.g(3, 'ACAD_SORTENTS');
+      this.g(360, this.hSortents);
+      this.g(0, 'SORTENTSTABLE');
+      this.g(5, this.hSortents);
+      this.g(102, '{ACAD_REACTORS');
+      this.g(330, this.hSortDict);
+      this.g(102, '}');
+      this.g(330, this.hSortDict);
+      this.g(100, 'AcDbSortentsTable');
+      this.g(330, this.brModel);
+      const se = this.sortEntries;
+      for (let i = 0; i < se.length; i += 2) {
+        this.g(331, se[i]);
+        this.g(5, se[i + 1]);
+      }
+    }
     this.g(0, 'ENDSEC');
   }
 
@@ -804,11 +864,13 @@ class DxfWriter {
       this.entityBody(e, owner, blockName);
     } catch (err) {
       this.buf = this.buf.slice(0, mark);
+      if (this.first) this.first = '';
       this.warn(`Could not write ${e.type} entity: ${err.message}`);
     }
   }
 
   common(type, e, owner, handle = this.h()) {
+    if (this.first === '') this.first = handle;
     this.g(0, type);
     this.g(5, handle);
     this.g(330, owner);
@@ -941,9 +1003,12 @@ class DxfWriter {
     let deg = Math.trunc(+e.degree) || 3;
     let ctrl = e.ctrl || [];
     let knots = e.knots || [];
-    const fit = e.fit || [];
+    const fit = (e.fit || []).slice();
+    // closed fit-point splines list their first point again at the end
+    const nf0 = fit.length;
+    if (e.closed && nf0 >= 6 && (fit[0] !== fit[nf0 - 2] || fit[1] !== fit[nf0 - 1])) fit.push(fit[0], fit[1]);
     if (ctrl.length < (deg + 1) * 2) {
-      const f = fit.length >= 4 ? fitToSpline(fit, !!e.closed) : null;
+      const f = fit.length >= 4 ? splineFromFitPoints(fit, !!e.closed) : null;
       if (!f) throw new Error('not enough control points');
       deg = f.degree;
       ctrl = f.ctrl;
@@ -968,6 +1033,13 @@ class DxfWriter {
     this.n(42, 1e-10);
     this.n(43, 1e-10);
     if (nf) this.n(44, 1e-10);
+    // Readers rebuild fit-point splines from the fit points; the end derivatives
+    // (per unit of chord length) make them rebuild this exact curve.
+    const tan = nf >= 2 && deg === 3 ? endTangents(ctrl, knots, fit) : null;
+    if (tan) {
+      this.pt(12, tan[0], tan[1]);
+      this.pt(13, tan[2], tan[3]);
+    }
     for (const k of knots) this.n(40, k);
     for (let k = 0; k < nc; k++) this.pt(10, ctrl[k * 2], ctrl[k * 2 + 1]);
     for (let k = 0; k < nf; k++) this.pt(11, fit[k * 2], fit[k * 2 + 1]);
@@ -1062,12 +1134,16 @@ class DxfWriter {
     if (!loops.length) throw new Error('no boundary loops');
     const pattern = String(e.pattern || 'SOLID');
     const solid = pattern.toUpperCase() === 'SOLID';
+    // A mirrored pattern is written as AutoCAD writes mirrored hatches: in the
+    // OCS of extrusion (0, 0, -1), whose X axis is world -X.
+    const flip = !solid && !!e.mirror;
+    const fx = flip ? -1 : 1;
     this.common('HATCH', e, owner);
     this.g(100, 'AcDbHatch');
     this.pt(10, 0, 0);
     this.n(210, 0);
     this.n(220, 0);
-    this.n(230, 1);
+    this.n(230, fx);
     this.s(2, solid ? 'SOLID' : pattern);
     this.i(70, solid ? 1 : 0);
     this.i(71, 0);
@@ -1081,16 +1157,16 @@ class DxfWriter {
       this.i(73, 1);
       this.i(93, nv);
       for (let j = 0; j < nv; j++) {
-        this.n(10, l[j * 3]);
+        this.n(10, fx * l[j * 3]);
         this.n(20, l[j * 3 + 1]);
-        if (bulges) this.n(42, +l[j * 3 + 2] || 0);
+        if (bulges) this.n(42, fx * (+l[j * 3 + 2] || 0));
       }
       this.i(97, 0);
     });
     this.i(75, 0);
     this.i(76, 1);
     if (!solid) {
-      const angle = +e.angle || 0;
+      const angle = flip ? normAngle(Math.PI - (+e.angle || 0)) : +e.angle || 0;
       const scale = +e.scale || 1;
       this.n(52, angle * RAD);
       this.n(41, scale);
@@ -1256,6 +1332,28 @@ function arrowGeometry(type) {
     return [{ ...base, id: 1, type: 'polyline', pts: [-0.25, 0, 1, 0.25, 0, 1], closed: true, width: 0.5 }];
   }
   return [];
+}
+
+/**
+ * Start and end derivatives [x0, y0, x1, y1] of a cubic spline with respect to
+ * the chord length of its fit points, or null when they cannot be measured.
+ */
+function endTangents(ctrl, knots, fit) {
+  const n = ctrl.length >> 1;
+  const L = knots.length;
+  let chord = 0;
+  for (let i = 2; i < fit.length - 1; i += 2) chord += Math.hypot(fit[i] - fit[i - 2], fit[i + 1] - fit[i - 1]);
+  const span = knots[L - 1] - knots[0];
+  const a = knots[4] - knots[3];
+  const b = knots[L - 4] - knots[L - 5];
+  if (n < 4 || !(chord > 0) || !(span > 0) || !(a > 0) || !(b > 0)) return null;
+  const f = span / chord;
+  return [
+    ((3 * (ctrl[2] - ctrl[0])) / a) * f,
+    ((3 * (ctrl[3] - ctrl[1])) / a) * f,
+    ((3 * (ctrl[2 * n - 2] - ctrl[2 * n - 4])) / b) * f,
+    ((3 * (ctrl[2 * n - 1] - ctrl[2 * n - 3])) / b) * f,
+  ];
 }
 
 /**

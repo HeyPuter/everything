@@ -196,6 +196,14 @@ describe('spline', () => {
     close(m.y, 5, 1e-9);
     expect(splineFromFitPoints([1, 1, 1, 1])).toBe(null);
   });
+  it('builds fit-point splines with zero end curvature', () => {
+    const open = [0, 0, 5, 3, 10, 0, 12, 6];
+    // Without end tangents the ends have zero curvature: the first three
+    // control points are collinear with spacing given by the first knots.
+    const s = splineFromFitPoints(open);
+    const [x0, y0, x1, y1, x2, y2] = s.ctrl;
+    close((x1 - x0) * (y2 - y1) - (y1 - y0) * (x2 - x1), 0, 1e-9);
+  });
   it('builds closed interpolating splines', () => {
     const s = splineFromFitPoints([0, 0, 10, 0, 10, 10, 0, 10], true);
     const a = evalSpline(s, 0),

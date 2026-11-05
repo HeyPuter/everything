@@ -4,6 +4,7 @@ import {
   normAngle,
   toPrims,
   offsetEntity,
+  offsetPolylinePts,
   trimEntity,
   extendEntity,
   breakEntity,
@@ -19,6 +20,7 @@ import {
   lengthOf,
   endpoints,
   distanceTo,
+  selfIntersections,
   closestPoint,
   arcFromBulge,
   ellipsePoint,
@@ -75,6 +77,100 @@ describe('offset', () => {
     const inn = offsetEntity(st, 2, 5, 5);
     close(areaOf(inn), 10 * 6 + Math.PI * 9, 1e-9);
   });
+  it('splits inward offsets of closed polylines where a neck collapses', () => {
+    // Two 10 x 10 squares joined by a 2-high neck.
+    const pts = [0, 0, 0, 10, 0, 0, 10, 4, 0, 20, 4, 0, 20, 0, 0, 30, 0, 0];
+    pts.push(30, 10, 0, 20, 10, 0, 20, 6, 0, 10, 6, 0, 10, 10, 0, 0, 10, 0);
+    const db = { type: 'polyline', layer: 'L1', pts, closed: true, width: 0 };
+    close(areaOf(offsetEntity(db, 0.5, 5, 5)), 173);
+    for (const [d, side] of [
+      [1, 8],
+      [1.5, 7],
+      [3, 4],
+    ]) {
+      const r = offsetEntity(db, d, 5, 5);
+      expect(r).toHaveLength(2);
+      for (const e of r) {
+        expect(e.closed).toBe(true);
+        expect(e.layer).toBe('L1');
+        expect(e.pts).toHaveLength(12);
+        close(areaOf(e), side * side);
+      }
+    }
+    expect(offsetEntity(db, 6, 5, 5)).toBe(null);
+    // An L whose arms are thinner than twice the distance leaves nothing.
+    const l = {
+      type: 'polyline',
+      pts: [0, 0, 0, 10, 0, 0, 10, 2, 0, 2, 2, 0, 2, 10, 0, 0, 10, 0],
+      closed: true,
+    };
+    expect(offsetEntity(l, 1.5, 1, 1)).toBe(null);
+    close(areaOf(offsetEntity(l, 0.5, 1, 1)), 17);
+    // Outward offsets close a narrow gap.
+    const c = {
+      type: 'polyline',
+      pts: [0, 0, 0, 10, 0, 0, 10, 1, 0, 1, 1, 0, 1, 9, 0, 10, 9, 0, 10, 10, 0, 0, 10, 0],
+      closed: true,
+    };
+    const o = offsetEntity(c, 4, -5, 5);
+    expect(o.pts).toHaveLength(12);
+    close(areaOf(o), 18 * 18);
+  });
+  it('drops offset loops that end up outside the shape', () => {
+    // Collapsing inward offset whose raw corners overshoot far outside.
+    const pts = [
+      7.119, 0, 0, 6.424, 2.661, -0.265, 5.419, 5.419, 0, 2.141, 5.17, 0, 0, 9.795, -0.154, -1.494,
+      3.608, 0, -6.145, 6.145, 0, -7.271, 3.012, -0.004, -5.106, 0, 0, -2.866, -1.187, 0, -3.483,
+      -3.483, 0, -2.88, -6.954, 0, 0, -7.483, 0, 1.22, -2.946, -0.263, 5.373, -5.373, 0, 8.483,
+      -3.514, 0,
+    ];
+    const p = { type: 'polyline', pts, closed: true, width: 0 };
+    const o = offsetEntity(p, 3, 0, 0);
+    expect(Array.isArray(o)).toBe(false);
+    const [{ pts: ring }] = tessellate(o, 1e-4);
+    for (let i = 0; i < ring.length; i += 2) {
+      expect(distanceTo(p, ring[i], ring[i + 1])).toBeGreaterThan(3 - 1e-9);
+    }
+    close(areaOf(o), 6.9085, 1e-4);
+  });
+  it('offsets heavily collapsing closed polylines into valid loops', () => {
+    // Fuzz-derived shapes whose offsets crossed themselves or came closer than
+    // the distance when collapsed segments were joined to far neighbours.
+    const inward = [
+      7.48, 0, -0.36, 2.31, 1.94, 0, 1.58, 8.95, 0.21, -2.61, 4.53, 0, -8.79, 3.2, 0, -2.9, -1.05,
+      0, -2.22, -3.84, 0, 1.04, -5.9, -0.26, 6.35, -5.33, 0,
+    ];
+    const outward = [
+      5.91, 0, -0.06, 2.97, 1.91, 0.38, 3.7, 8.11, 0, -1.35, 9.37, 0, -4.95, 5.71, 0, -8.33, 2.45,
+      -0.31, -9.42, -2.77, 0, -5.68, -6.56, 0.37, -0.87, -6.02, 0, 3.12, -6.84, 0.38, 3.83, -2.46,
+      -0.35,
+    ];
+    for (const [pts, sx] of [
+      [inward, 0],
+      [outward, 50],
+    ]) {
+      const p = { type: 'polyline', pts, closed: true, width: 0 };
+      const o = offsetEntity(p, 3, sx, 0);
+      expect(o).not.toBe(null);
+      for (const e of Array.isArray(o) ? o : [o]) {
+        expect(selfIntersections(e)).toEqual([]);
+        const [{ pts: ring }] = tessellate(e, 1e-4);
+        for (let i = 0; i < ring.length; i += 2) {
+          expect(distanceTo(p, ring[i], ring[i + 1])).toBeGreaterThan(3 - 1e-6);
+        }
+      }
+    }
+  });
+  it('links concave corners of open offsets that just miss instead of looping round', () => {
+    const pts = [
+      0, 0, 0, 0.69, 1.13, 0, 0.55, 3.25, 0, -4.54, 5.39, 0, -6.56, 4.34, 0, -7.74, 3.15, -0.27,
+      -7.17, 1.87, 0.46, -8.82, 0.18, 0, -9.25, -1.03, 0,
+    ];
+    const o = offsetEntity({ type: 'polyline', pts, closed: false, width: 0 }, 2, 0.356, 0.557);
+    expect(selfIntersections(o)).toEqual([]);
+    // No join sweeps more than half a turn.
+    for (let i = 2; i < o.pts.length; i += 3) expect(Math.abs(o.pts[i])).toBeLessThan(1);
+  });
   it('offsets open polylines with tangent arcs keeping a constant distance', () => {
     const b = Math.tan(Math.PI / 8);
     const p = { type: 'polyline', pts: [0, 0, 0, 10, 0, b, 15, 5, 0, 15, 20, 0], closed: false, width: 0 };
@@ -106,6 +202,52 @@ describe('offset', () => {
     expect(o.pts.filter((v, i) => i % 3 === 2 && v !== 0).length).toBe(0);
     close(o.pts[3], 9);
     close(o.pts[4], 2);
+  });
+  it('gives a finite bulge when one arc survives collapse removal', () => {
+    const pts = [5.145, 0, 0.346, -2.7526, 4.7677, -0.7423, -2.2468, -3.8916, 0];
+    const r = offsetPolylinePts(pts, true, -5);
+    expect(r.pts.length).toBe(6);
+    expect(r.pts.every(Number.isFinite)).toBe(true);
+  });
+  it('removes many collapsing segments of a dense wavy outline', () => {
+    const pts = [];
+    const n = 4000;
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * TWO_PI;
+      const r = 100 + 5 * Math.sin(a * 40);
+      pts.push(r * Math.cos(a), r * Math.sin(a), 0);
+    }
+    const o = offsetEntity({ type: 'polyline', pts, closed: true }, 3, 0, 0);
+    expect(o.closed).toBe(true);
+    for (let i = 0; i < o.pts.length; i += 3) {
+      expect(Math.hypot(o.pts[i], o.pts[i + 1])).toBeLessThan(105 - 3 + 1e-6);
+    }
+  });
+  it('measures distances to a spline on its concave side on the curve, not its chords', () => {
+    const fit = [0, 0, 5, 3, 10, 0];
+    const s = { type: 'spline', ...splineFromFitPoints(fit), fit: [], closed: false };
+    const o = offsetEntity(s, 0.5, 5, 0);
+    for (let i = 0; i < o.pts.length; i += 3) {
+      close(distanceTo(s, o.pts[i], o.pts[i + 1]), 0.5, 1e-9);
+    }
+  });
+  it('trims closed ellipse and spline offsets beyond the curve radius', () => {
+    const e = { type: 'ellipse', cx: 0, cy: 0, mx: 10, my: 0, ratio: 0.3, start: 0, end: TWO_PI };
+    // Wider than the minor semi-axis: nothing is left inside.
+    expect(offsetEntity(e, 4, 0, 0)).toBe(null);
+    const fit = [0, 0, 5, 1, 10, 0, 10, 10, 5, 9, 0, 10];
+    const s = { type: 'spline', ...splineFromFitPoints(fit, true), fit, closed: true };
+    for (const [src, d, sx, sy] of [
+      [e, 2, 0, 0],
+      [s, 2, 5, 5],
+    ]) {
+      const o = offsetEntity(src, d, sx, sy);
+      expect(o.closed).toBe(true);
+      expect(selfIntersections(o)).toEqual([]);
+      for (let i = 0; i < o.pts.length; i += 3) {
+        expect(distanceTo(src, o.pts[i], o.pts[i + 1])).toBeGreaterThan(d - 1e-6);
+      }
+    }
   });
   it('offsets ellipses and splines as polylines within tolerance', () => {
     const e = { type: 'ellipse', cx: 0, cy: 0, mx: 10, my: 0, ratio: 0.5, start: 0, end: TWO_PI };
@@ -402,6 +544,17 @@ describe('join', () => {
     const r = joinEntities([line(0, 0, 1, 0, { id: 1 }), line(5, 5, 6, 6, { id: 2 })]);
     expect(r.result).toEqual([]);
     expect(r.consumedIds).toEqual([]);
+  });
+  it('defaults to a tolerance relative to the selection size, not its position', () => {
+    const o = 2e6;
+    const a = line(o, o, o + 10, o, { id: 1 });
+    const far = joinEntities([a, line(o + 10.5, o, o + 10.5, o + 10, { id: 2 })]);
+    expect(far.result).toEqual([]);
+    const near = joinEntities([a, line(o + 10, o, o + 10, o + 10, { id: 2 })]);
+    expect(near.result[0].type).toBe('polyline');
+    const b = line(0, 0, 1e-4, 0, { id: 1 });
+    const tiny = joinEntities([b, line(1.001e-4, 0, 1e-4, 1e-4, { id: 2 })]);
+    expect(tiny.result).toEqual([]);
   });
 });
 

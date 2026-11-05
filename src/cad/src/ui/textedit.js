@@ -34,8 +34,11 @@ export class TextEditor {
         ht = el.offsetHeight;
       let x = s.x + 12,
         y = s.y + 12;
-      if (x + w > wrap.width - 8) x = Math.max(8, s.x - w - 12);
-      if (y + ht > wrap.height - 8) y = Math.max(8, s.y - ht - 12);
+      if (x + w > wrap.width - 8) x = s.x - w - 12;
+      if (y + ht > wrap.height - 8) y = s.y - ht - 12;
+      // Keep it on screen when the insertion point is near or past an edge.
+      x = Math.max(8, Math.min(x, wrap.width - w - 8));
+      y = Math.max(8, Math.min(y, wrap.height - ht - 8));
       el.style.left = `${x}px`;
       el.style.top = `${y}px`;
     };
@@ -63,12 +66,15 @@ export class TextEditor {
     // Escape works from anywhere in the editor, including its buttons.
     el.addEventListener('keydown', (e) => {
       e.stopPropagation();
+      // Enter and Escape while an IME is composing belong to the IME.
+      if (e.isComposing || e.keyCode === 229) return;
       if (e.key === 'Escape') {
         e.preventDefault();
         finish(null);
       }
     });
     field.addEventListener('keydown', (e) => {
+      if (e.isComposing || e.keyCode === 229) return;
       if (e.key === 'Enter' && (!opts.multiline || e.ctrlKey || e.metaKey)) {
         e.preventDefault();
         finish(field.value);

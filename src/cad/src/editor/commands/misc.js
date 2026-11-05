@@ -3,8 +3,9 @@
  */
 import { opts } from '../input.js';
 import { transformEntity, lengthOf, areaOf } from '../../core/geom/index.js';
-import { formatLinear, formatAngle } from '../../core/units.js';
-import { M, dist, angleOf, norm, fresh } from './util.js';
+import { formatLinear, formatDirection } from '../../core/units.js';
+import { M, dist, angleOf, fresh } from './util.js';
+import { tableKey } from '../../core/schema.js';
 
 // View ----------------------------------------------------------------------
 
@@ -88,7 +89,7 @@ export const DIST = {
     const b = await ed.getPoint('Second point', { base: a });
     if (!b || b.option) return;
     const h = ed.header;
-    const msg = `Distance = ${formatLinear(dist(a, b), h)},  Angle = ${formatAngle(norm(angleOf(a, b)), h, { symbol: true })},  Delta X = ${formatLinear(b.x - a.x, h)},  Delta Y = ${formatLinear(b.y - a.y, h)}`;
+    const msg = `Distance = ${formatLinear(dist(a, b), h)},  Angle = ${formatDirection(angleOf(a, b), h, { symbol: true })},  Delta X = ${formatLinear(b.x - a.x, h)},  Delta Y = ${formatLinear(b.y - a.y, h)}`;
     ed.ui.log(msg, 'result');
     ed.ui.toast?.(`Distance ${formatLinear(dist(a, b), h)}`);
   },
@@ -210,7 +211,10 @@ export const BLOCK = {
         ed.ui.log('Block names cannot contain < > / \\ " : ; ? * | = or `.', 'error');
         continue;
       }
-      if (ed.drawing.blocks.has(name)) {
+      // An existing block in another letter case is the same name.
+      const same = tableKey(ed.drawing.blocks, name);
+      if (same) {
+        name = same;
         const r = await ed.getKeyword(`A block named "${name}" exists. Redefine it?`, opts('Yes', 'No'), 'no');
         if (r !== 'yes') continue;
       }
@@ -258,10 +262,12 @@ export const INSERT = {
       else name = await ed.getString(`Block name (${names.slice(0, 10).join(', ')})`, { spaces: true });
       if (!name) return;
     }
-    if (!ed.drawing.blocks.has(name)) {
+    const key = tableKey(ed.drawing.blocks, name);
+    if (!key) {
       ed.ui.log(`There is no block named "${name}".`, 'error');
       return;
     }
+    name = key;
     let sx = 1,
       rot = 0;
     for (;;) {
@@ -348,7 +354,10 @@ export const LAYULK = {
     const locked = [...ed.drawing.layers.values()].filter((l) => l.locked).map((l) => l.name);
     if (!locked.length) return ed.ui.log('No layers are locked.', 'muted');
     const name = await ed.getString(`Layer to unlock (${locked.join(', ')})`, { default: locked[0], spaces: true });
-    if (ed.drawing.layers.has(name)) setLayer(ed, name, { locked: false }, 'Layer unlock');
+    if (!name) return;
+    const key = tableKey(ed.drawing.layers, name);
+    if (key) setLayer(ed, key, { locked: false }, 'Layer unlock');
+    else ed.ui.log(`There is no layer named "${name}".`, 'error');
   },
 };
 export const LAYON = {
@@ -440,8 +449,18 @@ async function copyToClipboard(ed, ids, base) {
     }
   };
   collect(ents);
-  const layers = [...new Set(ents.map((e) => e.layer))].map((n) => d.layers.get(n)).filter(Boolean);
-  const data = { base, entities: ents, blocks: Object.values(blocks), layers };
+  // And the layers, linetypes and styles they use (inside those blocks too).
+  const all = ents.concat(...Object.values(blocks).map((b) => b.entities));
+  const pick = (table, list, key) =>
+    [...new Set(list.map(key))].map((n) => d[table].get(n)).filter(Boolean);
+  const layers = pick('layers', all, (e) => e.layer);
+  const linetypes = pick('linetypes', [...all, ...layers], (e) => e.linetype);
+  const dimmed = all.filter((e) => e.type === 'dimension' || e.type === 'leader');
+  const dimStyles = pick('dimStyles', dimmed, (e) => e.style);
+  const texts = all.filter((e) => e.type === 'text' || e.type === 'mtext');
+  const textStyles = pick('textStyles', [...texts, ...dimStyles], (e) => e.style ?? e.textStyle);
+  const tables = { layers, linetypes, textStyles, dimStyles };
+  const data = { base, entities: ents, blocks: Object.values(blocks), ...tables };
   ed.app.clipboard = data;
   try {
     await navigator.clipboard?.writeText(CLIP_PREFIX + JSON.stringify(data));
@@ -495,6 +514,40 @@ export const COPYBASE = {
   },
 };
 
+/**
+ * Map clipboard objects and definitions onto names the drawing already has
+ * in another letter case ('holes' onto 'Holes'), which DWG and DXF treat as
+ * the same name.
+ */
+function sameNames(d, data) {
+  const map = {};
+  let any = false;
+  for (const t of ['linetypes', 'textStyles', 'dimStyles', 'layers', 'blocks']) {
+    map[t] = new Map();
+    for (const v of data[t] || []) {
+      const key = tableKey(d[t], v.name);
+      if (key && key !== v.name) {
+        map[t].set(v.name, key);
+        any = true;
+      }
+    }
+  }
+  if (!any) return (e) => e;
+  const ren = (t, n) => map[t].get(n) ?? n;
+  const textual = (e) => e.type === 'text' || e.type === 'mtext';
+  return (e) => {
+    const out = { ...e };
+    if (e.linetype !== undefined) out.linetype = ren('linetypes', e.linetype);
+    if (e.textStyle !== undefined) out.textStyle = ren('textStyles', e.textStyle);
+    // A layer or style record.
+    if (!e.type) return out;
+    out.layer = ren('layers', e.layer);
+    if (e.type === 'insert') out.name = ren('blocks', e.name);
+    if (e.style !== undefined) out.style = ren(textual(e) ? 'textStyles' : 'dimStyles', e.style);
+    return out;
+  };
+}
+
 export const PASTECLIP = {
   name: 'PASTECLIP',
   label: 'Paste',
@@ -518,11 +571,18 @@ export const PASTECLIP = {
     const p = await ed.getPoint('Insertion point', { preview: (c) => at(c) });
     if (!p || p.option) return;
     const d = ed.drawing;
+    const fix = sameNames(d, data);
     ed.commit('Paste', () => {
-      for (const l of data.layers || []) if (!d.layers.has(l.name)) d.setTable('layers', l.name, l);
-      for (const b of data.blocks || []) if (!d.blocks.has(b.name)) d.setBlock(b.name, b);
+      // Definitions the drawing already has keep their own settings.
+      for (const t of ['linetypes', 'textStyles', 'dimStyles', 'layers']) {
+        for (const v of data[t] || []) if (!tableKey(d[t], v.name)) d.setTable(t, v.name, fix(v));
+      }
+      for (const b of data.blocks || []) {
+        if (tableKey(d.blocks, b.name)) continue;
+        d.setBlock(b.name, { ...b, entities: b.entities.map(fix) });
+      }
       const ids = [];
-      for (const e of at(p)) ids.push(d.add(fresh(e)).id);
+      for (const e of at(p)) ids.push(d.add(fresh(fix(e))).id);
       return ids;
     });
   },
@@ -546,12 +606,15 @@ export const SELECTSIMILAR = {
   async run(ed) {
     const ids = await ed.getSelection('Select example objects');
     if (!ids.length) return;
-    const keys = new Set(ids.map((id) => {
-      const e = ed.drawing.get(id);
-      return `${e.type}|${e.layer}`;
-    }));
+    // Same type, layer and name (block, style or hatch pattern), like
+    // AutoCAD's default SELECTSIMILARMODE.
+    const name = (e) => (e.type === 'insert' ? e.name : e.type === 'hatch' ? e.pattern : e.style);
+    const key = (e) => `${e.type}|${e.layer}|${name(e) ?? ''}`;
+    const keys = new Set(ids.map((id) => key(ed.drawing.get(id))));
     const out = [];
-    for (const [id, e] of ed.drawing.entities) if (keys.has(`${e.type}|${e.layer}`) && ed.drawing.layerEditable(e.layer)) out.push(id);
+    for (const [id, e] of ed.drawing.entities) {
+      if (keys.has(key(e)) && ed.drawing.layerEditable(e.layer)) out.push(id);
+    }
     ed.setSelection(out);
   },
 };

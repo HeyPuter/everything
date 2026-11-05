@@ -276,6 +276,7 @@
 }
 
 .rb-body {
+  position: relative;
   height: var(--ribbon-h);
 }
 
@@ -298,7 +299,51 @@
   height: 100%;
   overflow-x: auto;
   overflow-y: hidden;
-  scrollbar-width: thin;
+  /* The scroll arrows stand in for the scrollbar, and focused buttons clear them. */
+  scrollbar-width: none;
+  scroll-padding-inline: 28px;
+}
+
+.rb-scroller::-webkit-scrollbar {
+  display: none;
+}
+
+.rb-scroll {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 1;
+  width: 22px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  background: var(--bg-chrome);
+  color: var(--fg-muted);
+}
+
+.rb-scroll.prev {
+  left: 0;
+  border-right: 1px solid var(--border);
+}
+
+.rb-scroll.next {
+  right: 0;
+  border-left: 1px solid var(--border);
+}
+
+.rb-scroll:hover {
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+
+/* Small button labels give way first when the panels do not fit. */
+.ribbon.compact .rb-sm-label {
+  display: none;
+}
+
+.ribbon.compact .rb-sm {
+  padding: 0 4px;
 }
 
 .rb-panel {
@@ -901,6 +946,7 @@ button.rb-panel-title:hover {
 
 .cmd-line {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 4px;
   min-height: 36px;
@@ -916,7 +962,8 @@ button.rb-panel-title:hover {
 }
 
 .cmd-main {
-  flex: 1;
+  /* On a narrow line the Cancel and Enter buttons wrap below the prompt. */
+  flex: 1 1 200px;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -934,7 +981,6 @@ button.rb-panel-title:hover {
 
 .cmd-prompt {
   font-weight: 500;
-  white-space: nowrap;
 }
 
 .cmd-opt {
@@ -977,6 +1023,7 @@ button.rb-panel-title:hover {
 .cmd-actions {
   display: none;
   gap: 4px;
+  margin-left: auto;
 }
 
 .cmdline.busy .cmd-actions {
@@ -1168,12 +1215,6 @@ body.clean-screen .app-root {
   .search-btn kbd {
     display: none;
   }
-  .rb-sm-label {
-    display: none;
-  }
-  .rb-sm {
-    padding: 0 4px;
-  }
   .combo {
     width: 150px;
   }
@@ -1196,6 +1237,29 @@ body.clean-screen .app-root {
   }
   .cmdline {
     width: calc(100% - 80px);
+  }
+}
+
+/* An overlaid palette leaves the command line and navigation bar uncovered. */
+@media (min-width: 600px) and (max-width: 1023px) {
+  .workspace.dock-open .cmdline {
+    left: 8px;
+    right: calc(var(--dock-w, 0px) + 8px);
+    width: auto;
+    transform: none;
+  }
+  .workspace.dock-open .viewnav {
+    right: calc(var(--dock-w, 0px) + 8px);
+  }
+}
+
+@media (max-width: 599px) {
+  .workspace.dock-open .cmdline {
+    bottom: calc(var(--dock-h, 0px) + 8px);
+  }
+  /* The canvas left above the palette is short: messages stop before the navigation bar. */
+  .workspace.dock-open .cmd-history {
+    padding-right: 54px;
   }
 }
 
@@ -1322,6 +1386,9 @@ body.clean-screen .app-root {
   .rb-lg-arrow {
     height: 24px;
   }
+  .rb-scroll {
+    width: 32px;
+  }
   .icon-btn.sm {
     width: 32px;
     height: 32px;
@@ -1329,6 +1396,11 @@ body.clean-screen .app-root {
   .qat-btn,
   .icon-btn {
     min-width: 36px;
+    min-height: 36px;
+  }
+  .btn.sm,
+  .dock .input.sm,
+  .dialog .input.sm {
     min-height: 36px;
   }
 }

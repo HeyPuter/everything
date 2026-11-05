@@ -9,8 +9,10 @@ import { icon } from './icons.js';
 /**
  * openDialog({ title, body, actions: [{ label, primary, danger, value, onClick }], size, onClose })
  * Resolves with the value of the action used to close it (or null).
+ * A click on the backdrop closes it only while nothing in it was edited (any field input other
+ * than a search box, or isDirty() for edits made by other means); Escape and Cancel always close.
  */
-export function openDialog({ title, body, actions = [], size = 'md', className, initialFocus, onClose, describedBy }) {
+export function openDialog({ title, body, actions = [], size = 'md', className, initialFocus, onClose, describedBy, isDirty }) {
   return new Promise((resolve) => {
     const prev = document.activeElement;
     const titleId = `dlg-${Math.random().toString(36).slice(2)}`;
@@ -57,9 +59,21 @@ export function openDialog({ title, body, actions = [], size = 'md', className, 
       e.preventDefault();
       close(null);
     });
+    let edited = false;
+    const onEdit = (e) => {
+      if (e.target.type !== 'search') edited = true;
+    };
+    dlg.addEventListener('input', onEdit);
+    dlg.addEventListener('change', onEdit);
     dlg.addEventListener('pointerdown', (e) => {
-      if (e.target === dlg) close(null);
+      if (e.target !== dlg) return;
+      if (!edited && !isDirty?.()) return close(null);
+      // Keep the edits: nudge the dialog so the click is not silently ignored.
+      dlg.classList.remove('nudge');
+      void dlg.offsetWidth;
+      dlg.classList.add('nudge');
     });
+    dlg.addEventListener('animationend', (e) => e.target === dlg && dlg.classList.remove('nudge'));
     dlg.addEventListener('keydown', (e) => {
       e.stopPropagation();
       // Enter in a single-line field confirms, as in any form.

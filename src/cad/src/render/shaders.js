@@ -12,6 +12,16 @@ precision highp float;
 precision highp int;
 `;
 
+/**
+ * Depth of a draw-order band: later bands are nearer, band 0 is the far
+ * plane. Steps of 2^-21 stay distinct in a 24-bit depth buffer.
+ */
+const BAND_DEPTH = `
+float bandDepth(float band) {
+  return 1.0 - min(band, 4194303.0) * 4.76837158203125e-7;
+}
+`;
+
 /** Instanced anti-aliased segments with lineweights and linetype patterns. */
 export const SEG_VS = `${PRECISION}
 layout(location = 0) in vec4 a_hi;
@@ -19,6 +29,7 @@ layout(location = 1) in vec4 a_lo;
 layout(location = 2) in vec2 a_dist;
 layout(location = 3) in vec4 a_color;
 layout(location = 4) in uvec4 a_style;
+layout(location = 5) in float a_band;
 
 uniform vec2 u_camHi;
 uniform vec2 u_camLo;
@@ -40,7 +51,11 @@ out float v_dist0;
 out float v_patScale;
 flat out uint v_row;
 flat out uint v_flags;
+flat out vec4 v_cut;        // joint bisector normals at the start (xy) and end (zw)
+flat out vec4 v_joint;      // start (xy) and end (zw) points in window pixels
 
+const float JOIN_STEP = 0.024639942; // 2 PI / 255, see batch.js
+${BAND_DEPTH}
 void main() {
   vec2 p1 = (a_hi.xy - u_camHi) + (a_lo.xy - u_camLo);
   vec2 p2 = (a_hi.zw - u_camHi) + (a_lo.zw - u_camLo);
@@ -52,14 +67,35 @@ void main() {
   float len = length(d);
   vec2 dir = len > 1e-4 ? d / len : vec2(1.0, 0.0);
   vec2 nrm = vec2(-dir.y, dir.x);
-  uint flags = a_style.z;
-  float w = max(u_lwPx[a_style.x], u_minPx);
+  uint flags = a_style.x >> 5;
+  float w = max(u_lwPx[a_style.x & 31u], u_minPx);
   if ((flags & 1u) != 0u) w += u_hlExtra;
   float hw = w * 0.5 + 1.0;
+  // Joints: both segments cut along the same bisector (normal n, pointing
+  // from the earlier segment into the later one).
+  uint js = len > 1e-4 ? a_style.z : 0u;
+  uint je = len > 1e-4 ? a_style.w : 0u;
+  // The cut is tested against the window position of the pixel, so both
+  // segments compute exactly the same value and no pixel is missed or doubled.
+  float ext0 = hw, ext1 = hw;
+  v_cut = vec4(0.0);
+  v_joint = vec4(s1 + u_half, s2 + u_half);
+  if (js != 0u) {
+    float a = float(js - 1u) * JOIN_STEP;
+    v_cut.xy = normalize(u_xm * vec2(cos(a), sin(a)));
+    ext0 = hw * abs(dot(nrm, v_cut.xy)) / max(dot(dir, v_cut.xy), 0.25) + 1.0;
+    flags |= 16u;
+  }
+  if (je != 0u) {
+    float a = float(je - 1u) * JOIN_STEP;
+    v_cut.zw = normalize(u_xm * vec2(cos(a), sin(a)));
+    ext1 = hw * abs(dot(nrm, v_cut.zw)) / max(dot(dir, v_cut.zw), 0.25) + 1.0;
+    flags |= 32u;
+  }
   int c = gl_VertexID;
   float t = float(c >> 1);
   float side = (c & 1) == 1 ? 1.0 : -1.0;
-  float ext = (t * 2.0 - 1.0) * hw;
+  float ext = t > 0.5 ? ext1 : -ext0;
   vec2 pos = mix(s1, s2, t) + dir * ext + nrm * side * hw;
   v_along = t * len + ext;
   v_across = side * hw;
@@ -70,7 +106,7 @@ void main() {
   v_row = a_style.y;
   v_flags = flags;
   v_color = a_color;
-  gl_Position = vec4(pos / u_half, 0.0, 1.0);
+  gl_Position = vec4(pos / u_half, bandDepth(a_band), 1.0);
 }
 `;
 
@@ -84,6 +120,8 @@ in float v_dist0;
 in float v_patScale;
 flat in uint v_row;
 flat in uint v_flags;
+flat in vec4 v_cut;
+flat in vec4 v_joint;
 
 uniform highp sampler2D u_patterns; // R32F: x=0 count, x=1 total, x=2.. elements
 uniform float u_ppu;
@@ -93,9 +131,14 @@ uniform float u_alpha;
 out vec4 outColor;
 
 void main() {
-  // Distance from the segment (with square caps) in px.
-  float outside = max(max(-v_along, v_along - v_len), 0.0);
-  float cov = clamp(v_hw + 0.5 - abs(v_across), 0.0, 1.0) * clamp(v_hw + 0.5 - outside, 0.0, 1.0);
+  // Coverage across, then at each end: an anti-aliased square cap at a free
+  // end, or a hard cut along the joint's bisector that the neighbouring
+  // segment mirrors, so every pixel of a joint is drawn exactly once.
+  float cov = clamp(v_hw + 0.5 - abs(v_across), 0.0, 1.0);
+  if ((v_flags & 16u) != 0u) cov *= float(dot(gl_FragCoord.xy - v_joint.xy, v_cut.xy) > 0.0);
+  else cov *= clamp(v_hw + 0.5 + min(v_along, 0.0), 0.0, 1.0);
+  if ((v_flags & 32u) != 0u) cov *= float(dot(gl_FragCoord.xy - v_joint.zw, v_cut.zw) <= 0.0);
+  else cov *= clamp(v_hw + 0.5 - max(v_along - v_len, 0.0), 0.0, 1.0);
 
   if (v_row > 0u && (v_flags & 2u) == 0u) {
     int row = int(v_row);
@@ -136,6 +179,7 @@ void main() {
 export const TRI_VS = `${PRECISION}
 layout(location = 0) in vec4 a_pos;
 layout(location = 1) in vec4 a_color;
+layout(location = 2) in float a_band;
 uniform vec2 u_camHi;
 uniform vec2 u_camLo;
 uniform vec2 u_half;
@@ -143,12 +187,16 @@ uniform float u_ppu;
 uniform mat2 u_xm;
 uniform vec2 u_xt;
 uniform vec2 u_xp;
+uniform int u_fills;   // 0 all, 1 opaque only, 2 translucent only (draw-order bands)
 out vec4 v_color;
+${BAND_DEPTH}
 void main() {
   vec2 p = (a_pos.xy - u_camHi) + (a_pos.zw - u_camLo);
   p = u_xm * (p - u_xp) + u_xp + u_xt;
   v_color = a_color;
-  gl_Position = vec4(p * u_ppu / u_half, 0.0, 1.0);
+  gl_Position = vec4(p * u_ppu / u_half, bandDepth(a_band), 1.0);
+  // Skipped fills collapse outside the clip volume.
+  if (u_fills != 0 && (a_color.a < 1.0) != (u_fills == 2)) gl_Position = vec4(0.0, 0.0, 2.0, 1.0);
 }
 `;
 

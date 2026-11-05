@@ -1,5 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import { Batch, SEG_FLOATS, TRI_FLOATS, F_HIGHLIGHT } from '../src/render/batch.js';
+import {
+  Batch,
+  SEG_FLOATS,
+  SEG_STRIDE,
+  TRI_FLOATS,
+  TRI_STRIDE,
+  F_HIGHLIGHT,
+  JOIN_STEP,
+} from '../src/render/batch.js';
 
 const style = { rgb: [10, 20, 30], alpha: 1, lwIndex: 3, basePattern: [], ltscale: 1 };
 
@@ -62,9 +70,81 @@ describe('Batch', () => {
     b.flags = F_HIGHLIGHT;
     b.segs(new Float64Array([0, 0, 1, 0, 5, 5, 6, 6]), style);
     expect(b.segCount).toBe(2);
-    expect(new Uint8Array(b.segBuf)[46]).toBe(F_HIGHLIGHT);
+    expect(new Uint8Array(b.segBuf)[44] >> 5).toBe(F_HIGHLIGHT);
+    expect(new Uint8Array(b.segBuf)[44] & 31).toBe(3);
     b.reset();
     expect(b.segCount).toBe(0);
     expect(b.bounds).toBeNull();
+  });
+
+  it('gives neighbouring polyline segments the same bisector at their joint', () => {
+    const b = new Batch(() => 0);
+    const joins = () => {
+      const u = new Uint8Array(b.segBuf);
+      return Array.from({ length: b.segCount }, (_, i) => [
+        u[i * SEG_STRIDE + 46],
+        u[i * SEG_STRIDE + 47],
+      ]);
+    };
+    const angle = (code) => (code - 1) * JOIN_STEP;
+    // Open path: free ends, a 90 degree left turn, then a 150 degree hairpin.
+    b.line([0, 0, 10, 0, 10, 10, 9, 10 - Math.tan(Math.PI / 3)], false, style);
+    let j = joins();
+    expect(j[0][0]).toBe(0);
+    expect(j[0][1]).toBe(j[1][0]);
+    expect(angle(j[0][1])).toBeCloseTo(Math.PI / 4, 1);
+    expect(j[1][1]).toBe(0);
+    expect(j[2][0]).toBe(0);
+    expect(j[2][1]).toBe(0);
+    // Closed square: every joint is shared, including the closing one.
+    b.reset();
+    b.line([0, 0, 10, 0, 10, 10, 0, 10], true, style);
+    j = joins();
+    for (let i = 0; i < 4; i++) {
+      expect(j[i][1]).toBeGreaterThan(0);
+      expect(j[i][1]).toBe(j[(i + 1) % 4][0]);
+    }
+    // Straight continuation: the cut is perpendicular to the path.
+    b.reset();
+    b.line([0, 0, 0, 5, 0, 10], false, style);
+    j = joins();
+    expect(angle(j[0][1])).toBeCloseTo(Math.PI / 2, 1);
+    // Independent segments and repeated points get square caps.
+    b.reset();
+    b.line([0, 0, 0, 0, 5, 0], false, style);
+    b.segs(new Float64Array([0, 0, 1, 0, 1, 0, 2, 0]), style);
+    expect(joins().flat()).toEqual([0, 0, 0, 0, 0, 0, 0, 0]);
+  });
+
+  it('gives back buffers grown far past their starting size', () => {
+    const b = new Batch(() => 0, 4, 4);
+    const small = b.segBuf;
+    b.line([0, 0, 1, 0, 2, 0], false, style);
+    b.shrink();
+    expect(b.segBuf).toBe(small);
+    expect(b.segCount).toBe(0);
+    const pts = [];
+    for (let i = 0; i < 100; i++) pts.push(i, 0);
+    b.line(pts, false, style);
+    b.fill([[0, 0, 10, 0, 10, 10, 0, 10], [2, 2, 2, 8, 8, 8, 8, 2]], style);
+    for (let i = 0; i < 20; i++) b.fill([[0, 0, 10, 0, 10, 10, 0, 10]], style);
+    expect(b.triBuf.byteLength).toBeGreaterThan(16 * 3 * TRI_STRIDE);
+    expect(b.segBuf.byteLength).toBeGreaterThan(16 * SEG_STRIDE);
+    // Kept while builds keep needing them (a repeated select-all).
+    const grown = b.segBuf;
+    b.shrink(1000);
+    expect(b.segBuf).toBe(grown);
+    expect(b.segCount + b.vertCount).toBe(0);
+    b.line([0, 0, 1, 0], false, style);
+    b.shrink(5000);
+    expect(b.segBuf).toBe(grown);
+    // Given back by the first build after they went unused for a while.
+    b.line([0, 0, 1, 0], false, style);
+    b.shrink(20000);
+    expect(b.segBuf.byteLength).toBe(4 * SEG_STRIDE);
+    expect(b.triBuf.byteLength).toBe(4 * 3 * TRI_STRIDE);
+    expect(b.segCount + b.vertCount).toBe(0);
+    b.line([0, 0, 1, 0], false, style);
+    expect(b.segCount).toBe(1);
   });
 });

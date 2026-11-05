@@ -662,14 +662,14 @@
 /* Alpha notice ----------------------------------------------------------------------------- */
 
 .alpha-notice {
-  position: fixed;
-  left: 16px;
   /* Top left of the canvas, clear of the command line and navigation bar. */
-  top: calc(var(--titlebar-h) + var(--tabs-h) + var(--ribbon-h) + var(--doctabs-h) + 16px);
+  position: absolute;
+  left: 16px;
+  top: 16px;
   z-index: 900;
   display: flex;
   gap: 10px;
-  width: min(380px, calc(100vw - 32px));
+  width: min(380px, calc(100% - 32px));
   padding: 12px 14px;
   border: 1px solid var(--warning);
   border-radius: var(--r-lg);
@@ -696,11 +696,16 @@
   margin-top: 8px;
 }
 
+body > .alpha-notice {
+  position: fixed;
+}
+
 @media (max-width: 599px) {
   .alpha-notice {
     left: 8px;
-    right: 8px;
+    /* Clear of the navigation bar. */
+    right: 62px;
     width: auto;
-    top: calc(var(--titlebar-h) + 44px);
+    top: 8px;
   }
 }

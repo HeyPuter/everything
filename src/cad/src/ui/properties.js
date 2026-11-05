@@ -7,7 +7,13 @@ import { h, clear, nextId } from './dom.js';
 import { icon } from './icons.js';
 import { colorLabel, colorCss } from '../core/colors.js';
 import { LINEWEIGHTS, LW_BYLAYER, LW_BYBLOCK, LW_DEFAULT } from '../core/schema.js';
-import { formatLinear, formatAngle, parseLength, parseAngle } from '../core/units.js';
+import {
+  formatLinear,
+  formatAngle,
+  formatDirection,
+  parseLength,
+  parseAngle,
+} from '../core/units.js';
 import { lengthOf, areaOf } from '../core/geom/index.js';
 import { dimensionText } from '../core/dims.js';
 import { patternNames } from '../core/hatch/patterns.js';
@@ -427,24 +433,30 @@ export class PropertiesPalette {
   _input(value, display, parse, onCommit, attrs = {}) {
     const inp = h('input.input.sm', { type: 'text', value: display(value), placeholder: value === undefined ? 'Varies' : '', spellcheck: 'false', ...attrs });
     let orig = inp.value;
+    const reject = () => {
+      inp.value = orig;
+      inp.setAttribute('aria-invalid', 'true');
+      setTimeout(() => inp.removeAttribute('aria-invalid'), 1200);
+      return false;
+    };
+    // Returns false when the value was rejected (unparsable, or out of range: onCommit returns false).
     const commit = () => {
-      if (inp.value === orig) return;
+      if (inp.value === orig) return true;
       const v = parse(inp.value);
-      if (v === null || (typeof v === 'number' && !Number.isFinite(v))) {
-        inp.value = orig;
-        inp.setAttribute('aria-invalid', 'true');
-        setTimeout(() => inp.removeAttribute('aria-invalid'), 1200);
-        return;
-      }
+      if (v === null || (typeof v === 'number' && !Number.isFinite(v))) return reject();
+      const prev = orig;
       orig = inp.value;
-      onCommit(v);
+      if (onCommit(v) !== false) return true;
+      orig = prev;
+      return reject();
     };
     inp.addEventListener('keydown', (e) => {
       e.stopPropagation();
       if (e.key === 'Enter') {
         e.preventDefault();
-        commit();
+        const ok = commit();
         inp.select();
+        if (!ok) return;
         // Show the formatted value and the values that depend on it.
         this._forceRender = true;
         this.refresh();
@@ -467,7 +479,7 @@ export class PropertiesPalette {
 
   angleInput(v, onCommit) {
     const hd = this.app.doc.drawing.header;
-    return this._input(v, (x) => (x === undefined || !Number.isFinite(x) ? '' : formatAngle(norm(x), hd)), (s) => parseAngle(s, hd), onCommit, { inputmode: 'decimal' });
+    return this._input(v, (x) => (x === undefined || !Number.isFinite(x) ? '' : formatDirection(x, hd)), (s) => parseAngle(s, hd), onCommit, { inputmode: 'decimal' });
   }
 
   numberInput(v, onCommit) {
@@ -498,6 +510,8 @@ export class PropertiesPalette {
   select(options, value, onChange, labelFn) {
     const sel = h('select.input.sm');
     if (value === undefined) sel.append(h('option', { value: '', disabled: true, selected: true }, 'Varies'));
+    // A value the list lacks (an imported hatch pattern, a missing style) is still shown.
+    else if (!options.some((o) => String(o) === String(value))) options = [value, ...options];
     for (const o of options) {
       sel.append(h('option', { value: String(o), selected: value !== undefined && String(o) === String(value) }, labelFn ? labelFn(o) : String(o)));
     }

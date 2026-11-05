@@ -7,14 +7,14 @@ import { h, clear, MOD } from './dom.js';
 import { icon } from './icons.js';
 import { openDialog, toast } from './dialog.js';
 import { PALETTE, colorLabel, colorCss, rgbToHex } from '../core/colors.js';
-import { COLOR_BYLAYER, COLOR_BYBLOCK, UNITS } from '../core/schema.js';
+import { COLOR_BYLAYER, COLOR_BYBLOCK, UNITS, freeTableName, tableKey } from '../core/schema.js';
 import { STANDARD_LINETYPES } from '../core/linetypes.js';
 import { defaultTextStyle, defaultDimStyle } from '../core/styles.js';
 import { formatLinear, formatAngle } from '../core/units.js';
-import { RecordingSink } from '../core/display.js';
+import { RecordingSink, drawBands, bandOrder } from '../core/display.js';
 import { emitEntity, makeContext } from '../core/tessellate.js';
 import { SNAP_MODES } from '../editor/snap.js';
-import { PAPER_SIZES, computePlot } from '../io/export/plot.js';
+import { PAPER_SIZES, computePlot, standardScale } from '../io/export/plot.js';
 import { exportPdf } from '../io/export/pdf.js';
 import { exportSvg } from '../io/export/svg.js';
 import { exportPng, renderToCanvas } from '../io/export/raster.js';
@@ -116,7 +116,7 @@ export async function openFileDialog(app) {
                 type: 'button',
                 onClick: (e) => {
                   e.currentTarget.disabled = true;
-                  loadPage(next).catch((err) => (status.textContent = `Could not list your drive: ${err?.message || err}`));
+                  loadPage(next).catch((err) => (status.textContent = `Could not list your drive. ${storage.errorText(err) || 'Please try again.'}`));
                 },
               },
               'Show more',
@@ -145,7 +145,7 @@ export async function openFileDialog(app) {
     try {
       await loadPage(null);
     } catch (err) {
-      status.textContent = `Could not list your drive: ${err?.message || err}`;
+      status.textContent = `Could not list your drive. ${storage.errorText(err) || 'Please try again.'}`;
     }
   };
   const p = openDialog({ title: 'Open drawing', body, size: 'md', actions: [{ label: 'Cancel' }] });
@@ -228,16 +228,21 @@ export function recordDrawing(app, { tol, area } = {}) {
   const ids = area ? doc.index.search(area[0], area[1], area[2], area[3], true) : [...doc.drawing.entities.keys()];
   const order = new Map([...doc.drawing.entities.keys()].map((id, i) => [id, i]));
   ids.sort((a, b) => order.get(a) - order.get(b));
+  // Draw-order bands, as on screen: each band's fills beneath its lines.
+  const bands = drawBands(doc.drawing.entities.values()).of;
+  const groups = [];
   for (const id of ids) {
     const e = doc.drawing.get(id);
     if (!e) continue;
+    sink.items = [];
     try {
       emitEntity(e, sink, ctx);
     } catch {
       /* skip broken entity */
     }
+    groups.push({ band: bands.get(id) ?? 0, items: sink.items });
   }
-  return sink.items;
+  return bandOrder(groups);
 }
 
 function areaFor(app, mode, win) {
@@ -268,7 +273,22 @@ export async function exportDialog(app) {
   const bg = select([['white', 'White'], ['transparent', 'Transparent'], ['dark', 'Dark']], 'white');
   const mono = check('Black and white', false);
   const lw = check('Plot lineweights', true);
-  body.append(h('fieldset.fs', h('legend', 'Format'), fmt), field('Area', areaSel), h('div.row2', field('PNG width (pixels)', width), field('Background', bg)), mono, lw);
+  const areaField = field('Area', areaSel);
+  const widthField = field('PNG width (pixels)', width);
+  const bgField = field('Background', bg);
+  const row = h('div.row2', widthField, bgField);
+  body.append(h('fieldset.fs', h('legend', 'Format'), fmt), areaField, row, mono, lw);
+  // Show only the options the chosen format uses.
+  const sync = () => {
+    const k = radioValue(body, 'fmt');
+    const image = k === 'pdf' || k === 'svg' || k === 'png';
+    areaField.hidden = mono.hidden = lw.hidden = !image;
+    widthField.hidden = k !== 'png';
+    bgField.hidden = k !== 'svg' && k !== 'png';
+    row.hidden = widthField.hidden && bgField.hidden;
+  };
+  body.addEventListener('change', sync);
+  sync();
   const r = await openDialog({ title: 'Export', body, size: 'md', actions: [{ label: 'Cancel' }, { label: 'Export', primary: true, onClick: () => true }] });
   if (!r) return;
   const kind = radioValue(body, 'fmt');
@@ -418,6 +438,15 @@ export async function plotDialog(app, state) {
     const pr = plot.printable;
     ctx.strokeRect(pr.x * k * dpr, (plot.pageH - pr.y - pr.h) * k * dpr, pr.w * k * dpr, pr.h * k * dpr);
   };
+  // Turning Fit to paper off starts from the largest standard scale that fits.
+  fit.querySelector('input').addEventListener('change', (e) => {
+    if (e.target.checked) return;
+    const area = areaFor(app, st.areaMode, st.window);
+    const fitted = computePlot({ ...settingsFor(area), scale: 'fit' }, area);
+    const std = standardScale(fitted.scale, doc.drawing.header.units);
+    mmIn.value = std.paper;
+    unitsIn.value = std.drawing;
+  });
   form.addEventListener('change', draw);
   form.addEventListener('input', draw);
   let action = null;
@@ -444,6 +473,8 @@ export async function plotDialog(app, state) {
     /* ignore */
   }
   if (r === 'pick' || action === 'pick') {
+    // A command still running would drop the window prompt as it unwinds.
+    if (app.editor.busy) await app.editor._stopActive();
     const a = await app.editor.getPoint('First corner of plot window', { noSnap: false }).catch(() => null);
     if (a && !a.option) {
       const b = await app.editor
@@ -543,7 +574,7 @@ export async function colorDialog(app, initial, { allowBy = true } = {}) {
     update();
     syncRoving();
   });
-  const r = await openDialog({ title: 'Select color', body, size: 'lg', actions: [{ label: 'Cancel' }, { label: 'OK', primary: true, onClick: () => ({ v: value }) }] });
+  const r = await openDialog({ title: 'Select color', body, size: 'lg', isDirty: () => value !== initial, actions: [{ label: 'Cancel' }, { label: 'OK', primary: true, onClick: () => ({ v: value }) }] });
   return r ? r.v : null;
 }
 
@@ -687,7 +718,7 @@ export async function settingsDialog(app) {
 
 // Styles ----------------------------------------------------------------------------------------
 
-async function styleManager(app, { title, table, headerKey, make, fields, label }) {
+async function styleManager(app, { title, table, headerKey, make, fields, label, uses }) {
   const d = app.doc.drawing;
   const names = [...d[table].keys()];
   let current = d.header[headerKey];
@@ -720,18 +751,30 @@ async function styleManager(app, { title, table, headerKey, make, fields, label 
     for (const f of fields) {
       let ctl;
       if (f.options) {
-        ctl = select(f.options, st[f.key]);
+        ctl = select(typeof f.options === 'function' ? f.options(d) : f.options, st[f.key]);
         ctl.addEventListener('change', () => (st[f.key] = f.number ? Number(ctl.value) : ctl.value));
       } else if (f.bool) {
         const c = check(f.label, !!st[f.key]);
         c.querySelector('input').addEventListener('change', (e) => (st[f.key] = e.target.checked));
         form.append(c);
         continue;
+      } else if (f.text) {
+        ctl = h('input.input', { type: 'text', value: st[f.key] ?? '', spellcheck: 'false' });
+        ctl.addEventListener('change', () => (st[f.key] = ctl.value));
       } else {
-        ctl = num(f.deg ? +((st[f.key] * 180) / Math.PI).toFixed(6) : st[f.key], { min: f.min ?? null });
-        ctl.addEventListener('change', () => {
-          const v = Number(ctl.value);
-          if (Number.isFinite(v)) st[f.key] = f.deg ? (v * Math.PI) / 180 : v;
+        const shown = () => (f.deg ? +((st[f.key] * 180) / Math.PI).toFixed(6) : st[f.key]);
+        const inp = (ctl = num(shown(), { min: f.min ?? null }));
+        inp.addEventListener('change', () => {
+          const v = Number(inp.value);
+          if (inp.value.trim() !== '' && Number.isFinite(v) && !(v < (f.min ?? -Infinity))) {
+            st[f.key] = f.deg ? (v * Math.PI) / 180 : v;
+            inp.removeAttribute('aria-invalid');
+            return;
+          }
+          // Out of range or not a number: keep the previous value.
+          inp.value = shown();
+          inp.setAttribute('aria-invalid', 'true');
+          setTimeout(() => inp.removeAttribute('aria-invalid'), 1200);
         });
       }
       form.append(field(f.label, ctl, f.hint));
@@ -742,9 +785,7 @@ async function styleManager(app, { title, table, headerKey, make, fields, label 
     h('button.btn.sm', {
       type: 'button',
       onClick: () => {
-        let i = 1;
-        while (work.has(`Style${i}`)) i++;
-        const n = `Style${i}`;
+        const n = freeTableName(work, 'Style');
         work.set(n, { ...make(n), ...work.get(selected), name: n });
         selected = n;
         renderList();
@@ -756,6 +797,8 @@ async function styleManager(app, { title, table, headerKey, make, fields, label 
       type: 'button',
       onClick: () => {
         if (selected === 'Standard' || selected === current) return toast('The current and Standard styles cannot be deleted.', { kind: 'error' });
+        const n = uses(selected);
+        if (n) return toast(`"${selected}" is used by ${n} object${n === 1 ? '' : 's'} or style${n === 1 ? '' : 's'} and cannot be deleted.`, { kind: 'error' });
         work.delete(selected);
         selected = current;
         renderList();
@@ -766,7 +809,9 @@ async function styleManager(app, { title, table, headerKey, make, fields, label 
   renderList();
   renderForm();
   const body = h('div.style-dlg', h('div.style-side', list, actions), form);
-  const r = await openDialog({ title, body, size: 'lg', actions: [{ label: 'Cancel' }, { label: 'OK', primary: true, value: true }] });
+  // New, Delete and Set current change the list without a field edit.
+  const isDirty = () => current !== d.header[headerKey] || work.size !== names.length || names.some((n) => !work.has(n));
+  const r = await openDialog({ title, body, size: 'lg', isDirty, actions: [{ label: 'Cancel' }, { label: 'OK', primary: true, value: true }] });
   if (!r) return;
   d.transaction(title, () => {
     for (const n of names) if (!work.has(n)) d.setTable(table, n, null);
@@ -782,6 +827,8 @@ export function textStylesDialog(app) {
     headerKey: 'textStyle',
     label: 'Text styles',
     make: defaultTextStyle,
+    // Text and multiline text, also inside blocks, and dimension styles that draw their text in it.
+    uses: (name) => countStyleUses(app.doc.drawing, (e) => (e.type === 'text' || e.type === 'mtext') && e.style === name) + [...app.doc.drawing.dimStyles.values()].filter((s) => s.textStyle === name).length,
     fields: [
       { key: 'font', label: 'Font', options: [['sans', 'Drafting (proportional)'], ['mono', 'Drafting (fixed width)']] },
       { key: 'height', label: 'Height', min: 0, hint: '0 asks for the height each time text is placed.' },
@@ -798,7 +845,9 @@ export function dimStylesDialog(app) {
     headerKey: 'dimStyle',
     label: 'Dimension styles',
     make: defaultDimStyle,
+    uses: (name) => countStyleUses(app.doc.drawing, (e) => (e.type === 'dimension' || e.type === 'leader') && e.style === name),
     fields: [
+      { key: 'textStyle', label: 'Text style', options: (d) => [...d.textStyles.keys()] },
       { key: 'textHeight', label: 'Text height', min: 0.0001 },
       { key: 'arrowType', label: 'Arrowheads', options: [['closed', 'Closed filled'], ['open', 'Open'], ['tick', 'Architectural tick'], ['dot', 'Dot'], ['none', 'None']] },
       { key: 'arrowSize', label: 'Arrow size', min: 0 },
@@ -809,9 +858,18 @@ export function dimStylesDialog(app) {
       { key: 'extExtend', label: 'Extend beyond dimension line', min: 0 },
       { key: 'textGap', label: 'Text gap', min: 0 },
       { key: 'scale', label: 'Overall scale', min: 0.0001 },
+      { key: 'prefix', label: 'Prefix', text: true },
+      { key: 'suffix', label: 'Suffix', text: true },
       { key: 'trailingZeros', label: 'Keep trailing zeros', bool: true },
     ],
   });
+}
+
+function countStyleUses(d, test) {
+  let n = 0;
+  for (const e of d.entities.values()) if (test(e)) n++;
+  for (const b of d.blocks.values()) for (const e of b.entities) if (test(e)) n++;
+  return n;
 }
 
 // Linetypes ------------------------------------------------------------------------------------
@@ -819,7 +877,7 @@ export function dimStylesDialog(app) {
 export async function linetypesDialog(app) {
   const d = app.doc.drawing;
   const rows = STANDARD_LINETYPES.map((lt) => {
-    const loaded = d.linetypes.has(lt.name);
+    const loaded = !!tableKey(d.linetypes, lt.name);
     const c = check(`${lt.name}  ${lt.description}`, loaded, { 'data-name': lt.name });
     return c;
   });
@@ -827,13 +885,17 @@ export async function linetypesDialog(app) {
   const body = h('form', { onSubmit: (e) => e.preventDefault() }, h('p.field-hint', 'Checked linetypes are available in this drawing.'), h('div.lt-list', rows), field('Global linetype scale', lts));
   const r = await openDialog({ title: 'Linetypes', body, size: 'md', actions: [{ label: 'Cancel' }, { label: 'OK', primary: true, value: true }] });
   if (!r) return;
-  const used = new Set([...d.entities.values()].map((e) => e.linetype).concat([...d.layers.values()].map((l) => l.linetype)));
+  const used = new Set([...d.layers.values()].map((l) => l.linetype));
+  for (const e of d.entities.values()) used.add(e.linetype);
+  for (const b of d.blocks.values()) for (const e of b.entities) used.add(e.linetype);
   d.transaction('Linetypes', () => {
     for (const c of rows) {
       const inp = c.querySelector('input');
       const name = inp.dataset.name;
-      if (inp.checked && !d.linetypes.has(name)) d.setTable('linetypes', name, { ...STANDARD_LINETYPES.find((l) => l.name === name) });
-      if (!inp.checked && d.linetypes.has(name) && name !== 'Continuous' && !used.has(name)) d.setTable('linetypes', name, null);
+      // An imported DASHED is the standard Dashed: names ignore case.
+      const key = tableKey(d.linetypes, name);
+      if (inp.checked && !key) d.setTable('linetypes', name, { ...STANDARD_LINETYPES.find((l) => l.name === name) });
+      if (!inp.checked && key && name !== 'Continuous' && !used.has(key)) d.setTable('linetypes', key, null);
     }
     const v = Number(lts.value);
     if (v > 0 && v !== d.header.ltscale) d.setHeader({ ltscale: v });
@@ -844,6 +906,10 @@ export async function linetypesDialog(app) {
 
 export async function quickSelectDialog(app) {
   const d = app.doc.drawing;
+  if (!d.entities.size) {
+    app.cmdline.log('The drawing has no objects to select.', 'muted');
+    return;
+  }
   const types = [...new Set([...d.entities.values()].map((e) => e.type))].sort();
   const typeSel = select([['*', 'All object types'], ...types.map((t) => [t, t[0].toUpperCase() + t.slice(1)])], '*');
   const prop = select([['layer', 'Layer'], ['color', 'Color'], ['linetype', 'Linetype'], ['lineweight', 'Lineweight']], 'layer');

@@ -3,6 +3,7 @@ import {
   PAPER_SIZES,
   findPaper,
   computePlot,
+  standardScale,
   lineweightMm,
   dashArray,
   plotColor,
@@ -110,6 +111,8 @@ describe('helpers', () => {
     expect(plotColor(red, { monochrome: true })).toEqual([0, 0, 0]);
     expect(plotColor(fg, {})).toEqual([0, 0, 0]);
     expect(plotColor(fg, { background: '#202020' })).toEqual([255, 255, 255]);
+    // Black and white on a dark background prints white, not invisible black.
+    expect(plotColor(red, { monochrome: true, background: '#1f242c' })).toEqual([255, 255, 255]);
   });
 
   it('fits to a pixel size and formats scales', () => {
@@ -117,5 +120,25 @@ describe('helpers', () => {
     expect(scale).toBe(20);
     expect(apply(transform, 0, 0)).toEqual([0, 100]);
     expect(scaleText(2)).toBe('2:1');
+  });
+});
+
+describe('standardScale', () => {
+  it('picks the largest 1-2-5 scale that still fits, in the drawing units', () => {
+    // A small mm part that fits at 1.538 mm per unit plots at 1:1, not 1:100.
+    expect(standardScale(1.538, 'mm')).toEqual({ paper: 1, drawing: 1 });
+    expect(standardScale(0.0123, 'mm')).toEqual({ paper: 1, drawing: 100 });
+    expect(standardScale(4, 'mm')).toEqual({ paper: 2, drawing: 1 });
+    expect(standardScale(12, 'm')).toEqual({ paper: 10, drawing: 1 });
+    expect(standardScale(0.25, 'm')).toEqual({ paper: 1, drawing: 5 });
+    expect(standardScale(0.4, 'in')).toEqual({ paper: 25.4, drawing: 100 });
+  });
+
+  it('never chooses a scale larger than the fit scale', () => {
+    for (const s of [0.003, 0.07, 0.9, 1, 3.3, 45]) {
+      const { paper, drawing } = standardScale(s, 'mm');
+      expect(paper / drawing).toBeLessThanOrEqual(s * (1 + 1e-9));
+      expect(paper / drawing).toBeGreaterThan(s / 2.6);
+    }
   });
 });

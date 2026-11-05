@@ -163,21 +163,41 @@ export function renderToCanvas(ctx, items, settings = {}) {
   return { transform: T, scale };
 }
 
+/** Largest canvas side browsers accept (Chrome fails above it with a zero-size canvas). */
+export const MAX_PNG_SIDE = 16384;
+
+/**
+ * Settings with the image size resolved and scaled down, keeping the
+ * aspect ratio, so neither side exceeds MAX_PNG_SIDE: image mode sets
+ * width and height, paper mode lowers dpi.
+ */
+export function pngSettings(settings = {}) {
+  const opts = { ...settings };
+  if (isPaperMode(opts)) {
+    const { width, height } = pagePixels(opts);
+    const k = MAX_PNG_SIDE / Math.max(width, height);
+    if (k < 1) opts.dpi = (opts.dpi ?? 150) * k * 0.999;
+    return opts;
+  }
+  let w = Math.max(1, opts.width ?? 1600);
+  let h = Math.max(1, opts.height ?? 1200);
+  const k = Math.min(1, MAX_PNG_SIDE / Math.max(w, h));
+  opts.width = Math.max(1, Math.min(MAX_PNG_SIDE, Math.round(w * k)));
+  opts.height = Math.max(1, Math.min(MAX_PNG_SIDE, Math.round(h * k)));
+  return opts;
+}
+
 /**
  * Render items to a PNG Blob. Paper mode sizes the image from the page and
  * dpi; otherwise width and height (default 1600 x 1200) are used.
  * The background defaults to white.
  */
 export async function exportPng(items, settings = {}) {
-  const opts = { ...settings, background: settings.background === undefined ? '#ffffff' : settings.background };
-  let width, height;
-  if (isPaperMode(opts)) ({ width, height } = pagePixels(opts));
-  else {
-    width = Math.max(1, Math.round(opts.width ?? 1600));
-    height = Math.max(1, Math.round(opts.height ?? 1200));
-    opts.width = width;
-    opts.height = height;
-  }
+  const opts = pngSettings({
+    ...settings,
+    background: settings.background === undefined ? '#ffffff' : settings.background,
+  });
+  const { width, height } = isPaperMode(opts) ? pagePixels(opts) : opts;
   if (typeof OffscreenCanvas !== 'undefined') {
     const canvas = new OffscreenCanvas(width, height);
     renderToCanvas(canvas.getContext('2d'), items, opts);

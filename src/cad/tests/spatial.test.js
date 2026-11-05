@@ -86,4 +86,16 @@ describe('SpatialIndex', () => {
     expect(idx.items.size).toBe(6000);
     expect(idx.search(10.2, -1, 10.4, 1, false)).toHaveLength(1);
   });
+
+  it('updates dimension extents when the unit format changes', () => {
+    const { d, idx } = setup();
+    const geom = { x1: 0, y1: 0, x2: 3, y2: 0, lx: 1.5, ly: 10, style: 'Standard' };
+    const dim = d.transaction('Add', () =>
+      d.add({ ...P, type: 'dimension', dimType: 'aligned', ...geom }),
+    );
+    const before = idx.bounds(dim.id);
+    d.transaction('Units', () => d.setHeader({ linearFormat: 'scientific', linearPrecision: 8 }));
+    expect(idx.bounds(dim.id)[2]).toBeGreaterThan(before[2]);
+    expect(idx.bounds(dim.id)).toEqual(new SpatialIndex(d).bounds(dim.id));
+  });
 });

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { Drawing } from '../src/core/drawing.js';
+import { freeTableName } from '../src/core/schema.js';
 
 const line = (x1, y1, x2, y2) => ({ type: 'line', layer: '0', color: 256, linetype: 'ByLayer', lineweight: -1, ltscale: 1, x1, y1, x2, y2 });
 
@@ -125,6 +126,21 @@ describe('Drawing', () => {
     expect(changes[0].resort).toBe(true);
   });
 
+  it('merges several restored objects back into place, with later additions kept last', () => {
+    const d = new Drawing();
+    const ids = d.transaction('Add', () => [1, 2, 3, 4, 5, 6].map((i) => d.add(line(0, 0, i, i)).id));
+    d.transaction('Erase', () => [ids[4], ids[0], ids[2]].forEach((id) => d.remove(id)));
+    d.transaction('Erase', () => d.remove(ids[5]));
+    d.undo();
+    d.undo();
+    expect([...d.entities.keys()]).toEqual(ids);
+    d.redo();
+    const extra = d.transaction('Add', () => d.add(line(0, 0, 9, 9)).id);
+    d.transaction('Erase', () => d.remove(ids[3]));
+    d.undo();
+    expect([...d.entities.keys()]).toEqual([ids[1], ids[3], ids[5], extra]);
+  });
+
   it('keeps an erased object in place across a later reorder', () => {
     const d = new Drawing();
     const ids = d.transaction('Add', () => [d.add(line(0, 0, 1, 1)).id, d.add(line(0, 0, 2, 2)).id, d.add(line(0, 0, 3, 3)).id]);
@@ -184,5 +200,11 @@ describe('Drawing', () => {
     expect(d.layerVisible('Locked')).toBe(true);
     expect(d.layerEditable('Locked')).toBe(false);
     expect(d.layerEditable('0')).toBe(true);
+  });
+
+  it('picks a free table name in any letter case', () => {
+    const t = new Map([['LAYER1', {}], ['layer2', {}]]);
+    expect(freeTableName(t, 'Layer')).toBe('Layer3');
+    expect(freeTableName(new Map(), 'Style')).toBe('Style1');
   });
 });

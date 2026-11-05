@@ -41,6 +41,31 @@ export function primScale(p) {
   }
 }
 
+/** Extent of a primitive (0 for infinite lines). */
+export function primSize(p) {
+  switch (p.t) {
+    case 'seg':
+      return Math.max(Math.abs(p.x2 - p.x1), Math.abs(p.y2 - p.y1));
+    case 'arc':
+      return p.r;
+    case 'pl': {
+      const b = plBox(p);
+      return Math.max(b[2] - b[0], b[3] - b[1]);
+    }
+    default:
+      return 0;
+  }
+}
+
+/**
+ * Radius within which hits count as duplicates: 1e3 x the tolerance, but
+ * relative to the primitives' size so distinct hits on small curves far from
+ * the origin stay apart.
+ */
+export function hitMergeTol(tol, size) {
+  return Math.max(tol, Math.min(tol * 1e3, EPS * 1e3 * Math.max(1, size)));
+}
+
 /** Point and derivative of the exact curve behind a pl primitive. */
 export function curveAt(src, u) {
   if (src.type === 'ellipse') {
@@ -395,7 +420,8 @@ export function intersectPrims(a, b, opts) {
   else if (ta === 'pl' && tb === 'pl') plPl(a, b, tol, out);
   else if (ta === 'pl') plOther(a, b, extB, tol, out, true);
   else if (tb === 'pl') plOther(b, a, extA, tol, out, false);
-  return out.length > 1 ? dedupeHits(out, tol * 1e3) : out;
+  if (out.length < 2) return out;
+  return dedupeHits(out, hitMergeTol(tol, Math.max(primSize(a), primSize(b))));
 }
 
 /** Intersection points { x, y } between two entities. */
@@ -403,35 +429,51 @@ export function intersectEntities(e1, e2, opts) {
   const pa = toPrims(e1),
     pb = toPrims(e2);
   const out = [];
-  let scale = 1;
+  let scale = 1,
+    size = 0;
   for (const p of pa) for (const q of pb) for (const h of intersectPrims(p, q, opts)) {
     out.push({ x: h.x, y: h.y });
     scale = Math.max(scale, Math.abs(h.x), Math.abs(h.y));
+    size = Math.max(size, primSize(p), primSize(q));
   }
-  return dedupeHits(out, EPS * 1e3 * scale);
+  return dedupeHits(out, hitMergeTol(EPS * scale, size));
 }
 
 /**
- * Self-intersections of a polyline: crossings between non-adjacent segments.
- * Returns [{ x, y, i, j }] with the two segment indices.
+ * Self-intersections of a polyline: crossings between segments other than
+ * neighbours meeting at their shared vertex. Returns [{ x, y, i, j }] with the two segment indices.
  */
 export function selfIntersections(poly) {
   const prims = toPrims(poly);
   const n = prims.length;
   const out = [];
-  if (n < 3) return out;
+  if (n < 2) return out;
+  const pts = poly.pts;
   const boxes = prims.map(primBox);
-  const segCount = poly.closed ? Math.floor(poly.pts.length / 3) : Math.floor(poly.pts.length / 3) - 1;
+  const nv = Math.floor(pts.length / 3);
+  let scale = 0;
+  for (let k = 0; k < nv * 3; k += 3) {
+    scale = Math.max(scale, Math.abs(pts[k]), Math.abs(pts[k + 1]));
+  }
+  const tol2 = (EPS * 100 * Math.max(1, scale)) ** 2;
+  // Neighbours meet at their shared vertex; only other hits count.
+  const atVertex = (h, v) => dist2(h.x, h.y, pts[v * 3], pts[v * 3 + 1]) <= tol2;
   for (let i = 0; i < n; i++) {
     const A = prims[i];
     const bi = boxes[i];
     for (let j = i + 1; j < n; j++) {
       const B = prims[j];
-      const adjacent = B.seg - A.seg === 1 || (poly.closed && A.seg === 0 && B.seg === segCount - 1);
-      if (adjacent) continue;
       const bj = boxes[j];
       if (bi[0] > bj[2] || bi[2] < bj[0] || bi[1] > bj[3] || bi[3] < bj[1]) continue;
-      for (const h of intersectPrims(A, B)) out.push({ x: h.x, y: h.y, i: A.seg, j: B.seg });
+      // Consecutive primitives (zero-length segments are skipped) and the
+      // last and first of a closed polyline.
+      const next = j === i + 1;
+      const wrap = poly.closed && i === 0 && j === n - 1;
+      for (const h of intersectPrims(A, B)) {
+        if (next && atVertex(h, B.seg)) continue;
+        if (wrap && atVertex(h, A.seg)) continue;
+        out.push({ x: h.x, y: h.y, i: A.seg, j: B.seg });
+      }
     }
   }
   return out;

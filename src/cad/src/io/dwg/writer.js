@@ -28,6 +28,7 @@ const CLASS_DEFS = {
   ACDBDICTIONARYWDFLT: { cpp: 'AcDbDictionaryWithDefault', proxy: 0 },
   ACDBPLACEHOLDER: { cpp: 'AcDbPlaceHolder', proxy: 0 },
   LAYOUT: { cpp: 'AcDbLayout', proxy: 0 },
+  SORTENTSTABLE: { cpp: 'AcDbSortentsTable', proxy: 0 },
 };
 
 const ref = (code, value) => ({ code, value: value || 0 });
@@ -282,7 +283,7 @@ class Builder {
         case 'BLOCK_RECORD':
           this.names.BLOCK.set(name.toLowerCase(), h);
           this.blockRecords = this.blockRecords || [];
-          this.blockRecords.push({ h, name, control: c.handle });
+          this.blockRecords.push({ h, name, control: c.handle, xdic: r.hnd(360) });
           break;
       }
     }
@@ -426,9 +427,10 @@ class Builder {
         const items = [];
         for (const [code, val] of r.g) {
           if (code === 3) names.push(unescape(val));
-          else if (code === 350 || code === 360) items.push(soft(parseInt(val, 16)));
+          else if (code === 350) items.push(soft(parseInt(val, 16)));
+          else if (code === 360) items.push(ref(2, parseInt(val, 16)));
         }
-        const v = { owner: soft(ownerH), reactors, numItems: names.length, cloning: r.int(281, 1), hardOwner: 0, names, items };
+        const v = { owner: soft(ownerH), reactors, numItems: names.length, cloning: r.int(281, 1), hardOwner: r.int(280, 0), names, items };
         if (r.type === 'ACDBDICTIONARYWDFLT') {
           v.defaultEntry = hard(r.hnd(340));
           this.typeNum('ACDBDICTIONARYWDFLT');
@@ -438,6 +440,31 @@ class Builder {
       } else if (r.type === 'ACDBPLACEHOLDER') {
         this.typeNum('ACDBPLACEHOLDER');
         this.add(h, 'ACDBPLACEHOLDER', { owner: soft(ownerH), reactors });
+      } else if (r.type === 'SORTENTSTABLE') {
+        // owner dictionary, then (after the subclass marker) the block and the pairs
+        let dict = 0,
+          block = 0,
+          sub = false,
+          ent = 0;
+        const entities = [];
+        const sortHandles = [];
+        for (const [code, val] of r.g) {
+          if (code === 102) inReact = val.startsWith('{ACAD_REACTORS');
+          else if (code === 100) sub = true;
+          else if (code === 330 && !inReact) {
+            if (sub) block = parseInt(val, 16);
+            else dict = parseInt(val, 16);
+          } else if (sub && code === 331) ent = parseInt(val, 16);
+          else if (sub && code === 5 && ent) {
+            entities.push(soft(ent));
+            sortHandles.push(parseInt(val, 16));
+            ent = 0;
+          }
+        }
+        this.typeNum('SORTENTSTABLE');
+        const n = entities.length;
+        const v = { owner: soft(dict), reactors, numEntries: n, sortHandles, blockOwner: soft(block), entities };
+        this.add(h, 'SORTENTSTABLE', v);
       }
     }
   }
@@ -577,7 +604,11 @@ class Builder {
         inserts: [],
         layout: hard(0),
       };
-      this.add(br.h, 'BLOCK_HEADER', bv);
+      const bo = this.add(br.h, 'BLOCK_HEADER', bv);
+      if (br.xdic && this.objs.has(br.xdic)) {
+        bo.v.xdicMissing = 0;
+        bo.v.xdic = owner(br.xdic);
+      }
       if (!model && !paper) entries.push(br.h);
       void brByHandle;
     }

@@ -11,6 +11,8 @@ import { Drawing } from '../src/core/drawing.js';
 import { SpatialIndex } from '../src/core/spatial.js';
 import { buildRegistry } from '../src/editor/commands/index.js';
 import { areaOf } from '../src/core/geom/index.js';
+import { loopsToRings, pointInRing } from '../src/core/hatch/fill.js';
+import { measureDimension } from '../src/core/dims.js';
 
 globalThis.requestAnimationFrame ??= (cb) => setTimeout(cb, 0);
 globalThis.cancelAnimationFrame ??= (id) => clearTimeout(id);
@@ -80,6 +82,38 @@ describe('drawing commands', () => {
     expect(t.ed.busy).toBe(false);
     t.drawing.undo();
     expect(t.all()).toHaveLength(0);
+  });
+
+  it('leaves no undo step when every segment was taken back with U', async () => {
+    t.drawing.markSaved();
+    await t.type('LINE', '0,0', '10,0', 'U', '');
+    expect(t.all('line')).toHaveLength(0);
+    expect(t.drawing.canUndo).toBe(false);
+    expect(t.drawing.modified).toBe(false);
+    // With an earlier edit unsaved, the drawing stays edited.
+    await t.type('CIRCLE', '0,0', '5');
+    await t.type('LINE', '0,0', '10,0', 'U', '');
+    expect(t.drawing.undoLabel).toBe('Circle');
+    expect(t.drawing.modified).toBe(true);
+  });
+
+  it('records no step when Match properties changes nothing', async () => {
+    await t.type('LINE', '0,0', '10,0', '');
+    await t.type('LINE', '0,5', '10,5', '');
+    t.drawing.transaction('Color', () => t.drawing.update(t.all('line')[0].id, { color: 1 }));
+    const steps = t.drawing.undoStack.length;
+    await t.type('MATCHPROP');
+    await t.pick(5, 0);
+    await t.pick(5, 5);
+    await t.pick(5, 5);
+    await t.type('');
+    expect(t.all('line')[1].color).toBe(1);
+    expect(t.drawing.undoStack.length).toBe(steps + 1);
+    await t.type('MATCHPROP');
+    await t.pick(5, 0);
+    await t.pick(5, 5);
+    await t.type('');
+    expect(t.drawing.undoStack.length).toBe(steps + 1);
   });
 
   it('accepts aliases and polar input', async () => {
@@ -157,6 +191,20 @@ describe('drawing commands', () => {
     const [txt] = t.all('text');
     expect(txt.value).toBe('Note');
     expect(txt.h).toBe(5);
+  });
+
+  it('gives new text the width factor and obliquing of its style', async () => {
+    t.drawing.transaction('Style', () => {
+      const st = { name: 'Narrow', font: 'sans', height: 0, widthFactor: 0.7, oblique: 0.2 };
+      t.drawing.setTable('textStyles', 'Narrow', st);
+      t.drawing.setHeader({ textStyle: 'Narrow' });
+    });
+    await t.type('TEXT', '0,0', '5', '0');
+    await flush();
+    const [txt] = t.all('text');
+    expect(txt.style).toBe('Narrow');
+    expect(txt.widthFactor).toBe(0.7);
+    expect(txt.oblique).toBe(0.2);
   });
 });
 
@@ -276,12 +324,200 @@ describe('editing commands', () => {
     expect(t.all('insert')).toHaveLength(2);
   });
 
+  it('treats block names that differ only in letter case as one name', async () => {
+    await square();
+    t.ed.setSelection([t.all()[0].id]);
+    await t.type('BLOCK', 'Box', '0,0');
+    await t.type('CIRCLE', '50,0', '3');
+    t.ed.setSelection([t.all('circle')[0].id]);
+    // DWG and DXF would merge BOX into Box, so it redefines Box instead.
+    await t.type('BLOCK', 'BOX', 'Y', '50,0');
+    expect([...t.drawing.blocks.keys()]).toEqual(['Box']);
+    expect(t.drawing.blocks.get('Box').entities[0].type).toBe('circle');
+    await t.type('INSERT', 'box', '80,80');
+    expect(t.all('insert').map((e) => e.name)).toEqual(['Box', 'Box', 'Box']);
+  });
+
   it('places linear dimensions horizontally or vertically from the cursor', async () => {
     await t.type('DIMLINEAR', '0,0', '30,10', '15,-10');
     await t.type('DIMLINEAR', '0,0', '30,10', '40,5');
     const [h, v] = t.all('dimension');
     expect(h.rot).toBe(0);
     expect(v.rot).toBeCloseTo(Math.PI / 2);
+  });
+
+  it('dimensions the angle between two lines in the quadrant of the location', async () => {
+    await t.type('LINE', '0,0', '20,0', '');
+    await t.type('LINE', '-10,-10', '10,10', '');
+    const angle = async (at) => {
+      await t.type('DIMANGULAR');
+      await t.pick(15, 0);
+      await t.pick(5, 5);
+      await t.type(at);
+      return (measureDimension(t.all('dimension').at(-1)) * 180) / Math.PI;
+    };
+    expect(await angle('10,3')).toBeCloseTo(45);
+    expect(await angle('0,10')).toBeCloseTo(135);
+    expect(await angle('-10,-3')).toBeCloseTo(45);
+    expect(await angle('3,-10')).toBeCloseTo(135);
+  });
+
+  it('asks again when the first line is picked as the second', async () => {
+    await t.type('LINE', '0,0', '20,0', '');
+    await t.type('LINE', '-10,-10', '10,10', '');
+    await t.type('DIMANGULAR');
+    await t.pick(15, 0);
+    await t.pick(10, 0);
+    expect(t.logs.some(([, m]) => m.includes('parallel'))).toBe(false);
+    expect(t.logs.at(-1)).toEqual(['error', 'That line is already picked. Select a different line.']);
+    await t.pick(5, 5);
+    await t.type('10,3');
+    expect((measureDimension(t.all('dimension')[0]) * 180) / Math.PI).toBeCloseTo(45);
+  });
+
+  it('dimensions the radius of a polyline arc segment', async () => {
+    await t.type('PLINE', '0,0', '10,0', 'A', '10,10', '');
+    await t.type('DIMRADIUS');
+    await t.pick(15, 5);
+    await t.type('20,5');
+    const [d] = t.all('dimension');
+    expect(d.dimType).toBe('radius');
+    expect(d.x1).toBeCloseTo(10);
+    expect(d.y1).toBeCloseTo(5);
+    expect(Math.hypot(d.x2 - d.x1, d.y2 - d.y1)).toBeCloseTo(5);
+  });
+
+  describe('hatch picks', () => {
+    // Even-odd area of the hatch at (x, y).
+    const filled = (h, x, y) =>
+      loopsToRings(h.loops).filter((r) => pointInRing(x, y, r) === 1).length % 2 === 1;
+    const plate = async () => {
+      await t.type('RECTANG', '0,0', '20,20');
+      await t.type('CIRCLE', '10,10', '3');
+      await t.type('HATCH');
+    };
+
+    it('ignores a second pick in an area already picked', async () => {
+      await plate();
+      await t.pick(2, 2);
+      await t.pick(3, 3);
+      await t.type('');
+      const [h] = t.all('hatch');
+      expect(h.loops).toHaveLength(2);
+      expect(filled(h, 2, 2)).toBe(true);
+      expect(filled(h, 10, 10)).toBe(false);
+    });
+
+    it('merges an island picked after the area around it', async () => {
+      await plate();
+      await t.pick(2, 2);
+      await t.pick(10, 10);
+      await t.type('');
+      const [h] = t.all('hatch');
+      expect(h.loops).toHaveLength(1);
+      expect(filled(h, 2, 2)).toBe(true);
+      expect(filled(h, 10, 10)).toBe(true);
+    });
+
+    it('finds boundaries in block references and construction lines', async () => {
+      await t.type('RECTANG', '0,0', '20,20');
+      t.ed.setSelection([t.all()[0].id]);
+      await t.type('BLOCK', 'Box', '0,0');
+      const ins = t.all('insert')[0];
+      const turn = { x: 100, rot: Math.PI / 2, sx: 2, sy: 2 };
+      t.drawing.transaction('Turn', () => t.drawing.update(ins.id, turn));
+      await t.type('HATCH');
+      await t.pick(90, 10);
+      await t.type('');
+      expect(areaOf(t.all('hatch')[0])).toBeCloseTo(1600);
+      await t.type('XLINE', '0,-50', '10,-50', '');
+      await t.type('LINE', '0,-60', '0,-40', '');
+      await t.type('LINE', '30,-60', '30,-40', '');
+      await t.type('RAY', '0,-45', '10,-45', '');
+      await t.type('HATCH');
+      await t.pick(10, -47);
+      await t.type('');
+      expect(areaOf(t.all('hatch')[1])).toBeCloseTo(150);
+    });
+
+    it('keeps the pattern when the typed name is unknown', async () => {
+      await plate();
+      await t.type('T', 'cross', '2', '0', 'T', 'nosuch', '', '');
+      expect(t.ed.hatchSettings.pattern).toBe('CROSS');
+      expect(t.ed.hatchSettings.scale).toBe(2);
+      expect(t.logs.some(([k, m]) => k === 'error' && m.includes('nosuch'))).toBe(true);
+    });
+
+    it('shows Settings typed at the command line in the Hatch Creation tab', async () => {
+      const shown = [];
+      t.ed.ui.showHatchPanel = (st) => shown.push(st && { ...st });
+      await plate();
+      await t.type('T', 'cross', '2', '30');
+      expect(shown.at(-1)).toMatchObject({ pattern: 'CROSS', scale: 2 });
+      expect(shown.at(-1).angle).toBeCloseTo(Math.PI / 6, 12);
+      await t.type('');
+      expect(shown.at(-1)).toBe(null);
+    });
+
+    it('undoes a whole pick, islands included', async () => {
+      await plate();
+      await t.pick(10, 10);
+      await t.pick(2, 2);
+      await t.type('U', '');
+      const [h] = t.all('hatch');
+      expect(h.loops).toHaveLength(1);
+      expect(filled(h, 10, 10)).toBe(true);
+      expect(filled(h, 2, 2)).toBe(false);
+    });
+  });
+
+  describe('draw order', () => {
+    const ids = () => [...t.drawing.entities.keys()];
+
+    it('marks reordered objects as one group, and undo takes it back', async () => {
+      await t.type('LINE', '0,0', '10,0', '');
+      await t.type('LINE', '0,5', '10,5', '');
+      const [a, b] = t.all('line');
+      t.ed.setSelection([a.id]);
+      await t.type('DRAWORDER', 'F');
+      expect(ids()).toEqual([b.id, a.id]);
+      expect(t.drawing.get(a.id).orderGroup).toBeGreaterThan(0);
+      expect(t.drawing.get(b.id).orderGroup).toBeUndefined();
+      t.drawing.undo();
+      expect(ids()).toEqual([a.id, b.id]);
+      expect(t.drawing.get(a.id).orderGroup).toBeUndefined();
+    });
+
+    it('leaves a new hatch last while the drawing has no draw order set', async () => {
+      await t.type('RECTANG', '0,0', '20,20');
+      await t.type('HATCH');
+      await t.pick(5, 5);
+      await t.type('');
+      expect(t.drawing.get(ids().at(-1)).type).toBe('hatch');
+    });
+
+    it('puts a new hatch behind its boundary when a later band would lift it over', async () => {
+      await t.type('RECTANG', '0,0', '20,20');
+      await t.type('LINE', '50,0', '60,0', '');
+      await t.type('RECTANG', '100,0', '120,20');
+      const [rect, rect2] = t.all('polyline');
+      const line = t.all('line')[0];
+      t.ed.setSelection([line.id]);
+      await t.type('DRAWORDER', 'F');
+      await t.type('HATCH');
+      await t.pick(5, 5);
+      await t.type('');
+      const h = t.all('hatch')[0];
+      expect(ids()).toEqual([h.id, rect.id, rect2.id, line.id]);
+      // Select objects mode, and one undo takes back hatch and move together.
+      await t.type('HATCH', 'S');
+      await t.pick(100, 10);
+      await t.type('');
+      const h2 = t.all('hatch')[1];
+      expect(ids()).toEqual([h.id, rect.id, h2.id, rect2.id, line.id]);
+      t.drawing.undo();
+      expect(ids()).toEqual([h.id, rect.id, rect2.id, line.id]);
+    });
   });
 });
 
@@ -399,6 +635,23 @@ describe('transparent commands', () => {
     await t.type('10,10', '');
     expect(t.all('line')).toHaveLength(2);
     expect(t.drawing.undoStack).toHaveLength(1);
+  });
+
+  it("keeps a typed snap override and angle lock across 'ZOOM and 'PAN", async () => {
+    await t.type('LINE', '0,0', 'END', '<90');
+    await t.type("'Z", 'W', '0,0', '10,10');
+    expect(t.ed.active.def.name).toBe('LINE');
+    expect(t.ed.snapOverride).toBe('end');
+    expect(t.ed.angleLock).toBeCloseTo(Math.PI / 2);
+    t.ed.run('PAN');
+    await flush();
+    expect(t.ed.snapOverride).toBe(null);
+    t.ed.cancel();
+    await flush();
+    expect(t.ed.snapOverride).toBe('end');
+    expect(t.ed.angleLock).toBeCloseTo(Math.PI / 2);
+    await t.type('5');
+    expect(t.all('line')[0]).toMatchObject({ x2: expect.closeTo(0), y2: expect.closeTo(5) });
   });
 
   it('ends the outer command when another command starts during a pan', async () => {

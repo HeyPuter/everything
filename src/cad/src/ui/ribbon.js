@@ -37,9 +37,12 @@ export class Ribbon {
       { type: 'button', 'aria-label': 'Minimize the ribbon', 'aria-expanded': 'true', 'data-tip': 'Minimize the ribbon', onClick: () => this.setCollapsed(!this.collapsed) },
       icon('chevron-up', 16),
     );
+    this.prevBtn = this.scrollButton(-1);
+    this.nextBtn = this.scrollButton(1);
     this.el = h('div.ribbon', this.tablistWrap(), this.body);
     this.renderTabs();
     this.renderBody();
+    new ResizeObserver(() => this.fit()).observe(this.body);
     // A flyout from the minimized ribbon closes when you click elsewhere.
     document.addEventListener('pointerdown', (e) => {
       if (this.flyoutOpen && !this.el.contains(e.target) && !e.target.closest?.('.menu')) this.closeFlyout();
@@ -157,14 +160,52 @@ export class Ribbon {
     this.combos = [];
     this.body.setAttribute('aria-labelledby', `rbtab-${this.active}`);
     const tab = this.tabs.find((t) => t.id === this.active) ?? RIBBON[0];
-    if (tab.render) {
-      this.body.append(tab.render());
-      return;
+    if (tab.render) this.body.append(tab.render());
+    else {
+      const scroller = h('div.rb-scroller');
+      for (const p of tab.panels) scroller.append(this.renderPanel(p));
+      this.body.append(scroller);
+      this.refresh();
     }
-    const scroller = h('div.rb-scroller');
-    for (const p of tab.panels) scroller.append(this.renderPanel(p));
-    this.body.append(scroller);
-    this.refresh();
+    this.body.append(this.prevBtn, this.nextBtn);
+    const s = this.body.querySelector('.rb-scroller');
+    s?.addEventListener('scroll', () => this.syncScroll(), { passive: true });
+    this.fit();
+  }
+
+  /** Drop small button labels when the panels do not fit, then show scroll arrows if they still overflow. */
+  fit() {
+    const s = this.body.querySelector('.rb-scroller');
+    if (!s?.clientWidth) return;
+    this.el.classList.remove('compact');
+    if (s.scrollWidth > s.clientWidth + 1) this.el.classList.add('compact');
+    this.syncScroll();
+  }
+
+  syncScroll() {
+    const s = this.body.querySelector('.rb-scroller');
+    const max = s ? s.scrollWidth - s.clientWidth : 0;
+    this.prevBtn.hidden = !(s && s.scrollLeft > 1);
+    this.nextBtn.hidden = !(s && s.scrollLeft < max - 1);
+  }
+
+  // Mouse affordance only: keyboard focus scrolls panels into view by itself.
+  scrollButton(dir) {
+    return h(
+      `button.rb-scroll.${dir < 0 ? 'prev' : 'next'}`,
+      {
+        type: 'button',
+        tabindex: '-1',
+        'aria-hidden': 'true',
+        hidden: true,
+        onClick: () => {
+          const s = this.body.querySelector('.rb-scroller');
+          const smooth = !matchMedia('(prefers-reduced-motion: reduce)').matches;
+          s?.scrollBy({ left: dir * s.clientWidth * 0.6, behavior: smooth ? 'smooth' : 'auto' });
+        },
+      },
+      icon(dir < 0 ? 'chevron-left' : 'chevron-right', 16),
+    );
   }
 
   renderPanel(p) {

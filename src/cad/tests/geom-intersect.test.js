@@ -177,6 +177,21 @@ describe('intersectEntities', () => {
     close(s[0].x, 5);
     close(s[0].y, 5);
   });
+  it('reports neighbouring segments that cross away from their shared vertex', () => {
+    // A line, then an arc, both curling back across the previous segment.
+    const hook = { type: 'polyline', pts: [0, 0, -2, 10, 0, 0, 5, 20, 0], closed: false };
+    expect(selfIntersections(hook).length).toBe(1);
+    const arcs = { type: 'polyline', pts: [0, 0, 1, 10, 0, -3, 4, 2, 0], closed: false };
+    const s = selfIntersections(arcs);
+    expect(s.length).toBe(1);
+    expect(s[0]).toMatchObject({ i: 0, j: 1 });
+    // Shared vertices alone are not crossings, also across zero-length segments.
+    const lens = { type: 'polyline', pts: [0, 0, 0.5, 10, 0, 0.5, 0, 0, 0], closed: true };
+    expect(selfIntersections(lens)).toEqual([]);
+    const sq = [0, 0, 0, 10, 0, 0, 10, 10, 0, 0, 10, 0];
+    const square = { type: 'polyline', pts: sq, closed: true };
+    expect(selfIntersections(square)).toEqual([]);
+  });
 });
 
 describe('closest point', () => {
@@ -251,6 +266,11 @@ describe('snaps', () => {
     expect(fa.length).toBe(1);
     const fe = perpendicularFrom(ellipse, 3, 20);
     expect(fe.length).toBeGreaterThanOrEqual(2);
+    // Both feet on a small circle survive far from the origin.
+    const o = 5e6;
+    expect(perpendicularFrom({ type: 'circle', cx: o, cy: o, r: 0.4 }, o + 2, o + 0.1)).toHaveLength(2);
+    const pl = { type: 'polyline', pts: [o, o, 0, o + 1, o, 0, o + 1, o + 1, 0], closed: false };
+    expect(perpendicularFrom(pl, o + 0.5, o + 0.5)).toHaveLength(2);
   });
   it('tangent points from a base point', () => {
     const t = sortXY(tangentsFrom({ type: 'circle', cx: 0, cy: 0, r: 5 }, 10, 0));

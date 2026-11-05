@@ -59,6 +59,19 @@ export function isNotFoundError(err) {
   return /not[_ ]?found|does_not_exist|no such/i.test(s);
 }
 
+/** True when a request failed because the Puter session is missing or has expired. */
+export function isAuthError(err) {
+  const code = `${err?.code ?? ''} ${err?.error?.code ?? ''}`;
+  if (/token_auth_failed|unauthorized|auth_required|token_invalid/i.test(code)) return true;
+  if (err?.status === 401 || err?.error?.status === 401) return true;
+  return /authentication failed|not signed in/i.test(errorText(err));
+}
+
+/** Readable message of an error; Puter rejects with { error: { message } } or { code, message } objects. */
+export function errorText(err) {
+  return err?.message || err?.error?.message || (typeof err === 'string' ? err : '');
+}
+
 export async function cloudDelete(path) {
   await puter.fs.delete(path);
 }

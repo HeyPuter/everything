@@ -196,20 +196,3 @@ export function findSnap(drawing, ids, x, y, radius, modes, base) {
   }
   return best;
 }
-
-/** Endpoints near the cursor usable as tracking anchors. */
-export function acquirable(drawing, ids, x, y, radius) {
-  const s = findSnap(drawing, ids, x, y, radius, new Set(['end', 'mid', 'cen', 'int', 'quad', 'node', 'ins']), null);
-  return s;
-}
-
-/** Lines through the end of the nearest line-like entity for the Extension snap. */
-export function extensionLines(drawing, ids, x, y, radius) {
-  const out = [];
-  for (const id of ids) {
-    const ent = drawing.entities.get(id);
-    if (!ent) continue;
-    if (ent.type === 'line') out.push({ x: ent.x2, y: ent.y2, dx: ent.x2 - ent.x1, dy: ent.y2 - ent.y1, id }, { x: ent.x1, y: ent.y1, dx: ent.x1 - ent.x2, dy: ent.y1 - ent.y2, id });
-  }
-  return out;
-}
