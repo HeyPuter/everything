@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { evaluate, evaluateVariables, ExprError, referencedNames, renameReferences } from '../src/model/expr';
+import { evaluate, evaluateVariables, ExprError, referencedNames, renameReferences, reservedName } from '../src/model/expr';
 
 describe('expression evaluator', () => {
   it('handles precedence, unary minus and powers', () => {
@@ -60,5 +60,12 @@ describe('expression evaluator', () => {
     const m = new Map([['W', 'Width'], ['in', 'Inside'], ['sin', 'Sine']]);
     expect(renameReferences('W/2 + 3in + "W" - Wx + sin(30) + in', m)).toBe('Width/2 + 3in + "Width" - Wx + sin(30) + Inside');
     expect(renameReferences('2.5e3 * W', m)).toBe('2.5e3 * Width');
+  });
+
+  it('reserves the names a variable would be shadowed by or confused with', () => {
+    // A variable "pi" evaluated to its own value but =pi*2 used the constant.
+    expect(evaluateVariables([{ name: 'pi', expr: '3' }, { name: 'b', expr: 'pi*2' }]).values.get('b')).toBeCloseTo(2 * Math.PI);
+    for (const n of ['pi', 'PI', 'm', 'mm', 'in', 'deg', 'rad', 'sqrt', 'min']) expect(reservedName(n), n).toBe(true);
+    for (const n of ['Width', 'Pi', 'M', 'Min', 'constructor', 'toString', 'x']) expect(reservedName(n), n).toBe(false);
   });
 });

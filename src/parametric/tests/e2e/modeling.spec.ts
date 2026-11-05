@@ -206,6 +206,24 @@ test('renaming a global variable keeps the dimensions, features and equations th
   expect(errors).toEqual([]);
 });
 
+test('a global variable cannot take a name the expressions already use', async ({ page }) => {
+  await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await page.evaluate(() => (window as unknown as { __parametric: { commands: { run(id: string): boolean } } }).__parametric.commands.run('equations'));
+  const dlg = page.getByRole('dialog', { name: 'Equations and Global Variables' });
+  await dlg.getByRole('button', { name: 'Add variable' }).click();
+  const name = dlg.getByRole('textbox', { name: 'Name of variable 1' });
+  // =pi*2 would use the constant, not the variable.
+  await name.fill('pi');
+  await name.press('Tab');
+  await dlg.getByRole('button', { name: 'OK' }).click();
+  await expect(dlg.getByRole('alert')).toContainText('"pi" is a constant, unit or function name');
+  await name.fill('Gap');
+  await name.press('Tab');
+  await dlg.getByRole('button', { name: 'OK' }).click();
+  await expect(dlg).toBeHidden();
+});
+
 test('switching the part to inches keeps the size of values linked to equations', async ({ page }) => {
   const errors = await openApp(page);
   await page.getByRole('button', { name: /Mounting Bracket/ }).click();

@@ -8,7 +8,7 @@ import type { MeasureTarget } from '../kernel/protocol';
 import type { Vec3 } from '../math/vec';
 import { cross, dot, len, normalize } from '../math/vec';
 import { changeUnits } from '../model/document';
-import { evaluate, evaluateVariables } from '../model/expr';
+import { evaluate, evaluateVariables, reservedName } from '../model/expr';
 import { consumedSketches, defaultName, dependencies, newSketch } from '../model/features';
 import { MATERIALS } from '../model/materials';
 import type { DrawingViewKind, Feature, FeatureType, Id, PartDocument, SketchFeature, UnitSystem } from '../model/types';
@@ -771,7 +771,7 @@ class Toolkit {
       const o = (s ?? {}) as Obj;
       const name = str(o.name);
       if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) throw new ToolError(`set[${i}].name: letters, digits and _ (not starting with a digit)`);
-      if (/^(pi|PI|sin|cos|tan|asin|acos|atan|atan2|sqrt|abs|min|max|round|floor|ceil|mm|cm|m|in|ft|um|deg|rad)$/.test(name)) throw new ToolError(`set[${i}].name: ${name} is reserved`);
+      if (reservedName(name)) throw new ToolError(`set[${i}].name: ${name} is reserved`);
       const expr = typeof o.value === 'number' ? String(o.value) : str(o.value).replace(/^=\s*/, '');
       if (!expr) throw new ToolError(`set[${i}].value: give a number or an expression`);
       const cur = vars.find((v) => v.name === name);

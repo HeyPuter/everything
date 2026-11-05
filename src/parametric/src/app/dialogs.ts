@@ -4,7 +4,7 @@
 
 import type { Vec3 } from '../math/vec';
 import { dist, dot, normalize, sub } from '../math/vec';
-import { evaluateVariables, referencedNames, renameReferences } from '../model/expr';
+import { evaluateVariables, referencedNames, renameReferences, reservedName } from '../model/expr';
 import { changeUnits, mapExpressions } from '../model/document';
 import type { MaterialRef, SkDimension, UnitSystem, Variable } from '../model/types';
 import { UNIT_SYSTEMS, formatNumber } from '../model/units';
@@ -84,6 +84,9 @@ export async function equationsDialog(app: App) {
       const names = rows.map((r) => r.name);
       const bad = names.find((n) => !/^[A-Za-z_][A-Za-z0-9_]*$/.test(n));
       if (bad !== undefined) { err.textContent = `"${bad}" is not a valid name. Use letters, digits and underscores, starting with a letter.`; return false; }
+      // Checked for new and renamed variables only, so a part saved with such a name still opens here.
+      const taken = rows.find((r) => originalNames.get(r.id) !== r.name && reservedName(r.name));
+      if (taken) { err.textContent = `"${taken.name}" is a constant, unit or function name. Choose another name.`; return false; }
       if (new Set(names).size !== names.length) { err.textContent = 'Variable names must be unique.'; return false; }
       const { errors } = evaluateVariables(rows);
       if (errors.size) { err.textContent = `Fix the errors first: ${[...errors].map(([k, m]) => `${k}: ${m}`).join('; ')}`; return false; }

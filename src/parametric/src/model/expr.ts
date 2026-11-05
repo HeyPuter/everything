@@ -28,6 +28,15 @@ const FUNCS: Record<string, (...a: number[]) => number> = {
 
 const CONSTS: Record<string, number> = { pi: Math.PI, PI: Math.PI };
 
+/**
+ * Whether a variable name is taken by the expression language: a constant
+ * (which would win over the variable, so =pi*2 ignored a variable "pi"), a
+ * unit ("2 m" is two metres, not 2 times m) or a function.
+ */
+export function reservedName(name: string): boolean {
+  return [CONSTS, LENGTH_SUFFIX, ANGLE_SUFFIX, FUNCS].some((t) => Object.hasOwn(t, name)) || name === 'atan2';
+}
+
 type Tok =
   | { k: 'num'; v: number; at?: number; len?: number }
   | { k: 'name'; v: string }
