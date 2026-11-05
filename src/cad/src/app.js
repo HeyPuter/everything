@@ -1113,8 +1113,9 @@ export class App {
         this._afterSize = null;
         for (const fn of pending) fn();
       }
-      this.editor.drawOverlay();
       this.editor.viewChanged();
+      // Resizing cleared the overlay; paint it now so the next paint is not blank.
+      this.editor.drawOverlay(true);
     };
     // Measure now as well: observers do not report while the page is hidden.
     apply();

@@ -1257,7 +1257,14 @@ export class Editor {
 
   // Overlay -------------------------------------------------------------------
 
-  drawOverlay() {
+  /** Repaint the overlay on the next frame, or now (after a resize cleared it). */
+  drawOverlay(now = false) {
+    if (now) {
+      cancelAnimationFrame(this._overlayRaf);
+      this._overlayRaf = 0;
+      this._paintOverlay();
+      return;
+    }
     if (this._overlayRaf) return;
     this._overlayRaf = requestAnimationFrame(() => {
       this._overlayRaf = 0;
