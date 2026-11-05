@@ -42,7 +42,8 @@ function drawGraphicPcb(b, g, color, defaultW) {
       if (g.fill) b.rect((g.x1 + g.x2) / 2, (g.y1 + g.y2) / 2, Math.abs(g.x2 - g.x1), Math.abs(g.y2 - g.y1), 0, 0, color);
       else b.rectOutline(g.x1, g.y1, g.x2, g.y2, w, color);
       break;
-    case 'circle': if (g.fill) b.circle(g.cx, g.cy, g.r, color); else b.ring(g.cx, g.cy, g.r, w, color); break;
+    // A filled circle's outline adds half its width all round, as in Gerber.
+    case 'circle': if (g.fill) b.circle(g.cx, g.cy, g.r + (g.w || 0) / 2, color); else b.ring(g.cx, g.cy, g.r, w, color); break;
     case 'arc': b.arc(g.cx, g.cy, g.r, g.a0, g.sweep, w, color); break;
     case 'text': b.text(g.text, g.x, g.y, g.size, color, { rot: g.rot || 0, align: g.align, mirror: !!g.mirror, upright: true }); break;
     default:

@@ -401,3 +401,51 @@ describe('keys while the 3D view is open', () => {
     expect(ed.doc.store.get(u1.id)).toBeUndefined();
   });
 });
+
+describe('filled footprint circles', () => {
+  const def = {
+    id: 'dot',
+    name: 'Dot',
+    prefix: 'X',
+    symbol: { pins: [], graphics: [] },
+    footprint: {
+      name: 'dot',
+      pads: [],
+      graphics: [
+        { t: 'circle', cx: 0, cy: 0, r: mm(0.5), w: mm(0.2), fill: true, layer: 'topOverlay' },
+      ],
+    },
+  };
+  const comp = {
+    id: 'c',
+    t: 'comp',
+    comp: 'dot',
+    x: 0,
+    y: 0,
+    rot: 0,
+    side: 'top',
+    designator: '',
+    padNets: {},
+  };
+
+  it('include the outline width on the canvas and in 3D, like the Gerber', async () => {
+    const { emitPcbObject } = await import('../src/render/pcb-scene.js');
+    const { PCB_PALETTES } = await import('../src/render/palette.js');
+    const { buildBoardScene } = await import('../src/render/mesh3d.js');
+    const b = new Batch();
+    const ctx = {
+      lib: { dot: def },
+      count: 2,
+      pal: PCB_PALETTES.dark,
+      colors: null,
+      rules: defaultRules(),
+    };
+    emitPcbObject(comp, (l) => (l === 'topOverlay' ? b : null), ctx);
+    expect(b.bufs.circ.count).toBe(1);
+    expect(b.bufs.circ.f[2]).toBeCloseTo(600, 3); // micrometres: 0.5mm + 0.2mm / 2
+    const scene = buildBoardScene({ board: {}, objects: [comp] }, { dot: def });
+    const silk = scene.meshes.find((m) => m.name === 'silk:top');
+    const xs = silk.positions.filter((_, i) => i % 3 === 0);
+    expect(Math.max(...xs)).toBeCloseTo(0.6, 3);
+  });
+});
