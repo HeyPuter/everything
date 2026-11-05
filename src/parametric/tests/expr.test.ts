@@ -102,6 +102,17 @@ describe('expression evaluator', () => {
     expect(evaluate('sin(1.5707963267948966 rad)', { kind: 'length', bareScale: 10 })).toBeCloseTo(10, 12);
   });
 
+  it('reads feet and inches written together', () => {
+    const ips = { kind: 'length' as const, bareScale: 25.4 };
+    expect(evaluate(`5' 6"`, ips)).toBeCloseTo(66 * 25.4, 9);
+    expect(evaluate('5ft 6in', ips)).toBeCloseTo(66 * 25.4, 9);
+    expect(evaluate(`2*5' 6" - 1"`, ips)).toBeCloseTo(131 * 25.4, 9);
+    expect(evaluate(`-5'6"`, { kind: 'length' })).toBeCloseTo(-66 * 25.4, 9);
+    expect(() => evaluate(`5" 6'`, ips)).toThrow('Unexpected text');
+    expect(() => evaluate(`5' 6"`)).toThrow(/unit/);
+    expect(convertExpressionUnits([{ src: `=5' 6" + 2`, dim: 1 }], 25.4)).toEqual([`=5' 6" + 50.8`]);
+  });
+
   it('converts a plain length times a trigonometric function or pi to new units', () => {
     const k = 1 / 25.4;
     expect(convertExpressionUnits([{ src: '=10*sin(30°)', dim: 1 }, { src: '=10*pi', dim: 1 }, { src: '=sin(30)*10', dim: 1 }, { src: '=20/cos(60)', dim: 1 }], k))
