@@ -7,6 +7,7 @@ import type {
   SketchFeature,
 } from '../model/types';
 import { isDimension } from '../model/types';
+import { SketchSystem } from './solver';
 import { type Vec2, angle2, cross2, dist2, dot2, norm2, sub2, wrap2Pi } from '../math/vec';
 import {
   ORIGIN_ID, SketchIndex, arcAngles, arcRadius, closestOnSegment, curveParam, intersectPrims, pointIdsOf, primsOf, tessellate,
@@ -696,12 +697,17 @@ export function mirrorEntities(sk: SketchFeature, ids: Id[], axisId: Id, newId: 
   };
   const map = new Map<Id, Id>();
   const created: Id[] = [];
+  const onAxis: SkConstraint[] = [];
   const mapPoint = (pid: Id): Id => {
     const existing = map.get(pid);
     if (existing) return existing;
     const p = ix.pt(pid);
     // Points on the axis are shared rather than duplicated.
-    if (Math.abs(cross2(u, sub2(p, a))) < 1e-9) { map.set(pid, pid); return pid; }
+    if (Math.abs(cross2(u, sub2(p, a))) < 1e-9) {
+      map.set(pid, pid);
+      if (pid !== axis.a && pid !== axis.b) onAxis.push({ id: newId('r'), type: 'coincident', refs: [pid, axisId] });
+      return pid;
+    }
     const r = reflect(p);
     const id = newId('p');
     sk.entities.push({ id, t: 'point', x: r[0], y: r[1] });
@@ -720,6 +726,15 @@ export function mirrorEntities(sk: SketchFeature, ids: Id[], axisId: Id, newId: 
     else if (e.t === 'spline') sk.entities.push({ id: nid, t: 'spline', pts: e.pts.map(mapPoint), construction: e.construction });
     if (e.t === 'circle' || e.t === 'arc') sk.constraints.push({ id: newId('r'), type: 'equal', refs: [e.id, nid] });
     created.push(nid);
+  }
+  if (onAxis.length) {
+    // Keep shared points on the moving axis without duplicating a relation
+    // already implied by dimensions, midpoint, coincidence chains, etc.
+    // Analyze the current geometry only; no solve or coordinate write-back.
+    const analysis = new SketchSystem(sk.entities, [...sk.constraints, ...onAxis], {
+      value: (d) => measureDimension(sk, d, ix), maxIterations: 0,
+    }).run();
+    sk.constraints.push(...onAxis.filter((c) => !analysis.badConstraints.has(c.id)));
   }
   return created;
 }

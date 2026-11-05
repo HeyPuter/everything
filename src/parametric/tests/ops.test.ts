@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { SkDimension, SkEntity, SkLine, SketchFeature } from '../src/model/types';
-import { SketchIndex, arcRadius, distanceToCurve } from '../src/sketch/geom';
+import { ORIGIN_ID, SketchIndex, arcRadius, distanceToCurve } from '../src/sketch/geom';
 import {
   availableRelations, deleteItems, extendAt, filletCorner, idFactory, makeRelations, measureDimension, mirrorEntities,
   offsetCurves, relationsOf, smartDimension, trimAt,
@@ -340,6 +340,60 @@ describe('editing tools', () => {
     expect(res.converged).toBe(true);
   });
 
+  it.each([0, Math.PI / 4])('keeps a shared endpoint on its moving mirror axis at angle %s', (angle) => {
+    const s = sk([
+      { id: 'a', t: 'point', x: 0, y: -10 }, { id: 'b', t: 'point', x: 0, y: 10 }, { id: 'axis', t: 'line', a: 'a', b: 'b', construction: true },
+      { id: 'p', t: 'point', x: 0, y: 0 }, { id: 'q', t: 'point', x: 6, y: 4 }, { id: 'line', t: 'line', a: 'p', b: 'q' },
+    ]);
+    const rotate = (x: number, y: number): [number, number] => [x * Math.cos(angle) - y * Math.sin(angle), x * Math.sin(angle) + y * Math.cos(angle)];
+    for (const e of s.entities) if (e.t === 'point') [e.x, e.y] = rotate(e.x, e.y);
+    const created = mirrorEntities(s, ['line'], 'axis', idFactory(s));
+    expect(created).toHaveLength(1);
+    const result = solveSketch(s.entities, s.constraints, { value, drag: { kind: 'points', ids: ['a', 'b'], targets: [rotate(2, -10), rotate(2, 10)] } });
+    expect(result.converged).toBe(true);
+    expect(result.badConstraints.size).toBe(0);
+    const ix = new SketchIndex(s.entities);
+    const mirrored = ix.get(created[0]) as SkLine;
+    expect(mirrored.a).toBe('p');
+    const across = (id: string) => ix.pt(id)[0] * Math.cos(angle) + ix.pt(id)[1] * Math.sin(angle);
+    const along = (id: string) => -ix.pt(id)[0] * Math.sin(angle) + ix.pt(id)[1] * Math.cos(angle);
+    expect(across('a')).toBeCloseTo(2, 6);
+    expect(across('b')).toBeCloseTo(2, 6);
+    expect(across('p')).toBeCloseTo(2, 6);
+    expect(across('q') + across(mirrored.b)).toBeCloseTo(4, 6);
+    expect(along('q')).toBeCloseTo(along(mirrored.b), 6);
+  });
+
+  it.each(['endpoint', 'coincident', 'midpoint', 'chain', 'aligned', 'fixed', 'dimension', 'repeat'])('avoids redundant mirror-axis relations for %s points', (kind) => {
+    const s = sk([
+      { id: 'a', t: 'point', x: 4, y: -10 }, { id: 'b', t: 'point', x: 4, y: 10 }, { id: 'axis', t: 'line', a: 'a', b: 'b', construction: true },
+      { id: 'p', t: 'point', x: 4, y: 0 }, { id: 'q', t: 'point', x: 6, y: 4 }, { id: 'line', t: 'line', a: kind === 'endpoint' ? 'a' : 'p', b: 'q' },
+    ]);
+    if (kind === 'coincident') s.constraints.push({ id: 'on', type: 'coincident', refs: ['axis', 'p'] });
+    if (kind === 'midpoint') s.constraints.push({ id: 'mid', type: 'midpoint', refs: ['p', 'axis'] });
+    if (kind === 'chain') {
+      s.entities.push({ id: 'r', t: 'point', x: 4, y: 0 });
+      s.constraints.push({ id: 'on', type: 'coincident', refs: ['r', 'axis'] }, { id: 'pair', type: 'coincident', refs: ['p', 'r'] });
+    }
+    if (kind === 'aligned') s.constraints.push({ id: 'v', type: 'vertical', refs: ['axis'] }, { id: 'v2', type: 'vertical', refs: ['a', 'p'] });
+    if (kind === 'fixed') s.constraints.push({ id: 'f', type: 'fix', refs: ['axis'] }, { id: 'f2', type: 'fix', refs: ['p'] });
+    if (kind === 'dimension') {
+      s.constraints.push({ id: 'v', type: 'vertical', refs: ['axis'] });
+      for (const p of ['a', 'p']) s.constraints.push({ id: `d${p}`, type: 'hdistance', name: `D${p}`, refs: [ORIGIN_ID, p], value: 'Width', at: [2, -3] });
+    }
+    if (kind === 'repeat') mirrorEntities(s, ['line'], 'axis', idFactory(s));
+    const before = structuredClone(s.constraints);
+    const points = structuredClone(s.entities);
+    const created = mirrorEntities(s, ['line'], 'axis', idFactory(s));
+    expect(created).toHaveLength(1);
+    expect(s.entities.slice(0, points.length)).toEqual(points);
+    expect(s.constraints.slice(0, before.length)).toEqual(before);
+    expect(s.constraints.slice(before.length).map((c) => c.type)).toEqual(['symmetric']);
+    const result = solveSketch(s.entities, s.constraints, { value: () => 4 });
+    expect(result.converged).toBe(true);
+    expect(result.badConstraints.size).toBe(0);
+  });
+
   it('mirrors entities about a centerline with symmetric relations', () => {
     const s = sk([
       { id: 'a', t: 'point', x: 0, y: -10 }, { id: 'b', t: 'point', x: 0, y: 10 }, { id: 'axis', t: 'line', a: 'a', b: 'b', construction: true },
@@ -352,5 +406,23 @@ describe('editing tools', () => {
     expect(ix.pt(m.a)).toEqual([-3, 1]);
     expect(s.constraints.filter((c) => c.type === 'symmetric')).toHaveLength(2);
     expect(solveSketch(s.entities, s.constraints, { value }).converged).toBe(true);
+  });
+
+  it('keeps shared circle centers and repeated spline points on the mirror axis', () => {
+    const s = sk([
+      { id: 'a', t: 'point', x: 0, y: -10 }, { id: 'b', t: 'point', x: 0, y: 10 }, { id: 'axis', t: 'line', a: 'a', b: 'b', construction: true },
+      { id: 'p', t: 'point', x: 0, y: 0 }, { id: 'q', t: 'point', x: 6, y: 4 },
+      { id: 'circle', t: 'circle', c: 'p', r: 3 }, { id: 'spline', t: 'spline', pts: ['p', 'q', 'p'] },
+    ]);
+    mirrorEntities(s, ['circle', 'spline'], 'axis', idFactory(s));
+    expect(s.constraints.filter((c) => c.type === 'coincident')).toHaveLength(1);
+    const result = solveSketch(s.entities, s.constraints, { value, drag: { kind: 'points', ids: ['a', 'b'], targets: [[2, -10], [2, 10]] } });
+    expect(result.converged).toBe(true);
+    expect(result.badConstraints.size).toBe(0);
+    expect(new SketchIndex(s.entities).pt('p')[0]).toBeCloseTo(2, 6);
+    const circles = s.entities.filter((e) => e.t === 'circle');
+    expect(circles.map((e) => [e.c, e.r])).toEqual([['p', 3], ['p', 3]]);
+    const splines = s.entities.filter((e) => e.t === 'spline');
+    expect(splines.map((e) => [e.pts[0], e.pts[2]])).toEqual([['p', 'p'], ['p', 'p']]);
   });
 });
