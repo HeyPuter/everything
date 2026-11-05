@@ -13,6 +13,7 @@ import { bboxEmpty, bboxAdd, bboxUnion, bboxValid, distPointSeg, distPointArc, p
 import { graphicBox, textBox } from '../model/sch.js';
 import { padDistance } from '../model/pcb.js';
 import { transformGraphic } from '../model/place.js';
+import { overlappingPads } from '../model/library/footprints.js';
 
 export const LIB_META_TYPES = new Set(['libmeta', 'fpmeta']);
 export const FP_LAYERS = ['topOverlay', 'mech1', 'courtyard', 'top', 'bottomOverlay'];
@@ -278,6 +279,8 @@ export function validateComponent(def) {
     if (noPin.length) out.push({ severity: 'info', message: `Pads without a pin: ${noPin.join(', ')}` });
     const dupPads = [...padNums].filter(([, n]) => n > 1).map(([k]) => k);
     if (dupPads.length && !def.footprint.dupPads) out.push({ severity: 'warning', message: `Pads sharing a number: ${dupPads.join(', ')}` });
+    const clash = overlappingPads(pads);
+    if (clash) out.push({ severity: 'error', message: `Pads ${clash[0]} and ${clash[1]} overlap, shorting them together.` });
     for (const p of pads) if (p.side === 'thru' && !(p.drill > 0)) { out.push({ severity: 'error', message: `Pad ${p.num || '?'} is through-hole without a drill.` }); break; }
     for (const p of pads) if (p.side === 'thru' && p.drill >= Math.min(p.w, p.shape === 'round' ? p.w : p.h)) { out.push({ severity: 'error', message: `Pad ${p.num || '?'} has a hole as large as the pad.` }); break; }
   }

@@ -57,14 +57,19 @@ export function padBox(p, grow = 0) {
 }
 
 /**
- * First pair of differently numbered pads whose copper overlaps or touches,
- * as [numA, numB], or null. Such a footprint shorts its pins together.
+ * First pair of differently numbered pads whose copper overlaps or touches on
+ * a shared layer, as [numA, numB], or null. Such a footprint shorts its pins
+ * together. Unnumbered pads, non-plated holes and pads at angles other than
+ * quarter turns are not checked.
  */
 export function overlappingPads(pads) {
   const boxes = pads.map((p) => padBox(p));
+  const checked = (p) => p.num && p.plated !== false && (p.shape === 'round' || (p.rot || 0) % 90 === 0);
+  const shareLayer = (a, b) => a.side === b.side || a.side === 'thru' || b.side === 'thru';
   for (let i = 0; i < pads.length; i++) {
     for (let j = i + 1; j < pads.length; j++) {
-      if (pads[i].num === pads[j].num) continue;
+      const a = pads[i], b = pads[j];
+      if (a.num === b.num || !checked(a) || !checked(b) || !shareLayer(a, b)) continue;
       const A = boxes[i], B = boxes[j];
       const touch = A.minX <= B.maxX && B.minX <= A.maxX && A.minY <= B.maxY && B.minY <= A.maxY;
       if (touch) return [pads[i].num, pads[j].num];

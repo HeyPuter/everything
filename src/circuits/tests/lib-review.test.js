@@ -3,6 +3,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { mil, mm } from '../src/core/units.js';
 import { LibDoc, LibEditor } from '../src/editors/lib-editor.js';
 import { padDialog } from '../src/editors/lib-tools.js';
+import { validateComponent } from '../src/editors/lib-model.js';
 import { ComponentsPanel } from '../src/ui/panels/components.js';
 import { App } from '../src/app/app.js';
 import { setPuterForTests } from '../src/app/puter.js';
@@ -384,5 +385,44 @@ describe('built-in footprints match their packages', () => {
       const c = centres(`res-${size}`);
       expect(c[2][0] - c[1][0], size).toBeCloseTo(gap);
     }
+  });
+});
+
+describe('component checks', () => {
+  const pad = (num, x, extra = {}) => ({
+    num,
+    x,
+    y: 0,
+    shape: 'rect',
+    w: mm(1),
+    h: mm(1),
+    side: 'top',
+    rot: 0,
+    ...extra,
+  });
+  const comp = (pads) => ({
+    prefix: 'U',
+    symbol: {
+      pins: [...new Set(pads.map((p) => p.num).filter(Boolean))].map((num) => ({ num, name: num })),
+      graphics: [],
+    },
+    footprint: { name: 'X', pads, graphics: [] },
+  });
+  const errors = (pads) =>
+    validateComponent(comp(pads))
+      .filter((m) => m.severity === 'error')
+      .map((m) => m.message);
+
+  it('reports pads that short together and accepts pads that do not', () => {
+    expect(errors([pad('1', 0), pad('2', mm(0.5))])).toEqual([
+      'Pads 1 and 2 overlap, shorting them together.',
+    ]);
+    expect(errors([pad('1', 0), pad('2', mm(1.5))])).toEqual([]);
+    // Opposite sides of the board, shared numbers and unnumbered pads do not short.
+    expect(errors([pad('1', 0), pad('2', 0, { side: 'bottom' })])).toEqual([]);
+    expect(errors([pad('1', 0), pad('1', mm(0.5))])).toEqual([]);
+    expect(errors([pad('1', 0), pad('', mm(0.5))])).toEqual([]);
+    const thru = { side: 'thru', drill: mm(0.5), shape: 'round' };
+    expect(errors([pad('1', 0), pad('2', mm(0.5), thru)])).toHaveLength(1);
   });
 });
