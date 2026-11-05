@@ -295,7 +295,7 @@ export class DrawingWorkspace {
       if (!drag) return;
       const dx = e.clientX - drag.sx, dy = e.clientY - drag.sy;
       if (!drag.moved && Math.hypot(dx, dy) < 3) return;
-      if (!drag.moved && drag.kind === 'view') this.app.store.beginBatch('Move view');
+      if (!drag.moved && drag.kind === 'view') this.app.store.beginBatch('Move view', () => { drag = null; });
       drag.moved = true;
       if (drag.kind === 'pan') {
         this.pan = { x: drag.ox + dx, y: drag.oy + dy };

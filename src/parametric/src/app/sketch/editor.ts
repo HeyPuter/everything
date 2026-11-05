@@ -309,7 +309,7 @@ export class SketchEditor implements ViewportTool {
         if (ids.size && !list.length) this.app.setStatus('This geometry is fully defined, so it cannot be dragged.');
         this.drag = { kind: 'points', ids: list, start: list.map((id) => ix.pt(id)), grab: raw, moved: false };
       }
-      this.app.store.beginBatch('Drag sketch geometry');
+      this.app.store.beginBatch('Drag sketch geometry', () => { this.drag = null; });
       return true;
     }
     this.drag = { kind: 'box', boxStart: { x: e.x, y: e.y }, moved: false };
@@ -885,7 +885,7 @@ export class SketchEditor implements ViewportTool {
     el.addEventListener('pointermove', (e) => {
       if (!start) return;
       if (!moved && Math.hypot(e.clientX - start.x, e.clientY - start.y) < 3) return;
-      if (!moved) this.app.store.beginBatch('Move dimension');
+      if (!moved) this.app.store.beginBatch('Move dimension', () => { start = null; });
       moved = true;
       const rect = this.app.viewport.canvas.getBoundingClientRect();
       const p = this.toSketch({ x: e.clientX - rect.left, y: e.clientY - rect.top });

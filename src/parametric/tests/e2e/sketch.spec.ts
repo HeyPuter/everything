@@ -1281,3 +1281,71 @@ test('normal Exit Sketch still finishes an unfinished spline as an undoable edit
   expect(await state()).toEqual({ inSketch: false, splines: 1 });
   expect(errors).toEqual([]);
 });
+
+for (const kind of ['point', 'radius'] as const) test(`Undo during a ${kind} drag restores the drag and ignores late pointer events`, async ({ page }) => {
+  const errors = await openApp(page);
+  await startSketch(page);
+  await page.getByRole('button', { name: 'Close task pane', exact: true }).click();
+  await page.evaluate((kind) => {
+    const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+    a.sketchEditor!.edit('Add geometry', (sk) => {
+      sk.entities.push({ id: 'p', t: 'point', x: 20, y: 20 });
+      if (kind === 'radius') sk.entities.push({ id: 'circle', t: 'circle', c: 'p', r: 10 });
+    });
+  }, kind);
+  const screen = (p: [number, number]) => page.evaluate((p) => {
+    const ed = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.sketchEditor!;
+    const [x, y] = ed.toScreen(p), box = ed.app.viewport.canvas.getBoundingClientRect();
+    return { x: x + box.x, y: y + box.y };
+  }, p);
+  const geometry = () => page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.sketchEditor!.sketch.entities);
+  const before = await geometry();
+  const from = await screen([kind === 'radius' ? 30 : 20, 20]);
+  const to = await screen([kind === 'radius' ? 35 : 30, 20]);
+  await page.mouse.move(from.x, from.y);
+  await page.mouse.down();
+  await page.mouse.move(to.x, to.y, { steps: 3 });
+  const moved = await geometry();
+  expect(moved).not.toEqual(before);
+  await page.keyboard.press('ControlOrMeta+z');
+  expect(await geometry()).toEqual(before);
+  await page.mouse.move(to.x + 30, to.y + 20, { steps: 2 });
+  await page.mouse.up();
+  expect(await geometry()).toEqual(before);
+  await page.keyboard.press('ControlOrMeta+Shift+z');
+  expect(await geometry()).toEqual(moved);
+  await page.keyboard.press('ControlOrMeta+z');
+  expect(await geometry()).toEqual(before);
+  expect(errors).toEqual([]);
+});
+
+test('Undo during a dimension-label drag ignores late pointer events', async ({ page }) => {
+  const errors = await openApp(page);
+  await startSketch(page);
+  await page.getByRole('button', { name: 'Close task pane', exact: true }).click();
+  await page.evaluate(() => {
+    const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+    a.sketchEditor!.edit('Add dimensioned circle', (sk) => {
+      sk.entities.push({ id: 'p', t: 'point', x: 0, y: 0 }, { id: 'c', t: 'circle', c: 'p', r: 10 });
+      sk.constraints.push({ id: 'd', type: 'diameter', refs: ['c'], value: 20, at: [20, 20], name: 'D1' });
+    });
+  });
+  const at = () => page.evaluate(() => ((window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.sketchEditor!.sketch.constraints[0] as import('../../src/model/types').SkDimension)?.at);
+  const before = await at();
+  const label = await page.locator('.dim-label').boundingBox();
+  expect(label).not.toBeNull();
+  const x = label!.x + label!.width / 2, y = label!.y + label!.height / 2;
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  await page.mouse.move(x + 30, y + 20, { steps: 3 });
+  const moved = await at();
+  expect(moved).not.toEqual(before);
+  await page.keyboard.press('ControlOrMeta+z');
+  expect(await at()).toEqual(before);
+  await page.mouse.move(x + 60, y + 40);
+  await page.mouse.up();
+  expect(await at()).toEqual(before);
+  await page.keyboard.press('ControlOrMeta+Shift+z');
+  expect(await at()).toEqual(moved);
+  expect(errors).toEqual([]);
+});

@@ -236,6 +236,8 @@ export class DocStore {
   private batchDepth = 0;
   private batchSnap: string | null = null;
   private batchLabel = '';
+  private batchChanged = false;
+  private batchEnds: (() => void)[] = [];
   /** Old steps dropped from the bottom of the undo stack. */
   private dropped = 0;
 
@@ -261,8 +263,7 @@ export class DocStore {
     this.dropped = 0;
     // A delayed pointer-up/cancel from the old document must not restore its
     // batch or turn subsequent changes in the new document into that batch.
-    this.batchDepth = 0;
-    this.batchSnap = null;
+    this.releaseBatch();
     this.batchLabel = '';
     this.dirty = false;
     this.emit('load');
@@ -302,8 +303,7 @@ export class DocStore {
     const dropped = this.dropped;
     return () => {
       const current = this.snapshot();
-      this.batchDepth = 0;
-      this.batchSnap = null;
+      this.releaseBatch();
       this.restore(snap);
       this.undoStack = [...undo];
       this.redoStack = current === snap ? [...redo] : [{ snap: current, label }];
@@ -317,6 +317,7 @@ export class DocStore {
   change(label: string, fn: (doc: PartDocument) => void, reason = 'change') {
     if (this.batchDepth > 0) {
       fn(this.doc);
+      this.batchChanged = true;
       this.doc.modified = Date.now();
       this.dirty = true;
       this.emit(reason);
@@ -334,42 +335,51 @@ export class DocStore {
     this.emit(reason);
   }
 
-  /** Groups several changes (e.g. a drag) into one undo step. */
-  beginBatch(label: string) {
+  /** Groups changes into one undo step; onEnd retires the gesture even if history ends it early. */
+  beginBatch(label: string, onEnd?: () => void) {
     if (this.batchDepth++ === 0) {
       this.batchSnap = this.snapshot();
       this.batchLabel = label;
+      this.batchChanged = false;
     }
+    if (onEnd) this.batchEnds.push(onEnd);
+  }
+
+  private releaseBatch() {
+    this.batchDepth = 0;
+    this.batchSnap = null;
+    this.batchChanged = false;
+    const ends = this.batchEnds;
+    this.batchEnds = [];
+    for (const end of ends) end();
   }
 
   endBatch() {
-    if (this.batchDepth === 0) return;
-    if (--this.batchDepth === 0 && this.batchSnap) {
-      if (this.snapshot() !== this.batchSnap) {
-        this.undoStack.push({ snap: this.batchSnap, label: this.batchLabel });
-        if (this.undoStack.length > MAX_UNDO) { this.undoStack.shift(); this.dropped++; }
-        this.redoStack = [];
-      }
-      this.batchSnap = null;
+    if (this.batchDepth === 0 || --this.batchDepth > 0) return;
+    if (this.batchSnap && this.snapshot() !== this.batchSnap) {
+      this.undoStack.push({ snap: this.batchSnap, label: this.batchLabel });
+      if (this.undoStack.length > MAX_UNDO) { this.undoStack.shift(); this.dropped++; }
+      this.redoStack = [];
     }
+    this.releaseBatch();
   }
 
   /** Drops a batch, restoring the state from before it started. */
   cancelBatch() {
     if (this.batchDepth === 0) return;
-    this.batchDepth = 0;
     if (this.batchSnap) this.restore(this.batchSnap);
-    this.batchSnap = null;
+    this.releaseBatch();
     this.emit('change');
   }
 
-  get canUndo() { return this.undoStack.length > 0; }
+  get canUndo() { return this.batchChanged || this.undoStack.length > 0; }
   get undoDepth() { return this.undoStack.length; }
-  get canRedo() { return this.redoStack.length > 0; }
-  get undoLabel() { return this.undoStack[this.undoStack.length - 1]?.label ?? ''; }
+  get canRedo() { return !this.batchChanged && this.redoStack.length > 0; }
+  get undoLabel() { return this.batchChanged ? this.batchLabel : this.undoStack[this.undoStack.length - 1]?.label ?? ''; }
   get redoLabel() { return this.redoStack[this.redoStack.length - 1]?.label ?? ''; }
 
   undo() {
+    while (this.batchDepth > 0) this.endBatch();
     const s = this.undoStack.pop();
     if (!s) return;
     this.redoStack.push({ snap: this.snapshot(), label: s.label });
@@ -379,6 +389,7 @@ export class DocStore {
   }
 
   redo() {
+    while (this.batchDepth > 0) this.endBatch();
     const s = this.redoStack.pop();
     if (!s) return;
     this.undoStack.push({ snap: this.snapshot(), label: s.label });

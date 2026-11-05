@@ -495,3 +495,93 @@ it('discards nonpositive imported material densities while preserving positive f
     expect(doc.material).toEqual(density > 0 ? material : null);
   }
 });
+
+describe('history during a change batch', () => {
+  it('undoes an active batch before older changes and preserves it for Redo', () => {
+    const st = new DocStore(newDocument('Original'));
+    st.change('Rename', (d) => { d.name = 'Renamed'; });
+    st.beginBatch('Drag');
+    st.change('Move', (d) => { d.decimals = 5; });
+    st.undo();
+    expect(st.doc).toMatchObject({ name: 'Renamed', decimals: 2 });
+    st.endBatch(); // A late pointer-up must not replace the restored history.
+    st.redo();
+    expect(st.doc).toMatchObject({ name: 'Renamed', decimals: 5 });
+    st.change('Later edit', (d) => { d.decimals = 6; });
+    st.undo();
+    expect(st.doc.decimals).toBe(5);
+  });
+
+  it('allows undo of the first edit while its batch is still active', () => {
+    const st = new DocStore(newDocument());
+    st.beginBatch('Drag');
+    st.change('Move', (d) => { d.decimals = 5; });
+    expect(st.canUndo).toBe(true);
+    st.undo();
+    expect(st.doc.decimals).toBe(2);
+    st.redo();
+    expect(st.doc.decimals).toBe(5);
+  });
+});
+
+it('retires nested batch gestures once before Undo replaces the document', () => {
+  const st = new DocStore(newDocument());
+  const ended: number[] = [];
+  st.beginBatch('Outer', () => ended.push(st.doc.decimals));
+  st.beginBatch('Inner', () => ended.push(st.doc.decimals));
+  st.change('Move', (d) => { d.decimals = 5; });
+  expect(st.undoLabel).toBe('Outer');
+  st.undo();
+  expect(ended).toEqual([5, 5]);
+  expect(st.doc.decimals).toBe(2);
+  st.endBatch();
+  st.endBatch();
+  expect(ended).toEqual([5, 5]);
+  st.redo();
+  expect(st.doc.decimals).toBe(5);
+});
+
+it('Redo closes an unchanged batch without losing the redo step', () => {
+  const st = new DocStore(newDocument());
+  st.change('Edit', (d) => { d.decimals = 5; });
+  st.undo();
+  let ended = 0;
+  st.beginBatch('Unmoved drag', () => { ended++; });
+  expect(st.canRedo).toBe(true);
+  st.redo();
+  expect(ended).toBe(1);
+  expect(st.doc.decimals).toBe(5);
+  st.endBatch();
+  st.undo();
+  expect(st.doc.decimals).toBe(2);
+});
+
+it('a changed batch invalidates Redo and remains separately undoable', () => {
+  const st = new DocStore(newDocument());
+  st.change('Edit', (d) => { d.decimals = 5; });
+  st.undo();
+  st.beginBatch('Drag');
+  st.change('Move', (d) => { d.decimals = 6; });
+  expect(st.canRedo).toBe(false);
+  st.redo();
+  expect(st.doc.decimals).toBe(6);
+  st.undo();
+  expect(st.doc.decimals).toBe(2);
+});
+
+it.each(['cancel', 'load', 'restore'] as const)('%s retires a batch gesture without leaking it into later edits', (end) => {
+  const st = new DocStore(newDocument());
+  const restore = st.restorePoint('Session');
+  let ended = 0;
+  st.beginBatch('Drag', () => { ended++; });
+  st.change('Move', (d) => { d.decimals = 5; });
+  if (end === 'cancel') st.cancelBatch();
+  else if (end === 'load') st.load(newDocument());
+  else restore();
+  expect(ended).toBe(1);
+  st.endBatch();
+  st.change('Next', (d) => { d.decimals = 6; });
+  st.undo();
+  expect(st.doc.decimals).toBe(2);
+  expect(ended).toBe(1);
+});

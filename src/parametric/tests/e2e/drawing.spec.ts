@@ -246,3 +246,35 @@ test('removing the solid clears its old drawing projections', async ({ page }) =
   expect(text).not.toContain('data-view=');
   expect(errors).toEqual([]);
 });
+
+test('Undo during a drawing-view drag ignores late pointer events', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  await page.getByRole('tab', { name: 'Drawing' }).click();
+  await expect(page.locator('.paper g[data-view]')).toHaveCount(4);
+  const s = await page.evaluate(() => {
+    const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+    const ws = a.drawing as unknown as { frames: { id: string; x0: number; x1: number; y0: number; y1: number }[]; el: HTMLElement; pan: { x: number; y: number }; zoom: number };
+    const f = ws.frames[0], box = ws.el.getBoundingClientRect();
+    return { id: f.id, x: box.x + ws.pan.x + (f.x0 + f.x1) / 2 * ws.zoom, y: box.y + ws.pan.y + (f.y0 + f.y1) / 2 * ws.zoom };
+  });
+  const position = () => page.evaluate((id) => {
+    const v = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.store.doc.drawing?.views.find((v) => v.id === id);
+    return v ? [v.x, v.y] : null;
+  }, s.id);
+  const before = await position();
+  await page.mouse.move(s.x, s.y);
+  await page.mouse.down();
+  await page.mouse.move(s.x + 30, s.y + 20, { steps: 3 });
+  const moved = await position();
+  expect(moved).not.toEqual(before);
+  await page.keyboard.press('ControlOrMeta+z');
+  expect(await position()).toEqual(before);
+  await page.mouse.move(s.x + 60, s.y + 40);
+  await page.mouse.up();
+  expect(await position()).toEqual(before);
+  await page.keyboard.press('ControlOrMeta+Shift+z');
+  expect(await position()).toEqual(moved);
+  expect(errors).toEqual([]);
+});

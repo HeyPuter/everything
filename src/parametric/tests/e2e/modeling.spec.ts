@@ -536,3 +536,26 @@ for (const units of ['MMGS', 'MKS', 'IPS'] as const) test(`accepting an unchange
   await expect(page.locator('.ti.error')).toHaveCount(0);
   expect(errors).toEqual([]);
 });
+
+test('Undo during a rollback-bar drag ignores late pointer events', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  const rollback = () => page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.store.doc.rollback);
+  const before = await rollback();
+  const bar = (await page.locator('.tree .rollback-bar').boundingBox())!;
+  const target = (await page.getByRole('treeitem', { name: 'Extrude1' }).boundingBox())!;
+  const x = bar.x + 40, y = bar.y + bar.height / 2;
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  await page.mouse.move(x, target.y + 2, { steps: 5 });
+  expect(await rollback()).toBe(1);
+  await page.keyboard.press('ControlOrMeta+z');
+  expect(await rollback()).toBe(before);
+  await page.mouse.move(x, target.y - 15);
+  await page.mouse.up();
+  expect(await rollback()).toBe(before);
+  await page.keyboard.press('ControlOrMeta+Shift+z');
+  expect(await rollback()).toBe(1);
+  expect(errors).toEqual([]);
+});
