@@ -227,8 +227,8 @@ as the only backend.
   in it and since when with a Join button, and the conversation gets a line
   when it starts and one saying how long it ran when the last person leaves.
   A huddle in a direct message rings: a toast with Join while the tab is in
-  view, a browser notification (and a push, with the app closed) when it is
-  not, an entry in Activity either way, all under the conversation's own
+  view, a notification through Puter when it is not, an entry in Activity
+  either way, all under the conversation's own
   notification setting; a channel's huddle only marks the row.
   In the huddle, a small window sits over the bottom of the sidebar wherever
   you go in the app: the people in it with a ring around whoever is
@@ -242,8 +242,8 @@ as the only backend.
   and listen. Up to 20 people per huddle. Media goes directly between the
   people in it over Puter's Peer API (see *Huddles* under Architecture);
   the workspace's server only keeps who is in which huddle.
-- **Notifications**: optional browser notifications while the tab is in the
-  background, with a setting per channel and conversation (All messages,
+- **Notifications**: through Puter, with the tab in the background or the
+  app closed, with a setting per channel and conversation (All messages,
   Mentions only, Nothing) and a mute switch, from the sidebar row's menu
   (right-click or the kebab, opened where the pointer is: details, copy
   link and name, star, "Notify you about" with all
@@ -297,8 +297,8 @@ as the only backend.
   attachment bytes included), survive a reload, and send in order when the
   connection returns; every send carries a client id the worker
   deduplicates on, so a retry after a lost response never posts twice.
-  Push notifications for mentions and direct messages arrive with the app
-  closed, respecting mute, per-conversation levels, quiet hours, pause, and
+  Notifications for mentions, direct messages, followed threads and channels
+  set to "All messages" arrive with the app closed, respecting mute, per-conversation levels, quiet hours, pause, and
   the preview preference; on iPhone and iPad, installing is what enables
   them. Install from settings (or the browser's own prompt).
 - **Rail**: a narrow column at the left edge, with the
@@ -463,6 +463,7 @@ Every read is a direct `get` of a known key. `kv.list()` is never used
 | `tc:user:{uuid}` | a member's card (name, title, color) and the ids of their workspaces on this worker |
 | `tc:ws:{id}` | workspace: name, owner, invite code, `channels{}`, `members{}`, `former{}` (the last hundred people who left, by name, so their messages keep an author) |
 | `tc:ws:{id}:u:{uuid}` | one member's state: joined channels, DMs, read cursors, mention counts, notification settings, unread thread replies, how they take pushes (`pn`, `push`) |
+| `tc:ws:{id}:na` | who hears each channel at "All messages", `{ [channel]: { [uuid]: 1 } }`, for notifications; kept apart from the workspace record so members don't see each other's settings |
 | `tc:ws:{id}:act` | activity: per-conversation `{seq, ts, lastAuthor, overlayTs}` (once the map holds over a thousand entries, a poll drops the thread entries quiet for a month, a hundred at a time; a reply writes one back), presence, version stamps, who is typing, and the huddles in progress (`h.{conv}`: who started it and when, each participant's heartbeat and peer invite) |
 | `tc:invite:{code}` | `{ ws, exp }`, or `{ ws, ch, role, exp }` for a channel-scoped code: `guest` (a guest invite) or `connect` (a share link for another workspace) |
 | `tc:connect:{id}`, `tc:connect:{id}:partner` | one connection between two workspaces sharing a channel: the host's record `{ ws, ch, partner, name, secret }` and the partner's `{ ws, ch, ref, rch, secret }`; two keys since both may live on one worker |
@@ -607,9 +608,11 @@ blocks, answering with the existing message instead of a second one. That
 makes the outbox's retries, and the composer's own retry, safe.
 
 Pushes go through [Puter's notifications](https://docs.puter.com/Notifications/).
-Both notification switches (banners in the tab, pushes while it's closed)
-are on unless the member turned them off (`prefs.notify`, `prefs.push`
-stored as `false`). After sign-in, `autoEnablePush()` in `src/lib/store.js`
+They are the app's only notifications: the tab no longer draws banners of
+its own, and keeps only the in-app chime. Puter delivers each one to an
+open tab, which shows it while hidden, and pushes it to the member's other
+browsers otherwise. The one switch is on unless the member turned it off
+(`prefs.push` stored as `false`). After sign-in, `autoEnablePush()` in `src/lib/store.js`
 turns pushes on without asking where this browser already allows
 notifications; where it hasn't decided, it asks once per device, from the
 first click or key press (`tc:notify-asked` in localStorage), and after that
@@ -627,8 +630,13 @@ watch share of the workspace's signal region with `notify: true`, allowing
 `me.puter.notifications.notify({ ..., to: { handle } })` to reach them.
 The worker owner is notified without `to`. Older shares are upgraded once
 and marked `ev.notify` on the member document; the existing watch-level
-`kvShare` consent covers the upgrade. A post fans out mentions and DMs to
-at most 50 recipients after the write, using `waitUntil` where available.
+`kvShare` consent covers the upgrade. A post notifies, after the write and
+using `waitUntil` where available, at most 50 recipients: those it mentions,
+the other members of a direct message, a thread's followers who can read
+it, and members who hear the channel at "All messages". The last come from
+`tc:ws:{id}:na`, kept by the notification-setting route, so a post never
+reads every member's document; someone who has left the channel is
+skipped.
 Mute, level, quiet hours, and pause suppress sends. Puter checks whether an
 open page is visible and focused before pushing; recent presence suppresses
 only legacy Web Push. Reminders use the same path for their own member.
@@ -651,8 +659,9 @@ never holds up the rest; a worker not running as the app sends none.
 Notifications are capped at 30/minute and 1,000/day per user per app. Pushes
 are capped at 12/minute and 1,000/day, or 6/minute and 200/day for apps under
 30 days old or unlisted. Share notifications also have a sender/recipient/app
-cap of 30/minute and 500/day. Plain channel messages are never pushed, even
-at "All messages": that level governs in-app notifications.
+cap of 30/minute and 500/day. A busy channel at "All messages" can reach
+the per-minute cap; one conversation's notifications share a group, so each
+replaces the last and only the per-minute count grows.
 
 Devices subscribed before this (Web Push signed by each owner's worker with
 its own VAPID key, `POST /api/ws/:ws/push`) keep working until the member

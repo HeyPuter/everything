@@ -26,7 +26,7 @@ import { parseHash, navigate, buildHash, PANE_VIEWS } from '../lib/router.js';
 import { normalizeInviteCode } from '../shared/ids.js';
 import { serverKeyOf, parseRef } from '../lib/refs.js';
 import { SHARED_WORKER_URL } from '../config.js';
-import { showNotification, shouldNotify, playNotificationSound } from '../lib/notify.js';
+import { shouldNotify, playNotificationSound } from '../lib/notify.js';
 import { previewWords } from './applink.js';
 import { api } from '../lib/api.js';
 import { parentOfThread } from '../shared/blocks.js';
@@ -1303,19 +1303,17 @@ export function mountShell(appRoot) {
   advertiseViewing();
 
   /**
-   * One gate for every browser notification and its sound: the global
-   * switches, pauses and quiet hours, then the conversation's own setting.
-   * The body carries a preview of the message unless the user turned
-   * previews off. The banner only ever shows over a hidden tab; the sound
-   * also plays with the tab in view when the news is from a conversation
-   * other than the open one — never for what is already on screen, here or
-   * in another tab of this browser (see advertiseViewing).
+   * The in-app chime: the global switches, pauses and quiet hours, then the
+   * conversation's own setting. Banners are Puter's, sent by the workspace
+   * worker (see sendPushes). The chime also plays with the tab in view when
+   * the news is from a conversation other than the open one — never for
+   * what is already on screen, here or in another tab of this browser (see
+   * advertiseViewing).
    */
   function maybeNotify({ event, conv, kind, title, body, seq, messageConv, route: target, onlyRead = false }) {
     const prefs = store.profile?.prefs || {};
-    const banner = prefs.notify !== false;
     const sound = prefs.sound !== false;
-    if ((!banner && !sound) || store.notificationsPaused()) return;
+    if (!sound || store.notificationsPaused()) return;
     if (!shouldNotify({ event, setting: store.notifySetting(conv), kind })) return;
     const shown = target || { ws: store.wsId, conv };
     const viewing = () => {
@@ -1336,21 +1334,6 @@ export function mountShell(appRoot) {
     const fire = (text) => {
       // Named by the message, so two tabs of this browser ring once for it between them (see notify.js chimedAlready).
       if (sound && (document.hidden || !viewing()) && !viewedElsewhere()) playNotificationSound(seq ? { key: `${shown.ws}:${messageConv || conv}:${seq}` } : {});
-      if (banner) {
-        showNotification({
-          // Named with the workspace: a direct message keeps its id across
-          // workspaces, so two workspaces' news of "the same" conversation
-          // within a few seconds shared a tag, and the browser drew the
-          // second banner over the first while the burst check dropped it.
-          title, body: text, tag: `${shown.ws}:${event}-${conv}`,
-          // Where the news is, as it stood when it came, not as the store
-          // stands once the message has been read for its words: the reader
-          // may have switched workspaces meanwhile, and the conversation's
-          // id under the other workspace's reference is nothing at all.
-          route: buildHash(shown),
-          onClick: () => navigate(shown),
-        });
-      }
     };
     if (!seq) {
       fire(body);

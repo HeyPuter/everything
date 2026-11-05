@@ -28,9 +28,6 @@ vi.mock('../src/ui/huddle.js', () => ({
   huddleButton() { return document.createElement('span'); },
   createHuddleBar() { return { el: document.createElement('div'), destroy() {} }; },
 }));
-// Browser notifications are collected rather than shown (there is no Notification here).
-const banners = [];
-vi.mock('../src/lib/notify.js', async (importOriginal) => ({ ...(await importOriginal()), showNotification: (opts) => { banners.push(opts); } }));
 
 const REF = 'abc123def0@teamchat-test';
 const json = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
@@ -269,47 +266,6 @@ describe('losing access to a workspace while switching to another', () => {
     await d.tick(20);
     expect(location.hash).toBe('#/'); // home: nothing left to open
     expect(app.querySelector('.auth-title')?.textContent).toBe('No workspace yet');
-  });
-});
-
-describe('a notification for a message that had to be read first', () => {
-  it('opens the conversation in the workspace the message came from, not the one switched to while it was being read', async () => {
-    let release = null;
-    const ctx = await boot({
-      hash: `#/ws/${encodeURIComponent(REF)}/c/c1`,
-      routes: {
-        // The message is not in the loaded window: it is read for its words, and the answer waits.
-        '/messages': async () => { await new Promise((r) => { release = r; }); return json({ messages: [{ seq: 7, user: 'u-dan', ts: 5000, text: 'psst', kind: 'msg' }], seq: 7 }); },
-      },
-    });
-    const { store, dom: d } = ctx;
-    banners.length = 0;
-    const { mountShell } = await import('../src/ui/shell.js');
-    const app = document.createElement('div');
-    app.id = 'app';
-    document.body.append(app);
-    mountShell(app);
-    await d.tick(5);
-    store.profile.prefs.notify = true; // banners on, sound off
-    store.profile.prefs.sound = false;
-    document.hidden = true;
-    store.emit('incoming', [{ conv: 'dm_d', from: 'u-dan', seq: 7 }]);
-    await d.tick(5);
-    expect(banners.length).toBe(0); // still being read
-    expect(release).not.toBeNull();
-    // The reader switches to another workspace before the answer lands.
-    store.wsId = 'other00000@teamchat-test';
-    store.ws = { id: 'other00000', name: 'Initech', channels: {}, members: {} };
-    store.me = { role: 'member', channels: [], dms: {}, reads: {}, mentions: {}, notify: {}, threads: {} };
-    release();
-    await d.tick(10);
-    expect(banners.length).toBe(1);
-    expect(banners[0].title).toBe('Dan Ito');
-    expect(banners[0].body).toBe('psst');
-    expect(banners[0].route).toBe(`#/ws/${encodeURIComponent(REF)}/c/dm_d`); // Globex, where the message is
-    banners[0].onClick();
-    expect(location.hash).toBe(`#/ws/${encodeURIComponent(REF)}/c/dm_d`);
-    document.hidden = false;
   });
 });
 

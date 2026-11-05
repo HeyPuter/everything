@@ -21,7 +21,7 @@ import { normalize } from '../shared/search.js';
 import { SHARED_WORKER_URL } from '../config.js';
 import { LIMITS, INVITE_TTLS, POST_POLICIES, THREAD_POLICIES, BROADCAST_POLICIES, cleanChannelName, extractMentionNames, broadcastKind } from '../shared/limits.js';
 import { EV_GRANT } from '../shared/events.js';
-import { notificationsSupported, requestNotificationPermission, notificationsGranted, playNotificationSound } from '../lib/notify.js';
+import { notificationsSupported, playNotificationSound } from '../lib/notify.js';
 import { relativeLong, untilText } from '../lib/time.js';
 import { initials } from '../lib/format.js';
 import { previewWords } from './applink.js';
@@ -3848,25 +3848,6 @@ export function settingsDialog({ section = null } = {}) {
   // Home Screen app) still hears the chime, and quiet hours silence it.
   content.append(el('h3.field-label', { style: { margin: '22px 0 4px' } }, 'Notifications'));
   if (notificationsSupported()) {
-    content.append(switchRow({
-      label: 'Desktop notifications', sub: 'Mentions, direct messages, followed threads, and channels set to "All messages", while the tab is in the background',
-      checked: profile.prefs?.notify !== false && notificationsGranted(),
-      onChange: async (v) => {
-        if (v) {
-          const ok = await requestNotificationPermission();
-          if (!ok) {
-            toast('Notifications are blocked in your browser settings', { icon: 'bellOff' });
-            return false;
-          }
-        }
-        try {
-          await store.updatePrefs({ notify: v });
-        } catch (err) {
-          toast(err.message || 'Could not save that setting', { icon: 'alert' });
-          return false;
-        }
-      },
-    }));
     if (typeof puter !== 'undefined' && puter.notifications) {
       const web = puter.env === 'web';
       const pushRow = switchRow({

@@ -70,16 +70,8 @@ describe('notifications on by default', () => {
     expect(notifications.enable).not.toHaveBeenCalled();
   });
 
-  it('asks only for banners when pushes were turned off', async () => {
-    const { store, notifications } = await setup({ prefs: { push: false } });
-    await store.autoEnablePush();
-    click();
-    expect(Notification.requestPermission).toHaveBeenCalledTimes(1);
-    expect(notifications.enable).not.toHaveBeenCalled();
-  });
-
   it.each([
-    ['both are turned off', { prefs: { push: false, notify: false } }],
+    ['pushes are turned off', { prefs: { push: false } }],
     ['the browser blocks notifications', { permission: 'denied' }],
   ])('neither asks nor enables when %s', async (_name, opts) => {
     const { store, notifications } = await setup(opts);

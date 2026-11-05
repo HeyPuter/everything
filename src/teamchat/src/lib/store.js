@@ -34,7 +34,7 @@ import { createOutbox, layeredStorage, makeClientId } from './outbox.js';
 import { clearDrafts, forgetDrafts } from './drafts.js';
 import { clearRecent, forgetWorkspaceRecent } from './recent.js';
 import { pushPrefs, pushOffsetMoved, _notePushOffset, listenForPushes, stopListeningForPushes, puterPushStatus, enablePuterPush, disablePuterPush, retireLegacyPush, isIos, isStandalone } from './pwa.js';
-import { notificationsSupported, notificationsGranted, requestNotificationPermission } from './notify.js';
+import { notificationsSupported, notificationsGranted } from './notify.js';
 import { loadUserDoc, saveUserDoc } from './user.js';
 import { makeRef, parseRef, canonicalRef, serverKeyOf, trustServer } from './refs.js';
 import { deployOwnWorker, findOwnWorker, updateOwnWorker, usesSharedWorker } from './deploy.js';
@@ -3032,18 +3032,16 @@ class Store extends EventTarget {
    */
   async autoEnablePush() {
     if (typeof puter === 'undefined' || !puter.notifications) return;
-    const prefs = this.profile?.prefs || {};
-    const push = prefs.push !== false;
-    if (push && (await this.refreshPushStatus()) === 'on') return;
+    if (this.profile?.prefs?.push === false) return;
+    if ((await this.refreshPushStatus()) === 'on') return;
     const web = puter.env === 'web';
     if (web && (!notificationsSupported() || (isIos() && !isStandalone()))) return;
     const allowed = web ? notificationsGranted() : await puter.notifications.hasPermission().catch(() => false);
     if (allowed) {
-      if (push) await this.setPush(true);
+      await this.setPush(true);
       return;
     }
     if (web && Notification.permission === 'denied') return;
-    if (!push && (!web || prefs.notify === false)) return;
     try {
       if (localStorage.getItem(NOTIFY_ASKED_KEY)) return;
     } catch {
@@ -3056,8 +3054,7 @@ class Store extends EventTarget {
         localStorage.setItem(NOTIFY_ASKED_KEY, '1');
       } catch { /* asked again next load */ }
       // Synchronously from the gesture, so the browser shows its prompt.
-      const asking = push ? this.setPush(true) : requestNotificationPermission();
-      asking.catch((err) => console.warn('Teamchat push', err));
+      this.setPush(true).catch((err) => console.warn('Teamchat push', err));
     };
     document.addEventListener('pointerdown', ask, true);
     document.addEventListener('keydown', ask, true);

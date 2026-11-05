@@ -198,29 +198,3 @@ function chime(key = null) {
   note(1108.7, 0.09, 0.5, 0.2);
   note(2217.5, 0.09, 0.3, 0.045);
 }
-
-const recent = new Map(); // tag -> ts, to avoid a burst of identical notifications
-
-export function showNotification({ title, body, tag, route, onClick }) {
-  if (!notificationsGranted() || !document.hidden) return null;
-  const last = recent.get(tag) || 0;
-  if (Date.now() - last < 5000) return null;
-  recent.set(tag, Date.now());
-  const opts = { body, tag, icon: './icons/icon-192.png', badge: './icons/icon-192.png' };
-  try {
-    const n = new Notification(title, opts);
-    n.onclick = () => {
-      window.focus();
-      onClick?.();
-      n.close();
-    };
-    return n;
-  } catch {
-    // Chrome on Android has no page-side Notification constructor (it
-    // throws; notifications there belong to the service worker), so the
-    // registered worker shows this one, and its notificationclick handler
-    // follows `route` the way it follows a push's.
-    if (route) navigator.serviceWorker?.getRegistration().then((reg) => reg?.showNotification(title, { ...opts, data: { route } })).catch(() => {});
-    return null;
-  }
-}
