@@ -239,6 +239,26 @@ describe('assistant agent', () => {
     expect(JSON.stringify(agent.messages)).not.toContain('IMG');
   });
 
+  it('keeps the conversation when a long PDF comes with a message, and carries the PDF on', async () => {
+    const pdf: Attachment = { name: 'datasheet.pdf', kind: 'pdf', size: 500000, pages: 40, blocks: [pdfBlock('PDFDATA')] };
+    const { agent, requests } = scripted([
+      [{ type: 'text', text: 'Earlier answer about the bracket.' }],
+      [{ type: 'tool', id: 'a', name: 'get_model', input: {} }],
+      [{ type: 'text', text: 'The datasheet says the bolt circle is 48 mm.' }],
+      [{ type: 'text', text: 'M6.' }],
+    ], () => ({ ok: true, content: 'M'.repeat(10000) }));
+    await agent.send('Make a bracket 60 mm wide', () => {});
+    await agent.send('Use the bolt pattern from this datasheet', () => {}, { attachments: [pdf] });
+    await agent.send('What thread does page 3 call for?', () => {});
+    const sent = (req: ChatMessage[]) => JSON.stringify(req);
+    // Forty pages outweigh the history budget, which is for the conversation's text, not its files.
+    for (const req of requests.slice(1)) expect(sent(req)).toContain('Make a bracket 60 mm wide');
+    // Its own round's results stay whole.
+    expect(sent(requests[2])).toContain('M'.repeat(10000));
+    expect(sent(requests[3])).toContain('bolt circle is 48 mm');
+    expect(sent(requests[3])).toContain('PDFDATA');
+  });
+
   it('keeps a message whose text files are too much to carry, naming its files instead of dropping it', async () => {
     const big = (n: number): Attachment => ({ name: `table${n}.csv`, kind: 'text', size: 100000, chars: 100000, blocks: [textBlock(`table${n}.csv`, 'x'.repeat(100000))] });
     const { agent, requests } = scripted([[{ type: 'text', text: 'a' }], [{ type: 'text', text: 'b' }]]);

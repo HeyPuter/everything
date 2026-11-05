@@ -11,7 +11,7 @@
 // results and only with the round that took them.
 
 import { type ChatFn, type ChatMessage, type ChatPart, type ChatToolCall, isTransientError } from '../platform/ai';
-import { ATTACHMENT_TURNS, type Attachment, type AttachmentMeta, attachmentMeta, attachmentWeight, attachmentsFit, attachmentsGone, attachmentsIntro } from './attach';
+import { ATTACHMENT_TURNS, type Attachment, type AttachmentMeta, attachmentMeta, attachmentsFit, attachmentsGone, attachmentsIntro } from './attach';
 import type { ToolResult, ToolSpec } from './tools';
 
 export const MAX_OUTPUT_TOKENS = 16000;
@@ -88,7 +88,6 @@ type UserMessage = Extract<ChatMessage, { role: 'user' }>;
 const isUser = (m: ChatMessage): m is UserMessage => m.role === 'user';
 /** A message the user wrote (not the screenshots a tool took). */
 const isTurn = (m: ChatMessage): m is UserMessage => isUser(m) && !m.screenshot;
-const filesWeight = (m: UserMessage) => (m.attachments ?? []).reduce((n, a) => n + attachmentWeight(a), 0);
 
 /** What the user wrote, with any files attached, as a message's content. */
 export function userContent(text: string, snapshot: string, attachments: Attachment[] = []): string | ChatPart[] {
@@ -101,8 +100,10 @@ export function userContent(text: string, snapshot: string, attachments: Attachm
  * The transcript as sent: instructions first; earlier messages' snapshots,
  * long tool results and screenshots left out; files only with the latest few
  * messages that fit in one request (older ones are named instead); the oldest
- * turns dropped whole past the budget. The latest turn is sent as it is,
- * unless it alone outgrows the budget (a long build has no limit on rounds):
+ * turns dropped whole past the budget. Files do not count against it: they
+ * have their own limits (attachmentsFit), and a long PDF would otherwise push
+ * every earlier turn out of its request and the next ones. The latest turn is
+ * sent as it is, unless it alone outgrows the budget (a long build has no limit on rounds):
  * then its earlier tool results are cut, oldest first, and the newest round's
  * results, which the model is about to answer, stay whole.
  * noShots leaves out the current screenshot too (a route that refuses images).
@@ -136,7 +137,6 @@ export function requestMessages(transcript: ChatMessage[], system: string, { bud
       const text = userText(m.content);
       if (m.attachments?.length) {
         if (Array.isArray(m.content) && (i >= lastUser || recent.has(i))) {
-          weights.set(i, filesWeight(m));
           if (i >= lastUser) return { role: 'user', content: m.content };
           return { role: 'user', content: [{ type: 'text', text: text || NO_TEXT }, ...m.content.slice(1)] };
         }

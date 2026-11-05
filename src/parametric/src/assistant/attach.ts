@@ -195,10 +195,3 @@ export function attachmentsGone(list: { name: string }[]): string {
   const one = list.length === 1;
   return `[Attached to this message: ${names}. ${one ? 'It is' : 'They are'} no longer shown; if you need ${one ? 'it' : 'them'} again, ask the user to attach ${one ? 'it' : 'them'} again.]`;
 }
-
-/** About how much of the request an attachment takes, in transcript-budget characters (about four to a token). */
-export function attachmentWeight(a: AttachmentMeta): number {
-  if (a.kind === 'image') return 6400;
-  if (a.kind === 'pdf') return Math.max(1, a.pages || 1) * 8000;
-  return a.chars || 0;
-}
