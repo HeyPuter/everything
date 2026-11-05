@@ -10753,6 +10753,19 @@ export function createEditor({
         reply: reply.startsWith(sent) ? reply.slice(sent.length) : reply,
       };
     };
+    // Escape lets go of the comment from its settings too, as from the comment itself; words
+    // typed into its text are kept.
+    panel.addEventListener('keydown', (e) => {
+      if (e.key !== 'Escape' || e.isComposing || e.defaultPrevented) return;
+      e.preventDefault();
+      e.stopPropagation();
+      safe(async () => {
+        await saveText();
+        if (destroyed) return;
+        annotationLayer.clear();
+        overlay.focus({ preventScroll: true });
+      })();
+    });
     properties.show('annotation', entry.kind, panel);
     if (previous && scroller === panel.parentElement) scroller.scrollTop = scrollTop;
     const control =
