@@ -89,3 +89,22 @@ test('a feature panel sheet shrinks to show the preview above it', async ({ page
   await peek.click();
   await expect.poll(async () => (await sheet.boundingBox())!.height).toBe(full);
 });
+
+test('touch targets are at least 24 px', async ({ page }) => {
+  await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await page.getByRole('button', { name: 'Show design tree' }).click();
+  await waitForFeature(page, 'Fillet1');
+  await page.getByRole('treeitem', { name: 'Extrude1' }).dblclick();
+  await expect(page.getByRole('heading', { name: 'Extrude1' })).toBeVisible();
+  const small = await page.evaluate(() => [...document.querySelectorAll<HTMLElement>('button, a[href], input, select, [role="treeitem"], [tabindex="0"]')]
+    .filter((el) => {
+      const b = el.getBoundingClientRect();
+      if (!b.width || !b.height || b.bottom < 0 || b.top > innerHeight || b.right < 0 || b.left > innerWidth) return false;
+      // A checkbox's label is its target; a section's enable checkbox is spaced from its neighbours.
+      if (el.matches('.check input, .sec-head-check input')) return false;
+      return b.width < 24 || b.height < 24;
+    })
+    .map((el) => `${el.tagName} ${el.className} ${el.getAttribute('aria-label') ?? el.textContent}`));
+  expect(small).toEqual([]);
+});

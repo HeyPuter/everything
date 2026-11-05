@@ -508,6 +508,8 @@ a.icon-btn { text-decoration: none; }
   .confirm-corner { top: auto; bottom: 12px; right: 12px; flex-direction: row; }
   .confirm-corner button { width: 48px; height: 48px; }
   .statusbar .cell.hide-mobile { display: none; }
+  /* The Tree toggle lays out its icon and label in a row like the other cells. */
+  .statusbar .cell.mobile-only { display: flex !important; }
   .view-label { display: none; }
   .flyout-tree { display: none !important; }
   .toasts { left: 12px; right: 12px; align-items: stretch; }
@@ -517,4 +519,24 @@ a.icon-btn { text-decoration: none; }
 }
 @media (prefers-reduced-motion: reduce) {
   .leftpane { transition: none; }
+}
+/* Touch: no control smaller than 24px (WCAG 2.5.8). Mouse layouts keep their density. */
+@media (pointer: coarse) {
+  :root { --status-h: 32px; }
+  .statusbar button.cell { align-self: stretch; height: auto; }
+  .tool.row { height: 24px; }
+  .tool-split > .tool { padding-bottom: 24px; }
+  .tool-caret { height: 24px; }
+  .hud .split .caret { width: 24px; min-width: 24px; }
+  .tree-filter { height: 32px; }
+  .tree-filter input { align-self: stretch; }
+  .rollback-bar { height: 24px; margin: 0 6px; }
+  .rollback-bar::before, .rollback-bar:hover::before, .rollback-bar.dragging::before { top: 10px; }
+  .selbox .item .rm { height: 24px; width: 24px; }
+  .spin .spin-btns { flex-direction: row; flex: none; }
+  .spin .spin-btns button { width: 28px; flex: none; }
+  .spin .spin-btns button + button { border-left: 1px solid var(--border-strong); }
+  .check { min-height: 24px; }
+  .check input { width: 18px; height: 18px; }
+  .pm-section > .sec-head-check input[type='checkbox'] { width: 20px; height: 20px; margin-right: 4px; }
 }
