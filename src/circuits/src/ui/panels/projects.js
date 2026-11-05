@@ -83,7 +83,9 @@ export class ProjectsPanel {
       { label: 'Move &down', run: () => p.moveDoc(d.id, 1), disabled: p.docs[p.docs.length - 1] === d },
       { separator: true },
       { label: 'Re&move from project', icon: 'trash', run: async () => {
-        const ok = await confirmDialog({ title: 'Remove document', message: `Remove ${d.name} from the project? Its contents are deleted when you save. You can undo this by closing the project without saving.`, confirm: 'Remove', danger: true });
+        // Autosave keeps the removal within seconds, so it cannot be taken back by not saving.
+        const history = this.app.location ? ' Earlier saves stay in File, Version history.' : '';
+        const ok = await confirmDialog({ title: 'Remove document', message: `Remove ${d.name} and everything on it from the project? This cannot be undone.${history}`, confirm: 'Remove', danger: true });
         if (ok) this.app.removeDoc(d.id);
       } },
     ];

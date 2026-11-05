@@ -348,3 +348,21 @@ describe('save a copy', () => {
     expect(document.querySelector('.toast.error').textContent).toContain('Network error');
   });
 });
+
+describe('removing a document', () => {
+  it('does not promise that closing without saving brings it back', async () => {
+    localStorage.clear();
+    const { app } = await bootLocal();
+    const project = new Project(newProjectData('Sigma'));
+    app.setProject(project, await storage.newLocation('Sigma', project.id));
+    const doc = project.docs[0];
+    app.panels.projects
+      ._docMenu(doc)
+      .find((i) => /move from/.test(i.label))
+      .run();
+    await tick(10);
+    const text = document.querySelector('.dialog').textContent;
+    expect(text).not.toContain('without saving');
+    expect(text).toContain('cannot be undone');
+  });
+});
