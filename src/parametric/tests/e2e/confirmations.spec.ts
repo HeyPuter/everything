@@ -56,3 +56,25 @@ for (const replacement of ['another part', 'another sketch'] as const) for (cons
   await expect(dialog).toHaveCount(0);
   expect(errors).toEqual([]);
 });
+
+test('Delete and Suppress in the design tree act on every selected feature', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  const hole = page.getByRole('treeitem', { name: 'Hole1' });
+  const fillet = page.getByRole('treeitem', { name: 'Fillet1' });
+  await hole.click();
+  await fillet.click({ modifiers: ['ControlOrMeta'] });
+  // The context menu of a selected row suppresses the whole selection.
+  await fillet.click({ button: 'right' });
+  await page.getByRole('menuitem', { name: 'Suppress' }).click();
+  expect(await page.evaluate(() => (window as unknown as Handle).__parametric.store.doc.features.filter((f) => f.suppressed).map((f) => f.name))).toEqual(['Hole1', 'Fillet1']);
+  // The Delete key on a selected row deletes the whole selection.
+  await fillet.focus();
+  await page.keyboard.press('Delete');
+  const dialog = page.getByRole('dialog', { name: 'Delete', exact: true });
+  await expect(dialog).toContainText('Hole1, Fillet1?');
+  await dialog.getByRole('button', { name: 'Delete', exact: true }).click();
+  await expect(hole).toHaveCount(0);
+  await expect(fillet).toHaveCount(0);
+  expect(errors).toEqual([]);
+});

@@ -446,17 +446,18 @@ export function contextItems(app: App, target: 'viewport' | 'feature' | 'referen
   if (target === 'feature' && id) {
     const f = app.store.feature(id)!;
     const idx = app.store.indexOf(id);
+    const ids = app.tree.targets(id);
     return [
       f.type === 'sketch' ? { label: 'Edit Sketch', icon: 'sketch', run: () => app.editSketch(id) } : { label: 'Edit Feature', icon: 'edit', run: () => app.editFeature(id) },
       { label: 'Rename', icon: 'text', shortcut: 'F2', run: () => app.tree.startRename(id) },
       sep,
       ...(f.type === 'sketch' || f.type === 'plane' ? [{ label: f.hidden ? 'Show' : 'Hide', icon: f.hidden ? 'eye' : 'eyeOff', run: () => app.toggleHidden([id]) } as MenuItem] : []),
-      { label: f.suppressed ? 'Unsuppress' : 'Suppress', icon: f.suppressed ? 'eye' : 'eyeOff', run: () => app.toggleSuppress([id]) },
+      { label: f.suppressed ? 'Unsuppress' : 'Suppress', icon: f.suppressed ? 'eye' : 'eyeOff', run: () => app.toggleSuppress(ids, !f.suppressed) },
       { label: 'Roll Back to Here', icon: 'upToLine', run: () => app.setRollback(idx) },
       { label: 'Roll to End', icon: 'downToLine', disabled: app.store.doc.rollback == null, run: () => app.setRollback(null) },
       ...(f.type === 'sketch' || f.type === 'plane' ? [{ label: 'Normal To', icon: 'normalTo', run: () => { const fr = f.type === 'sketch' ? app.frameOfSketch(f) : app.frameOfPlane({ kind: 'feature', id }); if (fr) app.viewport.normalTo(fr); } } as MenuItem] : []),
       sep,
-      { label: 'Delete', icon: 'trash', shortcut: 'Delete', run: () => void app.deleteFeatures([id]) },
+      { label: 'Delete', icon: 'trash', shortcut: 'Delete', run: () => void app.deleteFeatures(ids) },
     ];
   }
   const sel = app.selection.items[0];

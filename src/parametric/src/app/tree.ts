@@ -247,6 +247,15 @@ export class FeatureTree {
     else if (r.key === 'part') this.app.commands.run('properties');
   }
 
+  /**
+   * The features a row's Delete or context-menu command acts on: the whole
+   * selection when the row is part of it (as in a file manager), else the row.
+   */
+  targets(id: Id): Id[] {
+    const sel = this.app.selection.ofKind('feature').map((x) => x.id);
+    return sel.includes(id) ? sel : [id];
+  }
+
   focus(key: string) {
     this.focusKey = key;
     requestAnimationFrame(() => this.list.querySelector<HTMLElement>(`[data-key="${CSS.escape(key)}"]`)?.focus());
@@ -301,7 +310,7 @@ export class FeatureTree {
         break;
       case 'Delete':
       case 'Backspace':
-        if (this.app.store.feature(key)) { e.preventDefault(); e.stopPropagation(); this.app.deleteFeatures([key]); }
+        if (this.app.store.feature(key)) { e.preventDefault(); e.stopPropagation(); void this.app.deleteFeatures(this.targets(key)); }
         break;
     }
   }
