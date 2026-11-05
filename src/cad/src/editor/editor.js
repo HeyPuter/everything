@@ -1310,7 +1310,7 @@ export class Editor {
       gripSize: st.gripSize,
       rubber: [],
       readouts: [],
-      ucs: st.showUcs === false ? null : { sx: 28, sy: cam.height - 28 },
+      ucs: st.showUcs === false ? null : { sx: 28, sy: cam.height - 28 - (this.ui.ucsLift?.() ?? 0) },
     };
     if (this.snap) {
       const s = cam.toScreen(this.snap.x, this.snap.y);

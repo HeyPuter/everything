@@ -185,6 +185,7 @@ export class App {
       selectionChanged: () => this.selectionChanged(),
       viewChanged: () => this.viewChanged(),
       viewInsets: () => this.viewInsets(),
+      ucsLift: () => this.ucsLift(),
       commandChanged: (def) => this.commandChanged(def),
       editEntity: (id) => this.editEntity(id),
       chooseBlock: () => this.blocks.choose(),
@@ -1146,6 +1147,17 @@ export class App {
     return ins;
   }
 
+  /** How far to raise the UCS icon so the command line does not cover it, in px. */
+  ucsLift() {
+    const wrap = this.shell.canvasWrap.getBoundingClientRect();
+    const line = this.cmdline.line.getBoundingClientRect();
+    // The icon and its X label take about 80 px from the canvas's left edge.
+    if (!line.height || line.left - wrap.left > 80) return 0;
+    // Also clear the recent messages shown above the line (at most 72 px, see
+    // .cmd-history in chrome.css), so the icon doesn't jump as they come and go.
+    return Math.max(0, wrap.bottom - line.top - 14 + 72);
+  }
+
   focusCanvas() {
     this.shell.overlay.focus({ preventScroll: true });
   }
@@ -1183,6 +1195,8 @@ export class App {
     new ResizeObserver(() => {
       s.workspace.style.setProperty('--dock-w', `${s.dock.offsetWidth}px`);
       s.workspace.style.setProperty('--dock-h', `${s.dock.offsetHeight}px`);
+      // The command line moves with an overlaid palette; so does the UCS icon above it.
+      this.editor.drawOverlay();
     }).observe(s.dock);
     s.dockResize.addEventListener('keydown', (e) => {
       if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
