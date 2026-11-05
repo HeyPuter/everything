@@ -7,6 +7,7 @@ import { comboOf } from '../src/app/commands.js';
 import { setPuterForTests } from '../src/app/puter.js';
 import * as storage from '../src/app/storage.js';
 import { openProjectDialog } from '../src/app/dialogs.js';
+import { shareDialog } from '../src/app/share.js';
 import { openDialog } from '../src/ui/dialog.js';
 import { Project, newProjectData } from '../src/model/project.js';
 
@@ -454,6 +455,44 @@ describe('dialogs', () => {
       else delete proto.scrollHeight;
       if (ch) Object.defineProperty(proto, 'clientHeight', ch);
       else delete proto.clientHeight;
+    }
+  });
+});
+
+describe('share dialog', () => {
+  it('Enter in the name field shares without closing the dialog', async () => {
+    const shared = [];
+    setPuterForTests({
+      env: 'web',
+      auth: { isSignedIn: () => true },
+      fs: {
+        getShares: async () => [],
+        share: async (path, who, mode) => {
+          shared.push([path, who, mode]);
+          return [{ isNew: true }];
+        },
+      },
+    });
+    try {
+      const app = {
+        location: { type: 'cloud', path: 'Projects/A.circuits' },
+        project: { name: 'A', dirty: false },
+        toast: () => {},
+      };
+      const done = shareDialog(app);
+      await tick(20);
+      const input = document.querySelector('.dialog input');
+      input.value = 'ada';
+      input.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
+      );
+      await tick(20);
+      expect(shared).toEqual([['Projects/A.circuits', { username: 'ada' }, 'read']]);
+      expect(document.querySelector('.dialog')).not.toBeNull();
+      document.querySelector('.dialog-foot .btn.primary').click();
+      await done;
+    } finally {
+      setPuterForTests(null);
     }
   });
 });

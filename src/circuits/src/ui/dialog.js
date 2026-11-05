@@ -58,7 +58,8 @@ export function openDialog({ title, body, actions = [{ label: 'Close', primary: 
   backdrop.addEventListener('click', (e) => { if (e.target === backdrop && backdrop.dataset.downOutside) close(undefined); delete backdrop.dataset.downOutside; });
   dialog.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(undefined); }
-    else if (e.key === 'Enter' && !e.shiftKey && e.target.tagName !== 'TEXTAREA' && e.target.tagName !== 'BUTTON' && e.target.tagName !== 'SELECT') {
+    // A field that handles Enter itself (prevents the default) keeps it.
+    else if (e.key === 'Enter' && !e.shiftKey && !e.defaultPrevented && e.target.tagName !== 'TEXTAREA' && e.target.tagName !== 'BUTTON' && e.target.tagName !== 'SELECT') {
       const primary = actions.find((a) => a.primary);
       if (primary?.el && !primary.el.disabled) { e.preventDefault(); primary.el.click(); }
     }
