@@ -259,10 +259,14 @@ export class CanvasView extends Emitter {
       } else if (e.shiftKey) this.renderer.panBy(-dy, -dx);
       else this.renderer.panBy(-dx, -dy);
       this.onViewChanged();
-      // Keep the snapped cursor in sync with the new view.
+      // Keep the snapped cursor in sync with the new view, and anything being
+      // dragged under it (the select tool's `move` is its move session, not a
+      // handler, so only call functions).
       const ev = this._event(e);
       this.cursor = { ...this.cursor, x: ev.x, y: ev.y, sx: ev.sx, sy: ev.sy };
-      this.tool?.move?.(ev);
+      if (press) {
+        if (press.dragging) this.tool?.drag?.(ev, press.ev);
+      } else if (typeof this.tool?.move === 'function') this.tool.move(ev);
     }, { passive: false });
 
     // Safari trackpad pinch.
