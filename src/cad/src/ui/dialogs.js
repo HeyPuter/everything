@@ -885,7 +885,9 @@ export async function linetypesDialog(app) {
   const body = h('form', { onSubmit: (e) => e.preventDefault() }, h('p.field-hint', 'Checked linetypes are available in this drawing.'), h('div.lt-list', rows), field('Global linetype scale', lts));
   const r = await openDialog({ title: 'Linetypes', body, size: 'md', actions: [{ label: 'Cancel' }, { label: 'OK', primary: true, value: true }] });
   if (!r) return;
-  const used = new Set([...d.entities.values()].map((e) => e.linetype).concat([...d.layers.values()].map((l) => l.linetype)));
+  const used = new Set([...d.layers.values()].map((l) => l.linetype));
+  for (const e of d.entities.values()) used.add(e.linetype);
+  for (const b of d.blocks.values()) for (const e of b.entities) used.add(e.linetype);
   d.transaction('Linetypes', () => {
     for (const c of rows) {
       const inp = c.querySelector('input');
