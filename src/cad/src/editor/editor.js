@@ -1393,7 +1393,8 @@ async function gripEdit(ed, grip, fromPointer) {
   let mode = 0;
   let base = { x: grip.x, y: grip.y };
   let copy = false;
-  const ids = [...ed.selection];
+  // Objects on layers locked since they were selected stay put.
+  const ids = [...ed.selection].filter((id) => ed._editable(id));
   ed.hotGrip = grip;
   const options = [
     { key: 'B', label: 'Base point', value: 'base' },

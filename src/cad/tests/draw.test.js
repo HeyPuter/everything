@@ -352,3 +352,26 @@ describe('per-drawing last point', () => {
     expect(t.all('line').at(-1)).toMatchObject({ x1: 10, y1: 0, x2: 10, y2: 10 });
   });
 });
+
+describe('grip editing and locked layers', () => {
+  it('leaves selected objects on a layer locked afterwards in place', async () => {
+    t.drawing.transaction('layer', () =>
+      t.drawing.setTable('layers', 'L1', { ...t.drawing.layer('0'), name: 'L1' }),
+    );
+    await t.type('LINE', '0,0', '10,0', '');
+    await t.type('LINE', '0,5', '10,5', '');
+    const [a, b] = [...t.drawing.entities.keys()];
+    t.drawing.transaction('layer', () => t.drawing.update(a, { layer: 'L1' }));
+    t.ed.setSelection([a, b]);
+    t.drawing.transaction('lock', () =>
+      t.drawing.setTable('layers', 'L1', { ...t.drawing.layer('L1'), locked: true }),
+    );
+    t.ed.refreshGrips();
+    const i = t.ed.grips.findIndex((g) => g.id === b);
+    t.ed._startGripEdit(i, null);
+    await flush();
+    await t.type('', '@0,3');
+    expect(t.drawing.get(a)).toMatchObject({ y1: 0, y2: 0 });
+    expect(t.drawing.get(b)).toMatchObject({ y1: 8, y2: 8 });
+  });
+});
