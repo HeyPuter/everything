@@ -439,9 +439,10 @@ export class Viewport {
 
   /** Combines a GPU pick with CPU tests for planes and the origin. */
   itemFromHit(x: number, y: number, f: PickFilter, hit: PickHit | null): SelItem | null {
-    if (hit && hit.kind === 'face' && f.planarOnly && this.app.faces[hit.index]?.type !== 'plane') hit = null;
     const ray = this.camera.ray(x, y);
+    // A face that may not be picked still hides the planes behind it.
     const hitDist = hit?.point ? dot(sub(hit.point, ray.o), ray.d) : Infinity;
+    if (hit && hit.kind === 'face' && f.planarOnly && this.app.faces[hit.index]?.type !== 'plane') hit = null;
     // Origin and axes first: tiny targets.
     if (f.plane && (this.showOrigin || this.app.inSketch)) {
       const o = this.camera.project([0, 0, 0]);

@@ -422,6 +422,23 @@ test.describe('viewport', () => {
     expect(r).toEqual({ hover: [true, true], selected: [true, true] });
   });
 
+  test('a plane behind a face that may not be picked is not picked through it', async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+    await waitForFeature(page, 'Fillet1');
+    await expect.poll(() => page.evaluate(() => !!(window as unknown as Win).__parametric.bbox)).toBe(true);
+    const item = await page.evaluate(() => {
+      const app = (window as unknown as Win).__parametric;
+      // The fillet's cylindrical face, with the Front Plane shown behind it; only planar faces count.
+      const f = app.faces.find((x) => x.type === 'cylinder' && (x.radius ?? 0) > 3)!;
+      app.viewport.showPlanes = true;
+      app.viewport.drawReferenceGeometry();
+      const [x, y] = app.viewport.project(f.center);
+      return app.viewport.pickItem(x, y, { plane: true, planarOnly: true, face: true });
+    });
+    expect(item).toBeNull();
+  });
+
   test('line display styles keep visible edges readable in both themes', async ({ page }) => {
     await openApp(page);
     const contrast = () => page.evaluate(() => {
