@@ -185,7 +185,12 @@ export async function* puterChat(messages: ChatMessage[], opts: ChatOptions = {}
   if (!p?.ai?.chat) throw Object.assign(new Error('The assistant needs Puter, which is not available right now. Check your connection and reload.'), { code: 'puter_unavailable' });
   const options: Record<string, unknown> = { stream: true };
   if (opts.model) options.model = opts.model;
-  if (opts.tools?.length) options.tools = opts.tools;
+  if (opts.tools?.length) {
+    options.tools = opts.tools;
+    // Puter lets the model call one tool per reply unless asked: independent
+    // reads (the part, its edges, a sketch) would each cost a round trip.
+    options.parallelToolCalls = true;
+  }
   if (opts.maxTokens) options.max_tokens = opts.maxTokens;
   // The SDK aborts its request on the signal. The stream is also ended
   // directly: a generator's return() waits for the part it is waiting on, and

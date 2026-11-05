@@ -463,6 +463,39 @@ describe('assistant agent', () => {
     expect(text).toBe('finished');
   });
 
+  it('lets the model call several tools in one reply, and runs no further changes after one fails', async () => {
+    let options: Record<string, unknown> = {};
+    (globalThis as unknown as { puter?: unknown }).puter = { ai: { chat: async (_m: unknown, o: Record<string, unknown>) => { options = o; return { message: { content: 'ok' } }; } } };
+    try {
+      for await (const _ of puterChat([{ role: 'user', content: 'hi' }], { tools: [{ type: 'function' }] })) { /* drain */ }
+    } finally {
+      delete (globalThis as unknown as { puter?: unknown }).puter;
+    }
+    // Puter allows one call per reply unless asked.
+    expect(options.parallelToolCalls).toBe(true);
+
+    const ran: string[] = [];
+    const requests: ChatMessage[][] = [];
+    const replies: StreamPart[][] = [
+      [{ type: 'tool', id: 'a', name: 'create_sketch', input: {} }, { type: 'tool', id: 'b', name: 'get_model', input: {} }, { type: 'tool', id: 'c', name: 'add_extrude', input: { sketch: 's2' } }, { type: 'tool', id: 'd', name: 'find_geometry', input: {} }],
+      [{ type: 'text', text: 'Fixed.' }],
+    ];
+    const agent = createAgent({
+      chat: (m) => { requests.push(structuredClone(m)); const r = replies.shift()!; return (async function* () { yield* r; })(); },
+      tools: () => [],
+      runTool: async (name) => { ran.push(name); return name === 'create_sketch' ? { ok: false, content: 'Error: over-defined' } : { ok: true, content: name }; },
+      system: 'S', snapshot: () => '', model: () => 'm',
+      changes: (name) => /^(create_|add_)/.test(name),
+    });
+    const res = await agent.send('make a boss', () => {});
+    // The extrude was written for a sketch that was never made; the reads still run.
+    expect(ran).toEqual(['create_sketch', 'get_model', 'find_geometry']);
+    expect(res.steps.map((s) => s.status)).toEqual(['error', 'done', 'skipped', 'done']);
+    const results = requests[1].filter((m) => m.role === 'tool') as { tool_call_id: string; content: string }[];
+    expect(results.map((m) => m.tool_call_id)).toEqual(['a', 'b', 'c', 'd']);
+    expect(results[2].content).toMatch(/^Not run: create_sketch earlier in this reply failed/);
+  });
+
   it('reads earlier turns from the prompt cache, writing only what is new', async () => {
     const cache = promptCache();
     const firsts: { read: number; written: number }[] = [];

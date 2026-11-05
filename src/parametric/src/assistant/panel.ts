@@ -16,7 +16,7 @@ import { renderMarkdown } from './markdown';
 import { ATTACH_ACCEPT, type Attachment, MAX_ATTACHMENTS, MAX_TEXT_CHARS, attachmentKind, attachmentProblem, attachmentsTooLarge, formatSize } from './attach';
 import { readAttachment } from './attachments';
 import { SYSTEM_PROMPT, partSnapshot } from './prompt';
-import { runTool, toolSpecs } from './tools';
+import { changesDocument, runTool, toolSpecs } from './tools';
 
 export const ASSISTANT_MODEL = 'claude-opus-5-5';
 
@@ -149,6 +149,7 @@ export class AssistantPanel {
       system: SYSTEM_PROMPT,
       snapshot: () => partSnapshot(this.host),
       model: () => ASSISTANT_MODEL,
+      changes: changesDocument,
     });
 
     this.newChat = h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'New chat', title: 'New chat' }, icon('newChat', 16)) as HTMLButtonElement;
