@@ -12,6 +12,10 @@ import { Batch } from '../src/render/batch.js';
 import { drawSheet, sheetFrame } from '../src/render/sch-scene.js';
 import { SCH_PALETTES } from '../src/render/palette.js';
 import { Settings } from '../src/app/settings.js';
+import { drawSchObject } from '../src/render/sch-scene.js';
+import { schBounds } from '../src/model/sch.js';
+import { schObjectPrims } from '../src/io/schgraphics.js';
+import { textStrokes } from '../src/render/font.js';
 
 async function boot() {
   document.body.innerHTML = '<div id="app"></div><div id="live-region"></div>';
@@ -551,5 +555,75 @@ describe('crosshair cursor preferences', () => {
     new Settings().set('pcbCrosshair', true);
     expect(new Settings().get('pcbCrosshair')).toBe(true);
     localStorage.clear();
+  });
+});
+
+describe('rotated free text', () => {
+  const strokesOf = (o) => {
+    const b = new Batch();
+    drawSchObject(b, o, {}, SCH_PALETTES.light);
+    const seg = b.bufs.seg;
+    const out = [];
+    for (let i = 0; i < seg.count; i++) {
+      const k = i * seg.stride;
+      out.push(
+        [seg.f[k], seg.f[k + 1], seg.f[k + 2], seg.f[k + 3]].map((v) => Math.round(v * 1000)),
+      );
+    }
+    return out;
+  };
+  const text = (rot) => ({
+    id: 't',
+    t: 'text',
+    x: mil(1000),
+    y: mil(1000),
+    text: 'Vin 12V',
+    size: mil(60),
+    rot,
+  });
+
+  it('reads upright at 180 and 270 degrees, covering the same box', () => {
+    const upsideDown = textStrokes('Vin 12V', mil(1000), mil(1000), mil(60), 180);
+    const xs = upsideDown.flatMap((s) => s.filter((_, i) => i % 2 === 0));
+    // Upright: the first glyph is the leftmost one and strokes go left to right.
+    const s180 = strokesOf(text(180));
+    const s0 = strokesOf(text(0));
+    expect(s180.length).toBe(s0.length);
+    const minX = Math.min(...s180.map((l) => Math.min(l[0], l[2])));
+    expect(minX).toBeCloseTo(Math.min(...xs), -3);
+    // Glyph shapes match unrotated text, shifted: compare the first stroke's direction.
+    const d = (l) => [Math.sign(l[2] - l[0]), Math.sign(l[3] - l[1])];
+    expect(s180.map(d)).toEqual(s0.map(d));
+    // 270 reads like 90.
+    expect(strokesOf(text(270)).map(d)).toEqual(strokesOf(text(90)).map(d));
+  });
+
+  it('keeps bounds, hit-testing and the SVG exporter in step with the canvas', () => {
+    for (const rot of [0, 90, 180, 270]) {
+      const o = text(rot);
+      const bb = schBounds(o, {});
+      for (const l of strokesOf(o)) {
+        for (const [x, y] of [
+          [l[0], l[1]],
+          [l[2], l[3]],
+        ]) {
+          expect(x).toBeGreaterThanOrEqual(bb.minX - 2000);
+          expect(x).toBeLessThanOrEqual(bb.maxX + 2000);
+          expect(y).toBeGreaterThanOrEqual(bb.minY - 2000);
+          expect(y).toBeLessThanOrEqual(bb.maxY + 2000);
+        }
+      }
+      const [p] = schObjectPrims(o, {});
+      const exported = textStrokes(p.text, p.x, p.y, p.size, p.rot, p.align);
+      const canvas = textStrokes(
+        o.text,
+        o.x,
+        o.y,
+        o.size,
+        rot === 180 || rot === 270 ? rot - 180 : rot,
+        rot === 180 || rot === 270 ? { h: 'right', v: 'top' } : undefined,
+      );
+      expect(exported).toEqual(canvas);
+    }
   });
 });

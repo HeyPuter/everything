@@ -242,7 +242,8 @@ export function drawSchObject(b, o, lib, pal, override) {
       b.line(o.x - s, o.y - s, o.x + s, o.y + s, mil(10), c); b.line(o.x - s, o.y + s, o.x + s, o.y - s, mil(10), c);
       break;
     }
-    case 'text': b.text(o.text, o.x, o.y, o.size || SCH_TEXT, override ?? pack(pal.text), { rot: o.rot || 0 }); break;
+    // Free text stays readable at 180 and 270 degrees, as in KiCad.
+    case 'text': b.text(o.text, o.x, o.y, o.size || SCH_TEXT, override ?? pack(pal.text), { rot: o.rot || 0, upright: true }); break;
     case 'gline': b.polyline(o.pts, o.w || LINE_W, override ?? pack(pal.graphic)); break;
     case 'grect': drawGraphic(b, { t: 'rect', x1: o.x1, y1: o.y1, x2: o.x2, y2: o.y2, w: o.w, fill: o.fill ? 'body' : undefined }, override ?? pack(pal.graphic), pal); break;
     case 'gcircle': drawGraphic(b, { t: 'circle', cx: o.cx, cy: o.cy, r: o.r, w: o.w, fill: o.fill ? 'body' : undefined }, override ?? pack(pal.graphic), pal); break;
