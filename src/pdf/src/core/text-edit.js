@@ -28,6 +28,18 @@ const translation = (x, y) => [1, 0, 0, 1, x, y];
 const whitespace = (c) => /[\x00\t\n\f\r ]/.test(c);
 const delimiter = (c) => !c || whitespace(c) || '()<>[]{}/%'.includes(c);
 const unsupported = () => new Error('This text uses a PDF structure that cannot yet be edited.');
+/**
+ * Replace `source[start, end)` with `text`, separating it from its neighbors where they would
+ * otherwise read as one token: Word writes `0 Tc[(Hi)] TJ`, so text replacing the TJ must not
+ * begin `q` right after `Tc`.
+ */
+export function spliceContent(source, start, end, text) {
+  const before = start > 0 && !delimiter(source[start - 1]) && text && !delimiter(text[0]),
+    after = end < source.length && !delimiter(source[end]) && text && !delimiter(text.at(-1));
+  return (
+    source.slice(0, start) + (before ? ' ' : '') + text + (after ? ' ' : '') + source.slice(end)
+  );
+}
 
 // Every content stream operator, for checking that what follows a guessed inline image end reads
 // as content; EI and ID are left out, as they only belong inside an inline image.
@@ -368,6 +380,77 @@ const freshState = () => ({
   paintTag: 0,
 });
 
+// Word wraps each text chunk in its own structure tag and a page-sized clip, and resets paint
+// state to its defaults, none of which changes what is drawn. Text may be grouped across these,
+// or a Word line would split into one edit block per chunk.
+const PATH_OPS = new Set(['m', 'l', 'c', 'v', 'y', 'h', 're']);
+const DEFAULT_PAINT = {
+  Type: () => true,
+  BM: (t) => t.toString() === '/Normal' || t.toString() === '/Compatible',
+  CA: (t) => t.asNumber?.() === 1,
+  ca: (t) => t.asNumber?.() === 1,
+  AIS: (t) => t.toString() === 'false',
+  SMask: (t) => t.toString() === '/None',
+};
+/** An ExtGState that only sets what a fresh page already has. */
+function defaultPaint(gs) {
+  return (
+    Boolean(gs?.entries) &&
+    gs.entries().every(([key, value]) => DEFAULT_PAINT[key.decodeText()]?.(value))
+  );
+}
+/** A `x y w h re W n` clip whose rectangle contains the whole visible page. */
+function pageClip(commands, at, ctm, box) {
+  const [path, clip, end] = commands.slice(at, at + 3);
+  const values = path.args.map((t) => t.value);
+  if (
+    path.op !== 're' ||
+    !['W', 'W*'].includes(clip?.op) ||
+    end?.op !== 'n' ||
+    PATH_OPS.has(commands[at - 1]?.op) ||
+    values.length !== 4 ||
+    !values.every(Number.isFinite) ||
+    // Only an axis-aligned rectangle has corners that bound it exactly.
+    !(Math.abs(ctm[1]) + Math.abs(ctm[2]) < 1e-9 || Math.abs(ctm[0]) + Math.abs(ctm[3]) < 1e-9)
+  )
+    return false;
+  const [x, y, w, h] = values;
+  const xs = [],
+    ys = [];
+  for (const [px, py] of [
+    [x, y],
+    [x + w, y + h],
+  ]) {
+    xs.push(ctm[0] * px + ctm[2] * py + ctm[4]);
+    ys.push(ctm[1] * px + ctm[3] * py + ctm[5]);
+  }
+  const tolerance = 0.01;
+  return (
+    Math.min(...xs) <= box.x + tolerance &&
+    Math.max(...xs) >= box.x + box.width - tolerance &&
+    Math.min(...ys) <= box.y + tolerance &&
+    Math.max(...ys) >= box.y + box.height - tolerance
+  );
+}
+/** Marked content that only ties text to the structure tree: `/Span <</MCID 3 /Lang (en)>>`. */
+function structureOnly(args) {
+  const [tag, properties] = args;
+  if (
+    tag?.type !== 'name' ||
+    ['OC', 'Artifact', 'PuterParagraph', 'PuterTextDecoration'].includes(tag.value) ||
+    properties?.type !== 'dict' ||
+    properties.value.length % 2
+  )
+    return false;
+  const entries = properties.value;
+  for (let i = 0; i < entries.length; i += 2) {
+    const [key, value] = [entries[i], entries[i + 1]];
+    if (key.type !== 'name') return false;
+    if (key.value === 'MCID' ? value.type !== 'number' : key.value !== 'Lang') return false;
+  }
+  return true;
+}
+
 /** The color a text color control edits; stroke-only text does not paint its fill. */
 export function textColor(run) {
   return run.state.mode === 1 ? (run.strokeColor ?? run.fillColor) : run.fillColor;
@@ -443,21 +526,33 @@ export async function inspectText(doc, index, pdfPage, OPS, layers) {
     return key;
   };
   let cursor = 0,
-    barrier = 0;
+    barrier = 0,
+    box;
   const walk = (source, resources, initial, path = [], ancestors = new Set()) => {
     if (path.length > 20) throw unsupported();
     let s = { ...initial },
       paragraphData = null,
       // The q … BDC … EMC Q block (plus the position-restoring trailer) that an earlier
       // paragraph edit wrote around the runs, so the next edit can replace it whole.
-      wrapper = null;
+      wrapper = null,
+      // The last command of a page-sized clip, which clips nothing.
+      clipEnd = -1;
     const stack = [],
       marked = [];
     const commands = parseContent(source, { inlineImages: true });
     for (const [at, command] of commands.entries()) {
       const { op, args } = command;
       const a = args.map((t) => t.value);
+      const gs = op === 'gs' ? get(get(resources, 'ExtGState'), a[0]) : null;
+      let neutral = at <= clipEnd;
+      if (!neutral && op === 're' && pageClip(commands, at, s.ctm, box)) {
+        clipEnd = at + 2;
+        neutral = true;
+      } else if (op === 'BDC') neutral = structureOnly(args);
+      else if (op === 'EMC') neutral = Boolean(marked.at(-1)?.neutral);
+      else if (op === 'gs') neutral = s.paintTag === 0 && defaultPaint(gs);
       if (
+        !neutral &&
         ![
           'q',
           'Q',
@@ -555,7 +650,7 @@ export async function inspectText(doc, index, pdfPage, OPS, layers) {
           break;
         case 'BMC':
         case 'BDC': {
-          marked.push({ actualText: s.actualText, paragraphData, wrapper });
+          marked.push({ actualText: s.actualText, paragraphData, wrapper, neutral });
           if (args[0]?.value === 'PuterParagraph') {
             paragraphData = readParagraphData(args);
             const opened = commands[at - 1];
@@ -602,8 +697,7 @@ export async function inspectText(doc, index, pdfPage, OPS, layers) {
           break;
         }
         case 'gs': {
-          s.paintTag = barrier;
-          const gs = get(get(resources, 'ExtGState'), a[0]);
+          if (!neutral) s.paintTag = barrier;
           // A font set through ExtGState has no local Tf name to restore reliably.
           if (get(gs, 'Font')) throw unsupported();
           break;
@@ -744,6 +838,7 @@ export async function inspectText(doc, index, pdfPage, OPS, layers) {
   };
   try {
     const page = doc.getPage(index);
+    box = page.getCropBox();
     walk(pageSource(page), page.node.Resources(), freshState());
     if (cursor !== decoded.length) throw unsupported();
     return runs;
@@ -1040,8 +1135,7 @@ async function editRuns(doc, index, edits) {
       .sort((a, b) => b.run.start - a.run.start)
       .map((edit) => editAt(edit, source, commands, copy));
     let out = source;
-    for (const change of changes)
-      out = out.slice(0, change.from) + change.text + out.slice(change.end);
+    for (const change of changes) out = spliceContent(out, change.from, change.end, change.text);
     return { source: out, resources: copy };
   };
   const rebuild = (source, resources, depth) => {

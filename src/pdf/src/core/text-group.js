@@ -56,6 +56,9 @@ export function groupTextRuns(runs) {
         Math.abs(vertical) < height * 0.04 &&
         across >= -height * 0.08 &&
         across <= height * 0.65 &&
+        // A jump beyond a space that is already there is a tab (Word's "1.<tab>Item"): a
+        // rewrite would collapse it to the space, so the two sides stay separate.
+        !(across > height * 0.12 && (/\s$/.test(last.text) || /^\s/.test(run.text))) &&
         last.text.length + run.text.length < 5000
       )
         gap = [dx, dy, across, height];

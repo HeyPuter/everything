@@ -799,3 +799,142 @@ it('shares one fallback font across every line re-encoded in the same edit', asy
     'one two three four five six seven eight nine eleven',
   );
 });
+
+// Word exports every text chunk inside its own structure tag and a page-sized clip, and sets
+// default paint state between chunks (issue #167).
+async function wordFixture(source) {
+  const doc = await PDFDocument.create(),
+    p = doc.addPage([400, 400]);
+  const f = await doc.embedFont(StandardFonts.Helvetica);
+  p.node.set(
+    PDFName.of('Resources'),
+    doc.context.obj({
+      Font: { F: f.ref },
+      ExtGState: {
+        G0: { Type: 'ExtGState', BM: 'Normal', ca: 1 },
+        G1: { Type: 'ExtGState', BM: 'Normal', CA: 1 },
+        Half: { Type: 'ExtGState', ca: 0.5 },
+      },
+    }),
+  );
+  p.node.set(PDFName.of('Contents'), doc.context.register(doc.context.flateStream(source)));
+  return { bytes: await doc.save(), font: f };
+}
+let mcid = 0;
+const wordChunk = (x, y, text, before = '/G0 gs 0 g /G1 gs 0 G') =>
+  `/Span <</MCID ${mcid++}/Lang (en-US)>> BDC q 0.00000912 0 400 400 re W* n BT /F 12 Tf 1 0 0 1 ${x} ${y} Tm ${before}[(${text})] TJ ET Q EMC `;
+
+it('joins Word-exported chunks into lines and edits a highlighted list item as one line', async () => {
+  const { font } = await wordFixture(''),
+    width = (text) => font.widthOfTextAtSize(text, 12);
+  const items = [
+    ['Characterize', ' a parallelogram.'],
+    ['Compare', ' between a parallelogram and a square.'],
+    ['Draw', ' a parallelogram.'],
+  ];
+  let source = '';
+  items.forEach(([word, rest], i) => {
+    const y = 300 - i * 16;
+    source +=
+      wordChunk(60, y, '\\225') +
+      wordChunk(60 + width('•'), y, ' ') +
+      `/P <</MCID ${mcid++}>> BDC 1 1 0 rg 80 ${y - 3} ${width(word)} 14 re f* EMC ` +
+      wordChunk(80, y, word) +
+      wordChunk(80 + width(word), y, rest);
+  });
+  const r = await read((await wordFixture(source)).bytes);
+  const blocks = groupTextParagraphs(r.groups);
+  expect(blocks.map((b) => b.text)).toEqual([
+    '• ',
+    'Characterize a parallelogram.',
+    '• ',
+    'Compare between a parallelogram and a square.',
+    '• ',
+    'Draw a parallelogram.',
+  ]);
+  const line = blocks[3];
+  await replaceTextGroup(r.doc, 0, line, 'Contrast between a parallelogram and a square.');
+  const next = await read(await r.doc.save());
+  expect(groupTextParagraphs(next.groups).map((b) => b.text)).toEqual([
+    '• ',
+    'Characterize a parallelogram.',
+    '• ',
+    'Contrast between a parallelogram and a square.',
+    '• ',
+    'Draw a parallelogram.',
+  ]);
+  const edited = visible(next).find((run) => run.text.startsWith('Contrast'));
+  expect(edited.transform.slice(4)).toEqual([80, 284]);
+  // The rest of the line moved with the edit; no stale copy remains at its old position.
+  expect(visible(next).some((run) => run.text.startsWith(' between'))).toBe(false);
+  for (const run of visible(r).filter((run) => run.transform[5] !== 284))
+    expect(
+      visible(next).find((n) => n.text === run.text && n.transform[5] === run.transform[5]),
+    ).toBeTruthy();
+});
+
+it('still splits Word-style chunks at real clips, artifacts, optional content and paint changes', async () => {
+  const chunk = (x, text, open, close = '') =>
+    `${open} q 0.00000912 0 400 400 re W* n BT /F 12 Tf 1 0 0 1 ${x} 300 Tm 0 g [(${text})] TJ ET Q ${close} `;
+  const { font } = await wordFixture(''),
+    x = 40 + font.widthOfTextAtSize('Hello', 12);
+  const span = '/Span <</MCID 0>> BDC';
+  for (const [label, second] of [
+    ['artifact', chunk(x, ' world', '/Artifact <</MCID 1>> BDC', 'EMC')],
+    ['optional content', chunk(x, ' world', '/OC <</MCID 1>> BDC', 'EMC')],
+    ['named properties', chunk(x, ' world', '/Span /P0 BDC', 'EMC')],
+    ['transparency', chunk(x, ' world', '/Span <</MCID 1>> BDC /Half gs', 'EMC')],
+    [
+      'small clip',
+      `${span} q 0 0 200 400 re W* n BT /F 12 Tf 1 0 0 1 ${x} 300 Tm 0 g ( world) Tj ET Q EMC`,
+    ],
+  ]) {
+    const r = await read((await wordFixture(chunk(40, 'Hello', span, 'EMC') + second)).bytes);
+    expect(
+      r.groups.filter((g) => g.text).map((g) => g.text),
+      label,
+    ).toEqual(['Hello', ' world']);
+  }
+  // A default-valued state after a transparent one changes what is painted.
+  const r = await read(
+    (
+      await wordFixture(
+        `/Half gs ${chunk(40, 'Hello', span, 'EMC')}/G0 gs ${chunk(x, ' world', '/Span <</MCID 1>> BDC', 'EMC')}`,
+      )
+    ).bytes,
+  );
+  expect(r.groups.map((g) => g.text)).toEqual(['Hello', ' world']);
+  const joined = await read(
+    (
+      await wordFixture(
+        chunk(40, 'Hello', span, 'EMC') + chunk(x, ' world', '/Span <</MCID 1>> BDC', 'EMC'),
+      )
+    ).bytes,
+  );
+  expect(joined.groups.map((g) => g.text)).toEqual(['Hello world']);
+});
+
+it('keeps a Word list label apart from its tabbed text and edits operators written without spaces', async () => {
+  const { font } = await wordFixture(''),
+    width = (text) => font.widthOfTextAtSize(text, 12);
+  // Word writes `0.048 Tc[(1.)] TJ`, and a tab as a space followed by a jump to the tab stop.
+  const source =
+    wordChunk(60, 300, '1.', '0 g 0.048 Tc') +
+    wordChunk(60 + width('1.') + 0.1, 300, ' ') +
+    wordChunk(78, 300, 'First item') +
+    wordChunk(78 + width('First item'), 300, ' text');
+  const r = await read((await wordFixture(source)).bytes);
+  expect(r.groups.map((g) => g.text)).toEqual(['1. ', 'First item text']);
+  for (const [index, hex] of [
+    [0, '#ff0000'],
+    [1, '#0000ff'],
+  ]) {
+    const current = await read(await r.doc.save());
+    await replaceTextGroup(r.doc, 0, current.groups[index], current.groups[index].text, { hex });
+  }
+  const next = await read(await r.doc.save());
+  expect(next.groups.map((g) => g.text)).toEqual(['1. ', 'First item text']);
+  expect(next.groups.map((g) => g.fillColor)).toEqual(['#ff0000', '#0000ff']);
+  // The text after the tab keeps its tab stop.
+  expect(next.groups[1].transform[4]).toBeCloseTo(78, 5);
+});
