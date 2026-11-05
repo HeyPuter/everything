@@ -521,16 +521,20 @@ export class ModelBuilder {
   }
 
   /** Distance from a plane point along dir to just past the far side of the body. */
-  private throughAllDepth(st: State, origin: Vec3, dir: Vec3): number {
+  private throughAllDepth(st: State, origin: Vec3, dir: Vec3, cut = true): number {
     const b = st.body ? boxOf(st.body) : null;
-    if (!b) return 1000;
+    if (!b) {
+      if (!cut) throw new FeatureError('Through All needs a body to extrude through. Use Blind.');
+      return 1000;
+    }
     let far = 0;
     for (let i = 0; i < 8; i++) {
       const c: Vec3 = [i & 1 ? b.max[0] : b.min[0], i & 2 ? b.max[1] : b.min[1], i & 4 ? b.max[2] : b.min[2]];
       far = Math.max(far, dot(sub(c, origin), dir));
     }
-    // A small margin past the body avoids coincident faces in the boolean.
-    return far + Math.max(1e-3, dist(b.min, b.max) * 0.01);
+    // A cut goes a little past the body, which avoids coincident faces in
+    // the boolean; a boss stops at the far side of the body.
+    return cut ? far + Math.max(1e-3, dist(b.min, b.max) * 0.01) : far;
   }
 
   private applyExtrude(f: ExtrudeFeature, st: State) {
@@ -538,14 +542,15 @@ export class ModelBuilder {
     const { regions, frame } = this.sketchRegions(f.sketch, st, f.contours);
     const sign = (f.cut ? -1 : 1) * (f.flip ? -1 : 1);
     const dir = scale(frame.n, sign);
-    let d1 = f.end === 'throughAll' ? this.throughAllDepth(st, frame.o, dir) : num(f.depth);
-    if (d1 <= 0) throw new FeatureError('Depth must be greater than zero');
+    let d1 = f.end === 'throughAll' ? this.throughAllDepth(st, frame.o, dir, f.cut) : num(f.depth);
+    const noBody = 'There is no body to extrude through in this direction. Reverse the direction or use Blind.';
+    if (d1 <= 0) throw new FeatureError(f.end === 'throughAll' ? noBody : 'Depth must be greater than zero');
     let start = 0;
     let total = d1;
     if (f.end === 'midPlane') { start = -d1 / 2; total = d1; }
     else if (f.dir2) {
-      const d2 = f.dir2.end === 'throughAll' ? this.throughAllDepth(st, frame.o, scale(dir, -1)) : num(f.dir2.depth);
-      if (!(d2 > 0)) throw new FeatureError('Direction 2 depth must be greater than zero');
+      const d2 = f.dir2.end === 'throughAll' ? this.throughAllDepth(st, frame.o, scale(dir, -1), f.cut) : num(f.dir2.depth);
+      if (!(d2 > 0)) throw new FeatureError(f.dir2.end === 'throughAll' ? noBody : 'Direction 2 depth must be greater than zero');
       start = -d2; total = d1 + d2;
     }
     d1 = total;

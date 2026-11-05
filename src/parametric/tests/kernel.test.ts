@@ -53,6 +53,20 @@ describe('feature regeneration', () => {
     expect(res.bbox!.min[2]).toBeCloseTo(-10, 6);
   });
 
+  it('extrudes a boss through all up to the far side of the body', async () => {
+    const b = new ModelBuilder();
+    const base: Feature[] = [sketch('S1', rect(0, 0, 10, 10)), extrude('E1', 'S1', 10)];
+    const pin = (extra: Parameters<typeof extrude>[3]) => [...base, sketch('S2', circle(5, 15, 2)), extrude('E2', 'S2', 1, { end: 'throughAll', ...extra })];
+    let r = await b.build(req(pin({})));
+    expect(r.status[3]).toEqual({ id: 'E2', ok: true });
+    expect(r.bbox!.max[2]).toBeCloseTo(10, 9);
+    expect(volume(b)).toBeCloseTo(1000 + Math.PI * 4 * 10, 3);
+    r = await b.build(req(pin({ flip: true })));
+    expect(r.status[3].error).toMatch(/no body to extrude through/);
+    r = await b.build(req([sketch('S2', circle(5, 15, 2)), extrude('E2', 'S2', 1, { end: 'throughAll' })]));
+    expect(r.status[1].error).toMatch(/needs a body/);
+  });
+
   it('drafts both directions of an extrusion away from the sketch plane', async () => {
     const t = Math.tan((5 * Math.PI) / 180);
     // Square frustum of side 20 at the sketch plane, height h, tapering inward.
