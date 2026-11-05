@@ -63,6 +63,7 @@ async function boot() {
   void refreshAccount(app);
   void app.loadRemoteSettings();
   files.handleLaunchItems();
+  files.handleWindowClose();
   const launched = !!puter()?.ui?.wasLaunchedWithItems?.();
   const restored = launched ? false : await files.checkRecovery();
   if (!restored && !launched) start.show();

@@ -4,7 +4,7 @@
 
 import type { Vec3 } from '../math/vec';
 import { dist, dot, normalize, sub } from '../math/vec';
-import { evaluateVariables, referencedNames, renameReferences } from '../model/expr';
+import { evaluateVariables, referencedNames, renameReferences, reservedName } from '../model/expr';
 import { changeUnits, mapExpressions } from '../model/document';
 import type { MaterialRef, SkDimension, UnitSystem, Variable } from '../model/types';
 import { UNIT_SYSTEMS, formatNumber } from '../model/units';
@@ -13,12 +13,12 @@ import { MATERIALS } from '../model/materials';
 import { mirrorEntities, offsetCurves } from '../sketch/ops';
 import { convertEdges } from '../sketch/convert';
 import { setThemeChoice, getThemeChoice, type ThemeChoice } from '../platform/theme';
-import { h, formatShortcut, isMac } from '../ui/dom';
+import { h, formatShortcut, isMac, nextDomId } from '../ui/dom';
 import { icon } from '../ui/icons';
 import { showDialog, toast } from '../ui/overlay';
 import type { App } from './app';
 import { PropertyPanel, SelectionBox, type SelBoxItem, checkbox, numberField, section, selectField, segmented } from './pm';
-import type { SelItem } from './selection';
+import { type SelItem, remapItem } from './selection';
 import type { MeasureTarget } from '../kernel/protocol';
 import { REPO_URL } from './shell';
 
@@ -36,32 +36,61 @@ export async function equationsDialog(app: App) {
     return src;
   });
   const originalNames = new Map(doc.variables.map((v) => [v.id, v.name]));
-  const draw = () => {
-    tbody.textContent = '';
+  // The rows are built once (and again when one is added or deleted); an edit
+  // only updates the cells it affects, so the field being left keeps its place
+  // in the tab order (rebuilding them sent keyboard focus out of the dialog).
+  const cells = new Map<Variable, { expr: HTMLInputElement; result: HTMLElement; del: HTMLElement }>();
+  const refresh = () => {
     const { values, errors } = evaluateVariables(rows);
-    rows.forEach((v, i) => {
-      const name = h('input', { class: 'input', value: v.name, 'aria-label': `Name of variable ${i + 1}`, spellcheck: 'false' }) as HTMLInputElement;
-      const expr = h('input', { class: 'input', value: v.expr, 'aria-label': `Value or expression of ${v.name || 'variable'}`, spellcheck: 'false' }) as HTMLInputElement;
-      name.addEventListener('change', () => {
-        // Other equations follow a renamed variable (dimensions and features do on OK).
-        const renamed = new Map([[v.name, name.value.trim()]]);
-        v.name = name.value.trim();
-        if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(v.name)) for (const r of rows) if (r !== v) r.expr = renameReferences(r.expr, renamed);
-        draw();
-      });
-      expr.addEventListener('change', () => { v.expr = expr.value.trim(); draw(); });
+    for (const v of rows) {
+      const c = cells.get(v)!;
+      if (c.expr.value !== v.expr) c.expr.value = v.expr;
+      c.expr.setAttribute('aria-label', `Value or expression of ${v.name || 'variable'}`);
+      c.del.setAttribute('aria-label', `Delete ${v.name}`);
       const val = values.get(v.name);
       const e = errors.get(v.name);
-      const del = h('button', { class: 'icon-btn', type: 'button', 'aria-label': `Delete ${v.name}` }, icon('trash', 16));
-      del.addEventListener('click', () => { rows.splice(i, 1); draw(); });
+      c.result.textContent = e ? e : val !== undefined ? formatNumber(val, 4) : '';
+      c.result.style.color = e ? 'var(--danger)' : '';
+      // The error is told to assistive tech on the field, not by colour alone.
+      if (e) c.expr.setAttribute('aria-invalid', 'true');
+      else c.expr.removeAttribute('aria-invalid');
+    }
+  };
+  const draw = () => {
+    tbody.textContent = '';
+    cells.clear();
+    rows.forEach((v, i) => {
+      const name = h('input', { class: 'input', value: v.name, 'aria-label': `Name of variable ${i + 1}`, spellcheck: 'false' }) as HTMLInputElement;
+      const expr = h('input', { class: 'input', value: v.expr, spellcheck: 'false' }) as HTMLInputElement;
+      name.addEventListener('change', () => {
+        // Other equations follow a renamed variable (dimensions and features do on OK).
+        // Not from or onto a name another variable has too: its equations would be merged into this one's for good.
+        const was = v.name;
+        const renamed = new Map([[was, name.value.trim()]]);
+        v.name = name.value.trim();
+        const shared = rows.some((r) => r !== v && (r.name === was || r.name === v.name));
+        if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(v.name) && !shared) for (const r of rows) if (r !== v) r.expr = renameReferences(r.expr, renamed);
+        refresh();
+      });
+      expr.addEventListener('change', () => { v.expr = expr.value.trim(); refresh(); });
+      const result = h('td', { class: 'num', id: nextDomId('eq-result') });
+      expr.setAttribute('aria-describedby', result.id);
+      const del = h('button', { class: 'icon-btn', type: 'button' }, icon('trash', 16));
+      del.addEventListener('click', () => {
+        rows.splice(i, 1);
+        draw();
+        // Focus stays in the table: on the row that moved up, else the one above, else Add variable.
+        const next = tbody.querySelectorAll<HTMLButtonElement>('button')[Math.min(i, rows.length - 1)];
+        (next ?? add).focus();
+      });
+      cells.set(v, { expr, result, del });
       tbody.append(h('tr', {},
-        h('td', {}, name), h('td', {}, expr),
-        h('td', { class: 'num', style: { color: e ? 'var(--danger)' : '' } }, e ? e : val !== undefined ? formatNumber(val, 4) : ''),
+        h('td', {}, name), h('td', {}, expr), result,
         h('td', { class: 'num' }, String(dimUses.get(originalNames.get(v.id) ?? v.name) ?? 0)),
         h('td', {}, del)));
     });
+    refresh();
   };
-  draw();
   const add = h('button', { class: 'btn small', type: 'button' }, icon('plus', 14), 'Add variable');
   add.addEventListener('click', () => {
     let n = rows.length + 1;
@@ -70,6 +99,7 @@ export async function equationsDialog(app: App) {
     draw();
     (tbody.querySelector('tr:last-child input') as HTMLInputElement | null)?.focus();
   });
+  draw();
   const v = await showDialog({
     title: 'Equations and Global Variables',
     wide: true,
@@ -84,6 +114,9 @@ export async function equationsDialog(app: App) {
       const names = rows.map((r) => r.name);
       const bad = names.find((n) => !/^[A-Za-z_][A-Za-z0-9_]*$/.test(n));
       if (bad !== undefined) { err.textContent = `"${bad}" is not a valid name. Use letters, digits and underscores, starting with a letter.`; return false; }
+      // Checked for new and renamed variables only, so a part saved with such a name still opens here.
+      const taken = rows.find((r) => originalNames.get(r.id) !== r.name && reservedName(r.name));
+      if (taken) { err.textContent = `"${taken.name}" is a constant, unit or function name. Choose another name.`; return false; }
       if (new Set(names).size !== names.length) { err.textContent = 'Variable names must be unique.'; return false; }
       const { errors } = evaluateVariables(rows);
       if (errors.size) { err.textContent = `Fix the errors first: ${[...errors].map(([k, m]) => `${k}: ${m}`).join('; ')}`; return false; }
@@ -94,6 +127,15 @@ export async function equationsDialog(app: App) {
     for (const r of rows) {
       const was = originalNames.get(r.id);
       if (was !== undefined && was !== r.name) renamed.set(was, r.name);
+    }
+    // A deleted variable's dimensions and feature values keep its value instead
+    // of failing on an unknown name (unless a variable of that name remains).
+    const before = evaluateVariables(doc.variables).values;
+    for (const [id, was] of originalNames) {
+      const value = before.get(was);
+      if (rows.some((r) => r.id === id || r.name === was) || value === undefined) continue;
+      const text = String(Number(value.toPrecision(12)));
+      renamed.set(was, value < 0 ? `(${text})` : text);
     }
     app.store.change('Edit equations', (d) => {
       d.variables = [];
@@ -259,7 +301,10 @@ export async function shortcutsDialog(app: App) {
   add('Pan and zoom on touch', 'Two fingers');
   add('Context menu', 'Right click or long press');
   grid.append(h('h3', {}, 'Commands'));
-  for (const c of app.commands.all().filter((x) => x.shortcut).sort((a, b) => a.label.localeCompare(b.label))) add(c.label, formatShortcut(c.shortcut));
+  // Commands with a second shortcut (Redo, Keyboard Shortcuts) are one row.
+  const keys = new Map<string, string[]>();
+  for (const c of app.commands.all().filter((x) => x.shortcut)) keys.set(c.label, [...(keys.get(c.label) ?? []), formatShortcut(c.shortcut)]);
+  for (const [label, k] of [...keys].sort((a, b) => a[0].localeCompare(b[0]))) add(label, k.join(', '));
   grid.append(h('h3', {}, 'View'));
   add('Rotate 15 degrees', 'Arrow keys');
   add('Rotate 90 degrees', 'Shift + Arrow keys');
@@ -268,6 +313,8 @@ export async function shortcutsDialog(app: App) {
   add('Cancel or clear selection', 'Esc');
   grid.append(h('h3', {}, 'Keyboard navigation'));
   add('Next or previous area (menu bar, CommandManager, design tree, graphics area, task pane, status bar)', 'F6, Shift + F6');
+  add('Rename the feature in the design tree', 'F2');
+  add('Context menu of the feature in the design tree', 'Shift + F10');
   await showDialog({ title: 'Keyboard Shortcuts', wide: true, body: grid, buttons: [{ label: 'Close', value: 'ok', primary: true }] });
 }
 
@@ -313,14 +360,32 @@ export class MeasurePanel extends PropertyPanel {
     switch (it.kind) {
       case 'face': return { item: it, data: it, label: `Face <${it.index + 1}> (${app.faces[it.index]?.type})` };
       case 'edge': return { item: it, data: it, label: `Edge <${it.index + 1}> (${app.edges[it.index]?.type})` };
-      case 'vertex': return { item: it, data: it, label: 'Vertex' };
+      case 'vertex': {
+        // Picking toggles by label: each vertex needs its own, or a second vertex would remove the first.
+        const u = UNIT_SYSTEMS[app.store.doc.units];
+        return { item: it, data: it, label: `Vertex (${it.p.map((c) => formatNumber(c / u.scale, app.store.doc.decimals)).join(', ')})` };
+      }
       case 'plane': return { item: it, data: it, label: it.ref.kind === 'base' ? `${it.ref.plane[0].toUpperCase()}${it.ref.plane.slice(1)} Plane` : app.store.feature(it.ref.id)?.name ?? 'Plane' };
       default: return null;
     }
   }
 
+  /** The part changed under the panel (e.g. Redo): keep what still exists and measure it again. */
+  onBuild() {
+    if (!this.box) return;
+    const items = this.box.items
+      .map((b) => remapItem(b.data as SelItem, this.app.faces, this.app.edges))
+      .map((it) => (it ? this.convert(it) : null))
+      .filter((x): x is SelBoxItem => !!x);
+    this.box.setItems(items);
+    void this.measure();
+  }
+
+  private seq = 0;
+
   private async measure() {
     const app = this.app;
+    const seq = ++this.seq;
     const u = UNIT_SYSTEMS[app.store.doc.units];
     const dec = Math.max(2, app.store.doc.decimals);
     const L = (v: number) => `${formatNumber(v / u.scale, dec)} ${u.length}`;
@@ -356,25 +421,43 @@ export class MeasurePanel extends PropertyPanel {
       const va = na ?? da, vb = nb ?? db;
       if (va && vb) {
         const c = Math.min(1, Math.abs(dot(normalize(va), normalize(vb))));
-        const ang = (Math.acos(c) * 180) / Math.PI;
+        // Between an edge and a face or plane, the angle is to the surface, not to its normal.
+        const mixed = !na !== !nb;
+        const ang = ((mixed ? Math.asin(c) : Math.acos(c)) * 180) / Math.PI;
         lines.push(['Angle', `${formatNumber(ang, 2)}°`]);
       }
       const target = (it: SelItem): MeasureTarget | null => (it.kind === 'face' ? { kind: 'face', index: it.index } : it.kind === 'edge' ? { kind: 'edge', index: it.index } : it.kind === 'vertex' ? { kind: 'vertex', p: it.p } : null);
       const ta = target(a), tb = target(b);
       if (a.kind === 'plane' || b.kind === 'plane') {
+        // No leader: the previous pair's would otherwise stay drawn.
+        this.showLeader(null, null);
         const pl = a.kind === 'plane' ? a : b;
         const other = a.kind === 'plane' ? b : a;
         const fr = pl.kind === 'plane' ? app.frameOfPlane(pl.ref) : null;
-        const p = other.kind === 'vertex' ? other.p : other.kind === 'face' ? app.faces[other.index]?.center : other.kind === 'edge' ? app.edges[other.index]?.mid : other.kind === 'plane' ? app.frameOfPlane(other.ref)?.o : null;
+        // One point stands for the whole entity only when it is parallel to the
+        // plane; a tilted face, plane or edge is at no single distance from it.
+        const cos = (v: Vec3 | null | undefined) => (fr && v ? Math.abs(dot(normalize(v), fr.n)) : NaN);
+        const alongNormal = (v: Vec3 | null | undefined) => cos(v) > 1 - 1e-6;
+        const e = other.kind === 'edge' ? app.edges[other.index] : null;
+        const f = other.kind === 'face' ? app.faces[other.index] : null;
+        const op = other.kind === 'plane' ? app.frameOfPlane(other.ref) : null;
+        const p = other.kind === 'vertex' ? other.p
+          : f ? (alongNormal(f.normal) ? f.center : null)
+          : e ? (cos(e.dir) < 1e-6 || alongNormal(e.axis) ? e.mid : null)
+          : op && alongNormal(op.n) ? op.o : null;
         if (fr && p) lines.push(['Normal distance', L(Math.abs(dot(sub(p, fr.o), fr.n)))]);
       } else if (ta && tb) {
         try {
           const r = await app.kernel.measure(ta, tb);
+          // The selection changed while the kernel measured: a newer result is shown.
+          if (seq !== this.seq) return;
           lines.push(['Distance', L(r.distance)]);
           const d = sub(r.p2, r.p1);
           lines.push(['dX, dY, dZ', d.map((x) => formatNumber(Math.abs(x) / u.scale, dec)).join(', ')]);
           this.showLeader(r.p1, r.p2);
         } catch (e) {
+          if (seq !== this.seq) return;
+          this.showLeader(null, null);
           lines.push(['Distance', (e as Error).message]);
         }
       }
@@ -394,6 +477,8 @@ export class MeasurePanel extends PropertyPanel {
   ok() { return true; }
 
   dispose() {
+    // A measurement still running must not draw its leader after the panel closed.
+    this.seq++;
     this.showLeader(null, null);
   }
 }
@@ -407,17 +492,26 @@ export class SectionPanel extends PropertyPanel {
   private offset = 0;
   private flip = false;
   private base: 'front' | 'top' | 'right' | 'custom' = 'front';
+  /** The plane the panel started from (the active section or a selected plane or face). */
+  private custom: { normal: Vec3; offset: number; label: string } | null = null;
   private originalSection: App['renderer']['section'];
 
   constructor(private app: App) {
     super();
     this.originalSection = app.renderer.section;
-    if (app.renderer.section) { this.normal = app.renderer.section.normal; this.offset = app.renderer.section.offset; this.base = 'custom'; }
+    if (app.renderer.section) this.custom = { ...app.renderer.section, label: 'Current' };
     else {
       const ref = app.selectedPlaneRef();
       const fr = ref ? app.frameOfPlane(ref) : null;
-      if (fr) { this.normal = fr.n; this.offset = dot(fr.o, fr.n); this.base = 'custom'; }
+      if (fr) this.custom = { normal: fr.n, offset: dot(fr.o, fr.n), label: 'Selected' };
       else if (app.bbox) this.offset = (app.bbox.min[2] + app.bbox.max[2]) / 2;
+    }
+    if (this.custom) {
+      this.normal = this.custom.normal;
+      this.offset = this.custom.offset;
+      // A plane parallel to a base plane is that base plane at an offset.
+      const k = (['front', 'top', 'right'] as const).find((b) => BASE_FRAMES[b].n.every((v, i) => Math.abs(v - this.custom!.normal[i]) < 1e-9));
+      if (k) { this.base = k; this.custom = null; } else this.base = 'custom';
     }
     this.apply();
   }
@@ -431,10 +525,18 @@ export class SectionPanel extends PropertyPanel {
   render(): HTMLElement[] {
     const app = this.app;
     const offset = numberField({ label: 'Offset', icon: 'ruler', value: this.offset, kind: 'length', ctx: app.unitContext(), onChange: (v) => { this.offset = Number(v); this.apply(); }, onLive: (v) => { this.offset = v; this.apply(); } });
-    const plane = segmented('Section plane', this.base === 'custom' ? 'front' : this.base, [
+    const custom = this.custom;
+    const plane = segmented('Section plane', this.base, [
       { value: 'front' as const, label: 'Front' }, { value: 'top' as const, label: 'Top' }, { value: 'right' as const, label: 'Right' },
+      ...(custom ? [{ value: 'custom' as const, label: custom.label }] : []),
     ], (v) => {
       this.base = v;
+      if (v === 'custom') {
+        if (custom) { this.normal = custom.normal; this.offset = custom.offset; }
+        this.apply();
+        app.refreshPanel();
+        return;
+      }
       this.normal = BASE_FRAMES[v].n;
       const b = app.bbox;
       const axis = v === 'front' ? 2 : v === 'top' ? 1 : 0;

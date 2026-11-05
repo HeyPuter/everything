@@ -2,13 +2,13 @@
 // plus crash recovery of unsaved work in browser storage.
 
 import { defaultName } from '../model/features';
-import { newDocument, parseDocument, serializeDocument } from '../model/document';
+import { newDocument, parseDocument, serializeDocument, withUsedBlobs } from '../model/document';
 import type { ImportFeature, PartDocument } from '../model/types';
 import {
   type Location, EXT, IMPORT_EXTS, clearRecovery, download, isSolidWorksFile, isStepFile, listParts, loadText, locationLabel, newLocation,
-  pickCloudFile, pickCloudSave, pickDeviceFile, readRecovery, saveText, safeName, writeRecovery, type FileEntry, deletePart, renameCloud, forgetRecent, rememberRecent,
+  pickCloudFile, pickCloudSave, pickDeviceFile, orphanRecoveries, removeRecovery, saveText, safeName, writeRecovery, type FileEntry, deletePart, renameCloud, forgetRecent, rememberRecent,
 } from '../platform/files';
-import { cloudAvailable, isMissing, puter, signIn, storageError } from '../platform/puter';
+import { cloudAvailable, env, isMissing, puter, signIn, storageError } from '../platform/puter';
 import { h } from '../ui/dom';
 import { icon } from '../ui/icons';
 import { confirmDialog, promptDialog, showDialog, toast } from '../ui/overlay';
@@ -26,6 +26,9 @@ export class FileOps {
       if (reason !== 'saved') this.revision++;
       this.scheduleRecovery();
     };
+    // A hidden tab can be closed without notice (phones discard background tabs).
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') this.flushRecovery(); });
+    window.addEventListener('pagehide', () => this.flushRecovery());
     window.addEventListener('beforeunload', (e) => {
       if (this.app.store.dirty || this.app.panel?.edited) {
         e.preventDefault();
@@ -55,6 +58,7 @@ export class FileOps {
     if (v !== 'discard') return false;
     // Discarded on purpose: do not offer it for recovery next time.
     clearTimeout(this.recoveryTimer);
+    this.recoveryTimer = 0;
     await clearRecovery();
     return true;
   }
@@ -85,7 +89,8 @@ export class FileOps {
       }
       return true;
     } catch (e) {
-      toast({ kind: 'error', title: 'Could not save', message: storageError(e) });
+      // The work is still only in this tab: offer a copy on the device meanwhile.
+      toast({ kind: 'error', title: 'Could not save', message: storageError(e), actions: [{ label: 'Download a copy', run: () => void this.exportAs('part') }], timeout: 15000 });
       return false;
     } finally {
       this.saving = false;
@@ -115,6 +120,7 @@ export class FileOps {
         const unchanged = revision === this.revision;
         rename();
         app.location = loc;
+        rememberRecent({ location: loc, name: clean });
         this.markSaved(unchanged ? this.revision : revision);
         toast({ kind: 'success', message: `Saved to ${locationLabel(loc)}` });
         return;
@@ -163,17 +169,14 @@ export class FileOps {
   /** Open dialog listing cloud and browser-stored parts. */
   async open() {
     const app = this.app;
-    let entries: FileEntry[] = [];
-    try {
-      entries = await listParts();
-    } catch (e) {
-      toast({ kind: 'error', message: storageError(e) });
-    }
+    // Parts in this browser stay listed when the cloud cannot be reached.
+    let cloudError = '';
+    const entries = await listParts((e) => { cloudError = storageError(e); });
     // A list role needs list items, so the empty message is shown without it.
     const list = h('div', { class: 'file-list', role: 'list' });
     const showEmpty = () => {
       list.removeAttribute('role');
-      list.replaceChildren(h('p', {}, cloudAvailable() ? 'No saved parts yet.' : 'No parts saved in this browser yet. Sign in to Puter to keep parts in your cloud storage.'));
+      list.replaceChildren(h('p', {}, cloudError ? 'No parts saved in this browser.' : cloudAvailable() ? 'No saved parts yet.' : 'No parts saved in this browser yet. Sign in to Puter to keep parts in your cloud storage.'));
     };
     let chosen: FileEntry | null = null;
     let close: ((v: string | null) => void) | null = null;
@@ -200,14 +203,19 @@ export class FileOps {
       del.addEventListener('click', () => void remove());
       list.append(row);
     }
-    const body = h('div', {}, list);
+    const body = h('div', {}, cloudError ? h('p', { role: 'alert' }, `Your cloud parts could not be listed: ${cloudError}`) : null, list);
     let sharedChosen: { readOnly: boolean } | null = null;
     if (cloudAvailable()) {
       const shared = h('div', { class: 'file-list', role: 'list', 'aria-busy': 'true' }, h('p', { class: 'field-label' }, 'Loading...'));
       body.append(h('h3', { class: 'file-section' }, 'Shared with me'), shared);
-      void sharedWithMe().then((items) => {
+      void sharedWithMe().catch((e) => e as Error).then((items) => {
         shared.removeAttribute('aria-busy');
         shared.replaceChildren();
+        if (!Array.isArray(items)) {
+          shared.removeAttribute('role');
+          shared.append(h('p', { role: 'alert' }, `Could not load the parts shared with you: ${storageError(items)}`));
+          return;
+        }
         if (!items.length) {
           shared.removeAttribute('role');
           shared.append(h('p', { class: 'field-label' }, 'Nothing has been shared with you yet.'));
@@ -245,13 +253,16 @@ export class FileOps {
 
   /** View-only shares open detached: saving makes a copy in the user's own Parts. */
   private async openReadOnlyCopy(e: FileEntry) {
-    if (!(await this.confirmDiscard('open another part'))) return;
+    let text: string;
     try {
-      if (!this.openText(await loadText(e.location), null, e.name)) return;
-      toast({ message: `"${e.name}" is shared with you as view only. Saving keeps your own copy.`, timeout: 6000 });
+      text = await loadText(e.location);
     } catch (err) {
       toast({ kind: 'error', title: 'Could not open the part', message: storageError(err) });
+      return;
     }
+    // Read and checked first: a file that cannot be opened leaves the current part alone.
+    if (!(await this.openPartText(text, null, e.name))) return;
+    toast({ message: `"${e.name}" is shared with you as view only. Saving keeps your own copy.`, timeout: 6000 });
   }
 
   async openFromDevice() {
@@ -368,44 +379,87 @@ export class FileOps {
 
   private scheduleRecovery() {
     clearTimeout(this.recoveryTimer);
+    this.recoveryTimer = 0;
     if (!this.app.store.dirty) return;
-    this.recoveryTimer = window.setTimeout(() => {
-      const payload = JSON.stringify({ location: this.app.location, savedAt: Date.now(), doc: this.app.store.doc });
-      void writeRecovery(payload);
-    }, 4000);
+    this.recoveryTimer = window.setTimeout(() => this.writeRecoveryNow(), 4000);
   }
 
-  /** Offers to restore unsaved work from a previous session. */
-  async checkRecovery(): Promise<boolean> {
-    const text = await readRecovery();
-    if (!text) return false;
-    let data: { location: Location | null; savedAt: number; doc: PartDocument } | null = null;
-    try {
-      data = JSON.parse(text);
-    } catch {
-      await clearRecovery();
-      return false;
+  private writeRecoveryNow() {
+    this.recoveryTimer = 0;
+    if (!this.app.store.dirty) return;
+    const payload = JSON.stringify({ location: this.app.location, savedAt: Date.now(), doc: withUsedBlobs(this.app.store.doc) });
+    void writeRecovery(payload);
+  }
+
+  /** Writes a pending recovery copy now: the tab is being hidden and may not come back (phones). */
+  private flushRecovery() {
+    if (this.recoveryTimer) {
+      clearTimeout(this.recoveryTimer);
+      this.writeRecoveryNow();
     }
-    if (!data?.doc?.features?.length) { await clearRecovery(); return false; }
-    const when = new Date(data.savedAt).toLocaleString();
-    const v = await showDialog({
-      title: 'Recover unsaved work?',
-      body: h('p', {}, `Parametric found unsaved changes to "${data.doc.name}" from ${when}. Do you want to restore them?`),
-      buttons: [{ label: 'Discard', value: 'discard' }, { label: 'Restore', value: 'restore', primary: true }],
-    });
-    if (v === 'restore') {
+  }
+
+  /**
+   * Offers to restore unsaved work left by tabs that are no longer open.
+   * Closing the question keeps the copy for next time; only Discard deletes it.
+   */
+  async checkRecovery(): Promise<boolean> {
+    for (const { file, text } of await orphanRecoveries()) {
+      let data: { location: Location | null; savedAt: number; doc: PartDocument } | null = null;
       try {
-        const doc = parseDocument(JSON.stringify(data.doc));
+        data = JSON.parse(text);
+      } catch {
+        data = null;
+      }
+      // A blank part is not worth asking about.
+      if (!data?.doc?.features?.length && !data?.doc?.variables?.length) { await removeRecovery(file); continue; }
+      const when = new Date(data.savedAt).toLocaleString();
+      const v = await showDialog({
+        title: 'Recover unsaved work?',
+        body: h('p', {}, `Parametric found unsaved changes to "${data.doc.name}" from ${when}. Do you want to restore them?`),
+        buttons: [{ label: 'Discard', value: 'discard' }, { label: 'Restore', value: 'restore', primary: true }],
+      });
+      if (v === 'restore') {
+        let doc: PartDocument;
+        try {
+          doc = parseDocument(JSON.stringify(data.doc));
+        } catch (e) {
+          toast({ kind: 'error', message: (e as Error).message });
+          await removeRecovery(file);
+          continue;
+        }
         this.app.loadDocument(doc, data.location);
         this.app.store.dirty = true;
         this.app.store.emit('restored');
+        // This tab now owns the work: its own copy replaces the one left behind.
+        await writeRecovery(text);
+        await removeRecovery(file);
         return true;
-      } catch (e) {
-        toast({ kind: 'error', message: (e as Error).message });
       }
+      if (v !== 'discard') return false;
+      await removeRecovery(file);
     }
-    await clearRecovery();
     return false;
+  }
+
+  /**
+   * Inside the Puter desktop the window's close button removes the app without
+   * a beforeunload prompt; with a close handler the app closes itself, after
+   * asking about unsaved changes.
+   */
+  handleWindowClose() {
+    const p = puter();
+    if (env() !== 'app' || !p?.ui?.onWindowClose || typeof p.exit !== 'function') return;
+    let asking = false;
+    p.ui.onWindowClose(async () => {
+      if (asking) return;
+      asking = true;
+      try {
+        if (await this.confirmDiscard('close Parametric')) p.exit!();
+      } finally {
+        asking = false;
+      }
+    });
   }
 
   /** Files opened from the Puter desktop (double-click / Open With). */
@@ -430,12 +484,20 @@ export class FileOps {
 
 const STEP_LIMIT = 60_000_000;
 const SOLIDWORKS_LIMIT = 200_000_000;
+/**
+ * A part file: room for several imported STEP models (their text is most of
+ * a large part, and cheap to read). Past this, reading the file can take the
+ * tab's memory (a file of many small objects needs about 20 times its size),
+ * and past about 500 MB the browser cannot hold it as text at all.
+ */
+const PART_LIMIT = 200_000_000;
 
 /** Checked before a file is read into memory: true after reporting that it is too large. */
 function tooLarge(size: number, fileName: string): boolean {
   const step = isStepFile(fileName);
-  if (size <= (step ? STEP_LIMIT : isSolidWorksFile(fileName) ? SOLIDWORKS_LIMIT : Infinity)) return false;
-  toast({ kind: 'error', message: step ? 'This STEP file is too large to import (60 MB limit).' : 'This SolidWorks file is too large to open (200 MB limit).' });
+  const solidWorks = isSolidWorksFile(fileName);
+  if (size <= (step ? STEP_LIMIT : solidWorks ? SOLIDWORKS_LIMIT : PART_LIMIT)) return false;
+  toast({ kind: 'error', message: step ? 'This STEP file is too large to import (60 MB limit).' : solidWorks ? 'This SolidWorks file is too large to open (200 MB limit).' : 'This file is too large to open as a part (200 MB limit).' });
   return true;
 }
 

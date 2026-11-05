@@ -22,6 +22,17 @@ describe('sharedWithMe', () => {
     expect(items[0].modified).toBe(1700000000000);
   });
 
+  it('reports a failure to list rather than an empty list, but keeps pages already read', async () => {
+    setPuterForTests({ env: 'app', fs: { listShared: async () => { throw new TypeError('Failed to fetch'); } } } as never);
+    await expect(sharedWithMe()).rejects.toThrow('Failed to fetch');
+    let n = 0;
+    setPuterForTests({
+      env: 'app',
+      fs: { listShared: async () => { if (n++) throw new TypeError('Failed to fetch'); return { items: [{ name: 'A.parametric', path: '/a/A.parametric' }], cursor: 'p2' }; } },
+    } as never);
+    expect((await sharedWithMe()).map((i) => i.name)).toEqual(['A']);
+  });
+
   it('returns nothing without cloud storage', async () => {
     expect(await sharedWithMe()).toEqual([]);
   });

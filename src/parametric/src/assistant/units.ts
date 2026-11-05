@@ -22,7 +22,15 @@ export function num(v: number, digits = 4): string {
   return s === '-0' ? '0' : s;
 }
 
+/** Like num, but a value under 1 keeps six significant digits (a part's volume in m³ is not 0). */
+export function qty(v: number, digits: number): string {
+  return Math.abs(v) >= 1 || v === 0 || !Number.isFinite(v) ? num(v, digits) : String(Number(v.toPrecision(6)));
+}
+
 export class Units {
+  /** Told when an expression over variables is taken as its value now (coordinates and shape sizes do not stay linked). */
+  onUnlinked: ((what: string, expr: string, mm: number) => void) | null = null;
+
   constructor(private store: DocStore) {}
 
   get scale(): number {
@@ -35,16 +43,17 @@ export class Units {
 
   /** A length in mm as display-unit text. */
   len(mm: number, withUnit = false): string {
-    const s = num(mm / this.scale, this.scale >= 25 ? 5 : 4);
+    // A ten-thousandth of a millimetre in every unit (metres need 7 decimals, not 5).
+    const s = num(mm / this.scale, 4 + Math.max(0, Math.round(Math.log10(this.scale))));
     return withUnit ? `${s} ${this.unit}` : s;
   }
 
   area(mm2: number): string {
-    return `${num(mm2 / this.scale ** 2, 3)} ${this.unit}²`;
+    return `${qty(mm2 / this.scale ** 2, 3)} ${this.unit}²`;
   }
 
   volume(mm3: number): string {
-    return `${num(mm3 / this.scale ** 3, 3)} ${this.unit}³`;
+    return `${qty(mm3 / this.scale ** 3, 3)} ${this.unit}³`;
   }
 
   pt(p: Vec3 | Vec2): string {
@@ -113,7 +122,9 @@ export class Units {
     if (typeof v === 'string' && v.trim()) {
       const p = this.parseParam(v, 'length', what);
       if (typeof p === 'number') return p;
-      return this.store.evalParam(p, 'length');
+      const mm = this.store.evalParam(p, 'length');
+      this.onUnlinked?.(what, p, mm);
+      return mm;
     }
     if (typeof v !== 'number' || !Number.isFinite(v)) throw new ToolError(`${what}: expected a number`);
     return v * this.scale;

@@ -28,6 +28,33 @@ test.describe('accessibility', () => {
     expect(await seriousViolations(page)).toEqual([]);
   });
 
+  test('feature panels with selection boxes pass axe in the dark theme', async ({ page }) => {
+    await page.emulateMedia({ colorScheme: 'dark' });
+    await openApp(page);
+    await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+    await waitForFeature(page, 'Fillet1');
+    await page.getByRole('button', { name: 'Hole', exact: true }).click();
+    await expect(page.getByRole('group', { name: 'Positions' })).toBeVisible();
+    expect(await seriousViolations(page)).toEqual([]);
+  });
+
+  test('a section enabled by a checkbox keeps the checkbox outside its expand button', async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+    await waitForFeature(page, 'Fillet1');
+    await page.getByRole('button', { name: 'Linear Pattern', exact: true }).click();
+    const head = page.getByRole('button', { name: 'Direction 2' });
+    const enable = page.getByRole('checkbox', { name: 'Enable Direction 2' });
+    await expect(head).toHaveAttribute('aria-expanded', 'false');
+    await expect(head.getByRole('checkbox')).toHaveCount(0);
+    await enable.check();
+    await expect(head).toHaveAttribute('aria-expanded', 'true');
+    await head.click();
+    await expect(head).toHaveAttribute('aria-expanded', 'false');
+    await expect(enable).toBeChecked();
+    expect(await seriousViolations(page)).toEqual([]);
+  });
+
   test('part lists pass axe when empty and when filled', async ({ page }) => {
     await openApp(page);
     await page.getByRole('button', { name: /New part/ }).click();
@@ -244,4 +271,91 @@ test('F6 and Shift+F6 move between the window regions', async ({ page }) => {
   await canvas.focus();
   await page.keyboard.press('F1');
   await expect(page.getByRole('dialog', { name: 'Keyboard Shortcuts' })).toContainText('F6, Shift + F6');
+});
+
+test('Shift+Tab after clicking a dialog\'s text stays in the dialog', async ({ page }) => {
+  await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await page.evaluate(() => (window as unknown as { __parametric: { commands: { run(id: string): void } } }).__parametric.commands.run('about'));
+  const dialog = page.getByRole('dialog');
+  await dialog.locator('.dialog-body').click({ position: { x: 4, y: 4 } });
+  await page.keyboard.press('Shift+Tab');
+  expect(await page.evaluate(() => !!document.activeElement?.closest('[role="dialog"]'))).toBe(true);
+  await page.keyboard.press('Tab');
+  expect(await page.evaluate(() => !!document.activeElement?.closest('[role="dialog"]'))).toBe(true);
+});
+
+test('the shortcuts list names each command once with all its keys', async ({ page }) => {
+  await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await page.locator('canvas.gl').focus();
+  await page.keyboard.press('F1');
+  const dialog = page.getByRole('dialog', { name: 'Keyboard Shortcuts' });
+  await expect(dialog.locator('.shortcut-grid').getByText('Redo', { exact: true })).toHaveCount(1);
+  await expect(dialog.locator('.shortcut-grid').getByText('Keyboard Shortcuts', { exact: true })).toHaveCount(1);
+  await expect(dialog).toContainText('F2');
+  await expect(dialog).toContainText('Shift + F10');
+});
+
+test('editing and deleting equations keeps keyboard focus in the table', async ({ page }) => {
+  await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await page.evaluate(() => (window as unknown as { __parametric: { commands: { run(id: string): void } } }).__parametric.commands.run('equations'));
+  const dialog = page.getByRole('dialog', { name: 'Equations and Global Variables' });
+  await dialog.getByRole('button', { name: 'Add variable' }).click();
+  await dialog.getByRole('button', { name: 'Add variable' }).click();
+  const name = dialog.getByRole('textbox', { name: 'Name of variable 1' });
+  await name.fill('Width');
+  await page.keyboard.press('Tab');
+  await expect(dialog.getByRole('textbox', { name: 'Value or expression of Width' })).toBeFocused();
+  await dialog.getByRole('button', { name: 'Delete Width' }).click();
+  await expect(dialog.getByRole('button', { name: 'Delete Var2' })).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(dialog.getByRole('button', { name: 'Add variable' })).toBeFocused();
+});
+
+test('picking a colour and closing the task pane keep keyboard focus', async ({ page }) => {
+  await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await page.getByRole('tab', { name: 'Appearance' }).click();
+  const swatch = page.getByRole('button', { name: 'Colour #4f8fc0' });
+  await swatch.focus();
+  await page.keyboard.press('Enter');
+  await expect(swatch).toHaveAttribute('aria-pressed', 'true');
+  await expect(swatch).toBeFocused();
+  await page.getByRole('button', { name: 'Close task pane' }).focus();
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('tab', { name: 'Appearance' })).toBeFocused();
+});
+
+test('Esc pressed straight after a dialog opens closes it', async ({ page }) => {
+  await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  await page.getByRole('treeitem', { name: 'Hole1' }).focus();
+  // Both keys in one task: no frame passes between them.
+  await page.evaluate(() => {
+    const row = document.activeElement!;
+    row.dispatchEvent(new KeyboardEvent('keydown', { key: 'Delete', bubbles: true, cancelable: true }));
+    document.activeElement!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+  });
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect(page.getByRole('treeitem', { name: 'Hole1' })).toBeFocused();
+});
+
+test('a submenu with no room on the right opens beside its parent menu, not over it', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await page.evaluate(async () => {
+    // The dev server serves the app's modules; this is the instance the app uses.
+    const url = '/src/ui/menu.ts';
+    const m = await import(/* @vite-ignore */ url) as typeof import('../../src/ui/menu');
+    m.openMenu([{ label: 'Edit Extrude1 with a rather long descriptive name' }, { label: 'View Orientation', submenu: () => [{ label: 'Front' }] }], 1270, 300);
+  });
+  await page.getByRole('menuitem', { name: 'View Orientation' }).hover();
+  await expect(page.locator('.menu')).toHaveCount(2);
+  const parent = (await page.locator('.menu').nth(0).boundingBox())!;
+  const sub = (await page.locator('.menu').nth(1).boundingBox())!;
+  expect(sub.x + sub.width).toBeLessThanOrEqual(parent.x + 4);
 });

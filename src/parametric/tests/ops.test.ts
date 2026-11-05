@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { SkDimension, SkEntity, SkLine, SketchFeature } from '../src/model/types';
-import { SketchIndex, arcRadius } from '../src/sketch/geom';
+import { SketchIndex, arcRadius, distanceToCurve } from '../src/sketch/geom';
 import {
   availableRelations, deleteItems, extendAt, filletCorner, idFactory, makeRelations, measureDimension, mirrorEntities,
   offsetCurves, relationsOf, smartDimension, trimAt,
@@ -19,6 +19,19 @@ describe('relations', () => {
     expect(availableRelations(s, ['rl0', 'circ'])).toContain('tangent');
     expect(availableRelations(s, ['rp0', 'rl1'])).toEqual(['coincident', 'midpoint', 'fix']);
     expect(availableRelations(s, ['O'])).toEqual([]);
+  });
+
+  it('offers a point on a spline, which the solver keeps there', () => {
+    const s = sk([
+      { id: 's0', t: 'point', x: 0, y: 0 }, { id: 's1', t: 'point', x: 10, y: 6 }, { id: 's2', t: 'point', x: 20, y: 0 },
+      { id: 'sp', t: 'spline', pts: ['s0', 's1', 's2'] }, { id: 'q', t: 'point', x: 9, y: 2 },
+    ]);
+    expect(availableRelations(s, ['q', 'sp'])).toEqual(['coincident', 'fix']);
+    expect(availableRelations(s, ['s1', 'sp'])).toEqual(['fix']);
+    s.constraints.push(...makeRelations(s, 'coincident', ['q', 'sp'], idFactory(s)));
+    expect(solveSketch(s.entities, s.constraints, { value }).badConstraints.size).toBe(0);
+    const ix = new SketchIndex(s.entities);
+    expect(distanceToCurve(ix, ix.get('sp') as never, ix.pt('q')).d).toBeLessThan(1e-3);
   });
 
   it('creates one horizontal relation per line and solves them', () => {
@@ -89,6 +102,38 @@ describe('editing tools', () => {
     expect(lengths[1]).toBeCloseTo(3, 9);
   });
 
+  it('keeps both pieces of a line split by trimming on one line', () => {
+    const s = sk([
+      { id: 'a', t: 'point', x: 0, y: 0 }, { id: 'b', t: 'point', x: 10, y: 0 }, { id: 'h', t: 'line', a: 'a', b: 'b' },
+      { id: 'c', t: 'point', x: 3, y: -2 }, { id: 'd', t: 'point', x: 3, y: 2 }, { id: 'v1', t: 'line', a: 'c', b: 'd' },
+      { id: 'e', t: 'point', x: 7, y: -2 }, { id: 'f', t: 'point', x: 7, y: 2 }, { id: 'v2', t: 'line', a: 'e', b: 'f' },
+    ]);
+    s.constraints.push({ id: 'hz', type: 'horizontal', refs: ['h'] }, { id: 'o', type: 'coincident', refs: ['a', 'O'] });
+    const before = solveSketch(s.entities, s.constraints, { value }).dof;
+    expect(trimAt(s, 'h', [5, 0], idFactory(s))).toBe(true);
+    // The far piece stays on the line of the original (it does not swing free).
+    const res = solveSketch(s.entities, s.constraints, { value, drag: { kind: 'points', ids: ['b'], targets: [[12, 4]] } });
+    expect(res.converged).toBe(true);
+    expect(new SketchIndex(s.entities).pt('b')[1]).toBeCloseTo(0, 6);
+    expect(solveSketch(s.entities, s.constraints, { value }).dof).toBe(before);
+  });
+
+  it('keeps both pieces of a split arc on one circle', () => {
+    const s = sk([
+      { id: 'o', t: 'point', x: 0, y: 0 }, { id: 'pa', t: 'point', x: 5, y: 0 }, { id: 'pb', t: 'point', x: -5, y: 0 },
+      { id: 'arc', t: 'arc', c: 'o', a: 'pa', b: 'pb' },
+      { id: 'c', t: 'point', x: -1, y: -8 }, { id: 'd', t: 'point', x: -1, y: 8 }, { id: 'v1', t: 'line', a: 'c', b: 'd' },
+      { id: 'e', t: 'point', x: 1, y: -8 }, { id: 'f', t: 'point', x: 1, y: 8 }, { id: 'v2', t: 'line', a: 'e', b: 'f' },
+    ]);
+    expect(trimAt(s, 'arc', [0, 5], idFactory(s))).toBe(true);
+    const res = solveSketch(s.entities, s.constraints, { value, drag: { kind: 'points', ids: ['pb'], targets: [[-8, 0]] } });
+    expect(res.converged).toBe(true);
+    const ix = new SketchIndex(s.entities);
+    const arcs = s.entities.filter((e) => e.t === 'arc') as Parameters<typeof arcRadius>[1][];
+    expect(arcs).toHaveLength(2);
+    expect(arcRadius(ix, arcs[0])).toBeCloseTo(arcRadius(ix, arcs[1]), 6);
+  });
+
   it('keeps a trimmed line trimmed and its new end on the cutting line', () => {
     const s = sk([
       { id: 'a', t: 'point', x: 0, y: 0 }, { id: 'b', t: 'point', x: 10, y: 0 }, { id: 'h', t: 'line', a: 'a', b: 'b' },
@@ -129,6 +174,46 @@ describe('editing tools', () => {
     expect(new SketchIndex(s.entities).pt('b')[0]).toBeCloseTo(9, 9);
     // The old length would pull the end back.
     expect(s.constraints).toHaveLength(0);
+  });
+
+  it('keeps an extended line end on the curve it reached', () => {
+    const s = sk([
+      { id: 'a', t: 'point', x: 0, y: 0 }, { id: 'b', t: 'point', x: 4, y: 0 }, { id: 'h', t: 'line', a: 'a', b: 'b' },
+      { id: 'c', t: 'point', x: 9, y: -5 }, { id: 'd', t: 'point', x: 9, y: 5 }, { id: 'v', t: 'line', a: 'c', b: 'd' },
+    ]);
+    s.constraints.push({ id: 'hz', type: 'horizontal', refs: ['h'] }, { id: 'o', type: 'coincident', refs: ['a', 'O'] });
+    expect(extendAt(s, 'h', [3.9, 0], idFactory(s))).toBe(true);
+    // Moving the boundary line carries the extended end with it.
+    const res = solveSketch(s.entities, s.constraints, { value, drag: { kind: 'points', ids: ['c', 'd'], targets: [[12, -5], [12, 5]] } });
+    expect(res.converged).toBe(true);
+    expect(new SketchIndex(s.entities).pt('b')[0]).toBeCloseTo(12, 6);
+  });
+
+  it('keeps a line extended or trimmed at a spline on the spline', () => {
+    const spline = (): SkEntity[] => [
+      { id: 's0', t: 'point', x: 9, y: -6 }, { id: 's1', t: 'point', x: 10, y: 0 }, { id: 's2', t: 'point', x: 9, y: 6 },
+      { id: 'sp', t: 'spline', pts: ['s0', 's1', 's2'] },
+    ];
+    const onSpline = (s: SketchFeature, p: string) => {
+      const ix = new SketchIndex(s.entities);
+      return distanceToCurve(ix, ix.get('sp') as never, ix.pt(p)).d;
+    };
+    const ext = sk([{ id: 'a', t: 'point', x: 0, y: 0 }, { id: 'b', t: 'point', x: 4, y: 0 }, { id: 'h', t: 'line', a: 'a', b: 'b' }, ...spline()]);
+    ext.constraints.push({ id: 'hz', type: 'horizontal', refs: ['h'] }, { id: 'o', type: 'coincident', refs: ['a', 'O'] });
+    expect(extendAt(ext, 'h', [3.9, 0], idFactory(ext))).toBe(true);
+    expect(ext.constraints.some((c) => c.type === 'coincident' && c.refs.join() === 'b,sp')).toBe(true);
+    // Bending the spline carries the extended end with it.
+    let res = solveSketch(ext.entities, ext.constraints, { value, drag: { kind: 'points', ids: ['s1'], targets: [[14, 0]] } });
+    expect(res.converged).toBe(true);
+    expect(new SketchIndex(ext.entities).pt('b')[0]).toBeGreaterThan(12);
+    expect(onSpline(ext, 'b')).toBeLessThan(1e-3);
+
+    const tr = sk([{ id: 'a', t: 'point', x: 0, y: 0 }, { id: 'b', t: 'point', x: 20, y: 0 }, { id: 'h', t: 'line', a: 'a', b: 'b' }, ...spline()]);
+    expect(trimAt(tr, 'h', [15, 0], idFactory(tr))).toBe(true);
+    const end = tr.constraints.find((c) => c.type === 'coincident' && c.refs[1] === 'sp')!.refs[0];
+    res = solveSketch(tr.entities, tr.constraints, { value, drag: { kind: 'points', ids: ['s1'], targets: [[13, 0]] } });
+    expect(res.converged).toBe(true);
+    expect(onSpline(tr, end)).toBeLessThan(1e-3);
   });
 
   it('fillets a rectangle corner tangentially', () => {
@@ -190,6 +275,20 @@ describe('editing tools', () => {
     expect(Math.max(...xs)).toBeCloseTo(9, 9);
     expect(Math.min(...ys)).toBeCloseTo(1, 9);
     expect(Math.max(...ys)).toBeCloseTo(5, 9);
+  });
+
+  it('refuses an inward offset larger than the loop instead of turning it inside out', () => {
+    const s = sk(rect(0, 0, 20, 10, 'r'));
+    const n = s.entities.length;
+    // 6 inward from both long sides crosses over: the result would be inverted.
+    expect(offsetCurves(s, ['rl0', 'rl1', 'rl2', 'rl3'], -6, idFactory(s))).toHaveLength(0);
+    expect(s.entities).toHaveLength(n);
+    expect(offsetCurves(s, ['rl0', 'rl1', 'rl2', 'rl3'], -4, idFactory(s))).toHaveLength(4);
+    // A rounded rectangle offset inward by less than its corner radius still works.
+    const r = sk(rect(0, 0, 20, 10, 'r'));
+    for (const p of ['rp0', 'rp1', 'rp2', 'rp3']) filletCorner(r, p, 4, idFactory(r));
+    const ids = r.entities.filter((e) => e.t === 'line' || e.t === 'arc').map((e) => e.id);
+    expect(offsetCurves(r, ids, -3, idFactory(r))).toHaveLength(8);
   });
 
   it('offsets a rounded rectangle outward, growing its corner arcs', () => {

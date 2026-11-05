@@ -2,7 +2,7 @@
 // selection, PropertyManager panels, sketch mode and the rebuild loop.
 
 import type { BuildResult, EdgeInfo, FaceInfo, FeatureStatus } from '../kernel/protocol';
-import { KernelClient } from '../kernel/client';
+import { KernelClient, KernelRestartError } from '../kernel/client';
 import type { Frame, Vec3 } from '../math/vec';
 import { DocStore, newDocument } from '../model/document';
 import { evaluateVariables } from '../model/expr';
@@ -160,6 +160,7 @@ export class App {
     window.addEventListener('focusin', () => { this.focusByPointer = this.pointerInput; }, true);
     this.renderer.camera.setState(this.renderer.camera.fitState([0, 0, 0], 60));
     this.showLoading(true);
+    this.bindKernelRecovery();
     this.kernel.ready.then(() => {
       this.kernelReady = true;
       this.showLoading(false);
@@ -169,6 +170,30 @@ export class App {
       toast({ kind: 'error', title: 'Geometry engine failed to start', message: `${(e as Error).message}. Reload the page to try again.`, timeout: 0 });
     });
     this.refreshAll();
+  }
+
+  private crashedBuildKey: string | null = null;
+  private closeStallToast: (() => void) | null = null;
+
+  /** Offers a restart when the geometry worker stops answering, and rebuilds on a restarted one. */
+  private bindKernelRecovery() {
+    this.kernel.onStall = (stalled) => {
+      const close = this.closeStallToast;
+      this.closeStallToast = null;
+      close?.();
+      if (!stalled) return;
+      this.closeStallToast = toast({
+        kind: 'warning', title: 'The geometry engine is taking a long time',
+        message: 'Large imports can take a few minutes. If it has stopped responding, restart it; your part is kept.',
+        actions: [{ label: 'Restart engine', primary: true, run: () => this.kernel.restart() }, { label: 'Keep waiting', run: () => {} }],
+      });
+    };
+    this.kernel.onRestart = (reason, building) => {
+      toast({ kind: 'warning', title: 'Geometry engine restarted', message: `It was restarted because ${reason}. Rebuilding the part.` });
+      // A rebuild cut short is retried by rebuild(); after anything else
+      // (measure, export...) the new worker still needs the model.
+      if (!building) this.requestRebuild(true);
+    };
   }
 
   // ---------- theme ----------
@@ -217,9 +242,21 @@ export class App {
     }
     tabKeys(list);
     this.shell.lpTabs.append(list, h('span', { class: 'grow' }));
+    // Phones: the sheet can shrink to its tabs, title and OK/Cancel so the
+    // preview of a feature being edited is visible above it.
+    const peek = h('button', { class: 'icon-btn mobile-only lp-peek', type: 'button', 'aria-label': 'Expand panel', 'aria-expanded': 'true', 'aria-controls': 'left-panel' }, icon('chevronDown', 16));
+    peek.addEventListener('click', () => this.setLeftPanePeek(!this.shell.leftpane.classList.contains('peek')));
     const close = h('button', { class: 'icon-btn mobile-only', type: 'button', 'aria-label': 'Close panel' }, icon('close', 16));
     close.addEventListener('click', () => this.toggleLeftPane(false));
-    this.shell.lpTabs.append(close);
+    this.shell.lpTabs.append(peek, close);
+  }
+
+  private setLeftPanePeek(peek: boolean) {
+    this.shell.leftpane.classList.toggle('peek', peek);
+    const b = this.shell.lpTabs.querySelector<HTMLElement>('.lp-peek');
+    if (!b) return;
+    b.setAttribute('aria-expanded', String(!peek));
+    b.replaceChildren(icon(peek ? 'chevronUp' : 'chevronDown', 16));
   }
 
   showLeft(tab: 'tree' | 'pm') {
@@ -240,6 +277,7 @@ export class App {
     const lp = this.shell.leftpane;
     const v = open ?? !lp.classList.contains('open');
     lp.classList.toggle('open', v);
+    if (!v) this.setLeftPanePeek(false);
     this.shell.treeToggle.setAttribute('aria-expanded', String(v));
   }
 
@@ -357,6 +395,19 @@ export class App {
     });
     this.flyoutEl = h('div', { class: 'flyout-tree', hidden: true }, toggle, body);
     this.shell.viewport.append(this.flyoutEl);
+    // In a narrow graphics area the centred view toolbar would cover it.
+    const ro = new ResizeObserver(() => this.placeFlyout());
+    ro.observe(this.shell.viewport);
+    ro.observe(this.shell.hud);
+  }
+
+  private placeFlyout() {
+    const el = this.flyoutEl;
+    if (el.hidden) return;
+    el.classList.remove('below-hud');
+    const a = el.firstElementChild!.getBoundingClientRect();
+    const b = this.shell.hud.getBoundingClientRect();
+    if (a.right > b.left && a.left < b.right && a.bottom > b.top && a.top < b.bottom) el.classList.add('below-hud');
   }
 
   private updateFlyout() {
@@ -364,6 +415,7 @@ export class App {
     this.flyoutEl.hidden = !show;
     const label = this.flyoutEl.querySelector('button > span');
     if (label) label.textContent = this.store.doc.name;
+    this.placeFlyout();
     if (show && this.flyoutOpen) this.flyout.render();
   }
 
@@ -439,9 +491,20 @@ export class App {
     this.commands.changed();
   }
 
+  /**
+   * Phones: the assistant covers the workspace, so a ribbon command, the design
+   * tree or the Model/Drawing tabs, which show something there, uncover it.
+   * Only taps do: what the assistant itself opens leaves it open.
+   */
+  private uncoverWorkspace = (e: Event) => {
+    if ((e.target as Element).closest('button') && this.taskPaneOpen() === 'assistant' && window.matchMedia('(max-width: 760px)').matches) this.toggleTaskPane('assistant');
+  };
+
   private bindShell() {
     const s = this.shell;
     s.treeToggle.addEventListener('click', () => this.toggleLeftPane());
+    s.treeToggle.addEventListener('click', this.uncoverWorkspace);
+    s.cmTools.addEventListener('click', this.uncoverWorkspace);
     // Splitter resize.
     s.splitter.addEventListener('pointerdown', (e) => {
       e.preventDefault();
@@ -662,7 +725,7 @@ export class App {
   }
 
   /** Number of features the model shows (rollback, sketch or edit position). */
-  private buildLimit(): number {
+  buildLimit(): number {
     let n = this.store.builtCount;
     if (this.sketchEditor) n = Math.min(n, this.store.indexOf(this.sketchEditor.sketchId));
     if (this.panel?.editingId) n = Math.min(n, this.store.indexOf(this.panel.editingId));
@@ -694,9 +757,19 @@ export class App {
     try {
       res = await this.kernel.build({ features: resolved.features, upTo, blobs: this.store.doc.blobs, quality: this.settings.quality, preview });
     } catch (e) {
+      if (e instanceof KernelRestartError) {
+        // Retry once on the restarted worker; the same model stopping it
+        // again is reported instead of restarting in a loop.
+        if (this.crashedBuildKey !== key) {
+          this.crashedBuildKey = key;
+          this.requestRebuild(true);
+        } else toast({ kind: 'error', title: 'Rebuild failed', message: 'The geometry engine stopped again while rebuilding this part. Undo the last change or edit the part to try again.', timeout: 0 });
+        return;
+      }
       toast({ kind: 'error', title: 'Rebuild failed', message: (e as Error).message });
       return;
     }
+    this.crashedBuildKey = null;
     // Coalesced requests all resolve with the same newest result: show it once.
     if (res === this.lastBuildResult) return;
     this.lastBuildResult = res;
@@ -750,6 +823,7 @@ export class App {
       return b;
     };
     this.sheetTabs = h('div', { class: 'sheet-tabs', role: 'tablist', 'aria-label': 'Model or drawing' }, mk('Model', false), mk('Drawing', true));
+    this.sheetTabs.addEventListener('click', this.uncoverWorkspace);
     // Opening the drawing projects the views, so the arrow keys only move focus.
     tabKeys(this.sheetTabs, { activate: false });
     this.shell.statusMsg.before(this.sheetTabs);
@@ -763,13 +837,18 @@ export class App {
   private applyBuild(res: BuildResult, ms: number) {
     this.buildVersion++;
     this.statuses = new Map(res.status.map((s) => [s.id, s]));
-    for (const [id, err] of this.resolveErrors) this.statuses.set(id, { id, ok: false, error: err });
+    for (const [id, err] of this.resolveErrors) {
+      // A suppressed feature is not built, so its values are not used either.
+      if (!this.store.feature(id)?.suppressed && !this.statuses.get(id)?.suppressed) this.statuses.set(id, { id, ok: false, error: err });
+    }
     this.faces = res.faces;
     this.edges = res.edges;
     this.frames = res.frames;
     this.bbox = res.bbox;
-    this.vertices = res.mesh?.vertices ?? new Float32Array(0);
-    this.renderer.setModel(res.mesh, res.faces.length, res.edges.length);
+    if (!res.meshUnchanged) {
+      this.vertices = res.mesh?.vertices ?? new Float32Array(0);
+      this.renderer.setModel(res.mesh, res.faces.length, res.edges.length);
+    }
     if (this.fitOnNextBuild) {
       this.fitOnNextBuild = false;
       if (res.bbox) this.viewport.zoomToFit(false);
@@ -792,7 +871,8 @@ export class App {
     this.viewport.refreshStates();
     this.viewport.rehoverSoon();
     this.renderTrees();
-    const errors = res.status.filter((s) => !s.ok);
+    // Expression errors replace the kernel's view of the same feature.
+    const errors = res.status.map((s) => this.statuses.get(s.id) ?? s).filter((s) => !s.ok);
     if (errors.length && !this.panel) {
       const f = this.store.feature(errors[0].id);
       this.setStatus(`Rebuild error in ${f?.name ?? 'a feature'}: ${errors[0].error}`, true);
@@ -865,7 +945,7 @@ export class App {
   }
 
   private onSelectionChange(hoverOnly = false) {
-    this.viewport.refreshStates();
+    this.viewport.refreshStates(hoverOnly);
     // Pre-highlighting only changes the graphics: rebuilding the tree and the
     // PropertyManager on every hover would also throw away a rename or a
     // field being typed in.
@@ -1059,6 +1139,7 @@ export class App {
     if (!p) return;
     const fromPane = this.shell.leftpane.contains(document.activeElement);
     if (ok) {
+      if (!p.checkFields()) return;
       let done = false;
       try {
         done = await p.ok();
@@ -1329,7 +1410,8 @@ export class App {
       return;
     }
     if (e.key === 'Escape') {
-      if (inText) return;
+      // A number field passes on an Esc it had nothing to take back for (pm.ts).
+      if (inText && (e.defaultPrevented || !target.closest('.spin'))) return;
       closeMenus();
       this.hideContextToolbar();
       if (this.sketchEditor?.modifyOpen) { this.sketchEditor.closeModify(); return; }
@@ -1354,6 +1436,8 @@ export class App {
     if ((e.key === 'Enter' || e.key === ' ') && !e.ctrlKey && !e.metaKey && !e.altKey && target !== this.viewport.canvas
       && (!this.focusByPointer || target.closest('.taskpane'))
       && target.closest(e.key === ' ' ? `${ACTIVATES_ON_ENTER}, ${ACTIVATES_ON_SPACE}` : ACTIVATES_ON_ENTER)) return;
+    // Enter finishes what a sketch tool is drawing (a spline, a line chain).
+    if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey && !e.altKey && this.sketchEditor?.tool?.enter?.()) { e.preventDefault(); return; }
     if (e.key === 'Enter' && this.panel && !(target instanceof HTMLButtonElement)) {
       e.preventDefault();
       void this.closePanel(true);

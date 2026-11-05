@@ -16,7 +16,6 @@ export const CLOUD_DIR = 'Parts';
 const LOCAL_DIR = 'parametric-parts';
 const LOCAL_INDEX = 'parametric:local-parts';
 const RECENT_KEY = 'parametric:recent';
-const RECOVERY_FILE = 'recovery.json';
 
 export type Location = { type: 'cloud'; path: string } | { type: 'local'; id: string };
 
@@ -64,8 +63,14 @@ export const localAvailable = async () => !!(await opfsDir());
 async function writeFile(dir: FileSystemDirectoryHandle, name: string, text: string) {
   const fh = await dir.getFileHandle(name, { create: true });
   const w = await fh.createWritable();
-  await w.write(text);
-  await w.close();
+  try {
+    await w.write(text);
+    await w.close();
+  } catch (e) {
+    // The file keeps its old contents; drop the half-written copy and its storage.
+    await w.abort().catch(() => {});
+    throw e;
+  }
 }
 
 async function localWrite(id: string, name: string, text: string) {
@@ -162,8 +167,12 @@ export async function renameCloud(location: Location & { type: 'cloud' }, newNam
   return { type: 'cloud', path: item?.path || location.path.replace(/[^/]+$/, `${safeName(newName)}${EXT}`) };
 }
 
-/** Parts the user can open: cloud folder listing plus browser storage. */
-export async function listParts(): Promise<FileEntry[]> {
+/**
+ * Parts the user can open: cloud folder listing plus browser storage. When
+ * the cloud cannot be listed (offline, say), the parts in this browser are
+ * still returned and `onCloudError` is told why the cloud ones are missing.
+ */
+export async function listParts(onCloudError?: (err: unknown) => void): Promise<FileEntry[]> {
   const out: FileEntry[] = [];
   if (cloudAvailable()) {
     try {
@@ -173,7 +182,7 @@ export async function listParts(): Promise<FileEntry[]> {
         out.push({ name: it.name.slice(0, -EXT.length), location: { type: 'cloud', path: it.path }, modified: toMs(it.modified), size: it.size });
       }
     } catch (err) {
-      if (!isMissing(err)) throw err;
+      if (!isMissing(err)) onCloudError?.(err);
     }
   }
   for (const p of readIndex()) out.push({ name: p.name, location: { type: 'local', id: p.id }, modified: p.modified, size: p.size });
@@ -261,33 +270,92 @@ export function download(data: BlobPart | Blob, filename: string, type = 'applic
   setTimeout(() => URL.revokeObjectURL(url), 30_000);
 }
 
-// ---- Crash recovery: one snapshot of unsaved work in browser storage ----
+// ---- Crash recovery: a snapshot of each open tab's unsaved work ----
+// Every tab writes its own file and holds a Web Lock named after it while it
+// is open, so another tab never offers (or deletes) work that is still open,
+// and two tabs never overwrite each other's copy. A copy whose tab is gone
+// (closed, crashed, reloaded) is offered when Parametric starts.
 
-export async function writeRecovery(text: string) {
-  const dir = await opfsDir();
-  if (!dir) return;
-  try {
-    await writeFile(dir, RECOVERY_FILE, text);
-  } catch {
-    /* best effort */
-  }
+const RECOVERY_PREFIX = 'recovery-';
+const LOCK_PREFIX = 'parametric-recovery-';
+const TAB_ID = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+const ownRecovery = `${RECOVERY_PREFIX}${TAB_ID}.json`;
+
+type Locks = { request(name: string, cb: () => Promise<void>): Promise<void>; query(): Promise<{ held?: { name?: string }[] }> };
+const locks = (): Locks | undefined => (typeof navigator !== 'undefined' ? (navigator as unknown as { locks?: Locks }).locks : undefined);
+// Held until the tab goes away.
+void locks()?.request(`${LOCK_PREFIX}${TAB_ID}`, () => new Promise<void>(() => {})).catch(() => {});
+
+// Writes and removals run one at a time, so a removal never races a write in progress.
+let recoveryQueue: Promise<unknown> = Promise.resolve();
+function queued<T>(fn: () => Promise<T>): Promise<T> {
+  const run = recoveryQueue.then(fn, fn);
+  recoveryQueue = run.catch(() => {});
+  return run;
 }
 
+export function writeRecovery(text: string) {
+  return queued(async () => {
+    const dir = await opfsDir();
+    if (!dir) return;
+    try {
+      await writeFile(dir, ownRecovery, text);
+    } catch {
+      /* best effort */
+    }
+  });
+}
+
+/** This tab's own recovery copy, if one has been written. */
 export async function readRecovery(): Promise<string | null> {
-  const dir = await opfsDir();
-  if (!dir) return null;
-  try {
-    return await (await (await dir.getFileHandle(RECOVERY_FILE)).getFile()).text();
-  } catch {
-    return null;
-  }
+  return queued(async () => {
+    const dir = await opfsDir();
+    try {
+      return dir ? await (await (await dir.getFileHandle(ownRecovery)).getFile()).text() : null;
+    } catch {
+      return null;
+    }
+  });
 }
 
-export async function clearRecovery() {
+export function clearRecovery() {
+  return removeRecovery(ownRecovery);
+}
+
+export function removeRecovery(file: string) {
+  return queued(async () => {
+    try {
+      await (await opfsDir())?.removeEntry(file);
+    } catch {
+      /* nothing to clear */
+    }
+  });
+}
+
+/** Recovery copies left by tabs that are no longer open, newest first. */
+export async function orphanRecoveries(): Promise<{ file: string; text: string }[]> {
   const dir = await opfsDir();
+  if (!dir) return [];
+  let held: Set<string> | null = null;
   try {
-    await dir?.removeEntry(RECOVERY_FILE);
+    const q = await locks()?.query();
+    if (q) held = new Set((q.held ?? []).map((l) => l.name ?? ''));
   } catch {
-    /* nothing to clear */
+    held = null;
   }
+  const out: { file: string; text: string; at: number }[] = [];
+  try {
+    for await (const [name, handle] of (dir as unknown as { entries(): AsyncIterable<[string, FileSystemHandle]> }).entries()) {
+      // recovery.json was the single copy written before there was one per tab.
+      const id = name === 'recovery.json' ? '' : name.startsWith(RECOVERY_PREFIX) && name.endsWith('.json') ? name.slice(RECOVERY_PREFIX.length, -5) : null;
+      if (id === null || name === ownRecovery || handle.kind !== 'file') continue;
+      // Without Web Locks every other copy counts as left behind.
+      if (id && held?.has(`${LOCK_PREFIX}${id}`)) continue;
+      const f = await (handle as FileSystemFileHandle).getFile();
+      out.push({ file: name, text: await f.text(), at: f.lastModified });
+    }
+  } catch {
+    /* listing failed: nothing to offer */
+  }
+  return out.sort((a, b) => b.at - a.at).map(({ file, text }) => ({ file, text }));
 }

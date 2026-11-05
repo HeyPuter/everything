@@ -13,7 +13,7 @@
 import type { Id, SkConstraint, SkDimension, SkEntity, SkRelation } from '../model/types';
 import { isDimension } from '../model/types';
 import { type Vec2, wrapAngle } from '../math/vec';
-import { ORIGIN_ID } from './geom';
+import { ORIGIN_ID, bezierPoint, splineBeziers } from './geom';
 
 export type SketchStatus = 'under' | 'full' | 'over';
 
@@ -174,6 +174,12 @@ export class SketchSystem {
     } else if (k === 'circle' || k === 'arc') {
       const c = this.circ(cid)!;
       this.add([...p.v, ...c.v], (x) => { const pp = p.get(x), cc = c.c(x); return Math.hypot(pp[0] - cc[0], pp[1] - cc[1]) - c.r(x); }, owner);
+    } else if (k === 'spline') {
+      const e = this.entity.get(cid) as Extract<SkEntity, { t: 'spline' }>;
+      const ps = e.pts.map((id) => this.P(id));
+      if (ps.length < 2 || ps.some((q) => !q)) return;
+      const pa = ps as { v: number[]; get: PtAcc }[];
+      this.add([...p.v, ...pa.flatMap((q) => q.v)], (x) => splineSignedDist(p.get(x), pa.map((q) => q.get(x))), owner);
     }
   }
 
@@ -741,28 +747,98 @@ function signedDist(p: Vec2, a: Vec2, b: Vec2): number {
   return (dx * (p[1] - a[1]) - dy * (p[0] - a[0])) / l;
 }
 
-/** In-place Cholesky solve of a symmetric positive definite system. */
+/**
+ * Signed distance from p to a spline through pts: the distance along the
+ * normal at the closest point. Past an open end it is the distance to the end
+ * tangent, so the residual stays smooth there (like a line's infinite
+ * extension).
+ */
+export function splineSignedDist(p: Vec2, pts: Vec2[]): number {
+  const bz = splineBeziers(pts);
+  if (!bz.length) return 0;
+  // Coarse search for the closest segment and parameter.
+  let bi = 0, bt = 0, bd = Infinity;
+  const N = 16;
+  for (let i = 0; i < bz.length; i++) {
+    for (let j = 0; j <= N; j++) {
+      const q = bezierPoint(bz[i], j / N);
+      const d = (q[0] - p[0]) ** 2 + (q[1] - p[1]) ** 2;
+      if (d < bd) { bd = d; bi = i; bt = j / N; }
+    }
+  }
+  // Newton refinement of (B(t) - p) . B'(t) = 0 within that segment.
+  const b = bz[bi];
+  let t = bt;
+  for (let it = 0; it < 30; it++) {
+    const q = bezierPoint(b, t), d1 = bezD1(b, t), d2 = bezD2(b, t);
+    const ex = q[0] - p[0], ey = q[1] - p[1];
+    const g = ex * d1[0] + ey * d1[1];
+    const h = d1[0] * d1[0] + d1[1] * d1[1] + ex * d2[0] + ey * d2[1];
+    if (!(h > 0)) break;
+    const nt = Math.min(1, Math.max(0, t - g / h));
+    const done = Math.abs(nt - t) < 1e-15;
+    t = nt;
+    if (done) break;
+  }
+  const q = bezierPoint(b, t), d1 = bezD1(b, t);
+  const l = Math.hypot(d1[0], d1[1]);
+  if (l < 1e-12) return Math.hypot(p[0] - q[0], p[1] - q[1]);
+  return (d1[0] * (p[1] - q[1]) - d1[1] * (p[0] - q[0])) / l;
+}
+
+function bezD1(b: Vec2[], t: number): Vec2 {
+  const u = 1 - t;
+  const a = 3 * u * u, c = 6 * u * t, d = 3 * t * t;
+  return [
+    a * (b[1][0] - b[0][0]) + c * (b[2][0] - b[1][0]) + d * (b[3][0] - b[2][0]),
+    a * (b[1][1] - b[0][1]) + c * (b[2][1] - b[1][1]) + d * (b[3][1] - b[2][1]),
+  ];
+}
+
+function bezD2(b: Vec2[], t: number): Vec2 {
+  const u = 1 - t;
+  return [
+    6 * u * (b[2][0] - 2 * b[1][0] + b[0][0]) + 6 * t * (b[3][0] - 2 * b[2][0] + b[1][0]),
+    6 * u * (b[2][1] - 2 * b[1][1] + b[0][1]) + 6 * t * (b[3][1] - 2 * b[2][1] + b[1][1]),
+  ];
+}
+
+/**
+ * In-place Cholesky solve of a symmetric positive definite system.
+ *
+ * Entries of a row left of its first non-zero stay zero in the factor (no
+ * fill-in outside the envelope), so skipping them gives exactly the dense
+ * result while costing far less for the near-banded systems of chained
+ * sketch geometry.
+ */
 function cholSolve(A: Float64Array, b: Float64Array, n: number): boolean {
+  const first = new Int32Array(n);
+  for (let i = 0; i < n; i++) {
+    let k = 0;
+    while (k < i && A[i * n + k] === 0) k++;
+    first[i] = k;
+  }
   for (let j = 0; j < n; j++) {
     let s = A[j * n + j];
-    for (let k = 0; k < j; k++) s -= A[j * n + k] * A[j * n + k];
+    for (let k = first[j]; k < j; k++) s -= A[j * n + k] * A[j * n + k];
     if (s <= 1e-300) return false;
     const d = Math.sqrt(s);
     A[j * n + j] = d;
     for (let i = j + 1; i < n; i++) {
+      if (first[i] > j) continue;
       let t = A[i * n + j];
-      for (let k = 0; k < j; k++) t -= A[i * n + k] * A[j * n + k];
+      for (let k = Math.max(first[i], first[j]); k < j; k++) t -= A[i * n + k] * A[j * n + k];
       A[i * n + j] = t / d;
     }
   }
   for (let i = 0; i < n; i++) {
     let t = b[i];
-    for (let k = 0; k < i; k++) t -= A[i * n + k] * b[k];
+    for (let k = first[i]; k < i; k++) t -= A[i * n + k] * b[k];
     b[i] = t / A[i * n + i];
   }
   for (let i = n - 1; i >= 0; i--) {
     let t = b[i];
-    for (let k = i + 1; k < n; k++) t -= A[k * n + i] * b[k];
+    for (let k = i + 1; k < n; k++) if (first[k] <= i) t -= A[k * n + i] * b[k];
     b[i] = t / A[i * n + i];
   }
   return true;

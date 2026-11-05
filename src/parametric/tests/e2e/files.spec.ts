@@ -104,6 +104,9 @@ test('cancelling the Save As location saves nothing', async ({ page }) => {
   await expect(page).toHaveTitle('Bracket - Parametric');
   const files = await page.evaluate(() => [...(window as unknown as Mock).__files.entries()].map(([k, v]) => [k, JSON.parse(v.text).name]));
   expect(files).toEqual([['/tester/Documents/Bracket.parametric', 'Bracket']]);
+  // And is the recent part to open again.
+  const recent = await page.evaluate(() => JSON.parse(localStorage.getItem('parametric:recent') || '[]'));
+  expect(recent[0]).toMatchObject({ name: 'Bracket', location: { type: 'cloud', path: '/tester/Documents/Bracket.parametric' } });
 });
 
 test('a file that is not a part is refused before asking to discard, and changes nothing', async ({ page }) => {
@@ -167,6 +170,137 @@ test('unsaved work the user chose not to save is not offered for recovery later'
   await page.getByRole('dialog', { name: 'Save changes?' }).getByRole('button', { name: "Don't save" }).click();
   await expect(page).toHaveTitle(/Other - Parametric/);
   await expect.poll(recovery).toBeNull();
+});
+
+test('each tab keeps its own recovery copy, and only copies from closed tabs are offered', async ({ context }) => {
+  type Doc = { name: string; variables: { name: string; expr: string }[] };
+  const edit = (p: Page, name: string) => p.evaluate((n) => (window as unknown as { __parametric: { store: { change(l: string, fn: (d: Doc) => void): void } } }).__parametric.store.change('E', (d) => { d.name = n; d.variables.push({ name: 'X', expr: '1' }); }), name);
+  const recovery = (p: Page) => p.evaluate(async (url) => (await import(url)).readRecovery(), '/src/platform/files.ts');
+  const recover = (p: Page) => p.getByRole('dialog', { name: 'Recover unsaved work?' });
+  const start = async () => {
+    const p = await context.newPage();
+    await mockPuter(p);
+    await openApp(p);
+    return p;
+  };
+  const a = await start();
+  await a.getByRole('button', { name: /New part/ }).click();
+  await edit(a, 'Alpha');
+  await expect.poll(() => recovery(a), { timeout: 10_000 }).toContain('"name":"Alpha"');
+  // Another tab opened meanwhile: Alpha is still open, so it is not offered.
+  const b = await start();
+  await expect(b.getByRole('button', { name: /New part/ })).toBeVisible();
+  await expect(recover(b)).toHaveCount(0);
+  await b.getByRole('button', { name: /New part/ }).click();
+  await edit(b, 'Beta');
+  await expect.poll(() => recovery(b), { timeout: 10_000 }).toContain('"name":"Beta"');
+  expect(await recovery(a)).toContain('"name":"Alpha"');
+  // Alpha's tab goes away: its work is offered; closing the question keeps it.
+  await a.close();
+  const c = await start();
+  await expect(recover(c)).toContainText('"Alpha"');
+  await c.keyboard.press('Escape');
+  await c.reload();
+  await expect(recover(c)).toContainText('"Alpha"');
+  await recover(c).getByRole('button', { name: 'Discard' }).click();
+  await expect(c.getByRole('button', { name: /New part/ })).toBeVisible();
+  await c.reload();
+  await expect(c.getByRole('button', { name: /New part/ })).toBeVisible();
+  await expect(recover(c)).toHaveCount(0);
+  expect(await recovery(b)).toContain('"name":"Beta"');
+});
+
+test('a pending recovery copy is written as soon as the tab is hidden', async ({ page }) => {
+  await mockPuter(page);
+  await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await app(page);
+  await page.evaluate(() => (window as unknown as { __parametric: AppHandle }).__parametric.store.change('A', (d) => { d.variables.push({ name: 'Hidden', expr: '1' }); }));
+  await page.evaluate(() => {
+    Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
+    document.dispatchEvent(new Event('visibilitychange'));
+  });
+  // Well before the usual few seconds after the last change.
+  await expect.poll(() => page.evaluate(async (url) => (await import(url)).readRecovery(), '/src/platform/files.ts'), { timeout: 1500 }).toContain('"name":"Hidden"');
+});
+
+test('the start screen gives way to work started behind it, which an example then does not replace silently', async ({ page }) => {
+  await mockPuter(page);
+  await openApp(page);
+  await app(page);
+  const start = page.getByRole('dialog', { name: 'Parametric' });
+  await expect(start).toBeVisible();
+  // As the assistant or the ribbon would, with the start screen still showing.
+  await page.evaluate(() => (window as unknown as { __parametric: AppHandle }).__parametric.store.change('A', (d) => { d.variables.push({ name: 'Work', expr: '1' }); }));
+  await expect(start).toHaveCount(0);
+  await expect(page).toHaveTitle('* Part1 - Parametric');
+});
+
+test('a view-only shared file that is not a part is refused before asking to discard', async ({ page }) => {
+  await mockPuter(page);
+  await page.addInitScript(() => {
+    const w = window as unknown as Mock & { puter: { fs: { listShared(): Promise<unknown> } } };
+    w.__files.set('/alice/Parts/Notes.parametric', { text: 'not a part' });
+    w.puter.fs.listShared = async () => ({ items: [{ name: 'Notes.parametric', path: '/alice/Parts/Notes.parametric', owner: 'alice', mode: 'read' }] });
+  });
+  await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await app(page);
+  await page.evaluate(() => {
+    const a = (window as unknown as { __parametric: AppHandle }).__parametric;
+    a.store.change('A', (d) => { d.variables.push({ name: 'A', expr: '1' }); });
+    a.commands.run('open');
+  });
+  await page.getByRole('dialog', { name: 'Open' }).getByRole('button', { name: /^Notes/ }).click();
+  await expect(page.getByRole('region', { name: 'Notifications' }).getByText('This file is not a valid part file.')).toBeVisible();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect(page).toHaveTitle('* Part1 - Parametric');
+});
+
+test('a save that fails offers to download a copy of the part', async ({ page }) => {
+  await mockPuter(page);
+  await page.addInitScript(() => {
+    (window as unknown as { puter: { fs: { write(): Promise<never> } } }).puter.fs.write = async () => { throw new TypeError('Failed to fetch'); };
+  });
+  await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await app(page);
+  await page.evaluate(() => {
+    const a = (window as unknown as { __parametric: AppHandle }).__parametric;
+    a.store.change('A', (d) => { d.variables.push({ name: 'Width', expr: '10' }); });
+    a.commands.run('save');
+  });
+  const toasts = page.getByRole('region', { name: 'Notifications' });
+  await expect(toasts.getByText('Puter could not be reached. Check your connection and try again.')).toBeVisible();
+  const download = page.waitForEvent('download');
+  await toasts.getByRole('button', { name: 'Download a copy' }).click();
+  expect((await download).suggestedFilename()).toBe('Part1.parametric');
+  await expect(page).toHaveTitle('* Part1 - Parametric');
+});
+
+test('closing the Puter desktop window asks about unsaved changes first', async ({ page }) => {
+  await mockPuter(page);
+  await page.addInitScript(() => {
+    const w = window as unknown as { puter: { env: string; exit(): void; ui: { onWindowClose(fn: () => void): void } }; __close?: () => void; __exited: number };
+    w.__exited = 0;
+    w.puter.env = 'app';
+    w.puter.exit = () => { w.__exited++; };
+    w.puter.ui.onWindowClose = (fn) => { w.__close = fn; };
+  });
+  await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await app(page);
+  type W = { __close: () => void; __exited: number; __parametric: AppHandle };
+  const close = () => page.evaluate(() => { void (window as unknown as W).__close(); });
+  const exited = () => page.evaluate(() => (window as unknown as W).__exited);
+  await page.evaluate(() => (window as unknown as W).__parametric.store.change('A', (d) => { d.variables.push({ name: 'A', expr: '1' }); }));
+  await close();
+  const ask = page.getByRole('dialog', { name: 'Save changes?' });
+  await ask.getByRole('button', { name: 'Cancel' }).click();
+  expect(await exited()).toBe(0);
+  await close();
+  await ask.getByRole('button', { name: "Don't save" }).click();
+  await expect.poll(exited).toBe(1);
 });
 
 test('parts are deleted from the Open dialog with a button, and stay listed when that fails', async ({ page }) => {
@@ -268,4 +402,23 @@ test('a feature panel with changes not applied asks before another part replaces
     return texts.some((t) => t.includes('"name":"Mounting Bracket"') && t.includes('"depth":55'));
   });
   expect(saved).toBe(true);
+});
+
+test('a part file too large to read is refused with a message, before it is read', async ({ page }, info) => {
+  const errors = await openApp(page);
+  // A sparse file: its size without its bytes on disk.
+  const fs = await import('node:fs');
+  const path = info.outputPath('huge.parametric');
+  fs.mkdirSync(info.outputDir, { recursive: true });
+  fs.writeFileSync(path, '');
+  fs.truncateSync(path, 250_000_000);
+  try {
+    const chooser = page.waitForEvent('filechooser');
+    await page.getByRole('button', { name: /Open from device/ }).click();
+    await (await chooser).setFiles(path);
+    await expect(page.locator('.toast.error')).toContainText('too large to open as a part (200 MB limit)');
+  } finally {
+    fs.rmSync(path);
+  }
+  expect(errors).toEqual([]);
 });

@@ -16,6 +16,7 @@ import { REPO_URL } from './shell';
 
 export class StartScreen {
   el: HTMLElement | null = null;
+  private unsubscribe: (() => void) | null = null;
 
   constructor(private app: App, private files: FileOps) {}
 
@@ -36,7 +37,9 @@ export class StartScreen {
       return b;
     };
     const recents = recentParts().slice(0, 6);
-    const examples = h('div', { class: 'start-actions' }, EXAMPLES.map((ex) => action('part', ex.name, ex.description, () => {
+    // The part can have changed behind the start screen (assistant, ribbon): ask before replacing it.
+    const examples = h('div', { class: 'start-actions' }, EXAMPLES.map((ex) => action('part', ex.name, ex.description, async () => {
+      if (!(await this.files.confirmDiscard('open an example'))) return;
       this.hide();
       app.loadDocument(ex.make(), null);
     })));
@@ -44,7 +47,12 @@ export class StartScreen {
       h('h1', { id: 'start-title' }, h('img', { src: './icon-128.png', alt: '' }), 'Parametric'),
       h('div', { class: 'sub' }, 'Feature-based 3D part modeling in your browser.'),
       h('div', { class: 'start-actions' },
-        action('new', 'New part', 'Start from a blank part', () => { this.hide(); app.settings.defaultUnits = units; app.newDocument('Part1'); }),
+        action('new', 'New part', 'Start from a blank part', async () => {
+          if (!(await this.files.confirmDiscard('start a new part'))) return;
+          this.hide();
+          app.settings.defaultUnits = units;
+          app.newDocument('Part1');
+        }),
         action('open', 'Open', cloudAvailable() ? 'Open a part from your Puter cloud or this browser' : 'Open a part saved in this browser', () => { this.hide(); void this.files.open(); }),
         action('upload', 'Open from device', 'Open a part file, or a STEP or SolidWorks file', () => { this.hide(); void this.files.openFromDevice(); }),
       ),
@@ -62,6 +70,8 @@ export class StartScreen {
         h('a', { href: REPO_URL, target: '_blank', rel: 'noopener noreferrer' }, 'Open source on GitHub')),
     );
     this.el = h('div', { class: 'start' }, card);
+    // Work started elsewhere (the assistant, the ribbon) needs the graphics area.
+    this.unsubscribe = app.store.on((reason) => { if (reason !== 'load') this.hide(); });
     app.shell.viewport.append(this.el);
     requestAnimationFrame(() => card.querySelector<HTMLElement>('.start-action')?.focus());
     this.el.addEventListener('keydown', (e) => { if (e.key === 'Escape') { this.hide(); } });
@@ -70,6 +80,8 @@ export class StartScreen {
   hide() {
     // Chosen with the keyboard: focus goes to the graphics area, not back to the page start.
     const hadFocus = !!this.el?.contains(document.activeElement);
+    this.unsubscribe?.();
+    this.unsubscribe = null;
     this.el?.remove();
     this.el = null;
     if (hadFocus) this.app.viewport.canvas.focus({ preventScroll: true });

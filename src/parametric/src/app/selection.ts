@@ -107,26 +107,42 @@ export class Selection {
     return this.items.filter((x) => x.kind === kind) as Extract<SelItem, { kind: K }>[];
   }
 
-  /** After a rebuild: re-map faces/edges by name, dropping items that vanished. */
+  /** After a rebuild: re-map faces/edges by name, dropping items (and vertices) that vanished. */
   revalidate(faces: FaceInfo[], edges: EdgeInfo[]) {
     let changed = false;
     const remap = (it: SelItem): SelItem | null => {
-      if (it.kind === 'face') {
-        if (faces[it.index]?.name === it.name) return it;
-        const i = faces.findIndex((f) => f.name === it.name);
-        changed = true;
-        return i >= 0 ? { ...it, index: i } : null;
-      }
-      if (it.kind === 'edge') {
-        if (edges[it.index]?.name === it.name) return it;
-        const i = edges.findIndex((e) => e.name === it.name);
-        changed = true;
-        return i >= 0 ? { ...it, index: i } : null;
-      }
-      return it;
+      const r = remapItem(it, faces, edges);
+      if (r !== it) changed = true;
+      return r;
     };
     this.items = this.items.map(remap).filter((x): x is SelItem => !!x);
     if (this.hover) this.hover = remap(this.hover);
     if (changed) this.emit();
   }
+}
+
+/**
+ * An item picked before a rebuild, on the rebuilt part: faces and edges are
+ * found again by name; a vertex stays only while an edge still ends there.
+ * Returns the same object when nothing changed and null when it vanished.
+ */
+export function remapItem(it: SelItem, faces: FaceInfo[], edges: EdgeInfo[]): SelItem | null {
+  if (it.kind === 'vertex') {
+    // Every vertex of the solid ends an edge; one that moved or went is no longer there to select.
+    // (Picked vertices come from single-precision mesh data, hence the relative tolerance.)
+    const p = it.p;
+    const tol = 1e-5 * (1 + Math.abs(p[0]) + Math.abs(p[1]) + Math.abs(p[2]));
+    return edges.some((e) => [e.a, e.b].some((q) => Math.abs(q[0] - p[0]) + Math.abs(q[1] - p[1]) + Math.abs(q[2] - p[2]) < tol)) ? it : null;
+  }
+  if (it.kind === 'face') {
+    if (faces[it.index]?.name === it.name) return it;
+    const i = faces.findIndex((f) => f.name === it.name);
+    return i >= 0 ? { ...it, index: i } : null;
+  }
+  if (it.kind === 'edge') {
+    if (edges[it.index]?.name === it.name) return it;
+    const i = edges.findIndex((e) => e.name === it.name);
+    return i >= 0 ? { ...it, index: i } : null;
+  }
+  return it;
 }

@@ -68,3 +68,62 @@ test('starting a sketch slides the sheet away from the sketch', async ({ page })
   await expect(page.locator('.leftpane')).not.toHaveClass(/\bopen\b/);
   await expect(page.locator('.confirm-corner').getByRole('button', { name: 'Exit sketch' })).toBeVisible();
 });
+
+test('a feature panel sheet shrinks to show the preview above it', async ({ page }) => {
+  await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await page.getByRole('button', { name: 'Show design tree' }).click();
+  await waitForFeature(page, 'Fillet1');
+  await page.getByRole('treeitem', { name: 'Extrude1' }).dblclick();
+  await expect(page.getByRole('heading', { name: 'Extrude1' })).toBeVisible();
+  const sheet = page.locator('.leftpane');
+  const full = (await sheet.boundingBox())!.height;
+  const peek = page.getByRole('button', { name: 'Expand panel' });
+  await expect(peek).toHaveAttribute('aria-expanded', 'true');
+  await peek.click();
+  await expect(peek).toHaveAttribute('aria-expanded', 'false');
+  await expect.poll(async () => (await sheet.boundingBox())!.height).toBeLessThan(full / 2);
+  // Title and OK/Cancel stay on screen.
+  await expect(page.getByRole('heading', { name: 'Extrude1' })).toBeInViewport();
+  await expect(page.locator('.pm-actions').getByRole('button', { name: 'OK' })).toBeInViewport();
+  await peek.click();
+  await expect.poll(async () => (await sheet.boundingBox())!.height).toBe(full);
+});
+
+test('touch targets are at least 24 px', async ({ page }) => {
+  await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await page.getByRole('button', { name: 'Show design tree' }).click();
+  await waitForFeature(page, 'Fillet1');
+  await page.getByRole('treeitem', { name: 'Extrude1' }).dblclick();
+  await expect(page.getByRole('heading', { name: 'Extrude1' })).toBeVisible();
+  const small = await page.evaluate(() => [...document.querySelectorAll<HTMLElement>('button, a[href], input, select, [role="treeitem"], [tabindex="0"]')]
+    .filter((el) => {
+      const b = el.getBoundingClientRect();
+      if (!b.width || !b.height || b.bottom < 0 || b.top > innerHeight || b.right < 0 || b.left > innerWidth) return false;
+      // A checkbox's label is its target; a section's enable checkbox is spaced from its neighbours.
+      if (el.matches('.check input, .sec-head-check input')) return false;
+      return b.width < 24 || b.height < 24;
+    })
+    .map((el) => `${el.tagName} ${el.className} ${el.getAttribute('aria-label') ?? el.textContent}`));
+  expect(small).toEqual([]);
+});
+
+test('a ribbon command or the design tree tapped while the assistant covers the workspace uncovers it', async ({ page }) => {
+  await page.route(/js\.puter\.com/, (r) => r.fulfill({ body: '', contentType: 'text/javascript' }));
+  await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).tap();
+  await waitForFeature(page, 'Fillet1');
+  const assistant = page.locator('.tp-panel .as-input');
+  await page.locator('.titlebar [data-cmd="assistant"]').tap();
+  await expect(assistant).toBeVisible();
+  await page.getByRole('button', { name: 'Show design tree' }).tap();
+  await expect(assistant).toBeHidden();
+  await expect(page.locator('.leftpane')).toHaveClass(/\bopen\b/);
+  await page.getByRole('button', { name: 'Close panel' }).tap();
+  await page.locator('.titlebar [data-cmd="assistant"]').tap();
+  await expect(assistant).toBeVisible();
+  await page.locator('.cm-tools [data-cmd="fillet"]').tap();
+  await expect(assistant).toBeHidden();
+  await expect(page.getByRole('heading', { name: 'Fillet', exact: true })).toBeVisible();
+});

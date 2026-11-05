@@ -228,10 +228,12 @@ a.icon-btn { text-decoration: none; }
 .pm-section > .sec-head {
   display: flex; align-items: center; gap: 6px; width: 100%; background: none; border: 0; padding: 8px 10px; font-weight: 600; font-size: var(--fs-sm); text-align: left;
 }
-.pm-section > .sec-head .chev { margin-left: auto; color: var(--text-3); transition: transform 0.12s; }
-.pm-section[data-collapsed='true'] > .sec-head .chev { transform: rotate(-90deg); }
+.pm-section .sec-head .chev { margin-left: auto; color: var(--text-3); transition: transform 0.12s; }
+.pm-section[data-collapsed='true'] .sec-head .chev { transform: rotate(-90deg); }
 .pm-section[data-collapsed='true'] > .sec-body { display: none; }
-.pm-section > .sec-head input[type='checkbox'] { margin: 0; }
+.pm-section > .sec-head-check { display: flex; align-items: center; padding-left: 10px; }
+.pm-section > .sec-head-check input[type='checkbox'] { margin: 0; flex: none; }
+.pm-section > .sec-head-check > .sec-head { display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; background: none; border: 0; padding: 8px 10px 8px 6px; font-weight: 600; font-size: var(--fs-sm); text-align: left; }
 .sec-body { padding: 2px 10px 10px; display: flex; flex-direction: column; gap: 8px; }
 .row { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .row > .grow { flex: 1; min-width: 0; }
@@ -261,6 +263,7 @@ a.icon-btn { text-decoration: none; }
 }
 .selbox.active { border-color: var(--accent); outline: 1px solid var(--accent); background: color-mix(in srgb, var(--accent-weak) 45%, var(--panel)); }
 .selbox .empty { color: var(--text-3); font-size: var(--fs-sm); padding: 4px 6px; }
+.selbox.active .empty { color: var(--text-2); }
 .selbox .item { display: flex; align-items: center; gap: 6px; padding: 2px 4px 2px 6px; border-radius: 2px; font-size: var(--fs-sm); }
 .selbox .item:hover { background: var(--hover); }
 .selbox .item .rm { margin-left: auto; width: 20px; height: 20px; }
@@ -290,6 +293,7 @@ a.icon-btn { text-decoration: none; }
 .triad { position: absolute; left: 6px; bottom: 6px; width: 74px; height: 74px; z-index: 3; cursor: pointer; }
 .triad text { font: 600 11px var(--font); }
 .flyout-tree { position: absolute; left: 8px; top: 8px; z-index: 3; max-width: 260px; }
+.flyout-tree.below-hud { top: 48px; }
 .flyout-tree > button { display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 8px; border: 1px solid var(--border); border-radius: var(--radius); background: color-mix(in srgb, var(--panel) 90%, transparent); font-size: var(--fs-sm); }
 .flyout-tree .ft-body { margin-top: 4px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); max-height: 50vh; overflow: auto; min-width: 220px; }
 .flyout-tree .ft-body .tree { padding: 2px 0 6px; }
@@ -492,9 +496,10 @@ a.icon-btn { text-decoration: none; }
   .tool.row .lbl { white-space: normal; font-size: 10px; }
   .leftpane {
     position: absolute; z-index: 20; left: 0; right: 0; bottom: 0; top: auto; width: 100% !important; max-width: none; height: min(52dvh, 460px);
-    border-right: 0; border-top: 1px solid var(--border-strong); border-radius: 12px 12px 0 0; transform: translateY(105%); transition: transform 0.18s ease;
+    border-right: 0; border-top: 1px solid var(--border-strong); border-radius: 12px 12px 0 0; transform: translateY(105%); transition: transform 0.18s ease, height 0.18s ease;
   }
   .leftpane.open { transform: none; }
+  .leftpane.peek { height: 132px; }
   .leftpane .lp-tabs::before { content: ''; position: absolute; left: 50%; top: 4px; width: 36px; height: 4px; border-radius: 4px; background: var(--border-strong); transform: translateX(-50%); }
   .leftpane .lp-tabs { position: relative; padding-top: 12px; }
   .splitter { display: none; }
@@ -504,6 +509,8 @@ a.icon-btn { text-decoration: none; }
   .confirm-corner { top: auto; bottom: 12px; right: 12px; flex-direction: row; }
   .confirm-corner button { width: 48px; height: 48px; }
   .statusbar .cell.hide-mobile { display: none; }
+  /* The Tree toggle lays out its icon and label in a row like the other cells. */
+  .statusbar .cell.mobile-only { display: flex !important; }
   .view-label { display: none; }
   .flyout-tree { display: none !important; }
   .toasts { left: 12px; right: 12px; align-items: stretch; }
@@ -513,4 +520,24 @@ a.icon-btn { text-decoration: none; }
 }
 @media (prefers-reduced-motion: reduce) {
   .leftpane { transition: none; }
+}
+/* Touch: no control smaller than 24px (WCAG 2.5.8). Mouse layouts keep their density. */
+@media (pointer: coarse) {
+  :root { --status-h: 32px; }
+  .statusbar button.cell { align-self: stretch; height: auto; }
+  .tool.row { height: 24px; }
+  .tool-split > .tool { padding-bottom: 24px; }
+  .tool-caret { height: 24px; }
+  .hud .split .caret { width: 24px; min-width: 24px; }
+  .tree-filter { height: 32px; }
+  .tree-filter input { align-self: stretch; }
+  .rollback-bar { height: 24px; margin: 0 6px; }
+  .rollback-bar::before, .rollback-bar:hover::before, .rollback-bar.dragging::before { top: 10px; }
+  .selbox .item .rm { height: 24px; width: 24px; }
+  .spin .spin-btns { flex-direction: row; flex: none; }
+  .spin .spin-btns button { width: 28px; flex: none; }
+  .spin .spin-btns button + button { border-left: 1px solid var(--border-strong); }
+  .check { min-height: 24px; }
+  .check input { width: 18px; height: 18px; }
+  .pm-section > .sec-head-check input[type='checkbox'] { width: 20px; height: 20px; margin-right: 4px; }
 }

@@ -5,7 +5,7 @@
 import type { ProjectionResult } from '../kernel/protocol';
 import { type Vec3, cross, normalize } from '../math/vec';
 import type { DrawingDoc, DrawingView, DrawingViewKind, SheetSize } from '../model/types';
-import { PdfPage } from './pdf';
+import { PdfPage, textWidth } from './pdf';
 
 /** Portrait sizes in millimetres. */
 export const SHEETS: Record<SheetSize, [number, number]> = {
@@ -126,8 +126,6 @@ export interface ViewFrame {
   y1: number;
 }
 
-/** Average Helvetica advance width per em, as in the PDF writer. */
-const TEXT_EM = 0.55;
 const MIN_TEXT = 1.8;
 const VISIBLE_W = 0.35;
 const HIDDEN_W = 0.18;
@@ -187,7 +185,7 @@ const hasDims = (v: DrawingView) => v.dims && v.kind !== 'isometric';
  * nothing is free, as before.
  */
 function viewLabel(s: string, f: ViewFrame, dims: boolean, taken: Box[], w: number, h: number): { item: Item; box: Box } {
-  const half = (s.length * LABEL_SIZE * TEXT_EM) / 2;
+  const half = textWidth(s, LABEL_SIZE) / 2;
   const cx = (f.x0 + f.x1) / 2;
   // Each candidate's text box allows 1 mm of air around the capitals.
   const at = (x: number, y: number, anchor: 'start' | 'middle') => {
@@ -239,10 +237,14 @@ function titleBlock(items: Item[], w: number, h: number, d: DrawingDoc, info: Sh
   const value = (s: string, lx: number, ly: number, cellW: number, size = 3.2, bold = false) => {
     const room = cellW - 3;
     let fitted = s;
-    if (s.length * size * TEXT_EM > room) {
-      size = Math.max(MIN_TEXT, room / (s.length * TEXT_EM));
-      const max = Math.floor(room / (size * TEXT_EM));
-      if (s.length > max) fitted = `${s.slice(0, Math.max(0, max - 1)).trimEnd()}\u2026`;
+    const w = textWidth(s, size, bold);
+    if (w > room) {
+      size = Math.max(MIN_TEXT, (size * room) / w);
+      if (textWidth(s, size, bold) > room + 1e-9) {
+        let n = s.length;
+        while (n > 0 && textWidth(`${s.slice(0, n).trimEnd()}\u2026`, size, bold) > room) n--;
+        fitted = `${s.slice(0, n).trimEnd()}\u2026`;
+      }
     }
     items.push({ t: 'text', s: fitted, x: lx + 1.5, y: ly + row - 2, size, bold });
   };

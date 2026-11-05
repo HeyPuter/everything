@@ -45,6 +45,7 @@ export class Inspector {
     if (index >= this.host.store.builtCount) return 'rolled back (not built)';
     const s = this.host.featureStatus(f.id);
     if (!s) return 'not built yet';
+    if (s.suppressed) return 'suppressed (it depends on a suppressed feature)';
     if (!s.ok) return `ERROR: ${s.error}`;
     return s.warning ? `ok, warning: ${s.warning}` : 'ok';
   }

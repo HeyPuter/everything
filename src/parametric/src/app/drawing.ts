@@ -13,6 +13,12 @@ import { toast } from '../ui/overlay';
 import type { App } from './app';
 import { PropertyPanel, checkbox, section, selectField } from './pm';
 
+/** YYYY-MM-DD in the user's time zone (toISOString gives the UTC day, a day off in the evening or morning). */
+function localDate(ms: number): string {
+  const d = new Date(ms);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 export class DrawingWorkspace {
   readonly el: HTMLElement;
   private host: HTMLElement;
@@ -38,7 +44,7 @@ export class DrawingWorkspace {
     this.paper = h('div', { class: 'paper', role: 'img', 'aria-label': 'Drawing sheet' });
     this.selBox = h('div', { class: 'view-sel', hidden: true });
     this.host = h('div', { class: 'sheet-host' }, this.paper, this.selBox);
-    this.el = h('div', { class: 'drawing-ws', hidden: true, tabindex: '0', 'aria-label': 'Drawing. Drag views to move them, use the wheel to zoom.' }, this.host,
+    this.el = h('div', { class: 'drawing-ws', hidden: true, tabindex: '0', 'aria-label': 'Drawing. Drag views to move them, use the wheel to zoom. Arrow keys move the selected view and Delete removes it.' }, this.host,
       h('div', { class: 'drawing-empty', hidden: true }, 'There is no solid to draw yet. Build the part in the Model tab first.'));
     app.shell.viewport.append(this.el);
     this.bind();
@@ -162,7 +168,7 @@ export class DrawingWorkspace {
       partName: doc.name,
       material: doc.material?.name ?? 'Not specified',
       units: u.length,
-      date: new Date(doc.modified || Date.now()).toISOString().slice(0, 10),
+      date: localDate(doc.modified || Date.now()),
       formatLength: (mm: number) => formatNumber(mm / u.scale, doc.decimals),
     };
   }
@@ -182,6 +188,8 @@ export class DrawingWorkspace {
     if (!d || !this.active) return;
     const s = this.sheet();
     this.frames = s.frames;
+    // A new sheet size or orientation is refitted, or only part of it shows.
+    const resized = s.w !== this.sheetW || s.h !== this.sheetH;
     this.sheetW = s.w;
     this.sheetH = s.h;
     this.paper.innerHTML = toSvg(s.items, s.w, s.h);
@@ -193,7 +201,8 @@ export class DrawingWorkspace {
     this.paper.style.width = `${s.w}px`;
     this.paper.style.height = `${s.h}px`;
     (this.el.querySelector('.drawing-empty') as HTMLElement).hidden = !!this.app.bbox;
-    this.applyTransform();
+    if (resized) this.fit();
+    else this.applyTransform();
     this.drawSelection();
     this.syncPanel();
   }
@@ -214,6 +223,8 @@ export class DrawingWorkspace {
   fit() {
     const r = this.el.getBoundingClientRect();
     if (!r.width) return;
+    // The document's sheet, which the views being projected may not have rendered yet.
+    if (this.doc) ({ w: this.sheetW, h: this.sheetH } = sheetDims(this.doc));
     const m = 24;
     this.zoom = Math.min((r.width - 2 * m) / this.sheetW, (r.height - 2 * m) / this.sheetH);
     this.pan = { x: (r.width - this.sheetW * this.zoom) / 2, y: (r.height - this.sheetH * this.zoom) / 2 };
@@ -327,6 +338,14 @@ export class DrawingWorkspace {
       else if (e.key === 'ArrowDown') move(0, step);
     });
     new ResizeObserver(() => { if (this.active) this.applyTransform(); }).observe(this.el);
+  }
+
+  /** Selects a view from the keyboard (the Views list) and focuses the sheet so arrow keys move it. */
+  select(id: string) {
+    this.selected = id;
+    this.drawSelection();
+    this.syncPanel();
+    this.el.focus({ preventScroll: true });
   }
 
   deleteSelected(): boolean {
@@ -444,8 +463,13 @@ export class DrawingPanel extends PropertyPanel {
     const dims = h('input', { type: 'checkbox', 'aria-label': `Dimensions in ${VIEW_LABELS[v.kind]} view` }) as HTMLInputElement;
     dims.checked = v.dims;
     dims.addEventListener('change', () => ws.updateFromPanel((d) => { const x = d.views.find((q) => q.id === v.id); if (x) x.dims = dims.checked; }, 'Dimensions'));
+    const name = h('button', {
+      class: 'grow', type: 'button', 'aria-pressed': String(ws.selected === v.id), title: 'Select the view; arrow keys then move it',
+      style: { background: 'none', border: '0', padding: '0', textAlign: 'left' },
+    }, VIEW_LABELS[v.kind]);
+    name.addEventListener('click', () => ws.select(v.id));
     const row = h('div', { class: `rel-btn${ws.selected === v.id ? ' on' : ''}`, style: { cursor: 'default' } },
-      h('span', { class: 'grow' }, VIEW_LABELS[v.kind]),
+      name,
       h('label', { class: 'check', title: 'Hidden lines' }, hidden, h('span', { class: 'field-label' }, 'Hidden')),
       h('label', { class: 'check', title: 'Overall dimensions' }, dims, h('span', { class: 'field-label' }, 'Dims')),
       del);

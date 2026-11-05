@@ -42,6 +42,7 @@ export class SketchEdit {
   autoRelations = true;
 
   constructor(sketch: SketchFeature, readonly frame: Frame, private units: Units, private store: DocStore) {
+    units.onUnlinked = (what, expr, mm) => this.notes.push(`${what}: "${expr}" was used as its value now, ${units.len(mm, true)}; sketch coordinates and shape sizes do not follow variables. To keep it linked, add a dimension with value "${expr}".`);
     this.sk = structuredClone(sketch);
     this.used = new Set([...this.sk.entities.map((e) => e.id), ...this.sk.constraints.map((c) => c.id), ORIGIN_ID]);
     const raw = idFactory(this.sk);
@@ -317,6 +318,7 @@ export class SketchEdit {
     const type = str(r.type).toLowerCase() as RelationType;
     if (!RELATIONS.includes(type)) throw new ToolError(`relations[${i}].type: one of ${RELATIONS.join(', ')}`);
     const refs = this.refIds(r.refs ?? r.entities, `relations[${i}].refs`);
+    if (!refs.length) throw new ToolError(`relations[${i}].refs: give the entity ids it relates`);
     const ok = availableRelations(this.sk, refs);
     if (!ok.includes(type)) {
       const kinds = refs.map((id) => `${id} (${id === ORIGIN_ID ? 'origin' : kindOf(this.sk, id)})`).join(', ');
@@ -464,7 +466,9 @@ export class SketchEdit {
   fillet(v: unknown, i: number) {
     if (!isObj(v)) throw new ToolError(`fillets[${i}]: expected { point, radius }`);
     const r = this.units.size(v.radius, `fillets[${i}].radius`);
-    for (const id of list(v.point ?? v.points).map(str)) {
+    const corners = list(v.point ?? v.points).map(str);
+    if (!corners.length) throw new ToolError(`fillets[${i}].point: give the corner point id`);
+    for (const id of corners) {
       const before = new Set(this.sk.entities.map((e) => e.id));
       const err = filletCorner(this.sk, id, r, this.gen);
       if (err) throw new ToolError(`fillets[${i}] at ${id}: ${err}`);

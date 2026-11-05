@@ -8,7 +8,7 @@ import type { MeasureTarget } from '../kernel/protocol';
 import type { Vec3 } from '../math/vec';
 import { cross, dot, len, normalize } from '../math/vec';
 import { changeUnits } from '../model/document';
-import { evaluate, evaluateVariables } from '../model/expr';
+import { evaluate, evaluateVariables, reservedName } from '../model/expr';
 import { consumedSketches, defaultName, dependencies, newSketch } from '../model/features';
 import { MATERIALS } from '../model/materials';
 import type { DrawingViewKind, Feature, FeatureType, Id, PartDocument, SketchFeature, UnitSystem } from '../model/types';
@@ -22,7 +22,7 @@ import { ADD_TOOLS } from './features';
 import type { AssistantHost } from './host';
 import { Inspector } from './inspect';
 import { SketchEdit, constraintLine, entityLine, sketchReport } from './sketch';
-import { ToolError, Units, num } from './units';
+import { ToolError, Units, num, qty } from './units';
 
 type Obj = Record<string, unknown>;
 
@@ -364,11 +364,25 @@ export function toolSpecs(): ToolSpec[] {
   return TOOLS.map((t) => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.parameters } }));
 }
 
+/** Arguments that are no longer offered but still get their own explanation. */
+const RETIRED_ARGS = new Set(['thin']);
+
+/** Says which arguments a tool does not take, or null when it takes them all. */
+function unknownArgs(tool: ToolDef, a: Obj, prefix = '', skip: string[] = []): string | null {
+  const props = Object.keys((tool.parameters as { properties?: Obj }).properties ?? {}).filter((k) => !skip.includes(k));
+  const bad = Object.keys(a).filter((k) => a[k] != null && !props.includes(k) && !RETIRED_ARGS.has(k));
+  if (!bad.length) return null;
+  return `${tool.name} does not take ${bad.map((k) => `${prefix}${k}`).join(', ')}. It takes: ${props.join(', ')}.`;
+}
+
 /** Runs one tool call; never throws. */
 export async function runTool(host: AssistantHost, name: string, args: unknown): Promise<ToolResult> {
   const tool = TOOLS.find((t) => t.name === name);
   if (!tool) return { ok: false, content: `Error: there is no tool called ${name}.` };
   const a = args && typeof args === 'object' && !Array.isArray(args) ? (args as Obj) : {};
+  // A misspelt optional argument would otherwise be skipped, and the call reported as done.
+  const unknown = unknownArgs(tool, a);
+  if (unknown) return { ok: false, content: `Error: ${unknown} Nothing was done.` };
   const k = new Toolkit(host);
   try {
     const r = await tool.run(a, k);
@@ -528,7 +542,7 @@ class Toolkit {
       const kg = mp.volume * 1e-9 * m.density;
       lines.push(`Mass ${num(kg / us.massScale, 4)} ${us.mass} (${m.name}, ${m.density} kg/m³).`);
     } else lines.push('Mass: set a material (set_part) to get the mass.');
-    lines.push(`Principal moments per unit density: ${mp.principal.moments.map((x) => num(x / u.scale ** 5, 2)).join(', ')} ${u.unit}⁵ about axes ${mp.principal.axes.map((x) => u.dir(normalize(x))).join(', ')}.`);
+    lines.push(`Principal moments per unit density: ${mp.principal.moments.map((x) => qty(x / u.scale ** 5, 2)).join(', ')} ${u.unit}⁵ about axes ${mp.principal.axes.map((x) => u.dir(normalize(x))).join(', ')}.`);
     lines.push(this.ins.bodyText());
     return lines.join('\n');
   }
@@ -654,6 +668,7 @@ class Toolkit {
     await this.host.settle();
     const args = { ...a };
     const pre: SketchFeature[] = [];
+    const notes: string[] = [];
     if (type === 'hole' && args.sketch == null) {
       if (args.on == null || args.points == null) throw new ToolError('give "sketch" (with stand-alone points) or "on" and "points"');
       const plane = this.refs.plane(args.on, 'on');
@@ -667,6 +682,7 @@ class Toolkit {
       list(args.points).forEach((p, i) => ed.addShape({ type: 'point', at: p }, i));
       if (!ed.sk.entities.length) throw new ToolError('points: give at least one hole centre');
       pre.push(ed.sk);
+      notes.push(...ed.notes.map((n) => n.replace(/^shapes\[(\d+)\] \(point\)\.at/, 'points[$1]')));
       args.sketch = sid;
     }
     delete args.on;
@@ -683,6 +699,7 @@ class Toolkit {
       if (doc.rollback != null) doc.rollback = at + pre.length + 1;
     }, { subject: id });
     const lines = [`Added ${id} "${name}" (${type})${pre.length ? ` with position sketch ${pre[0].id} (${pre[0].entities.length} point(s))` : ''}.`, build];
+    if (notes.length) lines.splice(1, 0, `Notes:\n${notes.map((n) => `- ${n}`).join('\n')}`);
     const faces = this.ins.facesOf(id);
     if (faces) lines.push(faces);
     return lines.join('\n');
@@ -706,9 +723,13 @@ class Toolkit {
     const f = this.refs.feature(a.feature);
     let next: Feature = structuredClone(f);
     const params = a.params && typeof a.params === 'object' && !Array.isArray(a.params) ? (a.params as Obj) : null;
+    if (a.params != null && !params) throw new ToolError('params: an object of the arguments to change, such as {"depth": 20}');
     if (params && Object.keys(params).length) {
       if (f.type === 'sketch') throw new ToolError('sketch contents change with edit_sketch');
       if (f.type === 'import') throw new ToolError('imported bodies have no parameters to change');
+      const add = TOOLS.find((t) => t.name === ADD_TOOLS[f.type]);
+      const unknown = add && unknownArgs(add, params, 'params.', ['name']);
+      if (unknown) throw new ToolError(`${unknown.replace(add.name, `${f.id} (${f.type})`)} (A new name goes in "name", next to params.)`);
       next = this.ins.codec.build(f.type, params, f, f.id, f.name);
     }
     if (a.name != null && str(a.name)) next.name = str(a.name);
@@ -771,7 +792,7 @@ class Toolkit {
       const o = (s ?? {}) as Obj;
       const name = str(o.name);
       if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) throw new ToolError(`set[${i}].name: letters, digits and _ (not starting with a digit)`);
-      if (/^(pi|PI|sin|cos|tan|asin|acos|atan|atan2|sqrt|abs|min|max|round|floor|ceil|mm|cm|m|in|ft|um|deg|rad)$/.test(name)) throw new ToolError(`set[${i}].name: ${name} is reserved`);
+      if (reservedName(name)) throw new ToolError(`set[${i}].name: ${name} is reserved`);
       const expr = typeof o.value === 'number' ? String(o.value) : str(o.value).replace(/^=\s*/, '');
       if (!expr) throw new ToolError(`set[${i}].value: give a number or an expression`);
       const cur = vars.find((v) => v.name === name);
@@ -816,6 +837,8 @@ class Toolkit {
       patch.color = c.toLowerCase();
     }
     if (!Object.keys(patch).length) return 'Nothing to change.';
+    // Like every change: an open sketch is finished first, so discarding it later cannot undo this too.
+    this.host.prepareForEdit();
     const { units, ...rest } = patch;
     let unlinked: string[] = [];
     this.store.change('Part properties', (doc) => {
@@ -889,6 +912,7 @@ class Toolkit {
     if (a.notes != null) patch.notes = typeof a.notes === 'string' ? a.notes : str(a.notes);
     if (Object.keys(patch).length) {
       if (!this.doc.drawing) throw new ToolError('there is no drawing yet; set show: true first');
+      this.host.prepareForEdit();
       this.store.change('Edit drawing', (doc) => { if (doc.drawing) Object.assign(doc.drawing, patch); });
       this.changed = true;
       done.push(`set ${Object.keys(patch).join(', ')}`);

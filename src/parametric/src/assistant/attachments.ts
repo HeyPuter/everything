@@ -205,6 +205,10 @@ export async function readAttachment(file: File): Promise<Attachment> {
   }
   if (kind === 'pdf') {
     const bytes = await readBytes(file);
+    // The model refuses a file that is not a PDF (a web page saved as .pdf, a
+    // download that failed), and the refused file would fail the next messages it goes with too.
+    const head = new TextDecoder('latin1').decode(bytes.subarray(0, 1024));
+    if (!head.includes('%PDF-')) throw new AttachmentError(`${base.name} is not a PDF file. Attach the PDF itself, or an image of the drawing.`);
     const { text, streams } = await pdfText(bytes);
     const pages = estimatePdfPages(text, streams);
     if (pages > MAX_PDF_PAGES) throw new AttachmentError(`${base.name} has about ${pages} pages; the assistant reads at most ${MAX_PDF_PAGES}. Attach the pages you need as a shorter PDF.`);

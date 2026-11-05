@@ -108,3 +108,68 @@ test('exporting right after opening the drawing waits for the views', async ({ p
   });
   expect(views).toBe(4);
 });
+
+test('the whole sheet shows when a drawing opens and when its size changes', async ({ page }) => {
+  await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  await page.evaluate(() => {
+    type A = { store: { doc: object }; loadDocument(d: object, h: null): void };
+    const app = (window as unknown as { __parametric: A }).__parametric;
+    const doc = structuredClone(app.store.doc) as Record<string, unknown>;
+    doc.drawing = { sheet: 'A1', landscape: false, scale: 1, views: [{ id: 'v1', kind: 'front', x: 200, y: 300, hidden: true, dims: true }], title: '', drawnBy: '', notes: '' };
+    app.loadDocument(doc, null);
+  });
+  await waitForFeature(page, 'Fillet1');
+  await page.getByRole('tab', { name: 'Drawing' }).click();
+  await expect(page.locator('.paper svg path').first()).toBeAttached({ timeout: 30_000 });
+  const inside = () => page.evaluate(() => {
+    const ws = document.querySelector('.drawing-ws')!.getBoundingClientRect();
+    const p = document.querySelector('.paper')!.getBoundingClientRect();
+    return p.left >= ws.left && p.top >= ws.top && p.right <= ws.right + 0.5 && p.bottom <= ws.bottom + 0.5 && p.height > ws.height / 2;
+  });
+  await expect.poll(inside).toBe(true);
+  await page.getByLabel('Landscape').check();
+  await expect.poll(inside).toBe(true);
+});
+
+test('a view can be selected, moved and deleted from the keyboard', async ({ page }) => {
+  await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  await page.getByRole('tab', { name: 'Drawing' }).click();
+  await expect(page.locator('.paper g[data-view]')).toHaveCount(4, { timeout: 30_000 });
+  type A = { store: { doc: { drawing: { views: { id: string; kind: string; x: number }[] } } } };
+  const front = () => page.evaluate(() => (window as unknown as { __parametric: A }).__parametric.store.doc.drawing.views.find((v) => v.kind === 'front'));
+  const x0 = (await front())!.x;
+  // Reached with the keyboard (Enter after a click is the Repeat Last Command shortcut).
+  await page.keyboard.press('Shift');
+  await page.locator('.relations-list').getByRole('button', { name: 'Front', exact: true }).focus();
+  await page.keyboard.press('Enter');
+  await expect(page.locator('.drawing-ws')).toBeFocused();
+  await expect(page.locator('.view-sel')).toBeVisible();
+  await expect(page.locator('.relations-list').getByRole('button', { name: 'Front', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await page.keyboard.press('Shift+ArrowRight');
+  await expect.poll(async () => (await front())!.x).toBeCloseTo(x0 + 10, 6);
+  await page.keyboard.press('Delete');
+  await expect.poll(front).toBeUndefined();
+});
+
+test.describe('in a time zone behind UTC', () => {
+  test.use({ timezoneId: 'Pacific/Pago_Pago' });
+  test('the title block shows the local date', async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+    await waitForFeature(page, 'Fillet1');
+    await page.getByRole('tab', { name: 'Drawing' }).click();
+    await expect(page.locator('.paper g[data-view]')).toHaveCount(4, { timeout: 30_000 });
+    // 05:00 UTC on 1 March is still 28 February in UTC-11.
+    await page.evaluate(() => {
+      type A = { store: { doc: { modified: number } }; drawing: { render(): void } };
+      const app = (window as unknown as { __parametric: A }).__parametric;
+      app.store.doc.modified = Date.UTC(2026, 2, 1, 5);
+      app.drawing.render();
+    });
+    await expect(page.locator('.paper text', { hasText: /^2026-/ })).toHaveText('2026-02-28');
+  });
+});

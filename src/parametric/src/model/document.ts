@@ -41,17 +41,32 @@ export function parseDocument(text: string): PartDocument {
   }
   const d = raw as Partial<PartDocument>;
   if (!d || d.format !== FORMAT) throw new Error('This file is not a part created with Parametric.');
-  if (d.version !== 1) throw new Error('This part was created with a newer version of Parametric.');
+  if (typeof d.version === 'number' && d.version > 1) throw new Error('This part was created with a newer version of Parametric.');
+  if (d.version !== 1) throw new Error('The part file is damaged (unknown version).');
   if (!Array.isArray(d.features)) throw new Error('The part file is damaged (no feature list).');
   if (!d.features.every((f) => f && typeof f === 'object' && typeof f.id === 'string' && typeof f.type === 'string')) {
     throw new Error('The part file is damaged (invalid feature).');
   }
+  const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
+  // A sketch without its plane or geometry lists breaks drawing and solving.
+  if (!d.features.every((f) => f.type !== 'sketch' || (isObj(f.plane) && typeof f.plane.kind === 'string' && Array.isArray(f.entities) && Array.isArray(f.constraints)))) {
+    throw new Error('The part file is damaged (invalid sketch).');
+  }
   const units = typeof d.units === 'string' && Object.hasOwn(UNIT_SYSTEMS, d.units) ? d.units : 'MMGS';
   const base = newDocument(typeof d.name === 'string' ? d.name : undefined, units);
-  const doc = { ...base, ...d, units, blobs: d.blobs ?? {}, variables: Array.isArray(d.variables) ? d.variables : [] } as PartDocument;
+  // Global variables that are not variables are dropped rather than breaking every rebuild.
+  const variables = (Array.isArray(d.variables) ? d.variables : [])
+    .filter((v) => isObj(v) && typeof v.name === 'string')
+    .map((v) => ({ ...v, id: typeof v.id === 'string' ? v.id : '', expr: typeof v.expr === 'string' ? v.expr : String(v.expr ?? '') }));
+  const blobs = isObj(d.blobs) ? d.blobs : {};
+  const doc = { ...base, ...d, units, blobs, variables } as PartDocument;
   if (typeof doc.name !== 'string') doc.name = base.name;
   if (!Number.isInteger(doc.decimals) || doc.decimals < 0 || doc.decimals > 8) doc.decimals = base.decimals;
   if (doc.rollback != null && !Number.isInteger(doc.rollback)) doc.rollback = null;
+  if (typeof doc.color !== 'string' || !/^#[0-9a-f]{6}$/i.test(doc.color)) doc.color = base.color;
+  if (doc.material != null && !(isObj(doc.material) && typeof doc.material.name === 'string' && Number.isFinite(doc.material.density))) doc.material = null;
+  if (doc.drawing != null && !(isObj(doc.drawing) && Array.isArray(doc.drawing.views))) doc.drawing = null;
+  for (const f of doc.features) if (typeof f.name !== 'string' || !f.name) f.name = f.id;
   // New feature ids must not collide with existing ones, even when the file's
   // counter is missing or stale.
   let maxId = 0;
@@ -60,6 +75,7 @@ export function parseDocument(text: string): PartDocument {
     if (m) maxId = Math.max(maxId, Number(m[1]));
   }
   doc.nextId = Math.max(Number.isInteger(doc.nextId) ? doc.nextId : 1, maxId + 1);
+  for (const v of doc.variables) if (!v.id) v.id = `v${doc.nextId++}`;
   return doc;
 }
 
@@ -129,8 +145,19 @@ export function changeUnits(doc: PartDocument, units: UnitSystem): string[] {
   return unlinked;
 }
 
+/**
+ * The document as file text. Imported file data no feature uses any more (the
+ * import was deleted) stays in memory for undo but is left out of the file.
+ */
 export function serializeDocument(doc: PartDocument): string {
-  return JSON.stringify(doc);
+  return JSON.stringify(withUsedBlobs(doc));
+}
+
+export function withUsedBlobs(doc: PartDocument): PartDocument {
+  const used = new Set(doc.features.map((f) => (f.type === 'import' ? f.blob : null)));
+  const keys = Object.keys(doc.blobs ?? {});
+  if (keys.every((k) => used.has(k))) return doc;
+  return { ...doc, blobs: Object.fromEntries(keys.filter((k) => used.has(k)).map((k) => [k, doc.blobs[k]])) };
 }
 
 export interface ResolveResult {

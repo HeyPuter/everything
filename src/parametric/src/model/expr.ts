@@ -28,6 +28,15 @@ const FUNCS: Record<string, (...a: number[]) => number> = {
 
 const CONSTS: Record<string, number> = { pi: Math.PI, PI: Math.PI };
 
+/**
+ * Whether a variable name is taken by the expression language: a constant
+ * (which would win over the variable, so =pi*2 ignored a variable "pi"), a
+ * unit ("2 m" is two metres, not 2 times m) or a function.
+ */
+export function reservedName(name: string): boolean {
+  return [CONSTS, LENGTH_SUFFIX, ANGLE_SUFFIX, FUNCS].some((t) => Object.hasOwn(t, name)) || name === 'atan2';
+}
+
 type Tok =
   | { k: 'num'; v: number; at?: number; len?: number }
   | { k: 'name'; v: string }
@@ -100,16 +109,18 @@ export function evaluate(src: string, opts: EvalOptions = {}): number {
       const u = peek();
       if (u.k === 'name') {
         const table = kind === 'angle' ? ANGLE_SUFFIX : kind === 'length' ? LENGTH_SUFFIX : null;
-        const f = table?.[u.v];
+        const f = table && Object.hasOwn(table, u.v) ? table[u.v] : undefined;
         // Explicit units convert to the display unit; the result is scaled once at the end.
         if (f !== undefined) { pos++; return (t.v * f) / bare; }
+        // Variables and counts are plain numbers: say so rather than "Unexpected text".
+        if (!table && (Object.hasOwn(LENGTH_SUFFIX, u.v) || Object.hasOwn(ANGLE_SUFFIX, u.v))) throw new ExprError(`A unit ("${u.v}") cannot be used here; give a plain number`);
       }
       return t.v;
     }
     if (t.k === 'name') {
       const p = peek();
       if (p.k === 'op' && p.v === '(') {
-        const fn = FUNCS[t.v.toLowerCase()];
+        const fn = Object.hasOwn(FUNCS, t.v.toLowerCase()) ? FUNCS[t.v.toLowerCase()] : undefined;
         if (!fn) throw new ExprError(`Unknown function "${t.v}"`);
         pos++;
         const args: number[] = [];
@@ -118,9 +129,12 @@ export function evaluate(src: string, opts: EvalOptions = {}): number {
           while (peek().k === 'op' && (peek() as { v: string }).v === ',') { pos++; args.push(expr()); }
         }
         expectOp(')');
+        // round(2.567, 2) would quietly drop the 2 (and give 3); sin() is not a number.
+        const variadic = fn === Math.min || fn === Math.max;
+        if (variadic ? !args.length : args.length !== 1) throw new ExprError(`${t.v}() takes ${variadic ? 'one or more values' : 'one value'}`);
         return fn(...args);
       }
-      if (t.v in CONSTS) return CONSTS[t.v];
+      if (Object.hasOwn(CONSTS, t.v)) return CONSTS[t.v];
       const v = opts.lookup?.(t.v);
       if (v === undefined) throw new ExprError(`Unknown name "${t.v}"`);
       return v;
@@ -153,6 +167,8 @@ export function evaluate(src: string, opts: EvalOptions = {}): number {
       if (p.k === 'op' && (p.v === '*' || p.v === '/')) {
         pos++;
         const r = unary();
+        // Caught here, not by the finite check at the end: 1/(1/0) would come out as 0.
+        if (p.v === '/' && r === 0) throw new ExprError('Division by zero');
         v = p.v === '*' ? v * r : v / r;
       } else return v;
     }
@@ -186,7 +202,7 @@ export function referencedNames(src: string): string[] {
     return tokenize(src)
       .filter((t): t is { k: 'name'; v: string } => t.k === 'name')
       .map((t) => t.v)
-      .filter((n) => !(n in CONSTS) && !(n.toLowerCase() in FUNCS) && !(n in LENGTH_SUFFIX) && !(n in ANGLE_SUFFIX));
+      .filter((n) => !Object.hasOwn(CONSTS, n) && !Object.hasOwn(FUNCS, n.toLowerCase()) && !Object.hasOwn(LENGTH_SUFFIX, n) && !Object.hasOwn(ANGLE_SUFFIX, n));
   } catch {
     return [];
   }
@@ -252,7 +268,7 @@ function parseTree(src: string): Node | null {
     const t = toks[pos++];
     if (t.k === 'num') {
       const u = toks[pos];
-      if (u.k === 'name' && (u.v in LENGTH_SUFFIX || u.v in ANGLE_SUFFIX)) { pos++; return { t: 'num', v: t.v, unit: u.v in LENGTH_SUFFIX ? 'length' : 'angle', at: t.at!, len: t.len! }; }
+      if (u.k === 'name' && (Object.hasOwn(LENGTH_SUFFIX, u.v) || Object.hasOwn(ANGLE_SUFFIX, u.v))) { pos++; return { t: 'num', v: t.v, unit: Object.hasOwn(LENGTH_SUFFIX, u.v) ? 'length' : 'angle', at: t.at!, len: t.len! }; }
       return { t: 'num', v: t.v, unit: null, at: t.at!, len: t.len! };
     }
     if (t.k === 'name') {
@@ -264,7 +280,7 @@ function parseTree(src: string): Node | null {
         pos++;
         return { t: 'call', fn: t.v.toLowerCase(), args };
       }
-      return t.v in CONSTS ? { t: 'const' } : { t: 'var', name: t.v };
+      return Object.hasOwn(CONSTS, t.v) ? { t: 'const' } : { t: 'var', name: t.v };
     }
     if (t.k === 'op' && t.v === '(') { const v = expr(); if (!peekOp(')')) fail(); pos++; return v; }
     return fail();

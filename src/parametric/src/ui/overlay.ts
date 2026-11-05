@@ -60,9 +60,11 @@ export function showDialog(o: DialogOptions): Promise<string | null> {
       if (e.key === 'Tab') {
         const f = [...dialog.querySelectorAll<HTMLElement>('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')].filter((x) => !x.hasAttribute('disabled') && x.offsetParent !== null);
         if (!f.length) return;
-        const first = f[0], last = f[f.length - 1];
-        if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
-        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+        // Focus may be on the dialog itself (after a click on its text): Tab
+        // and Shift+Tab then wrap inside it instead of reaching the page behind.
+        const i = f.indexOf(document.activeElement as HTMLElement);
+        if (e.shiftKey && i <= 0) { e.preventDefault(); f[f.length - 1].focus(); }
+        else if (!e.shiftKey && (i < 0 || i === f.length - 1)) { e.preventDefault(); f[0].focus(); }
       }
       if (e.key === 'Enter' && !(e.target instanceof HTMLTextAreaElement) && !(e.target instanceof HTMLButtonElement)) {
         const primary = foot.querySelector<HTMLButtonElement>('.btn.primary');
@@ -75,10 +77,13 @@ export function showDialog(o: DialogOptions): Promise<string | null> {
     // Destructive confirmations have no primary button: focus starts on the
     // first (safe) button, so Escape and Tab work inside the dialog.
     const focusEl = (o.initialFocus && dialog.querySelector<HTMLElement>(o.initialFocus)) || dialog.querySelector<HTMLElement>('input, select, textarea') || foot.querySelector<HTMLElement>('.btn.primary') || foot.querySelector<HTMLElement>('.btn:not([disabled])') || dialog;
+    // Focus moves at once, so keys pressed right after the dialog opens (Esc
+    // straight after Delete) reach it rather than the page behind it.
+    focusEl.focus();
     requestAnimationFrame(() => {
       // A long body that scrolls must be reachable from the keyboard to scroll it.
       if (body.scrollHeight > body.clientHeight + 1) body.tabIndex = 0;
-      focusEl.focus();
+      if (!done && !dialog.contains(document.activeElement)) focusEl.focus();
     });
   });
 }

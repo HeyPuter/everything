@@ -92,6 +92,60 @@ describe('camera', () => {
     c.orbit(10, 0);
     expect(c.viewName()).toBeNull();
   });
+
+  it('keeps a projection switched during a view animation', () => {
+    const c = new Camera();
+    c.width = 800; c.height = 600;
+    c.setState({ target: [0, 0, 0], distance: 100, rot: VIEWS.isometric, ortho: true });
+    vi.stubGlobal('matchMedia', () => ({ matches: false }));
+    c.animateTo({ target: [0, 0, 0], distance: 80, rot: VIEWS.front, ortho: true }, 200);
+    vi.unstubAllGlobals();
+    const t0 = performance.now();
+    c.tick(t0 + 60);
+    c.ortho = false;
+    c.tick(t0 + 120);
+    expect(c.ortho).toBe(false);
+    expect(c.tick(t0 + 1000)).toBe(false);
+    expect(c.ortho).toBe(false);
+    expect(c.viewName()).toBe('front');
+  });
+
+  it('keeps everything drawn inside the clip range, not just the model', () => {
+    // A 2 m sketch on the Top Plane with no body yet: the model radius is the default.
+    const corners: [number, number, number][] = [[0, 0, 0], [2000, 0, 0], [2000, 0, -1500], [0, 0, -1500]];
+    const c = new Camera();
+    c.width = 800; c.height = 600;
+    c.sceneBounds = { center: [1000, 0, -750], radius: 1250 };
+    for (const ortho of [true, false]) {
+      c.setState({ ...c.fitState([1000, 0, -750], 1250, VIEWS.isometric), ortho });
+      for (const p of corners) {
+        const z = c.project(p)[2];
+        expect(z).toBeGreaterThan(-1);
+        expect(z).toBeLessThan(1);
+      }
+    }
+  });
+});
+
+describe('camera zoom limits', () => {
+  it('zooms a part framed beyond the zoom-out limit smoothly instead of jumping', () => {
+    const c = new Camera();
+    c.width = 800; c.height = 600;
+    // A 10 km part frames at a distance past the 1e7 wheel limit.
+    c.setState(c.fitState([0, 0, 0], 5e6, VIEWS.isometric));
+    const d0 = c.distance;
+    expect(d0).toBeGreaterThan(1e7);
+    c.zoomAt(0.9, 400, 300);
+    expect(c.distance).toBeCloseTo(d0 * 0.9, 0);
+    // Zooming out stops where it is rather than snapping back to the limit.
+    const d1 = c.distance;
+    c.zoomAt(1.2, 400, 300);
+    expect(c.distance).toBe(d1);
+    // Ordinary limits are unchanged.
+    c.setState({ ...c.state(), distance: 9e6 });
+    c.zoomAt(2, 400, 300);
+    expect(c.distance).toBe(1e7);
+  });
 });
 
 describe('command registry', () => {

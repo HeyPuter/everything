@@ -33,6 +33,7 @@ export class FeatureTree {
   private renaming: Id | null = null;
   private renameEl: HTMLInputElement | null = null;
   private rendering = false;
+  private draggingBar = false;
 
   constructor(private app: App, flyout = false) {
     const filterInput = h('input', { type: 'search', placeholder: 'Filter', 'aria-label': 'Filter the design tree' }) as HTMLInputElement;
@@ -98,7 +99,7 @@ export class FeatureTree {
       const status = f ? app.featureStatus(f.id) : null;
       const selected = r.item ? sel.has(r.item) : false;
       const el = h('div', {
-        class: `ti${f?.suppressed ? ' suppressed' : ''}${f && index >= built ? ' rolled' : ''}${status && !status.ok ? ' error' : ''}${editingId === f?.id ? ' editing' : ''}`,
+        class: `ti${f?.suppressed || status?.suppressed ? ' suppressed' : ''}${f && index >= built ? ' rolled' : ''}${status && !status.ok ? ' error' : ''}${editingId === f?.id ? ' editing' : ''}`,
         role: 'treeitem',
         tabindex: r.key === tabKey ? '0' : '-1',
         'aria-selected': r.item ? String(selected) : null,
@@ -149,11 +150,18 @@ export class FeatureTree {
       if (e.key === 'ArrowUp') { e.preventDefault(); e.stopPropagation(); this.app.setRollback(this.app.store.builtCount - 1); this.focusBar(); }
       if (e.key === 'ArrowDown') { e.preventDefault(); e.stopPropagation(); this.app.setRollback(this.app.store.builtCount + 1); this.focusBar(); }
     });
+    if (this.draggingBar) bar.classList.add('dragging');
     bar.addEventListener('pointerdown', (e) => {
       e.preventDefault();
       bar.setPointerCapture(e.pointerId);
       bar.classList.add('dragging');
+      this.draggingBar = true;
+      // One undo step for the whole drag.
+      this.app.store.beginBatch('Rollback');
+      // Every roll re-renders the tree and replaces this bar, so the drag
+      // follows the pointer on the window rather than on the bar.
       const move = (ev: PointerEvent) => {
+        if (ev.pointerId !== e.pointerId) return;
         // Find the feature row under the pointer.
         const items = [...this.list.querySelectorAll<HTMLElement>('.ti[aria-level="2"]')].filter((x) => this.app.store.feature(x.dataset.key!));
         let idx = this.app.store.doc.features.length;
@@ -163,13 +171,18 @@ export class FeatureTree {
         }
         if (idx !== this.app.store.builtCount) this.app.setRollback(idx);
       };
-      const up = () => {
-        bar.classList.remove('dragging');
-        bar.removeEventListener('pointermove', move);
-        bar.removeEventListener('pointerup', up);
+      const up = (ev: PointerEvent) => {
+        if (ev.pointerId !== e.pointerId) return;
+        this.draggingBar = false;
+        this.app.store.endBatch();
+        this.list.querySelector('.rollback-bar')?.classList.remove('dragging');
+        window.removeEventListener('pointermove', move);
+        window.removeEventListener('pointerup', up);
+        window.removeEventListener('pointercancel', up);
       };
-      bar.addEventListener('pointermove', move);
-      bar.addEventListener('pointerup', up);
+      window.addEventListener('pointermove', move);
+      window.addEventListener('pointerup', up);
+      window.addEventListener('pointercancel', up);
     });
     return bar;
   }

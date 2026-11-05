@@ -40,11 +40,14 @@ export class TaskPane {
   }
 
   close() {
+    // Focus inside the pane would be lost with it: it goes to the pane's tab.
+    const tab = this.app.shell.tpPanel.contains(document.activeElement) ? this.app.shell.tpStrip.querySelector<HTMLElement>(`[data-pane="${this.current}"]`) : null;
     this.current = null;
     this.app.shell.tpPanel.hidden = true;
     this.app.shell.tpPanel.classList.remove('wide');
     this.sync();
     this.app.viewport.resize();
+    tab?.focus();
   }
 
   open(id: PaneId, focus = true) {
@@ -87,13 +90,15 @@ export class TaskPane {
     const list = h('div', { class: 'file-list', role: 'list', 'aria-busy': 'true' }, h('div', { class: 'field-label' }, 'Loading...'));
     body.append(h('div', { class: 'field-label' }, cloudAvailable() ? 'Your parts' : 'Parts in this browser'), list);
     try {
-      const parts = await listParts();
+      let cloudError = '';
+      const parts = await listParts((e) => { cloudError = storageError(e); });
       list.textContent = '';
       list.removeAttribute('aria-busy');
+      if (cloudError) list.before(h('div', { class: 'field-label', role: 'alert' }, `Your cloud parts could not be listed: ${cloudError}`));
       // A list role needs list items: the empty message is shown without it.
       if (!parts.length) {
         list.removeAttribute('role');
-        list.append(h('div', { class: 'field-label' }, 'No saved parts yet.'));
+        list.append(h('div', { class: 'field-label' }, cloudError ? 'No parts saved in this browser.' : 'No saved parts yet.'));
       }
       for (const p of parts.slice(0, 50)) {
         // Buttons keep their role; list items wrap them (as in the Open dialog).
@@ -118,7 +123,9 @@ export class TaskPane {
       b.addEventListener('click', () => {
         app.store.change('Appearance', (doc) => { doc.color = c; });
         app.applyModelColor();
-        this.open('appearance');
+        // Updated in place, so keyboard focus stays on the swatch.
+        for (const x of grid.children) x.setAttribute('aria-pressed', String(x === b));
+        custom.value = c;
       });
       grid.append(b);
     }

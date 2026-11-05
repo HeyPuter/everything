@@ -101,6 +101,19 @@ export abstract class PropertyPanel {
     this.msgEl.textContent = text;
   }
 
+  /**
+   * False (with the reason shown and the field focused) while a visible field
+   * holds text that could not be read, so OK does not silently apply the
+   * field's last valid value instead.
+   */
+  checkFields(): boolean {
+    const bad = [...this.el.querySelectorAll<HTMLInputElement>('.input[aria-invalid="true"]')].find((x) => x.getClientRects().length > 0);
+    if (!bad) return true;
+    this.setMessage('error', `${bad.getAttribute('aria-label') ?? 'Value'}: ${bad.title || 'not a valid value'}`);
+    bad.focus();
+    return false;
+  }
+
   activate(box: SelectionBox) {
     this.activeBox = box;
     this.boxes.forEach((b) => b.setActive(b === box));
@@ -114,16 +127,6 @@ export function section(title: string, children: (HTMLElement | null)[], opts: {
   const body = h('div', { class: 'sec-body', id: bodyId }, ...children);
   const sec = h('section', { class: 'pm-section', 'data-collapsed': String(!!opts.collapsed) });
   const head = h('button', { class: 'sec-head', 'aria-expanded': String(!opts.collapsed), 'aria-controls': bodyId, type: 'button' });
-  if (opts.checkbox) {
-    const cb = h('input', { type: 'checkbox', 'aria-label': `Enable ${title}` }) as HTMLInputElement;
-    cb.checked = opts.checkbox.checked;
-    cb.addEventListener('click', (e) => e.stopPropagation());
-    cb.addEventListener('change', () => {
-      opts.checkbox!.onChange(cb.checked);
-      setCollapsed(!cb.checked);
-    });
-    head.append(cb);
-  }
   if (opts.icon) head.append(icon(opts.icon, 16));
   head.append(h('span', {}, title), h('span', { class: 'chev' }, icon('chevronDown', 14)));
   const setCollapsed = (c: boolean) => {
@@ -131,7 +134,17 @@ export function section(title: string, children: (HTMLElement | null)[], opts: {
     head.setAttribute('aria-expanded', String(!c));
   };
   head.addEventListener('click', () => setCollapsed(sec.dataset.collapsed !== 'true'));
-  sec.append(head, body);
+  if (opts.checkbox) {
+    // The checkbox sits beside the expand button, not inside it: a button
+    // cannot contain another control.
+    const cb = h('input', { type: 'checkbox', 'aria-label': `Enable ${title}` }) as HTMLInputElement;
+    cb.checked = opts.checkbox.checked;
+    cb.addEventListener('change', () => {
+      opts.checkbox!.onChange(cb.checked);
+      setCollapsed(!cb.checked);
+    });
+    sec.append(h('div', { class: 'sec-head-check' }, cb, head), body);
+  } else sec.append(head, body);
   return sec;
 }
 
@@ -142,6 +155,7 @@ export interface NumberFieldOptions {
   kind: ParamKind;
   ctx: UnitContext;
   min?: number;
+  max?: number;
   /** Allow expressions starting with "=" to be stored as linked values. */
   allowExpr?: boolean;
   onChange: (v: Param) => void;
@@ -179,10 +193,16 @@ export function parseParam(text: string, kind: ParamKind, ctx: UnitContext, allo
 
 export function numberField(o: NumberFieldOptions): HTMLElement {
   const id = nextDomId('num');
+  // Phone keypads: the decimal pad (iOS) has no minus, equals or letters, so it
+  // is only for a value that is a plain positive number; the others take
+  // negatives, units and expressions such as =Width/2 on the full keyboard.
+  const plainNumber = o.allowExpr === false && o.min !== undefined && o.min >= 0;
   const input = h('input', {
     class: 'input',
     id,
-    inputmode: 'decimal',
+    inputmode: plainNumber ? 'decimal' : 'text',
+    autocapitalize: 'off',
+    autocorrect: 'off',
     autocomplete: 'off',
     spellcheck: 'false',
     'aria-label': o.label,
@@ -205,6 +225,12 @@ export function numberField(o: NumberFieldOptions): HTMLElement {
       input.title = `Must be at least ${paramText(o.min, o.kind, o.ctx)}`;
       return;
     }
+    if (o.max !== undefined && r.num > o.max) {
+      input.classList.add('invalid');
+      input.setAttribute('aria-invalid', 'true');
+      input.title = `Must be at most ${paramText(o.max, o.kind, o.ctx)}`;
+      return;
+    }
     input.classList.remove('invalid');
     input.removeAttribute('aria-invalid');
     input.title = '';
@@ -219,7 +245,10 @@ export function numberField(o: NumberFieldOptions): HTMLElement {
     timer = window.setTimeout(() => commit(), 350);
   });
   input.addEventListener('change', () => { clearTimeout(timer); commit(); });
-  input.addEventListener('focus', () => input.select());
+  // Esc takes back what was typed since the field got focus; with nothing to
+  // take back it goes on to the panel or tool (which it cancels).
+  let atFocus: Param = current;
+  input.addEventListener('focus', () => { atFocus = current; input.select(); });
   const step = (dir: number) => {
     const r = parseParam(input.value, o.kind, o.ctx, false);
     const base = r.ok ? r.num : 0;
@@ -227,6 +256,7 @@ export function numberField(o: NumberFieldOptions): HTMLElement {
     const inc = o.kind === 'count' ? 1 : o.kind === 'angle' ? 1 : o.ctx.units === 'IPS' ? 0.1 * scale : o.ctx.units === 'MKS' ? 0.01 * scale : 1 * scale;
     let next = base + dir * inc;
     if (o.min !== undefined) next = Math.max(o.min, next);
+    if (o.max !== undefined) next = Math.min(o.max, next);
     input.value = paramText(next, o.kind, o.ctx);
     commit();
   };
@@ -234,6 +264,18 @@ export function numberField(o: NumberFieldOptions): HTMLElement {
     if (e.key === 'ArrowUp') { e.preventDefault(); step(1); }
     else if (e.key === 'ArrowDown') { e.preventDefault(); step(-1); }
     else if (e.key === 'Enter') { clearTimeout(timer); commit(); }
+    else if (e.key === 'Escape') {
+      const text = paramText(atFocus, o.kind, o.ctx);
+      if (input.value === text && current === atFocus) return;
+      e.preventDefault();
+      clearTimeout(timer);
+      input.value = text;
+      input.classList.remove('invalid');
+      input.removeAttribute('aria-invalid');
+      input.title = '';
+      input.select();
+      if (current !== atFocus) { current = atFocus; mark(); o.onChange(atFocus); }
+    }
   });
   const spin = h('div', { class: 'spin' }, input, h('div', { class: 'spin-btns' },
     h('button', { type: 'button', tabindex: '-1', 'aria-label': `Increase ${o.label}`, onclick: () => step(1) }, icon('chevronUp', 12)),
@@ -319,7 +361,9 @@ export class SelectionBox {
     private onChange: (items: SelBoxItem[]) => void,
     readonly opts: { single?: boolean; placeholder?: string; icon?: string } = {},
   ) {
-    this.list = h('div', { class: 'selbox', role: 'listbox', tabindex: '0', 'aria-label': label });
+    // A focusable group (it becomes the pick target on focus) of plain rows:
+    // each row holds a Remove button, which an option of a listbox may not.
+    this.list = h('div', { class: 'selbox', role: 'group', tabindex: '0', 'aria-label': label });
     this.list.addEventListener('click', () => panel.activate(this));
     this.list.addEventListener('focus', () => panel.activate(this));
     const head = h('div', { class: 'row' }, opts.icon ? h('span', { class: 'row-icon', 'aria-hidden': 'true' }, icon(opts.icon, 18)) : null, h('span', { class: 'field-label' }, label));
@@ -365,7 +409,7 @@ export class SelectionBox {
         this.draw();
         this.onChange(this.items);
       });
-      this.list.append(h('div', { class: 'item', role: 'option' }, h('span', {}, it.label), rm));
+      this.list.append(h('div', { class: 'item' }, h('span', {}, it.label), rm));
     });
   }
 }

@@ -273,6 +273,297 @@ test.describe('viewport', () => {
     expect(hit === null || hit[2] <= 15).toBe(true);
   });
 
+  test('editing a sketch hides the sketches after it with the rest of the rolled-back model', async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+    await waitForFeature(page, 'Fillet1');
+    type R = { renderer: { points: Map<string, unknown>; lines: Map<string, unknown> }; store: { change(l: string, fn: (d: { features: object[] }) => void): void }; editSketch(id: string): void; exitSketch(keep: boolean): void; editFeature(id: string): void; closePanel(ok: boolean): Promise<unknown> };
+    const shown = () => page.evaluate(() => {
+      const r = (window as unknown as { __parametric: R }).__parametric.renderer;
+      return [r.points.has('sketchPts'), r.lines.has('planes')];
+    });
+    // Show the hole's sketch (its two points, on the plate's top face) and add a plane after it.
+    await page.evaluate(() => {
+      (window as unknown as { __parametric: R }).__parametric.store.change('Show', (d) => {
+        (d.features.find((f) => (f as { id: string }).id === 's2') as { hidden?: boolean }).hidden = false;
+        d.features.push({ id: 'pl', name: 'Plane1', type: 'plane', ref: { kind: 'base', plane: 'top' }, offset: 50, flip: false });
+      });
+    });
+    await expect.poll(shown).toEqual([true, true]);
+    await page.evaluate(() => (window as unknown as { __parametric: R }).__parametric.editSketch('s1'));
+    await expect.poll(shown).toEqual([false, false]);
+    await page.evaluate(() => (window as unknown as { __parametric: R }).__parametric.exitSketch(true));
+    await expect.poll(shown).toEqual([true, true]);
+    // A plane being edited still shows where it goes.
+    await page.evaluate(() => (window as unknown as { __parametric: R }).__parametric.editFeature('pl'));
+    await expect(page.getByRole('heading', { name: 'Plane1' })).toBeVisible();
+    await expect.poll(shown).toEqual([true, true]);
+  });
+
+  test('the section panel shows the plane it was started from', async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+    await waitForFeature(page, 'Fillet1');
+    const planes = page.getByRole('group', { name: 'Section plane' });
+    const normal = () => page.evaluate(() => (window as unknown as Win).__parametric.renderer.section?.normal.map((v) => Math.round(v * 1000) / 1000));
+    await page.getByRole('treeitem', { name: 'Top Plane' }).click();
+    await page.getByRole('button', { name: 'Section View' }).click();
+    await expect(planes.getByRole('button', { name: 'Top' })).toHaveAttribute('aria-pressed', 'true');
+    await expect(planes.getByRole('button', { name: 'Front' })).toHaveAttribute('aria-pressed', 'false');
+    expect(await normal()).toEqual([0, 1, 0]);
+    // Running it again while open keeps the active (here oblique) section as its own choice.
+    await page.evaluate(() => { (window as unknown as Win).__parametric.renderer.section = { normal: [Math.SQRT1_2, Math.SQRT1_2, 0], offset: 5 }; });
+    await page.getByRole('button', { name: 'Section View' }).click();
+    await expect(planes.getByRole('button', { name: 'Current' })).toHaveAttribute('aria-pressed', 'true');
+    await planes.getByRole('button', { name: 'Front' }).click();
+    expect(await normal()).toEqual([0, 0, 1]);
+    await planes.getByRole('button', { name: 'Current' }).click();
+    expect(await normal()).toEqual([0.707, 0.707, 0]);
+  });
+
+  test('zoomed in past a face, picking still finds where it was clicked', async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+    await waitForFeature(page, 'Fillet1');
+    await expect.poll(() => page.evaluate(() => !!(window as unknown as Win).__parametric.bbox)).toBe(true);
+    const r = await page.evaluate(() => {
+      const app = (window as unknown as Win).__parametric;
+      const cam = app.renderer.camera;
+      // Orthographic front view zoomed in so far that the eye sits inside the
+      // part, behind the front face (z = 30) that is still drawn.
+      app.viewport.setView('front', false);
+      cam.setState({ ...cam.state(), target: [30, 4, 15], distance: 5 });
+      const hit = app.renderer.pick(cam.width / 2, cam.height / 2, { face: true });
+      app.viewport.showPlanes = true;
+      app.viewport.drawReferenceGeometry();
+      const item = app.viewport.pickItem(cam.width / 2, cam.height / 2, { face: true, plane: true });
+      return { point: hit?.point?.map((v) => Math.round(v * 100) / 100), item: item?.kind };
+    });
+    expect(r.point).toEqual([30, 4, 30]);
+    // The Front Plane behind the face is not picked through it.
+    expect(r.item).toBe('face');
+  });
+
+  test('measures the angle between an edge and a face to the face', async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+    await waitForFeature(page, 'Fillet1');
+    await expect.poll(() => page.evaluate(() => (window as unknown as Win).__parametric.faces.length)).toBeGreaterThan(0);
+    const angle = async (edgeAxis: number) => {
+      await page.evaluate(async (k) => {
+        const app = (window as unknown as Win).__parametric;
+        if (app.panel) await app.closePanel(false);
+        // The plate's front face (z = 30) and an edge along x lying in it, or one along z.
+        const fi = app.faces.findIndex((f) => f.normal?.[2] === 1 && Math.abs(f.center[2] - 30) < 1e-6);
+        const ei = app.edges.findIndex((e) => e.dir && Math.abs(Math.abs(e.dir[k]) - 1) < 1e-9 && (k === 2 || Math.abs(e.a[2] - 30) < 1e-6));
+        app.selection.set([{ kind: 'face', index: fi, name: app.faces[fi].name }, { kind: 'edge', index: ei, name: app.edges[ei].name }]);
+        app.commands.run('measure');
+      }, edgeAxis);
+      const row = page.locator('.pm-section tr', { hasText: 'Angle' });
+      await expect(row).toBeVisible();
+      return row.locator('td').innerText();
+    };
+    expect(await angle(0)).toBe('0.00°');
+    expect(await angle(2)).toBe('90.00°');
+  });
+
+  test('measures a normal distance from a plane only to what is parallel to it', async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+    await waitForFeature(page, 'Fillet1');
+    await expect.poll(() => page.evaluate(() => (window as unknown as Win).__parametric.faces.length)).toBeGreaterThan(0);
+    const measure = async (axis: number) => {
+      await page.evaluate(async (k) => {
+        const app = (window as unknown as Win).__parametric;
+        if (app.panel) await app.closePanel(false);
+        // The plate's front face (z = 30, parallel to the Front Plane) or its top face (y = 8, square to it).
+        const fi = app.faces.findIndex((f) => f.normal?.[k] === 1 && Math.abs(f.center[k] - (k === 2 ? 30 : 8)) < 1e-6);
+        app.selection.set([{ kind: 'plane', ref: { kind: 'base', plane: 'front' } }, { kind: 'face', index: fi, name: app.faces[fi].name }]);
+        app.commands.run('measure');
+      }, axis);
+      await expect(page.locator('.pm-section tr', { hasText: 'Angle' })).toBeVisible();
+      return page.locator('.pm-section table').innerText();
+    };
+    expect(await measure(2)).toMatch(/Normal distance\s+30\.00 mm/);
+    // The top face spans z = 0 to 30: no single distance stands for it.
+    expect(await measure(1)).not.toContain('Normal distance');
+  });
+
+  test('the measure panel drops a vertex that a rebuild took away and measures again', async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+    await waitForFeature(page, 'Fillet1');
+    const zMax = () => page.evaluate(() => (window as unknown as Win).__parametric.bbox?.max[2]);
+    await expect.poll(zMax).toBe(30);
+    // A deeper plate, undone, so that Redo changes the part while the panel is open.
+    await page.evaluate(() => {
+      const app = (window as unknown as Win).__parametric;
+      app.store.change('Depth', (d) => { (d.features.find((f) => f.id === 'f1') as { depth: number }).depth = 40; });
+    });
+    await expect.poll(zMax).toBe(40);
+    await page.evaluate(() => (window as unknown as Win).__parametric.commands.run('undo'));
+    await expect.poll(zMax).toBe(30);
+    await page.evaluate(() => {
+      const app = (window as unknown as Win).__parametric;
+      app.selection.set([{ kind: 'vertex', p: [60, 8, 30] }]);
+      app.commands.run('measure');
+    });
+    const table = page.locator('.pm-section table');
+    await expect(table).toContainText('60.00, 8.00, 30.00');
+    await page.evaluate(() => (window as unknown as Win).__parametric.commands.run('redo'));
+    await expect.poll(zMax).toBe(40);
+    // The corner at z = 30 is gone: neither listed nor measured.
+    await expect(page.getByRole('heading', { name: 'Measure' })).toBeVisible();
+    await expect(page.locator('.pm-section').filter({ hasText: 'Entities' }).getByText(/^Vertex/)).toHaveCount(0);
+    await expect(table).toHaveCount(0);
+  });
+
+  test('measures between two picked vertices', async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+    await waitForFeature(page, 'Fillet1');
+    await expect.poll(() => page.evaluate(() => (window as unknown as Win).__parametric.bbox?.max[2])).toBe(30);
+    await page.evaluate(() => {
+      const app = (window as unknown as Win).__parametric;
+      app.selection.set([{ kind: 'vertex', p: [60, 8, 30] }]);
+      app.commands.run('measure');
+      // A second vertex picked in the graphics area joins the first.
+      app.panel!.onPick({ kind: 'vertex', p: [60, 0, 0] }, false);
+    });
+    await expect(page.locator('.pm-section table')).toContainText(/Distance\s*31\.05 mm/);
+    const leader = () => page.evaluate(() => (window as unknown as { __parametric: { renderer: { lines: Map<string, unknown> } } }).__parametric.renderer.lines.has('measure'));
+    expect(await leader()).toBe(true);
+    // A plane as the next pick replaces the older vertex; its leader goes with it.
+    await page.evaluate(() => (window as unknown as Win).__parametric.panel!.onPick({ kind: 'plane', ref: { kind: 'base', plane: 'front' } }, false));
+    await expect(page.locator('.pm-section table')).toContainText(/Normal distance\s*0\.00 mm/);
+    expect(await leader()).toBe(false);
+  });
+
+  test('a measurement finishing late does not overwrite a newer one or outlive the panel', async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+    await waitForFeature(page, 'Fillet1');
+    await expect.poll(() => page.evaluate(() => (window as unknown as Win).__parametric.faces.length)).toBeGreaterThan(0);
+    const r = await page.evaluate(async () => {
+      const app = (window as unknown as Win).__parametric;
+      const front = app.faces.findIndex((f) => f.normal?.[2] === 1 && Math.abs(f.center[2] - 30) < 1e-6);
+      const back = app.faces.findIndex((f) => f.normal?.[2] === -1);
+      const sel = [front, back].map((index) => ({ kind: 'face' as const, index, name: app.faces[index].name }));
+      const settle = () => new Promise((res) => setTimeout(res, 800));
+      // Two faces are being measured when one is removed from the selection.
+      app.selection.set(sel);
+      app.commands.run('measure');
+      await settle();
+      const box = (app.panel as unknown as { box: { items: unknown[]; setItems(i: unknown[], n: boolean): void } }).box;
+      box.setItems(box.items.slice(), true);
+      box.setItems(box.items.slice(0, 1), true);
+      await settle();
+      const text = document.querySelector('.pm-section table')!.textContent;
+      // Closed while measuring: no leader is left in the view.
+      await app.closePanel(false);
+      app.selection.set(sel);
+      app.commands.run('measure');
+      await app.closePanel(false);
+      await settle();
+      return { text, leader: (app.renderer as unknown as { lines: Map<string, unknown> }).lines.has('measure') };
+    });
+    expect(r.text).not.toContain('Distance');
+    expect(r.leader).toBe(false);
+  });
+
+  test('picks a vertex from either side of it', async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+    await waitForFeature(page, 'Fillet1');
+    await expect.poll(() => page.evaluate(() => !!(window as unknown as Win).__parametric.bbox)).toBe(true);
+    const picked = await page.evaluate(() => {
+      const app = (window as unknown as Win).__parametric;
+      const [x, y] = app.viewport.project([60, 8, 30]);
+      // Point sprites are centred on the point, not drawn to its right only.
+      return [-3, 3].map((dx) => app.renderer.pick(x + dx, y, { vertex: true })?.kind ?? null);
+    });
+    expect(picked).toEqual(['vertex', 'vertex']);
+  });
+
+  test('a hovered or selected vertex shows as a dot', async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+    await waitForFeature(page, 'Fillet1');
+    await expect.poll(() => page.evaluate(() => !!(window as unknown as Win).__parametric.bbox)).toBe(true);
+    const r = await page.evaluate(async () => {
+      const app = (window as unknown as Win).__parametric;
+      const [x, y] = app.viewport.project([60, 8, 30]);
+      const pixels = async () => {
+        const img = new Image();
+        img.src = app.renderer.capture(4096)!;
+        await img.decode();
+        const c = document.createElement('canvas');
+        c.width = img.width; c.height = img.height;
+        const ctx = c.getContext('2d')!;
+        ctx.drawImage(img, 0, 0);
+        const k = img.width / app.renderer.camera.width;
+        return [-1.5, 1.5].map((dx) => [...ctx.getImageData(Math.round((x + dx) * k), Math.round(y * k), 1, 1).data].slice(0, 3));
+      };
+      const before = await pixels();
+      const d = (a: number[], b: number[]) => Math.hypot(...a.map((v, i) => v - b[i]));
+      // Left and right of the vertex, inside the dot: now in the hover or selection colour.
+      const shown = async (colour: number[]) => {
+        const c = colour.map((v) => v * 255);
+        return (await pixels()).map((p, i) => d(p, c) < d(before[i], c) / 3);
+      };
+      app.selection.setHover({ kind: 'vertex', p: [60, 8, 30] });
+      const hover = await shown(app.renderer.theme.hover);
+      app.selection.setHover(null);
+      app.selection.set([{ kind: 'vertex', p: [60, 8, 30] }]);
+      return { hover, selected: await shown(app.renderer.theme.selection) };
+    });
+    expect(r).toEqual({ hover: [true, true], selected: [true, true] });
+  });
+
+  test('a plane behind a face that may not be picked is not picked through it', async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+    await waitForFeature(page, 'Fillet1');
+    await expect.poll(() => page.evaluate(() => !!(window as unknown as Win).__parametric.bbox)).toBe(true);
+    const item = await page.evaluate(() => {
+      const app = (window as unknown as Win).__parametric;
+      // The fillet's cylindrical face, with the Front Plane shown behind it; only planar faces count.
+      const f = app.faces.find((x) => x.type === 'cylinder' && (x.radius ?? 0) > 3)!;
+      app.viewport.showPlanes = true;
+      app.viewport.drawReferenceGeometry();
+      const [x, y] = app.viewport.project(f.center);
+      return app.viewport.pickItem(x, y, { plane: true, planarOnly: true, face: true });
+    });
+    expect(item).toBeNull();
+  });
+
+  test('line display styles outline where the section view cuts the part', async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+    await waitForFeature(page, 'Fillet1');
+    await expect.poll(() => page.evaluate(() => !!(window as unknown as Win).__parametric.bbox)).toBe(true);
+    const r = await page.evaluate(async () => {
+      const app = (window as unknown as Win).__parametric;
+      const ren = app.renderer;
+      ren.displayStyle = 'hiddenRemoved';
+      ren.section = { normal: [1, 0, 0], offset: 30 };
+      // On the plate's front face (z = 30), where the cut at x = 30 crosses it: no model edge there.
+      const [x, y] = app.viewport.project([30, 4, 30]);
+      const img = new Image();
+      img.src = ren.capture(4096)!;
+      await img.decode();
+      const c = document.createElement('canvas');
+      c.width = img.width; c.height = img.height;
+      const ctx = c.getContext('2d')!;
+      ctx.drawImage(img, 0, 0);
+      const k = img.width / ren.camera.width;
+      const px = [...ctx.getImageData(Math.round(x * k), Math.round(y * k), 1, 1).data].slice(0, 3);
+      const d = (a: number[]) => Math.hypot(...a.map((v, i) => v * 255 - px[i]));
+      return { toWire: d(ren.theme.wire), toBackground: d(ren.theme.background) };
+    });
+    expect(r.toWire).toBeLessThan(r.toBackground);
+  });
+
   test('line display styles keep visible edges readable in both themes', async ({ page }) => {
     await openApp(page);
     const contrast = () => page.evaluate(() => {
@@ -361,6 +652,30 @@ test.describe('viewport', () => {
     expect(fill).toBeGreaterThan(0.5);
   });
 
+  test('zoom to fit frames a sketch when there is no solid yet', async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /New part/ }).click();
+    await page.evaluate(() => {
+      const app = (window as unknown as Win).__parametric;
+      const doc = structuredClone(app.store.doc);
+      const pts = [[300, 200], [800, 200], [800, 500], [300, 500]];
+      const entities: import('../../src/model/types').SkEntity[] = pts.map(([x, y], i) => ({ id: `p${i}`, t: 'point', x, y }));
+      pts.forEach((_, i) => entities.push({ id: `l${i}`, t: 'line', a: `p${i}`, b: `p${(i + 1) % 4}` }));
+      doc.features.push({ id: 's1', name: 'Sketch1', type: 'sketch', plane: { kind: 'base', plane: 'front' }, entities, constraints: [] });
+      app.loadDocument(doc, null);
+    });
+    await expect(page.getByRole('treeitem', { name: 'Sketch1' })).toBeVisible();
+    await expect.poll(() => page.evaluate(() => {
+      const app = (window as unknown as Win).__parametric;
+      app.viewport.zoomToFit(false);
+      const cam = app.renderer.camera;
+      return [[300, 200, 0], [800, 500, 0]].every((p) => {
+        const [x, y] = app.viewport.project(p as [number, number, number]);
+        return x >= 0 && x <= cam.width && y >= 0 && y <= cam.height;
+      });
+    })).toBe(true);
+  });
+
   const countDoubleClicks = async (page: import('@playwright/test').Page) => {
     await page.getByRole('button', { name: /Mounting Bracket/ }).click();
     await waitForFeature(page, 'Fillet1');
@@ -432,4 +747,21 @@ test.describe('viewport', () => {
       expect(Math.abs(jump.zoom - 1)).toBeLessThan(0.02);
     });
   });
+});
+
+test('the design tree flyout stays clear of the view toolbar in a narrow graphics area', async ({ page }) => {
+  await page.setViewportSize({ width: 1024, height: 768 });
+  await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  const run = (id: string) => page.evaluate((id) => (window as unknown as { __parametric: { commands: { run(id: string): void }; taskPaneOpen(): string | null } }).__parametric.commands.run(id), id);
+  if (!await page.evaluate(() => (window as unknown as { __parametric: { taskPaneOpen(): string | null } }).__parametric.taskPaneOpen())) await run('assistant');
+  await page.getByRole('treeitem', { name: 'Extrude1' }).dblclick();
+  const flyout = page.locator('.flyout-tree > button');
+  await expect(flyout).toBeVisible();
+  const a = (await flyout.boundingBox())!;
+  const b = (await page.locator('.hud').boundingBox())!;
+  expect(a.x + a.width <= b.x || a.x >= b.x + b.width || a.y + a.height <= b.y || a.y >= b.y + b.height).toBe(true);
+  await flyout.click();
+  await expect(flyout).toHaveAttribute('aria-expanded', 'true');
 });

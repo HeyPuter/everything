@@ -17,6 +17,12 @@ import type { ToolResult, ToolSpec } from './tools';
 export const MAX_OUTPUT_TOKENS = 16000;
 /** A tool result from an earlier message is cut to this much in later requests. */
 const OLD_RESULT_CHARS = 1500;
+/**
+ * One tool result is cut to this much (about 20k tokens): a sketch of an
+ * imported drawing or get_model on every feature can run to megabytes, and a
+ * request that outgrows the model's context fails, again on every retry.
+ */
+const MAX_RESULT_CHARS = 80000;
 /** Roughly how much transcript is sent at most (characters). */
 const HISTORY_BUDGET = 300000;
 const STATE_OPEN = '<part_state>';
@@ -155,6 +161,11 @@ export function requestMessages(transcript: ChatMessage[], system: string, { bud
   return [{ role: 'system', content: system }, ...out.slice(start)];
 }
 
+/** Drops the image data of screenshots already taken (requests show them as NO_IMAGE). */
+function releaseShots(messages: ChatMessage[]) {
+  for (const m of messages) if (isUser(m) && m.screenshot && m.content !== NO_IMAGE) m.content = NO_IMAGE;
+}
+
 export function createAgent(o: AgentOptions) {
   let transcript: ChatMessage[] = [];
   let running: { stopped: boolean; stop(): void } | null = null;
@@ -179,10 +190,12 @@ export function createAgent(o: AgentOptions) {
         let attempt = 0;
         for (;;) {
           try {
-            const iter = o.chat(req, { model: o.model(), tools: o.tools(), maxTokens: MAX_OUTPUT_TOKENS })[Symbol.asyncIterator]();
+            // Stop aborts the request: return() alone waits for the part the stream is waiting on.
+            const abort = new AbortController();
+            const iter = o.chat(req, { model: o.model(), tools: o.tools(), maxTokens: MAX_OUTPUT_TOKENS, signal: abort.signal })[Symbol.asyncIterator]();
             for (;;) {
               const next = await Promise.race([iter.next(), stopSignal]);
-              if (next === STOP) { Promise.resolve(iter.return?.()).catch(() => {}); break; }
+              if (next === STOP) { abort.abort(); Promise.resolve(iter.return?.()).catch(() => {}); break; }
               if (next.done) break;
               const part = next.value;
               if (part.type === 'text') { text += part.text; emit({ type: 'text', text: part.text }); }
@@ -239,7 +252,9 @@ export function createAgent(o: AgentOptions) {
             step.changed = !!result.changed;
             step.summary = result.content.replace(/^Error:\s*/, '').split('\n')[0].slice(0, 300);
             if (result.image) { step.image = result.image; images.push(result.image); }
-            content = result.content;
+            content = result.content.length > MAX_RESULT_CHARS
+              ? `${result.content.slice(0, MAX_RESULT_CHARS)}\n[…cut: the result had ${result.content.length.toLocaleString('en-US')} characters. Ask for less at a time (fewer features, a filter or a limit).]`
+              : result.content;
           }
           emit({ type: 'step', step: { ...step } });
           messages.push({ role: 'tool', tool_call_id: call.id, content });
@@ -250,6 +265,8 @@ export function createAgent(o: AgentOptions) {
             const m = /^data:([^;,]+);base64,(.*)$/.exec(url);
             if (m) parts.push({ type: 'image', source: { type: 'base64', media_type: m[1], data: m[2] } });
           }
+          // Only the newest screenshot is ever sent again: let the older ones' data go.
+          releaseShots(messages);
           messages.push({ role: 'user', content: parts, screenshot: true });
         }
         if (run.stopped) return { stopped: true, steps };
@@ -272,6 +289,8 @@ export function createAgent(o: AgentOptions) {
       if (lastMsg && lastMsg.role !== 'assistant') transcript.push({ role: 'assistant', content: '(My previous reply did not finish.)' });
       const content = userContent(text, o.snapshot(), attachments);
       transcript.push(attachments.length ? { role: 'user', content, attachments: attachments.map(attachmentMeta) } : { role: 'user', content });
+      // A screenshot goes only with the round that took it.
+      releaseShots(transcript);
       // Files older than the turns they go with are never sent again, only named: their data is let go.
       for (const m of transcript.filter((x): x is UserMessage => isTurn(x)).slice(0, -ATTACHMENT_TURNS)) {
         if (m.attachments && Array.isArray(m.content) && m.content.length > 1) m.content = [m.content[0]];

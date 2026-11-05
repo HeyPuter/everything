@@ -108,6 +108,11 @@ export function availableRelations(sk: SketchFeature, ids: Id[]): RelationType[]
   } else if (n === 2 && lines === 1 && circs === 1) out.push('tangent');
   else if (n === 2 && pts === 1 && lines === 1) out.push('coincident', 'midpoint');
   else if (n === 2 && pts === 1 && circs === 1) out.push('coincident', 'concentric');
+  else if (n === 2 && pts === 1 && count('spline') === 1) {
+    // A spline already passes through its own points.
+    const sp = sk.entities.find((e) => e.t === 'spline' && ids.includes(e.id));
+    if (sp?.t === 'spline' && !ids.some((id) => sp.pts.includes(id))) out.push('coincident');
+  }
   else if (n === 3 && pts === 2 && lines === 1 && kinds[2] === 'line') out.push('symmetric');
   else if (n === 3 && circs === 2 && lines === 1 && kinds[2] === 'line') out.push('symmetric');
   if (!ids.includes(ORIGIN_ID)) out.push('fix');
@@ -178,8 +183,7 @@ export interface DimSpec {
 }
 
 /** Current value of a dimension as the geometry stands (mm or degrees). */
-export function measureDimension(sk: SketchFeature, d: Pick<SkDimension, 'type' | 'refs' | 'sector'>): number {
-  const ix = new SketchIndex(sk.entities);
+export function measureDimension(sk: SketchFeature, d: Pick<SkDimension, 'type' | 'refs' | 'sector'>, ix = new SketchIndex(sk.entities)): number {
   const ent = (id: Id) => (id === ORIGIN_ID ? undefined : ix.get(id));
   const centerOrPt = (id: Id): Vec2 => {
     const e = ent(id);
@@ -321,7 +325,7 @@ function cutPoints(sk: SketchFeature, e: SkCurve): { p: Vec2; by?: Id }[] {
   for (const o of sk.entities) {
     if (o.t === 'point' || o.id === e.id) continue;
     // `by`: the cutting curve, which the new end point is kept on.
-    const by = o.t === 'spline' ? undefined : o.id;
+    const by = o.id;
     for (const p of mine) for (const q of primsOf(ix, o as SkCurve)) for (const x of intersectPrims(p, q)) pts.push({ p: x, by });
   }
   // Points lying on the curve (e.g. end points of other curves) also cut.
@@ -374,6 +378,10 @@ export function trimAt(sk: SketchFeature, curveId: Id, at: Vec2, newId: (p: stri
       const copy = { ...e, id: newId(e.t === 'line' ? 'l' : 'a'), a: p2, b: endId } as SkLine | SkArc;
       e.b = p1;
       sk.entities.push(copy);
+      // The two pieces stay one curve: the far piece would otherwise lose the
+      // original's relations (horizontal, tangent...) and swing free. Arcs
+      // already share their centre point, so equal radii keep them coradial.
+      sk.constraints.push({ id: newId('r'), type: e.t === 'line' ? 'collinear' : 'equal', refs: [e.id, copy.id] });
       moveConstraintsOnPoint(sk, endId, copy.id, e.id);
       return true;
     }
@@ -418,8 +426,11 @@ function moveConstraintsOnPoint(_sk: SketchFeature, _pointId: Id, _newCurve: Id,
   // relations (horizontal, parallel...) stay on the original piece.
 }
 
-/** Extends the end of a line nearest `at` to the closest intersection. */
-export function extendAt(sk: SketchFeature, lineId: Id, at: Vec2): boolean {
+/**
+ * Extends the end of a line nearest `at` to the closest intersection. With
+ * `newId`, the new end is kept on the curve it reached (as trim does).
+ */
+export function extendAt(sk: SketchFeature, lineId: Id, at: Vec2, newId?: (p: string) => Id): boolean {
   const ix = new SketchIndex(sk.entities);
   const l = ix.get(lineId);
   if (!l || l.t !== 'line') return false;
@@ -428,13 +439,13 @@ export function extendAt(sk: SketchFeature, lineId: Id, at: Vec2): boolean {
   const start = fromB ? a : b, end = fromB ? b : a;
   const dir = norm2(sub2(end, start));
   const far: Vec2 = [end[0] + dir[0] * 1e6, end[1] + dir[1] * 1e6];
-  let best: Vec2 | null = null, bestD = Infinity;
+  let best: Vec2 | null = null, bestD = Infinity, by: SkEntity | null = null;
   for (const o of sk.entities) {
     if (o.t === 'point' || o.id === lineId) continue;
     for (const q of primsOf(ix, o as SkCurve)) {
       for (const p of intersectPrims({ kind: 'seg', a: end, b: far }, q)) {
         const d = dist2(p, end);
-        if (d > 1e-7 && d < bestD) { bestD = d; best = p; }
+        if (d > 1e-7 && d < bestD) { bestD = d; best = p; by = o; }
       }
     }
   }
@@ -444,6 +455,7 @@ export function extendAt(sk: SketchFeature, lineId: Id, at: Vec2): boolean {
   pt.x = best[0];
   pt.y = best[1];
   dropLengthDimensions(sk, lineId);
+  if (newId && by) sk.constraints.push({ id: newId('r'), type: 'coincident', refs: [pid, by.id] });
   return true;
 }
 
@@ -623,6 +635,19 @@ export function offsetCurves(sk: SketchFeature, ids: Id[], distance: number, new
     };
     for (let i = 0; i + 1 < offs.length; i++) join(offs[i], offs[i + 1]);
     if (chain.closed) join(offs[offs.length - 1], offs[0]);
+    // An offset past the far side of the shape turns pieces around (a line
+    // runs backwards, an arc wraps the other way): that is no offset at all.
+    const turned = offs.some((o, i) => {
+      const it = chain.items[i];
+      const p = ix.pt(it.fwd ? it.c.a : it.c.b), q = ix.pt(it.fwd ? it.c.b : it.c.a);
+      if (o.kind === 'line') return dot2(sub2(o.b, o.a), sub2(q, p)) <= 0;
+      const sweep = (u: Vec2, v: Vec2) => {
+        const s0 = wrap2Pi(angle2(sub2(v, o.c)) - angle2(sub2(u, o.c)));
+        return o.fwd ? s0 : wrap2Pi(-s0);
+      };
+      return Math.abs(sweep(o.a, o.b) - sweep(p, q)) > Math.PI;
+    });
+    if (turned) continue;
     const ptIds = new Map<string, Id>();
     const pointFor = (p: Vec2) => {
       const k = `${p[0].toFixed(9)},${p[1].toFixed(9)}`;

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { SkConstraint, SkDimension, SkEntity } from '../src/model/types';
-import { solveSketch } from '../src/sketch/solver';
+import { solveSketch, splineSignedDist } from '../src/sketch/solver';
+import { SketchIndex, distanceToCurve } from '../src/sketch/geom';
 
 const pt = (id: string, x: number, y: number): SkEntity => ({ id, t: 'point', x, y });
 const line = (id: string, a: string, b: string): SkEntity => ({ id, t: 'line', a, b });
@@ -167,6 +168,39 @@ describe('sketch solver', () => {
     expect([P(ents, 'a').x, P(ents, 'a').y, P(ents, 'b').x, P(ents, 'b').y]).toEqual([-15, -9, 15, -3]);
   });
 
+  it('keeps a point coincident with a spline on the spline', () => {
+    const ents: SkEntity[] = [
+      pt('s0', 0, 0), pt('s1', 10, 6), pt('s2', 20, -2), pt('s3', 30, 4),
+      { id: 'sp', t: 'spline', pts: ['s0', 's1', 's2', 's3'] },
+      pt('q', 14, 3),
+    ];
+    const cons: SkConstraint[] = [
+      { id: 'f', type: 'fix', refs: ['s0', 's1', 's2', 's3'] },
+      { id: 'c', type: 'coincident', refs: ['q', 'sp'] },
+    ];
+    const onSpline = () => distanceToCurve(new SketchIndex(ents), ents[4] as never, [P(ents, 'q').x, P(ents, 'q').y]).d;
+    let res = solveSketch(ents, cons, { value });
+    expect(res.converged).toBe(true);
+    expect(res.dof).toBe(1);
+    expect(res.badConstraints.size).toBe(0);
+    expect(onSpline()).toBeLessThan(1e-3);
+    // Moving a spline point drags the coincident point along with the curve.
+    cons.shift();
+    const s1 = P(ents, 's1');
+    res = solveSketch(ents, cons, { value, drag: { kind: 'points', ids: ['s1'], targets: [[s1.x, s1.y + 8]] } });
+    expect(res.converged).toBe(true);
+    expect(P(ents, 's1').y).toBeCloseTo(14, 6);
+    expect(onSpline()).toBeLessThan(1e-3);
+    expect(Math.abs(splineSignedDist([P(ents, 'q').x, P(ents, 'q').y], ['s0', 's1', 's2', 's3'].map((id) => [P(ents, id).x, P(ents, id).y])))).toBeLessThan(1e-9);
+  });
+
+  it('measures a signed distance to a spline that is smooth past its ends', () => {
+    const pts: [number, number][] = [[0, 0], [10, 0]];
+    expect(splineSignedDist([5, 2], pts)).toBeCloseTo(2, 9);
+    expect(splineSignedDist([5, -3], pts)).toBeCloseTo(-3, 9);
+    expect(splineSignedDist([15, 1], pts)).toBeCloseTo(1, 9);
+  });
+
   it('solves a large chained sketch quickly', () => {
     const ents: SkEntity[] = [];
     const cons: SkConstraint[] = [];
@@ -184,6 +218,29 @@ describe('sketch solver', () => {
     expect(res.converged).toBe(true);
     expect(res.status).toBe('full');
     expect(P(ents, `p${N}`).x).toBeCloseTo(2 * N, 6);
+    expect(ms).toBeLessThan(1500);
+  });
+
+  it('solves one long connected chain without a dense factorization', () => {
+    const ents: SkEntity[] = [];
+    const cons: SkConstraint[] = [];
+    const N = 400;
+    for (let i = 0; i <= N; i++) ents.push(pt(`p${i}`, i * 1.1, (i % 2) * 0.3));
+    for (let i = 0; i < N; i++) {
+      ents.push(line(`l${i}`, `p${i}`, `p${i + 1}`));
+      cons.push({ id: `h${i}`, type: i % 2 ? 'horizontal' : 'vertical', refs: [`l${i}`] });
+      cons.push(dim(`d${i}`, 'distance', [`l${i}`], 2));
+    }
+    cons.push({ id: 'o', type: 'coincident', refs: ['p0', 'O'] });
+    const t0 = performance.now();
+    const res = solveSketch(ents, cons, { value });
+    const ms = performance.now() - t0;
+    expect(res.status).toBe('full');
+    expect(P(ents, `p${N}`).x).toBeCloseTo(N, 6);
+    expect(P(ents, `p${N}`).y).toBeCloseTo(N, 6);
+    // About 250 ms with a dense m x m Cholesky and 15 ms within the envelope
+    // on a fast machine. Timings vary too much on shared CI runners to tell
+    // the two apart, so this is only a sanity bound, like the test above.
     expect(ms).toBeLessThan(1500);
   });
 });

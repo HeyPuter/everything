@@ -50,6 +50,12 @@ export const MAX_PDF_PAGES = 100;
 /** All the files one request carries, as sent (base64): the API refuses a request over 32 MB. */
 export const MAX_REQUEST_FILE_BYTES = 24 * 1024 * 1024;
 export const MAX_TEXT_CHARS = 100000;
+/**
+ * Text files' characters one request carries (about 50k tokens). Every round
+ * of a reply sends them again, and past this a message's files would crowd
+ * its whole turn out of the conversation's budget in later requests.
+ */
+export const MAX_REQUEST_TEXT_CHARS = 200000;
 /** A message's files go with the requests of its own turn and the next two; after that they are named only. */
 export const ATTACHMENT_TURNS = 3;
 
@@ -155,16 +161,19 @@ export const pdfBlock = (data: string): FileBlock => ({ type: 'document', source
 export const sentBytes = (blocks: FileBlock[] = []) => blocks.reduce((n, b) => n + ('source' in b ? b.source.data.length : b.text.length), 0);
 
 const pdfPages = (list: { kind: AttachmentKind; pages?: number }[]) => list.reduce((n, a) => n + (a.kind === 'pdf' ? a.pages || 1 : 0), 0);
+const textChars = (list: { kind: AttachmentKind; chars?: number }[]) => list.reduce((n, a) => n + (a.kind === 'text' ? a.chars || 0 : 0), 0);
 
 /** Whether files fit in one request together. */
 export function attachmentsFit(list: AttachmentMeta[]): boolean {
-  return list.reduce((n, a) => n + a.bytes, 0) <= MAX_REQUEST_FILE_BYTES && pdfPages(list) <= MAX_PDF_PAGES;
+  return list.reduce((n, a) => n + a.bytes, 0) <= MAX_REQUEST_FILE_BYTES && pdfPages(list) <= MAX_PDF_PAGES && textChars(list) <= MAX_REQUEST_TEXT_CHARS;
 }
 
 /** Why a message's files cannot go together, in words for the user, or null when they can. */
 export function attachmentsTooLarge(list: Attachment[]): string | null {
   const pages = pdfPages(list);
   if (pages > MAX_PDF_PAGES) return `These PDFs have about ${pages} pages together; the assistant reads at most ${MAX_PDF_PAGES} with one message. Send some of them with your next message.`;
+  const chars = textChars(list);
+  if (chars > MAX_REQUEST_TEXT_CHARS) return `These text files come to ${chars.toLocaleString('en-US')} characters together; the assistant reads at most ${MAX_REQUEST_TEXT_CHARS.toLocaleString('en-US')} with one message. Send some of them with your next message.`;
   const bytes = list.reduce((n, a) => n + sentBytes(a.blocks), 0);
   if (bytes > MAX_REQUEST_FILE_BYTES) return `These files come to ${formatSize(bytes * 0.75)} together; the assistant takes at most ${formatSize(MAX_REQUEST_FILE_BYTES * 0.75)} with one message. Send some of them with your next message.`;
   return null;

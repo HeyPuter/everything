@@ -163,6 +163,49 @@ describe('PropertyManager number fields', () => {
     expect(onChange).toHaveBeenLastCalledWith('=Len+1');
     expect(input.classList.contains('expr')).toBe(true);
   });
+
+  it('offers the full keyboard where minus signs, units or expressions can be typed', () => {
+    const mode = (o: Partial<Parameters<typeof numberField>[0]>) => numberField({ label: 'X', value: 1, kind: 'length', ctx: ctx(), onChange: () => {}, ...o }).querySelector('input')!.getAttribute('inputmode');
+    expect(mode({})).toBe('text');
+    expect(mode({ min: 1e-6 })).toBe('text');
+    expect(mode({ allowExpr: false })).toBe('text');
+    expect(mode({ allowExpr: false, min: 3, kind: 'count' })).toBe('decimal');
+    const input = numberField({ label: 'X', value: 1, kind: 'length', ctx: ctx(), onChange: () => {} }).querySelector('input')!;
+    expect(input.getAttribute('autocapitalize')).toBe('off');
+    expect(input.getAttribute('autocorrect')).toBe('off');
+  });
+
+  it('takes back typed text on Escape, and passes Escape on when there is nothing to take back', () => {
+    const onChange = vi.fn();
+    const el = numberField({ label: 'Depth', value: 10, kind: 'length', ctx: ctx(), min: 0, onChange });
+    document.body.append(el);
+    const input = el.querySelector('input')!;
+    const passed: boolean[] = [];
+    const onKey = (e: KeyboardEvent) => passed.push(!e.defaultPrevented);
+    window.addEventListener('keydown', onKey);
+    input.focus();
+    // Invalid text, not committed: Esc restores the value.
+    input.value = 'abc';
+    key(input, 'Enter', { cancelable: true });
+    expect(input.classList.contains('invalid')).toBe(true);
+    key(input, 'Escape', { cancelable: true });
+    expect(input.value).toBe('10');
+    expect(input.classList.contains('invalid')).toBe(false);
+    expect(onChange).not.toHaveBeenCalled();
+    // A committed edit since focus is taken back too.
+    input.value = '25';
+    key(input, 'Enter', { cancelable: true });
+    expect(onChange).toHaveBeenLastCalledWith(25);
+    key(input, 'Escape', { cancelable: true });
+    expect(input.value).toBe('10');
+    expect(onChange).toHaveBeenLastCalledWith(10);
+    expect(passed).toEqual([true, false, true, false]);
+    // Nothing left to take back: Esc goes on (to the panel, which it cancels).
+    key(input, 'Escape', { cancelable: true });
+    expect(passed.at(-1)).toBe(true);
+    expect(onChange).toHaveBeenCalledTimes(2);
+    window.removeEventListener('keydown', onKey);
+  });
 });
 
 describe('selection', () => {

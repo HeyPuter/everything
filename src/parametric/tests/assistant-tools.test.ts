@@ -170,4 +170,53 @@ describe('assistant tools', () => {
     await h.call('add_extrude', { sketch: 's1', depth: 10 });
     expect(await h.volume()).toBeCloseTo((800 - (25 - (Math.PI * 25) / 4)) * 10, 1);
   });
+
+  it('refuses arguments a tool does not take instead of skipping them', async () => {
+    const { h } = await plate();
+    // A misspelt depth left the plate as it was and reported "Updated".
+    const typo = await h.call('edit_feature', { feature: 'f2', params: { depht: 20 } }, false);
+    expect(typo.ok).toBe(false);
+    expect(typo.content).toMatch(/f2 \(extrude\) does not take params\.depht\. It takes: sketch, cut, end, depth/);
+    const text = await h.call('edit_feature', { feature: 'f2', params: '{"depth": 20}' }, false);
+    expect(text.content).toMatch(/params: an object/);
+    const add = await h.call('add_extrude', { sketch: 's1', depth: 5, revrse: true }, false);
+    expect(add.content).toMatch(/add_extrude does not take revrse/);
+    expect(h.store.doc.features).toHaveLength(2);
+    // Unset optional arguments are fine.
+    await h.call('edit_feature', { feature: 'f2', params: { depth: 20 }, note: null });
+    expect(await h.volume()).toBeCloseTo(80000, 3);
+  });
+
+  it('refuses a sketch relation or fillet that names nothing, instead of reporting it done', async () => {
+    const h = new TestHost();
+    await h.call('create_sketch', { plane: 'front', shapes: [{ type: 'rectangle', id: 'r', corner1: [0, 0], corner2: [40, 20] }] });
+    const rel = await h.call('edit_sketch', { sketch: 's1', relations: [{ type: 'horizontal', refs: [] }] }, false);
+    expect(rel.content).toMatch(/relations\[0\]\.refs: give the entity ids/);
+    const fil = await h.call('edit_sketch', { sketch: 's1', fillets: [{ radius: 2 }] }, false);
+    expect(fil.content).toMatch(/fillets\[0\]\.point: give the corner point id/);
+  });
+
+  it('says when a variable in a shape size or coordinate was used as a value, not linked', async () => {
+    const h = new TestHost();
+    await h.call('set_variables', { set: [{ name: 'R', value: 7 }] });
+    const r = await h.call('create_sketch', { plane: 'front', shapes: [{ type: 'circle', id: 'c', center: [0, 0], radius: '=R' }] });
+    expect(r.content).toMatch(/shapes\[0\] \(circle\)\.radius: "=R" was used as its value now, 7 mm.*add a dimension with value "=R"/);
+    const hole = await h.call('add_extrude', { sketch: 's1', depth: 5 });
+    expect(hole.ok).toBe(true);
+    const top = h.faces.find((f) => f.name.endsWith(':cap1'))!.name;
+    const holes = await h.call('add_hole', { on: top, points: [['=R/2', 0]], diameter: 2 });
+    expect(holes.content).toMatch(/points\[0\]\[0\]: "=R\/2" was used as its value now, 3\.5 mm/);
+  });
+
+  it('reports metre coordinates to the same precision as millimetre ones', async () => {
+    const h = new TestHost();
+    await h.call('set_part', { units: 'MKS' });
+    // 12.345 mm: shown as 0.01235 m, a line drawn to the reported point missed the corner by 5 µm.
+    const r = await h.call('create_sketch', { plane: 'front', shapes: [{ type: 'rectangle', id: 'r', corner1: [0, 0], corner2: [0.012345, 0.02] }] });
+    expect(r.content).toContain('r_p1(0.012345, 0)');
+    // A 12.345 x 20 x 10 mm block: its volume in m³ was reported as 0.
+    const x = await h.call('add_extrude', { sketch: 's1', depth: 0.01 });
+    expect(x.content).toContain('Volume 0.000002469 m³');
+    expect((await h.call('mass_properties', {})).content).toMatch(/surface area 0\.00\d+ m²/);
+  });
 });

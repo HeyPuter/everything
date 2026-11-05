@@ -381,7 +381,8 @@ export class Viewport {
 
   modelCenter(): Vec3 {
     const b = this.app.bbox;
-    if (!b) return this.camera.target;
+    // No solid yet: what is drawn (sketches, a feature preview), else where the view looks.
+    if (!b) return this.camera.sceneBounds?.center ?? this.camera.target;
     return scale(add(b.min, b.max), 0.5);
   }
 
@@ -438,9 +439,10 @@ export class Viewport {
 
   /** Combines a GPU pick with CPU tests for planes and the origin. */
   itemFromHit(x: number, y: number, f: PickFilter, hit: PickHit | null): SelItem | null {
-    if (hit && hit.kind === 'face' && f.planarOnly && this.app.faces[hit.index]?.type !== 'plane') hit = null;
     const ray = this.camera.ray(x, y);
+    // A face that may not be picked still hides the planes behind it.
     const hitDist = hit?.point ? dot(sub(hit.point, ray.o), ray.d) : Infinity;
+    if (hit && hit.kind === 'face' && f.planarOnly && this.app.faces[hit.index]?.type !== 'plane') hit = null;
     // Origin and axes first: tiny targets.
     if (f.plane && (this.showOrigin || this.app.inSketch)) {
       const o = this.camera.project([0, 0, 0]);
@@ -471,8 +473,12 @@ export class Viewport {
 
   // ---------- overlays ----------
 
-  /** Re-uploads selection/hover states and reference overlays. */
-  refreshStates() {
+  /**
+   * Re-uploads selection/hover states and reference overlays. `hoverOnly`:
+   * only the hovered item changed, so visible sketches are re-tessellated
+   * only when the hover moved onto or off a sketch.
+   */
+  refreshStates(hoverOnly = false) {
     const app = this.app;
     const faces = new Uint8Array(app.faces.length);
     const edges = new Uint8Array(app.edges.length);
@@ -488,7 +494,28 @@ export class Viewport {
     mark(app.selection.hover, STATE_HOVER);
     for (const it of app.extraHighlights()) mark(it, STATE_SELECTED);
     this.renderer.setStates(faces, edges);
-    this.drawReferenceGeometry();
+    this.drawVertices();
+    this.drawReferenceGeometry(hoverOnly);
+  }
+
+  /** Hovered and selected vertices as dots: they have no faces or edges to light up. */
+  private drawVertices() {
+    const app = this.app;
+    const t = this.renderer.theme;
+    const pos: number[] = [], col: number[] = [];
+    const add = (it: SelItem | null, c: [number, number, number]) => {
+      if (it?.kind !== 'vertex') return;
+      pos.push(...it.p);
+      col.push(c[0] * 255, c[1] * 255, c[2] * 255, 255);
+    };
+    // Selected after hovered, so a selected vertex keeps the selection colour on top.
+    add(app.selection.hover, t.hover);
+    for (const it of [...app.selection.items, ...app.extraHighlights()]) add(it, t.selection);
+    const n = pos.length / 3;
+    this.renderer.setPoints('vertices', n ? {
+      positions: new Float32Array(pos), colors: new Uint8Array(col),
+      sizeStyle: new Float32Array(n * 2).map((_, i) => (i % 2 ? 1 : 9)), depth: 'always', order: 6,
+    } : null);
   }
 
   private planeColor(item: SelItem): [number, number, number, number] {
@@ -500,7 +527,7 @@ export class Viewport {
   }
 
   /** Planes, origin and visible (non-active) sketches. */
-  drawReferenceGeometry() {
+  drawReferenceGeometry(hoverOnly = false) {
     const app = this.app;
     const r = this.renderer;
     const b = app.bbox;
@@ -517,8 +544,10 @@ export class Viewport {
       const wanted = this.showPlanes || isShown(item) || app.basePlaneVisible(k);
       if (wanted && (!app.inSketch || this.showPlanes || sel.has(item))) visible.push({ key: k, item, frame: onPlane(BASE_FRAMES[k]), half: radius });
     }
-    for (const f of app.store.doc.features.slice(0, app.store.builtCount)) {
-      if (f.type !== 'plane') continue;
+    // Like the model, rolled back to the sketch or feature being edited (a plane being edited shows its result).
+    const limit = app.buildLimit();
+    for (const [i, f] of app.store.doc.features.slice(0, app.store.builtCount).entries()) {
+      if (f.type !== 'plane' || (i >= limit && f.id !== app.panel?.editingId)) continue;
       const fr = app.frames[f.id];
       const item: SelItem = { kind: 'plane', ref: { kind: 'feature', id: f.id } };
       if (!fr || f.suppressed) continue;
@@ -540,8 +569,16 @@ export class Viewport {
     r.setLines('planes', linePos.length ? { positions: new Float32Array(linePos), colors: new Uint8Array(lineCol), width: 1.2, depth: 'test', order: 0 } : null);
 
     this.drawOrigin();
-    this.drawSketches();
+    if (!hoverOnly || this.sketchHoverKey() !== this.drawnSketchHover) this.drawSketches();
   }
+
+  /** The hovered feature, the only hover that changes how sketches are drawn. */
+  private sketchHoverKey(): Id | null {
+    const h = this.app.selection.hover;
+    return h?.kind === 'feature' ? h.id : null;
+  }
+
+  private drawnSketchHover: Id | null = null;
 
   /**
    * Keeps pixel-sized reference geometry in step with the view: the origin
@@ -584,12 +621,14 @@ export class Viewport {
     const ptPos: number[] = [];
     const consumed = new Set<Id>();
     for (const f of app.store.doc.features) consumedSketches(f).forEach((s) => consumed.add(s));
-    const built = app.store.doc.features.slice(0, app.store.builtCount);
+    // Sketches after the one being edited are rolled back with the model.
+    const built = app.store.doc.features.slice(0, app.buildLimit());
     const sel = app.selection;
     this.sketchPx = this.camera.pixelSize;
+    this.drawnSketchHover = this.sketchHoverKey();
     if (this.showSketches) {
       for (const f of built) {
-        if (f.type !== 'sketch' || f.suppressed) continue;
+        if (f.type !== 'sketch' || f.suppressed || app.featureStatus(f.id)?.suppressed) continue;
         if (app.sketchEditor?.sketchId === f.id) continue;
         const shown = f.hidden === false || (f.hidden === undefined && !consumed.has(f.id));
         const highlighted = sel.has({ kind: 'feature', id: f.id }) || (sel.hover?.kind === 'feature' && sel.hover.id === f.id) || app.extraHighlights().some((x) => x.kind === 'feature' && x.id === f.id);
@@ -645,11 +684,12 @@ export class Viewport {
 
   modelRadius(): number {
     const b = this.app.bbox;
-    let r = b ? Math.hypot(b.max[0] - b.min[0], b.max[1] - b.min[1], b.max[2] - b.min[2]) / 2 : 0;
+    const drawn = b ? null : this.camera.sceneBounds;
+    let r = b ? Math.hypot(b.max[0] - b.min[0], b.max[1] - b.min[1], b.max[2] - b.min[2]) / 2 : drawn?.radius ?? 0;
     const sk = this.app.sketchEditor?.bounds();
     if (sk) r = Math.max(r, sk.radius);
     // Only guard against a degenerate box: small parts must still fill the view.
-    return Math.max(r, b ? 1e-3 : 50);
+    return Math.max(r, b || drawn ? 1e-3 : 50);
   }
 
   zoomToFit(animate = true) {

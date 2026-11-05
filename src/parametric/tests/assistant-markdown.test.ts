@@ -13,4 +13,10 @@ describe('assistant markdown', () => {
   it('never builds markup from the text', () => {
     expect(html('<img src=x onerror=alert(1)> **<b>x</b>**')).toBe('<p>&lt;img src=x onerror=alert(1)&gt; <strong>&lt;b&gt;x&lt;/b&gt;</strong></p>');
   });
+
+  it('keeps the numbering of a list split by sub-bullets or blank lines', () => {
+    expect(html('1. Sketch\n   - a rectangle\n   - two circles\n2. Extrude')).toBe('<ol><li>Sketch<ul><li>a rectangle</li><li>two circles</li></ul></li><li>Extrude</li></ol>');
+    expect(html('- **Plate**\n  - 100 mm')).toBe('<ul><li><strong>Plate</strong><ul><li>100 mm</li></ul></li></ul>');
+    expect(html('1. Sketch\n\n2. Extrude')).toBe('<ol><li>Sketch</li></ol><ol start="2"><li>Extrude</li></ol>');
+  });
 });

@@ -72,7 +72,12 @@ export async function shareDialog(app: App, files: FileOps) {
   const render = async () => {
     clear(list);
     let shares: ShareRecord[] = [];
-    try { shares = (await fs.getShares(path)) ?? []; } catch { shares = []; }
+    try {
+      shares = (await fs.getShares(path)) ?? [];
+    } catch (e) {
+      list.append(h('p', { role: 'alert' }, `Could not load who has access: ${storageError(e)}`));
+      return;
+    }
     const direct = shares.filter((s) => !s.inheritedFrom);
     if (!direct.length) { list.append(h('p', {}, 'Not shared with anyone yet.')); return; }
     const rows = direct.map((s) => {
@@ -127,7 +132,7 @@ export async function shareDialog(app: App, files: FileOps) {
   });
 }
 
-/** Parts other people shared with the current user (all pages). */
+/** Parts other people shared with the current user (all pages); throws when none could be read. */
 export async function sharedWithMe(): Promise<(FileEntry & { owner: string; mode: string })[]> {
   const fs = fsx();
   if (!cloudAvailable() || !fs?.listShared) return [];
@@ -150,8 +155,9 @@ export async function sharedWithMe(): Promise<(FileEntry & { owner: string; mode
       cursor = res.cursor;
       if (!cursor) break;
     }
-  } catch {
-    return out;
+  } catch (e) {
+    // Later pages failing still leaves the ones read; nothing read is an error to show.
+    if (!out.length) throw e;
   }
   return out;
 }
