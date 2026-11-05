@@ -87,7 +87,7 @@ button { cursor: pointer; }
 .menubar > button:hover, .menubar > button[aria-expanded='true'] { background: var(--bg-hover); }
 .menubar .accel, .menu .accel { text-decoration: underline; text-underline-offset: 2px; }
 .menu {
-  position: fixed; z-index: 500; min-width: 220px; max-width: min(420px, calc(100vw - 16px)); max-height: calc(100vh - 16px); overflow: auto;
+  position: fixed; z-index: 650; min-width: 220px; max-width: min(420px, calc(100vw - 16px)); max-height: calc(100vh - 16px); overflow: auto;
   background: var(--bg-menu); border: 1px solid var(--border-strong); border-radius: var(--radius); padding: 4px;
   font-size: var(--fs-md);
 }
