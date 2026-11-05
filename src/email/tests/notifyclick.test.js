@@ -71,7 +71,6 @@ const reading = () => root.querySelector('.app-frame').classList.contains('readi
 
 beforeEach(() => {
   window.localStorage.clear();
-  window.localStorage.setItem('puter-mail:notify', '1');
   shown = [];
   window.Notification = FakeNotification;
   hadFocus = document.hasFocus;
@@ -177,7 +176,6 @@ describe('with pushes on', () => {
   it('uses SDK status for the switch even when the saved preference disagrees', async () => {
     await mountWithPush();
     sdk.notifications.status.mockResolvedValue('off');
-    localStorage.setItem('puter-mail:notify', '0');
     root.querySelector('[aria-label="Settings"]').click();
     await settle();
     const toggle = [...root.querySelectorAll('[role="menuitemcheckbox"]')]

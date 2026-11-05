@@ -132,6 +132,13 @@ export function listenForPushes() {
   return pushListener;
 }
 
+/** Stop taking pushes in this page; Puter drops the saved handler once no tab uses it. */
+export async function stopListeningForPushes() {
+  const listener = await pushListener;
+  pushListener = null;
+  await listener?.off?.();
+}
+
 /**
  * Turn Puter pushes on in this browser; resolves whether it now receives
  * them. On a website this puts up the browser's own prompt, which needs the

@@ -176,7 +176,7 @@ A check that finds nothing says nothing: no toast, no re-render. When mail does 
 
 ### New-mail notifications
 
-Off until turned on from **Settings → Notify me on this device** or the welcome dialog. Both read `puter.notifications.status()` for this browser.
+On unless turned off from **Settings → Notify me on this device** (`puter-mail:notify-off` on this device). Where the browser already allows notifications, pushes are turned on at load without a prompt; where it hasn't decided, it is asked once per device, from the first click or key press (`puter-mail:notify-asked`), and after that only the menu and the welcome dialog ask. A first click on the welcome dialog's button joins that same run rather than prompting twice. The switch reads `puter.notifications.status()` for this browser.
 
 1. `puter.notifications.enable()` runs first from the click. On a website it asks the browser, registers `public/puter-sw.js` (which imports Puter's `push-sw.js`), and grants pushes from the app. Inside the Puter desktop it calls `enablePush()`, which opens Puter's permission dialog itself.
 2. `puter.perms.request('backgroundEvents')` allows the handler to run with Mail closed. Only `push_revoked` needs another app push grant; that recovery batches `backgroundEvents` and `pushNotifications`, then calls `enable()` again.
@@ -191,6 +191,8 @@ Push delivery is capped at 12/minute and 1,000/day per user per app; new or unli
 Every page load with notifications on calls `onPush('mail', …)`, which says what a push shows and keeps this browser's registration current, and makes sure the subscription still stands. A page that is visible and focused holds the push back; one in the background shows the notification itself, so the app's own in-tab notification is not shown as well. A click -- including the tap that opened the app -- goes through `puter.notifications.on('click')` to the same path as before: the message opens, waiting for the inbox to be listed if it has to, or the inbox opens at the top for a push that named no message. Turning notifications off calls `disable()` and stops listening in this browser. On a website the account subscription stays for other devices; inside the Puter desktop, `disable()` revokes the app's push permission across devices, so the subscription ends too.
 
 Where a server has no push service, or the handler is not published, the app falls back to a notification the tab shows itself while it is open but not focused.
+
+Signing out first stops this page's `onPush()` handler, then, on a website, `disable()`s this browser's subscription (bounded to 4 s); inside the Puter desktop `disable()` would revoke every device, so only the handler goes. The account's new-mail subscription stays for other devices.
 
 On iPhone and iPad a site can only receive pushes once it is added to the Home Screen and opened from there; the app detects that case and says how, rather than asking. `public/manifest.json` makes the Home Screen app standalone.
 

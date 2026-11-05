@@ -1733,10 +1733,13 @@ async function sendPushes(ws, uuids, n, readDocs = null) {
     // What this post is to this person: a mention of them, or a message in
     // their direct message. A group message that names someone else is a
     // plain message to the rest, which "mentions only" does not want.
-    const event = n.reminder ? 'reminder' : n.mentioned.has(u) ? 'mention' : 'message';
+    // A reply in a direct message is a direct message to the others in it.
+    const event = n.reminder ? 'reminder' : n.mentioned.has(u) ? 'mention' : n.replies?.has(u) && n.kind !== 'dm' ? 'reply' : 'message';
     if (event === 'message' && level !== 'all') continue;
+    // A channel heard at "all messages" by someone who has since left it.
+    if (event === 'message' && n.channel && !doc?.channels?.includes(n.channel)) continue;
     // Legacy Web Push has no sensitive flag.
-    const quiet = n.quiet || (event === 'mention' ? 'Mentioned you' : 'New message');
+    const quiet = n.quiet || (event === 'mention' ? 'Mentioned you' : event === 'reply' ? 'New reply' : 'New message');
     const bodyFor = (preview) => (preview === false || !n.body ? quiet : n.body);
     // Tagged the way the client's own banner for the same news is tagged,
     // so a device told twice — by this push and by the page's poll —
@@ -2421,7 +2424,7 @@ router.post('/api/join', route(async ({ request, user }) => {
   return { workspace: { id: ws.id, name: ws.name }, guest, channel: guest ? { id: invite.ch, name: scoped.name } : undefined };
 }));
 
-router.get('/api/ws/:ws', route(async ({ params, request, user }) => {
+router.get('/api/ws/:ws', route(async ({ params, request, user, defer }) => {
   // The moment this answer is drawn from, taken before anything is read.
   // The client makes its first poll's `since` of it and judges live signals
   // against it (see the store's _evCovered): reported as the moment the
@@ -2440,6 +2443,7 @@ router.get('/api/ws/:ws', route(async ({ params, request, user }) => {
     also: ({ uuid }) => [KEYS.user(uuid), KEYS.activity(params.ws), ...(ringOn ? [KEYS.evCounter(params.ws)] : [])],
   });
   const [knownProfile, knownAct, knownCounters = null] = extra;
+  if (!doc.naSync) defer(() => recordHearAll(ws, id.uuid, doc));
   const q = query(request);
   // A member carried across by an import, or whose join was cut short, has
   // a card in the workspace but no entry in their own list on this worker,
@@ -2739,6 +2743,7 @@ router.delete('/api/ws/:ws', route(async ({ params, user }) => {
     if (c.connectInvite) dels.push(KEYS.invite(c.connectInvite));
   }
   for (const u of memberIds) dels.push(KEYS.member(ws.id, u), KEYS.inbox(ws.id, u), KEYS.threads(ws.id, u), KEYS.saved(ws.id, u));
+  dels.push(KEYS.notifyAll(ws.id));
   // Threads are conversations of their own ({conv}_t{seq}), reachable only
   // through their roots' reply counts: their counters and blocks used to be
   // left behind, two keys and the replies' text per thread, for good. The
@@ -6733,26 +6738,38 @@ async function postMessage(ctx, convId, body, { scheduled = false, head = undefi
   // per thread, not once per message, so the poll is not made to fetch the
   // workspace over and over. After the cursor above, whose write it is for.
   if (upd[`notify.${convId}.follow`] || cleared) await pokeMember(wsId, ctx.uuid).catch(() => {});
-  // Push notifications, for people who asked for them on some device: a
-  // mention (or broadcast) reaches those mentioned; a direct message reaches
-  // the other members. Each recipient's own settings decide.
+  // Notifications, the app's only ones: a mention (or broadcast) reaches
+  // those mentioned, a direct message the other members, a reply the
+  // thread's followers, and a channel message whoever hears that channel at
+  // "all messages". Each recipient's own settings decide.
   // A reply inside a direct message is a direct message to the others in
   // it (a thread carries its parent's `dm`), and is pushed as one.
   const dmOthers = conv.dm ? conv.dm.members.filter((u) => u !== ctx.uuid) : [];
-  const pushTargets = [...new Set([...mentioned, ...dmOthers])].slice(0, PUSH_FANOUT);
+  const hearsAll = conv.channel && conv.kind !== 'thread' && !conv.dm;
   let pushJob = null;
-  if (pushTargets.length) {
+  if (mentioned.length || dmOthers.length || replyTargets.length || hearsAll) {
     const author = ctx.ws.members[ctx.uuid];
-    pushJob = () => sendPushes(ctx.ws, pushTargets, {
-      mentioned: new Set(mentioned), conv: convId, mentionConv, seq, kind: conv.dm ? 'dm' : conv.kind,
-      title: conv.dm ? author?.name || 'Direct message' : `${author?.name || 'Someone'} in #${conv.channel?.name || 'channel'}`,
-      // The first 120 characters, cut between whole ones (see cleanText): a
-      // character written as two units (an emoji) straddling the cut left
-      // its first half at the end, which the encoder turned into a
-      // replacement mark on the device.
-      body: bc ? `@${bc}: ${cleanText(text, 120)}` : cleanText(text, 120),
-      threadRoot: conv.kind === 'thread' ? conv.parent : null,
-    }, ctx.docs);
+    pushJob = async () => {
+      let hearAll = [];
+      if (hearsAll) {
+        const heard = (await kv().get(KEYS.notifyAll(wsId)).catch(() => null))?.[convId] || {};
+        const readers = audienceOf(conv);
+        hearAll = Object.keys(heard).filter((u) => u !== ctx.uuid && ctx.ws.members[u] && (!readers || readers.includes(u)));
+      }
+      const pushTargets = [...new Set([...mentioned, ...dmOthers, ...replyTargets, ...hearAll])].slice(0, PUSH_FANOUT);
+      if (!pushTargets.length) return;
+      await sendPushes(ctx.ws, pushTargets, {
+        mentioned: new Set(mentioned), replies: new Set(replyTargets), channel: conv.channel && !conv.dm ? convId : null,
+        conv: convId, mentionConv, seq, kind: conv.dm ? 'dm' : conv.kind,
+        title: conv.dm ? author?.name || 'Direct message' : `${author?.name || 'Someone'} in #${conv.channel?.name || 'channel'}`,
+        // The first 120 characters, cut between whole ones (see cleanText): a
+        // character written as two units (an emoji) straddling the cut left
+        // its first half at the end, which the encoder turned into a
+        // replacement mark on the device.
+        body: bc ? `@${bc}: ${cleanText(text, 120)}` : cleanText(text, 120),
+        threadRoot: conv.kind === 'thread' ? conv.parent : null,
+      }, ctx.docs);
+    };
   }
   if (conv.kind === 'thread') {
     const k = overlayKey(conv.parent.seq);
@@ -7751,6 +7768,11 @@ router.put('/api/ws/:ws/conv/:conv/notify', route(async ({ params, request, user
   }
   if (!Object.keys(patch).length) fail(400, 'invalid', 'Nothing to change');
   await kv().update(KEYS.member(params.ws, id.uuid), patch);
+  // The post path reads this instead of every member's document.
+  if (body.level !== undefined && conv.channel && conv.kind !== 'thread' && !conv.dm) {
+    if (body.level === 'all') await kv().update(KEYS.notifyAll(params.ws), { [`${params.conv}.${id.uuid}`]: 1 });
+    else await kv().remove(KEYS.notifyAll(params.ws), `${params.conv}.${id.uuid}`).catch(() => {});
+  }
   // The member's other tabs and devices are told their own state moved, as
   // the read route tells them of a badge cleared: what they chime and show a
   // banner for, and which threads they list, they judge by the settings in
@@ -7762,6 +7784,13 @@ router.put('/api/ws/:ws/conv/:conv/notify', route(async ({ params, request, user
   await pokeMember(params.ws, id.uuid).catch(() => {});
   return { ok: true, notify: cur };
 }));
+
+/** "All messages" chosen before tc:ws:{id}:na existed, carried into it once per member. */
+async function recordHearAll(ws, uuid, doc) {
+  const heard = Object.entries(doc.notify || {}).filter(([c, v]) => v?.level === 'all' && own(ws.channels, c)).map(([c]) => [`${c}.${uuid}`, 1]);
+  if (heard.length) await kv().update(KEYS.notifyAll(ws.id), Object.fromEntries(heard));
+  await kv().update(KEYS.member(ws.id, uuid), { naSync: 1 });
+}
 
 /* ---- pins -------------------------------------------------------------- */
 

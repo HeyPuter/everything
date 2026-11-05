@@ -155,3 +155,83 @@ describe('push: the settings switch', () => {
     expect(store.saveSettings).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('push: on by default', () => {
+  function webPush(permission, overrides = {}) {
+    vi.stubGlobal('Notification', { permission });
+    vi.stubGlobal('PushManager', function PushManager() {});
+    Object.defineProperty(navigator, 'serviceWorker', { value: {}, configurable: true });
+    return { env: 'web', notifications: makeNotifications({ status: vi.fn(async () => 'off'), ...overrides }) };
+  }
+  const click = () => document.dispatchEvent(new Event('pointerdown'));
+  const store = () => ({ saveSettings: vi.fn(async () => {}) });
+
+  beforeEach(() => {
+    localStorage.clear();
+    vi.unstubAllGlobals();
+  });
+
+  it('turns pushes on without asking where the browser already allows them, and stores reminders', async () => {
+    const { autoEnablePush } = await freshPush();
+    const p = webPush('granted');
+    const s = store();
+    await autoEnablePush(p, s);
+    expect(p.notifications.enable).toHaveBeenCalledTimes(1);
+    expect(s.saveSettings).toHaveBeenCalledWith({ storedReminders: true });
+  });
+
+  it('asks once, synchronously from the first click, and remembers it', async () => {
+    const { autoEnablePush } = await freshPush();
+    const p = webPush('default');
+    await autoEnablePush(p, store());
+    expect(p.notifications.enable).not.toHaveBeenCalled();
+    click();
+    expect(p.notifications.enable).toHaveBeenCalledTimes(1);
+    click();
+    expect(p.notifications.enable).toHaveBeenCalledTimes(1);
+    expect(localStorage.getItem('cal:notify-asked')).toBe('1');
+    const again = await freshPush();
+    await again.autoEnablePush(webPush('default'), store());
+    click();
+    expect(p.notifications.enable).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ['pushes were turned off on this device', 'default', () => localStorage.setItem('cal:push-off', '1')],
+    ['the browser blocks notifications', 'denied', () => {}],
+  ])('neither asks nor enables when %s', async (_name, permission, before) => {
+    before();
+    const { autoEnablePush } = await freshPush();
+    const p = webPush(permission);
+    await autoEnablePush(p, store());
+    click();
+    expect(p.notifications.enable).not.toHaveBeenCalled();
+  });
+
+  it('does nothing when pushes are already on here', async () => {
+    const { autoEnablePush } = await freshPush();
+    const p = webPush('granted', { status: vi.fn(async () => 'on') });
+    await autoEnablePush(p, store());
+    expect(p.notifications.enable).not.toHaveBeenCalled();
+  });
+
+  it('removes the page handler, then this browser\'s subscription, before signing out', async () => {
+    const { startPush, releasePush } = await freshPush();
+    const calls = [];
+    const notifications = makeNotifications({
+      onPush: vi.fn(async () => ({ off: async () => { calls.push('off'); } })),
+      disable: vi.fn(async () => { calls.push('disable'); }),
+    });
+    startPush({ env: 'web', notifications });
+    await releasePush({ env: 'web', notifications });
+    expect(calls).toEqual(['off', 'disable']);
+  });
+
+  it('inside the desktop removes only the handler', async () => {
+    const { startPush, releasePush } = await freshPush();
+    const notifications = makeNotifications();
+    startPush({ env: 'app', notifications });
+    await releasePush({ env: 'app', notifications });
+    expect(notifications.disable).not.toHaveBeenCalled();
+  });
+});

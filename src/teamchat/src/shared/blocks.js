@@ -72,6 +72,8 @@ export const KEYS = {
   ws: (wsId) => `tc:ws:${wsId}`,
   member: (wsId, uuid) => `tc:ws:${wsId}:u:${uuid}`,
   activity: (wsId) => `tc:ws:${wsId}:act`,
+  /** `{ [channel]: { [uuid]: 1 } }`: who hears a channel at "all messages", for pushes. */
+  notifyAll: (wsId) => `tc:ws:${wsId}:na`,
   invite: (code) => `tc:invite:${code}`,
   seq: (conv) => `tc:conv:${conv}:seq`,
   block: (conv, n) => `tc:conv:${conv}:b:${n}`,
