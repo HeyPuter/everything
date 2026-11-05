@@ -173,3 +173,55 @@ test.describe('in a time zone behind UTC', () => {
     await expect(page.locator('.paper text', { hasText: /^2026-/ })).toHaveText('2026-02-28');
   });
 });
+
+for (const format of ['svg', 'pdf'] as const) test(`a ${format.toUpperCase()} exported immediately after an edit uses the rebuilt model`, async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await page.getByRole('tab', { name: 'Drawing' }).click();
+  await expect(page.locator('.paper g[data-view]')).toHaveCount(4);
+  const downloaded = page.waitForEvent('download');
+  await page.evaluate((format) => {
+    const app = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+    app.store.change('Depth', (doc) => {
+      const f = doc.features.find((f) => f.id === 'f1');
+      if (f?.type === 'extrude') f.depth = 75;
+    });
+    app.commands.run(`drawing:${format}`);
+  }, format);
+  const file = await downloaded;
+  const { readFileSync } = await import('node:fs');
+  const text = new TextDecoder().decode(readFileSync((await file.path())!));
+  expect(text).toContain(format === 'svg' ? '>75.00<' : '(75.00)');
+  expect(text).not.toContain(format === 'svg' ? '>30.00<' : '(30.00)');
+  expect(errors).toEqual([]);
+});
+
+test('leaving the drawing cancels an export still waiting for projection', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await page.getByRole('tab', { name: 'Drawing' }).click();
+  await expect(page.locator('.paper g[data-view]')).toHaveCount(4);
+  let downloads = 0;
+  page.on('download', () => downloads++);
+  await page.evaluate(async () => {
+    type W = { __parametric: import('../../src/app/app').App; releaseProjection: () => void; exportDone: boolean };
+    const w = window as unknown as W, app = w.__parametric;
+    const project = app.kernel.project.bind(app.kernel);
+    let entered!: () => void;
+    const started = new Promise<void>((resolve) => { entered = resolve; });
+    const gate = new Promise<void>((resolve) => { w.releaseProjection = resolve; });
+    app.kernel.project = async (...args) => { entered(); await gate; return project(...args); };
+    app.store.change('Depth', (doc) => {
+      const f = doc.features.find((f) => f.id === 'f1');
+      if (f?.type === 'extrude') f.depth = 75;
+    });
+    await started;
+    w.exportDone = false;
+    void app.drawing.exportSvg().then(() => { w.exportDone = true; });
+  });
+  await page.getByRole('tab', { name: 'Model' }).click();
+  await page.evaluate(() => (window as unknown as { releaseProjection: () => void }).releaseProjection());
+  await expect.poll(() => page.evaluate(() => (window as unknown as { exportDone: boolean }).exportDone)).toBe(true);
+  expect(downloads).toBe(0);
+  expect(errors).toEqual([]);
+});

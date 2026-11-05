@@ -377,21 +377,35 @@ export class DrawingWorkspace {
 
   // ---------- export ----------
 
-  /** Waits for views still being projected, so an export right after opening has them. */
-  private async projected() {
-    while (this.pending || this.refreshAgain) await new Promise((r) => setTimeout(r, 50));
+  /** Waits for both queued model edits and their projections before exporting. */
+  private async projected(): Promise<boolean> {
+    const drawing = this.doc;
+    const stillOpen = () => this.active && this.doc === drawing;
+    if (!drawing || !stillOpen()) return false;
+    for (;;) {
+      await this.app.whenBuilt();
+      if (!stillOpen()) return false;
+      const version = this.app.buildVersion;
+      await this.refresh();
+      while (this.pending || this.refreshAgain) {
+        await new Promise((r) => setTimeout(r, 50));
+        if (!stillOpen()) return false;
+      }
+      // Another edit may have arrived while the projection was running.
+      await this.app.whenBuilt();
+      if (!stillOpen()) return false;
+      if (version === this.app.buildVersion) return true;
+    }
   }
 
   async exportPdf() {
-    if (!this.doc) return;
-    await this.projected();
+    if (!(await this.projected())) return;
     const s = this.sheet();
     download(toPdf(s.items, s.w, s.h, this.app.store.doc.name) as BlobPart, `${safeName(this.app.store.doc.name)}.pdf`, 'application/pdf');
   }
 
   async exportSvg() {
-    if (!this.doc) return;
-    await this.projected();
+    if (!(await this.projected())) return;
     const s = this.sheet();
     download(toSvg(s.items, s.w, s.h), `${safeName(this.app.store.doc.name)}.svg`, 'image/svg+xml');
   }
