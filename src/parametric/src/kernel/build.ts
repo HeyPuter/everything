@@ -231,7 +231,10 @@ export class ModelBuilder {
     if (req.preview) {
       const p = cloneState(state);
       try {
+        this.warning = null;
         const kind = await this.apply(req.preview, p, req);
+        // Shown while the feature is edited, when it can still be fixed.
+        if (this.warning) result.previewWarning = this.warning;
         if (kind === 'tool') {
           const tool = p.tools.get(req.preview.id);
           if (tool) result.preview = this.meshBody(tool.shape, req.quality);

@@ -889,6 +889,7 @@ export class App {
     this.selection.revalidate(res.faces, res.edges);
     this.panel?.onBuild(res);
     if (this.panel && res.previewError) this.panel.setMessage('error', res.previewError);
+    else if (this.panel && res.previewWarning) this.panel.setMessage('warn', res.previewWarning);
     else if (this.panel && !res.previewError) this.panel.setMessage(null);
     this.shell.statusRebuild.textContent = `${Math.round(res.ms)} ms`;
     this.shell.statusRebuild.title = `Rebuild took ${Math.round(res.ms)} ms (${Math.round(ms)} ms including transfer)`;

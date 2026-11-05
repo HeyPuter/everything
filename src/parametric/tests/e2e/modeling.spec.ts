@@ -365,6 +365,19 @@ test('OK keeps a feature panel open while a value cannot be read', async ({ page
   expect(await page.evaluate(() => (window as unknown as { __parametric: { store: { doc: { features: { name: string; depth?: number }[] } } } }).__parametric.store.doc.features.find((f) => f.name === 'Extrude1')?.depth)).toBe(25);
 });
 
+test('a feature panel warns while the edited cut removes no material', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  await page.getByRole('treeitem', { name: 'Hole1' }).dblclick();
+  const reverse = page.getByRole('button', { name: 'Reverse direction' });
+  await reverse.click();
+  await expect(page.locator('.pm-msg.warn')).toContainText('does not remove any material');
+  await reverse.click();
+  await expect(page.locator('.pm-msg')).toBeHidden();
+  expect(errors).toEqual([]);
+});
+
 test('Escape in a feature panel field takes back the typed value, then cancels the panel', async ({ page }) => {
   const errors = await openApp(page);
   await page.getByRole('button', { name: /Mounting Bracket/ }).click();

@@ -195,6 +195,10 @@ describe('feature regeneration', () => {
     expect(miss.status[3]).toMatchObject({ ok: true, warning: expect.stringMatching(/does not remove any material/) });
     const hit = await b.build(req([...base, extrude('E2', 'S2', 5, { cut: true, end: 'throughAll', flip: true })]));
     expect(hit.status[3]).toEqual({ id: 'E2', ok: true });
+    // While the cut is being edited, its preview says so too.
+    const preview = await b.build(req(base, { preview: extrude('E2', 'S2', 5, { cut: true, end: 'throughAll' }) }));
+    expect(preview.previewWarning).toMatch(/does not remove any material/);
+    expect((await b.build(req(base, { preview: extrude('E2', 'S2', 5, { cut: true, end: 'throughAll', flip: true }) }))).previewWarning).toBeUndefined();
   });
 
   it('sweeps along path segments drawn in any order', async () => {

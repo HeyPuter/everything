@@ -90,6 +90,8 @@ export interface BuildResult {
   /** 'tool': draw over the body; 'body': replaces the body while editing. */
   previewKind?: 'tool' | 'body';
   previewError?: string;
+  /** Non-fatal problem of the previewed feature (a cut that removes nothing...). */
+  previewWarning?: string;
 }
 
 export interface MassProperties {
