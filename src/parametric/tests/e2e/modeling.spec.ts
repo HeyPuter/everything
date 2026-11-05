@@ -105,6 +105,18 @@ test.describe('part modeling', () => {
     expect(errors).toEqual([]);
   });
 
+  test('the status bar reports the expression error of a feature, not its fallout', async ({ page }) => {
+    const errors = await openApp(page);
+    await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+    await waitForFeature(page, 'Fillet1');
+    type Handle = { store: { doc: { features: { id: string; depth?: unknown }[] }; change(l: string, fn: (d: { features: { id: string; depth?: unknown }[] }) => void): void } };
+    await page.evaluate(() => (window as unknown as { __parametric: Handle }).__parametric.store.change('Depth', (d) => {
+      d.features.find((f) => f.id === 'f1')!.depth = '=Nope*2';
+    }));
+    await expect(page.locator('.statusbar [role="status"]')).toContainText('Rebuild error in Extrude1: Depth: Unknown name "Nope"');
+    expect(errors).toEqual([]);
+  });
+
   test('evaluates mass properties of the flange', async ({ page }) => {
     await openApp(page);
     await page.getByRole('button', { name: /Pipe Flange/ }).click();

@@ -792,7 +792,8 @@ export class App {
     this.viewport.refreshStates();
     this.viewport.rehoverSoon();
     this.renderTrees();
-    const errors = res.status.filter((s) => !s.ok);
+    // Expression errors replace the kernel's view of the same feature.
+    const errors = res.status.map((s) => this.statuses.get(s.id) ?? s).filter((s) => !s.ok);
     if (errors.length && !this.panel) {
       const f = this.store.feature(errors[0].id);
       this.setStatus(`Rebuild error in ${f?.name ?? 'a feature'}: ${errors[0].error}`, true);
