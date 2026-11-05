@@ -67,6 +67,8 @@
  *             scale, angle             pattern scale and rotation
  *             families?                imported pattern the library lacks: its lines
  *                                      at scale 1 and angle 0 (format of patterns.js)
+ *             mirror?                  true: the pattern is drawn reflected across its
+ *                                      X axis, then rotated (a mirrored hatch)
  *   insert    name, x, y, sx, sy, rot  block reference
  *
  * Containers:

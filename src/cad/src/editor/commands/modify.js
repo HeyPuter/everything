@@ -25,7 +25,7 @@ import {
 import { insertMatrix, mulMatrix } from '../../core/tessellate.js';
 import { buildDimension, buildLeader, dimStyleOf } from '../../core/dims.js';
 import { mtextLines } from '../../core/text/layout.js';
-import { getPattern } from '../../core/hatch/patterns.js';
+import { hatchPattern } from '../../core/hatch/patterns.js';
 import { loopsToRings, patternSegments } from '../../core/hatch/fill.js';
 import { COLOR_BYBLOCK, LW_BYBLOCK } from '../../core/schema.js';
 import { M, TAU, dist, angleOf, norm, fresh } from './util.js';
@@ -891,7 +891,7 @@ export function explodeOne(ed, e) {
       }));
     }
     case 'hatch': {
-      const pat = e.pattern && e.pattern !== 'SOLID' ? getPattern(e.pattern) : null;
+      const pat = hatchPattern(e);
       if (pat) {
         // A pattern hatch breaks into its pattern lines, drawn as before (unbroken).
         const rings = loopsToRings(e.loops || []);

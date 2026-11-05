@@ -10,7 +10,7 @@ import { tessellate } from './geom/index.js';
 import { layoutText, layoutMText } from './text/layout.js';
 import { buildDimension, buildLeader, dimStyleOf } from './dims.js';
 import { loopsToRings, solidPolygons, patternSegments } from './hatch/fill.js';
-import { getPattern } from './hatch/patterns.js';
+import { hatchPattern } from './hatch/patterns.js';
 
 const EMPTY = [];
 const MAX_DEPTH = 16;
@@ -311,8 +311,7 @@ function emitHatch(ent, sink, ctx, style) {
     for (const poly of solidPolygons(rings)) sink.fill(poly, solid);
     return;
   }
-  // imported patterns the library lacks carry their own families
-  const pat = getPattern(ent.pattern) ?? (ent.families?.length ? { families: ent.families } : null);
+  const pat = hatchPattern(ent);
   if (!pat) {
     for (const poly of solidPolygons(rings)) sink.fill(poly, solid);
     return;

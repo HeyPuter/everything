@@ -338,6 +338,30 @@ describe('EXPLODE hatches', () => {
     expect(t.all()).toEqual([expect.objectContaining({ type: 'hatch', id: 1 })]);
   });
 
+  it('breaks mirrored and imported pattern hatches into their own lines', async () => {
+    const loop = [0, 0, 0, 20, 0, 0, 20, 20, 0, 0, 20, 0];
+    add({ type: 'hatch', pattern: 'LINES', scale: 1, angle: 0, loops: [loop], mirror: true });
+    const fam = { angle: 0, x: 0, y: 0, dx: 0, dy: 3, dashes: [] };
+    add({
+      type: 'hatch',
+      pattern: 'ANSI31',
+      scale: 1,
+      angle: Math.PI / 2,
+      loops: [loop],
+      families: [fam],
+    });
+    t.ed.setSelection([1, 2]);
+    await t.type('EXPLODE');
+    expect(t.all('polyline')).toHaveLength(0);
+    const lines = t.all('line');
+    // the mirrored LINES run at -45 degrees, the imported family vertically
+    const diag = lines.filter((l) => Math.abs(l.x2 - l.x1 + (l.y2 - l.y1)) < 1e-9 && l.x1 !== l.x2);
+    const vert = lines.filter((l) => Math.abs(l.x2 - l.x1) < 1e-9);
+    expect(diag.length).toBeGreaterThan(5);
+    expect(vert.length).toBeGreaterThan(5);
+    expect(diag.length + vert.length).toBe(lines.length);
+  });
+
   it('breaks a solid fill into its boundary', async () => {
     add({
       type: 'hatch',

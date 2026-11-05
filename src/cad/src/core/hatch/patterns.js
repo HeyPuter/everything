@@ -306,3 +306,33 @@ export function dashPeriod(dashes) {
   for (const d of dashes) s += Math.abs(d);
   return s;
 }
+
+/**
+ * Families reflected across the pattern's X axis (directions negated). The
+ * offset keeps dy > 0: line k of the result is line -k of the reflection.
+ */
+export function mirrorFamilies(fams) {
+  return fams.map((f) => ({
+    ...f,
+    angle: (360 - (f.angle % 360)) % 360,
+    y: -f.y || 0,
+    dx: f.dy > 0 ? -f.dx || 0 : f.dx,
+    dy: Math.abs(f.dy),
+  }));
+}
+
+const MIRRORED = new WeakMap();
+
+/**
+ * Pattern a hatch entity draws: the library pattern of its name, else the
+ * imported definition it carries (families), reflected when ent.mirror is set
+ * (the hatch was mirrored). null for solid fills and unknown patterns.
+ */
+export function hatchPattern(ent) {
+  if (!ent.pattern || String(ent.pattern).toUpperCase() === 'SOLID') return null;
+  const pat = getPattern(ent.pattern) ?? (ent.families?.length ? { families: ent.families } : null);
+  if (!pat || !ent.mirror) return pat;
+  let m = MIRRORED.get(pat.families);
+  if (!m) MIRRORED.set(pat.families, (m = { families: mirrorFamilies(pat.families) }));
+  return m;
+}
