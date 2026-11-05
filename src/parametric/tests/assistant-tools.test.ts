@@ -332,4 +332,15 @@ describe('assistant tools', () => {
     await h.call('set_part', { units: 'MMGS' });
     expect((await h.call('mass_properties', {})).content).toMatch(/Mass 0\.333315 g/);
   });
+
+  it('gives feature arguments in metres to the precision results use', async () => {
+    const h = new TestHost();
+    await h.call('set_part', { units: 'MKS' });
+    await h.call('create_sketch', { plane: 'front', shapes: [{ type: 'rectangle', corner1: [0, 0], corner2: [0.01, 0.01] }] });
+    await h.call('add_extrude', { sketch: 's1', depth: 0.0012345 });
+    // It read 0.001234: a model copying the arguments back moved the geometry.
+    expect((await h.call('get_model', { features: ['f2'] })).content).toContain('"depth":0.0012345');
+    await h.call('set_part', { units: 'MMGS' });
+    expect((await h.call('get_model', { features: ['f2'] })).content).toContain('"depth":1.2345');
+  });
 });
