@@ -80,6 +80,20 @@ describe('assistant agent', () => {
     expect(out.at(-1)!.content).toContain('<part_state>');
   });
 
+  it('lets go of screenshots once they will not be sent again', async () => {
+    const shot = { ok: true, content: 'look', image: `data:image/jpeg;base64,${'A'.repeat(400000)}` };
+    const { agent, requests } = scripted([
+      [{ type: 'tool', id: 'a', name: 'capture_view', input: {} }],
+      [{ type: 'tool', id: 'b', name: 'capture_view', input: {} }],
+      [{ type: 'text', text: 'seen' }],
+    ], () => shot);
+    await agent.send('look twice', () => {});
+    expect(JSON.stringify(requests[2]).match(/A{400000}/g)).toHaveLength(1);
+    expect(JSON.stringify(agent.messages).match(/A{400000}/g)).toHaveLength(1);
+    await agent.send('thanks', () => {});
+    expect(JSON.stringify(agent.messages)).not.toMatch(/A{1000}/);
+  });
+
   it('stops between steps and answers the remaining calls', async () => {
     let release!: () => void;
     const gate = new Promise<void>((r) => { release = r; });

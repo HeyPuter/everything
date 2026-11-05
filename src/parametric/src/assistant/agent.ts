@@ -155,6 +155,11 @@ export function requestMessages(transcript: ChatMessage[], system: string, { bud
   return [{ role: 'system', content: system }, ...out.slice(start)];
 }
 
+/** Drops the image data of screenshots already taken (requests show them as NO_IMAGE). */
+function releaseShots(messages: ChatMessage[]) {
+  for (const m of messages) if (isUser(m) && m.screenshot && m.content !== NO_IMAGE) m.content = NO_IMAGE;
+}
+
 export function createAgent(o: AgentOptions) {
   let transcript: ChatMessage[] = [];
   let running: { stopped: boolean; stop(): void } | null = null;
@@ -250,6 +255,8 @@ export function createAgent(o: AgentOptions) {
             const m = /^data:([^;,]+);base64,(.*)$/.exec(url);
             if (m) parts.push({ type: 'image', source: { type: 'base64', media_type: m[1], data: m[2] } });
           }
+          // Only the newest screenshot is ever sent again: let the older ones' data go.
+          releaseShots(messages);
           messages.push({ role: 'user', content: parts, screenshot: true });
         }
         if (run.stopped) return { stopped: true, steps };
@@ -272,6 +279,8 @@ export function createAgent(o: AgentOptions) {
       if (lastMsg && lastMsg.role !== 'assistant') transcript.push({ role: 'assistant', content: '(My previous reply did not finish.)' });
       const content = userContent(text, o.snapshot(), attachments);
       transcript.push(attachments.length ? { role: 'user', content, attachments: attachments.map(attachmentMeta) } : { role: 'user', content });
+      // A screenshot goes only with the round that took it.
+      releaseShots(transcript);
       // Files older than the turns they go with are never sent again, only named: their data is let go.
       for (const m of transcript.filter((x): x is UserMessage => isTurn(x)).slice(0, -ATTACHMENT_TURNS)) {
         if (m.attachments && Array.isArray(m.content) && m.content.length > 1) m.content = [m.content[0]];
