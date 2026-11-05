@@ -341,6 +341,38 @@ test.describe('viewport', () => {
     expect(await measure(1)).not.toContain('Normal distance');
   });
 
+  test('a measurement finishing late does not overwrite a newer one or outlive the panel', async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+    await waitForFeature(page, 'Fillet1');
+    await expect.poll(() => page.evaluate(() => (window as unknown as Win).__parametric.faces.length)).toBeGreaterThan(0);
+    const r = await page.evaluate(async () => {
+      const app = (window as unknown as Win).__parametric;
+      const front = app.faces.findIndex((f) => f.normal?.[2] === 1 && Math.abs(f.center[2] - 30) < 1e-6);
+      const back = app.faces.findIndex((f) => f.normal?.[2] === -1);
+      const sel = [front, back].map((index) => ({ kind: 'face' as const, index, name: app.faces[index].name }));
+      const settle = () => new Promise((res) => setTimeout(res, 800));
+      // Two faces are being measured when one is removed from the selection.
+      app.selection.set(sel);
+      app.commands.run('measure');
+      await settle();
+      const box = (app.panel as unknown as { box: { items: unknown[]; setItems(i: unknown[], n: boolean): void } }).box;
+      box.setItems(box.items.slice(), true);
+      box.setItems(box.items.slice(0, 1), true);
+      await settle();
+      const text = document.querySelector('.pm-section table')!.textContent;
+      // Closed while measuring: no leader is left in the view.
+      await app.closePanel(false);
+      app.selection.set(sel);
+      app.commands.run('measure');
+      await app.closePanel(false);
+      await settle();
+      return { text, leader: (app.renderer as unknown as { lines: Map<string, unknown> }).lines.has('measure') };
+    });
+    expect(r.text).not.toContain('Distance');
+    expect(r.leader).toBe(false);
+  });
+
   test('line display styles keep visible edges readable in both themes', async ({ page }) => {
     await openApp(page);
     const contrast = () => page.evaluate(() => {

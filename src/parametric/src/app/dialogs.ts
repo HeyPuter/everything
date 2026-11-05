@@ -366,8 +366,11 @@ export class MeasurePanel extends PropertyPanel {
     }
   }
 
+  private seq = 0;
+
   private async measure() {
     const app = this.app;
+    const seq = ++this.seq;
     const u = UNIT_SYSTEMS[app.store.doc.units];
     const dec = Math.max(2, app.store.doc.decimals);
     const L = (v: number) => `${formatNumber(v / u.scale, dec)} ${u.length}`;
@@ -429,11 +432,14 @@ export class MeasurePanel extends PropertyPanel {
       } else if (ta && tb) {
         try {
           const r = await app.kernel.measure(ta, tb);
+          // The selection changed while the kernel measured: a newer result is shown.
+          if (seq !== this.seq) return;
           lines.push(['Distance', L(r.distance)]);
           const d = sub(r.p2, r.p1);
           lines.push(['dX, dY, dZ', d.map((x) => formatNumber(Math.abs(x) / u.scale, dec)).join(', ')]);
           this.showLeader(r.p1, r.p2);
         } catch (e) {
+          if (seq !== this.seq) return;
           lines.push(['Distance', (e as Error).message]);
         }
       }
@@ -453,6 +459,8 @@ export class MeasurePanel extends PropertyPanel {
   ok() { return true; }
 
   dispose() {
+    // A measurement still running must not draw its leader after the panel closed.
+    this.seq++;
     this.showLeader(null, null);
   }
 }
