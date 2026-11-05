@@ -496,6 +496,20 @@ describe('assistant agent', () => {
     expect(firsts.at(-1)!.read).toBeGreaterThan(firsts[2].read * 2);
   });
 
+  it('drops old turns in steps, so the conversation starts at the same place for several requests', () => {
+    const t: ChatMessage[] = [];
+    const starts: string[] = [];
+    for (let i = 0; i < 60; i++) {
+      t.push({ role: 'user', content: `turn ${i} ${'x'.repeat(900)}` }, { role: 'assistant', content: 'ok' });
+      const out = requestMessages(t, 'S', { budget: 10000 });
+      expect(out.slice(1).reduce((n, m) => n + String(m.content).length, 0)).toBeLessThanOrEqual(10000);
+      const start = String(out[1].content).split(' ')[1];
+      if (starts.at(-1) !== start) starts.push(start);
+    }
+    // One turn at a time would move the start on every request past the first ten.
+    expect(starts.length).toBeLessThan(25);
+  });
+
   it('cuts a long turn\'s earlier tool results to fit, keeping the newest round whole', () => {
     const big = 'y'.repeat(50000);
     const t: ChatMessage[] = [{ role: 'user', content: 'go' }];
