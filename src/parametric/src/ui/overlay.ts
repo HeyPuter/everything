@@ -175,9 +175,17 @@ export function toast(o: ToastOptions): () => void {
   region().append(el);
   const t = o.timeout ?? (kind === 'error' ? 9000 : o.actions?.length ? 0 : 4500);
   if (t > 0) {
+    // The toast stays while the pointer is over it or keyboard focus is in it
+    // (a timed-out toast would take its action, and the focus, with it).
     let timer = setTimeout(close, t);
-    el.addEventListener('pointerenter', () => clearTimeout(timer));
-    el.addEventListener('pointerleave', () => { timer = setTimeout(close, 2500); });
+    let hovered = false;
+    let focused = false;
+    const pause = () => clearTimeout(timer);
+    const resume = () => { if (!hovered && !focused) { clearTimeout(timer); timer = setTimeout(close, 2500); } };
+    el.addEventListener('pointerenter', () => { hovered = true; pause(); });
+    el.addEventListener('pointerleave', () => { hovered = false; resume(); });
+    el.addEventListener('focusin', () => { focused = true; pause(); });
+    el.addEventListener('focusout', (e) => { if (!el.contains(e.relatedTarget as Node | null)) { focused = false; resume(); } });
   }
   if (kind !== 'error') announce(`${o.title ? o.title + '. ' : ''}${o.message}`);
   return close;

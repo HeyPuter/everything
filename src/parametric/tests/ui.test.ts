@@ -132,6 +132,25 @@ describe('dialogs and toasts', () => {
     expect(act).toHaveBeenCalled();
     expect(document.querySelector('.toast')).toBeNull();
   });
+
+  it('keeps a timed toast while keyboard focus is in it', () => {
+    vi.useFakeTimers();
+    try {
+      toast({ kind: 'error', message: 'Could not save', actions: [{ label: 'Download a copy', run: () => {} }], timeout: 1000 });
+      const button = document.querySelector<HTMLButtonElement>('.toast .actions button')!;
+      button.focus();
+      vi.advanceTimersByTime(5000);
+      expect(document.querySelector('.toast')).not.toBeNull();
+      // Focus leaving the toast restarts a short timeout.
+      button.blur();
+      vi.advanceTimersByTime(2400);
+      expect(document.querySelector('.toast')).not.toBeNull();
+      vi.advanceTimersByTime(200);
+      expect(document.querySelector('.toast')).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe('PropertyManager number fields', () => {

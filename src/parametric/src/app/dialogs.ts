@@ -376,7 +376,7 @@ export async function shortcutsDialog(app: App) {
   add('Pan', `${isMac ? '⌘' : 'Ctrl'} + Arrow keys`);
   add('Cancel or clear selection', 'Esc');
   grid.append(h('h3', {}, 'Keyboard navigation'));
-  add('Next or previous area (menu bar, CommandManager, design tree, graphics area, task pane, status bar)', 'F6, Shift + F6');
+  add('Next or previous area (menu bar, CommandManager, design tree, graphics area, task pane, status bar, notifications)', 'F6, Shift + F6');
   add('Rename the feature in the design tree', 'F2');
   add('Context menu of the feature in the design tree', 'Shift + F10');
   await showDialog({ title: 'Keyboard Shortcuts', wide: true, body: grid, buttons: [{ label: 'Close', value: 'ok', primary: true }] });

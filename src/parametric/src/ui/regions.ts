@@ -1,6 +1,7 @@
 // F6 / Shift+F6 move focus between the major regions of the window (title
-// bar, CommandManager, left pane, graphics area, task pane, status bar), as
-// in desktop apps, instead of tabbing through every control on the way.
+// bar, CommandManager, left pane, graphics area, task pane, status bar,
+// notifications), as in desktop apps, instead of tabbing through every
+// control on the way.
 
 export interface FocusRegion {
   el: HTMLElement;

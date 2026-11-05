@@ -252,6 +252,21 @@ test('Shift+F10 opens the context menu of the focused tree row', async ({ page }
   await expect(page.getByRole('treeitem', { name: 'Hole1' })).toBeFocused();
 });
 
+test('F6 reaches a notification\'s buttons, and the notification stays while focused', async ({ page }) => {
+  await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await page.locator('canvas.gl').focus();
+  await page.evaluate(async () => {
+    const { toast } = await import(/* @vite-ignore */ '/src/ui/overlay.ts' as string) as typeof import('../../src/ui/overlay');
+    toast({ kind: 'error', title: 'Could not save', message: 'Offline', actions: [{ label: 'Download a copy', run: () => {} }], timeout: 1500 });
+  });
+  // Graphics area, task pane, status bar, then the notification.
+  for (let i = 0; i < 3; i++) await page.keyboard.press('F6');
+  await expect(page.locator('.toast :focus')).toHaveCount(1);
+  await page.waitForTimeout(2000);
+  await expect(page.getByRole('button', { name: 'Download a copy' })).toBeVisible();
+});
+
 test('F6 and Shift+F6 move between the window regions', async ({ page }) => {
   await openApp(page);
   await page.getByRole('button', { name: /Mounting Bracket/ }).click();

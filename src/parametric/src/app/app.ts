@@ -1437,6 +1437,8 @@ export class App {
       { el: s.viewport, target: () => (this.inDrawing ? this.drawing.el : this.viewport.canvas) },
       { el: s.taskpane },
       { el: part('.statusbar') },
+      // Notifications with buttons (Download a copy, Restart engine) are reachable too.
+      ...[...document.querySelectorAll<HTMLElement>('body > .toasts')].map((el) => ({ el })),
     ];
   }
 
