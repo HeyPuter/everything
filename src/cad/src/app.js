@@ -691,7 +691,14 @@ export class App {
       } else {
         const r = await storage.deviceSave(blob, fileName, null);
         if (!r) return false;
-        doc.file = { source: 'device', handle: r.handle, kind: target.kind, name: r.name, path: null };
+        // Named with another drawing extension in the picker: write that format instead.
+        let kind = target.kind;
+        const picked = fileKind(r.name);
+        if (r.handle && picked && picked !== kind) {
+          kind = picked;
+          await storage.deviceSave(await this.encode(doc, kind), r.name, r.handle);
+        }
+        doc.file = { source: 'device', handle: r.handle, kind, name: r.name, path: null };
         downloaded = !!r.downloaded;
       }
       // The system save picker lets the user rename the file.
