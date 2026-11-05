@@ -123,3 +123,15 @@ describe('centre arcs', () => {
     expect(t.all('arc')[1].r).toBeCloseTo(5);
   });
 });
+
+describe('rectangles', () => {
+  it('asks again for a zero length or width from Dimensions', async () => {
+    await t.type('RECTANG', '0,0', 'D', '0');
+    expect(t.ed.request?.prompt).toMatch(/^Length/);
+    await t.type('20', '-1');
+    expect(t.ed.request?.prompt).toMatch(/^Width/);
+    await t.type('10', '5,5');
+    const [p] = t.all('polyline');
+    expect(p.pts).toEqual([0, 0, 0, 20, 0, 0, 20, 10, 0, 0, 10, 0]);
+  });
+});

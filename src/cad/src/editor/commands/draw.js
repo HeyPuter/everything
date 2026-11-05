@@ -221,10 +221,10 @@ export const RECTANG = {
       const b = await ed.getPoint('Other corner', { base: a, rubber: false, options: opts('Dimensions'), preview: (p) => [rect(p)] });
       if (!b) return;
       if (b.option === 'dimensions') {
-        const w = await ed.getDistance('Length', { default: ed.rectW ?? 10 });
-        if (typeof w !== 'number') return;
-        const h = await ed.getDistance('Width', { default: ed.rectH ?? 10 });
-        if (typeof h !== 'number') return;
+        const w = await positiveDistance(ed, 'Length', ed.rectW ?? 10);
+        if (w === null) return;
+        const h = await positiveDistance(ed, 'Width', ed.rectH ?? 10);
+        if (h === null) return;
         ed.rectW = w;
         ed.rectH = h;
         const c = await ed.getPoint('Pick the side for the other corner', {
@@ -246,6 +246,16 @@ export const RECTANG = {
     }
   },
 };
+
+/** Ask for a distance greater than zero; null when cancelled. */
+async function positiveDistance(ed, prompt, def) {
+  for (;;) {
+    const d = await ed.getDistance(prompt, { default: def });
+    if (typeof d !== 'number') return null;
+    if (d > 0) return d;
+    ed.ui.log(`The ${prompt.toLowerCase()} must be greater than zero.`, 'error');
+  }
+}
 
 export const POLYGON = {
   name: 'POLYGON',
