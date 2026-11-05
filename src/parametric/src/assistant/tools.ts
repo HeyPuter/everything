@@ -123,8 +123,8 @@ const TOOLS: ToolDef[] = [
   // ---------- reading ----------
   {
     name: 'get_model',
-    description: 'The part as it is now: units, material, global variables, every feature in build order with its arguments and rebuild status, the body\'s size, and the selection. Pass feature ids to get their full arguments (exactly what edit_feature takes) and faces.',
-    parameters: obj({ features: NAMES('Feature ids or names to describe in full') }),
+    description: 'The part as it is now: units, material, global variables, every feature in build order with its arguments and rebuild status, the body\'s size, and the selection. Pass feature ids to get just those features in full: their arguments (exactly what edit_feature takes) and faces.',
+    parameters: obj({ features: NAMES('Feature ids or names to describe in full (then the rest of the part is left out)') }),
     run: async (a, k) => k.getModel(a),
   },
   {
@@ -461,9 +461,11 @@ class Toolkit {
   // ---------- reading ----------
 
   getModel(a: Obj): string {
-    const parts = [this.ins.partHeader(), this.ins.variablesText(), this.ins.featuresText(200), this.ins.bodyText()];
-    if (this.host.ui) parts.push(this.ins.selectionText(this.host.ui.selection()));
-    for (const f of this.refs.features_(a.features, 'features')) {
+    const wanted = this.refs.features_(a.features, 'features');
+    // Asked about some features, the model has the list already: repeating up to 200 lines would only cost tokens.
+    const parts = wanted.length ? [this.ins.partHeader(), this.ins.bodyText()] : [this.ins.partHeader(), this.ins.variablesText(), this.ins.featuresText(200), this.ins.bodyText()];
+    if (this.host.ui && !wanted.length) parts.push(this.ins.selectionText(this.host.ui.selection()));
+    for (const f of wanted) {
       const i = this.store.indexOf(f.id);
       parts.push(`\n${f.id} "${f.name}" (${f.type}) → ${this.ins.status(f, i)}${f.suppressed ? ' [suppressed]' : ''}${f.hidden ? ' [hidden]' : ''}`);
       if (f.type === 'sketch') parts.push(`${this.ins.sketchFrameText(f)} Use get_sketch for its contents.`);

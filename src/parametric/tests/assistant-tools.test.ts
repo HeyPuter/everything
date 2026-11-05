@@ -383,4 +383,19 @@ describe('assistant tools', () => {
     const r = await h.call('add_hole', { on: topFace(h), points: [0, 10, 0], diameter: 6 }, false);
     expect(r.content).toMatch(/^Error: points\[0\]: expected/);
   });
+
+  it('describes only the features asked about, without the whole part again', async () => {
+    const { h } = await plate();
+    await h.call('add_hole', { on: topFace(h), points: [[0, 10, 0]], diameter: 3, name: 'Pin' });
+    const all = await h.call('get_model', {});
+    expect(all.content).toContain('Features in build order:');
+    expect(all.content).toContain('"Pin" hole');
+    const one = await h.call('get_model', { features: ['Plate'] });
+    expect(one.content).not.toContain('Features in build order:');
+    expect(one.content).not.toContain('Pin');
+    expect(one.content).toMatch(/^Part "Part1"/);
+    expect(one.content).toMatch(/Body: \d+ faces/);
+    expect(one.content).toMatch(/f2 "Plate" \(extrude\) → ok\nArguments: \{"sketch":"s1"/);
+    expect(one.content).toContain('Faces of f2');
+  });
 });

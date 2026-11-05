@@ -108,7 +108,7 @@ export class Inspector {
     const lines = fs.map((f, i) => this.featureLine(f, i));
     const r = this.doc.rollback;
     if (r != null && r < fs.length) lines.splice(r, 0, '--- rollback bar: features below are not built ---');
-    const shown = lines.length > max ? [...lines.slice(0, 10), `… ${lines.length - max} more (use get_model with feature ids) …`, ...lines.slice(lines.length - (max - 10))] : lines;
+    const shown = lines.length > max ? [...lines.slice(0, 10), `… ${lines.length - max} more (get_model without feature ids lists them all) …`, ...lines.slice(lines.length - (max - 10))] : lines;
     return `Features in build order:\n${shown.map((l) => `- ${l}`).join('\n')}`;
   }
 
