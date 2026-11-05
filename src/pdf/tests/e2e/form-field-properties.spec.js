@@ -546,6 +546,34 @@ for (const rotation of [0, 90])
       expect(rect[key]).toBeCloseTo(expected[key], 2);
   });
 
+// A zoom in the middle of dragging a field redrew the fields but left the drag going: letting go
+// over another field then dropped the dragged one there, at a place worked out for the old zoom.
+test('a zoom ends a field drag, leaving the field where it was', async ({ page }) => {
+  const doc = await PDFDocument.create();
+  const sheet = doc.addPage([400, 500]);
+  const form = doc.getForm();
+  form.createTextField('Top').addToPage(sheet, { x: 60, y: 400, width: 120, height: 24 });
+  form.createTextField('Bottom').addToPage(sheet, { x: 60, y: 200, width: 120, height: 24 });
+  await openPdf(page, doc);
+  await prepareForm(page);
+  const start = await designer(page, 'Top#0').boundingBox();
+  await page.mouse.move(start.x + 10, start.y + 10);
+  await page.mouse.down();
+  await page.mouse.move(start.x + 60, start.y + 30, { steps: 4 });
+  await page.keyboard.press('ControlOrMeta+=');
+  await expect(page.getByLabel('Zoom', { exact: true })).not.toHaveValue('fit');
+  await settled(page);
+  const bottom = await designer(page, 'Bottom#0').boundingBox();
+  await page.mouse.move(bottom.x + 20, bottom.y + 10, { steps: 4 });
+  await page.mouse.up();
+  await settled(page);
+  await expect(page.getByRole('button', { name: /^Undo/ })).toBeDisabled();
+  const saved = (await PDFDocument.load(await downloaded(page))).getForm();
+  const rect = saved.getTextField('Top').acroField.getWidgets()[0].getRectangle();
+  expect(rect.y).toBeCloseTo(399.5, 1);
+  expect(rect.width).toBeCloseTo(121, 1);
+});
+
 test('Escape while dragging a field puts it back without an edit', async ({ page }) => {
   const doc = await PDFDocument.create();
   const note = doc.getForm().createTextField('Note');

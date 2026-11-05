@@ -170,6 +170,12 @@ export function createFormDesigner({ onMove, onOpen, onDelete, onSelect }) {
   }
 
   function render(next, nextViewport) {
+    // A drag cannot go on across a redraw (a zoom, say): its box and pointer capture are gone.
+    // Left behind, releasing the pointer moved the field to wherever it was let go.
+    if (drag) {
+      window.removeEventListener('keydown', escapeDrag, true);
+      drag = null;
+    }
     fields = next;
     viewport = nextViewport;
     root.replaceChildren(
