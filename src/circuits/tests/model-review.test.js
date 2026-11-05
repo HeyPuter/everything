@@ -12,6 +12,7 @@ import { runErc } from '../src/model/erc.js';
 import { portShape } from '../src/model/sch.js';
 import { planAnnotation } from '../src/model/annotate.js';
 import { placeFootprint } from '../src/model/place.js';
+import { compFieldPlacement, flipComp } from '../src/model/pcb.js';
 import { textStrokes } from '../src/render/font.js';
 import { mil, mm } from '../src/core/units.js';
 
@@ -364,4 +365,32 @@ describe('footprint placement: text on the bottom side', () => {
       }
     });
   }
+});
+
+describe('board component fields', () => {
+  // Footprint with its origin on pad 1 and pad 2 five millimetres up.
+  const def = {
+    footprint: {
+      name: 'x',
+      graphics: [],
+      pads: [
+        { num: '1', x: 0, y: 0, shape: 'rect', w: mm(1), h: mm(1), side: 'top' },
+        { num: '2', x: 0, y: mm(5), shape: 'rect', w: mm(1), h: mm(1), side: 'top' },
+      ],
+    },
+  };
+
+  it('mirrors the default designator position with the part when flipped', () => {
+    for (const rot of [0, 90, 180, 270, 30]) {
+      const top = { t: 'comp', x: mm(10), y: mm(10), rot, side: 'top' };
+      const bottom = flipComp(top);
+      const ft = compFieldPlacement(top, 'designator', def);
+      const fb = compFieldPlacement(bottom, 'designator', def);
+      expect(fb.x - bottom.x).toBeCloseTo(-(ft.x - top.x), -1);
+      expect(fb.y - bottom.y).toBeCloseTo(ft.y - top.y, -1);
+      // The designator stays beyond pad 2 on both sides.
+      const pad2 = placeFootprint(def, bottom).pads[1];
+      expect(Math.hypot(fb.x - pad2.x, fb.y - pad2.y)).toBeLessThan(mm(1.5));
+    }
+  });
 });
