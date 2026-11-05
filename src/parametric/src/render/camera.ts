@@ -2,7 +2,7 @@
 // rotation about a pivot and animated transitions between orientations.
 
 import {
-  type Mat4, type Quat, type Vec3, add, cross, dot, fromRotationTranslation, invert4, mul4, normalize, ortho,
+  type Mat4, type Quat, type Vec3, add, cross, dist, dot, fromRotationTranslation, invert4, mul4, normalize, ortho,
   perspective, qAxisAngle, qFromBasis, qMul, qNormalize, qRotate, qSlerp, scale, sub, transformPoint,
 } from '../math/vec';
 
@@ -54,6 +54,8 @@ export class Camera {
   height = 1;
   /** Scene radius used for clip planes. */
   sceneRadius = 100;
+  /** Bounding sphere of everything drawn (model and overlays such as sketches), kept up to date by the renderer. */
+  sceneBounds: { center: Vec3; radius: number } | null = null;
   private anim: { from: CameraState; to: CameraState; t0: number; dur: number } | null = null;
   onChange: () => void = () => {};
 
@@ -92,7 +94,10 @@ export class Camera {
 
   proj(): Mat4 {
     const aspect = this.width / Math.max(1, this.height);
-    const r = Math.max(this.sceneRadius, 1);
+    // The clip range reaches 2r either side of the target; it must also take in
+    // what is drawn away from the model, e.g. a large sketch with no body yet.
+    const b = this.sceneBounds;
+    const r = Math.max(this.sceneRadius, 1, b ? (dist(this.target, b.center) + b.radius) / 2 : 0);
     const far = this.distance + r * 4 + 10;
     if (this.ortho) {
       const h = this.distance * Math.tan(this.fov / 2);

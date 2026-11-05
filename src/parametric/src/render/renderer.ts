@@ -295,6 +295,22 @@ void main() {
 
 type Prog = { p: WebGLProgram; u: Record<string, WebGLUniformLocation | null> };
 
+type Box = [number, number, number, number, number, number];
+
+/** Axis-aligned box of xyz triples, or null when there are none. */
+function boxOf(positions: Float32Array): Box | null {
+  if (positions.length < 3) return null;
+  const b: Box = [Infinity, Infinity, Infinity, -Infinity, -Infinity, -Infinity];
+  for (let i = 0; i + 2 < positions.length; i += 3) {
+    for (let k = 0; k < 3; k++) {
+      const v = positions[i + k];
+      if (v < b[k]) b[k] = v;
+      if (v > b[k + 3]) b[k + 3] = v;
+    }
+  }
+  return b.every(Number.isFinite) ? b : null;
+}
+
 export interface LineBatch {
   /** Pairs of points (6 floats per segment). */
   positions: Float32Array;
@@ -398,6 +414,8 @@ export class Renderer {
    */
   onCamera: () => void = () => {};
   private camSig = new Float64Array(12);
+  /** Bounding boxes of what is drawn, by source, for the camera's clip range. */
+  private boxes = new Map<string, Box | null>();
   lost = false;
 
   constructor(readonly canvas: HTMLCanvasElement, theme: Theme) {
@@ -589,9 +607,22 @@ export class Renderer {
     if (g.verts) { gl.deleteVertexArray(g.verts.vao); gl.deleteBuffer(g.verts.buf); }
   }
 
+  /** Records the box of one source of geometry and updates the camera's scene bounds. */
+  private setBox(key: string, positions: Float32Array | null) {
+    // The origin marker is pixel-sized: far from the model it would only cost depth precision.
+    if (key.endsWith(':origin')) return;
+    this.boxes.set(key, positions ? boxOf(positions) : null);
+    const u: Box = [Infinity, Infinity, Infinity, -Infinity, -Infinity, -Infinity];
+    for (const b of this.boxes.values()) if (b) for (let k = 0; k < 3; k++) { u[k] = Math.min(u[k], b[k]); u[k + 3] = Math.max(u[k + 3], b[k + 3]); }
+    this.camera.sceneBounds = u[0] <= u[3]
+      ? { center: [(u[0] + u[3]) / 2, (u[1] + u[4]) / 2, (u[2] + u[5]) / 2], radius: Math.hypot(u[3] - u[0], u[4] - u[1], u[5] - u[2]) / 2 }
+      : null;
+  }
+
   setModel(m: MeshData | null, faceCount: number, edgeCount: number) {
     this.freeMesh(this.model);
     this.modelMesh = m && m.indices.length ? m : null;
+    this.setBox('model', this.modelMesh?.positions ?? null);
     this.model = this.modelMesh ? this.meshToGpu(this.modelMesh) : null;
     this.faceStateData = new Uint8Array(faceCount);
     this.edgeStateData = new Uint8Array(edgeCount);
@@ -605,6 +636,7 @@ export class Renderer {
   setPreview(m: MeshData | null, kind: 'tool' | 'body' = 'tool', isCut = false) {
     this.freeMesh(this.preview);
     this.previewMesh = m && m.indices.length ? m : null;
+    this.setBox('preview', this.previewMesh?.positions ?? null);
     this.preview = this.previewMesh ? this.meshToGpu(this.previewMesh) : null;
     this.previewKind = kind;
     this.previewCut = isCut;
@@ -632,6 +664,7 @@ export class Renderer {
   setLines(key: string, batch: LineBatch | null) {
     const old = this.lines.get(key);
     if (old?.gpu) { this.gl.deleteVertexArray(old.gpu.vao); old.gpu.bufs.forEach((b) => this.gl.deleteBuffer(b)); }
+    this.setBox(`lines:${key}`, batch?.positions ?? null);
     if (!batch || !batch.positions.length) this.lines.delete(key);
     else this.lines.set(key, { ...batch, gpu: this.segVao(batch.positions, batch.ids, batch.colors) });
     this.requestRender();
@@ -641,6 +674,7 @@ export class Renderer {
     const gl = this.gl;
     const old = this.points.get(key);
     if (old?.gpu) { gl.deleteVertexArray(old.gpu.vao); old.gpu.bufs.forEach((b) => gl.deleteBuffer(b)); }
+    this.setBox(`points:${key}`, batch?.positions ?? null);
     if (!batch || !batch.positions.length) { this.points.delete(key); this.requestRender(); return; }
     const vao = gl.createVertexArray()!;
     gl.bindVertexArray(vao);
@@ -669,6 +703,7 @@ export class Renderer {
     const gl = this.gl;
     const old = this.tris.get(key);
     if (old?.gpu) { gl.deleteVertexArray(old.gpu.vao); old.gpu.bufs.forEach((b) => gl.deleteBuffer(b)); }
+    this.setBox(`tris:${key}`, batch?.positions ?? null);
     if (!batch || !batch.positions.length) { this.tris.delete(key); this.requestRender(); return; }
     const vao = gl.createVertexArray()!;
     gl.bindVertexArray(vao);

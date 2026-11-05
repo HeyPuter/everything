@@ -92,6 +92,22 @@ describe('camera', () => {
     c.orbit(10, 0);
     expect(c.viewName()).toBeNull();
   });
+
+  it('keeps everything drawn inside the clip range, not just the model', () => {
+    // A 2 m sketch on the Top Plane with no body yet: the model radius is the default.
+    const corners: [number, number, number][] = [[0, 0, 0], [2000, 0, 0], [2000, 0, -1500], [0, 0, -1500]];
+    const c = new Camera();
+    c.width = 800; c.height = 600;
+    c.sceneBounds = { center: [1000, 0, -750], radius: 1250 };
+    for (const ortho of [true, false]) {
+      c.setState({ ...c.fitState([1000, 0, -750], 1250, VIEWS.isometric), ortho });
+      for (const p of corners) {
+        const z = c.project(p)[2];
+        expect(z).toBeGreaterThan(-1);
+        expect(z).toBeLessThan(1);
+      }
+    }
+  });
 });
 
 describe('command registry', () => {
