@@ -675,3 +675,30 @@ test('a click with a field tool places a field there, kept on the page', async (
   near(rect('Middle'), { x: 300 - 7, y: 200 - 7, width: 14, height: 14 });
   near(rect('Corner'), { x: 600 - 14, y: 0, width: 14, height: 14 });
 });
+
+test('a tab order already in place records no edit and says so', async ({ page }) => {
+  const doc = await PDFDocument.create();
+  const sheet = doc.addPage([600, 500]);
+  for (const [name, y] of [
+    ['A', 400],
+    ['B', 300],
+  ])
+    doc.getForm().createTextField(name).addToPage(sheet, { x: 40, y, width: 150, height: 24 });
+  sheet.node.set(PDFName.of('Tabs'), PDFName.of('R'));
+  await openPdf(page, doc);
+  await prepareForm(page);
+  const pane = page.getByRole('complementary', { name: 'Tools' });
+  await pane.getByRole('button', { name: 'Tab order: by rows' }).click();
+  await settled(page);
+  await expect(page.locator('#toast')).toHaveText('Fields are already visited row by row.');
+  await expect(page.getByRole('button', { name: /^Undo/ })).toBeDisabled();
+  await expect(page.getByText('Unsaved changes')).toHaveCount(0);
+  // A new order is an edit, once.
+  await pane.getByRole('button', { name: 'Tab order: by columns' }).click();
+  await settled(page);
+  await expect(page.locator('#toast')).toHaveText('Fields are visited column by column.');
+  await expect(page.getByRole('button', { name: /^Undo/ })).toBeEnabled();
+  await pane.getByRole('button', { name: 'Tab order: by columns' }).click();
+  await settled(page);
+  await expect(page.locator('#toast')).toHaveText('Fields are already visited column by column.');
+});

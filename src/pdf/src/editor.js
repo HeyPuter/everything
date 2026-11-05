@@ -7548,26 +7548,14 @@ export function createEditor({
                   glyph: 'ListChecks',
                   permission: 'edit',
                   disabled: noDocument() || !formFields.length,
-                  onSelect: () =>
-                    safe(() =>
-                      formDesignEdit(async (doc) => {
-                        const { setFieldTabOrder } = await loadForms();
-                        doc.getPageIndices().forEach((i) => setFieldTabOrder(doc, i, 'row'));
-                      }, 'Fields are visited row by row.'),
-                    )(),
+                  onSelect: () => safe(() => orderFieldTabs('row'))(),
                 },
                 {
                   label: 'Tab order: by columns',
                   glyph: 'ListChecks',
                   permission: 'edit',
                   disabled: noDocument() || !formFields.length,
-                  onSelect: () =>
-                    safe(() =>
-                      formDesignEdit(async (doc) => {
-                        const { setFieldTabOrder } = await loadForms();
-                        doc.getPageIndices().forEach((i) => setFieldTabOrder(doc, i, 'column'));
-                      }, 'Fields are visited column by column.'),
-                    )(),
+                  onSelect: () => safe(() => orderFieldTabs('column'))(),
                 },
               ],
             },
@@ -10802,6 +10790,17 @@ export function createEditor({
       `${fieldTypeLabel(field.type)} ${field.name} deleted.`,
       'edit',
     );
+  }
+  /** Visit every page's fields by rows or by columns; an order already in place is no edit. */
+  async function orderFieldTabs(order) {
+    let changed = null;
+    await formDesignEdit(async (doc) => {
+      const { setFieldTabOrder } = await loadForms();
+      const results = doc.getPageIndices().map((i) => setFieldTabOrder(doc, i, order));
+      changed = results.some((result) => result !== false);
+      return changed ? undefined : false;
+    }, `Fields are visited ${order} by ${order}.`);
+    if (changed === false && !destroyed) toast(`Fields are already visited ${order} by ${order}.`);
   }
   /** Name, tooltip, flags, and the settings of the field's type. */
   async function fieldPropertiesDialog(field, { created = false } = {}) {
