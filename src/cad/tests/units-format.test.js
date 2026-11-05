@@ -36,6 +36,8 @@ describe('formatLinear', () => {
     expect(formatLinear(-40.5, o)).toBe('-3\'-4 1/2"');
     expect(formatLinear(11.99, { format: 'architectural', precision: 2 })).toBe('1\'-0"');
     expect(formatLinear(1 / 256, { format: 'architectural', precision: 8 })).toBe('1/256"');
+    expect(formatLinear(12.5, o)).toBe('1\'-0 1/2"');
+    expect(formatLinear(-24.0625, o)).toBe('-2\'-0 1/16"');
   });
 
   it('formats engineering feet and decimal inches', () => {
@@ -117,7 +119,7 @@ describe('parseLength', () => {
 
   it('round-trips the formats', () => {
     const arch = { ...inch, linearFormat: 'architectural', linearPrecision: 4 };
-    for (const v of [40.5, 0.25, 123.4375, 12, 0]) expect(parseLength(formatLinear(v, arch), arch)).toBeCloseTo(v, 9);
+    for (const v of [40.5, 0.25, 123.4375, 12, 0, 12.5]) expect(parseLength(formatLinear(v, arch), arch)).toBeCloseTo(v, 9);
     const eng = { ...inch, linearFormat: 'engineering', linearPrecision: 2 };
     for (const v of [40.5, 7.25, 100.75]) expect(parseLength(formatLinear(v, eng), eng)).toBeCloseTo(v, 9);
     const frac = { linearFormat: 'fractional', linearPrecision: 3 };

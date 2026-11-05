@@ -81,8 +81,10 @@ export function formatLinear(value, opts) {
       const feet = Math.floor(n / (12 * den));
       const rem = n - feet * 12 * den;
       const whole = Math.floor(rem / den);
-      const inch = fractionText(whole, rem - whole * den, den);
-      const s = feet ? `${feet}'-${inch}"` : `${inch}"`;
+      const frac = rem - whole * den;
+      const inch = fractionText(whole, frac, den);
+      // After feet a bare fraction keeps its zero inches: 1'-0 1/2", not 1'-1/2".
+      const s = feet ? `${feet}'-${!whole && frac ? '0 ' : ''}${inch}"` : `${inch}"`;
       return neg && n ? '-' + s : s;
     }
     case 'engineering': {
