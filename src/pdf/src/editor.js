@@ -797,12 +797,36 @@ export function createEditor({
     canEdit: () => !!access().edit,
     onAdd: safe(() => attachFile()),
     onSave: safe(async (key, fileName) => {
+      const pageFile = pageFiles.get(key);
+      if (pageFile) {
+        const bytes = await pdf.getAttachmentContent(pageFile.fileId);
+        if (!bytes) throw new Error('This attachment could not be read.');
+        return download(bytes, fileName, 'application/octet-stream');
+      }
       const doc = await PDFDocument.load(session.bytes, { updateMetadata: false });
       const bytes = attachmentBytes(doc, key);
       if (!bytes) throw new Error('This attachment could not be read.');
       download(bytes, fileName, 'application/octet-stream');
     }),
     onRemove: safe(async (key, fileName) => {
+      const pageFile = pageFiles.get(key);
+      if (pageFile) {
+        // A file attached on a page goes with its paperclip comment.
+        requireAccess('annotate');
+        if (
+          !(await confirmAction(
+            'Remove attachment?',
+            `Remove ${fileName} and its paperclip from page ${pageFile.page + 1}? You can undo this while the PDF is open.`,
+            'Remove',
+          ))
+        )
+          return;
+        return mutate(
+          (doc) => deleteAnnotation(doc, pageFile.page, editorAnnotationId(pageFile.id)),
+          `${fileName} removed.`,
+          'annotate',
+        );
+      }
       requireAccess('edit');
       if (
         !(await confirmAction(
@@ -815,6 +839,46 @@ export function createEditor({
       await mutate((doc) => removeAttachment(doc, key) || false, `${fileName} removed.`);
     }),
   });
+  // PDF.js lists the document's own attachments; files attached to paperclip comments on the
+  // pages are listed after them, labelled with their page, so they can be saved too. Finding
+  // those reads every page's comments, so it waits until the panel is open.
+  let pageFiles = new Map();
+  function loadAttachments(next) {
+    const isCurrent = () => !destroyed && pdf === next;
+    attachments.load(
+      {
+        getAttachments: async () => {
+          const found = await next.getAttachments().catch(() => null);
+          const entries = found instanceof Map ? [...found] : Object.entries(found || {});
+          const files = new Map();
+          if (sidebarTab === 'attachments') {
+            const keys = new Set(entries.map(([key]) => key));
+            const annotations = await next
+              .getAnnotationsByType(new Set([pdfjs.AnnotationType.FILEATTACHMENT]))
+              .catch(() => null);
+            for (const a of (annotations || []).sort((x, y) => x.pageIndex - y.pageIndex)) {
+              if (!a.fileId || !a.file) continue;
+              let key = `page-file:${a.id}`;
+              while (keys.has(key)) key += '+';
+              keys.add(key);
+              files.set(key, { fileId: a.fileId, page: a.pageIndex, id: a.id });
+              const where = `Page ${a.pageIndex + 1}`;
+              entries.push([
+                key,
+                {
+                  filename: a.file.filename,
+                  description: a.file.description ? `${where} · ${a.file.description}` : where,
+                },
+              ]);
+            }
+          }
+          if (isCurrent()) pageFiles = files;
+          return new Map(entries);
+        },
+      },
+      { isCurrent },
+    );
+  }
   attachments.el.id = 'sidebar-panel-attachments';
   attachments.el.setAttribute('role', 'tabpanel');
   attachments.el.setAttribute('aria-labelledby', 'sidebar-tab-attachments');
@@ -1038,6 +1102,7 @@ export function createEditor({
       tab.tabIndex = on ? 0 : -1;
     });
     if (id === 'pages') revealThumbnail();
+    else if (id === 'attachments' && pdf) loadAttachments(pdf);
     else if (id === 'outline') outline.setCurrent(pageIndex, { reveal: true });
   }
   // PDF.js names annotations "12R"; the editors use pdf-lib's "12 0 R".
@@ -2605,7 +2670,7 @@ export function createEditor({
         if (!hasOutline && sidebarTab === 'outline') showSidebarTab('pages');
         if (hasOutline) outline.setCurrent(pageIndex);
       });
-      attachments.load(next, { isCurrent });
+      loadAttachments(next);
       validateSignatures().catch(() => {});
       documentLayers
         .then((config) => {
