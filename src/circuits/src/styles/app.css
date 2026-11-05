@@ -48,7 +48,8 @@ button { cursor: pointer; }
 
 .search-box { display: flex; align-items: center; gap: 6px; height: 24px; width: 220px; padding: 0 8px; border: 1px solid var(--border-strong); border-radius: var(--radius); background: var(--bg-input); color: var(--text-3); margin: 0 6px; }
 .search-box:hover { border-color: var(--text-3); }
-.search-box kbd { margin-left: auto; font: var(--fs-xs) var(--font-ui); color: var(--text-3); }
+.search-box > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.search-box kbd { margin-left: auto; white-space: nowrap; font: var(--fs-xs) var(--font-ui); color: var(--text-3); }
 
 .icon-btn {
   display: inline-flex; align-items: center; justify-content: center;
