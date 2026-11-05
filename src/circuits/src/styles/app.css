@@ -238,8 +238,10 @@ button { cursor: pointer; }
 .ab-btn[aria-pressed='true'] { background: var(--accent-soft); color: var(--accent); }
 .ab-btn .more { position: absolute; right: 2px; bottom: 2px; width: 0; height: 0; border-left: 4px solid transparent; border-bottom: 4px solid currentColor; opacity: 0.6; }
 
+/* The heads-up display sits below the active bar (8px + 36px bar + 8px), which
+   is centred at the top and would otherwise cover it in most window sizes. */
 .hud {
-  position: absolute; left: 8px; top: 8px; z-index: 15; pointer-events: none;
+  position: absolute; left: 8px; top: 52px; z-index: 15; pointer-events: none;
   padding: 5px 8px; border-radius: var(--radius); background: var(--hud-bg); color: var(--hud-text);
   font: var(--fs-xs)/1.45 var(--font-mono); white-space: pre; min-width: 150px;
 }
@@ -400,7 +402,7 @@ table.grid td input[type='checkbox'] { accent-color: var(--accent); }
   .mobile-bar .icon-btn { width: 40px; height: 40px; }
   .mobile-bar .grow { flex: 1; }
   .activebar { top: auto; bottom: 8px; }
-  .hud { font-size: 10px; min-width: 0; }
+  .hud { font-size: 10px; min-width: 0; top: 8px; } /* the active bar is at the bottom here */
   .tool-hint { bottom: 56px; }
   .dialog-backdrop { padding: 0; align-items: end; }
   .dialog { width: 100%; max-height: 92vh; border-radius: var(--radius-lg) var(--radius-lg) 0 0; }
