@@ -91,6 +91,6 @@ Settings are kept in a single key-value entry; part files are stored as files, n
 
 ## License
 
-This repository, including all its contents, sub-projects, modules, and components, is licensed under [MIT](../../LICENSE) unless explicitly stated otherwise. Third-party libraries included in this repository may be subject to their own licenses.
+Parametric is licensed under the [GNU Affero General Public License v3.0](LICENSE). Third-party libraries retain their own licenses.
 
 Third-party components and their licenses are listed in [public/licenses/THIRD_PARTY_NOTICES.txt](public/licenses/THIRD_PARTY_NOTICES.txt); the OpenCascade kernel is LGPL-2.1 and ships as a separate, replaceable WebAssembly module.
