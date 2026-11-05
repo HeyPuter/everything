@@ -102,6 +102,8 @@ interface Turn {
   steps: HTMLElement | null;
   stepEls: Map<string, HTMLElement>;
   foot: HTMLElement;
+  /** Text of the round being written: it joins the conversation only when the round completes. */
+  draft: HTMLElement | null;
 }
 
 export class AssistantPanel {
@@ -471,7 +473,7 @@ export class AssistantPanel {
     const foot = h('div', { class: 'as-foot' });
     const el = h('div', { class: 'as-msg as-bot' }, body, foot);
     this.log.append(el);
-    return { el, body, text: null, steps: null, stepEls: new Map(), foot };
+    return { el, body, text: null, steps: null, stepEls: new Map(), foot, draft: null };
   }
 
   private async run(request: string, go: (on: Parameters<Agent['send']>[1]) => Promise<ExchangeResult>) {
@@ -502,9 +504,11 @@ export class AssistantPanel {
             turn.steps = null;
           }
           turn.text.src += e.text;
+          turn.draft = turn.text.el;
           this.queueText(turn.text);
           this.setStatus('Writing…');
         } else if (e.type === 'step') {
+          turn.draft = null;
           if (!turn.steps) {
             if (turn.text) this.renderText(turn.text);
             turn.steps = h('ol', { class: 'as-steps', 'aria-label': 'Steps' });
@@ -514,6 +518,7 @@ export class AssistantPanel {
           this.renderStep(turn, turn.steps, e.step);
           if (this.status.textContent !== 'Stopping…') this.setStatus(e.step.status === 'running' ? `${stepLabel(e.step.name, e.step.args)}…` : 'Thinking…');
         } else if (e.type === 'round') {
+          turn.draft = null;
           this.setStatus('Thinking…');
         } else if (e.type === 'retry') {
           if (this.status.textContent !== 'Stopping…') this.setStatus(`The AI service did not answer. Trying again (${e.attempt} of ${MAX_RETRIES})…`);
@@ -549,6 +554,9 @@ export class AssistantPanel {
         // Undo changes stays: what this reply did before it failed is still its own undo step.
         error.remove();
         retry.remove();
+        // Text the failure broke off never joined the conversation; the new reply replaces it.
+        turn.draft?.remove();
+        if (!turn.body.textContent?.trim() && !turn.body.querySelector('li, img') && !turn.foot.childElementCount) turn.el.remove();
         void this.run(request, (on) => this.agent.retry(on));
       });
       turn.foot.append(error, retry);
