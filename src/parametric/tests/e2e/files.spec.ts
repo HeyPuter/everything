@@ -713,3 +713,43 @@ for (const stage of ['convertSolidWorks', 'checkImport'] as const) test(`an impo
   await expect(page.locator('.ti.error')).toHaveCount(0);
   expect(errors).toEqual([]);
 });
+
+test('a delayed cloud rename does not attach its file to a new part', async ({ page }) => {
+  await mockPuter(page);
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await app(page);
+  await page.evaluate(() => {
+    const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+    a.store.change('Original', (d) => { d.variables.push({ id: 'v1', name: 'Original', expr: '10' }); });
+    a.commands.run('save');
+  });
+  await expect(page).toHaveTitle('Part1 - Parametric');
+  await page.evaluate(() => {
+    type W = { __parametric: import('../../src/app/app').App; puter: { fs: { rename: (...args: unknown[]) => Promise<unknown> } }; renameStarted: boolean; releaseRename: () => void; pendingRename: Promise<void> };
+    const w = window as unknown as W;
+    const rename = w.puter.fs.rename.bind(w.puter.fs);
+    const gate = new Promise<void>((r) => { w.releaseRename = r; });
+    w.puter.fs.rename = async (...args) => { w.renameStarted = true; await gate; return rename(...args); };
+    w.pendingRename = Promise.resolve(w.__parametric.commands.get('rename')!.run());
+  });
+  await page.getByRole('dialog', { name: 'Rename part' }).getByRole('textbox').fill('Renamed');
+  await page.getByRole('button', { name: 'OK', exact: true }).click();
+  await page.waitForFunction(() => (window as unknown as { renameStarted: boolean }).renameStarted);
+  await page.evaluate(() => (window as unknown as { __parametric: AppHandle }).__parametric.commands.run('new'));
+  await page.getByRole('dialog', { name: 'Save changes?' }).getByRole('button', { name: "Don't save" }).click();
+  await expect(page).toHaveTitle('Part2 - Parametric');
+  await page.evaluate(async () => {
+    const w = window as unknown as { releaseRename: () => void; pendingRename: Promise<void> };
+    w.releaseRename();
+    await w.pendingRename;
+  });
+  expect(await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.location)).toBeNull();
+  await page.evaluate(() => (window as unknown as { __parametric: AppHandle }).__parametric.commands.run('save'));
+  await expect.poll(() => page.evaluate(() => [...(window as unknown as Mock).__files.keys()].sort())).toEqual([
+    '/tester/AppData/parametric/Parts/Part2.parametric', '/tester/AppData/parametric/Parts/Renamed.parametric',
+  ]);
+  const recent = await page.evaluate(() => JSON.parse(localStorage.getItem('parametric:recent') || '[]'));
+  expect(recent.map((r: { name: string }) => r.name).sort()).toEqual(['Part2', 'Renamed']);
+  expect(errors).toEqual([]);
+});

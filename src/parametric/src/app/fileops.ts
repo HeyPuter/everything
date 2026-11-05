@@ -381,16 +381,18 @@ export class FileOps {
 
   async rename() {
     const app = this.app;
+    const documentVersion = this.documentVersion;
     const name = await promptDialog('Rename part', 'Part name', app.store.doc.name, (v) => (v.trim() ? null : 'Enter a name'));
-    if (name == null) return;
+    if (name == null || documentVersion !== this.documentVersion) return;
     const clean = safeName(name);
     app.store.change('Rename part', (doc) => { doc.name = clean; });
     const loc = app.location;
     if (loc?.type === 'cloud') {
       try {
-        app.location = await renameCloud(loc, clean);
+        const renamed = await renameCloud(loc, clean);
+        if (documentVersion === this.documentVersion) app.location = renamed;
         forgetRecent(loc);
-        rememberRecent({ location: app.location, name: clean });
+        rememberRecent({ location: renamed, name: clean });
       } catch (e) {
         toast({ kind: 'warning', message: `Renamed in the app, but the file could not be renamed: ${storageError(e)}` });
       }
