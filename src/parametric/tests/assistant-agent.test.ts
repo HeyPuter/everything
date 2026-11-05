@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createAgent, requestMessages } from '../src/assistant/agent';
-import { type ChatMessage, type StreamPart, puterChat } from '../src/platform/ai';
+import { type ChatMessage, type StreamPart, puterChat, withCacheBreakpoints } from '../src/platform/ai';
 import type { ToolResult } from '../src/assistant/tools';
 import { readAttachment } from '../src/assistant/attachments';
 import { type Attachment, attachmentKind, attachmentProblem, attachmentsTooLarge, estimatePdfPages, imageBlock, pdfBlock, textBlock } from '../src/assistant/attach';
@@ -276,6 +276,44 @@ describe('assistant agent', () => {
     const { agent } = scripted([[{ type: 'tool', id: 'a', name: 'get_model', input: {} }, { type: 'text', text: 'And then' }, { type: 'cut' }], [{ type: 'text', text: 'ok' }]]);
     const res = await agent.send('go', () => {});
     expect(res.steps.map((s) => s.status)).toEqual(['done']);
+  });
+
+  it('asks Puter to cache the instructions, the turn\'s start and the newest message, without changing the transcript', async () => {
+    const t: ChatMessage[] = [
+      { role: 'system', content: 'S' },
+      { role: 'user', content: 'first' },
+      { role: 'assistant', content: 'one' },
+      { role: 'user', content: 'second' },
+      { role: 'assistant', content: null, tool_calls: [{ id: 'a', type: 'function', function: { name: 'get_model', arguments: '{}' } }] },
+      { role: 'tool', tool_call_id: 'a', content: 'model' },
+    ];
+    const before = structuredClone(t);
+    let sent: unknown[] = [];
+    (globalThis as unknown as { puter?: unknown }).puter = { ai: { chat: async (m: unknown[]) => { sent = m; return { message: { content: 'ok' } }; } } };
+    try {
+      for await (const _ of puterChat(t)) { /* drain */ }
+    } finally {
+      delete (globalThis as unknown as { puter?: unknown }).puter;
+    }
+    expect(t).toEqual(before);
+    const marks = JSON.stringify(sent).match(/cache_control/g);
+    expect(marks).toHaveLength(3);
+    expect(sent[0]).toEqual({ role: 'system', content: [{ type: 'text', text: 'S', cache_control: { type: 'ephemeral', ttl: '1h' } }] });
+    expect(sent[1]).toBe(t[1]);
+    expect(sent[3]).toEqual({ role: 'user', content: [{ type: 'text', text: 'second', cache_control: { type: 'ephemeral' } }] });
+    // Claude's own shape: Puter rebuilds an OpenAI tool message without the breakpoint.
+    expect(sent[5]).toEqual({ role: 'user', content: [{ type: 'tool_result', tool_use_id: 'a', content: 'model', cache_control: { type: 'ephemeral' } }] });
+    // A screenshot message is marked on its image; the turn's start is found past tool rounds.
+    const shot: ChatMessage = { role: 'user', content: [{ type: 'text', text: 'shot' }, { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: 'AAAA' } }] };
+    const out = withCacheBreakpoints([...t, shot]) as { content: { cache_control?: unknown }[] }[];
+    expect(out[6].content[1].cache_control).toEqual({ type: 'ephemeral' });
+    expect(out[6].content[0].cache_control).toBeUndefined();
+    expect(JSON.stringify(out[3])).toContain('cache_control');
+    expect(out[5]).toBe(t[5]);
+    // The first message of a chat is both the turn's start and the newest.
+    expect(JSON.stringify(withCacheBreakpoints([{ role: 'system', content: 'S' }, { role: 'user', content: 'hi' }])).match(/cache_control/g)).toHaveLength(2);
+    const empty: ChatMessage = { role: 'tool', tool_call_id: 'a', content: '' };
+    expect(withCacheBreakpoints([...t.slice(0, 5), empty]).at(-1)).toBe(empty);
   });
 
   it('keeps going past many rounds until the model answers', async () => {

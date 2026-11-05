@@ -248,7 +248,7 @@ test('sending signed out signs in first, once, and sends what the box holds then
         },
         fs: { write: none, read: none, readdir: async () => [], delete: none, rename: none, stat: none, mkdir: async () => ({}) },
         kv: { get: async () => null, set: async () => true, del: async () => true },
-        ai: { chat: async (messages) => { w.__sent.push(messages.at(-1).content); return { async *[Symbol.asyncIterator]() { yield { type: 'text', text: 'Signed-in answer.' }; } }; } },
+        ai: { chat: async (messages) => { const c = messages.at(-1).content; w.__sent.push(typeof c === 'string' ? c : c.map((b) => b.text).join('')); return { async *[Symbol.asyncIterator]() { yield { type: 'text', text: 'Signed-in answer.' }; } }; } },
       };
     })();`,
   }));

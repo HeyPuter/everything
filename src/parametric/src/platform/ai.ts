@@ -72,6 +72,56 @@ const stoppedAtLimit = (part: Record<string, unknown>, max?: number) =>
 let callSeq = 0;
 const newCallId = () => `call_${Date.now().toString(36)}_${(++callSeq).toString(36)}`;
 
+/** The instructions and tools are the same for everyone: cached for an hour. */
+const CACHE_LONG = { type: 'ephemeral', ttl: '1h' } as const;
+const CACHE = { type: 'ephemeral' } as const;
+type Block = Record<string, unknown>;
+
+/** Content as blocks with a cache breakpoint on the last one (an empty text block cannot take one). */
+function marked(content: string | ChatPart[] | null, cache: Block): Block[] | null {
+  const blocks: Block[] = typeof content === 'string' ? (content ? [{ type: 'text', text: content }] : []) : [...(content ?? [])];
+  const last = blocks.at(-1);
+  if (!last || (last.type === 'text' && !last.text)) return null;
+  blocks[blocks.length - 1] = { ...last, cache_control: cache };
+  return blocks;
+}
+
+/**
+ * The request with prompt-cache breakpoints (Puter passes them to Claude, and
+ * caches nothing unless asked): the instructions, which the tools come
+ * before; the message that started the current turn; and the newest message.
+ * Each round of a reply then reads everything before it from the cache
+ * instead of paying for it again, the turn's start anchoring rounds that add
+ * more blocks than the cache looks back over. A tool result goes in Claude's
+ * own shape, which keeps the breakpoint: Puter rebuilds an OpenAI tool
+ * message without it. The messages given are not changed.
+ */
+export function withCacheBreakpoints(messages: ChatMessage[]): unknown[] {
+  const out: unknown[] = [...messages];
+  const markAt = (i: number, cache: Block) => {
+    const m = messages[i];
+    if (!m) return;
+    if (m.role === 'tool') {
+      // Like an empty text block, an empty result is not given a breakpoint.
+      if (!m.content) return;
+      out[i] = { role: 'user', content: [{ type: 'tool_result', tool_use_id: m.tool_call_id, content: m.content, cache_control: cache }] };
+      return;
+    }
+    if (m.role === 'assistant') return;
+    const content = marked(m.content, cache);
+    if (content) out[i] = { ...m, content };
+  };
+  if (messages[0]?.role === 'system') markAt(0, CACHE_LONG);
+  let turn = -1;
+  for (let i = messages.length - 1; i > 0 && turn < 0; i--) {
+    const prev = messages[i - 1];
+    if (messages[i].role === 'user' && (prev.role === 'system' || (prev.role === 'assistant' && !prev.tool_calls?.length))) turn = i;
+  }
+  if (turn > 0) markAt(turn, CACHE);
+  if (messages.length > 1) markAt(messages.length - 1, CACHE);
+  return out;
+}
+
 /** puter.ai.chat, streamed. A reply the SDK hands back whole is yielded in the same pieces. */
 export async function* puterChat(messages: ChatMessage[], opts: ChatOptions = {}): AsyncIterable<StreamPart> {
   const p = (globalThis as unknown as { puter?: PuterAI }).puter;
@@ -86,7 +136,7 @@ export async function* puterChat(messages: ChatMessage[], opts: ChatOptions = {}
   if (opts.signal) options.signal = opts.signal;
   let res: unknown;
   try {
-    res = await p.ai.chat(messages, options);
+    res = await p.ai.chat(withCacheBreakpoints(messages), options);
   } catch (e) {
     throw aiError(e);
   }
