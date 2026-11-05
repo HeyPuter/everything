@@ -107,10 +107,21 @@ export class Selection {
     return this.items.filter((x) => x.kind === kind) as Extract<SelItem, { kind: K }>[];
   }
 
-  /** After a rebuild: re-map faces/edges by name, dropping items that vanished. */
+  /** After a rebuild: re-map faces/edges by name, dropping items (and vertices) that vanished. */
   revalidate(faces: FaceInfo[], edges: EdgeInfo[]) {
     let changed = false;
+    // Every vertex of the solid ends an edge; one that moved or went is no longer there to select.
+    // (Picked vertices come from single-precision mesh data, hence the relative tolerance.)
+    const vertexExists = (p: Vec3) => {
+      const tol = 1e-5 * (1 + Math.abs(p[0]) + Math.abs(p[1]) + Math.abs(p[2]));
+      return edges.some((e) => [e.a, e.b].some((q) => Math.abs(q[0] - p[0]) + Math.abs(q[1] - p[1]) + Math.abs(q[2] - p[2]) < tol));
+    };
     const remap = (it: SelItem): SelItem | null => {
+      if (it.kind === 'vertex') {
+        if (vertexExists(it.p)) return it;
+        changed = true;
+        return null;
+      }
       if (it.kind === 'face') {
         if (faces[it.index]?.name === it.name) return it;
         const i = faces.findIndex((f) => f.name === it.name);
