@@ -267,8 +267,11 @@ export class CanvasView extends Emitter {
       const dx = e.deltaX * scale, dy = e.deltaY * scale;
       if (e.ctrlKey || e.metaKey || (zoomMode && !e.shiftKey)) {
         this.renderer.zoomAt(e.clientX - r.left, e.clientY - r.top, Math.exp(-dy * (e.ctrlKey && Math.abs(dy) < 50 ? 0.01 : 0.0018)));
-      } else if (e.shiftKey) this.renderer.panBy(-dy, -dx);
-      else this.renderer.panBy(-dx, -dy);
+      } else if (e.shiftKey) {
+        // Shift scrolls sideways. macOS already turns a Shift+wheel into
+        // deltaX, so use whichever axis carries the scroll.
+        this.renderer.panBy(-(Math.abs(dx) > Math.abs(dy) ? dx : dy), 0);
+      } else this.renderer.panBy(-dx, -dy);
       this.onViewChanged();
       // Keep the snapped cursor in sync with the new view, and anything being
       // dragged under it (the select tool's `move` is its move session, not a

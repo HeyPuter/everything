@@ -159,3 +159,44 @@ describe('device pixel ratio', () => {
     }
   });
 });
+
+describe('wheel panning', () => {
+  it('pans sideways with Shift whether the wheel reports deltaY or (macOS) deltaX', async () => {
+    app = await boot();
+    const ed = withCamera(app.activeEditor);
+    const v = ed.renderer.view;
+    for (const [deltaX, deltaY] of [
+      [0, 100],
+      [100, 0],
+    ]) {
+      const before = { ...v };
+      ed.canvas.dispatchEvent(
+        new WheelEvent('wheel', {
+          clientX: 400,
+          clientY: 300,
+          deltaX,
+          deltaY,
+          shiftKey: true,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+      expect(v.cy).toBe(before.cy);
+      expect(v.cx).toBeCloseTo(before.cx + 100 / v.scale, 6);
+    }
+    // Without Shift both axes pan as reported.
+    const before = { ...v };
+    ed.canvas.dispatchEvent(
+      new WheelEvent('wheel', {
+        clientX: 400,
+        clientY: 300,
+        deltaX: 30,
+        deltaY: 50,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    expect(v.cx).toBeCloseTo(before.cx + 30 / v.scale, 6);
+    expect(v.cy).toBeCloseTo(before.cy - 50 / v.scale, 6);
+  });
+});
