@@ -295,4 +295,17 @@ describe('assistant tools', () => {
     await h.call('edit_feature', { feature: 'f2', params: { ...args, angle: 180 } });
     expect(await h.volume()).toBeCloseTo((Math.PI * (400 - 100) * 25) / 2, 0);
   });
+
+  it('says when relations put a moved point back', async () => {
+    const { h } = await plate();
+    // A centre at the face's origin gets a coincident-with-origin relation.
+    await h.call('create_sketch', { plane: topFace(h), shapes: [{ type: 'circle', id: 'c', center: [0, 10, 0], radius: 5 }, { type: 'point', id: 'free', at: [5, 10, 5] }] });
+    const sk = h.store.doc.features.at(-1)!.id;
+    const r = await h.call('edit_sketch', { sketch: sk, move_points: [{ point: 'c_c', to: [20, 10, 0] }, { point: 'free', to: [10, 10, 10] }] });
+    const c = h.store.feature<SketchFeature>(sk)!.entities.find((e) => e.id === 'c_c') as { x: number; y: number };
+    expect(c.x).toBeCloseTo(0, 9);
+    expect(c.y).toBeCloseTo(0, 9);
+    expect(r.content).toMatch(/move_points: c_c was moved to .*but its relations or dimensions put it back/);
+    expect(r.content).not.toMatch(/free was moved/);
+  });
 });

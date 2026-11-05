@@ -654,6 +654,11 @@ class Toolkit {
     if (a.name != null) ed.sk.name = str(a.name) || sk.name;
     this.applySketchOps(ed, a);
     const solve = this.checkSolve(ed, prevBad);
+    // A move the sketch's relations or dimensions undo would otherwise read as done.
+    for (const m of ed.moved) {
+      const p = ed.sk.entities.find((e) => e.id === m.id);
+      if (p?.t === 'point' && Math.hypot(p.x - m.to[0], p.y - m.to[1]) > 1e-4) ed.notes.push(`move_points: ${m.id} was moved to ${this.u.pt(m.to)}, but its relations or dimensions put it back at ${this.u.pt([p.x, p.y])}. Delete or change those to move it.`);
+    }
     const next = ed.sk;
     const build = await this.apply(`Edit ${sk.name}`, (doc) => {
       const i = doc.features.findIndex((f) => f.id === sk.id);

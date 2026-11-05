@@ -39,6 +39,8 @@ export class SketchEdit {
   readonly notes: string[] = [];
   /** Ids created by this edit, in order. */
   readonly created: Id[] = [];
+  /** Points move_points moved, and where to. */
+  readonly moved: { id: Id; to: Vec2 }[] = [];
   autoRelations = true;
 
   constructor(sketch: SketchFeature, readonly frame: Frame, private units: Units, private store: DocStore) {
@@ -444,6 +446,7 @@ export class SketchEdit {
     const to = this.pt(v.to ?? v.at, `move_points[${i}].to`);
     p.x = to[0];
     p.y = to[1];
+    this.moved.push({ id, to });
   }
 
   setRadius(v: unknown, i: number) {
