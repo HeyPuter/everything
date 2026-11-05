@@ -114,6 +114,29 @@ test.describe('sketching', () => {
     expect(errors).toEqual([]);
   });
 
+  test('double-clicks in the 3 point arc, tangent arc and polygon tools keep the shape', async ({ page }) => {
+    const errors = await openApp(page);
+    const { x, y } = await startSketch(page);
+    const kinds = () => page.evaluate(() => (window as unknown as { __parametric: { sketchEditor: { sketch: { entities: { t: string }[] } } } }).__parametric.sketchEditor.sketch.entities.filter((e) => e.t !== 'point').map((e) => e.t).join());
+    // 3 point arc: a double-click on the start point still waits for the end point.
+    await page.locator('[data-cmd="tool:arc3"]').click();
+    await page.mouse.dblclick(x - 150, y - 80);
+    await page.mouse.click(x - 50, y - 80);
+    await page.mouse.click(x - 100, y - 120);
+    await expect.poll(kinds).toBe('arc');
+    // Tangent arc from that arc's end: a double-click on the start keeps the tool's start.
+    await page.locator('[data-cmd="tool:tangentArc"]').click();
+    await page.mouse.dblclick(x - 50, y - 80);
+    await page.mouse.click(x, y - 40);
+    await expect.poll(kinds).toBe('arc,arc');
+    // Polygon: a double-click on the centre waits for the vertex.
+    await page.locator('[data-cmd="tool:polygon"]').click();
+    await page.mouse.dblclick(x + 100, y + 80);
+    await page.mouse.click(x + 140, y + 80);
+    await expect.poll(kinds).toBe('arc,arc,circle,line,line,line,line,line,line');
+    expect(errors).toEqual([]);
+  });
+
   test('undo in the middle of a line chain starts a fresh chain', async ({ page }) => {
     const errors = await openApp(page);
     const { x, y } = await startSketch(page);

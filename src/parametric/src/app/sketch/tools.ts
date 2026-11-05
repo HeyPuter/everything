@@ -342,12 +342,14 @@ export function threePointArcTool(ed: SketchEditor): SkTool {
     },
     click(s) {
       if (!p1) { p1 = s; return true; }
-      if (!p2) { p2 = s; return true; }
+      // A repeated click (e.g. a double-click) or a point in line with the
+      // ends makes no arc: keep waiting for a usable point.
+      if (!p2) { if (dist2(p1.p, s.p) >= ed.px * 2) p2 = s; return true; }
       const g = solve(p1.p, p2.p, s.p);
+      if (!g || dist2(p1.p, s.p) < ed.px * 2 || dist2(p2.p, s.p) < ed.px * 2) return true;
       const a = p1, b = p2;
       p1 = p2 = null;
       ed.setPreview([]);
-      if (!g) return true;
       ed.edit('Add arc', (sk, newId) => {
         const ia = ed.commitPoint(sk, a, newId);
         const ib = ed.commitPoint(sk, b, newId);
@@ -411,10 +413,12 @@ export function tangentArcTool(ed: SketchEditor): SkTool {
         return true;
       }
       const g = geometry(start.p, start.t, s.p);
+      // Back on the start point (a double-click) or straight along the
+      // tangent: no arc yet, keep waiting for the end point.
+      if (!g || dist2(start.p, s.p) < ed.px * 2) return true;
       const st = start;
       start = null;
       ed.setPreview([]);
-      if (!g) return true;
       ed.edit('Add tangent arc', (sk2, newId) => {
         const end = ed.commitPoint(sk2, s, newId);
         const ic = newId('p');
@@ -449,11 +453,12 @@ export function polygonTool(ed: SketchEditor): SkTool {
     },
     click(s) {
       if (!center) { center = s; return true; }
+      // A repeated click on the centre (a double-click) keeps waiting for the vertex.
+      if (dist2(center.p, s.p) < ed.px * 2) return true;
       const c = center;
       const v = verts(c.p, s.p);
       center = null;
       ed.setPreview([]);
-      if (dist2(c.p, s.p) < ed.px * 2) return true;
       ed.edit('Add polygon', (sk, newId) => {
         const cid = ed.commitPoint(sk, c, newId);
         const ids = v.map((p) => { const id = newId('p'); sk.entities.push({ id, t: 'point', x: p[0], y: p[1] }); return id; });
