@@ -220,7 +220,7 @@ a.icon-btn { text-decoration: none; }
 .pm-actions { display: flex; gap: 4px; padding: 6px 10px; border-bottom: 1px solid var(--border); }
 .pm-actions .ok { color: var(--success); }
 .pm-actions .cancel { color: var(--danger); }
-.pm-msg { margin: 8px 10px 0; padding: 8px 10px; border-radius: var(--radius); background: var(--panel-2); border: 1px solid var(--border); font-size: var(--fs-sm); color: var(--text-2); }
+.pm-msg { overflow-wrap: break-word; margin: 8px 10px 0; padding: 8px 10px; border-radius: var(--radius); background: var(--panel-2); border: 1px solid var(--border); font-size: var(--fs-sm); color: var(--text-2); }
 .pm-msg.error { background: var(--danger-weak); border-color: color-mix(in srgb, var(--danger) 35%, transparent); color: var(--danger); }
 .pm-msg.warn { background: var(--warning-weak); color: var(--warning); border-color: color-mix(in srgb, var(--warning) 35%, transparent); }
 .pm-msg.info { background: var(--accent-weak); border-color: var(--accent-border); color: var(--text); }
@@ -417,7 +417,7 @@ a.icon-btn { text-decoration: none; }
 .dialog.wide { width: min(760px, 100%); }
 .dialog-head { display: flex; align-items: center; gap: 8px; padding: 12px 12px 10px 16px; border-bottom: 1px solid var(--border); }
 .dialog-head h2 { margin: 0; font-size: var(--fs-lg); font-weight: 600; flex: 1; }
-.dialog-body { padding: 14px 16px; overflow: auto; display: flex; flex-direction: column; gap: 12px; user-select: text; -webkit-user-select: text; }
+.dialog-body { padding: 14px 16px; overflow: auto; display: flex; flex-direction: column; gap: 12px; user-select: text; -webkit-user-select: text; overflow-wrap: break-word; }
 .dialog-body p { margin: 0; color: var(--text-2); }
 .dialog-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 10px 16px 14px; border-top: 1px solid var(--border); flex-wrap: wrap; }
 .dialog-foot .left { margin-right: auto; }
@@ -440,7 +440,7 @@ a.icon-btn { text-decoration: none; }
 .toast.error { border-left-color: var(--danger); }
 .toast.warning { border-left-color: var(--warning); }
 .toast.success { border-left-color: var(--success); }
-.toast .body { flex: 1; min-width: 0; }
+.toast .body { flex: 1; min-width: 0; overflow-wrap: break-word; }
 .toast .t { font-weight: 600; margin-bottom: 2px; }
 .toast .m { color: var(--text-2); font-size: var(--fs-sm); }
 .toast .actions { display: flex; gap: 6px; margin-top: 8px; }
