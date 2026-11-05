@@ -1,6 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import { RecordingSink } from '../src/core/display.js';
-import { renderToCanvas, exportPng, pagePixels } from '../src/io/export/raster.js';
+import {
+  renderToCanvas,
+  exportPng,
+  pagePixels,
+  pngSettings,
+  MAX_PNG_SIDE,
+} from '../src/io/export/raster.js';
 
 /** A fake 2D context that records method calls and property writes. */
 function fakeContext(width = 200, height = 100) {
@@ -68,6 +74,18 @@ describe('renderToCanvas', () => {
     const mv = calls.find((c) => c[0] === 'moveTo');
     expect(mv[1]).toBeCloseTo(10, 9);
     expect(mv[2]).toBeCloseTo(287, 9);
+  });
+
+  it('keeps PNG images within the largest canvas browsers accept', () => {
+    // A tall drawing exported 2400 px wide would be 96000 px high.
+    const tall = pngSettings({ width: 2400, height: 96000 });
+    expect(tall.height).toBe(MAX_PNG_SIDE);
+    expect(tall.width).toBe(Math.round((2400 * MAX_PNG_SIDE) / 96000));
+    expect(pngSettings({ width: 800, height: 600 })).toMatchObject({ width: 800, height: 600 });
+    const a0 = pngSettings({ paper: 'A0', dpi: 600 });
+    const px = pagePixels(a0);
+    expect(Math.max(px.width, px.height)).toBeLessThanOrEqual(MAX_PNG_SIDE);
+    expect(pngSettings({ paper: 'A4', dpi: 200 }).dpi).toBe(200);
   });
 
   it('rejects PNG export without any canvas implementation', async () => {
