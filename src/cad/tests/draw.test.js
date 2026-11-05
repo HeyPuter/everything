@@ -234,3 +234,12 @@ describe('angle lock', () => {
     expect(l.y2).toBeCloseTo(55);
   });
 });
+
+describe('number prompts', () => {
+  it('names the allowed range when a number is out of it', async () => {
+    await t.type('POLYGON', '2000');
+    expect(t.logs.at(-1)).toEqual(['error', 'Enter a number from 3 to 1024.']);
+    await t.type('2');
+    expect(t.logs.at(-1)).toEqual(['error', 'Enter a number from 3 to 1024.']);
+  });
+});

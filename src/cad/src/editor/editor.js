@@ -386,7 +386,12 @@ export class Editor {
       if (r === null) return def ?? null;
       if (r?.option) return r;
       if (Number.isFinite(r) && (opts.min === undefined || r >= opts.min) && (opts.max === undefined || r <= opts.max)) return r;
-      this.ui.log(opts.min !== undefined ? `Enter a number of at least ${opts.min}.` : 'Enter a number.', 'error');
+      const { min, max } = opts;
+      let range = '';
+      if (min !== undefined && max !== undefined) range = ` from ${min} to ${max}`;
+      else if (min !== undefined) range = ` of at least ${min}`;
+      else if (max !== undefined) range = ` of at most ${max}`;
+      this.ui.log(`Enter a number${range}.`, 'error');
     }
   }
 
