@@ -116,7 +116,7 @@ export async function openFileDialog(app) {
                 type: 'button',
                 onClick: (e) => {
                   e.currentTarget.disabled = true;
-                  loadPage(next).catch((err) => (status.textContent = `Could not list your drive: ${err?.message || err}`));
+                  loadPage(next).catch((err) => (status.textContent = `Could not list your drive. ${storage.errorText(err) || 'Please try again.'}`));
                 },
               },
               'Show more',
@@ -145,7 +145,7 @@ export async function openFileDialog(app) {
     try {
       await loadPage(null);
     } catch (err) {
-      status.textContent = `Could not list your drive: ${err?.message || err}`;
+      status.textContent = `Could not list your drive. ${storage.errorText(err) || 'Please try again.'}`;
     }
   };
   const p = openDialog({ title: 'Open drawing', body, size: 'md', actions: [{ label: 'Cancel' }] });

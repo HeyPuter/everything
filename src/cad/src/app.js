@@ -548,8 +548,7 @@ export class App {
 
   fileError(what, err) {
     console.error(err);
-    // Puter rejects with { error: { message } } or { code, message } objects.
-    const msg = err?.message || err?.error?.message || (typeof err === 'string' ? err : '');
+    const msg = storage.errorText(err);
     toast(`Could not ${what} the file.${msg ? ` ${msg}` : ' Please try again.'}`, {
       kind: 'error',
       timeout: 7000,

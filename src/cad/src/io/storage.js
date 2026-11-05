@@ -59,6 +59,11 @@ export function isNotFoundError(err) {
   return /not[_ ]?found|does_not_exist|no such/i.test(s);
 }
 
+/** Readable message of an error; Puter rejects with { error: { message } } or { code, message } objects. */
+export function errorText(err) {
+  return err?.message || err?.error?.message || (typeof err === 'string' ? err : '');
+}
+
 export async function cloudDelete(path) {
   await puter.fs.delete(path);
 }
