@@ -86,3 +86,21 @@ test('a question dialog gives screen readers its message as well as its title', 
     page.getByRole('dialog', { name: 'report.pdf', exact: true }),
   ).toHaveAccessibleDescription('');
 });
+
+test('the skip link moves the focus without leaving the library address', async ({ page }) => {
+  await page.route('https://js.puter.com/**', (route) =>
+    route.fulfill({
+      contentType: 'application/javascript',
+      body: `window.puter = { env: 'web', auth: { isSignedIn: () => true, getUser: async () => ({username: 'test-user'}) }, fs: { readdir: async () => [] } };`,
+    }),
+  );
+  await page.goto('/#library');
+  const skip = page.getByRole('link', { name: 'Skip to content' });
+  await skip.focus();
+  await skip.press('Enter');
+  await expect(page.locator('main#main')).toBeFocused();
+  expect(new URL(page.url()).hash).toBe('#library');
+  // Reloading still shows the library rather than a new blank PDF.
+  await page.reload();
+  await expect(page.getByRole('heading', { name: 'Your PDFs' })).toBeVisible();
+});

@@ -1171,6 +1171,14 @@ window.addEventListener('hashchange', () => {
       history.replaceState(null, '', location.pathname + location.search);
   })();
 });
+// The skip link moves the focus, not the address: following #main left the library's own
+// #library behind, so reloading opened a blank PDF instead, and Back first returned to #main.
+document.querySelector('.skip-link')?.addEventListener('click', (e) => {
+  const target = document.getElementById('main');
+  if (!target) return;
+  e.preventDefault();
+  target.focus();
+});
 syncThemeColor();
 window.matchMedia?.('(prefers-color-scheme: dark)').addEventListener?.('change', syncThemeColor);
 // Nobody has to sign in to work: the app opens straight into a blank PDF (or the library at
