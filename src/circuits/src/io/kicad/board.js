@@ -7,7 +7,7 @@
 // (x negated) to give a top-side definition; the component then carries
 // side 'bottom' and the original rotation.
 
-import { parseSexpr, find, findAll, val, hasFlag, points, property } from './sexpr.js';
+import { parseSexpr, find, findAll, val, hasFlag, points, property, atomText } from './sexpr.js';
 import { nm, norm360, slug, arcFrom3, arcPoints, flipName, fontSize, strokeWidth, LAYER_MAP } from './common.js';
 import { uid } from '../../core/emitter.js';
 import { arcToPoints, circleToPoly, polyArea, pointInPoly, bboxOfFlat, bboxEmpty, bboxAdd, rotate } from '../../core/geom.js';
@@ -68,7 +68,7 @@ export function importBoard(file, warnings) {
 
   // Nets.
   const netTable = new Map();
-  for (const n of findAll(root, 'net')) netTable.set(n[1], String(n[2] ?? ''));
+  for (const n of findAll(root, 'net')) netTable.set(n[1], atomText(n, 2));
   const cleanNet = (s) => String(s || '').replace(/^\//, '');
   const netOf = (item) => {
     const c = find(item, 'net');
@@ -99,7 +99,7 @@ export function importBoard(file, warnings) {
 
   // ---- Footprints ----
   for (const fp of [...findAll(root, 'footprint'), ...findAll(root, 'module')]) {
-    const fpName = String(fp[1]);
+    const fpName = atomText(fp, 1);
     const bottom = val(fp, 'layer') === 'B.Cu';
     const at = find(fp, 'at') || ['at', 0, 0, 0];
     const theta = Number(at[3]) || 0;
@@ -122,8 +122,8 @@ export function importBoard(file, warnings) {
       else value = String(text);
     };
     for (const t of findAll(fp, 'fp_text')) {
-      if (t[1] === 'reference') fieldFrom(t, 'designator', t[2]);
-      else if (t[1] === 'value') fieldFrom(t, 'value', t[2]);
+      if (t[1] === 'reference') fieldFrom(t, 'designator', atomText(t, 2));
+      else if (t[1] === 'value') fieldFrom(t, 'value', atomText(t, 2));
     }
     const refProp = property(fp, 'Reference'), valProp = property(fp, 'Value');
     if (refProp) fieldFrom(refProp, 'designator', refProp[2]);
@@ -134,7 +134,7 @@ export function importBoard(file, warnings) {
     const padNets = {};
     const pads = [];
     for (const pad of findAll(fp, 'pad')) {
-      const num = String(pad[1] ?? '');
+      const num = atomText(pad, 1);
       const type = String(pad[2]);
       const shape = String(pad[3]);
       const pat = find(pad, 'at') || ['at', 0, 0, 0];
@@ -208,7 +208,7 @@ export function importBoard(file, warnings) {
             const fat = find(item, 'at');
             if (!fat) break;
             const [x, y] = toDef(fat[1], fat[2]);
-            graphics.push({ t: 'text', x, y, text: String(item[2] ?? ''), size: nm(fontSize(item, 1)), rot: localRot(Number(fat[3]) || 0), align: { h: 'center', v: 'middle' }, layer });
+            graphics.push({ t: 'text', x, y, text: atomText(item, 2), size: nm(fontSize(item, 1)), rot: localRot(Number(fat[3]) || 0), align: { h: 'center', v: 'middle' }, layer });
             break;
           }
           case 'fp_curve': warnings.add('Curves in footprints were skipped.'); break;
@@ -322,7 +322,7 @@ export function importBoard(file, warnings) {
         const h = nm(fontSize(item, 1));
         const thick = find(find(find(item, 'effects'), 'font'), 'thickness');
         const mirror = (find(find(item, 'effects'), 'justify') || []).includes('mirror');
-        objects.push({ id: uid(), t: 'text', layer, x, y, text: String(item[1] ?? ''), h, w: thick ? nm(thick[1]) : Math.round(h * 0.15), rot: norm360(Number(at[3]) || 0), mirror, align: { h: 'center', v: 'middle' } });
+        objects.push({ id: uid(), t: 'text', layer, x, y, text: atomText(item, 1), h, w: thick ? nm(thick[1]) : Math.round(h * 0.15), rot: norm360(Number(at[3]) || 0), mirror, align: { h: 'center', v: 'middle' } });
         break;
       }
       case 'dimension': warnings.add('Dimensions were skipped.'); break;

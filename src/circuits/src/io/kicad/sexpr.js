@@ -61,7 +61,15 @@ export function parseSexpr(text) {
       j++;
     }
     const atom = text.slice(i, j);
-    if (cur) cur.push(NUMERIC.test(atom) ? Number(atom) : atom);
+    if (cur) {
+      if (NUMERIC.test(atom)) {
+        const v = Number(atom);
+        // Keep the spelling of numbers that do not round-trip ("0402", "1.0")
+        // for the places where an unquoted atom is really a name (KiCad 5).
+        if (String(v) !== atom) (cur.raw ||= {})[cur.length] = atom;
+        cur.push(v);
+      } else cur.push(atom);
+    }
     i = j;
   }
   if (!root && cur) root = stack.length ? stack[0] : cur;
@@ -70,6 +78,14 @@ export function parseSexpr(text) {
 }
 
 export const isList = (x) => Array.isArray(x);
+
+/** Child idx of a list as text, as spelled in the file (numbers too); '' when missing. */
+export function atomText(list, idx) {
+  const raw = list?.raw?.[idx];
+  if (raw !== undefined) return raw;
+  const v = list?.[idx];
+  return v == null || Array.isArray(v) ? '' : String(v);
+}
 
 /** First child list whose head is `head`. */
 export function find(list, head) {

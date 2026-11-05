@@ -5,6 +5,7 @@ import { mm } from '../src/core/units.js';
 import { defaultRules } from '../src/model/schema.js';
 import { compFieldPlacement } from '../src/model/pcb.js';
 import { importKicad } from '../src/io/kicad/index.js';
+import { parseSexpr } from '../src/io/kicad/sexpr.js';
 import { polyArea, bboxOfFlat } from '../src/core/geom.js';
 
 const square = (x0, y0, x1, y1) => [x0, y0, x1, y0, x1, y1, x0, y1];
@@ -223,5 +224,18 @@ describe('KiCad 5 boards', () => {
     const fpArc = Object.values(project.library)[0].footprint.graphics.find((g) => g.t === 'arc');
     expect(fpArc.a0).toBeCloseTo(270, 3);
     expect(fpArc.sweep).toBeCloseTo(90, 3);
+  });
+});
+
+describe('KiCad unquoted names', () => {
+  it('keeps names spelled like numbers as written', async () => {
+    const { project } = await importKicad([{ name: 'old.kicad_pcb', text: KICAD5_PCB }]);
+    const comp = project.documents[0].objects.find((o) => o.t === 'comp');
+    expect(comp.value).toBe('0402');
+    expect(comp.padNets).toEqual({ '01': 'GND' });
+    const def = project.library[comp.comp];
+    expect(def.footprint.pads.map((p) => p.num)).toEqual(['01', '2']);
+    // Numbers stay numbers for geometry.
+    expect([...parseSexpr('(at 1.50 -0.0)')]).toEqual(['at', 1.5, -0]);
   });
 });
