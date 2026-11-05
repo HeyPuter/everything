@@ -432,4 +432,12 @@ describe('assistant tools', () => {
     expect((await h.call('find_geometry', { kind: 'faces', direction: [0, 1, 0] }, false)).content).toMatch(/^Error: direction: edges only; for faces use normal/);
     expect((await h.call('find_geometry', { kind: 'faces', of_face: topFace(h) }, false)).content).toMatch(/^Error: of_face: edges only/);
   });
+
+  it('takes find_geometry types in other words and says which types there are', async () => {
+    const { h } = await plate();
+    // "planar" and "Line" matched nothing, with no hint why.
+    expect((await h.call('find_geometry', { kind: 'faces', type: 'planar' })).content).toMatch(/^6 of 6 faces match/);
+    expect((await h.call('find_geometry', { kind: 'edges', type: 'Line' })).content).toMatch(/^12 of 12 edges match/);
+    expect((await h.call('find_geometry', { kind: 'faces', type: 'cylinder' })).content).toMatch(/^0 of 6 faces match\. Face types in the body: plane\./);
+  });
 });

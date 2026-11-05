@@ -399,6 +399,9 @@ export async function runTool(host: AssistantHost, name: string, args: unknown):
 
 const list = (v: unknown): unknown[] => (Array.isArray(v) ? v : v == null ? [] : [v]);
 const str = (v: unknown) => (typeof v === 'string' ? v.trim() : typeof v === 'number' ? String(v) : '');
+// Types as the kernel names them, from the words a model may use ("planar", "Line" matched nothing).
+const TYPE_WORDS: Record<string, string> = { planar: 'plane', flat: 'plane', cylindrical: 'cylinder', conical: 'cone', spherical: 'sphere', toroidal: 'torus', straight: 'line', circular: 'circle', arc: 'circle', spline: 'bspline' };
+const typeName = (s: string) => TYPE_WORDS[s.toLowerCase()] ?? s.toLowerCase();
 const vec3 = (v: unknown, what: string): Vec3 => {
   if (!Array.isArray(v) || v.length !== 3 || v.some((x) => typeof x !== 'number' || !Number.isFinite(x))) throw new ToolError(`${what}: expected [x, y, z]`);
   return v as Vec3;
@@ -511,7 +514,7 @@ class Toolkit {
     const limit = Math.max(1, Math.min(400, Math.round(Number(a.limit) || 60)));
     const scaled = (v: unknown, what: string) => vec3(v, what).map((x) => x * this.u.scale) as Vec3;
     return this.ins.findGeometry({
-      kind, feature, type: a.type ? str(a.type) : undefined,
+      kind, feature, type: a.type ? typeName(str(a.type)) : undefined,
       normal: a.normal != null ? vec3(a.normal, 'normal') : undefined,
       direction: a.direction != null ? vec3(a.direction, 'direction') : undefined,
       ofFace: a.of_face != null ? str(a.of_face) : undefined,
