@@ -76,18 +76,20 @@ export async function shareDialog(app: App, files: FileOps) {
   const status = h('div', { class: 'field-label', role: 'status', style: { minHeight: '18px' } });
   const list = h('div');
 
+  let renderSequence = 0;
   const render = async () => {
     if (!isCurrent()) return;
+    const sequence = ++renderSequence;
     clear(list);
     let shares: ShareRecord[] = [];
     try {
       shares = (await fs.getShares(path)) ?? [];
     } catch (e) {
-      if (!isCurrent()) return;
+      if (!isCurrent() || sequence !== renderSequence) return;
       list.append(h('p', { role: 'alert' }, `Could not load who has access: ${storageError(e)}`));
       return;
     }
-    if (!isCurrent()) return;
+    if (!isCurrent() || sequence !== renderSequence) return;
     const direct = shares.filter((s) => !s.inheritedFrom);
     if (!direct.length) { list.append(h('p', {}, 'Not shared with anyone yet.')); return; }
     const rows = direct.map((s) => {

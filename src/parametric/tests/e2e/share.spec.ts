@@ -204,3 +204,41 @@ test('failed access updates restore the last confirmed permission and allow retr
   expect(await page.evaluate(() => (window as unknown as { shareCalls: ShareCall[] }).shareCalls.map((c) => c.mode))).toEqual(['read', 'read', 'write']);
   expect(errors).toEqual([]);
 });
+
+for (const stale of ['rows', 'empty', 'error'] as const) test(`an older access-list ${stale} response cannot overwrite a refreshed list`, async ({ page }) => {
+  const errors = await sharingApp(page);
+  await page.evaluate((stale) => {
+    type W = { __parametric: import('../../src/app/app').App; puter: { fs: { getShares: () => Promise<unknown> } }; releaseList: () => void; staleDelivered: boolean };
+    const w = window as unknown as W;
+    const gate = new Promise<void>((resolve) => { w.releaseList = resolve; });
+    let calls = 0;
+    w.puter.fs.getShares = async () => {
+      if (++calls > 1) return [{ holder: 'friend', mode: 'read' }];
+      await gate;
+      w.staleDelivered = true;
+      if (stale === 'error') throw new Error('Older listing failed');
+      return stale === 'empty' ? [] : [{ holder: 'old-recipient', mode: 'write' }];
+    };
+    w.__parametric.commands.run('share');
+  }, stale);
+  const dialog = page.getByRole('dialog', { name: 'Share Original', exact: true });
+  await dialog.getByRole('textbox', { name: 'Person to share with' }).fill('friend');
+  await dialog.getByRole('button', { name: 'Share', exact: true }).click();
+  await expect(dialog.getByRole('combobox', { name: 'Access for friend', exact: true })).toHaveValue('read');
+  await page.evaluate(() => (window as unknown as { releaseList: () => void }).releaseList());
+  await page.waitForFunction(() => (window as unknown as { staleDelivered: boolean }).staleDelivered);
+  await expect(dialog.getByRole('table')).toHaveCount(1);
+  await expect(dialog.getByRole('combobox', { name: /^Access for / })).toHaveCount(1);
+  await expect(dialog).not.toContainText('Not shared with anyone yet.');
+  await expect(dialog.getByRole('alert')).toHaveCount(0);
+  if (stale === 'error') {
+    await dialog.getByRole('button', { name: 'Done', exact: true }).click();
+    await page.evaluate(() => {
+      const w = window as unknown as { __parametric: import('../../src/app/app').App; puter: { fs: { getShares: () => Promise<unknown> } } };
+      w.puter.fs.getShares = async () => { throw new Error('Current listing failed'); };
+      w.__parametric.commands.run('share');
+    });
+    await expect(dialog.getByRole('alert')).toContainText('Current listing failed');
+  }
+  expect(errors).toEqual([]);
+});
