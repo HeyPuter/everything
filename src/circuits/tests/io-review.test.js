@@ -379,3 +379,27 @@ describe('KiCad straight arcs', () => {
     ]);
   });
 });
+
+describe('Gerber arcs', () => {
+  it('draws arcs with an enormous radius as chords so coordinates fit the 4.6 format', () => {
+    // A 10 mm long arc that bows 2 um: radius about 6 km.
+    const r = 6.25e12;
+    const a = {
+      id: 'a',
+      t: 'arc',
+      layer: 'top',
+      cx: mm(10),
+      cy: mm(10) - r,
+      r,
+      a0: 89.99995,
+      sweep: 0.0001,
+      w: mm(0.25),
+    };
+    const gtl = exportGerbers(pourBoard([a]), {}, {}).find((f) => f.layer === 'top').content;
+    for (const m of gtl.matchAll(/[XYIJ](-?\d+)/g))
+      expect(m[1].replace('-', '').length).toBeLessThanOrEqual(10);
+    const box = drawnBox(gtl);
+    expect(box.maxX - box.minX).toBeGreaterThan(mm(9));
+    expect(gtl).not.toContain('G03');
+  });
+});

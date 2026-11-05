@@ -7,12 +7,13 @@ import { placeFootprint } from '../model/place.js';
 import { copperLayers, spanLayers, LAYERS } from '../model/layers.js';
 import { defaultRules } from '../model/schema.js';
 import { compFieldPlacement } from '../model/pcb.js';
-import { rotate, norm360, polyArea } from '../core/geom.js';
+import { rotate, norm360, polyArea, arcToPoints } from '../core/geom.js';
 import { textStrokes, strokeWidthFor } from '../render/font.js';
 import { defOf, fillOf, baseName, mmStr } from './common.js';
 
 const MIN_APERTURE = 10_000; // 0.01 mm, used when a stroke has no width
 const PROFILE_WIDTH = 100_000;
+const MAX_ARC_RADIUS = 1e9; // 1 m: centre offsets (I, J) must fit the 4.6 format (< 10 000 mm)
 export const SOFTWARE = 'Circuits';
 export const SOFTWARE_VERSION = '0.1';
 
@@ -115,6 +116,12 @@ export class GerberWriter {
 
   /** Counter-clockwise arc of radius r from angle a0 sweeping sweep degrees. */
   arc(cx, cy, r, a0, sweep, w, func = null) {
+    if (r > MAX_ARC_RADIUS) {
+      // The centre offset would overflow the 4.6 format: draw short chords.
+      const pts = arcToPoints(cx, cy, r, a0, Math.min(sweep, 360), 1000).map(Math.round);
+      this.polyline(pts, w, false, func);
+      return;
+    }
     const code = this.circle(w, func);
     this.use(code);
     const full = sweep >= 360;
