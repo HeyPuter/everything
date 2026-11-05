@@ -54,6 +54,9 @@ export function registerCommands(app: App, files: FileOps) {
   const inSketch = () => !!app.sketchEditor;
   const noModes = () => !app.panel;
   const hasBody = () => !!app.bbox;
+  // A feature panel holds a copy of its feature: OK after a Redo would write
+  // that copy back over the redone change, so the panel is cancelled first.
+  const redo = () => { if (app.panel?.preview()) void app.closePanel(false); app.store.redo(); };
   const feature = (type: Feature['type'], label: string, iconName: string, desc: string, opts: { cut?: boolean; needsBody?: boolean; shortcut?: string; keywords?: string } = {}): Command => ({
     id: opts.cut ? `${type}Cut` : type,
     label,
@@ -144,8 +147,8 @@ export function registerCommands(app: App, files: FileOps) {
       id: 'undo', label: 'Undo', icon: 'undo', shortcut: 'Ctrl+Z', enabled: () => app.store.canUndo,
       run: () => { if (app.panel) void app.closePanel(false); app.store.undo(); },
     },
-    { id: 'redo', label: 'Redo', icon: 'redo', shortcut: 'Ctrl+Y', enabled: () => app.store.canRedo, run: () => app.store.redo() },
-    { id: 'redo2', label: 'Redo', hidden: true, shortcut: 'Ctrl+Shift+Z', enabled: () => app.store.canRedo, run: () => app.store.redo() },
+    { id: 'redo', label: 'Redo', icon: 'redo', shortcut: 'Ctrl+Y', enabled: () => app.store.canRedo, run: () => redo() },
+    { id: 'redo2', label: 'Redo', hidden: true, shortcut: 'Ctrl+Shift+Z', enabled: () => app.store.canRedo, run: () => redo() },
     { id: 'rebuild', label: 'Rebuild', icon: 'rebuild', shortcut: 'Ctrl+B', description: 'Rebuild the model.', run: () => app.requestRebuild(true) },
     { id: 'forceRebuild', label: 'Force Rebuild', icon: 'rebuild', shortcut: 'Ctrl+Q', description: 'Rebuild every feature from scratch.', run: () => { app.forceRebuild(); } },
     { id: 'repeat', label: 'Repeat Last Command', shortcut: 'Enter', hidden: true, enabled: () => !!c.lastRun && !app.panel, run: () => { if (c.lastRun) c.run(c.lastRun); } },

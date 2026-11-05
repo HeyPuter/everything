@@ -394,3 +394,28 @@ test('dragging the rollback bar rolls back past several features in one undo ste
   await expect.poll(async () => (await state()).rollback).toBe(1);
   expect((await state()).undo).toBe(before.undo + 1);
 });
+
+test('Redo while a feature panel is open is not undone by the panel', async ({ page }) => {
+  type Win = { __parametric: import('../../src/app/app').App };
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await waitForFeature(page, 'Fillet1');
+  const zMax = () => page.evaluate(() => (window as unknown as Win).__parametric.bbox?.max[2]);
+  const depth = () => page.evaluate(() => (window as unknown as Win).__parametric.store.doc.features.find((f) => f.id === 'f1') as unknown as { depth: number }).then((f) => f.depth);
+  await page.evaluate(() => {
+    const app = (window as unknown as Win).__parametric;
+    app.store.change('Depth', (d) => { (d.features.find((f) => f.id === 'f1') as { depth: number }).depth = 40; });
+  });
+  await expect.poll(zMax).toBe(40);
+  await page.evaluate(() => (window as unknown as Win).__parametric.commands.run('undo'));
+  await expect.poll(zMax).toBe(30);
+  // Edit the plate, then redo the deeper plate with its panel still open.
+  await page.evaluate(() => (window as unknown as Win).__parametric.editFeature('f1'));
+  await expect(page.getByRole('heading', { name: 'Extrude1' })).toBeVisible();
+  await page.evaluate(() => (window as unknown as Win).__parametric.commands.run('redo'));
+  // The panel's copy of the old plate is dropped instead of being written back by OK.
+  await expect.poll(() => page.evaluate(() => !!(window as unknown as Win).__parametric.panel)).toBe(false);
+  await expect.poll(zMax).toBe(40);
+  expect(await depth()).toBe(40);
+  expect(errors).toEqual([]);
+});
