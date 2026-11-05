@@ -106,6 +106,9 @@ interface Turn {
 
 export class AssistantPanel {
   readonly el: HTMLElement;
+  /** Buttons for the pane's header, beside its title. */
+  readonly headActions: HTMLElement[];
+  private newChat: HTMLButtonElement;
   private log: HTMLElement;
   private input: HTMLTextAreaElement;
   private sendBtn: HTMLButtonElement;
@@ -148,8 +151,9 @@ export class AssistantPanel {
       model: () => ASSISTANT_MODEL,
     });
 
-    const newChat = h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'New chat', title: 'New chat' }, icon('newChat', 16));
-    newChat.addEventListener('click', () => this.reset());
+    this.newChat = h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'New chat', title: 'New chat' }, icon('newChat', 16)) as HTMLButtonElement;
+    this.newChat.addEventListener('click', () => this.reset());
+    this.headActions = [this.newChat];
 
     this.log = h('div', { class: 'as-log', role: 'log', 'aria-live': 'polite', 'aria-label': 'Conversation' });
     // Follow new content only while the user is at the bottom; scrolling up to read stops it.
@@ -186,7 +190,6 @@ export class AssistantPanel {
     const composer = h('div', { class: 'as-composer' }, this.tray, h('div', { class: 'as-row' }, attachBtn, this.input, this.sendBtn), this.fileInput);
 
     this.el = h('div', { class: 'assistant' },
-      h('div', { class: 'as-bar' }, newChat),
       this.log,
       h('div', { class: 'as-bottom' }, this.status, composer, this.limit,
         h('div', { class: 'as-note' }, 'Sends your messages and a description of the part to Puter AI. Check designs before relying on them.')));
@@ -260,9 +263,16 @@ export class AssistantPanel {
       h('div', { class: 'as-empty-title' }, hasFeatures ? 'Change or ask about this part' : 'Describe a part to design'),
       h('p', {}, 'The assistant sketches, adds features, edits dimensions, measures and checks its work in the model. Everything it changes in one message is a single undo step.'),
       chips));
+    this.syncNewChat();
+  }
+
+  /** New chat has something to clear: a message, a notice, files waiting, or a reply still running. */
+  private syncNewChat() {
+    this.newChat.disabled = !this.agent.busy && !this.pending.length && !this.log.querySelector('.as-msg');
   }
 
   private setBusy(on: boolean) {
+    this.syncNewChat();
     this.sendBtn.replaceChildren(icon(on ? 'stop' : 'send', 16));
     this.sendBtn.setAttribute('aria-label', on ? 'Stop' : 'Send');
     this.sendBtn.classList.toggle('stop', on);
@@ -303,6 +313,7 @@ export class AssistantPanel {
   private notice(text: string, action?: HTMLElement) {
     this.log.querySelector('.as-empty')?.remove();
     this.log.append(h('div', { class: 'as-msg as-notice' }, h('p', {}, text), action ?? null));
+    this.syncNewChat();
     this.scroll(true);
   }
 
@@ -422,6 +433,7 @@ export class AssistantPanel {
 
   private syncTray() {
     this.tray.hidden = !this.pending.length;
+    this.syncNewChat();
   }
 
   /** Files dropped anywhere on the panel are attached. */

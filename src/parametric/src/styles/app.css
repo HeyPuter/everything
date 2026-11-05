@@ -355,7 +355,7 @@ a.icon-btn { text-decoration: none; }
 .tp-strip [role='tab']:hover { background: var(--hover); }
 .tp-strip .spacer { flex: 1; }
 .tp-panel { width: 280px; overflow: auto; order: 1; display: flex; flex-direction: column; }
-.tp-panel .tp-head { display: flex; align-items: center; padding: 8px 8px 8px 12px; border-bottom: 1px solid var(--border); font-weight: 600; position: sticky; top: 0; background: var(--panel); }
+.tp-panel .tp-head { display: flex; align-items: center; gap: 2px; padding: 8px 8px 8px 12px; border-bottom: 1px solid var(--border); font-weight: 600; position: sticky; top: 0; background: var(--panel); }
 .tp-panel .tp-head .grow { flex: 1; }
 .tp-body { padding: 10px 12px; display: flex; flex-direction: column; gap: 10px; }
 .file-list { display: flex; flex-direction: column; gap: 2px; }
