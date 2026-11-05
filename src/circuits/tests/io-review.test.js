@@ -276,3 +276,28 @@ describe('kernel worker', () => {
     }
   });
 });
+
+describe('Gerber solder mask', () => {
+  it('opens the mask over a via marked as not tented', () => {
+    const via = (id, extra) => ({
+      id,
+      t: 'via',
+      x: mm(10),
+      y: mm(10),
+      d: mm(0.6),
+      drill: mm(0.3),
+      from: 'top',
+      to: 'bottom',
+      ...extra,
+    });
+    const flashes = (objects, opts = {}) => {
+      const files = exportGerbers(pourBoard(objects), {}, opts);
+      return ['topSolder', 'bottomSolder'].map(
+        (l) => (files.find((f) => f.layer === l).content.match(/D03\*/g) || []).length,
+      );
+    };
+    expect(flashes([via('v')])).toEqual([0, 0]);
+    expect(flashes([via('v', { tented: false })])).toEqual([1, 1]);
+    expect(flashes([via('v')], { untentVias: true })).toEqual([1, 1]);
+  });
+});

@@ -439,7 +439,7 @@ function writeMask(ctx, layer, opts) {
       const s = o.side || 'top';
       if (s !== 'thru' && s !== copperSide) continue;
       flashPad(g, o, o.maskExpansion ?? rules.maskExpansion);
-    } else if (o.t === 'via' && opts.untentVias) {
+    } else if (o.t === 'via' && (opts.untentVias || o.tented === false)) {
       if (!spanLayers(o.from || 'top', o.to || 'bottom', copper).includes(copperSide)) continue;
       g.flash(g.circle(o.d + 2 * rules.maskExpansion), o.x, o.y);
     } else if (o.layer === layer) {
