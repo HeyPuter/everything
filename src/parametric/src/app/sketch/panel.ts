@@ -83,6 +83,8 @@ export class SketchPanel extends PropertyPanel {
           label: 'Value', value: d.value, kind: d.type === 'angle' ? 'angle' : 'length', ctx: app.unitContext(),
           // Like the Modify box: lengths must be positive (a negative one over-defines the sketch).
           min: d.type === 'angle' ? 0 : 1e-6,
+          // The angle between two lines is 0 to 180 degrees (the label side picks the sector).
+          max: d.type === 'angle' ? 180 : undefined,
           onChange: (v) => ed.edit('Change dimension', (s2) => { (s2.constraints.find((c) => c.id === d.id) as SkDimension).value = v; }),
         }),
         checkbox('Driven (reference only)', !!d.driven, (v) => ed.edit(v ? 'Make dimension driven' : 'Make dimension driving', (s2) => { (s2.constraints.find((c) => c.id === d.id) as SkDimension).driven = v || undefined; })),

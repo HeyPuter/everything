@@ -91,6 +91,14 @@ test.describe('sketching', () => {
     await modify.getByRole('textbox').press('Enter');
     await expect(page.locator('.dim-label')).toHaveText('30.0°');
     await expect(page.locator('.statusbar')).toContainText('Under Defined');
+    // The value field in the panel refuses angles over 180 too.
+    await page.locator('.dim-label').click();
+    const field = page.getByRole('textbox', { name: 'Value' });
+    await field.fill('200');
+    await field.press('Enter');
+    await expect(field).toHaveClass(/invalid/);
+    await expect(page.locator('.dim-label')).toHaveText('30.0°');
+    await expect(page.locator('.statusbar')).toContainText('Under Defined');
     expect(errors).toEqual([]);
   });
 

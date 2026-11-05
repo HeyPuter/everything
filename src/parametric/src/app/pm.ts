@@ -142,6 +142,7 @@ export interface NumberFieldOptions {
   kind: ParamKind;
   ctx: UnitContext;
   min?: number;
+  max?: number;
   /** Allow expressions starting with "=" to be stored as linked values. */
   allowExpr?: boolean;
   onChange: (v: Param) => void;
@@ -205,6 +206,12 @@ export function numberField(o: NumberFieldOptions): HTMLElement {
       input.title = `Must be at least ${paramText(o.min, o.kind, o.ctx)}`;
       return;
     }
+    if (o.max !== undefined && r.num > o.max) {
+      input.classList.add('invalid');
+      input.setAttribute('aria-invalid', 'true');
+      input.title = `Must be at most ${paramText(o.max, o.kind, o.ctx)}`;
+      return;
+    }
     input.classList.remove('invalid');
     input.removeAttribute('aria-invalid');
     input.title = '';
@@ -227,6 +234,7 @@ export function numberField(o: NumberFieldOptions): HTMLElement {
     const inc = o.kind === 'count' ? 1 : o.kind === 'angle' ? 1 : o.ctx.units === 'IPS' ? 0.1 * scale : o.ctx.units === 'MKS' ? 0.01 * scale : 1 * scale;
     let next = base + dir * inc;
     if (o.min !== undefined) next = Math.max(o.min, next);
+    if (o.max !== undefined) next = Math.min(o.max, next);
     input.value = paramText(next, o.kind, o.ctx);
     commit();
   };
