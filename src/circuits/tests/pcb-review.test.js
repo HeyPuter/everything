@@ -79,3 +79,56 @@ describe('3D view', () => {
     );
   });
 });
+
+/** A WebGL2 stand-in that accepts every call and records uniforms by name. */
+function fakeGl() {
+  const uniforms = {};
+  const target = {
+    getShaderParameter: () => true,
+    getProgramParameter: () => true,
+    getUniformLocation: (_, name) => name,
+    uniform1f: (n, v) => {
+      uniforms[n] = v;
+    },
+    uniform3fv: (n, v) => {
+      uniforms[n] = [...v];
+    },
+    isContextLost: () => false,
+  };
+  const gl = new Proxy(target, {
+    get: (t, k) =>
+      k in t ? t[k] : typeof k === 'string' && /^[A-Z_0-9]+$/.test(k) ? 1 : () => ({}),
+  });
+  return { gl, uniforms };
+}
+
+describe('3D bottom view', () => {
+  it('shows the underside turned over left to right and lit from below', async () => {
+    const { createViewer3D } = await import('../src/render/viewer3d.js');
+    const { buildBoardScene } = await import('../src/render/mesh3d.js');
+    const { gl, uniforms } = fakeGl();
+    const canvas = document.createElement('canvas');
+    canvas.getContext = () => gl;
+    const v = createViewer3D(canvas);
+    v.setScene(
+      buildBoardScene({ board: { outline: [0, 0, 1e7, 0, 1e7, 1e7, 0, 1e7] }, objects: [] }),
+    );
+    v.setView('bottom');
+    await new Promise((r) => setTimeout(r, 260));
+    v.render();
+    const { yaw, pitch } = v.camera;
+    const rad = (d) => (d * Math.PI) / 180;
+    // Camera right vector: +x on screen must be -x in the world from below.
+    const right = [-Math.sin(rad(yaw)), Math.cos(rad(yaw))];
+    expect(pitch).toBeLessThan(-80);
+    expect(right[0]).toBeLessThan(-0.99);
+    expect(uniforms.uSide).toBe(-1);
+    expect(uniforms.uL0[2]).toBeLessThan(0);
+    v.setView('top');
+    await new Promise((r) => setTimeout(r, 260));
+    v.render();
+    expect(uniforms.uSide).toBe(1);
+    expect(uniforms.uL0[2]).toBeGreaterThan(0);
+    v.dispose();
+  });
+});
