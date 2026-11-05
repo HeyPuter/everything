@@ -162,7 +162,9 @@ GLYPHS['Ω'] = GLYPHS['Ω']; // ohm sign and Greek omega
 export const GLYPH_CHARS = Object.keys(GLYPHS);
 
 const FALLBACK = [12, [[0, 0, 12, 0, 12, 20, 0, 20, 0, 0], [0, 0, 12, 20]]];
-const glyph = (ch) => GLYPHS[ch] || FALLBACK;
+// Accented letters without a glyph draw their base letter (é as e) rather
+// than the missing-glyph box.
+const glyph = (ch) => GLYPHS[ch] || GLYPHS[ch.normalize('NFD')[0]] || FALLBACK;
 
 const ALIGN_DEFAULT = { h: 'left', v: 'bottom' };
 
@@ -173,7 +175,8 @@ const ALIGN_DEFAULT = { h: 'left', v: 'bottom' };
 function parseLines(text) {
   const lines = [[]];
   let over = false;
-  const s = String(text ?? '');
+  // By code point, so a character outside the BMP is one glyph, not two.
+  const s = Array.from(String(text ?? ''));
   for (let i = 0; i < s.length; i++) {
     const ch = s[i];
     if (ch === '~') {

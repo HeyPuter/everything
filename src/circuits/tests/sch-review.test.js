@@ -7,6 +7,7 @@ import { App } from '../src/app/app.js';
 import { setPuterForTests } from '../src/app/puter.js';
 import { Renderer2D } from '../src/render/renderer2d.js';
 import { mil } from '../src/core/units.js';
+import { layoutText, textWidth } from '../src/render/font.js';
 
 async function boot() {
   document.body.innerHTML = '<div id="app"></div><div id="live-region"></div>';
@@ -279,5 +280,21 @@ describe('wire tool backspace', () => {
     ed.tool.click(at(X, Y));
     key(ed, 'Backspace');
     expect(ed.tool.pts).toBeNull();
+  });
+});
+
+describe('stroke font fallbacks', () => {
+  it('draws one missing-glyph box per character, even outside the BMP', () => {
+    const box = layoutText('\u2603', 1);
+    expect(layoutText('\u{1F600}', 1).strokes).toEqual(box.strokes);
+    expect(textWidth('\u{1F600}', 1)).toBeCloseTo(textWidth('\u2603', 1), 9);
+    expect(textWidth('A\u{1D400}B', 1)).toBeCloseTo(textWidth('A\u2603B', 1), 9);
+  });
+
+  it('draws accented letters as their base letter rather than a box', () => {
+    expect(layoutText('J\u00fcrgen', 1).strokes).toEqual(layoutText('Jurgen', 1).strokes);
+    expect(layoutText('\u00c9t\u00e9', 1).strokes).toEqual(layoutText('Ete', 1).strokes);
+    // Overbars still work around them.
+    expect(layoutText('~\u00e9~', 1).strokes.length).toBe(layoutText('~e~', 1).strokes.length);
   });
 });
