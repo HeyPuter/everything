@@ -39,6 +39,45 @@ async function startSketch(page: Page) {
 }
 
 test.describe('sketching', () => {
+  for (const editor of ['panel', 'Modify', 'Modify live'] as const) for (const action of ['rename', 'delete'] as const) test(`the sketch ${editor} follows a variable ${action}`, async ({ page }) => {
+    const errors = await openApp(page);
+    await startSketch(page);
+    await page.evaluate((editor) => {
+      const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+      a.store.change('Add variable', (doc) => { doc.variables = [{ id: 'v1', name: 'Width', expr: '25.4' }]; });
+      a.sketchEditor!.edit('Add linked circle', (sk) => {
+        sk.entities.push({ id: 'pc', t: 'point', x: 0, y: 0 }, { id: 'circle', t: 'circle', c: 'pc', r: 12.7 });
+        sk.constraints.push({ id: 'diameter', type: 'diameter', refs: ['circle'], value: '=Width', at: [20, 20], name: 'D1' });
+      });
+      if (editor !== 'panel') a.sketchEditor!.openModify('diameter');
+      else a.selection.set([{ kind: 'skdim', id: 'diameter' }]);
+    }, editor);
+    const field = editor !== 'panel' ? page.getByRole('dialog', { name: 'Modify D1', exact: true }).getByRole('textbox') : page.getByRole('textbox', { name: 'Value', exact: true });
+    // Invalid text keeps Modify open while interacting with the equations dialog.
+    if (editor === 'Modify') await field.fill('-5');
+    if (editor === 'Modify live') await field.fill('=Width*2');
+    await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.commands.run('equations'));
+    const equations = page.getByRole('dialog', { name: 'Equations and Global Variables', exact: true });
+    if (action === 'rename') await equations.getByRole('textbox', { name: 'Name of variable 1' }).fill('Span');
+    else if (editor === 'Modify live') await equations.getByRole('button', { name: 'Delete Width', exact: true }).press('Enter');
+    else await equations.getByRole('button', { name: 'Delete Width', exact: true }).click();
+    if (editor === 'Modify live') await equations.getByRole('button', { name: 'OK', exact: true }).press('Enter');
+    else await equations.getByRole('button', { name: 'OK', exact: true }).click();
+    if (editor !== 'panel') {
+      await expect(field).toHaveValue(editor === 'Modify' ? '-5' : action === 'rename' ? '=Span*2' : '=25.4*2');
+      await field.press('Escape');
+    } else {
+      await expect(field).toHaveValue(action === 'rename' ? '=Span' : '=25.4');
+      await field.press('Enter');
+    }
+    const value = await page.evaluate(() => {
+      const ed = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.sketchEditor!;
+      return ed.dimValue(ed.sketch.constraints.find((c) => c.id === 'diameter') as import('../../src/model/types').SkDimension);
+    });
+    expect(value).toBeCloseTo(25.4, 9);
+    expect(errors).toEqual([]);
+  });
+
   for (const action of ['invalid cancel', 'invalid correction', 'live cancel', 'live accept', 'linked cancel'] as const) test(`an open Modify box preserves unit meaning on ${action}`, async ({ page }) => {
     const errors = await openApp(page);
     await startSketch(page);

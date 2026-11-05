@@ -8,7 +8,7 @@ import { dist2, toLocal, toWorld } from '../../math/vec';
 import type { Id, Param, SkConstraint, SkCurve, SkDimension, SkEntity, SketchFeature } from '../../model/types';
 import { isDimension } from '../../model/types';
 import { UNIT_SYSTEMS, formatEditable, formatNumber } from '../../model/units';
-import { evaluate } from '../../model/expr';
+import { evaluate, variableReferenceChanges } from '../../model/expr';
 import { changeFeatureUnits } from '../../model/document';
 import { ORIGIN_ID, SketchIndex, distanceToCurve, pointIdsOf, sketchBounds, tessellate } from '../../sketch/geom';
 import { type SolveResult, solveSketch } from '../../sketch/solver';
@@ -80,7 +80,7 @@ export class SketchEditor implements ViewportTool {
   /** Undoes the open modify box's live preview when it closes without applying. */
   private modifyRevert: (() => void) | null = null;
   private modifyCleanup: (() => void) | null = null;
-  private modifySyncUnits: (() => void) | null = null;
+  private modifySyncExpressions: ((references: Map<string, string | number>) => void) | null = null;
   showRelations = true;
   showDimensions = true;
   /** Cursor position in sketch coordinates. */
@@ -97,17 +97,23 @@ export class SketchEditor implements ViewportTool {
     this.app.viewport.root.append(this.tipEl);
     this.resolve(false);
     let units = app.store.doc.units;
+    let variables = structuredClone(app.store.doc.variables);
     // Undo and redo replace the geometry a tool may be in the middle of
     // using (a line chain's last point, picked entities): drop that state so
     // the next click cannot reference points that no longer exist.
     this.unsubscribe = app.store.on((reason) => {
+      // Geometry edits cannot rename variables; avoid copying their table on each drag.
+      if (reason === 'sketch' && units === app.store.doc.units) return;
+      const references = variableReferenceChanges(variables, app.store.doc.variables);
+      const unitsChanged = units !== app.store.doc.units;
+      units = app.store.doc.units;
+      variables = structuredClone(app.store.doc.variables);
       if (reason === 'undo' || reason === 'redo') {
         if (this.tool) { if (this.tool.abort) this.tool.abort(); else this.tool.cancel(); }
         this.modifyRevert = null;
         this.closeModify();
-      } else this.modifySyncUnits?.();
-      if (units !== app.store.doc.units) {
-        units = app.store.doc.units;
+      } else this.modifySyncExpressions?.(references);
+      if (unitsChanged || references.size) {
         app.refreshSketchPanel();
         this.render();
       }
@@ -620,13 +626,13 @@ export class SketchEditor implements ViewportTool {
     this.app.viewport.root.append(box);
     this.modify = box;
     this.modifyRevert = revert;
-    this.modifySyncUnits = () => {
+    this.modifySyncExpressions = (references) => {
       const doc = this.app.store.doc;
-      if (doc.units !== units) {
-        // The live value was converted with the document; Cancel's separate
-        // baseline must be converted against the same resulting variables.
+      if (doc.units !== units || references.size) {
+        // The live expression was updated with the document; Cancel's separate
+        // baseline must follow the same units and variable-reference changes.
         const baseline = { ...this.sketch, entities: [], constraints: [{ ...d, value: original }] };
-        changeFeatureUnits(baseline, units, doc.units, variables, doc.variables);
+        changeFeatureUnits(baseline, units, doc.units, variables, doc.variables, references);
         original = baseline.constraints[0].value;
         units = doc.units;
         scale = d.type === 'angle' ? 1 : UNIT_SYSTEMS[units].scale;
@@ -654,7 +660,7 @@ export class SketchEditor implements ViewportTool {
 
   /** Closes the modify box; a value that was not applied is reverted. */
   closeModify() {
-    this.modifySyncUnits = null;
+    this.modifySyncExpressions = null;
     this.modifyCleanup?.();
     this.modifyCleanup = null;
     const revert = this.modifyRevert;
