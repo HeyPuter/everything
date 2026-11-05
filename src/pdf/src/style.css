@@ -2446,6 +2446,10 @@ kbd {
   .search-count {
     font-size: 10px;
   }
+  /* Until there is a count to show, its room goes to the find box, whose prompt was cut short. */
+  .search-count:empty {
+    display: none;
+  }
   .find-bar .icon-btn {
     min-width: 28px;
     width: 28px;

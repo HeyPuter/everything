@@ -300,3 +300,25 @@ test('scrolling or pinching keeps an open note, and a tap beside it closes it', 
   await expect(text).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Edit note: Keep me open' })).toBeVisible();
 });
+
+test('the find box shows its whole prompt until there is a count beside it', async ({ page }) => {
+  await openPdf(page, await pages(2));
+  await page.keyboard.press('ControlOrMeta+f');
+  const box = page.getByRole('combobox', { name: 'Find in PDF' });
+  await expect(box).toBeFocused();
+  // The empty match count kept 60px beside the box, and "Find text or tools" lost its end.
+  const room = () =>
+    box.evaluate((input) => {
+      const style = getComputedStyle(input);
+      const context = document.createElement('canvas').getContext('2d');
+      context.font = `${style.fontSize} ${style.fontFamily}`;
+      const free =
+        input.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+      return free - context.measureText(input.placeholder).width;
+    });
+  // Beyond the prompt, a search field keeps the place of its clear button (about 20px).
+  expect(await room()).toBeGreaterThan(30);
+  await box.fill('words');
+  await expect(page.locator('.search-count')).toHaveText('1 of 2');
+  await expect(page.locator('.search-count')).toBeVisible();
+});
