@@ -98,6 +98,7 @@ input, textarea, [contenteditable] { user-select: text; -webkit-user-select: tex
 }
 .cmd-results [role='option'] { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: var(--radius-sm); cursor: pointer; }
 .cmd-results [role='option'][aria-selected='true'], .cmd-results [role='option']:hover { background: var(--accent-weak); }
+.cmd-results [role='option'][aria-disabled='true'] { opacity: 0.42; cursor: default; }
 .cmd-results .kbd { margin-left: auto; }
 /* --text-3 is too faint on the highlight colour; shortcuts there use --text-2. */
 .cmd-results [role='option'][aria-selected='true'] .kbd, .cmd-results [role='option']:hover .kbd { color: var(--text-2); }

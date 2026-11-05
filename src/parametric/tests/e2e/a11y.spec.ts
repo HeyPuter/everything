@@ -209,6 +209,14 @@ test.describe('accessibility', () => {
       const r = o.getBoundingClientRect();
       return i.top >= r.top && i.bottom <= r.bottom && i.right <= o.querySelector('span')!.getBoundingClientRect().left;
     }))).toBe(true);
+    // A command that cannot run now is marked and says so instead of silently clearing the search.
+    await search.fill('fillet');
+    const fillet = page.getByRole('option', { name: 'Fillet', exact: true });
+    await expect(fillet).toHaveAttribute('aria-disabled', 'true');
+    await expect(fillet).toHaveCSS('opacity', '0.42');
+    await search.press('Enter');
+    await expect(page.locator('.statusbar .msg')).toHaveText('Fillet is not available right now.');
+    await expect(search).toHaveValue('fillet');
     await page.locator('canvas.gl').click({ position: { x: 40, y: 40 } });
     await expect(page.getByRole('listbox')).toBeHidden();
     await expect(search).toHaveAttribute('aria-expanded', 'false');

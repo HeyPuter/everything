@@ -559,6 +559,8 @@ export class App {
       s.search.removeAttribute('aria-activedescendant');
     };
     const run = (id: string) => {
+      // A disabled result keeps the list open and the status bar says why nothing ran.
+      if (!this.commands.isEnabled(id)) { this.setStatus(`${this.commands.get(id)?.label} is not available right now.`, true); return; }
       s.search.value = '';
       hide();
       s.search.blur();
