@@ -1675,6 +1675,11 @@
    invisible on the light toast the dark theme draws. */
 .toast-action:hover { background: color-mix(in srgb, var(--bg) 16%, transparent); }
 .toast:has(.toast-action) { padding-right: 8px; }
+/* Undo is the one way back from a move: a finger needs more than the line of
+   text it sits on. The negative margin keeps the toast its own height. */
+@media (pointer: coarse) {
+  .toast-action { min-height: 40px; margin-block: -11px; padding-inline: 14px; }
+}
 
 /* -- onboarding modal ---------------------------------------------------------------- */
 
@@ -1714,6 +1719,17 @@
   color: var(--ink-2);
   font-size: 13px;
   line-height: 1.45;
+}
+
+.onboard-action { margin-top: 8px; }
+
+/* The steps to the Home Screen, where iOS lets a site take pushes. */
+.push-steps {
+  margin: 0;
+  padding-left: 20px;
+  color: var(--ink-2);
+  font-size: 14px;
+  line-height: 1.6;
 }
 
 .modal-panel .btn-primary.btn-block { margin-top: 14px; }
@@ -2238,3 +2254,14 @@
 .msg-item-snippet, .msg-body:not(.msg-source) { unicode-bidi: plaintext; }
 .row-snippet { unicode-bidi: isolate; }
 .msg-subject, .msg-body { text-align: start; }
+
+.snooze-picker { display: grid; gap: 8px; padding: 0 24px 24px; }
+.snooze-preset { justify-content: space-between; gap: 16px; }
+.snooze-custom { display: grid; gap: 12px; }
+.snooze-custom[hidden] { display: none; }
+.snooze-custom label { display: grid; gap: 8px; }
+.snooze-custom input {
+  width: 100%; padding: 10px 12px; font: inherit; color: var(--ink);
+  background: var(--surface-2); border: 1px solid var(--hairline-strong); border-radius: var(--radius-s);
+}
+.snooze-preset { flex-wrap: wrap; }
