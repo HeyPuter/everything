@@ -21,7 +21,7 @@ import type {
 } from '../model/types';
 import { dependencies } from '../model/features';
 import { BASE_FRAMES } from '../model/planes';
-import { type Region, type Seg2, buildProfiles, inRegion, segPolyline, sketchPoints } from '../sketch/profiles';
+import { type Region, type Seg2, buildProfiles, inRegion, pointInPoly, segPolyline, sketchPoints } from '../sketch/profiles';
 import { SketchIndex, splineBeziers } from '../sketch/geom';
 import type {
   BuildRequest, BuildResult, EdgeInfo, FaceInfo, FeatureStatus, MassProperties, MeasureResult, MeasureTarget, MeshData,
@@ -563,6 +563,14 @@ export class ModelBuilder {
     };
     let tool: Sh;
     if (draft > 1e-9) {
+      // A taper that closes the profile (or, outward, one of its holes)
+      // before the end would carry on through the apex and widen again: a
+      // cone would become an hourglass with no error.
+      const inset = Math.max(total + start, -start) * Math.tan((draft * Math.PI) / 180);
+      for (const r of regions) {
+        const room = f.draftOutward ? Math.min(Infinity, ...r.holes.map((h) => inradius(h.segs, []))) : inradius(r.outer.segs, r.holes.map((h) => h.segs));
+        if (inset >= room * (1 - 1e-9)) throw new FeatureError('The draft closes the profile before the end of the extrusion. Use a smaller draft angle or depth.');
+      }
       // Both directions taper away from the sketch plane, which keeps the
       // sketched profile (like other CAD systems do).
       const angle = draft * (f.draftOutward ? -1 : 1);
@@ -1523,6 +1531,58 @@ function rotatePoint(q: Vec3, p: Vec3, d: Vec3, angle: number): Vec3 {
   const c = Math.cos(angle), s = Math.sin(angle), k = dot(d, v);
   const x: Vec3 = [d[1] * v[2] - d[2] * v[1], d[2] * v[0] - d[0] * v[2], d[0] * v[1] - d[1] * v[0]];
   return add(p, add(add(scale(v, c), scale(x, s)), scale(d, k * (1 - c))));
+}
+
+/** Distance from a point to a profile segment. */
+function seg2Dist(p: Vec2, s: Seg2): number {
+  if (s.k === 'line') return segDist(p, s.a, s.b);
+  if (s.k === 'circle') return Math.abs(Math.hypot(p[0] - s.c[0], p[1] - s.c[1]) - s.r);
+  if (s.k === 'arc') {
+    // On the arc's sweep: distance to its circle; otherwise to an end.
+    const ang = (q: Vec2) => Math.atan2(q[1] - s.c[1], q[0] - s.c[0]);
+    const turn = (from: number, to: number) => { let d = (s.ccw ? to - from : from - to) % (2 * Math.PI); if (d < 0) d += 2 * Math.PI; return d; };
+    if (turn(ang(s.a), ang(p)) <= turn(ang(s.a), ang(s.b))) return Math.abs(Math.hypot(p[0] - s.c[0], p[1] - s.c[1]) - s.r);
+    return Math.min(Math.hypot(p[0] - s.a[0], p[1] - s.a[1]), Math.hypot(p[0] - s.b[0], p[1] - s.b[1]));
+  }
+  const poly = segPolyline(s);
+  let d = Infinity;
+  for (let i = 0; i + 1 < poly.length; i++) d = Math.min(d, segDist(p, poly[i], poly[i + 1]));
+  return d;
+}
+
+/**
+ * Radius of the largest circle inside a loop (and outside its holes): how
+ * far the profile can be inset before it vanishes. A grid search refined by
+ * pattern search; it can only come out slightly small.
+ */
+function inradius(outer: Seg2[], holes: Seg2[][]): number {
+  const outerPoly = outer.flatMap(segPolyline);
+  const holePolys = holes.map((h) => h.flatMap(segPolyline));
+  const segs = [...outer, ...holes.flat()];
+  const inside = (p: Vec2) => pointInPoly(p, outerPoly) && !holePolys.some((h) => pointInPoly(p, h));
+  const room = (p: Vec2) => (inside(p) ? Math.min(...segs.map((s) => seg2Dist(p, s))) : -1);
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const [x, y] of outerPoly) { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); }
+  const n = 32;
+  let best: Vec2 = [(x0 + x1) / 2, (y0 + y1) / 2], bestR = room(best);
+  for (let i = 0; i <= n; i++) {
+    for (let j = 0; j <= n; j++) {
+      const p: Vec2 = [x0 + ((x1 - x0) * i) / n, y0 + ((y1 - y0) * j) / n];
+      const r = room(p);
+      if (r > bestR) { best = p; bestR = r; }
+    }
+  }
+  const size = Math.max(x1 - x0, y1 - y0);
+  for (let step = size / n; step > size * 1e-9;) {
+    let moved = false;
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]]) {
+      const p: Vec2 = [best[0] + dx * step, best[1] + dy * step];
+      const r = room(p);
+      if (r > bestR) { best = p; bestR = r; moved = true; }
+    }
+    if (!moved) step /= 2;
+  }
+  return Math.max(0, bestR);
 }
 
 function segDist(p: Vec2, a: Vec2, b: Vec2): number {

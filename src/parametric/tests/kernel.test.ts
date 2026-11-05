@@ -72,6 +72,33 @@ describe('feature regeneration', () => {
     expect(volume(b)).toBeCloseTo(frustum(10), 2);
   });
 
+  it('reports a draft that closes the profile before the end instead of passing through it', async () => {
+    const b = new ModelBuilder();
+    const t = Math.tan((30 * Math.PI) / 180);
+    const run = async (ents: ReturnType<typeof circle>, depth: number, extra: Parameters<typeof extrude>[3] = {}) =>
+      (await b.build(req([sketch('S1', ents), extrude('E1', 'S1', depth, { draft: 30, ...extra })]))).status[1];
+    // A 10 mm radius closes to a point 17.3 mm up: this used to come out as an hourglass.
+    expect((await run(circle(0, 0, 10), 30)).error).toMatch(/closes the profile/);
+    expect((await run(circle(0, 0, 10), 30, { end: 'midPlane' })).ok).toBe(true);
+    expect(await run(circle(0, 0, 10), 15)).toEqual({ id: 'E1', ok: true });
+    expect(volume(b)).toBeCloseTo((Math.PI / 3) * 15 * (100 + 10 * (10 - 15 * t) + (10 - 15 * t) ** 2), 2);
+    // A 40 x 10 slot of a rectangle and two arcs: its half width is what counts.
+    const slot = [
+      { id: 'p0', t: 'point', x: -20, y: -5 }, { id: 'p1', t: 'point', x: 20, y: -5 }, { id: 'p2', t: 'point', x: 20, y: 5 }, { id: 'p3', t: 'point', x: -20, y: 5 },
+      { id: 'c0', t: 'point', x: 20, y: 0 }, { id: 'c1', t: 'point', x: -20, y: 0 },
+      { id: 'l0', t: 'line', a: 'p0', b: 'p1' }, { id: 'a0', t: 'arc', c: 'c0', a: 'p1', b: 'p2' },
+      { id: 'l1', t: 'line', a: 'p2', b: 'p3' }, { id: 'a1', t: 'arc', c: 'c1', a: 'p3', b: 'p0' },
+    ] as ReturnType<typeof circle>;
+    expect((await run(slot, 4.9 / t)).ok).toBe(true);
+    expect((await run(slot, 5.1 / t)).error).toMatch(/closes the profile/);
+    // Outward, the holes close instead.
+    const ring = [...circle(0, 0, 20), ...circle(0, 0, 4)];
+    expect((await run(ring, 3.9 / t, { draftOutward: true })).ok).toBe(true);
+    expect((await run(ring, 4.1 / t, { draftOutward: true })).error).toMatch(/closes the profile/);
+    expect((await run(ring, 7.9 / t)).ok).toBe(true);
+    expect((await run(ring, 8.1 / t)).error).toMatch(/closes the profile/);
+  });
+
   it('reports negative draft angles and direction 2 depths instead of ignoring them', async () => {
     const b = new ModelBuilder();
     const neg = await b.build(req([sketch('S1', rect(0, 0, 10, 10)), extrude('E1', 'S1', 10, { draft: -5 })]));
