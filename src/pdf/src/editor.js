@@ -4740,7 +4740,8 @@ export function createEditor({
         row: labeled(`crop-${key}`, `${key[0].toUpperCase()}${key.slice(1)} (pt)`, input),
       };
     });
-    const choices = pageChoices('crop-pages', pdf.numPages);
+    // Every page can be chosen at once, as the crop area offers; the current page stays first.
+    const choices = pageChoices('crop-pages', pdf.numPages, { all: true, start: 'current' });
     const form = el(
       'form',
       { class: 'stack' },
@@ -9553,7 +9554,11 @@ export function createEditor({
     input.select();
   }
   /** A radio list of page choices shared by the print and extract dialogs. */
-  function pageChoices(group, count, { all = group === 'print-pages' } = {}) {
+  function pageChoices(
+    group,
+    count,
+    { all = group === 'print-pages', start = all ? 'all' : 'current' } = {},
+  ) {
     const rangeInput = el('input', {
       type: 'text',
       class: 'input',
@@ -9576,8 +9581,8 @@ export function createEditor({
     const list = el(
       'div',
       { class: 'choice-list', role: 'radiogroup', 'aria-label': 'Pages to include' },
-      all && choice('all', `All pages (${count})`, true),
-      choice('current', `Current page (${pageIndex + 1})`, !all),
+      all && choice('all', `All pages (${count})`, start === 'all'),
+      choice('current', `Current page (${pageIndex + 1})`, start === 'current'),
       el('div', { class: 'choice-with-input' }, rangeChoice, rangeInput),
     );
     return {
