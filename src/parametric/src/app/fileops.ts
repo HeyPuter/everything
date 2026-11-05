@@ -119,6 +119,7 @@ export class FileOps {
         const unchanged = revision === this.revision;
         rename();
         app.location = loc;
+        rememberRecent({ location: loc, name: clean });
         this.markSaved(unchanged ? this.revision : revision);
         toast({ kind: 'success', message: `Saved to ${locationLabel(loc)}` });
         return;

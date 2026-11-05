@@ -104,6 +104,9 @@ test('cancelling the Save As location saves nothing', async ({ page }) => {
   await expect(page).toHaveTitle('Bracket - Parametric');
   const files = await page.evaluate(() => [...(window as unknown as Mock).__files.entries()].map(([k, v]) => [k, JSON.parse(v.text).name]));
   expect(files).toEqual([['/tester/Documents/Bracket.parametric', 'Bracket']]);
+  // And is the recent part to open again.
+  const recent = await page.evaluate(() => JSON.parse(localStorage.getItem('parametric:recent') || '[]'));
+  expect(recent[0]).toMatchObject({ name: 'Bracket', location: { type: 'cloud', path: '/tester/Documents/Bracket.parametric' } });
 });
 
 test('a file that is not a part is refused before asking to discard, and changes nothing', async ({ page }) => {
