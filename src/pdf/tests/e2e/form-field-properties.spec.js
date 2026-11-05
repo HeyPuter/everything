@@ -702,3 +702,36 @@ test('a tab order already in place records no edit and says so', async ({ page }
   await settled(page);
   await expect(page.locator('#toast')).toHaveText('Fields are already visited column by column.');
 });
+
+test('Save and Enter take and refuse the same field settings', async ({ page }) => {
+  const doc = await PDFDocument.create();
+  doc
+    .getForm()
+    .createTextField('Note')
+    .addToPage(doc.addPage([600, 400]), { x: 100, y: 100, width: 120, height: 24 });
+  await openPdf(page, doc);
+  await prepareForm(page);
+  const dialog = page.getByRole('dialog', { name: 'Text field properties' });
+  const size = dialog.getByLabel('Font size (0 fits the box)');
+  // Refused by Save as by Enter, before anything is changed.
+  await designer(page, 'Note#0').dblclick();
+  await size.fill('-3');
+  await dialog.getByLabel('Character limit').fill('0');
+  await dialog.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(dialog).toBeVisible();
+  expect(await size.evaluate((node) => node.validity.valid)).toBe(false);
+  await expect(page.getByRole('button', { name: /^Undo/ })).toBeDisabled();
+  await size.fill('2');
+  await dialog.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(dialog).toBeVisible();
+  expect(await dialog.getByLabel('Character limit').evaluate((n) => n.validity.valid)).toBe(false);
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+  // A large size taken by Save is taken by Enter too.
+  await designer(page, 'Note#0').dblclick();
+  await size.fill('100');
+  await size.press('Enter');
+  await expect(dialog).toBeHidden();
+  await settled(page);
+  const field = (await PDFDocument.load(await downloaded(page))).getForm().getTextField('Note');
+  expect(field.acroField.getDefaultAppearance()).toMatch(/ 100 Tf/);
+});

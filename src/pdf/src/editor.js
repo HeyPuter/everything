@@ -10828,7 +10828,8 @@ export function createEditor({
       class: 'input',
       type: 'number',
       min: 0,
-      max: 72,
+      // As large as a field's text can be set.
+      max: 300,
       step: 'any',
       value: props.fontSize ?? 0,
     });
@@ -10853,7 +10854,7 @@ export function createEditor({
       const maxLength = el('input', {
         class: 'input',
         type: 'number',
-        min: 0,
+        min: 1,
         step: 1,
         value: props.maxLength ?? '',
         placeholder: 'No limit',
@@ -10950,6 +10951,8 @@ export function createEditor({
     const initial = collect(),
       initialSize = JSON.stringify(sizeOf());
     const save = safe(async () => {
+      // Save checks the values as Enter does, with the same messages.
+      if (!form.reportValidity()) return;
       const next = Object.fromEntries(
         Object.entries(collect()).filter(
           ([key, value]) =>
