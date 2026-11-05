@@ -42,6 +42,12 @@ export interface SkTool {
   cancel(): boolean;
   /** Drops the current operation without committing anything (defaults to cancel). */
   abort?(): void;
+  /**
+   * The press that `down` received ended without its own release (a second
+   * finger landed to pinch-zoom, the browser cancelled the pointer): forget
+   * what that press started instead of committing it as a drag.
+   */
+  cancelPress?(): void;
   /** Tool options for the PropertyManager. */
   options?(): HTMLElement[];
   /** Whether the cursor should snap at all. */
@@ -371,7 +377,13 @@ export class SketchEditor implements ViewportTool {
   }
 
   pointerUp(e: VPEvent) {
+    // The viewport also ends a gesture this way when it is interrupted: a
+    // second finger landing (the event is that finger's press), a cancelled
+    // pointer or lost capture. That position is not where this press was
+    // released, so nothing may be drawn or box-selected to it.
+    const interrupted = ['pointerdown', 'pointercancel', 'lostpointercapture'].includes(e.native.type);
     if (this.tool) {
+      if (interrupted) { this.tool.cancelPress?.(); return; }
       const raw = this.toSketch(e);
       if (raw) this.tool.up?.(this.tool.picks ? { p: raw, raw, kind: 'none' } : this.snap(raw, e), e);
       return;
@@ -382,6 +394,7 @@ export class SketchEditor implements ViewportTool {
     if (d.kind === 'box') {
       this.boxEl?.remove();
       this.boxEl = null;
+      if (interrupted) return;
       if (d.moved) this.boxSelect(d.boxStart!, { x: e.x, y: e.y }, e.shift || e.ctrl);
       else if (!e.shift && !e.ctrl) this.app.selection.clear();
       return;

@@ -1029,6 +1029,37 @@ test.describe('sketching', () => {
     await page.mouse.up();
     expect(errors).toEqual([]);
   });
+  test('pinch-zooming with a drawing tool draws nothing and keeps a line chain', async ({ page }) => {
+    const errors = await openApp(page);
+    const { x, y } = await startSketch(page);
+    const cdp = await page.context().newCDPSession(page);
+    const touch = (type: 'touchStart' | 'touchMove' | 'touchEnd', points: [number, number][]) =>
+      cdp.send('Input.dispatchTouchEvent', { type, touchPoints: points.map(([px, py], id) => ({ x: px, y: py, id })) });
+    const pinch = async () => {
+      await touch('touchStart', [[x - 40, y]]);
+      await touch('touchStart', [[x - 40, y], [x + 40, y + 10]]);
+      await touch('touchMove', [[x - 70, y], [x + 70, y + 10]]);
+      await touch('touchEnd', [[x + 70, y + 10]]);
+      await touch('touchEnd', []);
+    };
+    const curves = () => page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric
+      .sketchEditor!.sketch.entities.filter((e) => e.t !== 'point').length);
+    for (const tool of ['line', 'rectangle', 'circle']) {
+      await page.evaluate((t) => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.commands.run(`tool:${t}`), tool);
+      await pinch();
+      expect(await curves()).toBe(0);
+    }
+    // A pinch in the middle of a line chain keeps the chain going.
+    await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.commands.run('tool:line'));
+    const tap = async (px: number, py: number) => { await touch('touchStart', [[px, py]]); await touch('touchEnd', []); await page.waitForTimeout(400); };
+    await tap(x + 100, y - 60);
+    await tap(x + 160, y - 60);
+    await pinch();
+    await tap(x + 160, y - 140);
+    expect(await curves()).toBe(2);
+    expect(errors).toEqual([]);
+  });
+
   test('dragging a fully defined rectangle leaves it where it is', async ({ page }) => {
     const errors = await openApp(page);
     const { x, y } = await startSketch(page);

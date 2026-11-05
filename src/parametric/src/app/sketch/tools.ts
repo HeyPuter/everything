@@ -39,6 +39,8 @@ function directionRelation(sk: SketchFeature, lineId: Id, s: Snap, newId: (p: st
 export function lineTool(ed: SketchEditor, construction = false): SkTool {
   let start: { s: Snap; id: Id | null; p: Vec2 } | null = null;
   let downAt: { x: number; y: number } | null = null;
+  /** The current press started the line (rather than continuing a chain). */
+  let pressStarted = false;
   let chain = 0;
   const commitSegment = (end: Snap) => {
     if (!start || dist2(start.p, end.p) < ed.px * 2) return;
@@ -63,8 +65,14 @@ export function lineTool(ed: SketchEditor, construction = false): SkTool {
     exclude: () => new Set<Id>(),
     down(s, e) {
       downAt = { x: e.x, y: e.y };
+      pressStarted = !start;
       if (!start) { start = { s, id: null, p: s.p }; chain = 0; }
       return true;
+    },
+    cancelPress() {
+      if (pressStarted) { start = null; ed.setPreview([]); }
+      downAt = null;
+      pressStarted = false;
     },
     move(s, _e, dragging) {
       void dragging;
@@ -154,6 +162,7 @@ export function rectangleTool(ed: SketchEditor, centered = false): SkTool {
     ed.setPreview([]);
   };
   let downAt: { x: number; y: number } | null = null;
+  let pressStarted = false;
   return {
     id: centered ? 'centerRectangle' : 'rectangle',
     label: centered ? 'Center Rectangle' : 'Corner Rectangle',
@@ -161,8 +170,14 @@ export function rectangleTool(ed: SketchEditor, centered = false): SkTool {
     from: () => null,
     down(s, e) {
       downAt = { x: e.x, y: e.y };
+      pressStarted = !first;
       if (!first) first = s;
       return true;
+    },
+    cancelPress() {
+      if (pressStarted) { first = null; ed.setPreview([]); }
+      downAt = null;
+      pressStarted = false;
     },
     move(s) {
       if (!first) return;
@@ -192,6 +207,7 @@ export function rectangleTool(ed: SketchEditor, centered = false): SkTool {
 export function circleTool(ed: SketchEditor): SkTool {
   let center: Snap | null = null;
   let downAt: { x: number; y: number } | null = null;
+  let pressStarted = false;
   const commit = (s: Snap) => {
     const r = dist2(center!.p, s.p);
     if (r < ed.px * 2) return;
@@ -208,7 +224,12 @@ export function circleTool(ed: SketchEditor): SkTool {
     id: 'circle',
     label: 'Circle',
     hint: 'Click the centre, then a point on the circle.',
-    down(s, e) { downAt = { x: e.x, y: e.y }; if (!center) center = s; return true; },
+    down(s, e) { downAt = { x: e.x, y: e.y }; pressStarted = !center; if (!center) center = s; return true; },
+    cancelPress() {
+      if (pressStarted) { center = null; ed.setPreview([]); }
+      downAt = null;
+      pressStarted = false;
+    },
     move(s) { if (center) ed.setPreview([circlePts(center.p, dist2(center.p, s.p)), [center.p, s.p]], [center.p]); },
     up(s, e) { if (downAt && center && Math.hypot(e.x - downAt.x, e.y - downAt.y) > 6) commit(s); downAt = null; },
     click(s) { if (!center) { center = s; return true; } commit(s); return true; },
