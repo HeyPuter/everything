@@ -480,6 +480,17 @@ describe('join', () => {
     expect(r.result).toEqual([]);
     expect(r.consumedIds).toEqual([]);
   });
+  it('defaults to a tolerance relative to the selection size, not its position', () => {
+    const o = 2e6;
+    const a = line(o, o, o + 10, o, { id: 1 });
+    const far = joinEntities([a, line(o + 10.5, o, o + 10.5, o + 10, { id: 2 })]);
+    expect(far.result).toEqual([]);
+    const near = joinEntities([a, line(o + 10, o, o + 10, o + 10, { id: 2 })]);
+    expect(near.result[0].type).toBe('polyline');
+    const b = line(0, 0, 1e-4, 0, { id: 1 });
+    const tiny = joinEntities([b, line(1.001e-4, 0, 1e-4, 1e-4, { id: 2 })]);
+    expect(tiny.result).toEqual([]);
+  });
 });
 
 describe('explode', () => {
