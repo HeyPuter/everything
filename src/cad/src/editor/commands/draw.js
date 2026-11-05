@@ -177,6 +177,7 @@ export const PLINE = {
       if (r.option === 'width') {
         const w = await ed.getDistance('Width', { default: width });
         if (typeof w === 'number' && w >= 0) width = ed.plineWidth = w;
+        else if (typeof w === 'number') ed.ui.log('The width cannot be negative.', 'error');
         continue;
       }
       if (r.option === 'close') {
@@ -690,8 +691,8 @@ export const REVCLOUD = {
   label: 'Revision cloud',
   icon: 'revcloud',
   async run(ed) {
-    const arcLen = await ed.getDistance('Arc length', { default: ed.cloudArc ?? 5 });
-    if (typeof arcLen !== 'number' || arcLen <= 0) return;
+    const arcLen = await positiveDistance(ed, 'Arc length', ed.cloudArc ?? 5);
+    if (arcLen === null) return;
     ed.cloudArc = arcLen;
     const a = await ed.getPoint('First corner');
     if (!a || a.option) return;

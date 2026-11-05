@@ -406,3 +406,14 @@ describe('zero-size shapes', () => {
     expect(t.all('ellipse')[0].ratio).toBeCloseTo(0.4);
   });
 });
+
+describe('invalid sizes are reported', () => {
+  it('reports a negative polyline width and a zero cloud arc length', async () => {
+    await t.type('PLINE', '0,0', 'W', '-1');
+    expect(t.logs.at(-1)).toEqual(['error', 'The width cannot be negative.']);
+    await t.type('10,0', '');
+    await t.type('REVCLOUD', '0');
+    expect(t.logs.at(-1)).toEqual(['error', 'The arc length must be greater than zero.']);
+    expect(t.ed.request?.prompt).toMatch(/^Arc length/);
+  });
+});
