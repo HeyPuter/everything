@@ -8,6 +8,7 @@ import { AssistantPanel } from './assistant/panel';
 import { normalizeSettings } from './app/settings';
 import { KV_SETTINGS_KEY, kvGet, kvSet, loadPuter, puter } from './platform/puter';
 import { applyTheme } from './platform/theme';
+import { installLongPressContextMenu } from './ui/longpress';
 import { toast } from './ui/overlay';
 
 const SETTINGS_KEY = 'parametric:settings';
@@ -43,6 +44,7 @@ async function boot() {
     root.removeAttribute('aria-busy');
     return;
   }
+  installLongPressContextMenu();
   app.applySettings(localSettings());
   // Preferences changed in another tab: apply them, so a change made here
   // does not write this tab's older copy over them.
