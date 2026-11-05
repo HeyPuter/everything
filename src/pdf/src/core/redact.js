@@ -945,36 +945,20 @@ export function findRedactionMatches(items, query, { measure, wholeWord = false 
  * `report.unsearchable` is then set, so the page can be checked by eye.
  * Rects are drawn slightly inside the outer glyphs and their line, so applying them does not
  * reach kerned or tightly leaded neighbours. Returns `[{ text, rects }]`.
+ * Pass the same `cache` (a Map) to several searches of a page to read its glyphs only once.
  */
-export async function findTextRects(doc, pageIndex, query, { wholeWord = false, report } = {}) {
-  const glyphs = await pageGlyphs(doc, pageIndex, report);
-  // Lay the glyphs out as text, with a space wherever the pen jumps (words, lines, columns).
-  let text = '',
-    original = '';
-  const owner = [],
-    originalOwner = [];
-  const push = (char, index) => {
-    original += char;
-    originalOwner.push(index);
-    if (/\s/.test(char)) {
-      if (text && !text.endsWith(' ')) {
-        text += ' ';
-        owner.push(index);
-      }
-      return;
-    }
-    for (const folded of searchQuery(char)) {
-      text += folded;
-      owner.push(index);
-    }
-  };
-  glyphs.forEach((glyph, i) => {
-    if (i) {
-      const { line, gap } = sameLine(glyphs[i - 1], glyph);
-      if (!line || gap) push(' ', -1);
-    }
-    for (const char of glyph.text) push(char, i);
-  });
+export async function findTextRects(
+  doc,
+  pageIndex,
+  query,
+  { wholeWord = false, report, cache } = {},
+) {
+  let layout = cache?.get(pageIndex);
+  if (!layout) {
+    layout = await pageTextLayout(doc, pageIndex, report);
+    cache?.set(pageIndex, layout);
+  }
+  const { glyphs, text, original, owner, originalOwner } = layout;
   const ranges = [];
   if (typeof query === 'string') {
     const needle = searchQuery(query);
@@ -1015,6 +999,38 @@ export async function findTextRects(doc, pageIndex, query, { wholeWord = false, 
     if (rects.length) matches.push({ text: matchedText, rects });
   }
   return matches;
+}
+/** A page's glyphs and the searchable text they make, each character tied to its glyph. */
+async function pageTextLayout(doc, pageIndex, report) {
+  const glyphs = await pageGlyphs(doc, pageIndex, report);
+  // Lay the glyphs out as text, with a space wherever the pen jumps (words, lines, columns).
+  let text = '',
+    original = '';
+  const owner = [],
+    originalOwner = [];
+  const push = (char, index) => {
+    original += char;
+    originalOwner.push(index);
+    if (/\s/.test(char)) {
+      if (text && !text.endsWith(' ')) {
+        text += ' ';
+        owner.push(index);
+      }
+      return;
+    }
+    for (const folded of searchQuery(char)) {
+      text += folded;
+      owner.push(index);
+    }
+  };
+  glyphs.forEach((glyph, i) => {
+    if (i) {
+      const { line, gap } = sameLine(glyphs[i - 1], glyph);
+      if (!line || gap) push(' ', -1);
+    }
+    for (const char of glyph.text) push(char, i);
+  });
+  return { glyphs, text, original, owner, originalOwner };
 }
 /** Every glyph a page draws, in content order, with its quad, box, and text. */
 async function pageGlyphs(doc, pageIndex, report) {

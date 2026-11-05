@@ -8792,10 +8792,13 @@ export function createEditor({
           const report = {};
           // Text found by both the typed words and a pattern (or two patterns) is listed once.
           const seen = new Set();
+          // Every search of the page reads its glyphs once.
+          const cache = new Map();
           for (const q of queries)
             for (const match of await findTextRects(doc, page, q, {
               wholeWord: whole.checked,
               report,
+              cache,
             })) {
               const key = JSON.stringify(match.rects);
               if (seen.has(key)) continue;

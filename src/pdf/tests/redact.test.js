@@ -1011,6 +1011,25 @@ describe('find text & redact', () => {
     for (const kept of ['Call:', 'today', 'Wrapping', 'here']) expect(text).toContain(kept);
   });
 
+  it('reads a page once for several searches that share a cache', async () => {
+    const bytes = await makePdf([
+      { content: 'BT /F 10 Tf 30 300 Td (Call 555-123-4567 or jane.doe@example.org) Tj ET' },
+    ]);
+    const doc = await PDFDocument.load(bytes);
+    const queries = ['call', REDACTION_PATTERNS.phone, REDACTION_PATTERNS.email];
+    const plain = [];
+    for (const query of queries) plain.push(await findTextRects(doc, 0, query));
+    // Each search walked the page's content again; Find text and redact runs six per page.
+    const cache = new Map();
+    const shared = [];
+    for (const query of queries) shared.push(await findTextRects(doc, 0, query, { cache }));
+    expect(shared).toEqual(plain);
+    expect([...cache.keys()]).toEqual([0]);
+    const layout = cache.get(0);
+    await findTextRects(doc, 0, 'jane', { cache });
+    expect(cache.get(0)).toBe(layout);
+  });
+
   it('finds text in embedded CID fonts through their ToUnicode map', async () => {
     const doc = await PDFDocument.create();
     doc.registerFontkit(fontkit);
