@@ -60,7 +60,9 @@ export function createOrganizeView({
   const indices = () => [...selected].sort((a, b) => a - b);
   const count = () => getPdf()?.numPages || 0;
   const target = () => (selected.size ? indices() : [currentIndex()]);
-  const after = () => (selected.size ? indices().at(-1) : count() - 1);
+  // New pages go after the last chosen page, or after the current page when none is chosen,
+  // as the tools pane's Insert commands put them.
+  const after = () => target().at(-1);
   const run = (fn) => async () => {
     if (isBusy()) return;
     const pressed = root.contains(document.activeElement) ? document.activeElement : null;

@@ -605,3 +605,31 @@ test('Organize pages shows phones two columns of pages', async ({ page }) => {
     .click();
   await expect(page.getByRole('slider', { name: 'Page tile size' })).toHaveValue('2');
 });
+
+test('with no page chosen, Insert in Organize pages offers the same place as the tools pane', async ({
+  page,
+}) => {
+  await mockPuter(page);
+  await page.goto('/#library');
+  const doc = await PDFDocument.create();
+  [300, 350, 400, 450].forEach((height) => doc.addPage([400, height]));
+  await openPdf(page, doc);
+  await page.getByRole('button', { name: 'Tools', exact: true }).click();
+  const pane = page.getByRole('complementary', { name: 'Tools' });
+  await pane.getByRole('button', { name: 'Organize pages', exact: true }).click();
+  const grid = page.getByRole('listbox', { name: 'Pages' });
+  await grid.getByRole('option', { name: 'Page 3', exact: true }).hover();
+  await grid.getByRole('button', { name: 'Delete page 3', exact: true }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Delete page', exact: true }).click();
+  await settled(page);
+  await expect(page.locator('.organize-status')).toHaveText('3 pages');
+  // Nothing is chosen, so the commands act on the current page, page 1; Insert does too.
+  const toolbar = page.getByRole('toolbar', { name: 'Organize pages' });
+  await toolbar.getByRole('button', { name: 'Insert', exact: true }).click();
+  await expect(page.getByRole('menu', { name: 'Insert' })).toContainText('After page 1');
+  await page.getByRole('menu').getByRole('menuitem', { name: 'Blank page' }).click();
+  await settled(page);
+  expect((await exportedHeights(page)).map(([h]) => h)).toEqual([300, 300, 350, 450]);
+  if (await pane.isVisible())
+    await expect(pane.getByRole('heading', { name: 'Insert after page 1' })).toBeVisible();
+});
