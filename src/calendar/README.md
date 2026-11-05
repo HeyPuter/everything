@@ -470,8 +470,10 @@ and delivery are subject to Puter's [quotas and rate
 limits](https://docs.puter.com/rate-limits-and-quotas/#schedules), including 100
 waiting per app on the free plan. Notifications allow 30/min and 1,000/day per
 user per app; pushes allow 12/min and 1,000/day, or 6/min and 200/day for new or
-unlisted apps. Device races use a deterministic group and are reconciled on the
-next sync.
+unlisted apps. Two devices syncing at once can't both store a reminder: each
+claims it first with `puter.kv.incr()` on `cal:reminder-claim:*`, and only the
+one that takes the count from 0 to 1 creates it. A claim expires after two
+minutes, so one a closed tab left behind frees itself.
 
 ## Booking links
 

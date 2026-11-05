@@ -6,6 +6,9 @@ import { isSignedIn } from './auth.js';
 import { listAllEntries } from './store.js';
 
 const PREFIX = 'cal:reminder:';
+// Outside PREFIX's listing. A claim a crashed device left frees itself.
+const CLAIM = 'cal:reminder-claim:';
+const CLAIM_TTL = 120; // seconds
 const HORIZON = 7 * 86400_000;
 const MAX_WAITING = 50;
 const MAX_CREATES = 15;
@@ -24,6 +27,8 @@ function hash(text) {
   }
   return a.toString(16).padStart(8, '0') + b.toString(16).padStart(8, '0');
 }
+
+const claimKey = (key, contentHash) => `${CLAIM}${hash(`${key}|${contentHash}`)}`;
 
 export function reminderGroup(key) {
   return `reminder:${hash(key)}`;
@@ -92,6 +97,8 @@ export function createStoredReminders({
       if (!CANCELLED.has(err && err.code)) throw err;
     }
     await kv.del(row.storageKey);
+    // So the same reminder, added back, can be stored again at once.
+    await kv.del(claimKey(row.key, row.hash)).catch(() => {});
   }
 
   async function reconcile() {
@@ -142,18 +149,30 @@ export function createStoredReminders({
       const target = `/?event=${encodeURIComponent(item.id)}`;
       // Imported ids can exceed notification limits; local reminders still work.
       if (target.length > 512 || new TextEncoder().encode(JSON.stringify({ eventId: item.id })).length > 1024) continue;
+      // Two devices syncing at once: only the one that takes the claim from 0 to 1 stores it.
+      const claim = claimKey(key, item.hash);
+      const claimed = (await kv.incr(claim)) === 1;
+      await kv.expire(claim, CLAIM_TTL).catch(() => {});
+      if (!claimed) continue;
       created++;
-      const result = await getPuter().notifications.notify({
-        title: item.title, text: item.text, target, data: { eventId: item.id },
-        channel: PUSH_CHANNEL, group: reminderGroup(key), sendAt: item.fireAt,
-      });
+      let result;
+      try {
+        result = await getPuter().notifications.notify({
+          title: item.title, text: item.text, target, data: { eventId: item.id },
+          channel: PUSH_CHANNEL, group: reminderGroup(key), sendAt: item.fireAt,
+        });
+      } catch (err) {
+        await kv.del(claim).catch(() => {});
+        throw err;
+      }
       if (result && typeof result === 'object' && result.scheduleId) {
-        // A separate entry per schedule preserves both ids in a device race.
+        // A separate entry per schedule keeps both ids if a claim expired mid-race.
         const storageKey = `${PREFIX}${hash(key)}:${result.scheduleId}`;
         const row = { key, scheduleId: result.scheduleId, sendAt: result.sendAt, hash: item.hash };
         try { await kv.set(storageKey, row); }
         catch (err) {
           await getPuter().notifications.cancel(result.scheduleId).catch(failed);
+          await kv.del(claim).catch(() => {});
           throw err;
         }
         waiting++;

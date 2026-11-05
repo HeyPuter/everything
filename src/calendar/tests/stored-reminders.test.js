@@ -177,16 +177,25 @@ describe('stored reminders', () => {
     expect(f.notifications.notify).toHaveBeenCalledTimes(1);
   });
 
-  it('handles a due-now uid without treating it as a schedule, and rolls back a failed KV write', async () => {
+  it('handles a due-now uid without treating it as a schedule, and does not send it again', async () => {
     const f = await setup();
     await f.event();
     f.notifications.notify.mockResolvedValueOnce('already-sent-uid');
     await f.sync.sync();
     expect(f.rows()).toHaveLength(0);
+    await f.sync.sync();
+    expect(f.notifications.notify).toHaveBeenCalledTimes(1);
+  });
+
+  it('rolls back a failed KV write and retries on the next sync', async () => {
+    const f = await setup();
+    await f.event();
     f.kv.set.mockRejectedValueOnce(new Error('offline'));
     await f.sync.sync();
     expect(f.notifications.cancel).toHaveBeenCalledWith('s1');
     expect(f.rows()).toHaveLength(0);
+    await f.sync.sync();
+    expect(f.rows()).toEqual([expect.objectContaining({ scheduleId: 's2' })]);
   });
 
   it('reads shared mapping in other tabs, suppressing only covered reminders when status is on', async () => {
@@ -256,6 +265,40 @@ describe('stored reminders', () => {
     f.kv.map.set(storageKey + '-other', { ...f.rows()[0], scheduleId: 'zz-other-device' });
     await f.sync.sync();
     expect(f.notifications.cancel).toHaveBeenCalledWith('zz-other-device');
+    expect(f.rows()).toHaveLength(1);
+  });
+
+  it('lets only one of two devices syncing at once store a reminder', async () => {
+    const f = await setup();
+    await f.event();
+    const other = createStoredReminders({ store: f.store, kv: f.kv, getPuter: () => f.p, signedIn: () => true });
+    await Promise.all([f.sync.sync(), other.sync()]);
+    expect(f.notifications.notify).toHaveBeenCalledTimes(1);
+    expect(f.rows()).toHaveLength(1);
+    expect(f.kv.expire).toHaveBeenCalledWith(expect.stringMatching(/^cal:reminder-claim:/), 120);
+  });
+
+  it('releases the claim when storing fails, so the next sync retries', async () => {
+    const f = await setup();
+    await f.event();
+    f.notifications.notify.mockRejectedValueOnce({ code: 'too_many_requests' });
+    await f.sync.sync();
+    expect(f.rows()).toHaveLength(0);
+    await f.sync.sync();
+    expect(f.notifications.notify).toHaveBeenCalledTimes(2);
+    expect(f.rows()).toHaveLength(1);
+  });
+
+  it('stores a reminder again at once when it is removed and added back unchanged', async () => {
+    const f = await setup();
+    const ev = await f.event();
+    await f.sync.sync();
+    await f.store.saveEvent({ ...ev, reminders: [] });
+    await f.sync.sync();
+    expect(f.rows()).toHaveLength(0);
+    await f.store.saveEvent({ ...ev, reminders: [10] });
+    await f.sync.sync();
+    expect(f.notifications.notify).toHaveBeenCalledTimes(2);
     expect(f.rows()).toHaveLength(1);
   });
 
