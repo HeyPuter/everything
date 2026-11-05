@@ -3,6 +3,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { openMenu, closeMenus, createMenubar } from '../src/ui/menu.js';
 import { PropertiesPanel } from '../src/ui/panels/properties.js';
 import { App } from '../src/app/app.js';
+import { comboOf } from '../src/app/commands.js';
 import { setPuterForTests } from '../src/app/puter.js';
 import * as storage from '../src/app/storage.js';
 import { openProjectDialog } from '../src/app/dialogs.js';
@@ -215,5 +216,16 @@ describe('projects in this browser', () => {
     expect(await storage.listProjects()).toEqual([]);
     expect(storage.recentProjects()).toEqual([]);
     expect(app.start?.textContent).not.toContain('Alpha');
+  });
+});
+
+describe('key combos', () => {
+  const ev = (key, code, o = {}) => new KeyboardEvent('keydown', { key, code, ...o });
+  it('reads Option+letter on macOS by the physical key', () => {
+    expect(comboOf(ev('∑', 'KeyW', { altKey: true }))).toBe('Alt+W');
+    expect(comboOf(ev('Dead', 'KeyE', { altKey: true }))).toBe('Alt+E');
+    expect(comboOf(ev('w', 'KeyW', { altKey: true }))).toBe('Alt+W');
+    expect(comboOf(ev('PageDown', 'PageDown', { altKey: true }))).toBe('Alt+PageDown');
+    expect(comboOf(ev('*', 'Digit8', { shiftKey: true }))).toBe('*');
   });
 });

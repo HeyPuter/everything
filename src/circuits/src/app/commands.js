@@ -72,6 +72,10 @@ const KEY_NAMES = { ' ': 'Space', Esc: 'Escape', Del: 'Delete', Left: 'ArrowLeft
 /** Normalizes a keyboard event to 'Mod+Shift+Alt+Key'. */
 export function comboOf(e) {
   let key = KEY_NAMES[e.key] || e.key;
+  // Option on macOS types a symbol ('∑' for Option+W, or a dead key), so
+  // Alt combinations go by the physical key instead.
+  const physical = /^(Key[A-Z]|Digit[0-9])$/.exec(e.code || '');
+  if (e.altKey && physical && !/^[a-z0-9]$/i.test(key)) key = e.code.slice(-1);
   if (key.length === 1) key = key.toUpperCase();
   // Shifted punctuation: keep the produced character ('*', '+', '?') without Shift.
   const punct = key.length === 1 && !/[A-Z0-9]/.test(key);
