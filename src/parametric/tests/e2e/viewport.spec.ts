@@ -362,6 +362,35 @@ test.describe('viewport', () => {
     expect(await measure(1)).not.toContain('Normal distance');
   });
 
+  test('the measure panel drops a vertex that a rebuild took away and measures again', async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+    await waitForFeature(page, 'Fillet1');
+    const zMax = () => page.evaluate(() => (window as unknown as Win).__parametric.bbox?.max[2]);
+    await expect.poll(zMax).toBe(30);
+    // A deeper plate, undone, so that Redo changes the part while the panel is open.
+    await page.evaluate(() => {
+      const app = (window as unknown as Win).__parametric;
+      app.store.change('Depth', (d) => { (d.features.find((f) => f.id === 'f1') as { depth: number }).depth = 40; });
+    });
+    await expect.poll(zMax).toBe(40);
+    await page.evaluate(() => (window as unknown as Win).__parametric.commands.run('undo'));
+    await expect.poll(zMax).toBe(30);
+    await page.evaluate(() => {
+      const app = (window as unknown as Win).__parametric;
+      app.selection.set([{ kind: 'vertex', p: [60, 8, 30] }]);
+      app.commands.run('measure');
+    });
+    const table = page.locator('.pm-section table');
+    await expect(table).toContainText('60.00, 8.00, 30.00');
+    await page.evaluate(() => (window as unknown as Win).__parametric.commands.run('redo'));
+    await expect.poll(zMax).toBe(40);
+    // The corner at z = 30 is gone: neither listed nor measured.
+    await expect(page.getByRole('heading', { name: 'Measure' })).toBeVisible();
+    await expect(page.locator('.pm-section').filter({ hasText: 'Entities' }).getByText('Vertex', { exact: true })).toHaveCount(0);
+    await expect(table).toHaveCount(0);
+  });
+
   test('a measurement finishing late does not overwrite a newer one or outlive the panel', async ({ page }) => {
     await openApp(page);
     await page.getByRole('button', { name: /Mounting Bracket/ }).click();

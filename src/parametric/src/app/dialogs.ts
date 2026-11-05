@@ -18,7 +18,7 @@ import { icon } from '../ui/icons';
 import { showDialog, toast } from '../ui/overlay';
 import type { App } from './app';
 import { PropertyPanel, SelectionBox, type SelBoxItem, checkbox, numberField, section, selectField, segmented } from './pm';
-import type { SelItem } from './selection';
+import { type SelItem, remapItem } from './selection';
 import type { MeasureTarget } from '../kernel/protocol';
 import { REPO_URL } from './shell';
 
@@ -364,6 +364,17 @@ export class MeasurePanel extends PropertyPanel {
       case 'plane': return { item: it, data: it, label: it.ref.kind === 'base' ? `${it.ref.plane[0].toUpperCase()}${it.ref.plane.slice(1)} Plane` : app.store.feature(it.ref.id)?.name ?? 'Plane' };
       default: return null;
     }
+  }
+
+  /** The part changed under the panel (e.g. Redo): keep what still exists and measure it again. */
+  onBuild() {
+    if (!this.box) return;
+    const items = this.box.items
+      .map((b) => remapItem(b.data as SelItem, this.app.faces, this.app.edges))
+      .map((it) => (it ? this.convert(it) : null))
+      .filter((x): x is SelBoxItem => !!x);
+    this.box.setItems(items);
+    void this.measure();
   }
 
   private seq = 0;
