@@ -671,6 +671,7 @@ export class App extends Emitter {
         if (p.docs.every((d, i) => d.store.revision === revisions[i])) p.markSaved();
         this.saveState = p.dirty ? 'dirty' : 'saved';
         this._dirtySince = 0;
+        this._saveErrorShown = false; // a later failure is a new problem to report
         try { localStorage.setItem(LAST_KEY, JSON.stringify(this.location)); } catch { /* storage unavailable */ }
         if (!auto && !quiet) announce('Project saved');
         // Keep a restorable version (throttled while autosaving).

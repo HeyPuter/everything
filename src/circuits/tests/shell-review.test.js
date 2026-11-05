@@ -48,6 +48,7 @@ function memoryOpfs() {
         let next = '';
         return {
           write: async (t) => {
+            if (opfs.failWrites) throw new DOMException('Quota exceeded', 'QuotaExceededError');
             next += t;
           },
           close: async () => {
@@ -60,7 +61,8 @@ function memoryOpfs() {
     };
   };
   const root = dir();
-  return { root, getDirectory: async () => root };
+  const opfs = { root, failWrites: false, getDirectory: async () => root };
+  return opfs;
 }
 
 async function bootLocal() {
@@ -242,5 +244,29 @@ describe('Puter SDK loading', () => {
     } finally {
       delete window.__puterFailed;
     }
+  });
+});
+
+describe('saving', () => {
+  it('reports a new autosave failure after a successful save', async () => {
+    localStorage.clear();
+    const { app, opfs } = await bootLocal();
+    const project = new Project(newProjectData('Beta'));
+    app.setProject(project, await storage.newLocation('Beta', project.id));
+    const errors = () => document.querySelectorAll('.toast.error').length;
+    opfs.failWrites = true;
+    project.rename('Beta 1');
+    expect(await app.save({ auto: true })).toBe(false);
+    expect(errors()).toBe(1);
+    project.rename('Beta 2');
+    await app.save({ auto: true });
+    expect(errors()).toBe(1); // not repeated for the same problem
+    opfs.failWrites = false;
+    expect(await app.save({ auto: true })).toBe(true);
+    opfs.failWrites = true;
+    project.rename('Beta 3');
+    await app.save({ auto: true });
+    expect(errors()).toBe(2);
+    expect(app.saveBadge.textContent).toBe('Not saved');
   });
 });
