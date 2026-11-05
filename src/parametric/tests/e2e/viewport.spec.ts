@@ -319,6 +319,28 @@ test.describe('viewport', () => {
     expect(await angle(2)).toBe('90.00°');
   });
 
+  test('measures a normal distance from a plane only to what is parallel to it', async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+    await waitForFeature(page, 'Fillet1');
+    await expect.poll(() => page.evaluate(() => (window as unknown as Win).__parametric.faces.length)).toBeGreaterThan(0);
+    const measure = async (axis: number) => {
+      await page.evaluate(async (k) => {
+        const app = (window as unknown as Win).__parametric;
+        if (app.panel) await app.closePanel(false);
+        // The plate's front face (z = 30, parallel to the Front Plane) or its top face (y = 8, square to it).
+        const fi = app.faces.findIndex((f) => f.normal?.[k] === 1 && Math.abs(f.center[k] - (k === 2 ? 30 : 8)) < 1e-6);
+        app.selection.set([{ kind: 'plane', ref: { kind: 'base', plane: 'front' } }, { kind: 'face', index: fi, name: app.faces[fi].name }]);
+        app.commands.run('measure');
+      }, axis);
+      await expect(page.locator('.pm-section tr', { hasText: 'Angle' })).toBeVisible();
+      return page.locator('.pm-section table').innerText();
+    };
+    expect(await measure(2)).toMatch(/Normal distance\s+30\.00 mm/);
+    // The top face spans z = 0 to 30: no single distance stands for it.
+    expect(await measure(1)).not.toContain('Normal distance');
+  });
+
   test('line display styles keep visible edges readable in both themes', async ({ page }) => {
     await openApp(page);
     const contrast = () => page.evaluate(() => {

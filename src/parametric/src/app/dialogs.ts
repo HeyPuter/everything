@@ -414,7 +414,17 @@ export class MeasurePanel extends PropertyPanel {
         const pl = a.kind === 'plane' ? a : b;
         const other = a.kind === 'plane' ? b : a;
         const fr = pl.kind === 'plane' ? app.frameOfPlane(pl.ref) : null;
-        const p = other.kind === 'vertex' ? other.p : other.kind === 'face' ? app.faces[other.index]?.center : other.kind === 'edge' ? app.edges[other.index]?.mid : other.kind === 'plane' ? app.frameOfPlane(other.ref)?.o : null;
+        // One point stands for the whole entity only when it is parallel to the
+        // plane; a tilted face, plane or edge is at no single distance from it.
+        const cos = (v: Vec3 | null | undefined) => (fr && v ? Math.abs(dot(normalize(v), fr.n)) : NaN);
+        const alongNormal = (v: Vec3 | null | undefined) => cos(v) > 1 - 1e-6;
+        const e = other.kind === 'edge' ? app.edges[other.index] : null;
+        const f = other.kind === 'face' ? app.faces[other.index] : null;
+        const op = other.kind === 'plane' ? app.frameOfPlane(other.ref) : null;
+        const p = other.kind === 'vertex' ? other.p
+          : f ? (alongNormal(f.normal) ? f.center : null)
+          : e ? (cos(e.dir) < 1e-6 || alongNormal(e.axis) ? e.mid : null)
+          : op && alongNormal(op.n) ? op.o : null;
         if (fr && p) lines.push(['Normal distance', L(Math.abs(dot(sub(p, fr.o), fr.n)))]);
       } else if (ta && tb) {
         try {
